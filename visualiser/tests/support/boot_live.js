@@ -36,6 +36,7 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 const { JSDOM } = require('jsdom');
+const { installMatchMedia } = require('./matchmedia_stub.js');
 
 const APP_DIR = path.join(__dirname, '..', '..');
 
@@ -65,6 +66,7 @@ function makeLeafletMock() {
     addTo(map) { map._layers.push(this); this._map = map; return this; }
     setLatLng(latlng) { this._latlng = latlng; return this; }
     setStyle(style) { this._style = style; return this; }
+    remove() { if (this._map) this._map.removeLayer(this); return this; }
   }
   class Polyline extends Layer {
     constructor(latlngs, options) { super(); this.latlngs = latlngs; this.options = options; }
@@ -150,6 +152,12 @@ function makeLeafletMock() {
     }
     invalidateSize() { this.calls.invalidateSize++; }
     eachLayer(fn) { this._layers.forEach(fn); }
+    removeLayer(layer) {
+      const idx = this._layers.indexOf(layer);
+      if (idx !== -1) this._layers.splice(idx, 1);
+      return this;
+    }
+    on(event, handler) { return this; }
   }
 
   const tileLayerFn = (urlTemplate, options) => new TileLayer(urlTemplate, options);
@@ -215,12 +223,17 @@ function installCanvas2DStub(window) {
  * inline script performs, just without needing that file on disk.
  * Returns { window, document, context } — see file header for why `context`
  * (not `window`) is how tests reach the live view's own top-level bindings.
+ *
+ * @param {{compact?: boolean}} [opts] - `compact: true` simulates a mobile
+ *   device for GSRLiveView.isCompactLayout()'s matchMedia check. Defaults to
+ *   `false` (desktop) so every existing caller is unaffected.
  */
-function bootLive() {
+function bootLive({ compact = false } = {}) {
   const dom = new JSDOM('<!doctype html><html><body><div id="liveRoot"></div></body></html>',
     { url: 'http://localhost/', runScripts: 'outside-only', pretendToBeVisual: true });
   const window = dom.window;
 
+  installMatchMedia(window, { compact });
   window.L = makeLeafletMock();
   window.confirm = () => true;
   window.alert = () => {};

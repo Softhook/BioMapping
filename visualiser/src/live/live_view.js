@@ -30,6 +30,26 @@
 // the firmware's permissive 5.0 logging gate).
 const LIVE_MAX_HDOP = 2.0;
 
+// Device-class detection — map-primary mobile layout vs graph-primary
+// desktop layout (mount() below), AND (via GSRLiveView.isCompactLayout(),
+// the same function, not a second check) whether index.html lands its
+// initial tab on Live instead of Single Track (src/ui/events.js). 768px
+// matches styles.css's one existing mobile breakpoint (the sidebar-drawer
+// rule) and the new `@media (max-width: 768px)` rules in this file's own
+// "Live Stream (BLE) view" CSS section — kept in sync by comment since a
+// media query can't be shared between CSS and JS without a build step.
+// `pointer: coarse` keeps a narrowed desktop browser window (fine pointer)
+// from reading as mobile — it matters more here than for the sidebar, since
+// this flips which of two very different layouts is the default. Checked
+// once (at mount, and once at index.html boot), not live-updating, so a
+// mid-session resize/rotation never yanks a layout choice the user is
+// already in. Supports phones in portrait (<=768px) and landscape (<=500px height).
+const LIVE_MOBILE_QUERY = '((max-width: 768px) and (pointer: coarse)), ((max-height: 500px) and (pointer: coarse))';
+function isCompactLiveLayout() {
+  return typeof window !== 'undefined' && typeof window.matchMedia === 'function' &&
+    window.matchMedia(LIVE_MOBILE_QUERY).matches;
+}
+
 // ==========================================================================
 // The live UI markup — single source of truth, injected by mount(). Kept
 // byte-for-byte equivalent to the old live.html <body> (only #map became
@@ -51,26 +71,31 @@ const LIVE_VIEW_MARKUP = `
     <h1>Bio Mapping — Live</h1>
     <span id="statusBadge" class="badge">Not connected</span>
     <span id="reconnectErr"></span>
-    <div class="btn-group">
+    <div class="btn-group" id="liveMetricGroup" title="Select Live Metric">
+      <button type="button" class="btn btn-outline active" data-metric="signal" id="liveMetricSignal">Signal</button>
+      <button type="button" class="btn btn-outline" data-metric="tonic" id="liveMetricTonic">Tonic</button>
+      <button type="button" class="btn btn-outline" data-metric="phasic" id="liveMetricPhasic">Phasic</button>
+    </div>
+    <div class="btn-group" id="gsrControls">
+      <button class="btn btn-outline active" id="liveBtnToggleRaw" title="Toggle Raw Conductance">Raw</button>
+      <button class="btn btn-outline active" id="liveBtnTogglePeaks" title="Toggle Peak Markers">Peaks</button>
+      <button class="btn btn-outline active" id="liveBtnToggleHotspots" title="Toggle Hotspot Stars">Hotspots</button>
+      <button class="btn btn-outline active" id="liveBtnToggleFiltered" style="display: none;">Filtered</button>
+      <button class="btn btn-outline active" id="liveBtnToggleTonic" style="display: none;">Tonic</button>
+      <button class="btn btn-outline" id="liveBtnTogglePhasic" style="display: none;">Phasic</button>
+    </div>
+    <select id="liveGraphView" class="select-control" title="Graph view" style="display: none;">
+      <option value="signal" selected>Signal</option>
+      <option value="tonic">Tonic (SCL)</option>
+      <option value="phasic">Phasic (SCR)</option>
+    </select>
+    <div class="btn-group" id="liveSessionActions">
       <button class="btn btn-outline" id="reconnectBtn" style="display: none;">Reconnect</button>
       <button class="btn btn-outline" id="newConnectionBtn" style="display: none;">New Connection</button>
       <button class="btn btn-outline" id="exportBtn" disabled>Export CSV</button>
       <button class="btn btn-outline" id="toggleMapBtn">Show Map (M)</button>
       <button class="btn btn-outline" id="cacheMapBtn" disabled>Cache Map (C)</button>
     </div>
-    <div class="btn-group" id="gsrControls">
-      <button class="btn btn-outline active" id="liveBtnToggleRaw">Raw</button>
-      <button class="btn btn-outline active" id="liveBtnToggleFiltered">Filtered</button>
-      <button class="btn btn-outline active" id="liveBtnToggleTonic">Tonic</button>
-      <button class="btn btn-outline" id="liveBtnTogglePhasic">Phasic</button>
-      <button class="btn btn-outline active" id="liveBtnTogglePeaks">Peaks</button>
-      <button class="btn btn-outline active" id="liveBtnToggleHotspots">Hotspots</button>
-    </div>
-    <select id="liveGraphView" class="select-control" title="Graph view">
-      <option value="signal" selected>Signal</option>
-      <option value="tonic">Tonic (SCL)</option>
-      <option value="phasic">Phasic (SCR)</option>
-    </select>
   </header>
 
   <div id="graphWrap">
@@ -79,14 +104,13 @@ const LIVE_VIEW_MARKUP = `
     <span id="graphValue">--</span>
   </div>
 
-  <div id="locationBar">
-    <input type="number" id="latInput" placeholder="Latitude" step="any" inputmode="decimal">
-    <input type="number" id="lonInput" placeholder="Longitude" step="any" inputmode="decimal">
-    <button id="goToLocationBtn">Go</button>
-    <button id="myLocationBtn">My Location</button>
+  <div id="liveMap">
+    <div class="live-map-controls">
+      <button type="button" class="live-map-btn" id="myLocationBtn" title="Center on My Location" aria-label="My Location">
+        <i class="fa-solid fa-crosshairs"></i>
+      </button>
+    </div>
   </div>
-
-  <div id="liveMap"></div>
 
   <footer>
     <span class="stat" id="statPackets">Packets: 0</span>
@@ -102,6 +126,23 @@ const LIVE_VIEW_MARKUP = `
   <button class="primary" id="connectBtn">Connect via Bluetooth</button>
   <button id="skipConnectBtn">Prepare Map Offline</button>
   <div class="err" id="connectErr"></div>
+</div>
+
+<!-- Mobile-only floating action button (styles.css hides it entirely on
+     desktop) — the map-primary mobile layout's sole way to pick the
+     Signal/Tonic/Phasic metric or switch Map <-> Graph: #liveMetricGroup and
+     #liveGraphView (which the FAB's metric chips duplicate) and
+     #toggleMapBtn (which its Map/Graph chip duplicates) are unconditionally
+     hidden on mobile, in both submodes. #gsrControls (Raw/Peaks/Hotspots)
+     is NOT one of these — the FAB has no equivalent for those, so mobile
+     Graph mode still shows them in the header. #liveFabMenu's contents are
+     rebuilt by renderFabMenu(), which keys off the current mapVisible
+     state. -->
+<div class="live-fab" id="liveFab">
+  <button type="button" class="live-fab-toggle" id="liveFabToggle" aria-label="Live view options" aria-expanded="false">
+    <i class="fa-solid fa-sliders"></i>
+  </button>
+  <div class="live-fab-menu" id="liveFabMenu"></div>
 </div>
 `;
 
@@ -197,6 +238,15 @@ const LIVE_GRAPH_VIEWS = {
   phasic: { key: 'phasic', label: 'Phasic (SCR)', decimals: 3, unit: ' μS', allowNeg: false },
 };
 
+// The mobile FAB's metric chips — same three options as #liveGraphView above
+// (kept as separate short labels since the FAB chips are much narrower than
+// the dropdown's option text). Order matches the dropdown.
+const LIVE_FAB_METRICS = [
+  { value: 'signal', label: 'Signal' },
+  { value: 'tonic', label: 'Tonic' },
+  { value: 'phasic', label: 'Phasic' },
+];
+
 // Top-of-panel control state — the six layer toggles + the view dropdown.
 // Initial on/off mirrors index.html's #gsrPanel header (Raw/Filtered/Tonic/
 // Peaks/Hotspots active, Phasic off).
@@ -262,11 +312,19 @@ function feedLiveAnalyzer() {
 
   A.analyze(LIVE_ANALYZE_PARAMS, 0);
 
-  // Mirror the window's phasic values back onto their LiveState.packets
-  // entries so the live map's delayed track recolour can pick them up.
-  const ph = A.phasic;
-  for (let i = 0; i < ph.length; i++) pkts[liveAnalyzerBase + i].phasic = ph[i].val;
-  recolorPhasicSegments();
+  // Mirror the window's tonic + phasic values back onto their
+  // LiveState.packets entries so the live map's delayed track recolour can
+  // pick them up — unconditionally, regardless of which metric is currently
+  // selected (liveGsrView.graphView), so switching metric mid-session has
+  // settled values ready to use immediately rather than waiting for a fresh
+  // analyze() pass under the new metric.
+  const tn = A.tonic, ph = A.phasic;
+  for (let i = 0; i < ph.length; i++) {
+    const pkt = pkts[liveAnalyzerBase + i];
+    pkt.phasic = ph[i].val;
+    if (tn && tn[i]) pkt.tonic = tn[i].val;
+  }
+  recolorDelayedSegments();
 }
 
 // Pull the single-track GSR view's own theme tokens (src/render/renderer.js
@@ -532,50 +590,112 @@ let liveMap = null;
 let liveLastLatLng = null;
 let liveMarker = null;
 let gsrMin = Infinity, gsrMax = -Infinity;
+let tonicMin = Infinity, tonicMax = -Infinity;
 
-// Delayed phasic recoloring for the live track — updateLiveMap() paints a
-// new segment immediately from raw GSR (0-latency), then this repaints it
-// once its phasic value has settled. phasicMin is fixed at 0 (phasic is
-// already clamped >= 0 in decomposeTonicPhasic — 0 is a meaningful "at
-// baseline" reference point, unlike gsrMin/gsrMax which have no natural
-// floor) so only the ceiling needs to track the session's peak.
+// Delayed recoloring for the live track — updateLiveMap() paints a new
+// segment immediately from raw GSR (0-latency), then this repaints it once
+// the ACTIVE metric's value (liveGsrView.graphView: 'tonic' or 'phasic' —
+// 'signal' needs no delay, see recolorDelayedSegments()) has settled.
+// phasicMin is fixed at 0 (phasic is already clamped >= 0 in
+// decomposeTonicPhasic — 0 is a meaningful "at baseline" reference point,
+// unlike gsrMin/gsrMax/tonicMin which have no natural floor) so only the
+// ceiling needs to track the session's peak.
 let phasicMax = 0;
-const pendingPhasicSegments = []; // FIFO of { pkt, line } awaiting a settled pkt.phasic
+const pendingSegments = []; // FIFO of { pkt, line } awaiting a settled pkt.tonic/pkt.phasic
 const PHASIC_COLOR_LAG_S = 8; // matches decomposeTonicPhasic's ±6s local-floor window + margin
-// Hard cap on the recolour backlog. recolorPhasicSegments() runs from
+// Hard cap on the recolour backlog. recolorDelayedSegments() runs from
 // feedLiveAnalyzer() (i.e. only when analyze() actually ran — every packet
 // through the warmup, then once per LIVE_ANALYZE_MIN_INTERVAL_MS), and it
-// only drains an entry once that packet's phasic value has both been
-// computed AND settled (PHASIC_COLOR_LAG_S). If analyse() is being skipped
-// for a stretch, or the newest packets haven't settled, the queue keeps
-// growing while updateLiveMap() adds a segment per fix. Without a cap the
-// queue — and the Leaflet polylines each entry pins — would grow unbounded.
-// Past the cap the oldest segment simply keeps its provisional raw-GSR
-// colour — the same outcome resetSession() and an abrupt session end accept.
-const PENDING_PHASIC_MAX = 1200; // ~6 min at STREAM_INTERVAL_S
+// only drains an entry once that packet's value has both been computed AND
+// settled (PHASIC_COLOR_LAG_S). If analyse() is being skipped for a
+// stretch, or the newest packets haven't settled, the queue keeps growing
+// while updateLiveMap() adds a segment per fix. Without a cap the queue —
+// and the Leaflet polylines each entry pins — would grow unbounded. Past
+// the cap the oldest segment simply keeps its provisional raw-GSR colour —
+// the same outcome resetSession() and an abrupt session end accept.
+const PENDING_SEGMENTS_MAX = 1200; // ~6 min at STREAM_INTERVAL_S
+
+// Every segment drawn this session (not just the still-pending tail
+// pendingSegments tracks above) — {pkt, line} pairs, so switching the active
+// metric (FAB chip tap / #liveGraphView dropdown change) can immediately
+// repaint the WHOLE track via recolorAllTrackSegments(), not just future
+// segments. Grows for the life of a session like LiveState.packets already
+// does; resetSession() clears it.
+const allTrackSegments = [];
 
 // decomposeTonicPhasic() is a zero-phase/batch filter (a backward EMA pass,
-// then a ±6s look-ahead "local floor" correction) — a sample's phasic value
-// isn't trustworthy the instant feedLiveAnalyzer() first computes it; it
-// needs a few seconds of FUTURE packets behind it to stabilize (the same
+// then a ±6s look-ahead "local floor" correction) — a sample's tonic/phasic
+// value isn't trustworthy the instant feedLiveAnalyzer() first computes it;
+// it needs a few seconds of FUTURE packets behind it to stabilize (the same
 // reason drawGraph() withholds peak markers inside LIVE_SETTLE_TAIL_S). This
 // repaints already-drawn segments once that's true, using the exact
 // decomposition the analyser already ran — not a second, cheaper
-// approximation. A session that ends abruptly leaves its
-// last ~8s of segments in their initial raw-GSR color; resetSession()
-// clears this queue so a stale entry from a prior session can never block
-// it (pkt.phasic would otherwise never be set again once LiveState.packets
-// has moved on, wedging this FIFO forever on that one entry).
-function recolorPhasicSegments() {
+// approximation. Reads the ACTIVE metric (liveGsrView.graphView) on every
+// call, so a mid-session metric switch is honoured by future settles with no
+// extra bookkeeping — recolorAllTrackSegments() (below) handles the
+// immediate repaint of segments already on the map when the switch happens.
+// 'signal' (raw) needs no settling at all — it's final the instant a segment
+// is drawn — so the queue is simply drained without repainting anything.
+// A session that ends abruptly leaves its last ~8s of segments in their
+// initial raw-GSR colour; resetSession() clears this queue so a stale entry
+// from a prior session can never block it (pkt.tonic/pkt.phasic would
+// otherwise never be set again once LiveState.packets has moved on, wedging
+// this FIFO forever on that one entry).
+function recolorDelayedSegments() {
+  const metric = liveGsrView.graphView;
   const lastPkt = LiveState.packets[LiveState.packets.length - 1];
   if (!lastPkt) return;
-  while (pendingPhasicSegments.length > 0) {
-    const entry = pendingPhasicSegments[0];
-    if (entry.pkt.phasic === undefined) break; // not in drawGraph()'s current window yet
+  while (pendingSegments.length > 0) {
+    const entry = pendingSegments[0];
+    const val = entry.pkt[metric];
+    if (metric !== 'signal' && val === undefined) break; // not in drawGraph()'s current window yet
     if (lastPkt.timestamp - entry.pkt.timestamp < PHASIC_COLOR_LAG_S) break; // not settled yet
-    phasicMax = Math.max(phasicMax, entry.pkt.phasic);
-    entry.line.setStyle({ color: MapColors.getColorForValue(entry.pkt.phasic, 0, phasicMax) });
-    pendingPhasicSegments.shift();
+    if (metric === 'tonic') {
+      tonicMin = Math.min(tonicMin, val);
+      tonicMax = Math.max(tonicMax, val);
+      entry.line.setStyle({ color: MapColors.getColorForValue(val, tonicMin, tonicMax) });
+    } else if (metric === 'phasic') {
+      phasicMax = Math.max(phasicMax, val);
+      entry.line.setStyle({ color: MapColors.getColorForValue(val, 0, phasicMax) });
+    }
+    pendingSegments.shift();
+  }
+}
+
+// Immediate full repaint of the WHOLE session's track, run once whenever the
+// active metric changes (FAB chip tap / #liveGraphView dropdown change) —
+// see setLiveGraphMetric(). Without this, switching metric would only ever
+// affect segments drawn AFTER the switch; a walk already a few minutes in
+// would stay in the old metric's colours until re-recorded. Recomputes the
+// running min/max from every value that's already settled before painting
+// (two passes) so every segment in this one repaint is coloured against the
+// same range — a single running-max update mid-loop would make early
+// segments and late segments in the same pass use different scales. A
+// segment whose target metric hasn't been computed yet (the newest few
+// seconds — see feedLiveAnalyzer()'s trailing window) keeps its current
+// (provisional or previously-settled) colour; recolorDelayedSegments()
+// catches those up normally as the session continues.
+function recolorAllTrackSegments() {
+  const metric = liveGsrView.graphView;
+  if (metric === 'signal') {
+    for (const { pkt, line } of allTrackSegments) {
+      line.setStyle({ color: MapColors.getColorForValue(pkt.gsrRaw, gsrMin, gsrMax) });
+    }
+    return;
+  }
+  let lo = metric === 'tonic' ? tonicMin : 0;
+  let hi = metric === 'tonic' ? tonicMax : phasicMax;
+  for (const { pkt } of allTrackSegments) {
+    const v = pkt[metric];
+    if (v === undefined) continue;
+    if (metric === 'tonic' && v < lo) lo = v;
+    if (v > hi) hi = v;
+  }
+  if (metric === 'tonic') { tonicMin = lo; tonicMax = hi; } else { phasicMax = hi; }
+  for (const { pkt, line } of allTrackSegments) {
+    const v = pkt[metric];
+    if (v === undefined) continue;
+    line.setStyle({ color: MapColors.getColorForValue(v, lo, hi) });
   }
 }
 
@@ -719,6 +839,10 @@ function initLiveMap() {
 
   // Enable the Cache Map button
   document.getElementById('cacheMapBtn').disabled = false;
+
+  if (typeof liveMap.on === 'function') {
+    liveMap.on('click dragstart', closeFabMenu);
+  }
 }
 
 // Map visibility is a manual toggle (toggleMapBtn / showMap / hideMap below),
@@ -776,19 +900,29 @@ function updateLiveMap(pkt) {
       // straight line across whatever distance was covered during it.
     } else {
       // Per-segment coloring: one short polyline per new point, colored
-      // provisionally from that point's raw GSR value for instant feedback
-      // — recolorPhasicSegments() (called from feedLiveAnalyzer()) repaints
-      // it with the more meaningful phasic value once that's settled.
+      // provisionally from that point's raw GSR value for instant feedback,
+      // regardless of the active metric — recolorDelayedSegments() (called
+      // from feedLiveAnalyzer()) repaints it with the active metric's
+      // settled value once available.
       const line = L.polyline([liveLastLatLng, latlng], { color, weight: 3 }).addTo(liveMap);
-      pendingPhasicSegments.push({ pkt, line });
-      if (pendingPhasicSegments.length > PENDING_PHASIC_MAX) pendingPhasicSegments.shift();
+      const segment = { pkt, line };
+      allTrackSegments.push(segment);
+      pendingSegments.push(segment);
+      if (pendingSegments.length > PENDING_SEGMENTS_MAX) pendingSegments.shift();
+    }
+
+    let markerColor = color;
+    if (liveGsrView.graphView === 'tonic' && Number.isFinite(tonicMin) && Number.isFinite(tonicMax) && pkt.tonic !== undefined) {
+      markerColor = MapColors.getColorForValue(pkt.tonic, tonicMin, tonicMax);
+    } else if (liveGsrView.graphView === 'phasic' && phasicMax > 0 && pkt.phasic !== undefined) {
+      markerColor = MapColors.getColorForValue(pkt.phasic, 0, phasicMax);
     }
 
     if (!liveMarker) {
-      liveMarker = L.circleMarker(latlng, { radius: 6, color: '#fff', weight: 2, fillColor: color, fillOpacity: 1 }).addTo(liveMap);
+      liveMarker = L.circleMarker(latlng, { radius: 6, color: '#fff', weight: 2, fillColor: markerColor, fillOpacity: 1 }).addTo(liveMap);
     } else {
       liveMarker.setLatLng(latlng);
-      liveMarker.setStyle({ fillColor: color });
+      liveMarker.setStyle({ fillColor: markerColor });
     }
     const nowMs = Date.now();
     if (nowMs - lastLivePanAt >= LIVE_PAN_MIN_INTERVAL_MS) {
@@ -817,7 +951,8 @@ function exportCsv() {
 // ==========================================================================
 let statusBadge, reconnectBtn, newConnectionBtn, exportBtn,
     connectOverlay, connectBtn, connectErr, reconnectErr,
-    cacheMapBtn, toggleMapBtn, latInput, lonInput;
+    cacheMapBtn, toggleMapBtn,
+    liveFabToggle, liveFabMenu;
 
 let bleManager = null;
 let lastPacketTimestamp = 0;
@@ -847,7 +982,9 @@ async function requestWakeLock() {
 
 function releaseWakeLock() {
   if (wakeLock !== null) {
-    wakeLock.release();
+    try {
+      if (!wakeLock.released) wakeLock.release().catch(() => {});
+    } catch (e) {}
     wakeLock = null;
   }
 }
@@ -901,17 +1038,32 @@ function renderStatus(status) {
 // into that would misdraw the graph window and put a bogus connecting line
 // on the map (see addPacket()'s gap-detection comment), so start clean.
 function resetSession() {
+  if (liveMap) {
+    for (const { line } of allTrackSegments) {
+      if (typeof line.remove === 'function') line.remove();
+      else if (typeof liveMap.removeLayer === 'function') liveMap.removeLayer(line);
+    }
+    if (liveMarker) {
+      if (typeof liveMarker.remove === 'function') liveMarker.remove();
+      else if (typeof liveMap.removeLayer === 'function') liveMap.removeLayer(liveMarker);
+      liveMarker = null;
+    }
+  }
   LiveState.packets = [];
   LiveState.gapCount = 0;
   liveLastLatLng = null;
   gsrMin = Infinity;
   gsrMax = -Infinity;
+  tonicMin = Infinity;
+  tonicMax = -Infinity;
   phasicMax = 0;
-  // A pending entry's pkt.phasic only ever gets set by a drawGraph() that
-  // still has that packet in LiveState.packets — once packets is reset
-  // above, any leftover entry from the old session would never settle,
-  // wedging recolorPhasicSegments()'s FIFO on it forever.
-  pendingPhasicSegments.length = 0;
+  // A pending entry's pkt.tonic/pkt.phasic only ever gets set by a
+  // feedLiveAnalyzer() that still has that packet in LiveState.packets —
+  // once packets is reset above, any leftover entry from the old session
+  // would never settle, wedging recolorDelayedSegments()'s FIFO on it
+  // forever.
+  pendingSegments.length = 0;
+  allTrackSegments.length = 0;
   lastPacketTimestamp = 0;
   lastPacketArrivalTime = 0;
   // Drop the analyser's trailing-window buffer too, and its base offset.
@@ -932,7 +1084,7 @@ function resetSession() {
 async function attemptConnect() {
   connectErr.textContent = '';
   if (!navigator.bluetooth) {
-    connectErr.textContent = 'Web Bluetooth is not available in this browser (needs desktop Chrome/Edge or Android Chrome/Edge — not Safari, even on macOS).';
+    connectErr.textContent = 'Web Bluetooth is not available in this browser (requires Chrome on Android/desktop, or a Web Bluetooth browser like Bluefy on iOS). You can still Prepare Map Offline.';
     return;
   }
   resetSession();
@@ -980,11 +1132,28 @@ function bindLiveGsrControls() {
   const sel = document.getElementById('liveGraphView');
   if (sel) {
     sel.value = liveGsrView.graphView;
-    sel.addEventListener('change', () => {
-      liveGsrView.graphView = sel.value;
-      drawGraph();
-    });
+    sel.addEventListener('change', () => setLiveGraphMetric(sel.value));
   }
+}
+
+// Sets the ONE shared Signal/Tonic/Phasic metric that drives both the graph
+// (drawGraph()'s non-'signal' branch) and the live map's track colour
+// (recolorAllTrackSegments() / recolorDelayedSegments()) — the desktop
+// #liveGraphView dropdown and the mobile FAB's metric chips both call this
+// same function, so there is exactly one code path regardless of which UI
+// drove the change.
+function setLiveGraphMetric(metric) {
+  if (!LIVE_GRAPH_VIEWS[metric] || liveGsrView.graphView === metric) return;
+  liveGsrView.graphView = metric;
+  const sel = document.getElementById('liveGraphView');
+  if (sel) sel.value = metric;
+  const metricBtns = document.querySelectorAll('#liveMetricGroup [data-metric]');
+  metricBtns.forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.metric === metric);
+  });
+  renderFabMenu();
+  drawGraph();
+  recolorAllTrackSegments();
 }
 
 function updateToggleMapBtn() {
@@ -1000,6 +1169,77 @@ function setMapVisible(visible) {
   mapVisible = visible;
   if (visible) showMap(); else hideMap();
   updateToggleMapBtn();
+  renderFabMenu();
+}
+
+// ==========================================================================
+// Mobile floating action button — the map-primary mobile layout's sole way
+// to change metric or flip Map<->Graph (styles.css hides it entirely on
+// desktop, where the header controls above remain the only UI). Its chip
+// set is a function of `mapVisible`, not a fixed menu, but it's always the
+// three metric chips plus one action chip — only the action chip's
+// direction changes: in Map mode (the mobile default) that's a Graph chip;
+// in Graph mode (mapVisible false, today's `.no-map` fullscreen graph) it's
+// a Map chip instead, since there is only one destination to offer there.
+// ==========================================================================
+function closeFabMenu() {
+  if (!liveFabMenu) return;
+  liveFabMenu.classList.remove('open');
+  if (liveFabToggle) liveFabToggle.setAttribute('aria-expanded', 'false');
+}
+
+function toggleFabMenu() {
+  if (!liveFabMenu) return;
+  const open = !liveFabMenu.classList.contains('open');
+  liveFabMenu.classList.toggle('open', open);
+  if (liveFabToggle) liveFabToggle.setAttribute('aria-expanded', String(open));
+}
+
+function renderFabMenu() {
+  if (!liveFabMenu) return;
+  const chips = LIVE_FAB_METRICS.map(m =>
+    `<button type="button" class="live-fab-chip${liveGsrView.graphView === m.value ? ' active' : ''}" data-metric="${m.value}">${m.label}</button>`
+  );
+  if (mapVisible) {
+    chips.push('<button type="button" class="live-fab-chip live-fab-chip-action" data-action="graph"><i class="fa-solid fa-chart-line"></i> Graph</button>');
+  } else {
+    chips.push('<button type="button" class="live-fab-chip live-fab-chip-action" data-action="map"><i class="fa-solid fa-map"></i> Map</button>');
+  }
+  liveFabMenu.innerHTML = chips.join('');
+}
+
+function bindLiveFab() {
+  const fab = document.getElementById('liveFab');
+  liveFabToggle = document.getElementById('liveFabToggle');
+  liveFabMenu = document.getElementById('liveFabMenu');
+  if (!fab || !liveFabToggle || !liveFabMenu) return;
+
+  liveFabToggle.addEventListener('click', toggleFabMenu);
+
+  // Delegated so a fresh renderFabMenu() (its innerHTML is rebuilt on every
+  // metric/mode change) never needs its own listener re-bound.
+  liveFabMenu.addEventListener('click', (e) => {
+    const btn = e.target.closest('button');
+    if (!btn) return;
+    if (btn.dataset.metric) {
+      setLiveGraphMetric(btn.dataset.metric);
+    } else if (btn.dataset.action === 'graph') {
+      setMapVisible(false);
+    } else if (btn.dataset.action === 'map') {
+      setMapVisible(true);
+    }
+    closeFabMenu();
+  });
+
+  // Tapping the map (or anywhere else) with the menu open should close it —
+  // an open fan-out sitting over the map otherwise blocks map interaction
+  // for no reason once the user has looked away from it. Both pointerdown and click
+  // are handled so mobile touch (iOS Safari, Android) closes the menu reliably.
+  const handleOutsideClose = (e) => {
+    if (!fab.contains(e.target)) closeFabMenu();
+  };
+  document.addEventListener('pointerdown', handleOutsideClose);
+  document.addEventListener('click', handleOutsideClose);
 }
 
 function goToLatLon(lat, lon, zoom) {
@@ -1008,7 +1248,9 @@ function goToLatLon(lat, lon, zoom) {
     return;
   }
   if (!mapVisible) setMapVisible(true);
-  liveMap.setView([lat, lon], zoom);
+  if (liveMap && typeof liveMap.setView === 'function') {
+    liveMap.setView([lat, lon], zoom);
+  }
 }
 
 // ==========================================================================
@@ -1038,8 +1280,10 @@ const GSRLiveView = {
     reconnectErr     = document.getElementById('reconnectErr');
     cacheMapBtn      = document.getElementById('cacheMapBtn');
     toggleMapBtn     = document.getElementById('toggleMapBtn');
-    latInput         = document.getElementById('latInput');
-    lonInput         = document.getElementById('lonInput');
+
+    if (typeof navigator !== 'undefined' && !navigator.bluetooth && connectErr) {
+      connectErr.textContent = 'Note: Web Bluetooth is not available in this browser (requires Chrome on Android/desktop, or a Web Bluetooth browser like Bluefy on iOS). You can still Prepare Map Offline.';
+    }
 
     document.addEventListener('visibilitychange', async () => {
       if (document.visibilityState === 'visible') {
@@ -1104,32 +1348,46 @@ const GSRLiveView = {
     exportBtn.addEventListener('click', exportCsv);
 
     bindLiveGsrControls();
+    bindLiveFab();
 
     cacheMapBtn.addEventListener('click', cacheCurrentMapArea);
 
     toggleMapBtn.addEventListener('click', () => setMapVisible(!mapVisible));
 
-    document.getElementById('goToLocationBtn').addEventListener('click', () => {
-      goToLatLon(parseFloat(latInput.value), parseFloat(lonInput.value), MANUAL_LOCATION_ZOOM);
-    });
+    const metricGroup = document.getElementById('liveMetricGroup');
+    if (metricGroup) {
+      metricGroup.addEventListener('click', (e) => {
+        const btn = e.target.closest('button[data-metric]');
+        if (btn && btn.dataset.metric) setLiveGraphMetric(btn.dataset.metric);
+      });
+    }
 
-    document.getElementById('myLocationBtn').addEventListener('click', () => {
-      if (!navigator.geolocation) {
-        alert('Geolocation is not available in this browser.');
-        return;
-      }
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          latInput.value = pos.coords.latitude;
-          lonInput.value = pos.coords.longitude;
-          goToLatLon(pos.coords.latitude, pos.coords.longitude, MANUAL_LOCATION_ZOOM);
-        },
-        (err) => {
-          alert('Could not get your location: ' + err.message);
-        },
-        { enableHighAccuracy: true, timeout: 10000 }
-      );
-    });
+    const myLocBtn = document.getElementById('myLocationBtn');
+    if (myLocBtn) {
+      myLocBtn.addEventListener('click', () => {
+        // If we have an active GPS packet with valid fix from BLE, center there immediately
+        if (LiveState.packets && LiveState.packets.length > 0) {
+          const lastPkt = LiveState.packets[LiveState.packets.length - 1];
+          if (lastPkt && lastPkt.valid && Number.isFinite(lastPkt.lat) && Number.isFinite(lastPkt.lon)) {
+            goToLatLon(lastPkt.lat, lastPkt.lon, LIVE_ZOOM);
+            return;
+          }
+        }
+        if (!navigator.geolocation) {
+          alert('Geolocation is not available in this browser.');
+          return;
+        }
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            goToLatLon(pos.coords.latitude, pos.coords.longitude, MANUAL_LOCATION_ZOOM);
+          },
+          (err) => {
+            alert('Could not get your location: ' + err.message);
+          },
+          { enableHighAccuracy: true, timeout: 10000 }
+        );
+      });
+    }
 
     window.addEventListener('keydown', (e) => {
       // Inside index.html these listeners outlive the Live tab (mount is
@@ -1138,8 +1396,8 @@ const GSRLiveView = {
       // shortcut: in-app GSRLayoutManager owns F for the whole app; standalone
       // live.html has no self-fullscreen affordance.)
       if (typeof AppState !== 'undefined' && AppState.viewMode !== 'live') return;
-      // Don't hijack keys while the user is typing coordinates.
-      if (e.target === latInput || e.target === lonInput) return;
+      // Don't hijack keys while typing in an input.
+      if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
 
       if (e.key === 'p' || e.key === 'P') {
         const b = document.getElementById('liveBtnTogglePhasic');
@@ -1153,12 +1411,26 @@ const GSRLiveView = {
       }
     });
 
-    window.addEventListener('resize', drawGraph);
+    // liveMap isn't under any ResizeObserver — invalidateSize() so a phone
+    // rotation or a desktop window resize (including one crossing the
+    // isCompactLiveLayout() breakpoint) doesn't leave it rendering at a
+    // stale size. activate()/onDisplayModeChange() below already do this;
+    // a bare window resize never did.
+    window.addEventListener('resize', () => {
+      if (liveMap && typeof liveMap.invalidateSize === 'function') liveMap.invalidateSize();
+      drawGraph();
+    });
 
     updateToggleMapBtn();
+    renderFabMenu();
 
-    // Map visibility/init is a manual toggle (toggleMapBtn), not tied to GPS —
-    // see showMap()/hideMap() above.
+    // Mobile default: map full-screen and primary, nothing else — desktop
+    // keeps today's graph-first default (mapVisible starts false). See
+    // isCompactLiveLayout()'s doc comment for the detection rule.
+    if (isCompactLiveLayout()) setMapVisible(true);
+
+    // Map visibility/init is otherwise a manual toggle (toggleMapBtn / the
+    // FAB's Map<->Graph chip), not tied to GPS — see showMap()/hideMap() above.
     renderStatus('disconnected');
   },
 
@@ -1182,7 +1454,7 @@ const GSRLiveView = {
   // Leaving the Live view drops the BLE link — a walk isn't a background
   // activity, and holding the radio + screen wake lock open on an unseen
   // panel (while updateLiveMap() keeps drawing segments off the live feed
-  // and pendingPhasicSegments grows) is just waste. The accumulated packets,
+  // and pendingSegments grows) is just waste. The accumulated packets,
   // the drawn track and the Export button are all kept: renderStatus() then
   // shows "Reconnect" (resume this same session via the retained device
   // reference) alongside "New Connection" (a fresh requestDevice(), which
@@ -1210,6 +1482,12 @@ const GSRLiveView = {
     }
     drawGraph();
   },
+
+  // Exposed so src/ui/events.js can pick index.html's initial view tab
+  // ('live' vs 'single') with the exact same width+pointer check this file
+  // uses for its own map-first mobile default — one detection, not two, kept
+  // in sync automatically rather than by comment.
+  isCompactLayout: isCompactLiveLayout,
 };
 
 if (typeof window !== 'undefined') window.GSRLiveView = GSRLiveView;

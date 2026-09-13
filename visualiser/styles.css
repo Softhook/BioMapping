@@ -2640,22 +2640,32 @@ input[type="range"]:focus-visible,
   pointer-events: none;
 }
 
-.live-view #liveMap { flex: 1 1 auto; min-height: 0; background: var(--bg-card); }
+.live-view #liveMap { position: relative; flex: 1 1 auto; min-height: 0; background: var(--bg-card); }
 .live-view #app.no-map #liveMap { display: none; }
 .live-view #app.no-map #graphWrap { flex: 1 1 auto; border-bottom: none; }
-.live-view #app.no-map #locationBar { display: none; }
 
-.live-view #locationBar {
-  display: flex; align-items: center; gap: 8px; padding: 8px 12px;
-  background: var(--lv-panel); border-bottom: 1px solid var(--lv-border); flex-wrap: wrap;
-  /* Clear a landscape cutout on the leading edge. */
-  padding-left: max(12px, env(safe-area-inset-left));
-  padding-right: max(12px, env(safe-area-inset-right));
+/* Floating map controls (My Location) */
+.live-map-controls {
+  position: absolute;
+  top: max(12px, env(safe-area-inset-top));
+  right: max(12px, env(safe-area-inset-right));
+  z-index: 1000; /* Leaflet control tier */
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: auto;
 }
-.live-view #locationBar input {
-  font-size: 13px; padding: 6px 8px; border-radius: 6px; width: 130px;
-  border: 1px solid var(--lv-border); background: var(--bg-card); color: var(--lv-text);
+.live-view .live-map-btn {
+  width: 38px; height: 38px; border-radius: 8px;
+  background: var(--bg-card); border: 1px solid var(--lv-border); color: var(--lv-text);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 16px; cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  touch-action: manipulation; padding: 0;
+  transition: background 0.15s ease, transform 0.1s ease;
 }
+.live-view .live-map-btn:hover { background: var(--bg-hover, #f0f0f0); color: var(--text-primary); }
+.live-view .live-map-btn:active { transform: scale(0.94); }
 
 .live-view footer {
   display: flex; align-items: center; gap: 10px; padding: 8px 12px;
@@ -2680,6 +2690,77 @@ input[type="range"]:focus-visible,
 .live-view #connectOverlay p { color: var(--lv-muted); max-width: 320px; font-size: 13px; margin: 0; }
 .live-view #connectOverlay .err { color: var(--lv-bad); font-size: 12px; max-width: 320px; }
 .live-view #reconnectErr { color: var(--lv-bad); font-size: 11px; flex-basis: 100%; }
+
+/* Mobile (≤768px, coarse pointer — see src/live/live_view.js's
+   isCompactLiveLayout(), the same check that also picks this default):
+   the floating action button (below) is the ONLY way to change metric or
+   flip Map<->Graph — #liveMetricGroup/#liveGraphView/#toggleMapBtn are each
+   exactly duplicated by a FAB chip in both of the live view's submodes, so
+   they're hidden unconditionally here, not just while the map is showing.
+   #graphWrap and #gsrControls (Raw/Peaks/Hotspots — not offered by the FAB
+   at all) stay content the graph submode still needs, so those two remain
+   conditional on the map being hidden. Desktop is untouched — the header
+   remains the only UI there. Matches styles.css's one other mobile
+   breakpoint (the sidebar-drawer rule, above). */
+@media ((max-width: 768px) and (pointer: coarse)), ((max-height: 500px) and (pointer: coarse)) {
+  .live-view #liveMetricGroup,
+  .live-view #liveGraphView,
+  .live-view #toggleMapBtn {
+    display: none;
+  }
+  .live-view #app:not(.no-map) #graphWrap,
+  .live-view #app:not(.no-map) #gsrControls {
+    display: none;
+  }
+}
+
+/* Floating action button — mobile-only (hidden by default below; the
+   @media ((max-width: 768px) and (pointer: coarse)), ((max-height: 500px) and (pointer: coarse))
+   rule turns it on). Anchored to `.live-view` itself (already `position: relative` —
+   the same trick #connectOverlay above uses), not `#app`, so it stays put above the
+   map regardless of which of #app's children is currently shown. Sits above footer and
+   above Leaflet controls (z-index 1000). */
+.live-fab {
+  display: none;
+  position: absolute;
+  right: max(16px, env(safe-area-inset-right));
+  bottom: calc(36px + max(12px, env(safe-area-inset-bottom)));
+  z-index: 1100; /* above Leaflet's panes/controls (1000), below #connectOverlay (10000) */
+  flex-direction: column-reverse;
+  align-items: flex-end;
+  gap: 10px;
+}
+@media ((max-width: 768px) and (pointer: coarse)), ((max-height: 500px) and (pointer: coarse)) {
+  .live-fab { display: flex; }
+}
+/* `.live-view button` (below) is an element+class selector — specificity
+   (0,1,1) — which would otherwise beat a bare `.live-fab-toggle`/
+   `.live-fab-chip` class selector (0,1,0) regardless of source order and
+   silently win on every overlapping property (padding/border/background/
+   color/font-size). Prefixed with `.live-view` here (redundant in the
+   selector's own scoping sense — these only ever render inside .live-view —
+   purely to win that specificity fight) to actually override it. */
+.live-view .live-fab-toggle {
+  width: 52px; height: 52px; border-radius: 50%; padding: 0;
+  border: 1px solid var(--lv-border); background: var(--text-primary); color: #fff;
+  font-size: 18px; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
+  display: flex; align-items: center; justify-content: center;
+}
+.live-fab-menu {
+  display: flex; flex-direction: column; align-items: flex-end; gap: 8px;
+  opacity: 0; pointer-events: none; transform: translateY(6px);
+  visibility: hidden;
+  transition: opacity 0.15s ease, transform 0.15s ease, visibility 0.15s ease;
+}
+.live-fab-menu.open { opacity: 1; pointer-events: auto; transform: translateY(0); visibility: visible; }
+.live-view .live-fab-chip {
+  min-height: 44px; padding: 0 16px; border-radius: 999px;
+  border: 1px solid var(--lv-border); background: var(--bg-card); color: var(--lv-text);
+  font-size: 13px; font-weight: 600; white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+}
+.live-view .live-fab-chip.active { background: var(--text-primary); color: #fff; border-color: var(--text-primary); }
+.live-view .live-fab-chip-action { background: var(--lv-accent); color: #fff; border-color: var(--lv-accent); }
 
 @media (max-width: 480px) {
   /* Re-declare the safe-area longhands — a `padding` shorthand here would

@@ -19,8 +19,8 @@ const assert = require('assert');
 const test = require('node:test');
 const { bootApp } = require('./support/boot_app.js');
 
-function boot() {
-  const { window } = bootApp();
+function boot(opts) {
+  const { window } = bootApp(opts);
   // boot_app.js stubs p5 but not a raw 2D canvas context; the live view's
   // drawGraph() needs one the moment its map is shown. Minimal no-op stub,
   // same shape boot_live.js installs.
@@ -59,6 +59,43 @@ test('#livePanel starts empty — the live UI is not built until the tab is firs
   assert.ok(livePanel, '#livePanel present');
   assert.strictEqual(livePanel.children.length, 0, 'no live DOM yet');
   assert.ok(!window.GSRLiveView._mounted, 'GSRLiveView not mounted on load');
+});
+
+// ==========================================================================
+// Mobile lands on Live by default (src/ui/events.js's bindViewSwitcher(),
+// reusing GSRLiveView.isCompactLayout() — the exact same width+pointer check
+// the Live view itself uses for its own map-first default). Desktop is
+// unaffected. The tab row stays visible/clickable either way — the escape
+// hatch back to Single Track for a misdetected device or a phone user who
+// actually wants to browse/load a CSV.
+// ==========================================================================
+
+test('a desktop boot (the default matchMedia stub) still lands on Single Track, as today', () => {
+  const { window } = boot();
+  assert.strictEqual(window.AppState.viewMode, 'single');
+  assert.ok(!window.GSRLiveView._mounted, 'Live was never auto-entered');
+});
+
+test('a compact/coarse-pointer boot lands directly on Live — mounted, activated, and the active tab', () => {
+  const { window, layout, btnSingle, btnLive, livePanel } = boot({ compact: true });
+  assert.strictEqual(window.AppState.viewMode, 'live');
+  assert.ok(layout.classList.contains('live-mode'));
+  assert.ok(btnLive.classList.contains('active'));
+  assert.ok(!btnSingle.classList.contains('active'));
+  assert.ok(window.GSRLiveView._mounted, 'GSRLiveView.mount() ran during boot, not on a later click');
+  assert.ok(livePanel.querySelector('#statusBadge'), 'the live UI was actually built into the panel');
+});
+
+test('a compact boot still leaves the Single/Collective/Live tab row clickable — one tap back to Single Track', () => {
+  const { window, layout, btnSingle, btnLive, click } = boot({ compact: true });
+  assert.strictEqual(window.AppState.viewMode, 'live');
+
+  click(btnSingle);
+
+  assert.strictEqual(window.AppState.viewMode, 'single');
+  assert.ok(!layout.classList.contains('live-mode'));
+  assert.ok(btnSingle.classList.contains('active'));
+  assert.ok(!btnLive.classList.contains('active'));
 });
 
 test('clicking Live switches viewMode, adds the live-mode class, moves the active tab, and mounts the live UI', () => {

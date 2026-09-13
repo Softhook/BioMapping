@@ -26,6 +26,7 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 const { JSDOM } = require('jsdom');
+const { installMatchMedia } = require('./matchmedia_stub.js');
 
 const APP_DIR = path.join(__dirname, '..', '..');
 
@@ -84,8 +85,13 @@ function superMock() {
 /**
  * Boots the real app in a fresh jsdom window and returns { window, document }.
  * Each call is fully isolated (new jsdom instance, new AppState, etc).
+ *
+ * @param {{compact?: boolean}} [opts] - `compact: true` simulates a mobile
+ *   device for GSRLiveView.isCompactLayout() (and anything else reading
+ *   window.matchMedia) via installMatchMedia(). Defaults to `false` (desktop)
+ *   so every existing caller is unaffected.
  */
-function bootApp() {
+function bootApp({ compact = false } = {}) {
   const html = fs.readFileSync(path.join(APP_DIR, 'index.html'), 'utf8');
   // runScripts: "outside-only" parses the real DOM (every real element ID
   // intact) but does NOT execute any <script> tag itself — including the 4
@@ -93,6 +99,7 @@ function bootApp() {
   const dom = new JSDOM(html, { url: 'http://localhost/', runScripts: 'outside-only', pretendToBeVisual: true });
   const window = dom.window;
 
+  installMatchMedia(window, { compact });
   window.L = superMock();
   // jsdom doesn't implement ResizeObserver (a real browser API) — a no-op
   // stand-in is enough since these tests don't simulate element resizing.

@@ -357,6 +357,179 @@ test('toggleMapBtn: hides the map again on a second click, without destroying th
 });
 
 // ==========================================================================
+// Mobile map-first default (isCompactLiveLayout()) — the map is shown
+// immediately on a compact/coarse-pointer device, instead of the desktop
+// default of starting on the fullscreen graph and requiring a manual
+// "Show Map" tap.
+// ==========================================================================
+
+test('mount(): desktop (the default matchMedia stub) keeps the graph-first default — map stays hidden until toggled', () => {
+  const { window, context } = bootLive();
+  assert.ok(window.document.getElementById('app').classList.contains('no-map'), 'graph fullscreen by default');
+  assert.strictEqual(run(context, 'liveMap'), null, 'map not constructed until shown');
+});
+
+test('mount(): a compact/coarse-pointer boot defaults to the map shown, not the graph', () => {
+  const { window, context } = bootLive({ compact: true });
+  assert.ok(!window.document.getElementById('app').classList.contains('no-map'), 'map visible by default on mobile');
+  assert.ok(run(context, 'liveMap') !== null, 'the map is constructed immediately, not lazily on a user tap');
+  assert.strictEqual(window.document.getElementById('toggleMapBtn').textContent, 'Hide Map (M)');
+});
+
+// ==========================================================================
+// The mobile floating action button (#liveFab) — CSS (not exercised by
+// these DOM-only jsdom tests) is what actually hides it on desktop; what IS
+// testable here is that its menu content is always a function of
+// `mapVisible`, and that its chips drive the exact same setLiveGraphMetric()/
+// setMapVisible() the desktop header controls do.
+// ==========================================================================
+
+test('the FAB menu offers Signal/Tonic/Phasic + Graph chips while the map is showing, highlighting the active metric', () => {
+  const { window } = bootLive({ compact: true }); // map shown by default
+  const menu = window.document.getElementById('liveFabMenu');
+  const chips = [...menu.querySelectorAll('button')];
+  assert.deepStrictEqual(chips.map(b => b.dataset.metric || b.dataset.action), ['signal', 'tonic', 'phasic', 'graph']);
+  assert.ok(chips[0].classList.contains('active'), '"signal" is the default active metric');
+  assert.ok(!chips[1].classList.contains('active'));
+  assert.ok(!chips[2].classList.contains('active'));
+});
+
+test('the FAB menu offers Signal/Tonic/Phasic + Map chip once the graph is fullscreen (map hidden)', () => {
+  const { window } = bootLive(); // desktop default: graph-first, map hidden
+  const menu = window.document.getElementById('liveFabMenu');
+  const chips = [...menu.querySelectorAll('button')];
+  assert.deepStrictEqual(chips.map(b => b.dataset.metric || b.dataset.action), ['signal', 'tonic', 'phasic', 'map']);
+});
+
+test('tapping a FAB metric chip sets the shared metric (same as the #liveGraphView dropdown) and closes the menu', () => {
+  const { window, context } = bootLive({ compact: true });
+  const toggle = window.document.getElementById('liveFabToggle');
+  const menu = window.document.getElementById('liveFabMenu');
+  toggle.click();
+  assert.ok(menu.classList.contains('open'));
+
+  menu.querySelector('[data-metric="phasic"]').click();
+
+  assert.strictEqual(run(context, 'liveGsrView.graphView'), 'phasic');
+  assert.strictEqual(window.document.getElementById('liveGraphView').value, 'phasic');
+  assert.ok(!menu.classList.contains('open'), 'menu closes after a chip tap');
+  // Re-rendered menu still reflects the map-mode chip set, now highlighting phasic.
+  assert.ok(menu.querySelector('[data-metric="phasic"]').classList.contains('active'));
+});
+
+test('tapping the FAB\'s Graph chip switches to the fullscreen graph (mapVisible false); tapping Map from there switches back', () => {
+  const { window } = bootLive({ compact: true }); // starts map-visible
+  const app = window.document.getElementById('app');
+  const menu = window.document.getElementById('liveFabMenu');
+
+  menu.querySelector('[data-action="graph"]').click();
+  assert.ok(app.classList.contains('no-map'), 'Graph chip behaves exactly like today\'s .no-map fullscreen graph');
+  assert.deepStrictEqual(
+    [...menu.querySelectorAll('button')].map(b => b.dataset.metric || b.dataset.action),
+    ['signal', 'tonic', 'phasic', 'map']
+  );
+
+  menu.querySelector('[data-action="map"]').click();
+  assert.ok(!app.classList.contains('no-map'));
+  assert.deepStrictEqual(
+    [...menu.querySelectorAll('button')].map(b => b.dataset.metric || b.dataset.action),
+    ['signal', 'tonic', 'phasic', 'graph'],
+    'back to the 3 metrics + Graph'
+  );
+});
+
+test('tapping anywhere outside the FAB closes an open menu', () => {
+  const { window } = bootLive({ compact: true });
+  const toggle = window.document.getElementById('liveFabToggle');
+  const menu = window.document.getElementById('liveFabMenu');
+  toggle.click();
+  assert.ok(menu.classList.contains('open'));
+
+  window.document.getElementById('liveMap').dispatchEvent(new window.Event('click', { bubbles: true }));
+
+  assert.ok(!menu.classList.contains('open'));
+});
+
+// ==========================================================================
+// Map-track colouring follows the shared Signal/Tonic/Phasic metric
+// (setLiveGraphMetric()) instead of always settling on phasic — switching
+// metric mid-session immediately recolours the WHOLE track via
+// recolorAllTrackSegments(), not just segments drawn after the switch.
+// ==========================================================================
+
+test('setLiveGraphMetric: switching to phasic immediately recolours every already-drawn segment from its packet\'s .phasic value', () => {
+  const { context } = bootLive();
+  run(context, 'showMap()');
+  // Packets already carry a .phasic value, standing in for what
+  // feedLiveAnalyzer() would normally have mirrored onto them by now.
+  run(context, `
+    updateLiveMap({ valid: true, lat: 51.0, lon: 0.0, gsrRaw: 1000, phasic: 0.1, hdop: 1.0, fixType: 3, sats: 8, gap: false });
+    updateLiveMap({ valid: true, lat: 51.1, lon: 0.1, gsrRaw: 1200, phasic: 0.1, hdop: 1.0, fixType: 3, sats: 8, gap: false });
+    updateLiveMap({ valid: true, lat: 51.2, lon: 0.2, gsrRaw: 1400, phasic: 0.5, hdop: 1.0, fixType: 3, sats: 8, gap: false });
+  `);
+  assert.strictEqual(run(context, 'allTrackSegments.length'), 2, 'first fix anchors the view, the next two each draw a segment');
+
+  run(context, "setLiveGraphMetric('phasic')");
+
+  const colors = JSON.parse(run(context, 'JSON.stringify(allTrackSegments.map(s => s.line._style.color))'));
+  // getColorForValue against the session's phasic range [0, 0.5]: the first
+  // segment's packet is 0.1 -> ratio 0.2 -> hue 96; the second is 0.5 ->
+  // ratio 1.0 -> hue 0 (matches the hue formula the existing
+  // recolorDelayedSegments test above already pins for this codebase).
+  assert.strictEqual(colors[0], 'hsl(96, 90%, 50%)');
+  assert.strictEqual(colors[1], 'hsl(0, 90%, 50%)');
+});
+
+test('setLiveGraphMetric: switching to tonic immediately recolours every already-drawn segment from its packet\'s .tonic value', () => {
+  const { context } = bootLive();
+  run(context, 'showMap()');
+  run(context, `
+    updateLiveMap({ valid: true, lat: 51.0, lon: 0.0, gsrRaw: 1000, tonic: 1.0, hdop: 1.0, fixType: 3, sats: 8, gap: false });
+    updateLiveMap({ valid: true, lat: 51.1, lon: 0.1, gsrRaw: 1200, tonic: 1.0, hdop: 1.0, fixType: 3, sats: 8, gap: false });
+    updateLiveMap({ valid: true, lat: 51.2, lon: 0.2, gsrRaw: 1400, tonic: 2.0, hdop: 1.0, fixType: 3, sats: 8, gap: false });
+  `);
+  assert.strictEqual(run(context, 'allTrackSegments.length'), 2);
+
+  run(context, "setLiveGraphMetric('tonic')");
+
+  const colors = JSON.parse(run(context, 'JSON.stringify(allTrackSegments.map(s => s.line._style.color))'));
+  assert.strictEqual(colors[0], 'hsl(120, 90%, 50%)');
+  assert.strictEqual(colors[1], 'hsl(0, 90%, 50%)');
+});
+
+test('setLiveGraphMetric: a repeated/unknown metric is a no-op (no redundant recolour pass, no throw)', () => {
+  const { context } = bootLive();
+  run(context, "setLiveGraphMetric('signal')"); // already the default
+  assert.doesNotThrow(() => run(context, "setLiveGraphMetric('not-a-real-metric')"));
+  assert.strictEqual(run(context, 'liveGsrView.graphView'), 'signal');
+});
+
+test('the #liveGraphView dropdown change event drives the exact same setLiveGraphMetric() the FAB chips call', () => {
+  const { window, context } = bootLive();
+  const sel = window.document.getElementById('liveGraphView');
+  sel.value = 'tonic';
+  sel.dispatchEvent(new window.Event('change', { bubbles: true }));
+  assert.strictEqual(run(context, 'liveGsrView.graphView'), 'tonic');
+});
+
+// ==========================================================================
+// window resize -> liveMap.invalidateSize(). Pre-existing gap: a bare
+// window resize never told Leaflet to re-measure (only activate()/
+// onDisplayModeChange() did), so the map could render at a stale size after
+// a phone rotation or a desktop resize crossing the mobile breakpoint.
+// ==========================================================================
+
+test('a window resize invalidates the live map\'s size (not just activate()/onDisplayModeChange())', () => {
+  const { window, context } = bootLive();
+  run(context, 'showMap()');
+  const before = run(context, 'liveMap.calls.invalidateSize');
+
+  window.dispatchEvent(new window.Event('resize'));
+
+  assert.strictEqual(run(context, 'liveMap.calls.invalidateSize'), before + 1);
+});
+
+// ==========================================================================
 // goToLatLon() / the manual location picker — this is what makes pre-trip
 // caching possible without any GPS fix at all (device or browser).
 // ==========================================================================
@@ -509,58 +682,85 @@ test('updateLiveMap: the first GPS fix zooms to LIVE_ZOOM (18), replacing the ol
   assert.strictEqual(run(context, 'liveMap.getZoom()'), 18);
 });
 
-test('recolorPhasicSegments: holds a segment back until its packet is BOTH phasic-annotated AND old enough, then repaints exactly once with the phasic-based color', () => {
+test('recolorDelayedSegments: holds a segment back until its packet is BOTH phasic-annotated AND old enough, then repaints exactly once with the phasic-based color', () => {
   const { context } = bootLive();
+  // The active metric defaults to 'signal' (raw, no settling needed at all)
+  // — switch to 'phasic' so recolorDelayedSegments() actually queues/settles
+  // like the old always-phasic behavior this test exercises.
+  run(context, "liveGsrView.graphView = 'phasic';");
   run(context, `
     LiveState.packets = [{ timestamp: 0 }];
     const __pktA = { timestamp: 0 }; // no .phasic yet
     const __lineA = L.polyline([[0, 0], [0, 0]], { color: 'raw-gsr-color' });
-    pendingPhasicSegments.push({ pkt: __pktA, line: __lineA });
+    pendingSegments.push({ pkt: __pktA, line: __lineA });
   `);
 
   // Recent (delta < PHASIC_COLOR_LAG_S) and no phasic yet — held back.
-  run(context, 'LiveState.packets = [{ timestamp: 0 }, { timestamp: 3 }]; recolorPhasicSegments();');
-  assert.strictEqual(run(context, 'pendingPhasicSegments.length'), 1);
+  run(context, 'LiveState.packets = [{ timestamp: 0 }, { timestamp: 3 }]; recolorDelayedSegments();');
+  assert.strictEqual(run(context, 'pendingSegments.length'), 1);
   assert.strictEqual(run(context, '__lineA._style'), undefined);
 
   // Old enough now (delta 20 >= 8), but still no phasic value — still held
   // back (proves the phasic-availability check isn't skipped once time
   // alone would allow it through).
-  run(context, 'LiveState.packets = [{ timestamp: 0 }, { timestamp: 20 }]; recolorPhasicSegments();');
-  assert.strictEqual(run(context, 'pendingPhasicSegments.length'), 1);
+  run(context, 'LiveState.packets = [{ timestamp: 0 }, { timestamp: 20 }]; recolorDelayedSegments();');
+  assert.strictEqual(run(context, 'pendingSegments.length'), 1);
   assert.strictEqual(run(context, '__lineA._style'), undefined);
 
   // Phasic is available now, but back to too-recent (delta 3 < 8) — still
   // held back (the mirror image of the previous check: proves the time
   // check isn't skipped once phasic alone would allow it through).
-  run(context, '__pktA.phasic = 42; LiveState.packets = [{ timestamp: 0 }, { timestamp: 3 }]; recolorPhasicSegments();');
-  assert.strictEqual(run(context, 'pendingPhasicSegments.length'), 1);
+  run(context, '__pktA.phasic = 42; LiveState.packets = [{ timestamp: 0 }, { timestamp: 3 }]; recolorDelayedSegments();');
+  assert.strictEqual(run(context, 'pendingSegments.length'), 1);
   assert.strictEqual(run(context, '__lineA._style'), undefined);
 
   // Phasic now available AND old enough — repaints and clears the queue.
-  run(context, 'LiveState.packets = [{ timestamp: 0 }, { timestamp: 20 }]; recolorPhasicSegments();');
-  assert.strictEqual(run(context, 'pendingPhasicSegments.length'), 0);
+  run(context, 'LiveState.packets = [{ timestamp: 0 }, { timestamp: 20 }]; recolorDelayedSegments();');
+  assert.strictEqual(run(context, 'pendingSegments.length'), 0);
   assert.strictEqual(run(context, 'phasicMax'), 42);
   const style = JSON.parse(run(context, 'JSON.stringify(__lineA._style)'));
   // getColorForValue(42, 0, 42): ratio 1.0 -> hue 0 -> red end of the scale.
   assert.strictEqual(style.color, 'hsl(0, 90%, 50%)');
 });
 
-test('resetSession: clears pendingPhasicSegments and phasicMax, so a stale entry from a prior session (whose pkt.phasic will never be set again) can never wedge the next session\'s recolor queue', () => {
+test('resetSession: clears pendingSegments, allTrackSegments and phasicMax, so a stale entry from a prior session (whose pkt.phasic will never be set again) can never wedge the next session\'s recolor queue', () => {
   const { context } = bootLive();
   run(context, `
-    pendingPhasicSegments.push({ pkt: { timestamp: 0 }, line: L.polyline([[0, 0], [0, 0]], {}) });
+    pendingSegments.push({ pkt: { timestamp: 0 }, line: L.polyline([[0, 0], [0, 0]], {}) });
+    allTrackSegments.push({ pkt: { timestamp: 0 }, line: L.polyline([[0, 0], [0, 0]], {}) });
     phasicMax = 99;
   `);
 
   run(context, 'resetSession()');
 
-  assert.strictEqual(run(context, 'pendingPhasicSegments.length'), 0);
+  assert.strictEqual(run(context, 'pendingSegments.length'), 0);
+  assert.strictEqual(run(context, 'allTrackSegments.length'), 0);
   assert.strictEqual(run(context, 'phasicMax'), 0);
+});
+
+test('resetSession: removes all track polyline layers and liveMarker from liveMap', () => {
+  const { context } = bootLive();
+  run(context, 'showMap()');
+  run(context, `
+    updateLiveMap({ valid: true, lat: 51.0, lon: 0.0, gsrRaw: 1000, hdop: 1.0, fixType: 3, sats: 8, gap: false });
+    updateLiveMap({ valid: true, lat: 51.1, lon: 0.1, gsrRaw: 1200, hdop: 1.0, fixType: 3, sats: 8, gap: false });
+  `);
+  // 1 TileLayer + 1 segment Polyline + 1 CircleMarker = 3 layers on liveMap
+  assert.strictEqual(run(context, 'liveMap._layers.length'), 3);
+  assert.ok(run(context, 'liveMarker !== null'));
+
+  run(context, 'resetSession()');
+
+  // Only the base TileLayer remains; polyline and marker were removed cleanly
+  assert.strictEqual(run(context, 'liveMap._layers.length'), 1);
+  assert.strictEqual(run(context, 'liveMarker'), null);
 });
 
 test('end-to-end: a walking session progressively repaints its older track segments with phasic color while its most recent segments stay provisional', () => {
   const { context } = bootLive();
+  // The active metric defaults to 'signal' — switch to 'phasic' so this
+  // exercises the delayed-recolor path the test is about.
+  run(context, "liveGsrView.graphView = 'phasic';");
   // 50 packets at the real STREAM_INTERVAL_S cadence (0.3s), stepping GSR up
   // partway through so decomposeTonicPhasic has a real, non-trivial phasic
   // response to compute — not just feeding a flat, uninformative signal.
@@ -583,9 +783,9 @@ test('end-to-end: a walking session progressively repaints its older track segme
     JSON.stringify({
       totalSegments: liveMap._layers.filter(l => l.latlngs).length,
       repaintedCount: liveMap._layers.filter(l => l.latlngs && l._style !== undefined).length,
-      pendingCount: pendingPhasicSegments.length,
-      oldestPendingAge: pendingPhasicSegments.length > 0
-        ? LiveState.packets[LiveState.packets.length - 1].timestamp - pendingPhasicSegments[0].pkt.timestamp
+      pendingCount: pendingSegments.length,
+      oldestPendingAge: pendingSegments.length > 0
+        ? LiveState.packets[LiveState.packets.length - 1].timestamp - pendingSegments[0].pkt.timestamp
         : null,
     })
   `));
@@ -964,6 +1164,10 @@ test('updateLiveMap: fixType gating — 1 (no fix) is rejected, 0 (unknown) and 
 
 test('updateLiveMap: a gap fix breaks the drawn trail (no segment, nothing queued for recolor) but tracking resumes after it', () => {
   const { context } = bootLive();
+  // The active metric defaults to 'signal', under which nothing is ever
+  // queued for delayed recolor (see updateLiveMap()) — switch to 'phasic' so
+  // this test's "still just 1 queued" assertion is meaningful.
+  run(context, "liveGsrView.graphView = 'phasic';");
   run(context, 'showMap()');
 
   run(context, `updateLiveMap(${FIX({ lat: 51.0, lon: 0.0 })})`);            // anchor
@@ -971,7 +1175,7 @@ test('updateLiveMap: a gap fix breaks the drawn trail (no segment, nothing queue
   run(context, `updateLiveMap(${FIX({ lat: 51.2, lon: 0.2, gap: true })})`); // gap: draw nothing
 
   assert.strictEqual(segLatLngs(context).length, 1, 'the gap interval itself gets no line');
-  assert.strictEqual(run(context, 'pendingPhasicSegments.length'), 1, 'nothing new queued for phasic recolor across the gap');
+  assert.strictEqual(run(context, 'pendingSegments.length'), 1, 'nothing new queued for phasic recolor across the gap');
   assert.deepStrictEqual(runJSON(context, 'liveLastLatLng'), [51.2, 0.2], 'but the anchor moves to the gap point');
 
   run(context, `updateLiveMap(${FIX({ lat: 51.3, lon: 0.3 })})`);            // resumes
@@ -1321,15 +1525,16 @@ test('keyboard: "p" toggles the Phasic overlay layer via its button', () => {
   assert.strictEqual(run(context, 'liveGsrView.showPhasic'), false);
 });
 
-test('keyboard: shortcuts are suppressed while the user is typing in the lat/lon coordinate inputs', () => {
+test('keyboard: shortcuts are suppressed while the user is typing in an input element', () => {
   const { window, context } = bootLive();
-  const latInput = window.document.getElementById('latInput');
+  const input = window.document.createElement('input');
+  window.document.body.appendChild(input);
 
-  latInput.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'p', bubbles: true }));
-  latInput.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'm', bubbles: true }));
+  input.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'p', bubbles: true }));
+  input.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'm', bubbles: true }));
 
-  assert.strictEqual(run(context, 'liveGsrView.showPhasic'), false, 'typing "p" into a coord field does not toggle the Phasic layer');
-  assert.ok(window.document.getElementById('app').classList.contains('no-map'), 'typing "m" into a coord field does not toggle the map');
+  assert.strictEqual(run(context, 'liveGsrView.showPhasic'), false, 'typing "p" into an input does not toggle the Phasic layer');
+  assert.ok(window.document.getElementById('app').classList.contains('no-map'), 'typing "m" into an input does not toggle the map');
 });
 
 test('setMapVisible: keeps mapVisible, the button label, and the #app.no-map class in sync across repeated calls', () => {
@@ -1354,17 +1559,54 @@ test('setMapVisible: keeps mapVisible, the button label, and the #app.no-map cla
   assert.ok(!btn.classList.contains('active'));
 });
 
-test('My Location: a successful geolocation fix fills the coord inputs and pans the map there', () => {
+test('My Location: a successful geolocation fix pans the map there', () => {
   const { window, context } = bootLive();
   // boot_live.js stubs getCurrentPosition to succeed at 51.5074 / -0.1278.
   window.document.getElementById('myLocationBtn').click();
 
-  assert.strictEqual(window.document.getElementById('latInput').value, '51.5074');
-  assert.strictEqual(window.document.getElementById('lonInput').value, '-0.1278');
   assert.ok(!window.document.getElementById('app').classList.contains('no-map'), 'the map is shown');
   const center = run(context, 'liveMap.getCenter()');
   assert.strictEqual(center.lat, 51.5074);
   assert.strictEqual(center.lng, -0.1278);
+});
+
+test('My Location: centers on live walker position when BLE GPS packets exist', () => {
+  const { window, context } = bootLive();
+  run(context, 'LiveState.addPacket({ timestamp: 1.0, gsrRaw: 10, lat: 37.7749, lon: -122.4194, valid: true, fixType: 3, hdop: 1.0 })');
+
+  window.document.getElementById('myLocationBtn').click();
+  const center = run(context, 'liveMap.getCenter()');
+  assert.strictEqual(center.lat, 37.7749);
+  assert.strictEqual(center.lng, -122.4194);
+});
+
+test('liveMetricGroup: segmented buttons switch metric and sync with liveGsrView and FAB', () => {
+  const { window, context } = bootLive();
+  const tonicBtn = window.document.getElementById('liveMetricTonic');
+  const phasicBtn = window.document.getElementById('liveMetricPhasic');
+  const signalBtn = window.document.getElementById('liveMetricSignal');
+
+  tonicBtn.click();
+  assert.strictEqual(run(context, 'liveGsrView.graphView'), 'tonic');
+  assert.ok(tonicBtn.classList.contains('active'));
+  assert.ok(!signalBtn.classList.contains('active'));
+
+  phasicBtn.click();
+  assert.strictEqual(run(context, 'liveGsrView.graphView'), 'phasic');
+  assert.ok(phasicBtn.classList.contains('active'));
+  assert.ok(!tonicBtn.classList.contains('active'));
+
+  signalBtn.click();
+  assert.strictEqual(run(context, 'liveGsrView.graphView'), 'signal');
+  assert.ok(signalBtn.classList.contains('active'));
+});
+
+test('mount: pre-populates connectErr when Web Bluetooth is not supported', () => {
+  const { window } = bootLive();
+  // boot_live has window.navigator.bluetooth = undefined by default
+  const errEl = window.document.getElementById('connectErr');
+  assert.match(errEl.textContent, /Web Bluetooth/);
+  assert.match(errEl.textContent, /Bluefy/);
 });
 
 test('My Location: a browser with no geolocation alerts instead of throwing', () => {
@@ -1661,14 +1903,17 @@ test('the live view binds no fullscreen control — no #toggleFullscreenBtn, and
 });
 
 // ==========================================================================
-// Recolour backlog cap (PENDING_PHASIC_MAX). drawGraph() drains
-// pendingPhasicSegments, but it is paused while the Live view is off-screen
+// Recolour backlog cap (PENDING_SEGMENTS_MAX). drawGraph() drains
+// pendingSegments, but it is paused while the Live view is off-screen
 // in-app — updateLiveMap() must not let the queue (and the Leaflet
 // polylines it pins) grow without bound in the meantime.
 // ==========================================================================
 
-test('pendingPhasicSegments is capped even when drawGraph() never runs to drain it', () => {
+test('pendingSegments is capped even when drawGraph() never runs to drain it', () => {
   const { window, context } = bootLive();
+  // 'signal' (the default) never queues anything at all — switch to a
+  // metric that does, so there's a queue to cap in the first place.
+  run(context, "liveGsrView.graphView = 'phasic';");
   run(context, 'showMap()');
   // Feed far more consecutive fixes than the cap, never calling drawGraph().
   run(context, `
@@ -1677,7 +1922,7 @@ test('pendingPhasicSegments is capped even when drawGraph() never runs to drain 
         gsrRaw: 1000 + (i % 50), hdop: 1.0, pdop: 1.5, fixType: 3, sats: 9, gap: false });
     }
   `);
-  const queued = run(context, 'pendingPhasicSegments.length');
-  const cap = run(context, 'PENDING_PHASIC_MAX');
+  const queued = run(context, 'pendingSegments.length');
+  const cap = run(context, 'PENDING_SEGMENTS_MAX');
   assert.ok(queued <= cap, `queue (${queued}) stays within the cap (${cap})`);
 });

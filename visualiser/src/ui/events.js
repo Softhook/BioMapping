@@ -1162,8 +1162,10 @@ const GSREvents = {
         AppState.mapManager.map.invalidateSize({ pan: false, debounceMoveend: true });
       }
 
-      if (AppState.analyzer && AppState.analyzer.raw.length > 0) {
+      if (typeof windowResized === 'function') {
         windowResized();
+      }
+      if (AppState.analyzer && AppState.analyzer.raw.length > 0) {
         GSRUI.runAnalysis();
       } else {
         noLoop();
@@ -1231,7 +1233,7 @@ const GSREvents = {
     });
 
     if (btnLiveView) {
-      btnLiveView.addEventListener('click', () => {
+      const enterLiveView = () => {
         if (AppState.viewMode === 'live') return;
         AppState.viewMode = 'live';
         btnLiveView.classList.add('active');
@@ -1265,7 +1267,22 @@ const GSREvents = {
 
         // Nothing on the main canvas to draw while the live view owns the area.
         noLoop();
-      });
+      };
+
+      btnLiveView.addEventListener('click', enterLiveView);
+
+      // Mobile lands on Live by default instead of Single Track — the tab
+      // strip above stays visible and clickable either way (nothing hides
+      // it just because Live is active), so a misdetected device or a
+      // phone user who actually wants Single Track is one tap away, never
+      // stuck. Reuses GSRLiveView.isCompactLayout()'s width+pointer check
+      // rather than a second detection — one signal decides both this and
+      // the Live view's own map-first default. Desktop (AppState.viewMode
+      // stays 'single' as today) is completely unaffected.
+      if (typeof GSRLiveView !== 'undefined' && typeof GSRLiveView.isCompactLayout === 'function' &&
+          GSRLiveView.isCompactLayout()) {
+        enterLiveView();
+      }
     }
   },
 
