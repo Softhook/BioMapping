@@ -124,6 +124,10 @@ class GSRLiveBluetoothManager {
   // connection attempt for the radio.
   abandon() {
     this._abandoned = true;
+    this._userDisconnected = true;
+    this._intentionalClose = true;
+    this._reconnecting = false;
+    this._stopBackgroundWatch();
     if (this._retryWaitController) {
       this._retryWaitController.abort();
       this._retryWaitController = null;
@@ -150,6 +154,7 @@ class GSRLiveBluetoothManager {
   // which a user can change in Settings > System > Device Name; using
   // acceptAllDevices: true allows connecting to a renamed Flipper Zero).
   async connect() {
+    this._userDisconnected = false;
     this.device = await navigator.bluetooth.requestDevice({
       acceptAllDevices: true,
       optionalServices: [BLE_SERVICE_UUID]
@@ -250,8 +255,19 @@ class GSRLiveBluetoothManager {
   // by this). _intentionalClose suppresses the auto-reconnect that the
   // resulting 'gattserverdisconnected' event would otherwise trigger.
   disconnect() {
+    this._userDisconnected = true;
     this._intentionalClose = true;
+    this._reconnecting = false;
+    this._setStatus('disconnected');
     this._stopBackgroundWatch();
+    if (this._retryWaitController) {
+      this._retryWaitController.abort();
+      this._retryWaitController = null;
+    }
+    if (typeof this._retryWaitResolve === 'function') {
+      this._retryWaitResolve();
+      this._retryWaitResolve = null;
+    }
     try {
       if (this.characteristic) {
         this.characteristic.removeEventListener('characteristicvaluechanged', this._onCharValue);
@@ -280,7 +296,7 @@ class GSRLiveBluetoothManager {
   // wait everywhere else — the API isn't universal, notably unavailable on
   // iOS/Bluefy).
   async _waitBeforeRetry(delayMs) {
-    if (this._abandoned) return;
+    if (this._abandoned || this._userDisconnected) return;
     if (!this.device || typeof this.device.watchAdvertisements !== 'function') {
       await new Promise((resolve) => {
         let timer = setTimeout(resolve, delayMs);
@@ -333,7 +349,7 @@ class GSRLiveBluetoothManager {
   // unbounded-retry hazard _handleDisconnect()'s attempt cap exists to
   // avoid (§1.10/§8).
   _startBackgroundWatch() {
-    if (this._bgWatchController || this._abandoned) return;
+    if (this._bgWatchController || this._abandoned || this._userDisconnected) return;
     if (!this.device || typeof this.device.watchAdvertisements !== 'function') return;
     this._bgWatchController = new AbortController();
     this._onBgAdvertisement = () => this._tryBackgroundReconnect();
@@ -359,10 +375,10 @@ class GSRLiveBluetoothManager {
   }
 
   async _tryBackgroundReconnect() {
-    if (this._reconnecting || this._abandoned) return;
+    if (this._reconnecting || this._abandoned || this._userDisconnected) return;
     this._stopBackgroundWatch(); // one-shot; re-armed below if this attempt fails
     const ok = await this.manualReconnect();
-    if (!ok && !this._abandoned) this._startBackgroundWatch();
+    if (!ok && !this._abandoned && !this._userDisconnected) this._startBackgroundWatch();
   }
 
   // Best-effort discovery aid — not a functional fallback (a specific
@@ -406,7 +422,7 @@ class GSRLiveBluetoothManager {
     this._stopBackgroundWatch();
     // disconnect() closed the link on purpose — don't fight it with a
     // reconnect loop. Re-arm for the next real drop.
-    if (this._intentionalClose) {
+    if (this._intentionalClose || this._userDisconnected || this._abandoned) {
       this._intentionalClose = false;
       return;
     }
@@ -415,16 +431,26 @@ class GSRLiveBluetoothManager {
     this._setStatus('reconnecting');
     let lastError = null;
     for (let attempt = 0, delay = 500; attempt < 6; attempt++, delay = Math.min(delay * 2, 8000)) {
-      // Superseded by a "New Connection" mid-loop — stop spending attempts
-      // (and radio time the new connection could use) on a manager nobody
+      // Superseded by a "New Connection" or intentional disconnect mid-loop — stop spending
+      // attempts (and radio time the new connection could use) on a manager nobody
       // is looking at anymore.
       if (this._abandoned) {
         this._reconnecting = false;
         return;
       }
+      if (this._userDisconnected) {
+        this._reconnecting = false;
+        this._setStatus('disconnected');
+        return;
+      }
       await this._waitBeforeRetry(delay);
       if (this._abandoned) {
         this._reconnecting = false;
+        return;
+      }
+      if (this._userDisconnected) {
+        this._reconnecting = false;
+        this._setStatus('disconnected');
         return;
       }
       try {
@@ -433,6 +459,15 @@ class GSRLiveBluetoothManager {
         this._reconnecting = false;
         return;
       } catch (e) {
+        if (this._abandoned) {
+          this._reconnecting = false;
+          return;
+        }
+        if (this._userDisconnected) {
+          this._reconnecting = false;
+          this._setStatus('disconnected');
+          return;
+        }
         lastError = e; // keep retrying within the cap
       }
     }
@@ -441,7 +476,9 @@ class GSRLiveBluetoothManager {
     const msg = (lastError && lastError.message) ? lastError.message : String(lastError);
     console.error('Live: auto-reconnect exhausted —', lastError);
     this.onStatusText(`Auto-reconnect failed: ${msg}`);
-    this._startBackgroundWatch();
+    if (!this._abandoned && !this._userDisconnected) {
+      this._startBackgroundWatch();
+    }
   }
 
   // Returns true on success, false on failure (never throws) — used both by
@@ -450,6 +487,7 @@ class GSRLiveBluetoothManager {
   // the passive watch.
   async manualReconnect() {
     if (!this.device || this._reconnecting) return false;
+    this._userDisconnected = false;
     // Shares _handleDisconnect()'s lock: a timed-out _subscribe() here cancels
     // the pending GATT link via gatt.disconnect(), which some implementations
     // surface as a 'gattserverdisconnected' event — without this flag set,
@@ -497,6 +535,7 @@ class GSRLiveBluetoothManager {
     }
     const match = known.find((d) => d.id === candidateDevice.id);
     if (!match) return false;
+    this._userDisconnected = false;
     this.device = match;
     this.device.addEventListener('gattserverdisconnected', this._onDisconnected);
     let timer;

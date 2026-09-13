@@ -710,7 +710,7 @@ async function cacheCurrentMapArea() {
   const maxZoom = Math.min(startZoom + 3, 18);
 
   const cacheMapBtn = document.getElementById('cacheMapBtn');
-  const originalText = cacheMapBtn.textContent;
+  const originalText = isCompactLiveLayout() ? 'Cache Map' : cacheMapBtn.textContent;
   cacheMapBtn.disabled = true;
   cacheMapBtn.textContent = 'Caching...';
 
@@ -1377,6 +1377,9 @@ const GSRLiveView = {
     connectErr       = document.getElementById('connectErr');
     reconnectErr     = document.getElementById('reconnectErr');
     cacheMapBtn      = document.getElementById('cacheMapBtn');
+    if (cacheMapBtn && isCompactLiveLayout()) {
+      cacheMapBtn.textContent = 'Cache Map';
+    }
     toggleMapBtn     = document.getElementById('toggleMapBtn');
 
     if (typeof navigator !== 'undefined' && !navigator.bluetooth && connectErr) {
@@ -1516,6 +1519,9 @@ const GSRLiveView = {
     // transitions take ~150-300ms to complete and update clientWidth/clientHeight,
     // so delayed invalidations ensure Leaflet and Canvas rescale to final geometry.
     const handleResize = () => {
+      if (typeof window !== 'undefined' && typeof window.scrollTo === 'function') {
+        window.scrollTo(0, 0);
+      }
       if (liveMap && typeof liveMap.invalidateSize === 'function') {
         liveMap.invalidateSize({ pan: false, debounceMoveend: true });
       }

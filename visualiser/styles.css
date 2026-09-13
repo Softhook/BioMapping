@@ -2555,7 +2555,8 @@ input[type="range"]:focus-visible,
 }
 
 .app-container.live-mode,
-.app-container:has(.live-mode) {
+.app-container:has(.live-mode),
+body:has(.live-mode) {
   height: 100vh;
   height: 100dvh;
   overflow: hidden;
@@ -2784,6 +2785,10 @@ input[type="range"]:focus-visible,
   .live-view #app:not(.no-map) #gsrControls {
     display: none;
   }
+  /* In Graph mode (no-map), hide the Cache Map button because there is no map to cache */
+  .live-view #app.no-map #cacheMapBtn {
+    display: none !important;
+  }
   .live-view footer {
     display: none;
   }
@@ -2857,7 +2862,21 @@ input[type="range"]:focus-visible,
 .live-view .live-fab-chip.active { background: var(--text-primary); color: #fff; border-color: var(--text-primary); }
 .live-view .live-fab-chip-action { background: var(--lv-accent); color: #fff; border-color: var(--lv-accent); }
 
-@media (max-width: 480px), ((max-height: 500px) and (pointer: coarse)) {
+/* Mobile screens: prevent the header toolbar buttons from breaking onto multiple lines */
+@media (max-width: 480px), ((max-height: 500px) and (pointer: coarse)), ((max-width: 768px) and (pointer: coarse)) {
+  .live-view header {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+  .live-view header::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* Portrait mobile */
+@media (max-width: 480px), ((max-width: 768px) and (pointer: coarse)) {
   /* Re-declare the safe-area longhands — a `padding` shorthand here would
      otherwise reset the cutout offsets set on the base rules above. */
   .live-view header {
@@ -2868,12 +2887,57 @@ input[type="range"]:focus-visible,
   }
   .live-view header h1 { font-size: 13px; }
   .live-view .badge { font-size: 11px; padding: 2px 6px; }
-  .live-view button { font-size: 11px; padding: 4px 8px; }
+  .live-view button,
+  .live-view .btn-group .btn,
+  .live-view .btn-group .btn-outline,
+  .live-view .btn-group button {
+    font-size: 11px;
+    padding: 4px 6px;
+    height: 32px !important;
+    min-height: 32px !important;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+  }
   .live-view footer {
     padding: 4px 8px; font-size: 10px;
     padding-bottom: max(4px, env(safe-area-inset-bottom));
     padding-left: max(8px, env(safe-area-inset-left));
     padding-right: max(8px, env(safe-area-inset-right));
+  }
+}
+
+/* Landscape on mobile phones: provide generous safe-area insets at the top and corners,
+   and ensure touch targets are comfortable (≥36px) so fingers easily register hits without
+   falling into Android's status bar swipe-down gesture zone or rounded screen corners. */
+@media ((max-height: 500px) and (pointer: coarse)) {
+  .live-view header {
+    padding: 6px 12px; gap: 6px;
+    padding-top: max(10px, env(safe-area-inset-top));
+    padding-left: max(16px, env(safe-area-inset-left));
+    padding-right: max(16px, env(safe-area-inset-right));
+  }
+  .live-view header h1 { font-size: 12px; }
+  .live-view .badge { font-size: 10px; padding: 2px 6px; }
+  .live-view button,
+  .live-view .btn-group .btn,
+  .live-view .btn-group .btn-outline,
+  .live-view .btn-group button {
+    font-size: 11px;
+    padding: 4px 8px;
+    height: 36px !important;
+    min-height: 36px !important;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+  }
+  .live-view .live-exit-display-btn {
+    height: 36px !important;
+    min-height: 36px !important;
+    padding: 4px 12px !important;
+    font-weight: 600;
   }
 }
 

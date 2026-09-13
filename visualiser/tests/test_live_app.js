@@ -2569,3 +2569,43 @@ test('pendingSegments is capped even when drawGraph() never runs to drain it', (
   const cap = run(context, 'PENDING_SEGMENTS_MAX');
   assert.ok(queued <= cap, `queue (${queued}) stays within the cap (${cap})`);
 });
+
+test('disconnect(): immediately aborts in-flight retry wait and does not arm passive background watch', async (t) => {
+  const { window, context } = bootLive();
+  const ble = makeFakeBle(context, { reconnectFailures: 99 });
+  window.navigator.bluetooth = ble.bluetooth;
+  await run(context, 'attemptConnect()');
+  stopLoopAfter(t, context);
+
+  // Start _handleDisconnect() and let it enter the first backoff wait
+  const loop = run(context, 'bleManager._handleDisconnect()');
+  await settle(() => ble.advertisementHandlerCount() === 1);
+
+  assert.strictEqual(run(context, 'bleManager._reconnecting'), true);
+  assert.strictEqual(ble.advertisementHandlerCount(), 1, 'wait listener armed during backoff');
+
+  // User explicitly clicks disconnect / calls disconnect()
+  run(context, 'bleManager.disconnect()');
+  await loop;
+
+  assert.strictEqual(run(context, 'bleManager._userDisconnected'), true);
+  assert.strictEqual(run(context, 'bleManager._reconnecting'), false);
+  assert.strictEqual(run(context, 'LiveState.status'), 'disconnected');
+  assert.strictEqual(ble.advertisementHandlerCount(), 0, 'passive background watch must not be armed after user disconnect');
+});
+
+test('compact mobile layout: sets Cache Map button label without shortcut suffix', () => {
+  const { window } = bootLive({ compact: true });
+  const cacheMapBtn = window.document.getElementById('cacheMapBtn');
+  assert.strictEqual(cacheMapBtn.textContent, 'Cache Map');
+});
+
+test('orientation change resets window scroll position to (0, 0)', () => {
+  const { window } = bootLive();
+  let scrolledTo = null;
+  window.scrollTo = (x, y) => { scrolledTo = [x, y]; };
+
+  window.dispatchEvent(new window.Event('orientationchange'));
+  assert.deepStrictEqual(scrolledTo, [0, 0], 'orientation change resets scroll drift to origin');
+});
+
