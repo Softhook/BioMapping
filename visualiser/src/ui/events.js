@@ -1098,6 +1098,8 @@ const GSREvents = {
     // untouched — so re-entering just resumes.
     const exitLiveView = () => {
       appMainLayout.classList.remove('live-mode');
+      const appContainer = document.querySelector('.app-container');
+      if (appContainer) appContainer.classList.remove('live-mode');
       if (btnLiveView) btnLiveView.classList.remove('active');
       // Restore the mobile hamburger — there are controls to reach again.
       const sbToggle = document.getElementById('btnSidebarToggle');
@@ -1242,6 +1244,8 @@ const GSREvents = {
 
         appMainLayout.classList.remove('collective-mode');
         appMainLayout.classList.add('live-mode');
+        const appContainer = document.querySelector('.app-container');
+        if (appContainer) appContainer.classList.add('live-mode');
         contourSettingsCard.style.display = 'none';
         collectiveOnlyMapBtns.forEach(btn => btn.style.display = 'none');
 

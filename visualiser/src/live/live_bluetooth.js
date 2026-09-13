@@ -508,6 +508,15 @@ class GSRLiveBluetoothManager {
       this._setStatus('connected');
       return true;
     } catch (e) {
+      if (this.device) {
+        this.device.removeEventListener('gattserverdisconnected', this._onDisconnected);
+        try {
+          if (this.device.gatt && typeof this.device.gatt.disconnect === 'function') {
+            this.device.gatt.disconnect();
+          }
+        } catch (e2) {}
+        this.device = null;
+      }
       return false;
     } finally {
       clearTimeout(timer);

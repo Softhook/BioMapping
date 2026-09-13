@@ -240,7 +240,8 @@ const GSRLayoutManager = {
 
   /** @private Whether the Live view tab is the one on screen. */
   _isLiveView() {
-    return typeof AppState !== 'undefined' && AppState.viewMode === 'live';
+    return (typeof AppState !== 'undefined' && AppState.viewMode === 'live') ||
+      !!(typeof document !== 'undefined' && document.querySelector('.app-container.live-mode'));
   },
 
   /** @private Whether Live display mode is currently on. */
@@ -265,6 +266,12 @@ const GSRLayoutManager = {
     if (!app) return;
     app.classList.add('live-display-mode');
     AppState.isDisplayMode = true;
+    const btn = document.getElementById('btnFullscreen');
+    if (btn) {
+      const ic = btn.querySelector('i');
+      if (ic) ic.className = 'fa-solid fa-compress';
+      btn.classList.add('is-fullscreen');
+    }
     if (!this.Fullscreen.active) this.Fullscreen.request(app);
     if (typeof GSRLiveView !== 'undefined' && GSRLiveView.onDisplayModeChange) {
       GSRLiveView.onDisplayModeChange(true);
@@ -275,6 +282,12 @@ const GSRLayoutManager = {
     const app = document.querySelector('.app-container');
     if (app) app.classList.remove('live-display-mode');
     AppState.isDisplayMode = false;
+    const btn = document.getElementById('btnFullscreen');
+    if (btn) {
+      const ic = btn.querySelector('i');
+      if (ic) ic.className = 'fa-solid fa-expand';
+      btn.classList.remove('is-fullscreen');
+    }
     if (this.Fullscreen.active) this.Fullscreen.exit();
     if (typeof GSRLiveView !== 'undefined' && GSRLiveView.onDisplayModeChange) {
       GSRLiveView.onDisplayModeChange(false);
@@ -350,6 +363,10 @@ const GSRLayoutManager = {
     };
 
     btn.addEventListener('click', () => {
+      if (this._isLiveView()) {
+        this.toggleLiveDisplayMode();
+        return;
+      }
       if (this.Fullscreen.active) {
         this.Fullscreen.exit();
       } else {

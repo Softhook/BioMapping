@@ -246,9 +246,31 @@ function bootLive({ compact = false } = {}) {
   };
   window.navigator.wakeLock = { request: async () => ({ released: false, release: async () => {} }) };
   window.document.documentElement.requestFullscreen = () => Promise.resolve();
-  window.document.exitFullscreen = () => Promise.resolve();
   window.URL.createObjectURL = window.URL.createObjectURL || (() => 'blob:mock-url');
   window.URL.revokeObjectURL = window.URL.revokeObjectURL || (() => {});
+  window.ResizeObserver = class {
+    constructor(cb) { this._cb = cb; }
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  };
+  window.screen = window.screen || {};
+  if (!window.screen.orientation) {
+    const orientationListeners = [];
+    window.screen.orientation = {
+      type: 'portrait-primary',
+      angle: 0,
+      addEventListener: (type, fn) => { if (type === 'change') orientationListeners.push(fn); },
+      removeEventListener: (type, fn) => {
+        const idx = orientationListeners.indexOf(fn);
+        if (idx !== -1) orientationListeners.splice(idx, 1);
+      },
+      dispatchEvent: (e) => {
+        orientationListeners.forEach(fn => fn(e));
+        return true;
+      },
+    };
+  }
 
   const context = vm.createContext(window);
   for (const file of LIVE_SCRIPT_ORDER) {

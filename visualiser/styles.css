@@ -134,6 +134,39 @@ body {
   margin-left: auto;
 }
 
+#appHeaderStatusBadge {
+  display: none;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border-glass);
+  color: var(--text-muted);
+  white-space: nowrap;
+  letter-spacing: 0.2px;
+  text-transform: none;
+}
+#appHeaderStatusBadge.live {
+  color: var(--success, #16a34a);
+  border-color: var(--success, #16a34a);
+  background: rgba(22, 163, 74, 0.08);
+}
+#appHeaderStatusBadge.warn {
+  color: var(--warning, #d97706);
+  border-color: var(--warning, #d97706);
+  background: rgba(217, 119, 6, 0.08);
+}
+#appHeaderStatusBadge.bad {
+  color: var(--danger, #dc2626);
+  border-color: var(--danger, #dc2626);
+  background: rgba(220, 38, 38, 0.08);
+}
+
+.app-container.live-mode #appHeaderStatusBadge {
+  display: inline-flex;
+  align-items: center;
+}
+
 
 
 .header-logo {
@@ -1487,19 +1520,35 @@ input[type="range"]:focus-visible,
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
- * Mobile phones (≤768px): the sidebar becomes an off-canvas drawer so the
- * map / graph / Live view own the screen instead of being pushed below a
- * full-height control column. Driven by #btnSidebarToggle + #sidebarBackdrop
- * (markup) and GSREvents.bindMobileSidebar() (the .sidebar-open class).
+ * Mobile phones (≤768px, or coarse pointer in landscape ≤500px): the sidebar
+ * becomes an off-canvas drawer so the map / graph / Live view own the screen
+ * instead of being pushed below a full-height control column. Driven by
+ * #btnSidebarToggle + #sidebarBackdrop (markup) and GSREvents.bindMobileSidebar()
+ * (the .sidebar-open class).
  * ──────────────────────────────────────────────────────────────────────────── */
-@media (max-width: 768px) {
+@media (max-width: 768px), ((max-height: 500px) and (pointer: coarse)) {
   /* Header wraps rather than crushing the view tabs off-screen; the tabs get
      real tap targets. #btnFullscreen stays — in the Live view it is the only
      fullscreen affordance (the panel's own button is hidden in-app). */
-  .app-header { padding: 8px 12px; flex-wrap: wrap; gap: 6px 10px; }
+  .app-header {
+    padding: 8px 12px;
+    padding-top: max(8px, env(safe-area-inset-top));
+    padding-left: max(12px, env(safe-area-inset-left));
+    padding-right: max(12px, env(safe-area-inset-right));
+    flex-wrap: wrap;
+    gap: 6px 10px;
+  }
+  .header-left {
+    width: 100%;
+    justify-content: flex-start;
+  }
+  .header-left #appHeaderStatusBadge {
+    margin-left: auto;
+  }
   /* On its own wrapped row the tab strip gets the full phone width, so the
      three tabs sit side by side with comfortable tap targets. */
   .header-right { width: 100%; margin-left: 0; justify-content: flex-start; gap: 2px; }
+  .header-right #btnFullscreen { margin-left: auto; }
   .view-switcher { flex-wrap: wrap; }
   .header-logo h1 { font-size: 1rem; }
   .view-tab { padding: 8px 10px; font-size: 0.8rem; }
@@ -2505,8 +2554,18 @@ input[type="range"]:focus-visible,
   overflow: hidden;
 }
 
+.app-container.live-mode,
+.app-container:has(.live-mode) {
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+}
+
 .main-layout.live-mode {
   grid-template-columns: 1fr;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
 }
 
 /* Live view "display mode" (F key) — edge-to-edge: .live-mode already hides
@@ -2521,6 +2580,15 @@ input[type="range"]:focus-visible,
   display: none;
 }
 
+.live-exit-display-btn {
+  display: none !important;
+}
+.app-container.live-display-mode .live-exit-display-btn {
+  display: inline-flex !important;
+  align-items: center;
+  gap: 4px;
+}
+
 .main-layout.live-mode .sidebar,
 .main-layout.live-mode .main-content > section:not(#livePanel) {
   display: none !important;
@@ -2529,10 +2597,14 @@ input[type="range"]:focus-visible,
 .main-layout.live-mode .main-content {
   padding-right: 0;
   overflow: hidden;
+  height: 100%;
+  min-height: 0;
 }
 
 .main-layout.live-mode #livePanel {
   display: flex;
+  height: 100%;
+  min-height: 0;
 }
 
 /* In-app the main header already says "Bio Mapping 2" — drop the live view's
@@ -2712,6 +2784,12 @@ input[type="range"]:focus-visible,
   .live-view #app:not(.no-map) #gsrControls {
     display: none;
   }
+  .live-view footer {
+    display: none;
+  }
+  .main-layout.live-mode #livePanel header #statusBadge {
+    display: none;
+  }
 }
 
 /* Floating action button — mobile-only (hidden by default below; the
@@ -2731,7 +2809,24 @@ input[type="range"]:focus-visible,
   gap: 10px;
 }
 @media ((max-width: 768px) and (pointer: coarse)), ((max-height: 500px) and (pointer: coarse)) {
-  .live-fab { display: flex; }
+  .live-fab {
+    display: flex;
+    bottom: max(16px, env(safe-area-inset-bottom));
+  }
+}
+
+/* Safe area insets for Leaflet controls in live view (protects against cutouts in edge-to-edge mode) */
+.live-view .leaflet-top {
+  top: max(0px, env(safe-area-inset-top));
+}
+.live-view .leaflet-left {
+  left: max(0px, env(safe-area-inset-left));
+}
+.live-view .leaflet-right {
+  right: max(0px, env(safe-area-inset-right));
+}
+.live-view .leaflet-bottom {
+  bottom: max(0px, env(safe-area-inset-bottom));
 }
 /* `.live-view button` (below) is an element+class selector — specificity
    (0,1,1) — which would otherwise beat a bare `.live-fab-toggle`/
@@ -2762,7 +2857,7 @@ input[type="range"]:focus-visible,
 .live-view .live-fab-chip.active { background: var(--text-primary); color: #fff; border-color: var(--text-primary); }
 .live-view .live-fab-chip-action { background: var(--lv-accent); color: #fff; border-color: var(--lv-accent); }
 
-@media (max-width: 480px) {
+@media (max-width: 480px), ((max-height: 500px) and (pointer: coarse)) {
   /* Re-declare the safe-area longhands — a `padding` shorthand here would
      otherwise reset the cutout offsets set on the base rules above. */
   .live-view header {

@@ -106,6 +106,7 @@ test('clicking Live switches viewMode, adds the live-mode class, moves the activ
 
   assert.strictEqual(window.AppState.viewMode, 'live');
   assert.ok(layout.classList.contains('live-mode'), 'layout gains live-mode');
+  assert.ok(window.document.querySelector('.app-container').classList.contains('live-mode'), 'app-container gains live-mode');
   assert.ok(btnLive.classList.contains('active'), 'Live tab is active');
   assert.ok(!btnSingle.classList.contains('active'), 'Single tab no longer active');
   assert.ok(!btnCollective.classList.contains('active'), 'Collective tab not active');
@@ -129,7 +130,8 @@ test('switching Live -> Single tears down live-mode and restores the single view
   click(btnSingle);
 
   assert.strictEqual(window.AppState.viewMode, 'single');
-  assert.ok(!layout.classList.contains('live-mode'), 'live-mode class removed');
+  assert.ok(!layout.classList.contains('live-mode'), 'live-mode class removed from layout');
+  assert.ok(!window.document.querySelector('.app-container').classList.contains('live-mode'), 'live-mode class removed from app-container');
   assert.ok(btnSingle.classList.contains('active'));
   assert.ok(!btnLive.classList.contains('active'), 'Live tab deactivated');
 });
@@ -140,7 +142,8 @@ test('switching Live -> Collective tears down live-mode and enters collective-mo
   click(btnCollective);
 
   assert.strictEqual(window.AppState.viewMode, 'collective');
-  assert.ok(!layout.classList.contains('live-mode'), 'live-mode class removed');
+  assert.ok(!layout.classList.contains('live-mode'), 'live-mode class removed from layout');
+  assert.ok(!window.document.querySelector('.app-container').classList.contains('live-mode'), 'live-mode class removed from app-container');
   assert.ok(layout.classList.contains('collective-mode'), 'collective-mode class added');
   assert.ok(!btnLive.classList.contains('active'), 'Live tab deactivated');
 });
@@ -266,4 +269,74 @@ test('entering Live mode stops the p5 draw loop (noLoop), leaving the canvas idl
   click(btnLive);
 
   assert.ok(noLoopCalls >= 1, 'noLoop() called on entering Live view');
+});
+
+test('header status badge exists and updates with connection status in live mode', () => {
+  const { window, document, btnLive, click } = boot();
+  const headerBadge = document.getElementById('appHeaderStatusBadge');
+  assert.ok(headerBadge, '#appHeaderStatusBadge present in header-left');
+
+  click(btnLive);
+  const appContainer = document.querySelector('.app-container');
+  assert.ok(appContainer.classList.contains('live-mode'), 'app-container has live-mode');
+
+  // Verify status update in live view updates both badges
+  window.LiveState.setStatus('connected');
+  assert.strictEqual(headerBadge.textContent, 'Live');
+  assert.ok(headerBadge.classList.contains('live'));
+
+  window.LiveState.setStatus('disconnected');
+  assert.strictEqual(headerBadge.textContent, 'Disconnected');
+  assert.ok(headerBadge.classList.contains('bad'));
+});
+
+test('clicking #btnFullscreen in live mode toggles live-display-mode edge-to-edge', () => {
+  const { window, document, btnLive, click } = boot();
+  const appContainer = document.querySelector('.app-container');
+  appContainer.requestFullscreen = () => Promise.resolve();
+  document.exitFullscreen = () => Promise.resolve();
+
+  click(btnLive);
+  const btnFs = document.getElementById('btnFullscreen');
+  assert.ok(btnFs, '#btnFullscreen exists');
+
+  // Clicking fullscreen in live mode enters live-display-mode
+  click(btnFs);
+  assert.ok(appContainer.classList.contains('live-display-mode'), 'enters live-display-mode on click');
+  assert.ok(btnFs.classList.contains('is-fullscreen'));
+
+  // Clicking fullscreen again exits live-display-mode
+  click(btnFs);
+  assert.ok(!appContainer.classList.contains('live-display-mode'), 'exits live-display-mode on click');
+  assert.ok(!btnFs.classList.contains('is-fullscreen'));
+});
+
+test('in live-display-mode, FAB menu offers Exit Full Screen chip and toolbar offers Exit button', () => {
+  const { window, document, btnLive, click } = boot();
+  const appContainer = document.querySelector('.app-container');
+  appContainer.requestFullscreen = () => Promise.resolve();
+  document.exitFullscreen = () => Promise.resolve();
+
+  click(btnLive);
+  const btnFs = document.getElementById('btnFullscreen');
+  click(btnFs);
+  assert.ok(appContainer.classList.contains('live-display-mode'));
+
+  // Check FAB menu has exit chip
+  const fabMenu = document.getElementById('liveFabMenu');
+  assert.ok(fabMenu, 'liveFabMenu exists');
+  const exitChip = fabMenu.querySelector('[data-action="exit-fullscreen"]');
+  assert.ok(exitChip, 'FAB menu has exit-fullscreen chip');
+
+  // Clicking the FAB exit chip exits display mode
+  click(exitChip);
+  assert.ok(!appContainer.classList.contains('live-display-mode'), 'clicking exit chip exits display mode');
+
+  // Enter again and test toolbar exit button
+  click(btnFs);
+  assert.ok(appContainer.classList.contains('live-display-mode'));
+  const toolbarExitBtn = document.getElementById('liveBtnExitDisplay');
+  assert.ok(toolbarExitBtn, '#liveBtnExitDisplay exists');
+  click(toolbarExitBtn);
+  assert.ok(!appContainer.classList.contains('live-display-mode'), 'clicking toolbar exit button exits display mode');
 });

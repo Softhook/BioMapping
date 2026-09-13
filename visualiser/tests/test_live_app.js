@@ -579,6 +579,42 @@ test('a window resize invalidates the live map\'s size (not just activate()/onDi
   assert.strictEqual(run(context, 'liveMap.calls.invalidateSize'), before + 1);
 });
 
+test('an orientationchange event invalidates the live map size immediately and on delayed passes', async () => {
+  const { window, context } = bootLive();
+  run(context, 'showMap()');
+  const before = run(context, 'liveMap.calls.invalidateSize');
+
+  window.dispatchEvent(new window.Event('orientationchange'));
+  assert.ok(run(context, 'liveMap.calls.invalidateSize') >= before + 1, 'synchronous invalidation on orientationchange');
+
+  await new Promise(r => setTimeout(r, 350));
+  assert.ok(run(context, 'liveMap.calls.invalidateSize') >= before + 3, 'delayed invalidation passes run after WebKit orientation transition');
+});
+
+test('a screen.orientation change event invalidates the live map size', async () => {
+  const { window, context } = bootLive();
+  run(context, 'showMap()');
+  const before = run(context, 'liveMap.calls.invalidateSize');
+
+  window.screen.orientation.dispatchEvent(new window.Event('change'));
+  assert.ok(run(context, 'liveMap.calls.invalidateSize') >= before + 1, 'invalidation on screen.orientation change');
+});
+
+test('connectBtn is disabled during connecting/reconnecting, and enabled on disconnected', () => {
+  const { window, context } = bootLive();
+  const connectBtn = window.document.getElementById('connectBtn');
+  assert.strictEqual(connectBtn.disabled, false, 'enabled when disconnected');
+
+  run(context, "LiveState.setStatus('connecting')");
+  assert.strictEqual(connectBtn.disabled, true, 'disabled when connecting');
+
+  run(context, "LiveState.setStatus('reconnecting')");
+  assert.strictEqual(connectBtn.disabled, true, 'disabled when reconnecting');
+
+  run(context, "LiveState.setStatus('disconnected')");
+  assert.strictEqual(connectBtn.disabled, false, 're-enabled when disconnected');
+});
+
 // ==========================================================================
 // goToLatLon() / the manual location picker — this is what makes pre-trip
 // caching possible without any GPS fix at all (device or browser).
@@ -2066,6 +2102,22 @@ test('renderStatus: maps each connection status to its badge label and modifier 
   run(context, "renderStatus('something-else')");
   assert.strictEqual(badge.textContent, 'Not connected');
   assert.strictEqual(badge.className, 'badge');
+});
+
+test('renderStatus: also updates #appHeaderStatusBadge when mounted in index.html', () => {
+  const { window, context } = bootLive();
+  const headerBadge = window.document.createElement('span');
+  headerBadge.id = 'appHeaderStatusBadge';
+  headerBadge.className = 'badge';
+  window.document.body.appendChild(headerBadge);
+
+  run(context, "renderStatus('connected')");
+  assert.strictEqual(headerBadge.textContent, 'Live');
+  assert.strictEqual(headerBadge.className, 'badge live');
+
+  run(context, "renderStatus('disconnected')");
+  assert.strictEqual(headerBadge.textContent, 'Disconnected');
+  assert.strictEqual(headerBadge.className, 'badge bad');
 });
 
 test('the animation loop starts only while connected/reconnecting and stops (with one final redraw) otherwise', (t) => {

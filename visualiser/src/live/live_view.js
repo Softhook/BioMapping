@@ -94,6 +94,7 @@ const LIVE_VIEW_MARKUP = `
       <button class="btn btn-outline" id="exportBtn" disabled>Export CSV</button>
       <button class="btn btn-outline" id="toggleMapBtn">Show Map (M)</button>
       <button class="btn btn-outline" id="cacheMapBtn" disabled>Cache Map (C)</button>
+      <button class="btn btn-outline live-exit-display-btn" id="liveBtnExitDisplay" style="display: none;"><i class="fa-solid fa-compress"></i> Exit</button>
     </div>
   </header>
 
@@ -1046,6 +1047,9 @@ const LiveConnectionController = {
     } else {
       connectionBtn.style.display = 'none';
     }
+    if (connectBtn) {
+      connectBtn.disabled = (status === 'connecting' || status === 'reconnecting');
+    }
   },
 
   async handleAction() {
@@ -1122,8 +1126,16 @@ function renderStatus(status) {
     disconnected: ['Disconnected', 'bad'],
   };
   const [text, cls] = labels[status] || ['Not connected', ''];
-  statusBadge.textContent = text;
-  statusBadge.className = 'badge' + (cls ? ' ' + cls : '');
+  if (statusBadge) {
+    statusBadge.textContent = text;
+    statusBadge.className = 'badge' + (cls ? ' ' + cls : '');
+  }
+
+  const headerBadge = document.getElementById('appHeaderStatusBadge');
+  if (headerBadge) {
+    headerBadge.textContent = text;
+    headerBadge.className = 'badge' + (cls ? ' ' + cls : '');
+  }
 
   LiveConnectionController.render(status);
 
@@ -1284,6 +1296,10 @@ function renderFabMenu() {
   } else {
     chips.push('<button type="button" class="live-fab-chip live-fab-chip-action" data-action="map"><i class="fa-solid fa-map"></i> Map</button>');
   }
+  const isDisplayMode = typeof document !== 'undefined' && !!document.querySelector('.app-container.live-display-mode');
+  if (isDisplayMode) {
+    chips.push('<button type="button" class="live-fab-chip live-fab-chip-action" data-action="exit-fullscreen"><i class="fa-solid fa-compress"></i> Exit Full Screen</button>');
+  }
   liveFabMenu.innerHTML = chips.join('');
 }
 
@@ -1306,6 +1322,10 @@ function bindLiveFab() {
       setMapVisible(false);
     } else if (btn.dataset.action === 'map') {
       setMapVisible(true);
+    } else if (btn.dataset.action === 'exit-fullscreen') {
+      if (typeof GSRLayoutManager !== 'undefined' && GSRLayoutManager.exitLiveDisplayMode) {
+        GSRLayoutManager.exitLiveDisplayMode();
+      }
     }
     closeFabMenu();
   });
@@ -1423,6 +1443,15 @@ const GSRLiveView = {
 
     toggleMapBtn.addEventListener('click', () => setMapVisible(!mapVisible));
 
+    const liveBtnExitDisplay = document.getElementById('liveBtnExitDisplay');
+    if (liveBtnExitDisplay) {
+      liveBtnExitDisplay.addEventListener('click', () => {
+        if (typeof GSRLayoutManager !== 'undefined' && GSRLayoutManager.exitLiveDisplayMode) {
+          GSRLayoutManager.exitLiveDisplayMode();
+        }
+      });
+    }
+
     const metricGroup = document.getElementById('liveMetricGroup');
     if (metricGroup) {
       metricGroup.addEventListener('click', (e) => {
@@ -1480,15 +1509,39 @@ const GSRLiveView = {
       }
     });
 
-    // liveMap isn't under any ResizeObserver — invalidateSize() so a phone
-    // rotation or a desktop window resize (including one crossing the
-    // isCompactLiveLayout() breakpoint) doesn't leave it rendering at a
-    // stale size. activate()/onDisplayModeChange() below already do this;
-    // a bare window resize never did.
-    window.addEventListener('resize', () => {
-      if (liveMap && typeof liveMap.invalidateSize === 'function') liveMap.invalidateSize();
+    // Invalidate liveMap and redraw graph on resize or orientation change.
+    // Also observe the container with ResizeObserver so any container
+    // dimension changes (e.g. mobile orientation change, display mode toggle)
+    // cleanly trigger re-measurement. For mobile WebKit / iOS Safari, orientation
+    // transitions take ~150-300ms to complete and update clientWidth/clientHeight,
+    // so delayed invalidations ensure Leaflet and Canvas rescale to final geometry.
+    const handleResize = () => {
+      if (liveMap && typeof liveMap.invalidateSize === 'function') {
+        liveMap.invalidateSize({ pan: false, debounceMoveend: true });
+      }
       drawGraph();
+    };
+
+    window.addEventListener('resize', handleResize);
+    window.addEventListener('orientationchange', () => {
+      handleResize();
+      setTimeout(handleResize, 100);
+      setTimeout(handleResize, 300);
     });
+    if (typeof screen !== 'undefined' && screen.orientation && typeof screen.orientation.addEventListener === 'function') {
+      screen.orientation.addEventListener('change', () => {
+        handleResize();
+        setTimeout(handleResize, 100);
+        setTimeout(handleResize, 300);
+      });
+    }
+
+    if (typeof ResizeObserver !== 'undefined' && container) {
+      const ro = new ResizeObserver(() => {
+        handleResize();
+      });
+      ro.observe(container);
+    }
 
     updateToggleMapBtn();
     renderFabMenu();
@@ -1508,6 +1561,7 @@ const GSRLiveView = {
   // calls them (viewActive stays true from load).
   activate() {
     viewActive = true;
+    renderStatus(LiveState.status || 'disconnected');
     // The Leaflet map may have been created / last sized while #livePanel was
     // display:none; re-measure now that it's visible, then redraw the graph
     // at its real dimensions.
@@ -1550,6 +1604,7 @@ const GSRLiveView = {
       liveMap.invalidateSize();
     }
     drawGraph();
+    renderFabMenu();
   },
 
   // Exposed so src/ui/events.js can pick index.html's initial view tab
