@@ -48,6 +48,7 @@ const LIVE_SCRIPT_ORDER = [
   'src/core/constants.js',
   'src/signal/gsr_filter.js',
   'src/signal/deconvolution.js',
+  'src/signal/spectral_eda.js',
   'src/signal/analyzer_time_format.js',
   'src/signal/analyzer.js',
   'src/map/map_colors.js',

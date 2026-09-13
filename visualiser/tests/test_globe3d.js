@@ -520,6 +520,34 @@ test('wall height uses the arousal heightMetric even when colour is a non-magnit
   mgr.destroy();
 });
 
+test('wall height follows EDASymp itself (smooth spectral series, not the spiky phasic fallback)', () => {
+  freshEnv();
+  const { GSRGlobeManager } = loadFresh();
+  const mgr = new GSRGlobeManager('c', { keyboardFlight: false, heightMetric: 'phasic' });
+
+  const analyzer = {
+    raw: [{}, {}],
+    edasymp: [{ val: 0.02 }, { val: 0.08 }],   // colour AND height series
+    phasic: [{ val: 1 }, { val: 5 }],          // would make a jagged wall if used
+  };
+  const drawPoints = [
+    { lat: 0, lon: 0, time: 0, origIdx: 0 },
+    { lat: 0.001, lon: 0.001, time: 1, origIdx: 1 },
+  ];
+  mgr.activeColoringMetric = 'edasymp';
+  mgr.extrusionScale = 10;
+  mgr.baseHeight = 2;
+  mgr.flyToTrack = () => {};
+
+  const { seg } = installWallCapture();
+  mgr.renderData(analyzer, {}, { drawPoints, colorMetric: 'edasymp' });
+  assert.strictEqual(seg.length, 1);
+  // h = baseHeight + edasymp * extrusionScale  ->  [2 + 0.02*10, 2 + 0.08*10]
+  // NOT the phasic fallback ([12, 52]) — EDASymp must not look like SCR spikes.
+  assert.deepStrictEqual(seg[0].maxHeights, [2.2, 2.8]);
+  mgr.destroy();
+});
+
 // ── Peak click (3D counterpart of a 2D peak-marker click) ─────────────────
 
 test('a LEFT_CLICK on a peak marker reports its analyzer.peaks index to onPeakClick', () => {

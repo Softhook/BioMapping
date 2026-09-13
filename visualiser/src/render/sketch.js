@@ -235,7 +235,8 @@ function draw() {
     peakDensity:  { steps: [[5, 1], [20, 2], [60, 5], [200, 20]],                  defaultStep: 10,  decimals: 0, unit: ' /min' },
     phasicAUC:    { steps: [[0.5, 0.05], [2, 0.2], [5, 0.5], [20, 2]],             defaultStep: 5,   decimals: 2, unit: ' \u03bcS\u00b7s' },
     arousalIndex: { steps: [[1, 0.2], [3, 0.5], [6, 1], [12, 2]],                  defaultStep: 1,   decimals: 1, unit: ' z' },
-    triIndex:     { steps: [[1, 0.2], [3, 0.5], [6, 1], [12, 2]],                  defaultStep: 1,   decimals: 1, unit: ' z' }
+    triIndex:     { steps: [[1, 0.2], [3, 0.5], [6, 1], [12, 2]],                  defaultStep: 1,   decimals: 1, unit: ' z' },
+    edasymp:      { steps: [[0.002, 0.0002], [0.01, 0.001], [0.05, 0.005], [0.2, 0.02]], defaultStep: 0.02, decimals: 4, unit: ' \u03bcS\u00b2' }
   };
   if (driverCfg) {
     lowerGridPresets.phasicDriver = {

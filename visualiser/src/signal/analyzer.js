@@ -18,6 +18,9 @@ if (typeof module !== 'undefined' && module.exports) {
   if (typeof global.CVXEDA === 'undefined') {
     try { global.CVXEDA = require('./cvxeda.js'); } catch (_) {}
   }
+  if (typeof global.SpectralEDA === 'undefined') {
+    try { global.SpectralEDA = require('./spectral_eda.js').SpectralEDA; } catch (_) {}
+  }
 }
 
 class GSRAnalyzer {
@@ -52,6 +55,12 @@ class GSRAnalyzer {
     this.phasicAUCIsISCR = false; // true when phasicAUC integrated the driver (see above)
     this.arousalIndex = []; // Combined tonic+phasic z-scored blend: { time, val }
     this.triIndex = [];     // Tri Index (tonic + phasic AUC + peak density) z-scored blend: { time, val }
+    this.edasymp = [];      // EDASymp spectral sympathetic index: { time, val } — µS²
+                            // (Posada-Quintero & Chon 2016, 0.045–0.25 Hz band power).
+                            // Computed from this.raw by SpectralEDA (spectral_eda.js),
+                            // independent of the filter/detector sliders, and cached
+                            // across re-analyses keyed on raw identity + length.
+    this._edasympCache = null;
 
     // Deconvolution state (Benedek & Kaernbach, 2010).
     this.phasicDriver = [];       // Raw driver signal: { time, val }
@@ -617,6 +626,7 @@ class GSRAnalyzer {
       this.phasicAUCIsISCR = false;
     }
     this.triIndex = this.computeTriIndex(triCfg.wTonic, triCfg.wPhasic, triCfg.wDensity, this.phasicAUC, this.peakDensity);
+    this._computeEDASymp();
     const efArr = this._seriesPool.em_fog;
     let efMn = Infinity, efMx = -Infinity;
     for (let i = 0; i < n; i++) {
@@ -1315,12 +1325,13 @@ class GSRAnalyzer {
       const r = this._seriesRange[key];
       if (r) this._globalRange[key] = r;
     }
-    for (const key of ['peakDensity', 'triIndex']) {
+    for (const key of ['peakDensity', 'triIndex', 'edasymp']) {
       const arr = this[key];
       if (!arr || arr.length === 0) continue;
       let mn = Infinity, mx = -Infinity;
       for (let i = 0; i < arr.length; i++) {
-        const v = arr[i].val;
+        let v = arr[i].val;
+        if (isNaN(v)) v = 0; // EDASymp yields 0 (not NaN) for a flat/zero-power band
         if (v < mn) mn = v;
         if (v > mx) mx = v;
       }
@@ -2411,6 +2422,47 @@ class GSRAnalyzer {
       };
     }
     return triIndex;
+  }
+
+  /**
+   * EDASymp (0.045–0.25 Hz spectral sympathetic index) — Posada-Quintero &
+   * Chon (2016), computed by the pure SpectralEDA module (spectral_eda.js).
+   *
+   * Runs on the RAW µS signal (this.raw[i].val) so it is independent of the
+   * median / low-pass / tonic / detector sliders — a standalone spectral
+   * metric, not a by-product of the decomposition. Because it only depends on
+   * the raw data (and sample rate), the per-sample series is cached across
+   * re-analyses keyed on raw identity + length, so slider drags don't re-run
+   * the Welch windowing.
+   *
+   * Guarded with `typeof SpectralEDA !== 'undefined'` so vm-based test
+   * loaders that don't load spectral_eda.js still run analyze() (they just
+   * leave edasymp empty) — same convention as GSRNotices.
+   * @private
+   */
+  _computeEDASymp() {
+    const n = this.raw.length;
+    if (n === 0 || typeof SpectralEDA === 'undefined') { this.edasymp = []; return; }
+
+    const cache = this._edasympCache;
+    if (cache && cache.raw === this.raw && cache.n === n) {
+      this.edasymp = cache.edasymp;
+      return;
+    }
+
+    const cfg = (typeof GSR_CONST !== 'undefined' && GSR_CONST.EDASYMP) || {};
+    const signal = new Float64Array(n);
+    const times = new Float64Array(n);
+    for (let i = 0; i < n; i++) {
+      signal[i] = this.raw[i].val;
+      times[i] = this.raw[i].time;
+    }
+    const series = SpectralEDA.computeSeries(signal, times, this.sampleRate, {
+      windowSec: cfg.windowSec,
+      hopSec: cfg.hopSec,
+    });
+    this.edasymp = SpectralEDA.mapToSamples(series, times);
+    this._edasympCache = { raw: this.raw, n, edasymp: this.edasymp };
   }
 
   getStats() {

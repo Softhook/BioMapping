@@ -1,6 +1,7 @@
 # EDASymp (0.045–0.25 Hz) Spectral Sympathetic Index — Investigation & Design Proposal
 
-**Status: Proposal & Research Roadmap — Not yet implemented in production.**  
+**Status: Implemented (2026-09-13) — shipped as a standalone metric in the graph + map dropdowns.**  
+The sliding-Welch implementation lives in `visualiser/src/signal/spectral_eda.js` (exposed as `analyzer.edasymp`), and the NeuroKit2 cross-check lives in `visualiser/tests/manual/neurokit_compare/check_edasymp.sh` (per-track ratio ≈ 1.01–1.03, cross-track r ≈ 0.9997). The roadmap below remains as the design record.  
 Documents the scientific rationale, mathematical formulation, and system architecture for a frequency-domain sympathetic arousal metric based on **Posada-Quintero & Chon (2016, 2020)** and NeuroKit2's `nk.eda_sympathetic()`.
 
 ---

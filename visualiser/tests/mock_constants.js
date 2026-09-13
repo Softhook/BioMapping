@@ -102,6 +102,10 @@ module.exports = {
     windowAucSec: 30, windowDensitySec: 60
   },
 
+  EDASYMP: {
+    windowSec: 64, hopSec: 5
+  },
+
   TOPOGRAPHY_SOURCES: {
     phasic:        { label: 'Phasic Arousal', unit: ' μS' },
     tonic:         { label: 'Tonic Baseline (SCL)', unit: ' μS' },

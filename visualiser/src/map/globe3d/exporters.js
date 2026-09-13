@@ -15,7 +15,7 @@
 // colouring metric -> analyzer per-sample series field.
 const G3DX_SERIES_FIELD = {
   phasic: 'phasic', tonic: 'tonic', arousalIndex: 'arousalIndex', triIndex: 'triIndex',
-  peakDensity: 'peakDensity', phasicAUC: 'phasicAUC', em_fog: 'em_fog', emFog: 'em_fog'
+  peakDensity: 'peakDensity', phasicAUC: 'phasicAUC', edasymp: 'edasymp', em_fog: 'em_fog', emFog: 'em_fog'
 };
 const g3dxSeriesValue = (d) =>
   (d && typeof d === 'object' && 'val' in d) ? d.val : (typeof d === 'number' ? d : 0);

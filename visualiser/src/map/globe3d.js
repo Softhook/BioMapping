@@ -70,6 +70,7 @@ const SERIES_FIELD = {
   triIndex: 'triIndex',
   peakDensity: 'peakDensity',
   phasicAUC: 'phasicAUC',
+  edasymp: 'edasymp',
   em_fog: 'em_fog',
   emFog: 'em_fog'
 };
@@ -79,8 +80,15 @@ const SERIES_FIELD = {
  * height. Anything outside this set (raw GSR aside) colours the wall but can't
  * drive its extrusion — the embedded host keeps height on a fixed arousal
  * series (heightMetric) while colour follows whatever the 2D view is showing.
+ *
+ * EDASymp (0.045–0.25 Hz spectral band power) is a positive continuous arousal
+ * magnitude, so it belongs here too: without it the wall falls back to the
+ * spiky phasic series, and a smooth EDASymp colour gradient gets a jagged
+ * phasic-scr silhouette that looks nothing like the 2D graph. Its µS² values
+ * are ~100× smaller than the µS-scale series, so the extrusion is subtle at
+ * the default scale — raise the extrusion slider to exaggerate it.
  */
-const HEIGHT_CAPABLE_METRICS = new Set(['gsr', 'phasic', 'tonic', 'arousalIndex', 'triIndex', 'peakDensity', 'phasicAUC']);
+const HEIGHT_CAPABLE_METRICS = new Set(['gsr', 'phasic', 'tonic', 'arousalIndex', 'triIndex', 'peakDensity', 'phasicAUC', 'edasymp']);
 
 /** Unwrap one analyzer series sample ({time,val} | number) to a plain float. */
 const seriesValue = (d) =>

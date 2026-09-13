@@ -99,14 +99,14 @@ const AppState = {
   // ── Graph view selector ────────────────────────────────────────────────────
   // Which single full-height plot the canvas shows:
   //   'signal'                              — Raw/Filtered/Tonic (+ optional Phasic) overlaid (µS)
-  //   'tonic' | 'phasic' | 'peakDensity' | 'phasicAUC' | 'arousalIndex' | 'triIndex'
+  //   'tonic' | 'phasic' | 'peakDensity' | 'phasicAUC' | 'arousalIndex' | 'triIndex' | 'edasymp'
   //                                         — that one series on its own axis
   // Picking a metric view also arms it as lowerGraphMode.
   graphView: 'signal',
 
   // ── Graph metric selector ──────────────────────────────────────────────────
-  // 'tonic' | 'phasic' | 'peakDensity' | 'phasicAUC' | 'arousalIndex' | 'triIndex' — see
-  // GSR_CONST.LOWER_GRAPH_MODES for display config. The plotted series when
+  // 'tonic' | 'phasic' | 'peakDensity' | 'phasicAUC' | 'arousalIndex' | 'triIndex' | 'edasymp'
+  // — see GSR_CONST.LOWER_GRAPH_MODES for display config. The plotted series when
   // graphView is a metric view.
   lowerGraphMode: 'phasic',
 

@@ -34,6 +34,7 @@
   --color-phasic-driver: #c2410c; /* Sudomotor driver (ISCR) burnt orange */
   --color-arousal-index: #7b00cc; /* Combined arousal index deep purple */
   --color-tri-index: #6366f1; /* Tri Index vibrant indigo */
+  --color-edasymp: #0e7490; /* EDASymp spectral sympathetic index deep cyan */
   --color-em-fog: #a855f7; /* EM Fog Index (EMF-I) glowing purple/violet */
   
   --success: #008f3c;

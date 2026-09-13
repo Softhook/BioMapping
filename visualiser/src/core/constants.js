@@ -329,6 +329,17 @@ const GSR_CONST = {
       label: 'Tri Index', unit: 'z', decimals: 2,
       colorVar: '--color-tri-index', colorDefault: '#6366f1',
       showPeakOverlay: false, allowNegative: true
+    },
+    // EDASymp (0.045–0.25 Hz) spectral sympathetic index — Posada-Quintero &
+    // Chon (2016), NeuroKit2's nk.eda_sympathetic('posada2016'). A standalone
+    // frequency-domain arousal metric (µS² band power), computed from the raw
+    // signal by SpectralEDA (src/signal/spectral_eda.js) and independent of
+    // the filter/detector sliders — see
+    // docs/edasymp_spectral_investigation_proposal.md.
+    edasymp: {
+      label: 'EDASymp', unit: 'μS²', decimals: 4,
+      colorVar: '--color-edasymp', colorDefault: '#0e7490',
+      showPeakOverlay: false, allowNegative: false
     }
   },
 
@@ -378,6 +389,17 @@ const GSR_CONST = {
     wDensity: 0.45,
     windowAucSec: 30,
     windowDensitySec: 60
+  },
+
+  // ── EDASymp spectral sympathetic index ───────────────────────────────────
+  // Sliding-window parameters for the continuous EDASymp series (see
+  // src/signal/spectral_eda.js and docs/edasymp_spectral_investigation_proposal.md).
+  // windowSec matches NeuroKit2's posada2016 Welch segment (nperseg=128 @ 2 Hz
+  // = 64 s); hopSec is the step between consecutive windows (5 s → smooth
+  // gradients without the 32 s coarseness of Welch's own 50 % overlap).
+  EDASYMP: {
+    windowSec: 64,
+    hopSec: 5
   },
 
   // ── Topography source definitions ───────────────────────────────────────

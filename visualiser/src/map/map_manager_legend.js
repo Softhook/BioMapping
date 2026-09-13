@@ -92,6 +92,7 @@ Object.assign(GSRMapManager.prototype, {
         'phasicAUC':        'Phasic AUC' + ((typeof AppState !== 'undefined' && AppState.analyzer && AppState.analyzer.phasicAUCIsISCR) ? ' (ISCR)' : ''),
         'arousalIndex':     'Combined Arousal Index',
         'triIndex':         'Tri Index',
+        'edasymp':          'EDASymp',
         'em_fog':           'EM Fog Index (0-100)',
         'hdopQuality':      'GPS Accuracy (HDOP)'
       };

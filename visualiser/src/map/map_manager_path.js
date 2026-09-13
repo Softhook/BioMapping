@@ -28,6 +28,7 @@ const DERIVED_METRIC_SERIES = {
   phasicAUC: 'phasicAUC',
   arousalIndex: 'arousalIndex',
   triIndex: 'triIndex',
+  edasymp: 'edasymp',
   em_fog: 'em_fog',
   emFog: 'em_fog'
 };
