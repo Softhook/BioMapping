@@ -52,10 +52,11 @@ const BLE_RX_CHAR_UUID = '19ed82ae-ed21-4c9d-4145-228e61fe0000'; // Flipper TX /
 // hides the device from a fresh requestDevice() chooser.
 // BLE_SUBSCRIBE_TIMEOUT_MS bounds the ENTIRE connect-through-startNotifications
 // pipeline as one attempt (not just the initial connect) so the retry loop
-// always completes regardless of which step gets stuck. 15s gives headroom
+// always completes regardless of which step gets stuck. 4s gives headroom
 // for a working attempt's connect + service/characteristic discovery to
-// finish (a few seconds is typical) while still bounding a hang.
-const BLE_SUBSCRIBE_TIMEOUT_MS = 15000;
+// finish while failing fast instead of wedging Android's BLE controller in
+// HCI_LE_Create_Connection for 15 seconds.
+const BLE_SUBSCRIBE_TIMEOUT_MS = 5000;
 
 class GSRLiveBluetoothManager {
   constructor(onStatusText, options = {}) {
@@ -147,6 +148,7 @@ class GSRLiveBluetoothManager {
       this.device.removeEventListener('gattserverdisconnected', this._onDisconnected);
     }
     this.disconnect();
+    this.device = null;
   }
 
   // Show every nearby BLE device instead of filtering by namePrefix:'Flipper'
@@ -268,10 +270,17 @@ class GSRLiveBluetoothManager {
       this._retryWaitResolve();
       this._retryWaitResolve = null;
     }
+    const char = this.characteristic;
+    this.characteristic = null;
+    if (char) {
+      try {
+        char.removeEventListener('characteristicvaluechanged', this._onCharValue);
+        if (typeof char.stopNotifications === 'function') {
+          char.stopNotifications().catch(() => {});
+        }
+      } catch (e) {}
+    }
     try {
-      if (this.characteristic) {
-        this.characteristic.removeEventListener('characteristicvaluechanged', this._onCharValue);
-      }
       // Call disconnect() unconditionally rather than gating on gatt.connected
       // — a reconnect attempt in flight (mid-_subscribe(), before its own
       // timeout race settles) hasn't set that flag yet, but there's still a

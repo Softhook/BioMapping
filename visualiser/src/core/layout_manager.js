@@ -29,9 +29,14 @@ const GSRLayoutManager = {
     get active() {
       return !!(document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement);
     },
-    request(el) {
-      const fn = el.requestFullscreen || el.webkitRequestFullscreen || el.mozRequestFullScreen;
-      if (fn) return fn.call(el).catch(() => {});
+    request(el, options = { navigationUI: 'hide' }) {
+      const target = el || document.documentElement;
+      const fn = target.requestFullscreen || target.webkitRequestFullscreen || target.mozRequestFullScreen;
+      if (fn) {
+        return fn.call(target, options).catch(() => {
+          return fn.call(target).catch(() => {});
+        });
+      }
       return null;
     },
     exit() {

@@ -247,6 +247,12 @@ const LIVE_FAB_METRICS = [
   { value: 'phasic', label: 'Phasic' },
 ];
 
+const LIVE_FAB_TOGGLES = [
+  { key: 'showRaw', id: 'liveBtnToggleRaw', label: 'Raw' },
+  { key: 'showPeaks', id: 'liveBtnTogglePeaks', label: 'Peaks' },
+  { key: 'showHotspots', id: 'liveBtnToggleHotspots', label: 'Hotspots' },
+];
+
 // Top-of-panel control state — the six layer toggles + the view dropdown.
 // Initial on/off mirrors index.html's #gsrPanel header (Raw/Filtered/Tonic/
 // Peaks/Hotspots active, Phasic off).
@@ -1221,6 +1227,7 @@ function bindLiveGsrControls() {
     btn.addEventListener('click', () => {
       liveGsrView[key] = !liveGsrView[key];
       btn.classList.toggle('active', liveGsrView[key]);
+      renderFabMenu();
       drawGraph();
     });
   }
@@ -1292,18 +1299,28 @@ function toggleFabMenu() {
 
 function renderFabMenu() {
   if (!liveFabMenu) return;
-  const chips = LIVE_FAB_METRICS.map(m =>
-    `<button type="button" class="live-fab-chip${liveGsrView.graphView === m.value ? ' active' : ''}" data-metric="${m.value}">${m.label}</button>`
-  );
+  const chips = [];
+  const isDisplayMode = typeof document !== 'undefined' && !!document.querySelector('.app-container.live-display-mode');
+  if (isDisplayMode) {
+    chips.push('<button type="button" class="live-fab-chip live-fab-chip-action" data-action="exit-fullscreen"><i class="fa-solid fa-compress"></i> Exit Full Screen</button>');
+  } else if (typeof GSRLayoutManager !== 'undefined') {
+    chips.push('<button type="button" class="live-fab-chip live-fab-chip-action" data-action="enter-fullscreen"><i class="fa-solid fa-expand"></i> Full Screen</button>');
+  }
+
+  for (const m of LIVE_FAB_METRICS) {
+    chips.push(`<button type="button" class="live-fab-chip${liveGsrView.graphView === m.value ? ' active' : ''}" data-metric="${m.value}">${m.label}</button>`);
+  }
+
   if (mapVisible) {
     chips.push('<button type="button" class="live-fab-chip live-fab-chip-action" data-action="graph"><i class="fa-solid fa-chart-line"></i> Graph</button>');
   } else {
     chips.push('<button type="button" class="live-fab-chip live-fab-chip-action" data-action="map"><i class="fa-solid fa-map"></i> Map</button>');
   }
-  const isDisplayMode = typeof document !== 'undefined' && !!document.querySelector('.app-container.live-display-mode');
-  if (isDisplayMode) {
-    chips.push('<button type="button" class="live-fab-chip live-fab-chip-action" data-action="exit-fullscreen"><i class="fa-solid fa-compress"></i> Exit Full Screen</button>');
+
+  for (const t of LIVE_FAB_TOGGLES) {
+    chips.push(`<button type="button" class="live-fab-chip${liveGsrView[t.key] ? ' active' : ''}" data-toggle="${t.key}">${t.label}</button>`);
   }
+
   liveFabMenu.innerHTML = chips.join('');
 }
 
@@ -1322,20 +1339,34 @@ function bindLiveFab() {
     if (!btn) return;
     if (btn.dataset.metric) {
       setLiveGraphMetric(btn.dataset.metric);
+      closeFabMenu();
+    } else if (btn.dataset.toggle) {
+      const prop = btn.dataset.toggle;
+      liveGsrView[prop] = !liveGsrView[prop];
+      const match = LIVE_FAB_TOGGLES.find(t => t.key === prop);
+      if (match) {
+        const headerBtn = document.getElementById(match.id);
+        if (headerBtn) headerBtn.classList.toggle('active', liveGsrView[prop]);
+      }
+      renderFabMenu();
+      drawGraph();
     } else if (btn.dataset.action === 'graph') {
       setMapVisible(false);
+      closeFabMenu();
     } else if (btn.dataset.action === 'map') {
       setMapVisible(true);
+      closeFabMenu();
     } else if (btn.dataset.action === 'enter-fullscreen') {
       if (typeof GSRLayoutManager !== 'undefined' && GSRLayoutManager.enterLiveDisplayMode) {
         GSRLayoutManager.enterLiveDisplayMode();
       }
+      closeFabMenu();
     } else if (btn.dataset.action === 'exit-fullscreen') {
       if (typeof GSRLayoutManager !== 'undefined' && GSRLayoutManager.exitLiveDisplayMode) {
         GSRLayoutManager.exitLiveDisplayMode();
       }
+      closeFabMenu();
     }
-    closeFabMenu();
   });
 
   // Tapping the map (or anywhere else) with the menu open should close it —

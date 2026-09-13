@@ -438,17 +438,26 @@ test('the FAB menu offers Signal/Tonic/Phasic + Graph chips while the map is sho
   const { window } = bootLive({ compact: true }); // map shown by default
   const menu = window.document.getElementById('liveFabMenu');
   const chips = [...menu.querySelectorAll('button')];
-  assert.deepStrictEqual(chips.map(b => b.dataset.metric || b.dataset.action), ['signal', 'tonic', 'phasic', 'graph']);
+  assert.deepStrictEqual(
+    chips.map(b => b.dataset.metric || b.dataset.action || b.dataset.toggle),
+    ['signal', 'tonic', 'phasic', 'graph', 'showRaw', 'showPeaks', 'showHotspots']
+  );
   assert.ok(chips[0].classList.contains('active'), '"signal" is the default active metric');
   assert.ok(!chips[1].classList.contains('active'));
   assert.ok(!chips[2].classList.contains('active'));
+  assert.ok(chips[4].classList.contains('active'), 'Raw is active by default');
+  assert.ok(chips[5].classList.contains('active'), 'Peaks is active by default');
+  assert.ok(chips[6].classList.contains('active'), 'Hotspots is active by default');
 });
 
 test('the FAB menu offers Signal/Tonic/Phasic + Map chip once the graph is fullscreen (map hidden)', () => {
   const { window } = bootLive(); // desktop default: graph-first, map hidden
   const menu = window.document.getElementById('liveFabMenu');
   const chips = [...menu.querySelectorAll('button')];
-  assert.deepStrictEqual(chips.map(b => b.dataset.metric || b.dataset.action), ['signal', 'tonic', 'phasic', 'map']);
+  assert.deepStrictEqual(
+    chips.map(b => b.dataset.metric || b.dataset.action || b.dataset.toggle),
+    ['signal', 'tonic', 'phasic', 'map', 'showRaw', 'showPeaks', 'showHotspots']
+  );
 });
 
 test('tapping a FAB metric chip sets the shared metric (same as the #liveGraphView dropdown) and closes the menu', () => {
@@ -475,17 +484,37 @@ test('tapping the FAB\'s Graph chip switches to the fullscreen graph (mapVisible
   menu.querySelector('[data-action="graph"]').click();
   assert.ok(app.classList.contains('no-map'), 'Graph chip behaves exactly like today\'s .no-map fullscreen graph');
   assert.deepStrictEqual(
-    [...menu.querySelectorAll('button')].map(b => b.dataset.metric || b.dataset.action),
-    ['signal', 'tonic', 'phasic', 'map']
+    [...menu.querySelectorAll('button')].map(b => b.dataset.metric || b.dataset.action || b.dataset.toggle),
+    ['signal', 'tonic', 'phasic', 'map', 'showRaw', 'showPeaks', 'showHotspots']
   );
 
   menu.querySelector('[data-action="map"]').click();
   assert.ok(!app.classList.contains('no-map'));
   assert.deepStrictEqual(
-    [...menu.querySelectorAll('button')].map(b => b.dataset.metric || b.dataset.action),
-    ['signal', 'tonic', 'phasic', 'graph'],
-    'back to the 3 metrics + Graph'
+    [...menu.querySelectorAll('button')].map(b => b.dataset.metric || b.dataset.action || b.dataset.toggle),
+    ['signal', 'tonic', 'phasic', 'graph', 'showRaw', 'showPeaks', 'showHotspots'],
+    'back to the 3 metrics + Graph + 3 toggles'
   );
+});
+
+test('tapping a FAB toggle chip flips the GSR layer on/off and syncs the header toggle', () => {
+  const { window, context } = bootLive({ compact: true });
+  const toggle = window.document.getElementById('liveFabToggle');
+  const menu = window.document.getElementById('liveFabMenu');
+  toggle.click();
+
+  assert.strictEqual(run(context, 'liveGsrView.showRaw'), true);
+  const rawChip = menu.querySelector('[data-toggle="showRaw"]');
+  assert.ok(rawChip.classList.contains('active'));
+
+  rawChip.click();
+  assert.strictEqual(run(context, 'liveGsrView.showRaw'), false, 'showRaw toggled off');
+  const updatedRawChip = menu.querySelector('[data-toggle="showRaw"]');
+  assert.ok(!updatedRawChip.classList.contains('active'), 'chip lost active class');
+
+  // Desktop header button syncs
+  const headerRawBtn = window.document.getElementById('liveBtnToggleRaw');
+  assert.ok(!headerRawBtn.classList.contains('active'), 'header button in sync');
 });
 
 test('tapping anywhere outside the FAB closes an open menu', () => {

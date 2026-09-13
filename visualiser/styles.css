@@ -2582,7 +2582,7 @@ body:has(.live-mode) {
 }
 
 /* Hide the button bar in fullscreen display mode so map / graph cover the entire screen */
-.app-container.live-display-mode .live-view header > *:not(#gsrControls) {
+.app-container.live-display-mode .live-view header > * {
   display: none !important;
 }
 .app-container.live-display-mode .live-view header {
@@ -2809,22 +2809,9 @@ body:has(.live-mode) {
     display: none;
   }
 
-  /* Move Raw, Peaks, Hotspots selectors to the bottom left on mobile */
+  /* Raw, Peaks, Hotspots are now integrated inside the circular FAB pop-up menu on mobile */
   .live-view #gsrControls {
-    position: absolute;
-    bottom: max(16px, env(safe-area-inset-bottom));
-    left: max(16px, env(safe-area-inset-left));
-    z-index: 1100;
-    margin: 0;
-    background: rgba(255, 255, 255, 0.95);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
-    border-radius: 8px;
-    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
-    overflow: hidden;
-  }
-  [data-theme="dark"] .live-view #gsrControls {
-    background: rgba(30, 30, 30, 0.95);
+    display: none !important;
   }
 }
 
@@ -2892,9 +2879,18 @@ body:has(.live-mode) {
 }
 .live-fab-menu {
   display: flex; flex-direction: column; align-items: flex-end; gap: 8px;
+  max-height: calc(100vh - 90px);
+  max-height: calc(100dvh - 90px);
+  overflow-y: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+  padding: 4px;
   opacity: 0; pointer-events: none; transform: translateY(6px);
   visibility: hidden;
   transition: opacity 0.15s ease, transform 0.15s ease, visibility 0.15s ease;
+}
+.live-fab-menu::-webkit-scrollbar {
+  display: none;
 }
 .live-fab-menu.open { opacity: 1; pointer-events: auto; transform: translateY(0); visibility: visible; }
 .live-view .live-fab-chip {
@@ -3068,6 +3064,16 @@ body:has(.live-mode) {
   height: 100vh;
   background: var(--bg-app);
   padding: 12px;
+}
+
+.app-container.live-display-mode:fullscreen,
+.app-container.live-display-mode:-webkit-full-screen,
+.app-container.live-display-mode:-moz-full-screen {
+  padding: 0 !important;
+  margin: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  height: 100dvh !important;
 }
 
 /* Highlight the fullscreen button when active */
