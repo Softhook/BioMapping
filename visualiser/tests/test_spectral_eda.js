@@ -189,6 +189,29 @@ test('computeSeries + mapToSamples: aligned, finite, length-correct series', () 
   }
 });
 
+test('computeSeries: a sub-64s recording still yields a non-zero (single-window) series', () => {
+  const fs = 10;
+  const n = fs * 30; // 30 s — shorter than the 64 s default window
+  const signal = new Float64Array(n);
+  const times = new Float64Array(n);
+  for (let i = 0; i < n; i++) {
+    times[i] = i / fs;
+    signal[i] = Math.sin(2 * Math.PI * 0.1 * times[i]);
+  }
+  const series = SpectralEDA.computeSeries(signal, times, fs, { windowSec: 64, hopSec: 5 });
+  assert.ok(series.length > 0, 'one window over the whole recording');
+  assert.ok(series.some(p => p.val > 0), 'non-zero band power for an in-band tone');
+});
+
+test('computeSeries: a signal shorter than 4 s returns an empty series', () => {
+  const fs = 10;
+  const n = fs * 3;
+  const signal = new Float64Array(n).fill(1);
+  const times = new Float64Array(n);
+  for (let i = 0; i < n; i++) times[i] = i / fs;
+  assert.deepStrictEqual(SpectralEDA.computeSeries(signal, times, fs), []);
+});
+
 test('mapToSamples: edge-holds and interpolates monotonically', () => {
   const series = [
     { time: 10, val: 1 },

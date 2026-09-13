@@ -93,6 +93,55 @@ const SpectralEDA = {
     return w;
   },
 
+  /** Sum of squared window coefficients — the Welch density normaliser. @private */
+  _windowSumSq(win) {
+    let s = 0;
+    for (let i = 0; i < win.length; i++) s += win[i] * win[i];
+    return s;
+  },
+
+  /**
+   * One-sided PSD density scale: 2 / (fs · Σw²). DC and Nyquist bins are NOT
+   * doubled by the consumers (they multiply by 0.5), matching scipy's
+   * _fft_helper one-sided convention. @private
+   */
+  _densityScale(fs, winSumSq) {
+    return 2.0 / (fs * winSumSq);
+  },
+
+  /**
+   * Window one segment of `x` into `re`, zero-pad to `nfft`, and run the
+   * in-place radix-2 FFT. `re`/`im` are caller-owned scratch buffers of length
+   * `nfft` (reused across windows to avoid per-window allocation). @private
+   */
+  _fftSegment(x, start, nperseg, nfft, win, re, im) {
+    for (let i = 0; i < nperseg; i++) re[i] = x[start + i] * win[i];
+    for (let i = nperseg; i < nfft; i++) { re[i] = 0; im[i] = 0; }
+    for (let i = 0; i < nperseg; i++) im[i] = 0;
+    SpectralEDA._fftInPlace(re, im);
+  },
+
+  /**
+   * Trapezoidal integral of a single-window one-sided PSD over [fLow, fHigh)
+   * directly from the FFT result (no intermediate PSD array). Upper bound is
+   * exclusive to match NeuroKit2's _signal_power_instant_compute. @private
+   */
+  _bandPowerFromFft(re, im, nfft, fs, scale, fLow, fHigh) {
+    const half = nfft >> 1;
+    let total = 0;
+    let prevF = null, prevP = null;
+    for (let k = 0; k <= half; k++) {
+      const f = k * fs / nfft;
+      if (f >= fLow && f < fHigh) {
+        let p = (re[k] * re[k] + im[k] * im[k]) * scale;
+        if (k === 0 || k === half) p *= 0.5; // undo one-sided doubling
+        if (prevF !== null) total += (f - prevF) * (p + prevP) * 0.5;
+        prevF = f; prevP = p;
+      }
+    }
+    return total;
+  },
+
   /**
    * Welch PSD estimate matching scipy.signal.welch with
    * scaling='density', detrend=False, average='mean', nfft=2*nperseg.
@@ -109,8 +158,7 @@ const SpectralEDA = {
     const n = x.length;
 
     const win = SpectralEDA.blackmanPeriodic(nperseg);
-    let winSumSq = 0;
-    for (let i = 0; i < nperseg; i++) winSumSq += win[i] * win[i];
+    const scale = SpectralEDA._densityScale(fs, SpectralEDA._windowSumSq(win));
 
     const step = nperseg - noverlap;
     const nSeg = (step > 0) ? Math.floor((n - noverlap) / step) : 0;
@@ -122,24 +170,15 @@ const SpectralEDA = {
     const psd = new Float64Array(nBins);
     if (nSeg <= 0) return { freq, psd };
 
-    // One-sided density scale: 2 / (fs * sum(w^2)), with DC and Nyquist bins
-    // NOT doubled (matching scipy's _fft_helper).
-    const scale = 2.0 / (fs * winSumSq);
-
     const re = new Float64Array(nfft);
     const im = new Float64Array(nfft);
+    const half = nfft >> 1;
 
     for (let seg = 0; seg < nSeg; seg++) {
-      const start = seg * step;
-      for (let i = 0; i < nperseg; i++) re[i] = x[start + i] * win[i];
-      for (let i = nperseg; i < nfft; i++) { re[i] = 0; im[i] = 0; }
-      for (let i = 0; i < nperseg; i++) im[i] = 0;
-
-      SpectralEDA._fftInPlace(re, im);
-
+      SpectralEDA._fftSegment(x, seg * step, nperseg, nfft, win, re, im);
       for (let k = 0; k < nBins; k++) {
         let p = (re[k] * re[k] + im[k] * im[k]) * scale;
-        if (k === 0 || k === nfft >> 1) p *= 0.5; // undo one-sided doubling
+        if (k === 0 || k === half) p *= 0.5; // undo one-sided doubling
         psd[k] += p;
       }
     }
@@ -461,18 +500,23 @@ const SpectralEDA = {
 
     const windowSec = opts.windowSec || SpectralEDA.WINDOW_SEC;
     const hopSec = opts.hopSec || SpectralEDA.HOP_SEC;
+    const fLow = SpectralEDA.BAND_HZ[0];
+    const fHigh = SpectralEDA.BAND_HZ[1];
 
     const d2 = SpectralEDA.posadaSignal(signal, fs);
     const t0 = times[0];
     const n2 = d2.length;
-    if (n2 === 0) return [];
+    // < 8 samples @ 2 Hz (= 4 s) is too short for a meaningful spectrum.
+    if (n2 < 8) return [];
 
-    const nperseg = Math.max(4, Math.round(windowSec * 2));
-    const nfft = 2 * nperseg;
+    // Window in 2 Hz samples (64 s → 128), clamped to the available length so
+    // a sub-64 s recording still yields one full-length window rather than a
+    // flat all-zero series.
+    const nperseg = Math.min(Math.max(8, Math.round(windowSec * 2)), n2);
+    // Fixed power-of-2 FFT (≥ 2·nperseg for nperseg ≤ 128) → 0.0078 Hz bins.
+    const nfft = 256;
     const win = SpectralEDA.blackmanPeriodic(nperseg);
-    let winSumSq = 0;
-    for (let i = 0; i < nperseg; i++) winSumSq += win[i] * win[i];
-    const scale = 2.0 / (2.0 * winSumSq); // fs = 2 Hz
+    const scale = SpectralEDA._densityScale(2, SpectralEDA._windowSumSq(win));
 
     const hop2 = Math.max(1, Math.round(hopSec * 2));
     const re = new Float64Array(nfft);
@@ -482,29 +526,13 @@ const SpectralEDA = {
     const out = [];
     const half = nperseg >> 1;
     for (let start = 0; start + nperseg <= n2; start += hop2) {
-      const centerIdx = start + half;
       // Window-centre time on the ORIGINAL time base: the preprocessed signal
       // is resampled to 2 Hz, so d2 sample `i` sits at t0 + i/2 seconds
       // (independent of the source sampling rate).
-      const tCenter = t0 + centerIdx / 2;
+      const tCenter = t0 + (start + half) / 2;
 
-      for (let i = 0; i < nperseg; i++) re[i] = d2[start + i] * win[i];
-      for (let i = nperseg; i < nfft; i++) { re[i] = 0; im[i] = 0; }
-      for (let i = 0; i < nperseg; i++) im[i] = 0;
-
-      SpectralEDA._fftInPlace(re, im);
-
-      let bandPower = 0;
-      let prevF = null, prevP = null;
-      for (let k = 0; k <= nfft >> 1; k++) {
-        const f = k * 2.0 / nfft;
-        if (f >= SpectralEDA.BAND_HZ[0] && f < SpectralEDA.BAND_HZ[1]) {
-          let p = (re[k] * re[k] + im[k] * im[k]) * scale;
-          if (k === 0 || k === nfft >> 1) p *= 0.5;
-          if (prevF !== null) bandPower += (f - prevF) * (p + prevP) * 0.5;
-          prevF = f; prevP = p;
-        }
-      }
+      SpectralEDA._fftSegment(d2, start, nperseg, nfft, win, re, im);
+      const bandPower = SpectralEDA._bandPowerFromFft(re, im, nfft, 2, scale, fLow, fHigh);
       out.push({ time: tCenter, val: Number.isNaN(bandPower) ? 0 : bandPower });
     }
     return out;

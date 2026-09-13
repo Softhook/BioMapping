@@ -163,8 +163,11 @@ Object.assign(GSRMapManager.prototype, {
             break;
         }
 
-        // Format min/max nicely
+        // Format min/max nicely. EDASymp is µS² (band power ~0.001–0.08), so it
+        // needs more decimals than the shared 3-decimal fallback to not round
+        // the whole range to a couple of coarse steps.
         const fmt = (v) => {
+          if (metric === 'edasymp') return v.toFixed(4);
           if (v >= 100) return v.toFixed(0);
           if (v >= 1) return v.toFixed(1);
           return v.toFixed(3);

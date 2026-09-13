@@ -2451,13 +2451,12 @@ class GSRAnalyzer {
     }
 
     const cfg = (typeof GSR_CONST !== 'undefined' && GSR_CONST.EDASYMP) || {};
-    const signal = new Float64Array(n);
+    // this._rawValsPool is already the raw µS values (built by
+    // _ensureSeriesPool at the top of analyze()), so pass it straight through —
+    // no extra signal copy.
     const times = new Float64Array(n);
-    for (let i = 0; i < n; i++) {
-      signal[i] = this.raw[i].val;
-      times[i] = this.raw[i].time;
-    }
-    const series = SpectralEDA.computeSeries(signal, times, this.sampleRate, {
+    for (let i = 0; i < n; i++) times[i] = this.raw[i].time;
+    const series = SpectralEDA.computeSeries(this._rawValsPool, times, this.sampleRate, {
       windowSec: cfg.windowSec,
       hopSec: cfg.hopSec,
     });
