@@ -1378,3 +1378,39 @@ test('_refreshTrackLayers helper: correctly strips target kind layers and dispat
   const remainingPeaks = track.layerGroup.getLayers().filter(l => l._gsrKind === 'peak');
   assert.strictEqual(remainingPeaks.length, 0, 'peak layers were stripped before renderFn');
 });
+
+test('inPark colouring: in-park segments render green, out-of-park grey (not an all-grey LUT)', () => {
+  const { window, mapManager } = bootWithRecordingL();
+  const track = addTrack(window, 't1', 't1.csv', SAMPLE_CSV);
+
+  // Enrich raw rows directly (no network): first half in a park, second half not.
+  const raw = track.analyzer.raw;
+  const mid = raw.length >> 1;
+  raw.forEach((row, i) => { row.osm_in_park = (i < mid) ? 1 : 0; });
+
+  mapManager.activeColoringMetric = 'inPark';
+  mapManager.renderData(track.analyzer, track.gpsFilterParams);
+
+  const colors = new Set(
+    track.layerGroup.getLayers()
+      .filter(l => l._gsrKind === 'path')
+      .map(l => l._options && l._options.color)
+  );
+  assert.ok(colors.has('#00e575'), `in-park segments render green (got: ${[...colors]})`);
+  assert.ok(colors.has('#666666'), `out-of-park segments render grey (got: ${[...colors]})`);
+});
+
+test('distance-metric colouring: the 999 "none nearby" sentinel is excluded from the colour range', () => {
+  const { window, mapManager } = bootWithRecordingL();
+  const track = addTrack(window, 't1', 't1.csv', SAMPLE_CSV);
+
+  track.analyzer.raw.forEach((row, i) => {
+    row.osm_dist_water = (i < 10) ? 999 : (i % 20); // some "none nearby", rest 0..19 m
+  });
+
+  mapManager.activeColoringMetric = 'distWater';
+  mapManager.renderData(track.analyzer, track.gpsFilterParams);
+
+  assert.strictEqual(mapManager._legendMinVal, 0, 'min is the closest real distance');
+  assert.strictEqual(mapManager._legendMaxVal, 19, 'max excludes the 999 sentinel');
+});

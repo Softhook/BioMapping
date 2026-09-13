@@ -420,6 +420,101 @@ test('renderData({ colorMetric, colorRange }) drives colour from the host, not a
   mgr.destroy();
 });
 
+test('_getMetricSeries resolves OSM/Satellite/hdop metrics to their raw field, not GSR', () => {
+  freshEnv();
+  global.GSR_CONST = require('./mock_constants.js');
+  const { GSRGlobeManager } = loadFresh();
+  const mgr = new GSRGlobeManager('c', { keyboardFlight: false });
+
+  const analyzer = {
+    raw: [
+      { gsr: 99, osm_green_pct_50m: 10, hdop: 1.2, ndvi: 0.4 },
+      { gsr: 99, osm_green_pct_50m: 90, hdop: 3.4, ndvi: 0.8 },
+    ],
+  };
+
+  assert.deepStrictEqual(mgr._getMetricSeries(analyzer, 'greenPct'), [10, 90]);
+  assert.deepStrictEqual(mgr._getMetricSeries(analyzer, 'hdopQuality'), [1.2, 3.4]);
+  assert.deepStrictEqual(mgr._getMetricSeries(analyzer, 'ndvi'), [0.4, 0.8]);
+  assert.deepStrictEqual(mgr._getMetricSeries(analyzer, 'gsr'), [99, 99]);
+  // Absent / NaN enrichment columns -> null ("no data"), so the wall renderer's
+  // `?? minVal` fallback and its min/max scan both treat them consistently.
+  assert.deepStrictEqual(mgr._getMetricSeries(analyzer, 'distWater'), [null, null]);
+
+  mgr.destroy();
+  delete global.GSR_CONST;
+});
+
+test('renderData colours the wall by an OSM environmental metric, not raw GSR', () => {
+  freshEnv();
+  global.GSR_CONST = require('./mock_constants.js');
+  const { GSRGlobeManager } = loadFresh();
+  const mgr = new GSRGlobeManager('c', { keyboardFlight: false });
+  mgr.flyToTrack = () => {};
+
+  // gsr is constant (99) while greenPct spans 10..90 — if the wall fell back to
+  // raw GSR (the old bug) it would land in the top bucket instead of the middle.
+  const analyzer = {
+    raw: [
+      { gsr: 99, osm_green_pct_50m: 10 },
+      { gsr: 99, osm_green_pct_50m: 90 },
+    ],
+    peaks: [],
+    phasic: [{ val: 1 }, { val: 5 }],
+  };
+  const drawPoints = [
+    { lat: 0, lon: 0, time: 0, origIdx: 0 },
+    { lat: 0.001, lon: 0.001, time: 1, origIdx: 1 },
+  ];
+
+  const { seg, cssParses } = installWallCapture();
+  mgr.renderData(analyzer, {}, { drawPoints, colorMetric: 'greenPct', colorRange: { min: 0, max: 100 } });
+
+  assert.strictEqual(mgr._cesiumColorLutKey, 'greenPct|0.0000|100.0000', 'LUT keyed to greenPct + host range');
+  assert.ok(cssParses.length > 0 && cssParses.length <= 30, `bounded colour LUT (${cssParses.length})`);
+  assert.strictEqual(seg.length, 1, 'one wall segment for the two points');
+
+  // greenPct 10..90 averages to 50 → bucket 15 of 30; raw-GSR fallback would
+  // average 99 → bucket 29. Assert the wall picked the greenPct bucket.
+  const greenPctLut = REAL_MAP_COLORS.getColorLut('greenPct', 0, 100);
+  assert.strictEqual(seg[0].color._css, greenPctLut[15],
+    'wall colour is the greenPct bucket for the 10..90 data, not the GSR fallback');
+
+  mgr.destroy();
+  delete global.GSR_CONST;
+});
+
+test('renderData colours the wall by inPark categories (binary OSM metric)', () => {
+  freshEnv();
+  global.GSR_CONST = require('./mock_constants.js');
+  const { GSRGlobeManager } = loadFresh();
+  const mgr = new GSRGlobeManager('c', { keyboardFlight: false });
+  mgr.flyToTrack = () => {};
+
+  const analyzer = {
+    raw: [
+      { osm_in_park: 0 },
+      { osm_in_park: 1 },
+    ],
+    peaks: [],
+    phasic: [{ val: 1 }, { val: 5 }],
+  };
+  const drawPoints = [
+    { lat: 0, lon: 0, time: 0, origIdx: 0 },
+    { lat: 0.001, lon: 0.001, time: 1, origIdx: 1 },
+  ];
+
+  const { seg } = installWallCapture();
+  mgr.renderData(analyzer, {}, { drawPoints, colorMetric: 'inPark', colorRange: { min: 0, max: 1 } });
+
+  assert.strictEqual(seg.length, 1);
+  // inPark 0 → grey, 1 → green; the segment's leading category (0) wins.
+  assert.strictEqual(seg[0].color._css, '#666666', 'inPark=0 segment renders grey, not a GSR colour');
+
+  mgr.destroy();
+  delete global.GSR_CONST;
+});
+
 test('the wall colour LUT is bounded (≤30) and reused across a same-range redraw', () => {
   freshEnv();
   const { GSRGlobeManager } = loadFresh();

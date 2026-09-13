@@ -139,7 +139,13 @@ Object.assign(GSRMapManager.prototype, {
             gradient = 'linear-gradient(90deg, hsl(0,85%,50%), hsl(60,85%,50%), hsl(120,85%,50%))';
             break;
           case 'distWater':
-            gradient = 'linear-gradient(90deg, hsl(200,80%,45%), hsl(100,80%,45%), hsl(30,80%,45%))';
+            gradient = 'linear-gradient(90deg, hsl(200,80%,45%), hsl(30,80%,45%))';
+            break;
+          case 'distGreen':
+            gradient = 'linear-gradient(90deg, hsl(130,70%,45%), hsl(35,30%,45%))';
+            break;
+          case 'canopyPct':
+            gradient = 'linear-gradient(90deg, hsl(95,25%,55%), hsl(135,80%,33%))';
             break;
           case 'treeDensity':
             gradient = 'linear-gradient(90deg, hsl(60,30%,45%), hsl(140,90%,45%))';

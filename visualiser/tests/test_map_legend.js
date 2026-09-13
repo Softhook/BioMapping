@@ -56,6 +56,33 @@ test('Map Legend: single mode - em_fog metric', () => {
   assert.ok(html.includes('hsl(300,90%,55%)'), 'Should use EM Fog end color');
 });
 
+test('Map Legend: single mode - OSM distance/canopy metrics use their own gradients', () => {
+  const { window, document } = bootApp();
+  window.setup();
+  
+  const legendDiv = document.createElement('div');
+  window.AppState.mapManager._legendControl = {
+    getContainer: () => legendDiv
+  };
+  
+  window.AppState.viewMode = 'single';
+  window.AppState.mapManager._legendMinVal = 0;
+  window.AppState.mapManager._legendMaxVal = 100;
+
+  const cases = [
+    ['distGreen', 'hsl(130,70%,45%)', 'hsl(35,30%,45%)'],
+    ['canopyPct', 'hsl(95,25%,55%)', 'hsl(135,80%,33%)'],
+    ['distWater', 'hsl(200,80%,45%)', 'hsl(30,80%,45%)']
+  ];
+  for (const [metric, start, end] of cases) {
+    window.AppState.mapManager.activeColoringMetric = metric;
+    window.AppState.mapManager.updateLegend();
+    const html = legendDiv.innerHTML;
+    assert.ok(html.includes(start), `${metric} legend should use its start colour ${start}`);
+    assert.ok(html.includes(end), `${metric} legend should use its end colour ${end}`);
+  }
+});
+
 test('Map Legend: collective mode - Phasic AUC topography', () => {
   const { window, document } = bootApp();
   window.setup();

@@ -94,6 +94,28 @@ const HEIGHT_CAPABLE_METRICS = new Set(['gsr', 'phasic', 'tonic', 'arousalIndex'
 const seriesValue = (d) =>
   (d && typeof d === 'object' && 'val' in d) ? d.val : (typeof d === 'number' ? d : 0);
 
+/**
+ * Resolve the analyzer.raw row field a non-derived colouring metric reads —
+ * mirrors map.js's `_getMetricKey` for the OSM/Satellite enrichment fields,
+ * plus the two special cases (`gsr` → raw GSR, `hdopQuality` → hdop). Returns
+ * null when the metric has no raw-field mapping (e.g. an unknown metric or a
+ * derived SERIES_FIELD metric, which callers resolve elsewhere).
+ */
+const rawMetricField = (metric) => {
+  if (metric === 'gsr') return 'gsr';
+  if (metric === 'hdopQuality') return 'hdop';
+  if (typeof GSR_CONST !== 'undefined') {
+    const tables = [GSR_CONST.OSM_METRICS, GSR_CONST.SATELLITE_METRICS];
+    for (const table of tables) {
+      if (!Array.isArray(table)) continue;
+      for (const m of table) {
+        if (m && m.key === metric) return m.field;
+      }
+    }
+  }
+  return null;
+};
+
 // The arousal wall is thinned to at most this many segments before it is built
 // (see _decimateForWall): a walk can carry >10k display points and at the zoom
 // that frames the whole track they are tens of points per pixel. Override per
@@ -1504,43 +1526,82 @@ class GSRGlobeManager {
     const metric = this.activeColoringMetric;
     // Colour follows the (possibly host-driven) metric; height follows a fixed
     // arousal-magnitude series so a non-magnitude colour metric still extrudes.
-    const colorSeries = this._getMetricSeries(analyzer, metric);
+    const discrete = (metric === 'roadClass' || metric === 'inPark');
+    const rawSeries = this._getMetricSeries(analyzer, metric);
     const heightMetric = HEIGHT_CAPABLE_METRICS.has(metric) ? metric : this.heightMetric;
     const heightSeries = (heightMetric === metric)
-      ? colorSeries
+      ? rawSeries
       : this._getMetricSeries(analyzer, heightMetric);
 
-    // Colour normalisation range: the host's legend range when it owns it
-    // (2D view is the source of truth), otherwise computed over drawn points.
-    let minVal = Infinity;
-    let maxVal = -Infinity;
+    const heightAt = (idx) => this.baseHeight + Math.max(0, heightSeries[idx] ?? 0) * this.extrusionScale;
 
-    if (this.externalColorRange) {
-      minVal = this.externalColorRange.min;
-      maxVal = this.externalColorRange.max;
+    // The series the wall colour buckets read, the per-bucket colour lookup, and
+    // the bucketing function. For categorical/binary OSM metrics (`roadClass`,
+    // `inPark`) `colorSeries` is a dense array of category indices (missing → 0,
+    // the grey "no data" bucket) so the merge/decimation machinery below works
+    // unchanged; `bucketOf` is the identity and `colorOf` resolves the category
+    // colour. For continuous metrics these are the raw numeric series, the 30-
+    // bucket LUT, and the standard min/max bucketing — normalised against the
+    // host's 2D legend range when the host supplies one.
+    let colorSeries;
+    let colorOf;
+    let bucketOf;
+    let minVal = 0;
+
+    if (discrete) {
+      const NO_DATA = 0;
+      const catIndex = new Map();
+      const colors = [Cesium.Color.fromCssColorString('#666666').withAlpha(0.85)];
+      const indexOf = (v) => {
+        if (v === null || v === undefined || v === '') return NO_DATA;
+        let i = catIndex.get(v);
+        if (i === undefined) {
+          i = catIndex.size + 1;           // 0 is reserved for "no data"
+          catIndex.set(v, i);
+          colors[i] = Cesium.Color.fromCssColorString(
+            MapColors.getColorForMetric(metric, v, 0, 1)
+          ).withAlpha(0.85);
+        }
+        return i;
+      };
+      colorSeries = new Array(rawSeries.length);
+      for (let i = 0; i < rawSeries.length; i++) colorSeries[i] = indexOf(rawSeries[i]);
+      colorOf = (k) => colors[k] || colors[0];
+      bucketOf = (v) => (v == null ? NO_DATA : v);
     } else {
-      for (let i = 0; i < drawPoints.length; i++) {
-        const idx = drawPoints[i].origIdx;
-        const v = colorSeries[idx];
-        if (v != null && !isNaN(v)) {
-          if (v < minVal) minVal = v;
-          if (v > maxVal) maxVal = v;
+      // Colour normalisation range: the host's legend range when it owns it
+      // (2D view is the source of truth), otherwise computed over drawn points.
+      minVal = Infinity;
+      let maxVal = -Infinity;
+
+      if (this.externalColorRange) {
+        minVal = this.externalColorRange.min;
+        maxVal = this.externalColorRange.max;
+      } else {
+        for (let i = 0; i < drawPoints.length; i++) {
+          const idx = drawPoints[i].origIdx;
+          const v = rawSeries[idx];
+          if (v != null && !isNaN(v)) {
+            if (v < minVal) minVal = v;
+            if (v > maxVal) maxVal = v;
+          }
         }
       }
-    }
 
-    if (!isFinite(minVal) || !isFinite(maxVal) || minVal === maxVal) {
-      minVal = 0;
-      maxVal = 1;
-    }
+      if (!isFinite(minVal) || !isFinite(maxVal) || minVal === maxVal) {
+        minVal = 0;
+        maxVal = 1;
+      }
 
-    const NB = 30; // colour-bucket count — matches MapColors.getColorLut()
-    const range = maxVal - minVal;
-    const bucketOf = (v) => (range > 1e-9
-      ? Math.max(0, Math.min(NB - 1, Math.floor(((v - minVal) / range) * NB)))
-      : (NB >> 1));
-    const colorLut = this._getCesiumColorLut(metric, minVal, maxVal);
-    const heightAt = (idx) => this.baseHeight + Math.max(0, heightSeries[idx] ?? 0) * this.extrusionScale;
+      const NB = 30; // colour-bucket count — matches MapColors.getColorLut()
+      const range = maxVal - minVal;
+      const colorLut = this._getCesiumColorLut(metric, minVal, maxVal);
+      bucketOf = (v) => (range > 1e-9
+        ? Math.max(0, Math.min(NB - 1, Math.floor(((v - minVal) / range) * NB)))
+        : (NB >> 1));
+      colorOf = (k) => colorLut[k] || colorLut[0];
+      colorSeries = rawSeries;
+    }
 
     // Thin the path for the wall only (currentDrawPoints stays full-resolution
     // for hover / camera / scrub). Keeps corners, colour-bucket changes and
@@ -1577,7 +1638,7 @@ class GSRGlobeManager {
             vertexFormat: Cesium.PerInstanceColorAppearance.FLAT_VERTEX_FORMAT
           }),
           attributes: {
-            color: Cesium.ColorGeometryInstanceAttribute.fromColor(colorLut[runBucket] || colorLut[0])
+            color: Cesium.ColorGeometryInstanceAttribute.fromColor(colorOf(runBucket))
           },
           id: `biomap-wall-${instanceSeq++}`
         }));
@@ -1600,7 +1661,10 @@ class GSRGlobeManager {
 
       const v1 = colorSeries[p1.origIdx] ?? minVal;
       const v2 = colorSeries[p2.origIdx] ?? minVal;
-      const bucket = bucketOf((v1 + v2) / 2);
+      // Discrete metrics carry an integer category index — bucket by the
+      // leading point's category (each wall segment already sits within one
+      // category because _decimateForWall keeps every category change).
+      const bucket = discrete ? v1 : bucketOf((v1 + v2) / 2);
       const h1 = heightAt(p1.origIdx);
       const h2 = heightAt(p2.origIdx);
 
@@ -2069,7 +2133,11 @@ class GSRGlobeManager {
     const field = SERIES_FIELD[metric];
     const useDerived = !!(field && analyzer[field] && analyzer[field].length > 0);
     const src = useDerived ? analyzer[field] : (analyzer.raw || null);
-    const key = useDerived ? field : '__raw__';
+    // Raw-field metrics each key their own cache entry: two colour metrics
+    // (e.g. greenPct vs distWater) read different raw columns, so a single
+    // '__raw__' key would collide within one render.
+    const rawField = useDerived ? null : rawMetricField(metric);
+    const key = useDerived ? field : ('raw:' + (rawField || 'gsr'));
 
     const cache = this._metricSeriesCache || (this._metricSeriesCache = new Map());
     const hit = cache.get(key);
@@ -2079,7 +2147,19 @@ class GSRGlobeManager {
     if (useDerived) {
       out = src.map(seriesValue);
     } else if (src && src.length > 0) {
-      out = src.map(d => (d.gsr !== undefined ? d.gsr : (d.val !== undefined ? d.val : 0)));
+      if (rawField === 'gsr') {
+        out = src.map(d => (d.gsr !== undefined ? d.gsr : (d.val !== undefined ? d.val : 0)));
+      } else if (rawField) {
+        // Enrichment columns are NaN/absent until the track is enriched — map
+        // those to null so the wall renderer's `?? minVal` fallback and the
+        // min/max scan can both treat "no data" consistently.
+        out = src.map(d => {
+          const v = d[rawField];
+          return (v === undefined || v === null || (typeof v === 'number' && isNaN(v))) ? null : v;
+        });
+      } else {
+        out = src.map(d => (d.gsr !== undefined ? d.gsr : (d.val !== undefined ? d.val : 0)));
+      }
     } else {
       out = [];
     }

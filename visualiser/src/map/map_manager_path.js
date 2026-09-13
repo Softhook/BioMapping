@@ -33,6 +33,19 @@ const DERIVED_METRIC_SERIES = {
   emFog: 'em_fog'
 };
 
+// Distance-to-feature OSM metrics use a 999 "none within radius" sentinel
+// (osm_enrichment.js SENTINEL_DIST). It must not enter the colour range —
+// otherwise real 0..~100 m distances collapse into the first couple of buckets
+// and the whole path reads as one colour.
+const DISTANCE_METRICS = new Set(['distMajorRoad', 'distWater', 'distGreen']);
+
+/** True when `v` is not a real measurement for `metric` (NaN/missing/sentinel). */
+const isNoDataValue = (metric, v) => {
+  if (v === undefined || v === null || (typeof v === 'number' && isNaN(v))) return true;
+  if (DISTANCE_METRICS.has(metric)) return v >= 999;
+  return false;
+};
+
 Object.assign(GSRMapManager.prototype, {
 
   /**
@@ -118,8 +131,12 @@ Object.assign(GSRMapManager.prototype, {
     const layerGroup = track ? track.layerGroup : null;
     const metric = this.activeColoringMetric || 'gsr';
     const key = this._getMetricKey(metric);
-    const isCategorical = (metric === 'roadClass');
-    const needsUnique = (isCategorical || metric === 'inPark');
+    // 'roadClass' is categorical and 'inPark' is 0/1 binary — both must be
+    // coloured per-segment from their discrete value. (A numeric LUT over 0..1
+    // would render inPark entirely grey, because only the exact value 1 maps
+    // to green and every LUT bucket midpoint is < 1.)
+    const isCategorical = (metric === 'roadClass' || metric === 'inPark');
+    const needsUnique = isCategorical;
 
     // Phasic/Tonic/Peak Density/Phasic AUC/Arousal Index live in per-sample
     // analyzer arrays, not on the (cached) drawPoint objects — see
@@ -176,7 +193,7 @@ Object.assign(GSRMapManager.prototype, {
       const v = getVal(drawPoints[i]);
       if (v === undefined || v === null) continue;
 
-      if (!isCategorical && !isNaN(v)) {
+      if (!isCategorical && !isNoDataValue(metric, v)) {
         if (v < minVal) minVal = v;
         if (v > maxVal) maxVal = v;
       }
