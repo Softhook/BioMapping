@@ -305,7 +305,7 @@ function feedLiveAnalyzer() {
     pkt.phasic = ph[i].val;
     if (tn && tn[i]) pkt.tonic = tn[i].val;
   }
-  recolorDelayedSegments();
+  flushSettledSegments();
   renderLiveMapMarkers();
 }
 
@@ -315,7 +315,7 @@ function feedLiveAnalyzer() {
 // scope, so they're called here as bare globals.
 
 // The live follow-map (liveMap, updateLiveMap, renderLiveMapMarkers,
-// recolorDelayedSegments/AllTrackSegments, cacheCurrentMapArea, showMap/
+// flushSettledSegments/recolorAllTrackSegments, cacheCurrentMapArea, showMap/
 // hideMap, LIVE_ZOOM, …) lives in src/live/live_map.js — loaded before this
 // file, same global lexical scope, so those names are used here as bare
 // globals (resetSession() below clears liveMap's segment queues + markers).
@@ -562,7 +562,7 @@ function resetSession() {
   // A pending entry's pkt.tonic/pkt.phasic only ever gets set by a
   // feedLiveAnalyzer() that still has that packet in LiveState.packets —
   // once packets is reset above, any leftover entry from the old session
-  // would never settle, wedging recolorDelayedSegments()'s FIFO on it
+  // would never settle, wedging flushSettledSegments()'s FIFO on it
   // forever.
   pendingSegments.length = 0;
   allTrackSegments.length = 0;
@@ -622,7 +622,7 @@ function bindLiveGsrControls() {
 
 // Sets the ONE shared Signal/Tonic/Phasic metric that drives both the graph
 // (drawGraph()'s non-'signal' branch) and the live map's track colour
-// (recolorAllTrackSegments() / recolorDelayedSegments()) — the desktop
+// (recolorAllTrackSegments() / flushSettledSegments()) — the desktop
 // #liveGraphView dropdown and the mobile FAB's metric chips both call this
 // same function, so there is exactly one code path regardless of which UI
 // drove the change.

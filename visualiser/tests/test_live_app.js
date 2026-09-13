@@ -558,7 +558,7 @@ test('setLiveGraphMetric: switching to phasic immediately recolours every alread
   // getColorForValue against the session's phasic range [0, 0.5]: the first
   // segment's packet is 0.1 -> ratio 0.2 -> hue 96; the second is 0.5 ->
   // ratio 1.0 -> hue 0 (matches the hue formula the existing
-  // recolorDelayedSegments test above already pins for this codebase).
+  // flushSettledSegments test below already pins for this codebase).
   assert.strictEqual(colors[0], 'hsl(96, 90%, 50%)');
   assert.strictEqual(colors[1], 'hsl(0, 90%, 50%)');
 });
@@ -891,51 +891,47 @@ test('updateLiveMap: the first GPS fix zooms to LIVE_ZOOM (18), replacing the ol
   assert.strictEqual(run(context, 'liveMap.getZoom()'), 18);
 });
 
-test('recolorDelayedSegments: holds a segment back until its packet is BOTH phasic-annotated AND old enough, then repaints exactly once with the phasic-based color', () => {
+test('flushSettledSegments: holds a segment back until its packet is BOTH metric-annotated AND old enough, then draws it once with the settled colour', () => {
   const { context } = bootLive();
   // The active metric defaults to 'signal' (raw, no settling needed at all)
-  // — switch to 'phasic' so recolorDelayedSegments() actually queues/settles
-  // like the old always-phasic behavior this test exercises.
+  // — switch to 'phasic' so flushSettledSegments() actually queues/settles.
   run(context, "liveGsrView.graphView = 'phasic';");
+  run(context, 'showMap();');
   run(context, `
     LiveState.packets = [{ timestamp: 0 }];
     const __pktA = { timestamp: 0 }; // no .phasic yet
-    const __lineA = L.polyline([[0, 0], [0, 0]], { color: 'raw-gsr-color' });
-    pendingSegments.push({ pkt: __pktA, line: __lineA });
+    pendingSegments.push({ prevLatLng: [0, 0], latlng: [1, 1], pkt: __pktA });
   `);
 
   // Recent (delta < PHASIC_COLOR_LAG_S) and no phasic yet — held back.
-  run(context, 'LiveState.packets = [{ timestamp: 0 }, { timestamp: 3 }]; recolorDelayedSegments();');
+  run(context, 'LiveState.packets = [{ timestamp: 0 }, { timestamp: 3 }]; flushSettledSegments();');
   assert.strictEqual(run(context, 'pendingSegments.length'), 1);
-  assert.strictEqual(run(context, '__lineA._style'), undefined);
+  assert.strictEqual(run(context, 'liveMap._layers.filter(l => l.latlngs).length'), 0, 'nothing drawn yet');
 
-  // Old enough now (delta 20 >= 8), but still no phasic value — still held
-  // back (proves the phasic-availability check isn't skipped once time
-  // alone would allow it through).
-  run(context, 'LiveState.packets = [{ timestamp: 0 }, { timestamp: 20 }]; recolorDelayedSegments();');
+  // Old enough (delta 20 >= 8), still no phasic — held back (the
+  // availability check isn't skipped once time alone would allow it through).
+  run(context, 'LiveState.packets = [{ timestamp: 0 }, { timestamp: 20 }]; flushSettledSegments();');
   assert.strictEqual(run(context, 'pendingSegments.length'), 1);
-  assert.strictEqual(run(context, '__lineA._style'), undefined);
+  assert.strictEqual(run(context, 'liveMap._layers.filter(l => l.latlngs).length'), 0);
 
-  // Phasic is available now, but back to too-recent (delta 3 < 8) — still
-  // held back (the mirror image of the previous check: proves the time
-  // check isn't skipped once phasic alone would allow it through).
-  run(context, '__pktA.phasic = 42; LiveState.packets = [{ timestamp: 0 }, { timestamp: 3 }]; recolorDelayedSegments();');
+  // Phasic available but too recent (delta 3 < 8) — still held back.
+  run(context, '__pktA.phasic = 42; LiveState.packets = [{ timestamp: 0 }, { timestamp: 3 }]; flushSettledSegments();');
   assert.strictEqual(run(context, 'pendingSegments.length'), 1);
-  assert.strictEqual(run(context, '__lineA._style'), undefined);
 
-  // Phasic now available AND old enough — repaints and clears the queue.
-  run(context, 'LiveState.packets = [{ timestamp: 0 }, { timestamp: 20 }]; recolorDelayedSegments();');
+  // Phasic available AND old enough — drawn exactly once, queue drained.
+  run(context, 'LiveState.packets = [{ timestamp: 0 }, { timestamp: 20 }]; flushSettledSegments();');
   assert.strictEqual(run(context, 'pendingSegments.length'), 0);
   assert.strictEqual(run(context, 'phasicMax'), 42);
-  const style = JSON.parse(run(context, 'JSON.stringify(__lineA._style)'));
+  const segs = runJSON(context, 'liveMap._layers.filter(l => l.latlngs).map(l => l.latlngs)');
+  assert.deepStrictEqual(segs, [[[0, 0], [1, 1]]]);
   // getColorForValue(42, 0, 42): ratio 1.0 -> hue 0 -> red end of the scale.
-  assert.strictEqual(style.color, 'hsl(0, 90%, 50%)');
+  assert.strictEqual(run(context, 'liveMap._layers.find(l => l.latlngs).options.color'), 'hsl(0, 90%, 50%)');
 });
 
-test('resetSession: clears pendingSegments, allTrackSegments and phasicMax, so a stale entry from a prior session (whose pkt.phasic will never be set again) can never wedge the next session\'s recolor queue', () => {
+test('resetSession: clears pendingSegments, allTrackSegments and phasicMax, so a stale entry from a prior session (whose pkt.phasic will never be set again) can never wedge the next session\'s flush queue', () => {
   const { context } = bootLive();
   run(context, `
-    pendingSegments.push({ pkt: { timestamp: 0 }, line: L.polyline([[0, 0], [0, 0]], {}) });
+    pendingSegments.push({ prevLatLng: [0, 0], latlng: [1, 1], pkt: { timestamp: 0 } });
     allTrackSegments.push({ pkt: { timestamp: 0 }, line: L.polyline([[0, 0], [0, 0]], {}) });
     phasicMax = 99;
   `);
@@ -965,10 +961,10 @@ test('resetSession: removes all track polyline layers and liveMarker from liveMa
   assert.strictEqual(run(context, 'liveMarker'), null);
 });
 
-test('end-to-end: a walking session progressively repaints its older track segments with phasic color while its most recent segments stay provisional', () => {
+test('end-to-end: a walking session draws only settled trail segments; the recent tail stays pending until it settles', () => {
   const { context } = bootLive();
   // The active metric defaults to 'signal' — switch to 'phasic' so this
-  // exercises the delayed-recolor path the test is about.
+  // exercises the deferred-draw path the test is about.
   run(context, "liveGsrView.graphView = 'phasic';");
   // 50 packets at the real STREAM_INTERVAL_S cadence (0.3s), stepping GSR up
   // partway through so decomposeTonicPhasic has a real, non-trivial phasic
@@ -990,19 +986,19 @@ test('end-to-end: a walking session progressively repaints its older track segme
 
   const result = JSON.parse(run(context, `
     JSON.stringify({
-      totalSegments: liveMap._layers.filter(l => l.latlngs).length,
-      repaintedCount: liveMap._layers.filter(l => l.latlngs && l._style !== undefined).length,
+      drawnSegments: liveMap._layers.filter(l => l.latlngs).length,
       pendingCount: pendingSegments.length,
+      allFinalColoured: liveMap._layers.filter(l => l.latlngs).every(l => typeof l.options.color === 'string'),
       oldestPendingAge: pendingSegments.length > 0
         ? LiveState.packets[LiveState.packets.length - 1].timestamp - pendingSegments[0].pkt.timestamp
         : null,
     })
   `));
 
-  assert.strictEqual(result.totalSegments, 49, '50 packets -> 49 segments (the first fix only sets the view, no segment)');
-  assert.ok(result.repaintedCount > 0, 'some early segments should have settled and repainted by now');
-  assert.ok(result.pendingCount > 0, 'the most recent segments should still be waiting out the lag');
-  assert.strictEqual(result.repaintedCount + result.pendingCount, result.totalSegments);
+  assert.strictEqual(result.drawnSegments + result.pendingCount, 49, '50 packets -> 49 segment slots, split between drawn and still-pending');
+  assert.ok(result.drawnSegments > 0, 'settled segments are drawn');
+  assert.ok(result.pendingCount > 0, 'the most recent segments are still held back');
+  assert.ok(result.allFinalColoured, 'every drawn segment was drawn once with its final colour (never repainted)');
   assert.ok(result.oldestPendingAge < 8, `the oldest still-pending segment should be within PHASIC_COLOR_LAG_S, got ${result.oldestPendingAge}`);
 });
 
@@ -1843,26 +1839,26 @@ test('updateLiveMap: fixType gating — 1 (no fix) is rejected, 0 (unknown) and 
   ]);
 });
 
-test('updateLiveMap: a gap fix breaks the drawn trail (no segment, nothing queued for recolor) but tracking resumes after it', () => {
+test('updateLiveMap: a gap fix breaks the trail — the next segment resumes from the gap point, never bridged across it', () => {
   const { context } = bootLive();
-  // The active metric defaults to 'signal', under which nothing is ever
-  // queued for delayed recolor (see updateLiveMap()) — switch to 'phasic' so
-  // this test's "still just 1 queued" assertion is meaningful.
+  // In tonic/phasic mode segments are queued (not drawn) until settled, so
+  // this asserts the QUEUE geometry — where the gap is actually broken.
   run(context, "liveGsrView.graphView = 'phasic';");
   run(context, 'showMap()');
 
   run(context, `updateLiveMap(${FIX({ lat: 51.0, lon: 0.0 })})`);            // anchor
-  run(context, `updateLiveMap(${FIX({ lat: 51.1, lon: 0.1 })})`);            // segment 1
-  run(context, `updateLiveMap(${FIX({ lat: 51.2, lon: 0.2, gap: true })})`); // gap: draw nothing
+  run(context, `updateLiveMap(${FIX({ lat: 51.1, lon: 0.1 })})`);            // queued segment 1
+  run(context, `updateLiveMap(${FIX({ lat: 51.2, lon: 0.2, gap: true })})`); // gap: nothing queued
 
-  assert.strictEqual(segLatLngs(context).length, 1, 'the gap interval itself gets no line');
-  assert.strictEqual(run(context, 'pendingSegments.length'), 1, 'nothing new queued for phasic recolor across the gap');
-  assert.deepStrictEqual(runJSON(context, 'liveLastLatLng'), [51.2, 0.2], 'but the anchor moves to the gap point');
+  assert.strictEqual(run(context, 'pendingSegments.length'), 1, 'only the good segment is queued — the gap queues nothing');
+  assert.deepStrictEqual(runJSON(context, 'liveLastLatLng'), [51.2, 0.2], 'anchor moves to the gap point');
+  assert.strictEqual(segLatLngs(context).length, 0, 'nothing is drawn until the metric settles');
 
-  run(context, `updateLiveMap(${FIX({ lat: 51.3, lon: 0.3 })})`);            // resumes
+  run(context, `updateLiveMap(${FIX({ lat: 51.3, lon: 0.3 })})`);            // resumes: queued from the gap point
   assert.deepStrictEqual(
-    segLatLngs(context).at(-1), [[51.2, 0.2], [51.3, 0.3]],
-    'tracking picks up from the gap point, not bridged across the gap',
+    runJSON(context, 'pendingSegments.map(e => [e.prevLatLng, e.latlng])'),
+    [[[51.0, 0.0], [51.1, 0.1]], [[51.2, 0.2], [51.3, 0.3]]],
+    'segment 2 starts at the gap point — the gap is never bridged',
   );
 });
 

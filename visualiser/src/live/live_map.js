@@ -1,9 +1,9 @@
 /**
  * Live map — the live receiver's follow-map (Leaflet). Paints the walker's
- * trail one per-fix segment at a time (provisional raw-GSR colour, then
- * repainted once the active metric's tonic/phasic value has settled),
- * reconciles peak/hotspot markers against the live analyser's sliding
- * window, and handles offline tile caching + map visibility.
+ * trail one per-fix segment at a time — drawn only once the active metric's
+ * tonic/phasic value has settled (never repainted) — reconciles peak/hotspot
+ * markers against the live analyser's sliding window, and handles offline
+ * tile caching + map visibility.
  *
  * Split out of src/live/live_view.js (2026-09). The shell (live_view.js)
  * owns the analyser, the view state (liveGsrView), device-class detection
@@ -40,72 +40,76 @@ let liveMarker = null;
 let gsrMin = Infinity, gsrMax = -Infinity;
 let tonicMin = Infinity, tonicMax = -Infinity;
 
-// Delayed recoloring for the live track — updateLiveMap() paints a new
-// segment immediately from raw GSR (0-latency), then this repaints it once
-// the ACTIVE metric's value (liveGsrView.graphView: 'tonic' or 'phasic' —
-// 'signal' needs no delay, see recolorDelayedSegments()) has settled.
+// Tonic/phasic colouring is DEFERRED: the zero-phase decomposition
+// (decomposeTonicPhasic) needs a ±6s look-ahead, so a sample's value isn't
+// trustworthy until LIVE_SETTLE_TAIL_S after it arrives. Rather than drawing
+// the newest tail in a provisional colour and repainting it later (the
+// jarring "pop" this replaces), updateLiveMap() queues each segment and
+// flushSettledSegments() draws it — already correctly coloured — once its
+// value has settled. A drawn segment never changes colour.
 // phasicMin is fixed at 0 (phasic is already clamped >= 0 in
 // decomposeTonicPhasic — 0 is a meaningful "at baseline" reference point,
 // unlike gsrMin/gsrMax/tonicMin which have no natural floor) so only the
 // ceiling needs to track the session's peak.
 let phasicMax = 0;
-const pendingSegments = []; // FIFO of { pkt, line } awaiting a settled pkt.tonic/pkt.phasic
-const PHASIC_COLOR_LAG_S = 8; // matches decomposeTonicPhasic's ±6s local-floor window + margin
-// Hard cap on the recolour backlog. recolorDelayedSegments() runs from
-// feedLiveAnalyzer() (i.e. only when analyze() actually ran — every packet
-// through the warmup, then once per LIVE_ANALYZE_MIN_INTERVAL_MS), and it
-// only drains an entry once that packet's value has both been computed AND
-// settled (PHASIC_COLOR_LAG_S). If analyse() is being skipped for a
-// stretch, or the newest packets haven't settled, the queue keeps growing
-// while updateLiveMap() adds a segment per fix. Without a cap the queue —
-// and the Leaflet polylines each entry pins — would grow unbounded. Past
-// the cap the oldest segment simply keeps its provisional raw-GSR colour —
-// the same outcome resetSession() and an abrupt session end accept.
+
+// FIFO of undrawn segments awaiting a settled tonic/phasic value. Each entry
+// captures its geometry at arrival time ({ prevLatLng, latlng, pkt }) so a
+// mid-queue gap is still broken correctly when the segment is drawn later.
+const pendingSegments = [];
+
+// How long a tonic/phasic value needs to settle (decomposeTonicPhasic's ±6s
+// local-floor window + margin). A queued segment is drawn once this long has
+// passed since its packet arrived.
+const PHASIC_COLOR_LAG_S = 8;
+
+// Hard cap on the deferred-segment backlog. flushSettledSegments() runs from
+// feedLiveAnalyzer() (every packet through the warmup, then once per
+// LIVE_ANALYZE_MIN_INTERVAL_MS), draining each entry once its value has
+// settled. If analyse() stalls for a long stretch the queue could grow; past
+// the cap the oldest undrawn segment is simply dropped (a short visual gap,
+// the same outcome resetSession() and an abrupt end accept).
 const PENDING_SEGMENTS_MAX = 1200; // ~6 min at STREAM_INTERVAL_S
 
-// Every segment drawn this session (not just the still-pending tail
-// pendingSegments tracks above) — {pkt, line} pairs, so switching the active
-// metric (FAB chip tap / #liveGraphView dropdown change) can immediately
-// repaint the WHOLE track via recolorAllTrackSegments(), not just future
-// segments. Grows for the life of a session like LiveState.packets already
-// does; resetSession() clears it.
+// Every segment drawn this session — {pkt, line} pairs, so switching the
+// active metric (FAB chip tap / #liveGraphView dropdown change) can
+// immediately repaint the WHOLE track via recolorAllTrackSegments(). Grows
+// for the life of a session like LiveState.packets already does;
+// resetSession() clears it.
 const allTrackSegments = [];
 
-// decomposeTonicPhasic() is a zero-phase/batch filter (a backward EMA pass,
-// then a ±6s look-ahead "local floor" correction) — a sample's tonic/phasic
-// value isn't trustworthy the instant feedLiveAnalyzer() first computes it;
-// it needs a few seconds of FUTURE packets behind it to stabilize (the same
-// reason drawGraph() withholds peak markers inside LIVE_SETTLE_TAIL_S). This
-// repaints already-drawn segments once that's true, using the exact
-// decomposition the analyser already ran — not a second, cheaper
-// approximation. Reads the ACTIVE metric (liveGsrView.graphView) on every
-// call, so a mid-session metric switch is honoured by future settles with no
-// extra bookkeeping — recolorAllTrackSegments() (below) handles the
+// Draws each queued segment whose tonic/phasic value has settled, in FIFO
+// order, with the active metric's final colour. Reads liveGsrView.graphView
+// on every call, so a mid-session metric switch is honoured by future draws
+// with no extra bookkeeping — recolorAllTrackSegments() (below) handles the
 // immediate repaint of segments already on the map when the switch happens.
-// 'signal' (raw) needs no settling at all — it's final the instant a segment
-// is drawn — so the queue is simply drained without repainting anything.
-// A session that ends abruptly leaves its last ~8s of segments in their
-// initial raw-GSR colour; resetSession() clears this queue so a stale entry
-// from a prior session can never block it (pkt.tonic/pkt.phasic would
-// otherwise never be set again once LiveState.packets has moved on, wedging
-// this FIFO forever on that one entry).
-function recolorDelayedSegments() {
+// 'signal' (raw) needs no settling at all, so any queued segment (left over
+// from a tonic/phasic stretch) is drawn immediately.
+function flushSettledSegments() {
   const metric = liveGsrView.graphView;
   const lastPkt = LiveState.packets[LiveState.packets.length - 1];
   if (!lastPkt) return;
+  const weight = isCompactLiveLayout() ? LIVE_TRACK_WEIGHT_MOBILE : LIVE_TRACK_WEIGHT_DESKTOP;
   while (pendingSegments.length > 0) {
-    const entry = pendingSegments[0];
-    const val = entry.pkt[metric];
-    if (metric !== 'signal' && val === undefined) break; // not in drawGraph()'s current window yet
-    if (lastPkt.timestamp - entry.pkt.timestamp < PHASIC_COLOR_LAG_S) break; // not settled yet
+    const e = pendingSegments[0];
+    const val = metric === 'signal' ? e.pkt.gsrRaw : e.pkt[metric];
+    if (metric !== 'signal') {
+      if (val === undefined) break; // not computed yet (outside the analyse window)
+      if (lastPkt.timestamp - e.pkt.timestamp < PHASIC_COLOR_LAG_S) break; // not settled yet
+    }
+    let color;
     if (metric === 'tonic') {
       tonicMin = Math.min(tonicMin, val);
       tonicMax = Math.max(tonicMax, val);
-      entry.line.setStyle({ color: MapColors.getColorForValue(val, tonicMin, tonicMax) });
+      color = MapColors.getColorForValue(val, tonicMin, tonicMax);
     } else if (metric === 'phasic') {
       phasicMax = Math.max(phasicMax, val);
-      entry.line.setStyle({ color: MapColors.getColorForValue(val, 0, phasicMax) });
+      color = MapColors.getColorForValue(val, 0, phasicMax);
+    } else {
+      color = MapColors.getColorForValue(val, gsrMin, gsrMax);
     }
+    const line = L.polyline([e.prevLatLng, e.latlng], { color, weight }).addTo(liveMap);
+    allTrackSegments.push({ pkt: e.pkt, line });
     pendingSegments.shift();
   }
 }
@@ -119,16 +123,18 @@ function recolorDelayedSegments() {
 // (two passes) so every segment in this one repaint is coloured against the
 // same range — a single running-max update mid-loop would make early
 // segments and late segments in the same pass use different scales. A
-// segment whose target metric hasn't been computed yet (the newest few
-// seconds — see feedLiveAnalyzer()'s trailing window) keeps its current
-// (provisional or previously-settled) colour; recolorDelayedSegments()
-// catches those up normally as the session continues.
+// segment whose target metric hasn't been computed yet keeps its current
+// colour; the undrawn queue is flushed (for signal) or left to settle (for
+// tonic/phasic).
 function recolorAllTrackSegments() {
   const metric = liveGsrView.graphView;
   if (metric === 'signal') {
     for (const { pkt, line } of allTrackSegments) {
       line.setStyle({ color: MapColors.getColorForValue(pkt.gsrRaw, gsrMin, gsrMax) });
     }
+    // Any segments deferred during a tonic/phasic stretch are final for
+    // signal immediately — draw them so the trail catches up to the dot.
+    flushSettledSegments();
     return;
   }
   let lo = metric === 'tonic' ? tonicMin : 0;
@@ -414,43 +420,45 @@ function updateLiveMap(pkt) {
   const latlng = [pkt.lat, pkt.lon];
 
   if (liveMap) {
+    // Raw GSR range is tracked regardless of metric — 'signal' colouring (the
+    // no-delay default) needs it immediately, and a mid-session switch back
+    // to signal recolours the whole trail against it.
     gsrMin = Math.min(gsrMin, pkt.gsrRaw);
     gsrMax = Math.max(gsrMax, pkt.gsrRaw);
-    const color = MapColors.getColorForValue(pkt.gsrRaw, gsrMin, gsrMax);
 
     if (!liveLastLatLng) {
       liveMap.setView(latlng, LIVE_ZOOM);
-    } else if (pkt.gap) {
-      // §8 "Show the gap, don't paper over it" — a real time gap (dropped/
-      // disconnected interval) breaks the trail rather than drawing a
-      // straight line across whatever distance was covered during it.
-    } else {
-      // Per-segment coloring: one short polyline per new point, colored
-      // provisionally from that point's raw GSR value for instant feedback,
-      // regardless of the active metric — recolorDelayedSegments() (called
-      // from feedLiveAnalyzer()) repaints it with the active metric's
-      // settled value once available.
-      const weight = isCompactLiveLayout() ? LIVE_TRACK_WEIGHT_MOBILE : LIVE_TRACK_WEIGHT_DESKTOP;
-      const line = L.polyline([liveLastLatLng, latlng], { color, weight }).addTo(liveMap);
-      const segment = { pkt, line };
-      allTrackSegments.push(segment);
-      pendingSegments.push(segment);
+    }
+
+    const metric = liveGsrView.graphView;
+    if (metric === 'signal') {
+      // Raw GSR is final the instant a fix arrives — draw the segment now.
+      if (liveLastLatLng && !pkt.gap) {
+        const weight = isCompactLiveLayout() ? LIVE_TRACK_WEIGHT_MOBILE : LIVE_TRACK_WEIGHT_DESKTOP;
+        const line = L.polyline([liveLastLatLng, latlng],
+          { color: MapColors.getColorForValue(pkt.gsrRaw, gsrMin, gsrMax), weight }).addTo(liveMap);
+        allTrackSegments.push({ pkt, line });
+      }
+    } else if (liveLastLatLng && !pkt.gap) {
+      // Tonic/phasic aren't trustworthy until settled — queue the segment
+      // (geometry captured now) for flushSettledSegments() to draw once its
+      // value has settled. A gap fix queues nothing (it only advances the
+      // anchor), so the trail breaks there rather than bridging the gap.
+      pendingSegments.push({ prevLatLng: liveLastLatLng, latlng, pkt });
       if (pendingSegments.length > PENDING_SEGMENTS_MAX) pendingSegments.shift();
     }
 
-    let markerColor = color;
-    if (liveGsrView.graphView === 'tonic' && Number.isFinite(tonicMin) && Number.isFinite(tonicMax) && pkt.tonic !== undefined) {
-      markerColor = MapColors.getColorForValue(pkt.tonic, tonicMin, tonicMax);
-    } else if (liveGsrView.graphView === 'phasic' && phasicMax > 0 && pkt.phasic !== undefined) {
-      markerColor = MapColors.getColorForValue(pkt.phasic, 0, phasicMax);
-    }
-
+    // "You are here" marker — fixed neutral styling, independent of the
+    // active metric, so the dot never implies a data value (the trail is the
+    // data; the dot is just you).
     if (!liveMarker) {
-      liveMarker = L.circleMarker(latlng, { radius: 6, color: '#fff', weight: 2, fillColor: markerColor, fillOpacity: 1 }).addTo(liveMap);
+      liveMarker = L.circleMarker(latlng, {
+        radius: 7, color: '#1d7ff2', weight: 3, fillColor: '#ffffff', fillOpacity: 1
+      }).addTo(liveMap);
     } else {
       liveMarker.setLatLng(latlng);
-      liveMarker.setStyle({ fillColor: markerColor });
     }
+
     const nowMs = Date.now();
     if (nowMs - lastLivePanAt >= LIVE_PAN_MIN_INTERVAL_MS) {
       lastLivePanAt = nowMs;
