@@ -15,6 +15,14 @@ The first Bio Mapping device (Christian Nold, 2004) was used in workshops with t
 
 BioMapping 2.0 is a higher-fidelity successor to that original device.
 
+---
+
+# The Hardware
+
+The device is a Flipper Zero running the Bio Mapping app, wired to a custom skin-response sensor circuit and a GPS module. It records to the Flipper's SD card as CSV.
+
+![BioMapping 2 with the prototyping shield and the GSR circuit on the lft and the GPS on the right.](docs/biomapping2.jpg)
+
 ## What It Records
 
 | Stream | Sensor | Notes |
@@ -25,9 +33,7 @@ BioMapping 2.0 is a higher-fidelity successor to that original device.
 
 Everything is logged to `/ext/biomapping/*.csv` at 10 Hz. A Live Stream mode sends GPS + GSR over Bluetooth instead of recording.
 
-## How It Compares
-
-### Hardware Accuracy (vs. Shimmer3 GSR+)
+## Hardware Accuracy (vs. Shimmer3 GSR+)
 
 The GSR front-end is built to research-grade specification and measured against a precision metal-film resistor grid (10 kΩ – 9 MΩ), full sweep in [`docs/reference_test_results.csv`](docs/reference_test_results.csv).
 
@@ -45,41 +51,6 @@ Accuracy zones by the fraction of real-world track data that falls inside them:
 - **≤ ±0.5%** — 22 kΩ – 2.2 MΩ (455 – 45,455 nS): 99.75%
 - **≤ ±1.0%** — 15 kΩ – 4.7 MΩ (213 – 66,667 nS): 99.89%
 - Below 100 nS (over 10 MΩ) the device reports an open circuit (electrodes disconnected / air).
-
-### Software & Algorithmic Accuracy
-
-Detecting a genuine skin-conductance response (SCR) — separating it from sensor noise, walking motion, and baseline drift — is a well-studied problem in psychophysiology, with two established open-source reference tools: **NeuroKit2** (Python) and **Ledalab** (MATLAB/Octave), plus the peer-reviewed **cvxEDA** convex-optimisation model for decomposing skin conductance into its slow (tonic) and fast (phasic) components.
-
-BioMapping ships its own detection pipeline — built to run entirely client-side, in the browser, on recordings made while walking outdoors — and checks it against those references on three grounds:
-
-1. **A synthetic benchmark with a known answer.** Generated tracks carry SCR events at exactly known times and amplitudes, across a range of difficulty (evenly spaced, densely packed, overlapping bursts, and walking motion), so detection accuracy can be measured directly rather than inferred.
-2. **Direct agreement on real recordings.** On clean, stationary recordings — the condition NeuroKit2 and Ledalab are designed for — BioMapping's output is compared peak-for-peak against theirs.
-3. **A 62-track real-world field corpus.** Outdoor walking recordings totalling over 100,000 data points, to confirm the above holds up outside the lab.
-
-**On the known-answer synthetic benchmark** (210 injected responses, evenly spaced through overlapping and compound), BioMapping's detectors sit at the strong end of recall, precision, and timing accuracy:
-
-| Detector | Recall | Precision | F1 | Mean timing error |
-|---|---:|---:|---:|---:|
-| **BioMapping Full-Scan** (production default) | 93.3% | 100.0% | 0.966 | 0.029 s |
-| **BioMapping Prominence** | 95.2% | 99.5% | 0.973 | 0.032 s |
-| NeuroKit2 (default) | 83.8% | 84.2% | 0.840 | 0.035 s |
-| Ledalab CDA (literature-tuned) | 81.9% | 88.2% | 0.849 | 0.556 s |
-
-**On real, clean stationary recordings**, agreement with NeuroKit2 is close to total — BioMapping's Prominence detector matches 100% of NeuroKit2's own peaks (163/163) within ~60 ms, while also picking up dozens of genuine subtle responses NeuroKit2's fixed relative threshold leaves out.
-
-**The standout result is cvxEDA.** BioMapping's from-scratch JavaScript port of the convex-optimisation solver reproduces the published Python reference implementation's output essentially exactly — on the full 62-track field corpus, 99.7% of 4,494 detections matched with a mean timing difference of 0.002 seconds — entirely in-browser, with no Python, MATLAB, or server backend required.
-
-**Where BioMapping is built differently** is ambulatory use: NeuroKit2 and Ledalab are designed for seated laboratory sessions, so BioMapping adds a zero-phase motion filter tuned to footstep cadence and a noise-floor gate for sensor dropouts, neither of which a stationary-recording toolbox needs. On a synthetic walking benchmark with the gait filter enabled, BioMapping recovers 100% of injected responses at 96.8% precision.
-
-Full methodology, every detector variant, and the complete benchmark history are in [`docs/eda_detection_benchmark.md`](docs/eda_detection_benchmark.md).
-
----
-
-# The Hardware
-
-The device is a Flipper Zero running the Bio Mapping app, wired to a custom skin-response sensor circuit and a GPS module. It records to the Flipper's SD card as CSV.
-
-![BioMapping 2 with the prototyping shield and the GSR circuit on the lft and the GPS on the right.](docs/biomapping2.jpg)
 
 ## Installing the App
 
@@ -165,60 +136,6 @@ Pin 4 = GND       Pin 5 = In+ B
 
 The ADS1115 subtracts the 0.5V virtual-ground offset, isolating the amplified skin-current data while rejecting system noise.
 
-## Recording Modes
-
-Selected from the main menu:
-
-```
-┌─────────────────────────────┐
-│  Bio Mapping                │
-│  ▓ GPS + GSR + RF      ▓    │   ← selected item (inverse bar)
-│    GPS + GSR                │
-│    GPS + RF                 │
-│    GSR Only                 │
-│    Live Stream              │
-│    Options                  │
-└─────────────────────────────┘
-```
-
-| Mode | What it does | Output |
-|---|---|---|
-| **GPS + GSR + RF** | GPS, GSR and RF scanning all active. Each row carries the most recent GPS fix (carried forward, not interpolated). | 14-column CSV @ 10 Hz |
-| **GPS + GSR** | GPS and GSR, RF off. | 11-column CSV @ 10 Hz |
-| **GPS + RF** | GPS and RF, no GSR sensor (`gsr_raw` = `0.0`). | 14-column CSV @ 10 Hz |
-| **GSR Only** | GSR waveform only, no GPS driver (module put into Software Standby to save power). | 2-column CSV @ 10 Hz |
-| **Live Stream** | GPS + GSR streamed over Bluetooth in real time — **nothing is written to the SD card**. See [Live View](#live-view). | BLE, ~300 ms packets |
-| **Options** | Opens the Options screen. | — |
-
-Diagnostics is reached via **Options → Diagnostics**, not the main menu.
-
-## Using the Device
-
-Pick a mode from the main menu and press **OK** to start and stop recording. While recording, the arrow keys scale the on-screen graph (Up/Down = amplitude, Left/Right = time); **Back** stops and returns to the menu.
-
-The graph shows the GSR **rate of change** (the derivative of skin conductance), not the absolute level. The two RF modes (GPS + GSR + RF and GPS + RF) add a per-band RSSI panel down the left edge. The CSV always stores the **absolute** conductance in nS; the derivative is display-only.
-
-The RGB LED gives a once-per-second heartbeat while recording: green = OK, red = electrodes reading open-circuit, solid red = SD/filesystem error (recording stopped). Short tones mark recording start/stop, mode changes, and errors — mute them in **Options → Sound**.
-
-## Options
-
-Backlight, sound, and auto-zoom are self-explanatory toggles. The rest:
-
-- **GPS Profile** — dynamic navigation model: Pedestrian (default), Wrist-worn, Vehicle, Stationary, Sea, Bike, Flight.
-- **Reset GPS** — hot-start command; use if GPS data looks stale or frozen.
-- **GSR Calibration** — 3-point wizard (below); shows `YES` when a custom calibration is loaded.
-- **RF Calibration** — per-band Faraday noise-floor wizard; its result becomes the `# Band Floors` line in the CSV header.
-- **Debug Fields** — appends diagnostic columns to recordings (off by default, applies to the next recording). Column list in [`docs/csv_schema.md`](docs/csv_schema.md).
-- **Diagnostics** — live raw sensor values (PGA range, single-sample and 100 ms-mean conductance), no recording.
-
-### GSR Calibration Wizard
-
-Connect three reference resistors to the electrodes in turn; the wizard solves a linear fit ($y = \text{gain} \times x + \text{offset}$) in nS.
-
-- **Points:** 470 kΩ → 2127.66 nS; 100 kΩ → 10000.0 nS; 47 kΩ → 21276.6 nS.
-- Each step gathers 20 samples over 2 s (min/max discarded) and must pass a range gate; the final fit must hold gain $\in [0.2, 5.0]$, offset $\in [\pm20000]$ nS, $R^2 \ge 0.95$.
-- **OK** saves to `/ext/biomapping/biomap.cal`; **Reset to Default** restores gain 1.0 / offset 0.0.
-
 ## Recordings on the SD Card
 
 Files are written to `/ext/biomapping/` as `biomap_001.csv` … `biomap_999.csv` (auto-incrementing, wraps at 999). Each row is one 10 Hz tick.
@@ -295,14 +212,39 @@ flowchart LR
 
 Filtering, peak detection, and the GPS quality filter are all adjustable in the UI at runtime. The device logs every GPS fix; the quality filter (default HDOP 3.0) is applied here, at display time, and is non-destructive.
 
+## Software & Algorithmic Accuracy
+
+Detecting a genuine skin-conductance response (SCR) — separating it from sensor noise, walking motion, and baseline drift — is a well-studied problem in psychophysiology, with two established open-source reference tools: **NeuroKit2** (Python) and **Ledalab** (MATLAB/Octave), plus the peer-reviewed **cvxEDA** convex-optimisation model for decomposing skin conductance into its slow (tonic) and fast (phasic) components.
+
+BioMapping ships its own detection pipeline — built to run entirely client-side, in the browser, on recordings made while walking outdoors — and checks it against those references on three grounds:
+
+1. **A synthetic benchmark with a known answer.** Generated tracks carry SCR events at exactly known times and amplitudes, across a range of difficulty (evenly spaced, densely packed, overlapping bursts, and walking motion), so detection accuracy can be measured directly rather than inferred.
+2. **Direct agreement on real recordings.** On clean, stationary recordings — the condition NeuroKit2 and Ledalab are designed for — BioMapping's output is compared peak-for-peak against theirs.
+3. **A 62-track real-world field corpus.** Outdoor walking recordings totalling over 100,000 data points, to confirm the above holds up outside the lab.
+
+**On the known-answer synthetic benchmark** (210 injected responses, evenly spaced through overlapping and compound), BioMapping's detectors sit at the strong end of recall, precision, and timing accuracy:
+
+| Detector | Recall | Precision | F1 | Mean timing error |
+|---|---:|---:|---:|---:|
+| **BioMapping Full-Scan** (production default) | 93.3% | 100.0% | 0.966 | 0.029 s |
+| **BioMapping Prominence** | 95.2% | 99.5% | 0.973 | 0.032 s |
+| NeuroKit2 (default) | 83.8% | 84.2% | 0.840 | 0.035 s |
+| Ledalab CDA (literature-tuned) | 81.9% | 88.2% | 0.849 | 0.556 s |
+
+**On real, clean stationary recordings**, agreement with NeuroKit2 is close to total — BioMapping's Prominence detector matches 100% of NeuroKit2's own peaks (163/163) within ~60 ms, while also picking up dozens of genuine subtle responses NeuroKit2's fixed relative threshold leaves out.
+
+**The standout result is cvxEDA.** BioMapping's from-scratch JavaScript port of the convex-optimisation solver reproduces the published Python reference implementation's output essentially exactly — on the full 62-track field corpus, 99.7% of 4,494 detections matched with a mean timing difference of 0.002 seconds — entirely in-browser, with no Python, MATLAB, or server backend required.
+
+**Where BioMapping is built differently** is ambulatory use: NeuroKit2 and Ledalab are designed for seated laboratory sessions, so BioMapping adds a zero-phase motion filter tuned to footstep cadence and a noise-floor gate for sensor dropouts, neither of which a stationary-recording toolbox needs. On a synthetic walking benchmark with the gait filter enabled, BioMapping recovers 100% of injected responses at 96.8% precision.
+
+Full methodology, every detector variant, and the complete benchmark history are in [`docs/eda_detection_benchmark.md`](docs/eda_detection_benchmark.md).
+
 ## Live View
 
 [`visualiser/live.html`](visualiser/live.html) — receives GPS + GSR from the Flipper's **Live Stream** mode over Bluetooth LE in real time, for watching a walk unfold on a laptop or phone as it happens. The same view is built into `index.html` under the **Live** tab of the top-right view switcher (Single Track / Collective / Live); `live.html` is just the standalone host for it (shared code in [`visualiser/src/live/`](visualiser/src/live/)).
 
-- **On the Flipper:** select **Live Stream**. The screen shows BLE status (`Advertising` / `Connected`), the dropped-packet count, and live GSR / GPS readouts. It sends a 45-byte packed binary packet every 300 ms over the stock BLE serial profile. Design notes: [`docs/archive/bluetooth_serial_investigation.md`](docs/archive/bluetooth_serial_investigation.md).
-- **In the browser:** open `live.html`, press **Connect**, and pair with the Flipper. It shows a rolling GSR graph and a Leaflet map of the track (GSR is already calibrated on the Flipper — the wire packet carries the same calibrated nS value a recording writes), and flags dropped-packet gaps. `M` toggles the map, `P` the phasic-only trace, `C` caches the current map area offline, `F` goes edge-to-edge full screen.
-- **Export CSV** opens the OS "Save location" dialog (like every other export) and writes a file byte-compatible with a recorded track: the same 11-column GPS + GSR schema, the same `# Integrity: crc32 v1` marker and `# End … crc32:…` trailer, so it imports and integrity-verifies exactly like an SD recording. (Two fields the BLE packet can't carry: `hacc_m` stays empty, and there's no `# GSR Calibration:` metadata line.)
-- **Leaving the Live tab** (in `index.html`) disconnects Bluetooth. The received packets, the drawn track and **Export CSV** stay available; use **Reconnect** to resume the same session or **New Connection** to start fresh.
+- The Flipper sends a 45-byte packed binary packet every 300 ms over the stock BLE serial profile, already GSR-calibrated (the wire packet carries the same calibrated nS value a recording writes). Design notes: [`docs/archive/bluetooth_serial_investigation.md`](docs/archive/bluetooth_serial_investigation.md).
+- **Export CSV** writes a file byte-compatible with a recorded track: the same 11-column GPS + GSR schema, the same `# Integrity: crc32 v1` marker and `# End … crc32:…` trailer, so it imports and integrity-verifies exactly like an SD recording. (Two fields the BLE packet can't carry: `hacc_m` stays empty, and there's no `# GSR Calibration:` metadata line.)
 - **Browser support:** Web Bluetooth needs desktop Chrome / Edge or Android Chrome / Edge. Safari (any platform) and Firefox are unsupported — there is no iPhone path.
 
 ## Basemap tiles
@@ -319,7 +261,9 @@ every tile carries an "API key required" watermark. For local development,
 
 [`docs/csv_schema.md`](docs/csv_schema.md) is the canonical, versioned definition of every column and sentinel value, shared by the device and both visualiser pages.
 
-## Licence
+---
+
+# Licence
 
 Bio Mapping is open for community, artistic, and educational use under the **Bio Mapping Community Licence 1.0**.
 
