@@ -116,10 +116,14 @@ const MapPopups = {
     input.value = displayLabel;
     input.placeholder = 'Enter label…';
 
-    // Auto-size on render
+    // Auto-size on render. update() reflows the popup card/tip to the new
+    // height — without it Leaflet keeps the popup's original (single-line)
+    // size and a multi-line label gets clipped with the tip arrow misaligned.
     setTimeout(() => {
       input.style.height = 'auto';
       input.style.height = input.scrollHeight + 'px';
+      const popup = marker.getPopup();
+      if (popup) popup.update();
     }, 0);
 
     // --- Date row ---
@@ -159,6 +163,8 @@ const MapPopups = {
     L.DomEvent.on(input, 'input', () => {
       input.style.height = 'auto';
       input.style.height = input.scrollHeight + 'px';
+      const popup = marker.getPopup();
+      if (popup) popup.update();
       GSRUI.handleLiveLabelInput(index, input.value, trackId);
     });
     L.DomEvent.on(input, 'change', () => GSRUI.updatePeakLabel(index, input.value, trackId));

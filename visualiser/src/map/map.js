@@ -125,7 +125,10 @@ class GSRMapManager {
       iconSize: [16, 16],
       iconAnchor: [8, 8]
     });
-    this.scrubMarker = L.marker([0, 0], { icon: scrubIcon });
+    // zIndexOffset keeps this above peak/hotspot/arousal-place markers, which
+    // default to 0 and stack by latitude — without this the scrub dot could
+    // end up hidden behind them depending on where it sits on the track.
+    this.scrubMarker = L.marker([0, 0], { icon: scrubIcon, zIndexOffset: 10000 });
 
     // Initialise static RF Fluid background renderer layer
     if (typeof RFFluidRenderer !== 'undefined') {

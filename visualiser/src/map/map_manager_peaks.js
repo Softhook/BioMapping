@@ -71,9 +71,15 @@ Object.assign(GSRMapManager.prototype, {
           marker.setZIndexOffset(1000);
           marker.hasLabel = true;
         } else {
-          // All 8 positions overlapped — fall back to dot-only
+          // All 8 positions overlapped — no room for a text label, but the
+          // peak still HAS one. Keep hasLabel true (so it survives a
+          // showPeaks-off/showLabels-on filter and outranks plain dots via
+          // z-index) and surface the text on hover instead of dropping it
+          // with no trace.
           marker = L.marker([coords.lat, coords.lon], { icon: simpleIcon });
-          marker.hasLabel = false;
+          marker.setZIndexOffset(1000);
+          marker.bindTooltip(displayLabel, { direction: 'top', offset: [0, -6] });
+          marker.hasLabel = true;
         }
       } else {
         marker = L.marker([coords.lat, coords.lon], { icon: simpleIcon });
@@ -323,8 +329,13 @@ Object.assign(GSRMapManager.prototype, {
           marker.setZIndexOffset(1000);
           marker.hasLabel = true;
         } else {
+          // All 8 positions overlapped — see the matching comment in
+          // _renderPeakMarkers: keep hasLabel true and surface the text via
+          // a hover tooltip instead of silently dropping it.
           marker = L.marker([lat, lon], { icon: collectiveSimpleIcon });
-          marker.hasLabel = false;
+          marker.setZIndexOffset(1000);
+          marker.bindTooltip(displayLabel, { direction: 'top', offset: [0, -6] });
+          marker.hasLabel = true;
         }
       } else {
         marker = L.marker([lat, lon], { icon: collectiveSimpleIcon });

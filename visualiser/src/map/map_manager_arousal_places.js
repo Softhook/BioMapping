@@ -337,12 +337,15 @@ Object.assign(GSRMapManager.prototype, {
       const badge = L.marker([place.lat, place.lon], { icon: this._arousalBadgeIcon(desc) });
       badge.setZIndexOffset(1200 + Math.round(rankRatio * 100));
       badge.bindTooltip(style.tooltip, { sticky: true, className: 'contour-tooltip-label' });
-      badge.bindPopup(() => MapPopups.buildArousalPlacePopup(place, ctx));
       badge._gsrKind = 'arousalPlace';
       if (this.showClusters) badge.addTo(this.map);
       this.clusterLayers.push(badge);
 
       desc.marker = badge;
+      // Kept so _declutterArousalPlaceBadges can rebind the plain popup once
+      // a folded badge separates back out on zoom-in.
+      desc.popupBuilder = () => MapPopups.buildArousalPlacePopup(place, ctx);
+      badge.bindPopup(desc.popupBuilder);
       this._arousalPlaceBadges.push(desc);
     });
 
@@ -466,10 +469,26 @@ Object.assign(GSRMapManager.prototype, {
     for (const { i, folded } of survivors) {
       const b = badges[i];
       b.marker.setIcon(this._arousalBadgeIcon(b, folded.length));
-      b.marker.setTooltipContent(folded.length
+      const mergeNote = folded.length
         ? `${[b.label, ...folded].join(', ')} · ${folded.length + 1} places here — zoom in to separate`
-        : b.tooltip);
+        : null;
+      b.marker.setTooltipContent(mergeNote || b.tooltip);
+      // The merge note above is hover-only (bindTooltip), unreachable on
+      // touch. Fold it into the popup too so tapping a merged badge on
+      // mobile still surfaces it, not just the top-ranked place's own info.
+      b.marker.bindPopup(mergeNote
+        ? () => this._buildFoldedPlacePopup(b, mergeNote)
+        : b.popupBuilder);
     }
+  },
+
+  /** Popup for a folded "+N" Arousal Place badge: the top place's card with a merge note prepended. @private */
+  _buildFoldedPlacePopup(b, mergeNote) {
+    const container = b.popupBuilder();
+    const note = L.DomUtil.create('div', 'popup-note');
+    note.textContent = mergeNote;
+    container.insertBefore(note, container.firstChild);
+    return container;
   }
 
 });
