@@ -426,6 +426,11 @@ test('mount(): a compact/coarse-pointer boot defaults to the map shown, not the 
   assert.strictEqual(window.document.getElementById('toggleMapBtn').textContent, 'Hide Map (M)');
 });
 
+test('mount(): Phasic is drawn under the signal on desktop, but stays off on the compact (mobile) layout', () => {
+  assert.strictEqual(run(bootLive().context, 'liveGsrView.showPhasic'), true, 'desktop draws phasic under the signal');
+  assert.strictEqual(run(bootLive({ compact: true }).context, 'liveGsrView.showPhasic'), false, 'mobile graph is too small for the phasic overlay');
+});
+
 // ==========================================================================
 // The mobile floating action button (#liveFab) — CSS (not exercised by
 // these DOM-only jsdom tests) is what actually hides it on desktop; what IS
@@ -440,14 +445,13 @@ test('the FAB menu offers ordered chips: Graph, toggles, metrics, and Full Scree
   const chips = [...menu.querySelectorAll('button')];
   assert.deepStrictEqual(
     chips.map(b => b.dataset.metric || b.dataset.action || b.dataset.toggle),
-    ['graph', 'showRaw', 'showPeaks', 'showHotspots', 'signal', 'tonic', 'phasic', 'enter-fullscreen']
+    ['graph', 'showPeaks', 'showHotspots', 'signal', 'tonic', 'phasic', 'enter-fullscreen']
   );
-  assert.ok(chips[1].classList.contains('active'), 'Raw is active by default');
-  assert.ok(chips[2].classList.contains('active'), 'Peaks is active by default');
-  assert.ok(chips[3].classList.contains('active'), 'Hotspots is active by default');
-  assert.ok(chips[4].classList.contains('active'), '"signal" is the default active metric');
+  assert.ok(chips[1].classList.contains('active'), 'Peaks is active by default');
+  assert.ok(chips[2].classList.contains('active'), 'Hotspots is active by default');
+  assert.ok(chips[3].classList.contains('active'), '"signal" is the default active metric');
+  assert.ok(!chips[4].classList.contains('active'));
   assert.ok(!chips[5].classList.contains('active'));
-  assert.ok(!chips[6].classList.contains('active'));
 });
 
 test('the FAB menu offers Map chip instead of Graph once the graph is fullscreen (map hidden)', () => {
@@ -456,7 +460,7 @@ test('the FAB menu offers Map chip instead of Graph once the graph is fullscreen
   const chips = [...menu.querySelectorAll('button')];
   assert.deepStrictEqual(
     chips.map(b => b.dataset.metric || b.dataset.action || b.dataset.toggle),
-    ['map', 'showRaw', 'showPeaks', 'showHotspots', 'signal', 'tonic', 'phasic', 'enter-fullscreen']
+    ['map', 'showPeaks', 'showHotspots', 'signal', 'tonic', 'phasic', 'enter-fullscreen']
   );
 });
 
@@ -485,15 +489,15 @@ test('tapping the FAB\'s Graph chip switches to the fullscreen graph (mapVisible
   assert.ok(app.classList.contains('no-map'), 'Graph chip behaves exactly like today\'s .no-map fullscreen graph');
   assert.deepStrictEqual(
     [...menu.querySelectorAll('button')].map(b => b.dataset.metric || b.dataset.action || b.dataset.toggle),
-    ['map', 'showRaw', 'showPeaks', 'showHotspots', 'signal', 'tonic', 'phasic', 'enter-fullscreen']
+    ['map', 'showPeaks', 'showHotspots', 'signal', 'tonic', 'phasic', 'enter-fullscreen']
   );
 
   menu.querySelector('[data-action="map"]').click();
   assert.ok(!app.classList.contains('no-map'));
   assert.deepStrictEqual(
     [...menu.querySelectorAll('button')].map(b => b.dataset.metric || b.dataset.action || b.dataset.toggle),
-    ['graph', 'showRaw', 'showPeaks', 'showHotspots', 'signal', 'tonic', 'phasic', 'enter-fullscreen'],
-    'back to Graph + 3 toggles + 3 metrics + Full Screen'
+    ['graph', 'showPeaks', 'showHotspots', 'signal', 'tonic', 'phasic', 'enter-fullscreen'],
+    'back to Graph + 2 toggles + 3 metrics + Full Screen'
   );
 });
 
@@ -503,18 +507,18 @@ test('tapping a FAB toggle chip flips the GSR layer on/off and syncs the header 
   const menu = window.document.getElementById('liveFabMenu');
   toggle.click();
 
-  assert.strictEqual(run(context, 'liveGsrView.showRaw'), true);
-  const rawChip = menu.querySelector('[data-toggle="showRaw"]');
-  assert.ok(rawChip.classList.contains('active'));
+  assert.strictEqual(run(context, 'liveGsrView.showPeaks'), true);
+  const peaksChip = menu.querySelector('[data-toggle="showPeaks"]');
+  assert.ok(peaksChip.classList.contains('active'));
 
-  rawChip.click();
-  assert.strictEqual(run(context, 'liveGsrView.showRaw'), false, 'showRaw toggled off');
-  const updatedRawChip = menu.querySelector('[data-toggle="showRaw"]');
-  assert.ok(!updatedRawChip.classList.contains('active'), 'chip lost active class');
+  peaksChip.click();
+  assert.strictEqual(run(context, 'liveGsrView.showPeaks'), false, 'showPeaks toggled off');
+  const updatedPeaksChip = menu.querySelector('[data-toggle="showPeaks"]');
+  assert.ok(!updatedPeaksChip.classList.contains('active'), 'chip lost active class');
 
   // Desktop header button syncs
-  const headerRawBtn = window.document.getElementById('liveBtnToggleRaw');
-  assert.ok(!headerRawBtn.classList.contains('active'), 'header button in sync');
+  const headerPeaksBtn = window.document.getElementById('liveBtnTogglePeaks');
+  assert.ok(!headerPeaksBtn.classList.contains('active'), 'header button in sync');
 });
 
 test('tapping anywhere outside the FAB closes an open menu', () => {
@@ -2109,10 +2113,10 @@ test('GSR controls: the view dropdown switches the plotted series, the value rea
   // 'signal' view without touching the dropdown.
   sel.value = 'signal';
   sel.dispatchEvent(new window.Event('change'));
-  assert.strictEqual(run(context, 'liveGsrView.showPhasic'), false);
+  assert.strictEqual(run(context, 'liveGsrView.showPhasic'), true, 'desktop default: phasic under the signal');
   window.document.getElementById('liveBtnTogglePhasic').click();
-  assert.strictEqual(run(context, 'liveGsrView.showPhasic'), true);
-  assert.ok(window.document.getElementById('liveBtnTogglePhasic').classList.contains('active'));
+  assert.strictEqual(run(context, 'liveGsrView.showPhasic'), false);
+  assert.ok(!window.document.getElementById('liveBtnTogglePhasic').classList.contains('active'));
 });
 
 // ==========================================================================
@@ -2210,12 +2214,12 @@ test('keyboard: "p" toggles the Phasic overlay layer via its button', () => {
   const { window, context } = bootLive();
   const fire = (key) => window.dispatchEvent(new window.KeyboardEvent('keydown', { key, bubbles: true }));
 
-  assert.strictEqual(run(context, 'liveGsrView.showPhasic'), false);
+  assert.strictEqual(run(context, 'liveGsrView.showPhasic'), true, 'desktop default: phasic under the signal');
   fire('p');
-  assert.strictEqual(run(context, 'liveGsrView.showPhasic'), true);
-  assert.ok(window.document.getElementById('liveBtnTogglePhasic').classList.contains('active'));
-  fire('P'); // capital works too
   assert.strictEqual(run(context, 'liveGsrView.showPhasic'), false);
+  assert.ok(!window.document.getElementById('liveBtnTogglePhasic').classList.contains('active'));
+  fire('P'); // capital works too
+  assert.strictEqual(run(context, 'liveGsrView.showPhasic'), true);
 });
 
 test('keyboard: shortcuts are suppressed while the user is typing in an input element', () => {
@@ -2226,7 +2230,7 @@ test('keyboard: shortcuts are suppressed while the user is typing in an input el
   input.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'p', bubbles: true }));
   input.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'm', bubbles: true }));
 
-  assert.strictEqual(run(context, 'liveGsrView.showPhasic'), false, 'typing "p" into an input does not toggle the Phasic layer');
+  assert.strictEqual(run(context, 'liveGsrView.showPhasic'), true, 'typing "p" into an input does not toggle the Phasic layer');
   assert.ok(window.document.getElementById('app').classList.contains('no-map'), 'typing "m" into an input does not toggle the map');
 });
 
@@ -2316,13 +2320,15 @@ test('on load the toolbar renders its initial state — map hidden, GSR layer to
   const { window, context } = bootLive();
   assert.strictEqual(window.document.getElementById('toggleMapBtn').textContent, 'Show Map (M)');
   assert.strictEqual(window.document.getElementById('statusBadge').textContent, 'Disconnected');
-  // Raw/Filtered/Tonic/Peaks/Hotspots start active, Phasic off — matching
-  // index.html's #gsrPanel header; the view dropdown starts on 'signal'.
-  for (const id of ['liveBtnToggleRaw', 'liveBtnToggleFiltered', 'liveBtnToggleTonic',
+  // Filtered/Tonic/Peaks/Hotspots start active; Raw is gone from the live
+  // view entirely. On desktop Phasic also starts active (drawn underneath the
+  // signal, as in the main visualiser); the view dropdown starts on 'signal'.
+  for (const id of ['liveBtnToggleFiltered', 'liveBtnToggleTonic',
                     'liveBtnTogglePeaks', 'liveBtnToggleHotspots']) {
     assert.ok(window.document.getElementById(id).classList.contains('active'), `${id} starts active`);
   }
-  assert.ok(!window.document.getElementById('liveBtnTogglePhasic').classList.contains('active'), 'Phasic starts off');
+  assert.strictEqual(window.document.getElementById('liveBtnToggleRaw'), null, 'Raw toggle removed');
+  assert.ok(window.document.getElementById('liveBtnTogglePhasic').classList.contains('active'), 'Phasic starts active on desktop');
   assert.strictEqual(window.document.getElementById('liveGraphView').value, 'signal');
   assert.strictEqual(run(context, 'liveGsrView.graphView'), 'signal');
 });

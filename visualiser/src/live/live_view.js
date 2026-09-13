@@ -77,7 +77,6 @@ const LIVE_VIEW_MARKUP = `
       <button type="button" class="btn btn-outline" data-metric="phasic" id="liveMetricPhasic">Phasic</button>
     </div>
     <div class="btn-group" id="gsrControls">
-      <button class="btn btn-outline active" id="liveBtnToggleRaw" title="Toggle Raw Conductance">Raw</button>
       <button class="btn btn-outline active" id="liveBtnTogglePeaks" title="Toggle Peak Markers">Peaks</button>
       <button class="btn btn-outline active" id="liveBtnToggleHotspots" title="Toggle Hotspot Stars">Hotspots</button>
       <button class="btn btn-outline active" id="liveBtnToggleFiltered" style="display: none;">Filtered</button>
@@ -248,17 +247,20 @@ const LIVE_FAB_METRICS = [
 ];
 
 const LIVE_FAB_TOGGLES = [
-  { key: 'showRaw', id: 'liveBtnToggleRaw', label: 'Raw' },
   { key: 'showPeaks', id: 'liveBtnTogglePeaks', label: 'Peaks' },
   { key: 'showHotspots', id: 'liveBtnToggleHotspots', label: 'Hotspots' },
 ];
 
-// Top-of-panel control state — the six layer toggles + the view dropdown.
-// Initial on/off mirrors index.html's #gsrPanel header (Raw/Filtered/Tonic/
-// Peaks/Hotspots active, Phasic off).
+// Top-of-panel control state — the layer toggles + the view dropdown. Raw is
+// intentionally NOT one of the live view's layers (the live graph shows the
+// processed signal, not the raw conductance). Phasic starts ON for desktop,
+// where it is drawn underneath the filtered signal exactly like the main
+// visualiser's Signal view; on the compact (mobile) layout the graph is too
+// small to carry the extra trace so it stays off.
 const liveGsrView = {
-  showRaw: true, showFiltered: true, showTonic: true,
-  showPhasic: false, showPeaks: true, showHotspots: true,
+  showFiltered: true, showTonic: true,
+  showPhasic: !isCompactLiveLayout(),
+  showPeaks: true, showHotspots: true,
   graphView: 'signal',
 };
 
@@ -331,6 +333,7 @@ function feedLiveAnalyzer() {
     if (tn && tn[i]) pkt.tonic = tn[i].val;
   }
   recolorDelayedSegments();
+  renderLiveMapMarkers();
 }
 
 // Pull the single-track GSR view's own theme tokens (src/render/renderer.js
@@ -390,8 +393,6 @@ function drawGraph() {
   // drawn last (on top of Raw/Tonic/Phasic), matching src/render/sketch.js.
   const layers = [];
   if (view === 'signal') {
-    if (liveGsrView.showRaw && A.raw.length)
-      layers.push({ data: A.raw, col: graphThemeColor('--color-raw', '#7c7c76') + '8c', w: 1.5 });
     if (liveGsrView.showTonic && A.tonic && A.tonic.length)
       layers.push({ data: A.tonic, col: graphThemeColor('--color-tonic', '#a30091'), w: 2 });
     if (liveGsrView.showPhasic && A.phasic && A.phasic.length)
@@ -851,6 +852,87 @@ function initLiveMap() {
   }
 }
 
+// ==========================================================================
+// Peak / hotspot markers on the live follow-map — the SAME Leaflet icons and
+// latency-aware placement the main visualiser's map uses (GSRMapMarkers in
+// src/map/map_markers.js), so the live map and the analysis map can't drift
+// apart visually: peaks are small dots, hotspots (memorableEvents) are stars.
+//
+// Unlike the main map (one render per analysed track), the live analyser
+// re-runs on a sliding window, so markers are reconciled incrementally: a Map
+// keyed by peak.time keeps existing markers (no flicker on every analyze())
+// and only adds/removes the delta as the window slides. Markers in the
+// unsettled tail (LIVE_SETTLE_TAIL_S) are withheld, matching the graph's own
+// peak-marker suppression.
+// ==========================================================================
+const liveMapPeakMarkers = new Map();
+const liveMapHotspotMarkers = new Map();
+
+function _removeLiveMapMarker(marker) {
+  if (!marker) return;
+  if (typeof marker.remove === 'function') marker.remove();
+  else if (liveMap && typeof liveMap.removeLayer === 'function') liveMap.removeLayer(marker);
+}
+
+function clearLiveMapMarkers() {
+  liveMapPeakMarkers.forEach(_removeLiveMapMarker);
+  liveMapHotspotMarkers.forEach(_removeLiveMapMarker);
+  liveMapPeakMarkers.clear();
+  liveMapHotspotMarkers.clear();
+}
+
+// Reconcile one marker layer (peaks or hotspots) against the wanted set.
+function _syncLiveMapMarkerSet(markerMap, peaks, iconBuilder) {
+  const A = liveAnalyzer;
+  if (!A || !liveMap) return;
+  const lastPkt = LiveState.packets[LiveState.packets.length - 1];
+  const settledBefore = lastPkt ? lastPkt.timestamp - LIVE_SETTLE_TAIL_S : Infinity;
+
+  const wanted = new Map();
+  if (peaks) {
+    for (const peak of peaks) {
+      if (peak.excluded || peak.time > settledBefore) continue;
+      wanted.set(peak.time, peak);
+    }
+  }
+
+  // Drop markers whose peak left the window / was excluded / fell back into
+  // the unsettled tail.
+  for (const [key, marker] of markerMap) {
+    if (!wanted.has(key)) {
+      _removeLiveMapMarker(marker);
+      markerMap.delete(key);
+    }
+  }
+  // Add the new ones (skip any without GPS — a live packet can lack a fix).
+  for (const [key, peak] of wanted) {
+    if (markerMap.has(key)) continue;
+    const coords = A.getCoordinates(GSRMapMarkers.resolveLatencyIndex(A, peak, 0));
+    if (!coords) continue;
+    const marker = L.marker([coords.lat, coords.lon], { icon: iconBuilder(L) });
+    marker.addTo(liveMap);
+    markerMap.set(key, marker);
+  }
+}
+
+function renderLiveMapMarkers() {
+  if (!liveMap || typeof GSRMapMarkers === 'undefined') return;
+  if (!liveAnalyzer || !liveAnalyzer.raw || liveAnalyzer.raw.length === 0) {
+    clearLiveMapMarkers();
+    return;
+  }
+  _syncLiveMapMarkerSet(
+    liveMapPeakMarkers,
+    liveGsrView.showPeaks ? liveAnalyzer.peaks : null,
+    GSRMapMarkers.buildPeakIcon
+  );
+  _syncLiveMapMarkerSet(
+    liveMapHotspotMarkers,
+    liveGsrView.showHotspots ? liveAnalyzer.memorableEvents : null,
+    GSRMapMarkers.buildHotspotIcon
+  );
+}
+
 // Map visibility is a manual toggle (toggleMapBtn / showMap / hideMap below),
 // not something GPS packets turn on — so an area can be panned to and cached
 // before there's any GPS reception at all.
@@ -862,6 +944,7 @@ function showMap() {
     liveMap.invalidateSize();
   }
   drawGraph();
+  renderLiveMapMarkers();
 }
 
 function hideMap() {
@@ -1204,6 +1287,7 @@ function resetSession() {
   document.getElementById('statGps').textContent = 'GPS: --';
   document.getElementById('statLastSeen').textContent = '--';
   exportBtn.disabled = true;
+  clearLiveMapMarkers();
   drawGraph();
 }
 
@@ -1213,12 +1297,11 @@ async function attemptConnect(forceNewChooser = false) {
   return LiveConnectionController.connect(forceNewChooser);
 }
 
-// The six GSR layer toggles (Raw/Filtered/Tonic/Phasic/Peaks/Hotspots) and
-// the view dropdown — index.html's #gsrPanel header controls, minus the
+// The GSR layer toggles (Filtered/Tonic/Phasic/Peaks/Hotspots) and the view
+// dropdown — index.html's #gsrPanel header controls, minus Raw and the
 // left-sidebar sliders. Each just flips a liveGsrView flag and redraws;
 // analysis itself always runs with the app's shipped GSR_DEFAULT params.
 const LIVE_GSR_TOGGLES = [
-  ['liveBtnToggleRaw', 'showRaw'],
   ['liveBtnToggleFiltered', 'showFiltered'],
   ['liveBtnToggleTonic', 'showTonic'],
   ['liveBtnTogglePhasic', 'showPhasic'],
@@ -1236,6 +1319,7 @@ function bindLiveGsrControls() {
       btn.classList.toggle('active', liveGsrView[key]);
       renderFabMenu();
       drawGraph();
+      renderLiveMapMarkers();
     });
   }
   const sel = document.getElementById('liveGraphView');
@@ -1363,6 +1447,7 @@ function bindLiveFab() {
       }
       renderFabMenu();
       drawGraph();
+      renderLiveMapMarkers();
     } else if (btn.dataset.action === 'graph') {
       setMapVisible(false);
       closeFabMenu();

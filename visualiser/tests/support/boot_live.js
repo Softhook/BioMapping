@@ -59,6 +59,7 @@ const LIVE_SCRIPT_ORDER = [
   'src/live/live_csv.js',
   'src/live/live_tile_cache.js',
   'src/core/fullscreen.js',
+  'src/map/map_markers.js',
   'src/live/live_view.js',
 ];
 
@@ -73,6 +74,9 @@ function makeLeafletMock() {
     constructor(latlngs, options) { super(); this.latlngs = latlngs; this.options = options; }
   }
   class CircleMarker extends Layer {
+    constructor(latlng, options) { super(); this.latlng = latlng; this.options = options; }
+  }
+  class Marker extends Layer {
     constructor(latlng, options) { super(); this.latlng = latlng; this.options = options; }
   }
   class TileLayer {
@@ -167,6 +171,12 @@ function makeLeafletMock() {
     tileLayer: tileLayerFn,
     polyline: (latlngs, options) => new Polyline(latlngs, options),
     circleMarker: (latlng, options) => new CircleMarker(latlng, options),
+    // Peak/hotspot map markers (live view + GSRMapMarkers.build*Icon) — a
+    // real Leaflet Marker + divIcon stand-in: `marker` tracks enough for the
+    // live view's addTo/remove bookkeeping, and divIcon returns a faithful
+    // `.options` bag so tests can assert which icon a marker was built with.
+    marker: (latlng, options) => new Marker(latlng, options),
+    divIcon: (options) => ({ options }),
     TileLayer,
     DomEvent: { on: () => {} },
     Util: { bind: (fn, ctx) => fn.bind(ctx) },

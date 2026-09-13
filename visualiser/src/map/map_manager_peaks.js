@@ -446,13 +446,7 @@ Object.assign(GSRMapManager.prototype, {
    * @private
    */
   _resolveLatencyIndex(analyzer, peak, peakLatency) {
-    if (analyzer && typeof analyzer.resolveLatencyIndex === 'function') {
-      return analyzer.resolveLatencyIndex(peak, peakLatency);
-    }
-    if (!(peakLatency > 0)) return peak.index;
-    const shiftedTime = Math.max(0, peak.time - peakLatency);
-    const si = analyzer.findClosestIndex(shiftedTime);
-    return si >= 0 ? si : peak.index;
+    return GSRMapMarkers.resolveLatencyIndex(analyzer, peak, peakLatency);
   },
 
   /**
@@ -461,7 +455,7 @@ Object.assign(GSRMapManager.prototype, {
    * @private
    */
   _hotspotMarkerCoords(analyzer, peak, peakLatency) {
-    return analyzer.getCoordinates(this._resolveLatencyIndex(analyzer, peak, peakLatency));
+    return GSRMapMarkers.hotspotMarkerCoords(analyzer, peak, peakLatency);
   },
 
 });
@@ -481,14 +475,7 @@ Object.assign(GSRMapManager, {
    * @private
    */
   _buildHotspotIcon() {
-    return L.divIcon({
-      className: '',
-      html: '<div class="stress-peak-icon-wrapper" style="position:relative;width:28px;height:28px;">' +
-        '<div class="hotspot-glow-ring" style="position:absolute;top:0;left:0;"></div>' +
-        '<div class="hotspot-star" style="position:absolute;top:0;left:0;width:28px;height:28px;">★</div>' +
-        '</div>',
-      iconSize: [28, 28], iconAnchor: [14, 14]
-    });
+    return GSRMapMarkers.buildHotspotIcon(L);
   },
 
   /**
@@ -501,11 +488,7 @@ Object.assign(GSRMapManager, {
    * @private
    */
   _buildPeakIcon() {
-    return L.divIcon({
-      className: '',
-      html: '<div class="stress-peak-icon-wrapper" style="position:relative;width:24px;height:24px;"><div class="peak-dot" style="position:absolute;top:9px;left:9px;width:6px;height:6px;"></div></div>',
-      iconSize: [24, 24], iconAnchor: [12, 12]
-    });
+    return GSRMapMarkers.buildPeakIcon(L);
   }
 
 });
