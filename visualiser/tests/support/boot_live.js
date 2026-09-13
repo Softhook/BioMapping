@@ -58,6 +58,7 @@ const LIVE_SCRIPT_ORDER = [
   'src/live/live_bluetooth.js',
   'src/live/live_csv.js',
   'src/live/live_tile_cache.js',
+  'src/core/fullscreen.js',
   'src/live/live_view.js',
 ];
 

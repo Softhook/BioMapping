@@ -1372,18 +1372,18 @@ function bindLiveFab() {
     } else if (btn.dataset.action === 'enter-fullscreen') {
       if (typeof GSRLayoutManager !== 'undefined' && GSRLayoutManager.enterLiveDisplayMode) {
         GSRLayoutManager.enterLiveDisplayMode();
-      } else if (typeof document !== 'undefined') {
-        const el = document.documentElement;
-        const fn = el.requestFullscreen || el.webkitRequestFullscreen || el.mozRequestFullScreen;
-        if (fn) fn.call(el, { navigationUI: 'hide' }).catch(() => fn.call(el).catch(() => {}));
+      } else if (typeof GSRFullscreen !== 'undefined') {
+        // Standalone live.html has no GSRLayoutManager — fullscreen the
+        // document root directly; GSRFullscreen keeps it sticky across
+        // lock/unlock just like the in-app path.
+        GSRFullscreen.request(document.documentElement);
       }
       closeFabMenu();
     } else if (btn.dataset.action === 'exit-fullscreen') {
       if (typeof GSRLayoutManager !== 'undefined' && GSRLayoutManager.exitLiveDisplayMode) {
         GSRLayoutManager.exitLiveDisplayMode();
-      } else if (typeof document !== 'undefined') {
-        const fn = document.exitFullscreen || document.webkitExitFullscreen || document.mozCancelFullScreen;
-        if (fn) fn.call(document).catch(() => {});
+      } else if (typeof GSRFullscreen !== 'undefined') {
+        GSRFullscreen.exit();
       }
       closeFabMenu();
     }
@@ -1391,8 +1391,7 @@ function bindLiveFab() {
 
   // Keep Full Screen / Exit Full Screen chips synced when browser fullscreen changes
   const handleFsChange = () => renderFabMenu();
-  document.addEventListener('fullscreenchange', handleFsChange);
-  document.addEventListener('webkitfullscreenchange', handleFsChange);
+  if (typeof GSRFullscreen !== 'undefined') GSRFullscreen.onChange(handleFsChange);
 
   // Tapping the map (or anywhere else) with the menu open should close it —
   // an open fan-out sitting over the map otherwise blocks map interaction
@@ -1449,6 +1448,11 @@ const GSRLiveView = {
     if (typeof navigator !== 'undefined' && !navigator.bluetooth && connectErr) {
       connectErr.textContent = 'Note: Web Bluetooth is not available in this browser (requires Chrome on Android/desktop, or a Web Bluetooth browser like Bluefy on iOS). You can still Prepare Map Offline.';
     }
+
+    // Bind the shared fullscreen/visibility sticky-restore machinery (also
+    // bound by GSRLayoutManager.init() in index.html — idempotent). In the
+    // standalone page this is the only caller.
+    if (typeof GSRFullscreen !== 'undefined') GSRFullscreen.init();
 
     document.addEventListener('visibilitychange', async () => {
       if (document.visibilityState === 'visible') {

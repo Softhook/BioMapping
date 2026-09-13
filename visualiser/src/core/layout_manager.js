@@ -11,6 +11,10 @@ const GSRLayoutManager = {
   _canvasObserver: null,
   _mapObserver: null,
   _regressionObserver: null,
+  // Timer for deferring display-mode teardown after a fullscreenchange exit
+  // (see _handleFullscreenExit) — long enough for the page's visibility state
+  // to settle, so a phone lock isn't mistaken for a deliberate exit.
+  _fsTearDownTimer: null,
 
   // Last-applied container sizes, keyed by observer role. Used to skip
   // no-change resize notifications (a ResizeObserver that acts on unchanged
@@ -22,39 +26,18 @@ const GSRLayoutManager = {
   _resizeRaf: null,
   _pendingResize: null,
 
-  /**
-   * Cross-browser Fullscreen API helpers.
-   */
-  Fullscreen: {
-    get active() {
-      return !!(document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement);
-    },
-    request(el, options = { navigationUI: 'hide' }) {
-      const target = el || document.documentElement;
-      const fn = target.requestFullscreen || target.webkitRequestFullscreen || target.mozRequestFullScreen;
-      if (fn) {
-        return fn.call(target, options).catch(() => {
-          return fn.call(target).catch(() => {});
-        });
-      }
-      return null;
-    },
-    exit() {
-      const fn = document.exitFullscreen || document.webkitExitFullscreen || document.mozCancelFullScreen;
-      if (fn) return fn.call(document).catch(() => {});
-      return null;
-    },
-    onChange(fn) {
-      document.addEventListener('fullscreenchange', fn);
-      document.addEventListener('webkitfullscreenchange', fn);
-      document.addEventListener('mozfullscreenchange', fn);
-    }
-  },
+  // Fullscreen/visibility handling is delegated to GSRFullscreen
+  // (src/core/fullscreen.js) — the shared wrapper both entry points load. It
+  // adds the one behaviour the inline helpers never had: re-asserting
+  // fullscreen when the page comes back visible after the OS dropped it (phone
+  // lock / app switch). Every fullscreen read/write below goes through
+  // GSRFullscreen, never document.requestFullscreen directly.
 
   /**
    * Initialize layout observers, keyboard shortcuts, and fullscreen managers.
    */
   init() {
+    GSRFullscreen.init();
     this.setupResizeObservers();
     this.setupBrowserFullscreen();
     this.setupKeyboardShortcuts();
@@ -212,9 +195,9 @@ const GSRLayoutManager = {
     AppState.isDisplayMode = true;
     active.overlay.classList.add('display-mode', 'total-fullscreen');
 
-    if (!this.Fullscreen.active) {
-      this.Fullscreen.request(active.overlay);
-    }
+    // Always (re)assert the request — even when already fullscreen — so
+    // GSRFullscreen's sticky target tracks this overlay for lock/unlock.
+    GSRFullscreen.request(active.overlay);
 
     this._triggerPanelResize(active.panelId, active.overlay);
   },
@@ -225,6 +208,9 @@ const GSRLayoutManager = {
   exitDisplayMode() {
     const active = this._activeFullscreenPanel;
     AppState.isDisplayMode = false;
+    // Stop re-asserting this overlay on lock/unlock; the browser fullscreen
+    // element itself is left as-is (matches the previous behaviour).
+    GSRFullscreen.clearTarget();
 
     if (active && active.overlay) {
       active.overlay.classList.remove('display-mode', 'total-fullscreen');
@@ -277,7 +263,9 @@ const GSRLayoutManager = {
       if (ic) ic.className = 'fa-solid fa-compress';
       btn.classList.add('is-fullscreen');
     }
-    if (!this.Fullscreen.active) this.Fullscreen.request(app);
+    // Always (re)assert — sets GSRFullscreen's sticky target so a lock/unlock
+    // re-enters fullscreen instead of silently dropping the user out.
+    GSRFullscreen.request(app);
     if (typeof GSRLiveView !== 'undefined' && GSRLiveView.onDisplayModeChange) {
       GSRLiveView.onDisplayModeChange(true);
     }
@@ -293,7 +281,7 @@ const GSRLayoutManager = {
       if (ic) ic.className = 'fa-solid fa-expand';
       btn.classList.remove('is-fullscreen');
     }
-    if (this.Fullscreen.active) this.Fullscreen.exit();
+    GSRFullscreen.exit();
     if (typeof GSRLiveView !== 'undefined' && GSRLiveView.onDisplayModeChange) {
       GSRLiveView.onDisplayModeChange(false);
     }
@@ -372,24 +360,18 @@ const GSRLayoutManager = {
         this.toggleLiveDisplayMode();
         return;
       }
-      if (this.Fullscreen.active) {
-        this.Fullscreen.exit();
+      if (GSRFullscreen.active) {
+        GSRFullscreen.exit();
       } else {
         // Exit any individual panel fullscreen states first
         this.exitAllPanelFullscreen();
-        this.Fullscreen.request(el);
+        GSRFullscreen.request(el);
       }
     });
 
-    this.Fullscreen.onChange(() => {
-      const active = this.Fullscreen.active;
+    GSRFullscreen.onChange((active) => {
       toggleIcon(active);
-      // The browser can drop fullscreen on its own (Esc, F11) — don't leave
-      // Live display mode's header-hiding class stranded when it does.
-      if (!active && this._liveDisplayModeActive()) {
-        el.classList.remove('live-display-mode');
-        AppState.isDisplayMode = false;
-      }
+      if (!active) this._handleFullscreenExit(el);
       // #liveMap is under no ResizeObserver — re-measure it now that the
       // viewport has actually changed size (the request()/exit() call that
       // started this is async; the size only settles here).
@@ -397,6 +379,37 @@ const GSRLayoutManager = {
         GSRLiveView.onDisplayModeChange(active);
       }
     });
+  },
+
+  /**
+   * The browser dropped fullscreen on its own. Distinguish a deliberate exit
+   * (Esc / F11 / Android back — the page stays visible) from an OS takeover
+   * (phone lock / app switch — the page goes hidden). Only the former tears
+   * down display-mode chrome; on a lock, GSRFullscreen's sticky re-assert
+   * restores fullscreen when the page comes back and the chrome must still be
+   * in place for that to look right.
+   *
+   * The decision is deferred by a short timeout so the page's visibility
+   * state has settled — on a lock, fullscreenchange and
+   * visibilitychange→hidden can arrive in either order.
+   * @private
+   */
+  _handleFullscreenExit(el) {
+    if (!this._liveDisplayModeActive() && !this.isDisplayMode) return;
+    clearTimeout(this._fsTearDownTimer);
+    this._fsTearDownTimer = setTimeout(() => {
+      // Fullscreen was re-asserted (e.g. GSRFullscreen's sticky restore) or the
+      // page is hidden (phone lock) — leave the chrome in place either way.
+      if (GSRFullscreen.active || document.visibilityState !== 'visible') return;
+
+      if (this._liveDisplayModeActive()) {
+        el.classList.remove('live-display-mode');
+        AppState.isDisplayMode = false;
+        GSRFullscreen.clearTarget();
+      } else if (this.isDisplayMode) {
+        this.exitDisplayMode(); // also clears the sticky target
+      }
+    }, 120);
   },
 
   /**
@@ -413,7 +426,7 @@ const GSRLayoutManager = {
 
     const getOverlayParent = () => {
       const fsEl = document.querySelector('.app-container');
-      return (this.Fullscreen.active && fsEl) ? fsEl : document.body;
+      return (GSRFullscreen.active && fsEl) ? fsEl : document.body;
     };
 
     const enter = () => {
