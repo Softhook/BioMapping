@@ -93,23 +93,13 @@ class GSRMapManager {
     // GSRMapExporter can force it to prefetch tiles beyond the live viewport
     // before an SVG export — see exportToSvg's isoband-canvas-expansion
     // handling and map_exporter.js's _ensureTileCoverage doc comment.
-    // CARTO now requires a (free) key on its raster basemaps; without one the
-    // tiles still load but carry an "API key required" watermark. Key comes
-    // from config.local.js (window.BIOMAP_CONFIG) or localStorage — see
-    // config.local.example.js. localStorage access can throw (file://, site
-    // data disabled), so guard it.
-    let cartoKey = (window.BIOMAP_CONFIG && window.BIOMAP_CONFIG.cartoApiKey) || '';
-    if (!cartoKey) {
-      try { cartoKey = localStorage.getItem('bioMappingCartoApiKey') || ''; } catch (e) { /* no-op */ }
-    }
-    const cartoUrl = 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png' +
-      (cartoKey ? '?key=' + encodeURIComponent(cartoKey) : '');
-    this.baseTileLayer = L.tileLayer(cartoUrl, {
-      maxZoom: 22,
-      maxNativeZoom: 19,
-      attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors © <a href="https://carto.com/attributions">CARTO</a>',
-      crossOrigin: true
-    }).addTo(this.map);
+    // CARTO basemap URL + key resolution shared via GSRBasemap
+    // (src/map/basemap.js); crossOrigin is added here for the SVG exporter's
+    // tile prefetch — the live follow-map doesn't need it.
+    this.baseTileLayer = L.tileLayer(
+      GSRBasemap.cartoTileUrl('light_all'),
+      { ...GSRBasemap.tileOptions(), crossOrigin: true }
+    ).addTo(this.map);
 
     // Leaflet's default attribution prefix includes a 🇺🇦 flag alongside the
     // "Leaflet" credit link (added in v1.8.0). Keep the credit link, drop the

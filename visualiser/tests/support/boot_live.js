@@ -14,13 +14,13 @@
  * LIVE_SCRIPT_ORDER is the load order live.html's <head> currently uses,
  * kept in sync with the real file by test_html_wiring.js (which imports this
  * same array — the same cross-check boot_app.js's SCRIPT_ORDER gets against
- * index.html). src/live/live_view.js's top-level `const`/`function`
- * declarations (drawGraph, liveMap, resetSession, goToLatLon, renderStatus,
- * …) and the other modules' globals (LiveState, GSRLiveBluetoothManager,
- * normalizeTileCacheUrl, …) all live in the shared vm-context lexical scope,
- * not on `window` — reach them through the returned `context` with
- * vm.runInContext('someName', context), the same pattern
- * test_map_layer_ownership.js uses against boot_app.js.
+ * index.html). The live modules' top-level `const`/`function` declarations
+ * (drawGraph in live_graph.js, liveMap in live_map.js, resetSession /
+ * goToLatLon / renderStatus in live_view.js, plus LiveState /
+ * GSRLiveBluetoothManager / normalizeTileCacheUrl in their own modules) all
+ * live in the shared vm-context lexical scope, not on `window` — reach them
+ * through the returned `context` with vm.runInContext('someName', context),
+ * the same pattern test_map_layer_ownership.js uses against boot_app.js.
  *
  * Scope, matching docs/archive/visualizer_test_coverage_plan.md's philosophy for
  * boot_app.js: this is for exercising real logic (gap detection, session
@@ -51,6 +51,7 @@ const LIVE_SCRIPT_ORDER = [
   'src/signal/spectral_eda.js',
   'src/signal/analyzer_time_format.js',
   'src/signal/analyzer.js',
+  'src/map/basemap.js',
   'src/map/map_colors.js',
   'src/gps/gps_pipeline.js',
   'src/core/file_saver.js',
@@ -59,6 +60,8 @@ const LIVE_SCRIPT_ORDER = [
   'src/live/live_bluetooth.js',
   'src/live/live_csv.js',
   'src/live/live_tile_cache.js',
+  'src/live/live_graph.js',
+  'src/live/live_map.js',
   'src/core/fullscreen.js',
   'src/map/map_markers.js',
   'src/live/live_view.js',

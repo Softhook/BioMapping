@@ -18,20 +18,8 @@
 // Module-level tables & helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * Resolve the CARTO basemap key the same way map.js / live.html do:
- * BIOMAP_CONFIG.cartoApiKey, then a localStorage fallback (guarded), then
- * appended as ?key=<encoded>. Kept identical so all three stay in step —
- * see tests/test_html_wiring.js.
- */
-function cartoTileUrl(styleSlug) {
-  let cartoKey = (typeof window !== 'undefined' && window.BIOMAP_CONFIG && window.BIOMAP_CONFIG.cartoApiKey) || '';
-  if (!cartoKey) {
-    try { cartoKey = localStorage.getItem('bioMappingCartoApiKey') || ''; } catch (e) { /* no-op */ }
-  }
-  return `https://{s}.basemaps.cartocdn.com/${styleSlug}/{z}/{x}/{y}.png` +
-    (cartoKey ? '?key=' + encodeURIComponent(cartoKey) : '');
-}
+// CARTO basemap key resolution is shared via GSRBasemap (src/map/basemap.js),
+// loaded before this file — see tests/test_html_wiring.js.
 
 /** basemap id -> factory producing a fresh Cesium imagery provider (no API key required) */
 const BASEMAP_PROVIDERS = {
@@ -52,10 +40,10 @@ const BASEMAP_PROVIDERS = {
   }),
   osm: () => new Cesium.OpenStreetMapImageryProvider({ url: 'https://tile.openstreetmap.org/' }),
   dark: () => new Cesium.UrlTemplateImageryProvider({
-    url: cartoTileUrl('dark_all'), subdomains: ['a', 'b', 'c', 'd'], maximumLevel: 19
+    url: GSRBasemap.cartoTileUrl('dark_all'), subdomains: ['a', 'b', 'c', 'd'], maximumLevel: 19
   }),
   positron: () => new Cesium.UrlTemplateImageryProvider({
-    url: cartoTileUrl('light_all'), subdomains: ['a', 'b', 'c', 'd'], maximumLevel: 19
+    url: GSRBasemap.cartoTileUrl('light_all'), subdomains: ['a', 'b', 'c', 'd'], maximumLevel: 19
   })
 };
 

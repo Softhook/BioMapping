@@ -99,15 +99,14 @@ test('config.js injects config.local.js only on a local origin, guarded against 
   assert.match(src, /document\.readyState\s*===\s*['"]loading['"]/, 'only document.write while still parsing');
 });
 
-test('map.js and the live view resolve the CARTO key (config → localStorage, guarded) and append ?key=', () => {
-  // The live map's initLiveMap() moved from live.html's inline block into
-  // src/live/live_view.js when the live UI became a mountable controller.
-  for (const rel of ['src/map/map.js', 'src/live/live_view.js']) {
-    const src = readApp(rel);
-    assert.match(src, /BIOMAP_CONFIG\s*&&\s*window\.BIOMAP_CONFIG\.cartoApiKey/, `${rel} reads BIOMAP_CONFIG.cartoApiKey`);
-    assert.match(src, /getItem\(['"]bioMappingCartoApiKey['"]\)/, `${rel} falls back to the localStorage key`);
-    assert.match(src, /try\s*\{[^}]*getItem\(['"]bioMappingCartoApiKey/, `${rel} guards the localStorage read in try/catch`);
-    assert.match(src, /\?key=['"]\s*\+\s*encodeURIComponent\(cartoKey\)/, `${rel} appends an encoded ?key=`);
+test('the CARTO basemap key resolution lives in one shared module, consumed by map.js / live_map.js / globe3d.js', () => {
+  const src = readApp('src/map/basemap.js');
+  assert.match(src, /BIOMAP_CONFIG\s*&&\s*window\.BIOMAP_CONFIG\.cartoApiKey/, 'basemap.js reads BIOMAP_CONFIG.cartoApiKey');
+  assert.match(src, /getItem\(['"]bioMappingCartoApiKey['"]\)/, 'basemap.js falls back to the localStorage key');
+  assert.match(src, /try\s*\{[^}]*getItem\(['"]bioMappingCartoApiKey/, 'basemap.js guards the localStorage read in try/catch');
+  assert.match(src, /\?key=['"]\s*\+\s*encodeURIComponent\(cartoKey\)/, 'basemap.js appends an encoded ?key=');
+  for (const rel of ['src/map/map.js', 'src/live/live_map.js', 'src/map/globe3d.js']) {
+    assert.match(readApp(rel), /GSRBasemap\.cartoTileUrl/, `${rel} uses the shared GSRBasemap.cartoTileUrl`);
   }
 });
 
