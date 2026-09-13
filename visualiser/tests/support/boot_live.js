@@ -1,23 +1,26 @@
 /**
- * Boots the REAL live.html unchanged inside jsdom, mirroring
- * tests/support/boot_app.js's approach for index.html: parse the real file,
- * stub the browser/hardware APIs it can't have in Node (Leaflet, Web
- * Bluetooth, Geolocation, Cache Storage, fetch, canvas 2D, Wake Lock,
- * Fullscreen), then run the real script text in that DOM's context.
+ * Boots the live view's real source files, unmodified, into a bare jsdom
+ * document — mirroring tests/support/boot_app.js's approach for index.html,
+ * but WITHOUT reading visualiser/live.html off disk. That file is just a
+ * thin standalone host (load these same scripts, then
+ * `GSRLiveView.mount(#liveRoot)`) — every real DOM element and event wiring
+ * the tests exercise is built by GSRLiveView.mount() itself, not present in
+ * live.html's raw markup, so this harness doesn't need the file to exist at
+ * all; it builds an equivalent one-div document and calls mount() the same
+ * way live.html's inline script (and index.html's view switcher) do. This
+ * keeps the live_view test suite independent of whether the standalone page
+ * is ever deleted.
  *
- * live.html is now a thin shell: it loads the src/live/* modules in its
- * <head> and its one inline <script> is just
- * `GSRLiveView.mount(#liveRoot)`, which builds the whole live UI and wires
- * it. headSrcScripts() below reads the <head>'s <script src="src/..."> list
- * straight from the file (so it can't drift) and bootLive() runs each of
- * those, in order, then the inline mount() call — the lightweight
- * equivalent of boot_app.js's SCRIPT_ORDER. src/live/live_view.js's
- * top-level `const`/`function` declarations (drawGraph, liveMap,
- * resetSession, goToLatLon, renderStatus, …) and the other modules' globals
- * (LiveState, GSRLiveBluetoothManager, normalizeTileCacheUrl, …) all live
- * in the shared vm-context lexical scope, not on `window` — reach them
- * through the returned `context` with vm.runInContext('someName', context),
- * the same pattern test_map_layer_ownership.js uses against boot_app.js.
+ * LIVE_SCRIPT_ORDER is the load order live.html's <head> currently uses,
+ * kept in sync with the real file by test_html_wiring.js (which imports this
+ * same array — the same cross-check boot_app.js's SCRIPT_ORDER gets against
+ * index.html). src/live/live_view.js's top-level `const`/`function`
+ * declarations (drawGraph, liveMap, resetSession, goToLatLon, renderStatus,
+ * …) and the other modules' globals (LiveState, GSRLiveBluetoothManager,
+ * normalizeTileCacheUrl, …) all live in the shared vm-context lexical scope,
+ * not on `window` — reach them through the returned `context` with
+ * vm.runInContext('someName', context), the same pattern
+ * test_map_layer_ownership.js uses against boot_app.js.
  *
  * Scope, matching docs/archive/visualizer_test_coverage_plan.md's philosophy for
  * boot_app.js: this is for exercising real logic (gap detection, session
@@ -25,8 +28,8 @@
  * NOT a faithful Leaflet reimplementation and NOT real Bluetooth GATT.
  * The Leaflet mock below tracks just enough (added layers, setView/panTo
  * calls, real L.TileLayer.extend() inheritance so `instanceof` checks in
- * cacheCurrentMapArea() work) to make assertions on live.html's own logic,
- * not on Leaflet's.
+ * cacheCurrentMapArea() work) to make assertions on the live view's own
+ * logic, not on Leaflet's.
  */
 
 const fs = require('fs');
@@ -35,33 +38,27 @@ const vm = require('vm');
 const { JSDOM } = require('jsdom');
 
 const APP_DIR = path.join(__dirname, '..', '..');
-const LIVE_HTML_PATH = path.join(APP_DIR, 'live.html');
 
-// live.html's <head> loads several real src/ files as classic <script>s
-// before its own inline block runs — gsr_filter.js (GsrFilter.*),
-// map_colors.js (MapColors), gps_pipeline.js (GpsPipeline),
-// live_binary_parser.js (GSRLiveBinaryParser), live_state.js (LiveState),
-// live_bluetooth.js (GSRLiveBluetoothManager). The inline script assumes
-// every one of those is already a page-level global. jsdom's
-// runScripts:'outside-only' won't execute the page's own <script src>, so
-// bootLive() runs each real file's source in the vm context first, in the
-// exact order the <head> lists them — reproducing that load order rather
-// than hard-coding it here (which drifted the last time a file was added).
-// vendor/ scripts (Leaflet) are mocked, not run; config.js is skipped (the
-// inline code reads window.BIOMAP_CONFIG defensively) because its
-// local-origin document.write('config.local.js') branch has no place in a
-// headless boot.
-function headSrcScripts(html) {
-  const headEnd = html.indexOf('</head>');
-  const head = headEnd === -1 ? html : html.slice(0, headEnd);
-  const out = [];
-  const re = /<script\s+src="([^"]+)"><\/script>/g;
-  let m;
-  while ((m = re.exec(head)) !== null) {
-    if (m[1].startsWith('src/')) out.push(path.join(APP_DIR, m[1]));
-  }
-  return out;
-}
+// Real script load order, copied from live.html's own <script src="..."> list
+// (vendor/ Leaflet and config.js are stubbed/skipped instead — same call
+// boot_app.js makes for index.html's CDN libs). Kept in sync with live.html
+// by tests/test_html_wiring.js, which imports this exact array.
+const LIVE_SCRIPT_ORDER = [
+  'src/core/constants.js',
+  'src/signal/gsr_filter.js',
+  'src/signal/deconvolution.js',
+  'src/signal/analyzer_time_format.js',
+  'src/signal/analyzer.js',
+  'src/map/map_colors.js',
+  'src/gps/gps_pipeline.js',
+  'src/core/file_saver.js',
+  'src/live/live_binary_parser.js',
+  'src/live/live_state.js',
+  'src/live/live_bluetooth.js',
+  'src/live/live_csv.js',
+  'src/live/live_tile_cache.js',
+  'src/live/live_view.js',
+];
 
 function makeLeafletMock() {
   class Layer {
@@ -213,13 +210,15 @@ function installCanvas2DStub(window) {
 }
 
 /**
- * Boots the real live.html in a fresh jsdom window.
+ * Boots the live view's real source files into a bare one-div jsdom window,
+ * then mounts GSRLiveView into it — the same two steps live.html's own
+ * inline script performs, just without needing that file on disk.
  * Returns { window, document, context } — see file header for why `context`
- * (not `window`) is how tests reach live.html's own top-level bindings.
+ * (not `window`) is how tests reach the live view's own top-level bindings.
  */
 function bootLive() {
-  const html = fs.readFileSync(LIVE_HTML_PATH, 'utf8');
-  const dom = new JSDOM(html, { url: 'http://localhost/', runScripts: 'outside-only', pretendToBeVisual: true });
+  const dom = new JSDOM('<!doctype html><html><body><div id="liveRoot"></div></body></html>',
+    { url: 'http://localhost/', runScripts: 'outside-only', pretendToBeVisual: true });
   const window = dom.window;
 
   window.L = makeLeafletMock();
@@ -238,16 +237,14 @@ function bootLive() {
   window.URL.createObjectURL = window.URL.createObjectURL || (() => 'blob:mock-url');
   window.URL.revokeObjectURL = window.URL.revokeObjectURL || (() => {});
 
-  const inlineScriptMatch = html.match(/<script>([\s\S]*?)<\/script>/);
-  if (!inlineScriptMatch) throw new Error('live.html: could not find its inline <script> block');
-
   const context = vm.createContext(window);
-  for (const scriptPath of headSrcScripts(html)) {
-    vm.runInContext(fs.readFileSync(scriptPath, 'utf8'), context, { filename: path.basename(scriptPath) });
+  for (const file of LIVE_SCRIPT_ORDER) {
+    const src = fs.readFileSync(path.join(APP_DIR, file), 'utf8');
+    vm.runInContext(src, context, { filename: file });
   }
-  vm.runInContext(inlineScriptMatch[1], context, { filename: 'live.html (inline script)' });
+  vm.runInContext("GSRLiveView.mount(document.getElementById('liveRoot'))", context, { filename: 'boot_live.js (mount)' });
 
   return { window, document: window.document, context };
 }
 
-module.exports = { bootLive };
+module.exports = { bootLive, LIVE_SCRIPT_ORDER };

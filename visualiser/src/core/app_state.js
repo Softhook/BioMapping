@@ -15,7 +15,7 @@ const AppState = {
 
   // ── Track library ───────────────────────────────────────────────────────────
   activeTrackId: null,
-  viewMode: 'single',       // 'single' | 'collective' | 'live'  (data scope; 'live' = embedded live.html frame)
+  viewMode: 'single',       // 'single' | 'collective' | 'live'  (data scope; 'live' = GSRLiveView mounted directly into #livePanel, not an iframe)
   surfaceView: 'map',       // 'map' | 'globe'          (render surface — see globe3d_view.js)
   isDisplayMode: false,
   get isTotalFullscreen() {

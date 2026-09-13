@@ -21,7 +21,8 @@
  *
  * Usage:  GSRLiveView.mount(containerEl)   — build + wire once
  * Tests reach the module-level functions/state (drawGraph, liveMap,
- * resetSession, …) through the vm context, same as the old inline block.
+ * resetSession, …) through the vm context tests/support/boot_live.js hands
+ * back, rather than through this file's one public `GSRLiveView` export.
  */
 
 // src/core/constants.js's GPS_DEFAULT.maxHdop (docs/csv_schema.md's "HDOP
