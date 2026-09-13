@@ -21,6 +21,30 @@ Allow people to record little audio snippets attached to peaks and hotspots. Inv
 - **Airport / acoustic context** — would a microphone make sense there? See
   [acoustic_aircraft_detection_proposal.md](acoustic_aircraft_detection_proposal.md).
 
+## Firmware architecture (structural refactor)
+
+From a full read of `firmware/` (2026-09). Ordered by payoff:
+
+- **P1 — Split RF scanning out of `gsr_sensor`.** The CC1101 RF path is
+  bolted onto the ADS1115 GSR worker (`modules/gsr_sensor.c/h`), so GPS+RF
+  mode (`BioMapModeGpsOnly`, no GSR) allocates a "GSR sensor" only to run
+  RF. Extract an `rf_sensor` module with its own lifecycle; the dual-mutex
+  (`mutex` vs `rf_mutex`) complexity then disappears.
+- **P2 — Unify persistence.** Three hand-rolled versioned-blob load/save
+  paths (GSR cal FNV-1a in `biomap.c`, settings FNV-1a, RF cal CRC32 in
+  `em_scan_cal.c`) each repeat open→validate→atomic-rename. One shared
+  `persist_blob()` helper + one checksum.
+- **P3 — Split `biomap_session.c` (1083 lines).** Lifecycle + keys + tick +
+  SD-flush state machine + Live Stream + telemetry all in one file. Extract
+  `biomap_keys.c` / `biomap_tick.c` / `biomap_diag.c` along existing
+  `static` boundaries.
+- **P4 — Slim `biomap.h`.** Move persistence structs → `biomap_persist.h`,
+  wizard states → `biomap_wizard.h`.
+- **P5 — One "RF active" rule.** `has_rf()` (includes Diagnostics) vs the
+  literal `rf_viz` gate in `biomap_render.c` are two drifting definitions.
+- **P6 — Hygiene.** Rename `PluginEvent`; fix `gps_uart.h`'s mid-file
+  `../biomap_config.h` include; move `sound.h` melodies to a `sound.c`.
+
 ## Analysis ideas
 
 - Correlate GSR against the 868 and 915 MHz RF bands.
