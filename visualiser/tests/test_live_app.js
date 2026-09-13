@@ -77,8 +77,24 @@ function buildPacket({
 //                            retry loop. getCharacteristic() is the throw point
 //                            (getPrimaryService() succeeds), so this doesn't
 //                            also trip _logDiscoveredServices().
+// opts.watchAdvertisements — 'yes' (default): device.watchAdvertisements()
+//                            exists and fireAdvertisement() dispatches
+//                            'advertisementreceived' to it, matching the
+//                            reconnect-resilience layers in live_bluetooth.js.
+//                            'no': the method doesn't exist at all, so
+//                            feature-detection falls back to plain timers —
+//                            exercises that every layer degrades cleanly on
+//                            a platform without it (e.g. iOS/Bluefy).
+// opts.getDevices           — 'self' (default): navigator.bluetooth.getDevices()
+//                            resolves with [device] (as if the platform still
+//                            remembers this exact previously-granted device).
+//                            'empty': resolves with [] (nothing remembered).
+//                            'no': the method doesn't exist (unsupported
+//                            platform) — tryResumeDevice() must fall back.
+let fakeDeviceCounter = 0;
 function makeFakeBle(context, {
   failRequestDevice = false, missingService = false, reconnectFailures = 0,
+  watchAdvertisements = 'yes', getDevices = 'self',
 } = {}) {
   // Build the notification's DataView with the vm context's own typed-array
   // constructors, so `new Uint8Array(e.target.value.buffer)` inside live.html
@@ -87,7 +103,22 @@ function makeFakeBle(context, {
     vm.runInContext('(bytes => new DataView(Uint8Array.from(bytes).buffer))', context));
 
   const charHandlers = [];
+  // type -> Set<fn> — a real EventTarget's shape, needed here (unlike the
+  // single-handler-per-type shortcut this used to be) because
+  // 'advertisementreceived' listeners are added/removed repeatedly across a
+  // single reconnect loop's lifetime, alongside the one-time
+  // 'gattserverdisconnected' listener from connect()/tryResumeDevice().
   const deviceHandlers = {};
+  function onDevice(type, fn) {
+    if (!deviceHandlers[type]) deviceHandlers[type] = new Set();
+    deviceHandlers[type].add(fn);
+  }
+  function offDevice(type, fn) {
+    if (deviceHandlers[type]) deviceHandlers[type].delete(fn);
+  }
+  function fireDevice(type) {
+    if (deviceHandlers[type]) [...deviceHandlers[type]].forEach((fn) => fn());
+  }
   let subscribeCalls = 0;   // getCharacteristic() calls == _subscribe() attempts
   let subscribeGate = null; // when set, the next getCharacteristic() awaits it
 
@@ -118,7 +149,14 @@ function makeFakeBle(context, {
     async getPrimaryServices() { return [{ uuid: 'aaaa1111-0000-1000-8000-00805f9b34fb' }]; },
   };
   let disconnectCalls = 0;
+  let watchAdvertisementsCalls = 0;
   const device = {
+    // Unique per fake stack so tryResumeDevice()'s `d.id === candidateDevice.id`
+    // match only succeeds when a test deliberately reuses the SAME fake
+    // (simulating "the platform still remembers this exact device") — two
+    // independent makeFakeBle() calls (different physical devices, or the
+    // "New Connection" picked something else) never accidentally match.
+    id: `fake-device-${++fakeDeviceCounter}`,
     gatt: {
       connected: false,
       async connect() { this.connected = true; return server; },
@@ -128,27 +166,39 @@ function makeFakeBle(context, {
       disconnect() {
         disconnectCalls++;
         this.connected = false;
-        if (deviceHandlers.gattserverdisconnected) deviceHandlers.gattserverdisconnected();
+        fireDevice('gattserverdisconnected');
       },
     },
-    addEventListener(type, fn) { deviceHandlers[type] = fn; },
+    addEventListener: onDevice,
+    removeEventListener: offDevice,
   };
+  if (watchAdvertisements === 'yes') {
+    // Real watchAdvertisements() just arms the OS-level scan; events arrive
+    // later via 'advertisementreceived' (fireAdvertisement() below), and
+    // cancellation is via the AbortSignal, not this promise settling.
+    device.watchAdvertisements = async () => { watchAdvertisementsCalls++; };
+  }
   return {
     bluetooth: {
       async requestDevice() {
         if (failRequestDevice) throw new Error('user cancelled the device chooser');
         return device;
       },
+      ...(getDevices !== 'no' ? {
+        async getDevices() { return getDevices === 'empty' ? [] : [device]; },
+      } : {}),
     },
+    device,
     gattDisconnectCallCount: () => disconnectCalls,
+    watchAdvertisementsCallCount: () => watchAdvertisementsCalls,
     fireNotification(byteArray) {
       const value = bytesToDataView(byteArray);
       charHandlers.forEach((fn) => fn({ target: { value } }));
     },
-    fireDisconnect() {
-      if (deviceHandlers.gattserverdisconnected) deviceHandlers.gattserverdisconnected();
-    },
+    fireDisconnect() { fireDevice('gattserverdisconnected'); },
+    fireAdvertisement() { fireDevice('advertisementreceived'); },
     notificationHandlerCount: () => charHandlers.length,
+    advertisementHandlerCount: () => (deviceHandlers.advertisementreceived ? deviceHandlers.advertisementreceived.size : 0),
     subscribeCallCount: () => subscribeCalls,
     // Blocks the NEXT getCharacteristic() until the returned function is
     // called — lets a test hold _handleDisconnect() mid-attempt.
@@ -647,26 +697,116 @@ test('cacheCurrentMapArea: regression — every zoom level in the pre-fetch rang
 });
 
 // ==========================================================================
-// renderStatus() — Reconnect shouldn't appear before a connection was ever
-// attempted (manualReconnect() is a no-op without a prior device); New
-// Connection should, since it's the escape hatch back to the connect
-// overlay after "Prepare Map Offline".
+// ==========================================================================
+// renderStatus() — single connection button handles connect, reconnect,
+// and disconnect across connection states.
 // ==========================================================================
 
-test('renderStatus: Reconnect stays hidden on a fresh load (no device ever requested), New Connection does not', () => {
+test('renderStatus: connection button shows "Connect" on a fresh load (no device yet), "Reconnect" once attempted', () => {
   const { window, context } = bootLive();
   run(context, "renderStatus('disconnected')");
 
-  assert.strictEqual(window.document.getElementById('reconnectBtn').style.display, 'none');
-  assert.strictEqual(window.document.getElementById('newConnectionBtn').style.display, '');
+  const btn = window.document.getElementById('connectionBtn');
+  assert.strictEqual(btn.style.display, '', 'connection button is visible when disconnected');
+  assert.strictEqual(btn.textContent, 'Connect', 'shows "Connect" before any device is connected');
+
+  run(context, 'bleManager = { device: {} }'); // stand-in for "attemptConnect() has run at least once"
+  run(context, "renderStatus('disconnected')");
+
+  assert.strictEqual(btn.style.display, '', 'still visible');
+  assert.strictEqual(btn.textContent, 'Reconnect', 'shows "Reconnect" once a prior device is known');
 });
 
-test('renderStatus: Reconnect appears once a connection has actually been attempted', () => {
+test('renderStatus: connection button shows "Disconnect" while connected and "Reconnecting…" while reconnecting', () => {
   const { window, context } = bootLive();
-  run(context, 'bleManager = {}'); // stand-in for "attemptConnect() has run at least once"
-  run(context, "renderStatus('disconnected')");
+  const btn = window.document.getElementById('connectionBtn');
 
-  assert.strictEqual(window.document.getElementById('reconnectBtn').style.display, '');
+  run(context, "renderStatus('connected')");
+  assert.strictEqual(btn.textContent, 'Disconnect');
+  assert.strictEqual(btn.disabled, false);
+
+  run(context, "renderStatus('reconnecting')");
+  assert.strictEqual(btn.textContent, 'Reconnecting…');
+  assert.strictEqual(btn.disabled, true);
+});
+
+test('connectionBtn click: disconnects while connected, and does reconnect or new connection as needed', async (t) => {
+  const { window, context } = bootLive();
+  const ble = makeFakeBle(context);
+  window.navigator.bluetooth = ble.bluetooth;
+  const btn = window.document.getElementById('connectionBtn');
+
+  // Connect first
+  await run(context, 'attemptConnect()');
+  stopLoopAfter(t, context);
+  assert.strictEqual(run(context, 'LiveState.status'), 'connected');
+  assert.strictEqual(btn.textContent, 'Disconnect');
+
+  // Click single button while connected -> disconnects
+  btn.click();
+  assert.strictEqual(run(context, 'LiveState.status'), 'disconnected');
+  assert.strictEqual(btn.textContent, 'Reconnect');
+
+  // Click single button while disconnected -> calls manualReconnect() and resumes
+  btn.click();
+  await settle(() => run(context, 'LiveState.status') === 'connected');
+  assert.strictEqual(run(context, 'LiveState.status'), 'connected');
+});
+
+test('connectionBtn click: flips to "New Connection" when manual reconnect fails, and next click triggers fresh connect', async (t) => {
+  const { window, context } = bootLive();
+  const bleA = makeFakeBle(context, { reconnectFailures: 99 });
+  window.navigator.bluetooth = bleA.bluetooth;
+  const btn = window.document.getElementById('connectionBtn');
+
+  // Initial connect to device A
+  await run(context, 'attemptConnect()');
+  stopLoopAfter(t, context);
+  assert.strictEqual(btn.textContent, 'Disconnect');
+
+  // Disconnect device A
+  btn.click();
+  assert.strictEqual(run(context, 'LiveState.status'), 'disconnected');
+  assert.strictEqual(btn.textContent, 'Reconnect');
+
+  // Click "Reconnect" -> manual reconnect fails because device A fails
+  btn.click();
+  await settle(() => run(context, 'LiveState.status') === 'disconnected' && btn.textContent === 'New Connection');
+
+  assert.strictEqual(btn.textContent, 'New Connection', 'flips to New Connection on reconnect failure');
+  assert.match(window.document.getElementById('reconnectErr').textContent, /Reconnect failed/);
+
+  // Now a new working device B is available
+  const bleB = makeFakeBle(context);
+  window.navigator.bluetooth = bleB.bluetooth;
+
+  // Next click triggers attemptConnect() for a new connection
+  btn.click();
+  await settle(() => run(context, 'LiveState.status') === 'connected');
+  assert.strictEqual(run(context, 'LiveState.status'), 'connected');
+  assert.strictEqual(btn.textContent, 'Disconnect');
+});
+
+test('abandon(): immediately aborts in-flight _waitBeforeRetry backoff without waiting or calling _subscribe', async (t) => {
+  const { window, context } = bootLive();
+  const bleA = makeFakeBle(context);
+  window.navigator.bluetooth = bleA.bluetooth;
+  await run(context, 'attemptConnect()');
+  stopLoopAfter(t, context);
+
+  // Device drops — _handleDisconnect starts waiting in _waitBeforeRetry(500)
+  const loopPromise = run(context, 'bleManager._handleDisconnect()');
+  await settle(() => run(context, 'LiveState.status') === 'reconnecting');
+  assert.strictEqual(bleA.subscribeCallCount(), 1, 'only initial connect so far');
+
+  // Abandon mid-wait
+  const startTime = Date.now();
+  run(context, 'bleManager.abandon()');
+  await loopPromise;
+  const elapsed = Date.now() - startTime;
+
+  assert.ok(elapsed < 200, `abandon resolved wait immediately (${elapsed}ms) rather than waiting out delay`);
+  assert.strictEqual(bleA.subscribeCallCount(), 1, 'abandoned manager did not start a fresh _subscribe attempt');
 });
 
 // ==========================================================================
@@ -935,7 +1075,11 @@ test('_handleDisconnect: retries then recovers — status ends "connected", loop
   // 1 initial connect + 3 reconnect attempts (fail, fail, succeed).
   assert.strictEqual(ble.subscribeCallCount(), 4);
   // Backoff waited before attempts 1..3 only — no wait after the success.
-  assert.deepStrictEqual(timers.delays, [500, 1000, 2000]);
+  // Each _subscribe() also arms (and, since the fake connect() resolves
+  // immediately, promptly clears) a BLE_SUBSCRIBE_TIMEOUT_MS watchdog timer —
+  // filter those out to isolate the backoff schedule itself.
+  const gattTimeout = run(context, 'BLE_SUBSCRIBE_TIMEOUT_MS');
+  assert.deepStrictEqual(timers.delays.filter((d) => d !== gattTimeout), [500, 1000, 2000]);
 });
 
 test('_handleDisconnect: gives up after exactly 6 attempts, drops to "disconnected", and surfaces the last error via onStatusText', async (t) => {
@@ -954,14 +1098,140 @@ test('_handleDisconnect: gives up after exactly 6 attempts, drops to "disconnect
   assert.strictEqual(run(context, 'LiveState.status'), 'disconnected');
   assert.strictEqual(run(context, 'bleManager._reconnecting'), false);
   assert.strictEqual(ble.subscribeCallCount(), 1 + 6, 'exactly 6 reconnect attempts, then it stops');
-  // The cap: 500, 1000, 2000, 4000, then clamped at 8000.
-  assert.deepStrictEqual(timers.delays, [500, 1000, 2000, 4000, 8000, 8000]);
+  // The cap: 500, 1000, 2000, 4000, then clamped at 8000 — filtering out the
+  // per-attempt BLE_SUBSCRIBE_TIMEOUT_MS watchdog timers (see the test above).
+  const gattTimeout = run(context, 'BLE_SUBSCRIBE_TIMEOUT_MS');
+  assert.deepStrictEqual(
+    timers.delays.filter((d) => d !== gattTimeout),
+    [500, 1000, 2000, 4000, 8000, 8000],
+  );
 
   const seen = runJSON(context, 'globalThis.__statusSeen');
   assert.deepStrictEqual(seen, ['reconnecting', 'disconnected'], 'one reconnecting, then one disconnected — no flicker');
   assert.match(
     window.document.getElementById('reconnectErr').textContent, /Auto-reconnect failed: reconnect attempt 6 failed/,
   );
+});
+
+// ==========================================================================
+// Reconnect resilience — three feature-detected layers added on top of the
+// bounded backoff above: an early wake on 'advertisementreceived' during
+// each backoff wait, a passive post-exhaustion watch that auto-recovers
+// without the user clicking Reconnect, and (further below, alongside the
+// "New Connection" tests) a silent same-device resume via getDevices() that
+// skips the requestDevice() chooser. Each degrades to today's plain-timer
+// behaviour where the underlying API is unsupported — see the last test in
+// this block.
+// ==========================================================================
+
+test('_waitBeforeRetry: wakes early on advertisementreceived instead of waiting out the full delay', async (t) => {
+  const { window, context } = bootLive();
+  const ble = makeFakeBle(context);
+  window.navigator.bluetooth = ble.bluetooth;
+  await run(context, 'attemptConnect()');
+  stopLoopAfter(t, context);
+
+  const start = Date.now();
+  // A delay long enough that "it returned quickly" is unambiguous — this
+  // test uses the real clock (not recordingTimers) specifically so an early
+  // wake and "the timer just fired" are distinguishable.
+  const waitPromise = run(context, 'bleManager._waitBeforeRetry(5000)');
+  await new Promise((r) => setImmediate(r)); // let the listener attach
+  assert.strictEqual(ble.advertisementHandlerCount(), 1, 'a listener was armed for this wait');
+  assert.strictEqual(ble.watchAdvertisementsCallCount(), 1);
+
+  ble.fireAdvertisement();
+  await waitPromise;
+  const elapsed = Date.now() - start;
+
+  assert.ok(elapsed < 1000, `expected an early wake well under the 5000ms delay, took ${elapsed}ms`);
+  assert.strictEqual(ble.advertisementHandlerCount(), 0, 'the listener is cleaned up once the wait resolves');
+});
+
+test('background watch: after auto-reconnect exhausts, the device reappearing later triggers an automatic reconnect with no user action', async (t) => {
+  const { window, context } = bootLive();
+  // Exactly enough failures to exhaust the bounded loop (subscribeCalls
+  // 2..7, matching its 6 attempts) — the 8th call, made by the background
+  // watch's own reconnect attempt, then succeeds.
+  const ble = makeFakeBle(context, { reconnectFailures: 6 });
+  window.navigator.bluetooth = ble.bluetooth;
+  await run(context, 'attemptConnect()');
+  stopLoopAfter(t, context);
+
+  const timers = recordingTimers(window);
+  await run(context, 'bleManager._handleDisconnect()');
+  timers.restore();
+  assert.strictEqual(run(context, 'LiveState.status'), 'disconnected');
+  assert.strictEqual(ble.advertisementHandlerCount(), 1, 'a passive background watch is armed after giving up');
+
+  run(context, 'globalThis.__statusSeen = []; LiveState.on("status", (s) => globalThis.__statusSeen.push(s))');
+  ble.fireAdvertisement();
+  await settle(() => run(context, 'LiveState.status') === 'connected');
+
+  assert.strictEqual(run(context, 'LiveState.status'), 'connected', 'the device reappearing reconnected automatically');
+  assert.strictEqual(ble.advertisementHandlerCount(), 0, 'the watch is retired on success');
+  assert.deepStrictEqual(runJSON(context, 'globalThis.__statusSeen'), ['reconnecting', 'connected']);
+});
+
+test('background watch: re-arms itself if the triggered reconnect attempt fails, instead of giving up for good', async (t) => {
+  const { window, context } = bootLive();
+  const ble = makeFakeBle(context, { reconnectFailures: 99 }); // every attempt fails, including the background one
+  window.navigator.bluetooth = ble.bluetooth;
+  await run(context, 'attemptConnect()');
+  stopLoopAfter(t, context);
+
+  const timers = recordingTimers(window);
+  await run(context, 'bleManager._handleDisconnect()');
+  timers.restore();
+  assert.strictEqual(ble.advertisementHandlerCount(), 1);
+
+  ble.fireAdvertisement();
+  await settle(() => ble.subscribeCallCount() > 7 && ble.advertisementHandlerCount() === 1);
+
+  assert.strictEqual(run(context, 'LiveState.status'), 'disconnected', 'the background attempt itself failed, as arranged');
+  assert.strictEqual(ble.advertisementHandlerCount(), 1, 'the watch was re-armed rather than abandoned after one failed attempt');
+});
+
+test('background watch: a subsequent intentional disconnect (deactivate) stops it — the user leaving the view must not still auto-reconnect', async (t) => {
+  const { window, context } = bootLive();
+  const ble = makeFakeBle(context, { reconnectFailures: 99 });
+  window.navigator.bluetooth = ble.bluetooth;
+  run(context, 'showMap()');
+  await run(context, 'attemptConnect()');
+  stopLoopAfter(t, context);
+
+  const timers = recordingTimers(window);
+  await run(context, 'bleManager._handleDisconnect()');
+  timers.restore();
+  assert.strictEqual(ble.advertisementHandlerCount(), 1);
+
+  run(context, 'GSRLiveView.deactivate()');
+  assert.strictEqual(ble.advertisementHandlerCount(), 0, 'deactivate() tears down the passive watch too');
+
+  ble.fireAdvertisement(); // must be a no-op now — nothing is listening
+  await new Promise((r) => setImmediate(r));
+  assert.strictEqual(run(context, 'LiveState.status'), 'disconnected', 'no auto-reconnect after the user left the view');
+});
+
+test('reconnect resilience degrades gracefully when watchAdvertisements is unsupported (e.g. iOS/Bluefy) — same bounded backoff as before, no background watch', async (t) => {
+  const { window, context } = bootLive();
+  const ble = makeFakeBle(context, { reconnectFailures: 99, watchAdvertisements: 'no' });
+  window.navigator.bluetooth = ble.bluetooth;
+  await run(context, 'attemptConnect()');
+  stopLoopAfter(t, context);
+
+  const timers = recordingTimers(window);
+  await run(context, 'bleManager._handleDisconnect()');
+  timers.restore();
+
+  assert.strictEqual(run(context, 'LiveState.status'), 'disconnected');
+  const gattTimeout = run(context, 'BLE_SUBSCRIBE_TIMEOUT_MS');
+  assert.deepStrictEqual(
+    timers.delays.filter((d) => d !== gattTimeout),
+    [500, 1000, 2000, 4000, 8000, 8000],
+    'identical plain backoff schedule to a platform with watchAdvertisements — this layer is pure addition, not a behaviour change',
+  );
+  assert.strictEqual(ble.advertisementHandlerCount(), 0, 'no background watch armed without watchAdvertisements support');
 });
 
 test('_handleDisconnect: a second gattserverdisconnected while a reconnect loop is already running is a no-op (the _reconnecting guard)', async (t) => {
@@ -1029,6 +1299,327 @@ test('_handleDisconnect: after a successful auto-reconnect, one BLE notification
     'a re-subscribe must not leave a stale listener that double-parses every notification',
   );
   assert.strictEqual(run(context, 'LiveState.gapCount'), 0, 'the duplicate is not a real gap');
+});
+
+// Regression tests for the reported "reconnect just hangs" bug:
+// BluetoothRemoteGATTServer.connect() / getPrimaryService() /
+// getCharacteristic() / startNotifications() have no built-in timeout and
+// have been observed on real devices to never settle when the peripheral
+// isn't actually reachable or its GATT cache is stale (e.g. right after the
+// Flipper's BLE co-processor restart). Without a cap, one hung step blocked
+// the whole retry loop forever instead of surfacing "disconnected" + a
+// working New Connection. Two variants below: the hang can happen at the
+// initial connect, or later during service/characteristic discovery — both
+// must be bounded, since _subscribe() now wraps the whole pipeline in one
+// timeout rather than just the connect step.
+test('_subscribe: a hung gatt.connect() times out instead of blocking the caller forever, and cancels the pending native connect', async (t) => {
+  const { window, context } = bootLive();
+  const ble = makeFakeBle(context);
+  window.navigator.bluetooth = ble.bluetooth;
+  await run(context, 'attemptConnect()');
+  stopLoopAfter(t, context);
+  assert.strictEqual(ble.gattDisconnectCallCount(), 0);
+
+  // Simulate the real-world hang: gatt.connect() never resolves or rejects.
+  run(context, 'bleManager.device.gatt.connect = () => new Promise(() => {})');
+
+  const timers = recordingTimers(window);
+  let threw = false;
+  try {
+    await run(context, 'bleManager._subscribe()');
+  } catch (e) {
+    threw = true;
+  }
+  timers.restore();
+
+  assert.strictEqual(threw, true, 'a hung connect() must eventually reject rather than hang the caller forever');
+  const timeoutMs = run(context, 'BLE_SUBSCRIBE_TIMEOUT_MS');
+  assert.deepStrictEqual(timers.delays, [timeoutMs], 'bounded by exactly one BLE_SUBSCRIBE_TIMEOUT_MS watchdog');
+  assert.strictEqual(
+    ble.gattDisconnectCallCount(), 1,
+    'the pending native connect was cancelled so the adapter/peripheral is freed for the next attempt',
+  );
+});
+
+test('_subscribe: a hung getPrimaryService() (connect succeeds, discovery never settles) is bounded too, not just the initial connect', async (t) => {
+  const { window, context } = bootLive();
+  const ble = makeFakeBle(context);
+  window.navigator.bluetooth = ble.bluetooth;
+  await run(context, 'attemptConnect()');
+  stopLoopAfter(t, context);
+  assert.strictEqual(ble.gattDisconnectCallCount(), 0);
+
+  // gatt.connect() itself resolves fine; it's service discovery on the
+  // resulting server that never settles — a distinct real-world hang point
+  // from the connect-itself-hangs case above.
+  run(context, `
+    bleManager.device.gatt.connect = async () => ({
+      getPrimaryService: () => new Promise(() => {}),
+      getPrimaryServices: () => new Promise(() => {}),
+    });
+  `);
+
+  const timers = recordingTimers(window);
+  let threw = false;
+  try {
+    await run(context, 'bleManager._subscribe()');
+  } catch (e) {
+    threw = true;
+  }
+  timers.restore();
+
+  assert.strictEqual(threw, true, 'a hung getPrimaryService() must eventually reject rather than hang the caller forever');
+  const timeoutMs = run(context, 'BLE_SUBSCRIBE_TIMEOUT_MS');
+  assert.deepStrictEqual(timers.delays, [timeoutMs]);
+  assert.strictEqual(
+    ble.gattDisconnectCallCount(), 1,
+    'the GATT link was torn down to cancel the stuck discovery call',
+  );
+});
+
+// The other half of the same bug: a stuck connect attempt left the radio
+// wedged even when the user backed out via "New Connection" or navigating
+// away, because disconnect() only cancelled the link when gatt.connected was
+// already true — a connect() still in flight hasn't set that flag yet.
+test('disconnect: cancels the GATT link even while "connected" is still false (a pending connect attempt)', async (t) => {
+  const { window, context } = bootLive();
+  const ble = makeFakeBle(context);
+  window.navigator.bluetooth = ble.bluetooth;
+  await run(context, 'attemptConnect()');
+  stopLoopAfter(t, context);
+  assert.strictEqual(ble.gattDisconnectCallCount(), 0);
+
+  run(context, 'bleManager.device.gatt.connected = false'); // pending connect, not yet established
+
+  run(context, 'bleManager.disconnect()');
+
+  assert.strictEqual(
+    ble.gattDisconnectCallCount(), 1,
+    'disconnect() must not skip cancelling just because "connected" is still false',
+  );
+});
+
+// SCENARIO — "New Connection" clicked while the PREVIOUS manager's own
+// auto-reconnect loop is still in flight (mid-backoff wait, or blocked
+// inside its own _subscribe() timeout race). LiveState.setStatus() is a
+// module-level singleton shared by every manager instance, so without
+// abandon() marking the old
+// one superseded, its loop finishing later — success or exhaustion alike —
+// would silently overwrite whatever the brand new connection already set:
+// the UI would flip back to "Disconnected" (or, in the success race, briefly
+// paper over an actually-failed new connection with a stale "Live") even
+// though the new link the user is actually looking at is fine. Confirmed
+// this was a real, reproducible bug before abandon() existed — this test
+// pins the fixed behavior.
+test('attemptConnect ("New Connection"): a stale reconnect loop from a superseded manager must not clobber the new connection\'s status', async (t) => {
+  const { window, context } = bootLive();
+  const bleA = makeFakeBle(context, { reconnectFailures: 99 }); // A never recovers on its own
+  window.navigator.bluetooth = bleA.bluetooth;
+  await run(context, 'attemptConnect()');
+  stopLoopAfter(t, context);
+  assert.strictEqual(run(context, 'LiveState.status'), 'connected');
+  run(context, 'globalThis.__managerA = bleManager');
+
+  const timers = recordingTimers(window);
+  // A real link drop on device A — starts A's bounded auto-reconnect loop.
+  // Deliberately not awaited: this is exactly how the real
+  // 'gattserverdisconnected' listener fires it (fire-and-forget).
+  run(context, 'globalThis.__loopA = bleManager._handleDisconnect()');
+  await settle(() => run(context, 'LiveState.status') === 'reconnecting');
+
+  // The user gives up on the lightweight Reconnect and does "New Connection"
+  // to a working device while A's loop is still mid-backoff in the background.
+  const bleB = makeFakeBle(context);
+  window.navigator.bluetooth = bleB.bluetooth;
+  await run(context, 'attemptConnect()');
+  assert.strictEqual(run(context, 'LiveState.status'), 'connected', 'the fresh connection is live');
+  assert.strictEqual(run(context, 'globalThis.__managerA._abandoned'), true, 'the old manager was marked superseded');
+  assert.strictEqual(
+    run(context, 'bleManager === globalThis.__managerA'), false,
+    'a new manager instance took over',
+  );
+
+  // Let A's orphaned loop run to exhaustion.
+  await run(context, 'globalThis.__loopA');
+  timers.restore();
+
+  assert.strictEqual(
+    run(context, 'LiveState.status'), 'connected',
+    'the superseded manager\'s own eventual give-up must not overwrite the live status of the new connection',
+  );
+});
+
+// Same hazard, the other direction: A's already-in-flight _subscribe() call
+// (started before abandon() ran) happens to succeed AFTER B has taken over
+// and B has itself already failed — A reporting "connected" must not paper
+// over B's real "disconnected" state. The loop-top _abandoned check (added
+// alongside abandon()) stops A from STARTING further attempts once
+// superseded, but this covers the narrower case of an attempt already
+// committed to when abandonment happens mid-flight.
+test('attemptConnect ("New Connection"): a superseded manager\'s already-in-flight reconnect succeeding must not resurrect its status either', async (t) => {
+  const { window, context } = bootLive();
+  const bleA = makeFakeBle(context); // A's reconnect attempt will succeed once unblocked
+  window.navigator.bluetooth = bleA.bluetooth;
+  await run(context, 'attemptConnect()');
+  stopLoopAfter(t, context);
+  run(context, 'globalThis.__managerA = bleManager');
+
+  const timers = recordingTimers(window);
+  const releaseA = bleA.blockNextSubscribe(); // hold A's reconnect mid-attempt, already committed to it
+  run(context, 'globalThis.__loopA = bleManager._handleDisconnect()');
+  await settle(() => bleA.subscribeCallCount() === 2);
+
+  // "New Connection" supersedes A while its attempt is blocked, then B itself fails.
+  const bleB = makeFakeBle(context, { failRequestDevice: true });
+  window.navigator.bluetooth = bleB.bluetooth;
+  await run(context, 'attemptConnect()');
+  assert.strictEqual(run(context, 'LiveState.status'), 'disconnected', 'B failed to connect at all');
+
+  // Now let A's already-in-flight attempt through — it succeeds, on a
+  // manager nobody is looking at anymore.
+  releaseA();
+  await run(context, 'globalThis.__loopA');
+  timers.restore();
+
+  assert.strictEqual(
+    run(context, 'LiveState.status'), 'disconnected',
+    'A\'s late success must not resurrect a "connected" status over B\'s real failure',
+  );
+});
+
+// tryResumeDevice() — the third resilience layer: "New Connection" tries a
+// silent same-device resume via navigator.bluetooth.getDevices() before
+// falling back to the requestDevice() chooser. This is the direct fix for
+// "I click New Connection and don't even see the device in the list" —
+// when the platform still remembers the permission grant, there's no list
+// to fail to show it in.
+test('tryResumeDevice: "New Connection" silently reacquires the same previously-permitted device, skipping the chooser', async (t) => {
+  const { window, context } = bootLive();
+  const ble = makeFakeBle(context); // getDevices() defaults to resolving [device] — "platform remembers it"
+  window.navigator.bluetooth = ble.bluetooth;
+  await run(context, 'attemptConnect()');
+  stopLoopAfter(t, context);
+  assert.strictEqual(run(context, 'LiveState.status'), 'connected');
+
+  let requestDeviceCalls = 0;
+  const realRequestDevice = ble.bluetooth.requestDevice.bind(ble.bluetooth);
+  ble.bluetooth.requestDevice = async (...args) => { requestDeviceCalls++; return realRequestDevice(...args); };
+
+  // The user clicks "New Connection" -> Connect again.
+  await run(context, 'attemptConnect()');
+
+  assert.strictEqual(run(context, 'LiveState.status'), 'connected', 'reconnected via tryResumeDevice()');
+  assert.strictEqual(requestDeviceCalls, 0, 'the chooser (requestDevice()) was never invoked');
+  assert.strictEqual(ble.subscribeCallCount(), 2, 'one fresh _subscribe() for the resumed device, not a whole new pairing flow');
+});
+
+test('tryResumeDevice: falls back to the normal requestDevice() chooser when getDevices() has no match', async (t) => {
+  const { window, context } = bootLive();
+  const bleA = makeFakeBle(context);
+  window.navigator.bluetooth = bleA.bluetooth;
+  await run(context, 'attemptConnect()');
+  stopLoopAfter(t, context);
+
+  // "New Connection" to a DIFFERENT fake stack — its getDevices() has no
+  // knowledge of A's device (different fake, different id).
+  const bleB = makeFakeBle(context);
+  window.navigator.bluetooth = bleB.bluetooth;
+  await run(context, 'attemptConnect()');
+
+  assert.strictEqual(run(context, 'LiveState.status'), 'connected', 'fell through to the chooser and connected to B');
+  assert.strictEqual(bleB.subscribeCallCount(), 1, 'a full fresh connect() (chooser) ran, not a resume');
+});
+
+// SCENARIO — unlike the abandon() races above (a superseded manager racing a
+// BRAND NEW one), tryResumeDevice() and connect()'s fallback run on the SAME
+// manager instance: connect() only replaces bleManager itself, not the
+// resume attempt already running inside it. If tryResumeDevice()'s own outer
+// 3500ms timeout loses the race to its inner _subscribe() call's 15s one,
+// that _subscribe() call keeps running in the background — against the same
+// `this.device` the fallback connect() is about to reuse (getDevices()/a
+// re-picked chooser selection commonly hand back the identical
+// BluetoothDevice for the same physical peripheral). When its own timeout
+// eventually fires, its catch used to unconditionally read `this.device` and
+// call `.gatt.disconnect()` on it — silently killing the newer, already-
+// working connection nobody asked to close, and marking the fallout
+// "intentional" (suppressing the auto-reconnect a real drop should get).
+test('tryResumeDevice: an orphaned resume attempt that later times out must not disconnect a newer successful connection on the same instance', async (t) => {
+  const { window, context } = bootLive();
+  const ble = makeFakeBle(context); // getDevices() resolves [device] by default — a remembered device
+  window.navigator.bluetooth = ble.bluetooth;
+  await run(context, 'attemptConnect()'); // initial pairing — no previousDevice, no tryResumeDevice() involved
+  stopLoopAfter(t, context);
+  assert.strictEqual(run(context, 'LiveState.status'), 'connected');
+
+  const timers = recordingTimers(window);
+
+  // Capture the FIRST _subscribe() call's promise across the class (not the
+  // current bleManager var — "New Connection" replaces it with a fresh
+  // instance before tryResumeDevice() even runs) so the test can await the
+  // orphaned attempt's own eventual settlement directly, rather than guess
+  // how many ticks its background timer needs.
+  run(context, `
+    globalThis.__origSubscribe = GSRLiveBluetoothManager.prototype._subscribe;
+    globalThis.__subscribeCalls = 0;
+    GSRLiveBluetoothManager.prototype._subscribe = function () {
+      globalThis.__subscribeCalls++;
+      const p = globalThis.__origSubscribe.call(this);
+      if (globalThis.__subscribeCalls === 1) globalThis.__orphanSubscribe = p.catch(() => {});
+      return p;
+    };
+  `);
+  // Blocks the NEXT getCharacteristic() call indefinitely — the "New
+  // Connection" click's tryResumeDevice() attempt below, which never gets
+  // released, so only its own 15s internal timeout (accelerated by
+  // recordingTimers) settles it.
+  ble.blockNextSubscribe();
+
+  // "New Connection", same remembered device: tryResumeDevice()'s 3500ms
+  // outer timeout loses the race to the blocked inner call and returns
+  // false, so connect() falls through to a fresh requestDevice() +
+  // _subscribe() — which succeeds immediately (the gate only holds the
+  // FIRST getCharacteristic() call).
+  await run(context, 'attemptConnect()');
+  assert.strictEqual(run(context, 'LiveState.status'), 'connected', 'the fresh fallback connection is live');
+  const disconnectsBeforeOrphanSettles = ble.gattDisconnectCallCount();
+
+  // Let the orphaned resume attempt's own 15s timeout fire.
+  await run(context, 'globalThis.__orphanSubscribe');
+  run(context, 'GSRLiveBluetoothManager.prototype._subscribe = globalThis.__origSubscribe');
+
+  assert.strictEqual(
+    ble.gattDisconnectCallCount(), disconnectsBeforeOrphanSettles,
+    'the orphaned resume attempt must not tear down the newer, live connection when it finally times out',
+  );
+  assert.strictEqual(run(context, 'LiveState.status'), 'connected', 'status must still reflect the real, live connection');
+
+  // And the manager must still be armed for a genuine future disconnect — the
+  // orphaned attempt must not have left _intentionalClose stuck true, which
+  // would silently swallow this real drop instead of auto-reconnecting.
+  // Called directly (rather than via ble.fireDisconnect()) so the full retry
+  // loop is awaited to completion here, under the still-accelerated timers,
+  // instead of left running detached against real backoff delays.
+  await run(context, 'bleManager._handleDisconnect()');
+  timers.restore();
+
+  assert.strictEqual(
+    run(context, 'LiveState.status'), 'connected',
+    'a real subsequent drop must still auto-recover, not be swallowed as "intentional"',
+  );
+});
+
+test('tryResumeDevice: falls back cleanly when navigator.bluetooth.getDevices is unsupported', async (t) => {
+  const { window, context } = bootLive();
+  const ble = makeFakeBle(context, { getDevices: 'no' });
+  window.navigator.bluetooth = ble.bluetooth;
+  await run(context, 'attemptConnect()');
+  stopLoopAfter(t, context);
+  assert.strictEqual(run(context, 'LiveState.status'), 'connected');
+
+  await run(context, 'attemptConnect()'); // "New Connection" again, same unsupported-getDevices stack
+
+  assert.strictEqual(run(context, 'LiveState.status'), 'connected', 'still reconnects via the normal chooser flow');
+  assert.strictEqual(ble.subscribeCallCount(), 2, 'a second full connect() ran (no silent resume attempted)');
 });
 
 // ==========================================================================

@@ -90,8 +90,7 @@ const LIVE_VIEW_MARKUP = `
       <option value="phasic">Phasic (SCR)</option>
     </select>
     <div class="btn-group" id="liveSessionActions">
-      <button class="btn btn-outline" id="reconnectBtn" style="display: none;">Reconnect</button>
-      <button class="btn btn-outline" id="newConnectionBtn" style="display: none;">New Connection</button>
+      <button class="btn btn-outline" id="connectionBtn" style="display: none;">Connect</button>
       <button class="btn btn-outline" id="exportBtn" disabled>Export CSV</button>
       <button class="btn btn-outline" id="toggleMapBtn">Show Map (M)</button>
       <button class="btn btn-outline" id="cacheMapBtn" disabled>Cache Map (C)</button>
@@ -949,11 +948,12 @@ function exportCsv() {
 // ==========================================================================
 // Wire-up state — element refs and session bookkeeping, assigned by mount().
 // ==========================================================================
-let statusBadge, reconnectBtn, newConnectionBtn, exportBtn,
+let statusBadge, connectionBtn, exportBtn,
     connectOverlay, connectBtn, connectErr, reconnectErr,
     cacheMapBtn, toggleMapBtn,
     liveFabToggle, liveFabMenu;
 
+let needNewConnection = false;
 let bleManager = null;
 let lastPacketTimestamp = 0;
 let lastPacketArrivalTime = 0;
@@ -1007,6 +1007,113 @@ function stopAnimationLoop() {
   }
 }
 
+// Connection orchestration controller: handles Web Bluetooth lifecycle,
+// connection button state transitions, and connection action dispatch.
+const LiveConnectionController = {
+  get needNewConnection() {
+    return needNewConnection;
+  },
+  set needNewConnection(val) {
+    needNewConnection = Boolean(val);
+  },
+
+  get bleManager() {
+    return bleManager;
+  },
+  set bleManager(mgr) {
+    bleManager = mgr;
+  },
+
+  render(status) {
+    if (!connectionBtn) return;
+    if (status === 'disconnected') {
+      connectionBtn.style.display = '';
+      connectionBtn.disabled = false;
+      if (needNewConnection || !bleManager || !bleManager.device) {
+        connectionBtn.textContent = (needNewConnection || bleManager) ? 'New Connection' : 'Connect';
+      } else {
+        connectionBtn.textContent = 'Reconnect';
+      }
+    } else if (status === 'connected') {
+      connectionBtn.style.display = '';
+      connectionBtn.disabled = false;
+      connectionBtn.textContent = 'Disconnect';
+      needNewConnection = false;
+    } else if (status === 'connecting' || status === 'reconnecting') {
+      connectionBtn.style.display = '';
+      connectionBtn.disabled = true;
+      connectionBtn.textContent = status === 'reconnecting' ? 'Reconnecting…' : 'Connecting…';
+    } else {
+      connectionBtn.style.display = 'none';
+    }
+  },
+
+  async handleAction() {
+    if (reconnectErr) reconnectErr.textContent = '';
+    if (connectErr) connectErr.textContent = '';
+    if (LiveState.status === 'connected') {
+      if (bleManager) bleManager.disconnect();
+      LiveState.setStatus('disconnected');
+      return;
+    }
+    // If we already have a device, try lightweight reconnect first to
+    // preserve the current walk session and packet buffer.
+    if (bleManager && bleManager.device && !needNewConnection) {
+      const ok = await bleManager.manualReconnect();
+      if (ok) return;
+      // Lightweight reconnect failed: the session or bond cannot be resumed
+      // as-is (e.g. Flipper BLE restarted). Flip to "New Connection" so the
+      // user's next click with a fresh gesture launches the chooser.
+      needNewConnection = true;
+      renderStatus('disconnected');
+      return;
+    }
+    needNewConnection = false;
+    await attemptConnect();
+  },
+
+  async connect() {
+    if (connectErr) connectErr.textContent = '';
+    if (!navigator.bluetooth) {
+      if (connectErr) {
+        connectErr.textContent = 'Web Bluetooth is not available in this browser (requires Chrome on Android/desktop, or a Web Bluetooth browser like Bluefy on iOS). You can still Prepare Map Offline.';
+      }
+      return;
+    }
+    // A previous manager may still have an auto-reconnect loop in flight
+    // (mid-backoff wait, or blocked inside its own _subscribe() timeout race)
+    // — e.g. the user gave up on the lightweight Reconnect and hit "New
+    // Connection" while it was still retrying. abandon() marks it superseded (so its
+    // eventual status update is a no-op instead of stomping the fresh
+    // connection below) and cancels its own GATT link so it stops competing
+    // with this new attempt for the radio. Grab its device reference first —
+    // tryResumeDevice() below uses it to silently reacquire the SAME device
+    // (no chooser dialog) if the platform still remembers our permission for
+    // it, which is exactly the case "New Connection" exists for: the
+    // lightweight Reconnect gave up, but the device itself may still be fine.
+    const previousDevice = bleManager ? bleManager.device : null;
+    if (bleManager) bleManager.abandon();
+    resetSession();
+    needNewConnection = false;
+    LiveState.setStatus('connecting');
+    // onStatusText fires for both pre-connect issues (shown in the overlay,
+    // still visible at this point) and later reconnect failures (overlay
+    // already hidden by then) — write to both; whichever is visible is seen.
+    bleManager = new GSRLiveBluetoothManager((text) => {
+      if (connectErr) connectErr.textContent = text;
+      if (reconnectErr) reconnectErr.textContent = text;
+    });
+    try {
+      const resumed = previousDevice && await bleManager.tryResumeDevice(previousDevice);
+      if (!resumed) await bleManager.connect();
+      if (connectOverlay) connectOverlay.classList.add('hidden');
+    } catch (e) {
+      LiveState.setStatus('disconnected');
+      if (connectErr) connectErr.textContent = (e && e.message) ? e.message : String(e);
+    }
+  },
+};
+
 function renderStatus(status) {
   const labels = {
     connecting: ['Connecting…', ''],
@@ -1017,17 +1124,10 @@ function renderStatus(status) {
   const [text, cls] = labels[status] || ['Not connected', ''];
   statusBadge.textContent = text;
   statusBadge.className = 'badge' + (cls ? ' ' + cls : '');
-  // manualReconnect() is a no-op without a prior device reference, so don't
-  // show it before a connection has ever been attempted (e.g. right after
-  // "Prepare Map Offline" skips the connect overlay). "New Connection"
-  // stays available regardless — it's the escape hatch back to the connect
-  // overlay for exactly that case, as well as the one that actually works
-  // after the Flipper exits/re-enters Live Stream mode — see
-  // GSRLiveBluetoothManager's _handleDisconnect() doc comment for why the
-  // lightweight Reconnect button alone can't be trusted to cover that case.
-  reconnectBtn.style.display = (status === 'disconnected' && bleManager) ? '' : 'none';
-  newConnectionBtn.style.display = status === 'disconnected' ? '' : 'none';
-  if (status !== 'disconnected') reconnectErr.textContent = '';
+
+  LiveConnectionController.render(status);
+
+  if (status !== 'disconnected' && reconnectErr) reconnectErr.textContent = '';
 }
 
 // A fresh requestDevice() (initial Connect, or "New Connection" after the
@@ -1049,8 +1149,7 @@ function resetSession() {
       liveMarker = null;
     }
   }
-  LiveState.packets = [];
-  LiveState.gapCount = 0;
+  LiveState.reset();
   liveLastLatLng = null;
   gsrMin = Infinity;
   gsrMax = -Infinity;
@@ -1082,27 +1181,7 @@ function resetSession() {
 // Connects over Web Bluetooth using the browser's device chooser. We show all
 // nearby devices so that custom-named or renamed Flippers can connect.
 async function attemptConnect() {
-  connectErr.textContent = '';
-  if (!navigator.bluetooth) {
-    connectErr.textContent = 'Web Bluetooth is not available in this browser (requires Chrome on Android/desktop, or a Web Bluetooth browser like Bluefy on iOS). You can still Prepare Map Offline.';
-    return;
-  }
-  resetSession();
-  LiveState.setStatus('connecting');
-  // onStatusText fires for both pre-connect issues (shown in the overlay,
-  // still visible at this point) and later reconnect failures (overlay
-  // already hidden by then) — write to both; whichever is visible is seen.
-  bleManager = new GSRLiveBluetoothManager((text) => {
-    connectErr.textContent = text;
-    reconnectErr.textContent = text;
-  });
-  try {
-    await bleManager.connect();
-    connectOverlay.classList.add('hidden');
-  } catch (e) {
-    LiveState.setStatus('disconnected');
-    connectErr.textContent = (e && e.message) ? e.message : String(e);
-  }
+  return LiveConnectionController.connect();
 }
 
 // The six GSR layer toggles (Raw/Filtered/Tonic/Phasic/Peaks/Hotspots) and
@@ -1271,8 +1350,7 @@ const GSRLiveView = {
     container.innerHTML = LIVE_VIEW_MARKUP;
 
     statusBadge      = document.getElementById('statusBadge');
-    reconnectBtn     = document.getElementById('reconnectBtn');
-    newConnectionBtn = document.getElementById('newConnectionBtn');
+    connectionBtn    = document.getElementById('connectionBtn');
     exportBtn        = document.getElementById('exportBtn');
     connectOverlay   = document.getElementById('connectOverlay');
     connectBtn       = document.getElementById('connectBtn');
@@ -1332,18 +1410,9 @@ const GSRLiveView = {
       connectOverlay.classList.add('hidden');
     });
 
-    reconnectBtn.addEventListener('click', () => {
-      if (bleManager) bleManager.manualReconnect();
-    });
-
-    // Escape hatch when the lightweight Reconnect keeps failing — goes back
-    // through a fresh requestDevice() instead of reusing a possibly-stale
-    // BluetoothDevice reference (see _handleDisconnect()'s doc comment).
-    newConnectionBtn.addEventListener('click', () => {
-      reconnectErr.textContent = '';
-      connectErr.textContent = '';
-      connectOverlay.classList.remove('hidden');
-    });
+    // Single connection button dealing with connect, reconnect, and new connection
+    // as needed.
+    connectionBtn.addEventListener('click', () => LiveConnectionController.handleAction());
 
     exportBtn.addEventListener('click', exportCsv);
 
@@ -1488,6 +1557,9 @@ const GSRLiveView = {
   // uses for its own map-first mobile default — one detection, not two, kept
   // in sync automatically rather than by comment.
   isCompactLayout: isCompactLiveLayout,
+
+  // Encapsulated connection controller for state inspection and testing
+  connectionController: LiveConnectionController,
 };
 
 if (typeof window !== 'undefined') window.GSRLiveView = GSRLiveView;

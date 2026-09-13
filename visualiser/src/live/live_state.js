@@ -30,6 +30,12 @@ const LiveState = {
     this.emit('status', status);
   },
 
+  reset() {
+    this.packets = [];
+    this.gapCount = 0;
+    this.emit('reset');
+  },
+
   addPacket(pkt) {
     const prev = this.packets[this.packets.length - 1];
     // pkt.timestamp is device-uptime ms, not wall-clock — a new device (or
