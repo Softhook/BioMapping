@@ -179,6 +179,22 @@ uncharacterised:
   max width and line count — instead of one very long line or an arbitrary
   character cut.
 
+- **Live view EDASymp (idea, not scheduled)** — use a *causal* (right-aligned
+  window) EDASymp variant for the live follow-map so the trail has near-zero
+  lag instead of the full metric's ~32 s centred-window lag. Add it as a NEW
+  function (e.g. `SpectralEDA.computeCausalSeries`) and have only the live
+  view consume it (mirror its `edasymp` onto packets in `feedLiveAnalyzer`,
+  like tonic/phasic) — do NOT modify `computeSeries`/`posadaSignal`/
+  `welchDensity`, so the main app's shipped, NeuroKit2-cross-checked EDASymp
+  stays byte-identical. Optionally gate `_computeEDASymp()` in
+  `analyzer.js:analyze()` behind a flag the live view sets (default unchanged)
+  to skip the redundant full computation. Accept: live EDASymp won't match the
+  offline EDASymp for the same walk (it's time-shifted ~32 s) — fine for a
+  live heat overlay, not for analysis. Rationale: EDASymp is per-sample,
+  continuous, threshold-free and gait-immune (0.045–0.25 Hz band ≪ walking
+  cadence) — the best-fit live arousal metric, better than phasic (which is
+  mostly flat).
+
 ## Loose ends from closed investigations
 
 Carried over from archived investigations (`archive/gps_rf_mutex_status.md`,

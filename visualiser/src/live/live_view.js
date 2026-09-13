@@ -176,7 +176,7 @@ const LIVE_ANALYZE_PARAMS = (typeof GSR_CONST !== 'undefined' && GSR_CONST.GSR_D
   : {
       medianSize: 0, lpfWindow: 0, useGaitFilter: true, tonicMethod: 'lpf', tonicWindow: 45,
       peakThreshold: 0.045, shapeMinSnr: 2.5, minPeakQuality: 0,
-      peakDensityWindow: 10, hotspotPercentile: 0.02,
+      peakDensityWindow: 30, hotspotPercentile: 0.02,
       useDeconvolution: false, usePeakProminence: false, useCvxEDA: false,
     };
 

@@ -27,7 +27,7 @@ module.exports = {
     tonicMethod: 'lpf', tonicWindow: 45, peakThreshold: 0.045,
     shapeMinSnr: 2.5,
     minPeakQuality: 0.0,
-    peakDensityWindow: 10,
+    peakDensityWindow: 30,
     hotspotPercentile: 0.02,
     useDeconvolution: false,
     usePeakProminence: false,
@@ -118,7 +118,7 @@ module.exports = {
   },
 
   TEMPORAL_PEAK_DENSITY: {
-    windowSizeSec: 10, sigmaRatio: 0.25, cutoffMultiplier: 3.5, scaleToPerMinute: 60.0
+    windowSizeSec: 30, sigmaRatio: 0.25, cutoffMultiplier: 3.5, scaleToPerMinute: 60.0
   },
 
   PEAK_KDE: {

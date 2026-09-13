@@ -61,7 +61,7 @@ const GSR_CONST = {
     tonicMethod: 'lpf', tonicWindow: 45, peakThreshold: 0.045,
     shapeMinSnr: 2.5,
     minPeakQuality: 0.0,
-    peakDensityWindow: 10,
+    peakDensityWindow: 30,
     hotspotPercentile: 0.02,
     useDeconvolution: false,
     usePeakProminence: false,
@@ -418,9 +418,9 @@ const GSR_CONST = {
   // Evaluates continuous Non-Specific SCR frequency (peaks/minute) along the
   // timeline via 1D Gaussian Kernel Density Estimation (KDE). The kernel
   // bandwidth sigma is scaled directly from the nominal spotlight window width:
-  // sigma = windowSizeSec * sigmaRatio (e.g. 10s * 0.25 = 2.5s).
+  // sigma = windowSizeSec * sigmaRatio (e.g. 30s * 0.25 = 7.5s).
   TEMPORAL_PEAK_DENSITY: {
-    windowSizeSec: 10,       // Spotlight window width in seconds (fixed; no longer slider-adjustable)
+    windowSizeSec: 30,       // Spotlight window width in seconds (fixed; no longer slider-adjustable)
     sigmaRatio: 0.25,        // Bandwidth ratio (sigma = W * 0.25, encompassing 95.4% of mass in ±W/2)
     cutoffMultiplier: 3.5,   // Bounding window in units of sigma (±3.5*sigma captures >99.95% of kernel mass)
     scaleToPerMinute: 60.0   // Multiplier to express density in standard peaks/minute
