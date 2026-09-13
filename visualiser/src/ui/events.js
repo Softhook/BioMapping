@@ -1109,10 +1109,9 @@ const GSREvents = {
           GSRLayoutManager._liveDisplayModeActive()) {
         GSRLayoutManager.exitLiveDisplayMode();
       }
-      // deactivate() now also drops the BLE link (keeping the session buffer)
-      // — see GSRLiveView.deactivate()'s doc comment.
+      // In-app tab switch: pause rendering but keep BLE link live in background.
       if (typeof GSRLiveView !== 'undefined' && GSRLiveView._mounted) {
-        GSRLiveView.deactivate();
+        GSRLiveView.deactivate(true);
       }
     };
 

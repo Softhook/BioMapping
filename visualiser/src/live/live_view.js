@@ -1069,14 +1069,16 @@ const LiveConnectionController = {
       // as-is (e.g. Flipper BLE restarted). Flip to "New Connection" so the
       // user's next click with a fresh gesture launches the chooser.
       needNewConnection = true;
+      if (bleManager) bleManager.abandon();
       renderStatus('disconnected');
       return;
     }
+    const forceNewChooser = needNewConnection;
     needNewConnection = false;
-    await attemptConnect();
+    await attemptConnect(forceNewChooser);
   },
 
-  async connect() {
+  async connect(forceNewChooser = false) {
     if (connectErr) connectErr.textContent = '';
     if (!navigator.bluetooth) {
       if (connectErr) {
@@ -1095,7 +1097,9 @@ const LiveConnectionController = {
     // (no chooser dialog) if the platform still remembers our permission for
     // it, which is exactly the case "New Connection" exists for: the
     // lightweight Reconnect gave up, but the device itself may still be fine.
-    const previousDevice = bleManager ? bleManager.device : null;
+    // If the user explicitly requested a New Connection after a failed reconnect,
+    // skip tryResumeDevice so we don't spend 3.5s retrying a failed peripheral and wedging the radio.
+    const previousDevice = (forceNewChooser || needNewConnection) ? null : (bleManager ? bleManager.device : null);
     if (bleManager) bleManager.abandon();
     resetSession();
     needNewConnection = false;
@@ -1192,8 +1196,8 @@ function resetSession() {
 
 // Connects over Web Bluetooth using the browser's device chooser. We show all
 // nearby devices so that custom-named or renamed Flippers can connect.
-async function attemptConnect() {
-  return LiveConnectionController.connect();
+async function attemptConnect(forceNewChooser = false) {
+  return LiveConnectionController.connect(forceNewChooser);
 }
 
 // The six GSR layer toggles (Raw/Filtered/Tonic/Phasic/Peaks/Hotspots) and
@@ -1322,6 +1326,10 @@ function bindLiveFab() {
       setMapVisible(false);
     } else if (btn.dataset.action === 'map') {
       setMapVisible(true);
+    } else if (btn.dataset.action === 'enter-fullscreen') {
+      if (typeof GSRLayoutManager !== 'undefined' && GSRLayoutManager.enterLiveDisplayMode) {
+        GSRLayoutManager.enterLiveDisplayMode();
+      }
     } else if (btn.dataset.action === 'exit-fullscreen') {
       if (typeof GSRLayoutManager !== 'undefined' && GSRLayoutManager.exitLiveDisplayMode) {
         GSRLayoutManager.exitLiveDisplayMode();
@@ -1580,24 +1588,21 @@ const GSRLiveView = {
     }
   },
 
-  // Leaving the Live view drops the BLE link — a walk isn't a background
-  // activity, and holding the radio + screen wake lock open on an unseen
-  // panel (while updateLiveMap() keeps drawing segments off the live feed
-  // and pendingSegments grows) is just waste. The accumulated packets,
-  // the drawn track and the Export button are all kept: renderStatus() then
-  // shows "Reconnect" (resume this same session via the retained device
-  // reference) alongside "New Connection" (a fresh requestDevice(), which
-  // resets). Nothing else is torn down, so a later activate() just resumes.
-  deactivate() {
+  // In-app tab switching pauses the animation loop while keeping the BLE link active
+  // so walks continue recording in the background. Explicit teardown (inAppSwitch=false)
+  // drops the BLE link as before.
+  deactivate(inAppSwitch = false) {
     viewActive = false;
     stopAnimationLoop();
-    if (bleManager) bleManager.disconnect();
-    releaseWakeLock();
-    // Fires renderStatus() (Reconnect / New Connection buttons) + a final
-    // drawGraph(), now frozen at the last packet — see drawGraph()'s
-    // `streaming` gate. A no-op if we were already disconnected.
-    if (LiveState.status === 'connected' || LiveState.status === 'reconnecting') {
-      LiveState.setStatus('disconnected');
+    if (!inAppSwitch) {
+      if (bleManager) bleManager.disconnect();
+      releaseWakeLock();
+      // Fires renderStatus() (Reconnect / New Connection buttons) + a final
+      // drawGraph(), now frozen at the last packet — see drawGraph()'s
+      // `streaming` gate. A no-op if we were already disconnected.
+      if (LiveState.status === 'connected' || LiveState.status === 'reconnecting') {
+        LiveState.setStatus('disconnected');
+      }
     }
   },
 
@@ -1618,6 +1623,8 @@ const GSRLiveView = {
   // uses for its own map-first mobile default — one detection, not two, kept
   // in sync automatically rather than by comment.
   isCompactLayout: isCompactLiveLayout,
+  isViewActive: () => viewActive,
+  _setBleManagerForTest: (m) => { bleManager = m; },
 
   // Encapsulated connection controller for state inspection and testing
   connectionController: LiveConnectionController,

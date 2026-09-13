@@ -2581,6 +2581,19 @@ body:has(.live-mode) {
   display: none;
 }
 
+/* Hide the button bar in fullscreen display mode so map / graph cover the entire screen */
+.app-container.live-display-mode .live-view header > *:not(#gsrControls) {
+  display: none !important;
+}
+.app-container.live-display-mode .live-view header {
+  border-bottom: none !important;
+  background: transparent !important;
+  padding: 0 !important;
+  min-height: 0 !important;
+  height: 0 !important;
+  overflow: visible !important;
+}
+
 .live-exit-display-btn {
   display: none !important;
 }
@@ -2795,6 +2808,24 @@ body:has(.live-mode) {
   .main-layout.live-mode #livePanel header #statusBadge {
     display: none;
   }
+
+  /* Move Raw, Peaks, Hotspots selectors to the bottom left on mobile */
+  .live-view #gsrControls {
+    position: absolute;
+    bottom: max(16px, env(safe-area-inset-bottom));
+    left: max(16px, env(safe-area-inset-left));
+    z-index: 1100;
+    margin: 0;
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border-radius: 8px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
+    overflow: hidden;
+  }
+  [data-theme="dark"] .live-view #gsrControls {
+    background: rgba(30, 30, 30, 0.95);
+  }
 }
 
 /* Floating action button — mobile-only (hidden by default below; the
@@ -2841,10 +2872,23 @@ body:has(.live-mode) {
    selector's own scoping sense — these only ever render inside .live-view —
    purely to win that specificity fight) to actually override it. */
 .live-view .live-fab-toggle {
-  width: 52px; height: 52px; border-radius: 50%; padding: 0;
-  border: 1px solid var(--lv-border); background: var(--text-primary); color: #fff;
-  font-size: 18px; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
-  display: flex; align-items: center; justify-content: center;
+  width: 52px !important;
+  height: 52px !important;
+  min-height: 52px !important;
+  max-height: 52px !important;
+  border-radius: 50% !important;
+  aspect-ratio: 1 / 1 !important;
+  flex-shrink: 0 !important;
+  padding: 0 !important;
+  border: 1px solid var(--lv-border);
+  background: var(--text-primary);
+  color: #fff;
+  font-size: 18px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box !important;
 }
 .live-fab-menu {
   display: flex; flex-direction: column; align-items: flex-end; gap: 8px;
@@ -2887,10 +2931,12 @@ body:has(.live-mode) {
   }
   .live-view header h1 { font-size: 13px; }
   .live-view .badge { font-size: 11px; padding: 2px 6px; }
-  .live-view button,
-  .live-view .btn-group .btn,
-  .live-view .btn-group .btn-outline,
-  .live-view .btn-group button {
+  .live-view header button,
+  .live-view header .btn-group .btn,
+  .live-view header .btn-group .btn-outline,
+  .live-view header .btn-group button,
+  .live-view #gsrControls button,
+  .live-view footer button {
     font-size: 11px;
     padding: 4px 6px;
     height: 32px !important;
@@ -2920,10 +2966,12 @@ body:has(.live-mode) {
   }
   .live-view header h1 { font-size: 12px; }
   .live-view .badge { font-size: 10px; padding: 2px 6px; }
-  .live-view button,
-  .live-view .btn-group .btn,
-  .live-view .btn-group .btn-outline,
-  .live-view .btn-group button {
+  .live-view header button,
+  .live-view header .btn-group .btn,
+  .live-view header .btn-group .btn-outline,
+  .live-view header .btn-group button,
+  .live-view #gsrControls button,
+  .live-view footer button {
     font-size: 11px;
     padding: 4px 8px;
     height: 36px !important;

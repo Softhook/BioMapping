@@ -222,11 +222,17 @@ test('leaving the Live view stands the live controller down (deactivate)', () =>
   click(btnLive);
   window.GSRLiveView.activate();
   let deactivated = 0;
+  let passedInAppSwitch = null;
   const real = window.GSRLiveView.deactivate;
-  window.GSRLiveView.deactivate = (...a) => { deactivated++; return real.apply(window.GSRLiveView, a); };
+  window.GSRLiveView.deactivate = (...a) => {
+    deactivated++;
+    passedInAppSwitch = a[0];
+    return real.apply(window.GSRLiveView, a);
+  };
 
   click(btnSingle);
   assert.strictEqual(deactivated, 1, 'the view switcher calls GSRLiveView.deactivate() on the way out');
+  assert.strictEqual(passedInAppSwitch, true, 'deactivate called with inAppSwitch = true');
 });
 
 test('the mobile hamburger toggles the .sidebar-open drawer class and its aria-expanded state', () => {
@@ -340,3 +346,41 @@ test('in live-display-mode, FAB menu offers Exit Full Screen chip and toolbar of
   click(toolbarExitBtn);
   assert.ok(!appContainer.classList.contains('live-display-mode'), 'clicking toolbar exit button exits display mode');
 });
+
+test('GSRLiveView.deactivate(true) pauses canvas loop without dropping BLE connection or changing status to disconnected', () => {
+  const { window, btnLive, click } = boot();
+  click(btnLive);
+  window.LiveState.setStatus('connected');
+
+  let disconnectCalled = false;
+  const mockBleManager = {
+    disconnect: () => { disconnectCalled = true; },
+    device: { id: 'mock-123' },
+  };
+  window.GSRLiveView._setBleManagerForTest?.(mockBleManager);
+
+  window.GSRLiveView.deactivate(true);
+
+  assert.strictEqual(disconnectCalled, false, 'BLE disconnect was not called on in-app switch');
+  assert.strictEqual(window.LiveState.status, 'connected', 'status remains connected during in-app switch');
+  assert.strictEqual(window.GSRLiveView.isViewActive(), false, 'viewActive is false');
+});
+
+test('GSRLiveView.deactivate(false) fully disconnects BLE and sets status to disconnected', () => {
+  const { window, btnLive, click } = boot();
+  click(btnLive);
+  window.LiveState.setStatus('connected');
+
+  let disconnectCalled = false;
+  const mockBleManager = {
+    disconnect: () => { disconnectCalled = true; },
+    device: { id: 'mock-123' },
+  };
+  window.GSRLiveView._setBleManagerForTest?.(mockBleManager);
+
+  window.GSRLiveView.deactivate(false);
+
+  assert.strictEqual(window.LiveState.status, 'disconnected', 'status set to disconnected on full exit');
+  assert.strictEqual(window.GSRLiveView.isViewActive(), false, 'viewActive is false');
+});
+
