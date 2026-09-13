@@ -1,0 +1,23 @@
+{
+  "name": "Bio Mapping 2",
+  "short_name": "BioMap",
+  "description": "Bio Mapping 2 Live GSR and GPS Visualiser",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#121316",
+  "theme_color": "#121316",
+  "icons": [
+    {
+      "src": "assets/favicon.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "assets/biomap_icon.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

@@ -434,29 +434,29 @@ test('mount(): a compact/coarse-pointer boot defaults to the map shown, not the 
 // setMapVisible() the desktop header controls do.
 // ==========================================================================
 
-test('the FAB menu offers Signal/Tonic/Phasic + Graph chips while the map is showing, highlighting the active metric', () => {
+test('the FAB menu offers ordered chips: Graph, toggles, metrics, and Full Screen while map is showing', () => {
   const { window } = bootLive({ compact: true }); // map shown by default
   const menu = window.document.getElementById('liveFabMenu');
   const chips = [...menu.querySelectorAll('button')];
   assert.deepStrictEqual(
     chips.map(b => b.dataset.metric || b.dataset.action || b.dataset.toggle),
-    ['signal', 'tonic', 'phasic', 'graph', 'showRaw', 'showPeaks', 'showHotspots']
+    ['graph', 'showRaw', 'showPeaks', 'showHotspots', 'signal', 'tonic', 'phasic', 'enter-fullscreen']
   );
-  assert.ok(chips[0].classList.contains('active'), '"signal" is the default active metric');
-  assert.ok(!chips[1].classList.contains('active'));
-  assert.ok(!chips[2].classList.contains('active'));
-  assert.ok(chips[4].classList.contains('active'), 'Raw is active by default');
-  assert.ok(chips[5].classList.contains('active'), 'Peaks is active by default');
-  assert.ok(chips[6].classList.contains('active'), 'Hotspots is active by default');
+  assert.ok(chips[1].classList.contains('active'), 'Raw is active by default');
+  assert.ok(chips[2].classList.contains('active'), 'Peaks is active by default');
+  assert.ok(chips[3].classList.contains('active'), 'Hotspots is active by default');
+  assert.ok(chips[4].classList.contains('active'), '"signal" is the default active metric');
+  assert.ok(!chips[5].classList.contains('active'));
+  assert.ok(!chips[6].classList.contains('active'));
 });
 
-test('the FAB menu offers Signal/Tonic/Phasic + Map chip once the graph is fullscreen (map hidden)', () => {
+test('the FAB menu offers Map chip instead of Graph once the graph is fullscreen (map hidden)', () => {
   const { window } = bootLive(); // desktop default: graph-first, map hidden
   const menu = window.document.getElementById('liveFabMenu');
   const chips = [...menu.querySelectorAll('button')];
   assert.deepStrictEqual(
     chips.map(b => b.dataset.metric || b.dataset.action || b.dataset.toggle),
-    ['signal', 'tonic', 'phasic', 'map', 'showRaw', 'showPeaks', 'showHotspots']
+    ['map', 'showRaw', 'showPeaks', 'showHotspots', 'signal', 'tonic', 'phasic', 'enter-fullscreen']
   );
 });
 
@@ -485,15 +485,15 @@ test('tapping the FAB\'s Graph chip switches to the fullscreen graph (mapVisible
   assert.ok(app.classList.contains('no-map'), 'Graph chip behaves exactly like today\'s .no-map fullscreen graph');
   assert.deepStrictEqual(
     [...menu.querySelectorAll('button')].map(b => b.dataset.metric || b.dataset.action || b.dataset.toggle),
-    ['signal', 'tonic', 'phasic', 'map', 'showRaw', 'showPeaks', 'showHotspots']
+    ['map', 'showRaw', 'showPeaks', 'showHotspots', 'signal', 'tonic', 'phasic', 'enter-fullscreen']
   );
 
   menu.querySelector('[data-action="map"]').click();
   assert.ok(!app.classList.contains('no-map'));
   assert.deepStrictEqual(
     [...menu.querySelectorAll('button')].map(b => b.dataset.metric || b.dataset.action || b.dataset.toggle),
-    ['signal', 'tonic', 'phasic', 'graph', 'showRaw', 'showPeaks', 'showHotspots'],
-    'back to the 3 metrics + Graph + 3 toggles'
+    ['graph', 'showRaw', 'showPeaks', 'showHotspots', 'signal', 'tonic', 'phasic', 'enter-fullscreen'],
+    'back to Graph + 3 toggles + 3 metrics + Full Screen'
   );
 });
 
@@ -1052,10 +1052,31 @@ test('attemptConnect: a real BLE notification flows through the parser to LiveSt
     run(context, 'liveMap._layers.filter(l => l.latlngs).length'), 1,
     'the second consecutive fix draws exactly one polyline segment',
   );
+  assert.strictEqual(
+    run(context, 'liveMap._layers.find(l => l.latlngs).options.weight'), 3,
+    'desktop live follow-map polyline uses default weight 3',
+  );
 
   run(context, "drawGraph(); LiveState.setStatus('disconnected')"); // render once, then stop the RAF loop
   // Readout is in µS (raw nS ÷ 1000), matching the single-track view.
   assert.match(window.document.getElementById('graphValue').textContent, /-?\d+\.\d{2} μS$/);
+});
+
+test('updateLiveMap: mobile live layout draws map trace twice as thick (weight 6)', async (t) => {
+  const { window, context } = bootLive({ compact: true });
+  const ble = makeFakeBle(context);
+  window.navigator.bluetooth = ble.bluetooth;
+
+  await run(context, 'attemptConnect()');
+  stopLoopAfter(t, context);
+
+  ble.fireNotification(buildPacket({ timestampMs: 300, lat: 51.5074, lon: -0.1278, gsrRaw: 1000, sats: 8, fixType: 3 }));
+  ble.fireNotification(buildPacket({ timestampMs: 600, lat: 51.5076, lon: -0.1276, gsrRaw: 1200, sats: 9, fixType: 3 }));
+
+  const polyline = run(context, 'liveMap._layers.find(l => l.latlngs)');
+  assert.ok(polyline, 'polyline created');
+  assert.strictEqual(polyline.options.weight, 6, 'mobile trace is drawn twice as thick (weight 6)');
+  run(context, "LiveState.setStatus('disconnected')");
 });
 
 test('attemptConnect: an invalid (no-fix) notification still counts as a packet and updates stats, but draws nothing on the map', async (t) => {

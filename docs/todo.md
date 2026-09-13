@@ -4,6 +4,9 @@ Loose ideas and unscheduled work. Promote anything real to its own doc under `do
 
 ## Priority
 
+Create a more engaging tour that uses some cool cinematic camera moves on the 3d map to move between hotspots Make sure we show the hotspot and track in the best way possible. So from side onto the track at a bit of an angle to be able to see properly where it's located. Think about how to create an algorithm that works out the best way to display that hotspot and to transition between those views. The idea is that we create a cinematic fly-through experience while showing the real hotspot highlights of the walk. 
+
+
 
 remove slider 
 GPS Precision (#gpsKalmanR, 0.5–150 m²)

@@ -876,6 +876,12 @@ function hideMap() {
 // longer, less relevant stretch of the walk.
 const LIVE_ZOOM = 18;
 
+// Polyline stroke width on the live follow-map. Mobile screens (coarse pointer /
+// phone viewports) draw twice as thick (6px vs desktop's 3px) for outdoor
+// readability on high-DPI displays.
+const LIVE_TRACK_WEIGHT_DESKTOP = 3;
+const LIVE_TRACK_WEIGHT_MOBILE = 6;
+
 // Recentre the follow-map on the walker at most this often. panTo() with
 // animation re-renders every track polyline on every frame of the tween, so
 // firing it per packet (~3/s) against a session-long pile of segments was a
@@ -910,7 +916,8 @@ function updateLiveMap(pkt) {
       // regardless of the active metric — recolorDelayedSegments() (called
       // from feedLiveAnalyzer()) repaints it with the active metric's
       // settled value once available.
-      const line = L.polyline([liveLastLatLng, latlng], { color, weight: 3 }).addTo(liveMap);
+      const weight = isCompactLiveLayout() ? LIVE_TRACK_WEIGHT_MOBILE : LIVE_TRACK_WEIGHT_DESKTOP;
+      const line = L.polyline([liveLastLatLng, latlng], { color, weight }).addTo(liveMap);
       const segment = { pkt, line };
       allTrackSegments.push(segment);
       pendingSegments.push(segment);
@@ -1300,25 +1307,31 @@ function toggleFabMenu() {
 function renderFabMenu() {
   if (!liveFabMenu) return;
   const chips = [];
-  const isDisplayMode = typeof document !== 'undefined' && !!document.querySelector('.app-container.live-display-mode');
-  if (isDisplayMode) {
-    chips.push('<button type="button" class="live-fab-chip live-fab-chip-action" data-action="exit-fullscreen"><i class="fa-solid fa-compress"></i> Exit Full Screen</button>');
-  } else if (typeof GSRLayoutManager !== 'undefined') {
-    chips.push('<button type="button" class="live-fab-chip live-fab-chip-action" data-action="enter-fullscreen"><i class="fa-solid fa-expand"></i> Full Screen</button>');
-  }
 
-  for (const m of LIVE_FAB_METRICS) {
-    chips.push(`<button type="button" class="live-fab-chip${liveGsrView.graphView === m.value ? ' active' : ''}" data-metric="${m.value}">${m.label}</button>`);
-  }
-
+  // 1. Map / graph
   if (mapVisible) {
     chips.push('<button type="button" class="live-fab-chip live-fab-chip-action" data-action="graph"><i class="fa-solid fa-chart-line"></i> Graph</button>');
   } else {
     chips.push('<button type="button" class="live-fab-chip live-fab-chip-action" data-action="map"><i class="fa-solid fa-map"></i> Map</button>');
   }
 
+  // 2. Raw, peaks, hotspots
   for (const t of LIVE_FAB_TOGGLES) {
     chips.push(`<button type="button" class="live-fab-chip${liveGsrView[t.key] ? ' active' : ''}" data-toggle="${t.key}">${t.label}</button>`);
+  }
+
+  // 3. Signal, tonic, phasic
+  for (const m of LIVE_FAB_METRICS) {
+    chips.push(`<button type="button" class="live-fab-chip${liveGsrView.graphView === m.value ? ' active' : ''}" data-metric="${m.value}">${m.label}</button>`);
+  }
+
+  // 4. Full screen
+  const isDisplayMode = (typeof document !== 'undefined' && !!document.querySelector('.app-container.live-display-mode')) ||
+    (typeof document !== 'undefined' && !!(document.fullscreenElement || document.webkitFullscreenElement));
+  if (isDisplayMode) {
+    chips.push('<button type="button" class="live-fab-chip live-fab-chip-action" data-action="exit-fullscreen"><i class="fa-solid fa-compress"></i> Exit Full Screen</button>');
+  } else {
+    chips.push('<button type="button" class="live-fab-chip live-fab-chip-action" data-action="enter-fullscreen"><i class="fa-solid fa-expand"></i> Full Screen</button>');
   }
 
   liveFabMenu.innerHTML = chips.join('');
@@ -1359,15 +1372,27 @@ function bindLiveFab() {
     } else if (btn.dataset.action === 'enter-fullscreen') {
       if (typeof GSRLayoutManager !== 'undefined' && GSRLayoutManager.enterLiveDisplayMode) {
         GSRLayoutManager.enterLiveDisplayMode();
+      } else if (typeof document !== 'undefined') {
+        const el = document.documentElement;
+        const fn = el.requestFullscreen || el.webkitRequestFullscreen || el.mozRequestFullScreen;
+        if (fn) fn.call(el, { navigationUI: 'hide' }).catch(() => fn.call(el).catch(() => {}));
       }
       closeFabMenu();
     } else if (btn.dataset.action === 'exit-fullscreen') {
       if (typeof GSRLayoutManager !== 'undefined' && GSRLayoutManager.exitLiveDisplayMode) {
         GSRLayoutManager.exitLiveDisplayMode();
+      } else if (typeof document !== 'undefined') {
+        const fn = document.exitFullscreen || document.webkitExitFullscreen || document.mozCancelFullScreen;
+        if (fn) fn.call(document).catch(() => {});
       }
       closeFabMenu();
     }
   });
+
+  // Keep Full Screen / Exit Full Screen chips synced when browser fullscreen changes
+  const handleFsChange = () => renderFabMenu();
+  document.addEventListener('fullscreenchange', handleFsChange);
+  document.addEventListener('webkitfullscreenchange', handleFsChange);
 
   // Tapping the map (or anywhere else) with the menu open should close it —
   // an open fan-out sitting over the map otherwise blocks map interaction
