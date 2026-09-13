@@ -399,7 +399,10 @@ test('_editPeakLabel mounts the map peak popup in the globe container and closes
   assert.strictEqual(built.index, 0, 'MapPopups.buildPeakPopup got the analyzer.peaks index');
   const pop = window.document.getElementById('globe3dPeakPopup');
   assert.ok(pop && pop.querySelector('.map-popup-card'), 'popup mounted with the map card');
-  assert.ok(pop.querySelector('.globe3d-peak-popup-close'), 'has a close button');
+  // No close button: it's redundant now that Escape/click-outside dismisses
+  // the popup (see _popupDismiss in globe3d_view.js), and it only ate into
+  // the label textarea's space.
+  assert.ok(!pop.querySelector('.globe3d-peak-popup-close'), 'has no close button');
 
   V._closePeakPopup();
   assert.strictEqual(window.document.getElementById('globe3dPeakPopup'), null, 'closed');

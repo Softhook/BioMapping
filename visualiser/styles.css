@@ -1434,6 +1434,16 @@ input[type="range"]:focus-visible,
   border-color: var(--border-focus);
 }
 
+/* Peak popup: the label textarea IS the popup body (map_popups.js
+   buildPeakPopup) — sized to dominate the card rather than sit in a table row. */
+.peak-popup-label-input-main {
+  display: block;
+  width: 100%;
+  min-height: 100px;
+  font-size: 0.85rem;
+  margin-bottom: 4px;
+}
+
 .popup-label-input::placeholder {
   color: var(--text-muted);
   font-style: italic;
@@ -1763,9 +1773,21 @@ input[type="range"]:focus-visible,
   background: var(--bg-card) !important;
   color: var(--text-primary) !important;
   border: 1px solid var(--border-glass);
-  border-radius: 4px !important;
+  /* Match the 3D globe's floating peak popup (.globe3d-peak-popup) so the
+     card reads the same in both views. */
+  border-radius: 6px !important;
   font-family: var(--font-sans);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08) !important;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.28) !important;
+}
+
+/* Leaflet's own default (13px 24px 13px 20px) is generous padding meant for
+   plain text; every popup in this app is a .map-popup-card (peak label or
+   Arousal Place), so shrink it globally to give the peak popup's label
+   textarea more room to actually hold text. !important because leaflet.css
+   loads AFTER this file (see index.html) — same selector specificity, so its
+   default would otherwise win the cascade on load order alone. */
+.leaflet-popup-content {
+  margin: 10px 12px !important;
 }
 
 .leaflet-popup-tip {
@@ -1786,16 +1808,12 @@ input[type="range"]:focus-visible,
   max-width: 260px;
 }
 
-/* Collective peak popups are smaller */
-.map-popup-card.compact h4 {
-  font-size: 0.8rem;
-  margin-bottom: 4px;
-}
-.map-popup-card.compact .popup-table {
+/* Collective peak popups are smaller (buildCollectivePeakPopup's 'compact'
+   extraClass) — only the peak popup's label textarea uses this now; the
+   Arousal Place popup's h4/.popup-table (below) never carries 'compact'. */
+.map-popup-card.compact .peak-popup-label-input-main {
   font-size: 0.72rem;
-}
-.map-popup-card.compact .popup-table td {
-  padding: 2px 0;
+  min-height: 72px;
 }
 
 .popup-table {
@@ -1830,8 +1848,6 @@ input[type="range"]:focus-visible,
   justify-content: space-between;
   gap: 6px;
   margin-top: 8px;
-  padding-top: 8px;
-  border-top: 1px solid var(--border-glass);
 }
 
 .popup-bottom-row .popup-external-links {
@@ -1870,6 +1886,16 @@ input[type="range"]:focus-visible,
 .btn-external-link.streetview {
   background: #1a73e8;
   color: #fff;
+}
+
+/* Icon-only variant (currently just the Street View button): no label text,
+   so give the icon a bit more presence and square the padding up. */
+.btn-external-link.btn-icon-only {
+  padding: 6px 10px;
+}
+
+.btn-external-link.btn-icon-only i {
+  font-size: 0.95rem;
 }
 
 .btn-external-link.mapillary {
@@ -3537,8 +3563,14 @@ input[type="range"]:focus-visible,
 .globe3d-peak-popup {
   position: absolute;
   z-index: 6;
+  /* min-width (not just max-width): position:absolute with only left/top set
+     shrink-wraps to content by default, same issue as the 2D Leaflet popup
+     (see the matching comment on its bindPopup minWidth option) — without
+     this it settles at whatever the Street View button + Exclude row need
+     and ignores the (width:100%) textarea underneath it. */
+  min-width: 300px;
   max-width: 300px;
-  padding: 12px 14px;
+  padding: 10px 12px;
   background: var(--bg-card, #fff);
   color: var(--text-primary, #1a1a1a);
   border: 1px solid var(--border-glass, #e0e0e0);
@@ -3547,29 +3579,6 @@ input[type="range"]:focus-visible,
   font-family: var(--font-sans, -apple-system, system-ui, sans-serif);
 }
 
-.globe3d-peak-popup-close {
-  position: absolute;
-  top: 4px;
-  right: 4px;
-  width: 22px;
-  height: 22px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--text-muted, #888);
-  cursor: pointer;
-  font-size: 0.8rem;
-}
-
-.globe3d-peak-popup-close:hover {
-  background: rgba(0, 0, 0, 0.06);
-  color: var(--text-primary, #1a1a1a);
-}
-
-.globe3d-peak-popup .map-popup-card { margin-right: 14px; }
 
 
 

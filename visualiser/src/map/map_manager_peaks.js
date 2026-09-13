@@ -120,7 +120,15 @@ Object.assign(GSRMapManager.prototype, {
         marker.setOpacity(0.35);
       }
 
-      marker.bindPopup(() => MapPopups.buildSinglePeakPopup(analyzer, peak, index, coords, marker));
+      // closeButton: false — the map already closes an open popup on any
+      // click elsewhere (Leaflet's default closePopupOnClick), so the corner
+      // × was redundant chrome that only ate into the label textarea's space.
+      // minWidth (not just maxWidth) — Leaflet's popup shrinks to its content's
+      // natural width and only clamps DOWN at maxWidth; without a matching
+      // minWidth it never grows past whatever the Street View button + Exclude
+      // row need, ignoring the (width:100%) textarea entirely since a percentage
+      // width can't push an auto-sized parent wider.
+      marker.bindPopup(() => MapPopups.buildSinglePeakPopup(analyzer, peak, index, coords, marker), { closeButton: false, minWidth: 300, maxWidth: 300 });
 
       marker.on('click', () => {
         GSRUI.focusOnPeak(index, 'map');
@@ -208,7 +216,9 @@ Object.assign(GSRMapManager.prototype, {
     }
     this._registerTrackLayer(track, marker);
 
-    marker.bindPopup(() => popupCallback(index, coords, marker));
+    // closeButton: false — see the matching comment on the peak-marker
+    // bindPopup() in _renderPeakMarkers(); click-away already dismisses it.
+    marker.bindPopup(() => popupCallback(index, coords, marker), { closeButton: false, minWidth: 300, maxWidth: 300 });
     if (clickCallback) {
       marker.on('click', () => clickCallback(index));
     }
@@ -342,7 +352,9 @@ Object.assign(GSRMapManager.prototype, {
         marker.hasLabel = false;
       }
 
-      marker.bindPopup(() => MapPopups.buildCollectivePeakPopup(track, peak, index, lat, lon, marker));
+      // closeButton: false — see the matching comment on the peak-marker
+      // bindPopup() in _renderPeakMarkers(); click-away already dismisses it.
+      marker.bindPopup(() => MapPopups.buildCollectivePeakPopup(track, peak, index, lat, lon, marker), { closeButton: false, minWidth: 300, maxWidth: 300 });
 
       // Phase 1 (slice 2/3): collective peak markers render into this track's
       // own layerGroup; the peak index is tagged so focusOnPeak can resolve it.

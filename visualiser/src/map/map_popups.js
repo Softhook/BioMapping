@@ -1,14 +1,14 @@
 /**
  * Peak-marker popup DOM builders — extracted from map.js (GSRMapManager).
  *
- * These build the editable "peak popup card" (label textarea, date/time/quality
- * rows, Street View link, exclude button) and hold no map state. Used by the 2D
- * Leaflet view (GSRMapManager peak/hotspot markers) and by the 3D globe
- * (globe3d_view.js _editPeakLabel, which shows the identical card).
+ * These build the editable "peak popup card" (a label textarea, Street View
+ * link, and exclude button — no name/date/time/quality chrome) and hold no
+ * map state. Used by the 2D Leaflet view (GSRMapManager peak/hotspot markers)
+ * and by the 3D globe (globe3d_view.js _editPeakLabel, which shows the
+ * identical card).
  *
- * Depends on the globals L (Leaflet), GSRUI (label/exclude handlers), GeoUtils
- * (bearing), and getQualityLabel/getQualityColor (renderer.js) — all resolved
- * when a popup opens, not at load time.
+ * Depends on the globals L (Leaflet), GSRUI (label/exclude handlers), and
+ * GeoUtils (bearing) — all resolved when a popup opens, not at load time.
  */
 const MapPopups = {
 
@@ -89,9 +89,10 @@ const MapPopups = {
   },
 
   _buildStreetViewButton(lat, lon, label, heading) {
-    const btn = L.DomUtil.create('button', 'btn-external-link streetview');
+    const btn = L.DomUtil.create('button', 'btn-external-link btn-icon-only streetview');
     btn.title = 'View street-level imagery';
-    btn.innerHTML = '<i class="fa-solid fa-street-view"></i> Street View';
+    btn.setAttribute('aria-label', 'View street-level imagery');
+    btn.innerHTML = '<i class="fa-solid fa-street-view"></i>';
     L.DomEvent.on(btn, 'click', function(e) {
       L.DomEvent.stopPropagation(e);
       GSRUI.openStreetView(lat, lon, label, heading);
@@ -101,66 +102,50 @@ const MapPopups = {
   },
 
   /**
-   * Shared popup builder used by both single-track and collective views.
+   * Shared popup builder used by both single-track and collective views. The
+   * label textarea IS the popup — no name/date/time/quality chrome — since
+   * labelling a peak from the map is the action this popup exists for.
    * @param {Object} opts
-   * @param {string} opts.heading        - Popup header text
-   * @param {Object} opts.analyzerRef    - GSRAnalyzer instance (for date/time formatting)
+   * @param {Object} opts.analyzerRef    - GSRAnalyzer instance (heading lookup for Street View)
    * @param {Object} opts.peak           - Peak event object
    * @param {number} opts.index          - Peak index
    * @param {number} opts.lat            - Latitude
    * @param {number} opts.lon            - Longitude
-   * @param {Object} opts.marker         - Leaflet marker (for closePopup)
+   * @param {Object} opts.marker         - Leaflet marker for 2D, or a plain
+   *   { closePopup } shim for the 3D globe (globe3d_view.js _editPeakLabel)
    * @param {string} [opts.trackId]      - Track ID (collective); omitted for single
    * @param {string} [opts.extraClass]   - Extra CSS class, e.g. 'compact'
+   * @param {Function} [opts.onResize]   - Called after the textarea's height
+   *   changes, so the caller can reflow its OWN wrapper to fit: the 2D
+   *   Leaflet popup (card/tip position — see MapPopups._reflowPopup) and the
+   *   3D globe's floating div (re-clamped screen position — see
+   *   GSRGlobe3DView._reflowPeakPopup) resize completely differently, so this
+   *   builder stays agnostic and just tells whichever one is listening.
    */
   buildPeakPopup(opts) {
-    const { heading, analyzerRef, peak, index, lat, lon, marker, trackId, extraClass } = opts;
+    const { analyzerRef, peak, index, lat, lon, marker, trackId, extraClass, onResize } = opts;
     const displayLabel = peak.label || '';
-    const quality = getQualityLabel(peak.qualityScore);
 
     const container = L.DomUtil.create('div');
     container.className = 'map-popup-card' + (extraClass ? ' ' + extraClass : '');
 
-    const headerRow = L.DomUtil.create('div', 'popup-header-row', container);
-    const h4 = L.DomUtil.create('h4', '', headerRow);
-    h4.textContent = heading;
-
-    const table = L.DomUtil.create('table', 'popup-table', container);
-
-    // --- Label row (editable) ---
-    const trLabel = L.DomUtil.create('tr', '', table);
-    L.DomUtil.create('td', '', trLabel).textContent = 'Label:';
-    const tdLabel2 = L.DomUtil.create('td', '', trLabel);
-    const input = L.DomUtil.create('textarea', 'popup-label-input peak-popup-label-input', tdLabel2);
-    input.rows = 1;
+    // The label textarea IS the body of the popup. Empty (peak still at its
+    // default numbered name) shows the "Enter label…" placeholder; a
+    // previously-entered label shows as the value.
+    const input = L.DomUtil.create('textarea', 'popup-label-input peak-popup-label-input peak-popup-label-input-main', container);
+    input.rows = 4;
     input.value = displayLabel;
     input.placeholder = 'Enter label…';
 
-    // Auto-size on render. _reflowPopup resizes the popup card/tip to the
-    // new height — without it Leaflet keeps the popup's original (single-line)
-    // size and a multi-line label gets clipped with the tip arrow misaligned.
+    // Auto-size on render. onResize() lets the caller reflow its wrapper to
+    // the new height — without it a multi-line label gets clipped (2D: the
+    // popup card/tip stays at its original size; 3D: the floating div can
+    // grow past the point its position was clamped to).
     setTimeout(() => {
       input.style.height = 'auto';
       input.style.height = input.scrollHeight + 'px';
-      MapPopups._reflowPopup(marker.getPopup());
+      if (typeof onResize === 'function') onResize();
     }, 0);
-
-    // --- Date row ---
-    const trDate = L.DomUtil.create('tr', '', table);
-    L.DomUtil.create('td', '', trDate).textContent = 'Date:';
-    L.DomUtil.create('td', '', trDate).textContent = analyzerRef.formatDateUK(peak.time);
-
-    // --- Time row ---
-    const trTime = L.DomUtil.create('tr', '', table);
-    L.DomUtil.create('td', '', trTime).textContent = 'Time:';
-    L.DomUtil.create('td', '', trTime).textContent = analyzerRef.formatTimeOnly(peak.time);
-
-    // --- Quality row ---
-    const trQuality = L.DomUtil.create('tr', '', table);
-    L.DomUtil.create('td', '', trQuality).textContent = 'Quality:';
-    const tdQuality2 = L.DomUtil.create('td', '', trQuality);
-    tdQuality2.innerHTML = '<span style="color:' + getQualityColor(peak.qualityScore) +
-      ';font-weight:600;">' + quality.label + ' (' + quality.pct + '%)</span>';
 
     // --- Bottom row: external links (left) + exclude button (right) ---
     const bottomRow = L.DomUtil.create('div', 'popup-bottom-row', container);
@@ -182,7 +167,7 @@ const MapPopups = {
     L.DomEvent.on(input, 'input', () => {
       input.style.height = 'auto';
       input.style.height = input.scrollHeight + 'px';
-      MapPopups._reflowPopup(marker.getPopup());
+      if (typeof onResize === 'function') onResize();
       GSRUI.handleLiveLabelInput(index, input.value, trackId);
     });
     L.DomEvent.on(input, 'change', () => GSRUI.updatePeakLabel(index, input.value, trackId));
@@ -212,19 +197,18 @@ const MapPopups = {
 
   buildSinglePeakPopup(analyzer, peak, index, coords, marker) {
     return MapPopups.buildPeakPopup({
-      heading:     peak.label || ('#' + (index + 1)),
       analyzerRef: analyzer,
       peak:        peak,
       index:       index,
       lat:         coords.lat,
       lon:         coords.lon,
-      marker:      marker
+      marker:      marker,
+      onResize:    () => MapPopups._reflowPopup(marker.getPopup())
     });
   },
 
   buildCollectivePeakPopup(track, peak, index, lat, lon, marker) {
     return MapPopups.buildPeakPopup({
-      heading:     track.name,
       analyzerRef: track.analyzer,
       peak:        peak,
       index:       index,
@@ -232,7 +216,8 @@ const MapPopups = {
       lon:         lon,
       marker:      marker,
       trackId:     track.id,
-      extraClass:  'compact'
+      extraClass:  'compact',
+      onResize:    () => MapPopups._reflowPopup(marker.getPopup())
     });
   },
 

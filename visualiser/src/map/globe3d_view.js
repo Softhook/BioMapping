@@ -312,8 +312,8 @@ const GSRGlobe3DView = {
 
   /**
    * Peak clicked in 3D — open the EXACT same popup the 2D map uses for a peak
-   * marker (MapPopups.buildPeakPopup: editable label textarea, date/time/quality
-   * rows, Street View link, exclude button). Its inputs are already wired to
+   * marker (MapPopups.buildPeakPopup: editable label textarea, Street View
+   * link, exclude button). Its inputs are already wired to
    * GSRUI.handleLiveLabelInput / updatePeakLabel / togglePeakExclusion, so the
    * label persists and both surfaces update.
    * @param {number} peakIdx    index into AppState.analyzer.peaks
@@ -328,14 +328,14 @@ const GSRGlobe3DView = {
     const trackId = (AppState.viewMode === 'collective') ? AppState.activeTrackId : undefined;
 
     const card = MapPopups.buildPeakPopup({
-      heading: peak.label || ('Peak #' + (peakIdx + 1)),
       analyzerRef: analyzer,
       peak,
       index: peakIdx,
       lat: coords.lat,
       lon: coords.lon,
       marker: { closePopup: () => GSRGlobe3DView._closePeakPopup() },
-      trackId
+      trackId,
+      onResize: () => GSRGlobe3DView._reflowPeakPopup()
     });
     GSRGlobe3DView._showPeakPopup(card, windowPos);
   },
@@ -349,26 +349,18 @@ const GSRGlobe3DView = {
     pop.className = 'globe3d-peak-popup';
     pop.id = 'globe3dPeakPopup';
 
-    const close = document.createElement('button');
-    close.className = 'globe3d-peak-popup-close';
-    close.type = 'button';
-    close.setAttribute('aria-label', 'Close');
-    close.innerHTML = '<i class="fa-solid fa-xmark"></i>';
-    close.addEventListener('click', () => GSRGlobe3DView._closePeakPopup());
-
-    pop.appendChild(close);
+    // No close button: Escape or a click/drag outside the popup already
+    // dismisses it (see _popupDismiss below), so a corner × would just be
+    // redundant chrome eating into the label textarea's space.
     pop.appendChild(card);
     container.appendChild(pop);
 
-    // Position near the click, clamped inside the container.
-    const cw = container.clientWidth || 400;
-    const ch = container.clientHeight || 400;
-    const pw = pop.offsetWidth || 280;
-    const pht = pop.offsetHeight || 160;
-    const x = windowPos ? windowPos.x : cw / 2;
-    const y = windowPos ? windowPos.y : ch / 3;
-    pop.style.left = Math.max(8, Math.min(x + 12, cw - pw - 8)) + 'px';
-    pop.style.top = Math.max(8, Math.min(y + 12, ch - pht - 8)) + 'px';
+    // Anchor is the click position; kept for _reflowPeakPopup() to re-clamp
+    // against as the label textarea grows (parity with the 2D map, where
+    // MapPopups._reflowPopup keeps Leaflet's popup positioned as it resizes —
+    // this one isn't a Leaflet popup, so it needs its own equivalent).
+    GSRGlobe3DView._popupAnchor = windowPos || null;
+    GSRGlobe3DView._positionPeakPopup(pop);
 
     const ta = pop.querySelector('textarea');
     if (ta) { ta.focus(); ta.select(); }
@@ -383,6 +375,33 @@ const GSRGlobe3DView = {
       document.addEventListener('keydown', GSRGlobe3DView._popupDismiss, true);
       document.addEventListener('pointerdown', GSRGlobe3DView._popupDismiss, true);
     }, 0);
+  },
+
+  /**
+   * Position (or re-clamp) the floating peak popup against its stored click
+   * anchor (_popupAnchor) and the container bounds. Shared by _showPeakPopup
+   * (initial placement) and _reflowPeakPopup (re-run after the label textarea
+   * inside it changes height), so both use the exact same clamping math.
+   * @private
+   */
+  _positionPeakPopup(pop) {
+    const container = GSRGlobe3DView.els.container;
+    if (!container || !pop) return;
+    const cw = container.clientWidth || 400;
+    const ch = container.clientHeight || 400;
+    const pw = pop.offsetWidth || 280;
+    const pht = pop.offsetHeight || 160;
+    const anchor = GSRGlobe3DView._popupAnchor;
+    const x = anchor ? anchor.x : cw / 2;
+    const y = anchor ? anchor.y : ch / 3;
+    pop.style.left = Math.max(8, Math.min(x + 12, cw - pw - 8)) + 'px';
+    pop.style.top = Math.max(8, Math.min(y + 12, ch - pht - 8)) + 'px';
+  },
+
+  /** Re-clamp the open peak popup's position — see _positionPeakPopup. @private */
+  _reflowPeakPopup() {
+    const pop = document.getElementById('globe3dPeakPopup');
+    if (pop) GSRGlobe3DView._positionPeakPopup(pop);
   },
 
   _closePeakPopup() {
