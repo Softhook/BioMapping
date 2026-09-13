@@ -108,7 +108,112 @@ Before considering production implementation in `visualiser/src/signal/`, the fo
 
 ---
 
-## 6. Key References
+## 6. Implementation Record (2026-09-13)
+
+This section documents what actually shipped, the measured NeuroKit2 agreement,
+and the implementation decisions a reviewer should know about. The roadmap above
+remains the design record.
+
+### 6.1 What shipped
+
+- **`visualiser/src/signal/spectral_eda.js`** — a pure, dependency-free `SpectralEDA`
+  module (dual browser/CommonJS export) with:
+  - `computeScalar(signal, fs)` → the whole-recording `EDA_Sympathetic` /
+    `EDA_SympatheticN` scalar, mirroring `nk.eda_sympathetic(method='posada2016')`
+    (returns `NaN` for signals ≤ 64 s, exactly like NeuroKit2).
+  - `computeSeries(signal, times, fs, {windowSec, hopSec})` + `mapToSamples(...)` →
+    the per-sample continuous series (default 64 s window, 5 s hop) used by the
+    graph and map.
+  - A self-contained radix-2 FFT, periodic Blackman window, and Chebyshev-I
+    low-pass / Butterworth high-pass SOS designers that are coefficient-identical
+    to `scipy.signal.cheby1` / `scipy.signal.butter` (verified via
+    `scipy.signal.sosfreqz`).
+  - `sosfilt` / `sosfiltfilt` replicating scipy's odd-reflection padding and
+    steady-state initial conditions.
+- **Analyzer** (`analyzer.js`): new `analyzer.edasymp` series (µS²) computed from
+  the **raw** µS signal (`_rawValsPool`) — deliberately independent of the
+  median / low-pass / tonic / detector sliders — and cached across re-analyses
+  keyed on raw identity + length. `_globalRange.edasymp` feeds the graph's
+  wide-view fast path.
+- **UI**: `EDASymp` added to the graph (`#graphView`) and map (`#mapColoringMetric`)
+  dropdowns; `--color-edasymp` theme token; map legend label; globe `SERIES_FIELD`
+  and CZML/KML exporter series map.
+- **Config**: `GSR_CONST.LOWER_GRAPH_MODES.edasymp` (µS², 4 dp) and
+  `GSR_CONST.EDASYMP = { windowSec: 64, hopSec: 5 }`.
+
+### 6.2 Signal chain as implemented (faithful to NeuroKit2, simplified at native fs)
+
+NeuroKit2's `posada2016` resamples to 400 Hz, applies a forward Chebyshev-I
+(8th, 1 dB, 0.8 Hz) low-pass, decimates ×10 then ×20, high-passes with a
+Butterworth (8th, 0.01 Hz) at 2 Hz, then integrates a Welch PSD
+(`nperseg=128` = 64 s, 50 % overlap, periodic Blackman, `nfft=256`, density
+scaling) over $[0.045, 0.25)$ Hz.
+
+BioMapping applies the same filters **at the native sample rate** (the 400 Hz
+resample is a no-op below the 0.8 Hz anti-alias cutoff) and decimates directly to
+2 Hz:
+
+1. Chebyshev-I low-pass, order 8, 1 dB ripple, 0.8 Hz — forward (`sosfilt`).
+2. Chebyshev-I low-pass, order 8, 0.05 dB ripple, 0.8 Hz — zero-phase
+   (`sosfiltfilt`, mirroring `scipy.signal.decimate`'s anti-alias stage).
+3. Decimate to 2 Hz.
+4. Butterworth high-pass, order 8, 0.01 Hz — zero-phase.
+5. Welch periodogram as above; band power via trapezoidal integration.
+
+### 6.3 Measured agreement (check_edasymp.{sh,py,js})
+
+Across 7 tracks (`biomap_019/024/027/028/053/059` + the indoor
+`biomap_live_2026-09-10T17-20-02-105Z`):
+
+| Track | NeuroKit2 | BioMapping | Ratio |
+| :--- | ---: | ---: | ---: |
+| biomap_019 | 0.021131 | 0.021575 | 1.021 |
+| biomap_024 | 0.001267 | 0.001293 | 1.020 |
+| biomap_027 | 0.020505 | 0.020758 | 1.012 |
+| biomap_028 | 0.062685 | 0.064131 | 1.023 |
+| biomap_053 | 0.001640 | 0.001675 | 1.022 |
+| biomap_059 | 0.012718 | 0.013022 | 1.024 |
+| biomap_live (fs≈3.33) | 0.056211 | 0.055627 | 0.990 |
+
+**Cross-track Pearson r = 0.999727.** The residual (ratios 0.99–1.02) is
+NeuroKit2's 400 Hz FFT resample + its `decimate()` `filtfilt` edge handling —
+both negligible inside the 0.045–0.25 Hz passband, so the *relative* shape of
+the metric across recordings is preserved to three decimal places.
+
+### 6.4 Implementation decisions & gotchas
+
+- **Standalone on the raw signal.** `computeSeries` reads `analyzer.raw` µS values,
+  not the cleaned/tonic/phasic output, so EDASymp doesn't change with the
+  filter/detector sliders and is cached across slider drags.
+- **3D globe height.** The globe wall colours from `SERIES_FIELD` but extrudes from
+  `HEIGHT_CAPABLE_METRICS`. EDASymp must be in **both**, or the wall falls back to
+  the spiky phasic series and renders as jagged spikes that look nothing like the
+  smooth 2D graph. EDASymp is µS² (~100× smaller than µS-scale series), so its
+  extrusion is subtle at the default 8× scale — raise the extrusion slider to
+  exaggerate it.
+- **Short recordings.** `computeSeries` clamps its window to the available length
+  (floor ≈ 4 s of 2 Hz data), so a 20–63 s recording gets one full-length
+  non-zero window instead of an all-zero series. `computeScalar` still returns
+  `NaN` below 64 s to stay NeuroKit2-faithful.
+- **Refactor.** Windowing / FFT / density-scaling / band-integration were
+  duplicated between the scalar and series paths; they now share
+  `_fftSegment`, `_densityScale` and `_bandPowerFromFft` so the two can't drift.
+
+### 6.5 Remaining roadmap items (not yet done)
+
+- **Step 1's gait-flatness question** — the scalar benchmark confirms the
+  implementation matches NeuroKit2, but the *walking* validation (does EDASymp
+  stay flat during unaroused walking, i.e. no footstep leakage into the band)
+  is only argued from the band's >5-octave separation from 1.4–2.0 Hz cadence,
+  not yet measured on `biomap_024`/`biomap_059`.
+- **Step 2** — spatial correlation vs. road-noise / carriageway proximity /
+  green-space NDVI is not yet run.
+- **Step 4 Option B** — EDASymp is a standalone dropdown metric; it has not been
+  folded into the Tri Index.
+
+---
+
+## 7. Key References
 
 1. **Posada-Quintero, H. F., Florian, J. P., Orjuela-Cañón, A. D., Aljama-Corrales, T., Charleston-Villalobos, S., & Chon, K. H. (2016)**. *Time-varying spectral analysis of electrodermal activity for sympathetic nervous system activity evaluation*. Annals of Biomedical Engineering, 44(12), 3616–3627. [DOI: 10.1007/s10439-016-1607-8](https://doi.org/10.1007/s10439-016-1607-8)
 2. **Posada-Quintero, H. F., & Chon, K. H. (2020)**. *Frequency-domain methods for electrodermal activity: A review*. Frontiers in Physiology, 11, 1012. [DOI: 10.3389/fphys.2020.01012](https://doi.org/10.3389/fphys.2020.01012)

@@ -7,6 +7,9 @@ This document details the scientific rationale, mathematical definitions, core c
 > describes speculatively. What has since **shipped**: temporal peak density
 > (PPM), Integrated SCR / Phasic AUC, the Combined Arousal Index, and their
 > use as continuous map-contour sources and lower-graph metrics (§2–§4, §8);
+> plus **EDASymp** (the 0.045–0.25 Hz spectral sympathetic index), a standalone
+> graph/map metric added 2026-09-13 — see
+> [`edasymp_spectral_investigation_proposal.md`](edasymp_spectral_investigation_proposal.md) §6;
 > and an **RF sweep — but 3 bands (815 / 868 / 915 MHz), not the 4-band
 > 315 / 433 / 868 / 915 set in §2 and §6E/§6F**. The composite index is
 > called the **EM Fog Index** in the visualiser (`analyzer.js`

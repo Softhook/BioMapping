@@ -330,10 +330,14 @@ Production Configuration" and "Headline Results" above).
     numbers under `peakThreshold = 0.050` now reflects the *prior* default and is stale in the same
     way earlier tables went stale after the 0.015→0.050 change — a full re-run to refresh them against
     0.045 is tracked as new Investigation Log item 15.
-14. [ ] **Investigate EDASymp (0.045–0.25 Hz) Spectral Sympathetic Index**:
-    Proposal documented in [`edasymp_spectral_investigation_proposal.md`](edasymp_spectral_investigation_proposal.md).
-    Benchmark against NeuroKit2's `nk.eda_sympathetic()` on stationary and ambulatory tracks to assess continuous,
-    threshold-free sympathetic tone with inherent immunity to footstep cadence.
+14. [x] **Investigate EDASymp (0.045–0.25 Hz) Spectral Sympathetic Index** — shipped 2026-09-13:
+    Proposal + implementation record in [`edasymp_spectral_investigation_proposal.md`](edasymp_spectral_investigation_proposal.md) §6.
+    Shipped as a standalone graph/map metric (`visualiser/src/signal/spectral_eda.js` → `analyzer.edasymp`),
+    benchmarked against NeuroKit2's `nk.eda_sympathetic(method='posada2016')` via
+    `visualiser/tests/manual/neurokit_compare/check_edasymp.sh`: per-track ratio 0.99–1.02,
+    cross-track **r = 0.999727** over 7 tracks. The walking-flatness check (does footstep
+    cadence leak into the 0.045–0.25 Hz band on ambulatory tracks) is still argued from the
+    band's >5-octave separation rather than measured — see the proposal's remaining-roadmap §6.5.
 15. [x] **Refresh every benchmark table above against the new `peakThreshold = 0.045 µS` default**:
     Done 2026-09-12, folded together with item 16 since the tonic-undulation generator
     change landed in the same pass and every synthetic table needed re-running under both

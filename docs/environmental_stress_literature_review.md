@@ -224,12 +224,16 @@ flowchart LR
 
 ## 5. GSR Analysis Methodology & Psychophysiological Metrics
 
-> **Implemented (2026-08).** All three metrics below, and the Section 6
+> **Implemented (2026-08, extended 2026-09).** All three metrics below, and the Section 6
 > blueprints, have since shipped in `analyzer.js` — `computeTemporalPeakDensity`,
 > `computePhasicAUC`, `computeCombinedArousalIndex`, plus a `computeTriIndex`
 > three-way blend (tonic + phasic AUC + peak density). They are exposed via the
 > GSR panel's `#graphView` dropdown and the collective map's topography-source
-> selector. Section 6's code is retained as the design spec.
+> selector. **EDASymp**, the 0.045–0.25 Hz spectral sympathetic index, shipped
+> 2026-09-13 as a further standalone `#graphView` / map-colouring metric
+> (`visualiser/src/signal/spectral_eda.js` → `analyzer.edasymp`; see
+> [`edasymp_spectral_investigation_proposal.md`](edasymp_spectral_investigation_proposal.md) §6).
+> Section 6's code is retained as the design spec.
 
 Mobile biosensing studies in GIS have moved away from simple trough-to-peak counting of raw signal excursions due to environmental noise and overlapping signals. The literature relies on three core metrics:
 
