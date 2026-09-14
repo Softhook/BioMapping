@@ -164,6 +164,42 @@ class GSRCollectiveManager {
    * Uses IDW (Inverse Distance Weighting) for continuous metrics or Gaussian kernel density for peaks.
    */
   generateContourSurface(contourParams) {
+    const params = this._resolveContourParams(contourParams);
+    const { gridResolution, isolationRadius, contourCount, blurIterations, upsampledResolution } = params;
+
+    const boundsResult = this._resolveBoundsAndTracks(isolationRadius);
+    if (!boundsResult) return [];
+    const { bounds, active } = boundsResult;
+
+    const { points, peaks, trackPointRanges, peaksRefAmplitude, peakSigma } =
+      this._collectContourPoints(active, params);
+    if (points.length === 0) return [];
+
+    const gridCtx = this._buildContourGrid(bounds, gridResolution, points, isolationRadius);
+    const { rows, cols } = gridCtx;
+
+    const { upsampledCoverageRatioGrid } =
+      this._computeCoverageField(params, trackPointRanges, points, gridCtx);
+
+    const filled = this._computeValueGrid(params, points, peaks, peaksRefAmplitude, peakSigma, gridCtx);
+    if (filled.minVal === Infinity || filled.maxVal === -Infinity) return [];
+
+    let { grid, minVal, maxVal } = this._blurContourGrid(filled.grid, rows, cols, blurIterations);
+    if (minVal === Infinity || maxVal === -Infinity) return [];
+    if (Math.abs(maxVal - minVal) < 1e-9) maxVal = minVal + 0.1;
+
+    const { contours, upsampledGrid, sortedVals } =
+      this._extractContours(grid, rows, cols, bounds, gridResolution, upsampledResolution, contourCount, minVal, maxVal);
+
+    return { contours, grid, upsampledGrid, minVal, maxVal, bounds, sortedVals, upsampledCoverageRatioGrid };
+  }
+
+  /**
+   * Resolves contourParams against GSR_CONST.COLLECTIVE defaults. Split out of
+   * generateContourSurface() as its own step — see that method's manifest
+   * comment for why the rest is staged this way.
+   */
+  _resolveContourParams(contourParams) {
     if (!contourParams) contourParams = {};
 
     // Use explicit !== undefined checks so falsy values (0, false, '') are not silently overridden
@@ -190,9 +226,27 @@ class GSRCollectiveManager {
     const temporalSmoothingWindow = (contourParams && contourParams.temporalSmoothingWindow !== undefined)
       ? contourParams.temporalSmoothingWindow
       : (GSR_CONST.COLLECTIVE.temporalSmoothingWindow !== undefined ? GSR_CONST.COLLECTIVE.temporalSmoothingWindow : 0.0);
+    // Moved up from its original spot just before the value-grid fill loop — same
+    // "resolve one param with a default" shape as the rest of this method, with no
+    // dependency on anything computed in between.
+    const alpha = (contourParams && contourParams.peakPreservation !== undefined)
+      ? contourParams.peakPreservation
+      : (GSR_CONST.COLLECTIVE.peakPreservation !== undefined ? GSR_CONST.COLLECTIVE.peakPreservation : 0.5);
 
+    return {
+      gridResolution, isolationRadius, topographySource, contourCount, idwExponent,
+      coverageWeighting, useNormalization, blurIterations, upsampledResolution,
+      softening, temporalSmoothingWindow, alpha,
+    };
+  }
+
+  /**
+   * Resolves the isolationRadius-expanded bounding box and active-track list, or
+   * null if either is empty (both original early-return paths returned `[]`).
+   */
+  _resolveBoundsAndTracks(isolationRadius) {
     let bounds = this.getBounds();
-    if (!bounds) return [];
+    if (!bounds) return null;
 
     // Expand bounds by the isolationRadius buffer (with a 20% margin) to ensure that the
     // contour surface interpolator is not chopped off at the grid margins.
@@ -201,7 +255,20 @@ class GSRCollectiveManager {
       : bounds;
 
     const active = this.getActiveTracks();
-    if (active.length === 0) return [];
+    if (active.length === 0) return null;
+
+    return { bounds, active };
+  }
+
+  /**
+   * Downsamples each active track to lat/lon/val sample points (plus a
+   * per-track [start,end) range for the coverage field) and its non-excluded
+   * peaks, applying temporal smoothing and per-track standardisation per
+   * `params`. Also derives the peak reference amplitude/sigma used by the
+   * 'peaks' topography source.
+   */
+  _collectContourPoints(active, params) {
+    const { temporalSmoothingWindow, useNormalization, topographySource } = params;
 
     // Adaptive downsampling — target ~20k points for ~30 ms loop
     let totalRawPoints = 0;
@@ -249,7 +316,7 @@ class GSRCollectiveManager {
         const half = Math.floor(winSize / 2);
         let sum = 0;
         let count = 0;
-        
+
         for (let j = 0; j < Math.min(arr.length, half); j++) {
           const v = arr[j] ? arr[j].val : null;
           if (v !== null && !isNaN(v)) {
@@ -257,7 +324,7 @@ class GSRCollectiveManager {
             count++;
           }
         }
-        
+
         for (let j = 0; j < arr.length; j++) {
           const rightIdx = j + half;
           if (rightIdx < arr.length) {
@@ -350,8 +417,27 @@ class GSRCollectiveManager {
       });
     }
 
-    if (points.length === 0) return [];
+    // Reference (mean) amplitude across all active peaks, for the same clamped
+    // relative-severity weighting used by the cluster blobs (spatial_clustering.js
+    // GSRSpatialClustering.relativeAmplitudeWeight) — see PEAK_KDE in constants.js for why
+    // this needs to be shared rather than reimplemented here.
+    let peaksRefAmplitude = 0;
+    if (peaks.length > 0) {
+      let sum = 0;
+      for (const pk of peaks) sum += (pk.amplitude || 0);
+      peaksRefAmplitude = sum / peaks.length;
+    }
+    const peakSigma = (typeof GSR_CONST !== 'undefined' && GSR_CONST.PEAK_KDE) ? GSR_CONST.PEAK_KDE.sigma : 15.0;
 
+    return { points, peaks, trackPointRanges, peaksRefAmplitude, peakSigma };
+  }
+
+  /**
+   * Builds the empty value grid, its lat/lon <-> row/col geometry helpers, and
+   * the boundary ("near any sampled track point") mask that gates every later
+   * stage's cell writes.
+   */
+  _buildContourGrid(bounds, gridResolution, points, isolationRadius) {
     const rows = gridResolution;
     const cols = gridResolution;
     let grid = Array.from({ length: rows }, () => new Array(cols).fill(null));
@@ -370,20 +456,6 @@ class GSRCollectiveManager {
       const dx = (lon1 - lon2) * DEG_TO_M_LON;
       return Math.sqrt(dx * dx + dy * dy);
     };
-
-    // Reference (mean) amplitude across all active peaks, for the same clamped
-    // relative-severity weighting used by the cluster blobs (spatial_clustering.js
-    // GSRSpatialClustering.relativeAmplitudeWeight) — see PEAK_KDE in constants.js for why
-    // this needs to be shared rather than reimplemented here.
-    let peaksRefAmplitude = 0;
-    if (peaks.length > 0) {
-      let sum = 0;
-      for (const pk of peaks) sum += (pk.amplitude || 0);
-      peaksRefAmplitude = sum / peaks.length;
-    }
-    const peakSigma = (typeof GSR_CONST !== 'undefined' && GSR_CONST.PEAK_KDE) ? GSR_CONST.PEAK_KDE.sigma : 15.0;
-
-    let minVal = Infinity, maxVal = -Infinity;
 
     const latStep = rows > 1 ? (bounds.maxLat - bounds.minLat) / (rows - 1) : 0;
     const lonStep = cols > 1 ? (bounds.maxLon - bounds.minLon) / (cols - 1) : 0;
@@ -435,6 +507,18 @@ class GSRCollectiveManager {
         }
       }
     }
+
+    return { rows, cols, grid, getDistanceMeters, gridLatOf, gridLonOf, cellWindowFor, nearTrack };
+  }
+
+  /**
+   * How many distinct participant tracks actually passed near each cell,
+   * percentile-ranked — see the "Coverage field" comment below for why. Gated
+   * on coverageWeighting > 0; returns nulls when the slider is off.
+   */
+  _computeCoverageField(params, trackPointRanges, points, gridCtx) {
+    const { coverageWeighting, isolationRadius, upsampledResolution, gridResolution } = params;
+    const { rows, cols, cellWindowFor, gridLatOf, gridLonOf, getDistanceMeters, nearTrack } = gridCtx;
 
     // Coverage field — how many distinct participant tracks actually passed near each cell,
     // used by map.js's renderContours() to checkerboard cells whose reading is backed by
@@ -522,6 +606,22 @@ class GSRCollectiveManager {
         : coverageRatioGrid;
     }
 
+    return { coverageRatioGrid, upsampledCoverageRatioGrid };
+  }
+
+  /**
+   * IDW-interpolates (or, for the 'peaks' source, KDE-splats) `points`/`peaks`
+   * into `gridCtx.grid`, tracking the resulting min/max. The IDW splat and the
+   * cell-fill loop stay one step: the splat's scratch arrays are read nowhere
+   * else.
+   */
+  _computeValueGrid(params, points, peaks, peaksRefAmplitude, peakSigma, gridCtx) {
+    const { topographySource, isolationRadius, idwExponent, softening, alpha } = params;
+    const { rows, cols, gridLatOf, gridLonOf, getDistanceMeters, nearTrack, cellWindowFor } = gridCtx;
+    let grid = gridCtx.grid;
+
+    let minVal = Infinity, maxVal = -Infinity;
+
     // Continuous (non-peak) topography sources: raw phasic/tonic, or the
     // threshold-independent Phasic AUC / Combined Arousal Index. Same splat
     // restructuring as the boundary mask above — point-major instead of
@@ -581,10 +681,6 @@ class GSRCollectiveManager {
       }
     }
 
-    const alpha = (contourParams && contourParams.peakPreservation !== undefined)
-      ? contourParams.peakPreservation
-      : (GSR_CONST.COLLECTIVE.peakPreservation !== undefined ? GSR_CONST.COLLECTIVE.peakPreservation : 0.5);
-
     for (let r = 0; r < rows; r++) {
       const gridLat = gridLatOf(r);
       const rowOff = r * cols;
@@ -631,11 +727,18 @@ class GSRCollectiveManager {
       }
     }
 
-    if (minVal === Infinity || maxVal === -Infinity) return [];
+    return { grid, minVal, maxVal };
+  }
 
-    // Masked blur — smooths pure grid-quantisation noise (the single-cell "wiggle" Marching
-    // Squares traces literally, cell edge by cell edge) directly in the source field, before
-    // any contour is extracted.
+  /**
+   * Masked tent-kernel blur (smooths single-cell grid-quantisation noise
+   * before contour extraction), then recomputes min/max from the blurred
+   * grid — a weighted average can only pull values toward their neighbours,
+   * never past the original extremes, but the returned range (and the
+   * percentile levels in _extractContours, which read straight from `grid`)
+   * must match what's actually drawn.
+   */
+  _blurContourGrid(grid, rows, cols, blurIterations) {
     let currentGrid = grid;
     for (let iter = 0; iter < blurIterations; iter++) {
       const blurred = Array.from({ length: rows }, () => new Array(cols).fill(null));
@@ -669,11 +772,7 @@ class GSRCollectiveManager {
     }
     grid = currentGrid;
 
-    // minVal/maxVal above were measured on the pre-blur grid; a weighted average can only
-    // pull values toward their neighbours, never past the original extremes, but recompute
-    // from the blurred grid anyway so the returned range (and the percentile levels below,
-    // which read straight from `grid`) matches what's actually drawn.
-    minVal = Infinity; maxVal = -Infinity;
+    let minVal = Infinity, maxVal = -Infinity;
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
         const v = grid[r][c];
@@ -683,9 +782,17 @@ class GSRCollectiveManager {
         }
       }
     }
-    if (minVal === Infinity || maxVal === -Infinity) return [];
-    if (Math.abs(maxVal - minVal) < 1e-9) maxVal = minVal + 0.1;
 
+    return { grid, minVal, maxVal };
+  }
+
+  /**
+   * Bicubic-upsamples the blurred grid, builds percentile-based contour
+   * levels, and traces them all in one MarchingSquares pass. `minVal`/`maxVal`
+   * are passed in (not re-derived from the grid) because the caller may have
+   * already nudged `maxVal` off a near-zero range — see generateContourSurface().
+   */
+  _extractContours(grid, rows, cols, bounds, gridResolution, upsampledResolution, contourCount, minVal, maxVal) {
     // Perform Bilinear upsampling on the blurred 40x40 grid to get a high-resolution 160x160 grid
     const upsampledGrid = (upsampledResolution > gridResolution)
       ? GSRCollectiveManager.upsampleGrid(grid, upsampledResolution, upsampledResolution)
@@ -750,7 +857,7 @@ class GSRCollectiveManager {
       }
     }
 
-    return { contours, grid, upsampledGrid, minVal, maxVal, bounds, sortedVals, upsampledCoverageRatioGrid };
+    return { contours, upsampledGrid, sortedVals };
   }
 }
 

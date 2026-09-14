@@ -76,14 +76,14 @@ classification:
 | `signal/analyzer.js` | 2,803 | Not a candidate | Leave — one memoized pipeline |
 | `render/renderer.js` | 1,757 → 99 | Split candidate | **DONE 2026-09-14** |
 | `osm/ndvi_sampler.js` | 1,424 | Not a candidate | Leave — one fetch/decode/sample pipeline |
-| `live/live_view.js` | 1,072 | Not a candidate | **Verdict 2026-09-14** — shell + shared session state; `mount()` is a long-method opportunity instead |
+| `live/live_view.js` | 1,072 | Not a candidate | **Verdict 2026-09-14** — shell + shared session state; `mount()` long-method regroup **DONE** |
 | `signal/deconvolution.js` | 1,040 | Not a candidate | Leave — one algorithm |
 | `osm/osm_enrichment.js` | 1,016 | Not a candidate | Leave — one enrichment pipeline |
 | `map/map_exporter.js` | 1,015 | Not a candidate | Leave — one SVG/PNG export pipeline (all `static`) |
 | `render/rf_fluid_renderer.js` | 915 | Not a candidate | Leave — one rendering engine, already narrowly scoped |
 | `map/globe3d_view.js` | 900 | Not a candidate | **Verdict 2026-09-14** — already self-organised via section comments; one coordinating role |
 | `signal/csv_parser.js` | 819 | Not a candidate | Leave — one parse pipeline (all `static`) |
-| `spatial/collective_manager.js` | 762 | Long-method case | `generateContourSurface` could gain named internal steps; not a file split |
+| `spatial/collective_manager.js` | 762 → 869 | Long-method case | `generateContourSurface` long-method regroup **DONE 2026-09-14** |
 | `ui/tracks.js` | 641 | Not a candidate | Leave — cohesive "track library" domain, not disjoint features |
 | `signal/cvxeda.js` | 624 | Not a candidate | Leave — effectively one function (`decompose`) |
 
@@ -262,14 +262,24 @@ verification used for the `ui.js`/`events.js` work:
      boundary (its own getter/setter object over `bleManager`/
      `needNewConnection`) but still calls back into `resetSession()`/
      `attemptConnect` — not worth a file on its own.
-     **Real opportunity, not done:** `mount()` itself is ~206 lines of
-     mostly-inline event-listener binding (state listeners, resize/
-     orientation handling, keyboard shortcuts, the location button) — a
-     textbook **long-method** case, same shape as `events.js`'s
-     `setupEventListeners()` before it was regrouped into named
-     `_bind*Controls()` steps in the same file. `bindLiveGsrControls()`/
-     `bindLiveFab()` already show the pattern half-applied. Worth doing as
-     its own small follow-up; not attempted this session.
+     **`mount()` long-method regroup — DONE 2026-09-14 (follow-up
+     session).** `mount()`'s ~206 lines were split into 6 named top-level
+     functions, called in order from a now ~15-line `mount()`:
+     `initLiveViewDom(container)` (DOM injection + element refs),
+     `bindLiveStateListeners()` (fullscreen init, visibilitychange,
+     `LiveState.on('status'/'packet')`), `bindLiveConnectionControls()`
+     (connect/skip/connection/export buttons), `bindLiveMapControls()`
+     (cache-map, toggle-map, exit-display, metric group, geolocation
+     button), `bindLiveKeyboardShortcuts()` (the p/m/c window keydown
+     handler), `bindLiveResizeHandling(container)` (resize/orientation/
+     ResizeObserver). Kept as top-level functions reading/writing the
+     existing module-level `let`s, matching `bindLiveGsrControls()`/
+     `bindLiveFab()`'s pre-existing shape rather than switching to
+     `events.js`'s `_bind*Controls()` object-method convention (this file
+     has no `this`-bearing methods elsewhere). Bodies moved verbatim (no
+     logic changes). Full suite 1321/1321 green, including
+     `test_live_view_switch.js` and `tests/support/boot_live.js`, both of
+     which call `GSRLiveView.mount()` directly.
    - **`globe3d_view.js` (900 lines).** One object, ~35 methods, but
      already internally organised into 8 clearly labelled sections via its
      own `// ── Section name ──` divider comments (init & wiring, scrub
@@ -290,32 +300,44 @@ verification used for the `ui.js`/`events.js` work:
      read. Left as-is; the section-comment dividers are already doing the
      organisational job a split would.
 
-4. **`collective_manager.js` — investigated 2026-09-14, confirmed a
-   long-method case, extraction not attempted.** `generateContourSurface`
-   is 588 lines (166–753 of 762 total) — the entire rest of the class is
-   ~165 lines of small accessors. It has real test coverage (6 test files:
-   `test_collective_manager.js`, `test_collective_active_metric.js`,
+4. **`collective_manager.js` — long-method regroup DONE 2026-09-14
+   (follow-up session).** `generateContourSurface` (588 of 762 lines) was
+   split into 8 named private methods — `_resolveContourParams`,
+   `_resolveBoundsAndTracks`, `_collectContourPoints`, `_buildContourGrid`
+   (geometry helpers + the near-track mask), `_computeCoverageField`,
+   `_computeValueGrid` (IDW splat + cell-fill loop, kept as one step since
+   the splat's scratch arrays are read nowhere else), `_blurContourGrid`,
+   `_extractContours` (upsample + percentile levels + MarchingSquares) —
+   called in order from a ~30-line orchestrator. Each method's body is the
+   original code block verbatim; the only real transformation was choosing
+   what to thread across boundaries. Two correctness traps found and
+   avoided during extraction, not just anticipated:
+   - `minVal`/`maxVal` are read in **two** places — once (pre-blur) inside
+     the value-grid fill loop, and again (post-blur, and after a
+     near-zero-range nudge: `if (Math.abs(maxVal-minVal)<1e-9) maxVal =
+     minVal+0.1`) inside the percentile-level loop. `_extractContours`
+     takes the **post-nudge** `minVal`/`maxVal` as explicit parameters
+     rather than re-deriving them from `sortedVals` (which would silently
+     have reproduced the *pre-nudge* range and broken the near-zero-range
+     guard on a flat/single-value surface).
+   - `alpha` (`peakPreservation`) was moved from its original position
+     (computed just before the fill loop) up into `_resolveContourParams`
+     — safe because nothing between the two positions reads or writes it,
+     verified by grep before moving, not assumed.
+
+   Verified two ways, not just the Node suite: (1) full suite 1321/1321
+   green (`test_collective_manager.js`, `test_collective_active_metric.js`,
    `test_masked_grid_isobands.js`, `test_hillshade.js`,
-   `test_all_pipelines.js`, `mock_constants.js`), which is what makes
-   extraction *feasible* to verify — but it is dense, single-pass numerical
-   geometry (param resolution → per-track point/peak collection with inline
-   smoothing closures → IDW grid interpolation → coverage-weighted
-   blending → Gaussian blur → bicubic upsample → marching-squares contour
-   extraction), with dozens of local variables (`grid`, `scale`, `bounds`,
-   `points`, `peaks`, `trackPointRanges`, `rows`/`cols`, …) threaded through
-   every stage. Splitting into named private steps (the `events.js`
-   pattern) means either nested closures (low risk, but barely more
-   readable than section comments) or real methods with explicit
-   parameter/return threading across ~6 stage boundaries (meaningfully
-   higher transcription risk than the mechanical method-reshuffling that
-   made the `globe3d.js`/`renderer.js` splits safe — there, byte-identical
-   diffing was the whole verification story; here the code itself must
-   change shape). Given the size of this undertaking is comparable to
-   *both* god-object splits combined, for a single 588-line method with a
-   materially different (numerical-correctness, not organisational) risk
-   profile, this is left as a **scoped, separately-sized follow-up** rather
-   than folded into this session — the plan's own "don't manufacture
-   churn" rule cuts against rushing it alongside two already-large splits.
+   `test_all_pipelines.js` among them); (2) a throwaway golden-output
+   script (3 synthetic tracks, deterministic PRNG, 10 param combinations
+   covering every branch — peaks mode, coverage on/off, all topography
+   sources, softening=0 exact-match, blur/grid-size variants,
+   peakPreservation blend) captured `generateContourSurface`'s full output
+   (grid, upsampled grid, coverage grid, contour segments) before and after
+   the refactor — **byte-identical** on every case, which the mechanical
+   `globe3d.js`/`renderer.js` splits got from diffing method bodies
+   directly but this one couldn't, since the code's shape genuinely
+   changed.
 
 **Open gap:** no headless-browser smoke pass has verified either the
 `globe3d.js` split (3D tab, peak click, tour, OSM buildings toggle) or the

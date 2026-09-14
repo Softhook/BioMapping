@@ -792,6 +792,214 @@ function goToLatLon(lat, lon, zoom) {
 }
 
 // ==========================================================================
+// mount() steps — one group of DOM/event wiring each, called in order by
+// mount() below. Same "long method → named private steps" regrouping as
+// events.js's setupEventListeners()/_bind*Controls(), kept here as top-level
+// functions (not object methods) to match bindLiveGsrControls()/bindLiveFab()
+// above, which already used this shape.
+// ==========================================================================
+
+function initLiveViewDom(container) {
+  // .live-view scopes every rule in styles.css's "Live Stream (BLE) view"
+  // section to this subtree — so the live UI's bare header/footer/button
+  // selectors never leak into the host page.
+  container.classList.add('live-view');
+  container.innerHTML = LIVE_VIEW_MARKUP;
+
+  statusBadge      = document.getElementById('statusBadge');
+  connectionBtn    = document.getElementById('connectionBtn');
+  exportBtn        = document.getElementById('exportBtn');
+  connectOverlay   = document.getElementById('connectOverlay');
+  connectBtn       = document.getElementById('connectBtn');
+  connectErr       = document.getElementById('connectErr');
+  reconnectErr     = document.getElementById('reconnectErr');
+  cacheMapBtn      = document.getElementById('cacheMapBtn');
+  if (cacheMapBtn && isCompactLiveLayout()) {
+    cacheMapBtn.textContent = 'Cache Map';
+  }
+  toggleMapBtn     = document.getElementById('toggleMapBtn');
+
+  if (typeof navigator !== 'undefined' && !navigator.bluetooth && connectErr) {
+    connectErr.textContent = 'Note: Web Bluetooth is not available in this browser (requires Chrome on Android/desktop, or a Web Bluetooth browser like Bluefy on iOS). You can still Prepare Map Offline.';
+  }
+}
+
+function bindLiveStateListeners() {
+  // Bind the shared fullscreen/visibility sticky-restore machinery (also
+  // bound by GSRLayoutManager.init() in index.html — idempotent). In the
+  // standalone page this is the only caller.
+  if (typeof GSRFullscreen !== 'undefined') GSRFullscreen.init();
+
+  document.addEventListener('visibilitychange', async () => {
+    if (document.visibilityState === 'visible') {
+      if (LiveState.status === 'connected' || LiveState.status === 'reconnecting') {
+        await requestWakeLock();
+      }
+    }
+  });
+
+  LiveState.on('status', (status) => {
+    renderStatus(status);
+    if (status === 'connected' || status === 'reconnecting') {
+      startAnimationLoop();
+      requestWakeLock();
+    } else {
+      stopAnimationLoop();
+      drawGraph();
+      releaseWakeLock();
+    }
+  });
+  LiveState.on('packet', (pkt) => {
+    document.getElementById('statPackets').textContent = `Packets: ${LiveState.packets.length}`;
+    document.getElementById('statGaps').textContent = `Gaps: ${LiveState.gapCount}`;
+    document.getElementById('statGps').textContent = pkt.valid
+      ? `GPS: ${pkt.fixType === 3 ? '3D' : pkt.fixType === 2 ? '2D' : 'fix'} (${pkt.sats} sat)`
+      : 'GPS: No fix';
+    document.getElementById('statLastSeen').textContent = `Last: ${pkt.timestamp.toFixed(1)}s`;
+
+    lastPacketTimestamp = pkt.timestamp;
+    lastPacketArrivalTime = Date.now();
+
+    exportBtn.disabled = false;
+    updateLiveMap(pkt);
+    // Grow the analyser buffer + re-run the pipeline (off the 60fps draw
+    // path). drawGraph() then reads .filtered/.tonic/.phasic/.peaks/… on
+    // the next animation frame.
+    feedLiveAnalyzer();
+  });
+}
+
+function bindLiveConnectionControls() {
+  connectBtn.addEventListener('click', attemptConnect);
+
+  // Lets the map be shown, panned, and cached before (or without)
+  // connecting to a device — the whole reason toggleMapBtn/locationBar
+  // aren't gated on a BLE connection or GPS fix.
+  document.getElementById('skipConnectBtn').addEventListener('click', () => {
+    connectOverlay.classList.add('hidden');
+  });
+
+  // Single connection button dealing with connect, reconnect, and new connection
+  // as needed.
+  connectionBtn.addEventListener('click', () => LiveConnectionController.handleAction());
+
+  exportBtn.addEventListener('click', exportCsv);
+}
+
+function bindLiveMapControls() {
+  cacheMapBtn.addEventListener('click', cacheCurrentMapArea);
+
+  toggleMapBtn.addEventListener('click', () => setMapVisible(!mapVisible));
+
+  const liveBtnExitDisplay = document.getElementById('liveBtnExitDisplay');
+  if (liveBtnExitDisplay) {
+    liveBtnExitDisplay.addEventListener('click', () => {
+      if (typeof GSRLayoutManager !== 'undefined' && GSRLayoutManager.exitLiveDisplayMode) {
+        GSRLayoutManager.exitLiveDisplayMode();
+      }
+    });
+  }
+
+  const metricGroup = document.getElementById('liveMetricGroup');
+  if (metricGroup) {
+    metricGroup.addEventListener('click', (e) => {
+      const btn = e.target.closest('button[data-metric]');
+      if (btn && btn.dataset.metric) setLiveGraphMetric(btn.dataset.metric);
+    });
+  }
+
+  const myLocBtn = document.getElementById('myLocationBtn');
+  if (myLocBtn) {
+    myLocBtn.addEventListener('click', () => {
+      // If we have an active GPS packet with valid fix from BLE, center there immediately
+      if (LiveState.packets && LiveState.packets.length > 0) {
+        const lastPkt = LiveState.packets[LiveState.packets.length - 1];
+        if (lastPkt && lastPkt.valid && Number.isFinite(lastPkt.lat) && Number.isFinite(lastPkt.lon)) {
+          goToLatLon(lastPkt.lat, lastPkt.lon, LIVE_ZOOM);
+          return;
+        }
+      }
+      if (!navigator.geolocation) {
+        alert('Geolocation is not available in this browser.');
+        return;
+      }
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          goToLatLon(pos.coords.latitude, pos.coords.longitude, MANUAL_LOCATION_ZOOM);
+        },
+        (err) => {
+          alert('Could not get your location: ' + err.message);
+        },
+        { enableHighAccuracy: true, timeout: 10000 }
+      );
+    });
+  }
+}
+
+function bindLiveKeyboardShortcuts() {
+  window.addEventListener('keydown', (e) => {
+    // Inside index.html these listeners outlive the Live tab (mount is
+    // once, no unmount) — only claim the p/m/c shortcuts while the Live
+    // view is actually the one on screen. (There is no live-view fullscreen
+    // shortcut: in-app GSRLayoutManager owns F for the whole app; standalone
+    // live.html has no self-fullscreen affordance.)
+    if (typeof AppState !== 'undefined' && AppState.viewMode !== 'live') return;
+    // Don't hijack keys while typing in an input.
+    if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
+
+    if (e.key === 'p' || e.key === 'P') {
+      const b = document.getElementById('liveBtnTogglePhasic');
+      if (b) b.click();
+    }
+    if (e.key === 'm' || e.key === 'M') {
+      toggleMapBtn.click();
+    }
+    if ((e.key === 'c' || e.key === 'C') && !cacheMapBtn.disabled) {
+      cacheCurrentMapArea();
+    }
+  });
+}
+
+function bindLiveResizeHandling(container) {
+  // Invalidate liveMap and redraw graph on resize or orientation change.
+  // Also observe the container with ResizeObserver so any container
+  // dimension changes (e.g. mobile orientation change, display mode toggle)
+  // cleanly trigger re-measurement. For mobile WebKit / iOS Safari, orientation
+  // transitions take ~150-300ms to complete and update clientWidth/clientHeight,
+  // so delayed invalidations ensure Leaflet and Canvas rescale to final geometry.
+  const handleResize = () => {
+    if (typeof window !== 'undefined' && typeof window.scrollTo === 'function') {
+      window.scrollTo(0, 0);
+    }
+    if (liveMap && typeof liveMap.invalidateSize === 'function') {
+      liveMap.invalidateSize({ pan: false, debounceMoveend: true });
+    }
+    drawGraph();
+  };
+
+  window.addEventListener('resize', handleResize);
+  window.addEventListener('orientationchange', () => {
+    handleResize();
+    setTimeout(handleResize, 100);
+    setTimeout(handleResize, 300);
+  });
+  if (typeof screen !== 'undefined' && screen.orientation && typeof screen.orientation.addEventListener === 'function') {
+    screen.orientation.addEventListener('change', () => {
+      handleResize();
+      setTimeout(handleResize, 100);
+      setTimeout(handleResize, 300);
+    });
+  }
+
+  if (typeof ResizeObserver !== 'undefined' && container) {
+    const ro = new ResizeObserver(() => {
+      handleResize();
+    });
+    ro.observe(container);
+  }
+}
+
+// ==========================================================================
 // GSRLiveView — build the DOM into `container` and bind everything. Call
 // once. Idempotent (a second call is a no-op).
 // ==========================================================================
@@ -802,196 +1010,14 @@ const GSRLiveView = {
     if (this._mounted) return;
     this._mounted = true;
 
-    // .live-view scopes every rule in styles.css's "Live Stream (BLE) view"
-    // section to this subtree — so the live UI's bare header/footer/button
-    // selectors never leak into the host page.
-    container.classList.add('live-view');
-    container.innerHTML = LIVE_VIEW_MARKUP;
-
-    statusBadge      = document.getElementById('statusBadge');
-    connectionBtn    = document.getElementById('connectionBtn');
-    exportBtn        = document.getElementById('exportBtn');
-    connectOverlay   = document.getElementById('connectOverlay');
-    connectBtn       = document.getElementById('connectBtn');
-    connectErr       = document.getElementById('connectErr');
-    reconnectErr     = document.getElementById('reconnectErr');
-    cacheMapBtn      = document.getElementById('cacheMapBtn');
-    if (cacheMapBtn && isCompactLiveLayout()) {
-      cacheMapBtn.textContent = 'Cache Map';
-    }
-    toggleMapBtn     = document.getElementById('toggleMapBtn');
-
-    if (typeof navigator !== 'undefined' && !navigator.bluetooth && connectErr) {
-      connectErr.textContent = 'Note: Web Bluetooth is not available in this browser (requires Chrome on Android/desktop, or a Web Bluetooth browser like Bluefy on iOS). You can still Prepare Map Offline.';
-    }
-
-    // Bind the shared fullscreen/visibility sticky-restore machinery (also
-    // bound by GSRLayoutManager.init() in index.html — idempotent). In the
-    // standalone page this is the only caller.
-    if (typeof GSRFullscreen !== 'undefined') GSRFullscreen.init();
-
-    document.addEventListener('visibilitychange', async () => {
-      if (document.visibilityState === 'visible') {
-        if (LiveState.status === 'connected' || LiveState.status === 'reconnecting') {
-          await requestWakeLock();
-        }
-      }
-    });
-
-    LiveState.on('status', (status) => {
-      renderStatus(status);
-      if (status === 'connected' || status === 'reconnecting') {
-        startAnimationLoop();
-        requestWakeLock();
-      } else {
-        stopAnimationLoop();
-        drawGraph();
-        releaseWakeLock();
-      }
-    });
-    LiveState.on('packet', (pkt) => {
-      document.getElementById('statPackets').textContent = `Packets: ${LiveState.packets.length}`;
-      document.getElementById('statGaps').textContent = `Gaps: ${LiveState.gapCount}`;
-      document.getElementById('statGps').textContent = pkt.valid
-        ? `GPS: ${pkt.fixType === 3 ? '3D' : pkt.fixType === 2 ? '2D' : 'fix'} (${pkt.sats} sat)`
-        : 'GPS: No fix';
-      document.getElementById('statLastSeen').textContent = `Last: ${pkt.timestamp.toFixed(1)}s`;
-
-      lastPacketTimestamp = pkt.timestamp;
-      lastPacketArrivalTime = Date.now();
-
-      exportBtn.disabled = false;
-      updateLiveMap(pkt);
-      // Grow the analyser buffer + re-run the pipeline (off the 60fps draw
-      // path). drawGraph() then reads .filtered/.tonic/.phasic/.peaks/… on
-      // the next animation frame.
-      feedLiveAnalyzer();
-    });
-
-    connectBtn.addEventListener('click', attemptConnect);
-
-    // Lets the map be shown, panned, and cached before (or without)
-    // connecting to a device — the whole reason toggleMapBtn/locationBar
-    // aren't gated on a BLE connection or GPS fix.
-    document.getElementById('skipConnectBtn').addEventListener('click', () => {
-      connectOverlay.classList.add('hidden');
-    });
-
-    // Single connection button dealing with connect, reconnect, and new connection
-    // as needed.
-    connectionBtn.addEventListener('click', () => LiveConnectionController.handleAction());
-
-    exportBtn.addEventListener('click', exportCsv);
-
+    initLiveViewDom(container);
+    bindLiveStateListeners();
+    bindLiveConnectionControls();
     bindLiveGsrControls();
     bindLiveFab();
-
-    cacheMapBtn.addEventListener('click', cacheCurrentMapArea);
-
-    toggleMapBtn.addEventListener('click', () => setMapVisible(!mapVisible));
-
-    const liveBtnExitDisplay = document.getElementById('liveBtnExitDisplay');
-    if (liveBtnExitDisplay) {
-      liveBtnExitDisplay.addEventListener('click', () => {
-        if (typeof GSRLayoutManager !== 'undefined' && GSRLayoutManager.exitLiveDisplayMode) {
-          GSRLayoutManager.exitLiveDisplayMode();
-        }
-      });
-    }
-
-    const metricGroup = document.getElementById('liveMetricGroup');
-    if (metricGroup) {
-      metricGroup.addEventListener('click', (e) => {
-        const btn = e.target.closest('button[data-metric]');
-        if (btn && btn.dataset.metric) setLiveGraphMetric(btn.dataset.metric);
-      });
-    }
-
-    const myLocBtn = document.getElementById('myLocationBtn');
-    if (myLocBtn) {
-      myLocBtn.addEventListener('click', () => {
-        // If we have an active GPS packet with valid fix from BLE, center there immediately
-        if (LiveState.packets && LiveState.packets.length > 0) {
-          const lastPkt = LiveState.packets[LiveState.packets.length - 1];
-          if (lastPkt && lastPkt.valid && Number.isFinite(lastPkt.lat) && Number.isFinite(lastPkt.lon)) {
-            goToLatLon(lastPkt.lat, lastPkt.lon, LIVE_ZOOM);
-            return;
-          }
-        }
-        if (!navigator.geolocation) {
-          alert('Geolocation is not available in this browser.');
-          return;
-        }
-        navigator.geolocation.getCurrentPosition(
-          (pos) => {
-            goToLatLon(pos.coords.latitude, pos.coords.longitude, MANUAL_LOCATION_ZOOM);
-          },
-          (err) => {
-            alert('Could not get your location: ' + err.message);
-          },
-          { enableHighAccuracy: true, timeout: 10000 }
-        );
-      });
-    }
-
-    window.addEventListener('keydown', (e) => {
-      // Inside index.html these listeners outlive the Live tab (mount is
-      // once, no unmount) — only claim the p/m/c shortcuts while the Live
-      // view is actually the one on screen. (There is no live-view fullscreen
-      // shortcut: in-app GSRLayoutManager owns F for the whole app; standalone
-      // live.html has no self-fullscreen affordance.)
-      if (typeof AppState !== 'undefined' && AppState.viewMode !== 'live') return;
-      // Don't hijack keys while typing in an input.
-      if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
-
-      if (e.key === 'p' || e.key === 'P') {
-        const b = document.getElementById('liveBtnTogglePhasic');
-        if (b) b.click();
-      }
-      if (e.key === 'm' || e.key === 'M') {
-        toggleMapBtn.click();
-      }
-      if ((e.key === 'c' || e.key === 'C') && !cacheMapBtn.disabled) {
-        cacheCurrentMapArea();
-      }
-    });
-
-    // Invalidate liveMap and redraw graph on resize or orientation change.
-    // Also observe the container with ResizeObserver so any container
-    // dimension changes (e.g. mobile orientation change, display mode toggle)
-    // cleanly trigger re-measurement. For mobile WebKit / iOS Safari, orientation
-    // transitions take ~150-300ms to complete and update clientWidth/clientHeight,
-    // so delayed invalidations ensure Leaflet and Canvas rescale to final geometry.
-    const handleResize = () => {
-      if (typeof window !== 'undefined' && typeof window.scrollTo === 'function') {
-        window.scrollTo(0, 0);
-      }
-      if (liveMap && typeof liveMap.invalidateSize === 'function') {
-        liveMap.invalidateSize({ pan: false, debounceMoveend: true });
-      }
-      drawGraph();
-    };
-
-    window.addEventListener('resize', handleResize);
-    window.addEventListener('orientationchange', () => {
-      handleResize();
-      setTimeout(handleResize, 100);
-      setTimeout(handleResize, 300);
-    });
-    if (typeof screen !== 'undefined' && screen.orientation && typeof screen.orientation.addEventListener === 'function') {
-      screen.orientation.addEventListener('change', () => {
-        handleResize();
-        setTimeout(handleResize, 100);
-        setTimeout(handleResize, 300);
-      });
-    }
-
-    if (typeof ResizeObserver !== 'undefined' && container) {
-      const ro = new ResizeObserver(() => {
-        handleResize();
-      });
-      ro.observe(container);
-    }
+    bindLiveMapControls();
+    bindLiveKeyboardShortcuts();
+    bindLiveResizeHandling(container);
 
     updateToggleMapBtn();
     renderFabMenu();
