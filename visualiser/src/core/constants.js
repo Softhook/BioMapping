@@ -44,19 +44,15 @@ const GSR_CONST = {
   // matters when the LPF is lowered/off, and Min Peak Quality ships off (0).
   // Raise either per recording when precision matters more than recall.
   GSR_DEFAULT: {
-    // The box average only runs when useGaitFilter (below) is off - raise
-    // lpfWindow above 0 then for a plain moving-average smooth instead of the
-    // gait filter. Off by default (0) since the gait filter runs instead.
-    medianSize: 0, lpfWindow: 0,
-    // On by default: a zero-phase 4th-order Linkwitz-Riley filter at 1.0Hz
-    // (GSR_CONST.GAIT_FILTER) in place of a plain box average - rejects a
-    // ~1.4-2.0Hz walking-gait artefact far better while preserving genuine
-    // SCR amplitude much more accurately (~95%+ vs box ~72-88%).
-    // Unlike Butterworth order-4, LR4 has no underdamped resonant peaking
-    // (Q=0.7071 in all sections), avoiding noise ringing and false peaks on
-    // quiet tracks while matching box-filter peak counts corpus-wide.
-    // Turn off for a seated/stationary recording if desired. Its own
-    // on/off switch, independent of lpfWindow's value/position.
+    // Artifact removal: Hampel MAD outlier rejection. Off by default (0s window).
+    // Replaces isolated non-physiological spikes without blunting true SCR peaks.
+    medianSize: 0,
+    // Butterworth low-pass smoothing (NeuroKit-style, 4th-order zero-phase).
+    // Off by default (0s). Can run simultaneously alongside the Gait Filter.
+    lpfWindow: 0,
+    // On by default: zero-phase 4th-order Linkwitz-Riley filter at 1.0Hz
+    // (GSR_CONST.GAIT_FILTER) specifically tuned to reject ~1.4-2.0Hz walking-gait
+    // artefacts without ringing or genuine SCR peak amplitude loss.
     useGaitFilter: true,
     tonicMethod: 'lpf', tonicWindow: 45, peakThreshold: 0.045,
     shapeMinSnr: 2.5,

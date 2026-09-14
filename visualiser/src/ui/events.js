@@ -474,10 +474,7 @@ const GSREvents = {
     });
     GSREvents.syncTonicBaselineControls(); // initial state
 
-    // ── Gait filter toggle (box average vs Linkwitz-Riley LR4 gait filter) ──
-    // Independent of the detector toggles above — this swaps stage-2
-    // filtering only (see analyzer.js's Low-Pass Filter comment), not the
-    // peak detector.
+    // ── Gait filter toggle (Linkwitz-Riley LR4 gait filter) ──
     if (S.useGaitFilter) {
       S.useGaitFilter.addEventListener('change', () => GSRUI.runAnalysis());
     }

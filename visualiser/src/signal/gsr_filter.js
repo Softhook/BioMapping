@@ -56,6 +56,75 @@ const GsrFilter = {
   },
 
   /**
+   * Hampel filter (Median Absolute Deviation outlier rejection).
+   * Unlike a standard median filter which blunts genuine peak heights and
+   * creates staircase/plateau artifacts, the Hampel filter evaluates whether
+   * each sample deviates by more than nSigma * 1.4826 * MAD from the local median.
+   * Only detected outlier samples are replaced with the local median; legitimate
+   * samples (including sharp SCR peak tops) remain completely untouched.
+   *
+   * @param {Array<number>} arr         - Source data array
+   * @param {number} windowSize         - Window length in samples
+   * @param {number} [nSigma=3.0]       - Number of standard deviations threshold
+   * @returns {Array<number>}
+   */
+  applyHampelFilter(arr, windowSize, nSigma = 3.0) {
+    const n = arr.length;
+    if (!windowSize || isNaN(windowSize) || windowSize <= 1 || n === 0) return [...arr];
+    const half = Math.floor(windowSize / 2);
+    const result = new Array(n);
+
+    // Sliding sorted window for O(log W + W) median tracking
+    const { window: sortedWindow, insert: insertSorted, remove: removeSorted } =
+      this._makeSortedWindow(arr, half);
+
+    // Reusable array for computing local MAD
+    const diffs = [];
+
+    for (let i = 0; i < n; i++) {
+      if (i > 0) {
+        const leftOut = i - 1 - half;
+        if (leftOut >= 0) removeSorted(arr[leftOut]);
+        const rightIn = i + half;
+        if (rightIn < n) insertSorted(arr[rightIn]);
+      }
+
+      const wLen = sortedWindow.length;
+      const med = sortedWindow[Math.floor(wLen * 0.5)];
+
+      // Window bounds in original array
+      const start = Math.max(0, i - half);
+      const end = Math.min(n - 1, i + half);
+      const curLen = end - start + 1;
+
+      // Compute MAD: median(|arr[j] - med|)
+      diffs.length = curLen;
+      for (let j = 0; j < curLen; j++) {
+        diffs[j] = Math.abs(arr[start + j] - med);
+      }
+      diffs.sort((a, b) => a - b);
+      const mad = diffs[Math.floor(curLen * 0.5)];
+      const scale = 1.4826 * mad;
+      const threshold = Math.max(nSigma * scale, 1e-5);
+
+      const xi = arr[i];
+      if (Math.abs(xi - med) > threshold) {
+        result[i] = med;
+      } else {
+        result[i] = xi;
+      }
+    }
+    return result;
+  },
+
+  /**
+   * Artifact filter entry point — runs Hampel MAD outlier rejection.
+   */
+  applyArtifactFilter(arr, windowSize, nSigma = 3.0) {
+    return this.applyHampelFilter(arr, windowSize, nSigma);
+  },
+
+  /**
    * Sliding window percentile filter — used for tonic baseline estimation.
    */
   applyPercentileFilter(arr, windowSize, percentile) {

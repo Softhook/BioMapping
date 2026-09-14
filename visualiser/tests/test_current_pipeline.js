@@ -210,7 +210,7 @@ if (track24Available) {
   // Test 3: Box 1.1s comparison on Track 24 (verifies 26% amplitude destruction)
   const analyzerBox11 = new GSRAnalyzer();
   analyzerBox11.parseCSV(csvText);
-  analyzerBox11.analyze({ ...D, useGaitFilter: false, lpfWindow: 1.1 }, 0);
+  analyzerBox11.analyze({ ...D, useGaitFilter: false, lpfWindow: 1.1, lpfMethod: 'box' }, 0);
   const sumAmpBox11 = analyzerBox11.peaks.reduce((s, p) => s + p.amplitude, 0);
   const ampLossPct = (sumAmp - sumAmpBox11) / sumAmp;
   assert(ampLossPct > 0.25, `Box 1.1s destroys >25% signal amplitude on Track 24 (loss: ${(ampLossPct * 100).toFixed(1)}%)`);

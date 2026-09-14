@@ -473,13 +473,14 @@ class GSRAnalyzer {
     this._ensureSeriesPool(this.raw, n);
 
     // ── Stages 1–3: median filter → low-pass → tonic/phasic decomposition ──
-    // Only five params feed this prefix; the peak-detection / hotspot /
-    // metric-window sliders don't. When none of the five changed since the last
+    // Only filter / decomposition params feed this prefix; the peak-detection /
+    // hotspot / metric-window sliders don't. When none changed since the last
     // analyze(), the pooled .filtered/.tonic/.phasic arrays (and their cached
     // Y-ranges) are still correct — skip ~25 ms of filtering + decomposition on
     // a 40k-row track and reuse them. Keyed alongside this.raw identity, which
     // _ensureSeriesPool() nulls the cache on.
     const prefixKey = params.medianSize + '|' + params.lpfWindow +
+      '|' + (params.lpfMethod || 'butterworth') +
       '|' + params.tonicWindow + '|' + params.tonicMethod + '|' + !!params.useGaitFilter;
 
     let phasicVals;
@@ -506,30 +507,31 @@ class GSRAnalyzer {
         this.phasicZ = this._seriesPool.phasicZ;
       }
     } else {
-      // 1. Noise Median Filtering
+      // 1. Artifact Removal (Hampel MAD outlier rejection)
       const medWindowSize = Math.max(1, Math.round(params.medianSize * this.sampleRate));
-      let afterMedian = GsrFilter.applyMedianFilter(this._rawValsPool, medWindowSize);
+      let afterArtifact = GsrFilter.applyHampelFilter(this._rawValsPool, medWindowSize);
 
-      // 2. Low-Pass Filter — useGaitFilter (on by default) swaps in the
-      // Linkwitz-Riley 4 gait filter (GSR_CONST.GAIT_FILTER) in place of the box
-      // average — see applyZeroPhaseLinkwitzRiley()'s doc comment in
-      // gsr_filter.js for design details.
-      // The toggle is independent of the lpfWindow slider's magnitude — it
-      // has its own fixed cutoff/type — so it takes effect even with
-      // lpfWindow at 0 (the box average's own "off" position); otherwise
-      // checking the toggle while that slider sat at 0 would look like a
-      // broken checkbox that silently does nothing.
+      // 2. Smoothing Low-Pass (Zero-phase 4th-order Butterworth, NeuroKit-style)
+      let afterSmooth = afterArtifact;
       const lpfWinSize = params.lpfWindow * this.sampleRate;
-      let afterLPF;
+      if (lpfWinSize > 1) {
+        if (params.lpfMethod === 'box') {
+          afterSmooth = GsrFilter.applyZeroPhaseMovingAverage(afterSmooth, lpfWinSize);
+        } else {
+          const bwCutoff = params.lpfCutoff || Math.max(0.5, Math.min(this.sampleRate / 2 - 0.1, 1.0 / params.lpfWindow));
+          afterSmooth = GsrFilter.applyZeroPhaseButterworth(afterSmooth, bwCutoff, 4, this.sampleRate);
+        }
+      }
+
+      // 3. Gait Filter (Zero-phase Linkwitz-Riley LR4 @ 1.0Hz)
+      let afterLPF = afterSmooth;
       if (params.useGaitFilter) {
         const gf = (typeof GSR_CONST !== 'undefined' && GSR_CONST.GAIT_FILTER) || { cutoffHz: 1.0, type: 'lr4' };
         if (gf.type === 'butterworth') {
-          afterLPF = GsrFilter.applyZeroPhaseButterworth(afterMedian, gf.cutoffHz, gf.order || 4, this.sampleRate);
+          afterLPF = GsrFilter.applyZeroPhaseButterworth(afterLPF, gf.cutoffHz, gf.order || 4, this.sampleRate);
         } else {
-          afterLPF = GsrFilter.applyZeroPhaseLinkwitzRiley(afterMedian, gf.cutoffHz, this.sampleRate);
+          afterLPF = GsrFilter.applyZeroPhaseLinkwitzRiley(afterLPF, gf.cutoffHz, this.sampleRate);
         }
-      } else {
-        afterLPF = GsrFilter.applyZeroPhaseMovingAverage(afterMedian, lpfWinSize);
       }
 
       this._fillSeries('filtered', afterLPF);
