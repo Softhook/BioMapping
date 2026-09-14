@@ -43,6 +43,7 @@ loadBrowserModule('../src/signal/csv_parser.js',    'GSRCSVParser');
 loadBrowserModule('../src/map/map_exporter.js', 'GSRMapExporter');
 loadBrowserModule('../src/ui/tracks.js',       'GSRTrackManager');
 loadBrowserModule('../src/ui/ui.js',           'GSRUI');
+require('../src/ui/ui_stats_panel.js');
 
 const analyzerSrc = fs.readFileSync(path.join(__dirname, '../src/signal/analyzer.js'), 'utf8');
 vm.runInThisContext(analyzerSrc, { filename: 'analyzer.js' });

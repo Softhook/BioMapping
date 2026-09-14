@@ -445,6 +445,23 @@ const GSREvents = {
    * Wire up all UI event listeners (sliders, file drop, buttons, toggles, panels).
    */
   setupEventListeners() {
+    this._bindGsrAnalysisControls();
+    this._bindTimelineControls();
+    this._bindFileAndExportControls();
+    this._bindGpsControls();
+    this._bindMapPanelControls();
+    this._bindPresetControls();
+    this._bindEnrichmentControls();
+    this._bindEnvironmentalDashboardControls();
+
+    // ── Centralised Layout & Fullscreen Management ───────────────────────────
+    GSRLayoutManager.init();
+  },
+
+  /**
+   * GSR filter sliders, alternative-detector toggles, gait filter, graph-view selector.
+   */
+  _bindGsrAnalysisControls() {
     const S = AppState.sliders;
 
     // ── GSR slider bindings ──────────────────────────────────────────────────
@@ -489,37 +506,12 @@ const GSREvents = {
       GSREvents.applyGraphView();
       S.graphView.addEventListener('change', () => GSREvents.applyGraphView());
     }
+  },
 
-    // ── File Upload Handlers ──────────────────────────────────────────────────
-    // Save browser fullscreen state before the file dialog opens (browser exits fullscreen)
-    AppState.fileInput.addEventListener('click', () => {
-      GSRTrackManager._browserFsSave = AppState.isBrowserFullscreen;
-    });
-    AppState.fileInput.addEventListener('change', GSRTrackManager.handleFileSelect);
-
-    AppState.dropZone.addEventListener('dragover', (e) => {
-      e.preventDefault();
-      AppState.dropZone.classList.add('dragover');
-    });
-    AppState.dropZone.addEventListener('dragleave', () => {
-      AppState.dropZone.classList.remove('dragover');
-    });
-    AppState.dropZone.addEventListener('drop', (e) => {
-      e.preventDefault();
-      AppState.dropZone.classList.remove('dragover');
-      // Dragging doesn't exit fullscreen, no save needed
-      if (e.dataTransfer.files.length > 0) {
-        GSRTrackManager.handleIncomingFiles(Array.from(e.dataTransfer.files));
-      }
-    });
-    AppState.dropZone.addEventListener('click', (e) => {
-      if (!e.target.closest('label') && e.target !== AppState.fileInput) {
-        // Save browser fullscreen state before the file dialog opens
-        GSRTrackManager._browserFsSave = AppState.isBrowserFullscreen;
-        AppState.fileInput.click();
-      }
-    });
-
+  /**
+   * Scrub-dot relay to the map, timeline zoom/reset buttons, curve show/hide toggles, unsaved-labels unload guard.
+   */
+  _bindTimelineControls() {
     // ── Shared scrub channel: relay to the 2D map ────────────────────────────
     // The GSR graph (renderer.js handleScrubber) and the 3D globe
     // (globe3d_view.js) both emit 'scrub' with {lat, lon, index, source} or
@@ -567,6 +559,41 @@ const GSREvents = {
         e.returnValue = '';
       }
     });
+  },
+
+  /**
+   * File upload / drag-drop, the demo-track loader, and every export button (CSV, PNG, map PNG/SVG, CZML/KML, project bundle).
+   */
+  _bindFileAndExportControls() {
+    // ── File Upload Handlers ──────────────────────────────────────────────────
+    // Save browser fullscreen state before the file dialog opens (browser exits fullscreen)
+    AppState.fileInput.addEventListener('click', () => {
+      GSRTrackManager._browserFsSave = AppState.isBrowserFullscreen;
+    });
+    AppState.fileInput.addEventListener('change', GSRTrackManager.handleFileSelect);
+
+    AppState.dropZone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      AppState.dropZone.classList.add('dragover');
+    });
+    AppState.dropZone.addEventListener('dragleave', () => {
+      AppState.dropZone.classList.remove('dragover');
+    });
+    AppState.dropZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      AppState.dropZone.classList.remove('dragover');
+      // Dragging doesn't exit fullscreen, no save needed
+      if (e.dataTransfer.files.length > 0) {
+        GSRTrackManager.handleIncomingFiles(Array.from(e.dataTransfer.files));
+      }
+    });
+    AppState.dropZone.addEventListener('click', (e) => {
+      if (!e.target.closest('label') && e.target !== AppState.fileInput) {
+        // Save browser fullscreen state before the file dialog opens
+        GSRTrackManager._browserFsSave = AppState.isBrowserFullscreen;
+        AppState.fileInput.click();
+      }
+    });
 
     // ── Export Buttons ────────────────────────────────────────────────────────
     document.getElementById('exportCsvBtn').addEventListener('click',   GSRUI.exportCSV);
@@ -583,7 +610,12 @@ const GSREvents = {
 
     // ── Demo Loader ──────────────────────────────────────────────────────────
     document.getElementById('loadDemoBtn').addEventListener('click', GSRTrackManager.loadDefaultTrack);
+  },
 
+  /**
+   * GPS filter sliders, the Arousal Places slider, road-snap radius/toggle, graph background-band overlay toggles, and peak-latency (map-only re-render).
+   */
+  _bindGpsControls() {
     // ── GPS slider bindings ──────────────────────────────────────────────────
     GPS_SLIDER_DEFS.filter(d => d.bindGps)
       .forEach(d => GSREvents.bindGpsSlider(d.id, d.labelId, d.fmt));
@@ -649,7 +681,6 @@ const GSREvents = {
       });
     }
 
-
     // Peak latency — re-render map only (no analysis needed)
     {
       const slider = document.getElementById('gpsPeakLatency');
@@ -671,7 +702,12 @@ const GSREvents = {
         runHeavyWork();
       });
     }
+  },
 
+  /**
+   * View/surface switchers, contour inputs, the map panel's zoom/RF-fluid/shared 2D-3D toggles and coloring-metric selector, panel collapse buttons, and table column sorting.
+   */
+  _bindMapPanelControls() {
     // ── View Switcher ────────────────────────────────────────────────────────
     GSREvents.bindViewSwitcher();
     GSREvents.bindSurfaceSwitcher();
@@ -756,6 +792,29 @@ const GSREvents = {
       if (AppState.mapManager) AppState.mapManager.toggleTracks(btnToggleMapTracks.classList.contains('active'));
     });
 
+    document.getElementById('mapColoringMetric').addEventListener('change', (e) => {
+      if (AppState.mapManager) {
+        AppState.mapManager.activeColoringMetric = e.target.value;
+        // Only the path's colour changes here — a full rerenderMap() also
+        // destroys/rebuilds peak+hotspot markers for no reason (perf-routes
+        // doc §2.2). Single-track view has a scoped path-only refresh;
+        // collective mode still does the full rebuild (out of scope for
+        // this pass — renderCollectiveData()'s per-track loop needs its own
+        // investigation before a partial-render path is worth the risk).
+        if (AppState.viewMode === 'single' && AppState.analyzer && AppState.analyzer.raw.length > 0) {
+          GSRTrackManager.saveActiveGpsParams();
+          AppState.mapManager.refreshPath(AppState.analyzer, GSRStorage.buildGpsParams());
+        } else {
+          GSRUI.rerenderMap();
+        }
+      }
+      // Forward the metric change to the 3D globe immediately when it is the
+      // active surface. Without this the globe only updates after the map emits
+      // 'map:rendered' → 250ms debounce → full renderData rebuild. The
+      // setColoringMetric() fast path avoids that wall-primitive teardown.
+      if (g3d()) g3d().applyColorMetric(e.target.value);
+    });
+
     // ── Panel Collapse Toggles (DRY via bindCollapseButton) ──────────────────
     // The map panel's height now also tracks whether the GSR graph and events
     // table are collapsed: with the graph gone the map flex-grows to fill the
@@ -807,7 +866,12 @@ const GSREvents = {
     GSREvents.bindTableSort('peaksTable',       'sortPeaksTable');
     GSREvents.bindTableSort('correlationTable', 'sortCorrelationTable');
     GSREvents.bindTableSort('roadArousalTable', 'sortRoadArousalTable');
+  },
 
+  /**
+   * Export/import/apply-to-all-tracks for GSR+GPS parameter presets.
+   */
+  _bindPresetControls() {
     // ── Preset Export / Import Controls ─────────────────────────────────────
     const btnExportPreset = document.getElementById('btnExportPreset');
     if (btnExportPreset) {
@@ -894,7 +958,12 @@ const GSREvents = {
         }
       });
     }
+  },
 
+  /**
+   * OSM enrichment radius/retrieve/clear-cache, the shared OSM overlay toggle, and NDVI layer/sample/Copernicus config controls.
+   */
+  _bindEnrichmentControls() {
     // ── OSM Enrichment Control Bindings ─────────────────────────────────────
     {
       const radiusSlider = document.getElementById('osmRadius');
@@ -934,29 +1003,6 @@ const GSREvents = {
         console.error('OsmCache.clear failed:', err);
         alert('Could not clear the OSM cache: ' + err.message);
       }
-    });
-
-    document.getElementById('mapColoringMetric').addEventListener('change', (e) => {
-      if (AppState.mapManager) {
-        AppState.mapManager.activeColoringMetric = e.target.value;
-        // Only the path's colour changes here — a full rerenderMap() also
-        // destroys/rebuilds peak+hotspot markers for no reason (perf-routes
-        // doc §2.2). Single-track view has a scoped path-only refresh;
-        // collective mode still does the full rebuild (out of scope for
-        // this pass — renderCollectiveData()'s per-track loop needs its own
-        // investigation before a partial-render path is worth the risk).
-        if (AppState.viewMode === 'single' && AppState.analyzer && AppState.analyzer.raw.length > 0) {
-          GSRTrackManager.saveActiveGpsParams();
-          AppState.mapManager.refreshPath(AppState.analyzer, GSRStorage.buildGpsParams());
-        } else {
-          GSRUI.rerenderMap();
-        }
-      }
-      // Forward the metric change to the 3D globe immediately when it is the
-      // active surface. Without this the globe only updates after the map emits
-      // 'map:rendered' → 250ms debounce → full renderData rebuild. The
-      // setColoringMetric() fast path avoids that wall-primitive teardown.
-      if (g3d()) g3d().applyColorMetric(e.target.value);
     });
 
     // The OSM overlay (2D vector shapes / 3D extruded buildings) is one shared
@@ -1050,7 +1096,12 @@ const GSREvents = {
     }
 
     syncCopernicusBadges();
+  },
 
+  /**
+   * Environmental dashboard tab switcher and scatter-plot metric selects.
+   */
+  _bindEnvironmentalDashboardControls() {
     // Dashboard Tab Switcher
     const bindEnvTab = (btnId, panelId) => {
       const btn = document.getElementById(btnId);
@@ -1075,10 +1126,8 @@ const GSREvents = {
 
     document.getElementById('scatterEnvMetric').addEventListener('change', () => GSRUI.updateEnvironmentalDashboard());
     document.getElementById('scatterBioMetric').addEventListener('change', () => GSRUI.updateEnvironmentalDashboard());
-
-    // ── Centralised Layout & Fullscreen Management ───────────────────────────
-    GSRLayoutManager.init();
   },
+
 
   /**
    * View switcher (Single Track ↔ Collective Map Surface).

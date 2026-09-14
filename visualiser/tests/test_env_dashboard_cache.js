@@ -63,6 +63,9 @@ loadModule(path.join(__dirname, '../src/signal/deconvolution.js'), 'SCRDeconvolu
 
 const { GSRAnalyzer } = require('../src/signal/analyzer.js');
 const { GSRUI }       = require('../src/ui/ui.js');
+require('../src/ui/ui_correlation_table.js');
+require('../src/ui/ui_road_profile.js');
+require('../src/ui/ui_environmental_dashboard.js');
 
 // ── Fixture: a real recorded track (same file test_all_pipelines.js uses). ──
 const csvText = fs.readFileSync(path.join(__dirname, '../../tracks/biomap_048.csv'), 'utf8');

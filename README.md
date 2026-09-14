@@ -13,7 +13,7 @@ It has two parts:
 
 The first Bio Mapping device (Christian Nold, 2004) was used in workshops with thousands of people across sixteen countries. Participants walked through an area wearing the device and then annotated the recorded data together, producing collective emotion maps. Results from those workshops are published online — the [Greenwich Emotion Map](http://emotionmap.net/), the [San Francisco Emotion Map](http://www.sf.biomapping.net/) and the [Stockport Emotion Map](http://stockport.emotionmap.net/) — and the approach is discussed in the book [*Emotional Cartography*](http://www.emotionalcartography.net/).
 
-BioMapping 2.0 is a high-fidelity successor that takes you much deeper into the body and uses more hardware and software to identify subtle nervous system responses and create a different vision of the mind-body relationship. 
+BioMapping 2.0 is a high-fidelity successor that takes you much deeper into the body and uses more sophisticated hardware and software to identify subtle nervous system responses and create a new vision of the mind-body relationship. 
 
 ---
 
@@ -162,7 +162,7 @@ The visualiser provides a full suite of research-grade methods for ambulatory ED
 - **Signal Filtering & Motion Artefact Rejection:**
   - *Hampel / Median Filter* — Removes transient spikes and electrode loose-contact glitches.
   - *Butterworth Low-Pass* — 4th-order zero-phase filter to smooth high-frequency electrical fuzz and tremor.
-  - *Zero-Phase Gait Filter* — Band-reject filter tuned to pedestrian footstep cadence (~1.5–2.5 Hz) to eliminate ambulatory motion artefacts while preserving genuine SCRs.
+  - *Zero-Phase Gait Filter* — 4th-order Linkwitz-Riley low-pass at 1.0 Hz, tuned to reject ~1.4–2.0 Hz walking-cadence ripple without ringing or genuine SCR amplitude loss.
 - **Tonic / Phasic Decomposition:**
   - *Ultra Low-Pass (EMA)* — Exponential moving average baseline estimation with configurable time window (15–90 s).
   - *Moving Median* — Robust sliding-window baseline estimation.

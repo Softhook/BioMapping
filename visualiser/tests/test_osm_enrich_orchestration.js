@@ -38,6 +38,7 @@ loadModule(path.join(__dirname, '../src/signal/stats_math.js'), 'StatsMath');
 loadModule(path.join(__dirname, '../src/map/map_colors.js'), 'MapColors');
 
 const { GSRUI } = require('../src/ui/ui.js');
+require('../src/ui/ui_enrichment.js');
 
 // ── Mutable DOM stub (enrichTrack reads/writes several elements). ──
 function makeEl(props = {}) {

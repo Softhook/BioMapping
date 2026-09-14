@@ -43,7 +43,12 @@ const SCRIPT_ORDER = [
   'src/render/label_placement.js', 'src/render/bezier_spline.js', 'src/render/contour_ring_geometry.js', 'src/map/map_exporter.js', 'src/render/rf_fluid_renderer.js', 'src/map/map_popups.js', 'src/map/map.js', 'src/map/map_manager_process.js', 'src/map/map_manager_legend.js', 'src/map/map_manager_layers.js', 'src/map/map_manager_osm.js', 'src/map/map_manager_rf_fluid.js', 'src/map/map_manager_viewport.js', 'src/map/map_manager_render.js', 'src/map/map_manager_path.js', 'src/map/map_manager_peaks.js', 'src/map/map_manager_arousal_places.js', 'src/map/map_manager_collective.js', 'src/map/map_manager_toggles.js',
   'src/map/globe3d/exporters.js', 'src/map/globe3d/rf_expanse.js', 'src/map/globe3d/buildings.js',
   'src/map/globe3d.js', 'src/map/globe3d_view.js', 'src/ui/storage.js',
-  'src/ui/events.js', 'src/ui/tracks.js', 'src/spatial/collective_project.js', 'src/ui/ui.js', 'src/render/renderer.js', 'src/render/sketch.js',
+  'src/ui/events.js', 'src/ui/tracks.js', 'src/spatial/collective_project.js', 'src/ui/ui.js',
+  'src/ui/ui_peaks_table.js', 'src/ui/ui_stats_panel.js', 'src/ui/ui_collective_map.js',
+  'src/ui/ui_export.js', 'src/ui/ui_osm_overlay.js', 'src/ui/ui_enrichment.js',
+  'src/ui/ui_correlation_table.js', 'src/ui/ui_road_profile.js',
+  'src/ui/ui_environmental_dashboard.js', 'src/ui/ui_modals.js',
+  'src/render/renderer.js', 'src/render/sketch.js',
 ];
 
 // p5 "global mode" functions/constants referenced as bare identifiers by
