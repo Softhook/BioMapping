@@ -73,7 +73,7 @@ Accuracy zones by the fraction of real-world track data that falls inside them:
 **Biometric interface**
 * GSR finger electrodes — biometric finger clips, or velcro strips with foil / copper tape.
 
-## Wiring Guide
+## GSR TransImpedance Circuit
 
 ![BioMapping 2 TIA GSR circuit schematic — power-supply bypass, 0.5 V reference buffer (op-amp B), transimpedance amplifier (op-amp A), and differential connection to the ADS1115 over the Flipper I²C bus.](docs/gsr_circuit.png)
 
