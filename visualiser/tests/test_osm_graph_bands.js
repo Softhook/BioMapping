@@ -40,6 +40,11 @@ const { OSMEnricher } = require('../src/osm/osm_enrichment.js');
 global.OSMEnricher = OSMEnricher;
 
 const { GSRRenderer } = require('../src/render/renderer.js');
+// The OSM context-band methods live in the object-augment split
+// renderer_bands.js (see renderer.js's class-tail manifest comment) — under
+// plain require() it hands back its method object instead of assigning
+// onto a live global.
+Object.assign(GSRRenderer, require('../src/render/renderer_bands.js'));
 
 test('OSM classification reuses MapColors road/park colours (no separate palette)', () => {
   const primary = GSRRenderer._classifyOsmContext({ osm_road_class: 'primary', osm_in_park: 0 });

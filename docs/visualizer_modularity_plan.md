@@ -72,9 +72,9 @@ classification:
 
 | File | Lines | Class | Verdict |
 |---|---:|---|---|
-| `map/globe3d.js` | 2,917 | Split candidate | **Recommended, see below** |
+| `map/globe3d.js` | 2,917 → 1,768 | Split candidate | **DONE 2026-09-14** |
 | `signal/analyzer.js` | 2,803 | Not a candidate | Leave — one memoized pipeline |
-| `render/renderer.js` | 1,757 | Split candidate | **Recommended, see below** |
+| `render/renderer.js` | 1,757 → 99 | Split candidate | **DONE 2026-09-14** |
 | `osm/ndvi_sampler.js` | 1,424 | Not a candidate | Leave — one fetch/decode/sample pipeline |
 | `live/live_view.js` | 1,072 | Ambiguous | Investigate only, not now |
 | `signal/deconvolution.js` | 1,040 | Not a candidate | Leave — one algorithm |
@@ -153,22 +153,94 @@ via the existing test suite (currently 1,321 Node tests) plus a headless-
 browser smoke pass exercising the moved features — the same two-step
 verification used for the `ui.js`/`events.js` work:
 
-1. **`globe3d.js` split** (highest value: largest file, clearest
-   god-object shape). Proposed files, mirroring `map_manager_*.js`'s
-   naming: `globe3d.js` (constructor, viewer/camera, shared caches),
-   `globe3d_peaks.js` (spires, hotspots, cluster blobs, metric-series
-   cache), `globe3d_osm.js` (building extrusion), `globe3d_rf.js` (RF
-   expanse), `globe3d_toggles.js` (visibility toggles + entity clearing),
-   `globe3d_navigation.js` (fly-to/focus/orbit), `globe3d_tour.js`
-   (automated sequential tour). Exact grouping to be finalised the same
-   way `ui.js` was — extract by method, verify zero non-blank lines lost,
-   check for cross-group local-variable/helper dependencies (`ui.js`'s
-   `_osmOverlayOn`/`_osmFetching` plain-property case and the `g3d`/`onGlobe`
-   cross-boundary case in `events.js` are exactly the kind of thing to
-   check for here too) before committing to file boundaries.
-2. **`renderer.js` split**, same method: band overlays, grid, curve,
-   peak/hotspot markers + pulse animation, hit-testing/scrub, tooltip/
-   timeline as candidate groups.
+1. **`globe3d.js` split — DONE 2026-09-14** (commit `f7fa793`). Landed
+   exactly as proposed: `globe3d.js` (2,917 → 1,768 lines: constructor,
+   viewer/camera setup, wall+path rendering, scrub/interaction, shared
+   `_getMetricSeries` cache — it turned out to be read from 3 of the 6
+   moved groups, not just peaks, so it stayed core rather than moving to
+   `globe3d_peaks.js` as first guessed), `globe3d_peaks.js` (419: spires,
+   hotspots, cluster blobs), `globe3d_osm.js` (161: building extrusion
+   orchestration — the geometry itself already lived in
+   `globe3d/buildings.js` from an earlier session), `globe3d_rf.js` (73:
+   RF expanse orchestration, same story re `globe3d/rf_expanse.js`),
+   `globe3d_toggles.js` (151: visibility toggles + entity clearing),
+   `globe3d_navigation.js` (228: fly-to/focus/orbit), `globe3d_tour.js`
+   (310: automated sequential tour). Every method body verified
+   byte-identical by script (line-range diff against the original; only
+   trailing commas added). Full Node suite green throughout (1,321/1,321);
+   the headless-browser smoke pass was **not** run this session (no
+   Playwright/Puppeteer installed, would need a network fetch to add it) —
+   flagged as a gap below rather than skipped silently.
+
+   Two real complications found during extraction, worth remembering for
+   the next split:
+   - **`test_globe3d.js` breaks a plain-`require()` unit-test harness.**
+     Unlike every `map_manager_*.js` test (which only exercise
+     `GSRMapManager` via `bootApp()`'s shared vm context, where top-level
+     `class`/`const` persist across separate `vm.runInContext` calls —
+     confirmed experimentally), `test_globe3d.js` does a bare Node
+     `require(globe3d.js)` per test for fine-grained isolation. A plain
+     `require()` gives each file its own module scope, so the augment
+     files' `Object.assign(GSRGlobeManager.prototype, {...})` had nothing
+     to attach to. Fix: the augment files went dual-mode (mirroring
+     globe3d.js's own tail) — live-global assign in the browser/vm path,
+     `module.exports = methods` under CommonJS — and
+     `test_globe3d.js`/`tests/manual/_bench_globe3d_perf.js` (also a plain
+     `require()` site) now apply all 6 after loading the core module. Any
+     future split of a class with its own plain-`require()` test file
+     needs this same treatment, not just the `bootApp()` convention.
+   - **Free module-scope identifiers, not just `this.*` methods, cross
+     group boundaries.** `HEIGHT_CAPABLE_METRICS` (peaks) and `seriesValue`
+     (tour) are top-level `const`s in globe3d.js referenced by bare name
+     from the moved method bodies. In the vm/browser path they resolve
+     fine (same persistence mechanism as the class itself). Under
+     `require()` they don't — fixed by stamping them onto `global` in the
+     augment file's require-branch only (never declaring a same-named
+     local, which would TDZ-shadow the vm-path binding). Grep every
+     module-level `const`/function a moved method references, not just
+     grep the method names — this class of bug produces no syntax error,
+     only a runtime `ReferenceError` on the first real invocation, so
+     `node --check` alone won't catch it.
+
+2. **`renderer.js` split — DONE 2026-09-14** (same session, commit
+   pending). `GSRRenderer` turned out to be a plain object literal (like
+   `GSRUI`), not a `class` — so the split follows the `ui_*.js`
+   object-augment precedent (`Object.assign(GSRRenderer, {...})`, no
+   `.prototype`), not the `map_manager_*.js`/`globe3d_*.js` class-prototype
+   one. Landed as: `renderer.js` (1,757 → 99 lines: `getThemeColor`,
+   `clearThemeCache`, `drawPlaceholder`, plus the module-level
+   `getQualityColor`/`getQualityLabel`/`EXCLUDED_STYLE`/`NORMAL_DASH`/
+   `EXCLUDE_BTN` every group reads from), `renderer_bands.js` (323: OSM/
+   NDVI/EM-fog background context bands), `renderer_curve.js` (324: signal
+   curve, phasic area, response-dynamics overlay), `renderer_markers.js`
+   (455: peak markers + pulse animation, hotspot markers),
+   `renderer_interaction.js` (354: click/hit-testing, graph-scrub hover),
+   `renderer_chrome.js` (369: grid, tooltip, timeline overview). Every
+   method body verified byte-identical by script, same as `globe3d.js`.
+
+   This split hit **both** lessons the `globe3d.js` split had just
+   surfaced, confirming they generalise rather than being one-offs:
+   - **4 more plain-`require()` test files** (`test_curve_force_indices.js`,
+     `test_emfog_graph_bands.js`, `test_ndvi_graph_bands.js`,
+     `test_osm_graph_bands.js`) needed the same dual-mode augment-file
+     treatment + an explicit `Object.assign(GSRRenderer, require(...))` in
+     each test file after its own `require('../src/render/renderer.js')`.
+   - **A new variant of the free-identifier problem:** two methods
+     (`_classifyOsmContext` in the bands group, `handleScrubber` in the
+     interaction group) referenced the shared singleton **by its own bare
+     name** (`GSRRenderer.PARK_EDGE_TOLERANCE_M`, `GSRRenderer.drawTooltip(...)`)
+     instead of `this.` — a self-reference / cross-group call written as if
+     `GSRRenderer` were a module-level global, which it effectively is in
+     the browser/vm path. Same fix as `HEIGHT_CAPABLE_METRICS`: stamp
+     `GSRRenderer` itself onto `global` in the affected augment files'
+     require-branch. **Lesson for the next split:** grep every moved method
+     for the class/object's own name used as a bare identifier, not just
+     for genuinely-external module-level consts — a `this`-less
+     self-reference is easy to miss by eye and produces no syntax error,
+     only a `ReferenceError` on first real call (this one was caught by the
+     existing `test_osm_graph_bands.js` "Park edge tolerance" test, not by
+     `node --check`).
+
 3. **`live_view.js` and `globe3d_view.js`**: read in full, apply the
    decision framework above, only split if they turn out to genuinely be
    loosely-coupled feature piles rather than one coordinating role.
@@ -176,8 +248,13 @@ verification used for the `ui.js`/`events.js` work:
    is revisited, extract named private steps within the file (same pattern
    as `events.js`'s `setupEventListeners()`), not a topic-file split.
 
-Nothing here is scheduled — each step is its own follow-up to pick up when
-wanted, not a commitment made now.
+**Open gap:** no headless-browser smoke pass has verified either the
+`globe3d.js` split (3D tab, peak click, tour, OSM buildings toggle) or the
+`renderer.js` split (main graph draw, hotspot/peak click, tooltip, timeline
+scrub) in an actual running page — only the Node test suite, for both. Worth
+doing together if a Playwright/Puppeteer setup becomes available.
+
+Remaining steps are still pick-up-when-wanted, not scheduled commitments.
 
 ## Verification, every step
 

@@ -48,7 +48,7 @@ const SCRIPT_ORDER = [
   'src/ui/ui_export.js', 'src/ui/ui_osm_overlay.js', 'src/ui/ui_enrichment.js',
   'src/ui/ui_correlation_table.js', 'src/ui/ui_road_profile.js',
   'src/ui/ui_environmental_dashboard.js', 'src/ui/ui_modals.js',
-  'src/render/renderer.js', 'src/render/sketch.js',
+  'src/render/renderer.js', 'src/render/renderer_bands.js', 'src/render/renderer_curve.js', 'src/render/renderer_markers.js', 'src/render/renderer_interaction.js', 'src/render/renderer_chrome.js', 'src/render/sketch.js',
 ];
 
 // p5 "global mode" functions/constants referenced as bare identifiers by

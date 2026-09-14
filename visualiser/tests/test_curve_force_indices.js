@@ -13,6 +13,10 @@ global.AppState = {
   }
 };
 const { GSRRenderer } = require('../src/render/renderer.js');
+// _buildCurveContext lives in the object-augment split renderer_curve.js
+// (see renderer.js's class-tail manifest comment) — under plain require()
+// it hands back its method object instead of assigning onto a live global.
+Object.assign(GSRRenderer, require('../src/render/renderer_curve.js'));
 
 function legacySetSortMerge(startIdx, endIdx, step, forceIndices) {
   const forced = [];
