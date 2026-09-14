@@ -2,18 +2,18 @@
 
 *Christian Nold, 2026*
 
-BioMapping 2.0 records your Galvanic Skin Response — a measure of emotional arousal — mapped to your geographical location as you walk through a landscape. The visualiser finds the moments of strongest response and shows where they cluster on a map, either for a single walk or across many walks combined.
+BioMapping 2.0 records your Galvanic Skin Response — a measure of emotional arousal — mapped to your geographical location as you walk through an envrironment. 
 
 It has two parts:
 
 - **[The Hardware](#the-hardware)** — a Flipper Zero wired to a custom skin-response sensor and a GPS module, logging to the SD card as CSV.
-- **[The Visualiser](#the-visualiser)** — browser pages that turn a recording into a map ([`visualiser/index.html`](visualiser/index.html)), or show the walk live over Bluetooth as it happens ([`visualiser/live.html`](visualiser/live.html)).
+- **[The Visualiser](#the-visualiser)** — browser pages that turn a recording into a map ([`visualiser/index.html`](visualiser/index.html)).
 
 ## The Original Bio Mapping
 
 The first Bio Mapping device (Christian Nold, 2004) was used in workshops with thousands of people across sixteen countries. Participants walked through an area wearing the device and then annotated the recorded data together, producing collective emotion maps. Results from those workshops are published online — the [Greenwich Emotion Map](http://emotionmap.net/), the [San Francisco Emotion Map](http://www.sf.biomapping.net/) and the [Stockport Emotion Map](http://stockport.emotionmap.net/) — and the approach is discussed in the book [*Emotional Cartography*](http://www.emotionalcartography.net/).
 
-BioMapping 2.0 is a higher-fidelity successor to that original device.
+BioMapping 2.0 is a high-fidelity successor that takes you much deeper into the body and uses more hardware and software to identify subtle nervous system responses and create a different vision of the mind-body relationship. 
 
 ---
 
@@ -33,32 +33,17 @@ The device is a Flipper Zero running the Bio Mapping app, wired to a custom skin
 
 Everything is logged to `/ext/biomapping/*.csv` at 10 Hz. A Live Stream mode sends GPS + GSR over Bluetooth instead of recording.
 
-## Hardware Accuracy (vs. Shimmer3 GSR+)
+## Circuit
 
-The GSR front-end is built to research-grade specification and measured against a precision metal-film resistor grid (10 kΩ – 9 MΩ), full sweep in [`docs/reference_test_results.csv`](docs/reference_test_results.csv).
+Key component values, matching the [schematic](docs/gsr_circuit.png) in the Wiring Guide:
 
-| | BioMapping 2.0 | [Shimmer3 GSR+](https://shimmersensing.com/product/shimmer3-gsr-unit/) |
-|---|---|---|
-| Method | Constant voltage, 0.5 V | Constant voltage, 0.5 V |
-| Resolution | **< 0.5 nS** (16-bit ADC + 100 ms decimation) | Variable (12-bit ADC, worse at low conductance) |
-| Accuracy error (primary range) | **≤ ±0.1%** (47 kΩ – 1 MΩ) | ±3% (22 kΩ – 680 kΩ) |
-| Accuracy error (wide range) | ≤ ±0.5% (22 kΩ – 2.2 MΩ) | ±10% (10 kΩ – 4.7 MΩ) |
-| Accuracy error (extreme range) | ≤ ±1.0% (15 kΩ – 4.7 MΩ) | — |
+| Parameter | Value |
+|---|---|
+| V_ref (voltage divider) | 0.5 V = 3.3 V × 10 kΩ / (56 kΩ + 10 kΩ) |
+| R_f (TIA feedback) | 47 kΩ |
+| R_safety (two 4.7 kΩ in series) | 9.4 kΩ |
 
-Accuracy zones by the fraction of real-world track data that falls inside them:
-
-- **≤ ±0.1%** — 47 kΩ – 1 MΩ (1,000 – 21,277 nS): 99.05% of data
-- **≤ ±0.5%** — 22 kΩ – 2.2 MΩ (455 – 45,455 nS): 99.75%
-- **≤ ±1.0%** — 15 kΩ – 4.7 MΩ (213 – 66,667 nS): 99.89%
-- Below 100 nS (over 10 MΩ) the device reports an open circuit (electrodes disconnected / air).
-
-## Installing the App
-
-A Flipper external app (FAP) for stock firmware; also runs on the API-compatible forks (Momentum, Unleashed, RogueMaster). Download `biomap.fap` from the [Releases](https://github.com/Softhook/BioMapping/releases) page, or build from `firmware/` with [`ufbt`](https://pypi.org/project/ufbt/).
-
-Run the host unit tests with `./run_tests.sh` from `firmware/`.
-
-## Hardware Requirements
+## Hardware
 
 **Core boards**
 * **[Flipper Zero](https://flipperzero.one/)**
@@ -136,81 +121,40 @@ Pin 4 = GND       Pin 5 = In+ B
 
 The ADS1115 subtracts the 0.5V virtual-ground offset, isolating the amplified skin-current data while rejecting system noise.
 
-## Recordings on the SD Card
+## Hardware Accuracy (vs. Shimmer3 GSR+)
 
-Files are written to `/ext/biomapping/` as `biomap_001.csv` … `biomap_999.csv` (auto-incrementing, wraps at 999). Each row is one 10 Hz tick.
+The GSR front-end is built to research-grade specification and measured against a precision metal-film resistor grid (10 kΩ – 9 MΩ), full sweep in [`docs/reference_test_results.csv`](docs/reference_test_results.csv).
 
-**Header.** Every file starts with the integrity marker, then `#`-prefixed metadata lines, then the column header:
+| | BioMapping 2.0 | [Shimmer3 GSR+](https://shimmersensing.com/product/shimmer3-gsr-unit/) |
+|---|---|---|
+| Method | Constant voltage, 0.5 V | Constant voltage, 0.5 V |
+| Resolution | **< 0.5 nS** (16-bit ADC + 100 ms decimation) | Variable (12-bit ADC, worse at low conductance) |
+| Accuracy error (primary range) | **≤ ±0.1%** (47 kΩ – 1 MΩ) | ±3% (22 kΩ – 680 kΩ) |
+| Accuracy error (wide range) | ≤ ±0.5% (22 kΩ – 2.2 MΩ) | ±10% (10 kΩ – 4.7 MΩ) |
+| Accuracy error (extreme range) | ≤ ±1.0% (15 kΩ – 4.7 MΩ) | — |
 
-```
-# Integrity: crc32 v1
-# RecordingStartTime:1751204579
-# DeviceName:Clara
-# Band Floors (dBm): 815:-91.5,868:-91.5,915:-91.5
-# GPSChipID:axis slang boast putt chunk
-# GSR Calibration: gain:1.0234,offset:-152.7000
-timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw,hacc_m,rssi_815,rssi_868,rssi_915
-0.00,51.5072000,-0.1276000,1.2,1.5,8,3,2.40,185.0,4523.0,2.4,-91.5,-88.0,-95.0
-0.10,51.5072000,-0.1276000,1.2,1.5,8,3,2.40,185.0,4528.0,2.3,-91.5,-88.0,-95.0
-```
+Accuracy zones by the fraction of real-world track data that falls inside them:
 
-- `RecordingStartTime` and `DeviceName` are always present, in that order. `RecordingStartTime` is a Unix epoch (UTC) from the Flipper RTC (`0` if the RTC was never set — set it to UTC before recording); `DeviceName` is the Flipper's user-visible name, empty if the HAL returns none.
-- The other three lines are conditional: `# Band Floors` when RF is active **and** an RF calibration exists (the visualiser uses it to normalise RSSI); `# GPSChipID` (a 5-word mnemonic for the M10Q's unique ID) in GPS modes once the chip answers the poll, M10Q builds only; `# GSR Calibration` (the `gain`/`offset` nS fit) only when a custom calibration is loaded. Full detail in [`docs/csv_schema.md`](docs/csv_schema.md).
-- `timestamp` is **relative seconds since record start** (0.1 s resolution) — absolute time for a row is `RecordingStartTime + timestamp`.
-- When there's no GPS fix on a tick, `lat`/`lon` and the other GPS columns are left empty (e.g. `0.30,,,,,,,,,4519.0,`) so the visualiser reads a gap rather than a `(0,0)` point. `hacc_m` is horizontal accuracy in meters; it stays `99.9` until the module reports an estimate.
+- **≤ ±0.1%** — 47 kΩ – 1 MΩ (1,000 – 21,277 nS): 99.05% of data
+- **≤ ±0.5%** — 22 kΩ – 2.2 MΩ (455 – 45,455 nS): 99.75%
+- **≤ ±1.0%** — 15 kΩ – 4.7 MΩ (213 – 66,667 nS): 99.89%
+- Below 100 nS (over 10 MΩ) the device reports an open circuit (electrodes disconnected / air).
 
-**Column count per mode:** GPS + GSR + RF and GPS + RF → 14; GPS + GSR → 11; GSR Only → 2 (`timestamp,gsr_raw`). GPS + RF rows carry `gsr_raw` = `0.0`. [`docs/csv_schema.md`](docs/csv_schema.md) is the canonical, versioned column reference; **Options → Debug Fields** appends further diagnostic columns.
+## Installing the App
 
-**Approximate size per hour at 10 Hz:** GPS + GSR ≈ 2.1 MB; GPS + GSR + RF / GPS + RF ≈ 2.8 MB; GSR Only ≈ 0.4 MB. The log file is pre-allocated at record start and trimmed at stop, so free space briefly looks lower during a recording.
+A Flipper external app (FAP) for stock firmware; also runs on the API-compatible forks (Momentum, Unleashed, RogueMaster). Download `biomap.fap` from the [Releases](https://github.com/Softhook/BioMapping/releases) page, or build from `firmware/` with [`ufbt`](https://pypi.org/project/ufbt/).
 
-**Integrity bracket.** The `# Integrity: crc32 v1` first line and a matching `# End rows:… bytes:… crc32:… overflows:… flush_fails:…` trailer (written when recording stops cleanly) let the visualiser confirm a file is a complete, unaltered recording — it shows a small tick per track, flags a truncated file (no trailer) or one edited after the fact (checksum mismatch), and surfaces any SD-pressure row drops. It's corruption detection, not tamper-proofing — a plain CRC can be recomputed. See [`docs/csv_schema.md`](docs/csv_schema.md).
+Run the host unit tests with `./run_tests.sh` from `firmware/`.
 
-## Circuit Reference
+## CSV Schema
 
-Key component values, matching the [schematic](docs/gsr_circuit.png) in the Wiring Guide:
-
-| Parameter | Value |
-|---|---|
-| V_ref (voltage divider) | 0.5 V = 3.3 V × 10 kΩ / (56 kΩ + 10 kΩ) |
-| R_f (TIA feedback) | 47 kΩ |
-| R_safety (two 4.7 kΩ in series) | 9.4 kΩ |
-
-The sensor is read continuously in the background. Each 10 Hz sample written to the CSV is a 100 ms average — which cancels mains hum — converted to skin conductance in nanosiemens. The on-screen graph shows the rate of change of that signal, not its absolute level.
-
-## GPS Quality
-
-The device logs every GPS fix the receiver reports, regardless of quality, so nothing is lost in built-up areas. Rows with no fix are written with empty `lat`/`lon`, and the visualiser applies its own quality filter at display time.
+[`docs/csv_schema.md`](docs/csv_schema.md) is the canonical, versioned definition of every column and sentinel value, shared by the device and both visualiser pages.
 
 ---
 
 # The Visualiser
 
 Browser software under [`visualiser/`](visualiser/) — no server, no build step to run it. It has two entry points.
-
-## Post-Processing
-
-[`visualiser/index.html`](visualiser/index.html) — open it directly in a browser and drag one or more `biomap_*.csv` files onto it. It:
-
-1. **Loads** the CSV, honouring the `#` metadata header and relative-seconds `timestamp`, skipping rows with empty `lat`/`lon` (GPS gaps).
-2. **Filters** the GSR signal (median + low-pass) and separates the slow-moving baseline from the fast responses — low-pass by default, or a wavelet transform.
-3. **Detects peaks** in the fast responses, scored by shape quality (an optional deconvolution mode can replace this step).
-4. **Maps** the track on a Leaflet base map and places a marker at each detected peak.
-5. **Clusters** the peaks by geographic proximity into boundary blobs styled by severity. **Collective mode** does this across multiple overlaid tracks and adds a smooth contour surface, optionally cross-referenced with OpenStreetMap features (road class, green space, buildings).
-
-```mermaid
-flowchart LR
-    CSV["biomap_*.csv<br/>(one or more)"] --> LOAD["Load<br/>honour # metadata header<br/>skip empty lat/lon (GPS gaps)"]
-    LOAD --> FILT["Filter GSR<br/>median + low-pass"]
-    FILT --> SPLIT["Baseline / response split<br/>low-pass or wavelet"]
-    SPLIT --> PEAK["Peak detection<br/>shape-quality scoring"]
-    PEAK --> MAP["Leaflet map<br/>peak markers on the track"]
-    MAP --> CLUST["Spatial peak clusters<br/>proximity-grouped blobs"]
-    CLUST --> Q{"Collective mode?"}
-    Q -->|no| SINGLE["Single-track map"]
-    Q -->|yes| COLL["Overlay multiple tracks<br/>contour surface<br/>cross-reference OpenStreetMap features"]
-```
-
-Filtering, peak detection, and the GPS quality filter are all adjustable in the UI at runtime. The device logs every GPS fix; the quality filter (default HDOP 3.0) is applied here, at display time, and is non-destructive.
 
 ## Software & Algorithmic Accuracy
 
@@ -239,27 +183,6 @@ BioMapping ships its own detection pipeline — built to run entirely client-sid
 
 Full methodology, every detector variant, and the complete benchmark history are in [`docs/eda_detection_benchmark.md`](docs/eda_detection_benchmark.md).
 
-## Live View
-
-[`visualiser/live.html`](visualiser/live.html) — receives GPS + GSR from the Flipper's **Live Stream** mode over Bluetooth LE in real time, for watching a walk unfold on a laptop or phone as it happens. The same view is built into `index.html` under the **Live** tab of the top-right view switcher (Single Track / Collective / Live); `live.html` is just the standalone host for it (shared code in [`visualiser/src/live/`](visualiser/src/live/)).
-
-- The Flipper sends a 45-byte packed binary packet every 300 ms over the stock BLE serial profile, already GSR-calibrated (the wire packet carries the same calibrated nS value a recording writes). Design notes: [`docs/archive/bluetooth_serial_investigation.md`](docs/archive/bluetooth_serial_investigation.md).
-- **Export CSV** writes a file byte-compatible with a recorded track: the same 11-column GPS + GSR schema, the same `# Integrity: crc32 v1` marker and `# End … crc32:…` trailer, so it imports and integrity-verifies exactly like an SD recording. (Two fields the BLE packet can't carry: `hacc_m` stays empty, and there's no `# GSR Calibration:` metadata line.)
-- **Browser support:** Web Bluetooth needs desktop Chrome / Edge or Android Chrome / Edge. Safari (any platform) and Firefox are unsupported — there is no iPhone path.
-
-## Basemap tiles
-
-Both pages draw on CARTO's Positron basemap, which now needs a free key
-(`carto.com/basemaps/apikey`). Put it in [`visualiser/config.js`](visualiser/config.js)
-(`cartoApiKey`) and, since that file is served publicly, restrict the key to
-your domain(s) in the CARTO dashboard. Without a key the map still loads but
-every tile carries an "API key required" watermark. For local development,
-`visualiser/config.local.js` (gitignored, see `config.local.example.js`) or a
-`localStorage['bioMappingCartoApiKey']` entry overrides `config.js`.
-
-## CSV Schema
-
-[`docs/csv_schema.md`](docs/csv_schema.md) is the canonical, versioned definition of every column and sentinel value, shared by the device and both visualiser pages.
 
 ---
 
