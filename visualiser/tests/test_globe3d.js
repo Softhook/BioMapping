@@ -20,6 +20,14 @@ const path = require('path');
 
 const APP_DIR = path.join(__dirname, '..');
 const GLOBE3D = path.join(APP_DIR, 'src', 'map', 'globe3d.js');
+// Prototype-augment files (see globe3d.js's class-tail manifest comment):
+// under plain require() (this file's per-test isolation harness) each one
+// exports its method object instead of assigning onto a live global, so
+// loadFresh() below applies them itself.
+const GLOBE3D_AUGMENTS = [
+  'globe3d_osm.js', 'globe3d_rf.js', 'globe3d_peaks.js',
+  'globe3d_toggles.js', 'globe3d_navigation.js', 'globe3d_tour.js',
+].map((f) => path.join(APP_DIR, 'src', 'map', f));
 
 // ── A minimal Cesium stand-in ───────────────────────────────────────────────
 // Any property access yields a callable/constructable stub; chained calls
@@ -84,7 +92,12 @@ function freshEnv() {
 
 function loadFresh() {
   delete require.cache[require.resolve(GLOBE3D)];
-  return require(GLOBE3D);
+  const mod = require(GLOBE3D);
+  for (const augment of GLOBE3D_AUGMENTS) {
+    delete require.cache[require.resolve(augment)];
+    Object.assign(mod.GSRGlobeManager.prototype, require(augment));
+  }
+  return mod;
 }
 
 test('exports the manager and the module-level helpers', () => {

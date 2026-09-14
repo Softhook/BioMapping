@@ -80,6 +80,23 @@ const TRACKS_DIR = path.join(APP_DIR, '..', 'tracks');
 const TRACK_FILE = process.env.BENCH_TRACK || 'Newhaven.csv';
 const GLOBE3D = path.join(APP_DIR, 'src', 'map', 'globe3d.js');
 const MAP_COLORS = path.join(APP_DIR, 'src', 'map', 'map_colors.js');
+// Prototype-augment files (see globe3d.js's class-tail manifest comment) —
+// under plain require(), each hands back its method object instead of
+// assigning onto a live global; requireGlobeManager() below applies them.
+const GLOBE3D_AUGMENTS = [
+  'globe3d_osm.js', 'globe3d_rf.js', 'globe3d_peaks.js',
+  'globe3d_toggles.js', 'globe3d_navigation.js', 'globe3d_tour.js',
+].map((f) => path.join(APP_DIR, 'src', 'map', f));
+
+function requireGlobeManager() {
+  delete require.cache[require.resolve(GLOBE3D)];
+  const mod = require(GLOBE3D);
+  for (const augment of GLOBE3D_AUGMENTS) {
+    delete require.cache[require.resolve(augment)];
+    Object.assign(mod.GSRGlobeManager.prototype, require(augment));
+  }
+  return mod;
+}
 
 const { bootApp } = require('../support/boot_app.js');
 
@@ -275,8 +292,7 @@ function buildPerSegmentInstances(vf) {
 function buildRealInstances(wallMaxSegments) {
   global.Cesium = Cx;
   global.MapColors = MapColors;
-  delete require.cache[require.resolve(GLOBE3D)];
-  const { GSRGlobeManager } = require(GLOBE3D);
+  const { GSRGlobeManager } = requireGlobeManager();
   const mgr = Object.create(GSRGlobeManager.prototype);
   Object.assign(mgr, {
     activeColoringMetric: metric, heightMetric, externalColorRange: { min: minV, max: maxV },
@@ -398,8 +414,7 @@ global.window = { addEventListener() {}, removeEventListener() {}, requestAnimat
 global.document = { activeElement: null, createElement: () => ({ style: {}, appendChild() {}, click() {} }), body: { appendChild() {}, removeChild() {} } };
 global.Cesium = stubCesium();
 global.MapColors = require(MAP_COLORS).MapColors;
-delete require.cache[require.resolve(GLOBE3D)];
-const { GSRGlobeManager } = require(GLOBE3D);
+const { GSRGlobeManager } = requireGlobeManager();
 
 console.log('── SECTION B — main-thread JS per rebuild (stub Cesium) ──\n');
 {
