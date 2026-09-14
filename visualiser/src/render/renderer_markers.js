@@ -7,14 +7,18 @@
  * Reads the module-level getQualityColor()/EXCLUDED_STYLE/NORMAL_DASH from
  * renderer.js's own header — see the dual-mode note below for how that stays
  * resolvable under plain require().
-
+ *
  * Dual-mode export (like renderer.js's own tail): under a browser <script>
  * tag or the shared vm context (tests/support/boot_app.js), GSRRenderer is a
  * live global and this assigns straight onto it. Under plain CommonJS
  * require() (several dedicated band/curve test files require renderer.js
  * directly instead of booting the whole app), module.exports hands back the
  * method object instead so the caller can Object.assign it onto the
- * freshly-required object itself.
+ * freshly-required object itself. The require-branch below copies renderer.js's
+ * entire export surface onto `global` rather than naming individual identifiers
+ * — renderer.js's module.exports is the single source of truth for what's
+ * available bare; a name missing there is a bug in renderer.js's exports, not
+ * something to patch around here.
  */
 (function () {
   const __methods = {
@@ -444,10 +448,7 @@
   };
 
   if (typeof module !== 'undefined' && module.exports) {
-    const __rnd = require('./renderer.js');
-    global.getQualityColor = __rnd.getQualityColor;
-    global.EXCLUDED_STYLE = __rnd.EXCLUDED_STYLE;
-    global.NORMAL_DASH = __rnd.NORMAL_DASH;
+    Object.assign(global, require('./renderer.js'));
     module.exports = __methods;
   } else {
     Object.assign(GSRRenderer, __methods);

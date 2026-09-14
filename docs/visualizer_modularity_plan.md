@@ -325,6 +325,65 @@ doing together if a Playwright/Puppeteer setup becomes available.
 
 Remaining steps are still pick-up-when-wanted, not scheduled commitments.
 
+## Require/boot-up gotcha — root-caused and fixed (2026-09-14)
+
+The two "lessons for the next split" logged above (free module-scope
+identifiers, self-references) turned out to have a real bug hiding behind
+them, found while reviewing the require-branch pattern for a cleaner fix
+instead of just documenting around it again.
+
+**Root cause:** `renderer.js`'s `module.exports` only ever contained
+`{ GSRRenderer }` — never the module-level `getQualityColor`,
+`getQualityLabel`, `EXCLUDED_STYLE`, `NORMAL_DASH`, `EXCLUDE_BTN` that
+`renderer_chrome.js`/`renderer_markers.js`/`renderer_interaction.js`'s
+require-branches assumed they could pull off it (`__rnd.getQualityColor`,
+etc.) to stamp onto `global`. Each stamp silently became
+`global.getQualityColor = undefined` — no error until a method that calls
+`getQualityColor(...)` actually runs under plain `require()`. It was
+unnoticed because **no test file plain-requires these three augments** (only
+`renderer_bands.js`, whose one cross-reference — `GSRRenderer` itself — was
+correctly exported). Confirmed live with a throwaway Node repro before
+touching anything: `require()`-ing `renderer_chrome.js`, assigning it onto
+`GSRRenderer`, and calling `getQualityColor(0.9)` threw
+`ReferenceError: getQualityColor is not a function`. `globe3d.js`'s
+equivalent augments (`globe3d_peaks.js`/`globe3d_tour.js`) were NOT broken —
+`test_globe3d.js`'s `_computeTourWaypoints` test already exercised
+`globe3d_tour.js`'s bare `seriesValue`/`HEIGHT_CAPABLE_METRICS` refs under
+plain `require()`, which is exactly why that path stayed correct.
+
+**Fix, two parts:**
+1. `renderer.js` now exports every module-level name an augment reads bare:
+   `module.exports = { GSRRenderer, getQualityColor, getQualityLabel, EXCLUDED_STYLE, NORMAL_DASH, EXCLUDE_BTN }`.
+2. Every augment's require-branch (`renderer_bands.js`, `renderer_chrome.js`,
+   `renderer_markers.js`, `renderer_interaction.js`, `globe3d_peaks.js`,
+   `globe3d_tour.js`) replaced its itemized `global.X = mod.X` picks with one
+   `Object.assign(global, require('./renderer.js'))` (or `./globe3d.js`).
+   This is the actual architectural fix, not just the bug patch: enumerating
+   names by hand is exactly the failure mode that caused this (a name used in
+   the augment but missing from the picks, or missing from the core file's
+   exports, fails silently either way). A blanket copy of the core file's
+   entire export surface can't "forget" a name — the core file's
+   `module.exports` becomes the single source of truth for what's resolvable
+   bare, checked at the one place it's declared instead of re-derived by grep
+   at every call site. `globe3d_osm.js`/`globe3d_rf.js`/`globe3d_toggles.js`/
+   `globe3d_navigation.js` were left untouched — they reference nothing
+   outside their own methods, so they carry no require-branch at all and
+   don't need one pre-emptively.
+
+New `tests/test_renderer_require_exports.js` locks this in: asserts
+`renderer.js`'s exports contain every name, and that each of the four
+augments' require-branch actually resolves them onto `global` — verified to
+fail with the exact pre-fix `AssertionError` when the export list is
+reverted, so it's a real regression guard, not a tautology. Full suite
+1326/1326 green.
+
+**Still true, unaffected by this fix:** the underlying reason two loading
+conventions exist at all (`bootApp()`'s shared vm context for most tests vs.
+plain `require()` for `test_globe3d.js` and the renderer band/curve tests,
+which want fresh per-test module isolation `bootApp()` doesn't offer) wasn't
+changed — this fix makes the dual-mode bridge between them correct and
+low-maintenance, not something the codebase has migrated away from.
+
 ## Verification, every step
 
 1. `cd visualiser && npm test` — full suite must stay green.

@@ -92,7 +92,7 @@ const GSRRenderer = {
 };
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { GSRRenderer };
+  module.exports = { GSRRenderer, getQualityColor, getQualityLabel, EXCLUDED_STYLE, NORMAL_DASH, EXCLUDE_BTN };
 }
 if (typeof window !== 'undefined') {
   window.GSRRenderer = GSRRenderer;

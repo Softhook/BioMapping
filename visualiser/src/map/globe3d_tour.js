@@ -13,7 +13,11 @@
  * CommonJS require() (tests/test_globe3d.js's per-test isolation harness,
  * which requires globe3d.js fresh for each test instead of booting the whole
  * app), module.exports hands back the method object instead so the caller can
- * Object.assign it onto the freshly-required class itself.
+ * Object.assign it onto the freshly-required class itself. The require-branch
+ * below copies globe3d.js's entire export surface onto `global` rather than
+ * naming individual identifiers — globe3d.js's module.exports is the single
+ * source of truth for what's available bare; a name missing there is a bug in
+ * globe3d.js's exports, not something to patch around here.
  */
 (function () {
   const __methods = {
@@ -300,9 +304,7 @@
   };
 
   if (typeof module !== 'undefined' && module.exports) {
-    const __g3d = require('./globe3d.js');
-    global.seriesValue = __g3d.seriesValue;
-    global.HEIGHT_CAPABLE_METRICS = __g3d.HEIGHT_CAPABLE_METRICS;
+    Object.assign(global, require('./globe3d.js'));
     module.exports = __methods;
   } else {
     Object.assign(GSRGlobeManager.prototype, __methods);

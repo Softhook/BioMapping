@@ -16,7 +16,11 @@
  * require() (several dedicated band/curve test files require renderer.js
  * directly instead of booting the whole app), module.exports hands back the
  * method object instead so the caller can Object.assign it onto the
- * freshly-required object itself.
+ * freshly-required object itself. The require-branch below copies renderer.js's
+ * entire export surface onto `global` rather than naming individual identifiers
+ * — renderer.js's module.exports is the single source of truth for what's
+ * available bare; a name missing there is a bug in renderer.js's exports, not
+ * something to patch around here.
  */
 (function () {
   const __methods = {
@@ -314,8 +318,7 @@
   };
 
   if (typeof module !== 'undefined' && module.exports) {
-    const __rnd = require('./renderer.js');
-    global.GSRRenderer = __rnd.GSRRenderer;
+    Object.assign(global, require('./renderer.js'));
     module.exports = __methods;
   } else {
     Object.assign(GSRRenderer, __methods);
