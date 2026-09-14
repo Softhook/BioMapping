@@ -106,17 +106,6 @@ const ResponseDynamics = {
   },
 
   /**
-   * Human-readable label for a numeric speed value.
-   *
-   * @param {number} val
-   * @returns {string}
-   */
-  getLabel(val) {
-    const band = this.getBand(val);
-    return band ? band.label : 'Resting';
-  },
-
-  /**
    * Format tooltip value and color for graph hover / scrubber inspection.
    *
    * @param {number} val - Series value at scrubber.

@@ -111,12 +111,6 @@ const StatsMath = {
     return acf;
   },
 
-  /** Lag-1 autocorrelation. 0 for a series shorter than 3 or with no variance. */
-  lag1Autocorrelation(values) {
-    if (!values || values.length < 3) return 0;
-    return this.autocorrelation(values, 1)[1];
-  },
-
   /**
    * Variance-inflation factor for inference on the mean of, or the
    * correlation between, serially-correlated series:

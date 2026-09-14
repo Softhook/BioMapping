@@ -24,44 +24,6 @@
 const SCRDeconvolution = {
 
   /**
-   * Default multi-kernel dictionary configurations.
-   */
-  DEFAULT_DICTIONARY_CONFIGS: [
-    { name: 'fast',     tauSlow: 1.5, tauFast: 0.40, kernelSec: 5.0 },
-    { name: 'standard', tauSlow: 2.0, tauFast: 0.75, kernelSec: 5.0 },
-    { name: 'slow',     tauSlow: 3.5, tauFast: 1.20, kernelSec: 6.0 }
-  ],
-
-  /**
-   * Build an overcomplete physiological dictionary of SCRF kernels.
-   *
-   * @param {number} sampleRate - Sampling rate in Hz.
-   * @param {Array<object>} [configs] - Array of { name, tauSlow, tauFast, kernelSec }.
-   * @returns {Array<object>} Array of atom descriptors with normalised kernels and peak indices.
-   */
-  buildDictionary(sampleRate, configs = this.DEFAULT_DICTIONARY_CONFIGS) {
-    const dict = [];
-    for (let i = 0; i < configs.length; i++) {
-      const cfg = configs[i];
-      const kernel = this.buildSCRFKernel(sampleRate, cfg.tauSlow, cfg.tauFast, cfg.kernelSec || 5.0);
-      let peakIdx = 0;
-      for (let j = 1; j < kernel.length; j++) {
-        if (kernel[j] > kernel[peakIdx]) peakIdx = j;
-      }
-      dict.push({
-        id: i,
-        name: cfg.name || `atom_${i}`,
-        tauSlow: cfg.tauSlow,
-        tauFast: cfg.tauFast,
-        kernelSec: cfg.kernelSec || 5.0,
-        kernel: kernel,
-        peakIdx: peakIdx
-      });
-    }
-    return dict;
-  },
-
-  /**
    * Build the canonical bi-exponential SCRF kernel sampled at the given rate.
    *
    * @param {number} sampleRate - Sampling rate in Hz (e.g. 10).

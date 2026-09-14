@@ -69,10 +69,3 @@ test('applyHampelFilter: removes spike sitting on an SCR peak while keeping peak
   assert.ok(cleaned[5] < 10.0, `Glitch of 14.0 replaced with local median (${cleaned[5]})`);
   assert.ok(cleaned[5] >= 6.7, `Local median preserves peak height (~6.8)`);
 });
-
-test('applyArtifactFilter: runs Hampel filter by default', () => {
-  const scr = [5.0, 5.2, 5.6, 6.2, 6.8, 7.0, 6.7, 6.3, 5.8, 5.4, 5.1];
-  const res = GsrFilter.applyArtifactFilter(scr, 5);
-  assert.strictEqual(Math.max(...res), 7.0, 'applyArtifactFilter preserves max peak apex');
-  assert.deepStrictEqual(res, scr);
-});

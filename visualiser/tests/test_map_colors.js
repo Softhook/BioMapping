@@ -232,19 +232,8 @@ test('hslStringToHex: parses and converts hsl() strings to hex', () => {
 });
 
 // ---------------------------------------------------------------------------
-// ratioToHsl & ratioToHex
+// ratioToHex
 // ---------------------------------------------------------------------------
-
-test('ratioToHsl: maps normalized ratios to green-to-red HSL gradient', () => {
-  assert.strictEqual(MapColors.ratioToHsl(0), 'hsl(120, 100%, 50%)');
-  assert.strictEqual(MapColors.ratioToHsl(0.5), 'hsl(60, 100%, 50%)');
-  assert.strictEqual(MapColors.ratioToHsl(1.0), 'hsl(0, 100%, 50%)');
-  // Clamping
-  assert.strictEqual(MapColors.ratioToHsl(-1), 'hsl(120, 100%, 50%)');
-  assert.strictEqual(MapColors.ratioToHsl(2), 'hsl(0, 100%, 50%)');
-  // Custom lightness & saturation
-  assert.strictEqual(MapColors.ratioToHsl(0.5, 80, 45), 'hsl(60, 80%, 45%)');
-});
 
 test('ratioToHex: maps normalized ratios to green-to-red hex strings', () => {
   assert.strictEqual(MapColors.ratioToHex(0), '#00ff00');

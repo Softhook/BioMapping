@@ -271,22 +271,6 @@ assert(gsrMin > 0, `GSR min > 0 (${gsrMin.toFixed(1)} µS)`);
 assert(gsrMax < 100000, `GSR max < 100k (${gsrMax.toFixed(1)} µS)`);
 console.log(`  GSR range: ${gsrMin.toFixed(1)} – ${gsrMax.toFixed(1)} µS`);
 
-// ────────────────────────────────────────────────────────────────────────────
-//  5. Haversine consistency across modules (N3)
-// ────────────────────────────────────────────────────────────────────────────
-console.log('\n── 5. Haversine consistency (N3) ──');
-
-// All three module paths should give the same result
-const testLat1 = raw[0].lat, testLon1 = raw[0].lon;
-const testLat2 = raw[Math.floor(raw.length / 2)].lat, testLon2 = raw[Math.floor(raw.length / 2)].lon;
-
-if (!isNaN(testLat1) && !isNaN(testLat2)) {
-  const d1 = GeoUtils.haversineMeters(testLat1, testLon1, testLat2, testLon2);
-  const d2 = GpsFilter.haversineDistance(testLat1, testLon1, testLat2, testLon2);
-  assertClose(d1, d2, 0.001, 'GpsFilter.haversineDistance ≡ GeoUtils.haversineMeters');
-}
-// We can't test map_match._haversineM or osm_enrichment.haversine without
-// loading those modules, but they both delegate via the same pattern.
 
 // ────────────────────────────────────────────────────────────────────────────
 //  6. GPS timing & monotonicity

@@ -160,30 +160,21 @@ test('GSRUI.drawRegressionScatterPlot: data source resolution matches viewMode',
   assert.strictEqual(lastX[2], 60);
 });
 
-test('GSRUI._percentile: robust axis-clip bounds used by the regression scatter', () => {
+test('GSRUI._percentileSorted: robust axis-clip bounds used by the regression scatter', () => {
   const { window } = bootApp();
-  const P = window.GSRUI._percentile;
+  const PS = window.GSRUI._percentileSorted;
 
-  assert.strictEqual(P([], 0.5), 0, 'empty array → 0');
-  assert.strictEqual(P([7], 0.5), 7, 'singleton → the value');
+  assert.strictEqual(PS([], 0.5), 0, 'empty array → 0');
+  assert.strictEqual(PS([7], 0.5), 7, 'singleton → the value');
 
   const asc = Array.from({ length: 101 }, (_, i) => i); // 0..100
-  assert.strictEqual(P(asc, 0), 0, '0th percentile is the min');
-  assert.strictEqual(P(asc, 1), 100, '100th percentile is the max');
-  assert.strictEqual(P(asc, 0.5), 50, 'median of 0..100 is 50');
-  assert.strictEqual(P(asc, 0.02), 2, '2nd percentile clips low outliers');
-  assert.strictEqual(P(asc, 0.98), 98, '98th percentile clips high outliers');
+  assert.strictEqual(PS(asc, 0), 0, '0th percentile is the min');
+  assert.strictEqual(PS(asc, 1), 100, '100th percentile is the max');
+  assert.strictEqual(PS(asc, 0.5), 50, 'median of 0..100 is 50');
+  assert.strictEqual(PS(asc, 0.02), 2, '2nd percentile clips low outliers');
+  assert.strictEqual(PS(asc, 0.98), 98, '98th percentile clips high outliers');
 
-  // Unsorted input must not be mutated.
-  const src = [9, 1, 5, 3, 7];
-  const copy = [...src];
-  P(src, 0.5);
-  assert.deepStrictEqual(src, copy, 'input array left unsorted');
-
-  // _percentileSorted takes an already-sorted array and does not re-sort/copy.
-  const PS = window.GSRUI._percentileSorted;
   assert.strictEqual(PS([10, 20, 30, 40], 0.5), 25, 'sorted median by interpolation');
-  assert.strictEqual(PS([], 0.5), 0, 'empty → 0');
 });
 
 test('GSRUI.drawRegressionScatter: continuous X plots points + trend + badge, binary X draws per-group boxes, empty data plots nothing (fake 2D context)', () => {

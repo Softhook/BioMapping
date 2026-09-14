@@ -131,15 +131,6 @@ const GSRUI = {
     redraw();
   },
 
-  /**
-   * Percentile of a value within an unsorted numeric array (linear interp
-   * between order statistics). Used to clip scatter axes to a robust range.
-   */
-  _percentile(arr, p) {
-    if (!arr || arr.length === 0) return 0;
-    return GSRUI._percentileSorted([...arr].sort((a, b) => a - b), p);
-  },
-
   /** Percentile of an already-ascending-sorted array (no copy, no re-sort). */
   _percentileSorted(s, p) {
     if (!s || s.length === 0) return 0;

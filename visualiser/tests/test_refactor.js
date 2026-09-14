@@ -319,13 +319,6 @@ console.log('\n── map_colors.js ──');
 // ────────────────────────────────────────────────────────────────────────────
 console.log('\n── gps_filter.js ──');
 
-// 4a. haversineDistance — delegates to GeoUtils
-{
-  const d1 = GpsFilter.haversineDistance(0, 0, 1, 0);
-  const d2 = GeoUtils.haversineMeters(0, 0, 1, 0);
-  assertEq(d1, d2, 'GpsFilter.haversineDistance ≡ GeoUtils.haversineMeters');
-}
-
 // 4b. applyHdopGate — filters high HDOP
 {
   const pts = [
@@ -773,12 +766,6 @@ console.log('\n── gps_pipeline.js ──');
 //  6. Cross-module dependency verification
 // ────────────────────────────────────────────────────────────────────────────
 console.log('\n── Cross-module dependencies ──');
-
-// 6a. GpsFilter.haversineDistance delegates to GeoUtils
-{
-  const d = GpsFilter.haversineDistance(10, 20, 10.001, 20);
-  assert(d > 0, 'GpsFilter→GeoUtils haversine works');
-}
 
 // 6b. GpsPipeline.applyPreKalmanFilters calls GpsFilter functions
 {

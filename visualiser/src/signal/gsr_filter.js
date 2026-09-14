@@ -118,13 +118,6 @@ const GsrFilter = {
   },
 
   /**
-   * Artifact filter entry point — runs Hampel MAD outlier rejection.
-   */
-  applyArtifactFilter(arr, windowSize, nSigma = 3.0) {
-    return this.applyHampelFilter(arr, windowSize, nSigma);
-  },
-
-  /**
    * Sliding window percentile filter — used for tonic baseline estimation.
    */
   applyPercentileFilter(arr, windowSize, percentile) {

@@ -104,8 +104,8 @@ test('calculatePearsonCorrelation: p-value decreases as the correlation strength
 });
 
 // ---------------------------------------------------------------------------
-// Autocorrelation-aware helpers (autocorrelation, lag1Autocorrelation,
-// effectiveSampleSize, correlationEffectiveN, calculateAutocorrCorrelation)
+// Autocorrelation-aware helpers (autocorrelation, effectiveSampleSize,
+// correlationEffectiveN, calculateAutocorrCorrelation)
 // ---------------------------------------------------------------------------
 
 test('autocorrelation: acf[0] is 1; a monotone ramp stays near 1 for many lags; alternating flips sign each lag', () => {
@@ -125,21 +125,6 @@ test('autocorrelation: acf[0] is 1; a monotone ramp stays near 1 for many lags; 
 test('autocorrelation: constant or near-empty series returns all zeros', () => {
   assert.deepStrictEqual(StatsMath.autocorrelation([5, 5, 5, 5], 2), [0, 0, 0]);
   assert.deepStrictEqual(StatsMath.autocorrelation([1], 3), [0, 0, 0, 0]);
-});
-
-test('lag1Autocorrelation: ~0 for i.i.d.-style alternating data, high for a slow ramp', () => {
-  const alternating = [];
-  for (let i = 0; i < 200; i++) alternating.push(i % 2 === 0 ? 1 : -1);
-  closeTo(StatsMath.lag1Autocorrelation(alternating), -1, 0.05, 'strict alternation -> r1 ~= -1');
-
-  const ramp = [];
-  for (let i = 0; i < 200; i++) ramp.push(i);
-  assert.ok(StatsMath.lag1Autocorrelation(ramp) > 0.95, 'monotone ramp -> r1 near 1');
-});
-
-test('lag1Autocorrelation: short or constant series returns 0', () => {
-  assert.strictEqual(StatsMath.lag1Autocorrelation([1, 2]), 0);
-  assert.strictEqual(StatsMath.lag1Autocorrelation([5, 5, 5, 5]), 0);
 });
 
 test('effectiveSampleSize: heavy positive autocorrelation shrinks N; white noise leaves it ~unchanged', () => {

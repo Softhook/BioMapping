@@ -9,14 +9,6 @@
 const GpsFilter = {
 
   /**
-   * Haversine distance between two lat/lon points in metres.
-   * Delegates to GeoUtils.haversineMeters (geo_utils.js).
-   */
-  haversineDistance(lat1, lon1, lat2, lon2) {
-    return GeoUtils.haversineMeters(lat1, lon1, lat2, lon2);
-  },
-
-  /**
    * Speed plausibility check: rejects points whose Doppler-derived speed
    * (from the GPS RMC sentence, stored in speedKts) exceeds maxSpeed (m/s).
    * Doppler velocity is ~10× more accurate than position-derived speed

@@ -73,20 +73,6 @@ const MapColors = {
   },
 
   /**
-   * Convert a normalised [0, 1] ratio to a green-to-red HSL string.
-   *
-   * @param {number} ratio - Normalised ratio [0, 1].
-   * @param {number} [saturation=100] - Saturation percentage.
-   * @param {number} [lightness=50] - Lightness percentage.
-   * @returns {string} HSL string.
-   */
-  ratioToHsl(ratio, saturation = 100, lightness = 50) {
-    const r = Math.max(0, Math.min(1, parseFloat(ratio) || 0));
-    const hue = (1.0 - r) * 120; // 120 = Green, 60 = Yellow, 0 = Red
-    return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
-  },
-
-  /**
    * Convert a normalised [0, 1] ratio to a green-to-red hex (#rrggbb) string.
    *
    * @param {number} ratio - Normalised ratio [0, 1].

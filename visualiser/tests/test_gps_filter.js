@@ -3,7 +3,6 @@
  * Comprehensive unit tests for gps_filter.js (GpsFilter).
  *
  * Tests the complete trajectory cleaning and filtering pipeline:
- *  - haversineDistance
  *  - applySpeedFilter (with 10-rejection coordinate latch recovery)
  *  - applyKalman (forward chi-squared innovation gate + RTS backward pass + displacement clamp)
  *  - applyVelocitySmoothing (vector EMA heading projection across 0°/360° boundary + HDOP scaling)
@@ -28,16 +27,6 @@ const closeTo = (actual, expected, tolerance = 1e-5, msg = '') => {
     `${msg} expected ${actual} to be within ${tolerance} of ${expected}`
   );
 };
-
-// ── haversineDistance ───────────────────────────────────────────────────────
-
-test('haversineDistance: delegates to GeoUtils.haversineMeters accurately', () => {
-  const d1 = GpsFilter.haversineDistance(51.5074, -0.1278, 51.5074, -0.1278);
-  assert.strictEqual(d1, 0);
-
-  const d2 = GpsFilter.haversineDistance(51.5074, -0.1278, 48.8566, 2.3522);
-  closeTo(d2, 343500, 5000, 'London-Paris distance');
-});
 
 // ── applySpeedFilter ────────────────────────────────────────────────────────
 
