@@ -2,7 +2,15 @@
 
 **Status: Implemented (2026-09-13) — shipped as a standalone metric in the graph + map dropdowns.**  
 The sliding-Welch implementation lives in `visualiser/src/signal/spectral_eda.js` (exposed as `analyzer.edasymp`), and the NeuroKit2 cross-check lives in `visualiser/tests/manual/neurokit_compare/check_edasymp.sh` (per-track ratio ≈ 1.01–1.03, cross-track r ≈ 0.9997). The roadmap below remains as the design record.  
-Documents the scientific rationale, mathematical formulation, and system architecture for a frequency-domain sympathetic arousal metric based on **Posada-Quintero & Chon (2016, 2020)** and NeuroKit2's `nk.eda_sympathetic()`.
+Documents the scientific rationale, mathematical formulation, and system architecture for a frequency-domain sympathetic arousal metric based on **Posada-Quintero et al. (2016)** and NeuroKit2's `nk.eda_sympathetic()`.
+
+**2026-09-14 reference correction:** the implemented method (fixed [0.045, 0.25) Hz Welch band power)
+is Posada-Quintero et al.'s *static* PSD paper — **Ref. [1] below, Annals of Biomedical Engineering
+44(10):3124–3135** — not the *time-varying* TVSymp paper this document previously cited as its
+primary reference (now Ref. [1b]; the two are separate 2016 papers by the same group, in the same
+journal, with adjacent DOIs). §3 Method 2 and §6.5 have been corrected accordingly — see §6.6 for the
+resulting investigation. NeuroKit2's own `posada2016` implements the static paper too, which is why
+our sliding-Welch code cross-validates against it cleanly; neither implements the time-varying paper.
 
 ---
 
@@ -199,17 +207,30 @@ the metric across recordings is preserved to three decimal places.
   duplicated between the scalar and series paths; they now share
   `_fftSegment`, `_densityScale` and `_bandPowerFromFft` so the two can't drift.
 
-### 6.5 Remaining roadmap items (not yet done)
+### 6.5 Remaining roadmap items
 
-- **Step 1's gait-flatness question** — the scalar benchmark confirms the
-  implementation matches NeuroKit2, but the *walking* validation (does EDASymp
-  stay flat during unaroused walking, i.e. no footstep leakage into the band)
-  is only argued from the band's >5-octave separation from 1.4–2.0 Hz cadence,
-  not yet measured on `biomap_024`/`biomap_059`.
+- **Step 1's gait-flatness question — RESOLVED (2026-09-14).** The adaptive-band
+  sweep (`tests/manual/neurokit_compare/sweep_edasymp_band.{sh,js}`) measured
+  the 95%-power spectral edge (Fmax, Posada-Quintero et al. 2018) per 64 s
+  window on real tracks. `biomap_024` — the brisk walk flagged for 1.8 Hz
+  footstep resonance — exceeded 0.25 Hz in 38.1 % of windows with a mean
+  fixed-vs-adaptive power ratio of 1.118x (max 3.35x), vs. 0.0 % / 1.003x for
+  the calm `biomap_027`. Footstep leakage is ruled out: the 0.8 Hz anti-alias
+  low-pass runs *before* decimation, so 1.8 Hz gait content cannot survive as
+  spectral energy above 0.25 Hz — the clipped power is real EDA.
 - **Step 2** — spatial correlation vs. road-noise / carriageway proximity /
   green-space NDVI is not yet run.
 - **Step 4 Option B** — EDASymp is a standalone dropdown metric; it has not been
   folded into the Tri Index.
+
+### 6.6 Adaptive upper edge (2026-09-14)
+
+The fixed [0.045, 0.25) Hz edge clips real sympathetic power on walking tracks
+(§6.5), so `SpectralEDA.computeSeries` gained an opt-in `adaptiveBand` option
+(enabled via `GSR_CONST.EDASYMP.adaptiveBand`) that widens each window's upper
+edge to `max(Fmax, 0.25)` Hz, where Fmax is the window's 95%-power spectral
+edge. `computeScalar` stays fixed and NeuroKit2-faithful, so the §6.3
+cross-validation benchmark is unchanged.
 
 ---
 
