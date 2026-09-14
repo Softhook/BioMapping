@@ -169,6 +169,7 @@ test('readGpsSliderValues: falls back to GPS_DEFAULT for every field when slider
   assert.strictEqual(result.trackWeight, D.trackWeight);
   assert.strictEqual(result.peakLatency, D.peakLatency);
   assert.strictEqual(result.placeMergeDistance, 35);
+  assert.strictEqual(result.maxArousalPlaces, 20);
 });
 
 test('readGpsSliderValues: reads values from present sliders', () => {
@@ -178,6 +179,7 @@ test('readGpsSliderValues: reads values from present sliders', () => {
     gpsMaxSpeed: el(4), gpsRDP: el(1.5), gpsDownsample: el(1),
     gpsTrackWeight: el(8), gpsPeakLatency: el(3),
     placeMergeDistance: el(50),
+    maxArousalPlaces: el(12),
   };
   const result = GSRStorage.readGpsSliderValues();
   assert.strictEqual(result.smoothing, 0.9);
@@ -189,6 +191,7 @@ test('readGpsSliderValues: reads values from present sliders', () => {
   assert.strictEqual(result.trackWeight, 8);
   assert.strictEqual(result.peakLatency, 3);
   assert.strictEqual(result.placeMergeDistance, 50);
+  assert.strictEqual(result.maxArousalPlaces, 12);
 });
 
 // ── GSRStorage.readContourSliderValues() ────────────────────────────────
@@ -562,6 +565,7 @@ test('writeGpsSliderValues: sets GPS slider values and handles mapped keys', () 
     gpsTrackWeight: el(0),
     gpsPeakLatency: el(0),
     placeMergeDistance: el(0),
+    maxArousalPlaces: el(0),
   };
   global.AppState.sliders = S;
 
@@ -574,7 +578,8 @@ test('writeGpsSliderValues: sets GPS slider values and handles mapped keys', () 
     downsample: 1,
     trackWeight: 3,
     peakLatency: 2.0,
-    placeMergeDistance: 40
+    placeMergeDistance: 40,
+    maxArousalPlaces: 15
   });
 
   assert.strictEqual(S.gpsSmoothing.value, 0.8);
@@ -586,5 +591,6 @@ test('writeGpsSliderValues: sets GPS slider values and handles mapped keys', () 
   assert.strictEqual(S.gpsTrackWeight.value, 3);
   assert.strictEqual(S.gpsPeakLatency.value, 2.0);
   assert.strictEqual(S.placeMergeDistance.value, 40);
+  assert.strictEqual(S.maxArousalPlaces.value, 15);
 });
 

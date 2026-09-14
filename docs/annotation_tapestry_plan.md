@@ -35,6 +35,8 @@ The SVG output is what correctness is judged against.
 
 Related: `docs/voice_annotations_proposal.md` (voice transcripts feed the same
 `peak.label` field and run long — P1 is why they can't be clipped);
+`docs/spatial_semantics_and_annotation_analysis_plan.md` (NLP sentiment analysis,
+affective circumplex coloring, and urban typology for tapestry labels);
 `docs/archive/visualizer_rendering_perf_routes.md`.
 
 ---

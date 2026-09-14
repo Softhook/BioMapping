@@ -1151,6 +1151,27 @@ test('refreshArousalPlaces(): a changed merge distance re-runs clustering (cache
   assert.strictEqual(spy.counts.compactClusters, 1, 'a new merge distance forces exactly one re-cluster');
 });
 
+test('refreshArousalPlaces(): a changed max places slider re-slices places and rebuilds layer', () => {
+  const { window, mapManager } = bootWithRecordingLClusteringOn();
+  const track = addTrack(window, 't1', 't1.csv', CLUSTER_CSV);
+  window.AppState.viewMode = 'single';
+  mapManager.renderData(track.analyzer, track.gpsFilterParams);
+
+  const slider = window.AppState.sliders.maxArousalPlaces;
+  assert.ok(slider, 'max-places slider is cached in AppState.sliders');
+  slider.value = '1';
+
+  mapManager._arousalLastRenderTs = 0; // settled value, not a mid-drag frame
+  const spy = spyOnArousalCompute(window);
+  try {
+    mapManager.refreshArousalPlaces();
+  } finally {
+    spy.restore();
+  }
+  assert.strictEqual(spy.counts.buildPlaces, 1, 'a new max places forces buildPlaces re-run');
+  assert.strictEqual(mapManager._arousalPlacesCache.places.length, 1, 'places capped to maxArousalPlaces');
+});
+
 test('_renderArousalPlacesFor: a rapid drag defers recompute, then the settle timer runs it once', async () => {
   const { window, mapManager } = bootWithRecordingLClusteringOn();
   const track = addTrack(window, 't1', 't1.csv', CLUSTER_CSV);

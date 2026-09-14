@@ -47,6 +47,22 @@ From a full read of `firmware/` (2026-09). Ordered by payoff:
 
 ## Analysis ideas
 
+- **Named Map Feature Associations & Corridor Profiles:** Extract `tags.name`,
+  `tags.amenity`, `tags.shop`, and `tags.leisure` from the existing Overpass query
+  (no new network requests). Correlate GSR peaks and baseline arousal directly with
+  named streets (*"Kingsland High St"* vs *"Quiet Mews"*), prominent POIs/venues
+  (*"Rio Cinema"*, *"Dalston Junction Station"*), and urban functional typologies.
+  Automatically assign human-readable names to Arousal Places (`arousal_places.js`)
+  via spatial consensus. Full proposal in
+  [`spatial_semantics_and_annotation_analysis_plan.md`](spatial_semantics_and_annotation_analysis_plan.md).
+- **Textual & Sentiment Analysis on User Annotations:** Run client-side NLP
+  lexicon scoring (AFINN/VADER) on user peak labels (`analyzer.setPeakLabel`) to
+  extract emotional **Valence** (pleasant vs unpleasant). Project onto the Russell
+  Affect Circumplex ($\text{Arousal (GSR)} \times \text{Valence (Text)}$) to separate
+  stress/fear from joy/excitement. Classify trigger keywords into 6 urban domains
+  (traffic, acoustic, social, nature, architectural, physical) and calculate
+  word-to-SCR-amplitude rankings. Details in
+  [`spatial_semantics_and_annotation_analysis_plan.md`](spatial_semantics_and_annotation_analysis_plan.md).
 - Correlate GSR against the 868 and 915 MHz RF bands.
 - **Fourth RF band — which frequency?** The sweep is fixed at 815 / 868 /
   915 MHz (`EM_SCAN_NUM_FREQS == 3`).

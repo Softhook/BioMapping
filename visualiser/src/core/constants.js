@@ -467,18 +467,21 @@ const GSR_CONST = {
   // (arousal_places.js buildPlaces + map_manager_arousal_places.js _renderArousalPlaces).
   // A place is a proximity cluster of arousal peaks, scored by dwell-normalised
   // phasic-response energy so "lots of peaks because the walker dawdled here"
-  // doesn't outrank a genuinely arousing spot. mergeM is the single UI slider
-  // (#placeMergeDistance); everything else is derived or fixed.
+  // doesn't outrank a genuinely arousing spot. mergeM (#placeMergeDistance)
+  // and maxPlaces (#maxArousalPlaces) are the two UI sliders;
+  // everything else is derived or fixed.
   AROUSAL_PLACES: {
     mergeM: 35,               // default grouping radius in metres (compactClusters leader radius)
     minMergeM: 10,            // slider bounds
     maxMergeM: 120,
+    minPlaces: 1,             // slider bounds
+    maxPlacesLimit: 50,
     seedSeparationFactor: 1.8,// compactClusters: two place centres must be >= this * mergeM apart;
-                             // peaks in the mergeM..(this*mergeM) ring are absorbed by the nearest
-                             // existing place rather than seeding an overlapping neighbour
+                              // peaks in the mergeM..(this*mergeM) ring are absorbed by the nearest
+                              // existing place rather than seeding an overlapping neighbour
     drawGapFactor: 0.46,     // _renderArousalPlaces: a place's drawn outline is capped at this *
-                             // (distance to its nearest neighbour), so two footprints can kiss
-                             // but never overlap (belt-and-braces on top of seedSeparationFactor)
+                              // (distance to its nearest neighbour), so two footprints can kiss
+                              // but never overlap (belt-and-braces on top of seedSeparationFactor)
     footprintPadM: 10,        // per-member-peak dwell footprint radius = mergeM/2 + this
     dwellFloorS: 5,           // floor on dwell seconds so a near-zero dwell can't blow up the rate
     provisionalMaxTracks: 1,  // collective: a place with <= this many contributing walks renders faint/dashed

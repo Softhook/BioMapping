@@ -35,6 +35,7 @@ const GPS_SLIDER_DEFS = [
   { id: 'gpsPeakLatency',     labelId: 'valGpsPeakLatency',     fmt: v => `${v.toFixed(1)} s` },
   { id: 'gpsSnapRadius',      labelId: 'valGpsSnapRadius',      fmt: v => `${v} m` },
   { id: 'placeMergeDistance', labelId: 'valPlaceMergeDistance', fmt: v => `${v} m` },
+  { id: 'maxArousalPlaces',   labelId: 'valMaxArousalPlaces',   fmt: v => `${Math.round(v)}` },
 ];
 
 const CONTOUR_SLIDER_DEFS = [
@@ -87,7 +88,7 @@ const GSREvents = {
       'shapeMinSnr',
       'gpsSmoothing', 'gpsKalmanR', 'gpsMaxHdop', 'gpsMaxSpeed', 'gpsRDP', 'gpsTrackWeight', 'gpsPeakLatency',
       'gpsSnapToRoads', 'gpsSnapRadius',
-      'placeMergeDistance',
+      'placeMergeDistance', 'maxArousalPlaces',
       'graphView', 'useDeconvolution', 'useSparsEDA', 'usePeakProminence', 'useCvxEDA', 'useGaitFilter'
     ];
     for (const key of sliderKeys) {
@@ -589,10 +590,10 @@ const GSREvents = {
 
     // ── Arousal Places slider binding ───────────────────────────────────────
     // Scoped refresh (Arousal Places layer only), not a full rerenderMap().
-    {
-      const d = GSREvents._sliderDef('placeMergeDistance');
-      GSREvents.bindArousalPlacesSlider(d.id, d.labelId, d.fmt);
-    }
+    ['placeMergeDistance', 'maxArousalPlaces'].forEach(id => {
+      const d = GSREvents._sliderDef(id);
+      if (d) GSREvents.bindArousalPlacesSlider(d.id, d.labelId, d.fmt);
+    });
 
     // ── Snap radius slider ───────────────────────────────────────────────────
     // Re-evaluates road snapping locally from cached OSM data when released.

@@ -57,17 +57,19 @@ const GSRStorage = {
   readGpsSliderValues() {
     const S = AppState.sliders;
     if (!S) return null;
-    const D = GSR_CONST.GPS_DEFAULT;
+    const D  = GSR_CONST.GPS_DEFAULT;
+    const AP = GSR_CONST.AROUSAL_PLACES;
     return {
-      smoothing:             parseFloat(S.gpsSmoothing ? S.gpsSmoothing.value : D.smoothing),
-      kalmanR:               parseFloat(S.gpsKalmanR ? S.gpsKalmanR.value : D.kalmanR),
-      maxHdop:               parseFloat(S.gpsMaxHdop ? S.gpsMaxHdop.value : D.maxHdop),
-      maxSpeed:              parseFloat(S.gpsMaxSpeed ? S.gpsMaxSpeed.value : D.maxSpeed),
-      rdpTolerance:          parseFloat(S.gpsRDP ? S.gpsRDP.value : D.rdpTolerance),
-      downsample:            parseInt(S.gpsDownsample ? S.gpsDownsample.value : (D.downsample ? 1 : 0)),
-      trackWeight:           parseInt(S.gpsTrackWeight ? S.gpsTrackWeight.value : D.trackWeight),
-      peakLatency:           parseFloat(S.gpsPeakLatency ? S.gpsPeakLatency.value : D.peakLatency),
-      placeMergeDistance:    parseFloat(S.placeMergeDistance ? S.placeMergeDistance.value : (GSR_CONST.AROUSAL_PLACES ? GSR_CONST.AROUSAL_PLACES.mergeM : 35))
+      smoothing:          sliderVal(S.gpsSmoothing,       D.smoothing),
+      kalmanR:            sliderVal(S.gpsKalmanR,         D.kalmanR),
+      maxHdop:            sliderVal(S.gpsMaxHdop,         D.maxHdop),
+      maxSpeed:           sliderVal(S.gpsMaxSpeed,        D.maxSpeed),
+      rdpTolerance:       sliderVal(S.gpsRDP,             D.rdpTolerance),
+      downsample:         sliderVal(S.gpsDownsample,      D.downsample ? 1 : 0, parseInt),
+      trackWeight:        sliderVal(S.gpsTrackWeight,     D.trackWeight,        parseInt),
+      peakLatency:        sliderVal(S.gpsPeakLatency,     D.peakLatency),
+      placeMergeDistance: sliderVal(S.placeMergeDistance, AP ? AP.mergeM : 35),
+      maxArousalPlaces:   sliderVal(S.maxArousalPlaces,   AP ? AP.maxPlaces : 20, parseInt)
     };
   },
 
@@ -91,7 +93,8 @@ const GSRStorage = {
       downsample: 'gpsDownsample',
       trackWeight: 'gpsTrackWeight',
       peakLatency: 'gpsPeakLatency',
-      placeMergeDistance: 'placeMergeDistance'
+      placeMergeDistance: 'placeMergeDistance',
+      maxArousalPlaces: 'maxArousalPlaces'
     };
 
     for (const [key, val] of Object.entries(gps)) {

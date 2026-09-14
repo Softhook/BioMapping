@@ -68,10 +68,8 @@ Object.assign(GSRMapManager.prototype, {
       this._scheduleArousalSettle();
     } else {
       const clusters = GSRSpatialClustering.compactClusters(peaks, P.mergeM, P.separationFactor);
-      places = GSRArousalPlaces.buildPlaces(
-        clusters, scoreTracks,
-        (typeof GSR_CONST !== 'undefined' ? GSR_CONST.AROUSAL_PLACES : {})
-      );
+      const placeOpts = Object.assign({}, (typeof GSR_CONST !== 'undefined' ? GSR_CONST.AROUSAL_PLACES : {}), P);
+      places = GSRArousalPlaces.buildPlaces(clusters, scoreTracks, placeOpts);
       refAmplitude = this._meanAmplitude(peaks);
       blobRings = places.map(place =>
         this._concaveBlobFor(place.cluster, P.sigma, P.blobRadius, refAmplitude)
@@ -196,7 +194,7 @@ Object.assign(GSRMapManager.prototype, {
       }
     }
 
-    mixF(P.mergeM); mixF(P.separationFactor); mixF(P.sigma);
+    mixF(P.mergeM); mixF(P.maxPlaces); mixF(P.separationFactor); mixF(P.sigma);
     mixF(P.blobRadius); mixF(P.drawGapFactor);
     mixF(view.collective ? 1 : 0);
     mixF(view.activeTrackCount || 0);
@@ -205,21 +203,27 @@ Object.assign(GSRMapManager.prototype, {
   },
 
   /**
-   * Read the "Place Merge Distance" slider (#placeMergeDistance) plus the fixed
-   * AROUSAL_PLACES constants. mergeM is the compactClusters() leader radius;
+   * Read the "Place Merge Distance" slider (#placeMergeDistance) and
+   * "Max Places" slider (#maxArousalPlaces) plus the fixed AROUSAL_PLACES constants.
+   * mergeM is the compactClusters() leader radius;
+   * maxPlaces caps the top-ranked places rendered;
    * sigma / blobRadius only shape the cosmetic getConcaveBlob() outline, not the
    * place score (dwell-normalised energy, computed in arousal_places.js).
    * @private
    */
   _arousalPlaceParams() {
     const C = (typeof GSR_CONST !== 'undefined' && GSR_CONST.AROUSAL_PLACES) ? GSR_CONST.AROUSAL_PLACES : {};
-    const fallback = C.mergeM || 35;
-    let mergeM = AppState.sliders.placeMergeDistance
-      ? parseFloat(AppState.sliders.placeMergeDistance.value)
-      : fallback;
-    if (isNaN(mergeM)) mergeM = fallback;
+    const parse = (el, fallback, fn = parseFloat) => {
+      const v = el ? fn(el.value) : fallback;
+      return (typeof v === 'number' && !isNaN(v)) ? v : fallback;
+    };
+    const S = (typeof AppState !== 'undefined' && AppState.sliders) || {};
+    const mergeM = parse(S.placeMergeDistance, C.mergeM || 35);
+    const maxPlaces = Math.max(1, parse(S.maxArousalPlaces, C.maxPlaces || 20, parseInt));
+
     return {
       mergeM,
+      maxPlaces,
       sigma: mergeM * 0.35,
       blobRadius: mergeM * 0.5,
       separationFactor: C.seedSeparationFactor || 1.8,

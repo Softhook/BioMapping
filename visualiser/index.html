@@ -511,6 +511,15 @@
               <p class="help-text">Group arousal peaks into one place when they fall within this distance of each other. Each place is scored by arousal energy per unit dwell time; in the collective view it is styled by how many walks agree.</p>
             </div>
 
+            <div class="slider-group">
+              <div class="slider-label">
+                <span>Max Places</span>
+                <span class="slider-value" id="valMaxArousalPlaces">20</span>
+              </div>
+              <input type="range" id="maxArousalPlaces" min="1" max="50" step="1" value="20">
+              <p class="help-text">Limit the maximum number of top-ranking arousal places shown on the map.</p>
+            </div>
+
             <!-- 3D-only parameters — shown only while the 3D Globe surface is
                  active (toggled by GSREvents.setSurface). Colour metric / range /
                  geometry all come from the 2D view; see src/map/globe3d_view.js. -->

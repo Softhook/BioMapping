@@ -156,6 +156,7 @@ module.exports = {
 
   AROUSAL_PLACES: {
     mergeM: 35, minMergeM: 10, maxMergeM: 120,
+    minPlaces: 1, maxPlacesLimit: 50,
     seedSeparationFactor: 1.8, drawGapFactor: 0.46,
     footprintPadM: 10, dwellFloorS: 5, provisionalMaxTracks: 1,
     minMembers: 3, maxPlaces: 20
