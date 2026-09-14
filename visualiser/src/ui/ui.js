@@ -554,6 +554,10 @@ const GSRUI = {
         ? GSRNotices.escapeHtml(p.label || '')
         : (p.label || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
+      const speedBadge = p.speedLabel
+        ? '<span class="badge-speed speed-' + p.speedLabel.toLowerCase().replace(/\s+/g, '-') + '" title="SparsEDA dynamics: ' + p.speedLabel + ' (' + (p.scaleFactor || 1) + 'x)">' + p.speedLabel + '</span>'
+        : '';
+
       rowsHtml += '<tr id="peakRow-' + idx + '" ' + rowAttr + ' onclick="GSRUI.focusOnPeak(' + idx + ', \'table\')">' +
         '<td>' + (idx + 1) + '</td>' +
         '<td class="label-cell">' +
@@ -567,7 +571,7 @@ const GSRUI = {
           '</textarea>' +
         '</td>' +
         '<td>' + p.amplitude.toFixed(4) + '</td>' +
-        '<td>' + riseTimeStr + '</td>' +
+        '<td>' + riseTimeStr + speedBadge + '</td>' +
         '<td style="background:' + qColor + '">' +
           qPct + '% ' + qLabel + '</td>' +
         '<td class="exclude-cell"><button class="btn-exclude" ' +
@@ -2770,7 +2774,7 @@ const GSRUI = {
     if (summary && typeof GSRStorage !== 'undefined') {
       const gsr = GSRStorage.readGsrSliderValues() || {};
       const gps = GSRStorage.readGpsSliderValues() || {};
-      const detectorStr = gsr.useCvxEDA ? 'cvxEDA' : (gsr.useDeconvolution ? 'Deconv' : (gsr.usePeakProminence ? 'Prominence' : 'Default'));
+      const detectorStr = gsr.useCvxEDA ? 'cvxEDA' : (gsr.useSparsEDA ? 'SparsEDA' : (gsr.useDeconvolution ? 'Deconv (MP)' : (gsr.usePeakProminence ? 'Prominence' : 'Default')));
       summary.innerHTML = `
         <strong>Active Preset Parameters to Export:</strong><br>
         • <strong>GSR:</strong> Median size=${gsr.medianSize}s, LPF window=${gsr.lpfWindow}s, Baseline=${gsr.tonicMethod} (${gsr.tonicWindow}s), Peak threshold=${gsr.peakThreshold}μS, Detector=${detectorStr}<br>

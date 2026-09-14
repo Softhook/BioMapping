@@ -80,6 +80,7 @@ class GSRAnalyzer {
     // amplitude — GSR_CONST.DRIVER_UNIT_BY_ALGORITHM carries the display unit
     // for each. Null when no driver is populated.
     this._driverAlgorithm = null;
+    this.sparsedaStats = null;
 
     this.sampleRate = 10;   // In Hz, auto-detected
     this.isResistance = false; // Whether original CSV was resistance (Ohms)
@@ -593,12 +594,14 @@ class GSRAnalyzer {
     //     reconstruction and builds peaks from its driver impulses. Morphology
     //     is fixed by the SCRF kernel.
     // Precedence when several flags are set: prominence > cvxEDA >
-    // deconvolution > full-scan (default).
+    // sparsEDA > deconvolution > full-scan (default).
     if (params.usePeakProminence) {
       this._clearDeconvState();
       this._detectPeaksByProminence(params);
     } else if (params.useCvxEDA) {
       this._runDeconvolutionPipeline(phasicVals, { ...params, deconvAlgorithm: 'cvxeda' });
+    } else if (params.useSparsEDA) {
+      this._runDeconvolutionPipeline(phasicVals, { ...params, deconvAlgorithm: 'sparseda' });
     } else if (params.useDeconvolution) {
       this._runDeconvolutionPipeline(phasicVals, params);
     } else {
@@ -616,7 +619,7 @@ class GSRAnalyzer {
     const aiCfg = (typeof GSR_CONST !== 'undefined' && GSR_CONST.AROUSAL_INDEX) || { wTonic: 0.3, wPhasic: 0.7 };
     const triCfg = (typeof GSR_CONST !== 'undefined' && GSR_CONST.TRI_INDEX) || { wTonic: 0.10, wPhasic: 0.45, wDensity: 0.45 };
 
-    if (params.useDeconvolution || params.useCvxEDA) {
+    if (params.useDeconvolution || params.useCvxEDA || params.useSparsEDA) {
       this.phasicAUC = this.computePhasicAUC(); // integrates the driver → sets phasicAUCIsISCR
       this.arousalIndex = this.computeCombinedArousalIndex(aiCfg.wTonic, aiCfg.wPhasic, this.phasicAUC);
     } else {
@@ -660,6 +663,7 @@ class GSRAnalyzer {
     this._phasicOrig = null;
     this._tonicOrig = null;
     this._driverAlgorithm = null;
+    this.sparsedaStats = null;
   }
 
   /**
@@ -862,17 +866,21 @@ class GSRAnalyzer {
     }
 
     this._driverAlgorithm = algorithm === 'sparseda' ? 'sparseda' : 'matching_pursuit';
-    const deconvInput = (algorithm === 'sparseda')
-      ? Float64Array.from(this.filtered, d => d.val)
-      : phasicArr;
+    // Both SparsEDA and Matching Pursuit operate on the tonic-subtracted phasic
+    // signal (phasicArr), leaving this.tonic as the smooth, physiological lower-envelope
+    // baseline (with floor repositioning) computed by GsrFilter.decomposeTonicPhasic.
+    // This avoids SparsEDA's unconstrained sliding-window polynomial baseline, which on
+    // real continuous data suffers from boundary drift and rides above signal troughs.
+    const deconvInput = phasicArr;
     const deconvOpts = (algorithm === 'sparseda')
       ? {
-          maxIter: scf.sparsedaKmax ?? 40,
-          epsilon: scf.sparsedaEpsilon,
-          dminSec: scf.sparsedaDminSec,
-          rho: scf.sparsedaRho,
+          maxIter: scf.sparsedaKmax ?? 120,
+          epsilon: scf.sparsedaEpsilon ?? 1.0,
+          dminSec: scf.sparsedaDminSec ?? 0.25,
+          rho: scf.sparsedaRho ?? 0.0,
           algorithm: algorithm
         }
+
       : {
           tauSlow: scf.tauSlow, tauFast: scf.tauFast, kernelSec: scf.kernelSec,
           maxIter: scf.maxIter, lr: scf.lr, convTol: scf.convTol,
@@ -880,20 +888,6 @@ class GSRAnalyzer {
           algorithm: algorithm
         };
     const result = SCRDeconvolution.deconvolve(deconvInput, this.sampleRate, deconvOpts);
-    if (algorithm === 'sparseda' && result.tonic && result.tonic.length === n) {
-      this._tonicOrig = this.tonic;
-      const tonicClean = new Array(n);
-      let toMn = Infinity, toMx = -Infinity;
-      for (let i = 0; i < n; i++) {
-        const v = result.tonic[i];
-        tonicClean[i] = { time: times[i], val: v };
-        if (v < toMn) toMn = v;
-        if (v > toMx) toMx = v;
-      }
-      this.tonic = tonicClean;
-      this._seriesRange.tonic = { min: toMn, max: toMx };
-      this.tonicZ = GsrFilter.standardizeSignal(this.tonic, null);
-    }
 
     // Diagnostic: whether the selected deconvolution path converged before
     // exhausting its iteration budget. A truncated run means real SCRs may
@@ -908,10 +902,24 @@ class GSRAnalyzer {
     let reconstructionImpulses;
     let cleanValsRaw;
     if (algorithm === 'sparseda') {
+      const impulseLogMap = new Map();
+      if (Array.isArray(result.impulseLog)) {
+        for (const logEntry of result.impulseLog) {
+          impulseLogMap.set(logEntry.trueIndex ?? logEntry.clampedIndex, logEntry);
+        }
+      }
       this.phasicDriverPeaks = [];
       for (let i = 0; i < n; i++) {
         if (result.driver[i] > 0) {
-          this.phasicDriverPeaks.push({ index: i, time: times[i], amplitude: result.driver[i] });
+          const meta = impulseLogMap.get(i);
+          this.phasicDriverPeaks.push({
+            index: i,
+            time: times[i],
+            amplitude: result.driver[i],
+            bandIdx: meta ? meta.bandIdx : 2,
+            scaleFactor: meta ? meta.scaleFactor : 1.0,
+            speedLabel: meta ? meta.speedLabel : 'Standard'
+          });
         }
       }
       reconstructionImpulses = this.phasicDriverPeaks.map(({ index, amplitude }) => ({ index, amplitude }));
@@ -1134,11 +1142,116 @@ class GSRAnalyzer {
     }
     this._seriesRange.phasic = { min: phMn, max: phMx };
 
-    // Build the final, displayed peak list by scanning the reconstructed
-    // curve for local maxima — see _detectPeaksFromCurve()'s doc comment for
-    // why this replaces the previous atom-level "run consolidation" pass.
-    this.peaks = this._detectPeaksFromCurve(cleanVals, times, params, oldLabels, oldExcluded);
+    // Build the final, displayed peak list.
+    // For SparsEDA, candidate apex positions come from the sparse driver impulses
+    // resolved to local curve apices via dictionary-scaled kernel offsets — mirroring
+    // the cvxEDA architecture (Ledalab CDA approach, Benedek & Kaernbach 2010a).
+    let candidateIndices = null;
+    if (algorithm === 'sparseda') {
+      const kernel = result.kernel || SCRDeconvolution.buildSCRFKernel(this.sampleRate, 2.0, 0.5, 10.0);
+      const kPeakIdx = this._kernelPeakOffset(kernel);
+      const halfWinSec = scf.sparsedaApexSearchHalfWinSec ?? 0.5;
+
+      const apexSearchHalfWin = Math.max(1, Math.round(halfWinSec * this.sampleRate));
+      const minImpulse = scf.sparsedaImpulseThreshold ?? 0.005;
+      candidateIndices = this.phasicDriverPeaks
+        .filter(p => p.amplitude >= minImpulse)
+        .map(({ index, scaleFactor }) => {
+          const scaledKPeak = Math.round(kPeakIdx * (scaleFactor || 1.0));
+          const predicted = Math.min(n - 1, index + scaledKPeak);
+          const lo = Math.max(0, index, predicted - apexSearchHalfWin);
+          const hi = Math.min(n - 1, predicted + apexSearchHalfWin);
+          let bestIdx = Math.max(index, predicted), bestVal = cleanVals[bestIdx] || 0;
+          for (let j = lo; j <= hi; j++) {
+            if (cleanVals[j] > bestVal) { bestVal = cleanVals[j]; bestIdx = j; }
+          }
+          return bestIdx;
+        });
+    }
+
+    this.peaks = this._detectPeaksFromCurve(cleanVals, times, params, oldLabels, oldExcluded, candidateIndices);
+    if (algorithm === 'sparseda') {
+      this._tagSparsedaPeaksAndStats();
+    }
     this._assignLabelsToPeaks(this.peaks);
+
+  }
+
+  /**
+   * Annotate each detected peak with its driving SparsEDA dictionary scale factor,
+   * speed label ('Very Slow' | 'Slow' | 'Standard' | 'Fast' | 'Very Fast'), and
+   * compute summary dynamics metrics across the track.
+   * @private
+   */
+  _tagSparsedaPeaksAndStats() {
+    const counts = { 'Very Slow': 0, 'Slow': 0, 'Standard': 0, 'Fast': 0, 'Very Fast': 0 };
+    let sumScale = 0;
+    let nTagged = 0;
+
+    const fs = this.sampleRate || 10;
+    const driverPeaks = this.phasicDriverPeaks || [];
+
+    for (const peak of this.peaks) {
+      const onsetIdx = peak.onsetIndex ?? Math.max(0, peak.index - Math.round(1.5 * fs));
+      const apexIdx = peak.index;
+      const winStart = Math.max(0, onsetIdx - Math.round(0.5 * fs));
+      const winEnd = apexIdx;
+
+      let bestDriver = null;
+      let maxAmp = -Infinity;
+
+      for (const drv of driverPeaks) {
+        if (drv.index >= winStart && drv.index <= winEnd) {
+          if (drv.amplitude > maxAmp) {
+            maxAmp = drv.amplitude;
+            bestDriver = drv;
+          }
+        }
+      }
+
+      if (!bestDriver && driverPeaks.length > 0) {
+        let minDist = Infinity;
+        for (const drv of driverPeaks) {
+          const dist = Math.abs(drv.index - onsetIdx);
+          if (dist <= 2.0 * fs && dist < minDist) {
+            minDist = dist;
+            bestDriver = drv;
+          }
+        }
+      }
+
+      if (bestDriver) {
+        peak.speedLabel = bestDriver.speedLabel || 'Standard';
+        peak.scaleFactor = bestDriver.scaleFactor ?? 1.0;
+        peak.bandIdx = bestDriver.bandIdx ?? 2;
+      } else {
+        peak.speedLabel = 'Standard';
+        peak.scaleFactor = 1.0;
+        peak.bandIdx = 2;
+      }
+
+      if (counts[peak.speedLabel] !== undefined) {
+        counts[peak.speedLabel]++;
+      }
+      sumScale += peak.scaleFactor;
+      nTagged++;
+    }
+
+    let dominantSpeed = 'Standard';
+    let maxCount = -1;
+    for (const [speed, count] of Object.entries(counts)) {
+      if (count > maxCount) {
+        maxCount = count;
+        dominantSpeed = speed;
+      }
+    }
+
+    this.sparsedaStats = {
+      speedCounts: counts,
+      dominantSpeed: maxCount > 0 ? dominantSpeed : 'Standard',
+      meanScaleFactor: nTagged > 0 ? sumScale / nTagged : 1.0,
+      totalTaggedPeaks: nTagged
+    };
   }
 
   /**

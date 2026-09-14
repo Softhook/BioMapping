@@ -1378,6 +1378,46 @@ input[type="range"]:focus-visible,
   border-color: rgba(0, 143, 60, 0.25);
 }
 
+/* SparsEDA multi-scale dynamics speed badges */
+.badge-speed {
+  display: inline-block;
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 1px 5px;
+  border-radius: 3px;
+  margin-left: 5px;
+  vertical-align: middle;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  white-space: nowrap;
+}
+.badge-speed.speed-very-slow {
+  background: rgba(99, 102, 241, 0.12);
+  color: #4338ca;
+  border-color: rgba(99, 102, 241, 0.3);
+}
+.badge-speed.speed-slow {
+  background: rgba(14, 165, 233, 0.12);
+  color: #0369a1;
+  border-color: rgba(14, 165, 233, 0.3);
+}
+.badge-speed.speed-standard {
+  background: rgba(107, 114, 128, 0.1);
+  color: #4b5563;
+  border-color: rgba(107, 114, 128, 0.25);
+}
+.badge-speed.speed-fast {
+  background: rgba(245, 158, 11, 0.15);
+  color: #b45309;
+  border-color: rgba(245, 158, 11, 0.35);
+}
+.badge-speed.speed-very-fast {
+  background: rgba(239, 68, 68, 0.15);
+  color: #b91c1c;
+  border-color: rgba(239, 68, 68, 0.35);
+}
+
 /* Excluded row styling */
 .peaks-table tbody tr.excluded-row {
   opacity: 0.45;

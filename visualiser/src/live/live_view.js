@@ -172,12 +172,12 @@ const LIVE_VIEW_MARKUP = `
 // stay off: full-scan trough-to-peak is O(n) and the only detector that
 // stays real-time safe on a continuously growing buffer.
 const LIVE_ANALYZE_PARAMS = (typeof GSR_CONST !== 'undefined' && GSR_CONST.GSR_DEFAULT)
-  ? Object.assign({}, GSR_CONST.GSR_DEFAULT, { useDeconvolution: false, usePeakProminence: false, useCvxEDA: false })
+  ? Object.assign({}, GSR_CONST.GSR_DEFAULT, { useDeconvolution: false, useSparsEDA: false, usePeakProminence: false, useCvxEDA: false })
   : {
       medianSize: 0, lpfWindow: 0, useGaitFilter: true, tonicMethod: 'lpf', tonicWindow: 45,
       peakThreshold: 0.045, shapeMinSnr: 2.5, minPeakQuality: 0,
       peakDensityWindow: 30, hotspotPercentile: 0.02,
-      useDeconvolution: false, usePeakProminence: false, useCvxEDA: false,
+      useDeconvolution: false, useSparsEDA: false, usePeakProminence: false, useCvxEDA: false,
     };
 
 // analyze() cost is linear in the number of rows it's handed. feedLiveAnalyzer()

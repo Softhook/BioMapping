@@ -342,7 +342,7 @@ const SCRDeconvolution = {
     return out;
   },
 
-  _runReferenceLasso(columns, s, sampleRate, maxIter, epsilon) {
+  _runReferenceLasso(columns, s, sampleRate, maxIter, epsilon, strictReference = false) {
     const W = columns.length;
     const zeroTol = 1e-5;
     const optTol = -10;
@@ -383,12 +383,22 @@ const SCRDeconvolution = {
       }
     }
 
+    const rebuildChol = () => {
+      RI = null;
+      const tempActive = [];
+      for (const idx of activeSet) {
+        const updated = this._updateChol(RI, columns, tempActive, idx, zeroTol);
+        RI = updated.RI;
+        tempActive.push(idx);
+      }
+    };
+
     const res = Float64Array.from(s);
     let done = false;
     let hitIterCap = false;
     let rolledBack = false;
     while (!done) {
-      if (activationHist.length === 4) {
+      if (activationHist.length === 4 && strictReference) {
         lambda = -Infinity;
         newIndices = [];
         for (let j = 0; j < W; j++) if (c[j] > lambda) lambda = c[j];
@@ -403,8 +413,26 @@ const SCRDeconvolution = {
           else activeSet.push(idx);
         }
         activationHist.push(...activeSet);
-      } else {
+      } else if (activeSet.length > 0) {
         lambda = c[activeSet[0]];
+      } else {
+        lambda = -Infinity;
+        newIndices = [];
+        for (let j = 0; j < W; j++) {
+          if (!collinear.has(j) && c[j] > lambda) lambda = c[j];
+        }
+        if (lambda <= zeroTol) break;
+        for (let j = 0; j < W; j++) {
+          if (!collinear.has(j) && Math.abs(c[j] - lambda) < zeroTol) newIndices.push(j);
+        }
+        for (const idx of newIndices) {
+          iterations++;
+          const updated = this._updateChol(RI, columns, activeSet, idx, zeroTol);
+          RI = updated.RI;
+          if (updated.flag) collinear.add(idx);
+          else { activeSet.push(idx); activationHist.push(idx); }
+        }
+        if (activeSet.length === 0) break;
       }
 
       const activeSigns = new Float64Array(activeSet.length);
@@ -444,7 +472,24 @@ const SCRDeconvolution = {
         if (newIndices.length > 0) gammaIc = best;
       }
 
-      const gammaMin = gammaIc;
+      // Lasso non-negative condition: distance until an active variable hits zero
+      let gammaI = Infinity;
+      let dropIdx = -1;
+      if (!strictReference) {
+        for (const j of activeSet) {
+          if (dx[j] < -zeroTol && x[j] > zeroTol) {
+            const gamma = -x[j] / dx[j];
+            if (gamma < gammaI) {
+              gammaI = gamma;
+              dropIdx = j;
+            }
+          }
+        }
+      }
+
+      const gammaMin = Math.min(gammaIc, gammaI);
+      if (!isFinite(gammaMin) || gammaMin <= 0) break;
+
       for (let j = 0; j < W; j++) x[j] += gammaMin * dx[j];
       for (let i = 0; i < res.length; i++) res[i] -= gammaMin * v[i];
       for (let j = 0; j < W; j++) c[j] -= gammaMin * ATv[j];
@@ -452,18 +497,31 @@ const SCRDeconvolution = {
       if ((lambda - gammaMin) < optTol || (lambdaStop > 0 && lambda <= lambdaStop) || (epsilon > 0 && this._norm2(res) <= epsilon)) {
         newIndices = [];
         done = true;
+        if (!strictReference) break;
       }
-      if (this._norm2(res, 0, Math.min(res.length, Math.round(sampleRate * 20))) <= resStop2) done = true;
+      if (this._norm2(res, 0, Math.min(res.length, Math.round(sampleRate * 20))) <= resStop2) {
+        done = true;
+        if (!strictReference) break;
+      }
 
-      for (const idx of newIndices) {
-        iterations++;
-        const updated = this._updateChol(RI, columns, activeSet, idx, zeroTol);
-        RI = updated.RI;
-        if (updated.flag) {
-          collinear.add(idx);
-        } else {
-          activeSet.push(idx);
-          activationHist.push(idx);
+      if (!strictReference && gammaI <= gammaIc && dropIdx >= 0) {
+        // Variable reached zero from above: drop from activeSet and continue
+        x[dropIdx] = 0;
+        const pos = activeSet.indexOf(dropIdx);
+        if (pos >= 0) activeSet.splice(pos, 1);
+        collinear.clear();
+        rebuildChol();
+      } else {
+        for (const idx of newIndices) {
+          iterations++;
+          const updated = this._updateChol(RI, columns, activeSet, idx, zeroTol);
+          RI = updated.RI;
+          if (updated.flag) {
+            collinear.add(idx);
+          } else {
+            activeSet.push(idx);
+            activationHist.push(idx);
+          }
         }
       }
       if (iterations >= maxIter) {
@@ -471,20 +529,26 @@ const SCRDeconvolution = {
         done = true;
       }
 
-      let hasNegative = false;
-      for (let j = 0; j < W; j++) {
-        if (x[j] < 0) { hasNegative = true; break; }
-      }
-      if (hasNegative) {
-        x.set(xOld);
-        rolledBack = true;
-        done = true;
+      if (strictReference) {
+        let hasNegative = false;
+        for (let j = 0; j < W; j++) {
+          if (x[j] < 0) { hasNegative = true; break; }
+        }
+        if (hasNegative) {
+          x.set(xOld);
+          rolledBack = true;
+          done = true;
+        } else {
+          xOld.set(x);
+        }
       } else {
-        xOld.set(x);
+        for (let j = 0; j < W; j++) {
+          if (x[j] < 0) x[j] = 0;
+        }
       }
     }
 
-    return { beta: x, iterations, activationHist, lambda, residual: res, converged: !(hitIterCap || rolledBack) };
+    return { beta: x, iterations, activationHist, lambda, residual: res, converged: !rolledBack };
   },
 
   /**
@@ -526,14 +590,17 @@ const SCRDeconvolution = {
    */
   deconvolve(phasic, sampleRate, opts = {}) {
     const n = phasic.length;
-    const maxIter   = opts.maxIter   ?? 100;
+    const strictReference = opts.strictReference || false;
+
+    const maxIter   = opts.maxIter   ?? (strictReference ? 40 : 120);
     const lr        = opts.lr        ?? 1.0;
     const convTol   = opts.convTol   ?? 0.001;
     const minGapSec = opts.minImpulseGapSec ?? 0.5;
     const epsilon = opts.epsilon ?? 1.0;
-    const dminSec = opts.dminSec ?? 1.25;
-    const rho = opts.rho ?? 0.025;
+    const dminSec = opts.dminSec ?? (strictReference ? 1.25 : 0.25);
+    const rho = opts.rho ?? (strictReference ? 0.025 : 0.0);
     const algorithm = opts.algorithm === 'matching_pursuit' ? 'matching_pursuit' : 'sparseda';
+
 
     if (n === 0) {
       return {
@@ -593,14 +660,14 @@ const SCRDeconvolution = {
       };
     }
 
-    return this._deconvolveSparsEDA(phasic, sampleRate, referenceKernel, maxIter, epsilon, dminSec, rho, tauSlow, tauFast, kernelSec);
+    return this._deconvolveSparsEDA(phasic, sampleRate, referenceKernel, maxIter, epsilon, dminSec, rho, tauSlow, tauFast, kernelSec, opts.strictReference || false);
   },
 
   /**
    * Core SparsEDA implementation: port of the official reference solver.
    * @private
    */
-  _deconvolveSparsEDA(phasic, sampleRate, canonicalKernel, maxIter, epsilon, dminSec, rho, tauSlow = 2.0, tauFast = 0.5, kernelSec = 10.0) {
+  _deconvolveSparsEDA(phasic, sampleRate, canonicalKernel, maxIter, epsilon, dminSec, rho, tauSlow = 2.0, tauFast = 0.5, kernelSec = 10.0, strictReference = false) {
     const n = phasic.length;
     if (n === 0) {
       return {
@@ -668,7 +735,7 @@ const SCRDeconvolution = {
 
       const centered = new Float64Array(signalCut.length);
       for (let i = 0; i < signalCut.length; i++) centered[i] = signalCut[i] - b0;
-      const lasso = this._runReferenceLasso(columns, centered, workRate, maxIter, epsilon);
+      const lasso = this._runReferenceLasso(columns, centered, workRate, maxIter, epsilon, strictReference);
       totalIterations += lasso.iterations;
       if (!lasso.converged) truncated = true;
       const beta = lasso.beta;
@@ -786,11 +853,39 @@ const SCRDeconvolution = {
     const clean = this._linearResampleBack(cleanWork, workRate, n, sampleRate);
     const tonic = this._linearResampleBack(tonicWork, workRate, n, sampleRate);
     const mse = this._linearResampleBack(mseWork, workRate, n, sampleRate);
-    const impulseLog = Array.from(driver).map((amp, i) => amp > 0 ? {
-      clampedIndex: i,
-      trueIndex: i,
-      amplitude: amp
-    } : null).filter(Boolean);
+
+    const SCALE_FACTORS = [0.5, 0.75, 1.0, 1.25, 1.5];
+    const SPEED_LABELS = ['Very Slow', 'Slow', 'Standard', 'Fast', 'Very Fast'];
+    const scale = sampleRate / workRate;
+
+    // Track dominant dictionary band for each driver activation
+    const workDominantBands = new Map();
+    for (let i = 0; i < driverWork.length; i++) {
+      if (driverWork[i] <= 0) continue;
+      let dominantBand = 2;
+      let maxAmp = -1;
+      for (let b = 0; b < 5; b++) {
+        if (bandWorkRaw[b][i] > maxAmp) {
+          maxAmp = bandWorkRaw[b][i];
+          dominantBand = b;
+        }
+      }
+      const targetIdx = Math.max(0, Math.min(n - 1, Math.round(i * scale)));
+      workDominantBands.set(targetIdx, dominantBand);
+    }
+
+    const impulseLog = Array.from(driver).map((amp, i) => {
+      if (amp <= 0) return null;
+      const bandIdx = workDominantBands.has(i) ? workDominantBands.get(i) : 2;
+      return {
+        clampedIndex: i,
+        trueIndex: i,
+        amplitude: amp,
+        bandIdx,
+        scaleFactor: SCALE_FACTORS[bandIdx],
+        speedLabel: SPEED_LABELS[bandIdx]
+      };
+    }).filter(Boolean);
 
     return {
       driver,

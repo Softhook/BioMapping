@@ -1414,7 +1414,8 @@ const GSRRenderer = {
     const rows = extraRows || [];
     // Extra width for peak quality details
     const boxW = hasPeakInfo ? 240 : 200;
-    const boxH = (hasPeakInfo ? 200 : 120) + rows.length * 18;
+    const hasSpeed = hasPeakInfo && !!nearPeak.speedLabel;
+    const boxH = (hasPeakInfo ? (hasSpeed ? 216 : 200) : 120) + rows.length * 18;
 
     let boxX = mouseX + 15;
     if (boxX + boxW > width - GSR_CONST.MARGIN.right) {
@@ -1511,6 +1512,14 @@ const GSRRenderer = {
       text('Slope:', boxX + boxW * 0.5 + 4, slopeY);
       textAlign(RIGHT, TOP);
       text((nearPeak.onsetSlope || 0).toFixed(4), boxX + boxW - pad, slopeY);
+
+      if (nearPeak.speedLabel) {
+        const speedY = slopeY + 15;
+        textAlign(LEFT, TOP);
+        text('Speed:', boxX + pad, speedY);
+        textAlign(RIGHT, TOP);
+        text(nearPeak.speedLabel + ' (' + (nearPeak.scaleFactor || 1) + 'x)', boxX + boxW - pad, speedY);
+      }
     }
   },
 

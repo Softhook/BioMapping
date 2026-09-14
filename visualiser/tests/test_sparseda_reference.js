@@ -22,6 +22,7 @@ function relRMSE(a, b) {
 test('SparsEDA matches the reference implementation on an 8 Hz fixture with solver-aligned parameters', () => {
   const res = SCRDeconvolution.deconvolve(Float64Array.from(ref.signal), ref.sr, {
     algorithm: 'sparseda',
+    strictReference: true,
     maxIter: 40,
     epsilon: 0.01,
     dminSec: 1.25,

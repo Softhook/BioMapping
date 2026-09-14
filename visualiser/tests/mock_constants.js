@@ -30,6 +30,7 @@ module.exports = {
     peakDensityWindow: 30,
     hotspotPercentile: 0.02,
     useDeconvolution: false,
+    useSparsEDA: false,
     usePeakProminence: false,
     useCvxEDA: false
   },
@@ -50,12 +51,16 @@ module.exports = {
     cvxMinImpulseGapSec: 0.8,
     cvxApexSearchHalfWinSec: 1.0,
     minApexVal: 0.001,
-    sparsedaKmax: 40,
+    sparsedaKmax: 120,
+
     sparsedaEpsilon: 1.0,
-    sparsedaDminSec: 1.25,
-    sparsedaRho: 0.025,
+    sparsedaDminSec: 0.25,
+    sparsedaRho: 0.0,
+    sparsedaImpulseThreshold: 0.005,
+    sparsedaApexSearchHalfWinSec: 0.5,
     deconvAlgorithm: 'matching_pursuit'
   },
+
 
   CVXEDA: {
     tauSlow: 2.0,

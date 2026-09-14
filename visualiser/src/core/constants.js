@@ -64,6 +64,7 @@ const GSR_CONST = {
     peakDensityWindow: 30,
     hotspotPercentile: 0.02,
     useDeconvolution: false,
+    useSparsEDA: false,
     usePeakProminence: false,
     useCvxEDA: false
   },
@@ -152,16 +153,20 @@ const GSR_CONST = {
     // comment in analyzer.js. Deliberately far below impulseThreshold; this
     // only rejects near-zero apexes, not small-but-real ones.
     minApexVal: 0.001,
-    // SparsEDA-specific defaults. Kmax, epsilon, dmin and rho follow the
-    // reference implementation. The analyzer still defaults to matching
-    // pursuit until the SparsEDA solver has a bounded fast path for long
-    // recordings.
-    sparsedaKmax: 40,
+    // SparsEDA-specific defaults. Production mode uses relaxed suppressors
+    // (dminSec=0.25, rho=0.0, Kmax=120) with absolute driver thresholding
+    // (sparsedaImpulseThreshold=0.005) and cvxEDA-style driver-anchored apex
+    // resolution, preserving rapid compound bursts and preventing global track-max
+    // wipeouts while strictReference: true retains the paper's exact laboratory defaults.
+    sparsedaKmax: 120,
     sparsedaEpsilon: 1.0,
-    sparsedaDminSec: 1.25,
-    sparsedaRho: 0.025,
+    sparsedaDminSec: 0.25,
+    sparsedaRho: 0.0,
+    sparsedaImpulseThreshold: 0.005,
+    sparsedaApexSearchHalfWinSec: 0.5,
     deconvAlgorithm: 'matching_pursuit' // 'sparseda' | 'matching_pursuit' | 'cvxeda'
   },
+
 
   // ── cvxEDA Convex Optimization Decomposition (Greco, Citi et al., 2016) ─
   // Faithful port of the reference cvxEDA.py `qp` path: the identical QP

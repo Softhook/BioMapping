@@ -42,6 +42,7 @@ const GSRStorage = {
       // Min SNR — the only shape gate the live detectors use (default + deconvolution).
       shapeMinSnr:           sliderVal(S.shapeMinSnr,          PS.MIN_SNR),
       useDeconvolution:       (S.useDeconvolution && S.useDeconvolution.checked) || false,
+      useSparsEDA:            (S.useSparsEDA && S.useSparsEDA.checked) || false,
       usePeakProminence:      (S.usePeakProminence && S.usePeakProminence.checked) || false,
       useCvxEDA:              (S.useCvxEDA && S.useCvxEDA.checked) || false
     };
@@ -240,6 +241,9 @@ const GSRStorage = {
     if (gsr.useDeconvolution !== undefined && S.useDeconvolution) {
       S.useDeconvolution.checked = !!gsr.useDeconvolution;
     }
+    if (gsr.useSparsEDA !== undefined && S.useSparsEDA) {
+      S.useSparsEDA.checked = !!gsr.useSparsEDA;
+    }
     if (gsr.usePeakProminence !== undefined && S.usePeakProminence) {
       S.usePeakProminence.checked = !!gsr.usePeakProminence;
     }
@@ -248,11 +252,15 @@ const GSRStorage = {
     }
     // The alternative detectors are mutually exclusive; if a stored config
     // somehow has multiple, keep the higher-precedence one (prominence >
-    // cvxEDA > deconvolution, matching analyze()).
+    // cvxEDA > sparsEDA > deconvolution, matching analyze()).
     if (S.usePeakProminence && S.usePeakProminence.checked) {
       if (S.useDeconvolution) S.useDeconvolution.checked = false;
+      if (S.useSparsEDA) S.useSparsEDA.checked = false;
       if (S.useCvxEDA) S.useCvxEDA.checked = false;
     } else if (S.useCvxEDA && S.useCvxEDA.checked) {
+      if (S.useDeconvolution) S.useDeconvolution.checked = false;
+      if (S.useSparsEDA) S.useSparsEDA.checked = false;
+    } else if (S.useSparsEDA && S.useSparsEDA.checked) {
       if (S.useDeconvolution) S.useDeconvolution.checked = false;
     }
 

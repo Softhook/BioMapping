@@ -88,7 +88,7 @@ const GSREvents = {
       'gpsSmoothing', 'gpsKalmanR', 'gpsMaxHdop', 'gpsMaxSpeed', 'gpsRDP', 'gpsTrackWeight', 'gpsPeakLatency',
       'gpsSnapToRoads', 'gpsSnapRadius',
       'placeMergeDistance',
-      'graphView', 'useDeconvolution', 'usePeakProminence', 'useCvxEDA', 'useGaitFilter'
+      'graphView', 'useDeconvolution', 'useSparsEDA', 'usePeakProminence', 'useCvxEDA', 'useGaitFilter'
     ];
     for (const key of sliderKeys) {
       AppState.sliders[key] = GSREvents._id(key);
@@ -403,18 +403,19 @@ const GSREvents = {
     const S = AppState.sliders;
     if (!S || !S.tonicMethod) return;
     const cvx = !!(S.useCvxEDA && S.useCvxEDA.checked);
+    const jointTonic = cvx;
 
-    S.tonicMethod.disabled = cvx;
+    S.tonicMethod.disabled = jointTonic;
     const win = document.getElementById('tonicWindow');
-    if (win) win.disabled = cvx;
+    if (win) win.disabled = jointTonic;
 
     const methodGroup = document.getElementById('tonicMethodGroup');
     const winGroup = document.getElementById('tonicWindowGroup');
-    if (methodGroup) methodGroup.classList.toggle('ctrl-inert', cvx);
-    if (winGroup) winGroup.classList.toggle('ctrl-inert', cvx);
+    if (methodGroup) methodGroup.classList.toggle('ctrl-inert', jointTonic);
+    if (winGroup) winGroup.classList.toggle('ctrl-inert', jointTonic);
 
     const note = document.getElementById('tonicMethodHelp');
-    if (note) note.hidden = !cvx;
+    if (note) note.hidden = !jointTonic;
   },
 
   /**
@@ -453,12 +454,12 @@ const GSREvents = {
       GSRUI.runAnalysis();
     });
 
-    // ── Alternative-detector toggles (Prominence / Deconv / cvxEDA) ─────────
+    // ── Alternative-detector toggles (Prominence / Deconv / SparsEDA / cvxEDA) ──
     // Mutually exclusive: analyze() only ever runs one detector, so turning one
     // alternative ON forces the others OFF (setting .checked in code does not
     // re-fire 'change', so no loop). Turning all OFF drops back to the default
     // full-scan detector. Each re-runs the full pipeline.
-    const detectorToggles = ['usePeakProminence', 'useDeconvolution', 'useCvxEDA'];
+    const detectorToggles = ['usePeakProminence', 'useDeconvolution', 'useSparsEDA', 'useCvxEDA'];
     detectorToggles.forEach(id => {
       if (!S[id]) return;
       S[id].addEventListener('change', () => {
