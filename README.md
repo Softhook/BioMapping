@@ -33,15 +33,24 @@ The device is a Flipper Zero running the Bio Mapping app, wired to a custom skin
 
 Everything is logged to `/ext/biomapping/*.csv` at 10 Hz. A Live Stream mode sends GPS + GSR over Bluetooth instead of recording.
 
-## Circuit
+## Hardware Accuracy (vs. Shimmer3 GSR+)
 
-Key component values, matching the [schematic](docs/gsr_circuit.png) in the Wiring Guide:
+The GSR front-end is built to research-grade specification and measured against a precision metal-film resistor grid (10 kΩ – 9 MΩ), full sweep in [`docs/reference_test_results.csv`](docs/reference_test_results.csv).
 
-| Parameter | Value |
-|---|---|
-| V_ref (voltage divider) | 0.5 V = 3.3 V × 10 kΩ / (56 kΩ + 10 kΩ) |
-| R_f (TIA feedback) | 47 kΩ |
-| R_safety (two 4.7 kΩ in series) | 9.4 kΩ |
+| | BioMapping 2.0 | [Shimmer3 GSR+](https://shimmersensing.com/product/shimmer3-gsr-unit/) |
+|---|---|---|
+| Method | Constant voltage, 0.5 V | Constant voltage, 0.5 V |
+| Resolution | **< 0.5 nS** (16-bit ADC + 100 ms decimation) | Variable (12-bit ADC, worse at low conductance) |
+| Accuracy error (primary range) | **≤ ±0.1%** (47 kΩ – 1 MΩ) | ±3% (22 kΩ – 680 kΩ) |
+| Accuracy error (wide range) | ≤ ±0.5% (22 kΩ – 2.2 MΩ) | ±10% (10 kΩ – 4.7 MΩ) |
+| Accuracy error (extreme range) | ≤ ±1.0% (15 kΩ – 4.7 MΩ) | — |
+
+Accuracy zones by the fraction of real-world track data that falls inside them:
+
+- **≤ ±0.1%** — 47 kΩ – 1 MΩ (1,000 – 21,277 nS): 99.05% of data
+- **≤ ±0.5%** — 22 kΩ – 2.2 MΩ (455 – 45,455 nS): 99.75%
+- **≤ ±1.0%** — 15 kΩ – 4.7 MΩ (213 – 66,667 nS): 99.89%
+- Below 100 nS (over 10 MΩ) the device reports an open circuit (electrodes disconnected / air).
 
 ## Hardware
 
@@ -121,25 +130,6 @@ Pin 4 = GND       Pin 5 = In+ B
 
 The ADS1115 subtracts the 0.5V virtual-ground offset, isolating the amplified skin-current data while rejecting system noise.
 
-## Hardware Accuracy (vs. Shimmer3 GSR+)
-
-The GSR front-end is built to research-grade specification and measured against a precision metal-film resistor grid (10 kΩ – 9 MΩ), full sweep in [`docs/reference_test_results.csv`](docs/reference_test_results.csv).
-
-| | BioMapping 2.0 | [Shimmer3 GSR+](https://shimmersensing.com/product/shimmer3-gsr-unit/) |
-|---|---|---|
-| Method | Constant voltage, 0.5 V | Constant voltage, 0.5 V |
-| Resolution | **< 0.5 nS** (16-bit ADC + 100 ms decimation) | Variable (12-bit ADC, worse at low conductance) |
-| Accuracy error (primary range) | **≤ ±0.1%** (47 kΩ – 1 MΩ) | ±3% (22 kΩ – 680 kΩ) |
-| Accuracy error (wide range) | ≤ ±0.5% (22 kΩ – 2.2 MΩ) | ±10% (10 kΩ – 4.7 MΩ) |
-| Accuracy error (extreme range) | ≤ ±1.0% (15 kΩ – 4.7 MΩ) | — |
-
-Accuracy zones by the fraction of real-world track data that falls inside them:
-
-- **≤ ±0.1%** — 47 kΩ – 1 MΩ (1,000 – 21,277 nS): 99.05% of data
-- **≤ ±0.5%** — 22 kΩ – 2.2 MΩ (455 – 45,455 nS): 99.75%
-- **≤ ±1.0%** — 15 kΩ – 4.7 MΩ (213 – 66,667 nS): 99.89%
-- Below 100 nS (over 10 MΩ) the device reports an open circuit (electrodes disconnected / air).
-
 ## Installing the App
 
 A Flipper external app (FAP) for stock firmware; also runs on the API-compatible forks (Momentum, Unleashed, RogueMaster). Download `biomap.fap` from the [Releases](https://github.com/Softhook/BioMapping/releases) page, or build from `firmware/` with [`ufbt`](https://pypi.org/project/ufbt/).
@@ -153,6 +143,8 @@ Run the host unit tests with `./run_tests.sh` from `firmware/`.
 ---
 
 # The Visualiser
+
+![BioMapping 2 Visualiser with the demo track loaded.](docs/screenshot.png)
 
 Browser software under [`visualiser/`](visualiser/) — no server, no build step to run it. It has two entry points.
 
