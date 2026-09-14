@@ -253,6 +253,7 @@ const GSRUI = {
       GSREvents.syncTonicBaselineControls();
       GSRUI.syncPhasicAUCLabels();
       GSRUI.syncGraphViewDetectorOptions();
+      GSRUI.syncResponseDynamicsOptions();
       GSRUI.syncMapPanelForSpatialData();
       redraw();
     } catch (err) {
@@ -319,6 +320,43 @@ const GSRUI = {
     if (!hasDriver && sel.value === 'phasicDriver') {
       sel.value = 'signal';
       GSREvents.applyGraphView();
+    }
+  },
+
+  /**
+   * The 'responseDynamics' graph view and map coloring metric plot the continuous
+   * response speed multiplier computed during SparsEDA deconvolution.
+   * Enable the dropdown option in both #graphView and #mapColoringMetric only when
+   * SparsEDA is active; if either is the current selection when the user switches
+   * away from SparsEDA, fall back cleanly to 'signal' (graph) or 'gsr' (map).
+   */
+  syncResponseDynamicsOptions() {
+    const isSparsEDA = !!(AppState.analyzer && AppState.analyzer._driverAlgorithm === 'sparseda');
+
+    // 1. Graph view dropdown
+    const graphSel = (AppState.sliders && AppState.sliders.graphView) || (typeof document !== 'undefined' && document.getElementById('graphView'));
+    if (graphSel && typeof graphSel.querySelector === 'function') {
+      const opt = graphSel.querySelector('option[value="responseDynamics"]');
+      if (opt) opt.disabled = !isSparsEDA;
+      if (!isSparsEDA && graphSel.value === 'responseDynamics') {
+        graphSel.value = 'signal';
+        if (typeof GSREvents !== 'undefined' && typeof GSREvents.applyGraphView === 'function') {
+          GSREvents.applyGraphView();
+        }
+      }
+    }
+
+    // 2. Map metric dropdown
+    const mapSel = (typeof document !== 'undefined' && document.getElementById('mapColoringMetric'));
+    if (mapSel && typeof mapSel.querySelector === 'function') {
+      const opt = mapSel.querySelector('option[value="responseDynamics"]');
+      if (opt) opt.disabled = !isSparsEDA;
+      if (!isSparsEDA && mapSel.value === 'responseDynamics') {
+        mapSel.value = 'gsr';
+        if (typeof Event !== 'undefined') {
+          mapSel.dispatchEvent(new Event('change'));
+        }
+      }
     }
   },
 

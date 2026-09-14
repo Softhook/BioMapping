@@ -126,6 +126,24 @@ const MapColors = {
       const hue = 220 + ratio * 80; // Blue (220) -> Purple/Magenta (300)
       return `hsl(${hue}, 90%, 55%)`;
     }
+
+    if (metric === 'responseDynamics') {
+      if (val === undefined || val === null || isNaN(val) || val <= 0) {
+        return 'transparent'; // Resting baseline is transparent
+      }
+      const v = Math.max(0.5, Math.min(1.5, val));
+      let hue;
+      if (v < 0.75) {
+        hue = 265 - ((v - 0.5) / 0.25) * 48; // 265 -> 217 (Purple to Blue)
+      } else if (v < 1.0) {
+        hue = 217 - ((v - 0.75) / 0.25) * 67; // 217 -> 150 (Blue to Green)
+      } else if (v < 1.25) {
+        hue = 150 - ((v - 1.0) / 0.25) * 120; // 150 -> 30 (Green to Orange)
+      } else {
+        hue = 30 - ((v - 1.25) / 0.25) * 30;  // 30 -> 0 (Orange to Red)
+      }
+      return `hsl(${Math.round(hue)}, 90%, 50%)`;
+    }
     
     if (metric === 'roadClass') {
       return MapColors.ROAD_COLORS[val] || '#666666';

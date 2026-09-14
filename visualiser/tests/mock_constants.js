@@ -59,7 +59,17 @@ module.exports = {
     sparsedaImpulseThreshold: 0.005,
     sparsedaApexSearchHalfWinSec: 0.5,
     deconvAlgorithm: 'matching_pursuit'
+
   },
+
+  SPARSEDA_SPEED_COLORS: {
+    'Very Fast': '#ef4444',
+    'Fast':      '#f97316',
+    'Standard':  '#10b981',
+    'Slow':      '#3b82f6',
+    'Very Slow': '#8b5cf6'
+  },
+
 
 
   CVXEDA: {

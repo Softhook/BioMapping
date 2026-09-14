@@ -345,8 +345,25 @@ const GSR_CONST = {
       label: 'EDASymp', unit: 'μS²', decimals: 4,
       colorVar: '--color-edasymp', colorDefault: '#0e7490',
       showPeakOverlay: false, allowNegative: false
+    },
+    // SparsEDA Response Dynamics (0.5x to 1.5x) autonomic response speed index.
+    // Represents the continuous multi-scale dilation speed across the recording.
+    responseDynamics: {
+      label: 'Response Dynamics (Speed)', unit: 'x', decimals: 2,
+      colorVar: '--color-response-dynamics', colorDefault: '#f97316',
+      showPeakOverlay: true, allowNegative: false
     }
   },
+
+  // Color mapping for SparsEDA multi-scale speed categories across UI, graph, and map
+  SPARSEDA_SPEED_COLORS: {
+    'Very Fast': '#ef4444', // 1.5x (Vivid Red / Acute shock)
+    'Fast':      '#f97316', // 1.25x (Vibrant Orange)
+    'Standard':  '#10b981', // 1.0x (Emerald Green / Habitual)
+    'Slow':      '#3b82f6', // 0.75x (Vivid Blue)
+    'Very Slow': '#8b5cf6'  // 0.5x (Deep Purple / Lingering tension)
+  },
+
 
   // Display unit for the 'phasicDriver' graph view, keyed by
   // analyzer._driverAlgorithm — the two detectors' "driver" arrays are not

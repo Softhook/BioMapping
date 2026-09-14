@@ -81,6 +81,8 @@ class GSRAnalyzer {
     // for each. Null when no driver is populated.
     this._driverAlgorithm = null;
     this.sparsedaStats = null;
+    this.responseDynamics = [];
+
 
     this.sampleRate = 10;   // In Hz, auto-detected
     this.isResistance = false; // Whether original CSV was resistance (Ohms)
@@ -664,7 +666,9 @@ class GSRAnalyzer {
     this._tonicOrig = null;
     this._driverAlgorithm = null;
     this.sparsedaStats = null;
+    this.responseDynamics = [];
   }
+
 
   /**
    * The canonical SCRF kernel's own peak offset: samples from kernel start to
@@ -1172,9 +1176,84 @@ class GSRAnalyzer {
     this.peaks = this._detectPeaksFromCurve(cleanVals, times, params, oldLabels, oldExcluded, candidateIndices);
     if (algorithm === 'sparseda') {
       this._tagSparsedaPeaksAndStats();
+      this.responseDynamics = this.computeResponseDynamics();
     }
     this._assignLabelsToPeaks(this.peaks);
 
+  }
+
+  /**
+   * Compute a continuous autonomic response speed dynamics series from SparsEDA's
+   * multi-scale dictionary peak tags.
+   *
+   * For each sample at time t, computes a smooth localized autonomic response speed:
+   *   speed(t) = sum(w_k * s_k) / sum(w_k)
+   * where:
+   *   s_k = peak's dictionary dilation factor (0.5 to 1.5)
+   *   w_k = peak.amplitude * exp(-(t - t_k)^2 / (2 * sigma^2))
+   * If there are no peaks nearby, smoothly rests at 1.0 (Standard baseline).
+   *
+   * @param {number} [windowSec=20] - Temporal smoothing neighborhood width.
+   * @returns {Array<{ time: number, val: number }>}
+   */
+  computeResponseDynamics() {
+    const n = (this.raw && this.raw.length > 0) ? this.raw.length : (this.times ? this.times.length : 0);
+    if (n === 0) return [];
+
+    const fs = this.sampleRate || 4;
+    const series = new Array(n);
+    for (let i = 0; i < n; i++) {
+      const t = (this.raw && this.raw[i] && typeof this.raw[i].time === 'number')
+        ? this.raw[i].time
+        : (this.times ? this.times[i] : (i / fs));
+      series[i] = { time: t, val: 0.0 }; // 0.0 = Resting / Inactive
+    }
+
+    if (this._driverAlgorithm !== 'sparseda' || !this.peaks || this.peaks.length === 0) {
+      return series;
+    }
+
+    const taggedPeaks = this.peaks.filter(p => !p.excluded && typeof p.scaleFactor === 'number');
+    if (taggedPeaks.length === 0) {
+      return series;
+    }
+
+    // Distance buffer to prioritize the dominant peak in overlapping responses
+    const bestDist = new Float64Array(n);
+    bestDist.fill(Infinity);
+
+    for (let k = 0; k < taggedPeaks.length; k++) {
+      const p = taggedPeaks[k];
+      const alpha = Math.max(0.5, Math.min(1.5, p.scaleFactor));
+      const apexIdx = Math.max(0, Math.min(n - 1, p.index));
+
+      // Onset bound: use detected onset or theoretical rise time (~1.2s / alpha)
+      let onsetIdx = (typeof p.onsetIndex === 'number' && p.onsetIndex >= 0)
+        ? p.onsetIndex
+        : Math.max(0, apexIdx - Math.round((1.2 / alpha) * fs));
+      onsetIdx = Math.max(0, Math.min(apexIdx, onsetIdx));
+
+      // Recovery bound: use half-recovery index (2.5x half-decay) or nominal Bateman clearance (~6.0s / alpha)
+      let endIdx;
+      if (typeof p.recoveryIndex === 'number' && p.recoveryIndex > apexIdx) {
+        endIdx = Math.min(n - 1, apexIdx + Math.round(2.5 * (p.recoveryIndex - apexIdx)));
+      } else {
+        endIdx = Math.min(n - 1, apexIdx + Math.round((6.0 / alpha) * fs));
+      }
+
+      const amp = Math.max(0.01, p.amplitude || 0.05);
+
+      for (let j = onsetIdx; j <= endIdx; j++) {
+        // Distance weighted by amplitude so stronger responses claim overlap points
+        const dist = Math.abs(j - apexIdx) / amp;
+        if (dist < bestDist[j]) {
+          bestDist[j] = dist;
+          series[j].val = alpha;
+        }
+      }
+    }
+
+    return series;
   }
 
   /**
@@ -1221,7 +1300,7 @@ class GSRAnalyzer {
       }
 
       if (bestDriver) {
-        peak.speedLabel = bestDriver.speedLabel || 'Standard';
+        peak.speedLabel = bestDriver.speedLabel ?? 'Standard';
         peak.scaleFactor = bestDriver.scaleFactor ?? 1.0;
         peak.bandIdx = bestDriver.bandIdx ?? 2;
       } else {
@@ -1451,8 +1530,9 @@ class GSRAnalyzer {
       this._globalRange[key] = { min: mn, max: mx };
     }
     if (this._wasDeconv) {
-      for (const key of ['phasicAUC', 'arousalIndex', 'phasicDriver']) {
+      for (const key of ['phasicAUC', 'arousalIndex', 'phasicDriver', 'responseDynamics']) {
         const arr = this[key];
+
         if (!arr || arr.length === 0) continue;
         let mn = Infinity, mx = -Infinity;
         for (let i = 0; i < arr.length; i++) {

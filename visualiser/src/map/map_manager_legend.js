@@ -93,6 +93,7 @@ Object.assign(GSRMapManager.prototype, {
         'arousalIndex':     'Combined Arousal Index',
         'triIndex':         'Tri Index',
         'edasymp':          'EDASymp',
+        'responseDynamics': 'Response Dynamics (Speed)',
         'em_fog':           'EM Fog Index (0-100)',
         'hdopQuality':      'GPS Accuracy (HDOP)'
       };
@@ -122,6 +123,15 @@ Object.assign(GSRMapManager.prototype, {
         if (hasNo)  html += '<div class="legend-swatch-row"><span class="legend-swatch" style="background:#666666"></span>No</div>';
         if (!hasYes && !hasNo) html += '<div class="legend-swatch-row" style="color:#999">No data</div>';
         html += '</div>';
+      } else if (metric === 'responseDynamics') {
+        html = `
+          <div class="legend-title">${title}</div>
+          <div class="legend-scale">
+            <div class="legend-gradient" style="background: linear-gradient(90deg, #8b5cf6, #3b82f6, #10b981, #f97316, #ef4444);"></div>
+            <div class="legend-labels"><span>0.50x (Slow)</span><span>1.50x (Fast)</span></div>
+          <div class="legend-note" style="margin-top: 6px; font-size: 11px; color: #64748b;">
+            Active peaks only (resting track transparent)
+          </div>`;
       } else {
         // Continuous metrics — build gradient bar
         const minV = this._legendMinVal;
@@ -174,13 +184,18 @@ Object.assign(GSRMapManager.prototype, {
         // the whole range to a couple of coarse steps.
         const fmt = (v) => {
           if (metric === 'edasymp') return v.toFixed(4);
+          if (metric === 'responseDynamics') return v.toFixed(2) + 'x';
           if (v >= 100) return v.toFixed(0);
           if (v >= 1) return v.toFixed(1);
           return v.toFixed(3);
         };
 
-        const leftLabel  = metric === 'hdopQuality' ? `HDOP ${fmt(minV)} (best)` : fmt(minV);
-        const rightLabel = metric === 'hdopQuality' ? `HDOP ${fmt(maxV)} (worst)` : fmt(maxV);
+        let leftLabel  = metric === 'hdopQuality' ? `HDOP ${fmt(minV)} (best)` : fmt(minV);
+        let rightLabel = metric === 'hdopQuality' ? `HDOP ${fmt(maxV)} (worst)` : fmt(maxV);
+        if (metric === 'responseDynamics') {
+          leftLabel  = '0.50x (Slow)';
+          rightLabel = '1.50x (Fast)';
+        }
 
         html = `
           <div class="legend-title">${title}</div>

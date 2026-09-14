@@ -793,7 +793,10 @@ const GSRRenderer = {
 
       const isExcluded = p.excluded === true;
       const qScore = p.qualityScore !== undefined ? p.qualityScore : 0.5;
-      const peakColor = isExcluded ? EXCLUDED_STYLE.color : getQualityColor(qScore);
+      let peakColor = isExcluded ? EXCLUDED_STYLE.color : getQualityColor(qScore);
+      if (!isExcluded && (AppState.graphView === 'responseDynamics' || AppState.lowerGraphMode === 'responseDynamics') && p.speedLabel && GSR_CONST.SPARSEDA_SPEED_COLORS && GSR_CONST.SPARSEDA_SPEED_COLORS[p.speedLabel]) {
+        peakColor = GSR_CONST.SPARSEDA_SPEED_COLORS[p.speedLabel];
+      }
       const lineClr   = isExcluded ? EXCLUDED_STYLE.lineColor : peakColor;
       const dashPat   = isExcluded ? EXCLUDED_STYLE.dash : NORMAL_DASH;
       const dotWt      = isExcluded ? EXCLUDED_STYLE.dotWeight : 1.2;
@@ -1368,10 +1371,25 @@ const GSRRenderer = {
     // deconvolved driver (see analyzer.computePhasicAUC).
     const lowerLabel = lowerCfg.label +
       (lowerMode === 'phasicAUC' && AppState.analyzer.phasicAUCIsISCR ? ' (ISCR)' : '');
+    const textSec = this.getThemeColor('--text-secondary', '#444444');
+    let extraValStr = dLower.val.toFixed(lowerCfg.decimals) + ' ' + lowerCfg.unit;
+    let extraColor = colorLower;
+    if (lowerMode === 'responseDynamics') {
+      if (dLower.val <= 0) {
+        extraValStr = 'Resting';
+        extraColor = textSec;
+      } else {
+        const speedLabel = (dLower.val > 1.35) ? 'Very Fast' : (dLower.val > 1.15) ? 'Fast' : (dLower.val > 0.85) ? 'Standard' : (dLower.val > 0.60) ? 'Slow' : 'Very Slow';
+        extraValStr = dLower.val.toFixed(2) + 'x (' + speedLabel + ')';
+        if (typeof GSR_CONST !== 'undefined' && GSR_CONST.SPARSEDA_SPEED_COLORS && GSR_CONST.SPARSEDA_SPEED_COLORS[speedLabel]) {
+          extraColor = GSR_CONST.SPARSEDA_SPEED_COLORS[speedLabel];
+        }
+      }
+    }
     const extraMetric = (lowerMode !== 'phasic') ? {
       label: lowerLabel + ':',
-      color: colorLower,
-      valueStr: dLower.val.toFixed(lowerCfg.decimals) + ' ' + lowerCfg.unit
+      color: extraColor,
+      valueStr: extraValStr
     } : null;
 
     // Extra tooltip rows for whichever background-band overlays are on —

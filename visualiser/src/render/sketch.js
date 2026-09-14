@@ -220,6 +220,7 @@ function draw() {
     if (yMaxLower === -Infinity || yMaxLower <= 0) {
       if (lowerMode === 'phasic') yMaxLower = parseFloat(AppState.sliders.peakThreshold.value) * 2;
       else if (lowerMode === 'phasicDriver') yMaxLower = driverCfg.gridDefaultStep * 2;
+      else if (lowerMode === 'responseDynamics') yMaxLower = 1.75;
       else yMaxLower = 100;
     }
   }
@@ -228,7 +229,7 @@ function draw() {
   yMaxLower = yMaxLower + paddingLower;
   if (lowerCfg.allowNegative) yMinLower = yMinLower - paddingLower;
 
-  // \u2500\u2500 Render inputs shared by every view \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+  // ── Render inputs shared by every view ───────────────────────────────────
   const lowerGridPresets = {
     tonic:        { steps: [[0.2, 0.02], [1.0, 0.1], [3.0, 0.5], [10, 1.0]],       defaultStep: 2.0, decimals: 2, unit: ' \u03bcS' },
     phasic:       { steps: [[0.05, 0.005], [0.15, 0.01], [0.5, 0.05], [1.5, 0.1]], defaultStep: 0.5, decimals: 3, unit: ' \u03bcS' },
@@ -236,7 +237,8 @@ function draw() {
     phasicAUC:    { steps: [[0.5, 0.05], [2, 0.2], [5, 0.5], [20, 2]],             defaultStep: 5,   decimals: 2, unit: ' \u03bcS\u00b7s' },
     arousalIndex: { steps: [[1, 0.2], [3, 0.5], [6, 1], [12, 2]],                  defaultStep: 1,   decimals: 1, unit: ' z' },
     triIndex:     { steps: [[1, 0.2], [3, 0.5], [6, 1], [12, 2]],                  defaultStep: 1,   decimals: 1, unit: ' z' },
-    edasymp:      { steps: [[0.002, 0.0002], [0.01, 0.001], [0.05, 0.005], [0.2, 0.02]], defaultStep: 0.02, decimals: 4, unit: ' \u03bcS\u00b2' }
+    edasymp:      { steps: [[0.002, 0.0002], [0.01, 0.001], [0.05, 0.005], [0.2, 0.02]], defaultStep: 0.02, decimals: 4, unit: ' \u03bcS\u00b2' },
+    responseDynamics: { steps: [[0.5, 0.25], [1.0, 0.25], [1.5, 0.25]], defaultStep: 0.25, decimals: 2, unit: 'x' }
   };
   if (driverCfg) {
     lowerGridPresets.phasicDriver = {

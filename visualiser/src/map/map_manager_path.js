@@ -29,6 +29,7 @@ const DERIVED_METRIC_SERIES = {
   arousalIndex: 'arousalIndex',
   triIndex: 'triIndex',
   edasymp: 'edasymp',
+  responseDynamics: 'responseDynamics',
   em_fog: 'em_fog',
   emFog: 'em_fog'
 };
@@ -131,11 +132,9 @@ Object.assign(GSRMapManager.prototype, {
     const layerGroup = track ? track.layerGroup : null;
     const metric = this.activeColoringMetric || 'gsr';
     const key = this._getMetricKey(metric);
-    // 'roadClass' is categorical and 'inPark' is 0/1 binary — both must be
-    // coloured per-segment from their discrete value. (A numeric LUT over 0..1
-    // would render inPark entirely grey, because only the exact value 1 maps
-    // to green and every LUT bucket midpoint is < 1.)
-    const isCategorical = (metric === 'roadClass' || metric === 'inPark');
+    // 'roadClass' is categorical, 'inPark' is 0/1 binary, and 'responseDynamics'
+    // is discrete event-gated (0 = resting, >0 = speed multiplier).
+    const isCategorical = (metric === 'roadClass' || metric === 'inPark' || metric === 'responseDynamics');
     const needsUnique = isCategorical;
 
     // Phasic/Tonic/Peak Density/Phasic AUC/Arousal Index live in per-sample
@@ -261,6 +260,11 @@ Object.assign(GSRMapManager.prototype, {
         latlngsBuf.length = 0;
         for (let i = batchStart; i <= batchEnd; i++) {
           latlngsBuf.push([seg[i].lat, seg[i].lon]);
+        }
+
+        if (metric === 'responseDynamics' && (!startVal || startVal <= 0)) {
+          batchStart = batchEnd;
+          continue;
         }
 
         let color;

@@ -36,6 +36,7 @@
   --color-tri-index: #6366f1; /* Tri Index vibrant indigo */
   --color-edasymp: #0e7490; /* EDASymp spectral sympathetic index deep cyan */
   --color-em-fog: #a855f7; /* EM Fog Index (EMF-I) glowing purple/violet */
+  --color-response-dynamics: #f97316; /* Response dynamics speed multiplier bright orange */
   
   --success: #008f3c;
   --warning: #cf7900;

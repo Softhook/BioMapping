@@ -59,6 +59,7 @@ const SERIES_FIELD = {
   peakDensity: 'peakDensity',
   phasicAUC: 'phasicAUC',
   edasymp: 'edasymp',
+  responseDynamics: 'responseDynamics',
   em_fog: 'em_fog',
   emFog: 'em_fog'
 };
@@ -1514,7 +1515,7 @@ class GSRGlobeManager {
     const metric = this.activeColoringMetric;
     // Colour follows the (possibly host-driven) metric; height follows a fixed
     // arousal-magnitude series so a non-magnitude colour metric still extrudes.
-    const discrete = (metric === 'roadClass' || metric === 'inPark');
+    const discrete = (metric === 'roadClass' || metric === 'inPark' || metric === 'responseDynamics');
     const rawSeries = this._getMetricSeries(analyzer, metric);
     const heightMetric = HEIGHT_CAPABLE_METRICS.has(metric) ? metric : this.heightMetric;
     const heightSeries = (heightMetric === metric)
@@ -1539,16 +1540,21 @@ class GSRGlobeManager {
     if (discrete) {
       const NO_DATA = 0;
       const catIndex = new Map();
-      const colors = [Cesium.Color.fromCssColorString('#666666').withAlpha(0.85)];
+      const colors = [
+        metric === 'responseDynamics'
+          ? Cesium.Color.TRANSPARENT
+          : Cesium.Color.fromCssColorString('#666666').withAlpha(0.85)
+      ];
       const indexOf = (v) => {
-        if (v === null || v === undefined || v === '') return NO_DATA;
+        if (v === null || v === undefined || v === '' || (metric === 'responseDynamics' && v <= 0)) return NO_DATA;
         let i = catIndex.get(v);
         if (i === undefined) {
           i = catIndex.size + 1;           // 0 is reserved for "no data"
           catIndex.set(v, i);
-          colors[i] = Cesium.Color.fromCssColorString(
-            MapColors.getColorForMetric(metric, v, 0, 1)
-          ).withAlpha(0.85);
+          const cssColor = MapColors.getColorForMetric(metric, v, 0, 1);
+          colors[i] = (cssColor === 'transparent')
+            ? Cesium.Color.TRANSPARENT
+            : Cesium.Color.fromCssColorString(cssColor).withAlpha(0.85);
         }
         return i;
       };
@@ -1615,6 +1621,10 @@ class GSRGlobeManager {
 
     const flushRun = () => {
       if (!runPos || runPos.length < 2) { runPos = runMax = null; return; }
+      if (metric === 'responseDynamics' && runBucket === 0) {
+        runPos = runMax = null;
+        return;
+      }
       try {
         wallInstances.push(new Cesium.GeometryInstance({
           geometry: new Cesium.WallGeometry({
