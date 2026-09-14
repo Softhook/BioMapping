@@ -76,12 +76,12 @@ classification:
 | `signal/analyzer.js` | 2,803 | Not a candidate | Leave — one memoized pipeline |
 | `render/renderer.js` | 1,757 → 99 | Split candidate | **DONE 2026-09-14** |
 | `osm/ndvi_sampler.js` | 1,424 | Not a candidate | Leave — one fetch/decode/sample pipeline |
-| `live/live_view.js` | 1,072 | Ambiguous | Investigate only, not now |
+| `live/live_view.js` | 1,072 | Not a candidate | **Verdict 2026-09-14** — shell + shared session state; `mount()` is a long-method opportunity instead |
 | `signal/deconvolution.js` | 1,040 | Not a candidate | Leave — one algorithm |
 | `osm/osm_enrichment.js` | 1,016 | Not a candidate | Leave — one enrichment pipeline |
 | `map/map_exporter.js` | 1,015 | Not a candidate | Leave — one SVG/PNG export pipeline (all `static`) |
 | `render/rf_fluid_renderer.js` | 915 | Not a candidate | Leave — one rendering engine, already narrowly scoped |
-| `map/globe3d_view.js` | 900 | Ambiguous | Investigate only, not now |
+| `map/globe3d_view.js` | 900 | Not a candidate | **Verdict 2026-09-14** — already self-organised via section comments; one coordinating role |
 | `signal/csv_parser.js` | 819 | Not a candidate | Leave — one parse pipeline (all `static`) |
 | `spatial/collective_manager.js` | 762 | Long-method case | `generateContourSurface` could gain named internal steps; not a file split |
 | `ui/tracks.js` | 641 | Not a candidate | Leave — cohesive "track library" domain, not disjoint features |
@@ -241,12 +241,81 @@ verification used for the `ui.js`/`events.js` work:
      existing `test_osm_graph_bands.js` "Park edge tolerance" test, not by
      `node --check`).
 
-3. **`live_view.js` and `globe3d_view.js`**: read in full, apply the
-   decision framework above, only split if they turn out to genuinely be
-   loosely-coupled feature piles rather than one coordinating role.
-4. **`collective_manager.js`**: not a file split — if `generateContourSurface`
-   is revisited, extract named private steps within the file (same pattern
-   as `events.js`'s `setupEventListeners()`), not a topic-file split.
+3. **`live_view.js` and `globe3d_view.js` — investigated 2026-09-14, both
+   verdict "not a split candidate."** Read in full and checked against the
+   decision framework; neither turned out to be the loosely-coupled feature
+   pile the framework looks for.
+
+   - **`live_view.js` (1,072 lines).** This is the SHELL left over after an
+     earlier session already pulled the two genuinely independent renderers
+     out (`live_graph.js`, `live_map.js` — see the file's own header
+     comment). What's left is one tightly-coupled session lifecycle: BLE
+     connection state machine, `feedLiveAnalyzer()`'s trailing-window
+     analysis feed, the FAB menu, and `mount()`. Nearly every function
+     reads/writes shared module-level `let` state (`liveAnalyzer`,
+     `liveAnalyzerBase`, `lastLiveAnalyzeAt`, `bleManager`,
+     `needNewConnection`, `mapVisible`, `viewActive`, the DOM element refs
+     `mount()` assigns) — the same "deep shared mutable state, tightly
+     sequential" shape that keeps `analyzer.js`/`ndvi_sampler.js` off the
+     split list, not `ui.js`'s "several independent feature piles" shape.
+     `LiveConnectionController` (~110 lines) is the one piece with a real
+     boundary (its own getter/setter object over `bleManager`/
+     `needNewConnection`) but still calls back into `resetSession()`/
+     `attemptConnect` — not worth a file on its own.
+     **Real opportunity, not done:** `mount()` itself is ~206 lines of
+     mostly-inline event-listener binding (state listeners, resize/
+     orientation handling, keyboard shortcuts, the location button) — a
+     textbook **long-method** case, same shape as `events.js`'s
+     `setupEventListeners()` before it was regrouped into named
+     `_bind*Controls()` steps in the same file. `bindLiveGsrControls()`/
+     `bindLiveFab()` already show the pattern half-applied. Worth doing as
+     its own small follow-up; not attempted this session.
+   - **`globe3d_view.js` (900 lines).** One object, ~35 methods, but
+     already internally organised into 8 clearly labelled sections via its
+     own `// ── Section name ──` divider comments (init & wiring, scrub
+     sync + peak popups, shared header controls, toggle mirroring, Cesium
+     lazy load, activate/deactivate, 2D→3D data push, small UI bits) — the
+     "no natural narrower home for new code" smell that justified the
+     other splits doesn't apply here; there already *is* a home for each
+     kind of addition. The peak-popup cluster (`_showPeakPopup`/
+     `_positionPeakPopup`/`_reflowPeakPopup`/`_closePeakPopup`/
+     `_editPeakLabel`, ~150 lines) is the most self-contained group and the
+     closest thing to a real candidate, but unlike `map_popups.js`'s PURE
+     extraction from `map.js` (no shared state, just DOM builders taking
+     args), these methods read/write `GSRGlobe3DView.els`/`_popupAnchor`/
+     `_popupDismiss` by the object's own bare name throughout — genuinely
+     coupled to the rest of the object, not a clean lift. Fundamentally
+     this file is one coordinating role (relay between the 2D map's header
+     controls and the 3D engine), matching the plan's original "borderline"
+     read. Left as-is; the section-comment dividers are already doing the
+     organisational job a split would.
+
+4. **`collective_manager.js` — investigated 2026-09-14, confirmed a
+   long-method case, extraction not attempted.** `generateContourSurface`
+   is 588 lines (166–753 of 762 total) — the entire rest of the class is
+   ~165 lines of small accessors. It has real test coverage (6 test files:
+   `test_collective_manager.js`, `test_collective_active_metric.js`,
+   `test_masked_grid_isobands.js`, `test_hillshade.js`,
+   `test_all_pipelines.js`, `mock_constants.js`), which is what makes
+   extraction *feasible* to verify — but it is dense, single-pass numerical
+   geometry (param resolution → per-track point/peak collection with inline
+   smoothing closures → IDW grid interpolation → coverage-weighted
+   blending → Gaussian blur → bicubic upsample → marching-squares contour
+   extraction), with dozens of local variables (`grid`, `scale`, `bounds`,
+   `points`, `peaks`, `trackPointRanges`, `rows`/`cols`, …) threaded through
+   every stage. Splitting into named private steps (the `events.js`
+   pattern) means either nested closures (low risk, but barely more
+   readable than section comments) or real methods with explicit
+   parameter/return threading across ~6 stage boundaries (meaningfully
+   higher transcription risk than the mechanical method-reshuffling that
+   made the `globe3d.js`/`renderer.js` splits safe — there, byte-identical
+   diffing was the whole verification story; here the code itself must
+   change shape). Given the size of this undertaking is comparable to
+   *both* god-object splits combined, for a single 588-line method with a
+   materially different (numerical-correctness, not organisational) risk
+   profile, this is left as a **scoped, separately-sized follow-up** rather
+   than folded into this session — the plan's own "don't manufacture
+   churn" rule cuts against rushing it alongside two already-large splits.
 
 **Open gap:** no headless-browser smoke pass has verified either the
 `globe3d.js` split (3D tab, peak click, tour, OSM buildings toggle) or the
