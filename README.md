@@ -2,12 +2,12 @@
 
 *Christian Nold, 2026*
 
-BioMapping 2.0 records your Galvanic Skin Response — a measure of emotional arousal — mapped to your geographical location as you walk through an envrironment. 
+BioMapping 2.0 records your Galvanic Skin Response — a measure of emotional arousal — mapped to your geographical location as you walk through an environment. 
 
 It has two parts:
 
 - **[The Hardware](#the-hardware)** — a Flipper Zero wired to a custom skin-response sensor and a GPS module, logging to the SD card as CSV.
-- **[The Visualiser](#the-visualiser)** — browser pages that turn a recording into a map ([`visualiser/index.html`](visualiser/index.html)).
+- **[The Visualiser](#the-visualiser)** — browser-based analysis and mapping suite ([launch online](https://softhook.github.io/BioMapping/visualiser/) or open [`visualiser/index.html`](visualiser/index.html)).
 
 ## The Original Bio Mapping
 
@@ -21,14 +21,14 @@ BioMapping 2.0 is a high-fidelity successor that takes you much deeper into the 
 
 The device is a Flipper Zero running the Bio Mapping app, wired to a custom skin-response sensor circuit and a GPS module. It records to the Flipper's SD card as CSV.
 
-![BioMapping 2 with the prototyping shield and the GSR circuit on the lft and the GPS on the right.](docs/biomapping2.jpg)
+![BioMapping 2 with the prototyping shield and the GSR circuit on the left and the GPS on the right.](docs/biomapping2.jpg)
 
 ## What It Records
 
 | Stream | Sensor | Notes |
 |---|---|---|
 | **Galvanic Skin Response (GSR)** | Transimpedance amplifier + 16-bit ADS1115 ADC | Skin conductance in nanosiemens (nS) |
-| **Location** | u-blox SAM-M10Q GNSS | Sub-meter accuracy, up to 10 Hz (GPS + Galileo + GLONASS + BeiDou) |
+| **Location** | u-blox SAM-M10Q GNSS | Sub-metre accuracy, up to 10 Hz (GPS + Galileo + GLONASS + BeiDou) |
 | **Environmental RF** | Flipper SubGHz radio | Band activity at 815 / 868 / 915 MHz |
 
 Everything is logged to `/ext/biomapping/*.csv` at 10 Hz. A Live Stream mode sends GPS + GSR over Bluetooth instead of recording.
@@ -146,7 +146,46 @@ Run the host unit tests with `./run_tests.sh` from `firmware/`.
 
 ![BioMapping 2 Visualiser with the demo track loaded.](docs/screenshot.png)
 
-Browser software under [`visualiser/`](visualiser/) — no server, no build step to run it. It has two entry points.
+The visualiser runs client-side in any modern browser with no server, installation, or build step required. You can launch it directly online:
+
+👉 **[Launch BioMapping Visualiser Online](https://softhook.github.io/BioMapping/visualiser/)**
+
+It provides two entry points:
+
+- **Track Visualiser & Analysis** ([Online App](https://softhook.github.io/BioMapping/visualiser/) | [`visualiser/index.html`](visualiser/index.html)) — Load recorded `.csv` logs from the device to inspect waveforms, clean signals, detect SCR events, map emotional arousal in 2D or 3D, and generate collective emotion maps across participants.
+- **Live Stream Visualiser** ([Online Live View](https://softhook.github.io/BioMapping/visualiser/live.html) | [`visualiser/live.html`](visualiser/live.html)) — Connects to the Flipper Zero in real time via Web Bluetooth to graph live biometric arousal and plot GPS movements as you walk.
+
+## Available Methods & Pipeline
+
+The visualiser provides a full suite of research-grade methods for ambulatory EDA signal processing and spatial analysis:
+
+- **Signal Filtering & Motion Artefact Rejection:**
+  - *Hampel / Median Filter* — Removes transient spikes and electrode loose-contact glitches.
+  - *Butterworth Low-Pass* — 4th-order zero-phase filter to smooth high-frequency electrical fuzz and tremor.
+  - *Zero-Phase Gait Filter* — Band-reject filter tuned to pedestrian footstep cadence (~1.5–2.5 Hz) to eliminate ambulatory motion artefacts while preserving genuine SCRs.
+- **Tonic / Phasic Decomposition:**
+  - *Ultra Low-Pass (EMA)* — Exponential moving average baseline estimation with configurable time window (15–90 s).
+  - *Moving Median* — Robust sliding-window baseline estimation.
+  - *Trough Tracker* — 10th-percentile baseline follower.
+  - *Matching Pursuit Deconvolution* — Greedy decomposition against a canonical Bateman SCRF kernel.
+  - *SparsEDA* — Sparse deconvolution using multi-scale dictionary pursuit and active-set refinement.
+  - *cvxEDA* — Convex optimisation jointly estimating cubic B-spline tonic drift and physiological sudomotor nerve impulses.
+- **Peak Detection (SCR):**
+  - *Full-Scan Trough-to-Peak (Default)* — Evaluates candidate peaks against minimum amplitude, SNR, and shape-quality criteria.
+  - *Topographic Prominence* — Measures peak height relative to adjacent troughs, isolating compound responses riding larger rises.
+  - *Driver Impulses* — Direct peak extraction from deconvolution and cvxEDA sudomotor nerve drivers.
+- **Autonomic Indices & Derived Metrics:**
+  - *Tonic SCL & Phasic SCR* — Separates slow baseline level from rapid emotional responses.
+  - *Peak Density & Phasic AUC* — SCR frequency over time and cumulative phasic energy (Area Under the Curve).
+  - *Arousal Index & Tri-Index* — Normalised multi-parameter arousal intensity metrics.
+  - *EDASymp* — Spectral sympathetic tone index derived from low-frequency EDA dynamics.
+- **Spatial & Collective Mapping:**
+  - *Pedestrian GPS Filter Pipeline* — Fix-quality gating, speed clamping, HDOP thresholding, and Zero Velocity Update (ZUPT) velocity smoothing.
+  - *Dual 2D/3D Rendering* — Toggle between interactive 2D maps and 3D globe terrain.
+  - *Multi-Metric Path Colouring* — Dynamically colour paths by raw GSR, phasic arousal, tonic level, peak density, or RF field activity.
+  - *Spatial Hotspots & "Places"* — Spatial clustering of emotional arousal sites along walking routes.
+  - *Collective Emotion Topography* — Multi-track aggregation generating shared contour surfaces and arousal isolines across groups of participants.
+  - *Environmental Layers* — Overlaid OpenStreetMap geometries (buildings, parks, water), Sentinel-2 NDVI satellite vegetation greenness, and tri-band RF fluid fields.
 
 ## Software & Algorithmic Accuracy
 
