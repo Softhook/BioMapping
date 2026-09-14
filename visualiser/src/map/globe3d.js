@@ -1538,30 +1538,46 @@ class GSRGlobeManager {
     let minVal = 0;
 
     if (discrete) {
-      const NO_DATA = 0;
-      const catIndex = new Map();
-      const colors = [
-        metric === 'responseDynamics'
-          ? Cesium.Color.TRANSPARENT
-          : Cesium.Color.fromCssColorString('#666666').withAlpha(0.85)
-      ];
-      const indexOf = (v) => {
-        if (v === null || v === undefined || v === '' || (metric === 'responseDynamics' && v <= 0)) return NO_DATA;
-        let i = catIndex.get(v);
-        if (i === undefined) {
-          i = catIndex.size + 1;           // 0 is reserved for "no data"
-          catIndex.set(v, i);
-          const cssColor = MapColors.getColorForMetric(metric, v, 0, 1);
-          colors[i] = (cssColor === 'transparent')
-            ? Cesium.Color.TRANSPARENT
-            : Cesium.Color.fromCssColorString(cssColor).withAlpha(0.85);
-        }
-        return i;
-      };
-      colorSeries = new Array(rawSeries.length);
-      for (let i = 0; i < rawSeries.length; i++) colorSeries[i] = indexOf(rawSeries[i]);
-      colorOf = (k) => colors[k] || colors[0];
-      bucketOf = (v) => (v == null ? NO_DATA : v);
+      if (metric === 'responseDynamics') {
+        const RD = (typeof ResponseDynamics !== 'undefined')
+          ? ResponseDynamics
+          : (typeof global !== 'undefined' && global.ResponseDynamics ? global.ResponseDynamics : null);
+        const speedColors = RD ? RD.SPEED_COLORS : {
+          'Very Slow': '#8b5cf6', 'Slow': '#3b82f6', 'Standard': '#10b981', 'Fast': '#f97316', 'Very Fast': '#ef4444'
+        };
+        const colors = [
+          Cesium.Color.TRANSPARENT,
+          Cesium.Color.fromCssColorString(speedColors['Very Slow']).withAlpha(0.85),
+          Cesium.Color.fromCssColorString(speedColors['Slow']).withAlpha(0.85),
+          Cesium.Color.fromCssColorString(speedColors['Standard']).withAlpha(0.85),
+          Cesium.Color.fromCssColorString(speedColors['Fast']).withAlpha(0.85),
+          Cesium.Color.fromCssColorString(speedColors['Very Fast']).withAlpha(0.85)
+        ];
+        const indexOf = (v) => (RD ? RD.getBucketIndex(v) : (v == null || !isFinite(v) || v <= 0 ? 0 : 3));
+        colorSeries = new Array(rawSeries.length);
+        for (let i = 0; i < rawSeries.length; i++) colorSeries[i] = indexOf(rawSeries[i]);
+        colorOf = (k) => colors[k] || colors[0];
+        bucketOf = (v) => (v == null ? 0 : v);
+      } else {
+        const NO_DATA = 0;
+        const catIndex = new Map();
+        const colors = [Cesium.Color.fromCssColorString('#666666').withAlpha(0.85)];
+        const indexOf = (v) => {
+          if (v === null || v === undefined || v === '') return NO_DATA;
+          let i = catIndex.get(v);
+          if (i === undefined) {
+            i = catIndex.size + 1;           // 0 is reserved for "no data"
+            catIndex.set(v, i);
+            const cssColor = MapColors.getColorForMetric(metric, v, 0, 1);
+            colors[i] = Cesium.Color.fromCssColorString(cssColor).withAlpha(0.85);
+          }
+          return i;
+        };
+        colorSeries = new Array(rawSeries.length);
+        for (let i = 0; i < rawSeries.length; i++) colorSeries[i] = indexOf(rawSeries[i]);
+        colorOf = (k) => colors[k] || colors[0];
+        bucketOf = (v) => (v == null ? NO_DATA : v);
+      }
     } else {
       // Colour normalisation range: the host's legend range when it owns it
       // (2D view is the source of truth), otherwise computed over drawn points.
@@ -2891,6 +2907,9 @@ class GSRGlobeManager {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
+  if (typeof global !== 'undefined' && typeof global.ResponseDynamics === 'undefined') {
+    try { global.ResponseDynamics = require('../signal/response_dynamics.js').ResponseDynamics; } catch (_) {}
+  }
   module.exports = { GSRGlobeManager, BASEMAP_PROVIDERS, SERIES_FIELD, HEIGHT_CAPABLE_METRICS, seriesValue };
 }
 if (typeof window !== 'undefined') {

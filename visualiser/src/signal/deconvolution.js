@@ -854,8 +854,12 @@ const SCRDeconvolution = {
     const tonic = this._linearResampleBack(tonicWork, workRate, n, sampleRate);
     const mse = this._linearResampleBack(mseWork, workRate, n, sampleRate);
 
-    const SCALE_FACTORS = [0.5, 0.75, 1.0, 1.25, 1.5];
-    const SPEED_LABELS = ['Very Slow', 'Slow', 'Standard', 'Fast', 'Very Fast'];
+    const SCALE_FACTORS = (typeof ResponseDynamics !== 'undefined' && ResponseDynamics.SCALE_FACTORS)
+      ? ResponseDynamics.SCALE_FACTORS
+      : [0.5, 0.75, 1.0, 1.25, 1.5];
+    const SPEED_LABELS = (typeof ResponseDynamics !== 'undefined' && ResponseDynamics.SPEED_LABELS)
+      ? ResponseDynamics.SPEED_LABELS
+      : ['Very Slow', 'Slow', 'Standard', 'Fast', 'Very Fast'];
     const scale = sampleRate / workRate;
 
     // Track dominant dictionary band for each driver activation

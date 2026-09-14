@@ -21,6 +21,7 @@ loadModule(path.join(__dirname, '../src/signal/dwt_filter.js'), 'DWT');
 loadModule(path.join(__dirname, '../src/signal/gsr_filter.js'), 'GsrFilter');
 loadModule(path.join(__dirname, '../src/signal/deconvolution.js'), 'SCRDeconvolution');
 loadModule(path.join(__dirname, '../src/signal/csv_parser.js'), 'GSRCSVParser');
+loadModule(path.join(__dirname, '../src/signal/response_dynamics.js'), 'ResponseDynamics');
 loadModule(path.join(__dirname, '../src/signal/analyzer.js'), 'GSRAnalyzer');
 
 const { GSRAnalyzer, SCRDeconvolution } = global;

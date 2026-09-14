@@ -346,23 +346,26 @@ const GSR_CONST = {
       colorVar: '--color-edasymp', colorDefault: '#0e7490',
       showPeakOverlay: false, allowNegative: false
     },
-    // SparsEDA Response Dynamics (0.5x to 1.5x) autonomic response speed index.
-    // Represents the continuous multi-scale dilation speed across the recording.
+    // SparsEDA Response Dynamics — Phasic SCR amplitude colored by autonomic response speed.
+    // Height represents Phasic amplitude (μS); colour indicates multi-scale dilation speed (0.50x to 1.50x).
     responseDynamics: {
-      label: 'Response Dynamics (Speed)', unit: 'x', decimals: 2,
+      label: 'Response Dynamics (Speed)', unit: 'μS', decimals: 3,
       colorVar: '--color-response-dynamics', colorDefault: '#f97316',
       showPeakOverlay: true, allowNegative: false
     }
   },
 
-  // Color mapping for SparsEDA multi-scale speed categories across UI, graph, and map
-  SPARSEDA_SPEED_COLORS: {
-    'Very Fast': '#ef4444', // 1.5x (Vivid Red / Acute shock)
-    'Fast':      '#f97316', // 1.25x (Vibrant Orange)
-    'Standard':  '#10b981', // 1.0x (Emerald Green / Habitual)
-    'Slow':      '#3b82f6', // 0.75x (Vivid Blue)
-    'Very Slow': '#8b5cf6'  // 0.5x (Deep Purple / Lingering tension)
-  },
+  // Color mapping for SparsEDA multi-scale speed categories across UI, graph, and map.
+  // Defined canonically in ResponseDynamics (src/signal/response_dynamics.js).
+  SPARSEDA_SPEED_COLORS: (typeof ResponseDynamics !== 'undefined' && ResponseDynamics.SPEED_COLORS)
+    ? ResponseDynamics.SPEED_COLORS
+    : {
+      'Very Fast': '#ef4444', // 1.5x (Vivid Red / Acute shock)
+      'Fast':      '#f97316', // 1.25x (Vibrant Orange)
+      'Standard':  '#10b981', // 1.0x (Emerald Green / Habitual)
+      'Slow':      '#3b82f6', // 0.75x (Vivid Blue)
+      'Very Slow': '#8b5cf6'  // 0.5x (Deep Purple / Lingering tension)
+    },
 
 
   // Display unit for the 'phasicDriver' graph view, keyed by

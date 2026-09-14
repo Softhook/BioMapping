@@ -124,11 +124,16 @@ Object.assign(GSRMapManager.prototype, {
         if (!hasYes && !hasNo) html += '<div class="legend-swatch-row" style="color:#999">No data</div>';
         html += '</div>';
       } else if (metric === 'responseDynamics') {
+        const RD = (typeof ResponseDynamics !== 'undefined') ? ResponseDynamics : null;
+        const gradientCss = RD
+          ? `linear-gradient(90deg, ${RD.BANDS.map(b => b.color).join(', ')})`
+          : 'linear-gradient(90deg, #8b5cf6, #3b82f6, #10b981, #f97316, #ef4444)';
         html = `
           <div class="legend-title">${title}</div>
           <div class="legend-scale">
-            <div class="legend-gradient" style="background: linear-gradient(90deg, #8b5cf6, #3b82f6, #10b981, #f97316, #ef4444);"></div>
+            <div class="legend-gradient" style="background: ${gradientCss};"></div>
             <div class="legend-labels"><span>0.50x (Slow)</span><span>1.50x (Fast)</span></div>
+          </div>
           <div class="legend-note" style="margin-top: 6px; font-size: 11px; color: #64748b;">
             Active peaks only (resting track transparent)
           </div>`;
@@ -184,7 +189,6 @@ Object.assign(GSRMapManager.prototype, {
         // the whole range to a couple of coarse steps.
         const fmt = (v) => {
           if (metric === 'edasymp') return v.toFixed(4);
-          if (metric === 'responseDynamics') return v.toFixed(2) + 'x';
           if (v >= 100) return v.toFixed(0);
           if (v >= 1) return v.toFixed(1);
           return v.toFixed(3);
@@ -192,10 +196,6 @@ Object.assign(GSRMapManager.prototype, {
 
         let leftLabel  = metric === 'hdopQuality' ? `HDOP ${fmt(minV)} (best)` : fmt(minV);
         let rightLabel = metric === 'hdopQuality' ? `HDOP ${fmt(maxV)} (worst)` : fmt(maxV);
-        if (metric === 'responseDynamics') {
-          leftLabel  = '0.50x (Slow)';
-          rightLabel = '1.50x (Fast)';
-        }
 
         html = `
           <div class="legend-title">${title}</div>

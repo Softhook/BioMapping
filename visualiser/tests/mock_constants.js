@@ -121,6 +121,19 @@ module.exports = {
     windowSec: 64, hopSec: 5
   },
 
+  SPARSEDA_SPEED_COLORS: {
+    'Very Fast': '#ef4444',
+    'Fast':      '#f97316',
+    'Standard':  '#10b981',
+    'Slow':      '#3b82f6',
+    'Very Slow': '#8b5cf6'
+  },
+
+  LOWER_GRAPH_MODES: {
+    phasic: { label: 'Phasic', unit: 'μS', decimals: 3 },
+    responseDynamics: { label: 'Response Dynamics (Speed)', unit: 'μS', decimals: 3 }
+  },
+
   TOPOGRAPHY_SOURCES: {
     phasic:        { label: 'Phasic Arousal', unit: ' μS' },
     tonic:         { label: 'Tonic Baseline (SCL)', unit: ' μS' },

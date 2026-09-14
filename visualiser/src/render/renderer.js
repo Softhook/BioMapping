@@ -679,6 +679,113 @@ const GSRRenderer = {
   },
 
   /**
+   * Draw the Phasic curve with segments and filled area colored by Response Dynamics speed.
+   * Height represents Phasic amplitude (μS).
+   * Resting baseline intervals are drawn in a soft, muted baseline color.
+   * Active response intervals are filled and stroked in their respective speed colors (Red, Orange, Green, Blue, Purple).
+   *
+   * @param {Array<{time: number, val: number}>} phasicData
+   * @param {Array<{time: number, val: number}>} dynData
+   * @param {number} tMin
+   * @param {number} tMax
+   * @param {number} yMin
+   * @param {number} yMax
+   * @param {number} yTop
+   * @param {number} yBottom
+   * @param {Array<number>} [forceIndices]
+   */
+  drawResponseDynamicsPhasic(phasicData, dynData, tMin, tMax, yMin, yMax, yTop, yBottom, forceIndices) {
+    if (!phasicData || phasicData.length === 0) return;
+    const ctx = this._buildCurveContext(phasicData, tMin, tMax, yMin, yMax, yTop, yBottom, forceIndices);
+    if (!ctx) return;
+
+    const basePhasicHex = this.getThemeColor('--color-phasic', '#008f3c');
+    const RD = (typeof ResponseDynamics !== 'undefined')
+      ? ResponseDynamics
+      : (typeof global !== 'undefined' && global.ResponseDynamics ? global.ResponseDynamics : null);
+
+    // Collect rendered points with speed bucket
+    const pts = [];
+    const drawIndices = ctx.indices || null;
+    if (drawIndices) {
+      for (let k = 0; k < drawIndices.length; k++) {
+        const i = drawIndices[k];
+        const d = phasicData[i];
+        const dynVal = (dynData && dynData[i]) ? dynData[i].val : 0;
+        const bucket = RD ? RD.getBucketIndex(dynVal) : (dynVal <= 0 ? 0 : 3);
+        const x = GSR_CONST.MARGIN.left + (d.time - tMin) * ctx.xScale;
+        const y = yBottom + (d.val - yMin) * ctx.yScale;
+        pts.push({ x, y, bucket });
+      }
+    } else {
+      for (let i = ctx.startIdx; i <= ctx.endIdx; i += ctx.step) {
+        const d = phasicData[i];
+        const dynVal = (dynData && dynData[i]) ? dynData[i].val : 0;
+        const bucket = RD ? RD.getBucketIndex(dynVal) : (dynVal <= 0 ? 0 : 3);
+        const x = GSR_CONST.MARGIN.left + (d.time - tMin) * ctx.xScale;
+        const y = yBottom + (d.val - yMin) * ctx.yScale;
+        pts.push({ x, y, bucket });
+      }
+    }
+    if (pts.length < 2) return;
+
+    // Group into contiguous runs
+    const runs = [];
+    let currentRun = [pts[0]];
+    for (let i = 1; i < pts.length; i++) {
+      const p = pts[i];
+      if (p.bucket === currentRun[0].bucket) {
+        currentRun.push(p);
+      } else {
+        // Overlap boundary point for continuous connections
+        currentRun.push(p);
+        runs.push(currentRun);
+        currentRun = [p];
+      }
+    }
+    if (currentRun.length > 0) runs.push(currentRun);
+
+    // Pass 1: Draw filled areas
+    noStroke();
+    for (let r = 0; r < runs.length; r++) {
+      const run = runs[r];
+      if (run.length < 2) continue;
+      const b = run[0].bucket;
+      if (b === 0) {
+        // Resting baseline area wash (subtle 5% opacity)
+        fill(color(basePhasicHex + '0d'));
+      } else {
+        const bandColor = RD ? RD.BANDS[b - 1].color : '#10b981';
+        fill(color(bandColor + '30')); // translucent speed color wash for active peak
+      }
+      beginShape();
+      vertex(run[0].x, yBottom);
+      for (let j = 0; j < run.length; j++) vertex(run[j].x, run[j].y);
+      vertex(run[run.length - 1].x, yBottom);
+      endShape(CLOSE);
+    }
+
+    // Pass 2: Draw strokes
+    noFill();
+    for (let r = 0; r < runs.length; r++) {
+      const run = runs[r];
+      if (run.length < 2) continue;
+      const b = run[0].bucket;
+      if (b === 0) {
+        stroke(color(basePhasicHex + '70'));
+        strokeWeight(1.5);
+      } else {
+        const bandColor = RD ? RD.BANDS[b - 1].color : '#10b981';
+        stroke(bandColor);
+        strokeWeight(2.5);
+      }
+      beginShape();
+      for (let j = 0; j < run.length; j++) vertex(run[j].x, run[j].y);
+      endShape();
+    }
+  },
+
+  /**
    * Pixel-per-unit scale factors shared by drawPeakMarkers()/drawHotspotMarkers()
    * (and their _computePeakScreenPos() calls) — pulled out since both methods
    * computed byte-identical xScale/yScaleU/yScaleL formulas independently
@@ -794,8 +901,9 @@ const GSRRenderer = {
       const isExcluded = p.excluded === true;
       const qScore = p.qualityScore !== undefined ? p.qualityScore : 0.5;
       let peakColor = isExcluded ? EXCLUDED_STYLE.color : getQualityColor(qScore);
-      if (!isExcluded && (AppState.graphView === 'responseDynamics' || AppState.lowerGraphMode === 'responseDynamics') && p.speedLabel && GSR_CONST.SPARSEDA_SPEED_COLORS && GSR_CONST.SPARSEDA_SPEED_COLORS[p.speedLabel]) {
-        peakColor = GSR_CONST.SPARSEDA_SPEED_COLORS[p.speedLabel];
+      if (!isExcluded && (AppState.graphView === 'responseDynamics' || AppState.lowerGraphMode === 'responseDynamics') && p.speedLabel) {
+        const RD = (typeof ResponseDynamics !== 'undefined') ? ResponseDynamics : null;
+        peakColor = RD ? RD.getSpeedColor(p.speedLabel) : (GSR_CONST.SPARSEDA_SPEED_COLORS ? GSR_CONST.SPARSEDA_SPEED_COLORS[p.speedLabel] : peakColor);
       }
       const lineClr   = isExcluded ? EXCLUDED_STYLE.lineColor : peakColor;
       const dashPat   = isExcluded ? EXCLUDED_STYLE.dash : NORMAL_DASH;
@@ -1305,7 +1413,9 @@ const GSRRenderer = {
         GSR_CONST.DRIVER_UNIT_BY_ALGORITHM.matching_pursuit;
       lowerCfg = { ...lowerCfg, unit: driverCfg.unit, decimals: driverCfg.decimals };
     }
-    const lowerSeries = AppState.analyzer[lowerMode] || AppState.analyzer.phasic;
+    const lowerSeries = (lowerMode === 'responseDynamics')
+      ? AppState.analyzer.phasic
+      : (AppState.analyzer[lowerMode] || AppState.analyzer.phasic);
     const dLower = lowerSeries[AppState.hoveredIndex] || dPhasic;
 
     const xScrub = map(dRaw.time, tMin, tMax, GSR_CONST.MARGIN.left, width - GSR_CONST.MARGIN.right);
@@ -1369,25 +1479,30 @@ const GSRRenderer = {
     // plain Phasic — the Phasic row already covers that case below.
     // 'Phasic AUC' becomes 'Phasic AUC (ISCR)' when the series integrated the
     // deconvolved driver (see analyzer.computePhasicAUC).
-    const lowerLabel = lowerCfg.label +
-      (lowerMode === 'phasicAUC' && AppState.analyzer.phasicAUCIsISCR ? ' (ISCR)' : '');
+    const lowerLabel = (lowerMode === 'responseDynamics')
+      ? 'Dynamics:'
+      : (lowerCfg.label + (lowerMode === 'phasicAUC' && AppState.analyzer.phasicAUCIsISCR ? ' (ISCR)' : '') + ':');
     const textSec = this.getThemeColor('--text-secondary', '#444444');
     let extraValStr = dLower.val.toFixed(lowerCfg.decimals) + ' ' + lowerCfg.unit;
     let extraColor = colorLower;
     if (lowerMode === 'responseDynamics') {
-      if (dLower.val <= 0) {
+      const dynSeries = AppState.analyzer.responseDynamics || [];
+      const dDyn = dynSeries[AppState.hoveredIndex];
+      const dynVal = dDyn ? dDyn.val : 0;
+      const RD = (typeof ResponseDynamics !== 'undefined') ? ResponseDynamics : null;
+      if (RD) {
+        const tip = RD.formatTooltip(dynVal, textSec);
+        extraValStr = tip.valueStr;
+        extraColor = tip.color;
+      } else if (dynVal <= 0) {
         extraValStr = 'Resting';
         extraColor = textSec;
       } else {
-        const speedLabel = (dLower.val > 1.35) ? 'Very Fast' : (dLower.val > 1.15) ? 'Fast' : (dLower.val > 0.85) ? 'Standard' : (dLower.val > 0.60) ? 'Slow' : 'Very Slow';
-        extraValStr = dLower.val.toFixed(2) + 'x (' + speedLabel + ')';
-        if (typeof GSR_CONST !== 'undefined' && GSR_CONST.SPARSEDA_SPEED_COLORS && GSR_CONST.SPARSEDA_SPEED_COLORS[speedLabel]) {
-          extraColor = GSR_CONST.SPARSEDA_SPEED_COLORS[speedLabel];
-        }
+        extraValStr = `${dynVal.toFixed(2)}x`;
       }
     }
     const extraMetric = (lowerMode !== 'phasic') ? {
-      label: lowerLabel + ':',
+      label: lowerLabel,
       color: extraColor,
       valueStr: extraValStr
     } : null;
@@ -1430,8 +1545,26 @@ const GSRRenderer = {
     const pad = 12;
     const hasPeakInfo = nearPeak && nearPeak.qualityScore !== undefined;
     const rows = extraRows || [];
-    // Extra width for peak quality details
-    const boxW = hasPeakInfo ? 240 : 200;
+
+    // Dynamically calculate box width from content so text never overlaps
+    textSize(9.5);
+    const measureW = (s) => (typeof textWidth === 'function' ? textWidth(s) : ((s ? s.length : 0) * 6.5));
+    let maxContentW = 0;
+    const allRows = [
+      ['Raw:', rawVal.toFixed(4) + ' \u03bcS'],
+      ['Filtered:', filtVal.toFixed(4) + ' \u03bcS'],
+      ['Tonic (SCL):', tonicVal.toFixed(4) + ' \u03bcS'],
+      ['Phasic (SCR):', phasicVal.toFixed(4) + ' \u03bcS']
+    ];
+    for (const r of rows) {
+      if (r) allRows.push([r.label || '', r.valueStr || '']);
+    }
+    for (const [lbl, val] of allRows) {
+      const rowW = measureW(lbl) + measureW(val) + 16;
+      if (rowW > maxContentW) maxContentW = rowW;
+    }
+    const minW = hasPeakInfo ? 240 : 200;
+    const boxW = Math.max(minW, Math.ceil(maxContentW + pad * 2));
     const hasSpeed = hasPeakInfo && !!nearPeak.speedLabel;
     const boxH = (hasPeakInfo ? (hasSpeed ? 216 : 200) : 120) + rows.length * 18;
 

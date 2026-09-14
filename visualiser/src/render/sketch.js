@@ -186,7 +186,9 @@ function draw() {
   // See GSR_CONST.LOWER_GRAPH_MODES.
   const lowerMode = AppState.lowerGraphMode || 'phasic';
   const lowerCfg = GSR_CONST.LOWER_GRAPH_MODES[lowerMode] || GSR_CONST.LOWER_GRAPH_MODES.phasic;
-  const lowerSeries = AppState.analyzer[lowerMode] || AppState.analyzer.phasic;
+  const lowerSeries = (lowerMode === 'responseDynamics')
+    ? AppState.analyzer.phasic
+    : (AppState.analyzer[lowerMode] || AppState.analyzer.phasic);
 
   // 'phasicDriver' has no single static display config: matching pursuit's
   // driver and cvxEDA's driver are different physical quantities (µS vs
@@ -218,9 +220,8 @@ function draw() {
     if (yMaxLower === -Infinity) yMaxLower = 1;
   } else {
     if (yMaxLower === -Infinity || yMaxLower <= 0) {
-      if (lowerMode === 'phasic') yMaxLower = parseFloat(AppState.sliders.peakThreshold.value) * 2;
+      if (lowerMode === 'phasic' || lowerMode === 'responseDynamics') yMaxLower = parseFloat(AppState.sliders.peakThreshold.value) * 2;
       else if (lowerMode === 'phasicDriver') yMaxLower = driverCfg.gridDefaultStep * 2;
-      else if (lowerMode === 'responseDynamics') yMaxLower = 1.75;
       else yMaxLower = 100;
     }
   }
@@ -238,7 +239,7 @@ function draw() {
     arousalIndex: { steps: [[1, 0.2], [3, 0.5], [6, 1], [12, 2]],                  defaultStep: 1,   decimals: 1, unit: ' z' },
     triIndex:     { steps: [[1, 0.2], [3, 0.5], [6, 1], [12, 2]],                  defaultStep: 1,   decimals: 1, unit: ' z' },
     edasymp:      { steps: [[0.002, 0.0002], [0.01, 0.001], [0.05, 0.005], [0.2, 0.02]], defaultStep: 0.02, decimals: 4, unit: ' \u03bcS\u00b2' },
-    responseDynamics: { steps: [[0.5, 0.25], [1.0, 0.25], [1.5, 0.25]], defaultStep: 0.25, decimals: 2, unit: 'x' }
+    responseDynamics: { steps: [[0.05, 0.005], [0.15, 0.01], [0.5, 0.05], [1.5, 0.1]], defaultStep: 0.5, decimals: 3, unit: ' \u03bcS' }
   };
   if (driverCfg) {
     lowerGridPresets.phasicDriver = {
@@ -383,8 +384,12 @@ function draw() {
     // stride when zoomed out. All other metric views use SCR peak positions.
     const lowerForceIndices = (lowerMode === 'phasicDriver') ? driverForceIndices : metricForceIndices;
 
-    GSRRenderer.drawPhasicArea(lowerSeries, AppState.viewStartTime, viewEndTime, yMinLower, yMaxLower, plotTop, plotBottom, colorLower, lowerForceIndices);
-    GSRRenderer.drawSignalCurve(lowerSeries, AppState.viewStartTime, viewEndTime, yMinLower, yMaxLower, plotTop, plotBottom, colorLower, 2, lowerForceIndices);
+    if (lowerMode === 'responseDynamics') {
+      GSRRenderer.drawResponseDynamicsPhasic(lowerSeries, AppState.analyzer.responseDynamics, AppState.viewStartTime, viewEndTime, yMinLower, yMaxLower, plotTop, plotBottom, lowerForceIndices);
+    } else {
+      GSRRenderer.drawPhasicArea(lowerSeries, AppState.viewStartTime, viewEndTime, yMinLower, yMaxLower, plotTop, plotBottom, colorLower, lowerForceIndices);
+      GSRRenderer.drawSignalCurve(lowerSeries, AppState.viewStartTime, viewEndTime, yMinLower, yMaxLower, plotTop, plotBottom, colorLower, 2, lowerForceIndices);
+    }
 
     if (lowerCfg.showPeakOverlay) {
       drawRefLine(parseFloat(AppState.sliders.peakThreshold.value), plotTop, plotBottom, [5, 5], '78',

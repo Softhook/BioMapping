@@ -21,6 +21,9 @@ if (typeof module !== 'undefined' && module.exports) {
   if (typeof global.SpectralEDA === 'undefined') {
     try { global.SpectralEDA = require('./spectral_eda.js').SpectralEDA; } catch (_) {}
   }
+  if (typeof global.ResponseDynamics === 'undefined') {
+    try { global.ResponseDynamics = require('./response_dynamics.js').ResponseDynamics; } catch (_) {}
+  }
 }
 
 class GSRAnalyzer {
@@ -259,6 +262,9 @@ class GSRAnalyzer {
     if (!this.peaks[idx]) return;
     this.peaks[idx].excluded = excluded;
     this._dataVersion++;
+    if (this._driverAlgorithm === 'sparseda') {
+      this.responseDynamics = this.computeResponseDynamics();
+    }
   }
 
   /**
@@ -1183,154 +1189,39 @@ class GSRAnalyzer {
   }
 
   /**
-   * Compute a continuous autonomic response speed dynamics series from SparsEDA's
-   * multi-scale dictionary peak tags.
+   * Compute a continuous event-gated autonomic response speed dynamics series.
+   * Delegated to the ResponseDynamics domain module.
    *
-   * For each sample at time t, computes a smooth localized autonomic response speed:
-   *   speed(t) = sum(w_k * s_k) / sum(w_k)
-   * where:
-   *   s_k = peak's dictionary dilation factor (0.5 to 1.5)
-   *   w_k = peak.amplitude * exp(-(t - t_k)^2 / (2 * sigma^2))
-   * If there are no peaks nearby, smoothly rests at 1.0 (Standard baseline).
-   *
-   * @param {number} [windowSec=20] - Temporal smoothing neighborhood width.
    * @returns {Array<{ time: number, val: number }>}
    */
   computeResponseDynamics() {
     const n = (this.raw && this.raw.length > 0) ? this.raw.length : (this.times ? this.times.length : 0);
-    if (n === 0) return [];
-
-    const fs = this.sampleRate || 4;
-    const series = new Array(n);
-    for (let i = 0; i < n; i++) {
-      const t = (this.raw && this.raw[i] && typeof this.raw[i].time === 'number')
-        ? this.raw[i].time
-        : (this.times ? this.times[i] : (i / fs));
-      series[i] = { time: t, val: 0.0 }; // 0.0 = Resting / Inactive
-    }
-
-    if (this._driverAlgorithm !== 'sparseda' || !this.peaks || this.peaks.length === 0) {
-      return series;
-    }
-
-    const taggedPeaks = this.peaks.filter(p => !p.excluded && typeof p.scaleFactor === 'number');
-    if (taggedPeaks.length === 0) {
-      return series;
-    }
-
-    // Distance buffer to prioritize the dominant peak in overlapping responses
-    const bestDist = new Float64Array(n);
-    bestDist.fill(Infinity);
-
-    for (let k = 0; k < taggedPeaks.length; k++) {
-      const p = taggedPeaks[k];
-      const alpha = Math.max(0.5, Math.min(1.5, p.scaleFactor));
-      const apexIdx = Math.max(0, Math.min(n - 1, p.index));
-
-      // Onset bound: use detected onset or theoretical rise time (~1.2s / alpha)
-      let onsetIdx = (typeof p.onsetIndex === 'number' && p.onsetIndex >= 0)
-        ? p.onsetIndex
-        : Math.max(0, apexIdx - Math.round((1.2 / alpha) * fs));
-      onsetIdx = Math.max(0, Math.min(apexIdx, onsetIdx));
-
-      // Recovery bound: use half-recovery index (2.5x half-decay) or nominal Bateman clearance (~6.0s / alpha)
-      let endIdx;
-      if (typeof p.recoveryIndex === 'number' && p.recoveryIndex > apexIdx) {
-        endIdx = Math.min(n - 1, apexIdx + Math.round(2.5 * (p.recoveryIndex - apexIdx)));
-      } else {
-        endIdx = Math.min(n - 1, apexIdx + Math.round((6.0 / alpha) * fs));
-      }
-
-      const amp = Math.max(0.01, p.amplitude || 0.05);
-
-      for (let j = onsetIdx; j <= endIdx; j++) {
-        // Distance weighted by amplitude so stronger responses claim overlap points
-        const dist = Math.abs(j - apexIdx) / amp;
-        if (dist < bestDist[j]) {
-          bestDist[j] = dist;
-          series[j].val = alpha;
-        }
-      }
-    }
-
-    return series;
+    const RD = (typeof ResponseDynamics !== 'undefined')
+      ? ResponseDynamics
+      : (typeof global !== 'undefined' && global.ResponseDynamics ? global.ResponseDynamics : null);
+    if (!RD) return [];
+    return RD.computeSeries({
+      n,
+      sampleRate: this.sampleRate || 4,
+      raw: this.raw,
+      times: this.times,
+      peaks: this.peaks,
+      isSparseda: (this._driverAlgorithm === 'sparseda')
+    });
   }
 
   /**
-   * Annotate each detected peak with its driving SparsEDA dictionary scale factor,
-   * speed label ('Very Slow' | 'Slow' | 'Standard' | 'Fast' | 'Very Fast'), and
-   * compute summary dynamics metrics across the track.
+   * Annotate detected peaks with SparsEDA scale factor, speed label, and band index,
+   * and compute track-level summary dynamics statistics.
+   * Delegated to the ResponseDynamics domain module.
    * @private
    */
   _tagSparsedaPeaksAndStats() {
-    const counts = { 'Very Slow': 0, 'Slow': 0, 'Standard': 0, 'Fast': 0, 'Very Fast': 0 };
-    let sumScale = 0;
-    let nTagged = 0;
-
-    const fs = this.sampleRate || 10;
-    const driverPeaks = this.phasicDriverPeaks || [];
-
-    for (const peak of this.peaks) {
-      const onsetIdx = peak.onsetIndex ?? Math.max(0, peak.index - Math.round(1.5 * fs));
-      const apexIdx = peak.index;
-      const winStart = Math.max(0, onsetIdx - Math.round(0.5 * fs));
-      const winEnd = apexIdx;
-
-      let bestDriver = null;
-      let maxAmp = -Infinity;
-
-      for (const drv of driverPeaks) {
-        if (drv.index >= winStart && drv.index <= winEnd) {
-          if (drv.amplitude > maxAmp) {
-            maxAmp = drv.amplitude;
-            bestDriver = drv;
-          }
-        }
-      }
-
-      if (!bestDriver && driverPeaks.length > 0) {
-        let minDist = Infinity;
-        for (const drv of driverPeaks) {
-          const dist = Math.abs(drv.index - onsetIdx);
-          if (dist <= 2.0 * fs && dist < minDist) {
-            minDist = dist;
-            bestDriver = drv;
-          }
-        }
-      }
-
-      if (bestDriver) {
-        peak.speedLabel = bestDriver.speedLabel ?? 'Standard';
-        peak.scaleFactor = bestDriver.scaleFactor ?? 1.0;
-        peak.bandIdx = bestDriver.bandIdx ?? 2;
-      } else {
-        peak.speedLabel = 'Standard';
-        peak.scaleFactor = 1.0;
-        peak.bandIdx = 2;
-      }
-
-      if (counts[peak.speedLabel] !== undefined) {
-        counts[peak.speedLabel]++;
-      }
-      sumScale += peak.scaleFactor;
-      nTagged++;
-    }
-
-    let dominantSpeed = 'Standard';
-    let maxCount = -1;
-    for (const [speed, count] of Object.entries(counts)) {
-      if (count > maxCount) {
-        maxCount = count;
-        dominantSpeed = speed;
-      }
-    }
-
-    this.sparsedaStats = {
-      speedCounts: counts,
-      dominantSpeed: maxCount > 0 ? dominantSpeed : 'Standard',
-      meanScaleFactor: nTagged > 0 ? sumScale / nTagged : 1.0,
-      totalTaggedPeaks: nTagged
-    };
+    const RD = (typeof ResponseDynamics !== 'undefined')
+      ? ResponseDynamics
+      : (typeof global !== 'undefined' && global.ResponseDynamics ? global.ResponseDynamics : null);
+    if (!RD) return;
+    this.sparsedaStats = RD.tagPeaks(this.peaks, this.phasicDriverPeaks, this.sampleRate);
   }
 
   /**

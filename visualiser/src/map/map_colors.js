@@ -128,21 +128,18 @@ const MapColors = {
     }
 
     if (metric === 'responseDynamics') {
+      const RD = (typeof ResponseDynamics !== 'undefined')
+        ? ResponseDynamics
+        : (typeof global !== 'undefined' && global.ResponseDynamics ? global.ResponseDynamics : null);
+      if (RD) return RD.getColor(val);
       if (val === undefined || val === null || isNaN(val) || val <= 0) {
-        return 'transparent'; // Resting baseline is transparent
+        return 'transparent';
       }
-      const v = Math.max(0.5, Math.min(1.5, val));
-      let hue;
-      if (v < 0.75) {
-        hue = 265 - ((v - 0.5) / 0.25) * 48; // 265 -> 217 (Purple to Blue)
-      } else if (v < 1.0) {
-        hue = 217 - ((v - 0.75) / 0.25) * 67; // 217 -> 150 (Blue to Green)
-      } else if (v < 1.25) {
-        hue = 150 - ((v - 1.0) / 0.25) * 120; // 150 -> 30 (Green to Orange)
-      } else {
-        hue = 30 - ((v - 1.25) / 0.25) * 30;  // 30 -> 0 (Orange to Red)
-      }
-      return `hsl(${Math.round(hue)}, 90%, 50%)`;
+      if (val >= 1.375) return '#ef4444';
+      if (val >= 1.125) return '#f97316';
+      if (val >= 0.875) return '#10b981';
+      if (val >= 0.625) return '#3b82f6';
+      return '#8b5cf6';
     }
     
     if (metric === 'roadClass') {
@@ -255,6 +252,9 @@ const MapColors = {
 };
 
 if (typeof module !== 'undefined' && module.exports) {
+  if (typeof global !== 'undefined' && typeof global.ResponseDynamics === 'undefined') {
+    try { global.ResponseDynamics = require('../signal/response_dynamics.js').ResponseDynamics; } catch (_) {}
+  }
   module.exports = { MapColors };
 }
 if (typeof window !== 'undefined') {

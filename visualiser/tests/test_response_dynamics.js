@@ -4,18 +4,79 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
+const { ResponseDynamics } = require('../src/signal/response_dynamics.js');
+global.ResponseDynamics = ResponseDynamics;
+
 // Load real constants.js
 const constantsSrc = fs.readFileSync(path.join(__dirname, '../src/core/constants.js'), 'utf8');
-const GSR_CONST = vm.runInNewContext(constantsSrc + '\n; GSR_CONST;', {});
+const GSR_CONST = vm.runInNewContext(constantsSrc + '\n; GSR_CONST;', { ResponseDynamics });
 global.GSR_CONST = GSR_CONST;
 
 const { MapColors } = require('../src/map/map_colors.js');
 const { GSRAnalyzer } = require('../src/signal/analyzer.js');
 
+test('Response Dynamics: ResponseDynamics domain module unit tests', () => {
+  // 1. Canonical scales & labels
+  assert.deepStrictEqual(ResponseDynamics.SCALE_FACTORS, [0.5, 0.75, 1.0, 1.25, 1.5]);
+  assert.deepStrictEqual(ResponseDynamics.SPEED_LABELS, ['Very Slow', 'Slow', 'Standard', 'Fast', 'Very Fast']);
+
+  // 2. Band resolution
+  assert.strictEqual(ResponseDynamics.getBand(0.5).label, 'Very Slow');
+  assert.strictEqual(ResponseDynamics.getBand(0.75).label, 'Slow');
+  assert.strictEqual(ResponseDynamics.getBand(1.0).label, 'Standard');
+  assert.strictEqual(ResponseDynamics.getBand(1.25).label, 'Fast');
+  assert.strictEqual(ResponseDynamics.getBand(1.5).label, 'Very Fast');
+  assert.strictEqual(ResponseDynamics.getBand(0.0), null);
+  assert.strictEqual(ResponseDynamics.getBand(-1.0), null);
+  assert.strictEqual(ResponseDynamics.getBand(NaN), null);
+
+  // 3. Bucket index (0 for resting, 1..5 for speed bands)
+  assert.strictEqual(ResponseDynamics.getBucketIndex(0.0), 0);
+  assert.strictEqual(ResponseDynamics.getBucketIndex(NaN), 0);
+  assert.strictEqual(ResponseDynamics.getBucketIndex(0.5), 1);
+  assert.strictEqual(ResponseDynamics.getBucketIndex(0.75), 2);
+  assert.strictEqual(ResponseDynamics.getBucketIndex(1.0), 3);
+  assert.strictEqual(ResponseDynamics.getBucketIndex(1.25), 4);
+  assert.strictEqual(ResponseDynamics.getBucketIndex(1.5), 5);
+
+  // 4. Colors
+  assert.strictEqual(ResponseDynamics.getColor(0.0), 'transparent');
+  assert.strictEqual(ResponseDynamics.getColor(0.5), '#8b5cf6');
+  assert.strictEqual(ResponseDynamics.getColor(1.0), '#10b981');
+  assert.strictEqual(ResponseDynamics.getColor(1.5), '#ef4444');
+
+  // 5. Tooltip formatting
+  const tipRest = ResponseDynamics.formatTooltip(0.0, '#999999');
+  assert.strictEqual(tipRest.valueStr, 'Resting');
+  assert.strictEqual(tipRest.color, '#999999');
+
+  const tipFast = ResponseDynamics.formatTooltip(1.25);
+  assert.strictEqual(tipFast.valueStr, '1.25x (Fast)');
+  assert.strictEqual(tipFast.color, '#f97316');
+
+  // 6. Peak tagging & statistics
+  const dummyPeaks = [
+    { index: 10, amplitude: 0.5 },
+    { index: 50, amplitude: 0.8 }
+  ];
+  const dummyDrivers = [
+    { index: 8, amplitude: 0.5, speedLabel: 'Very Fast', scaleFactor: 1.5, bandIdx: 4 },
+    { index: 48, amplitude: 0.8, speedLabel: 'Slow', scaleFactor: 0.75, bandIdx: 1 }
+  ];
+  const stats = ResponseDynamics.tagPeaks(dummyPeaks, dummyDrivers, 4);
+  assert.strictEqual(dummyPeaks[0].speedLabel, 'Very Fast');
+  assert.strictEqual(dummyPeaks[0].scaleFactor, 1.5);
+  assert.strictEqual(dummyPeaks[1].speedLabel, 'Slow');
+  assert.strictEqual(dummyPeaks[1].scaleFactor, 0.75);
+  assert.strictEqual(stats.totalTaggedPeaks, 2);
+  assert.strictEqual(stats.speedCounts['Very Fast'], 1);
+  assert.strictEqual(stats.speedCounts['Slow'], 1);
+});
+
 test('Response Dynamics: constants definitions', () => {
   assert.ok(GSR_CONST.LOWER_GRAPH_MODES.responseDynamics, 'responseDynamics is registered in LOWER_GRAPH_MODES');
-  assert.strictEqual(GSR_CONST.LOWER_GRAPH_MODES.responseDynamics.unit, 'x');
-  assert.strictEqual(GSR_CONST.LOWER_GRAPH_MODES.responseDynamics.decimals, 2);
+  assert.strictEqual(GSR_CONST.LOWER_GRAPH_MODES.responseDynamics.unit, 'μS');
+  assert.strictEqual(GSR_CONST.LOWER_GRAPH_MODES.responseDynamics.decimals, 3);
 
   assert.ok(GSR_CONST.SPARSEDA_SPEED_COLORS, 'SPARSEDA_SPEED_COLORS is defined');
   const speeds = ['Very Slow', 'Slow', 'Standard', 'Fast', 'Very Fast'];
@@ -24,7 +85,7 @@ test('Response Dynamics: constants definitions', () => {
   }
 });
 
-test('Response Dynamics: MapColors.getColorForMetric', () => {
+test('Response Dynamics: MapColors.getColorForMetric integration', () => {
   // Test Resting / Inactive (val <= 0 or NaN)
   const cRest = MapColors.getColorForMetric('responseDynamics', 0.0);
   assert.strictEqual(cRest, 'transparent', '0.0 maps to transparent resting color');
@@ -34,25 +95,18 @@ test('Response Dynamics: MapColors.getColorForMetric', () => {
 
   // Test 0.5x (Very Slow, Purple)
   const c05 = MapColors.getColorForMetric('responseDynamics', 0.5);
-  assert.ok(c05.startsWith('hsl(265,'), `0.5x maps to purple: ${c05}`);
+  assert.strictEqual(c05, '#8b5cf6');
 
   // Test 1.0x (Standard, Green)
   const c10 = MapColors.getColorForMetric('responseDynamics', 1.0);
-  assert.ok(c10.startsWith('hsl(150,'), `1.0x maps to green: ${c10}`);
+  assert.strictEqual(c10, '#10b981');
 
   // Test 1.5x (Very Fast, Red)
   const c15 = MapColors.getColorForMetric('responseDynamics', 1.5);
-  assert.ok(c15.startsWith('hsl(0,'), `1.5x maps to red: ${c15}`);
-
-  // Test out-of-bounds clamping
-  const cLow = MapColors.getColorForMetric('responseDynamics', 0.1);
-  assert.strictEqual(cLow, c05, 'Values below 0.5x are clamped to 0.5x');
-
-  const cHigh = MapColors.getColorForMetric('responseDynamics', 3.0);
-  assert.strictEqual(cHigh, c15, 'Values above 1.5x are clamped to 1.5x');
+  assert.strictEqual(c15, '#ef4444');
 });
 
-test('Response Dynamics: GSRAnalyzer.computeResponseDynamics event-gating', () => {
+test('Response Dynamics: GSRAnalyzer delegation & peak exclusion reactivity', () => {
   const analyzer = new GSRAnalyzer();
   const n = 300;
   const sampleRate = 4;
@@ -72,15 +126,13 @@ test('Response Dynamics: GSRAnalyzer.computeResponseDynamics event-gating', () =
   analyzer.peaks = [
     { index: 100, time: 25, scaleFactor: 1.5, amplitude: 0.5, excluded: false }
   ];
-  const dynFast = analyzer.computeResponseDynamics();
-  assert.strictEqual(dynFast.length, n);
-  // At the peak itself, speed is 1.5
-  assert.strictEqual(dynFast[100].val, 1.5);
-  // Far from peak (index 0 and index 250), speed is 0.0 (Resting)
-  assert.strictEqual(dynFast[0].val, 0.0);
-  assert.strictEqual(dynFast[250].val, 0.0);
+  analyzer.responseDynamics = analyzer.computeResponseDynamics();
+  assert.strictEqual(analyzer.responseDynamics.length, n);
+  assert.strictEqual(analyzer.responseDynamics[100].val, 1.5);
+  assert.strictEqual(analyzer.responseDynamics[0].val, 0.0);
+  assert.strictEqual(analyzer.responseDynamics[250].val, 0.0);
 
-  const fastActiveCount = dynFast.filter(d => d.val > 0).length;
+  const fastActiveCount = analyzer.responseDynamics.filter(d => d.val > 0).length;
 
   // Case 3: One slow peak (scale 0.5x) at index 100 (t=25s)
   analyzer.peaks = [
@@ -92,6 +144,11 @@ test('Response Dynamics: GSRAnalyzer.computeResponseDynamics event-gating', () =
 
   // Slower peak MUST have a significantly longer active footprint on the ground/track than fast peak
   assert.ok(slowActiveCount > fastActiveCount * 2, `Slow event footprint (${slowActiveCount}) should be >2x fast footprint (${fastActiveCount})`);
+
+  // Case 4: Reactivity to setPeakExcluded()
+  analyzer.setPeakExcluded(0, true);
+  // Since peak 0 is now excluded, responseDynamics should automatically update to resting baseline
+  assert.strictEqual(analyzer.responseDynamics[100].val, 0.0, 'Excluded peak automatically clears response dynamics series');
 });
 
 test('Response Dynamics: UI sync logic', () => {
