@@ -12,6 +12,11 @@ const constantsSrc = fs.readFileSync(path.join(__dirname, '../src/core/constants
 const GSR_CONST = vm.runInNewContext(constantsSrc + '\n; GSR_CONST;', { ResponseDynamics });
 global.GSR_CONST = GSR_CONST;
 
+const SCRDeconvolution = require('../src/signal/deconvolution.js');
+global.SCRDeconvolution = SCRDeconvolution;
+const { GsrFilter } = require('../src/signal/gsr_filter.js');
+global.GsrFilter = GsrFilter;
+
 const { MapColors } = require('../src/map/map_colors.js');
 const { GSRAnalyzer } = require('../src/signal/analyzer.js');
 
@@ -149,6 +154,13 @@ test('Response Dynamics: GSRAnalyzer delegation & peak exclusion reactivity', ()
   analyzer.setPeakExcluded(0, true);
   // Since peak 0 is now excluded, responseDynamics should automatically update to resting baseline
   assert.strictEqual(analyzer.responseDynamics[100].val, 0.0, 'Excluded peak automatically clears response dynamics series');
+
+  // Case 5: _runDeconvolutionPipeline clears sparsedaStats and responseDynamics on re-run
+  analyzer.sparsedaStats = { dummy: true };
+  analyzer.responseDynamics = [{ time: 0, val: 1.0 }];
+  analyzer._runDeconvolutionPipeline([], { deconvAlgorithm: 'matching_pursuit' });
+  assert.strictEqual(analyzer.sparsedaStats, null, 'sparsedaStats reset on switching deconv algorithm');
+  assert.deepStrictEqual(analyzer.responseDynamics, [], 'responseDynamics reset on switching deconv algorithm');
 });
 
 test('Response Dynamics: UI sync logic', () => {

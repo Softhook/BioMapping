@@ -739,6 +739,8 @@ class GSRAnalyzer {
     this.phasicDriver = [];
     this.phasicClean = [];
     this.phasicDriverPeaks = [];
+    this.sparsedaStats = null;
+    this.responseDynamics = [];
     this._wasDeconv = true;
     if (n === 0) { this.peaks = []; return; }
 
