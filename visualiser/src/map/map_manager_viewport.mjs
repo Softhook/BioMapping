@@ -10,8 +10,9 @@
  *
  * Depends on the global L (resolved at call time).
  */
-(function () {
-const __methods = {
+import { GSRMapManager } from './map.mjs';
+
+export const __methods = {
 
   _getTrackSetSignature(collectiveManager) {
     if (!collectiveManager) return '';
@@ -159,10 +160,4 @@ const __methods = {
 
 };
 
-if (typeof module !== 'undefined' && module.exports) {
-  Object.assign(global, require('./map.mjs'));
-  module.exports = __methods;
-} else {
-  Object.assign(GSRMapManager.prototype, __methods);
-}
-})();
+Object.assign(GSRMapManager.prototype, __methods);

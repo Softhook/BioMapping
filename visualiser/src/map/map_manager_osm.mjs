@@ -11,8 +11,12 @@
  * Depends on the globals L and AppState (resolved at call time) and on
  * this._getOrBuildDrawPoints (map_manager_process.js).
  */
-(function () {
-const __methods = {
+import { AppState } from '../core/app_state.mjs';
+import { GSRMapManager } from './map.mjs';
+import { NDVISampler } from '../osm/ndvi_sampler.mjs';
+import { OSMEnricher } from '../osm/osm_enrichment.mjs';
+
+export const __methods = {
 
   /**
    * Draw OSM vector geometry overlays (parks, water, buildings) on the map.
@@ -248,10 +252,4 @@ const __methods = {
 
 };
 
-if (typeof module !== 'undefined' && module.exports) {
-  Object.assign(global, require('./map.mjs'));
-  module.exports = __methods;
-} else {
-  Object.assign(GSRMapManager.prototype, __methods);
-}
-})();
+Object.assign(GSRMapManager.prototype, __methods);

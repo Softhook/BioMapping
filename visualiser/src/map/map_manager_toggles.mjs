@@ -6,8 +6,9 @@
  * showSurface / showTracks) and drive Leaflet layer inclusion + the
  * .hide-map-* CSS classes on the map container.
  */
-(function () {
-const __methods = {
+import { GSRMapManager } from './map.mjs';
+
+export const __methods = {
 
   /**
    * Toggle the visibility of the stress peak markers on the map layer.
@@ -168,10 +169,4 @@ const __methods = {
 
 };
 
-if (typeof module !== 'undefined' && module.exports) {
-  Object.assign(global, require('./map.mjs'));
-  module.exports = __methods;
-} else {
-  Object.assign(GSRMapManager.prototype, __methods);
-}
-})();
+Object.assign(GSRMapManager.prototype, __methods);

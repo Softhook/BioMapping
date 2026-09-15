@@ -8,8 +8,11 @@
  *
  * Depends on the globals GpsPipeline and GpsFilter (resolved at call time).
  */
-(function () {
-const __methods = {
+import { GpsFilter } from '../gps/gps_filter.mjs';
+import { GpsPipeline } from '../gps/gps_pipeline.mjs';
+import { GSRMapManager } from './map.mjs';
+
+export const __methods = {
 
   /**
    * Hash GPS filter params for cache key comparison.
@@ -131,10 +134,4 @@ const __methods = {
 
 };
 
-if (typeof module !== 'undefined' && module.exports) {
-  Object.assign(global, require('./map.mjs'));
-  module.exports = __methods;
-} else {
-  Object.assign(GSRMapManager.prototype, __methods);
-}
-})();
+Object.assign(GSRMapManager.prototype, __methods);

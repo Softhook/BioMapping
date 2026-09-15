@@ -14,8 +14,16 @@
  * Depends on the globals L, MapColors, Hillshade, StatsMath, GSR_CONST,
  * GSRSpatialClustering, GeoUtils and AppState (resolved at call time).
  */
-(function () {
-const __methods = {
+import { AppState } from '../core/app_state.mjs';
+import { GSR_CONST } from '../core/constants.mjs';
+import { GeoUtils } from '../gps/geo_utils.mjs';
+import { Hillshade } from './hillshade.mjs';
+import { MapColors } from './map_colors.mjs';
+import { GSRMapManager } from './map.mjs';
+import { StatsMath } from '../signal/stats_math.mjs';
+import { GSRSpatialClustering } from '../spatial/spatial_clustering.mjs';
+
+export const __methods = {
 
   /**
    * Remove all collective track paths and peak markers from the map.
@@ -398,10 +406,4 @@ const __methods = {
 
 };
 
-if (typeof module !== 'undefined' && module.exports) {
-  Object.assign(global, require('./map.mjs'));
-  module.exports = __methods;
-} else {
-  Object.assign(GSRMapManager.prototype, __methods);
-}
-})();
+Object.assign(GSRMapManager.prototype, __methods);

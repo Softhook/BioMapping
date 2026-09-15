@@ -36,9 +36,8 @@ const assert = require('assert');
 const test   = require('node:test');
 
 const MAP_PROTO_AUGMENTS = [
-  'map_manager_arousal_places.js', 'map_manager_collective.js', 'map_manager_layers.js',
-  'map_manager_legend.js', 'map_manager_osm.js', 'map_manager_path.js', 'map_manager_process.js',
-  'map_manager_render.js', 'map_manager_rf_fluid.js', 'map_manager_toggles.js', 'map_manager_viewport.js',
+  'map_manager_arousal_places.js',
+  'map_manager_path.js',
 ];
 
 const UI_AUGMENTS = [

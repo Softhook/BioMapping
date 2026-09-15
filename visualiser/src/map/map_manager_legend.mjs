@@ -14,8 +14,13 @@
  * Depends on the globals L, AppState, GSR_CONST and MapColors (resolved at call
  * time).
  */
-(function () {
-const __methods = {
+import { AppState } from '../core/app_state.mjs';
+import { GSR_CONST } from '../core/constants.mjs';
+import { MapColors } from './map_colors.mjs';
+import { GSRMapManager } from './map.mjs';
+import { ResponseDynamics } from '../signal/response_dynamics.mjs';
+
+export const __methods = {
 
   /**
    * Initialise the Leaflet legend control in the bottom-right corner.
@@ -276,10 +281,4 @@ const __methods = {
 
 };
 
-if (typeof module !== 'undefined' && module.exports) {
-  Object.assign(global, require('./map.mjs'));
-  module.exports = __methods;
-} else {
-  Object.assign(GSRMapManager.prototype, __methods);
-}
-})();
+Object.assign(GSRMapManager.prototype, __methods);
