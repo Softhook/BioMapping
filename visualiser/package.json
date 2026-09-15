@@ -7,6 +7,8 @@
     "bench": "node tests/manual/bench/run.js"
   },
   "devDependencies": {
+    "eslint-scope": "^9.1.2",
+    "espree": "^11.2.0",
     "jsdom": "^30.0.1"
   }
 }

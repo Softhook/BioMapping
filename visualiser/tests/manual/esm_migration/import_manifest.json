@@ -1,0 +1,1417 @@
+{
+  "manifest": {
+    "src/core/app_state.js": [
+      {
+        "name": "GSR_CONST",
+        "from": "src/core/constants.js"
+      }
+    ],
+    "src/core/layout_manager.js": [
+      {
+        "name": "GSRFullscreen",
+        "from": "src/core/fullscreen.js"
+      },
+      {
+        "name": "AppState",
+        "from": "src/core/app_state.js"
+      },
+      {
+        "name": "GSRGlobe3DView",
+        "from": "src/map/globe3d_view.js"
+      },
+      {
+        "name": "GSRUI",
+        "from": "src/ui/ui.js"
+      },
+      {
+        "name": "GSRRenderer",
+        "from": "src/render/renderer.js"
+      },
+      {
+        "name": "GSRLiveView",
+        "from": "src/live/live_view.js"
+      }
+    ],
+    "src/core/constants.js": [
+      {
+        "name": "ResponseDynamics",
+        "from": "src/signal/response_dynamics.js"
+      }
+    ],
+    "src/osm/osm_cache.js": [
+      {
+        "name": "GeoUtils",
+        "from": "src/gps/geo_utils.js"
+      }
+    ],
+    "src/signal/deconvolution.js": [
+      {
+        "name": "ResponseDynamics",
+        "from": "src/signal/response_dynamics.js"
+      }
+    ],
+    "src/signal/cvxeda.js": [
+      {
+        "name": "GSR_CONST",
+        "from": "src/core/constants.js"
+      }
+    ],
+    "src/signal/csv_parser.js": [
+      {
+        "name": "GSR_CONST",
+        "from": "src/core/constants.js"
+      },
+      {
+        "name": "GSRAnalyzer",
+        "from": "src/signal/analyzer.js"
+      }
+    ],
+    "src/signal/analyzer.js": [
+      {
+        "name": "AnalyzerTimeFormat",
+        "from": "src/signal/analyzer_time_format.js"
+      },
+      {
+        "name": "GSRCSVParser",
+        "from": "src/signal/csv_parser.js"
+      },
+      {
+        "name": "GsrFilter",
+        "from": "src/signal/gsr_filter.js"
+      },
+      {
+        "name": "GSR_CONST",
+        "from": "src/core/constants.js"
+      },
+      {
+        "name": "CVXEDA",
+        "from": "src/signal/cvxeda.js"
+      },
+      {
+        "name": "SCRDeconvolution",
+        "from": "src/signal/deconvolution.js"
+      },
+      {
+        "name": "ResponseDynamics",
+        "from": "src/signal/response_dynamics.js"
+      },
+      {
+        "name": "SpectralEDA",
+        "from": "src/signal/spectral_eda.js"
+      }
+    ],
+    "src/osm/osm_enrichment.js": [
+      {
+        "name": "GeoUtils",
+        "from": "src/gps/geo_utils.js"
+      },
+      {
+        "name": "OverpassClient",
+        "from": "src/osm/overpass_client.js"
+      },
+      {
+        "name": "SpatialGrid",
+        "from": "src/spatial/spatial_grid.js"
+      },
+      {
+        "name": "MapMatcher",
+        "from": "src/gps/map_match.js"
+      }
+    ],
+    "src/osm/ndvi_sampler.js": [
+      {
+        "name": "OSMEnricher",
+        "from": "src/osm/osm_enrichment.js"
+      },
+      {
+        "name": "GeoUtils",
+        "from": "src/gps/geo_utils.js"
+      }
+    ],
+    "src/gps/map_match.js": [
+      {
+        "name": "GeoUtils",
+        "from": "src/gps/geo_utils.js"
+      },
+      {
+        "name": "GSR_CONST",
+        "from": "src/core/constants.js"
+      }
+    ],
+    "src/signal/gsr_filter.js": [
+      {
+        "name": "StatsMath",
+        "from": "src/signal/stats_math.js"
+      }
+    ],
+    "src/spatial/spatial_clustering.js": [
+      {
+        "name": "GeoUtils",
+        "from": "src/gps/geo_utils.js"
+      },
+      {
+        "name": "GSR_CONST",
+        "from": "src/core/constants.js"
+      },
+      {
+        "name": "SpatialGrid",
+        "from": "src/spatial/spatial_grid.js"
+      },
+      {
+        "name": "MarchingSquares",
+        "from": "src/render/marching_squares.js"
+      }
+    ],
+    "src/spatial/arousal_places.js": [
+      {
+        "name": "GeoUtils",
+        "from": "src/gps/geo_utils.js"
+      }
+    ],
+    "src/spatial/collective_manager.js": [
+      {
+        "name": "GSR_CONST",
+        "from": "src/core/constants.js"
+      },
+      {
+        "name": "GeoUtils",
+        "from": "src/gps/geo_utils.js"
+      },
+      {
+        "name": "GsrFilter",
+        "from": "src/signal/gsr_filter.js"
+      },
+      {
+        "name": "StatsMath",
+        "from": "src/signal/stats_math.js"
+      },
+      {
+        "name": "SpatialGrid",
+        "from": "src/spatial/spatial_grid.js"
+      },
+      {
+        "name": "GSRSpatialClustering",
+        "from": "src/spatial/spatial_clustering.js"
+      },
+      {
+        "name": "MarchingSquares",
+        "from": "src/render/marching_squares.js"
+      }
+    ],
+    "src/gps/gps_filter.js": [
+      {
+        "name": "GeoUtils",
+        "from": "src/gps/geo_utils.js"
+      }
+    ],
+    "src/map/map_colors.js": [
+      {
+        "name": "ResponseDynamics",
+        "from": "src/signal/response_dynamics.js"
+      }
+    ],
+    "src/gps/gps_pipeline.js": [
+      {
+        "name": "GpsFilter",
+        "from": "src/gps/gps_filter.js"
+      }
+    ],
+    "src/live/live_bluetooth.js": [
+      {
+        "name": "LiveState",
+        "from": "src/live/live_state.js"
+      },
+      {
+        "name": "GSRLiveBinaryParser",
+        "from": "src/live/live_binary_parser.js"
+      }
+    ],
+    "src/live/live_graph.js": [
+      {
+        "name": "liveAnalyzer",
+        "from": "src/live/live_view.js"
+      },
+      {
+        "name": "LiveState",
+        "from": "src/live/live_state.js"
+      },
+      {
+        "name": "lastPacketArrivalTime",
+        "from": "src/live/live_view.js"
+      },
+      {
+        "name": "lastPacketTimestamp",
+        "from": "src/live/live_view.js"
+      },
+      {
+        "name": "liveGsrView",
+        "from": "src/live/live_view.js"
+      },
+      {
+        "name": "LIVE_SETTLE_TAIL_S",
+        "from": "src/live/live_view.js"
+      },
+      {
+        "name": "liveAnalyzerBase",
+        "from": "src/live/live_view.js"
+      }
+    ],
+    "src/live/live_map.js": [
+      {
+        "name": "liveGsrView",
+        "from": "src/live/live_view.js"
+      },
+      {
+        "name": "LiveState",
+        "from": "src/live/live_state.js"
+      },
+      {
+        "name": "isCompactLiveLayout",
+        "from": "src/live/live_view.js"
+      },
+      {
+        "name": "MapColors",
+        "from": "src/map/map_colors.js"
+      },
+      {
+        "name": "latLngToTileCoords",
+        "from": "src/live/live_tile_cache.js"
+      },
+      {
+        "name": "buildTileUrl",
+        "from": "src/live/live_tile_cache.js"
+      },
+      {
+        "name": "normalizeTileCacheUrl",
+        "from": "src/live/live_tile_cache.js"
+      },
+      {
+        "name": "GSRBasemap",
+        "from": "src/map/basemap.js"
+      },
+      {
+        "name": "closeFabMenu",
+        "from": "src/live/live_view.js"
+      },
+      {
+        "name": "liveAnalyzer",
+        "from": "src/live/live_view.js"
+      },
+      {
+        "name": "LIVE_SETTLE_TAIL_S",
+        "from": "src/live/live_view.js"
+      },
+      {
+        "name": "GSRMapMarkers",
+        "from": "src/map/map_markers.js"
+      },
+      {
+        "name": "drawGraph",
+        "from": "src/live/live_graph.js"
+      },
+      {
+        "name": "GpsPipeline",
+        "from": "src/gps/gps_pipeline.js"
+      }
+    ],
+    "src/live/live_view.js": [
+      {
+        "name": "GSR_CONST",
+        "from": "src/core/constants.js"
+      },
+      {
+        "name": "GSRAnalyzer",
+        "from": "src/signal/analyzer.js"
+      },
+      {
+        "name": "LiveState",
+        "from": "src/live/live_state.js"
+      },
+      {
+        "name": "NS_TO_US",
+        "from": "src/live/live_graph.js"
+      },
+      {
+        "name": "flushSettledSegments",
+        "from": "src/live/live_map.js"
+      },
+      {
+        "name": "renderLiveMapMarkers",
+        "from": "src/live/live_map.js"
+      },
+      {
+        "name": "GSRFileSaver",
+        "from": "src/core/file_saver.js"
+      },
+      {
+        "name": "buildLiveCsv",
+        "from": "src/live/live_csv.js"
+      },
+      {
+        "name": "drawGraph",
+        "from": "src/live/live_graph.js"
+      },
+      {
+        "name": "GSRLiveBluetoothManager",
+        "from": "src/live/live_bluetooth.js"
+      },
+      {
+        "name": "liveMap",
+        "from": "src/live/live_map.js"
+      },
+      {
+        "name": "allTrackSegments",
+        "from": "src/live/live_map.js"
+      },
+      {
+        "name": "liveMarker",
+        "from": "src/live/live_map.js"
+      },
+      {
+        "name": "liveLastLatLng",
+        "from": "src/live/live_map.js"
+      },
+      {
+        "name": "gsrMin",
+        "from": "src/live/live_map.js"
+      },
+      {
+        "name": "gsrMax",
+        "from": "src/live/live_map.js"
+      },
+      {
+        "name": "tonicMin",
+        "from": "src/live/live_map.js"
+      },
+      {
+        "name": "tonicMax",
+        "from": "src/live/live_map.js"
+      },
+      {
+        "name": "phasicMax",
+        "from": "src/live/live_map.js"
+      },
+      {
+        "name": "pendingSegments",
+        "from": "src/live/live_map.js"
+      },
+      {
+        "name": "lastLivePanAt",
+        "from": "src/live/live_map.js"
+      },
+      {
+        "name": "clearLiveMapMarkers",
+        "from": "src/live/live_map.js"
+      },
+      {
+        "name": "LIVE_GRAPH_VIEWS",
+        "from": "src/live/live_graph.js"
+      },
+      {
+        "name": "recolorAllTrackSegments",
+        "from": "src/live/live_map.js"
+      },
+      {
+        "name": "showMap",
+        "from": "src/live/live_map.js"
+      },
+      {
+        "name": "hideMap",
+        "from": "src/live/live_map.js"
+      },
+      {
+        "name": "GSRLayoutManager",
+        "from": "src/core/layout_manager.js"
+      },
+      {
+        "name": "GSRFullscreen",
+        "from": "src/core/fullscreen.js"
+      },
+      {
+        "name": "updateLiveMap",
+        "from": "src/live/live_map.js"
+      },
+      {
+        "name": "cacheCurrentMapArea",
+        "from": "src/live/live_map.js"
+      },
+      {
+        "name": "LIVE_ZOOM",
+        "from": "src/live/live_map.js"
+      },
+      {
+        "name": "AppState",
+        "from": "src/core/app_state.js"
+      }
+    ],
+    "src/render/label_placement.js": [
+      {
+        "name": "GSRNotices",
+        "from": "src/core/notices.js"
+      }
+    ],
+    "src/render/contour_ring_geometry.js": [
+      {
+        "name": "GeoUtils",
+        "from": "src/gps/geo_utils.js"
+      },
+      {
+        "name": "GSRSpatialClustering",
+        "from": "src/spatial/spatial_clustering.js"
+      }
+    ],
+    "src/map/map_exporter.js": [
+      {
+        "name": "AppState",
+        "from": "src/core/app_state.js"
+      },
+      {
+        "name": "GSRNotices",
+        "from": "src/core/notices.js"
+      },
+      {
+        "name": "GSR_CONST",
+        "from": "src/core/constants.js"
+      },
+      {
+        "name": "Hillshade",
+        "from": "src/map/hillshade.js"
+      },
+      {
+        "name": "StatsMath",
+        "from": "src/signal/stats_math.js"
+      },
+      {
+        "name": "ContourRingGeometry",
+        "from": "src/render/contour_ring_geometry.js"
+      },
+      {
+        "name": "GeoUtils",
+        "from": "src/gps/geo_utils.js"
+      },
+      {
+        "name": "BezierSpline",
+        "from": "src/render/bezier_spline.js"
+      },
+      {
+        "name": "MapColors",
+        "from": "src/map/map_colors.js"
+      },
+      {
+        "name": "GSRUI",
+        "from": "src/ui/ui.js"
+      },
+      {
+        "name": "GSRFileSaver",
+        "from": "src/core/file_saver.js"
+      }
+    ],
+    "src/render/rf_fluid_renderer.js": [
+      {
+        "name": "SpatialGrid",
+        "from": "src/spatial/spatial_grid.js"
+      },
+      {
+        "name": "GSRAnalyzer",
+        "from": "src/signal/analyzer.js"
+      }
+    ],
+    "src/map/map_popups.js": [
+      {
+        "name": "GeoUtils",
+        "from": "src/gps/geo_utils.js"
+      },
+      {
+        "name": "GSRUI",
+        "from": "src/ui/ui.js"
+      }
+    ],
+    "src/map/map.js": [
+      {
+        "name": "GSRBasemap",
+        "from": "src/map/basemap.js"
+      },
+      {
+        "name": "RFFluidRenderer",
+        "from": "src/render/rf_fluid_renderer.js"
+      },
+      {
+        "name": "GSR_CONST",
+        "from": "src/core/constants.js"
+      },
+      {
+        "name": "GeoUtils",
+        "from": "src/gps/geo_utils.js"
+      }
+    ],
+    "src/map/map_manager_process.js": [
+      {
+        "name": "GpsPipeline",
+        "from": "src/gps/gps_pipeline.js"
+      },
+      {
+        "name": "GpsFilter",
+        "from": "src/gps/gps_filter.js"
+      },
+      {
+        "name": "GSRMapManager",
+        "from": "src/map/map.js"
+      }
+    ],
+    "src/map/map_manager_legend.js": [
+      {
+        "name": "AppState",
+        "from": "src/core/app_state.js"
+      },
+      {
+        "name": "GSR_CONST",
+        "from": "src/core/constants.js"
+      },
+      {
+        "name": "MapColors",
+        "from": "src/map/map_colors.js"
+      },
+      {
+        "name": "ResponseDynamics",
+        "from": "src/signal/response_dynamics.js"
+      },
+      {
+        "name": "GSRMapManager",
+        "from": "src/map/map.js"
+      }
+    ],
+    "src/map/map_manager_layers.js": [
+      {
+        "name": "GSRMapManager",
+        "from": "src/map/map.js"
+      }
+    ],
+    "src/map/map_manager_osm.js": [
+      {
+        "name": "AppState",
+        "from": "src/core/app_state.js"
+      },
+      {
+        "name": "OSMEnricher",
+        "from": "src/osm/osm_enrichment.js"
+      },
+      {
+        "name": "NDVISampler",
+        "from": "src/osm/ndvi_sampler.js"
+      },
+      {
+        "name": "GSRMapManager",
+        "from": "src/map/map.js"
+      }
+    ],
+    "src/map/map_manager_rf_fluid.js": [
+      {
+        "name": "GSRMapManager",
+        "from": "src/map/map.js"
+      }
+    ],
+    "src/map/map_manager_viewport.js": [
+      {
+        "name": "GSRMapManager",
+        "from": "src/map/map.js"
+      }
+    ],
+    "src/map/map_manager_render.js": [
+      {
+        "name": "AppState",
+        "from": "src/core/app_state.js"
+      },
+      {
+        "name": "GSRMapManager",
+        "from": "src/map/map.js"
+      }
+    ],
+    "src/map/map_manager_path.js": [
+      {
+        "name": "GSR_CONST",
+        "from": "src/core/constants.js"
+      },
+      {
+        "name": "AppState",
+        "from": "src/core/app_state.js"
+      },
+      {
+        "name": "GSRMapManager",
+        "from": "src/map/map.js"
+      },
+      {
+        "name": "GSRStorage",
+        "from": "src/ui/storage.js"
+      },
+      {
+        "name": "MapColors",
+        "from": "src/map/map_colors.js"
+      }
+    ],
+    "src/map/map_manager_peaks.js": [
+      {
+        "name": "GSRLabelManager",
+        "from": "src/render/label_placement.js"
+      },
+      {
+        "name": "GSRMapManager",
+        "from": "src/map/map.js"
+      },
+      {
+        "name": "MapPopups",
+        "from": "src/map/map_popups.js"
+      },
+      {
+        "name": "GSRUI",
+        "from": "src/ui/ui.js"
+      },
+      {
+        "name": "GSRMapMarkers",
+        "from": "src/map/map_markers.js"
+      }
+    ],
+    "src/map/map_manager_arousal_places.js": [
+      {
+        "name": "GSRSpatialClustering",
+        "from": "src/spatial/spatial_clustering.js"
+      },
+      {
+        "name": "GSRArousalPlaces",
+        "from": "src/spatial/arousal_places.js"
+      },
+      {
+        "name": "GSR_CONST",
+        "from": "src/core/constants.js"
+      },
+      {
+        "name": "GSRUI",
+        "from": "src/ui/ui.js"
+      },
+      {
+        "name": "AppState",
+        "from": "src/core/app_state.js"
+      },
+      {
+        "name": "MapPopups",
+        "from": "src/map/map_popups.js"
+      },
+      {
+        "name": "GeoUtils",
+        "from": "src/gps/geo_utils.js"
+      },
+      {
+        "name": "GSRMapManager",
+        "from": "src/map/map.js"
+      }
+    ],
+    "src/map/map_manager_collective.js": [
+      {
+        "name": "AppState",
+        "from": "src/core/app_state.js"
+      },
+      {
+        "name": "MapColors",
+        "from": "src/map/map_colors.js"
+      },
+      {
+        "name": "Hillshade",
+        "from": "src/map/hillshade.js"
+      },
+      {
+        "name": "StatsMath",
+        "from": "src/signal/stats_math.js"
+      },
+      {
+        "name": "GSR_CONST",
+        "from": "src/core/constants.js"
+      },
+      {
+        "name": "GSRSpatialClustering",
+        "from": "src/spatial/spatial_clustering.js"
+      },
+      {
+        "name": "GeoUtils",
+        "from": "src/gps/geo_utils.js"
+      },
+      {
+        "name": "GSRMapManager",
+        "from": "src/map/map.js"
+      }
+    ],
+    "src/map/map_manager_toggles.js": [
+      {
+        "name": "GSRMapManager",
+        "from": "src/map/map.js"
+      }
+    ],
+    "src/map/globe3d.js": [
+      {
+        "name": "GSRBasemap",
+        "from": "src/map/basemap.js"
+      },
+      {
+        "name": "GSR_CONST",
+        "from": "src/core/constants.js"
+      },
+      {
+        "name": "GSRNotices",
+        "from": "src/core/notices.js"
+      },
+      {
+        "name": "MapColors",
+        "from": "src/map/map_colors.js"
+      },
+      {
+        "name": "ResponseDynamics",
+        "from": "src/signal/response_dynamics.js"
+      }
+    ],
+    "src/map/globe3d_osm.js": [
+      {
+        "name": "OSMEnricher",
+        "from": "src/osm/osm_enrichment.js"
+      },
+      {
+        "name": "GSRGlobe3DBuildings",
+        "from": "src/map/globe3d/buildings.js"
+      },
+      {
+        "name": "GSRGlobeManager",
+        "from": "src/map/globe3d.js"
+      }
+    ],
+    "src/map/globe3d_rf.js": [
+      {
+        "name": "GSRGlobe3DRf",
+        "from": "src/map/globe3d/rf_expanse.js"
+      },
+      {
+        "name": "GSRGlobeManager",
+        "from": "src/map/globe3d.js"
+      }
+    ],
+    "src/map/globe3d_peaks.js": [
+      {
+        "name": "HEIGHT_CAPABLE_METRICS",
+        "from": "src/map/globe3d.js"
+      },
+      {
+        "name": "GSRGlobeManager",
+        "from": "src/map/globe3d.js"
+      }
+    ],
+    "src/map/globe3d_toggles.js": [
+      {
+        "name": "GSRGlobeManager",
+        "from": "src/map/globe3d.js"
+      }
+    ],
+    "src/map/globe3d_navigation.js": [
+      {
+        "name": "AppState",
+        "from": "src/core/app_state.js"
+      },
+      {
+        "name": "GSRGlobeManager",
+        "from": "src/map/globe3d.js"
+      }
+    ],
+    "src/map/globe3d_tour.js": [
+      {
+        "name": "GeoUtils",
+        "from": "src/gps/geo_utils.js"
+      },
+      {
+        "name": "HEIGHT_CAPABLE_METRICS",
+        "from": "src/map/globe3d.js"
+      },
+      {
+        "name": "seriesValue",
+        "from": "src/map/globe3d.js"
+      },
+      {
+        "name": "GSRGlobeManager",
+        "from": "src/map/globe3d.js"
+      }
+    ],
+    "src/map/globe3d_view.js": [
+      {
+        "name": "AppState",
+        "from": "src/core/app_state.js"
+      },
+      {
+        "name": "MapPopups",
+        "from": "src/map/map_popups.js"
+      },
+      {
+        "name": "OSMEnricher",
+        "from": "src/osm/osm_enrichment.js"
+      },
+      {
+        "name": "OsmCache",
+        "from": "src/osm/osm_cache.js"
+      },
+      {
+        "name": "GSRGlobeManager",
+        "from": "src/map/globe3d.js"
+      },
+      {
+        "name": "GSRUI",
+        "from": "src/ui/ui.js"
+      },
+      {
+        "name": "GSRStorage",
+        "from": "src/ui/storage.js"
+      }
+    ],
+    "src/ui/storage.js": [
+      {
+        "name": "AppState",
+        "from": "src/core/app_state.js"
+      },
+      {
+        "name": "GSR_CONST",
+        "from": "src/core/constants.js"
+      },
+      {
+        "name": "GSRFileSaver",
+        "from": "src/core/file_saver.js"
+      },
+      {
+        "name": "GSREvents",
+        "from": "src/ui/events.js"
+      },
+      {
+        "name": "GSRTrackManager",
+        "from": "src/ui/tracks.js"
+      },
+      {
+        "name": "GSRUI",
+        "from": "src/ui/ui.js"
+      }
+    ],
+    "src/ui/events.js": [
+      {
+        "name": "AppState",
+        "from": "src/core/app_state.js"
+      },
+      {
+        "name": "GSRUI",
+        "from": "src/ui/ui.js"
+      },
+      {
+        "name": "GSRTrackManager",
+        "from": "src/ui/tracks.js"
+      },
+      {
+        "name": "GSRLayoutManager",
+        "from": "src/core/layout_manager.js"
+      },
+      {
+        "name": "GSRMapExporter",
+        "from": "src/map/map_exporter.js"
+      },
+      {
+        "name": "GSRCollectiveProject",
+        "from": "src/spatial/collective_project.js"
+      },
+      {
+        "name": "GSRGlobe3DView",
+        "from": "src/map/globe3d_view.js"
+      },
+      {
+        "name": "GSRStorage",
+        "from": "src/ui/storage.js"
+      },
+      {
+        "name": "windowResized",
+        "from": "src/render/sketch.js"
+      },
+      {
+        "name": "GSRNotices",
+        "from": "src/core/notices.js"
+      },
+      {
+        "name": "OsmCache",
+        "from": "src/osm/osm_cache.js"
+      },
+      {
+        "name": "NDVISampler",
+        "from": "src/osm/ndvi_sampler.js"
+      },
+      {
+        "name": "GSRLiveView",
+        "from": "src/live/live_view.js"
+      },
+      {
+        "name": "GSRRenderer",
+        "from": "src/render/renderer.js"
+      },
+      {
+        "name": "GSRGlobe3DExport",
+        "from": "src/map/globe3d/exporters.js"
+      }
+    ],
+    "src/ui/tracks.js": [
+      {
+        "name": "AppState",
+        "from": "src/core/app_state.js"
+      },
+      {
+        "name": "GSR_CONST",
+        "from": "src/core/constants.js"
+      },
+      {
+        "name": "GSRFullscreen",
+        "from": "src/core/fullscreen.js"
+      },
+      {
+        "name": "GSRCollectiveProject",
+        "from": "src/spatial/collective_project.js"
+      },
+      {
+        "name": "GSRAnalyzer",
+        "from": "src/signal/analyzer.js"
+      },
+      {
+        "name": "GSRUI",
+        "from": "src/ui/ui.js"
+      },
+      {
+        "name": "GSRGlobe3DView",
+        "from": "src/map/globe3d_view.js"
+      },
+      {
+        "name": "GSRRenderer",
+        "from": "src/render/renderer.js"
+      },
+      {
+        "name": "GSREvents",
+        "from": "src/ui/events.js"
+      },
+      {
+        "name": "windowResized",
+        "from": "src/render/sketch.js"
+      },
+      {
+        "name": "GSRStorage",
+        "from": "src/ui/storage.js"
+      }
+    ],
+    "src/spatial/collective_project.js": [
+      {
+        "name": "AppState",
+        "from": "src/core/app_state.js"
+      },
+      {
+        "name": "GSRTrackManager",
+        "from": "src/ui/tracks.js"
+      },
+      {
+        "name": "GSRFileSaver",
+        "from": "src/core/file_saver.js"
+      },
+      {
+        "name": "GSRNotices",
+        "from": "src/core/notices.js"
+      },
+      {
+        "name": "GSRAnalyzer",
+        "from": "src/signal/analyzer.js"
+      },
+      {
+        "name": "GSR_CONST",
+        "from": "src/core/constants.js"
+      },
+      {
+        "name": "GSREvents",
+        "from": "src/ui/events.js"
+      },
+      {
+        "name": "GSRUI",
+        "from": "src/ui/ui.js"
+      }
+    ],
+    "src/ui/ui.js": [
+      {
+        "name": "AppState",
+        "from": "src/core/app_state.js"
+      },
+      {
+        "name": "GSRTrackManager",
+        "from": "src/ui/tracks.js"
+      },
+      {
+        "name": "GSRStorage",
+        "from": "src/ui/storage.js"
+      },
+      {
+        "name": "GSREvents",
+        "from": "src/ui/events.js"
+      },
+      {
+        "name": "GSRNotices",
+        "from": "src/core/notices.js"
+      },
+      {
+        "name": "GSRCollectiveProject",
+        "from": "src/spatial/collective_project.js"
+      }
+    ],
+    "src/ui/ui_peaks_table.js": [
+      {
+        "name": "AppState",
+        "from": "src/core/app_state.js"
+      },
+      {
+        "name": "GSRStorage",
+        "from": "src/ui/storage.js"
+      },
+      {
+        "name": "GSRUI",
+        "from": "src/ui/ui.js"
+      },
+      {
+        "name": "GSR_CONST",
+        "from": "src/core/constants.js"
+      },
+      {
+        "name": "GSRGlobe3DView",
+        "from": "src/map/globe3d_view.js"
+      },
+      {
+        "name": "getQualityColor",
+        "from": "src/render/renderer.js"
+      },
+      {
+        "name": "getQualityLabel",
+        "from": "src/render/renderer.js"
+      },
+      {
+        "name": "GSRNotices",
+        "from": "src/core/notices.js"
+      }
+    ],
+    "src/ui/ui_stats_panel.js": [
+      {
+        "name": "AppState",
+        "from": "src/core/app_state.js"
+      },
+      {
+        "name": "GSREvents",
+        "from": "src/ui/events.js"
+      },
+      {
+        "name": "GSRUI",
+        "from": "src/ui/ui.js"
+      },
+      {
+        "name": "windowResized",
+        "from": "src/render/sketch.js"
+      }
+    ],
+    "src/ui/ui_collective_map.js": [
+      {
+        "name": "AppState",
+        "from": "src/core/app_state.js"
+      },
+      {
+        "name": "GSRTrackManager",
+        "from": "src/ui/tracks.js"
+      },
+      {
+        "name": "GSR_CONST",
+        "from": "src/core/constants.js"
+      },
+      {
+        "name": "GSRUI",
+        "from": "src/ui/ui.js"
+      }
+    ],
+    "src/ui/ui_export.js": [
+      {
+        "name": "AppState",
+        "from": "src/core/app_state.js"
+      },
+      {
+        "name": "GSRStorage",
+        "from": "src/ui/storage.js"
+      },
+      {
+        "name": "GSRUI",
+        "from": "src/ui/ui.js"
+      },
+      {
+        "name": "GSRFileSaver",
+        "from": "src/core/file_saver.js"
+      },
+      {
+        "name": "GSRGlobe3DView",
+        "from": "src/map/globe3d_view.js"
+      },
+      {
+        "name": "GSRMapExporter",
+        "from": "src/map/map_exporter.js"
+      }
+    ],
+    "src/ui/ui_osm_overlay.js": [
+      {
+        "name": "AppState",
+        "from": "src/core/app_state.js"
+      },
+      {
+        "name": "GSRUI",
+        "from": "src/ui/ui.js"
+      },
+      {
+        "name": "GSRGlobe3DView",
+        "from": "src/map/globe3d_view.js"
+      }
+    ],
+    "src/ui/ui_enrichment.js": [
+      {
+        "name": "AppState",
+        "from": "src/core/app_state.js"
+      },
+      {
+        "name": "NDVISampler",
+        "from": "src/osm/ndvi_sampler.js"
+      },
+      {
+        "name": "OSMEnricher",
+        "from": "src/osm/osm_enrichment.js"
+      },
+      {
+        "name": "OsmCache",
+        "from": "src/osm/osm_cache.js"
+      },
+      {
+        "name": "GSRUI",
+        "from": "src/ui/ui.js"
+      }
+    ],
+    "src/ui/ui_correlation_table.js": [
+      {
+        "name": "GSRUI",
+        "from": "src/ui/ui.js"
+      },
+      {
+        "name": "GSR_CONST",
+        "from": "src/core/constants.js"
+      },
+      {
+        "name": "AppState",
+        "from": "src/core/app_state.js"
+      },
+      {
+        "name": "StatsMath",
+        "from": "src/signal/stats_math.js"
+      }
+    ],
+    "src/ui/ui_road_profile.js": [
+      {
+        "name": "AppState",
+        "from": "src/core/app_state.js"
+      },
+      {
+        "name": "GSRUI",
+        "from": "src/ui/ui.js"
+      }
+    ],
+    "src/ui/ui_environmental_dashboard.js": [
+      {
+        "name": "AppState",
+        "from": "src/core/app_state.js"
+      },
+      {
+        "name": "GSR_CONST",
+        "from": "src/core/constants.js"
+      },
+      {
+        "name": "StatsMath",
+        "from": "src/signal/stats_math.js"
+      },
+      {
+        "name": "GSRUI",
+        "from": "src/ui/ui.js"
+      }
+    ],
+    "src/ui/ui_modals.js": [
+      {
+        "name": "GSRUI",
+        "from": "src/ui/ui.js"
+      },
+      {
+        "name": "AppState",
+        "from": "src/core/app_state.js"
+      },
+      {
+        "name": "GSRStorage",
+        "from": "src/ui/storage.js"
+      }
+    ],
+    "src/render/renderer_bands.js": [
+      {
+        "name": "MapColors",
+        "from": "src/map/map_colors.js"
+      },
+      {
+        "name": "OSMEnricher",
+        "from": "src/osm/osm_enrichment.js"
+      },
+      {
+        "name": "GSRRenderer",
+        "from": "src/render/renderer.js"
+      },
+      {
+        "name": "GSR_CONST",
+        "from": "src/core/constants.js"
+      },
+      {
+        "name": "AppState",
+        "from": "src/core/app_state.js"
+      }
+    ],
+    "src/render/renderer_curve.js": [
+      {
+        "name": "AppState",
+        "from": "src/core/app_state.js"
+      },
+      {
+        "name": "GSR_CONST",
+        "from": "src/core/constants.js"
+      },
+      {
+        "name": "ResponseDynamics",
+        "from": "src/signal/response_dynamics.js"
+      },
+      {
+        "name": "GSRRenderer",
+        "from": "src/render/renderer.js"
+      }
+    ],
+    "src/render/renderer_markers.js": [
+      {
+        "name": "GSR_CONST",
+        "from": "src/core/constants.js"
+      },
+      {
+        "name": "AppState",
+        "from": "src/core/app_state.js"
+      },
+      {
+        "name": "EXCLUDED_STYLE",
+        "from": "src/render/renderer.js"
+      },
+      {
+        "name": "getQualityColor",
+        "from": "src/render/renderer.js"
+      },
+      {
+        "name": "ResponseDynamics",
+        "from": "src/signal/response_dynamics.js"
+      },
+      {
+        "name": "NORMAL_DASH",
+        "from": "src/render/renderer.js"
+      },
+      {
+        "name": "GSRRenderer",
+        "from": "src/render/renderer.js"
+      }
+    ],
+    "src/render/renderer_interaction.js": [
+      {
+        "name": "EXCLUDE_BTN",
+        "from": "src/render/renderer.js"
+      },
+      {
+        "name": "AppState",
+        "from": "src/core/app_state.js"
+      },
+      {
+        "name": "GSRUI",
+        "from": "src/ui/ui.js"
+      },
+      {
+        "name": "GSR_CONST",
+        "from": "src/core/constants.js"
+      },
+      {
+        "name": "ResponseDynamics",
+        "from": "src/signal/response_dynamics.js"
+      },
+      {
+        "name": "GSRRenderer",
+        "from": "src/render/renderer.js"
+      }
+    ],
+    "src/render/renderer_chrome.js": [
+      {
+        "name": "GSR_CONST",
+        "from": "src/core/constants.js"
+      },
+      {
+        "name": "AppState",
+        "from": "src/core/app_state.js"
+      },
+      {
+        "name": "getQualityColor",
+        "from": "src/render/renderer.js"
+      },
+      {
+        "name": "getQualityLabel",
+        "from": "src/render/renderer.js"
+      },
+      {
+        "name": "GSRRenderer",
+        "from": "src/render/renderer.js"
+      }
+    ],
+    "src/render/sketch.js": [
+      {
+        "name": "GSREvents",
+        "from": "src/ui/events.js"
+      },
+      {
+        "name": "AppState",
+        "from": "src/core/app_state.js"
+      },
+      {
+        "name": "GSRCollectiveManager",
+        "from": "src/spatial/collective_manager.js"
+      },
+      {
+        "name": "GSRAnalyzer",
+        "from": "src/signal/analyzer.js"
+      },
+      {
+        "name": "GSRMapManager",
+        "from": "src/map/map.js"
+      },
+      {
+        "name": "GSRTrackManager",
+        "from": "src/ui/tracks.js"
+      },
+      {
+        "name": "GSRUI",
+        "from": "src/ui/ui.js"
+      },
+      {
+        "name": "GSRRenderer",
+        "from": "src/render/renderer.js"
+      },
+      {
+        "name": "GSRLayoutManager",
+        "from": "src/core/layout_manager.js"
+      },
+      {
+        "name": "GSR_CONST",
+        "from": "src/core/constants.js"
+      }
+    ]
+  },
+  "ambiguous": {},
+  "unmatched": {},
+  "parseErrors": []
+}
