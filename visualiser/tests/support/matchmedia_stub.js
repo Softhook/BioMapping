@@ -21,7 +21,9 @@ function installMatchMedia(window, { compact = false } = {}) {
     removeListener() {},
     addEventListener() {},
     removeEventListener() {},
-    dispatchEvent() { return false; },
+    dispatchEvent() {
+      return false;
+    },
   });
 }
 

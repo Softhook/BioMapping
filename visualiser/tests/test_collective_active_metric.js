@@ -1,10 +1,9 @@
-'use strict';
-
 const assert = require('assert');
-const test   = require('node:test');
+const test = require('node:test');
 
 global.GSR_CONST = require('./mock_constants.js');
-global.MarchingSquares = require('../src/render/marching_squares.mjs').MarchingSquares;
+global.MarchingSquares =
+  require('../src/render/marching_squares.mjs').MarchingSquares;
 
 // The collective manager's z-score normalization (topographySource 'auc') goes
 // through GsrFilter.calculateStats → StatsMath.calculateStats, so both must be
@@ -12,7 +11,9 @@ global.MarchingSquares = require('../src/render/marching_squares.mjs').MarchingS
 global.StatsMath = require('../src/signal/stats_math.mjs').StatsMath;
 global.GsrFilter = require('../src/signal/gsr_filter.mjs').GsrFilter;
 
-const { GSRCollectiveManager } = require('../src/spatial/collective_manager.mjs');
+const {
+  GSRCollectiveManager,
+} = require('../src/spatial/collective_manager.mjs');
 
 function makeMockTrack(id, n = 36) {
   const points = [];
@@ -52,11 +53,18 @@ function makeMockTrack(id, n = 36) {
       raw: new Array(n).fill(0),
       sampleRate: 1,
       getCoordinates: (i) => points[i] || null,
-      phasic, phasicZ, tonic, tonicZ, phasicAUC, arousalIndex, triIndex,
-      filtered, peakDensity,
+      phasic,
+      phasicZ,
+      tonic,
+      tonicZ,
+      phasicAUC,
+      arousalIndex,
+      triIndex,
+      filtered,
+      peakDensity,
       phasicStd: 0.5,
       peaks,
-    }
+    },
   };
 }
 
@@ -65,7 +73,18 @@ test('generateContourSurface: runs across all topography sources without error a
   mgr.addTrack(makeMockTrack('t1'));
   mgr.addTrack(makeMockTrack('t2'));
 
-  const sources = ['peaks', 'phasic', 'tonic', 'auc', 'arousal_index', 'tri_index', 'triIndex', 'gsr', 'peak_density', 'unknown_fallback'];
+  const sources = [
+    'peaks',
+    'phasic',
+    'tonic',
+    'auc',
+    'arousal_index',
+    'tri_index',
+    'triIndex',
+    'gsr',
+    'peak_density',
+    'unknown_fallback',
+  ];
   for (const src of sources) {
     for (const norm of [false, true]) {
       const res = mgr.generateContourSurface({
@@ -76,7 +95,10 @@ test('generateContourSurface: runs across all topography sources without error a
         normalizeZScore: norm,
       });
 
-      assert.ok(Array.isArray(res.grid), `grid should be array for ${src}, norm=${norm}`);
+      assert.ok(
+        Array.isArray(res.grid),
+        `grid should be array for ${src}, norm=${norm}`,
+      );
       assert.strictEqual(res.grid.length, 10);
       assert.strictEqual(res.grid[0].length, 10);
       assert.ok(typeof res.minVal === 'number');
@@ -114,27 +136,39 @@ function makeConstTrack(id, consts, n = 36) {
       raw: new Array(n).fill(0),
       sampleRate: 1,
       getCoordinates: (i) => points[i] || null,
-      phasic: mk(consts.phasic), phasicZ: mk(consts.phasicZ),
-      tonic: mk(consts.tonic), tonicZ: mk(consts.tonicZ),
-      phasicAUC: mk(consts.phasicAUC), arousalIndex: mk(consts.arousalIndex),
+      phasic: mk(consts.phasic),
+      phasicZ: mk(consts.phasicZ),
+      tonic: mk(consts.tonic),
+      tonicZ: mk(consts.tonicZ),
+      phasicAUC: mk(consts.phasicAUC),
+      arousalIndex: mk(consts.arousalIndex),
       triIndex: mk(consts.triIndex),
       phasicStd: 0.5,
       peaks: [],
-    }
+    },
   };
 }
 
 const FLAT_PARAMS = {
-  gridResolution: 10, contourCount: 3, isolationRadius: 500,
-  peakPreservation: 0, softening: 0, blurIterations: 0,
+  gridResolution: 10,
+  contourCount: 3,
+  isolationRadius: 500,
+  peakPreservation: 0,
+  softening: 0,
+  blurIterations: 0,
   // These tests pin the surface value to the raw series value per sample, so
   // the moving-average anti-alias pass (on by default) must be disabled.
   temporalSmoothingWindow: 0,
 };
 
 const CONSTS = {
-  phasic: 1.0, phasicZ: 5.0, tonic: 7.0, tonicZ: 2.0,
-  phasicAUC: 0.4, arousalIndex: -3.0, triIndex: 9.0,
+  phasic: 1.0,
+  phasicZ: 5.0,
+  tonic: 7.0,
+  tonicZ: 2.0,
+  phasicAUC: 0.4,
+  arousalIndex: -3.0,
+  triIndex: 9.0,
 };
 
 test('generateContourSurface: non-normalized surface value tracks the series named by topographySource', () => {
@@ -145,29 +179,41 @@ test('generateContourSurface: non-normalized surface value tracks the series nam
     ['arousal_index', -3.0],
     ['tri_index', 9.0],
     ['triIndex', 9.0],
-    ['unknown_fallback', 1.0],   // falls back to phasic
+    ['unknown_fallback', 1.0], // falls back to phasic
   ];
   for (const [src, expected] of cases) {
     const mgr = new GSRCollectiveManager();
     mgr.addTrack(makeConstTrack('t1', CONSTS));
-    const res = mgr.generateContourSurface({ ...FLAT_PARAMS, topographySource: src, normalizeZScore: false });
-    assert.ok(Math.abs(res.minVal - expected) < 1e-9,
-      `${src}: expected surface value ${expected}, got minVal=${res.minVal}`);
+    const res = mgr.generateContourSurface({
+      ...FLAT_PARAMS,
+      topographySource: src,
+      normalizeZScore: false,
+    });
+    assert.ok(
+      Math.abs(res.minVal - expected) < 1e-9,
+      `${src}: expected surface value ${expected}, got minVal=${res.minVal}`,
+    );
   }
 });
 
 test('generateContourSurface: normalized surface uses the *Z series for phasic / tonic and arousal_index as-is', () => {
   const expect = {
-    phasic: 5.0,          // phasicZ
-    tonic: 2.0,           // tonicZ
-    arousal_index: -3.0,  // already standardized upstream — used as-is
+    phasic: 5.0, // phasicZ
+    tonic: 2.0, // tonicZ
+    arousal_index: -3.0, // already standardized upstream — used as-is
   };
   for (const src of Object.keys(expect)) {
     const mgr = new GSRCollectiveManager();
     mgr.addTrack(makeConstTrack('t1', CONSTS));
-    const res = mgr.generateContourSurface({ ...FLAT_PARAMS, topographySource: src, normalizeZScore: true });
-    assert.ok(Math.abs(res.minVal - expect[src]) < 1e-9,
-      `${src} normalized: expected ${expect[src]}, got minVal=${res.minVal}`);
+    const res = mgr.generateContourSurface({
+      ...FLAT_PARAMS,
+      topographySource: src,
+      normalizeZScore: true,
+    });
+    assert.ok(
+      Math.abs(res.minVal - expect[src]) < 1e-9,
+      `${src} normalized: expected ${expect[src]}, got minVal=${res.minVal}`,
+    );
   }
 });
 
@@ -180,34 +226,60 @@ test('generateContourSurface: AUC source is per-track z-scored only when normali
     const r = Math.floor(i / 6);
     const c = i % 6;
     points.push({ lat: 51.5 + r * 0.001, lon: -0.1 + c * 0.001 });
-    phasicAUC.push({ time: i, val: (i % 2 === 0) ? 0.2 : 0.6 });
+    phasicAUC.push({ time: i, val: i % 2 === 0 ? 0.2 : 0.6 });
   }
   const makeTrack = () => ({
-    id: 't1', enabled: true,
+    id: 't1',
+    enabled: true,
     analyzer: {
-      raw: new Array(n).fill(0), sampleRate: 1,
+      raw: new Array(n).fill(0),
+      sampleRate: 1,
       getCoordinates: (i) => points[i] || null,
-      phasic: [], phasicZ: [], tonic: [], tonicZ: [],
-      phasicAUC, arousalIndex: [], triIndex: [],
-      phasicStd: 1, peaks: [],
-    }
+      phasic: [],
+      phasicZ: [],
+      tonic: [],
+      tonicZ: [],
+      phasicAUC,
+      arousalIndex: [],
+      triIndex: [],
+      phasicStd: 1,
+      peaks: [],
+    },
   });
   const base = { ...FLAT_PARAMS, topographySource: 'auc' };
 
   const mgrRaw = new GSRCollectiveManager();
   mgrRaw.addTrack(makeTrack());
-  const raw = mgrRaw.generateContourSurface({ ...base, normalizeZScore: false });
+  const raw = mgrRaw.generateContourSurface({
+    ...base,
+    normalizeZScore: false,
+  });
 
   const mgrNorm = new GSRCollectiveManager();
   mgrNorm.addTrack(makeTrack());
-  const norm = mgrNorm.generateContourSurface({ ...base, normalizeZScore: true });
+  const norm = mgrNorm.generateContourSurface({
+    ...base,
+    normalizeZScore: true,
+  });
 
   // Un-normalized: raw AUC is strictly positive.
-  assert.ok(raw.minVal >= 0.2 - 1e-9, `raw AUC surface should stay positive, got minVal=${raw.minVal}`);
+  assert.ok(
+    raw.minVal >= 0.2 - 1e-9,
+    `raw AUC surface should stay positive, got minVal=${raw.minVal}`,
+  );
   // Normalized: z-scores straddle zero and stay within a sane band.
-  assert.ok(norm.minVal < -0.1, `normalized AUC should dip below zero, got minVal=${norm.minVal}`);
-  assert.ok(norm.maxVal > 0.1, `normalized AUC should rise above zero, got maxVal=${norm.maxVal}`);
-  assert.ok(norm.minVal > -1.5 && norm.maxVal < 1.5, `normalized AUC should be ~unit scale, got [${norm.minVal}, ${norm.maxVal}]`);
+  assert.ok(
+    norm.minVal < -0.1,
+    `normalized AUC should dip below zero, got minVal=${norm.minVal}`,
+  );
+  assert.ok(
+    norm.maxVal > 0.1,
+    `normalized AUC should rise above zero, got maxVal=${norm.maxVal}`,
+  );
+  assert.ok(
+    norm.minVal > -1.5 && norm.maxVal < 1.5,
+    `normalized AUC should be ~unit scale, got [${norm.minVal}, ${norm.maxVal}]`,
+  );
 
   // The AUC z-score stats resolver falls back to StatsMath.calculateStats when
   // GsrFilter isn't on the global (both return a { mean, std } shape). Force
@@ -217,9 +289,15 @@ test('generateContourSurface: AUC source is per-track z-scored only when normali
     delete global.GsrFilter;
     const mgrFallback = new GSRCollectiveManager();
     mgrFallback.addTrack(makeTrack());
-    const fb = mgrFallback.generateContourSurface({ ...base, normalizeZScore: true });
-    assert.ok(Math.abs(fb.minVal - norm.minVal) < 1e-9 && Math.abs(fb.maxVal - norm.maxVal) < 1e-9,
-      `StatsMath.calculateStats fallback should match GsrFilter path, got [${fb.minVal}, ${fb.maxVal}] vs [${norm.minVal}, ${norm.maxVal}]`);
+    const fb = mgrFallback.generateContourSurface({
+      ...base,
+      normalizeZScore: true,
+    });
+    assert.ok(
+      Math.abs(fb.minVal - norm.minVal) < 1e-9 &&
+        Math.abs(fb.maxVal - norm.maxVal) < 1e-9,
+      `StatsMath.calculateStats fallback should match GsrFilter path, got [${fb.minVal}, ${fb.maxVal}] vs [${norm.minVal}, ${norm.maxVal}]`,
+    );
   } finally {
     global.GsrFilter = savedGsrFilter;
   }
@@ -238,32 +316,56 @@ test('generateContourSurface: temporalSmoothingWindow smooths the active series 
     phasic.push({ time: i, val: i === 18 ? 10.0 : 0.0 });
   }
   const makeTrack = () => ({
-    id: 't1', enabled: true,
+    id: 't1',
+    enabled: true,
     analyzer: {
-      raw: new Array(n).fill(0), sampleRate: 1,
+      raw: new Array(n).fill(0),
+      sampleRate: 1,
       getCoordinates: (i) => points[i] || null,
-      phasic, phasicZ: phasic, tonic: [], tonicZ: [],
-      phasicAUC: [], arousalIndex: [], triIndex: [],
-      phasicStd: 1, peaks: [],
-    }
+      phasic,
+      phasicZ: phasic,
+      tonic: [],
+      tonicZ: [],
+      phasicAUC: [],
+      arousalIndex: [],
+      triIndex: [],
+      phasicStd: 1,
+      peaks: [],
+    },
   });
   const base = {
-    gridResolution: 10, contourCount: 3, isolationRadius: 500,
-    peakPreservation: 0, softening: 0, blurIterations: 0,
-    topographySource: 'phasic', normalizeZScore: false,
+    gridResolution: 10,
+    contourCount: 3,
+    isolationRadius: 500,
+    peakPreservation: 0,
+    softening: 0,
+    blurIterations: 0,
+    topographySource: 'phasic',
+    normalizeZScore: false,
   };
 
   const mgrRaw = new GSRCollectiveManager();
   mgrRaw.addTrack(makeTrack());
-  const raw = mgrRaw.generateContourSurface({ ...base, temporalSmoothingWindow: 0 });
+  const raw = mgrRaw.generateContourSurface({
+    ...base,
+    temporalSmoothingWindow: 0,
+  });
 
   const mgrSm = new GSRCollectiveManager();
   mgrSm.addTrack(makeTrack());
-  const sm = mgrSm.generateContourSurface({ ...base, temporalSmoothingWindow: 20 });
+  const sm = mgrSm.generateContourSurface({
+    ...base,
+    temporalSmoothingWindow: 20,
+  });
 
-  assert.ok(raw.maxVal > 1.0, `precondition: raw spike survives into the surface (maxVal=${raw.maxVal})`);
-  assert.ok(sm.maxVal < raw.maxVal - 1e-6,
-    `smoothed maxVal (${sm.maxVal}) should sit below the raw spike surface (${raw.maxVal})`);
+  assert.ok(
+    raw.maxVal > 1.0,
+    `precondition: raw spike survives into the surface (maxVal=${raw.maxVal})`,
+  );
+  assert.ok(
+    sm.maxVal < raw.maxVal - 1e-6,
+    `smoothed maxVal (${sm.maxVal}) should sit below the raw spike surface (${raw.maxVal})`,
+  );
 });
 
 test('generateContourSurface: peaks mode produces identical surface when continuous series are omitted', () => {

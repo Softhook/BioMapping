@@ -13,16 +13,22 @@ function topLevelDeclaredNames(bodyStatements) {
   const names = new Set();
   for (const stmt of bodyStatements) {
     if (stmt.type === 'FunctionDeclaration' && stmt.id) names.add(stmt.id.name);
-    else if (stmt.type === 'ClassDeclaration' && stmt.id) names.add(stmt.id.name);
+    else if (stmt.type === 'ClassDeclaration' && stmt.id)
+      names.add(stmt.id.name);
     else if (stmt.type === 'VariableDeclaration') {
       for (const decl of stmt.declarations) collectPatternNames(decl.id, names);
     }
     // `if (typeof X === 'undefined') { class X {...} }` guard pattern used
     // by a few files for optional-dependency classes — look one level in.
-    else if (stmt.type === 'IfStatement' && stmt.consequent.type === 'BlockStatement') {
+    else if (
+      stmt.type === 'IfStatement' &&
+      stmt.consequent.type === 'BlockStatement'
+    ) {
       for (const inner of stmt.consequent.body) {
-        if (inner.type === 'ClassDeclaration' && inner.id) names.add(inner.id.name);
-        if (inner.type === 'FunctionDeclaration' && inner.id) names.add(inner.id.name);
+        if (inner.type === 'ClassDeclaration' && inner.id)
+          names.add(inner.id.name);
+        if (inner.type === 'FunctionDeclaration' && inner.id)
+          names.add(inner.id.name);
       }
     }
   }
@@ -54,8 +60,12 @@ function topLevelMutableNames(bodyStatements) {
   const names = new Set();
   for (const stmt of bodyStatements) {
     if (stmt.type === 'FunctionDeclaration' && stmt.id) names.add(stmt.id.name);
-    else if (stmt.type === 'ClassDeclaration' && stmt.id) names.add(stmt.id.name);
-    else if (stmt.type === 'VariableDeclaration' && (stmt.kind === 'let' || stmt.kind === 'var')) {
+    else if (stmt.type === 'ClassDeclaration' && stmt.id)
+      names.add(stmt.id.name);
+    else if (
+      stmt.type === 'VariableDeclaration' &&
+      (stmt.kind === 'let' || stmt.kind === 'var')
+    ) {
       for (const decl of stmt.declarations) collectPatternNames(decl.id, names);
     }
   }
@@ -67,7 +77,10 @@ function collectPatternNames(pattern, out) {
   if (pattern.type === 'Identifier') out.add(pattern.name);
   else if (pattern.type === 'ObjectPattern') {
     for (const prop of pattern.properties) {
-      collectPatternNames(prop.type === 'RestElement' ? prop.argument : prop.value, out);
+      collectPatternNames(
+        prop.type === 'RestElement' ? prop.argument : prop.value,
+        out,
+      );
     }
   } else if (pattern.type === 'ArrayPattern') {
     for (const el of pattern.elements) collectPatternNames(el, out);
@@ -78,4 +91,8 @@ function collectPatternNames(pattern, out) {
   }
 }
 
-module.exports = { topLevelDeclaredNames, topLevelMutableNames, collectPatternNames };
+module.exports = {
+  topLevelDeclaredNames,
+  topLevelMutableNames,
+  collectPatternNames,
+};

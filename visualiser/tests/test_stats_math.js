@@ -12,8 +12,10 @@ const test = require('node:test');
 const { StatsMath } = require('../src/signal/stats_math.mjs');
 
 const closeTo = (actual, expected, tolerance, msg) => {
-  assert.ok(Math.abs(actual - expected) <= tolerance,
-    `${msg || ''} expected ${actual} to be within ${tolerance} of ${expected}`);
+  assert.ok(
+    Math.abs(actual - expected) <= tolerance,
+    `${msg || ''} expected ${actual} to be within ${tolerance} of ${expected}`,
+  );
 };
 
 // ---------------------------------------------------------------------------
@@ -61,17 +63,26 @@ test('percentileRank: duplicate entries are all counted as "at or below"', () =>
 // ---------------------------------------------------------------------------
 
 test('calculatePearsonCorrelation: empty arrays return the neutral {r:0, p:1}', () => {
-  assert.deepStrictEqual(StatsMath.calculatePearsonCorrelation([], []), { r: 0, p: 1 });
+  assert.deepStrictEqual(StatsMath.calculatePearsonCorrelation([], []), {
+    r: 0,
+    p: 1,
+  });
 });
 
 test('calculatePearsonCorrelation: perfect positive correlation gives r=1; p stays at the default 1 (guarded to avoid 1-r^2 divide-by-zero)', () => {
-  const { r, p } = StatsMath.calculatePearsonCorrelation([1, 2, 3, 4, 5], [2, 4, 6, 8, 10]);
+  const { r, p } = StatsMath.calculatePearsonCorrelation(
+    [1, 2, 3, 4, 5],
+    [2, 4, 6, 8, 10],
+  );
   assert.strictEqual(r, 1);
   assert.strictEqual(p, 1);
 });
 
 test('calculatePearsonCorrelation: perfect negative correlation gives r=-1', () => {
-  const { r, p } = StatsMath.calculatePearsonCorrelation([1, 2, 3, 4, 5], [10, 8, 6, 4, 2]);
+  const { r, p } = StatsMath.calculatePearsonCorrelation(
+    [1, 2, 3, 4, 5],
+    [10, 8, 6, 4, 2],
+  );
   assert.strictEqual(r, -1);
   assert.strictEqual(p, 1);
 });
@@ -91,16 +102,34 @@ test('calculatePearsonCorrelation: zero variance in x (den===0) returns r=0 exac
 
 test('calculatePearsonCorrelation: partial correlation matches hand-computed r, and p lands strictly inside (0,1)', () => {
   // sumX=15,sumY=15,sumXY=53,sumX2=55,sumY2=55,n=5 -> num=40, den=50 -> r=0.8
-  const { r, p } = StatsMath.calculatePearsonCorrelation([1, 2, 3, 4, 5], [2, 1, 4, 3, 5]);
+  const { r, p } = StatsMath.calculatePearsonCorrelation(
+    [1, 2, 3, 4, 5],
+    [2, 1, 4, 3, 5],
+  );
   closeTo(r, 0.8, 1e-9);
-  assert.ok(p > 0 && p < 1, `p should be a proper two-tailed p-value in (0,1), got ${p}`);
+  assert.ok(
+    p > 0 && p < 1,
+    `p should be a proper two-tailed p-value in (0,1), got ${p}`,
+  );
 });
 
 test('calculatePearsonCorrelation: p-value decreases as the correlation strengthens with more data (sanity/monotonicity check)', () => {
-  const weak = StatsMath.calculatePearsonCorrelation([1, 2, 3, 4, 5, 6], [2, 1, 5, 3, 4, 6]);
-  const strong = StatsMath.calculatePearsonCorrelation([1, 2, 3, 4, 5, 6], [1.1, 2.0, 3.2, 3.9, 5.1, 5.8]);
-  assert.ok(Math.abs(strong.r) > Math.abs(weak.r), 'strong dataset should have larger |r|');
-  assert.ok(strong.p < weak.p, 'stronger correlation should yield a smaller p-value');
+  const weak = StatsMath.calculatePearsonCorrelation(
+    [1, 2, 3, 4, 5, 6],
+    [2, 1, 5, 3, 4, 6],
+  );
+  const strong = StatsMath.calculatePearsonCorrelation(
+    [1, 2, 3, 4, 5, 6],
+    [1.1, 2.0, 3.2, 3.9, 5.1, 5.8],
+  );
+  assert.ok(
+    Math.abs(strong.r) > Math.abs(weak.r),
+    'strong dataset should have larger |r|',
+  );
+  assert.ok(
+    strong.p < weak.p,
+    'stronger correlation should yield a smaller p-value',
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -113,7 +142,10 @@ test('autocorrelation: acf[0] is 1; a monotone ramp stays near 1 for many lags; 
   for (let i = 0; i < 200; i++) ramp.push(i);
   const acfRamp = StatsMath.autocorrelation(ramp, 10);
   assert.strictEqual(acfRamp[0], 1);
-  assert.ok(acfRamp[1] > 0.95 && acfRamp[10] > 0.8, 'slow trend -> ACF decays slowly');
+  assert.ok(
+    acfRamp[1] > 0.95 && acfRamp[10] > 0.8,
+    'slow trend -> ACF decays slowly',
+  );
 
   const alt = [];
   for (let i = 0; i < 200; i++) alt.push(i % 2 === 0 ? 1 : -1);
@@ -131,23 +163,38 @@ test('effectiveSampleSize: heavy positive autocorrelation shrinks N; white noise
   const ramp = [];
   for (let i = 0; i < 300; i++) ramp.push(i + Math.sin(i / 10));
   const nEff = StatsMath.effectiveSampleSize(ramp);
-  assert.ok(nEff < 60, `strong autocorrelation should collapse 300 -> well under 60, got ${nEff}`);
+  assert.ok(
+    nEff < 60,
+    `strong autocorrelation should collapse 300 -> well under 60, got ${nEff}`,
+  );
 
   // Deterministic pseudo-white sequence (no lib RNG): low |r1|.
   const white = [];
   let s = 12345;
-  for (let i = 0; i < 300; i++) { s = (1103515245 * s + 12345) & 0x7fffffff; white.push(s / 0x7fffffff); }
+  for (let i = 0; i < 300; i++) {
+    s = (1103515245 * s + 12345) & 0x7fffffff;
+    white.push(s / 0x7fffffff);
+  }
   const nEffWhite = StatsMath.effectiveSampleSize(white);
-  assert.ok(nEffWhite > 240, `near-white noise should keep most of N=300, got ${nEffWhite}`);
+  assert.ok(
+    nEffWhite > 240,
+    `near-white noise should keep most of N=300, got ${nEffWhite}`,
+  );
 });
 
 test('correlationEffectiveN: never exceeds the raw pair count and drops with shared autocorrelation', () => {
   const a = [];
   const b = [];
-  for (let i = 0; i < 400; i++) { a.push(i + Math.sin(i / 7)); b.push(i * 0.8 + Math.cos(i / 9)); }
+  for (let i = 0; i < 400; i++) {
+    a.push(i + Math.sin(i / 7));
+    b.push(i * 0.8 + Math.cos(i / 9));
+  }
   const nEff = StatsMath.correlationEffectiveN(a, b);
   assert.ok(nEff <= 400, 'nEff cannot exceed N');
-  assert.ok(nEff < 80, `two smooth ramps share strong autocorrelation -> big reduction, got ${nEff}`);
+  assert.ok(
+    nEff < 80,
+    `two smooth ramps share strong autocorrelation -> big reduction, got ${nEff}`,
+  );
 });
 
 test('calculateAutocorrCorrelation: same r as the plain Pearson, but a larger (more honest) p-value under autocorrelation', () => {
@@ -164,8 +211,14 @@ test('calculateAutocorrCorrelation: same r as the plain Pearson, but a larger (m
   const corr = StatsMath.calculateAutocorrCorrelation(x, y);
   closeTo(corr.r, plain.r, 1e-12, 'point estimate r is unchanged');
   assert.ok(corr.nEff < x.length, 'effective N is below raw N');
-  assert.ok(corr.p > plain.p, `corrected p (${corr.p}) should exceed the naive p (${plain.p})`);
-  assert.ok(Number.isFinite(corr.p) && corr.p >= 0 && corr.p <= 1, 'corrected p is a valid probability');
+  assert.ok(
+    corr.p > plain.p,
+    `corrected p (${corr.p}) should exceed the naive p (${plain.p})`,
+  );
+  assert.ok(
+    Number.isFinite(corr.p) && corr.p >= 0 && corr.p <= 1,
+    'corrected p is a valid probability',
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -175,12 +228,21 @@ test('calculateAutocorrCorrelation: same r as the plain Pearson, but a larger (m
 // Deterministic pseudo-random helper (no lib RNG).
 function lcg(seed) {
   let s = seed >>> 0;
-  return () => { s = (1664525 * s + 1013904223) >>> 0; return s / 4294967296; };
+  return () => {
+    s = (1664525 * s + 1013904223) >>> 0;
+    return s / 4294967296;
+  };
 }
 
 test('metaCorrelation: fewer than 3 usable groups -> not tested (p = 1), r is the mean of available group rs', () => {
-  const g1 = { x: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], y: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] };      // r = 1
-  const g2 = { x: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], y: [10, 9, 8, 7, 6, 5, 4, 3, 2, 1] };      // r = -1
+  const g1 = {
+    x: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+    y: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+  }; // r = 1
+  const g2 = {
+    x: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+    y: [10, 9, 8, 7, 6, 5, 4, 3, 2, 1],
+  }; // r = -1
   const res = StatsMath.metaCorrelation([g1, g2]);
   assert.strictEqual(res.k, 2);
   assert.strictEqual(res.p, 1);
@@ -189,10 +251,22 @@ test('metaCorrelation: fewer than 3 usable groups -> not tested (p = 1), r is th
 
 test('metaCorrelation: groups too short, or with no variance, are skipped', () => {
   const short = { x: [1, 2, 3], y: [1, 2, 3] };
-  const flatX = { x: new Array(20).fill(5), y: Array.from({ length: 20 }, (_, i) => i) };
-  const ok1 = { x: Array.from({ length: 20 }, (_, i) => i), y: Array.from({ length: 20 }, (_, i) => i + (i % 3)) };
-  const ok2 = { x: Array.from({ length: 20 }, (_, i) => i), y: Array.from({ length: 20 }, (_, i) => i * 0.9 - (i % 4)) };
-  const ok3 = { x: Array.from({ length: 20 }, (_, i) => i), y: Array.from({ length: 20 }, (_, i) => i * 1.1 + (i % 2)) };
+  const flatX = {
+    x: new Array(20).fill(5),
+    y: Array.from({ length: 20 }, (_, i) => i),
+  };
+  const ok1 = {
+    x: Array.from({ length: 20 }, (_, i) => i),
+    y: Array.from({ length: 20 }, (_, i) => i + (i % 3)),
+  };
+  const ok2 = {
+    x: Array.from({ length: 20 }, (_, i) => i),
+    y: Array.from({ length: 20 }, (_, i) => i * 0.9 - (i % 4)),
+  };
+  const ok3 = {
+    x: Array.from({ length: 20 }, (_, i) => i),
+    y: Array.from({ length: 20 }, (_, i) => i * 1.1 + (i % 2)),
+  };
   const res = StatsMath.metaCorrelation([short, flatX, ok1, ok2, ok3]);
   assert.strictEqual(res.k, 3, 'only the 3 usable groups count');
 });
@@ -202,15 +276,23 @@ test('metaCorrelation: a consistent per-group effect is detected; gains power as
   const makeGroups = (K, beta) => {
     const out = [];
     for (let g = 0; g < K; g++) {
-      const x = [], y = [];
-      for (let i = 0; i < 60; i++) { const xv = R() * 10; x.push(xv); y.push(beta * xv + (R() - 0.5) * 8); }
+      const x = [],
+        y = [];
+      for (let i = 0; i < 60; i++) {
+        const xv = R() * 10;
+        x.push(xv);
+        y.push(beta * xv + (R() - 0.5) * 8);
+      }
       out.push({ x, y });
     }
     return out;
   };
   const p4 = StatsMath.metaCorrelation(makeGroups(4, 0.5)).p;
   const p12 = StatsMath.metaCorrelation(makeGroups(12, 0.5)).p;
-  assert.ok(p4 < 0.05, `4 groups with a real effect should be detectable, got p=${p4}`);
+  assert.ok(
+    p4 < 0.05,
+    `4 groups with a real effect should be detectable, got p=${p4}`,
+  );
   assert.ok(p12 < p4, `more groups -> smaller p (${p12} < ${p4})`);
 
   const pNull = StatsMath.metaCorrelation(makeGroups(12, 0)).p;
@@ -226,8 +308,14 @@ test('metaCorrelation: identical non-zero r in every group -> t is infinite -> p
   }
   const res = StatsMath.metaCorrelation(groups);
   assert.strictEqual(res.k, 5);
-  assert.ok(res.p < 1e-6, `zero between-group variance in a non-zero effect -> tiny p, got ${res.p}`);
-  assert.ok(res.i2 <= 1, `groups agree perfectly -> I2 should be ~0%, got ${res.i2}`);
+  assert.ok(
+    res.p < 1e-6,
+    `zero between-group variance in a non-zero effect -> tiny p, got ${res.p}`,
+  );
+  assert.ok(
+    res.i2 <= 1,
+    `groups agree perfectly -> I2 should be ~0%, got ${res.i2}`,
+  );
 });
 
 test('metaCorrelation: fewer than 3 usable groups reports tau2/i2 as NaN — not enough groups to assess heterogeneity', () => {
@@ -242,36 +330,79 @@ test('metaCorrelation: fewer than 3 usable groups reports tau2/i2 as NaN — not
 test('metaCorrelation: groups that disagree in direction report high I2 — a null pooled r is not the same as a consistent null', () => {
   const R = lcg(7);
   const walk = (beta) => {
-    const x = [], y = [];
-    for (let i = 0; i < 60; i++) { const xv = R() * 10; x.push(xv); y.push(beta * xv + (R() - 0.5) * 2); }
+    const x = [],
+      y = [];
+    for (let i = 0; i < 60; i++) {
+      const xv = R() * 10;
+      x.push(xv);
+      y.push(beta * xv + (R() - 0.5) * 2);
+    }
     return { x, y };
   };
   // Half the walks show a strong positive relationship, half an equally
   // strong negative one — real per-walk effects that cancel out on average.
-  const disagreeing = StatsMath.metaCorrelation([walk(0.8), walk(-0.8), walk(0.8), walk(-0.8), walk(0.8), walk(-0.8)]);
-  assert.ok(Math.abs(disagreeing.r) < 0.1, `pooled r should be near zero, got ${disagreeing.r.toFixed(3)}`);
-  assert.ok(disagreeing.i2 > 50, `walks actively disagree -> I2 should be high, got ${disagreeing.i2.toFixed(1)}%`);
+  const disagreeing = StatsMath.metaCorrelation([
+    walk(0.8),
+    walk(-0.8),
+    walk(0.8),
+    walk(-0.8),
+    walk(0.8),
+    walk(-0.8),
+  ]);
+  assert.ok(
+    Math.abs(disagreeing.r) < 0.1,
+    `pooled r should be near zero, got ${disagreeing.r.toFixed(3)}`,
+  );
+  assert.ok(
+    disagreeing.i2 > 50,
+    `walks actively disagree -> I2 should be high, got ${disagreeing.i2.toFixed(1)}%`,
+  );
 
   // Contrast: the same number of walks, all agreeing there's nothing there.
-  const agreeing = StatsMath.metaCorrelation([walk(0), walk(0), walk(0), walk(0), walk(0), walk(0)]);
-  assert.ok(Math.abs(agreeing.r) < 0.1, `pooled r should also be near zero, got ${agreeing.r.toFixed(3)}`);
-  assert.ok(agreeing.i2 < disagreeing.i2, `walks that agree on "nothing" should show lower I2 than walks that disagree, got agreeing=${agreeing.i2.toFixed(1)}% vs disagreeing=${disagreeing.i2.toFixed(1)}%`);
+  const agreeing = StatsMath.metaCorrelation([
+    walk(0),
+    walk(0),
+    walk(0),
+    walk(0),
+    walk(0),
+    walk(0),
+  ]);
+  assert.ok(
+    Math.abs(agreeing.r) < 0.1,
+    `pooled r should also be near zero, got ${agreeing.r.toFixed(3)}`,
+  );
+  assert.ok(
+    agreeing.i2 < disagreeing.i2,
+    `walks that agree on "nothing" should show lower I2 than walks that disagree, got agreeing=${agreeing.i2.toFixed(1)}% vs disagreeing=${disagreeing.i2.toFixed(1)}%`,
+  );
 });
 
 test('metaCorrelation: inverse-variance weighting — long walks outweigh a short uninformative one (equal-weighting would not)', () => {
   const R = lcg(5);
   const walk = (n, beta) => {
-    const x = [], y = [];
-    for (let i = 0; i < n; i++) { const xv = R() * 10; x.push(xv); y.push(beta * xv + (R() - 0.5) * 6); }
+    const x = [],
+      y = [];
+    for (let i = 0; i < n; i++) {
+      const xv = R() * 10;
+      x.push(xv);
+      y.push(beta * xv + (R() - 0.5) * 6);
+    }
     return { x, y };
   };
   // Two long walks with a clear effect + one short, uninformative walk (no
   // effect, n=11). Equal-weighting (old behaviour) would average all three
   // Fisher-z's and drag the pooled r down toward ~0.47; inverse-variance
   // weighting keeps it near the two long walks' value (~0.60).
-  const res = StatsMath.metaCorrelation([walk(150, 0.5), walk(150, 0.5), walk(11, 0)]);
+  const res = StatsMath.metaCorrelation([
+    walk(150, 0.5),
+    walk(150, 0.5),
+    walk(11, 0),
+  ]);
   assert.strictEqual(res.k, 3);
-  assert.ok(res.r > 0.55, `long walks dominate the short uninformative one: pooled r=${res.r.toFixed(3)}`);
+  assert.ok(
+    res.r > 0.55,
+    `long walks dominate the short uninformative one: pooled r=${res.r.toFixed(3)}`,
+  );
 });
 
 test('metaCorrelation: operating characteristics — FPR at/below nominal, power scales with K (trimmed simulation)', () => {
@@ -281,19 +412,23 @@ test('metaCorrelation: operating characteristics — FPR at/below nominal, power
   // false-positive inflation or a total loss of power.
   const S = lcg(918273);
   const gauss = () => {
-    let u = 0, v = 0;
+    let u = 0,
+      v = 0;
     while (u === 0) u = S();
     while (v === 0) v = S();
     return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
   };
   const makeWalk = (nSec, beta) => {
     const bi = beta + 0.1 * gauss();
-    const x = [], y = [];
-    let xp = 0, ep = 0;
+    const x = [],
+      y = [];
+    let xp = 0,
+      ep = 0;
     for (let i = 0; i < nSec; i++) {
       xp = 0.98 * xp + Math.sqrt(1 - 0.98 * 0.98) * gauss();
       ep = 0.98 * ep + Math.sqrt(1 - 0.98 * 0.98) * gauss();
-      x.push(xp); y.push(bi * xp + ep);
+      x.push(xp);
+      y.push(bi * xp + ep);
     }
     return { x, y };
   };
@@ -307,9 +442,15 @@ test('metaCorrelation: operating characteristics — FPR at/below nominal, power
     return rej / iters;
   };
   const fpr = rejRate(10, 0, 150);
-  assert.ok(fpr <= 0.13, `null FPR at K=10 should sit near/below nominal 0.05, got ${fpr.toFixed(3)}`);
+  assert.ok(
+    fpr <= 0.13,
+    `null FPR at K=10 should sit near/below nominal 0.05, got ${fpr.toFixed(3)}`,
+  );
   const power = rejRate(10, 0.5, 80);
-  assert.ok(power > 0.6, `a strong consistent effect at K=10 should be detected most of the time, got ${power.toFixed(2)}`);
+  assert.ok(
+    power > 0.6,
+    `a strong consistent effect at K=10 should be detected most of the time, got ${power.toFixed(2)}`,
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -320,7 +461,10 @@ test('benjaminiHochberg: q-values are >= their raw p, monotone with rank, and cl
   const p = [0.001, 0.008, 0.02, 0.04, 0.9];
   const q = StatsMath.benjaminiHochberg(p);
   for (let i = 0; i < p.length; i++) {
-    assert.ok(q[i] >= p[i] - 1e-12, `q[${i}]=${q[i]} should be >= p[${i}]=${p[i]}`);
+    assert.ok(
+      q[i] >= p[i] - 1e-12,
+      `q[${i}]=${q[i]} should be >= p[${i}]=${p[i]}`,
+    );
     assert.ok(q[i] <= 1, 'q clamped to 1');
   }
   // Classic BH worked example: q_1 = 0.001*5/1, q_2 = 0.008*5/2, ...
@@ -360,17 +504,26 @@ test('welchTTest: unequal variances — df lands between the smaller (n-1) and t
   const tight = Array.from({ length: 30 }, (_, i) => 5 + (i % 3) * 0.01);
   const loose = Array.from({ length: 30 }, (_, i) => 5 + (i % 7) * 2.0);
   const { df } = StatsMath.welchTTest(tight, loose);
-  assert.ok(df > 0 && df < 58, `Welch df should be well under the pooled 58, got ${df}`);
+  assert.ok(
+    df > 0 && df < 58,
+    `Welch df should be well under the pooled 58, got ${df}`,
+  );
 });
 
 test('welchTTest: useEffectiveN widens the test (bigger p) when the samples are autocorrelated', () => {
   const a = [];
   const b = [];
-  for (let i = 0; i < 200; i++) { a.push(Math.sin(i / 12)); b.push(0.4 + Math.sin(i / 12)); }
+  for (let i = 0; i < 200; i++) {
+    a.push(Math.sin(i / 12));
+    b.push(0.4 + Math.sin(i / 12));
+  }
   const raw = StatsMath.welchTTest(a, b, false);
   const eff = StatsMath.welchTTest(a, b, true);
   assert.ok(eff.nA < a.length, 'effective N below raw N');
-  assert.ok(eff.p > raw.p, `effective-N Welch should be less certain (${eff.p} > ${raw.p})`);
+  assert.ok(
+    eff.p > raw.p,
+    `effective-N Welch should be less certain (${eff.p} > ${raw.p})`,
+  );
 });
 
 test('welchTTest: samples smaller than 2 return the neutral non-result', () => {
@@ -380,15 +533,29 @@ test('welchTTest: samples smaller than 2 return the neutral non-result', () => {
 });
 
 test('welchTTest: an explicit effN overrides the internal effectiveSampleSize and is clamped to [2, rawN]', () => {
-  const a = [], b = [];
-  for (let i = 0; i < 300; i++) { a.push(Math.sin(i / 15)); b.push(0.5 + Math.sin(i / 15)); }
-  const internal = StatsMath.welchTTest(a, b, true);                       // computes eff N over the joined series
-  const supplied = StatsMath.welchTTest(a, b, true, { a: 40, b: 40 });     // caller-supplied (e.g. per-walk sum)
-  assert.ok(Math.abs(supplied.nA - 40) < 1e-9 && Math.abs(supplied.nB - 40) < 1e-9, 'uses the supplied effective sizes');
-  assert.notStrictEqual(supplied.p, internal.p, 'a different effective N gives a different p');
+  const a = [],
+    b = [];
+  for (let i = 0; i < 300; i++) {
+    a.push(Math.sin(i / 15));
+    b.push(0.5 + Math.sin(i / 15));
+  }
+  const internal = StatsMath.welchTTest(a, b, true); // computes eff N over the joined series
+  const supplied = StatsMath.welchTTest(a, b, true, { a: 40, b: 40 }); // caller-supplied (e.g. per-walk sum)
+  assert.ok(
+    Math.abs(supplied.nA - 40) < 1e-9 && Math.abs(supplied.nB - 40) < 1e-9,
+    'uses the supplied effective sizes',
+  );
+  assert.notStrictEqual(
+    supplied.p,
+    internal.p,
+    'a different effective N gives a different p',
+  );
   // Clamped: can never exceed the raw count or drop below 2.
   const clampedHi = StatsMath.welchTTest(a, b, true, { a: 99999, b: 99999 });
-  assert.ok(clampedHi.nA <= a.length && clampedHi.nB <= b.length, 'effN cannot exceed the raw sample size');
+  assert.ok(
+    clampedHi.nA <= a.length && clampedHi.nB <= b.length,
+    'effN cannot exceed the raw sample size',
+  );
   const clampedLo = StatsMath.welchTTest(a, b, true, { a: 0.1, b: 0.1 });
   assert.ok(clampedLo.nA >= 2 && clampedLo.nB >= 2, 'effN floored at 2');
 });
@@ -398,25 +565,38 @@ test('welchTTest: an explicit effN overrides the internal effectiveSampleSize an
 // ---------------------------------------------------------------------------
 
 test('calculateLinearRegression: empty arrays return the neutral {m:0, c:0, r2:0}', () => {
-  assert.deepStrictEqual(StatsMath.calculateLinearRegression([], []), { m: 0, c: 0, r2: 0 });
+  assert.deepStrictEqual(StatsMath.calculateLinearRegression([], []), {
+    m: 0,
+    c: 0,
+    r2: 0,
+  });
 });
 
 test('calculateLinearRegression: perfect line y=2x fits exactly (m=2, c=0, r2=1)', () => {
-  const { m, c, r2 } = StatsMath.calculateLinearRegression([1, 2, 3, 4, 5], [2, 4, 6, 8, 10]);
+  const { m, c, r2 } = StatsMath.calculateLinearRegression(
+    [1, 2, 3, 4, 5],
+    [2, 4, 6, 8, 10],
+  );
   assert.strictEqual(m, 2);
   assert.strictEqual(c, 0);
   assert.strictEqual(r2, 1);
 });
 
 test('calculateLinearRegression: perfect line with an offset y=3x+1 fits exactly', () => {
-  const { m, c, r2 } = StatsMath.calculateLinearRegression([0, 1, 2, 3], [1, 4, 7, 10]);
+  const { m, c, r2 } = StatsMath.calculateLinearRegression(
+    [0, 1, 2, 3],
+    [1, 4, 7, 10],
+  );
   assert.strictEqual(m, 3);
   assert.strictEqual(c, 1);
   assert.strictEqual(r2, 1);
 });
 
 test('calculateLinearRegression: flat/constant y (zero variance in y) reports slope 0 and r2=1 via the ssTot===0 special case', () => {
-  const { m, c, r2 } = StatsMath.calculateLinearRegression([1, 2, 3], [5, 5, 5]);
+  const { m, c, r2 } = StatsMath.calculateLinearRegression(
+    [1, 2, 3],
+    [5, 5, 5],
+  );
   assert.strictEqual(m, 0);
   assert.strictEqual(c, 5);
   // Documented behaviour: when ssTot is 0 the code special-cases r2 to 1
@@ -425,7 +605,10 @@ test('calculateLinearRegression: flat/constant y (zero variance in y) reports sl
 });
 
 test('calculateLinearRegression: zero variance in x (denM===0, vertical scatter) reports slope 0 with r2 reflecting the mean-only fit', () => {
-  const { m, c, r2 } = StatsMath.calculateLinearRegression([3, 3, 3], [1, 2, 3]);
+  const { m, c, r2 } = StatsMath.calculateLinearRegression(
+    [3, 3, 3],
+    [1, 2, 3],
+  );
   assert.strictEqual(m, 0);
   assert.strictEqual(c, 2);
   // pred is constant (=meanY) for every point here, so res===dev and r2=1-(ssRes/ssTot)=0.
@@ -508,8 +691,18 @@ test('_tTestPValue: matches reference values across a wide df range, including t
   closeTo(StatsMath._tTestPValue(2.0, 10), 0.073388, 1e-4, 't=2, df=10');
   closeTo(StatsMath._tTestPValue(2.228, 10), 0.05004, 1e-4, 't=2.228, df=10');
   closeTo(StatsMath._tTestPValue(1.0, 100), 0.319724, 1e-4, 't=1, df=100');
-  closeTo(StatsMath._tTestPValue(3.0, 500), 0.002827, 1e-4, 't=3, df=500 (was NaN before the log-beta fix)');
-  closeTo(StatsMath._tTestPValue(2.0, 2000), 0.045637, 1e-4, 't=2, df=2000 (was NaN before the log-beta fix)');
+  closeTo(
+    StatsMath._tTestPValue(3.0, 500),
+    0.002827,
+    1e-4,
+    't=3, df=500 (was NaN before the log-beta fix)',
+  );
+  closeTo(
+    StatsMath._tTestPValue(2.0, 2000),
+    0.045637,
+    1e-4,
+    't=2, df=2000 (was NaN before the log-beta fix)',
+  );
 });
 
 test('calculatePearsonCorrelation: large autocorrelation-free sample returns a finite p-value (regression for the log-beta overflow)', () => {
@@ -520,7 +713,10 @@ test('calculatePearsonCorrelation: large autocorrelation-free sample returns a f
     y.push(0.01 * i + Math.sin(i * 1.7) * 8); // faint trend under noise
   }
   const { r, p } = StatsMath.calculatePearsonCorrelation(x, y);
-  assert.ok(Number.isFinite(r) && Number.isFinite(p), `r and p must be finite, got r=${r} p=${p}`);
+  assert.ok(
+    Number.isFinite(r) && Number.isFinite(p),
+    `r and p must be finite, got r=${r} p=${p}`,
+  );
   assert.ok(p >= 0 && p <= 1, `p must be in [0,1], got ${p}`);
 });
 
@@ -529,8 +725,20 @@ test('calculatePearsonCorrelation: large autocorrelation-free sample returns a f
 // ---------------------------------------------------------------------------
 
 test('calculateStats: returns documented defaults on empty/null input', () => {
-  assert.deepStrictEqual(StatsMath.calculateStats([]), { mean: 0, std: 1, variance: 0, min: 0, max: 0 });
-  assert.deepStrictEqual(StatsMath.calculateStats(null), { mean: 0, std: 1, variance: 0, min: 0, max: 0 });
+  assert.deepStrictEqual(StatsMath.calculateStats([]), {
+    mean: 0,
+    std: 1,
+    variance: 0,
+    min: 0,
+    max: 0,
+  });
+  assert.deepStrictEqual(StatsMath.calculateStats(null), {
+    mean: 0,
+    std: 1,
+    variance: 0,
+    min: 0,
+    max: 0,
+  });
 });
 
 test('calculateStats: calculates mean, std, variance, min, max correctly', () => {
@@ -572,7 +780,12 @@ test('partialCorrelation: constant covariate falls back to raw correlation witho
   const z = [3, 3, 3, 3, 3, 3, 3, 3, 3, 3]; // zero variance
   const res = StatsMath.partialCorrelation(x, y, z);
   const raw = StatsMath.calculateAutocorrCorrelation(x, y);
-  closeTo(res.r, raw.r, 1e-6, 'partial r should match raw r when covariate has no variance');
+  closeTo(
+    res.r,
+    raw.r,
+    1e-6,
+    'partial r should match raw r when covariate has no variance',
+  );
   assert.strictEqual(res.rawR, raw.r);
 });
 
@@ -591,11 +804,16 @@ test('partialCorrelation: spurious correlation driven entirely by covariate coll
   }
 
   const raw = StatsMath.calculatePearsonCorrelation(x, y);
-  assert.ok(raw.r > 0.85, `raw correlation between x and y should be high (got ${raw.r})`);
+  assert.ok(
+    raw.r > 0.85,
+    `raw correlation between x and y should be high (got ${raw.r})`,
+  );
 
   const partial = StatsMath.partialCorrelation(x, y, z);
-  assert.ok(Math.abs(partial.r) < 0.15,
-    `partial correlation should collapse toward 0 after controlling for z (got ${partial.r})`);
+  assert.ok(
+    Math.abs(partial.r) < 0.15,
+    `partial correlation should collapse toward 0 after controlling for z (got ${partial.r})`,
+  );
   assert.ok(Number.isFinite(partial.p), 'p-value must be finite');
   assert.ok(partial.nEff > 0, 'effective N must be positive');
 });
@@ -614,5 +832,8 @@ test('partialCorrelation: direct relationship independent of covariate is preser
   const raw = StatsMath.calculatePearsonCorrelation(x, y);
   const partial = StatsMath.partialCorrelation(x, y, z);
   assert.ok(raw.r > 0.95, `raw correlation is strong (got ${raw.r})`);
-  assert.ok(partial.r > 0.90, `partial correlation remains strong (got ${partial.r})`);
+  assert.ok(
+    partial.r > 0.9,
+    `partial correlation remains strong (got ${partial.r})`,
+  );
 });

@@ -19,8 +19,7 @@
  */
 import { GSRGlobeManager, HEIGHT_CAPABLE_METRICS } from './globe3d.mjs';
 
-  export const __methods = {
-
+export const __methods = {
   /**
    * Ground position for a peak/hotspot marker, shifted back by the Peak-latency
    * slider so the spire lands on the GPS fix `peakLatency` seconds before the
@@ -46,9 +45,13 @@ import { GSRGlobeManager, HEIGHT_CAPABLE_METRICS } from './globe3d.mjs';
    */
   _peakWallHeight(analyzer, peak) {
     const metric = this.activeColoringMetric;
-    const heightMetric = HEIGHT_CAPABLE_METRICS.has(metric) ? metric : this.heightMetric;
+    const heightMetric = HEIGHT_CAPABLE_METRICS.has(metric)
+      ? metric
+      : this.heightMetric;
     const heightSeries = this._getMetricSeries(analyzer, heightMetric);
-    const val = heightSeries ? (heightSeries[peak.index] ?? peak.amplitude ?? 0) : (peak.amplitude ?? 0);
+    const val = heightSeries
+      ? (heightSeries[peak.index] ?? peak.amplitude ?? 0)
+      : (peak.amplitude ?? 0);
     return this.baseHeight + Math.max(0, val) * this.extrusionScale;
   },
 
@@ -63,12 +66,12 @@ import { GSRGlobeManager, HEIGHT_CAPABLE_METRICS } from './globe3d.mjs';
   _markerConst() {
     if (!this._mc) {
       this._mc = {
-        peakRed:      Cesium.Color.fromCssColorString('#d10024'),
-        latencyRose:  Cesium.Color.fromCssColorString('#f43f5e').withAlpha(0.35),
+        peakRed: Cesium.Color.fromCssColorString('#d10024'),
+        latencyRose: Cesium.Color.fromCssColorString('#f43f5e').withAlpha(0.35),
         labelOutline: Cesium.Color.fromCssColorString('#0b0c10'),
-        hotspotRed:   Cesium.Color.fromCssColorString('#ff1744'),
-        labelOffset:  new Cesium.Cartesian2(0, -14),
-        labelDDC:     new Cesium.DistanceDisplayCondition(0.0, 6000.0),
+        hotspotRed: Cesium.Color.fromCssColorString('#ff1744'),
+        labelOffset: new Cesium.Cartesian2(0, -14),
+        labelDDC: new Cesium.DistanceDisplayCondition(0.0, 6000.0),
         // Pull every label ~10 m toward the camera in eye space. Labels keep
         // disableDepthTestDistance (never occluded by geometry), but Cesium
         // still distance-sorts the no-depth-test overlay back-to-front, so a
@@ -76,7 +79,7 @@ import { GSRGlobeManager, HEIGHT_CAPABLE_METRICS } from './globe3d.mjs';
         // over it as the camera orbits. A small constant eye-offset makes the
         // label win that sort every frame; at any real viewing distance the
         // size change is well under a pixel, so it does not "breathe".
-        labelEyeOffset: new Cesium.Cartesian3(0.0, 0.0, -10.0)
+        labelEyeOffset: new Cesium.Cartesian3(0.0, 0.0, -10.0),
       };
     }
     return this._mc;
@@ -101,15 +104,25 @@ import { GSRGlobeManager, HEIGHT_CAPABLE_METRICS } from './globe3d.mjs';
    * @private
    */
   _ensureMarkerCollections() {
-    if (!this.viewer || !this.viewer.scene || !this.viewer.scene.primitives) return;
-    if (!this._peakPoints && typeof Cesium.PointPrimitiveCollection === 'function') {
-      this._peakPoints = this.viewer.scene.primitives.add(new Cesium.PointPrimitiveCollection());
+    if (!this.viewer || !this.viewer.scene || !this.viewer.scene.primitives)
+      return;
+    if (
+      !this._peakPoints &&
+      typeof Cesium.PointPrimitiveCollection === 'function'
+    ) {
+      this._peakPoints = this.viewer.scene.primitives.add(
+        new Cesium.PointPrimitiveCollection(),
+      );
     }
     if (!this._peakLabels && typeof Cesium.LabelCollection === 'function') {
-      this._peakLabels = this.viewer.scene.primitives.add(new Cesium.LabelCollection());
+      this._peakLabels = this.viewer.scene.primitives.add(
+        new Cesium.LabelCollection(),
+      );
     }
     if (!this._hotspotLabels && typeof Cesium.LabelCollection === 'function') {
-      this._hotspotLabels = this.viewer.scene.primitives.add(new Cesium.LabelCollection());
+      this._hotspotLabels = this.viewer.scene.primitives.add(
+        new Cesium.LabelCollection(),
+      );
     }
   },
 
@@ -124,14 +137,17 @@ import { GSRGlobeManager, HEIGHT_CAPABLE_METRICS } from './globe3d.mjs';
     this._ensureMarkerCollections();
     const peakIndexOf = this._peakIndexMap(analyzer);
     const C = this._markerConst();
-    const usePrimitives = Boolean(this._peakPoints && typeof this._peakPoints.add === 'function');
+    const usePrimitives = Boolean(
+      this._peakPoints && typeof this._peakPoints.add === 'function',
+    );
 
     peaks.forEach((peak, i) => {
       if (peak.qualityScore < this.minPeakQuality) return;
 
       // Only labelled peaks get floating text — an unlabelled peak is just its
       // circle (click it to add a label).
-      const labelText = (peak.label && peak.label.trim()) ? peak.label.trim() : '';
+      const labelText =
+        peak.label && peak.label.trim() ? peak.label.trim() : '';
 
       // With peaks off, the "Labels" toggle still keeps labelled peaks on
       // screen — the 2D map does the same (a labelled marker survives turning
@@ -151,25 +167,33 @@ import { GSRGlobeManager, HEIGHT_CAPABLE_METRICS } from './globe3d.mjs';
 
       const wallHeight = this._peakWallHeight(analyzer, peak);
       // Circle sits just above the wall top — no vertical stalk.
-      const markerPos = Cesium.Cartesian3.fromDegrees(lon, lat, wallHeight + 3.0);
+      const markerPos = Cesium.Cartesian3.fromDegrees(
+        lon,
+        lat,
+        wallHeight + 3.0,
+      );
 
       // Faint connector from the unshifted peak sample to the latency-shifted
       // marker — the 3D counterpart of the 2D dashed rose line (map.js).
       if (this.peakLatency > 0 && this.viewer && this.viewer.entities) {
         const orig = analyzer.getCoordinates(peak.index);
-        if (orig && !isNaN(orig.lat) && !isNaN(orig.lon) &&
-            (orig.lat !== lat || orig.lon !== lon)) {
+        if (
+          orig &&
+          !isNaN(orig.lat) &&
+          !isNaN(orig.lon) &&
+          (orig.lat !== lat || orig.lon !== lon)
+        ) {
           const conn = this.viewer.entities.add({
             name: `Peak ${i + 1} latency`,
             polyline: {
               positions: [
                 Cesium.Cartesian3.fromDegrees(orig.lon, orig.lat, 1.0),
-                Cesium.Cartesian3.fromDegrees(lon, lat, 1.0)
+                Cesium.Cartesian3.fromDegrees(lon, lat, 1.0),
               ],
               width: 1.5,
               material: C.latencyRose,
-              clampToGround: true
-            }
+              clampToGround: true,
+            },
           });
           conn._biomapPeakIndex = peakIdx;
           this.peakEntities.push(conn);
@@ -188,7 +212,7 @@ import { GSRGlobeManager, HEIGHT_CAPABLE_METRICS } from './globe3d.mjs';
           color: C.peakRed,
           outlineColor: Cesium.Color.WHITE,
           outlineWidth: 1,
-          id: { _biomapPeakIndex: peakIdx }
+          id: { _biomapPeakIndex: peakIdx },
         });
         pt._biomapPeakIndex = peakIdx;
         // Marks this entry as the batched circle primitive (not a latency
@@ -203,8 +227,8 @@ import { GSRGlobeManager, HEIGHT_CAPABLE_METRICS } from './globe3d.mjs';
             pixelSize: 5,
             color: C.peakRed,
             outlineColor: Cesium.Color.WHITE,
-            outlineWidth: 1
-          }
+            outlineWidth: 1,
+          },
         });
         beaconEntity._biomapPeakIndex = peakIdx;
         this.peakEntities.push(beaconEntity);
@@ -225,7 +249,7 @@ import { GSRGlobeManager, HEIGHT_CAPABLE_METRICS } from './globe3d.mjs';
             eyeOffset: C.labelEyeOffset,
             disableDepthTestDistance: Number.POSITIVE_INFINITY,
             distanceDisplayCondition: C.labelDDC,
-            id: { _biomapPeakIndex: peakIdx }
+            id: { _biomapPeakIndex: peakIdx },
           });
         } else if (this.viewer && this.viewer.entities) {
           this.viewer.entities.add({
@@ -242,8 +266,8 @@ import { GSRGlobeManager, HEIGHT_CAPABLE_METRICS } from './globe3d.mjs';
               pixelOffset: C.labelOffset,
               eyeOffset: C.labelEyeOffset,
               disableDepthTestDistance: Number.POSITIVE_INFINITY,
-              distanceDisplayCondition: C.labelDDC
-            }
+              distanceDisplayCondition: C.labelDDC,
+            },
           });
         }
       }
@@ -265,9 +289,11 @@ import { GSRGlobeManager, HEIGHT_CAPABLE_METRICS } from './globe3d.mjs';
     this._ensureMarkerCollections();
     const peakIndexOf = this._peakIndexMap(analyzer);
     const C = this._markerConst();
-    const useLabels = Boolean(this._hotspotLabels && typeof this._hotspotLabels.add === 'function');
+    const useLabels = Boolean(
+      this._hotspotLabels && typeof this._hotspotLabels.add === 'function',
+    );
 
-    events.forEach(peak => {
+    events.forEach((peak) => {
       const coords = this._latencyCoords(analyzer, peak);
       if (!coords || isNaN(coords.lat) || isNaN(coords.lon)) return;
 
@@ -277,7 +303,11 @@ import { GSRGlobeManager, HEIGHT_CAPABLE_METRICS } from './globe3d.mjs';
 
       if (useLabels) {
         const star = this._hotspotLabels.add({
-          position: Cesium.Cartesian3.fromDegrees(coords.lon, coords.lat, tipHeight),
+          position: Cesium.Cartesian3.fromDegrees(
+            coords.lon,
+            coords.lat,
+            tipHeight,
+          ),
           text: '★',
           font: '700 14px "Helvetica Neue", Arial, sans-serif',
           style: Cesium.LabelStyle.FILL_AND_OUTLINE,
@@ -288,7 +318,7 @@ import { GSRGlobeManager, HEIGHT_CAPABLE_METRICS } from './globe3d.mjs';
           horizontalOrigin: Cesium.HorizontalOrigin.CENTER,
           eyeOffset: C.labelEyeOffset,
           disableDepthTestDistance: Number.POSITIVE_INFINITY,
-          id: { _biomapPeakIndex: peakIdx }
+          id: { _biomapPeakIndex: peakIdx },
         });
         star._biomapPeakIndex = peakIdx;
         star._isHotspotLabelPrimitive = true; // batched label, not an entity
@@ -296,7 +326,11 @@ import { GSRGlobeManager, HEIGHT_CAPABLE_METRICS } from './globe3d.mjs';
       } else if (this.viewer && this.viewer.entities) {
         const star = this.viewer.entities.add({
           name: 'Hotspot',
-          position: Cesium.Cartesian3.fromDegrees(coords.lon, coords.lat, tipHeight),
+          position: Cesium.Cartesian3.fromDegrees(
+            coords.lon,
+            coords.lat,
+            tipHeight,
+          ),
           label: {
             text: '★',
             font: '700 14px "Helvetica Neue", Arial, sans-serif',
@@ -307,8 +341,8 @@ import { GSRGlobeManager, HEIGHT_CAPABLE_METRICS } from './globe3d.mjs';
             verticalOrigin: Cesium.VerticalOrigin.CENTER,
             horizontalOrigin: Cesium.HorizontalOrigin.CENTER,
             eyeOffset: C.labelEyeOffset,
-            disableDepthTestDistance: Number.POSITIVE_INFINITY
-          }
+            disableDepthTestDistance: Number.POSITIVE_INFINITY,
+          },
         });
         star._biomapPeakIndex = peakIdx;
         this.hotspotEntities.push(star);
@@ -329,10 +363,25 @@ import { GSRGlobeManager, HEIGHT_CAPABLE_METRICS } from './globe3d.mjs';
     let s = (this.showClusters ? 'on:' : 'off:') + polys.length;
     for (const p of polys) {
       const ring = (p && p.ring) || [];
-      s += '|' + ring.length + ',' + (p.color || '') + ',' + (p.fillOpacity == null ? '' : p.fillOpacity);
+      s +=
+        '|' +
+        ring.length +
+        ',' +
+        (p.color || '') +
+        ',' +
+        (p.fillOpacity == null ? '' : p.fillOpacity);
       if (ring.length) {
-        const a = ring[0], m = ring[ring.length >> 1];
-        s += ',' + (+a[0]).toFixed(5) + ',' + (+a[1]).toFixed(5) + ',' + (+m[0]).toFixed(5) + ',' + (+m[1]).toFixed(5);
+        const a = ring[0],
+          m = ring[ring.length >> 1];
+        s +=
+          ',' +
+          (+a[0]).toFixed(5) +
+          ',' +
+          (+a[1]).toFixed(5) +
+          ',' +
+          (+m[0]).toFixed(5) +
+          ',' +
+          (+m[1]).toFixed(5);
       }
     }
     return s;
@@ -361,28 +410,31 @@ import { GSRGlobeManager, HEIGHT_CAPABLE_METRICS } from './globe3d.mjs';
     const polys = this.currentClusterPolygons || [];
     if (!polys.length || !this.viewer) return;
 
-    polys.forEach(poly => {
+    polys.forEach((poly) => {
       const ring = (poly && poly.ring) || [];
       if (ring.length < 3) return;
 
       const flat = [];
-      let sumLat = 0, sumLon = 0;
+      let sumLat = 0,
+        sumLon = 0;
       for (let i = 0; i < ring.length; i++) {
         flat.push(ring[i][1], ring[i][0]); // [lat,lon] -> lon,lat
         sumLat += ring[i][0];
         sumLon += ring[i][1];
       }
       const positions = Cesium.Cartesian3.fromDegreesArray(flat);
-      const baseColor = Cesium.Color.fromCssColorString(poly.color || '#ff5252');
-      const fillAlpha = (poly.fillOpacity != null) ? poly.fillOpacity : 0.25;
+      const baseColor = Cesium.Color.fromCssColorString(
+        poly.color || '#ff5252',
+      );
+      const fillAlpha = poly.fillOpacity != null ? poly.fillOpacity : 0.25;
 
       const fillEnt = this.viewer.entities.add({
         name: 'Arousal place',
         polygon: {
           hierarchy: new Cesium.PolygonHierarchy(positions),
           material: baseColor.withAlpha(fillAlpha),
-          classificationType: Cesium.ClassificationType.BOTH
-        }
+          classificationType: Cesium.ClassificationType.BOTH,
+        },
       });
       this.clusterEntities.push(fillEnt);
 
@@ -391,22 +443,29 @@ import { GSRGlobeManager, HEIGHT_CAPABLE_METRICS } from './globe3d.mjs';
       // where they coincide. Lift it a few cm above the surface instead — over
       // the sampled terrain height when Cesium World Terrain is on, else 0
       // (the flat ellipsoid the rest of the 3D scene is built against).
-      const groundH = this._groundHeightAt(sumLat / ring.length, sumLon / ring.length);
+      const groundH = this._groundHeightAt(
+        sumLat / ring.length,
+        sumLon / ring.length,
+      );
       const outH = groundH + 0.3;
       const outFlat = [];
-      for (let i = 0; i < ring.length; i++) { outFlat.push(ring[i][1], ring[i][0], outH); }
+      for (let i = 0; i < ring.length; i++) {
+        outFlat.push(ring[i][1], ring[i][0], outH);
+      }
       outFlat.push(ring[0][1], ring[0][0], outH); // close the ring
       const outlineEnt = this.viewer.entities.add({
         polyline: {
           positions: Cesium.Cartesian3.fromDegreesArrayHeights(outFlat),
           width: 2.0,
-          material: new Cesium.PolylineDashMaterialProperty({ color: baseColor.withAlpha(0.9), dashLength: 12.0 })
-        }
+          material: new Cesium.PolylineDashMaterialProperty({
+            color: baseColor.withAlpha(0.9),
+            dashLength: 12.0,
+          }),
+        },
       });
       this.clusterEntities.push(outlineEnt);
     });
-  }
+  },
+};
 
-  };
-
-  Object.assign(GSRGlobeManager.prototype, __methods);
+Object.assign(GSRGlobeManager.prototype, __methods);

@@ -4,13 +4,12 @@
 import { GpsFilter } from './gps_filter.mjs';
 
 export const GpsPipeline = {
-
   /**
    * HDOP gate: rejects GPS anchors with poor satellite geometry.
    * Points without HDOP data are always kept.
    */
   applyHdopGate(pts, maxHdop = 3.0) {
-    return pts.filter(d => isNaN(d.hdop) || d.hdop <= maxHdop);
+    return pts.filter((d) => isNaN(d.hdop) || d.hdop <= maxHdop);
   },
 
   /**
@@ -19,7 +18,9 @@ export const GpsPipeline = {
    */
   applyFixTypeGate(pts, minFixType = 2) {
     if (minFixType < 2) return pts;
-    return pts.filter(d => d.fixType == null || d.fixType === 0 || d.fixType >= minFixType);
+    return pts.filter(
+      (d) => d.fixType == null || d.fixType === 0 || d.fixType >= minFixType,
+    );
   },
 
   /**
@@ -40,11 +41,17 @@ export const GpsPipeline = {
     const result = [];
     for (const pt of gpsPoints) {
       const sg = snappedGps[pt.origIdx];
-      if (sg && !isNaN(sg.alpha) && sg.alpha > 0 && !isNaN(sg.roadLat) && !isNaN(sg.roadLon)) {
+      if (
+        sg &&
+        !isNaN(sg.alpha) &&
+        sg.alpha > 0 &&
+        !isNaN(sg.roadLat) &&
+        !isNaN(sg.roadLon)
+      ) {
         result.push({
           ...pt,
           lat: sg.alpha * sg.roadLat + (1 - sg.alpha) * pt.lat,
-          lon: sg.alpha * sg.roadLon + (1 - sg.alpha) * pt.lon
+          lon: sg.alpha * sg.roadLon + (1 - sg.alpha) * pt.lon,
         });
       } else {
         result.push(pt);
@@ -59,11 +66,14 @@ export const GpsPipeline = {
   reconstructFilteredGps(analyzer, data, gpsPoints) {
     const filteredGps = new Array(data.length);
     const filteredMap = new Map();
-    gpsPoints.forEach(p => filteredMap.set(p.origIdx, { lat: p.lat, lon: p.lon }));
+    gpsPoints.forEach((p) =>
+      filteredMap.set(p.origIdx, { lat: p.lat, lon: p.lon }),
+    );
 
-    const validIndices = gpsPoints.map(p => p.origIdx).sort((a, b) => a - b);
+    const validIndices = gpsPoints.map((p) => p.origIdx).sort((a, b) => a - b);
     if (validIndices.length === 0) {
-      for (let i = 0; i < data.length; i++) filteredGps[i] = { lat: NaN, lon: NaN };
+      for (let i = 0; i < data.length; i++)
+        filteredGps[i] = { lat: NaN, lon: NaN };
       analyzer.filteredGps = filteredGps;
       return;
     }
@@ -71,13 +81,16 @@ export const GpsPipeline = {
     // Fill before first
     const firstIdx = validIndices[0];
     const firstCoord = filteredMap.get(firstIdx);
-    for (let i = 0; i < firstIdx; i++) filteredGps[i] = { lat: firstCoord.lat, lon: firstCoord.lon };
+    for (let i = 0; i < firstIdx; i++)
+      filteredGps[i] = { lat: firstCoord.lat, lon: firstCoord.lon };
 
     // Interpolate between valid points, leaving large gaps (>30s) as NaN
     const GPS_INTERP_MAX_GAP_S = 30;
     for (let k = 0; k < validIndices.length - 1; k++) {
-      const idxA = validIndices[k], idxB = validIndices[k + 1];
-      const cA = filteredMap.get(idxA), cB = filteredMap.get(idxB);
+      const idxA = validIndices[k],
+        idxB = validIndices[k + 1];
+      const cA = filteredMap.get(idxA),
+        cB = filteredMap.get(idxB);
       filteredGps[idxA] = { lat: cA.lat, lon: cA.lon };
       const timeGap = data[idxB].time - data[idxA].time;
       if (timeGap > GPS_INTERP_MAX_GAP_S) {
@@ -87,7 +100,10 @@ export const GpsPipeline = {
       } else {
         for (let i = idxA + 1; i < idxB; i++) {
           const ratio = (i - idxA) / (idxB - idxA);
-          filteredGps[i] = { lat: cA.lat + ratio * (cB.lat - cA.lat), lon: cA.lon + ratio * (cB.lon - cA.lon) };
+          filteredGps[i] = {
+            lat: cA.lat + ratio * (cB.lat - cA.lat),
+            lon: cA.lon + ratio * (cB.lon - cA.lon),
+          };
         }
       }
     }
@@ -95,7 +111,8 @@ export const GpsPipeline = {
     // Fill after last
     const lastIdx = validIndices[validIndices.length - 1];
     const lastCoord = filteredMap.get(lastIdx);
-    for (let i = lastIdx; i < data.length; i++) filteredGps[i] = { lat: lastCoord.lat, lon: lastCoord.lon };
+    for (let i = lastIdx; i < data.length; i++)
+      filteredGps[i] = { lat: lastCoord.lat, lon: lastCoord.lon };
 
     analyzer.filteredGps = filteredGps;
   },
@@ -114,7 +131,9 @@ export const GpsPipeline = {
     }
     // Include lat/lon of first, mid, and last point so the cache invalidates
     // when the Kalman filter output changes (slider-driven Q/R changes).
-    const first = gpsPoints[0], mid = gpsPoints[Math.floor(n / 2)], last = gpsPoints[n - 1];
+    const first = gpsPoints[0],
+      mid = gpsPoints[Math.floor(n / 2)],
+      last = gpsPoints[n - 1];
     const key = `${first.origIdx}|${first.lat.toFixed(6)},${first.lon.toFixed(6)}|${mid.origIdx}|${mid.lat.toFixed(6)},${mid.lon.toFixed(6)}|${last.origIdx}|${last.lat.toFixed(6)},${last.lon.toFixed(6)}|${n}`;
     if (analyzer._filteredGpsCacheKey === key) return;
 
@@ -178,9 +197,12 @@ export const GpsPipeline = {
   downsampleForDisplay(gpsPoints, sampleRate, doDownsample, forceIndexSet) {
     const step = doDownsample ? Math.max(1, Math.round(sampleRate)) : 1;
     const positions = GpsPipeline._pickDownsampleIndices(
-      gpsPoints.length, step, i => gpsPoints[i].origIdx, forceIndexSet
+      gpsPoints.length,
+      step,
+      (i) => gpsPoints[i].origIdx,
+      forceIndexSet,
     );
-    return positions.map(i => ({ ...gpsPoints[i] }));
+    return positions.map((i) => ({ ...gpsPoints[i] }));
   },
 
   /**
@@ -198,7 +220,8 @@ export const GpsPipeline = {
    * @returns {Array<object>} drawPoints
    */
   buildDrawPoints(data, filteredGps, sampleRate, doDownsample, forceIndexSet) {
-    if (!data || data.length === 0 || !filteredGps || filteredGps.length === 0) return [];
+    if (!data || data.length === 0 || !filteredGps || filteredGps.length === 0)
+      return [];
 
     const validIndices = [];
     for (let i = 0; i < data.length; i++) {
@@ -210,7 +233,10 @@ export const GpsPipeline = {
 
     const step = doDownsample ? Math.max(1, Math.round(sampleRate)) : 1;
     const positions = GpsPipeline._pickDownsampleIndices(
-      totalValid, step, i => validIndices[i], forceIndexSet
+      totalValid,
+      step,
+      (i) => validIndices[i],
+      forceIndexSet,
     );
 
     const draw = new Array(positions.length);
@@ -226,10 +252,10 @@ export const GpsPipeline = {
         // so it survives collective mode's concatenation of multiple tracks'
         // drawPoints, where origIdx collides across tracks — see
         // RFFluidRenderer._precalculateSpatialFans().
-        isRfPeak: !!(forceIndexSet && forceIndexSet.has(rawIdx))
+        isRfPeak: !!(forceIndexSet && forceIndexSet.has(rawIdx)),
       };
     }
 
     return draw;
-  }
+  },
 };

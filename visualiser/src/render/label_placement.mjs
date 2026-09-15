@@ -26,12 +26,17 @@ export class YBandIndex {
     this._bands = new Map(); // key:int → Set<box>
   }
 
-  _key(box) { return Math.floor(box.top / this._h); }
+  _key(box) {
+    return Math.floor(box.top / this._h);
+  }
 
   add(box) {
     const k = this._key(box);
     let band = this._bands.get(k);
-    if (!band) { band = new Set(); this._bands.set(k, band); }
+    if (!band) {
+      band = new Set();
+      this._bands.set(k, band);
+    }
     band.add(box);
   }
 
@@ -40,7 +45,9 @@ export class YBandIndex {
     if (band) band.delete(box);
   }
 
-  clear() { this._bands.clear(); }
+  clear() {
+    this._bands.clear();
+  }
 
   /** Count stored boxes that overlap `box`, ignoring the identical `skipBox`. */
   countOverlaps(box, skipBox) {
@@ -98,28 +105,33 @@ export class GSRLabelManager {
   static computeLabelPositions(peaksWithCoords) {
     if (peaksWithCoords.length === 0) return new Map();
 
-    const H = 18;       // label box height (px)
-    const BASE = 3, STEP = 4, TIERS = 3;  // gaps: 3, 7, 11 px
+    const H = 18; // label box height (px)
+    const BASE = 3,
+      STEP = 4,
+      TIERS = 3; // gaps: 3, 7, 11 px
     const OVERLAP_PENALTY = 100;
     const DIST_FACTOR = 1.0;
 
-    const overlap = (a, b) => a.left < b.right && a.right > b.left &&
-                              a.top < b.bottom && a.bottom > b.top;
+    const overlap = (a, b) =>
+      a.left < b.right &&
+      a.right > b.left &&
+      a.top < b.bottom &&
+      a.bottom > b.top;
 
     // ── Build candidate sets (per-label width) ────────────────────────────
-    const items = peaksWithCoords.map(p => {
+    const items = peaksWithCoords.map((p) => {
       const W = p.text ? GSRLabelManager.textWidth(p.text) : 120;
       p.tw = W; // cache for later use
       const halfW = W / 2;
       const gens = [
-        ['S',  (px, py, g) => px - halfW,      (px, py, g) => py + g       ],
-        ['N',  (px, py, g) => px - halfW,      (px, py, g) => py - H - g   ],
-        ['E',  (px, py, g) => px + g,          (px, py, g) => py - H / 2   ],
-        ['W',  (px, py, g) => px - W - g,      (px, py, g) => py - H / 2   ],
-        ['SE', (px, py, g) => px + g,          (px, py, g) => py + g       ],
-        ['SW', (px, py, g) => px - W - g,      (px, py, g) => py + g       ],
-        ['NE', (px, py, g) => px + g,          (px, py, g) => py - H - g   ],
-        ['NW', (px, py, g) => px - W - g,      (px, py, g) => py - H - g   ],
+        ['S', (px, py, g) => px - halfW, (px, py, g) => py + g],
+        ['N', (px, py, g) => px - halfW, (px, py, g) => py - H - g],
+        ['E', (px, py, g) => px + g, (px, py, g) => py - H / 2],
+        ['W', (px, py, g) => px - W - g, (px, py, g) => py - H / 2],
+        ['SE', (px, py, g) => px + g, (px, py, g) => py + g],
+        ['SW', (px, py, g) => px - W - g, (px, py, g) => py + g],
+        ['NE', (px, py, g) => px + g, (px, py, g) => py - H - g],
+        ['NW', (px, py, g) => px - W - g, (px, py, g) => py - H - g],
       ];
 
       const candidates = [];
@@ -127,9 +139,9 @@ export class GSRLabelManager {
         const gap = BASE + tier * STEP;
         for (const [dir, lf, tf] of gens) {
           const left = lf(p.px, p.py, gap);
-          const top  = tf(p.px, p.py, gap);
+          const top = tf(p.px, p.py, gap);
           const box = { left, top, right: left + W, bottom: top + H };
-          const dist = Math.hypot((left + halfW) - p.px, (top + H / 2) - p.py);
+          const dist = Math.hypot(left + halfW - p.px, top + H / 2 - p.py);
           candidates.push({ dir, box, dist });
         }
       }
@@ -144,15 +156,21 @@ export class GSRLabelManager {
     const yIndex = new YBandIndex(H, overlap);
 
     // ── Initialise via fast greedy pass ───────────────────────────────────
-    const state = [];          // [{ item, candIdx, cand }]
+    const state = []; // [{ item, candIdx, cand }]
     const unplaced = new Set(items.map((_, i) => i));
 
     while (unplaced.size > 0) {
-      let bestI = -1, bestC = null, bestD = Infinity;
+      let bestI = -1,
+        bestC = null,
+        bestD = Infinity;
       for (const i of unplaced) {
         for (const c of items[i].candidates) {
           if (!yIndex.hasOverlap(c.box)) {
-            if (c.dist < bestD) { bestD = c.dist; bestI = i; bestC = c; }
+            if (c.dist < bestD) {
+              bestD = c.dist;
+              bestI = i;
+              bestC = c;
+            }
             break;
           }
         }
@@ -184,16 +202,21 @@ export class GSRLabelManager {
       // Overlap counts come from the band index — a few nearby boxes, not all N.
       // oldBox is in the index, so skip it; cand.box is not yet in, so nothing
       // to skip there beyond oldBox (this label's current entry).
-      const oldScore = st.cand.dist * DIST_FACTOR
-        + yIndex.countOverlaps(oldBox, oldBox) * OVERLAP_PENALTY;
+      const oldScore =
+        st.cand.dist * DIST_FACTOR +
+        yIndex.countOverlaps(oldBox, oldBox) * OVERLAP_PENALTY;
 
       // Pick a random different candidate
-      const newIdx = (st.candIdx + 1 + Math.floor(Math.random() * (st.item.candidates.length - 1)))
-                     % st.item.candidates.length;
+      const newIdx =
+        (st.candIdx +
+          1 +
+          Math.floor(Math.random() * (st.item.candidates.length - 1))) %
+        st.item.candidates.length;
       const cand = st.item.candidates[newIdx];
 
-      const newScore = cand.dist * DIST_FACTOR
-        + yIndex.countOverlaps(cand.box, oldBox) * OVERLAP_PENALTY;
+      const newScore =
+        cand.dist * DIST_FACTOR +
+        yIndex.countOverlaps(cand.box, oldBox) * OVERLAP_PENALTY;
 
       const delta = newScore - oldScore;
 
@@ -252,7 +275,7 @@ export class GSRLabelManager {
       dotPx = 10,
       labelFontSize = '10px',
       labelFontWeight = '600',
-      labelExtraStyle = ''
+      labelExtraStyle = '',
     } = opts;
 
     const H = 18;
@@ -260,35 +283,82 @@ export class GSRLabelManager {
     const W = box.right - box.left;
     const DS = dotSize;
 
-    const dotL = px - DS / 2, dotR = px + DS / 2;
-    const dotT = py - DS / 2, dotB = py + DS / 2;
-    const cLeft   = Math.min(dotL, box.left);
-    const cRight  = Math.max(dotR, box.right);
-    const cTop    = Math.min(dotT, box.top);
+    const dotL = px - DS / 2,
+      dotR = px + DS / 2;
+    const dotT = py - DS / 2,
+      dotB = py + DS / 2;
+    const cLeft = Math.min(dotL, box.left);
+    const cRight = Math.max(dotR, box.right);
+    const cTop = Math.min(dotT, box.top);
     const cBottom = Math.max(dotB, box.bottom);
     const cW = cRight - cLeft;
     const cH = cBottom - cTop;
-    const dotCx = px - cLeft, dotCy = py - cTop;
-    const labelL = box.left - cLeft, labelT = box.top - cTop;
+    const dotCx = px - cLeft,
+      dotCy = py - cTop;
+    const labelL = box.left - cLeft,
+      labelT = box.top - cTop;
 
-    const escapedLabel = (typeof GSRNotices !== 'undefined' && typeof GSRNotices.escapeHtml === 'function')
-      ? GSRNotices.escapeHtml(labelText)
-      : String(labelText).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    const escapedLabel =
+      typeof GSRNotices !== 'undefined' &&
+      typeof GSRNotices.escapeHtml === 'function'
+        ? GSRNotices.escapeHtml(labelText)
+        : String(labelText)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
 
     const html = [
-      '<div class="', wrapperClass, '" style="position:relative;width:', cW, 'px;height:', cH, 'px;">',
-        showGlow ? '<div class="peak-glow-ring" style="position:absolute;top:' + (dotCy - 12) + 'px;left:' + (dotCx - 12) + 'px;"></div>' : '',
-        '<div class="', dotClass, '" style="position:absolute;top:', (dotCy - dotPx / 2), 'px;left:', (dotCx - dotPx / 2), 'px;width:', dotPx, 'px;height:', dotPx, 'px;', dotExtraStyle, '"></div>',
-        '<div class="peak-map-label" style="position:absolute;top:', labelT, 'px;left:', labelL, 'px;width:', W, 'px;text-align:center;font-size:', labelFontSize, ';font-weight:', labelFontWeight, ';', labelExtraStyle, '">', escapedLabel, '</div>',
-      '</div>'
+      '<div class="',
+      wrapperClass,
+      '" style="position:relative;width:',
+      cW,
+      'px;height:',
+      cH,
+      'px;">',
+      showGlow
+        ? '<div class="peak-glow-ring" style="position:absolute;top:' +
+          (dotCy - 12) +
+          'px;left:' +
+          (dotCx - 12) +
+          'px;"></div>'
+        : '',
+      '<div class="',
+      dotClass,
+      '" style="position:absolute;top:',
+      dotCy - dotPx / 2,
+      'px;left:',
+      dotCx - dotPx / 2,
+      'px;width:',
+      dotPx,
+      'px;height:',
+      dotPx,
+      'px;',
+      dotExtraStyle,
+      '"></div>',
+      '<div class="peak-map-label" style="position:absolute;top:',
+      labelT,
+      'px;left:',
+      labelL,
+      'px;width:',
+      W,
+      'px;text-align:center;font-size:',
+      labelFontSize,
+      ';font-weight:',
+      labelFontWeight,
+      ';',
+      labelExtraStyle,
+      '">',
+      escapedLabel,
+      '</div>',
+      '</div>',
     ].join('');
 
     return L.divIcon({
       className: '',
       html,
       iconSize: [cW, cH],
-      iconAnchor: [px - cLeft, py - cTop]
+      iconAnchor: [px - cLeft, py - cTop],
     });
   }
-
 }

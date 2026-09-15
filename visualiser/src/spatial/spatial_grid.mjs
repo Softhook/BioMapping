@@ -19,7 +19,10 @@ export class SpatialGrid {
   constructor(cellSizeLat, cellSizeLon) {
     this.grid = new Map();
     this.cellSizeLat = cellSizeLat;
-    this.cellSizeLon = (cellSizeLon !== undefined && cellSizeLon !== null) ? cellSizeLon : cellSizeLat;
+    this.cellSizeLon =
+      cellSizeLon !== undefined && cellSizeLon !== null
+        ? cellSizeLon
+        : cellSizeLat;
   }
 
   _key(row, col) {
@@ -31,7 +34,7 @@ export class SpatialGrid {
       rowMin: Math.floor(bbox.minLat / this.cellSizeLat),
       rowMax: Math.floor(bbox.maxLat / this.cellSizeLat),
       colMin: Math.floor(bbox.minLon / this.cellSizeLon),
-      colMax: Math.floor(bbox.maxLon / this.cellSizeLon)
+      colMax: Math.floor(bbox.maxLon / this.cellSizeLon),
     };
   }
 
@@ -44,11 +47,22 @@ export class SpatialGrid {
    */
   insert(bbox, item, paddingCells = 0) {
     const r = this._cellRange(bbox);
-    for (let row = r.rowMin - paddingCells; row <= r.rowMax + paddingCells; row++) {
-      for (let col = r.colMin - paddingCells; col <= r.colMax + paddingCells; col++) {
+    for (
+      let row = r.rowMin - paddingCells;
+      row <= r.rowMax + paddingCells;
+      row++
+    ) {
+      for (
+        let col = r.colMin - paddingCells;
+        col <= r.colMax + paddingCells;
+        col++
+      ) {
         const key = this._key(row, col);
         let bucket = this.grid.get(key);
-        if (!bucket) { bucket = []; this.grid.set(key, bucket); }
+        if (!bucket) {
+          bucket = [];
+          this.grid.set(key, bucket);
+        }
         bucket.push(item);
       }
     }
@@ -81,7 +95,7 @@ export class SpatialGrid {
   getNearby(lat, lon, idFn) {
     const cx = Math.floor(lon / this.cellSizeLon);
     const cy = Math.floor(lat / this.cellSizeLat);
-    const dedupe = idFn || (item => item);
+    const dedupe = idFn || ((item) => item);
     const result = [];
     const seen = new Set();
     for (let dx = -1; dx <= 1; dx++) {
@@ -90,7 +104,10 @@ export class SpatialGrid {
         if (!bucket) continue;
         for (const item of bucket) {
           const key = dedupe(item);
-          if (!seen.has(key)) { seen.add(key); result.push(item); }
+          if (!seen.has(key)) {
+            seen.add(key);
+            result.push(item);
+          }
         }
       }
     }
@@ -111,16 +128,32 @@ export class SpatialGrid {
    * @param {number} [degToMeterLon] - Meters per degree longitude at representative latitude.
    * @returns {{rMin: number, rMax: number, cMin: number, cMax: number, rRadius: number, cRadius: number, centerRow: number, centerCol: number}}
    */
-  static computeCellWindow(lat, lon, meters, bounds, rows, cols, degToMeterLat = 111320.0, degToMeterLon = null) {
-    const lonScale = (degToMeterLon !== null && degToMeterLon !== undefined)
-      ? degToMeterLon
-      : degToMeterLat * Math.cos(lat * Math.PI / 180);
+  static computeCellWindow(
+    lat,
+    lon,
+    meters,
+    bounds,
+    rows,
+    cols,
+    degToMeterLat = 111320.0,
+    degToMeterLon = null,
+  ) {
+    const lonScale =
+      degToMeterLon !== null && degToMeterLon !== undefined
+        ? degToMeterLon
+        : degToMeterLat * Math.cos((lat * Math.PI) / 180);
     const latStep = rows > 1 ? (bounds.maxLat - bounds.minLat) / (rows - 1) : 0;
     const lonStep = cols > 1 ? (bounds.maxLon - bounds.minLon) / (cols - 1) : 0;
-    const rRadius = latStep > 0 ? Math.max(1, Math.ceil((meters / degToMeterLat) / latStep)) : rows;
-    const cRadius = lonStep > 0 ? Math.max(1, Math.ceil((meters / lonScale) / lonStep)) : cols;
-    const centerRow = latStep > 0 ? Math.round((lat - bounds.minLat) / latStep) : 0;
-    const centerCol = lonStep > 0 ? Math.round((lon - bounds.minLon) / lonStep) : 0;
+    const rRadius =
+      latStep > 0
+        ? Math.max(1, Math.ceil(meters / degToMeterLat / latStep))
+        : rows;
+    const cRadius =
+      lonStep > 0 ? Math.max(1, Math.ceil(meters / lonScale / lonStep)) : cols;
+    const centerRow =
+      latStep > 0 ? Math.round((lat - bounds.minLat) / latStep) : 0;
+    const centerCol =
+      lonStep > 0 ? Math.round((lon - bounds.minLon) / lonStep) : 0;
     return {
       rMin: Math.max(0, centerRow - rRadius),
       rMax: Math.min(rows - 1, centerRow + rRadius),
@@ -129,7 +162,7 @@ export class SpatialGrid {
       rRadius,
       cRadius,
       centerRow,
-      centerCol
+      centerCol,
     };
   }
 }

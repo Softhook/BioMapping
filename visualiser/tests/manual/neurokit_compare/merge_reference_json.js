@@ -10,13 +10,14 @@
  *
  * Usage: node merge_reference_json.js <output.json> <input1.json> [input2.json ...]
  */
-'use strict';
 
 const fs = require('fs');
 
 const [, , outputPath, ...inputPaths] = process.argv;
 if (!outputPath || inputPaths.length === 0) {
-  console.error('Usage: node merge_reference_json.js <output.json> <input1.json> [input2.json ...]');
+  console.error(
+    'Usage: node merge_reference_json.js <output.json> <input1.json> [input2.json ...]',
+  );
   process.exit(1);
 }
 
@@ -30,7 +31,9 @@ for (const inputPath of inputPaths) {
   try {
     data = JSON.parse(fs.readFileSync(inputPath, 'utf8'));
   } catch (exc) {
-    console.warn(`merge_reference_json: skipping unparsable ${inputPath}: ${exc.message}`);
+    console.warn(
+      `merge_reference_json: skipping unparsable ${inputPath}: ${exc.message}`,
+    );
     continue;
   }
   for (const [track, fields] of Object.entries(data)) {

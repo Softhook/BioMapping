@@ -39,7 +39,9 @@ function refsIn(src) {
   const refs = [];
 
   // combined form: '../x.js' | './support/y.js' | '../../tracks/z.csv'
-  for (const m of src.matchAll(/(['"])(\.\.?\/[^'"]*?\.(?:js|json|csv|html))\1/g)) {
+  for (const m of src.matchAll(
+    /(['"])(\.\.?\/[^'"]*?\.(?:js|json|csv|html))\1/g,
+  )) {
     refs.push(m[2]);
   }
 
@@ -74,10 +76,18 @@ test('every relative source path used by tests/ resolves inside visualiser/', ()
       // --write) — same .js/.mjs resolution rule as
       // tests/support/load_module.js, which every loadModule('../src/…')
       // reference in this walk goes through at runtime.
-      if (resolved.endsWith('.js') && fs.existsSync(resolved.replace(/\.js$/, '.mjs'))) continue;
+      if (
+        resolved.endsWith('.js') &&
+        fs.existsSync(resolved.replace(/\.js$/, '.mjs'))
+      )
+        continue;
       broken.push(`${path.relative(VIS_DIR, file)} → '${ref}'`);
     }
   }
 
-  assert.deepStrictEqual(broken, [], `unresolvable source path(s):\n  ${broken.join('\n  ')}`);
+  assert.deepStrictEqual(
+    broken,
+    [],
+    `unresolvable source path(s):\n  ${broken.join('\n  ')}`,
+  );
 });

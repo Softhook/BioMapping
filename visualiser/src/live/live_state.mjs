@@ -22,8 +22,12 @@ export const LiveState = {
   STREAM_INTERVAL_S: 0.3,
 
   _listeners: {},
-  on(event, fn) { (LiveState._listeners[event] = LiveState._listeners[event] || []).push(fn); },
-  emit(event, ...args) { (LiveState._listeners[event] || []).forEach(fn => fn(...args)); },
+  on(event, fn) {
+    (LiveState._listeners[event] = LiveState._listeners[event] || []).push(fn);
+  },
+  emit(event, ...args) {
+    (LiveState._listeners[event] || []).forEach((fn) => fn(...args));
+  },
 
   setStatus(status) {
     this.status = status;
@@ -42,7 +46,10 @@ export const LiveState = {
     // the same one power-cycled) restarts it near 0, so a plain ">" delta
     // check misses that case (negative delta never exceeds the threshold).
     // Treat any non-increasing timestamp as a gap too.
-    pkt.gap = !!prev && (pkt.timestamp <= prev.timestamp || (pkt.timestamp - prev.timestamp) > 2 * this.STREAM_INTERVAL_S);
+    pkt.gap =
+      !!prev &&
+      (pkt.timestamp <= prev.timestamp ||
+        pkt.timestamp - prev.timestamp > 2 * this.STREAM_INTERVAL_S);
     if (pkt.gap) this.gapCount++;
     this.packets.push(pkt);
     this.emit('packet', pkt);

@@ -71,32 +71,48 @@ export class GSRNotices {
       const message = options.message || '';
       const buttons = options.buttons || [];
       const tone = options.tone || 'warn';
-      const accent = tone === 'error' ? '#b91c1c' : (tone === 'info' ? '#1d4ed8' : '#b45309');
+      const accent =
+        tone === 'error' ? '#b91c1c' : tone === 'info' ? '#1d4ed8' : '#b45309';
 
       // Remember what had focus so it can be restored when the dialog closes.
       const previouslyFocused = document.activeElement;
 
       const overlay = document.createElement('div');
       Object.assign(overlay.style, {
-        position: 'fixed', top: '0', right: '0', bottom: '0', left: '0',
-        zIndex: '10001', background: 'rgba(0,0,0,.55)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center'
+        position: 'fixed',
+        top: '0',
+        right: '0',
+        bottom: '0',
+        left: '0',
+        zIndex: '10001',
+        background: 'rgba(0,0,0,.55)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
       });
 
       const card = document.createElement('div');
       card.setAttribute('role', 'dialog');
       card.setAttribute('aria-modal', 'true');
       Object.assign(card.style, {
-        background: '#fff', color: '#111', borderRadius: '10px',
-        maxWidth: '440px', width: '90%', padding: '20px 22px',
+        background: '#fff',
+        color: '#111',
+        borderRadius: '10px',
+        maxWidth: '440px',
+        width: '90%',
+        padding: '20px 22px',
         boxShadow: '0 12px 40px rgba(0,0,0,.4)',
-        font: '14px/1.5 system-ui, sans-serif'
+        font: '14px/1.5 system-ui, sans-serif',
       });
 
       const titleEl = document.createElement('h3');
       titleEl.id = 'gsr-notice-dialog-title';
       titleEl.textContent = title;
-      Object.assign(titleEl.style, { margin: '0 0 8px', color: accent, fontSize: '16px' });
+      Object.assign(titleEl.style, {
+        margin: '0 0 8px',
+        color: accent,
+        fontSize: '16px',
+      });
       card.setAttribute('aria-labelledby', titleEl.id);
 
       const msgEl = document.createElement('p');
@@ -105,7 +121,10 @@ export class GSRNotices {
 
       const btnRow = document.createElement('div');
       Object.assign(btnRow.style, {
-        display: 'flex', gap: '8px', justifyContent: 'flex-end', flexWrap: 'wrap'
+        display: 'flex',
+        gap: '8px',
+        justifyContent: 'flex-end',
+        flexWrap: 'wrap',
       });
 
       // All focusable controls in the dialog, in DOM order, for the Tab trap.
@@ -114,22 +133,33 @@ export class GSRNotices {
       const finish = (value) => {
         overlay.remove();
         document.removeEventListener('keydown', onKey);
-        if (previouslyFocused && typeof previouslyFocused.focus === 'function' && previouslyFocused.isConnected) {
+        if (
+          previouslyFocused &&
+          typeof previouslyFocused.focus === 'function' &&
+          previouslyFocused.isConnected
+        ) {
           previouslyFocused.focus();
         }
         resolve(value);
       };
       const onKey = (e) => {
-        if (e.key === 'Escape') { finish(null); return; }
+        if (e.key === 'Escape') {
+          finish(null);
+          return;
+        }
         // Lightweight focus trap: keep Tab cycling inside the dialog.
         if (e.key === 'Tab' && focusables.length > 0) {
           const first = focusables[0];
           const last = focusables[focusables.length - 1];
           const active = document.activeElement;
           if (e.shiftKey) {
-            if (active === first) { e.preventDefault(); last.focus(); }
+            if (active === first) {
+              e.preventDefault();
+              last.focus();
+            }
           } else if (active === last) {
-            e.preventDefault(); first.focus();
+            e.preventDefault();
+            first.focus();
           }
         }
       };
@@ -137,11 +167,20 @@ export class GSRNotices {
       buttons.forEach((b) => {
         const btn = document.createElement('button');
         btn.textContent = b.label;
-        const bg = b.style === 'primary' ? '#1d4ed8'
-          : (b.style === 'danger' ? '#b91c1c' : '#6b7280');
+        const bg =
+          b.style === 'primary'
+            ? '#1d4ed8'
+            : b.style === 'danger'
+              ? '#b91c1c'
+              : '#6b7280';
         Object.assign(btn.style, {
-          background: bg, color: '#fff', border: 'none', borderRadius: '6px',
-          padding: '8px 14px', cursor: 'pointer', fontSize: '13px'
+          background: bg,
+          color: '#fff',
+          border: 'none',
+          borderRadius: '6px',
+          padding: '8px 14px',
+          cursor: 'pointer',
+          fontSize: '13px',
         });
         btn.addEventListener('click', () => finish(b.value));
         btnRow.appendChild(btn);
@@ -152,9 +191,14 @@ export class GSRNotices {
         const cancel = document.createElement('button');
         cancel.textContent = options.dismissLabel || 'Cancel';
         Object.assign(cancel.style, {
-          background: 'transparent', color: '#6b7280', border: '1px solid #d1d5db',
-          borderRadius: '6px', padding: '8px 14px', cursor: 'pointer', fontSize: '13px',
-          marginRight: 'auto'
+          background: 'transparent',
+          color: '#6b7280',
+          border: '1px solid #d1d5db',
+          borderRadius: '6px',
+          padding: '8px 14px',
+          cursor: 'pointer',
+          fontSize: '13px',
+          marginRight: 'auto',
         });
         cancel.addEventListener('click', () => finish(null));
         btnRow.appendChild(cancel);
@@ -165,7 +209,9 @@ export class GSRNotices {
       card.appendChild(msgEl);
       card.appendChild(btnRow);
       overlay.appendChild(card);
-      overlay.addEventListener('click', (e) => { if (e.target === overlay) finish(null); });
+      overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) finish(null);
+      });
       document.body.appendChild(overlay);
       document.addEventListener('keydown', onKey);
       // Move focus into the dialog so keyboard users are where the action is.
@@ -198,7 +244,7 @@ export class GSRNotices {
         display: 'flex',
         flexDirection: 'column',
         gap: '8px',
-        maxWidth: '380px'
+        maxWidth: '380px',
       });
       document.body.appendChild(container);
     }
@@ -211,7 +257,7 @@ export class GSRNotices {
       borderRadius: '6px',
       font: '12px/1.4 system-ui, sans-serif',
       boxShadow: '0 2px 8px rgba(0,0,0,.35)',
-      cursor: 'pointer'
+      cursor: 'pointer',
     });
     toast.textContent = (context ? context + ': ' : '') + msg;
     toast.title = 'Click to dismiss';
@@ -238,7 +284,10 @@ export class GSRNotices {
   }
 }
 
-if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+if (
+  typeof window !== 'undefined' &&
+  typeof window.addEventListener === 'function'
+) {
   // Known-benign browser diagnostics that fire through window.onerror but are
   // NOT app errors. Surfacing these as red toasts is noise (a resize burst can
   // emit hundreds). Kept in one list so the "don't fail silently" guarantee
@@ -252,8 +301,12 @@ if (typeof window !== 'undefined' && typeof window.addEventListener === 'functio
   ];
 
   window.addEventListener('error', (event) => {
-    const msg = String((event && (event.error ? (event.error.message || event.error) : event.message)) || '');
-    if (BENIGN_ONERROR_PATTERNS.some(re => re.test(msg))) {
+    const msg = String(
+      (event &&
+        (event.error ? event.error.message || event.error : event.message)) ||
+        '',
+    );
+    if (BENIGN_ONERROR_PATTERNS.some((re) => re.test(msg))) {
       return; // known-benign browser diagnostic — log nothing, toast nothing
     }
     GSRNotices.report(event.error || event.message, 'window.onerror');

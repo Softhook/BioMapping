@@ -52,11 +52,13 @@ export const NDVISampler = {
 
   // Imagery providers for the optional visual map overlay (map_manager_osm.js).
   // None of these feed the ndvi/ndvi_50m sampling columns — see file docstring.
-  DEFAULT_TILE_URL: 'https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2021_3857/default/GoogleMapsCompatible/{z}/{y}/{x}.jpg',
+  DEFAULT_TILE_URL:
+    'https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2021_3857/default/GoogleMapsCompatible/{z}/{y}/{x}.jpg',
   COPERNICUS_BASE_URL: 'https://sh.dataspace.copernicus.eu/ogc/wms',
-  NASA_GIBS_URL: 'https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/MODIS_Terra_NDVI_8Day/default/default/GoogleMapsCompatible_Level9/{z}/{y}/{x}.png',
+  NASA_GIBS_URL:
+    'https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/MODIS_Terra_NDVI_8Day/default/default/GoogleMapsCompatible_Level9/{z}/{y}/{x}.png',
   DEFAULT_INSTANCE_ID: '', // Kept empty in codebase; stored strictly in user's browser localStorage
-  DEFAULT_RAW_LAYER_ID: 'NDVI_RAW',           // Raw FLOAT32 evalscript layer (sampling + map overlay)
+  DEFAULT_RAW_LAYER_ID: 'NDVI_RAW', // Raw FLOAT32 evalscript layer (sampling + map overlay)
   DEFAULT_TIME_RANGE: '2024-05-01/2024-09-30',
   DEFAULT_MAXCC: 50,
 
@@ -70,23 +72,33 @@ export const NDVISampler = {
       id: 'sentinel2_cloudless',
       name: 'Sentinel-2 Cloudless Mosaic (EOX) — true colour imagery',
       type: 'xyz',
-      urlTemplate: 'https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2021_3857/default/GoogleMapsCompatible/{z}/{y}/{x}.jpg',
-      attribution: 'Satellite imagery © <a href="https://s2maps.eu" target="_blank">Sentinel-2 / EOX</a>',
+      urlTemplate:
+        'https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2021_3857/default/GoogleMapsCompatible/{z}/{y}/{x}.jpg',
+      attribution:
+        'Satellite imagery © <a href="https://s2maps.eu" target="_blank">Sentinel-2 / EOX</a>',
       buildUrl: (tileX, tileY, zoom, options = {}) => {
         const tmpl = options.urlTemplate || NDVISampler.DEFAULT_TILE_URL;
-        return tmpl.replace('{z}', zoom).replace('{x}', tileX).replace('{y}', tileY).replace('{s}', 'a');
-      }
+        return tmpl
+          .replace('{z}', zoom)
+          .replace('{x}', tileX)
+          .replace('{y}', tileY)
+          .replace('{s}', 'a');
+      },
     },
     nasa_gibs: {
       id: 'nasa_gibs',
       name: 'NASA GIBS MODIS NDVI (rendered, ~250m/8-day, real vegetation product)',
       type: 'xyz',
-      urlTemplate: 'https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/MODIS_Terra_NDVI_8Day/default/default/GoogleMapsCompatible_Level9/{z}/{y}/{x}.png',
+      urlTemplate:
+        'https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/MODIS_Terra_NDVI_8Day/default/default/GoogleMapsCompatible_Level9/{z}/{y}/{x}.png',
       attribution: 'NASA GIBS / MODIS NDVI',
       buildUrl: (tileX, tileY, zoom, options = {}) => {
         const tmpl = options.urlTemplate || NDVISampler.NASA_GIBS_URL;
-        return tmpl.replace('{z}', zoom).replace('{x}', tileX).replace('{y}', tileY);
-      }
+        return tmpl
+          .replace('{z}', zoom)
+          .replace('{x}', tileX)
+          .replace('{y}', tileY);
+      },
     },
     custom: {
       id: 'custom',
@@ -95,9 +107,13 @@ export const NDVISampler = {
       buildUrl: (tileX, tileY, zoom, options = {}) => {
         if (!options.urlTemplate && !options.tileUrl) return '';
         const tmpl = options.urlTemplate || options.tileUrl;
-        return tmpl.replace('{z}', zoom).replace('{x}', tileX).replace('{y}', tileY).replace('{s}', 'a');
-      }
-    }
+        return tmpl
+          .replace('{z}', zoom)
+          .replace('{x}', tileX)
+          .replace('{y}', tileY)
+          .replace('{s}', 'a');
+      },
+    },
   },
 
   /**
@@ -136,11 +152,18 @@ export const NDVISampler = {
    * @returns {string}
    */
   getInstanceId() {
-    if (typeof localStorage !== 'undefined' && typeof localStorage.getItem === 'function') {
+    if (
+      typeof localStorage !== 'undefined' &&
+      typeof localStorage.getItem === 'function'
+    ) {
       const stored = localStorage.getItem('copernicus_instance_id');
       if (stored && stored.trim()) return stored.trim();
     }
-    if (typeof window !== 'undefined' && window.BIOMAP_CONFIG && window.BIOMAP_CONFIG.copernicusInstanceId) {
+    if (
+      typeof window !== 'undefined' &&
+      window.BIOMAP_CONFIG &&
+      window.BIOMAP_CONFIG.copernicusInstanceId
+    ) {
       return String(window.BIOMAP_CONFIG.copernicusInstanceId).trim();
     }
     return this.DEFAULT_INSTANCE_ID;
@@ -154,11 +177,18 @@ export const NDVISampler = {
    * @returns {string}
    */
   getRawLayerId() {
-    if (typeof localStorage !== 'undefined' && typeof localStorage.getItem === 'function') {
+    if (
+      typeof localStorage !== 'undefined' &&
+      typeof localStorage.getItem === 'function'
+    ) {
       const stored = localStorage.getItem('copernicus_raw_layer_id');
       if (stored && stored.trim()) return stored.trim();
     }
-    if (typeof window !== 'undefined' && window.BIOMAP_CONFIG && window.BIOMAP_CONFIG.copernicusRawLayerId) {
+    if (
+      typeof window !== 'undefined' &&
+      window.BIOMAP_CONFIG &&
+      window.BIOMAP_CONFIG.copernicusRawLayerId
+    ) {
       return String(window.BIOMAP_CONFIG.copernicusRawLayerId).trim();
     }
     return this.DEFAULT_RAW_LAYER_ID;
@@ -169,11 +199,18 @@ export const NDVISampler = {
    * @returns {string}
    */
   getTimeRange() {
-    if (typeof localStorage !== 'undefined' && typeof localStorage.getItem === 'function') {
+    if (
+      typeof localStorage !== 'undefined' &&
+      typeof localStorage.getItem === 'function'
+    ) {
       const stored = localStorage.getItem('copernicus_time_range');
       if (stored && stored.trim()) return stored.trim();
     }
-    if (typeof window !== 'undefined' && window.BIOMAP_CONFIG && window.BIOMAP_CONFIG.copernicusTimeRange) {
+    if (
+      typeof window !== 'undefined' &&
+      window.BIOMAP_CONFIG &&
+      window.BIOMAP_CONFIG.copernicusTimeRange
+    ) {
       return String(window.BIOMAP_CONFIG.copernicusTimeRange).trim();
     }
     return this.DEFAULT_TIME_RANGE;
@@ -191,7 +228,10 @@ export const NDVISampler = {
    * Clear all locally saved Copernicus credentials from localStorage.
    */
   clearCredentials() {
-    if (typeof localStorage !== 'undefined' && typeof localStorage.removeItem === 'function') {
+    if (
+      typeof localStorage !== 'undefined' &&
+      typeof localStorage.removeItem === 'function'
+    ) {
       localStorage.removeItem('copernicus_instance_id');
       localStorage.removeItem('copernicus_raw_layer_id');
       localStorage.removeItem('copernicus_time_range');
@@ -212,11 +252,14 @@ export const NDVISampler = {
     const instanceId = options.instanceId || this.getInstanceId();
     const layerId = options.rawLayerId || this.getRawLayerId();
     const timeRange = options.time || options.timeRange || this.getTimeRange();
-    const maxcc = (typeof options.maxcc === 'number') ? options.maxcc : this.DEFAULT_MAXCC;
+    const maxcc =
+      typeof options.maxcc === 'number' ? options.maxcc : this.DEFAULT_MAXCC;
     const baseUrl = options.baseUrl || this.COPERNICUS_BASE_URL;
-    return `${baseUrl}/${instanceId}?SERVICE=WMS&REQUEST=GetMap&LAYERS=${encodeURIComponent(layerId)}` +
+    return (
+      `${baseUrl}/${instanceId}?SERVICE=WMS&REQUEST=GetMap&LAYERS=${encodeURIComponent(layerId)}` +
       `&FORMAT=${encodeURIComponent('image/tiff;depth=32f')}&VERSION=1.3.0&CRS=EPSG:3857` +
-      `&BBOX=${bbox.join(',')}&WIDTH=256&HEIGHT=256&TIME=${encodeURIComponent(timeRange)}&MAXCC=${maxcc}`;
+      `&BBOX=${bbox.join(',')}&WIDTH=256&HEIGHT=256&TIME=${encodeURIComponent(timeRange)}&MAXCC=${maxcc}`
+    );
   },
 
   // ---------------------------------------------------------------------------
@@ -242,7 +285,7 @@ export const NDVISampler = {
     return {
       tileCount: this._tileCache.size,
       maxTiles: this.MAX_CACHE_TILES,
-      offsetRadiiCached: this._offsetCache.size
+      offsetRadiiCached: this._offsetCache.size,
     };
   },
 
@@ -310,7 +353,7 @@ export const NDVISampler = {
    * @returns {[string, string, string, string]}
    */
   tileToBbox(tileX, tileY, zoom) {
-    const n = Math.pow(2, zoom);
+    const n = 2 ** zoom;
     const C = this.EARTH_CIRCUMFERENCE_M;
     const minX = (tileX / n) * C - C / 2;
     const maxX = ((tileX + 1) / n) * C - C / 2;
@@ -340,7 +383,7 @@ export const NDVISampler = {
       pixelX: Math.max(0, Math.min(255, pixelX)),
       pixelY: Math.max(0, Math.min(255, pixelY)),
       worldX: x * 256,
-      worldY: y * 256
+      worldY: y * 256,
     };
   },
 
@@ -352,7 +395,7 @@ export const NDVISampler = {
    */
   metersPerPixel(lat, zoom) {
     const latRad = (lat * Math.PI) / 180;
-    return (this.EARTH_CIRCUMFERENCE_M * Math.cos(latRad)) / Math.pow(2, zoom + 8);
+    return (this.EARTH_CIRCUMFERENCE_M * Math.cos(latRad)) / 2 ** (zoom + 8);
   },
 
   /**
@@ -364,7 +407,7 @@ export const NDVISampler = {
    */
   metersToPixels(meters, lat, zoom) {
     const mpp = this.metersPerPixel(lat, zoom);
-    return mpp > 0 ? (meters / mpp) : 1;
+    return mpp > 0 ? meters / mpp : 1;
   },
 
   /**
@@ -390,7 +433,9 @@ export const NDVISampler = {
    * @returns {boolean}
    */
   _isValidNdvi(v) {
-    return typeof v === 'number' && !isNaN(v) && v > this.NODATA_SENTINEL_THRESHOLD;
+    return (
+      typeof v === 'number' && !isNaN(v) && v > this.NODATA_SENTINEL_THRESHOLD
+    );
   },
 
   /**
@@ -399,27 +444,54 @@ export const NDVISampler = {
    * @private
    */
   _readTiffValue(view, entryOffset, little) {
-    const TYPE_SIZES = { 1: 1, 2: 1, 3: 2, 4: 4, 5: 8, 6: 1, 7: 1, 8: 2, 9: 4, 10: 8, 11: 4, 12: 8 };
+    const TYPE_SIZES = {
+      1: 1,
+      2: 1,
+      3: 2,
+      4: 4,
+      5: 8,
+      6: 1,
+      7: 1,
+      8: 2,
+      9: 4,
+      10: 8,
+      11: 4,
+      12: 8,
+    };
     const type = view.getUint16(entryOffset + 2, little);
     const count = view.getUint32(entryOffset + 4, little);
     const elemSize = TYPE_SIZES[type] || 1;
     const totalSize = elemSize * count;
     const valueFieldOffset = entryOffset + 8;
-    const dataOffset = totalSize <= 4 ? valueFieldOffset : view.getUint32(valueFieldOffset, little);
+    const dataOffset =
+      totalSize <= 4
+        ? valueFieldOffset
+        : view.getUint32(valueFieldOffset, little);
 
     const readOne = (off) => {
       switch (type) {
-        case 1: case 6: case 7: return view.getUint8(off);
-        case 3: case 8: return view.getUint16(off, little);
-        case 4: case 9: return view.getUint32(off, little);
-        case 11: return view.getFloat32(off, little);
-        case 12: return view.getFloat64(off, little);
-        default: return view.getUint32(off, little);
+        case 1:
+        case 6:
+        case 7:
+          return view.getUint8(off);
+        case 3:
+        case 8:
+          return view.getUint16(off, little);
+        case 4:
+        case 9:
+          return view.getUint32(off, little);
+        case 11:
+          return view.getFloat32(off, little);
+        case 12:
+          return view.getFloat64(off, little);
+        default:
+          return view.getUint32(off, little);
       }
     };
 
     const vals = [];
-    for (let i = 0; i < count; i++) vals.push(readOne(dataOffset + i * elemSize));
+    for (let i = 0; i < count; i++)
+      vals.push(readOne(dataOffset + i * elemSize));
     return count === 1 ? vals[0] : vals;
   },
 
@@ -432,9 +504,13 @@ export const NDVISampler = {
    */
   async _inflate(bytes) {
     if (typeof DecompressionStream === 'undefined') {
-      throw new Error('This browser has no DecompressionStream support, needed to decode the compressed NDVI raster.');
+      throw new Error(
+        'This browser has no DecompressionStream support, needed to decode the compressed NDVI raster.',
+      );
     }
-    const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate'));
+    const stream = new Blob([bytes])
+      .stream()
+      .pipeThrough(new DecompressionStream('deflate'));
     return await new Response(stream).arrayBuffer();
   },
 
@@ -455,10 +531,12 @@ export const NDVISampler = {
     }
     const view = new DataView(buffer);
     const bom = view.getUint16(0, false);
-    if (bom !== 0x4949 && bom !== 0x4D4D) {
+    if (bom !== 0x4949 && bom !== 0x4d4d) {
       try {
         const text = new TextDecoder().decode(buffer.slice(0, 1024));
-        const xmlMatch = text.match(/<ServiceException[^>]*>([\s\S]*?)<\/ServiceException>/i);
+        const xmlMatch = text.match(
+          /<ServiceException[^>]*>([\s\S]*?)<\/ServiceException>/i,
+        );
         if (xmlMatch) {
           throw new Error(`Copernicus WMS error: ${xmlMatch[1].trim()}`);
         }
@@ -468,11 +546,17 @@ export const NDVISampler = {
           if (msg) throw new Error(`Copernicus error: ${msg}`);
         }
       } catch (decodeErr) {
-        if (decodeErr.message && (decodeErr.message.startsWith('Copernicus WMS error') || decodeErr.message.startsWith('Copernicus error'))) {
+        if (
+          decodeErr.message &&
+          (decodeErr.message.startsWith('Copernicus WMS error') ||
+            decodeErr.message.startsWith('Copernicus error'))
+        ) {
           throw decodeErr;
         }
       }
-      throw new Error('NDVI raster response is not a TIFF (bad byte-order marker) — check the raw layer ID and FORMAT.');
+      throw new Error(
+        'NDVI raster response is not a TIFF (bad byte-order marker) — check the raw layer ID and FORMAT.',
+      );
     }
     const little = bom === 0x4949;
     if (view.getUint16(2, little) !== 42) {
@@ -496,7 +580,11 @@ export const NDVISampler = {
     const rowsPerStrip = tags[278] || height;
     const stripOffsets = Array.isArray(tags[273]) ? tags[273] : [tags[273]];
     const stripByteCounts = Array.isArray(tags[279]) ? tags[279] : [tags[279]];
-    const sampleFormat = tags[339] ? (Array.isArray(tags[339]) ? tags[339][0] : tags[339]) : 1;
+    const sampleFormat = tags[339]
+      ? Array.isArray(tags[339])
+        ? tags[339][0]
+        : tags[339]
+      : 1;
 
     if (!width || !height) {
       throw new Error('NDVI raster response has no usable image dimensions.');
@@ -504,7 +592,7 @@ export const NDVISampler = {
     if (samplesPerPixel !== 1 || bitsPerSample !== 32 || sampleFormat !== 3) {
       throw new Error(
         `NDVI raw layer returned an unexpected raster format (samples=${samplesPerPixel}, bits=${bitsPerSample}, ` +
-        `sampleFormat=${sampleFormat}) — expected single-band FLOAT32. Check the evalscript on layer "${this.getRawLayerId()}".`
+          `sampleFormat=${sampleFormat}) — expected single-band FLOAT32. Check the evalscript on layer "${this.getRawLayerId()}".`,
       );
     }
 
@@ -513,14 +601,19 @@ export const NDVISampler = {
     const pixelBytes = new Uint8Array(width * height * 4);
     let writeOffset = 0;
     for (let s = 0; s < stripOffsets.length; s++) {
-      const raw = buffer.slice(stripOffsets[s], stripOffsets[s] + stripByteCounts[s]);
+      const raw = buffer.slice(
+        stripOffsets[s],
+        stripOffsets[s] + stripByteCounts[s],
+      );
       let decoded;
       if (compression === 1) {
         decoded = raw;
       } else if (compression === 8 || compression === 32946) {
         decoded = await this._inflate(raw);
       } else {
-        throw new Error(`NDVI raster uses unsupported TIFF compression ${compression} (only none/Deflate are handled).`);
+        throw new Error(
+          `NDVI raster uses unsupported TIFF compression ${compression} (only none/Deflate are handled).`,
+        );
       }
       pixelBytes.set(new Uint8Array(decoded), writeOffset);
       writeOffset += decoded.byteLength;
@@ -564,8 +657,13 @@ export const NDVISampler = {
         out[o + 3] = 0; // transparent nodata
         continue;
       }
-      const clamped = Math.max(this.NDVI_GREYSCALE_MIN, Math.min(this.NDVI_GREYSCALE_MAX, v));
-      const grey = Math.round(((clamped - this.NDVI_GREYSCALE_MIN) / range) * 255);
+      const clamped = Math.max(
+        this.NDVI_GREYSCALE_MIN,
+        Math.min(this.NDVI_GREYSCALE_MAX, v),
+      );
+      const grey = Math.round(
+        ((clamped - this.NDVI_GREYSCALE_MIN) / range) * 255,
+      );
       out[o] = grey;
       out[o + 1] = grey;
       out[o + 2] = grey;
@@ -589,7 +687,7 @@ export const NDVISampler = {
    * @returns {number} Backoff time in ms
    */
   _backoffMs(attempt, baseMs = 500) {
-    const linear = baseMs * Math.pow(2, attempt);
+    const linear = baseMs * 2 ** attempt;
     const jitter = 0.75 + Math.random() * 0.5; // 0.75 – 1.25 jitter
     return Math.round(linear * jitter);
   },
@@ -601,7 +699,12 @@ export const NDVISampler = {
    * @returns {number}
    */
   _retryAfterMs(response, fallbackMs = 5000) {
-    if (!response || !response.headers || typeof response.headers.get !== 'function') return fallbackMs;
+    if (
+      !response ||
+      !response.headers ||
+      typeof response.headers.get !== 'function'
+    )
+      return fallbackMs;
     const val = response.headers.get('Retry-After');
     if (!val) return fallbackMs;
     const sec = parseFloat(val);
@@ -617,7 +720,7 @@ export const NDVISampler = {
     const nextAllowed = this._providerRateLimits.get(providerId);
     if (nextAllowed && Date.now() < nextAllowed) {
       const wait = nextAllowed - Date.now();
-      await new Promise(r => setTimeout(r, wait));
+      await new Promise((r) => setTimeout(r, wait));
     }
   },
 
@@ -633,7 +736,8 @@ export const NDVISampler = {
    */
   async _fetchRawTileWithBackoff(url, options = {}) {
     const providerId = options.providerId || 'copernicus_raw';
-    const maxRetries = (typeof options.maxRetries === 'number') ? options.maxRetries : 3;
+    const maxRetries =
+      typeof options.maxRetries === 'number' ? options.maxRetries : 3;
     const timeoutMs = options.timeoutMs || 8000;
     const signal = options.signal || null;
     const onRetry = options.onRetry || (() => {});
@@ -647,7 +751,10 @@ export const NDVISampler = {
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), timeoutMs);
         try {
-          response = await fetch(url, { mode: 'cors', signal: controller.signal });
+          response = await fetch(url, {
+            mode: 'cors',
+            signal: controller.signal,
+          });
         } finally {
           clearTimeout(timer);
         }
@@ -655,7 +762,7 @@ export const NDVISampler = {
         if (attempt < maxRetries) {
           const waitMs = this._backoffMs(attempt, 400);
           onRetry(attempt + 1, waitMs, networkErr.message || 'Network error');
-          await new Promise(r => setTimeout(r, waitMs));
+          await new Promise((r) => setTimeout(r, waitMs));
           continue;
         }
         return null;
@@ -669,11 +776,15 @@ export const NDVISampler = {
       }
 
       if (response.status === 429 || response.status === 509) {
-        const retryAfter = this._retryAfterMs(response, 5000 * Math.pow(2, attempt));
+        const retryAfter = this._retryAfterMs(response, 5000 * 2 ** attempt);
         this._providerRateLimits.set(providerId, Date.now() + retryAfter);
         if (attempt < maxRetries) {
-          onRetry(attempt + 1, retryAfter, `Rate limited (HTTP ${response.status})`);
-          await new Promise(r => setTimeout(r, retryAfter));
+          onRetry(
+            attempt + 1,
+            retryAfter,
+            `Rate limited (HTTP ${response.status})`,
+          );
+          await new Promise((r) => setTimeout(r, retryAfter));
           continue;
         }
         return null;
@@ -682,8 +793,12 @@ export const NDVISampler = {
       if (response.status >= 500) {
         if (attempt < maxRetries) {
           const waitMs = this._backoffMs(attempt, 500);
-          onRetry(attempt + 1, waitMs, `Server error (HTTP ${response.status})`);
-          await new Promise(r => setTimeout(r, waitMs));
+          onRetry(
+            attempt + 1,
+            waitMs,
+            `Server error (HTTP ${response.status})`,
+          );
+          await new Promise((r) => setTimeout(r, waitMs));
           continue;
         }
         return null;
@@ -697,7 +812,8 @@ export const NDVISampler = {
       const serverDetail = await this._readErrorDetail(response);
       let hint;
       if (response.status === 401 || response.status === 403) {
-        hint = 'likely an authorisation or quota/plan-limit problem on the Copernicus account behind this instance ID';
+        hint =
+          'likely an authorisation or quota/plan-limit problem on the Copernicus account behind this instance ID';
       } else if (response.status === 400 || response.status === 404) {
         hint = `likely a missing/misspelled raw layer — check that layer "${this.getRawLayerId()}" exists on the configured Copernicus instance (Satellite & NDVI Settings)`;
       } else {
@@ -705,7 +821,7 @@ export const NDVISampler = {
       }
       throw new Error(
         `NDVI raw layer request failed (HTTP ${response.status}) — ${hint}.` +
-        (serverDetail ? ` Server said: ${serverDetail}` : '')
+          (serverDetail ? ` Server said: ${serverDetail}` : ''),
       );
     }
 
@@ -729,7 +845,9 @@ export const NDVISampler = {
       } catch (jsonErr) {
         // Not JSON — fall through to XML/plain-text handling below.
       }
-      const xmlMatch = text.match(/<ServiceException[^>]*>([\s\S]*?)<\/ServiceException>/i);
+      const xmlMatch = text.match(
+        /<ServiceException[^>]*>([\s\S]*?)<\/ServiceException>/i,
+      );
       if (xmlMatch) return xmlMatch[1].trim().slice(0, 300);
       return text.trim().slice(0, 300);
     } catch (readErr) {
@@ -758,10 +876,12 @@ export const NDVISampler = {
   async _fetchRawTilePool(tasks, mosaic, mosaicWidth, options = {}) {
     const concurrency = Math.max(1, options.concurrency || 6);
     const timeoutMs = options.timeoutMs || 8000;
-    const onTileProgress = options.onTileProgress || options.onProgress || (() => {});
+    const onTileProgress =
+      options.onTileProgress || options.onProgress || (() => {});
     const signal = options.signal || null;
     const providerId = options.providerId || 'copernicus_raw';
-    const maxRetries = (typeof options.maxRetries === 'number') ? options.maxRetries : 3;
+    const maxRetries =
+      typeof options.maxRetries === 'number' ? options.maxRetries : 3;
 
     let nextIdx = 0;
     let completed = 0;
@@ -778,7 +898,13 @@ export const NDVISampler = {
         const cachedTile = this._getTileCache(task.url);
 
         if (cachedTile) {
-          this._writeTileIntoMosaic(cachedTile, mosaic, mosaicWidth, task.destX, task.destY);
+          this._writeTileIntoMosaic(
+            cachedTile,
+            mosaic,
+            mosaicWidth,
+            task.destX,
+            task.destY,
+          );
           cached++;
           loaded++;
           completed++;
@@ -792,13 +918,24 @@ export const NDVISampler = {
           providerId,
           maxRetries,
           onRetry: (attempt, waitMs, reason) => {
-            onTileProgress(completed, total, false, `Tile retry (${attempt}/${maxRetries}): ${reason}`);
-          }
+            onTileProgress(
+              completed,
+              total,
+              false,
+              `Tile retry (${attempt}/${maxRetries}): ${reason}`,
+            );
+          },
         });
 
         if (tile) {
           this._putTileCache(task.url, tile);
-          this._writeTileIntoMosaic(tile, mosaic, mosaicWidth, task.destX, task.destY);
+          this._writeTileIntoMosaic(
+            tile,
+            mosaic,
+            mosaicWidth,
+            task.destX,
+            task.destY,
+          );
           loaded++;
         } else {
           failed++;
@@ -832,16 +969,25 @@ export const NDVISampler = {
    */
   calculateBBox(rawPoints, bufferMeters = 100) {
     if (!rawPoints || rawPoints.length === 0) return null;
-    if (typeof OSMEnricher !== 'undefined' && typeof OSMEnricher.calculateBBox === 'function') {
+    if (
+      typeof OSMEnricher !== 'undefined' &&
+      typeof OSMEnricher.calculateBBox === 'function'
+    ) {
       const osmBbox = OSMEnricher.calculateBBox(rawPoints, bufferMeters);
       if (osmBbox) return osmBbox;
     }
-    const rawBounds = GeoUtils.computeBounds(rawPoints, 0, (pt) => this._isValidCoord(pt.lat, pt.lon));
+    const rawBounds = GeoUtils.computeBounds(rawPoints, 0, (pt) =>
+      this._isValidCoord(pt.lat, pt.lon),
+    );
     if (rawBounds) {
       return GeoUtils.expandBounds(rawBounds, bufferMeters);
     }
     // Standalone fallback
-    let minLat = 90, maxLat = -90, minLon = 180, maxLon = -180, count = 0;
+    let minLat = 90,
+      maxLat = -90,
+      minLon = 180,
+      maxLon = -180,
+      count = 0;
     for (let i = 0; i < rawPoints.length; i++) {
       const p = rawPoints[i];
       if (p && this._isValidCoord(p.lat, p.lon)) {
@@ -859,7 +1005,7 @@ export const NDVISampler = {
       minLat: minLat - latBuf,
       maxLat: maxLat + latBuf,
       minLon: minLon - lonBuf,
-      maxLon: maxLon + lonBuf
+      maxLon: maxLon + lonBuf,
     };
   },
 
@@ -882,12 +1028,12 @@ export const NDVISampler = {
     let p1 = this.latLonToTile(bbox.maxLat, bbox.minLon, currentZoom);
     let p2 = this.latLonToTile(bbox.minLat, bbox.maxLon, currentZoom);
     let startTileX = Math.min(p1.tileX, p2.tileX);
-    let endTileX   = Math.max(p1.tileX, p2.tileX);
+    let endTileX = Math.max(p1.tileX, p2.tileX);
     let startTileY = Math.min(p1.tileY, p2.tileY);
-    let endTileY   = Math.max(p1.tileY, p2.tileY);
+    let endTileY = Math.max(p1.tileY, p2.tileY);
     let tilesAcross = endTileX - startTileX + 1;
-    let tilesDown   = endTileY - startTileY + 1;
-    let totalTiles  = tilesAcross * tilesDown;
+    let tilesDown = endTileY - startTileY + 1;
+    let totalTiles = tilesAcross * tilesDown;
 
     if (adaptiveZoom && totalTiles > maxTiles) {
       while (totalTiles > maxTiles && currentZoom > 12) {
@@ -895,12 +1041,12 @@ export const NDVISampler = {
         p1 = this.latLonToTile(bbox.maxLat, bbox.minLon, currentZoom);
         p2 = this.latLonToTile(bbox.minLat, bbox.maxLon, currentZoom);
         startTileX = Math.min(p1.tileX, p2.tileX);
-        endTileX   = Math.max(p1.tileX, p2.tileX);
+        endTileX = Math.max(p1.tileX, p2.tileX);
         startTileY = Math.min(p1.tileY, p2.tileY);
-        endTileY   = Math.max(p1.tileY, p2.tileY);
+        endTileY = Math.max(p1.tileY, p2.tileY);
         tilesAcross = endTileX - startTileX + 1;
-        tilesDown   = endTileY - startTileY + 1;
-        totalTiles  = tilesAcross * tilesDown;
+        tilesDown = endTileY - startTileY + 1;
+        totalTiles = tilesAcross * tilesDown;
       }
     }
 
@@ -913,7 +1059,7 @@ export const NDVISampler = {
       tilesAcross,
       tilesDown,
       totalTiles,
-      wasAdapted: currentZoom !== zoom
+      wasAdapted: currentZoom !== zoom,
     };
   },
 
@@ -967,7 +1113,17 @@ export const NDVISampler = {
    * step-hold from the previous genuine reading.
    * @private
    */
-  _samplePointsOnGrid(raw, validPoints, grid, gridWidth, gridHeight, startTileX, startTileY, zoom, radiusM) {
+  _samplePointsOnGrid(
+    raw,
+    validPoints,
+    grid,
+    gridWidth,
+    gridHeight,
+    startTileX,
+    startTileY,
+    zoom,
+    radiusM,
+  ) {
     let sumNdvi = 0;
     let sumNdvi50m = 0;
     let pointCount = 0;
@@ -976,8 +1132,8 @@ export const NDVISampler = {
     for (let i = 0; i < validPoints.length; i++) {
       const pt = validPoints[i].pt || validPoints[i];
       const coords = this.latLonToTile(pt.lat, pt.lon, zoom);
-      const gridX = coords.worldX - (startTileX * 256);
-      const gridY = coords.worldY - (startTileY * 256);
+      const gridX = coords.worldX - startTileX * 256;
+      const gridY = coords.worldY - startTileY * 256;
       const radiusPx = this.metersToPixels(radiusM, pt.lat, zoom);
 
       let pNdvi = NaN;
@@ -987,15 +1143,30 @@ export const NDVISampler = {
         const cX = Math.max(0, Math.min(gridWidth - 1, Math.round(gridX)));
         const cY = Math.max(0, Math.min(gridHeight - 1, Math.round(gridY)));
         const pointVal = grid[cY * gridWidth + cX];
-        pNdvi = this._isValidNdvi(pointVal) ? Math.round(pointVal * 1000) / 1000 : NaN;
-        bNdvi = this.sampleBuffer(grid, gridWidth, gridHeight, gridX, gridY, radiusPx);
+        pNdvi = this._isValidNdvi(pointVal)
+          ? Math.round(pointVal * 1000) / 1000
+          : NaN;
+        bNdvi = this.sampleBuffer(
+          grid,
+          gridWidth,
+          gridHeight,
+          gridX,
+          gridY,
+          radiusPx,
+        );
       }
 
       pt.ndvi = pNdvi;
       pt.ndvi_50m = bNdvi;
 
-      if (!isNaN(pNdvi)) { sumNdvi += pNdvi; pointCount++; }
-      if (!isNaN(bNdvi)) { sumNdvi50m += bNdvi; bufferCount++; }
+      if (!isNaN(pNdvi)) {
+        sumNdvi += pNdvi;
+        pointCount++;
+      }
+      if (!isNaN(bNdvi)) {
+        sumNdvi50m += bNdvi;
+        bufferCount++;
+      }
     }
 
     // Propagate to non-GPS rows via forward step-hold
@@ -1004,8 +1175,8 @@ export const NDVISampler = {
     return {
       sampleCount: validPoints.length,
       enrichedCount: pointCount,
-      meanNdvi: pointCount > 0 ? (sumNdvi / pointCount) : 0,
-      meanNdvi50m: bufferCount > 0 ? (sumNdvi50m / bufferCount) : 0
+      meanNdvi: pointCount > 0 ? sumNdvi / pointCount : 0,
+      meanNdvi50m: bufferCount > 0 ? sumNdvi50m / bufferCount : 0,
     };
   },
 
@@ -1048,13 +1219,13 @@ export const NDVISampler = {
     if (!this.hasCopernicusConfig()) {
       throw new Error(
         'Satellite NDVI sampling needs a Copernicus Sentinel Hub instance ID with a raw NDVI layer configured ' +
-        '(Satellite & NDVI Settings) — see docs/environmental_enrichment_plan.md §2E for the evalscript and setup steps.'
+          '(Satellite & NDVI Settings) — see docs/environmental_enrichment_plan.md §2E for the evalscript and setup steps.',
       );
     }
 
     const analyzer = track?.analyzer || track;
     if (!analyzer || !analyzer.raw || analyzer.raw.length === 0) {
-      throw new Error("Track has no raw data points to sample.");
+      throw new Error('Track has no raw data points to sample.');
     }
 
     const raw = analyzer.raw;
@@ -1075,32 +1246,51 @@ export const NDVISampler = {
     }
 
     if (validPoints.length === 0) {
-      throw new Error("No valid GPS fixes found in track.");
+      throw new Error('No valid GPS fixes found in track.');
     }
 
-    onProgress(10, "Determining satellite tile coverage...");
+    onProgress(10, 'Determining satellite tile coverage...');
 
     // Buffer bounding box to cover the radius around outer fixes
     const bufferDistanceM = radiusM + 50;
     const bbox = this.calculateBBox(raw, bufferDistanceM);
     if (!bbox) {
-      throw new Error("No valid GPS fixes found in track.");
+      throw new Error('No valid GPS fixes found in track.');
     }
 
     // Tile coordinate bounds with adaptive zoom safeguard
-    const bounds = this._calculateTileBounds(bbox, requestedZoom, maxTiles, adaptiveZoom);
+    const bounds = this._calculateTileBounds(
+      bbox,
+      requestedZoom,
+      maxTiles,
+      adaptiveZoom,
+    );
     const zoom = bounds.zoom;
-    const { startTileX, endTileX, startTileY, endTileY, tilesAcross, tilesDown, totalTiles } = bounds;
+    const {
+      startTileX,
+      endTileX,
+      startTileY,
+      endTileY,
+      tilesAcross,
+      tilesDown,
+      totalTiles,
+    } = bounds;
 
     if (bounds.wasAdapted) {
-      onProgress(12, `Large track area: scaled zoom to ${zoom} (${totalTiles} tiles) for performance...`);
+      onProgress(
+        12,
+        `Large track area: scaled zoom to ${zoom} (${totalTiles} tiles) for performance...`,
+      );
     }
 
     const gridWidth = tilesAcross * 256;
     const gridHeight = tilesDown * 256;
     const grid = new Float32Array(gridWidth * gridHeight).fill(NaN);
 
-    onProgress(15, `Fetching ${totalTiles} NDVI raster tiles (${tilesAcross}×${tilesDown})...`);
+    onProgress(
+      15,
+      `Fetching ${totalTiles} NDVI raster tiles (${tilesAcross}×${tilesDown})...`,
+    );
 
     const tileTasks = [];
     for (let ty = startTileY; ty <= endTileY; ty++) {
@@ -1121,15 +1311,30 @@ export const NDVISampler = {
       signal,
       onTileProgress: (completed, total, wasCached, retryMsg) => {
         const pct = Math.round(15 + (completed / total) * 45);
-        const detail = retryMsg ? ` [${retryMsg}]` : (wasCached ? ' (cached)' : '');
-        onProgress(pct, `Streaming NDVI raster tiles: ${completed}/${total}${detail}...`);
-      }
+        const detail = retryMsg
+          ? ` [${retryMsg}]`
+          : wasCached
+            ? ' (cached)'
+            : '';
+        onProgress(
+          pct,
+          `Streaming NDVI raster tiles: ${completed}/${total}${detail}...`,
+        );
+      },
     });
 
-    onProgress(60, "Extracting Point NDVI and 50m buffer values...");
+    onProgress(60, 'Extracting Point NDVI and 50m buffer values...');
 
     const results = this._samplePointsOnGrid(
-      raw, validPoints, grid, gridWidth, gridHeight, startTileX, startTileY, zoom, radiusM
+      raw,
+      validPoints,
+      grid,
+      gridWidth,
+      gridHeight,
+      startTileX,
+      startTileY,
+      zoom,
+      radiusM,
     );
 
     analyzer.isEnriched = true;
@@ -1137,7 +1342,10 @@ export const NDVISampler = {
     analyzer.hasNdvi50m = true;
     analyzer._dataVersion = (analyzer._dataVersion || 0) + 1;
 
-    onProgress(100, `Successfully sampled NDVI across ${results.enrichedCount} GPS fixes.`);
+    onProgress(
+      100,
+      `Successfully sampled NDVI across ${results.enrichedCount} GPS fixes.`,
+    );
 
     return results;
   },
@@ -1154,13 +1362,20 @@ export const NDVISampler = {
    */
   async sampleTracks(tracks, options = {}) {
     if (!tracks || tracks.length === 0) {
-      return { mode: 'none', totalCount: 0, enrichedCount: 0, failedCount: 0, tooBigCount: 0, failedTracks: [] };
+      return {
+        mode: 'none',
+        totalCount: 0,
+        enrichedCount: 0,
+        failedCount: 0,
+        tooBigCount: 0,
+        failedTracks: [],
+      };
     }
 
     if (!this.hasCopernicusConfig()) {
       throw new Error(
         'Satellite NDVI sampling needs a Copernicus Sentinel Hub instance ID with a raw NDVI layer configured ' +
-        '(Satellite & NDVI Settings) — see docs/environmental_enrichment_plan.md §2E for the evalscript and setup steps.'
+          '(Satellite & NDVI Settings) — see docs/environmental_enrichment_plan.md §2E for the evalscript and setup steps.',
       );
     }
 
@@ -1172,13 +1387,24 @@ export const NDVISampler = {
     const maxMosaicTiles = options.maxMosaicTiles || 64;
 
     // Filter tracks with valid raw data points
-    const validTracks = tracks.filter(t => {
+    const validTracks = tracks.filter((t) => {
       const a = t?.analyzer || t;
-      return a && Array.isArray(a.raw) && a.raw.some(pt => pt && this._isValidCoord(pt.lat, pt.lon));
+      return (
+        a &&
+        Array.isArray(a.raw) &&
+        a.raw.some((pt) => pt && this._isValidCoord(pt.lat, pt.lon))
+      );
     });
 
     if (validTracks.length === 0) {
-      return { mode: 'none', totalCount: tracks.length, enrichedCount: 0, failedCount: 0, tooBigCount: 0, failedTracks: [] };
+      return {
+        mode: 'none',
+        totalCount: tracks.length,
+        enrichedCount: 0,
+        failedCount: 0,
+        tooBigCount: 0,
+        failedTracks: [],
+      };
     }
 
     // Combine all raw points across all tracks (using loops to prevent call-stack overflow)
@@ -1193,21 +1419,28 @@ export const NDVISampler = {
 
     const bufferDistanceM = radiusM + 50;
     const unionBBox = this.calculateBBox(combinedRaw, bufferDistanceM);
-    const unionAreaKm2 = unionBBox ? this.calculateBBoxAreaKm2(unionBBox) : Infinity;
+    const unionAreaKm2 = unionBBox
+      ? this.calculateBBoxAreaKm2(unionBBox)
+      : Infinity;
 
     // Determine tile bounds for the union footprint
     let unionBounds = null;
     if (unionBBox) {
-      unionBounds = this._calculateTileBounds(unionBBox, requestedZoom, maxMosaicTiles, true);
+      unionBounds = this._calculateTileBounds(
+        unionBBox,
+        requestedZoom,
+        maxMosaicTiles,
+        true,
+      );
     }
 
     // Determine if Unified Mosaic Mode is eligible:
     // Fits under area cap and fits under tile budget
     const canUseUnifiedMosaic = Boolean(
       unionBBox &&
-      unionAreaKm2 <= maxMosaicAreaKm2 &&
-      unionBounds &&
-      unionBounds.totalTiles <= maxMosaicTiles
+        unionAreaKm2 <= maxMosaicAreaKm2 &&
+        unionBounds &&
+        unionBounds.totalTiles <= maxMosaicTiles,
     );
 
     // =========================================================================
@@ -1215,12 +1448,23 @@ export const NDVISampler = {
     // =========================================================================
     if (canUseUnifiedMosaic && validTracks.length > 1) {
       const zoom = unionBounds.zoom;
-      const { startTileX, endTileX, startTileY, endTileY, tilesAcross, tilesDown, totalTiles } = unionBounds;
+      const {
+        startTileX,
+        endTileX,
+        startTileY,
+        endTileY,
+        tilesAcross,
+        tilesDown,
+        totalTiles,
+      } = unionBounds;
       const gridWidth = tilesAcross * 256;
       const gridHeight = tilesDown * 256;
       const grid = new Float32Array(gridWidth * gridHeight).fill(NaN);
 
-      onProgress(10, `[Shared Mosaic] Preparing coverage for ${validTracks.length} walks (${unionAreaKm2.toFixed(1)} km²)...`);
+      onProgress(
+        10,
+        `[Shared Mosaic] Preparing coverage for ${validTracks.length} walks (${unionAreaKm2.toFixed(1)} km²)...`,
+      );
 
       const tileTasks = [];
       for (let ty = startTileY; ty <= endTileY; ty++) {
@@ -1240,12 +1484,22 @@ export const NDVISampler = {
         signal,
         onTileProgress: (completed, total, wasCached, retryMsg) => {
           const pct = Math.round(15 + (completed / total) * 55);
-          const detail = retryMsg ? ` [${retryMsg}]` : (wasCached ? ' (cached)' : '');
-          onProgress(pct, `[Shared Mosaic] Streaming ${total} NDVI raster tiles (${completed}/${total})${detail}...`);
-        }
+          const detail = retryMsg
+            ? ` [${retryMsg}]`
+            : wasCached
+              ? ' (cached)'
+              : '';
+          onProgress(
+            pct,
+            `[Shared Mosaic] Streaming ${total} NDVI raster tiles (${completed}/${total})${detail}...`,
+          );
+        },
       });
 
-      onProgress(75, `Extracting NDVI across ${validTracks.length} walks in-memory...`);
+      onProgress(
+        75,
+        `Extracting NDVI across ${validTracks.length} walks in-memory...`,
+      );
 
       let enrichedCount = 0;
       for (let i = 0; i < validTracks.length; i++) {
@@ -1261,7 +1515,15 @@ export const NDVISampler = {
 
         if (validPoints.length > 0) {
           this._samplePointsOnGrid(
-            a.raw, validPoints, grid, gridWidth, gridHeight, startTileX, startTileY, zoom, radiusM
+            a.raw,
+            validPoints,
+            grid,
+            gridWidth,
+            gridHeight,
+            startTileX,
+            startTileY,
+            zoom,
+            radiusM,
           );
           a.isEnriched = true;
           a.hasNdvi = true;
@@ -1271,7 +1533,10 @@ export const NDVISampler = {
         }
       }
 
-      onProgress(100, `Sampled NDVI for ${enrichedCount}/${validTracks.length} walks via shared mosaic.`);
+      onProgress(
+        100,
+        `Sampled NDVI for ${enrichedCount}/${validTracks.length} walks via shared mosaic.`,
+      );
 
       return {
         mode: 'unified_mosaic',
@@ -1280,7 +1545,7 @@ export const NDVISampler = {
         failedCount: 0,
         tooBigCount: 0,
         failedTracks: [],
-        tilesFetched: totalTiles
+        tilesFetched: totalTiles,
       };
     }
 
@@ -1289,7 +1554,7 @@ export const NDVISampler = {
     // =========================================================================
     let enrichedCount = 0;
     let failedCount = 0;
-    let tooBigCount = 0;
+    const tooBigCount = 0;
     const failedTracks = [];
 
     for (let i = 0; i < validTracks.length; i++) {
@@ -1298,7 +1563,10 @@ export const NDVISampler = {
       const label = t.name || t.id || `Walk ${i + 1}`;
       const basePct = Math.round((i / validTracks.length) * 100);
 
-      onProgress(basePct, `[${i + 1}/${validTracks.length}] Sampling ${label}...`);
+      onProgress(
+        basePct,
+        `[${i + 1}/${validTracks.length}] Sampling ${label}...`,
+      );
 
       try {
         await this.sampleTrack(t, {
@@ -1307,9 +1575,9 @@ export const NDVISampler = {
           radiusM,
           signal,
           onProgress: (pct, msg) => {
-            const overallPct = Math.round(basePct + (pct / validTracks.length));
+            const overallPct = Math.round(basePct + pct / validTracks.length);
             onProgress(overallPct, `[${i + 1}/${validTracks.length}] ${msg}`);
-          }
+          },
         });
         enrichedCount++;
       } catch (err) {
@@ -1325,7 +1593,7 @@ export const NDVISampler = {
       enrichedCount,
       failedCount,
       tooBigCount,
-      failedTracks
+      failedTracks,
     };
-  }
+  },
 };

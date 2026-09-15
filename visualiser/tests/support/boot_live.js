@@ -34,7 +34,11 @@
 const path = require('path');
 const { JSDOM } = require('jsdom');
 const { installMatchMedia } = require('./matchmedia_stub.js');
-const { installJsdomGlobals, clearPreviousBoot, loadScriptFile } = require('./realm_bridge.js');
+const {
+  installJsdomGlobals,
+  clearPreviousBoot,
+  loadScriptFile,
+} = require('./realm_bridge.js');
 
 const APP_DIR = path.join(__dirname, '..', '..');
 
@@ -67,26 +71,55 @@ const LIVE_SCRIPT_ORDER = [
 
 function makeLeafletMock() {
   class Layer {
-    addTo(map) { map._layers.push(this); this._map = map; return this; }
-    setLatLng(latlng) { this._latlng = latlng; return this; }
-    setStyle(style) { this._style = style; return this; }
-    remove() { if (this._map) this._map.removeLayer(this); return this; }
+    addTo(map) {
+      map._layers.push(this);
+      this._map = map;
+      return this;
+    }
+    setLatLng(latlng) {
+      this._latlng = latlng;
+      return this;
+    }
+    setStyle(style) {
+      this._style = style;
+      return this;
+    }
+    remove() {
+      if (this._map) this._map.removeLayer(this);
+      return this;
+    }
   }
   class Polyline extends Layer {
-    constructor(latlngs, options) { super(); this.latlngs = latlngs; this.options = options; }
+    constructor(latlngs, options) {
+      super();
+      this.latlngs = latlngs;
+      this.options = options;
+    }
   }
   class CircleMarker extends Layer {
-    constructor(latlng, options) { super(); this.latlng = latlng; this.options = options; }
+    constructor(latlng, options) {
+      super();
+      this.latlng = latlng;
+      this.options = options;
+    }
   }
   class Marker extends Layer {
-    constructor(latlng, options) { super(); this.latlng = latlng; this.options = options; }
+    constructor(latlng, options) {
+      super();
+      this.latlng = latlng;
+      this.options = options;
+    }
   }
   class TileLayer {
     // `_url` matches real Leaflet's own TileLayer property name exactly —
     // live.html's cacheCurrentMapArea() reads tileLayerInstance._url
     // directly (see buildTileUrl()'s doc comment for why it can't go
     // through getTileUrl() instead).
-    constructor(urlTemplate, options) { this._url = urlTemplate; this.options = options || {}; this._tileZoom = undefined; }
+    constructor(urlTemplate, options) {
+      this._url = urlTemplate;
+      this.options = options || {};
+      this._tileZoom = undefined;
+    }
     // Minimal subset of Leaflet's real {s}/{z}/{x}/{y}/{r} templating —
     // enough to produce a real-looking basemaps.cartocdn.com URL. This
     // DELIBERATELY reproduces real Leaflet's actual quirk (confirmed
@@ -108,7 +141,12 @@ function makeLeafletMock() {
         .replace('{y}', coords.y)
         .replace('{r}', '');
     }
-    addTo(map) { map._layers.push(this); this._map = map; this._tileZoom = map._zoom; return this; }
+    addTo(map) {
+      map._layers.push(this);
+      this._map = map;
+      this._tileZoom = map._zoom;
+      return this;
+    }
     // Real Leaflet's class-extension mechanism, minimally: a subclass whose
     // instances satisfy `instanceof L.TileLayer` — cacheCurrentMapArea()
     // relies on exactly that to find the active tile layer via eachLayer().
@@ -137,7 +175,9 @@ function makeLeafletMock() {
       // map's current zoom on view changes — see the TileLayer class
       // comment above for why getTileUrl()'s use of that (over the
       // coords.z you pass it) matters.
-      this._layers.forEach((layer) => { if (layer._tileZoom !== undefined) layer._tileZoom = zoom; });
+      this._layers.forEach((layer) => {
+        if (layer._tileZoom !== undefined) layer._tileZoom = zoom;
+      });
       return this;
     }
     panTo(latlng, opts) {
@@ -145,8 +185,12 @@ function makeLeafletMock() {
       this.calls.panTo.push({ latlng, opts });
       return this;
     }
-    getZoom() { return this._zoom; }
-    getCenter() { return this._center; }
+    getZoom() {
+      return this._zoom;
+    }
+    getCenter() {
+      return this._center;
+    }
     // A small fixed-size box around the current center — real enough for
     // cacheCurrentMapArea()'s tile-enumeration math to produce a bounded,
     // deterministic set of tiles without needing real Leaflet's projection.
@@ -157,17 +201,24 @@ function makeLeafletMock() {
         getSouthEast: () => ({ lat: lat - 0.01, lng: lng + 0.01 }),
       };
     }
-    invalidateSize() { this.calls.invalidateSize++; }
-    eachLayer(fn) { this._layers.forEach(fn); }
+    invalidateSize() {
+      this.calls.invalidateSize++;
+    }
+    eachLayer(fn) {
+      this._layers.forEach(fn);
+    }
     removeLayer(layer) {
       const idx = this._layers.indexOf(layer);
       if (idx !== -1) this._layers.splice(idx, 1);
       return this;
     }
-    on(event, handler) { return this; }
+    on(event, handler) {
+      return this;
+    }
   }
 
-  const tileLayerFn = (urlTemplate, options) => new TileLayer(urlTemplate, options);
+  const tileLayerFn = (urlTemplate, options) =>
+    new TileLayer(urlTemplate, options);
   return {
     map: (elementId, options) => new FakeMap(elementId, options),
     tileLayer: tileLayerFn,
@@ -196,8 +247,12 @@ function installCacheStorage(window) {
       this.status = init.status === undefined ? 200 : init.status;
       this.ok = this.status >= 200 && this.status < 300;
     }
-    clone() { return new window.Response(this._body, { status: this.status }); }
-    async blob() { return this._body; }
+    clone() {
+      return new window.Response(this._body, { status: this.status });
+    }
+    async blob() {
+      return this._body;
+    }
   };
 
   const namedStores = new Map();
@@ -206,9 +261,15 @@ function installCacheStorage(window) {
       if (!namedStores.has(name)) namedStores.set(name, new Map());
       const store = namedStores.get(name);
       return {
-        async match(url) { return store.has(url) ? store.get(url) : undefined; },
-        async put(url, response) { store.set(url, response); },
-        async keys() { return [...store.keys()].map((url) => ({ url })); },
+        async match(url) {
+          return store.has(url) ? store.get(url) : undefined;
+        },
+        async put(url, response) {
+          store.set(url, response);
+        },
+        async keys() {
+          return [...store.keys()].map((url) => ({ url }));
+        },
       };
     },
   };
@@ -216,17 +277,32 @@ function installCacheStorage(window) {
   // Default fetch: succeeds instantly with a tiny fake body. Tests that
   // care about network-call counts (e.g. "does re-caching skip tiles it
   // already has") replace window.fetch with their own counting wrapper.
-  window.fetch = async () => new window.Response('fake-tile-bytes', { status: 200 });
+  window.fetch = async () =>
+    new window.Response('fake-tile-bytes', { status: 200 });
 }
 
 function installCanvas2DStub(window) {
   const noop = () => {};
   window.HTMLCanvasElement.prototype.getContext = () => ({
-    setTransform: noop, clearRect: noop, beginPath: noop, closePath: noop,
-    moveTo: noop, lineTo: noop, arc: noop, stroke: noop, fill: noop, fillText: noop,
+    setTransform: noop,
+    clearRect: noop,
+    beginPath: noop,
+    closePath: noop,
+    moveTo: noop,
+    lineTo: noop,
+    arc: noop,
+    stroke: noop,
+    fill: noop,
+    fillText: noop,
     createLinearGradient: () => ({ addColorStop: noop }),
-    save: noop, restore: noop,
-    strokeStyle: '', fillStyle: '', lineWidth: 1, font: '', textAlign: '', textBaseline: '',
+    save: noop,
+    restore: noop,
+    strokeStyle: '',
+    fillStyle: '',
+    lineWidth: 1,
+    font: '',
+    textAlign: '',
+    textBaseline: '',
   });
 }
 
@@ -242,8 +318,14 @@ function installCanvas2DStub(window) {
  */
 async function bootLive({ compact = false } = {}) {
   clearPreviousBoot();
-  const dom = new JSDOM('<!doctype html><html><body><div id="liveRoot"></div></body></html>',
-    { url: 'http://localhost/', runScripts: 'outside-only', pretendToBeVisual: true });
+  const dom = new JSDOM(
+    '<!doctype html><html><body><div id="liveRoot"></div></body></html>',
+    {
+      url: 'http://localhost/',
+      runScripts: 'outside-only',
+      pretendToBeVisual: true,
+    },
+  );
   const window = dom.window;
 
   installMatchMedia(window, { compact });
@@ -255,14 +337,20 @@ async function bootLive({ compact = false } = {}) {
 
   window.navigator.bluetooth = undefined; // present-but-unavailable by default; tests opt in per-case
   window.navigator.geolocation = {
-    getCurrentPosition: (success) => success({ coords: { latitude: 51.5074, longitude: -0.1278 } }),
+    getCurrentPosition: (success) =>
+      success({ coords: { latitude: 51.5074, longitude: -0.1278 } }),
   };
-  window.navigator.wakeLock = { request: async () => ({ released: false, release: async () => {} }) };
+  window.navigator.wakeLock = {
+    request: async () => ({ released: false, release: async () => {} }),
+  };
   window.document.documentElement.requestFullscreen = () => Promise.resolve();
-  window.URL.createObjectURL = window.URL.createObjectURL || (() => 'blob:mock-url');
+  window.URL.createObjectURL =
+    window.URL.createObjectURL || (() => 'blob:mock-url');
   window.URL.revokeObjectURL = window.URL.revokeObjectURL || (() => {});
   window.ResizeObserver = class {
-    constructor(cb) { this._cb = cb; }
+    constructor(cb) {
+      this._cb = cb;
+    }
     observe() {}
     unobserve() {}
     disconnect() {}
@@ -273,13 +361,15 @@ async function bootLive({ compact = false } = {}) {
     window.screen.orientation = {
       type: 'portrait-primary',
       angle: 0,
-      addEventListener: (type, fn) => { if (type === 'change') orientationListeners.push(fn); },
+      addEventListener: (type, fn) => {
+        if (type === 'change') orientationListeners.push(fn);
+      },
       removeEventListener: (type, fn) => {
         const idx = orientationListeners.indexOf(fn);
         if (idx !== -1) orientationListeners.splice(idx, 1);
       },
       dispatchEvent: (e) => {
-        orientationListeners.forEach(fn => fn(e));
+        orientationListeners.forEach((fn) => fn(e));
         return true;
       },
     };

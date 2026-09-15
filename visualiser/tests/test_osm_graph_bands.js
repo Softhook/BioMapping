@@ -1,7 +1,5 @@
-'use strict';
-
 const assert = require('assert');
-const test   = require('node:test');
+const test = require('node:test');
 
 global.GSR_CONST = require('./mock_constants.js');
 global.width = 1000;
@@ -52,33 +50,51 @@ Object.assign(GSRRenderer, require('../src/render/renderer_bands.mjs'));
 const { AppState } = require('../src/core/app_state.mjs');
 
 test('OSM classification reuses MapColors road/park colours (no separate palette)', () => {
-  const primary = GSRRenderer._classifyOsmContext({ osm_road_class: 'primary', osm_in_park: 0 });
+  const primary = GSRRenderer._classifyOsmContext({
+    osm_road_class: 'primary',
+    osm_in_park: 0,
+  });
   assert.ok(primary);
   assert.strictEqual(primary.key, 'primary');
   assert.strictEqual(primary.label, 'PRIMARY');
   assert.strictEqual(primary.color, MapColors.ROAD_COLORS.primary);
 
-  const secondary = GSRRenderer._classifyOsmContext({ osm_road_class: 'secondary' });
+  const secondary = GSRRenderer._classifyOsmContext({
+    osm_road_class: 'secondary',
+  });
   assert.ok(secondary);
   assert.strictEqual(secondary.color, MapColors.ROAD_COLORS.secondary);
 
-  const park = GSRRenderer._classifyOsmContext({ osm_road_class: null, osm_in_park: 1 });
+  const park = GSRRenderer._classifyOsmContext({
+    osm_road_class: null,
+    osm_in_park: 1,
+  });
   assert.ok(park);
   assert.strictEqual(park.key, 'park');
   assert.strictEqual(park.label, 'PARK');
-  assert.strictEqual(park.color, MapColors.getColorForMetric('inPark', 1, 0, 1));
+  assert.strictEqual(
+    park.color,
+    MapColors.getColorForMetric('inPark', 1, 0, 1),
+  );
 
-  const residential = GSRRenderer._classifyOsmContext({ osm_road_class: 'residential' });
+  const residential = GSRRenderer._classifyOsmContext({
+    osm_road_class: 'residential',
+  });
   assert.ok(residential);
   assert.strictEqual(residential.label, 'RESIDENTIAL');
   assert.strictEqual(residential.color, MapColors.ROAD_COLORS.residential);
 
-  const footway = GSRRenderer._classifyOsmContext({ osm_road_class: 'footway', osm_in_park: 0 });
+  const footway = GSRRenderer._classifyOsmContext({
+    osm_road_class: 'footway',
+    osm_in_park: 0,
+  });
   assert.ok(footway);
   assert.strictEqual(footway.color, MapColors.ROAD_COLORS.footway);
 
   // Unmapped/link tags fall back to the same grey the map uses, not a crash.
-  const link = GSRRenderer._classifyOsmContext({ osm_road_class: 'motorway_link' });
+  const link = GSRRenderer._classifyOsmContext({
+    osm_road_class: 'motorway_link',
+  });
   assert.ok(link);
   assert.strictEqual(link.label, 'MOTORWAY LINK');
   assert.strictEqual(link.color, '#666666');
@@ -89,12 +105,18 @@ test('OSM classification reuses MapColors road/park colours (no separate palette
 test('Precedence: vehicular road beats park, but park beats a bare pedestrian path', () => {
   // A primary road running through a park is still traffic exposure — it
   // must read as the road, not get hidden behind "park".
-  const crossedRoad = GSRRenderer._classifyOsmContext({ osm_road_class: 'primary', osm_in_park: 1 });
+  const crossedRoad = GSRRenderer._classifyOsmContext({
+    osm_road_class: 'primary',
+    osm_in_park: 1,
+  });
   assert.ok(crossedRoad);
   assert.strictEqual(crossedRoad.key, 'primary');
 
   // A residential street through a park is still vehicular — same precedence.
-  const residentialInPark = GSRRenderer._classifyOsmContext({ osm_road_class: 'residential', osm_in_park: 1 });
+  const residentialInPark = GSRRenderer._classifyOsmContext({
+    osm_road_class: 'residential',
+    osm_in_park: 1,
+  });
   assert.strictEqual(residentialInPark.key, 'residential');
 
   // The case this whole precedence exists for: a footpath *inside* a park
@@ -102,21 +124,43 @@ test('Precedence: vehicular road beats park, but park beats a bare pedestrian pa
   // collapse into the same generic "footway" colour a path on a grey urban
   // plaza would get. Losing the park signal here would make it nearly
   // invisible, since a walk through a park is rarely on grass the whole way.
-  const footwayInPark = GSRRenderer._classifyOsmContext({ osm_road_class: 'footway', osm_in_park: 1 });
+  const footwayInPark = GSRRenderer._classifyOsmContext({
+    osm_road_class: 'footway',
+    osm_in_park: 1,
+  });
   assert.ok(footwayInPark);
   assert.strictEqual(footwayInPark.key, 'park');
-  assert.strictEqual(footwayInPark.color, MapColors.getColorForMetric('inPark', 1, 0, 1));
+  assert.strictEqual(
+    footwayInPark.color,
+    MapColors.getColorForMetric('inPark', 1, 0, 1),
+  );
 
   // Same for a cycleway or path inside a park.
-  assert.strictEqual(GSRRenderer._classifyOsmContext({ osm_road_class: 'cycleway', osm_in_park: 1 }).key, 'park');
-  assert.strictEqual(GSRRenderer._classifyOsmContext({ osm_road_class: 'path', osm_in_park: 1 }).key, 'park');
+  assert.strictEqual(
+    GSRRenderer._classifyOsmContext({
+      osm_road_class: 'cycleway',
+      osm_in_park: 1,
+    }).key,
+    'park',
+  );
+  assert.strictEqual(
+    GSRRenderer._classifyOsmContext({ osm_road_class: 'path', osm_in_park: 1 })
+      .key,
+    'park',
+  );
 
   // The same footway tag *outside* a park still reads as footway.
-  const footwayOutsidePark = GSRRenderer._classifyOsmContext({ osm_road_class: 'footway', osm_in_park: 0 });
+  const footwayOutsidePark = GSRRenderer._classifyOsmContext({
+    osm_road_class: 'footway',
+    osm_in_park: 0,
+  });
   assert.strictEqual(footwayOutsidePark.key, 'footway');
 
   // No road_class at all, but in a park -> park.
-  const parkOnly = GSRRenderer._classifyOsmContext({ osm_road_class: null, osm_in_park: 1 });
+  const parkOnly = GSRRenderer._classifyOsmContext({
+    osm_road_class: null,
+    osm_in_park: 1,
+  });
   assert.strictEqual(parkOnly.key, 'park');
 });
 
@@ -131,31 +175,41 @@ test('Park edge tolerance: a footpath just outside the park polygon still reads 
   const T = GSRRenderer.PARK_EDGE_TOLERANCE_M;
 
   const justOutside = GSRRenderer._classifyOsmContext({
-    osm_road_class: 'footway', osm_in_park: 0, osm_dist_green: T - 1
+    osm_road_class: 'footway',
+    osm_in_park: 0,
+    osm_dist_green: T - 1,
   });
   assert.strictEqual(justOutside.key, 'park');
 
   const atTolerance = GSRRenderer._classifyOsmContext({
-    osm_road_class: 'footway', osm_in_park: 0, osm_dist_green: T
+    osm_road_class: 'footway',
+    osm_in_park: 0,
+    osm_dist_green: T,
   });
   assert.strictEqual(atTolerance.key, 'park');
 
   // Beyond the tolerance, it's genuinely a different place — reads as footway.
   const wellOutside = GSRRenderer._classifyOsmContext({
-    osm_road_class: 'footway', osm_in_park: 0, osm_dist_green: T + 20
+    osm_road_class: 'footway',
+    osm_in_park: 0,
+    osm_dist_green: T + 20,
   });
   assert.strictEqual(wellOutside.key, 'footway');
 
   // The 999 "no green space within search radius" sentinel must never be
   // mistaken for "999m away, still close enough" — it means none was found.
   const noGreenNearby = GSRRenderer._classifyOsmContext({
-    osm_road_class: 'footway', osm_in_park: 0, osm_dist_green: 999
+    osm_road_class: 'footway',
+    osm_in_park: 0,
+    osm_dist_green: 999,
   });
   assert.strictEqual(noGreenNearby.key, 'footway');
 
   // A vehicular road still wins even at zero distance from green space.
   const roadAtParkEdge = GSRRenderer._classifyOsmContext({
-    osm_road_class: 'primary', osm_in_park: 0, osm_dist_green: 0
+    osm_road_class: 'primary',
+    osm_in_park: 0,
+    osm_dist_green: 0,
   });
   assert.strictEqual(roadAtParkEdge.key, 'primary');
 });
@@ -172,7 +226,8 @@ test('drawOsmContextBands generates run-length encoded segments and draws rects'
   const raw = [];
   for (let i = 0; i <= 100; i++) {
     const t = i * 0.1;
-    let rc = 'footway', inPark = 0;
+    let rc = 'footway',
+      inPark = 0;
     if (t >= 3.0 && t < 5.0) {
       rc = 'primary';
     } else if (t >= 5.0 && t < 8.0) {
@@ -188,21 +243,28 @@ test('drawOsmContextBands generates run-length encoded segments and draws rects'
     raw,
     findClosestIndex(t) {
       return Math.max(0, Math.min(raw.length - 1, Math.round(t * 10)));
-    }
+    },
   };
 
   GSRRenderer.drawOsmContextBands(0, 10, 50, 400);
 
   // We expect 4 distinct segments (footway, primary, park, residential)
-  assert.strictEqual(rectCalls.length, 4, 'Should draw 4 contiguous rectangles');
+  assert.strictEqual(
+    rectCalls.length,
+    4,
+    'Should draw 4 contiguous rectangles',
+  );
 
   // Verify Y dimensions are consistent
-  rectCalls.forEach(r => {
+  rectCalls.forEach((r) => {
     assert.strictEqual(r.y, 50);
     assert.strictEqual(r.h, 350);
     assert.ok(r.w > 0);
   });
 
   // Verify that major road crossing generated vertical boundary lines
-  assert.ok(lineCalls.length > 0, 'Should have drawn boundary lines for road crossing / park edges');
+  assert.ok(
+    lineCalls.length > 0,
+    'Should have drawn boundary lines for road crossing / park edges',
+  );
 });

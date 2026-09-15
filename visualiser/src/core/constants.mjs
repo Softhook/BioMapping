@@ -6,21 +6,20 @@
 import { ResponseDynamics } from '../signal/response_dynamics.mjs';
 
 export const GSR_CONST = {
-
   // ── Graph layout (p5.js canvas) ──────────────────────────────────────────
   MARGIN: { top: 22, bottom: 10, left: 70, right: 35, gap: 40 },
 
-  TIMELINE_HEIGHT: 22,      // Overview timeline bar height (px)
-  TIMELINE_GAP: 12,         // Gap between main graph and timeline (px)
+  TIMELINE_HEIGHT: 22, // Overview timeline bar height (px)
+  TIMELINE_GAP: 12, // Gap between main graph and timeline (px)
 
-  ZOOM_MIN: 1.0,            // Minimum zoom factor (full view)
-  ZOOM_MAX: 50.0,           // Maximum zoom factor
-  ZOOM_MIN_DURATION: 2.0,   // Shortest viewport duration (seconds)
-  DRAW_MAX_VERTICES: 1500,  // Max vertices before sub-sampling curves
-  SPLINE_THRESHOLD: 600,    // Below this count use spline, else linear
+  ZOOM_MIN: 1.0, // Minimum zoom factor (full view)
+  ZOOM_MAX: 50.0, // Maximum zoom factor
+  ZOOM_MIN_DURATION: 2.0, // Shortest viewport duration (seconds)
+  DRAW_MAX_VERTICES: 1500, // Max vertices before sub-sampling curves
+  SPLINE_THRESHOLD: 600, // Below this count use spline, else linear
 
   // ── Contour / collective surface ─────────────────────────────────────────
-  CONTOUR_MAX_POINTS: 20000,   // Target max points for IDW interpolation
+  CONTOUR_MAX_POINTS: 20000, // Target max points for IDW interpolation
 
   // ── GPS filter defaults ──────────────────────────────────────────────────
   // NOTE: maxHdop here (3.0) is a post-processing analysis filter. The firmware
@@ -33,7 +32,14 @@ export const GSR_CONST = {
   // "Recommended: 1-3s" help text in index.html). This used to say 0 here,
   // silently disagreeing with the shipped UI default of 2.0.
   GPS_DEFAULT: {
-    smoothing: 0.5, kalmanR: 10, maxHdop: 3.0, maxSpeed: 3.0, rdpTolerance: 0, downsample: false, trackWeight: 5, peakLatency: 2.0
+    smoothing: 0.5,
+    kalmanR: 10,
+    maxHdop: 3.0,
+    maxSpeed: 3.0,
+    rdpTolerance: 0,
+    downsample: false,
+    trackWeight: 5,
+    peakLatency: 2.0,
   },
 
   // ── GSR filter defaults ──────────────────────────────────────────────────
@@ -54,7 +60,9 @@ export const GSR_CONST = {
     // (GSR_CONST.GAIT_FILTER) specifically tuned to reject ~1.4-2.0Hz walking-gait
     // artefacts without ringing or genuine SCR peak amplitude loss.
     useGaitFilter: true,
-    tonicMethod: 'lpf', tonicWindow: 45, peakThreshold: 0.045,
+    tonicMethod: 'lpf',
+    tonicWindow: 45,
+    peakThreshold: 0.045,
     shapeMinSnr: 2.5,
     minPeakQuality: 0.0,
     peakDensityWindow: 30,
@@ -62,7 +70,7 @@ export const GSR_CONST = {
     useDeconvolution: false,
     useSparsEDA: false,
     usePeakProminence: false,
-    useCvxEDA: false
+    useCvxEDA: false,
   },
 
   // ── Gait low-pass filter (useGaitFilter toggle) ──────────────────────────
@@ -88,8 +96,8 @@ export const GSR_CONST = {
   // this.phasic and feeds all downstream continuous metrics (AUC, temporal
   // density, arousal index).
   SCRF: {
-    tauSlow: 2.0,       // Decay (slow) time constant (s) — Benedek & Kaernbach Table 1
-    tauFast: 0.75,      // Rise (fast) time constant (s)
+    tauSlow: 2.0, // Decay (slow) time constant (s) — Benedek & Kaernbach Table 1
+    tauFast: 0.75, // Rise (fast) time constant (s)
     // Kernel duration (s). Was 5.0 ("<8% residual at 5s" — that figure was
     // wrong; verified analytically, the kernel is still at ~24% of its peak
     // height and ~13% of its total mass is truncated at a 5s cutoff with
@@ -109,7 +117,7 @@ export const GSR_CONST = {
     // indication anything was cut short — always check `iterations` in the
     // return value against maxIter if tuning this further.
     maxIter: 2000,
-    lr: 1.0,            // Atom amplitude scale (1.0 = full subtraction)
+    lr: 1.0, // Atom amplitude scale (1.0 = full subtraction)
     // Stop when residual max < this (µS). MUST stay below impulseThreshold —
     // matching pursuit quits as soon as the residual drops below convTol, so
     // if convTol were >= impulseThreshold (as it briefly was: 0.01 vs 0.005)
@@ -122,8 +130,8 @@ export const GSR_CONST = {
     // so genuine impulses right at the threshold aren't clipped by residual
     // noise sitting near the boundary.
     convTol: 0.002,
-    impulseThreshold: 0.005,  // Min driver amplitude for an impulse (µS)
-    minImpulseGapSec: 0.5,    // Min gap between impulses (s)
+    impulseThreshold: 0.005, // Min driver amplitude for an impulse (µS)
+    minImpulseGapSec: 0.5, // Min gap between impulses (s)
     // cvxEDA-specific overrides for the same driver-candidate scan, tuned
     // separately from matching-pursuit's values above (2026-09-12 sweep,
     // see eda_detection_benchmark.md item 20 — tools/sweep_cvxeda_driver.js):
@@ -160,7 +168,7 @@ export const GSR_CONST = {
     sparsedaRho: 0.0,
     sparsedaImpulseThreshold: 0.005,
     sparsedaApexSearchHalfWinSec: 0.5,
-    deconvAlgorithm: 'matching_pursuit' // 'sparseda' | 'matching_pursuit' | 'cvxeda'
+    deconvAlgorithm: 'matching_pursuit', // 'sparseda' | 'matching_pursuit' | 'cvxeda'
   },
 
   // ── cvxEDA Convex Optimization Decomposition (Greco, Citi et al., 2016) ─
@@ -170,26 +178,37 @@ export const GSR_CONST = {
   // interior-point method — with a direct banded/Schur factor for each
   // Newton step's KKT system.
   CVXEDA: {
-    tauSlow: 2.0,       // Bateman slow decay τ (s) — reference default tau0
-    tauFast: 0.7,       // Bateman fast rise τ (s) — reference default tau1 (Greco et al. 2016 / NeuroKit)
+    tauSlow: 2.0, // Bateman slow decay τ (s) — reference default tau0
+    tauFast: 0.7, // Bateman fast rise τ (s) — reference default tau1 (Greco et al. 2016 / NeuroKit)
     deltaKnotSec: 10.0, // Tonic cubic B-spline knot spacing (s)
     // L1 weight on the driver. The paper quotes α ≈ 8e-4 at 25 Hz; BioMapping
     // samples at 10 Hz, where the same inter-event sparsity needs a
     // proportionally stronger penalty (≈ 8e-4 · 25/10). Raise it to merge
     // fewer ripples, lower it to keep more small SCRs.
     alpha: 2e-3,
-    gamma: 1e-2,        // L2 weight on tonic spline smoothness
-    maxIter: 50,        // Newton iteration cap. Real tracks converge in ~10-25;
-                        // this is headroom, not a tuning knob.
-    tol: 1e-10,         // Duality-gap (μ) convergence threshold, analogous to
-                        // CVXOPT's reltol.
+    gamma: 1e-2, // L2 weight on tonic spline smoothness
+    maxIter: 50, // Newton iteration cap. Real tracks converge in ~10-25;
+    // this is headroom, not a tuning knob.
+    tol: 1e-10, // Duality-gap (μ) convergence threshold, analogous to
+    // CVXOPT's reltol.
   },
 
   // ── CSV parsing keywords ─────────────────────────────────────────────────
   // NOTE: bare 't' was removed — it false-matched lat, alt, sats, fix_type,
   // speed_kts. 'timestamp' and 'time' already cover all common time columns.
   TIME_KEYWORDS: ['time', 'sec', 'timestamp', 'millis', 'ms'],
-  GSR_KEYWORDS: ['gsr', 'eda', 'conductance', 'resistance', 'res', 'us', 'raw', 'micro', 'ohms', 'val'],
+  GSR_KEYWORDS: [
+    'gsr',
+    'eda',
+    'conductance',
+    'resistance',
+    'res',
+    'us',
+    'raw',
+    'micro',
+    'ohms',
+    'val',
+  ],
 
   // Canonical CSV columns mirroring docs/csv_schema.md
   CSV_COLUMNS: [
@@ -203,12 +222,12 @@ export const GSR_CONST = {
     'speed_kts',
     'course_deg',
     'gsr_raw',
-    'hacc_m'
+    'hacc_m',
   ],
 
   // ── Unit conversion thresholds ──────────────────────────────────────────
-  RESISTANCE_MIN_AVG: 50000,  // Average above this → resistance (Ohms)
-  MICROSIEMENS_MIN_AVG: 100,  // Average above this but ≤ threshold → µS/1000
+  RESISTANCE_MIN_AVG: 50000, // Average above this → resistance (Ohms)
+  MICROSIEMENS_MIN_AVG: 100, // Average above this but ≤ threshold → µS/1000
   MICROSIEMENS_MAX_AVG: 50000,
   // Hard ceiling for a single SCR amplitude, used by the prominence detector's
   // artefact guard (see _prominenceNMS). Real SCRs in even the most
@@ -233,7 +252,7 @@ export const GSR_CONST = {
   // bursts). Lower it further for maximum sensitivity; raise it for a
   // stricter NS-SCR census.
   PEAK_MIN_GAP: 1.3,
-  PEAK_RECOVERY_BREAK: 0.1,   // Break threshold for recovery search
+  PEAK_RECOVERY_BREAK: 0.1, // Break threshold for recovery search
   // Prominence detector (_prominenceNMS, GSR_DEFAULT.usePeakProminence): trailing
   // window (s) over which the phasic minimum is taken for the artefact-ceiling
   // baseline-amplitude check. Long enough to see under a stacked burst of SCRs
@@ -253,17 +272,18 @@ export const GSR_CONST = {
   // (_computePeakQuality), whose own ideal-range breakpoints are inline
   // literals, not these constants.
   PEAK_SHAPE: {
-    MAX_RISE_TIME: 4.0,          // Max onset→peak (s) — onset walk-back search bound
-    MIN_SNR: 1.5,               // Min signal-to-noise ratio fallback — matches GSR_DEFAULT.shapeMinSnr
-    QUALITY_WEIGHTS: {           // For composite quality score (0–1)
-      amplitude: 0.20,           // Higher amplitude = more confident
-      riseTime: 0.15,            // Rise time in ideal range
-      recoveryTime: 0.15,        // Recovery time in ideal range
-      skewness: 0.15,            // Fast rise, slow recovery = classic SCR shape
-      onsetSlope: 0.10,          // Steepness of rise
-      snr: 0.15,                // Signal-to-noise ratio
-      decaySlope: 0.10           // Recovery must be present
-    }
+    MAX_RISE_TIME: 4.0, // Max onset→peak (s) — onset walk-back search bound
+    MIN_SNR: 1.5, // Min signal-to-noise ratio fallback — matches GSR_DEFAULT.shapeMinSnr
+    QUALITY_WEIGHTS: {
+      // For composite quality score (0–1)
+      amplitude: 0.2, // Higher amplitude = more confident
+      riseTime: 0.15, // Rise time in ideal range
+      recoveryTime: 0.15, // Recovery time in ideal range
+      skewness: 0.15, // Fast rise, slow recovery = classic SCR shape
+      onsetSlope: 0.1, // Steepness of rise
+      snr: 0.15, // Signal-to-noise ratio
+      decaySlope: 0.1, // Recovery must be present
+    },
   },
 
   // ── Graph view metric definitions ───────────────────────────────────────
@@ -277,26 +297,42 @@ export const GSR_CONST = {
   // a graph view — the map/globe still colour by it.)
   LOWER_GRAPH_MODES: {
     tonic: {
-      label: 'Tonic (SCL)', unit: 'μS', decimals: 4,
-      colorVar: '--color-tonic', colorDefault: '#a30091',
-      showPeakOverlay: false, allowNegative: false
+      label: 'Tonic (SCL)',
+      unit: 'μS',
+      decimals: 4,
+      colorVar: '--color-tonic',
+      colorDefault: '#a30091',
+      showPeakOverlay: false,
+      allowNegative: false,
     },
     phasic: {
-      label: 'Phasic (SCR)', unit: 'μS', decimals: 4,
-      colorVar: '--color-phasic', colorDefault: '#008f3c',
-      showPeakOverlay: true, allowNegative: false
+      label: 'Phasic (SCR)',
+      unit: 'μS',
+      decimals: 4,
+      colorVar: '--color-phasic',
+      colorDefault: '#008f3c',
+      showPeakOverlay: true,
+      allowNegative: false,
     },
     peakDensity: {
-      label: 'Peak Density (NS-SCR)', unit: '/min', decimals: 1,
-      colorVar: '--color-peak-density', colorDefault: '#e59e00',
-      showPeakOverlay: false, allowNegative: false
+      label: 'Peak Density (NS-SCR)',
+      unit: '/min',
+      decimals: 1,
+      colorVar: '--color-peak-density',
+      colorDefault: '#e59e00',
+      showPeakOverlay: false,
+      allowNegative: false,
     },
     phasicAUC: {
       // Base label; ' (ISCR)' is appended at render time when the series
       // integrated the deconvolved driver (analyzer.phasicAUCIsISCR).
-      label: 'Phasic AUC', unit: 'μS·s', decimals: 3,
-      colorVar: '--color-phasic-auc', colorDefault: '#0099aa',
-      showPeakOverlay: false, allowNegative: false
+      label: 'Phasic AUC',
+      unit: 'μS·s',
+      decimals: 3,
+      colorVar: '--color-phasic-auc',
+      colorDefault: '#0099aa',
+      showPeakOverlay: false,
+      allowNegative: false,
     },
     // The sparse sudomotor driver (analyzer.phasicDriver) — the burst signal
     // the deconvolution / cvxEDA models recover *before* the SCRF shape smears
@@ -316,19 +352,31 @@ export const GSR_CONST = {
     // from analyzer._driverAlgorithm at draw time rather than trusting this
     // static value blindly.
     phasicDriver: {
-      label: 'Sudomotor Driver (ISCR)', unit: 'μS', decimals: 4,
-      colorVar: '--color-phasic-driver', colorDefault: '#c2410c',
-      showPeakOverlay: false, allowNegative: false
+      label: 'Sudomotor Driver (ISCR)',
+      unit: 'μS',
+      decimals: 4,
+      colorVar: '--color-phasic-driver',
+      colorDefault: '#c2410c',
+      showPeakOverlay: false,
+      allowNegative: false,
     },
     arousalIndex: {
-      label: 'Combined Arousal Index', unit: 'z', decimals: 2,
-      colorVar: '--color-arousal-index', colorDefault: '#7b00cc',
-      showPeakOverlay: false, allowNegative: true
+      label: 'Combined Arousal Index',
+      unit: 'z',
+      decimals: 2,
+      colorVar: '--color-arousal-index',
+      colorDefault: '#7b00cc',
+      showPeakOverlay: false,
+      allowNegative: true,
     },
     triIndex: {
-      label: 'Tri Index', unit: 'z', decimals: 2,
-      colorVar: '--color-tri-index', colorDefault: '#6366f1',
-      showPeakOverlay: false, allowNegative: true
+      label: 'Tri Index',
+      unit: 'z',
+      decimals: 2,
+      colorVar: '--color-tri-index',
+      colorDefault: '#6366f1',
+      showPeakOverlay: false,
+      allowNegative: true,
     },
     // EDASymp (0.045–0.25 Hz) spectral sympathetic index — Posada-Quintero &
     // Chon (2016), NeuroKit2's nk.eda_sympathetic('posada2016'). A standalone
@@ -337,30 +385,39 @@ export const GSR_CONST = {
     // the filter/detector sliders — see
     // docs/edasymp_spectral_investigation_proposal.md.
     edasymp: {
-      label: 'EDASymp', unit: 'μS²', decimals: 4,
-      colorVar: '--color-edasymp', colorDefault: '#0e7490',
-      showPeakOverlay: false, allowNegative: false
+      label: 'EDASymp',
+      unit: 'μS²',
+      decimals: 4,
+      colorVar: '--color-edasymp',
+      colorDefault: '#0e7490',
+      showPeakOverlay: false,
+      allowNegative: false,
     },
     // SparsEDA Response Dynamics — Phasic SCR amplitude colored by autonomic response speed.
     // Height represents Phasic amplitude (μS); colour indicates multi-scale dilation speed (0.50x to 1.50x).
     responseDynamics: {
-      label: 'Response Dynamics (Speed)', unit: 'μS', decimals: 3,
-      colorVar: '--color-response-dynamics', colorDefault: '#f97316',
-      showPeakOverlay: true, allowNegative: false
-    }
+      label: 'Response Dynamics (Speed)',
+      unit: 'μS',
+      decimals: 3,
+      colorVar: '--color-response-dynamics',
+      colorDefault: '#f97316',
+      showPeakOverlay: true,
+      allowNegative: false,
+    },
   },
 
   // Color mapping for SparsEDA multi-scale speed categories across UI, graph, and map.
   // Defined canonically in ResponseDynamics (src/signal/response_dynamics.js).
-  SPARSEDA_SPEED_COLORS: (typeof ResponseDynamics !== 'undefined' && ResponseDynamics.SPEED_COLORS)
-    ? ResponseDynamics.SPEED_COLORS
-    : {
-      'Very Fast': '#ef4444', // 1.5x (Vivid Red / Acute shock)
-      'Fast':      '#f97316', // 1.25x (Vibrant Orange)
-      'Standard':  '#10b981', // 1.0x (Emerald Green / Habitual)
-      'Slow':      '#3b82f6', // 0.75x (Vivid Blue)
-      'Very Slow': '#8b5cf6'  // 0.5x (Deep Purple / Lingering tension)
-    },
+  SPARSEDA_SPEED_COLORS:
+    typeof ResponseDynamics !== 'undefined' && ResponseDynamics.SPEED_COLORS
+      ? ResponseDynamics.SPEED_COLORS
+      : {
+          'Very Fast': '#ef4444', // 1.5x (Vivid Red / Acute shock)
+          Fast: '#f97316', // 1.25x (Vibrant Orange)
+          Standard: '#10b981', // 1.0x (Emerald Green / Habitual)
+          Slow: '#3b82f6', // 0.75x (Vivid Blue)
+          'Very Slow': '#8b5cf6', // 0.5x (Deep Purple / Lingering tension)
+        },
 
   // Display unit for the 'phasicDriver' graph view, keyed by
   // analyzer._driverAlgorithm — the two detectors' "driver" arrays are not
@@ -382,32 +439,53 @@ export const GSR_CONST = {
   // τ_fast=0.7 / τ_slow=2.0 — see docs/eda_decomposition_analysis.md).
   DRIVER_UNIT_BY_ALGORITHM: {
     sparseda: {
-      unit: 'μS', decimals: 4,
-      gridSteps: [[0.05, 0.005], [0.15, 0.01], [0.5, 0.05], [1.5, 0.1]], gridDefaultStep: 0.5
+      unit: 'μS',
+      decimals: 4,
+      gridSteps: [
+        [0.05, 0.005],
+        [0.15, 0.01],
+        [0.5, 0.05],
+        [1.5, 0.1],
+      ],
+      gridDefaultStep: 0.5,
     },
     matching_pursuit: {
-      unit: 'μS', decimals: 4,
-      gridSteps: [[0.05, 0.005], [0.15, 0.01], [0.5, 0.05], [1.5, 0.1]], gridDefaultStep: 0.5
+      unit: 'μS',
+      decimals: 4,
+      gridSteps: [
+        [0.05, 0.005],
+        [0.15, 0.01],
+        [0.5, 0.05],
+        [1.5, 0.1],
+      ],
+      gridDefaultStep: 0.5,
     },
     cvxeda: {
-      unit: 'μS/s', decimals: 2,
-      gridSteps: [[1, 0.1], [4, 0.5], [12, 1], [40, 5]], gridDefaultStep: 10
-    }
+      unit: 'μS/s',
+      decimals: 2,
+      gridSteps: [
+        [1, 0.1],
+        [4, 0.5],
+        [12, 1],
+        [40, 5],
+      ],
+      gridDefaultStep: 10,
+    },
   },
 
   // ── Composite Arousal Indices defaults ──────────────────────────────────
   AROUSAL_INDEX: {
     wTonic: 0.3,
     wPhasic: 0.7,
-    windowAucSec: 30
+    windowAucSec: 30,
   },
 
   TRI_INDEX: {
-    wTonic: 0.10,
+    wTonic: 0.1,
     wPhasic: 0.45,
     wDensity: 0.45,
     windowAucSec: 30,
-    windowDensitySec: 60
+    windowDensitySec: 60,
   },
 
   // ── EDASymp spectral sympathetic index ───────────────────────────────────
@@ -418,19 +496,19 @@ export const GSR_CONST = {
   // gradients without the 32 s coarseness of Welch's own 50 % overlap).
   EDASYMP: {
     windowSec: 64,
-    hopSec: 5
+    hopSec: 5,
   },
 
   // ── Topography source definitions ───────────────────────────────────────
   TOPOGRAPHY_SOURCES: {
-    phasic:        { label: 'Phasic Arousal', unit: ' μS' },
-    tonic:         { label: 'Tonic Baseline (SCL)', unit: ' μS' },
-    peaks:         { label: 'Peak Stress Hotspots', unit: '' },
-    auc:           { label: 'Phasic AUC (ISCR)', unit: ' μS·s' },
+    phasic: { label: 'Phasic Arousal', unit: ' μS' },
+    tonic: { label: 'Tonic Baseline (SCL)', unit: ' μS' },
+    peaks: { label: 'Peak Stress Hotspots', unit: '' },
+    auc: { label: 'Phasic AUC (ISCR)', unit: ' μS·s' },
     arousal_index: { label: 'Combined Arousal Index', unit: ' z' },
-    tri_index:     { label: 'Tri Index', unit: ' z' },
-    gsr:           { label: 'GSR Signal', unit: ' μS' },
-    peak_density:  { label: 'Peak Density', unit: ' /min' }
+    tri_index: { label: 'Tri Index', unit: ' z' },
+    gsr: { label: 'GSR Signal', unit: ' μS' },
+    peak_density: { label: 'Peak Density', unit: ' /min' },
   },
 
   // ── Continuous temporal peak-density Gaussian KDE ────────────────────────
@@ -439,10 +517,10 @@ export const GSR_CONST = {
   // bandwidth sigma is scaled directly from the nominal spotlight window width:
   // sigma = windowSizeSec * sigmaRatio (e.g. 30s * 0.25 = 7.5s).
   TEMPORAL_PEAK_DENSITY: {
-    windowSizeSec: 30,       // Spotlight window width in seconds (fixed; no longer slider-adjustable)
-    sigmaRatio: 0.25,        // Bandwidth ratio (sigma = W * 0.25, encompassing 95.4% of mass in ±W/2)
-    cutoffMultiplier: 3.5,   // Bounding window in units of sigma (±3.5*sigma captures >99.95% of kernel mass)
-    scaleToPerMinute: 60.0   // Multiplier to express density in standard peaks/minute
+    windowSizeSec: 30, // Spotlight window width in seconds (fixed; no longer slider-adjustable)
+    sigmaRatio: 0.25, // Bandwidth ratio (sigma = W * 0.25, encompassing 95.4% of mass in ±W/2)
+    cutoffMultiplier: 3.5, // Bounding window in units of sigma (±3.5*sigma captures >99.95% of kernel mass)
+    scaleToPerMinute: 60.0, // Multiplier to express density in standard peaks/minute
   },
 
   // ── Spatial peak-density KDE ─────────────────────────────────────────────
@@ -455,9 +533,9 @@ export const GSR_CONST = {
   // so the two "actual peaks" map views could disagree on where/how intense
   // the hot spots were for identical underlying data. Both now read from here.
   PEAK_KDE: {
-    sigma: 15,          // default kernel width in meters; the blob UI's sigma (boundaryRadius * 0.83) overrides this per-render
-    ampWeightMin: 0.55,  // floor so a below-average peak still contributes, never vanishes
-    ampWeightMax: 3.0    // ceiling so one extreme outlier can't blow out the whole field
+    sigma: 15, // default kernel width in meters; the blob UI's sigma (boundaryRadius * 0.83) overrides this per-render
+    ampWeightMin: 0.55, // floor so a below-average peak still contributes, never vanishes
+    ampWeightMax: 3.0, // ceiling so one extreme outlier can't blow out the whole field
   },
 
   // ── Arousal Places ──────────────────────────────────────────────────────
@@ -469,22 +547,22 @@ export const GSR_CONST = {
   // and maxPlaces (#maxArousalPlaces) are the two UI sliders;
   // everything else is derived or fixed.
   AROUSAL_PLACES: {
-    mergeM: 35,               // default grouping radius in metres (compactClusters leader radius)
-    minMergeM: 10,            // slider bounds
+    mergeM: 35, // default grouping radius in metres (compactClusters leader radius)
+    minMergeM: 10, // slider bounds
     maxMergeM: 120,
-    minPlaces: 1,             // slider bounds
+    minPlaces: 1, // slider bounds
     maxPlacesLimit: 50,
-    seedSeparationFactor: 1.8,// compactClusters: two place centres must be >= this * mergeM apart;
-                              // peaks in the mergeM..(this*mergeM) ring are absorbed by the nearest
-                              // existing place rather than seeding an overlapping neighbour
-    drawGapFactor: 0.46,     // _renderArousalPlaces: a place's drawn outline is capped at this *
-                              // (distance to its nearest neighbour), so two footprints can kiss
-                              // but never overlap (belt-and-braces on top of seedSeparationFactor)
-    footprintPadM: 10,        // per-member-peak dwell footprint radius = mergeM/2 + this
-    dwellFloorS: 5,           // floor on dwell seconds so a near-zero dwell can't blow up the rate
-    provisionalMaxTracks: 1,  // collective: a place with <= this many contributing walks renders faint/dashed
-    minMembers: 3,            // drop single-walk clusters smaller than this (kept if >=2 walks agree)
-    maxPlaces: 20             // cap the map to the top-N places by rate
+    seedSeparationFactor: 1.8, // compactClusters: two place centres must be >= this * mergeM apart;
+    // peaks in the mergeM..(this*mergeM) ring are absorbed by the nearest
+    // existing place rather than seeding an overlapping neighbour
+    drawGapFactor: 0.46, // _renderArousalPlaces: a place's drawn outline is capped at this *
+    // (distance to its nearest neighbour), so two footprints can kiss
+    // but never overlap (belt-and-braces on top of seedSeparationFactor)
+    footprintPadM: 10, // per-member-peak dwell footprint radius = mergeM/2 + this
+    dwellFloorS: 5, // floor on dwell seconds so a near-zero dwell can't blow up the rate
+    provisionalMaxTracks: 1, // collective: a place with <= this many contributing walks renders faint/dashed
+    minMembers: 3, // drop single-walk clusters smaller than this (kept if >=2 walks agree)
+    maxPlaces: 20, // cap the map to the top-N places by rate
   },
 
   // ── Overlap-aware path colour ─────────────────────────────────────────
@@ -495,9 +573,9 @@ export const GSR_CONST = {
   // it scales with both the track-width slider and the zoom level.
   // See docs/dwell_time_spec.md.
   PATH_OVERLAP: {
-    widthFactor: 1.0,   // overlap radius = trackWeight(px) * metresPerPixel * this
-    maxRadiusM: 60,     // safety cap when zoomed right out (huge radii get slow + meaningless)
-    revisitGapS: 15     // nearby points more than this far apart in time = a distinct visit
+    widthFactor: 1.0, // overlap radius = trackWeight(px) * metresPerPixel * this
+    maxRadiusM: 60, // safety cap when zoomed right out (huge radii get slow + meaningless)
+    revisitGapS: 15, // nearby points more than this far apart in time = a distinct visit
   },
 
   // ── Collective surface defaults ─────────────────────────────────────────
@@ -508,7 +586,7 @@ export const GSR_CONST = {
     isolationRadius: 50,
     contourCount: 10,
     idwExponent: 2,
-    surfaceOpacity: 0.40,
+    surfaceOpacity: 0.4,
     // Softening/smoothing parameter in meters added to the IDW distance denominator
     // to prevent singular bull's eye spikes at track points and saddles between them.
     softening: 25.0,
@@ -530,7 +608,7 @@ export const GSR_CONST = {
     // Sliding window size in seconds for temporal anti-aliasing (smoothing) of biometric
     // data. 0.0 disables smoothing. 20.0 seconds filters out rapid 10 Hz spikes to reveal
     // macro-level arousal trends.
-    temporalSmoothingWindow: 20.0
+    temporalSmoothingWindow: 20.0,
   },
 
   // ── Collective surface hillshading ──────────────────────────────────────
@@ -542,8 +620,8 @@ export const GSR_CONST = {
   // that keeps the relief's visual intensity consistent across tracks
   // regardless of grid resolution or the metric's raw unit scale.
   HILLSHADE: {
-    azimuthDeg: 315,   // simulated sun direction, true compass bearing (0=N, 90=E, 180=S, 270=W); 315 = NW (top-left on a north-up map), casting shadow toward SE (bottom-right)
-    altitudeDeg: 35,   // sun elevation above the horizon — lower angle = longer, more dramatic shadows
+    azimuthDeg: 315, // simulated sun direction, true compass bearing (0=N, 90=E, 180=S, 270=W); 315 = NW (top-left on a north-up map), casting shadow toward SE (bottom-right)
+    altitudeDeg: 35, // sun elevation above the horizon — lower angle = longer, more dramatic shadows
     exaggeration: 6.0, // full 0..1 normalised value range mapped to this many grid-cell widths of "height"
     // minLightness/maxLightness are deliberately NOT symmetric around the 50%
     // baseline. Flat (unsloped) cells always render at cos(altitudeDeg) —
@@ -555,8 +633,8 @@ export const GSR_CONST = {
     // unshaded look), so brightening only shows up where a slope genuinely
     // faces the sun MORE than ambient — while minLightness stays low so
     // slopes facing away still read as a real, strong shadow.
-    minLightness: 6,   // HSL lightness % for fully-shadowed cells
-    maxLightness: 60   // HSL lightness % for cells facing the sun directly
+    minLightness: 6, // HSL lightness % for fully-shadowed cells
+    maxLightness: 60, // HSL lightness % for cells facing the sun directly
   },
 
   // ── Memorable-event ("hotspot") selection ────────────────────────────────
@@ -565,7 +643,7 @@ export const GSR_CONST = {
   // selection — see that doc comment for the real-track yield numbers behind
   // the 2% choice).
   MEMORABLE_EVENTS: {
-    HOTSPOT_PERCENTILE: 0.02,  // Count target: top X% of active (non-excluded) peaks
+    HOTSPOT_PERCENTILE: 0.02, // Count target: top X% of active (non-excluded) peaks
     // Minimum great-circle spacing (m) between two hotspots. Walking the
     // amplitude-ranked peak list, a candidate within this distance of an
     // already-selected hotspot is skipped — the biggest response in any
@@ -573,7 +651,7 @@ export const GSR_CONST = {
     // than stacked into the same map pixel. ~30 m ≈ a building width at urban
     // walking scale. A spatially compact recording can therefore end up with
     // fewer hotspots than the percentile target — intended. 0 disables spacing.
-    MIN_SEPARATION_M: 30
+    MIN_SEPARATION_M: 30,
   },
 
   // ── Road snapping — map-matcher bearing tuning ───────────────────────────
@@ -590,8 +668,8 @@ export const GSR_CONST = {
   // (osm_enrichment.js CELL_SIZE_DEG = 0.001° ≈ 111 m) — those three were
   // genuinely never implemented, not just disconnected from this constant.
   SNAP: {
-    HEADING_W:  0.7,   // heading penalty weight in map-matcher candidate ranking
-    SPEED_GATE: 0.3    // m/s — below this speed, course is unreliable so the heading penalty is skipped
+    HEADING_W: 0.7, // heading penalty weight in map-matcher candidate ranking
+    SPEED_GATE: 0.3, // m/s — below this speed, course is unreliable so the heading penalty is skipped
   },
 
   // The 10 OSM enrichment fields (osm_enrichment.js) and their UI metric key
@@ -602,21 +680,86 @@ export const GSR_CONST = {
   //   kind: 'continuous'               — correlated and plottable.
   //   unit                             — appended in parens on scatter axes only.
   OSM_METRICS: [
-    { key: 'roadClass',       field: 'osm_road_class',            label: 'Road Class',              kind: 'categorical' },
-    { key: 'distMajorRoad',   field: 'osm_dist_major_road',        label: 'Distance to Major Road',  kind: 'continuous', unit: 'm' },
-    { key: 'inPark',          field: 'osm_in_park',                label: 'In Park / Green Space',   kind: 'binary' },
-    { key: 'greenPct',        field: 'osm_green_pct_50m',          label: 'Green Space %',           kind: 'continuous' },
-    { key: 'distGreen',       field: 'osm_dist_green',             label: 'Distance to Green Space', kind: 'continuous', unit: 'm' },
-    { key: 'canopyPct',       field: 'osm_canopy_pct_50m',         label: 'Tree Canopy %',          kind: 'continuous' },
-    { key: 'buildingDensity', field: 'osm_building_density_50m',   label: 'Building Density',        kind: 'continuous' },
-    { key: 'distWater',       field: 'osm_dist_water',             label: 'Distance to Water',       kind: 'continuous', unit: 'm' },
-    { key: 'treeDensity',     field: 'osm_tree_density_50m',       label: 'Tree Density',            kind: 'continuous' },
-    { key: 'amenityCount',    field: 'osm_amenity_count_50m',      label: 'Amenity Count',           kind: 'continuous' }
+    {
+      key: 'roadClass',
+      field: 'osm_road_class',
+      label: 'Road Class',
+      kind: 'categorical',
+    },
+    {
+      key: 'distMajorRoad',
+      field: 'osm_dist_major_road',
+      label: 'Distance to Major Road',
+      kind: 'continuous',
+      unit: 'm',
+    },
+    {
+      key: 'inPark',
+      field: 'osm_in_park',
+      label: 'In Park / Green Space',
+      kind: 'binary',
+    },
+    {
+      key: 'greenPct',
+      field: 'osm_green_pct_50m',
+      label: 'Green Space %',
+      kind: 'continuous',
+    },
+    {
+      key: 'distGreen',
+      field: 'osm_dist_green',
+      label: 'Distance to Green Space',
+      kind: 'continuous',
+      unit: 'm',
+    },
+    {
+      key: 'canopyPct',
+      field: 'osm_canopy_pct_50m',
+      label: 'Tree Canopy %',
+      kind: 'continuous',
+    },
+    {
+      key: 'buildingDensity',
+      field: 'osm_building_density_50m',
+      label: 'Building Density',
+      kind: 'continuous',
+    },
+    {
+      key: 'distWater',
+      field: 'osm_dist_water',
+      label: 'Distance to Water',
+      kind: 'continuous',
+      unit: 'm',
+    },
+    {
+      key: 'treeDensity',
+      field: 'osm_tree_density_50m',
+      label: 'Tree Density',
+      kind: 'continuous',
+    },
+    {
+      key: 'amenityCount',
+      field: 'osm_amenity_count_50m',
+      label: 'Amenity Count',
+      kind: 'continuous',
+    },
   ],
 
   // Satellite remote-sensing vegetation metrics (NDVISampler)
   SATELLITE_METRICS: [
-    { key: 'ndvi_50m', field: 'ndvi_50m', label: 'NDVI (50m Buffer)', kind: 'continuous', unit: 'index' },
-    { key: 'ndvi',     field: 'ndvi',     label: 'Point NDVI',        kind: 'continuous', unit: 'index' }
-  ]
+    {
+      key: 'ndvi_50m',
+      field: 'ndvi_50m',
+      label: 'NDVI (50m Buffer)',
+      kind: 'continuous',
+      unit: 'index',
+    },
+    {
+      key: 'ndvi',
+      field: 'ndvi',
+      label: 'Point NDVI',
+      kind: 'continuous',
+      unit: 'index',
+    },
+  ],
 };

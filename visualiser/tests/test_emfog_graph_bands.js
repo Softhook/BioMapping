@@ -1,7 +1,5 @@
-'use strict';
-
 const assert = require('assert');
-const test   = require('node:test');
+const test = require('node:test');
 
 global.GSR_CONST = require('./mock_constants.js');
 global.width = 1000;
@@ -50,7 +48,7 @@ function makeAnalyzer(raw) {
     raw,
     findClosestIndex(t) {
       return Math.max(0, Math.min(raw.length - 1, Math.round(t * 10)));
-    }
+    },
   };
 }
 
@@ -79,12 +77,17 @@ test('_getEmFogContextSegments: low vs high EM Fog bucket into different, ordere
 
 test('_getEmFogContextSegments and _getNdviContextSegments keep independent caches', () => {
   const rawNdvi = [];
-  for (let i = 0; i <= 20; i++) rawNdvi.push({ time: i * 0.1, val: 1.0, ndvi_50m: 0.5 });
+  for (let i = 0; i <= 20; i++)
+    rawNdvi.push({ time: i * 0.1, val: 1.0, ndvi_50m: 0.5 });
   const analyzer = makeAnalyzer(rawNdvi);
 
   const ndviSegs = GSRRenderer._getNdviContextSegments(analyzer);
   const emFogSegs = GSRRenderer._getEmFogContextSegments(analyzer); // no em_fog field at all
-  assert.strictEqual(ndviSegs.length, 1, 'NDVI segments unaffected by EM Fog having no data');
+  assert.strictEqual(
+    ndviSegs.length,
+    1,
+    'NDVI segments unaffected by EM Fog having no data',
+  );
   assert.deepStrictEqual(emFogSegs, []);
 });
 
@@ -123,6 +126,9 @@ test('_emFogColorAt: matches the bucket a band segment would use, null when no d
   assert.strictEqual(high.value, 90);
   assert.notStrictEqual(low.color, high.color);
 
-  assert.strictEqual(GSRRenderer._emFogColorAt(analyzer, { em_fog: NaN }), null);
+  assert.strictEqual(
+    GSRRenderer._emFogColorAt(analyzer, { em_fog: NaN }),
+    null,
+  );
   assert.strictEqual(GSRRenderer._emFogColorAt(analyzer, null), null);
 });

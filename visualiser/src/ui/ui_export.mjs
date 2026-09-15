@@ -14,7 +14,6 @@ import { GSRStorage } from './storage.mjs';
 import { GSRUI } from './ui.mjs';
 
 export const __methods = {
-
   /**
    * Get a sanitised filename base from the active track name.
    */
@@ -43,16 +42,35 @@ export const __methods = {
     }
 
     if (!analyzer || analyzer.raw.length === 0) return false;
-    const params = track ? track.filterParams : GSRStorage.readGsrSliderValues();
-    const gpsParams = track ? track.gpsFilterParams : GSRStorage.readGpsSliderValues();
+    const params = track
+      ? track.filterParams
+      : GSRStorage.readGsrSliderValues();
+    const gpsParams = track
+      ? track.gpsFilterParams
+      : GSRStorage.readGpsSliderValues();
     const csvContent = analyzer.exportToCSV(params, gpsParams);
-    const nameToSanitize = track ? track.name : (AppState.activeTrackId ? (AppState.collectiveManager.getTrack(AppState.activeTrackId) || {}).name : null);
-    const baseName = nameToSanitize ? nameToSanitize.replace(/\.[^/.]+$/, '').replace(/[^a-zA-Z0-9._-]/g, '_') : GSRUI._exportFilenameBase();
-    const saved = await GSRFileSaver.saveFile(csvContent, baseName + '_processed.csv');
+    const nameToSanitize = track
+      ? track.name
+      : AppState.activeTrackId
+        ? (AppState.collectiveManager.getTrack(AppState.activeTrackId) || {})
+            .name
+        : null;
+    const baseName = nameToSanitize
+      ? nameToSanitize.replace(/\.[^/.]+$/, '').replace(/[^a-zA-Z0-9._-]/g, '_')
+      : GSRUI._exportFilenameBase();
+    const saved = await GSRFileSaver.saveFile(
+      csvContent,
+      baseName + '_processed.csv',
+    );
     if (saved !== false) {
       if (track) track.hasUnsavedLabels = false;
-      if (AppState.activeTrackId && (!targetTrackId || targetTrackId === AppState.activeTrackId)) {
-        const activeTrack = AppState.collectiveManager.getTrack(AppState.activeTrackId);
+      if (
+        AppState.activeTrackId &&
+        (!targetTrackId || targetTrackId === AppState.activeTrackId)
+      ) {
+        const activeTrack = AppState.collectiveManager.getTrack(
+          AppState.activeTrackId,
+        );
         if (activeTrack) activeTrack.hasUnsavedLabels = false;
       }
       return true;
@@ -67,7 +85,9 @@ export const __methods = {
     if (!AppState.myCanvas || AppState.analyzer.raw.length === 0) return;
     const baseName = GSRUI._exportFilenameBase();
     const suggestedName = baseName + '_chart.png';
-    const canvasEl = document.querySelector("#sketch-container canvas") || (AppState.myCanvas ? AppState.myCanvas.elt : null);
+    const canvasEl =
+      document.querySelector('#sketch-container canvas') ||
+      (AppState.myCanvas ? AppState.myCanvas.elt : null);
     if (canvasEl && typeof canvasEl.toBlob === 'function') {
       canvasEl.toBlob(async (blob) => {
         if (blob) {
@@ -89,12 +109,17 @@ export const __methods = {
     const originalText = btn ? btn.innerHTML : '';
 
     if (btn) {
-      btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Generating...';
+      btn.innerHTML =
+        '<i class="fa-solid fa-spinner fa-spin"></i> Generating...';
       btn.setAttribute('disabled', 'true');
     }
 
     try {
-      if (typeof GSRGlobe3DView !== 'undefined' && GSRGlobe3DView.isActive && GSRGlobe3DView.manager?.viewer) {
+      if (
+        typeof GSRGlobe3DView !== 'undefined' &&
+        GSRGlobe3DView.isActive &&
+        GSRGlobe3DView.manager?.viewer
+      ) {
         // 3D Globe Mode (Cesium WebGL canvas capture).
         // Primitives compiled with asynchronous:true (the wall, RF expanse)
         // are uploaded to the GPU asynchronously — they first appear in the
@@ -115,7 +140,10 @@ export const __methods = {
                 resolve();
               }, 'image/png');
             } else if (typeof canvas.toDataURL === 'function') {
-              GSRFileSaver.saveFile(canvas.toDataURL('image/png'), suggestedName).then(resolve);
+              GSRFileSaver.saveFile(
+                canvas.toDataURL('image/png'),
+                suggestedName,
+              ).then(resolve);
             } else {
               resolve();
             }
@@ -127,8 +155,8 @@ export const __methods = {
         await GSRMapExporter.exportToPng(AppState.mapManager);
       }
     } catch (err) {
-      console.error("Error generating map PNG:", err);
-      alert("Could not export map PNG.");
+      console.error('Error generating map PNG:', err);
+      alert('Could not export map PNG.');
     } finally {
       if (btn) {
         btn.innerHTML = originalText;
@@ -136,7 +164,6 @@ export const __methods = {
       }
     }
   },
-
 };
 
 Object.assign(GSRUI, __methods);

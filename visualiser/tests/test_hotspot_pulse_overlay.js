@@ -32,8 +32,8 @@ test('_syncPulseRing creates a positioned div under #canvasContainer, keyed for 
   const d = 6 * 2.33;
   assert.strictEqual(ring.style.width, d + 'px');
   assert.strictEqual(ring.style.height, d + 'px');
-  assert.strictEqual(ring.style.left, (100 - d / 2) + 'px');
-  assert.strictEqual(ring.style.top, (50 - d / 2) + 'px');
+  assert.strictEqual(ring.style.left, 100 - d / 2 + 'px');
+  assert.strictEqual(ring.style.top, 50 - d / 2 + 'px');
 });
 
 test('_syncPulseRing called again with the same key reuses the element (repositions, does not duplicate)', async () => {
@@ -47,10 +47,22 @@ test('_syncPulseRing called again with the same key reuses the element (repositi
   GSRRenderer._syncPulseRing('0:upper', 120, 80, 6, '#ff1744');
 
   const rings = overlay.querySelectorAll('.graph-hotspot-pulse');
-  assert.strictEqual(rings.length, 1, 'still exactly one ring — the same key must not create a second element');
-  assert.strictEqual(rings[0], firstEl, 'the same DOM node was reused, not replaced (this is what keeps the CSS animation timeline uninterrupted)');
+  assert.strictEqual(
+    rings.length,
+    1,
+    'still exactly one ring — the same key must not create a second element',
+  );
+  assert.strictEqual(
+    rings[0],
+    firstEl,
+    'the same DOM node was reused, not replaced (this is what keeps the CSS animation timeline uninterrupted)',
+  );
   const d = 6 * 2.33;
-  assert.strictEqual(rings[0].style.left, (120 - d / 2) + 'px', 'position was updated on the reused element');
+  assert.strictEqual(
+    rings[0].style.left,
+    120 - d / 2 + 'px',
+    'position was updated on the reused element',
+  );
 });
 
 test('a distinct key creates a distinct element alongside the first', async () => {
@@ -61,7 +73,10 @@ test('a distinct key creates a distinct element alongside the first', async () =
   GSRRenderer._syncPulseRing('0:lower', 100, 200, 6, '#ff1744');
 
   const overlay = document.getElementById('hotspotPulseOverlay');
-  assert.strictEqual(overlay.querySelectorAll('.graph-hotspot-pulse').length, 2);
+  assert.strictEqual(
+    overlay.querySelectorAll('.graph-hotspot-pulse').length,
+    2,
+  );
 });
 
 test('_prunePulseRings removes only the keys not in the current seen set', async () => {
@@ -76,8 +91,16 @@ test('_prunePulseRings removes only the keys not in the current seen set', async
 
   const overlay = document.getElementById('hotspotPulseOverlay');
   const rings = overlay.querySelectorAll('.graph-hotspot-pulse');
-  assert.strictEqual(rings.length, 2, 'the untouched key (1:upper) was pruned, the other two survive');
-  assert.strictEqual(GSRRenderer._pulseRingEls.has('1:upper'), false, 'the internal key map was also cleaned up, not just the DOM');
+  assert.strictEqual(
+    rings.length,
+    2,
+    'the untouched key (1:upper) was pruned, the other two survive',
+  );
+  assert.strictEqual(
+    GSRRenderer._pulseRingEls.has('1:upper'),
+    false,
+    'the internal key map was also cleaned up, not just the DOM',
+  );
   assert.strictEqual(GSRRenderer._pulseRingEls.has('0:upper'), true);
   assert.strictEqual(GSRRenderer._pulseRingEls.has('2:upper'), true);
 });
@@ -92,7 +115,10 @@ test('clearPulseRings removes every ring and empties the tracking map', async ()
   GSRRenderer.clearPulseRings();
 
   const overlay = document.getElementById('hotspotPulseOverlay');
-  assert.strictEqual(overlay.querySelectorAll('.graph-hotspot-pulse').length, 0);
+  assert.strictEqual(
+    overlay.querySelectorAll('.graph-hotspot-pulse').length,
+    0,
+  );
   assert.strictEqual(GSRRenderer._pulseRingEls.size, 0);
 });
 
@@ -102,11 +128,18 @@ test('drawPlaceholder() clears any leftover pulse rings — the "nothing to show
 
   GSRRenderer._syncPulseRing('0:upper', 100, 50, 6, '#ff1744');
   const overlay = document.getElementById('hotspotPulseOverlay');
-  assert.strictEqual(overlay.querySelectorAll('.graph-hotspot-pulse').length, 1, 'sanity check: the ring exists before drawPlaceholder()');
+  assert.strictEqual(
+    overlay.querySelectorAll('.graph-hotspot-pulse').length,
+    1,
+    'sanity check: the ring exists before drawPlaceholder()',
+  );
 
   GSRRenderer.drawPlaceholder();
 
-  assert.strictEqual(overlay.querySelectorAll('.graph-hotspot-pulse').length, 0);
+  assert.strictEqual(
+    overlay.querySelectorAll('.graph-hotspot-pulse').length,
+    0,
+  );
 });
 
 test('drawHotspotMarkers() clears pulse rings when showHotspots is off, even if memorableEvents is non-empty (stale state from before the toggle)', async () => {
@@ -117,11 +150,21 @@ test('drawHotspotMarkers() clears pulse rings when showHotspots is off, even if 
   // matching real usage — a real drawHotspotMarkers() call is what created it.
   GSRRenderer._syncPulseRing('0:upper', 100, 50, 6, '#ff1744');
   const overlay = document.getElementById('hotspotPulseOverlay');
-  assert.strictEqual(overlay.querySelectorAll('.graph-hotspot-pulse').length, 1);
+  assert.strictEqual(
+    overlay.querySelectorAll('.graph-hotspot-pulse').length,
+    1,
+  );
 
   AppState.showHotspots = false;
-  AppState.analyzer = { memorableEvents: [{ index: 0, onsetIndex: 0, time: 0 }], peaks: [] };
+  AppState.analyzer = {
+    memorableEvents: [{ index: 0, onsetIndex: 0, time: 0 }],
+    peaks: [],
+  };
   GSRRenderer.drawHotspotMarkers(0, 10, 0, 1, 0, 100, 0, 1, 100, 200, true);
 
-  assert.strictEqual(overlay.querySelectorAll('.graph-hotspot-pulse').length, 0, 'toggling hotspots off must not leave a stale pulsing ring on screen');
+  assert.strictEqual(
+    overlay.querySelectorAll('.graph-hotspot-pulse').length,
+    0,
+    'toggling hotspots off must not leave a stale pulsing ring on screen',
+  );
 });

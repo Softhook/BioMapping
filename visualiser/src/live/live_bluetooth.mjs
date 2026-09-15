@@ -66,8 +66,11 @@ export class GSRLiveBluetoothManager {
     this.device = null;
     this.characteristic = null;
     this.onStatusText = onStatusText || (() => {});
-    this.onStatusChange = (options && options.onStatusChange) || ((status) => LiveState.setStatus(status));
-    this.onPacket = (options && options.onPacket) || ((pkt) => LiveState.addPacket(pkt));
+    this.onStatusChange =
+      (options && options.onStatusChange) ||
+      ((status) => LiveState.setStatus(status));
+    this.onPacket =
+      (options && options.onPacket) || ((pkt) => LiveState.addPacket(pkt));
     this.parser = new GSRLiveBinaryParser((pkt) => this.onPacket(pkt));
     this._reconnecting = false;
     // Set by disconnect() just before it tears the GATT link down on purpose
@@ -94,7 +97,8 @@ export class GSRLiveBluetoothManager {
     this._onBgAdvertisement = null;
     // Bound once so _subscribe() can removeEventListener the previous
     // subscription before re-adding on a reconnect (see there).
-    this._onCharValue = (e) => this.parser.append(new Uint8Array(e.target.value.buffer));
+    this._onCharValue = (e) =>
+      this.parser.append(new Uint8Array(e.target.value.buffer));
     // Bound once so connect() / tryResumeDevice() / disconnect() don't stack
     // duplicate 'gattserverdisconnected' listeners.
     this._onDisconnected = () => this._handleDisconnect();
@@ -148,7 +152,10 @@ export class GSRLiveBluetoothManager {
     // across a session, each "New Connection" cycle would leave one more
     // listener permanently attached to it.
     if (this.device) {
-      this.device.removeEventListener('gattserverdisconnected', this._onDisconnected);
+      this.device.removeEventListener(
+        'gattserverdisconnected',
+        this._onDisconnected,
+      );
     }
     this.disconnect();
     this.device = null;
@@ -162,9 +169,12 @@ export class GSRLiveBluetoothManager {
     this._userDisconnected = false;
     this.device = await navigator.bluetooth.requestDevice({
       acceptAllDevices: true,
-      optionalServices: [BLE_SERVICE_UUID]
+      optionalServices: [BLE_SERVICE_UUID],
     });
-    this.device.addEventListener('gattserverdisconnected', this._onDisconnected);
+    this.device.addEventListener(
+      'gattserverdisconnected',
+      this._onDisconnected,
+    );
     await this._subscribe();
     this._setStatus('connected');
   }
@@ -189,7 +199,10 @@ export class GSRLiveBluetoothManager {
     const token = ++this._attemptToken;
     let timer;
     const timeout = new Promise((_, reject) => {
-      timer = setTimeout(() => reject(new Error('BLE subscribe timed out')), BLE_SUBSCRIBE_TIMEOUT_MS);
+      timer = setTimeout(
+        () => reject(new Error('BLE subscribe timed out')),
+        BLE_SUBSCRIBE_TIMEOUT_MS,
+      );
     });
     try {
       await Promise.race([this._doSubscribe(), timeout]);
@@ -220,7 +233,11 @@ export class GSRLiveBluetoothManager {
       // attempt may already be relying on that live link — disconnecting it
       // here would silently kill a working connection nobody asked to close.
       if (isCurrent || device !== this.device) {
-        try { device.gatt.disconnect(); } catch (e2) { /* nothing to cancel */ }
+        try {
+          device.gatt.disconnect();
+        } catch (e2) {
+          /* nothing to cancel */
+        }
       }
       throw e;
     } finally {
@@ -244,10 +261,16 @@ export class GSRLiveBluetoothManager {
     // (identical timestamp) bogus gaps. this._onCharValue is bound once in the
     // constructor precisely so this remove/add pair can match.
     if (this.characteristic) {
-      this.characteristic.removeEventListener('characteristicvaluechanged', this._onCharValue);
+      this.characteristic.removeEventListener(
+        'characteristicvaluechanged',
+        this._onCharValue,
+      );
     }
     this.characteristic = await service.getCharacteristic(BLE_RX_CHAR_UUID);
-    this.characteristic.addEventListener('characteristicvaluechanged', this._onCharValue);
+    this.characteristic.addEventListener(
+      'characteristicvaluechanged',
+      this._onCharValue,
+    );
     await this.characteristic.startNotifications();
     // A live link again — arm auto-reconnect for the next unexpected drop.
     this._intentionalClose = false;
@@ -277,7 +300,10 @@ export class GSRLiveBluetoothManager {
     this.characteristic = null;
     if (char) {
       try {
-        char.removeEventListener('characteristicvaluechanged', this._onCharValue);
+        char.removeEventListener(
+          'characteristicvaluechanged',
+          this._onCharValue,
+        );
         if (typeof char.stopNotifications === 'function') {
           char.stopNotifications().catch(() => {});
         }
@@ -311,7 +337,7 @@ export class GSRLiveBluetoothManager {
     if (this._abandoned || this._userDisconnected) return;
     if (!this.device || typeof this.device.watchAdvertisements !== 'function') {
       await new Promise((resolve) => {
-        let timer = setTimeout(resolve, delayMs);
+        const timer = setTimeout(resolve, delayMs);
         this._retryWaitResolve = () => {
           clearTimeout(timer);
           resolve();
@@ -326,7 +352,10 @@ export class GSRLiveBluetoothManager {
       const cleanup = () => {
         clearTimeout(timer);
         if (this.device) {
-          this.device.removeEventListener('advertisementreceived', onAdvertisement);
+          this.device.removeEventListener(
+            'advertisementreceived',
+            onAdvertisement,
+          );
         }
         if (this._retryWaitController) {
           this._retryWaitController.abort();
@@ -342,7 +371,9 @@ export class GSRLiveBluetoothManager {
       // even if watchAdvertisements() itself rejects (e.g. denied, or the
       // method exists but isn't actually functional on this device/OS).
       try {
-        this.device.watchAdvertisements({ signal: this._retryWaitController.signal }).catch(() => {});
+        this.device
+          .watchAdvertisements({ signal: this._retryWaitController.signal })
+          .catch(() => {});
       } catch (e) {
         /* ignore synchronous throw if Bluetooth is unpermitted/disabled */
       }
@@ -361,15 +392,22 @@ export class GSRLiveBluetoothManager {
   // unbounded-retry hazard _handleDisconnect()'s attempt cap exists to
   // avoid (§1.10/§8).
   _startBackgroundWatch() {
-    if (this._bgWatchController || this._abandoned || this._userDisconnected) return;
-    if (!this.device || typeof this.device.watchAdvertisements !== 'function') return;
+    if (this._bgWatchController || this._abandoned || this._userDisconnected)
+      return;
+    if (!this.device || typeof this.device.watchAdvertisements !== 'function')
+      return;
     this._bgWatchController = new AbortController();
     this._onBgAdvertisement = () => this._tryBackgroundReconnect();
-    this.device.addEventListener('advertisementreceived', this._onBgAdvertisement);
+    this.device.addEventListener(
+      'advertisementreceived',
+      this._onBgAdvertisement,
+    );
     try {
-      this.device.watchAdvertisements({ signal: this._bgWatchController.signal }).catch(() => {
-        this._stopBackgroundWatch();
-      });
+      this.device
+        .watchAdvertisements({ signal: this._bgWatchController.signal })
+        .catch(() => {
+          this._stopBackgroundWatch();
+        });
     } catch (e) {
       this._stopBackgroundWatch();
     }
@@ -381,7 +419,10 @@ export class GSRLiveBluetoothManager {
       this._bgWatchController = null;
     }
     if (this.device && this._onBgAdvertisement) {
-      this.device.removeEventListener('advertisementreceived', this._onBgAdvertisement);
+      this.device.removeEventListener(
+        'advertisementreceived',
+        this._onBgAdvertisement,
+      );
     }
     this._onBgAdvertisement = null;
   }
@@ -390,7 +431,8 @@ export class GSRLiveBluetoothManager {
     if (this._reconnecting || this._abandoned || this._userDisconnected) return;
     this._stopBackgroundWatch(); // one-shot; re-armed below if this attempt fails
     const ok = await this.manualReconnect();
-    if (!ok && !this._abandoned && !this._userDisconnected) this._startBackgroundWatch();
+    if (!ok && !this._abandoned && !this._userDisconnected)
+      this._startBackgroundWatch();
   }
 
   // Best-effort discovery aid — not a functional fallback (a specific
@@ -400,9 +442,11 @@ export class GSRLiveBluetoothManager {
   async _logDiscoveredServices(server) {
     try {
       const services = await server.getPrimaryServices();
-      const uuids = services.map(s => s.uuid);
+      const uuids = services.map((s) => s.uuid);
       console.warn('Live: expected service UUID not found. Discovered:', uuids);
-      this.onStatusText('Service UUID mismatch — see console for discovered UUIDs');
+      this.onStatusText(
+        'Service UUID mismatch — see console for discovered UUIDs',
+      );
     } catch (e2) {
       console.warn('Live: service discovery also failed', e2);
     }
@@ -442,7 +486,11 @@ export class GSRLiveBluetoothManager {
     this._reconnecting = true;
     this._setStatus('reconnecting');
     let lastError = null;
-    for (let attempt = 0, delay = 500; attempt < 6; attempt++, delay = Math.min(delay * 2, 8000)) {
+    for (
+      let attempt = 0, delay = 500;
+      attempt < 6;
+      attempt++, delay = Math.min(delay * 2, 8000)
+    ) {
       // Superseded by a "New Connection" or intentional disconnect mid-loop — stop spending
       // attempts (and radio time the new connection could use) on a manager nobody
       // is looking at anymore.
@@ -485,7 +533,8 @@ export class GSRLiveBluetoothManager {
     }
     this._reconnecting = false;
     this._setStatus('disconnected');
-    const msg = (lastError && lastError.message) ? lastError.message : String(lastError);
+    const msg =
+      lastError && lastError.message ? lastError.message : String(lastError);
     console.error('Live: auto-reconnect exhausted —', lastError);
     this.onStatusText(`Auto-reconnect failed: ${msg}`);
     if (!this._abandoned && !this._userDisconnected) {
@@ -512,7 +561,7 @@ export class GSRLiveBluetoothManager {
       return true;
     } catch (e) {
       this._setStatus('disconnected');
-      const msg = (e && e.message) ? e.message : String(e);
+      const msg = e && e.message ? e.message : String(e);
       console.error('Live: manual reconnect failed —', e);
       this.onStatusText(`Reconnect failed: ${msg}`);
       return false;
@@ -536,7 +585,11 @@ export class GSRLiveBluetoothManager {
   // Capped at 3500ms so a dead device doesn't exhaust the browser's ~5s
   // transient user gesture before falling back to requestDevice().
   async tryResumeDevice(candidateDevice) {
-    if (!candidateDevice || !navigator.bluetooth || typeof navigator.bluetooth.getDevices !== 'function') {
+    if (
+      !candidateDevice ||
+      !navigator.bluetooth ||
+      typeof navigator.bluetooth.getDevices !== 'function'
+    ) {
       return false;
     }
     let known;
@@ -549,10 +602,16 @@ export class GSRLiveBluetoothManager {
     if (!match) return false;
     this._userDisconnected = false;
     this.device = match;
-    this.device.addEventListener('gattserverdisconnected', this._onDisconnected);
+    this.device.addEventListener(
+      'gattserverdisconnected',
+      this._onDisconnected,
+    );
     let timer;
     const timeout = new Promise((_, reject) => {
-      timer = setTimeout(() => reject(new Error('Resume attempt timed out')), 3500);
+      timer = setTimeout(
+        () => reject(new Error('Resume attempt timed out')),
+        3500,
+      );
     });
     try {
       await Promise.race([this._subscribe(), timeout]);
@@ -560,9 +619,15 @@ export class GSRLiveBluetoothManager {
       return true;
     } catch (e) {
       if (this.device) {
-        this.device.removeEventListener('gattserverdisconnected', this._onDisconnected);
+        this.device.removeEventListener(
+          'gattserverdisconnected',
+          this._onDisconnected,
+        );
         try {
-          if (this.device.gatt && typeof this.device.gatt.disconnect === 'function') {
+          if (
+            this.device.gatt &&
+            typeof this.device.gatt.disconnect === 'function'
+          ) {
             this.device.gatt.disconnect();
           }
         } catch (e2) {}

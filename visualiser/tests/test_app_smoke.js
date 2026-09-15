@@ -47,9 +47,18 @@ function installFakeFileReader(window) {
 test('app boots via setup() without throwing, and wires up AppState', async () => {
   const { window } = await bootApp();
   assert.doesNotThrow(() => window.setup());
-  assert.ok(window.AppState.analyzer, 'AppState.analyzer should be constructed');
-  assert.ok(window.AppState.collectiveManager, 'AppState.collectiveManager should be constructed');
-  assert.ok(window.AppState.mapManager, 'AppState.mapManager should be constructed');
+  assert.ok(
+    window.AppState.analyzer,
+    'AppState.analyzer should be constructed',
+  );
+  assert.ok(
+    window.AppState.collectiveManager,
+    'AppState.collectiveManager should be constructed',
+  );
+  assert.ok(
+    window.AppState.mapManager,
+    'AppState.mapManager should be constructed',
+  );
 });
 
 test('windowResized() runs without throwing after boot', async () => {
@@ -71,18 +80,25 @@ test('loading a track via the real file-drop pipeline adds it to AppState.collec
       // briefly for the track to land rather than assuming synchronous completion.
       const start = Date.now();
       const check = () => {
-        if (window.AppState.collectiveManager.tracks.length > 0) return resolve();
-        if (Date.now() - start > 2000) return reject(new Error('track never loaded within 2s'));
+        if (window.AppState.collectiveManager.tracks.length > 0)
+          return resolve();
+        if (Date.now() - start > 2000)
+          return reject(new Error('track never loaded within 2s'));
         setTimeout(check, 10);
       };
       check();
-    } catch (e) { reject(e); }
+    } catch (e) {
+      reject(e);
+    }
   });
 
   assert.strictEqual(window.AppState.collectiveManager.tracks.length, 1);
   const track = window.AppState.collectiveManager.tracks[0];
   assert.strictEqual(track.name, 'track1.csv');
-  assert.ok(track.analyzer.filtered && track.analyzer.filtered.length > 0, 'the loaded track should have been analyzed');
+  assert.ok(
+    track.analyzer.filtered && track.analyzer.filtered.length > 0,
+    'the loaded track should have been analyzed',
+  );
 });
 
 test('loading a track while in collective view mode refreshes the collective map (via switchActiveTrack -> runAnalysis, not a separate call)', async () => {
@@ -90,26 +106,37 @@ test('loading a track while in collective view mode refreshes the collective map
   installFakeFileReader(window);
   window.setup();
 
-  document.getElementById('btnCollectiveView').dispatchEvent(new window.Event('click', { bubbles: true }));
+  document
+    .getElementById('btnCollectiveView')
+    .dispatchEvent(new window.Event('click', { bubbles: true }));
   assert.strictEqual(window.AppState.viewMode, 'collective');
 
   let updateCalls = 0;
   const original = window.GSRUI.updateCollectiveMap;
-  window.GSRUI.updateCollectiveMap = (...args) => { updateCalls++; return original.apply(window.GSRUI, args); };
+  window.GSRUI.updateCollectiveMap = (...args) => {
+    updateCalls++;
+    return original.apply(window.GSRUI, args);
+  };
 
   await new Promise((resolve, reject) => {
-    window.GSRTrackManager.loadFilesSequentially([makeFakeFile('track1.csv', SAMPLE_CSV)]);
+    window.GSRTrackManager.loadFilesSequentially([
+      makeFakeFile('track1.csv', SAMPLE_CSV),
+    ]);
     const start = Date.now();
     const check = () => {
       if (window.AppState.collectiveManager.tracks.length > 0) return resolve();
-      if (Date.now() - start > 2000) return reject(new Error('track never loaded within 2s'));
+      if (Date.now() - start > 2000)
+        return reject(new Error('track never loaded within 2s'));
       setTimeout(check, 10);
     };
     check();
   });
 
   window.GSRUI.updateCollectiveMap = original;
-  assert.ok(updateCalls > 0, 'updateCollectiveMap should have been triggered by the trackAdded listener');
+  assert.ok(
+    updateCalls > 0,
+    'updateCollectiveMap should have been triggered by the trackAdded listener',
+  );
 });
 
 test('Deconvolution and Prominence detector toggles are mutually exclusive via the real wired-up DOM', async () => {
@@ -118,11 +145,14 @@ test('Deconvolution and Prominence detector toggles are mutually exclusive via t
   window.setup();
 
   await new Promise((resolve, reject) => {
-    window.GSRTrackManager.loadFilesSequentially([makeFakeFile('track1.csv', SAMPLE_CSV)]);
+    window.GSRTrackManager.loadFilesSequentially([
+      makeFakeFile('track1.csv', SAMPLE_CSV),
+    ]);
     const start = Date.now();
     const check = () => {
       if (window.AppState.collectiveManager.tracks.length > 0) return resolve();
-      if (Date.now() - start > 2000) return reject(new Error('track never loaded within 2s'));
+      if (Date.now() - start > 2000)
+        return reject(new Error('track never loaded within 2s'));
       setTimeout(check, 10);
     };
     check();
@@ -130,7 +160,8 @@ test('Deconvolution and Prominence detector toggles are mutually exclusive via t
 
   const decon = document.getElementById('useDeconvolution');
   const prom = document.getElementById('usePeakProminence');
-  const fireChange = (el) => el.dispatchEvent(new window.Event('change', { bubbles: true }));
+  const fireChange = (el) =>
+    el.dispatchEvent(new window.Event('change', { bubbles: true }));
 
   // Turn Deconvolution on.
   decon.checked = true;
@@ -142,13 +173,21 @@ test('Deconvolution and Prominence detector toggles are mutually exclusive via t
   prom.checked = true;
   assert.doesNotThrow(() => fireChange(prom));
   assert.strictEqual(prom.checked, true);
-  assert.strictEqual(decon.checked, false, 'enabling Prominence disables Deconvolution');
+  assert.strictEqual(
+    decon.checked,
+    false,
+    'enabling Prominence disables Deconvolution',
+  );
 
   // Turn Deconvolution back on — Prominence must switch off.
   decon.checked = true;
   assert.doesNotThrow(() => fireChange(decon));
   assert.strictEqual(decon.checked, true);
-  assert.strictEqual(prom.checked, false, 'enabling Deconvolution disables Prominence');
+  assert.strictEqual(
+    prom.checked,
+    false,
+    'enabling Deconvolution disables Prominence',
+  );
 
   // Turn Deconvolution off — neither is on (default trough-to-peak).
   decon.checked = false;
@@ -163,11 +202,14 @@ test('the "Driver (ISCR)" graph view is enabled only while a deconvolution/cvxED
   window.setup();
 
   await new Promise((resolve, reject) => {
-    window.GSRTrackManager.loadFilesSequentially([makeFakeFile('track1.csv', SAMPLE_CSV)]);
+    window.GSRTrackManager.loadFilesSequentially([
+      makeFakeFile('track1.csv', SAMPLE_CSV),
+    ]);
     const start = Date.now();
     const check = () => {
       if (window.AppState.collectiveManager.tracks.length > 0) return resolve();
-      if (Date.now() - start > 2000) return reject(new Error('track never loaded within 2s'));
+      if (Date.now() - start > 2000)
+        return reject(new Error('track never loaded within 2s'));
       setTimeout(check, 10);
     };
     check();
@@ -176,15 +218,24 @@ test('the "Driver (ISCR)" graph view is enabled only while a deconvolution/cvxED
   const graphView = document.getElementById('graphView');
   const driverOpt = graphView.querySelector('option[value="phasicDriver"]');
   const decon = document.getElementById('useDeconvolution');
-  const fireChange = (el) => el.dispatchEvent(new window.Event('change', { bubbles: true }));
+  const fireChange = (el) =>
+    el.dispatchEvent(new window.Event('change', { bubbles: true }));
 
   assert.ok(driverOpt, 'the #graphView dropdown has a phasicDriver option');
-  assert.strictEqual(driverOpt.disabled, true, 'disabled by default (no deconvolution driver yet)');
+  assert.strictEqual(
+    driverOpt.disabled,
+    true,
+    'disabled by default (no deconvolution driver yet)',
+  );
 
   // Enable deconvolution → a driver series is produced → the option unlocks.
   decon.checked = true;
   fireChange(decon);
-  assert.strictEqual(driverOpt.disabled, false, 'enabled once deconvolution populates analyzer.phasicDriver');
+  assert.strictEqual(
+    driverOpt.disabled,
+    false,
+    'enabled once deconvolution populates analyzer.phasicDriver',
+  );
 
   // Select it, then turn the detector back off: the view must fall back to
   // 'signal' rather than plotting an empty series, and the option re-locks.
@@ -194,8 +245,16 @@ test('the "Driver (ISCR)" graph view is enabled only while a deconvolution/cvxED
 
   decon.checked = false;
   fireChange(decon);
-  assert.strictEqual(driverOpt.disabled, true, 're-locked when no detector produces a driver');
-  assert.strictEqual(graphView.value, 'signal', 'selection dropped back to Signal');
+  assert.strictEqual(
+    driverOpt.disabled,
+    true,
+    're-locked when no detector produces a driver',
+  );
+  assert.strictEqual(
+    graphView.value,
+    'signal',
+    'selection dropped back to Signal',
+  );
   assert.strictEqual(window.AppState.graphView, 'signal');
 });
 
@@ -205,11 +264,14 @@ test('deleteTrack removes the track and leaves a clean, consistent AppState', as
   window.setup();
 
   await new Promise((resolve, reject) => {
-    window.GSRTrackManager.loadFilesSequentially([makeFakeFile('track1.csv', SAMPLE_CSV)]);
+    window.GSRTrackManager.loadFilesSequentially([
+      makeFakeFile('track1.csv', SAMPLE_CSV),
+    ]);
     const start = Date.now();
     const check = () => {
       if (window.AppState.collectiveManager.tracks.length > 0) return resolve();
-      if (Date.now() - start > 2000) return reject(new Error('track never loaded within 2s'));
+      if (Date.now() - start > 2000)
+        return reject(new Error('track never loaded within 2s'));
       setTimeout(check, 10);
     };
     check();
@@ -227,11 +289,14 @@ test('toggling view mode (single <-> collective) via the real wired-up DOM butto
   window.setup();
 
   await new Promise((resolve, reject) => {
-    window.GSRTrackManager.loadFilesSequentially([makeFakeFile('track1.csv', SAMPLE_CSV)]);
+    window.GSRTrackManager.loadFilesSequentially([
+      makeFakeFile('track1.csv', SAMPLE_CSV),
+    ]);
     const start = Date.now();
     const check = () => {
       if (window.AppState.collectiveManager.tracks.length > 0) return resolve();
-      if (Date.now() - start > 2000) return reject(new Error('track never loaded within 2s'));
+      if (Date.now() - start > 2000)
+        return reject(new Error('track never loaded within 2s'));
       setTimeout(check, 10);
     };
     check();
@@ -239,29 +304,57 @@ test('toggling view mode (single <-> collective) via the real wired-up DOM butto
 
   const collectiveBtn = document.getElementById('btnCollectiveView');
   const singleBtn = document.getElementById('btnSingleView');
-  assert.ok(collectiveBtn, 'btnCollectiveView should exist in the real index.html markup');
-  assert.ok(singleBtn, 'btnSingleView should exist in the real index.html markup');
+  assert.ok(
+    collectiveBtn,
+    'btnCollectiveView should exist in the real index.html markup',
+  );
+  assert.ok(
+    singleBtn,
+    'btnSingleView should exist in the real index.html markup',
+  );
 
   let invalidates = 0;
   let fitCalls = 0;
   window.AppState.mapManager.map.invalidateSize = (opts) => {
     invalidates++;
-    assert.strictEqual(opts?.pan, false, 'invalidateSize should be called with pan: false on mode switch');
+    assert.strictEqual(
+      opts?.pan,
+      false,
+      'invalidateSize should be called with pan: false on mode switch',
+    );
   };
-  window.AppState.mapManager.map.flyToBounds = () => { fitCalls++; };
-  window.AppState.mapManager.map.fitBounds = () => { fitCalls++; };
+  window.AppState.mapManager.map.flyToBounds = () => {
+    fitCalls++;
+  };
+  window.AppState.mapManager.map.fitBounds = () => {
+    fitCalls++;
+  };
 
   // Switching to collective mode should NOT refit the viewport (map data stays in place)
   collectiveBtn.dispatchEvent(new window.Event('click', { bubbles: true }));
   assert.strictEqual(window.AppState.viewMode, 'collective');
-  assert.strictEqual(fitCalls, 0, 'Switching to collective mode must not re-fit viewport');
-  assert.ok(invalidates >= 1, 'map.invalidateSize should run synchronously on collective mode switch');
+  assert.strictEqual(
+    fitCalls,
+    0,
+    'Switching to collective mode must not re-fit viewport',
+  );
+  assert.ok(
+    invalidates >= 1,
+    'map.invalidateSize should run synchronously on collective mode switch',
+  );
 
   // Switching back to single mode should NOT refit the viewport
   singleBtn.dispatchEvent(new window.Event('click', { bubbles: true }));
   assert.strictEqual(window.AppState.viewMode, 'single');
-  assert.strictEqual(fitCalls, 0, 'Switching to single mode must not re-fit viewport');
-  assert.ok(invalidates >= 2, 'map.invalidateSize should run synchronously on single mode switch');
+  assert.strictEqual(
+    fitCalls,
+    0,
+    'Switching to single mode must not re-fit viewport',
+  );
+  assert.ok(
+    invalidates >= 2,
+    'map.invalidateSize should run synchronously on single mode switch',
+  );
 });
 
 test('GSRCollectiveProject.exportProject() with a loaded track completes successfully (regression test for a fixed bug: suggestedName used to be referenced undeclared, crashing every export)', async () => {
@@ -270,18 +363,27 @@ test('GSRCollectiveProject.exportProject() with a loaded track completes success
   window.setup();
 
   await new Promise((resolve, reject) => {
-    window.GSRTrackManager.loadFilesSequentially([makeFakeFile('track1.csv', SAMPLE_CSV)]);
+    window.GSRTrackManager.loadFilesSequentially([
+      makeFakeFile('track1.csv', SAMPLE_CSV),
+    ]);
     const start = Date.now();
     const check = () => {
       if (window.AppState.collectiveManager.tracks.length > 0) return resolve();
-      if (Date.now() - start > 2000) return reject(new Error('track never loaded within 2s'));
+      if (Date.now() - start > 2000)
+        return reject(new Error('track never loaded within 2s'));
       setTimeout(check, 10);
     };
     check();
   });
 
   let alertMsg = null;
-  window.alert = (msg) => { alertMsg = msg; };
+  window.alert = (msg) => {
+    alertMsg = msg;
+  };
   await assert.doesNotReject(window.GSRCollectiveProject.exportProject());
-  assert.strictEqual(alertMsg, null, `export should succeed without an error alert, got: ${alertMsg}`);
+  assert.strictEqual(
+    alertMsg,
+    null,
+    `export should succeed without an error alert, got: ${alertMsg}`,
+  );
 });

@@ -9,7 +9,6 @@
 import { StatsMath } from './stats_math.mjs';
 
 export const GsrFilter = {
-
   /**
    * Create a sliding sorted window pre-seeded with the first `half+1` elements
    * of `arr`. Returns `{ window, insert, remove }` where `insert`/`remove` keep
@@ -30,7 +29,8 @@ export const GsrFilter = {
     win.sort((a, b) => a - b);
 
     function insert(val) {
-      let lo = 0, hi = win.length;
+      let lo = 0,
+        hi = win.length;
       while (lo < hi) {
         const mid = (lo + hi) >>> 1;
         if (win[mid] < val) lo = mid + 1;
@@ -40,11 +40,15 @@ export const GsrFilter = {
     }
 
     function remove(val) {
-      let lo = 0, hi = win.length - 1, found = -1;
+      let lo = 0,
+        hi = win.length - 1,
+        found = -1;
       while (lo <= hi) {
         const mid = (lo + hi) >>> 1;
-        if (win[mid] === val) { found = mid; break; }
-        else if (win[mid] < val) lo = mid + 1;
+        if (win[mid] === val) {
+          found = mid;
+          break;
+        } else if (win[mid] < val) lo = mid + 1;
         else hi = mid - 1;
       }
       if (found !== -1) win.splice(found, 1);
@@ -72,13 +76,17 @@ export const GsrFilter = {
    */
   applyHampelFilter(arr, windowSize, nSigma = 3.0) {
     const n = arr.length;
-    if (!windowSize || isNaN(windowSize) || windowSize <= 1 || n === 0) return [...arr];
+    if (!windowSize || isNaN(windowSize) || windowSize <= 1 || n === 0)
+      return [...arr];
     const half = Math.floor(windowSize / 2);
     const result = new Array(n);
 
     // Sliding sorted window for O(log W + W) median tracking
-    const { window: sortedWindow, insert: insertSorted, remove: removeSorted } =
-      this._makeSortedWindow(arr, half);
+    const {
+      window: sortedWindow,
+      insert: insertSorted,
+      remove: removeSorted,
+    } = this._makeSortedWindow(arr, half);
 
     // Reusable array for computing local MAD
     const diffs = [];
@@ -124,11 +132,15 @@ export const GsrFilter = {
    */
   applyPercentileFilter(arr, windowSize, percentile) {
     const n = arr.length;
-    if (!windowSize || isNaN(windowSize) || windowSize <= 1 || n === 0) return [...arr];
+    if (!windowSize || isNaN(windowSize) || windowSize <= 1 || n === 0)
+      return [...arr];
     const result = new Array(n);
     const half = Math.floor(windowSize / 2);
-    const { window: sortedWindow, insert: insertSorted, remove: removeSorted } =
-      this._makeSortedWindow(arr, half);
+    const {
+      window: sortedWindow,
+      insert: insertSorted,
+      remove: removeSorted,
+    } = this._makeSortedWindow(arr, half);
 
     for (let i = 0; i < n; i++) {
       if (i > 0) {
@@ -159,8 +171,8 @@ export const GsrFilter = {
       const f = r - m;
       const oneMinusF = 1.0 - f;
 
-      const getVal = (idx) => (idx >= 0 && idx < n) ? data[idx] : 0.0;
-      const getInd = (idx) => (idx >= 0 && idx < n) ? 1.0 : 0.0;
+      const getVal = (idx) => (idx >= 0 && idx < n ? data[idx] : 0.0);
+      const getInd = (idx) => (idx >= 0 && idx < n ? 1.0 : 0.0);
 
       // Initial sum and count at i = 0
       let sum = 0.0;
@@ -171,30 +183,32 @@ export const GsrFilter = {
           count += 1.0;
         }
       }
-      
+
       const leftIdx = -m - 1;
       if (leftIdx >= 0 && leftIdx < n) {
         sum += data[leftIdx] * f;
         count += f;
       }
-      
+
       const rightIdx = m + 1;
       if (rightIdx >= 0 && rightIdx < n) {
         sum += data[rightIdx] * f;
         count += f;
       }
 
-      res[0] = count > 0 ? (sum / count) : data[0];
+      res[0] = count > 0 ? sum / count : data[0];
 
       // Slide window
       for (let i = 0; i < n - 1; i++) {
-        sum += oneMinusF * (getVal(i + m + 1) - getVal(i - m))
-             + f * (getVal(i + m + 2) - getVal(i - m - 1));
+        sum +=
+          oneMinusF * (getVal(i + m + 1) - getVal(i - m)) +
+          f * (getVal(i + m + 2) - getVal(i - m - 1));
 
-        count += oneMinusF * (getInd(i + m + 1) - getInd(i - m))
-               + f * (getInd(i + m + 2) - getInd(i - m - 1));
+        count +=
+          oneMinusF * (getInd(i + m + 1) - getInd(i - m)) +
+          f * (getInd(i + m + 2) - getInd(i - m - 1));
 
-        res[i + 1] = count > 0 ? (sum / count) : data[i + 1];
+        res[i + 1] = count > 0 ? sum / count : data[i + 1];
       }
 
       return res;
@@ -245,17 +259,18 @@ export const GsrFilter = {
     if (n === 0) return [];
     if (!cutoffHz || !sampleRate || n < 5) return [...arr];
 
-    const w0 = 2 * Math.PI * cutoffHz / sampleRate;
-    const cosw0 = Math.cos(w0), sinw0 = Math.sin(w0);
+    const w0 = (2 * Math.PI * cutoffHz) / sampleRate;
+    const cosw0 = Math.cos(w0),
+      sinw0 = Math.sin(w0);
     const sections = [];
     for (let k = 1; k <= order / 2; k++) {
-      const Q = 1 / (2 * Math.cos((2 * k - 1) * Math.PI / (2 * order)));
+      const Q = 1 / (2 * Math.cos(((2 * k - 1) * Math.PI) / (2 * order)));
       const alpha = sinw0 / (2 * Q);
       const a0 = 1 + alpha;
       sections.push({
-        b0: ((1 - cosw0) / 2) / a0,
+        b0: (1 - cosw0) / 2 / a0,
         b1: (1 - cosw0) / a0,
-        b2: ((1 - cosw0) / 2) / a0,
+        b2: (1 - cosw0) / 2 / a0,
         a1: (-2 * cosw0) / a0,
         a2: (1 - alpha) / a0,
       });
@@ -266,12 +281,18 @@ export const GsrFilter = {
       for (const { b0, b1, b2, a1, a2 } of sections) {
         const len = y.length;
         const out = new Array(len);
-        let x1 = y[0], x2 = y[0], y1 = y[0], y2 = y[0];
+        let x1 = y[0],
+          x2 = y[0],
+          y1 = y[0],
+          y2 = y[0];
         for (let i = 0; i < len; i++) {
           const xi = y[i];
           const yi = b0 * xi + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2;
           out[i] = yi;
-          x2 = x1; x1 = xi; y2 = y1; y1 = yi;
+          x2 = x1;
+          x1 = xi;
+          y2 = y1;
+          y1 = yi;
         }
         y = out;
       }
@@ -281,11 +302,16 @@ export const GsrFilter = {
     // Mirror-pad by ~3 cutoff-periods so the biquad cascade's start-up
     // transient settles before it reaches real data — scipy.signal.filtfilt's
     // default padding convention for the same reason.
-    const pad = Math.min(n - 1, Math.max(1, Math.round(3 * sampleRate / cutoffHz)));
+    const pad = Math.min(
+      n - 1,
+      Math.max(1, Math.round((3 * sampleRate) / cutoffHz)),
+    );
     const padded = new Array(n + 2 * pad);
-    for (let i = 0; i < pad; i++) padded[i] = 2 * arr[0] - arr[Math.min(pad - i, n - 1)];
+    for (let i = 0; i < pad; i++)
+      padded[i] = 2 * arr[0] - arr[Math.min(pad - i, n - 1)];
     for (let i = 0; i < n; i++) padded[pad + i] = arr[i];
-    for (let i = 0; i < pad; i++) padded[pad + n + i] = 2 * arr[n - 1] - arr[Math.max(n - 2 - i, 0)];
+    for (let i = 0; i < pad; i++)
+      padded[pad + n + i] = 2 * arr[n - 1] - arr[Math.max(n - 2 - i, 0)];
 
     const forward = runCascade(padded);
     const backward = runCascade(forward.slice().reverse()).reverse();
@@ -350,7 +376,8 @@ export const GsrFilter = {
     }
 
     const backward = new Array(n);
-    backward[n - 1] = alpha * forward[n - 1] + (1 - alpha) * seedFloor(n - seedWin, n);
+    backward[n - 1] =
+      alpha * forward[n - 1] + (1 - alpha) * seedFloor(n - seedWin, n);
     for (let i = n - 2; i >= 0; i--) {
       backward[i] = alpha * forward[i] + (1 - alpha) * backward[i + 1];
     }
@@ -369,7 +396,7 @@ export const GsrFilter = {
    * Standardizes a signal array of { time, val } objects using Z-score.
    */
   standardizeSignal(signal, out = null) {
-    const vals = signal.map(d => d.val);
+    const vals = signal.map((d) => d.val);
     const stats = this.calculateStats(vals);
     const n = signal.length;
     // Reuse the caller's {time,val} array when one of the right length is
@@ -382,9 +409,9 @@ export const GsrFilter = {
       }
       return out;
     }
-    return signal.map(d => ({
+    return signal.map((d) => ({
       time: d.time,
-      val: (d.val - stats.mean) / stats.std
+      val: (d.val - stats.mean) / stats.std,
     }));
   },
 
@@ -405,14 +432,16 @@ export const GsrFilter = {
     let phasicVals = [];
 
     const method = params.tonicMethod || 'lpf';
-    const windowSec = params.tonicWindow !== undefined ? params.tonicWindow : 45;
+    const windowSec =
+      params.tonicWindow !== undefined ? params.tonicWindow : 45;
     const tonicWinSize = Math.max(5, Math.round(windowSec * sampleRate));
 
     if (method === 'median') {
       tonicVals = this.applyMedianFilter(afterLPF, tonicWinSize);
     } else if (method === 'percentile') {
-      tonicVals = this.applyPercentileFilter(afterLPF, tonicWinSize, 0.10);
-    } else { // 'lpf' / 'ema' (also the fallback for any unrecognised method)
+      tonicVals = this.applyPercentileFilter(afterLPF, tonicWinSize, 0.1);
+    } else {
+      // 'lpf' / 'ema' (also the fallback for any unrecognised method)
       const alpha = 2.0 / (tonicWinSize + 1);
       tonicVals = this.applyZeroPhaseEMA(afterLPF, alpha);
     }
@@ -434,14 +463,22 @@ export const GsrFilter = {
         const dq1 = [];
         for (let i = 0; i < n; i++) {
           if (dq1.length > 0 && dq1[0] < i - floorHalf) dq1.shift();
-          while (dq1.length > 0 && phasicVals[dq1[dq1.length - 1]] >= phasicVals[i]) dq1.pop();
+          while (
+            dq1.length > 0 &&
+            phasicVals[dq1[dq1.length - 1]] >= phasicVals[i]
+          )
+            dq1.pop();
           dq1.push(i);
           bwd[i] = phasicVals[dq1[0]];
         }
         const dq2 = [];
         for (let i = n - 1; i >= 0; i--) {
           if (dq2.length > 0 && dq2[0] > i + floorHalf) dq2.shift();
-          while (dq2.length > 0 && phasicVals[dq2[dq2.length - 1]] >= phasicVals[i]) dq2.pop();
+          while (
+            dq2.length > 0 &&
+            phasicVals[dq2[dq2.length - 1]] >= phasicVals[i]
+          )
+            dq2.pop();
           dq2.push(i);
           localOffsets[i] = Math.min(bwd[i], phasicVals[dq2[0]]);
         }
@@ -449,7 +486,8 @@ export const GsrFilter = {
 
       // Light smoothing on offset curve (4 s window)
       const smoothOffsets = this.applyZeroPhaseMovingAverage(
-        localOffsets, Math.round(4 * sampleRate)
+        localOffsets,
+        Math.round(4 * sampleRate),
       );
       for (let i = 0; i < n; i++) {
         tonicVals[i] += smoothOffsets[i];
@@ -460,5 +498,5 @@ export const GsrFilter = {
     phasicVals = afterLPF.map((v, i) => Math.max(0, v - tonicVals[i]));
 
     return { tonic: tonicVals, phasic: phasicVals };
-  }
+  },
 };

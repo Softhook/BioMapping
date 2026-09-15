@@ -20,7 +20,6 @@
  * Usage (normally via check_ground_truth.sh, not directly):
  *   node check_ground_truth.js <ground_truth.json> <neurokit.json> <track.csv>
  */
-'use strict';
 
 const fs = require('fs');
 const path = require('path');
@@ -36,7 +35,10 @@ if (Number.isFinite(minGapOverride) && minGapOverride > 0) {
 function loadModule(filePath, varName) {
   const src = fs.readFileSync(filePath, 'utf8');
   const wrapped = src
-    .replace(new RegExp(`class ${varName}\\s*{`), `global.${varName} = class ${varName} {`)
+    .replace(
+      new RegExp(`class ${varName}\\s*{`),
+      `global.${varName} = class ${varName} {`,
+    )
     .replace(new RegExp(`const ${varName}\\s*=`), `global.${varName} =`);
   vm.runInThisContext(wrapped, { filename: filePath });
 }
@@ -53,11 +55,15 @@ const D = global.GSR_CONST.GSR_DEFAULT;
 
 const TOL = 1.0; // seconds - same match window used throughout this investigation
 const thresholdOverride = Number.parseFloat(process.env.BIOMAP_PEAK_THRESHOLD);
-const detectorThresholdPatch = Number.isFinite(thresholdOverride) && thresholdOverride >= 0
-  ? { peakThreshold: thresholdOverride }
-  : {};
+const detectorThresholdPatch =
+  Number.isFinite(thresholdOverride) && thresholdOverride >= 0
+    ? { peakThreshold: thresholdOverride }
+    : {};
 const gaitFilterEnv = process.env.BIOMAP_USE_GAIT_FILTER;
-const globalGaitFilter = gaitFilterEnv !== undefined ? (gaitFilterEnv === '1' || gaitFilterEnv === 'true') : null;
+const globalGaitFilter =
+  gaitFilterEnv !== undefined
+    ? gaitFilterEnv === '1' || gaitFilterEnv === 'true'
+    : null;
 const detectorDefaults = { ...D, ...detectorThresholdPatch };
 
 // Amplitude accuracy over matched (TP) pairs only - a false positive or a
@@ -66,16 +72,25 @@ const detectorDefaults = { ...D, ...detectorThresholdPatch };
 function amplitudeStats(pairs) {
   const n = pairs.length;
   if (n === 0) return { n: 0, meanAbsErr: NaN, meanRelErr: NaN, r: NaN };
-  let sumAbs = 0, sumRelAbs = 0;
-  let sumD = 0, sumT = 0, sumDT = 0, sumD2 = 0, sumT2 = 0;
+  let sumAbs = 0,
+    sumRelAbs = 0;
+  let sumD = 0,
+    sumT = 0,
+    sumDT = 0,
+    sumD2 = 0,
+    sumT2 = 0;
   for (const [detected, trueAmp] of pairs) {
     const err = detected - trueAmp;
     sumAbs += Math.abs(err);
     sumRelAbs += Math.abs(err) / trueAmp;
-    sumD += detected; sumT += trueAmp; sumDT += detected * trueAmp;
-    sumD2 += detected * detected; sumT2 += trueAmp * trueAmp;
+    sumD += detected;
+    sumT += trueAmp;
+    sumDT += detected * trueAmp;
+    sumD2 += detected * detected;
+    sumT2 += trueAmp * trueAmp;
   }
-  const meanD = sumD / n, meanT = sumT / n;
+  const meanD = sumD / n,
+    meanT = sumT / n;
   const cov = sumDT / n - meanD * meanT;
   const varD = sumD2 / n - meanD * meanD;
   const varT = sumT2 / n - meanT * meanT;
@@ -92,16 +107,21 @@ function score(oursTimes, oursAmps, trueScrs) {
   const deltas = [];
   const ampPairs = [];
   oursTimes.forEach((t, oi) => {
-    let best = -1, bestD = Infinity;
+    let best = -1,
+      bestD = Infinity;
     trueScrs.forEach((tt, ti) => {
       if (usedTrue[ti]) return;
       const d = Math.abs(tt.time - t);
-      if (d < bestD) { bestD = d; best = ti; }
+      if (d < bestD) {
+        bestD = d;
+        best = ti;
+      }
     });
     if (best !== -1 && bestD <= TOL) {
       usedTrue[best] = true;
       deltas.push(bestD);
-      if (oursAmps[oi] != null) ampPairs.push([oursAmps[oi], trueScrs[best].amplitude]);
+      if (oursAmps[oi] != null)
+        ampPairs.push([oursAmps[oi], trueScrs[best].amplitude]);
     }
   });
   const tp = deltas.length;
@@ -109,69 +129,139 @@ function score(oursTimes, oursAmps, trueScrs) {
   const fp = oursTimes.length - tp;
   const recall = trueScrs.length ? tp / trueScrs.length : NaN;
   const precision = oursTimes.length ? tp / oursTimes.length : NaN;
-  const f1 = (recall + precision) > 0 ? 2 * recall * precision / (recall + precision) : 0;
-  const meanDelta = deltas.length ? deltas.reduce((s, d) => s + d, 0) / deltas.length : NaN;
-  return { tp, fn, fp, recall, precision, f1, meanDelta, deltas, ampPairs, amp: amplitudeStats(ampPairs) };
+  const f1 =
+    recall + precision > 0
+      ? (2 * recall * precision) / (recall + precision)
+      : 0;
+  const meanDelta = deltas.length
+    ? deltas.reduce((s, d) => s + d, 0) / deltas.length
+    : NaN;
+  return {
+    tp,
+    fn,
+    fp,
+    recall,
+    precision,
+    f1,
+    meanDelta,
+    deltas,
+    ampPairs,
+    amp: amplitudeStats(ampPairs),
+  };
 }
 
 function aggregateStats(resultsList) {
-  let tp = 0, fn = 0, fp = 0, totalTrue = 0, totalDetected = 0;
+  let tp = 0,
+    fn = 0,
+    fp = 0,
+    totalTrue = 0,
+    totalDetected = 0;
   const allDeltas = [];
   const allAmpPairs = [];
   for (const s of resultsList) {
     tp += s.tp;
     fn += s.fn;
     fp += s.fp;
-    totalTrue += (s.tp + s.fn);
-    totalDetected += (s.tp + s.fp);
+    totalTrue += s.tp + s.fn;
+    totalDetected += s.tp + s.fp;
     allDeltas.push(...s.deltas);
     allAmpPairs.push(...s.ampPairs);
   }
   const recall = totalTrue ? tp / totalTrue : NaN;
   const precision = totalDetected ? tp / totalDetected : NaN;
-  const f1 = (recall + precision) > 0 ? 2 * recall * precision / (recall + precision) : 0;
-  const meanDelta = allDeltas.length ? allDeltas.reduce((s, d) => s + d, 0) / allDeltas.length : NaN;
-  return { tp, fn, fp, recall, precision, f1, meanDelta, amp: amplitudeStats(allAmpPairs) };
+  const f1 =
+    recall + precision > 0
+      ? (2 * recall * precision) / (recall + precision)
+      : 0;
+  const meanDelta = allDeltas.length
+    ? allDeltas.reduce((s, d) => s + d, 0) / allDeltas.length
+    : NaN;
+  return {
+    tp,
+    fn,
+    fp,
+    recall,
+    precision,
+    f1,
+    meanDelta,
+    amp: amplitudeStats(allAmpPairs),
+  };
 }
 
 function fmt(label, s) {
-  const pct = (x) => Number.isNaN(x) ? 'n/a' : (100 * x).toFixed(1) + '%';
+  const pct = (x) => (Number.isNaN(x) ? 'n/a' : (100 * x).toFixed(1) + '%');
   const base = `  ${label.padEnd(20)} recall ${pct(s.recall).padStart(6)}  precision ${pct(s.precision).padStart(6)}  F1 ${s.f1.toFixed(3)}  TP ${String(s.tp).padStart(4)} FN ${String(s.fn).padStart(4)} FP ${String(s.fp).padStart(4)}  mean|delta| ${Number.isNaN(s.meanDelta) ? 'n/a' : s.meanDelta.toFixed(3) + 's'}`;
   const a = s.amp;
-  const ampStr = a.n ? `amp: meanAbsErr ${a.meanAbsErr.toFixed(3)}uS  meanRelErr ${(100 * a.meanRelErr).toFixed(1)}%  r ${a.r.toFixed(4)}` : 'amp: n/a (no TPs)';
+  const ampStr = a.n
+    ? `amp: meanAbsErr ${a.meanAbsErr.toFixed(3)}uS  meanRelErr ${(100 * a.meanRelErr).toFixed(1)}%  r ${a.r.toFixed(4)}`
+    : 'amp: n/a (no TPs)';
   return `${base}\n  ${' '.repeat(20)} ${ampStr}`;
 }
 
 const args = process.argv.slice(2);
 if (args.length < 2) {
-  console.error('Usage: node check_ground_truth.js <ground_truth_dir> <neurokit.json> [track1.csv ...]');
-  console.error('   or: node check_ground_truth.js <ground_truth.json> <neurokit.json> <track.csv>');
+  console.error(
+    'Usage: node check_ground_truth.js <ground_truth_dir> <neurokit.json> [track1.csv ...]',
+  );
+  console.error(
+    '   or: node check_ground_truth.js <ground_truth.json> <neurokit.json> <track.csv>',
+  );
   process.exit(1);
 }
 
 const compareTonicVariants = process.env.BIOMAP_COMPARE_TONIC === '1';
 const DETECTORS = compareTonicVariants
   ? [
-      ['Prominence (EMA 45s)',       { usePeakProminence: true, tonicMethod: 'lpf', tonicWindow: 45 }],
-      ['Prominence (EMA 30s)',       { usePeakProminence: true, tonicMethod: 'lpf', tonicWindow: 30 }],
-      ['Prominence (EMA 60s)',       { usePeakProminence: true, tonicMethod: 'lpf', tonicWindow: 60 }],
-      ['Prominence (Median 30s)',    { usePeakProminence: true, tonicMethod: 'median', tonicWindow: 30 }],
-      ['Prominence (Median 20s)',    { usePeakProminence: true, tonicMethod: 'median', tonicWindow: 20 }],
-      ['Prominence (Median 45s)',    { usePeakProminence: true, tonicMethod: 'median', tonicWindow: 45 }],
-      ['Prominence (10th-%ile 15s)', { usePeakProminence: true, tonicMethod: 'percentile', tonicWindow: 15 }],
-      ['Prominence (10th-%ile 10s)', { usePeakProminence: true, tonicMethod: 'percentile', tonicWindow: 10 }],
-      ['Prominence (10th-%ile 30s)', { usePeakProminence: true, tonicMethod: 'percentile', tonicWindow: 30 }],
-      ['Full-Scan (EMA 45s)',        { tonicMethod: 'lpf', tonicWindow: 45 }],
-      ['Full-Scan (Median 30s)',     { tonicMethod: 'median', tonicWindow: 30 }],
-      ['Full-Scan (10th-%ile 15s)',  { tonicMethod: 'percentile', tonicWindow: 15 }],
-      ['cvxEDA (B-spline)',          { useCvxEDA: true }],
-      ['Deconvolution (MP)',         { useDeconvolution: true }],
+      [
+        'Prominence (EMA 45s)',
+        { usePeakProminence: true, tonicMethod: 'lpf', tonicWindow: 45 },
+      ],
+      [
+        'Prominence (EMA 30s)',
+        { usePeakProminence: true, tonicMethod: 'lpf', tonicWindow: 30 },
+      ],
+      [
+        'Prominence (EMA 60s)',
+        { usePeakProminence: true, tonicMethod: 'lpf', tonicWindow: 60 },
+      ],
+      [
+        'Prominence (Median 30s)',
+        { usePeakProminence: true, tonicMethod: 'median', tonicWindow: 30 },
+      ],
+      [
+        'Prominence (Median 20s)',
+        { usePeakProminence: true, tonicMethod: 'median', tonicWindow: 20 },
+      ],
+      [
+        'Prominence (Median 45s)',
+        { usePeakProminence: true, tonicMethod: 'median', tonicWindow: 45 },
+      ],
+      [
+        'Prominence (10th-%ile 15s)',
+        { usePeakProminence: true, tonicMethod: 'percentile', tonicWindow: 15 },
+      ],
+      [
+        'Prominence (10th-%ile 10s)',
+        { usePeakProminence: true, tonicMethod: 'percentile', tonicWindow: 10 },
+      ],
+      [
+        'Prominence (10th-%ile 30s)',
+        { usePeakProminence: true, tonicMethod: 'percentile', tonicWindow: 30 },
+      ],
+      ['Full-Scan (EMA 45s)', { tonicMethod: 'lpf', tonicWindow: 45 }],
+      ['Full-Scan (Median 30s)', { tonicMethod: 'median', tonicWindow: 30 }],
+      [
+        'Full-Scan (10th-%ile 15s)',
+        { tonicMethod: 'percentile', tonicWindow: 15 },
+      ],
+      ['cvxEDA (B-spline)', { useCvxEDA: true }],
+      ['Deconvolution (MP)', { useDeconvolution: true }],
     ]
   : [
-      ['Full-Scan',      {}],
-      ['Prominence',     { usePeakProminence: true }],
-      ['cvxEDA',         { useCvxEDA: true }],
-      ['Deconvolution',  { useDeconvolution: true }],
+      ['Full-Scan', {}],
+      ['Prominence', { usePeakProminence: true }],
+      ['cvxEDA', { useCvxEDA: true }],
+      ['Deconvolution', { useDeconvolution: true }],
     ];
 
 const firstArg = args[0];
@@ -184,21 +274,26 @@ if (isDir) {
   const groundTruthDir = firstArg;
   nkPath = args[1];
   if (args.length > 2) {
-    trackFiles = args.slice(2).map(p => path.resolve(p));
+    trackFiles = args.slice(2).map((p) => path.resolve(p));
   } else {
-    trackFiles = fs.readdirSync(groundTruthDir)
-      .filter(f => f.endsWith('.csv'))
+    trackFiles = fs
+      .readdirSync(groundTruthDir)
+      .filter((f) => f.endsWith('.csv'))
       .sort()
-      .map(f => path.join(groundTruthDir, f));
+      .map((f) => path.join(groundTruthDir, f));
   }
 } else {
   if (args.length < 3) {
-    console.error('Usage: node check_ground_truth.js <ground_truth.json> <neurokit.json> <track.csv>');
+    console.error(
+      'Usage: node check_ground_truth.js <ground_truth.json> <neurokit.json> <track.csv>',
+    );
     process.exit(1);
   }
   const [gtPath, nkP, csvPath] = args;
   nkPath = nkP;
-  trackFiles = [{ gtPath: path.resolve(gtPath), csvPath: path.resolve(csvPath) }];
+  trackFiles = [
+    { gtPath: path.resolve(gtPath), csvPath: path.resolve(csvPath) },
+  ];
 }
 
 // Independent reference toolboxes' own detectors, scored against the same
@@ -210,11 +305,31 @@ if (isDir) {
 const EXTERNAL_REFS = [
   ['NeuroKit2 (default)', 'peak_times', 'peak_amplitudes'],
   ['NeuroKit2 (cvxEDA)', 'cvxeda_peak_times', 'cvxeda_peak_amplitudes'],
-  ['NeuroKit2 (cvxEDA + literature abs. peaks)', 'cvxeda_lit_peak_times', 'cvxeda_lit_peak_amplitudes'],
-  ['Ledalab CDA (default, real MATLAB source via Octave)', 'ledalab_peak_times', 'ledalab_peak_amplitudes'],
-  ['Ledalab CDA (literature-tuned, real MATLAB source via Octave)', 'ledalab_lit_peak_times', 'ledalab_lit_peak_amplitudes'],
-  ['cvxEDA reference solver (naive curve-scan)', 'cvxeda_ref_naive_peak_times', 'cvxeda_ref_naive_peak_amplitudes'],
-  ['cvxEDA reference solver (driver-based, BioMapping\'s algorithm)', 'cvxeda_ref_driver_peak_times', 'cvxeda_ref_driver_peak_amplitudes'],
+  [
+    'NeuroKit2 (cvxEDA + literature abs. peaks)',
+    'cvxeda_lit_peak_times',
+    'cvxeda_lit_peak_amplitudes',
+  ],
+  [
+    'Ledalab CDA (default, real MATLAB source via Octave)',
+    'ledalab_peak_times',
+    'ledalab_peak_amplitudes',
+  ],
+  [
+    'Ledalab CDA (literature-tuned, real MATLAB source via Octave)',
+    'ledalab_lit_peak_times',
+    'ledalab_lit_peak_amplitudes',
+  ],
+  [
+    'cvxEDA reference solver (naive curve-scan)',
+    'cvxeda_ref_naive_peak_times',
+    'cvxeda_ref_naive_peak_amplitudes',
+  ],
+  [
+    "cvxEDA reference solver (driver-based, BioMapping's algorithm)",
+    'cvxeda_ref_driver_peak_times',
+    'cvxeda_ref_driver_peak_amplitudes',
+  ],
 ];
 
 const nkAll = JSON.parse(fs.readFileSync(nkPath, 'utf8'));
@@ -230,9 +345,10 @@ let totalTrueSCRs = 0;
 for (const item of trackFiles) {
   const csvPath = typeof item === 'string' ? item : item.csvPath;
   const stem = path.basename(csvPath, '.csv');
-  const gtPath = typeof item === 'string'
-    ? path.join(path.dirname(csvPath), `${stem}.ground_truth.json`)
-    : item.gtPath;
+  const gtPath =
+    typeof item === 'string'
+      ? path.join(path.dirname(csvPath), `${stem}.ground_truth.json`)
+      : item.gtPath;
 
   if (!fs.existsSync(gtPath)) {
     console.warn(`Skipping ${stem}: ground-truth file not found: ${gtPath}`);
@@ -245,18 +361,27 @@ for (const item of trackFiles) {
   const csvText = fs.readFileSync(csvPath, 'utf8');
   const nk = nkAll[stem];
 
-  const isGaitTrack = stem.includes('gait') || stem.includes('walking') || Boolean(gt.params && (gt.params.gait_freq || gt.params.walking_profile));
-  const trackUseGaitFilter = globalGaitFilter !== null ? globalGaitFilter : isGaitTrack;
-  const trackDefaults = { ...detectorDefaults, useGaitFilter: trackUseGaitFilter };
+  const isGaitTrack =
+    stem.includes('gait') ||
+    stem.includes('walking') ||
+    Boolean(gt.params && (gt.params.gait_freq || gt.params.walking_profile));
+  const trackUseGaitFilter =
+    globalGaitFilter !== null ? globalGaitFilter : isGaitTrack;
+  const trackDefaults = {
+    ...detectorDefaults,
+    useGaitFilter: trackUseGaitFilter,
+  };
 
-  console.log(`=== ${stem}: ${trueScrs.length} true SCRs injected (duration ${gt.params.duration}s, noise ${gt.params.noise}, scr_number ${gt.params.scr_number}; BioMapping gait filter ${trackUseGaitFilter ? 'on' : 'off'}; peak gap ${global.GSR_CONST.PEAK_MIN_GAP}s) ===`);
+  console.log(
+    `=== ${stem}: ${trueScrs.length} true SCRs injected (duration ${gt.params.duration}s, noise ${gt.params.noise}, scr_number ${gt.params.scr_number}; BioMapping gait filter ${trackUseGaitFilter ? 'on' : 'off'}; peak gap ${global.GSR_CONST.PEAK_MIN_GAP}s) ===`,
+  );
 
   for (const [label, patch] of DETECTORS) {
     const a = new GSRAnalyzer();
     a.parseCSV(csvText);
     a.analyze({ ...trackDefaults, ...patch }, 0);
-    const times = a.peaks.map(p => p.time);
-    const amps = a.peaks.map(p => p.amplitude);
+    const times = a.peaks.map((p) => p.time);
+    const amps = a.peaks.map((p) => p.amplitude);
     const s = score(times, amps, trueScrs);
     aggregateMap[label].push(s);
     console.log(fmt(label, s));
@@ -277,11 +402,20 @@ for (const item of trackFiles) {
 }
 
 const firstDetectorLabel = DETECTORS[0][0];
-if (aggregateMap[firstDetectorLabel] && aggregateMap[firstDetectorLabel].length > 1) {
+if (
+  aggregateMap[firstDetectorLabel] &&
+  aggregateMap[firstDetectorLabel].length > 1
+) {
   const trackCount = aggregateMap[firstDetectorLabel].length;
-  console.log(`================================================================================`);
-  console.log(`=== Aggregate across all ${trackCount} ground-truth tracks (${totalTrueSCRs} total true SCRs) ===`);
-  console.log(`================================================================================`);
+  console.log(
+    `================================================================================`,
+  );
+  console.log(
+    `=== Aggregate across all ${trackCount} ground-truth tracks (${totalTrueSCRs} total true SCRs) ===`,
+  );
+  console.log(
+    `================================================================================`,
+  );
   for (const [label] of DETECTORS) {
     const agg = aggregateStats(aggregateMap[label]);
     console.log(fmt(label, agg));

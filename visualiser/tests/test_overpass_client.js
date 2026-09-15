@@ -19,11 +19,17 @@ const test = require('node:test');
 // _enforceRateLimit tests below use cooldowns under that cap (60-80ms) so
 // their real-wait assertions are unaffected.
 const _origSetTimeout = global.setTimeout;
-global.setTimeout = (fn, ms, ...rest) => _origSetTimeout(fn, Math.min(ms, 100), ...rest).unref();
+global.setTimeout = (fn, ms, ...rest) =>
+  _origSetTimeout(fn, Math.min(ms, 100), ...rest).unref();
 
 const { OverpassClient } = require('../src/osm/overpass_client.mjs');
 
-const BBOX = { minLat: 51.5007, minLon: -0.1246, maxLat: 51.5107, maxLon: -0.1146 };
+const BBOX = {
+  minLat: 51.5007,
+  minLon: -0.1246,
+  maxLat: 51.5107,
+  maxLon: -0.1146,
+};
 
 function resetClient() {
   OverpassClient._nextAllowedCallTime = null;
@@ -34,7 +40,10 @@ function resetClient() {
 test('buildQuery: interpolates the bbox (lat,lon,lat,lon order) fixed to 6 decimal places', () => {
   const q = OverpassClient.buildQuery(BBOX);
   const expectedBbox = '51.500700,-0.124600,51.510700,-0.114600';
-  assert.ok(q.includes(expectedBbox), 'query should contain the formatted bbox string');
+  assert.ok(
+    q.includes(expectedBbox),
+    'query should contain the formatted bbox string',
+  );
 });
 
 test('buildQuery: uses a single global [bbox:...] setting rather than repeating the area filter on every clause', () => {
@@ -44,28 +53,49 @@ test('buildQuery: uses a single global [bbox:...] setting rather than repeating 
   // Only the global [bbox:...] setting carries the coordinates — individual
   // clauses (e.g. way["highway"];) rely on it instead of repeating "(${b})".
   const occurrences = q.split(expectedBbox).length - 1;
-  assert.strictEqual(occurrences, 1, `expected the bbox string to appear exactly once (in [bbox:...]), got ${occurrences}`);
-  assert.ok(!q.includes(`(${expectedBbox})`), 'no clause should carry its own per-statement bbox filter');
+  assert.strictEqual(
+    occurrences,
+    1,
+    `expected the bbox string to appear exactly once (in [bbox:...]), got ${occurrences}`,
+  );
+  assert.ok(
+    !q.includes(`(${expectedBbox})`),
+    'no clause should carry its own per-statement bbox filter',
+  );
 });
 
 test('buildQuery: rounds/pads bbox coordinates to exactly 6 decimals regardless of input precision', () => {
-  const q = OverpassClient.buildQuery({ minLat: 1, minLon: 2, maxLat: 3, maxLon: 4 });
+  const q = OverpassClient.buildQuery({
+    minLat: 1,
+    minLon: 2,
+    maxLat: 3,
+    maxLon: 4,
+  });
   assert.ok(q.includes('1.000000,2.000000,3.000000,4.000000'));
 });
 
 test('buildQuery: includes [out:json], timeout, and maxsize directives', () => {
   const q = OverpassClient.buildQuery(BBOX);
-  assert.match(q, /\[out:json\]\[timeout:180\]\[maxsize:536870912\]\[bbox:[^\]]+\];/);
+  assert.match(
+    q,
+    /\[out:json\]\[timeout:180\]\[maxsize:536870912\]\[bbox:[^\]]+\];/,
+  );
 });
 
 test('buildQuery: requests highway/building/leisure/natural/amenity/shop feature classes', () => {
   const q = OverpassClient.buildQuery(BBOX);
   for (const clause of [
-    'way["highway"]', 'way["building"]', 'relation["building"]',
+    'way["highway"]',
+    'way["building"]',
+    'relation["building"]',
     'way["leisure"~"park|garden|nature_reserve"]',
     'way["natural"~"wood|scrub|grassland|heath|wetland"]',
-    'way["natural"~"water|wetland"]', 'way["waterway"]',
-    'node["amenity"]', 'way["shop"]', 'node["highway"="bus_stop"]', 'node["natural"="tree"]',
+    'way["natural"~"water|wetland"]',
+    'way["waterway"]',
+    'node["amenity"]',
+    'way["shop"]',
+    'node["highway"="bus_stop"]',
+    'node["natural"="tree"]',
     'way["natural"="tree_row"]',
   ]) {
     assert.ok(q.includes(clause), `query should include ${clause}`);
@@ -75,18 +105,30 @@ test('buildQuery: requests highway/building/leisure/natural/amenity/shop feature
 test('buildQuery: fetches natural=tree_row (ways + relations) — needed for osm_canopy_pct', () => {
   const q = OverpassClient.buildQuery(BBOX);
   assert.ok(q.includes('way["natural"="tree_row"]'), 'tree_row ways fetched');
-  assert.ok(q.includes('relation["natural"="tree_row"]'), 'tree_row relations fetched');
+  assert.ok(
+    q.includes('relation["natural"="tree_row"]'),
+    'tree_row relations fetched',
+  );
 });
 
 test('buildQuery: does NOT request leisure=playground — it is not green space (matches _isGreenSpace / GREEN_LEISURE)', () => {
   const q = OverpassClient.buildQuery(BBOX);
-  assert.ok(!q.includes('playground'), 'playground must not appear in any query clause');
+  assert.ok(
+    !q.includes('playground'),
+    'playground must not appear in any query clause',
+  );
 });
 
 test('buildQuery: fetches natural=wetland via BOTH the green and the water clause (wetland is blue and green)', () => {
   const q = OverpassClient.buildQuery(BBOX);
-  assert.ok(q.includes('way["natural"~"wood|scrub|grassland|heath|wetland"]'), 'wetland is in the green natural clause');
-  assert.ok(q.includes('way["natural"~"water|wetland"]'), 'wetland is still in the water natural clause');
+  assert.ok(
+    q.includes('way["natural"~"wood|scrub|grassland|heath|wetland"]'),
+    'wetland is in the green natural clause',
+  );
+  assert.ok(
+    q.includes('way["natural"~"water|wetland"]'),
+    'wetland is still in the water natural clause',
+  );
 });
 
 test('buildQuery: ends with the standard "out body; >; out skel qt;" recursion idiom', () => {
@@ -100,9 +142,11 @@ test('_backoffMs: grows exponentially with attempt number (within jitter bounds)
   const base = 1000;
   for (let attempt = 0; attempt < 5; attempt++) {
     const val = OverpassClient._backoffMs(attempt, base);
-    const nominal = base * Math.pow(2, attempt);
-    assert.ok(val >= nominal * 0.75 - 1 && val <= nominal * 1.25 + 1,
-      `attempt ${attempt}: ${val} should be within +-25% of ${nominal}`);
+    const nominal = base * 2 ** attempt;
+    assert.ok(
+      val >= nominal * 0.75 - 1 && val <= nominal * 1.25 + 1,
+      `attempt ${attempt}: ${val} should be within +-25% of ${nominal}`,
+    );
   }
 });
 
@@ -124,9 +168,18 @@ test('_retryAfterMs: parses a numeric Retry-After header into milliseconds', () 
 });
 
 test('_retryAfterMs: falls back when Retry-After is non-numeric or non-positive', () => {
-  assert.strictEqual(OverpassClient._retryAfterMs({ headers: { get: () => 'never' } }, 5000), 5000);
-  assert.strictEqual(OverpassClient._retryAfterMs({ headers: { get: () => '0' } }, 5000), 5000);
-  assert.strictEqual(OverpassClient._retryAfterMs({ headers: { get: () => '-5' } }, 5000), 5000);
+  assert.strictEqual(
+    OverpassClient._retryAfterMs({ headers: { get: () => 'never' } }, 5000),
+    5000,
+  );
+  assert.strictEqual(
+    OverpassClient._retryAfterMs({ headers: { get: () => '0' } }, 5000),
+    5000,
+  );
+  assert.strictEqual(
+    OverpassClient._retryAfterMs({ headers: { get: () => '-5' } }, 5000),
+    5000,
+  );
 });
 
 // ── _enforceRateLimit() ──────────────────────────────────────────────────
@@ -135,7 +188,10 @@ test('_enforceRateLimit: resolves immediately when there is no cooldown set', as
   resetClient();
   const start = Date.now();
   await OverpassClient._enforceRateLimit();
-  assert.ok(Date.now() - start < 50, 'should not wait when _nextAllowedCallTime is null');
+  assert.ok(
+    Date.now() - start < 50,
+    'should not wait when _nextAllowedCallTime is null',
+  );
 });
 
 test('_enforceRateLimit: resolves immediately when the cooldown has already passed', async () => {
@@ -153,7 +209,10 @@ test('_enforceRateLimit: waits out the remaining cooldown and reports progress',
   const start = Date.now();
   await OverpassClient._enforceRateLimit((msg) => progressMsgs.push(msg));
   const elapsed = Date.now() - start;
-  assert.ok(elapsed >= 70, `should have waited out the cooldown, only waited ${elapsed}ms`);
+  assert.ok(
+    elapsed >= 70,
+    `should have waited out the cooldown, only waited ${elapsed}ms`,
+  );
   assert.strictEqual(progressMsgs.length, 1);
   assert.match(progressMsgs[0], /Rate-limited\. Waiting \d+s/);
 });
@@ -173,12 +232,14 @@ test('fetchOSMData: happy path returns parsed JSON and reports progress mileston
   };
 
   const progress = [];
-  const result = await OverpassClient.fetchOSMData(BBOX, (msg) => progress.push(msg));
+  const result = await OverpassClient.fetchOSMData(BBOX, (msg) =>
+    progress.push(msg),
+  );
 
   assert.strictEqual(fetchCalls, 1);
   assert.deepStrictEqual(result, payload);
-  assert.ok(progress.some(m => /Connecting/.test(m)));
-  assert.ok(progress.some(m => /Parsing geographical payload/.test(m)));
+  assert.ok(progress.some((m) => /Connecting/.test(m)));
+  assert.ok(progress.some((m) => /Parsing geographical payload/.test(m)));
 });
 
 test('fetchOSMData: 429 sets a rate-limit cooldown, retries, then succeeds', async () => {
@@ -187,36 +248,54 @@ test('fetchOSMData: 429 sets a rate-limit cooldown, retries, then succeeds', asy
   global.fetch = async () => {
     attempt++;
     if (attempt === 1) {
-      return { ok: false, status: 429, headers: { get: (h) => (h === 'Retry-After' ? '0' : null) }, json: async () => ({}) };
+      return {
+        ok: false,
+        status: 429,
+        headers: { get: (h) => (h === 'Retry-After' ? '0' : null) },
+        json: async () => ({}),
+      };
     }
     return { ok: true, status: 200, json: async () => ({ ok: true }) };
   };
 
   const progress = [];
-  const result = await OverpassClient.fetchOSMData(BBOX, (msg) => progress.push(msg));
+  const result = await OverpassClient.fetchOSMData(BBOX, (msg) =>
+    progress.push(msg),
+  );
 
   assert.strictEqual(attempt, 2, 'should retry once after the 429');
   assert.deepStrictEqual(result, { ok: true });
-  assert.ok(progress.some(m => /rate-limited/i.test(m)));
-  assert.ok(OverpassClient._nextAllowedCallTime !== null, '_nextAllowedCallTime should be set after a 429');
+  assert.ok(progress.some((m) => /rate-limited/i.test(m)));
+  assert.ok(
+    OverpassClient._nextAllowedCallTime !== null,
+    '_nextAllowedCallTime should be set after a 429',
+  );
 });
 
 test('fetchOSMData: 429 exhausting all retries throws a descriptive rate-limit error', async () => {
   resetClient();
   global.fetch = async () => ({
-    ok: false, status: 429,
+    ok: false,
+    status: 429,
     headers: { get: (h) => (h === 'Retry-After' ? '0' : null) },
   });
 
   let attempts = 0;
   const origFetch = global.fetch;
-  global.fetch = async (...args) => { attempts++; return origFetch(...args); };
+  global.fetch = async (...args) => {
+    attempts++;
+    return origFetch(...args);
+  };
 
   await assert.rejects(
     () => OverpassClient.fetchOSMData(BBOX),
-    /rate-limited/i
+    /rate-limited/i,
   );
-  assert.strictEqual(attempts, OverpassClient.ENDPOINTS.length * 4, 'initial attempt + 3 retries across all configured endpoints');
+  assert.strictEqual(
+    attempts,
+    OverpassClient.ENDPOINTS.length * 4,
+    'initial attempt + 3 retries across all configured endpoints',
+  );
 });
 
 test('fetchOSMData: 509 is treated the same as 429 (rate-limited retry path)', async () => {
@@ -225,7 +304,11 @@ test('fetchOSMData: 509 is treated the same as 429 (rate-limited retry path)', a
   global.fetch = async () => {
     attempt++;
     if (attempt === 1) {
-      return { ok: false, status: 509, headers: { get: (h) => (h === 'Retry-After' ? '0' : null) } };
+      return {
+        ok: false,
+        status: 509,
+        headers: { get: (h) => (h === 'Retry-After' ? '0' : null) },
+      };
     }
     return { ok: true, status: 200, json: async () => ({ done: true }) };
   };
@@ -238,40 +321,55 @@ test('fetchOSMData: 504 retries with exponential backoff, then succeeds', async 
   let attempt = 0;
   global.fetch = async () => {
     attempt++;
-    if (attempt <= 2) return { ok: false, status: 504, headers: { get: () => null } };
+    if (attempt <= 2)
+      return { ok: false, status: 504, headers: { get: () => null } };
     return { ok: true, status: 200, json: async () => ({ recovered: true }) };
   };
   const progress = [];
-  const result = await OverpassClient.fetchOSMData(BBOX, (m) => progress.push(m));
+  const result = await OverpassClient.fetchOSMData(BBOX, (m) =>
+    progress.push(m),
+  );
   assert.strictEqual(attempt, 3);
   assert.deepStrictEqual(result, { recovered: true });
-  assert.ok(progress.some(m => /timed out \(504\)/.test(m)));
+  assert.ok(progress.some((m) => /timed out \(504\)/.test(m)));
 });
 
 test('fetchOSMData: 504 exhausting all retries throws a "too large" style error', async () => {
   resetClient();
-  global.fetch = async () => ({ ok: false, status: 504, headers: { get: () => null } });
+  global.fetch = async () => ({
+    ok: false,
+    status: 504,
+    headers: { get: () => null },
+  });
   await assert.rejects(
     () => OverpassClient.fetchOSMData(BBOX),
-    /timed out after 4 attempts/
+    /timed out after 4 attempts/,
   );
 });
 
 test('fetchOSMData: a 4xx/5xx status with a known hint throws that specific hint message', async () => {
   resetClient();
-  global.fetch = async () => ({ ok: false, status: 403, headers: { get: () => null } });
+  global.fetch = async () => ({
+    ok: false,
+    status: 403,
+    headers: { get: () => null },
+  });
   await assert.rejects(
     () => OverpassClient.fetchOSMData(BBOX),
-    /Access denied by the Overpass API/
+    /Access denied by the Overpass API/,
   );
 });
 
 test('fetchOSMData: an unrecognised status code throws a generic "Unexpected HTTP" error', async () => {
   resetClient();
-  global.fetch = async () => ({ ok: false, status: 418, headers: { get: () => null } });
+  global.fetch = async () => ({
+    ok: false,
+    status: 418,
+    headers: { get: () => null },
+  });
   await assert.rejects(
     () => OverpassClient.fetchOSMData(BBOX),
-    /Unexpected HTTP 418/
+    /Unexpected HTTP 418/,
   );
 });
 
@@ -288,10 +386,12 @@ test('fetchOSMData: AbortError (timeout) is retried then can succeed', async () 
     return { ok: true, status: 200, json: async () => ({ afterAbort: true }) };
   };
   const progress = [];
-  const result = await OverpassClient.fetchOSMData(BBOX, (m) => progress.push(m));
+  const result = await OverpassClient.fetchOSMData(BBOX, (m) =>
+    progress.push(m),
+  );
   assert.strictEqual(attempt, 2);
   assert.deepStrictEqual(result, { afterAbort: true });
-  assert.ok(progress.some(m => /Request timed out\. Retrying/.test(m)));
+  assert.ok(progress.some((m) => /Request timed out\. Retrying/.test(m)));
 });
 
 test('fetchOSMData: a non-AbortError thrown by fetch tries mirrors before giving up', async () => {
@@ -302,14 +402,21 @@ test('fetchOSMData: a non-AbortError thrown by fetch tries mirrors before giving
     throw new Error('network down');
   };
   await assert.rejects(() => OverpassClient.fetchOSMData(BBOX), /network down/);
-  assert.strictEqual(attempt, OverpassClient.ENDPOINTS.length, 'should try each mirror once on network error');
+  assert.strictEqual(
+    attempt,
+    OverpassClient.ENDPOINTS.length,
+    'should try each mirror once on network error',
+  );
 });
 
 // ── Mirror fallback (ENDPOINTS) ──────────────────────────────────────────
 
 test('fetchOSMData: a connection-level failure (TypeError) on the primary falls through to the mirror', async () => {
   resetClient();
-  assert.ok(OverpassClient.ENDPOINTS.length >= 2, 'test assumes at least one fallback mirror is configured');
+  assert.ok(
+    OverpassClient.ENDPOINTS.length >= 2,
+    'test assumes at least one fallback mirror is configured',
+  );
   const [primary, mirror] = OverpassClient.ENDPOINTS;
   const payload = { elements: [] };
   const urlsHit = [];
@@ -317,16 +424,26 @@ test('fetchOSMData: a connection-level failure (TypeError) on the primary falls 
   global.fetch = async (url) => {
     urlsHit.push(url);
     if (url === primary) throw new TypeError('Failed to fetch');
-    if (url === mirror) return { ok: true, status: 200, json: async () => payload };
+    if (url === mirror)
+      return { ok: true, status: 200, json: async () => payload };
     throw new Error(`unexpected endpoint: ${url}`);
   };
 
   const progress = [];
-  const result = await OverpassClient.fetchOSMData(BBOX, (m) => progress.push(m));
+  const result = await OverpassClient.fetchOSMData(BBOX, (m) =>
+    progress.push(m),
+  );
 
   assert.deepStrictEqual(result, payload);
-  assert.deepStrictEqual(urlsHit, [primary, mirror], 'tries the primary, then falls through to the mirror');
-  assert.ok(progress.some(m => /unreachable.*mirror/i.test(m)), 'reports the fallback to the user');
+  assert.deepStrictEqual(
+    urlsHit,
+    [primary, mirror],
+    'tries the primary, then falls through to the mirror',
+  );
+  assert.ok(
+    progress.some((m) => /unreachable.*mirror/i.test(m)),
+    'reports the fallback to the user',
+  );
 });
 
 test('fetchOSMData: a 504 gateway timeout on the primary falls through to the mirror', async () => {
@@ -337,17 +454,25 @@ test('fetchOSMData: a 504 gateway timeout on the primary falls through to the mi
 
   global.fetch = async (url) => {
     urlsHit.push(url);
-    if (url === primary) return { ok: false, status: 504, headers: { get: () => null } };
-    if (url === mirror) return { ok: true, status: 200, json: async () => payload };
+    if (url === primary)
+      return { ok: false, status: 504, headers: { get: () => null } };
+    if (url === mirror)
+      return { ok: true, status: 200, json: async () => payload };
     throw new Error(`unexpected endpoint: ${url}`);
   };
 
   const progress = [];
-  const result = await OverpassClient.fetchOSMData(BBOX, (m) => progress.push(m));
+  const result = await OverpassClient.fetchOSMData(BBOX, (m) =>
+    progress.push(m),
+  );
 
   assert.deepStrictEqual(result, payload);
-  assert.deepStrictEqual(urlsHit, [primary, primary, primary, primary, mirror], 'exhausts retries on primary then falls through to mirror');
-  assert.ok(progress.some(m => /trying a mirror/i.test(m)));
+  assert.deepStrictEqual(
+    urlsHit,
+    [primary, primary, primary, primary, mirror],
+    'exhausts retries on primary then falls through to mirror',
+  );
+  assert.ok(progress.some((m) => /trying a mirror/i.test(m)));
 });
 
 test('fetchOSMData: an in-payload Overpass remark runtime error on primary falls through to mirror', async () => {
@@ -362,10 +487,15 @@ test('fetchOSMData: an in-payload Overpass remark runtime error on primary falls
       return {
         ok: true,
         status: 200,
-        json: async () => ({ version: 0.6, remark: 'runtime error: Query run out of memory', elements: [] })
+        json: async () => ({
+          version: 0.6,
+          remark: 'runtime error: Query run out of memory',
+          elements: [],
+        }),
       };
     }
-    if (url === mirror) return { ok: true, status: 200, json: async () => payload };
+    if (url === mirror)
+      return { ok: true, status: 200, json: async () => payload };
     throw new Error(`unexpected endpoint: ${url}`);
   };
 
@@ -385,7 +515,11 @@ test('fetchOSMData: a malformed query (HTTP 400) from the primary is reported im
   };
 
   await assert.rejects(() => OverpassClient.fetchOSMData(BBOX), /malformed/i);
-  assert.deepStrictEqual(urlsHit, [primary], 'a real HTTP error is a live-server response — every mirror would give the same one, so it is reported, not retried elsewhere');
+  assert.deepStrictEqual(
+    urlsHit,
+    [primary],
+    'a real HTTP error is a live-server response — every mirror would give the same one, so it is reported, not retried elsewhere',
+  );
 });
 
 test('fetchOSMData: every endpoint unreachable throws the last connection error, having tried them all', async () => {
@@ -396,8 +530,15 @@ test('fetchOSMData: every endpoint unreachable throws the last connection error,
     throw new TypeError('Failed to fetch');
   };
 
-  await assert.rejects(() => OverpassClient.fetchOSMData(BBOX), /Failed to fetch/);
-  assert.deepStrictEqual(urlsHit, OverpassClient.ENDPOINTS, 'tried every configured endpoint before giving up');
+  await assert.rejects(
+    () => OverpassClient.fetchOSMData(BBOX),
+    /Failed to fetch/,
+  );
+  assert.deepStrictEqual(
+    urlsHit,
+    OverpassClient.ENDPOINTS,
+    'tried every configured endpoint before giving up',
+  );
 });
 
 test('fetchOSMData: honours an existing rate-limit cooldown before issuing the first fetch', async () => {
@@ -410,5 +551,8 @@ test('fetchOSMData: honours an existing rate-limit cooldown before issuing the f
   };
   const start = Date.now();
   await OverpassClient.fetchOSMData(BBOX);
-  assert.ok(fetchCalledAt - start >= 50, 'fetch should not fire until the cooldown elapses');
+  assert.ok(
+    fetchCalledAt - start >= 50,
+    'fetch should not fire until the cooldown elapses',
+  );
 });

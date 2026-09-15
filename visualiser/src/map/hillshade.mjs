@@ -26,7 +26,8 @@ export class Hillshade {
    */
   static compute(grid, rows, cols, cellSizeX, cellSizeY, options) {
     const opts = options || {};
-    const azimuthDegTrue = opts.azimuthDeg !== undefined ? opts.azimuthDeg : 315;
+    const azimuthDegTrue =
+      opts.azimuthDeg !== undefined ? opts.azimuthDeg : 315;
     // `aspect` below is computed as atan2(dzdy, -dzdx), which comes out in a
     // raw mathematical angle convention, NOT true compass bearing — a slope
     // whose real downhill direction is compass bearing B evaluates to raw
@@ -39,7 +40,9 @@ export class Hillshade {
     // math (slope/contrast are unaffected), it just aims the simulated sun
     // in the wrong screen direction.
     const azimuthRad = ((90 - azimuthDegTrue) * Math.PI) / 180;
-    const altitudeRad = ((opts.altitudeDeg !== undefined ? opts.altitudeDeg : 45) * Math.PI) / 180;
+    const altitudeRad =
+      ((opts.altitudeDeg !== undefined ? opts.altitudeDeg : 45) * Math.PI) /
+      180;
     const zFactor = opts.zFactor !== undefined ? opts.zFactor : 1;
     const cx = cellSizeX > 0 ? cellSizeX : 1;
     const cy = cellSizeY > 0 ? cellSizeY : 1;
@@ -60,7 +63,7 @@ export class Hillshade {
     const at = (rr, cc, fallback) => {
       if (rr < 0 || rr >= rows || cc < 0 || cc >= cols) return fallback;
       const vv = grid[rr][cc];
-      return (vv === null || vv === undefined || isNaN(vv)) ? fallback : vv;
+      return vv === null || vv === undefined || isNaN(vv) ? fallback : vv;
     };
 
     for (let r = 0; r < rows; r++) {
@@ -71,18 +74,25 @@ export class Hillshade {
         // Compass-named per this codebase's grid convention (collective_manager.js
         // gridLatOf(r) = minLat + r/(rows-1)*(maxLat-minLat)): row increases
         // northward, so row r-1 is the southern neighbor and r+1 the northern one.
-        const sw = at(r - 1, c - 1, v), s = at(r - 1, c, v), se = at(r - 1, c + 1, v);
-        const w  = at(r, c - 1, v),                            e  = at(r, c + 1, v);
-        const nw = at(r + 1, c - 1, v), n = at(r + 1, c, v), ne = at(r + 1, c + 1, v);
+        const sw = at(r - 1, c - 1, v),
+          s = at(r - 1, c, v),
+          se = at(r - 1, c + 1, v);
+        const w = at(r, c - 1, v),
+          e = at(r, c + 1, v);
+        const nw = at(r + 1, c - 1, v),
+          n = at(r + 1, c, v),
+          ne = at(r + 1, c + 1, v);
 
-        const dzdx = ((se + 2 * e + ne) - (sw + 2 * w + nw)) / (8 * cx);
-        const dzdy = ((sw + 2 * s + se) - (nw + 2 * n + ne)) / (8 * cy);
+        const dzdx = (se + 2 * e + ne - (sw + 2 * w + nw)) / (8 * cx);
+        const dzdy = (sw + 2 * s + se - (nw + 2 * n + ne)) / (8 * cy);
 
         const slope = Math.atan(zFactor * Math.sqrt(dzdx * dzdx + dzdy * dzdy));
         let aspect = Math.atan2(dzdy, -dzdx);
         if (aspect < 0) aspect += 2 * Math.PI;
 
-        const hs = cosAlt * Math.cos(slope) + sinAlt * Math.sin(slope) * Math.cos(azimuthRad - aspect);
+        const hs =
+          cosAlt * Math.cos(slope) +
+          sinAlt * Math.sin(slope) * Math.cos(azimuthRad - aspect);
         shade[r * cols + c] = hs > 0 ? hs : 0;
       }
     }
@@ -129,9 +139,13 @@ export class Hillshade {
    */
   static buildRatioGrid(grid, rows, cols, config) {
     const { minVal, maxVal, sortedVals, rankFn } = config;
-    return grid.map(row => row.map(v =>
-      (v === null || v === undefined || isNaN(v)) ? null : Hillshade.valueRatio(v, minVal, maxVal, sortedVals, rankFn)
-    ));
+    return grid.map((row) =>
+      row.map((v) =>
+        v === null || v === undefined || isNaN(v)
+          ? null
+          : Hillshade.valueRatio(v, minVal, maxVal, sortedVals, rankFn),
+      ),
+    );
   }
 
   /**
@@ -161,9 +175,26 @@ export class Hillshade {
    * @returns {{ratioGrid: (number|null)[][], shade: Float32Array}}
    */
   static shadeValueGrid(grid, rows, cols, config) {
-    const { minVal, maxVal, sortedVals, rankFn, exaggeration, azimuthDeg, altitudeDeg } = config;
-    const ratioGrid = Hillshade.buildRatioGrid(grid, rows, cols, { minVal, maxVal, sortedVals, rankFn });
-    const shade = Hillshade.compute(ratioGrid, rows, cols, 1, 1, { azimuthDeg, altitudeDeg, zFactor: exaggeration });
+    const {
+      minVal,
+      maxVal,
+      sortedVals,
+      rankFn,
+      exaggeration,
+      azimuthDeg,
+      altitudeDeg,
+    } = config;
+    const ratioGrid = Hillshade.buildRatioGrid(grid, rows, cols, {
+      minVal,
+      maxVal,
+      sortedVals,
+      rankFn,
+    });
+    const shade = Hillshade.compute(ratioGrid, rows, cols, 1, 1, {
+      azimuthDeg,
+      altitudeDeg,
+      zFactor: exaggeration,
+    });
     return { ratioGrid, shade };
   }
 
@@ -181,8 +212,15 @@ export class Hillshade {
    * @param {number} [baseLightness=50]  the unshaded fill's own lightness
    * @returns {number} HSL lightness %
    */
-  static blendLightness(shade, strength, minLightness, maxLightness, baseLightness = 50) {
-    const shadedLightness = minLightness + shade * (maxLightness - minLightness);
+  static blendLightness(
+    shade,
+    strength,
+    minLightness,
+    maxLightness,
+    baseLightness = 50,
+  ) {
+    const shadedLightness =
+      minLightness + shade * (maxLightness - minLightness);
     return baseLightness + strength * (shadedLightness - baseLightness);
   }
 }

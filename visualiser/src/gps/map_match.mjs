@@ -48,7 +48,6 @@ import { GSR_CONST } from '../core/constants.mjs';
 import { GeoUtils } from './geo_utils.mjs';
 
 export const MapMatcher = {
-
   /** GPS position error std dev (metres).  Newson & Krumm use 4.07 m. */
   SIGMA_M: 4.07,
 
@@ -84,7 +83,7 @@ export const MapMatcher = {
    *   { lat, lon, roadLat, roadLon, alpha, wayId, dist }
    */
   match(evalPoints, raw, matchRadius) {
-    const radius = (matchRadius != null) ? matchRadius : this.MATCH_RADIUS;
+    const radius = matchRadius != null ? matchRadius : this.MATCH_RADIUS;
     const n = evalPoints.length;
     if (n === 0) return new Map();
 
@@ -93,9 +92,16 @@ export const MapMatcher = {
     for (let i = 0; i < n; i++) {
       const pt = evalPoints[i];
       const rawPt = raw[pt.idx] || {};
-      const speedMs = (!isNaN(rawPt.speedKts)) ? rawPt.speedKts * 0.514444 : NaN;
-      const courseDeg = (!isNaN(rawPt.course)) ? rawPt.course : NaN;
-      allCands[i] = this._getCandidates(pt.lat, pt.lon, pt.nearby, radius, speedMs, courseDeg);
+      const speedMs = !isNaN(rawPt.speedKts) ? rawPt.speedKts * 0.514444 : NaN;
+      const courseDeg = !isNaN(rawPt.course) ? rawPt.course : NaN;
+      allCands[i] = this._getCandidates(
+        pt.lat,
+        pt.lon,
+        pt.nearby,
+        radius,
+        speedMs,
+        courseDeg,
+      );
     }
 
     // ── 2. Viterbi forward pass (log-probabilities) ──────────────────────
@@ -117,7 +123,7 @@ export const MapMatcher = {
     for (let t = 1; t < n; t++) {
       const prevCands = allCands[t - 1];
       const currCands = allCands[t];
-      const vPrev     = V[t - 1];
+      const vPrev = V[t - 1];
 
       if (currCands.length === 0) {
         V[t] = new Float64Array(0);
@@ -128,17 +134,22 @@ export const MapMatcher = {
       // If the GPS sequence has a large time gap, break the Markov chain —
       // the transition probability should not carry across a 30 s gap.
       const tPrev = (raw[evalPoints[t - 1].idx] || {}).time || 0;
-      const tCurr = (raw[evalPoints[t    ].idx] || {}).time || 0;
-      const broken = (tCurr - tPrev > this.MAX_GAP_S) || prevCands.length === 0;
+      const tCurr = (raw[evalPoints[t].idx] || {}).time || 0;
+      const broken = tCurr - tPrev > this.MAX_GAP_S || prevCands.length === 0;
 
-      const gLat1 = evalPoints[t - 1].lat, gLon1 = evalPoints[t - 1].lon;
-      const gLat2 = evalPoints[t    ].lat, gLon2 = evalPoints[t    ].lon;
+      const gLat1 = evalPoints[t - 1].lat,
+        gLon1 = evalPoints[t - 1].lon;
+      const gLat2 = evalPoints[t].lat,
+        gLon2 = evalPoints[t].lon;
 
       const vCurr = new Float64Array(currCands.length);
       const bCurr = new Int32Array(currCands.length).fill(-1);
 
       for (let j = 0; j < currCands.length; j++) {
-        const logE = this._logEmit(currCands[j].dist, currCands[j].bearingDiffRad);
+        const logE = this._logEmit(
+          currCands[j].dist,
+          currCands[j].bearingDiffRad,
+        );
 
         if (broken) {
           // No valid transition — initialise from emission alone.
@@ -148,18 +159,22 @@ export const MapMatcher = {
         }
 
         let bestScore = -Infinity;
-        let bestPrev  = -1;
+        let bestPrev = -1;
 
         for (let i = 0; i < prevCands.length; i++) {
           if (!isFinite(vPrev[i])) continue;
           const logT = this._logTrans(
-            prevCands[i], currCands[j],
-            gLat1, gLon1, gLat2, gLon2
+            prevCands[i],
+            currCands[j],
+            gLat1,
+            gLon1,
+            gLat2,
+            gLon2,
           );
           const score = vPrev[i] + logT;
           if (score > bestScore) {
             bestScore = score;
-            bestPrev  = i;
+            bestPrev = i;
           }
         }
 
@@ -180,23 +195,37 @@ export const MapMatcher = {
     // Best candidate at the last time step.
     {
       const vLast = V[n - 1];
-      let best = -1, bestV = -Infinity;
+      let best = -1,
+        bestV = -Infinity;
       for (let j = 0; j < vLast.length; j++) {
-        if (vLast[j] > bestV) { bestV = vLast[j]; best = j; }
+        if (vLast[j] > bestV) {
+          bestV = vLast[j];
+          best = j;
+        }
       }
       path[n - 1] = best;
     }
 
     for (let t = n - 2; t >= 0; t--) {
       const nextIdx = path[t + 1];
-      const bArr    = B[t + 1];
+      const bArr = B[t + 1];
 
       // Safeguard against indexing errors and check if chain is broken
-      if (nextIdx < 0 || bArr === null || nextIdx >= bArr.length || bArr[nextIdx] < 0 || allCands[t + 1].length === 0) {
-        let best = -1, bestV = -Infinity;
+      if (
+        nextIdx < 0 ||
+        bArr === null ||
+        nextIdx >= bArr.length ||
+        bArr[nextIdx] < 0 ||
+        allCands[t + 1].length === 0
+      ) {
+        let best = -1,
+          bestV = -Infinity;
         const vt = V[t];
         for (let j = 0; j < vt.length; j++) {
-          if (vt[j] > bestV) { bestV = vt[j]; best = j; }
+          if (vt[j] > bestV) {
+            bestV = vt[j];
+            best = j;
+          }
         }
         path[t] = best;
       } else {
@@ -208,31 +237,35 @@ export const MapMatcher = {
     const results = new Map();
 
     for (let t = 0; t < n; t++) {
-      const pt    = evalPoints[t];
-      const ci    = path[t];
+      const pt = evalPoints[t];
+      const ci = path[t];
       const cands = allCands[t];
 
       if (ci < 0 || cands.length === 0) {
         // No suitable road nearby — pass through the raw GPS fix unchanged.
         results.set(pt.idx, {
-          lat: pt.lat, lon: pt.lon,
-          roadLat: pt.lat, roadLon: pt.lon,
-          alpha: 0, wayId: null, dist: Infinity
+          lat: pt.lat,
+          lon: pt.lon,
+          roadLat: pt.lat,
+          roadLon: pt.lon,
+          alpha: 0,
+          wayId: null,
+          dist: Infinity,
         });
         continue;
       }
 
-      const cand  = cands[ci];
+      const cand = cands[ci];
       const alpha = this._snapAlpha(cand.dist, radius);
 
       results.set(pt.idx, {
-        lat:     alpha * cand.snapLat + (1 - alpha) * pt.lat,
-        lon:     alpha * cand.snapLon + (1 - alpha) * pt.lon,
+        lat: alpha * cand.snapLat + (1 - alpha) * pt.lat,
+        lon: alpha * cand.snapLon + (1 - alpha) * pt.lon,
         roadLat: cand.snapLat,
         roadLon: cand.snapLon,
         alpha,
-        wayId:   cand.wayId,
-        dist:    cand.dist
+        wayId: cand.wayId,
+        dist: cand.dist,
       });
     }
 
@@ -248,8 +281,8 @@ export const MapMatcher = {
    * distance (nearest road-class-adjusted segment first).
    */
   _getCandidates(lat, lon, nearby, radiusM, speedMs, courseDeg) {
-    const cosLat = Math.cos(lat * Math.PI / 180);
-    const MDEG   = 111320;
+    const cosLat = Math.cos((lat * Math.PI) / 180);
+    const MDEG = 111320;
 
     const candidates = [];
 
@@ -258,11 +291,19 @@ export const MapMatcher = {
       if (!geom.coordinates || geom.coordinates.length < 2) continue;
 
       const classPenalty = this._ROAD_CLASS_PENALTY[geom.tags.highway] || 0;
-      const coords       = geom.coordinates;
+      const coords = geom.coordinates;
 
       for (let i = 0; i < coords.length - 1; i++) {
-        const a = coords[i], b = coords[i + 1];
-        const proj = GeoUtils.projectPointToSegment(lat, lon, a.lat, a.lon, b.lat, b.lon);
+        const a = coords[i],
+          b = coords[i + 1];
+        const proj = GeoUtils.projectPointToSegment(
+          lat,
+          lon,
+          a.lat,
+          a.lon,
+          b.lat,
+          b.lon,
+        );
         const dist = proj.distance;
 
         if (dist > radiusM) continue;
@@ -274,29 +315,35 @@ export const MapMatcher = {
         // HEADING_W/SPEED_GATE come from GSR_CONST.SNAP (constants.js) — the single
         // source of truth for these two tuning values, so they can't drift out of sync
         // with each other the way they previously did as separately-hardcoded literals here.
-        const speedGate = (typeof GSR_CONST !== 'undefined' && GSR_CONST.SNAP) ? GSR_CONST.SNAP.SPEED_GATE : 0.3;
-        const headingW  = (typeof GSR_CONST !== 'undefined' && GSR_CONST.SNAP) ? GSR_CONST.SNAP.HEADING_W  : 0.7;
+        const speedGate =
+          typeof GSR_CONST !== 'undefined' && GSR_CONST.SNAP
+            ? GSR_CONST.SNAP.SPEED_GATE
+            : 0.3;
+        const headingW =
+          typeof GSR_CONST !== 'undefined' && GSR_CONST.SNAP
+            ? GSR_CONST.SNAP.HEADING_W
+            : 0.7;
         if (!isNaN(speedMs) && speedMs >= speedGate && !isNaN(courseDeg)) {
-          const courseRad = courseDeg * Math.PI / 180;
+          const courseRad = (courseDeg * Math.PI) / 180;
           const segBearing = this._segmentBearing(a.lat, a.lon, b.lat, b.lon);
           bearingDiffRad = Math.min(
             this._angularDiff(courseRad, segBearing),
-            this._angularDiff(courseRad, segBearing + Math.PI)
+            this._angularDiff(courseRad, segBearing + Math.PI),
           );
           // Scale bearing penalty (headingW weight * normalised difference * 25m radius)
           effDist += headingW * (bearingDiffRad / Math.PI) * 25;
         }
 
         candidates.push({
-          wayId:    geom.id,
-          segIdx:   i,
-          snapLat:  proj.lat,
-          snapLon:  proj.lon,
+          wayId: geom.id,
+          segIdx: i,
+          snapLat: proj.lat,
+          snapLon: proj.lon,
           dist,
           effDist,
           endpoints: [coords[0], coords[coords.length - 1]],
-          coords:   coords,
-          bearingDiffRad
+          coords: coords,
+          bearingDiffRad,
         });
       }
     }
@@ -314,7 +361,9 @@ export const MapMatcher = {
    */
   _logEmit(dist, _bearingDiffRad) {
     const s = this.SIGMA_M;
-    return -0.5 * (dist / s) * (dist / s) - Math.log(s * Math.sqrt(2 * Math.PI));
+    return (
+      -0.5 * (dist / s) * (dist / s) - Math.log(s * Math.sqrt(2 * Math.PI))
+    );
   },
 
   /**
@@ -323,7 +372,7 @@ export const MapMatcher = {
    */
   _logTrans(c1, c2, gLat1, gLon1, gLat2, gLon2) {
     const dGPS = this._haversineM(gLat1, gLon1, gLat2, gLon2);
-    
+
     let dRoute;
     if (c1.wayId === c2.wayId) {
       dRoute = this._wayDistance(c1, c2);
@@ -358,17 +407,47 @@ export const MapMatcher = {
 
     let dist = 0;
     if (i < j) {
-      dist += this._haversineM(c1.snapLat, c1.snapLon, coords[i + 1].lat, coords[i + 1].lon);
+      dist += this._haversineM(
+        c1.snapLat,
+        c1.snapLon,
+        coords[i + 1].lat,
+        coords[i + 1].lon,
+      );
       for (let k = i + 1; k < j; k++) {
-        dist += this._haversineM(coords[k].lat, coords[k].lon, coords[k + 1].lat, coords[k + 1].lon);
+        dist += this._haversineM(
+          coords[k].lat,
+          coords[k].lon,
+          coords[k + 1].lat,
+          coords[k + 1].lon,
+        );
       }
-      dist += this._haversineM(coords[j].lat, coords[j].lon, c2.snapLat, c2.snapLon);
+      dist += this._haversineM(
+        coords[j].lat,
+        coords[j].lon,
+        c2.snapLat,
+        c2.snapLon,
+      );
     } else {
-      dist += this._haversineM(c1.snapLat, c1.snapLon, coords[i].lat, coords[i].lon);
+      dist += this._haversineM(
+        c1.snapLat,
+        c1.snapLon,
+        coords[i].lat,
+        coords[i].lon,
+      );
       for (let k = i - 1; k > j; k--) {
-        dist += this._haversineM(coords[k + 1].lat, coords[k + 1].lon, coords[k].lat, coords[k].lon);
+        dist += this._haversineM(
+          coords[k + 1].lat,
+          coords[k + 1].lon,
+          coords[k].lat,
+          coords[k].lon,
+        );
       }
-      dist += this._haversineM(coords[j + 1].lat, coords[j + 1].lon, c2.snapLat, c2.snapLon);
+      dist += this._haversineM(
+        coords[j + 1].lat,
+        coords[j + 1].lon,
+        c2.snapLat,
+        c2.snapLon,
+      );
     }
     return dist;
   },
@@ -412,23 +491,25 @@ export const MapMatcher = {
     // the distance from the candidate snap to that endpoint along the way.
     // Use value equality (lat + lon) rather than reference equality so
     // the comparison survives coordinate cloning.
-    const isStart1 = bestE1.lat === c1.coords[0].lat && bestE1.lon === c1.coords[0].lon;
+    const isStart1 =
+      bestE1.lat === c1.coords[0].lat && bestE1.lon === c1.coords[0].lon;
     const junctionCand1 = {
       wayId: c1.wayId,
       coords: c1.coords,
       segIdx: isStart1 ? 0 : c1.coords.length - 2,
       snapLat: bestE1.lat,
-      snapLon: bestE1.lon
+      snapLon: bestE1.lon,
     };
     const d1 = this._wayDistance(c1, junctionCand1);
 
-    const isStart2 = bestE2.lat === c2.coords[0].lat && bestE2.lon === c2.coords[0].lon;
+    const isStart2 =
+      bestE2.lat === c2.coords[0].lat && bestE2.lon === c2.coords[0].lon;
     const junctionCand2 = {
       wayId: c2.wayId,
       coords: c2.coords,
       segIdx: isStart2 ? 0 : c2.coords.length - 2,
       snapLat: bestE2.lat,
-      snapLon: bestE2.lon
+      snapLon: bestE2.lon,
     };
     const d2 = this._wayDistance(junctionCand2, c2);
 
@@ -442,9 +523,9 @@ export const MapMatcher = {
    * Cosine roll-off in between (smooth, no discontinuity).
    */
   _snapAlpha(dist, radiusM) {
-    if (dist <= 0)         return 1.0;
-    if (dist >= radiusM)   return 0.0;
-    return 0.5 * (1 + Math.cos(Math.PI * dist / radiusM));
+    if (dist <= 0) return 1.0;
+    if (dist >= radiusM) return 0.0;
+    return 0.5 * (1 + Math.cos((Math.PI * dist) / radiusM));
   },
 
   _haversineM(lat1, lon1, lat2, lon2) {
@@ -467,11 +548,21 @@ export const MapMatcher = {
    * penalise high-speed roads that a pedestrian is unlikely to be on.
    */
   _ROAD_CLASS_PENALTY: {
-    'motorway':      20,  'trunk':        15,  'primary':      10,
-    'secondary':      5,  'tertiary':      3,
-    'residential':    0,  'unclassified':  0,  'living_street': 0,
-    'service':        0,  'track':        -2,  'cycleway':     -3,
-    'pedestrian':    -5,  'steps':        -2,  'bridleway':    -2,
-    'footway':       -8,  'path':         -8
-  }
+    motorway: 20,
+    trunk: 15,
+    primary: 10,
+    secondary: 5,
+    tertiary: 3,
+    residential: 0,
+    unclassified: 0,
+    living_street: 0,
+    service: 0,
+    track: -2,
+    cycleway: -3,
+    pedestrian: -5,
+    steps: -2,
+    bridleway: -2,
+    footway: -8,
+    path: -8,
+  },
 };

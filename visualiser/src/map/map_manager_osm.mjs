@@ -17,7 +17,6 @@ import { NDVISampler } from '../osm/ndvi_sampler.mjs';
 import { OSMEnricher } from '../osm/osm_enrichment.mjs';
 
 export const __methods = {
-
   /**
    * Draw OSM vector geometry overlays (parks, water, buildings) on the map.
    * Accepts pre-built geoms (from analyzer.osmGeoms) to avoid redundant
@@ -28,10 +27,15 @@ export const __methods = {
     if (!geoms || !geoms.ways || !this.map) return;
 
     let points = this._lastDrawPoints || [];
-    if ((!points || points.length === 0) && typeof AppState !== 'undefined' && AppState.viewMode === 'collective' && AppState.collectiveManager) {
+    if (
+      (!points || points.length === 0) &&
+      typeof AppState !== 'undefined' &&
+      AppState.viewMode === 'collective' &&
+      AppState.collectiveManager
+    ) {
       const activeTracks = AppState.collectiveManager.getActiveTracks();
       const combinedPoints = [];
-      activeTracks.forEach(t => {
+      activeTracks.forEach((t) => {
         const p = t.gpsFilterParams || {};
         const { drawPoints } = this._getOrBuildDrawPoints(t.id, t.analyzer, p);
         if (drawPoints) combinedPoints.push(...drawPoints);
@@ -60,12 +64,27 @@ export const __methods = {
     // layer count from N features down to at most 3 (park/water/building).
     const ringsByCategory = { park: [], water: [], building: [] };
     const STYLES = {
-      park:     { color: '#2d6a4f', fillColor: '#52b788', fillOpacity: 0.15, weight: 1 },
-      water:    { color: '#0077b6', fillColor: '#90e0ef', fillOpacity: 0.25, weight: 1 },
-      building: { color: '#4a4e69', fillColor: '#9a8c98', fillOpacity: 0.1,  weight: 1 }
+      park: {
+        color: '#2d6a4f',
+        fillColor: '#52b788',
+        fillOpacity: 0.15,
+        weight: 1,
+      },
+      water: {
+        color: '#0077b6',
+        fillColor: '#90e0ef',
+        fillOpacity: 0.25,
+        weight: 1,
+      },
+      building: {
+        color: '#4a4e69',
+        fillColor: '#9a8c98',
+        fillOpacity: 0.1,
+        weight: 1,
+      },
     };
 
-    geoms.ways.concat(geoms.relations).forEach(geom => {
+    geoms.ways.concat(geoms.relations).forEach((geom) => {
       const tags = geom.tags;
       if (!tags) return;
 
@@ -77,15 +96,21 @@ export const __methods = {
       const isWater = OSMEnricher.isWaterSpace(geom);
       const isBuilding = !!tags.building;
 
-      const category = isPark ? 'park' : (isWater ? 'water' : (isBuilding ? 'building' : null));
+      const category = isPark
+        ? 'park'
+        : isWater
+          ? 'water'
+          : isBuilding
+            ? 'building'
+            : null;
       if (!category) return;
 
       const rings = ringsByCategory[category];
       if (geom.type === 'way' && geom.coordinates.length > 2) {
-        rings.push(geom.coordinates.map(pt => [pt.lat, pt.lon]));
+        rings.push(geom.coordinates.map((pt) => [pt.lat, pt.lon]));
       } else if (geom.type === 'relation' && geom.outerWays) {
-        geom.outerWays.forEach(way => {
-          rings.push(way.coordinates.map(pt => [pt.lat, pt.lon]));
+        geom.outerWays.forEach((way) => {
+          rings.push(way.coordinates.map((pt) => [pt.lat, pt.lon]));
         });
       }
     });
@@ -100,7 +125,7 @@ export const __methods = {
 
   clearOsmShapes() {
     if (this.osmLayers) {
-      this.osmLayers.forEach(layer => this.map.removeLayer(layer));
+      this.osmLayers.forEach((layer) => this.map.removeLayer(layer));
     }
     this.osmLayers = [];
   },
@@ -122,9 +147,10 @@ export const __methods = {
     if (!this.map) return;
     this.hideNdviLayer();
 
-    const hasSampler = (typeof NDVISampler !== 'undefined');
+    const hasSampler = typeof NDVISampler !== 'undefined';
     const hasCopernicus = hasSampler && NDVISampler.hasCopernicusConfig();
-    const opacity = typeof options.opacity === 'number' ? options.opacity : 0.65;
+    const opacity =
+      typeof options.opacity === 'number' ? options.opacity : 0.65;
 
     // Ensure dedicated pane exists with zIndex 250 (between base map and vector layers)
     if (!this.map.getPane('ndviPane')) {
@@ -135,16 +161,31 @@ export const __methods = {
 
     // 1. Real NDVI raster, rendered client-side as greyscale directly from
     // the same raw data used for sampling (when Copernicus is configured).
-    if (!urlTemplate && hasCopernicus && typeof L !== 'undefined' && L.TileLayer && typeof L.TileLayer.extend === 'function'
-        && typeof document !== 'undefined' && typeof document.createElement === 'function') {
+    if (
+      !urlTemplate &&
+      hasCopernicus &&
+      typeof L !== 'undefined' &&
+      L.TileLayer &&
+      typeof L.TileLayer.extend === 'function' &&
+      typeof document !== 'undefined' &&
+      typeof document.createElement === 'function'
+    ) {
       const RawNdviLayer = L.TileLayer.extend({
-        createTile: function(coords, done) {
+        createTile: (coords, done) => {
           const tile = document.createElement('canvas');
           tile.width = 256;
           tile.height = 256;
           const ctx = tile.getContext('2d');
-          if (!ctx) { done(null, tile); return; }
-          const url = NDVISampler.buildRawTileUrl(coords.x, coords.y, coords.z, options);
+          if (!ctx) {
+            done(null, tile);
+            return;
+          }
+          const url = NDVISampler.buildRawTileUrl(
+            coords.x,
+            coords.y,
+            coords.z,
+            options,
+          );
 
           const paintAndFinish = (rasterTile) => {
             try {
@@ -171,16 +212,20 @@ export const __methods = {
           }
 
           fetch(url)
-            .then(r => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(`HTTP ${r.status}`))))
-            .then(buf => NDVISampler.parseFloat32Tiff(buf))
-            .then(rasterTile => {
+            .then((r) =>
+              r.ok
+                ? r.arrayBuffer()
+                : Promise.reject(new Error(`HTTP ${r.status}`)),
+            )
+            .then((buf) => NDVISampler.parseFloat32Tiff(buf))
+            .then((rasterTile) => {
               NDVISampler._putTileCache(url, rasterTile);
               paintAndFinish(rasterTile);
             })
-            .catch(err => done(err, tile));
+            .catch((err) => done(err, tile));
 
           return tile;
-        }
+        },
       });
 
       this.ndviTileLayer = new RawNdviLayer('', {
@@ -188,7 +233,7 @@ export const __methods = {
         opacity,
         maxZoom: 19,
         maxNativeZoom: 16,
-        attribution: 'NDVI © Copernicus / ESA'
+        attribution: 'NDVI © Copernicus / ESA',
       }).addTo(this.map);
       this.ndviTileLayer.on('tileunload', (e) => {
         if (e && e.tile && e.tile.tagName === 'CANVAS') {
@@ -202,15 +247,23 @@ export const __methods = {
     // 2. No Copernicus configured (or an explicit urlTemplate override): a
     // plain imagery tile layer (EOX cloudless / NASA GIBS / custom), shown
     // as-is for visual reference only — see file docstring.
-    const activeProvider = hasSampler ? NDVISampler.getActiveProvider(options) : null;
-    const url = urlTemplate || (hasSampler ? (activeProvider?.urlTemplate || NDVISampler.DEFAULT_TILE_URL) : 'https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2021_3857/default/GoogleMapsCompatible/{z}/{y}/{x}.jpg');
+    const activeProvider = hasSampler
+      ? NDVISampler.getActiveProvider(options)
+      : null;
+    const url =
+      urlTemplate ||
+      (hasSampler
+        ? activeProvider?.urlTemplate || NDVISampler.DEFAULT_TILE_URL
+        : 'https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2021_3857/default/GoogleMapsCompatible/{z}/{y}/{x}.jpg');
     const layerOpts = {
       pane: 'ndviPane',
       opacity: opacity,
       maxZoom: 19,
       maxNativeZoom: 16,
-      attribution: activeProvider?.attribution || 'Satellite imagery © <a href="https://s2maps.eu" target="_blank">Sentinel-2 cloudless / EOX</a>',
-      crossOrigin: 'Anonymous'
+      attribution:
+        activeProvider?.attribution ||
+        'Satellite imagery © <a href="https://s2maps.eu" target="_blank">Sentinel-2 cloudless / EOX</a>',
+      crossOrigin: 'Anonymous',
     };
 
     this.ndviTileLayer = L.tileLayer(url, layerOpts).addTo(this.map);
@@ -232,15 +285,14 @@ export const __methods = {
    * @param {Object} [options={}]
    */
   toggleNdviLayer(show, options = {}) {
-    const shouldShow = (show !== undefined) ? show : !this.ndviTileLayer;
+    const shouldShow = show !== undefined ? show : !this.ndviTileLayer;
     if (shouldShow) {
       this.showNdviLayer(options.urlTemplate, options);
     } else {
       this.hideNdviLayer();
     }
     return shouldShow;
-  }
-
+  },
 };
 
 Object.assign(GSRMapManager.prototype, __methods);

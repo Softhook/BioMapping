@@ -9,7 +9,6 @@
 import { GeoUtils } from './geo_utils.mjs';
 
 export const GpsFilter = {
-
   /**
    * Speed plausibility check: rejects points whose Doppler-derived speed
    * (from the GPS RMC sentence, stored in speedKts) exceeds maxSpeed (m/s).
@@ -26,7 +25,8 @@ export const GpsFilter = {
    * clear naturally once the GPS returns to a plausible speed.
    */
   applySpeedFilter(points, maxSpeed) {
-    if (!maxSpeed || isNaN(maxSpeed) || maxSpeed <= 0 || points.length < 2) return points;
+    if (!maxSpeed || isNaN(maxSpeed) || maxSpeed <= 0 || points.length < 2)
+      return points;
     const kept = [points[0]];
     let consecutiveRejections = 0;
 
@@ -42,9 +42,14 @@ export const GpsFilter = {
       let speed;
       const dt = Math.max(0.001, curr.time - prev.time);
       if (!isNaN(curr.speedKts) && dt >= 0.15) {
-        speed = curr.speedKts * 0.514444;  // knots → m/s
+        speed = curr.speedKts * 0.514444; // knots → m/s
       } else {
-        const dist = GeoUtils.haversineMeters(prev.lat, prev.lon, curr.lat, curr.lon);
+        const dist = GeoUtils.haversineMeters(
+          prev.lat,
+          prev.lon,
+          curr.lat,
+          curr.lon,
+        );
         speed = dist / dt;
       }
 
@@ -78,7 +83,16 @@ export const GpsFilter = {
    * @param {number} R_m2 — base measurement noise variance (metres²)
    */
   applyKalman(points, Q_m2, R_m2) {
-    if (!Q_m2 || !R_m2 || isNaN(Q_m2) || isNaN(R_m2) || Q_m2 <= 0 || R_m2 <= 0 || points.length < 2) return points;
+    if (
+      !Q_m2 ||
+      !R_m2 ||
+      isNaN(Q_m2) ||
+      isNaN(R_m2) ||
+      Q_m2 <= 0 ||
+      R_m2 <= 0 ||
+      points.length < 2
+    )
+      return points;
     const n = points.length;
 
     // Convert R and Q from metres squared to degrees squared using geodesic scale.
@@ -124,11 +138,27 @@ export const GpsFilter = {
     const getRLon = (pt) => getEffectiveRm2(pt) * M2_TO_DEG2_LON;
 
     const { forwardLats, forwardLons, fwdCovLat, fwdCovLon, isOutlier } =
-      this._kalmanForwardPass(points, Q_LAT, Q_LON, R_LAT_BASE, R_LON_BASE, getRLat, getRLon);
+      this._kalmanForwardPass(
+        points,
+        Q_LAT,
+        Q_LON,
+        R_LAT_BASE,
+        R_LON_BASE,
+        getRLat,
+        getRLon,
+      );
 
     return this._rtsBackwardPass(
-      points, forwardLats, forwardLons, fwdCovLat, fwdCovLon, isOutlier,
-      Q_LAT, Q_LON, R_m2, M_TO_DEG_LAT
+      points,
+      forwardLats,
+      forwardLons,
+      fwdCovLat,
+      fwdCovLon,
+      isOutlier,
+      Q_LAT,
+      Q_LON,
+      R_m2,
+      M_TO_DEG_LAT,
     );
   },
 
@@ -150,21 +180,33 @@ export const GpsFilter = {
    * @param {Function} getRLon     - Per-point effective R for longitude (deg²).
    * @returns {{ forwardLats, forwardLons, fwdCovLat, fwdCovLon, isOutlier }}
    */
-  _kalmanForwardPass(points, Q_LAT, Q_LON, R_LAT_BASE, R_LON_BASE, getRLat, getRLon) {
+  _kalmanForwardPass(
+    points,
+    Q_LAT,
+    Q_LON,
+    R_LAT_BASE,
+    R_LON_BASE,
+    getRLat,
+    getRLon,
+  ) {
     const n = points.length;
     const CHI2_THRESH = 9.0; // 3σ for 1 DOF (99.7 % confidence)
     const forwardLats = new Array(n);
     const forwardLons = new Array(n);
-    const fwdCovLat   = new Array(n);
-    const fwdCovLon   = new Array(n);
-    const isOutlier   = new Uint8Array(n);
+    const fwdCovLat = new Array(n);
+    const fwdCovLon = new Array(n);
+    const isOutlier = new Uint8Array(n);
 
-    let xLat = points[0].lat,  xLon = points[0].lon;
-    let PLat = R_LAT_BASE,      PLon = R_LON_BASE;
+    let xLat = points[0].lat,
+      xLon = points[0].lon;
+    let PLat = R_LAT_BASE,
+      PLon = R_LON_BASE;
     let lastTime = points[0].time;
 
-    forwardLats[0] = xLat;  forwardLons[0] = xLon;
-    fwdCovLat[0]   = PLat;  fwdCovLon[0]   = PLon;
+    forwardLats[0] = xLat;
+    forwardLons[0] = xLon;
+    fwdCovLat[0] = PLat;
+    fwdCovLon[0] = PLon;
 
     for (let i = 1; i < n; i++) {
       const dt = Math.max(0.1, points[i].time - lastTime);
@@ -180,8 +222,8 @@ export const GpsFilter = {
       // Gate test uses the effective (hacc- or DOP-scaled) R — dynamically
       // adjusts outlier sensitivity.  Kalman gain uses the same inflated R —
       // deweights noisy measurements.
-      const innovLat   = points[i].lat - xLat;
-      const innovLon   = points[i].lon - xLon;
+      const innovLat = points[i].lat - xLat;
+      const innovLon = points[i].lon - xLon;
       const gateVarLat = pPLat + R_LAT;
       const gateVarLon = pPLon + R_LON;
       const gainVarLat = pPLat + R_LAT;
@@ -212,8 +254,10 @@ export const GpsFilter = {
         PLon = pPLon * 5.0;
       }
 
-      forwardLats[i] = xLat;  forwardLons[i] = xLon;
-      fwdCovLat[i]   = PLat;  fwdCovLon[i]   = PLon;
+      forwardLats[i] = xLat;
+      forwardLons[i] = xLon;
+      fwdCovLat[i] = PLat;
+      fwdCovLon[i] = PLon;
     }
 
     return { forwardLats, forwardLons, fwdCovLat, fwdCovLon, isOutlier };
@@ -239,7 +283,18 @@ export const GpsFilter = {
    * @param {number}   M_TO_DEG_LAT - Metres → degrees latitude conversion.
    * @returns {Array} Smoothed GPS point array (same shape as input points).
    */
-  _rtsBackwardPass(points, forwardLats, forwardLons, fwdCovLat, fwdCovLon, isOutlier, Q_LAT, Q_LON, R_m2, M_TO_DEG_LAT) {
+  _rtsBackwardPass(
+    points,
+    forwardLats,
+    forwardLons,
+    fwdCovLat,
+    fwdCovLon,
+    isOutlier,
+    Q_LAT,
+    Q_LON,
+    R_m2,
+    M_TO_DEG_LAT,
+  ) {
     if (typeof isOutlier === 'number') {
       M_TO_DEG_LAT = R_m2;
       R_m2 = Q_LON;
@@ -252,8 +307,8 @@ export const GpsFilter = {
     // Per-point displacement clamp: prevents the RTS backward propagation
     // from pulling any single anchor beyond 3σ of the measurement noise.
     //   R=150 → 37 m  R=10 → 9 m  R=0.5 → 2 m
-    const MAX_DISP_M  = 3.0 * Math.sqrt(R_m2);
-    const maxDispDeg  = MAX_DISP_M * M_TO_DEG_LAT;
+    const MAX_DISP_M = 3.0 * Math.sqrt(R_m2);
+    const maxDispDeg = MAX_DISP_M * M_TO_DEG_LAT;
     const maxDispDeg2 = maxDispDeg * maxDispDeg;
 
     const result = new Array(n);
@@ -279,7 +334,7 @@ export const GpsFilter = {
       // early on east-west movements at mid-latitudes.
       const dLat = newLat - points[i].lat;
       const dLon = newLon - points[i].lon;
-      const cosLatPt = Math.cos(points[i].lat * Math.PI / 180);
+      const cosLatPt = Math.cos((points[i].lat * Math.PI) / 180);
       const dist2 = dLat * dLat + dLon * dLon * cosLatPt * cosLatPt;
       if (dist2 > maxDispDeg2) {
         const scale = maxDispDeg / Math.sqrt(dist2);
@@ -315,18 +370,22 @@ export const GpsFilter = {
     if (!points || points.length < 2) return points;
     // Check if any point has velocity data; skip entirely if not available
     // (old CSV without speed/course columns).
-    const hasVelData = points.some(p => !isNaN(p.speedKts) && !isNaN(p.course));
+    const hasVelData = points.some(
+      (p) => !isNaN(p.speedKts) && !isNaN(p.course),
+    );
     if (!hasVelData) return points;
 
     const KNOTS_TO_MS = 0.51444;
-    const DEG_TO_RAD  = Math.PI / 180;
+    const DEG_TO_RAD = Math.PI / 180;
     const M_TO_DEG_LAT = 1.0 / GeoUtils.METERS_PER_DEG_LAT;
 
     // Initialise dead-reckoning heading tracker from the first point's course.
     // Using a local variable avoids both the off-by-one indexing bug
     // (was result[i-2] instead of result[i-1]) and the mutation side
     // effect of storing _smoothedHeadingY/X on the input points.
-    const firstCourseRad = !isNaN(points[0].course) ? points[0].course * DEG_TO_RAD : 0;
+    const firstCourseRad = !isNaN(points[0].course)
+      ? points[0].course * DEG_TO_RAD
+      : 0;
     let prevHeadingY = firstCourseRad !== 0 ? Math.cos(firstCourseRad) : 0;
     let prevHeadingX = firstCourseRad !== 0 ? Math.sin(firstCourseRad) : 0;
 
@@ -335,7 +394,7 @@ export const GpsFilter = {
     for (let i = 1; i < points.length; i++) {
       const prev = result[i - 1];
       const curr = points[i];
-      const dt   = Math.max(0, curr.time - prev.time);
+      const dt = Math.max(0, curr.time - prev.time);
 
       // Compute effective alpha: scale down GPS trust proportionally to DOP.
       // Prefer hacc_m when available — converted to a DOP-equivalent via the
@@ -344,21 +403,31 @@ export const GpsFilter = {
       // multipath error that PDOP/HDOP geometry alone can miss (see the same
       // rationale in getEffectiveRm2() below). Falls back to PDOP, then HDOP.
       // Sentinel values >= 50.0 (e.g. 99.9 unknown) are treated as invalid.
-      const dop = !isNaN(curr.hacc) && curr.hacc > 0 && curr.hacc < 50.0 ? curr.hacc / 2.5 :
-                  !isNaN(curr.pdop) && curr.pdop > 0 && curr.pdop < 50.0 ? curr.pdop :
-                  (!isNaN(curr.hdop) && curr.hdop > 0 && curr.hdop < 50.0 ? curr.hdop : 2.0);
+      const dop =
+        !isNaN(curr.hacc) && curr.hacc > 0 && curr.hacc < 50.0
+          ? curr.hacc / 2.5
+          : !isNaN(curr.pdop) && curr.pdop > 0 && curr.pdop < 50.0
+            ? curr.pdop
+            : !isNaN(curr.hdop) && curr.hdop > 0 && curr.hdop < 50.0
+              ? curr.hdop
+              : 2.0;
       const h = Math.max(0.5, Math.min(10, dop));
       const effectiveAlpha = Math.max(0.05, Math.min(0.98, alpha / h));
 
       // Dead-reckon from prev position using prev point's speed+course
       let predLat = curr.lat;
       let predLon = curr.lon;
-      
+
       // Only dead-reckon if speed is high enough for the course vector to be stable.
       // Below 1.2 knots (~0.6 m/s), heading is highly erratic and produces loops.
-      if (dt > 0 && !isNaN(prev.speedKts) && !isNaN(prev.course) && prev.speedKts > 1.2) {
-        const speedMs   = prev.speedKts * KNOTS_TO_MS;
-        
+      if (
+        dt > 0 &&
+        !isNaN(prev.speedKts) &&
+        !isNaN(prev.course) &&
+        prev.speedKts > 1.2
+      ) {
+        const speedMs = prev.speedKts * KNOTS_TO_MS;
+
         // ── Unit Vector Heading Smoothing ──────────────────────────────────
         // Instead of averaging noisy degrees directly (which suffers from the
         // 360° boundary wrap-around bug), we convert the heading to a 2D vector,
@@ -367,13 +436,16 @@ export const GpsFilter = {
         const courseRad = prev.course * DEG_TO_RAD;
         let headingY = Math.cos(courseRad); // North component (latitude direction)
         let headingX = Math.sin(courseRad); // East component (lon direction)
-        
+
         // Apply an exponential moving average using the locally-tracked
         // previous heading (avoids the off-by-one result[i-2] bug that
         // skipped index 1 and never initialised result[0]._smoothedHeadingY).
         if (prevHeadingY !== 0 || prevHeadingX !== 0) {
           const safeAlpha = Math.max(0.01, alpha);
-          const beta = Math.max(0.2, Math.min(0.95, 0.7 - Math.log(safeAlpha) * 0.15));
+          const beta = Math.max(
+            0.2,
+            Math.min(0.95, 0.7 - Math.log(safeAlpha) * 0.15),
+          );
           headingY = beta * prevHeadingY + (1 - beta) * headingY;
           headingX = beta * prevHeadingX + (1 - beta) * headingX;
           // Re-normalise to unit length
@@ -383,7 +455,7 @@ export const GpsFilter = {
             headingX /= len;
           }
         }
-        
+
         prevHeadingY = headingY;
         prevHeadingX = headingX;
 
@@ -406,8 +478,8 @@ export const GpsFilter = {
       // is unreliable and heading is too erratic for dead-reckoning.
       // We override α to near-zero so the output freezes at the prediction.
       // Above 1.2 kt the full dead-reckon + blend is used.
-      const alphaFinal = (!isNaN(prev.speedKts) && prev.speedKts <= 1.2)
-        ? 0.05 : effectiveAlpha;
+      const alphaFinal =
+        !isNaN(prev.speedKts) && prev.speedKts <= 1.2 ? 0.05 : effectiveAlpha;
 
       result.push({
         ...curr,
@@ -433,7 +505,7 @@ export const GpsFilter = {
    */
   applyStopAveraging(points, stationaryKts = 0.5, minClusterPoints = 3) {
     if (!points || points.length < 2) return points;
-    const hasVelData = points.some(p => !isNaN(p.speedKts));
+    const hasVelData = points.some((p) => !isNaN(p.speedKts));
     if (!hasVelData) return points;
 
     const result = [];
@@ -446,7 +518,12 @@ export const GpsFilter = {
         // Collect the stationary cluster
         const cluster = [p];
         let j = i + 1;
-        while (j < points.length && (isNaN(points[j].speedKts) ? false : points[j].speedKts <= stationaryKts)) {
+        while (
+          j < points.length &&
+          (isNaN(points[j].speedKts)
+            ? false
+            : points[j].speedKts <= stationaryKts)
+        ) {
           cluster.push(points[j]);
           j++;
         }
@@ -455,14 +532,16 @@ export const GpsFilter = {
           // Keep all points but lock their coordinates to the centroid.
           // This preserves timeline spacing and prevents the gap reconstruction loop
           // from interpolating a drift during stationary pauses.
-          const centLat = cluster.reduce((s, pt) => s + pt.lat, 0) / cluster.length;
-          const centLon = cluster.reduce((s, pt) => s + pt.lon, 0) / cluster.length;
-          cluster.forEach(pt => {
+          const centLat =
+            cluster.reduce((s, pt) => s + pt.lat, 0) / cluster.length;
+          const centLon =
+            cluster.reduce((s, pt) => s + pt.lon, 0) / cluster.length;
+          cluster.forEach((pt) => {
             result.push({ ...pt, lat: centLat, lon: centLon });
           });
         } else {
           // Cluster too small — keep individual points
-          cluster.forEach(pt => result.push(pt));
+          cluster.forEach((pt) => result.push(pt));
         }
         i = j;
       } else {
@@ -485,11 +564,24 @@ export const GpsFilter = {
    *   tolerance and vanish.
    */
   applyRDP(points, tolerance, forceIndexSet) {
-    if (!tolerance || isNaN(tolerance) || tolerance <= 0.001 || points.length < 3) return points;
+    if (
+      !tolerance ||
+      isNaN(tolerance) ||
+      tolerance <= 0.001 ||
+      points.length < 3
+    )
+      return points;
     const n = points.length;
 
     const getPerpendicularDistance = (p, s, e) => {
-      return GeoUtils.distanceToSegmentMeters(p.lat, p.lon, s.lat, s.lon, e.lat, e.lon);
+      return GeoUtils.distanceToSegmentMeters(
+        p.lat,
+        p.lon,
+        s.lat,
+        s.lon,
+        e.lat,
+        e.lon,
+      );
     };
 
     // keep mask: keep[i] is 1 if point i is kept, 0 if dropped.
@@ -499,12 +591,16 @@ export const GpsFilter = {
 
     const rdpRecurse = (startIdx, endIdx) => {
       if (endIdx <= startIdx + 1) return;
-      
+
       let maxDist = 0;
       let index = -1;
 
       for (let i = startIdx + 1; i < endIdx; i++) {
-        const dist = getPerpendicularDistance(points[i], points[startIdx], points[endIdx]);
+        const dist = getPerpendicularDistance(
+          points[i],
+          points[startIdx],
+          points[endIdx],
+        );
         if (dist > maxDist) {
           maxDist = dist;
           index = i;
@@ -544,5 +640,5 @@ export const GpsFilter = {
       }
     }
     return result;
-  }
+  },
 };

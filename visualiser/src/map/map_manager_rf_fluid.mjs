@@ -13,7 +13,6 @@
 import { GSRMapManager } from './map.mjs';
 
 export const __methods = {
-
   /**
    * Clear the RF fluid canvas — shared by clearMap() and clearCollectiveLayers()
    * so the two "which layers am I clearing" branches can't drift apart and
@@ -48,10 +47,11 @@ export const __methods = {
       if (!hasRf) {
         btnToggleRFFluid.classList.remove('active');
         btnToggleRFFluid.setAttribute('disabled', 'disabled');
-        btnToggleRFFluid.title = "No radio frequency data in active track";
+        btnToggleRFFluid.title = 'No radio frequency data in active track';
       } else {
         btnToggleRFFluid.removeAttribute('disabled');
-        btnToggleRFFluid.title = "Toggle static ray-casted 3-frequency RF fluid background";
+        btnToggleRFFluid.title =
+          'Toggle static ray-casted 3-frequency RF fluid background';
         // Re-sync the button's pressed state (and the renderer's visibility)
         // to the real RF-fluid toggle. Without this, a no-RF track earlier
         // cleared the button's 'active' class while showRFFluid stayed true
@@ -74,7 +74,7 @@ export const __methods = {
   },
 
   toggleRFFluid(show) {
-    this.showRFFluid = (show !== undefined) ? show : !this.showRFFluid;
+    this.showRFFluid = show !== undefined ? show : !this.showRFFluid;
     if (this.rfFluidRenderer) {
       this.rfFluidRenderer.setVisible(this.showRFFluid);
     }
@@ -87,8 +87,7 @@ export const __methods = {
       this.rfFluidRenderer.setMode(mode);
     }
     this.updateLegend();
-  }
-
+  },
 };
 
 Object.assign(GSRMapManager.prototype, __methods);

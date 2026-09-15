@@ -20,13 +20,12 @@
 import { GSRMapManager } from './map.mjs';
 
 export const __methods = {
-
   /**
    * Remove all layers in the array from the map and clear the array.
    */
   _clearLayerGroup(arr) {
     if (!this.map) return;
-    if (arr) arr.forEach(item => this.map.removeLayer(item));
+    if (arr) arr.forEach((item) => this.map.removeLayer(item));
     return [];
   },
 
@@ -75,7 +74,12 @@ export const __methods = {
       const kind = l._gsrKind;
       if (kind === 'path' || kind === 'collectivePath') {
         paths.push(l);
-      } else if (kind === 'peak' || kind === 'connector' || kind === 'collectivePeak' || kind === 'collectiveConnector') {
+      } else if (
+        kind === 'peak' ||
+        kind === 'connector' ||
+        kind === 'collectivePeak' ||
+        kind === 'collectiveConnector'
+      ) {
         peakMarkers.push(l);
       } else if (kind === 'hotspot') {
         hotspots.push(l);
@@ -96,7 +100,10 @@ export const __methods = {
    */
   getPeakMarkerByIndex(idx) {
     for (const l of this._allTrackLayers()) {
-      if ((l._gsrKind === 'peak' || l._gsrKind === 'collectivePeak') && l._gsrPeakIndex === idx) {
+      if (
+        (l._gsrKind === 'peak' || l._gsrKind === 'collectivePeak') &&
+        l._gsrPeakIndex === idx
+      ) {
         return l;
       }
     }
@@ -138,7 +145,8 @@ export const __methods = {
     if (!this.map) return;
     for (const track of this._renderedTrackGroups.values()) {
       if (track && track.layerGroup) {
-        if (this.map.hasLayer(track.layerGroup)) this.map.removeLayer(track.layerGroup);
+        if (this.map.hasLayer(track.layerGroup))
+          this.map.removeLayer(track.layerGroup);
         track.layerGroup = null;
       }
       if (track) track._ownedLayers = [];
@@ -208,8 +216,7 @@ export const __methods = {
   clearAll() {
     this.clearMap();
     this.clearCollectiveLayers();
-  }
-
+  },
 };
 
 Object.assign(GSRMapManager.prototype, __methods);

@@ -13,13 +13,19 @@ const { MarchingSquares } = require('../src/render/marching_squares.mjs');
 const BOUNDS_UNIT = { minLat: 0, maxLat: 1, minLon: 0, maxLon: 1 };
 
 test('getContourLines: uniform grid entirely above isolevel returns no lines', () => {
-  const grid = [[5, 5], [5, 5]];
+  const grid = [
+    [5, 5],
+    [5, 5],
+  ];
   const lines = MarchingSquares.getContourLines(grid, 2, 2, BOUNDS_UNIT, 1);
   assert.strictEqual(lines.length, 0);
 });
 
 test('getContourLines: uniform grid entirely below isolevel returns no lines', () => {
-  const grid = [[0, 0], [0, 0]];
+  const grid = [
+    [0, 0],
+    [0, 0],
+  ];
   const lines = MarchingSquares.getContourLines(grid, 2, 2, BOUNDS_UNIT, 1);
   assert.strictEqual(lines.length, 0);
 });
@@ -47,7 +53,11 @@ test('getContourLines: diagonal saddle (case 5) produces two segments', () => {
     [10, 0],
   ];
   const lines = MarchingSquares.getContourLines(grid, 2, 2, BOUNDS_UNIT, 5);
-  assert.strictEqual(lines.length, 2, 'ambiguous saddle case should emit two disjoint segments');
+  assert.strictEqual(
+    lines.length,
+    2,
+    'ambiguous saddle case should emit two disjoint segments',
+  );
 });
 
 test('getContourLines: all-null grid produces no lines and does not throw', () => {
@@ -120,16 +130,27 @@ test('getContourLines: tied corner values at the isolevel boundary does not thro
 });
 
 test('getContourLines: larger grid with a Gaussian-like bump produces a closed-ish ring of segments', () => {
-  const rows = 10, cols = 10;
+  const rows = 10,
+    cols = 10;
   const grid = [];
   for (let r = 0; r < rows; r++) {
     const row = [];
     for (let c = 0; c < cols; c++) {
-      const dx = c - 4.5, dy = r - 4.5;
+      const dx = c - 4.5,
+        dy = r - 4.5;
       row.push(100 * Math.exp(-(dx * dx + dy * dy) / 10));
     }
     grid.push(row);
   }
-  const lines = MarchingSquares.getContourLines(grid, rows, cols, BOUNDS_UNIT, 50);
-  assert.ok(lines.length >= 4, 'a bump crossing the isolevel should yield multiple boundary segments');
+  const lines = MarchingSquares.getContourLines(
+    grid,
+    rows,
+    cols,
+    BOUNDS_UNIT,
+    50,
+  );
+  assert.ok(
+    lines.length >= 4,
+    'a bump crossing the isolevel should yield multiple boundary segments',
+  );
 });

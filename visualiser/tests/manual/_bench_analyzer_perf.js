@@ -1,4 +1,3 @@
-'use strict';
 /**
  * Real A/B timing for GSRAnalyzer.analyze() — the pipeline that reruns on
  * every settled GSR-slider-drag frame (rafCoalesced to one per animation
@@ -34,14 +33,38 @@ global.GSR_CONST = require('../mock_constants.js');
 
 const { loadModule } = require('../support/load_module.js');
 
-loadModule(path.join(__dirname, '..', '..', 'src', 'gps', 'geo_utils.js'), 'GeoUtils');
-loadModule(path.join(__dirname, '..', '..', 'src', 'signal', 'stats_math.js'), 'StatsMath');
-loadModule(path.join(__dirname, '..', '..', 'src', 'map', 'map_colors.js'), 'MapColors');
-loadModule(path.join(__dirname, '..', '..', 'src', 'gps', 'gps_filter.js'), 'GpsFilter');
-loadModule(path.join(__dirname, '..', '..', 'src', 'gps', 'gps_pipeline.js'), 'GpsPipeline');
-loadModule(path.join(__dirname, '..', '..', 'src', 'signal', 'dwt_filter.js'), 'DWT');
-loadModule(path.join(__dirname, '..', '..', 'src', 'signal', 'gsr_filter.js'), 'GsrFilter');
-loadModule(path.join(__dirname, '..', '..', 'src', 'signal', 'deconvolution.js'), 'SCRDeconvolution');
+loadModule(
+  path.join(__dirname, '..', '..', 'src', 'gps', 'geo_utils.js'),
+  'GeoUtils',
+);
+loadModule(
+  path.join(__dirname, '..', '..', 'src', 'signal', 'stats_math.js'),
+  'StatsMath',
+);
+loadModule(
+  path.join(__dirname, '..', '..', 'src', 'map', 'map_colors.js'),
+  'MapColors',
+);
+loadModule(
+  path.join(__dirname, '..', '..', 'src', 'gps', 'gps_filter.js'),
+  'GpsFilter',
+);
+loadModule(
+  path.join(__dirname, '..', '..', 'src', 'gps', 'gps_pipeline.js'),
+  'GpsPipeline',
+);
+loadModule(
+  path.join(__dirname, '..', '..', 'src', 'signal', 'dwt_filter.js'),
+  'DWT',
+);
+loadModule(
+  path.join(__dirname, '..', '..', 'src', 'signal', 'gsr_filter.js'),
+  'GsrFilter',
+);
+loadModule(
+  path.join(__dirname, '..', '..', 'src', 'signal', 'deconvolution.js'),
+  'SCRDeconvolution',
+);
 
 const { GSRAnalyzer } = require('../../src/signal/analyzer.mjs');
 const { GSRCSVParser } = require('../../src/signal/csv_parser.mjs');
@@ -60,7 +83,12 @@ function bench(fn, warmup, iters) {
     fn();
     samples.push(Number(process.hrtime.bigint() - t0) / 1e6);
   }
-  return { median: median(samples), min: Math.min(...samples), max: Math.max(...samples), n: iters };
+  return {
+    median: median(samples),
+    min: Math.min(...samples),
+    max: Math.max(...samples),
+    n: iters,
+  };
 }
 
 function loadTrack(filename) {
@@ -71,10 +99,19 @@ function loadTrack(filename) {
   return { analyzer, filterParams };
 }
 
-const FILES = ['biomap_113.csv', 'biomap_048.csv', 'biomap_019.csv', 'biomap_016.csv'];
+const FILES = [
+  'biomap_113.csv',
+  'biomap_048.csv',
+  'biomap_019.csv',
+  'biomap_016.csv',
+];
 
-console.log('── analyze() on real tracks: cache-HIT (peak-slider drag) vs cache-MISS (filter-slider drag) ──\n');
-console.log('  Track                   rows   peaks   HIT median    MISS median');
+console.log(
+  '── analyze() on real tracks: cache-HIT (peak-slider drag) vs cache-MISS (filter-slider drag) ──\n',
+);
+console.log(
+  '  Track                   rows   peaks   HIT median    MISS median',
+);
 console.log('  ' + '-'.repeat(66));
 
 for (const file of FILES) {
@@ -89,13 +126,23 @@ for (const file of FILES) {
   // filter + decomposition pipeline reruns — a medianSize / lpfWindow /
   // tonicWindow / tonicMethod drag.
   let k = 0;
-  const miss = bench(() => {
-    analyzer.analyze({ ...filterParams, lpfWindow: filterParams.lpfWindow + (k++ % 5) * 1e-3 }, 0);
-  }, 3, 12);
+  const miss = bench(
+    () => {
+      analyzer.analyze(
+        {
+          ...filterParams,
+          lpfWindow: filterParams.lpfWindow + (k++ % 5) * 1e-3,
+        },
+        0,
+      );
+    },
+    3,
+    12,
+  );
 
   console.log(
     `  ${file.padEnd(22)} ${String(analyzer.raw.length).padStart(6)}  ${String(analyzer.peaks.length).padStart(5)}` +
-    `   ${hit.median.toFixed(2).padStart(8)}ms   ${miss.median.toFixed(2).padStart(9)}ms`
+      `   ${hit.median.toFixed(2).padStart(8)}ms   ${miss.median.toFixed(2).padStart(9)}ms`,
   );
 }
 
@@ -114,7 +161,9 @@ console.log(`
 `);
 
 // ── §A A/B Bench: Monotonic Deque vs Nested Loop Window Min ──────────────────
-console.log('── §A A/B Bench: Sliding-Window Minimum on real data (biomap_019.csv) ──\n');
+console.log(
+  '── §A A/B Bench: Sliding-Window Minimum on real data (biomap_019.csv) ──\n',
+);
 {
   const { analyzer } = loadTrack('biomap_019.csv');
   const n = analyzer.raw.length;
@@ -143,14 +192,16 @@ console.log('── §A A/B Bench: Sliding-Window Minimum on real data (biomap_0
     const dq1 = [];
     for (let i = 0; i < n; i++) {
       if (dq1.length > 0 && dq1[0] < i - halfWindow) dq1.shift();
-      while (dq1.length > 0 && signal[dq1[dq1.length - 1]] >= signal[i]) dq1.pop();
+      while (dq1.length > 0 && signal[dq1[dq1.length - 1]] >= signal[i])
+        dq1.pop();
       dq1.push(i);
       bwd[i] = signal[dq1[0]];
     }
     const dq2 = [];
     for (let i = n - 1; i >= 0; i--) {
       if (dq2.length > 0 && dq2[0] > i + halfWindow) dq2.shift();
-      while (dq2.length > 0 && signal[dq2[dq2.length - 1]] >= signal[i]) dq2.pop();
+      while (dq2.length > 0 && signal[dq2[dq2.length - 1]] >= signal[i])
+        dq2.pop();
       dq2.push(i);
       localOffsets[i] = Math.min(bwd[i], signal[dq2[0]]);
     }
@@ -160,13 +211,21 @@ console.log('── §A A/B Bench: Sliding-Window Minimum on real data (biomap_0
   const bruteResult = bench(runBruteForce, 5, 20);
   const dequeResult = bench(runMonotonicDeque, 5, 20);
 
-  console.log(`  O(N×W) Nested Loop:   median=${bruteResult.median.toFixed(3)}ms`);
-  console.log(`  O(N) Monotonic Deque: median=${dequeResult.median.toFixed(3)}ms`);
-  console.log(`  → §A optimization is ${(bruteResult.median / dequeResult.median).toFixed(1)}x faster\n`);
+  console.log(
+    `  O(N×W) Nested Loop:   median=${bruteResult.median.toFixed(3)}ms`,
+  );
+  console.log(
+    `  O(N) Monotonic Deque: median=${dequeResult.median.toFixed(3)}ms`,
+  );
+  console.log(
+    `  → §A optimization is ${(bruteResult.median / dequeResult.median).toFixed(1)}x faster\n`,
+  );
 }
 
 // ── §B A/B Bench: computeCombinedArousalIndex optimizations ─────────────────
-console.log('── §B A/B Bench: computeCombinedArousalIndex optimizations (biomap_019.csv) ──\n');
+console.log(
+  '── §B A/B Bench: computeCombinedArousalIndex optimizations (biomap_019.csv) ──\n',
+);
 {
   const { analyzer } = loadTrack('biomap_019.csv');
   // run full analyze once to populate tonic/phasic
@@ -178,8 +237,8 @@ console.log('── §B A/B Bench: computeCombinedArousalIndex optimizations (bi
     const n = analyzer.phasic.length;
     if (n === 0) return [];
     const auc = analyzer.computePhasicAUC(30);
-    const tonicVals = analyzer.tonic.map(d => d.val);
-    const aucVals = auc.map(d => d.val);
+    const tonicVals = analyzer.tonic.map((d) => d.val);
+    const aucVals = auc.map((d) => d.val);
     const tonicStats = GsrFilter.calculateStats(tonicVals);
     const aucStats = GsrFilter.calculateStats(aucVals);
     const arousalIndex = new Array(n);
@@ -188,7 +247,7 @@ console.log('── §B A/B Bench: computeCombinedArousalIndex optimizations (bi
       const aZ = (aucVals[i] - aucStats.mean) / aucStats.std;
       arousalIndex[i] = {
         time: analyzer.phasic[i].time,
-        val: (0.3 * tZ) + (0.7 * aZ)
+        val: 0.3 * tZ + 0.7 * aZ,
       };
     }
     return arousalIndex;
@@ -201,7 +260,13 @@ console.log('── §B A/B Bench: computeCombinedArousalIndex optimizations (bi
   const oldResult = bench(runOldArousalIndex, 5, 20);
   const newResult = bench(runNewArousalIndex, 5, 20);
 
-  console.log(`  Old (no precompute + maps): median=${oldResult.median.toFixed(3)}ms`);
-  console.log(`  New (precomputed + inline): median=${newResult.median.toFixed(3)}ms`);
-  console.log(`  → §B optimization is ${(oldResult.median / newResult.median).toFixed(1)}x faster\n`);
+  console.log(
+    `  Old (no precompute + maps): median=${oldResult.median.toFixed(3)}ms`,
+  );
+  console.log(
+    `  New (precomputed + inline): median=${newResult.median.toFixed(3)}ms`,
+  );
+  console.log(
+    `  → §B optimization is ${(oldResult.median / newResult.median).toFixed(1)}x faster\n`,
+  );
 }

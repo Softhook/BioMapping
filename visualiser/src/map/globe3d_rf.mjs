@@ -13,8 +13,7 @@
 import { GSRGlobeManager } from './globe3d.mjs';
 import { GSRGlobe3DRf } from './globe3d/rf_expanse.mjs';
 
-  export const __methods = {
-
+export const __methods = {
   /**
    * Toggle 3D Volumetric RF Expanse (street-filling electromagnetic fluid)
    * @param {boolean} show
@@ -44,7 +43,9 @@ import { GSRGlobe3DRf } from './globe3d/rf_expanse.mjs';
     this.clearRfEntities();
     if (!this.viewer || typeof GSRGlobe3DRf === 'undefined') return;
     const prim = GSRGlobe3DRf.buildPrimitive(analyzer, drawPoints, {
-      mode: this.rfMode, height: this.rfHeight, opacity: this.rfOpacity
+      mode: this.rfMode,
+      height: this.rfHeight,
+      opacity: this.rfOpacity,
     });
     if (prim) {
       this.rfPrimitive = prim;
@@ -58,8 +59,7 @@ import { GSRGlobe3DRf } from './globe3d/rf_expanse.mjs';
       this.viewer.scene.primitives.remove(this.rfPrimitive);
       this.rfPrimitive = null;
     }
-  }
+  },
+};
 
-  };
-
-  Object.assign(GSRGlobeManager.prototype, __methods);
+Object.assign(GSRGlobeManager.prototype, __methods);

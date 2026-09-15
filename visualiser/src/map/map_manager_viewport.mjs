@@ -13,16 +13,23 @@
 import { GSRMapManager } from './map.mjs';
 
 export const __methods = {
-
   _getTrackSetSignature(collectiveManager) {
     if (!collectiveManager) return '';
-    const active = collectiveManager.getActiveTracks ? collectiveManager.getActiveTracks() : [];
-    return active.map(t => t.id).sort().join(',');
+    const active = collectiveManager.getActiveTracks
+      ? collectiveManager.getActiveTracks()
+      : [];
+    return active
+      .map((t) => t.id)
+      .sort()
+      .join(',');
   },
 
   _fitBounds(drawPoints, opts = {}) {
     if (!this.map || !drawPoints || drawPoints.length === 0) return;
-    this._flyOrFitBounds(drawPoints.map(p => [p.lat, p.lon]), opts);
+    this._flyOrFitBounds(
+      drawPoints.map((p) => [p.lat, p.lon]),
+      opts,
+    );
   },
 
   /**
@@ -38,7 +45,8 @@ export const __methods = {
    */
   _flyOrFitBounds(bounds, opts = {}) {
     if (!this.map || !bounds) return;
-    const size = (typeof this.map.getSize === 'function') ? this.map.getSize() : null;
+    const size =
+      typeof this.map.getSize === 'function' ? this.map.getSize() : null;
     if (size && (!size.x || !size.y)) {
       this._pendingFit = { bounds, opts };
       return;
@@ -50,7 +58,7 @@ export const __methods = {
       animate: true,
       duration: 0.45,
       easeLinearity: 0.25,
-      ...opts
+      ...opts,
     };
     if (typeof this.map.flyToBounds === 'function' && fitOpts.fly !== false) {
       this.map.flyToBounds(bounds, fitOpts);
@@ -68,7 +76,8 @@ export const __methods = {
   _applyPendingFit() {
     const pending = this._pendingFit;
     if (!pending || !this.map) return;
-    const size = (typeof this.map.getSize === 'function') ? this.map.getSize() : null;
+    const size =
+      typeof this.map.getSize === 'function' ? this.map.getSize() : null;
     if (size && (!size.x || !size.y)) return;
     this._pendingFit = null;
     this._flyOrFitBounds(pending.bounds, { ...pending.opts, fly: false });
@@ -115,7 +124,9 @@ export const __methods = {
     const peak = analyzer.peaks[peakIdx];
     if (!peak) return;
     const peakLatency = (gpsParams && gpsParams.peakLatency) || 0;
-    const coords = analyzer.getCoordinates(this._resolveLatencyIndex(analyzer, peak, peakLatency));
+    const coords = analyzer.getCoordinates(
+      this._resolveLatencyIndex(analyzer, peak, peakLatency),
+    );
     if (!coords || isNaN(coords.lat) || isNaN(coords.lon)) return;
 
     this.setScrubPosition(coords.lat, coords.lon, false);
@@ -128,7 +139,11 @@ export const __methods = {
     // snaps into place at the end.
     const latlng = [coords.lat, coords.lon];
     if (typeof this.map.panTo === 'function') {
-      this.map.panTo(latlng, { animate: true, duration: 0.6, easeLinearity: 0.25 });
+      this.map.panTo(latlng, {
+        animate: true,
+        duration: 0.6,
+        easeLinearity: 0.25,
+      });
     } else {
       this.map.setView(latlng, this.map.getZoom());
     }
@@ -156,8 +171,7 @@ export const __methods = {
         this.map.panTo(pos);
       }
     }
-  }
-
+  },
 };
 
 Object.assign(GSRMapManager.prototype, __methods);

@@ -16,10 +16,12 @@ export const StatsMath = {
   percentileRank(value, sortedArr) {
     const n = sortedArr ? sortedArr.length : 0;
     if (n <= 1) return 0.5;
-    let lo = 0, hi = n;
+    let lo = 0,
+      hi = n;
     while (lo < hi) {
       const mid = (lo + hi) >>> 1;
-      if (sortedArr[mid] <= value) lo = mid + 1; else hi = mid;
+      if (sortedArr[mid] <= value) lo = mid + 1;
+      else hi = mid;
     }
     return lo / n;
   },
@@ -52,12 +54,22 @@ export const StatsMath = {
     }
     const variance = ss / n;
     const std = Math.sqrt(variance);
-    return { mean, std: std === 0 ? 1 : std, variance, min: min === Infinity ? 0 : min, max: max === -Infinity ? 0 : max };
+    return {
+      mean,
+      std: std === 0 ? 1 : std,
+      variance,
+      min: min === Infinity ? 0 : min,
+      max: max === -Infinity ? 0 : max,
+    };
   },
 
   _computeSums(x, y) {
     const n = x.length;
-    let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0, sumY2 = 0;
+    let sumX = 0,
+      sumY = 0,
+      sumXY = 0,
+      sumX2 = 0,
+      sumY2 = 0;
     for (let i = 0; i < n; i++) {
       sumX += x[i];
       sumY += y[i];
@@ -73,7 +85,9 @@ export const StatsMath = {
     if (n === 0) return { r: 0, p: 1 };
     const { sumX, sumY, sumXY, sumX2, sumY2 } = this._computeSums(x, y);
     const num = n * sumXY - sumX * sumY;
-    const den = Math.sqrt((n * sumX2 - sumX * sumX) * (n * sumY2 - sumY * sumY));
+    const den = Math.sqrt(
+      (n * sumX2 - sumX * sumX) * (n * sumY2 - sumY * sumY),
+    );
     const r = den === 0 ? 0 : num / den;
     // Two-tailed p-value from t-distribution: t = r * sqrt((n-2)/(1-r²))
     let p = 1;
@@ -93,19 +107,23 @@ export const StatsMath = {
   autocorrelation(values, maxLag) {
     const n = values ? values.length : 0;
     const want = Math.max(0, maxLag | 0);
-    const acf = new Array(want + 1).fill(0);   // lags beyond n-1 stay 0
+    const acf = new Array(want + 1).fill(0); // lags beyond n-1 stay 0
     if (n < 2) return acf;
     let mean = 0;
     for (let i = 0; i < n; i++) mean += values[i];
     mean /= n;
     let c0 = 0;
-    for (let i = 0; i < n; i++) { const d = values[i] - mean; c0 += d * d; }
+    for (let i = 0; i < n; i++) {
+      const d = values[i] - mean;
+      c0 += d * d;
+    }
     if (c0 === 0) return acf;
     acf[0] = 1;
     const kMax = Math.min(want, n - 1);
     for (let k = 1; k <= kMax; k++) {
       let ck = 0;
-      for (let i = 0; i < n - k; i++) ck += (values[i] - mean) * (values[i + k] - mean);
+      for (let i = 0; i < n - k; i++)
+        ck += (values[i] - mean) * (values[i + k] - mean);
       acf[k] = ck / c0;
     }
     return acf;
@@ -128,24 +146,34 @@ export const StatsMath = {
     // break below then actually saves the O(n) work for every skipped lag, so
     // a series that decorrelates by lag ~40 costs O(n·40), not O(n·n/5). Result
     // is identical to the array form.
-    let ma = 0, mb = 0;
-    for (let i = 0; i < n; i++) { ma += a[i]; mb += b[i]; }
-    ma /= n; mb /= n;
-    let c0a = 0, c0b = 0;
+    let ma = 0,
+      mb = 0;
     for (let i = 0; i < n; i++) {
-      const da = a[i] - ma, db = b[i] - mb;
-      c0a += da * da; c0b += db * db;
+      ma += a[i];
+      mb += b[i];
+    }
+    ma /= n;
+    mb /= n;
+    let c0a = 0,
+      c0b = 0;
+    for (let i = 0; i < n; i++) {
+      const da = a[i] - ma,
+        db = b[i] - mb;
+      c0a += da * da;
+      c0b += db * db;
     }
     if (c0a === 0 || c0b === 0) return 1;
     const noise = 2 / Math.sqrt(n);
     let sum = 0;
     for (let k = 1; k <= kMax; k++) {
-      let cka = 0, ckb = 0;
+      let cka = 0,
+        ckb = 0;
       for (let i = 0; i < n - k; i++) {
         cka += (a[i] - ma) * (a[i + k] - ma);
         ckb += (b[i] - mb) * (b[i + k] - mb);
       }
-      const ra = cka / c0a, rb = ckb / c0b;
+      const ra = cka / c0a,
+        rb = ckb / c0b;
       if (Math.abs(ra) < noise && Math.abs(rb) < noise) break;
       sum += (1 - k / n) * ra * rb;
     }
@@ -160,7 +188,10 @@ export const StatsMath = {
   effectiveSampleSize(values) {
     const n = values ? values.length : 0;
     if (n < 8) return n;
-    return Math.max(2, Math.min(n, n / this._varianceInflationFactor(values, values)));
+    return Math.max(
+      2,
+      Math.min(n, n / this._varianceInflationFactor(values, values)),
+    );
   },
 
   /**
@@ -235,7 +266,7 @@ export const StatsMath = {
       p: resCorr.p,
       n,
       nEff: resCorr.nEff,
-      rawR: raw.r
+      rawR: raw.r,
     };
   },
 
@@ -264,13 +295,19 @@ export const StatsMath = {
    *   heterogeneity at all).
    */
   metaCorrelation(groups, minPerGroup = 10) {
-    const entries = [];   // { z, v } per usable group
-    let sumR = 0, nR = 0;
-    for (const g of (groups || [])) {
+    const entries = []; // { z, v } per usable group
+    let sumR = 0,
+      nR = 0;
+    for (const g of groups || []) {
       const n = Math.min(g.x ? g.x.length : 0, g.y ? g.y.length : 0);
       if (n < minPerGroup) continue;
-      const x = g.x.slice(0, n), y = g.y.slice(0, n);
-      if (!(this.calculateStats(x).variance > 0) || !(this.calculateStats(y).variance > 0)) continue;
+      const x = g.x.slice(0, n),
+        y = g.y.slice(0, n);
+      if (
+        !(this.calculateStats(x).variance > 0) ||
+        !(this.calculateStats(y).variance > 0)
+      )
+        continue;
       const { r } = this.calculatePearsonCorrelation(x, y);
       if (!isFinite(r)) continue;
       const nEff = this.correlationEffectiveN(x, y);
@@ -279,17 +316,25 @@ export const StatsMath = {
       // independent read of the effect, so drop it rather than let a
       // high-leverage r_i in on a near-singular weight.
       if (nEff < 4) continue;
-      sumR += r; nR++;
+      sumR += r;
+      nR++;
       const rc = Math.max(-0.9999, Math.min(0.9999, r));
-      const v = 1 / (nEff - 3);   // var(Fisher-z)
+      const v = 1 / (nEff - 3); // var(Fisher-z)
       entries.push({ z: Math.atanh(rc), v });
     }
     const k = entries.length;
     if (k < 3) return { r: nR ? sumR / nR : 0, p: 1, k, tau2: NaN, i2: NaN };
 
     // Fixed-effect (inverse-variance) pooled z, then Cochran's Q.
-    let sw = 0, swz = 0, sw2 = 0;
-    for (const e of entries) { const w = 1 / e.v; sw += w; swz += w * e.z; sw2 += w * w; }
+    let sw = 0,
+      swz = 0,
+      sw2 = 0;
+    for (const e of entries) {
+      const w = 1 / e.v;
+      sw += w;
+      swz += w * e.z;
+      sw2 += w * w;
+    }
     const zFixed = swz / sw;
     let Q = 0;
     for (const e of entries) Q += (1 / e.v) * (e.z - zFixed) ** 2;
@@ -302,8 +347,13 @@ export const StatsMath = {
     const i2 = Q > 0 ? Math.max(0, (Q - df) / Q) * 100 : 0;
 
     // Random-effects pooled z with tau^2 folded into every weight.
-    let swr = 0, swrz = 0;
-    for (const e of entries) { const w = 1 / (e.v + tau2); swr += w; swrz += w * e.z; }
+    let swr = 0,
+      swrz = 0;
+    for (const e of entries) {
+      const w = 1 / (e.v + tau2);
+      swr += w;
+      swrz += w * e.z;
+    }
     const zRE = swrz / swr;
 
     // Weighted residual dispersion for the Knapp–Hartung scale.
@@ -370,11 +420,16 @@ export const StatsMath = {
     };
     const sampleVarOf = (arr, m) => {
       let s = 0;
-      for (let i = 0; i < arr.length; i++) { const d = arr[i] - m; s += d * d; }
+      for (let i = 0; i < arr.length; i++) {
+        const d = arr[i] - m;
+        s += d * d;
+      }
       return s / (arr.length - 1);
     };
-    const mA = meanOf(sampleA), mB = meanOf(sampleB);
-    const vA = sampleVarOf(sampleA, mA), vB = sampleVarOf(sampleB, mB);
+    const mA = meanOf(sampleA),
+      mB = meanOf(sampleB);
+    const vA = sampleVarOf(sampleA, mA),
+      vB = sampleVarOf(sampleB, mB);
     let nA, nB;
     if (effN && Number.isFinite(effN.a) && Number.isFinite(effN.b)) {
       nA = Math.max(2, Math.min(rawA, effN.a));
@@ -383,11 +438,13 @@ export const StatsMath = {
       nA = useEffectiveN ? this.effectiveSampleSize(sampleA) : rawA;
       nB = useEffectiveN ? this.effectiveSampleSize(sampleB) : rawB;
     }
-    const seA = vA / nA, seB = vB / nB;
+    const seA = vA / nA,
+      seB = vB / nB;
     const se = Math.sqrt(seA + seB);
-    if (!(se > 0)) return { t: 0, df: nA + nB - 2, p: 1, meanA: mA, meanB: mB, nA, nB };
+    if (!(se > 0))
+      return { t: 0, df: nA + nB - 2, p: 1, meanA: mA, meanB: mB, nA, nB };
     const t = (mA - mB) / se;
-    const df = (seA + seB) ** 2 / ((seA ** 2) / (nA - 1) + (seB ** 2) / (nB - 1));
+    const df = (seA + seB) ** 2 / (seA ** 2 / (nA - 1) + seB ** 2 / (nB - 1));
     const p = StatsMath._tTestPValue(t, df);
     return { t, df, p, meanA: mA, meanB: mB, nA, nB };
   },
@@ -398,12 +455,12 @@ export const StatsMath = {
     const { sumX, sumY, sumXY, sumX2, sumY2 } = this._computeSums(x, y);
     const meanX = sumX / n;
     const meanY = sumY / n;
-    
+
     const numM = n * sumXY - sumX * sumY;
     const denM = n * sumX2 - sumX * sumX;
     const m = denM === 0 ? 0 : numM / denM;
     const c = meanY - m * meanX;
-    
+
     let ssTot = 0;
     let ssRes = 0;
     for (let i = 0; i < n; i++) {
@@ -413,8 +470,8 @@ export const StatsMath = {
       ssTot += dev * dev;
       ssRes += res * res;
     }
-    const r2 = ssTot === 0 ? 1 : 1 - (ssRes / ssTot);
-    
+    const r2 = ssTot === 0 ? 1 : 1 - ssRes / ssTot;
+
     return { m, c, r2 };
   },
 
@@ -422,7 +479,7 @@ export const StatsMath = {
     const x = df / (df + t * t);
     const a = df / 2;
     const b = 0.5;
-    let betaReg = StatsMath._regIncompleteBeta(x, a, b);
+    const betaReg = StatsMath._regIncompleteBeta(x, a, b);
     return betaReg;
   },
 
@@ -432,25 +489,27 @@ export const StatsMath = {
     const maxIter = 200;
     const eps = 1e-12;
     const front = Math.exp(
-      a * Math.log(x) + b * Math.log(1 - x) -
-      Math.log(a) - StatsMath._logBeta(a, b)
+      a * Math.log(x) +
+        b * Math.log(1 - x) -
+        Math.log(a) -
+        StatsMath._logBeta(a, b),
     );
     let f = 1;
     let c = 1;
-    let d = 1 - (a + b) * x / (a + 1);
+    let d = 1 - ((a + b) * x) / (a + 1);
     if (Math.abs(d) < eps) d = eps;
     d = 1 / d;
     f = d;
     for (let m = 1; m <= maxIter; m++) {
       const m2 = 2 * m;
-      let d1 = m * (b - m) * x / ((a + m2 - 1) * (a + m2));
+      let d1 = (m * (b - m) * x) / ((a + m2 - 1) * (a + m2));
       d = 1 + d1 * d;
       if (Math.abs(d) < eps) d = eps;
       c = 1 + d1 / c;
       if (Math.abs(c) < eps) c = eps;
       d = 1 / d;
       f *= d * c;
-      d1 = -(a + m) * (a + b + m) * x / ((a + m2) * (a + m2 + 1));
+      d1 = (-(a + m) * (a + b + m) * x) / ((a + m2) * (a + m2 + 1));
       d = 1 + d1 * d;
       if (Math.abs(d) < eps) d = eps;
       c = 1 + d1 / c;
@@ -470,7 +529,11 @@ export const StatsMath = {
     // dashboard produces (a = df/2, df = n-2, n in the hundreds/thousands)
     // Math.pow(a, a-0.5) overflows to Infinity, so every p-value came back
     // NaN. _logGamma (Lanczos) stays finite for all a, b > 0.
-    return StatsMath._logGamma(a) + StatsMath._logGamma(b) - StatsMath._logGamma(a + b);
+    return (
+      StatsMath._logGamma(a) +
+      StatsMath._logGamma(b) -
+      StatsMath._logGamma(a + b)
+    );
   },
 
   _logGamma(z) {
@@ -478,7 +541,7 @@ export const StatsMath = {
     let sum = 1.000000000190015;
     const coeffs = [
       76.18009172947146, -86.50532032941677, 24.01409824083091,
-      -1.231739572450155, 1.208650973866179e-3, -5.395239384953e-6
+      -1.231739572450155, 1.208650973866179e-3, -5.395239384953e-6,
     ];
     let y = x;
     let tmp = x + 5.5;
@@ -486,6 +549,6 @@ export const StatsMath = {
     for (let i = 0; i < 6; i++) {
       sum += coeffs[i] / ++y;
     }
-    return -tmp + Math.log(2.5066282746310005 * sum / x);
-  }
+    return -tmp + Math.log((2.5066282746310005 * sum) / x);
+  },
 };

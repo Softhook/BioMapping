@@ -21,8 +21,7 @@ import { EXCLUDE_BTN, GSRRenderer } from './renderer.mjs';
 import { ResponseDynamics } from '../signal/response_dynamics.mjs';
 import { GSRUI } from '../ui/ui.mjs';
 
-  export const __methods = {
-
+export const __methods = {
   /**
    * Draw a small exclude ✕ or re-include ＋ circle on the canvas.
    * Called per-peak from drawPeakMarkers when the scrub line is near.
@@ -51,7 +50,12 @@ import { GSRUI } from '../ui/ui.mjs';
     textStyle(NORMAL);
 
     // Store for hit-testing in mousePressed and hover cursor
-    AppState._peakExcludeButtons.push({ idx: peakIdx, x: btnX, y: btnY, r: btnR + 4 });
+    AppState._peakExcludeButtons.push({
+      idx: peakIdx,
+      x: btnX,
+      y: btnY,
+      r: btnR + 4,
+    });
   },
 
   /**
@@ -83,10 +87,15 @@ import { GSRUI } from '../ui/ui.mjs';
       const rSq = target.r * target.r;
       const dyF = my - target.yFiltered;
       const dyP = my - target.yPhasic;
-      const isNearLine = Math.abs(dx) <= 6 &&
-                         my >= Math.min(target.yFiltered, target.yPhasic) - 6 &&
-                         my <= Math.max(target.yFiltered, target.yPhasic) + 6;
-      if (dx * dx + dyF * dyF <= rSq || dx * dx + dyP * dyP <= rSq || isNearLine) {
+      const isNearLine =
+        Math.abs(dx) <= 6 &&
+        my >= Math.min(target.yFiltered, target.yPhasic) - 6 &&
+        my <= Math.max(target.yFiltered, target.yPhasic) + 6;
+      if (
+        dx * dx + dyF * dyF <= rSq ||
+        dx * dx + dyP * dyP <= rSq ||
+        isNearLine
+      ) {
         return target;
       }
     }
@@ -143,7 +152,17 @@ import { GSRUI } from '../ui/ui.mjs';
     AppState.emit('scrub', { clear: true, source: 'graph' });
   },
 
-  handleScrubber(tMin, tMax, yMinU, yMaxU, yBottomU, yMinL, yMaxL, yTopL, yBottomL) {
+  handleScrubber(
+    tMin,
+    tMax,
+    yMinU,
+    yMaxU,
+    yBottomU,
+    yMinL,
+    yMaxL,
+    yTopL,
+    yBottomL,
+  ) {
     // One full-height plot: the time label goes in the top margin. In 'signal'
     // view the scrubber shows a Filtered dot (+ a Phasic dot when that overlay
     // is on); in a metric view it shows the metric's dot.
@@ -152,7 +171,8 @@ import { GSRUI } from '../ui/ui.mjs';
     // draw the scrubber from AppState.hoveredIndex directly and skip the mouse
     // hit-testing below — otherwise this per-frame pass would immediately wipe
     // the hover the globe just set (the mouse isn't over this canvas).
-    const externalHover = AppState.scrubSource === 'globe' && AppState.hoveredIndex >= 0;
+    const externalHover =
+      AppState.scrubSource === 'globe' && AppState.hoveredIndex >= 0;
 
     if (!externalHover) {
       // Whatever the reason the canvas isn't reachable — collapsed panel
@@ -164,30 +184,51 @@ import { GSRUI } from '../ui/ui.mjs';
       // flag are computed from the canvas' own layout box, which can go stale
       // or keep overlapping whatever took its place once the canvas is hidden
       // by CSS rather than actually moved/removed.
-      if (!AppState.myCanvas || (typeof document.elementFromPoint === 'function' && document.elementFromPoint(winMouseX, winMouseY) !== AppState.myCanvas.elt)) {
+      if (
+        !AppState.myCanvas ||
+        (typeof document.elementFromPoint === 'function' &&
+          document.elementFromPoint(winMouseX, winMouseY) !==
+            AppState.myCanvas.elt)
+      ) {
         this._clearScrub();
         return;
       }
 
       // Only show scrubber when the mouse is inside the graph's plot area
-      if (mouseX < GSR_CONST.MARGIN.left || mouseX > width - GSR_CONST.MARGIN.right ||
-          mouseY < GSR_CONST.MARGIN.top || mouseY > yBottomL ||
-          AppState.isDragging) {
+      if (
+        mouseX < GSR_CONST.MARGIN.left ||
+        mouseX > width - GSR_CONST.MARGIN.right ||
+        mouseY < GSR_CONST.MARGIN.top ||
+        mouseY > yBottomL ||
+        AppState.isDragging
+      ) {
         this._clearScrub();
         return;
       }
     }
 
-    if (!AppState.analyzer.raw || AppState.analyzer.raw.length === 0 ||
-        !AppState.analyzer.filtered || AppState.analyzer.filtered.length === 0 ||
-        !AppState.analyzer.tonic || AppState.analyzer.tonic.length === 0 ||
-        !AppState.analyzer.phasic || AppState.analyzer.phasic.length === 0) {
+    if (
+      !AppState.analyzer.raw ||
+      AppState.analyzer.raw.length === 0 ||
+      !AppState.analyzer.filtered ||
+      AppState.analyzer.filtered.length === 0 ||
+      !AppState.analyzer.tonic ||
+      AppState.analyzer.tonic.length === 0 ||
+      !AppState.analyzer.phasic ||
+      AppState.analyzer.phasic.length === 0
+    ) {
       if (!externalHover) this._clearScrub();
       return;
     }
 
     if (!externalHover) {
-      const hoverTime = map(mouseX, GSR_CONST.MARGIN.left, width - GSR_CONST.MARGIN.right, tMin, tMax);
+      const hoverTime = map(
+        mouseX,
+        GSR_CONST.MARGIN.left,
+        width - GSR_CONST.MARGIN.right,
+        tMin,
+        tMax,
+      );
       AppState.hoveredIndex = AppState.analyzer.findClosestIndex(hoverTime);
       if (AppState.hoveredIndex === -1) return;
       AppState.scrubSource = 'graph';
@@ -201,14 +242,19 @@ import { GSRUI } from '../ui/ui.mjs';
     // so don't echo it back.
     if (!externalHover) {
       if (dRaw.hasGps && !isNaN(dRaw.lat) && !isNaN(dRaw.lon)) {
-        AppState.emit('scrub', { lat: dRaw.lat, lon: dRaw.lon, index: AppState.hoveredIndex, source: 'graph' });
+        AppState.emit('scrub', {
+          lat: dRaw.lat,
+          lon: dRaw.lon,
+          index: AppState.hoveredIndex,
+          source: 'graph',
+        });
       } else {
         AppState.emit('scrub', { clear: true, source: 'graph' });
       }
     }
 
-    const dFilt   = AppState.analyzer.filtered[AppState.hoveredIndex];
-    const dTonic  = AppState.analyzer.tonic[AppState.hoveredIndex];
+    const dFilt = AppState.analyzer.filtered[AppState.hoveredIndex];
+    const dTonic = AppState.analyzer.tonic[AppState.hoveredIndex];
     const dPhasic = AppState.analyzer.phasic[AppState.hoveredIndex];
     // An external (globe-owned) index can briefly outrun a just-reanalysed
     // series on a track switch — bail rather than throw on the .val reads.
@@ -217,28 +263,54 @@ import { GSRUI } from '../ui/ui.mjs';
     // Lower graph may be showing phasic or one of the continuous alternatives
     // (peak density / phasic AUC / arousal index) — track the scrubber dot
     // and tooltip row against whichever series is actually plotted.
-    const lowerMode = (GSR_CONST.LOWER_GRAPH_MODES && AppState.lowerGraphMode) || 'phasic';
-    let lowerCfg = (GSR_CONST.LOWER_GRAPH_MODES && GSR_CONST.LOWER_GRAPH_MODES[lowerMode]) ||
-                     { label: 'Phasic (SCR)', unit: 'μS', decimals: 4, colorVar: '--color-phasic', colorDefault: '#008f3c' };
+    const lowerMode =
+      (GSR_CONST.LOWER_GRAPH_MODES && AppState.lowerGraphMode) || 'phasic';
+    let lowerCfg = (GSR_CONST.LOWER_GRAPH_MODES &&
+      GSR_CONST.LOWER_GRAPH_MODES[lowerMode]) || {
+      label: 'Phasic (SCR)',
+      unit: 'μS',
+      decimals: 4,
+      colorVar: '--color-phasic',
+      colorDefault: '#008f3c',
+    };
     // Matching pursuit's driver and cvxEDA's driver are different physical
     // quantities (µS vs µS/s — see GSR_CONST.DRIVER_UNIT_BY_ALGORITHM's
     // comment); pick the tooltip's unit/decimals by whichever detector
     // actually produced the currently-plotted series.
     if (lowerMode === 'phasicDriver' && GSR_CONST.DRIVER_UNIT_BY_ALGORITHM) {
-      const driverCfg = GSR_CONST.DRIVER_UNIT_BY_ALGORITHM[AppState.analyzer._driverAlgorithm] ||
-        GSR_CONST.DRIVER_UNIT_BY_ALGORITHM.matching_pursuit;
-      lowerCfg = { ...lowerCfg, unit: driverCfg.unit, decimals: driverCfg.decimals };
+      const driverCfg =
+        GSR_CONST.DRIVER_UNIT_BY_ALGORITHM[
+          AppState.analyzer._driverAlgorithm
+        ] || GSR_CONST.DRIVER_UNIT_BY_ALGORITHM.matching_pursuit;
+      lowerCfg = {
+        ...lowerCfg,
+        unit: driverCfg.unit,
+        decimals: driverCfg.decimals,
+      };
     }
-    const lowerSeries = (lowerMode === 'responseDynamics')
-      ? AppState.analyzer.phasic
-      : (AppState.analyzer[lowerMode] || AppState.analyzer.phasic);
+    const lowerSeries =
+      lowerMode === 'responseDynamics'
+        ? AppState.analyzer.phasic
+        : AppState.analyzer[lowerMode] || AppState.analyzer.phasic;
     const dLower = lowerSeries[AppState.hoveredIndex] || dPhasic;
 
-    const xScrub = map(dRaw.time, tMin, tMax, GSR_CONST.MARGIN.left, width - GSR_CONST.MARGIN.right);
+    const xScrub = map(
+      dRaw.time,
+      tMin,
+      tMax,
+      GSR_CONST.MARGIN.left,
+      width - GSR_CONST.MARGIN.right,
+    );
 
-    const scrubberColor = this.getThemeColor('--canvas-scrubber', 'rgba(17, 17, 17, 0.25)');
+    const scrubberColor = this.getThemeColor(
+      '--canvas-scrubber',
+      'rgba(17, 17, 17, 0.25)',
+    );
     const colorFiltered = this.getThemeColor('--color-filtered', '#005bc4');
-    const colorLower = this.getThemeColor(lowerCfg.colorVar, lowerCfg.colorDefault);
+    const colorLower = this.getThemeColor(
+      lowerCfg.colorVar,
+      lowerCfg.colorDefault,
+    );
 
     stroke(scrubberColor);
     strokeWeight(1);
@@ -266,7 +338,11 @@ import { GSRUI } from '../ui/ui.mjs';
         const cPhasic = this.getThemeColor('--color-phasic', '#008f3c');
         stroke(cPhasic);
         fill(cPhasic);
-        circle(xScrub, map(dPhasic.val, yMinU, yMaxU, yBottomU, GSR_CONST.MARGIN.top), 6);
+        circle(
+          xScrub,
+          map(dPhasic.val, yMinU, yMaxU, yBottomU, GSR_CONST.MARGIN.top),
+          6,
+        );
       }
     } else {
       stroke(colorLower);
@@ -295,17 +371,24 @@ import { GSRUI } from '../ui/ui.mjs';
     // plain Phasic — the Phasic row already covers that case below.
     // 'Phasic AUC' becomes 'Phasic AUC (ISCR)' when the series integrated the
     // deconvolved driver (see analyzer.computePhasicAUC).
-    const lowerLabel = (lowerMode === 'responseDynamics')
-      ? 'Dynamics:'
-      : (lowerCfg.label + (lowerMode === 'phasicAUC' && AppState.analyzer.phasicAUCIsISCR ? ' (ISCR)' : '') + ':');
+    const lowerLabel =
+      lowerMode === 'responseDynamics'
+        ? 'Dynamics:'
+        : lowerCfg.label +
+          (lowerMode === 'phasicAUC' && AppState.analyzer.phasicAUCIsISCR
+            ? ' (ISCR)'
+            : '') +
+          ':';
     const textSec = this.getThemeColor('--text-secondary', '#444444');
-    let extraValStr = dLower.val.toFixed(lowerCfg.decimals) + ' ' + lowerCfg.unit;
+    let extraValStr =
+      dLower.val.toFixed(lowerCfg.decimals) + ' ' + lowerCfg.unit;
     let extraColor = colorLower;
     if (lowerMode === 'responseDynamics') {
       const dynSeries = AppState.analyzer.responseDynamics || [];
       const dDyn = dynSeries[AppState.hoveredIndex];
       const dynVal = dDyn ? dDyn.val : 0;
-      const RD = (typeof ResponseDynamics !== 'undefined') ? ResponseDynamics : null;
+      const RD =
+        typeof ResponseDynamics !== 'undefined' ? ResponseDynamics : null;
       if (RD) {
         const tip = RD.formatTooltip(dynVal, textSec);
         extraValStr = tip.valueStr;
@@ -317,11 +400,14 @@ import { GSRUI } from '../ui/ui.mjs';
         extraValStr = `${dynVal.toFixed(2)}x`;
       }
     }
-    const extraMetric = (lowerMode !== 'phasic') ? {
-      label: lowerLabel,
-      color: extraColor,
-      valueStr: extraValStr
-    } : null;
+    const extraMetric =
+      lowerMode !== 'phasic'
+        ? {
+            label: lowerLabel,
+            color: extraColor,
+            valueStr: extraValStr,
+          }
+        : null;
 
     // Extra tooltip rows for whichever background-band overlays are on —
     // one {label, color, valueStr} entry each, in display order. Drawing a
@@ -331,20 +417,42 @@ import { GSRUI } from '../ui/ui.mjs';
     if (extraMetric) extraRows.push(extraMetric);
     if (AppState.showOsmContext && dRaw) {
       const osmClass = this._classifyOsmContext(dRaw);
-      if (osmClass) extraRows.push({ label: 'Context:', color: osmClass.color, valueStr: osmClass.label });
+      if (osmClass)
+        extraRows.push({
+          label: 'Context:',
+          color: osmClass.color,
+          valueStr: osmClass.label,
+        });
     }
     if (AppState.showNdviContext && dRaw) {
       const ndvi = this._ndviColorAt(AppState.analyzer, dRaw);
-      if (ndvi) extraRows.push({ label: 'NDVI:', color: ndvi.color, valueStr: ndvi.value.toFixed(2) });
+      if (ndvi)
+        extraRows.push({
+          label: 'NDVI:',
+          color: ndvi.color,
+          valueStr: ndvi.value.toFixed(2),
+        });
     }
     if (AppState.showEmFogContext && dRaw) {
       const emFog = this._emFogColorAt(AppState.analyzer, dRaw);
-      if (emFog) extraRows.push({ label: 'EM Fog:', color: emFog.color, valueStr: emFog.value.toFixed(1) });
+      if (emFog)
+        extraRows.push({
+          label: 'EM Fog:',
+          color: emFog.color,
+          valueStr: emFog.value.toFixed(1),
+        });
     }
 
-    this.drawTooltip(dRaw.time, dRaw.val, dFilt.val, dTonic.val, dPhasic.val, nearPeakInfo, extraRows);
+    this.drawTooltip(
+      dRaw.time,
+      dRaw.val,
+      dFilt.val,
+      dTonic.val,
+      dPhasic.val,
+      nearPeakInfo,
+      extraRows,
+    );
   },
+};
 
-  };
-
-  Object.assign(GSRRenderer, __methods);
+Object.assign(GSRRenderer, __methods);

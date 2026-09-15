@@ -21,7 +21,8 @@ const assert = require('assert');
 const test = require('node:test');
 
 global.GSR_CONST = require('./mock_constants.js');
-global.MarchingSquares = require('../src/render/marching_squares.mjs').MarchingSquares;
+global.MarchingSquares =
+  require('../src/render/marching_squares.mjs').MarchingSquares;
 
 // collective_manager.mjs holds a static `import { GSR_CONST } from
 // '../core/constants.mjs'` live binding — the `global.GSR_CONST` mock shadow
@@ -31,7 +32,9 @@ global.MarchingSquares = require('../src/render/marching_squares.mjs').MarchingS
 const { GSR_CONST: RealGSRConst } = require('../src/core/constants.mjs');
 Object.assign(RealGSRConst.COLLECTIVE, global.GSR_CONST.COLLECTIVE);
 
-const { GSRCollectiveManager } = require('../src/spatial/collective_manager.mjs');
+const {
+  GSRCollectiveManager,
+} = require('../src/spatial/collective_manager.mjs');
 
 /**
  * Builds a minimal mock "analyzer" exposing exactly the surface
@@ -96,7 +99,9 @@ test('removeTrack: removes only the matching id and leaves the rest intact', () 
   const t1 = makeTrack('a', []);
   const t2 = makeTrack('b', []);
   const t3 = makeTrack('c', []);
-  mgr.addTrack(t1); mgr.addTrack(t2); mgr.addTrack(t3);
+  mgr.addTrack(t1);
+  mgr.addTrack(t2);
+  mgr.addTrack(t3);
   mgr.removeTrack('b');
   assert.deepStrictEqual(mgr.tracks, [t1, t3]);
 });
@@ -114,7 +119,9 @@ test('getActiveTracks: filters to only enabled tracks', () => {
   const on1 = makeTrack('a', [], { enabled: true });
   const off = makeTrack('b', [], { enabled: false });
   const on2 = makeTrack('c', [], { enabled: true });
-  mgr.addTrack(on1); mgr.addTrack(off); mgr.addTrack(on2);
+  mgr.addTrack(on1);
+  mgr.addTrack(off);
+  mgr.addTrack(on2);
   assert.deepStrictEqual(mgr.getActiveTracks(), [on1, on2]);
 });
 
@@ -158,13 +165,21 @@ test('getBounds: a single point falls back to a fixed 0.001 deg pad (zero span)'
 
 test('getBounds: computes a tight bbox with 10% padding across multiple points and tracks', () => {
   const mgr = new GSRCollectiveManager();
-  mgr.addTrack(makeTrack('a', [{ lat: 51.0, lon: 0.0 }, { lat: 51.1, lon: 0.05 }]));
+  mgr.addTrack(
+    makeTrack('a', [
+      { lat: 51.0, lon: 0.0 },
+      { lat: 51.1, lon: 0.05 },
+    ]),
+  );
   mgr.addTrack(makeTrack('b', [{ lat: 50.9, lon: -0.05 }]));
   const bounds = mgr.getBounds();
 
-  const minLat = 50.9, maxLat = 51.1, minLon = -0.05, maxLon = 0.05;
-  const latPad = (maxLat - minLat) * 0.10;
-  const lonPad = (maxLon - minLon) * 0.10;
+  const minLat = 50.9,
+    maxLat = 51.1,
+    minLon = -0.05,
+    maxLon = 0.05;
+  const latPad = (maxLat - minLat) * 0.1;
+  const lonPad = (maxLon - minLon) * 0.1;
   assert.ok(Math.abs(bounds.minLat - (minLat - latPad)) < 1e-9);
   assert.ok(Math.abs(bounds.maxLat - (maxLat + latPad)) < 1e-9);
   assert.ok(Math.abs(bounds.minLon - (minLon - lonPad)) < 1e-9);
@@ -176,14 +191,20 @@ test('getBounds: disabled tracks do not influence the bbox of enabled ones', () 
   mgr.addTrack(makeTrack('a', [{ lat: 51.0, lon: 0.0 }]));
   mgr.addTrack(makeTrack('b', [{ lat: 60.0, lon: 10.0 }], { enabled: false }));
   const bounds = mgr.getBounds();
-  assert.ok(bounds.maxLat < 55, 'the disabled far-away track must not widen the bbox');
+  assert.ok(
+    bounds.maxLat < 55,
+    'the disabled far-away track must not widen the bbox',
+  );
 });
 
 // ── generateContourSurface() edge cases ──────────────────────────────────
 
 test('generateContourSurface: returns [] when there are no tracks', () => {
   const mgr = new GSRCollectiveManager();
-  assert.deepStrictEqual(mgr.generateContourSurface({ gridResolution: 10, contourCount: 3 }), []);
+  assert.deepStrictEqual(
+    mgr.generateContourSurface({ gridResolution: 10, contourCount: 3 }),
+    [],
+  );
 });
 
 test('generateContourSurface: returns [] when no tracks are enabled', () => {
@@ -206,7 +227,10 @@ test('generateContourSurface: returns [] when contourParams is omitted entirely 
 test('generateContourSurface: a track with points that all resolve to null coordinates yields []', () => {
   const mgr = new GSRCollectiveManager();
   mgr.addTrack(makeTrack('a', [null, null]));
-  assert.deepStrictEqual(mgr.generateContourSurface({ gridResolution: 10, contourCount: 3 }), []);
+  assert.deepStrictEqual(
+    mgr.generateContourSurface({ gridResolution: 10, contourCount: 3 }),
+    [],
+  );
 });
 
 function gridTrack(rows = 6, cols = 6, spacingDeg = 0.001) {
@@ -228,28 +252,54 @@ function gridTrack(rows = 6, cols = 6, spacingDeg = 0.001) {
 test('generateContourSurface: default gridResolution/contourCount come from GSR_CONST.COLLECTIVE when contourParams omits them', () => {
   const mgr = new GSRCollectiveManager();
   mgr.addTrack(gridTrack());
-  const result = mgr.generateContourSurface({ isolationRadius: 500, normalizeZScore: false });
-  assert.ok(Array.isArray(result.grid), 'should return a real surface object, not []');
-  assert.strictEqual(result.grid.length, global.GSR_CONST.COLLECTIVE.gridResolution);
-  assert.strictEqual(result.grid[0].length, global.GSR_CONST.COLLECTIVE.gridResolution);
+  const result = mgr.generateContourSurface({
+    isolationRadius: 500,
+    normalizeZScore: false,
+  });
+  assert.ok(
+    Array.isArray(result.grid),
+    'should return a real surface object, not []',
+  );
+  assert.strictEqual(
+    result.grid.length,
+    global.GSR_CONST.COLLECTIVE.gridResolution,
+  );
+  assert.strictEqual(
+    result.grid[0].length,
+    global.GSR_CONST.COLLECTIVE.gridResolution,
+  );
 
   // contourCount default: with this gradient fixture every one of the mock's
   // 10 default percentile levels lands on a distinct grid value, so the
   // count of generated contours should match GSR_CONST.COLLECTIVE.contourCount
   // exactly — distinguishing "used the real default" from an accidental
   // hardcoded count elsewhere in the level-generation loop.
-  assert.strictEqual(result.contours.length, global.GSR_CONST.COLLECTIVE.contourCount);
+  assert.strictEqual(
+    result.contours.length,
+    global.GSR_CONST.COLLECTIVE.contourCount,
+  );
 
-  const overridden = mgr.generateContourSurface({ isolationRadius: 500, normalizeZScore: false, contourCount: 1 });
-  assert.strictEqual(overridden.contours.length, 1, 'an explicit contourCount should override the default');
+  const overridden = mgr.generateContourSurface({
+    isolationRadius: 500,
+    normalizeZScore: false,
+    contourCount: 1,
+  });
+  assert.strictEqual(
+    overridden.contours.length,
+    1,
+    'an explicit contourCount should override the default',
+  );
 });
 
 test('generateContourSurface: returns the expected shape { contours, grid, minVal, maxVal, bounds, sortedVals }', () => {
   const mgr = new GSRCollectiveManager();
   mgr.addTrack(gridTrack());
   const result = mgr.generateContourSurface({
-    gridResolution: 12, contourCount: 4, isolationRadius: 500,
-    idwExponent: 2, normalizeZScore: false,
+    gridResolution: 12,
+    contourCount: 4,
+    isolationRadius: 500,
+    idwExponent: 2,
+    normalizeZScore: false,
   });
   assert.ok(Array.isArray(result.contours));
   assert.strictEqual(result.grid.length, 12);
@@ -275,26 +325,45 @@ test('generateContourSurface: a narrow isolationRadius masks (nulls) grid cells 
   const phasic = [];
   for (let i = 0; i < N; i++) {
     const t = i / (N - 1);
-    points.push({ lat: 51.50 + t * 0.01, lon: -0.10 + t * 0.01 });
+    points.push({ lat: 51.5 + t * 0.01, lon: -0.1 + t * 0.01 });
     phasic.push({ time: i, val: 1 });
   }
   mgr.addTrack(makeTrack('a', points, { phasic, phasicZ: phasic }));
 
   const result = mgr.generateContourSurface({
-    gridResolution: 25, contourCount: 2, isolationRadius: 15, normalizeZScore: false,
+    gridResolution: 25,
+    contourCount: 2,
+    isolationRadius: 15,
+    normalizeZScore: false,
   });
-  assert.ok(Array.isArray(result.grid), 'should still produce a surface object');
-  let nullCount = 0, total = 0;
+  assert.ok(
+    Array.isArray(result.grid),
+    'should still produce a surface object',
+  );
+  let nullCount = 0,
+    total = 0;
   for (const row of result.grid) {
-    for (const v of row) { total++; if (v === null) nullCount++; }
+    for (const v of row) {
+      total++;
+      if (v === null) nullCount++;
+    }
   }
-  assert.ok(nullCount > 0, 'cells far from the narrow corridor should be masked out');
-  assert.ok(nullCount < total, 'cells right along the corridor should remain unmasked');
+  assert.ok(
+    nullCount > 0,
+    'cells far from the narrow corridor should be masked out',
+  );
+  assert.ok(
+    nullCount < total,
+    'cells right along the corridor should remain unmasked',
+  );
 });
 
 test('generateContourSurface: peaks marked excluded are omitted from the "peaks" topography source', () => {
   const mgr = new GSRCollectiveManager();
-  const sharedPoints = [{ lat: 51.5, lon: -0.1 }, { lat: 51.5005, lon: -0.1005 }];
+  const sharedPoints = [
+    { lat: 51.5, lon: -0.1 },
+    { lat: 51.5005, lon: -0.1005 },
+  ];
 
   const withPeak = makeTrack('a', sharedPoints, {
     peaks: [{ index: 0, amplitude: 5, excluded: false }],
@@ -308,7 +377,13 @@ test('generateContourSurface: peaks marked excluded are omitted from the "peaks"
   const mgrExcluded = new GSRCollectiveManager();
   mgrExcluded.addTrack(excludedPeak);
 
-  const params = { gridResolution: 8, contourCount: 2, isolationRadius: 50, topographySource: 'peaks', normalizeZScore: false };
+  const params = {
+    gridResolution: 8,
+    contourCount: 2,
+    isolationRadius: 50,
+    topographySource: 'peaks',
+    normalizeZScore: false,
+  };
   const surfaceWith = mgrWith.generateContourSurface(params);
   const surfaceExcluded = mgrExcluded.generateContourSurface(params);
 
@@ -316,23 +391,39 @@ test('generateContourSurface: peaks marked excluded are omitted from the "peaks"
   // "flat surface" test below), so a fully-zero (all peaks excluded) surface
   // would misleadingly report maxVal===0.1 too — assert on the raw grid
   // values collected in sortedVals instead, which are untouched by that nudge.
-  assert.ok(surfaceWith.sortedVals.some(v => v > 0), 'a non-excluded peak should contribute positive KDE density somewhere in the grid');
-  assert.ok(surfaceExcluded.sortedVals.every(v => v === 0), 'an excluded peak must not contribute any density to any grid cell');
+  assert.ok(
+    surfaceWith.sortedVals.some((v) => v > 0),
+    'a non-excluded peak should contribute positive KDE density somewhere in the grid',
+  );
+  assert.ok(
+    surfaceExcluded.sortedVals.every((v) => v === 0),
+    'an excluded peak must not contribute any density to any grid cell',
+  );
 });
 
 test('generateContourSurface: minVal===maxVal (perfectly flat surface) is nudged apart to avoid a degenerate range', () => {
   const mgr = new GSRCollectiveManager();
   // Every point has the same phasic value -> IDW interpolates to a constant.
-  const points = [{ lat: 51.5, lon: -0.1 }, { lat: 51.5001, lon: -0.1001 }, { lat: 51.4999, lon: -0.0999 }];
+  const points = [
+    { lat: 51.5, lon: -0.1 },
+    { lat: 51.5001, lon: -0.1001 },
+    { lat: 51.4999, lon: -0.0999 },
+  ];
   const phasic = points.map((_, i) => ({ time: i, val: 3 }));
   mgr.addTrack(makeTrack('flat', points, { phasic, phasicZ: phasic }));
 
   const result = mgr.generateContourSurface({
-    gridResolution: 6, contourCount: 2, isolationRadius: 500, normalizeZScore: false,
+    gridResolution: 6,
+    contourCount: 2,
+    isolationRadius: 500,
+    normalizeZScore: false,
   });
   assert.ok(Array.isArray(result.grid));
-  assert.ok(result.maxVal > result.minVal, 'degenerate flat range should be nudged apart by +0.1');
-  assert.ok(Math.abs((result.maxVal - result.minVal) - 0.1) < 1e-9);
+  assert.ok(
+    result.maxVal > result.minVal,
+    'degenerate flat range should be nudged apart by +0.1',
+  );
+  assert.ok(Math.abs(result.maxVal - result.minVal - 0.1) < 1e-9);
 });
 
 // ─── generateContourSurface perf fix (2026-08-07): boundary-mask + IDW splat ──
@@ -346,10 +437,17 @@ test('generateContourSurface: minVal===maxVal (perfectly flat surface) is nudged
 // brute-force reference (the literal pre-fix algorithm, reimplemented here
 // rather than imported) against real result.bounds, so a future change to
 // either implementation that silently diverges gets caught.
-function bruteForceIdwGrid(points, bounds, rows, cols, isolationRadius, idwExponent) {
+function bruteForceIdwGrid(
+  points,
+  bounds,
+  rows,
+  cols,
+  isolationRadius,
+  idwExponent,
+) {
   const DEG_TO_M_LAT = 111320.0;
   const latMid = (bounds.minLat + bounds.maxLat) / 2;
-  const DEG_TO_M_LON = 111320.0 * Math.cos(latMid * Math.PI / 180);
+  const DEG_TO_M_LON = 111320.0 * Math.cos((latMid * Math.PI) / 180);
   const dist = (lat1, lon1, lat2, lon2) => {
     const dy = (lat1 - lat2) * DEG_TO_M_LAT;
     const dx = (lon1 - lon2) * DEG_TO_M_LON;
@@ -360,21 +458,36 @@ function bruteForceIdwGrid(points, bounds, rows, cols, isolationRadius, idwExpon
   const twoEnvSigmaSq = 2 * envelopeSigma * envelopeSigma;
   const grid = Array.from({ length: rows }, () => new Array(cols).fill(null));
   for (let r = 0; r < rows; r++) {
-    const gridLat = bounds.minLat + (r / (rows - 1)) * (bounds.maxLat - bounds.minLat);
+    const gridLat =
+      bounds.minLat + (r / (rows - 1)) * (bounds.maxLat - bounds.minLat);
     for (let c = 0; c < cols; c++) {
-      const gridLon = bounds.minLon + (c / (cols - 1)) * (bounds.maxLon - bounds.minLon);
+      const gridLon =
+        bounds.minLon + (c / (cols - 1)) * (bounds.maxLon - bounds.minLon);
       let isNearTrack = false;
       for (const p of points) {
-        if (dist(gridLat, gridLon, p.lat, p.lon) <= isolationRadius) { isNearTrack = true; break; }
+        if (dist(gridLat, gridLon, p.lat, p.lon) <= isolationRadius) {
+          isNearTrack = true;
+          break;
+        }
       }
-      if (!isNearTrack) { grid[r][c] = null; continue; }
+      if (!isNearTrack) {
+        grid[r][c] = null;
+        continue;
+      }
 
-      let sumWeightedVal = 0, sumWeight = 0, localMax = -Infinity, exactMatch = false;
+      let sumWeightedVal = 0,
+        sumWeight = 0,
+        localMax = -Infinity,
+        exactMatch = false;
       for (const p of points) {
         const d = dist(gridLat, gridLon, p.lat, p.lon);
-        if (d < 1e-3) { grid[r][c] = p.phasic; exactMatch = true; break; }
+        if (d < 1e-3) {
+          grid[r][c] = p.phasic;
+          exactMatch = true;
+          break;
+        }
         if (d <= idwRadius) {
-          const w = 1.0 / Math.pow(d, idwExponent);
+          const w = 1.0 / d ** idwExponent;
           sumWeightedVal += w * p.phasic;
           sumWeight += w;
           const envelopeVal = p.phasic * Math.exp(-(d * d) / twoEnvSigmaSq);
@@ -382,7 +495,10 @@ function bruteForceIdwGrid(points, bounds, rows, cols, isolationRadius, idwExpon
         }
       }
       if (!exactMatch) {
-        grid[r][c] = sumWeight > 0 ? 0.5 * (sumWeightedVal / sumWeight) + 0.5 * localMax : null;
+        grid[r][c] =
+          sumWeight > 0
+            ? 0.5 * (sumWeightedVal / sumWeight) + 0.5 * localMax
+            : null;
       }
     }
   }
@@ -395,11 +511,17 @@ function bruteForceIdwGrid(points, bounds, rows, cols, isolationRadius, idwExpon
 // re-derivation, not the raw IDW output, is what test cases below compare `result.grid`
 // against.
 function applyMaskedBlur(grid, rows, cols) {
-  const blurred = Array.from({ length: rows }, () => new Array(cols).fill(null));
+  const blurred = Array.from({ length: rows }, () =>
+    new Array(cols).fill(null),
+  );
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
-      if (grid[r][c] === null || isNaN(grid[r][c])) { blurred[r][c] = grid[r][c]; continue; }
-      let sum = 0, weight = 0;
+      if (grid[r][c] === null || isNaN(grid[r][c])) {
+        blurred[r][c] = grid[r][c];
+        continue;
+      }
+      let sum = 0,
+        weight = 0;
       for (let dr = -1; dr <= 1; dr++) {
         const rr = r + dr;
         if (rr < 0 || rr >= rows) continue;
@@ -408,7 +530,7 @@ function applyMaskedBlur(grid, rows, cols) {
           if (cc < 0 || cc >= cols) continue;
           const v = grid[rr][cc];
           if (v === null || isNaN(v)) continue;
-          const w = (dr === 0 && dc === 0) ? 4 : ((dr === 0 || dc === 0) ? 2 : 1);
+          const w = dr === 0 && dc === 0 ? 4 : dr === 0 || dc === 0 ? 2 : 1;
           sum += v * w;
           weight += w;
         }
@@ -425,11 +547,11 @@ test('generateContourSurface: IDW grid matches an independent brute-force refere
   // checkStep (the boundary mask's own sampling stride) is 1 — every point
   // participates in both the reference and the real computation identically.
   const pts = [
-    { lat: 51.5000, lon: -0.1000, phasic: 1.0 },
-    { lat: 51.5003, lon: -0.1000, phasic: 2.0 },  // ~33m from pt0
-    { lat: 51.5000, lon: -0.0990, phasic: 3.0 },  // ~69m from pt0 (east)
-    { lat: 51.5020, lon: -0.1020, phasic: 4.0 },  // ~250m from pt0 (far)
-    { lat: 51.4990, lon: -0.1010, phasic: 5.0 },  // ~140m from pt0 (south)
+    { lat: 51.5, lon: -0.1, phasic: 1.0 },
+    { lat: 51.5003, lon: -0.1, phasic: 2.0 }, // ~33m from pt0
+    { lat: 51.5, lon: -0.099, phasic: 3.0 }, // ~69m from pt0 (east)
+    { lat: 51.502, lon: -0.102, phasic: 4.0 }, // ~250m from pt0 (far)
+    { lat: 51.499, lon: -0.101, phasic: 5.0 }, // ~140m from pt0 (south)
   ];
   const phasic = pts.map((p, i) => ({ time: i, val: p.phasic }));
   const mgr = new GSRCollectiveManager();
@@ -441,17 +563,32 @@ test('generateContourSurface: IDW grid matches an independent brute-force refere
   // coarser grid was tried first and turned out to mask a real window-sizing
   // bug entirely (both a correct and a 10x-too-small radius calculation
   // floored to the same 1-cell window at that resolution).
-  const isolationRadius = 60, idwExponent = 2, gridResolution = 40;
+  const isolationRadius = 60,
+    idwExponent = 2,
+    gridResolution = 40;
   const result = mgr.generateContourSurface({
-    gridResolution, contourCount: 3, isolationRadius, idwExponent,
-    topographySource: 'phasic', normalizeZScore: false,
-    blurIterations: 1, peakPreservation: 0.5, softening: 0.0,
+    gridResolution,
+    contourCount: 3,
+    isolationRadius,
+    idwExponent,
+    topographySource: 'phasic',
+    normalizeZScore: false,
+    blurIterations: 1,
+    peakPreservation: 0.5,
+    softening: 0.0,
     // The brute-force reference below interpolates the raw per-point values;
     // disable the moving-average pass so the real path does too.
-    temporalSmoothingWindow: 0
+    temporalSmoothingWindow: 0,
   });
 
-  const rawExpected = bruteForceIdwGrid(pts, result.bounds, gridResolution, gridResolution, isolationRadius, idwExponent);
+  const rawExpected = bruteForceIdwGrid(
+    pts,
+    result.bounds,
+    gridResolution,
+    gridResolution,
+    isolationRadius,
+    idwExponent,
+  );
   const expected = applyMaskedBlur(rawExpected, gridResolution, gridResolution);
 
   let nonNullCells = 0;
@@ -460,15 +597,28 @@ test('generateContourSurface: IDW grid matches an independent brute-force refere
       const actual = result.grid[r][c];
       const exp = expected[r][c];
       if (exp === null) {
-        assert.strictEqual(actual, null, `cell [${r}][${c}]: expected null (far from every point), got ${actual}`);
+        assert.strictEqual(
+          actual,
+          null,
+          `cell [${r}][${c}]: expected null (far from every point), got ${actual}`,
+        );
       } else {
-        assert.ok(actual !== null, `cell [${r}][${c}]: expected ${exp}, got null`);
-        assert.ok(Math.abs(actual - exp) < 1e-6, `cell [${r}][${c}]: expected ${exp}, got ${actual}`);
+        assert.ok(
+          actual !== null,
+          `cell [${r}][${c}]: expected ${exp}, got null`,
+        );
+        assert.ok(
+          Math.abs(actual - exp) < 1e-6,
+          `cell [${r}][${c}]: expected ${exp}, got ${actual}`,
+        );
         nonNullCells++;
       }
     }
   }
-  assert.ok(nonNullCells > 0, 'precondition: at least some cells should be near enough to a point to have a value');
+  assert.ok(
+    nonNullCells > 0,
+    'precondition: at least some cells should be near enough to a point to have a value',
+  );
 });
 
 // ── §C perf fix: getContourLinesMulti correctness (2026-08-07) ───────────────
@@ -480,9 +630,15 @@ const { MarchingSquares: MS } = require('../src/render/marching_squares.mjs');
 function segmentsToKey(segs) {
   // Canonical string for a segment array — order-invariant within each segment
   // (since {lat,lon} object identity differs), position-invariant across segments.
-  return segs.map(s =>
-    s.map(pt => `${pt.lat.toFixed(8)},${pt.lon.toFixed(8)}`).sort().join('|')
-  ).sort().join(';');
+  return segs
+    .map((s) =>
+      s
+        .map((pt) => `${pt.lat.toFixed(8)},${pt.lon.toFixed(8)}`)
+        .sort()
+        .join('|'),
+    )
+    .sort()
+    .join(';');
 }
 
 function makeSyntheticGrid(rows, cols) {
@@ -498,7 +654,8 @@ function makeSyntheticGrid(rows, cols) {
 const BOUNDS = { minLat: 51.0, maxLat: 52.0, minLon: -1.0, maxLon: 0.0 };
 
 test('§C getContourLinesMulti: identical segments to K getContourLines() calls on a 5×5 gradient grid', () => {
-  const rows = 5, cols = 5;
+  const rows = 5,
+    cols = 5;
   const grid = makeSyntheticGrid(rows, cols);
   const levels = [1, 2, 3, 4, 5, 6];
 
@@ -507,13 +664,17 @@ test('§C getContourLinesMulti: identical segments to K getContourLines() calls 
     const ref = MS.getContourLines(grid, rows, cols, BOUNDS, lv);
     const multi = MS.getContourLinesMulti(grid, rows, cols, BOUNDS, levels);
     const got = multi.get(lv) || [];
-    assert.strictEqual(segmentsToKey(got), segmentsToKey(ref),
-      `level ${lv}: segment mismatch`);
+    assert.strictEqual(
+      segmentsToKey(got),
+      segmentsToKey(ref),
+      `level ${lv}: segment mismatch`,
+    );
   }
 });
 
 test('§C getContourLinesMulti: handles masked (null) cells identically to getContourLines()', () => {
-  const rows = 4, cols = 4;
+  const rows = 4,
+    cols = 4;
   const grid = makeSyntheticGrid(rows, cols);
   // Mask top-left corner
   grid[0][0] = null;
@@ -523,8 +684,11 @@ test('§C getContourLinesMulti: handles masked (null) cells identically to getCo
   for (const lv of levels) {
     const ref = MS.getContourLines(grid, rows, cols, BOUNDS, lv);
     const got = multi.get(lv) || [];
-    assert.strictEqual(segmentsToKey(got), segmentsToKey(ref),
-      `masked grid level ${lv}: segment mismatch`);
+    assert.strictEqual(
+      segmentsToKey(got),
+      segmentsToKey(ref),
+      `masked grid level ${lv}: segment mismatch`,
+    );
   }
 });
 
@@ -544,8 +708,10 @@ test('§C getContourLinesMulti: level outside grid range produces empty segment 
 test('§C generateContourSurface: contour count and segment structure unchanged after §C wiring', () => {
   // Build a realistic multi-track fixture (same as existing generateContourSurface tests)
   const pts = [
-    { lat: 51.1, lon: -0.8 }, { lat: 51.2, lon: -0.7 },
-    { lat: 51.3, lon: -0.6 }, { lat: 51.4, lon: -0.5 },
+    { lat: 51.1, lon: -0.8 },
+    { lat: 51.2, lon: -0.7 },
+    { lat: 51.3, lon: -0.6 },
+    { lat: 51.4, lon: -0.5 },
   ];
   const phasicVals = [0.1, 0.5, 0.9, 0.3];
   function makeA(points, vals) {
@@ -565,12 +731,26 @@ test('§C generateContourSurface: contour count and segment structure unchanged 
     };
   }
   const mgr = new GSRCollectiveManager();
-  const t = { id: 'c', name: 'C', color: '#00f', analyzer: makeA(pts, phasicVals), enabled: true, filterParams: {} };
+  const t = {
+    id: 'c',
+    name: 'C',
+    color: '#00f',
+    analyzer: makeA(pts, phasicVals),
+    enabled: true,
+    filterParams: {},
+  };
   mgr.addTrack(t);
 
-  const params = { gridResolution: 10, contourCount: 5, isolationRadius: 100000,
-    idwExponent: 2, topographySource: 'phasic', normalizeZScore: false,
-    showShadedSurface: false, surfaceOpacity: 0.4 };
+  const params = {
+    gridResolution: 10,
+    contourCount: 5,
+    isolationRadius: 100000,
+    idwExponent: 2,
+    topographySource: 'phasic',
+    normalizeZScore: false,
+    showShadedSurface: false,
+    surfaceOpacity: 0.4,
+  };
   const result = mgr.generateContourSurface(params);
 
   assert.ok(Array.isArray(result.contours));
@@ -578,11 +758,16 @@ test('§C generateContourSurface: contour count and segment structure unchanged 
   for (const c of result.contours) {
     assert.ok(typeof c.level === 'number', 'level must be number');
     assert.ok(typeof c.ratio === 'number', 'ratio must be number');
-    assert.ok(Array.isArray(c.segments) && c.segments.length > 0, 'segments must be non-empty');
+    assert.ok(
+      Array.isArray(c.segments) && c.segments.length > 0,
+      'segments must be non-empty',
+    );
     // Each segment: 2 {lat,lon} points
     for (const seg of c.segments) {
       assert.strictEqual(seg.length, 2);
-      assert.ok(typeof seg[0].lat === 'number' && typeof seg[0].lon === 'number');
+      assert.ok(
+        typeof seg[0].lat === 'number' && typeof seg[0].lon === 'number',
+      );
     }
   }
 });
@@ -591,62 +776,108 @@ test('§C generateContourSurface: contour count and segment structure unchanged 
 // GSRCollectiveManager.upsampleGrid
 // ---------------------------------------------------------------------------
 
-test('upsampleGrid: preserves corner values exactly (interpolation always passes through the source grid\'s own corners)', () => {
-  const src = [[0, 1, 2], [3, 4, 5], [6, 7, 8]];
+test("upsampleGrid: preserves corner values exactly (interpolation always passes through the source grid's own corners)", () => {
+  const src = [
+    [0, 1, 2],
+    [3, 4, 5],
+    [6, 7, 8],
+  ];
   const up = GSRCollectiveManager.upsampleGrid(src, 5, 5);
   assert.strictEqual(up.length, 5);
   assert.strictEqual(up[0].length, 5);
-  assert.ok(Math.abs(up[0][0] - src[0][0]) < 1e-9, 'top-left corner should match exactly');
-  assert.ok(Math.abs(up[0][4] - src[0][2]) < 1e-9, 'top-right corner should match exactly');
-  assert.ok(Math.abs(up[4][0] - src[2][0]) < 1e-9, 'bottom-left corner should match exactly');
-  assert.ok(Math.abs(up[4][4] - src[2][2]) < 1e-9, 'bottom-right corner should match exactly');
+  assert.ok(
+    Math.abs(up[0][0] - src[0][0]) < 1e-9,
+    'top-left corner should match exactly',
+  );
+  assert.ok(
+    Math.abs(up[0][4] - src[0][2]) < 1e-9,
+    'top-right corner should match exactly',
+  );
+  assert.ok(
+    Math.abs(up[4][0] - src[2][0]) < 1e-9,
+    'bottom-left corner should match exactly',
+  );
+  assert.ok(
+    Math.abs(up[4][4] - src[2][2]) < 1e-9,
+    'bottom-right corner should match exactly',
+  );
 });
 
 test('upsampleGrid: bicubic path on a smooth interior region interpolates monotonically between two values on a linear ramp', () => {
   // A linear ramp: bicubic on 4 evenly-spaced collinear values reduces to
   // that same line, so the upsampled result should also be monotonic and
   // bounded by the ramp's own min/max — no overshoot.
-  const src = Array.from({ length: 6 }, (_, r) => Array.from({ length: 6 }, (_, c) => r + c));
+  const src = Array.from({ length: 6 }, (_, r) =>
+    Array.from({ length: 6 }, (_, c) => r + c),
+  );
   const up = GSRCollectiveManager.upsampleGrid(src, 20, 20);
   let prevRow = null;
   for (const row of up) {
     for (let c = 1; c < row.length; c++) {
-      assert.ok(row[c] >= row[c - 1] - 1e-6, 'ramp should stay monotonically non-decreasing across each row');
+      assert.ok(
+        row[c] >= row[c - 1] - 1e-6,
+        'ramp should stay monotonically non-decreasing across each row',
+      );
     }
     if (prevRow) {
       for (let c = 0; c < row.length; c++) {
-        assert.ok(row[c] >= prevRow[c] - 1e-6, 'ramp should stay monotonically non-decreasing down each column');
+        assert.ok(
+          row[c] >= prevRow[c] - 1e-6,
+          'ramp should stay monotonically non-decreasing down each column',
+        );
       }
     }
     prevRow = row;
   }
   const flat = up.flat();
-  assert.ok(Math.min(...flat) >= 0 - 1e-6 && Math.max(...flat) <= 10 + 1e-6, 'no overshoot past the source ramp\'s own [0,10] range');
+  assert.ok(
+    Math.min(...flat) >= 0 - 1e-6 && Math.max(...flat) <= 10 + 1e-6,
+    "no overshoot past the source ramp's own [0,10] range",
+  );
 });
 
 test('upsampleGrid: bilinear fallback fills a fine cell from a single valid neighbor when no full bicubic neighborhood is available', () => {
   // All-null except one corner — no 4x4 all-valid neighborhood exists anywhere,
   // so every fine cell must go through the bilinear-fallback branch.
-  const src = [[null, null], [null, 5]];
+  const src = [
+    [null, null],
+    [null, 5],
+  ];
   const up = GSRCollectiveManager.upsampleGrid(src, 4, 4);
-  assert.ok(Math.abs(up[3][3] - 5) < 1e-9, 'the fine cell coincident with the one valid corner should equal it');
-  assert.ok(up[0][0] === null, 'the fine cell coincident with an all-null corner (zero bilinear weight from the valid one) stays null');
+  assert.ok(
+    Math.abs(up[3][3] - 5) < 1e-9,
+    'the fine cell coincident with the one valid corner should equal it',
+  );
+  assert.ok(
+    up[0][0] === null,
+    'the fine cell coincident with an all-null corner (zero bilinear weight from the valid one) stays null',
+  );
 });
 
 test('upsampleGrid: an entirely null source grid stays entirely null', () => {
-  const src = [[null, null], [null, null]];
+  const src = [
+    [null, null],
+    [null, null],
+  ];
   const up = GSRCollectiveManager.upsampleGrid(src, 5, 5);
-  assert.ok(up.every(row => row.every(v => v === null)));
+  assert.ok(up.every((row) => row.every((v) => v === null)));
 });
 
 test('upsampleGrid: NaN source cells are treated the same as null', () => {
-  const srcNull = [[null, null], [null, 5]];
-  const srcNaN = [[NaN, NaN], [NaN, 5]];
+  const srcNull = [
+    [null, null],
+    [null, 5],
+  ];
+  const srcNaN = [
+    [NaN, NaN],
+    [NaN, 5],
+  ];
   const upNull = GSRCollectiveManager.upsampleGrid(srcNull, 4, 4);
   const upNaN = GSRCollectiveManager.upsampleGrid(srcNaN, 4, 4);
   for (let r = 0; r < 4; r++) {
     for (let c = 0; c < 4; c++) {
-      const a = upNull[r][c], b = upNaN[r][c];
+      const a = upNull[r][c],
+        b = upNaN[r][c];
       if (a === null) assert.strictEqual(b, null);
       else assert.ok(Math.abs(a - b) < 1e-9);
     }

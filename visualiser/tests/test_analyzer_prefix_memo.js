@@ -1,29 +1,36 @@
-'use strict';
-
 const assert = require('assert');
-const test   = require('node:test');
-const fs     = require('fs');
-const path   = require('path');
+const test = require('node:test');
+const fs = require('fs');
+const path = require('path');
 
 global.window = global;
 global.GSR_CONST = require('./mock_constants.js');
 
 const { loadModule } = require('./support/load_module.js');
 
-loadModule(path.join(__dirname, '../src/gps/geo_utils.js'),          'GeoUtils');
-loadModule(path.join(__dirname, '../src/signal/stats_math.js'),         'StatsMath');
-loadModule(path.join(__dirname, '../src/map/map_colors.js'),         'MapColors');
-loadModule(path.join(__dirname, '../src/gps/gps_filter.js'),         'GpsFilter');
-loadModule(path.join(__dirname, '../src/gps/gps_pipeline.js'),       'GpsPipeline');
-loadModule(path.join(__dirname, '../src/signal/dwt_filter.js'),         'DWT');
-loadModule(path.join(__dirname, '../src/signal/gsr_filter.js'),         'GsrFilter');
-loadModule(path.join(__dirname, '../src/signal/deconvolution.js'),      'SCRDeconvolution');
-loadModule(path.join(__dirname, '../src/signal/analyzer_time_format.js'), 'AnalyzerTimeFormat');
+loadModule(path.join(__dirname, '../src/gps/geo_utils.js'), 'GeoUtils');
+loadModule(path.join(__dirname, '../src/signal/stats_math.js'), 'StatsMath');
+loadModule(path.join(__dirname, '../src/map/map_colors.js'), 'MapColors');
+loadModule(path.join(__dirname, '../src/gps/gps_filter.js'), 'GpsFilter');
+loadModule(path.join(__dirname, '../src/gps/gps_pipeline.js'), 'GpsPipeline');
+loadModule(path.join(__dirname, '../src/signal/dwt_filter.js'), 'DWT');
+loadModule(path.join(__dirname, '../src/signal/gsr_filter.js'), 'GsrFilter');
+loadModule(
+  path.join(__dirname, '../src/signal/deconvolution.js'),
+  'SCRDeconvolution',
+);
+loadModule(
+  path.join(__dirname, '../src/signal/analyzer_time_format.js'),
+  'AnalyzerTimeFormat',
+);
 
 const { GSRAnalyzer } = require('../src/signal/analyzer.mjs');
 const { GSRCSVParser } = require('../src/signal/csv_parser.mjs');
 
-const FIX_CSV = fs.readFileSync(path.join(__dirname, '..', 'fixtures', 'default_processed.csv'), 'utf8');
+const FIX_CSV = fs.readFileSync(
+  path.join(__dirname, '..', 'fixtures', 'default_processed.csv'),
+  'utf8',
+);
 const P = () => JSON.parse(JSON.stringify(GSR_CONST.GSR_DEFAULT));
 
 test('prefix-cache hit memoizes phasicAUC and arousalIndex references while recomputing triIndex', () => {
@@ -38,16 +45,32 @@ test('prefix-cache hit memoizes phasicAUC and arousalIndex references while reco
   const peaks1 = a.peaks;
 
   // Peak slider change (prefix cache hit)
-  a.analyze({ ...baseParams, peakThreshold: 0.20 });
+  a.analyze({ ...baseParams, peakThreshold: 0.2 });
   const auc2 = a.phasicAUC;
   const ai2 = a.arousalIndex;
   const tri2 = a.triIndex;
   const peaks2 = a.peaks;
 
-  assert.strictEqual(auc1, auc2, 'phasicAUC array reference should be reused on prefix cache hit');
-  assert.strictEqual(ai1, ai2, 'arousalIndex array reference should be reused on prefix cache hit');
-  assert.notStrictEqual(peaks1, peaks2, 'peaks must recompute on peak threshold change');
-  assert.notStrictEqual(tri1, tri2, 'triIndex must recompute because peak density changed');
+  assert.strictEqual(
+    auc1,
+    auc2,
+    'phasicAUC array reference should be reused on prefix cache hit',
+  );
+  assert.strictEqual(
+    ai1,
+    ai2,
+    'arousalIndex array reference should be reused on prefix cache hit',
+  );
+  assert.notStrictEqual(
+    peaks1,
+    peaks2,
+    'peaks must recompute on peak threshold change',
+  );
+  assert.notStrictEqual(
+    tri1,
+    tri2,
+    'triIndex must recompute because peak density changed',
+  );
 });
 
 test('prefix-cache miss (filter parameter change) recomputes all continuous metrics', () => {
@@ -64,8 +87,16 @@ test('prefix-cache miss (filter parameter change) recomputes all continuous metr
   const auc2 = a.phasicAUC;
   const ai2 = a.arousalIndex;
 
-  assert.notStrictEqual(auc1, auc2, 'phasicAUC should recompute when filter params change');
-  assert.notStrictEqual(ai1, ai2, 'arousalIndex should recompute when filter params change');
+  assert.notStrictEqual(
+    auc1,
+    auc2,
+    'phasicAUC should recompute when filter params change',
+  );
+  assert.notStrictEqual(
+    ai1,
+    ai2,
+    'arousalIndex should recompute when filter params change',
+  );
 });
 
 test('deconvolution toggling recomputes against phasicClean and restores pristine on toggle-off', () => {
@@ -87,18 +118,39 @@ test('deconvolution toggling recomputes against phasicClean and restores pristin
   a.analyze({ ...baseParams, useDeconvolution: true });
   const deconvAUC = a.phasicAUC;
   const deconvAI = a.arousalIndex;
-  assert.notStrictEqual(deconvAUC, pristineAUC, 'deconvolution must recompute phasicAUC from phasicClean');
-  assert.notStrictEqual(deconvAI, pristineAI, 'deconvolution must recompute arousalIndex');
+  assert.notStrictEqual(
+    deconvAUC,
+    pristineAUC,
+    'deconvolution must recompute phasicAUC from phasicClean',
+  );
+  assert.notStrictEqual(
+    deconvAI,
+    pristineAI,
+    'deconvolution must recompute arousalIndex',
+  );
 
   // 3. Toggle deconvolution back OFF (prefix cache hit)
   a.analyze(baseParams);
-  assert.strictEqual(a.phasicAUC, pristineAUC, 'switching back to non-deconv mode should restore pristine phasicAUC');
-  assert.strictEqual(a.arousalIndex, pristineAI, 'switching back to non-deconv mode should restore pristine arousalIndex');
-  assert.strictEqual(a.phasicAUC[0].val, pristineAUCVal0, 'pristine values must remain unaltered');
+  assert.strictEqual(
+    a.phasicAUC,
+    pristineAUC,
+    'switching back to non-deconv mode should restore pristine phasicAUC',
+  );
+  assert.strictEqual(
+    a.arousalIndex,
+    pristineAI,
+    'switching back to non-deconv mode should restore pristine arousalIndex',
+  );
+  assert.strictEqual(
+    a.phasicAUC[0].val,
+    pristineAUCVal0,
+    'pristine values must remain unaltered',
+  );
 });
 
 function scanRange(arr) {
-  let mn = Infinity, mx = -Infinity;
+  let mn = Infinity,
+    mx = -Infinity;
   for (let i = 0; i < arr.length; i++) {
     const v = arr[i].val;
     if (v < mn) mn = v;
@@ -120,14 +172,34 @@ test('_wasDeconv clears on a non-deconvolution prefix-cache miss and the pristin
 
   // Filter-param change => prefix-cache MISS, deconvolution back off.
   a.analyze({ ...base, lpfWindow: base.lpfWindow + 1.0 });
-  assert.strictEqual(a._wasDeconv, false, 'a non-deconv prefix-cache miss must clear stale deconvolution state');
+  assert.strictEqual(
+    a._wasDeconv,
+    false,
+    'a non-deconv prefix-cache miss must clear stale deconvolution state',
+  );
 
   // The pristine phasicAUC/arousalIndex ranges must be exposed via the cached
   // fast path (identity), and they must match a manual scan of the arrays.
-  assert.strictEqual(a._globalRange.phasicAUC, a._prefixCache.aucRange, 'non-deconv path reuses the cached AUC range object');
-  assert.strictEqual(a._globalRange.arousalIndex, a._prefixCache.aiRange, 'non-deconv path reuses the cached arousalIndex range object');
-  assert.deepStrictEqual(a._globalRange.phasicAUC, scanRange(a.phasicAUC), 'cached AUC range matches the array');
-  assert.deepStrictEqual(a._globalRange.arousalIndex, scanRange(a.arousalIndex), 'cached arousalIndex range matches the array');
+  assert.strictEqual(
+    a._globalRange.phasicAUC,
+    a._prefixCache.aucRange,
+    'non-deconv path reuses the cached AUC range object',
+  );
+  assert.strictEqual(
+    a._globalRange.arousalIndex,
+    a._prefixCache.aiRange,
+    'non-deconv path reuses the cached arousalIndex range object',
+  );
+  assert.deepStrictEqual(
+    a._globalRange.phasicAUC,
+    scanRange(a.phasicAUC),
+    'cached AUC range matches the array',
+  );
+  assert.deepStrictEqual(
+    a._globalRange.arousalIndex,
+    scanRange(a.arousalIndex),
+    'cached arousalIndex range matches the array',
+  );
 });
 
 test('_wasDeconv does not leak across a fresh parseCSV / series-pool rebuild', () => {
@@ -136,12 +208,19 @@ test('_wasDeconv does not leak across a fresh parseCSV / series-pool rebuild', (
   a.analyze({ ...P(), useDeconvolution: true });
   assert.strictEqual(a._wasDeconv, true);
 
-  a.parseCSV(FIX_CSV);                       // new raw array => pool rebuilt on next analyze
+  a.parseCSV(FIX_CSV); // new raw array => pool rebuilt on next analyze
   a.analyze({ ...P(), useDeconvolution: false });
 
-  assert.strictEqual(a._wasDeconv, false, 'series-pool rebuild clears stale deconvolution state');
+  assert.strictEqual(
+    a._wasDeconv,
+    false,
+    'series-pool rebuild clears stale deconvolution state',
+  );
   assert.deepStrictEqual(a._globalRange.phasicAUC, scanRange(a.phasicAUC));
-  assert.deepStrictEqual(a._globalRange.arousalIndex, scanRange(a.arousalIndex));
+  assert.deepStrictEqual(
+    a._globalRange.arousalIndex,
+    scanRange(a.arousalIndex),
+  );
 });
 
 test('deconvolution mode recomputes _globalRange from the deconvolved arrays, not the pristine cache', () => {
@@ -157,12 +236,21 @@ test('deconvolution mode recomputes _globalRange from the deconvolved arrays, no
 
   // Live range is derived from the deconvolved arrays…
   assert.deepStrictEqual(a._globalRange.phasicAUC, scanRange(a.phasicAUC));
-  assert.deepStrictEqual(a._globalRange.arousalIndex, scanRange(a.arousalIndex));
+  assert.deepStrictEqual(
+    a._globalRange.arousalIndex,
+    scanRange(a.arousalIndex),
+  );
   // …and is NOT the still-pristine cached range object.
-  assert.notStrictEqual(a._globalRange.phasicAUC, a._prefixCache.aucRange,
-    'deconv range must not alias the pristine prefix cache');
-  assert.notDeepStrictEqual(a._globalRange.phasicAUC, pristineAucRange,
-    'deconvolution changes the phasic signal, so its AUC range should move');
+  assert.notStrictEqual(
+    a._globalRange.phasicAUC,
+    a._prefixCache.aucRange,
+    'deconv range must not alias the pristine prefix cache',
+  );
+  assert.notDeepStrictEqual(
+    a._globalRange.phasicAUC,
+    pristineAucRange,
+    'deconvolution changes the phasic signal, so its AUC range should move',
+  );
 });
 
 test('timeline overview raw range uses _rawGlobalRange and matches manual scan', () => {
@@ -171,7 +259,8 @@ test('timeline overview raw range uses _rawGlobalRange and matches manual scan',
   a.analyze(P());
 
   assert.ok(a._rawGlobalRange, '_rawGlobalRange should exist on analyzer');
-  let manualMin = Infinity, manualMax = -Infinity;
+  let manualMin = Infinity,
+    manualMax = -Infinity;
   for (let i = 0; i < a.raw.length; i++) {
     const val = a.raw[i].val;
     if (val < manualMin) manualMin = val;
@@ -180,4 +269,3 @@ test('timeline overview raw range uses _rawGlobalRange and matches manual scan',
   assert.strictEqual(a._rawGlobalRange.min, manualMin);
   assert.strictEqual(a._rawGlobalRange.max, manualMax);
 });
-

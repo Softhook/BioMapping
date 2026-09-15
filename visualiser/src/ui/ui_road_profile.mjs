@@ -10,19 +10,22 @@ import { AppState } from '../core/app_state.mjs';
 import { GSRUI } from './ui.mjs';
 
 export const __methods = {
-
   /**
    * Sort the Road Arousal table by a column key ('name'|'timeSpent'|'meanPhasic'|'stdPhasic'|'ciPhasic'|'meanTonic'|'ciTonic'|'peakRate').
    */
   sortRoadArousalTable(col) {
     if (!col) return;
     if (AppState.roadSortColumn === col) {
-      AppState.roadSortDirection = (AppState.roadSortDirection === 'asc') ? 'desc' : 'asc';
+      AppState.roadSortDirection =
+        AppState.roadSortDirection === 'asc' ? 'desc' : 'asc';
     } else {
       AppState.roadSortColumn = col;
-      AppState.roadSortDirection = (col === 'name') ? 'asc' : 'desc';
+      AppState.roadSortDirection = col === 'name' ? 'asc' : 'desc';
     }
-    const cacheTarget = (AppState.viewMode === 'single') ? AppState.analyzer : AppState.collectiveManager;
+    const cacheTarget =
+      AppState.viewMode === 'single'
+        ? AppState.analyzer
+        : AppState.collectiveManager;
     if (cacheTarget && cacheTarget._cachedEnvStats) {
       const stats = cacheTarget._cachedEnvStats;
       this.renderRoadProfile(stats.roadProfile, stats.roadComparison);
@@ -33,21 +36,28 @@ export const __methods = {
    * Update header icons and classes on roadArousalTable according to active sort state.
    */
   updateRoadArousalTableSortHeaders() {
-    if (typeof document === 'undefined' || typeof document.getElementById !== 'function') return;
+    if (
+      typeof document === 'undefined' ||
+      typeof document.getElementById !== 'function'
+    )
+      return;
     const table = document.getElementById('roadArousalTable');
     if (!table || typeof table.querySelectorAll !== 'function') return;
     const ths = table.querySelectorAll('thead th.sortable');
     const curCol = AppState.roadSortColumn || 'meanPhasic';
     const curDir = AppState.roadSortDirection || 'desc';
 
-    ths.forEach(th => {
+    ths.forEach((th) => {
       const col = th.dataset.sort;
       const icon = th.querySelector('.sort-icon');
       if (col === curCol) {
         th.classList.remove('sort-asc', 'sort-desc');
         th.classList.add(curDir === 'desc' ? 'sort-desc' : 'sort-asc');
         if (icon) {
-          icon.className = 'fa-solid ' + (curDir === 'desc' ? 'fa-sort-down' : 'fa-sort-up') + ' sort-icon';
+          icon.className =
+            'fa-solid ' +
+            (curDir === 'desc' ? 'fa-sort-down' : 'fa-sort-up') +
+            ' sort-icon';
         }
       } else {
         th.classList.remove('sort-asc', 'sort-desc');
@@ -69,10 +79,10 @@ export const __methods = {
     roadBody.innerHTML = '';
     roadChart.innerHTML = '';
 
-    let displayProfile = profile.slice();
+    const displayProfile = profile.slice();
     if (AppState.roadSortColumn) {
       const col = AppState.roadSortColumn;
-      const dir = (AppState.roadSortDirection === 'desc') ? -1 : 1;
+      const dir = AppState.roadSortDirection === 'desc' ? -1 : 1;
       displayProfile.sort((a, b) => {
         if (col === 'name') {
           return dir * (a.name || '').localeCompare(b.name || '');
@@ -83,9 +93,12 @@ export const __methods = {
       });
     }
 
-    const maxPhasicVal = displayProfile.length > 0 ? Math.max(...displayProfile.map(p => p.meanPhasic)) : 1.0;
+    const maxPhasicVal =
+      displayProfile.length > 0
+        ? Math.max(...displayProfile.map((p) => p.meanPhasic))
+        : 1.0;
 
-    displayProfile.forEach(p => {
+    displayProfile.forEach((p) => {
       const fmt = (v) => v.toFixed(3);
       const tr = document.createElement('tr');
       tr.innerHTML = `
@@ -102,7 +115,8 @@ export const __methods = {
 
       const barRow = document.createElement('div');
       barRow.className = 'road-bar-row';
-      const percent = maxPhasicVal > 0 ? (p.meanPhasic / maxPhasicVal) * 100 : 0;
+      const percent =
+        maxPhasicVal > 0 ? (p.meanPhasic / maxPhasicVal) * 100 : 0;
       barRow.innerHTML = `
         <div class="road-bar-label" title="${p.name}">${p.name}</div>
         <div class="road-bar-track">
@@ -114,7 +128,7 @@ export const __methods = {
     });
 
     this.updateRoadArousalTableSortHeaders();
-    
+
     // ── Dynamic interpretation of actual data ───────────────────────────
     const interpretEl = document.getElementById('roadInterpretationText');
     if (interpretEl && profile.length > 0) {
@@ -123,17 +137,20 @@ export const __methods = {
       const lowest = sorted[sorted.length - 1];
 
       // Wide CI relative to the mean = unreliable estimate.
-      const unreliable = profile.filter(p => p.ciPhasic > p.meanPhasic * 0.5);
-      const reliable = profile.filter(p => p.ciPhasic <= p.meanPhasic * 0.3);
+      const unreliable = profile.filter((p) => p.ciPhasic > p.meanPhasic * 0.5);
+      const reliable = profile.filter((p) => p.ciPhasic <= p.meanPhasic * 0.3);
 
       const lines = [];
 
       // Main comparison
       if (highest !== lowest) {
-        const diff = ((highest.meanPhasic - lowest.meanPhasic) / lowest.meanPhasic * 100);
-        lines.push(`Your strongest arousal was on <strong>${highest.name}</strong> roads (${highest.meanPhasic.toFixed(3)} μS), ` +
-          `which is <strong>${Math.abs(diff).toFixed(0)}% ${diff > 0 ? 'higher' : 'lower'}</strong> ` +
-          `than ${lowest.name} roads (${lowest.meanPhasic.toFixed(3)} μS).`);
+        const diff =
+          ((highest.meanPhasic - lowest.meanPhasic) / lowest.meanPhasic) * 100;
+        lines.push(
+          `Your strongest arousal was on <strong>${highest.name}</strong> roads (${highest.meanPhasic.toFixed(3)} μS), ` +
+            `which is <strong>${Math.abs(diff).toFixed(0)}% ${diff > 0 ? 'higher' : 'lower'}</strong> ` +
+            `than ${lowest.name} roads (${lowest.meanPhasic.toFixed(3)} μS).`,
+        );
       }
 
       // Welch t-test (effective sample sizes) for the highest-vs-lowest gap.
@@ -141,45 +158,72 @@ export const __methods = {
       // seeing the means, so the verdict uses the selection-corrected pAdj
       // (Bonferroni over the k-choose-2 contrasts), with the raw p shown too.
       if (comparison && isFinite(comparison.pAdj)) {
-        const fmtP = (v) => v < 0.001 ? 'p &lt; 0.001' : 'p = ' + v.toFixed(3);
-        const selNote = (comparison.nGroups > 2)
-          ? ` (widest gap among ${comparison.nGroups} road classes, so corrected for that choice; raw ${fmtP(comparison.p)})`
-          : '';
+        const fmtP = (v) =>
+          v < 0.001 ? 'p &lt; 0.001' : 'p = ' + v.toFixed(3);
+        const selNote =
+          comparison.nGroups > 2
+            ? ` (widest gap among ${comparison.nGroups} road classes, so corrected for that choice; raw ${fmtP(comparison.p)})`
+            : '';
         if (comparison.pAdj < 0.05) {
-          lines.push(`A Welch <em>t</em>-test says this gap is <strong>statistically reliable</strong> ` +
-            `(${fmtP(comparison.pAdj)}, t = ${comparison.t.toFixed(2)}, df ≈ ${comparison.df.toFixed(0)})${selNote} — ` +
-            `unlikely to be sampling noise, though this is one walk in one set of places, not a controlled comparison.`);
+          lines.push(
+            `A Welch <em>t</em>-test says this gap is <strong>statistically reliable</strong> ` +
+              `(${fmtP(comparison.pAdj)}, t = ${comparison.t.toFixed(2)}, df ≈ ${comparison.df.toFixed(0)})${selNote} — ` +
+              `unlikely to be sampling noise, though this is one walk in one set of places, not a controlled comparison.`,
+          );
         } else {
-          lines.push(`A Welch <em>t</em>-test says this gap is <strong>not statistically reliable</strong> ` +
-            `(${fmtP(comparison.pAdj)})${selNote} — it could easily be sampling noise, so treat the ordering with caution.`);
+          lines.push(
+            `A Welch <em>t</em>-test says this gap is <strong>not statistically reliable</strong> ` +
+              `(${fmtP(comparison.pAdj)})${selNote} — it could easily be sampling noise, so treat the ordering with caution.`,
+          );
         }
       }
 
       // Reliability notes
       if (unreliable.length > 0) {
-        lines.push(`⚠️ <strong>Low confidence:</strong> ${unreliable.map(p =>
-          `${p.name} (~${p.effSamples} independent samples, CI ±${p.ciPhasic.toFixed(3)})`
-        ).join(', ')} — treat these numbers as rough estimates.`);
+        lines.push(
+          `⚠️ <strong>Low confidence:</strong> ${unreliable
+            .map(
+              (p) =>
+                `${p.name} (~${p.effSamples} independent samples, CI ±${p.ciPhasic.toFixed(3)})`,
+            )
+            .join(', ')} — treat these numbers as rough estimates.`,
+        );
       }
       if (reliable.length > 0) {
-        const best = reliable.slice().sort((a, b) => b.effSamples - a.effSamples)[0];
-        lines.push(`✅ <strong>Most reliable:</strong> ${best.name} roads (~${best.effSamples} independent samples, CI ±${best.ciPhasic.toFixed(3)}) — the most trustworthy comparison point.`);
+        const best = reliable
+          .slice()
+          .sort((a, b) => b.effSamples - a.effSamples)[0];
+        lines.push(
+          `✅ <strong>Most reliable:</strong> ${best.name} roads (~${best.effSamples} independent samples, CI ±${best.ciPhasic.toFixed(3)}) — the most trustworthy comparison point.`,
+        );
       }
 
       // Consistency notes
-      const highVar = profile.filter(p => p.stdPhasic > p.meanPhasic * 0.8);
-      const lowVar = profile.filter(p => p.stdPhasic < p.meanPhasic * 0.3 && p.timeSpent > 30);
+      const highVar = profile.filter((p) => p.stdPhasic > p.meanPhasic * 0.8);
+      const lowVar = profile.filter(
+        (p) => p.stdPhasic < p.meanPhasic * 0.3 && p.timeSpent > 30,
+      );
       if (highVar.length > 0) {
-        lines.push(`${highVar.map(p =>
-          `<strong>${p.name}</strong> has high variability (Std Dev ${p.stdPhasic.toFixed(3)} μS) — ` +
-          `some parts were very calm, others very reactive.`
-        ).join(' ')}`);
+        lines.push(
+          `${highVar
+            .map(
+              (p) =>
+                `<strong>${p.name}</strong> has high variability (Std Dev ${p.stdPhasic.toFixed(3)} μS) — ` +
+                `some parts were very calm, others very reactive.`,
+            )
+            .join(' ')}`,
+        );
       }
       if (lowVar.length > 0) {
-        lines.push(`${lowVar.map(p =>
-          `<strong>${p.name}</strong> is very consistent (Std Dev ${p.stdPhasic.toFixed(3)} μS) — ` +
-          `your arousal stayed steady throughout.`
-        ).join(' ')}`);
+        lines.push(
+          `${lowVar
+            .map(
+              (p) =>
+                `<strong>${p.name}</strong> is very consistent (Std Dev ${p.stdPhasic.toFixed(3)} μS) — ` +
+                `your arousal stayed steady throughout.`,
+            )
+            .join(' ')}`,
+        );
       }
 
       interpretEl.innerHTML = lines.join('</p><p style="margin: 4px 0 0 0;">');
@@ -188,10 +232,10 @@ export const __methods = {
     }
 
     if (profile.length === 0) {
-      roadBody.innerHTML = '<tr><td colspan="8" class="empty-row">No road classes with enough data to profile.</td></tr>';
+      roadBody.innerHTML =
+        '<tr><td colspan="8" class="empty-row">No road classes with enough data to profile.</td></tr>';
     }
   },
-
 };
 
 Object.assign(GSRUI, __methods);

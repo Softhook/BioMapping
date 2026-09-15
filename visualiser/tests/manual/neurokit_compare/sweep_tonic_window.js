@@ -11,7 +11,6 @@
  * Usage:
  *   node sweep_tonic_window.js <ground_truth_dir>
  */
-'use strict';
 
 const fs = require('fs');
 const path = require('path');
@@ -23,7 +22,10 @@ global.GSR_CONST = require('../../mock_constants.js');
 function loadModule(filePath, varName) {
   const src = fs.readFileSync(filePath, 'utf8');
   const wrapped = src
-    .replace(new RegExp(`class ${varName}\\s*{`), `global.${varName} = class ${varName} {`)
+    .replace(
+      new RegExp(`class ${varName}\\s*{`),
+      `global.${varName} = class ${varName} {`,
+    )
     .replace(new RegExp(`const ${varName}\\s*=`), `global.${varName} =`);
   vm.runInThisContext(wrapped, { filename: filePath });
 }
@@ -46,16 +48,21 @@ function score(oursTimes, oursAmps, trueScrs) {
   const deltas = [];
   const ampPairs = [];
   oursTimes.forEach((t, oi) => {
-    let best = -1, bestD = Infinity;
+    let best = -1,
+      bestD = Infinity;
     trueScrs.forEach((tt, ti) => {
       if (usedTrue[ti]) return;
       const d = Math.abs(tt.time - t);
-      if (d < bestD) { bestD = d; best = ti; }
+      if (d < bestD) {
+        bestD = d;
+        best = ti;
+      }
     });
     if (best !== -1 && bestD <= TOL) {
       usedTrue[best] = true;
       deltas.push(bestD);
-      if (oursAmps[oi] != null) ampPairs.push([oursAmps[oi], trueScrs[best].amplitude]);
+      if (oursAmps[oi] != null)
+        ampPairs.push([oursAmps[oi], trueScrs[best].amplitude]);
     }
   });
   const tp = deltas.length;
@@ -63,38 +70,65 @@ function score(oursTimes, oursAmps, trueScrs) {
   const fp = oursTimes.length - tp;
   const recall = trueScrs.length ? tp / trueScrs.length : NaN;
   const precision = oursTimes.length ? tp / oursTimes.length : NaN;
-  const f1 = (recall + precision) > 0 ? 2 * recall * precision / (recall + precision) : 0;
-  const meanDelta = deltas.length ? deltas.reduce((s, d) => s + d, 0) / deltas.length : NaN;
+  const f1 =
+    recall + precision > 0
+      ? (2 * recall * precision) / (recall + precision)
+      : 0;
+  const meanDelta = deltas.length
+    ? deltas.reduce((s, d) => s + d, 0) / deltas.length
+    : NaN;
 
-  let sumAbs = 0, sumRelAbs = 0, sumD = 0, sumT = 0, sumDT = 0, sumD2 = 0, sumT2 = 0;
+  let sumAbs = 0,
+    sumRelAbs = 0,
+    sumD = 0,
+    sumT = 0,
+    sumDT = 0,
+    sumD2 = 0,
+    sumT2 = 0;
   const n = ampPairs.length;
   for (const [detected, trueAmp] of ampPairs) {
     const err = detected - trueAmp;
     sumAbs += Math.abs(err);
     sumRelAbs += Math.abs(err) / trueAmp;
-    sumD += detected; sumT += trueAmp; sumDT += detected * trueAmp;
-    sumD2 += detected * detected; sumT2 += trueAmp * trueAmp;
+    sumD += detected;
+    sumT += trueAmp;
+    sumDT += detected * trueAmp;
+    sumD2 += detected * detected;
+    sumT2 += trueAmp * trueAmp;
   }
-  const meanD = n ? sumD / n : 0, meanT = n ? sumT / n : 0;
+  const meanD = n ? sumD / n : 0,
+    meanT = n ? sumT / n : 0;
   const cov = n ? sumDT / n - meanD * meanT : 0;
   const varD = n ? sumD2 / n - meanD * meanD : 0;
   const varT = n ? sumT2 / n - meanT * meanT : 0;
-  const r = (varD > 0 && varT > 0) ? cov / Math.sqrt(varD * varT) : NaN;
+  const r = varD > 0 && varT > 0 ? cov / Math.sqrt(varD * varT) : NaN;
 
   return {
-    tp, fn, fp, recall, precision, f1, meanDelta,
+    tp,
+    fn,
+    fp,
+    recall,
+    precision,
+    f1,
+    meanDelta,
     meanAbsErr: n ? sumAbs / n : NaN,
     meanRelErr: n ? sumRelAbs / n : NaN,
     r,
-    deltas, ampPairs
+    deltas,
+    ampPairs,
   };
 }
 
 function aggregate(results) {
-  let tp = 0, fn = 0, fp = 0;
-  const allDeltas = [], allAmpPairs = [];
+  let tp = 0,
+    fn = 0,
+    fp = 0;
+  const allDeltas = [],
+    allAmpPairs = [];
   for (const s of results) {
-    tp += s.tp; fn += s.fn; fp += s.fp;
+    tp += s.tp;
+    fn += s.fn;
+    fp += s.fp;
     allDeltas.push(...s.deltas);
     allAmpPairs.push(...s.ampPairs);
   }
@@ -102,29 +136,50 @@ function aggregate(results) {
   const totalDet = tp + fp;
   const recall = totalTrue ? tp / totalTrue : NaN;
   const precision = totalDet ? tp / totalDet : NaN;
-  const f1 = (recall + precision) > 0 ? 2 * recall * precision / (recall + precision) : 0;
-  const meanDelta = allDeltas.length ? allDeltas.reduce((s, d) => s + d, 0) / allDeltas.length : NaN;
+  const f1 =
+    recall + precision > 0
+      ? (2 * recall * precision) / (recall + precision)
+      : 0;
+  const meanDelta = allDeltas.length
+    ? allDeltas.reduce((s, d) => s + d, 0) / allDeltas.length
+    : NaN;
 
-  let sumAbs = 0, sumRelAbs = 0, sumD = 0, sumT = 0, sumDT = 0, sumD2 = 0, sumT2 = 0;
+  let sumAbs = 0,
+    sumRelAbs = 0,
+    sumD = 0,
+    sumT = 0,
+    sumDT = 0,
+    sumD2 = 0,
+    sumT2 = 0;
   const n = allAmpPairs.length;
   for (const [detected, trueAmp] of allAmpPairs) {
     const err = detected - trueAmp;
     sumAbs += Math.abs(err);
     sumRelAbs += Math.abs(err) / trueAmp;
-    sumD += detected; sumT += trueAmp; sumDT += detected * trueAmp;
-    sumD2 += detected * detected; sumT2 += trueAmp * trueAmp;
+    sumD += detected;
+    sumT += trueAmp;
+    sumDT += detected * trueAmp;
+    sumD2 += detected * detected;
+    sumT2 += trueAmp * trueAmp;
   }
-  const meanD = n ? sumD / n : 0, meanT = n ? sumT / n : 0;
+  const meanD = n ? sumD / n : 0,
+    meanT = n ? sumT / n : 0;
   const cov = n ? sumDT / n - meanD * meanT : 0;
   const varD = n ? sumD2 / n - meanD * meanD : 0;
   const varT = n ? sumT2 / n - meanT * meanT : 0;
-  const r = (varD > 0 && varT > 0) ? cov / Math.sqrt(varD * varT) : NaN;
+  const r = varD > 0 && varT > 0 ? cov / Math.sqrt(varD * varT) : NaN;
 
   return {
-    tp, fn, fp, recall, precision, f1, meanDelta,
+    tp,
+    fn,
+    fp,
+    recall,
+    precision,
+    f1,
+    meanDelta,
     meanAbsErr: n ? sumAbs / n : NaN,
     meanRelErr: n ? sumRelAbs / n : NaN,
-    r
+    r,
   };
 }
 
@@ -134,20 +189,33 @@ if (!targetDir || !fs.existsSync(targetDir)) {
   process.exit(1);
 }
 
-const csvFiles = fs.readdirSync(targetDir)
-  .filter(f => f.startsWith('synth_') && f.includes('_clean') && f.endsWith('.csv'))
+const csvFiles = fs
+  .readdirSync(targetDir)
+  .filter(
+    (f) => f.startsWith('synth_') && f.includes('_clean') && f.endsWith('.csv'),
+  )
   .sort()
-  .map(f => path.join(targetDir, f));
+  .map((f) => path.join(targetDir, f));
 
 console.log(`Found ${csvFiles.length} clean synthetic ground-truth files.`);
 
 const WINDOWS = [15, 20, 25, 30, 35, 40, 45, 50, 60, 75, 90];
 
-console.log('\n================================================================================');
-console.log('=== EMA Tonic Window Sweep: Full-Scan on Clean Synthetic Ground Truth ===');
-console.log('================================================================================');
-console.log('Window | Recall | Precision |   F1  |  TP / FN  |  FP  | Mean |dt| | Amp MAE  | Amp RelErr |  Amp r  |');
-console.log('-------|--------|-----------|-------|-----------|------|-----------|----------|------------|---------|');
+console.log(
+  '\n================================================================================',
+);
+console.log(
+  '=== EMA Tonic Window Sweep: Full-Scan on Clean Synthetic Ground Truth ===',
+);
+console.log(
+  '================================================================================',
+);
+console.log(
+  'Window | Recall | Precision |   F1  |  TP / FN  |  FP  | Mean |dt| | Amp MAE  | Amp RelErr |  Amp r  |',
+);
+console.log(
+  '-------|--------|-----------|-------|-----------|------|-----------|----------|------------|---------|',
+);
 
 for (const win of WINDOWS) {
   const fileResults = [];
@@ -160,25 +228,28 @@ for (const win of WINDOWS) {
 
     const a = new GSRAnalyzer();
     a.parseCSV(csvText);
-    a.analyze({ ...D, useGaitFilter: false, tonicMethod: 'lpf', tonicWindow: win }, 0);
+    a.analyze(
+      { ...D, useGaitFilter: false, tonicMethod: 'lpf', tonicWindow: win },
+      0,
+    );
 
-    const times = a.peaks.map(p => p.time);
-    const amps = a.peaks.map(p => p.amplitude);
+    const times = a.peaks.map((p) => p.time);
+    const amps = a.peaks.map((p) => p.amplitude);
     fileResults.push(score(times, amps, gt.scrs));
   }
 
   const agg = aggregate(fileResults);
-  const pct = x => (100 * x).toFixed(1) + '%';
+  const pct = (x) => (100 * x).toFixed(1) + '%';
   console.log(
     `  ${String(win).padStart(2)}s  | ` +
-    `${pct(agg.recall).padStart(6)} | ` +
-    `${pct(agg.precision).padStart(9)} | ` +
-    `${agg.f1.toFixed(3)} | ` +
-    `${String(agg.tp).padStart(4)} / ${String(agg.fn).padStart(2)} | ` +
-    `${String(agg.fp).padStart(4)} | ` +
-    `${agg.meanDelta.toFixed(3)}s   | ` +
-    `${agg.meanAbsErr.toFixed(4)}uS | ` +
-    `${(100 * agg.meanRelErr).toFixed(1).padStart(5)}%     | ` +
-    `${agg.r.toFixed(4)}  |`
+      `${pct(agg.recall).padStart(6)} | ` +
+      `${pct(agg.precision).padStart(9)} | ` +
+      `${agg.f1.toFixed(3)} | ` +
+      `${String(agg.tp).padStart(4)} / ${String(agg.fn).padStart(2)} | ` +
+      `${String(agg.fp).padStart(4)} | ` +
+      `${agg.meanDelta.toFixed(3)}s   | ` +
+      `${agg.meanAbsErr.toFixed(4)}uS | ` +
+      `${(100 * agg.meanRelErr).toFixed(1).padStart(5)}%     | ` +
+      `${agg.r.toFixed(4)}  |`,
   );
 }

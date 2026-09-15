@@ -11,8 +11,8 @@ function stitchSegmentsOld(segments) {
   const distance = (p1, p2) => Math.hypot(p1.lat - p2.lat, p1.lon - p2.lon);
 
   while (remaining.length > 0) {
-    let current = remaining.shift();
-    let path = [current[0], current[1]];
+    const current = remaining.shift();
+    const path = [current[0], current[1]];
     let added = true;
 
     while (added) {
@@ -57,7 +57,9 @@ function stitchSegmentsOld(segments) {
   return paths;
 }
 
-const { GSRSpatialClustering } = require('../../src/spatial/spatial_clustering.mjs');
+const {
+  GSRSpatialClustering,
+} = require('../../src/spatial/spatial_clustering.mjs');
 const stitchSegmentsNew = GSRSpatialClustering.stitchSegments;
 
 function generateLoopSegments(count) {
@@ -131,9 +133,9 @@ function generateLabelCandidates(labelCount) {
   for (let i = 0; i < labelCount; i++) {
     items.push({
       idx: i,
-      px: 100 + (i % 10) * 30 + (Math.random() * 10),
-      py: 100 + Math.floor(i / 10) * 30 + (Math.random() * 10),
-      text: 'Peak #' + (i + 1)
+      px: 100 + (i % 10) * 30 + Math.random() * 10,
+      py: 100 + Math.floor(i / 10) * 30 + Math.random() * 10,
+      text: 'Peak #' + (i + 1),
     });
   }
   return items;
@@ -146,21 +148,30 @@ function generateLabelCandidates(labelCount) {
 // a bare cell sweep, and warms the JIT before timing.
 // ─────────────────────────────────────────────────────────────────────────────
 function benchKdeGrid(peaksCount) {
-  const rows = 70, cols = 70;
-  const REPEATS = 200, WARMUP = 40, HALF_WIN = 8; // ~6-sigma window in cells
+  const rows = 70,
+    cols = 70;
+  const REPEATS = 200,
+    WARMUP = 40,
+    HALF_WIN = 8; // ~6-sigma window in cells
   const twoSigmaSq = 2 * 30 * 30;
-  const cutoffDSq = (6 * 30) * (6 * 30);
+  const cutoffDSq = 6 * 30 * (6 * 30);
   const peaks = [];
   for (let i = 0; i < peaksCount; i++) {
-    peaks.push({ r: 5 + Math.floor(Math.random() * (rows - 10)), c: 5 + Math.floor(Math.random() * (cols - 10)), w: 1 + Math.random() });
+    peaks.push({
+      r: 5 + Math.floor(Math.random() * (rows - 10)),
+      c: 5 + Math.floor(Math.random() * (cols - 10)),
+      w: 1 + Math.random(),
+    });
   }
 
   const runNested = () => {
     const grid = Array.from({ length: rows }, () => new Array(cols).fill(0));
     for (let p = 0; p < peaks.length; p++) {
       const pk = peaks[p];
-      const rMin = Math.max(0, pk.r - HALF_WIN), rMax = Math.min(rows - 1, pk.r + HALF_WIN);
-      const cMin = Math.max(0, pk.c - HALF_WIN), cMax = Math.min(cols - 1, pk.c + HALF_WIN);
+      const rMin = Math.max(0, pk.r - HALF_WIN),
+        rMax = Math.min(rows - 1, pk.r + HALF_WIN);
+      const cMin = Math.max(0, pk.c - HALF_WIN),
+        cMax = Math.min(cols - 1, pk.c + HALF_WIN);
       for (let r = rMin; r <= rMax; r++) {
         const row = grid[r];
         for (let c = cMin; c <= cMax; c++) {
@@ -177,8 +188,10 @@ function benchKdeGrid(peaksCount) {
     const grid = new Float64Array(rows * cols);
     for (let p = 0; p < peaks.length; p++) {
       const pk = peaks[p];
-      const rMin = Math.max(0, pk.r - HALF_WIN), rMax = Math.min(rows - 1, pk.r + HALF_WIN);
-      const cMin = Math.max(0, pk.c - HALF_WIN), cMax = Math.min(cols - 1, pk.c + HALF_WIN);
+      const rMin = Math.max(0, pk.r - HALF_WIN),
+        rMax = Math.min(rows - 1, pk.r + HALF_WIN);
+      const cMin = Math.max(0, pk.c - HALF_WIN),
+        cMax = Math.min(cols - 1, pk.c + HALF_WIN);
       for (let r = rMin; r <= rMax; r++) {
         const rowOffset = r * cols;
         for (let c = cMin; c <= cMax; c++) {
@@ -192,7 +205,10 @@ function benchKdeGrid(peaksCount) {
   };
 
   let sink = 0;
-  for (let i = 0; i < WARMUP; i++) { sink += runNested(); sink += runFlat(); }
+  for (let i = 0; i < WARMUP; i++) {
+    sink += runNested();
+    sink += runFlat();
+  }
 
   const t0 = performance.now();
   for (let i = 0; i < REPEATS; i++) sink += runNested();
@@ -203,7 +219,11 @@ function benchKdeGrid(peaksCount) {
   const timeNew = performance.now() - t1;
 
   if (sink === Infinity) console.log(''); // keep sink live
-  return { timeOld: timeOld / REPEATS, timeNew: timeNew / REPEATS, speedup: timeOld / timeNew };
+  return {
+    timeOld: timeOld / REPEATS,
+    timeNew: timeNew / REPEATS,
+    speedup: timeOld / timeNew,
+  };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -216,7 +236,7 @@ console.log('='.repeat(70));
 console.log('\n--- 1. Segment Stitching (stitchSegments) ---');
 for (const count of [50, 200, 500, 1000]) {
   const segs = generateLoopSegments(count);
-  
+
   const t0 = performance.now();
   stitchSegmentsOld(segs);
   const oldMs = performance.now() - t0;
@@ -226,13 +246,21 @@ for (const count of [50, 200, 500, 1000]) {
   const newMs = performance.now() - t1;
 
   const speedup = (oldMs / newMs).toFixed(1);
-  console.log(`  Segments: ${count.toString().padEnd(5)} | Old: ${oldMs.toFixed(3)} ms | New: ${newMs.toFixed(3)} ms | Speedup: ${speedup}x`);
+  console.log(
+    `  Segments: ${count.toString().padEnd(5)} | Old: ${oldMs.toFixed(3)} ms | New: ${newMs.toFixed(3)} ms | Speedup: ${speedup}x`,
+  );
 }
 
 console.log('\n--- 2. Hotspot Peak Index Lookup in Render Loop ---');
-for (const [peaks, hotspots] of [[500, 20], [2000, 50], [5000, 100]]) {
+for (const [peaks, hotspots] of [
+  [500, 20],
+  [2000, 50],
+  [5000, 100],
+]) {
   const res = benchHotspotLookup(peaks, hotspots, 500);
-  console.log(`  Peaks: ${peaks.toString().padEnd(4)}, Hotspots: ${hotspots.toString().padEnd(3)} (500 redraw frames) | Old: ${res.timeOld.toFixed(2)} ms | New: ${res.timeNew.toFixed(2)} ms | Speedup: ${res.speedup.toFixed(1)}x`);
+  console.log(
+    `  Peaks: ${peaks.toString().padEnd(4)}, Hotspots: ${hotspots.toString().padEnd(3)} (500 redraw frames) | Old: ${res.timeOld.toFixed(2)} ms | New: ${res.timeNew.toFixed(2)} ms | Speedup: ${res.speedup.toFixed(1)}x`,
+  );
 }
 
 console.log('\n--- 3. Label Placement Simulated Annealing ---');
@@ -243,14 +271,20 @@ for (const labelCount of [25, 50, 100]) {
     GSRLabelManager.computeLabelPositions(items);
   }
   const ms = (performance.now() - t0) / 10;
-  console.log(`  Labels: ${labelCount.toString().padEnd(3)} | Average placement time: ${ms.toFixed(2)} ms`);
+  console.log(
+    `  Labels: ${labelCount.toString().padEnd(3)} | Average placement time: ${ms.toFixed(2)} ms`,
+  );
 }
 
-console.log('\n--- 4. KDE Density Grid, windowed splat (70x70, per full-grid build) ---');
+console.log(
+  '\n--- 4. KDE Density Grid, windowed splat (70x70, per full-grid build) ---',
+);
 for (const peakCount of [10, 50, 100]) {
   const res = benchKdeGrid(peakCount);
   const us = (v) => (v * 1000).toFixed(1) + ' us';
-  console.log(`  Peaks: ${peakCount.toString().padEnd(3)} | Nested 2D: ${us(res.timeOld).padEnd(10)} | Float64Array: ${us(res.timeNew).padEnd(10)} | Speedup: ${res.speedup.toFixed(2)}x`);
+  console.log(
+    `  Peaks: ${peakCount.toString().padEnd(3)} | Nested 2D: ${us(res.timeOld).padEnd(10)} | Float64Array: ${us(res.timeNew).padEnd(10)} | Speedup: ${res.speedup.toFixed(2)}x`,
+  );
 }
 
 console.log('\n' + '='.repeat(70));

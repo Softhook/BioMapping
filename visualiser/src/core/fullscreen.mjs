@@ -30,7 +30,11 @@ export const GSRFullscreen = {
 
   /** Whether any element is currently browser-fullscreen. */
   get active() {
-    return !!(document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement);
+    return !!(
+      document.fullscreenElement ||
+      document.webkitFullscreenElement ||
+      document.mozFullScreenElement
+    );
   },
 
   /**
@@ -42,7 +46,10 @@ export const GSRFullscreen = {
    */
   async request(el, options = { navigationUI: 'hide' }) {
     const target = el || document.documentElement;
-    const fn = target.requestFullscreen || target.webkitRequestFullscreen || target.mozRequestFullScreen;
+    const fn =
+      target.requestFullscreen ||
+      target.webkitRequestFullscreen ||
+      target.mozRequestFullScreen;
     if (!fn) return false;
 
     this._target = target;
@@ -66,7 +73,10 @@ export const GSRFullscreen = {
    */
   async exit() {
     this._target = null;
-    const fn = document.exitFullscreen || document.webkitExitFullscreen || document.mozCancelFullScreen;
+    const fn =
+      document.exitFullscreen ||
+      document.webkitExitFullscreen ||
+      document.mozCancelFullScreen;
     if (!fn) return false;
     try {
       await fn.call(document);
@@ -112,5 +122,5 @@ export const GSRFullscreen = {
   _emit() {
     const active = this.active;
     this._listeners.forEach((fn) => fn(active));
-  }
+  },
 };

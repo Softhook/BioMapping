@@ -6,7 +6,6 @@
  *
  * Run: node --test tests/test_map_exporter_colors.js
  */
-'use strict';
 
 const assert = require('assert');
 const test = require('node:test');
@@ -17,13 +16,19 @@ const path = require('path');
 const { loadModule } = require('./support/load_module.js');
 
 loadModule(path.join(__dirname, '../src/gps/geo_utils.js'), 'GeoUtils');
-loadModule(path.join(__dirname, '../src/render/bezier_spline.js'), 'BezierSpline');
-loadModule(path.join(__dirname, '../src/map/map_exporter.js'), 'GSRMapExporter');
+loadModule(
+  path.join(__dirname, '../src/render/bezier_spline.js'),
+  'BezierSpline',
+);
+loadModule(
+  path.join(__dirname, '../src/map/map_exporter.js'),
+  'GSRMapExporter',
+);
 const GSRMapExporter = global.GSRMapExporter;
 
 const project = (ll) => ({
   x: ((ll.lon !== undefined ? ll.lon : ll.lng) + 0.1) * 1000,
-  y: (51.6 - ll.lat) * 1000
+  y: (51.6 - ll.lat) * 1000,
 });
 
 test('GSRMapExporter._toHex converts hsl() to a valid #rrggbb hex string', () => {
@@ -36,7 +41,10 @@ test('GSRMapExporter._toHex converts hsl() to a valid #rrggbb hex string', () =>
 
 test('GSRMapExporter._toHex passes hex and non-hsl colors through unchanged', () => {
   assert.strictEqual(GSRMapExporter._toHex('#ff7b00'), '#ff7b00');
-  assert.strictEqual(GSRMapExporter._toHex('rgb(255, 23, 68)'), 'rgb(255, 23, 68)');
+  assert.strictEqual(
+    GSRMapExporter._toHex('rgb(255, 23, 68)'),
+    'rgb(255, 23, 68)',
+  );
   assert.strictEqual(GSRMapExporter._toHex(null), null);
 });
 
@@ -44,12 +52,26 @@ test('GSRMapExporter._pathEl emits hsl() layer colors as hex (contour/isoline ca
   // A contour isoline layer: color carried as an hsl() string (as
   // renderContours() produces via MapColors.getHslColor).
   const contourLayer = {
-    getLatLngs: () => [[{ lat: 51.5, lon: -0.1 }, { lat: 51.51, lon: -0.09 }]],
-    options: { color: 'hsl(109.0909090909091, 100%, 55%)', weight: 1.5, opacity: 0.85, lineCap: 'round', lineJoin: 'round' }
+    getLatLngs: () => [
+      [
+        { lat: 51.5, lon: -0.1 },
+        { lat: 51.51, lon: -0.09 },
+      ],
+    ],
+    options: {
+      color: 'hsl(109.0909090909091, 100%, 55%)',
+      weight: 1.5,
+      opacity: 0.85,
+      lineCap: 'round',
+      lineJoin: 'round',
+    },
   };
   const svg = GSRMapExporter._pathEl({ project }, contourLayer);
   assert.ok(svg.includes('stroke="#'), 'stroke should be emitted as hex');
-  assert.ok(!svg.includes('hsl('), 'no raw hsl() string should leak into the SVG');
+  assert.ok(
+    !svg.includes('hsl('),
+    'no raw hsl() string should leak into the SVG',
+  );
   assert.match(svg, /stroke="#[0-9a-f]{6}"/i, 'stroke should be a 6-digit hex');
   assert.ok(!svg.includes('NaN'), 'no NaN color in the emitted path');
 });
@@ -57,12 +79,26 @@ test('GSRMapExporter._pathEl emits hsl() layer colors as hex (contour/isoline ca
 test('GSRMapExporter._pathEl emits filled polyline (cluster) colors as hex', () => {
   // A cluster outline: fillColor + color as hsl() strings, fillOpacity > 0.
   const clusterLayer = {
-    getLatLngs: () => [[{ lat: 51.5, lon: -0.1 }, { lat: 51.51, lon: -0.09 }, { lat: 51.52, lon: -0.08 }]],
-    options: { color: 'hsl(30, 85%, 50%)', fillColor: 'hsl(30, 85%, 50%)', fillOpacity: 0.3, weight: 2 }
+    getLatLngs: () => [
+      [
+        { lat: 51.5, lon: -0.1 },
+        { lat: 51.51, lon: -0.09 },
+        { lat: 51.52, lon: -0.08 },
+      ],
+    ],
+    options: {
+      color: 'hsl(30, 85%, 50%)',
+      fillColor: 'hsl(30, 85%, 50%)',
+      fillOpacity: 0.3,
+      weight: 2,
+    },
   };
   const svg = GSRMapExporter._pathEl({ project }, clusterLayer);
   assert.ok(svg.includes('fill="#'), 'fill should be emitted as hex');
-  assert.ok(!svg.includes('hsl('), 'no raw hsl() string should leak into the SVG');
+  assert.ok(
+    !svg.includes('hsl('),
+    'no raw hsl() string should leak into the SVG',
+  );
   assert.ok(!svg.includes('NaN'), 'no NaN color in the emitted path');
 });
 
@@ -84,27 +120,70 @@ function makeRealisticPathOptions(explicitOptions) {
 
 test('GSRMapExporter._pathEl: a plain track polyline (fill never explicitly set) is NOT treated as a polygon', () => {
   const trackLayer = {
-    getLatLngs: () => [[{ lat: 51.5, lon: -0.1 }, { lat: 51.51, lon: -0.09 }, { lat: 51.52, lon: -0.08 }]],
-    options: makeRealisticPathOptions({ color: '#ff7b00', weight: 5, opacity: 0.95 })
+    getLatLngs: () => [
+      [
+        { lat: 51.5, lon: -0.1 },
+        { lat: 51.51, lon: -0.09 },
+        { lat: 51.52, lon: -0.08 },
+      ],
+    ],
+    options: makeRealisticPathOptions({
+      color: '#ff7b00',
+      weight: 5,
+      opacity: 0.95,
+    }),
   };
   // Sanity: the fixture genuinely reproduces Leaflet's inheritance quirk —
   // fillOpacity reads back nonzero via the prototype despite not being own.
-  assert.strictEqual(trackLayer.options.fillOpacity, 0.2, 'sanity: fillOpacity inherited from the Path default');
-  assert.ok(!Object.prototype.hasOwnProperty.call(trackLayer.options, 'fillOpacity'), 'sanity: fillOpacity is NOT an own property, same as real Leaflet');
+  assert.strictEqual(
+    trackLayer.options.fillOpacity,
+    0.2,
+    'sanity: fillOpacity inherited from the Path default',
+  );
+  assert.ok(
+    !Object.prototype.hasOwnProperty.call(trackLayer.options, 'fillOpacity'),
+    'sanity: fillOpacity is NOT an own property, same as real Leaflet',
+  );
 
   const svg = GSRMapExporter._pathEl({ project }, trackLayer);
   assert.ok(!svg.includes(' Z"'), 'track path must not be closed into a loop');
   assert.match(svg, /fill="none"/, 'track path must not be filled');
-  assert.match(svg, /fill-opacity="0"/, 'track path fill-opacity must be 0, not the inherited 0.2');
+  assert.match(
+    svg,
+    /fill-opacity="0"/,
+    'track path fill-opacity must be 0, not the inherited 0.2',
+  );
 });
 
 test('GSRMapExporter._pathEl: a real cluster/OSM polygon (fillColor explicitly set) still fills correctly', () => {
   const polygonLayer = {
-    getLatLngs: () => [[{ lat: 51.5, lon: -0.1 }, { lat: 51.51, lon: -0.09 }, { lat: 51.52, lon: -0.08 }]],
-    options: makeRealisticPathOptions({ color: '#ff7b00', fillColor: '#ff7b00', fillOpacity: 0.3, weight: 1 })
+    getLatLngs: () => [
+      [
+        { lat: 51.5, lon: -0.1 },
+        { lat: 51.51, lon: -0.09 },
+        { lat: 51.52, lon: -0.08 },
+      ],
+    ],
+    options: makeRealisticPathOptions({
+      color: '#ff7b00',
+      fillColor: '#ff7b00',
+      fillOpacity: 0.3,
+      weight: 1,
+    }),
   };
   const svg = GSRMapExporter._pathEl({ project }, polygonLayer);
-  assert.ok(svg.includes(' Z"'), 'a genuinely filled shape must still close into a loop');
-  assert.match(svg, /fill="#ff7b00"/, 'a genuinely filled shape must still emit its fill color');
-  assert.match(svg, /fill-opacity="0\.3"/, 'a genuinely filled shape keeps its own explicit fillOpacity, not the 0.2 default');
+  assert.ok(
+    svg.includes(' Z"'),
+    'a genuinely filled shape must still close into a loop',
+  );
+  assert.match(
+    svg,
+    /fill="#ff7b00"/,
+    'a genuinely filled shape must still emit its fill color',
+  );
+  assert.match(
+    svg,
+    /fill-opacity="0\.3"/,
+    'a genuinely filled shape keeps its own explicit fillOpacity, not the 0.2 default',
+  );
 });

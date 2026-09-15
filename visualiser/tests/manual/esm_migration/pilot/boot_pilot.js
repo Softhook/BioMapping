@@ -18,8 +18,15 @@ const { JSDOM } = require('jsdom');
 // Real Node identifiers a jsdom window would never legitimately shadow —
 // skipped so a bridge call can never clobber the host runtime itself.
 const RESERVED_NODE_GLOBALS = new Set([
-  'global', 'globalThis', 'process', 'require', 'module', 'exports',
-  '__dirname', '__filename', 'Buffer',
+  'global',
+  'globalThis',
+  'process',
+  'require',
+  'module',
+  'exports',
+  '__dirname',
+  '__filename',
+  'Buffer',
 ]);
 
 /**
@@ -61,7 +68,10 @@ function installJsdomGlobals(window) {
 }
 
 async function bootPilot({ cacheBust, entry = 'entry.mjs' } = {}) {
-  const dom = new JSDOM('<div id="notice"></div>', { url: 'http://localhost/', pretendToBeVisual: true });
+  const dom = new JSDOM('<div id="notice"></div>', {
+    url: 'http://localhost/',
+    pretendToBeVisual: true,
+  });
   installJsdomGlobals(dom.window);
 
   const entryPath = path.join(__dirname, entry);
@@ -74,9 +84,7 @@ async function bootPilot({ cacheBust, entry = 'entry.mjs' } = {}) {
   // deletion trick, e.g. test_globe3d.js resetting GSRGlobeManager) must
   // import that module directly with the busted specifier, not rely on
   // busting a parent/entry that merely re-exports it.
-  const specifier = cacheBust
-    ? `${entryPath}?t=${cacheBust}`
-    : entryPath;
+  const specifier = cacheBust ? `${entryPath}?t=${cacheBust}` : entryPath;
   const mod = await import(specifier);
 
   return { window: dom.window, document: dom.window.document, mod };

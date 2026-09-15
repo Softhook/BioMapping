@@ -17,22 +17,37 @@
  * Run: node visualiser/tests/test_isoband_boundary_closure.js
  */
 const assert = require('assert');
-const path   = require('path');
+const path = require('path');
 
 global.window = global;
 global.GSR_CONST = require('./mock_constants.js');
 
 const { loadModule } = require('./support/load_module.js');
 
-loadModule(path.join(__dirname, '../src/signal/stats_math.js'),      'StatsMath');
-loadModule(path.join(__dirname, '../src/map/map_colors.js'),      'MapColors');
-loadModule(path.join(__dirname, '../src/gps/geo_utils.js'),       'GeoUtils');
-loadModule(path.join(__dirname, '../src/render/marching_squares.js'),'MarchingSquares');
-loadModule(path.join(__dirname, '../src/spatial/spatial_clustering.js'), 'GSRSpatialClustering');
-loadModule(path.join(__dirname, '../src/map/hillshade.js'),       'Hillshade');
-loadModule(path.join(__dirname, '../src/render/bezier_spline.js'),   'BezierSpline');
-loadModule(path.join(__dirname, '../src/render/contour_ring_geometry.js'), 'ContourRingGeometry');
-loadModule(path.join(__dirname, '../src/map/map_exporter.js'),   'GSRMapExporter');
+loadModule(path.join(__dirname, '../src/signal/stats_math.js'), 'StatsMath');
+loadModule(path.join(__dirname, '../src/map/map_colors.js'), 'MapColors');
+loadModule(path.join(__dirname, '../src/gps/geo_utils.js'), 'GeoUtils');
+loadModule(
+  path.join(__dirname, '../src/render/marching_squares.js'),
+  'MarchingSquares',
+);
+loadModule(
+  path.join(__dirname, '../src/spatial/spatial_clustering.js'),
+  'GSRSpatialClustering',
+);
+loadModule(path.join(__dirname, '../src/map/hillshade.js'), 'Hillshade');
+loadModule(
+  path.join(__dirname, '../src/render/bezier_spline.js'),
+  'BezierSpline',
+);
+loadModule(
+  path.join(__dirname, '../src/render/contour_ring_geometry.js'),
+  'ContourRingGeometry',
+);
+loadModule(
+  path.join(__dirname, '../src/map/map_exporter.js'),
+  'GSRMapExporter',
+);
 
 const { MarchingSquares, GSRSpatialClustering, GeoUtils } = global;
 const GSRMapExporter = global.GSRMapExporter;
@@ -40,10 +55,17 @@ const GSRMapExporter = global.GSRMapExporter;
 console.log('── Running Isoband Boundary Closure Regression Test ──');
 
 function openPathsFor(grid, rows, cols, bounds, level) {
-  const segments = MarchingSquares.getContourLines(grid, rows, cols, bounds, level);
+  const segments = MarchingSquares.getContourLines(
+    grid,
+    rows,
+    cols,
+    bounds,
+    level,
+  );
   const stitched = GSRSpatialClustering.stitchSegments(segments);
-  return stitched.filter(p => {
-    const a = p[0], b = p[p.length - 1];
+  return stitched.filter((p) => {
+    const a = p[0],
+      b = p[p.length - 1];
     return Math.hypot(a.lat - b.lat, a.lon - b.lon) > 1e-9;
   });
 }
@@ -51,7 +73,8 @@ function openPathsFor(grid, rows, cols, bounds, level) {
 function shoelaceArea(ring) {
   let area = 0;
   for (let i = 0; i < ring.length; i++) {
-    const p1 = ring[i], p2 = ring[(i + 1) % ring.length];
+    const p1 = ring[i],
+      p2 = ring[(i + 1) % ring.length];
     area += p1.lon * p2.lat - p2.lon * p1.lat;
   }
   return Math.abs(area) / 2;
@@ -68,19 +91,29 @@ function samplesFromPathD(d) {
   const cmds = d.match(/M[^LCZ]*|L[^LCZ]*|C[^LCZ]*|Z/g) || [];
   let cur = null;
   const samples = [];
-  cmds.forEach(cmd => {
+  cmds.forEach((cmd) => {
     const type = cmd[0];
     const nums = (cmd.slice(1).match(/-?\d+\.?\d*/g) || []).map(Number);
     if (type === 'M' || type === 'L') {
       cur = { x: nums[0], y: nums[1] };
       samples.push(cur);
     } else if (type === 'C') {
-      const c1 = { x: nums[0], y: nums[1] }, c2 = { x: nums[2], y: nums[3] }, p = { x: nums[4], y: nums[5] };
+      const c1 = { x: nums[0], y: nums[1] },
+        c2 = { x: nums[2], y: nums[3] },
+        p = { x: nums[4], y: nums[5] };
       for (let t = 0.05; t <= 1.0001; t += 0.05) {
         const mt = 1 - t;
         samples.push({
-          x: mt * mt * mt * cur.x + 3 * mt * mt * t * c1.x + 3 * mt * t * t * c2.x + t * t * t * p.x,
-          y: mt * mt * mt * cur.y + 3 * mt * mt * t * c1.y + 3 * mt * t * t * c2.y + t * t * t * p.y
+          x:
+            mt * mt * mt * cur.x +
+            3 * mt * mt * t * c1.x +
+            3 * mt * t * t * c2.x +
+            t * t * t * p.x,
+          y:
+            mt * mt * mt * cur.y +
+            3 * mt * mt * t * c1.y +
+            3 * mt * t * t * c2.y +
+            t * t * t * p.y,
         });
       }
       cur = p;
@@ -91,29 +124,46 @@ function samplesFromPathD(d) {
 
 // ── Test 1: corner-pinned peak — the original bug report ──────────────────────
 {
-  const rows = 5, cols = 5;
+  const rows = 5,
+    cols = 5;
   const grid = [
     [0.1, 0.1, 0.2, 3.0, 3.0],
     [0.1, 0.1, 0.2, 3.0, 3.0],
     [0.1, 0.1, 0.2, 0.3, 0.3],
     [0.1, 0.1, 0.1, 0.2, 0.2],
-    [0.1, 0.1, 0.1, 0.1, 0.1]
+    [0.1, 0.1, 0.1, 0.1, 0.1],
   ];
   const bounds = { minLat: 49.9, maxLat: 50.0, minLon: 0.0, maxLon: 0.1 };
   const level = 1.5;
 
   const openPaths = openPathsFor(grid, rows, cols, bounds, level);
-  assert.strictEqual(openPaths.length, 1, 'Corner-pinned peak produces exactly one open isoline');
+  assert.strictEqual(
+    openPaths.length,
+    1,
+    'Corner-pinned peak produces exactly one open isoline',
+  );
 
-  const rings = ContourRingGeometry.closeOpenPaths(openPaths, ContourRingGeometry.buildBoundaryLoops(grid, rows, cols, bounds), level);
+  const rings = ContourRingGeometry.closeOpenPaths(
+    openPaths,
+    ContourRingGeometry.buildBoundaryLoops(grid, rows, cols, bounds),
+    level,
+  );
   assert.strictEqual(rings.length, 1, 'Exactly one closed ring is produced');
   assert(rings[0].length >= 3, 'Closed ring has a real polygon shape');
 
   const project = (ll) => ({ x: ll.lon * 20000, y: (50 - ll.lat) * 20000 });
   const d = renderRing(rings[0], project);
-  assert(d.includes(' C'), 'Closed edge-pinned isoband is rendered with smooth Bézier curves, not straight/blocky segments');
-  assert(d.trim().endsWith('Z'), 'Closed edge-pinned isoband path is a closed loop');
-  console.log('✓ Corner-pinned peak closes into one smooth, closed isoband (no blocky tiling)');
+  assert(
+    d.includes(' C'),
+    'Closed edge-pinned isoband is rendered with smooth Bézier curves, not straight/blocky segments',
+  );
+  assert(
+    d.trim().endsWith('Z'),
+    'Closed edge-pinned isoband path is a closed loop',
+  );
+  console.log(
+    '✓ Corner-pinned peak closes into one smooth, closed isoband (no blocky tiling)',
+  );
 }
 
 // ── Test 2: adversarial case — the correct closing side is the LONG way around ─
@@ -128,19 +178,31 @@ function samplesFromPathD(d) {
 // large "inside" area, which this test checks directly via the true rendered
 // area rather than inspecting internal traversal details.
 {
-  const rows = 9, cols = 9;
+  const rows = 9,
+    cols = 9;
   const grid = Array.from({ length: rows }, () => new Array(cols).fill(3.0));
-  grid[3][0] = 0.1; grid[4][0] = 0.1; grid[5][0] = 0.1; // small low notch on the left edge
+  grid[3][0] = 0.1;
+  grid[4][0] = 0.1;
+  grid[5][0] = 0.1; // small low notch on the left edge
   const bounds = { minLat: 49.9, maxLat: 50.0, minLon: 0.0, maxLon: 0.1 };
   const level = 1.5;
 
   const openPaths = openPathsFor(grid, rows, cols, bounds, level);
-  assert.strictEqual(openPaths.length, 1, 'Notch produces exactly one open isoline');
+  assert.strictEqual(
+    openPaths.length,
+    1,
+    'Notch produces exactly one open isoline',
+  );
 
-  const rings = ContourRingGeometry.closeOpenPaths(openPaths, ContourRingGeometry.buildBoundaryLoops(grid, rows, cols, bounds), level);
+  const rings = ContourRingGeometry.closeOpenPaths(
+    openPaths,
+    ContourRingGeometry.buildBoundaryLoops(grid, rows, cols, bounds),
+    level,
+  );
   assert.strictEqual(rings.length, 1, 'Exactly one closed ring is produced');
 
-  const latSpan = bounds.maxLat - bounds.minLat, lonSpan = bounds.maxLon - bounds.minLon;
+  const latSpan = bounds.maxLat - bounds.minLat,
+    lonSpan = bounds.maxLon - bounds.minLon;
   const gridArea = latSpan * lonSpan;
   const ringArea = shoelaceArea(rings[0]);
 
@@ -152,9 +214,11 @@ function samplesFromPathD(d) {
   assert(
     ringArea > 0.8 * gridArea,
     `Closed ring encloses (comfortably more than) the grid's own area — i.e. took the LONG (correct) ` +
-    `way around instead of just bridging the notch's two ends directly (ring area=${ringArea.toExponential(3)}, grid area=${gridArea.toExponential(3)})`
+      `way around instead of just bridging the notch's two ends directly (ring area=${ringArea.toExponential(3)}, grid area=${gridArea.toExponential(3)})`,
   );
-  console.log(`✓ Adversarial case correctly encloses the large "inside" region via the LONG boundary walk (ring area ${(ringArea / gridArea).toFixed(2)}x grid area), not the small wrong sliver`);
+  console.log(
+    `✓ Adversarial case correctly encloses the large "inside" region via the LONG boundary walk (ring area ${(ringArea / gridArea).toFixed(2)}x grid area), not the small wrong sliver`,
+  );
 }
 
 // ── Test 3: edge isolines extrapolate past the boundary (no square-off), stay
@@ -173,41 +237,52 @@ function samplesFromPathD(d) {
   const cases = [
     {
       name: 'corner-pinned',
-      rows: 5, cols: 5,
+      rows: 5,
+      cols: 5,
       grid: [
         [0.1, 0.1, 0.2, 3.0, 3.0],
         [0.1, 0.1, 0.2, 3.0, 3.0],
         [0.1, 0.1, 0.2, 0.3, 0.3],
         [0.1, 0.1, 0.1, 0.2, 0.2],
-        [0.1, 0.1, 0.1, 0.1, 0.1]
+        [0.1, 0.1, 0.1, 0.1, 0.1],
       ],
       bounds: { minLat: 49.9, maxLat: 50.0, minLon: 0.0, maxLon: 0.1 },
-      level: 1.5
+      level: 1.5,
     },
     {
       name: 'long-arc-notch',
-      rows: 9, cols: 9,
+      rows: 9,
+      cols: 9,
       grid: (() => {
         const g = Array.from({ length: 9 }, () => new Array(9).fill(3.0));
-        g[3][0] = 0.1; g[4][0] = 0.1; g[5][0] = 0.1;
+        g[3][0] = 0.1;
+        g[4][0] = 0.1;
+        g[5][0] = 0.1;
         return g;
       })(),
       bounds: { minLat: 49.9, maxLat: 50.0, minLon: 0.0, maxLon: 0.1 },
-      level: 1.5
+      level: 1.5,
     },
     {
       name: 'two-humps-same-edge', // two separate open paths that must NOT be
       // confused with each other when the closure is built
-      rows: 9, cols: 9,
+      rows: 9,
+      cols: 9,
       grid: (() => {
         const g = Array.from({ length: 9 }, () => new Array(9).fill(0.1));
-        for (let c = 1; c <= 2; c++) { g[8][c] = 3.0; g[7][c] = 3.0; }
-        for (let c = 6; c <= 7; c++) { g[8][c] = 3.0; g[7][c] = 3.0; }
+        for (let c = 1; c <= 2; c++) {
+          g[8][c] = 3.0;
+          g[7][c] = 3.0;
+        }
+        for (let c = 6; c <= 7; c++) {
+          g[8][c] = 3.0;
+          g[7][c] = 3.0;
+        }
         return g;
       })(),
       bounds: { minLat: 49.9, maxLat: 50.0, minLon: 0.0, maxLon: 0.1 },
-      level: 1.5
-    }
+      level: 1.5,
+    },
   ];
 
   const SCALE = 200000;
@@ -215,7 +290,11 @@ function samplesFromPathD(d) {
 
   cases.forEach(({ name, rows, cols, grid, bounds, level }) => {
     const openPaths = openPathsFor(grid, rows, cols, bounds, level);
-    const rings = ContourRingGeometry.closeOpenPaths(openPaths, ContourRingGeometry.buildBoundaryLoops(grid, rows, cols, bounds), level);
+    const rings = ContourRingGeometry.closeOpenPaths(
+      openPaths,
+      ContourRingGeometry.buildBoundaryLoops(grid, rows, cols, bounds),
+      level,
+    );
     assert(rings.length > 0, `${name}: at least one ring produced`);
 
     rings.forEach((ring, i) => {
@@ -224,17 +303,32 @@ function samplesFromPathD(d) {
       // The visible curve must actually extend past the boundary now — that's
       // the point of this feature — and must do so smoothly (Bézier), not with
       // a straight-line square-off right at the edge.
-      assert(d.includes(' C'), `${name} ring ${i}: still uses smooth Bézier curves`);
+      assert(
+        d.includes(' C'),
+        `${name} ring ${i}: still uses smooth Bézier curves`,
+      );
       assert(d.trim().endsWith('Z'), `${name} ring ${i}: is a closed loop`);
 
-      const samples = samplesFromPathD(d).map(p => ({ lon: p.x / SCALE, lat: p.y / SCALE }));
-      const latSpan = bounds.maxLat - bounds.minLat, lonSpan = bounds.maxLon - bounds.minLon;
+      const samples = samplesFromPathD(d).map((p) => ({
+        lon: p.x / SCALE,
+        lat: p.y / SCALE,
+      }));
+      const latSpan = bounds.maxLat - bounds.minLat,
+        lonSpan = bounds.maxLon - bounds.minLon;
       const minSpan = Math.min(latSpan, lonSpan);
 
       let maxOutsideDepth = 0;
-      samples.forEach(p => {
-        const outLon = Math.max(bounds.minLon - p.lon, p.lon - bounds.maxLon, 0);
-        const outLat = Math.max(bounds.minLat - p.lat, p.lat - bounds.maxLat, 0);
+      samples.forEach((p) => {
+        const outLon = Math.max(
+          bounds.minLon - p.lon,
+          p.lon - bounds.maxLon,
+          0,
+        );
+        const outLat = Math.max(
+          bounds.minLat - p.lat,
+          p.lat - bounds.maxLat,
+          0,
+        );
         maxOutsideDepth = Math.max(maxOutsideDepth, Math.hypot(outLon, outLat));
       });
 
@@ -244,100 +338,155 @@ function samplesFromPathD(d) {
       // fit exactly this, not some arbitrarily large distance).
       assert(
         maxOutsideDepth > 0.05 * minSpan,
-        `${name} ring ${i}: extrapolated/nudged curve clears the boundary by a healthy margin, not just barely (depth=${maxOutsideDepth.toFixed(5)}, span=${minSpan})`
+        `${name} ring ${i}: extrapolated/nudged curve clears the boundary by a healthy margin, not just barely (depth=${maxOutsideDepth.toFixed(5)}, span=${minSpan})`,
       );
     });
   });
-  console.log('✓ Isoband curves extrapolate smoothly past the edge as closed Bézier loops, with a healthy visible margin');
+  console.log(
+    '✓ Isoband curves extrapolate smoothly past the edge as closed Bézier loops, with a healthy visible margin',
+  );
 }
 
 // ── Test 4: performance sanity — closure stays fast at worst-case grid/contour
 // settings ──────────────────────────────────────────────────────────────────
 {
-  const rows = 80, cols = 80;
+  const rows = 80,
+    cols = 80;
   const grid = Array.from({ length: rows }, (_, r) =>
     Array.from({ length: cols }, (_, c) => {
-      const dr = r - 78, dc = c - 78;
+      const dr = r - 78,
+        dc = c - 78;
       return 3.0 * Math.exp(-(dr * dr + dc * dc) / 300);
-    })
+    }),
   );
   const bounds = { minLat: 49.9, maxLat: 50.0, minLon: 0.0, maxLon: 0.1 };
-  const sortedVals = grid.flat().slice().sort((a, b) => a - b);
+  const sortedVals = grid
+    .flat()
+    .slice()
+    .sort((a, b) => a - b);
   const contourCount = 25;
 
   const t0 = Date.now();
   let totalRings = 0;
   for (let k = 1; k <= contourCount; k++) {
     const pct = k / (contourCount + 1);
-    const idx = Math.min(sortedVals.length - 1, Math.round(pct * (sortedVals.length - 1)));
+    const idx = Math.min(
+      sortedVals.length - 1,
+      Math.round(pct * (sortedVals.length - 1)),
+    );
     const level = sortedVals[idx];
     const openPaths = openPathsFor(grid, rows, cols, bounds, level);
-    totalRings += ContourRingGeometry.closeOpenPaths(openPaths, ContourRingGeometry.buildBoundaryLoops(grid, rows, cols, bounds), level).length;
+    totalRings += ContourRingGeometry.closeOpenPaths(
+      openPaths,
+      ContourRingGeometry.buildBoundaryLoops(grid, rows, cols, bounds),
+      level,
+    ).length;
   }
   const elapsedMs = Date.now() - t0;
-  assert(elapsedMs < 2000, `Closure across 25 contour levels on an 80x80 grid completes quickly (${elapsedMs}ms)`);
-  console.log(`✓ Worst-case closure (80x80 grid, 25 levels, ${totalRings} rings) completed in ${elapsedMs}ms`);
+  assert(
+    elapsedMs < 2000,
+    `Closure across 25 contour levels on an 80x80 grid completes quickly (${elapsedMs}ms)`,
+  );
+  console.log(
+    `✓ Worst-case closure (80x80 grid, 25 levels, ${totalRings} rings) completed in ${elapsedMs}ms`,
+  );
 }
 
 // ── Test 5: _expandCanvasForIsobands actually grows the canvas to fit ────────
 // Nothing should be hidden any more: the canvas must grow (and the projection
 // shift) so the full extrapolated/nudged isoband geometry lands inside it.
 {
-  const rows = 20, cols = 20;
+  const rows = 20,
+    cols = 20;
   const grid = Array.from({ length: rows }, (_, r) =>
     Array.from({ length: cols }, (_, c) => {
-      const dr = r - 19, dc = c - 19;
+      const dr = r - 19,
+        dc = c - 19;
       return 3.0 * Math.exp(-(dr * dr + dc * dc) / 60);
-    })
+    }),
   );
   const bounds = { minLat: 49.9, maxLat: 50.0, minLon: 0.0, maxLon: 0.1 };
-  const sortedVals = grid.flat().slice().sort((a, b) => a - b);
+  const sortedVals = grid
+    .flat()
+    .slice()
+    .sort((a, b) => a - b);
   const contourCount = 5;
   const contours = [];
   for (let k = 1; k <= contourCount; k++) {
     const pct = k / (contourCount + 1);
-    const idx = Math.min(sortedVals.length - 1, Math.round(pct * (sortedVals.length - 1)));
+    const idx = Math.min(
+      sortedVals.length - 1,
+      Math.round(pct * (sortedVals.length - 1)),
+    );
     const level = sortedVals[idx];
-    const segments = MarchingSquares.getContourLines(grid, rows, cols, bounds, level);
+    const segments = MarchingSquares.getContourLines(
+      grid,
+      rows,
+      cols,
+      bounds,
+      level,
+    );
     if (segments.length) contours.push({ level, ratio: pct, segments });
   }
 
   const project = (ll) => {
     const lat = ll.lat !== undefined ? ll.lat : ll[0];
-    const lon = ll.lon !== undefined ? ll.lon : (ll.lng !== undefined ? ll.lng : ll[1]);
+    const lon =
+      ll.lon !== undefined ? ll.lon : ll.lng !== undefined ? ll.lng : ll[1];
     return { x: lon * 20000, y: (50 - lat) * 20000 };
   };
   const ctx = {
     map: { latLngToContainerPoint: project },
     el: { querySelectorAll: () => [], querySelector: () => null },
-    r: { left: 0, top: 0 }, w: 2000, h: 2000, project,
-    mgr: { surfaceData: { grid, minVal: 0, maxVal: 3, bounds, sortedVals, contours } }
+    r: { left: 0, top: 0 },
+    w: 2000,
+    h: 2000,
+    project,
+    mgr: {
+      surfaceData: { grid, minVal: 0, maxVal: 3, bounds, sortedVals, contours },
+    },
   };
 
   const expanded = GSRMapExporter._expandCanvasForIsobands(ctx);
-  assert(expanded.w >= ctx.w && expanded.h >= ctx.h, 'Expanded canvas is at least as large as the original');
-  assert(expanded.w > ctx.w || expanded.h > ctx.h, 'Canvas actually grows for a corner-pinned peak whose contours extrapolate past the frame');
+  assert(
+    expanded.w >= ctx.w && expanded.h >= ctx.h,
+    'Expanded canvas is at least as large as the original',
+  );
+  assert(
+    expanded.w > ctx.w || expanded.h > ctx.h,
+    'Canvas actually grows for a corner-pinned peak whose contours extrapolate past the frame',
+  );
 
   // Re-render the isoband layer against the EXPANDED projection and confirm the
   // real, full geometry now lands entirely inside the new canvas — nothing
   // clipped, nothing left hanging outside.
   const surf = GSRMapExporter._surface(expanded);
   assert(surf.isobands.length > 0, 'Sanity: isobands are actually produced');
-  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-  surf.isobands.forEach(p => {
+  let minX = Infinity,
+    minY = Infinity,
+    maxX = -Infinity,
+    maxY = -Infinity;
+  surf.isobands.forEach((p) => {
     const m = p.match(/d="([^"]*)"/);
     if (!m) return;
     const bbox = GSRMapExporter._pathBBox(m[1]);
     if (!bbox) return;
-    minX = Math.min(minX, bbox.minX); minY = Math.min(minY, bbox.minY);
-    maxX = Math.max(maxX, bbox.maxX); maxY = Math.max(maxY, bbox.maxY);
+    minX = Math.min(minX, bbox.minX);
+    minY = Math.min(minY, bbox.minY);
+    maxX = Math.max(maxX, bbox.maxX);
+    maxY = Math.max(maxY, bbox.maxY);
   });
   const EPS = 0.5;
   assert(
-    minX >= -EPS && minY >= -EPS && maxX <= expanded.w + EPS && maxY <= expanded.h + EPS,
-    `All isoband geometry fits within the expanded canvas (bbox=[${minX.toFixed(1)},${minY.toFixed(1)},${maxX.toFixed(1)},${maxY.toFixed(1)}], canvas=${expanded.w}x${expanded.h})`
+    minX >= -EPS &&
+      minY >= -EPS &&
+      maxX <= expanded.w + EPS &&
+      maxY <= expanded.h + EPS,
+    `All isoband geometry fits within the expanded canvas (bbox=[${minX.toFixed(1)},${minY.toFixed(1)},${maxX.toFixed(1)},${maxY.toFixed(1)}], canvas=${expanded.w}x${expanded.h})`,
   );
-  console.log(`✓ _expandCanvasForIsobands grows the canvas (${ctx.w}x${ctx.h} → ${expanded.w}x${expanded.h}) to fit the full isoband geometry with nothing clipped`);
+  console.log(
+    `✓ _expandCanvasForIsobands grows the canvas (${ctx.w}x${ctx.h} → ${expanded.w}x${expanded.h}) to fit the full isoband geometry with nothing clipped`,
+  );
 }
 
 // ── Test 6: _expandCanvasForIsobands shifts ctx.r by the same margin it
@@ -350,7 +499,8 @@ function samplesFromPathD(d) {
 // marginLeft/marginTop shift here silently misaligned the whole tile layer
 // against the (correctly shifted) vector layers built on top of it.
 {
-  const rows = 20, cols = 20;
+  const rows = 20,
+    cols = 20;
   const grid = Array.from({ length: rows }, (_, r) =>
     Array.from({ length: cols }, (_, c) => {
       // Peak pinned near the bottom-right corner (high row/col), same shape
@@ -358,23 +508,37 @@ function samplesFromPathD(d) {
       // bottom edges, and (since the curve must sweep to clear the corner)
       // typically past the left/top too, giving all four margins a real,
       // independently-checkable, non-zero value on one fixture.
-      const dr = r - 19, dc = c - 19;
+      const dr = r - 19,
+        dc = c - 19;
       return 3.0 * Math.exp(-(dr * dr + dc * dc) / 60);
-    })
+    }),
   );
   const bounds = { minLat: 49.9, maxLat: 50.0, minLon: 0.0, maxLon: 0.1 };
-  const sortedVals = grid.flat().slice().sort((a, b) => a - b);
+  const sortedVals = grid
+    .flat()
+    .slice()
+    .sort((a, b) => a - b);
   const contours = [];
   for (let k = 1; k <= 5; k++) {
     const pct = k / 6;
-    const idx = Math.min(sortedVals.length - 1, Math.round(pct * (sortedVals.length - 1)));
+    const idx = Math.min(
+      sortedVals.length - 1,
+      Math.round(pct * (sortedVals.length - 1)),
+    );
     const level = sortedVals[idx];
-    const segments = MarchingSquares.getContourLines(grid, rows, cols, bounds, level);
+    const segments = MarchingSquares.getContourLines(
+      grid,
+      rows,
+      cols,
+      bounds,
+      level,
+    );
     if (segments.length) contours.push({ level, ratio: pct, segments });
   }
   const project = (ll) => {
     const lat = ll.lat !== undefined ? ll.lat : ll[0];
-    const lon = ll.lon !== undefined ? ll.lon : (ll.lng !== undefined ? ll.lng : ll[1]);
+    const lon =
+      ll.lon !== undefined ? ll.lon : ll.lng !== undefined ? ll.lng : ll[1];
     return { x: lon * 20000, y: (50 - lat) * 20000 };
   };
   // A non-zero starting r (mirrors a real map container that isn't flush
@@ -383,14 +547,31 @@ function samplesFromPathD(d) {
   const ctx = {
     map: { latLngToContainerPoint: project },
     el: { querySelectorAll: () => [], querySelector: () => null },
-    r: { left: 317, top: 144 }, w: 2000, h: 2000, project,
-    mgr: { surfaceData: { grid, minVal: 0, maxVal: 3, bounds, sortedVals, contours } }
+    r: { left: 317, top: 144 },
+    w: 2000,
+    h: 2000,
+    project,
+    mgr: {
+      surfaceData: { grid, minVal: 0, maxVal: 3, bounds, sortedVals, contours },
+    },
   };
   const expanded = GSRMapExporter._expandCanvasForIsobands(ctx);
-  const marginLeft = ctx.w === expanded.w && ctx.r.left === expanded.r.left ? 0 : (ctx.r.left - expanded.r.left);
-  const marginTop = ctx.h === expanded.h && ctx.r.top === expanded.r.top ? 0 : (ctx.r.top - expanded.r.top);
-  assert(expanded !== ctx, 'Sanity: this fixture actually triggers canvas expansion (same shape as Test 5)');
-  assert(marginLeft > 0 && marginTop > 0, `Sanity: fixture produces non-zero left/top margins to actually exercise the r-shift (marginLeft=${marginLeft}, marginTop=${marginTop})`);
+  const marginLeft =
+    ctx.w === expanded.w && ctx.r.left === expanded.r.left
+      ? 0
+      : ctx.r.left - expanded.r.left;
+  const marginTop =
+    ctx.h === expanded.h && ctx.r.top === expanded.r.top
+      ? 0
+      : ctx.r.top - expanded.r.top;
+  assert(
+    expanded !== ctx,
+    'Sanity: this fixture actually triggers canvas expansion (same shape as Test 5)',
+  );
+  assert(
+    marginLeft > 0 && marginTop > 0,
+    `Sanity: fixture produces non-zero left/top margins to actually exercise the r-shift (marginLeft=${marginLeft}, marginTop=${marginTop})`,
+  );
 
   // The shift applied to ctx.r must exactly match the shift baked into the
   // new project() function — i.e. a point that projected to the same pixel
@@ -407,9 +588,19 @@ function samplesFromPathD(d) {
   const bTop = ctx.r.top + tileOldRelY;
   const tileNewRelX = bLeft - expanded.r.left;
   const tileNewRelY = bTop - expanded.r.top;
-  assert.strictEqual(tileNewRelX, newProjected.x, 'Tile position (re-derived via the shifted r) lands exactly where the same real-world point now projects to after expansion');
-  assert.strictEqual(tileNewRelY, newProjected.y, 'Tile position (re-derived via the shifted r) lands exactly where the same real-world point now projects to after expansion (Y)');
-  console.log(`✓ _expandCanvasForIsobands shifts ctx.r (left -${marginLeft}, top -${marginTop}) to keep tile placement aligned with the expanded vector coordinate space`);
+  assert.strictEqual(
+    tileNewRelX,
+    newProjected.x,
+    'Tile position (re-derived via the shifted r) lands exactly where the same real-world point now projects to after expansion',
+  );
+  assert.strictEqual(
+    tileNewRelY,
+    newProjected.y,
+    'Tile position (re-derived via the shifted r) lands exactly where the same real-world point now projects to after expansion (Y)',
+  );
+  console.log(
+    `✓ _expandCanvasForIsobands shifts ctx.r (left -${marginLeft}, top -${marginTop}) to keep tile placement aligned with the expanded vector coordinate space`,
+  );
 }
 
 // ── Test 7: _ensureTileCoverage temporarily inflates what map.getSize()
@@ -431,16 +622,21 @@ function samplesFromPathD(d) {
 (async () => {
   function fakePoint(x, y) {
     return {
-      x, y,
-      add(other) { return fakePoint(this.x + (other.x || 0), this.y + (other.y || 0)); }
+      x,
+      y,
+      add(other) {
+        return fakePoint(this.x + (other.x || 0), this.y + (other.y || 0));
+      },
     };
   }
 
   function fakeMap(size) {
     return {
       _size: size,
-      getSize() { return this._size; },
-      getCenter: () => ({ lat: 1, lon: 2 })
+      getSize() {
+        return this._size;
+      },
+      getCenter: () => ({ lat: 1, lon: 2 }),
     };
   }
 
@@ -460,10 +656,18 @@ function samplesFromPathD(d) {
         // the moment _update() actually ran.
         this._sizeSeenDuringUpdate = mapRef.getSize();
       },
-      _noTilesToLoad() { return this._loaded; },
-      on(evt, fn) { handlers[evt] = fn; },
-      off(evt, fn) { if (handlers[evt] === fn) delete handlers[evt]; },
-      _fireLoad() { if (handlers.load) handlers.load(); }
+      _noTilesToLoad() {
+        return this._loaded;
+      },
+      on(evt, fn) {
+        handlers[evt] = fn;
+      },
+      off(evt, fn) {
+        if (handlers[evt] === fn) delete handlers[evt];
+      },
+      _fireLoad() {
+        if (handlers.load) handlers.load();
+      },
     };
   }
 
@@ -479,23 +683,49 @@ function samplesFromPathD(d) {
     const ctx = { tileMargin: { left: 801, top: 73, right: 0, bottom: 0 } };
     const pending = GSRMapExporter._ensureTileCoverage(ctx, mgr);
 
-    assert.strictEqual(layer._updateCalls, 1, '_update() is called once to request the wider area');
-    assert.strictEqual(layer._sizeSeenDuringUpdate.x, 800 + 801 * 2, 'getSize() reports an inflated width (original + 2x the largest margin) while _update() runs');
-    assert.strictEqual(layer._sizeSeenDuringUpdate.y, 600 + 801 * 2, 'getSize() inflates height too, so the extra reach applies in every direction, not just the axis the margin happened to be on');
-    assert.strictEqual(map.getSize().x, 800, 'getSize() reports the real, original size again once _update() has returned');
+    assert.strictEqual(
+      layer._updateCalls,
+      1,
+      '_update() is called once to request the wider area',
+    );
+    assert.strictEqual(
+      layer._sizeSeenDuringUpdate.x,
+      800 + 801 * 2,
+      'getSize() reports an inflated width (original + 2x the largest margin) while _update() runs',
+    );
+    assert.strictEqual(
+      layer._sizeSeenDuringUpdate.y,
+      600 + 801 * 2,
+      'getSize() inflates height too, so the extra reach applies in every direction, not just the axis the margin happened to be on',
+    );
+    assert.strictEqual(
+      map.getSize().x,
+      800,
+      'getSize() reports the real, original size again once _update() has returned',
+    );
 
     layer._fireLoad();
     await pending;
-    console.log('✓ _ensureTileCoverage temporarily inflates map.getSize() during _update(), then restores it');
+    console.log(
+      '✓ _ensureTileCoverage temporarily inflates map.getSize() during _update(), then restores it',
+    );
   }
 
   // 7b: no tileMargin (canvas was never expanded) and a missing layer both
   // resolve harmlessly — this step must never hang or throw and break the
   // rest of the export.
   {
-    await GSRMapExporter._ensureTileCoverage({}, { baseTileLayer: null, map: {} });
-    await GSRMapExporter._ensureTileCoverage({ tileMargin: { left: 500, top: 0, right: 0, bottom: 0 } }, { baseTileLayer: null, map: {} });
-    console.log('✓ _ensureTileCoverage resolves harmlessly with no tileMargin or no tile layer');
+    await GSRMapExporter._ensureTileCoverage(
+      {},
+      { baseTileLayer: null, map: {} },
+    );
+    await GSRMapExporter._ensureTileCoverage(
+      { tileMargin: { left: 500, top: 0, right: 0, bottom: 0 } },
+      { baseTileLayer: null, map: {} },
+    );
+    console.log(
+      '✓ _ensureTileCoverage resolves harmlessly with no tileMargin or no tile layer',
+    );
   }
 
   console.log('\n============================================================');

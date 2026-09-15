@@ -15,7 +15,6 @@ import { GSREvents } from './events.mjs';
 import { GSRUI } from './ui.mjs';
 
 export const __methods = {
-
   /**
    * Show/hide the SCR-deconvolution truncation warning (index.html,
    * #deconvTruncationWarning). phasicDeconvTruncated is set by
@@ -31,12 +30,18 @@ export const __methods = {
     // Collective mode runs the same detector on every active track, so any one
     // of them hitting its iteration cap is worth surfacing — not just the one
     // AppState.analyzer currently points at.
-    const analyzers = (AppState.viewMode === 'single')
-      ? (AppState.analyzer ? [AppState.analyzer] : [])
-      : (AppState.collectiveManager
-          ? AppState.collectiveManager.getActiveTracks().map(t => t.analyzer).filter(Boolean)
-          : []);
-    const truncated = analyzers.some(a => a.phasicDeconvTruncated);
+    const analyzers =
+      AppState.viewMode === 'single'
+        ? AppState.analyzer
+          ? [AppState.analyzer]
+          : []
+        : AppState.collectiveManager
+          ? AppState.collectiveManager
+              .getActiveTracks()
+              .map((t) => t.analyzer)
+              .filter(Boolean)
+          : [];
+    const truncated = analyzers.some((a) => a.phasicDeconvTruncated);
     el.style.display = truncated ? '' : 'none';
   },
 
@@ -47,10 +52,13 @@ export const __methods = {
    * it's the phasic-response integral and stays plain "Phasic AUC".
    */
   syncPhasicAUCLabels() {
-    const txt = 'Phasic AUC' +
-      ((AppState.analyzer && AppState.analyzer.phasicAUCIsISCR) ? ' (ISCR)' : '');
+    const txt =
+      'Phasic AUC' +
+      (AppState.analyzer && AppState.analyzer.phasicAUCIsISCR ? ' (ISCR)' : '');
     for (const selId of ['graphView', 'mapColoringMetric']) {
-      const opt = document.querySelector('#' + selId + ' option[value="phasicAUC"]');
+      const opt = document.querySelector(
+        '#' + selId + ' option[value="phasicAUC"]',
+      );
       if (opt) opt.textContent = txt;
     }
   },
@@ -68,8 +76,11 @@ export const __methods = {
     if (!sel) return;
     const opt = sel.querySelector('option[value="phasicDriver"]');
     if (!opt) return;
-    const hasDriver = !!(AppState.analyzer && AppState.analyzer.phasicDriver &&
-      AppState.analyzer.phasicDriver.length > 0);
+    const hasDriver = !!(
+      AppState.analyzer &&
+      AppState.analyzer.phasicDriver &&
+      AppState.analyzer.phasicDriver.length > 0
+    );
     opt.disabled = !hasDriver;
     if (!hasDriver && sel.value === 'phasicDriver') {
       sel.value = 'signal';
@@ -85,23 +96,32 @@ export const __methods = {
    * away from SparsEDA, fall back cleanly to 'signal' (graph) or 'gsr' (map).
    */
   syncResponseDynamicsOptions() {
-    const isSparsEDA = !!(AppState.analyzer && AppState.analyzer._driverAlgorithm === 'sparseda');
+    const isSparsEDA = !!(
+      AppState.analyzer && AppState.analyzer._driverAlgorithm === 'sparseda'
+    );
 
     // 1. Graph view dropdown
-    const graphSel = (AppState.sliders && AppState.sliders.graphView) || (typeof document !== 'undefined' && document.getElementById('graphView'));
+    const graphSel =
+      (AppState.sliders && AppState.sliders.graphView) ||
+      (typeof document !== 'undefined' && document.getElementById('graphView'));
     if (graphSel && typeof graphSel.querySelector === 'function') {
       const opt = graphSel.querySelector('option[value="responseDynamics"]');
       if (opt) opt.disabled = !isSparsEDA;
       if (!isSparsEDA && graphSel.value === 'responseDynamics') {
         graphSel.value = 'signal';
-        if (typeof GSREvents !== 'undefined' && typeof GSREvents.applyGraphView === 'function') {
+        if (
+          typeof GSREvents !== 'undefined' &&
+          typeof GSREvents.applyGraphView === 'function'
+        ) {
           GSREvents.applyGraphView();
         }
       }
     }
 
     // 2. Map metric dropdown
-    const mapSel = (typeof document !== 'undefined' && document.getElementById('mapColoringMetric'));
+    const mapSel =
+      typeof document !== 'undefined' &&
+      document.getElementById('mapColoringMetric');
     if (mapSel && typeof mapSel.querySelector === 'function') {
       const opt = mapSel.querySelector('option[value="responseDynamics"]');
       if (opt) opt.disabled = !isSparsEDA;
@@ -123,19 +143,20 @@ export const __methods = {
     const F = AppState.statFields;
 
     const hasClock = a.recordingStartTime && a.recordingStartTime >= 86400;
-    if (F.date)      F.date.innerText      = hasClock ? a.formatDateUK(0) : '--';
-    if (F.startTime) F.startTime.innerText  = hasClock ? a.formatTimeOnly(0) : '--';
+    if (F.date) F.date.innerText = hasClock ? a.formatDateUK(0) : '--';
+    if (F.startTime)
+      F.startTime.innerText = hasClock ? a.formatTimeOnly(0) : '--';
     const dur = stats.duration;
     const durMins = Math.floor(dur / 60);
     const durSecs = Math.floor(dur % 60);
     if (F.duration) {
-      F.duration.innerText  = durMins > 0
-        ? durMins + ' min ' + durSecs + ' sec'
-        : durSecs + ' sec';
+      F.duration.innerText =
+        durMins > 0 ? durMins + ' min ' + durSecs + ' sec' : durSecs + ' sec';
     }
-    if (F.meanSCL)   F.meanSCL.innerText   = stats.meanSCL.toFixed(3) + " \u03bcS";
+    if (F.meanSCL) F.meanSCL.innerText = stats.meanSCL.toFixed(3) + ' \u03bcS';
     if (F.peakCount) F.peakCount.innerText = stats.peakCount;
-    if (F.peakFreq)  F.peakFreq.innerText  = stats.peakFrequency.toFixed(2) + " / min";
+    if (F.peakFreq)
+      F.peakFreq.innerText = stats.peakFrequency.toFixed(2) + ' / min';
 
     GSRUI.updateSpatialDataIndicator();
   },
@@ -159,8 +180,12 @@ export const __methods = {
 
     let allEnriched;
     if (AppState.viewMode === 'collective') {
-      const tracks = AppState.collectiveManager ? AppState.collectiveManager.getActiveTracks() : [];
-      allEnriched = tracks.length > 0 && tracks.every(t => t.analyzer && t.analyzer.isEnriched);
+      const tracks = AppState.collectiveManager
+        ? AppState.collectiveManager.getActiveTracks()
+        : [];
+      allEnriched =
+        tracks.length > 0 &&
+        tracks.every((t) => t.analyzer && t.analyzer.isEnriched);
     } else {
       allEnriched = !!(AppState.analyzer && AppState.analyzer.isEnriched);
     }
@@ -170,9 +195,9 @@ export const __methods = {
 
     const tooltip = allEnriched
       ? 'Spatial data retrieved'
-      : (AppState.viewMode === 'collective'
-          ? 'Spatial data missing for one or more active tracks'
-          : 'Spatial data not retrieved');
+      : AppState.viewMode === 'collective'
+        ? 'Spatial data missing for one or more active tracks'
+        : 'Spatial data not retrieved';
 
     // Put the title on the whole card, not just the dot glyph — the dot
     // is only a few pixels wide, so hovering it precisely enough to see
@@ -199,16 +224,38 @@ export const __methods = {
     if (!mapPanel) return;
 
     let hasSpatial = false;
-    const isCollective = typeof AppState !== 'undefined' && AppState.viewMode === 'collective';
+    const isCollective =
+      typeof AppState !== 'undefined' && AppState.viewMode === 'collective';
     if (isCollective) {
-      const activeTracks = (AppState.collectiveManager && typeof AppState.collectiveManager.getActiveTracks === 'function')
-        ? AppState.collectiveManager.getActiveTracks()
-        : [];
-      hasSpatial = activeTracks.some(t => t.analyzer && (t.analyzer.hasSpatialData || (t.analyzer.raw && t.analyzer.raw.some(d => d.hasGps))));
+      const activeTracks =
+        AppState.collectiveManager &&
+        typeof AppState.collectiveManager.getActiveTracks === 'function'
+          ? AppState.collectiveManager.getActiveTracks()
+          : [];
+      hasSpatial = activeTracks.some(
+        (t) =>
+          t.analyzer &&
+          (t.analyzer.hasSpatialData ||
+            (t.analyzer.raw && t.analyzer.raw.some((d) => d.hasGps))),
+      );
     } else {
-      const targetTrack = track || (typeof AppState !== 'undefined' && AppState.collectiveManager && AppState.activeTrackId ? AppState.collectiveManager.getTrack(AppState.activeTrackId) : null);
-      const analyzer = targetTrack ? targetTrack.analyzer : (typeof AppState !== 'undefined' ? AppState.analyzer : null);
-      hasSpatial = !!(analyzer && (analyzer.hasSpatialData || (analyzer.raw && analyzer.raw.some(d => d.hasGps))));
+      const targetTrack =
+        track ||
+        (typeof AppState !== 'undefined' &&
+        AppState.collectiveManager &&
+        AppState.activeTrackId
+          ? AppState.collectiveManager.getTrack(AppState.activeTrackId)
+          : null);
+      const analyzer = targetTrack
+        ? targetTrack.analyzer
+        : typeof AppState !== 'undefined'
+          ? AppState.analyzer
+          : null;
+      hasSpatial = !!(
+        analyzer &&
+        (analyzer.hasSpatialData ||
+          (analyzer.raw && analyzer.raw.some((d) => d.hasGps)))
+      );
     }
 
     if (!hasSpatial) {
@@ -223,8 +270,16 @@ export const __methods = {
     } else if (mapPanel.dataset.autoCollapsedNoSpatial === 'true') {
       mapPanel.classList.remove('collapsed');
       delete mapPanel.dataset.autoCollapsedNoSpatial;
-      if (typeof AppState !== 'undefined' && AppState.mapManager && AppState.mapManager.map && typeof AppState.mapManager.map.invalidateSize === 'function') {
-        AppState.mapManager.map.invalidateSize({ pan: false, debounceMoveend: true });
+      if (
+        typeof AppState !== 'undefined' &&
+        AppState.mapManager &&
+        AppState.mapManager.map &&
+        typeof AppState.mapManager.map.invalidateSize === 'function'
+      ) {
+        AppState.mapManager.map.invalidateSize({
+          pan: false,
+          debounceMoveend: true,
+        });
       }
       if (typeof windowResized === 'function') {
         requestAnimationFrame(() => windowResized());
@@ -232,7 +287,6 @@ export const __methods = {
       }
     }
   },
-
 };
 
 Object.assign(GSRUI, __methods);

@@ -1,5 +1,3 @@
-'use strict';
-
 /**
  * Regression coverage for renderer.js's plain-require() export surface.
  *
@@ -16,7 +14,7 @@
  * name its (now former) augments needed.
  */
 const assert = require('assert');
-const test   = require('node:test');
+const test = require('node:test');
 
 test('renderer.js exports every module-level name its augment files read bare', () => {
   const mod = require('../src/render/renderer.mjs');

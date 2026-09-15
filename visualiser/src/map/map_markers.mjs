@@ -16,7 +16,6 @@
  * the same shape feedLiveAnalyzer() builds for the live view.
  */
 export const GSRMapMarkers = {
-
   /**
    * Raw-sample index a peak/hotspot marker should be planted at, applying the
    * optional GPS-latency shift (find the GPS fix at peak.time - peakLatency,
@@ -36,7 +35,9 @@ export const GSRMapMarkers = {
   /** { lat, lon } for a marker, with latency applied. Returns null when the
    *  analyser has no coordinates at that index (e.g. a GPS-less packet). */
   hotspotMarkerCoords(analyzer, peak, peakLatency) {
-    return analyzer.getCoordinates(GSRMapMarkers.resolveLatencyIndex(analyzer, peak, peakLatency));
+    return analyzer.getCoordinates(
+      GSRMapMarkers.resolveLatencyIndex(analyzer, peak, peakLatency),
+    );
   },
 
   /**
@@ -48,7 +49,8 @@ export const GSRMapMarkers = {
     return L.divIcon({
       className: '',
       html: '<div class="stress-peak-icon-wrapper" style="position:relative;width:24px;height:24px;"><div class="peak-dot" style="position:absolute;top:9px;left:9px;width:6px;height:6px;"></div></div>',
-      iconSize: [24, 24], iconAnchor: [12, 12]
+      iconSize: [24, 24],
+      iconAnchor: [12, 12],
     });
   },
 
@@ -60,12 +62,13 @@ export const GSRMapMarkers = {
   buildHotspotIcon(L) {
     return L.divIcon({
       className: '',
-      html: '<div class="stress-peak-icon-wrapper" style="position:relative;width:28px;height:28px;">' +
+      html:
+        '<div class="stress-peak-icon-wrapper" style="position:relative;width:28px;height:28px;">' +
         '<div class="hotspot-glow-ring" style="position:absolute;top:0;left:0;"></div>' +
         '<div class="hotspot-star" style="position:absolute;top:0;left:0;width:28px;height:28px;">★</div>' +
         '</div>',
-      iconSize: [28, 28], iconAnchor: [14, 14]
+      iconSize: [28, 28],
+      iconAnchor: [14, 14],
     });
-  }
-
+  },
 };

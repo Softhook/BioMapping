@@ -10,20 +10,38 @@ export const GSRFileSaver = {
    * @returns {{mimeType: string, description: string, ext: string}}
    */
   getFormatInfo(filename) {
-    const ext = filename.includes('.') ? filename.substring(filename.lastIndexOf('.')).toLowerCase() : '';
+    const ext = filename.includes('.')
+      ? filename.substring(filename.lastIndexOf('.')).toLowerCase()
+      : '';
     switch (ext) {
       case '.csv':
         return { mimeType: 'text/csv', description: 'CSV File (*.csv)', ext };
       case '.json':
-        return { mimeType: 'application/json', description: 'JSON File (*.json)', ext };
+        return {
+          mimeType: 'application/json',
+          description: 'JSON File (*.json)',
+          ext,
+        };
       case '.png':
         return { mimeType: 'image/png', description: 'PNG Image (*.png)', ext };
       case '.svg':
-        return { mimeType: 'image/svg+xml', description: 'SVG Vector Map (*.svg)', ext };
+        return {
+          mimeType: 'image/svg+xml',
+          description: 'SVG Vector Map (*.svg)',
+          ext,
+        };
       case '.zip':
-        return { mimeType: 'application/zip', description: 'Zip Archive (*.zip)', ext };
+        return {
+          mimeType: 'application/zip',
+          description: 'Zip Archive (*.zip)',
+          ext,
+        };
       default:
-        return { mimeType: 'application/octet-stream', description: 'File', ext };
+        return {
+          mimeType: 'application/octet-stream',
+          description: 'File',
+          ext,
+        };
     }
   },
 
@@ -59,7 +77,10 @@ export const GSRFileSaver = {
           blob = new Blob([text], { type: mime });
         }
       } else {
-        const mime = format.mimeType !== 'application/octet-stream' ? `${format.mimeType};charset=utf-8` : 'text/plain;charset=utf-8';
+        const mime =
+          format.mimeType !== 'application/octet-stream'
+            ? `${format.mimeType};charset=utf-8`
+            : 'text/plain;charset=utf-8';
         blob = new Blob([content], { type: mime });
       }
     } else {
@@ -67,18 +88,23 @@ export const GSRFileSaver = {
     }
 
     if (!types || types.length === 0) {
-      types = [{
-        description: format.description,
-        accept: { [format.mimeType]: [format.ext || '.*'] }
-      }];
+      types = [
+        {
+          description: format.description,
+          accept: { [format.mimeType]: [format.ext || '.*'] },
+        },
+      ];
     }
 
     // 1. Native OS Save As File Picker Dialog Box
-    if (typeof window !== 'undefined' && typeof window.showSaveFilePicker === 'function') {
+    if (
+      typeof window !== 'undefined' &&
+      typeof window.showSaveFilePicker === 'function'
+    ) {
       try {
         const handle = await window.showSaveFilePicker({
           suggestedName: suggestedName,
-          types: types
+          types: types,
         });
         const writable = await handle.createWritable();
         await writable.write(blob);
@@ -89,22 +115,25 @@ export const GSRFileSaver = {
           // User explicitly cancelled the save location dialog box
           return false;
         }
-        console.warn("showSaveFilePicker failed or restricted, using direct download fallback:", err);
+        console.warn(
+          'showSaveFilePicker failed or restricted, using direct download fallback:',
+          err,
+        );
       }
     }
 
     // 2. Direct download fallback
     if (typeof document !== 'undefined') {
       const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
+      const link = document.createElement('a');
       link.href = url;
       link.download = suggestedName;
-      link.style.visibility = "hidden";
+      link.style.visibility = 'hidden';
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
       setTimeout(() => URL.revokeObjectURL(url), 1000);
     }
     return true;
-  }
+  },
 };

@@ -19,8 +19,7 @@ import { AppState } from '../core/app_state.mjs';
 import { GSR_CONST } from '../core/constants.mjs';
 import { GSRRenderer, getQualityColor, getQualityLabel } from './renderer.mjs';
 
-  export const __methods = {
-
+export const __methods = {
   /**
    * @param {boolean} [singleGraph] - When true there is only one plot region
    *   spanning MARGIN.top..yUpperBottom (yLowerBottom is ignored); time labels
@@ -42,18 +41,31 @@ import { GSRRenderer, getQualityColor, getQualityLabel } from './renderer.mjs';
 
     const firstGridTime = Math.floor(tMin / step) * step;
 
-    const gridColor = this.getThemeColor('--canvas-grid', 'rgba(17, 17, 17, 0.06)');
+    const gridColor = this.getThemeColor(
+      '--canvas-grid',
+      'rgba(17, 17, 17, 0.06)',
+    );
     const textColor = this.getThemeColor('--canvas-text', '#444444');
-    const axisColor = this.getThemeColor('--canvas-axis', 'rgba(17, 17, 17, 0.15)');
+    const axisColor = this.getThemeColor(
+      '--canvas-axis',
+      'rgba(17, 17, 17, 0.15)',
+    );
 
     // ── Pass 1: all vertical grid lines (one stroke() call for the whole pass) ──
     stroke(gridColor);
     strokeWeight(1);
     for (let t = firstGridTime; t <= tMax; t += step) {
       if (t < tMin) continue;
-      const x = map(t, tMin, tMax, GSR_CONST.MARGIN.left, width - GSR_CONST.MARGIN.right);
+      const x = map(
+        t,
+        tMin,
+        tMax,
+        GSR_CONST.MARGIN.left,
+        width - GSR_CONST.MARGIN.right,
+      );
       line(x, GSR_CONST.MARGIN.top, x, yUpperBottom);
-      if (!singleGraph) line(x, yUpperBottom + GSR_CONST.MARGIN.gap, x, yLowerBottom);
+      if (!singleGraph)
+        line(x, yUpperBottom + GSR_CONST.MARGIN.gap, x, yLowerBottom);
     }
 
     // ── Pass 2: all time labels (noStroke set once, fill set once) ──────────
@@ -63,28 +75,61 @@ import { GSRRenderer, getQualityColor, getQualityLabel } from './renderer.mjs';
     textSize(10);
     for (let t = firstGridTime; t <= tMax; t += step) {
       if (t < tMin) continue;
-      const x = map(t, tMin, tMax, GSR_CONST.MARGIN.left, width - GSR_CONST.MARGIN.right);
+      const x = map(
+        t,
+        tMin,
+        tMax,
+        GSR_CONST.MARGIN.left,
+        width - GSR_CONST.MARGIN.right,
+      );
 
       let label = t.toFixed(t % 1 !== 0 ? 1 : 0) + 's';
       if (t >= 3600) {
         const h = Math.floor(t / 3600);
         const m = Math.floor((t % 3600) / 60);
         const s = Math.floor(t % 60);
-        label = h + ':' + (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s;
+        label =
+          h + ':' + (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s;
       } else if (t >= 60) {
         const m = Math.floor(t / 60);
         const s = Math.floor(t % 60);
         label = m + ':' + (s < 10 ? '0' : '') + s;
       }
-      text(label, x, singleGraph ? yUpperBottom + 10 : yUpperBottom + GSR_CONST.MARGIN.gap / 2);
+      text(
+        label,
+        x,
+        singleGraph
+          ? yUpperBottom + 10
+          : yUpperBottom + GSR_CONST.MARGIN.gap / 2,
+      );
     }
 
     stroke(axisColor);
-    line(GSR_CONST.MARGIN.left, GSR_CONST.MARGIN.top, GSR_CONST.MARGIN.left, yUpperBottom);
-    line(GSR_CONST.MARGIN.left, yUpperBottom, width - GSR_CONST.MARGIN.right, yUpperBottom);
+    line(
+      GSR_CONST.MARGIN.left,
+      GSR_CONST.MARGIN.top,
+      GSR_CONST.MARGIN.left,
+      yUpperBottom,
+    );
+    line(
+      GSR_CONST.MARGIN.left,
+      yUpperBottom,
+      width - GSR_CONST.MARGIN.right,
+      yUpperBottom,
+    );
     if (!singleGraph) {
-      line(GSR_CONST.MARGIN.left, yUpperBottom + GSR_CONST.MARGIN.gap, GSR_CONST.MARGIN.left, yLowerBottom);
-      line(GSR_CONST.MARGIN.left, yLowerBottom, width - GSR_CONST.MARGIN.right, yLowerBottom);
+      line(
+        GSR_CONST.MARGIN.left,
+        yUpperBottom + GSR_CONST.MARGIN.gap,
+        GSR_CONST.MARGIN.left,
+        yLowerBottom,
+      );
+      line(
+        GSR_CONST.MARGIN.left,
+        yLowerBottom,
+        width - GSR_CONST.MARGIN.right,
+        yLowerBottom,
+      );
     }
   },
 
@@ -98,17 +143,32 @@ import { GSRRenderer, getQualityColor, getQualityLabel } from './renderer.mjs';
    * @param {number} defaultStep - Step to use when span exceeds all thresholds
    * @param {number} decimals - Number of decimal places in value labels
    */
-  drawGridY(yMin, yMax, yBottom, yTop, stepRanges, defaultStep, decimals, unitSuffix) {
+  drawGridY(
+    yMin,
+    yMax,
+    yBottom,
+    yTop,
+    stepRanges,
+    defaultStep,
+    decimals,
+    unitSuffix,
+  ) {
     const unit = unitSuffix !== undefined ? unitSuffix : ' \u03bcS';
     const span = yMax - yMin;
     let step = defaultStep;
     for (const [threshold, s] of stepRanges) {
-      if (span < threshold) { step = s; break; }
+      if (span < threshold) {
+        step = s;
+        break;
+      }
     }
 
     const firstGridVal = Math.floor(yMin / step) * step;
 
-    const gridColor = this.getThemeColor('--canvas-grid', 'rgba(17, 17, 17, 0.06)');
+    const gridColor = this.getThemeColor(
+      '--canvas-grid',
+      'rgba(17, 17, 17, 0.06)',
+    );
     const textColor = this.getThemeColor('--canvas-text', '#444444');
 
     const labelHeight = 14;
@@ -133,7 +193,8 @@ import { GSRRenderer, getQualityColor, getQualityLabel } from './renderer.mjs';
     for (let val = firstGridVal; val <= yMax; val += step) {
       if (val < yMin) continue;
       const y = map(val, yMin, yMax, yBottom, yTop);
-      if (lastLabelY !== null && Math.abs(y - lastLabelY) < labelHeight) continue;
+      if (lastLabelY !== null && Math.abs(y - lastLabelY) < labelHeight)
+        continue;
       text(val.toFixed(decimals) + unit, GSR_CONST.MARGIN.left - 8, y);
       lastLabelY = y;
     }
@@ -142,7 +203,17 @@ import { GSRRenderer, getQualityColor, getQualityLabel } from './renderer.mjs';
   /**
    * Draw a labelled value row inside the tooltip: left-aligned label, right-aligned value.
    */
-  _drawTooltipRow(label, color, valueStr, boxX, boxW, pad, startY, spacing, row) {
+  _drawTooltipRow(
+    label,
+    color,
+    valueStr,
+    boxX,
+    boxW,
+    pad,
+    startY,
+    spacing,
+    row,
+  ) {
     const y = startY + row * spacing;
     textAlign(LEFT, TOP);
     fill(color);
@@ -158,13 +229,14 @@ import { GSRRenderer, getQualityColor, getQualityLabel } from './renderer.mjs';
 
     // Dynamically calculate box width from content so text never overlaps
     textSize(9.5);
-    const measureW = (s) => (typeof textWidth === 'function' ? textWidth(s) : ((s ? s.length : 0) * 6.5));
+    const measureW = (s) =>
+      typeof textWidth === 'function' ? textWidth(s) : (s ? s.length : 0) * 6.5;
     let maxContentW = 0;
     const allRows = [
       ['Raw:', rawVal.toFixed(4) + ' \u03bcS'],
       ['Filtered:', filtVal.toFixed(4) + ' \u03bcS'],
       ['Tonic (SCL):', tonicVal.toFixed(4) + ' \u03bcS'],
-      ['Phasic (SCR):', phasicVal.toFixed(4) + ' \u03bcS']
+      ['Phasic (SCR):', phasicVal.toFixed(4) + ' \u03bcS'],
     ];
     for (const r of rows) {
       if (r) allRows.push([r.label || '', r.valueStr || '']);
@@ -176,7 +248,8 @@ import { GSRRenderer, getQualityColor, getQualityLabel } from './renderer.mjs';
     const minW = hasPeakInfo ? 240 : 200;
     const boxW = Math.max(minW, Math.ceil(maxContentW + pad * 2));
     const hasSpeed = hasPeakInfo && !!nearPeak.speedLabel;
-    const boxH = (hasPeakInfo ? (hasSpeed ? 216 : 200) : 120) + rows.length * 18;
+    const boxH =
+      (hasPeakInfo ? (hasSpeed ? 216 : 200) : 120) + rows.length * 18;
 
     let boxX = mouseX + 15;
     if (boxX + boxW > width - GSR_CONST.MARGIN.right) {
@@ -184,10 +257,20 @@ import { GSRRenderer, getQualityColor, getQualityLabel } from './renderer.mjs';
     }
 
     let boxY = mouseY - 20;
-    boxY = constrain(boxY, GSR_CONST.MARGIN.top, Math.max(GSR_CONST.MARGIN.top, height - GSR_CONST.MARGIN.bottom - boxH));
+    boxY = constrain(
+      boxY,
+      GSR_CONST.MARGIN.top,
+      Math.max(GSR_CONST.MARGIN.top, height - GSR_CONST.MARGIN.bottom - boxH),
+    );
 
-    const overlayBg = this.getThemeColor('--canvas-overlay-bg', 'rgba(255, 255, 255, 0.95)');
-    const axisColor = this.getThemeColor('--canvas-axis', 'rgba(17, 17, 17, 0.15)');
+    const overlayBg = this.getThemeColor(
+      '--canvas-overlay-bg',
+      'rgba(255, 255, 255, 0.95)',
+    );
+    const axisColor = this.getThemeColor(
+      '--canvas-axis',
+      'rgba(17, 17, 17, 0.15)',
+    );
     const textColor = this.getThemeColor('--text-primary', '#111111');
     const textSec = this.getThemeColor('--text-secondary', '#444444');
     const colorFiltered = this.getThemeColor('--color-filtered', '#005bc4');
@@ -205,7 +288,11 @@ import { GSRRenderer, getQualityColor, getQualityLabel } from './renderer.mjs';
     fill(textColor);
     textSize(10);
     textStyle(BOLD);
-    text('TIME: ' + AppState.analyzer.formatClockTime(time), boxX + pad, boxY + pad);
+    text(
+      'TIME: ' + AppState.analyzer.formatClockTime(time),
+      boxX + pad,
+      boxY + pad,
+    );
     textStyle(NORMAL);
 
     textSize(9.5);
@@ -213,16 +300,66 @@ import { GSRRenderer, getQualityColor, getQualityLabel } from './renderer.mjs';
     const spacing = 18;
 
     let rowIdx = 0;
-    this._drawTooltipRow('Raw:', textSec, rawVal.toFixed(4) + ' \u03bcS', boxX, boxW, pad, startY, spacing, rowIdx++);
-    this._drawTooltipRow('Filtered:', colorFiltered, filtVal.toFixed(4) + ' \u03bcS', boxX, boxW, pad, startY, spacing, rowIdx++);
-    this._drawTooltipRow('Tonic (SCL):', colorTonic, tonicVal.toFixed(4) + ' \u03bcS', boxX, boxW, pad, startY, spacing, rowIdx++);
-    this._drawTooltipRow('Phasic (SCR):', colorPhasic, phasicVal.toFixed(4) + ' \u03bcS', boxX, boxW, pad, startY, spacing, rowIdx++);
+    this._drawTooltipRow(
+      'Raw:',
+      textSec,
+      rawVal.toFixed(4) + ' \u03bcS',
+      boxX,
+      boxW,
+      pad,
+      startY,
+      spacing,
+      rowIdx++,
+    );
+    this._drawTooltipRow(
+      'Filtered:',
+      colorFiltered,
+      filtVal.toFixed(4) + ' \u03bcS',
+      boxX,
+      boxW,
+      pad,
+      startY,
+      spacing,
+      rowIdx++,
+    );
+    this._drawTooltipRow(
+      'Tonic (SCL):',
+      colorTonic,
+      tonicVal.toFixed(4) + ' \u03bcS',
+      boxX,
+      boxW,
+      pad,
+      startY,
+      spacing,
+      rowIdx++,
+    );
+    this._drawTooltipRow(
+      'Phasic (SCR):',
+      colorPhasic,
+      phasicVal.toFixed(4) + ' \u03bcS',
+      boxX,
+      boxW,
+      pad,
+      startY,
+      spacing,
+      rowIdx++,
+    );
 
     // One row per active extra metric/overlay (lower-graph metric, OSM
     // context, NDVI, EM Fog, ...) — see the extraRows build-up at the call
     // site for what can land here.
     for (const row of rows) {
-      this._drawTooltipRow(row.label, row.color, row.valueStr, boxX, boxW, pad, startY, spacing, rowIdx++);
+      this._drawTooltipRow(
+        row.label,
+        row.color,
+        row.valueStr,
+        boxX,
+        boxW,
+        pad,
+        startY,
+        spacing,
+        rowIdx++,
+      );
     }
 
     // Peak shape quality info (when hovering near a detected peak)
@@ -255,7 +392,11 @@ import { GSRRenderer, getQualityColor, getQualityLabel } from './renderer.mjs';
       textAlign(LEFT, TOP);
       text('Skew:', boxX + pad, detailY);
       textAlign(RIGHT, TOP);
-      text((nearPeak.skewnessRatio || 0).toFixed(2), boxX + boxW * 0.5 - 4, detailY);
+      text(
+        (nearPeak.skewnessRatio || 0).toFixed(2),
+        boxX + boxW * 0.5 - 4,
+        detailY,
+      );
 
       textAlign(LEFT, TOP);
       text('SNR:', boxX + boxW * 0.5 + 4, detailY);
@@ -267,7 +408,11 @@ import { GSRRenderer, getQualityColor, getQualityLabel } from './renderer.mjs';
       textAlign(LEFT, TOP);
       text('Rise:', boxX + pad, slopeY);
       textAlign(RIGHT, TOP);
-      text((nearPeak.riseTime || 0).toFixed(2) + 's', boxX + boxW * 0.5 - 4, slopeY);
+      text(
+        (nearPeak.riseTime || 0).toFixed(2) + 's',
+        boxX + boxW * 0.5 - 4,
+        slopeY,
+      );
 
       textAlign(LEFT, TOP);
       text('Slope:', boxX + boxW * 0.5 + 4, slopeY);
@@ -279,16 +424,27 @@ import { GSRRenderer, getQualityColor, getQualityLabel } from './renderer.mjs';
         textAlign(LEFT, TOP);
         text('Speed:', boxX + pad, speedY);
         textAlign(RIGHT, TOP);
-        text(nearPeak.speedLabel + ' (' + (nearPeak.scaleFactor || 1) + 'x)', boxX + boxW - pad, speedY);
+        text(
+          nearPeak.speedLabel + ' (' + (nearPeak.scaleFactor || 1) + 'x)',
+          boxX + boxW - pad,
+          speedY,
+        );
       }
     }
   },
 
   drawTimelineOverview(innerWidth, timelineHeight) {
-    if (!AppState.analyzer._timelinePoints || AppState.analyzer._timelinePoints.length === 0) return;
+    if (
+      !AppState.analyzer._timelinePoints ||
+      AppState.analyzer._timelinePoints.length === 0
+    )
+      return;
 
     const sidebarBg = this.getThemeColor('--bg-sidebar', '#f5f4f0');
-    const axisColor = this.getThemeColor('--canvas-axis', 'rgba(17, 17, 17, 0.15)');
+    const axisColor = this.getThemeColor(
+      '--canvas-axis',
+      'rgba(17, 17, 17, 0.15)',
+    );
     const textSec = this.getThemeColor('--text-secondary', '#444444');
     const colorPeak = this.getThemeColor('--color-peak', '#d10024');
     const colorFiltered = this.getThemeColor('--color-filtered', '#005bc4');
@@ -296,7 +452,13 @@ import { GSRRenderer, getQualityColor, getQualityLabel } from './renderer.mjs';
     fill(sidebarBg);
     stroke(axisColor);
     strokeWeight(1);
-    rect(GSR_CONST.MARGIN.left, AppState.yTimelineTop, innerWidth, timelineHeight, 4);
+    rect(
+      GSR_CONST.MARGIN.left,
+      AppState.yTimelineTop,
+      innerWidth,
+      timelineHeight,
+      4,
+    );
 
     noFill();
     stroke(axisColor);
@@ -305,7 +467,11 @@ import { GSRRenderer, getQualityColor, getQualityLabel } from './renderer.mjs';
     let minRaw = Infinity;
     let maxRaw = -Infinity;
     const globalRaw = AppState.analyzer && AppState.analyzer._rawGlobalRange;
-    if (globalRaw && globalRaw.min !== undefined && globalRaw.max !== undefined) {
+    if (
+      globalRaw &&
+      globalRaw.min !== undefined &&
+      globalRaw.max !== undefined
+    ) {
       minRaw = globalRaw.min;
       maxRaw = globalRaw.max;
     } else if (AppState.analyzer && AppState.analyzer.rawMinMaxCached) {
@@ -322,10 +488,11 @@ import { GSRRenderer, getQualityColor, getQualityLabel } from './renderer.mjs';
 
     if (minRaw === maxRaw) maxRaw = minRaw + 0.5;
 
-    const xSpan = (width - GSR_CONST.MARGIN.right) - GSR_CONST.MARGIN.left;
-    const xScale = AppState.totalDuration > 0 ? (xSpan / AppState.totalDuration) : 0;
-    const ySpan = (AppState.yTimelineTop + 3) - (AppState.yTimelineBottom - 3);
-    const yScale = (maxRaw - minRaw) > 0 ? (ySpan / (maxRaw - minRaw)) : 0;
+    const xSpan = width - GSR_CONST.MARGIN.right - GSR_CONST.MARGIN.left;
+    const xScale =
+      AppState.totalDuration > 0 ? xSpan / AppState.totalDuration : 0;
+    const ySpan = AppState.yTimelineTop + 3 - (AppState.yTimelineBottom - 3);
+    const yScale = maxRaw - minRaw > 0 ? ySpan / (maxRaw - minRaw) : 0;
 
     // Use pre-cached timeline points (~300 samples)
     beginShape();
@@ -333,7 +500,7 @@ import { GSRRenderer, getQualityColor, getQualityLabel } from './renderer.mjs';
     for (let i = 0; i < tPoints.length; i++) {
       const d = tPoints[i];
       const xt = GSR_CONST.MARGIN.left + d.time * xScale;
-      const yt = (AppState.yTimelineBottom - 3) + (d.val - minRaw) * yScale;
+      const yt = AppState.yTimelineBottom - 3 + (d.val - minRaw) * yScale;
       vertex(xt, yt);
     }
     endShape();
@@ -350,14 +517,21 @@ import { GSRRenderer, getQualityColor, getQualityLabel } from './renderer.mjs';
     }
 
     const xViewStart = GSR_CONST.MARGIN.left + AppState.viewStartTime * xScale;
-    const xViewEnd   = GSR_CONST.MARGIN.left + (AppState.viewStartTime + AppState.viewDuration) * xScale;
+    const xViewEnd =
+      GSR_CONST.MARGIN.left +
+      (AppState.viewStartTime + AppState.viewDuration) * xScale;
 
     fill(color(colorFiltered + '20')); // ~0.12 opacity
     stroke(colorFiltered);
     strokeWeight(1.5);
-    rect(xViewStart, AppState.yTimelineTop, xViewEnd - xViewStart, timelineHeight, 2);
-  }
+    rect(
+      xViewStart,
+      AppState.yTimelineTop,
+      xViewEnd - xViewStart,
+      timelineHeight,
+      2,
+    );
+  },
+};
 
-  };
-
-  Object.assign(GSRRenderer, __methods);
+Object.assign(GSRRenderer, __methods);

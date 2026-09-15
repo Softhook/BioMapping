@@ -12,7 +12,10 @@
 const assert = require('assert');
 const test = require('node:test');
 
-const { GSRLiveBinaryParser, PACKET_SIZE } = require('../src/live/live_binary_parser.mjs');
+const {
+  GSRLiveBinaryParser,
+  PACKET_SIZE,
+} = require('../src/live/live_binary_parser.mjs');
 
 // Builds one valid 45-byte wire packet from field values, matching the
 // offset table in docs/archive/bluetooth_serial_investigation.md §5 exactly.
@@ -62,7 +65,14 @@ const closeTo = (actual, expected, tolerance, msg) => {
 
 test('parses a single well-formed packet', () => {
   const { parser, packets } = collectPackets();
-  parser.append(buildPacket({ timestampMs: 4200, lat: 51.5074, lon: -0.1278, gsrRaw: 999.5 }));
+  parser.append(
+    buildPacket({
+      timestampMs: 4200,
+      lat: 51.5074,
+      lon: -0.1278,
+      gsrRaw: 999.5,
+    }),
+  );
 
   assert.strictEqual(packets.length, 1);
   assert.strictEqual(packets[0].timestamp, 4.2);
@@ -96,7 +106,10 @@ test('parses multiple packets delivered in a single append() call', () => {
   parser.append(combined);
 
   assert.strictEqual(packets.length, 3);
-  assert.deepStrictEqual(packets.map((p) => p.timestamp), [0.1, 0.2, 0.3]);
+  assert.deepStrictEqual(
+    packets.map((p) => p.timestamp),
+    [0.1, 0.2, 0.3],
+  );
 });
 
 test('reassembles a packet split across two append() calls (transport fragmentation)', () => {

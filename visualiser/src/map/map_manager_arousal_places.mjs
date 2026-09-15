@@ -24,7 +24,6 @@ import { GSRSpatialClustering } from '../spatial/spatial_clustering.mjs';
 import { GSRUI } from '../ui/ui.mjs';
 
 export const __methods = {
-
   /**
    * Cluster a set of active (non-excluded) peaks into Arousal Places and render
    * them. Renders nothing when the clustering libs aren't loaded or `peaks` is
@@ -48,9 +47,13 @@ export const __methods = {
    * @private
    */
   _renderArousalPlacesFor(peaks, scoreTracks, view) {
-    if (!peaks || peaks.length === 0
-        || typeof GSRSpatialClustering === 'undefined'
-        || typeof GSRArousalPlaces === 'undefined') return;
+    if (
+      !peaks ||
+      peaks.length === 0 ||
+      typeof GSRSpatialClustering === 'undefined' ||
+      typeof GSRArousalPlaces === 'undefined'
+    )
+      return;
 
     const P = this._arousalPlaceParams();
 
@@ -76,12 +79,25 @@ export const __methods = {
       ({ places, blobRings, refAmplitude } = cache);
       this._scheduleArousalSettle();
     } else {
-      const clusters = GSRSpatialClustering.compactClusters(peaks, P.mergeM, P.separationFactor);
-      const placeOpts = Object.assign({}, (typeof GSR_CONST !== 'undefined' ? GSR_CONST.AROUSAL_PLACES : {}), P);
+      const clusters = GSRSpatialClustering.compactClusters(
+        peaks,
+        P.mergeM,
+        P.separationFactor,
+      );
+      const placeOpts = Object.assign(
+        {},
+        typeof GSR_CONST !== 'undefined' ? GSR_CONST.AROUSAL_PLACES : {},
+        P,
+      );
       places = GSRArousalPlaces.buildPlaces(clusters, scoreTracks, placeOpts);
       refAmplitude = this._meanAmplitude(peaks);
-      blobRings = places.map(place =>
-        this._concaveBlobFor(place.cluster, P.sigma, P.blobRadius, refAmplitude)
+      blobRings = places.map((place) =>
+        this._concaveBlobFor(
+          place.cluster,
+          P.sigma,
+          P.blobRadius,
+          refAmplitude,
+        ),
       );
       this._arousalPlacesCache = { fp, places, blobRings, refAmplitude };
     }
@@ -92,7 +108,7 @@ export const __methods = {
       collective: view.collective,
       activeTrackCount: view.activeTrackCount,
       refAmplitude,
-      drawGapFactor: P.drawGapFactor
+      drawGapFactor: P.drawGapFactor,
     });
   },
 
@@ -104,7 +120,7 @@ export const __methods = {
    * reads as "not interacting". @private
    */
   _arousalInteracting() {
-    return (Date.now() - (this._arousalLastRenderTs || 0)) < 140;
+    return Date.now() - (this._arousalLastRenderTs || 0) < 140;
   },
 
   /**
@@ -118,7 +134,7 @@ export const __methods = {
       this._arousalSettleTimer = null;
       if (!this.map || !this._lastArousalInput) return;
       this._arousalLastRenderTs = 0; // defeat _arousalInteracting() for this run
-      this.refreshArousalPlaces();    // strips clusterLayers, replays with current input
+      this.refreshArousalPlaces(); // strips clusterLayers, replays with current input
     }, 180);
   },
 
@@ -136,13 +152,18 @@ export const __methods = {
    */
   refreshArousalPlaces() {
     if (!this.map || !this._lastArousalInput) {
-      if (typeof GSRUI !== 'undefined' && typeof GSRUI.rerenderMap === 'function') GSRUI.rerenderMap();
+      if (
+        typeof GSRUI !== 'undefined' &&
+        typeof GSRUI.rerenderMap === 'function'
+      )
+        GSRUI.rerenderMap();
       return;
     }
     this.clusterLayers = this._clearLayerGroup(this.clusterLayers);
     const { peaks, scoreTracks, view } = this._lastArousalInput;
     this._renderArousalPlacesFor(peaks, scoreTracks, view);
-    if (typeof AppState !== 'undefined' && AppState.emit) AppState.emit('map:rendered');
+    if (typeof AppState !== 'undefined' && AppState.emit)
+      AppState.emit('map:rendered');
   },
 
   /**
@@ -159,7 +180,8 @@ export const __methods = {
       this._apFpF64 = new Float64Array(1);
       this._apFpU32 = new Uint32Array(this._apFpF64.buffer);
     }
-    const f64 = this._apFpF64, u32 = this._apFpU32;
+    const f64 = this._apFpF64,
+      u32 = this._apFpU32;
     let h = 0x811c9dc5 | 0;
     const mixF = (x) => {
       f64[0] = +x || 0;
@@ -168,7 +190,8 @@ export const __methods = {
     };
     const mixS = (s) => {
       s = s == null ? '' : String(s);
-      for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 0x01000193);
+      for (let i = 0; i < s.length; i++)
+        h = Math.imul(h ^ s.charCodeAt(i), 0x01000193);
     };
 
     // Active peak set — the exact input to compactClusters()/buildPlaces().
@@ -177,8 +200,12 @@ export const __methods = {
     mixF(peaks.length);
     for (let i = 0; i < peaks.length; i++) {
       const pk = peaks[i];
-      mixF(pk.lat); mixF(pk.lon); mixF(pk.amplitude); mixF(pk.time);
-      if (typeof pk.trackId === 'number') mixF(pk.trackId); else mixS(pk.trackId);
+      mixF(pk.lat);
+      mixF(pk.lon);
+      mixF(pk.amplitude);
+      mixF(pk.time);
+      if (typeof pk.trackId === 'number') mixF(pk.trackId);
+      else mixS(pk.trackId);
     }
 
     // Per-track dwell/energy inputs. raw lat/lon are immutable after CSV load
@@ -203,8 +230,12 @@ export const __methods = {
       }
     }
 
-    mixF(P.mergeM); mixF(P.maxPlaces); mixF(P.separationFactor); mixF(P.sigma);
-    mixF(P.blobRadius); mixF(P.drawGapFactor);
+    mixF(P.mergeM);
+    mixF(P.maxPlaces);
+    mixF(P.separationFactor);
+    mixF(P.sigma);
+    mixF(P.blobRadius);
+    mixF(P.drawGapFactor);
     mixF(view.collective ? 1 : 0);
     mixF(view.activeTrackCount || 0);
 
@@ -221,14 +252,20 @@ export const __methods = {
    * @private
    */
   _arousalPlaceParams() {
-    const C = (typeof GSR_CONST !== 'undefined' && GSR_CONST.AROUSAL_PLACES) ? GSR_CONST.AROUSAL_PLACES : {};
+    const C =
+      typeof GSR_CONST !== 'undefined' && GSR_CONST.AROUSAL_PLACES
+        ? GSR_CONST.AROUSAL_PLACES
+        : {};
     const parse = (el, fallback, fn = parseFloat) => {
       const v = el ? fn(el.value) : fallback;
-      return (typeof v === 'number' && !isNaN(v)) ? v : fallback;
+      return typeof v === 'number' && !isNaN(v) ? v : fallback;
     };
     const S = (typeof AppState !== 'undefined' && AppState.sliders) || {};
     const mergeM = parse(S.placeMergeDistance, C.mergeM || 35);
-    const maxPlaces = Math.max(1, parse(S.maxArousalPlaces, C.maxPlaces || 20, parseInt));
+    const maxPlaces = Math.max(
+      1,
+      parse(S.maxArousalPlaces, C.maxPlaces || 20, parseInt),
+    );
 
     return {
       mergeM,
@@ -236,7 +273,7 @@ export const __methods = {
       sigma: mergeM * 0.35,
       blobRadius: mergeM * 0.5,
       separationFactor: C.seedSeparationFactor || 1.8,
-      drawGapFactor: C.drawGapFactor || 0.46
+      drawGapFactor: C.drawGapFactor || 0.46,
     };
   },
 
@@ -260,17 +297,24 @@ export const __methods = {
     if (!members || members.length === 0) return [];
     if (!this._blobRingCache) this._blobRingCache = new Map();
 
-    const ref = (typeof refAmplitude === 'number' && refAmplitude > 0) ? refAmplitude : 0;
+    const ref =
+      typeof refAmplitude === 'number' && refAmplitude > 0 ? refAmplitude : 0;
     let key = `${(+sigma || 0).toFixed(2)}|${(+blobRadius || 0).toFixed(2)}`;
     for (let i = 0; i < members.length; i++) {
       const m = members[i];
-      const ratioBucket = ref > 0 ? Math.round(((+m.amplitude || 0) / ref) * 20) : 0;
+      const ratioBucket =
+        ref > 0 ? Math.round(((+m.amplitude || 0) / ref) * 20) : 0;
       key += `|${(+m.lat || 0).toFixed(6)},${(+m.lon || 0).toFixed(6)},${ratioBucket}`;
     }
 
     let ring = this._blobRingCache.get(key);
     if (!ring) {
-      ring = GSRSpatialClustering.getConcaveBlob(members, sigma, blobRadius, refAmplitude);
+      ring = GSRSpatialClustering.getConcaveBlob(
+        members,
+        sigma,
+        blobRadius,
+        refAmplitude,
+      );
       if (this._blobRingCache.size >= 256) this._blobRingCache.clear();
       this._blobRingCache.set(key, ring);
     }
@@ -281,7 +325,7 @@ export const __methods = {
   _meanAmplitude(pts) {
     if (!pts || pts.length === 0) return 0;
     let sum = 0;
-    for (const p of pts) sum += (p.amplitude || 0);
+    for (const p of pts) sum += p.amplitude || 0;
     return sum / pts.length;
   },
 
@@ -311,7 +355,7 @@ export const __methods = {
     this._arousalPlaceBadges = [];
     if (!Array.isArray(places) || places.length === 0) return;
 
-    const rates = places.map(p => p.rate).filter(r => isFinite(r));
+    const rates = places.map((p) => p.rate).filter((r) => isFinite(r));
     const rateMin = rates.length ? Math.min(...rates) : 0;
     const rateMax = rates.length ? Math.max(...rates) : 1;
     const lastIdx = Math.max(1, places.length - 1);
@@ -322,34 +366,55 @@ export const __methods = {
 
       // The badge encodes RANK (P1 = biggest/darkest) — a channel separate from
       // the outline (inter-track agreement in collective, rate in single).
-      const rankRatio = 1 - i / lastIdx;               // 1 at P1 -> 0 at Pn
+      const rankRatio = 1 - i / lastIdx; // 1 at P1 -> 0 at Pn
       const desc = {
-        lat: place.lat, lon: place.lon, label: place.label,
-        px: Math.round(18 + rankRatio * 12),           // 18..30 px
+        lat: place.lat,
+        lon: place.lon,
+        label: place.label,
+        px: Math.round(18 + rankRatio * 12), // 18..30 px
         color: `hsl(${18 - rankRatio * 18}, ${55 + rankRatio * 35}%, ${58 - rankRatio * 22}%)`,
         fontRem: (0.6 + rankRatio * 0.18).toFixed(2),
-        tooltip: style.tooltip
+        tooltip: style.tooltip,
       };
 
       const capM = this._nearestPlaceGap(places, i) * gapFactor;
-      ((blobRings && blobRings[i]) || [])
-        .forEach(path => {
-          const clipped = this._clipRingToRadius(path, place.lat, place.lon, capM);
-          const poly = L.polygon(clipped.map(p => [p.lat, p.lon]), {
-            color: style.color, weight: style.weight,
-            fillColor: style.color, fillOpacity: style.fillOpacity,
-            dashArray: style.dashArray, lineCap: 'round', lineJoin: 'round'
-          });
-          poly.bindTooltip(style.tooltip, { sticky: true, className: 'contour-tooltip-label' });
-          poly.bindPopup(() => MapPopups.buildArousalPlacePopup(place, ctx));
-          poly._gsrKind = 'arousalPlace';
-          if (this.showClusters) poly.addTo(this.map);
-          this.clusterLayers.push(poly);
+      ((blobRings && blobRings[i]) || []).forEach((path) => {
+        const clipped = this._clipRingToRadius(
+          path,
+          place.lat,
+          place.lon,
+          capM,
+        );
+        const poly = L.polygon(
+          clipped.map((p) => [p.lat, p.lon]),
+          {
+            color: style.color,
+            weight: style.weight,
+            fillColor: style.color,
+            fillOpacity: style.fillOpacity,
+            dashArray: style.dashArray,
+            lineCap: 'round',
+            lineJoin: 'round',
+          },
+        );
+        poly.bindTooltip(style.tooltip, {
+          sticky: true,
+          className: 'contour-tooltip-label',
         });
+        poly.bindPopup(() => MapPopups.buildArousalPlacePopup(place, ctx));
+        poly._gsrKind = 'arousalPlace';
+        if (this.showClusters) poly.addTo(this.map);
+        this.clusterLayers.push(poly);
+      });
 
-      const badge = L.marker([place.lat, place.lon], { icon: this._arousalBadgeIcon(desc) });
+      const badge = L.marker([place.lat, place.lon], {
+        icon: this._arousalBadgeIcon(desc),
+      });
       badge.setZIndexOffset(1200 + Math.round(rankRatio * 100));
-      badge.bindTooltip(style.tooltip, { sticky: true, className: 'contour-tooltip-label' });
+      badge.bindTooltip(style.tooltip, {
+        sticky: true,
+        className: 'contour-tooltip-label',
+      });
       badge._gsrKind = 'arousalPlace';
       if (this.showClusters) badge.addTo(this.map);
       this.clusterLayers.push(badge);
@@ -369,11 +434,12 @@ export const __methods = {
   _arousalBadgeIcon({ px, color, fontRem, label }, extra = 0) {
     return L.divIcon({
       className: 'arousal-place-badge-wrap',
-      html: `<span class="arousal-place-badge${extra ? ' merged' : ''}" `
-          + `style="--place-color:${color};width:${px}px;height:${px}px;font-size:${fontRem}rem">`
-          + `${label}${extra ? `<sup>+${extra}</sup>` : ''}</span>`,
+      html:
+        `<span class="arousal-place-badge${extra ? ' merged' : ''}" ` +
+        `style="--place-color:${color};width:${px}px;height:${px}px;font-size:${fontRem}rem">` +
+        `${label}${extra ? `<sup>+${extra}</sup>` : ''}</span>`,
       iconSize: [px, px],
-      iconAnchor: [px / 2, px / 2]
+      iconAnchor: [px / 2, px / 2],
     });
   },
 
@@ -392,17 +458,22 @@ export const __methods = {
       ratio = Math.max(0, Math.min(1, place.trackCount / ctx.activeTrackCount));
     } else {
       const span = rateMax - rateMin;
-      ratio = span > 1e-9 ? Math.max(0, Math.min(1, (place.rate - rateMin) / span)) : 0.5;
+      ratio =
+        span > 1e-9
+          ? Math.max(0, Math.min(1, (place.rate - rateMin) / span))
+          : 0.5;
     }
 
     const provisional = multiTrack && place.provisional;
     const color = `hsl(${40 - ratio * 40}, ${75 + ratio * 20}%, ${58 - ratio * 15}%)`; // amber -> red
-    const fillOpacity = provisional ? 0.05 : 0.10 + ratio * 0.35;
+    const fillOpacity = provisional ? 0.05 : 0.1 + ratio * 0.35;
     const weight = provisional ? 1 : 1.5 + ratio * 2.5;
     const dashArray = provisional ? '2, 6' : '4, 6';
 
     const peaks = `${place.memberCount} ${place.memberCount === 1 ? 'peak' : 'peaks'}`;
-    const walks = multiTrack ? ` · ${place.trackCount}/${ctx.activeTrackCount} walks` : '';
+    const walks = multiTrack
+      ? ` · ${place.trackCount}/${ctx.activeTrackCount} walks`
+      : '';
     const prov = provisional ? ' · provisional' : '';
     const tooltip = `${place.label}${walks} · ${peaks} · ${place.rate.toFixed(2)} µS·s/min${prov}`;
 
@@ -422,7 +493,13 @@ export const __methods = {
     let nnSq = Infinity;
     for (let j = 0; j < places.length; j++) {
       if (j === i) continue;
-      const d = GeoUtils.distanceMetersSq(places[i].lat, places[i].lon, places[j].lat, places[j].lon, scale);
+      const d = GeoUtils.distanceMetersSq(
+        places[i].lat,
+        places[i].lon,
+        places[j].lat,
+        places[j].lon,
+        scale,
+      );
       if (d < nnSq) nnSq = d;
     }
     return Math.sqrt(nnSq);
@@ -435,8 +512,14 @@ export const __methods = {
    * @private
    */
   _clipRingToRadius(path, cLat, cLon, capM) {
-    if (!(capM > 0) || !isFinite(capM) || !Array.isArray(path) || path.length === 0
-        || typeof GeoUtils === 'undefined') return path;
+    if (
+      !(capM > 0) ||
+      !isFinite(capM) ||
+      !Array.isArray(path) ||
+      path.length === 0 ||
+      typeof GeoUtils === 'undefined'
+    )
+      return path;
     const scale = GeoUtils.getGeodesicScale(cLat);
     let maxSq = 0;
     for (const p of path) {
@@ -445,7 +528,10 @@ export const __methods = {
     }
     const k = capM / Math.sqrt(maxSq);
     if (!(k < 1)) return path;
-    return path.map(p => ({ lat: cLat + (p.lat - cLat) * k, lon: cLon + (p.lon - cLon) * k }));
+    return path.map((p) => ({
+      lat: cLat + (p.lat - cLat) * k,
+      lon: cLon + (p.lon - cLon) * k,
+    }));
   },
 
   /**
@@ -458,20 +544,30 @@ export const __methods = {
    */
   _declutterArousalPlaceBadges() {
     const badges = this._arousalPlaceBadges;
-    if (!badges || !badges.length || !this.map || !this.showClusters
-        || typeof this.map.latLngToContainerPoint !== 'function') return;
+    if (
+      !badges ||
+      !badges.length ||
+      !this.map ||
+      !this.showClusters ||
+      typeof this.map.latLngToContainerPoint !== 'function'
+    )
+      return;
 
     let pts;
-    try { pts = badges.map(b => this.map.latLngToContainerPoint([b.lat, b.lon])); }
-    catch (e) { return; }
+    try {
+      pts = badges.map((b) => this.map.latLngToContainerPoint([b.lat, b.lon]));
+    } catch (e) {
+      return;
+    }
 
     // Best-rank-first (badges are already P1..Pn): each badge either survives or
     // folds into the first earlier survivor whose icon it would touch.
     const survivors = []; // { i, folded: [label, ...] }
     badges.forEach((b, i) => {
-      const host = survivors.find(s => {
+      const host = survivors.find((s) => {
         const need = (b.px + badges[s.i].px) / 2 + 2;
-        const dx = pts[i].x - pts[s.i].x, dy = pts[i].y - pts[s.i].y;
+        const dx = pts[i].x - pts[s.i].x,
+          dy = pts[i].y - pts[s.i].y;
         return dx * dx + dy * dy < need * need;
       });
       if (host) host.folded.push(b.label);
@@ -489,9 +585,11 @@ export const __methods = {
       // The merge note above is hover-only (bindTooltip), unreachable on
       // touch. Fold it into the popup too so tapping a merged badge on
       // mobile still surfaces it, not just the top-ranked place's own info.
-      b.marker.bindPopup(mergeNote
-        ? () => this._buildFoldedPlacePopup(b, mergeNote)
-        : b.popupBuilder);
+      b.marker.bindPopup(
+        mergeNote
+          ? () => this._buildFoldedPlacePopup(b, mergeNote)
+          : b.popupBuilder,
+      );
     }
   },
 
@@ -502,8 +600,7 @@ export const __methods = {
     note.textContent = mergeNote;
     container.insertBefore(note, container.firstChild);
     return container;
-  }
-
+  },
 };
 
 Object.assign(GSRMapManager.prototype, __methods);

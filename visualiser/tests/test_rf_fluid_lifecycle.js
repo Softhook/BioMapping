@@ -36,29 +36,43 @@ global.window = { devicePixelRatio: 1 };
 // guard either way already.
 const path = require('path');
 const { loadModule } = require('./support/load_module.js');
-loadModule(path.join(__dirname, '..', 'src', 'spatial', 'spatial_grid.js'), 'SpatialGrid');
-loadModule(path.join(__dirname, '..', 'src', 'render', 'rf_fluid_renderer.js'), 'RFFluidRenderer');
+loadModule(
+  path.join(__dirname, '..', 'src', 'spatial', 'spatial_grid.js'),
+  'SpatialGrid',
+);
+loadModule(
+  path.join(__dirname, '..', 'src', 'render', 'rf_fluid_renderer.js'),
+  'RFFluidRenderer',
+);
 const RFFluidRenderer = global.RFFluidRenderer;
 
 function makeFakeMap(overrides = {}) {
   const panes = {};
   const listeners = {};
-  return Object.assign({
-    getPane: (name) => panes[name] || null,
-    createPane: (name) => { panes[name] = { style: {}, appendChild: () => {} }; return panes[name]; },
-    on: (evt, fn) => { listeners[evt] = fn; },
-    getBounds: () => ({
-      pad: () => ({
-        getNorthWest: () => ({ lat: 51.51, lon: -0.11 }),
-        getSouthEast: () => ({ lat: 51.50, lon: -0.10 }),
+  return Object.assign(
+    {
+      getPane: (name) => panes[name] || null,
+      createPane: (name) => {
+        panes[name] = { style: {}, appendChild: () => {} };
+        return panes[name];
+      },
+      on: (evt, fn) => {
+        listeners[evt] = fn;
+      },
+      getBounds: () => ({
+        pad: () => ({
+          getNorthWest: () => ({ lat: 51.51, lon: -0.11 }),
+          getSouthEast: () => ({ lat: 51.5, lon: -0.1 }),
+        }),
       }),
-    }),
-    latLngToLayerPoint: (ll) => ({ x: 100, y: 100 }),
-    getZoomScale: () => 1,
-    getZoom: () => 15,
-    getSize: () => ({ x: 800, y: 600 }),
-    _latLngToNewLayerPoint: () => ({ x: 0, y: 0 }),
-  }, overrides);
+      latLngToLayerPoint: (ll) => ({ x: 100, y: 100 }),
+      getZoomScale: () => 1,
+      getZoom: () => 15,
+      getSize: () => ({ x: 800, y: 600 }),
+      _latLngToNewLayerPoint: () => ({ x: 0, y: 0 }),
+    },
+    overrides,
+  );
 }
 
 // redraw() is the actual 2D canvas drawing routine and calls a large surface
@@ -72,20 +86,23 @@ function makeFakeMap(overrides = {}) {
 // setter methods (setMode/setOpacity/setRadius/setVisible) can safely
 // trigger a redraw without crashing.
 function fakeCanvasContext() {
-  return new Proxy({}, {
-    get(target, prop) {
-      if (prop in target) return target[prop];
-      if (prop === 'canvas') return { width: 400, height: 300 };
-      return (...args) => {
-        // Methods that create sub-objects (gradients, patterns) need to
-        // return something with an addColorStop-shaped API of their own.
-        if (String(prop).startsWith('create')) {
-          return new Proxy({}, { get: () => () => {} });
-        }
-        return undefined;
-      };
+  return new Proxy(
+    {},
+    {
+      get(target, prop) {
+        if (prop in target) return target[prop];
+        if (prop === 'canvas') return { width: 400, height: 300 };
+        return (...args) => {
+          // Methods that create sub-objects (gradients, patterns) need to
+          // return something with an addColorStop-shaped API of their own.
+          if (String(prop).startsWith('create')) {
+            return new Proxy({}, { get: () => () => {} });
+          }
+          return undefined;
+        };
+      },
     },
-  });
+  );
 }
 
 test('constructor: merges default options with overrides and initializes empty state', () => {
@@ -96,21 +113,32 @@ test('constructor: merges default options with overrides and initializes empty s
   const renderer = new RFFluidRenderer(map, { opacity: 0.5, mode: '815' });
   assert.strictEqual(renderer.options.opacity, 0.5, 'override should win');
   assert.strictEqual(renderer.options.mode, '815', 'override should win');
-  assert.strictEqual(renderer.options.radiusMeters, 35, 'unspecified option keeps its default');
+  assert.strictEqual(
+    renderer.options.radiusMeters,
+    35,
+    'unspecified option keeps its default',
+  );
   assert.deepStrictEqual(renderer.drawPoints, []);
   assert.strictEqual(renderer.enabled, true);
 });
 
 test('constructor: creates the rfFluidPane once and reuses it on a second instance', () => {
   const map = makeFakeMap();
-  global.L.DomUtil.create = () => ({ style: {}, getContext: () => fakeCanvasContext() });
+  global.L.DomUtil.create = () => ({
+    style: {},
+    getContext: () => fakeCanvasContext(),
+  });
 
   new RFFluidRenderer(map);
   assert.ok(map.getPane('rfFluidPane'), 'pane should have been created');
   const paneAfterFirst = map.getPane('rfFluidPane');
 
   new RFFluidRenderer(map); // second instance, same map
-  assert.strictEqual(map.getPane('rfFluidPane'), paneAfterFirst, 'pane should not be recreated');
+  assert.strictEqual(
+    map.getPane('rfFluidPane'),
+    paneAfterFirst,
+    'pane should not be recreated',
+  );
 });
 
 test('constructor: with no map, skips canvas init without throwing', () => {
@@ -132,14 +160,19 @@ test('constructor: with map but no global L, skips canvas init without throwing'
 
 test('resizeCanvas: sizes the canvas to the padded viewport in device pixels', () => {
   const map = makeFakeMap({
-    latLngToLayerPoint: (ll) => (ll.lat === 51.51 ? { x: 0, y: 0 } : { x: 200, y: 150 }),
+    latLngToLayerPoint: (ll) =>
+      ll.lat === 51.51 ? { x: 0, y: 0 } : { x: 200, y: 150 },
   });
   const canvasEl = { style: {}, getContext: () => fakeCanvasContext() };
   global.L.DomUtil.create = () => canvasEl;
   global.window.devicePixelRatio = 2;
 
   const renderer = new RFFluidRenderer(map);
-  assert.strictEqual(canvasEl.width, 400, 'width should be scaled by devicePixelRatio');
+  assert.strictEqual(
+    canvasEl.width,
+    400,
+    'width should be scaled by devicePixelRatio',
+  );
   assert.strictEqual(canvasEl.height, 300);
   assert.strictEqual(canvasEl.style.width, '200px');
   assert.strictEqual(canvasEl.style.height, '150px');
@@ -159,20 +192,34 @@ test('resizeCanvas: enforces a 10px minimum canvas dimension for degenerate view
 
 test('_bindEvents: wires zoomanim and moveend/zoomend/resize/viewreset handlers without throwing when triggered', () => {
   const listeners = {};
-  const map = makeFakeMap({ on: (evt, fn) => { listeners[evt] = fn; } });
-  global.L.DomUtil.create = () => ({ style: {}, getContext: () => fakeCanvasContext() });
+  const map = makeFakeMap({
+    on: (evt, fn) => {
+      listeners[evt] = fn;
+    },
+  });
+  global.L.DomUtil.create = () => ({
+    style: {},
+    getContext: () => fakeCanvasContext(),
+  });
 
   const renderer = new RFFluidRenderer(map);
   assert.ok(typeof listeners['zoomanim'] === 'function');
-  assert.ok(typeof listeners['moveend zoomend resize viewreset'] === 'function');
+  assert.ok(
+    typeof listeners['moveend zoomend resize viewreset'] === 'function',
+  );
 
   assert.doesNotThrow(() => listeners['moveend zoomend resize viewreset']());
-  assert.doesNotThrow(() => listeners['zoomanim']({ zoom: 16, center: { lat: 0, lon: 0 } }));
+  assert.doesNotThrow(() =>
+    listeners['zoomanim']({ zoom: 16, center: { lat: 0, lon: 0 } }),
+  );
 });
 
 test('setMode: updates options.mode and triggers a redraw (no throw with an empty canvas)', () => {
   const map = makeFakeMap();
-  global.L.DomUtil.create = () => ({ style: {}, getContext: () => fakeCanvasContext() });
+  global.L.DomUtil.create = () => ({
+    style: {},
+    getContext: () => fakeCanvasContext(),
+  });
   const renderer = new RFFluidRenderer(map);
 
   assert.doesNotThrow(() => renderer.setMode('fog'));
@@ -181,7 +228,10 @@ test('setMode: updates options.mode and triggers a redraw (no throw with an empt
 
 test('setOpacity: updates options.opacity and triggers a redraw', () => {
   const map = makeFakeMap();
-  global.L.DomUtil.create = () => ({ style: {}, getContext: () => fakeCanvasContext() });
+  global.L.DomUtil.create = () => ({
+    style: {},
+    getContext: () => fakeCanvasContext(),
+  });
   const renderer = new RFFluidRenderer(map);
 
   assert.doesNotThrow(() => renderer.setOpacity(0.2));
@@ -190,7 +240,10 @@ test('setOpacity: updates options.opacity and triggers a redraw', () => {
 
 test('setRadius: updates options.radiusMeters and re-precalculates fans for every previously-set track', () => {
   const map = makeFakeMap();
-  global.L.DomUtil.create = () => ({ style: {}, getContext: () => fakeCanvasContext() });
+  global.L.DomUtil.create = () => ({
+    style: {},
+    getContext: () => fakeCanvasContext(),
+  });
   const renderer = new RFFluidRenderer(map);
 
   // Phase 5: fan-casting is cached per track (setDataForTracks), so setRadius()
@@ -206,18 +259,29 @@ test('setRadius: updates options.radiusMeters and re-precalculates fans for ever
   // so we can prove _precalculateSpatialFans() is actually invoked by
   // setRadius(), not just that radiusMeters got written and nothing threw.
   let fansRecalculated = 0;
-  renderer._precalculateSpatialFans = () => { fansRecalculated++; return []; };
+  renderer._precalculateSpatialFans = () => {
+    fansRecalculated++;
+    return [];
+  };
 
   assert.doesNotThrow(() => renderer.setRadius(60));
   assert.strictEqual(renderer.options.radiusMeters, 60);
-  assert.strictEqual(fansRecalculated, 2, 'setRadius should re-run _precalculateSpatialFans once per previously-set track');
+  assert.strictEqual(
+    fansRecalculated,
+    2,
+    'setRadius should re-run _precalculateSpatialFans once per previously-set track',
+  );
 
   // A second setRadius() call with the SAME radius should be a no-op recompute
   // (every entry's radiusMeters now matches again) — proves the cache check,
   // not just that setRadius() always forces work.
   fansRecalculated = 0;
   renderer.setRadius(60);
-  assert.strictEqual(fansRecalculated, 0, 'setRadius with an unchanged radius should reuse cached fans');
+  assert.strictEqual(
+    fansRecalculated,
+    0,
+    'setRadius with an unchanged radius should reuse cached fans',
+  );
 });
 
 // ── _precalculateSpatialFans spatial-downsampling: scaled to radiusMeters ──
@@ -250,7 +314,10 @@ function makeStraightLinePoints(n, spacingMeters) {
 
 test('_precalculateSpatialFans: points closer than the radius-scaled threshold are thinned (default 35m radius)', () => {
   const map = makeFakeMap();
-  global.L.DomUtil.create = () => ({ style: {}, getContext: () => fakeCanvasContext() });
+  global.L.DomUtil.create = () => ({
+    style: {},
+    getContext: () => fakeCanvasContext(),
+  });
   const renderer = new RFFluidRenderer(map); // default radiusMeters: 35 -> threshold 42m
 
   // 100 points spaced 3m apart (~walking-pace GPS sampling) spans 300m total
@@ -260,15 +327,22 @@ test('_precalculateSpatialFans: points closer than the radius-scaled threshold a
   const drawPoints = makeStraightLinePoints(100, 3);
   renderer.setData(drawPoints, null);
 
-  assert.ok(renderer.cachedNodes.length < 15,
-    `expected radius-scaled thinning (42m @ 35m radius) to keep well under 15 of 100 points spaced 3m apart, got ${renderer.cachedNodes.length}`);
-  assert.ok(renderer.cachedNodes.length >= 5,
-    `thinning should not collapse a 300m-long line down to fewer than ~5 nodes, got ${renderer.cachedNodes.length}`);
+  assert.ok(
+    renderer.cachedNodes.length < 15,
+    `expected radius-scaled thinning (42m @ 35m radius) to keep well under 15 of 100 points spaced 3m apart, got ${renderer.cachedNodes.length}`,
+  );
+  assert.ok(
+    renderer.cachedNodes.length >= 5,
+    `thinning should not collapse a 300m-long line down to fewer than ~5 nodes, got ${renderer.cachedNodes.length}`,
+  );
 });
 
 test('_precalculateSpatialFans: thinning threshold scales up with a larger configured radius', () => {
   const map = makeFakeMap();
-  global.L.DomUtil.create = () => ({ style: {}, getContext: () => fakeCanvasContext() });
+  global.L.DomUtil.create = () => ({
+    style: {},
+    getContext: () => fakeCanvasContext(),
+  });
   const renderer = new RFFluidRenderer(map, { radiusMeters: 100 }); // threshold: 120m
 
   const drawPoints = makeStraightLinePoints(100, 3); // same 300m-long fixture as above
@@ -277,13 +351,18 @@ test('_precalculateSpatialFans: thinning threshold scales up with a larger confi
   // At a 120m threshold, a 300m line fits at most ~4 kept nodes — fewer
   // than the 35m-radius case above, proving the threshold actually tracks
   // radiusMeters rather than being some other fixed constant.
-  assert.ok(renderer.cachedNodes.length <= 4,
-    `expected a 100m-radius renderer's 120m thinning threshold to keep <= 4 nodes on a 300m line, got ${renderer.cachedNodes.length}`);
+  assert.ok(
+    renderer.cachedNodes.length <= 4,
+    `expected a 100m-radius renderer's 120m thinning threshold to keep <= 4 nodes on a 300m line, got ${renderer.cachedNodes.length}`,
+  );
 });
 
 test('_precalculateSpatialFans: an isRfPeak point always gets its own node, even inside the thinning radius', () => {
   const map = makeFakeMap();
-  global.L.DomUtil.create = () => ({ style: {}, getContext: () => fakeCanvasContext() });
+  global.L.DomUtil.create = () => ({
+    style: {},
+    getContext: () => fakeCanvasContext(),
+  });
   const renderer = new RFFluidRenderer(map); // threshold: 42m
 
   // Two points only 3m apart (well inside the 42m threshold) — the second
@@ -291,11 +370,15 @@ test('_precalculateSpatialFans: an isRfPeak point always gets its own node, even
   // spike, which this dedup must never silently erase.
   const drawPoints = [
     { lat: 0, lon: 0 },
-    { lat: 0, lon: (3 / 111320), isRfPeak: true },
+    { lat: 0, lon: 3 / 111320, isRfPeak: true },
   ];
   renderer.setData(drawPoints, null);
 
-  assert.strictEqual(renderer.cachedNodes.length, 2, 'an isRfPeak point must survive thinning regardless of spacing');
+  assert.strictEqual(
+    renderer.cachedNodes.length,
+    2,
+    'an isRfPeak point must survive thinning regardless of spacing',
+  );
 });
 
 test('setVisible: toggles canvas display style and redraws only when becoming visible', () => {
@@ -309,17 +392,27 @@ test('setVisible: toggles canvas display style and redraws only when becoming vi
   // don't depend on rf_fluid_renderer.js:385's `if (visible) this.redraw()`
   // branch at all).
   let redrawCount = 0;
-  renderer.redraw = () => { redrawCount++; };
+  renderer.redraw = () => {
+    redrawCount++;
+  };
 
   renderer.setVisible(false);
   assert.strictEqual(canvasEl.style.display, 'none');
   assert.strictEqual(renderer.options.visible, false);
-  assert.strictEqual(redrawCount, 0, 'becoming invisible should not trigger a redraw');
+  assert.strictEqual(
+    redrawCount,
+    0,
+    'becoming invisible should not trigger a redraw',
+  );
 
   renderer.setVisible(true);
   assert.strictEqual(canvasEl.style.display, 'block');
   assert.strictEqual(renderer.options.visible, true);
-  assert.strictEqual(redrawCount, 1, 'becoming visible should trigger exactly one redraw');
+  assert.strictEqual(
+    redrawCount,
+    1,
+    'becoming visible should trigger exactly one redraw',
+  );
 });
 
 // ── Phase 5: per-track fan-cast cache (setDataForTracks) ───────────────────
@@ -343,9 +436,12 @@ function countingRenderer(map) {
   return renderer;
 }
 
-test('setDataForTracks: reuses a cached track\'s fans when only an unrelated track changes', () => {
+test("setDataForTracks: reuses a cached track's fans when only an unrelated track changes", () => {
   const map = makeFakeMap();
-  global.L.DomUtil.create = () => ({ style: {}, getContext: () => fakeCanvasContext() });
+  global.L.DomUtil.create = () => ({
+    style: {},
+    getContext: () => fakeCanvasContext(),
+  });
   const renderer = countingRenderer(map);
 
   const drawPointsA = [{ lat: 10, lon: 10 }];
@@ -355,7 +451,11 @@ test('setDataForTracks: reuses a cached track\'s fans when only an unrelated tra
     { id: 'trackA', drawPoints: drawPointsA, osmGeoms: null },
     { id: 'trackB', drawPoints: drawPointsB1, osmGeoms: null },
   ]);
-  assert.strictEqual(renderer.__calls.length, 2, 'first call: both tracks are new, both recompute');
+  assert.strictEqual(
+    renderer.__calls.length,
+    2,
+    'first call: both tracks are new, both recompute',
+  );
 
   // Re-render with trackA's array reference unchanged (the real map.js caller
   // gets this from _getOrBuildDrawPoints()'s own cache) and trackB replaced by
@@ -367,31 +467,57 @@ test('setDataForTracks: reuses a cached track\'s fans when only an unrelated tra
     { id: 'trackB', drawPoints: drawPointsB2, osmGeoms: null },
   ]);
 
-  assert.strictEqual(renderer.__calls.length, 1, 'only the changed track (B) should recompute');
-  assert.strictEqual(renderer.__calls[0], drawPointsB2, 'the one recompute should be for track B\'s new data');
+  assert.strictEqual(
+    renderer.__calls.length,
+    1,
+    'only the changed track (B) should recompute',
+  );
+  assert.strictEqual(
+    renderer.__calls[0],
+    drawPointsB2,
+    "the one recompute should be for track B's new data",
+  );
 });
 
 test('setDataForTracks: combines cached and freshly-computed nodes into one cachedNodes array', () => {
   const map = makeFakeMap();
-  global.L.DomUtil.create = () => ({ style: {}, getContext: () => fakeCanvasContext() });
+  global.L.DomUtil.create = () => ({
+    style: {},
+    getContext: () => fakeCanvasContext(),
+  });
   const renderer = new RFFluidRenderer(map);
 
   renderer.setDataForTracks([
     { id: 'trackA', drawPoints: [{ lat: 10, lon: 10 }], osmGeoms: null },
     { id: 'trackB', drawPoints: [{ lat: 20, lon: 20 }], osmGeoms: null },
   ]);
-  assert.strictEqual(renderer.cachedNodes.length, 2, 'one node per track on first render');
+  assert.strictEqual(
+    renderer.cachedNodes.length,
+    2,
+    'one node per track on first render',
+  );
 
   renderer.setDataForTracks([
     { id: 'trackA', drawPoints: [{ lat: 10, lon: 10 }], osmGeoms: null }, // same id, new array -> recomputes
-    { id: 'trackB', drawPoints: renderer._trackCache.get('trackB').drawPointsRef, osmGeoms: null }, // reused ref
+    {
+      id: 'trackB',
+      drawPoints: renderer._trackCache.get('trackB').drawPointsRef,
+      osmGeoms: null,
+    }, // reused ref
   ]);
-  assert.strictEqual(renderer.cachedNodes.length, 2, 'combined output still has one node per track');
+  assert.strictEqual(
+    renderer.cachedNodes.length,
+    2,
+    'combined output still has one node per track',
+  );
 });
 
 test('setDataForTracks: drops cache entries for tracks no longer present (e.g. deleted/deactivated)', () => {
   const map = makeFakeMap();
-  global.L.DomUtil.create = () => ({ style: {}, getContext: () => fakeCanvasContext() });
+  global.L.DomUtil.create = () => ({
+    style: {},
+    getContext: () => fakeCanvasContext(),
+  });
   const renderer = new RFFluidRenderer(map);
 
   renderer.setDataForTracks([
@@ -403,14 +529,21 @@ test('setDataForTracks: drops cache entries for tracks no longer present (e.g. d
   renderer.setDataForTracks([
     { id: 'trackA', drawPoints: [{ lat: 10, lon: 10 }], osmGeoms: null },
   ]);
-  assert.strictEqual(renderer._trackCache.size, 1, 'trackB\'s cache entry should be pruned once it drops out');
+  assert.strictEqual(
+    renderer._trackCache.size,
+    1,
+    "trackB's cache entry should be pruned once it drops out",
+  );
   assert.ok(!renderer._trackCache.has('trackB'));
   assert.strictEqual(renderer.cachedNodes.length, 1);
 });
 
 test('clear(): blanks cachedNodes/buildingPolygons and redraws, without touching the per-track fan cache', () => {
   const map = makeFakeMap();
-  global.L.DomUtil.create = () => ({ style: {}, getContext: () => fakeCanvasContext() });
+  global.L.DomUtil.create = () => ({
+    style: {},
+    getContext: () => fakeCanvasContext(),
+  });
   const renderer = countingRenderer(map);
 
   renderer.setDataForTracks([
@@ -421,26 +554,52 @@ test('clear(): blanks cachedNodes/buildingPolygons and redraws, without touching
 
   let redrawCount = 0;
   const realRedraw = renderer.redraw.bind(renderer);
-  renderer.redraw = () => { redrawCount++; realRedraw(); };
+  renderer.redraw = () => {
+    redrawCount++;
+    realRedraw();
+  };
 
   renderer.clear();
-  assert.strictEqual(renderer.cachedNodes.length, 0, 'clear() blanks the visible nodes');
+  assert.strictEqual(
+    renderer.cachedNodes.length,
+    0,
+    'clear() blanks the visible nodes',
+  );
   assert.strictEqual(redrawCount, 1, 'clear() triggers exactly one redraw');
-  assert.strictEqual(renderer._trackCache.size, 1, 'clear() must NOT prune the per-track fan cache — a real setData(For Tracks) call right after (map.js clearMap()->render pattern) needs it intact to skip recomputing unchanged tracks');
+  assert.strictEqual(
+    renderer._trackCache.size,
+    1,
+    'clear() must NOT prune the per-track fan cache — a real setData(For Tracks) call right after (map.js clearMap()->render pattern) needs it intact to skip recomputing unchanged tracks',
+  );
 
   // Prove the cache survival actually matters: re-supplying the SAME track
   // right after clear() should not recompute its fans.
   renderer.__calls.length = 0;
   renderer.setDataForTracks([
-    { id: 'trackA', drawPoints: renderer._trackCache.get('trackA').drawPointsRef, osmGeoms: null },
+    {
+      id: 'trackA',
+      drawPoints: renderer._trackCache.get('trackA').drawPointsRef,
+      osmGeoms: null,
+    },
   ]);
-  assert.strictEqual(renderer.__calls.length, 0, 'the track re-supplied unchanged right after clear() should reuse its cached fans');
-  assert.strictEqual(renderer.cachedNodes.length, 1, 'cachedNodes is repopulated from the surviving cache entry');
+  assert.strictEqual(
+    renderer.__calls.length,
+    0,
+    'the track re-supplied unchanged right after clear() should reuse its cached fans',
+  );
+  assert.strictEqual(
+    renderer.cachedNodes.length,
+    1,
+    'cachedNodes is repopulated from the surviving cache entry',
+  );
 });
 
 test('setData(): single-track wrapper still reuses cached fans when the same drawPoints reference is passed again', () => {
   const map = makeFakeMap();
-  global.L.DomUtil.create = () => ({ style: {}, getContext: () => fakeCanvasContext() });
+  global.L.DomUtil.create = () => ({
+    style: {},
+    getContext: () => fakeCanvasContext(),
+  });
   const renderer = countingRenderer(map);
 
   const drawPoints = [{ lat: 10, lon: 10 }];
@@ -449,6 +608,10 @@ test('setData(): single-track wrapper still reuses cached fans when the same dra
 
   renderer.__calls.length = 0;
   renderer.setData(drawPoints, null);
-  assert.strictEqual(renderer.__calls.length, 0, 'unchanged drawPoints reference should skip recompute, same as the old fast path');
+  assert.strictEqual(
+    renderer.__calls.length,
+    0,
+    'unchanged drawPoints reference should skip recompute, same as the old fast path',
+  );
   assert.strictEqual(renderer.cachedNodes.length, 1);
 });

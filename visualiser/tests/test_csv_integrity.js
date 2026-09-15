@@ -28,8 +28,14 @@ const REGION =
   '0.2,102\n';
 const DATA_ROWS = 3;
 
-function trailer({ rows = DATA_ROWS, bytes, crc, endTime = 1000000050,
-                   overflows = 0, flushFails = 0 } = {}) {
+function trailer({
+  rows = DATA_ROWS,
+  bytes,
+  crc,
+  endTime = 1000000050,
+  overflows = 0,
+  flushFails = 0,
+} = {}) {
   const region = REGION;
   bytes = bytes !== undefined ? bytes : new TextEncoder().encode(region).length;
   crc = crc !== undefined ? crc : GSRCSVParser._crc32(region);
@@ -48,11 +54,11 @@ const verify = (csv, hasMarker = true) =>
 // ── _crc32 known-answer ────────────────────────────────────────────────────
 
 test('_crc32 matches the standard CRC-32 check value', () => {
-  assert.strictEqual(GSRCSVParser._crc32('123456789'), 0xCBF43926);
+  assert.strictEqual(GSRCSVParser._crc32('123456789'), 0xcbf43926);
   // Same result whether fed a string or its UTF-8 bytes.
   assert.strictEqual(
     GSRCSVParser._crc32(new TextEncoder().encode('123456789')),
-    0xCBF43926
+    0xcbf43926,
   );
 });
 

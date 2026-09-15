@@ -1,4 +1,3 @@
-'use strict';
 /**
  * Regression coverage for the `_collectGpsPoints()` field-trimming fix
  * (docs/archive/visualizer_rendering_perf_routes.md §2.7; map.js). Found via
@@ -23,7 +22,8 @@ const { bootApp } = require('./support/boot_app.js');
 // fields it must NOT carry through (rssi_815, osm_road_class, sats) — proof
 // the trim drops the latter without disturbing the former.
 function buildCsv(rows) {
-  const header = 'timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw,hacc_m,rssi_815,osm_road_class';
+  const header =
+    'timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw,hacc_m,rssi_815,osm_road_class';
   const lines = rows.map((r, i) => {
     const t = (i * 0.1).toFixed(2);
     const lat = (51.5074 + i * 0.0001).toFixed(6);
@@ -34,11 +34,25 @@ function buildCsv(rows) {
 }
 const SAMPLE_CSV = buildCsv(Array(20).fill(0));
 
-const EXPECTED_KEYS = ['lat', 'lon', 'time', 'hdop', 'pdop', 'hacc', 'speedKts', 'course', 'fixType', 'origIdx'].sort();
+const EXPECTED_KEYS = [
+  'lat',
+  'lon',
+  'time',
+  'hdop',
+  'pdop',
+  'hacc',
+  'speedKts',
+  'course',
+  'fixType',
+  'origIdx',
+].sort();
 
 async function boot() {
   const { window } = await bootApp();
-  window.HTMLCanvasElement.prototype.getContext = () => ({ fillStyle: '', fillRect() {} });
+  window.HTMLCanvasElement.prototype.getContext = () => ({
+    fillStyle: '',
+    fillRect() {},
+  });
   window.setup();
   return { window, mapManager: window.AppState.mapManager };
 }
@@ -51,18 +65,30 @@ test('_collectGpsPoints: returns only the fields the GPS pipeline reads, not the
   // Sanity: the raw row itself DOES carry the extra fields (proves the
   // fixture is exercising the trim, not just an already-narrow row).
   const rawKeys = Object.keys(analyzer.raw[0]);
-  assert.ok(rawKeys.includes('rssi_815'), 'fixture sanity: raw row has rssi_815');
-  assert.ok(rawKeys.includes('osm_road_class'), 'fixture sanity: raw row has osm_road_class');
+  assert.ok(
+    rawKeys.includes('rssi_815'),
+    'fixture sanity: raw row has rssi_815',
+  );
+  assert.ok(
+    rawKeys.includes('osm_road_class'),
+    'fixture sanity: raw row has osm_road_class',
+  );
   assert.ok(rawKeys.includes('sats'), 'fixture sanity: raw row has sats');
 
   const pts = mapManager._collectGpsPoints(analyzer.raw);
   assert.ok(pts.length > 0, 'fixture produces at least one GPS fix');
 
   for (const pt of pts) {
-    assert.deepStrictEqual(Object.keys(pt).sort(), EXPECTED_KEYS,
-      'gpsPoints entry must carry exactly the fields the pipeline reads, no more');
+    assert.deepStrictEqual(
+      Object.keys(pt).sort(),
+      EXPECTED_KEYS,
+      'gpsPoints entry must carry exactly the fields the pipeline reads, no more',
+    );
     assert.ok(!('rssi_815' in pt), 'rssi_815 must not leak into gpsPoints');
-    assert.ok(!('osm_road_class' in pt), 'osm_road_class must not leak into gpsPoints');
+    assert.ok(
+      !('osm_road_class' in pt),
+      'osm_road_class must not leak into gpsPoints',
+    );
     assert.ok(!('sats' in pt), 'sats must not leak into gpsPoints');
   }
 });
@@ -97,13 +123,35 @@ test('_collectGpsPoints: full pipeline output (drawPoints) still carries every r
   const { window, mapManager } = await boot();
   const analyzer = new window.GSRAnalyzer();
   analyzer.parseCSV(SAMPLE_CSV);
-  const gpsParams = { maxHdop: 2.0, smoothing: 0.5, kalmanR: 10, maxSpeed: 30.0, rdpTolerance: 0, downsample: false };
+  const gpsParams = {
+    maxHdop: 2.0,
+    smoothing: 0.5,
+    kalmanR: 10,
+    maxSpeed: 30.0,
+    rdpTolerance: 0,
+    downsample: false,
+  };
 
-  const { drawPoints } = mapManager._getOrBuildDrawPoints('test-track', analyzer, gpsParams);
-  assert.ok(drawPoints.length > 0, 'pipeline produces draw points from the fixture');
+  const { drawPoints } = mapManager._getOrBuildDrawPoints(
+    'test-track',
+    analyzer,
+    gpsParams,
+  );
+  assert.ok(
+    drawPoints.length > 0,
+    'pipeline produces draw points from the fixture',
+  );
   for (const dp of drawPoints) {
     const src = analyzer.raw[dp.origIdx];
-    assert.strictEqual(dp.rssi_815, src.rssi_815, 'rssi_815 must survive into drawPoints (RF fluid renderer reads it)');
-    assert.strictEqual(dp.osm_road_class, src.osm_road_class, 'osm_road_class must survive into drawPoints (coloring metric dropdown reads it)');
+    assert.strictEqual(
+      dp.rssi_815,
+      src.rssi_815,
+      'rssi_815 must survive into drawPoints (RF fluid renderer reads it)',
+    );
+    assert.strictEqual(
+      dp.osm_road_class,
+      src.osm_road_class,
+      'osm_road_class must survive into drawPoints (coloring metric dropdown reads it)',
+    );
   }
 });

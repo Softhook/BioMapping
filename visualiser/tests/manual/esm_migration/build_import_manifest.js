@@ -42,18 +42,57 @@ const PARSE_OPTIONS = {
 // P5_GLOBAL_NAMES/P5_CONSTANTS (not re-derived — that list was itself
 // grepped from source once; duplicating the grep here could drift).
 const P5_GLOBAL_NAMES = [
-  'background', 'beginShape', 'color', 'constrain', 'curveVertex',
-  'endShape', 'fill', 'line', 'noFill', 'noLoop', 'noStroke', 'push', 'pop',
-  'rect', 'redraw', 'resizeCanvas', 'stroke', 'strokeWeight', 'text', 'textAlign',
-  'textSize', 'textStyle', 'vertex', 'loop',
+  'background',
+  'beginShape',
+  'color',
+  'constrain',
+  'curveVertex',
+  'endShape',
+  'fill',
+  'line',
+  'noFill',
+  'noLoop',
+  'noStroke',
+  'push',
+  'pop',
+  'rect',
+  'redraw',
+  'resizeCanvas',
+  'stroke',
+  'strokeWeight',
+  'text',
+  'textAlign',
+  'textSize',
+  'textStyle',
+  'vertex',
+  'loop',
   // found by build_import_manifest.js's first run — real p5 global-mode
   // names/properties boot_app.js's stub list didn't need but renderer_*.js
   // genuinely references bare: canvas dimensions/mouse state, remaining
   // drawing primitives, and the raw p5.Renderer escape hatch.
-  'saveCanvas', 'drawingContext', 'winMouseX', 'winMouseY', 'mouseX', 'mouseY',
-  'map', 'circle', 'textWidth', 'createCanvas', 'width', 'height',
+  'saveCanvas',
+  'drawingContext',
+  'winMouseX',
+  'winMouseY',
+  'mouseX',
+  'mouseY',
+  'map',
+  'circle',
+  'textWidth',
+  'createCanvas',
+  'width',
+  'height',
 ];
-const P5_CONSTANTS = ['CENTER', 'LEFT', 'RIGHT', 'TOP', 'BOTTOM', 'CLOSE', 'BOLD', 'NORMAL'];
+const P5_CONSTANTS = [
+  'CENTER',
+  'LEFT',
+  'RIGHT',
+  'TOP',
+  'BOTTOM',
+  'CLOSE',
+  'BOLD',
+  'NORMAL',
+];
 // Web APIs not in jsdom/Node's global by default but real in browsers,
 // referenced bare by csv_parser.js/live_csv.js/ndvi_sampler.js.
 const EXTRA_WEB_GLOBALS = ['TextEncoder', 'TextDecoder', 'DecompressionStream'];
@@ -62,31 +101,131 @@ const EXTRA_WEB_GLOBALS = ['TextEncoder', 'TextDecoder', 'DecompressionStream'];
 // NOT cross-file dependencies and should never appear as "needs import".
 const KNOWN_GLOBALS = new Set([
   // dual-mode tail / CommonJS artifacts (irrelevant post-migration)
-  'module', 'exports', 'require', 'global', '__methods', '__dirname', '__filename',
+  'module',
+  'exports',
+  'require',
+  'global',
+  '__methods',
+  '__dirname',
+  '__filename',
   // JS builtins
-  'Object', 'Array', 'String', 'Number', 'Boolean', 'Date', 'RegExp', 'Map', 'Set',
-  'WeakMap', 'WeakSet', 'Promise', 'Symbol', 'Proxy', 'Reflect', 'JSON', 'Math',
-  'Error', 'TypeError', 'RangeError', 'SyntaxError', 'ReferenceError', 'EvalError',
-  'URIError', 'AggregateError', 'Infinity', 'NaN', 'undefined', 'isNaN', 'isFinite',
-  'parseInt', 'parseFloat', 'encodeURIComponent', 'decodeURIComponent',
-  'encodeURI', 'decodeURI', 'structuredClone', 'globalThis', 'BigInt', 'ArrayBuffer',
-  'Uint8Array', 'Int8Array', 'Uint16Array', 'Int16Array', 'Uint32Array', 'Int32Array',
-  'Float32Array', 'Float64Array', 'DataView',
+  'Object',
+  'Array',
+  'String',
+  'Number',
+  'Boolean',
+  'Date',
+  'RegExp',
+  'Map',
+  'Set',
+  'WeakMap',
+  'WeakSet',
+  'Promise',
+  'Symbol',
+  'Proxy',
+  'Reflect',
+  'JSON',
+  'Math',
+  'Error',
+  'TypeError',
+  'RangeError',
+  'SyntaxError',
+  'ReferenceError',
+  'EvalError',
+  'URIError',
+  'AggregateError',
+  'Infinity',
+  'NaN',
+  'undefined',
+  'isNaN',
+  'isFinite',
+  'parseInt',
+  'parseFloat',
+  'encodeURIComponent',
+  'decodeURIComponent',
+  'encodeURI',
+  'decodeURI',
+  'structuredClone',
+  'globalThis',
+  'BigInt',
+  'ArrayBuffer',
+  'Uint8Array',
+  'Int8Array',
+  'Uint16Array',
+  'Int16Array',
+  'Uint32Array',
+  'Int32Array',
+  'Float32Array',
+  'Float64Array',
+  'DataView',
   // browser/DOM
-  'window', 'document', 'console', 'navigator', 'location', 'history', 'screen',
-  'fetch', 'XMLHttpRequest', 'Headers', 'Request', 'Response', 'AbortController',
-  'localStorage', 'sessionStorage', 'indexedDB', 'CacheStorage', 'caches',
-  'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval',
-  'requestAnimationFrame', 'cancelAnimationFrame', 'requestIdleCallback',
-  'alert', 'confirm', 'prompt', 'Blob', 'File', 'FileReader', 'URL', 'URLSearchParams',
-  'CustomEvent', 'Event', 'EventTarget', 'MouseEvent', 'KeyboardEvent', 'TouchEvent',
-  'HTMLElement', 'HTMLCanvasElement', 'Image', 'Path2D', 'ImageData', 'OffscreenCanvas',
-  'ResizeObserver', 'IntersectionObserver', 'MutationObserver', 'matchMedia',
-  'performance', 'crypto', 'Worker', 'WebSocket', 'Notification', 'getComputedStyle',
-  'DOMParser', 'XMLSerializer', 'atob', 'btoa',
+  'window',
+  'document',
+  'console',
+  'navigator',
+  'location',
+  'history',
+  'screen',
+  'fetch',
+  'XMLHttpRequest',
+  'Headers',
+  'Request',
+  'Response',
+  'AbortController',
+  'localStorage',
+  'sessionStorage',
+  'indexedDB',
+  'CacheStorage',
+  'caches',
+  'setTimeout',
+  'clearTimeout',
+  'setInterval',
+  'clearInterval',
+  'requestAnimationFrame',
+  'cancelAnimationFrame',
+  'requestIdleCallback',
+  'alert',
+  'confirm',
+  'prompt',
+  'Blob',
+  'File',
+  'FileReader',
+  'URL',
+  'URLSearchParams',
+  'CustomEvent',
+  'Event',
+  'EventTarget',
+  'MouseEvent',
+  'KeyboardEvent',
+  'TouchEvent',
+  'HTMLElement',
+  'HTMLCanvasElement',
+  'Image',
+  'Path2D',
+  'ImageData',
+  'OffscreenCanvas',
+  'ResizeObserver',
+  'IntersectionObserver',
+  'MutationObserver',
+  'matchMedia',
+  'performance',
+  'crypto',
+  'Worker',
+  'WebSocket',
+  'Notification',
+  'getComputedStyle',
+  'DOMParser',
+  'XMLSerializer',
+  'atob',
+  'btoa',
   // vendored non-modular libs (stay classic <script> globals post-migration)
-  'L', 'p5', 'JSZip', 'Cesium',
-  ...P5_GLOBAL_NAMES, ...P5_CONSTANTS, ...EXTRA_WEB_GLOBALS,
+  'L',
+  'p5',
+  'JSZip',
+  'Cesium',
+  ...P5_GLOBAL_NAMES,
+  ...P5_CONSTANTS,
+  ...EXTRA_WEB_GLOBALS,
 ]);
 
 function readSrc(file) {
@@ -105,9 +244,17 @@ function effectiveTopLevel(ast) {
   if (ast.body.length === 1 && ast.body[0].type === 'ExpressionStatement') {
     const expr = ast.body[0].expression;
     const callee = expr.type === 'CallExpression' ? expr.callee : null;
-    const fn = callee && (callee.type === 'FunctionExpression') ? callee
-      : (callee && callee.type === 'ArrowFunctionExpression') ? callee : null;
-    if (expr.type === 'CallExpression' && fn && fn.body.type === 'BlockStatement') {
+    const fn =
+      callee && callee.type === 'FunctionExpression'
+        ? callee
+        : callee && callee.type === 'ArrowFunctionExpression'
+          ? callee
+          : null;
+    if (
+      expr.type === 'CallExpression' &&
+      fn &&
+      fn.body.type === 'BlockStatement'
+    ) {
       return fn.body.body;
     }
   }
@@ -131,7 +278,7 @@ function unresolvedFreeIdentifiers(ast) {
 
 function main() {
   const perFileDeclared = {}; // file -> Set(names)
-  const perFileFree = {};     // file -> Set(names)
+  const perFileFree = {}; // file -> Set(names)
   const parseErrors = [];
 
   for (const file of SCRIPT_ORDER) {
@@ -156,8 +303,8 @@ function main() {
   }
 
   const manifest = {};
-  const ambiguous = new Map();  // name -> definer files
-  const unmatched = new Map();  // name -> [files that reference it]
+  const ambiguous = new Map(); // name -> definer files
+  const unmatched = new Map(); // name -> [files that reference it]
 
   for (const file of SCRIPT_ORDER) {
     if (!perFileFree[file]) continue;
@@ -181,20 +328,42 @@ function main() {
   const outDir = __dirname;
   fs.writeFileSync(
     path.join(outDir, 'import_manifest.json'),
-    JSON.stringify({ manifest, ambiguous: Object.fromEntries(ambiguous), unmatched: Object.fromEntries(unmatched), parseErrors }, null, 2)
+    JSON.stringify(
+      {
+        manifest,
+        ambiguous: Object.fromEntries(ambiguous),
+        unmatched: Object.fromEntries(unmatched),
+        parseErrors,
+      },
+      null,
+      2,
+    ),
   );
 
-  console.log(`Parsed ${SCRIPT_ORDER.length} files (${parseErrors.length} parse errors).`);
-  console.log(`${Object.keys(manifest).length} files have at least one cross-file reference to resolve.`);
-  console.log(`${ambiguous.size} names are declared in more than one file (needs manual disambiguation):`);
-  for (const [name, files] of ambiguous) console.log(`  ${name}  ->  ${files.join(', ')}`);
-  console.log(`${unmatched.size} referenced names match no declaration anywhere (likely a missing KNOWN_GLOBALS entry, or a real bug):`);
-  for (const [name, files] of unmatched) console.log(`  ${name}  <-  ${files.join(', ')}`);
+  console.log(
+    `Parsed ${SCRIPT_ORDER.length} files (${parseErrors.length} parse errors).`,
+  );
+  console.log(
+    `${Object.keys(manifest).length} files have at least one cross-file reference to resolve.`,
+  );
+  console.log(
+    `${ambiguous.size} names are declared in more than one file (needs manual disambiguation):`,
+  );
+  for (const [name, files] of ambiguous)
+    console.log(`  ${name}  ->  ${files.join(', ')}`);
+  console.log(
+    `${unmatched.size} referenced names match no declaration anywhere (likely a missing KNOWN_GLOBALS entry, or a real bug):`,
+  );
+  for (const [name, files] of unmatched)
+    console.log(`  ${name}  <-  ${files.join(', ')}`);
   if (parseErrors.length) {
     console.log('Parse errors:');
-    for (const { file, error } of parseErrors) console.log(`  ${file}: ${error}`);
+    for (const { file, error } of parseErrors)
+      console.log(`  ${file}: ${error}`);
   }
-  console.log(`\nFull manifest written to ${path.relative(APP_DIR, path.join(outDir, 'import_manifest.json'))}`);
+  console.log(
+    `\nFull manifest written to ${path.relative(APP_DIR, path.join(outDir, 'import_manifest.json'))}`,
+  );
 }
 
 main();

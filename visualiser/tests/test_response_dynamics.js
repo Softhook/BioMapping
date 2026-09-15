@@ -18,8 +18,17 @@ const { GSRAnalyzer } = require('../src/signal/analyzer.mjs');
 
 test('Response Dynamics: ResponseDynamics domain module unit tests', () => {
   // 1. Canonical scales & labels
-  assert.deepStrictEqual(ResponseDynamics.SCALE_FACTORS, [0.5, 0.75, 1.0, 1.25, 1.5]);
-  assert.deepStrictEqual(ResponseDynamics.SPEED_LABELS, ['Very Slow', 'Slow', 'Standard', 'Fast', 'Very Fast']);
+  assert.deepStrictEqual(
+    ResponseDynamics.SCALE_FACTORS,
+    [0.5, 0.75, 1.0, 1.25, 1.5],
+  );
+  assert.deepStrictEqual(ResponseDynamics.SPEED_LABELS, [
+    'Very Slow',
+    'Slow',
+    'Standard',
+    'Fast',
+    'Very Fast',
+  ]);
 
   // 2. Band resolution
   assert.strictEqual(ResponseDynamics.getBand(0.5).label, 'Very Slow');
@@ -58,11 +67,23 @@ test('Response Dynamics: ResponseDynamics domain module unit tests', () => {
   // 6. Peak tagging & statistics
   const dummyPeaks = [
     { index: 10, amplitude: 0.5 },
-    { index: 50, amplitude: 0.8 }
+    { index: 50, amplitude: 0.8 },
   ];
   const dummyDrivers = [
-    { index: 8, amplitude: 0.5, speedLabel: 'Very Fast', scaleFactor: 1.5, bandIdx: 4 },
-    { index: 48, amplitude: 0.8, speedLabel: 'Slow', scaleFactor: 0.75, bandIdx: 1 }
+    {
+      index: 8,
+      amplitude: 0.5,
+      speedLabel: 'Very Fast',
+      scaleFactor: 1.5,
+      bandIdx: 4,
+    },
+    {
+      index: 48,
+      amplitude: 0.8,
+      speedLabel: 'Slow',
+      scaleFactor: 0.75,
+      bandIdx: 1,
+    },
   ];
   const stats = ResponseDynamics.tagPeaks(dummyPeaks, dummyDrivers, 4);
   assert.strictEqual(dummyPeaks[0].speedLabel, 'Very Fast');
@@ -75,24 +96,41 @@ test('Response Dynamics: ResponseDynamics domain module unit tests', () => {
 });
 
 test('Response Dynamics: constants definitions', () => {
-  assert.ok(GSR_CONST.LOWER_GRAPH_MODES.responseDynamics, 'responseDynamics is registered in LOWER_GRAPH_MODES');
+  assert.ok(
+    GSR_CONST.LOWER_GRAPH_MODES.responseDynamics,
+    'responseDynamics is registered in LOWER_GRAPH_MODES',
+  );
   assert.strictEqual(GSR_CONST.LOWER_GRAPH_MODES.responseDynamics.unit, 'μS');
   assert.strictEqual(GSR_CONST.LOWER_GRAPH_MODES.responseDynamics.decimals, 3);
 
-  assert.ok(GSR_CONST.SPARSEDA_SPEED_COLORS, 'SPARSEDA_SPEED_COLORS is defined');
+  assert.ok(
+    GSR_CONST.SPARSEDA_SPEED_COLORS,
+    'SPARSEDA_SPEED_COLORS is defined',
+  );
   const speeds = ['Very Slow', 'Slow', 'Standard', 'Fast', 'Very Fast'];
   for (const s of speeds) {
-    assert.ok(GSR_CONST.SPARSEDA_SPEED_COLORS[s], `Color exists for speed ${s}`);
+    assert.ok(
+      GSR_CONST.SPARSEDA_SPEED_COLORS[s],
+      `Color exists for speed ${s}`,
+    );
   }
 });
 
 test('Response Dynamics: MapColors.getColorForMetric integration', () => {
   // Test Resting / Inactive (val <= 0 or NaN)
   const cRest = MapColors.getColorForMetric('responseDynamics', 0.0);
-  assert.strictEqual(cRest, 'transparent', '0.0 maps to transparent resting color');
+  assert.strictEqual(
+    cRest,
+    'transparent',
+    '0.0 maps to transparent resting color',
+  );
 
   const cNan = MapColors.getColorForMetric('responseDynamics', NaN);
-  assert.strictEqual(cNan, 'transparent', 'NaN maps to transparent resting color');
+  assert.strictEqual(
+    cNan,
+    'transparent',
+    'NaN maps to transparent resting color',
+  );
 
   // Test 0.5x (Very Slow, Purple)
   const c05 = MapColors.getColorForMetric('responseDynamics', 0.5);
@@ -125,7 +163,7 @@ test('Response Dynamics: GSRAnalyzer delegation & peak exclusion reactivity', ()
 
   // Case 2: One fast peak (scale 1.5x) at index 100 (t=25s)
   analyzer.peaks = [
-    { index: 100, time: 25, scaleFactor: 1.5, amplitude: 0.5, excluded: false }
+    { index: 100, time: 25, scaleFactor: 1.5, amplitude: 0.5, excluded: false },
   ];
   analyzer.responseDynamics = analyzer.computeResponseDynamics();
   assert.strictEqual(analyzer.responseDynamics.length, n);
@@ -133,30 +171,49 @@ test('Response Dynamics: GSRAnalyzer delegation & peak exclusion reactivity', ()
   assert.strictEqual(analyzer.responseDynamics[0].val, 0.0);
   assert.strictEqual(analyzer.responseDynamics[250].val, 0.0);
 
-  const fastActiveCount = analyzer.responseDynamics.filter(d => d.val > 0).length;
+  const fastActiveCount = analyzer.responseDynamics.filter(
+    (d) => d.val > 0,
+  ).length;
 
   // Case 3: One slow peak (scale 0.5x) at index 100 (t=25s)
   analyzer.peaks = [
-    { index: 100, time: 25, scaleFactor: 0.5, amplitude: 0.5, excluded: false }
+    { index: 100, time: 25, scaleFactor: 0.5, amplitude: 0.5, excluded: false },
   ];
   const dynSlow = analyzer.computeResponseDynamics();
   assert.strictEqual(dynSlow[100].val, 0.5);
-  const slowActiveCount = dynSlow.filter(d => d.val > 0).length;
+  const slowActiveCount = dynSlow.filter((d) => d.val > 0).length;
 
   // Slower peak MUST have a significantly longer active footprint on the ground/track than fast peak
-  assert.ok(slowActiveCount > fastActiveCount * 2, `Slow event footprint (${slowActiveCount}) should be >2x fast footprint (${fastActiveCount})`);
+  assert.ok(
+    slowActiveCount > fastActiveCount * 2,
+    `Slow event footprint (${slowActiveCount}) should be >2x fast footprint (${fastActiveCount})`,
+  );
 
   // Case 4: Reactivity to setPeakExcluded()
   analyzer.setPeakExcluded(0, true);
   // Since peak 0 is now excluded, responseDynamics should automatically update to resting baseline
-  assert.strictEqual(analyzer.responseDynamics[100].val, 0.0, 'Excluded peak automatically clears response dynamics series');
+  assert.strictEqual(
+    analyzer.responseDynamics[100].val,
+    0.0,
+    'Excluded peak automatically clears response dynamics series',
+  );
 
   // Case 5: _runDeconvolutionPipeline clears sparsedaStats and responseDynamics on re-run
   analyzer.sparsedaStats = { dummy: true };
   analyzer.responseDynamics = [{ time: 0, val: 1.0 }];
-  analyzer._runDeconvolutionPipeline([], { deconvAlgorithm: 'matching_pursuit' });
-  assert.strictEqual(analyzer.sparsedaStats, null, 'sparsedaStats reset on switching deconv algorithm');
-  assert.deepStrictEqual(analyzer.responseDynamics, [], 'responseDynamics reset on switching deconv algorithm');
+  analyzer._runDeconvolutionPipeline([], {
+    deconvAlgorithm: 'matching_pursuit',
+  });
+  assert.strictEqual(
+    analyzer.sparsedaStats,
+    null,
+    'sparsedaStats reset on switching deconv algorithm',
+  );
+  assert.deepStrictEqual(
+    analyzer.responseDynamics,
+    [],
+    'responseDynamics reset on switching deconv algorithm',
+  );
 });
 
 test('Response Dynamics: UI sync logic', () => {
@@ -169,16 +226,20 @@ test('Response Dynamics: UI sync logic', () => {
   // singleton's own fields in place instead (same pattern as layer 2's
   // GSR_CONST fix).
   const { AppState: RealAppState } = require('../src/core/app_state.mjs');
-  const original = { analyzer: RealAppState.analyzer, sliders: RealAppState.sliders };
+  const original = {
+    analyzer: RealAppState.analyzer,
+    sliders: RealAppState.sliders,
+  };
   RealAppState.analyzer = { _driverAlgorithm: 'sparseda' };
   RealAppState.sliders = {
     graphView: {
       value: 'signal',
       querySelector: (sel) => {
-        if (sel === 'option[value="responseDynamics"]') return { disabled: true };
+        if (sel === 'option[value="responseDynamics"]')
+          return { disabled: true };
         return null;
-      }
-    }
+      },
+    },
   };
 
   try {
@@ -194,31 +255,51 @@ test('Response Dynamics: UI sync logic', () => {
               if (sel === 'option[value="responseDynamics"]') return mapOption;
               return null;
             },
-            dispatchEvent: () => {}
+            dispatchEvent: () => {},
           };
         }
         return null;
-      }
+      },
     };
 
     // 1. In SparsEDA mode: options should become enabled (disabled = false)
     GSRUI.syncResponseDynamicsOptions();
-    assert.strictEqual(mapOption.disabled, false, 'Map option should be enabled when SparsEDA is active');
+    assert.strictEqual(
+      mapOption.disabled,
+      false,
+      'Map option should be enabled when SparsEDA is active',
+    );
 
     // 2. When switching away from SparsEDA: options should become disabled
     RealAppState.analyzer._driverAlgorithm = 'matching_pursuit';
     let mapEventDispatched = false;
     const mapElem = {
       value: 'responseDynamics',
-      querySelector: (sel) => (sel === 'option[value="responseDynamics"]' ? mapOption : null),
-      dispatchEvent: () => { mapEventDispatched = true; }
+      querySelector: (sel) =>
+        sel === 'option[value="responseDynamics"]' ? mapOption : null,
+      dispatchEvent: () => {
+        mapEventDispatched = true;
+      },
     };
-    global.document.getElementById = (id) => (id === 'mapColoringMetric' ? mapElem : RealAppState.sliders.graphView);
+    global.document.getElementById = (id) =>
+      id === 'mapColoringMetric' ? mapElem : RealAppState.sliders.graphView;
 
     GSRUI.syncResponseDynamicsOptions();
-    assert.strictEqual(mapOption.disabled, true, 'Map option should be disabled when SparsEDA is inactive');
-    assert.strictEqual(mapElem.value, 'gsr', 'Map selection should reset to gsr when SparsEDA is disabled');
-    assert.strictEqual(mapEventDispatched, true, 'Map change event dispatched on reset');
+    assert.strictEqual(
+      mapOption.disabled,
+      true,
+      'Map option should be disabled when SparsEDA is inactive',
+    );
+    assert.strictEqual(
+      mapElem.value,
+      'gsr',
+      'Map selection should reset to gsr when SparsEDA is disabled',
+    );
+    assert.strictEqual(
+      mapEventDispatched,
+      true,
+      'Map change event dispatched on reset',
+    );
   } finally {
     Object.assign(RealAppState, original);
   }

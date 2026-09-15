@@ -21,7 +21,6 @@ import { GSRStorage } from './storage.mjs';
 import { GSRTrackManager } from './tracks.mjs';
 
 export const GSRUI = {
-
   _resolveTrackAndAnalyzer(trackId) {
     let track = null;
     let analyzer = null;
@@ -41,7 +40,9 @@ export const GSRUI = {
     if (track) {
       track.hasUnsavedLabels = true;
     } else if (AppState.activeTrackId) {
-      const activeTrack = AppState.collectiveManager.getTrack(AppState.activeTrackId);
+      const activeTrack = AppState.collectiveManager.getTrack(
+        AppState.activeTrackId,
+      );
       if (activeTrack) activeTrack.hasUnsavedLabels = true;
     }
   },
@@ -55,7 +56,10 @@ export const GSRUI = {
     if (AppState.viewMode === 'single') {
       if (!AppState.analyzer || AppState.analyzer.raw.length === 0) return;
       GSRTrackManager.saveActiveGpsParams();
-      AppState.mapManager.renderData(AppState.analyzer, GSRStorage.buildGpsParams());
+      AppState.mapManager.renderData(
+        AppState.analyzer,
+        GSRStorage.buildGpsParams(),
+      );
     } else {
       GSRUI.updateCollectiveMap();
     }
@@ -78,12 +82,15 @@ export const GSRUI = {
         GSRTrackManager.saveActiveTrackParams();
         AppState.analyzer.analyze(params, peakLatency);
         if (AppState.mapManager) {
-          AppState.mapManager.renderData(AppState.analyzer, GSRStorage.buildGpsParams());
+          AppState.mapManager.renderData(
+            AppState.analyzer,
+            GSRStorage.buildGpsParams(),
+          );
         }
       } else {
         if (AppState.collectiveManager) {
           const activeTracks = AppState.collectiveManager.getActiveTracks();
-          activeTracks.forEach(track => {
+          activeTracks.forEach((track) => {
             track.analyzer.analyze(params, peakLatency);
             track.filterParams = { ...params };
           });
@@ -101,8 +108,8 @@ export const GSRUI = {
       GSRUI.syncMapPanelForSpatialData();
       redraw();
     } catch (err) {
-      console.error("Analysis error:", err);
-      alert("Error running analysis: " + err.message);
+      console.error('Analysis error:', err);
+      alert('Error running analysis: ' + err.message);
     }
   },
 
@@ -114,11 +121,19 @@ export const GSRUI = {
 
     const centerTime = AppState.viewStartTime + AppState.viewDuration / 2;
 
-    AppState.viewDuration = constrain(AppState.viewDuration / multiplier, 2.0, AppState.totalDuration);
+    AppState.viewDuration = constrain(
+      AppState.viewDuration / multiplier,
+      2.0,
+      AppState.totalDuration,
+    );
     AppState.zoomFactor = AppState.totalDuration / AppState.viewDuration;
 
     AppState.viewStartTime = centerTime - AppState.viewDuration / 2;
-    AppState.viewStartTime = constrain(AppState.viewStartTime, 0, Math.max(0, AppState.totalDuration - AppState.viewDuration));
+    AppState.viewStartTime = constrain(
+      AppState.viewStartTime,
+      0,
+      Math.max(0, AppState.totalDuration - AppState.viewDuration),
+    );
 
     redraw();
   },
@@ -133,7 +148,9 @@ export const GSRUI = {
     AppState.zoomFactor = 1.0;
     AppState.activePeakIndex = -1;
 
-    document.querySelectorAll('#peaksTable tbody tr').forEach(r => { r.classList.remove('active-row'); });
+    document.querySelectorAll('#peaksTable tbody tr').forEach((r) => {
+      r.classList.remove('active-row');
+    });
 
     redraw();
   },
@@ -143,7 +160,8 @@ export const GSRUI = {
     if (!s || s.length === 0) return 0;
     if (s.length === 1) return s[0];
     const idx = (s.length - 1) * p;
-    const lo = Math.floor(idx), hi = Math.ceil(idx);
+    const lo = Math.floor(idx),
+      hi = Math.ceil(idx);
     return s[lo] + (s[hi] - s[lo]) * (idx - lo);
   },
 
@@ -160,9 +178,10 @@ export const GSRUI = {
       return;
     }
 
-    const warning = trackId === 'ALL'
-      ? 'You have unsaved peak labels across loaded tracks.'
-      : `Track "${trackName}" has unsaved peak labels.`;
+    const warning =
+      trackId === 'ALL'
+        ? 'You have unsaved peak labels across loaded tracks.'
+        : `Track "${trackName}" has unsaved peak labels.`;
 
     // Log the warning through the notices layer; the dialog below is the
     // visible notice and the decision point, so no duplicate toast.
@@ -170,9 +189,10 @@ export const GSRUI = {
 
     const action = await GSRNotices.dialog({
       title: 'Unsaved Labels',
-      message: trackId === 'ALL'
-        ? `${warning} Would you like to export your project bundle before closing, or lose all unsaved labels?`
-        : `${warning} Would you like to export your peak labels to CSV before closing, or lose unsaved labels?`,
+      message:
+        trackId === 'ALL'
+          ? `${warning} Would you like to export your project bundle before closing, or lose all unsaved labels?`
+          : `${warning} Would you like to export your peak labels to CSV before closing, or lose unsaved labels?`,
       buttons: [
         { label: 'Export CSV', value: 'export', style: 'primary' },
         { label: 'Lose Labels', value: 'lose', style: 'danger' },
@@ -196,5 +216,4 @@ export const GSRUI = {
       onConfirmClose();
     }
   },
-
 };

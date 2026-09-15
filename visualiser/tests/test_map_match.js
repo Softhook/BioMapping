@@ -17,7 +17,9 @@ const { MapMatcher } = require('../src/gps/map_match.mjs');
 
 const METERS_PER_DEG_LAT = 111320.0;
 
-function metersToLatDeg(m) { return m / METERS_PER_DEG_LAT; }
+function metersToLatDeg(m) {
+  return m / METERS_PER_DEG_LAT;
+}
 
 function way(id, coordinates, highway = 'residential') {
   return { type: 'way', id, tags: { highway }, coordinates };
@@ -44,38 +46,59 @@ test('match: single point with no nearby roads passes through unchanged with alp
 });
 
 test('match: single point right on a road snaps with alpha near 1 and wayId set', () => {
-  const w = way('W1', [{ lat: 0, lon: 0 }, { lat: 0, lon: 0.001 }]);
+  const w = way('W1', [
+    { lat: 0, lon: 0 },
+    { lat: 0, lon: 0.001 },
+  ]);
   const raw = [{ time: 0 }];
   const evalPoints = [{ idx: 0, lat: 0, lon: 0.0005, nearby: [w] }];
   const result = MapMatcher.match(evalPoints, raw, 50);
   const r = result.get(0);
   assert.strictEqual(r.wayId, 'W1');
-  assert.ok(r.alpha > 0.99, `expected alpha ~1 for a fix exactly on the road, got ${r.alpha}`);
+  assert.ok(
+    r.alpha > 0.99,
+    `expected alpha ~1 for a fix exactly on the road, got ${r.alpha}`,
+  );
   assert.ok(r.dist < 1e-6);
 });
 
 test('match: result Map keys are raw-array indices (pt.idx), not sequence position', () => {
-  const w = way('W1', [{ lat: 0, lon: 0 }, { lat: 0, lon: 0.001 }]);
+  const w = way('W1', [
+    { lat: 0, lon: 0 },
+    { lat: 0, lon: 0.001 },
+  ]);
   const raw = [{ time: 0 }, {}, {}, { time: 3 }, { time: 4 }]; // idx 1,2 skipped from evalPoints
   const evalPoints = [
-    { idx: 0, lat: 0, lon: 0.0000, nearby: [w] },
+    { idx: 0, lat: 0, lon: 0.0, nearby: [w] },
     { idx: 3, lat: 0, lon: 0.0005, nearby: [w] },
-    { idx: 4, lat: 0, lon: 0.0010, nearby: [w] },
+    { idx: 4, lat: 0, lon: 0.001, nearby: [w] },
   ];
   const result = MapMatcher.match(evalPoints, raw, 50);
-  assert.deepStrictEqual([...result.keys()].sort((a, b) => a - b), [0, 3, 4]);
+  assert.deepStrictEqual(
+    [...result.keys()].sort((a, b) => a - b),
+    [0, 3, 4],
+  );
 });
 
 test('match: matchRadius override excludes roads outside the custom radius', () => {
-  const w = way('W1', [{ lat: 0, lon: 0 }, { lat: 0, lon: 0.001 }]);
+  const w = way('W1', [
+    { lat: 0, lon: 0 },
+    { lat: 0, lon: 0.001 },
+  ]);
   const raw = [{ time: 0 }];
   // ~11 m off the road.
-  const evalPoints = [{ idx: 0, lat: metersToLatDeg(11), lon: 0.0005, nearby: [w] }];
+  const evalPoints = [
+    { idx: 0, lat: metersToLatDeg(11), lon: 0.0005, nearby: [w] },
+  ];
   const withDefault = MapMatcher.match(evalPoints, raw, 50).get(0);
   assert.strictEqual(withDefault.wayId, 'W1');
 
   const withTightRadius = MapMatcher.match(evalPoints, raw, 5).get(0);
-  assert.strictEqual(withTightRadius.wayId, null, 'a 5 m radius should exclude a road 11 m away');
+  assert.strictEqual(
+    withTightRadius.wayId,
+    null,
+    'a 5 m radius should exclude a road 11 m away',
+  );
 });
 
 // ─── match(): connected multi-way path with a turn (synthetic road network) ─
@@ -83,14 +106,22 @@ test('match: matchRadius override excludes roads outside the custom radius', () 
 test('match: sequence turning through two connected ways (L-shaped junction) snaps each leg correctly', () => {
   // Eastbound leg then a 90-degree turn north, sharing an exact junction
   // coordinate so the two ways are topologically connected.
-  const wayA = way('A', [{ lat: 0, lon: 0 }, { lat: 0, lon: 0.0006 }, { lat: 0, lon: 0.0012 }]);
-  const wayB = way('B', [{ lat: 0, lon: 0.0012 }, { lat: 0.0006, lon: 0.0012 }, { lat: 0.0012, lon: 0.0012 }]);
+  const wayA = way('A', [
+    { lat: 0, lon: 0 },
+    { lat: 0, lon: 0.0006 },
+    { lat: 0, lon: 0.0012 },
+  ]);
+  const wayB = way('B', [
+    { lat: 0, lon: 0.0012 },
+    { lat: 0.0006, lon: 0.0012 },
+    { lat: 0.0012, lon: 0.0012 },
+  ]);
   const nearby = [wayA, wayB];
 
   const offset = metersToLatDeg(3); // ~3 m noisy lateral offset, well inside SIGMA_M-scale confidence
 
   const evalPoints = [
-    { idx: 0, lat: offset, lon: 0.0000, nearby }, // on A, offset north
+    { idx: 0, lat: offset, lon: 0.0, nearby }, // on A, offset north
     { idx: 1, lat: offset, lon: 0.0003, nearby },
     { idx: 2, lat: offset, lon: 0.0006, nearby },
     { idx: 3, lat: offset, lon: 0.0009, nearby },
@@ -106,13 +137,27 @@ test('match: sequence turning through two connected ways (L-shaped junction) sna
 
   for (const idx of [0, 1, 2, 3]) {
     const r = result.get(idx);
-    assert.strictEqual(r.wayId, 'A', `point ${idx} should snap to way A (before the turn)`);
-    assert.ok(r.alpha > 0.8, `point ${idx} should have high snap confidence, got alpha=${r.alpha}`);
+    assert.strictEqual(
+      r.wayId,
+      'A',
+      `point ${idx} should snap to way A (before the turn)`,
+    );
+    assert.ok(
+      r.alpha > 0.8,
+      `point ${idx} should have high snap confidence, got alpha=${r.alpha}`,
+    );
   }
   for (const idx of [4, 5, 6, 7]) {
     const r = result.get(idx);
-    assert.strictEqual(r.wayId, 'B', `point ${idx} should snap to way B (after the turn)`);
-    assert.ok(r.alpha > 0.8, `point ${idx} should have high snap confidence, got alpha=${r.alpha}`);
+    assert.strictEqual(
+      r.wayId,
+      'B',
+      `point ${idx} should snap to way B (after the turn)`,
+    );
+    assert.ok(
+      r.alpha > 0.8,
+      `point ${idx} should have high snap confidence, got alpha=${r.alpha}`,
+    );
   }
 });
 
@@ -124,18 +169,24 @@ test('match: one noisy GPS fix near a disconnected side street does not pull the
   // NOT topologically connected to the main way (endpoints >5 m apart), so
   // detouring onto it and back costs two DISCONNECTED_PENALTY_M transitions
   // — vastly outweighing the small emission-probability gain.
-  const wayMain = way('MAIN', [{ lat: 0, lon: 0 }, { lat: 0, lon: 0.0015 }]);
+  const wayMain = way('MAIN', [
+    { lat: 0, lon: 0 },
+    { lat: 0, lon: 0.0015 },
+  ]);
   const decoyLat = -metersToLatDeg(20); // 20 m south, parallel, disconnected
-  const wayDecoy = way('DECOY', [{ lat: decoyLat, lon: 0 }, { lat: decoyLat, lon: 0.0015 }]);
+  const wayDecoy = way('DECOY', [
+    { lat: decoyLat, lon: 0 },
+    { lat: decoyLat, lon: 0.0015 },
+  ]);
   const nearby = [wayMain, wayDecoy];
 
   const mainOffset = metersToLatDeg(3); // trace normally hugs the main road, 3 m off
   const noisyLat = decoyLat + metersToLatDeg(3); // but fix #2 drifts to within 3 m of the decoy
 
   const evalPoints = [
-    { idx: 0, lat: mainOffset, lon: 0.0000, nearby },
+    { idx: 0, lat: mainOffset, lon: 0.0, nearby },
     { idx: 1, lat: mainOffset, lon: 0.0003, nearby },
-    { idx: 2, lat: noisyLat,   lon: 0.0006, nearby }, // noisy fix, much closer to the decoy
+    { idx: 2, lat: noisyLat, lon: 0.0006, nearby }, // noisy fix, much closer to the decoy
     { idx: 3, lat: mainOffset, lon: 0.0009, nearby },
     { idx: 4, lat: mainOffset, lon: 0.0012, nearby },
   ];
@@ -144,8 +195,11 @@ test('match: one noisy GPS fix near a disconnected side street does not pull the
   const result = MapMatcher.match(evalPoints, raw, 50);
 
   for (const idx of [0, 1, 2, 3, 4]) {
-    assert.strictEqual(result.get(idx).wayId, 'MAIN',
-      `point ${idx} should stay on MAIN despite fix 2's proximity to the disconnected decoy`);
+    assert.strictEqual(
+      result.get(idx).wayId,
+      'MAIN',
+      `point ${idx} should stay on MAIN despite fix 2's proximity to the disconnected decoy`,
+    );
   }
 });
 
@@ -154,8 +208,14 @@ test('match: a large time gap (> MAX_GAP_S) breaks the Markov chain instead of f
   // separated by a 100 s gap (> MAX_GAP_S=30). Each point should still snap
   // to its own nearby road (emission-only) rather than being dragged toward
   // consistency with the other cluster's road.
-  const wayA = way('A', [{ lat: 0, lon: 0 }, { lat: 0, lon: 0.001 }]);
-  const wayB = way('B', [{ lat: 1, lon: 1 }, { lat: 1, lon: 1.001 }]);
+  const wayA = way('A', [
+    { lat: 0, lon: 0 },
+    { lat: 0, lon: 0.001 },
+  ]);
+  const wayB = way('B', [
+    { lat: 1, lon: 1 },
+    { lat: 1, lon: 1.001 },
+  ]);
 
   const evalPoints = [
     { idx: 0, lat: 0, lon: 0.0002, nearby: [wayA] },
@@ -173,10 +233,13 @@ test('match: a large time gap (> MAX_GAP_S) breaks the Markov chain instead of f
 });
 
 test('match: a gap point with zero candidates does not corrupt the rest of the sequence (backtrace safeguard)', () => {
-  const w = way('A', [{ lat: 0, lon: 0 }, { lat: 0, lon: 0.001 }]);
+  const w = way('A', [
+    { lat: 0, lon: 0 },
+    { lat: 0, lon: 0.001 },
+  ]);
   const evalPoints = [
     { idx: 0, lat: 0, lon: 0.0002, nearby: [w] },
-    { idx: 1, lat: 9, lon: 9, nearby: [] },       // stranded far from any road
+    { idx: 1, lat: 9, lon: 9, nearby: [] }, // stranded far from any road
     { idx: 2, lat: 0, lon: 0.0008, nearby: [w] },
   ];
   const raw = evalPoints.map((_, i) => ({ time: i }));
@@ -200,10 +263,26 @@ test('match: road-class penalty breaks an EXACT distance tie in favour of a foot
   // thanks to its -8 m class bonus. This test documents that tie-break
   // mechanism; it is NOT evidence that class preference survives a real
   // distance difference (see the "does not override" test below for that).
-  const residential = way('RES', [{ lat: metersToLatDeg(9), lon: 0 }, { lat: metersToLatDeg(9), lon: 0.001 }], 'residential');
-  const footway = way('FOOT', [{ lat: -metersToLatDeg(9), lon: 0 }, { lat: -metersToLatDeg(9), lon: 0.001 }], 'footway');
+  const residential = way(
+    'RES',
+    [
+      { lat: metersToLatDeg(9), lon: 0 },
+      { lat: metersToLatDeg(9), lon: 0.001 },
+    ],
+    'residential',
+  );
+  const footway = way(
+    'FOOT',
+    [
+      { lat: -metersToLatDeg(9), lon: 0 },
+      { lat: -metersToLatDeg(9), lon: 0.001 },
+    ],
+    'footway',
+  );
   const raw = [{ time: 0 }];
-  const evalPoints = [{ idx: 0, lat: 0, lon: 0.0005, nearby: [residential, footway] }];
+  const evalPoints = [
+    { idx: 0, lat: 0, lon: 0.0005, nearby: [residential, footway] },
+  ];
 
   const result = MapMatcher.match(evalPoints, raw, 50);
   assert.strictEqual(result.get(0).wayId, 'FOOT');
@@ -214,26 +293,74 @@ test('match: road-class penalty does NOT override a real distance difference in 
   // distances actually differ, _logEmit's pure-distance Gaussian dominates
   // and the closer road wins regardless of class, even though the farther
   // footway still sorts first in the effDist-ranked candidate list.
-  const residential = way('RES', [{ lat: metersToLatDeg(2), lon: 0 }, { lat: metersToLatDeg(2), lon: 0.001 }], 'residential');
-  const footway = way('FOOT', [{ lat: -metersToLatDeg(8), lon: 0 }, { lat: -metersToLatDeg(8), lon: 0.001 }], 'footway');
+  const residential = way(
+    'RES',
+    [
+      { lat: metersToLatDeg(2), lon: 0 },
+      { lat: metersToLatDeg(2), lon: 0.001 },
+    ],
+    'residential',
+  );
+  const footway = way(
+    'FOOT',
+    [
+      { lat: -metersToLatDeg(8), lon: 0 },
+      { lat: -metersToLatDeg(8), lon: 0.001 },
+    ],
+    'footway',
+  );
   const raw = [{ time: 0 }];
-  const evalPoints = [{ idx: 0, lat: 0, lon: 0.0005, nearby: [residential, footway] }];
+  const evalPoints = [
+    { idx: 0, lat: 0, lon: 0.0005, nearby: [residential, footway] },
+  ];
 
-  const cands = MapMatcher._getCandidates(0, 0.0005, [residential, footway], 50, NaN, NaN);
-  assert.strictEqual(cands[0].wayId, 'FOOT', 'sanity check: the farther footway should still rank first by effDist');
+  const cands = MapMatcher._getCandidates(
+    0,
+    0.0005,
+    [residential, footway],
+    50,
+    NaN,
+    NaN,
+  );
+  assert.strictEqual(
+    cands[0].wayId,
+    'FOOT',
+    'sanity check: the farther footway should still rank first by effDist',
+  );
 
   const result = MapMatcher.match(evalPoints, raw, 50);
-  assert.strictEqual(result.get(0).wayId, 'RES', 'the genuinely closer road should win the actual match despite ranking second');
+  assert.strictEqual(
+    result.get(0).wayId,
+    'RES',
+    'the genuinely closer road should win the actual match despite ranking second',
+  );
 });
 
 test('match: non-highway / malformed geometries in `nearby` are ignored, not crashed on', () => {
   const notAWay = { type: 'node', tags: {}, coordinates: [] };
-  const noHighwayTag = { type: 'way', tags: {}, coordinates: [{ lat: 0, lon: 0 }, { lat: 0, lon: 0.001 }] };
+  const noHighwayTag = {
+    type: 'way',
+    tags: {},
+    coordinates: [
+      { lat: 0, lon: 0 },
+      { lat: 0, lon: 0.001 },
+    ],
+  };
   const tooFewCoords = way('SHORT', [{ lat: 0, lon: 0 }]);
-  const w = way('OK', [{ lat: 0, lon: 0 }, { lat: 0, lon: 0.001 }]);
+  const w = way('OK', [
+    { lat: 0, lon: 0 },
+    { lat: 0, lon: 0.001 },
+  ]);
 
   const raw = [{ time: 0 }];
-  const evalPoints = [{ idx: 0, lat: 0, lon: 0.0005, nearby: [notAWay, noHighwayTag, tooFewCoords, w] }];
+  const evalPoints = [
+    {
+      idx: 0,
+      lat: 0,
+      lon: 0.0005,
+      nearby: [notAWay, noHighwayTag, tooFewCoords, w],
+    },
+  ];
 
   assert.doesNotThrow(() => {
     const result = MapMatcher.match(evalPoints, raw, 50);
@@ -248,13 +375,25 @@ test('match: speed/course-aware candidate ranking breaks an EXACT distance tie i
   // through the fix (dist=0 for each), the emission scores are identical and
   // the backtrace's strict `>` falls through to whichever candidate sorted
   // first — which effDist puts as the heading-aligned one.
-  const eastWest = way('EW', [{ lat: 0, lon: -0.001 }, { lat: 0, lon: 0.001 }]);
-  const northSouth = way('NS', [{ lat: -0.001, lon: 0 }, { lat: 0.001, lon: 0 }]);
+  const eastWest = way('EW', [
+    { lat: 0, lon: -0.001 },
+    { lat: 0, lon: 0.001 },
+  ]);
+  const northSouth = way('NS', [
+    { lat: -0.001, lon: 0 },
+    { lat: 0.001, lon: 0 },
+  ]);
   const raw = [{ time: 0, speedKts: 5, course: 90 }]; // moving due east (~2.57 m/s, above SPEED_GATE)
-  const evalPoints = [{ idx: 0, lat: 0, lon: 0, nearby: [eastWest, northSouth] }];
+  const evalPoints = [
+    { idx: 0, lat: 0, lon: 0, nearby: [eastWest, northSouth] },
+  ];
 
   const result = MapMatcher.match(evalPoints, raw, 50);
-  assert.strictEqual(result.get(0).wayId, 'EW', 'heading-aware ranking should prefer the way aligned with travel direction');
+  assert.strictEqual(
+    result.get(0).wayId,
+    'EW',
+    'heading-aware ranking should prefer the way aligned with travel direction',
+  );
 });
 
 // ─── Internal geometry/probability helpers (documented invariants) ────────
@@ -274,7 +413,11 @@ test('_logEmit: probability strictly decreases as distance from the road increas
 });
 
 test('_wayDistance: same way, forward and reverse traces agree (symmetry)', () => {
-  const coords = [{ lat: 0, lon: 0 }, { lat: 0, lon: 0.001 }, { lat: 0, lon: 0.002 }];
+  const coords = [
+    { lat: 0, lon: 0 },
+    { lat: 0, lon: 0.001 },
+    { lat: 0, lon: 0.002 },
+  ];
   const c1 = { wayId: 'W', coords, segIdx: 0, snapLat: 0, snapLon: 0.0005 };
   const c2 = { wayId: 'W', coords, segIdx: 1, snapLat: 0, snapLon: 0.0015 };
   const fwd = MapMatcher._wayDistance(c1, c2);
@@ -284,9 +427,29 @@ test('_wayDistance: same way, forward and reverse traces agree (symmetry)', () =
 });
 
 test('_routeDistViaJunction: returns Infinity for ways with no shared endpoint within 5 m', () => {
-  const wayA = [{ lat: 0, lon: 0 }, { lat: 0, lon: 0.001 }];
-  const wayC = [{ lat: 5, lon: 5 }, { lat: 5, lon: 5.001 }];
-  const c1 = { wayId: 'A', coords: wayA, segIdx: 0, snapLat: 0, snapLon: 0.0005, endpoints: [wayA[0], wayA[1]] };
-  const c3 = { wayId: 'C', coords: wayC, segIdx: 0, snapLat: 5, snapLon: 5.0005, endpoints: [wayC[0], wayC[1]] };
+  const wayA = [
+    { lat: 0, lon: 0 },
+    { lat: 0, lon: 0.001 },
+  ];
+  const wayC = [
+    { lat: 5, lon: 5 },
+    { lat: 5, lon: 5.001 },
+  ];
+  const c1 = {
+    wayId: 'A',
+    coords: wayA,
+    segIdx: 0,
+    snapLat: 0,
+    snapLon: 0.0005,
+    endpoints: [wayA[0], wayA[1]],
+  };
+  const c3 = {
+    wayId: 'C',
+    coords: wayC,
+    segIdx: 0,
+    snapLat: 5,
+    snapLon: 5.0005,
+    endpoints: [wayC[0], wayC[1]],
+  };
   assert.strictEqual(MapMatcher._routeDistViaJunction(c1, c3), Infinity);
 });

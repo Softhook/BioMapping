@@ -16,19 +16,27 @@ export const OverpassClient = {
   ],
   // Kept for anything (tests, callers) that still reads the single-endpoint
   // shape; always the primary.
-  get overpassEndpoint() { return OverpassClient.ENDPOINTS[0]; },
+  get overpassEndpoint() {
+    return OverpassClient.ENDPOINTS[0];
+  },
 
   // Rate-limit tracker per endpoint (with backwards-compatible getter/setter)
   _endpointCooldowns: new Map(),
 
   get _nextAllowedCallTime() {
-    return OverpassClient._endpointCooldowns.get(OverpassClient.overpassEndpoint) || null;
+    return (
+      OverpassClient._endpointCooldowns.get(OverpassClient.overpassEndpoint) ||
+      null
+    );
   },
   set _nextAllowedCallTime(val) {
     if (val == null) {
       OverpassClient._endpointCooldowns.clear();
     } else {
-      OverpassClient._endpointCooldowns.set(OverpassClient.overpassEndpoint, val);
+      OverpassClient._endpointCooldowns.set(
+        OverpassClient.overpassEndpoint,
+        val,
+      );
     }
   },
 
@@ -92,12 +100,12 @@ out skel qt;`;
         const sec = Math.ceil(wait / 1000);
         cb(`Rate-limited. Waiting ${sec}s before next request…`);
       }
-      await new Promise(r => setTimeout(r, wait));
+      await new Promise((r) => setTimeout(r, wait));
     }
   },
 
   _backoffMs(attempt, baseMs) {
-    const linear = baseMs * Math.pow(2, attempt);
+    const linear = baseMs * 2 ** attempt;
     const jitter = 1 + (Math.random() - 0.5) * 0.5; // 0.75 – 1.25
     return Math.round(linear * jitter);
   },
@@ -138,7 +146,11 @@ out skel qt;`;
       const endpoint = OverpassClient.ENDPOINTS[i];
       const isLastEndpoint = i === OverpassClient.ENDPOINTS.length - 1;
       try {
-        return await OverpassClient._fetchFromEndpoint(endpoint, query, onProgress);
+        return await OverpassClient._fetchFromEndpoint(
+          endpoint,
+          query,
+          onProgress,
+        );
       } catch (err) {
         lastErr = err;
         if (OverpassClient._isNonRetryableError(err) || isLastEndpoint) {
@@ -171,14 +183,14 @@ out skel qt;`;
       let timeoutId;
       try {
         const controller = new AbortController();
-        const timeoutMs = 200000;                       // 200 s network timeout
+        const timeoutMs = 200000; // 200 s network timeout
         timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
         const response = await fetch(endpoint, {
           method: 'POST',
           body: 'data=' + encodeURIComponent(query),
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          signal: controller.signal
+          signal: controller.signal,
         });
 
         if (response.ok) {
@@ -187,7 +199,9 @@ out skel qt;`;
           try {
             json = await response.json();
           } catch (jsonErr) {
-            throw new Error(`Invalid or truncated JSON response: ${jsonErr.message}`);
+            throw new Error(
+              `Invalid or truncated JSON response: ${jsonErr.message}`,
+            );
           }
           if (json && json.remark && /runtime error/i.test(json.remark)) {
             throw new Error(`Overpass server runtime error: ${json.remark}`);
@@ -197,20 +211,24 @@ out skel qt;`;
 
         if (response.status === 429 || response.status === 509) {
           const retryAfterMs = OverpassClient._retryAfterMs(response, 30000);
-          OverpassClient._endpointCooldowns.set(endpoint, Date.now() + retryAfterMs);
+          OverpassClient._endpointCooldowns.set(
+            endpoint,
+            Date.now() + retryAfterMs,
+          );
 
           if (attempt < maxRetries) {
-            const msg = `Overpass API rate-limited (HTTP ${response.status}). ` +
+            const msg =
+              `Overpass API rate-limited (HTTP ${response.status}). ` +
               `Waiting ${Math.ceil(retryAfterMs / 1000)}s… (attempt ${attempt + 1}/${maxRetries})`;
             if (onProgress) onProgress(msg);
-            await new Promise(r => setTimeout(r, retryAfterMs));
+            await new Promise((r) => setTimeout(r, retryAfterMs));
             continue;
           }
 
           throw new Error(
             `Overpass API rejected the request with HTTP ${response.status} (rate-limited). ` +
-            `Try again in a few minutes, or use a smaller search radius / shorter track ` +
-            `to reduce query size.`
+              `Try again in a few minutes, or use a smaller search radius / shorter track ` +
+              `to reduce query size.`,
           );
         }
 
@@ -220,16 +238,16 @@ out skel qt;`;
             if (onProgress) {
               onProgress(
                 `Overpass API timed out (504). Retrying in ${Math.ceil(waitMs / 1000)}s… ` +
-                `(attempt ${attempt + 1}/${maxRetries})`
+                  `(attempt ${attempt + 1}/${maxRetries})`,
               );
             }
-            await new Promise(r => setTimeout(r, waitMs));
+            await new Promise((r) => setTimeout(r, waitMs));
             continue;
           }
           throw new Error(
             `Overpass API timed out after ${maxRetries + 1} attempts. ` +
-            `The track covers too large an area. Try a shorter track, or split ` +
-            `the session into smaller segments.`
+              `The track covers too large an area. Try a shorter track, or split ` +
+              `the session into smaller segments.`,
           );
         }
 
@@ -239,13 +257,15 @@ out skel qt;`;
             if (onProgress) {
               onProgress(
                 `Overpass API unavailable (HTTP ${response.status}). Retrying in ${Math.ceil(waitMs / 1000)}s… ` +
-                `(attempt ${attempt + 1}/${maxRetries})`
+                  `(attempt ${attempt + 1}/${maxRetries})`,
               );
             }
-            await new Promise(r => setTimeout(r, waitMs));
+            await new Promise((r) => setTimeout(r, waitMs));
             continue;
           }
-          throw new Error(`Overpass API is temporarily unavailable (maintenance or overload). Try again later.`);
+          throw new Error(
+            `Overpass API is temporarily unavailable (maintenance or overload). Try again later.`,
+          );
         }
 
         const hints = {
@@ -253,20 +273,20 @@ out skel qt;`;
           403: 'Access denied by the Overpass API.',
           413: 'Request entity too large. Try a shorter track or smaller radius.',
         };
-        const hint = hints[response.status] ||
+        const hint =
+          hints[response.status] ||
           `Unexpected HTTP ${response.status} from the Overpass API.`;
         throw new Error(hint);
-
       } catch (err) {
         if (err.name === 'AbortError' && attempt < maxRetries) {
           const waitMs = OverpassClient._backoffMs(attempt, 5000);
           if (onProgress) {
             onProgress(
               `Request timed out. Retrying in ${Math.ceil(waitMs / 1000)}s… ` +
-              `(attempt ${attempt + 1}/${maxRetries})`
+                `(attempt ${attempt + 1}/${maxRetries})`,
             );
           }
-          await new Promise(r => setTimeout(r, waitMs));
+          await new Promise((r) => setTimeout(r, waitMs));
           continue;
         }
         throw err;
@@ -274,5 +294,5 @@ out skel qt;`;
         clearTimeout(timeoutId);
       }
     }
-  }
+  },
 };

@@ -9,7 +9,6 @@
  * Usage:
  *   node benchmark_precision_rules.js
  */
-'use strict';
 
 const fs = require('fs');
 const path = require('path');
@@ -22,7 +21,10 @@ global.GSR_CONST = require('../../mock_constants.js');
 function loadModule(filePath, varName) {
   const src = fs.readFileSync(filePath, 'utf8');
   const wrapped = src
-    .replace(new RegExp(`class ${varName}\\s*{`), `global.${varName} = class ${varName} {`)
+    .replace(
+      new RegExp(`class ${varName}\\s*{`),
+      `global.${varName} = class ${varName} {`,
+    )
     .replace(new RegExp(`const ${varName}\\s*=`), `global.${varName} =`);
   vm.runInThisContext(wrapped, { filename: filePath });
 }
@@ -40,14 +42,23 @@ const { GSRAnalyzer } = global;
 const D = global.GSR_CONST.GSR_DEFAULT;
 
 const RULES = [
-  { name: 'Baseline Full-Scan',           filter: () => true },
-  { name: 'Full-Scan (Prom >= 0.010 uS)', filter: p => p.prominence >= 0.010 },
-  { name: 'Full-Scan (Prom >= 0.015 uS)', filter: p => p.prominence >= 0.015 },
-  { name: 'Full-Scan (Prom >= 0.020 uS)', filter: p => p.prominence >= 0.020 },
-  { name: 'Full-Scan (Qual >= 0.60)',     filter: p => p.qualityScore >= 0.60 },
-  { name: 'Full-Scan (Qual >= 0.65)',     filter: p => p.qualityScore >= 0.65 },
-  { name: 'Full-Scan (Prom>=0.015 | Qual>=0.60)', filter: p => p.prominence >= 0.015 || p.qualityScore >= 0.60 },
-  { name: 'Full-Scan (Prom>=0.015 & Qual>=0.60)', filter: p => p.prominence >= 0.015 && p.qualityScore >= 0.60 },
+  { name: 'Baseline Full-Scan', filter: () => true },
+  { name: 'Full-Scan (Prom >= 0.010 uS)', filter: (p) => p.prominence >= 0.01 },
+  {
+    name: 'Full-Scan (Prom >= 0.015 uS)',
+    filter: (p) => p.prominence >= 0.015,
+  },
+  { name: 'Full-Scan (Prom >= 0.020 uS)', filter: (p) => p.prominence >= 0.02 },
+  { name: 'Full-Scan (Qual >= 0.60)', filter: (p) => p.qualityScore >= 0.6 },
+  { name: 'Full-Scan (Qual >= 0.65)', filter: (p) => p.qualityScore >= 0.65 },
+  {
+    name: 'Full-Scan (Prom>=0.015 | Qual>=0.60)',
+    filter: (p) => p.prominence >= 0.015 || p.qualityScore >= 0.6,
+  },
+  {
+    name: 'Full-Scan (Prom>=0.015 & Qual>=0.60)',
+    filter: (p) => p.prominence >= 0.015 && p.qualityScore >= 0.6,
+  },
 ];
 
 // Helper to score peaks against ground truth
@@ -58,11 +69,15 @@ function scoreTruth(peaks, truth, tol = 1.0) {
   const ampPairs = [];
 
   for (const p of peaks) {
-    let bestIdx = -1, bestD = Infinity;
+    let bestIdx = -1,
+      bestD = Infinity;
     for (let i = 0; i < truth.length; i++) {
       if (used[i]) continue;
       const d = Math.abs(p.time - truth[i].time);
-      if (d < bestD) { bestIdx = i; bestD = d; }
+      if (d < bestD) {
+        bestIdx = i;
+        bestD = d;
+      }
     }
     if (bestIdx >= 0 && bestD <= tol) {
       used[bestIdx] = true;
@@ -76,10 +91,13 @@ function scoreTruth(peaks, truth, tol = 1.0) {
   const fp = peaks.length - tp;
   const recall = truth.length ? tp / truth.length : 0;
   const prec = peaks.length ? tp / peaks.length : 0;
-  const f1 = (recall + prec) > 0 ? 2 * recall * prec / (recall + prec) : 0;
-  const meanDelta = deltas.length ? deltas.reduce((a, b) => a + b, 0) / deltas.length : NaN;
+  const f1 = recall + prec > 0 ? (2 * recall * prec) / (recall + prec) : 0;
+  const meanDelta = deltas.length
+    ? deltas.reduce((a, b) => a + b, 0) / deltas.length
+    : NaN;
 
-  let sumAbsErr = 0, sumRelErr = 0;
+  let sumAbsErr = 0,
+    sumRelErr = 0;
   for (const [det, tru] of ampPairs) {
     sumAbsErr += Math.abs(det - tru);
     sumRelErr += Math.abs(det - tru) / tru;
@@ -91,15 +109,26 @@ function scoreTruth(peaks, truth, tol = 1.0) {
 }
 
 // 1. Generate multi-seed synthetic ground-truth tracks
-const tmpDir = execSync('mktemp -d -t synth_benchmark.XXXXXX').toString().trim();
-const pyBin = process.env.NEUROKIT_PYTHON || path.join(process.env.HOME, 'neurokit/.venv/bin/python');
+const tmpDir = execSync('mktemp -d -t synth_benchmark.XXXXXX')
+  .toString()
+  .trim();
+const pyBin =
+  process.env.NEUROKIT_PYTHON ||
+  path.join(process.env.HOME, 'neurokit/.venv/bin/python');
 const pyScript = path.join(__dirname, 'generate_ground_truth.py');
 
 console.log('Generating 3-seed synthetic ground-truth suite...');
-execSync(`GROUND_TRUTH_NUM_SEEDS=3 "${pyBin}" "${pyScript}" "${tmpDir}"`, { stdio: 'ignore' });
+execSync(`GROUND_TRUTH_NUM_SEEDS=3 "${pyBin}" "${pyScript}" "${tmpDir}"`, {
+  stdio: 'ignore',
+});
 
 // Load clean scenarios
-const cleanScenarios = ['synth_sparse_clean', 'synth_dense_clean', 'synth_compound_clean', 'synth_low_slow_clean'];
+const cleanScenarios = [
+  'synth_sparse_clean',
+  'synth_dense_clean',
+  'synth_compound_clean',
+  'synth_low_slow_clean',
+];
 const cleanTracks = [];
 for (const seed of ['_s1', '_s2', '_s3']) {
   for (const scen of cleanScenarios) {
@@ -114,13 +143,35 @@ for (const seed of ['_s1', '_s2', '_s3']) {
 }
 
 // Evaluate synthetic performance
-console.log('\n================================================================================');
-console.log('=== PART 1: Synthetic Ground-Truth Evaluation (12 clean tracks, 210 true SCRs) ===');
-console.log('================================================================================');
+console.log(
+  '\n================================================================================',
+);
+console.log(
+  '=== PART 1: Synthetic Ground-Truth Evaluation (12 clean tracks, 210 true SCRs) ===',
+);
+console.log(
+  '================================================================================',
+);
 
-const synthResults = RULES.map(r => ({ rule: r.name, tp: 0, fn: 0, fp: 0, ampPairs: [] }));
-const compoundResults = RULES.map(r => ({ rule: r.name, tp: 0, fn: 0, fp: 0 }));
-const lowSlowResults = RULES.map(r => ({ rule: r.name, tp: 0, fn: 0, fp: 0 }));
+const synthResults = RULES.map((r) => ({
+  rule: r.name,
+  tp: 0,
+  fn: 0,
+  fp: 0,
+  ampPairs: [],
+}));
+const compoundResults = RULES.map((r) => ({
+  rule: r.name,
+  tp: 0,
+  fn: 0,
+  fp: 0,
+}));
+const lowSlowResults = RULES.map((r) => ({
+  rule: r.name,
+  tp: 0,
+  fn: 0,
+  fp: 0,
+}));
 
 for (const tr of cleanTracks) {
   const truth = JSON.parse(fs.readFileSync(tr.gt, 'utf8')).scrs;
@@ -151,27 +202,35 @@ for (const tr of cleanTracks) {
   }
 }
 
-console.log('Rule                             | Recall | Precision | F1 Score | TP / 210 | FP (Clean) | Compound TP/36 | Low-Slow TP/36');
-console.log('---------------------------------|--------|-----------|----------|----------|------------|----------------|---------------');
+console.log(
+  'Rule                             | Recall | Precision | F1 Score | TP / 210 | FP (Clean) | Compound TP/36 | Low-Slow TP/36',
+);
+console.log(
+  '---------------------------------|--------|-----------|----------|----------|------------|----------------|---------------',
+);
 for (let i = 0; i < RULES.length; i++) {
   const tot = synthResults[i];
   const rec = tot.tp / (tot.tp + tot.fn);
-  const prec = (tot.tp + tot.fp) > 0 ? tot.tp / (tot.tp + tot.fp) : 0;
-  const f1 = (rec + prec) > 0 ? 2 * rec * prec / (rec + prec) : 0;
+  const prec = tot.tp + tot.fp > 0 ? tot.tp / (tot.tp + tot.fp) : 0;
+  const f1 = rec + prec > 0 ? (2 * rec * prec) / (rec + prec) : 0;
   const cTp = compoundResults[i].tp;
   const lsTp = lowSlowResults[i].tp;
   console.log(
-    `${tot.rule.padEnd(32)} | ${(100*rec).toFixed(1).padStart(5)}% | ` +
-    `${(100*prec).toFixed(1).padStart(8)}% | ${f1.toFixed(3).padStart(8)} | ` +
-    `${String(tot.tp).padStart(4)}/210 | ${String(tot.fp).padStart(10)} | ` +
-    `${String(cTp).padStart(8)}/36   | ${String(lsTp).padStart(8)}/36`
+    `${tot.rule.padEnd(32)} | ${(100 * rec).toFixed(1).padStart(5)}% | ` +
+      `${(100 * prec).toFixed(1).padStart(8)}% | ${f1.toFixed(3).padStart(8)} | ` +
+      `${String(tot.tp).padStart(4)}/210 | ${String(tot.fp).padStart(10)} | ` +
+      `${String(cTp).padStart(8)}/36   | ${String(lsTp).padStart(8)}/36`,
   );
 }
 
 // 2. Evaluate real tracks against NeuroKit2
-console.log('\n================================================================================');
+console.log(
+  '\n================================================================================',
+);
 console.log('=== PART 2: Real Track Agreement with NeuroKit2 ===');
-console.log('================================================================================');
+console.log(
+  '================================================================================',
+);
 
 const realTracks = [
   'tracks/biomap_live_2026-09-10T17-20-02-105Z.csv',
@@ -179,13 +238,21 @@ const realTracks = [
   'tracks/biomap_053.csv',
   'tracks/biomap_019.csv',
   'tracks/biomap_027.csv',
-].map(t => path.join(REPO_ROOT, t));
+].map((t) => path.join(REPO_ROOT, t));
 
 const nkScript = path.join(__dirname, 'run_neurokit.py');
-const nkOut = JSON.parse(execSync(`"${pyBin}" "${nkScript}" ${realTracks.map(t => `"${t}"`).join(' ')}`).toString());
+const nkOut = JSON.parse(
+  execSync(
+    `"${pyBin}" "${nkScript}" ${realTracks.map((t) => `"${t}"`).join(' ')}`,
+  ).toString(),
+);
 
-console.log('Track                     | NK Peaks | Baseline Full | Prom >= 0.010 | Prom >= 0.015 | Prom >= 0.020 | Qual >= 0.60');
-console.log('--------------------------|----------|---------------|---------------|---------------|---------------|-------------');
+console.log(
+  'Track                     | NK Peaks | Baseline Full | Prom >= 0.010 | Prom >= 0.015 | Prom >= 0.020 | Qual >= 0.60',
+);
+console.log(
+  '--------------------------|----------|---------------|---------------|---------------|---------------|-------------',
+);
 
 for (const t of realTracks) {
   const stem = path.basename(t, '.csv');
@@ -211,18 +278,20 @@ for (const t of realTracks) {
     const kept = basePeaks.filter(rule.filter);
     let matched = 0;
     for (const nkt of nkPeaks) {
-      if (kept.some(p => Math.abs(p.time - nkt) <= 1.0)) matched++;
+      if (kept.some((p) => Math.abs(p.time - nkt) <= 1.0)) matched++;
     }
-    const rec = (100 * matched / nkPeaks.length).toFixed(1) + '%';
+    const rec = ((100 * matched) / nkPeaks.length).toFixed(1) + '%';
     recalls.push(`${matched}/${nkPeaks.length} (${rec})`);
   }
 
   console.log(
     `${stem.slice(0, 25).padEnd(25)} | ${String(nkPeaks.length).padStart(8)} | ` +
-    `${recalls[0].padEnd(13)} | ${recalls[1].padEnd(13)} | ${recalls[2].padEnd(13)} | ` +
-    `${recalls[3].padEnd(13)} | ${recalls[4]}`
+      `${recalls[0].padEnd(13)} | ${recalls[1].padEnd(13)} | ${recalls[2].padEnd(13)} | ` +
+      `${recalls[3].padEnd(13)} | ${recalls[4]}`,
   );
 }
 
 // Clean up
-try { execSync(`rm -rf "${tmpDir}"`); } catch (e) {}
+try {
+  execSync(`rm -rf "${tmpDir}"`);
+} catch (e) {}

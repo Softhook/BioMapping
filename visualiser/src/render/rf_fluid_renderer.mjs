@@ -20,22 +20,25 @@ import { bandHasActiveSignal, normDbm } from './rf_signal_utils.mjs';
 export class RFFluidRenderer {
   constructor(map, options = {}) {
     this.map = map;
-    this.options = Object.assign({
-      opacity: 0.85, // High opacity as requested for vibrant, punchy fluid overlay
-      radiusMeters: 35, // refined street canyon propagation radius in world meters
-      numRays: 24, // number of radial rays cast per node
-      mode: 'triband', // 'triband', '815', '868', '915', 'fog'
-      visible: true,
-      gain: 1.25, // Contrast/brightness gain boost
-      autoRange: true // Adaptive RSSI dynamic range normalization per band
-    }, options);
+    this.options = Object.assign(
+      {
+        opacity: 0.85, // High opacity as requested for vibrant, punchy fluid overlay
+        radiusMeters: 35, // refined street canyon propagation radius in world meters
+        numRays: 24, // number of radial rays cast per node
+        mode: 'triband', // 'triband', '815', '868', '915', 'fog'
+        visible: true,
+        gain: 1.25, // Contrast/brightness gain boost
+        autoRange: true, // Adaptive RSSI dynamic range normalization per band
+      },
+      options,
+    );
 
     this.canvas = null;
     this.ctx = null;
     this.drawPoints = [];
     this.osmGeomsRef = null;
     this.buildingPolygons = []; // combined across all tracks in the last setData(For Tracks) call
-    this.cachedNodes = [];      // combined across all tracks in the last setData(For Tracks) call
+    this.cachedNodes = []; // combined across all tracks in the last setData(For Tracks) call
     this.rssiStats = null;
     this._currentBounds = null;
     this._canvasTopLeftLayer = { x: 0, y: 0 };
@@ -65,7 +68,10 @@ export class RFFluidRenderer {
     }
 
     // Add leaflet-zoom-animated class so Leaflet GPU scales canvas in lockstep with base map tiles
-    this.canvas = L.DomUtil.create('canvas', 'leaflet-zoom-animated rf-fluid-layer');
+    this.canvas = L.DomUtil.create(
+      'canvas',
+      'leaflet-zoom-animated rf-fluid-layer',
+    );
     this.canvas.style.position = 'absolute';
     this.canvas.style.pointerEvents = 'none';
 
@@ -169,17 +175,26 @@ export class RFFluidRenderer {
       activeIds.add(t.id);
 
       const cached = this._trackCache.get(t.id);
-      const reusable = cached &&
+      const reusable =
+        cached &&
         cached.drawPointsRef === t.drawPoints &&
         cached.osmGeomsRef === t.osmGeoms &&
         cached.radiusMeters === radiusMeters &&
         cached.numRays === numRays;
 
-      const entry = reusable ? cached : this._buildTrackEntry(t.drawPoints, t.osmGeoms, radiusMeters, numRays);
+      const entry = reusable
+        ? cached
+        : this._buildTrackEntry(
+            t.drawPoints,
+            t.osmGeoms,
+            radiusMeters,
+            numRays,
+          );
       if (!reusable) this._trackCache.set(t.id, entry);
 
       if (entry.nodes.length > 0) combinedNodes.push(...entry.nodes);
-      if (entry.buildingPolygons.length > 0) combinedBuildingPolygons.push(...entry.buildingPolygons);
+      if (entry.buildingPolygons.length > 0)
+        combinedBuildingPolygons.push(...entry.buildingPolygons);
     }
 
     // Drop cache entries for tracks no longer present in this call — bounds
@@ -223,12 +238,16 @@ export class RFFluidRenderer {
 
     if (osmGeoms) {
       const allWays = (osmGeoms.ways || []).concat(osmGeoms.relations || []);
-      allWays.forEach(geom => {
+      allWays.forEach((geom) => {
         if (!geom.tags || !geom.tags.building) return;
-        if (geom.type === 'way' && geom.coordinates && geom.coordinates.length > 2) {
+        if (
+          geom.type === 'way' &&
+          geom.coordinates &&
+          geom.coordinates.length > 2
+        ) {
           buildingPolygons.push(geom.coordinates);
         } else if (geom.type === 'relation' && geom.outerWays) {
-          geom.outerWays.forEach(way => {
+          geom.outerWays.forEach((way) => {
             if (way.coordinates && way.coordinates.length > 2) {
               buildingPolygons.push(way.coordinates);
             }
@@ -248,9 +267,21 @@ export class RFFluidRenderer {
       }
     }
 
-    const nodes = this._precalculateSpatialFans(drawPoints, buildingSegmentsGeo, radiusMeters, numRays);
+    const nodes = this._precalculateSpatialFans(
+      drawPoints,
+      buildingSegmentsGeo,
+      radiusMeters,
+      numRays,
+    );
 
-    return { drawPointsRef: drawPoints, osmGeomsRef: osmGeoms, radiusMeters, numRays, nodes, buildingPolygons };
+    return {
+      drawPointsRef: drawPoints,
+      osmGeomsRef: osmGeoms,
+      radiusMeters,
+      numRays,
+      nodes,
+      buildingPolygons,
+    };
   }
 
   /**
@@ -270,12 +301,15 @@ export class RFFluidRenderer {
     const spatialGrid = new SpatialGrid(cellSizeLat, cellSizeLon);
     for (let s = 0; s < buildingSegmentsGeo.length; s++) {
       const seg = buildingSegmentsGeo[s];
-      spatialGrid.insert({
-        minLat: Math.min(seg.p1.lat, seg.p2.lat),
-        maxLat: Math.max(seg.p1.lat, seg.p2.lat),
-        minLon: Math.min(seg.p1.lon, seg.p2.lon),
-        maxLon: Math.max(seg.p1.lon, seg.p2.lon)
-      }, seg);
+      spatialGrid.insert(
+        {
+          minLat: Math.min(seg.p1.lat, seg.p2.lat),
+          maxLat: Math.max(seg.p1.lat, seg.p2.lat),
+          minLon: Math.min(seg.p1.lon, seg.p2.lon),
+          maxLon: Math.max(seg.p1.lon, seg.p2.lon),
+        },
+        seg,
+      );
     }
     return spatialGrid;
   }
@@ -310,7 +344,12 @@ export class RFFluidRenderer {
    * Pure function — returns the nodes array rather than writing this.cachedNodes,
    * so per-track results can be cached and combined by setDataForTracks().
    */
-  _precalculateSpatialFans(drawPoints, buildingSegmentsGeo, radiusMeters, numRays) {
+  _precalculateSpatialFans(
+    drawPoints,
+    buildingSegmentsGeo,
+    radiusMeters,
+    numRays,
+  ) {
     const nodes = [];
     if (!drawPoints || drawPoints.length === 0) return nodes;
 
@@ -332,13 +371,20 @@ export class RFFluidRenderer {
       let refLat = null;
       for (let i = 0; i < drawPoints.length; i++) {
         const p = drawPoints[i];
-        if (p && !isNaN(p.lat)) { refLat = p.lat; break; }
+        if (p && !isNaN(p.lat)) {
+          refLat = p.lat;
+          break;
+        }
       }
       if (refLat === null) refLat = 0;
       const refCosLat = Math.max(0.1, Math.cos((refLat * Math.PI) / 180.0));
       gridCellSizeLat = radiusMeters / metersPerDegLat;
       gridCellSizeLon = radiusMeters / (metersPerDegLat * refCosLat);
-      segmentGrid = this._buildSegmentGrid(buildingSegmentsGeo, gridCellSizeLat, gridCellSizeLon);
+      segmentGrid = this._buildSegmentGrid(
+        buildingSegmentsGeo,
+        gridCellSizeLat,
+        gridCellSizeLon,
+      );
     }
 
     // Spatial node downsampling: ensure a minimum separation in world space,
@@ -360,7 +406,8 @@ export class RFFluidRenderer {
     // its own immediate neighborhood), but uniform full-route whiteout from
     // pure sampling redundancy is gone.
     const minSpatialDistMeters = Math.max(4.0, radiusMeters * 1.2);
-    let lastLat = null, lastLon = null;
+    let lastLat = null,
+      lastLon = null;
 
     for (let i = 0; i < drawPoints.length; i++) {
       const pt = drawPoints[i];
@@ -375,8 +422,12 @@ export class RFFluidRenderer {
       // collective sessions revisiting the same spot make that far more likely.
       if (lastLat !== null && !pt.isRfPeak) {
         const dLatM = (lat - lastLat) * metersPerDegLat;
-        const dLonM = (lon - lastLon) * metersPerDegLat * Math.cos((lat * Math.PI) / 180.0);
-        if (dLatM * dLatM + dLonM * dLonM < minSpatialDistMeters * minSpatialDistMeters) {
+        const dLonM =
+          (lon - lastLon) * metersPerDegLat * Math.cos((lat * Math.PI) / 180.0);
+        if (
+          dLatM * dLatM + dLonM * dLonM <
+          minSpatialDistMeters * minSpatialDistMeters
+        ) {
           continue; // Skip points too close in geographic space
         }
       }
@@ -398,7 +449,7 @@ export class RFFluidRenderer {
         minLat: lat - dLatMax * 1.2,
         maxLat: lat + dLatMax * 1.2,
         minLon: lon - dLonMax * 1.2,
-        maxLon: lon + dLonMax * 1.2
+        maxLon: lon + dLonMax * 1.2,
       };
 
       // Grid-indexed candidate gathering (perf-routes doc §2.1) replaces a
@@ -411,10 +462,12 @@ export class RFFluidRenderer {
         : buildingSegmentsGeo;
       for (let s = 0; s < gridCandidates.length; s++) {
         const seg = gridCandidates[s];
-        if (Math.min(seg.p1.lat, seg.p2.lat) <= nodeBbox.maxLat &&
-            Math.max(seg.p1.lat, seg.p2.lat) >= nodeBbox.minLat &&
-            Math.min(seg.p1.lon, seg.p2.lon) <= nodeBbox.maxLon &&
-            Math.max(seg.p1.lon, seg.p2.lon) >= nodeBbox.minLon) {
+        if (
+          Math.min(seg.p1.lat, seg.p2.lat) <= nodeBbox.maxLat &&
+          Math.max(seg.p1.lat, seg.p2.lat) >= nodeBbox.minLat &&
+          Math.min(seg.p1.lon, seg.p2.lon) <= nodeBbox.maxLon &&
+          Math.max(seg.p1.lon, seg.p2.lon) >= nodeBbox.minLon
+        ) {
           nearbySegments.push(seg);
         }
       }
@@ -424,14 +477,19 @@ export class RFFluidRenderer {
         const angle = (r / numRays) * Math.PI * 2;
         const dirGeo = {
           dLon: Math.cos(angle) * dLonMax,
-          dLat: Math.sin(angle) * dLatMax
+          dLat: Math.sin(angle) * dLatMax,
         };
 
         let closestT = 1.0;
 
         for (let s = 0; s < nearbySegments.length; s++) {
           const seg = nearbySegments[s];
-          const t = this._raySegmentIntersectionGeo(origin, dirGeo, seg.p1, seg.p2);
+          const t = this._raySegmentIntersectionGeo(
+            origin,
+            dirGeo,
+            seg.p1,
+            seg.p2,
+          );
           if (t !== null && t < closestT) {
             closestT = t;
           }
@@ -439,7 +497,7 @@ export class RFFluidRenderer {
 
         fanGeo.push({
           lat: lat + dirGeo.dLat * closestT,
-          lon: lon + dirGeo.dLon * closestT
+          lon: lon + dirGeo.dLon * closestT,
         });
       }
 
@@ -449,22 +507,34 @@ export class RFFluidRenderer {
       const has915 = pt.rssi_915 !== undefined && !isNaN(pt.rssi_915);
       const emFogMissing = pt.em_fog === undefined || isNaN(pt.em_fog);
       let fog = emFogMissing ? 0 : pt.em_fog;
-      if (emFogMissing && typeof GSRAnalyzer !== 'undefined' && GSRAnalyzer.calcEmFog) {
+      if (
+        emFogMissing &&
+        typeof GSRAnalyzer !== 'undefined' &&
+        GSRAnalyzer.calcEmFog
+      ) {
         const fallback = GSRAnalyzer.calcEmFog(pt);
         if (!isNaN(fallback)) fog = fallback;
       }
       const hasFog = fog > 0;
 
-      const r815 = has815 ? pt.rssi_815 : (pt.r_815 || -91.5);
-      const r868 = has868 ? pt.rssi_868 : (pt.r_868 || -91.5);
-      const r915 = has915 ? pt.rssi_915 : (pt.r_915 || -91.5);
+      const r815 = has815 ? pt.rssi_815 : pt.r_815 || -91.5;
+      const r868 = has868 ? pt.rssi_868 : pt.r_868 || -91.5;
+      const r915 = has915 ? pt.rssi_915 : pt.r_915 || -91.5;
       const hasRf = has815 || has868 || has915 || hasFog;
 
       nodes.push({
-        lat, lon,
-        r815, r868, r915, fog,
-        hasRf, has815, has868, has915, hasFog,
-        fanGeo
+        lat,
+        lon,
+        r815,
+        r868,
+        r915,
+        fog,
+        hasRf,
+        has815,
+        has868,
+        has915,
+        hasFog,
+        fanGeo,
       });
     }
 
@@ -475,9 +545,12 @@ export class RFFluidRenderer {
    * Calculate adaptive noise floor and peak RSSI per band across loaded nodes
    */
   _calculateRssiStats() {
-    let min815 = Infinity, max815 = -Infinity;
-    let min868 = Infinity, max868 = -Infinity;
-    let min915 = Infinity, max915 = -Infinity;
+    let min815 = Infinity,
+      max815 = -Infinity;
+    let min868 = Infinity,
+      max868 = -Infinity;
+    let min915 = Infinity,
+      max915 = -Infinity;
 
     for (let i = 0; i < this.cachedNodes.length; i++) {
       const node = this.cachedNodes[i];
@@ -497,14 +570,14 @@ export class RFFluidRenderer {
 
     const calcBandStats = (minVal, maxVal) => {
       const floor = isFinite(minVal) ? minVal : -91.5;
-      const peak  = isFinite(maxVal) ? maxVal : -91.5;
+      const peak = isFinite(maxVal) ? maxVal : -91.5;
       return { floor, peak, hasActiveSignal: bandHasActiveSignal(floor, peak) };
     };
 
     this.rssiStats = {
       815: calcBandStats(min815, max815),
       868: calcBandStats(min868, max868),
-      915: calcBandStats(min915, max915)
+      915: calcBandStats(min915, max915),
     };
   }
 
@@ -515,11 +588,18 @@ export class RFFluidRenderer {
    */
   _normDbm(val, bandKey) {
     if (val === undefined || isNaN(val)) return 0.0;
-    const stats = (this.options.autoRange && this.rssiStats && this.rssiStats[bandKey])
-      ? this.rssiStats[bandKey]
-      : { floor: -91.5, peak: -60.0, hasActiveSignal: false };
+    const stats =
+      this.options.autoRange && this.rssiStats && this.rssiStats[bandKey]
+        ? this.rssiStats[bandKey]
+        : { floor: -91.5, peak: -60.0, hasActiveSignal: false };
 
-    return normDbm(val, stats.floor, stats.peak, stats.hasActiveSignal, this.options.gain || 1.15);
+    return normDbm(
+      val,
+      stats.floor,
+      stats.peak,
+      stats.hasActiveSignal,
+      this.options.gain || 1.15,
+    );
   }
 
   setMode(mode) {
@@ -553,10 +633,14 @@ export class RFFluidRenderer {
    * Ray-segment intersection in Geographic (lat/lon) Space
    */
   _raySegmentIntersectionGeo(origin, dirGeo, segP1, segP2) {
-    const ox = origin.lon, oy = origin.lat;
-    const dx = dirGeo.dLon, dy = dirGeo.dLat;
-    const x1 = segP1.lon, y1 = segP1.lat;
-    const x2 = segP2.lon, y2 = segP2.lat;
+    const ox = origin.lon,
+      oy = origin.lat;
+    const dx = dirGeo.dLon,
+      dy = dirGeo.dLat;
+    const x1 = segP1.lon,
+      y1 = segP1.lat;
+    const x2 = segP2.lon,
+      y2 = segP2.lat;
 
     const sx = x2 - x1;
     const sy = y2 - y1;
@@ -598,12 +682,12 @@ export class RFFluidRenderer {
       const layerPt = this.map.latLngToLayerPoint([node.lat, node.lon]);
       const canvasPt = {
         x: layerPt.x - originLayerOffset.x,
-        y: layerPt.y - originLayerOffset.y
+        y: layerPt.y - originLayerOffset.y,
       };
 
       visibleNodes.push({
         node,
-        originPx: canvasPt
+        originPx: canvasPt,
       });
     }
 
@@ -627,7 +711,7 @@ export class RFFluidRenderer {
         const lpt = this.map.latLngToLayerPoint([ring[i].lat, ring[i].lon]);
         pts.push({
           x: lpt.x - originLayerOffset.x,
-          y: lpt.y - originLayerOffset.y
+          y: lpt.y - originLayerOffset.y,
         });
       }
       screenBuildingPolys.push(pts);
@@ -653,7 +737,7 @@ export class RFFluidRenderer {
         const lpt = this.map.latLngToLayerPoint([ptGeo.lat, ptGeo.lon]);
         const pxPt = {
           x: lpt.x - originLayerOffset.x,
-          y: lpt.y - originLayerOffset.y
+          y: lpt.y - originLayerOffset.y,
         };
         rayPoints.push(pxPt);
 
@@ -666,7 +750,9 @@ export class RFFluidRenderer {
       }
 
       // Multi-Spectral Color based on Mode
-      let rVal = 0, gVal = 0, bVal = 0;
+      let rVal = 0,
+        gVal = 0,
+        bVal = 0;
       let alpha = 0.0;
 
       if (mode === 'triband') {
@@ -690,15 +776,21 @@ export class RFFluidRenderer {
         alpha = Math.min(1.0, maxN * 0.95);
       } else if (mode === '815') {
         const n = node.has815 ? this._normDbm(node.r815, 815) : 0;
-        rVal = 255; gVal = 0; bVal = 0;
+        rVal = 255;
+        gVal = 0;
+        bVal = 0;
         alpha = Math.min(1.0, n * 0.95);
       } else if (mode === '868') {
         const n = node.has868 ? this._normDbm(node.r868, 868) : 0;
-        rVal = 0; gVal = 255; bVal = 0;
+        rVal = 0;
+        gVal = 255;
+        bVal = 0;
         alpha = Math.min(1.0, n * 0.95);
       } else if (mode === '915') {
         const n = node.has915 ? this._normDbm(node.r915, 915) : 0;
-        rVal = 0; gVal = 0; bVal = 255;
+        rVal = 0;
+        gVal = 0;
+        bVal = 255;
         alpha = Math.min(1.0, n * 0.95);
       } else if (mode === 'fog') {
         if (!node.hasFog || node.fog <= 0) {
@@ -715,10 +807,20 @@ export class RFFluidRenderer {
       if (alpha <= 0) continue;
 
       // Smooth Gaussian falloff gradient fan
-      const grad = this.ctx.createRadialGradient(originPx.x, originPx.y, 0, originPx.x, originPx.y, Math.max(8, maxPxRadius));
+      const grad = this.ctx.createRadialGradient(
+        originPx.x,
+        originPx.y,
+        0,
+        originPx.x,
+        originPx.y,
+        Math.max(8, maxPxRadius),
+      );
       grad.addColorStop(0.0, `rgba(${rVal}, ${gVal}, ${bVal}, ${alpha})`);
-      grad.addColorStop(0.4, `rgba(${rVal}, ${gVal}, ${bVal}, ${alpha * 0.75})`);
-      grad.addColorStop(0.8, `rgba(${rVal}, ${gVal}, ${bVal}, ${alpha * 0.30})`);
+      grad.addColorStop(
+        0.4,
+        `rgba(${rVal}, ${gVal}, ${bVal}, ${alpha * 0.75})`,
+      );
+      grad.addColorStop(0.8, `rgba(${rVal}, ${gVal}, ${bVal}, ${alpha * 0.3})`);
       grad.addColorStop(1.0, `rgba(${rVal}, ${gVal}, ${bVal}, 0)`);
 
       // Fill pre-computed ray polygon
@@ -762,22 +864,37 @@ export class RFFluidRenderer {
    * @returns {{ defs: string[], polygons: string[] }} SVG defs and polygon markup strings
    */
   exportToSvgElements(project, targetW = 2000, targetH = 2000) {
-    const result = { defs: [], layers: { '815': [], '868': [], '915': [], 'fog': [] }, polygons: [] };
+    const result = {
+      defs: [],
+      layers: { 815: [], 868: [], 915: [], fog: [] },
+      polygons: [],
+    };
     if (!this.cachedNodes || this.cachedNodes.length === 0) return result;
-    if (!this.cachedNodes.some(n => n.hasRf)) return result;
+    if (!this.cachedNodes.some((n) => n.hasRf)) return result;
 
     const mode = this.options.mode;
-    const globalOpacity = this.options.opacity !== undefined ? this.options.opacity : 0.85;
+    const globalOpacity =
+      this.options.opacity !== undefined ? this.options.opacity : 0.85;
     const defs = [];
-    const layers = { '815': [], '868': [], '915': [], 'fog': [] };
+    const layers = { 815: [], 868: [], 915: [], fog: [] };
     const polygons = [];
 
-    const addGradientAndPoly = (gradId, rVal, gVal, bVal, alpha, ptsStr, effectiveRadius, originPx, targetLayerKey) => {
+    const addGradientAndPoly = (
+      gradId,
+      rVal,
+      gVal,
+      bVal,
+      alpha,
+      ptsStr,
+      effectiveRadius,
+      originPx,
+      targetLayerKey,
+    ) => {
       const gradStr =
         `<radialGradient id="${gradId}" cx="${originPx.x.toFixed(2)}" cy="${originPx.y.toFixed(2)}" r="${effectiveRadius.toFixed(2)}" gradientUnits="userSpaceOnUse">\n` +
         `  <stop offset="0%" stop-color="rgb(${rVal},${gVal},${bVal})" stop-opacity="${(alpha * globalOpacity).toFixed(3)}" />\n` +
         `  <stop offset="40%" stop-color="rgb(${rVal},${gVal},${bVal})" stop-opacity="${(alpha * 0.75 * globalOpacity).toFixed(3)}" />\n` +
-        `  <stop offset="80%" stop-color="rgb(${rVal},${gVal},${bVal})" stop-opacity="${(alpha * 0.30 * globalOpacity).toFixed(3)}" />\n` +
+        `  <stop offset="80%" stop-color="rgb(${rVal},${gVal},${bVal})" stop-opacity="${(alpha * 0.3 * globalOpacity).toFixed(3)}" />\n` +
         `  <stop offset="100%" stop-color="rgb(${rVal},${gVal},${bVal})" stop-opacity="0" />\n` +
         `</radialGradient>`;
 
@@ -813,7 +930,9 @@ export class RFFluidRenderer {
       }
 
       if (rayPoints.length < 3) continue;
-      const ptsStr = rayPoints.map(p => `${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' ');
+      const ptsStr = rayPoints
+        .map((p) => `${p.x.toFixed(2)},${p.y.toFixed(2)}`)
+        .join(' ');
       const effectiveRadius = Math.max(8, maxPxRadius);
 
       // Separate exports for individual frequency channels
@@ -826,7 +945,17 @@ export class RFFluidRenderer {
         const n815 = this._normDbm(node.r815, 815);
         const alpha815 = Math.min(1.0, n815 * 0.95);
         if (alpha815 > 0) {
-          addGradientAndPoly(`rfGrad_815_node_${i}`, 255, 0, 0, alpha815, ptsStr, effectiveRadius, originPx, '815');
+          addGradientAndPoly(
+            `rfGrad_815_node_${i}`,
+            255,
+            0,
+            0,
+            alpha815,
+            ptsStr,
+            effectiveRadius,
+            originPx,
+            '815',
+          );
         }
       }
 
@@ -834,7 +963,17 @@ export class RFFluidRenderer {
         const n868 = this._normDbm(node.r868, 868);
         const alpha868 = Math.min(1.0, n868 * 0.95);
         if (alpha868 > 0) {
-          addGradientAndPoly(`rfGrad_868_node_${i}`, 0, 255, 0, alpha868, ptsStr, effectiveRadius, originPx, '868');
+          addGradientAndPoly(
+            `rfGrad_868_node_${i}`,
+            0,
+            255,
+            0,
+            alpha868,
+            ptsStr,
+            effectiveRadius,
+            originPx,
+            '868',
+          );
         }
       }
 
@@ -842,7 +981,17 @@ export class RFFluidRenderer {
         const n915 = this._normDbm(node.r915, 915);
         const alpha915 = Math.min(1.0, n915 * 0.95);
         if (alpha915 > 0) {
-          addGradientAndPoly(`rfGrad_915_node_${i}`, 0, 0, 255, alpha915, ptsStr, effectiveRadius, originPx, '915');
+          addGradientAndPoly(
+            `rfGrad_915_node_${i}`,
+            0,
+            0,
+            255,
+            alpha915,
+            ptsStr,
+            effectiveRadius,
+            originPx,
+            '915',
+          );
         }
       }
 
@@ -852,7 +1001,17 @@ export class RFFluidRenderer {
         if (alphaFog > 0) {
           const rVal = Math.round(nFog * 255);
           const bVal = Math.round((1 - nFog) * 255);
-          addGradientAndPoly(`rfGrad_fog_node_${i}`, rVal, 0, bVal, alphaFog, ptsStr, effectiveRadius, originPx, 'fog');
+          addGradientAndPoly(
+            `rfGrad_fog_node_${i}`,
+            rVal,
+            0,
+            bVal,
+            alphaFog,
+            ptsStr,
+            effectiveRadius,
+            originPx,
+            'fog',
+          );
         }
       }
     }
@@ -863,8 +1022,10 @@ export class RFFluidRenderer {
       for (let b = 0; b < this.buildingPolygons.length; b++) {
         const ring = this.buildingPolygons[b];
         if (!ring || ring.length < 3) continue;
-        const pts = ring.map(ll => project({ lat: ll.lat, lon: ll.lon }));
-        const ptsStr = pts.map(p => `${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' ');
+        const pts = ring.map((ll) => project({ lat: ll.lat, lon: ll.lon }));
+        const ptsStr = pts
+          .map((p) => `${p.x.toFixed(2)},${p.y.toFixed(2)}`)
+          .join(' ');
         maskPolys.push(`    <polygon points="${ptsStr}" fill="#000000" />`);
       }
 
@@ -872,7 +1033,8 @@ export class RFFluidRenderer {
         const maskStr =
           `<mask id="rfBuildingMask" maskUnits="userSpaceOnUse">\n` +
           `  <rect x="0" y="0" width="${targetW}" height="${targetH}" fill="#ffffff" />\n` +
-          maskPolys.join('\n') + '\n' +
+          maskPolys.join('\n') +
+          '\n' +
           `</mask>`;
         defs.push(maskStr);
       }

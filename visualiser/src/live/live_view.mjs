@@ -56,14 +56,40 @@ import { GSRLayoutManager } from '../core/layout_manager.mjs';
 import { GSRLiveBluetoothManager } from './live_bluetooth.mjs';
 import { buildLiveCsv } from './live_csv.mjs';
 import { LIVE_GRAPH_VIEWS, NS_TO_US, drawGraph } from './live_graph.mjs';
-import { LIVE_ZOOM, allTrackSegments, cacheCurrentMapArea, clearLiveMapMarkers, flushSettledSegments, gsrMax, gsrMin, hideMap, lastLivePanAt, liveLastLatLng, liveMap, liveMarker, pendingSegments, phasicMax, recolorAllTrackSegments, renderLiveMapMarkers, resetLiveMapSession, showMap, tonicMax, tonicMin, updateLiveMap } from './live_map.mjs';
+import {
+  LIVE_ZOOM,
+  allTrackSegments,
+  cacheCurrentMapArea,
+  clearLiveMapMarkers,
+  flushSettledSegments,
+  gsrMax,
+  gsrMin,
+  hideMap,
+  lastLivePanAt,
+  liveLastLatLng,
+  liveMap,
+  liveMarker,
+  pendingSegments,
+  phasicMax,
+  recolorAllTrackSegments,
+  renderLiveMapMarkers,
+  resetLiveMapSession,
+  showMap,
+  tonicMax,
+  tonicMin,
+  updateLiveMap,
+} from './live_map.mjs';
 import { LiveState } from './live_state.mjs';
 import { GSRAnalyzer } from '../signal/analyzer.mjs';
 
-export const LIVE_MOBILE_QUERY = '((max-width: 768px) and (pointer: coarse)), ((max-height: 500px) and (pointer: coarse))';
+export const LIVE_MOBILE_QUERY =
+  '((max-width: 768px) and (pointer: coarse)), ((max-height: 500px) and (pointer: coarse))';
 export function isCompactLiveLayout() {
-  return typeof window !== 'undefined' && typeof window.matchMedia === 'function' &&
-    window.matchMedia(LIVE_MOBILE_QUERY).matches;
+  return (
+    typeof window !== 'undefined' &&
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia(LIVE_MOBILE_QUERY).matches
+  );
 }
 
 // GSRLayoutManager is now a real static import (see the ui/live/render "app
@@ -73,7 +99,10 @@ export function isCompactLiveLayout() {
 // markup) is the real in-app/standalone signal GSRLayoutManager's own
 // enterLiveDisplayMode()/exitLiveDisplayMode() already gate on internally.
 function isInAppShell() {
-  return typeof document !== 'undefined' && !!document.querySelector('.app-container');
+  return (
+    typeof document !== 'undefined' &&
+    !!document.querySelector('.app-container')
+  );
 }
 
 // ==========================================================================
@@ -193,14 +222,30 @@ export const LIVE_VIEW_MARKUP = `
 // The app's shipped GSR defaults, no slider UI. Deconvolution and prominence
 // stay off: full-scan trough-to-peak is O(n) and the only detector that
 // stays real-time safe on a continuously growing buffer.
-export const LIVE_ANALYZE_PARAMS = (typeof GSR_CONST !== 'undefined' && GSR_CONST.GSR_DEFAULT)
-  ? Object.assign({}, GSR_CONST.GSR_DEFAULT, { useDeconvolution: false, useSparsEDA: false, usePeakProminence: false, useCvxEDA: false })
-  : {
-      medianSize: 0, lpfWindow: 0, useGaitFilter: true, tonicMethod: 'lpf', tonicWindow: 45,
-      peakThreshold: 0.045, shapeMinSnr: 2.5, minPeakQuality: 0,
-      peakDensityWindow: 30, hotspotPercentile: 0.02,
-      useDeconvolution: false, useSparsEDA: false, usePeakProminence: false, useCvxEDA: false,
-    };
+export const LIVE_ANALYZE_PARAMS =
+  typeof GSR_CONST !== 'undefined' && GSR_CONST.GSR_DEFAULT
+    ? Object.assign({}, GSR_CONST.GSR_DEFAULT, {
+        useDeconvolution: false,
+        useSparsEDA: false,
+        usePeakProminence: false,
+        useCvxEDA: false,
+      })
+    : {
+        medianSize: 0,
+        lpfWindow: 0,
+        useGaitFilter: true,
+        tonicMethod: 'lpf',
+        tonicWindow: 45,
+        peakThreshold: 0.045,
+        shapeMinSnr: 2.5,
+        minPeakQuality: 0,
+        peakDensityWindow: 30,
+        hotspotPercentile: 0.02,
+        useDeconvolution: false,
+        useSparsEDA: false,
+        usePeakProminence: false,
+        useCvxEDA: false,
+      };
 
 // analyze() cost is linear in the number of rows it's handed. feedLiveAnalyzer()
 // keeps that flat two ways:
@@ -221,10 +266,10 @@ export const LIVE_ANALYZE_PARAMS = (typeof GSR_CONST !== 'undefined' && GSR_CONS
 //
 // `let` on the tunables so tests can retune without feeding thousands of
 // packets or waiting on a real clock.
-export const LIVE_ANALYZE_WINDOW_S = 300;       // trailing slice handed to analyze()
-export let LIVE_ANALYZE_WARMUP_ROWS = 400;      // ~2 min of session at STREAM_INTERVAL_S
+export const LIVE_ANALYZE_WINDOW_S = 300; // trailing slice handed to analyze()
+export let LIVE_ANALYZE_WARMUP_ROWS = 400; // ~2 min of session at STREAM_INTERVAL_S
 export let LIVE_ANALYZE_MIN_INTERVAL_MS = 1500;
-export let lastLiveAnalyzeAt = 0;               // Date.now() of the last analyze(); reset per session
+export let lastLiveAnalyzeAt = 0; // Date.now() of the last analyze(); reset per session
 
 // Trailing seconds of the analysed buffer whose tonic/phasic/peaks are still
 // provisional — decomposeTonicPhasic is zero-phase and has a ±6s look-ahead
@@ -253,9 +298,11 @@ export const LIVE_FAB_TOGGLES = [
 // visualiser's Signal view; on the compact (mobile) layout the graph is too
 // small to carry the extra trace so it stays off.
 export const liveGsrView = {
-  showFiltered: true, showTonic: true,
+  showFiltered: true,
+  showTonic: true,
   showPhasic: !isCompactLiveLayout(),
-  showPeaks: true, showHotspots: true,
+  showPeaks: true,
+  showHotspots: true,
   graphView: 'signal',
 };
 
@@ -285,8 +332,10 @@ export function feedLiveAnalyzer() {
   // Wall-clock throttle (see LIVE_ANALYZE_MIN_INTERVAL_MS): every packet
   // through the warmup (gated on session length, not window size), then no
   // more than one analyze() per interval.
-  if (pkts.length > LIVE_ANALYZE_WARMUP_ROWS &&
-      Date.now() - lastLiveAnalyzeAt < LIVE_ANALYZE_MIN_INTERVAL_MS) {
+  if (
+    pkts.length > LIVE_ANALYZE_WARMUP_ROWS &&
+    Date.now() - lastLiveAnalyzeAt < LIVE_ANALYZE_MIN_INTERVAL_MS
+  ) {
     return;
   }
   lastLiveAnalyzeAt = Date.now();
@@ -307,8 +356,12 @@ export function feedLiveAnalyzer() {
     raw[i - w0] = {
       time: p.timestamp,
       val: p.gsrRaw * NS_TO_US,
-      lat: p.lat, lon: p.lon, hdop: p.hdop,
-      sats: p.sats, fixType: p.fixType, hasGps: !!p.valid,
+      lat: p.lat,
+      lon: p.lon,
+      hdop: p.hdop,
+      sats: p.sats,
+      fixType: p.fixType,
+      hasGps: !!p.valid,
     };
   }
   A.raw = raw;
@@ -321,7 +374,8 @@ export function feedLiveAnalyzer() {
   // selected (liveGsrView.graphView), so switching metric mid-session has
   // settled values ready to use immediately rather than waiting for a fresh
   // analyze() pass under the new metric.
-  const tn = A.tonic, ph = A.phasic;
+  const tn = A.tonic,
+    ph = A.phasic;
   for (let i = 0; i < ph.length; i++) {
     const pkt = pkts[liveAnalyzerBase + i];
     pkt.phasic = ph[i].val;
@@ -352,16 +406,26 @@ export function feedLiveAnalyzer() {
 // ==========================================================================
 export function exportCsv() {
   const name = `biomap_live_${new Date().toISOString().replace(/[:.]/g, '-')}.csv`;
-  return GSRFileSaver.saveFile(buildLiveCsv(LiveState.packets, Date.now()), name);
+  return GSRFileSaver.saveFile(
+    buildLiveCsv(LiveState.packets, Date.now()),
+    name,
+  );
 }
 
 // ==========================================================================
 // Wire-up state — element refs and session bookkeeping, assigned by mount().
 // ==========================================================================
-export let statusBadge, connectionBtn, exportBtn,
-    connectOverlay, connectBtn, connectErr, reconnectErr,
-    cacheMapBtn, toggleMapBtn,
-    liveFabToggle, liveFabMenu;
+export let statusBadge,
+  connectionBtn,
+  exportBtn,
+  connectOverlay,
+  connectBtn,
+  connectErr,
+  reconnectErr,
+  cacheMapBtn,
+  toggleMapBtn,
+  liveFabToggle,
+  liveFabMenu;
 
 export let needNewConnection = false;
 export let bleManager = null;
@@ -402,7 +466,10 @@ export function releaseWakeLock() {
 export function startAnimationLoop() {
   if (animationFrameId) return;
   function frame() {
-    if (viewActive && (LiveState.status === 'connected' || LiveState.status === 'reconnecting')) {
+    if (
+      viewActive &&
+      (LiveState.status === 'connected' || LiveState.status === 'reconnecting')
+    ) {
       drawGraph();
     }
     animationFrameId = requestAnimationFrame(frame);
@@ -440,7 +507,8 @@ export const LiveConnectionController = {
       connectionBtn.style.display = '';
       connectionBtn.disabled = false;
       if (needNewConnection || !bleManager || !bleManager.device) {
-        connectionBtn.textContent = (needNewConnection || bleManager) ? 'New Connection' : 'Connect';
+        connectionBtn.textContent =
+          needNewConnection || bleManager ? 'New Connection' : 'Connect';
       } else {
         connectionBtn.textContent = 'Reconnect';
       }
@@ -452,12 +520,14 @@ export const LiveConnectionController = {
     } else if (status === 'connecting' || status === 'reconnecting') {
       connectionBtn.style.display = '';
       connectionBtn.disabled = true;
-      connectionBtn.textContent = status === 'reconnecting' ? 'Reconnecting…' : 'Connecting…';
+      connectionBtn.textContent =
+        status === 'reconnecting' ? 'Reconnecting…' : 'Connecting…';
     } else {
       connectionBtn.style.display = 'none';
     }
     if (connectBtn) {
-      connectBtn.disabled = (status === 'connecting' || status === 'reconnecting');
+      connectBtn.disabled =
+        status === 'connecting' || status === 'reconnecting';
     }
   },
 
@@ -491,7 +561,8 @@ export const LiveConnectionController = {
     if (connectErr) connectErr.textContent = '';
     if (!navigator.bluetooth) {
       if (connectErr) {
-        connectErr.textContent = 'Web Bluetooth is not available in this browser (requires Chrome on Android/desktop, or a Web Bluetooth browser like Bluefy on iOS). You can still Prepare Map Offline.';
+        connectErr.textContent =
+          'Web Bluetooth is not available in this browser (requires Chrome on Android/desktop, or a Web Bluetooth browser like Bluefy on iOS). You can still Prepare Map Offline.';
       }
       return;
     }
@@ -508,7 +579,12 @@ export const LiveConnectionController = {
     // lightweight Reconnect gave up, but the device itself may still be fine.
     // If the user explicitly requested a New Connection after a failed reconnect,
     // skip tryResumeDevice so we don't spend 3.5s retrying a failed peripheral and wedging the radio.
-    const previousDevice = (forceNewChooser || needNewConnection) ? null : (bleManager ? bleManager.device : null);
+    const previousDevice =
+      forceNewChooser || needNewConnection
+        ? null
+        : bleManager
+          ? bleManager.device
+          : null;
     if (bleManager) bleManager.abandon();
     resetSession();
     needNewConnection = false;
@@ -521,12 +597,14 @@ export const LiveConnectionController = {
       if (reconnectErr) reconnectErr.textContent = text;
     });
     try {
-      const resumed = previousDevice && await bleManager.tryResumeDevice(previousDevice);
+      const resumed =
+        previousDevice && (await bleManager.tryResumeDevice(previousDevice));
       if (!resumed) await bleManager.connect();
       if (connectOverlay) connectOverlay.classList.add('hidden');
     } catch (e) {
       LiveState.setStatus('disconnected');
-      if (connectErr) connectErr.textContent = (e && e.message) ? e.message : String(e);
+      if (connectErr)
+        connectErr.textContent = e && e.message ? e.message : String(e);
     }
   },
 };
@@ -641,8 +719,10 @@ export function setLiveGraphMetric(metric) {
   liveGsrView.graphView = metric;
   const sel = document.getElementById('liveGraphView');
   if (sel) sel.value = metric;
-  const metricBtns = document.querySelectorAll('#liveMetricGroup [data-metric]');
-  metricBtns.forEach(btn => {
+  const metricBtns = document.querySelectorAll(
+    '#liveMetricGroup [data-metric]',
+  );
+  metricBtns.forEach((btn) => {
     btn.classList.toggle('active', btn.dataset.metric === metric);
   });
   renderFabMenu();
@@ -661,7 +741,8 @@ export function updateToggleMapBtn() {
 // and both branches of goToLatLon below) flipped them separately.
 export function setMapVisible(visible) {
   mapVisible = visible;
-  if (visible) showMap(); else hideMap();
+  if (visible) showMap();
+  else hideMap();
   updateToggleMapBtn();
   renderFabMenu();
 }
@@ -695,28 +776,43 @@ export function renderFabMenu() {
 
   // 1. Map / graph
   if (mapVisible) {
-    chips.push('<button type="button" class="live-fab-chip live-fab-chip-action" data-action="graph"><i class="fa-solid fa-chart-line"></i> Graph</button>');
+    chips.push(
+      '<button type="button" class="live-fab-chip live-fab-chip-action" data-action="graph"><i class="fa-solid fa-chart-line"></i> Graph</button>',
+    );
   } else {
-    chips.push('<button type="button" class="live-fab-chip live-fab-chip-action" data-action="map"><i class="fa-solid fa-map"></i> Map</button>');
+    chips.push(
+      '<button type="button" class="live-fab-chip live-fab-chip-action" data-action="map"><i class="fa-solid fa-map"></i> Map</button>',
+    );
   }
 
   // 2. Raw, peaks, hotspots
   for (const t of LIVE_FAB_TOGGLES) {
-    chips.push(`<button type="button" class="live-fab-chip${liveGsrView[t.key] ? ' active' : ''}" data-toggle="${t.key}">${t.label}</button>`);
+    chips.push(
+      `<button type="button" class="live-fab-chip${liveGsrView[t.key] ? ' active' : ''}" data-toggle="${t.key}">${t.label}</button>`,
+    );
   }
 
   // 3. Signal, tonic, phasic
   for (const m of LIVE_FAB_METRICS) {
-    chips.push(`<button type="button" class="live-fab-chip${liveGsrView.graphView === m.value ? ' active' : ''}" data-metric="${m.value}">${m.label}</button>`);
+    chips.push(
+      `<button type="button" class="live-fab-chip${liveGsrView.graphView === m.value ? ' active' : ''}" data-metric="${m.value}">${m.label}</button>`,
+    );
   }
 
   // 4. Full screen
-  const isDisplayMode = (typeof document !== 'undefined' && !!document.querySelector('.app-container.live-display-mode')) ||
-    (typeof document !== 'undefined' && !!(document.fullscreenElement || document.webkitFullscreenElement));
+  const isDisplayMode =
+    (typeof document !== 'undefined' &&
+      !!document.querySelector('.app-container.live-display-mode')) ||
+    (typeof document !== 'undefined' &&
+      !!(document.fullscreenElement || document.webkitFullscreenElement));
   if (isDisplayMode) {
-    chips.push('<button type="button" class="live-fab-chip live-fab-chip-action" data-action="exit-fullscreen"><i class="fa-solid fa-compress"></i> Exit Full Screen</button>');
+    chips.push(
+      '<button type="button" class="live-fab-chip live-fab-chip-action" data-action="exit-fullscreen"><i class="fa-solid fa-compress"></i> Exit Full Screen</button>',
+    );
   } else {
-    chips.push('<button type="button" class="live-fab-chip live-fab-chip-action" data-action="enter-fullscreen"><i class="fa-solid fa-expand"></i> Full Screen</button>');
+    chips.push(
+      '<button type="button" class="live-fab-chip live-fab-chip-action" data-action="enter-fullscreen"><i class="fa-solid fa-expand"></i> Full Screen</button>',
+    );
   }
 
   liveFabMenu.innerHTML = chips.join('');
@@ -741,7 +837,7 @@ export function bindLiveFab() {
     } else if (btn.dataset.toggle) {
       const prop = btn.dataset.toggle;
       liveGsrView[prop] = !liveGsrView[prop];
-      const match = LIVE_FAB_TOGGLES.find(t => t.key === prop);
+      const match = LIVE_FAB_TOGGLES.find((t) => t.key === prop);
       if (match) {
         const headerBtn = document.getElementById(match.id);
         if (headerBtn) headerBtn.classList.toggle('active', liveGsrView[prop]);
@@ -777,7 +873,8 @@ export function bindLiveFab() {
 
   // Keep Full Screen / Exit Full Screen chips synced when browser fullscreen changes
   const handleFsChange = () => renderFabMenu();
-  if (typeof GSRFullscreen !== 'undefined') GSRFullscreen.onChange(handleFsChange);
+  if (typeof GSRFullscreen !== 'undefined')
+    GSRFullscreen.onChange(handleFsChange);
 
   // Tapping the map (or anywhere else) with the menu open should close it —
   // an open fan-out sitting over the map otherwise blocks map interaction
@@ -791,7 +888,14 @@ export function bindLiveFab() {
 }
 
 export function goToLatLon(lat, lon, zoom) {
-  if (!Number.isFinite(lat) || !Number.isFinite(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+  if (
+    !Number.isFinite(lat) ||
+    !Number.isFinite(lon) ||
+    lat < -90 ||
+    lat > 90 ||
+    lon < -180 ||
+    lon > 180
+  ) {
     alert('Enter a valid latitude (-90 to 90) and longitude (-180 to 180).');
     return;
   }
@@ -817,21 +921,22 @@ export function initLiveViewDom(container) {
   container.classList.add('live-view');
   container.innerHTML = LIVE_VIEW_MARKUP;
 
-  statusBadge      = document.getElementById('statusBadge');
-  connectionBtn    = document.getElementById('connectionBtn');
-  exportBtn        = document.getElementById('exportBtn');
-  connectOverlay   = document.getElementById('connectOverlay');
-  connectBtn       = document.getElementById('connectBtn');
-  connectErr       = document.getElementById('connectErr');
-  reconnectErr     = document.getElementById('reconnectErr');
-  cacheMapBtn      = document.getElementById('cacheMapBtn');
+  statusBadge = document.getElementById('statusBadge');
+  connectionBtn = document.getElementById('connectionBtn');
+  exportBtn = document.getElementById('exportBtn');
+  connectOverlay = document.getElementById('connectOverlay');
+  connectBtn = document.getElementById('connectBtn');
+  connectErr = document.getElementById('connectErr');
+  reconnectErr = document.getElementById('reconnectErr');
+  cacheMapBtn = document.getElementById('cacheMapBtn');
   if (cacheMapBtn && isCompactLiveLayout()) {
     cacheMapBtn.textContent = 'Cache Map';
   }
-  toggleMapBtn     = document.getElementById('toggleMapBtn');
+  toggleMapBtn = document.getElementById('toggleMapBtn');
 
   if (typeof navigator !== 'undefined' && !navigator.bluetooth && connectErr) {
-    connectErr.textContent = 'Note: Web Bluetooth is not available in this browser (requires Chrome on Android/desktop, or a Web Bluetooth browser like Bluefy on iOS). You can still Prepare Map Offline.';
+    connectErr.textContent =
+      'Note: Web Bluetooth is not available in this browser (requires Chrome on Android/desktop, or a Web Bluetooth browser like Bluefy on iOS). You can still Prepare Map Offline.';
   }
 }
 
@@ -843,7 +948,10 @@ export function bindLiveStateListeners() {
 
   document.addEventListener('visibilitychange', async () => {
     if (document.visibilityState === 'visible') {
-      if (LiveState.status === 'connected' || LiveState.status === 'reconnecting') {
+      if (
+        LiveState.status === 'connected' ||
+        LiveState.status === 'reconnecting'
+      ) {
         await requestWakeLock();
       }
     }
@@ -861,12 +969,15 @@ export function bindLiveStateListeners() {
     }
   });
   LiveState.on('packet', (pkt) => {
-    document.getElementById('statPackets').textContent = `Packets: ${LiveState.packets.length}`;
-    document.getElementById('statGaps').textContent = `Gaps: ${LiveState.gapCount}`;
+    document.getElementById('statPackets').textContent =
+      `Packets: ${LiveState.packets.length}`;
+    document.getElementById('statGaps').textContent =
+      `Gaps: ${LiveState.gapCount}`;
     document.getElementById('statGps').textContent = pkt.valid
       ? `GPS: ${pkt.fixType === 3 ? '3D' : pkt.fixType === 2 ? '2D' : 'fix'} (${pkt.sats} sat)`
       : 'GPS: No fix';
-    document.getElementById('statLastSeen').textContent = `Last: ${pkt.timestamp.toFixed(1)}s`;
+    document.getElementById('statLastSeen').textContent =
+      `Last: ${pkt.timestamp.toFixed(1)}s`;
 
     lastPacketTimestamp = pkt.timestamp;
     lastPacketArrivalTime = Date.now();
@@ -892,7 +1003,9 @@ export function bindLiveConnectionControls() {
 
   // Single connection button dealing with connect, reconnect, and new connection
   // as needed.
-  connectionBtn.addEventListener('click', () => LiveConnectionController.handleAction());
+  connectionBtn.addEventListener('click', () =>
+    LiveConnectionController.handleAction(),
+  );
 
   exportBtn.addEventListener('click', exportCsv);
 }
@@ -905,7 +1018,10 @@ export function bindLiveMapControls() {
   const liveBtnExitDisplay = document.getElementById('liveBtnExitDisplay');
   if (liveBtnExitDisplay) {
     liveBtnExitDisplay.addEventListener('click', () => {
-      if (typeof GSRLayoutManager !== 'undefined' && GSRLayoutManager.exitLiveDisplayMode) {
+      if (
+        typeof GSRLayoutManager !== 'undefined' &&
+        GSRLayoutManager.exitLiveDisplayMode
+      ) {
         GSRLayoutManager.exitLiveDisplayMode();
       }
     });
@@ -925,7 +1041,12 @@ export function bindLiveMapControls() {
       // If we have an active GPS packet with valid fix from BLE, center there immediately
       if (LiveState.packets && LiveState.packets.length > 0) {
         const lastPkt = LiveState.packets[LiveState.packets.length - 1];
-        if (lastPkt && lastPkt.valid && Number.isFinite(lastPkt.lat) && Number.isFinite(lastPkt.lon)) {
+        if (
+          lastPkt &&
+          lastPkt.valid &&
+          Number.isFinite(lastPkt.lat) &&
+          Number.isFinite(lastPkt.lon)
+        ) {
           goToLatLon(lastPkt.lat, lastPkt.lon, LIVE_ZOOM);
           return;
         }
@@ -936,12 +1057,16 @@ export function bindLiveMapControls() {
       }
       navigator.geolocation.getCurrentPosition(
         (pos) => {
-          goToLatLon(pos.coords.latitude, pos.coords.longitude, MANUAL_LOCATION_ZOOM);
+          goToLatLon(
+            pos.coords.latitude,
+            pos.coords.longitude,
+            MANUAL_LOCATION_ZOOM,
+          );
         },
         (err) => {
           alert('Could not get your location: ' + err.message);
         },
-        { enableHighAccuracy: true, timeout: 10000 }
+        { enableHighAccuracy: true, timeout: 10000 },
       );
     });
   }
@@ -959,7 +1084,11 @@ export function bindLiveKeyboardShortcuts() {
     // standalone live.html apart from index.html's embedded Live tab.
     if (isInAppShell() && AppState.viewMode !== 'live') return;
     // Don't hijack keys while typing in an input.
-    if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
+    if (
+      e.target &&
+      (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')
+    )
+      return;
 
     if (e.key === 'p' || e.key === 'P') {
       const b = document.getElementById('liveBtnTogglePhasic');
@@ -982,7 +1111,10 @@ export function bindLiveResizeHandling(container) {
   // transitions take ~150-300ms to complete and update clientWidth/clientHeight,
   // so delayed invalidations ensure Leaflet and Canvas rescale to final geometry.
   const handleResize = () => {
-    if (typeof window !== 'undefined' && typeof window.scrollTo === 'function') {
+    if (
+      typeof window !== 'undefined' &&
+      typeof window.scrollTo === 'function'
+    ) {
       window.scrollTo(0, 0);
     }
     if (liveMap && typeof liveMap.invalidateSize === 'function') {
@@ -997,7 +1129,11 @@ export function bindLiveResizeHandling(container) {
     setTimeout(handleResize, 100);
     setTimeout(handleResize, 300);
   });
-  if (typeof screen !== 'undefined' && screen.orientation && typeof screen.orientation.addEventListener === 'function') {
+  if (
+    typeof screen !== 'undefined' &&
+    screen.orientation &&
+    typeof screen.orientation.addEventListener === 'function'
+  ) {
     screen.orientation.addEventListener('change', () => {
       handleResize();
       setTimeout(handleResize, 100);
@@ -1059,7 +1195,10 @@ export const GSRLiveView = {
       liveMap.invalidateSize();
     }
     drawGraph();
-    if (LiveState.status === 'connected' || LiveState.status === 'reconnecting') {
+    if (
+      LiveState.status === 'connected' ||
+      LiveState.status === 'reconnecting'
+    ) {
       startAnimationLoop();
     }
   },
@@ -1076,7 +1215,10 @@ export const GSRLiveView = {
       // Fires renderStatus() (Reconnect / New Connection buttons) + a final
       // drawGraph(), now frozen at the last packet — see drawGraph()'s
       // `streaming` gate. A no-op if we were already disconnected.
-      if (LiveState.status === 'connected' || LiveState.status === 'reconnecting') {
+      if (
+        LiveState.status === 'connected' ||
+        LiveState.status === 'reconnecting'
+      ) {
         LiveState.setStatus('disconnected');
       }
     }
@@ -1100,13 +1242,16 @@ export const GSRLiveView = {
   // in sync automatically rather than by comment.
   isCompactLayout: isCompactLiveLayout,
   isViewActive: () => viewActive,
-  _setBleManagerForTest: (m) => { bleManager = m; },
+  _setBleManagerForTest: (m) => {
+    bleManager = m;
+  },
   // feedLiveAnalyzer()'s warmup/throttle tuning is deliberately module-scope
   // `let`, not writable from outside a real ES module (unlike the old
   // dual-mode global scope a test's bare `WARMUP_ROWS = n` reassignment used
   // to reach) — tests that shrink these for speed go through here instead.
   _setLiveAnalyzeTuningForTest: (warmupRows, minIntervalMs) => {
     if (warmupRows !== undefined) LIVE_ANALYZE_WARMUP_ROWS = warmupRows;
-    if (minIntervalMs !== undefined) LIVE_ANALYZE_MIN_INTERVAL_MS = minIntervalMs;
+    if (minIntervalMs !== undefined)
+      LIVE_ANALYZE_MIN_INTERVAL_MS = minIntervalMs;
   },
 };

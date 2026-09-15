@@ -15,14 +15,13 @@ import { ContourRingGeometry } from '../render/contour_ring_geometry.mjs';
 import { StatsMath } from '../signal/stats_math.mjs';
 import { GSRUI } from '../ui/ui.mjs';
 
-export const SVG_NS   = 'http://www.w3.org/2000/svg';
+export const SVG_NS = 'http://www.w3.org/2000/svg';
 export const XLINK_NS = 'http://www.w3.org/1999/xlink';
-export const AI_NS    = 'http://ns.adobe.com/AdobeIllustrator/10.0/';
-export const BG       = '#0b0d16';
-export const LABEL    = '#000000';
+export const AI_NS = 'http://ns.adobe.com/AdobeIllustrator/10.0/';
+export const BG = '#0b0d16';
+export const LABEL = '#000000';
 
 export class GSRMapExporter {
-
   // ═══════════════════════════════════════════════════════════════════
   //  Public API
   // ═══════════════════════════════════════════════════════════════════
@@ -41,7 +40,10 @@ export class GSRMapExporter {
     await this._ensureTileCoverage(ctx, mgr);
 
     const layers = await this._gather(ctx);
-    await this._download(this._render(ctx, layers), AppState.viewMode || 'single');
+    await this._download(
+      this._render(ctx, layers),
+      AppState.viewMode || 'single',
+    );
   }
 
   static async exportToPng(mgr) {
@@ -53,7 +55,12 @@ export class GSRMapExporter {
 
     const layers = await this._gather(ctx);
     const svgString = this._render(ctx, layers);
-    await this._downloadPng(svgString, ctx.w, ctx.h, AppState.viewMode || 'single');
+    await this._downloadPng(
+      svgString,
+      ctx.w,
+      ctx.h,
+      AppState.viewMode || 'single',
+    );
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -64,26 +71,46 @@ export class GSRMapExporter {
     if (!ll) return { lat: 0, lon: 0 };
     let lat, lon;
     if (Array.isArray(ll)) {
-      lat = ll[0]; lon = ll[1];
+      lat = ll[0];
+      lon = ll[1];
     } else {
       lat = ll.lat !== undefined ? ll.lat : 0;
-      lon = ll.lon !== undefined ? ll.lon : (ll.lng !== undefined ? ll.lng : 0);
+      lon = ll.lon !== undefined ? ll.lon : ll.lng !== undefined ? ll.lng : 0;
     }
     return { lat, lon };
   }
 
   static _validate(mgr) {
-    if (!mgr?.map) { alert("Map not initialized."); return null; }
+    if (!mgr?.map) {
+      alert('Map not initialized.');
+      return null;
+    }
     const el = document.getElementById(mgr.containerId);
-    if (!el)     { alert("Map container not found."); return null; }
+    if (!el) {
+      alert('Map container not found.');
+      return null;
+    }
     const r = el.getBoundingClientRect();
     const proj = this._getProjection(mgr, el);
-    return { map: mgr.map, el, r, w: proj.w, h: proj.h, project: proj.project, mgr };
+    return {
+      map: mgr.map,
+      el,
+      r,
+      w: proj.w,
+      h: proj.h,
+      project: proj.project,
+      mgr,
+    };
   }
 
   static _getProjection(mgr, el) {
     const bounds = mgr?.getBounds ? mgr.getBounds() : null;
-    if (bounds && typeof bounds.minLat === 'number' && !isNaN(bounds.minLat) && (bounds.maxLat - bounds.minLat) > 0) {
+    if (
+      bounds &&
+      typeof bounds.minLat === 'number' &&
+      !isNaN(bounds.minLat) &&
+      bounds.maxLat - bounds.minLat > 0
+    ) {
       const latSpan = bounds.maxLat - bounds.minLat;
       const lonSpan = bounds.maxLon - bounds.minLon;
       const padLat = latSpan > 0 ? latSpan * 0.05 : 0.005;
@@ -94,14 +121,18 @@ export class GSRMapExporter {
       const minLon = bounds.minLon - padLon;
       const maxLon = bounds.maxLon + padLon;
 
-      const mercY = lat => Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360));
+      const mercY = (lat) =>
+        Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360));
       const minY = mercY(minLat);
       const maxY = mercY(maxLat);
       const ySpan = maxY - minY;
       const xSpan = maxLon - minLon;
 
       const targetW = 2000;
-      const targetH = Math.max(800, Math.min(4000, Math.round(targetW * (ySpan / (xSpan || 1)))));
+      const targetH = Math.max(
+        800,
+        Math.min(4000, Math.round(targetW * (ySpan / (xSpan || 1)))),
+      );
 
       const project = (ll) => {
         if (!ll) return { x: 0, y: 0 };
@@ -140,7 +171,10 @@ export class GSRMapExporter {
    */
   static _pathBBox(d) {
     if (!d) return null;
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    let minX = Infinity,
+      minY = Infinity,
+      maxX = -Infinity,
+      maxY = -Infinity;
     const see = (x, y) => {
       if (isNaN(x) || isNaN(y)) return;
       if (x < minX) minX = x;
@@ -151,17 +185,25 @@ export class GSRMapExporter {
 
     const cubicAt = (p0, p1, p2, p3, t) => {
       const mt = 1 - t;
-      const a = mt * mt * mt, b = 3 * mt * mt * t, c = 3 * mt * t * t, e = t * t * t;
-      return { x: a * p0.x + b * p1.x + c * p2.x + e * p3.x, y: a * p0.y + b * p1.y + c * p2.y + e * p3.y };
+      const a = mt * mt * mt,
+        b = 3 * mt * mt * t,
+        c = 3 * mt * t * t,
+        e = t * t * t;
+      return {
+        x: a * p0.x + b * p1.x + c * p2.x + e * p3.x,
+        y: a * p0.y + b * p1.y + c * p2.y + e * p3.y,
+      };
     };
 
     const tokens = d.match(/[MLCZ][^MLCZ]*/gi);
     if (!tokens) return null;
 
     let cur = { x: 0, y: 0 };
-    tokens.forEach(tok => {
+    tokens.forEach((tok) => {
       const cmd = tok[0];
-      const nums = (tok.slice(1).match(/-?\d*\.?\d+(?:e-?\d+)?/gi) || []).map(Number);
+      const nums = (tok.slice(1).match(/-?\d*\.?\d+(?:e-?\d+)?/gi) || []).map(
+        Number,
+      );
       if (cmd === 'M' || cmd === 'L') {
         for (let i = 0; i + 1 < nums.length; i += 2) {
           cur = { x: nums[i], y: nums[i + 1] };
@@ -172,7 +214,9 @@ export class GSRMapExporter {
           const p1 = { x: nums[i], y: nums[i + 1] };
           const p2 = { x: nums[i + 2], y: nums[i + 3] };
           const p3 = { x: nums[i + 4], y: nums[i + 5] };
-          see(p1.x, p1.y); see(p2.x, p2.y); see(p3.x, p3.y);
+          see(p1.x, p1.y);
+          see(p2.x, p2.y);
+          see(p3.x, p3.y);
           const STEPS = 12;
           for (let s = 1; s < STEPS; s++) {
             const pt = cubicAt(cur, p1, p2, p3, s / STEPS);
@@ -200,8 +244,11 @@ export class GSRMapExporter {
     const paths = (surfObj && surfObj.isobands) || [];
     if (!paths.length) return ctx;
 
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    paths.forEach(p => {
+    let minX = Infinity,
+      minY = Infinity,
+      maxX = -Infinity,
+      maxY = -Infinity;
+    paths.forEach((p) => {
       const m = p.match(/d="([^"]*)"/);
       if (!m) return;
       const bbox = this._pathBBox(m[1]);
@@ -218,9 +265,9 @@ export class GSRMapExporter {
     // outline (which sits centred on the fill's edge) doesn't get shaved by
     // sub-pixel rounding at the new canvas edge.
     const SAFETY = 4;
-    const marginLeft   = Math.max(0, Math.ceil(-minX + SAFETY));
-    const marginTop    = Math.max(0, Math.ceil(-minY + SAFETY));
-    const marginRight  = Math.max(0, Math.ceil(maxX - w + SAFETY));
+    const marginLeft = Math.max(0, Math.ceil(-minX + SAFETY));
+    const marginTop = Math.max(0, Math.ceil(-minY + SAFETY));
+    const marginRight = Math.max(0, Math.ceil(maxX - w + SAFETY));
     const marginBottom = Math.max(0, Math.ceil(maxY - h + SAFETY));
 
     if (!marginLeft && !marginTop && !marginRight && !marginBottom) return ctx;
@@ -255,8 +302,19 @@ export class GSRMapExporter {
     // _ensureTileCoverage — and its own doc comment for why this can't be
     // done via Leaflet's `keepBuffer` option, despite that being the more
     // obviously-named fit).
-    return { ...ctx, w: newW, h: newH, project: newProject, r: newR,
-      tileMargin: { left: marginLeft, top: marginTop, right: marginRight, bottom: marginBottom } };
+    return {
+      ...ctx,
+      w: newW,
+      h: newH,
+      project: newProject,
+      r: newR,
+      tileMargin: {
+        left: marginLeft,
+        top: marginTop,
+        right: marginRight,
+        bottom: marginBottom,
+      },
+    };
   }
 
   /**
@@ -295,20 +353,33 @@ export class GSRMapExporter {
   static async _ensureTileCoverage(ctx, mgr) {
     const margin = ctx.tileMargin;
     if (!margin) return;
-    const maxMarginPx = Math.max(margin.left, margin.top, margin.right, margin.bottom);
+    const maxMarginPx = Math.max(
+      margin.left,
+      margin.top,
+      margin.right,
+      margin.bottom,
+    );
     if (maxMarginPx <= 0) return;
 
     try {
       const layer = mgr.baseTileLayer;
       const map = mgr.map;
       if (!layer || typeof layer._update !== 'function') return;
-      if (!map || typeof map.getSize !== 'function' || typeof map.getCenter !== 'function') return;
+      if (
+        !map ||
+        typeof map.getSize !== 'function' ||
+        typeof map.getCenter !== 'function'
+      )
+        return;
 
       const originalGetSize = map.getSize.bind(map);
       const originalSize = originalGetSize();
       if (!originalSize || typeof originalSize.add !== 'function') return; // not a real Leaflet Point — don't guess at its shape
 
-      const inflated = originalSize.add({ x: maxMarginPx * 2, y: maxMarginPx * 2 });
+      const inflated = originalSize.add({
+        x: maxMarginPx * 2,
+        y: maxMarginPx * 2,
+      });
       map.getSize = () => inflated;
       try {
         layer._update(map.getCenter());
@@ -322,12 +393,19 @@ export class GSRMapExporter {
       // (tiles load nearest-center-first, so a too-short wait reproduces
       // exactly this bug: only the tiles closest to the original viewport
       // finish in time, leaving the margin's far side blank).
-      const tileSize = (typeof layer.getTileSize === 'function') ? layer.getTileSize().x : 256;
+      const tileSize =
+        typeof layer.getTileSize === 'function' ? layer.getTileSize().x : 256;
       const ringsOut = Math.ceil(maxMarginPx / tileSize);
       const timeoutMs = Math.min(30000, 8000 + ringsOut * 500);
 
-      await new Promise(resolve => {
-        if (typeof layer._noTilesToLoad !== 'function' || layer._noTilesToLoad()) { resolve(); return; }
+      await new Promise((resolve) => {
+        if (
+          typeof layer._noTilesToLoad !== 'function' ||
+          layer._noTilesToLoad()
+        ) {
+          resolve();
+          return;
+        }
         let settled = false;
         const done = () => {
           if (settled) return;
@@ -344,7 +422,8 @@ export class GSRMapExporter {
         if (typeof timer.unref === 'function') timer.unref();
       });
     } catch (err) {
-      if (typeof GSRNotices !== 'undefined') GSRNotices.report(err, 'map_exporter:_ensureTileCoverage');
+      if (typeof GSRNotices !== 'undefined')
+        GSRNotices.report(err, 'map_exporter:_ensureTileCoverage');
     }
   }
 
@@ -357,19 +436,20 @@ export class GSRMapExporter {
     // Phase 1 (slice 3): per-track render layers are derived from the track
     // layerGroups via getRenderLayers(); only the aggregate layers (OSM shapes,
     // contours, clusters) are still read off the manager directly.
-    const render = (typeof mgr.getRenderLayers === 'function')
-      ? mgr.getRenderLayers()
-      : { paths: [], peakMarkers: [], hotspots: [] };
+    const render =
+      typeof mgr.getRenderLayers === 'function'
+        ? mgr.getRenderLayers()
+        : { paths: [], peakMarkers: [], hotspots: [] };
     return {
-      tiles:          await this._tiles(el, r),
-      rfFluid:        this._rfFluid(ctx),
-      surface:        this._surface(ctx),
-      osm:            this._vectors(ctx, mgr.osmLayers, { exact: true }),
-      tracks:         this._vectors(ctx, render.paths),
-      contours:       this._vectors(ctx, mgr.contourLayers),
-      clusters:       this._vectors(ctx, mgr.clusterLayers),
-      dotsAndLabels:  this._markers(ctx, render.peakMarkers),
-      hotspots:       this._markers(ctx, render.hotspots)
+      tiles: await this._tiles(el, r),
+      rfFluid: this._rfFluid(ctx),
+      surface: this._surface(ctx),
+      osm: this._vectors(ctx, mgr.osmLayers, { exact: true }),
+      tracks: this._vectors(ctx, render.paths),
+      contours: this._vectors(ctx, mgr.contourLayers),
+      clusters: this._vectors(ctx, mgr.clusterLayers),
+      dotsAndLabels: this._markers(ctx, render.peakMarkers),
+      hotspots: this._markers(ctx, render.hotspots),
     };
   }
 
@@ -393,35 +473,67 @@ export class GSRMapExporter {
 
     const g = (id, name, items, extra = '') =>
       `  <g i:layer="yes" id="${id}" data-name="${name}"${extra ? ' ' + extra : ''}>` +
-      (items && items.length ? '\n' + items.map(e => '    ' + e).join('\n') + '\n  ' : '') +
+      (items && items.length
+        ? '\n' + items.map((e) => '    ' + e).join('\n') + '\n  '
+        : '') +
       `</g>`;
 
     const surfObj = Array.isArray(L.surface)
       ? { mesh: [], isobands: [] }
-      : (L.surface || { mesh: [], isobands: [] });
+      : L.surface || { mesh: [], isobands: [] };
 
     const rfObj = L.rfFluid || { defs: [], layers: {}, polygons: [] };
-    const hasMask = rfObj.defs && rfObj.defs.some(d => d.includes('id="rfBuildingMask"'));
+    const hasMask =
+      rfObj.defs && rfObj.defs.some((d) => d.includes('id="rfBuildingMask"'));
     const maskAttr = hasMask ? 'mask="url(#rfBuildingMask)"' : '';
 
     // Build separated frequency sub-layers for Illustrator
     const rfSubLayers = [];
     if (rfObj.layers) {
       if (rfObj.layers['815'] && rfObj.layers['815'].length) {
-        rfSubLayers.push(g('RF_815MHz_LTE', 'RF 815 MHz (LTE Edge)', rfObj.layers['815'], 'style="mix-blend-mode: screen;"'));
+        rfSubLayers.push(
+          g(
+            'RF_815MHz_LTE',
+            'RF 815 MHz (LTE Edge)',
+            rfObj.layers['815'],
+            'style="mix-blend-mode: screen;"',
+          ),
+        );
       }
       if (rfObj.layers['868'] && rfObj.layers['868'].length) {
-        rfSubLayers.push(g('RF_868MHz_Grid', 'RF 868 MHz (Grid Smart)', rfObj.layers['868'], 'style="mix-blend-mode: screen;"'));
+        rfSubLayers.push(
+          g(
+            'RF_868MHz_Grid',
+            'RF 868 MHz (Grid Smart)',
+            rfObj.layers['868'],
+            'style="mix-blend-mode: screen;"',
+          ),
+        );
       }
       if (rfObj.layers['915'] && rfObj.layers['915'].length) {
-        rfSubLayers.push(g('RF_915MHz_SubGHz', 'RF 915 MHz (ISM SubGHz)', rfObj.layers['915'], 'style="mix-blend-mode: screen;"'));
+        rfSubLayers.push(
+          g(
+            'RF_915MHz_SubGHz',
+            'RF 915 MHz (ISM SubGHz)',
+            rfObj.layers['915'],
+            'style="mix-blend-mode: screen;"',
+          ),
+        );
       }
       if (rfObj.layers['fog'] && rfObj.layers['fog'].length) {
-        rfSubLayers.push(g('RF_EM_Fog', 'RF Electromagnetic Fog', rfObj.layers['fog'], 'style="mix-blend-mode: screen;"'));
+        rfSubLayers.push(
+          g(
+            'RF_EM_Fog',
+            'RF Electromagnetic Fog',
+            rfObj.layers['fog'],
+            'style="mix-blend-mode: screen;"',
+          ),
+        );
       }
     }
 
-    const rfLayerItems = rfSubLayers.length > 0 ? rfSubLayers : (rfObj.polygons || []);
+    const rfLayerItems =
+      rfSubLayers.length > 0 ? rfSubLayers : rfObj.polygons || [];
     // `mix-blend-mode` on a descendant blends against EVERYTHING already
     // painted behind it in the same stacking context — not just its own
     // siblings. The per-band sub-layers (815/868/915/fog, above) each carry
@@ -440,38 +552,51 @@ export class GSRMapExporter {
     // group as a whole then composites normally on top of the tiles below,
     // same as any other layer. The building mask is unrelated (clips to
     // footprints) and still applies either way.
-    const rfMasterAttr = hasMask ? `${maskAttr} style="isolation: isolate;"` : 'style="isolation: isolate;"';
+    const rfMasterAttr = hasMask
+      ? `${maskAttr} style="isolation: isolate;"`
+      : 'style="isolation: isolate;"';
 
-    const defsContent = rfObj.defs && rfObj.defs.length > 0
-      ? `  <defs>\n${rfObj.defs.map(d => '    ' + d).join('\n')}\n  </defs>`
-      : '';
+    const defsContent =
+      rfObj.defs && rfObj.defs.length > 0
+        ? `  <defs>\n${rfObj.defs.map((d) => '    ' + d).join('\n')}\n  </defs>`
+        : '';
 
     const specs = [
-      ['Base_Map_Tiles',          'Base Map Tiles',              L.tiles],
-      ['Vector_Surface_Mesh',     'Vector Surface Mesh',         surfObj.mesh,        'opacity="0.4" display="none"'],
+      ['Base_Map_Tiles', 'Base Map Tiles', L.tiles],
+      [
+        'Vector_Surface_Mesh',
+        'Vector Surface Mesh',
+        surfObj.mesh,
+        'opacity="0.4" display="none"',
+      ],
       // Isobands at the map edge are deliberately extrapolated past the original
       // frame (so the curve reads as continuing into an unbounded field rather
       // than being squared off against the boundary). Rather than hiding that
       // extension behind a clip-path, exportToSvg() grows the canvas ahead of
       // time (_expandCanvasForIsobands) so the full rounded shape is genuinely
       // visible here — nothing in this layer is invisible or clipped.
-      ['Vector_Surface_Isobands', 'Vector Surface Isobands',     surfObj.isobands,    'opacity="0.4"'],
-      ['RF_Fluid_Field',          'RF Fluid Field',              rfLayerItems,        rfMasterAttr],
-      ['OSM_Shapes',              'OSM Shapes',                  L.osm],
-      ['GPS_Track_Paths',         'GPS Track Paths',             L.tracks],
-      ['Contour_Lines',           'Contour Lines',               L.contours],
-      ['Cluster_Metaballs',       'Cluster Metaballs',           L.clusters],
-      ['Stress_Peak_Dots',        'Stress Peak Dots',            L.dotsAndLabels.dots],
-      ['Hotspot_Dots',            'Hotspot Dots',                L.hotspots.dots],
-      ['Stress_Peak_Labels',      'Stress Peak Labels',          L.dotsAndLabels.labels]
+      [
+        'Vector_Surface_Isobands',
+        'Vector Surface Isobands',
+        surfObj.isobands,
+        'opacity="0.4"',
+      ],
+      ['RF_Fluid_Field', 'RF Fluid Field', rfLayerItems, rfMasterAttr],
+      ['OSM_Shapes', 'OSM Shapes', L.osm],
+      ['GPS_Track_Paths', 'GPS Track Paths', L.tracks],
+      ['Contour_Lines', 'Contour Lines', L.contours],
+      ['Cluster_Metaballs', 'Cluster Metaballs', L.clusters],
+      ['Stress_Peak_Dots', 'Stress Peak Dots', L.dotsAndLabels.dots],
+      ['Hotspot_Dots', 'Hotspot Dots', L.hotspots.dots],
+      ['Stress_Peak_Labels', 'Stress Peak Labels', L.dotsAndLabels.labels],
     ];
 
     const lines = [
       `<svg xmlns="${SVG_NS}" xmlns:xlink="${XLINK_NS}" xmlns:i="${AI_NS}" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}">`,
-      `  <rect x="0" y="0" width="${w}" height="${h}" fill="${BG}" />`
+      `  <rect x="0" y="0" width="${w}" height="${h}" fill="${BG}" />`,
     ];
     if (defsContent) lines.push(defsContent);
-    lines.push(...specs.map(s => g(...s)));
+    lines.push(...specs.map((s) => g(...s)));
     lines.push('</svg>');
     return lines.join('\n');
   }
@@ -487,7 +612,7 @@ export class GSRMapExporter {
     }
     return {
       mesh: this._buildVectorMesh(ctx, surfaceData),
-      isobands: this._buildVectorIsobands(ctx, surfaceData)
+      isobands: this._buildVectorIsobands(ctx, surfaceData),
     };
   }
 
@@ -508,20 +633,32 @@ export class GSRMapExporter {
     const { minVal, maxVal, bounds, sortedVals } = surfaceData;
     const rows = grid.length;
     const cols = grid[0].length;
-    const project = ctx.project || (ll => ctx.map.latLngToContainerPoint(ll));
+    const project = ctx.project || ((ll) => ctx.map.latLngToContainerPoint(ll));
     const mesh = [];
 
-    const hillshadeStrength = (ctx.mgr && ctx.mgr._hillshadeStrength !== undefined) ? ctx.mgr._hillshadeStrength : 0.0;
+    const hillshadeStrength =
+      ctx.mgr && ctx.mgr._hillshadeStrength !== undefined
+        ? ctx.mgr._hillshadeStrength
+        : 0.0;
     const hc = GSR_CONST.HILLSHADE;
 
     // Cache the ratioGrid and shade array on surfaceData to avoid recomputing them
     if (!surfaceData.cachedRatioGrid) {
-      surfaceData.cachedRatioGrid = Hillshade.buildRatioGrid(grid, rows, cols, { minVal, maxVal, sortedVals, rankFn: StatsMath.percentileRank });
+      surfaceData.cachedRatioGrid = Hillshade.buildRatioGrid(grid, rows, cols, {
+        minVal,
+        maxVal,
+        sortedVals,
+        rankFn: StatsMath.percentileRank,
+      });
     }
     const ratioGrid = surfaceData.cachedRatioGrid;
 
     if (hillshadeStrength > 0 && !surfaceData.cachedShade) {
-      surfaceData.cachedShade = Hillshade.compute(ratioGrid, rows, cols, 1, 1, { azimuthDeg: hc.azimuthDeg, altitudeDeg: hc.altitudeDeg, zFactor: hc.exaggeration });
+      surfaceData.cachedShade = Hillshade.compute(ratioGrid, rows, cols, 1, 1, {
+        azimuthDeg: hc.azimuthDeg,
+        altitudeDeg: hc.altitudeDeg,
+        zFactor: hc.exaggeration,
+      });
     }
     const shade = hillshadeStrength > 0 ? surfaceData.cachedShade : null;
 
@@ -537,18 +674,39 @@ export class GSRMapExporter {
           const ratio = ratioGrid[row][col];
           if (ratio === null) continue;
 
-          const lightness = shade ? Hillshade.blendLightness(shade[row * cols + col], hillshadeStrength, hc.minLightness, hc.maxLightness) : 50;
+          const lightness = shade
+            ? Hillshade.blendLightness(
+                shade[row * cols + col],
+                hillshadeStrength,
+                hc.minLightness,
+                hc.maxLightness,
+              )
+            : 50;
           const fillColor = this._ratioToHex(ratio, lightness);
 
-          const dLat = (rows > 1) ? 0.5 * stride * (bounds.maxLat - bounds.minLat) / (rows - 1) : 0;
-          const dLon = (cols > 1) ? 0.5 * stride * (bounds.maxLon - bounds.minLon) / (cols - 1) : 0;
-          const gridLat = (rows > 1) ? bounds.minLat + (row / (rows - 1)) * (bounds.maxLat - bounds.minLat) : bounds.minLat;
-          const gridLon = (cols > 1) ? bounds.minLon + (col / (cols - 1)) * (bounds.maxLon - bounds.minLon) : bounds.minLon;
+          const dLat =
+            rows > 1
+              ? (0.5 * stride * (bounds.maxLat - bounds.minLat)) / (rows - 1)
+              : 0;
+          const dLon =
+            cols > 1
+              ? (0.5 * stride * (bounds.maxLon - bounds.minLon)) / (cols - 1)
+              : 0;
+          const gridLat =
+            rows > 1
+              ? bounds.minLat +
+                (row / (rows - 1)) * (bounds.maxLat - bounds.minLat)
+              : bounds.minLat;
+          const gridLon =
+            cols > 1
+              ? bounds.minLon +
+                (col / (cols - 1)) * (bounds.maxLon - bounds.minLon)
+              : bounds.minLon;
 
           const latSouth = gridLat - dLat;
           const latNorth = gridLat + dLat;
-          const lonWest  = gridLon - dLon;
-          const lonEast  = gridLon + dLon;
+          const lonWest = gridLon - dLon;
+          const lonEast = gridLon + dLon;
 
           surfaceData.cachedMeshCells.push({
             fillColor,
@@ -556,24 +714,24 @@ export class GSRMapExporter {
               [latNorth, lonWest],
               [latNorth, lonEast],
               [latSouth, lonEast],
-              [latSouth, lonWest]
-            ]
+              [latSouth, lonWest],
+            ],
           });
         }
       }
     }
 
     // Project and build SVG polygons
-    surfaceData.cachedMeshCells.forEach(cell => {
+    surfaceData.cachedMeshCells.forEach((cell) => {
       const pNW = project(cell.coords[0]);
       const pNE = project(cell.coords[1]);
       const pSE = project(cell.coords[2]);
       const pSW = project(cell.coords[3]);
 
       const pointsStr = `${pNW.x.toFixed(3)},${pNW.y.toFixed(3)} ${pNE.x.toFixed(3)},${pNE.y.toFixed(3)} ${pSE.x.toFixed(3)},${pSE.y.toFixed(3)} ${pSW.x.toFixed(3)},${pSW.y.toFixed(3)}`;
-      
+
       mesh.push(
-        `<polygon points="${pointsStr}" fill="${this._esc(cell.fillColor)}" stroke="${this._esc(cell.fillColor)}" stroke-width="0.5" stroke-linejoin="round" />`
+        `<polygon points="${pointsStr}" fill="${this._esc(cell.fillColor)}" stroke="${this._esc(cell.fillColor)}" stroke-width="0.5" stroke-linejoin="round" />`,
       );
     });
 
@@ -601,26 +759,52 @@ export class GSRMapExporter {
 
     // Cache the geographic rings on surfaceData to avoid redundant calculations across passes
     if (!surfaceData.cachedIsobandRings) {
-      surfaceData.cachedIsobandRings = ContourRingGeometry.buildIsobandRings(contours, grid, rows, cols, bounds);
+      surfaceData.cachedIsobandRings = ContourRingGeometry.buildIsobandRings(
+        contours,
+        grid,
+        rows,
+        cols,
+        bounds,
+      );
     }
 
     // Project and build SVG paths using the current ctx.project
-    surfaceData.cachedIsobandRings.forEach(item => {
+    surfaceData.cachedIsobandRings.forEach((item) => {
       const fillColor = this._ratioToHex(item.ratio);
 
       const smoothRing = (ring) => GeoUtils.chaikinSmooth(ring, 3, true);
 
       item.rings.forEach((ring, idx) => {
-        const d = this._pathD(ctx, smoothRing(ring), true, true, false, true, 'bspline');
+        const d = this._pathD(
+          ctx,
+          smoothRing(ring),
+          true,
+          true,
+          false,
+          true,
+          'bspline',
+        );
         if (!d) return;
-        const holes = (item.holesByRingIndex && item.holesByRingIndex[idx]) || [];
+        const holes =
+          (item.holesByRingIndex && item.holesByRingIndex[idx]) || [];
         const holeDs = holes
-          .map(hole => this._pathD(ctx, smoothRing(hole), true, true, false, true, 'bspline'))
+          .map((hole) =>
+            this._pathD(
+              ctx,
+              smoothRing(hole),
+              true,
+              true,
+              false,
+              true,
+              'bspline',
+            ),
+          )
           .filter(Boolean);
         const fullD = [d, ...holeDs].join(' ');
         isobands.push(
           `<path d="${fullD}" fill="${this._esc(fillColor)}" stroke="none"` +
-          (holeDs.length ? ` fill-rule="evenodd"` : '') + ` />`
+            (holeDs.length ? ` fill-rule="evenodd"` : '') +
+            ` />`,
         );
       });
     });
@@ -634,10 +818,12 @@ export class GSRMapExporter {
 
   static async _tiles(el, r) {
     const tiles = Array.from(el.querySelectorAll('.leaflet-tile-pane img'));
-    const jobs = tiles.map(async tile => {
+    const jobs = tiles.map(async (tile) => {
       const b = tile.getBoundingClientRect();
       const url = await this._inlineImg(tile);
-      return url ? this._img(b.left - r.left, b.top - r.top, b.width, b.height, url) : null;
+      return url
+        ? this._img(b.left - r.left, b.top - r.top, b.width, b.height, url)
+        : null;
     });
     const results = await Promise.all(jobs);
     return results.filter(Boolean);
@@ -651,14 +837,15 @@ export class GSRMapExporter {
     try {
       const c = Object.assign(document.createElement('canvas'), {
         width: img.naturalWidth || img.width || 256,
-        height: img.naturalHeight || img.height || 256
+        height: img.naturalHeight || img.height || 256,
       });
       c.getContext('2d').drawImage(img, 0, 0);
       const u = c.toDataURL('image/png');
       if (u?.startsWith('data:')) return u;
     } catch (err) {
       // Canvas is tainted (cross-origin tiles) — fall through to the fetch path below.
-      if (typeof GSRNotices !== 'undefined') GSRNotices.report(err, 'map_exporter:rasterizeImage(tainted canvas)');
+      if (typeof GSRNotices !== 'undefined')
+        GSRNotices.report(err, 'map_exporter:rasterizeImage(tainted canvas)');
     }
 
     try {
@@ -672,7 +859,8 @@ export class GSRMapExporter {
         fr.readAsDataURL(blob);
       });
     } catch (err) {
-      if (typeof GSRNotices !== 'undefined') GSRNotices.report(err, 'map_exporter:rasterizeImage(fetch)');
+      if (typeof GSRNotices !== 'undefined')
+        GSRNotices.report(err, 'map_exporter:rasterizeImage(fetch)');
       return null;
     }
   }
@@ -693,7 +881,10 @@ export class GSRMapExporter {
     let latlngs = layer.getLatLngs();
     const isPoly = !!(
       (typeof L !== 'undefined' && L.Polygon && layer instanceof L.Polygon) ||
-      (typeof window !== 'undefined' && window.L && window.L.Polygon && layer instanceof window.L.Polygon) ||
+      (typeof window !== 'undefined' &&
+        window.L &&
+        window.L.Polygon &&
+        layer instanceof window.L.Polygon) ||
       // NOT `layer.options.fillOpacity > 0` here: Leaflet's base Path class
       // defaults fillOpacity to 0.2 on the options PROTOTYPE for every vector
       // layer (polylines included), inherited regardless of whether `fill`
@@ -713,20 +904,34 @@ export class GSRMapExporter {
     // Apply Chaikin pre-smoothing ONLY to track/contour paths to filter micro-jitter
     // before screen projection.
     let isClosedLoop = false;
-    if (!isPoly && !exact && Array.isArray(latlngs) && latlngs.length >= 3 && typeof GeoUtils !== 'undefined') {
+    if (
+      !isPoly &&
+      !exact &&
+      Array.isArray(latlngs) &&
+      latlngs.length >= 3 &&
+      typeof GeoUtils !== 'undefined'
+    ) {
       try {
         const flat = Array.isArray(latlngs[0]) ? latlngs.flat() : latlngs;
-        if (flat.length >= 3 && flat[0] && (typeof flat[0].lat === 'number' || Array.isArray(flat[0]))) {
+        if (
+          flat.length >= 3 &&
+          flat[0] &&
+          (typeof flat[0].lat === 'number' || Array.isArray(flat[0]))
+        ) {
           // Contour isolines are frequently closed rings (concentric loops around a
           // hotspot) whose first/last point coincide (see GSRSpatialClustering.stitchSegments).
           // A fixed `closed=false` here — unlike map.js's renderContours, which detects this
           // and smooths with closed=true — left the ring's seam as a sharp, un-cut corner and
           // then never closed the SVG path with 'Z', so every exported contour ring was both
           // less smoothed than its on-screen counterpart AND carried a visible kink at the seam.
-          const getLat = p => Array.isArray(p) ? p[0] : p.lat;
-          const getLon = p => Array.isArray(p) ? p[1] : (p.lon !== undefined ? p.lon : p.lng);
-          const first = flat[0], last = flat[flat.length - 1];
-          isClosedLoop = Math.abs(getLat(first) - getLat(last)) < 1e-9 && Math.abs(getLon(first) - getLon(last)) < 1e-9;
+          const getLat = (p) => (Array.isArray(p) ? p[0] : p.lat);
+          const getLon = (p) =>
+            Array.isArray(p) ? p[1] : p.lon !== undefined ? p.lon : p.lng;
+          const first = flat[0],
+            last = flat[flat.length - 1];
+          isClosedLoop =
+            Math.abs(getLat(first) - getLat(last)) < 1e-9 &&
+            Math.abs(getLon(first) - getLon(last)) < 1e-9;
           // Contour layers are a special case: `flat` here is layer.getLatLngs()
           // from the LIVE Leaflet polyline, which map.js's renderContours already
           // ran through GeoUtils.chaikinSmooth(path, 3, isClosed) once. Smoothing
@@ -738,14 +943,25 @@ export class GSRMapExporter {
           // own isoband's fill edge ("contour lines overlapping" when viewed
           // together). Tracks have no such prior smoothing pass, so they still get
           // their one-and-only chaikin pass here.
-          latlngs = isContour ? flat : GeoUtils.chaikinSmooth(flat, 4, isClosedLoop);
+          latlngs = isContour
+            ? flat
+            : GeoUtils.chaikinSmooth(flat, 4, isClosedLoop);
         }
       } catch (err) {
-        if (typeof GSRNotices !== 'undefined') GSRNotices.report(err, 'map_exporter:_vectors(smoothing)');
+        if (typeof GSRNotices !== 'undefined')
+          GSRNotices.report(err, 'map_exporter:_vectors(smoothing)');
       }
     }
 
-    const d = this._pathD(ctx, latlngs, isPoly || isClosedLoop, !exact, exact, true, isContour ? 'bspline' : 'catmull');
+    const d = this._pathD(
+      ctx,
+      latlngs,
+      isPoly || isClosedLoop,
+      !exact,
+      exact,
+      true,
+      isContour ? 'bspline' : 'catmull',
+    );
     if (!d) return null;
 
     const o = layer.options || {};
@@ -758,12 +974,19 @@ export class GSRMapExporter {
     // print heavier than intended on export, so scale it down.
     // Contour lines are thinned significantly more to look very fine and elegant.
     const strokeWidth = exact
-      ? (o.weight !== undefined ? o.weight * 0.35 : 0.35)
+      ? o.weight !== undefined
+        ? o.weight * 0.35
+        : 0.35
       : isContour
-        ? (o.weight !== undefined ? o.weight * 0.20 : 0.15)
-        : (o.weight !== undefined ? Math.min(1.5, o.weight * 0.4) : 1.2);
+        ? o.weight !== undefined
+          ? o.weight * 0.2
+          : 0.15
+        : o.weight !== undefined
+          ? Math.min(1.5, o.weight * 0.4)
+          : 1.2;
 
-    return `<path d="${d}"` +
+    return (
+      `<path d="${d}"` +
       ` stroke="${esc(this._toHex(o.color || '#ff7b00'))}"` +
       ` stroke-width="${esc(strokeWidth)}"` +
       ` stroke-opacity="${esc(o.opacity ?? 0.85)}"` +
@@ -772,23 +995,48 @@ export class GSRMapExporter {
       ` fill-opacity="${esc(isPoly ? (o.fillOpacity ?? 0.2) : 0)}"` +
       (exact
         ? ` stroke-linecap="square" stroke-linejoin="miter" stroke-miterlimit="10" />`
-        : ` stroke-linecap="round" stroke-linejoin="round" />`);
+        : ` stroke-linecap="round" stroke-linejoin="round" />`)
+    );
   }
 
-  static _pathD(ctx, latlngs, close, smooth = true, exact = false, cull = true, curveMode = 'catmull') {
+  static _pathD(
+    ctx,
+    latlngs,
+    close,
+    smooth = true,
+    exact = false,
+    cull = true,
+    curveMode = 'catmull',
+  ) {
     if (!latlngs?.length) return '';
-    const project = (typeof ctx === 'function')
-      ? ctx
-      : (ctx?.project
-        ? ctx.project
-        : (ll => (ctx?.map?.latLngToContainerPoint ? ctx.map.latLngToContainerPoint(ll) : (ctx?.latLngToContainerPoint ? ctx.latLngToContainerPoint(ll) : { x: 0, y: 0 }))));
+    const project =
+      typeof ctx === 'function'
+        ? ctx
+        : ctx?.project
+          ? ctx.project
+          : (ll) =>
+              ctx?.map?.latLngToContainerPoint
+                ? ctx.map.latLngToContainerPoint(ll)
+                : ctx?.latLngToContainerPoint
+                  ? ctx.latLngToContainerPoint(ll)
+                  : { x: 0, y: 0 };
 
-    if (Array.isArray(latlngs[0]) && (Array.isArray(latlngs[0][0]) || (latlngs[0][0] !== null && typeof latlngs[0][0] === 'object')))
-      return latlngs.map(s => this._pathD(ctx, s, close, smooth, exact, cull, curveMode)).filter(Boolean).join(' ');
+    if (
+      Array.isArray(latlngs[0]) &&
+      (Array.isArray(latlngs[0][0]) ||
+        (latlngs[0][0] !== null && typeof latlngs[0][0] === 'object'))
+    )
+      return latlngs
+        .map((s) => this._pathD(ctx, s, close, smooth, exact, cull, curveMode))
+        .filter(Boolean)
+        .join(' ');
 
-    const rawPts = latlngs.map(ll => project(ll)).filter(p => p && typeof p.x === 'number' && !isNaN(p.x));
+    const rawPts = latlngs
+      .map((ll) => project(ll))
+      .filter((p) => p && typeof p.x === 'number' && !isNaN(p.x));
     if (rawPts.length === 0) return '';
-    if (rawPts.length === 1) return `M${rawPts[0].x.toFixed(3)} ${rawPts[0].y.toFixed(3)}`;
+    if (rawPts.length === 1)
+      return `M${rawPts[0].x.toFixed(3)} ${rawPts[0].y.toFixed(3)}`;
 
     // Exact mode (OSM shapes): keep every projected vertex verbatim — no micro-jitter
     // culling. That culling exists to smooth out GPS/sensor noise on track paths; on
@@ -811,9 +1059,16 @@ export class GSRMapExporter {
       }
     }
 
-    const mode = (!smooth || exact) ? 'none' : curveMode;
-    if (typeof BezierSpline !== 'undefined' && typeof BezierSpline.fitPathD === 'function') {
-      return BezierSpline.fitPathD(pts, { curveMode: mode, closed: close, precision: 3 });
+    const mode = !smooth || exact ? 'none' : curveMode;
+    if (
+      typeof BezierSpline !== 'undefined' &&
+      typeof BezierSpline.fitPathD === 'function'
+    ) {
+      return BezierSpline.fitPathD(pts, {
+        curveMode: mode,
+        closed: close,
+        precision: 3,
+      });
     }
 
     if (pts.length < 2) return `M${pts[0].x.toFixed(3)} ${pts[0].y.toFixed(3)}`;
@@ -829,21 +1084,35 @@ export class GSRMapExporter {
   // ═══════════════════════════════════════════════════════════════════
 
   static _markers(ctx, markers) {
-    const dots = [], labels = [];
+    const dots = [],
+      labels = [];
     if (!markers) return { dots, labels };
     const leafletMap = ctx?.map || (ctx?.hasLayer ? ctx : null);
-    const project = ctx?.project || (ll => (leafletMap?.latLngToContainerPoint ? leafletMap.latLngToContainerPoint(ll) : { x: 0, y: 0 }));
+    const project =
+      ctx?.project ||
+      ((ll) =>
+        leafletMap?.latLngToContainerPoint
+          ? leafletMap.latLngToContainerPoint(ll)
+          : { x: 0, y: 0 });
 
     for (const m of markers) {
       if (!m) continue;
-      if (leafletMap && typeof leafletMap.hasLayer === 'function' && !leafletMap.hasLayer(m)) continue;
+      if (
+        leafletMap &&
+        typeof leafletMap.hasLayer === 'function' &&
+        !leafletMap.hasLayer(m)
+      )
+        continue;
       const el = typeof m.getElement === 'function' ? m.getElement() : null;
       if (!el) continue;
 
       const p = project(m.getLatLng());
       if (!p || typeof p.x !== 'number') continue;
-      const cx = p.x, cy = p.y;
-      const op = this._esc(parseFloat(window.getComputedStyle(el).opacity) || 1);
+      const cx = p.x,
+        cy = p.y;
+      const op = this._esc(
+        parseFloat(window.getComputedStyle(el).opacity) || 1,
+      );
 
       const d = this._dotSvg(el, cx, cy, op);
       if (d) dots.push(d);
@@ -859,26 +1128,31 @@ export class GSRMapExporter {
     const star = el.querySelector('.hotspot-star');
     if (star && window.getComputedStyle(star).display !== 'none') {
       const ss = window.getComputedStyle(star);
-      return `<text x="${cx}" y="${cy}"` +
+      return (
+        `<text x="${cx}" y="${cy}"` +
         ` font-size="${this._esc(ss.fontSize || '18px')}"` +
         ` font-family="${this._esc(ss.fontFamily || 'sans-serif')}"` +
         ` fill="${this._esc(ss.color || '#ff1744')}"` +
         ` text-anchor="middle" dominant-baseline="central"` +
-        ` opacity="${opacity}">★</text>`;
+        ` opacity="${opacity}">★</text>`
+      );
     }
 
-    const dot = el.querySelector('.peak-dot') || el.querySelector('.hotspot-dot');
+    const dot =
+      el.querySelector('.peak-dot') || el.querySelector('.hotspot-dot');
     if (!dot || window.getComputedStyle(dot).display === 'none') return null;
     const s = window.getComputedStyle(dot);
     const strokeWidth = (parseFloat(s.borderWidth) || 1.5) * 0.5;
     // Radius = half the CSS dot's own diameter, so the exported dot matches
     // its in-app rendered size.
     const r = (parseFloat(s.width) || 10) * 0.5;
-    return `<circle cx="${cx}" cy="${cy}" r="${r}"` +
+    return (
+      `<circle cx="${cx}" cy="${cy}" r="${r}"` +
       ` fill="${this._esc(s.backgroundColor || '#f43f5e')}"` +
       ` stroke="${this._esc(s.borderColor || '#ffffff')}"` +
       ` stroke-width="${this._esc(strokeWidth)}"` +
-      ` opacity="${opacity}" />`;
+      ` opacity="${opacity}" />`
+    );
   }
 
   static _labelSvg(el, cx, cy, opacity) {
@@ -899,16 +1173,19 @@ export class GSRMapExporter {
         y = cy + (lr.top - wr.top) + lr.height * 0.78;
       }
     } catch (err) {
-      if (typeof GSRNotices !== 'undefined') GSRNotices.report(err, 'map_exporter:label placement');
+      if (typeof GSRNotices !== 'undefined')
+        GSRNotices.report(err, 'map_exporter:label placement');
     }
 
-    return `<text x="${x.toFixed(3)}"` +
+    return (
+      `<text x="${x.toFixed(3)}"` +
       ` y="${y.toFixed(3)}"` +
       ` font-size="${this._esc(ls.fontSize || '11px')}"` +
       ` font-weight="${this._esc(ls.fontWeight || '600')}"` +
       ` font-family="${this._esc(ls.fontFamily || 'sans-serif')}"` +
       ` fill="${LABEL}" text-anchor="middle"` +
-      ` opacity="${opacity}">${tx}</text>`;
+      ` opacity="${opacity}">${tx}</text>`
+    );
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -939,27 +1216,37 @@ export class GSRMapExporter {
   }
 
   static _esc(v) {
-    if (typeof GSRNotices !== 'undefined' && typeof GSRNotices.escapeHtml === 'function') {
+    if (
+      typeof GSRNotices !== 'undefined' &&
+      typeof GSRNotices.escapeHtml === 'function'
+    ) {
       return GSRNotices.escapeHtml(v);
     }
     if (v == null) return '';
-    return String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    return String(v)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
   }
 
   static async _download(svg, mode) {
-    const baseName = (typeof GSRUI !== 'undefined' && typeof GSRUI._exportFilenameBase === 'function')
-      ? GSRUI._exportFilenameBase()
-      : 'biomapping';
+    const baseName =
+      typeof GSRUI !== 'undefined' &&
+      typeof GSRUI._exportFilenameBase === 'function'
+        ? GSRUI._exportFilenameBase()
+        : 'biomapping';
     const suggestedName = `${baseName}_map_${mode}_export.svg`;
     const blob = new Blob([svg], { type: 'image/svg+xml' });
     await GSRFileSaver.saveFile(blob, suggestedName);
   }
 
   static async _downloadPng(svg, width, height, mode) {
-    const baseName = (typeof GSRUI !== 'undefined' && typeof GSRUI._exportFilenameBase === 'function')
-      ? GSRUI._exportFilenameBase()
-      : 'biomapping';
+    const baseName =
+      typeof GSRUI !== 'undefined' &&
+      typeof GSRUI._exportFilenameBase === 'function'
+        ? GSRUI._exportFilenameBase()
+        : 'biomapping';
     const suggestedName = `${baseName}_map_${mode}_export.png`;
 
     const svgBlob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
@@ -968,7 +1255,12 @@ export class GSRMapExporter {
       const img = new Image();
       await new Promise((resolve, reject) => {
         img.onload = () => resolve();
-        img.onerror = (e) => reject(new Error('Failed to rasterize SVG: ' + (e?.message || 'image load error')));
+        img.onerror = (e) =>
+          reject(
+            new Error(
+              'Failed to rasterize SVG: ' + (e?.message || 'image load error'),
+            ),
+          );
         img.src = url;
       });
 
@@ -990,7 +1282,10 @@ export class GSRMapExporter {
           }, 'image/png');
         });
       } else if (typeof canvas.toDataURL === 'function') {
-        await GSRFileSaver.saveFile(canvas.toDataURL('image/png'), suggestedName);
+        await GSRFileSaver.saveFile(
+          canvas.toDataURL('image/png'),
+          suggestedName,
+        );
       }
     } finally {
       URL.revokeObjectURL(url);

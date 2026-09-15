@@ -22,7 +22,9 @@ global.document = { getElementById: () => null };
 global.alert = () => {};
 global.confirm = () => true;
 
-const { GSRCollectiveProject } = require('../src/spatial/collective_project.mjs');
+const {
+  GSRCollectiveProject,
+} = require('../src/spatial/collective_project.mjs');
 
 // collective_project.mjs holds real static imports of AppState/GSRTrackManager/
 // GSRFileSaver (from app_state.mjs/tracks.mjs/file_saver.mjs) — a `global.X =
@@ -30,8 +32,12 @@ const { GSRCollectiveProject } = require('../src/spatial/collective_project.mjs'
 // longer reaches any of them (ES-module migration), so every mock below
 // mutates the REAL singleton's own properties in place instead.
 const { AppState: RealAppState } = require('../src/core/app_state.mjs');
-const { GSRTrackManager: RealGSRTrackManager } = require('../src/ui/tracks.mjs');
-const { GSRFileSaver: RealGSRFileSaver } = require('../src/core/file_saver.mjs');
+const {
+  GSRTrackManager: RealGSRTrackManager,
+} = require('../src/ui/tracks.mjs');
+const {
+  GSRFileSaver: RealGSRFileSaver,
+} = require('../src/core/file_saver.mjs');
 const { GSRNotices: RealGSRNotices } = require('../src/core/notices.mjs');
 
 function setSingletonShape(target, shape) {
@@ -41,7 +47,10 @@ function setSingletonShape(target, shape) {
 
 // ── _sanitizeName ────────────────────────────────────────────────────────
 test('_sanitizeName: strips a file extension and replaces disallowed characters', () => {
-  assert.strictEqual(GSRCollectiveProject._sanitizeName('My Walk #1.csv'), 'My_Walk__1');
+  assert.strictEqual(
+    GSRCollectiveProject._sanitizeName('My Walk #1.csv'),
+    'My_Walk__1',
+  );
 });
 
 test('_sanitizeName: falls back to "track" for empty/undefined input', () => {
@@ -50,7 +59,10 @@ test('_sanitizeName: falls back to "track" for empty/undefined input', () => {
 });
 
 test('_sanitizeName: leaves already-safe names untouched (minus extension)', () => {
-  assert.strictEqual(GSRCollectiveProject._sanitizeName('morning_walk-01.csv'), 'morning_walk-01');
+  assert.strictEqual(
+    GSRCollectiveProject._sanitizeName('morning_walk-01.csv'),
+    'morning_walk-01',
+  );
 });
 
 // ── _pickValues ──────────────────────────────────────────────────────────
@@ -64,8 +76,14 @@ test('_pickValues: reads .checked for checkbox controls and .value for others', 
 });
 
 test('_pickValues: skips keys with no matching control and returns {} for null controls', () => {
-  assert.deepStrictEqual(GSRCollectiveProject._pickValues(null, ['a', 'b']), {});
-  const out = GSRCollectiveProject._pickValues({ a: { type: 'text', value: '1' } }, ['a', 'missing']);
+  assert.deepStrictEqual(
+    GSRCollectiveProject._pickValues(null, ['a', 'b']),
+    {},
+  );
+  const out = GSRCollectiveProject._pickValues(
+    { a: { type: 'text', value: '1' } },
+    ['a', 'missing'],
+  );
   assert.deepStrictEqual(out, { a: '1' });
 });
 
@@ -82,7 +100,9 @@ test('_applyValues: writes .checked for checkbox controls and .value for others'
 
 test('_applyValues: is a no-op for missing controls or undefined values, and does not throw on null args', () => {
   assert.doesNotThrow(() => GSRCollectiveProject._applyValues(null, { a: 1 }));
-  assert.doesNotThrow(() => GSRCollectiveProject._applyValues({ a: { value: 'x' } }, null));
+  assert.doesNotThrow(() =>
+    GSRCollectiveProject._applyValues({ a: { value: 'x' } }, null),
+  );
   const controls = { a: { type: 'text', value: 'unchanged' } };
   GSRCollectiveProject._applyValues(controls, { a: undefined, missing: 5 });
   assert.strictEqual(controls.a.value, 'unchanged');
@@ -110,16 +130,25 @@ test('_buildManifest: assembles version, active track index, tracks, settings an
   };
   global.document.getElementById = (id) => elById[id] || null;
 
-  const manifest = GSRCollectiveProject._buildManifest([{ id: 't1', file: '01_a.csv' }, { id: 't2', file: '02_b.csv' }]);
+  const manifest = GSRCollectiveProject._buildManifest([
+    { id: 't1', file: '01_a.csv' },
+    { id: 't2', file: '02_b.csv' },
+  ]);
 
   assert.strictEqual(manifest.version, GSRCollectiveProject.MANIFEST_VERSION);
-  assert.strictEqual(manifest.activeTrackIndex, 1, 'activeTrackId t2 is at index 1');
+  assert.strictEqual(
+    manifest.activeTrackIndex,
+    1,
+    'activeTrackId t2 is at index 1',
+  );
   assert.strictEqual(manifest.viewMode, 'collective');
   assert.strictEqual(manifest.tracks.length, 2);
   assert.strictEqual(manifest.settings.sliders.gpsPeakLatency, '2.0');
   assert.strictEqual(manifest.settings.contour.gridResolution, '40');
   assert.strictEqual(manifest.viewToggles.btnToggleMapPeaks, true);
-  assert.ok(typeof manifest.exportedAt === 'string' && manifest.exportedAt.length > 0);
+  assert.ok(
+    typeof manifest.exportedAt === 'string' && manifest.exportedAt.length > 0,
+  );
 
   delete global.AppState;
   global.document.getElementById = () => null;
@@ -142,8 +171,12 @@ test('_buildManifest: activeTrackIndex is -1 when the active track is not found 
 test('exportProject: shows an alert and does not throw when JSZip is unavailable', async () => {
   delete global.JSZip;
   let alerted = null;
-  global.alert = (msg) => { alerted = msg; };
-  global.AppState = setSingletonShape(RealAppState, { collectiveManager: { tracks: [{}] } });
+  global.alert = (msg) => {
+    alerted = msg;
+  };
+  global.AppState = setSingletonShape(RealAppState, {
+    collectiveManager: { tracks: [{}] },
+  });
 
   await GSRCollectiveProject.exportProject();
   assert.ok(alerted && alerted.includes('Zip support failed to load'));
@@ -155,8 +188,12 @@ test('exportProject: shows an alert and does not throw when JSZip is unavailable
 test('exportProject: shows an alert when there are no tracks to export', async () => {
   global.JSZip = class {};
   let alerted = null;
-  global.alert = (msg) => { alerted = msg; };
-  global.AppState = setSingletonShape(RealAppState, { collectiveManager: { tracks: [] } });
+  global.alert = (msg) => {
+    alerted = msg;
+  };
+  global.AppState = setSingletonShape(RealAppState, {
+    collectiveManager: { tracks: [] },
+  });
 
   await GSRCollectiveProject.exportProject();
   assert.ok(alerted && alerted.includes('No tracks loaded to export'));
@@ -166,55 +203,83 @@ test('exportProject: shows an alert when there are no tracks to export', async (
   global.alert = () => {};
 });
 
-test('exportProject: builds a suggestedName from the current date and hands the zip blob to ' +
-  'GSRFileSaver.saveFile (regression test for a fixed bug: `suggestedName` was previously ' +
-  'referenced without ever being declared in exportProject — see collective_project.js history ' +
-  'and git blame around the `stamp` variable for context)', async () => {
-  global.JSZip = class {
-    constructor() { this.files = {}; }
-    file(name, content) { this.files[name] = content; }
-    async generateAsync() { return 'fake-blob'; }
-  };
-  global.GSRTrackManager = setSingletonShape(RealGSRTrackManager, { saveActiveTrackParams() {}, saveActiveGpsParams() {} });
-  let saveFileCalled = false;
-  let savedName = null;
-  global.GSRFileSaver = setSingletonShape(RealGSRFileSaver, { saveFile: async (blob, name) => { saveFileCalled = true; savedName = name; return true; } });
+test(
+  'exportProject: builds a suggestedName from the current date and hands the zip blob to ' +
+    'GSRFileSaver.saveFile (regression test for a fixed bug: `suggestedName` was previously ' +
+    'referenced without ever being declared in exportProject — see collective_project.js history ' +
+    'and git blame around the `stamp` variable for context)',
+  async () => {
+    global.JSZip = class {
+      constructor() {
+        this.files = {};
+      }
+      file(name, content) {
+        this.files[name] = content;
+      }
+      async generateAsync() {
+        return 'fake-blob';
+      }
+    };
+    global.GSRTrackManager = setSingletonShape(RealGSRTrackManager, {
+      saveActiveTrackParams() {},
+      saveActiveGpsParams() {},
+    });
+    let saveFileCalled = false;
+    let savedName = null;
+    global.GSRFileSaver = setSingletonShape(RealGSRFileSaver, {
+      saveFile: async (blob, name) => {
+        saveFileCalled = true;
+        savedName = name;
+        return true;
+      },
+    });
 
-  const track = {
-    name: 'Morning Walk',
-    color: '#005bc4',
-    enabled: true,
-    analyzer: {
-      filtered: [1, 2, 3], // non-empty so the backfill analyze() branch is skipped
-      exportToCSV: () => 'time,gsr\n0,1\n',
-    },
-    filterParams: {},
-    gpsFilterParams: {},
-    hasUnsavedLabels: true,
-  };
-  global.AppState = setSingletonShape(RealAppState, {
-    collectiveManager: { tracks: [track] },
-    activeTrackId: null,
-    viewMode: 'single',
-    sliders: {},
-    contourControls: {},
-  });
-  let alertMsg = null;
-  global.alert = (msg) => { alertMsg = msg; };
+    const track = {
+      name: 'Morning Walk',
+      color: '#005bc4',
+      enabled: true,
+      analyzer: {
+        filtered: [1, 2, 3], // non-empty so the backfill analyze() branch is skipped
+        exportToCSV: () => 'time,gsr\n0,1\n',
+      },
+      filterParams: {},
+      gpsFilterParams: {},
+      hasUnsavedLabels: true,
+    };
+    global.AppState = setSingletonShape(RealAppState, {
+      collectiveManager: { tracks: [track] },
+      activeTrackId: null,
+      viewMode: 'single',
+      sliders: {},
+      contourControls: {},
+    });
+    let alertMsg = null;
+    global.alert = (msg) => {
+      alertMsg = msg;
+    };
 
-  await GSRCollectiveProject.exportProject();
+    await GSRCollectiveProject.exportProject();
 
-  assert.strictEqual(alertMsg, null, 'export should succeed without hitting the catch-all error alert');
-  assert.strictEqual(saveFileCalled, true);
-  assert.match(savedName, /^biomapping_project_\d{4}-\d{2}-\d{2}\.zip$/);
-  assert.strictEqual(track.hasUnsavedLabels, false, 'a successful save should clear the unsaved-labels flag');
+    assert.strictEqual(
+      alertMsg,
+      null,
+      'export should succeed without hitting the catch-all error alert',
+    );
+    assert.strictEqual(saveFileCalled, true);
+    assert.match(savedName, /^biomapping_project_\d{4}-\d{2}-\d{2}\.zip$/);
+    assert.strictEqual(
+      track.hasUnsavedLabels,
+      false,
+      'a successful save should clear the unsaved-labels flag',
+    );
 
-  delete global.JSZip;
-  delete global.GSRTrackManager;
-  delete global.GSRFileSaver;
-  delete global.AppState;
-  global.alert = () => {};
-});
+    delete global.JSZip;
+    delete global.GSRTrackManager;
+    delete global.GSRFileSaver;
+    delete global.AppState;
+    global.alert = () => {};
+  },
+);
 
 // ── importProject ────────────────────────────────────────────────────────
 test('importProject: returns without doing anything when no file is given', async () => {
@@ -226,10 +291,16 @@ test('importProject: returns without doing anything when no file is given', asyn
   // cleanup deletes global.JSZip.
   global.JSZip = class {};
   let alerted = false;
-  global.alert = () => { alerted = true; };
+  global.alert = () => {
+    alerted = true;
+  };
 
   await assert.doesNotReject(GSRCollectiveProject.importProject(null));
-  assert.strictEqual(alerted, false, 'a null file should be a silent no-op, not an alert');
+  assert.strictEqual(
+    alerted,
+    false,
+    'a null file should be a silent no-op, not an alert',
+  );
 
   delete global.JSZip;
   global.alert = () => {};
@@ -238,7 +309,9 @@ test('importProject: returns without doing anything when no file is given', asyn
 test('importProject: shows an alert and does not throw when JSZip is unavailable', async () => {
   delete global.JSZip;
   let alerted = null;
-  global.alert = (msg) => { alerted = msg; };
+  global.alert = (msg) => {
+    alerted = msg;
+  };
 
   await GSRCollectiveProject.importProject({ name: 'project.zip' });
   assert.ok(alerted && alerted.includes('Zip support failed to load'));
@@ -248,9 +321,13 @@ test('importProject: shows an alert and does not throw when JSZip is unavailable
 
 test('importProject: rejects a zip with no manifest.json as an error, surfaced via alert', async () => {
   global.JSZip = { loadAsync: async () => ({ file: () => null }) };
-  global.AppState = setSingletonShape(RealAppState, { collectiveManager: { tracks: [] } });
+  global.AppState = setSingletonShape(RealAppState, {
+    collectiveManager: { tracks: [] },
+  });
   let alertMsg = null;
-  global.alert = (msg) => { alertMsg = msg; };
+  global.alert = (msg) => {
+    alertMsg = msg;
+  };
 
   await GSRCollectiveProject.importProject({ name: 'bad.zip' });
   assert.ok(alertMsg && alertMsg.includes('manifest.json is missing'));
@@ -263,12 +340,19 @@ test('importProject: rejects a zip with no manifest.json as an error, surfaced v
 test('importProject: rejects a manifest with an empty/missing tracks array', async () => {
   global.JSZip = {
     loadAsync: async () => ({
-      file: (name) => name === 'manifest.json' ? { async: async () => JSON.stringify({ tracks: [] }) } : null,
+      file: (name) =>
+        name === 'manifest.json'
+          ? { async: async () => JSON.stringify({ tracks: [] }) }
+          : null,
     }),
   };
-  global.AppState = setSingletonShape(RealAppState, { collectiveManager: { tracks: [] } });
+  global.AppState = setSingletonShape(RealAppState, {
+    collectiveManager: { tracks: [] },
+  });
   let alertMsg = null;
-  global.alert = (msg) => { alertMsg = msg; };
+  global.alert = (msg) => {
+    alertMsg = msg;
+  };
 
   await GSRCollectiveProject.importProject({ name: 'empty.zip' });
   assert.ok(alertMsg && alertMsg.includes('manifest has no tracks'));
@@ -280,13 +364,24 @@ test('importProject: rejects a manifest with an empty/missing tracks array', asy
 
 test('importProject: prompts for confirmation before replacing an existing non-empty track list', async () => {
   let dialogCalled = false;
-  global.GSRNotices = setSingletonShape(RealGSRNotices, { dialog: async () => { dialogCalled = true; return null; } }); // decline — import should abort
+  global.GSRNotices = setSingletonShape(RealGSRNotices, {
+    dialog: async () => {
+      dialogCalled = true;
+      return null;
+    },
+  }); // decline — import should abort
   global.JSZip = { loadAsync: async () => ({ file: () => null }) };
-  global.AppState = setSingletonShape(RealAppState, { collectiveManager: { tracks: [{ id: 'existing' }] } });
+  global.AppState = setSingletonShape(RealAppState, {
+    collectiveManager: { tracks: [{ id: 'existing' }] },
+  });
 
   await GSRCollectiveProject.importProject({ name: 'project.zip' });
   assert.strictEqual(dialogCalled, true, 'the replace-tracks dialog was shown');
-  assert.strictEqual(global.AppState.collectiveManager.tracks.length, 1, 'declining the dialog should leave existing tracks untouched');
+  assert.strictEqual(
+    global.AppState.collectiveManager.tracks.length,
+    1,
+    'declining the dialog should leave existing tracks untouched',
+  );
 
   delete global.JSZip;
   delete global.AppState;

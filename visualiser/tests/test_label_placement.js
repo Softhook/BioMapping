@@ -25,7 +25,10 @@ test('textWidth: grows with character count and character class', () => {
 
   const upper = GSRLabelManager.textWidth('W'); // wide uppercase
   const narrow = GSRLabelManager.textWidth('i'); // narrow lowercase
-  assert.ok(upper > narrow, 'wide glyphs should measure wider than narrow glyphs');
+  assert.ok(
+    upper > narrow,
+    'wide glyphs should measure wider than narrow glyphs',
+  );
 });
 
 test('textWidth: caps at 160px for very long strings', () => {
@@ -45,7 +48,9 @@ test('computeLabelPositions: empty input returns empty Map', () => {
 });
 
 test('computeLabelPositions: single peak gets a placed label with a valid box', () => {
-  const result = GSRLabelManager.computeLabelPositions([{ idx: 0, px: 100, py: 100, text: 'A' }]);
+  const result = GSRLabelManager.computeLabelPositions([
+    { idx: 0, px: 100, py: 100, text: 'A' },
+  ]);
   assert.strictEqual(result.size, 1);
   const placed = result.get(0);
   assert.ok(placed, 'peak idx 0 should have a placement');
@@ -58,7 +63,9 @@ test('computeLabelPositions: single peak gets a placed label with a valid box', 
 
 test('computeLabelPositions: peak without text falls back to a default width candidate set', () => {
   // No `text` field — textWidth() is skipped in favour of a fixed 120px width.
-  const result = GSRLabelManager.computeLabelPositions([{ idx: 7, px: 50, py: 50 }]);
+  const result = GSRLabelManager.computeLabelPositions([
+    { idx: 7, px: 50, py: 50 },
+  ]);
   assert.strictEqual(result.size, 1);
   const { box } = result.get(7);
   assert.strictEqual(box.right - box.left, 120);
@@ -72,13 +79,24 @@ test('computeLabelPositions: widely-spaced peaks all get placed with non-overlap
     { idx: 3, px: 500, py: 500, text: 'Peak D' },
   ];
   const result = GSRLabelManager.computeLabelPositions(peaks);
-  assert.strictEqual(result.size, 4, 'all 4 well-separated peaks should be placed');
+  assert.strictEqual(
+    result.size,
+    4,
+    'all 4 well-separated peaks should be placed',
+  );
 
-  const boxes = [...result.values()].map(r => r.box);
-  const overlaps = (a, b) => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+  const boxes = [...result.values()].map((r) => r.box);
+  const overlaps = (a, b) =>
+    a.left < b.right &&
+    a.right > b.left &&
+    a.top < b.bottom &&
+    a.bottom > b.top;
   for (let i = 0; i < boxes.length; i++) {
     for (let j = i + 1; j < boxes.length; j++) {
-      assert.ok(!overlaps(boxes[i], boxes[j]), `boxes ${i} and ${j} should not overlap`);
+      assert.ok(
+        !overlaps(boxes[i], boxes[j]),
+        `boxes ${i} and ${j} should not overlap`,
+      );
     }
   }
 });
@@ -89,12 +107,17 @@ test('computeLabelPositions: crowded cluster never returns more placements than 
   // idx present must trace back to an input peak.
   const peaks = [];
   for (let i = 0; i < 12; i++) {
-    peaks.push({ idx: i, px: 10 + (i % 3), py: 10 + Math.floor(i / 3), text: `P${i}` });
+    peaks.push({
+      idx: i,
+      px: 10 + (i % 3),
+      py: 10 + Math.floor(i / 3),
+      text: `P${i}`,
+    });
   }
   const result = GSRLabelManager.computeLabelPositions(peaks);
   assert.ok(result.size <= peaks.length);
   for (const idx of result.keys()) {
-    assert.ok(peaks.some(p => p.idx === idx));
+    assert.ok(peaks.some((p) => p.idx === idx));
   }
 });
 
@@ -107,13 +130,24 @@ test('computeLabelPositions: a long horizontal row of peaks (all sharing Y bands
     peaks.push({ idx: i, px: i * 90, py: 200, text: `P${i}` });
   }
   const result = GSRLabelManager.computeLabelPositions(peaks);
-  assert.strictEqual(result.size, peaks.length, 'every peak in the row should be placed');
+  assert.strictEqual(
+    result.size,
+    peaks.length,
+    'every peak in the row should be placed',
+  );
 
-  const boxes = [...result.values()].map(r => r.box);
-  const overlaps = (a, b) => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+  const boxes = [...result.values()].map((r) => r.box);
+  const overlaps = (a, b) =>
+    a.left < b.right &&
+    a.right > b.left &&
+    a.top < b.bottom &&
+    a.bottom > b.top;
   for (let i = 0; i < boxes.length; i++) {
     for (let j = i + 1; j < boxes.length; j++) {
-      assert.ok(!overlaps(boxes[i], boxes[j]), `boxes ${i} and ${j} must not overlap`);
+      assert.ok(
+        !overlaps(boxes[i], boxes[j]),
+        `boxes ${i} and ${j} must not overlap`,
+      );
     }
   }
 });
@@ -121,20 +155,42 @@ test('computeLabelPositions: a long horizontal row of peaks (all sharing Y bands
 test('computeLabelPositions: result never contains an overlapping pair, even for a dense grid', () => {
   const peaks = [];
   for (let i = 0; i < 40; i++) {
-    peaks.push({ idx: i, px: (i % 8) * 22, py: Math.floor(i / 8) * 16, text: `Peak ${i}` });
+    peaks.push({
+      idx: i,
+      px: (i % 8) * 22,
+      py: Math.floor(i / 8) * 16,
+      text: `Peak ${i}`,
+    });
   }
-  const boxes = [...GSRLabelManager.computeLabelPositions(peaks).values()].map(r => r.box);
-  const overlaps = (a, b) => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+  const boxes = [...GSRLabelManager.computeLabelPositions(peaks).values()].map(
+    (r) => r.box,
+  );
+  const overlaps = (a, b) =>
+    a.left < b.right &&
+    a.right > b.left &&
+    a.top < b.bottom &&
+    a.bottom > b.top;
   for (let i = 0; i < boxes.length; i++) {
     for (let j = i + 1; j < boxes.length; j++) {
-      assert.ok(!overlaps(boxes[i], boxes[j]), `kept boxes ${i} and ${j} overlap — greedy pack filter failed`);
+      assert.ok(
+        !overlaps(boxes[i], boxes[j]),
+        `kept boxes ${i} and ${j} overlap — greedy pack filter failed`,
+      );
     }
   }
 });
 
 test('buildLabelledIcon: returns a Leaflet divIcon config with correct icon anchor/size', () => {
-  const dirResult = { dir: 'N', box: { left: 90, top: 60, right: 150, bottom: 78 } };
-  const icon = GSRLabelManager.buildLabelledIcon(100, 100, 'Stress 12.3', dirResult);
+  const dirResult = {
+    dir: 'N',
+    box: { left: 90, top: 60, right: 150, bottom: 78 },
+  };
+  const icon = GSRLabelManager.buildLabelledIcon(
+    100,
+    100,
+    'Stress 12.3',
+    dirResult,
+  );
 
   assert.ok(Array.isArray(icon.iconSize) && icon.iconSize.length === 2);
   assert.ok(Array.isArray(icon.iconAnchor) && icon.iconAnchor.length === 2);
@@ -145,21 +201,37 @@ test('buildLabelledIcon: returns a Leaflet divIcon config with correct icon anch
 });
 
 test('buildLabelledIcon: escapes HTML-significant characters in the label text', () => {
-  const dirResult = { dir: 'N', box: { left: 90, top: 60, right: 150, bottom: 78 } };
-  const icon = GSRLabelManager.buildLabelledIcon(100, 100, '<script>"x"</script>', dirResult);
+  const dirResult = {
+    dir: 'N',
+    box: { left: 90, top: 60, right: 150, bottom: 78 },
+  };
+  const icon = GSRLabelManager.buildLabelledIcon(
+    100,
+    100,
+    '<script>"x"</script>',
+    dirResult,
+  );
   assert.ok(!icon.html.includes('<script>'));
   assert.ok(icon.html.includes('&lt;script&gt;'));
   assert.ok(icon.html.includes('&quot;x&quot;'));
 });
 
 test('buildLabelledIcon: showGlow=false omits the glow ring element', () => {
-  const dirResult = { dir: 'S', box: { left: 90, top: 110, right: 150, bottom: 128 } };
-  const icon = GSRLabelManager.buildLabelledIcon(100, 100, 'X', dirResult, { showGlow: false });
+  const dirResult = {
+    dir: 'S',
+    box: { left: 90, top: 110, right: 150, bottom: 128 },
+  };
+  const icon = GSRLabelManager.buildLabelledIcon(100, 100, 'X', dirResult, {
+    showGlow: false,
+  });
   assert.ok(!icon.html.includes('peak-glow-ring'));
 });
 
 test('buildLabelledIcon: respects custom wrapper/dot class and dot pixel size overrides', () => {
-  const dirResult = { dir: 'E', box: { left: 110, top: 92, right: 170, bottom: 110 } };
+  const dirResult = {
+    dir: 'E',
+    box: { left: 110, top: 92, right: 170, bottom: 110 },
+  };
   const icon = GSRLabelManager.buildLabelledIcon(100, 100, 'X', dirResult, {
     wrapperClass: 'custom-wrapper',
     dotClass: 'custom-dot',

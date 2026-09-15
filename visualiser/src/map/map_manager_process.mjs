@@ -13,7 +13,6 @@ import { GpsPipeline } from '../gps/gps_pipeline.mjs';
 import { GSRMapManager } from './map.mjs';
 
 export const __methods = {
-
   /**
    * Hash GPS filter params for cache key comparison.
    * Only hashes params that affect the GPS pipeline output.
@@ -33,11 +32,14 @@ export const __methods = {
     if (n === 0) return 'nosnap';
     // Hash: count + first + mid + last alpha values
     const first = snappedGps[keys[0]];
-    const mid   = snappedGps[keys[Math.floor(n / 2)]];
-    const last  = snappedGps[keys[n - 1]];
-    const fa = (first && typeof first.alpha === 'number') ? first.alpha.toFixed(3) : '?';
-    const ma = (mid   && typeof mid.alpha === 'number')   ? mid.alpha.toFixed(3)   : '?';
-    const la = (last  && typeof last.alpha === 'number')  ? last.alpha.toFixed(3)  : '?';
+    const mid = snappedGps[keys[Math.floor(n / 2)]];
+    const last = snappedGps[keys[n - 1]];
+    const fa =
+      first && typeof first.alpha === 'number' ? first.alpha.toFixed(3) : '?';
+    const ma =
+      mid && typeof mid.alpha === 'number' ? mid.alpha.toFixed(3) : '?';
+    const la =
+      last && typeof last.alpha === 'number' ? last.alpha.toFixed(3) : '?';
     return `${n}|${fa}|${ma}|${la}`;
   },
 
@@ -53,10 +55,14 @@ export const __methods = {
    */
   _getOrBuildDrawPoints(cacheKey, analyzer, p) {
     const paramsHash = this._hashGpsParams(p);
-    const snapFp    = this._snapFingerprint(analyzer.snappedGps);
+    const snapFp = this._snapFingerprint(analyzer.snappedGps);
     const cached = this._gpsCache.get(cacheKey);
 
-    if (cached && cached.paramsHash === paramsHash && cached.snapFingerprint === snapFp) {
+    if (
+      cached &&
+      cached.paramsHash === paramsHash &&
+      cached.snapFingerprint === snapFp
+    ) {
       // Return cached references — callers MUST NOT mutate
       return { gpsPoints: cached.gpsPoints, drawPoints: cached.drawPoints };
     }
@@ -65,7 +71,12 @@ export const __methods = {
     const data = analyzer.raw;
     let gpsPoints = this._collectGpsPoints(data);
     if (gpsPoints.length === 0) {
-      this._gpsCache.set(cacheKey, { paramsHash, snapFingerprint: snapFp, gpsPoints: [], drawPoints: [] });
+      this._gpsCache.set(cacheKey, {
+        paramsHash,
+        snapFingerprint: snapFp,
+        gpsPoints: [],
+        drawPoints: [],
+      });
       return { gpsPoints: [], drawPoints: [] };
     }
 
@@ -73,11 +84,18 @@ export const __methods = {
     gpsPoints = GpsPipeline.applyFixTypeGate(gpsPoints);
 
     const smoothing = p.smoothing || 0.5;
-    const kalmanR   = p.kalmanR || 10;
-    gpsPoints = GpsPipeline.applyPreKalmanFilters(gpsPoints, smoothing, p.maxSpeed || 3.0);
+    const kalmanR = p.kalmanR || 10;
+    gpsPoints = GpsPipeline.applyPreKalmanFilters(
+      gpsPoints,
+      smoothing,
+      p.maxSpeed || 3.0,
+    );
 
     if (analyzer.snappedGps) {
-      gpsPoints = GpsPipeline.applySnapCorrection(gpsPoints, analyzer.snappedGps);
+      gpsPoints = GpsPipeline.applySnapCorrection(
+        gpsPoints,
+        analyzer.snappedGps,
+      );
     }
 
     gpsPoints = GpsFilter.applyKalman(gpsPoints, smoothing, kalmanR);
@@ -93,11 +111,20 @@ export const __methods = {
       analyzer.filteredGps,
       analyzer.sampleRate || 10.0,
       p.downsample === true || p.downsample === 1,
-      analyzer.rfPeakIndices
+      analyzer.rfPeakIndices,
     );
-    drawPoints = GpsFilter.applyRDP(drawPoints, p.rdpTolerance || 0, analyzer.rfPeakIndices);
+    drawPoints = GpsFilter.applyRDP(
+      drawPoints,
+      p.rdpTolerance || 0,
+      analyzer.rfPeakIndices,
+    );
 
-    this._gpsCache.set(cacheKey, { paramsHash, snapFingerprint: snapFp, gpsPoints, drawPoints });
+    this._gpsCache.set(cacheKey, {
+      paramsHash,
+      snapFingerprint: snapFp,
+      gpsPoints,
+      drawPoints,
+    });
     return { gpsPoints, drawPoints };
   },
 
@@ -122,16 +149,21 @@ export const __methods = {
         // copy was ~35-40% of this pipeline's real cost on a large track —
         // found by profiling, not guessed (docs/archive/visualizer_rendering_perf_routes.md §2.7).
         pts.push({
-          lat: d.lat, lon: d.lon, time: d.time,
-          hdop: d.hdop, pdop: d.pdop, hacc: d.hacc,
-          speedKts: d.speedKts, course: d.course, fixType: d.fixType,
-          origIdx: i
+          lat: d.lat,
+          lon: d.lon,
+          time: d.time,
+          hdop: d.hdop,
+          pdop: d.pdop,
+          hacc: d.hacc,
+          speedKts: d.speedKts,
+          course: d.course,
+          fixType: d.fixType,
+          origIdx: i,
         });
       }
     }
     return pts;
-  }
-
+  },
 };
 
 Object.assign(GSRMapManager.prototype, __methods);

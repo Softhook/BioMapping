@@ -23,11 +23,17 @@ export class GSRCollectiveManager {
     this.tracks.push(track);
   }
 
-  removeTrack(id) { this.tracks = this.tracks.filter(t => t.id !== id); }
+  removeTrack(id) {
+    this.tracks = this.tracks.filter((t) => t.id !== id);
+  }
 
-  getTrack(id) { return this.tracks.find(t => t.id === id); }
+  getTrack(id) {
+    return this.tracks.find((t) => t.id === id);
+  }
 
-  getActiveTracks() { return this.tracks.filter(t => t.enabled); }
+  getActiveTracks() {
+    return this.tracks.filter((t) => t.enabled);
+  }
 
   /**
    * Tight bounding box enclosing all enabled paths (with 10 % padding).
@@ -36,8 +42,10 @@ export class GSRCollectiveManager {
     const active = this.getActiveTracks();
     if (active.length === 0) return null;
 
-    let minLat = Infinity, maxLat = -Infinity;
-    let minLon = Infinity, maxLon = -Infinity;
+    let minLat = Infinity,
+      maxLat = -Infinity;
+    let minLon = Infinity,
+      maxLon = -Infinity;
     let hasCoords = false;
 
     for (const t of active) {
@@ -57,9 +65,14 @@ export class GSRCollectiveManager {
 
     const latSpan = maxLat - minLat;
     const lonSpan = maxLon - minLon;
-    const latPad = latSpan > 0 ? latSpan * 0.10 : 0.001;
-    const lonPad = lonSpan > 0 ? lonSpan * 0.10 : 0.001;
-    return { minLat: minLat - latPad, maxLat: maxLat + latPad, minLon: minLon - lonPad, maxLon: maxLon + lonPad };
+    const latPad = latSpan > 0 ? latSpan * 0.1 : 0.001;
+    const lonPad = lonSpan > 0 ? lonSpan * 0.1 : 0.001;
+    return {
+      minLat: minLat - latPad,
+      maxLat: maxLat + latPad,
+      minLon: minLon - lonPad,
+      maxLon: maxLon + lonPad,
+    };
   }
 
   /**
@@ -80,14 +93,17 @@ export class GSRCollectiveManager {
   static upsampleGrid(srcGrid, targetRows, targetCols) {
     const rows = srcGrid.length;
     const cols = srcGrid[0].length;
-    const upsampled = Array.from({ length: targetRows }, () => new Array(targetCols).fill(null));
+    const upsampled = Array.from({ length: targetRows }, () =>
+      new Array(targetCols).fill(null),
+    );
 
     function cubicInterpolate(p0, p1, p2, p3, t) {
-      return 0.5 * (
-        (-p0 + 3 * p1 - 3 * p2 + p3) * t * t * t +
-        (2 * p0 - 5 * p1 + 4 * p2 - p3) * t * t +
-        (-p0 + p2) * t +
-        2 * p1
+      return (
+        0.5 *
+        ((-p0 + 3 * p1 - 3 * p2 + p3) * t * t * t +
+          (2 * p0 - 5 * p1 + 4 * p2 - p3) * t * t +
+          (-p0 + p2) * t +
+          2 * p1)
       );
     }
 
@@ -132,7 +148,13 @@ export class GSRCollectiveManager {
             rVals[i] = cubicInterpolate(p[i][0], p[i][1], p[i][2], p[i][3], dc);
           }
 
-          upsampled[r][c] = cubicInterpolate(rVals[0], rVals[1], rVals[2], rVals[3], dr);
+          upsampled[r][c] = cubicInterpolate(
+            rVals[0],
+            rVals[1],
+            rVals[2],
+            rVals[3],
+            dr,
+          );
         } else {
           // Bilinear fallback for boundary/masked cells
           const r1 = Math.min(rows - 1, r0 + 1);
@@ -151,10 +173,22 @@ export class GSRCollectiveManager {
           const w10 = dr * (1 - dc);
           const w11 = dr * dc;
 
-          if (v00 !== null && !isNaN(v00)) { sumVal += v00 * w00; sumWt += w00; }
-          if (v01 !== null && !isNaN(v01)) { sumVal += v01 * w01; sumWt += w01; }
-          if (v10 !== null && !isNaN(v10)) { sumVal += v10 * w10; sumWt += w10; }
-          if (v11 !== null && !isNaN(v11)) { sumVal += v11 * w11; sumWt += w11; }
+          if (v00 !== null && !isNaN(v00)) {
+            sumVal += v00 * w00;
+            sumWt += w00;
+          }
+          if (v01 !== null && !isNaN(v01)) {
+            sumVal += v01 * w01;
+            sumWt += w01;
+          }
+          if (v10 !== null && !isNaN(v10)) {
+            sumVal += v10 * w10;
+            sumWt += w10;
+          }
+          if (v11 !== null && !isNaN(v11)) {
+            sumVal += v11 * w11;
+            sumWt += w11;
+          }
 
           if (sumWt > 1e-6) {
             upsampled[r][c] = sumVal / sumWt;
@@ -173,7 +207,13 @@ export class GSRCollectiveManager {
    */
   generateContourSurface(contourParams) {
     const params = this._resolveContourParams(contourParams);
-    const { gridResolution, isolationRadius, contourCount, blurIterations, upsampledResolution } = params;
+    const {
+      gridResolution,
+      isolationRadius,
+      contourCount,
+      blurIterations,
+      upsampledResolution,
+    } = params;
 
     const boundsResult = this._resolveBoundsAndTracks(isolationRadius);
     if (!boundsResult) return [];
@@ -183,23 +223,62 @@ export class GSRCollectiveManager {
       this._collectContourPoints(active, params);
     if (points.length === 0) return [];
 
-    const gridCtx = this._buildContourGrid(bounds, gridResolution, points, isolationRadius);
+    const gridCtx = this._buildContourGrid(
+      bounds,
+      gridResolution,
+      points,
+      isolationRadius,
+    );
     const { rows, cols } = gridCtx;
 
-    const { upsampledCoverageRatioGrid } =
-      this._computeCoverageField(params, trackPointRanges, points, gridCtx);
+    const { upsampledCoverageRatioGrid } = this._computeCoverageField(
+      params,
+      trackPointRanges,
+      points,
+      gridCtx,
+    );
 
-    const filled = this._computeValueGrid(params, points, peaks, peaksRefAmplitude, peakSigma, gridCtx);
+    const filled = this._computeValueGrid(
+      params,
+      points,
+      peaks,
+      peaksRefAmplitude,
+      peakSigma,
+      gridCtx,
+    );
     if (filled.minVal === Infinity || filled.maxVal === -Infinity) return [];
 
-    let { grid, minVal, maxVal } = this._blurContourGrid(filled.grid, rows, cols, blurIterations);
+    let { grid, minVal, maxVal } = this._blurContourGrid(
+      filled.grid,
+      rows,
+      cols,
+      blurIterations,
+    );
     if (minVal === Infinity || maxVal === -Infinity) return [];
     if (Math.abs(maxVal - minVal) < 1e-9) maxVal = minVal + 0.1;
 
-    const { contours, upsampledGrid, sortedVals } =
-      this._extractContours(grid, rows, cols, bounds, gridResolution, upsampledResolution, contourCount, minVal, maxVal);
+    const { contours, upsampledGrid, sortedVals } = this._extractContours(
+      grid,
+      rows,
+      cols,
+      bounds,
+      gridResolution,
+      upsampledResolution,
+      contourCount,
+      minVal,
+      maxVal,
+    );
 
-    return { contours, grid, upsampledGrid, minVal, maxVal, bounds, sortedVals, upsampledCoverageRatioGrid };
+    return {
+      contours,
+      grid,
+      upsampledGrid,
+      minVal,
+      maxVal,
+      bounds,
+      sortedVals,
+      upsampledCoverageRatioGrid,
+    };
   }
 
   /**
@@ -211,40 +290,85 @@ export class GSRCollectiveManager {
     if (!contourParams) contourParams = {};
 
     // Use explicit !== undefined checks so falsy values (0, false, '') are not silently overridden
-    const gridResolution  = contourParams.gridResolution  !== undefined ? contourParams.gridResolution  : GSR_CONST.COLLECTIVE.gridResolution;
-    const isolationRadius = contourParams.isolationRadius !== undefined ? contourParams.isolationRadius : GSR_CONST.COLLECTIVE.isolationRadius;
-    const topographySource = contourParams.topographySource !== undefined ? contourParams.topographySource : 'phasic';
-    const contourCount    = contourParams.contourCount    !== undefined ? contourParams.contourCount    : GSR_CONST.COLLECTIVE.contourCount;
-    const idwExponent     = contourParams.idwExponent     !== undefined ? contourParams.idwExponent     : GSR_CONST.COLLECTIVE.idwExponent;
-    const coverageWeighting = contourParams.coverageWeighting !== undefined ? contourParams.coverageWeighting : GSR_CONST.COLLECTIVE.coverageWeighting;
+    const gridResolution =
+      contourParams.gridResolution !== undefined
+        ? contourParams.gridResolution
+        : GSR_CONST.COLLECTIVE.gridResolution;
+    const isolationRadius =
+      contourParams.isolationRadius !== undefined
+        ? contourParams.isolationRadius
+        : GSR_CONST.COLLECTIVE.isolationRadius;
+    const topographySource =
+      contourParams.topographySource !== undefined
+        ? contourParams.topographySource
+        : 'phasic';
+    const contourCount =
+      contourParams.contourCount !== undefined
+        ? contourParams.contourCount
+        : GSR_CONST.COLLECTIVE.contourCount;
+    const idwExponent =
+      contourParams.idwExponent !== undefined
+        ? contourParams.idwExponent
+        : GSR_CONST.COLLECTIVE.idwExponent;
+    const coverageWeighting =
+      contourParams.coverageWeighting !== undefined
+        ? contourParams.coverageWeighting
+        : GSR_CONST.COLLECTIVE.coverageWeighting;
     // Defaults to true — the "Standardize arousal range" checkbox ships checked (see
     // index.html), so a caller that omits this entirely should get the same on-by-default
     // behaviour as the UI, not silently fall back to unnormalized.
-    const useNormalization = contourParams.normalizeZScore !== undefined ? contourParams.normalizeZScore : true;
+    const useNormalization =
+      contourParams.normalizeZScore !== undefined
+        ? contourParams.normalizeZScore
+        : true;
 
-    const blurIterations = contourParams.blurIterations !== undefined
-      ? contourParams.blurIterations
-      : (GSR_CONST.COLLECTIVE.blurIterations !== undefined ? GSR_CONST.COLLECTIVE.blurIterations : 3);
-    const upsampledResolution = contourParams.upsampledResolution !== undefined
-      ? contourParams.upsampledResolution
-      : (GSR_CONST.COLLECTIVE.upsampledResolution !== undefined ? GSR_CONST.COLLECTIVE.upsampledResolution : 160);
-    const softening = (contourParams && contourParams.softening !== undefined)
-      ? contourParams.softening
-      : (GSR_CONST.COLLECTIVE.softening !== undefined ? GSR_CONST.COLLECTIVE.softening : 0.0);
-    const temporalSmoothingWindow = (contourParams && contourParams.temporalSmoothingWindow !== undefined)
-      ? contourParams.temporalSmoothingWindow
-      : (GSR_CONST.COLLECTIVE.temporalSmoothingWindow !== undefined ? GSR_CONST.COLLECTIVE.temporalSmoothingWindow : 0.0);
+    const blurIterations =
+      contourParams.blurIterations !== undefined
+        ? contourParams.blurIterations
+        : GSR_CONST.COLLECTIVE.blurIterations !== undefined
+          ? GSR_CONST.COLLECTIVE.blurIterations
+          : 3;
+    const upsampledResolution =
+      contourParams.upsampledResolution !== undefined
+        ? contourParams.upsampledResolution
+        : GSR_CONST.COLLECTIVE.upsampledResolution !== undefined
+          ? GSR_CONST.COLLECTIVE.upsampledResolution
+          : 160;
+    const softening =
+      contourParams && contourParams.softening !== undefined
+        ? contourParams.softening
+        : GSR_CONST.COLLECTIVE.softening !== undefined
+          ? GSR_CONST.COLLECTIVE.softening
+          : 0.0;
+    const temporalSmoothingWindow =
+      contourParams && contourParams.temporalSmoothingWindow !== undefined
+        ? contourParams.temporalSmoothingWindow
+        : GSR_CONST.COLLECTIVE.temporalSmoothingWindow !== undefined
+          ? GSR_CONST.COLLECTIVE.temporalSmoothingWindow
+          : 0.0;
     // Moved up from its original spot just before the value-grid fill loop — same
     // "resolve one param with a default" shape as the rest of this method, with no
     // dependency on anything computed in between.
-    const alpha = (contourParams && contourParams.peakPreservation !== undefined)
-      ? contourParams.peakPreservation
-      : (GSR_CONST.COLLECTIVE.peakPreservation !== undefined ? GSR_CONST.COLLECTIVE.peakPreservation : 0.5);
+    const alpha =
+      contourParams && contourParams.peakPreservation !== undefined
+        ? contourParams.peakPreservation
+        : GSR_CONST.COLLECTIVE.peakPreservation !== undefined
+          ? GSR_CONST.COLLECTIVE.peakPreservation
+          : 0.5;
 
     return {
-      gridResolution, isolationRadius, topographySource, contourCount, idwExponent,
-      coverageWeighting, useNormalization, blurIterations, upsampledResolution,
-      softening, temporalSmoothingWindow, alpha,
+      gridResolution,
+      isolationRadius,
+      topographySource,
+      contourCount,
+      idwExponent,
+      coverageWeighting,
+      useNormalization,
+      blurIterations,
+      upsampledResolution,
+      softening,
+      temporalSmoothingWindow,
+      alpha,
     };
   }
 
@@ -274,15 +398,19 @@ export class GSRCollectiveManager {
    * 'peaks' topography source.
    */
   _collectContourPoints(active, params) {
-    const { temporalSmoothingWindow, useNormalization, topographySource } = params;
+    const { temporalSmoothingWindow, useNormalization, topographySource } =
+      params;
 
     // Adaptive downsampling — target ~20k points for ~30 ms loop
     let totalRawPoints = 0;
-    active.forEach(t => totalRawPoints += t.analyzer.raw.length);
-    const globalStride = Math.max(1, Math.round(totalRawPoints / GSR_CONST.CONTOUR_MAX_POINTS));
+    active.forEach((t) => (totalRawPoints += t.analyzer.raw.length));
+    const globalStride = Math.max(
+      1,
+      Math.round(totalRawPoints / GSR_CONST.CONTOUR_MAX_POINTS),
+    );
 
     const points = [];
-    const peaks  = [];
+    const peaks = [];
     // [start, end) index ranges into `points` for each track, used below to compute the
     // coverage field per-track (see "Coverage field" block) without re-deriving track
     // boundaries — a track contributed no points is simply omitted.
@@ -300,10 +428,13 @@ export class GSRCollectiveManager {
     // of the series.
     const perTrackNorm = (raw) => {
       if (!useNormalization || !raw || raw.length === 0) return null;
-      const statsFn = (typeof GsrFilter !== 'undefined' && GsrFilter.calculateStats)
-        ? GsrFilter.calculateStats
-        : ((typeof StatsMath !== 'undefined' && StatsMath.calculateStats) ? StatsMath.calculateStats : null);
-      const s = statsFn ? statsFn(raw.map(d => d.val)) : { mean: 0, std: 1 };
+      const statsFn =
+        typeof GsrFilter !== 'undefined' && GsrFilter.calculateStats
+          ? GsrFilter.calculateStats
+          : typeof StatsMath !== 'undefined' && StatsMath.calculateStats
+            ? StatsMath.calculateStats
+            : null;
+      const s = statsFn ? statsFn(raw.map((d) => d.val)) : { mean: 0, std: 1 };
       return { mean: s.mean, std: s.std || 1 };
     };
 
@@ -313,7 +444,7 @@ export class GSRCollectiveManager {
       const windowSize = Math.round(Fs * temporalSmoothingWindow);
       const doSmoothing = windowSize > 1;
       const baseFsStep = Math.max(1, Math.round(Fs));
-      const step       = baseFsStep * globalStride;
+      const step = baseFsStep * globalStride;
 
       // Implement O(N) running-sum moving average
       function getSmoothArray(arr, winSize) {
@@ -364,7 +495,7 @@ export class GSRCollectiveManager {
             points.push({
               lat: coords.lat,
               lon: coords.lon,
-              val: 0
+              val: 0,
             });
           }
         }
@@ -375,7 +506,9 @@ export class GSRCollectiveManager {
         let activeSeries;
         let norm = null;
         if (topographySource === 'tonic') {
-          activeSeries = useNormalization ? (t.analyzer.tonicZ || []) : (t.analyzer.tonic || []);
+          activeSeries = useNormalization
+            ? t.analyzer.tonicZ || []
+            : t.analyzer.tonic || [];
         } else if (topographySource === 'auc') {
           activeSeries = t.analyzer.phasicAUC || [];
           norm = perTrackNorm(activeSeries);
@@ -387,18 +520,29 @@ export class GSRCollectiveManager {
           norm = perTrackNorm(activeSeries);
         } else if (topographySource === 'arousal_index') {
           activeSeries = t.analyzer.arousalIndex || [];
-        } else if (topographySource === 'tri_index' || topographySource === 'triIndex') {
+        } else if (
+          topographySource === 'tri_index' ||
+          topographySource === 'triIndex'
+        ) {
           activeSeries = t.analyzer.triIndex || [];
         } else {
-          activeSeries = useNormalization ? (t.analyzer.phasicZ || []) : (t.analyzer.phasic || []);
+          activeSeries = useNormalization
+            ? t.analyzer.phasicZ || []
+            : t.analyzer.phasic || [];
         }
 
-        const smoothVals = doSmoothing ? getSmoothArray(activeSeries, windowSize) : null;
+        const smoothVals = doSmoothing
+          ? getSmoothArray(activeSeries, windowSize)
+          : null;
 
         for (let i = 0; i < rawData.length; i += step) {
           const coords = t.analyzer.getCoordinates(i);
           if (coords) {
-            let v = doSmoothing ? smoothVals[i] : (activeSeries[i] ? activeSeries[i].val : 0);
+            let v = doSmoothing
+              ? smoothVals[i]
+              : activeSeries[i]
+                ? activeSeries[i].val
+                : 0;
             if (norm) v = (v - norm.mean) / norm.std;
             points.push({ lat: coords.lat, lon: coords.lon, val: v });
           }
@@ -411,13 +555,15 @@ export class GSRCollectiveManager {
 
       // If normalising, scale peak amplitudes by the cached standard deviation of the participant's phasic values.
       // This is a standard psychophysiological normalisation (SCR amplitude in units of background variance).
-      const phasicStd = useNormalization ? (t.analyzer.phasicStd || 1) : 1;
+      const phasicStd = useNormalization ? t.analyzer.phasicStd || 1 : 1;
 
-      t.analyzer.peaks.forEach(pk => {
+      t.analyzer.peaks.forEach((pk) => {
         if (pk.excluded) return;
         const coords = t.analyzer.getCoordinates(pk.index);
         if (coords) {
-          const amplitude = useNormalization ? (pk.amplitude / phasicStd) : pk.amplitude;
+          const amplitude = useNormalization
+            ? pk.amplitude / phasicStd
+            : pk.amplitude;
           peaks.push({ lat: coords.lat, lon: coords.lon, amplitude });
         }
       });
@@ -430,10 +576,13 @@ export class GSRCollectiveManager {
     let peaksRefAmplitude = 0;
     if (peaks.length > 0) {
       let sum = 0;
-      for (const pk of peaks) sum += (pk.amplitude || 0);
+      for (const pk of peaks) sum += pk.amplitude || 0;
       peaksRefAmplitude = sum / peaks.length;
     }
-    const peakSigma = (typeof GSR_CONST !== 'undefined' && GSR_CONST.PEAK_KDE) ? GSR_CONST.PEAK_KDE.sigma : 15.0;
+    const peakSigma =
+      typeof GSR_CONST !== 'undefined' && GSR_CONST.PEAK_KDE
+        ? GSR_CONST.PEAK_KDE.sigma
+        : 15.0;
 
     return { points, peaks, trackPointRanges, peaksRefAmplitude, peakSigma };
   }
@@ -446,7 +595,7 @@ export class GSRCollectiveManager {
   _buildContourGrid(bounds, gridResolution, points, isolationRadius) {
     const rows = gridResolution;
     const cols = gridResolution;
-    let grid = Array.from({ length: rows }, () => new Array(cols).fill(null));
+    const grid = Array.from({ length: rows }, () => new Array(cols).fill(null));
 
     const latMid = (bounds.minLat + bounds.maxLat) / 2;
     const scale = GeoUtils.getGeodesicScale(latMid);
@@ -456,18 +605,47 @@ export class GSRCollectiveManager {
 
     const latStep = rows > 1 ? (bounds.maxLat - bounds.minLat) / (rows - 1) : 0;
     const lonStep = cols > 1 ? (bounds.maxLon - bounds.minLon) / (cols - 1) : 0;
-    const gridLatOf = (r) => bounds.minLat + (r / (rows - 1)) * (bounds.maxLat - bounds.minLat);
-    const gridLonOf = (c) => bounds.minLon + (c / (cols - 1)) * (bounds.maxLon - bounds.minLon);
+    const gridLatOf = (r) =>
+      bounds.minLat + (r / (rows - 1)) * (bounds.maxLat - bounds.minLat);
+    const gridLonOf = (c) =>
+      bounds.minLon + (c / (cols - 1)) * (bounds.maxLon - bounds.minLon);
     // Window (in grid rows/cols) that could possibly fall within `meters` of
     // a point at (lat, lon) — delegates to shared SpatialGrid.computeCellWindow.
-    const cellWindowFor = (lat, lon, meters) => (typeof SpatialGrid !== 'undefined' && typeof SpatialGrid.computeCellWindow === 'function')
-      ? SpatialGrid.computeCellWindow(lat, lon, meters, bounds, rows, cols, DEG_TO_M_LAT, DEG_TO_M_LON)
-      : {
-          rMin: Math.max(0, Math.round((lat - bounds.minLat) / latStep) - Math.max(1, Math.ceil(((meters / DEG_TO_M_LAT) / latStep)))),
-          rMax: Math.min(rows - 1, Math.round((lat - bounds.minLat) / latStep) + Math.max(1, Math.ceil(((meters / DEG_TO_M_LAT) / latStep)))),
-          cMin: Math.max(0, Math.round((lon - bounds.minLon) / lonStep) - Math.max(1, Math.ceil(((meters / DEG_TO_M_LON) / lonStep)))),
-          cMax: Math.min(cols - 1, Math.round((lon - bounds.minLon) / lonStep) + Math.max(1, Math.ceil(((meters / DEG_TO_M_LON) / lonStep))))
-        };
+    const cellWindowFor = (lat, lon, meters) =>
+      typeof SpatialGrid !== 'undefined' &&
+      typeof SpatialGrid.computeCellWindow === 'function'
+        ? SpatialGrid.computeCellWindow(
+            lat,
+            lon,
+            meters,
+            bounds,
+            rows,
+            cols,
+            DEG_TO_M_LAT,
+            DEG_TO_M_LON,
+          )
+        : {
+            rMin: Math.max(
+              0,
+              Math.round((lat - bounds.minLat) / latStep) -
+                Math.max(1, Math.ceil(meters / DEG_TO_M_LAT / latStep)),
+            ),
+            rMax: Math.min(
+              rows - 1,
+              Math.round((lat - bounds.minLat) / latStep) +
+                Math.max(1, Math.ceil(meters / DEG_TO_M_LAT / latStep)),
+            ),
+            cMin: Math.max(
+              0,
+              Math.round((lon - bounds.minLon) / lonStep) -
+                Math.max(1, Math.ceil(meters / DEG_TO_M_LON / lonStep)),
+            ),
+            cMax: Math.min(
+              cols - 1,
+              Math.round((lon - bounds.minLon) / lonStep) +
+                Math.max(1, Math.ceil(meters / DEG_TO_M_LON / lonStep)),
+            ),
+          };
 
     // Boundary mask — is this cell within isolationRadius of ANY (sampled)
     // walk-track point? Splat each sampled point onto its own small window
@@ -488,7 +666,10 @@ export class GSRCollectiveManager {
     // what the splat below computes directly. Verified empirically against
     // the original cell-major scan on real tracks, not just by this
     // derivation (see tests/test_collective_manager.js).
-    const checkStep = Math.max(1, Math.floor(points.length / (rows * cols * 2)));
+    const checkStep = Math.max(
+      1,
+      Math.floor(points.length / (rows * cols * 2)),
+    );
     const nearTrack = new Uint8Array(rows * cols);
     for (let i = 0; i < points.length; i += checkStep) {
       const p = points[i];
@@ -505,7 +686,16 @@ export class GSRCollectiveManager {
       }
     }
 
-    return { rows, cols, grid, getDistanceMeters, gridLatOf, gridLonOf, cellWindowFor, nearTrack };
+    return {
+      rows,
+      cols,
+      grid,
+      getDistanceMeters,
+      gridLatOf,
+      gridLonOf,
+      cellWindowFor,
+      nearTrack,
+    };
   }
 
   /**
@@ -514,8 +704,21 @@ export class GSRCollectiveManager {
    * on coverageWeighting > 0; returns nulls when the slider is off.
    */
   _computeCoverageField(params, trackPointRanges, points, gridCtx) {
-    const { coverageWeighting, isolationRadius, upsampledResolution, gridResolution } = params;
-    const { rows, cols, cellWindowFor, gridLatOf, gridLonOf, getDistanceMeters, nearTrack } = gridCtx;
+    const {
+      coverageWeighting,
+      isolationRadius,
+      upsampledResolution,
+      gridResolution,
+    } = params;
+    const {
+      rows,
+      cols,
+      cellWindowFor,
+      gridLatOf,
+      gridLonOf,
+      getDistanceMeters,
+      nearTrack,
+    } = gridCtx;
 
     // Coverage field — how many distinct participant tracks actually passed near each cell,
     // used by map.js's renderContours() to checkerboard cells whose reading is backed by
@@ -541,7 +744,10 @@ export class GSRCollectiveManager {
       const trackMaxArr = new Float64Array(rows * cols); // reused scratch, reset per track below
 
       for (const range of trackPointRanges) {
-        let touchedMinR = rows, touchedMaxR = -1, touchedMinC = cols, touchedMaxC = -1;
+        let touchedMinR = rows,
+          touchedMaxR = -1,
+          touchedMinC = cols,
+          touchedMaxC = -1;
         for (let pi = range.start; pi < range.end; pi++) {
           const p = points[pi];
           const w = cellWindowFor(p.lat, p.lon, coverageRadius);
@@ -588,19 +794,31 @@ export class GSRCollectiveManager {
       }
       sortedCoverageVals.sort((a, b) => a - b);
 
-      const rankFn = (typeof StatsMath !== 'undefined' && StatsMath.percentileRank) ? StatsMath.percentileRank : null;
-      coverageRatioGrid = Array.from({ length: rows }, () => new Array(cols).fill(null));
+      const rankFn =
+        typeof StatsMath !== 'undefined' && StatsMath.percentileRank
+          ? StatsMath.percentileRank
+          : null;
+      coverageRatioGrid = Array.from({ length: rows }, () =>
+        new Array(cols).fill(null),
+      );
       for (let r = 0; r < rows; r++) {
         const rowOff = r * cols;
         for (let c = 0; c < cols; c++) {
           const idx = rowOff + c;
           if (!nearTrack[idx]) continue;
-          coverageRatioGrid[r][c] = rankFn ? rankFn(coverageGrid[idx], sortedCoverageVals) : 1;
+          coverageRatioGrid[r][c] = rankFn
+            ? rankFn(coverageGrid[idx], sortedCoverageVals)
+            : 1;
         }
       }
-      upsampledCoverageRatioGrid = (upsampledResolution > gridResolution)
-        ? GSRCollectiveManager.upsampleGrid(coverageRatioGrid, upsampledResolution, upsampledResolution)
-        : coverageRatioGrid;
+      upsampledCoverageRatioGrid =
+        upsampledResolution > gridResolution
+          ? GSRCollectiveManager.upsampleGrid(
+              coverageRatioGrid,
+              upsampledResolution,
+              upsampledResolution,
+            )
+          : coverageRatioGrid;
     }
 
     return { coverageRatioGrid, upsampledCoverageRatioGrid };
@@ -612,12 +830,29 @@ export class GSRCollectiveManager {
    * cell-fill loop stay one step: the splat's scratch arrays are read nowhere
    * else.
    */
-  _computeValueGrid(params, points, peaks, peaksRefAmplitude, peakSigma, gridCtx) {
-    const { topographySource, isolationRadius, idwExponent, softening, alpha } = params;
-    const { rows, cols, gridLatOf, gridLonOf, getDistanceMeters, nearTrack, cellWindowFor } = gridCtx;
-    let grid = gridCtx.grid;
+  _computeValueGrid(
+    params,
+    points,
+    peaks,
+    peaksRefAmplitude,
+    peakSigma,
+    gridCtx,
+  ) {
+    const { topographySource, isolationRadius, idwExponent, softening, alpha } =
+      params;
+    const {
+      rows,
+      cols,
+      gridLatOf,
+      gridLonOf,
+      getDistanceMeters,
+      nearTrack,
+      cellWindowFor,
+    } = gridCtx;
+    const grid = gridCtx.grid;
 
-    let minVal = Infinity, maxVal = -Infinity;
+    let minVal = Infinity,
+      maxVal = -Infinity;
 
     // Continuous (non-peak) topography sources: raw phasic/tonic, or the
     // threshold-independent Phasic AUC / Combined Arousal Index. Same splat
@@ -667,11 +902,12 @@ export class GSRCollectiveManager {
               continue;
             }
             if (d <= idwRadius) {
-              const wt = 1.0 / Math.pow(d + softening, idwExponent);
+              const wt = 1.0 / (d + softening) ** idwExponent;
               sumWeightedVal[idx] += wt * pointVal;
               sumWeight[idx] += wt;
               const envelopeVal = pointVal * Math.exp(-(d * d) / twoEnvSigmaSq);
-              if (envelopeVal > localMaxArr[idx]) localMaxArr[idx] = envelopeVal;
+              if (envelopeVal > localMaxArr[idx])
+                localMaxArr[idx] = envelopeVal;
             }
           }
         }
@@ -697,10 +933,15 @@ export class GSRCollectiveManager {
           let density = 0;
           for (const pk of peaks) {
             const d = getDistanceMeters(gridLat, gridLon, pk.lat, pk.lon);
-            const weight = (typeof GSRSpatialClustering !== 'undefined')
-              ? GSRSpatialClustering.relativeAmplitudeWeight(pk.amplitude, peaksRefAmplitude)
-              : 1;
-            density += weight * Math.exp(-(d * d) / (2 * peakSigma * peakSigma));
+            const weight =
+              typeof GSRSpatialClustering !== 'undefined'
+                ? GSRSpatialClustering.relativeAmplitudeWeight(
+                    pk.amplitude,
+                    peaksRefAmplitude,
+                  )
+                : 1;
+            density +=
+              weight * Math.exp(-(d * d) / (2 * peakSigma * peakSigma));
           }
           grid[r][c] = density;
         } else if (hasExactMatch[idx]) {
@@ -738,14 +979,17 @@ export class GSRCollectiveManager {
   _blurContourGrid(grid, rows, cols, blurIterations) {
     let currentGrid = grid;
     for (let iter = 0; iter < blurIterations; iter++) {
-      const blurred = Array.from({ length: rows }, () => new Array(cols).fill(null));
+      const blurred = Array.from({ length: rows }, () =>
+        new Array(cols).fill(null),
+      );
       for (let r = 0; r < rows; r++) {
         for (let c = 0; c < cols; c++) {
           if (currentGrid[r][c] === null || isNaN(currentGrid[r][c])) {
             blurred[r][c] = currentGrid[r][c];
             continue;
           }
-          let sum = 0, weight = 0;
+          let sum = 0,
+            weight = 0;
           for (let dr = -1; dr <= 1; dr++) {
             const rr = r + dr;
             if (rr < 0 || rr >= rows) continue;
@@ -757,7 +1001,7 @@ export class GSRCollectiveManager {
               // Tent-shaped 3x3 kernel ([1,2,1;2,4,2;1,2,1]/16 when all 9 neighbours are
               // valid) — a mild blur that reduces single-cell noise without washing out
               // real hotspot shape spanning multiple cells.
-              const w = (dr === 0 && dc === 0) ? 4 : ((dr === 0 || dc === 0) ? 2 : 1);
+              const w = dr === 0 && dc === 0 ? 4 : dr === 0 || dc === 0 ? 2 : 1;
               sum += v * w;
               weight += w;
             }
@@ -769,7 +1013,8 @@ export class GSRCollectiveManager {
     }
     grid = currentGrid;
 
-    let minVal = Infinity, maxVal = -Infinity;
+    let minVal = Infinity,
+      maxVal = -Infinity;
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
         const v = grid[r][c];
@@ -789,11 +1034,26 @@ export class GSRCollectiveManager {
    * are passed in (not re-derived from the grid) because the caller may have
    * already nudged `maxVal` off a near-zero range — see generateContourSurface().
    */
-  _extractContours(grid, rows, cols, bounds, gridResolution, upsampledResolution, contourCount, minVal, maxVal) {
+  _extractContours(
+    grid,
+    rows,
+    cols,
+    bounds,
+    gridResolution,
+    upsampledResolution,
+    contourCount,
+    minVal,
+    maxVal,
+  ) {
     // Perform Bilinear upsampling on the blurred 40x40 grid to get a high-resolution 160x160 grid
-    const upsampledGrid = (upsampledResolution > gridResolution)
-      ? GSRCollectiveManager.upsampleGrid(grid, upsampledResolution, upsampledResolution)
-      : grid;
+    const upsampledGrid =
+      upsampledResolution > gridResolution
+        ? GSRCollectiveManager.upsampleGrid(
+            grid,
+            upsampledResolution,
+            upsampledResolution,
+          )
+        : grid;
     const upsampledRows = upsampledGrid.length;
     const upsampledCols = upsampledGrid[0].length;
 
@@ -824,7 +1084,10 @@ export class GSRCollectiveManager {
     const levelEntries = []; // [{ level, ratio }]
     for (let k = 1; k <= contourCount; k++) {
       const percentile = k / (contourCount + 1);
-      const idx = Math.min(sortedVals.length - 1, Math.max(0, Math.round(percentile * (sortedVals.length - 1))));
+      const idx = Math.min(
+        sortedVals.length - 1,
+        Math.max(0, Math.round(percentile * (sortedVals.length - 1))),
+      );
       let level = sortedVals.length > 0 ? sortedVals[idx] : minVal;
       let ratio = percentile;
 
@@ -833,7 +1096,11 @@ export class GSRCollectiveManager {
         // Fall back to a linear step across the value range if percentile rank hit a flat baseline plateau
         level = minVal + (k / (contourCount + 1)) * valRange;
         levelKey = level.toFixed(6);
-        if (typeof StatsMath !== 'undefined' && typeof StatsMath.percentileRank === 'function' && sortedVals.length > 1) {
+        if (
+          typeof StatsMath !== 'undefined' &&
+          typeof StatsMath.percentileRank === 'function' &&
+          sortedVals.length > 1
+        ) {
           ratio = StatsMath.percentileRank(level, sortedVals);
         }
       }
@@ -844,8 +1111,14 @@ export class GSRCollectiveManager {
     }
 
     // Single grid traversal for all levels on the upsampled high-resolution grid.
-    const sortedLevels = levelEntries.map(e => e.level).sort((a, b) => a - b);
-    const multiResult = MarchingSquares.getContourLinesMulti(upsampledGrid, upsampledRows, upsampledCols, bounds, sortedLevels);
+    const sortedLevels = levelEntries.map((e) => e.level).sort((a, b) => a - b);
+    const multiResult = MarchingSquares.getContourLinesMulti(
+      upsampledGrid,
+      upsampledRows,
+      upsampledCols,
+      bounds,
+      sortedLevels,
+    );
 
     for (const { level, ratio } of levelEntries) {
       const segments = multiResult.get(level) || [];

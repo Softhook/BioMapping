@@ -17,7 +17,6 @@
  *   node check_onset_agreement.js dump <track.csv> <out.json>
  *   node check_onset_agreement.js compare <out.json> <nk_result.json> [track.csv]
  */
-'use strict';
 
 const fs = require('fs');
 const path = require('path');
@@ -29,7 +28,10 @@ global.GSR_CONST = require('../../mock_constants.js');
 function loadModule(filePath, varName) {
   const src = fs.readFileSync(filePath, 'utf8');
   const wrapped = src
-    .replace(new RegExp(`class ${varName}\\s*{`), `global.${varName} = class ${varName} {`)
+    .replace(
+      new RegExp(`class ${varName}\\s*{`),
+      `global.${varName} = class ${varName} {`,
+    )
     .replace(new RegExp(`const ${varName}\\s*=`), `global.${varName} =`);
   vm.runInThisContext(wrapped, { filename: filePath });
 }
@@ -55,8 +57,8 @@ if (mode === 'dump') {
   const a = new GSRAnalyzer();
   a.parseCSV(csvText);
   a.analyze({ ...D }, 0);
-  const vals = a.phasic.map(d => d.val);
-  const times = a.phasic.map(d => d.time);
+  const vals = a.phasic.map((d) => d.val);
+  const times = a.phasic.map((d) => d.time);
   const sr = a.sampleRate;
   const maxOnsetSteps = Math.round(GSR_CONST.PEAK_SHAPE.MAX_RISE_TIME * sr);
 
@@ -66,52 +68,95 @@ if (mode === 'dump') {
   for (let i = 1; i < vals.length - 1; i++) {
     if (vals[i] > vals[i - 1] && vals[i] >= vals[i + 1]) {
       const onsetIdx = a._findOnsetIndex(vals, i, maxOnsetSteps, 0);
-      results.push({ peakIndex: i, peakTime: times[i], onsetIndex: onsetIdx, onsetTime: times[onsetIdx] });
+      results.push({
+        peakIndex: i,
+        peakTime: times[i],
+        onsetIndex: onsetIdx,
+        onsetTime: times[onsetIdx],
+      });
     }
   }
 
-  fs.writeFileSync(outPath, JSON.stringify({
-    sampling_rate: sr,
-    max_onset_steps: maxOnsetSteps,
-    phasic: vals,
-    times,
-    ours: results,
-  }));
-  console.error(`Dumped ${vals.length} phasic samples, ${results.length} onset queries -> ${outPath}`);
+  fs.writeFileSync(
+    outPath,
+    JSON.stringify({
+      sampling_rate: sr,
+      max_onset_steps: maxOnsetSteps,
+      phasic: vals,
+      times,
+      ours: results,
+    }),
+  );
+  console.error(
+    `Dumped ${vals.length} phasic samples, ${results.length} onset queries -> ${outPath}`,
+  );
 } else if (mode === 'compare') {
   const oursPath = process.argv[3];
   const nkPath = process.argv[4];
   const ours = JSON.parse(fs.readFileSync(oursPath, 'utf8'));
   const nk = JSON.parse(fs.readFileSync(nkPath, 'utf8'));
   const nkOnsetByPeak = new Map();
-  for (let i = 0; i < nk.peak_index.length; i++) nkOnsetByPeak.set(nk.peak_index[i], nk.onset_index[i]);
+  for (let i = 0; i < nk.peak_index.length; i++)
+    nkOnsetByPeak.set(nk.peak_index[i], nk.onset_index[i]);
 
   const name = path.basename(process.argv[5] || '', '.csv');
-  console.log(`=== ${name}: onset-detection agreement (same phasic curve, minDip=0 vs NeuroKit2 nearest-trough) ===`);
+  console.log(
+    `=== ${name}: onset-detection agreement (same phasic curve, minDip=0 vs NeuroKit2 nearest-trough) ===`,
+  );
 
-  let exact = 0, within1s = 0, total = 0, noNkTrough = 0, capped = 0;
-  let sumAbsTimeDiff = 0, maxAbsTimeDiff = 0, diffCount = 0;
+  let exact = 0,
+    within1s = 0,
+    total = 0,
+    noNkTrough = 0,
+    capped = 0;
+  let sumAbsTimeDiff = 0,
+    maxAbsTimeDiff = 0,
+    diffCount = 0;
   for (const r of ours.ours) {
     if (!nkOnsetByPeak.has(r.peakIndex)) continue;
     total++;
     const nkOnsetIdx = nkOnsetByPeak.get(r.peakIndex);
-    if (nkOnsetIdx === r.onsetIndex) { exact++; within1s++; continue; }
-    if (nkOnsetIdx < 0) { noNkTrough++; continue; } // no smaller-index trough exists at all (peak near recording start) - not a disagreement, nothing to compare against
+    if (nkOnsetIdx === r.onsetIndex) {
+      exact++;
+      within1s++;
+      continue;
+    }
+    if (nkOnsetIdx < 0) {
+      noNkTrough++;
+      continue;
+    } // no smaller-index trough exists at all (peak near recording start) - not a disagreement, nothing to compare against
     const dt = Math.abs(ours.times[r.onsetIndex] - ours.times[nkOnsetIdx]);
-    sumAbsTimeDiff += dt; diffCount++;
+    sumAbsTimeDiff += dt;
+    diffCount++;
     maxAbsTimeDiff = Math.max(maxAbsTimeDiff, dt);
     if (dt <= 1.0) within1s++;
     if (r.peakIndex - r.onsetIndex >= ours.max_onset_steps - 1) capped++;
   }
 
   console.log(`  candidates compared: ${total}`);
-  console.log(`  exact index match: ${exact}/${total} (${(100 * exact / total).toFixed(1)}%)`);
-  console.log(`  within 1.0s: ${within1s}/${total} (${(100 * within1s / total).toFixed(1)}%)`);
-  console.log(`  mean|onset time diff| (real mismatches only): ${diffCount ? (sumAbsTimeDiff / diffCount).toFixed(4) : 0}s  max: ${maxAbsTimeDiff.toFixed(4)}s`);
-  if (noNkTrough > 0) console.log(`  no comparison possible (no smaller-index trough exists - peak near recording start): ${noNkTrough}`);
-  if (capped > 0) console.log(`  mismatches where our walk hit the MAX_RISE_TIME cap (${(ours.max_onset_steps / ours.sampling_rate).toFixed(1)}s): ${capped}`);
+  console.log(
+    `  exact index match: ${exact}/${total} (${((100 * exact) / total).toFixed(1)}%)`,
+  );
+  console.log(
+    `  within 1.0s: ${within1s}/${total} (${((100 * within1s) / total).toFixed(1)}%)`,
+  );
+  console.log(
+    `  mean|onset time diff| (real mismatches only): ${diffCount ? (sumAbsTimeDiff / diffCount).toFixed(4) : 0}s  max: ${maxAbsTimeDiff.toFixed(4)}s`,
+  );
+  if (noNkTrough > 0)
+    console.log(
+      `  no comparison possible (no smaller-index trough exists - peak near recording start): ${noNkTrough}`,
+    );
+  if (capped > 0)
+    console.log(
+      `  mismatches where our walk hit the MAX_RISE_TIME cap (${(ours.max_onset_steps / ours.sampling_rate).toFixed(1)}s): ${capped}`,
+    );
 } else {
-  console.error('Usage: node check_onset_agreement.js dump <track.csv> <out.json>');
-  console.error('       node check_onset_agreement.js compare <out.json> <nk_result.json> [track.csv]');
+  console.error(
+    'Usage: node check_onset_agreement.js dump <track.csv> <out.json>',
+  );
+  console.error(
+    '       node check_onset_agreement.js compare <out.json> <nk_result.json> [track.csv]',
+  );
   process.exit(1);
 }

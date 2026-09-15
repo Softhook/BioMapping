@@ -9,7 +9,6 @@
 import { GSRMapManager } from './map.mjs';
 
 export const __methods = {
-
   /**
    * Toggle the visibility of the stress peak markers on the map layer.
    */
@@ -73,16 +72,21 @@ export const __methods = {
     const allHotspotMarkers = [];
     for (const m of this._allTrackLayers()) {
       const kind = m._gsrKind;
-      if (kind === 'peak' || kind === 'connector' || kind === 'collectivePeak' || kind === 'collectiveConnector') {
+      if (
+        kind === 'peak' ||
+        kind === 'connector' ||
+        kind === 'collectivePeak' ||
+        kind === 'collectiveConnector'
+      ) {
         allMarkers.push(m);
       } else if (kind === 'hotspot') {
         allHotspotMarkers.push(m);
       }
     }
-    allMarkers.forEach(m => {
+    allMarkers.forEach((m) => {
       this._toggleLayer(m, this.showPeaks || (this.showLabels && m.hasLabel));
     });
-    allHotspotMarkers.forEach(m => {
+    allHotspotMarkers.forEach((m) => {
       this._toggleLayer(m, this.showHotspots);
     });
   },
@@ -114,7 +118,7 @@ export const __methods = {
    */
   toggleClusters(visible) {
     this.showClusters = visible;
-    this.clusterLayers.forEach(m => this._toggleLayer(m, visible));
+    this.clusterLayers.forEach((m) => this._toggleLayer(m, visible));
     // Re-apply badge de-clutter: the loop above re-added every badge, including
     // ones a previous pass had folded away.
     if (visible && typeof this._declutterArousalPlaceBadges === 'function') {
@@ -127,7 +131,7 @@ export const __methods = {
    */
   toggleIsolines(visible) {
     this.showIsolines = visible;
-    this.contourLayers.forEach(m => this._toggleLayer(m, visible));
+    this.contourLayers.forEach((m) => this._toggleLayer(m, visible));
   },
 
   /**
@@ -137,16 +141,20 @@ export const __methods = {
     this.showSurface = visible;
     if (this.surfaceOverlay) {
       if (visible) {
-        if (!this.map.hasLayer(this.surfaceOverlay)) this.surfaceOverlay.addTo(this.map);
+        if (!this.map.hasLayer(this.surfaceOverlay))
+          this.surfaceOverlay.addTo(this.map);
       } else {
-        if (this.map.hasLayer(this.surfaceOverlay)) this.map.removeLayer(this.surfaceOverlay);
+        if (this.map.hasLayer(this.surfaceOverlay))
+          this.map.removeLayer(this.surfaceOverlay);
       }
     }
     if (this.coverageOverlay) {
       if (visible) {
-        if (!this.map.hasLayer(this.coverageOverlay)) this.coverageOverlay.addTo(this.map);
+        if (!this.map.hasLayer(this.coverageOverlay))
+          this.coverageOverlay.addTo(this.map);
       } else {
-        if (this.map.hasLayer(this.coverageOverlay)) this.map.removeLayer(this.coverageOverlay);
+        if (this.map.hasLayer(this.coverageOverlay))
+          this.map.removeLayer(this.coverageOverlay);
       }
     }
   },
@@ -165,8 +173,7 @@ export const __methods = {
     for (const m of this._allTrackLayers()) {
       if (m._gsrKind === 'collectivePath') this._toggleLayer(m, visible);
     }
-  }
-
+  },
 };
 
 Object.assign(GSRMapManager.prototype, __methods);

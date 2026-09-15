@@ -15,7 +15,6 @@ import { GSRGlobe3DView } from '../map/globe3d_view.mjs';
 import { GSRUI } from './ui.mjs';
 
 export const __methods = {
-
   /**
    * OSM ways/relations to draw as map overlays for whichever tracks are
    * currently active: a single analyzer's osmGeoms in single-track mode,
@@ -30,12 +29,15 @@ export const __methods = {
    */
   getCombinedOsmGeoms() {
     if (AppState.viewMode !== 'collective') {
-      return (AppState.analyzer && AppState.analyzer.osmGeoms) ? AppState.analyzer.osmGeoms : null;
+      return AppState.analyzer && AppState.analyzer.osmGeoms
+        ? AppState.analyzer.osmGeoms
+        : null;
     }
 
     if (!AppState.collectiveManager) return null;
-    const tracks = AppState.collectiveManager.getActiveTracks()
-      .filter(t => t.analyzer && t.analyzer.osmGeoms);
+    const tracks = AppState.collectiveManager
+      .getActiveTracks()
+      .filter((t) => t.analyzer && t.analyzer.osmGeoms);
     if (tracks.length === 0) return null;
     if (tracks.length === 1) return tracks[0].analyzer.osmGeoms;
 
@@ -43,10 +45,13 @@ export const __methods = {
     const relationMap = new Map();
     for (const t of tracks) {
       const g = t.analyzer.osmGeoms;
-      if (g.ways)      for (const w of g.ways)      wayMap.set(w.id, w);
+      if (g.ways) for (const w of g.ways) wayMap.set(w.id, w);
       if (g.relations) for (const r of g.relations) relationMap.set(r.id, r);
     }
-    return { ways: Array.from(wayMap.values()), relations: Array.from(relationMap.values()) };
+    return {
+      ways: Array.from(wayMap.values()),
+      relations: Array.from(relationMap.values()),
+    };
   },
 
   /* ==========================================================================
@@ -93,7 +98,7 @@ export const __methods = {
     try {
       const on = GSRUI._osmOverlayOn;
       const mm = AppState.mapManager;
-      const g3d = (typeof GSRGlobe3DView !== 'undefined') ? GSRGlobe3DView : null;
+      const g3d = typeof GSRGlobe3DView !== 'undefined' ? GSRGlobe3DView : null;
 
       const btn = document.getElementById('btnToggleOsmShapes');
       if (btn && btn.classList) btn.classList[on ? 'add' : 'remove']('active');
@@ -107,16 +112,23 @@ export const __methods = {
         // don't keep an area's stale coverage.
         const mgr = g3d && g3d.manager;
         const shown = !!(mgr && mgr.show3DBuildings);
-        const staleJson = !!(on && shown && mgr && AppState.analyzer &&
-          AppState.analyzer.osmJson && mgr.cachedOsmJson &&
-          mgr.cachedOsmJson !== AppState.analyzer.osmJson);
+        const staleJson = !!(
+          on &&
+          shown &&
+          mgr &&
+          AppState.analyzer &&
+          AppState.analyzer.osmJson &&
+          mgr.cachedOsmJson &&
+          mgr.cachedOsmJson !== AppState.analyzer.osmJson
+        );
         if (g3d && (shown !== on || staleJson)) g3d.applyBuildings(on);
         return;
       }
 
       if (!mm) return;
       const geoms = on ? GSRUI.getCombinedOsmGeoms() : null;
-      if (geoms) mm.drawOsmShapes(geoms); // drawOsmShapes clears first — safe to repeat
+      if (geoms)
+        mm.drawOsmShapes(geoms); // drawOsmShapes clears first — safe to repeat
       else mm.clearOsmShapes();
     } catch (e) {
       console.warn('syncOsmOverlay failed:', e);
@@ -143,18 +155,25 @@ export const __methods = {
 
       if (!on) return;
       if (AppState.surfaceView === 'globe') return; // applyBuildings self-resolves
-      if (GSRUI.getCombinedOsmGeoms()) return;      // syncOsmOverlay already drew it
-      if (GSRUI._osmFetching) return;               // a fetch is already running
+      if (GSRUI.getCombinedOsmGeoms()) return; // syncOsmOverlay already drew it
+      if (GSRUI._osmFetching) return; // a fetch is already running
 
       GSRUI._osmFetching = true;
       const btn = document.getElementById('btnToggleOsmShapes');
       const label = btn ? btn.innerHTML : '';
       if (btn) btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
-      GSRUI.setSpatialProgress(true, 'Retrieving OpenStreetMap shapes…', 15, '#ff7b00');
+      GSRUI.setSpatialProgress(
+        true,
+        'Retrieving OpenStreetMap shapes…',
+        15,
+        '#ff7b00',
+      );
 
       let res;
       try {
-        res = await GSRUI.ensureOsmGeoms((msg) => GSRUI.setSpatialProgress(true, msg, 55, '#ff7b00'));
+        res = await GSRUI.ensureOsmGeoms((msg) =>
+          GSRUI.setSpatialProgress(true, msg, 55, '#ff7b00'),
+        );
       } catch (e) {
         console.warn('OSM overlay fetch failed:', e);
         res = { ok: false };
@@ -170,16 +189,25 @@ export const __methods = {
       if (!res || !res.ok) {
         GSRUI._osmOverlayOn = false;
         GSRUI.syncOsmOverlay();
-        const msg = res && res.reason === 'no-gps'
-          ? 'No GPS fixes in this track — no OpenStreetMap shapes to fetch.'
-          : (res && res.tooBig ? 'Track area too large (> 12 km²) to fetch OpenStreetMap shapes.'
-                               : 'Could not retrieve OpenStreetMap data.');
+        const msg =
+          res && res.reason === 'no-gps'
+            ? 'No GPS fixes in this track — no OpenStreetMap shapes to fetch.'
+            : res && res.tooBig
+              ? 'Track area too large (> 12 km²) to fetch OpenStreetMap shapes.'
+              : 'Could not retrieve OpenStreetMap data.';
         GSRUI.setSpatialProgress(true, msg, 100, 'var(--danger)');
         setTimeout(() => GSRUI.setSpatialProgress(false), 6000);
         return;
       }
 
-      GSRUI.setSpatialProgress(true, res.fetched ? 'OpenStreetMap shapes fetched.' : 'OpenStreetMap shapes loaded from cache.', 100, '#2d6a4f');
+      GSRUI.setSpatialProgress(
+        true,
+        res.fetched
+          ? 'OpenStreetMap shapes fetched.'
+          : 'OpenStreetMap shapes loaded from cache.',
+        100,
+        '#2d6a4f',
+      );
       setTimeout(() => GSRUI.setSpatialProgress(false), 3000);
 
       // Unlock the OSM colour-metric options / env dashboard that key off geoms;
@@ -195,15 +223,21 @@ export const __methods = {
    * Helper to refresh UI elements based on track enrichment state.
    */
   refreshOsmControls() {
-    const analyzers = (AppState.viewMode === 'single')
-      ? (AppState.analyzer ? [AppState.analyzer] : [])
-      : AppState.collectiveManager.getActiveTracks().map(t => t.analyzer).filter(Boolean);
+    const analyzers =
+      AppState.viewMode === 'single'
+        ? AppState.analyzer
+          ? [AppState.analyzer]
+          : []
+        : AppState.collectiveManager
+            .getActiveTracks()
+            .map((t) => t.analyzer)
+            .filter(Boolean);
 
     // Full enrichment (per-point spatial metadata) is what gates the OSM colour
     // metrics + the environmental dashboard below. The OSM overlay itself only
     // needs reconstructed geometry (analyzer.osmGeoms), fetched on demand — it
     // is driven entirely by GSRUI.setOsmOverlay / syncOsmOverlay, not isEnriched.
-    const enriched = analyzers.filter(a => a.isEnriched);
+    const enriched = analyzers.filter((a) => a.isEnriched);
     const isEnriched = enriched.length > 0;
 
     GSRUI.updateSpatialDataIndicator();
@@ -217,10 +251,12 @@ export const __methods = {
     GSRUI.syncOsmOverlay();
 
     if (isEnriched) {
-      document.querySelectorAll('.osm-option').forEach(opt => opt.removeAttribute('disabled'));
+      document
+        .querySelectorAll('.osm-option')
+        .forEach((opt) => opt.removeAttribute('disabled'));
       envPanel.style.display = 'block';
 
-      const firstEnriched = enriched.find(a => a.enrichmentRadius);
+      const firstEnriched = enriched.find((a) => a.enrichmentRadius);
       const rad = firstEnriched ? firstEnriched.enrichmentRadius : null;
       if (rad) {
         document.getElementById('osmRadius').value = rad;
@@ -229,18 +265,20 @@ export const __methods = {
 
       GSRUI.updateEnvironmentalDashboard();
     } else {
-      document.querySelectorAll('.osm-option').forEach(opt => opt.setAttribute('disabled', 'true'));
+      document
+        .querySelectorAll('.osm-option')
+        .forEach((opt) => opt.setAttribute('disabled', 'true'));
       // Only fall back to GSR if the current metric is an OSM-only one that just
       // became unavailable — don't clobber a plain choice like Phasic.
       const cur = select && select.selectedOptions && select.selectedOptions[0];
       if (cur && cur.classList.contains('osm-option')) {
         select.value = 'gsr';
-        if (AppState.mapManager) AppState.mapManager.activeColoringMetric = 'gsr';
+        if (AppState.mapManager)
+          AppState.mapManager.activeColoringMetric = 'gsr';
       }
       envPanel.style.display = 'none';
     }
   },
-
 };
 
 Object.assign(GSRUI, __methods);

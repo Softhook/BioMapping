@@ -13,8 +13,10 @@ const test = require('node:test');
 const { SpectralEDA } = require('../src/signal/spectral_eda.mjs');
 
 const closeTo = (actual, expected, tolerance, msg) => {
-  assert.ok(Math.abs(actual - expected) <= tolerance,
-    `${msg || ''} expected ${actual} to be within ${tolerance} of ${expected}`);
+  assert.ok(
+    Math.abs(actual - expected) <= tolerance,
+    `${msg || ''} expected ${actual} to be within ${tolerance} of ${expected}`,
+  );
 };
 
 // ---------------------------------------------------------------------------
@@ -28,9 +30,10 @@ test('FFT: matches a naive DFT on a small power-of-2 input', () => {
   SpectralEDA._fftInPlace(re, im);
 
   for (let k = 0; k < n; k++) {
-    let expRe = 0, expIm = 0;
+    let expRe = 0,
+      expIm = 0;
     for (let t = 0; t < n; t++) {
-      const ang = -2 * Math.PI * k * t / n;
+      const ang = (-2 * Math.PI * k * t) / n;
       const x = t + 1;
       expRe += x * Math.cos(ang);
       expIm += x * Math.sin(ang);
@@ -47,10 +50,12 @@ test('FFT: matches a naive DFT on a small power-of-2 input', () => {
 test('blackmanPeriodic: matches scipy.signal.windows.blackman(M, sym=False)', () => {
   const w = SpectralEDA.blackmanPeriodic(8);
   // scipy.signal.get_window('blackman', 8, fftbins=True) — the periodic variant.
-  const expected = [-1.3877787807814457e-17, 0.06644660940672624, 0.34,
-    0.7735533905932738, 0.9999999999999999, 0.7735533905932738,
-    0.34, 0.06644660940672624];
-  for (let i = 0; i < 8; i++) closeTo(w[i], expected[i], 1e-12, `blackman[${i}]`);
+  const expected = [
+    -1.3877787807814457e-17, 0.06644660940672624, 0.34, 0.7735533905932738,
+    0.9999999999999999, 0.7735533905932738, 0.34, 0.06644660940672624,
+  ];
+  for (let i = 0; i < 8; i++)
+    closeTo(w[i], expected[i], 1e-12, `blackman[${i}]`);
 });
 
 // ---------------------------------------------------------------------------
@@ -61,13 +66,14 @@ test('cheby1LowpassSos: matches scipy.signal.cheby1(8, 1, 0.8, fs=10)', () => {
   const sos = SpectralEDA.cheby1LowpassSos(8, 1.0, 0.8, 10);
   assert.strictEqual(sos.length, 4);
   const ref = [
-    [2.02363123e-07, 4.04726247e-07, 2.02363123e-07, 1, -1.72487259, 0.966816929],
+    [2.02363123e-7, 4.04726247e-7, 2.02363123e-7, 1, -1.72487259, 0.966816929],
     [1, 2, 1, 1, -1.73320056, 0.906825067],
     [1, 2, 1, 1, -1.77879914, 0.860578675],
     [1, 2, 1, 1, -1.81800861, 0.834928603],
   ];
   for (let s = 0; s < 4; s++) {
-    for (let c = 0; c < 6; c++) closeTo(sos[s][c], ref[s][c], 1e-6, `sos[${s}][${c}]`);
+    for (let c = 0; c < 6; c++)
+      closeTo(sos[s][c], ref[s][c], 1e-6, `sos[${s}][${c}]`);
   }
 });
 
@@ -81,7 +87,8 @@ test('butterHighpassSos: matches scipy.signal.butter(8, 0.01, "highpass", fs=2)'
     [1, -2, 1, 1, -1.93926963, 0.94022702],
   ];
   for (let s = 0; s < 4; s++) {
-    for (let c = 0; c < 6; c++) closeTo(sos[s][c], ref[s][c], 1e-6, `sos[${s}][${c}]`);
+    for (let c = 0; c < 6; c++)
+      closeTo(sos[s][c], ref[s][c], 1e-6, `sos[${s}][${c}]`);
   }
 });
 
@@ -92,7 +99,8 @@ test('sosfiltfilt: removes a highpass transient and is zero-phase (symmetric imp
   const x = new Float64Array(n).fill(3.7);
   const y = SpectralEDA.sosfiltfilt(sos, x);
   // Interior samples (away from the filtfilt edges) should be ~0.
-  for (let i = 200; i < n - 200; i++) closeTo(y[i], 0, 1e-6, `highpass(const)[${i}]`);
+  for (let i = 200; i < n - 200; i++)
+    closeTo(y[i], 0, 1e-6, `highpass(const)[${i}]`);
 });
 
 // ---------------------------------------------------------------------------
@@ -106,12 +114,17 @@ test('welchDensity: integrated PSD ≈ mean square of the signal', () => {
   let seed = 12345;
   for (let i = 0; i < n; i++) {
     seed = (seed * 1103515245 + 12345) & 0x7fffffff;
-    x[i] = (seed / 0x7fffffff) - 0.5;
+    x[i] = seed / 0x7fffffff - 0.5;
   }
-  const { freq, psd } = SpectralEDA.welchDensity(x, fs, { nperseg: 128, noverlap: 64, nfft: 256 });
+  const { freq, psd } = SpectralEDA.welchDensity(x, fs, {
+    nperseg: 128,
+    noverlap: 64,
+    nfft: 256,
+  });
 
   let totalPower = 0;
-  for (let k = 1; k < psd.length - 1; k++) totalPower += (freq[k] - freq[k - 1]) * psd[k];
+  for (let k = 1; k < psd.length - 1; k++)
+    totalPower += (freq[k] - freq[k - 1]) * psd[k];
   totalPower += (freq[0 + 1] - freq[0]) * psd[0]; // DC contribution
 
   let meanSq = 0;
@@ -139,14 +152,16 @@ test('computeScalar: in-band tone (0.1 Hz) dominates out-of-band tone (0.5 Hz)',
   const n = fs * dur;
   const mk = (freq) => {
     const x = new Float64Array(n);
-    for (let i = 0; i < n; i++) x[i] = Math.sin(2 * Math.PI * freq * i / fs);
+    for (let i = 0; i < n; i++) x[i] = Math.sin((2 * Math.PI * freq * i) / fs);
     return x;
   };
   const inBand = SpectralEDA.computeScalar(mk(0.1), fs).sympathetic;
   const outBand = SpectralEDA.computeScalar(mk(0.5), fs).sympathetic;
   assert.ok(inBand > 0, 'in-band tone has power');
-  assert.ok(inBand > 10 * outBand,
-    `0.1 Hz (${inBand}) should dwarf 0.5 Hz (${outBand}) band power`);
+  assert.ok(
+    inBand > 10 * outBand,
+    `0.1 Hz (${inBand}) should dwarf 0.5 Hz (${outBand}) band power`,
+  );
 });
 
 test('computeScalar: a DC-only signal has ~zero band power after the high-pass', () => {
@@ -157,8 +172,10 @@ test('computeScalar: a DC-only signal has ~zero band power after the high-pass',
   // The high-pass nulls a constant signal to a negligible residual (filtfilt
   // edge transients); the band power collapses to ~0 — orders of magnitude
   // below a genuine 0.1 Hz sympathetic oscillation (~0.4 µS²).
-  assert.ok(Number.isNaN(s.sympathetic) || s.sympathetic < 1e-3,
-    `flat signal band power ≈ 0 (got ${s.sympathetic})`);
+  assert.ok(
+    Number.isNaN(s.sympathetic) || s.sympathetic < 1e-3,
+    `flat signal band power ≈ 0 (got ${s.sympathetic})`,
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -174,7 +191,10 @@ test('computeSeries + mapToSamples: aligned, finite, length-correct series', () 
     times[i] = i / fs;
     signal[i] = Math.sin(2 * Math.PI * 0.1 * times[i]);
   }
-  const series = SpectralEDA.computeSeries(signal, times, fs, { windowSec: 64, hopSec: 5 });
+  const series = SpectralEDA.computeSeries(signal, times, fs, {
+    windowSec: 64,
+    hopSec: 5,
+  });
   assert.ok(series.length > 0, 'produces window centres');
   for (const p of series) {
     assert.ok(Number.isFinite(p.val), 'finite band power');
@@ -198,9 +218,15 @@ test('computeSeries: a sub-64s recording still yields a non-zero (single-window)
     times[i] = i / fs;
     signal[i] = Math.sin(2 * Math.PI * 0.1 * times[i]);
   }
-  const series = SpectralEDA.computeSeries(signal, times, fs, { windowSec: 64, hopSec: 5 });
+  const series = SpectralEDA.computeSeries(signal, times, fs, {
+    windowSec: 64,
+    hopSec: 5,
+  });
   assert.ok(series.length > 0, 'one window over the whole recording');
-  assert.ok(series.some(p => p.val > 0), 'non-zero band power for an in-band tone');
+  assert.ok(
+    series.some((p) => p.val > 0),
+    'non-zero band power for an in-band tone',
+  );
 });
 
 test('computeSeries: a signal shorter than 4 s returns an empty series', () => {
@@ -254,5 +280,8 @@ test('analyzer: edasymp series is populated after analyze()', () => {
   a.analyze(JSON.parse(JSON.stringify(global.GSR_CONST.GSR_DEFAULT)));
 
   assert.strictEqual(a.edasymp.length, n, 'edasymp aligned to raw');
-  assert.ok(a.edasymp.some(d => d.val > 0), 'edasymp has non-zero values');
+  assert.ok(
+    a.edasymp.some((d) => d.val > 0),
+    'edasymp has non-zero values',
+  );
 });

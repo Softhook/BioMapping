@@ -1,5 +1,3 @@
-'use strict';
-
 /**
  * Regression coverage for map.js/ui.js's plain-require() export surface.
  *
@@ -18,7 +16,7 @@
  * ui.mjs still export their class/object.
  */
 const assert = require('assert');
-const test   = require('node:test');
+const test = require('node:test');
 
 test('map.js exports GSRMapManager', async () => {
   const { GSRMapManager } = require('../src/map/map.mjs');

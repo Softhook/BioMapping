@@ -15,10 +15,13 @@
  * globe3d.js's exports, not something to patch around here.
  */
 import { GeoUtils } from '../gps/geo_utils.mjs';
-import { GSRGlobeManager, HEIGHT_CAPABLE_METRICS, seriesValue } from './globe3d.mjs';
+import {
+  GSRGlobeManager,
+  HEIGHT_CAPABLE_METRICS,
+  seriesValue,
+} from './globe3d.mjs';
 
-  export const __methods = {
-
+export const __methods = {
   /**
    * Register a progress callback for the automated tour: (stepIndex, totalSteps, waypoint) => void
    */
@@ -55,10 +58,15 @@ import { GSRGlobeManager, HEIGHT_CAPABLE_METRICS, seriesValue } from './globe3d.
     if (!pts || pts.length < 2) return [];
 
     const metric = this.activeColoringMetric;
-    const heightMetric = (typeof HEIGHT_CAPABLE_METRICS !== 'undefined' && HEIGHT_CAPABLE_METRICS.has(metric))
-      ? metric
-      : (this.heightMetric || 'phasic');
-    const heightSeries = this._getMetricSeries(this.currentAnalyzer, heightMetric);
+    const heightMetric =
+      typeof HEIGHT_CAPABLE_METRICS !== 'undefined' &&
+      HEIGHT_CAPABLE_METRICS.has(metric)
+        ? metric
+        : this.heightMetric || 'phasic';
+    const heightSeries = this._getMetricSeries(
+      this.currentAnalyzer,
+      heightMetric,
+    );
     const extScale = this.extrusionScale || 8.0;
     const baseH = this.baseHeight || 2.0;
 
@@ -69,13 +77,22 @@ import { GSRGlobeManager, HEIGHT_CAPABLE_METRICS, seriesValue } from './globe3d.
 
     // Add peak indices (both original sample index and latency-shifted index)
     if (this.currentPeaks && this.currentPeaks.length > 0) {
-      this.currentPeaks.forEach(pk => {
+      this.currentPeaks.forEach((pk) => {
         if (pk && typeof pk.index === 'number') {
-          const matchIdx = pts.findIndex(p => p.origIdx === pk.index);
+          const matchIdx = pts.findIndex((p) => p.origIdx === pk.index);
           if (matchIdx !== -1) candidateIndices.add(matchIdx);
-          if (this.peakLatency > 0 && this.currentAnalyzer && typeof this.currentAnalyzer.resolveLatencyIndex === 'function') {
-            const shiftedOrigIdx = this.currentAnalyzer.resolveLatencyIndex(pk, this.peakLatency);
-            const shiftedMatchIdx = pts.findIndex(p => p.origIdx === shiftedOrigIdx);
+          if (
+            this.peakLatency > 0 &&
+            this.currentAnalyzer &&
+            typeof this.currentAnalyzer.resolveLatencyIndex === 'function'
+          ) {
+            const shiftedOrigIdx = this.currentAnalyzer.resolveLatencyIndex(
+              pk,
+              this.peakLatency,
+            );
+            const shiftedMatchIdx = pts.findIndex(
+              (p) => p.origIdx === shiftedOrigIdx,
+            );
             if (shiftedMatchIdx !== -1) candidateIndices.add(shiftedMatchIdx);
           }
         }
@@ -99,7 +116,10 @@ import { GSRGlobeManager, HEIGHT_CAPABLE_METRICS, seriesValue } from './globe3d.
       return baseH + Math.max(0, seriesValue(rawVal)) * extScale;
     };
 
-    const lookAheadSteps = Math.max(3, Math.min(10, Math.floor(pts.length / 30)));
+    const lookAheadSteps = Math.max(
+      3,
+      Math.min(10, Math.floor(pts.length / 30)),
+    );
 
     for (let i = 0; i < sortedIndices.length; i++) {
       const idx = sortedIndices[i];
@@ -109,10 +129,16 @@ import { GSRGlobeManager, HEIGHT_CAPABLE_METRICS, seriesValue } from './globe3d.
       let bearingDeg;
       if (idx < pts.length - 1) {
         const lookAheadIdx = Math.min(pts.length - 1, idx + lookAheadSteps);
-        bearingDeg = this._calculateBearing(p, pts[lookAheadIdx] || pts[idx + 1]);
+        bearingDeg = this._calculateBearing(
+          p,
+          pts[lookAheadIdx] || pts[idx + 1],
+        );
       } else if (idx > 0) {
         const lookBehindIdx = Math.max(0, idx - lookAheadSteps);
-        bearingDeg = this._calculateBearing(pts[lookBehindIdx] || pts[idx - 1], p);
+        bearingDeg = this._calculateBearing(
+          pts[lookBehindIdx] || pts[idx - 1],
+          p,
+        );
       } else {
         bearingDeg = 0;
       }
@@ -121,11 +147,18 @@ import { GSRGlobeManager, HEIGHT_CAPABLE_METRICS, seriesValue } from './globe3d.
       const gsrHeight = heightAtPoint(p);
 
       // Check if this waypoint is at or near a peak or hotspot
-      const isPeak = (this.currentPeaks || []).some(pk => {
+      const isPeak = (this.currentPeaks || []).some((pk) => {
         if (!pk) return false;
         if (pk.index === p.origIdx) return true;
-        if (this.peakLatency > 0 && this.currentAnalyzer && typeof this.currentAnalyzer.resolveLatencyIndex === 'function') {
-          return this.currentAnalyzer.resolveLatencyIndex(pk, this.peakLatency) === p.origIdx;
+        if (
+          this.peakLatency > 0 &&
+          this.currentAnalyzer &&
+          typeof this.currentAnalyzer.resolveLatencyIndex === 'function'
+        ) {
+          return (
+            this.currentAnalyzer.resolveLatencyIndex(pk, this.peakLatency) ===
+            p.origIdx
+          );
         }
         return false;
       });
@@ -143,7 +176,11 @@ import { GSRGlobeManager, HEIGHT_CAPABLE_METRICS, seriesValue } from './globe3d.
       // Includes local track wall height, headroom for upcoming peaks,
       // and spire/star/label annotation heights (spire: +3m, hotspot: +11m, label: +15m)
       const annotationHeadroom = isPeak ? 15.0 : 0.0;
-      const effectiveHeight = Math.max(gsrHeight + annotationHeadroom, localMaxHeight * 0.9 + annotationHeadroom * 0.5, 16.0);
+      const effectiveHeight = Math.max(
+        gsrHeight + annotationHeadroom,
+        localMaxHeight * 0.9 + annotationHeadroom * 0.5,
+        16.0,
+      );
 
       waypoints.push({
         index: i,
@@ -155,7 +192,7 @@ import { GSRGlobeManager, HEIGHT_CAPABLE_METRICS, seriesValue } from './globe3d.
         bearingDeg,
         gsrHeight,
         effectiveHeight,
-        isPeak
+        isPeak,
       });
     }
 
@@ -166,7 +203,12 @@ import { GSRGlobeManager, HEIGHT_CAPABLE_METRICS, seriesValue } from './globe3d.
    * Start the automated sequential tour.
    */
   startTour() {
-    if (!this.viewer || !this.currentDrawPoints || this.currentDrawPoints.length < 2) return;
+    if (
+      !this.viewer ||
+      !this.currentDrawPoints ||
+      this.currentDrawPoints.length < 2
+    )
+      return;
     if (this._isOrbiting) this.stopOrbit();
     this.releaseFollowScrub();
 
@@ -219,31 +261,45 @@ import { GSRGlobeManager, HEIGHT_CAPABLE_METRICS, seriesValue } from './globe3d.
 
     // Target look-at height centred on the vertical mid-region of the track/spires
     const targetLookAtHeight = effH * 0.45;
-    const altitudeOffset = targetLookAtHeight + backDistMeters * Math.tan(Math.abs(pitchRad));
+    const altitudeOffset =
+      targetLookAtHeight + backDistMeters * Math.tan(Math.abs(pitchRad));
 
     // Offset backwards along inverse heading in meters
-    const latOffsetDeg = (backDistMeters * Math.cos(inverseHeadingRad)) / 111320.0;
+    const latOffsetDeg =
+      (backDistMeters * Math.cos(inverseHeadingRad)) / 111320.0;
     const latRad = (wp.lat * Math.PI) / 180.0;
-    const lonOffsetDeg = (backDistMeters * Math.sin(inverseHeadingRad)) / (111320.0 * Math.max(0.1, Math.cos(latRad)));
+    const lonOffsetDeg =
+      (backDistMeters * Math.sin(inverseHeadingRad)) /
+      (111320.0 * Math.max(0.1, Math.cos(latRad)));
 
     const camLat = wp.lat + latOffsetDeg;
     const camLon = wp.lon + lonOffsetDeg;
 
     let terrainAlt = 0;
     try {
-      if (this.viewer.scene && this.viewer.scene.globe && typeof this.viewer.scene.globe.getHeight === 'function') {
+      if (
+        this.viewer.scene &&
+        this.viewer.scene.globe &&
+        typeof this.viewer.scene.globe.getHeight === 'function'
+      ) {
         const cartoCam = Cesium.Cartographic.fromDegrees(camLon, camLat);
         const cartoWp = Cesium.Cartographic.fromDegrees(wp.lon, wp.lat);
         const hCam = this.viewer.scene.globe.getHeight(cartoCam);
         const hWp = this.viewer.scene.globe.getHeight(cartoWp);
-        const validHCam = (typeof hCam === 'number' && isFinite(hCam)) ? Math.max(0, hCam) : 0;
-        const validHWp = (typeof hWp === 'number' && isFinite(hWp)) ? Math.max(0, hWp) : 0;
+        const validHCam =
+          typeof hCam === 'number' && isFinite(hCam) ? Math.max(0, hCam) : 0;
+        const validHWp =
+          typeof hWp === 'number' && isFinite(hWp) ? Math.max(0, hWp) : 0;
         terrainAlt = Math.max(validHCam, validHWp);
       }
     } catch (e) {}
 
     const targetAltitude = terrainAlt + altitudeOffset;
-    const destination = Cesium.Cartesian3.fromDegrees(camLon, camLat, targetAltitude);
+    const destination = Cesium.Cartesian3.fromDegrees(
+      camLon,
+      camLat,
+      targetAltitude,
+    );
 
     const flightDuration = stepIdx === 0 ? 2.0 : 1.6;
 
@@ -252,7 +308,7 @@ import { GSRGlobeManager, HEIGHT_CAPABLE_METRICS, seriesValue } from './globe3d.
       orientation: {
         heading: headingRad,
         pitch: pitchRad,
-        roll: 0.0
+        roll: 0.0,
       },
       duration: flightDuration,
       complete: () => {
@@ -269,7 +325,7 @@ import { GSRGlobeManager, HEIGHT_CAPABLE_METRICS, seriesValue } from './globe3d.
         if (this._isTouring) {
           this.stopTour();
         }
-      }
+      },
     });
   },
 
@@ -286,8 +342,7 @@ import { GSRGlobeManager, HEIGHT_CAPABLE_METRICS, seriesValue } from './globe3d.
     if (wasTouring && this._tourCallback) {
       this._tourCallback(null, 0, null);
     }
-  }
+  },
+};
 
-  };
-
-  Object.assign(GSRGlobeManager.prototype, __methods);
+Object.assign(GSRGlobeManager.prototype, __methods);

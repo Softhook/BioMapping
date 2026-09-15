@@ -29,8 +29,18 @@
 import { GpsPipeline } from '../gps/gps_pipeline.mjs';
 import { drawGraph } from './live_graph.mjs';
 import { LiveState } from './live_state.mjs';
-import { buildTileUrl, latLngToTileCoords, normalizeTileCacheUrl } from './live_tile_cache.mjs';
-import { LIVE_SETTLE_TAIL_S, closeFabMenu, isCompactLiveLayout, liveAnalyzer, liveGsrView } from './live_view.mjs';
+import {
+  buildTileUrl,
+  latLngToTileCoords,
+  normalizeTileCacheUrl,
+} from './live_tile_cache.mjs';
+import {
+  LIVE_SETTLE_TAIL_S,
+  closeFabMenu,
+  isCompactLiveLayout,
+  liveAnalyzer,
+  liveGsrView,
+} from './live_view.mjs';
 import { GSRBasemap } from '../map/basemap.mjs';
 import { MapColors } from '../map/map_colors.mjs';
 import { GSRMapMarkers } from '../map/map_markers.mjs';
@@ -46,8 +56,10 @@ export const LIVE_MAX_HDOP = 2.0;
 export let liveMap = null;
 export let liveLastLatLng = null;
 export let liveMarker = null;
-export let gsrMin = Infinity, gsrMax = -Infinity;
-export let tonicMin = Infinity, tonicMax = -Infinity;
+export let gsrMin = Infinity,
+  gsrMax = -Infinity;
+export let tonicMin = Infinity,
+  tonicMax = -Infinity;
 
 // Tonic/phasic colouring is DEFERRED: the zero-phase decomposition
 // (decomposeTonicPhasic) needs a ±6s look-ahead, so a sample's value isn't
@@ -98,7 +110,9 @@ export function flushSettledSegments() {
   const metric = liveGsrView.graphView;
   const lastPkt = LiveState.packets[LiveState.packets.length - 1];
   if (!lastPkt) return;
-  const weight = isCompactLiveLayout() ? LIVE_TRACK_WEIGHT_MOBILE : LIVE_TRACK_WEIGHT_DESKTOP;
+  const weight = isCompactLiveLayout()
+    ? LIVE_TRACK_WEIGHT_MOBILE
+    : LIVE_TRACK_WEIGHT_DESKTOP;
   while (pendingSegments.length > 0) {
     const e = pendingSegments[0];
     const val = metric === 'signal' ? e.pkt.gsrRaw : e.pkt[metric];
@@ -117,7 +131,9 @@ export function flushSettledSegments() {
     } else {
       color = MapColors.getColorForValue(val, gsrMin, gsrMax);
     }
-    const line = L.polyline([e.prevLatLng, e.latlng], { color, weight }).addTo(liveMap);
+    const line = L.polyline([e.prevLatLng, e.latlng], { color, weight }).addTo(
+      liveMap,
+    );
     allTrackSegments.push({ pkt: e.pkt, line });
     pendingSegments.shift();
   }
@@ -139,7 +155,9 @@ export function recolorAllTrackSegments() {
   const metric = liveGsrView.graphView;
   if (metric === 'signal') {
     for (const { pkt, line } of allTrackSegments) {
-      line.setStyle({ color: MapColors.getColorForValue(pkt.gsrRaw, gsrMin, gsrMax) });
+      line.setStyle({
+        color: MapColors.getColorForValue(pkt.gsrRaw, gsrMin, gsrMax),
+      });
     }
     // Any segments deferred during a tonic/phasic stretch are final for
     // signal immediately — draw them so the trail catches up to the dot.
@@ -154,7 +172,12 @@ export function recolorAllTrackSegments() {
     if (metric === 'tonic' && v < lo) lo = v;
     if (v > hi) hi = v;
   }
-  if (metric === 'tonic') { tonicMin = lo; tonicMax = hi; } else { phasicMax = hi; }
+  if (metric === 'tonic') {
+    tonicMin = lo;
+    tonicMax = hi;
+  } else {
+    phasicMax = hi;
+  }
   for (const { pkt, line } of allTrackSegments) {
     const v = pkt[metric];
     if (v === undefined) continue;
@@ -173,7 +196,9 @@ export async function cacheCurrentMapArea() {
   const maxZoom = Math.min(startZoom + 3, 18);
 
   const cacheMapBtn = document.getElementById('cacheMapBtn');
-  const originalText = isCompactLiveLayout() ? 'Cache Map' : cacheMapBtn.textContent;
+  const originalText = isCompactLiveLayout()
+    ? 'Cache Map'
+    : cacheMapBtn.textContent;
   cacheMapBtn.disabled = true;
   cacheMapBtn.textContent = 'Caching...';
 
@@ -196,11 +221,17 @@ export async function cacheCurrentMapArea() {
     const minTile = latLngToTileCoords(bounds.getNorthWest(), z);
     const maxTile = latLngToTileCoords(bounds.getSouthEast(), z);
 
-    const numTiles = Math.pow(2, z);
+    const numTiles = 2 ** z;
     const minX = Math.max(0, Math.min(numTiles - 1, minTile.x));
     const maxX = Math.max(0, Math.min(numTiles - 1, maxTile.x));
-    const minY = Math.max(0, Math.min(numTiles - 1, Math.min(minTile.y, maxTile.y)));
-    const maxY = Math.max(0, Math.min(numTiles - 1, Math.max(minTile.y, maxTile.y)));
+    const minY = Math.max(
+      0,
+      Math.min(numTiles - 1, Math.min(minTile.y, maxTile.y)),
+    );
+    const maxY = Math.max(
+      0,
+      Math.min(numTiles - 1, Math.max(minTile.y, maxTile.y)),
+    );
 
     for (let x = minX; x <= maxX; x++) {
       for (let y = minY; y <= maxY; y++) {
@@ -220,39 +251,46 @@ export async function cacheCurrentMapArea() {
   }
 
   if (totalTiles > 300) {
-    if (!confirm(`Caching the current view at zoom levels ${currentZoom} to ${maxZoom} will download ${totalTiles} tiles. Proceed?`)) {
+    if (
+      !confirm(
+        `Caching the current view at zoom levels ${currentZoom} to ${maxZoom} will download ${totalTiles} tiles. Proceed?`,
+      )
+    ) {
       cacheMapBtn.disabled = false;
       cacheMapBtn.textContent = originalText;
       return;
     }
   }
 
-  let newlyDownloaded = 0, alreadyCached = 0;
+  let newlyDownloaded = 0,
+    alreadyCached = 0;
   try {
     const cache = await caches.open('leaflet-map-tiles');
 
     const batchSize = 10;
     for (let i = 0; i < tileUrls.length; i += batchSize) {
       const batch = tileUrls.slice(i, i + batchSize);
-      await Promise.all(batch.map(async (tile) => {
-        try {
-          // Re-caching an already-cached area is a real, expected flow (the
-          // location picker exists precisely so this can be run ahead of a
-          // trip) — skip tiles already on disk instead of re-downloading
-          // the whole view every time.
-          if (await cache.match(tile.cacheUrl)) {
-            alreadyCached++;
-            return;
+      await Promise.all(
+        batch.map(async (tile) => {
+          try {
+            // Re-caching an already-cached area is a real, expected flow (the
+            // location picker exists precisely so this can be run ahead of a
+            // trip) — skip tiles already on disk instead of re-downloading
+            // the whole view every time.
+            if (await cache.match(tile.cacheUrl)) {
+              alreadyCached++;
+              return;
+            }
+            const response = await fetch(tile.url);
+            if (response.ok) {
+              await cache.put(tile.cacheUrl, response);
+              newlyDownloaded++;
+            }
+          } catch (err) {
+            console.warn('Failed to cache tile:', tile.url, err);
           }
-          const response = await fetch(tile.url);
-          if (response.ok) {
-            await cache.put(tile.cacheUrl, response);
-            newlyDownloaded++;
-          }
-        } catch (err) {
-          console.warn('Failed to cache tile:', tile.url, err);
-        }
-      }));
+        }),
+      );
       cacheMapBtn.textContent = `Caching (${Math.round(((newlyDownloaded + alreadyCached) / totalTiles) * 100)}%)`;
     }
 
@@ -262,7 +300,9 @@ export async function cacheCurrentMapArea() {
       cacheMapBtn.textContent = originalText;
     }, 2000);
 
-    alert(`Map area ready offline: ${newlyDownloaded + alreadyCached} of ${totalTiles} tiles (${newlyDownloaded} downloaded, ${alreadyCached} already cached).`);
+    alert(
+      `Map area ready offline: ${newlyDownloaded + alreadyCached} of ${totalTiles} tiles (${newlyDownloaded} downloaded, ${alreadyCached} already cached).`,
+    );
   } catch (err) {
     console.error('Map caching failed:', err);
     alert('Failed to cache map area: ' + err.message);
@@ -278,17 +318,16 @@ export function initLiveMap() {
     preferCanvas: true,
     zoomSnap: 0.25,
     zoomDelta: 0.25,
-    maxZoom: 22
+    maxZoom: 22,
   }).setView([0, 0], 2);
   if (liveMap.attributionControl) {
     liveMap.attributionControl.setPrefix(false);
   }
   // CARTO basemap URL + key resolution shared via GSRBasemap
   // (src/map/basemap.js) — same source of truth as map.js / globe3d.js.
-  L.tileLayer.cache(
-    GSRBasemap.cartoTileUrl('light_all'),
-    GSRBasemap.tileOptions()
-  ).addTo(liveMap);
+  L.tileLayer
+    .cache(GSRBasemap.cartoTileUrl('light_all'), GSRBasemap.tileOptions())
+    .addTo(liveMap);
 
   // Enable the Cache Map button
   document.getElementById('cacheMapBtn').disabled = false;
@@ -317,7 +356,8 @@ export const liveMapHotspotMarkers = new Map();
 export function _removeLiveMapMarker(marker) {
   if (!marker) return;
   if (typeof marker.remove === 'function') marker.remove();
-  else if (liveMap && typeof liveMap.removeLayer === 'function') liveMap.removeLayer(marker);
+  else if (liveMap && typeof liveMap.removeLayer === 'function')
+    liveMap.removeLayer(marker);
 }
 
 export function clearLiveMapMarkers() {
@@ -336,11 +376,13 @@ export function resetLiveMapSession() {
   if (liveMap) {
     for (const { line } of allTrackSegments) {
       if (typeof line.remove === 'function') line.remove();
-      else if (typeof liveMap.removeLayer === 'function') liveMap.removeLayer(line);
+      else if (typeof liveMap.removeLayer === 'function')
+        liveMap.removeLayer(line);
     }
     if (liveMarker) {
       if (typeof liveMarker.remove === 'function') liveMarker.remove();
-      else if (typeof liveMap.removeLayer === 'function') liveMap.removeLayer(liveMarker);
+      else if (typeof liveMap.removeLayer === 'function')
+        liveMap.removeLayer(liveMarker);
       liveMarker = null;
     }
   }
@@ -358,7 +400,9 @@ export function _syncLiveMapMarkerSet(markerMap, peaks, iconBuilder) {
   const A = liveAnalyzer;
   if (!A || !liveMap) return;
   const lastPkt = LiveState.packets[LiveState.packets.length - 1];
-  const settledBefore = lastPkt ? lastPkt.timestamp - LIVE_SETTLE_TAIL_S : Infinity;
+  const settledBefore = lastPkt
+    ? lastPkt.timestamp - LIVE_SETTLE_TAIL_S
+    : Infinity;
 
   const wanted = new Map();
   if (peaks) {
@@ -379,7 +423,9 @@ export function _syncLiveMapMarkerSet(markerMap, peaks, iconBuilder) {
   // Add the new ones (skip any without GPS — a live packet can lack a fix).
   for (const [key, peak] of wanted) {
     if (markerMap.has(key)) continue;
-    const coords = A.getCoordinates(GSRMapMarkers.resolveLatencyIndex(A, peak, 0));
+    const coords = A.getCoordinates(
+      GSRMapMarkers.resolveLatencyIndex(A, peak, 0),
+    );
     if (!coords) continue;
     const marker = L.marker([coords.lat, coords.lon], { icon: iconBuilder(L) });
     marker.addTo(liveMap);
@@ -396,12 +442,12 @@ export function renderLiveMapMarkers() {
   _syncLiveMapMarkerSet(
     liveMapPeakMarkers,
     liveGsrView.showPeaks ? liveAnalyzer.peaks : null,
-    GSRMapMarkers.buildPeakIcon
+    GSRMapMarkers.buildPeakIcon,
   );
   _syncLiveMapMarkerSet(
     liveMapHotspotMarkers,
     liveGsrView.showHotspots ? liveAnalyzer.memorableEvents : null,
-    GSRMapMarkers.buildHotspotIcon
+    GSRMapMarkers.buildHotspotIcon,
   );
 }
 
@@ -449,7 +495,9 @@ export let lastLivePanAt = 0;
 export function updateLiveMap(pkt) {
   if (!pkt.valid || isNaN(pkt.lat) || isNaN(pkt.lon)) return;
   const gated = GpsPipeline.applyFixTypeGate(
-    GpsPipeline.applyHdopGate([pkt], LIVE_MAX_HDOP), 2);
+    GpsPipeline.applyHdopGate([pkt], LIVE_MAX_HDOP),
+    2,
+  );
   if (gated.length === 0) return;
 
   const latlng = [pkt.lat, pkt.lon];
@@ -469,9 +517,13 @@ export function updateLiveMap(pkt) {
     if (metric === 'signal') {
       // Raw GSR is final the instant a fix arrives — draw the segment now.
       if (liveLastLatLng && !pkt.gap) {
-        const weight = isCompactLiveLayout() ? LIVE_TRACK_WEIGHT_MOBILE : LIVE_TRACK_WEIGHT_DESKTOP;
-        const line = L.polyline([liveLastLatLng, latlng],
-          { color: MapColors.getColorForValue(pkt.gsrRaw, gsrMin, gsrMax), weight }).addTo(liveMap);
+        const weight = isCompactLiveLayout()
+          ? LIVE_TRACK_WEIGHT_MOBILE
+          : LIVE_TRACK_WEIGHT_DESKTOP;
+        const line = L.polyline([liveLastLatLng, latlng], {
+          color: MapColors.getColorForValue(pkt.gsrRaw, gsrMin, gsrMax),
+          weight,
+        }).addTo(liveMap);
         allTrackSegments.push({ pkt, line });
       }
     } else if (liveLastLatLng && !pkt.gap) {
@@ -480,7 +532,8 @@ export function updateLiveMap(pkt) {
       // value has settled. A gap fix queues nothing (it only advances the
       // anchor), so the trail breaks there rather than bridging the gap.
       pendingSegments.push({ prevLatLng: liveLastLatLng, latlng, pkt });
-      if (pendingSegments.length > PENDING_SEGMENTS_MAX) pendingSegments.shift();
+      if (pendingSegments.length > PENDING_SEGMENTS_MAX)
+        pendingSegments.shift();
     }
 
     // "You are here" marker — fixed neutral styling, independent of the
@@ -488,7 +541,11 @@ export function updateLiveMap(pkt) {
     // data; the dot is just you).
     if (!liveMarker) {
       liveMarker = L.circleMarker(latlng, {
-        radius: 7, color: '#1d7ff2', weight: 3, fillColor: '#ffffff', fillOpacity: 1
+        radius: 7,
+        color: '#1d7ff2',
+        weight: 3,
+        fillColor: '#ffffff',
+        fillOpacity: 1,
       }).addTo(liveMap);
     } else {
       liveMarker.setLatLng(latlng);

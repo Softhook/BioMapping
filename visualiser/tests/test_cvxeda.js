@@ -27,8 +27,6 @@
  * Run: node --test tests/test_cvxeda.js
  */
 
-'use strict';
-
 const assert = require('assert');
 const test = require('node:test');
 const path = require('path');
@@ -40,7 +38,10 @@ const { loadModule } = require('./support/load_module.js');
 
 loadModule(path.join(__dirname, '../src/signal/dwt_filter.js'), 'DWT');
 loadModule(path.join(__dirname, '../src/signal/gsr_filter.js'), 'GsrFilter');
-loadModule(path.join(__dirname, '../src/signal/deconvolution.js'), 'SCRDeconvolution');
+loadModule(
+  path.join(__dirname, '../src/signal/deconvolution.js'),
+  'SCRDeconvolution',
+);
 loadModule(path.join(__dirname, '../src/signal/cvxeda.js'), 'CVXEDA');
 loadModule(path.join(__dirname, '../src/signal/csv_parser.js'), 'GSRCSVParser');
 loadModule(path.join(__dirname, '../src/signal/analyzer.js'), 'GSRAnalyzer');
@@ -87,7 +88,10 @@ test('cvxEDA invariant: driver p is strictly non-negative everywhere', () => {
   for (let i = 0; i < n; i++) input[i] = 2.0 + Math.sin(i / 20) * 0.5;
   const res = CVXEDA.decompose(input, SR, { maxIter: 30 });
   for (let i = 0; i < n; i++) {
-    assert.ok(res.driver[i] >= 0, `driver at ${i} should be >= 0, got ${res.driver[i]}`);
+    assert.ok(
+      res.driver[i] >= 0,
+      `driver at ${i} should be >= 0, got ${res.driver[i]}`,
+    );
   }
 });
 
@@ -102,7 +106,7 @@ test('cvxEDA synthetic: single isolated SCR onset is recovered exactly', () => {
     const t = i / SR;
     kernel[i] = Math.exp(-t / 2.0) - Math.exp(-t / 0.7);
   }
-  let kMax = Math.max(...kernel);
+  const kMax = Math.max(...kernel);
   for (let i = 0; i < 100; i++) kernel[i] /= kMax;
 
   // SCR with onset at sample 250 (25.0s), amplitude 0.35 µS
@@ -114,7 +118,8 @@ test('cvxEDA synthetic: single isolated SCR onset is recovered exactly', () => {
   const res = CVXEDA.decompose(y, SR, { maxIter: 50 });
 
   // Locate highest peak in driver
-  let maxDriverIdx = 0, maxDriverVal = 0;
+  let maxDriverIdx = 0,
+    maxDriverVal = 0;
   for (let i = 0; i < n; i++) {
     if (res.driver[i] > maxDriverVal) {
       maxDriverVal = res.driver[i];
@@ -123,9 +128,14 @@ test('cvxEDA synthetic: single isolated SCR onset is recovered exactly', () => {
   }
 
   const detectedOnsetSec = maxDriverIdx / SR;
-  assert.ok(Math.abs(detectedOnsetSec - 25.0) <= 0.2,
-    `driver peak onset (${detectedOnsetSec.toFixed(2)}s) should be within 0.2s of true onset (25.0s)`);
-  assert.ok(maxDriverVal > 0.05, `driver amplitude should be clearly detected (>0.05), got ${maxDriverVal.toFixed(4)}`);
+  assert.ok(
+    Math.abs(detectedOnsetSec - 25.0) <= 0.2,
+    `driver peak onset (${detectedOnsetSec.toFixed(2)}s) should be within 0.2s of true onset (25.0s)`,
+  );
+  assert.ok(
+    maxDriverVal > 0.05,
+    `driver amplitude should be clearly detected (>0.05), got ${maxDriverVal.toFixed(4)}`,
+  );
 });
 
 // Bateman SCRF at SR, unit peak — shared by the synthetic fixtures below.
@@ -148,8 +158,12 @@ function driverClusters(driver, frac = 0.02) {
   let i = 0;
   while (i < driver.length) {
     if (driver[i] > thr) {
-      let j = i, pk = i;
-      while (j < driver.length && driver[j] > thr) { if (driver[j] > driver[pk]) pk = j; j++; }
+      let j = i,
+        pk = i;
+      while (j < driver.length && driver[j] > thr) {
+        if (driver[j] > driver[pk]) pk = j;
+        j++;
+      }
       out.push(pk / SR);
       i = j;
     } else i++;
@@ -164,10 +178,11 @@ test('cvxEDA synthetic: 5-SCR train — DEFAULT params recover all 5, sparse dri
   const kernel = batemanKernel(120);
 
   const onsets = [30, 90, 150, 210, 270];
-  const amps = [0.15, 0.25, 0.10, 0.30, 0.18];
+  const amps = [0.15, 0.25, 0.1, 0.3, 0.18];
   for (let s = 0; s < onsets.length; s++) {
     const samp = onsets[s] * SR;
-    for (let i = 0; i < 120 && samp + i < n; i++) y[samp + i] += amps[s] * kernel[i];
+    for (let i = 0; i < 120 && samp + i < n; i++)
+      y[samp + i] += amps[s] * kernel[i];
   }
 
   // No solver overrides — this must work on the shipped defaults.
@@ -175,10 +190,16 @@ test('cvxEDA synthetic: 5-SCR train — DEFAULT params recover all 5, sparse dri
   assert.ok(res.converged, 'solver should converge on a clean 5-SCR train');
 
   const clusters = driverClusters(res.driver);
-  assert.strictEqual(clusters.length, 5, `expected exactly 5 driver clusters, got ${clusters.length}`);
+  assert.strictEqual(
+    clusters.length,
+    5,
+    `expected exactly 5 driver clusters, got ${clusters.length}`,
+  );
   for (let s = 0; s < onsets.length; s++) {
-    assert.ok(Math.abs(clusters[s] - onsets[s]) <= 0.3,
-      `cluster ${s} (${clusters[s]}s) should match onset ${onsets[s]}s`);
+    assert.ok(
+      Math.abs(clusters[s] - onsets[s]) <= 0.3,
+      `cluster ${s} (${clusters[s]}s) should match onset ${onsets[s]}s`,
+    );
   }
 
   // L1 sparsity: the driver is exactly zero away from events (this is the
@@ -187,8 +208,10 @@ test('cvxEDA synthetic: 5-SCR train — DEFAULT params recover all 5, sparse dri
   let between = 0;
   for (let i = 1100; i < 1400; i++) between = Math.max(between, res.driver[i]);
   const driverMax = Math.max(...res.driver);
-  assert.ok(between < 1e-6 * driverMax,
-    `inter-event driver should be ~0, got ${between.toExponential(2)} (max ${driverMax.toFixed(2)})`);
+  assert.ok(
+    between < 1e-6 * driverMax,
+    `inter-event driver should be ~0, got ${between.toExponential(2)} (max ${driverMax.toFixed(2)})`,
+  );
 });
 
 test('cvxEDA synthetic: joint tonic estimate tracks a curved baseline', () => {
@@ -205,27 +228,41 @@ test('cvxEDA synthetic: joint tonic estimate tracks a curved baseline', () => {
   const amps = [0.3, 0.15, 0.5, 0.12, 0.4, 0.2, 0.6, 0.25];
   for (let s = 0; s < onsets.length; s++) {
     const samp = onsets[s] * SR;
-    for (let i = 0; i < 120 && samp + i < n; i++) y[samp + i] += amps[s] * kernel[i];
+    for (let i = 0; i < 120 && samp + i < n; i++)
+      y[samp + i] += amps[s] * kernel[i];
   }
 
   const res = CVXEDA.decompose(y, SR);
 
   // Tonic should follow the true slow baseline, not absorb the SCRs and not
   // lag the curve. Compare on the interior (ignore the first/last 5 s edge).
-  let maxErr = 0, sse = 0, cnt = 0;
+  let maxErr = 0,
+    sse = 0,
+    cnt = 0;
   for (let i = 50; i < n - 50; i++) {
     const e = res.tonic[i] - trueTonic[i];
     maxErr = Math.max(maxErr, Math.abs(e));
-    sse += e * e; cnt++;
+    sse += e * e;
+    cnt++;
   }
   const rmse = Math.sqrt(sse / cnt);
-  assert.ok(rmse < 0.05, `tonic RMSE vs truth should be < 0.05 µS, got ${rmse.toFixed(4)}`);
-  assert.ok(maxErr < 0.20, `tonic max error should be < 0.20 µS, got ${maxErr.toFixed(4)}`);
+  assert.ok(
+    rmse < 0.05,
+    `tonic RMSE vs truth should be < 0.05 µS, got ${rmse.toFixed(4)}`,
+  );
+  assert.ok(
+    maxErr < 0.2,
+    `tonic max error should be < 0.20 µS, got ${maxErr.toFixed(4)}`,
+  );
 
   // Phasic + tonic should reconstruct the input.
   let recErr = 0;
-  for (let i = 50; i < n - 50; i++) recErr = Math.max(recErr, Math.abs(y[i] - res.tonic[i] - res.phasic[i]));
-  assert.ok(recErr < 0.05, `reconstruction error should be < 0.05 µS, got ${recErr.toFixed(4)}`);
+  for (let i = 50; i < n - 50; i++)
+    recErr = Math.max(recErr, Math.abs(y[i] - res.tonic[i] - res.phasic[i]));
+  assert.ok(
+    recErr < 0.05,
+    `reconstruction error should be < 0.05 µS, got ${recErr.toFixed(4)}`,
+  );
 });
 
 test('cvxEDA: deterministic execution', () => {
@@ -249,8 +286,10 @@ test('cvxEDA integration: GSRAnalyzer with deconvAlgorithm=cvxeda', () => {
   for (let i = 0; i < 600; i++) {
     const t = i / SR;
     let gsr = 2.0;
-    if (t >= 20 && t < 30) gsr += 0.2 * (Math.exp(-(t - 20) / 2.0) - Math.exp(-(t - 20) / 0.7));
-    if (t >= 40 && t < 50) gsr += 0.3 * (Math.exp(-(t - 40) / 2.0) - Math.exp(-(t - 40) / 0.7));
+    if (t >= 20 && t < 30)
+      gsr += 0.2 * (Math.exp(-(t - 20) / 2.0) - Math.exp(-(t - 20) / 0.7));
+    if (t >= 40 && t < 50)
+      gsr += 0.3 * (Math.exp(-(t - 40) / 2.0) - Math.exp(-(t - 40) / 0.7));
     rows.push(`${t.toFixed(3)},${gsr.toFixed(6)}`);
   }
 
@@ -259,17 +298,20 @@ test('cvxEDA integration: GSRAnalyzer with deconvAlgorithm=cvxeda', () => {
   a.analyze({
     ...global.GSR_CONST.GSR_DEFAULT,
     tonicMethod: 'percentile',
-    peakThreshold: 0.020,
+    peakThreshold: 0.02,
     useDeconvolution: true,
-    deconvAlgorithm: 'cvxeda'
+    deconvAlgorithm: 'cvxeda',
   });
 
   assert.ok(a._wasDeconv, 'analyzer should register deconvolution run');
   assert.ok(a.phasicClean.length === 600, 'phasicClean should be populated');
   assert.ok(a.phasicDriver.length === 600, 'phasicDriver should be populated');
   assert.ok(a.peaks.length >= 1, `should detect peaks, got ${a.peaks.length}`);
-  assert.strictEqual(a._driverAlgorithm, 'cvxeda',
-    'tags the driver with its producing algorithm, for GSR_CONST.DRIVER_UNIT_BY_ALGORITHM to pick the right unit (µS/s, not µS)');
+  assert.strictEqual(
+    a._driverAlgorithm,
+    'cvxeda',
+    'tags the driver with its producing algorithm, for GSR_CONST.DRIVER_UNIT_BY_ALGORITHM to pick the right unit (µS/s, not µS)',
+  );
 });
 
 test('cvxEDA integration: GSRAnalyzer with useCvxEDA: true toggle', () => {
@@ -277,8 +319,10 @@ test('cvxEDA integration: GSRAnalyzer with useCvxEDA: true toggle', () => {
   for (let i = 0; i < 600; i++) {
     const t = i / SR;
     let gsr = 2.0;
-    if (t >= 20 && t < 30) gsr += 0.2 * (Math.exp(-(t - 20) / 2.0) - Math.exp(-(t - 20) / 0.7));
-    if (t >= 40 && t < 50) gsr += 0.3 * (Math.exp(-(t - 40) / 2.0) - Math.exp(-(t - 40) / 0.7));
+    if (t >= 20 && t < 30)
+      gsr += 0.2 * (Math.exp(-(t - 20) / 2.0) - Math.exp(-(t - 20) / 0.7));
+    if (t >= 40 && t < 50)
+      gsr += 0.3 * (Math.exp(-(t - 40) / 2.0) - Math.exp(-(t - 40) / 0.7));
     rows.push(`${t.toFixed(3)},${gsr.toFixed(6)}`);
   }
 
@@ -287,11 +331,14 @@ test('cvxEDA integration: GSRAnalyzer with useCvxEDA: true toggle', () => {
   a.analyze({
     ...global.GSR_CONST.GSR_DEFAULT,
     tonicMethod: 'percentile',
-    peakThreshold: 0.020,
-    useCvxEDA: true
+    peakThreshold: 0.02,
+    useCvxEDA: true,
   });
 
-  assert.ok(a._wasDeconv, 'analyzer should register deconvolution run with useCvxEDA: true');
+  assert.ok(
+    a._wasDeconv,
+    'analyzer should register deconvolution run with useCvxEDA: true',
+  );
   assert.ok(a.phasicClean.length === 600, 'phasicClean should be populated');
   assert.ok(a.phasicDriver.length === 600, 'phasicDriver should be populated');
   assert.ok(a.peaks.length >= 1, `should detect peaks, got ${a.peaks.length}`);
@@ -303,18 +350,28 @@ test('driver algorithm tag: matching-pursuit deconvolution is tagged distinctly 
   for (let i = 0; i < 600; i++) {
     const t = i / SR;
     let gsr = 2.0;
-    if (t >= 20 && t < 30) gsr += 0.3 * (Math.exp(-(t - 20) / 2.0) - Math.exp(-(t - 20) / 0.75));
+    if (t >= 20 && t < 30)
+      gsr += 0.3 * (Math.exp(-(t - 20) / 2.0) - Math.exp(-(t - 20) / 0.75));
     rows.push(`${t.toFixed(3)},${gsr.toFixed(6)}`);
   }
 
   const a = new GSRAnalyzer();
   a.parseCSV(rows.join('\n'));
-  a.analyze({ ...global.GSR_CONST.GSR_DEFAULT, tonicMethod: 'percentile', peakThreshold: 0.020, useDeconvolution: true });
+  a.analyze({
+    ...global.GSR_CONST.GSR_DEFAULT,
+    tonicMethod: 'percentile',
+    peakThreshold: 0.02,
+    useDeconvolution: true,
+  });
   assert.strictEqual(a._driverAlgorithm, 'matching_pursuit');
 
   // Switching to the default full-scan detector clears the tag along with
   // the rest of the deconvolution state.
-  a.analyze({ ...global.GSR_CONST.GSR_DEFAULT, tonicMethod: 'percentile', peakThreshold: 0.020 });
+  a.analyze({
+    ...global.GSR_CONST.GSR_DEFAULT,
+    tonicMethod: 'percentile',
+    peakThreshold: 0.02,
+  });
   assert.strictEqual(a._driverAlgorithm, null);
   assert.strictEqual(a.phasicDriver.length, 0);
 });
@@ -324,7 +381,9 @@ test('cvxEDA integration: peak count is in the same ballpark as the other detect
   // where cvxEDA used to under-report because the ADMM solve never converged.
   const kernel = batemanKernel(120);
   const onsets = [15, 35, 60, 66, 95, 130, 138, 170, 200, 230, 255, 280];
-  const amps = [0.12, 0.35, 0.10, 0.18, 0.5, 0.09, 0.22, 0.6, 0.15, 0.3, 0.11, 0.4];
+  const amps = [
+    0.12, 0.35, 0.1, 0.18, 0.5, 0.09, 0.22, 0.6, 0.15, 0.3, 0.11, 0.4,
+  ];
   const rows = ['time,gsr'];
   for (let i = 0; i < 3000; i++) {
     const t = i / SR;
@@ -336,21 +395,39 @@ test('cvxEDA integration: peak count is in the same ballpark as the other detect
     rows.push(`${t.toFixed(3)},${g.toFixed(6)}`);
   }
   const csv = rows.join('\n');
-  const base = { ...global.GSR_CONST.GSR_DEFAULT, tonicMethod: 'lpf', peakThreshold: 0.015 };
+  const base = {
+    ...global.GSR_CONST.GSR_DEFAULT,
+    tonicMethod: 'lpf',
+    peakThreshold: 0.015,
+  };
 
-  const fs = new GSRAnalyzer(); fs.parseCSV(csv); fs.analyze({ ...base });
-  const cvx = new GSRAnalyzer(); cvx.parseCSV(csv); cvx.analyze({ ...base, useCvxEDA: true });
+  const fs = new GSRAnalyzer();
+  fs.parseCSV(csv);
+  fs.analyze({ ...base });
+  const cvx = new GSRAnalyzer();
+  cvx.parseCSV(csv);
+  cvx.analyze({ ...base, useCvxEDA: true });
 
-  assert.ok(!cvx.phasicDeconvTruncated, 'cvxEDA solve should converge on this track');
+  assert.ok(
+    !cvx.phasicDeconvTruncated,
+    'cvxEDA solve should converge on this track',
+  );
   // Was ~1/3 of the full-scan count before the solver was fixed; now within 40%.
-  assert.ok(cvx.peaks.length >= 0.6 * fs.peaks.length,
-    `cvxEDA peaks (${cvx.peaks.length}) should be comparable to full-scan (${fs.peaks.length})`);
-  assert.ok(cvx.peaks.length <= fs.peaks.length + 6,
-    `cvxEDA peaks (${cvx.peaks.length}) should not wildly exceed full-scan (${fs.peaks.length})`);
+  assert.ok(
+    cvx.peaks.length >= 0.6 * fs.peaks.length,
+    `cvxEDA peaks (${cvx.peaks.length}) should be comparable to full-scan (${fs.peaks.length})`,
+  );
+  assert.ok(
+    cvx.peaks.length <= fs.peaks.length + 6,
+    `cvxEDA peaks (${cvx.peaks.length}) should not wildly exceed full-scan (${fs.peaks.length})`,
+  );
 
   // Joint tonic reaches this.tonic and matches the planted baseline mean.
   const tMean = cvx.tonic.reduce((s, d) => s + d.val, 0) / cvx.tonic.length;
-  assert.ok(Math.abs(tMean - 3.8) < 0.15, `cvxEDA tonic mean ${tMean.toFixed(3)} should be ~3.8 µS`);
+  assert.ok(
+    Math.abs(tMean - 3.8) < 0.15,
+    `cvxEDA tonic mean ${tMean.toFixed(3)} should be ~3.8 µS`,
+  );
 });
 
 test('cvxEDA integration: toggling cvxEDA off restores the EMA tonic (prefix-cache round-trip)', () => {
@@ -359,39 +436,57 @@ test('cvxEDA integration: toggling cvxEDA off restores the EMA tonic (prefix-cac
   for (let i = 0; i < 1500; i++) {
     const t = i / SR;
     let g = 3.0 + 0.5 * Math.sin(t / 30) + 0.003 * t;
-    for (const [o, amp] of [[30, 0.4], [80, 0.3], [120, 0.5]]) {
+    for (const [o, amp] of [
+      [30, 0.4],
+      [80, 0.3],
+      [120, 0.5],
+    ]) {
       const dt = i - o * SR;
       if (dt >= 0 && dt < 120) g += amp * kernel[dt];
     }
     rows.push(`${t.toFixed(3)},${g.toFixed(6)}`);
   }
   const csv = rows.join('\n');
-  const base = { ...global.GSR_CONST.GSR_DEFAULT, tonicMethod: 'lpf', peakThreshold: 0.015 };
+  const base = {
+    ...global.GSR_CONST.GSR_DEFAULT,
+    tonicMethod: 'lpf',
+    peakThreshold: 0.015,
+  };
 
   const a = new GSRAnalyzer();
   a.parseCSV(csv);
 
   a.analyze({ ...base });
-  const emaTonic = a.tonic.map(d => d.val);
+  const emaTonic = a.tonic.map((d) => d.val);
   const emaPeaks = a.peaks.length;
 
   a.analyze({ ...base, useCvxEDA: true });
-  const cvxTonic = a.tonic.map(d => d.val);
+  const cvxTonic = a.tonic.map((d) => d.val);
   const cvxT100 = a.tonic[100].val;
   // cvxEDA's B-spline tonic is a different estimate — it must actually differ.
   let diff = 0;
-  for (let i = 0; i < emaTonic.length; i++) diff = Math.max(diff, Math.abs(emaTonic[i] - cvxTonic[i]));
+  for (let i = 0; i < emaTonic.length; i++)
+    diff = Math.max(diff, Math.abs(emaTonic[i] - cvxTonic[i]));
   assert.ok(diff > 1e-4, 'cvxEDA tonic should differ from the EMA tonic');
 
   a.analyze({ ...base }); // toggle back off — prefix cache hit
-  assert.strictEqual(a.peaks.length, emaPeaks, 'default-detector peak count should be restored exactly');
+  assert.strictEqual(
+    a.peaks.length,
+    emaPeaks,
+    'default-detector peak count should be restored exactly',
+  );
   for (let i = 0; i < emaTonic.length; i++) {
-    assert.ok(Math.abs(a.tonic[i].val - emaTonic[i]) < 1e-9,
-      `tonic[${i}] should be restored to the EMA value (${emaTonic[i]} vs ${a.tonic[i].val})`);
+    assert.ok(
+      Math.abs(a.tonic[i].val - emaTonic[i]) < 1e-9,
+      `tonic[${i}] should be restored to the EMA value (${emaTonic[i]} vs ${a.tonic[i].val})`,
+    );
   }
 
   a.analyze({ ...base, useCvxEDA: true }); // and cvxEDA again — deterministic
-  assert.ok(Math.abs(a.tonic[100].val - cvxT100) < 1e-9, 'cvxEDA re-run should be deterministic');
+  assert.ok(
+    Math.abs(a.tonic[100].val - cvxT100) < 1e-9,
+    'cvxEDA re-run should be deterministic',
+  );
 });
 
 test('cvxEDA integration: a non-converged solve degrades gracefully — phasicDeconvTruncated set, no crash, finite output', () => {
@@ -400,14 +495,22 @@ test('cvxEDA integration: a non-converged solve degrades gracefully — phasicDe
   for (let i = 0; i < 1500; i++) {
     const t = i / SR;
     let g = 3.0 + 0.5 * Math.sin(t / 30) + 0.003 * t;
-    for (const [o, amp] of [[30, 0.4], [80, 0.3], [120, 0.5]]) {
+    for (const [o, amp] of [
+      [30, 0.4],
+      [80, 0.3],
+      [120, 0.5],
+    ]) {
       const dt = i - o * SR;
       if (dt >= 0 && dt < 120) g += amp * kernel[dt];
     }
     rows.push(`${t.toFixed(3)},${g.toFixed(6)}`);
   }
   const csv = rows.join('\n');
-  const base = { ...global.GSR_CONST.GSR_DEFAULT, tonicMethod: 'lpf', peakThreshold: 0.015 };
+  const base = {
+    ...global.GSR_CONST.GSR_DEFAULT,
+    tonicMethod: 'lpf',
+    peakThreshold: 0.015,
+  };
 
   // The analyzer doesn't expose a per-call tol/maxIter override for cvxEDA
   // (it reads GSR_CONST.CVXEDA.maxIter directly) -- mutate the shared mock
@@ -420,8 +523,11 @@ test('cvxEDA integration: a non-converged solve degrades gracefully — phasicDe
     a.parseCSV(csv);
     a.analyze({ ...base, useCvxEDA: true });
 
-    assert.strictEqual(a.phasicDeconvTruncated, true,
-      'a 2-iteration cap should be reported as truncated, not silently accepted');
+    assert.strictEqual(
+      a.phasicDeconvTruncated,
+      true,
+      'a 2-iteration cap should be reported as truncated, not silently accepted',
+    );
     // Graceful degradation: the analyzer should still produce a usable,
     // correctly-shaped, finite result from the partial iterate -- not crash
     // or leave stale/garbage data behind.
@@ -429,12 +535,23 @@ test('cvxEDA integration: a non-converged solve degrades gracefully — phasicDe
     assert.strictEqual(a.phasicDriver.length, 1500);
     assert.strictEqual(a.tonic.length, 1500);
     for (let i = 0; i < 1500; i += 50) {
-      assert.ok(Number.isFinite(a.phasicClean[i].val), `phasicClean[${i}] should be finite`);
-      assert.ok(Number.isFinite(a.tonic[i].val), `tonic[${i}] should be finite`);
-      assert.ok(Number.isFinite(a.phasicDriver[i].val) && a.phasicDriver[i].val >= 0,
-        `phasicDriver[${i}] should be finite & non-negative`);
+      assert.ok(
+        Number.isFinite(a.phasicClean[i].val),
+        `phasicClean[${i}] should be finite`,
+      );
+      assert.ok(
+        Number.isFinite(a.tonic[i].val),
+        `tonic[${i}] should be finite`,
+      );
+      assert.ok(
+        Number.isFinite(a.phasicDriver[i].val) && a.phasicDriver[i].val >= 0,
+        `phasicDriver[${i}] should be finite & non-negative`,
+      );
     }
-    assert.ok(Array.isArray(a.peaks), 'peaks array should still be produced (even if under-detected)');
+    assert.ok(
+      Array.isArray(a.peaks),
+      'peaks array should still be produced (even if under-detected)',
+    );
   } finally {
     global.GSR_CONST.CVXEDA.maxIter = originalMaxIter;
   }
@@ -450,20 +567,35 @@ test('cvxEDA performance: 3,300-sample track solves to convergence in < 600ms', 
   const elapsed = Date.now() - t0;
 
   assert.ok(res.converged, 'should converge within the default iteration cap');
-  assert.ok(elapsed < 600, `cvxEDA should finish in < 600ms (took ${elapsed}ms)`);
+  assert.ok(
+    elapsed < 600,
+    `cvxEDA should finish in < 600ms (took ${elapsed}ms)`,
+  );
 });
 
 test('cvxEDA: iteration cap is reported as non-convergence, not a silent stop', () => {
   const n = 1200;
   const input = new Float64Array(n);
-  for (let i = 0; i < n; i++) input[i] = 2.0 + Math.sin(i / 30) * 0.4 + (i % 300 < 40 ? 0.3 : 0);
+  for (let i = 0; i < n; i++)
+    input[i] = 2.0 + Math.sin(i / 30) * 0.4 + (i % 300 < 40 ? 0.3 : 0);
 
   const capped = CVXEDA.decompose(input, SR, { maxIter: 3, tol: 1e-12 });
-  assert.strictEqual(capped.converged, false, 'a 3-iteration run must not claim convergence');
-  assert.strictEqual(capped.iterations, 3, 'should report the capped iteration count');
+  assert.strictEqual(
+    capped.converged,
+    false,
+    'a 3-iteration run must not claim convergence',
+  );
+  assert.strictEqual(
+    capped.iterations,
+    3,
+    'should report the capped iteration count',
+  );
 
   const full = CVXEDA.decompose(input, SR);
-  assert.ok(full.converged, 'the same signal converges with the default budget');
+  assert.ok(
+    full.converged,
+    'the same signal converges with the default budget',
+  );
 });
 
 test('cvxEDA: pivotFires counts and self-corrects when a solve is forced far past its natural stopping point', () => {
@@ -474,10 +606,19 @@ test('cvxEDA: pivotFires counts and self-corrects when a solve is forced far pas
   // past 1e9 -- which also naturally fails maxIter, so this exercises
   // pivotFires as a diagnostic without the solver ever silently misreporting
   // convergence.
-  const n = 1500, sr = 10;
+  const n = 1500,
+    sr = 10;
   const y = new Float64Array(n);
-  for (let i = 0; i < n; i++) y[i] = 2.5 + 0.5 * Math.sin(i / 150) + 0.15 * (i / n);
-  for (const [t0, amp] of [[50, 1.0], [200, 0.6], [450, 1.5], [460, 0.5], [800, 0.3], [1100, 1.1]]) {
+  for (let i = 0; i < n; i++)
+    y[i] = 2.5 + 0.5 * Math.sin(i / 150) + 0.15 * (i / n);
+  for (const [t0, amp] of [
+    [50, 1.0],
+    [200, 0.6],
+    [450, 1.5],
+    [460, 0.5],
+    [800, 0.3],
+    [1100, 1.1],
+  ]) {
     for (let i = t0; i < Math.min(n, t0 + 200); i++) {
       const tt = (i - t0) / sr;
       y[i] += amp * (Math.exp(-tt / 2.0) - Math.exp(-tt / 0.7));
@@ -485,17 +626,35 @@ test('cvxEDA: pivotFires counts and self-corrects when a solve is forced far pas
   }
 
   const forced = CVXEDA.decompose(y, sr, { tol: 1e-16, maxIter: 60 });
-  assert.strictEqual(forced.converged, false, 'forcing tol=1e-16 should exhaust the iteration budget');
-  assert.ok(forced.pivotFires > 0, `expected at least one pivot-floor fire, got ${forced.pivotFires}`);
+  assert.strictEqual(
+    forced.converged,
+    false,
+    'forcing tol=1e-16 should exhaust the iteration budget',
+  );
+  assert.ok(
+    forced.pivotFires > 0,
+    `expected at least one pivot-floor fire, got ${forced.pivotFires}`,
+  );
   for (let i = 0; i < n; i++) {
-    assert.ok(Number.isFinite(forced.phasic[i]) && Number.isFinite(forced.tonic[i]) && Number.isFinite(forced.driver[i]),
-      `sample ${i} should stay finite despite the pivot clamp firing`);
+    assert.ok(
+      Number.isFinite(forced.phasic[i]) &&
+        Number.isFinite(forced.tonic[i]) &&
+        Number.isFinite(forced.driver[i]),
+      `sample ${i} should stay finite despite the pivot clamp firing`,
+    );
   }
 
   // The same signal with sane defaults never needs the fallback.
   const normal = CVXEDA.decompose(y, sr);
-  assert.ok(normal.converged, 'the same signal converges cleanly with the default budget');
-  assert.strictEqual(normal.pivotFires, 0, 'a normal converged solve should never need the pivot floor');
+  assert.ok(
+    normal.converged,
+    'the same signal converges cleanly with the default budget',
+  );
+  assert.strictEqual(
+    normal.pivotFires,
+    0,
+    'a normal converged solve should never need the pivot floor',
+  );
 });
 
 test('cvxEDA: normalize:false solves directly in native units', () => {
@@ -506,35 +665,64 @@ test('cvxEDA: normalize:false solves directly in native units', () => {
   for (let i = 0; i < 120 && 200 + i < n; i++) y[200 + i] += 0.4 * kernel[i];
 
   const res = CVXEDA.decompose(y, SR, { normalize: false });
-  assert.ok(res.converged, 'should converge when solving directly in native units');
-  for (let i = 0; i < n; i++) assert.ok(res.driver[i] >= 0, `driver[${i}] should be >= 0`);
+  assert.ok(
+    res.converged,
+    'should converge when solving directly in native units',
+  );
+  for (let i = 0; i < n; i++)
+    assert.ok(res.driver[i] >= 0, `driver[${i}] should be >= 0`);
 
   let recErr = 0;
-  for (let i = 20; i < n - 20; i++) recErr = Math.max(recErr, Math.abs(y[i] - res.tonic[i] - res.phasic[i]));
-  assert.ok(recErr < 0.05, `reconstruction error should be small, got ${recErr.toFixed(4)}`);
+  for (let i = 20; i < n - 20; i++)
+    recErr = Math.max(recErr, Math.abs(y[i] - res.tonic[i] - res.phasic[i]));
+  assert.ok(
+    recErr < 0.05,
+    `reconstruction error should be small, got ${recErr.toFixed(4)}`,
+  );
 
   // No rescale step under normalize:false -- e (residual) is the plain
   // y - phasic - tonic, without the mean/std bookkeeping the default path uses.
   let maxE = 0;
-  for (let i = 0; i < n; i++) maxE = Math.max(maxE, Math.abs(res.e[i] - (y[i] - res.phasic[i] - res.tonic[i])));
-  assert.ok(maxE < 1e-9, `e should equal y - phasic - tonic exactly, max diff ${maxE.toExponential(2)}`);
+  for (let i = 0; i < n; i++)
+    maxE = Math.max(
+      maxE,
+      Math.abs(res.e[i] - (y[i] - res.phasic[i] - res.tonic[i])),
+    );
+  assert.ok(
+    maxE < 1e-9,
+    `e should equal y - phasic - tonic exactly, max diff ${maxE.toExponential(2)}`,
+  );
 });
 
 test('cvxEDA: tiny n (4-10 samples, just above the n<4 guard) does not crash or diverge', () => {
   for (const n of [4, 5, 6, 7, 8, 10]) {
     const y = new Float64Array(n);
-    for (let i = 0; i < n; i++) y[i] = 2.0 + 0.1 * i + (i % 2 === 0 ? 0.15 : -0.1);
+    for (let i = 0; i < n; i++)
+      y[i] = 2.0 + 0.1 * i + (i % 2 === 0 ? 0.15 : -0.1);
     const res = CVXEDA.decompose(y, SR);
     assert.strictEqual(res.phasic.length, n, `n=${n}: phasic length`);
     assert.strictEqual(res.tonic.length, n, `n=${n}: tonic length`);
     assert.strictEqual(res.driver.length, n, `n=${n}: driver length`);
     for (let i = 0; i < n; i++) {
-      assert.ok(Number.isFinite(res.phasic[i]), `n=${n}: phasic[${i}] should be finite`);
-      assert.ok(Number.isFinite(res.tonic[i]), `n=${n}: tonic[${i}] should be finite`);
-      assert.ok(Number.isFinite(res.driver[i]) && res.driver[i] >= 0, `n=${n}: driver[${i}] should be finite & >= 0`);
+      assert.ok(
+        Number.isFinite(res.phasic[i]),
+        `n=${n}: phasic[${i}] should be finite`,
+      );
+      assert.ok(
+        Number.isFinite(res.tonic[i]),
+        `n=${n}: tonic[${i}] should be finite`,
+      );
+      assert.ok(
+        Number.isFinite(res.driver[i]) && res.driver[i] >= 0,
+        `n=${n}: driver[${i}] should be finite & >= 0`,
+      );
     }
     assert.ok(res.converged, `n=${n}: should converge`);
-    assert.strictEqual(res.pivotFires, 0, `n=${n}: a clean tiny solve should never need the pivot floor`);
+    assert.strictEqual(
+      res.pivotFires,
+      0,
+      `n=${n}: a clean tiny solve should never need the pivot floor`,
+    );
   }
 });
 
@@ -545,7 +733,8 @@ test('cvxEDA: alpha/gamma sensitivity — alpha controls driver sparsity, gamma 
   const kernel = batemanKernel(120);
   for (const o of [20, 60, 100, 140, 180]) {
     const samp = o * SR;
-    for (let i = 0; i < 120 && samp + i < n; i++) y[samp + i] += 0.3 * kernel[i];
+    for (let i = 0; i < 120 && samp + i < n; i++)
+      y[samp + i] += 0.3 * kernel[i];
   }
 
   // Higher alpha (L1 weight on the driver) should shrink its total mass --
@@ -553,8 +742,10 @@ test('cvxEDA: alpha/gamma sensitivity — alpha controls driver sparsity, gamma 
   const lowAlpha = CVXEDA.decompose(y, SR, { alpha: 2e-4 });
   const highAlpha = CVXEDA.decompose(y, SR, { alpha: 2e-2 });
   const l1 = (d) => d.reduce((s, v) => s + v, 0);
-  assert.ok(l1(highAlpha.driver) < l1(lowAlpha.driver),
-    `higher alpha should shrink total driver mass (${l1(highAlpha.driver).toFixed(3)} vs ${l1(lowAlpha.driver).toFixed(3)})`);
+  assert.ok(
+    l1(highAlpha.driver) < l1(lowAlpha.driver),
+    `higher alpha should shrink total driver mass (${l1(highAlpha.driver).toFixed(3)} vs ${l1(lowAlpha.driver).toFixed(3)})`,
+  );
 
   // Higher gamma (L2 weight on the spline coefficients) should smooth the
   // tonic -- measure smoothness as summed squared second difference.
@@ -562,9 +753,14 @@ test('cvxEDA: alpha/gamma sensitivity — alpha controls driver sparsity, gamma 
   const highGamma = CVXEDA.decompose(y, SR, { gamma: 10 });
   const curvature = (t) => {
     let s = 0;
-    for (let i = 1; i < t.length - 1; i++) { const d2 = t[i + 1] - 2 * t[i] + t[i - 1]; s += d2 * d2; }
+    for (let i = 1; i < t.length - 1; i++) {
+      const d2 = t[i + 1] - 2 * t[i] + t[i - 1];
+      s += d2 * d2;
+    }
     return s;
   };
-  assert.ok(curvature(highGamma.tonic) < curvature(lowGamma.tonic),
-    `higher gamma should smooth the tonic (curvature ${curvature(highGamma.tonic).toExponential(2)} vs ${curvature(lowGamma.tonic).toExponential(2)})`);
+  assert.ok(
+    curvature(highGamma.tonic) < curvature(lowGamma.tonic),
+    `higher gamma should smooth the tonic (curvature ${curvature(highGamma.tonic).toExponential(2)} vs ${curvature(lowGamma.tonic).toExponential(2)})`,
+  );
 });

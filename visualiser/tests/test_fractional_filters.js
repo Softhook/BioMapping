@@ -11,13 +11,13 @@ const assert = require('assert');
 global.window = global;
 global.GSR_CONST = require('./mock_constants.js');
 global.GSRAnalyzer = {
-  calcEmFog: () => 0.0
+  calcEmFog: () => 0.0,
 };
 
 const { loadModule } = require('./support/load_module.js');
 
-loadModule(path.join(__dirname, '../src/signal/stats_math.js'),         'StatsMath');
-loadModule(path.join(__dirname, '../src/signal/gsr_filter.js'),         'GsrFilter');
+loadModule(path.join(__dirname, '../src/signal/stats_math.js'), 'StatsMath');
+loadModule(path.join(__dirname, '../src/signal/gsr_filter.js'), 'GsrFilter');
 
 const { GsrFilter } = global;
 
@@ -25,15 +25,15 @@ const { GsrFilter } = global;
 
 function runTests() {
   console.log('Running test: Fractional Zero-Phase Moving Average...');
-  
+
   // Test 1: Fractional window sizes produce distinct results
   const data = [10.0, 12.0, 15.0, 12.0, 10.0, 8.0, 9.0, 12.0, 14.0, 11.0, 10.0];
   const out4 = GsrFilter.applyZeroPhaseMovingAverage(data, 4.0);
   const out5 = GsrFilter.applyZeroPhaseMovingAverage(data, 5.0);
-  
+
   assert.strictEqual(out4.length, data.length);
   assert.strictEqual(out5.length, data.length);
-  
+
   // Verify they are different (they used to both round to 5 samples and be identical)
   let differ = false;
   for (let i = 0; i < data.length; i++) {
@@ -42,7 +42,10 @@ function runTests() {
       break;
     }
   }
-  assert.ok(differ, '0.4s (4.0 samples) and 0.5s (5.0 samples) should produce different filter outputs');
+  assert.ok(
+    differ,
+    '0.4s (4.0 samples) and 0.5s (5.0 samples) should produce different filter outputs',
+  );
   console.log('  -> PASSED (outputs differ as expected)');
 
   console.log('\nAll fractional filter tests passed successfully!');

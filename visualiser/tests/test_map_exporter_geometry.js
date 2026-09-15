@@ -49,18 +49,33 @@ test('_hslToHex: 0% saturation is a neutral grey', () => {
 });
 
 test('_ratioToHex: 0 maps to green (hue 120), 1 maps to red (hue 0), matching _hslToHex directly', () => {
-  assert.strictEqual(GSRMapExporter._ratioToHex(0), GSRMapExporter._hslToHex(120, 100, 50));
-  assert.strictEqual(GSRMapExporter._ratioToHex(1), GSRMapExporter._hslToHex(0, 100, 50));
+  assert.strictEqual(
+    GSRMapExporter._ratioToHex(0),
+    GSRMapExporter._hslToHex(120, 100, 50),
+  );
+  assert.strictEqual(
+    GSRMapExporter._ratioToHex(1),
+    GSRMapExporter._hslToHex(0, 100, 50),
+  );
 });
 
 test('_ratioToHex: clamps out-of-range ratios into [0, 1] instead of extrapolating hue', () => {
-  assert.strictEqual(GSRMapExporter._ratioToHex(-5), GSRMapExporter._ratioToHex(0));
-  assert.strictEqual(GSRMapExporter._ratioToHex(99), GSRMapExporter._ratioToHex(1));
+  assert.strictEqual(
+    GSRMapExporter._ratioToHex(-5),
+    GSRMapExporter._ratioToHex(0),
+  );
+  assert.strictEqual(
+    GSRMapExporter._ratioToHex(99),
+    GSRMapExporter._ratioToHex(1),
+  );
 });
 
 // ── _esc / _img ──────────────────────────────────────────────────────────
 test('_esc: escapes the 4 XML-significant characters', () => {
-  assert.strictEqual(GSRMapExporter._esc(`<a href="x">&'y'</a>`), '&lt;a href=&quot;x&quot;&gt;&amp;\'y\'&lt;/a&gt;');
+  assert.strictEqual(
+    GSRMapExporter._esc(`<a href="x">&'y'</a>`),
+    "&lt;a href=&quot;x&quot;&gt;&amp;'y'&lt;/a&gt;",
+  );
 });
 
 test('_esc: null/undefined become an empty string, not the literal "null"/"undefined"', () => {

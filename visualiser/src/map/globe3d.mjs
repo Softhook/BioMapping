@@ -29,28 +29,41 @@ import { MapColors } from './map_colors.mjs';
 import { ResponseDynamics } from '../signal/response_dynamics.mjs';
 
 export const BASEMAP_PROVIDERS = {
-  satellite: () => new Cesium.UrlTemplateImageryProvider({
-    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-    maximumLevel: 19,
-    credit: 'Esri, Maxar, Earthstar Geographics'
-  }),
-  sentinel: () => new Cesium.UrlTemplateImageryProvider({
-    url: 'https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2021_3857/default/GoogleMapsCompatible/{z}/{y}/{x}.jpg',
-    maximumLevel: 16,
-    credit: 'Sentinel-2 cloudless by EOX IT Services GmbH (Contains modified Copernicus Sentinel data)'
-  }),
-  nasa: () => new Cesium.UrlTemplateImageryProvider({
-    url: 'https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/BlueMarble_ShadedRelief_Bathymetry/default/GoogleMapsCompatible_Level8/{z}/{y}/{x}.jpeg',
-    maximumLevel: 8,
-    credit: 'NASA GIBS / Landsat / Blue Marble'
-  }),
-  osm: () => new Cesium.OpenStreetMapImageryProvider({ url: 'https://tile.openstreetmap.org/' }),
-  dark: () => new Cesium.UrlTemplateImageryProvider({
-    url: GSRBasemap.cartoTileUrl('dark_all'), subdomains: ['a', 'b', 'c', 'd'], maximumLevel: 19
-  }),
-  positron: () => new Cesium.UrlTemplateImageryProvider({
-    url: GSRBasemap.cartoTileUrl('light_all'), subdomains: ['a', 'b', 'c', 'd'], maximumLevel: 19
-  })
+  satellite: () =>
+    new Cesium.UrlTemplateImageryProvider({
+      url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+      maximumLevel: 19,
+      credit: 'Esri, Maxar, Earthstar Geographics',
+    }),
+  sentinel: () =>
+    new Cesium.UrlTemplateImageryProvider({
+      url: 'https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2021_3857/default/GoogleMapsCompatible/{z}/{y}/{x}.jpg',
+      maximumLevel: 16,
+      credit:
+        'Sentinel-2 cloudless by EOX IT Services GmbH (Contains modified Copernicus Sentinel data)',
+    }),
+  nasa: () =>
+    new Cesium.UrlTemplateImageryProvider({
+      url: 'https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/BlueMarble_ShadedRelief_Bathymetry/default/GoogleMapsCompatible_Level8/{z}/{y}/{x}.jpeg',
+      maximumLevel: 8,
+      credit: 'NASA GIBS / Landsat / Blue Marble',
+    }),
+  osm: () =>
+    new Cesium.OpenStreetMapImageryProvider({
+      url: 'https://tile.openstreetmap.org/',
+    }),
+  dark: () =>
+    new Cesium.UrlTemplateImageryProvider({
+      url: GSRBasemap.cartoTileUrl('dark_all'),
+      subdomains: ['a', 'b', 'c', 'd'],
+      maximumLevel: 19,
+    }),
+  positron: () =>
+    new Cesium.UrlTemplateImageryProvider({
+      url: GSRBasemap.cartoTileUrl('light_all'),
+      subdomains: ['a', 'b', 'c', 'd'],
+      maximumLevel: 19,
+    }),
 };
 
 /**
@@ -67,7 +80,7 @@ export const SERIES_FIELD = {
   edasymp: 'edasymp',
   responseDynamics: 'responseDynamics',
   em_fog: 'em_fog',
-  emFog: 'em_fog'
+  emFog: 'em_fog',
 };
 
 /**
@@ -83,11 +96,24 @@ export const SERIES_FIELD = {
  * are ~100× smaller than the µS-scale series, so the extrusion is subtle at
  * the default scale — raise the extrusion slider to exaggerate it.
  */
-export const HEIGHT_CAPABLE_METRICS = new Set(['gsr', 'phasic', 'tonic', 'arousalIndex', 'triIndex', 'peakDensity', 'phasicAUC', 'edasymp']);
+export const HEIGHT_CAPABLE_METRICS = new Set([
+  'gsr',
+  'phasic',
+  'tonic',
+  'arousalIndex',
+  'triIndex',
+  'peakDensity',
+  'phasicAUC',
+  'edasymp',
+]);
 
 /** Unwrap one analyzer series sample ({time,val} | number) to a plain float. */
 export const seriesValue = (d) =>
-  (d && typeof d === 'object' && 'val' in d) ? d.val : (typeof d === 'number' ? d : 0);
+  d && typeof d === 'object' && 'val' in d
+    ? d.val
+    : typeof d === 'number'
+      ? d
+      : 0;
 
 /**
  * Resolve the analyzer.raw row field a non-derived colouring metric reads —
@@ -164,15 +190,18 @@ export class GSRGlobeManager {
     // varying it per-interaction reallocates Cesium's drawing buffer on every
     // change, and that one-frame stall at the start/end of a gesture read as
     // clunkier than just holding a fixed resolution.
-    this._resolutionScale = options.resolutionScale > 0 ? options.resolutionScale : 1.2;
+    this._resolutionScale =
+      options.resolutionScale > 0 ? options.resolutionScale : 1.2;
     // The 360° turntable is continuous motion for its whole duration — render it
     // softer while it runs (restored in stopOrbit). One resolutionScale write
     // per orbit session, not per frame, so no drawing-buffer thrash.
-    this._orbitResolutionScale = options.orbitResolutionScale > 0 ? options.orbitResolutionScale : 0.85;
+    this._orbitResolutionScale =
+      options.orbitResolutionScale > 0 ? options.orbitResolutionScale : 0.85;
 
     // Retain cached tiles in memory across pan/orbit gestures to prevent thrashing
     // and eliminate satellite tile reload pop-in when rotating the view.
-    this.tileCacheSize = options.tileCacheSize > 0 ? options.tileCacheSize : 500;
+    this.tileCacheSize =
+      options.tileCacheSize > 0 ? options.tileCacheSize : 500;
 
     // Active track data cache
     this.currentAnalyzer = null;
@@ -189,8 +218,8 @@ export class GSRGlobeManager {
     // it pushes its legend range in here via renderData({ colorRange }); null
     // means "compute my own min/max over the drawn points".
     this.externalColorRange = null;
-    this.extrusionScale = options.extrusionScale || 8.0;    // Meters of height per metric unit
-    this.baseHeight = 2.0;                                  // Minimum base wall height in meters
+    this.extrusionScale = options.extrusionScale || 8.0; // Meters of height per metric unit
+    this.baseHeight = 2.0; // Minimum base wall height in meters
     this.wallMaxSegments = options.wallMaxSegments || WALL_MAX_SEGMENTS; // wall thinning budget
     this.showPeaks = true;
     this.minPeakQuality = 0.0;
@@ -263,7 +292,7 @@ export class GSRGlobeManager {
     // 3D Volumetric RF Expanse settings
     this.showRfVolumetric = false;
     this.rfMode = 'triband'; // 'triband' | '815' | '868' | '915' | 'fog'
-    this.rfHeight = 25.0;    // Volumetric ceiling in meters
+    this.rfHeight = 25.0; // Volumetric ceiling in meters
     this.rfOpacity = 0.45;
     this.rfPrimitive = null;
 
@@ -304,7 +333,8 @@ export class GSRGlobeManager {
     }
 
     // Disable Cesium Ion default key check warning
-    Cesium.Ion.defaultAccessToken = (window.BIOMAP_CONFIG && window.BIOMAP_CONFIG.cesiumIonToken) || '';
+    Cesium.Ion.defaultAccessToken =
+      (window.BIOMAP_CONFIG && window.BIOMAP_CONFIG.cesiumIonToken) || '';
 
     try {
       this.viewer = new Cesium.Viewer(this.containerId, {
@@ -325,7 +355,7 @@ export class GSRGlobeManager {
         shadows: false,
         // Render-on-demand for the embedded panel — idle frames cost ~nothing.
         requestRenderMode: this.requestRenderMode,
-        maximumRenderTimeChange: this.requestRenderMode ? Infinity : 0.0
+        maximumRenderTimeChange: this.requestRenderMode ? Infinity : 0.0,
       });
     } catch (err) {
       // WebGL context creation can fail outright (no GPU, blocklisted driver,
@@ -385,7 +415,10 @@ export class GSRGlobeManager {
     globe.preloadSiblings = true;
 
     // Optional Cesium Ion Terrain if token provided
-    if (Cesium.Ion.defaultAccessToken && typeof Cesium.Terrain !== 'undefined') {
+    if (
+      Cesium.Ion.defaultAccessToken &&
+      typeof Cesium.Terrain !== 'undefined'
+    ) {
       try {
         scene.setTerrain(Cesium.Terrain.fromWorldTerrain());
       } catch (err) {
@@ -440,15 +473,13 @@ export class GSRGlobeManager {
 
     // Mouse button mappings (Google Earth standard):
     // 1. Left Drag -> Pan / Rotate globe
-    controller.rotateEventTypes = [
-      Cesium.CameraEventType.LEFT_DRAG
-    ];
+    controller.rotateEventTypes = [Cesium.CameraEventType.LEFT_DRAG];
 
     // 2. Right Drag or Wheel -> Smooth Zoom
     controller.zoomEventTypes = [
       Cesium.CameraEventType.RIGHT_DRAG,
       Cesium.CameraEventType.WHEEL,
-      Cesium.CameraEventType.PINCH
+      Cesium.CameraEventType.PINCH,
     ];
 
     // 3. Middle Click Drag OR Shift+Left Drag OR Ctrl+Left Drag -> 3D Tilt & Orbit
@@ -457,24 +488,24 @@ export class GSRGlobeManager {
       Cesium.CameraEventType.PINCH,
       {
         eventType: Cesium.CameraEventType.LEFT_DRAG,
-        modifier: Cesium.KeyboardEventModifier.SHIFT
+        modifier: Cesium.KeyboardEventModifier.SHIFT,
       },
       {
         eventType: Cesium.CameraEventType.LEFT_DRAG,
-        modifier: Cesium.KeyboardEventModifier.CTRL
+        modifier: Cesium.KeyboardEventModifier.CTRL,
       },
       {
         eventType: Cesium.CameraEventType.RIGHT_DRAG,
-        modifier: Cesium.KeyboardEventModifier.CTRL
-      }
+        modifier: Cesium.KeyboardEventModifier.CTRL,
+      },
     ];
 
     // 4. Alt + Left Drag -> Free look
     controller.lookEventTypes = [
       {
         eventType: Cesium.CameraEventType.LEFT_DRAG,
-        modifier: Cesium.KeyboardEventModifier.ALT
-      }
+        modifier: Cesium.KeyboardEventModifier.ALT,
+      },
     ];
 
     // 5. Canvas click handlers — bound to the viewer's own canvas, never
@@ -506,14 +537,17 @@ export class GSRGlobeManager {
           // lands inside a hillside when zooming into steep terrain.
           const terrainHeight = cartographic.height || 0;
           const curHeight = this.viewer.camera.positionCartographic.height;
-          const targetHeight = Math.max(terrainHeight + 150.0, curHeight * 0.45);
+          const targetHeight = Math.max(
+            terrainHeight + 150.0,
+            curHeight * 0.45,
+          );
           this.viewer.camera.flyTo({
             destination: Cesium.Cartesian3.fromRadians(
               cartographic.longitude,
               cartographic.latitude,
-              targetHeight
+              targetHeight,
             ),
-            duration: 1.2
+            duration: 1.2,
           });
         }
       }, Cesium.ScreenSpaceEventType.LEFT_DOUBLE_CLICK);
@@ -526,9 +560,10 @@ export class GSRGlobeManager {
     this._pendingHoverPos = null;
     this._hoverRaf = 0;
     this._isDraggingGlobe = false;
-    const raf = (typeof window !== 'undefined' && window.requestAnimationFrame)
-      ? window.requestAnimationFrame.bind(window)
-      : (fn) => setTimeout(fn, 16);
+    const raf =
+      typeof window !== 'undefined' && window.requestAnimationFrame
+        ? window.requestAnimationFrame.bind(window)
+        : (fn) => setTimeout(fn, 16);
     const runHoverPick = () => {
       this._hoverRaf = 0;
       const pos = this._pendingHoverPos;
@@ -538,12 +573,17 @@ export class GSRGlobeManager {
       let isPeak = false;
       try {
         const picked = scene.pick(pos);
-        isPeak = Boolean(picked && picked.id && typeof picked.id._biomapPeakIndex === 'number');
+        isPeak = Boolean(
+          picked && picked.id && typeof picked.id._biomapPeakIndex === 'number',
+        );
       } catch (_) {}
 
       const hit = this._pickTrackPoint(pos);
       if (this._scrubHoverCb) {
-        this._scrubHoverCb(hit ? hit.origIdx : null, hit ? { lat: hit.lat, lon: hit.lon } : undefined);
+        this._scrubHoverCb(
+          hit ? hit.origIdx : null,
+          hit ? { lat: hit.lat, lon: hit.lon } : undefined,
+        );
       }
 
       if (scene.canvas && scene.canvas.style) {
@@ -559,30 +599,42 @@ export class GSRGlobeManager {
       }
     };
     this._screenSpaceHandler.setInputAction((movement) => {
-      this._pendingHoverPos = { x: movement.endPosition.x, y: movement.endPosition.y };
+      this._pendingHoverPos = {
+        x: movement.endPosition.x,
+        y: movement.endPosition.y,
+      };
       if (!this._hoverRaf) this._hoverRaf = raf(runHoverPick);
     }, Cesium.ScreenSpaceEventType.MOUSE_MOVE);
 
     this._canvasPointerDownHandler = () => {
       this._isDraggingGlobe = true;
-      if (scene.canvas && scene.canvas.style) scene.canvas.style.cursor = 'grabbing';
+      if (scene.canvas && scene.canvas.style)
+        scene.canvas.style.cursor = 'grabbing';
     };
     this._canvasPointerUpHandler = () => {
       this._isDraggingGlobe = false;
-      if (scene.canvas && scene.canvas.style) scene.canvas.style.cursor = 'grab';
+      if (scene.canvas && scene.canvas.style)
+        scene.canvas.style.cursor = 'grab';
     };
     this._windowPointerUpHandler = () => {
       if (this._isDraggingGlobe) {
         this._isDraggingGlobe = false;
-        if (scene.canvas && scene.canvas.style) scene.canvas.style.cursor = 'grab';
+        if (scene.canvas && scene.canvas.style)
+          scene.canvas.style.cursor = 'grab';
       }
     };
 
     if (scene.canvas && typeof scene.canvas.addEventListener === 'function') {
-      scene.canvas.addEventListener('pointerdown', this._canvasPointerDownHandler);
+      scene.canvas.addEventListener(
+        'pointerdown',
+        this._canvasPointerDownHandler,
+      );
       scene.canvas.addEventListener('pointerup', this._canvasPointerUpHandler);
     }
-    if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+    if (
+      typeof window !== 'undefined' &&
+      typeof window.addEventListener === 'function'
+    ) {
       window.addEventListener('pointerup', this._windowPointerUpHandler);
     }
 
@@ -590,7 +642,8 @@ export class GSRGlobeManager {
     // hover explicitly so the graph scrubber doesn't stick and restore default cursor.
     this._scrubHoverLeaveHandler = () => {
       this._isDraggingGlobe = false;
-      if (scene.canvas && scene.canvas.style) scene.canvas.style.cursor = 'default';
+      if (scene.canvas && scene.canvas.style)
+        scene.canvas.style.cursor = 'default';
       if (this._scrubHoverCb) this._scrubHoverCb(null);
     };
     if (scene.canvas && typeof scene.canvas.addEventListener === 'function') {
@@ -616,7 +669,8 @@ export class GSRGlobeManager {
       let lastCam = null;
       this._postRenderRemover = scene.postRender.addEventListener(() => {
         const p = this.viewer.camera.positionWC;
-        if (lastCam && Cesium.Cartesian3.equalsEpsilon(p, lastCam, 1e-9)) return;
+        if (lastCam && Cesium.Cartesian3.equalsEpsilon(p, lastCam, 1e-9))
+          return;
         lastCam = Cesium.Cartesian3.clone(p, lastCam);
         this._wakeRenderLoop();
       });
@@ -627,24 +681,41 @@ export class GSRGlobeManager {
     // contexts). Without this the canvas just freezes black. preventDefault on
     // 'lost' lets the browser hand the context back; on 'restored' rebuild the
     // scene contents Cesium can't restore itself (our raw primitives).
-    this._onContextLost = (e) => { if (e && e.preventDefault) e.preventDefault(); };
+    this._onContextLost = (e) => {
+      if (e && e.preventDefault) e.preventDefault();
+    };
     this._onContextRestored = () => {
       if (!this.viewer) return;
       try {
         this.setBasemap(this._currentBasemap || 'satellite');
         this._refreshTrack();
         this._requestRender();
-      } catch (err) { this._notifyError(err); }
+      } catch (err) {
+        this._notifyError(err);
+      }
     };
-    scene.canvas.addEventListener('webglcontextlost', this._onContextLost, false);
-    scene.canvas.addEventListener('webglcontextrestored', this._onContextRestored, false);
+    scene.canvas.addEventListener(
+      'webglcontextlost',
+      this._onContextLost,
+      false,
+    );
+    scene.canvas.addEventListener(
+      'webglcontextrestored',
+      this._onContextRestored,
+      false,
+    );
 
     // 9. Camera pitch clamping: constrain camera pitch so the view can never tilt
     // completely level with the ground (0° / horizon) or into the sky (>0°),
     // which breaks the ground-intersection ray and makes it very difficult to
     // tilt back down. Clamped between -89.9° (top-down) and -10.0° (low-angle ground).
-    if (scene.preRender && typeof scene.preRender.addEventListener === 'function') {
-      this._pitchClampRemover = scene.preRender.addEventListener(() => this._enforceCameraPitchBounds());
+    if (
+      scene.preRender &&
+      typeof scene.preRender.addEventListener === 'function'
+    ) {
+      this._pitchClampRemover = scene.preRender.addEventListener(() =>
+        this._enforceCameraPitchBounds(),
+      );
     }
   }
 
@@ -661,7 +732,8 @@ export class GSRGlobeManager {
     if (this._idleRenderTimer) clearTimeout(this._idleRenderTimer);
     this._idleRenderTimer = setTimeout(() => {
       this._idleRenderTimer = null;
-      if (this.viewer && !this._isOrbiting) this.viewer.scene.requestRenderMode = true;
+      if (this.viewer && !this._isOrbiting)
+        this.viewer.scene.requestRenderMode = true;
     }, this._idleRenderMs);
   }
 
@@ -677,7 +749,7 @@ export class GSRGlobeManager {
       moveLeft: false,
       moveRight: false,
       yawLeft: false,
-      yawRight: false
+      yawRight: false,
     };
 
     const getFlagForKey = (code) => {
@@ -711,7 +783,12 @@ export class GSRGlobeManager {
 
     // Listeners are stored as instance refs so destroy() can remove them exactly.
     this._keyDownHandler = (e) => {
-      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) return;
+      if (
+        ['INPUT', 'TEXTAREA', 'SELECT'].includes(
+          document.activeElement?.tagName,
+        )
+      )
+        return;
       const flag = getFlagForKey(e.code);
       if (flag) {
         flags[flag] = true;
@@ -747,7 +824,8 @@ export class GSRGlobeManager {
       if (flags.yawRight) camera.lookRight(rotateRate);
       if (this.requestRenderMode) this.viewer.scene.requestRender();
     };
-    this._flightTickRemover = this.viewer.clock.onTick.addEventListener(flightTick);
+    this._flightTickRemover =
+      this.viewer.clock.onTick.addEventListener(flightTick);
   }
 
   /**
@@ -781,8 +859,18 @@ export class GSRGlobeManager {
     this._scrubHoverCb = null;
 
     if (canvas) {
-      if (this._onContextLost) canvas.removeEventListener('webglcontextlost', this._onContextLost, false);
-      if (this._onContextRestored) canvas.removeEventListener('webglcontextrestored', this._onContextRestored, false);
+      if (this._onContextLost)
+        canvas.removeEventListener(
+          'webglcontextlost',
+          this._onContextLost,
+          false,
+        );
+      if (this._onContextRestored)
+        canvas.removeEventListener(
+          'webglcontextrestored',
+          this._onContextRestored,
+          false,
+        );
     }
     this._onContextLost = null;
     this._onContextRestored = null;
@@ -818,9 +906,16 @@ export class GSRGlobeManager {
       this._pitchClampRemover();
       this._pitchClampRemover = null;
     }
-    if (this._wakeHandlers && this.viewer && this.viewer.scene && this.viewer.scene.canvas) {
+    if (
+      this._wakeHandlers &&
+      this.viewer &&
+      this.viewer.scene &&
+      this.viewer.scene.canvas
+    ) {
       const canvas = this.viewer.scene.canvas;
-      this._wakeHandlers.forEach(({ type, h }) => canvas.removeEventListener(type, h));
+      this._wakeHandlers.forEach(({ type, h }) =>
+        canvas.removeEventListener(type, h),
+      );
     }
     this._wakeHandlers = null;
     if (this._screenSpaceHandler && !this._screenSpaceHandler.isDestroyed()) {
@@ -830,13 +925,25 @@ export class GSRGlobeManager {
     this._peakClickCb = null;
 
     if (this.viewer && !this.viewer.isDestroyed()) {
-      if (this._peakPoints && this.viewer.scene && this.viewer.scene.primitives) {
+      if (
+        this._peakPoints &&
+        this.viewer.scene &&
+        this.viewer.scene.primitives
+      ) {
         this.viewer.scene.primitives.remove(this._peakPoints);
       }
-      if (this._peakLabels && this.viewer.scene && this.viewer.scene.primitives) {
+      if (
+        this._peakLabels &&
+        this.viewer.scene &&
+        this.viewer.scene.primitives
+      ) {
         this.viewer.scene.primitives.remove(this._peakLabels);
       }
-      if (this._hotspotLabels && this.viewer.scene && this.viewer.scene.primitives) {
+      if (
+        this._hotspotLabels &&
+        this.viewer.scene &&
+        this.viewer.scene.primitives
+      ) {
         this.viewer.scene.primitives.remove(this._hotspotLabels);
       }
       this.viewer.destroy();
@@ -880,7 +987,11 @@ export class GSRGlobeManager {
     // Runs on every preRender frame — compute the fixed bounds once.
     if (this._minPitchRad === undefined) {
       const toRad = (deg) => {
-        if (typeof Cesium !== 'undefined' && Cesium.Math && typeof Cesium.Math.toRadians === 'function') {
+        if (
+          typeof Cesium !== 'undefined' &&
+          Cesium.Math &&
+          typeof Cesium.Math.toRadians === 'function'
+        ) {
           const val = Cesium.Math.toRadians(deg);
           if (typeof val === 'number') return val;
         }
@@ -893,13 +1004,16 @@ export class GSRGlobeManager {
     const MAX_PITCH_RAD = this._maxPitchRad;
 
     if (pitch > MAX_PITCH_RAD || pitch < MIN_PITCH_RAD) {
-      const clampedPitch = Math.max(MIN_PITCH_RAD, Math.min(MAX_PITCH_RAD, pitch));
+      const clampedPitch = Math.max(
+        MIN_PITCH_RAD,
+        Math.min(MAX_PITCH_RAD, pitch),
+      );
       camera.setView({
         orientation: {
           heading: camera.heading,
           pitch: clampedPitch,
-          roll: 0.0
-        }
+          roll: 0.0,
+        },
       });
     }
   }
@@ -916,9 +1030,9 @@ export class GSRGlobeManager {
       orientation: {
         heading: 0.0,
         pitch: camera.pitch,
-        roll: 0.0
+        roll: 0.0,
       },
-      duration: 0.8
+      duration: 0.8,
     });
   }
 
@@ -933,7 +1047,9 @@ export class GSRGlobeManager {
     const pitchDeg = mode === 'top' ? -89.9 : -45.0; // top-down 2D vs isometric 3D
 
     if (this.currentDrawPoints && this.currentDrawPoints.length > 0) {
-      const positions = this.currentDrawPoints.map(p => Cesium.Cartesian3.fromDegrees(p.lon, p.lat));
+      const positions = this.currentDrawPoints.map((p) =>
+        Cesium.Cartesian3.fromDegrees(p.lon, p.lat),
+      );
       const boundingSphere = Cesium.BoundingSphere.fromPoints(positions);
       const pitch = Cesium.Math.toRadians(pitchDeg);
       const heading = camera.heading;
@@ -941,7 +1057,7 @@ export class GSRGlobeManager {
 
       this.viewer.camera.flyToBoundingSphere(boundingSphere, {
         offset: new Cesium.HeadingPitchRange(heading, pitch, range),
-        duration: 0.8
+        duration: 0.8,
       });
     } else {
       camera.flyTo({
@@ -949,9 +1065,9 @@ export class GSRGlobeManager {
         orientation: {
           heading: camera.heading,
           pitch: Cesium.Math.toRadians(pitchDeg),
-          roll: 0.0
+          roll: 0.0,
         },
-        duration: 0.8
+        duration: 0.8,
       });
     }
   }
@@ -975,7 +1091,11 @@ export class GSRGlobeManager {
     }
     this._requestRender();
     if (typeof this.onBasemapChange === 'function') {
-      try { this.onBasemapChange(type); } catch (e) { /* ignore */ }
+      try {
+        this.onBasemapChange(type);
+      } catch (e) {
+        /* ignore */
+      }
     }
   }
 
@@ -996,10 +1116,10 @@ export class GSRGlobeManager {
   _initScrubEntity() {
     const basePx = 12;
     const pulse = () => {
-      const t = (Date.now() % 2000) / 2000;        // 0..1 over 2s
-      const tri = t < 0.5 ? t * 2 : (1 - t) * 2;   // 0..1..0
-      const eased = tri * tri * (3 - 2 * tri);      // smoothstep, ~CSS ease
-      return basePx * (0.8 + eased * 0.4);          // 0.8x..1.2x
+      const t = (Date.now() % 2000) / 2000; // 0..1 over 2s
+      const tri = t < 0.5 ? t * 2 : (1 - t) * 2; // 0..1..0
+      const eased = tri * tri * (3 - 2 * tri); // smoothstep, ~CSS ease
+      return basePx * (0.8 + eased * 0.4); // 0.8x..1.2x
     };
     this.scrubEntity = this.viewer.entities.add({
       id: 'biomap-scrub-marker',
@@ -1011,8 +1131,8 @@ export class GSRGlobeManager {
         color: Cesium.Color.fromCssColorString('#111111'),
         outlineColor: Cesium.Color.WHITE,
         outlineWidth: 2,
-        disableDepthTestDistance: Number.POSITIVE_INFINITY
-      }
+        disableDepthTestDistance: Number.POSITIVE_INFINITY,
+      },
     });
   }
 
@@ -1027,20 +1147,33 @@ export class GSRGlobeManager {
     }
 
     let resolvedHeight = height;
-    if ((resolvedHeight == null || resolvedHeight === 0) && this.currentDrawPoints && this.currentDrawPoints.length > 0) {
+    if (
+      (resolvedHeight == null || resolvedHeight === 0) &&
+      this.currentDrawPoints &&
+      this.currentDrawPoints.length > 0
+    ) {
       resolvedHeight = this._getTrackHeightAt(lat, lon);
     }
 
     let terrainAlt = 0;
     try {
-      if (this.viewer && this.viewer.scene && this.viewer.scene.globe && typeof this.viewer.scene.globe.getHeight === 'function') {
+      if (
+        this.viewer &&
+        this.viewer.scene &&
+        this.viewer.scene.globe &&
+        typeof this.viewer.scene.globe.getHeight === 'function'
+      ) {
         const carto = Cesium.Cartographic.fromDegrees(lon, lat);
         const h = this.viewer.scene.globe.getHeight(carto);
         if (typeof h === 'number' && isFinite(h)) terrainAlt = Math.max(0, h);
       }
     } catch (e) {}
 
-    const pos = Cesium.Cartesian3.fromDegrees(lon, lat, terrainAlt + Math.max(0, resolvedHeight) + 2.5);
+    const pos = Cesium.Cartesian3.fromDegrees(
+      lon,
+      lat,
+      terrainAlt + Math.max(0, resolvedHeight) + 2.5,
+    );
     this.scrubEntity.position = pos;
     this.scrubEntity.show = true;
   }
@@ -1049,7 +1182,8 @@ export class GSRGlobeManager {
    * Resolve extrusion wall height at a given lat/lon based on closest drawn track point.
    */
   _getTrackHeightAt(lat, lon) {
-    if (!this.currentDrawPoints || this.currentDrawPoints.length === 0) return this.baseHeight || 2.0;
+    if (!this.currentDrawPoints || this.currentDrawPoints.length === 0)
+      return this.baseHeight || 2.0;
     let closest = null;
     let minD = Infinity;
     for (let i = 0; i < this.currentDrawPoints.length; i++) {
@@ -1070,9 +1204,11 @@ export class GSRGlobeManager {
   _getPointHeight(origIdx) {
     if (origIdx == null || !this.currentAnalyzer) return this.baseHeight || 2.0;
     const metric = this.activeColoringMetric;
-    const heightMetric = (typeof HEIGHT_CAPABLE_METRICS !== 'undefined' && HEIGHT_CAPABLE_METRICS.has(metric))
-      ? metric
-      : (this.heightMetric || 'phasic');
+    const heightMetric =
+      typeof HEIGHT_CAPABLE_METRICS !== 'undefined' &&
+      HEIGHT_CAPABLE_METRICS.has(metric)
+        ? metric
+        : this.heightMetric || 'phasic';
     const series = this._getMetricSeries(this.currentAnalyzer, heightMetric);
     const rawVal = series ? series[origIdx] : 0;
     const extScale = this.extrusionScale || 8.0;
@@ -1087,7 +1223,7 @@ export class GSRGlobeManager {
    * within the canvas so the host can place its popup. See globe3d_view.js.
    */
   onPeakClick(cb) {
-    this._peakClickCb = (typeof cb === 'function') ? cb : null;
+    this._peakClickCb = typeof cb === 'function' ? cb : null;
   }
 
   /**
@@ -1096,7 +1232,7 @@ export class GSRGlobeManager {
    * counterpart of hovering the 2D map path. See _setupCameraControls() 5c.
    */
   onScrubHover(cb) {
-    this._scrubHoverCb = (typeof cb === 'function') ? cb : null;
+    this._scrubHoverCb = typeof cb === 'function' ? cb : null;
   }
 
   /**
@@ -1105,9 +1241,13 @@ export class GSRGlobeManager {
    * scaled radius of the line, else null.
    */
   _pickTrackPoint(windowPos) {
-    if (!this.viewer || !windowPos || this.currentDrawPoints.length === 0) return null;
+    if (!this.viewer || !windowPos || this.currentDrawPoints.length === 0)
+      return null;
     const scene = this.viewer.scene;
-    const cart = this.viewer.camera.pickEllipsoid(windowPos, scene.globe.ellipsoid);
+    const cart = this.viewer.camera.pickEllipsoid(
+      windowPos,
+      scene.globe.ellipsoid,
+    );
     if (!cart) return null;
     const carto = Cesium.Cartographic.fromCartesian(cart);
     const lat = Cesium.Math.toDegrees(carto.latitude);
@@ -1123,7 +1263,10 @@ export class GSRGlobeManager {
       const dx = (p.lon - lon) * deg2rad * cosLat * R;
       const dy = (p.lat - lat) * deg2rad * R;
       const dSq = dx * dx + dy * dy;
-      if (dSq < bestSq) { bestSq = dSq; best = p; }
+      if (dSq < bestSq) {
+        bestSq = dSq;
+        best = p;
+      }
     }
     if (!best) return null;
 
@@ -1145,8 +1288,14 @@ export class GSRGlobeManager {
     if (!this.viewer || this._isOrbiting || isNaN(lat) || isNaN(lon)) return;
     const camera = this.viewer.camera;
     const target = Cesium.Cartesian3.fromDegrees(lon, lat);
-    const range = Math.max(50, Cesium.Cartesian3.distance(camera.positionWC, target));
-    camera.lookAt(target, new Cesium.HeadingPitchRange(camera.heading, camera.pitch, range));
+    const range = Math.max(
+      50,
+      Cesium.Cartesian3.distance(camera.positionWC, target),
+    );
+    camera.lookAt(
+      target,
+      new Cesium.HeadingPitchRange(camera.heading, camera.pitch, range),
+    );
     this._followingScrub = true;
     this._wakeRenderLoop();
     this._requestRender();
@@ -1202,12 +1351,22 @@ export class GSRGlobeManager {
       return;
     }
 
-    const { drawPoints: providedDrawPoints, isPreview = false, colorMetric, colorRange, clusterPolygons } = opts;
-    this.currentClusterPolygons = Array.isArray(clusterPolygons) ? clusterPolygons : [];
+    const {
+      drawPoints: providedDrawPoints,
+      isPreview = false,
+      colorMetric,
+      colorRange,
+      clusterPolygons,
+    } = opts;
+    this.currentClusterPolygons = Array.isArray(clusterPolygons)
+      ? clusterPolygons
+      : [];
 
     if (colorMetric) this.activeColoringMetric = colorMetric;
     this.externalColorRange =
-      (colorRange && isFinite(colorRange.min) && isFinite(colorRange.max)) ? colorRange : null;
+      colorRange && isFinite(colorRange.min) && isFinite(colorRange.max)
+        ? colorRange
+        : null;
 
     // Track the 2D sidebar sliders the host forwards in gpsParams.
     if (gpsParams) {
@@ -1219,16 +1378,20 @@ export class GSRGlobeManager {
 
     this.currentAnalyzer = analyzer;
 
-    const drawPoints = Array.isArray(providedDrawPoints) ? providedDrawPoints : [];
+    const drawPoints = Array.isArray(providedDrawPoints)
+      ? providedDrawPoints
+      : [];
     this.currentDrawPoints = drawPoints;
 
     if (drawPoints.length < 2) {
-      this._notifyWarn('Track contains insufficient GPS coordinates to render in 3D.');
+      this._notifyWarn(
+        'Track contains insufficient GPS coordinates to render in 3D.',
+      );
       return;
     }
 
     // Filter peaks by quality threshold
-    this.currentPeaks = (analyzer.peaks || []).filter(pk => !pk.excluded);
+    this.currentPeaks = (analyzer.peaks || []).filter((pk) => !pk.excluded);
 
     // Clear every layer from any previous track (peaks/RF leaked before) and
     // rebuild from the now-cached track — see _rebuildLayers().
@@ -1258,9 +1421,12 @@ export class GSRGlobeManager {
    */
   _getCesiumColorLut(metric, minVal, maxVal) {
     const key = `${metric}|${minVal.toFixed(4)}|${maxVal.toFixed(4)}`;
-    if (this._cesiumColorLutKey === key && this._cesiumColorLut) return this._cesiumColorLut;
+    if (this._cesiumColorLutKey === key && this._cesiumColorLut)
+      return this._cesiumColorLut;
     const hexLut = MapColors.getColorLut(metric, minVal, maxVal);
-    this._cesiumColorLut = hexLut.map((hex) => Cesium.Color.fromCssColorString(hex).withAlpha(0.85));
+    this._cesiumColorLut = hexLut.map((hex) =>
+      Cesium.Color.fromCssColorString(hex).withAlpha(0.85),
+    );
     this._cesiumColorLutKey = key;
     return this._cesiumColorLut;
   }
@@ -1289,12 +1455,15 @@ export class GSRGlobeManager {
     for (let i = 1; i < n - 1; i++) {
       const p = drawPoints[i];
       const stride = i - kept;
-      const gapBefore = (p.time - drawPoints[i - 1].time) > 15.0;
-      const gapAfter = (drawPoints[i + 1].time - p.time) > 15.0;
+      const gapBefore = p.time - drawPoints[i - 1].time > 15.0;
+      const gapAfter = drawPoints[i + 1].time - p.time > 15.0;
 
-      let keep = p.isRfPeak || gapBefore || gapAfter
-        || stride >= maxStride
-        || (p.time - drawPoints[kept].time) > 10.0;
+      let keep =
+        p.isRfPeak ||
+        gapBefore ||
+        gapAfter ||
+        stride >= maxStride ||
+        p.time - drawPoints[kept].time > 10.0;
 
       if (!keep && stride >= 2) {
         const b = bucketOf(colorSeries[p.origIdx] ?? minVal);
@@ -1304,9 +1473,12 @@ export class GSRGlobeManager {
         } else {
           const a = drawPoints[kept];
           const c = drawPoints[i + 1];
-          const x1 = p.lon - a.lon, y1 = p.lat - a.lat;
-          const x2 = c.lon - p.lon, y2 = c.lat - p.lat;
-          if (Math.abs(Math.atan2(x1 * y2 - y1 * x2, x1 * x2 + y1 * y2)) > 0.07) keep = true; // ~4°
+          const x1 = p.lon - a.lon,
+            y1 = p.lat - a.lat;
+          const x2 = c.lon - p.lon,
+            y2 = c.lat - p.lat;
+          if (Math.abs(Math.atan2(x1 * y2 - y1 * x2, x1 * x2 + y1 * y2)) > 0.07)
+            keep = true; // ~4°
         }
       }
 
@@ -1344,14 +1516,22 @@ export class GSRGlobeManager {
     const metric = this.activeColoringMetric;
     // Colour follows the (possibly host-driven) metric; height follows a fixed
     // arousal-magnitude series so a non-magnitude colour metric still extrudes.
-    const discrete = (metric === 'roadClass' || metric === 'inPark' || metric === 'responseDynamics');
+    const discrete =
+      metric === 'roadClass' ||
+      metric === 'inPark' ||
+      metric === 'responseDynamics';
     const rawSeries = this._getMetricSeries(analyzer, metric);
-    const heightMetric = HEIGHT_CAPABLE_METRICS.has(metric) ? metric : this.heightMetric;
-    const heightSeries = (heightMetric === metric)
-      ? rawSeries
-      : this._getMetricSeries(analyzer, heightMetric);
+    const heightMetric = HEIGHT_CAPABLE_METRICS.has(metric)
+      ? metric
+      : this.heightMetric;
+    const heightSeries =
+      heightMetric === metric
+        ? rawSeries
+        : this._getMetricSeries(analyzer, heightMetric);
 
-    const heightAt = (idx) => this.baseHeight + Math.max(0, heightSeries[idx] ?? 0) * this.extrusionScale;
+    const heightAt = (idx) =>
+      this.baseHeight +
+      Math.max(0, heightSeries[idx] ?? 0) * this.extrusionScale;
 
     // The series the wall colour buckets read, the per-bucket colour lookup, and
     // the bucketing function. For categorical/binary OSM metrics (`roadClass`,
@@ -1369,39 +1549,61 @@ export class GSRGlobeManager {
     if (discrete) {
       if (metric === 'responseDynamics') {
         const RD = ResponseDynamics;
-        const speedColors = RD ? RD.SPEED_COLORS : {
-          'Very Slow': '#8b5cf6', 'Slow': '#3b82f6', 'Standard': '#10b981', 'Fast': '#f97316', 'Very Fast': '#ef4444'
-        };
+        const speedColors = RD
+          ? RD.SPEED_COLORS
+          : {
+              'Very Slow': '#8b5cf6',
+              Slow: '#3b82f6',
+              Standard: '#10b981',
+              Fast: '#f97316',
+              'Very Fast': '#ef4444',
+            };
         const colors = [
           Cesium.Color.TRANSPARENT,
-          Cesium.Color.fromCssColorString(speedColors['Very Slow']).withAlpha(0.85),
+          Cesium.Color.fromCssColorString(speedColors['Very Slow']).withAlpha(
+            0.85,
+          ),
           Cesium.Color.fromCssColorString(speedColors['Slow']).withAlpha(0.85),
-          Cesium.Color.fromCssColorString(speedColors['Standard']).withAlpha(0.85),
+          Cesium.Color.fromCssColorString(speedColors['Standard']).withAlpha(
+            0.85,
+          ),
           Cesium.Color.fromCssColorString(speedColors['Fast']).withAlpha(0.85),
-          Cesium.Color.fromCssColorString(speedColors['Very Fast']).withAlpha(0.85)
+          Cesium.Color.fromCssColorString(speedColors['Very Fast']).withAlpha(
+            0.85,
+          ),
         ];
-        const indexOf = (v) => (RD ? RD.getBucketIndex(v) : (v == null || !isFinite(v) || v <= 0 ? 0 : 3));
+        const indexOf = (v) =>
+          RD
+            ? RD.getBucketIndex(v)
+            : v == null || !isFinite(v) || v <= 0
+              ? 0
+              : 3;
         colorSeries = new Array(rawSeries.length);
-        for (let i = 0; i < rawSeries.length; i++) colorSeries[i] = indexOf(rawSeries[i]);
+        for (let i = 0; i < rawSeries.length; i++)
+          colorSeries[i] = indexOf(rawSeries[i]);
         colorOf = (k) => colors[k] || colors[0];
         bucketOf = (v) => (v == null ? 0 : v);
       } else {
         const NO_DATA = 0;
         const catIndex = new Map();
-        const colors = [Cesium.Color.fromCssColorString('#666666').withAlpha(0.85)];
+        const colors = [
+          Cesium.Color.fromCssColorString('#666666').withAlpha(0.85),
+        ];
         const indexOf = (v) => {
           if (v === null || v === undefined || v === '') return NO_DATA;
           let i = catIndex.get(v);
           if (i === undefined) {
-            i = catIndex.size + 1;           // 0 is reserved for "no data"
+            i = catIndex.size + 1; // 0 is reserved for "no data"
             catIndex.set(v, i);
             const cssColor = MapColors.getColorForMetric(metric, v, 0, 1);
-            colors[i] = Cesium.Color.fromCssColorString(cssColor).withAlpha(0.85);
+            colors[i] =
+              Cesium.Color.fromCssColorString(cssColor).withAlpha(0.85);
           }
           return i;
         };
         colorSeries = new Array(rawSeries.length);
-        for (let i = 0; i < rawSeries.length; i++) colorSeries[i] = indexOf(rawSeries[i]);
+        for (let i = 0; i < rawSeries.length; i++)
+          colorSeries[i] = indexOf(rawSeries[i]);
         colorOf = (k) => colors[k] || colors[0];
         bucketOf = (v) => (v == null ? NO_DATA : v);
       }
@@ -1433,9 +1635,13 @@ export class GSRGlobeManager {
       const NB = 30; // colour-bucket count — matches MapColors.getColorLut()
       const range = maxVal - minVal;
       const colorLut = this._getCesiumColorLut(metric, minVal, maxVal);
-      bucketOf = (v) => (range > 1e-9
-        ? Math.max(0, Math.min(NB - 1, Math.floor(((v - minVal) / range) * NB)))
-        : (NB >> 1));
+      bucketOf = (v) =>
+        range > 1e-9
+          ? Math.max(
+              0,
+              Math.min(NB - 1, Math.floor(((v - minVal) / range) * NB)),
+            )
+          : NB >> 1;
       colorOf = (k) => colorLut[k] || colorLut[0];
       colorSeries = rawSeries;
     }
@@ -1443,7 +1649,13 @@ export class GSRGlobeManager {
     // Thin the path for the wall only (currentDrawPoints stays full-resolution
     // for hover / camera / scrub). Keeps corners, colour-bucket changes and
     // >1.5 m height steps; drops straight, flat, same-colour runs.
-    const wallPts = this._decimateForWall(drawPoints, colorSeries, heightAt, bucketOf, minVal);
+    const wallPts = this._decimateForWall(
+      drawPoints,
+      colorSeries,
+      heightAt,
+      bucketOf,
+      minVal,
+    );
 
     // One fromDegreesArray for the whole thinned path — positions[i] ↔ wallPts[i].
     const flat = new Array(wallPts.length * 2);
@@ -1457,32 +1669,40 @@ export class GSRGlobeManager {
     const groundPositions = [];
 
     // Current merge run: same colour bucket, contiguous in time.
-    let runPos = null;      // Cartesian3[]
-    let runMax = null;      // number[] (max wall heights, per vertex)
+    let runPos = null; // Cartesian3[]
+    let runMax = null; // number[] (max wall heights, per vertex)
     let runBucket = -1;
     let instanceSeq = 0;
 
     const flushRun = () => {
-      if (!runPos || runPos.length < 2) { runPos = runMax = null; return; }
+      if (!runPos || runPos.length < 2) {
+        runPos = runMax = null;
+        return;
+      }
       if (metric === 'responseDynamics' && runBucket === 0) {
         runPos = runMax = null;
         return;
       }
       try {
-        wallInstances.push(new Cesium.GeometryInstance({
-          geometry: new Cesium.WallGeometry({
-            positions: runPos,
-            minimumHeights: new Array(runPos.length).fill(0.0),
-            maximumHeights: runMax,
-            // POSITION-only: the appearance is flat/unlit, so normals would be
-            // computed and uploaded for nothing.
-            vertexFormat: Cesium.PerInstanceColorAppearance.FLAT_VERTEX_FORMAT
+        wallInstances.push(
+          new Cesium.GeometryInstance({
+            geometry: new Cesium.WallGeometry({
+              positions: runPos,
+              minimumHeights: new Array(runPos.length).fill(0.0),
+              maximumHeights: runMax,
+              // POSITION-only: the appearance is flat/unlit, so normals would be
+              // computed and uploaded for nothing.
+              vertexFormat:
+                Cesium.PerInstanceColorAppearance.FLAT_VERTEX_FORMAT,
+            }),
+            attributes: {
+              color: Cesium.ColorGeometryInstanceAttribute.fromColor(
+                colorOf(runBucket),
+              ),
+            },
+            id: `biomap-wall-${instanceSeq++}`,
           }),
-          attributes: {
-            color: Cesium.ColorGeometryInstanceAttribute.fromColor(colorOf(runBucket))
-          },
-          id: `biomap-wall-${instanceSeq++}`
-        }));
+        );
       } catch (err) {
         // Skip a degenerate run (coincident points) cleanly.
       }
@@ -1529,10 +1749,14 @@ export class GSRGlobeManager {
       this.wallPrimitive = new Cesium.Primitive({
         geometryInstances: wallInstances,
         // flat: match the old unlit `wall.material = color` look (scene lighting is off)
-        appearance: new Cesium.PerInstanceColorAppearance({ flat: true, translucent: true, closed: false }),
+        appearance: new Cesium.PerInstanceColorAppearance({
+          flat: true,
+          translucent: true,
+          closed: false,
+        }),
         // Always async: geometry is compiled off the main thread so a slider drag
         // doesn't stall the paint (matches buildings.js).
-        asynchronous: true
+        asynchronous: true,
       });
       this.viewer.scene.primitives.add(this.wallPrimitive);
     }
@@ -1548,10 +1772,10 @@ export class GSRGlobeManager {
           width: this.trackWidth || 3.0,
           material: new Cesium.PolylineGlowMaterialProperty({
             glowPower: 0.25,
-            color: Cesium.Color.WHITE.withAlpha(0.7)
+            color: Cesium.Color.WHITE.withAlpha(0.7),
           }),
-          clampToGround: true
-        }
+          clampToGround: true,
+        },
       });
       this.trackEntities.push(groundEntity);
     }
@@ -1568,7 +1792,9 @@ export class GSRGlobeManager {
         const h = globe.getHeight(Cesium.Cartographic.fromDegrees(lon, lat));
         if (typeof h === 'number' && isFinite(h)) return h;
       }
-    } catch (e) { /* terrain not ready */ }
+    } catch (e) {
+      /* terrain not ready */
+    }
     return 0;
   }
 
@@ -1586,15 +1812,20 @@ export class GSRGlobeManager {
    */
   _getMetricSeries(analyzer, metric) {
     const field = SERIES_FIELD[metric];
-    const useDerived = !!(field && analyzer[field] && analyzer[field].length > 0);
-    const src = useDerived ? analyzer[field] : (analyzer.raw || null);
+    const useDerived = !!(
+      field &&
+      analyzer[field] &&
+      analyzer[field].length > 0
+    );
+    const src = useDerived ? analyzer[field] : analyzer.raw || null;
     // Raw-field metrics each key their own cache entry: two colour metrics
     // (e.g. greenPct vs distWater) read different raw columns, so a single
     // '__raw__' key would collide within one render.
     const rawField = useDerived ? null : rawMetricField(metric);
-    const key = useDerived ? field : ('raw:' + (rawField || 'gsr'));
+    const key = useDerived ? field : 'raw:' + (rawField || 'gsr');
 
-    const cache = this._metricSeriesCache || (this._metricSeriesCache = new Map());
+    const cache =
+      this._metricSeriesCache || (this._metricSeriesCache = new Map());
     const hit = cache.get(key);
     if (hit && hit.src === src) return hit.out;
 
@@ -1603,17 +1834,25 @@ export class GSRGlobeManager {
       out = src.map(seriesValue);
     } else if (src && src.length > 0) {
       if (rawField === 'gsr') {
-        out = src.map(d => (d.gsr !== undefined ? d.gsr : (d.val !== undefined ? d.val : 0)));
+        out = src.map((d) =>
+          d.gsr !== undefined ? d.gsr : d.val !== undefined ? d.val : 0,
+        );
       } else if (rawField) {
         // Enrichment columns are NaN/absent until the track is enriched — map
         // those to null so the wall renderer's `?? minVal` fallback and the
         // min/max scan can both treat "no data" consistently.
-        out = src.map(d => {
+        out = src.map((d) => {
           const v = d[rawField];
-          return (v === undefined || v === null || (typeof v === 'number' && isNaN(v))) ? null : v;
+          return v === undefined ||
+            v === null ||
+            (typeof v === 'number' && isNaN(v))
+            ? null
+            : v;
         });
       } else {
-        out = src.map(d => (d.gsr !== undefined ? d.gsr : (d.val !== undefined ? d.val : 0)));
+        out = src.map((d) =>
+          d.gsr !== undefined ? d.gsr : d.val !== undefined ? d.val : 0,
+        );
       }
     } else {
       out = [];
@@ -1678,15 +1917,24 @@ export class GSRGlobeManager {
       this._syncClusterBlobs();
       // RF volume: its raw Primitive is lost on context restore and stale after
       // a slider-driven metric/extrusion change, so re-upload it here.
-      if (this.showRfVolumetric) this.render3DRfExpanse(this.currentAnalyzer, this.currentDrawPoints);
+      if (this.showRfVolumetric)
+        this.render3DRfExpanse(this.currentAnalyzer, this.currentDrawPoints);
 
       // OSM buildings: clearAll() (a track being removed, or a context loss)
       // drops the extruded primitive but leaves show3DBuildings set. Re-assert
       // it here, but ONLY when it is genuinely gone — present buildings are
       // left alone so a slider drag doesn't blink them.
-      if (this.show3DBuildings && this.cachedOsmJson && !this.buildingPrimitive &&
-          !(this.buildingsTileset && this.buildingsTileset.show) && !this._buildingsFetching) {
-        this.renderOsm3DBuildings(this.cachedOsmJson, this.buildingStyle || 'monochrome');
+      if (
+        this.show3DBuildings &&
+        this.cachedOsmJson &&
+        !this.buildingPrimitive &&
+        !(this.buildingsTileset && this.buildingsTileset.show) &&
+        !this._buildingsFetching
+      ) {
+        this.renderOsm3DBuildings(
+          this.cachedOsmJson,
+          this.buildingStyle || 'monochrome',
+        );
       }
     });
     this._raiseMarkerCollections();
@@ -1703,7 +1951,8 @@ export class GSRGlobeManager {
    * lets the wall wash over them from some camera angles. @private
    */
   _raiseMarkerCollections() {
-    const prims = this.viewer && this.viewer.scene && this.viewer.scene.primitives;
+    const prims =
+      this.viewer && this.viewer.scene && this.viewer.scene.primitives;
     if (!prims || typeof prims.raiseToTop !== 'function') return;
     if (this._peakPoints) prims.raiseToTop(this._peakPoints);
     if (this._peakLabels) prims.raiseToTop(this._peakLabels);
@@ -1714,7 +1963,12 @@ export class GSRGlobeManager {
   _refreshTrack() {
     // May run a frame late now (setExtrusionScale coalesces via rAF), so guard
     // the viewer explicitly in case a destroy()/context-loss landed in between.
-    if (!this.viewer || !this.currentAnalyzer || this.currentDrawPoints.length < 2) return;
+    if (
+      !this.viewer ||
+      !this.currentAnalyzer ||
+      this.currentDrawPoints.length < 2
+    )
+      return;
     this._rebuildLayers();
   }
 
@@ -1733,9 +1987,10 @@ export class GSRGlobeManager {
   setExtrusionScale(scale) {
     this.extrusionScale = scale;
     if (this._extrusionRaf) return;
-    const raf = (typeof window !== 'undefined' && window.requestAnimationFrame)
-      ? window.requestAnimationFrame.bind(window)
-      : (fn) => setTimeout(fn, 16);
+    const raf =
+      typeof window !== 'undefined' && window.requestAnimationFrame
+        ? window.requestAnimationFrame.bind(window)
+        : (fn) => setTimeout(fn, 16);
     this._extrusionRaf = raf(() => {
       this._extrusionRaf = 0;
       this._refreshTrack();

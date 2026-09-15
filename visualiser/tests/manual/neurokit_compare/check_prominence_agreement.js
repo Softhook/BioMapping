@@ -22,7 +22,6 @@
  *   node check_prominence_agreement.js dump <track.csv> <out.json>
  *   node check_prominence_agreement.js compare <out.json> <nk_result.json>
  */
-'use strict';
 
 const fs = require('fs');
 const path = require('path');
@@ -34,7 +33,10 @@ global.GSR_CONST = require('../../mock_constants.js');
 function loadModule(filePath, varName) {
   const src = fs.readFileSync(filePath, 'utf8');
   const wrapped = src
-    .replace(new RegExp(`class ${varName}\\s*{`), `global.${varName} = class ${varName} {`)
+    .replace(
+      new RegExp(`class ${varName}\\s*{`),
+      `global.${varName} = class ${varName} {`,
+    )
     .replace(new RegExp(`const ${varName}\\s*=`), `global.${varName} =`);
   vm.runInThisContext(wrapped, { filename: filePath });
 }
@@ -59,8 +61,8 @@ if (mode === 'dump') {
   const a = new GSRAnalyzer();
   a.parseCSV(csvText);
   a.analyze({ ...D }, 0);
-  const vals = a.phasic.map(d => d.val);
-  const times = a.phasic.map(d => d.time);
+  const vals = a.phasic.map((d) => d.val);
+  const times = a.phasic.map((d) => d.time);
   const prom = a._topographicProminence(vals);
 
   // Local maxima, same definition _detectPeaksByProminence/_detectPeaksFullScan
@@ -68,17 +70,27 @@ if (mode === 'dump') {
   const localMaxima = [];
   for (let i = 1; i < vals.length - 1; i++) {
     if (vals[i] > vals[i - 1] && vals[i] >= vals[i + 1]) {
-      localMaxima.push({ index: i, time: times[i], value: vals[i], prominence: prom[i] });
+      localMaxima.push({
+        index: i,
+        time: times[i],
+        value: vals[i],
+        prominence: prom[i],
+      });
     }
   }
 
-  fs.writeFileSync(outPath, JSON.stringify({
-    sampling_rate: a.sampleRate,
-    phasic: vals,
-    local_maxima: localMaxima,
-    full_scan_peak_times: a.peaks.map(peak => peak.time),
-  }));
-  console.error(`Dumped ${vals.length} phasic samples, ${localMaxima.length} local maxima -> ${outPath}`);
+  fs.writeFileSync(
+    outPath,
+    JSON.stringify({
+      sampling_rate: a.sampleRate,
+      phasic: vals,
+      local_maxima: localMaxima,
+      full_scan_peak_times: a.peaks.map((peak) => peak.time),
+    }),
+  );
+  console.error(
+    `Dumped ${vals.length} phasic samples, ${localMaxima.length} local maxima -> ${outPath}`,
+  );
 } else if (mode === 'compare') {
   const oursPath = process.argv[3];
   const nkPath = process.argv[4];
@@ -89,13 +101,19 @@ if (mode === 'dump') {
   // (see check_prominence_agreement.py) so every local max it finds is
   // reported - index them by sample position for direct lookup.
   const nkProm = new Map();
-  for (let i = 0; i < nk.peaks.length; i++) nkProm.set(nk.peaks[i], nk.heights[i]);
+  for (let i = 0; i < nk.peaks.length; i++)
+    nkProm.set(nk.peaks[i], nk.heights[i]);
 
   const name = path.basename(process.argv[5] || '', '.csv');
-  console.log(`=== ${name}: prominence-computation agreement (same phasic curve, no gating) ===`);
-  console.log(`  our local maxima: ${ours.local_maxima.length}  NeuroKit2 local maxima: ${nk.peaks.length}`);
+  console.log(
+    `=== ${name}: prominence-computation agreement (same phasic curve, no gating) ===`,
+  );
+  console.log(
+    `  our local maxima: ${ours.local_maxima.length}  NeuroKit2 local maxima: ${nk.peaks.length}`,
+  );
 
-  let matched = 0, indexMismatch = 0;
+  let matched = 0,
+    indexMismatch = 0;
   const pairs = [];
   for (const lm of ours.local_maxima) {
     if (nkProm.has(lm.index)) {
@@ -105,25 +123,44 @@ if (mode === 'dump') {
       indexMismatch++;
     }
   }
-  console.log(`  same local-maximum index found by both: ${matched}/${ours.local_maxima.length} (mismatch: ${indexMismatch})`);
+  console.log(
+    `  same local-maximum index found by both: ${matched}/${ours.local_maxima.length} (mismatch: ${indexMismatch})`,
+  );
 
   if (pairs.length > 0) {
     const n = pairs.length;
-    let maxDiff = 0, sumAbs = 0, sumSq = 0, sumA = 0, sumB = 0, sumAB = 0, sumA2 = 0, sumB2 = 0;
+    let maxDiff = 0,
+      sumAbs = 0,
+      sumSq = 0,
+      sumA = 0,
+      sumB = 0,
+      sumAB = 0,
+      sumA2 = 0,
+      sumB2 = 0;
     for (const [a_, b_] of pairs) {
       const d = Math.abs(a_ - b_);
       maxDiff = Math.max(maxDiff, d);
-      sumAbs += d; sumSq += d * d;
-      sumA += a_; sumB += b_; sumAB += a_ * b_; sumA2 += a_ * a_; sumB2 += b_ * b_;
+      sumAbs += d;
+      sumSq += d * d;
+      sumA += a_;
+      sumB += b_;
+      sumAB += a_ * b_;
+      sumA2 += a_ * a_;
+      sumB2 += b_ * b_;
     }
-    const meanA = sumA / n, meanB = sumB / n;
+    const meanA = sumA / n,
+      meanB = sumB / n;
     const cov = sumAB / n - meanA * meanB;
     const varA = sumA2 / n - meanA * meanA;
     const varB = sumB2 / n - meanB * meanB;
     const r = cov / Math.sqrt(varA * varB);
-    console.log(`  prominence value agreement: n=${n}  max|diff|=${maxDiff.toExponential(3)}uS  mean|diff|=${(sumAbs / n).toExponential(3)}uS  RMSE=${Math.sqrt(sumSq / n).toExponential(3)}uS  r=${r.toFixed(6)}`);
+    console.log(
+      `  prominence value agreement: n=${n}  max|diff|=${maxDiff.toExponential(3)}uS  mean|diff|=${(sumAbs / n).toExponential(3)}uS  RMSE=${Math.sqrt(sumSq / n).toExponential(3)}uS  r=${r.toFixed(6)}`,
+    );
   }
-  console.log(`  NeuroKit2 default relative-height gate retained: ${nk.neurokit_peak_indices.length}/${nk.peaks.length} local maxima`);
+  console.log(
+    `  NeuroKit2 default relative-height gate retained: ${nk.neurokit_peak_indices.length}/${nk.peaks.length} local maxima`,
+  );
 } else if (mode === 'score') {
   const ours = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
   const nk = JSON.parse(fs.readFileSync(process.argv[4], 'utf8'));
@@ -139,7 +176,10 @@ if (mode === 'dump') {
       for (let index = 0; index < truth.length; index++) {
         if (usedTruth[index]) continue;
         const delta = Math.abs(time - truth[index].time);
-        if (delta < bestDelta) { bestIndex = index; bestDelta = delta; }
+        if (delta < bestDelta) {
+          bestIndex = index;
+          bestDelta = delta;
+        }
       }
       if (bestIndex !== -1 && bestDelta <= tolerance) {
         usedTruth[bestIndex] = true;
@@ -150,20 +190,42 @@ if (mode === 'dump') {
     const falseNegatives = truth.length - truePositives;
     const recall = truePositives / truth.length;
     const precision = truePositives / times.length;
-    const f1 = 2 * recall * precision / (recall + precision);
-    return { truePositives, falsePositives, falseNegatives, recall, precision, f1 };
+    const f1 = (2 * recall * precision) / (recall + precision);
+    return {
+      truePositives,
+      falsePositives,
+      falseNegatives,
+      recall,
+      precision,
+      f1,
+    };
   }
 
-  const gatedTimes = nk.neurokit_peak_indices.map(index => index / ours.sampling_rate);
+  const gatedTimes = nk.neurokit_peak_indices.map(
+    (index) => index / ours.sampling_rate,
+  );
   const name = path.basename(process.argv[5], '.ground_truth.json');
-  console.log(`=== ${name}: peak selection on BioMapping's exact phasic curve ===`);
-  for (const [label, times] of [['BioMapping Full-Scan', ours.full_scan_peak_times], ['NeuroKit2 relative prominence', gatedTimes]]) {
+  console.log(
+    `=== ${name}: peak selection on BioMapping's exact phasic curve ===`,
+  );
+  for (const [label, times] of [
+    ['BioMapping Full-Scan', ours.full_scan_peak_times],
+    ['NeuroKit2 relative prominence', gatedTimes],
+  ]) {
     const result = score(times);
-    console.log(`  ${label.padEnd(30)} recall ${(100 * result.recall).toFixed(1)}%  precision ${(100 * result.precision).toFixed(1)}%  F1 ${result.f1.toFixed(3)}  TP ${result.truePositives} FN ${result.falseNegatives} FP ${result.falsePositives}`);
+    console.log(
+      `  ${label.padEnd(30)} recall ${(100 * result.recall).toFixed(1)}%  precision ${(100 * result.precision).toFixed(1)}%  F1 ${result.f1.toFixed(3)}  TP ${result.truePositives} FN ${result.falseNegatives} FP ${result.falsePositives}`,
+    );
   }
 } else {
-  console.error('Usage: node check_prominence_agreement.js dump <track.csv> <out.json>');
-  console.error('       node check_prominence_agreement.js compare <out.json> <nk_result.json> [track.csv]');
-  console.error('       node check_prominence_agreement.js score <out.json> <nk_result.json> <ground_truth.json>');
+  console.error(
+    'Usage: node check_prominence_agreement.js dump <track.csv> <out.json>',
+  );
+  console.error(
+    '       node check_prominence_agreement.js compare <out.json> <nk_result.json> [track.csv]',
+  );
+  console.error(
+    '       node check_prominence_agreement.js score <out.json> <nk_result.json> <ground_truth.json>',
+  );
   process.exit(1);
 }

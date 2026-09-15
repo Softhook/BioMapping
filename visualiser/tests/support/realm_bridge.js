@@ -36,11 +36,17 @@ const { registerHooks } = require('module');
 // of one boot. Registered once at module load (this file is only require()d
 // once per process).
 let bootGeneration = 0;
-const SRC_ROOT = pathToFileURL(path.join(__dirname, '..', '..') + path.sep).href;
+const SRC_ROOT = pathToFileURL(
+  path.join(__dirname, '..', '..') + path.sep,
+).href;
 registerHooks({
   resolve(specifier, context, nextResolve) {
     const result = nextResolve(specifier, context);
-    if (result.url.startsWith(SRC_ROOT) && result.url.endsWith('.mjs') && !result.url.includes('?t=')) {
+    if (
+      result.url.startsWith(SRC_ROOT) &&
+      result.url.endsWith('.mjs') &&
+      !result.url.includes('?t=')
+    ) {
       return { ...result, url: `${result.url}?t=${bootGeneration}` };
     }
     return result;
@@ -59,18 +65,29 @@ registerHooks({
 // Don't pass a superMock() to Node's native `Blob` constructor directly
 // (e.g. in a test that doesn't go through a booted harness).
 function superMock() {
-  const fn = function () { return superMock(); };
+  const fn = function () {
+    return superMock();
+  };
   const handler = {
     get(target, prop) {
-      if (prop === 'then' || prop === 'catch' || prop === 'finally') return undefined; // never look like a Promise/thenable
-      if (prop === Symbol.toPrimitive) return (hint) => (hint === 'string' ? '' : 0);
+      if (prop === 'then' || prop === 'catch' || prop === 'finally')
+        return undefined; // never look like a Promise/thenable
+      if (prop === Symbol.toPrimitive)
+        return (hint) => (hint === 'string' ? '' : 0);
       if (prop === Symbol.iterator) return function* () {}; // empty iterator — a for-of over a mock just does nothing
       if (!(prop in target)) target[prop] = superMock();
       return target[prop];
     },
-    set(target, prop, value) { target[prop] = value; return true; },
-    apply() { return superMock(); },
-    construct() { return superMock(); },
+    set(target, prop, value) {
+      target[prop] = value;
+      return true;
+    },
+    apply() {
+      return superMock();
+    },
+    construct() {
+      return superMock();
+    },
   };
   return new Proxy(fn, handler);
 }
@@ -78,8 +95,15 @@ function superMock() {
 // Real Node identifiers a jsdom window would never legitimately shadow —
 // skipped so the bridge can never clobber the host runtime itself.
 const RESERVED_NODE_GLOBALS = new Set([
-  'global', 'globalThis', 'process', 'require', 'module', 'exports',
-  '__dirname', '__filename', 'Buffer',
+  'global',
+  'globalThis',
+  'process',
+  'require',
+  'module',
+  'exports',
+  '__dirname',
+  '__filename',
+  'Buffer',
 ]);
 
 // Captured once, at module load — before any harness has booted anything —
@@ -134,12 +158,17 @@ function installJsdomGlobals(window) {
   for (const key of Object.getOwnPropertyNames(window)) {
     if (RESERVED_NODE_GLOBALS.has(key)) continue;
     if (key === 'window' || key === 'document') continue;
-    if (NATIVE_GLOBAL_KEYS.has(key) && !FORCE_BRIDGE_OVER_NATIVE.has(key)) continue;
+    if (NATIVE_GLOBAL_KEYS.has(key) && !FORCE_BRIDGE_OVER_NATIVE.has(key))
+      continue;
     Object.defineProperty(global, key, {
       configurable: true,
       enumerable: true,
-      get() { return window[key]; },
-      set(v) { window[key] = v; },
+      get() {
+        return window[key];
+      },
+      set(v) {
+        window[key] = v;
+      },
     });
   }
   global.window = window;
@@ -174,13 +203,19 @@ global.setTimeout = (...args) => {
   pendingTimers.add(id);
   return id;
 };
-global.clearTimeout = (id) => { pendingTimers.delete(id); return realClearTimeout(id); };
+global.clearTimeout = (id) => {
+  pendingTimers.delete(id);
+  return realClearTimeout(id);
+};
 global.setInterval = (...args) => {
   const id = realSetInterval(...args);
   pendingTimers.add(id);
   return id;
 };
-global.clearInterval = (id) => { pendingTimers.delete(id); return realClearInterval(id); };
+global.clearInterval = (id) => {
+  pendingTimers.delete(id);
+  return realClearInterval(id);
+};
 
 function clearLeakedTimersFromPreviousBoot() {
   for (const id of pendingTimers) realClearTimeout(id);
@@ -233,8 +268,12 @@ function reflectOntoGlobal(source, target) {
   for (const name of Object.keys(Object.getOwnPropertyDescriptors(source))) {
     if (target === global) reflectedGlobalNames.add(name);
     Object.defineProperty(target, name, {
-      get() { return source[name]; },
-      set(v) { source[name] = v; },
+      get() {
+        return source[name];
+      },
+      set(v) {
+        source[name] = v;
+      },
       configurable: true,
       enumerable: true,
     });

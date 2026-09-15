@@ -14,7 +14,6 @@ import { GeoUtils } from '../gps/geo_utils.mjs';
 import { GSRUI } from '../ui/ui.mjs';
 
 export const MapPopups = {
-
   /**
    * Resize+reposition an open popup to fit its current content WITHOUT
    * Leaflet's public Popup.update(), which also calls _updateContent() —
@@ -75,18 +74,26 @@ export const MapPopups = {
     }
 
     if (pCurrent && pNext) {
-      return GeoUtils.bearingDeg(pCurrent.lat, pCurrent.lon, pNext.lat, pNext.lon);
+      return GeoUtils.bearingDeg(
+        pCurrent.lat,
+        pCurrent.lon,
+        pNext.lat,
+        pNext.lon,
+      );
     }
 
     return 0;
   },
 
   _buildStreetViewButton(lat, lon, label, heading) {
-    const btn = L.DomUtil.create('button', 'btn-external-link btn-icon-only streetview');
+    const btn = L.DomUtil.create(
+      'button',
+      'btn-external-link btn-icon-only streetview',
+    );
     btn.title = 'View street-level imagery';
     btn.setAttribute('aria-label', 'View street-level imagery');
     btn.innerHTML = '<i class="fa-solid fa-street-view"></i>';
-    L.DomEvent.on(btn, 'click', function(e) {
+    L.DomEvent.on(btn, 'click', (e) => {
       L.DomEvent.stopPropagation(e);
       GSRUI.openStreetView(lat, lon, label, heading);
     });
@@ -116,16 +123,31 @@ export const MapPopups = {
    *   builder stays agnostic and just tells whichever one is listening.
    */
   buildPeakPopup(opts) {
-    const { analyzerRef, peak, index, lat, lon, marker, trackId, extraClass, onResize } = opts;
+    const {
+      analyzerRef,
+      peak,
+      index,
+      lat,
+      lon,
+      marker,
+      trackId,
+      extraClass,
+      onResize,
+    } = opts;
     const displayLabel = peak.label || '';
 
     const container = L.DomUtil.create('div');
-    container.className = 'map-popup-card' + (extraClass ? ' ' + extraClass : '');
+    container.className =
+      'map-popup-card' + (extraClass ? ' ' + extraClass : '');
 
     // The label textarea IS the body of the popup. Empty (peak still at its
     // default numbered name) shows the "Enter label…" placeholder; a
     // previously-entered label shows as the value.
-    const input = L.DomUtil.create('textarea', 'popup-label-input peak-popup-label-input peak-popup-label-input-main', container);
+    const input = L.DomUtil.create(
+      'textarea',
+      'popup-label-input peak-popup-label-input peak-popup-label-input-main',
+      container,
+    );
     input.rows = 4;
     input.value = displayLabel;
     input.placeholder = 'Enter label…';
@@ -144,13 +166,20 @@ export const MapPopups = {
     const bottomRow = L.DomUtil.create('div', 'popup-bottom-row', container);
     const links = L.DomUtil.create('div', 'popup-external-links', bottomRow);
     const headingVal = MapPopups.getHeadingAtPeak(analyzerRef, peak);
-    links.appendChild(MapPopups._buildStreetViewButton(
-      lat, lon,
-      displayLabel || ('Peak #' + (index + 1)),
-      headingVal
-    ));
+    links.appendChild(
+      MapPopups._buildStreetViewButton(
+        lat,
+        lon,
+        displayLabel || 'Peak #' + (index + 1),
+        headingVal,
+      ),
+    );
 
-    const excludeBtn = L.DomUtil.create('button', 'btn-exclude-popup', bottomRow);
+    const excludeBtn = L.DomUtil.create(
+      'button',
+      'btn-exclude-popup',
+      bottomRow,
+    );
     excludeBtn.title = peak.excluded ? 'Include peak' : 'Exclude peak';
     excludeBtn.innerHTML = peak.excluded
       ? '<i class="fa-solid fa-plus"></i> Include'
@@ -163,7 +192,9 @@ export const MapPopups = {
       if (typeof onResize === 'function') onResize();
       GSRUI.handleLiveLabelInput(index, input.value, trackId);
     });
-    L.DomEvent.on(input, 'change', () => GSRUI.updatePeakLabel(index, input.value, trackId));
+    L.DomEvent.on(input, 'change', () =>
+      GSRUI.updatePeakLabel(index, input.value, trackId),
+    );
     L.DomEvent.on(input, 'keydown', (e) => {
       if (e.key === 'Enter') {
         e.preventDefault();
@@ -191,26 +222,26 @@ export const MapPopups = {
   buildSinglePeakPopup(analyzer, peak, index, coords, marker) {
     return MapPopups.buildPeakPopup({
       analyzerRef: analyzer,
-      peak:        peak,
-      index:       index,
-      lat:         coords.lat,
-      lon:         coords.lon,
-      marker:      marker,
-      onResize:    () => MapPopups._reflowPopup(marker.getPopup())
+      peak: peak,
+      index: index,
+      lat: coords.lat,
+      lon: coords.lon,
+      marker: marker,
+      onResize: () => MapPopups._reflowPopup(marker.getPopup()),
     });
   },
 
   buildCollectivePeakPopup(track, peak, index, lat, lon, marker) {
     return MapPopups.buildPeakPopup({
       analyzerRef: track.analyzer,
-      peak:        peak,
-      index:       index,
-      lat:         lat,
-      lon:         lon,
-      marker:      marker,
-      trackId:     track.id,
-      extraClass:  'compact',
-      onResize:    () => MapPopups._reflowPopup(marker.getPopup())
+      peak: peak,
+      index: index,
+      lat: lat,
+      lon: lon,
+      marker: marker,
+      trackId: track.id,
+      extraClass: 'compact',
+      onResize: () => MapPopups._reflowPopup(marker.getPopup()),
     });
   },
 
@@ -239,32 +270,43 @@ export const MapPopups = {
     };
 
     if (multiTrack) {
-      row('Walks:', `${place.trackCount} of ${ctx.activeTrackCount}${place.provisional ? ' (provisional)' : ''}`);
+      row(
+        'Walks:',
+        `${place.trackCount} of ${ctx.activeTrackCount}${place.provisional ? ' (provisional)' : ''}`,
+      );
     }
     row('Arousal rate:', `${place.rate.toFixed(2)} µS·s/min`);
     row('Arousal energy:', `${place.energy.toFixed(2)} µS·s`);
     row('Dwell:', formatMMSS(place.dwellSeconds));
-    row('Peak amplitude:', `${place.meanAmp.toFixed(3)} µS mean / ${place.maxAmp.toFixed(3)} µS max`);
-    if (place.firstTime != null) row('First visit:', formatMMSS(place.firstTime));
+    row(
+      'Peak amplitude:',
+      `${place.meanAmp.toFixed(3)} µS mean / ${place.maxAmp.toFixed(3)} µS max`,
+    );
+    if (place.firstTime != null)
+      row('First visit:', formatMMSS(place.firstTime));
 
     if (place.osm) {
-      L.DomUtil.create('div', 'popup-subhead', container).textContent = 'Street context';
+      L.DomUtil.create('div', 'popup-subhead', container).textContent =
+        'Street context';
       const t2 = L.DomUtil.create('table', 'popup-table', container);
       const row2 = (k, v) => {
         const tr = L.DomUtil.create('tr', '', t2);
         L.DomUtil.create('td', '', tr).textContent = k;
         L.DomUtil.create('td', '', tr).textContent = v;
       };
-      if (place.osm.roadClass != null) row2('Road class:', String(place.osm.roadClass));
-      if (place.osm.distGreen != null) row2('Dist. to green:', `${Math.round(place.osm.distGreen)} m`);
-      if (place.osm.canopyPct != null) row2('Tree canopy:', `${place.osm.canopyPct.toFixed(0)} %`);
+      if (place.osm.roadClass != null)
+        row2('Road class:', String(place.osm.roadClass));
+      if (place.osm.distGreen != null)
+        row2('Dist. to green:', `${Math.round(place.osm.distGreen)} m`);
+      if (place.osm.canopyPct != null)
+        row2('Tree canopy:', `${place.osm.canopyPct.toFixed(0)} %`);
     } else {
       L.DomUtil.create('div', 'popup-note', container).textContent =
         'Run OSM enrichment for street context.';
     }
 
     return container;
-  }
+  },
 };
 
 export function formatMMSS(seconds) {

@@ -27,7 +27,10 @@ test('GSRLayoutManager programmatic display mode API', async () => {
   const mapFsBtn = doc.getElementById('btnMapFullscreen');
   mapFsBtn.click();
   const overlay = doc.getElementById('mapPanel').parentNode;
-  assert.strictEqual(overlay.classList.contains('panel-fullscreen-overlay'), true);
+  assert.strictEqual(
+    overlay.classList.contains('panel-fullscreen-overlay'),
+    true,
+  );
 
   // Enter display mode via API
   lm.enterDisplayMode();
@@ -61,7 +64,10 @@ test('pressing F while in panel fullscreen toggles display mode', async () => {
   const mapFsBtn = doc.getElementById('btnMapFullscreen');
   mapFsBtn.click();
   const overlay = doc.getElementById('mapPanel').parentNode;
-  assert.strictEqual(overlay.classList.contains('panel-fullscreen-overlay'), true);
+  assert.strictEqual(
+    overlay.classList.contains('panel-fullscreen-overlay'),
+    true,
+  );
   assert.strictEqual(overlay.classList.contains('display-mode'), false);
   assert.strictEqual(window.AppState.isDisplayMode, false);
 
@@ -74,13 +80,21 @@ test('pressing F while in panel fullscreen toggles display mode', async () => {
   assert.strictEqual(window.AppState.isDisplayMode, true);
 
   // Press 'f' again -> exits display mode back to normal fullscreen
-  doc.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'f', bubbles: true }));
+  doc.dispatchEvent(
+    new window.KeyboardEvent('keydown', { key: 'f', bubbles: true }),
+  );
   assert.strictEqual(overlay.classList.contains('display-mode'), false);
   assert.strictEqual(window.AppState.isDisplayMode, false);
-  assert.strictEqual(doc.getElementById('mapPanel').parentNode, overlay, 'still in panel fullscreen overlay');
+  assert.strictEqual(
+    doc.getElementById('mapPanel').parentNode,
+    overlay,
+    'still in panel fullscreen overlay',
+  );
 
   // Also verify uppercase 'F'
-  doc.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'F', bubbles: true }));
+  doc.dispatchEvent(
+    new window.KeyboardEvent('keydown', { key: 'F', bubbles: true }),
+  );
   assert.strictEqual(overlay.classList.contains('display-mode'), true);
   assert.strictEqual(window.AppState.isDisplayMode, true);
 
@@ -99,18 +113,32 @@ test('pressing Escape in display mode exits display mode first, then exits fulls
   const overlay = doc.getElementById('mapPanel').parentNode;
 
   // Enter display mode via 'f'
-  doc.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'f', bubbles: true }));
+  doc.dispatchEvent(
+    new window.KeyboardEvent('keydown', { key: 'f', bubbles: true }),
+  );
   assert.strictEqual(overlay.classList.contains('display-mode'), true);
 
   // First Escape -> exits display mode, overlay remains
-  doc.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  doc.dispatchEvent(
+    new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+  );
   assert.strictEqual(overlay.classList.contains('display-mode'), false);
   assert.strictEqual(window.AppState.isDisplayMode, false);
-  assert.strictEqual(doc.getElementById('mapPanel').parentNode, overlay, 'overlay still active');
+  assert.strictEqual(
+    doc.getElementById('mapPanel').parentNode,
+    overlay,
+    'overlay still active',
+  );
 
   // Second Escape -> exits panel fullscreen completely
-  doc.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-  assert.strictEqual(doc.querySelector('.panel-fullscreen-overlay'), null, 'overlay removed');
+  doc.dispatchEvent(
+    new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+  );
+  assert.strictEqual(
+    doc.querySelector('.panel-fullscreen-overlay'),
+    null,
+    'overlay removed',
+  );
 });
 
 test('GSR panel display mode toggles via F and cleans up on exit', async () => {
@@ -121,10 +149,15 @@ test('GSR panel display mode toggles via F and cleans up on exit', async () => {
   const gsrFsBtn = doc.getElementById('btnGsrFullscreen');
   gsrFsBtn.click();
   const overlay = doc.getElementById('gsrPanel').parentNode;
-  assert.strictEqual(overlay.classList.contains('panel-fullscreen-overlay'), true);
+  assert.strictEqual(
+    overlay.classList.contains('panel-fullscreen-overlay'),
+    true,
+  );
 
   // Press 'f'
-  doc.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'f', bubbles: true }));
+  doc.dispatchEvent(
+    new window.KeyboardEvent('keydown', { key: 'f', bubbles: true }),
+  );
   assert.strictEqual(overlay.classList.contains('display-mode'), true);
   assert.strictEqual(window.AppState.isDisplayMode, true);
 

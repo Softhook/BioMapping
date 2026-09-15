@@ -1,4 +1,3 @@
-'use strict';
 /**
  * Regression coverage for fused GPS downsampling in _getOrBuildDrawPoints / GpsPipeline.buildDrawPoints.
  *
@@ -20,13 +19,23 @@ const TRACKS_DIR = path.join(__dirname, '..', '..', 'tracks');
 
 async function boot() {
   const { window } = await bootApp();
-  window.HTMLCanvasElement.prototype.getContext = () => ({ fillStyle: '', fillRect() {} });
+  window.HTMLCanvasElement.prototype.getContext = () => ({
+    fillStyle: '',
+    fillRect() {},
+  });
   window.setup();
   return { window, mapManager: window.AppState.mapManager };
 }
 
 // Reference implementation of the legacy two-step approach
-function legacyBuildDrawPoints(data, filteredGps, sampleRate, doDownsample, forceIndexSet, GpsPipeline) {
+function legacyBuildDrawPoints(
+  data,
+  filteredGps,
+  sampleRate,
+  doDownsample,
+  forceIndexSet,
+  GpsPipeline,
+) {
   const drawPoints = [];
   for (let i = 0; i < data.length; i++) {
     const fg = filteredGps[i];
@@ -36,11 +45,16 @@ function legacyBuildDrawPoints(data, filteredGps, sampleRate, doDownsample, forc
         lat: fg.lat,
         lon: fg.lon,
         origIdx: i,
-        isRfPeak: !!(forceIndexSet && forceIndexSet.has(i))
+        isRfPeak: !!(forceIndexSet && forceIndexSet.has(i)),
       });
     }
   }
-  return GpsPipeline.downsampleForDisplay(drawPoints, sampleRate, doDownsample, forceIndexSet);
+  return GpsPipeline.downsampleForDisplay(
+    drawPoints,
+    sampleRate,
+    doDownsample,
+    forceIndexSet,
+  );
 }
 
 test('buildDrawPoints: returns byte-for-byte identical output to legacy two-step method (downsample=true)', async () => {
@@ -59,12 +73,33 @@ test('buildDrawPoints: returns byte-for-byte identical output to legacy two-step
   let gpsPoints = mapManager._collectGpsPoints(data);
   gpsPoints = GpsPipeline.applyHdopGate(gpsPoints, p.maxHdop || 3.0);
   gpsPoints = GpsPipeline.applyFixTypeGate(gpsPoints);
-  gpsPoints = GpsPipeline.applyPreKalmanFilters(gpsPoints, p.smoothing || 0.5, p.maxSpeed || 3.0);
-  gpsPoints = GpsFilter.applyKalman(gpsPoints, p.smoothing || 0.5, p.kalmanR || 10);
+  gpsPoints = GpsPipeline.applyPreKalmanFilters(
+    gpsPoints,
+    p.smoothing || 0.5,
+    p.maxSpeed || 3.0,
+  );
+  gpsPoints = GpsFilter.applyKalman(
+    gpsPoints,
+    p.smoothing || 0.5,
+    p.kalmanR || 10,
+  );
   GpsPipeline.reconstructFilteredGps(analyzer, data, gpsPoints);
 
-  const legacy = legacyBuildDrawPoints(data, analyzer.filteredGps, analyzer.sampleRate || 10.0, true, analyzer.rfPeakIndices, GpsPipeline);
-  const fused = GpsPipeline.buildDrawPoints(data, analyzer.filteredGps, analyzer.sampleRate || 10.0, true, analyzer.rfPeakIndices);
+  const legacy = legacyBuildDrawPoints(
+    data,
+    analyzer.filteredGps,
+    analyzer.sampleRate || 10.0,
+    true,
+    analyzer.rfPeakIndices,
+    GpsPipeline,
+  );
+  const fused = GpsPipeline.buildDrawPoints(
+    data,
+    analyzer.filteredGps,
+    analyzer.sampleRate || 10.0,
+    true,
+    analyzer.rfPeakIndices,
+  );
 
   assert.ok(fused.length > 0, 'fused produces points');
   assert.strictEqual(fused.length, legacy.length, 'lengths match');
@@ -87,12 +122,33 @@ test('buildDrawPoints: returns byte-for-byte identical output to legacy two-step
   let gpsPoints = mapManager._collectGpsPoints(data);
   gpsPoints = GpsPipeline.applyHdopGate(gpsPoints, p.maxHdop || 3.0);
   gpsPoints = GpsPipeline.applyFixTypeGate(gpsPoints);
-  gpsPoints = GpsPipeline.applyPreKalmanFilters(gpsPoints, p.smoothing || 0.5, p.maxSpeed || 3.0);
-  gpsPoints = GpsFilter.applyKalman(gpsPoints, p.smoothing || 0.5, p.kalmanR || 10);
+  gpsPoints = GpsPipeline.applyPreKalmanFilters(
+    gpsPoints,
+    p.smoothing || 0.5,
+    p.maxSpeed || 3.0,
+  );
+  gpsPoints = GpsFilter.applyKalman(
+    gpsPoints,
+    p.smoothing || 0.5,
+    p.kalmanR || 10,
+  );
   GpsPipeline.reconstructFilteredGps(analyzer, data, gpsPoints);
 
-  const legacy = legacyBuildDrawPoints(data, analyzer.filteredGps, analyzer.sampleRate || 10.0, false, analyzer.rfPeakIndices, GpsPipeline);
-  const fused = GpsPipeline.buildDrawPoints(data, analyzer.filteredGps, analyzer.sampleRate || 10.0, false, analyzer.rfPeakIndices);
+  const legacy = legacyBuildDrawPoints(
+    data,
+    analyzer.filteredGps,
+    analyzer.sampleRate || 10.0,
+    false,
+    analyzer.rfPeakIndices,
+    GpsPipeline,
+  );
+  const fused = GpsPipeline.buildDrawPoints(
+    data,
+    analyzer.filteredGps,
+    analyzer.sampleRate || 10.0,
+    false,
+    analyzer.rfPeakIndices,
+  );
 
   assert.ok(fused.length > 0, 'fused produces points');
   assert.strictEqual(fused.length, legacy.length, 'lengths match');
@@ -113,13 +169,39 @@ test('buildDrawPoints: correctly handles forced RF peak indices that fall betwee
 
   // Force index 3 and index 17 (neither is divisible by step 10)
   const forced = new Set([3, 17]);
-  const legacy = legacyBuildDrawPoints(data, filteredGps, 10, true, forced, GpsPipeline);
-  const fused = GpsPipeline.buildDrawPoints(data, filteredGps, 10, true, forced);
+  const legacy = legacyBuildDrawPoints(
+    data,
+    filteredGps,
+    10,
+    true,
+    forced,
+    GpsPipeline,
+  );
+  const fused = GpsPipeline.buildDrawPoints(
+    data,
+    filteredGps,
+    10,
+    true,
+    forced,
+  );
 
-  assert.deepStrictEqual(fused, legacy, 'forced indices merged and sorted correctly');
-  assert.ok(fused.some(p => p.origIdx === 3 && p.isRfPeak === true), 'forced index 3 present with isRfPeak=true');
-  assert.ok(fused.some(p => p.origIdx === 17 && p.isRfPeak === true), 'forced index 17 present with isRfPeak=true');
-  assert.ok(fused.every((p, i) => i === 0 || p.origIdx > fused[i - 1].origIdx), 'indices remain strictly ascending');
+  assert.deepStrictEqual(
+    fused,
+    legacy,
+    'forced indices merged and sorted correctly',
+  );
+  assert.ok(
+    fused.some((p) => p.origIdx === 3 && p.isRfPeak === true),
+    'forced index 3 present with isRfPeak=true',
+  );
+  assert.ok(
+    fused.some((p) => p.origIdx === 17 && p.isRfPeak === true),
+    'forced index 17 present with isRfPeak=true',
+  );
+  assert.ok(
+    fused.every((p, i) => i === 0 || p.origIdx > fused[i - 1].origIdx),
+    'indices remain strictly ascending',
+  );
 });
 
 test('buildDrawPoints: handles empty data or null filteredGps gracefully', async () => {
@@ -127,8 +209,19 @@ test('buildDrawPoints: handles empty data or null filteredGps gracefully', async
   const GpsPipeline = vm.runInThisContext('GpsPipeline');
 
   assert.strictEqual(GpsPipeline.buildDrawPoints([], [], 10, true).length, 0);
-  assert.strictEqual(GpsPipeline.buildDrawPoints(null, null, 10, true).length, 0);
-  assert.strictEqual(GpsPipeline.buildDrawPoints([{ val: 1 }], [{ lat: NaN, lon: NaN }], 10, true).length, 0);
+  assert.strictEqual(
+    GpsPipeline.buildDrawPoints(null, null, 10, true).length,
+    0,
+  );
+  assert.strictEqual(
+    GpsPipeline.buildDrawPoints(
+      [{ val: 1 }],
+      [{ lat: NaN, lon: NaN }],
+      10,
+      true,
+    ).length,
+    0,
+  );
 });
 
 test('_getOrBuildDrawPoints: integrates buildDrawPoints and caches successfully', async () => {
@@ -145,5 +238,9 @@ test('_getOrBuildDrawPoints: integrates buildDrawPoints and caches successfully'
 
   // Verify caching returns identical references
   const res2 = mapManager._getOrBuildDrawPoints('track_test', analyzer, p);
-  assert.strictEqual(res1.drawPoints, res2.drawPoints, 'cached references returned');
+  assert.strictEqual(
+    res1.drawPoints,
+    res2.drawPoints,
+    'cached references returned',
+  );
 });

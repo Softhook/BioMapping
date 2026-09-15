@@ -1,4 +1,3 @@
-'use strict';
 /**
  * Real A/B timing for the three Phase 6 rendering-perf changes (architecture
  * refactor plan §Phase 6 / docs/archive/visualizer_rendering_perf_routes.md). Not a
@@ -54,25 +53,38 @@ function bench(label, warmup, iters, fn) {
   const samples = [];
   for (let i = 0; i < iters; i++) samples.push(timeMs(fn));
   const mean = samples.reduce((a, b) => a + b, 0) / samples.length;
-  return { label, median: median(samples), mean, min: Math.min(...samples), max: Math.max(...samples), n: iters };
+  return {
+    label,
+    median: median(samples),
+    mean,
+    min: Math.min(...samples),
+    max: Math.max(...samples),
+    n: iters,
+  };
 }
 
 function printRow(r) {
   console.log(
     `  ${r.label.padEnd(28)} median=${r.median.toFixed(3).padStart(9)}ms  mean=${r.mean.toFixed(3).padStart(9)}ms  ` +
-    `min=${r.min.toFixed(3).padStart(8)}ms  max=${r.max.toFixed(3).padStart(8)}ms  (n=${r.n})`
+      `min=${r.min.toFixed(3).padStart(8)}ms  max=${r.max.toFixed(3).padStart(8)}ms  (n=${r.n})`,
   );
 }
 
 function printSpeedup(before, after) {
   const ratio = before.median / after.median;
-  console.log(`  → scoped refresh is ${ratio.toFixed(1)}x faster (median) than the full rebuild it replaced\n`);
+  console.log(
+    `  → scoped refresh is ${ratio.toFixed(1)}x faster (median) than the full rebuild it replaced\n`,
+  );
 }
 
 // ── Shared recording Leaflet (verbatim from tests/test_map_layer_ownership.js) ──
 function installRecordingLeaflet(window) {
   const map = {
-    _layers: new Map(), _direct: [], _groups: new Map(), _viaGroup: new Set(), _nextId: 1,
+    _layers: new Map(),
+    _direct: [],
+    _groups: new Map(),
+    _viaGroup: new Set(),
+    _nextId: 1,
     addLayer(layer) {
       if (!layer || typeof layer !== 'object') return map;
       if (layer._gsrId === undefined) layer._gsrId = map._nextId++;
@@ -80,7 +92,7 @@ function installRecordingLeaflet(window) {
       if (layer._isGroup) {
         map._groups.set(layer._gsrId, layer);
         layer._onMap = true;
-        layer._children.forEach(c => map._viaGroup.add(c));
+        layer._children.forEach((c) => map._viaGroup.add(c));
       } else {
         map._direct.push(layer);
       }
@@ -92,7 +104,7 @@ function installRecordingLeaflet(window) {
         map._groups.delete(layer._gsrId);
         map._layers.delete(layer._gsrId);
         layer._onMap = false;
-        layer._children.forEach(c => map._viaGroup.delete(c));
+        layer._children.forEach((c) => map._viaGroup.delete(c));
       } else {
         const i = map._direct.indexOf(layer);
         if (i >= 0) map._direct.splice(i, 1);
@@ -109,68 +121,176 @@ function installRecordingLeaflet(window) {
       if (layer._isGroup) return map._groups.has(layer._gsrId);
       return map._direct.includes(layer) || map._viaGroup.has(layer);
     },
-    latLngToLayerPoint() { return { x: 10, y: 20 }; },
+    latLngToLayerPoint() {
+      return { x: 10, y: 20 };
+    },
     fitBounds() {},
-    setView() { return map; },
-    getBounds() { return { pad: () => ({ getNorthWest: () => ({ lat: 0, lon: 0 }), getSouthEast: () => ({ lat: 0, lon: 0 }) }) }; },
-    getSize() { return { x: 800, y: 600 }; },
+    setView() {
+      return map;
+    },
+    getBounds() {
+      return {
+        pad: () => ({
+          getNorthWest: () => ({ lat: 0, lon: 0 }),
+          getSouthEast: () => ({ lat: 0, lon: 0 }),
+        }),
+      };
+    },
+    getSize() {
+      return { x: 800, y: 600 };
+    },
     on() {},
     remove() {},
   };
 
   function makeLayer(kind) {
     return {
-      _gsrId: map._nextId++, _isGroup: false, _gsrKind: kind || 'layer', _gsrLayerGroup: null,
-      addTo(m) { m.addLayer(this); return this; },
-      remove() { map.removeLayer(this); return this; },
-      bindPopup() { return this; }, bindTooltip() { return this; },
-      setZIndexOffset() { return this; }, setOpacity() { return this; },
-      setLatLng() { return this; }, on() { return this; }, openPopup() { return this; }
+      _gsrId: map._nextId++,
+      _isGroup: false,
+      _gsrKind: kind || 'layer',
+      _gsrLayerGroup: null,
+      addTo(m) {
+        m.addLayer(this);
+        return this;
+      },
+      remove() {
+        map.removeLayer(this);
+        return this;
+      },
+      bindPopup() {
+        return this;
+      },
+      bindTooltip() {
+        return this;
+      },
+      setZIndexOffset() {
+        return this;
+      },
+      setOpacity() {
+        return this;
+      },
+      setLatLng() {
+        return this;
+      },
+      on() {
+        return this;
+      },
+      openPopup() {
+        return this;
+      },
     };
   }
   function makeGroup() {
     return {
-      _gsrId: map._nextId++, _isGroup: true, _children: new Map(), _onMap: false,
-      addLayer(child) { this._children.set(child._gsrId, child); if (this._onMap) map._viaGroup.add(child); return this; },
-      removeLayer(child) { this._children.delete(child._gsrId); if (this._onMap) map._viaGroup.delete(child); return this; },
-      hasLayer(child) { return this._children.has(child._gsrId); },
-      addTo(m) { m.addLayer(this); return this; },
-      remove() { map.removeLayer(this); return this; },
-      getLayers() { return [...this._children.values()]; },
-      eachLayer(fn) { this._children.forEach(fn); }
+      _gsrId: map._nextId++,
+      _isGroup: true,
+      _children: new Map(),
+      _onMap: false,
+      addLayer(child) {
+        this._children.set(child._gsrId, child);
+        if (this._onMap) map._viaGroup.add(child);
+        return this;
+      },
+      removeLayer(child) {
+        this._children.delete(child._gsrId);
+        if (this._onMap) map._viaGroup.delete(child);
+        return this;
+      },
+      hasLayer(child) {
+        return this._children.has(child._gsrId);
+      },
+      addTo(m) {
+        m.addLayer(this);
+        return this;
+      },
+      remove() {
+        map.removeLayer(this);
+        return this;
+      },
+      getLayers() {
+        return [...this._children.values()];
+      },
+      eachLayer(fn) {
+        this._children.forEach(fn);
+      },
     };
   }
   class FakeControl {
-    constructor(options) { this.options = options || {}; }
-    _onAdd() { return window.document.createElement('div'); }
-    addTo(m) { m.addLayer(this); this._container = this._onAdd(); return this; }
-    getContainer() { return this._container; }
-    getPosition() { return this.options.position; }
+    constructor(options) {
+      this.options = options || {};
+    }
+    _onAdd() {
+      return window.document.createElement('div');
+    }
+    addTo(m) {
+      m.addLayer(this);
+      this._container = this._onAdd();
+      return this;
+    }
+    getContainer() {
+      return this._container;
+    }
+    getPosition() {
+      return this.options.position;
+    }
   }
   FakeControl.extend = (proto) => {
     class C extends FakeControl {}
-    Object.keys(proto).forEach(k => { C.prototype[k] = proto[k]; });
+    Object.keys(proto).forEach((k) => {
+      C.prototype[k] = proto[k];
+    });
     return C;
   };
 
   const L = {
     map: () => map,
     layerGroup: makeGroup,
-    polyline: (latlngs, opts) => { const l = makeLayer('path'); l._latlngs = latlngs; l._options = opts; return l; },
-    polygon: (latlngs, opts) => { const l = makeLayer('cluster'); l._latlngs = latlngs; l._options = opts; return l; },
-    marker: (latlng, opts) => { const l = makeLayer('marker'); l._latlng = latlng; l._options = opts; return l; },
+    polyline: (latlngs, opts) => {
+      const l = makeLayer('path');
+      l._latlngs = latlngs;
+      l._options = opts;
+      return l;
+    },
+    polygon: (latlngs, opts) => {
+      const l = makeLayer('cluster');
+      l._latlngs = latlngs;
+      l._options = opts;
+      return l;
+    },
+    marker: (latlng, opts) => {
+      const l = makeLayer('marker');
+      l._latlng = latlng;
+      l._options = opts;
+      return l;
+    },
     tileLayer: () => makeLayer('tile'),
-    imageOverlay: (url, bounds, opts) => { const l = makeLayer('surface'); l._url = url; l._bounds = bounds; l._options = opts; return l; },
+    imageOverlay: (url, bounds, opts) => {
+      const l = makeLayer('surface');
+      l._url = url;
+      l._bounds = bounds;
+      l._options = opts;
+      return l;
+    },
     featureGroup: function (layers) {
       const g = makeGroup();
-      (layers || []).forEach(l => g.addLayer(l));
-      g.getBounds = () => ({ getNorthWest: () => ({ lat: 0, lon: 0 }), getSouthEast: () => ({ lat: 0, lon: 0 }) });
+      (layers || []).forEach((l) => g.addLayer(l));
+      g.getBounds = () => ({
+        getNorthWest: () => ({ lat: 0, lon: 0 }),
+        getSouthEast: () => ({ lat: 0, lon: 0 }),
+      });
       return g;
     },
     divIcon: (opts) => opts || {},
     icon: (opts) => opts || {},
-    DomUtil: { create: (tag, className) => { const el = window.document.createElement(tag); if (className) el.className = className; return el; }, setTransform() {} },
-    Control: FakeControl
+    DomUtil: {
+      create: (tag, className) => {
+        const el = window.document.createElement(tag);
+        if (className) el.className = className;
+        return el;
+      },
+      setTransform() {},
+    },
+    Control: FakeControl,
   };
   window.L = L;
   return { L, map };
@@ -185,8 +305,12 @@ function bootWithRecordingL() {
   // work both renderData() and refreshPeakMarkers()/refreshCollectivePeakMarkers()
   // pay for — is included on both sides of the A/B, matching production.
   vm.runInContext('RFFluidRenderer = undefined;', context);
-  window.HTMLCanvasElement.prototype.getContext = () => ({ fillStyle: '', fillRect() {} });
-  window.HTMLCanvasElement.prototype.toDataURL = () => 'data:image/png;base64,AA==';
+  window.HTMLCanvasElement.prototype.getContext = () => ({
+    fillStyle: '',
+    fillRect() {},
+  });
+  window.HTMLCanvasElement.prototype.toDataURL = () =>
+    'data:image/png;base64,AA==';
   const { map } = installRecordingLeaflet(window);
   window.setup();
   return { window, map, mapManager: window.AppState.mapManager, context };
@@ -196,14 +320,22 @@ function loadRealTrack(window, id, filename) {
   const analyzer = new window.GSRAnalyzer();
   const csv = fs.readFileSync(path.join(TRACKS_DIR, filename), 'utf8');
   analyzer.parseCSV(csv);
-  const track = window.GSRTrackManager.createTrackObject(id, filename, '#ff0000', analyzer);
+  const track = window.GSRTrackManager.createTrackObject(
+    id,
+    filename,
+    '#ff0000',
+    analyzer,
+  );
   analyzer.analyze(track.filterParams, 0);
   window.AppState.collectiveManager.addTrack(track);
   return track;
 }
 
 function gpsDefault(context) {
-  return vm.runInContext('JSON.parse(JSON.stringify(GSR_CONST.GPS_DEFAULT))', context);
+  return vm.runInContext(
+    'JSON.parse(JSON.stringify(GSR_CONST.GPS_DEFAULT))',
+    context,
+  );
 }
 
 // ── Bench 1: RF fan-cast spatial index (grid vs forced brute-force fallback) ──
@@ -215,35 +347,74 @@ function gpsDefault(context) {
 // segments spread across the same area (not clustered near just 2 nodes),
 // so the brute-force side pays a full segments scan for every node.
 function benchRfSpatialIndex() {
-  console.log('── Bench 1: RF fan-cast — grid index vs forced brute-force scan ──');
-  console.log('   (rf_fluid_renderer.js: _precalculateSpatialFans, Phase 6 step 1)\n');
+  console.log(
+    '── Bench 1: RF fan-cast — grid index vs forced brute-force scan ──',
+  );
+  console.log(
+    '   (rf_fluid_renderer.js: _precalculateSpatialFans, Phase 6 step 1)\n',
+  );
 
-  global.L = { DomUtil: { create: () => ({ style: {}, getContext: () => fakeCanvasContext() }), setPosition() {}, setTransform() {} } };
+  global.L = {
+    DomUtil: {
+      create: () => ({ style: {}, getContext: () => fakeCanvasContext() }),
+      setPosition() {},
+      setTransform() {},
+    },
+  };
   global.window = { devicePixelRatio: 1 };
   function fakeCanvasContext() {
-    return new Proxy({}, {
-      get(target, prop) {
-        if (prop in target) return target[prop];
-        if (prop === 'canvas') return { width: 400, height: 300 };
-        return (...args) => (String(prop).startsWith('create') ? new Proxy({}, { get: () => () => {} }) : undefined);
-      }
-    });
+    return new Proxy(
+      {},
+      {
+        get(target, prop) {
+          if (prop in target) return target[prop];
+          if (prop === 'canvas') return { width: 400, height: 300 };
+          return (...args) =>
+            String(prop).startsWith('create')
+              ? new Proxy({}, { get: () => () => {} })
+              : undefined;
+        },
+      },
+    );
   }
-  const sgSrc = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'spatial', 'spatial_grid.js'), 'utf8');
+  const sgSrc = fs.readFileSync(
+    path.join(__dirname, '..', '..', 'src', 'spatial', 'spatial_grid.js'),
+    'utf8',
+  );
   vm.runInThisContext(sgSrc, { filename: 'spatial_grid.js' });
-  const src = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'render', 'rf_fluid_renderer.js'), 'utf8');
-  vm.runInThisContext(src.replace('class RFFluidRenderer', 'global.RFFluidRenderer = class RFFluidRenderer'), { filename: 'rf_fluid_renderer.js' });
+  const src = fs.readFileSync(
+    path.join(__dirname, '..', '..', 'src', 'render', 'rf_fluid_renderer.js'),
+    'utf8',
+  );
+  vm.runInThisContext(
+    src.replace(
+      'class RFFluidRenderer',
+      'global.RFFluidRenderer = class RFFluidRenderer',
+    ),
+    { filename: 'rf_fluid_renderer.js' },
+  );
   const RFFluidRenderer = global.RFFluidRenderer;
 
   function makeFakeMap() {
     const panes = {};
     return {
       getPane: (name) => panes[name] || null,
-      createPane: (name) => { panes[name] = { style: {}, appendChild: () => {} }; return panes[name]; },
+      createPane: (name) => {
+        panes[name] = { style: {}, appendChild: () => {} };
+        return panes[name];
+      },
       on: () => {},
-      getBounds: () => ({ pad: () => ({ contains: () => true, getNorthWest: () => ({ lat: 52, lon: -1 }), getSouthEast: () => ({ lat: 51, lon: 0 }) }) }),
+      getBounds: () => ({
+        pad: () => ({
+          contains: () => true,
+          getNorthWest: () => ({ lat: 52, lon: -1 }),
+          getSouthEast: () => ({ lat: 51, lon: 0 }),
+        }),
+      }),
       latLngToLayerPoint: () => ({ x: 100, y: 100 }),
-      getZoomScale: () => 1, getZoom: () => 15, getSize: () => ({ x: 800, y: 600 }),
+      getZoomScale: () => 1,
+      getZoom: () => 15,
+      getSize: () => ({ x: 800, y: 600 }),
       _latLngToNewLayerPoint: () => ({ x: 0, y: 0 }),
     };
   }
@@ -251,7 +422,13 @@ function benchRfSpatialIndex() {
   // 400 nodes along a ~2km path.
   const drawPoints = [];
   for (let i = 0; i < 400; i++) {
-    drawPoints.push({ lat: 51.5000 + i * 0.000018, lon: -0.1000 + i * 0.000018, rssi_815: -70, rssi_868: -75, rssi_915: -60 });
+    drawPoints.push({
+      lat: 51.5 + i * 0.000018,
+      lon: -0.1 + i * 0.000018,
+      rssi_815: -70,
+      rssi_868: -75,
+      rssi_915: -60,
+    });
   }
   // Buildings scattered ~uniformly over a 6km x 6km area (a plausible OSM
   // enrichment bbox for a dense city map view) at ~50% occupancy of 15m
@@ -268,29 +445,42 @@ function benchRfSpatialIndex() {
   // block density is far sparser at 35m — this fixture models that instead.
   function buildingAt(lat, lon) {
     const d = 0.00001;
-    return { type: 'way', tags: { building: 'yes' }, coordinates: [
-      { lat: lat - d, lon: lon - d }, { lat: lat + d, lon: lon - d },
-      { lat: lat + d, lon: lon + d }, { lat: lat - d, lon: lon + d },
-    ] };
+    return {
+      type: 'way',
+      tags: { building: 'yes' },
+      coordinates: [
+        { lat: lat - d, lon: lon - d },
+        { lat: lat + d, lon: lon - d },
+        { lat: lat + d, lon: lon + d },
+        { lat: lat - d, lon: lon + d },
+      ],
+    };
   }
-  function rand(n) { return Math.sin(n * 12.9898) * 43758.5453 % 1; }
+  function rand(n) {
+    return (Math.sin(n * 12.9898) * 43758.5453) % 1;
+  }
   const ways = [];
-  const CELL_M = 15, SPAN_M = 6000;
+  const CELL_M = 15,
+    SPAN_M = 6000;
   const metersPerDegLat = 111320;
-  const metersPerDegLon = 111320 * Math.cos(51.5 * Math.PI / 180);
+  const metersPerDegLon = 111320 * Math.cos((51.5 * Math.PI) / 180);
   const nCells = Math.floor(SPAN_M / CELL_M);
   let idx = 0;
   for (let a = 0; a < nCells; a++) {
     for (let b = 0; b < nCells; b++) {
       idx++;
       if (rand(idx) < 0.5) continue;
-      const lat = 51.4970 + (a * CELL_M + rand(idx + 9999) * CELL_M) / metersPerDegLat;
-      const lon = -0.1300 + (b * CELL_M + rand(idx + 7777) * CELL_M) / metersPerDegLon;
+      const lat =
+        51.497 + (a * CELL_M + rand(idx + 9999) * CELL_M) / metersPerDegLat;
+      const lon =
+        -0.13 + (b * CELL_M + rand(idx + 7777) * CELL_M) / metersPerDegLon;
       ways.push(buildingAt(lat, lon));
     }
   }
   const osmGeoms = { ways };
-  console.log(`   fixture: ${drawPoints.length} nodes, ${ways.length} buildings (${ways.length * 4} segments)\n`);
+  console.log(
+    `   fixture: ${drawPoints.length} nodes, ${ways.length} buildings (${ways.length * 4} segments)\n`,
+  );
 
   const gridResult = bench('grid-indexed (current)', 2, 8, () => {
     const r = new RFFluidRenderer(makeFakeMap(), { visible: true });
@@ -305,13 +495,19 @@ function benchRfSpatialIndex() {
   printRow(gridResult);
   printSpeedup(bruteResult, gridResult);
 
-  delete global.L; delete global.window; delete global.RFFluidRenderer;
+  delete global.L;
+  delete global.window;
+  delete global.RFFluidRenderer;
 }
 
 // ── Bench 2: single-track peak-label edit — refreshPeakMarkers() vs full renderData() ──
 function benchSingleTrackPeakRefresh() {
-  console.log('── Bench 2: single-track peak-label edit — refreshPeakMarkers() vs full renderData() ──');
-  console.log('   (map.js, Phase 6 ad-hoc fix + step 2; fixture: real track biomap_016.csv)\n');
+  console.log(
+    '── Bench 2: single-track peak-label edit — refreshPeakMarkers() vs full renderData() ──',
+  );
+  console.log(
+    '   (map.js, Phase 6 ad-hoc fix + step 2; fixture: real track biomap_016.csv)\n',
+  );
 
   const { window, mapManager, context } = bootWithRecordingL();
   const track = loadRealTrack(window, 'bench-single', 'biomap_016.csv');
@@ -319,17 +515,21 @@ function benchSingleTrackPeakRefresh() {
   window.AppState.analyzer = track.analyzer;
   const gpsParams = gpsDefault(context);
 
-  console.log(`   fixture: ${track.analyzer.peaks.length} peaks, ${track.analyzer.raw.length} raw rows\n`);
+  console.log(
+    `   fixture: ${track.analyzer.peaks.length} peaks, ${track.analyzer.raw.length} raw rows\n`,
+  );
 
   mapManager.renderData(track.analyzer, gpsParams); // establish the track's layerGroup
 
   let i = 0;
   const editAndFullRender = () => {
-    track.analyzer.peaks[i % track.analyzer.peaks.length].label = `Label ${i++}`;
+    track.analyzer.peaks[i % track.analyzer.peaks.length].label =
+      `Label ${i++}`;
     mapManager.renderData(track.analyzer, gpsParams);
   };
   const editAndScopedRefreshNoSkip = () => {
-    track.analyzer.peaks[i % track.analyzer.peaks.length].label = `Label ${i++}`;
+    track.analyzer.peaks[i % track.analyzer.peaks.length].label =
+      `Label ${i++}`;
     mapManager.refreshPeakMarkers(track.analyzer, gpsParams);
   };
   // The actual call ui.js's updatePeakLabel() makes today (perf-routes §2.4,
@@ -337,20 +537,41 @@ function benchSingleTrackPeakRefresh() {
   // the Arousal Places clusterer's lat/lon/amplitude input — doesn't recompute
   // the places on every keystroke-commit.
   const editAndScopedRefreshSkipClustering = () => {
-    track.analyzer.peaks[i % track.analyzer.peaks.length].label = `Label ${i++}`;
-    mapManager.refreshPeakMarkers(track.analyzer, gpsParams, { skipClustering: true });
+    track.analyzer.peaks[i % track.analyzer.peaks.length].label =
+      `Label ${i++}`;
+    mapManager.refreshPeakMarkers(track.analyzer, gpsParams, {
+      skipClustering: true,
+    });
   };
 
   const fullResult = bench('renderData() [pre-fix]', 3, 20, editAndFullRender);
-  const scopedNoSkipResult = bench('refreshPeakMarkers() [no skip]', 3, 20, editAndScopedRefreshNoSkip);
-  const scopedResult = bench('refreshPeakMarkers() [current]', 3, 20, editAndScopedRefreshSkipClustering);
+  const scopedNoSkipResult = bench(
+    'refreshPeakMarkers() [no skip]',
+    3,
+    20,
+    editAndScopedRefreshNoSkip,
+  );
+  const scopedResult = bench(
+    'refreshPeakMarkers() [current]',
+    3,
+    20,
+    editAndScopedRefreshSkipClustering,
+  );
   printRow(fullResult);
   printRow(scopedNoSkipResult);
   printRow(scopedResult);
-  console.log(`  → skipClustering vs not: ${(scopedNoSkipResult.median / scopedResult.median).toFixed(1)}x`);
-  console.log(`    (was ~30x pre-2026-09-08; the Arousal Places compute cache now makes the`);
-  console.log(`     no-skip path a cache HIT for a label edit too, so skipClustering only`);
-  console.log(`     saves the fingerprint hash + the arousal layer rebuild now)`);
+  console.log(
+    `  → skipClustering vs not: ${(scopedNoSkipResult.median / scopedResult.median).toFixed(1)}x`,
+  );
+  console.log(
+    `    (was ~30x pre-2026-09-08; the Arousal Places compute cache now makes the`,
+  );
+  console.log(
+    `     no-skip path a cache HIT for a label edit too, so skipClustering only`,
+  );
+  console.log(
+    `     saves the fingerprint hash + the arousal layer rebuild now)`,
+  );
   printSpeedup(fullResult, scopedResult);
 }
 
@@ -358,35 +579,77 @@ function benchSingleTrackPeakRefresh() {
 // matters: an earlier fixture accidentally included a track recorded in a
 // different city entirely, which produces a degenerate all-null grid that
 // hid a real bug during development of the bench 4 fix).
-const COLLECTIVE_FIXTURE_FILES = ['biomap_016.csv', 'biomap_039.csv', 'biomap_048.csv', 'biomap_015.csv'];
+const COLLECTIVE_FIXTURE_FILES = [
+  'biomap_016.csv',
+  'biomap_039.csv',
+  'biomap_048.csv',
+  'biomap_015.csv',
+];
 
 // ── Bench 3: collective-mode peak-label edit — refreshCollectivePeakMarkers() vs full renderCollectiveData() ──
 function benchCollectiveTrackPeakRefresh() {
-  console.log('── Bench 3: collective-mode peak-label edit — refreshCollectivePeakMarkers() vs full renderCollectiveData() ──');
-  console.log('   (map.js, Phase 6 step 2 collective piece; fixture: 4 real same-city tracks)\n');
+  console.log(
+    '── Bench 3: collective-mode peak-label edit — refreshCollectivePeakMarkers() vs full renderCollectiveData() ──',
+  );
+  console.log(
+    '   (map.js, Phase 6 step 2 collective piece; fixture: 4 real same-city tracks)\n',
+  );
 
   const { window, mapManager, context } = bootWithRecordingL();
   window.AppState.viewMode = 'collective';
-  const tracks = COLLECTIVE_FIXTURE_FILES.map((f, idx) => loadRealTrack(window, `bench-${idx}`, f));
+  const tracks = COLLECTIVE_FIXTURE_FILES.map((f, idx) =>
+    loadRealTrack(window, `bench-${idx}`, f),
+  );
   const totalPeaks = tracks.reduce((s, t) => s + t.analyzer.peaks.length, 0);
-  console.log(`   fixture: ${tracks.length} tracks, ${totalPeaks} total peaks (target track: ${tracks[0].analyzer.peaks.length} peaks)\n`);
+  console.log(
+    `   fixture: ${tracks.length} tracks, ${totalPeaks} total peaks (target track: ${tracks[0].analyzer.peaks.length} peaks)\n`,
+  );
 
-  const contourParams = { gridResolution: 40, contourCount: 10, isolationRadius: 50, idwExponent: 2, topographySource: 'phasic', showShadedSurface: false, normalizeZScore: true, surfaceOpacity: 0.4 };
-  mapManager.renderCollectiveData(window.AppState.collectiveManager, contourParams, 0); // establish layerGroups
+  const contourParams = {
+    gridResolution: 40,
+    contourCount: 10,
+    isolationRadius: 50,
+    idwExponent: 2,
+    topographySource: 'phasic',
+    showShadedSurface: false,
+    normalizeZScore: true,
+    surfaceOpacity: 0.4,
+  };
+  mapManager.renderCollectiveData(
+    window.AppState.collectiveManager,
+    contourParams,
+    0,
+  ); // establish layerGroups
 
   const target = tracks[0];
   let i = 0;
   const editAndFullRebuild = () => {
-    target.analyzer.peaks[i % target.analyzer.peaks.length].label = `Label ${i++}`;
-    mapManager.renderCollectiveData(window.AppState.collectiveManager, contourParams, 0);
+    target.analyzer.peaks[i % target.analyzer.peaks.length].label =
+      `Label ${i++}`;
+    mapManager.renderCollectiveData(
+      window.AppState.collectiveManager,
+      contourParams,
+      0,
+    );
   };
   const editAndScopedRefresh = () => {
-    target.analyzer.peaks[i % target.analyzer.peaks.length].label = `Label ${i++}`;
+    target.analyzer.peaks[i % target.analyzer.peaks.length].label =
+      `Label ${i++}`;
     mapManager.refreshCollectivePeakMarkers(target, 0);
   };
 
-  const fullResult = bench('renderCollectiveData() [pre-fix]', 3, 15, editAndFullRebuild);
-  const scopedResult = bench('refreshCollectivePeakMarkers() [current]', 3, 15, editAndScopedRefresh);
+  const fullResult = bench(
+    'renderCollectiveData() [pre-fix]',
+    3,
+    15,
+    editAndFullRebuild,
+  );
+  const scopedResult = bench(
+    'refreshCollectivePeakMarkers() [current]',
+    3,
+    15,
+    editAndScopedRefresh,
+  );
   printRow(fullResult);
   printRow(scopedResult);
   printSpeedup(fullResult, scopedResult);
@@ -408,43 +671,98 @@ function benchCollectiveTrackPeakRefresh() {
 // slider drags etc.) but not this cold one. buildPlaces() needs a raw-sample
 // spatial index — see the perf notes.
 function benchCollectiveColdRender() {
-  console.log('── Bench 4: cold collective render — getConcaveBlob()/generateContourSurface() cost ──');
-  console.log('   (spatial_clustering.js + collective_manager.js, Phase 7; fixture: 4 real same-city tracks)\n');
+  console.log(
+    '── Bench 4: cold collective render — getConcaveBlob()/generateContourSurface() cost ──',
+  );
+  console.log(
+    '   (spatial_clustering.js + collective_manager.js, Phase 7; fixture: 4 real same-city tracks)\n',
+  );
 
   const { window, mapManager, context } = bootWithRecordingL();
   window.AppState.viewMode = 'collective';
-  const tracks = COLLECTIVE_FIXTURE_FILES.map((f, idx) => loadRealTrack(window, `bench4-${idx}`, f));
+  const tracks = COLLECTIVE_FIXTURE_FILES.map((f, idx) =>
+    loadRealTrack(window, `bench4-${idx}`, f),
+  );
   const totalPeaks = tracks.reduce((s, t) => s + t.analyzer.peaks.length, 0);
-  console.log(`   fixture: ${tracks.length} tracks, ${totalPeaks} total peaks\n`);
+  console.log(
+    `   fixture: ${tracks.length} tracks, ${totalPeaks} total peaks\n`,
+  );
 
-  const contourParams = { gridResolution: 40, contourCount: 10, isolationRadius: 50, idwExponent: 2, topographySource: 'phasic', showShadedSurface: false, normalizeZScore: true, surfaceOpacity: 0.4 };
+  const contourParams = {
+    gridResolution: 40,
+    contourCount: 10,
+    isolationRadius: 50,
+    idwExponent: 2,
+    topographySource: 'phasic',
+    showShadedSurface: false,
+    normalizeZScore: true,
+    surfaceOpacity: 0.4,
+  };
   const collectiveManager = window.AppState.collectiveManager;
 
   const GSRSpatialClustering = vm.runInContext('GSRSpatialClustering', context);
   const GSRArousalPlaces = vm.runInContext('GSRArousalPlaces', context);
-  let blobMs = 0, blobN = 0, surfaceMs = 0, surfaceN = 0, buildMs = 0, buildN = 0;
-  const origBlob = GSRSpatialClustering.getConcaveBlob.bind(GSRSpatialClustering);
-  GSRSpatialClustering.getConcaveBlob = (...a) => { const t0 = process.hrtime.bigint(); const r = origBlob(...a); blobMs += Number(process.hrtime.bigint() - t0) / 1e6; blobN++; return r; };
-  const origSurface = collectiveManager.generateContourSurface.bind(collectiveManager);
-  collectiveManager.generateContourSurface = (...a) => { const t0 = process.hrtime.bigint(); const r = origSurface(...a); surfaceMs += Number(process.hrtime.bigint() - t0) / 1e6; surfaceN++; return r; };
+  let blobMs = 0,
+    blobN = 0,
+    surfaceMs = 0,
+    surfaceN = 0,
+    buildMs = 0,
+    buildN = 0;
+  const origBlob =
+    GSRSpatialClustering.getConcaveBlob.bind(GSRSpatialClustering);
+  GSRSpatialClustering.getConcaveBlob = (...a) => {
+    const t0 = process.hrtime.bigint();
+    const r = origBlob(...a);
+    blobMs += Number(process.hrtime.bigint() - t0) / 1e6;
+    blobN++;
+    return r;
+  };
+  const origSurface =
+    collectiveManager.generateContourSurface.bind(collectiveManager);
+  collectiveManager.generateContourSurface = (...a) => {
+    const t0 = process.hrtime.bigint();
+    const r = origSurface(...a);
+    surfaceMs += Number(process.hrtime.bigint() - t0) / 1e6;
+    surfaceN++;
+    return r;
+  };
   // buildPlaces(): the O(clusters × every active track's raw samples) dwell/energy
   // scan — the collective Arousal Places cost that scales with track count.
   const origBuild = GSRArousalPlaces.buildPlaces.bind(GSRArousalPlaces);
-  GSRArousalPlaces.buildPlaces = (...a) => { const t0 = process.hrtime.bigint(); const r = origBuild(...a); buildMs += Number(process.hrtime.bigint() - t0) / 1e6; buildN++; return r; };
+  GSRArousalPlaces.buildPlaces = (...a) => {
+    const t0 = process.hrtime.bigint();
+    const r = origBuild(...a);
+    buildMs += Number(process.hrtime.bigint() - t0) / 1e6;
+    buildN++;
+    return r;
+  };
 
   // Null the Arousal Places compute cache each iteration so this stays a COLD
   // render measurement — otherwise buildPlaces()/getConcaveBlob() would be
   // fingerprint-cached after the first call and the loop would under-report
   // what entering collective mode / adding a track actually costs.
-  const fullResult = bench('renderCollectiveData() [cold, cache busted]', 3, 12, () => {
-    mapManager._arousalPlacesCache = null;
-    mapManager.renderCollectiveData(collectiveManager, contourParams, 0);
-  });
+  const fullResult = bench(
+    'renderCollectiveData() [cold, cache busted]',
+    3,
+    12,
+    () => {
+      mapManager._arousalPlacesCache = null;
+      mapManager.renderCollectiveData(collectiveManager, contourParams, 0);
+    },
+  );
   printRow(fullResult);
-  console.log(`  getConcaveBlob:          avg=${(blobMs / blobN).toFixed(3)}ms/call over ${blobN} calls`);
-  console.log(`  buildPlaces:             avg=${(buildMs / Math.max(1, buildN)).toFixed(3)}ms/call over ${buildN} calls (Arousal Places dwell/energy scan)`);
-  console.log(`  generateContourSurface:  avg=${(surfaceMs / surfaceN).toFixed(3)}ms/call over ${surfaceN} calls`);
-  console.log('  (compare against this phase\'s documented pre-fix numbers — see the plan doc)\n');
+  console.log(
+    `  getConcaveBlob:          avg=${(blobMs / blobN).toFixed(3)}ms/call over ${blobN} calls`,
+  );
+  console.log(
+    `  buildPlaces:             avg=${(buildMs / Math.max(1, buildN)).toFixed(3)}ms/call over ${buildN} calls (Arousal Places dwell/energy scan)`,
+  );
+  console.log(
+    `  generateContourSurface:  avg=${(surfaceMs / surfaceN).toFixed(3)}ms/call over ${surfaceN} calls`,
+  );
+  console.log(
+    "  (compare against this phase's documented pre-fix numbers — see the plan doc)\n",
+  );
 }
 
 // ── Bench 5: GPS pipeline cache-miss cost — trimmed vs full-row-spread _collectGpsPoints() ──
@@ -457,12 +775,23 @@ function benchCollectiveColdRender() {
 // `_collectGpsPoints` swapped back to the pre-fix full `{ ...data[i],
 // origIdx: i }` spread to measure what the trim (perf-routes §2.7) removed.
 function benchGpsCollectPoints() {
-  console.log('── Bench 5: GPS pipeline cache-miss cost — _collectGpsPoints() field trim ──');
-  console.log('   (map.js, perf-routes §2.7; fixture: real track biomap_019.csv, 40,747 rows)\n');
+  console.log(
+    '── Bench 5: GPS pipeline cache-miss cost — _collectGpsPoints() field trim ──',
+  );
+  console.log(
+    '   (map.js, perf-routes §2.7; fixture: real track biomap_019.csv, 40,747 rows)\n',
+  );
 
   const { window, mapManager } = bootWithRecordingL();
   const track = loadRealTrack(window, 'bench5', 'biomap_019.csv');
-  const p = { maxHdop: 2.0, smoothing: 0.5, kalmanR: 10, maxSpeed: 3.0, rdpTolerance: 0, downsample: false };
+  const p = {
+    maxHdop: 2.0,
+    smoothing: 0.5,
+    kalmanR: 10,
+    maxSpeed: 3.0,
+    rdpTolerance: 0,
+    downsample: false,
+  };
 
   console.log(`   fixture: ${track.analyzer.raw.length} raw rows\n`);
 

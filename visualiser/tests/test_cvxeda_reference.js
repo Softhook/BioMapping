@@ -13,8 +13,6 @@
  * Run: node --test tests/test_cvxeda_reference.js
  */
 
-'use strict';
-
 const assert = require('assert');
 const test = require('node:test');
 const path = require('path');
@@ -27,11 +25,21 @@ const { loadModule } = require('./support/load_module.js');
 loadModule(path.join(__dirname, '../src/signal/cvxeda.js'), 'CVXEDA');
 const { CVXEDA } = global;
 
-const ref = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures/cvxeda_reference.json'), 'utf8'));
+const ref = JSON.parse(
+  fs.readFileSync(
+    path.join(__dirname, 'fixtures/cvxeda_reference.json'),
+    'utf8',
+  ),
+);
 
 function relRMSE(a, b) {
-  let num = 0, den = 0;
-  for (let i = 0; i < a.length; i++) { const d = a[i] - b[i]; num += d * d; den += b[i] * b[i]; }
+  let num = 0,
+    den = 0;
+  for (let i = 0; i < a.length; i++) {
+    const d = a[i] - b[i];
+    num += d * d;
+    den += b[i] * b[i];
+  }
   return Math.sqrt(num / Math.max(den, 1e-30));
 }
 
@@ -45,10 +53,19 @@ test('cvxEDA vs real cvxopt reference: phasic/tonic/driver/l/d/obj all match to 
   // otherwise this compares two different problems, not two solvers on the
   // same one.
   const res = CVXEDA.decompose(Float64Array.from(ref.y_z), ref.sr, {
-    normalize: false, alpha: 8e-4, gamma: 1e-2, tauSlow: 2.0, tauFast: 0.7, deltaKnotSec: 10.0
+    normalize: false,
+    alpha: 8e-4,
+    gamma: 1e-2,
+    tauSlow: 2.0,
+    tauFast: 0.7,
+    deltaKnotSec: 10.0,
   });
   assert.ok(res.converged, 'reference cross-check signal should converge');
-  assert.strictEqual(res.pivotFires, 0, 'a clean, well-conditioned reference solve should never need the pivot floor');
+  assert.strictEqual(
+    res.pivotFires,
+    0,
+    'a clean, well-conditioned reference solve should never need the pivot floor',
+  );
 
   const phasicErr = relRMSE(res.phasic, ref.r);
   const tonicErr = relRMSE(res.tonic, ref.t);
@@ -60,13 +77,34 @@ test('cvxEDA vs real cvxopt reference: phasic/tonic/driver/l/d/obj all match to 
   // real regression, loose enough not to flake on a legitimate future
   // tuning pass. This is what backs the file header's "~1e-6 relRMSE,
   // committed assertion 1e-4" claim -- keep the two in sync if either changes.
-  assert.ok(phasicErr < 1e-4, `phasic relRMSE vs real cvxopt should be < 1e-4, got ${phasicErr.toExponential(2)}`);
-  assert.ok(tonicErr < 1e-4, `tonic relRMSE vs real cvxopt should be < 1e-4, got ${tonicErr.toExponential(2)}`);
-  assert.ok(driverErr < 1e-3, `driver relRMSE vs real cvxopt should be < 1e-3, got ${driverErr.toExponential(2)}`);
-  assert.ok(lErr < 1e-4, `spline coeff relRMSE vs real cvxopt should be < 1e-4, got ${lErr.toExponential(2)}`);
+  assert.ok(
+    phasicErr < 1e-4,
+    `phasic relRMSE vs real cvxopt should be < 1e-4, got ${phasicErr.toExponential(2)}`,
+  );
+  assert.ok(
+    tonicErr < 1e-4,
+    `tonic relRMSE vs real cvxopt should be < 1e-4, got ${tonicErr.toExponential(2)}`,
+  );
+  assert.ok(
+    driverErr < 1e-3,
+    `driver relRMSE vs real cvxopt should be < 1e-3, got ${driverErr.toExponential(2)}`,
+  );
+  assert.ok(
+    lErr < 1e-4,
+    `spline coeff relRMSE vs real cvxopt should be < 1e-4, got ${lErr.toExponential(2)}`,
+  );
 
-  assert.ok(Math.abs(res.d[0] - ref.d[0]) < 1e-3, `drift offset ${res.d[0]} should match reference ${ref.d[0]}`);
-  assert.ok(Math.abs(res.d[1] - ref.d[1]) < 1e-3, `drift slope ${res.d[1]} should match reference ${ref.d[1]}`);
+  assert.ok(
+    Math.abs(res.d[0] - ref.d[0]) < 1e-3,
+    `drift offset ${res.d[0]} should match reference ${ref.d[0]}`,
+  );
+  assert.ok(
+    Math.abs(res.d[1] - ref.d[1]) < 1e-3,
+    `drift slope ${res.d[1]} should match reference ${ref.d[1]}`,
+  );
   const objErr = Math.abs(res.obj - ref.obj) / Math.abs(ref.obj);
-  assert.ok(objErr < 1e-4, `objective value should match reference within 1e-4 relative, got ${objErr.toExponential(2)}`);
+  assert.ok(
+    objErr < 1e-4,
+    `objective value should match reference within 1e-4 relative, got ${objErr.toExponential(2)}`,
+  );
 });

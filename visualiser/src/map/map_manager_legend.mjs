@@ -21,7 +21,6 @@ import { GSRMapManager } from './map.mjs';
 import { ResponseDynamics } from '../signal/response_dynamics.mjs';
 
 export const __methods = {
-
   /**
    * Initialise the Leaflet legend control in the bottom-right corner.
    */
@@ -29,9 +28,10 @@ export const __methods = {
     const LegendControl = L.Control.extend({
       onAdd: () => {
         const div = L.DomUtil.create('div', 'map-legend');
-        div.innerHTML = '<div class="legend-title">GSR Signal</div><div class="legend-scale"><div class="legend-gradient" style="background: linear-gradient(90deg, hsl(120,90%,50%), hsl(60,90%,50%), hsl(0,90%,50%));"></div><div class="legend-labels"><span>Low</span><span>High</span></div></div>';
+        div.innerHTML =
+          '<div class="legend-title">GSR Signal</div><div class="legend-scale"><div class="legend-gradient" style="background: linear-gradient(90deg, hsl(120,90%,50%), hsl(60,90%,50%), hsl(0,90%,50%));"></div><div class="legend-labels"><span>Low</span><span>High</span></div></div>';
         return div;
-      }
+      },
     });
     this._legendControl = new LegendControl({ position: 'bottomright' });
     this._legendControl.addTo(this.map);
@@ -54,19 +54,25 @@ export const __methods = {
    * @returns {string}
    */
   buildLegendHtml() {
-    const isCollective = (typeof AppState !== 'undefined' && AppState.viewMode === 'collective');
+    const isCollective =
+      typeof AppState !== 'undefined' && AppState.viewMode === 'collective';
     let html = '';
 
     if (isCollective) {
       const topoSource = this._collectiveTopographySource || 'phasic';
-      const topoCfg = (typeof GSR_CONST !== 'undefined' && GSR_CONST.TOPOGRAPHY_SOURCES && GSR_CONST.TOPOGRAPHY_SOURCES[topoSource]) || null;
+      const topoCfg =
+        (typeof GSR_CONST !== 'undefined' &&
+          GSR_CONST.TOPOGRAPHY_SOURCES &&
+          GSR_CONST.TOPOGRAPHY_SOURCES[topoSource]) ||
+        null;
       const title = (topoCfg && topoCfg.label) || 'Topography';
-      const unit = (topoCfg && topoCfg.unit !== undefined) ? topoCfg.unit : ' μS';
+      const unit = topoCfg && topoCfg.unit !== undefined ? topoCfg.unit : ' μS';
 
       const minV = this._legendMinVal;
       const maxV = this._legendMaxVal;
 
-      const gradient = 'linear-gradient(90deg, hsl(120,90%,50%), hsl(60,90%,50%), hsl(0,90%,50%))';
+      const gradient =
+        'linear-gradient(90deg, hsl(120,90%,50%), hsl(60,90%,50%), hsl(0,90%,50%))';
 
       const fmt = (v) => {
         if (v >= 100) return v.toFixed(0);
@@ -74,7 +80,7 @@ export const __methods = {
         return v.toFixed(3);
       };
 
-      const leftLabel  = fmt(minV) + unit;
+      const leftLabel = fmt(minV) + unit;
       const rightLabel = fmt(maxV) + unit;
 
       html = `
@@ -91,21 +97,31 @@ export const __methods = {
       // for the key<->field<->label mapping, also used by map.js's
       // _getMetricKey() and ui.js's correlation dashboard.
       const metricNames = {
-        'gsr':              'GSR Signal (Raw)',
-        'phasic':           'Phasic (SCR)',
-        'tonic':            'Tonic Baseline (SCL)',
-        'peakDensity':      'Peak Density (NS-SCR)',
-        'phasicAUC':        'Phasic AUC' + ((typeof AppState !== 'undefined' && AppState.analyzer && AppState.analyzer.phasicAUCIsISCR) ? ' (ISCR)' : ''),
-        'arousalIndex':     'Combined Arousal Index',
-        'triIndex':         'Tri Index',
-        'edasymp':          'EDASymp',
-        'responseDynamics': 'Response Dynamics (Speed)',
-        'em_fog':           'EM Fog Index (0-100)',
-        'hdopQuality':      'GPS Accuracy (HDOP)'
+        gsr: 'GSR Signal (Raw)',
+        phasic: 'Phasic (SCR)',
+        tonic: 'Tonic Baseline (SCL)',
+        peakDensity: 'Peak Density (NS-SCR)',
+        phasicAUC:
+          'Phasic AUC' +
+          (typeof AppState !== 'undefined' &&
+          AppState.analyzer &&
+          AppState.analyzer.phasicAUCIsISCR
+            ? ' (ISCR)'
+            : ''),
+        arousalIndex: 'Combined Arousal Index',
+        triIndex: 'Tri Index',
+        edasymp: 'EDASymp',
+        responseDynamics: 'Response Dynamics (Speed)',
+        em_fog: 'EM Fog Index (0-100)',
+        hdopQuality: 'GPS Accuracy (HDOP)',
       };
-      GSR_CONST.OSM_METRICS.forEach(m => { metricNames[m.key] = m.label; });
+      GSR_CONST.OSM_METRICS.forEach((m) => {
+        metricNames[m.key] = m.label;
+      });
       if (GSR_CONST.SATELLITE_METRICS) {
-        GSR_CONST.SATELLITE_METRICS.forEach(m => { metricNames[m.key] = m.label; });
+        GSR_CONST.SATELLITE_METRICS.forEach((m) => {
+          metricNames[m.key] = m.label;
+        });
       }
 
       const title = metricNames[metric] || metric;
@@ -115,24 +131,34 @@ export const __methods = {
         html = `<div class="legend-title">${title}</div><div class="legend-swatches">`;
         let count = 0;
         for (const [name, color] of Object.entries(allRoadLabels)) {
-          if (this._legendUniqueVals && !this._legendUniqueVals.has(name)) continue;
+          if (this._legendUniqueVals && !this._legendUniqueVals.has(name))
+            continue;
           html += `<div class="legend-swatch-row"><span class="legend-swatch" style="background:${color}"></span>${name}</div>`;
           count++;
         }
-        if (count === 0) html += '<div class="legend-swatch-row" style="color:#999">No data</div>';
+        if (count === 0)
+          html +=
+            '<div class="legend-swatch-row" style="color:#999">No data</div>';
         html += '</div>';
       } else if (metric === 'inPark') {
         const hasYes = this._legendUniqueVals && this._legendUniqueVals.has(1);
-        const hasNo  = this._legendUniqueVals && this._legendUniqueVals.has(0);
+        const hasNo = this._legendUniqueVals && this._legendUniqueVals.has(0);
         html = `<div class="legend-title">${title}</div><div class="legend-swatches">`;
-        if (hasYes) html += '<div class="legend-swatch-row"><span class="legend-swatch" style="background:#00e575"></span>Yes</div>';
-        if (hasNo)  html += '<div class="legend-swatch-row"><span class="legend-swatch" style="background:#666666"></span>No</div>';
-        if (!hasYes && !hasNo) html += '<div class="legend-swatch-row" style="color:#999">No data</div>';
+        if (hasYes)
+          html +=
+            '<div class="legend-swatch-row"><span class="legend-swatch" style="background:#00e575"></span>Yes</div>';
+        if (hasNo)
+          html +=
+            '<div class="legend-swatch-row"><span class="legend-swatch" style="background:#666666"></span>No</div>';
+        if (!hasYes && !hasNo)
+          html +=
+            '<div class="legend-swatch-row" style="color:#999">No data</div>';
         html += '</div>';
       } else if (metric === 'responseDynamics') {
-        const RD = (typeof ResponseDynamics !== 'undefined') ? ResponseDynamics : null;
+        const RD =
+          typeof ResponseDynamics !== 'undefined' ? ResponseDynamics : null;
         const gradientCss = RD
-          ? `linear-gradient(90deg, ${RD.BANDS.map(b => b.color).join(', ')})`
+          ? `linear-gradient(90deg, ${RD.BANDS.map((b) => b.color).join(', ')})`
           : 'linear-gradient(90deg, #8b5cf6, #3b82f6, #10b981, #f97316, #ef4444)';
         html = `
           <div class="legend-title">${title}</div>
@@ -151,42 +177,54 @@ export const __methods = {
         let gradient;
         switch (metric) {
           case 'greenPct':
-            gradient = 'linear-gradient(90deg, hsl(30,80%,45%), hsl(130,80%,45%))';
+            gradient =
+              'linear-gradient(90deg, hsl(30,80%,45%), hsl(130,80%,45%))';
             break;
           case 'buildingDensity':
-            gradient = 'linear-gradient(90deg, hsl(120,85%,50%), hsl(60,85%,50%), hsl(0,85%,50%))';
+            gradient =
+              'linear-gradient(90deg, hsl(120,85%,50%), hsl(60,85%,50%), hsl(0,85%,50%))';
             break;
           case 'distMajorRoad':
-            gradient = 'linear-gradient(90deg, hsl(0,85%,50%), hsl(60,85%,50%), hsl(120,85%,50%))';
+            gradient =
+              'linear-gradient(90deg, hsl(0,85%,50%), hsl(60,85%,50%), hsl(120,85%,50%))';
             break;
           case 'distWater':
-            gradient = 'linear-gradient(90deg, hsl(200,80%,45%), hsl(30,80%,45%))';
+            gradient =
+              'linear-gradient(90deg, hsl(200,80%,45%), hsl(30,80%,45%))';
             break;
           case 'distGreen':
-            gradient = 'linear-gradient(90deg, hsl(130,70%,45%), hsl(35,30%,45%))';
+            gradient =
+              'linear-gradient(90deg, hsl(130,70%,45%), hsl(35,30%,45%))';
             break;
           case 'canopyPct':
-            gradient = 'linear-gradient(90deg, hsl(95,25%,55%), hsl(135,80%,33%))';
+            gradient =
+              'linear-gradient(90deg, hsl(95,25%,55%), hsl(135,80%,33%))';
             break;
           case 'treeDensity':
-            gradient = 'linear-gradient(90deg, hsl(60,30%,45%), hsl(140,90%,45%))';
+            gradient =
+              'linear-gradient(90deg, hsl(60,30%,45%), hsl(140,90%,45%))';
             break;
           case 'amenityCount':
-            gradient = 'linear-gradient(90deg, hsl(240,85%,55%), hsl(120,85%,55%), hsl(0,85%,55%))';
+            gradient =
+              'linear-gradient(90deg, hsl(240,85%,55%), hsl(120,85%,55%), hsl(0,85%,55%))';
             break;
           case 'em_fog':
-            gradient = 'linear-gradient(90deg, hsl(220,90%,55%), hsl(300,90%,55%))';
+            gradient =
+              'linear-gradient(90deg, hsl(220,90%,55%), hsl(300,90%,55%))';
             break;
           case 'ndvi':
           case 'ndvi_50m':
-            gradient = 'linear-gradient(90deg, hsl(35,50%,50%), hsl(75,65%,45%), hsl(130,85%,35%))';
+            gradient =
+              'linear-gradient(90deg, hsl(35,50%,50%), hsl(75,65%,45%), hsl(130,85%,35%))';
             break;
           case 'hdopQuality':
             // Gradient left = best accuracy (green), right = worst (red)
-            gradient = 'linear-gradient(90deg, hsl(120,90%,45%), hsl(60,90%,45%), hsl(0,90%,45%))';
+            gradient =
+              'linear-gradient(90deg, hsl(120,90%,45%), hsl(60,90%,45%), hsl(0,90%,45%))';
             break;
           default: // gsr
-            gradient = 'linear-gradient(90deg, hsl(120,90%,50%), hsl(60,90%,50%), hsl(0,90%,50%))';
+            gradient =
+              'linear-gradient(90deg, hsl(120,90%,50%), hsl(60,90%,50%), hsl(0,90%,50%))';
             break;
         }
 
@@ -200,8 +238,10 @@ export const __methods = {
           return v.toFixed(3);
         };
 
-        let leftLabel  = metric === 'hdopQuality' ? `HDOP ${fmt(minV)} (best)` : fmt(minV);
-        let rightLabel = metric === 'hdopQuality' ? `HDOP ${fmt(maxV)} (worst)` : fmt(maxV);
+        const leftLabel =
+          metric === 'hdopQuality' ? `HDOP ${fmt(minV)} (best)` : fmt(minV);
+        const rightLabel =
+          metric === 'hdopQuality' ? `HDOP ${fmt(maxV)} (worst)` : fmt(maxV);
 
         html = `
           <div class="legend-title">${title}</div>
@@ -277,8 +317,7 @@ export const __methods = {
     }
 
     return html;
-  }
-
+  },
 };
 
 Object.assign(GSRMapManager.prototype, __methods);

@@ -23,8 +23,7 @@ import { MapColors } from '../map/map_colors.mjs';
 import { OSMEnricher } from '../osm/osm_enrichment.mjs';
 import { GSRRenderer } from './renderer.mjs';
 
-  export const __methods = {
-
+export const __methods = {
   /**
    * Environmental classification for background bands and tooltip context.
    * Reuses MapColors' existing roadClass/inPark colouring (same lookup the
@@ -48,19 +47,30 @@ import { GSRRenderer } from './renderer.mjs';
    */
   _classifyOsmContext(sample) {
     if (!sample) return null;
-    const rc = sample.osm_road_class ? sample.osm_road_class.toLowerCase() : null;
-    const road = rc ? {
-      key: rc,
-      label: rc.replace(/_/g, ' ').toUpperCase(),
-      color: MapColors.getColorForMetric('roadClass', rc, 0, 1)
-    } : null;
+    const rc = sample.osm_road_class
+      ? sample.osm_road_class.toLowerCase()
+      : null;
+    const road = rc
+      ? {
+          key: rc,
+          label: rc.replace(/_/g, ' ').toUpperCase(),
+          color: MapColors.getColorForMetric('roadClass', rc, 0, 1),
+        }
+      : null;
 
     if (road && OSMEnricher.isVehicularRoad(rc)) return road;
 
-    const inPark = sample.osm_in_park === 1 || sample.osm_in_park === true ||
-      (typeof sample.osm_dist_green === 'number' && sample.osm_dist_green <= GSRRenderer.PARK_EDGE_TOLERANCE_M);
+    const inPark =
+      sample.osm_in_park === 1 ||
+      sample.osm_in_park === true ||
+      (typeof sample.osm_dist_green === 'number' &&
+        sample.osm_dist_green <= GSRRenderer.PARK_EDGE_TOLERANCE_M);
     if (inPark) {
-      return { key: 'park', label: 'PARK', color: MapColors.getColorForMetric('inPark', 1, 0, 1) };
+      return {
+        key: 'park',
+        label: 'PARK',
+        color: MapColors.getColorForMetric('inPark', 1, 0, 1),
+      };
     }
     return road;
   },
@@ -77,7 +87,11 @@ import { GSRRenderer } from './renderer.mjs';
     if (!analyzer || !analyzer.raw || analyzer.raw.length === 0) return null;
 
     const dataVersion = analyzer._dataVersion || 0;
-    if (cache.analyzer === analyzer && cache.dataVersion === dataVersion && cache.segments !== null) {
+    if (
+      cache.analyzer === analyzer &&
+      cache.dataVersion === dataVersion &&
+      cache.segments !== null
+    ) {
       return cache.segments;
     }
 
@@ -106,13 +120,15 @@ import { GSRRenderer } from './renderer.mjs';
       const cls = classify(raw[i]);
       const key = cls ? cls.key : null;
       if (key !== curKey) {
-        if (curCls) segments.push({ cls: curCls, tStart: segStart, tEnd: raw[i].time });
+        if (curCls)
+          segments.push({ cls: curCls, tStart: segStart, tEnd: raw[i].time });
         curCls = cls;
         curKey = key;
         segStart = raw[i].time;
       }
     }
-    if (curCls) segments.push({ cls: curCls, tStart: segStart, tEnd: raw[n - 1].time });
+    if (curCls)
+      segments.push({ cls: curCls, tStart: segStart, tEnd: raw[n - 1].time });
     return segments;
   },
 
@@ -121,8 +137,9 @@ import { GSRRenderer } from './renderer.mjs';
    * Runs once when a track is loaded or re-enriched, keeping per-frame draw cost near zero.
    */
   _getOsmContextSegments(analyzer) {
-    return this._getBandSegments(this._bandCache.osm, analyzer,
-      (raw) => this._rleSegments(raw, (s) => this._classifyOsmContext(s)));
+    return this._getBandSegments(this._bandCache.osm, analyzer, (raw) =>
+      this._rleSegments(raw, (s) => this._classifyOsmContext(s)),
+    );
   },
 
   /**
@@ -157,8 +174,14 @@ import { GSRRenderer } from './renderer.mjs';
       // Skip segments outside current viewport
       if (seg.tEnd <= tMin || seg.tStart >= tMax) continue;
 
-      const x1 = Math.max(xLeftMargin, xLeftMargin + (seg.tStart - tMin) * xScale);
-      const x2 = Math.min(xRightMargin, xLeftMargin + (seg.tEnd - tMin) * xScale);
+      const x1 = Math.max(
+        xLeftMargin,
+        xLeftMargin + (seg.tStart - tMin) * xScale,
+      );
+      const x2 = Math.min(
+        xRightMargin,
+        xLeftMargin + (seg.tEnd - tMin) * xScale,
+      );
       const w = x2 - x1;
       if (w < 0.5) continue;
 
@@ -221,7 +244,8 @@ import { GSRRenderer } from './renderer.mjs';
    */
   _getContinuousBandSegments(cache, analyzer, metric) {
     return this._getBandSegments(cache, analyzer, (raw) => {
-      let minVal = Infinity, maxVal = -Infinity;
+      let minVal = Infinity,
+        maxVal = -Infinity;
       for (let i = 0; i < raw.length; i++) {
         const v = raw[i][metric];
         if (typeof v === 'number' && !isNaN(v)) {
@@ -245,7 +269,7 @@ import { GSRRenderer } from './renderer.mjs';
         const v = s[metric];
         if (typeof v !== 'number' || isNaN(v)) return null;
         const b = ((v - minVal) * buckets) / span;
-        const bucket = b < 0 ? 0 : (b >= buckets ? buckets - 1 : b | 0);
+        const bucket = b < 0 ? 0 : b >= buckets ? buckets - 1 : b | 0;
         return { key: bucket, hsl: lut[bucket] };
       });
     });
@@ -262,7 +286,12 @@ import { GSRRenderer } from './renderer.mjs';
     const bandHeight = yBottom - yTop;
     noStroke();
     this._drawBandSegments(segments, tMin, tMax, (seg, x1, x2, w) => {
-      fill(MapColors.hexToRgba(MapColors.hslStringToHex(seg.cls.hsl), this.CONTINUOUS_BAND_ALPHA));
+      fill(
+        MapColors.hexToRgba(
+          MapColors.hslStringToHex(seg.cls.hsl),
+          this.CONTINUOUS_BAND_ALPHA,
+        ),
+      );
       rect(x1, yTop, w, bandHeight);
     });
   },
@@ -284,37 +313,67 @@ import { GSRRenderer } from './renderer.mjs';
     if (!range) return null;
     const lut = MapColors.getColorLut(metric, range.minVal, range.maxVal);
     const span = range.maxVal - range.minVal;
-    let b = span > 0 ? ((v - range.minVal) * lut.length) / span : lut.length / 2;
-    b = b < 0 ? 0 : (b >= lut.length ? lut.length - 1 : b | 0);
+    let b =
+      span > 0 ? ((v - range.minVal) * lut.length) / span : lut.length / 2;
+    b = b < 0 ? 0 : b >= lut.length ? lut.length - 1 : b | 0;
     return { value: v, color: MapColors.hslStringToHex(lut[b]) };
   },
 
   _getNdviContextSegments(analyzer) {
-    return this._getContinuousBandSegments(this._bandCache.ndvi, analyzer, 'ndvi_50m');
+    return this._getContinuousBandSegments(
+      this._bandCache.ndvi,
+      analyzer,
+      'ndvi_50m',
+    );
   },
 
   drawNdviContextBands(tMin, tMax, yTop, yBottom) {
     if (!AppState.analyzer) return;
-    this._drawContinuousBand(this._getNdviContextSegments(AppState.analyzer), tMin, tMax, yTop, yBottom);
+    this._drawContinuousBand(
+      this._getNdviContextSegments(AppState.analyzer),
+      tMin,
+      tMax,
+      yTop,
+      yBottom,
+    );
   },
 
   _ndviColorAt(analyzer, sample) {
-    return this._continuousColorAt(this._bandCache.ndvi, analyzer, 'ndvi_50m', sample);
+    return this._continuousColorAt(
+      this._bandCache.ndvi,
+      analyzer,
+      'ndvi_50m',
+      sample,
+    );
   },
 
   _getEmFogContextSegments(analyzer) {
-    return this._getContinuousBandSegments(this._bandCache.emFog, analyzer, 'em_fog');
+    return this._getContinuousBandSegments(
+      this._bandCache.emFog,
+      analyzer,
+      'em_fog',
+    );
   },
 
   drawEmFogContextBands(tMin, tMax, yTop, yBottom) {
     if (!AppState.analyzer) return;
-    this._drawContinuousBand(this._getEmFogContextSegments(AppState.analyzer), tMin, tMax, yTop, yBottom);
+    this._drawContinuousBand(
+      this._getEmFogContextSegments(AppState.analyzer),
+      tMin,
+      tMax,
+      yTop,
+      yBottom,
+    );
   },
 
   _emFogColorAt(analyzer, sample) {
-    return this._continuousColorAt(this._bandCache.emFog, analyzer, 'em_fog', sample);
+    return this._continuousColorAt(
+      this._bandCache.emFog,
+      analyzer,
+      'em_fog',
+      sample,
+    );
   },
+};
 
-  };
-
-  Object.assign(GSRRenderer, __methods);
+Object.assign(GSRRenderer, __methods);

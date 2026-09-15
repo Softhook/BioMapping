@@ -1,24 +1,28 @@
-'use strict';
-
 const assert = require('assert');
-const test   = require('node:test');
-const fs     = require('fs');
-const path   = require('path');
+const test = require('node:test');
+const fs = require('fs');
+const path = require('path');
 
 global.window = global;
 global.GSR_CONST = require('./mock_constants.js');
 
 const { loadModule } = require('./support/load_module.js');
 
-loadModule(path.join(__dirname, '../src/gps/geo_utils.js'),          'GeoUtils');
-loadModule(path.join(__dirname, '../src/signal/stats_math.js'),         'StatsMath');
-loadModule(path.join(__dirname, '../src/map/map_colors.js'),         'MapColors');
-loadModule(path.join(__dirname, '../src/gps/gps_filter.js'),         'GpsFilter');
-loadModule(path.join(__dirname, '../src/gps/gps_pipeline.js'),       'GpsPipeline');
-loadModule(path.join(__dirname, '../src/signal/dwt_filter.js'),         'DWT');
-loadModule(path.join(__dirname, '../src/signal/gsr_filter.js'),         'GsrFilter');
-loadModule(path.join(__dirname, '../src/signal/deconvolution.js'),      'SCRDeconvolution');
-loadModule(path.join(__dirname, '../src/signal/analyzer_time_format.js'), 'AnalyzerTimeFormat');
+loadModule(path.join(__dirname, '../src/gps/geo_utils.js'), 'GeoUtils');
+loadModule(path.join(__dirname, '../src/signal/stats_math.js'), 'StatsMath');
+loadModule(path.join(__dirname, '../src/map/map_colors.js'), 'MapColors');
+loadModule(path.join(__dirname, '../src/gps/gps_filter.js'), 'GpsFilter');
+loadModule(path.join(__dirname, '../src/gps/gps_pipeline.js'), 'GpsPipeline');
+loadModule(path.join(__dirname, '../src/signal/dwt_filter.js'), 'DWT');
+loadModule(path.join(__dirname, '../src/signal/gsr_filter.js'), 'GsrFilter');
+loadModule(
+  path.join(__dirname, '../src/signal/deconvolution.js'),
+  'SCRDeconvolution',
+);
+loadModule(
+  path.join(__dirname, '../src/signal/analyzer_time_format.js'),
+  'AnalyzerTimeFormat',
+);
 
 const { GSRAnalyzer } = require('../src/signal/analyzer.mjs');
 const { GSRCSVParser } = require('../src/signal/csv_parser.mjs');
@@ -107,7 +111,10 @@ test('GSRAnalyzer parseCSV: basic parsing and column mapping', () => {
   assert.strictEqual(a.raw[0].sats, 8);
   // sampleRate is derived from a mean of float time diffs, so compare with a
   // tolerance rather than exact equality (1/0.1 !== 10 in IEEE-754).
-  assert.ok(Math.abs(a.sampleRate - 10) < 1e-5, `expected sampleRate ~10, got ${a.sampleRate}`);
+  assert.ok(
+    Math.abs(a.sampleRate - 10) < 1e-5,
+    `expected sampleRate ~10, got ${a.sampleRate}`,
+  );
 });
 
 test('GSRAnalyzer parseCSV: metadata comments parsed correctly', () => {
@@ -189,7 +196,7 @@ test('GSRAnalyzer parseCSV: duplicate timestamps reconstructed', () => {
 
 test('GSRAnalyzer parseCSV: validation warnings and error checks', () => {
   // Empty check
-  const emptyCsv = "";
+  const emptyCsv = '';
   const aEmpty = new GSRAnalyzer();
   assert.throws(() => aEmpty.parseCSV(emptyCsv), /CSV file is empty/);
 
@@ -199,8 +206,8 @@ test('GSRAnalyzer parseCSV: validation warnings and error checks', () => {
 9.0,1.1,51.5,-0.1`;
   const aBad = new GSRAnalyzer();
   aBad.parseCSV(badCsv);
-  assert.ok(aBad._csvWarnings.some(w => w.includes('non-monotonic')));
-  assert.ok(aBad._csvWarnings.some(w => w.includes('startup sentinel')));
+  assert.ok(aBad._csvWarnings.some((w) => w.includes('non-monotonic')));
+  assert.ok(aBad._csvWarnings.some((w) => w.includes('startup sentinel')));
 });
 
 // ── Canonical column-synonym matching ────────────────────────────────────────
@@ -291,25 +298,37 @@ time,gsr,osm_road_class
   assert.strictEqual(res.warnings, null);
   assert.ok(res.importedPeakLabels instanceof Map);
   assert.ok(res.importedPeakExcluded instanceof Map);
-  assert.ok(Math.abs(res.sampleRate - 10) < 1e-5, `expected sampleRate ~10, got ${res.sampleRate}`);
+  assert.ok(
+    Math.abs(res.sampleRate - 10) < 1e-5,
+    `expected sampleRate ~10, got ${res.sampleRate}`,
+  );
 });
 
 test('OSM enrichment columns survive a CSV export -> re-import round-trip (incl. osm_dist_green and its 999 sentinel)', () => {
   const a = new GSRAnalyzer();
-  a.parseCSV([
-    'Time (s),Raw Conductance (uS),Latitude,Longitude',
-    '0.00,5.10,51.5000,-0.1000',
-    '0.10,5.12,51.5001,-0.1000',
-    '0.20,5.11,51.5002,-0.1000',
-  ].join('\n'));
+  a.parseCSV(
+    [
+      'Time (s),Raw Conductance (uS),Latitude,Longitude',
+      '0.00,5.10,51.5000,-0.1000',
+      '0.10,5.12,51.5001,-0.1000',
+      '0.20,5.11,51.5002,-0.1000',
+    ].join('\n'),
+  );
   a.analyze(GSR_CONST.GSR_DEFAULT);
   a.isEnriched = true;
   a.enrichmentRadius = 50;
   // Row 0: standing in green. Row 1: green nearby. Row 2: no green in range.
   Object.assign(a.raw[0], {
-    osm_road_class: 'residential', osm_dist_major_road: 12.5, osm_in_park: 1,
-    osm_green_pct_50m: 100, osm_dist_green: 0, osm_canopy_pct_50m: 88, osm_building_density_50m: 3,
-    osm_dist_water: 40, osm_tree_density_50m: 2, osm_amenity_count_50m: 1,
+    osm_road_class: 'residential',
+    osm_dist_major_road: 12.5,
+    osm_in_park: 1,
+    osm_green_pct_50m: 100,
+    osm_dist_green: 0,
+    osm_canopy_pct_50m: 88,
+    osm_building_density_50m: 3,
+    osm_dist_water: 40,
+    osm_tree_density_50m: 2,
+    osm_amenity_count_50m: 1,
   });
   a.raw[1].osm_road_class = 'primary';
   a.raw[1].osm_dist_green = 27.3;
@@ -319,19 +338,50 @@ test('OSM enrichment columns survive a CSV export -> re-import round-trip (incl.
   a.raw[2].osm_canopy_pct_50m = 24;
 
   const csv = a.exportToCSV();
-  assert.ok(csv.includes('osm_dist_green'), 'exported header carries osm_dist_green');
-  assert.ok(csv.includes('osm_canopy_pct_50m'), 'exported header carries osm_canopy_pct_50m');
+  assert.ok(
+    csv.includes('osm_dist_green'),
+    'exported header carries osm_dist_green',
+  );
+  assert.ok(
+    csv.includes('osm_canopy_pct_50m'),
+    'exported header carries osm_canopy_pct_50m',
+  );
 
   const b = new GSRAnalyzer();
   b.parseCSV(csv);
-  assert.strictEqual(b.isEnriched, true, 're-imported CSV is recognised as enriched');
-  assert.strictEqual(b.raw[0].osm_dist_green, 0, 'dist_green 0 (standing in green) round-trips');
-  assert.ok(Math.abs(b.raw[1].osm_dist_green - 27.3) < 0.01, 'dist_green 27.3 round-trips to 2 dp');
-  assert.strictEqual(b.raw[2].osm_dist_green, 999, 'dist_green 999 "no green in range" sentinel round-trips');
-  assert.ok(Math.abs(b.raw[0].osm_canopy_pct_50m - 88) < 0.05, 'canopy_pct round-trips');
-  assert.strictEqual(b.raw[1].osm_canopy_pct_50m, 0, 'canopy_pct 0 round-trips (not lost as an empty cell)');
+  assert.strictEqual(
+    b.isEnriched,
+    true,
+    're-imported CSV is recognised as enriched',
+  );
+  assert.strictEqual(
+    b.raw[0].osm_dist_green,
+    0,
+    'dist_green 0 (standing in green) round-trips',
+  );
+  assert.ok(
+    Math.abs(b.raw[1].osm_dist_green - 27.3) < 0.01,
+    'dist_green 27.3 round-trips to 2 dp',
+  );
+  assert.strictEqual(
+    b.raw[2].osm_dist_green,
+    999,
+    'dist_green 999 "no green in range" sentinel round-trips',
+  );
+  assert.ok(
+    Math.abs(b.raw[0].osm_canopy_pct_50m - 88) < 0.05,
+    'canopy_pct round-trips',
+  );
+  assert.strictEqual(
+    b.raw[1].osm_canopy_pct_50m,
+    0,
+    'canopy_pct 0 round-trips (not lost as an empty cell)',
+  );
   // A sibling column still works alongside the new ones.
-  assert.ok(Math.abs(b.raw[0].osm_dist_water - 40) < 0.01, 'osm_dist_water still round-trips');
+  assert.ok(
+    Math.abs(b.raw[0].osm_dist_water - 40) < 0.01,
+    'osm_dist_water still round-trips',
+  );
 });
 
 // ── Analyzer helpers: findClosestIndex / getMatchingLabel / peak density ────
@@ -350,23 +400,23 @@ test('GSRAnalyzer findClosestIndex: binary search over raw timestamps', () => {
   assert.strictEqual(a.findClosestIndex(10), 1);
   assert.strictEqual(a.findClosestIndex(30), 3);
   // Between two points returns the nearer index
-  assert.strictEqual(a.findClosestIndex(14), 1);  // nearer to 10
-  assert.strictEqual(a.findClosestIndex(16), 2);  // nearer to 20
+  assert.strictEqual(a.findClosestIndex(14), 1); // nearer to 10
+  assert.strictEqual(a.findClosestIndex(16), 2); // nearer to 20
 });
 
 test('GSRAnalyzer getMatchingLabel: exact match then nearest within tolerance', () => {
   const a = new GSRAnalyzer();
-  assert.strictEqual(a.getMatchingLabel(10.0), '');   // no labels stored
+  assert.strictEqual(a.getMatchingLabel(10.0), ''); // no labels stored
 
   a.setPeakLabel(10.0, 'A');
   a.setPeakLabel(20.0, 'B');
 
-  assert.strictEqual(a.getMatchingLabel(10.0), 'A');  // exact key match
-  assert.strictEqual(a.getMatchingLabel(10.5), 'A');  // nearest within 1.0s
-  assert.strictEqual(a.getMatchingLabel(11.0), 'A');  // at the tolerance boundary
-  assert.strictEqual(a.getMatchingLabel(11.1), '');   // outside tolerance
-  assert.strictEqual(a.getMatchingLabel(19.0), 'B');  // nearer to B
-  assert.strictEqual(a.getMatchingLabel(null), '');   // null target
+  assert.strictEqual(a.getMatchingLabel(10.0), 'A'); // exact key match
+  assert.strictEqual(a.getMatchingLabel(10.5), 'A'); // nearest within 1.0s
+  assert.strictEqual(a.getMatchingLabel(11.0), 'A'); // at the tolerance boundary
+  assert.strictEqual(a.getMatchingLabel(11.1), ''); // outside tolerance
+  assert.strictEqual(a.getMatchingLabel(19.0), 'B'); // nearer to B
+  assert.strictEqual(a.getMatchingLabel(null), ''); // null target
   // Custom tolerance actually narrows the window: 0.4s is within the default
   // 1.0s but outside a 0.3s tolerance.
   assert.strictEqual(a.getMatchingLabel(10.4, 0.3), '');
@@ -391,14 +441,25 @@ test('GSRAnalyzer _dataVersion: bumped by every mutation path a self-validating 
 
   a.peaks = [{ time: 10, excluded: false }];
   a.setPeakExcluded(0, true);
-  assert.strictEqual(a.peaks[0].excluded, true, 'setPeakExcluded flips the flag');
+  assert.strictEqual(
+    a.peaks[0].excluded,
+    true,
+    'setPeakExcluded flips the flag',
+  );
   assert.strictEqual(a._dataVersion, 2, 'setPeakExcluded bumps _dataVersion');
 
   // Out-of-range index is a no-op, including for the version counter.
   a.setPeakExcluded(5, true);
-  assert.strictEqual(a._dataVersion, 2, 'setPeakExcluded on an invalid index does not bump _dataVersion');
+  assert.strictEqual(
+    a._dataVersion,
+    2,
+    'setPeakExcluded on an invalid index does not bump _dataVersion',
+  );
 
-  a.raw = [{ time: 0, val: 1 }, { time: 1, val: 2 }];
+  a.raw = [
+    { time: 0, val: 1 },
+    { time: 1, val: 2 },
+  ];
   a.analyze(GSR_CONST.GSR_DEFAULT, 0);
   assert.strictEqual(a._dataVersion, 3, 'analyze() bumps _dataVersion');
 });
@@ -410,22 +471,28 @@ test('GSRAnalyzer computeTemporalPeakDensity: Gaussian KDE scaled by spotlight w
   a.phasic = [{ time: 0 }, { time: 30 }, { time: 100 }];
   a.peaks = [
     { time: 28, excluded: false },
-    { time: 32, excluded: false }
+    { time: 32, excluded: false },
   ];
 
   const d = a.computeTemporalPeakDensity(60);
   assert.strictEqual(d.length, 3);
   assert.strictEqual(d[0].time, 0);
   // All density values are non-negative and continuous floats
-  assert.ok(d.every(pt => pt.val >= 0));
+  assert.ok(d.every((pt) => pt.val >= 0));
   // t=30 is centrally situated near the burst at 28s and 32s -> high continuous density
-  assert.ok(d[1].val > d[0].val && d[1].val > d[2].val, 'density peaks at t=30 near the event cluster');
+  assert.ok(
+    d[1].val > d[0].val && d[1].val > d[2].val,
+    'density peaks at t=30 near the event cluster',
+  );
 
   // Excluded peaks are ignored by the count
   const valBefore = d[1].val;
   a.peaks.push({ time: 30, excluded: true });
   const d2 = a.computeTemporalPeakDensity(60);
-  assert.ok(Math.abs(d2[1].val - valBefore) < 1e-9, 'excluded peak does not affect density');
+  assert.ok(
+    Math.abs(d2[1].val - valBefore) < 1e-9,
+    'excluded peak does not affect density',
+  );
 
   // Active peak at t=30 increases the continuous density at t=30
   a.peaks.push({ time: 30, excluded: false });
@@ -439,7 +506,10 @@ test('GSRCSVParser._csvEscape: RFC4180 double-quote escaping', () => {
   assert.strictEqual(GSRCSVParser._csvEscape(null), '');
   assert.strictEqual(GSRCSVParser._csvEscape(undefined), '');
   assert.strictEqual(GSRCSVParser._csvEscape('plain'), '"plain"');
-  assert.strictEqual(GSRCSVParser._csvEscape('has "quotes"'), '"has ""quotes"""');
+  assert.strictEqual(
+    GSRCSVParser._csvEscape('has "quotes"'),
+    '"has ""quotes"""',
+  );
   assert.strictEqual(GSRCSVParser._csvEscape(123), '"123"');
 });
 
@@ -448,7 +518,7 @@ test('GSRCSVParser._detectRfPeakIndices: momentary spike on any band', () => {
   const spike = GSRCSVParser._detectRfPeakIndices([
     { rssi_868: -100 },
     { rssi_868: -95 },
-    { rssi_868: -100 }
+    { rssi_868: -100 },
   ]);
   assert.deepStrictEqual([...spike], [1]);
 
@@ -456,7 +526,7 @@ test('GSRCSVParser._detectRfPeakIndices: momentary spike on any band', () => {
   const noSpike = GSRCSVParser._detectRfPeakIndices([
     { rssi_868: -100 },
     { rssi_868: -101 },
-    { rssi_868: -100 }
+    { rssi_868: -100 },
   ]);
   assert.strictEqual(noSpike.size, 0);
 
@@ -464,7 +534,7 @@ test('GSRCSVParser._detectRfPeakIndices: momentary spike on any band', () => {
   const boundary = GSRCSVParser._detectRfPeakIndices([
     { rssi_868: -95 },
     { rssi_868: -100 },
-    { rssi_868: -100 }
+    { rssi_868: -100 },
   ]);
   assert.deepStrictEqual([...boundary], [0]);
 
@@ -472,7 +542,7 @@ test('GSRCSVParser._detectRfPeakIndices: momentary spike on any band', () => {
   const otherBand = GSRCSVParser._detectRfPeakIndices([
     { rssi_915: -90 },
     { rssi_915: -85 },
-    { rssi_915: -90 }
+    { rssi_915: -90 },
   ]);
   assert.deepStrictEqual([...otherBand], [1]);
 });
@@ -484,14 +554,19 @@ test('GSRAnalyzer _assignLabelsToPeaks: assigns nearest label within 1.0s window
   a.setPeakLabel(10.0, 'A');
   a.setPeakLabel(20.0, 'B');
 
-  const peaks = [{ time: 10.0 }, { time: 10.4 }, { time: 20.0 }, { time: 50.0 }];
+  const peaks = [
+    { time: 10.0 },
+    { time: 10.4 },
+    { time: 20.0 },
+    { time: 50.0 },
+  ];
   a._assignLabelsToPeaks(peaks);
 
-  assert.strictEqual(peaks[0].label, 'A');   // exact match
-  assert.strictEqual(peaks[2].label, 'B');   // exact match
+  assert.strictEqual(peaks[0].label, 'A'); // exact match
+  assert.strictEqual(peaks[2].label, 'B'); // exact match
   // 10.4 is within 1.0s of 'A', but 'A' is already used 1-to-1; too far from 'B'
   assert.strictEqual(peaks[1].label, undefined);
-  assert.strictEqual(peaks[3].label, undefined);  // 50.0 too far from any label
+  assert.strictEqual(peaks[3].label, undefined); // 50.0 too far from any label
 });
 
 test('GSRAnalyzer _assignLabelsToPeaks: greedy 1-to-1, closest peak wins the label', () => {
@@ -538,27 +613,45 @@ test('GSRAnalyzer _assignLabelsToPeaks: no-ops and boundary cases', () => {
 test('GSRAnalyzer _computePeakQuality: ideal peak scores 1, poor peak scores low', () => {
   const a = new GSRAnalyzer();
   const near = (actual, expected, msg) => {
-    assert.ok(Math.abs(actual - expected) < 1e-9, `${msg} — got ${actual}, expected ${expected}`);
+    assert.ok(
+      Math.abs(actual - expected) < 1e-9,
+      `${msg} — got ${actual}, expected ${expected}`,
+    );
   };
 
   // All shape metrics ideal -> every weight contributes fully -> 1.0
   const ideal = {
-    amplitude: 0.5, halfRecoveryTime: 2.0, riseTime: 1.0, skewnessRatio: 0.5,
-    onsetSlope: 0.5, snr: 5.0, decaySlope: 0.05
+    amplitude: 0.5,
+    halfRecoveryTime: 2.0,
+    riseTime: 1.0,
+    skewnessRatio: 0.5,
+    onsetSlope: 0.5,
+    snr: 5.0,
+    decaySlope: 0.05,
   };
   near(a._computePeakQuality(ideal), 1.0, 'ideal peak');
 
   // Everything outside the credited ranges -> only amplitude contributes (0.02)
   const poor = {
-    amplitude: 0.05, riseTime: 10, halfRecoveryTime: 20, skewnessRatio: 5,
-    onsetSlope: 10, snr: 1.0, decaySlope: 0
+    amplitude: 0.05,
+    riseTime: 10,
+    halfRecoveryTime: 20,
+    skewnessRatio: 5,
+    onsetSlope: 10,
+    snr: 1.0,
+    decaySlope: 0,
   };
   near(a._computePeakQuality(poor), 0.02, 'poor peak');
 
   // Half-credit branches: 0.5 amplitude, edge-of-ideal recovery/rise, etc.
   const partial = {
-    amplitude: 0.25, riseTime: 4.0, halfRecoveryTime: 6.0, skewnessRatio: 1.5,
-    onsetSlope: 2.0, snr: 2.5, decaySlope: 0.002
+    amplitude: 0.25,
+    riseTime: 4.0,
+    halfRecoveryTime: 6.0,
+    skewnessRatio: 1.5,
+    onsetSlope: 2.0,
+    snr: 2.5,
+    decaySlope: 0.002,
   };
   // 0.10 + 0.075 + 0.075 + 0.09 + 0.05 + 0.105 + 0.10 = 0.595 (all weights applicable)
   near(a._computePeakQuality(partial), 0.595, 'partial peak');
@@ -568,35 +661,72 @@ test('GSRAnalyzer _computePeakQuality: ideal peak scores 1, poor peak scores low
   // left OUT of the denominator, not scored zero — an otherwise-ideal peak
   // still scores 1.0 rather than being docked 0.40 for a hidden recovery.
   const idealNoRecovery = {
-    amplitude: 0.5, halfRecoveryTime: -1, riseTime: 1.0, skewnessRatio: 0,
-    onsetSlope: 0.5, snr: 5.0, decaySlope: 0
+    amplitude: 0.5,
+    halfRecoveryTime: -1,
+    riseTime: 1.0,
+    skewnessRatio: 0,
+    onsetSlope: 0.5,
+    snr: 5.0,
+    decaySlope: 0,
   };
-  near(a._computePeakQuality(idealNoRecovery), 1.0, 'ideal peak with hidden recovery still scores 1.0');
+  near(
+    a._computePeakQuality(idealNoRecovery),
+    1.0,
+    'ideal peak with hidden recovery still scores 1.0',
+  );
 
   // Same idea, mixed credit: amp 0.10/0.20 full-ish, rise half, onset half,
   // snr 0.7. applicable = 0.20+0.15+0.10+0.15 = 0.60.
   // score = 0.5*0.20 + 0.5*0.15 + 0.5*0.10 + 0.7*0.15 = 0.1+0.075+0.05+0.105 = 0.33
   const partialNoRecovery = {
-    amplitude: 0.25, halfRecoveryTime: -1, riseTime: 4.0, skewnessRatio: 0,
-    onsetSlope: 2.0, snr: 2.5, decaySlope: 0
+    amplitude: 0.25,
+    halfRecoveryTime: -1,
+    riseTime: 4.0,
+    skewnessRatio: 0,
+    onsetSlope: 2.0,
+    snr: 2.5,
+    decaySlope: 0,
   };
-  near(a._computePeakQuality(partialNoRecovery), 0.33 / 0.60, 'partial peak with hidden recovery is scored on applicable weight only');
+  near(
+    a._computePeakQuality(partialNoRecovery),
+    0.33 / 0.6,
+    'partial peak with hidden recovery is scored on applicable weight only',
+  );
 });
 
 test('GSRAnalyzer _computeSalienceScore: fast, high-amplitude, high-SNR peaks win', () => {
   const a = new GSRAnalyzer();
   const near = (actual, expected, msg) => {
-    assert.ok(Math.abs(actual - expected) < 1e-9, `${msg} — got ${actual}, expected ${expected}`);
+    assert.ok(
+      Math.abs(actual - expected) < 1e-9,
+      `${msg} — got ${actual}, expected ${expected}`,
+    );
   };
 
   // All maxed -> 1.0
-  near(a._computeSalienceScore({ amplitude: 0.5, onsetSlope: 0.5, snr: 3.0 }), 1.0, 'salient');
+  near(
+    a._computeSalienceScore({ amplitude: 0.5, onsetSlope: 0.5, snr: 3.0 }),
+    1.0,
+    'salient',
+  );
   // All zero -> 0.0
-  near(a._computeSalienceScore({ amplitude: 0, onsetSlope: 0, snr: 0 }), 0.0, 'faint');
+  near(
+    a._computeSalienceScore({ amplitude: 0, onsetSlope: 0, snr: 0 }),
+    0.0,
+    'faint',
+  );
   // onsetSlope missing -> falls back to amplitude/riseTime
-  near(a._computeSalienceScore({ amplitude: 0.5, riseTime: 1.0, snr: 3.0 }), 1.0, 'slope fallback');
+  near(
+    a._computeSalienceScore({ amplitude: 0.5, riseTime: 1.0, snr: 3.0 }),
+    1.0,
+    'slope fallback',
+  );
   // snr missing -> default 0.5 score (0.50 + 0.30 + 0.5*0.20 = 0.90)
-  near(a._computeSalienceScore({ amplitude: 0.5, onsetSlope: 0.5 }), 0.90, 'no snr default');
+  near(
+    a._computeSalienceScore({ amplitude: 0.5, onsetSlope: 0.5 }),
+    0.9,
+    'no snr default',
+  );
 });
 
 // ── _computeNoiseFloor: lag-1 difference (von Neumann) estimator ─────────────
@@ -626,12 +756,18 @@ test('GSRAnalyzer _computeNoiseFloor: lag-1 difference stdev over the exact ±ha
   // idx=5, halfWindow=2 -> window j ∈ [3..7], diffs from filtered[j]-filtered[j-1].
   const expected = lag1Floor(raw, 3, 7);
   const actual = a._computeNoiseFloor(5, 2);
-  assert.ok(Math.abs(actual - expected) < 1e-9, `expected ${expected}, got ${actual}`);
+  assert.ok(
+    Math.abs(actual - expected) < 1e-9,
+    `expected ${expected}, got ${actual}`,
+  );
 });
 
 test('GSRAnalyzer _computeNoiseFloor: a linear ramp (pure tonic slope) reads as ~zero noise', () => {
   const a = new GSRAnalyzer();
-  a.filtered = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map((val, i) => ({ time: i, val }));
+  a.filtered = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map((val, i) => ({
+    time: i,
+    val,
+  }));
   // Every successive difference is 1 -> zero variance -> floored to 1e-6.
   assert.strictEqual(a._computeNoiseFloor(5, 2), 1e-6);
 });
@@ -643,7 +779,10 @@ test('GSRAnalyzer _computeNoiseFloor: clamps the window at the start of the arra
   // idx=0, halfWindow=2 -> j clamps to [1..2] (j-1 never negative).
   const expected = lag1Floor(raw, 0, 2);
   const actual = a._computeNoiseFloor(0, 2);
-  assert.ok(Math.abs(actual - expected) < 1e-9, `expected ${expected}, got ${actual}`);
+  assert.ok(
+    Math.abs(actual - expected) < 1e-9,
+    `expected ${expected}, got ${actual}`,
+  );
 });
 
 test('GSRAnalyzer _computeNoiseFloor: clamps the window at the end of the array (idx=length-1)', () => {
@@ -653,7 +792,10 @@ test('GSRAnalyzer _computeNoiseFloor: clamps the window at the end of the array 
   // idx=4 (last), halfWindow=2 -> j clamps to [2..4].
   const expected = lag1Floor(raw, 2, 4);
   const actual = a._computeNoiseFloor(4, 2);
-  assert.ok(Math.abs(actual - expected) < 1e-9, `expected ${expected}, got ${actual}`);
+  assert.ok(
+    Math.abs(actual - expected) < 1e-9,
+    `expected ${expected}, got ${actual}`,
+  );
 });
 
 test('GSRAnalyzer _computeNoiseFloor: constant window is floored at 1e-6, never 0', () => {
@@ -704,19 +846,25 @@ function dequeWindowMin(arr, halfWindow) {
 }
 
 test('§A sliding-window min: deque matches brute-force on a 200-sample synthetic signal', () => {
-  const n = 200, halfW = 20;
+  const n = 200,
+    halfW = 20;
   const arr = [];
   for (let i = 0; i < n; i++) arr.push(Math.sin(i * 0.3) * 5 - i * 0.01);
   const brute = bruteForceWindowMin(arr, halfW);
   const deque = dequeWindowMin(arr, halfW);
   for (let i = 0; i < n; i++) {
-    assert.ok(Math.abs(deque[i] - brute[i]) < 1e-12,
-      `index ${i}: deque=${deque[i]} brute=${brute[i]}`);
+    assert.ok(
+      Math.abs(deque[i] - brute[i]) < 1e-12,
+      `index ${i}: deque=${deque[i]} brute=${brute[i]}`,
+    );
   }
 });
 
 test('§A sliding-window min: single-element array (window >> length)', () => {
-  assert.deepStrictEqual(dequeWindowMin([42], 100), bruteForceWindowMin([42], 100));
+  assert.deepStrictEqual(
+    dequeWindowMin([42], 100),
+    bruteForceWindowMin([42], 100),
+  );
 });
 
 test('§A sliding-window min: window of 1 (halfWindow=0 clamp to 1)', () => {
@@ -731,43 +879,57 @@ test('§A sliding-window min: all-equal values', () => {
 });
 
 test('§A sliding-window min: analyze() phasic is non-negative after deque fix', () => {
-  const fs = require('fs'), path = require('path');
+  const fs = require('fs'),
+    path = require('path');
   const csvPath = path.join(__dirname, '..', '..', 'tracks', 'biomap_048.csv');
-  if (!fs.existsSync(csvPath)) { return; } // skip if tracks dir absent
+  if (!fs.existsSync(csvPath)) {
+    return;
+  } // skip if tracks dir absent
   const a = new GSRAnalyzer();
   a.parseCSV(fs.readFileSync(csvPath, 'utf8'));
   a.analyze(JSON.parse(JSON.stringify(GSR_CONST.GSR_DEFAULT)), 0);
   assert.strictEqual(a.phasic.length, a.raw.length);
   for (let i = 0; i < a.phasic.length; i++) {
-    assert.ok(a.phasic[i].val >= -1e-9, `phasic[${i}]=${a.phasic[i].val} should be >= 0`);
+    assert.ok(
+      a.phasic[i].val >= -1e-9,
+      `phasic[${i}]=${a.phasic[i].val} should be >= 0`,
+    );
   }
 });
 
 // ── §B perf fix: computeCombinedArousalIndex with precomputedAUC (2026-08-07) ─
 
 test('§B computeCombinedArousalIndex: precomputedAUC gives identical values to fresh-computed path', () => {
-  const fs = require('fs'), path = require('path');
+  const fs = require('fs'),
+    path = require('path');
   const csvPath = path.join(__dirname, '..', '..', 'tracks', 'biomap_048.csv');
-  if (!fs.existsSync(csvPath)) { return; }
+  if (!fs.existsSync(csvPath)) {
+    return;
+  }
   const a = new GSRAnalyzer();
   a.parseCSV(fs.readFileSync(csvPath, 'utf8'));
   a.analyze(JSON.parse(JSON.stringify(GSR_CONST.GSR_DEFAULT)), 0);
 
-  const fresh  = a.computeCombinedArousalIndex(0.3, 0.7, null);   // fresh AUC
+  const fresh = a.computeCombinedArousalIndex(0.3, 0.7, null); // fresh AUC
   const reused = a.computeCombinedArousalIndex(0.3, 0.7, a.phasicAUC); // reused
 
   assert.strictEqual(fresh.length, reused.length, 'length mismatch');
   for (let i = 0; i < fresh.length; i++) {
-    assert.ok(Math.abs(fresh[i].val - reused[i].val) < 1e-9,
-      `index ${i}: fresh=${fresh[i].val} reused=${reused[i].val}`);
+    assert.ok(
+      Math.abs(fresh[i].val - reused[i].val) < 1e-9,
+      `index ${i}: fresh=${fresh[i].val} reused=${reused[i].val}`,
+    );
     assert.strictEqual(fresh[i].time, reused[i].time);
   }
 });
 
 test('§B computeCombinedArousalIndex: standalone call (no precomputedAUC) still works', () => {
-  const fs = require('fs'), path = require('path');
+  const fs = require('fs'),
+    path = require('path');
   const csvPath = path.join(__dirname, '..', '..', 'tracks', 'biomap_048.csv');
-  if (!fs.existsSync(csvPath)) { return; }
+  if (!fs.existsSync(csvPath)) {
+    return;
+  }
   const a = new GSRAnalyzer();
   a.parseCSV(fs.readFileSync(csvPath, 'utf8'));
   a.analyze(JSON.parse(JSON.stringify(GSR_CONST.GSR_DEFAULT)), 0);
@@ -777,20 +939,25 @@ test('§B computeCombinedArousalIndex: standalone call (no precomputedAUC) still
 });
 
 test('GSRAnalyzer computeTriIndex: precomputed arrays match fresh standalone computation', () => {
-  const fs = require('fs'), path = require('path');
+  const fs = require('fs'),
+    path = require('path');
   const csvPath = path.join(__dirname, '..', '..', 'tracks', 'biomap_048.csv');
-  if (!fs.existsSync(csvPath)) { return; }
+  if (!fs.existsSync(csvPath)) {
+    return;
+  }
   const a = new GSRAnalyzer();
   a.parseCSV(fs.readFileSync(csvPath, 'utf8'));
   a.analyze(JSON.parse(JSON.stringify(GSR_CONST.GSR_DEFAULT)), 0);
 
-  const fresh = a.computeTriIndex(0.10, 0.45, 0.45, null, null);
-  const reused = a.computeTriIndex(0.10, 0.45, 0.45, a.phasicAUC, a.peakDensity);
+  const fresh = a.computeTriIndex(0.1, 0.45, 0.45, null, null);
+  const reused = a.computeTriIndex(0.1, 0.45, 0.45, a.phasicAUC, a.peakDensity);
 
   assert.strictEqual(fresh.length, reused.length, 'length mismatch');
   for (let i = 0; i < fresh.length; i++) {
-    assert.ok(Math.abs(fresh[i].val - reused[i].val) < 1e-9,
-      `index ${i}: fresh=${fresh[i].val} reused=${reused[i].val}`);
+    assert.ok(
+      Math.abs(fresh[i].val - reused[i].val) < 1e-9,
+      `index ${i}: fresh=${fresh[i].val} reused=${reused[i].val}`,
+    );
     assert.strictEqual(fresh[i].time, reused[i].time);
   }
 });
@@ -827,21 +994,37 @@ test('GSRAnalyzer resolveLatencyIndex: correctly shifts index based on peak late
 // global Y-range in the same pass so _buildDisplayCache() no longer re-scans it.
 // These tests pin the output-identical guarantee and the pool's lifecycle.
 
-const FIX_CSV = fs.readFileSync(path.join(__dirname, '..', 'fixtures', 'default_processed.csv'), 'utf8');
+const FIX_CSV = fs.readFileSync(
+  path.join(__dirname, '..', 'fixtures', 'default_processed.csv'),
+  'utf8',
+);
 const P = () => JSON.parse(JSON.stringify(GSR_CONST.GSR_DEFAULT));
 
 function seriesSnapshot(a) {
-  const ser = k => (a[k] || []).map(d => `${d.time}:${d.val.toFixed(10)}`).join('|');
+  const ser = (k) =>
+    (a[k] || []).map((d) => `${d.time}:${d.val.toFixed(10)}`).join('|');
   return {
-    filtered: ser('filtered'), tonic: ser('tonic'), phasic: ser('phasic'),
-    tonicZ: ser('tonicZ'), phasicZ: ser('phasicZ'), em_fog: ser('em_fog'),
-    peakDensity: ser('peakDensity'), phasicAUC: ser('phasicAUC'),
-    arousalIndex: ser('arousalIndex'), triIndex: ser('triIndex'),
-    peaks: (a.peaks || []).map(p => `${p.index}:${(p.amplitude || 0).toFixed(10)}:${!!p.excluded}`).join('|'),
-    memorable: (a.memorableEvents || []).map(p => p.index).join('|'),
+    filtered: ser('filtered'),
+    tonic: ser('tonic'),
+    phasic: ser('phasic'),
+    tonicZ: ser('tonicZ'),
+    phasicZ: ser('phasicZ'),
+    em_fog: ser('em_fog'),
+    peakDensity: ser('peakDensity'),
+    phasicAUC: ser('phasicAUC'),
+    arousalIndex: ser('arousalIndex'),
+    triIndex: ser('triIndex'),
+    peaks: (a.peaks || [])
+      .map(
+        (p) => `${p.index}:${(p.amplitude || 0).toFixed(10)}:${!!p.excluded}`,
+      )
+      .join('|'),
+    memorable: (a.memorableEvents || []).map((p) => p.index).join('|'),
     globalRange: JSON.stringify(a._globalRange),
     timelinePoints: (a._timelinePoints || []).length,
-    timelinePeakPct: (a._timelinePeakPct || []).map(x => x.toFixed(10)).join('|'),
+    timelinePeakPct: (a._timelinePeakPct || [])
+      .map((x) => x.toFixed(10))
+      .join('|'),
     phasicStd: (+a.phasicStd).toFixed(10),
   };
 }
@@ -865,8 +1048,11 @@ test('series pool: a reused analyzer instance matches fresh instances across mod
     const fresh = new GSRAnalyzer();
     fresh.parseCSV(FIX_CSV);
     fresh.analyze(params, 0.5);
-    assert.deepStrictEqual(seriesSnapshot(reused), seriesSnapshot(fresh),
-      `reused-instance output diverged from a fresh instance at step ${i}`);
+    assert.deepStrictEqual(
+      seriesSnapshot(reused),
+      seriesSnapshot(fresh),
+      `reused-instance output diverged from a fresh instance at step ${i}`,
+    );
   });
 });
 
@@ -875,14 +1061,26 @@ test('series pool: buffers are reused by reference across analyze() calls on the
   a.parseCSV(FIX_CSV);
   a.analyze(P(), 0);
   const refs = {
-    filtered: a.filtered, tonic: a.tonic, phasic: a.phasic,
-    tonicZ: a.tonicZ, phasicZ: a.phasicZ, em_fog: a.em_fog,
+    filtered: a.filtered,
+    tonic: a.tonic,
+    phasic: a.phasic,
+    tonicZ: a.tonicZ,
+    phasicZ: a.phasicZ,
+    em_fog: a.em_fog,
   };
   a.analyze({ ...P(), peakThreshold: 0.05 }, 0); // a detection-only change
 
   for (const k of Object.keys(refs)) {
-    assert.strictEqual(a[k], refs[k], `${k} array should be reused, not reallocated`);
-    assert.strictEqual(a[k].length, a.raw.length, `${k} length should track raw`);
+    assert.strictEqual(
+      a[k],
+      refs[k],
+      `${k} array should be reused, not reallocated`,
+    );
+    assert.strictEqual(
+      a[k].length,
+      a.raw.length,
+      `${k} length should track raw`,
+    );
   }
 });
 
@@ -897,7 +1095,11 @@ test('series pool: re-parsing new raw data rebuilds the pool (no stale buffer re
   // pool must be discarded even though the length is unchanged.
   a.parseCSV(FIX_CSV);
   a.analyze(P(), 0);
-  assert.notStrictEqual(a.filtered, oldFiltered, 'pool must rebuild when this.raw identity changes');
+  assert.notStrictEqual(
+    a.filtered,
+    oldFiltered,
+    'pool must rebuild when this.raw identity changes',
+  );
   assert.strictEqual(a.filtered.length, oldLen);
 });
 
@@ -925,25 +1127,48 @@ test('series pool: incremental growth (same raw array, rows appended) matches a 
       poolRefs.tonic = grow.tonic;
       poolRefs.phasic = grow.phasic;
     } else {
-      assert.strictEqual(grow.filtered, poolRefs.filtered, 'filtered buffer reallocated during growth');
-      assert.strictEqual(grow.tonic, poolRefs.tonic, 'tonic buffer reallocated during growth');
-      assert.strictEqual(grow.phasic, poolRefs.phasic, 'phasic buffer reallocated during growth');
+      assert.strictEqual(
+        grow.filtered,
+        poolRefs.filtered,
+        'filtered buffer reallocated during growth',
+      );
+      assert.strictEqual(
+        grow.tonic,
+        poolRefs.tonic,
+        'tonic buffer reallocated during growth',
+      );
+      assert.strictEqual(
+        grow.phasic,
+        poolRefs.phasic,
+        'phasic buffer reallocated during growth',
+      );
     }
-    assert.strictEqual(grow.filtered.length, cut, 'filtered length tracks the grown raw');
+    assert.strictEqual(
+      grow.filtered.length,
+      cut,
+      'filtered length tracks the grown raw',
+    );
 
     const fresh = new GSRAnalyzer();
     fresh.raw = allRows.slice(0, cut);
     fresh.sampleRate = sr;
     fresh.analyze(P(), 0);
-    assert.deepStrictEqual(seriesSnapshot(grow), seriesSnapshot(fresh),
-      `grown analyzer diverged from a fresh full analyze() at ${cut} rows`);
+    assert.deepStrictEqual(
+      seriesSnapshot(grow),
+      seriesSnapshot(fresh),
+      `grown analyzer diverged from a fresh full analyze() at ${cut} rows`,
+    );
   }
 });
 
 test('series pool: _globalRange for pooled curves matches a direct scan (incl. deconvolution phasic)', () => {
-  const scan = arr => {
-    let mn = Infinity, mx = -Infinity;
-    for (const d of arr) { if (d.val < mn) mn = d.val; if (d.val > mx) mx = d.val; }
+  const scan = (arr) => {
+    let mn = Infinity,
+      mx = -Infinity;
+    for (const d of arr) {
+      if (d.val < mn) mn = d.val;
+      if (d.val > mx) mx = d.val;
+    }
     return { min: mn, max: mx };
   };
 
@@ -952,7 +1177,11 @@ test('series pool: _globalRange for pooled curves matches a direct scan (incl. d
   a.parseCSV(FIX_CSV);
   a.analyze(P(), 0);
   for (const k of ['raw', 'filtered', 'tonic', 'phasic', 'em_fog']) {
-    assert.deepStrictEqual(a._globalRange[k], scan(a[k]), `${k} global range mismatch`);
+    assert.deepStrictEqual(
+      a._globalRange[k],
+      scan(a[k]),
+      `${k} global range mismatch`,
+    );
   }
 
   // Deconvolution replaces this.phasic with the reconstructed curve after the
@@ -960,8 +1189,11 @@ test('series pool: _globalRange for pooled curves matches a direct scan (incl. d
   const d = new GSRAnalyzer();
   d.parseCSV(FIX_CSV);
   d.analyze({ ...P(), useDeconvolution: true }, 0);
-  assert.deepStrictEqual(d._globalRange.phasic, scan(d.phasic),
-    'deconvolution-mode phasic global range must reflect the reconstructed curve');
+  assert.deepStrictEqual(
+    d._globalRange.phasic,
+    scan(d.phasic),
+    'deconvolution-mode phasic global range must reflect the reconstructed curve',
+  );
 });
 
 // ── Filter/decomposition prefix memoisation (#2, 2026-09-03) ────────────────
@@ -976,21 +1208,42 @@ test('prefix cache: a detection-only param change skips stages 1–3 (decomposeT
 
   const realDecompose = GsrFilter.decomposeTonicPhasic;
   let calls = 0;
-  GsrFilter.decomposeTonicPhasic = function (...args) { calls++; return realDecompose.apply(this, args); };
+  GsrFilter.decomposeTonicPhasic = function (...args) {
+    calls++;
+    return realDecompose.apply(this, args);
+  };
   try {
-    a.analyze({ ...P(), peakThreshold: 0.05, hotspotPercentile: 0.5, minPeakQuality: 0.4 }, 0);
-    assert.strictEqual(calls, 0, 'stages 1–3 should be memoised for a detection-only change');
+    a.analyze(
+      {
+        ...P(),
+        peakThreshold: 0.05,
+        hotspotPercentile: 0.5,
+        minPeakQuality: 0.4,
+      },
+      0,
+    );
+    assert.strictEqual(
+      calls,
+      0,
+      'stages 1–3 should be memoised for a detection-only change',
+    );
 
     a.analyze({ ...P(), lpfWindow: P().lpfWindow + 0.5 }, 0);
-    assert.strictEqual(calls, 1, 'changing one of the six prefix params must recompute the prefix');
+    assert.strictEqual(
+      calls,
+      1,
+      'changing one of the six prefix params must recompute the prefix',
+    );
   } finally {
     GsrFilter.decomposeTonicPhasic = realDecompose;
   }
 });
 
 test('prefix cache: cached-prefix results match a from-scratch analyze() (incl. after a deconvolution run)', () => {
-  const scratch = params => {
-    const f = new GSRAnalyzer(); f.parseCSV(FIX_CSV); f.analyze(params, 0.5);
+  const scratch = (params) => {
+    const f = new GSRAnalyzer();
+    f.parseCSV(FIX_CSV);
+    f.analyze(params, 0.5);
     return seriesSnapshot(f);
   };
   const a = new GSRAnalyzer();
@@ -999,13 +1252,19 @@ test('prefix cache: cached-prefix results match a from-scratch analyze() (incl. 
   a.analyze(P(), 0.5);
   // Same prefix, deconvolution on — mutates this.phasic / phasicZ / phasicStd.
   a.analyze({ ...P(), useDeconvolution: true }, 0.5);
-  assert.deepStrictEqual(seriesSnapshot(a), scratch({ ...P(), useDeconvolution: true }),
-    'cache-hit deconvolution run diverged from scratch');
+  assert.deepStrictEqual(
+    seriesSnapshot(a),
+    scratch({ ...P(), useDeconvolution: true }),
+    'cache-hit deconvolution run diverged from scratch',
+  );
   // Same prefix again, back to default — the pooled phasic side must be
   // restored to the pristine decomposition, not left holding deconv values.
   a.analyze({ ...P(), peakThreshold: 0.04 }, 0.5);
-  assert.deepStrictEqual(seriesSnapshot(a), scratch({ ...P(), peakThreshold: 0.04 }),
-    'cache-hit after a deconvolution run did not restore the pristine phasic prefix');
+  assert.deepStrictEqual(
+    seriesSnapshot(a),
+    scratch({ ...P(), peakThreshold: 0.04 }),
+    'cache-hit after a deconvolution run did not restore the pristine phasic prefix',
+  );
 });
 
 test('prefix cache: re-parsing new raw data invalidates the cached prefix', () => {
@@ -1018,12 +1277,18 @@ test('prefix cache: re-parsing new raw data invalidates the cached prefix', () =
 
   const realDecompose = GsrFilter.decomposeTonicPhasic;
   let calls = 0;
-  GsrFilter.decomposeTonicPhasic = function (...args) { calls++; return realDecompose.apply(this, args); };
+  GsrFilter.decomposeTonicPhasic = function (...args) {
+    calls++;
+    return realDecompose.apply(this, args);
+  };
   try {
     a.analyze(P(), 0); // identical params, but raw changed
-    assert.strictEqual(calls, 1, 'the prefix must be recomputed against the new raw data');
+    assert.strictEqual(
+      calls,
+      1,
+      'the prefix must be recomputed against the new raw data',
+    );
   } finally {
     GsrFilter.decomposeTonicPhasic = realDecompose;
   }
 });
-

@@ -15,7 +15,7 @@ function createSampleAnalyzer() {
       { time: 10, gsr: 3.5, hasGps: true, lat: 51.501, lon: -0.101 },
       { time: 20, gsr: 2.2, hasGps: true, lat: 51.502, lon: -0.102 },
       { time: 30, gsr: 4.1, hasGps: true, lat: 51.503, lon: -0.103 },
-      { time: 40, gsr: 2.5, hasGps: true, lat: 51.504, lon: -0.104 }
+      { time: 40, gsr: 2.5, hasGps: true, lat: 51.504, lon: -0.104 },
     ],
     peaks: [
       {
@@ -26,7 +26,7 @@ function createSampleAnalyzer() {
         riseTime: 2.0,
         qualityScore: 85,
         excluded: false,
-        label: 'Traffic shock'
+        label: 'Traffic shock',
       },
       {
         index: 3,
@@ -36,7 +36,7 @@ function createSampleAnalyzer() {
         riseTime: 4.0,
         qualityScore: 95,
         excluded: false,
-        label: 'Barking dog'
+        label: 'Barking dog',
       },
       {
         index: 4,
@@ -46,8 +46,8 @@ function createSampleAnalyzer() {
         riseTime: 1.0,
         qualityScore: 60,
         excluded: true,
-        label: 'Acoustic siren'
-      }
+        label: 'Acoustic siren',
+      },
     ],
     getCoordinates(idx) {
       return { lat: 51.5 + idx * 0.001, lon: -0.1 - idx * 0.001 };
@@ -67,7 +67,7 @@ function createSampleAnalyzer() {
     },
     setPeakExcluded(idx, excluded) {
       if (this.peaks[idx]) this.peaks[idx].excluded = excluded;
-    }
+    },
   };
 }
 
@@ -96,7 +96,11 @@ test('peaks table renders in default chronological index order', async () => {
   // First row: Peak 1 (orig index 0, amplitude 1.5)
   assert.strictEqual(rows[0].id, 'peakRow-0');
   assert.strictEqual(rows[0].children[0].textContent, '1');
-  assert.ok(rows[0].children[1].querySelector('textarea').value.includes('Traffic shock'));
+  assert.ok(
+    rows[0].children[1]
+      .querySelector('textarea')
+      .value.includes('Traffic shock'),
+  );
 
   // Second row: Peak 2 (orig index 1, amplitude 2.8)
   assert.strictEqual(rows[1].id, 'peakRow-1');
@@ -241,14 +245,19 @@ test('table headers update sort classes and icons on click', async () => {
   thAmp.click();
   assert.strictEqual(window.AppState.peakSortDirection, 'desc');
   assert.ok(thAmp.classList.contains('sort-desc'));
-  assert.ok(thAmp.querySelector('.sort-icon').classList.contains('fa-sort-down'));
+  assert.ok(
+    thAmp.querySelector('.sort-icon').classList.contains('fa-sort-down'),
+  );
 
   // Click Label
   thLabel.click();
   assert.strictEqual(window.AppState.peakSortColumn, 'label');
   assert.strictEqual(window.AppState.peakSortDirection, 'asc');
   assert.ok(thLabel.classList.contains('sort-asc'));
-  assert.ok(!thAmp.classList.contains('sort-asc') && !thAmp.classList.contains('sort-desc'));
+  assert.ok(
+    !thAmp.classList.contains('sort-asc') &&
+      !thAmp.classList.contains('sort-desc'),
+  );
   assert.ok(thAmp.querySelector('.sort-icon').classList.contains('fa-sort'));
 });
 
@@ -262,10 +271,12 @@ test('sorted table actions and inputs target the correct original peak index', a
   window.GSRUI.sortPeaksTable('amplitude');
   window.GSRUI.sortPeaksTable('amplitude');
 
-  let rows = window.document.querySelectorAll('#peaksTable tbody tr');
-  let firstRow = rows[0]; // Represents Peak 2 (orig idx 1)
+  const rows = window.document.querySelectorAll('#peaksTable tbody tr');
+  const firstRow = rows[0]; // Represents Peak 2 (orig idx 1)
   assert.strictEqual(firstRow.id, 'peakRow-1');
-  assert.ok(firstRow.getAttribute('onclick').includes("GSRUI.focusOnPeak(1, 'table')"));
+  assert.ok(
+    firstRow.getAttribute('onclick').includes("GSRUI.focusOnPeak(1, 'table')"),
+  );
 
   // Verify textarea data attribute and value
   const textarea = firstRow.querySelector('.peak-label-input');
@@ -279,7 +290,9 @@ test('sorted table actions and inputs target the correct original peak index', a
   // Exclusion button targets peak 1
   assert.strictEqual(analyzer.peaks[1].excluded, false);
   const excludeBtn = firstRow.querySelector('.btn-exclude');
-  assert.ok(excludeBtn.getAttribute('onclick').includes("GSRUI.togglePeakExclusion(1)"));
+  assert.ok(
+    excludeBtn.getAttribute('onclick').includes('GSRUI.togglePeakExclusion(1)'),
+  );
   window.GSRUI.togglePeakExclusion(1);
   assert.strictEqual(analyzer.peaks[1].excluded, true);
 
@@ -287,7 +300,9 @@ test('sorted table actions and inputs target the correct original peak index', a
   const activeRow = window.document.getElementById('peakRow-1');
   assert.ok(activeRow);
   const viewBtn = activeRow.querySelector('.btn-table-action');
-  assert.ok(viewBtn.getAttribute('onclick').includes("GSRUI.focusOnPeak(1, 'table')"));
+  assert.ok(
+    viewBtn.getAttribute('onclick').includes("GSRUI.focusOnPeak(1, 'table')"),
+  );
 
   // Calling focusOnPeak with peak 1 activates the row and view window
   window.GSRUI.focusOnPeak(1, 'table');

@@ -86,7 +86,7 @@ export class GSRMapManager {
       preferCanvas: true,
       zoomSnap: 0.25,
       zoomDelta: 0.25,
-      maxZoom: 22
+      maxZoom: 22,
     }).setView([0, 0], 2);
 
     if (this.map.attributionControl) {
@@ -101,10 +101,10 @@ export class GSRMapManager {
     // CARTO basemap URL + key resolution shared via GSRBasemap
     // (src/map/basemap.js); crossOrigin is added here for the SVG exporter's
     // tile prefetch — the live follow-map doesn't need it.
-    this.baseTileLayer = L.tileLayer(
-      GSRBasemap.cartoTileUrl('light_all'),
-      { ...GSRBasemap.tileOptions(), crossOrigin: true }
-    ).addTo(this.map);
+    this.baseTileLayer = L.tileLayer(GSRBasemap.cartoTileUrl('light_all'), {
+      ...GSRBasemap.tileOptions(),
+      crossOrigin: true,
+    }).addTo(this.map);
 
     // Leaflet's default attribution prefix includes a 🇺🇦 flag alongside the
     // "Leaflet" credit link (added in v1.8.0). Keep the credit link, drop the
@@ -118,12 +118,15 @@ export class GSRMapManager {
       className: 'scrub-marker-icon',
       html: '<div class="scrub-dot"></div>',
       iconSize: [16, 16],
-      iconAnchor: [8, 8]
+      iconAnchor: [8, 8],
     });
     // zIndexOffset keeps this above peak/hotspot/arousal-place markers, which
     // default to 0 and stack by latitude — without this the scrub dot could
     // end up hidden behind them depending on where it sits on the track.
-    this.scrubMarker = L.marker([0, 0], { icon: scrubIcon, zIndexOffset: 10000 });
+    this.scrubMarker = L.marker([0, 0], {
+      icon: scrubIcon,
+      zIndexOffset: 10000,
+    });
 
     // Initialise static RF Fluid background renderer layer
     if (typeof RFFluidRenderer !== 'undefined') {
@@ -138,7 +141,11 @@ export class GSRMapManager {
     // Arousal Place badges are screen-space — re-fold/unfold colliding ones once
     // the new zoom settles (see _declutterArousalPlaceBadges).
     this.map.on('zoomend', () => {
-      try { this._declutterArousalPlaceBadges(); } catch (e) { /* a zoom must never break */ }
+      try {
+        this._declutterArousalPlaceBadges();
+      } catch (e) {
+        /* a zoom must never break */
+      }
     });
   }
 
@@ -147,9 +154,9 @@ export class GSRMapManager {
     // GSR_CONST.OSM_METRICS table (constants.js) — map_manager_legend.js's
     // metricNames is the other consumer of that same table.
     const keys = {
-      'gsr': 'val',
-      'hdopQuality': 'hdop',
-      'em_fog': 'em_fog'
+      gsr: 'val',
+      hdopQuality: 'hdop',
+      em_fog: 'em_fog',
       // Note: phasic/tonic/peakDensity/phasicAUC/arousalIndex are NOT looked
       // up via this key — see DERIVED_METRIC_SERIES in _renderPathSegments.
       // They live in per-sample analyzer arrays (analyzer.phasic[i], etc.),
@@ -158,9 +165,13 @@ export class GSRMapManager {
       // here would go stale the moment a GSR slider changes without a GPS
       // param also changing.
     };
-    GSR_CONST.OSM_METRICS.forEach(m => { keys[m.key] = m.field; });
+    GSR_CONST.OSM_METRICS.forEach((m) => {
+      keys[m.key] = m.field;
+    });
     if (GSR_CONST.SATELLITE_METRICS) {
-      GSR_CONST.SATELLITE_METRICS.forEach(m => { keys[m.key] = m.field; });
+      GSR_CONST.SATELLITE_METRICS.forEach((m) => {
+        keys[m.key] = m.field;
+      });
     }
     return keys[metric] || 'val';
   }
@@ -197,12 +208,20 @@ export class GSRMapManager {
    * @private
    */
   static _buildOverlapCells(drawPoints, getVal, radiusM, revisitGapS) {
-    if (!Array.isArray(drawPoints) || drawPoints.length < 4 || !(radiusM > 0)) return null;
-    if (typeof GeoUtils === 'undefined' || typeof GeoUtils.getGeodesicScale !== 'function') return null;
+    if (!Array.isArray(drawPoints) || drawPoints.length < 4 || !(radiusM > 0))
+      return null;
+    if (
+      typeof GeoUtils === 'undefined' ||
+      typeof GeoUtils.getGeodesicScale !== 'function'
+    )
+      return null;
 
-    const sc = GeoUtils.getGeodesicScale(drawPoints[drawPoints.length >> 1].lat);
+    const sc = GeoUtils.getGeodesicScale(
+      drawPoints[drawPoints.length >> 1].lat,
+    );
     const mLat = sc.degToMeterLat || 111320;
-    const mLon = Math.abs(sc.degToMeterLon) > 1 ? Math.abs(sc.degToMeterLon) : 1;
+    const mLon =
+      Math.abs(sc.degToMeterLon) > 1 ? Math.abs(sc.degToMeterLon) : 1;
     const rLat = radiusM / mLat;
     const rLon = radiusM / mLon;
 
@@ -211,7 +230,10 @@ export class GSRMapManager {
     // extremes) and size the column stride to this track's cc span, so
     // cr*stride + cc is collision-free and stays inside Number.MAX_SAFE_INTEGER
     // for any realistic walk. A degenerate span falls back to string keys.
-    let loLat = Infinity, hiLat = -Infinity, loLon = Infinity, hiLon = -Infinity;
+    let loLat = Infinity,
+      hiLat = -Infinity,
+      loLon = Infinity,
+      hiLon = -Infinity;
     for (let i = 0; i < drawPoints.length; i++) {
       const p = drawPoints[i];
       if (p.lat < loLat) loLat = p.lat;
@@ -221,22 +243,27 @@ export class GSRMapManager {
     }
     const baseCr = Math.floor(loLat / rLat) - 2;
     const baseCc = Math.floor(loLon / rLon) - 2;
-    const stride = (Math.floor(hiLon / rLon) - baseCc + 2) + 1;
+    const stride = Math.floor(hiLon / rLon) - baseCc + 2 + 1;
     const crMax = Math.floor(hiLat / rLat) - baseCr + 2;
-    const packable = stride > 0 && crMax > 0 && (crMax + 1) * stride <= Number.MAX_SAFE_INTEGER;
+    const packable =
+      stride > 0 &&
+      crMax > 0 &&
+      (crMax + 1) * stride <= Number.MAX_SAFE_INTEGER;
     // key(cr, cc) from raw cell indices — the single packing rule, reused by
     // _overlapPooledAccessor via the returned `keyOf`.
     const keyOf = packable
       ? (cr, cc) => (cr - baseCr) * stride + (cc - baseCc)
       : (cr, cc) => cr + '|' + cc;
-    const keyAt = (lat, lon) => keyOf(Math.floor(lat / rLat), Math.floor(lon / rLon));
+    const keyAt = (lat, lon) =>
+      keyOf(Math.floor(lat / rLat), Math.floor(lon / rLon));
 
     const cells = new Map();
     let anyRevisited = false;
     for (let i = 0; i < drawPoints.length; i++) {
       const p = drawPoints[i];
       const v = getVal(p);
-      if (v === undefined || v === null || (typeof v === 'number' && isNaN(v))) continue;
+      if (v === undefined || v === null || (typeof v === 'number' && isNaN(v)))
+        continue;
       const t = p.time;
       const cr = Math.floor(p.lat / rLat);
       const cc = Math.floor(p.lon / rLon);
@@ -257,8 +284,14 @@ export class GSRMapManager {
       }
 
       let c = cells.get(k);
-      if (!c) { c = { cr, cc, sum: 0, count: 0, lastT: t, revisited: false }; cells.set(k, c); }
-      if (reentry) { c.revisited = true; anyRevisited = true; }
+      if (!c) {
+        c = { cr, cc, sum: 0, count: 0, lastT: t, revisited: false };
+        cells.set(k, c);
+      }
+      if (reentry) {
+        c.revisited = true;
+        anyRevisited = true;
+      }
       if (isFinite(t)) c.lastT = t;
       c.sum += v;
       c.count++;
@@ -292,10 +325,15 @@ export class GSRMapManager {
    * @private
    */
   static _overlapPooledAccessor(drawPoints, getVal, opts) {
-    const radiusM = (opts && opts.radiusM > 0) ? opts.radiusM : 7;
-    const revisitGapS = (opts && opts.revisitGapS > 0) ? opts.revisitGapS : 15;
+    const radiusM = opts && opts.radiusM > 0 ? opts.radiusM : 7;
+    const revisitGapS = opts && opts.revisitGapS > 0 ? opts.revisitGapS : 15;
 
-    const built = GSRMapManager._buildOverlapCells(drawPoints, getVal, radiusM, revisitGapS);
+    const built = GSRMapManager._buildOverlapCells(
+      drawPoints,
+      getVal,
+      radiusM,
+      revisitGapS,
+    );
     if (!built || !built.anyRevisited) return null;
 
     const { cells, keyOf, keyAt } = built;
@@ -303,11 +341,15 @@ export class GSRMapManager {
 
     for (const c of cells.values()) {
       if (!c.revisited) continue;
-      let sum = 0, count = 0;
+      let sum = 0,
+        count = 0;
       for (let dr = -1; dr <= 1; dr++) {
         for (let dc = -1; dc <= 1; dc++) {
           const nb = cells.get(keyOf(c.cr + dr, c.cc + dc));
-          if (nb) { sum += nb.sum; count += nb.count; }
+          if (nb) {
+            sum += nb.sum;
+            count += nb.count;
+          }
         }
       }
       if (count > 0) pooled.set(keyOf(c.cr, c.cc), sum / count);
@@ -323,14 +365,15 @@ export class GSRMapManager {
       let h = Math.round(v * 1000) | 0;
       // k is a packed integer (or a "cr|cc" string in the degenerate fallback).
       const ks = '' + k;
-      for (let i = 0; i < ks.length; i++) h = (Math.imul(h, 31) + ks.charCodeAt(i)) | 0;
+      for (let i = 0; i < ks.length; i++)
+        h = (Math.imul(h, 31) + ks.charCodeAt(i)) | 0;
       sig = (sig + h) | 0;
     }
 
     const fn = (p) => {
       if (!p) return getVal(p);
       const m = pooled.get(keyAt(p.lat, p.lon));
-      return (m !== undefined) ? m : getVal(p);
+      return m !== undefined ? m : getVal(p);
     };
     fn.sig = sig;
     return fn;
@@ -344,9 +387,14 @@ export class GSRMapManager {
    * @private
    */
   static _pathRetraces(drawPoints, opts) {
-    const radiusM = (opts && opts.radiusM > 0) ? opts.radiusM : 60;
-    const revisitGapS = (opts && opts.revisitGapS > 0) ? opts.revisitGapS : 15;
-    const built = GSRMapManager._buildOverlapCells(drawPoints, () => 1, radiusM, revisitGapS);
+    const radiusM = opts && opts.radiusM > 0 ? opts.radiusM : 60;
+    const revisitGapS = opts && opts.revisitGapS > 0 ? opts.revisitGapS : 15;
+    const built = GSRMapManager._buildOverlapCells(
+      drawPoints,
+      () => 1,
+      radiusM,
+      revisitGapS,
+    );
     return !!(built && built.anyRevisited);
   }
 

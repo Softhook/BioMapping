@@ -1,7 +1,5 @@
-'use strict';
-
 const assert = require('assert');
-const test   = require('node:test');
+const test = require('node:test');
 
 global.GSR_CONST = require('./mock_constants.js');
 global.width = 1000;
@@ -46,7 +44,7 @@ function makeAnalyzer(raw) {
     raw,
     findClosestIndex(t) {
       return Math.max(0, Math.min(raw.length - 1, Math.round(t * 10)));
-    }
+    },
   };
 }
 
@@ -60,7 +58,8 @@ test('_getNdviContextSegments: no NDVI data on the track -> empty, no crash', ()
 
 test('_getNdviContextSegments: constant NDVI collapses to a single segment (RLE)', () => {
   const raw = [];
-  for (let i = 0; i <= 50; i++) raw.push({ time: i * 0.1, val: 1.0, ndvi_50m: 0.55 });
+  for (let i = 0; i <= 50; i++)
+    raw.push({ time: i * 0.1, val: 1.0, ndvi_50m: 0.55 });
   const analyzer = makeAnalyzer(raw);
   const segments = GSRRenderer._getNdviContextSegments(analyzer);
   assert.strictEqual(segments.length, 1);
@@ -77,7 +76,11 @@ test('_getNdviContextSegments: low vs high NDVI bucket into different, ordered c
   }
   const analyzer = makeAnalyzer(raw);
   const segments = GSRRenderer._getNdviContextSegments(analyzer);
-  assert.strictEqual(segments.length, 2, 'a clean step in NDVI should RLE into exactly two segments');
+  assert.strictEqual(
+    segments.length,
+    2,
+    'a clean step in NDVI should RLE into exactly two segments',
+  );
   assert.notStrictEqual(segments[0].cls.hsl, segments[1].cls.hsl);
 
   // Matches MapColors' own low->high NDVI ramp (barren tan -> lush green).
@@ -88,8 +91,10 @@ test('_getNdviContextSegments: low vs high NDVI bucket into different, ordered c
 
 test('_getNdviContextSegments: NaN gaps (unsampled / step-hold-before-first-fix) are skipped, not drawn', () => {
   const raw = [];
-  for (let i = 0; i <= 10; i++) raw.push({ time: i * 0.1, val: 1.0, ndvi_50m: NaN });
-  for (let i = 11; i <= 30; i++) raw.push({ time: i * 0.1, val: 1.0, ndvi_50m: 0.4 });
+  for (let i = 0; i <= 10; i++)
+    raw.push({ time: i * 0.1, val: 1.0, ndvi_50m: NaN });
+  for (let i = 11; i <= 30; i++)
+    raw.push({ time: i * 0.1, val: 1.0, ndvi_50m: 0.4 });
   const analyzer = makeAnalyzer(raw);
   const segments = GSRRenderer._getNdviContextSegments(analyzer);
   assert.strictEqual(segments.length, 1);
@@ -107,7 +112,7 @@ test('drawNdviContextBands: renders one rect per segment in view, none when togg
 
   GSRRenderer.drawNdviContextBands(0, 5, 50, 400);
   assert.strictEqual(rectCalls.length, 2);
-  rectCalls.forEach(r => {
+  rectCalls.forEach((r) => {
     assert.strictEqual(r.y, 50);
     assert.strictEqual(r.h, 350);
     assert.ok(r.w > 0);
@@ -137,6 +142,9 @@ test('_ndviColorAt: matches the bucket a band segment would use, null when no da
   assert.strictEqual(high.value, 0.85);
   assert.notStrictEqual(low.color, high.color);
 
-  assert.strictEqual(GSRRenderer._ndviColorAt(analyzer, { ndvi_50m: NaN }), null);
+  assert.strictEqual(
+    GSRRenderer._ndviColorAt(analyzer, { ndvi_50m: NaN }),
+    null,
+  );
   assert.strictEqual(GSRRenderer._ndviColorAt(analyzer, null), null);
 });

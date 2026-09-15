@@ -40,7 +40,12 @@ function rfCsv(latBase, lonBase) {
 function addTrack(window, id, name, csvText) {
   const analyzer = new window.GSRAnalyzer();
   analyzer.parseCSV(csvText);
-  const track = window.GSRTrackManager.createTrackObject(id, name, '#ff0000', analyzer);
+  const track = window.GSRTrackManager.createTrackObject(
+    id,
+    name,
+    '#ff0000',
+    analyzer,
+  );
   analyzer.analyze(track.filterParams, 0);
   window.AppState.collectiveManager.addTrack(track);
   return track;
@@ -51,14 +56,21 @@ async function bootCollectiveWithTwoTracks() {
   // jsdom canvases have no 2d context by default; renderCollectiveData()'s
   // contour-surface rasterization (map.js renderContours(), unrelated to RF
   // fluid) needs one — same stub test_map_layer_ownership.js uses.
-  window.HTMLCanvasElement.prototype.getContext = () => ({ fillStyle: '', fillRect() {} });
-  window.HTMLCanvasElement.prototype.toDataURL = () => 'data:image/png;base64,AA==';
+  window.HTMLCanvasElement.prototype.getContext = () => ({
+    fillStyle: '',
+    fillRect() {},
+  });
+  window.HTMLCanvasElement.prototype.toDataURL = () =>
+    'data:image/png;base64,AA==';
   window.setup();
   const trackA = addTrack(window, 'A', 'A.csv', rfCsv(51.5074, -0.1278));
   const trackB = addTrack(window, 'B', 'B.csv', rfCsv(51.51, -0.13));
   window.AppState.viewMode = 'collective';
   const mapManager = window.AppState.mapManager;
-  assert.ok(mapManager.rfFluidRenderer, 'fixture sanity check: RFFluidRenderer should construct under the default superMock Leaflet');
+  assert.ok(
+    mapManager.rfFluidRenderer,
+    'fixture sanity check: RFFluidRenderer should construct under the default superMock Leaflet',
+  );
   return { window, mapManager, trackA, trackB };
 }
 
@@ -67,23 +79,45 @@ test('renderCollectiveData wires per-track drawPoints/osmGeoms into RFFluidRende
 
   const setDataForTracksCalls = [];
   const setDataCalls = [];
-  mapManager.rfFluidRenderer.setDataForTracks = (tracksData) => { setDataForTracksCalls.push(tracksData); };
-  mapManager.rfFluidRenderer.setData = (dp, og) => { setDataCalls.push({ dp, og }); };
+  mapManager.rfFluidRenderer.setDataForTracks = (tracksData) => {
+    setDataForTracksCalls.push(tracksData);
+  };
+  mapManager.rfFluidRenderer.setData = (dp, og) => {
+    setDataCalls.push({ dp, og });
+  };
 
-  mapManager.renderCollectiveData(window.AppState.collectiveManager, { showShadedSurface: false }, 0);
+  mapManager.renderCollectiveData(
+    window.AppState.collectiveManager,
+    { showShadedSurface: false },
+    0,
+  );
 
-  assert.strictEqual(setDataForTracksCalls.length, 1, 'renderCollectiveData should call setDataForTracks exactly once');
-  assert.strictEqual(setDataCalls.length, 0, 'renderCollectiveData must NOT use the single-blob setData() path');
+  assert.strictEqual(
+    setDataForTracksCalls.length,
+    1,
+    'renderCollectiveData should call setDataForTracks exactly once',
+  );
+  assert.strictEqual(
+    setDataCalls.length,
+    0,
+    'renderCollectiveData must NOT use the single-blob setData() path',
+  );
 
   const tracksData = setDataForTracksCalls[0];
   assert.strictEqual(tracksData.length, 2, 'one entry per active track');
   // tracksData is a vm-context (jsdom Realm) array — deepStrictEqual's
   // reference-equality check on cross-realm Array instances fails even for
   // identical-looking arrays, so compare via a plain join instead.
-  const ids = tracksData.map(t => t.id).sort().join(',');
+  const ids = tracksData
+    .map((t) => t.id)
+    .sort()
+    .join(',');
   assert.strictEqual(ids, 'A,B');
-  tracksData.forEach(t => {
-    assert.ok(Array.isArray(t.drawPoints) && t.drawPoints.length > 0, `track ${t.id} should carry a non-empty drawPoints array`);
+  tracksData.forEach((t) => {
+    assert.ok(
+      Array.isArray(t.drawPoints) && t.drawPoints.length > 0,
+      `track ${t.id} should carry a non-empty drawPoints array`,
+    );
   });
 });
 
@@ -91,30 +125,56 @@ test('renderCollectiveData re-renders reuse the same per-track drawPoints refere
   const { window, mapManager, trackB } = await bootCollectiveWithTwoTracks();
 
   const calls = [];
-  mapManager.rfFluidRenderer.setDataForTracks = (tracksData) => { calls.push(tracksData); };
+  mapManager.rfFluidRenderer.setDataForTracks = (tracksData) => {
+    calls.push(tracksData);
+  };
 
-  mapManager.renderCollectiveData(window.AppState.collectiveManager, { showShadedSurface: false }, 0);
-  mapManager.renderCollectiveData(window.AppState.collectiveManager, { showShadedSurface: false }, 0);
+  mapManager.renderCollectiveData(
+    window.AppState.collectiveManager,
+    { showShadedSurface: false },
+    0,
+  );
+  mapManager.renderCollectiveData(
+    window.AppState.collectiveManager,
+    { showShadedSurface: false },
+    0,
+  );
 
   assert.strictEqual(calls.length, 2);
-  const firstA = calls[0].find(t => t.id === 'A');
-  const secondA = calls[1].find(t => t.id === 'A');
-  assert.strictEqual(secondA.drawPoints, firstA.drawPoints,
-    'an unrelated re-render (no param change on A) must hand RFFluidRenderer the SAME drawPoints reference for A, so its fan-cast cache can skip recomputing A');
+  const firstA = calls[0].find((t) => t.id === 'A');
+  const secondA = calls[1].find((t) => t.id === 'A');
+  assert.strictEqual(
+    secondA.drawPoints,
+    firstA.drawPoints,
+    'an unrelated re-render (no param change on A) must hand RFFluidRenderer the SAME drawPoints reference for A, so its fan-cast cache can skip recomputing A',
+  );
 
   // Now change ONLY track B's GPS params (a plausible "drag B's smoothing
   // slider" scenario) and re-render a third time.
-  trackB.gpsFilterParams = { ...trackB.gpsFilterParams, smoothing: (trackB.gpsFilterParams.smoothing || 0.5) + 0.3 };
-  mapManager.renderCollectiveData(window.AppState.collectiveManager, { showShadedSurface: false }, 0);
+  trackB.gpsFilterParams = {
+    ...trackB.gpsFilterParams,
+    smoothing: (trackB.gpsFilterParams.smoothing || 0.5) + 0.3,
+  };
+  mapManager.renderCollectiveData(
+    window.AppState.collectiveManager,
+    { showShadedSurface: false },
+    0,
+  );
 
   assert.strictEqual(calls.length, 3);
-  const thirdA = calls[2].find(t => t.id === 'A');
-  const thirdB = calls[2].find(t => t.id === 'B');
-  const secondB = calls[1].find(t => t.id === 'B');
-  assert.strictEqual(thirdA.drawPoints, firstA.drawPoints,
-    'track A is still unrelated to the change on B and must keep the same drawPoints reference');
-  assert.notStrictEqual(thirdB.drawPoints, secondB.drawPoints,
-    'track B\'s own GPS param change must produce a new drawPoints reference so its fan cast actually recomputes');
+  const thirdA = calls[2].find((t) => t.id === 'A');
+  const thirdB = calls[2].find((t) => t.id === 'B');
+  const secondB = calls[1].find((t) => t.id === 'B');
+  assert.strictEqual(
+    thirdA.drawPoints,
+    firstA.drawPoints,
+    'track A is still unrelated to the change on B and must keep the same drawPoints reference',
+  );
+  assert.notStrictEqual(
+    thirdB.drawPoints,
+    secondB.drawPoints,
+    "track B's own GPS param change must produce a new drawPoints reference so its fan cast actually recomputes",
+  );
 });
 
 test('_clearRfFluid (via clearAll at the top of renderCollectiveData) blanks the canvas through clear(), not the single-blob setData([], null)', async () => {
@@ -122,12 +182,27 @@ test('_clearRfFluid (via clearAll at the top of renderCollectiveData) blanks the
 
   let clearCalls = 0;
   let setDataCalls = 0;
-  mapManager.rfFluidRenderer.clear = () => { clearCalls++; };
-  mapManager.rfFluidRenderer.setData = () => { setDataCalls++; };
+  mapManager.rfFluidRenderer.clear = () => {
+    clearCalls++;
+  };
+  mapManager.rfFluidRenderer.setData = () => {
+    setDataCalls++;
+  };
   mapManager.rfFluidRenderer.setDataForTracks = () => {};
 
-  mapManager.renderCollectiveData(window.AppState.collectiveManager, { showShadedSurface: false }, 0);
+  mapManager.renderCollectiveData(
+    window.AppState.collectiveManager,
+    { showShadedSurface: false },
+    0,
+  );
 
-  assert.ok(clearCalls > 0, 'clearAll()->clearMap()/clearCollectiveLayers() should blank the RF canvas via clear()');
-  assert.strictEqual(setDataCalls, 0, 'the clear-before-render safety net must not go through setData([], null) (would prune the per-track fan cache)');
+  assert.ok(
+    clearCalls > 0,
+    'clearAll()->clearMap()/clearCollectiveLayers() should blank the RF canvas via clear()',
+  );
+  assert.strictEqual(
+    setDataCalls,
+    0,
+    'the clear-before-render safety net must not go through setData([], null) (would prune the per-track fan cache)',
+  );
 });

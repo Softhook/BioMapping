@@ -18,50 +18,50 @@ import { SpectralEDA } from './spectral_eda.mjs';
 
 export class GSRAnalyzer {
   constructor() {
-    this.raw = [];          // Raw signal: { time, val, lat, lon, hdop, pdop, sats, fixType, speedKts, course, hasGps }
-    this.filtered = [];     // Cleaned signal: { time, val }
-    this.tonic = [];        // Tonic component (SCL): { time, val }
-    this.phasic = [];       // Phasic component (SCR): { time, val }
-    this.tonicZ = [];       // Z-score Tonic component (SCL): { time, val }
-    this.phasicZ = [];      // Z-score Phasic component (SCR): { time, val }
-    this.phasicStd = 1;     // Standard deviation of phasic component for Z-scaling peaks
-    this.peaks = [];        // Detected peaks with shape metrics:
-                            // { time, index, amplitude, onsetIndex, onsetTime, halfRecoveryTime,
-                            //   riseTime, onsetSlope, decaySlope, skewnessRatio, snr,
-                            //   qualityScore, salienceScore, prominence, label }
+    this.raw = []; // Raw signal: { time, val, lat, lon, hdop, pdop, sats, fixType, speedKts, course, hasGps }
+    this.filtered = []; // Cleaned signal: { time, val }
+    this.tonic = []; // Tonic component (SCL): { time, val }
+    this.phasic = []; // Phasic component (SCR): { time, val }
+    this.tonicZ = []; // Z-score Tonic component (SCL): { time, val }
+    this.phasicZ = []; // Z-score Phasic component (SCR): { time, val }
+    this.phasicStd = 1; // Standard deviation of phasic component for Z-scaling peaks
+    this.peaks = []; // Detected peaks with shape metrics:
+    // { time, index, amplitude, onsetIndex, onsetTime, halfRecoveryTime,
+    //   riseTime, onsetSlope, decaySlope, skewnessRatio, snr,
+    //   qualityScore, salienceScore, prominence, label }
     this.memorableEvents = []; // Curated hotspot subset of this.peaks: the
-                                // highest-amplitude responses, spatially spread
-                                // (>= MEMORABLE_EVENTS.MIN_SEPARATION_M apart) so
-                                // no two crowd one spot on the map. Built in
-                                // analyze() step 5b. A companion view over
-                                // this.peaks, not a replacement for it.
+    // highest-amplitude responses, spatially spread
+    // (>= MEMORABLE_EVENTS.MIN_SEPARATION_M apart) so
+    // no two crowd one spot on the map. Built in
+    // analyze() step 5b. A companion view over
+    // this.peaks, not a replacement for it.
 
     // Continuous, threshold-independent arousal metrics (see
     // docs/environmental_stress_literature_review.md §5-6). These resolve the
     // "thresholding dilemma" and "superposition problem" inherent to discrete
     // peak counting by integrating the phasic signal rather than gating it.
-    this.peakDensity = [];  // Sliding-window NS-SCR frequency: { time, val } — peaks/minute
-    this.phasicAUC = [];    // Sliding-window phasic integral: { time, val } — µS·s. In a
-                            // deconvolution/cvxEDA run this integrates the phasic DRIVER
-                            // (Benedek & Kaernbach's ISCR quantity); otherwise the
-                            // tonic-subtracted phasic response (ISCR-inspired).
+    this.peakDensity = []; // Sliding-window NS-SCR frequency: { time, val } — peaks/minute
+    this.phasicAUC = []; // Sliding-window phasic integral: { time, val } — µS·s. In a
+    // deconvolution/cvxEDA run this integrates the phasic DRIVER
+    // (Benedek & Kaernbach's ISCR quantity); otherwise the
+    // tonic-subtracted phasic response (ISCR-inspired).
     this.phasicAUCIsISCR = false; // true when phasicAUC integrated the driver (see above)
     this.arousalIndex = []; // Combined tonic+phasic z-scored blend: { time, val }
-    this.triIndex = [];     // Tri Index (tonic + phasic AUC + peak density) z-scored blend: { time, val }
-    this.edasymp = [];      // EDASymp spectral sympathetic index: { time, val } — µS²
-                            // (Posada-Quintero & Chon 2016, 0.045–0.25 Hz band power).
-                            // Computed from this.raw by SpectralEDA (spectral_eda.js),
-                            // independent of the filter/detector sliders, and cached
-                            // across re-analyses keyed on raw identity + length.
+    this.triIndex = []; // Tri Index (tonic + phasic AUC + peak density) z-scored blend: { time, val }
+    this.edasymp = []; // EDASymp spectral sympathetic index: { time, val } — µS²
+    // (Posada-Quintero & Chon 2016, 0.045–0.25 Hz band power).
+    // Computed from this.raw by SpectralEDA (spectral_eda.js),
+    // independent of the filter/detector sliders, and cached
+    // across re-analyses keyed on raw identity + length.
     this._edasympCache = null;
 
     // Deconvolution state (Benedek & Kaernbach, 2010).
-    this.phasicDriver = [];       // Raw driver signal: { time, val }
-    this.phasicClean = [];        // Reconstructed clean phasic
-    this.phasicDriverPeaks = [];  // Driver impulse list
+    this.phasicDriver = []; // Raw driver signal: { time, val }
+    this.phasicClean = []; // Reconstructed clean phasic
+    this.phasicDriverPeaks = []; // Driver impulse list
     this.phasicDeconvTruncated = false; // True if matching pursuit hit maxIter before converging
-    this._phasicOrig = null;      // Pre-deconvolution phasic backup (only set when deconvolution is on)
-    this._tonicOrig = null;       // Pre-cvxEDA tonic backup (cvxEDA re-estimates tonic jointly)
+    this._phasicOrig = null; // Pre-deconvolution phasic backup (only set when deconvolution is on)
+    this._tonicOrig = null; // Pre-cvxEDA tonic backup (cvxEDA re-estimates tonic jointly)
     // Which algorithm produced this.phasicDriver — the two are not the same
     // physical quantity. Matching pursuit's driver is amplitude-matched to the
     // phasic curve it explains (µS, sample-rate-independent). cvxEDA's driver
@@ -76,15 +76,15 @@ export class GSRAnalyzer {
     this.sparsedaStats = null;
     this.responseDynamics = [];
 
-    this.sampleRate = 10;   // In Hz, auto-detected
+    this.sampleRate = 10; // In Hz, auto-detected
     this.isResistance = false; // Whether original CSV was resistance (Ohms)
-    this.hasGpsData = false;   // Whether raw signal contains valid GPS coordinates
+    this.hasGpsData = false; // Whether raw signal contains valid GPS coordinates
     this.filteredGps = [];
     this._userPeakLabels = new Map(); // Persistent time-indexed store: timestamp (sec) -> label string
 
     this.rfPeakIndices = new Set(); // this.raw row indices with a momentary RF
-                                     // spike on any band — must survive map
-                                     // simplification, see _detectRfPeakIndices()
+    // spike on any band — must survive map
+    // simplification, see _detectRfPeakIndices()
 
     // Bumped by analyze()/setPeakLabel()/setPeakExcluded() (and by
     // OSMEnricher.enrichTrack() after it finishes writing osm_* fields onto
@@ -138,7 +138,11 @@ export class GSRAnalyzer {
    * @private
    */
   _ensureSeriesPool(raw, n) {
-    if (this._seriesPoolRaw === raw && this._rawValsPool && this._rawValsPool.length === n) {
+    if (
+      this._seriesPoolRaw === raw &&
+      this._rawValsPool &&
+      this._rawValsPool.length === n
+    ) {
       return;
     }
 
@@ -149,7 +153,8 @@ export class GSRAnalyzer {
       this._rawValsPool.length < n
     ) {
       const oldN = this._rawValsPool.length;
-      let mn = this._rawGlobalRange.min, mx = this._rawGlobalRange.max;
+      let mn = this._rawGlobalRange.min,
+        mx = this._rawGlobalRange.max;
       for (let i = oldN; i < n; i++) {
         const v = raw[i].val;
         this._rawValsPool.push(v);
@@ -157,7 +162,14 @@ export class GSRAnalyzer {
         if (v > mx) mx = v;
       }
       this._rawGlobalRange = { min: mn, max: mx };
-      for (const key of ['filtered', 'tonic', 'phasic', 'tonicZ', 'phasicZ', 'em_fog']) {
+      for (const key of [
+        'filtered',
+        'tonic',
+        'phasic',
+        'tonicZ',
+        'phasicZ',
+        'em_fog',
+      ]) {
         const arr = this._seriesPool[key];
         for (let i = oldN; i < n; i++) arr.push({ time: raw[i].time, val: 0 });
       }
@@ -174,7 +186,8 @@ export class GSRAnalyzer {
     }
 
     const rawVals = new Array(n);
-    let mn = Infinity, mx = -Infinity;
+    let mn = Infinity,
+      mx = -Infinity;
     for (let i = 0; i < n; i++) {
       const v = raw[i].val;
       rawVals[i] = v;
@@ -185,7 +198,14 @@ export class GSRAnalyzer {
     this._rawGlobalRange = { min: mn, max: mx };
 
     this._seriesPool = {};
-    for (const key of ['filtered', 'tonic', 'phasic', 'tonicZ', 'phasicZ', 'em_fog']) {
+    for (const key of [
+      'filtered',
+      'tonic',
+      'phasic',
+      'tonicZ',
+      'phasicZ',
+      'em_fog',
+    ]) {
       const arr = new Array(n);
       for (let i = 0; i < n; i++) arr[i] = { time: raw[i].time, val: 0 };
       this._seriesPool[key] = arr;
@@ -199,7 +219,7 @@ export class GSRAnalyzer {
     }
     this._timelinePointsCache = tl;
     this._prefixCache = null; // pooled prefix result is tied to this raw data
-    this._wasDeconv = false;  // fresh zeroed pool buffers — no deconvolution state to carry
+    this._wasDeconv = false; // fresh zeroed pool buffers — no deconvolution state to carry
 
     this._seriesPoolRaw = raw;
   }
@@ -211,7 +231,8 @@ export class GSRAnalyzer {
    */
   _fillSeries(key, vals) {
     const arr = this._seriesPool[key];
-    let mn = Infinity, mx = -Infinity;
+    let mn = Infinity,
+      mx = -Infinity;
     for (let i = 0; i < arr.length; i++) {
       const v = vals[i];
       arr[i].val = v;
@@ -286,7 +307,13 @@ export class GSRAnalyzer {
    * @private
    */
   _assignLabelsToPeaks(peaks) {
-    if (!peaks || peaks.length === 0 || !this._userPeakLabels || this._userPeakLabels.size === 0) return;
+    if (
+      !peaks ||
+      peaks.length === 0 ||
+      !this._userPeakLabels ||
+      this._userPeakLabels.size === 0
+    )
+      return;
 
     // Build list of candidate (peak, labelKey, diff) pairs within tolerance window (1.0s)
     const candidates = [];
@@ -337,12 +364,16 @@ export class GSRAnalyzer {
 
       if (midTime < targetTime) {
         if (mid < data.length - 1 && data[mid + 1].time > targetTime) {
-          return (targetTime - midTime < data[mid + 1].time - targetTime) ? mid : mid + 1;
+          return targetTime - midTime < data[mid + 1].time - targetTime
+            ? mid
+            : mid + 1;
         }
         low = mid + 1;
       } else {
         if (mid > 0 && data[mid - 1].time < targetTime) {
-          return (targetTime - data[mid - 1].time < midTime - targetTime) ? mid - 1 : mid;
+          return targetTime - data[mid - 1].time < midTime - targetTime
+            ? mid - 1
+            : mid;
         }
         high = mid - 1;
       }
@@ -377,7 +408,16 @@ export class GSRAnalyzer {
     if (this.hasGpsData !== undefined && typeof this.hasGpsData === 'boolean') {
       return this.hasGpsData;
     }
-    return !!(this.raw && this.raw.some(d => d.hasGps || (!isNaN(d.lat) && !isNaN(d.lon) && (Math.abs(d.lat) > 0.0001 || Math.abs(d.lon) > 0.0001))));
+    return !!(
+      this.raw &&
+      this.raw.some(
+        (d) =>
+          d.hasGps ||
+          (!isNaN(d.lat) &&
+            !isNaN(d.lon) &&
+            (Math.abs(d.lat) > 0.0001 || Math.abs(d.lon) > 0.0001)),
+      )
+    );
   }
 
   /**
@@ -393,12 +433,18 @@ export class GSRAnalyzer {
 
   /** Clock time for `relativeSeconds`, e.g. "14:32:05" (relative "M:SS" fallback). */
   formatClockTime(relativeSeconds) {
-    return AnalyzerTimeFormat.clockTime(this.recordingStartTime, relativeSeconds);
+    return AnalyzerTimeFormat.clockTime(
+      this.recordingStartTime,
+      relativeSeconds,
+    );
   }
 
   /** Alias of formatClockTime — kept for call-site clarity. */
   formatTimeOnly(relativeSeconds) {
-    return AnalyzerTimeFormat.clockTime(this.recordingStartTime, relativeSeconds);
+    return AnalyzerTimeFormat.clockTime(
+      this.recordingStartTime,
+      relativeSeconds,
+    );
   }
 
   /** UK-formatted date, e.g. "30th Dec 2026" (relative clock fallback). */
@@ -408,7 +454,10 @@ export class GSRAnalyzer {
 
   /** Short numeric date, e.g. "30.12.2026" (relative clock fallback). */
   formatDateShort(relativeSeconds) {
-    return AnalyzerTimeFormat.dateShort(this.recordingStartTime, relativeSeconds);
+    return AnalyzerTimeFormat.dateShort(
+      this.recordingStartTime,
+      relativeSeconds,
+    );
   }
 
   /**
@@ -467,9 +516,18 @@ export class GSRAnalyzer {
     // Y-ranges) are still correct — skip ~25 ms of filtering + decomposition on
     // a 40k-row track and reuse them. Keyed alongside this.raw identity, which
     // _ensureSeriesPool() nulls the cache on.
-    const prefixKey = params.medianSize + '|' + params.lpfWindow +
-      '|' + (params.lpfMethod || 'butterworth') +
-      '|' + params.tonicWindow + '|' + params.tonicMethod + '|' + !!params.useGaitFilter;
+    const prefixKey =
+      params.medianSize +
+      '|' +
+      params.lpfWindow +
+      '|' +
+      (params.lpfMethod || 'butterworth') +
+      '|' +
+      params.tonicWindow +
+      '|' +
+      params.tonicMethod +
+      '|' +
+      !!params.useGaitFilter;
 
     let phasicVals;
     if (this._prefixCache && this._prefixCache.key === prefixKey) {
@@ -484,7 +542,10 @@ export class GSRAnalyzer {
       this.phasicStd = this._prefixCache.phasicStd;
       this.tonicZ = this._seriesPool.tonicZ;
       if (this._wasDeconv) {
-        this.phasicZ = GsrFilter.standardizeSignal(this.phasic, this._seriesPool.phasicZ);
+        this.phasicZ = GsrFilter.standardizeSignal(
+          this.phasic,
+          this._seriesPool.phasicZ,
+        );
         // cvxEDA mode replaces this.tonic with its own joint estimate; the
         // pooled buffer is left pristine, so restoring it here (plus its
         // cached range) undoes the swap on the next non-cvxEDA run.
@@ -496,36 +557,69 @@ export class GSRAnalyzer {
       }
     } else {
       // 1. Artifact Removal (Hampel MAD outlier rejection)
-      const medWindowSize = Math.max(1, Math.round(params.medianSize * this.sampleRate));
-      let afterArtifact = GsrFilter.applyHampelFilter(this._rawValsPool, medWindowSize);
+      const medWindowSize = Math.max(
+        1,
+        Math.round(params.medianSize * this.sampleRate),
+      );
+      const afterArtifact = GsrFilter.applyHampelFilter(
+        this._rawValsPool,
+        medWindowSize,
+      );
 
       // 2. Smoothing Low-Pass (Zero-phase 4th-order Butterworth, NeuroKit-style)
       let afterSmooth = afterArtifact;
       const lpfWinSize = params.lpfWindow * this.sampleRate;
       if (lpfWinSize > 1) {
         if (params.lpfMethod === 'box') {
-          afterSmooth = GsrFilter.applyZeroPhaseMovingAverage(afterSmooth, lpfWinSize);
+          afterSmooth = GsrFilter.applyZeroPhaseMovingAverage(
+            afterSmooth,
+            lpfWinSize,
+          );
         } else {
-          const bwCutoff = params.lpfCutoff || Math.max(0.5, Math.min(this.sampleRate / 2 - 0.1, 1.0 / params.lpfWindow));
-          afterSmooth = GsrFilter.applyZeroPhaseButterworth(afterSmooth, bwCutoff, 4, this.sampleRate);
+          const bwCutoff =
+            params.lpfCutoff ||
+            Math.max(
+              0.5,
+              Math.min(this.sampleRate / 2 - 0.1, 1.0 / params.lpfWindow),
+            );
+          afterSmooth = GsrFilter.applyZeroPhaseButterworth(
+            afterSmooth,
+            bwCutoff,
+            4,
+            this.sampleRate,
+          );
         }
       }
 
       // 3. Gait Filter (Zero-phase Linkwitz-Riley LR4 @ 1.0Hz)
       let afterLPF = afterSmooth;
       if (params.useGaitFilter) {
-        const gf = (typeof GSR_CONST !== 'undefined' && GSR_CONST.GAIT_FILTER) || { cutoffHz: 1.0, type: 'lr4' };
+        const gf = (typeof GSR_CONST !== 'undefined' &&
+          GSR_CONST.GAIT_FILTER) || { cutoffHz: 1.0, type: 'lr4' };
         if (gf.type === 'butterworth') {
-          afterLPF = GsrFilter.applyZeroPhaseButterworth(afterLPF, gf.cutoffHz, gf.order || 4, this.sampleRate);
+          afterLPF = GsrFilter.applyZeroPhaseButterworth(
+            afterLPF,
+            gf.cutoffHz,
+            gf.order || 4,
+            this.sampleRate,
+          );
         } else {
-          afterLPF = GsrFilter.applyZeroPhaseLinkwitzRiley(afterLPF, gf.cutoffHz, this.sampleRate);
+          afterLPF = GsrFilter.applyZeroPhaseLinkwitzRiley(
+            afterLPF,
+            gf.cutoffHz,
+            this.sampleRate,
+          );
         }
       }
 
       this._fillSeries('filtered', afterLPF);
 
       // 3. Tonic/Phasic Decomposition
-      const decomp = GsrFilter.decomposeTonicPhasic(afterLPF, this.sampleRate, params);
+      const decomp = GsrFilter.decomposeTonicPhasic(
+        afterLPF,
+        this.sampleRate,
+        params,
+      );
       const tonicVals = decomp.tonic;
       phasicVals = decomp.phasic;
 
@@ -533,8 +627,14 @@ export class GSRAnalyzer {
       this._fillSeries('phasic', phasicVals);
 
       // Compute Z-Scores and cache standard deviation of phasic values for peak scaling
-      this.tonicZ = GsrFilter.standardizeSignal(this.tonic, this._seriesPool.tonicZ);
-      this.phasicZ = GsrFilter.standardizeSignal(this.phasic, this._seriesPool.phasicZ);
+      this.tonicZ = GsrFilter.standardizeSignal(
+        this.tonic,
+        this._seriesPool.tonicZ,
+      );
+      this.phasicZ = GsrFilter.standardizeSignal(
+        this.phasic,
+        this._seriesPool.phasicZ,
+      );
       this.phasicStd = GsrFilter.calculateStats(phasicVals).std;
       // The pooled phasicZ buffer and the pristine ranges below are now rebuilt
       // from pristine data; any lingering deconvolution state is stale. (If this
@@ -544,16 +644,23 @@ export class GSRAnalyzer {
 
       // Pre-compute continuous metrics that depend only on tonic / phasic:
       const pristineAUC = this.computePhasicAUC();
-      const aiCfg = (typeof GSR_CONST !== 'undefined' && GSR_CONST.AROUSAL_INDEX) || { wTonic: 0.3, wPhasic: 0.7 };
-      const pristineArousal = this.computeCombinedArousalIndex(aiCfg.wTonic, aiCfg.wPhasic, pristineAUC);
+      const aiCfg = (typeof GSR_CONST !== 'undefined' &&
+        GSR_CONST.AROUSAL_INDEX) || { wTonic: 0.3, wPhasic: 0.7 };
+      const pristineArousal = this.computeCombinedArousalIndex(
+        aiCfg.wTonic,
+        aiCfg.wPhasic,
+        pristineAUC,
+      );
 
-      let aucMn = Infinity, aucMx = -Infinity;
+      let aucMn = Infinity,
+        aucMx = -Infinity;
       for (let i = 0; i < pristineAUC.length; i++) {
         const v = pristineAUC[i].val;
         if (v < aucMn) aucMn = v;
         if (v > aucMx) aucMx = v;
       }
-      let aiMn = Infinity, aiMx = -Infinity;
+      let aiMn = Infinity,
+        aiMx = -Infinity;
       for (let i = 0; i < pristineArousal.length; i++) {
         const v = pristineArousal[i].val;
         if (v < aiMn) aiMn = v;
@@ -597,9 +704,15 @@ export class GSRAnalyzer {
       this._clearDeconvState();
       this._detectPeaksByProminence(params);
     } else if (params.useCvxEDA) {
-      this._runDeconvolutionPipeline(phasicVals, { ...params, deconvAlgorithm: 'cvxeda' });
+      this._runDeconvolutionPipeline(phasicVals, {
+        ...params,
+        deconvAlgorithm: 'cvxeda',
+      });
     } else if (params.useSparsEDA) {
-      this._runDeconvolutionPipeline(phasicVals, { ...params, deconvAlgorithm: 'sparseda' });
+      this._runDeconvolutionPipeline(phasicVals, {
+        ...params,
+        deconvAlgorithm: 'sparseda',
+      });
     } else if (params.useDeconvolution) {
       this._runDeconvolutionPipeline(phasicVals, params);
     } else {
@@ -611,28 +724,44 @@ export class GSRAnalyzer {
     this.memorableEvents = this._selectMemorableEvents(params, peakLatency);
 
     // 6. Continuous, threshold-independent arousal metrics (ISCR/AUC + combined index + EM Fog)
-    const densityWin = (params && params.peakDensityWindow != null) ? params.peakDensityWindow : null;
+    const densityWin =
+      params && params.peakDensityWindow != null
+        ? params.peakDensityWindow
+        : null;
     this.peakDensity = this.computeTemporalPeakDensity(densityWin);
 
-    const aiCfg = (typeof GSR_CONST !== 'undefined' && GSR_CONST.AROUSAL_INDEX) || { wTonic: 0.3, wPhasic: 0.7 };
-    const triCfg = (typeof GSR_CONST !== 'undefined' && GSR_CONST.TRI_INDEX) || { wTonic: 0.10, wPhasic: 0.45, wDensity: 0.45 };
+    const aiCfg = (typeof GSR_CONST !== 'undefined' &&
+      GSR_CONST.AROUSAL_INDEX) || { wTonic: 0.3, wPhasic: 0.7 };
+    const triCfg = (typeof GSR_CONST !== 'undefined' &&
+      GSR_CONST.TRI_INDEX) || { wTonic: 0.1, wPhasic: 0.45, wDensity: 0.45 };
 
     if (params.useDeconvolution || params.useCvxEDA || params.useSparsEDA) {
       this.phasicAUC = this.computePhasicAUC(); // integrates the driver → sets phasicAUCIsISCR
-      this.arousalIndex = this.computeCombinedArousalIndex(aiCfg.wTonic, aiCfg.wPhasic, this.phasicAUC);
+      this.arousalIndex = this.computeCombinedArousalIndex(
+        aiCfg.wTonic,
+        aiCfg.wPhasic,
+        this.phasicAUC,
+      );
     } else {
       // Cached AUC is always the pristine phasic-response integral.
       this.phasicAUC = this._prefixCache.phasicAUC;
       this.arousalIndex = this._prefixCache.arousalIndex;
       this.phasicAUCIsISCR = false;
     }
-    this.triIndex = this.computeTriIndex(triCfg.wTonic, triCfg.wPhasic, triCfg.wDensity, this.phasicAUC, this.peakDensity);
+    this.triIndex = this.computeTriIndex(
+      triCfg.wTonic,
+      triCfg.wPhasic,
+      triCfg.wDensity,
+      this.phasicAUC,
+      this.peakDensity,
+    );
     this._computeEDASymp();
     const efArr = this._seriesPool.em_fog;
-    let efMn = Infinity, efMx = -Infinity;
+    let efMn = Infinity,
+      efMx = -Infinity;
     for (let i = 0; i < n; i++) {
       const e = this.raw[i].em_fog;
-      const v = (e !== undefined && !isNaN(e)) ? e : 0;
+      const v = e !== undefined && !isNaN(e) ? e : 0;
       efArr[i].val = v;
       if (v < efMn) efMn = v;
       if (v > efMx) efMx = v;
@@ -731,16 +860,20 @@ export class GSRAnalyzer {
     this.sparsedaStats = null;
     this.responseDynamics = [];
     this._wasDeconv = true;
-    if (n === 0) { this.peaks = []; return; }
+    if (n === 0) {
+      this.peaks = [];
+      return;
+    }
 
     const { oldLabels, oldExcluded } = this._preserveLabelsAndExclusions();
 
     const scf = GSR_CONST.SCRF;
-    const times = this.phasic.map(d => d.time);
+    const times = this.phasic.map((d) => d.time);
     const phasicArr = new Float64Array(phasicVals);
 
     // Opt-in cvxEDA convex optimization algorithm (Greco et al., 2016)
-    const algorithm = params.deconvAlgorithm || scf.deconvAlgorithm || 'matching_pursuit';
+    const algorithm =
+      params.deconvAlgorithm || scf.deconvAlgorithm || 'matching_pursuit';
     if (algorithm === 'cvxeda' && typeof CVXEDA !== 'undefined') {
       this._driverAlgorithm = 'cvxeda';
       // cvxEDA models tonic and phasic jointly, so it is fed the full filtered
@@ -767,14 +900,15 @@ export class GSRAnalyzer {
         tauFast,
         alpha: cvxCfg.alpha,
         gamma: cvxCfg.gamma,
-        maxIter: cvxCfg.maxIter
+        maxIter: cvxCfg.maxIter,
       });
       const cleanVals = res.phasic;
 
       // Joint tonic estimate → this.tonic (fresh array; pool stays pristine).
       this._tonicOrig = this.tonic;
       const tonicClean = new Array(n);
-      let toMn = Infinity, toMx = -Infinity;
+      let toMn = Infinity,
+        toMx = -Infinity;
       for (let i = 0; i < n; i++) {
         const v = res.tonic[i];
         tonicClean[i] = { time: times[i], val: v };
@@ -795,12 +929,26 @@ export class GSRAnalyzer {
       // same scf.impulseThreshold/minImpulseGapSec keys for its own (differently-
       // scaled) driver — unset, these fall back to the exact prior behaviour.
       const thresh = scf.cvxImpulseThreshold ?? scf.impulseThreshold ?? 0.005;
-      const minGap = Math.max(1, Math.round((scf.cvxMinImpulseGapSec ?? scf.minImpulseGapSec ?? 0.5) * this.sampleRate));
+      const minGap = Math.max(
+        1,
+        Math.round(
+          (scf.cvxMinImpulseGapSec ?? scf.minImpulseGapSec ?? 0.5) *
+            this.sampleRate,
+        ),
+      );
       let lastPIdx = -minGap;
       for (let i = 1; i < n - 1; i++) {
-        if (res.driver[i] >= thresh && res.driver[i] >= res.driver[i - 1] && res.driver[i] >= res.driver[i + 1]) {
+        if (
+          res.driver[i] >= thresh &&
+          res.driver[i] >= res.driver[i - 1] &&
+          res.driver[i] >= res.driver[i + 1]
+        ) {
           if (i - lastPIdx >= minGap) {
-            this.phasicDriverPeaks.push({ index: i, time: times[i], amplitude: res.driver[i] });
+            this.phasicDriverPeaks.push({
+              index: i,
+              time: times[i],
+              amplitude: res.driver[i],
+            });
             lastPIdx = i;
           }
         }
@@ -827,16 +975,28 @@ export class GSRAnalyzer {
       // apex sits roughly one kernel-peak-offset later in the reconstructed
       // curve, found by resolveApex()'s own search-window logic just below,
       // reused here rather than duplicated.
-      const cvxKernel = SCRDeconvolution.buildSCRFKernel(this.sampleRate, tauSlow, tauFast, scf.kernelSec || 5.0);
+      const cvxKernel = SCRDeconvolution.buildSCRFKernel(
+        this.sampleRate,
+        tauSlow,
+        tauFast,
+        scf.kernelSec || 5.0,
+      );
       const cvxKPeakIdx = this._kernelPeakOffset(cvxKernel);
-      const cvxApexSearchHalfWin = Math.max(1, Math.round((scf.cvxApexSearchHalfWinSec ?? 0.5) * this.sampleRate));
+      const cvxApexSearchHalfWin = Math.max(
+        1,
+        Math.round((scf.cvxApexSearchHalfWinSec ?? 0.5) * this.sampleRate),
+      );
       const cvxCandidateIndices = this.phasicDriverPeaks.map(({ index }) => {
         const predicted = Math.min(n - 1, index + cvxKPeakIdx);
         const lo = Math.max(0, index, predicted - cvxApexSearchHalfWin);
         const hi = Math.min(n - 1, predicted + cvxApexSearchHalfWin);
-        let bestIdx = Math.max(index, predicted), bestVal = cleanVals[bestIdx] || 0;
+        let bestIdx = Math.max(index, predicted),
+          bestVal = cleanVals[bestIdx] || 0;
         for (let j = lo; j <= hi; j++) {
-          if (cleanVals[j] > bestVal) { bestVal = cleanVals[j]; bestIdx = j; }
+          if (cleanVals[j] > bestVal) {
+            bestVal = cleanVals[j];
+            bestIdx = j;
+          }
         }
         return bestIdx;
       });
@@ -852,43 +1012,63 @@ export class GSRAnalyzer {
       }
       this._phasicOrig = this.phasic;
       this.phasic = this.phasicClean;
-      this.phasicZ = GsrFilter.standardizeSignal(this.phasic, this._seriesPool && this._seriesPool.phasicZ);
+      this.phasicZ = GsrFilter.standardizeSignal(
+        this.phasic,
+        this._seriesPool && this._seriesPool.phasicZ,
+      );
       this.phasicStd = GsrFilter.calculateStats(cleanVals).std;
-      let phMn = Infinity, phMx = -Infinity;
+      let phMn = Infinity,
+        phMx = -Infinity;
       for (let i = 0; i < n; i++) {
         const v = cleanVals[i];
         if (v < phMn) phMn = v;
         if (v > phMx) phMx = v;
       }
       this._seriesRange.phasic = { min: phMn, max: phMx };
-      this.peaks = this._detectPeaksFromCurve(cleanVals, times, params, oldLabels, oldExcluded, cvxCandidateIndices);
+      this.peaks = this._detectPeaksFromCurve(
+        cleanVals,
+        times,
+        params,
+        oldLabels,
+        oldExcluded,
+        cvxCandidateIndices,
+      );
       this._assignLabelsToPeaks(this.peaks);
       return;
     }
 
-    this._driverAlgorithm = algorithm === 'sparseda' ? 'sparseda' : 'matching_pursuit';
+    this._driverAlgorithm =
+      algorithm === 'sparseda' ? 'sparseda' : 'matching_pursuit';
     // Both SparsEDA and Matching Pursuit operate on the tonic-subtracted phasic
     // signal (phasicArr), leaving this.tonic as the smooth, physiological lower-envelope
     // baseline (with floor repositioning) computed by GsrFilter.decomposeTonicPhasic.
     // This avoids SparsEDA's unconstrained sliding-window polynomial baseline, which on
     // real continuous data suffers from boundary drift and rides above signal troughs.
     const deconvInput = phasicArr;
-    const deconvOpts = (algorithm === 'sparseda')
-      ? {
-          maxIter: scf.sparsedaKmax ?? 120,
-          epsilon: scf.sparsedaEpsilon ?? 1.0,
-          dminSec: scf.sparsedaDminSec ?? 0.25,
-          rho: scf.sparsedaRho ?? 0.0,
-          algorithm: algorithm
-        }
-
-      : {
-          tauSlow: scf.tauSlow, tauFast: scf.tauFast, kernelSec: scf.kernelSec,
-          maxIter: scf.maxIter, lr: scf.lr, convTol: scf.convTol,
-          minImpulseGapSec: scf.minImpulseGapSec,
-          algorithm: algorithm
-        };
-    const result = SCRDeconvolution.deconvolve(deconvInput, this.sampleRate, deconvOpts);
+    const deconvOpts =
+      algorithm === 'sparseda'
+        ? {
+            maxIter: scf.sparsedaKmax ?? 120,
+            epsilon: scf.sparsedaEpsilon ?? 1.0,
+            dminSec: scf.sparsedaDminSec ?? 0.25,
+            rho: scf.sparsedaRho ?? 0.0,
+            algorithm: algorithm,
+          }
+        : {
+            tauSlow: scf.tauSlow,
+            tauFast: scf.tauFast,
+            kernelSec: scf.kernelSec,
+            maxIter: scf.maxIter,
+            lr: scf.lr,
+            convTol: scf.convTol,
+            minImpulseGapSec: scf.minImpulseGapSec,
+            algorithm: algorithm,
+          };
+    const result = SCRDeconvolution.deconvolve(
+      deconvInput,
+      this.sampleRate,
+      deconvOpts,
+    );
 
     // Diagnostic: whether the selected deconvolution path converged before
     // exhausting its iteration budget. A truncated run means real SCRs may
@@ -906,7 +1086,10 @@ export class GSRAnalyzer {
       const impulseLogMap = new Map();
       if (Array.isArray(result.impulseLog)) {
         for (const logEntry of result.impulseLog) {
-          impulseLogMap.set(logEntry.trueIndex ?? logEntry.clampedIndex, logEntry);
+          impulseLogMap.set(
+            logEntry.trueIndex ?? logEntry.clampedIndex,
+            logEntry,
+          );
         }
       }
       this.phasicDriverPeaks = [];
@@ -919,21 +1102,31 @@ export class GSRAnalyzer {
             amplitude: result.driver[i],
             bandIdx: meta ? meta.bandIdx : 2,
             scaleFactor: meta ? meta.scaleFactor : 1.0,
-            speedLabel: meta ? meta.speedLabel : 'Standard'
+            speedLabel: meta ? meta.speedLabel : 'Standard',
           });
         }
       }
-      reconstructionImpulses = this.phasicDriverPeaks.map(({ index, amplitude }) => ({ index, amplitude }));
-      cleanValsRaw = (result.clean && result.clean.length === n)
-        ? new Float64Array(result.clean)
-        : SCRDeconvolution.reconstructPhasic(reconstructionImpulses, n, result.kernel);
+      reconstructionImpulses = this.phasicDriverPeaks.map(
+        ({ index, amplitude }) => ({ index, amplitude }),
+      );
+      cleanValsRaw =
+        result.clean && result.clean.length === n
+          ? new Float64Array(result.clean)
+          : SCRDeconvolution.reconstructPhasic(
+              reconstructionImpulses,
+              n,
+              result.kernel,
+            );
     } else {
       // Global impulse detection: minImpulseGapSec is enforced exactly once,
       // across the whole track, so no two accepted impulses can be closer than
       // that regardless of how many original peaks would once have generated
       // overlapping local windows around them.
       const rawImpulses = SCRDeconvolution.detectImpulses(
-        result.driver, this.sampleRate, scf.impulseThreshold, scf.minImpulseGapSec
+        result.driver,
+        this.sampleRate,
+        scf.impulseThreshold,
+        scf.minImpulseGapSec,
       );
 
       const kPeakIdx = this._kernelPeakOffset(result.kernel);
@@ -951,7 +1144,8 @@ export class GSRAnalyzer {
       // comment: true apex at sample 4 reconstructed at sample ~kPeakIdx=12).
       const logByClampedIndex = new Map();
       for (const entry of result.impulseLog) {
-        if (!logByClampedIndex.has(entry.clampedIndex)) logByClampedIndex.set(entry.clampedIndex, []);
+        if (!logByClampedIndex.has(entry.clampedIndex))
+          logByClampedIndex.set(entry.clampedIndex, []);
         logByClampedIndex.get(entry.clampedIndex).push(entry);
       }
       // For the apex-prediction sanity check below, use the single largest
@@ -991,9 +1185,13 @@ export class GSRAnalyzer {
         // the [onsetIndex, index] range (e.g. renderer.js's shaded-region draw).
         const lo = Math.max(0, onsetIdx, predicted - apexSearchHalfWin);
         const hi = Math.min(n - 1, predicted + apexSearchHalfWin);
-        let bestIdx = Math.max(onsetIdx, predicted), bestVal = phasicVals[bestIdx] || 0;
+        let bestIdx = Math.max(onsetIdx, predicted),
+          bestVal = phasicVals[bestIdx] || 0;
         for (let i = lo; i <= hi; i++) {
-          if (phasicVals[i] > bestVal) { bestVal = phasicVals[i]; bestIdx = i; }
+          if (phasicVals[i] > bestVal) {
+            bestVal = phasicVals[i];
+            bestIdx = i;
+          }
         }
         return { apexIdx: bestIdx, apexVal: bestVal };
       };
@@ -1013,8 +1211,11 @@ export class GSRAnalyzer {
       const threshold = params.peakThreshold;
       const minApexVal = scf.minApexVal ?? 0.001;
       const impulses = rawImpulses
-        .map(imp => ({ imp, ...resolveApex(dominantTrueIndex(imp.index)) }))
-        .filter(({ imp, apexVal }) => imp.amplitude >= threshold && apexVal >= minApexVal);
+        .map((imp) => ({ imp, ...resolveApex(dominantTrueIndex(imp.index)) }))
+        .filter(
+          ({ imp, apexVal }) =>
+            imp.amplitude >= threshold && apexVal >= minApexVal,
+        );
       this.phasicDriverPeaks = impulses.map(({ imp }) => imp);
 
       // Reconstruct the clean, superposition-resolved phasic signal from every
@@ -1031,14 +1232,26 @@ export class GSRAnalyzer {
       for (const { imp } of impulses) {
         const entries = logByClampedIndex.get(imp.index);
         if (entries && entries.length > 0) {
-          for (const e of entries) reconstructionImpulses.push({ index: e.trueIndex, amplitude: e.amplitude });
+          for (const e of entries)
+            reconstructionImpulses.push({
+              index: e.trueIndex,
+              amplitude: e.amplitude,
+            });
         } else {
-          reconstructionImpulses.push({ index: imp.index, amplitude: imp.amplitude });
+          reconstructionImpulses.push({
+            index: imp.index,
+            amplitude: imp.amplitude,
+          });
         }
       }
-      cleanValsRaw = (result.clean && result.clean.length === n)
-        ? new Float64Array(result.clean)
-        : SCRDeconvolution.reconstructPhasic(reconstructionImpulses, n, result.kernel);
+      cleanValsRaw =
+        result.clean && result.clean.length === n
+          ? new Float64Array(result.clean)
+          : SCRDeconvolution.reconstructPhasic(
+              reconstructionImpulses,
+              n,
+              result.kernel,
+            );
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -1093,18 +1306,25 @@ export class GSRAnalyzer {
     const shouldRescale = result.applyRescale !== false;
     let rescaleAmplitudes = 1.0;
     if (shouldRescale) {
-      let sumClean = 0, sumPhasic = 0;
-      for (let i = 0; i < n; i++) { sumClean += cleanValsRaw[i]; sumPhasic += phasicVals[i]; }
+      let sumClean = 0,
+        sumPhasic = 0;
+      for (let i = 0; i < n; i++) {
+        sumClean += cleanValsRaw[i];
+        sumPhasic += phasicVals[i];
+      }
       if (sumClean > 0) {
         const rawRescale = sumPhasic / sumClean;
         const kernelSamples = scf.kernelSec * this.sampleRate;
-        const sortedIdx = reconstructionImpulses.map(imp => imp.index).sort((a, b) => a - b);
+        const sortedIdx = reconstructionImpulses
+          .map((imp) => imp.index)
+          .sort((a, b) => a - b);
         let overlapWeight = 0;
         for (let k = 1; k < sortedIdx.length; k++) {
           const gap = sortedIdx[k] - sortedIdx[k - 1];
           if (gap < kernelSamples) overlapWeight += 1 - gap / kernelSamples;
         }
-        const atomDensity = sortedIdx.length > 1 ? overlapWeight / (sortedIdx.length - 1) : 0;
+        const atomDensity =
+          sortedIdx.length > 1 ? overlapWeight / (sortedIdx.length - 1) : 0;
         rescaleAmplitudes = 1.0 + atomDensity * (rawRescale - 1.0);
       }
     }
@@ -1116,12 +1336,15 @@ export class GSRAnalyzer {
       // the second reconstruction pass to save time.
       cleanVals = cleanValsRaw;
     } else {
-      for (const imp of reconstructionImpulses) imp.amplitude *= rescaleAmplitudes;
-      for (const imp of this.phasicDriverPeaks)  imp.amplitude *= rescaleAmplitudes;
+      for (const imp of reconstructionImpulses)
+        imp.amplitude *= rescaleAmplitudes;
+      for (const imp of this.phasicDriverPeaks)
+        imp.amplitude *= rescaleAmplitudes;
       // Rescale the driver array in-place so phasicDriver display is consistent.
       for (let i = 0; i < n; i++) this.phasicDriver[i].val *= rescaleAmplitudes;
       cleanVals = new Float64Array(n);
-      for (let i = 0; i < n; i++) cleanVals[i] = cleanValsRaw[i] * rescaleAmplitudes;
+      for (let i = 0; i < n; i++)
+        cleanVals[i] = cleanValsRaw[i] * rescaleAmplitudes;
     }
     this.phasicClean = new Array(n);
     for (let i = 0; i < n; i++) {
@@ -1129,13 +1352,17 @@ export class GSRAnalyzer {
     }
     this._phasicOrig = this.phasic;
     this.phasic = this.phasicClean;
-    this.phasicZ = GsrFilter.standardizeSignal(this.phasic, this._seriesPool && this._seriesPool.phasicZ);
+    this.phasicZ = GsrFilter.standardizeSignal(
+      this.phasic,
+      this._seriesPool && this._seriesPool.phasicZ,
+    );
     this.phasicStd = GsrFilter.calculateStats(cleanVals).std;
     // this.phasic is now the reconstructed curve, not the pooled pristine one
     // _fillSeries() ranged in analyze() — refresh its cached Y-range so
     // _buildDisplayCache() (and the plot's global-range fast path) match what
     // deconvolution mode actually draws.
-    let phMn = Infinity, phMx = -Infinity;
+    let phMn = Infinity,
+      phMx = -Infinity;
     for (let i = 0; i < n; i++) {
       const v = cleanVals[i];
       if (v < phMn) phMn = v;
@@ -1149,34 +1376,49 @@ export class GSRAnalyzer {
     // the cvxEDA architecture (Ledalab CDA approach, Benedek & Kaernbach 2010a).
     let candidateIndices = null;
     if (algorithm === 'sparseda') {
-      const kernel = result.kernel || SCRDeconvolution.buildSCRFKernel(this.sampleRate, 2.0, 0.5, 10.0);
+      const kernel =
+        result.kernel ||
+        SCRDeconvolution.buildSCRFKernel(this.sampleRate, 2.0, 0.5, 10.0);
       const kPeakIdx = this._kernelPeakOffset(kernel);
       const halfWinSec = scf.sparsedaApexSearchHalfWinSec ?? 0.5;
 
-      const apexSearchHalfWin = Math.max(1, Math.round(halfWinSec * this.sampleRate));
+      const apexSearchHalfWin = Math.max(
+        1,
+        Math.round(halfWinSec * this.sampleRate),
+      );
       const minImpulse = scf.sparsedaImpulseThreshold ?? 0.005;
       candidateIndices = this.phasicDriverPeaks
-        .filter(p => p.amplitude >= minImpulse)
+        .filter((p) => p.amplitude >= minImpulse)
         .map(({ index, scaleFactor }) => {
           const scaledKPeak = Math.round(kPeakIdx * (scaleFactor || 1.0));
           const predicted = Math.min(n - 1, index + scaledKPeak);
           const lo = Math.max(0, index, predicted - apexSearchHalfWin);
           const hi = Math.min(n - 1, predicted + apexSearchHalfWin);
-          let bestIdx = Math.max(index, predicted), bestVal = cleanVals[bestIdx] || 0;
+          let bestIdx = Math.max(index, predicted),
+            bestVal = cleanVals[bestIdx] || 0;
           for (let j = lo; j <= hi; j++) {
-            if (cleanVals[j] > bestVal) { bestVal = cleanVals[j]; bestIdx = j; }
+            if (cleanVals[j] > bestVal) {
+              bestVal = cleanVals[j];
+              bestIdx = j;
+            }
           }
           return bestIdx;
         });
     }
 
-    this.peaks = this._detectPeaksFromCurve(cleanVals, times, params, oldLabels, oldExcluded, candidateIndices);
+    this.peaks = this._detectPeaksFromCurve(
+      cleanVals,
+      times,
+      params,
+      oldLabels,
+      oldExcluded,
+      candidateIndices,
+    );
     if (algorithm === 'sparseda') {
       this._tagSparsedaPeaksAndStats();
       this.responseDynamics = this.computeResponseDynamics();
     }
     this._assignLabelsToPeaks(this.peaks);
-
   }
 
   /**
@@ -1186,7 +1428,12 @@ export class GSRAnalyzer {
    * @returns {Array<{ time: number, val: number }>}
    */
   computeResponseDynamics() {
-    const n = (this.raw && this.raw.length > 0) ? this.raw.length : (this.times ? this.times.length : 0);
+    const n =
+      this.raw && this.raw.length > 0
+        ? this.raw.length
+        : this.times
+          ? this.times.length
+          : 0;
     const RD = ResponseDynamics;
     if (!RD) return [];
     return RD.computeSeries({
@@ -1195,7 +1442,7 @@ export class GSRAnalyzer {
       raw: this.raw,
       times: this.times,
       peaks: this.peaks,
-      isSparseda: (this._driverAlgorithm === 'sparseda')
+      isSparseda: this._driverAlgorithm === 'sparseda',
     });
   }
 
@@ -1208,7 +1455,11 @@ export class GSRAnalyzer {
   _tagSparsedaPeaksAndStats() {
     const RD = ResponseDynamics;
     if (!RD) return;
-    this.sparsedaStats = RD.tagPeaks(this.peaks, this.phasicDriverPeaks, this.sampleRate);
+    this.sparsedaStats = RD.tagPeaks(
+      this.peaks,
+      this.phasicDriverPeaks,
+      this.sampleRate,
+    );
   }
 
   /**
@@ -1250,7 +1501,14 @@ export class GSRAnalyzer {
    *   comment for why. Matching-pursuit's call (no 6th argument) is
    *   unaffected — it keeps the original dense scan.
    */
-  _detectPeaksFromCurve(cleanVals, times, params, oldLabels, oldExcluded, candidateIndices = null) {
+  _detectPeaksFromCurve(
+    cleanVals,
+    times,
+    params,
+    oldLabels,
+    oldExcluded,
+    candidateIndices = null,
+  ) {
     const n = cleanVals.length;
     const peaks = [];
     if (n < 3) return peaks;
@@ -1264,7 +1522,9 @@ export class GSRAnalyzer {
     const noiseHalfWin = Math.max(1, Math.round(this.sampleRate));
 
     const tryAcceptPeak = (i) => {
-      const prev = cleanVals[i - 1], curr = cleanVals[i], next = cleanVals[i + 1];
+      const prev = cleanVals[i - 1],
+        curr = cleanVals[i],
+        next = cleanVals[i + 1];
       if (!(curr > prev && curr >= next)) return false;
       if (curr < 0.001) return false;
 
@@ -1272,12 +1532,31 @@ export class GSRAnalyzer {
       const amplitude = curr - cleanVals[onsetIdx];
       if (amplitude < threshold) return false;
 
-      const recoveryIdx = this._findRecoveryIndex(cleanVals, i, onsetIdx, amplitude);
-      const metrics = this._calculateShapeMetrics(cleanVals, times, i, onsetIdx, recoveryIdx, noiseHalfWin);
+      const recoveryIdx = this._findRecoveryIndex(
+        cleanVals,
+        i,
+        onsetIdx,
+        amplitude,
+      );
+      const metrics = this._calculateShapeMetrics(
+        cleanVals,
+        times,
+        i,
+        onsetIdx,
+        recoveryIdx,
+        noiseHalfWin,
+      );
 
-      const peak = this._buildPeakObject(i, curr, cleanVals, times,
+      const peak = this._buildPeakObject(
+        i,
+        curr,
+        cleanVals,
+        times,
         { ...metrics, onsetIdx, recoveryIdx },
-        oldLabels, oldExcluded, false);
+        oldLabels,
+        oldExcluded,
+        false,
+      );
       // Uses the deconvolution-specific quality formula, not
       // _computePeakQuality() — see _computeDeconPeakQuality()'s doc
       // comment for why the shape-based formula doesn't apply here.
@@ -1294,8 +1573,13 @@ export class GSRAnalyzer {
       // enforced against the nearest ACCEPTED peak rather than via the dense
       // scan's skip-ahead, since candidates already arrive sparse and out of
       // strict proximity order isn't a concern (sorted below).
-      const minGapSamples = Math.max(1, Math.round(GSR_CONST.SCRF.minImpulseGapSec * this.sampleRate));
-      const sorted = [...new Set(candidateIndices)].filter(i => i >= 1 && i <= n - 2).sort((a, b) => a - b);
+      const minGapSamples = Math.max(
+        1,
+        Math.round(GSR_CONST.SCRF.minImpulseGapSec * this.sampleRate),
+      );
+      const sorted = [...new Set(candidateIndices)]
+        .filter((i) => i >= 1 && i <= n - 2)
+        .sort((a, b) => a - b);
       let lastAccepted = -minGapSamples;
       for (const i of sorted) {
         if (i - lastAccepted < minGapSamples) continue;
@@ -1312,20 +1596,27 @@ export class GSRAnalyzer {
           // separating genuinely close events is the whole point of running
           // deconvolution. Forcing the wider gap here just throws away the
           // resolution the mode exists to provide.
-          i = Math.min(n - 2, i + Math.round(GSR_CONST.SCRF.minImpulseGapSec * this.sampleRate));
+          i = Math.min(
+            n - 2,
+            i + Math.round(GSR_CONST.SCRF.minImpulseGapSec * this.sampleRate),
+          );
         }
       }
     }
 
     // Same hard SNR cutoff the default detector applies (shapeMinSnr, "0 = off").
     // SNR depends on each peak's local noise floor regardless of detection mode.
-    const minSnr = params && params.shapeMinSnr != null ? params.shapeMinSnr : defaults.MIN_SNR;
-    let result = minSnr > 0 ? peaks.filter(pk => pk.snr >= minSnr) : peaks;
+    const minSnr =
+      params && params.shapeMinSnr != null
+        ? params.shapeMinSnr
+        : defaults.MIN_SNR;
+    let result = minSnr > 0 ? peaks.filter((pk) => pk.snr >= minSnr) : peaks;
 
     // "0 = off" convention — no hardcoded floor here; a hardcoded minimum
     // would silently override an explicit user choice.
-    const minQuality = params.minPeakQuality != null ? params.minPeakQuality : 0.0;
-    result = result.filter(pk => pk.qualityScore >= minQuality);
+    const minQuality =
+      params.minPeakQuality != null ? params.minPeakQuality : 0.0;
+    result = result.filter((pk) => pk.qualityScore >= minQuality);
 
     return result;
   }
@@ -1350,9 +1641,27 @@ export class GSRAnalyzer {
    * @returns {object} Peak object (qualityScore and salienceScore NOT yet set).
    * @private
    */
-  _buildPeakObject(i, currVal, vals, times, shape, oldLabels, oldExcluded, checkImportedExcluded = false) {
-    const { amplitude, onsetIdx, recoveryIdx, halfRecoveryTime,
-            riseTime, onsetSlope, decaySlope, skewnessRatio, snr } = shape;
+  _buildPeakObject(
+    i,
+    currVal,
+    vals,
+    times,
+    shape,
+    oldLabels,
+    oldExcluded,
+    checkImportedExcluded = false,
+  ) {
+    const {
+      amplitude,
+      onsetIdx,
+      recoveryIdx,
+      halfRecoveryTime,
+      riseTime,
+      onsetSlope,
+      decaySlope,
+      skewnessRatio,
+      snr,
+    } = shape;
     return {
       index: i,
       time: times[i],
@@ -1368,14 +1677,18 @@ export class GSRAnalyzer {
       decaySlope,
       skewnessRatio,
       snr,
-      label: oldLabels.get(i) ||
-             this.getMatchingLabel(times[i]) ||
-             (this._importedPeakLabels ? this._importedPeakLabels.get(times[i]) : '') ||
-             '',
-      excluded: oldExcluded.has(i) ||
-                (checkImportedExcluded && this._importedPeakExcluded
-                  ? this._importedPeakExcluded.has(times[i])
-                  : false)
+      label:
+        oldLabels.get(i) ||
+        this.getMatchingLabel(times[i]) ||
+        (this._importedPeakLabels
+          ? this._importedPeakLabels.get(times[i])
+          : '') ||
+        '',
+      excluded:
+        oldExcluded.has(i) ||
+        (checkImportedExcluded && this._importedPeakExcluded
+          ? this._importedPeakExcluded.has(times[i])
+          : false),
     };
   }
 
@@ -1398,7 +1711,8 @@ export class GSRAnalyzer {
     for (const key of ['peakDensity', 'triIndex', 'edasymp']) {
       const arr = this[key];
       if (!arr || arr.length === 0) continue;
-      let mn = Infinity, mx = -Infinity;
+      let mn = Infinity,
+        mx = -Infinity;
       for (let i = 0; i < arr.length; i++) {
         let v = arr[i].val;
         if (isNaN(v)) v = 0; // EDASymp yields 0 (not NaN) for a flat/zero-power band
@@ -1408,11 +1722,17 @@ export class GSRAnalyzer {
       this._globalRange[key] = { min: mn, max: mx };
     }
     if (this._wasDeconv) {
-      for (const key of ['phasicAUC', 'arousalIndex', 'phasicDriver', 'responseDynamics']) {
+      for (const key of [
+        'phasicAUC',
+        'arousalIndex',
+        'phasicDriver',
+        'responseDynamics',
+      ]) {
         const arr = this[key];
 
         if (!arr || arr.length === 0) continue;
-        let mn = Infinity, mx = -Infinity;
+        let mn = Infinity,
+          mx = -Infinity;
         for (let i = 0; i < arr.length; i++) {
           const v = arr[i].val;
           if (v < mn) mn = v;
@@ -1421,10 +1741,13 @@ export class GSRAnalyzer {
         this._globalRange[key] = { min: mn, max: mx };
       }
     } else if (this._prefixCache) {
-      if (this._prefixCache.aucRange) this._globalRange.phasicAUC = this._prefixCache.aucRange;
-      if (this._prefixCache.aiRange) this._globalRange.arousalIndex = this._prefixCache.aiRange;
+      if (this._prefixCache.aucRange)
+        this._globalRange.phasicAUC = this._prefixCache.aucRange;
+      if (this._prefixCache.aiRange)
+        this._globalRange.arousalIndex = this._prefixCache.aiRange;
     }
-    if (this._seriesRange.em_fog) this._globalRange.em_fog = this._seriesRange.em_fog;
+    if (this._seriesRange.em_fog)
+      this._globalRange.em_fog = this._seriesRange.em_fog;
 
     // Reset per-redraw cache (recomputed once by draw())
     this.rawMinMaxCached = null;
@@ -1438,8 +1761,8 @@ export class GSRAnalyzer {
       const totalDur = this.raw[this.raw.length - 1].time - this.raw[0].time;
       if (totalDur > 0) {
         this._timelinePeakPct = this.peaks
-          .filter(pk => !pk.excluded)
-          .map(pk => pk.time / totalDur);
+          .filter((pk) => !pk.excluded)
+          .map((pk) => pk.time / totalDur);
       }
     }
   }
@@ -1491,8 +1814,12 @@ export class GSRAnalyzer {
     const n = vals.length;
     for (let j = i + 1; j < n; j++) {
       if (vals[j] <= halfDecayVal) return j;
-      if (j < n - 1 && vals[j] < vals[j + 1] &&
-          vals[j] > halfDecayVal + GSR_CONST.PEAK_RECOVERY_BREAK) break;
+      if (
+        j < n - 1 &&
+        vals[j] < vals[j + 1] &&
+        vals[j] > halfDecayVal + GSR_CONST.PEAK_RECOVERY_BREAK
+      )
+        break;
     }
     return -1;
   }
@@ -1502,9 +1829,14 @@ export class GSRAnalyzer {
     const amplitude = curr - vals[onsetIdx];
     const riseTime = times[i] - times[onsetIdx];
     const onsetSlope = riseTime > 0 ? amplitude / riseTime : 0;
-    const halfRecoveryTime = recoveryIdx !== -1 ? times[recoveryIdx] - times[i] : -1;
-    const decaySlope = halfRecoveryTime > 0 ? (vals[i] - vals[recoveryIdx]) / halfRecoveryTime : 0;
-    const skewnessRatio = halfRecoveryTime > 0 ? riseTime / halfRecoveryTime : 0;
+    const halfRecoveryTime =
+      recoveryIdx !== -1 ? times[recoveryIdx] - times[i] : -1;
+    const decaySlope =
+      halfRecoveryTime > 0
+        ? (vals[i] - vals[recoveryIdx]) / halfRecoveryTime
+        : 0;
+    const skewnessRatio =
+      halfRecoveryTime > 0 ? riseTime / halfRecoveryTime : 0;
 
     const noiseFloor = this._computeNoiseFloor(onsetIdx, noiseHalfWin);
     const snr = noiseFloor > 0 ? amplitude / noiseFloor : 0;
@@ -1516,7 +1848,7 @@ export class GSRAnalyzer {
       halfRecoveryTime,
       decaySlope,
       skewnessRatio,
-      snr
+      snr,
     };
   }
 
@@ -1545,7 +1877,9 @@ export class GSRAnalyzer {
     const filtered = this.filtered;
     const start = Math.max(1, idx - halfWindow);
     const end = Math.min(filtered.length - 1, idx + halfWindow);
-    let sum = 0, sumSq = 0, count = 0;
+    let sum = 0,
+      sumSq = 0,
+      count = 0;
     for (let j = start; j <= end; j++) {
       const d = filtered[j].val - filtered[j - 1].val;
       sum += d;
@@ -1593,7 +1927,8 @@ export class GSRAnalyzer {
     // Onset slope — measurable whenever positive. Steep but not too steep (µS/s).
     if (peak.onsetSlope > 0) {
       applicable += W.onsetSlope;
-      if (peak.onsetSlope >= 0.01 && peak.onsetSlope <= 1.0) score += W.onsetSlope;
+      if (peak.onsetSlope >= 0.01 && peak.onsetSlope <= 1.0)
+        score += W.onsetSlope;
       else if (peak.onsetSlope <= 3.0) score += W.onsetSlope * 0.5;
     }
 
@@ -1610,13 +1945,17 @@ export class GSRAnalyzer {
       applicable += W.recoveryTime + W.skewness + W.decaySlope;
 
       // Recovery time: ideal 0.5–4 s.
-      if (peak.halfRecoveryTime >= 0.5 && peak.halfRecoveryTime <= 4.0) score += W.recoveryTime;
+      if (peak.halfRecoveryTime >= 0.5 && peak.halfRecoveryTime <= 4.0)
+        score += W.recoveryTime;
       else if (peak.halfRecoveryTime <= 8.0) score += W.recoveryTime * 0.5;
 
       // Skewness: classic SCR rises fast, recovers slow (ratio <= 1).
-      if (peak.skewnessRatio > 0 && peak.skewnessRatio <= 1.0) score += W.skewness;
-      else if (peak.skewnessRatio > 1.0 && peak.skewnessRatio <= 2.0) score += W.skewness * 0.6;
-      else if (peak.skewnessRatio > 2.0 && peak.skewnessRatio <= 4.0) score += W.skewness * 0.3;
+      if (peak.skewnessRatio > 0 && peak.skewnessRatio <= 1.0)
+        score += W.skewness;
+      else if (peak.skewnessRatio > 1.0 && peak.skewnessRatio <= 2.0)
+        score += W.skewness * 0.6;
+      else if (peak.skewnessRatio > 2.0 && peak.skewnessRatio <= 4.0)
+        score += W.skewness * 0.3;
 
       // Decay slope: recovery limb must be going somewhere (µS/s).
       if (peak.decaySlope > 0.001) score += W.decaySlope;
@@ -1718,10 +2057,19 @@ export class GSRAnalyzer {
    */
   _computeSalienceScore(peak) {
     const ampScore = Math.min(1, Math.max(0, peak.amplitude / 0.5));
-    const slope = peak.onsetSlope != null ? peak.onsetSlope : (peak.riseTime > 0 ? peak.amplitude / peak.riseTime : 0);
+    const slope =
+      peak.onsetSlope != null
+        ? peak.onsetSlope
+        : peak.riseTime > 0
+          ? peak.amplitude / peak.riseTime
+          : 0;
     const slopeScore = Math.min(1, Math.max(0, slope / 0.5));
-    const snrScore = peak.snr != null ? Math.min(1, Math.max(0, peak.snr / 3.0)) : 0.5;
-    return Math.min(1, Math.max(0, ampScore * 0.50 + slopeScore * 0.30 + snrScore * 0.20));
+    const snrScore =
+      peak.snr != null ? Math.min(1, Math.max(0, peak.snr / 3.0)) : 0.5;
+    return Math.min(
+      1,
+      Math.max(0, ampScore * 0.5 + slopeScore * 0.3 + snrScore * 0.2),
+    );
   }
 
   /**
@@ -1733,10 +2081,14 @@ export class GSRAnalyzer {
    * @returns {number} Raw data index corresponding to latency-shifted time.
    */
   resolveLatencyIndex(peak, peakLatency) {
-    if (!(peakLatency > 0)) return (peak && peak.index !== undefined) ? peak.index : 0;
-    const shiftedTime = Math.max(0, (peak && peak.time !== undefined ? peak.time : 0) - peakLatency);
+    if (!(peakLatency > 0))
+      return peak && peak.index !== undefined ? peak.index : 0;
+    const shiftedTime = Math.max(
+      0,
+      (peak && peak.time !== undefined ? peak.time : 0) - peakLatency,
+    );
     const si = this.findClosestIndex(shiftedTime);
-    return si >= 0 ? si : ((peak && peak.index !== undefined) ? peak.index : 0);
+    return si >= 0 ? si : peak && peak.index !== undefined ? peak.index : 0;
   }
 
   /**
@@ -1760,8 +2112,9 @@ export class GSRAnalyzer {
     const toRad = Math.PI / 180;
     const dLat = (lat2 - lat1) * toRad;
     const dLon = (lon2 - lon1) * toRad;
-    const a = Math.sin(dLat / 2) ** 2 +
-              Math.cos(lat1 * toRad) * Math.cos(lat2 * toRad) * Math.sin(dLon / 2) ** 2;
+    const a =
+      Math.sin(dLat / 2) ** 2 +
+      Math.cos(lat1 * toRad) * Math.cos(lat2 * toRad) * Math.sin(dLon / 2) ** 2;
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   }
 
@@ -1816,28 +2169,41 @@ export class GSRAnalyzer {
     // reported field, so keying off its mere presence would rank by it too —
     // and drop large, low-prominence SCRs (crest wiggle, rising-edge, burst
     // summits) out of the hotspot set.
-    const magnitude = (params && params.usePeakProminence)
-      ? p => (p.prominence != null ? p.prominence : p.amplitude)
-      : p => p.amplitude;
+    const magnitude =
+      params && params.usePeakProminence
+        ? (p) => (p.prominence != null ? p.prominence : p.amplitude)
+        : (p) => p.amplitude;
     const activeSorted = this.peaks
-      .filter(p => !p.excluded)
-      .sort((a, b) => (magnitude(b) - magnitude(a)) || (a.time - b.time));
+      .filter((p) => !p.excluded)
+      .sort((a, b) => magnitude(b) - magnitude(a) || a.time - b.time);
     if (activeSorted.length === 0) return [];
 
-    const percentile = (params && params.hotspotPercentile != null)
-      ? params.hotspotPercentile
-      : ME.HOTSPOT_PERCENTILE;
-    const targetCount = Math.max(1, Math.round(activeSorted.length * percentile));
+    const percentile =
+      params && params.hotspotPercentile != null
+        ? params.hotspotPercentile
+        : ME.HOTSPOT_PERCENTILE;
+    const targetCount = Math.max(
+      1,
+      Math.round(activeSorted.length * percentile),
+    );
     const minSepM = ME.MIN_SEPARATION_M != null ? ME.MIN_SEPARATION_M : 0;
 
     const selected = [];
     const selectedCoords = [];
     for (const p of activeSorted) {
       if (selected.length >= targetCount) break;
-      const coords = this.getCoordinates(this._resolveHotspotIndex(p, peakLatency));
+      const coords = this.getCoordinates(
+        this._resolveHotspotIndex(p, peakLatency),
+      );
       if (!coords) continue;
-      if (minSepM > 0 && selectedCoords.some(c =>
-            this._haversineMeters(c.lat, c.lon, coords.lat, coords.lon) < minSepM)) {
+      if (
+        minSepM > 0 &&
+        selectedCoords.some(
+          (c) =>
+            this._haversineMeters(c.lat, c.lon, coords.lat, coords.lon) <
+            minSepM,
+        )
+      ) {
         continue;
       }
       selected.push(p);
@@ -1874,7 +2240,9 @@ export class GSRAnalyzer {
           if (imported) oldLabels.set(pk.index, imported);
         }
         if (!pk.excluded) {
-          const importedEx = this._importedPeakExcluded && this._importedPeakExcluded.get(pk.time);
+          const importedEx =
+            this._importedPeakExcluded &&
+            this._importedPeakExcluded.get(pk.time);
           if (importedEx) oldExcluded.add(pk.index);
         }
       }
@@ -1930,11 +2298,14 @@ export class GSRAnalyzer {
     const parent = new Int32Array(n);
     for (let i = 0; i < n; i++) parent[i] = i;
     const active = new Uint8Array(n);
-    const compMax = new Float64Array(n);   // tallest height in the run (valid at root)
-    const compPeak = new Int32Array(n);    // index of that tallest sample (valid at root)
+    const compMax = new Float64Array(n); // tallest height in the run (valid at root)
+    const compPeak = new Int32Array(n); // index of that tallest sample (valid at root)
 
     const find = (x) => {
-      while (parent[x] !== x) { parent[x] = parent[parent[x]]; x = parent[x]; }
+      while (parent[x] !== x) {
+        parent[x] = parent[parent[x]];
+        x = parent[x];
+      }
       return x;
     };
 
@@ -1943,7 +2314,7 @@ export class GSRAnalyzer {
 
     const order = new Array(n);
     for (let i = 0; i < n; i++) order[i] = i;
-    order.sort((a, b) => (vals[b] - vals[a]) || (a - b));
+    order.sort((a, b) => vals[b] - vals[a] || a - b);
 
     for (const i of order) {
       active[i] = 1;
@@ -1959,7 +2330,8 @@ export class GSRAnalyzer {
         const c = vals[i]; // col height between the two runs
         const lo = compMax[ri] < compMax[rn] ? ri : rn;
         const hi = lo === ri ? rn : ri;
-        if (prom[compPeak[lo]] < 0) prom[compPeak[lo]] = Math.max(0, compMax[lo] - c);
+        if (prom[compPeak[lo]] < 0)
+          prom[compPeak[lo]] = Math.max(0, compMax[lo] - c);
         parent[lo] = hi;
         ri = hi;
       }
@@ -1968,24 +2340,29 @@ export class GSRAnalyzer {
     // Any summit never dominated (the global max, or ties for it) starts from
     // the signal's own minimum; the boundary correction below replaces this
     // with the correct per-side floor.
-    for (let i = 0; i < n; i++) if (prom[i] < 0) prom[i] = Math.max(0, vals[i] - vMin);
+    for (let i = 0; i < n; i++)
+      if (prom[i] < 0) prom[i] = Math.max(0, vals[i] - vMin);
 
     // Boundary correction — see doc comment above. One-sided running
     // extrema, computed once in O(n): prefixMax/suffixMax find whether a
     // taller point exists on each side at all; prefixMin/suffixMin give the
     // true one-sided floor to fall back to when it doesn't.
-    const prefixMax = new Float64Array(n), prefixMin = new Float64Array(n);
-    let curMax = -Infinity, curMin = Infinity;
+    const prefixMax = new Float64Array(n),
+      prefixMin = new Float64Array(n);
+    let curMax = -Infinity,
+      curMin = Infinity;
     for (let i = 0; i < n; i++) {
-      prefixMax[i] = curMax;   // strictly left of i (-Inf when i === 0)
+      prefixMax[i] = curMax; // strictly left of i (-Inf when i === 0)
       prefixMin[i] = curMin;
       if (vals[i] > curMax) curMax = vals[i];
       if (vals[i] < curMin) curMin = vals[i];
     }
-    const suffixMax = new Float64Array(n), suffixMin = new Float64Array(n);
-    curMax = -Infinity; curMin = Infinity;
+    const suffixMax = new Float64Array(n),
+      suffixMin = new Float64Array(n);
+    curMax = -Infinity;
+    curMin = Infinity;
     for (let i = n - 1; i >= 0; i--) {
-      suffixMax[i] = curMax;   // strictly right of i (-Inf when i === n-1)
+      suffixMax[i] = curMax; // strictly right of i (-Inf when i === n-1)
       suffixMin[i] = curMin;
       if (vals[i] > curMax) curMax = vals[i];
       if (vals[i] < curMin) curMin = vals[i];
@@ -2032,8 +2409,10 @@ export class GSRAnalyzer {
     // hundreds of µS; prominence has no implicit scale gate, so a massive
     // spike is simply very prominent. MICROSIEMENS_MAX_SCR (default 20 µS) is
     // well above the physiological maximum (~5 µS in extreme subjects).
-    const maxScrAmp = GSR_CONST.MICROSIEMENS_MAX_SCR != null
-      ? GSR_CONST.MICROSIEMENS_MAX_SCR : 20;
+    const maxScrAmp =
+      GSR_CONST.MICROSIEMENS_MAX_SCR != null
+        ? GSR_CONST.MICROSIEMENS_MAX_SCR
+        : 20;
     const cand = [];
     for (let i = 1; i < n - 1; i++) {
       if (!(vals[i] > vals[i - 1] && vals[i] >= vals[i + 1])) continue;
@@ -2058,13 +2437,13 @@ export class GSRAnalyzer {
 
     // Minimum-gap non-max suppression — largest prominence wins, same
     // convention as _detectPeaksFullScan()'s refractory skip-ahead.
-    cand.sort((a, b) => (b.prominence - a.prominence) || (a.i - b.i));
+    cand.sort((a, b) => b.prominence - a.prominence || a.i - b.i);
     const kept = [];
     for (const c of cand) {
-      if (!kept.some(k => Math.abs(k.i - c.i) < minGap)) kept.push(c);
+      if (!kept.some((k) => Math.abs(k.i - c.i) < minGap)) kept.push(c);
     }
     kept.sort((a, b) => a.i - b.i);
-    return kept.map(c => c.i);
+    return kept.map((c) => c.i);
   }
 
   /**
@@ -2112,32 +2491,55 @@ export class GSRAnalyzer {
     const n = this.phasic.length;
     if (n < 3) return;
 
-    const vals = this.phasic.map(d => d.val);
-    const times = this.phasic.map(d => d.time);
+    const vals = this.phasic.map((d) => d.val);
+    const times = this.phasic.map((d) => d.time);
     const sr = this.sampleRate;
     const threshold = params.peakThreshold;
     const minGap = Math.max(1, Math.round(GSR_CONST.PEAK_MIN_GAP * sr));
-    const baselineWin = Math.max(1, Math.round((GSR_CONST.PEAK_PROMINENCE_BASELINE_SEC || 8) * sr));
+    const baselineWin = Math.max(
+      1,
+      Math.round((GSR_CONST.PEAK_PROMINENCE_BASELINE_SEC || 8) * sr),
+    );
     const noiseHalfWin = Math.max(1, Math.round(sr));
     // Morphology gates are off in this mode, so the onset walk-back uses the
     // generous canonical MAX_RISE_TIME bound.
     const maxOnsetSteps = Math.round(GSR_CONST.PEAK_SHAPE.MAX_RISE_TIME * sr);
-    const minQuality = (params && params.minPeakQuality != null) ? params.minPeakQuality : 0.0;
+    const minQuality =
+      params && params.minPeakQuality != null ? params.minPeakQuality : 0.0;
 
     const prom = this._topographicProminence(vals);
     // Above-threshold, artefact-screened prominence maxima, refractory-period
     // NMS applied (most-prominent-wins within PEAK_MIN_GAP). Returned ascending
     // by sample index == ascending by time.
-    const kept = this._prominenceNMS(vals, prom, threshold, minGap, baselineWin);
+    const kept = this._prominenceNMS(
+      vals,
+      prom,
+      threshold,
+      minGap,
+      baselineWin,
+    );
 
     for (const idx of kept) {
       // Onset walk-back ignores notches shallower than peakThreshold, so a
       // response whose crest carries a sub-threshold wiggle is still measured
       // from its true onset (matches the "a real recovery is >= threshold" bar
       // the prominence gate itself uses).
-      const onsetIdx = this._findOnsetIndex(vals, idx, maxOnsetSteps, threshold);
-      const peak = this._buildPeakWithMetrics(idx, onsetIdx, vals, times, prom,
-        noiseHalfWin, oldLabels, oldExcluded);
+      const onsetIdx = this._findOnsetIndex(
+        vals,
+        idx,
+        maxOnsetSteps,
+        threshold,
+      );
+      const peak = this._buildPeakWithMetrics(
+        idx,
+        onsetIdx,
+        vals,
+        times,
+        prom,
+        noiseHalfWin,
+        oldLabels,
+        oldExcluded,
+      );
       if (peak.qualityScore >= minQuality) this.peaks.push(peak);
     }
     this._assignLabelsToPeaks(this.peaks);
@@ -2150,11 +2552,40 @@ export class GSRAnalyzer {
    * Shared by _detectPeaksByProminence() and _detectPeaksFullScan().
    * @private
    */
-  _buildPeakWithMetrics(idx, onsetIdx, vals, times, prom, noiseHalfWin, oldLabels, oldExcluded) {
-    const recoveryIdx = this._findRecoveryIndex(vals, idx, onsetIdx, vals[idx] - vals[onsetIdx]);
-    const metrics = this._calculateShapeMetrics(vals, times, idx, onsetIdx, recoveryIdx, noiseHalfWin);
-    const peak = this._buildPeakObject(idx, vals[idx], vals, times,
-      { ...metrics, onsetIdx, recoveryIdx }, oldLabels, oldExcluded, true);
+  _buildPeakWithMetrics(
+    idx,
+    onsetIdx,
+    vals,
+    times,
+    prom,
+    noiseHalfWin,
+    oldLabels,
+    oldExcluded,
+  ) {
+    const recoveryIdx = this._findRecoveryIndex(
+      vals,
+      idx,
+      onsetIdx,
+      vals[idx] - vals[onsetIdx],
+    );
+    const metrics = this._calculateShapeMetrics(
+      vals,
+      times,
+      idx,
+      onsetIdx,
+      recoveryIdx,
+      noiseHalfWin,
+    );
+    const peak = this._buildPeakObject(
+      idx,
+      vals[idx],
+      vals,
+      times,
+      { ...metrics, onsetIdx, recoveryIdx },
+      oldLabels,
+      oldExcluded,
+      true,
+    );
     peak.prominence = prom[idx];
     peak.qualityScore = this._computePeakQuality(peak);
     peak.salienceScore = this._computeSalienceScore(peak);
@@ -2195,16 +2626,23 @@ export class GSRAnalyzer {
     const n = this.phasic.length;
     if (n < 3) return;
 
-    const vals = this.phasic.map(d => d.val);
-    const times = this.phasic.map(d => d.time);
+    const vals = this.phasic.map((d) => d.val);
+    const times = this.phasic.map((d) => d.time);
     const sr = this.sampleRate;
     const threshold = params.peakThreshold;
     const minGap = Math.max(1, Math.round(GSR_CONST.PEAK_MIN_GAP * sr));
     const noiseHalfWin = Math.max(1, Math.round(sr));
     const maxOnsetSteps = Math.round(GSR_CONST.PEAK_SHAPE.MAX_RISE_TIME * sr);
-    const minSnr = (params && params.shapeMinSnr != null) ? params.shapeMinSnr : GSR_CONST.PEAK_SHAPE.MIN_SNR;
-    const minQuality = (params && params.minPeakQuality != null) ? params.minPeakQuality : 0.0;
-    const maxScrAmp = GSR_CONST.MICROSIEMENS_MAX_SCR != null ? GSR_CONST.MICROSIEMENS_MAX_SCR : 20;
+    const minSnr =
+      params && params.shapeMinSnr != null
+        ? params.shapeMinSnr
+        : GSR_CONST.PEAK_SHAPE.MIN_SNR;
+    const minQuality =
+      params && params.minPeakQuality != null ? params.minPeakQuality : 0.0;
+    const maxScrAmp =
+      GSR_CONST.MICROSIEMENS_MAX_SCR != null
+        ? GSR_CONST.MICROSIEMENS_MAX_SCR
+        : 20;
 
     const prom = this._topographicProminence(vals); // reported field only
 
@@ -2223,16 +2661,24 @@ export class GSRAnalyzer {
     }
 
     // Refractory-period NMS — largest rise from its own onset wins its window.
-    cand.sort((a, b) => (b.amplitude - a.amplitude) || (a.i - b.i));
+    cand.sort((a, b) => b.amplitude - a.amplitude || a.i - b.i);
     const kept = [];
     for (const c of cand) {
-      if (!kept.some(k => Math.abs(k.i - c.i) < minGap)) kept.push(c);
+      if (!kept.some((k) => Math.abs(k.i - c.i) < minGap)) kept.push(c);
     }
     kept.sort((a, b) => a.i - b.i);
 
     for (const c of kept) {
-      const peak = this._buildPeakWithMetrics(c.i, c.onsetIdx, vals, times, prom,
-        noiseHalfWin, oldLabels, oldExcluded);
+      const peak = this._buildPeakWithMetrics(
+        c.i,
+        c.onsetIdx,
+        vals,
+        times,
+        prom,
+        noiseHalfWin,
+        oldLabels,
+        oldExcluded,
+      );
       if (peak.qualityScore >= minQuality) this.peaks.push(peak);
     }
     this._assignLabelsToPeaks(this.peaks);
@@ -2256,8 +2702,8 @@ export class GSRAnalyzer {
     if (n === 0) return [];
 
     const activePeakTimes = this.peaks
-      .filter(p => !p.excluded)
-      .map(p => p.time);
+      .filter((p) => !p.excluded)
+      .map((p) => p.time);
     const m = activePeakTimes.length;
 
     // Fast path: no active peaks -> return zero-density series directly
@@ -2269,8 +2715,13 @@ export class GSRAnalyzer {
       return emptyDensity;
     }
 
-    const dCfg = (typeof GSR_CONST !== 'undefined' && GSR_CONST.TEMPORAL_PEAK_DENSITY) || {};
-    const winSec = (windowSizeSec != null && windowSizeSec > 0) ? windowSizeSec : (dCfg.windowSizeSec || 60);
+    const dCfg =
+      (typeof GSR_CONST !== 'undefined' && GSR_CONST.TEMPORAL_PEAK_DENSITY) ||
+      {};
+    const winSec =
+      windowSizeSec != null && windowSizeSec > 0
+        ? windowSizeSec
+        : dCfg.windowSizeSec || 60;
     const sigmaRatio = dCfg.sigmaRatio || 0.25;
     const sigma = winSec * sigmaRatio;
     const cutoffMult = dCfg.cutoffMultiplier || 3.5;
@@ -2281,7 +2732,8 @@ export class GSRAnalyzer {
     const normFactor = scaleFactor / (Math.sqrt(2.0 * Math.PI) * sigma);
 
     const density = new Array(n);
-    let lo = 0, hi = 0;
+    let lo = 0,
+      hi = 0;
 
     for (let i = 0; i < n; i++) {
       const t = this.phasic[i].time;
@@ -2299,7 +2751,7 @@ export class GSRAnalyzer {
 
       density[i] = {
         time: t,
-        val: kernelSum * normFactor
+        val: kernelSum * normFactor,
       };
     }
     return density;
@@ -2334,19 +2786,25 @@ export class GSRAnalyzer {
    */
   computePhasicAUC(windowSizeSec = 30) {
     const n = this.phasic.length;
-    if (n === 0) { this.phasicAUCIsISCR = false; return []; }
+    if (n === 0) {
+      this.phasicAUCIsISCR = false;
+      return [];
+    }
 
     // True ISCR integrates the deconvolved driver; fall back to the phasic
     // response when no driver is available (non-deconvolution runs).
-    const useDriver = !!this._wasDeconv && Array.isArray(this.phasicDriver) &&
-                      this.phasicDriver.length === n;
+    const useDriver =
+      !!this._wasDeconv &&
+      Array.isArray(this.phasicDriver) &&
+      this.phasicDriver.length === n;
     this.phasicAUCIsISCR = useDriver;
     const src = useDriver ? this.phasicDriver : this.phasic;
 
     const auc = new Array(n);
     const halfWin = windowSizeSec / 2;
 
-    let lo = 0, hi = 0;
+    let lo = 0,
+      hi = 0;
     let runningSum = 0;
 
     for (let i = 0; i < n; i++) {
@@ -2370,7 +2828,7 @@ export class GSRAnalyzer {
 
       auc[i] = {
         time: t,
-        val: runningSum / this.sampleRate // Convert running sum to a time-integral (µS·s)
+        val: runningSum / this.sampleRate, // Convert running sum to a time-integral (µS·s)
       };
     }
     return auc;
@@ -2400,7 +2858,11 @@ export class GSRAnalyzer {
    *   (same 30 s window). When supplied by analyze(), skips the redundant
    *   computePhasicAUC(30) call (§B perf fix 2026-08-07).
    */
-  computeCombinedArousalIndex(wTonic = 0.3, wPhasic = 0.7, precomputedAUC = null) {
+  computeCombinedArousalIndex(
+    wTonic = 0.3,
+    wPhasic = 0.7,
+    precomputedAUC = null,
+  ) {
     const n = this.phasic.length;
     if (n === 0) return [];
 
@@ -2412,12 +2874,17 @@ export class GSRAnalyzer {
     // §B perf fix: compute mean/std in a single pass over this.tonic and auc
     // directly, eliminating the two O(N) .map(d => d.val) intermediate arrays
     // that were previously allocated only to pass into GsrFilter.calculateStats().
-    let tSum = 0, tSumSq = 0, aSum = 0, aSumSq = 0;
+    let tSum = 0,
+      tSumSq = 0,
+      aSum = 0,
+      aSumSq = 0;
     for (let i = 0; i < n; i++) {
       const tv = this.tonic[i].val;
       const av = auc[i].val;
-      tSum += tv; tSumSq += tv * tv;
-      aSum += av; aSumSq += av * av;
+      tSum += tv;
+      tSumSq += tv * tv;
+      aSum += av;
+      aSumSq += av * av;
     }
     const tMean = tSum / n;
     const tStd = Math.sqrt(Math.max(0, tSumSq / n - tMean * tMean)) || 1;
@@ -2430,7 +2897,7 @@ export class GSRAnalyzer {
       const aZ = (auc[i].val - aMean) / aStd;
       arousalIndex[i] = {
         time: this.phasic[i].time,
-        val: (wTonic * tZ) + (wPhasic * aZ)
+        val: wTonic * tZ + wPhasic * aZ,
       };
     }
     return arousalIndex;
@@ -2451,21 +2918,35 @@ export class GSRAnalyzer {
    * @param {Array|null} precomputedDensity - Optional already-computed peakDensity array
    * @returns {Array<{time: number, val: number}>}
    */
-  computeTriIndex(wTonic = 0.10, wPhasic = 0.45, wDensity = 0.45, precomputedAUC = null, precomputedDensity = null) {
+  computeTriIndex(
+    wTonic = 0.1,
+    wPhasic = 0.45,
+    wDensity = 0.45,
+    precomputedAUC = null,
+    precomputedDensity = null,
+  ) {
     const n = this.phasic.length;
     if (n === 0) return [];
 
     const auc = precomputedAUC || this.computePhasicAUC(30);
     const density = precomputedDensity || this.computeTemporalPeakDensity();
 
-    let tSum = 0, tSumSq = 0, aSum = 0, aSumSq = 0, dSum = 0, dSumSq = 0;
+    let tSum = 0,
+      tSumSq = 0,
+      aSum = 0,
+      aSumSq = 0,
+      dSum = 0,
+      dSumSq = 0;
     for (let i = 0; i < n; i++) {
       const tv = this.tonic[i].val;
       const av = auc[i].val;
       const dv = density[i].val;
-      tSum += tv; tSumSq += tv * tv;
-      aSum += av; aSumSq += av * av;
-      dSum += dv; dSumSq += dv * dv;
+      tSum += tv;
+      tSumSq += tv * tv;
+      aSum += av;
+      aSumSq += av * av;
+      dSum += dv;
+      dSumSq += dv * dv;
     }
     const tMean = tSum / n;
     const tStd = Math.sqrt(Math.max(0, tSumSq / n - tMean * tMean)) || 1;
@@ -2481,7 +2962,7 @@ export class GSRAnalyzer {
       const dZ = (density[i].val - dMean) / dStd;
       triIndex[i] = {
         time: this.phasic[i].time,
-        val: (wTonic * tZ) + (wPhasic * aZ) + (wDensity * dZ)
+        val: wTonic * tZ + wPhasic * aZ + wDensity * dZ,
       };
     }
     return triIndex;
@@ -2505,7 +2986,10 @@ export class GSRAnalyzer {
    */
   _computeEDASymp() {
     const n = this.raw.length;
-    if (n === 0 || typeof SpectralEDA === 'undefined') { this.edasymp = []; return; }
+    if (n === 0 || typeof SpectralEDA === 'undefined') {
+      this.edasymp = [];
+      return;
+    }
 
     const cache = this._edasympCache;
     if (cache && cache.raw === this.raw && cache.n === n) {
@@ -2519,10 +3003,15 @@ export class GSRAnalyzer {
     // no extra signal copy.
     const times = new Float64Array(n);
     for (let i = 0; i < n; i++) times[i] = this.raw[i].time;
-    const series = SpectralEDA.computeSeries(this._rawValsPool, times, this.sampleRate, {
-      windowSec: cfg.windowSec,
-      hopSec: cfg.hopSec,
-    });
+    const series = SpectralEDA.computeSeries(
+      this._rawValsPool,
+      times,
+      this.sampleRate,
+      {
+        windowSec: cfg.windowSec,
+        hopSec: cfg.hopSec,
+      },
+    );
     this.edasymp = SpectralEDA.mapToSamples(series, times);
     this._edasympCache = { raw: this.raw, n, edasymp: this.edasymp };
   }
@@ -2535,7 +3024,7 @@ export class GSRAnalyzer {
         peakCount: 0,
         peakFrequency: 0,
         meanPeakAmplitude: 0,
-        meanPhasicAUC: 0
+        meanPhasicAUC: 0,
       };
     }
 
@@ -2544,18 +3033,20 @@ export class GSRAnalyzer {
     const meanSCL = sumTonic / this.tonic.length;
 
     const durationMinutes = duration / 60.0;
-    const activePeaks = this.peaks.filter(p => !p.excluded);
+    const activePeaks = this.peaks.filter((p) => !p.excluded);
     const peakCount = activePeaks.length;
-    const peakFrequency = durationMinutes > 0 ? (peakCount / durationMinutes) : 0;
+    const peakFrequency = durationMinutes > 0 ? peakCount / durationMinutes : 0;
 
     const sumAmp = activePeaks.reduce((sum, p) => sum + p.amplitude, 0);
-    const meanPeakAmplitude = peakCount > 0 ? (sumAmp / peakCount) : 0;
+    const meanPeakAmplitude = peakCount > 0 ? sumAmp / peakCount : 0;
 
     // Mean of the sliding-window Phasic AUC series — a threshold-independent
     // companion to peakFrequency/meanPeakAmplitude (µS·s, 30s window).
-    const meanPhasicAUC = this.phasicAUC.length > 0
-      ? this.phasicAUC.reduce((sum, d) => sum + d.val, 0) / this.phasicAUC.length
-      : 0;
+    const meanPhasicAUC =
+      this.phasicAUC.length > 0
+        ? this.phasicAUC.reduce((sum, d) => sum + d.val, 0) /
+          this.phasicAUC.length
+        : 0;
 
     return {
       duration: duration,
@@ -2563,40 +3054,63 @@ export class GSRAnalyzer {
       peakCount: peakCount,
       peakFrequency: peakFrequency,
       meanPeakAmplitude: meanPeakAmplitude,
-      meanPhasicAUC: meanPhasicAUC
+      meanPhasicAUC: meanPhasicAUC,
     };
   }
 
   exportToCSV(params, gpsParams) {
-    if (this.raw.length === 0) return "";
+    if (this.raw.length === 0) return '';
 
     // Guard: if analysis hasn't been run, filtered/tonic/phasic are empty
-    if (this.filtered.length === 0 || this.tonic.length === 0 || this.phasic.length === 0) {
-      return "";
+    if (
+      this.filtered.length === 0 ||
+      this.tonic.length === 0 ||
+      this.phasic.length === 0
+    ) {
+      return '';
     }
 
-    const hasFilteredGps = this.filteredGps && this.filteredGps.length === this.raw.length;
+    const hasFilteredGps =
+      this.filteredGps && this.filteredGps.length === this.raw.length;
     const isEnriched = this.isEnriched;
     // GPS quality fields (hdop/pdop/hacc_m/fix_type/sats/speed_kts/course_deg) feed the
     // Kalman noise model and the maxHdop/maxSpeed/minFixType gates (gps_filter.js,
     // gps_pipeline.js). Without them a reloaded processed CSV can't be meaningfully
     // reprocessed with different GPS slider values, so preserve them when present.
-    const hasGpsQuality = this.raw.some(d =>
-      (!isNaN(d.hdop) || !isNaN(d.pdop) || !isNaN(d.hacc) || !isNaN(d.speedKts) || !isNaN(d.course) ||
-       d.fixType || d.sats)
+    const hasGpsQuality = this.raw.some(
+      (d) =>
+        !isNaN(d.hdop) ||
+        !isNaN(d.pdop) ||
+        !isNaN(d.hacc) ||
+        !isNaN(d.speedKts) ||
+        !isNaN(d.course) ||
+        d.fixType ||
+        d.sats,
     );
 
-    const hasRssi300 = this.raw.some(d => !isNaN(d.rssi_300));
-    const hasRssi315 = this.raw.some(d => !isNaN(d.rssi_315));
-    const hasRssi434 = this.raw.some(d => !isNaN(d.rssi_434));
-    const hasRssi446 = this.raw.some(d => !isNaN(d.rssi_446));
-    const hasRssi815 = this.raw.some(d => !isNaN(d.rssi_815));
-    const hasRssi868 = this.raw.some(d => !isNaN(d.rssi_868));
-    const hasRssi915 = this.raw.some(d => !isNaN(d.rssi_915));
-    const hasEmFog   = this.raw.some(d => !isNaN(d.em_fog));
+    const hasRssi300 = this.raw.some((d) => !isNaN(d.rssi_300));
+    const hasRssi315 = this.raw.some((d) => !isNaN(d.rssi_315));
+    const hasRssi434 = this.raw.some((d) => !isNaN(d.rssi_434));
+    const hasRssi446 = this.raw.some((d) => !isNaN(d.rssi_446));
+    const hasRssi815 = this.raw.some((d) => !isNaN(d.rssi_815));
+    const hasRssi868 = this.raw.some((d) => !isNaN(d.rssi_868));
+    const hasRssi915 = this.raw.some((d) => !isNaN(d.rssi_915));
+    const hasEmFog = this.raw.some((d) => !isNaN(d.em_fog));
 
-    const hasRf = hasRssi300 || hasRssi315 || hasRssi434 || hasRssi446 || hasRssi815 || hasRssi868 || hasRssi915 || hasEmFog;
-    const hasNdvi = this.raw.some(d => (typeof d.ndvi === 'number' && !isNaN(d.ndvi)) || (typeof d.ndvi_50m === 'number' && !isNaN(d.ndvi_50m)));
+    const hasRf =
+      hasRssi300 ||
+      hasRssi315 ||
+      hasRssi434 ||
+      hasRssi446 ||
+      hasRssi815 ||
+      hasRssi868 ||
+      hasRssi915 ||
+      hasEmFog;
+    const hasNdvi = this.raw.some(
+      (d) =>
+        (typeof d.ndvi === 'number' && !isNaN(d.ndvi)) ||
+        (typeof d.ndvi_50m === 'number' && !isNaN(d.ndvi_50m)),
+    );
 
     // Preserve recording start time and configurations for re-import
     let csv = `# RecordingStartTime:${this.recordingStartTime}\n`;
@@ -2609,35 +3123,37 @@ export class GSRAnalyzer {
     if (isEnriched) {
       csv += `# EnrichmentRadius:${this.enrichmentRadius}\n`;
     }
-    csv += "Time (s),Raw Conductance (uS),Filtered Conductance (uS),Tonic Baseline (uS),Phasic Response (uS),IsPeak,PeakAmplitude,PeakLabel,PeakExcluded,Latitude,Longitude";
+    csv +=
+      'Time (s),Raw Conductance (uS),Filtered Conductance (uS),Tonic Baseline (uS),Phasic Response (uS),IsPeak,PeakAmplitude,PeakLabel,PeakExcluded,Latitude,Longitude';
     if (hasFilteredGps) {
       // Named "Pre-Kalman", not "Raw" — a header containing "raw" collides with
       // GSR_KEYWORDS ('raw' is a GSR-column keyword, checked before lat/lon
       // detection in parseCSV), which silently swallows the column into the
       // gsr_raw branch and makes it unrecoverable on reimport. See gps_pipeline.js
       // applyPreKalmanFilters for what "pre-Kalman" means here.
-      csv += ",Pre-Kalman Latitude,Pre-Kalman Longitude";
+      csv += ',Pre-Kalman Latitude,Pre-Kalman Longitude';
     }
     if (hasGpsQuality) {
-      csv += ",hdop,pdop,hacc_m,fix_type,sats,speed_kts,course_deg,is_gps_fix";
+      csv += ',hdop,pdop,hacc_m,fix_type,sats,speed_kts,course_deg,is_gps_fix';
     }
     if (hasRf) {
-      if (hasRssi300) csv += ",rssi_300";
-      if (hasRssi315) csv += ",rssi_315";
-      if (hasRssi434) csv += ",rssi_434";
-      if (hasRssi446) csv += ",rssi_446";
-      if (hasRssi815) csv += ",rssi_815";
-      if (hasRssi868) csv += ",rssi_868";
-      if (hasRssi915) csv += ",rssi_915";
-      if (hasEmFog)   csv += ",em_fog";
+      if (hasRssi300) csv += ',rssi_300';
+      if (hasRssi315) csv += ',rssi_315';
+      if (hasRssi434) csv += ',rssi_434';
+      if (hasRssi446) csv += ',rssi_446';
+      if (hasRssi815) csv += ',rssi_815';
+      if (hasRssi868) csv += ',rssi_868';
+      if (hasRssi915) csv += ',rssi_915';
+      if (hasEmFog) csv += ',em_fog';
     }
     if (isEnriched) {
-      csv += ",osm_road_class,osm_dist_major_road,osm_in_park,osm_green_pct_50m,osm_dist_green,osm_canopy_pct_50m,osm_building_density_50m,osm_dist_water,osm_tree_density_50m,osm_amenity_count_50m";
+      csv +=
+        ',osm_road_class,osm_dist_major_road,osm_in_park,osm_green_pct_50m,osm_dist_green,osm_canopy_pct_50m,osm_building_density_50m,osm_dist_water,osm_tree_density_50m,osm_amenity_count_50m';
     }
     if (hasNdvi) {
-      csv += ",ndvi,ndvi_50m";
+      csv += ',ndvi,ndvi_50m';
     }
-    csv += "\n";
+    csv += '\n';
 
     // Build O(1) peak lookup map (avoid O(n²) .find() inside the loop)
     const peakByIndex = new Map();
@@ -2647,16 +3163,16 @@ export class GSRAnalyzer {
 
     for (let i = 0; i < this.raw.length; i++) {
       let isPeak = 0;
-      let peakAmp = "";
-      let peakLabel = "";
-      let peakExcluded = "";
-      
+      let peakAmp = '';
+      let peakLabel = '';
+      let peakExcluded = '';
+
       const peak = peakByIndex.get(i);
       if (peak) {
         isPeak = 1;
         peakAmp = peak.amplitude.toFixed(4);
-        peakLabel = peak.label || "";
-        peakExcluded = peak.excluded ? "1" : "0";
+        peakLabel = peak.label || '';
+        peakExcluded = peak.excluded ? '1' : '0';
       }
 
       let latVal = this.raw[i].lat;
@@ -2671,22 +3187,35 @@ export class GSRAnalyzer {
         lonVal = this.filteredGps[i].lon;
       }
 
-      const latStr = (latVal !== null && latVal !== undefined && !isNaN(latVal)) ? latVal.toFixed(6) : "";
-      const lonStr = (lonVal !== null && lonVal !== undefined && !isNaN(lonVal)) ? lonVal.toFixed(6) : "";
-      const rawLatStr = (rawLatVal !== null && rawLatVal !== undefined && !isNaN(rawLatVal)) ? rawLatVal.toFixed(6) : "";
-      const rawLonStr = (rawLonVal !== null && rawLonVal !== undefined && !isNaN(rawLonVal)) ? rawLonVal.toFixed(6) : "";
+      const latStr =
+        latVal !== null && latVal !== undefined && !isNaN(latVal)
+          ? latVal.toFixed(6)
+          : '';
+      const lonStr =
+        lonVal !== null && lonVal !== undefined && !isNaN(lonVal)
+          ? lonVal.toFixed(6)
+          : '';
+      const rawLatStr =
+        rawLatVal !== null && rawLatVal !== undefined && !isNaN(rawLatVal)
+          ? rawLatVal.toFixed(6)
+          : '';
+      const rawLonStr =
+        rawLonVal !== null && rawLonVal !== undefined && !isNaN(rawLonVal)
+          ? rawLonVal.toFixed(6)
+          : '';
 
-      csv += `${this.raw[i].time.toFixed(3)},` +
-             `${this.raw[i].val.toFixed(4)},` +
-             `${this.filtered[i].val.toFixed(4)},` +
-             `${this.tonic[i].val.toFixed(4)},` +
-             `${this.phasic[i].val.toFixed(4)},` +
-             `${isPeak},` +
-             `${peakAmp},` +
-             `${GSRCSVParser._csvEscape(peakLabel)},` +
-             `${peakExcluded},` +
-             `${latStr},` +
-             `${lonStr}`;
+      csv +=
+        `${this.raw[i].time.toFixed(3)},` +
+        `${this.raw[i].val.toFixed(4)},` +
+        `${this.filtered[i].val.toFixed(4)},` +
+        `${this.tonic[i].val.toFixed(4)},` +
+        `${this.phasic[i].val.toFixed(4)},` +
+        `${isPeak},` +
+        `${peakAmp},` +
+        `${GSRCSVParser._csvEscape(peakLabel)},` +
+        `${peakExcluded},` +
+        `${latStr},` +
+        `${lonStr}`;
 
       if (hasFilteredGps) {
         csv += `,${rawLatStr},${rawLonStr}`;
@@ -2701,48 +3230,99 @@ export class GSRAnalyzer {
         // input back down to the dense interpolated grid. Leaving them blank
         // mirrors how the original device CSV itself encodes "no fix this tick".
         const isFix = !!r._isGpsFix;
-        const hdopStr     = (isFix && !isNaN(r.hdop))     ? r.hdop.toFixed(2)     : "";
-        const pdopStr     = (isFix && !isNaN(r.pdop))     ? r.pdop.toFixed(2)     : "";
-        const haccStr     = (isFix && !isNaN(r.hacc))     ? r.hacc.toFixed(2)     : "";
-        const speedKtsStr = (isFix && !isNaN(r.speedKts)) ? r.speedKts.toFixed(2) : "";
-        const courseStr   = (isFix && !isNaN(r.course))   ? r.course.toFixed(1)   : "";
-        const fixTypeStr  = isFix ? (r.fixType || 0) : "";
-        const satsStr     = isFix ? (r.sats || 0) : "";
+        const hdopStr = isFix && !isNaN(r.hdop) ? r.hdop.toFixed(2) : '';
+        const pdopStr = isFix && !isNaN(r.pdop) ? r.pdop.toFixed(2) : '';
+        const haccStr = isFix && !isNaN(r.hacc) ? r.hacc.toFixed(2) : '';
+        const speedKtsStr =
+          isFix && !isNaN(r.speedKts) ? r.speedKts.toFixed(2) : '';
+        const courseStr = isFix && !isNaN(r.course) ? r.course.toFixed(1) : '';
+        const fixTypeStr = isFix ? r.fixType || 0 : '';
+        const satsStr = isFix ? r.sats || 0 : '';
         csv += `,${hdopStr},${pdopStr},${haccStr},${fixTypeStr},${satsStr},${speedKtsStr},${courseStr},${isFix ? 1 : 0}`;
       }
 
       if (hasRf) {
         const r = this.raw[i];
-        if (hasRssi300) csv += `,${(!isNaN(r.rssi_300)) ? r.rssi_300.toFixed(1) : ""}`;
-        if (hasRssi315) csv += `,${(!isNaN(r.rssi_315)) ? r.rssi_315.toFixed(1) : ""}`;
-        if (hasRssi434) csv += `,${(!isNaN(r.rssi_434)) ? r.rssi_434.toFixed(1) : ""}`;
-        if (hasRssi446) csv += `,${(!isNaN(r.rssi_446)) ? r.rssi_446.toFixed(1) : ""}`;
-        if (hasRssi815) csv += `,${(!isNaN(r.rssi_815)) ? r.rssi_815.toFixed(1) : ""}`;
-        if (hasRssi868) csv += `,${(!isNaN(r.rssi_868)) ? r.rssi_868.toFixed(1) : ""}`;
-        if (hasRssi915) csv += `,${(!isNaN(r.rssi_915)) ? r.rssi_915.toFixed(1) : ""}`;
-        if (hasEmFog)   csv += `,${(!isNaN(r.em_fog))   ? r.em_fog.toFixed(1)   : ""}`;
+        if (hasRssi300)
+          csv += `,${!isNaN(r.rssi_300) ? r.rssi_300.toFixed(1) : ''}`;
+        if (hasRssi315)
+          csv += `,${!isNaN(r.rssi_315) ? r.rssi_315.toFixed(1) : ''}`;
+        if (hasRssi434)
+          csv += `,${!isNaN(r.rssi_434) ? r.rssi_434.toFixed(1) : ''}`;
+        if (hasRssi446)
+          csv += `,${!isNaN(r.rssi_446) ? r.rssi_446.toFixed(1) : ''}`;
+        if (hasRssi815)
+          csv += `,${!isNaN(r.rssi_815) ? r.rssi_815.toFixed(1) : ''}`;
+        if (hasRssi868)
+          csv += `,${!isNaN(r.rssi_868) ? r.rssi_868.toFixed(1) : ''}`;
+        if (hasRssi915)
+          csv += `,${!isNaN(r.rssi_915) ? r.rssi_915.toFixed(1) : ''}`;
+        if (hasEmFog) csv += `,${!isNaN(r.em_fog) ? r.em_fog.toFixed(1) : ''}`;
       }
 
       if (isEnriched) {
-        const roadClassStr = this.raw[i].osm_road_class ? GSRCSVParser._csvEscape(this.raw[i].osm_road_class) : "";
-        const distMajorStr = (this.raw[i].osm_dist_major_road !== null && !isNaN(this.raw[i].osm_dist_major_road)) ? this.raw[i].osm_dist_major_road.toFixed(2) : "";
-        const inParkStr = (this.raw[i].osm_in_park !== null && !isNaN(this.raw[i].osm_in_park)) ? this.raw[i].osm_in_park.toString() : "";
-        const greenPctStr = (this.raw[i].osm_green_pct_50m !== null && !isNaN(this.raw[i].osm_green_pct_50m)) ? this.raw[i].osm_green_pct_50m.toFixed(1) : "";
-        const distGreenStr = (this.raw[i].osm_dist_green !== null && !isNaN(this.raw[i].osm_dist_green)) ? this.raw[i].osm_dist_green.toFixed(2) : "";
-        const canopyPctStr = (this.raw[i].osm_canopy_pct_50m !== null && !isNaN(this.raw[i].osm_canopy_pct_50m)) ? this.raw[i].osm_canopy_pct_50m.toFixed(1) : "";
-        const bldDensityStr = (this.raw[i].osm_building_density_50m !== null && !isNaN(this.raw[i].osm_building_density_50m)) ? this.raw[i].osm_building_density_50m.toFixed(1) : "";
-        const distWaterStr = (this.raw[i].osm_dist_water !== null && !isNaN(this.raw[i].osm_dist_water)) ? this.raw[i].osm_dist_water.toFixed(2) : "";
-        const treeDensStr = (this.raw[i].osm_tree_density_50m !== null && !isNaN(this.raw[i].osm_tree_density_50m)) ? this.raw[i].osm_tree_density_50m.toFixed(1) : "";
-        const amCountStr = (this.raw[i].osm_amenity_count_50m !== null && !isNaN(this.raw[i].osm_amenity_count_50m)) ? this.raw[i].osm_amenity_count_50m.toFixed(1) : "";
+        const roadClassStr = this.raw[i].osm_road_class
+          ? GSRCSVParser._csvEscape(this.raw[i].osm_road_class)
+          : '';
+        const distMajorStr =
+          this.raw[i].osm_dist_major_road !== null &&
+          !isNaN(this.raw[i].osm_dist_major_road)
+            ? this.raw[i].osm_dist_major_road.toFixed(2)
+            : '';
+        const inParkStr =
+          this.raw[i].osm_in_park !== null && !isNaN(this.raw[i].osm_in_park)
+            ? this.raw[i].osm_in_park.toString()
+            : '';
+        const greenPctStr =
+          this.raw[i].osm_green_pct_50m !== null &&
+          !isNaN(this.raw[i].osm_green_pct_50m)
+            ? this.raw[i].osm_green_pct_50m.toFixed(1)
+            : '';
+        const distGreenStr =
+          this.raw[i].osm_dist_green !== null &&
+          !isNaN(this.raw[i].osm_dist_green)
+            ? this.raw[i].osm_dist_green.toFixed(2)
+            : '';
+        const canopyPctStr =
+          this.raw[i].osm_canopy_pct_50m !== null &&
+          !isNaN(this.raw[i].osm_canopy_pct_50m)
+            ? this.raw[i].osm_canopy_pct_50m.toFixed(1)
+            : '';
+        const bldDensityStr =
+          this.raw[i].osm_building_density_50m !== null &&
+          !isNaN(this.raw[i].osm_building_density_50m)
+            ? this.raw[i].osm_building_density_50m.toFixed(1)
+            : '';
+        const distWaterStr =
+          this.raw[i].osm_dist_water !== null &&
+          !isNaN(this.raw[i].osm_dist_water)
+            ? this.raw[i].osm_dist_water.toFixed(2)
+            : '';
+        const treeDensStr =
+          this.raw[i].osm_tree_density_50m !== null &&
+          !isNaN(this.raw[i].osm_tree_density_50m)
+            ? this.raw[i].osm_tree_density_50m.toFixed(1)
+            : '';
+        const amCountStr =
+          this.raw[i].osm_amenity_count_50m !== null &&
+          !isNaN(this.raw[i].osm_amenity_count_50m)
+            ? this.raw[i].osm_amenity_count_50m.toFixed(1)
+            : '';
 
         csv += `,${roadClassStr},${distMajorStr},${inParkStr},${greenPctStr},${distGreenStr},${canopyPctStr},${bldDensityStr},${distWaterStr},${treeDensStr},${amCountStr}`;
       }
       if (hasNdvi) {
-        const ndviStr = (this.raw[i].ndvi !== null && !isNaN(this.raw[i].ndvi)) ? this.raw[i].ndvi.toFixed(3) : "";
-        const ndvi50mStr = (this.raw[i].ndvi_50m !== null && !isNaN(this.raw[i].ndvi_50m)) ? this.raw[i].ndvi_50m.toFixed(3) : "";
+        const ndviStr =
+          this.raw[i].ndvi !== null && !isNaN(this.raw[i].ndvi)
+            ? this.raw[i].ndvi.toFixed(3)
+            : '';
+        const ndvi50mStr =
+          this.raw[i].ndvi_50m !== null && !isNaN(this.raw[i].ndvi_50m)
+            ? this.raw[i].ndvi_50m.toFixed(3)
+            : '';
         csv += `,${ndviStr},${ndvi50mStr}`;
       }
-      csv += "\n";
+      csv += '\n';
     }
     return csv;
   }
@@ -2753,15 +3333,30 @@ export class GSRAnalyzer {
    * GSRAnalyzer.calcEmFog for its dynamic EM-fog fallback.
    */
   static calcEmFog(row, bandFloors = null) {
-    const BANDS = ['rssi_300', 'rssi_315', 'rssi_434', 'rssi_446', 'rssi_815', 'rssi_868', 'rssi_915'];
+    const BANDS = [
+      'rssi_300',
+      'rssi_315',
+      'rssi_434',
+      'rssi_446',
+      'rssi_815',
+      'rssi_868',
+      'rssi_915',
+    ];
     const floors = bandFloors || row?.bandFloors || null;
-    let sumPsq = 0, cnt = 0;
+    let sumPsq = 0,
+      cnt = 0;
     for (let i = 0; i < BANDS.length; i++) {
       const v = row[BANDS[i]];
       if (typeof v === 'number' && !isNaN(v)) {
         const bandKey = BANDS[i].replace('rssi_', '');
-        const floor = (floors && typeof floors[bandKey] === 'number') ? floors[bandKey] : -100.0;
-        const norm = Math.min(1.0, Math.max(0.0, (v - floor) / (-30.0 - floor)));
+        const floor =
+          floors && typeof floors[bandKey] === 'number'
+            ? floors[bandKey]
+            : -100.0;
+        const norm = Math.min(
+          1.0,
+          Math.max(0.0, (v - floor) / (-30.0 - floor)),
+        );
         sumPsq += norm * norm;
         cnt++;
       }

@@ -37,24 +37,28 @@ export const DERIVED_METRIC_SERIES = {
   edasymp: 'edasymp',
   responseDynamics: 'responseDynamics',
   em_fog: 'em_fog',
-  emFog: 'em_fog'
+  emFog: 'em_fog',
 };
 
 // Distance-to-feature OSM metrics use a 999 "none within radius" sentinel
 // (osm_enrichment.js SENTINEL_DIST). It must not enter the colour range —
 // otherwise real 0..~100 m distances collapse into the first couple of buckets
 // and the whole path reads as one colour.
-export const DISTANCE_METRICS = new Set(['distMajorRoad', 'distWater', 'distGreen']);
+export const DISTANCE_METRICS = new Set([
+  'distMajorRoad',
+  'distWater',
+  'distGreen',
+]);
 
 /** True when `v` is not a real measurement for `metric` (NaN/missing/sentinel). */
 export const isNoDataValue = (metric, v) => {
-  if (v === undefined || v === null || (typeof v === 'number' && isNaN(v))) return true;
+  if (v === undefined || v === null || (typeof v === 'number' && isNaN(v)))
+    return true;
   if (DISTANCE_METRICS.has(metric)) return v >= 999;
   return false;
 };
 
 export const __methods = {
-
   /**
    * The ground distance (metres) that the rendered track stroke spans at the
    * map's current zoom — i.e. the centre-line gap at which two strokes of
@@ -66,10 +70,14 @@ export const __methods = {
    * @private
    */
   _overlapRadiusMetres(drawPoints, trackWeight) {
-    if (!this.map || !Array.isArray(drawPoints) || drawPoints.length < 4) return 0;
-    const OV = (typeof GSR_CONST !== 'undefined' && GSR_CONST.PATH_OVERLAP) ? GSR_CONST.PATH_OVERLAP : {};
-    const w = (trackWeight > 0) ? trackWeight : 5;
-    const factor = (OV.widthFactor > 0) ? OV.widthFactor : 1;
+    if (!this.map || !Array.isArray(drawPoints) || drawPoints.length < 4)
+      return 0;
+    const OV =
+      typeof GSR_CONST !== 'undefined' && GSR_CONST.PATH_OVERLAP
+        ? GSR_CONST.PATH_OVERLAP
+        : {};
+    const w = trackWeight > 0 ? trackWeight : 5;
+    const factor = OV.widthFactor > 0 ? OV.widthFactor : 1;
     const mid = drawPoints[drawPoints.length >> 1];
     try {
       const a = L.latLng(mid.lat, mid.lon);
@@ -77,7 +85,7 @@ export const __methods = {
       const b = this.map.layerPointToLatLng(L.point(ap.x + 1, ap.y));
       const mPerPx = a.distanceTo(b);
       if (!(mPerPx > 0)) return 0;
-      const cap = (OV.maxRadiusM > 0) ? OV.maxRadiusM : 60;
+      const cap = OV.maxRadiusM > 0 ? OV.maxRadiusM : 60;
       return Math.min(w * mPerPx * factor, cap);
     } catch (e) {
       return 0;
@@ -99,25 +107,40 @@ export const __methods = {
    */
   _refreshPathOnZoom() {
     try {
-      if (!this.map || typeof AppState === 'undefined' || typeof AppState.analyzer === 'undefined') return;
+      if (
+        !this.map ||
+        typeof AppState === 'undefined' ||
+        typeof AppState.analyzer === 'undefined'
+      )
+        return;
       if (AppState.viewMode === 'collective') return;
       if (this._pathHasRetrace === false) return;
       if (!this._lastDrawPoints || this._lastDrawPoints.length === 0) return;
       if (this._lastPathIsCategorical) return;
-      if (!AppState.analyzer || typeof this._lastPathGetVal !== 'function') return;
+      if (!AppState.analyzer || typeof this._lastPathGetVal !== 'function')
+        return;
       if (typeof this.map.getZoom !== 'function') return;
       const z = this.map.getZoom();
       if (z === this._lastPathZoom) return;
 
       // Would the overlap colouring actually change at this zoom? Only the
       // visual radius moved — the path points and metric are unchanged.
-      const OV = (typeof GSR_CONST !== 'undefined' && GSR_CONST.PATH_OVERLAP) ? GSR_CONST.PATH_OVERLAP : {};
-      const radiusM = this._overlapRadiusMetres(this._lastDrawPoints, this._lastPathTrackWeight);
+      const OV =
+        typeof GSR_CONST !== 'undefined' && GSR_CONST.PATH_OVERLAP
+          ? GSR_CONST.PATH_OVERLAP
+          : {};
+      const radiusM = this._overlapRadiusMetres(
+        this._lastDrawPoints,
+        this._lastPathTrackWeight,
+      );
       let sig = 0;
       if (radiusM > 0) {
         const acc = GSRMapManager._overlapPooledAccessor(
-          this._lastDrawPoints, this._lastPathGetVal, { radiusM, revisitGapS: OV.revisitGapS || 15 });
-        sig = acc ? (acc.sig | 0) : 0;
+          this._lastDrawPoints,
+          this._lastPathGetVal,
+          { radiusM, revisitGapS: OV.revisitGapS || 15 },
+        );
+        sig = acc ? acc.sig | 0 : 0;
       }
       if (sig === this._lastPathOverlapSig) {
         this._lastPathZoom = z; // accept the new zoom, nothing to redraw
@@ -125,9 +148,11 @@ export const __methods = {
       }
 
       this._lastPathZoom = z;
-      const params = (typeof GSRStorage !== 'undefined' && typeof GSRStorage.buildGpsParams === 'function')
-        ? GSRStorage.buildGpsParams()
-        : {};
+      const params =
+        typeof GSRStorage !== 'undefined' &&
+        typeof GSRStorage.buildGpsParams === 'function'
+          ? GSRStorage.buildGpsParams()
+          : {};
       this.refreshPath(AppState.analyzer, params);
     } catch (e) {
       /* a zoom must never break — worst case the overlap colour lags a step */
@@ -140,7 +165,10 @@ export const __methods = {
     const key = this._getMetricKey(metric);
     // 'roadClass' is categorical, 'inPark' is 0/1 binary, and 'responseDynamics'
     // is discrete event-gated (0 = resting, >0 = speed multiplier).
-    const isCategorical = (metric === 'roadClass' || metric === 'inPark' || metric === 'responseDynamics');
+    const isCategorical =
+      metric === 'roadClass' ||
+      metric === 'inPark' ||
+      metric === 'responseDynamics';
     const needsUnique = isCategorical;
 
     // Phasic/Tonic/Peak Density/Phasic AUC/Arousal Index live in per-sample
@@ -148,7 +176,8 @@ export const __methods = {
     // DERIVED_METRIC_SERIES. Fall back to the static drawPoint[key] lookup
     // for everything else (raw GSR, HDOP, OSM enrichment fields).
     const derivedSeriesKey = DERIVED_METRIC_SERIES[metric];
-    const derivedSeries = derivedSeriesKey && analyzer ? analyzer[derivedSeriesKey] : null;
+    const derivedSeries =
+      derivedSeriesKey && analyzer ? analyzer[derivedSeriesKey] : null;
     const getVal = derivedSeries
       ? (p) => (derivedSeries[p.origIdx] ? derivedSeries[p.origIdx].val : 0)
       : (p) => p[key];
@@ -162,22 +191,38 @@ export const __methods = {
     let valAt = getVal;
     let hasRetrace = false;
     let overlapSig = 0;
-    if (!isCategorical && typeof GSR_CONST !== 'undefined' && GSR_CONST.PATH_OVERLAP) {
+    if (
+      !isCategorical &&
+      typeof GSR_CONST !== 'undefined' &&
+      GSR_CONST.PATH_OVERLAP
+    ) {
       const OV = GSR_CONST.PATH_OVERLAP;
       const gapS = OV.revisitGapS || 15;
       const maxR = OV.maxRadiusM || 60;
       const radiusM = this._overlapRadiusMetres(drawPoints, trackWeight);
       if (radiusM > 0) {
-        const pooledAt = GSRMapManager._overlapPooledAccessor(drawPoints, getVal, { radiusM, revisitGapS: gapS });
-        if (pooledAt) { valAt = pooledAt; hasRetrace = true; overlapSig = pooledAt.sig | 0; }
+        const pooledAt = GSRMapManager._overlapPooledAccessor(
+          drawPoints,
+          getVal,
+          { radiusM, revisitGapS: gapS },
+        );
+        if (pooledAt) {
+          valAt = pooledAt;
+          hasRetrace = true;
+          overlapSig = pooledAt.sig | 0;
+        }
       }
       // If nothing pooled at the current radius, is a retrace even geometrically
       // possible at any zoom? Probe once at the max radius so _refreshPathOnZoom
       // can skip re-rendering this (common) case for free. A radius already at
       // the cap that found nothing has already answered "no".
       if (!hasRetrace) {
-        hasRetrace = !(radiusM > 0 && radiusM >= maxR)
-          && GSRMapManager._pathRetraces(drawPoints, { radiusM: maxR, revisitGapS: gapS });
+        hasRetrace =
+          !(radiusM > 0 && radiusM >= maxR) &&
+          GSRMapManager._pathRetraces(drawPoints, {
+            radiusM: maxR,
+            revisitGapS: gapS,
+          });
       }
     }
     this._pathHasRetrace = hasRetrace;
@@ -185,13 +230,17 @@ export const __methods = {
     this._lastPathTrackWeight = trackWeight;
     this._lastPathGetVal = getVal;
     this._lastPathIsCategorical = isCategorical;
-    this._lastPathZoom = (this.map && typeof this.map.getZoom === 'function') ? this.map.getZoom() : null;
+    this._lastPathZoom =
+      this.map && typeof this.map.getZoom === 'function'
+        ? this.map.getZoom()
+        : null;
 
     // ── Single pass over drawPoints (already downsampled) for min/max ──
     // Uses the RAW value, not the pooled one, so the colour scale (and legend)
     // stay fixed to the real data range — pooling only recolours the
     // overlapping segments, it never rescales the whole path.
-    let minVal = Infinity, maxVal = -Infinity;
+    let minVal = Infinity,
+      maxVal = -Infinity;
     const seen = needsUnique ? new Set() : null;
 
     for (let i = 0; i < drawPoints.length; i++) {
@@ -207,7 +256,10 @@ export const __methods = {
     }
 
     if (!isCategorical) {
-      if (minVal === Infinity) { minVal = 0; maxVal = 1; }
+      if (minVal === Infinity) {
+        minVal = 0;
+        maxVal = 1;
+      }
       if (maxVal === minVal) maxVal = minVal + 1;
     }
 
@@ -219,13 +271,18 @@ export const __methods = {
     // Pre-compute color LUT for continuous metrics
     const range = maxVal - minVal;
     const COLOR_BUCKETS = 30;
-    const colorLut = isCategorical ? null : MapColors.getColorLut(metric, minVal, maxVal);
+    const colorLut = isCategorical
+      ? null
+      : MapColors.getColorLut(metric, minVal, maxVal);
 
     // Split drawPoints into continuous path segments, breaking at GPS gaps > 30 s.
     const GPS_PATH_GAP_S = 30;
     const segments = [[]];
     for (let i = 0; i < drawPoints.length; i++) {
-      if (i > 0 && drawPoints[i].time - drawPoints[i - 1].time > GPS_PATH_GAP_S) {
+      if (
+        i > 0 &&
+        drawPoints[i].time - drawPoints[i - 1].time > GPS_PATH_GAP_S
+      ) {
         segments.push([]);
       }
       segments[segments.length - 1].push(drawPoints[i]);
@@ -244,9 +301,15 @@ export const __methods = {
 
         let startBucket = 0;
         if (!isCategorical) {
-          const avgVal = (valAt(seg[batchStart]) + valAt(seg[batchStart + 1])) / 2;
+          const avgVal =
+            (valAt(seg[batchStart]) + valAt(seg[batchStart + 1])) / 2;
           startBucket = (avgVal - minVal) * (COLOR_BUCKETS / range);
-          startBucket = startBucket < 0 ? 0 : (startBucket >= COLOR_BUCKETS ? COLOR_BUCKETS - 1 : startBucket | 0);
+          startBucket =
+            startBucket < 0
+              ? 0
+              : startBucket >= COLOR_BUCKETS
+                ? COLOR_BUCKETS - 1
+                : startBucket | 0;
         }
 
         let batchEnd = batchStart + 1;
@@ -256,7 +319,12 @@ export const __methods = {
           } else {
             const val = (valAt(seg[batchEnd]) + valAt(seg[batchEnd + 1])) / 2;
             const bucket = (val - minVal) * (COLOR_BUCKETS / range);
-            const b = bucket < 0 ? 0 : (bucket >= COLOR_BUCKETS ? COLOR_BUCKETS - 1 : bucket | 0);
+            const b =
+              bucket < 0
+                ? 0
+                : bucket >= COLOR_BUCKETS
+                  ? COLOR_BUCKETS - 1
+                  : bucket | 0;
             if (b !== startBucket) break;
           }
           batchEnd++;
@@ -278,15 +346,26 @@ export const __methods = {
           color = MapColors.getColorForMetric(metric, startVal, minVal, maxVal);
         } else {
           const midIdx = (batchStart + batchEnd) >> 1;
-          const midBucket = ((valAt(seg[midIdx]) + valAt(seg[midIdx + 1])) / 2 - minVal) * (COLOR_BUCKETS / range);
-          const b = midBucket < 0 ? 0 : (midBucket >= COLOR_BUCKETS ? COLOR_BUCKETS - 1 : midBucket | 0);
+          const midBucket =
+            ((valAt(seg[midIdx]) + valAt(seg[midIdx + 1])) / 2 - minVal) *
+            (COLOR_BUCKETS / range);
+          const b =
+            midBucket < 0
+              ? 0
+              : midBucket >= COLOR_BUCKETS
+                ? COLOR_BUCKETS - 1
+                : midBucket | 0;
           color = colorLut[b];
         }
 
         // Phase 1 (slice 1): path segments render into the track's layerGroup
         // (on the map), never directly onto the map. `layerGroup` is null when
         // there is no managed track — fall back to the legacy direct add.
-        const poly = L.polyline(latlngsBuf.slice(), { color, weight: trackWeight, opacity: 0.95 });
+        const poly = L.polyline(latlngsBuf.slice(), {
+          color,
+          weight: trackWeight,
+          opacity: 0.95,
+        });
         if (layerGroup) {
           poly._gsrLayerGroup = layerGroup;
           poly._gsrKind = 'path';
@@ -302,8 +381,7 @@ export const __methods = {
 
     // Update legend with current metric and data range
     this.updateLegend();
-  }
-
+  },
 };
 
 Object.assign(GSRMapManager.prototype, __methods);

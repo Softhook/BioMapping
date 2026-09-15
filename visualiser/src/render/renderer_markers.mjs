@@ -17,11 +17,15 @@
  */
 import { AppState } from '../core/app_state.mjs';
 import { GSR_CONST } from '../core/constants.mjs';
-import { EXCLUDED_STYLE, GSRRenderer, NORMAL_DASH, getQualityColor } from './renderer.mjs';
+import {
+  EXCLUDED_STYLE,
+  GSRRenderer,
+  NORMAL_DASH,
+  getQualityColor,
+} from './renderer.mjs';
 import { ResponseDynamics } from '../signal/response_dynamics.mjs';
 
-  export const __methods = {
-
+export const __methods = {
   /**
    * Pixel-per-unit scale factors shared by drawPeakMarkers()/drawHotspotMarkers()
    * (and their _computePeakScreenPos() calls) — pulled out since both methods
@@ -29,13 +33,24 @@ import { ResponseDynamics } from '../signal/response_dynamics.mjs';
    * before, with no structural guarantee they'd stay in sync if one changed.
    * @private
    */
-  _computeGraphScales(tMin, tMax, yMinU, yMaxU, yTopU, yBottomU, yMinL, yMaxL, yTopL, yBottomL) {
+  _computeGraphScales(
+    tMin,
+    tMax,
+    yMinU,
+    yMaxU,
+    yTopU,
+    yBottomU,
+    yMinL,
+    yMaxL,
+    yTopL,
+    yBottomL,
+  ) {
     const tSpan = tMax - tMin;
-    const xSpan = (width - GSR_CONST.MARGIN.right) - GSR_CONST.MARGIN.left;
+    const xSpan = width - GSR_CONST.MARGIN.right - GSR_CONST.MARGIN.left;
     return {
-      xScale:  tSpan > 0 ? (xSpan / tSpan) : 0,
-      yScaleU: (yMaxU - yMinU) > 0 ? ((yTopU - yBottomU) / (yMaxU - yMinU)) : 0,
-      yScaleL: (yMaxL - yMinL) > 0 ? ((yTopL - yBottomL) / (yMaxL - yMinL)) : 0
+      xScale: tSpan > 0 ? xSpan / tSpan : 0,
+      yScaleU: yMaxU - yMinU > 0 ? (yTopU - yBottomU) / (yMaxU - yMinU) : 0,
+      yScaleL: yMaxL - yMinL > 0 ? (yTopL - yBottomL) / (yMaxL - yMinL) : 0,
     };
   },
 
@@ -47,10 +62,15 @@ import { ResponseDynamics } from '../signal/response_dynamics.mjs';
    */
   _peakOutOfView(p, tMin, tMax) {
     if (p.onsetTime > tMax) return true;
-    if (p.time < tMin && p.onsetTime < tMin &&
-        (p.recoveryIndex === -1 || p.recoveryIndex === undefined ||
-         !AppState.analyzer.phasic || !AppState.analyzer.phasic[p.recoveryIndex] ||
-         AppState.analyzer.phasic[p.recoveryIndex].time < tMin)) {
+    if (
+      p.time < tMin &&
+      p.onsetTime < tMin &&
+      (p.recoveryIndex === -1 ||
+        p.recoveryIndex === undefined ||
+        !AppState.analyzer.phasic ||
+        !AppState.analyzer.phasic[p.recoveryIndex] ||
+        AppState.analyzer.phasic[p.recoveryIndex].time < tMin)
+    ) {
       return true;
     }
     return false;
@@ -63,16 +83,35 @@ import { ResponseDynamics } from '../signal/response_dynamics.mjs';
    * at the same coordinates, just with different styling on top.
    * @private
    */
-  _computePeakScreenPos(p, tMin, scales, yMinU, yBottomU, yMinL, yBottomL, showLowerMarker, showUpperMarker, markerSeries) {
-    const xPeak  = GSR_CONST.MARGIN.left + (p.time - tMin) * scales.xScale;
+  _computePeakScreenPos(
+    p,
+    tMin,
+    scales,
+    yMinU,
+    yBottomU,
+    yMinL,
+    yBottomL,
+    showLowerMarker,
+    showUpperMarker,
+    markerSeries,
+  ) {
+    const xPeak = GSR_CONST.MARGIN.left + (p.time - tMin) * scales.xScale;
     const xOnset = GSR_CONST.MARGIN.left + (p.onsetTime - tMin) * scales.xScale;
     // The "upper" marker normally sits on the Filtered curve; in a metric view
     // it sits on whatever series is plotted (markerSeries), at the peak's time —
     // the peak's µS amplitude has no meaning on a /min or z axis.
-    const upperSeries = (markerSeries && markerSeries[p.index]) ? markerSeries : AppState.analyzer.filtered;
-    let yFilteredPeak = yBottomU + (upperSeries[p.index].val - yMinU) * scales.yScaleU;
-    const yPhasicPeak   = showLowerMarker ? yBottomL + (p.value - yMinL) * scales.yScaleL : yFilteredPeak;
-    const yPhasicOnset  = showLowerMarker ? yBottomL + (p.onsetValue - yMinL) * scales.yScaleL : yFilteredPeak;
+    const upperSeries =
+      markerSeries && markerSeries[p.index]
+        ? markerSeries
+        : AppState.analyzer.filtered;
+    let yFilteredPeak =
+      yBottomU + (upperSeries[p.index].val - yMinU) * scales.yScaleU;
+    const yPhasicPeak = showLowerMarker
+      ? yBottomL + (p.value - yMinL) * scales.yScaleL
+      : yFilteredPeak;
+    const yPhasicOnset = showLowerMarker
+      ? yBottomL + (p.onsetValue - yMinL) * scales.yScaleL
+      : yFilteredPeak;
     // Single metric view (Phasic): no Filtered curve is drawn, so collapse the
     // upper marker onto the lower one — its dot/label/connector are suppressed
     // by the showUpperMarker guards below, this just keeps click/hit math sane.
@@ -102,7 +141,21 @@ import { ResponseDynamics } from '../signal/response_dynamics.mjs';
    * memorableEvents subset, so visual "loudness" on the graph now tracks
    * salience rather than raw detection count.
    */
-  drawPeakMarkers(tMin, tMax, yMinU, yMaxU, yTopU, yBottomU, yMinL, yMaxL, yTopL, yBottomL, showLowerMarker, showUpperMarker, markerSeries) {
+  drawPeakMarkers(
+    tMin,
+    tMax,
+    yMinU,
+    yMaxU,
+    yTopU,
+    yBottomU,
+    yMinL,
+    yMaxL,
+    yTopL,
+    yBottomL,
+    showLowerMarker,
+    showUpperMarker,
+    markerSeries,
+  ) {
     if (showLowerMarker === undefined) showLowerMarker = true;
     // showUpperMarker (default true) draws the marker on the Filtered/upper
     // curve. Pass false in the single Phasic view, where the lower (phasic)
@@ -117,9 +170,25 @@ import { ResponseDynamics } from '../signal/response_dynamics.mjs';
     AppState._peakExcludeButtons = [];
     AppState._peakClickTargets = [];
 
-    if (!AppState.showPeaks || !AppState.analyzer.peaks || AppState.analyzer.peaks.length === 0) return;
+    if (
+      !AppState.showPeaks ||
+      !AppState.analyzer.peaks ||
+      AppState.analyzer.peaks.length === 0
+    )
+      return;
 
-    const scales = this._computeGraphScales(tMin, tMax, yMinU, yMaxU, yTopU, yBottomU, yMinL, yMaxL, yTopL, yBottomL);
+    const scales = this._computeGraphScales(
+      tMin,
+      tMax,
+      yMinU,
+      yMaxU,
+      yTopU,
+      yBottomU,
+      yMinL,
+      yMaxL,
+      yTopL,
+      yBottomL,
+    );
 
     for (let pIdx = 0; pIdx < AppState.analyzer.peaks.length; pIdx++) {
       const p = AppState.analyzer.peaks[pIdx];
@@ -127,48 +196,96 @@ import { ResponseDynamics } from '../signal/response_dynamics.mjs';
       if (this._peakOutOfView(p, tMin, tMax)) continue;
 
       const { xPeak, xOnset, yFilteredPeak, yPhasicPeak, yPhasicOnset } =
-        this._computePeakScreenPos(p, tMin, scales, yMinU, yBottomU, yMinL, yBottomL, showLowerMarker, showUpperMarker, markerSeries);
+        this._computePeakScreenPos(
+          p,
+          tMin,
+          scales,
+          yMinU,
+          yBottomU,
+          yMinL,
+          yBottomL,
+          showLowerMarker,
+          showUpperMarker,
+          markerSeries,
+        );
 
-      const isActive  = (pIdx === AppState.activePeakIndex);
-      const isHovered = (AppState.hoveredIndex >= p.onsetIndex && AppState.hoveredIndex <= p.index);
+      const isActive = pIdx === AppState.activePeakIndex;
+      const isHovered =
+        AppState.hoveredIndex >= p.onsetIndex &&
+        AppState.hoveredIndex <= p.index;
       const isEmphasized = isActive || isHovered;
 
       const canvasBg = this.getThemeColor('--canvas-bg', '#ffffff');
 
       const isExcluded = p.excluded === true;
       const qScore = p.qualityScore !== undefined ? p.qualityScore : 0.5;
-      let peakColor = isExcluded ? EXCLUDED_STYLE.color : getQualityColor(qScore);
-      if (!isExcluded && (AppState.graphView === 'responseDynamics' || AppState.lowerGraphMode === 'responseDynamics') && p.speedLabel) {
-        const RD = (typeof ResponseDynamics !== 'undefined') ? ResponseDynamics : null;
-        peakColor = RD ? RD.getSpeedColor(p.speedLabel) : (GSR_CONST.SPARSEDA_SPEED_COLORS ? GSR_CONST.SPARSEDA_SPEED_COLORS[p.speedLabel] : peakColor);
+      let peakColor = isExcluded
+        ? EXCLUDED_STYLE.color
+        : getQualityColor(qScore);
+      if (
+        !isExcluded &&
+        (AppState.graphView === 'responseDynamics' ||
+          AppState.lowerGraphMode === 'responseDynamics') &&
+        p.speedLabel
+      ) {
+        const RD =
+          typeof ResponseDynamics !== 'undefined' ? ResponseDynamics : null;
+        peakColor = RD
+          ? RD.getSpeedColor(p.speedLabel)
+          : GSR_CONST.SPARSEDA_SPEED_COLORS
+            ? GSR_CONST.SPARSEDA_SPEED_COLORS[p.speedLabel]
+            : peakColor;
       }
-      const lineClr   = isExcluded ? EXCLUDED_STYLE.lineColor : peakColor;
-      const dashPat   = isExcluded ? EXCLUDED_STYLE.dash : NORMAL_DASH;
-      const dotWt      = isExcluded ? EXCLUDED_STYLE.dotWeight : 1.2;
-      const markerWt   = isExcluded ? EXCLUDED_STYLE.weight : (isEmphasized ? 1.5 : 1);
+      const lineClr = isExcluded ? EXCLUDED_STYLE.lineColor : peakColor;
+      const dashPat = isExcluded ? EXCLUDED_STYLE.dash : NORMAL_DASH;
+      const dotWt = isExcluded ? EXCLUDED_STYLE.dotWeight : 1.2;
+      const markerWt = isExcluded
+        ? EXCLUDED_STYLE.weight
+        : isEmphasized
+          ? 1.5
+          : 1;
 
       // Resting-state dot fill/stroke: a visibly-coloured (not fully
       // transparent) small dot so the full peak census reads as present at a
       // glance, while staying clearly lighter-weight than a hotspot (which
       // is solid-filled, larger, and carries a shaded region + connector).
       const restStroke = isExcluded ? color(lineClr) : color(peakColor + 'd0');
-      const restFill    = isExcluded ? color(canvasBg) : color(peakColor + '70');
+      const restFill = isExcluded ? color(canvasBg) : color(peakColor + '70');
 
       // Shaded elevated region, onset dot, and connector line: only when
       // hovered/active, same as before — but now the onset dot and line are
       // ALSO skipped entirely in the resting state (previously always drawn)
       // to keep hundreds of resting markers from reading as visual noise.
       if (showLowerMarker && isEmphasized) {
-        const fillClr = isExcluded ? color(lineClr + EXCLUDED_STYLE.fillAlpha) : color(peakColor + '4b');
-        this._drawPeakShadedRegion(p, tMin, scales, yBottomL, yMinL, fillClr, xOnset, xPeak);
+        const fillClr = isExcluded
+          ? color(lineClr + EXCLUDED_STYLE.fillAlpha)
+          : color(peakColor + '4b');
+        this._drawPeakShadedRegion(
+          p,
+          tMin,
+          scales,
+          yBottomL,
+          yMinL,
+          fillClr,
+          xOnset,
+          xPeak,
+        );
 
-        stroke(isExcluded ? lineClr : this.getThemeColor('--color-phasic', '#008f3c'));
+        stroke(
+          isExcluded
+            ? lineClr
+            : this.getThemeColor('--color-phasic', '#008f3c'),
+        );
         strokeWeight(dotWt);
         fill(canvasBg);
         circle(xOnset, yPhasicOnset, 6);
 
         if (drawUpper) {
-          stroke(isExcluded ? color(lineClr + EXCLUDED_STYLE.lineAlpha) : color(peakColor + '3c'));
+          stroke(
+            isExcluded
+              ? color(lineClr + EXCLUDED_STYLE.lineAlpha)
+              : color(peakColor + '3c'),
+          );
           strokeWeight(1);
           drawingContext.setLineDash(dashPat);
           line(xPeak, yFilteredPeak, xPeak, yPhasicPeak);
@@ -180,9 +297,21 @@ import { ResponseDynamics } from '../signal/response_dynamics.mjs';
         // Minor resting dot: small, visibly-coloured fill; solid + larger
         // only when hovered/active (exclusion state stays legible via its
         // own grey hollow treatment even at rest).
-        stroke(isEmphasized ? (isExcluded ? color(lineClr) : color(peakColor)) : restStroke);
+        stroke(
+          isEmphasized
+            ? isExcluded
+              ? color(lineClr)
+              : color(peakColor)
+            : restStroke,
+        );
         strokeWeight(markerWt);
-        fill(isActive ? (isExcluded ? color(lineClr) : color(peakColor)) : restFill);
+        fill(
+          isActive
+            ? isExcluded
+              ? color(lineClr)
+              : color(peakColor)
+            : restFill,
+        );
         circle(xPeak, yPhasicPeak, isEmphasized ? 7 : 4);
       }
 
@@ -191,19 +320,34 @@ import { ResponseDynamics } from '../signal/response_dynamics.mjs';
       // where peaks only appear up top). Skipped in the single Phasic view,
       // whose only curve is the phasic one the lower marker already sits on.
       if (drawUpper) {
-        stroke(isEmphasized ? (isExcluded ? color(lineClr) : color(peakColor)) : restStroke);
+        stroke(
+          isEmphasized
+            ? isExcluded
+              ? color(lineClr)
+              : color(peakColor)
+            : restStroke,
+        );
         strokeWeight(markerWt);
-        fill(isActive ? (isExcluded ? color(lineClr) : color(peakColor)) : restFill);
+        fill(
+          isActive
+            ? isExcluded
+              ? color(lineClr)
+              : color(peakColor)
+            : restFill,
+        );
         circle(xPeak, yFilteredPeak, isEmphasized ? 7 : 4);
       }
 
-      if (xPeak >= GSR_CONST.MARGIN.left && xPeak <= width - GSR_CONST.MARGIN.right) {
+      if (
+        xPeak >= GSR_CONST.MARGIN.left &&
+        xPeak <= width - GSR_CONST.MARGIN.right
+      ) {
         AppState._peakClickTargets.push({
           idx: pIdx,
           x: xPeak,
           yPhasic: yPhasicPeak,
           yFiltered: yFilteredPeak,
-          r: 10
+          r: 10,
         });
         if (AppState.viewDuration < 300 || isActive || isHovered) {
           noStroke();
@@ -221,7 +365,11 @@ import { ResponseDynamics } from '../signal/response_dynamics.mjs';
       }
 
       // ── On-canvas exclude ✕ / ＋ button (only when scrubbing near) ──
-      if (isHovered && xPeak >= GSR_CONST.MARGIN.left && xPeak <= width - GSR_CONST.MARGIN.right) {
+      if (
+        isHovered &&
+        xPeak >= GSR_CONST.MARGIN.left &&
+        xPeak <= width - GSR_CONST.MARGIN.right
+      ) {
         this._drawExcludeButton(xPeak, yBottomU, pIdx, isExcluded);
       }
     }
@@ -245,12 +393,14 @@ import { ResponseDynamics } from '../signal/response_dynamics.mjs';
    * not every frame.
    */
   _ensurePulseOverlay() {
-    if (this._pulseOverlay && this._pulseOverlay.isConnected) return this._pulseOverlay;
+    if (this._pulseOverlay && this._pulseOverlay.isConnected)
+      return this._pulseOverlay;
     const container = document.getElementById('canvasContainer');
     if (!container) return null;
     const overlay = document.createElement('div');
     overlay.id = 'hotspotPulseOverlay';
-    overlay.style.cssText = 'position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; overflow:hidden;';
+    overlay.style.cssText =
+      'position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; overflow:hidden;';
     container.appendChild(overlay);
     this._pulseOverlay = overlay;
     this._pulseRingEls = new Map();
@@ -275,8 +425,8 @@ import { ResponseDynamics } from '../signal/response_dynamics.mjs';
     }
     el.style.width = d + 'px';
     el.style.height = d + 'px';
-    el.style.left = (x - d / 2) + 'px';
-    el.style.top = (y - d / 2) + 'px';
+    el.style.left = x - d / 2 + 'px';
+    el.style.top = y - d / 2 + 'px';
     el.style.backgroundColor = hotspotColor;
   },
 
@@ -317,7 +467,10 @@ import { ResponseDynamics } from '../signal/response_dynamics.mjs';
    * peak object references — without a per-frame O(n) indexOf scan.
    */
   _peakIndexByObject(analyzer) {
-    if (analyzer._peakIndexMap && analyzer._peakIndexMapRef === analyzer.peaks) {
+    if (
+      analyzer._peakIndexMap &&
+      analyzer._peakIndexMapRef === analyzer.peaks
+    ) {
       return analyzer._peakIndexMap;
     }
     const map = new Map();
@@ -344,15 +497,44 @@ import { ResponseDynamics } from '../signal/response_dynamics.mjs';
    * hotspot reuses the normal peak focus/selection machinery by looking up
    * that real index — no separate selection state needed.
    */
-  drawHotspotMarkers(tMin, tMax, yMinU, yMaxU, yTopU, yBottomU, yMinL, yMaxL, yTopL, yBottomL, showLowerMarker, showUpperMarker, markerSeries) {
+  drawHotspotMarkers(
+    tMin,
+    tMax,
+    yMinU,
+    yMaxU,
+    yTopU,
+    yBottomU,
+    yMinL,
+    yMaxL,
+    yTopL,
+    yBottomL,
+    showLowerMarker,
+    showUpperMarker,
+    markerSeries,
+  ) {
     if (showLowerMarker === undefined) showLowerMarker = true;
     const drawUpper = showUpperMarker !== false; // see drawPeakMarkers()
-    if (!AppState.showHotspots || !AppState.analyzer.memorableEvents || AppState.analyzer.memorableEvents.length === 0) {
+    if (
+      !AppState.showHotspots ||
+      !AppState.analyzer.memorableEvents ||
+      AppState.analyzer.memorableEvents.length === 0
+    ) {
       this.clearPulseRings();
       return;
     }
 
-    const scales = this._computeGraphScales(tMin, tMax, yMinU, yMaxU, yTopU, yBottomU, yMinL, yMaxL, yTopL, yBottomL);
+    const scales = this._computeGraphScales(
+      tMin,
+      tMax,
+      yMinU,
+      yMaxU,
+      yTopU,
+      yBottomU,
+      yMinL,
+      yMaxL,
+      yTopL,
+      yBottomL,
+    );
 
     const hotspotColor = this.getThemeColor('--color-hotspot', '#ff1744');
     const colorPhasic = this.getThemeColor('--color-phasic', '#008f3c');
@@ -373,13 +555,33 @@ import { ResponseDynamics } from '../signal/response_dynamics.mjs';
       if (this._peakOutOfView(p, tMin, tMax)) continue;
 
       const { xPeak, xOnset, yFilteredPeak, yPhasicPeak, yPhasicOnset } =
-        this._computePeakScreenPos(p, tMin, scales, yMinU, yBottomU, yMinL, yBottomL, showLowerMarker, showUpperMarker, markerSeries);
+        this._computePeakScreenPos(
+          p,
+          tMin,
+          scales,
+          yMinU,
+          yBottomU,
+          yMinL,
+          yBottomL,
+          showLowerMarker,
+          showUpperMarker,
+          markerSeries,
+        );
 
       const realIdx = peakIndexMap.has(p) ? peakIndexMap.get(p) : -1;
-      const isActive = (realIdx !== -1 && realIdx === AppState.activePeakIndex);
+      const isActive = realIdx !== -1 && realIdx === AppState.activePeakIndex;
 
       if (showLowerMarker) {
-        this._drawPeakShadedRegion(p, tMin, scales, yBottomL, yMinL, color(hotspotColor + '4b'), xOnset, xPeak);
+        this._drawPeakShadedRegion(
+          p,
+          tMin,
+          scales,
+          yBottomL,
+          yMinL,
+          color(hotspotColor + '4b'),
+          xOnset,
+          xPeak,
+        );
 
         stroke(colorPhasic);
         strokeWeight(1.5);
@@ -395,7 +597,13 @@ import { ResponseDynamics } from '../signal/response_dynamics.mjs';
         }
 
         const lowerKey = realIdx + ':lower';
-        this._syncPulseRing(lowerKey, xPeak, yPhasicPeak, isActive ? 9 : 6, hotspotColor);
+        this._syncPulseRing(
+          lowerKey,
+          xPeak,
+          yPhasicPeak,
+          isActive ? 9 : 6,
+          hotspotColor,
+        );
         seenPulseKeys.add(lowerKey);
         stroke(hotspotColor);
         strokeWeight(2);
@@ -405,7 +613,13 @@ import { ResponseDynamics } from '../signal/response_dynamics.mjs';
 
       if (drawUpper) {
         const upperKey = realIdx + ':upper';
-        this._syncPulseRing(upperKey, xPeak, yFilteredPeak, isActive ? 9 : 6, hotspotColor);
+        this._syncPulseRing(
+          upperKey,
+          xPeak,
+          yFilteredPeak,
+          isActive ? 9 : 6,
+          hotspotColor,
+        );
         seenPulseKeys.add(upperKey);
         stroke(hotspotColor);
         strokeWeight(2);
@@ -413,13 +627,17 @@ import { ResponseDynamics } from '../signal/response_dynamics.mjs';
         circle(xPeak, yFilteredPeak, isActive ? 9 : 6);
       }
 
-      if (xPeak >= GSR_CONST.MARGIN.left && xPeak <= width - GSR_CONST.MARGIN.right && realIdx !== -1) {
+      if (
+        xPeak >= GSR_CONST.MARGIN.left &&
+        xPeak <= width - GSR_CONST.MARGIN.right &&
+        realIdx !== -1
+      ) {
         AppState._peakClickTargets.push({
           idx: realIdx,
           x: xPeak,
           yPhasic: yPhasicPeak,
           yFiltered: yFilteredPeak,
-          r: 10
+          r: 10,
         });
         noStroke();
         fill(hotspotColor);
@@ -443,7 +661,6 @@ import { ResponseDynamics } from '../signal/response_dynamics.mjs';
 
     this._prunePulseRings(seenPulseKeys);
   },
+};
 
-  };
-
-  Object.assign(GSRRenderer, __methods);
+Object.assign(GSRRenderer, __methods);

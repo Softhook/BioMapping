@@ -11,8 +11,10 @@ const test = require('node:test');
 const { GeoUtils } = require('../src/gps/geo_utils.mjs');
 
 const closeTo = (actual, expected, tolerance, msg) => {
-  assert.ok(Math.abs(actual - expected) <= tolerance,
-    `${msg || ''} expected ${actual} to be within ${tolerance} of ${expected}`);
+  assert.ok(
+    Math.abs(actual - expected) <= tolerance,
+    `${msg || ''} expected ${actual} to be within ${tolerance} of ${expected}`,
+  );
 };
 
 // ---------------------------------------------------------------------------
@@ -34,7 +36,12 @@ test('haversineMeters: one degree of longitude along the equator matches R * rad
 
 test('haversineMeters: one degree of latitude is close to the nominal 111.32km/deg constant', () => {
   const d = GeoUtils.haversineMeters(0, 0, 1, 0);
-  closeTo(d, GeoUtils.METERS_PER_DEG_LAT, 200, 'one degree of latitude should be ~111.32km');
+  closeTo(
+    d,
+    GeoUtils.METERS_PER_DEG_LAT,
+    200,
+    'one degree of latitude should be ~111.32km',
+  );
 });
 
 test('haversineMeters: distance is symmetric (A->B === B->A)', () => {
@@ -101,11 +108,16 @@ test('projectPointToSegment: interior point snaps to the foot of the perpendicul
   const r = GeoUtils.projectPointToSegment(0.001, 0.5, 0, 0, 0, 1);
   closeTo(r.lat, 0, 1e-9, 'snapped lat is on the segment');
   closeTo(r.lon, 0.5, 1e-6, 'snapped lon is the midpoint');
-  closeTo(r.distance, 0.001 * GeoUtils.METERS_PER_DEG_LAT, 0.05, 'distance = latitude offset');
+  closeTo(
+    r.distance,
+    0.001 * GeoUtils.METERS_PER_DEG_LAT,
+    0.05,
+    'distance = latitude offset',
+  );
 });
 
 test('projectPointToSegment: a point past an endpoint clamps to that endpoint (t in [0,1])', () => {
-  const past = GeoUtils.projectPointToSegment(0, 2, 0, 0, 0, 1);   // beyond B
+  const past = GeoUtils.projectPointToSegment(0, 2, 0, 0, 0, 1); // beyond B
   closeTo(past.lat, 0, 1e-9);
   closeTo(past.lon, 1, 1e-9, 'clamps to endpoint B, not the infinite line');
 
@@ -134,29 +146,53 @@ test('chaikinSmooth: empty array input returns the same empty array unchanged', 
 });
 
 test('chaikinSmooth: fewer than 3 points is returned unchanged (same reference) — nothing to smooth', () => {
-  const pts = [{ lat: 0, lon: 0 }, { lat: 1, lon: 1 }];
+  const pts = [
+    { lat: 0, lon: 0 },
+    { lat: 1, lon: 1 },
+  ];
   assert.strictEqual(GeoUtils.chaikinSmooth(pts), pts);
 });
 
 test('chaikinSmooth: iterations=0 returns the deduplicated point list converted to {lat,lon,lng} form, unsmoothed', () => {
   // Accepts [lat, lon] array-pairs too; a consecutive exact duplicate is
   // collapsed before any smoothing pass runs.
-  const result = GeoUtils.chaikinSmooth([[0, 0], [0, 0], [5, 5], [10, 0]], 0, false);
-  assert.strictEqual(result.length, 3, 'the consecutive duplicate [0,0] should be collapsed');
+  const result = GeoUtils.chaikinSmooth(
+    [
+      [0, 0],
+      [0, 0],
+      [5, 5],
+      [10, 0],
+    ],
+    0,
+    false,
+  );
+  assert.strictEqual(
+    result.length,
+    3,
+    'the consecutive duplicate [0,0] should be collapsed',
+  );
   assert.deepStrictEqual(result[0], { lat: 0, lon: 0, lng: 0 });
   assert.deepStrictEqual(result[1], { lat: 5, lon: 5, lng: 5 });
   assert.deepStrictEqual(result[2], { lat: 10, lon: 0, lng: 0 });
 });
 
 test('chaikinSmooth: a null/falsy element in the points array is treated as {lat:0,lon:0}', () => {
-  const result = GeoUtils.chaikinSmooth([null, { lat: 1, lon: 1 }, { lat: 2, lon: 2 }], 0, false);
+  const result = GeoUtils.chaikinSmooth(
+    [null, { lat: 1, lon: 1 }, { lat: 2, lon: 2 }],
+    0,
+    false,
+  );
   assert.strictEqual(result.length, 3);
   assert.deepStrictEqual(result[0], { lat: 0, lon: 0, lng: 0 });
 });
 
 test('chaikinSmooth: accepts Leaflet-style LatLng objects exposing lat()/lng() as methods', () => {
   const latlng = (lat, lng) => ({ lat: () => lat, lng: () => lng });
-  const result = GeoUtils.chaikinSmooth([latlng(1, 2), latlng(3, 4), latlng(5, 6)], 0, false);
+  const result = GeoUtils.chaikinSmooth(
+    [latlng(1, 2), latlng(3, 4), latlng(5, 6)],
+    0,
+    false,
+  );
   assert.deepStrictEqual(result, [
     { lat: 1, lon: 2, lng: 2 },
     { lat: 3, lon: 4, lng: 4 },
@@ -165,7 +201,11 @@ test('chaikinSmooth: accepts Leaflet-style LatLng objects exposing lat()/lng() a
 });
 
 test('chaikinSmooth: one iteration on an open 3-point path anchors the endpoints and inserts 2 cut points per segment', () => {
-  const pts = [{ lat: 0, lon: 0 }, { lat: 0, lon: 10 }, { lat: 10, lon: 10 }];
+  const pts = [
+    { lat: 0, lon: 0 },
+    { lat: 0, lon: 10 },
+    { lat: 10, lon: 10 },
+  ];
   const result = GeoUtils.chaikinSmooth(pts, 1, false);
   // 2 segments * 2 cut-points + 2 anchored endpoints = 6 points.
   assert.strictEqual(result.length, 6);
@@ -182,15 +222,21 @@ test('chaikinSmooth: one iteration on an open 3-point path anchors the endpoints
 
 test('chaikinSmooth: closed square loop dedupes the repeated closing vertex and re-closes the smoothed ring', () => {
   const square = [
-    { lat: 0, lon: 0 }, { lat: 0, lon: 10 },
-    { lat: 10, lon: 10 }, { lat: 10, lon: 0 },
+    { lat: 0, lon: 0 },
+    { lat: 0, lon: 10 },
+    { lat: 10, lon: 10 },
+    { lat: 10, lon: 0 },
     { lat: 0, lon: 0 }, // explicit closing vertex, same as first
   ];
   const result = GeoUtils.chaikinSmooth(square, 1, true);
   // 4 segments (wraps around) * 2 cut points + 1 re-appended closing point = 9.
   assert.strictEqual(result.length, 9);
   assert.deepStrictEqual(result[0], { lat: 0, lon: 2.5, lng: 2.5 });
-  assert.deepStrictEqual(result[result.length - 1], result[0], 'ring should be re-closed: last point === first point');
+  assert.deepStrictEqual(
+    result[result.length - 1],
+    result[0],
+    'ring should be re-closed: last point === first point',
+  );
 });
 
 test('chaikinSmooth: more iterations shortens total path length (progressively rounder, converging corner-cut)', () => {
@@ -210,11 +256,18 @@ test('chaikinSmooth: more iterations shortens total path length (progressively r
   // strictly shortening the path, converging toward the limit spline's
   // (shorter) length. That's what "progressively rounder" actually means
   // here, and it holds regardless of how densely the result is sampled.
-  const pts = [{ lat: 0, lon: 0 }, { lat: 0, lon: 10 }, { lat: 10, lon: 10 }];
+  const pts = [
+    { lat: 0, lon: 0 },
+    { lat: 0, lon: 10 },
+    { lat: 10, lon: 10 },
+  ];
   const pathLength = (poly) => {
     let len = 0;
     for (let i = 0; i < poly.length - 1; i++) {
-      len += Math.hypot(poly[i + 1].lat - poly[i].lat, poly[i + 1].lon - poly[i].lon);
+      len += Math.hypot(
+        poly[i + 1].lat - poly[i].lat,
+        poly[i + 1].lon - poly[i].lon,
+      );
     }
     return len;
   };
@@ -224,17 +277,36 @@ test('chaikinSmooth: more iterations shortens total path length (progressively r
   const lenOne = pathLength(one);
   const lenThree = pathLength(three);
 
-  assert.ok(lenOne < original, 'even one corner cut should shorten the path below the sharp-cornered original');
-  assert.ok(lenThree < lenOne, 'more iterations should shorten the path further, converging toward the limit curve');
-  assert.ok(three.length > one.length, 'more iterations should also produce more points');
+  assert.ok(
+    lenOne < original,
+    'even one corner cut should shorten the path below the sharp-cornered original',
+  );
+  assert.ok(
+    lenThree < lenOne,
+    'more iterations should shorten the path further, converging toward the limit curve',
+  );
+  assert.ok(
+    three.length > one.length,
+    'more iterations should also produce more points',
+  );
 });
 
 // ---------------------------------------------------------------------------
 // pointInPolygon
 // ---------------------------------------------------------------------------
 
-const SQUARE_OBJ = [{ lat: 0, lon: 0 }, { lat: 0, lon: 10 }, { lat: 10, lon: 10 }, { lat: 10, lon: 0 }];
-const SQUARE_ARR = [[0, 0], [0, 10], [10, 10], [10, 0]];
+const SQUARE_OBJ = [
+  { lat: 0, lon: 0 },
+  { lat: 0, lon: 10 },
+  { lat: 10, lon: 10 },
+  { lat: 10, lon: 0 },
+];
+const SQUARE_ARR = [
+  [0, 0],
+  [0, 10],
+  [10, 10],
+  [10, 0],
+];
 
 test('pointInPolygon: point clearly inside a square ({lat,lon} form) returns true', () => {
   assert.strictEqual(GeoUtils.pointInPolygon(5, 5, SQUARE_OBJ), true);
@@ -259,8 +331,12 @@ test('pointInPolygon: empty polygon never contains any point', () => {
 
 test('pointInPolygon: works on a non-convex (L-shaped) polygon', () => {
   const lShape = [
-    { lat: 0, lon: 0 }, { lat: 0, lon: 10 }, { lat: 5, lon: 10 },
-    { lat: 5, lon: 5 }, { lat: 10, lon: 5 }, { lat: 10, lon: 0 },
+    { lat: 0, lon: 0 },
+    { lat: 0, lon: 10 },
+    { lat: 5, lon: 10 },
+    { lat: 5, lon: 5 },
+    { lat: 10, lon: 5 },
+    { lat: 10, lon: 0 },
   ];
   // Inside the "notch" cut out of the L (top-right of the L's bounding box) -> outside the shape.
   assert.strictEqual(GeoUtils.pointInPolygon(8, 8, lShape), false);
@@ -282,23 +358,40 @@ test('shoelaceArea: accepts [lat,lon] array-pair vertices identically to object 
 });
 
 test('shoelaceArea: right triangle matches 0.5*base*height', () => {
-  const tri = [{ lat: 0, lon: 0 }, { lat: 0, lon: 6 }, { lat: 4, lon: 0 }];
+  const tri = [
+    { lat: 0, lon: 0 },
+    { lat: 0, lon: 6 },
+    { lat: 4, lon: 0 },
+  ];
   assert.strictEqual(GeoUtils.shoelaceArea(tri), 12);
 });
 
 test('shoelaceArea: is winding-direction independent (reversed ring gives the same area)', () => {
   const reversed = [...SQUARE_OBJ].reverse();
-  assert.strictEqual(GeoUtils.shoelaceArea(reversed), GeoUtils.shoelaceArea(SQUARE_OBJ));
+  assert.strictEqual(
+    GeoUtils.shoelaceArea(reversed),
+    GeoUtils.shoelaceArea(SQUARE_OBJ),
+  );
 });
 
 test('shoelaceArea: fewer than 3 points is degenerate — area 0', () => {
   assert.strictEqual(GeoUtils.shoelaceArea([]), 0);
   assert.strictEqual(GeoUtils.shoelaceArea([{ lat: 0, lon: 0 }]), 0);
-  assert.strictEqual(GeoUtils.shoelaceArea([{ lat: 0, lon: 0 }, { lat: 1, lon: 1 }]), 0);
+  assert.strictEqual(
+    GeoUtils.shoelaceArea([
+      { lat: 0, lon: 0 },
+      { lat: 1, lon: 1 },
+    ]),
+    0,
+  );
 });
 
 test('shoelaceArea: collinear (degenerate, zero-width) points have zero area', () => {
-  const line = [{ lat: 0, lon: 0 }, { lat: 0, lon: 5 }, { lat: 0, lon: 10 }];
+  const line = [
+    { lat: 0, lon: 0 },
+    { lat: 0, lon: 5 },
+    { lat: 0, lon: 10 },
+  ];
   assert.strictEqual(GeoUtils.shoelaceArea(line), 0);
 });
 
@@ -334,11 +427,14 @@ test('distanceMetersSq and distanceMeters: computes accurate Euclidean distances
 test('computeBounds: computes bounding box from objects, arrays, and applies margin padding', () => {
   assert.strictEqual(GeoUtils.computeBounds([]), null);
 
-  const pts = [{ lat: 51.50, lon: -0.10 }, { lat: 51.60, lon: -0.05 }];
+  const pts = [
+    { lat: 51.5, lon: -0.1 },
+    { lat: 51.6, lon: -0.05 },
+  ];
   const bounds = GeoUtils.computeBounds(pts);
-  assert.strictEqual(bounds.minLat, 51.50);
-  assert.strictEqual(bounds.maxLat, 51.60);
-  assert.strictEqual(bounds.minLon, -0.10);
+  assert.strictEqual(bounds.minLat, 51.5);
+  assert.strictEqual(bounds.maxLat, 51.6);
+  assert.strictEqual(bounds.minLon, -0.1);
   assert.strictEqual(bounds.maxLon, -0.05);
 
   const padded = GeoUtils.computeBounds(pts, 0.1);
@@ -347,7 +443,7 @@ test('computeBounds: computes bounding box from objects, arrays, and applies mar
 });
 
 test('expandBounds: expands bounds accurately by buffer meters', () => {
-  const bounds = { minLat: 51.50, maxLat: 51.52, minLon: -0.10, maxLon: -0.08 };
+  const bounds = { minLat: 51.5, maxLat: 51.52, minLon: -0.1, maxLon: -0.08 };
   const expanded = GeoUtils.expandBounds(bounds, 1113.2); // ~0.01 deg lat
   closeTo(expanded.minLat, 51.49, 1e-4);
   closeTo(expanded.maxLat, 51.53, 1e-4);
@@ -386,7 +482,12 @@ test('bearingDeg and bearingRad: accurately calculate forward azimuth across car
 
   // Due East along equator
   closeTo(GeoUtils.bearingDeg(0, 0, 0, 1), 90, 1e-6, 'East bearing');
-  closeTo(GeoUtils.bearingRad(0, 0, 0, 1), Math.PI / 2, 1e-6, 'East bearing rad');
+  closeTo(
+    GeoUtils.bearingRad(0, 0, 0, 1),
+    Math.PI / 2,
+    1e-6,
+    'East bearing rad',
+  );
 
   // Due South
   closeTo(GeoUtils.bearingDeg(1, 0, 0, 0), 180, 1e-6, 'South bearing');
@@ -394,7 +495,12 @@ test('bearingDeg and bearingRad: accurately calculate forward azimuth across car
 
   // Due West along equator
   closeTo(GeoUtils.bearingDeg(0, 1, 0, 0), 270, 1e-6, 'West bearing');
-  closeTo(GeoUtils.bearingRad(0, 1, 0, 0), -Math.PI / 2, 1e-6, 'West bearing rad');
+  closeTo(
+    GeoUtils.bearingRad(0, 1, 0, 0),
+    -Math.PI / 2,
+    1e-6,
+    'West bearing rad',
+  );
 
   // North-East diagonal (at equator)
   closeTo(GeoUtils.bearingDeg(0, 0, 1, 1), 45, 0.5, 'North-East bearing');
@@ -402,4 +508,3 @@ test('bearingDeg and bearingRad: accurately calculate forward azimuth across car
   // South-West diagonal
   closeTo(GeoUtils.bearingDeg(1, 1, 0, 0), 225, 0.5, 'South-West bearing');
 });
-

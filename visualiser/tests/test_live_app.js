@@ -49,13 +49,22 @@ function runJSON(context, expr) {
 // this file stays self-contained — the wire format is frozen (§5). Returns a
 // plain number[] so it crosses into the vm realm without an ArrayBuffer.
 function buildPacket({
-  timestampMs = 1000, lat = 51.5074, lon = -0.1278, gsrRaw = 1234.5,
-  hdop = 1.2, pdop = 1.8, speedKts = 3.4, courseDeg = 270.0,
-  sats = 9, fixType = 3, valid = 1,
+  timestampMs = 1000,
+  lat = 51.5074,
+  lon = -0.1278,
+  gsrRaw = 1234.5,
+  hdop = 1.2,
+  pdop = 1.8,
+  speedKts = 3.4,
+  courseDeg = 270.0,
+  sats = 9,
+  fixType = 3,
+  valid = 1,
 } = {}) {
   const buf = new Uint8Array(45);
   const view = new DataView(buf.buffer);
-  buf[0] = 0x42; buf[1] = 0x4d;
+  buf[0] = 0x42;
+  buf[1] = 0x4d;
   view.setUint32(2, timestampMs, true);
   view.setFloat64(6, lat, true);
   view.setFloat64(14, lon, true);
@@ -64,7 +73,9 @@ function buildPacket({
   view.setFloat32(30, pdop, true);
   view.setFloat32(34, speedKts, true);
   view.setFloat32(38, courseDeg, true);
-  buf[42] = sats; buf[43] = fixType; buf[44] = valid;
+  buf[42] = sats;
+  buf[43] = fixType;
+  buf[44] = valid;
   return Array.from(buf);
 }
 
@@ -97,17 +108,26 @@ function buildPacket({
 //                            platform) — tryResumeDevice() must fall back.
 let fakeDeviceCounter = 0;
 let cachedBytesToDataView;
-function makeFakeBle(context, {
-  failRequestDevice = false, missingService = false, reconnectFailures = 0,
-  watchAdvertisements = 'yes', getDevices = 'self',
-} = {}) {
+function makeFakeBle(
+  context,
+  {
+    failRequestDevice = false,
+    missingService = false,
+    reconnectFailures = 0,
+    watchAdvertisements = 'yes',
+    getDevices = 'self',
+  } = {},
+) {
   // Same realm as live.html now (see run()'s comment above), so any
   // Uint8Array/DataView built here already IS what `new
   // Uint8Array(e.target.value.buffer)` inside live.html consumes — cached
   // once at module scope since the expression is realm-invariant, not
   // per-bootLive()-call.
-  const bytesToDataView = cachedBytesToDataView || (cachedBytesToDataView =
-    vm.runInThisContext('(bytes => new DataView(Uint8Array.from(bytes).buffer))'));
+  const bytesToDataView =
+    cachedBytesToDataView ||
+    (cachedBytesToDataView = vm.runInThisContext(
+      '(bytes => new DataView(Uint8Array.from(bytes).buffer))',
+    ));
 
   const charHandlers = [];
   // type -> Set<fn> — a real EventTarget's shape, needed here (unlike the
@@ -126,22 +146,30 @@ function makeFakeBle(context, {
   function fireDevice(type) {
     if (deviceHandlers[type]) [...deviceHandlers[type]].forEach((fn) => fn());
   }
-  let subscribeCalls = 0;   // getCharacteristic() calls == _subscribe() attempts
+  let subscribeCalls = 0; // getCharacteristic() calls == _subscribe() attempts
   let subscribeGate = null; // when set, the next getCharacteristic() awaits it
 
   const characteristic = {
-    addEventListener(type, fn) { if (type === 'characteristicvaluechanged') charHandlers.push(fn); },
+    addEventListener(type, fn) {
+      if (type === 'characteristicvaluechanged') charHandlers.push(fn);
+    },
     removeEventListener(type, fn) {
       if (type !== 'characteristicvaluechanged') return;
       const i = charHandlers.indexOf(fn);
       if (i !== -1) charHandlers.splice(i, 1);
     },
-    async startNotifications() { return this; },
+    async startNotifications() {
+      return this;
+    },
   };
   const service = {
     async getCharacteristic() {
       subscribeCalls++;
-      if (subscribeGate) { const g = subscribeGate; subscribeGate = null; await g; }
+      if (subscribeGate) {
+        const g = subscribeGate;
+        subscribeGate = null;
+        await g;
+      }
       if (subscribeCalls > 1 && subscribeCalls <= 1 + reconnectFailures) {
         throw new Error(`reconnect attempt ${subscribeCalls - 1} failed`);
       }
@@ -153,7 +181,9 @@ function makeFakeBle(context, {
       if (missingService) throw new Error('service not found');
       return service;
     },
-    async getPrimaryServices() { return [{ uuid: 'aaaa1111-0000-1000-8000-00805f9b34fb' }]; },
+    async getPrimaryServices() {
+      return [{ uuid: 'aaaa1111-0000-1000-8000-00805f9b34fb' }];
+    },
   };
   let disconnectCalls = 0;
   let watchAdvertisementsCalls = 0;
@@ -166,7 +196,10 @@ function makeFakeBle(context, {
     id: `fake-device-${++fakeDeviceCounter}`,
     gatt: {
       connected: false,
-      async connect() { this.connected = true; return server; },
+      async connect() {
+        this.connected = true;
+        return server;
+      },
       // Real Web Bluetooth fires 'gattserverdisconnected' as a result of an
       // explicit disconnect() too — reproduce that so the manager's
       // _intentionalClose guard is exercised.
@@ -183,17 +216,24 @@ function makeFakeBle(context, {
     // Real watchAdvertisements() just arms the OS-level scan; events arrive
     // later via 'advertisementreceived' (fireAdvertisement() below), and
     // cancellation is via the AbortSignal, not this promise settling.
-    device.watchAdvertisements = async () => { watchAdvertisementsCalls++; };
+    device.watchAdvertisements = async () => {
+      watchAdvertisementsCalls++;
+    };
   }
   return {
     bluetooth: {
       async requestDevice() {
-        if (failRequestDevice) throw new Error('user cancelled the device chooser');
+        if (failRequestDevice)
+          throw new Error('user cancelled the device chooser');
         return device;
       },
-      ...(getDevices !== 'no' ? {
-        async getDevices() { return getDevices === 'empty' ? [] : [device]; },
-      } : {}),
+      ...(getDevices !== 'no'
+        ? {
+            async getDevices() {
+              return getDevices === 'empty' ? [] : [device];
+            },
+          }
+        : {}),
     },
     device,
     gattDisconnectCallCount: () => disconnectCalls,
@@ -202,16 +242,25 @@ function makeFakeBle(context, {
       const value = bytesToDataView(byteArray);
       charHandlers.forEach((fn) => fn({ target: { value } }));
     },
-    fireDisconnect() { fireDevice('gattserverdisconnected'); },
-    fireAdvertisement() { fireDevice('advertisementreceived'); },
+    fireDisconnect() {
+      fireDevice('gattserverdisconnected');
+    },
+    fireAdvertisement() {
+      fireDevice('advertisementreceived');
+    },
     notificationHandlerCount: () => charHandlers.length,
-    advertisementHandlerCount: () => (deviceHandlers.advertisementreceived ? deviceHandlers.advertisementreceived.size : 0),
+    advertisementHandlerCount: () =>
+      deviceHandlers.advertisementreceived
+        ? deviceHandlers.advertisementreceived.size
+        : 0,
     subscribeCallCount: () => subscribeCalls,
     // Blocks the NEXT getCharacteristic() until the returned function is
     // called — lets a test hold _handleDisconnect() mid-attempt.
     blockNextSubscribe() {
       let release;
-      subscribeGate = new Promise((r) => { release = r; });
+      subscribeGate = new Promise((r) => {
+        release = r;
+      });
       return release;
     },
   };
@@ -233,8 +282,16 @@ function makeFakeBle(context, {
 function recordingTimers(window) {
   const delays = [];
   const real = global.setTimeout;
-  global.setTimeout = (fn, ms) => { delays.push(ms); return real(fn, 0); };
-  return { delays, restore() { global.setTimeout = real; } };
+  global.setTimeout = (fn, ms) => {
+    delays.push(ms);
+    return real(fn, 0);
+  };
+  return {
+    delays,
+    restore() {
+      global.setTimeout = real;
+    },
+  };
 }
 
 // ==========================================================================
@@ -243,8 +300,8 @@ function recordingTimers(window) {
 
 test('addPacket: no gap for packets arriving at the expected cadence', async () => {
   const { context } = await bootLive();
-  run(context, "LiveState.addPacket({ timestamp: 0.0, gsrRaw: 1 })");
-  run(context, "LiveState.addPacket({ timestamp: 0.3, gsrRaw: 2 })");
+  run(context, 'LiveState.addPacket({ timestamp: 0.0, gsrRaw: 1 })');
+  run(context, 'LiveState.addPacket({ timestamp: 0.3, gsrRaw: 2 })');
   const gaps = runJSON(context, 'LiveState.packets.map(p => !!p.gap)');
   assert.deepStrictEqual(gaps, [false, false]);
   assert.strictEqual(run(context, 'LiveState.gapCount'), 0);
@@ -252,8 +309,8 @@ test('addPacket: no gap for packets arriving at the expected cadence', async () 
 
 test('addPacket: flags a real dropped/disconnected interval as a gap', async () => {
   const { context } = await bootLive();
-  run(context, "LiveState.addPacket({ timestamp: 0.0, gsrRaw: 1 })");
-  run(context, "LiveState.addPacket({ timestamp: 5.0, gsrRaw: 2 })"); // way past 2x the 0.3s interval
+  run(context, 'LiveState.addPacket({ timestamp: 0.0, gsrRaw: 1 })');
+  run(context, 'LiveState.addPacket({ timestamp: 5.0, gsrRaw: 2 })'); // way past 2x the 0.3s interval
   const gaps = runJSON(context, 'LiveState.packets.map(p => !!p.gap)');
   assert.deepStrictEqual(gaps, [false, true]);
   assert.strictEqual(run(context, 'LiveState.gapCount'), 1);
@@ -266,16 +323,16 @@ test('addPacket: regression — a timestamp that resets lower than the previous 
   // exceeds a positive threshold) and would let the map/graph draw a bogus
   // line connecting two unrelated sessions.
   const { context } = await bootLive();
-  run(context, "LiveState.addPacket({ timestamp: 100.0, gsrRaw: 1 })");
-  run(context, "LiveState.addPacket({ timestamp: 0.5, gsrRaw: 2 })"); // device restarted its clock
+  run(context, 'LiveState.addPacket({ timestamp: 100.0, gsrRaw: 1 })');
+  run(context, 'LiveState.addPacket({ timestamp: 0.5, gsrRaw: 2 })'); // device restarted its clock
   const gaps = runJSON(context, 'LiveState.packets.map(p => !!p.gap)');
   assert.deepStrictEqual(gaps, [false, true]);
 });
 
 test('addPacket: an exactly-equal timestamp (duplicate delivery) is also treated as a gap, not a divide-by-zero-shaped edge case', async () => {
   const { context } = await bootLive();
-  run(context, "LiveState.addPacket({ timestamp: 1.0, gsrRaw: 1 })");
-  run(context, "LiveState.addPacket({ timestamp: 1.0, gsrRaw: 2 })");
+  run(context, 'LiveState.addPacket({ timestamp: 1.0, gsrRaw: 1 })');
+  run(context, 'LiveState.addPacket({ timestamp: 1.0, gsrRaw: 2 })');
   assert.strictEqual(run(context, 'LiveState.packets[1].gap'), true);
 });
 
@@ -286,11 +343,11 @@ test('addPacket: an exactly-equal timestamp (duplicate delivery) is also treated
 
 test('resetSession: clears accumulated packets/gaps/position/color-range state', async () => {
   const { window, context } = await bootLive();
-  run(context, "LiveState.addPacket({ timestamp: 0.0, gsrRaw: 10 })");
-  run(context, "LiveState.addPacket({ timestamp: 5.0, gsrRaw: 20 })"); // creates a gap
-  run(context, "liveLastLatLng = [51.5, -0.12]");
-  run(context, "gsrMin = 5; gsrMax = 25");
-  run(context, "lastPacketTimestamp = 5.0; lastPacketArrivalTime = 123456");
+  run(context, 'LiveState.addPacket({ timestamp: 0.0, gsrRaw: 10 })');
+  run(context, 'LiveState.addPacket({ timestamp: 5.0, gsrRaw: 20 })'); // creates a gap
+  run(context, 'liveLastLatLng = [51.5, -0.12]');
+  run(context, 'gsrMin = 5; gsrMax = 25');
+  run(context, 'lastPacketTimestamp = 5.0; lastPacketArrivalTime = 123456');
 
   run(context, 'resetSession()');
 
@@ -311,46 +368,75 @@ test('resetSession: puts the footer stats and export button back to their pre-co
   window.document.getElementById('statGps').textContent = 'GPS: 3D (9 sat)';
   window.document.getElementById('statLastSeen').textContent = 'Last: 12.3s';
   // Give the analyser a non-empty buffer so we can prove reset drops it.
-  run(context, "LiveState.addPacket({ timestamp: 0.0, gsrRaw: 10, valid: false });"
-    + "LiveState.addPacket({ timestamp: 0.3, gsrRaw: 12, valid: false });"
-    + "feedLiveAnalyzer();");
-  assert.ok(run(context, 'liveAnalyzer && liveAnalyzer.raw.length') > 0, 'analyser has rows before reset');
+  run(
+    context,
+    'LiveState.addPacket({ timestamp: 0.0, gsrRaw: 10, valid: false });' +
+      'LiveState.addPacket({ timestamp: 0.3, gsrRaw: 12, valid: false });' +
+      'feedLiveAnalyzer();',
+  );
+  assert.ok(
+    run(context, 'liveAnalyzer && liveAnalyzer.raw.length') > 0,
+    'analyser has rows before reset',
+  );
 
   run(context, 'resetSession()');
 
-  assert.strictEqual(window.document.getElementById('statPackets').textContent, 'Packets: 0');
-  assert.strictEqual(window.document.getElementById('statGaps').textContent, 'Gaps: 0');
-  assert.strictEqual(window.document.getElementById('statGps').textContent, 'GPS: --');
-  assert.strictEqual(window.document.getElementById('statLastSeen').textContent, '--');
-  assert.strictEqual(window.document.getElementById('exportBtn').disabled, true);
+  assert.strictEqual(
+    window.document.getElementById('statPackets').textContent,
+    'Packets: 0',
+  );
+  assert.strictEqual(
+    window.document.getElementById('statGaps').textContent,
+    'Gaps: 0',
+  );
+  assert.strictEqual(
+    window.document.getElementById('statGps').textContent,
+    'GPS: --',
+  );
+  assert.strictEqual(
+    window.document.getElementById('statLastSeen').textContent,
+    '--',
+  );
+  assert.strictEqual(
+    window.document.getElementById('exportBtn').disabled,
+    true,
+  );
   assert.strictEqual(run(context, 'liveAnalyzer.raw.length'), 0);
 });
 
 test('attemptConnect: resets session state as soon as a device is requested, so a "New Connection" after a previous session never carries its packets over — even if the new connection attempt itself then fails', async () => {
   const { window, context } = await bootLive();
-  run(context, "LiveState.addPacket({ timestamp: 0.0, gsrRaw: 1 })");
-  run(context, "LiveState.addPacket({ timestamp: 0.3, gsrRaw: 2 })");
+  run(context, 'LiveState.addPacket({ timestamp: 0.0, gsrRaw: 1 })');
+  run(context, 'LiveState.addPacket({ timestamp: 0.3, gsrRaw: 2 })');
   assert.strictEqual(run(context, 'LiveState.packets.length'), 2);
 
   window.navigator.bluetooth = {
-    requestDevice: async () => { throw new Error('user cancelled the device chooser'); },
+    requestDevice: async () => {
+      throw new Error('user cancelled the device chooser');
+    },
   };
 
   await run(context, 'attemptConnect()');
 
   assert.strictEqual(run(context, 'LiveState.packets.length'), 0);
-  assert.match(window.document.getElementById('connectErr').textContent, /cancelled/);
+  assert.match(
+    window.document.getElementById('connectErr').textContent,
+    /cancelled/,
+  );
 });
 
 test('attemptConnect: leaves existing session data alone when Web Bluetooth is not available at all (nothing was actually attempted)', async () => {
   const { window, context } = await bootLive();
-  run(context, "LiveState.addPacket({ timestamp: 0.0, gsrRaw: 1 })");
+  run(context, 'LiveState.addPacket({ timestamp: 0.0, gsrRaw: 1 })');
   window.navigator.bluetooth = undefined;
 
   await run(context, 'attemptConnect()');
 
   assert.strictEqual(run(context, 'LiveState.packets.length'), 1);
-  assert.match(window.document.getElementById('connectErr').textContent, /Web Bluetooth/);
+  assert.match(
+    window.document.getElementById('connectErr').textContent,
+    /Web Bluetooth/,
+  );
 });
 
 // ==========================================================================
@@ -360,7 +446,8 @@ test('attemptConnect: leaves existing session data alone when Web Bluetooth is n
 
 test('normalizeTileCacheUrl: folds every tile subdomain to "a"', async () => {
   const { context } = await bootLive();
-  const norm = (u) => run(context, `normalizeTileCacheUrl(${JSON.stringify(u)})`);
+  const norm = (u) =>
+    run(context, `normalizeTileCacheUrl(${JSON.stringify(u)})`);
   assert.strictEqual(
     norm('https://b.basemaps.cartocdn.com/light_all/15/1000/2000.png'),
     'https://a.basemaps.cartocdn.com/light_all/15/1000/2000.png',
@@ -373,23 +460,32 @@ test('normalizeTileCacheUrl: folds every tile subdomain to "a"', async () => {
 
 test('normalizeTileCacheUrl: an already-"a" URL round-trips unchanged, and an unrelated URL is left alone', async () => {
   const { context } = await bootLive();
-  const norm = (u) => run(context, `normalizeTileCacheUrl(${JSON.stringify(u)})`);
+  const norm = (u) =>
+    run(context, `normalizeTileCacheUrl(${JSON.stringify(u)})`);
   assert.strictEqual(
     norm('https://a.basemaps.cartocdn.com/light_all/1/2/3.png'),
     'https://a.basemaps.cartocdn.com/light_all/1/2/3.png',
   );
-  assert.strictEqual(norm('https://example.com/tile.png'), 'https://example.com/tile.png');
+  assert.strictEqual(
+    norm('https://example.com/tile.png'),
+    'https://example.com/tile.png',
+  );
 });
 
 test('normalizeTileCacheUrl: strips the CARTO ?key=… query so a key change does not orphan the tile cache', async () => {
   const { context } = await bootLive();
-  const norm = (u) => run(context, `normalizeTileCacheUrl(${JSON.stringify(u)})`);
+  const norm = (u) =>
+    run(context, `normalizeTileCacheUrl(${JSON.stringify(u)})`);
   assert.strictEqual(
-    norm('https://c.basemaps.cartocdn.com/light_all/15/1000/2000.png?key=abc123'),
+    norm(
+      'https://c.basemaps.cartocdn.com/light_all/15/1000/2000.png?key=abc123',
+    ),
     'https://a.basemaps.cartocdn.com/light_all/15/1000/2000.png',
   );
   assert.strictEqual(
-    norm('https://a.basemaps.cartocdn.com/light_all/15/1000/2000@2x.png?key=xyz'),
+    norm(
+      'https://a.basemaps.cartocdn.com/light_all/15/1000/2000@2x.png?key=xyz',
+    ),
     'https://a.basemaps.cartocdn.com/light_all/15/1000/2000@2x.png',
   );
 });
@@ -402,14 +498,28 @@ test('normalizeTileCacheUrl: strips the CARTO ?key=… query so a key change doe
 test('toggleMapBtn: shows the map panel, initializes liveMap, and enables Cache Map — all with no BLE connection', async () => {
   const { window, context } = await bootLive();
   assert.ok(window.document.getElementById('app').classList.contains('no-map'));
-  assert.strictEqual(window.document.getElementById('cacheMapBtn').disabled, true);
+  assert.strictEqual(
+    window.document.getElementById('cacheMapBtn').disabled,
+    true,
+  );
 
   window.document.getElementById('toggleMapBtn').click();
 
-  assert.ok(!window.document.getElementById('app').classList.contains('no-map'));
-  assert.strictEqual(window.document.getElementById('cacheMapBtn').disabled, false);
-  assert.strictEqual(window.document.getElementById('toggleMapBtn').textContent, 'Hide Map (M)');
-  assert.ok(run(context, 'liveMap') !== null, 'liveMap should be constructed once shown');
+  assert.ok(
+    !window.document.getElementById('app').classList.contains('no-map'),
+  );
+  assert.strictEqual(
+    window.document.getElementById('cacheMapBtn').disabled,
+    false,
+  );
+  assert.strictEqual(
+    window.document.getElementById('toggleMapBtn').textContent,
+    'Hide Map (M)',
+  );
+  assert.ok(
+    run(context, 'liveMap') !== null,
+    'liveMap should be constructed once shown',
+  );
 });
 
 test('toggleMapBtn: hides the map again on a second click, without destroying the underlying liveMap instance', async () => {
@@ -418,8 +528,14 @@ test('toggleMapBtn: hides the map again on a second click, without destroying th
   window.document.getElementById('toggleMapBtn').click();
 
   assert.ok(window.document.getElementById('app').classList.contains('no-map'));
-  assert.strictEqual(window.document.getElementById('toggleMapBtn').textContent, 'Show Map (M)');
-  assert.ok(run(context, 'liveMap') !== null, 'hiding is a CSS toggle, not a teardown');
+  assert.strictEqual(
+    window.document.getElementById('toggleMapBtn').textContent,
+    'Show Map (M)',
+  );
+  assert.ok(
+    run(context, 'liveMap') !== null,
+    'hiding is a CSS toggle, not a teardown',
+  );
 });
 
 // ==========================================================================
@@ -431,22 +547,46 @@ test('toggleMapBtn: hides the map again on a second click, without destroying th
 
 test('mount(): desktop (the default matchMedia stub) keeps the graph-first default — map stays hidden until toggled', async () => {
   const { window, context } = await bootLive();
-  assert.ok(window.document.getElementById('app').classList.contains('no-map'), 'graph fullscreen by default');
-  assert.strictEqual(run(context, 'liveMap'), null, 'map not constructed until shown');
+  assert.ok(
+    window.document.getElementById('app').classList.contains('no-map'),
+    'graph fullscreen by default',
+  );
+  assert.strictEqual(
+    run(context, 'liveMap'),
+    null,
+    'map not constructed until shown',
+  );
 });
 
 test('mount(): a compact/coarse-pointer boot defaults to the map shown, not the graph', async () => {
   const { window, context } = await bootLive({ compact: true });
-  assert.ok(!window.document.getElementById('app').classList.contains('no-map'), 'map visible by default on mobile');
-  assert.ok(run(context, 'liveMap') !== null, 'the map is constructed immediately, not lazily on a user tap');
-  assert.strictEqual(window.document.getElementById('toggleMapBtn').textContent, 'Hide Map (M)');
+  assert.ok(
+    !window.document.getElementById('app').classList.contains('no-map'),
+    'map visible by default on mobile',
+  );
+  assert.ok(
+    run(context, 'liveMap') !== null,
+    'the map is constructed immediately, not lazily on a user tap',
+  );
+  assert.strictEqual(
+    window.document.getElementById('toggleMapBtn').textContent,
+    'Hide Map (M)',
+  );
 });
 
 test('mount(): Phasic is drawn under the signal on desktop, but stays off on the compact (mobile) layout', async () => {
   await bootLive();
-  assert.strictEqual(run(null, 'liveGsrView.showPhasic'), true, 'desktop draws phasic under the signal');
+  assert.strictEqual(
+    run(null, 'liveGsrView.showPhasic'),
+    true,
+    'desktop draws phasic under the signal',
+  );
   await bootLive({ compact: true });
-  assert.strictEqual(run(null, 'liveGsrView.showPhasic'), false, 'mobile graph is too small for the phasic overlay');
+  assert.strictEqual(
+    run(null, 'liveGsrView.showPhasic'),
+    false,
+    'mobile graph is too small for the phasic overlay',
+  );
 });
 
 // ==========================================================================
@@ -462,12 +602,29 @@ test('the FAB menu offers ordered chips: Graph, toggles, metrics, and Full Scree
   const menu = window.document.getElementById('liveFabMenu');
   const chips = [...menu.querySelectorAll('button')];
   assert.deepStrictEqual(
-    chips.map(b => b.dataset.metric || b.dataset.action || b.dataset.toggle),
-    ['graph', 'showPeaks', 'showHotspots', 'signal', 'tonic', 'phasic', 'enter-fullscreen']
+    chips.map((b) => b.dataset.metric || b.dataset.action || b.dataset.toggle),
+    [
+      'graph',
+      'showPeaks',
+      'showHotspots',
+      'signal',
+      'tonic',
+      'phasic',
+      'enter-fullscreen',
+    ],
   );
-  assert.ok(chips[1].classList.contains('active'), 'Peaks is active by default');
-  assert.ok(chips[2].classList.contains('active'), 'Hotspots is active by default');
-  assert.ok(chips[3].classList.contains('active'), '"signal" is the default active metric');
+  assert.ok(
+    chips[1].classList.contains('active'),
+    'Peaks is active by default',
+  );
+  assert.ok(
+    chips[2].classList.contains('active'),
+    'Hotspots is active by default',
+  );
+  assert.ok(
+    chips[3].classList.contains('active'),
+    '"signal" is the default active metric',
+  );
   assert.ok(!chips[4].classList.contains('active'));
   assert.ok(!chips[5].classList.contains('active'));
 });
@@ -477,8 +634,16 @@ test('the FAB menu offers Map chip instead of Graph once the graph is fullscreen
   const menu = window.document.getElementById('liveFabMenu');
   const chips = [...menu.querySelectorAll('button')];
   assert.deepStrictEqual(
-    chips.map(b => b.dataset.metric || b.dataset.action || b.dataset.toggle),
-    ['map', 'showPeaks', 'showHotspots', 'signal', 'tonic', 'phasic', 'enter-fullscreen']
+    chips.map((b) => b.dataset.metric || b.dataset.action || b.dataset.toggle),
+    [
+      'map',
+      'showPeaks',
+      'showHotspots',
+      'signal',
+      'tonic',
+      'phasic',
+      'enter-fullscreen',
+    ],
   );
 });
 
@@ -492,30 +657,58 @@ test('tapping a FAB metric chip sets the shared metric (same as the #liveGraphVi
   menu.querySelector('[data-metric="phasic"]').click();
 
   assert.strictEqual(run(context, 'liveGsrView.graphView'), 'phasic');
-  assert.strictEqual(window.document.getElementById('liveGraphView').value, 'phasic');
+  assert.strictEqual(
+    window.document.getElementById('liveGraphView').value,
+    'phasic',
+  );
   assert.ok(!menu.classList.contains('open'), 'menu closes after a chip tap');
   // Re-rendered menu still reflects the map-mode chip set, now highlighting phasic.
-  assert.ok(menu.querySelector('[data-metric="phasic"]').classList.contains('active'));
+  assert.ok(
+    menu.querySelector('[data-metric="phasic"]').classList.contains('active'),
+  );
 });
 
-test('tapping the FAB\'s Graph chip switches to the fullscreen graph (mapVisible false); tapping Map from there switches back', async () => {
+test("tapping the FAB's Graph chip switches to the fullscreen graph (mapVisible false); tapping Map from there switches back", async () => {
   const { window } = await bootLive({ compact: true }); // starts map-visible
   const app = window.document.getElementById('app');
   const menu = window.document.getElementById('liveFabMenu');
 
   menu.querySelector('[data-action="graph"]').click();
-  assert.ok(app.classList.contains('no-map'), 'Graph chip behaves exactly like today\'s .no-map fullscreen graph');
+  assert.ok(
+    app.classList.contains('no-map'),
+    "Graph chip behaves exactly like today's .no-map fullscreen graph",
+  );
   assert.deepStrictEqual(
-    [...menu.querySelectorAll('button')].map(b => b.dataset.metric || b.dataset.action || b.dataset.toggle),
-    ['map', 'showPeaks', 'showHotspots', 'signal', 'tonic', 'phasic', 'enter-fullscreen']
+    [...menu.querySelectorAll('button')].map(
+      (b) => b.dataset.metric || b.dataset.action || b.dataset.toggle,
+    ),
+    [
+      'map',
+      'showPeaks',
+      'showHotspots',
+      'signal',
+      'tonic',
+      'phasic',
+      'enter-fullscreen',
+    ],
   );
 
   menu.querySelector('[data-action="map"]').click();
   assert.ok(!app.classList.contains('no-map'));
   assert.deepStrictEqual(
-    [...menu.querySelectorAll('button')].map(b => b.dataset.metric || b.dataset.action || b.dataset.toggle),
-    ['graph', 'showPeaks', 'showHotspots', 'signal', 'tonic', 'phasic', 'enter-fullscreen'],
-    'back to Graph + 2 toggles + 3 metrics + Full Screen'
+    [...menu.querySelectorAll('button')].map(
+      (b) => b.dataset.metric || b.dataset.action || b.dataset.toggle,
+    ),
+    [
+      'graph',
+      'showPeaks',
+      'showHotspots',
+      'signal',
+      'tonic',
+      'phasic',
+      'enter-fullscreen',
+    ],
+    'back to Graph + 2 toggles + 3 metrics + Full Screen',
   );
 });
 
@@ -530,13 +723,23 @@ test('tapping a FAB toggle chip flips the GSR layer on/off and syncs the header 
   assert.ok(peaksChip.classList.contains('active'));
 
   peaksChip.click();
-  assert.strictEqual(run(context, 'liveGsrView.showPeaks'), false, 'showPeaks toggled off');
+  assert.strictEqual(
+    run(context, 'liveGsrView.showPeaks'),
+    false,
+    'showPeaks toggled off',
+  );
   const updatedPeaksChip = menu.querySelector('[data-toggle="showPeaks"]');
-  assert.ok(!updatedPeaksChip.classList.contains('active'), 'chip lost active class');
+  assert.ok(
+    !updatedPeaksChip.classList.contains('active'),
+    'chip lost active class',
+  );
 
   // Desktop header button syncs
   const headerPeaksBtn = window.document.getElementById('liveBtnTogglePeaks');
-  assert.ok(!headerPeaksBtn.classList.contains('active'), 'header button in sync');
+  assert.ok(
+    !headerPeaksBtn.classList.contains('active'),
+    'header button in sync',
+  );
 });
 
 test('tapping anywhere outside the FAB closes an open menu', async () => {
@@ -546,7 +749,9 @@ test('tapping anywhere outside the FAB closes an open menu', async () => {
   toggle.click();
   assert.ok(menu.classList.contains('open'));
 
-  window.document.getElementById('liveMap').dispatchEvent(new window.Event('click', { bubbles: true }));
+  window.document
+    .getElementById('liveMap')
+    .dispatchEvent(new window.Event('click', { bubbles: true }));
 
   assert.ok(!menu.classList.contains('open'));
 });
@@ -558,21 +763,33 @@ test('tapping anywhere outside the FAB closes an open menu', async () => {
 // recolorAllTrackSegments(), not just segments drawn after the switch.
 // ==========================================================================
 
-test('setLiveGraphMetric: switching to phasic immediately recolours every already-drawn segment from its packet\'s .phasic value', async () => {
+test("setLiveGraphMetric: switching to phasic immediately recolours every already-drawn segment from its packet's .phasic value", async () => {
   const { context } = await bootLive();
   run(context, 'showMap()');
   // Packets already carry a .phasic value, standing in for what
   // feedLiveAnalyzer() would normally have mirrored onto them by now.
-  run(context, `
+  run(
+    context,
+    `
     updateLiveMap({ valid: true, lat: 51.0, lon: 0.0, gsrRaw: 1000, phasic: 0.1, hdop: 1.0, fixType: 3, sats: 8, gap: false });
     updateLiveMap({ valid: true, lat: 51.1, lon: 0.1, gsrRaw: 1200, phasic: 0.1, hdop: 1.0, fixType: 3, sats: 8, gap: false });
     updateLiveMap({ valid: true, lat: 51.2, lon: 0.2, gsrRaw: 1400, phasic: 0.5, hdop: 1.0, fixType: 3, sats: 8, gap: false });
-  `);
-  assert.strictEqual(run(context, 'allTrackSegments.length'), 2, 'first fix anchors the view, the next two each draw a segment');
+  `,
+  );
+  assert.strictEqual(
+    run(context, 'allTrackSegments.length'),
+    2,
+    'first fix anchors the view, the next two each draw a segment',
+  );
 
   run(context, "setLiveGraphMetric('phasic')");
 
-  const colors = JSON.parse(run(context, 'JSON.stringify(allTrackSegments.map(s => s.line._style.color))'));
+  const colors = JSON.parse(
+    run(
+      context,
+      'JSON.stringify(allTrackSegments.map(s => s.line._style.color))',
+    ),
+  );
   // getColorForValue against the session's phasic range [0, 0.5]: the first
   // segment's packet is 0.1 -> ratio 0.2 -> hue 96; the second is 0.5 ->
   // ratio 1.0 -> hue 0 (matches the hue formula the existing
@@ -581,19 +798,27 @@ test('setLiveGraphMetric: switching to phasic immediately recolours every alread
   assert.strictEqual(colors[1], 'hsl(0, 90%, 50%)');
 });
 
-test('setLiveGraphMetric: switching to tonic immediately recolours every already-drawn segment from its packet\'s .tonic value', async () => {
+test("setLiveGraphMetric: switching to tonic immediately recolours every already-drawn segment from its packet's .tonic value", async () => {
   const { context } = await bootLive();
   run(context, 'showMap()');
-  run(context, `
+  run(
+    context,
+    `
     updateLiveMap({ valid: true, lat: 51.0, lon: 0.0, gsrRaw: 1000, tonic: 1.0, hdop: 1.0, fixType: 3, sats: 8, gap: false });
     updateLiveMap({ valid: true, lat: 51.1, lon: 0.1, gsrRaw: 1200, tonic: 1.0, hdop: 1.0, fixType: 3, sats: 8, gap: false });
     updateLiveMap({ valid: true, lat: 51.2, lon: 0.2, gsrRaw: 1400, tonic: 2.0, hdop: 1.0, fixType: 3, sats: 8, gap: false });
-  `);
+  `,
+  );
   assert.strictEqual(run(context, 'allTrackSegments.length'), 2);
 
   run(context, "setLiveGraphMetric('tonic')");
 
-  const colors = JSON.parse(run(context, 'JSON.stringify(allTrackSegments.map(s => s.line._style.color))'));
+  const colors = JSON.parse(
+    run(
+      context,
+      'JSON.stringify(allTrackSegments.map(s => s.line._style.color))',
+    ),
+  );
   assert.strictEqual(colors[0], 'hsl(120, 90%, 50%)');
   assert.strictEqual(colors[1], 'hsl(0, 90%, 50%)');
 });
@@ -601,7 +826,9 @@ test('setLiveGraphMetric: switching to tonic immediately recolours every already
 test('setLiveGraphMetric: a repeated/unknown metric is a no-op (no redundant recolour pass, no throw)', async () => {
   const { context } = await bootLive();
   run(context, "setLiveGraphMetric('signal')"); // already the default
-  assert.doesNotThrow(() => run(context, "setLiveGraphMetric('not-a-real-metric')"));
+  assert.doesNotThrow(() =>
+    run(context, "setLiveGraphMetric('not-a-real-metric')"),
+  );
   assert.strictEqual(run(context, 'liveGsrView.graphView'), 'signal');
 });
 
@@ -620,7 +847,7 @@ test('the #liveGraphView dropdown change event drives the exact same setLiveGrap
 // a phone rotation or a desktop resize crossing the mobile breakpoint.
 // ==========================================================================
 
-test('a window resize invalidates the live map\'s size (not just activate()/onDisplayModeChange())', async () => {
+test("a window resize invalidates the live map's size (not just activate()/onDisplayModeChange())", async () => {
   const { window, context } = await bootLive();
   run(context, 'showMap()');
   const before = run(context, 'liveMap.calls.invalidateSize');
@@ -636,10 +863,16 @@ test('an orientationchange event invalidates the live map size immediately and o
   const before = run(context, 'liveMap.calls.invalidateSize');
 
   window.dispatchEvent(new window.Event('orientationchange'));
-  assert.ok(run(context, 'liveMap.calls.invalidateSize') >= before + 1, 'synchronous invalidation on orientationchange');
+  assert.ok(
+    run(context, 'liveMap.calls.invalidateSize') >= before + 1,
+    'synchronous invalidation on orientationchange',
+  );
 
-  await new Promise(r => setTimeout(r, 350));
-  assert.ok(run(context, 'liveMap.calls.invalidateSize') >= before + 3, 'delayed invalidation passes run after WebKit orientation transition');
+  await new Promise((r) => setTimeout(r, 350));
+  assert.ok(
+    run(context, 'liveMap.calls.invalidateSize') >= before + 3,
+    'delayed invalidation passes run after WebKit orientation transition',
+  );
 });
 
 test('a screen.orientation change event invalidates the live map size', async () => {
@@ -648,7 +881,10 @@ test('a screen.orientation change event invalidates the live map size', async ()
   const before = run(context, 'liveMap.calls.invalidateSize');
 
   window.screen.orientation.dispatchEvent(new window.Event('change'));
-  assert.ok(run(context, 'liveMap.calls.invalidateSize') >= before + 1, 'invalidation on screen.orientation change');
+  assert.ok(
+    run(context, 'liveMap.calls.invalidateSize') >= before + 1,
+    'invalidation on screen.orientation change',
+  );
 });
 
 test('connectBtn is disabled during connecting/reconnecting, and enabled on disconnected', async () => {
@@ -663,7 +899,11 @@ test('connectBtn is disabled during connecting/reconnecting, and enabled on disc
   assert.strictEqual(connectBtn.disabled, true, 'disabled when reconnecting');
 
   run(context, "LiveState.setStatus('disconnected')");
-  assert.strictEqual(connectBtn.disabled, false, 're-enabled when disconnected');
+  assert.strictEqual(
+    connectBtn.disabled,
+    false,
+    're-enabled when disconnected',
+  );
 });
 
 // ==========================================================================
@@ -674,10 +914,15 @@ test('connectBtn is disabled during connecting/reconnecting, and enabled on disc
 test('goToLatLon: rejects out-of-range/non-numeric input without showing or moving the map', async () => {
   const { window, context } = await bootLive();
   let alerted = null;
-  window.alert = (msg) => { alerted = msg; };
+  window.alert = (msg) => {
+    alerted = msg;
+  };
 
   run(context, 'goToLatLon(NaN, 10, 15)');
-  assert.ok(alerted, 'NaN latitude should alert instead of silently doing nothing');
+  assert.ok(
+    alerted,
+    'NaN latitude should alert instead of silently doing nothing',
+  );
   assert.ok(window.document.getElementById('app').classList.contains('no-map'));
 
   alerted = null;
@@ -692,7 +937,9 @@ test('goToLatLon: valid coordinates show the map (if hidden) and pan/zoom it the
 
   run(context, 'goToLatLon(48.8566, 2.3522, 15)');
 
-  assert.ok(!window.document.getElementById('app').classList.contains('no-map'));
+  assert.ok(
+    !window.document.getElementById('app').classList.contains('no-map'),
+  );
   const center = run(context, 'liveMap.getCenter()');
   assert.strictEqual(center.lat, 48.8566);
   assert.strictEqual(center.lng, 2.3522);
@@ -706,7 +953,11 @@ test('goToLatLon: reused on an already-visible map just re-pans it, without re-i
 
   run(context, 'goToLatLon(10, 20, 12)');
 
-  assert.strictEqual(run(context, 'liveMap'), firstMap, 'goToLatLon should not create a second map instance');
+  assert.strictEqual(
+    run(context, 'liveMap'),
+    firstMap,
+    'goToLatLon should not create a second map instance',
+  );
   assert.strictEqual(run(context, 'liveMap.getZoom()'), 12);
 });
 
@@ -720,7 +971,10 @@ test('cacheCurrentMapArea: downloads tiles for a never-before-cached view', asyn
   run(context, 'goToLatLon(51.5074, -0.1278, 15)');
 
   let fetchCalls = 0;
-  window.fetch = async () => { fetchCalls++; return new window.Response('tile-bytes', { status: 200 }); };
+  window.fetch = async () => {
+    fetchCalls++;
+    return new window.Response('tile-bytes', { status: 200 });
+  };
 
   await run(context, 'cacheCurrentMapArea()');
 
@@ -732,13 +986,20 @@ test('cacheCurrentMapArea: regression — re-caching the identical view makes ze
   run(context, 'goToLatLon(51.5074, -0.1278, 15)');
 
   let fetchCalls = 0;
-  window.fetch = async () => { fetchCalls++; return new window.Response('tile-bytes', { status: 200 }); };
+  window.fetch = async () => {
+    fetchCalls++;
+    return new window.Response('tile-bytes', { status: 200 });
+  };
 
   await run(context, 'cacheCurrentMapArea()'); // populates the cache
   fetchCalls = 0;
   await run(context, 'cacheCurrentMapArea()'); // same view again
 
-  assert.strictEqual(fetchCalls, 0, 'every tile in this view should already be in Cache Storage');
+  assert.strictEqual(
+    fetchCalls,
+    0,
+    'every tile in this view should already be in Cache Storage',
+  );
 });
 
 test('cacheCurrentMapArea: a genuinely new area still hits the network even after a previous area was fully cached', async () => {
@@ -750,10 +1011,16 @@ test('cacheCurrentMapArea: a genuinely new area still hits the network even afte
 
   run(context, 'goToLatLon(-33.8688, 151.2093, 15)'); // Sydney — far enough to be disjoint tiles
   let fetchCalls = 0;
-  window.fetch = async () => { fetchCalls++; return new window.Response('tile-bytes', { status: 200 }); };
+  window.fetch = async () => {
+    fetchCalls++;
+    return new window.Response('tile-bytes', { status: 200 });
+  };
   await run(context, 'cacheCurrentMapArea()');
 
-  assert.ok(fetchCalls > 0, 'a disjoint area should not be considered already-cached');
+  assert.ok(
+    fetchCalls > 0,
+    'a disjoint area should not be considered already-cached',
+  );
 });
 
 test('cacheCurrentMapArea: regression — every zoom level in the pre-fetch range gets a URL whose z actually matches its x/y (not stamped with the current on-screen zoom)', async () => {
@@ -771,12 +1038,17 @@ test('cacheCurrentMapArea: regression — every zoom level in the pre-fetch rang
   run(context, 'goToLatLon(51.5074, -0.1278, 15)');
 
   const requestedUrls = [];
-  window.fetch = async (url) => { requestedUrls.push(url); return new window.Response('tile-bytes', { status: 200 }); };
+  window.fetch = async (url) => {
+    requestedUrls.push(url);
+    return new window.Response('tile-bytes', { status: 200 });
+  };
 
   await run(context, 'cacheCurrentMapArea()');
 
   assert.ok(requestedUrls.length > 0);
-  const zoomsRequested = new Set(requestedUrls.map((u) => u.match(/light_all\/(\d+)\//)[1]));
+  const zoomsRequested = new Set(
+    requestedUrls.map((u) => u.match(/light_all\/(\d+)\//)[1]),
+  );
   // currentZoom(15) through min(currentZoom+3, 18) == 15,16,17,18 — the bug
   // collapsed every URL's z to whatever the map's "current" zoom was
   // (15), so this would be { '15' } instead of all four levels.
@@ -794,8 +1066,16 @@ test('renderStatus: connection button shows "Connect" on a fresh load (no device
   run(context, "renderStatus('disconnected')");
 
   const btn = window.document.getElementById('connectionBtn');
-  assert.strictEqual(btn.style.display, '', 'connection button is visible when disconnected');
-  assert.strictEqual(btn.textContent, 'Connect', 'shows "Connect" before any device is connected');
+  assert.strictEqual(
+    btn.style.display,
+    '',
+    'connection button is visible when disconnected',
+  );
+  assert.strictEqual(
+    btn.textContent,
+    'Connect',
+    'shows "Connect" before any device is connected',
+  );
 
   // stand-in for "attemptConnect() has run at least once" — bleManager is
   // real module-scope state on the converted live_view.mjs; a bare
@@ -807,7 +1087,11 @@ test('renderStatus: connection button shows "Connect" on a fresh load (no device
   run(context, "renderStatus('disconnected')");
 
   assert.strictEqual(btn.style.display, '', 'still visible');
-  assert.strictEqual(btn.textContent, 'Reconnect', 'shows "Reconnect" once a prior device is known');
+  assert.strictEqual(
+    btn.textContent,
+    'Reconnect',
+    'shows "Reconnect" once a prior device is known',
+  );
 });
 
 test('renderStatus: connection button shows "Disconnect" while connected and "Reconnecting…" while reconnecting', async () => {
@@ -864,10 +1148,21 @@ test('connectionBtn click: flips to "New Connection" when manual reconnect fails
 
   // Click "Reconnect" -> manual reconnect fails because device A fails
   btn.click();
-  await settle(() => run(context, 'LiveState.status') === 'disconnected' && btn.textContent === 'New Connection');
+  await settle(
+    () =>
+      run(context, 'LiveState.status') === 'disconnected' &&
+      btn.textContent === 'New Connection',
+  );
 
-  assert.strictEqual(btn.textContent, 'New Connection', 'flips to New Connection on reconnect failure');
-  assert.match(window.document.getElementById('reconnectErr').textContent, /Reconnect failed/);
+  assert.strictEqual(
+    btn.textContent,
+    'New Connection',
+    'flips to New Connection on reconnect failure',
+  );
+  assert.match(
+    window.document.getElementById('reconnectErr').textContent,
+    /Reconnect failed/,
+  );
 
   // Now a new working device B is available
   const bleB = makeFakeBle(context);
@@ -890,7 +1185,11 @@ test('abandon(): immediately aborts in-flight _waitBeforeRetry backoff without w
   // Device drops — _handleDisconnect starts waiting in _waitBeforeRetry(500)
   const loopPromise = run(context, 'bleManager._handleDisconnect()');
   await settle(() => run(context, 'LiveState.status') === 'reconnecting');
-  assert.strictEqual(bleA.subscribeCallCount(), 1, 'only initial connect so far');
+  assert.strictEqual(
+    bleA.subscribeCallCount(),
+    1,
+    'only initial connect so far',
+  );
 
   // Abandon mid-wait
   const startTime = Date.now();
@@ -898,8 +1197,15 @@ test('abandon(): immediately aborts in-flight _waitBeforeRetry backoff without w
   await loopPromise;
   const elapsed = Date.now() - startTime;
 
-  assert.ok(elapsed < 200, `abandon resolved wait immediately (${elapsed}ms) rather than waiting out delay`);
-  assert.strictEqual(bleA.subscribeCallCount(), 1, 'abandoned manager did not start a fresh _subscribe attempt');
+  assert.ok(
+    elapsed < 200,
+    `abandon resolved wait immediately (${elapsed}ms) rather than waiting out delay`,
+  );
+  assert.strictEqual(
+    bleA.subscribeCallCount(),
+    1,
+    'abandoned manager did not start a fresh _subscribe attempt',
+  );
 });
 
 // ==========================================================================
@@ -909,7 +1215,10 @@ test('abandon(): immediately aborts in-flight _waitBeforeRetry backoff without w
 test('updateLiveMap: the first GPS fix zooms to LIVE_ZOOM (18), replacing the old fixed 17', async () => {
   const { context } = await bootLive();
   run(context, 'showMap()');
-  run(context, "updateLiveMap({ valid: true, lat: 51.5, lon: -0.12, gsrRaw: 1000, hdop: 1.0, fixType: 3, sats: 8, gap: false })");
+  run(
+    context,
+    'updateLiveMap({ valid: true, lat: 51.5, lon: -0.12, gsrRaw: 1000, hdop: 1.0, fixType: 3, sats: 8, gap: false })',
+  );
 
   assert.strictEqual(run(context, 'LIVE_ZOOM'), 18);
   assert.strictEqual(run(context, 'liveMap.getZoom()'), 18);
@@ -921,44 +1230,80 @@ test('flushSettledSegments: holds a segment back until its packet is BOTH metric
   // — switch to 'phasic' so flushSettledSegments() actually queues/settles.
   run(context, "liveGsrView.graphView = 'phasic';");
   run(context, 'showMap();');
-  run(context, `
+  run(
+    context,
+    `
     LiveState.packets = [{ timestamp: 0 }];
     const __pktA = { timestamp: 0 }; // no .phasic yet
     pendingSegments.push({ prevLatLng: [0, 0], latlng: [1, 1], pkt: __pktA });
-  `);
+  `,
+  );
 
   // Recent (delta < PHASIC_COLOR_LAG_S) and no phasic yet — held back.
-  run(context, 'LiveState.packets = [{ timestamp: 0 }, { timestamp: 3 }]; flushSettledSegments();');
+  run(
+    context,
+    'LiveState.packets = [{ timestamp: 0 }, { timestamp: 3 }]; flushSettledSegments();',
+  );
   assert.strictEqual(run(context, 'pendingSegments.length'), 1);
-  assert.strictEqual(run(context, 'liveMap._layers.filter(l => l.latlngs).length'), 0, 'nothing drawn yet');
+  assert.strictEqual(
+    run(context, 'liveMap._layers.filter(l => l.latlngs).length'),
+    0,
+    'nothing drawn yet',
+  );
 
   // Old enough (delta 20 >= 8), still no phasic — held back (the
   // availability check isn't skipped once time alone would allow it through).
-  run(context, 'LiveState.packets = [{ timestamp: 0 }, { timestamp: 20 }]; flushSettledSegments();');
+  run(
+    context,
+    'LiveState.packets = [{ timestamp: 0 }, { timestamp: 20 }]; flushSettledSegments();',
+  );
   assert.strictEqual(run(context, 'pendingSegments.length'), 1);
-  assert.strictEqual(run(context, 'liveMap._layers.filter(l => l.latlngs).length'), 0);
+  assert.strictEqual(
+    run(context, 'liveMap._layers.filter(l => l.latlngs).length'),
+    0,
+  );
 
   // Phasic available but too recent (delta 3 < 8) — still held back.
-  run(context, '__pktA.phasic = 42; LiveState.packets = [{ timestamp: 0 }, { timestamp: 3 }]; flushSettledSegments();');
+  run(
+    context,
+    '__pktA.phasic = 42; LiveState.packets = [{ timestamp: 0 }, { timestamp: 3 }]; flushSettledSegments();',
+  );
   assert.strictEqual(run(context, 'pendingSegments.length'), 1);
 
   // Phasic available AND old enough — drawn exactly once, queue drained.
-  run(context, 'LiveState.packets = [{ timestamp: 0 }, { timestamp: 20 }]; flushSettledSegments();');
+  run(
+    context,
+    'LiveState.packets = [{ timestamp: 0 }, { timestamp: 20 }]; flushSettledSegments();',
+  );
   assert.strictEqual(run(context, 'pendingSegments.length'), 0);
   assert.strictEqual(run(context, 'phasicMax'), 42);
-  const segs = runJSON(context, 'liveMap._layers.filter(l => l.latlngs).map(l => l.latlngs)');
-  assert.deepStrictEqual(segs, [[[0, 0], [1, 1]]]);
+  const segs = runJSON(
+    context,
+    'liveMap._layers.filter(l => l.latlngs).map(l => l.latlngs)',
+  );
+  assert.deepStrictEqual(segs, [
+    [
+      [0, 0],
+      [1, 1],
+    ],
+  ]);
   // getColorForValue(42, 0, 42): ratio 1.0 -> hue 0 -> red end of the scale.
-  assert.strictEqual(run(context, 'liveMap._layers.find(l => l.latlngs).options.color'), 'hsl(0, 90%, 50%)');
+  assert.strictEqual(
+    run(context, 'liveMap._layers.find(l => l.latlngs).options.color'),
+    'hsl(0, 90%, 50%)',
+  );
 });
 
-test('resetSession: clears pendingSegments, allTrackSegments and phasicMax, so a stale entry from a prior session (whose pkt.phasic will never be set again) can never wedge the next session\'s flush queue', async () => {
+test("resetSession: clears pendingSegments, allTrackSegments and phasicMax, so a stale entry from a prior session (whose pkt.phasic will never be set again) can never wedge the next session's flush queue", async () => {
   const { context } = await bootLive();
-  run(context, `
+  run(
+    context,
+    `
     pendingSegments.push({ prevLatLng: [0, 0], latlng: [1, 1], pkt: { timestamp: 0 } });
     allTrackSegments.push({ pkt: { timestamp: 0 }, line: L.polyline([[0, 0], [0, 0]], {}) });
     phasicMax = 99;
-  `);
+  `,
+  );
 
   run(context, 'resetSession()');
 
@@ -970,10 +1315,13 @@ test('resetSession: clears pendingSegments, allTrackSegments and phasicMax, so a
 test('resetSession: removes all track polyline layers and liveMarker from liveMap', async () => {
   const { context } = await bootLive();
   run(context, 'showMap()');
-  run(context, `
+  run(
+    context,
+    `
     updateLiveMap({ valid: true, lat: 51.0, lon: 0.0, gsrRaw: 1000, hdop: 1.0, fixType: 3, sats: 8, gap: false });
     updateLiveMap({ valid: true, lat: 51.1, lon: 0.1, gsrRaw: 1200, hdop: 1.0, fixType: 3, sats: 8, gap: false });
-  `);
+  `,
+  );
   // 1 TileLayer + 1 segment Polyline + 1 CircleMarker = 3 layers on liveMap
   assert.strictEqual(run(context, 'liveMap._layers.length'), 3);
   assert.ok(run(context, 'liveMarker !== null'));
@@ -993,7 +1341,9 @@ test('end-to-end: a walking session draws only settled trail segments; the recen
   // 50 packets at the real STREAM_INTERVAL_S cadence (0.3s), stepping GSR up
   // partway through so decomposeTonicPhasic has a real, non-trivial phasic
   // response to compute — not just feeding a flat, uninformative signal.
-  run(context, `
+  run(
+    context,
+    `
     showMap();
     for (let i = 0; i < 50; i++) {
       LiveState.addPacket({
@@ -1006,9 +1356,13 @@ test('end-to-end: a walking session draws only settled trail segments; the recen
       });
       drawGraph(); // stands in for the real animation loop's per-frame call
     }
-  `);
+  `,
+  );
 
-  const result = JSON.parse(run(context, `
+  const result = JSON.parse(
+    run(
+      context,
+      `
     JSON.stringify({
       drawnSegments: liveMap._layers.filter(l => l.latlngs).length,
       pendingCount: pendingSegments.length,
@@ -1017,13 +1371,28 @@ test('end-to-end: a walking session draws only settled trail segments; the recen
         ? LiveState.packets[LiveState.packets.length - 1].timestamp - pendingSegments[0].pkt.timestamp
         : null,
     })
-  `));
+  `,
+    ),
+  );
 
-  assert.strictEqual(result.drawnSegments + result.pendingCount, 49, '50 packets -> 49 segment slots, split between drawn and still-pending');
+  assert.strictEqual(
+    result.drawnSegments + result.pendingCount,
+    49,
+    '50 packets -> 49 segment slots, split between drawn and still-pending',
+  );
   assert.ok(result.drawnSegments > 0, 'settled segments are drawn');
-  assert.ok(result.pendingCount > 0, 'the most recent segments are still held back');
-  assert.ok(result.allFinalColoured, 'every drawn segment was drawn once with its final colour (never repainted)');
-  assert.ok(result.oldestPendingAge < 8, `the oldest still-pending segment should be within PHASIC_COLOR_LAG_S, got ${result.oldestPendingAge}`);
+  assert.ok(
+    result.pendingCount > 0,
+    'the most recent segments are still held back',
+  );
+  assert.ok(
+    result.allFinalColoured,
+    'every drawn segment was drawn once with its final colour (never repainted)',
+  );
+  assert.ok(
+    result.oldestPendingAge < 8,
+    `the oldest still-pending segment should be within PHASIC_COLOR_LAG_S, got ${result.oldestPendingAge}`,
+  );
 });
 
 // ==========================================================================
@@ -1046,44 +1415,87 @@ test('attemptConnect: a real BLE notification flows through the parser to LiveSt
 
   assert.strictEqual(run(context, 'LiveState.status'), 'connected');
   assert.ok(
-    window.document.getElementById('connectOverlay').classList.contains('hidden'),
+    window.document
+      .getElementById('connectOverlay')
+      .classList.contains('hidden'),
     'a successful connect hides the connect overlay',
   );
   assert.strictEqual(
-    ble.notificationHandlerCount(), 1,
+    ble.notificationHandlerCount(),
+    1,
     '_subscribe() should register exactly one characteristicvaluechanged listener',
   );
 
   // First fix: sets the map view and drops the position marker, no segment yet.
-  ble.fireNotification(buildPacket({ timestampMs: 300, lat: 51.5074, lon: -0.1278, gsrRaw: 1000, sats: 9, fixType: 3 }));
+  ble.fireNotification(
+    buildPacket({
+      timestampMs: 300,
+      lat: 51.5074,
+      lon: -0.1278,
+      gsrRaw: 1000,
+      sats: 9,
+      fixType: 3,
+    }),
+  );
 
   assert.strictEqual(run(context, 'LiveState.packets.length'), 1);
-  assert.strictEqual(window.document.getElementById('statPackets').textContent, 'Packets: 1');
-  assert.strictEqual(window.document.getElementById('statGps').textContent, 'GPS: 3D (9 sat)');
-  assert.strictEqual(window.document.getElementById('exportBtn').disabled, false);
-  assert.strictEqual(run(context, 'liveMap.getZoom()'), 18, 'first fix zooms to LIVE_ZOOM');
   assert.strictEqual(
-    run(context, 'liveMap._layers.filter(l => l.options && l.options.radius).length'), 1,
+    window.document.getElementById('statPackets').textContent,
+    'Packets: 1',
+  );
+  assert.strictEqual(
+    window.document.getElementById('statGps').textContent,
+    'GPS: 3D (9 sat)',
+  );
+  assert.strictEqual(
+    window.document.getElementById('exportBtn').disabled,
+    false,
+  );
+  assert.strictEqual(
+    run(context, 'liveMap.getZoom()'),
+    18,
+    'first fix zooms to LIVE_ZOOM',
+  );
+  assert.strictEqual(
+    run(
+      context,
+      'liveMap._layers.filter(l => l.options && l.options.radius).length',
+    ),
+    1,
     'first fix creates the position marker',
   );
 
   // Second fix a cadence-step later, new position, no gap -> one track segment.
-  ble.fireNotification(buildPacket({ timestampMs: 600, lat: 51.5076, lon: -0.1276, gsrRaw: 1200, sats: 9, fixType: 3 }));
+  ble.fireNotification(
+    buildPacket({
+      timestampMs: 600,
+      lat: 51.5076,
+      lon: -0.1276,
+      gsrRaw: 1200,
+      sats: 9,
+      fixType: 3,
+    }),
+  );
 
   assert.strictEqual(run(context, 'LiveState.packets.length'), 2);
   assert.strictEqual(run(context, 'LiveState.gapCount'), 0);
   assert.strictEqual(
-    run(context, 'liveMap._layers.filter(l => l.latlngs).length'), 1,
+    run(context, 'liveMap._layers.filter(l => l.latlngs).length'),
+    1,
     'the second consecutive fix draws exactly one polyline segment',
   );
   assert.strictEqual(
-    run(context, 'liveMap._layers.find(l => l.latlngs).options.weight'), 3,
+    run(context, 'liveMap._layers.find(l => l.latlngs).options.weight'),
+    3,
     'desktop live follow-map polyline uses default weight 3',
   );
 
   run(context, "drawGraph(); LiveState.setStatus('disconnected')"); // render once, then stop the RAF loop
   // Readout is in µS (raw nS ÷ 1000), matching the single-track view.
-  assert.match(window.document.getElementById('graphValue').textContent, /-?\d+\.\d{2} μS$/);
+  assert.match(
+    window.document.getElementById('graphValue').textContent,
+    /-?\d+\.\d{2} μS$/,
+  );
 });
 
 test('updateLiveMap: mobile live layout draws map trace twice as thick (weight 6)', async (t) => {
@@ -1094,12 +1506,34 @@ test('updateLiveMap: mobile live layout draws map trace twice as thick (weight 6
   await run(context, 'attemptConnect()');
   stopLoopAfter(t, context);
 
-  ble.fireNotification(buildPacket({ timestampMs: 300, lat: 51.5074, lon: -0.1278, gsrRaw: 1000, sats: 8, fixType: 3 }));
-  ble.fireNotification(buildPacket({ timestampMs: 600, lat: 51.5076, lon: -0.1276, gsrRaw: 1200, sats: 9, fixType: 3 }));
+  ble.fireNotification(
+    buildPacket({
+      timestampMs: 300,
+      lat: 51.5074,
+      lon: -0.1278,
+      gsrRaw: 1000,
+      sats: 8,
+      fixType: 3,
+    }),
+  );
+  ble.fireNotification(
+    buildPacket({
+      timestampMs: 600,
+      lat: 51.5076,
+      lon: -0.1276,
+      gsrRaw: 1200,
+      sats: 9,
+      fixType: 3,
+    }),
+  );
 
   const polyline = run(context, 'liveMap._layers.find(l => l.latlngs)');
   assert.ok(polyline, 'polyline created');
-  assert.strictEqual(polyline.options.weight, 6, 'mobile trace is drawn twice as thick (weight 6)');
+  assert.strictEqual(
+    polyline.options.weight,
+    6,
+    'mobile trace is drawn twice as thick (weight 6)',
+  );
   run(context, "LiveState.setStatus('disconnected')");
 });
 
@@ -1112,12 +1546,27 @@ test('attemptConnect: an invalid (no-fix) notification still counts as a packet 
   await run(context, 'attemptConnect()');
   stopLoopAfter(t, context);
 
-  ble.fireNotification(buildPacket({ timestampMs: 300, gsrRaw: 800, sats: 0, fixType: 1, valid: 0 }));
+  ble.fireNotification(
+    buildPacket({
+      timestampMs: 300,
+      gsrRaw: 800,
+      sats: 0,
+      fixType: 1,
+      valid: 0,
+    }),
+  );
 
   assert.strictEqual(run(context, 'LiveState.packets.length'), 1);
-  assert.strictEqual(window.document.getElementById('statGps').textContent, 'GPS: No fix');
   assert.strictEqual(
-    run(context, 'liveMap._layers.filter(l => (l.options && l.options.radius) || l.latlngs).length'), 0,
+    window.document.getElementById('statGps').textContent,
+    'GPS: No fix',
+  );
+  assert.strictEqual(
+    run(
+      context,
+      'liveMap._layers.filter(l => (l.options && l.options.radius) || l.latlngs).length',
+    ),
+    0,
     'a no-fix sample must not place a marker or a segment',
   );
 
@@ -1133,15 +1582,22 @@ test('attemptConnect: a service-UUID mismatch fails the connect and surfaces the
 
   assert.strictEqual(run(context, 'LiveState.status'), 'disconnected');
   assert.ok(
-    !window.document.getElementById('connectOverlay').classList.contains('hidden'),
+    !window.document
+      .getElementById('connectOverlay')
+      .classList.contains('hidden'),
     'a failed connect leaves the connect overlay up',
   );
-  assert.strictEqual(ble.notificationHandlerCount(), 0, 'no characteristic was ever subscribed');
+  assert.strictEqual(
+    ble.notificationHandlerCount(),
+    0,
+    'no characteristic was ever subscribed',
+  );
   // _logDiscoveredServices() routes the discovery hint through onStatusText,
   // which attemptConnect() mirrors into reconnectErr (connectErr is then
   // overwritten by the thrown error's own message in the catch).
   assert.match(
-    window.document.getElementById('reconnectErr').textContent, /Service UUID mismatch/,
+    window.document.getElementById('reconnectErr').textContent,
+    /Service UUID mismatch/,
   );
 });
 
@@ -1158,7 +1614,8 @@ test('attemptConnect: a service-UUID mismatch fails the connect and surfaces the
 // stepping through _handleDisconnect()'s awaits, which span a macrotask (the
 // recordingTimers setTimeout) plus several microtasks per attempt.
 async function settle(pred, tries = 200) {
-  for (let i = 0; i < tries && !pred(); i++) await new Promise((r) => setImmediate(r));
+  for (let i = 0; i < tries && !pred(); i++)
+    await new Promise((r) => setImmediate(r));
 }
 
 // Every test here reaches 'connected'/'reconnecting', which starts live.html's
@@ -1166,7 +1623,13 @@ async function settle(pred, tries = 200) {
 // assertion that skips the explicit reset would hang `npm test`. t.after()
 // runs regardless, so the loop always stops.
 function stopLoopAfter(t, context) {
-  t.after(() => { try { vm.runInThisContext("LiveState.setStatus('disconnected')"); } catch { /* torn down */ } });
+  t.after(() => {
+    try {
+      vm.runInThisContext("LiveState.setStatus('disconnected')");
+    } catch {
+      /* torn down */
+    }
+  });
 }
 
 test('_handleDisconnect: retries then recovers — status ends "connected", loop stops early on the first successful re-subscribe', async (t) => {
@@ -1181,7 +1644,11 @@ test('_handleDisconnect: retries then recovers — status ends "connected", loop
   timers.restore();
 
   assert.strictEqual(run(context, 'LiveState.status'), 'connected');
-  assert.strictEqual(run(context, 'bleManager._reconnecting'), false, 'the guard flag must be cleared on success');
+  assert.strictEqual(
+    run(context, 'bleManager._reconnecting'),
+    false,
+    'the guard flag must be cleared on success',
+  );
   // 1 initial connect + 3 reconnect attempts (fail, fail, succeed).
   assert.strictEqual(ble.subscribeCallCount(), 4);
   // Backoff waited before attempts 1..3 only — no wait after the success.
@@ -1189,7 +1656,10 @@ test('_handleDisconnect: retries then recovers — status ends "connected", loop
   // immediately, promptly clears) a BLE_SUBSCRIBE_TIMEOUT_MS watchdog timer —
   // filter those out to isolate the backoff schedule itself.
   const gattTimeout = run(context, 'BLE_SUBSCRIBE_TIMEOUT_MS');
-  assert.deepStrictEqual(timers.delays.filter((d) => d !== gattTimeout), [500, 1000, 2000]);
+  assert.deepStrictEqual(
+    timers.delays.filter((d) => d !== gattTimeout),
+    [500, 1000, 2000],
+  );
 });
 
 test('_handleDisconnect: gives up after exactly 6 attempts, drops to "disconnected", and surfaces the last error via onStatusText', async (t) => {
@@ -1199,7 +1669,10 @@ test('_handleDisconnect: gives up after exactly 6 attempts, drops to "disconnect
   await run(context, 'attemptConnect()');
   stopLoopAfter(t, context);
 
-  run(context, 'globalThis.__statusSeen = []; LiveState.on("status", (s) => globalThis.__statusSeen.push(s))');
+  run(
+    context,
+    'globalThis.__statusSeen = []; LiveState.on("status", (s) => globalThis.__statusSeen.push(s))',
+  );
 
   const timers = recordingTimers(window);
   await run(context, 'bleManager._handleDisconnect()');
@@ -1207,7 +1680,11 @@ test('_handleDisconnect: gives up after exactly 6 attempts, drops to "disconnect
 
   assert.strictEqual(run(context, 'LiveState.status'), 'disconnected');
   assert.strictEqual(run(context, 'bleManager._reconnecting'), false);
-  assert.strictEqual(ble.subscribeCallCount(), 1 + 6, 'exactly 6 reconnect attempts, then it stops');
+  assert.strictEqual(
+    ble.subscribeCallCount(),
+    1 + 6,
+    'exactly 6 reconnect attempts, then it stops',
+  );
   // The cap: 500, 1000, 2000, 4000, then clamped at 8000 — filtering out the
   // per-attempt BLE_SUBSCRIBE_TIMEOUT_MS watchdog timers (see the test above).
   const gattTimeout = run(context, 'BLE_SUBSCRIBE_TIMEOUT_MS');
@@ -1217,9 +1694,14 @@ test('_handleDisconnect: gives up after exactly 6 attempts, drops to "disconnect
   );
 
   const seen = runJSON(context, 'globalThis.__statusSeen');
-  assert.deepStrictEqual(seen, ['reconnecting', 'disconnected'], 'one reconnecting, then one disconnected — no flicker');
+  assert.deepStrictEqual(
+    seen,
+    ['reconnecting', 'disconnected'],
+    'one reconnecting, then one disconnected — no flicker',
+  );
   assert.match(
-    window.document.getElementById('reconnectErr').textContent, /Auto-reconnect failed: reconnect attempt 6 failed/,
+    window.document.getElementById('reconnectErr').textContent,
+    /Auto-reconnect failed: reconnect attempt 6 failed/,
   );
 });
 
@@ -1247,15 +1729,26 @@ test('_waitBeforeRetry: wakes early on advertisementreceived instead of waiting 
   // wake and "the timer just fired" are distinguishable.
   const waitPromise = run(context, 'bleManager._waitBeforeRetry(5000)');
   await new Promise((r) => setImmediate(r)); // let the listener attach
-  assert.strictEqual(ble.advertisementHandlerCount(), 1, 'a listener was armed for this wait');
+  assert.strictEqual(
+    ble.advertisementHandlerCount(),
+    1,
+    'a listener was armed for this wait',
+  );
   assert.strictEqual(ble.watchAdvertisementsCallCount(), 1);
 
   ble.fireAdvertisement();
   await waitPromise;
   const elapsed = Date.now() - start;
 
-  assert.ok(elapsed < 1000, `expected an early wake well under the 5000ms delay, took ${elapsed}ms`);
-  assert.strictEqual(ble.advertisementHandlerCount(), 0, 'the listener is cleaned up once the wait resolves');
+  assert.ok(
+    elapsed < 1000,
+    `expected an early wake well under the 5000ms delay, took ${elapsed}ms`,
+  );
+  assert.strictEqual(
+    ble.advertisementHandlerCount(),
+    0,
+    'the listener is cleaned up once the wait resolves',
+  );
 });
 
 test('background watch: after auto-reconnect exhausts, the device reappearing later triggers an automatic reconnect with no user action', async (t) => {
@@ -1272,15 +1765,33 @@ test('background watch: after auto-reconnect exhausts, the device reappearing la
   await run(context, 'bleManager._handleDisconnect()');
   timers.restore();
   assert.strictEqual(run(context, 'LiveState.status'), 'disconnected');
-  assert.strictEqual(ble.advertisementHandlerCount(), 1, 'a passive background watch is armed after giving up');
+  assert.strictEqual(
+    ble.advertisementHandlerCount(),
+    1,
+    'a passive background watch is armed after giving up',
+  );
 
-  run(context, 'globalThis.__statusSeen = []; LiveState.on("status", (s) => globalThis.__statusSeen.push(s))');
+  run(
+    context,
+    'globalThis.__statusSeen = []; LiveState.on("status", (s) => globalThis.__statusSeen.push(s))',
+  );
   ble.fireAdvertisement();
   await settle(() => run(context, 'LiveState.status') === 'connected');
 
-  assert.strictEqual(run(context, 'LiveState.status'), 'connected', 'the device reappearing reconnected automatically');
-  assert.strictEqual(ble.advertisementHandlerCount(), 0, 'the watch is retired on success');
-  assert.deepStrictEqual(runJSON(context, 'globalThis.__statusSeen'), ['reconnecting', 'connected']);
+  assert.strictEqual(
+    run(context, 'LiveState.status'),
+    'connected',
+    'the device reappearing reconnected automatically',
+  );
+  assert.strictEqual(
+    ble.advertisementHandlerCount(),
+    0,
+    'the watch is retired on success',
+  );
+  assert.deepStrictEqual(runJSON(context, 'globalThis.__statusSeen'), [
+    'reconnecting',
+    'connected',
+  ]);
 });
 
 test('background watch: re-arms itself if the triggered reconnect attempt fails, instead of giving up for good', async (t) => {
@@ -1296,10 +1807,20 @@ test('background watch: re-arms itself if the triggered reconnect attempt fails,
   assert.strictEqual(ble.advertisementHandlerCount(), 1);
 
   ble.fireAdvertisement();
-  await settle(() => ble.subscribeCallCount() > 7 && ble.advertisementHandlerCount() === 1);
+  await settle(
+    () => ble.subscribeCallCount() > 7 && ble.advertisementHandlerCount() === 1,
+  );
 
-  assert.strictEqual(run(context, 'LiveState.status'), 'disconnected', 'the background attempt itself failed, as arranged');
-  assert.strictEqual(ble.advertisementHandlerCount(), 1, 'the watch was re-armed rather than abandoned after one failed attempt');
+  assert.strictEqual(
+    run(context, 'LiveState.status'),
+    'disconnected',
+    'the background attempt itself failed, as arranged',
+  );
+  assert.strictEqual(
+    ble.advertisementHandlerCount(),
+    1,
+    'the watch was re-armed rather than abandoned after one failed attempt',
+  );
 });
 
 test('background watch: a subsequent intentional disconnect (deactivate) stops it — the user leaving the view must not still auto-reconnect', async (t) => {
@@ -1316,16 +1837,27 @@ test('background watch: a subsequent intentional disconnect (deactivate) stops i
   assert.strictEqual(ble.advertisementHandlerCount(), 1);
 
   run(context, 'GSRLiveView.deactivate()');
-  assert.strictEqual(ble.advertisementHandlerCount(), 0, 'deactivate() tears down the passive watch too');
+  assert.strictEqual(
+    ble.advertisementHandlerCount(),
+    0,
+    'deactivate() tears down the passive watch too',
+  );
 
   ble.fireAdvertisement(); // must be a no-op now — nothing is listening
   await new Promise((r) => setImmediate(r));
-  assert.strictEqual(run(context, 'LiveState.status'), 'disconnected', 'no auto-reconnect after the user left the view');
+  assert.strictEqual(
+    run(context, 'LiveState.status'),
+    'disconnected',
+    'no auto-reconnect after the user left the view',
+  );
 });
 
 test('reconnect resilience degrades gracefully when watchAdvertisements is unsupported (e.g. iOS/Bluefy) — same bounded backoff as before, no background watch', async (t) => {
   const { window, context } = await bootLive();
-  const ble = makeFakeBle(context, { reconnectFailures: 99, watchAdvertisements: 'no' });
+  const ble = makeFakeBle(context, {
+    reconnectFailures: 99,
+    watchAdvertisements: 'no',
+  });
   window.navigator.bluetooth = ble.bluetooth;
   await run(context, 'attemptConnect()');
   stopLoopAfter(t, context);
@@ -1341,7 +1873,11 @@ test('reconnect resilience degrades gracefully when watchAdvertisements is unsup
     [500, 1000, 2000, 4000, 8000, 8000],
     'identical plain backoff schedule to a platform with watchAdvertisements — this layer is pure addition, not a behaviour change',
   );
-  assert.strictEqual(ble.advertisementHandlerCount(), 0, 'no background watch armed without watchAdvertisements support');
+  assert.strictEqual(
+    ble.advertisementHandlerCount(),
+    0,
+    'no background watch armed without watchAdvertisements support',
+  );
 });
 
 test('_handleDisconnect: a second gattserverdisconnected while a reconnect loop is already running is a no-op (the _reconnecting guard)', async (t) => {
@@ -1360,11 +1896,19 @@ test('_handleDisconnect: a second gattserverdisconnected while a reconnect loop 
 
   assert.strictEqual(run(context, 'bleManager._reconnecting'), true);
   assert.strictEqual(run(context, 'LiveState.status'), 'reconnecting');
-  assert.strictEqual(ble.subscribeCallCount(), 2, 'the first reconnect attempt is in flight');
+  assert.strictEqual(
+    ble.subscribeCallCount(),
+    2,
+    'the first reconnect attempt is in flight',
+  );
 
   // Re-entrant call — must bail immediately on the guard, starting nothing.
   await run(context, 'bleManager._handleDisconnect()');
-  assert.strictEqual(ble.subscribeCallCount(), 2, 'the second call started no new attempt');
+  assert.strictEqual(
+    ble.subscribeCallCount(),
+    2,
+    'the second call started no new attempt',
+  );
 
   releaseSubscribe();
   await firstLoop;
@@ -1398,17 +1942,25 @@ test('_handleDisconnect: after a successful auto-reconnect, one BLE notification
   timers.restore();
   assert.strictEqual(run(context, 'LiveState.status'), 'connected');
   assert.strictEqual(
-    ble.notificationHandlerCount(), 1,
+    ble.notificationHandlerCount(),
+    1,
     'the reconnect re-subscribes with exactly one listener, not a stack of them',
   );
 
-  ble.fireNotification(buildPacket({ timestampMs: 900, gsrRaw: 1111, sats: 8, fixType: 3 }));
+  ble.fireNotification(
+    buildPacket({ timestampMs: 900, gsrRaw: 1111, sats: 8, fixType: 3 }),
+  );
 
   assert.strictEqual(
-    run(context, 'LiveState.packets.length'), 1,
+    run(context, 'LiveState.packets.length'),
+    1,
     'a re-subscribe must not leave a stale listener that double-parses every notification',
   );
-  assert.strictEqual(run(context, 'LiveState.gapCount'), 0, 'the duplicate is not a real gap');
+  assert.strictEqual(
+    run(context, 'LiveState.gapCount'),
+    0,
+    'the duplicate is not a real gap',
+  );
 });
 
 // Regression tests for the reported "reconnect just hangs" bug:
@@ -1442,11 +1994,20 @@ test('_subscribe: a hung gatt.connect() times out instead of blocking the caller
   }
   timers.restore();
 
-  assert.strictEqual(threw, true, 'a hung connect() must eventually reject rather than hang the caller forever');
-  const timeoutMs = run(context, 'BLE_SUBSCRIBE_TIMEOUT_MS');
-  assert.deepStrictEqual(timers.delays, [timeoutMs], 'bounded by exactly one BLE_SUBSCRIBE_TIMEOUT_MS watchdog');
   assert.strictEqual(
-    ble.gattDisconnectCallCount(), 1,
+    threw,
+    true,
+    'a hung connect() must eventually reject rather than hang the caller forever',
+  );
+  const timeoutMs = run(context, 'BLE_SUBSCRIBE_TIMEOUT_MS');
+  assert.deepStrictEqual(
+    timers.delays,
+    [timeoutMs],
+    'bounded by exactly one BLE_SUBSCRIBE_TIMEOUT_MS watchdog',
+  );
+  assert.strictEqual(
+    ble.gattDisconnectCallCount(),
+    1,
     'the pending native connect was cancelled so the adapter/peripheral is freed for the next attempt',
   );
 });
@@ -1462,12 +2023,15 @@ test('_subscribe: a hung getPrimaryService() (connect succeeds, discovery never 
   // gatt.connect() itself resolves fine; it's service discovery on the
   // resulting server that never settles — a distinct real-world hang point
   // from the connect-itself-hangs case above.
-  run(context, `
+  run(
+    context,
+    `
     bleManager.device.gatt.connect = async () => ({
       getPrimaryService: () => new Promise(() => {}),
       getPrimaryServices: () => new Promise(() => {}),
     });
-  `);
+  `,
+  );
 
   const timers = recordingTimers(window);
   let threw = false;
@@ -1478,11 +2042,16 @@ test('_subscribe: a hung getPrimaryService() (connect succeeds, discovery never 
   }
   timers.restore();
 
-  assert.strictEqual(threw, true, 'a hung getPrimaryService() must eventually reject rather than hang the caller forever');
+  assert.strictEqual(
+    threw,
+    true,
+    'a hung getPrimaryService() must eventually reject rather than hang the caller forever',
+  );
   const timeoutMs = run(context, 'BLE_SUBSCRIBE_TIMEOUT_MS');
   assert.deepStrictEqual(timers.delays, [timeoutMs]);
   assert.strictEqual(
-    ble.gattDisconnectCallCount(), 1,
+    ble.gattDisconnectCallCount(),
+    1,
     'the GATT link was torn down to cancel the stuck discovery call',
   );
 });
@@ -1504,7 +2073,8 @@ test('disconnect: cancels the GATT link even while "connected" is still false (a
   run(context, 'bleManager.disconnect()');
 
   assert.strictEqual(
-    ble.gattDisconnectCallCount(), 1,
+    ble.gattDisconnectCallCount(),
+    1,
     'disconnect() must not skip cancelling just because "connected" is still false',
   );
 });
@@ -1542,10 +2112,19 @@ test('attemptConnect ("New Connection"): a stale reconnect loop from a supersede
   const bleB = makeFakeBle(context);
   window.navigator.bluetooth = bleB.bluetooth;
   await run(context, 'attemptConnect()');
-  assert.strictEqual(run(context, 'LiveState.status'), 'connected', 'the fresh connection is live');
-  assert.strictEqual(run(context, 'globalThis.__managerA._abandoned'), true, 'the old manager was marked superseded');
   assert.strictEqual(
-    run(context, 'bleManager === globalThis.__managerA'), false,
+    run(context, 'LiveState.status'),
+    'connected',
+    'the fresh connection is live',
+  );
+  assert.strictEqual(
+    run(context, 'globalThis.__managerA._abandoned'),
+    true,
+    'the old manager was marked superseded',
+  );
+  assert.strictEqual(
+    run(context, 'bleManager === globalThis.__managerA'),
+    false,
     'a new manager instance took over',
   );
 
@@ -1554,8 +2133,9 @@ test('attemptConnect ("New Connection"): a stale reconnect loop from a supersede
   timers.restore();
 
   assert.strictEqual(
-    run(context, 'LiveState.status'), 'connected',
-    'the superseded manager\'s own eventual give-up must not overwrite the live status of the new connection',
+    run(context, 'LiveState.status'),
+    'connected',
+    "the superseded manager's own eventual give-up must not overwrite the live status of the new connection",
   );
 });
 
@@ -1583,7 +2163,11 @@ test('attemptConnect ("New Connection"): a superseded manager\'s already-in-flig
   const bleB = makeFakeBle(context, { failRequestDevice: true });
   window.navigator.bluetooth = bleB.bluetooth;
   await run(context, 'attemptConnect()');
-  assert.strictEqual(run(context, 'LiveState.status'), 'disconnected', 'B failed to connect at all');
+  assert.strictEqual(
+    run(context, 'LiveState.status'),
+    'disconnected',
+    'B failed to connect at all',
+  );
 
   // Now let A's already-in-flight attempt through — it succeeds, on a
   // manager nobody is looking at anymore.
@@ -1592,7 +2176,8 @@ test('attemptConnect ("New Connection"): a superseded manager\'s already-in-flig
   timers.restore();
 
   assert.strictEqual(
-    run(context, 'LiveState.status'), 'disconnected',
+    run(context, 'LiveState.status'),
+    'disconnected',
     'A\'s late success must not resurrect a "connected" status over B\'s real failure',
   );
 });
@@ -1613,14 +2198,29 @@ test('tryResumeDevice: "New Connection" silently reacquires the same previously-
 
   let requestDeviceCalls = 0;
   const realRequestDevice = ble.bluetooth.requestDevice.bind(ble.bluetooth);
-  ble.bluetooth.requestDevice = async (...args) => { requestDeviceCalls++; return realRequestDevice(...args); };
+  ble.bluetooth.requestDevice = async (...args) => {
+    requestDeviceCalls++;
+    return realRequestDevice(...args);
+  };
 
   // The user clicks "New Connection" -> Connect again.
   await run(context, 'attemptConnect()');
 
-  assert.strictEqual(run(context, 'LiveState.status'), 'connected', 'reconnected via tryResumeDevice()');
-  assert.strictEqual(requestDeviceCalls, 0, 'the chooser (requestDevice()) was never invoked');
-  assert.strictEqual(ble.subscribeCallCount(), 2, 'one fresh _subscribe() for the resumed device, not a whole new pairing flow');
+  assert.strictEqual(
+    run(context, 'LiveState.status'),
+    'connected',
+    'reconnected via tryResumeDevice()',
+  );
+  assert.strictEqual(
+    requestDeviceCalls,
+    0,
+    'the chooser (requestDevice()) was never invoked',
+  );
+  assert.strictEqual(
+    ble.subscribeCallCount(),
+    2,
+    'one fresh _subscribe() for the resumed device, not a whole new pairing flow',
+  );
 });
 
 test('tryResumeDevice: falls back to the normal requestDevice() chooser when getDevices() has no match', async (t) => {
@@ -1636,8 +2236,16 @@ test('tryResumeDevice: falls back to the normal requestDevice() chooser when get
   window.navigator.bluetooth = bleB.bluetooth;
   await run(context, 'attemptConnect()');
 
-  assert.strictEqual(run(context, 'LiveState.status'), 'connected', 'fell through to the chooser and connected to B');
-  assert.strictEqual(bleB.subscribeCallCount(), 1, 'a full fresh connect() (chooser) ran, not a resume');
+  assert.strictEqual(
+    run(context, 'LiveState.status'),
+    'connected',
+    'fell through to the chooser and connected to B',
+  );
+  assert.strictEqual(
+    bleB.subscribeCallCount(),
+    1,
+    'a full fresh connect() (chooser) ran, not a resume',
+  );
 });
 
 // SCENARIO — unlike the abandon() races above (a superseded manager racing a
@@ -1668,7 +2276,9 @@ test('tryResumeDevice: an orphaned resume attempt that later times out must not 
   // instance before tryResumeDevice() even runs) so the test can await the
   // orphaned attempt's own eventual settlement directly, rather than guess
   // how many ticks its background timer needs.
-  run(context, `
+  run(
+    context,
+    `
     globalThis.__origSubscribe = GSRLiveBluetoothManager.prototype._subscribe;
     globalThis.__subscribeCalls = 0;
     GSRLiveBluetoothManager.prototype._subscribe = function () {
@@ -1677,7 +2287,8 @@ test('tryResumeDevice: an orphaned resume attempt that later times out must not 
       if (globalThis.__subscribeCalls === 1) globalThis.__orphanSubscribe = p.catch(() => {});
       return p;
     };
-  `);
+  `,
+  );
   // Blocks the NEXT getCharacteristic() call indefinitely — the "New
   // Connection" click's tryResumeDevice() attempt below, which never gets
   // released, so only its own 15s internal timeout (accelerated by
@@ -1690,18 +2301,30 @@ test('tryResumeDevice: an orphaned resume attempt that later times out must not 
   // _subscribe() — which succeeds immediately (the gate only holds the
   // FIRST getCharacteristic() call).
   await run(context, 'attemptConnect()');
-  assert.strictEqual(run(context, 'LiveState.status'), 'connected', 'the fresh fallback connection is live');
+  assert.strictEqual(
+    run(context, 'LiveState.status'),
+    'connected',
+    'the fresh fallback connection is live',
+  );
   const disconnectsBeforeOrphanSettles = ble.gattDisconnectCallCount();
 
   // Let the orphaned resume attempt's own 15s timeout fire.
   await run(context, 'globalThis.__orphanSubscribe');
-  run(context, 'GSRLiveBluetoothManager.prototype._subscribe = globalThis.__origSubscribe');
+  run(
+    context,
+    'GSRLiveBluetoothManager.prototype._subscribe = globalThis.__origSubscribe',
+  );
 
   assert.strictEqual(
-    ble.gattDisconnectCallCount(), disconnectsBeforeOrphanSettles,
+    ble.gattDisconnectCallCount(),
+    disconnectsBeforeOrphanSettles,
     'the orphaned resume attempt must not tear down the newer, live connection when it finally times out',
   );
-  assert.strictEqual(run(context, 'LiveState.status'), 'connected', 'status must still reflect the real, live connection');
+  assert.strictEqual(
+    run(context, 'LiveState.status'),
+    'connected',
+    'status must still reflect the real, live connection',
+  );
 
   // And the manager must still be armed for a genuine future disconnect — the
   // orphaned attempt must not have left _intentionalClose stuck true, which
@@ -1713,7 +2336,8 @@ test('tryResumeDevice: an orphaned resume attempt that later times out must not 
   timers.restore();
 
   assert.strictEqual(
-    run(context, 'LiveState.status'), 'connected',
+    run(context, 'LiveState.status'),
+    'connected',
     'a real subsequent drop must still auto-recover, not be swallowed as "intentional"',
   );
 });
@@ -1728,8 +2352,16 @@ test('tryResumeDevice: falls back cleanly when navigator.bluetooth.getDevices is
 
   await run(context, 'attemptConnect()'); // "New Connection" again, same unsupported-getDevices stack
 
-  assert.strictEqual(run(context, 'LiveState.status'), 'connected', 'still reconnects via the normal chooser flow');
-  assert.strictEqual(ble.subscribeCallCount(), 2, 'a second full connect() ran (no silent resume attempted)');
+  assert.strictEqual(
+    run(context, 'LiveState.status'),
+    'connected',
+    'still reconnects via the normal chooser flow',
+  );
+  assert.strictEqual(
+    ble.subscribeCallCount(),
+    2,
+    'a second full connect() ran (no silent resume attempted)',
+  );
 });
 
 // ==========================================================================
@@ -1749,8 +2381,18 @@ function captureCsvExport(context) {
     'GSRFileSaver.saveFile = (content, name) => { globalThis.__savedCsv = { text: content, name }; return Promise.resolve(true); };',
   );
   return {
-    get text() { return run(context, 'globalThis.__savedCsv && globalThis.__savedCsv.text'); },
-    get name() { return run(context, 'globalThis.__savedCsv && globalThis.__savedCsv.name'); },
+    get text() {
+      return run(
+        context,
+        'globalThis.__savedCsv && globalThis.__savedCsv.text',
+      );
+    },
+    get name() {
+      return run(
+        context,
+        'globalThis.__savedCsv && globalThis.__savedCsv.name',
+      );
+    },
   };
 }
 
@@ -1759,14 +2401,17 @@ test('exportCsv: hands GSRFileSaver a .csv name and the full buildLiveCsv text (
   const csv = captureCsvExport(context);
   run(context, 'Date.now = () => 1700000123456'); // -> epoch seconds 1700000123
 
-  run(context, `
+  run(
+    context,
+    `
     LiveState.packets = [
       { timestamp: 0.30, valid: true,  lat: 51.5074, lon: -0.1278,
         hdop: 1.2, pdop: 1.8, sats: 9, fixType: 3, speedKts: 3.4, courseDeg: 270.0, gsrRaw: 1234.5 },
       { timestamp: 12.60, valid: false, lat: NaN, lon: NaN,
         hdop: 99.9, pdop: 99.9, sats: 0, fixType: 1, speedKts: 0, courseDeg: 0, gsrRaw: 800.0 },
     ];
-  `);
+  `,
+  );
 
   run(context, 'exportCsv()');
   const lines = csv.text.split('\n');
@@ -1776,30 +2421,45 @@ test('exportCsv: hands GSRFileSaver a .csv name and the full buildLiveCsv text (
   assert.strictEqual(lines[0], '# Integrity: crc32 v1');
   assert.strictEqual(lines[1], '# RecordingStartTime:1700000111'); // 1700000123 - floor(12.60)
   assert.strictEqual(lines[2], '# DeviceName:LiveStream');
-  assert.strictEqual(lines[3], 'timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw,hacc_m');
+  assert.strictEqual(
+    lines[3],
+    'timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw,hacc_m',
+  );
 
   // Valid fix: biomap_format_gps_row() "%.2f,%.7f,%.7f,%.1f,%.1f,%d,%d,%.2f,%.1f,%.1f,%.1f"
   // — speed_kts is 2 dp; hacc_m (final field) is empty on the wire.
-  assert.strictEqual(lines[4], '0.30,51.5074000,-0.1278000,1.2,1.8,9,3,3.40,270.0,1234.5,');
+  assert.strictEqual(
+    lines[4],
+    '0.30,51.5074000,-0.1278000,1.2,1.8,9,3,3.40,270.0,1234.5,',
+  );
   // No-fix sample: firmware's "%.2f,,,,,,,,,%.1f," branch — every GPS column
   // empty, only timestamp + gsr_raw carry a value.
   assert.strictEqual(lines[5], '12.60,,,,,,,,,800.0,');
 
   // Trailer last, with sd_logger_write_trailer()'s token layout (overflows /
   // flush_fails are a truthful 0 for a card-less live session).
-  assert.match(csv.text, /\n# End rows:2 bytes:\d+ crc32:[0-9a-f]{8} end_time:1700000123 overflows:0 flush_fails:0\n$/);
+  assert.match(
+    csv.text,
+    /\n# End rows:2 bytes:\d+ crc32:[0-9a-f]{8} end_time:1700000123 overflows:0 flush_fails:0\n$/,
+  );
 });
 
-test('exportCsv: RecordingStartTime is wall-clock-now minus the last packet\'s device uptime, floored', async () => {
+test("exportCsv: RecordingStartTime is wall-clock-now minus the last packet's device uptime, floored", async () => {
   const { context } = await bootLive();
   const csv = captureCsvExport(context);
   run(context, 'Date.now = () => 1_699_999_999_000'); // epoch seconds 1699999999
-  run(context, 'LiveState.packets = [{ timestamp: 100.9, valid: false, lat: NaN, lon: NaN, hdop: 99.9, pdop: 99.9, sats: 0, fixType: 0, speedKts: 0, courseDeg: 0, gsrRaw: 1 }]');
+  run(
+    context,
+    'LiveState.packets = [{ timestamp: 100.9, valid: false, lat: NaN, lon: NaN, hdop: 99.9, pdop: 99.9, sats: 0, fixType: 0, speedKts: 0, courseDeg: 0, gsrRaw: 1 }]',
+  );
 
   run(context, 'exportCsv()');
 
   // 1699999999 - floor(100.9) == 1699999899
-  assert.match(csv.text, /^# Integrity: crc32 v1\n# RecordingStartTime:1699999899\n/);
+  assert.match(
+    csv.text,
+    /^# Integrity: crc32 v1\n# RecordingStartTime:1699999899\n/,
+  );
 });
 
 test('exportCsv: a session with no packets still produces a valid file (header + zero-row trailer)', async () => {
@@ -1822,27 +2482,54 @@ test('exportCsv: a session with no packets still produces a valid file (header +
 // stopping tracking. Only "first fix zooms" was covered.
 // ==========================================================================
 
-const FIX = (over = {}) => JSON.stringify({
-  valid: true, lat: 51.5074, lon: -0.1278, gsrRaw: 1000,
-  hdop: 1.0, pdop: 1.5, fixType: 3, sats: 9, gap: false, ...over,
-});
+const FIX = (over = {}) =>
+  JSON.stringify({
+    valid: true,
+    lat: 51.5074,
+    lon: -0.1278,
+    gsrRaw: 1000,
+    hdop: 1.0,
+    pdop: 1.5,
+    fixType: 3,
+    sats: 9,
+    gap: false,
+    ...over,
+  });
 const segLatLngs = (context) =>
-  runJSON(context, 'liveMap._layers.filter(l => l.latlngs).map(l => l.latlngs)');
+  runJSON(
+    context,
+    'liveMap._layers.filter(l => l.latlngs).map(l => l.latlngs)',
+  );
 
 test('updateLiveMap: a fix worse than LIVE_MAX_HDOP (2.0) is dropped — no segment, and it does not advance the trail anchor', async () => {
   const { context } = await bootLive();
   run(context, 'showMap()');
 
-  run(context, `updateLiveMap(${FIX({ lat: 51.0, lon: 0.0 })})`);       // 1st good fix: view + marker, no segment
+  run(context, `updateLiveMap(${FIX({ lat: 51.0, lon: 0.0 })})`); // 1st good fix: view + marker, no segment
   run(context, `updateLiveMap(${FIX({ lat: 52.0, lon: 1.0, hdop: 5.0 })})`); // rejected
 
-  assert.strictEqual(segLatLngs(context).length, 0, 'the high-HDOP fix drew nothing');
-  assert.deepStrictEqual(runJSON(context, 'liveLastLatLng'), [51.0, 0.0], 'trail anchor unmoved by the rejected fix');
+  assert.strictEqual(
+    segLatLngs(context).length,
+    0,
+    'the high-HDOP fix drew nothing',
+  );
+  assert.deepStrictEqual(
+    runJSON(context, 'liveLastLatLng'),
+    [51.0, 0.0],
+    'trail anchor unmoved by the rejected fix',
+  );
 
-  run(context, `updateLiveMap(${FIX({ lat: 51.5, lon: 0.5 })})`);       // next good fix
+  run(context, `updateLiveMap(${FIX({ lat: 51.5, lon: 0.5 })})`); // next good fix
   const segs = segLatLngs(context);
   assert.strictEqual(segs.length, 1);
-  assert.deepStrictEqual(segs[0], [[51.0, 0.0], [51.5, 0.5]], 'segment bridges the two GOOD fixes, skipping the rejected one');
+  assert.deepStrictEqual(
+    segs[0],
+    [
+      [51.0, 0.0],
+      [51.5, 0.5],
+    ],
+    'segment bridges the two GOOD fixes, skipping the rejected one',
+  );
 });
 
 test('updateLiveMap: fixType gating — 1 (no fix) is rejected, 0 (unknown) and >=2 are accepted', async () => {
@@ -1857,8 +2544,14 @@ test('updateLiveMap: fixType gating — 1 (no fix) is rejected, 0 (unknown) and 
   run(context, `updateLiveMap(${FIX({ lat: 51.2, lon: 0.2, fixType: 0 })})`); // accepted (unknown)
   run(context, `updateLiveMap(${FIX({ lat: 51.3, lon: 0.3, fixType: 2 })})`); // accepted (2D)
   assert.deepStrictEqual(segLatLngs(context), [
-    [[51.0, 0.0], [51.2, 0.2]],
-    [[51.2, 0.2], [51.3, 0.3]],
+    [
+      [51.0, 0.0],
+      [51.2, 0.2],
+    ],
+    [
+      [51.2, 0.2],
+      [51.3, 0.3],
+    ],
   ]);
 });
 
@@ -1869,18 +2562,39 @@ test('updateLiveMap: a gap fix breaks the trail — the next segment resumes fro
   run(context, "liveGsrView.graphView = 'phasic';");
   run(context, 'showMap()');
 
-  run(context, `updateLiveMap(${FIX({ lat: 51.0, lon: 0.0 })})`);            // anchor
-  run(context, `updateLiveMap(${FIX({ lat: 51.1, lon: 0.1 })})`);            // queued segment 1
+  run(context, `updateLiveMap(${FIX({ lat: 51.0, lon: 0.0 })})`); // anchor
+  run(context, `updateLiveMap(${FIX({ lat: 51.1, lon: 0.1 })})`); // queued segment 1
   run(context, `updateLiveMap(${FIX({ lat: 51.2, lon: 0.2, gap: true })})`); // gap: nothing queued
 
-  assert.strictEqual(run(context, 'pendingSegments.length'), 1, 'only the good segment is queued — the gap queues nothing');
-  assert.deepStrictEqual(runJSON(context, 'liveLastLatLng'), [51.2, 0.2], 'anchor moves to the gap point');
-  assert.strictEqual(segLatLngs(context).length, 0, 'nothing is drawn until the metric settles');
+  assert.strictEqual(
+    run(context, 'pendingSegments.length'),
+    1,
+    'only the good segment is queued — the gap queues nothing',
+  );
+  assert.deepStrictEqual(
+    runJSON(context, 'liveLastLatLng'),
+    [51.2, 0.2],
+    'anchor moves to the gap point',
+  );
+  assert.strictEqual(
+    segLatLngs(context).length,
+    0,
+    'nothing is drawn until the metric settles',
+  );
 
-  run(context, `updateLiveMap(${FIX({ lat: 51.3, lon: 0.3 })})`);            // resumes: queued from the gap point
+  run(context, `updateLiveMap(${FIX({ lat: 51.3, lon: 0.3 })})`); // resumes: queued from the gap point
   assert.deepStrictEqual(
     runJSON(context, 'pendingSegments.map(e => [e.prevLatLng, e.latlng])'),
-    [[[51.0, 0.0], [51.1, 0.1]], [[51.2, 0.2], [51.3, 0.3]]],
+    [
+      [
+        [51.0, 0.0],
+        [51.1, 0.1],
+      ],
+      [
+        [51.2, 0.2],
+        [51.3, 0.3],
+      ],
+    ],
     'segment 2 starts at the gap point — the gap is never bridged',
   );
 });
@@ -1894,7 +2608,10 @@ test('updateLiveMap: an invalid / NaN-position sample is a no-op — no marker, 
   run(context, `updateLiveMap(${FIX({ valid: false, lat: 51.9, lon: 0.9 })})`);
   // NaN can't survive JSON.stringify (-> null), so spell this call out so a
   // real NaN reaches updateLiveMap()'s isNaN() guard.
-  run(context, 'updateLiveMap({ valid: true, lat: NaN, lon: NaN, gsrRaw: 1000, hdop: 1.0, pdop: 1.5, fixType: 3, sats: 9, gap: false })');
+  run(
+    context,
+    'updateLiveMap({ valid: true, lat: NaN, lon: NaN, gsrRaw: 1000, hdop: 1.0, pdop: 1.5, fixType: 3, sats: 9, gap: false })',
+  );
 
   assert.strictEqual(segLatLngs(context).length, 0);
   assert.deepStrictEqual(runJSON(context, 'liveLastLatLng'), before);
@@ -1921,55 +2638,84 @@ test('updateLiveMap: an invalid / NaN-position sample is a no-op — no marker, 
 
 function recordCanvas(window) {
   const calls = [];
-  const rec = (name) => (...args) => { calls.push({ name, args }); };
+  const rec =
+    (name) =>
+    (...args) => {
+      calls.push({ name, args });
+    };
   window.HTMLCanvasElement.prototype.getContext = () => ({
-    setTransform: rec('setTransform'), clearRect: rec('clearRect'),
-    beginPath: rec('beginPath'), closePath: rec('closePath'),
-    moveTo: rec('moveTo'), lineTo: rec('lineTo'), arc: rec('arc'), stroke: rec('stroke'),
-    fill: rec('fill'), fillText: rec('fillText'),
+    setTransform: rec('setTransform'),
+    clearRect: rec('clearRect'),
+    beginPath: rec('beginPath'),
+    closePath: rec('closePath'),
+    moveTo: rec('moveTo'),
+    lineTo: rec('lineTo'),
+    arc: rec('arc'),
+    stroke: rec('stroke'),
+    fill: rec('fill'),
+    fillText: rec('fillText'),
     createLinearGradient: () => ({ addColorStop: () => {} }),
-    save: () => {}, restore: () => {},
-    strokeStyle: '', fillStyle: '', lineWidth: 1, font: '', textAlign: '', textBaseline: '',
+    save: () => {},
+    restore: () => {},
+    strokeStyle: '',
+    fillStyle: '',
+    lineWidth: 1,
+    font: '',
+    textAlign: '',
+    textBaseline: '',
   });
   return calls;
 }
 
 test('drawGraph: runs no analysis on the draw path — analyze() and decomposeTonicPhasic() are never called from a redraw', async () => {
   const { context } = await bootLive();
-  run(context, `
+  run(
+    context,
+    `
     for (let i = 0; i < 200; i++) {
       LiveState.addPacket({ valid: true, lat: 51.5, lon: -0.12, gsrRaw: 1000 + (i % 40),
         hdop: 1.0, pdop: 1.5, speedKts: 2, courseDeg: 90, sats: 9, fixType: 3, timestamp: i * 0.3 });
     }
-  `);
+  `,
+  );
   // Spy AFTER the packet feed, so only draw-path calls are counted.
-  run(context, `
+  run(
+    context,
+    `
     globalThis.__calls = { analyze: 0, decomp: 0 };
     const __origAnalyze = liveAnalyzer.analyze.bind(liveAnalyzer);
     liveAnalyzer.analyze = (...a) => { globalThis.__calls.analyze++; return __origAnalyze(...a); };
     const __origDecomp = GsrFilter.decomposeTonicPhasic.bind(GsrFilter);
     GsrFilter.decomposeTonicPhasic = (...a) => { globalThis.__calls.decomp++; return __origDecomp(...a); };
-  `);
+  `,
+  );
 
   run(context, 'drawGraph(); drawGraph(); drawGraph();');
 
   const calls = runJSON(context, 'globalThis.__calls');
   assert.strictEqual(calls.analyze, 0, 'drawGraph() must not run analyze()');
-  assert.strictEqual(calls.decomp, 0, 'drawGraph() must not run decomposeTonicPhasic()');
+  assert.strictEqual(
+    calls.decomp,
+    0,
+    'drawGraph() must not run decomposeTonicPhasic()',
+  );
 });
 
 test('feedLiveAnalyzer: analyses every packet through the warmup, then wall-clock-throttles', async () => {
   const { context } = await bootLive();
   // Shrink the warmup so the test stays fast: 20 rows instead of 400.
   run(context, 'GSRLiveView._setLiveAnalyzeTuningForTest(20);');
-  run(context, `
+  run(
+    context,
+    `
     globalThis.__n = 0;
     var __orig = GSRAnalyzer.prototype.analyze;
     GSRAnalyzer.prototype.analyze = function (...a) { globalThis.__n++; return __orig.apply(this, a); };
     for (let i = 0; i < 60; i++) {
       LiveState.addPacket({ valid: false, gsrRaw: 1000 + (i % 30), timestamp: i * 0.3 });
     }
-  `);
+  `,
+  );
   // The 60 packets arrive in one synchronous burst, so Date.now() never
   // advances past LIVE_ANALYZE_MIN_INTERVAL_MS: the first 20 (warmup) each
   // analyse, the remaining 40 are all inside one throttle window → 0 more.
@@ -1979,7 +2725,9 @@ test('feedLiveAnalyzer: analyses every packet through the warmup, then wall-cloc
 test('feedLiveAnalyzer: a new analyze() runs once the throttle interval has elapsed', async () => {
   const { context } = await bootLive();
   run(context, 'GSRLiveView._setLiveAnalyzeTuningForTest(5, 1000);');
-  run(context, `
+  run(
+    context,
+    `
     globalThis.__n = 0;
     var __orig = GSRAnalyzer.prototype.analyze;
     GSRAnalyzer.prototype.analyze = function (...a) { globalThis.__n++; return __orig.apply(this, a); };
@@ -1987,42 +2735,77 @@ test('feedLiveAnalyzer: a new analyze() runs once the throttle interval has elap
     globalThis.__realNow = Date.now;
     Date.now = () => globalThis.__now;
     for (let i = 0; i < 5; i++) LiveState.addPacket({ valid: false, gsrRaw: 1000 + i, timestamp: i * 0.3 });
-  `);
-  assert.strictEqual(run(context, 'globalThis.__n'), 5, 'warmup: one analyze per packet');
+  `,
+  );
+  assert.strictEqual(
+    run(context, 'globalThis.__n'),
+    5,
+    'warmup: one analyze per packet',
+  );
 
   // Two more packets in the same throttle window → no new analyze.
-  run(context, `
+  run(
+    context,
+    `
     for (let i = 5; i < 7; i++) LiveState.addPacket({ valid: false, gsrRaw: 1000 + i, timestamp: i * 0.3 });
-  `);
-  assert.strictEqual(run(context, 'globalThis.__n'), 5, 'throttled inside the interval');
+  `,
+  );
+  assert.strictEqual(
+    run(context, 'globalThis.__n'),
+    5,
+    'throttled inside the interval',
+  );
 
   // Advance the clock past the interval → the next packet analyses.
-  run(context, `
+  run(
+    context,
+    `
     globalThis.__now += 1200;
     LiveState.addPacket({ valid: false, gsrRaw: 2000, timestamp: 7 * 0.3 });
     Date.now = globalThis.__realNow;
-  `);
-  assert.strictEqual(run(context, 'globalThis.__n'), 6, 'one more analyze after the interval elapsed');
+  `,
+  );
+  assert.strictEqual(
+    run(context, 'globalThis.__n'),
+    6,
+    'one more analyze after the interval elapsed',
+  );
 });
 
 test('feedLiveAnalyzer: analyses only a trailing LIVE_ANALYZE_WINDOW_S slice, not the whole session', async () => {
   const { context } = await bootLive();
   run(context, 'GSRLiveView._setLiveAnalyzeTuningForTest(100000);'); // disable the throttle so every feed re-windows
-  run(context, `
+  run(
+    context,
+    `
     for (let i = 0; i < 1600; i++) {
       LiveState.addPacket({ valid: false, gsrRaw: 1000 + (i % 50), timestamp: i * 0.3 });
     }
-  `);
-  const winS   = run(context, 'LIVE_ANALYZE_WINDOW_S');           // 300
+  `,
+  );
+  const winS = run(context, 'LIVE_ANALYZE_WINDOW_S'); // 300
   const rawLen = run(context, 'liveAnalyzer.raw.length');
-  const base   = run(context, 'liveAnalyzerBase');
+  const base = run(context, 'liveAnalyzerBase');
   const pktLen = run(context, 'LiveState.packets.length');
-  const expectRows = Math.round(winS / 0.3);                       // ~1000
+  const expectRows = Math.round(winS / 0.3); // ~1000
 
-  assert.strictEqual(pktLen, 1600, 'every packet is retained in LiveState (Export CSV needs them)');
-  assert.ok(Math.abs(rawLen - expectRows) <= 2, `analyser buffer ~${expectRows} rows, got ${rawLen}`);
-  assert.ok(rawLen < pktLen, 'analyser works on a slice, not the whole session');
-  assert.ok(Math.abs(base - (pktLen - rawLen)) <= 1, `liveAnalyzerBase points at raw[0]'s packet, got ${base}`);
+  assert.strictEqual(
+    pktLen,
+    1600,
+    'every packet is retained in LiveState (Export CSV needs them)',
+  );
+  assert.ok(
+    Math.abs(rawLen - expectRows) <= 2,
+    `analyser buffer ~${expectRows} rows, got ${rawLen}`,
+  );
+  assert.ok(
+    rawLen < pktLen,
+    'analyser works on a slice, not the whole session',
+  );
+  assert.ok(
+    Math.abs(base - (pktLen - rawLen)) <= 1,
+    `liveAnalyzerBase points at raw[0]'s packet, got ${base}`,
+  );
   // The pooled series match the windowed buffer, not the session.
   assert.strictEqual(run(context, 'liveAnalyzer.filtered.length'), rawLen);
 });
@@ -2033,14 +2816,20 @@ test('drawGraph: a gap still breaks the trace after the analysis window has slid
   run(context, 'GSRLiveView._setLiveAnalyzeTuningForTest(100000);');
   // ~1500 packets (~450s) so the 300s window no longer starts at packet 0;
   // a single +10s discontinuity at i=1450, inside the visible 120s window.
-  run(context, `
+  run(
+    context,
+    `
     for (let i = 0; i < 1500; i++) {
       const t = i < 1450 ? i * 0.3 : i * 0.3 + 10;
       LiveState.addPacket({ valid: true, lat: 51.5, lon: -0.12, gsrRaw: 1000,
         hdop: 1.0, pdop: 1.5, speedKts: 2, courseDeg: 90, sats: 9, fixType: 3, timestamp: t });
     }
-  `);
-  assert.ok(run(context, 'liveAnalyzerBase') > 0, 'window has slid past the session start');
+  `,
+  );
+  assert.ok(
+    run(context, 'liveAnalyzerBase') > 0,
+    'window has slid past the session start',
+  );
 
   calls.length = 0;
   run(context, 'drawGraph()');
@@ -2049,10 +2838,16 @@ test('drawGraph: a gap still breaks the trace after the analysis window has slid
   const curveStart = names.lastIndexOf('beginPath');
   const curveEnd = names.indexOf('stroke', curveStart);
   assert.ok(curveStart !== -1 && curveEnd !== -1, 'found the curve draw');
-  const moveTos = calls.slice(curveStart, curveEnd).filter((c) => c.name === 'moveTo').length;
+  const moveTos = calls
+    .slice(curveStart, curveEnd)
+    .filter((c) => c.name === 'moveTo').length;
   // 2 == initial pen-down + one gap-forced pen-up. Would be 1 if the gap
   // lookup used the raw analyser index instead of liveAnalyzerBase + i.
-  assert.strictEqual(moveTos, 2, 'the base offset is applied to the gap lookup');
+  assert.strictEqual(
+    moveTos,
+    2,
+    'the base offset is applied to the gap lookup',
+  );
 });
 
 test('drawGraph: regression — a gap packet lifts the pen in the plotted curve, so the line never bridges a dropout', async () => {
@@ -2061,14 +2856,21 @@ test('drawGraph: regression — a gap packet lifts the pen in the plotted curve,
 
   // 30 packets at the 0.3s cadence with a single +10s discontinuity at
   // i=15 — only that one packet crosses 2x the interval, so exactly one gap.
-  run(context, `
+  run(
+    context,
+    `
     for (let i = 0; i < 30; i++) {
       LiveState.addPacket({ valid: true, lat: 51.5, lon: -0.12, gsrRaw: 1000,
         hdop: 1.0, pdop: 1.5, speedKts: 2, courseDeg: 90, sats: 9, fixType: 3,
         timestamp: i < 15 ? i * 0.3 : i * 0.3 + 10 });
     }
-  `);
-  assert.strictEqual(run(context, 'LiveState.packets.filter(p => p.gap).length'), 1, 'exactly one gap packet');
+  `,
+  );
+  assert.strictEqual(
+    run(context, 'LiveState.packets.filter(p => p.gap).length'),
+    1,
+    'exactly one gap packet',
+  );
 
   calls.length = 0;
   run(context, 'drawGraph()');
@@ -2082,13 +2884,21 @@ test('drawGraph: regression — a gap packet lifts the pen in the plotted curve,
   const curveStart = names.lastIndexOf('beginPath');
   const curveEnd = names.indexOf('stroke', curveStart);
   assert.ok(curveStart !== -1 && curveEnd !== -1, 'found the curve draw');
-  const moveTos = calls.slice(curveStart, curveEnd).filter((c) => c.name === 'moveTo').length;
-  assert.strictEqual(moveTos, 2, 'initial pen-down + exactly one gap-forced pen-up');
+  const moveTos = calls
+    .slice(curveStart, curveEnd)
+    .filter((c) => c.name === 'moveTo').length;
+  assert.strictEqual(
+    moveTos,
+    2,
+    'initial pen-down + exactly one gap-forced pen-up',
+  );
 });
 
 test('GSR controls: the view dropdown offers only Signal / Tonic / Phasic — no session-normalised metric views', async () => {
   const { window, context } = await bootLive();
-  const opts = [...window.document.getElementById('liveGraphView').options].map((o) => o.value);
+  const opts = [...window.document.getElementById('liveGraphView').options].map(
+    (o) => o.value,
+  );
   assert.deepStrictEqual(opts, ['signal', 'tonic', 'phasic']);
   // LIVE_GRAPH_VIEWS is the matching lookup — same three keys, nothing else.
   assert.deepStrictEqual(
@@ -2102,19 +2912,28 @@ test('GSR controls: the view dropdown switches the plotted series, the value rea
 
   // A step up partway so tonic/phasic decomposition has a real, non-zero
   // phasic residual to show rather than a flat signal.
-  run(context, `
+  run(
+    context,
+    `
     for (let i = 0; i < 60; i++) {
       LiveState.addPacket({ valid: true, lat: 51.5, lon: -0.12,
         gsrRaw: i < 20 ? 1000 : 1600,
         hdop: 1.0, pdop: 1.5, speedKts: 2, courseDeg: 90, sats: 9, fixType: 3, timestamp: i * 0.3 });
     }
     drawGraph();
-  `);
+  `,
+  );
 
   // Default 'signal' view — readout is the latest RAW value in µS (1600 nS ÷ 1000).
   assert.strictEqual(run(context, 'liveGsrView.graphView'), 'signal');
-  assert.strictEqual(window.document.getElementById('graphValue').textContent, '1.60 μS');
-  assert.match(window.document.getElementById('graphLabel').textContent, /^GSR \(μS\) —/);
+  assert.strictEqual(
+    window.document.getElementById('graphValue').textContent,
+    '1.60 μS',
+  );
+  assert.match(
+    window.document.getElementById('graphLabel').textContent,
+    /^GSR \(μS\) —/,
+  );
 
   // Switch to the Phasic (SCR) view via the dropdown.
   const sel = window.document.getElementById('liveGraphView');
@@ -2122,20 +2941,36 @@ test('GSR controls: the view dropdown switches the plotted series, the value rea
   sel.dispatchEvent(new window.Event('change'));
 
   assert.strictEqual(run(context, 'liveGsrView.graphView'), 'phasic');
-  assert.match(window.document.getElementById('graphLabel').textContent, /^Phasic \(SCR\) —/);
+  assert.match(
+    window.document.getElementById('graphLabel').textContent,
+    /^Phasic \(SCR\) —/,
+  );
   // Readout is now the latest phasic value: clamped >= 0 and well under the
   // raw 1.6 µS (the fast residual once tonic has begun catching the step).
-  const phasicVal = Number(window.document.getElementById('graphValue').textContent.replace(' μS', ''));
-  assert.ok(Number.isFinite(phasicVal) && phasicVal >= 0 && phasicVal < 1.6, `phasic readout is a bounded residual, got ${phasicVal}`);
+  const phasicVal = Number(
+    window.document.getElementById('graphValue').textContent.replace(' μS', ''),
+  );
+  assert.ok(
+    Number.isFinite(phasicVal) && phasicVal >= 0 && phasicVal < 1.6,
+    `phasic readout is a bounded residual, got ${phasicVal}`,
+  );
 
   // The Phasic layer toggle (and its P shortcut) flips the overlay flag on the
   // 'signal' view without touching the dropdown.
   sel.value = 'signal';
   sel.dispatchEvent(new window.Event('change'));
-  assert.strictEqual(run(context, 'liveGsrView.showPhasic'), true, 'desktop default: phasic under the signal');
+  assert.strictEqual(
+    run(context, 'liveGsrView.showPhasic'),
+    true,
+    'desktop default: phasic under the signal',
+  );
   window.document.getElementById('liveBtnTogglePhasic').click();
   assert.strictEqual(run(context, 'liveGsrView.showPhasic'), false);
-  assert.ok(!window.document.getElementById('liveBtnTogglePhasic').classList.contains('active'));
+  assert.ok(
+    !window.document
+      .getElementById('liveBtnTogglePhasic')
+      .classList.contains('active'),
+  );
 });
 
 // ==========================================================================
@@ -2200,13 +3035,25 @@ test('the animation loop starts only while connected/reconnecting and stops (wit
   assert.strictEqual(run(context, 'animationFrameId'), null, 'idle on load');
 
   run(context, "LiveState.setStatus('connected')");
-  assert.notStrictEqual(run(context, 'animationFrameId'), null, 'connected -> loop running');
+  assert.notStrictEqual(
+    run(context, 'animationFrameId'),
+    null,
+    'connected -> loop running',
+  );
 
   run(context, "LiveState.setStatus('disconnected')");
-  assert.strictEqual(run(context, 'animationFrameId'), null, 'disconnected -> loop stopped');
+  assert.strictEqual(
+    run(context, 'animationFrameId'),
+    null,
+    'disconnected -> loop stopped',
+  );
 
   run(context, "LiveState.setStatus('reconnecting')");
-  assert.notStrictEqual(run(context, 'animationFrameId'), null, 'reconnecting also keeps the loop running');
+  assert.notStrictEqual(
+    run(context, 'animationFrameId'),
+    null,
+    'reconnecting also keeps the loop running',
+  );
 
   run(context, "LiveState.setStatus('disconnected')");
   assert.strictEqual(run(context, 'animationFrameId'), null);
@@ -2215,28 +3062,50 @@ test('the animation loop starts only while connected/reconnecting and stops (wit
 test('keyboard: "m" toggles the map exactly like the Show/Hide Map button', async () => {
   const { window, context } = await bootLive();
   const fire = (key, target) =>
-    (target || window).dispatchEvent(new window.KeyboardEvent('keydown', { key, bubbles: true }));
+    (target || window).dispatchEvent(
+      new window.KeyboardEvent('keydown', { key, bubbles: true }),
+    );
 
   assert.ok(window.document.getElementById('app').classList.contains('no-map'));
 
   fire('m');
-  assert.ok(!window.document.getElementById('app').classList.contains('no-map'), 'm shows the map');
+  assert.ok(
+    !window.document.getElementById('app').classList.contains('no-map'),
+    'm shows the map',
+  );
   assert.strictEqual(run(context, 'mapVisible'), true);
-  assert.strictEqual(window.document.getElementById('toggleMapBtn').textContent, 'Hide Map (M)');
+  assert.strictEqual(
+    window.document.getElementById('toggleMapBtn').textContent,
+    'Hide Map (M)',
+  );
 
   fire('M'); // capital works too
-  assert.ok(window.document.getElementById('app').classList.contains('no-map'), 'M hides it again');
+  assert.ok(
+    window.document.getElementById('app').classList.contains('no-map'),
+    'M hides it again',
+  );
   assert.strictEqual(run(context, 'mapVisible'), false);
 });
 
 test('keyboard: "p" toggles the Phasic overlay layer via its button', async () => {
   const { window, context } = await bootLive();
-  const fire = (key) => window.dispatchEvent(new window.KeyboardEvent('keydown', { key, bubbles: true }));
+  const fire = (key) =>
+    window.dispatchEvent(
+      new window.KeyboardEvent('keydown', { key, bubbles: true }),
+    );
 
-  assert.strictEqual(run(context, 'liveGsrView.showPhasic'), true, 'desktop default: phasic under the signal');
+  assert.strictEqual(
+    run(context, 'liveGsrView.showPhasic'),
+    true,
+    'desktop default: phasic under the signal',
+  );
   fire('p');
   assert.strictEqual(run(context, 'liveGsrView.showPhasic'), false);
-  assert.ok(!window.document.getElementById('liveBtnTogglePhasic').classList.contains('active'));
+  assert.ok(
+    !window.document
+      .getElementById('liveBtnTogglePhasic')
+      .classList.contains('active'),
+  );
   fire('P'); // capital works too
   assert.strictEqual(run(context, 'liveGsrView.showPhasic'), true);
 });
@@ -2246,11 +3115,22 @@ test('keyboard: shortcuts are suppressed while the user is typing in an input el
   const input = window.document.createElement('input');
   window.document.body.appendChild(input);
 
-  input.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'p', bubbles: true }));
-  input.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'm', bubbles: true }));
+  input.dispatchEvent(
+    new window.KeyboardEvent('keydown', { key: 'p', bubbles: true }),
+  );
+  input.dispatchEvent(
+    new window.KeyboardEvent('keydown', { key: 'm', bubbles: true }),
+  );
 
-  assert.strictEqual(run(context, 'liveGsrView.showPhasic'), true, 'typing "p" into an input does not toggle the Phasic layer');
-  assert.ok(window.document.getElementById('app').classList.contains('no-map'), 'typing "m" into an input does not toggle the map');
+  assert.strictEqual(
+    run(context, 'liveGsrView.showPhasic'),
+    true,
+    'typing "p" into an input does not toggle the Phasic layer',
+  );
+  assert.ok(
+    window.document.getElementById('app').classList.contains('no-map'),
+    'typing "m" into an input does not toggle the map',
+  );
 });
 
 test('setMapVisible: keeps mapVisible, the button label, and the #app.no-map class in sync across repeated calls', async () => {
@@ -2280,7 +3160,10 @@ test('My Location: a successful geolocation fix pans the map there', async () =>
   // boot_live.js stubs getCurrentPosition to succeed at 51.5074 / -0.1278.
   window.document.getElementById('myLocationBtn').click();
 
-  assert.ok(!window.document.getElementById('app').classList.contains('no-map'), 'the map is shown');
+  assert.ok(
+    !window.document.getElementById('app').classList.contains('no-map'),
+    'the map is shown',
+  );
   const center = run(context, 'liveMap.getCenter()');
   assert.strictEqual(center.lat, 51.5074);
   assert.strictEqual(center.lng, -0.1278);
@@ -2288,7 +3171,10 @@ test('My Location: a successful geolocation fix pans the map there', async () =>
 
 test('My Location: centers on live walker position when BLE GPS packets exist', async () => {
   const { window, context } = await bootLive();
-  run(context, 'LiveState.addPacket({ timestamp: 1.0, gsrRaw: 10, lat: 37.7749, lon: -122.4194, valid: true, fixType: 3, hdop: 1.0 })');
+  run(
+    context,
+    'LiveState.addPacket({ timestamp: 1.0, gsrRaw: 10, lat: 37.7749, lon: -122.4194, valid: true, fixType: 3, hdop: 1.0 })',
+  );
 
   window.document.getElementById('myLocationBtn').click();
   const center = run(context, 'liveMap.getCenter()');
@@ -2328,27 +3214,56 @@ test('mount: pre-populates connectErr when Web Bluetooth is not supported', asyn
 test('My Location: a browser with no geolocation alerts instead of throwing', async () => {
   const { window } = await bootLive();
   let alerted = null;
-  window.alert = (m) => { alerted = m; };
+  window.alert = (m) => {
+    alerted = m;
+  };
   window.navigator.geolocation = undefined;
 
-  assert.doesNotThrow(() => window.document.getElementById('myLocationBtn').click());
+  assert.doesNotThrow(() =>
+    window.document.getElementById('myLocationBtn').click(),
+  );
   assert.match(alerted || '', /[Gg]eolocation/);
 });
 
 test('on load the toolbar renders its initial state — map hidden, GSR layer toggles at their defaults, disconnected', async () => {
   const { window, context } = await bootLive();
-  assert.strictEqual(window.document.getElementById('toggleMapBtn').textContent, 'Show Map (M)');
-  assert.strictEqual(window.document.getElementById('statusBadge').textContent, 'Disconnected');
+  assert.strictEqual(
+    window.document.getElementById('toggleMapBtn').textContent,
+    'Show Map (M)',
+  );
+  assert.strictEqual(
+    window.document.getElementById('statusBadge').textContent,
+    'Disconnected',
+  );
   // Filtered/Tonic/Peaks/Hotspots start active; Raw is gone from the live
   // view entirely. On desktop Phasic also starts active (drawn underneath the
   // signal, as in the main visualiser); the view dropdown starts on 'signal'.
-  for (const id of ['liveBtnToggleFiltered', 'liveBtnToggleTonic',
-                    'liveBtnTogglePeaks', 'liveBtnToggleHotspots']) {
-    assert.ok(window.document.getElementById(id).classList.contains('active'), `${id} starts active`);
+  for (const id of [
+    'liveBtnToggleFiltered',
+    'liveBtnToggleTonic',
+    'liveBtnTogglePeaks',
+    'liveBtnToggleHotspots',
+  ]) {
+    assert.ok(
+      window.document.getElementById(id).classList.contains('active'),
+      `${id} starts active`,
+    );
   }
-  assert.strictEqual(window.document.getElementById('liveBtnToggleRaw'), null, 'Raw toggle removed');
-  assert.ok(window.document.getElementById('liveBtnTogglePhasic').classList.contains('active'), 'Phasic starts active on desktop');
-  assert.strictEqual(window.document.getElementById('liveGraphView').value, 'signal');
+  assert.strictEqual(
+    window.document.getElementById('liveBtnToggleRaw'),
+    null,
+    'Raw toggle removed',
+  );
+  assert.ok(
+    window.document
+      .getElementById('liveBtnTogglePhasic')
+      .classList.contains('active'),
+    'Phasic starts active on desktop',
+  );
+  assert.strictEqual(
+    window.document.getElementById('liveGraphView').value,
+    'signal',
+  );
   assert.strictEqual(run(context, 'liveGsrView.graphView'), 'signal');
 });
 
@@ -2365,19 +3280,39 @@ test('deactivate: stops the redraw loop, clears viewActive, and drops to "discon
   const { context } = await bootLive();
   stopLoopAfter(t, context);
 
-  assert.strictEqual(run(context, 'viewActive'), true, 'active by default (standalone semantics)');
+  assert.strictEqual(
+    run(context, 'viewActive'),
+    true,
+    'active by default (standalone semantics)',
+  );
 
   run(context, "LiveState.setStatus('connected')"); // starts the RAF loop
-  assert.notStrictEqual(run(context, 'animationFrameId'), null, 'loop running while connected');
+  assert.notStrictEqual(
+    run(context, 'animationFrameId'),
+    null,
+    'loop running while connected',
+  );
 
   run(context, 'GSRLiveView.deactivate()');
   assert.strictEqual(run(context, 'viewActive'), false);
-  assert.strictEqual(run(context, 'animationFrameId'), null, 'deactivate stops the loop');
-  assert.strictEqual(run(context, 'LiveState.status'), 'disconnected', 'deactivate drops the link');
+  assert.strictEqual(
+    run(context, 'animationFrameId'),
+    null,
+    'deactivate stops the loop',
+  );
+  assert.strictEqual(
+    run(context, 'LiveState.status'),
+    'disconnected',
+    'deactivate drops the link',
+  );
 
   run(context, 'GSRLiveView.activate()');
   assert.strictEqual(run(context, 'viewActive'), true);
-  assert.strictEqual(run(context, 'animationFrameId'), null, 'activate does not resume a loop for a now-disconnected session');
+  assert.strictEqual(
+    run(context, 'animationFrameId'),
+    null,
+    'activate does not resume a loop for a now-disconnected session',
+  );
 });
 
 test('deactivate: disconnects the BLE radio but keeps the session buffer (Reconnect can resume it)', async (t) => {
@@ -2388,22 +3323,73 @@ test('deactivate: disconnects the BLE radio but keeps the session buffer (Reconn
   await run(context, 'attemptConnect()');
   stopLoopAfter(t, context);
 
-  ble.fireNotification(buildPacket({ timestampMs: 300, lat: 51.5074, lon: -0.1278, gsrRaw: 1000, sats: 9, fixType: 3 }));
-  ble.fireNotification(buildPacket({ timestampMs: 600, lat: 51.5076, lon: -0.1276, gsrRaw: 1200, sats: 9, fixType: 3 }));
+  ble.fireNotification(
+    buildPacket({
+      timestampMs: 300,
+      lat: 51.5074,
+      lon: -0.1278,
+      gsrRaw: 1000,
+      sats: 9,
+      fixType: 3,
+    }),
+  );
+  ble.fireNotification(
+    buildPacket({
+      timestampMs: 600,
+      lat: 51.5076,
+      lon: -0.1276,
+      gsrRaw: 1200,
+      sats: 9,
+      fixType: 3,
+    }),
+  );
   assert.strictEqual(run(context, 'LiveState.packets.length'), 2);
 
   run(context, 'GSRLiveView.deactivate()');
 
-  assert.strictEqual(ble.gattDisconnectCallCount(), 1, 'the GATT link was closed');
-  assert.strictEqual(ble.notificationHandlerCount(), 0, 'the characteristic listener was removed');
+  assert.strictEqual(
+    ble.gattDisconnectCallCount(),
+    1,
+    'the GATT link was closed',
+  );
+  assert.strictEqual(
+    ble.notificationHandlerCount(),
+    0,
+    'the characteristic listener was removed',
+  );
   assert.strictEqual(run(context, 'LiveState.status'), 'disconnected');
-  assert.strictEqual(run(context, 'LiveState.packets.length'), 2, 'the packet buffer is kept');
-  assert.strictEqual(run(context, 'bleManager') === null, false, 'the manager/device reference is kept for Reconnect');
-  assert.strictEqual(window.document.getElementById('exportBtn').disabled, false, 'Export CSV stays usable');
+  assert.strictEqual(
+    run(context, 'LiveState.packets.length'),
+    2,
+    'the packet buffer is kept',
+  );
+  assert.strictEqual(
+    run(context, 'bleManager') === null,
+    false,
+    'the manager/device reference is kept for Reconnect',
+  );
+  assert.strictEqual(
+    window.document.getElementById('exportBtn').disabled,
+    false,
+    'Export CSV stays usable',
+  );
 
   // A further notification off a now-dead link must not accumulate.
-  ble.fireNotification(buildPacket({ timestampMs: 900, lat: 51.5078, lon: -0.1274, gsrRaw: 1300, sats: 9, fixType: 3 }));
-  assert.strictEqual(run(context, 'LiveState.packets.length'), 2, 'no packets arrive after disconnect');
+  ble.fireNotification(
+    buildPacket({
+      timestampMs: 900,
+      lat: 51.5078,
+      lon: -0.1274,
+      gsrRaw: 1300,
+      sats: 9,
+      fixType: 3,
+    }),
+  );
+  assert.strictEqual(
+    run(context, 'LiveState.packets.length'),
+    2,
+    'no packets arrive after disconnect',
+  );
 });
 
 test('deactivate: the intentional disconnect does not trigger the auto-reconnect backoff', async (t) => {
@@ -2417,7 +3403,11 @@ test('deactivate: the intentional disconnect does not trigger the auto-reconnect
   run(context, 'GSRLiveView.deactivate()'); // fires gattserverdisconnected via gatt.disconnect()
   await new Promise((r) => setImmediate(r));
 
-  assert.strictEqual(run(context, 'bleManager._reconnecting'), false, 'no reconnect loop started');
+  assert.strictEqual(
+    run(context, 'bleManager._reconnecting'),
+    false,
+    'no reconnect loop started',
+  );
   assert.strictEqual(ble.subscribeCallCount(), 1, 'no re-subscribe attempt');
   assert.strictEqual(run(context, 'LiveState.status'), 'disconnected');
 });
@@ -2437,14 +3427,22 @@ test('after an intentional disconnect, Reconnect resumes the same session and re
   assert.strictEqual(run(context, 'LiveState.status'), 'disconnected');
 
   await run(context, 'bleManager.manualReconnect()');
-  assert.strictEqual(run(context, 'LiveState.status'), 'connected', 'the same manager reconnected');
+  assert.strictEqual(
+    run(context, 'LiveState.status'),
+    'connected',
+    'the same manager reconnected',
+  );
 
   // A genuine drop now must still auto-recover — the intentional-close path
   // didn't leave the guard stuck.
   const timers = recordingTimers(window);
   await run(context, 'bleManager._handleDisconnect()');
   timers.restore();
-  assert.strictEqual(run(context, 'LiveState.status'), 'connected', 'auto-reconnect ran and recovered');
+  assert.strictEqual(
+    run(context, 'LiveState.status'),
+    'connected',
+    'auto-reconnect ran and recovered',
+  );
   assert.ok(ble.subscribeCallCount() >= 3, 'a re-subscribe attempt was made');
 });
 
@@ -2455,7 +3453,11 @@ test('activate: does not start the loop when no session is live', async (t) => {
   run(context, 'GSRLiveView.deactivate()');
   run(context, 'GSRLiveView.activate()'); // status is still "disconnected"
 
-  assert.strictEqual(run(context, 'animationFrameId'), null, 'nothing to animate while disconnected');
+  assert.strictEqual(
+    run(context, 'animationFrameId'),
+    null,
+    'nothing to animate while disconnected',
+  );
 });
 
 test('activate: re-measures the Leaflet map (invalidateSize) — it may have been sized while the panel was hidden', async () => {
@@ -2466,13 +3468,18 @@ test('activate: re-measures the Leaflet map (invalidateSize) — it may have bee
   run(context, 'GSRLiveView.deactivate()');
   run(context, 'GSRLiveView.activate()');
 
-  assert.ok(run(context, 'liveMap.calls.invalidateSize') > before, 'activate() calls liveMap.invalidateSize()');
+  assert.ok(
+    run(context, 'liveMap.calls.invalidateSize') > before,
+    'activate() calls liveMap.invalidateSize()',
+  );
 });
 
 test('activate: is a safe no-op before any map exists', async () => {
   const { context } = await bootLive();
   assert.strictEqual(run(context, 'liveMap'), null);
-  assert.doesNotThrow(() => run(context, 'GSRLiveView.deactivate(); GSRLiveView.activate()'));
+  assert.doesNotThrow(() =>
+    run(context, 'GSRLiveView.deactivate(); GSRLiveView.activate()'),
+  );
 });
 
 test('a status change while deactivated arms the loop, but no frame draws until re-activated', async (t) => {
@@ -2485,11 +3492,18 @@ test('a status change while deactivated arms the loop, but no frame draws until 
   run(context, "LiveState.setStatus('connected')"); // status handler re-arms startAnimationLoop()
 
   // The RAF callback fires on the next tick; give it a moment.
-  return new Promise((resolve) => setTimeout(() => {
-    const drewWhileHidden = calls.some((c) => c.name === 'clearRect' || c.name === 'stroke');
-    assert.ok(!drewWhileHidden, 'the frame() guard skips drawGraph while viewActive is false');
-    resolve();
-  }, 30));
+  return new Promise((resolve) =>
+    setTimeout(() => {
+      const drewWhileHidden = calls.some(
+        (c) => c.name === 'clearRect' || c.name === 'stroke',
+      );
+      assert.ok(
+        !drewWhileHidden,
+        'the frame() guard skips drawGraph while viewActive is false',
+      );
+      resolve();
+    }, 30),
+  );
 });
 
 // ==========================================================================
@@ -2502,11 +3516,31 @@ test('a status change while deactivated arms the loop, but no frame draws until 
 function recordStrokes(window) {
   const strokes = [];
   const ctx = {
-    setTransform() {}, clearRect() {}, beginPath() {}, closePath() {},
-    moveTo() {}, lineTo() {}, arc() {}, fill() {}, fillText() {},
-    createLinearGradient: () => ({ addColorStop() {} }), save() {}, restore() {},
-    stroke() { strokes.push({ strokeStyle: this.strokeStyle, lineWidth: this.lineWidth }); },
-    strokeStyle: '', fillStyle: '', lineWidth: 1, lineJoin: '', font: '', textAlign: '', textBaseline: '',
+    setTransform() {},
+    clearRect() {},
+    beginPath() {},
+    closePath() {},
+    moveTo() {},
+    lineTo() {},
+    arc() {},
+    fill() {},
+    fillText() {},
+    createLinearGradient: () => ({ addColorStop() {} }),
+    save() {},
+    restore() {},
+    stroke() {
+      strokes.push({
+        strokeStyle: this.strokeStyle,
+        lineWidth: this.lineWidth,
+      });
+    },
+    strokeStyle: '',
+    fillStyle: '',
+    lineWidth: 1,
+    lineJoin: '',
+    font: '',
+    textAlign: '',
+    textBaseline: '',
   };
   window.HTMLCanvasElement.prototype.getContext = () => ctx;
   return strokes;
@@ -2517,26 +3551,36 @@ test('drawGraph: the primary GSR trace is the app\'s --color-filtered blue at we
   const strokes = recordStrokes(window);
   // A monotonic ramp — no SCR peaks, so no peak/hotspot dot strokes; the
   // Filtered layer is the last stroke() (drawn on top of Raw + Tonic).
-  run(context, `
+  run(
+    context,
+    `
     for (let i = 0; i < 40; i++) LiveState.addPacket({ valid: true, lat: 51.5, lon: -0.12,
       gsrRaw: 1000 + i * 5, hdop: 1, pdop: 1, speedKts: 1, courseDeg: 90, sats: 9, fixType: 3, timestamp: i * 0.3 });
     drawGraph();
-  `);
+  `,
+  );
 
   const trace = strokes[strokes.length - 1];
-  assert.strictEqual(trace.strokeStyle, '#005bc4', 'trace uses --color-filtered');
+  assert.strictEqual(
+    trace.strokeStyle,
+    '#005bc4',
+    'trace uses --color-filtered',
+  );
   assert.strictEqual(trace.lineWidth, 2.2);
 });
 
 test('drawGraph: the Phasic (SCR) view draws its trace in --color-phasic green at weight 2', async () => {
   const { window, context } = await bootLive();
   const strokes = recordStrokes(window);
-  run(context, `
+  run(
+    context,
+    `
     for (let i = 0; i < 60; i++) LiveState.addPacket({ valid: true, lat: 51.5, lon: -0.12,
       gsrRaw: i < 20 ? 1000 : 1000 + i * 3, hdop: 1, pdop: 1, speedKts: 1, courseDeg: 90, sats: 9, fixType: 3, timestamp: i * 0.3 });
     liveGsrView.graphView = 'phasic';
     drawGraph();
-  `);
+  `,
+  );
 
   const trace = strokes[strokes.length - 1];
   assert.strictEqual(trace.strokeStyle, '#008f3c', 'trace uses --color-phasic');
@@ -2547,19 +3591,42 @@ test('drawGraph: a hotspot renders as a hollow --color-hotspot ring (weight 2) w
   const { window, context } = await bootLive();
   const rec = { strokes: [], texts: [] };
   const ctx = {
-    setTransform() {}, clearRect() {}, beginPath() {}, closePath() {},
-    moveTo() {}, lineTo() {}, arc() {}, fill() {},
-    fillText(t) { rec.texts.push(t); },
-    createLinearGradient: () => ({ addColorStop() {} }), save() {}, restore() {},
-    stroke() { rec.strokes.push({ strokeStyle: this.strokeStyle, lineWidth: this.lineWidth }); },
-    strokeStyle: '', fillStyle: '', lineWidth: 1, lineJoin: '', font: '', textAlign: '', textBaseline: '',
+    setTransform() {},
+    clearRect() {},
+    beginPath() {},
+    closePath() {},
+    moveTo() {},
+    lineTo() {},
+    arc() {},
+    fill() {},
+    fillText(t) {
+      rec.texts.push(t);
+    },
+    createLinearGradient: () => ({ addColorStop() {} }),
+    save() {},
+    restore() {},
+    stroke() {
+      rec.strokes.push({
+        strokeStyle: this.strokeStyle,
+        lineWidth: this.lineWidth,
+      });
+    },
+    strokeStyle: '',
+    fillStyle: '',
+    lineWidth: 1,
+    lineJoin: '',
+    font: '',
+    textAlign: '',
+    textBaseline: '',
   };
   window.HTMLCanvasElement.prototype.getContext = () => ctx;
 
   // A flat baseline then one sharp SCR (rise from ~t6s, slow decay) → one
   // detected peak; HOTSPOT_PERCENTILE's "at least 1" makes that peak a
   // memorable event. It sits well before the 8s unsettled tail.
-  run(context, `
+  run(
+    context,
+    `
     for (let i = 0; i < 140; i++) {
       const t = i * 0.3;
       let us = 5;
@@ -2569,38 +3636,52 @@ test('drawGraph: a hotspot renders as a hollow --color-hotspot ring (weight 2) w
         gsrRaw: us * 1000, hdop: 1, pdop: 1, speedKts: 1, courseDeg: 90, sats: 9, fixType: 3, timestamp: t });
     }
     drawGraph();
-  `);
+  `,
+  );
 
-  assert.ok(run(context, 'liveAnalyzer.memorableEvents.length') > 0, 'the SCR was picked as a hotspot');
-  const ring = rec.strokes.find((s) => s.strokeStyle === '#ff1744' && s.lineWidth === 2);
+  assert.ok(
+    run(context, 'liveAnalyzer.memorableEvents.length') > 0,
+    'the SCR was picked as a hotspot',
+  );
+  const ring = rec.strokes.find(
+    (s) => s.strokeStyle === '#ff1744' && s.lineWidth === 2,
+  );
   assert.ok(ring, 'hotspot ring is stroked in --color-hotspot at weight 2');
   assert.ok(rec.texts.includes('★'), 'hotspot is marked with a ★ glyph');
   // Plain peaks stay the small --color-peak dot — no peak-red ring stroke.
-  assert.ok(!rec.strokes.some((s) => s.strokeStyle === '#d10024'),
-    'plain peaks are filled dots, not stroked rings');
+  assert.ok(
+    !rec.strokes.some((s) => s.strokeStyle === '#d10024'),
+    'plain peaks are filled dots, not stroked rings',
+  );
 });
 
 test('drawGraph: renders the grid + L-shaped axis before the trace (>= 3 stroke passes)', async () => {
   const { window, context } = await bootLive();
   const strokes = recordStrokes(window);
-  run(context, `
+  run(
+    context,
+    `
     for (let i = 0; i < 40; i++) LiveState.addPacket({ valid: true, lat: 51.5, lon: -0.12,
       gsrRaw: 1000 + i * 5, hdop: 1, pdop: 1, speedKts: 1, courseDeg: 90, sats: 9, fixType: 3, timestamp: i * 0.3 });
     drawGraph();
-  `);
+  `,
+  );
   // Y grid, X grid, axis frame, trace — four separate stroke() passes.
-  assert.ok(strokes.length >= 4, `expected grid+axis+trace passes, got ${strokes.length}`);
+  assert.ok(
+    strokes.length >= 4,
+    `expected grid+axis+trace passes, got ${strokes.length}`,
+  );
 });
 
 test('niceStep: yields 1/2/5 x 10^n steps giving roughly five divisions', async () => {
   const { context } = await bootLive();
   const step = (span) => run(context, `niceStep(${span})`);
-  assert.strictEqual(step(10), 2);     // rough 2  -> 2
-  assert.strictEqual(step(50), 10);    // rough 10 -> 10
+  assert.strictEqual(step(10), 2); // rough 2  -> 2
+  assert.strictEqual(step(50), 10); // rough 10 -> 10
   assert.strictEqual(step(1000), 200); // rough 200 -> 2e2
   assert.strictEqual(step(2500), 500); // rough 500 -> 5e2
-  assert.strictEqual(step(9000), 1000);// rough 1800 -> 1e3
-  assert.strictEqual(step(0), 1);      // degenerate span
+  assert.strictEqual(step(9000), 1000); // rough 1800 -> 1e3
+  assert.strictEqual(step(0), 1); // degenerate span
   assert.strictEqual(step(-5), 1);
 });
 
@@ -2613,9 +3694,16 @@ test('niceStep: yields 1/2/5 x 10^n steps giving roughly five divisions', async 
 
 test('the live view binds no fullscreen control — no #toggleFullscreenBtn, and F does nothing here', async () => {
   const { window } = await bootLive();
-  assert.strictEqual(window.document.getElementById('toggleFullscreenBtn'), null, 'no fullscreen button');
+  assert.strictEqual(
+    window.document.getElementById('toggleFullscreenBtn'),
+    null,
+    'no fullscreen button',
+  );
   let reqs = 0;
-  window.document.documentElement.requestFullscreen = () => { reqs++; return Promise.resolve(); };
+  window.document.documentElement.requestFullscreen = () => {
+    reqs++;
+    return Promise.resolve();
+  };
   window.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'f' }));
   assert.strictEqual(reqs, 0, 'F is not wired to fullscreen in the live view');
 });
@@ -2634,12 +3722,15 @@ test('pendingSegments is capped even when drawGraph() never runs to drain it', a
   run(context, "liveGsrView.graphView = 'phasic';");
   run(context, 'showMap()');
   // Feed far more consecutive fixes than the cap, never calling drawGraph().
-  run(context, `
+  run(
+    context,
+    `
     for (let i = 0; i < 3000; i++) {
       updateLiveMap({ valid: true, lat: 51.5 + i * 1e-5, lon: -0.12 + i * 1e-5,
         gsrRaw: 1000 + (i % 50), hdop: 1.0, pdop: 1.5, fixType: 3, sats: 9, gap: false });
     }
-  `);
+  `,
+  );
   const queued = run(context, 'pendingSegments.length');
   const cap = run(context, 'PENDING_SEGMENTS_MAX');
   assert.ok(queued <= cap, `queue (${queued}) stays within the cap (${cap})`);
@@ -2657,7 +3748,11 @@ test('disconnect(): immediately aborts in-flight retry wait and does not arm pas
   await settle(() => ble.advertisementHandlerCount() === 1);
 
   assert.strictEqual(run(context, 'bleManager._reconnecting'), true);
-  assert.strictEqual(ble.advertisementHandlerCount(), 1, 'wait listener armed during backoff');
+  assert.strictEqual(
+    ble.advertisementHandlerCount(),
+    1,
+    'wait listener armed during backoff',
+  );
 
   // User explicitly clicks disconnect / calls disconnect()
   run(context, 'bleManager.disconnect()');
@@ -2666,7 +3761,11 @@ test('disconnect(): immediately aborts in-flight retry wait and does not arm pas
   assert.strictEqual(run(context, 'bleManager._userDisconnected'), true);
   assert.strictEqual(run(context, 'bleManager._reconnecting'), false);
   assert.strictEqual(run(context, 'LiveState.status'), 'disconnected');
-  assert.strictEqual(ble.advertisementHandlerCount(), 0, 'passive background watch must not be armed after user disconnect');
+  assert.strictEqual(
+    ble.advertisementHandlerCount(),
+    0,
+    'passive background watch must not be armed after user disconnect',
+  );
 });
 
 test('compact mobile layout: sets Cache Map button label without shortcut suffix', async () => {
@@ -2678,9 +3777,14 @@ test('compact mobile layout: sets Cache Map button label without shortcut suffix
 test('orientation change resets window scroll position to (0, 0)', async () => {
   const { window } = await bootLive();
   let scrolledTo = null;
-  window.scrollTo = (x, y) => { scrolledTo = [x, y]; };
+  window.scrollTo = (x, y) => {
+    scrolledTo = [x, y];
+  };
 
   window.dispatchEvent(new window.Event('orientationchange'));
-  assert.deepStrictEqual(scrolledTo, [0, 0], 'orientation change resets scroll drift to origin');
+  assert.deepStrictEqual(
+    scrolledTo,
+    [0, 0],
+    'orientation change resets scroll drift to origin',
+  );
 });
-

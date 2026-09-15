@@ -42,12 +42,20 @@ const path = require('path');
 const espree = require('espree');
 
 const APP_DIR = path.join(__dirname, '..', '..', '..');
-const PARSE_OPTIONS = { ecmaVersion: 2022, sourceType: 'script', loc: true, range: true };
+const PARSE_OPTIONS = {
+  ecmaVersion: 2022,
+  sourceType: 'script',
+  loc: true,
+  range: true,
+};
 
 function isTypeofGuard(stmt) {
   if (stmt.type !== 'IfStatement') return false;
   const src = JSON.stringify(stmt.test); // cheap: just need to know if it MENTIONS typeof module/window anywhere in the test
-  return /"operator":"typeof"/.test(src) && (mentionsName(stmt.test, 'module') || mentionsName(stmt.test, 'window'));
+  return (
+    /"operator":"typeof"/.test(src) &&
+    (mentionsName(stmt.test, 'module') || mentionsName(stmt.test, 'window'))
+  );
 }
 
 // A guard's CommonJS branch (module.exports=..., Object.assign(global, require(...))
@@ -60,16 +68,34 @@ function isTypeofGuard(stmt) {
 // `window.X = X` / `global.X = X` exposure statement is genuinely
 // redundant once `X` is `export`ed and is dropped like the CommonJS branch.
 function isDroppableExposure(s) {
-  if (s.type !== 'ExpressionStatement' || s.expression.type !== 'AssignmentExpression') return false;
+  if (
+    s.type !== 'ExpressionStatement' ||
+    s.expression.type !== 'AssignmentExpression'
+  )
+    return false;
   const left = s.expression.left;
-  if (left.type !== 'MemberExpression' || left.object.type !== 'Identifier') return false;
-  return left.object.name === 'window' || left.object.name === 'global' || left.object.name === 'module';
+  if (left.type !== 'MemberExpression' || left.object.type !== 'Identifier')
+    return false;
+  return (
+    left.object.name === 'window' ||
+    left.object.name === 'global' ||
+    left.object.name === 'module'
+  );
 }
 function isKeepableComposition(s) {
-  if (s.type !== 'ExpressionStatement' || s.expression.type !== 'CallExpression') return false;
+  if (
+    s.type !== 'ExpressionStatement' ||
+    s.expression.type !== 'CallExpression'
+  )
+    return false;
   const callee = s.expression.callee;
-  return callee.type === 'MemberExpression' && callee.object.type === 'Identifier' && callee.object.name === 'Object'
-    && callee.property.type === 'Identifier' && callee.property.name === 'assign';
+  return (
+    callee.type === 'MemberExpression' &&
+    callee.object.type === 'Identifier' &&
+    callee.object.name === 'Object' &&
+    callee.property.type === 'Identifier' &&
+    callee.property.name === 'assign'
+  );
 }
 
 /** Branches of a typeof-module/window guard: `module`'s own branch is always CommonJS-only; `window`'s (or the `else` of a combined if/else) may hold browser-path code. */
@@ -94,7 +120,8 @@ function isFullyClassifiableGuard(stmt) {
   if (!isTypeofGuard(stmt)) return false;
   for (const branch of guardBranches(stmt)) {
     const stmts = branch.type === 'BlockStatement' ? branch.body : [branch];
-    if (!stmts.every((s) => isKeepableComposition(s) || isDroppableExposure(s))) return false;
+    if (!stmts.every((s) => isKeepableComposition(s) || isDroppableExposure(s)))
+      return false;
   }
   return true;
 }
@@ -128,18 +155,23 @@ function mentionsName(node, name) {
   for (const key of Object.keys(node)) {
     if (key === 'loc' || key === 'range' || key === 'parent') continue;
     const val = node[key];
-    if (Array.isArray(val)) { if (val.some((v) => mentionsName(v, name))) return true; }
-    else if (val && typeof val === 'object') { if (mentionsName(val, name)) return true; }
+    if (Array.isArray(val)) {
+      if (val.some((v) => mentionsName(v, name))) return true;
+    } else if (val && typeof val === 'object') {
+      if (mentionsName(val, name)) return true;
+    }
   }
   return false;
 }
 
 function unwrapIIFEIfPresent(ast) {
-  if (ast.body.length !== 1 || ast.body[0].type !== 'ExpressionStatement') return null;
+  if (ast.body.length !== 1 || ast.body[0].type !== 'ExpressionStatement')
+    return null;
   const expr = ast.body[0].expression;
   if (expr.type !== 'CallExpression') return null;
   const fn = expr.callee;
-  if (fn.type !== 'FunctionExpression' && fn.type !== 'ArrowFunctionExpression') return null;
+  if (fn.type !== 'FunctionExpression' && fn.type !== 'ArrowFunctionExpression')
+    return null;
   if (fn.body.type !== 'BlockStatement') return null;
   return fn.body; // the BlockStatement node; .body is the statement array, .range covers `{ ... }`
 }
@@ -147,8 +179,10 @@ function unwrapIIFEIfPresent(ast) {
 function topLevelDeclaredNames(bodyStatements) {
   const names = [];
   for (const stmt of bodyStatements) {
-    if (stmt.type === 'FunctionDeclaration' && stmt.id) names.push(stmt.id.name);
-    else if (stmt.type === 'ClassDeclaration' && stmt.id) names.push(stmt.id.name);
+    if (stmt.type === 'FunctionDeclaration' && stmt.id)
+      names.push(stmt.id.name);
+    else if (stmt.type === 'ClassDeclaration' && stmt.id)
+      names.push(stmt.id.name);
     else if (stmt.type === 'VariableDeclaration') {
       for (const decl of stmt.declarations) {
         if (decl.id.type === 'Identifier') names.push(decl.id.name);
@@ -186,16 +220,22 @@ function convert(relFile, manifestEntry) {
 
   // Build import block, grouped by source file.
   const bySource = new Map();
-  for (const need of (manifestEntry || [])) {
+  for (const need of manifestEntry || []) {
     const froms = Array.isArray(need.from) ? need.from : [need.from];
-    if (froms.length !== 1) throw new Error(`${relFile}: ambiguous import for ${need.name} (${froms.join(', ')}) — resolve by hand, not via codemod`);
+    if (froms.length !== 1)
+      throw new Error(
+        `${relFile}: ambiguous import for ${need.name} (${froms.join(', ')}) — resolve by hand, not via codemod`,
+      );
     const from = froms[0];
     if (!bySource.has(from)) bySource.set(from, []);
     bySource.get(from).push(need.name);
   }
   const importLines = [...bySource.entries()]
     .sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([from, names]) => `import { ${names.sort().join(', ')} } from '${relativeImportPath(relFile, from)}';`);
+    .map(
+      ([from, names]) =>
+        `import { ${names.sort().join(', ')} } from '${relativeImportPath(relFile, from)}';`,
+    );
 
   // Splice: keep everything textually BEFORE the real top-level body
   // (leading header comment, and for IIFE files the `(function () {` open)
@@ -211,25 +251,27 @@ function convert(relFile, manifestEntry) {
   const tailStart = trailingGuardStart(topBody);
   for (let idx = 0; idx < topBody.length; idx++) {
     const stmt = topBody[idx];
-    if (idx >= tailStart) { // confirmed part of the real dual-mode tail
+    if (idx >= tailStart) {
+      // confirmed part of the real dual-mode tail
       const gap = src.slice(cursor, stmt.range[0]);
       const kept = guardKeptStatements(stmt);
       // Real composition side effects (Object.assign(GSRUI, __methods) etc)
       // survive as unconditional statements, in their original relative
       // order, joined by a single newline — everything else in the guard
       // (CommonJS branch, plain window.X=X exposure) is dropped outright.
-      const keptText = kept.map((s) => src.slice(s.range[0], s.range[1])).join('\n');
+      const keptText = kept
+        .map((s) => src.slice(s.range[0], s.range[1]))
+        .join('\n');
       pieces.push(kept.length ? gap + keptText : '');
       cursor = stmt.range[1];
       continue;
     }
     const gap = src.slice(cursor, stmt.range[0]);
-    let text = src.slice(stmt.range[0], stmt.range[1]);
-    const isDeclExport = (
+    const text = src.slice(stmt.range[0], stmt.range[1]);
+    const isDeclExport =
       (stmt.type === 'FunctionDeclaration' && stmt.id) ||
       (stmt.type === 'ClassDeclaration' && stmt.id) ||
-      stmt.type === 'VariableDeclaration'
-    );
+      stmt.type === 'VariableDeclaration';
     pieces.push(gap + (isDeclExport ? 'export ' : '') + text);
     cursor = stmt.range[1];
   }
@@ -246,15 +288,29 @@ function convert(relFile, manifestEntry) {
   const header = src.slice(0, ast.body[0].range[0]);
 
   const importBlock = importLines.length ? importLines.join('\n') + '\n\n' : '';
-  return (header + importBlock + bodyText).replace(/\n{3,}/g, '\n\n').replace(/\s+$/, '\n') + '\n';
+  return (
+    (header + importBlock + bodyText)
+      .replace(/\n{3,}/g, '\n\n')
+      .replace(/\s+$/, '\n') + '\n'
+  );
 }
 
-module.exports = { convert, isTypeofGuard, topLevelDeclaredNames, unwrapIIFEIfPresent };
+module.exports = {
+  convert,
+  isTypeofGuard,
+  topLevelDeclaredNames,
+  unwrapIIFEIfPresent,
+};
 
 if (require.main === module) {
   const relFile = process.argv[2];
   const write = process.argv.includes('--write');
-  if (!relFile) { console.error('Usage: node convert_file.js <relative/path/to/src/file.js> [--write]'); process.exit(1); }
+  if (!relFile) {
+    console.error(
+      'Usage: node convert_file.js <relative/path/to/src/file.js> [--write]',
+    );
+    process.exit(1);
+  }
   const { manifest } = require('./import_manifest.json');
   const out = convert(relFile, manifest[relFile]);
   if (write) {

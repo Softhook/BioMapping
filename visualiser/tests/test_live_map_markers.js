@@ -44,19 +44,39 @@ test('the live map draws peak dots and hotspot stars from the shared GSRMapMarke
   feedScr();
 
   assert.ok(run('liveAnalyzer.peaks.length') > 0, 'the SCR produced a peak');
-  assert.ok(run('liveAnalyzer.memorableEvents.length') > 0, 'the SCR was curated as a hotspot');
+  assert.ok(
+    run('liveAnalyzer.memorableEvents.length') > 0,
+    'the SCR was curated as a hotspot',
+  );
   assert.ok(run('liveMapPeakMarkers.size') > 0, 'peak markers rendered');
   assert.ok(run('liveMapHotspotMarkers.size') > 0, 'hotspot markers rendered');
 
-  const peakIcon = run('liveMapPeakMarkers.values().next().value.options.icon.options.html');
-  assert.match(peakIcon, /peak-dot/, 'peak markers use the shared peak-dot icon');
-  const hotspotIcon = run('liveMapHotspotMarkers.values().next().value.options.icon.options.html');
-  assert.match(hotspotIcon, /hotspot-star/, 'hotspot markers use the shared hotspot-star icon');
+  const peakIcon = run(
+    'liveMapPeakMarkers.values().next().value.options.icon.options.html',
+  );
+  assert.match(
+    peakIcon,
+    /peak-dot/,
+    'peak markers use the shared peak-dot icon',
+  );
+  const hotspotIcon = run(
+    'liveMapHotspotMarkers.values().next().value.options.icon.options.html',
+  );
+  assert.match(
+    hotspotIcon,
+    /hotspot-star/,
+    'hotspot markers use the shared hotspot-star icon',
+  );
 
   // Every marker is actually on the Leaflet map.
-  const onMap = run(`liveMap._layers.filter(l => l.options && l.options.icon).length`);
-  assert.strictEqual(onMap, run('liveMapPeakMarkers.size + liveMapHotspotMarkers.size'),
-    'each rendered marker is a layer on the map');
+  const onMap = run(
+    `liveMap._layers.filter(l => l.options && l.options.icon).length`,
+  );
+  assert.strictEqual(
+    onMap,
+    run('liveMapPeakMarkers.size + liveMapHotspotMarkers.size'),
+    'each rendered marker is a layer on the map',
+  );
 });
 
 test('live map markers are reconciled incrementally — repeated renders add no duplicates', async () => {
@@ -66,9 +86,14 @@ test('live map markers are reconciled incrementally — repeated renders add no 
 
   const before = run('liveMapPeakMarkers.size + liveMapHotspotMarkers.size');
   assert.ok(before > 0);
-  run('renderLiveMapMarkers(); renderLiveMapMarkers(); renderLiveMapMarkers();');
-  assert.strictEqual(run('liveMapPeakMarkers.size + liveMapHotspotMarkers.size'), before,
-    'no duplicate markers across renders');
+  run(
+    'renderLiveMapMarkers(); renderLiveMapMarkers(); renderLiveMapMarkers();',
+  );
+  assert.strictEqual(
+    run('liveMapPeakMarkers.size + liveMapHotspotMarkers.size'),
+    before,
+    'no duplicate markers across renders',
+  );
 });
 
 test('toggling showPeaks off removes only the peak markers; hotspots stay', async () => {
@@ -82,7 +107,11 @@ test('toggling showPeaks off removes only the peak markers; hotspots stay', asyn
   assert.ok(run('liveMapHotspotMarkers.size') > 0, 'hotspot markers stay');
 
   run('liveGsrView.showHotspots = false; renderLiveMapMarkers();');
-  assert.strictEqual(run('liveMapHotspotMarkers.size'), 0, 'hotspot markers removed too');
+  assert.strictEqual(
+    run('liveMapHotspotMarkers.size'),
+    0,
+    'hotspot markers removed too',
+  );
 });
 
 test('resetSession clears every live map marker', async () => {

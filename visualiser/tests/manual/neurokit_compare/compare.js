@@ -20,11 +20,10 @@
  * Usage (normally via run.sh, not directly):
  *   node compare.js <neurokit.json> <track1.csv> [track2.csv ...]
  */
-'use strict';
 
-const fs   = require('fs');
+const fs = require('fs');
 const path = require('path');
-const vm   = require('vm');
+const vm = require('vm');
 
 global.window = global;
 global.GSR_CONST = require('../../mock_constants.js');
@@ -36,14 +35,17 @@ if (Number.isFinite(minGapOverride) && minGapOverride > 0) {
 function loadModule(filePath, varName) {
   const src = fs.readFileSync(filePath, 'utf8');
   const wrapped = src
-    .replace(new RegExp(`class ${varName}\\s*{`), `global.${varName} = class ${varName} {`)
+    .replace(
+      new RegExp(`class ${varName}\\s*{`),
+      `global.${varName} = class ${varName} {`,
+    )
     .replace(new RegExp(`const ${varName}\\s*=`), `global.${varName} =`);
   vm.runInThisContext(wrapped, { filename: filePath });
 }
 
 const SRC = path.join(__dirname, '../../../src/signal');
-loadModule(path.join(SRC, 'dwt_filter.js'),    'DWT');
-loadModule(path.join(SRC, 'gsr_filter.js'),    'GsrFilter');
+loadModule(path.join(SRC, 'dwt_filter.js'), 'DWT');
+loadModule(path.join(SRC, 'gsr_filter.js'), 'GsrFilter');
 // Plain require(), not loadModule(): cvxeda.js already exports via
 // module.exports (see its own tail), and it must be set as global.CVXEDA
 // BEFORE analyzer.js loads below - analyzer.js's cvxEDA branch is gated on
@@ -55,20 +57,26 @@ loadModule(path.join(SRC, 'gsr_filter.js'),    'GsrFilter');
 // what happened here previously.
 global.CVXEDA = require(path.join(SRC, 'cvxeda.js'));
 loadModule(path.join(SRC, 'deconvolution.js'), 'SCRDeconvolution');
-loadModule(path.join(SRC, 'csv_parser.js'),    'GSRCSVParser');
-loadModule(path.join(SRC, 'analyzer.js'),      'GSRAnalyzer');
+loadModule(path.join(SRC, 'csv_parser.js'), 'GSRCSVParser');
+loadModule(path.join(SRC, 'analyzer.js'), 'GSRAnalyzer');
 const { GSRAnalyzer } = global;
 const D = global.GSR_CONST.GSR_DEFAULT;
 
 const TOL = 1.0; // seconds - a peak within this window of a NeuroKit2 peak counts as a match
 const thresholdOverride = Number.parseFloat(process.env.BIOMAP_PEAK_THRESHOLD);
-const detectorThresholdPatch = Number.isFinite(thresholdOverride) && thresholdOverride >= 0
-  ? { peakThreshold: thresholdOverride }
-  : {};
-const smallSlowAmplitude = Number.parseFloat(process.env.BIOMAP_SMALL_SLOW_AMPLITUDE);
+const detectorThresholdPatch =
+  Number.isFinite(thresholdOverride) && thresholdOverride >= 0
+    ? { peakThreshold: thresholdOverride }
+    : {};
+const smallSlowAmplitude = Number.parseFloat(
+  process.env.BIOMAP_SMALL_SLOW_AMPLITUDE,
+);
 const smallSlowSlope = Number.parseFloat(process.env.BIOMAP_SMALL_SLOW_SLOPE);
-const useSmallSlowGate = Number.isFinite(smallSlowAmplitude) && smallSlowAmplitude > 0 &&
-  Number.isFinite(smallSlowSlope) && smallSlowSlope > 0;
+const useSmallSlowGate =
+  Number.isFinite(smallSlowAmplitude) &&
+  smallSlowAmplitude > 0 &&
+  Number.isFinite(smallSlowSlope) &&
+  smallSlowSlope > 0;
 
 const gaitFilterOverride = process.env.BIOMAP_USE_GAIT_FILTER === '1';
 const detectorDefaults = {
@@ -89,75 +97,165 @@ const detectorDefaults = {
 // corresponding reference signals from NeuroKit2, Ledalab, and the upstream
 // cvxEDA reference solver.
 const OUR_DETECTORS = [
-  ['Full-Scan',      detectorThresholdPatch],
-  ['Prominence',     { ...detectorThresholdPatch, usePeakProminence: true }],
-  ['cvxEDA',         { ...detectorThresholdPatch, useCvxEDA: true }],
-  ['Deconvolution',  { ...detectorThresholdPatch, useDeconvolution: true }],
+  ['Full-Scan', detectorThresholdPatch],
+  ['Prominence', { ...detectorThresholdPatch, usePeakProminence: true }],
+  ['cvxEDA', { ...detectorThresholdPatch, useCvxEDA: true }],
+  ['Deconvolution', { ...detectorThresholdPatch, useDeconvolution: true }],
 ];
 
 const COMPARISONS = [
   // 1. BioMapping vs NeuroKit2
-  { category: 'BioMapping vs NeuroKit2', source: 'Full-Scan',     refField: 'peak_times',                 refLabel: 'NeuroKit2 default' },
-  { category: 'BioMapping vs NeuroKit2', source: 'Prominence',    refField: 'peak_times',                 refLabel: 'NeuroKit2 default' },
-  { category: 'BioMapping vs NeuroKit2', source: 'cvxEDA',        refField: 'cvxeda_peak_times',          refLabel: 'NeuroKit2 cvxEDA' },
-  { category: 'BioMapping vs NeuroKit2', source: 'cvxEDA',        refField: 'cvxeda_lit_peak_times',      refLabel: 'NeuroKit2 cvxEDA (lit. abs)' },
-  { category: 'BioMapping vs NeuroKit2', source: 'Deconvolution', refField: 'peak_times',                 refLabel: 'NeuroKit2 default' },
+  {
+    category: 'BioMapping vs NeuroKit2',
+    source: 'Full-Scan',
+    refField: 'peak_times',
+    refLabel: 'NeuroKit2 default',
+  },
+  {
+    category: 'BioMapping vs NeuroKit2',
+    source: 'Prominence',
+    refField: 'peak_times',
+    refLabel: 'NeuroKit2 default',
+  },
+  {
+    category: 'BioMapping vs NeuroKit2',
+    source: 'cvxEDA',
+    refField: 'cvxeda_peak_times',
+    refLabel: 'NeuroKit2 cvxEDA',
+  },
+  {
+    category: 'BioMapping vs NeuroKit2',
+    source: 'cvxEDA',
+    refField: 'cvxeda_lit_peak_times',
+    refLabel: 'NeuroKit2 cvxEDA (lit. abs)',
+  },
+  {
+    category: 'BioMapping vs NeuroKit2',
+    source: 'Deconvolution',
+    refField: 'peak_times',
+    refLabel: 'NeuroKit2 default',
+  },
 
   // 2. BioMapping vs Ledalab
-  { category: 'BioMapping vs Ledalab',   source: 'Full-Scan',     refField: 'ledalab_lit_peak_times',     refLabel: 'Ledalab CDA (lit-tuned)' },
-  { category: 'BioMapping vs Ledalab',   source: 'Prominence',    refField: 'ledalab_lit_peak_times',     refLabel: 'Ledalab CDA (lit-tuned)' },
-  { category: 'BioMapping vs Ledalab',   source: 'Deconvolution', refField: 'ledalab_lit_peak_times',     refLabel: 'Ledalab CDA (lit-tuned)' },
-  { category: 'BioMapping vs Ledalab',   source: 'cvxEDA',        refField: 'ledalab_lit_peak_times',     refLabel: 'Ledalab CDA (lit-tuned)' },
-  { category: 'BioMapping vs Ledalab',   source: 'Full-Scan',     refField: 'ledalab_peak_times',         refLabel: 'Ledalab CDA (default)' },
+  {
+    category: 'BioMapping vs Ledalab',
+    source: 'Full-Scan',
+    refField: 'ledalab_lit_peak_times',
+    refLabel: 'Ledalab CDA (lit-tuned)',
+  },
+  {
+    category: 'BioMapping vs Ledalab',
+    source: 'Prominence',
+    refField: 'ledalab_lit_peak_times',
+    refLabel: 'Ledalab CDA (lit-tuned)',
+  },
+  {
+    category: 'BioMapping vs Ledalab',
+    source: 'Deconvolution',
+    refField: 'ledalab_lit_peak_times',
+    refLabel: 'Ledalab CDA (lit-tuned)',
+  },
+  {
+    category: 'BioMapping vs Ledalab',
+    source: 'cvxEDA',
+    refField: 'ledalab_lit_peak_times',
+    refLabel: 'Ledalab CDA (lit-tuned)',
+  },
+  {
+    category: 'BioMapping vs Ledalab',
+    source: 'Full-Scan',
+    refField: 'ledalab_peak_times',
+    refLabel: 'Ledalab CDA (default)',
+  },
 
   // 3. BioMapping cvxEDA vs Upstream Reference cvxEDA Solver
-  { category: 'BioMapping vs cvxEDA Ref', source: 'cvxEDA',       refField: 'cvxeda_ref_driver_peak_times', refLabel: 'cvxEDA ref (driver)' },
-  { category: 'BioMapping vs cvxEDA Ref', source: 'cvxEDA',       refField: 'cvxeda_ref_naive_peak_times',  refLabel: 'cvxEDA ref (naive)' },
+  {
+    category: 'BioMapping vs cvxEDA Ref',
+    source: 'cvxEDA',
+    refField: 'cvxeda_ref_driver_peak_times',
+    refLabel: 'cvxEDA ref (driver)',
+  },
+  {
+    category: 'BioMapping vs cvxEDA Ref',
+    source: 'cvxEDA',
+    refField: 'cvxeda_ref_naive_peak_times',
+    refLabel: 'cvxEDA ref (naive)',
+  },
 
   // 4. Cross-Toolbox Agreement (External vs External)
-  { category: 'Cross-Toolbox Agreement',  externalSource: 'ledalab_lit_peak_times',     sourceLabel: 'Ledalab (lit-tuned)', refField: 'peak_times',        refLabel: 'NeuroKit2 default' },
-  { category: 'Cross-Toolbox Agreement',  externalSource: 'cvxeda_ref_driver_peak_times', sourceLabel: 'cvxEDA ref (driver)', refField: 'cvxeda_peak_times', refLabel: 'NeuroKit2 cvxEDA' },
+  {
+    category: 'Cross-Toolbox Agreement',
+    externalSource: 'ledalab_lit_peak_times',
+    sourceLabel: 'Ledalab (lit-tuned)',
+    refField: 'peak_times',
+    refLabel: 'NeuroKit2 default',
+  },
+  {
+    category: 'Cross-Toolbox Agreement',
+    externalSource: 'cvxeda_ref_driver_peak_times',
+    sourceLabel: 'cvxEDA ref (driver)',
+    refField: 'cvxeda_peak_times',
+    refLabel: 'NeuroKit2 cvxEDA',
+  },
 ];
 
 function matchPeaks(oursTimes, refTimes) {
   const usedRef = new Array(refTimes.length).fill(false);
   const matches = [];
   oursTimes.forEach((t) => {
-    let best = -1, bestD = Infinity;
+    let best = -1,
+      bestD = Infinity;
     refTimes.forEach((rt, ri) => {
       if (usedRef[ri]) return;
       const d = Math.abs(rt - t);
-      if (d < bestD) { bestD = d; best = ri; }
+      if (d < bestD) {
+        bestD = d;
+        best = ri;
+      }
     });
     if (best !== -1 && bestD <= TOL) {
       usedRef[best] = true;
-      matches.push({ ourTime: t, refTime: refTimes[best], delta: t - refTimes[best] });
+      matches.push({
+        ourTime: t,
+        refTime: refTimes[best],
+        delta: t - refTimes[best],
+      });
     }
   });
-  const matchedOurTimes = new Set(matches.map(m => m.ourTime));
+  const matchedOurTimes = new Set(matches.map((m) => m.ourTime));
   return {
     matches,
     missed: refTimes.filter((_, ri) => !usedRef[ri]),
-    extra: oursTimes.filter(t => !matchedOurTimes.has(t)),
+    extra: oursTimes.filter((t) => !matchedOurTimes.has(t)),
   };
 }
 
 const [, , jsonPath, ...trackPaths] = process.argv;
 if (!jsonPath || trackPaths.length === 0) {
-  console.error('Usage: node compare.js <merged_reference.json> <track1.csv> [track2.csv ...]');
+  console.error(
+    'Usage: node compare.js <merged_reference.json> <track1.csv> [track2.csv ...]',
+  );
   process.exit(1);
 }
 const refData = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
 
 console.log('=== Our preprocessing/smoothing settings (GSR_DEFAULT) ===');
-console.log(`  gaitFilter=${detectorDefaults.useGaitFilter ? 'on' : 'off (comparison mode)'}  medianSize=${D.medianSize}s (${D.medianSize > 0 ? 'median filter ON' : 'median filter OFF'})  lpfWindow=${D.lpfWindow}s (zero-phase moving-average low-pass)`);
-console.log(`  tonicMethod=${D.tonicMethod}  tonicWindow=${D.tonicWindow}s  peakThreshold=${detectorDefaults.peakThreshold}uS`);
+console.log(
+  `  gaitFilter=${detectorDefaults.useGaitFilter ? 'on' : 'off (comparison mode)'}  medianSize=${D.medianSize}s (${D.medianSize > 0 ? 'median filter ON' : 'median filter OFF'})  lpfWindow=${D.lpfWindow}s (zero-phase moving-average low-pass)`,
+);
+console.log(
+  `  tonicMethod=${D.tonicMethod}  tonicWindow=${D.tonicWindow}s  peakThreshold=${detectorDefaults.peakThreshold}uS`,
+);
 console.log(`  peak minimum gap=${global.GSR_CONST.PEAK_MIN_GAP}s`);
 if (Object.hasOwn(detectorThresholdPatch, 'peakThreshold')) {
-  console.log(`  benchmark-only peakThreshold override=${detectorThresholdPatch.peakThreshold}uS`);
+  console.log(
+    `  benchmark-only peakThreshold override=${detectorThresholdPatch.peakThreshold}uS`,
+  );
 }
 if (useSmallSlowGate) {
-  console.log(`  benchmark-only small-and-slow gate: reject amplitude < ${smallSlowAmplitude}uS AND slope < ${smallSlowSlope}uS/s`);
+  console.log(
+    `  benchmark-only small-and-slow gate: reject amplitude < ${smallSlowAmplitude}uS AND slope < ${smallSlowSlope}uS/s`,
+  );
 }
 
 const aggregate = {};
@@ -170,7 +268,10 @@ for (let trackIdx = 0; trackIdx < trackPaths.length; trackIdx++) {
   const trackPath = trackPaths[trackIdx];
   const name = path.basename(trackPath, '.csv');
   const ref = refData[name];
-  if (!ref) { console.warn(`\n(no reference data for ${name}, skipping)`); continue; }
+  if (!ref) {
+    console.warn(`\n(no reference data for ${name}, skipping)`);
+    continue;
+  }
 
   const csvText = fs.readFileSync(trackPath, 'utf8');
 
@@ -180,29 +281,49 @@ for (let trackIdx = 0; trackIdx < trackPaths.length; trackIdx++) {
     const a = new GSRAnalyzer();
     a.parseCSV(csvText);
     a.analyze({ ...detectorDefaults, ...patch }, 0);
-    const filteredPeaks = useSmallSlowGate && label !== 'cvxEDA'
-      ? a.peaks.filter(p => !(p.amplitude < smallSlowAmplitude && p.onsetSlope < smallSlowSlope))
-      : a.peaks;
-    ourPeaksMap[label] = filteredPeaks.map(p => p.time);
+    const filteredPeaks =
+      useSmallSlowGate && label !== 'cvxEDA'
+        ? a.peaks.filter(
+            (p) =>
+              !(
+                p.amplitude < smallSlowAmplitude &&
+                p.onsetSlope < smallSlowSlope
+              ),
+          )
+        : a.peaks;
+    ourPeaksMap[label] = filteredPeaks.map((p) => p.time);
   }
 
   // Summary header of available reference peak counts
   const refParts = [];
-  if (Array.isArray(ref.peak_times)) refParts.push(`NK2 default: ${ref.peak_times.length}`);
-  if (Array.isArray(ref.cvxeda_peak_times)) refParts.push(`NK2 cvxEDA: ${ref.cvxeda_peak_times.length}`);
-  if (Array.isArray(ref.ledalab_lit_peak_times)) refParts.push(`Ledalab tuned: ${ref.ledalab_lit_peak_times.length}`);
-  if (Array.isArray(ref.ledalab_peak_times)) refParts.push(`Ledalab default: ${ref.ledalab_peak_times.length}`);
-  if (Array.isArray(ref.cvxeda_ref_driver_peak_times)) refParts.push(`cvxEDA ref driver: ${ref.cvxeda_ref_driver_peak_times.length}`);
+  if (Array.isArray(ref.peak_times))
+    refParts.push(`NK2 default: ${ref.peak_times.length}`);
+  if (Array.isArray(ref.cvxeda_peak_times))
+    refParts.push(`NK2 cvxEDA: ${ref.cvxeda_peak_times.length}`);
+  if (Array.isArray(ref.ledalab_lit_peak_times))
+    refParts.push(`Ledalab tuned: ${ref.ledalab_lit_peak_times.length}`);
+  if (Array.isArray(ref.ledalab_peak_times))
+    refParts.push(`Ledalab default: ${ref.ledalab_peak_times.length}`);
+  if (Array.isArray(ref.cvxeda_ref_driver_peak_times))
+    refParts.push(
+      `cvxEDA ref driver: ${ref.cvxeda_ref_driver_peak_times.length}`,
+    );
 
   const srStr = ref.sampling_rate ? `@ ${ref.sampling_rate.toFixed(2)}Hz` : '';
   const nStr = ref.n_samples ? `${ref.n_samples} samples` : '';
   const verbose = trackPaths.length <= 6 || process.env.VERBOSE === '1';
   if (verbose) {
-    console.log(`\n=== ${name} (${[nStr, srStr].filter(Boolean).join(' ')} | ${refParts.join(' | ')}) ===`);
+    console.log(
+      `\n=== ${name} (${[nStr, srStr].filter(Boolean).join(' ')} | ${refParts.join(' | ')}) ===`,
+    );
   } else {
-    const fsCount = ourPeaksMap['Full-Scan'] ? ourPeaksMap['Full-Scan'].length : 0;
+    const fsCount = ourPeaksMap['Full-Scan']
+      ? ourPeaksMap['Full-Scan'].length
+      : 0;
     const progress = `[${String(trackIdx + 1).padStart(2)}/${trackPaths.length}]`;
-    console.log(`  ${progress} ${name.padEnd(28)} (${[nStr, srStr].filter(Boolean).join(' ')}): Full-Scan ${String(fsCount).padStart(3)} | ${refParts.join(' | ')}`);
+    console.log(
+      `  ${progress} ${name.padEnd(28)} (${[nStr, srStr].filter(Boolean).join(' ')}): Full-Scan ${String(fsCount).padStart(3)} | ${refParts.join(' | ')}`,
+    );
   }
 
   let currentCategory = '';
@@ -224,15 +345,19 @@ for (let trackIdx = 0; trackIdx < trackPaths.length; trackIdx++) {
     const meanAbsDelta = r.matches.length
       ? r.matches.reduce((s, m) => s + Math.abs(m.delta), 0) / r.matches.length
       : NaN;
-    const recallPct = (100 * r.matches.length / refTimes.length).toFixed(1);
+    const recallPct = ((100 * r.matches.length) / refTimes.length).toFixed(1);
 
     if (verbose) {
       if (c.category !== currentCategory) {
         console.log(`  [${c.category}]`);
         currentCategory = c.category;
       }
-      const deltaStr = Number.isNaN(meanAbsDelta) ? 'n/a' : `${meanAbsDelta.toFixed(3)}s`;
-      console.log(`    ${sourceName.padEnd(16)} vs ${c.refLabel.padEnd(25)} | recall ${recallPct.padStart(5)}% (${String(r.matches.length).padStart(3)}/${String(refTimes.length).padStart(3)}) | missed ${String(r.missed.length).padStart(3)} | extra ${String(r.extra.length).padStart(3)} | mean|delta| ${deltaStr}`);
+      const deltaStr = Number.isNaN(meanAbsDelta)
+        ? 'n/a'
+        : `${meanAbsDelta.toFixed(3)}s`;
+      console.log(
+        `    ${sourceName.padEnd(16)} vs ${c.refLabel.padEnd(25)} | recall ${recallPct.padStart(5)}% (${String(r.matches.length).padStart(3)}/${String(refTimes.length).padStart(3)}) | missed ${String(r.missed.length).padStart(3)} | extra ${String(r.extra.length).padStart(3)} | mean|delta| ${deltaStr}`,
+      );
     }
 
     const key = `${c.category}::${c.source || c.sourceLabel}::${c.refLabel}`;
@@ -241,14 +366,18 @@ for (let trackIdx = 0; trackIdx < trackPaths.length; trackIdx++) {
       agg.matched += r.matches.length;
       agg.refTotal += refTimes.length;
       agg.extra += r.extra.length;
-      agg.deltas.push(...r.matches.map(m => Math.abs(m.delta)));
+      agg.deltas.push(...r.matches.map((m) => Math.abs(m.delta)));
     }
   }
 }
 
-console.log('\n================================================================================');
+console.log(
+  '\n================================================================================',
+);
 console.log('=== Aggregate across all tracks ===');
-console.log('================================================================================');
+console.log(
+  '================================================================================',
+);
 let currentAggCategory = '';
 for (const c of COMPARISONS) {
   const key = `${c.category}::${c.source || c.sourceLabel}::${c.refLabel}`;
@@ -260,11 +389,13 @@ for (const c of COMPARISONS) {
     currentAggCategory = agg.category;
   }
 
-  const recall = (100 * agg.matched / agg.refTotal).toFixed(1);
+  const recall = ((100 * agg.matched) / agg.refTotal).toFixed(1);
   const meanDelta = agg.deltas.length
     ? (agg.deltas.reduce((s, d) => s + d, 0) / agg.deltas.length).toFixed(3)
     : 'n/a';
   const sourceName = agg.source || agg.sourceLabel;
-  console.log(`    ${sourceName.padEnd(16)} vs ${agg.refLabel.padEnd(25)} recall ${recall.padStart(5)}% (${String(agg.matched).padStart(3)}/${String(agg.refTotal).padStart(3)})  extra ${String(agg.extra).padStart(4)}  mean|delta| ${meanDelta}s`);
+  console.log(
+    `    ${sourceName.padEnd(16)} vs ${agg.refLabel.padEnd(25)} recall ${recall.padStart(5)}% (${String(agg.matched).padStart(3)}/${String(agg.refTotal).padStart(3)})  extra ${String(agg.extra).padStart(4)}  mean|delta| ${meanDelta}s`,
+  );
 }
 console.log();

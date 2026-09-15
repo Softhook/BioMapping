@@ -27,7 +27,14 @@
 // main app's interactive track view.
 // ==========================================================================
 import { LiveState } from './live_state.mjs';
-import { LIVE_SETTLE_TAIL_S, lastPacketArrivalTime, lastPacketTimestamp, liveAnalyzer, liveAnalyzerBase, liveGsrView } from './live_view.mjs';
+import {
+  LIVE_SETTLE_TAIL_S,
+  lastPacketArrivalTime,
+  lastPacketTimestamp,
+  liveAnalyzer,
+  liveAnalyzerBase,
+  liveGsrView,
+} from './live_view.mjs';
 
 export const GRAPH_WINDOW_S = 120;
 
@@ -48,9 +55,21 @@ export const NS_TO_US = 1 / 1000;
 // no session-normalised metric views). `key` is the GSRAnalyzer series
 // property; 'signal' has none (it is the multi-layer Raw/Filtered/Tonic view).
 export const LIVE_GRAPH_VIEWS = {
-  signal: { label: 'GSR (μS)',      decimals: 2, unit: ' μS', allowNeg: false },
-  tonic:  { key: 'tonic',  label: 'Tonic (SCL)',  decimals: 2, unit: ' μS', allowNeg: false },
-  phasic: { key: 'phasic', label: 'Phasic (SCR)', decimals: 3, unit: ' μS', allowNeg: false },
+  signal: { label: 'GSR (μS)', decimals: 2, unit: ' μS', allowNeg: false },
+  tonic: {
+    key: 'tonic',
+    label: 'Tonic (SCL)',
+    decimals: 2,
+    unit: ' μS',
+    allowNeg: false,
+  },
+  phasic: {
+    key: 'phasic',
+    label: 'Phasic (SCR)',
+    decimals: 3,
+    unit: ' μS',
+    allowNeg: false,
+  },
 };
 
 // Pull the single-track GSR view's own theme tokens (src/render/renderer.js
@@ -59,7 +78,9 @@ export const LIVE_GRAPH_VIEWS = {
 // stylesheet is in scope (the unit-test jsdom).
 export function graphThemeColor(name, fallback) {
   try {
-    const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    const v = getComputedStyle(document.documentElement)
+      .getPropertyValue(name)
+      .trim();
     return v || fallback;
   } catch (e) {
     return fallback;
@@ -72,7 +93,7 @@ export function graphThemeColor(name, fallback) {
 export function niceStep(span) {
   if (!(span > 0)) return 1;
   const rough = span / 5;
-  const mag = Math.pow(10, Math.floor(Math.log10(rough)));
+  const mag = 10 ** Math.floor(Math.log10(rough));
   const norm = rough / mag;
   return (norm >= 5 ? 5 : norm >= 2 ? 2 : 1) * mag;
 }
@@ -81,7 +102,8 @@ export function drawGraph() {
   const canvas = document.getElementById('graph');
   const wrap = document.getElementById('graphWrap');
   const dpr = window.devicePixelRatio || 1;
-  const w = wrap.clientWidth, h = wrap.clientHeight;
+  const w = wrap.clientWidth,
+    h = wrap.clientHeight;
   if (canvas.width !== w * dpr || canvas.height !== h * dpr) {
     canvas.width = w * dpr;
     canvas.height = h * dpr;
@@ -99,8 +121,12 @@ export function drawGraph() {
   // streaming; freeze once disconnected (the user left the Live view, which
   // drops the BLE link but keeps the buffer) so the last two minutes stay
   // visible instead of scrolling off the left edge.
-  const streaming = LiveState.status === 'connected' || LiveState.status === 'reconnecting';
-  const elapsed = (lastPacketArrivalTime && streaming) ? (Date.now() - lastPacketArrivalTime) / 1000 : 0;
+  const streaming =
+    LiveState.status === 'connected' || LiveState.status === 'reconnecting';
+  const elapsed =
+    lastPacketArrivalTime && streaming
+      ? (Date.now() - lastPacketArrivalTime) / 1000
+      : 0;
   const lastT = (lastPacketTimestamp || A.raw[A.raw.length - 1].time) + elapsed;
   const t0 = lastT - GRAPH_WINDOW_S;
 
@@ -112,25 +138,42 @@ export function drawGraph() {
   const layers = [];
   if (view === 'signal') {
     if (liveGsrView.showTonic && A.tonic && A.tonic.length)
-      layers.push({ data: A.tonic, col: graphThemeColor('--color-tonic', '#a30091'), w: 2 });
+      layers.push({
+        data: A.tonic,
+        col: graphThemeColor('--color-tonic', '#a30091'),
+        w: 2,
+      });
     if (liveGsrView.showPhasic && A.phasic && A.phasic.length)
-      layers.push({ data: A.phasic, col: graphThemeColor('--color-phasic', '#008f3c') + 'c8', w: 1.5 });
+      layers.push({
+        data: A.phasic,
+        col: graphThemeColor('--color-phasic', '#008f3c') + 'c8',
+        w: 1.5,
+      });
     if (liveGsrView.showFiltered && A.filtered && A.filtered.length)
-      layers.push({ data: A.filtered, col: graphThemeColor('--color-filtered', '#005bc4'), w: 2.2, primary: true });
+      layers.push({
+        data: A.filtered,
+        col: graphThemeColor('--color-filtered', '#005bc4'),
+        w: 2.2,
+        primary: true,
+      });
   } else {
     const series = A[cfg.key];
     if (series && series.length)
       layers.push({
         data: series,
-        col: graphThemeColor(view === 'phasic' ? '--color-phasic' : '--color-filtered',
-                             view === 'phasic' ? '#008f3c' : '#005bc4'),
-        w: 2, primary: true,
+        col: graphThemeColor(
+          view === 'phasic' ? '--color-phasic' : '--color-filtered',
+          view === 'phasic' ? '#008f3c' : '#005bc4',
+        ),
+        w: 2,
+        primary: true,
       });
   }
   if (layers.length === 0) return;
 
   // ── Y-range across the visible slice of every drawn layer ────────────────
-  let minV = Infinity, maxV = -Infinity;
+  let minV = Infinity,
+    maxV = -Infinity;
   for (const L of layers) {
     const d = L.data;
     for (let i = d.length - 1; i >= 0 && d[i].time >= t0; i--) {
@@ -140,10 +183,15 @@ export function drawGraph() {
     }
   }
   if (!(minV <= maxV)) return;
-  const floorSpan = cfg.unit === ' μS' ? 0.2 : Math.max(1e-6, Math.abs(maxV) * 0.02);
-  if (maxV - minV < floorSpan) { maxV += floorSpan / 2; minV -= floorSpan / 2; }
+  const floorSpan =
+    cfg.unit === ' μS' ? 0.2 : Math.max(1e-6, Math.abs(maxV) * 0.02);
+  if (maxV - minV < floorSpan) {
+    maxV += floorSpan / 2;
+    minV -= floorSpan / 2;
+  }
   const padV = (maxV - minV) * 0.1;
-  minV -= padV; maxV += padV;
+  minV -= padV;
+  maxV += padV;
   if (!cfg.allowNeg && minV < 0) minV = 0;
 
   // ── Plot region (matches the single-track GSR view) ─────────────────────
@@ -157,7 +205,8 @@ export function drawGraph() {
   const gridCol = graphThemeColor('--canvas-grid', 'rgba(17, 17, 17, 0.06)');
   const axisCol = graphThemeColor('--canvas-axis', 'rgba(17, 17, 17, 0.15)');
   const textCol = graphThemeColor('--canvas-text', '#444444');
-  const AXIS_FONT = '10px "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  const AXIS_FONT =
+    '10px "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
 
   const xForT = (t) => plotL + ((t - t0) / GRAPH_WINDOW_S) * plotW;
   const yForV = (v) => plotT + (1 - (v - minV) / (maxV - minV)) * plotH;
@@ -226,9 +275,12 @@ export function drawGraph() {
   //    ★ above it. The renderer's hover-only shaded region / onset dot /
   //    connector and its DOM pulse-ring aren't carried over — this is a
   //    non-interactive rolling window, not the zoomable track view. ─────────
-  const markerSeries = (view === 'signal')
-    ? (A.filtered && A.filtered.length ? A.filtered : A.raw)
-    : layers[0].data;
+  const markerSeries =
+    view === 'signal'
+      ? A.filtered && A.filtered.length
+        ? A.filtered
+        : A.raw
+      : layers[0].data;
   const settledBefore = lastT - LIVE_SETTLE_TAIL_S;
   const peakCol = graphThemeColor('--color-peak', '#d10024');
   const hotspotCol = graphThemeColor('--color-hotspot', '#ff1744');
@@ -251,14 +303,16 @@ export function drawGraph() {
     if (!list) return;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'alphabetic';
-    ctx.font = '700 11px "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    ctx.font =
+      '700 11px "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
     for (let k = 0; k < list.length; k++) {
       const p = list[k];
       if (p.excluded) continue;
       if (p.time < t0 || p.time > settledBefore) continue;
       const s = markerSeries[p.index];
       if (!s) continue;
-      const x = xForT(p.time), y = yForV(s.val);
+      const x = xForT(p.time),
+        y = yForV(s.val);
       ctx.beginPath();
       ctx.arc(x, y, 6, 0, Math.PI * 2);
       ctx.fillStyle = canvasBg;
@@ -288,19 +342,25 @@ export function drawGraph() {
     for (let i = s; i < d.length; i++) {
       const gp = pkts[liveAnalyzerBase + i];
       const gap = gp && gp.gap;
-      const x = xForT(d[i].time), y = yForV(d[i].val);
-      if (!penDown || gap) { ctx.moveTo(x, y); penDown = true; }
-      else ctx.lineTo(x, y);
+      const x = xForT(d[i].time),
+        y = yForV(d[i].val);
+      if (!penDown || gap) {
+        ctx.moveTo(x, y);
+        penDown = true;
+      } else ctx.lineTo(x, y);
     }
     ctx.stroke();
   }
 
   // ── Readouts. 'signal' shows the latest raw GSR reading; a metric view
   //    shows that metric's latest value. ──────────────────────────────────
-  const primary = layers.find(L => L.primary) || layers[layers.length - 1];
-  const readVal = (view === 'signal' && pkts.length)
-    ? pkts[pkts.length - 1].gsrRaw * NS_TO_US
-    : primary.data[primary.data.length - 1].val;
-  document.getElementById('graphValue').textContent = readVal.toFixed(cfg.decimals) + cfg.unit;
-  document.getElementById('graphLabel').textContent = cfg.label + ' — last 2 min';
+  const primary = layers.find((L) => L.primary) || layers[layers.length - 1];
+  const readVal =
+    view === 'signal' && pkts.length
+      ? pkts[pkts.length - 1].gsrRaw * NS_TO_US
+      : primary.data[primary.data.length - 1].val;
+  document.getElementById('graphValue').textContent =
+    readVal.toFixed(cfg.decimals) + cfg.unit;
+  document.getElementById('graphLabel').textContent =
+    cfg.label + ' — last 2 min';
 }

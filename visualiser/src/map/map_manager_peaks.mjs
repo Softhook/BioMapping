@@ -26,7 +26,6 @@ import { GSRLabelManager } from '../render/label_placement.mjs';
 import { GSRUI } from '../ui/ui.mjs';
 
 export const __protoMethods = {
-
   _renderPeakMarkers(analyzer, data, peakLatency, track, options) {
     options = options || {};
     const layerGroup = track ? track.layerGroup : null;
@@ -38,7 +37,9 @@ export const __protoMethods = {
     analyzer.peaks.forEach((peak, index) => {
       // Original (unshifted) position — used for connector line
       const origCoords = analyzer.getCoordinates(peak.index);
-      const origPt = origCoords ? map.latLngToLayerPoint([origCoords.lat, origCoords.lon]) : null;
+      const origPt = origCoords
+        ? map.latLngToLayerPoint([origCoords.lat, origCoords.lon])
+        : null;
 
       // Apply latency: find GPS position at (peak time - latency)
       const si = this._resolveLatencyIndex(analyzer, peak, peakLatency);
@@ -46,14 +47,28 @@ export const __protoMethods = {
       if (!coords) return;
       const pt = map.latLngToLayerPoint([coords.lat, coords.lon]);
       const origLatLon = origCoords ? [origCoords.lat, origCoords.lon] : null;
-      allPeaks.push({ peak, index, coords, px: pt.x, py: pt.y, origPt, origLatLon });
+      allPeaks.push({
+        peak,
+        index,
+        coords,
+        px: pt.x,
+        py: pt.y,
+        origPt,
+        origLatLon,
+      });
       if (peak.label && peak.label.trim()) {
-        labelCandidates.push({ idx: index, px: pt.x, py: pt.y, text: peak.label });
+        labelCandidates.push({
+          idx: index,
+          px: pt.x,
+          py: pt.y,
+          text: peak.label,
+        });
       }
     });
 
     // Compute 360° label positions
-    const labelPositions = GSRLabelManager.computeLabelPositions(labelCandidates);
+    const labelPositions =
+      GSRLabelManager.computeLabelPositions(labelCandidates);
 
     // Compact dot-only icon for peaks without labels. Minor styling to match
     // the graph's resting-state peak dots: small, no pulse animation — the
@@ -64,7 +79,15 @@ export const __protoMethods = {
 
     allPeaks.forEach(({ peak, index, coords, px, py }) => {
       const displayLabel = peak.label || '';
-      const marker = this._buildPeakMarker(coords.lat, coords.lon, displayLabel, labelPositions.get(index), simpleIcon, px, py);
+      const marker = this._buildPeakMarker(
+        coords.lat,
+        coords.lon,
+        displayLabel,
+        labelPositions.get(index),
+        simpleIcon,
+        px,
+        py,
+      );
 
       // Phase 1 (slice 3): tag the peak index so focusOnPeak can resolve the
       // marker without the old flat array.
@@ -108,7 +131,11 @@ export const __protoMethods = {
       // minWidth it never grows past whatever the Street View button + Exclude
       // row need, ignoring the (width:100%) textarea entirely since a percentage
       // width can't push an auto-sized parent wider.
-      marker.bindPopup(() => MapPopups.buildSinglePeakPopup(analyzer, peak, index, coords, marker), { closeButton: false, minWidth: 300, maxWidth: 300 });
+      marker.bindPopup(
+        () =>
+          MapPopups.buildSinglePeakPopup(analyzer, peak, index, coords, marker),
+        { closeButton: false, minWidth: 300, maxWidth: 300 },
+      );
 
       marker.on('click', () => {
         GSRUI.focusOnPeak(index, 'map');
@@ -126,7 +153,7 @@ export const __protoMethods = {
           color: '#f43f5e',
           weight: 1.5,
           opacity: 0.35,
-          dashArray: '3, 5'
+          dashArray: '3, 5',
         });
         // Same unconditional-_gsrKind fix as the peak marker above.
         conn._gsrKind = 'connector';
@@ -151,15 +178,25 @@ export const __protoMethods = {
     if (!options.skipClustering) {
       const trackId = track ? track.id : 'single';
       const activePeaks = allPeaks
-        .filter(ap => !ap.peak.excluded)
-        .map(ap => ({
-          lat: ap.coords.lat, lon: ap.coords.lon,
-          amplitude: ap.peak.amplitude, trackId, time: ap.peak.time
+        .filter((ap) => !ap.peak.excluded)
+        .map((ap) => ({
+          lat: ap.coords.lat,
+          lon: ap.coords.lon,
+          amplitude: ap.peak.amplitude,
+          trackId,
+          time: ap.peak.time,
         }));
       this._renderArousalPlacesFor(
         activePeaks,
-        [{ id: trackId, sampleRate: analyzer.sampleRate, raw: analyzer.raw, phasic: analyzer.phasic }],
-        { collective: false, activeTrackCount: 1 }
+        [
+          {
+            id: trackId,
+            sampleRate: analyzer.sampleRate,
+            raw: analyzer.raw,
+            phasic: analyzer.phasic,
+          },
+        ],
+        { collective: false, activeTrackCount: 1 },
       );
     }
   },
@@ -184,7 +221,13 @@ export const __protoMethods = {
     }
     if (dirResult) {
       const marker = L.marker([lat, lon], {
-        icon: GSRLabelManager.buildLabelledIcon(px, py, displayLabel, dirResult, { showGlow: false, dotPx: 6 })
+        icon: GSRLabelManager.buildLabelledIcon(
+          px,
+          py,
+          displayLabel,
+          dirResult,
+          { showGlow: false, dotPx: 6 },
+        ),
       });
       marker.setZIndexOffset(1000);
       marker.hasLabel = true;
@@ -205,7 +248,14 @@ export const __protoMethods = {
    * Internal helper to construct and initialise a Leaflet hotspot marker.
    * @private
    */
-  _createHotspotMarker(analyzer, peak, peakLatency, popupCallback, clickCallback, track) {
+  _createHotspotMarker(
+    analyzer,
+    peak,
+    peakLatency,
+    popupCallback,
+    clickCallback,
+    track,
+  ) {
     const index = analyzer.peaks.indexOf(peak);
     if (index < 0) return null;
 
@@ -235,7 +285,11 @@ export const __protoMethods = {
 
     // closeButton: false — see the matching comment on the peak-marker
     // bindPopup() in _renderPeakMarkers(); click-away already dismisses it.
-    marker.bindPopup(() => popupCallback(index, coords, marker), { closeButton: false, minWidth: 300, maxWidth: 300 });
+    marker.bindPopup(() => popupCallback(index, coords, marker), {
+      closeButton: false,
+      minWidth: 300,
+      maxWidth: 300,
+    });
     if (clickCallback) {
       marker.on('click', () => clickCallback(index));
     }
@@ -246,14 +300,15 @@ export const __protoMethods = {
     const events = analyzer.memorableEvents;
     if (!events || events.length === 0) return;
 
-    events.forEach(peak => {
+    events.forEach((peak) => {
       const marker = this._createHotspotMarker(
         analyzer,
         peak,
         peakLatency,
-        (index, coords, m) => MapPopups.buildSinglePeakPopup(analyzer, peak, index, coords, m),
+        (index, coords, m) =>
+          MapPopups.buildSinglePeakPopup(analyzer, peak, index, coords, m),
         (index) => GSRUI.focusOnPeak(index, 'map'),
-        track
+        track,
       );
     });
   },
@@ -274,14 +329,22 @@ export const __protoMethods = {
     const events = analyzer.memorableEvents;
     if (!events || events.length === 0) return;
 
-    events.forEach(peak => {
+    events.forEach((peak) => {
       const marker = this._createHotspotMarker(
         analyzer,
         peak,
         peakLatency,
-        (index, coords, m) => MapPopups.buildCollectivePeakPopup(track, peak, index, coords.lat, coords.lon, m),
+        (index, coords, m) =>
+          MapPopups.buildCollectivePeakPopup(
+            track,
+            peak,
+            index,
+            coords.lat,
+            coords.lon,
+            m,
+          ),
         null,
-        track
+        track,
       );
     });
   },
@@ -298,7 +361,13 @@ export const __protoMethods = {
    * skipping the clustering push is correct there).
    * @private
    */
-  _renderCollectiveTrackPeaks(track, layerGroup, trackColor, peakLatency, activePeaksSink) {
+  _renderCollectiveTrackPeaks(
+    track,
+    layerGroup,
+    trackColor,
+    peakLatency,
+    activePeaksSink,
+  ) {
     const map = this.map;
     const collectiveLabelCandidates = [];
     const collectiveAllPeaks = [];
@@ -314,11 +383,21 @@ export const __protoMethods = {
       if (coords) {
         const pt = map.latLngToLayerPoint([coords.lat, coords.lon]);
         collectiveAllPeaks.push({
-          peak, index, lat: coords.lat, lon: coords.lon, px: pt.x, py: pt.y,
-          origLatLon: origCoords ? [origCoords.lat, origCoords.lon] : null
+          peak,
+          index,
+          lat: coords.lat,
+          lon: coords.lon,
+          px: pt.x,
+          py: pt.y,
+          origLatLon: origCoords ? [origCoords.lat, origCoords.lon] : null,
         });
         if (peak.label && peak.label.trim()) {
-          collectiveLabelCandidates.push({ idx: index, px: pt.x, py: pt.y, text: peak.label });
+          collectiveLabelCandidates.push({
+            idx: index,
+            px: pt.x,
+            py: pt.y,
+            text: peak.label,
+          });
         }
         if (activePeaksSink && !peak.excluded) {
           activePeaksSink.push({
@@ -326,14 +405,16 @@ export const __protoMethods = {
             lon: coords.lon,
             amplitude: peak.amplitude,
             trackId: track.id,
-            time: peak.time
+            time: peak.time,
           });
         }
       }
     });
 
     // 360° collision avoidance for collective labels
-    const collectivePositions = GSRLabelManager.computeLabelPositions(collectiveLabelCandidates);
+    const collectivePositions = GSRLabelManager.computeLabelPositions(
+      collectiveLabelCandidates,
+    );
 
     // Compact dot-only icon for unlabelled peaks — the same shared icon
     // single-track peaks use (GSRMapManager._buildPeakIcon()), not
@@ -343,11 +424,30 @@ export const __protoMethods = {
 
     collectiveAllPeaks.forEach(({ peak, index, lat, lon, px, py }) => {
       const displayLabel = peak.label || '';
-      const marker = this._buildPeakMarker(lat, lon, displayLabel, collectivePositions.get(index), collectiveSimpleIcon, px, py);
+      const marker = this._buildPeakMarker(
+        lat,
+        lon,
+        displayLabel,
+        collectivePositions.get(index),
+        collectiveSimpleIcon,
+        px,
+        py,
+      );
 
       // closeButton: false — see the matching comment on the peak-marker
       // bindPopup() in _renderPeakMarkers(); click-away already dismisses it.
-      marker.bindPopup(() => MapPopups.buildCollectivePeakPopup(track, peak, index, lat, lon, marker), { closeButton: false, minWidth: 300, maxWidth: 300 });
+      marker.bindPopup(
+        () =>
+          MapPopups.buildCollectivePeakPopup(
+            track,
+            peak,
+            index,
+            lat,
+            lon,
+            marker,
+          ),
+        { closeButton: false, minWidth: 300, maxWidth: 300 },
+      );
 
       // Phase 1 (slice 2/3): collective peak markers render into this track's
       // own layerGroup; the peak index is tagged so focusOnPeak can resolve it.
@@ -378,7 +478,7 @@ export const __protoMethods = {
           color: trackColor,
           weight: 1,
           opacity: 0.25,
-          dashArray: '2, 4'
+          dashArray: '2, 4',
         });
         conn._gsrKind = 'collectiveConnector';
         conn._gsrLayerGroup = layerGroup;
@@ -413,7 +513,10 @@ export const __protoMethods = {
   refreshCollectivePeakMarkers(track, peakLatency) {
     if (!this.map) return;
     if (!track || !track.layerGroup) {
-      if (typeof GSRUI !== 'undefined' && typeof GSRUI.updateCollectiveMap === 'function') {
+      if (
+        typeof GSRUI !== 'undefined' &&
+        typeof GSRUI.updateCollectiveMap === 'function'
+      ) {
         GSRUI.updateCollectiveMap();
       }
       return;
@@ -425,8 +528,15 @@ export const __protoMethods = {
     this._refreshTrackLayers(
       track,
       new Set(['collectivePeak', 'collectiveConnector']),
-      () => this._renderCollectiveTrackPeaks(track, layerGroup, trackColor, peakLatency || 0, null),
-      true
+      () =>
+        this._renderCollectiveTrackPeaks(
+          track,
+          layerGroup,
+          trackColor,
+          peakLatency || 0,
+          null,
+        ),
+      true,
     );
   },
 
@@ -450,11 +560,9 @@ export const __protoMethods = {
   _hotspotMarkerCoords(analyzer, peak, peakLatency) {
     return GSRMapMarkers.hotspotMarkerCoords(analyzer, peak, peakLatency);
   },
-
 };
 
 export const __staticMethods = {
-
   /**
    * Build the shared Leaflet divIcon for every hotspot marker on the map —
    * single-track (_renderHotspotMarkers) and collective/multi-track
@@ -482,8 +590,7 @@ export const __staticMethods = {
    */
   _buildPeakIcon() {
     return GSRMapMarkers.buildPeakIcon(L);
-  }
-
+  },
 };
 
 Object.assign(GSRMapManager.prototype, __protoMethods);

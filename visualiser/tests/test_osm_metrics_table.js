@@ -23,11 +23,23 @@ test('OSM_METRICS has exactly 10 entries, matching the 10 osm_* fields written b
 });
 
 test('OSM_METRICS kinds: roadClass is categorical, inPark is binary, the other 8 are continuous', () => {
-  const categorical = GSR_CONST.OSM_METRICS.filter(m => m.kind === 'categorical');
-  const binary = GSR_CONST.OSM_METRICS.filter(m => m.kind === 'binary');
-  const continuous = GSR_CONST.OSM_METRICS.filter(m => m.kind === 'continuous');
-  assert.deepStrictEqual(categorical.map(m => m.key), ['roadClass'], 'only roadClass is multi-level categorical (excluded from the correlation UI)');
-  assert.deepStrictEqual(binary.map(m => m.key), ['inPark'], 'inPark is a 0/1 field — point-biserial-correlatable, so it IS in the correlation/scatter UI');
+  const categorical = GSR_CONST.OSM_METRICS.filter(
+    (m) => m.kind === 'categorical',
+  );
+  const binary = GSR_CONST.OSM_METRICS.filter((m) => m.kind === 'binary');
+  const continuous = GSR_CONST.OSM_METRICS.filter(
+    (m) => m.kind === 'continuous',
+  );
+  assert.deepStrictEqual(
+    categorical.map((m) => m.key),
+    ['roadClass'],
+    'only roadClass is multi-level categorical (excluded from the correlation UI)',
+  );
+  assert.deepStrictEqual(
+    binary.map((m) => m.key),
+    ['inPark'],
+    'inPark is a 0/1 field — point-biserial-correlatable, so it IS in the correlation/scatter UI',
+  );
   assert.strictEqual(continuous.length, 8, 'the other 8 fields are continuous');
   // ui.js's correlation/scatter feature lists filter on continuous || binary.
   assert.strictEqual(continuous.length + binary.length, 9);
@@ -38,35 +50,65 @@ test('OSM_METRICS.field names are exactly the osm_* columns osm_enrichment.js wr
   // (or vice versa), the map dropdown / correlation matrix / scatter silently
   // read `undefined`. startsWith("osm_") is not enough to catch that.
   const written = [
-    'osm_road_class', 'osm_dist_major_road', 'osm_in_park', 'osm_green_pct_50m', 'osm_dist_green', 'osm_canopy_pct_50m',
-    'osm_building_density_50m', 'osm_dist_water', 'osm_tree_density_50m', 'osm_amenity_count_50m',
+    'osm_road_class',
+    'osm_dist_major_road',
+    'osm_in_park',
+    'osm_green_pct_50m',
+    'osm_dist_green',
+    'osm_canopy_pct_50m',
+    'osm_building_density_50m',
+    'osm_dist_water',
+    'osm_tree_density_50m',
+    'osm_amenity_count_50m',
   ].sort();
-  assert.deepStrictEqual(GSR_CONST.OSM_METRICS.map(m => m.field).sort(), written);
+  assert.deepStrictEqual(
+    GSR_CONST.OSM_METRICS.map((m) => m.field).sort(),
+    written,
+  );
 });
 
 test('every entry has a non-empty key, field, label, and a valid kind', () => {
   for (const m of GSR_CONST.OSM_METRICS) {
-    assert.ok(m.key && typeof m.key === 'string', `entry missing a string key: ${JSON.stringify(m)}`);
-    assert.ok(m.field && typeof m.field === 'string', `entry ${m.key} missing a string field`);
-    assert.ok(m.field.startsWith('osm_'), `entry ${m.key}'s field "${m.field}" should start with osm_`);
-    assert.ok(m.label && typeof m.label === 'string', `entry ${m.key} missing a string label`);
-    assert.ok(['categorical', 'binary', 'continuous'].includes(m.kind), `entry ${m.key} has an unrecognised kind: ${m.kind}`);
+    assert.ok(
+      m.key && typeof m.key === 'string',
+      `entry missing a string key: ${JSON.stringify(m)}`,
+    );
+    assert.ok(
+      m.field && typeof m.field === 'string',
+      `entry ${m.key} missing a string field`,
+    );
+    assert.ok(
+      m.field.startsWith('osm_'),
+      `entry ${m.key}'s field "${m.field}" should start with osm_`,
+    );
+    assert.ok(
+      m.label && typeof m.label === 'string',
+      `entry ${m.key} missing a string label`,
+    );
+    assert.ok(
+      ['categorical', 'binary', 'continuous'].includes(m.kind),
+      `entry ${m.key} has an unrecognised kind: ${m.kind}`,
+    );
   }
 });
 
 test('only the distance metrics carry a unit (all "m") — the fields ui.js\'s scatter axis labels append "(m)" to', () => {
-  const withUnit = GSR_CONST.OSM_METRICS.filter(m => m.unit);
-  assert.deepStrictEqual(withUnit.map(m => m.key).sort(), ['distGreen', 'distMajorRoad', 'distWater']);
+  const withUnit = GSR_CONST.OSM_METRICS.filter((m) => m.unit);
+  assert.deepStrictEqual(withUnit.map((m) => m.key).sort(), [
+    'distGreen',
+    'distMajorRoad',
+    'distWater',
+  ]);
   for (const m of withUnit) assert.strictEqual(m.unit, 'm');
 });
 
 test('keys are unique', () => {
-  const keys = GSR_CONST.OSM_METRICS.map(m => m.key);
+  const keys = GSR_CONST.OSM_METRICS.map((m) => m.key);
   assert.strictEqual(new Set(keys).size, keys.length);
 });
 
 test('fields are unique', () => {
-  const fields = GSR_CONST.OSM_METRICS.map(m => m.field);
+  const fields = GSR_CONST.OSM_METRICS.map((m) => m.field);
   assert.strictEqual(new Set(fields).size, fields.length);
 });
 
@@ -75,6 +117,6 @@ test('fields are unique', () => {
 // used — see mock_constants.js's own header). Nothing enforces the two
 // stay in sync, so a change to one without the other is exactly the kind
 // of silent-desync bug this table was extracted to prevent — guard it here.
-test('mock_constants.js\'s OSM_METRICS stays in sync with the real constants.js', () => {
+test("mock_constants.js's OSM_METRICS stays in sync with the real constants.js", () => {
   assert.deepStrictEqual(MOCK_GSR_CONST.OSM_METRICS, GSR_CONST.OSM_METRICS);
 });

@@ -28,7 +28,9 @@ const test = require('node:test');
 // ── Minimal global stubs so tracks.js's top-level/module references resolve
 //    under plain Node (none of these exist outside a browser). ─────────────
 global.window = global;
-global.alert = (msg) => { global.__lastAlert = msg; };
+global.alert = (msg) => {
+  global.__lastAlert = msg;
+};
 global.confirm = () => true;
 global.noLoop = () => {};
 global.loop = () => {};
@@ -49,14 +51,18 @@ const { GSREvents: RealGSREvents } = require('../src/ui/events.mjs');
 const { GSRUI: RealGSRUI } = require('../src/ui/ui.mjs');
 const { GSRRenderer: RealGSRRenderer } = require('../src/render/renderer.mjs');
 const { GSRStorage: RealGSRStorage } = require('../src/ui/storage.mjs');
-const { GSRCollectiveProject: RealGSRCollectiveProject } = require('../src/spatial/collective_project.mjs');
+const {
+  GSRCollectiveProject: RealGSRCollectiveProject,
+} = require('../src/spatial/collective_project.mjs');
 
 function setSingletonShape(target, shape) {
   for (const k of Object.keys(target)) delete target[k];
   return Object.assign(target, shape);
 }
 
-global.GSREvents = setSingletonShape(RealGSREvents, { initializeLabels: () => {} });
+global.GSREvents = setSingletonShape(RealGSREvents, {
+  initializeLabels: () => {},
+});
 global.GSRUI = setSingletonShape(RealGSRUI, {
   updatePeaksTable: () => {},
   updateStatsPanel: () => {},
@@ -64,10 +70,16 @@ global.GSRUI = setSingletonShape(RealGSRUI, {
   resetView: () => {},
   runAnalysis: () => {},
   refreshOsmControls: () => {},
-  updateCollectiveMap: () => { global.__collectiveMapUpdated = true; },
-  showUnsavedLabelsModal: (name, id, cb) => { global.__unsavedModal = { name, id, cb }; },
+  updateCollectiveMap: () => {
+    global.__collectiveMapUpdated = true;
+  },
+  showUnsavedLabelsModal: (name, id, cb) => {
+    global.__unsavedModal = { name, id, cb };
+  },
 });
-global.GSRRenderer = setSingletonShape(RealGSRRenderer, { drawPlaceholder: () => {} });
+global.GSRRenderer = setSingletonShape(RealGSRRenderer, {
+  drawPlaceholder: () => {},
+});
 
 // deleteTrack() unconditionally calls saveActiveGpsParams(), which reads
 // GSRStorage.readGpsSliderValues() — provide an inert default so tests that
@@ -107,13 +119,20 @@ class FakeAnalyzer {
   parseCSV(text) {
     if (text === '__THROW__') throw new Error('bad csv');
     if (text === '__IMPORTED__') {
-      this.importedFilterParams = { peakThreshold: 0.5, useDeconvolution: false };
+      this.importedFilterParams = {
+        peakThreshold: 0.5,
+        useDeconvolution: false,
+      };
       this.importedGpsFilterParams = { smoothing: 0.9 };
     }
     this.raw = [{ time: 0 }, { time: 42 }];
   }
-  formatDateShort() { return 'Jan 1'; }
-  formatTimeOnly() { return '00:00'; }
+  formatDateShort() {
+    return 'Jan 1';
+  }
+  formatTimeOnly() {
+    return '00:00';
+  }
 }
 // tracks.mjs holds a static `import { GSRAnalyzer } from
 // '../signal/analyzer.mjs'` live binding — `global.GSRAnalyzer =
@@ -139,13 +158,21 @@ global.GSRAnalyzer = RealGSRAnalyzer;
 function makeMockElement() {
   return {
     style: {},
-    classList: { add() {}, remove() {}, contains() { return false; } },
+    classList: {
+      add() {},
+      remove() {},
+      contains() {
+        return false;
+      },
+    },
     dataset: {},
     addEventListener() {},
     appendChild() {},
     removeAttribute() {},
     setAttribute() {},
-    querySelector() { return null; },
+    querySelector() {
+      return null;
+    },
     focus() {},
     select() {},
     innerHTML: '',
@@ -167,11 +194,15 @@ global.document = {
 };
 
 const { GSRTrackManager } = require('../src/ui/tracks.mjs');
-const { GSRCollectiveManager } = require('../src/spatial/collective_manager.mjs');
+const {
+  GSRCollectiveManager,
+} = require('../src/spatial/collective_manager.mjs');
 const { AppState: RealAppState } = require('../src/core/app_state.mjs');
 
 // renderTrackList is DOM construction, not state logic — see file header.
-GSRTrackManager.renderTrackList = () => { global.__renderCount = (global.__renderCount || 0) + 1; };
+GSRTrackManager.renderTrackList = () => {
+  global.__renderCount = (global.__renderCount || 0) + 1;
+};
 
 /** Builds a fresh AppState-shaped object backed by a real GSRCollectiveManager. */
 // tracks.mjs holds a static `import { AppState } from '../core/app_state.mjs'`
@@ -198,7 +229,8 @@ function freshAppState(overrides) {
     trackColors: ['#005bc4', '#d10024', '#008f3c'],
     getNextTrackColor() {
       const c = this.trackColors[this.trackColorIndex];
-      this.trackColorIndex = (this.trackColorIndex + 1) % this.trackColors.length;
+      this.trackColorIndex =
+        (this.trackColorIndex + 1) % this.trackColors.length;
       return c;
     },
     _renamingTrackId: null,
@@ -214,22 +246,25 @@ function freshAppState(overrides) {
       (this._listeners[event] = this._listeners[event] || []).push(fn);
     },
     emit(event, ...args) {
-      (this._listeners[event] || []).forEach(fn => fn(...args));
+      (this._listeners[event] || []).forEach((fn) => fn(...args));
     },
   };
   return Object.assign(RealAppState, base, overrides);
 }
 
 function makeTrack(id, overrides) {
-  return Object.assign({
-    id,
-    name: id,
-    color: '#000000',
-    enabled: true,
-    analyzer: new FakeAnalyzer(),
-    filterParams: {},
-    gpsFilterParams: {},
-  }, overrides);
+  return Object.assign(
+    {
+      id,
+      name: id,
+      color: '#000000',
+      enabled: true,
+      analyzer: new FakeAnalyzer(),
+      filterParams: {},
+      gpsFilterParams: {},
+    },
+    overrides,
+  );
 }
 
 function resetSpies() {
@@ -246,12 +281,21 @@ function resetSpies() {
 test('getActiveTracks: filters to only enabled tracks, delegating to the collective manager', () => {
   resetSpies();
   global.AppState = freshAppState();
-  global.AppState.collectiveManager.addTrack(makeTrack('t1', { enabled: true }));
-  global.AppState.collectiveManager.addTrack(makeTrack('t2', { enabled: false }));
-  global.AppState.collectiveManager.addTrack(makeTrack('t3', { enabled: true }));
+  global.AppState.collectiveManager.addTrack(
+    makeTrack('t1', { enabled: true }),
+  );
+  global.AppState.collectiveManager.addTrack(
+    makeTrack('t2', { enabled: false }),
+  );
+  global.AppState.collectiveManager.addTrack(
+    makeTrack('t3', { enabled: true }),
+  );
 
   const active = GSRTrackManager.getActiveTracks();
-  assert.deepStrictEqual(active.map(t => t.id), ['t1', 't3']);
+  assert.deepStrictEqual(
+    active.map((t) => t.id),
+    ['t1', 't3'],
+  );
   delete global.AppState;
 });
 
@@ -324,7 +368,9 @@ test('switchActiveTrack: an unknown trackId sets activeTrackId but leaves AppSta
 test('deleteTrack: removing a non-active track leaves the active track untouched and drops only that entry', () => {
   resetSpies();
   global.AppState = freshAppState();
-  const t1 = makeTrack('t1'), t2 = makeTrack('t2'), t3 = makeTrack('t3');
+  const t1 = makeTrack('t1'),
+    t2 = makeTrack('t2'),
+    t3 = makeTrack('t3');
   global.AppState.collectiveManager.addTrack(t1);
   global.AppState.collectiveManager.addTrack(t2);
   global.AppState.collectiveManager.addTrack(t3);
@@ -333,8 +379,15 @@ test('deleteTrack: removing a non-active track leaves the active track untouched
 
   GSRTrackManager.deleteTrack('t3');
 
-  assert.deepStrictEqual(global.AppState.collectiveManager.tracks.map(t => t.id), ['t1', 't2']);
-  assert.strictEqual(global.AppState.activeTrackId, 't1', 'active track pointer unchanged');
+  assert.deepStrictEqual(
+    global.AppState.collectiveManager.tracks.map((t) => t.id),
+    ['t1', 't2'],
+  );
+  assert.strictEqual(
+    global.AppState.activeTrackId,
+    't1',
+    'active track pointer unchanged',
+  );
   assert.strictEqual(global.AppState.analyzer, t1.analyzer);
   delete global.AppState;
 });
@@ -342,7 +395,9 @@ test('deleteTrack: removing a non-active track leaves the active track untouched
 test('deleteTrack: removing the active track switches active to the first remaining track, no orphaned entries', () => {
   resetSpies();
   global.AppState = freshAppState();
-  const t1 = makeTrack('t1'), t2 = makeTrack('t2'), t3 = makeTrack('t3');
+  const t1 = makeTrack('t1'),
+    t2 = makeTrack('t2'),
+    t3 = makeTrack('t3');
   global.AppState.collectiveManager.addTrack(t1);
   global.AppState.collectiveManager.addTrack(t2);
   global.AppState.collectiveManager.addTrack(t3);
@@ -351,8 +406,15 @@ test('deleteTrack: removing the active track switches active to the first remain
 
   GSRTrackManager.deleteTrack('t2');
 
-  assert.deepStrictEqual(global.AppState.collectiveManager.tracks.map(t => t.id), ['t1', 't3']);
-  assert.strictEqual(global.AppState.activeTrackId, 't1', 'falls back to the new first track');
+  assert.deepStrictEqual(
+    global.AppState.collectiveManager.tracks.map((t) => t.id),
+    ['t1', 't3'],
+  );
+  assert.strictEqual(
+    global.AppState.activeTrackId,
+    't1',
+    'falls back to the new first track',
+  );
   assert.strictEqual(global.AppState.analyzer, t1.analyzer);
   delete global.AppState;
 });
@@ -365,22 +427,34 @@ test('deleteTrack: removing the last remaining track clears activeTrackId and re
   global.AppState.activeTrackId = 't1';
   global.AppState.analyzer = t1.analyzer;
   let clearAllCalled = false;
-  global.AppState.mapManager = { clearAll() { clearAllCalled = true; } };
+  global.AppState.mapManager = {
+    clearAll() {
+      clearAllCalled = true;
+    },
+  };
   // Mirrors the listener sketch.js's setup() registers for real (see
   // app_state.js's AppState.on/emit and the Phase 3 pilot note in
   // docs/archive/visualizer_architecture_refactor_plan.md) — this file never boots
   // the real app, so the test registers it itself.
   global.AppState.on('trackRemoved', () => {
-    if (global.AppState.collectiveManager.tracks.length === 0) global.AppState.mapManager.clearAll();
+    if (global.AppState.collectiveManager.tracks.length === 0)
+      global.AppState.mapManager.clearAll();
   });
 
   GSRTrackManager.deleteTrack('t1');
 
   assert.deepStrictEqual(global.AppState.collectiveManager.tracks, []);
   assert.strictEqual(global.AppState.activeTrackId, null);
-  assert.ok(global.AppState.analyzer instanceof RealGSRAnalyzer, 'a fresh analyzer replaces the deleted one');
+  assert.ok(
+    global.AppState.analyzer instanceof RealGSRAnalyzer,
+    'a fresh analyzer replaces the deleted one',
+  );
   assert.notStrictEqual(global.AppState.analyzer, t1.analyzer);
-  assert.strictEqual(clearAllCalled, true, 'map is cleared when the library goes empty');
+  assert.strictEqual(
+    clearAllCalled,
+    true,
+    'map is cleared when the library goes empty',
+  );
   delete global.AppState;
 });
 
@@ -393,7 +467,10 @@ test('deleteTrack: unknown trackId is a no-op', () => {
 
   GSRTrackManager.deleteTrack('does-not-exist');
 
-  assert.deepStrictEqual(global.AppState.collectiveManager.tracks.map(t => t.id), ['t1']);
+  assert.deepStrictEqual(
+    global.AppState.collectiveManager.tracks.map((t) => t.id),
+    ['t1'],
+  );
   assert.strictEqual(global.AppState.activeTrackId, 't1');
   delete global.AppState;
 });
@@ -410,14 +487,20 @@ test('deleteTrack: a track with hasUnsavedLabels defers to the confirmation moda
   GSRTrackManager.deleteTrack('t1');
 
   // Nothing removed yet — the modal callback hasn't fired.
-  assert.deepStrictEqual(global.AppState.collectiveManager.tracks.map(t => t.id), ['t1', 't2']);
+  assert.deepStrictEqual(
+    global.AppState.collectiveManager.tracks.map((t) => t.id),
+    ['t1', 't2'],
+  );
   assert.ok(global.__unsavedModal, 'showUnsavedLabelsModal was invoked');
   assert.strictEqual(global.__unsavedModal.id, 't1');
   assert.strictEqual(global.__unsavedModal.name, 't1');
 
   // Simulate the user confirming deletion from the modal.
   global.__unsavedModal.cb();
-  assert.deepStrictEqual(global.AppState.collectiveManager.tracks.map(t => t.id), ['t2']);
+  assert.deepStrictEqual(
+    global.AppState.collectiveManager.tracks.map((t) => t.id),
+    ['t2'],
+  );
   delete global.AppState;
 });
 
@@ -451,14 +534,22 @@ test('clearAllTracks: empties the track list, clears the active pointer, resets 
   global.AppState.activeTrackId = 't2';
   global.AppState.trackColorIndex = 2;
   let clearAllCalled = false;
-  global.AppState.mapManager = { clearAll() { clearAllCalled = true; } };
+  global.AppState.mapManager = {
+    clearAll() {
+      clearAllCalled = true;
+    },
+  };
 
   GSRTrackManager.clearAllTracks();
 
   assert.deepStrictEqual(global.AppState.collectiveManager.tracks, []);
   assert.strictEqual(global.AppState.activeTrackId, null);
   assert.ok(global.AppState.analyzer instanceof RealGSRAnalyzer);
-  assert.strictEqual(global.AppState.trackColorIndex, 0, 'color palette restarts like a fresh page load');
+  assert.strictEqual(
+    global.AppState.trackColorIndex,
+    0,
+    'color palette restarts like a fresh page load',
+  );
   assert.strictEqual(clearAllCalled, true);
   delete global.AppState;
 });
@@ -480,9 +571,14 @@ function mockRenameDom(trackId, initialName) {
   const nameSpan = makeMockElement();
   const nameInput = makeMockElement();
   nameInput.value = initialName;
-  let focusCalled = false, selectCalled = false;
-  nameInput.focus = () => { focusCalled = true; };
-  nameInput.select = () => { selectCalled = true; };
+  let focusCalled = false,
+    selectCalled = false;
+  nameInput.focus = () => {
+    focusCalled = true;
+  };
+  nameInput.select = () => {
+    selectCalled = true;
+  };
   const item = makeMockElement();
   item.querySelector = (sel) => {
     if (sel === '.track-name') return nameSpan;
@@ -490,12 +586,16 @@ function mockRenameDom(trackId, initialName) {
     return null;
   };
   const prevQS = global.document.querySelector;
-  global.document.querySelector = (sel) => (sel === `li[data-track-id="${trackId}"]` ? item : null);
+  global.document.querySelector = (sel) =>
+    sel === `li[data-track-id="${trackId}"]` ? item : null;
   return {
-    nameSpan, nameInput,
+    nameSpan,
+    nameInput,
     focused: () => focusCalled,
     selected: () => selectCalled,
-    restore: () => { global.document.querySelector = prevQS; },
+    restore: () => {
+      global.document.querySelector = prevQS;
+    },
   };
 }
 
@@ -547,7 +647,8 @@ test('startRenameTrack: starting a rename while another is in progress cancels t
   // spy already installed for renderTrackList (see resetSpies()/line 132).
   resetSpies();
   global.AppState = freshAppState();
-  const t1 = makeTrack('t1'), t2 = makeTrack('t2');
+  const t1 = makeTrack('t1'),
+    t2 = makeTrack('t2');
   global.AppState.collectiveManager.addTrack(t1);
   global.AppState.collectiveManager.addTrack(t2);
   global.AppState._renamingTrackId = 't1'; // pretend t1 is already being renamed
@@ -555,8 +656,16 @@ test('startRenameTrack: starting a rename while another is in progress cancels t
 
   GSRTrackManager.startRenameTrack('t2');
 
-  assert.strictEqual(global.AppState._renamingTrackId, 't2', 'rename moved to the new target');
-  assert.strictEqual(global.__renderCount, 1, 'cancelRenameTrack() should have run for t1, re-rendering the list once');
+  assert.strictEqual(
+    global.AppState._renamingTrackId,
+    't2',
+    'rename moved to the new target',
+  );
+  assert.strictEqual(
+    global.__renderCount,
+    1,
+    'cancelRenameTrack() should have run for t1, re-rendering the list once',
+  );
   dom.restore();
   delete global.AppState;
 });
@@ -626,7 +735,11 @@ test('cancelRenameTrack: clears the renaming flag without touching the track nam
   GSRTrackManager.cancelRenameTrack();
 
   assert.strictEqual(global.AppState._renamingTrackId, null);
-  assert.strictEqual(t1.name, 'Untouched', 'cancel leaves the original name intact');
+  assert.strictEqual(
+    t1.name,
+    'Untouched',
+    'cancel leaves the original name intact',
+  );
   delete global.AppState;
 });
 
@@ -649,7 +762,9 @@ test('saveActiveTrackParams: reads slider values via GSRStorage and stores them 
   global.AppState.collectiveManager.addTrack(t1);
   global.AppState.activeTrackId = 't1';
   const params = { peakThreshold: 0.03, useDeconvolution: true };
-  global.GSRStorage = setSingletonShape(RealGSRStorage, { readGsrSliderValues: () => params });
+  global.GSRStorage = setSingletonShape(RealGSRStorage, {
+    readGsrSliderValues: () => params,
+  });
 
   GSRTrackManager.saveActiveTrackParams();
 
@@ -661,7 +776,9 @@ test('saveActiveTrackParams: reads slider values via GSRStorage and stores them 
 test('saveActiveTrackParams: no-op when there is no active track', () => {
   resetSpies();
   global.AppState = freshAppState();
-  global.GSRStorage = setSingletonShape(RealGSRStorage, { readGsrSliderValues: () => ({ x: 1 }) });
+  global.GSRStorage = setSingletonShape(RealGSRStorage, {
+    readGsrSliderValues: () => ({ x: 1 }),
+  });
   assert.doesNotThrow(() => GSRTrackManager.saveActiveTrackParams());
   global.GSRStorage = setSingletonShape(RealGSRStorage, defaultGSRStorage);
   delete global.AppState;
@@ -674,7 +791,9 @@ test('loadActiveTrackParams + saveActiveTrackParams round-trip a params object t
     peakThreshold: { value: null, dataset: {} },
     useDeconvolution: { checked: false, dataset: {} },
   };
-  const t1 = makeTrack('t1', { filterParams: { peakThreshold: 0.045, useDeconvolution: false } });
+  const t1 = makeTrack('t1', {
+    filterParams: { peakThreshold: 0.045, useDeconvolution: false },
+  });
   global.AppState.collectiveManager.addTrack(t1);
   global.AppState.activeTrackId = 't1';
 
@@ -691,7 +810,10 @@ test('loadActiveTrackParams + saveActiveTrackParams round-trip a params object t
     }),
   });
   GSRTrackManager.saveActiveTrackParams();
-  assert.deepStrictEqual(t1.filterParams, { peakThreshold: 0.045, useDeconvolution: false });
+  assert.deepStrictEqual(t1.filterParams, {
+    peakThreshold: 0.045,
+    useDeconvolution: false,
+  });
 
   global.GSRStorage = setSingletonShape(RealGSRStorage, defaultGSRStorage);
   delete global.AppState;
@@ -738,11 +860,15 @@ test('loadActiveTrackParams: hotspotPercentile fraction (0-1) is scaled to the s
   };
   // GSR_DEFAULT stores this as a 0.02 fraction; the slider min is 0.5 (%), so a
   // raw assignment would clamp to 0.5. It must land on 2, not 0.02.
-  GSRTrackManager.loadActiveTrackParams({ filterParams: { hotspotPercentile: 0.02, useDeconvolution: false } });
+  GSRTrackManager.loadActiveTrackParams({
+    filterParams: { hotspotPercentile: 0.02, useDeconvolution: false },
+  });
   assert.strictEqual(global.AppState.sliders.hotspotPercentile.value, 2);
 
   // A value already in percent units (> 1) is passed through untouched.
-  GSRTrackManager.loadActiveTrackParams({ filterParams: { hotspotPercentile: 3.5, useDeconvolution: false } });
+  GSRTrackManager.loadActiveTrackParams({
+    filterParams: { hotspotPercentile: 3.5, useDeconvolution: false },
+  });
   assert.strictEqual(global.AppState.sliders.hotspotPercentile.value, 3.5);
   delete global.AppState;
 });
@@ -766,7 +892,9 @@ test('saveActiveGpsParams: reads GPS slider values via GSRStorage and stores the
   global.AppState.collectiveManager.addTrack(t1);
   global.AppState.activeTrackId = 't1';
   const gpsParams = { smoothing: 0.8, kalmanR: 12 };
-  global.GSRStorage = setSingletonShape(RealGSRStorage, { readGpsSliderValues: () => gpsParams });
+  global.GSRStorage = setSingletonShape(RealGSRStorage, {
+    readGpsSliderValues: () => gpsParams,
+  });
 
   GSRTrackManager.saveActiveGpsParams();
 
@@ -778,7 +906,9 @@ test('saveActiveGpsParams: reads GPS slider values via GSRStorage and stores the
 test('saveActiveGpsParams: no-op when there is no active track', () => {
   resetSpies();
   global.AppState = freshAppState();
-  global.GSRStorage = setSingletonShape(RealGSRStorage, { readGpsSliderValues: () => ({}) });
+  global.GSRStorage = setSingletonShape(RealGSRStorage, {
+    readGpsSliderValues: () => ({}),
+  });
   assert.doesNotThrow(() => GSRTrackManager.saveActiveGpsParams());
   global.GSRStorage = setSingletonShape(RealGSRStorage, defaultGSRStorage);
   delete global.AppState;
@@ -791,7 +921,10 @@ test('loadActiveGpsParams: forwards gpsFilterParams to GSRStorage.writeGpsSlider
   resetSpies();
   global.AppState = freshAppState();
   const seen = [];
-  global.GSRStorage = setSingletonShape(RealGSRStorage, { ...defaultGSRStorage, writeGpsSliderValues: (gps) => seen.push(gps) });
+  global.GSRStorage = setSingletonShape(RealGSRStorage, {
+    ...defaultGSRStorage,
+    writeGpsSliderValues: (gps) => seen.push(gps),
+  });
 
   const gpsParams = { smoothing: 0.5, kalmanR: 10, rdpTolerance: 1.5 };
   GSRTrackManager.loadActiveGpsParams({ gpsFilterParams: gpsParams });
@@ -805,10 +938,17 @@ test('loadActiveGpsParams: no-op for a null track or a track with no gpsFilterPa
   resetSpies();
   global.AppState = freshAppState();
   let calls = 0;
-  global.GSRStorage = setSingletonShape(RealGSRStorage, { ...defaultGSRStorage, writeGpsSliderValues: () => calls++ });
+  global.GSRStorage = setSingletonShape(RealGSRStorage, {
+    ...defaultGSRStorage,
+    writeGpsSliderValues: () => calls++,
+  });
   assert.doesNotThrow(() => GSRTrackManager.loadActiveGpsParams(null));
   assert.doesNotThrow(() => GSRTrackManager.loadActiveGpsParams({}));
-  assert.strictEqual(calls, 0, 'writeGpsSliderValues not called when there are no params');
+  assert.strictEqual(
+    calls,
+    0,
+    'writeGpsSliderValues not called when there are no params',
+  );
   global.GSRStorage = setSingletonShape(RealGSRStorage, defaultGSRStorage);
   delete global.AppState;
 });
@@ -821,10 +961,17 @@ function mockFileStatusDom() {
   const dot = makeMockElement();
   const text = makeMockElement();
   const el = makeMockElement();
-  el.querySelector = (sel) => (sel === '.status-dot' ? dot : sel === '.status-text' ? text : null);
+  el.querySelector = (sel) =>
+    sel === '.status-dot' ? dot : sel === '.status-text' ? text : null;
   const prevGetById = global.document.getElementById;
   global.document.getElementById = (id) => (id === 'fileStatus' ? el : null);
-  return { dot, text, restore: () => { global.document.getElementById = prevGetById; } };
+  return {
+    dot,
+    text,
+    restore: () => {
+      global.document.getElementById = prevGetById;
+    },
+  };
 }
 
 test('setFileStatus: "success" sets the dot class and status text', () => {
@@ -876,7 +1023,9 @@ test('setFileStatus: does nothing (does not throw) when the #fileStatus element 
 global.FileReader = class {
   readAsText(file) {
     if (typeof this.onload === 'function') {
-      this.onload({ target: { result: file.content !== undefined ? file.content : '' } });
+      this.onload({
+        target: { result: file.content !== undefined ? file.content : '' },
+      });
     }
   }
 };
@@ -893,7 +1042,11 @@ test('loadFilesSequentially: parses each file, adds a track, and switches active
   assert.strictEqual(track.name, 'walk1.csv');
   assert.strictEqual(track.enabled, true);
   assert.strictEqual(track.settingsSource, 'standard');
-  assert.strictEqual(global.AppState.activeTrackId, track.id, 'newly loaded track becomes active');
+  assert.strictEqual(
+    global.AppState.activeTrackId,
+    track.id,
+    'newly loaded track becomes active',
+  );
   delete global.AppState;
 });
 
@@ -909,16 +1062,29 @@ test('loadFilesSequentially: processes multiple files in order, each getting the
 
   const tracks = global.AppState.collectiveManager.tracks;
   assert.strictEqual(tracks.length, 2);
-  assert.deepStrictEqual(tracks.map(t => t.name), ['a.csv', 'b.csv']);
-  assert.notStrictEqual(tracks[0].color, tracks[1].color, 'each track gets the next palette color');
-  assert.strictEqual(global.AppState.activeTrackId, tracks[1].id, 'last-loaded file ends up active');
+  assert.deepStrictEqual(
+    tracks.map((t) => t.name),
+    ['a.csv', 'b.csv'],
+  );
+  assert.notStrictEqual(
+    tracks[0].color,
+    tracks[1].color,
+    'each track gets the next palette color',
+  );
+  assert.strictEqual(
+    global.AppState.activeTrackId,
+    tracks[1].id,
+    'last-loaded file ends up active',
+  );
   delete global.AppState;
 });
 
 test('loadFilesSequentially: a processed CSV with imported params sets settingsSource to "imported" and uses those params', () => {
   resetSpies();
   global.AppState = freshAppState();
-  GSRTrackManager.loadFilesSequentially([{ name: 'processed.csv', content: '__IMPORTED__' }]);
+  GSRTrackManager.loadFilesSequentially([
+    { name: 'processed.csv', content: '__IMPORTED__' },
+  ]);
 
   const track = global.AppState.collectiveManager.tracks[0];
   assert.strictEqual(track.settingsSource, 'imported');
@@ -937,7 +1103,10 @@ test('loadFilesSequentially: a parse error alerts, skips that file, and continue
 
   GSRTrackManager.loadFilesSequentially(files);
 
-  assert.ok(global.__lastAlert && global.__lastAlert.includes('bad.csv'), 'alert fired for the bad file');
+  assert.ok(
+    global.__lastAlert && global.__lastAlert.includes('bad.csv'),
+    'alert fired for the bad file',
+  );
   const tracks = global.AppState.collectiveManager.tracks;
   assert.strictEqual(tracks.length, 1, 'only the good file produced a track');
   assert.strictEqual(tracks[0].name, 'good.csv');
@@ -961,7 +1130,10 @@ test('handleFileSelect: forwards the selected files into handleIncomingFiles', (
   GSRTrackManager.handleFileSelect(e);
 
   assert.strictEqual(global.AppState.collectiveManager.tracks.length, 1);
-  assert.strictEqual(global.AppState.collectiveManager.tracks[0].name, 'picked.csv');
+  assert.strictEqual(
+    global.AppState.collectiveManager.tracks[0].name,
+    'picked.csv',
+  );
   delete global.AppState;
 });
 
@@ -982,14 +1154,20 @@ test('handleFileSelect: shows the restore-fullscreen pill and resets the flag wh
   // handleFileSelect's own logic (whether it *decides* to call it), so it's
   // stubbed here rather than driven for real.
   const originalPill = GSRTrackManager._showRestoreFsPill;
-  GSRTrackManager._showRestoreFsPill = () => { pillShown = true; };
+  GSRTrackManager._showRestoreFsPill = () => {
+    pillShown = true;
+  };
   GSRTrackManager._browserFsSave = true;
 
   const e = { target: { files: [{ name: 'a.csv', content: 'x' }] } };
   GSRTrackManager.handleFileSelect(e);
 
   assert.strictEqual(pillShown, true);
-  assert.strictEqual(GSRTrackManager._browserFsSave, false, 'flag reset before processing');
+  assert.strictEqual(
+    GSRTrackManager._browserFsSave,
+    false,
+    'flag reset before processing',
+  );
   GSRTrackManager._showRestoreFsPill = originalPill;
   delete global.AppState;
 });
@@ -999,12 +1177,20 @@ test('handleIncomingFiles: a lone .zip is routed to GSRCollectiveProject.importP
   global.AppState = freshAppState();
   global.AppState.fileInput = { value: 'stale' };
   let importedFile = null;
-  global.GSRCollectiveProject = setSingletonShape(RealGSRCollectiveProject, { importProject: (f) => { importedFile = f; } });
+  global.GSRCollectiveProject = setSingletonShape(RealGSRCollectiveProject, {
+    importProject: (f) => {
+      importedFile = f;
+    },
+  });
 
   GSRTrackManager.handleIncomingFiles([{ name: 'project.zip' }]);
 
   assert.strictEqual(importedFile.name, 'project.zip');
-  assert.strictEqual(global.AppState.collectiveManager.tracks.length, 0, 'no CSV loading happened');
+  assert.strictEqual(
+    global.AppState.collectiveManager.tracks.length,
+    0,
+    'no CSV loading happened',
+  );
   assert.strictEqual(global.AppState.fileInput.value, '');
   delete global.GSRCollectiveProject;
   delete global.AppState;
@@ -1014,7 +1200,11 @@ test('handleIncomingFiles: a .zip mixed with loose CSVs wins — the CSVs are ig
   resetSpies();
   global.AppState = freshAppState();
   let importedFile = null;
-  global.GSRCollectiveProject = setSingletonShape(RealGSRCollectiveProject, { importProject: (f) => { importedFile = f; } });
+  global.GSRCollectiveProject = setSingletonShape(RealGSRCollectiveProject, {
+    importProject: (f) => {
+      importedFile = f;
+    },
+  });
 
   GSRTrackManager.handleIncomingFiles([
     { name: 'walk.csv', content: 'x' },
@@ -1032,7 +1222,10 @@ test('handleIncomingFiles: non-zip files are loaded as tracks via loadFilesSeque
   global.AppState = freshAppState();
   GSRTrackManager.handleIncomingFiles([{ name: 'walk.csv', content: 'x' }]);
   assert.strictEqual(global.AppState.collectiveManager.tracks.length, 1);
-  assert.strictEqual(global.AppState.collectiveManager.tracks[0].name, 'walk.csv');
+  assert.strictEqual(
+    global.AppState.collectiveManager.tracks[0].name,
+    'walk.csv',
+  );
   delete global.AppState;
 });
 
@@ -1048,7 +1241,10 @@ async function flush() {
 test('loadDefaultTrack: fetches, parses, and loads the demo CSV as a new active track', async () => {
   resetSpies();
   global.AppState = freshAppState();
-  global.fetch = async () => ({ ok: true, text: async () => 'time,gsr\n0,1\n0.1,2\n' });
+  global.fetch = async () => ({
+    ok: true,
+    text: async () => 'time,gsr\n0,1\n0.1,2\n',
+  });
 
   GSRTrackManager.loadDefaultTrack();
   await flush();
@@ -1069,7 +1265,11 @@ test('loadDefaultTrack: an HTTP error alerts instead of throwing, and no track i
   assert.doesNotThrow(() => GSRTrackManager.loadDefaultTrack());
   await flush();
 
-  assert.ok(global.__lastAlert && global.__lastAlert.includes('Error loading demo data'), `got: ${global.__lastAlert}`);
+  assert.ok(
+    global.__lastAlert &&
+      global.__lastAlert.includes('Error loading demo data'),
+    `got: ${global.__lastAlert}`,
+  );
   assert.strictEqual(global.AppState.collectiveManager.tracks.length, 0);
   delete global.fetch;
   delete global.AppState;
@@ -1078,12 +1278,17 @@ test('loadDefaultTrack: an HTTP error alerts instead of throwing, and no track i
 test('loadDefaultTrack: a network-level fetch rejection alerts instead of throwing', async () => {
   resetSpies();
   global.AppState = freshAppState();
-  global.fetch = async () => { throw new Error('network down'); };
+  global.fetch = async () => {
+    throw new Error('network down');
+  };
 
   assert.doesNotThrow(() => GSRTrackManager.loadDefaultTrack());
   await flush();
 
-  assert.ok(global.__lastAlert && global.__lastAlert.includes('network down'), `got: ${global.__lastAlert}`);
+  assert.ok(
+    global.__lastAlert && global.__lastAlert.includes('network down'),
+    `got: ${global.__lastAlert}`,
+  );
   assert.strictEqual(global.AppState.collectiveManager.tracks.length, 0);
   delete global.fetch;
   delete global.AppState;
@@ -1097,7 +1302,11 @@ test('loadDefaultTrack: a CSV parse failure alerts with the "Error parsing demo 
   GSRTrackManager.loadDefaultTrack();
   await flush();
 
-  assert.ok(global.__lastAlert && global.__lastAlert.includes('Error parsing demo data'), `got: ${global.__lastAlert}`);
+  assert.ok(
+    global.__lastAlert &&
+      global.__lastAlert.includes('Error parsing demo data'),
+    `got: ${global.__lastAlert}`,
+  );
   assert.strictEqual(global.AppState.collectiveManager.tracks.length, 0);
   delete global.fetch;
   delete global.AppState;
@@ -1111,11 +1320,17 @@ test('switchActiveTrack: calls syncMapPanelForSpatialData to reconcile map windo
 
   let syncedTrack = null;
   const origSync = global.GSRUI.syncMapPanelForSpatialData;
-  global.GSRUI.syncMapPanelForSpatialData = (trk) => { syncedTrack = trk; };
+  global.GSRUI.syncMapPanelForSpatialData = (trk) => {
+    syncedTrack = trk;
+  };
 
   try {
     GSRTrackManager.switchActiveTrack('t1');
-    assert.strictEqual(syncedTrack, t1, 'syncMapPanelForSpatialData was called with active track');
+    assert.strictEqual(
+      syncedTrack,
+      t1,
+      'syncMapPanelForSpatialData was called with active track',
+    );
   } finally {
     global.GSRUI.syncMapPanelForSpatialData = origSync;
     delete global.AppState;
@@ -1125,7 +1340,9 @@ test('switchActiveTrack: calls syncMapPanelForSpatialData to reconcile map windo
 test('GSRTrackManager.syncMapPanelForSpatialData: delegates to GSRUI.syncMapPanelForSpatialData', () => {
   let calledWith = null;
   const origSync = global.GSRUI.syncMapPanelForSpatialData;
-  global.GSRUI.syncMapPanelForSpatialData = (trk) => { calledWith = trk; };
+  global.GSRUI.syncMapPanelForSpatialData = (trk) => {
+    calledWith = trk;
+  };
 
   try {
     const dummyTrack = { id: 'dummy' };
@@ -1135,4 +1352,3 @@ test('GSRTrackManager.syncMapPanelForSpatialData: delegates to GSRUI.syncMapPane
     global.GSRUI.syncMapPanelForSpatialData = origSync;
   }
 });
-

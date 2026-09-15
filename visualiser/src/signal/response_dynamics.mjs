@@ -16,11 +16,10 @@
  */
 
 export const ResponseDynamics = {
-
   /**
    * Canonical multi-scale dictionary dilation factors.
    */
-  SCALE_FACTORS: [0.50, 0.75, 1.00, 1.25, 1.50],
+  SCALE_FACTORS: [0.5, 0.75, 1.0, 1.25, 1.5],
 
   /**
    * Canonical speed category labels (ascending scale order).
@@ -32,21 +31,56 @@ export const ResponseDynamics = {
    */
   SPEED_COLORS: {
     'Very Slow': '#8b5cf6', // 0.50x (Deep Purple / Lingering tension)
-    'Slow':      '#3b82f6', // 0.75x (Vivid Blue / Sluggish clearance)
-    'Standard':  '#10b981', // 1.00x (Emerald Green / Habitual baseline)
-    'Fast':      '#f97316', // 1.25x (Vibrant Orange / Rapid recruitment)
-    'Very Fast': '#ef4444'  // 1.50x (Vivid Red / Acute shock or startle)
+    Slow: '#3b82f6', // 0.75x (Vivid Blue / Sluggish clearance)
+    Standard: '#10b981', // 1.00x (Emerald Green / Habitual baseline)
+    Fast: '#f97316', // 1.25x (Vibrant Orange / Rapid recruitment)
+    'Very Fast': '#ef4444', // 1.50x (Vivid Red / Acute shock or startle)
   },
 
   /**
    * Continuous speed band definitions with partition thresholds.
    */
   BANDS: [
-    { id: 'very_slow', label: 'Very Slow', scale: 0.50, color: '#8b5cf6', minVal: -Infinity, maxVal: 0.625 },
-    { id: 'slow',      label: 'Slow',      scale: 0.75, color: '#3b82f6', minVal: 0.625,     maxVal: 0.875 },
-    { id: 'standard',  label: 'Standard',  scale: 1.00, color: '#10b981', minVal: 0.875,     maxVal: 1.125 },
-    { id: 'fast',      label: 'Fast',      scale: 1.25, color: '#f97316', minVal: 1.125,     maxVal: 1.375 },
-    { id: 'very_fast', label: 'Very Fast', scale: 1.50, color: '#ef4444', minVal: 1.375,     maxVal: Infinity }
+    {
+      id: 'very_slow',
+      label: 'Very Slow',
+      scale: 0.5,
+      color: '#8b5cf6',
+      minVal: -Infinity,
+      maxVal: 0.625,
+    },
+    {
+      id: 'slow',
+      label: 'Slow',
+      scale: 0.75,
+      color: '#3b82f6',
+      minVal: 0.625,
+      maxVal: 0.875,
+    },
+    {
+      id: 'standard',
+      label: 'Standard',
+      scale: 1.0,
+      color: '#10b981',
+      minVal: 0.875,
+      maxVal: 1.125,
+    },
+    {
+      id: 'fast',
+      label: 'Fast',
+      scale: 1.25,
+      color: '#f97316',
+      minVal: 1.125,
+      maxVal: 1.375,
+    },
+    {
+      id: 'very_fast',
+      label: 'Very Fast',
+      scale: 1.5,
+      color: '#ef4444',
+      minVal: 1.375,
+      maxVal: Infinity,
+    },
   ],
 
   /**
@@ -60,7 +94,10 @@ export const ResponseDynamics = {
     const bands = this.BANDS;
     for (let i = 0; i < bands.length; i++) {
       const b = bands[i];
-      if (val >= b.minVal && (i === bands.length - 1 ? val <= b.maxVal : val < b.maxVal)) {
+      if (
+        val >= b.minVal &&
+        (i === bands.length - 1 ? val <= b.maxVal : val < b.maxVal)
+      ) {
         return b;
       }
     }
@@ -81,7 +118,7 @@ export const ResponseDynamics = {
     if (val < 0.875) return 2; // Slow
     if (val < 1.125) return 3; // Standard
     if (val < 1.375) return 4; // Fast
-    return 5;                  // Very Fast
+    return 5; // Very Fast
   },
 
   /**
@@ -121,7 +158,7 @@ export const ResponseDynamics = {
     const color = band ? band.color : this.SPEED_COLORS['Standard'];
     return {
       valueStr: `${val.toFixed(2)}x (${speedLabel})`,
-      color
+      color,
     };
   },
 
@@ -135,7 +172,13 @@ export const ResponseDynamics = {
    * @returns {object} Summary statistics
    */
   tagPeaks(peaks, driverPeaks = [], sampleRate = 10) {
-    const counts = { 'Very Slow': 0, 'Slow': 0, 'Standard': 0, 'Fast': 0, 'Very Fast': 0 };
+    const counts = {
+      'Very Slow': 0,
+      Slow: 0,
+      Standard: 0,
+      Fast: 0,
+      'Very Fast': 0,
+    };
     let sumScale = 0;
     let nTagged = 0;
     const fs = sampleRate || 10;
@@ -145,12 +188,13 @@ export const ResponseDynamics = {
         speedCounts: counts,
         dominantSpeed: 'Standard',
         meanScaleFactor: 1.0,
-        totalTaggedPeaks: 0
+        totalTaggedPeaks: 0,
       };
     }
 
     for (const peak of peaks) {
-      const onsetIdx = peak.onsetIndex ?? Math.max(0, peak.index - Math.round(1.5 * fs));
+      const onsetIdx =
+        peak.onsetIndex ?? Math.max(0, peak.index - Math.round(1.5 * fs));
       const apexIdx = peak.index;
       const winStart = Math.max(0, onsetIdx - Math.round(0.5 * fs));
       const winEnd = apexIdx;
@@ -212,7 +256,7 @@ export const ResponseDynamics = {
       speedCounts: counts,
       dominantSpeed: maxCount > 0 ? dominantSpeed : 'Standard',
       meanScaleFactor: nTagged > 0 ? sumScale / nTagged : 1.0,
-      totalTaggedPeaks: nTagged
+      totalTaggedPeaks: nTagged,
     };
   },
 
@@ -234,15 +278,25 @@ export const ResponseDynamics = {
    * @param {boolean} [opts.isSparseda=true] - Whether SparsEDA is the active deconvolution algorithm.
    * @returns {Array<{ time: number, val: number }>} Continuous series
    */
-  computeSeries({ n, sampleRate = 4, raw = null, times = null, peaks = [], isSparseda = true }) {
+  computeSeries({
+    n,
+    sampleRate = 4,
+    raw = null,
+    times = null,
+    peaks = [],
+    isSparseda = true,
+  }) {
     if (!n || n <= 0) return [];
 
     const fs = sampleRate || 4;
     const series = new Array(n);
     for (let i = 0; i < n; i++) {
-      const t = (raw && raw[i] && typeof raw[i].time === 'number')
-        ? raw[i].time
-        : (times ? times[i] : (i / fs));
+      const t =
+        raw && raw[i] && typeof raw[i].time === 'number'
+          ? raw[i].time
+          : times
+            ? times[i]
+            : i / fs;
       series[i] = { time: t, val: 0.0 }; // 0.0 = Resting / Inactive
     }
 
@@ -250,7 +304,9 @@ export const ResponseDynamics = {
       return series;
     }
 
-    const activePeaks = peaks.filter(p => !p.excluded && typeof p.scaleFactor === 'number');
+    const activePeaks = peaks.filter(
+      (p) => !p.excluded && typeof p.scaleFactor === 'number',
+    );
     if (activePeaks.length === 0) {
       return series;
     }
@@ -265,15 +321,19 @@ export const ResponseDynamics = {
       const apexIdx = Math.max(0, Math.min(n - 1, p.index));
 
       // Onset bound: detected onset or theoretical rise time (~1.2s / alpha)
-      let onsetIdx = (typeof p.onsetIndex === 'number' && p.onsetIndex >= 0)
-        ? p.onsetIndex
-        : Math.max(0, apexIdx - Math.round((1.2 / alpha) * fs));
+      let onsetIdx =
+        typeof p.onsetIndex === 'number' && p.onsetIndex >= 0
+          ? p.onsetIndex
+          : Math.max(0, apexIdx - Math.round((1.2 / alpha) * fs));
       onsetIdx = Math.max(0, Math.min(apexIdx, onsetIdx));
 
       // Recovery bound: 2.5x half-recovery index or nominal Bateman clearance (~6.0s / alpha)
       let endIdx;
       if (typeof p.recoveryIndex === 'number' && p.recoveryIndex > apexIdx) {
-        endIdx = Math.min(n - 1, apexIdx + Math.round(2.5 * (p.recoveryIndex - apexIdx)));
+        endIdx = Math.min(
+          n - 1,
+          apexIdx + Math.round(2.5 * (p.recoveryIndex - apexIdx)),
+        );
       } else {
         endIdx = Math.min(n - 1, apexIdx + Math.round((6.0 / alpha) * fs));
       }
@@ -291,5 +351,5 @@ export const ResponseDynamics = {
     }
 
     return series;
-  }
+  },
 };

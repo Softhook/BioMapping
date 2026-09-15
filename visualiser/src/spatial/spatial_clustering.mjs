@@ -52,15 +52,22 @@ export class GSRSpatialClustering {
   static compactClusters(peaks, radiusMeters = 35, separationFactor = 1.8) {
     if (!peaks || peaks.length === 0) return [];
     const n = peaks.length;
-    const R = (isNaN(parseFloat(radiusMeters)) || parseFloat(radiusMeters) <= 0)
-      ? 35 : parseFloat(radiusMeters);
+    const R =
+      isNaN(parseFloat(radiusMeters)) || parseFloat(radiusMeters) <= 0
+        ? 35
+        : parseFloat(radiusMeters);
     const SEP = isNaN(parseFloat(separationFactor))
-      ? 1.8 : Math.max(1, parseFloat(separationFactor));
-    const sepR2 = (R * SEP) * (R * SEP);
+      ? 1.8
+      : Math.max(1, parseFloat(separationFactor));
+    const sepR2 = R * SEP * (R * SEP);
 
     // Project to a local metric plane (metres) centred on the mean position.
-    let latSum = 0, lonSum = 0;
-    for (let i = 0; i < n; i++) { latSum += parseFloat(peaks[i].lat); lonSum += parseFloat(peaks[i].lon); }
+    let latSum = 0,
+      lonSum = 0;
+    for (let i = 0; i < n; i++) {
+      latSum += parseFloat(peaks[i].lat);
+      lonSum += parseFloat(peaks[i].lon);
+    }
     const latMid = latSum / n;
     const lonMid = lonSum / n;
     const scale = GSRSpatialClustering._getGeodesicScale(latMid);
@@ -78,7 +85,10 @@ export class GSRSpatialClustering {
     for (let i = 0; i < n; i++) {
       const k = Math.floor(x[i] / cell) + '|' + Math.floor(y[i] / cell);
       let arr = grid.get(k);
-      if (!arr) { arr = []; grid.set(k, arr); }
+      if (!arr) {
+        arr = [];
+        grid.set(k, arr);
+      }
       arr.push(i);
     }
     const R2 = R * R;
@@ -108,8 +118,9 @@ export class GSRSpatialClustering {
       density[i] = neigh[i].length;
     }
 
-    const order = Array.from({ length: n }, (_, i) => i)
-      .sort((a, b) => (density[b] - density[a]) || (a - b));
+    const order = Array.from({ length: n }, (_, i) => i).sort(
+      (a, b) => density[b] - density[a] || a - b,
+    );
 
     const assigned = new Uint8Array(n);
     const seeds = []; // { x, y, members }
@@ -118,11 +129,16 @@ export class GSRSpatialClustering {
       if (assigned[seed]) continue;
 
       // Nearest bead we have already seeded.
-      let near = null, nearD2 = Infinity;
+      let near = null,
+        nearD2 = Infinity;
       for (const s of seeds) {
-        const dx = x[seed] - s.x, dy = y[seed] - s.y;
+        const dx = x[seed] - s.x,
+          dy = y[seed] - s.y;
         const d2 = dx * dx + dy * dy;
-        if (d2 < nearD2) { nearD2 = d2; near = s; }
+        if (d2 < nearD2) {
+          nearD2 = d2;
+          near = s;
+        }
       }
 
       if (near && nearD2 <= sepR2) {
@@ -136,11 +152,14 @@ export class GSRSpatialClustering {
       // always in neigh[seed] (dx=dy=0), so `members` is never empty.
       const members = [];
       for (const j of neigh[seed]) {
-        if (!assigned[j]) { assigned[j] = 1; members.push(peaks[j]); }
+        if (!assigned[j]) {
+          assigned[j] = 1;
+          members.push(peaks[j]);
+        }
       }
       seeds.push({ x: x[seed], y: y[seed], members });
     }
-    return seeds.map(s => s.members);
+    return seeds.map((s) => s.members);
   }
 
   /**
@@ -162,8 +181,14 @@ export class GSRSpatialClustering {
    * @returns {number} Clamped relative weight, in [GSR_CONST.PEAK_KDE.ampWeightMin, ampWeightMax].
    */
   static relativeAmplitudeWeight(amplitude, refAmplitude) {
-    const min = (typeof GSR_CONST !== 'undefined' && GSR_CONST.PEAK_KDE) ? GSR_CONST.PEAK_KDE.ampWeightMin : 0.55;
-    const max = (typeof GSR_CONST !== 'undefined' && GSR_CONST.PEAK_KDE) ? GSR_CONST.PEAK_KDE.ampWeightMax : 3.0;
+    const min =
+      typeof GSR_CONST !== 'undefined' && GSR_CONST.PEAK_KDE
+        ? GSR_CONST.PEAK_KDE.ampWeightMin
+        : 0.55;
+    const max =
+      typeof GSR_CONST !== 'undefined' && GSR_CONST.PEAK_KDE
+        ? GSR_CONST.PEAK_KDE.ampWeightMax
+        : 3.0;
     if (typeof refAmplitude !== 'number' || refAmplitude <= 0) return 1;
     if (typeof amplitude !== 'number' || isNaN(amplitude)) return 1;
     const rel = amplitude / refAmplitude;
@@ -185,15 +210,21 @@ export class GSRSpatialClustering {
    *   behaviour for existing callers.
    * @returns {Array<Array<{lat: number, lon: number}>>} Array of paths (closed loops).
    */
-  static getConcaveBlob(cluster, sigma = 15, thresholdRadius = 18, refAmplitude = null) {
+  static getConcaveBlob(
+    cluster,
+    sigma = 15,
+    thresholdRadius = 18,
+    refAmplitude = null,
+  ) {
     if (!cluster || cluster.length === 0) return [];
 
     // Per-peak relative-severity weighting — see relativeAmplitudeWeight() above for the
     // shared clamp rationale. Note this preserves the isolevel-reachability guarantee that
     // motivated the 0.55 floor (a lone peak's density should still reach the boundary
     // isolevel given the default sigma/thresholdRadius pairing), just centralized.
-    const weightForPeak = (pk) => GSRSpatialClustering.relativeAmplitudeWeight(pk.amplitude, refAmplitude);
-    
+    const weightForPeak = (pk) =>
+      GSRSpatialClustering.relativeAmplitudeWeight(pk.amplitude, refAmplitude);
+
     let s = parseFloat(sigma);
     if (isNaN(s) || s <= 0) s = 15;
     let rThreshold = parseFloat(thresholdRadius);
@@ -205,7 +236,10 @@ export class GSRSpatialClustering {
 
     // Calculate required padding dynamically to prevent superposition boundary clipping at grid edges
     const peakCount = cluster.length;
-    const paddingMeters = Math.sqrt(rThreshold * rThreshold + 2 * s * s * Math.log(Math.max(1, peakCount))) + 15;
+    const paddingMeters =
+      Math.sqrt(
+        rThreshold * rThreshold + 2 * s * s * Math.log(Math.max(1, peakCount)),
+      ) + 15;
     const bounds = GeoUtils.expandBounds(rawBounds, paddingMeters);
 
     const latMid = (bounds.minLat + bounds.maxLat) / 2;
@@ -222,11 +256,13 @@ export class GSRSpatialClustering {
     // Precompute row latitudes and column longitudes to avoid arithmetic inside nested loops
     const lats = new Float64Array(rows);
     for (let r = 0; r < rows; r++) {
-      lats[r] = bounds.minLat + (r / (rows - 1)) * (bounds.maxLat - bounds.minLat);
+      lats[r] =
+        bounds.minLat + (r / (rows - 1)) * (bounds.maxLat - bounds.minLat);
     }
     const lons = new Float64Array(cols);
     for (let c = 0; c < cols; c++) {
-      lons[c] = bounds.minLon + (c / (cols - 1)) * (bounds.maxLon - bounds.minLon);
+      lons[c] =
+        bounds.minLon + (c / (cols - 1)) * (bounds.maxLon - bounds.minLon);
     }
 
     const twoSigmaSq = 2 * s * s;
@@ -263,14 +299,81 @@ export class GSRSpatialClustering {
       const w = weightForPeak(pk);
       const pkLat = parseFloat(pk.lat);
       const pkLon = parseFloat(pk.lon);
-      const { rMin, rMax, cMin, cMax } = (typeof SpatialGrid !== 'undefined' && typeof SpatialGrid.computeCellWindow === 'function')
-        ? SpatialGrid.computeCellWindow(pkLat, pkLon, cutoffMeters, bounds, rows, cols, scale.degToMeterLat, scale.degToMeterLon)
-        : {
-            rMin: Math.max(0, Math.round((pkLat - bounds.minLat) / ((bounds.maxLat - bounds.minLat) / (rows - 1))) - Math.max(1, Math.ceil((cutoffMeters / scale.degToMeterLat) / ((bounds.maxLat - bounds.minLat) / (rows - 1))))),
-            rMax: Math.min(rows - 1, Math.round((pkLat - bounds.minLat) / ((bounds.maxLat - bounds.minLat) / (rows - 1))) + Math.max(1, Math.ceil((cutoffMeters / scale.degToMeterLat) / ((bounds.maxLat - bounds.minLat) / (rows - 1))))),
-            cMin: Math.max(0, Math.round((pkLon - bounds.minLon) / ((bounds.maxLon - bounds.minLon) / (cols - 1))) - Math.max(1, Math.ceil((cutoffMeters / scale.degToMeterLon) / ((bounds.maxLon - bounds.minLon) / (cols - 1))))),
-            cMax: Math.min(cols - 1, Math.round((pkLon - bounds.minLon) / ((bounds.maxLon - bounds.minLon) / (cols - 1))) + Math.max(1, Math.ceil((cutoffMeters / scale.degToMeterLon) / ((bounds.maxLon - bounds.minLon) / (cols - 1)))))
-          };
+      const { rMin, rMax, cMin, cMax } =
+        typeof SpatialGrid !== 'undefined' &&
+        typeof SpatialGrid.computeCellWindow === 'function'
+          ? SpatialGrid.computeCellWindow(
+              pkLat,
+              pkLon,
+              cutoffMeters,
+              bounds,
+              rows,
+              cols,
+              scale.degToMeterLat,
+              scale.degToMeterLon,
+            )
+          : {
+              rMin: Math.max(
+                0,
+                Math.round(
+                  (pkLat - bounds.minLat) /
+                    ((bounds.maxLat - bounds.minLat) / (rows - 1)),
+                ) -
+                  Math.max(
+                    1,
+                    Math.ceil(
+                      cutoffMeters /
+                        scale.degToMeterLat /
+                        ((bounds.maxLat - bounds.minLat) / (rows - 1)),
+                    ),
+                  ),
+              ),
+              rMax: Math.min(
+                rows - 1,
+                Math.round(
+                  (pkLat - bounds.minLat) /
+                    ((bounds.maxLat - bounds.minLat) / (rows - 1)),
+                ) +
+                  Math.max(
+                    1,
+                    Math.ceil(
+                      cutoffMeters /
+                        scale.degToMeterLat /
+                        ((bounds.maxLat - bounds.minLat) / (rows - 1)),
+                    ),
+                  ),
+              ),
+              cMin: Math.max(
+                0,
+                Math.round(
+                  (pkLon - bounds.minLon) /
+                    ((bounds.maxLon - bounds.minLon) / (cols - 1)),
+                ) -
+                  Math.max(
+                    1,
+                    Math.ceil(
+                      cutoffMeters /
+                        scale.degToMeterLon /
+                        ((bounds.maxLon - bounds.minLon) / (cols - 1)),
+                    ),
+                  ),
+              ),
+              cMax: Math.min(
+                cols - 1,
+                Math.round(
+                  (pkLon - bounds.minLon) /
+                    ((bounds.maxLon - bounds.minLon) / (cols - 1)),
+                ) +
+                  Math.max(
+                    1,
+                    Math.ceil(
+                      cutoffMeters /
+                        scale.degToMeterLon /
+                        ((bounds.maxLon - bounds.minLon) / (cols - 1)),
+                    ),
+                  ),
+              ),
+            };
 
       const degLat = scale.degToMeterLat;
       const degLon = scale.degToMeterLon;
@@ -290,29 +393,42 @@ export class GSRSpatialClustering {
     }
 
     // Solve for isolevel: where density = Math.exp(-rThreshold^2 / (2 * s * s))
-    const isolevel = Math.exp(-(rThreshold * rThreshold) / (twoSigmaSq));
+    const isolevel = Math.exp(-(rThreshold * rThreshold) / twoSigmaSq);
 
     // Run marching squares to extract contour lines.
     // MarchingSquares.getContourLines expects grid[r][c] semantics — build a
     // lightweight row-accessor array that reads from the flat buffer without
     // copying data. Each element is a Float64Array view over its own row slice.
-    if (!MarchingSquares || typeof MarchingSquares.getContourLines !== 'function') {
-      console.warn("MarchingSquares is not defined. Cannot generate concave blobs.");
+    if (
+      !MarchingSquares ||
+      typeof MarchingSquares.getContourLines !== 'function'
+    ) {
+      console.warn(
+        'MarchingSquares is not defined. Cannot generate concave blobs.',
+      );
       return [];
     }
     const gridRows = [];
     for (let r = 0; r < rows; r++) {
       gridRows.push(flatGrid.subarray(r * cols, r * cols + cols));
     }
-    const segments = MarchingSquares.getContourLines(gridRows, rows, cols, bounds, isolevel);
+    const segments = MarchingSquares.getContourLines(
+      gridRows,
+      rows,
+      cols,
+      bounds,
+      isolevel,
+    );
 
     // Stitch segments into continuous paths
     const paths = GSRSpatialClustering.stitchSegments(segments);
 
     // Filter out degenerate paths and empty islands (loops that contain no peak points)
-    return paths.filter(path => {
+    return paths.filter((path) => {
       if (path.length < 3) return false;
-      return cluster.some(peak => GeoUtils.pointInPolygon(peak.lat, peak.lon, path));
+      return cluster.some((peak) =>
+        GeoUtils.pointInPolygon(peak.lat, peak.lon, path),
+      );
     });
   }
 
@@ -337,23 +453,25 @@ export class GSRSpatialClustering {
   static stitchSegments(segments) {
     if (!segments || segments.length === 0) return [];
 
-    const EPS = 1e-6;              // lat/lon coincidence tolerance (~10 cm)
+    const EPS = 1e-6; // lat/lon coincidence tolerance (~10 cm)
     const EPS_SQ = EPS * EPS;
     const cellOf = (v) => Math.floor(v / EPS);
 
     // ── Phase 1: endpoints → node ids ──────────────────────────────────────
-    const nodePos = [];           // nodeId → { lat, lon } of the first endpoint seen there
-    const cellNodes = new Map();  // "cx,cy" → nodeId[]
+    const nodePos = []; // nodeId → { lat, lon } of the first endpoint seen there
+    const cellNodes = new Map(); // "cx,cy" → nodeId[]
 
     const nodeIdFor = (p) => {
-      const cx = cellOf(p.lon), cy = cellOf(p.lat);
+      const cx = cellOf(p.lon),
+        cy = cellOf(p.lat);
       for (let dx = -1; dx <= 1; dx++) {
         for (let dy = -1; dy <= 1; dy++) {
-          const ids = cellNodes.get((cx + dx) + ',' + (cy + dy));
+          const ids = cellNodes.get(cx + dx + ',' + (cy + dy));
           if (!ids) continue;
           for (let n = 0; n < ids.length; n++) {
             const q = nodePos[ids[n]];
-            const dLat = p.lat - q.lat, dLon = p.lon - q.lon;
+            const dLat = p.lat - q.lat,
+              dLon = p.lon - q.lon;
             if (dLat * dLat + dLon * dLon < EPS_SQ) return ids[n];
           }
         }
@@ -362,13 +480,16 @@ export class GSRSpatialClustering {
       nodePos.push(p);
       const key = cx + ',' + cy;
       let ids = cellNodes.get(key);
-      if (!ids) { ids = []; cellNodes.set(key, ids); }
+      if (!ids) {
+        ids = [];
+        cellNodes.set(key, ids);
+      }
       ids.push(id);
       return id;
     };
 
     const segEnds = new Array(segments.length); // segIdx → [nodeA, nodeB]
-    const incident = [];                        // nodeId → segIdx[]
+    const incident = []; // nodeId → segIdx[]
     for (let i = 0; i < segments.length; i++) {
       const a = nodeIdFor(segments[i][0]);
       const b = nodeIdFor(segments[i][1]);
@@ -394,7 +515,8 @@ export class GSRSpatialClustering {
       if (usedSeg[i]) continue;
       usedSeg[i] = 1;
 
-      let headNode = segEnds[i][0], tailNode = segEnds[i][1];
+      let headNode = segEnds[i][0],
+        tailNode = segEnds[i][1];
       const pts = [segments[i][0], segments[i][1]]; // original endpoint objects
 
       for (let e = nextFrom(tailNode); e !== -1; e = nextFrom(tailNode)) {

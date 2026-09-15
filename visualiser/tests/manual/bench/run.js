@@ -1,4 +1,3 @@
-'use strict';
 /**
  * Track-parametrised performance benchmark runner.
  *
@@ -33,7 +32,9 @@
 const h = require('./harness.js');
 const AREAS = require('./areas.js');
 
-function log(...a) { process.stderr.write(a.join(' ') + '\n'); }
+function log(...a) {
+  process.stderr.write(a.join(' ') + '\n');
+}
 
 function main(argv) {
   const args = h.parseArgs(argv);
@@ -42,7 +43,7 @@ function main(argv) {
     console.log(`Usage: node tests/manual/bench/run.js [area ...] [options]
 
 Areas (omit to run all):
-${AREAS.map(a => '  ' + a.name.padEnd(18) + ' ' + a.title).join('\n')}
+${AREAS.map((a) => '  ' + a.name.padEnd(18) + ' ' + a.title).join('\n')}
 
 Options:
   --tracks=<spec>       track set name or comma list of CSV filenames (default: "default")
@@ -54,7 +55,9 @@ Options:
   --help, -h            show this help message and exit
 
 Track sets:
-${Object.entries(h.TRACK_SETS).map(([k, v]) => '  ' + k.padEnd(10) + ' ' + v.join(', ')).join('\n')}
+${Object.entries(h.TRACK_SETS)
+  .map(([k, v]) => '  ' + k.padEnd(10) + ' ' + v.join(', '))
+  .join('\n')}
   all        every non-empty track CSV on disk (${h.listTracks().length} tracks)
 `);
     return;
@@ -64,30 +67,51 @@ ${Object.entries(h.TRACK_SETS).map(([k, v]) => '  ' + k.padEnd(10) + ' ' + v.joi
     console.log('areas:');
     for (const a of AREAS) console.log(`  ${a.name.padEnd(18)} ${a.title}`);
     console.log('\ntrack sets:');
-    for (const [k, v] of Object.entries(h.TRACK_SETS)) console.log(`  ${k.padEnd(10)} ${v.join(', ')}`);
+    for (const [k, v] of Object.entries(h.TRACK_SETS))
+      console.log(`  ${k.padEnd(10)} ${v.join(', ')}`);
     console.log(`\non disk: ${h.listTracks().length} tracks`);
     return;
   }
 
-  const wanted = args.areas && args.areas.length
-    ? AREAS.filter(a => args.areas.includes(a.name))
-    : AREAS;
-  if (!wanted.length) { log(`no matching areas for: ${(args.areas || []).join(', ')}`); process.exit(1); }
+  const wanted =
+    args.areas && args.areas.length
+      ? AREAS.filter((a) => args.areas.includes(a.name))
+      : AREAS;
+  if (!wanted.length) {
+    log(`no matching areas for: ${(args.areas || []).join(', ')}`);
+    process.exit(1);
+  }
 
   const files = h.resolveTracks(args.tracks);
-  if (!files.length) { log(`no matching tracks found for: "${args.tracks}"`); process.exit(1); }
+  if (!files.length) {
+    log(`no matching tracks found for: "${args.tracks}"`);
+    process.exit(1);
+  }
   const opts = {};
   if (args.iters) opts.iters = args.iters;
   if (args.warmup) opts.warmup = args.warmup;
 
   const t0 = Date.now();
-  log(`${wanted.length} area(s) × ${files.length} track(s): ${files.join(', ')}`);
-  log(`(fresh bootApp + track load per area — keeps every area's numbers independent)`);
+  log(
+    `${wanted.length} area(s) × ${files.length} track(s): ${files.join(', ')}`,
+  );
+  log(
+    `(fresh bootApp + track load per area — keeps every area's numbers independent)`,
+  );
   if (files.length > 12 && wanted.length > 2) {
-    log(`  ! ${files.length} tracks × ${wanted.length} areas is a long run — consider --areas= to narrow`);
+    log(
+      `  ! ${files.length} tracks × ${wanted.length} areas is a long run — consider --areas= to narrow`,
+    );
   }
 
-  const results = { meta: { tracks: files, generated: new Date().toISOString(), node: process.version }, areas: {} };
+  const results = {
+    meta: {
+      tracks: files,
+      generated: new Date().toISOString(),
+      node: process.version,
+    },
+    areas: {},
+  };
 
   for (const area of wanted) {
     const ta = Date.now();
@@ -95,8 +119,15 @@ ${Object.entries(h.TRACK_SETS).map(([k, v]) => '  ' + k.padEnd(10) + ' ' + v.joi
     const ctx = h.boot();
     const tracks = files.map((f, i) => h.loadTrack(ctx.window, f, `bt${i}`));
     const base = {
-      h, window: ctx.window, context: ctx.context, mapManager: ctx.mapManager,
-      L: ctx.L, map: ctx.map, GSR_CONST: ctx.GSR_CONST, tracks, opts,
+      h,
+      window: ctx.window,
+      context: ctx.context,
+      mapManager: ctx.mapManager,
+      L: ctx.L,
+      map: ctx.map,
+      GSR_CONST: ctx.GSR_CONST,
+      tracks,
+      opts,
     };
 
     let rows;
@@ -111,13 +142,18 @@ ${Object.entries(h.TRACK_SETS).map(([k, v]) => '  ' + k.padEnd(10) + ' ' + v.joi
         rows = area.run({ ...base });
       }
     } catch (e) {
-      log(`  ! ${area.name} failed: ${e && e.stack || e}`);
-      results.areas[area.name] = { error: String(e && e.message || e) };
+      log(`  ! ${area.name} failed: ${(e && e.stack) || e}`);
+      results.areas[area.name] = { error: String((e && e.message) || e) };
       process.exitCode = 1;
       continue;
     }
-    results.areas[area.name] = { title: area.title, columns: area.columns, rows };
-    if (!args.json) h.printTable(`── ${area.name} ──  ${area.title}`, area.columns, rows);
+    results.areas[area.name] = {
+      title: area.title,
+      columns: area.columns,
+      rows,
+    };
+    if (!args.json)
+      h.printTable(`── ${area.name} ──  ${area.title}`, area.columns, rows);
     log(`  (${((Date.now() - ta) / 1000).toFixed(1)}s)`);
   }
 

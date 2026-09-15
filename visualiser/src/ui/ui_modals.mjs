@@ -7,7 +7,6 @@
 import { GSRUI } from './ui.mjs';
 
 export const __methods = {
-
   /**
    * Open the street-level imagery modal overlay at the given coordinates.
    * Shows Mapillary by default; Google Street View embed if API key is set.
@@ -37,24 +36,35 @@ export const __methods = {
     this._svLon = lon;
     this._svHeading = cleanHeading;
 
-    titleEl.textContent = label ? 'Street-Level View — ' + label : 'Street-Level View';
+    titleEl.textContent = label
+      ? 'Street-Level View — ' + label
+      : 'Street-Level View';
     coordsEl.textContent = lat.toFixed(5) + ', ' + lon.toFixed(5);
 
     // Set Mapillary embed URL
-    mapillaryIframe.src = 'https://www.mapillary.com/embed?lat=' + lat + '&lng=' + lon + '&z=18';
+    mapillaryIframe.src =
+      'https://www.mapillary.com/embed?lat=' + lat + '&lng=' + lon + '&z=18';
 
     // Set Google Maps external link (fallback) using viewpoint API to support heading orientation
-    googleLink.href = 'https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=' + lat + ',' + lon + '&heading=' + cleanHeading.toFixed(0);
+    googleLink.href =
+      'https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=' +
+      lat +
+      ',' +
+      lon +
+      '&heading=' +
+      cleanHeading.toFixed(0);
 
     // Set Mapillary external link
-    mapillaryExtLink.href = 'https://www.mapillary.com/app/?lat=' + lat + '&lng=' + lon + '&z=18';
+    mapillaryExtLink.href =
+      'https://www.mapillary.com/app/?lat=' + lat + '&lng=' + lon + '&z=18';
 
     // Show the modal first so that the browser does not pause/optimise away the iframe loading
     modal.style.display = 'flex';
     document.body.style.overflow = 'hidden';
 
     // Set Mapillary embed URL (now loaded while modal is visible)
-    mapillaryIframe.src = 'https://www.mapillary.com/embed?lat=' + lat + '&lng=' + lon + '&z=18';
+    mapillaryIframe.src =
+      'https://www.mapillary.com/embed?lat=' + lat + '&lng=' + lon + '&z=18';
 
     // Reset Google iframe
     if (googleIframe) googleIframe.src = '';
@@ -75,7 +85,8 @@ export const __methods = {
    * If event is provided (click on overlay background), only close if clicking the backdrop.
    */
   closeStreetViewModal(event) {
-    if (event && event.target !== document.getElementById('streetviewModal')) return;
+    if (event && event.target !== document.getElementById('streetviewModal'))
+      return;
     const modal = document.getElementById('streetviewModal');
     const mapillaryIframe = document.getElementById('svIframe');
     const googleIframe = document.getElementById('svGoogleIframe');
@@ -97,7 +108,9 @@ export const __methods = {
     const googleTab = document.getElementById('svTabGoogle');
     const iframeContainer = document.getElementById('svIframeContainer');
     const googleContainer = document.getElementById('svGoogleContainer');
-    const googleIframeContainer = document.getElementById('svGoogleIframeContainer');
+    const googleIframeContainer = document.getElementById(
+      'svGoogleIframeContainer',
+    );
     const googleIframe = document.getElementById('svGoogleIframe');
     const googleFallback = document.getElementById('svGoogleFallback');
 
@@ -113,13 +126,25 @@ export const __methods = {
         googleFallback.style.display = 'none';
 
         let cleanHeading = 0;
-        if (typeof this._svHeading === 'number' && !isNaN(this._svHeading) && isFinite(this._svHeading)) {
+        if (
+          typeof this._svHeading === 'number' &&
+          !isNaN(this._svHeading) &&
+          isFinite(this._svHeading)
+        ) {
           cleanHeading = this._svHeading;
         }
 
-        const embedUrl = 'https://www.google.com/maps/embed/v1/streetview?key=' + encodeURIComponent(apiKey)
-          + '&location=' + this._svLat + ',' + this._svLon + '&heading=' + cleanHeading.toFixed(0) + '&pitch=0&fov=90';
-        
+        const embedUrl =
+          'https://www.google.com/maps/embed/v1/streetview?key=' +
+          encodeURIComponent(apiKey) +
+          '&location=' +
+          this._svLat +
+          ',' +
+          this._svLon +
+          '&heading=' +
+          cleanHeading.toFixed(0) +
+          '&pitch=0&fov=90';
+
         // Defer setting the source to allow the browser layout engine to paint
         // the newly visible iframe container first. This resolves lazy-loading deferrals in modern browsers.
         setTimeout(() => {
@@ -145,11 +170,12 @@ export const __methods = {
       localStorage.setItem('bioMappingGoogleMapsKey', key);
       if (msg) {
         msg.style.display = '';
-        setTimeout(function() { msg.style.display = 'none'; }, 3000);
+        setTimeout(() => {
+          msg.style.display = 'none';
+        }, 3000);
       }
     }
   },
-
 };
 
 Object.assign(GSRUI, __methods);

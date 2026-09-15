@@ -24,8 +24,11 @@ export const BezierSpline = {
     if (n === 0) return { start: { x: 0, y: 0 }, segments: [] };
     if (n === 1) return { start: points[0], segments: [] };
 
-    const isDuplicateClosed = closed && n >= 3 &&
-      Math.abs(points[0].x - points[n - 1].x) < 1e-6 && Math.abs(points[0].y - points[n - 1].y) < 1e-6;
+    const isDuplicateClosed =
+      closed &&
+      n >= 3 &&
+      Math.abs(points[0].x - points[n - 1].x) < 1e-6 &&
+      Math.abs(points[0].y - points[n - 1].y) < 1e-6;
     const m = isDuplicateClosed ? n - 1 : n;
 
     const start = points[0];
@@ -33,25 +36,57 @@ export const BezierSpline = {
     const EPS = 1e-6;
 
     for (let i = 0; i < n - 1; i++) {
-      const pPrev = isDuplicateClosed ? points[(i - 1 + m) % m] : points[Math.max(0, i - 1)];
+      const pPrev = isDuplicateClosed
+        ? points[(i - 1 + m) % m]
+        : points[Math.max(0, i - 1)];
       const pCurr = points[i];
       const pNext = points[i + 1];
-      const pFut  = isDuplicateClosed ? points[(i + 2) % m] : points[Math.min(n - 1, i + 2)];
+      const pFut = isDuplicateClosed
+        ? points[(i + 2) % m]
+        : points[Math.min(n - 1, i + 2)];
 
-      const t01 = Math.max(EPS, Math.hypot(pCurr.x - pPrev.x, pCurr.y - pPrev.y) ** 0.5);
-      const t12 = Math.max(EPS, Math.hypot(pNext.x - pCurr.x, pNext.y - pCurr.y) ** 0.5);
-      const t23 = Math.max(EPS, Math.hypot(pFut.x - pNext.x, pFut.y - pNext.y) ** 0.5);
-      const t0 = 0, t1 = t01, t2 = t01 + t12, t3 = t01 + t12 + t23;
+      const t01 = Math.max(
+        EPS,
+        Math.hypot(pCurr.x - pPrev.x, pCurr.y - pPrev.y) ** 0.5,
+      );
+      const t12 = Math.max(
+        EPS,
+        Math.hypot(pNext.x - pCurr.x, pNext.y - pCurr.y) ** 0.5,
+      );
+      const t23 = Math.max(
+        EPS,
+        Math.hypot(pFut.x - pNext.x, pFut.y - pNext.y) ** 0.5,
+      );
+      const t0 = 0,
+        t1 = t01,
+        t2 = t01 + t12,
+        t3 = t01 + t12 + t23;
 
-      const m1x = (t2 - t1) * ((pCurr.x - pPrev.x) / (t1 - t0) - (pNext.x - pPrev.x) / (t2 - t0) + (pNext.x - pCurr.x) / (t2 - t1));
-      const m1y = (t2 - t1) * ((pCurr.y - pPrev.y) / (t1 - t0) - (pNext.y - pPrev.y) / (t2 - t0) + (pNext.y - pCurr.y) / (t2 - t1));
-      const m2x = (t2 - t1) * ((pNext.x - pCurr.x) / (t2 - t1) - (pFut.x - pCurr.x) / (t3 - t1) + (pFut.x - pNext.x) / (t3 - t2));
-      const m2y = (t2 - t1) * ((pNext.y - pCurr.y) / (t2 - t1) - (pFut.y - pCurr.y) / (t3 - t1) + (pFut.y - pNext.y) / (t3 - t2));
+      const m1x =
+        (t2 - t1) *
+        ((pCurr.x - pPrev.x) / (t1 - t0) -
+          (pNext.x - pPrev.x) / (t2 - t0) +
+          (pNext.x - pCurr.x) / (t2 - t1));
+      const m1y =
+        (t2 - t1) *
+        ((pCurr.y - pPrev.y) / (t1 - t0) -
+          (pNext.y - pPrev.y) / (t2 - t0) +
+          (pNext.y - pCurr.y) / (t2 - t1));
+      const m2x =
+        (t2 - t1) *
+        ((pNext.x - pCurr.x) / (t2 - t1) -
+          (pFut.x - pCurr.x) / (t3 - t1) +
+          (pFut.x - pNext.x) / (t3 - t2));
+      const m2y =
+        (t2 - t1) *
+        ((pNext.y - pCurr.y) / (t2 - t1) -
+          (pFut.y - pCurr.y) / (t3 - t1) +
+          (pFut.y - pNext.y) / (t3 - t2));
 
       segments.push({
         c1: { x: pCurr.x + m1x / 3, y: pCurr.y + m1y / 3 },
         c2: { x: pNext.x - m2x / 3, y: pNext.y - m2y / 3 },
-        end: { x: pNext.x, y: pNext.y }
+        end: { x: pNext.x, y: pNext.y },
       });
     }
 
@@ -79,19 +114,31 @@ export const BezierSpline = {
     const n = points ? points.length : 0;
     if (n === 0) return { start: { x: 0, y: 0 }, segments: [] };
 
-    const isDuplicateClosed = closed && n >= 3 &&
-      Math.abs(points[0].x - points[n - 1].x) < 1e-6 && Math.abs(points[0].y - points[n - 1].y) < 1e-6;
+    const isDuplicateClosed =
+      closed &&
+      n >= 3 &&
+      Math.abs(points[0].x - points[n - 1].x) < 1e-6 &&
+      Math.abs(points[0].y - points[n - 1].y) < 1e-6;
     const m = isDuplicateClosed ? n - 1 : n;
     if (!isDuplicateClosed || m < 3) return { start: points[0], segments: [] };
 
-    const P = i => points[((i % m) + m) % m];
-    const seg = i => {
-      const p0 = P(i - 1), p1 = P(i), p2 = P(i + 1), p3 = P(i + 2);
+    const P = (i) => points[((i % m) + m) % m];
+    const seg = (i) => {
+      const p0 = P(i - 1),
+        p1 = P(i),
+        p2 = P(i + 1),
+        p3 = P(i + 2);
       return {
-        start: { x: (p0.x + 4 * p1.x + p2.x) / 6, y: (p0.y + 4 * p1.y + p2.y) / 6 },
+        start: {
+          x: (p0.x + 4 * p1.x + p2.x) / 6,
+          y: (p0.y + 4 * p1.y + p2.y) / 6,
+        },
         c1: { x: (2 * p1.x + p2.x) / 3, y: (2 * p1.y + p2.y) / 3 },
         c2: { x: (p1.x + 2 * p2.x) / 3, y: (p1.y + 2 * p2.y) / 3 },
-        end: { x: (p1.x + 4 * p2.x + p3.x) / 6, y: (p1.y + 4 * p2.y + p3.y) / 6 }
+        end: {
+          x: (p1.x + 4 * p2.x + p3.x) / 6,
+          y: (p1.y + 4 * p2.y + p3.y) / 6,
+        },
       };
     };
 
@@ -115,10 +162,14 @@ export const BezierSpline = {
    * @param {number} [options.precision=3] - Floating-point coordinate decimal places.
    * @returns {string} SVG path `d` attribute string.
    */
-  fitPathD(points, { curveMode = 'catmull-rom', closed = false, precision = 3 } = {}) {
+  fitPathD(
+    points,
+    { curveMode = 'catmull-rom', closed = false, precision = 3 } = {},
+  ) {
     if (!points || points.length === 0) return '';
     const prec = precision;
-    if (points.length === 1) return `M${points[0].x.toFixed(prec)} ${points[0].y.toFixed(prec)}`;
+    if (points.length === 1)
+      return `M${points[0].x.toFixed(prec)} ${points[0].y.toFixed(prec)}`;
     if (curveMode === 'none' || points.length === 2) {
       let d = `M${points[0].x.toFixed(prec)} ${points[0].y.toFixed(prec)}`;
       for (let i = 1; i < points.length; i++) {
@@ -140,5 +191,5 @@ export const BezierSpline = {
       d += ` C${s.c1.x.toFixed(prec)} ${s.c1.y.toFixed(prec)}, ${s.c2.x.toFixed(prec)} ${s.c2.y.toFixed(prec)}, ${s.end.x.toFixed(prec)} ${s.end.y.toFixed(prec)}`;
     }
     return closed ? d + ' Z' : d;
-  }
+  },
 };

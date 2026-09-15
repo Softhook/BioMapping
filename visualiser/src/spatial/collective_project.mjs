@@ -38,41 +38,55 @@ export const GSRCollectiveProject = {
   // when it was saved. See events.js bindMapControls() for where these
   // buttons are wired up originally.
   VIEW_TOGGLE_BUTTONS: {
-    btnToggleMapPeaks:     'togglePeaks',
-    btnToggleMapHotspots:  'toggleHotspots',
-    btnToggleMapLabels:    'toggleLabels',
-    btnToggleMapClusters:  'toggleClusters',
-    btnToggleMapIsolines:  'toggleIsolines',
-    btnToggleMapSurface:   'toggleSurface',
-    btnToggleMapTracks:    'toggleTracks'
+    btnToggleMapPeaks: 'togglePeaks',
+    btnToggleMapHotspots: 'toggleHotspots',
+    btnToggleMapLabels: 'toggleLabels',
+    btnToggleMapClusters: 'toggleClusters',
+    btnToggleMapIsolines: 'toggleIsolines',
+    btnToggleMapSurface: 'toggleSurface',
+    btnToggleMapTracks: 'toggleTracks',
   },
 
   // Sliders that describe the *collective view* itself rather than any one
   // track's GSR/GPS processing — safe to restore globally without
   // conflicting with each track's own per-track filterParams/gpsFilterParams
   // (which travel with that track's CSV instead, per the doc comment above).
-  COLLECTIVE_SLIDER_KEYS: ['gpsPeakLatency', 'placeMergeDistance', 'maxArousalPlaces'],
+  COLLECTIVE_SLIDER_KEYS: [
+    'gpsPeakLatency',
+    'placeMergeDistance',
+    'maxArousalPlaces',
+  ],
   CONTOUR_KEYS: [
-    'gridResolution', 'contourCount', 'isolationRadius', 'idwExponent', 'peakPreservation',
-    'coverageWeighting', 'topoSource', 'showShadedSurface', 'normalizeZScore', 'surfaceOpacity',
-    'hillshadeStrength'
+    'gridResolution',
+    'contourCount',
+    'isolationRadius',
+    'idwExponent',
+    'peakPreservation',
+    'coverageWeighting',
+    'topoSource',
+    'showShadedSurface',
+    'normalizeZScore',
+    'surfaceOpacity',
+    'hillshadeStrength',
   ],
 
   /** Same sanitization as GSRUI._exportFilenameBase(), applied per-track instead of to the active track only. */
   _sanitizeName(name) {
-    return (name || 'track').replace(/\.[^/.]+$/, '').replace(/[^a-zA-Z0-9._-]/g, '_');
+    return (name || 'track')
+      .replace(/\.[^/.]+$/, '')
+      .replace(/[^a-zA-Z0-9._-]/g, '_');
   },
 
   _pickValues(controls, keys) {
     const out = {};
     if (!controls) return out;
-    keys.forEach(key => {
+    keys.forEach((key) => {
       const el = controls[key];
       if (!el) return;
       if (el.tagName === 'BUTTON') {
         out[key] = el.classList.contains('active');
       } else {
-        out[key] = (el.type === 'checkbox') ? el.checked : el.value;
+        out[key] = el.type === 'checkbox' ? el.checked : el.value;
       }
     });
     return out;
@@ -94,10 +108,12 @@ export const GSRCollectiveProject = {
   },
 
   _buildManifest(manifestTracks) {
-    const activeIndex = AppState.collectiveManager.tracks.findIndex(t => t.id === AppState.activeTrackId);
+    const activeIndex = AppState.collectiveManager.tracks.findIndex(
+      (t) => t.id === AppState.activeTrackId,
+    );
 
     const viewToggles = {};
-    Object.keys(this.VIEW_TOGGLE_BUTTONS).forEach(id => {
+    Object.keys(this.VIEW_TOGGLE_BUTTONS).forEach((id) => {
       const el = document.getElementById(id);
       if (el) viewToggles[id] = el.classList.contains('active');
     });
@@ -109,16 +125,21 @@ export const GSRCollectiveProject = {
       activeTrackIndex: activeIndex,
       tracks: manifestTracks,
       settings: {
-        sliders: this._pickValues(AppState.sliders, this.COLLECTIVE_SLIDER_KEYS),
-        contour: this._pickValues(AppState.contourControls, this.CONTOUR_KEYS)
+        sliders: this._pickValues(
+          AppState.sliders,
+          this.COLLECTIVE_SLIDER_KEYS,
+        ),
+        contour: this._pickValues(AppState.contourControls, this.CONTOUR_KEYS),
       },
-      viewToggles
+      viewToggles,
     };
   },
 
   async exportProject() {
     if (typeof JSZip === 'undefined') {
-      alert('Zip support failed to load (check your internet connection) — cannot export a project bundle right now.');
+      alert(
+        'Zip support failed to load (check your internet connection) — cannot export a project bundle right now.',
+      );
       return;
     }
 
@@ -155,14 +176,22 @@ export const GSRCollectiveProject = {
         // track round-trips regardless of which one happens to be active.
         if (!track.analyzer.filtered || track.analyzer.filtered.length === 0) {
           try {
-            const pl = (track.gpsFilterParams && track.gpsFilterParams.peakLatency) || 0;
+            const pl =
+              (track.gpsFilterParams && track.gpsFilterParams.peakLatency) || 0;
             track.analyzer.analyze(track.filterParams, pl);
           } catch (e) {
-            console.warn(`Could not analyze track "${track.name}" for export:`, e);
+            console.warn(
+              `Could not analyze track "${track.name}" for export:`,
+              e,
+            );
           }
         }
 
-        const csvText = track.analyzer.exportToCSV(track.filterParams, track.gpsFilterParams) || '';
+        const csvText =
+          track.analyzer.exportToCSV(
+            track.filterParams,
+            track.gpsFilterParams,
+          ) || '';
         const filename = `${String(i + 1).padStart(2, '0')}_${this._sanitizeName(track.name)}.csv`;
         zip.file(filename, csvText);
 
@@ -171,7 +200,7 @@ export const GSRCollectiveProject = {
           name: track.name,
           color: track.color,
           enabled: track.enabled,
-          file: filename
+          file: filename,
         });
       });
 
@@ -183,7 +212,9 @@ export const GSRCollectiveProject = {
       const suggestedName = `biomapping_project_${stamp}.zip`;
       const saved = await GSRFileSaver.saveFile(blob, suggestedName);
       if (saved !== false) {
-        AppState.collectiveManager.tracks.forEach(t => { t.hasUnsavedLabels = false; });
+        AppState.collectiveManager.tracks.forEach((t) => {
+          t.hasUnsavedLabels = false;
+        });
       }
     } catch (err) {
       console.error('Project export failed:', err);
@@ -198,7 +229,9 @@ export const GSRCollectiveProject = {
 
   async importProject(file) {
     if (typeof JSZip === 'undefined') {
-      alert('Zip support failed to load (check your internet connection) — cannot import a project bundle right now.');
+      alert(
+        'Zip support failed to load (check your internet connection) — cannot import a project bundle right now.',
+      );
       return;
     }
     if (!file) return;
@@ -207,15 +240,17 @@ export const GSRCollectiveProject = {
       // Ask via the shared notices layer (decision dialog). If no notice layer
       // is available (e.g. headless test env), refuse to proceed rather than
       // silently discarding the current tracks.
-      const choice = (typeof GSRNotices !== 'undefined')
-        ? await GSRNotices.dialog({
-            title: 'Replace Loaded Tracks',
-            message: 'Importing this project will replace all currently loaded tracks. Continue?',
-            buttons: [{ label: 'Import', value: 'import', style: 'primary' }],
-            dismissLabel: 'Cancel',
-            tone: 'warn',
-          })
-        : null;
+      const choice =
+        typeof GSRNotices !== 'undefined'
+          ? await GSRNotices.dialog({
+              title: 'Replace Loaded Tracks',
+              message:
+                'Importing this project will replace all currently loaded tracks. Continue?',
+              buttons: [{ label: 'Import', value: 'import', style: 'primary' }],
+              dismissLabel: 'Cancel',
+              tone: 'warn',
+            })
+          : null;
       if (choice !== 'import') return;
     }
 
@@ -227,11 +262,16 @@ export const GSRCollectiveProject = {
     try {
       const zip = await JSZip.loadAsync(file);
       const manifestEntry = zip.file('manifest.json');
-      if (!manifestEntry) throw new Error("Not a valid project file — manifest.json is missing.");
+      if (!manifestEntry)
+        throw new Error('Not a valid project file — manifest.json is missing.');
 
       const manifest = JSON.parse(await manifestEntry.async('string'));
-      if (!manifest.tracks || !Array.isArray(manifest.tracks) || manifest.tracks.length === 0) {
-        throw new Error("Not a valid project file — manifest has no tracks.");
+      if (
+        !manifest.tracks ||
+        !Array.isArray(manifest.tracks) ||
+        manifest.tracks.length === 0
+      ) {
+        throw new Error('Not a valid project file — manifest has no tracks.');
       }
 
       // Once we get past manifest validation we're committed to replacing the
@@ -254,8 +294,12 @@ export const GSRCollectiveProject = {
           const analyzer = new GSRAnalyzer();
           analyzer.parseCSV(csvText); // restores filterParams/gpsFilterParams/labels/exclusions from the CSV's own embedded headers
 
-          const filterParams = analyzer.importedFilterParams || JSON.parse(JSON.stringify(GSR_CONST.GSR_DEFAULT));
-          const gpsFilterParams = analyzer.importedGpsFilterParams || JSON.parse(JSON.stringify(GSR_CONST.GPS_DEFAULT));
+          const filterParams =
+            analyzer.importedFilterParams ||
+            JSON.parse(JSON.stringify(GSR_CONST.GSR_DEFAULT));
+          const gpsFilterParams =
+            analyzer.importedGpsFilterParams ||
+            JSON.parse(JSON.stringify(GSR_CONST.GPS_DEFAULT));
           analyzer.analyze(filterParams, gpsFilterParams.peakLatency || 0); // repopulate filtered/tonic/phasic/peaks so the track is ready to render immediately
 
           const trackId = `track_${Date.now()}_${Math.floor(Math.random() * 1000)}_${i}`;
@@ -267,7 +311,9 @@ export const GSRCollectiveProject = {
             analyzer,
             filterParams,
             gpsFilterParams,
-            settingsSource: analyzer.importedFilterParams ? 'imported' : 'standard'
+            settingsSource: analyzer.importedFilterParams
+              ? 'imported'
+              : 'standard',
           };
           AppState.collectiveManager.addTrack(newTrack);
           if (i === manifest.activeTrackIndex) newActiveId = trackId;
@@ -275,7 +321,10 @@ export const GSRCollectiveProject = {
           // One bad track (corrupt CSV, missing file) shouldn't sink the
           // whole batch — skip it and keep going, same policy
           // loadFilesSequentially() already uses for ordinary CSV drops.
-          console.warn(`Skipping track "${entry.name || entry.file}" — failed to load:`, trackErr);
+          console.warn(
+            `Skipping track "${entry.name || entry.file}" — failed to load:`,
+            trackErr,
+          );
           failedTracks.push(entry.name || entry.file || `track #${i + 1}`);
         }
       }
@@ -285,13 +334,18 @@ export const GSRCollectiveProject = {
       }
 
       if (failedTracks.length > 0) {
-        alert(`Imported with ${failedTracks.length} track(s) skipped (could not be read):\n` + failedTracks.join('\n'));
+        alert(
+          `Imported with ${failedTracks.length} track(s) skipped (could not be read):\n` +
+            failedTracks.join('\n'),
+        );
       }
 
       // Make a track active first — this loads *that track's own* GSR/GPS
       // sliders and runs a single-track analysis pass, exactly like opening
       // any track normally would.
-      GSRTrackManager.switchActiveTrack(newActiveId || AppState.collectiveManager.tracks[0].id);
+      GSRTrackManager.switchActiveTrack(
+        newActiveId || AppState.collectiveManager.tracks[0].id,
+      );
 
       // Re-apply the collective-only view settings (peak latency, cluster and
       // contour sliders) *after* switchActiveTrack(), since it just
@@ -308,14 +362,20 @@ export const GSRCollectiveProject = {
         // the real restored value. Same fix storage.js's applyPreset()
         // already applies via syncSliderValueDisplays() after doing the
         // exact same direct .value assignment.
-        if (typeof GSREvents !== 'undefined' && typeof GSREvents.initializeLabels === 'function') {
+        if (
+          typeof GSREvents !== 'undefined' &&
+          typeof GSREvents.initializeLabels === 'function'
+        ) {
           GSREvents.initializeLabels();
         }
       }
 
-      const targetMode = (manifest.viewMode === 'collective') ? 'collective' : 'single';
+      const targetMode =
+        manifest.viewMode === 'collective' ? 'collective' : 'single';
       if (AppState.viewMode !== targetMode) {
-        const toggleBtn = document.getElementById(targetMode === 'collective' ? 'btnCollectiveView' : 'btnSingleView');
+        const toggleBtn = document.getElementById(
+          targetMode === 'collective' ? 'btnCollectiveView' : 'btnSingleView',
+        );
         if (toggleBtn) toggleBtn.click();
       }
 
@@ -332,7 +392,10 @@ export const GSRCollectiveProject = {
       }
 
       GSRTrackManager.renderTrackList();
-      GSRTrackManager.setFileStatus('success', `${AppState.collectiveManager.tracks.length} Tracks Loaded (project restored)`);
+      GSRTrackManager.setFileStatus(
+        'success',
+        `${AppState.collectiveManager.tracks.length} Tracks Loaded (project restored)`,
+      );
 
       if (AppState.viewMode === 'collective') {
         GSRUI.updateCollectiveMap();
@@ -347,10 +410,13 @@ export const GSRCollectiveProject = {
         // tracks did load or falling back to the normal empty-library view.
         GSRTrackManager.renderTrackList();
         const remaining = AppState.collectiveManager.tracks.length;
-        GSRTrackManager.setFileStatus('warning',
-          remaining > 0 ? `${remaining} Tracks Loaded (partial project restore)` : 'No File Loaded'
+        GSRTrackManager.setFileStatus(
+          'warning',
+          remaining > 0
+            ? `${remaining} Tracks Loaded (partial project restore)`
+            : 'No File Loaded',
         );
       }
     }
-  }
+  },
 };

@@ -15,8 +15,15 @@ const assert = require('node:assert');
 const { bootApp } = require('./support/boot_app.js');
 
 const way = (id, tags) => ({
-  type: 'way', id, tags,
-  coordinates: [{ lat: 0, lon: 0 }, { lat: 0, lon: 1 }, { lat: 1, lon: 1 }, { lat: 0, lon: 0 }],
+  type: 'way',
+  id,
+  tags,
+  coordinates: [
+    { lat: 0, lon: 0 },
+    { lat: 0, lon: 1 },
+    { lat: 1, lon: 1 },
+    { lat: 0, lon: 0 },
+  ],
 });
 
 async function setup() {
@@ -27,11 +34,18 @@ async function setup() {
   mgr.map.removeLayer = mgr.map.removeLayer || (() => {});
   mgr.map.hasLayer = mgr.map.hasLayer || (() => false);
   mgr.map.addLayer = mgr.map.addLayer || (() => {});
-  w.L.polygon = () => ({ addTo() { return this; } });
+  w.L.polygon = () => ({
+    addTo() {
+      return this;
+    },
+  });
 
   const drawSpy = [];
   const realDraw = mgr.drawOsmShapes.bind(mgr);
-  mgr.drawOsmShapes = (g) => { drawSpy.push(g); return realDraw(g); };
+  mgr.drawOsmShapes = (g) => {
+    drawSpy.push(g);
+    return realDraw(g);
+  };
 
   w.AppState.viewMode = 'single';
   w.AppState.surfaceView = 'map';
@@ -45,7 +59,10 @@ test('clearMap() no longer tears down the OSM overlay', async () => {
 
   mgr.clearMap();
 
-  assert.ok(mgr.osmLayers.length > 0, 'OSM polygons survive a clearMap() (and so a full renderData() rebuild)');
+  assert.ok(
+    mgr.osmLayers.length > 0,
+    'OSM polygons survive a clearMap() (and so a full renderData() rebuild)',
+  );
 });
 
 test('syncOsmOverlay: a track switch redraws for the new geometry, clears for none', async () => {
@@ -65,13 +82,20 @@ test('syncOsmOverlay: a track switch redraws for the new geometry, clears for no
 
   w.AppState.analyzer = { raw: [{ lat: 51, lon: -0.1 }] }; // no osmGeoms
   GSRUI.syncOsmOverlay();
-  assert.strictEqual(mgr.osmLayers.length, 0, 'overlay cleared for a track with no geometry');
+  assert.strictEqual(
+    mgr.osmLayers.length,
+    0,
+    'overlay cleared for a track with no geometry',
+  );
 });
 
 test('clearAllTracks resets the OSM toggle and clears the overlay', async () => {
   const { w, mgr } = await setup();
   const GSRUI = w.GSRUI;
-  w.AppState.analyzer = { raw: [{ lat: 51, lon: -0.1 }], osmGeoms: { ways: [way('a', { building: 'yes' })], relations: [] } };
+  w.AppState.analyzer = {
+    raw: [{ lat: 51, lon: -0.1 }],
+    osmGeoms: { ways: [way('a', { building: 'yes' })], relations: [] },
+  };
   GSRUI._osmOverlayOn = true;
   GSRUI.syncOsmOverlay();
   assert.ok(mgr.osmLayers.length > 0);

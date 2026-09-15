@@ -53,23 +53,33 @@ export const SpectralEDA = {
       for (; j & bit; bit >>= 1) j ^= bit;
       j ^= bit;
       if (i < j) {
-        const tr = re[i]; re[i] = re[j]; re[j] = tr;
-        const ti = im[i]; im[i] = im[j]; im[j] = ti;
+        const tr = re[i];
+        re[i] = re[j];
+        re[j] = tr;
+        const ti = im[i];
+        im[i] = im[j];
+        im[j] = ti;
       }
     }
     for (let len = 2; len <= n; len <<= 1) {
-      const ang = -2 * Math.PI / len;
-      const wRe = Math.cos(ang), wIm = Math.sin(ang);
+      const ang = (-2 * Math.PI) / len;
+      const wRe = Math.cos(ang),
+        wIm = Math.sin(ang);
       const half = len >> 1;
       for (let i = 0; i < n; i += len) {
-        let curRe = 1, curIm = 0;
+        let curRe = 1,
+          curIm = 0;
         for (let k = 0; k < half; k++) {
-          const a = i + k, b = i + k + half;
-          const uRe = re[a], uIm = im[a];
+          const a = i + k,
+            b = i + k + half;
+          const uRe = re[a],
+            uIm = im[a];
           const vRe = re[b] * curRe - im[b] * curIm;
           const vIm = re[b] * curIm + im[b] * curRe;
-          re[a] = uRe + vRe; im[a] = uIm + vIm;
-          re[b] = uRe - vRe; im[b] = uIm - vIm;
+          re[a] = uRe + vRe;
+          im[a] = uIm + vIm;
+          re[b] = uRe - vRe;
+          im[b] = uIm - vIm;
           const nRe = curRe * wRe - curIm * wIm;
           curIm = curRe * wIm + curIm * wRe;
           curRe = nRe;
@@ -85,8 +95,8 @@ export const SpectralEDA = {
    */
   blackmanPeriodic(n) {
     const w = new Float64Array(n);
-    const k = 2 * Math.PI / n;
-    const k2 = 4 * Math.PI / n;
+    const k = (2 * Math.PI) / n;
+    const k2 = (4 * Math.PI) / n;
     for (let i = 0; i < n; i++) {
       w[i] = 0.42 - 0.5 * Math.cos(k * i) + 0.08 * Math.cos(k2 * i);
     }
@@ -116,7 +126,10 @@ export const SpectralEDA = {
    */
   _fftSegment(x, start, nperseg, nfft, win, re, im) {
     for (let i = 0; i < nperseg; i++) re[i] = x[start + i] * win[i];
-    for (let i = nperseg; i < nfft; i++) { re[i] = 0; im[i] = 0; }
+    for (let i = nperseg; i < nfft; i++) {
+      re[i] = 0;
+      im[i] = 0;
+    }
     for (let i = 0; i < nperseg; i++) im[i] = 0;
     SpectralEDA._fftInPlace(re, im);
   },
@@ -129,14 +142,16 @@ export const SpectralEDA = {
   _bandPowerFromFft(re, im, nfft, fs, scale, fLow, fHigh) {
     const half = nfft >> 1;
     let total = 0;
-    let prevF = null, prevP = null;
+    let prevF = null,
+      prevP = null;
     for (let k = 0; k <= half; k++) {
-      const f = k * fs / nfft;
+      const f = (k * fs) / nfft;
       if (f >= fLow && f < fHigh) {
         let p = (re[k] * re[k] + im[k] * im[k]) * scale;
         if (k === 0 || k === half) p *= 0.5; // undo one-sided doubling
         if (prevF !== null) total += (f - prevF) * (p + prevP) * 0.5;
-        prevF = f; prevP = p;
+        prevF = f;
+        prevP = p;
       }
     }
     return total;
@@ -153,19 +168,19 @@ export const SpectralEDA = {
    */
   welchDensity(x, fs, opts = {}) {
     const nperseg = opts.nperseg || 128;
-    const noverlap = opts.noverlap != null ? opts.noverlap : (nperseg >> 1);
-    const nfft = opts.nfft || (2 * nperseg);
+    const noverlap = opts.noverlap != null ? opts.noverlap : nperseg >> 1;
+    const nfft = opts.nfft || 2 * nperseg;
     const n = x.length;
 
     const win = SpectralEDA.blackmanPeriodic(nperseg);
     const scale = SpectralEDA._densityScale(fs, SpectralEDA._windowSumSq(win));
 
     const step = nperseg - noverlap;
-    const nSeg = (step > 0) ? Math.floor((n - noverlap) / step) : 0;
+    const nSeg = step > 0 ? Math.floor((n - noverlap) / step) : 0;
     const nBins = (nfft >> 1) + 1;
 
     const freq = new Float64Array(nBins);
-    for (let k = 0; k < nBins; k++) freq[k] = k * fs / nfft;
+    for (let k = 0; k < nBins; k++) freq[k] = (k * fs) / nfft;
 
     const psd = new Float64Array(nBins);
     if (nSeg <= 0) return { freq, psd };
@@ -193,18 +208,20 @@ export const SpectralEDA = {
    */
   trapzBand(psd, freq, fLow, fHigh) {
     let total = 0;
-    let prevF = null, prevP = null;
+    let prevF = null,
+      prevP = null;
     let any = false;
     for (let k = 0; k < freq.length; k++) {
       const f = freq[k];
       if (f >= fLow && f < fHigh) {
         any = true;
         if (prevF !== null) total += (f - prevF) * (psd[k] + prevP) * 0.5;
-        prevF = f; prevP = psd[k];
+        prevF = f;
+        prevP = psd[k];
       }
     }
     if (!any) return 0;
-    return (total === 0) ? NaN : total;
+    return total === 0 ? NaN : total;
   },
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -225,13 +242,13 @@ export const SpectralEDA = {
    */
   cheby1LowpassSos(order, rpDb, cutoffHz, fs) {
     const N = order;
-    const eps = Math.sqrt(Math.pow(10, rpDb / 10) - 1);
+    const eps = Math.sqrt(10 ** (rpDb / 10) - 1);
     const mu = Math.asinh(1 / eps) / N;
 
     // Analog prototype poles (normalized cutoff Ωc = 1).
     const poles = [];
     for (let k = 0; k < N; k++) {
-      const theta = Math.PI * (2 * k + 1) / (2 * N);
+      const theta = (Math.PI * (2 * k + 1)) / (2 * N);
       poles.push({
         re: -Math.sinh(mu) * Math.sin(theta),
         im: Math.cosh(mu) * Math.cos(theta),
@@ -239,12 +256,15 @@ export const SpectralEDA = {
     }
 
     // Prewarped analog cutoff + bilinear transform s → z.
-    const oc = 2 * fs * Math.tan(Math.PI * cutoffHz / fs);
+    const oc = 2 * fs * Math.tan((Math.PI * cutoffHz) / fs);
     const twoFs = 2 * fs;
     const zs = poles.map((p) => {
-      const sRe = p.re * oc, sIm = p.im * oc;
-      const dRe = twoFs - sRe, dIm = -sIm;
-      const numRe = twoFs + sRe, numIm = sIm;
+      const sRe = p.re * oc,
+        sIm = p.im * oc;
+      const dRe = twoFs - sRe,
+        dIm = -sIm;
+      const numRe = twoFs + sRe,
+        numIm = sIm;
       const den = dRe * dRe + dIm * dIm;
       return {
         re: (numRe * dRe + numIm * dIm) / den,
@@ -255,7 +275,8 @@ export const SpectralEDA = {
     // Conjugate pairs: pole k pairs with pole N-1-k.
     const sos = [];
     for (let i = 0; i < N / 2; i++) {
-      const zi = zs[i], zj = zs[N - 1 - i];
+      const zi = zs[i],
+        zj = zs[N - 1 - i];
       const a1 = -(zi.re + zj.re);
       const a2 = zi.re * zj.re - zi.im * zj.im; // (zi*zj) real part; imag cancels
       // Zeros of a low-pass: two at z = -1 → numerator (1 + z^-1)^2.
@@ -263,11 +284,13 @@ export const SpectralEDA = {
     }
 
     // Gain: target DC magnitude = 10^(-rp/20) for even N, 1 for odd N.
-    const target = (N % 2 === 0) ? Math.pow(10, -rpDb / 20) : 1.0;
+    const target = N % 2 === 0 ? 10 ** (-rpDb / 20) : 1.0;
     let dc = 1;
     for (const s of sos) dc *= (s[0] + s[1] + s[2]) / (s[3] + s[4] + s[5]);
     const g = target / dc;
-    sos[0][0] *= g; sos[0][1] *= g; sos[0][2] *= g;
+    sos[0][0] *= g;
+    sos[0][1] *= g;
+    sos[0][2] *= g;
     return sos;
   },
 
@@ -278,20 +301,24 @@ export const SpectralEDA = {
    */
   butterHighpassSos(order, cutoffHz, fs) {
     const N = order;
-    const oc = 2 * fs * Math.tan(Math.PI * cutoffHz / fs);
+    const oc = 2 * fs * Math.tan((Math.PI * cutoffHz) / fs);
     const twoFs = 2 * fs;
 
     // Low-pass prototype poles on the unit circle, then high-pass transform
     // s → Ωc / s, then bilinear.
     const zs = [];
     for (let k = 0; k < N; k++) {
-      const theta = Math.PI * (2 * k + 1) / (2 * N);
-      const lpRe = -Math.sin(theta), lpIm = Math.cos(theta);
+      const theta = (Math.PI * (2 * k + 1)) / (2 * N);
+      const lpRe = -Math.sin(theta),
+        lpIm = Math.cos(theta);
       // high-pass pole: s = Ωc / p_lp
       const den = lpRe * lpRe + lpIm * lpIm;
-      const sRe = oc * lpRe / den, sIm = -oc * lpIm / den;
-      const dRe = twoFs - sRe, dIm = -sIm;
-      const numRe = twoFs + sRe, numIm = sIm;
+      const sRe = (oc * lpRe) / den,
+        sIm = (-oc * lpIm) / den;
+      const dRe = twoFs - sRe,
+        dIm = -sIm;
+      const numRe = twoFs + sRe,
+        numIm = sIm;
       const dn = dRe * dRe + dIm * dIm;
       zs.push({
         re: (numRe * dRe + numIm * dIm) / dn,
@@ -301,7 +328,8 @@ export const SpectralEDA = {
 
     const sos = [];
     for (let i = 0; i < N / 2; i++) {
-      const zi = zs[i], zj = zs[N - 1 - i];
+      const zi = zs[i],
+        zj = zs[N - 1 - i];
       const a1 = -(zi.re + zj.re);
       const a2 = zi.re * zj.re - zi.im * zj.im;
       // Zeros of a high-pass: two at z = 1 → numerator (1 - z^-1)^2.
@@ -312,7 +340,9 @@ export const SpectralEDA = {
     let nyq = 1;
     for (const s of sos) nyq *= (s[0] - s[1] + s[2]) / (s[3] - s[4] + s[5]);
     const g = 1 / nyq;
-    sos[0][0] *= g; sos[0][1] *= g; sos[0][2] *= g;
+    sos[0][0] *= g;
+    sos[0][1] *= g;
+    sos[0][2] *= g;
     return sos;
   },
 
@@ -325,9 +355,14 @@ export const SpectralEDA = {
     const zi = new Array(sos.length);
     let scale = 1.0;
     for (let s = 0; s < sos.length; s++) {
-      const b0 = sos[s][0], b1 = sos[s][1], b2 = sos[s][2];
-      const a0 = sos[s][3], a1 = sos[s][4], a2 = sos[s][5];
-      const sumB = b0 + b1 + b2, sumA = a0 + a1 + a2;
+      const b0 = sos[s][0],
+        b1 = sos[s][1],
+        b2 = sos[s][2];
+      const a0 = sos[s][3],
+        a1 = sos[s][4],
+        a2 = sos[s][5];
+      const sumB = b0 + b1 + b2,
+        sumA = a0 + a1 + a2;
       const yInf = sumB / sumA;
       const d1 = b1 - yInf * a1;
       const d2 = b2 - yInf * a2;
@@ -349,8 +384,11 @@ export const SpectralEDA = {
     const n = x.length;
     let y = x;
     for (let s = 0; s < sos.length; s++) {
-      const b0 = sos[s][0], b1 = sos[s][1], b2 = sos[s][2];
-      const a1 = sos[s][4], a2 = sos[s][5];
+      const b0 = sos[s][0],
+        b1 = sos[s][1],
+        b2 = sos[s][2];
+      const a1 = sos[s][4],
+        a2 = sos[s][5];
       let s0 = zi ? zi[s][0] * scale : 0;
       let s1 = zi ? zi[s][1] * scale : 0;
       const out = new Float64Array(n);
@@ -363,7 +401,7 @@ export const SpectralEDA = {
       }
       y = out;
     }
-    return (y instanceof Float64Array) ? y : Float64Array.from(y);
+    return y instanceof Float64Array ? y : Float64Array.from(y);
   },
 
   /**
@@ -375,7 +413,8 @@ export const SpectralEDA = {
     const n = x.length;
     if (n === 0) return new Float64Array(0);
 
-    let cntB2 = 0, cntA2 = 0;
+    let cntB2 = 0,
+      cntA2 = 0;
     for (const s of sos) {
       if (s[2] === 0) cntB2++;
       if (s[5] === 0) cntA2++;
@@ -391,7 +430,8 @@ export const SpectralEDA = {
     const ext = new Float64Array(n + 2 * edge);
     for (let i = 0; i < edge; i++) ext[i] = 2 * x[0] - x[edge - i];
     for (let i = 0; i < n; i++) ext[edge + i] = x[i];
-    for (let i = 0; i < edge; i++) ext[edge + n + i] = 2 * x[n - 1] - x[n - 2 - i];
+    for (let i = 0; i < edge; i++)
+      ext[edge + n + i] = 2 * x[n - 1] - x[n - 2 - i];
 
     const zi = SpectralEDA._sosfiltZi(sos);
 
@@ -442,13 +482,22 @@ export const SpectralEDA = {
   posadaSignal(signal, fs) {
     if (!signal || signal.length < 2) return new Float64Array(0);
     // Stage A: Chebyshev I, order 8, 1 dB, 0.8 Hz, forward (scipy sosfilt).
-    const a = SpectralEDA.sosfilt(SpectralEDA.cheby1LowpassSos(8, 1.0, 0.8, fs), signal);
+    const a = SpectralEDA.sosfilt(
+      SpectralEDA.cheby1LowpassSos(8, 1.0, 0.8, fs),
+      signal,
+    );
     // Stage B: Chebyshev I, order 8, 0.05 dB, 0.8 Hz, zero-phase (decimate's anti-alias).
-    const b = SpectralEDA.sosfiltfilt(SpectralEDA.cheby1LowpassSos(8, 0.05, 0.8, fs), a);
+    const b = SpectralEDA.sosfiltfilt(
+      SpectralEDA.cheby1LowpassSos(8, 0.05, 0.8, fs),
+      a,
+    );
     // Decimate to 2 Hz.
     const d2 = SpectralEDA._decimateTo2Hz(b, fs);
     // Stage C: Butterworth, order 8, 0.01 Hz high-pass, zero-phase.
-    return SpectralEDA.sosfiltfilt(SpectralEDA.butterHighpassSos(8, 0.01, 2), d2);
+    return SpectralEDA.sosfiltfilt(
+      SpectralEDA.butterHighpassSos(8, 0.01, 2),
+      d2,
+    );
   },
 
   /**
@@ -465,8 +514,17 @@ export const SpectralEDA = {
       return { sympathetic: NaN, normalized: NaN };
     }
     const d2 = SpectralEDA.posadaSignal(signal, fs);
-    const { freq, psd } = SpectralEDA.welchDensity(d2, 2, { nperseg: 128, noverlap: 64, nfft: 256 });
-    const sympathetic = SpectralEDA.trapzBand(psd, freq, SpectralEDA.BAND_HZ[0], SpectralEDA.BAND_HZ[1]);
+    const { freq, psd } = SpectralEDA.welchDensity(d2, 2, {
+      nperseg: 128,
+      noverlap: 64,
+      nfft: 256,
+    });
+    const sympathetic = SpectralEDA.trapzBand(
+      psd,
+      freq,
+      SpectralEDA.BAND_HZ[0],
+      SpectralEDA.BAND_HZ[1],
+    );
 
     let maxP = -Infinity;
     for (let k = 0; k < psd.length; k++) if (psd[k] > maxP) maxP = psd[k];
@@ -474,7 +532,12 @@ export const SpectralEDA = {
     if (maxP > 0) {
       const psdN = new Float64Array(psd.length);
       for (let k = 0; k < psd.length; k++) psdN[k] = psd[k] / maxP;
-      normalized = SpectralEDA.trapzBand(psdN, freq, SpectralEDA.BAND_HZ[0], SpectralEDA.BAND_HZ[1]);
+      normalized = SpectralEDA.trapzBand(
+        psdN,
+        freq,
+        SpectralEDA.BAND_HZ[0],
+        SpectralEDA.BAND_HZ[1],
+      );
     }
     return { sympathetic, normalized };
   },
@@ -532,7 +595,15 @@ export const SpectralEDA = {
       const tCenter = t0 + (start + half) / 2;
 
       SpectralEDA._fftSegment(d2, start, nperseg, nfft, win, re, im);
-      const bandPower = SpectralEDA._bandPowerFromFft(re, im, nfft, 2, scale, fLow, fHigh);
+      const bandPower = SpectralEDA._bandPowerFromFft(
+        re,
+        im,
+        nfft,
+        2,
+        scale,
+        fLow,
+        fHigh,
+      );
       out.push({ time: tCenter, val: Number.isNaN(bandPower) ? 0 : bandPower });
     }
     return out;
@@ -555,7 +626,8 @@ export const SpectralEDA = {
       return out;
     }
     if (series.length === 1) {
-      for (let i = 0; i < n; i++) out[i] = { time: times[i], val: series[0].val };
+      for (let i = 0; i < n; i++)
+        out[i] = { time: times[i], val: series[0].val };
       return out;
     }
 
@@ -564,13 +636,15 @@ export const SpectralEDA = {
       const t = times[i];
       // Advance to the bracketing pair.
       while (si < series.length - 2 && series[si + 1].time < t) si++;
-      const a = series[si], b = series[si + 1];
+      const a = series[si],
+        b = series[si + 1];
       let val;
       if (t <= a.time) val = a.val;
       else if (t >= b.time) val = b.val;
       else {
         const span = b.time - a.time;
-        val = span > 0 ? a.val + (b.val - a.val) * ((t - a.time) / span) : a.val;
+        val =
+          span > 0 ? a.val + (b.val - a.val) * ((t - a.time) / span) : a.val;
       }
       out[i] = { time: t, val };
     }

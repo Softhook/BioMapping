@@ -64,7 +64,10 @@ function entryImports(entryRelPath) {
   const order = [];
   for (const m of src.matchAll(/^import '(\.[^']+)';$/gm)) {
     const resolved = path.posix.normalize(`${entryDir}/${m[1]}`);
-    if (!seen.has(resolved)) { seen.add(resolved); order.push(resolved); }
+    if (!seen.has(resolved)) {
+      seen.add(resolved);
+      order.push(resolved);
+    }
   }
   return order;
 }
@@ -86,7 +89,9 @@ const existsOnDisk = (rel) => fs.existsSync(path.join(APP_DIR, rel));
 
 for (const page of ['index.html', 'live.html']) {
   test(`${page}: every local href/src resolves to a file on disk`, () => {
-    const missing = localRefs(readApp(page)).filter((rel) => !existsOnDisk(rel));
+    const missing = localRefs(readApp(page)).filter(
+      (rel) => !existsOnDisk(rel),
+    );
     assert.deepStrictEqual(missing, [], `${page} points at missing file(s)`);
   });
 }
@@ -99,7 +104,10 @@ for (const entry of ['src/app_entry.mjs', 'src/live_entry.mjs']) {
 }
 
 test('committed config.js defines BIOMAP_CONFIG and both pages load it before any app/inline code', () => {
-  assert.ok(fs.existsSync(path.join(APP_DIR, 'config.js')), 'config.js is committed, not gitignored');
+  assert.ok(
+    fs.existsSync(path.join(APP_DIR, 'config.js')),
+    'config.js is committed, not gitignored',
+  );
   assert.match(readApp('config.js'), /window\.BIOMAP_CONFIG\s*=/);
   for (const page of ['index.html', 'live.html']) {
     const html = readApp(page);
@@ -108,29 +116,74 @@ test('committed config.js defines BIOMAP_CONFIG and both pages load it before an
     // must precede the first local app module and any inline <script> block
     const firstModule = html.indexOf('src="src/');
     const firstInline = html.search(/<script>(?!<\/)/);
-    assert.ok(firstModule === -1 || cfg < firstModule, `${page}: config.js before first src/ module`);
-    assert.ok(firstInline === -1 || cfg < firstInline, `${page}: config.js before first inline <script>`);
+    assert.ok(
+      firstModule === -1 || cfg < firstModule,
+      `${page}: config.js before first src/ module`,
+    );
+    assert.ok(
+      firstInline === -1 || cfg < firstInline,
+      `${page}: config.js before first inline <script>`,
+    );
     // config.local.js must NOT be a plain tag (would 404 on the hosted site)
-    assert.ok(!html.includes('src="config.local.js"'), `${page}: no unconditional config.local.js tag`);
+    assert.ok(
+      !html.includes('src="config.local.js"'),
+      `${page}: no unconditional config.local.js tag`,
+    );
   }
 });
 
 test('config.js injects config.local.js only on a local origin, guarded against a late load', () => {
   const src = readApp('config.js');
-  assert.match(src, /config\.local\.js/, 'config.js references config.local.js');
-  assert.match(src, /location\.protocol\s*===\s*['"]file:['"]/, 'gated on file:// …');
+  assert.match(
+    src,
+    /config\.local\.js/,
+    'config.js references config.local.js',
+  );
+  assert.match(
+    src,
+    /location\.protocol\s*===\s*['"]file:['"]/,
+    'gated on file:// …',
+  );
   assert.match(src, /localhost/, '… or localhost');
-  assert.match(src, /document\.readyState\s*===\s*['"]loading['"]/, 'only document.write while still parsing');
+  assert.match(
+    src,
+    /document\.readyState\s*===\s*['"]loading['"]/,
+    'only document.write while still parsing',
+  );
 });
 
 test('the CARTO basemap key resolution lives in one shared module, consumed by map.js / live_map.js / globe3d.js', () => {
   const src = readApp('src/map/basemap.mjs');
-  assert.match(src, /BIOMAP_CONFIG\s*&&\s*window\.BIOMAP_CONFIG\.cartoApiKey/, 'basemap.js reads BIOMAP_CONFIG.cartoApiKey');
-  assert.match(src, /getItem\(['"]bioMappingCartoApiKey['"]\)/, 'basemap.js falls back to the localStorage key');
-  assert.match(src, /try\s*\{[^}]*getItem\(['"]bioMappingCartoApiKey/, 'basemap.js guards the localStorage read in try/catch');
-  assert.match(src, /\?key=['"]\s*\+\s*encodeURIComponent\(cartoKey\)/, 'basemap.js appends an encoded ?key=');
-  for (const rel of ['src/map/map.mjs', 'src/live/live_map.mjs', 'src/map/globe3d.mjs']) {
-    assert.match(readApp(rel), /GSRBasemap\.cartoTileUrl/, `${rel} uses the shared GSRBasemap.cartoTileUrl`);
+  assert.match(
+    src,
+    /BIOMAP_CONFIG\s*&&\s*window\.BIOMAP_CONFIG\.cartoApiKey/,
+    'basemap.js reads BIOMAP_CONFIG.cartoApiKey',
+  );
+  assert.match(
+    src,
+    /getItem\(['"]bioMappingCartoApiKey['"]\)/,
+    'basemap.js falls back to the localStorage key',
+  );
+  assert.match(
+    src,
+    /try\s*\{[^}]*getItem\(['"]bioMappingCartoApiKey/,
+    'basemap.js guards the localStorage read in try/catch',
+  );
+  assert.match(
+    src,
+    /\?key=['"]\s*\+\s*encodeURIComponent\(cartoKey\)/,
+    'basemap.js appends an encoded ?key=',
+  );
+  for (const rel of [
+    'src/map/map.mjs',
+    'src/live/live_map.mjs',
+    'src/map/globe3d.mjs',
+  ]) {
+    assert.match(
+      readApp(rel),
+      /GSRBasemap\.cartoTileUrl/,
+      `${rel} uses the shared GSRBasemap.cartoTileUrl`,
+    );
   }
 });
 
@@ -139,11 +192,14 @@ test('the demo CSV tracks.js fetch()es exists at that path', () => {
   const fetched = [...src.matchAll(/fetch\(['"]([^'"]+)['"]\)/g)]
     .map((m) => m[1])
     .filter(isLocal);
-  assert.ok(fetched.length > 0, 'tracks.js makes no local fetch() — test is stale');
+  assert.ok(
+    fetched.length > 0,
+    'tracks.js makes no local fetch() — test is stale',
+  );
   for (const rel of fetched) {
     assert.ok(
       fs.existsSync(path.join(APP_DIR, rel)),
-      `tracks.js fetch('${rel}') has no file at visualiser/${rel}`
+      `tracks.js fetch('${rel}') has no file at visualiser/${rel}`,
     );
   }
 });

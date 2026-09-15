@@ -13,8 +13,7 @@
  */
 import { GSRGlobeManager } from './globe3d.mjs';
 
-  export const __methods = {
-
+export const __methods = {
   /**
    * Toggle 3D peak spires
    */
@@ -74,7 +73,7 @@ import { GSRGlobeManager } from './globe3d.mjs';
       this.viewer.scene.primitives.remove(this.wallPrimitive);
       this.wallPrimitive = null;
     }
-    this.trackEntities.forEach(ent => this.viewer.entities.remove(ent));
+    this.trackEntities.forEach((ent) => this.viewer.entities.remove(ent));
     this.trackEntities = [];
   },
 
@@ -88,8 +87,12 @@ import { GSRGlobeManager } from './globe3d.mjs';
     if (this._peakLabels && typeof this._peakLabels.removeAll === 'function') {
       this._peakLabels.removeAll();
     }
-    if (this.viewer && this.viewer.entities && typeof this.viewer.entities.remove === 'function') {
-      this.peakEntities.forEach(ent => {
+    if (
+      this.viewer &&
+      this.viewer.entities &&
+      typeof this.viewer.entities.remove === 'function'
+    ) {
+      this.peakEntities.forEach((ent) => {
         // The batched circle primitives are already gone via removeAll() above;
         // only the latency-connector entities need an explicit entity remove.
         if (ent && !ent._isPeakPointPrimitive) this.viewer.entities.remove(ent);
@@ -103,14 +106,22 @@ import { GSRGlobeManager } from './globe3d.mjs';
 
   /** Clear the memorable-event hotspot entities. */
   clearHotspotEntities() {
-    if (this._hotspotLabels && typeof this._hotspotLabels.removeAll === 'function') {
+    if (
+      this._hotspotLabels &&
+      typeof this._hotspotLabels.removeAll === 'function'
+    ) {
       this._hotspotLabels.removeAll();
     }
-    if (this.viewer && this.viewer.entities && typeof this.viewer.entities.remove === 'function') {
-      this.hotspotEntities.forEach(ent => {
+    if (
+      this.viewer &&
+      this.viewer.entities &&
+      typeof this.viewer.entities.remove === 'function'
+    ) {
+      this.hotspotEntities.forEach((ent) => {
         // Batched star labels are gone via removeAll() above; nothing else is
         // pushed here today, but guard the same way for the entity fallback.
-        if (ent && !ent._isHotspotLabelPrimitive) this.viewer.entities.remove(ent);
+        if (ent && !ent._isHotspotLabelPrimitive)
+          this.viewer.entities.remove(ent);
       });
     }
     this.hotspotEntities = [];
@@ -119,7 +130,7 @@ import { GSRGlobeManager } from './globe3d.mjs';
   /** Clear the spatial-cluster ground-blob entities. */
   clearClusterEntities() {
     if (!this.viewer) return;
-    this.clusterEntities.forEach(ent => this.viewer.entities.remove(ent));
+    this.clusterEntities.forEach((ent) => this.viewer.entities.remove(ent));
     this.clusterEntities = [];
   },
 
@@ -135,8 +146,7 @@ import { GSRGlobeManager } from './globe3d.mjs';
     this.clearRfEntities();
     this._clusterBlobSig = null; // force the next _syncClusterBlobs to rebuild
     if (this.scrubEntity) this.scrubEntity.show = false;
-  }
+  },
+};
 
-  };
-
-  Object.assign(GSRGlobeManager.prototype, __methods);
+Object.assign(GSRGlobeManager.prototype, __methods);

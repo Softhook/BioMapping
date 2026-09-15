@@ -14,11 +14,22 @@
 // Mirrors SERIES_FIELD in src/map/globe3d.js (and DERIVED_METRIC_SERIES in map.js) —
 // colouring metric -> analyzer per-sample series field.
 export const G3DX_SERIES_FIELD = {
-  phasic: 'phasic', tonic: 'tonic', arousalIndex: 'arousalIndex', triIndex: 'triIndex',
-  peakDensity: 'peakDensity', phasicAUC: 'phasicAUC', edasymp: 'edasymp', em_fog: 'em_fog', emFog: 'em_fog'
+  phasic: 'phasic',
+  tonic: 'tonic',
+  arousalIndex: 'arousalIndex',
+  triIndex: 'triIndex',
+  peakDensity: 'peakDensity',
+  phasicAUC: 'phasicAUC',
+  edasymp: 'edasymp',
+  em_fog: 'em_fog',
+  emFog: 'em_fog',
 };
 export const g3dxSeriesValue = (d) =>
-  (d && typeof d === 'object' && 'val' in d) ? d.val : (typeof d === 'number' ? d : 0);
+  d && typeof d === 'object' && 'val' in d
+    ? d.val
+    : typeof d === 'number'
+      ? d
+      : 0;
 
 export const GSRGlobe3DExport = {
   DEFAULT_BASE_HEIGHT: 2.0,
@@ -31,15 +42,20 @@ export const GSRGlobe3DExport = {
       return analyzer[field].map(g3dxSeriesValue);
     }
     const raw = analyzer.raw || [];
-    return raw.map((d) => (d.gsr !== undefined ? d.gsr : (d.val !== undefined ? d.val : 0)));
+    return raw.map((d) =>
+      d.gsr !== undefined ? d.gsr : d.val !== undefined ? d.val : 0,
+    );
   },
 
   _resolveOpts(opts) {
     return {
       metric: opts.metric || 'phasic',
-      baseHeight: (opts.baseHeight != null) ? opts.baseHeight : this.DEFAULT_BASE_HEIGHT,
-      extrusionScale: (opts.extrusionScale != null && isFinite(opts.extrusionScale))
-        ? opts.extrusionScale : this.DEFAULT_EXTRUSION
+      baseHeight:
+        opts.baseHeight != null ? opts.baseHeight : this.DEFAULT_BASE_HEIGHT,
+      extrusionScale:
+        opts.extrusionScale != null && isFinite(opts.extrusionScale)
+          ? opts.extrusionScale
+          : this.DEFAULT_EXTRUSION,
     };
   },
 
@@ -62,19 +78,27 @@ export const GSRGlobe3DExport = {
       maxHeights.push(baseHeight + val * extrusionScale);
     }
 
-    return JSON.stringify([
-      { id: 'document', name: 'BioMapping 3D Emotional Topography', version: '1.0' },
-      {
-        id: 'biomap_3d_ribbon',
-        name: 'GSR Emotional Ribbon',
-        wall: {
-          positions: { cartographicDegrees: positions },
-          minimumHeights: minHeights,
-          maximumHeights: maxHeights,
-          material: { solidColor: { color: { rgba: [0, 212, 255, 200] } } }
-        }
-      }
-    ], null, 2);
+    return JSON.stringify(
+      [
+        {
+          id: 'document',
+          name: 'BioMapping 3D Emotional Topography',
+          version: '1.0',
+        },
+        {
+          id: 'biomap_3d_ribbon',
+          name: 'GSR Emotional Ribbon',
+          wall: {
+            positions: { cartographicDegrees: positions },
+            minimumHeights: minHeights,
+            maximumHeights: maxHeights,
+            material: { solidColor: { color: { rgba: [0, 212, 255, 200] } } },
+          },
+        },
+      ],
+      null,
+      2,
+    );
   },
 
   /**
@@ -134,5 +158,5 @@ ${coords.trim()}
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
-  }
+  },
 };

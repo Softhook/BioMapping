@@ -9,7 +9,7 @@
  * If alphaSuffix is provided (e.g. '20'), appends it for RGBA-style hex.
  */
 export function getQualityColor(score, alphaSuffix) {
-  const base = score >= 0.7 ? '#008f3c' : (score >= 0.4 ? '#e59e00' : '#d10024');
+  const base = score >= 0.7 ? '#008f3c' : score >= 0.4 ? '#e59e00' : '#d10024';
   return alphaSuffix ? base + alphaSuffix : base;
 }
 
@@ -18,27 +18,27 @@ export function getQualityColor(score, alphaSuffix) {
  */
 export function getQualityLabel(score) {
   const pct = Math.round(score * 100);
-  const label = score >= 0.7 ? 'High' : (score >= 0.4 ? 'Med' : 'Low');
+  const label = score >= 0.7 ? 'High' : score >= 0.4 ? 'Med' : 'Low';
   return { pct, label };
 }
 
 // Excluded-peak visual style constants
 export const EXCLUDED_STYLE = {
-  color:     '#9a9a9a',
+  color: '#9a9a9a',
   lineColor: '#b0b0b0',
   lineAlpha: '3c',
   fillAlpha: '1a',
-  dash:      [2, 4],
-  weight:    1.2,
-  dotWeight: 1.5
+  dash: [2, 4],
+  weight: 1.2,
+  dotWeight: 1.5,
 };
 
 export const NORMAL_DASH = [3, 3];
 
 export const EXCLUDE_BTN = {
-  r: 5,              // button radius
-  offsetY: -8,       // Y offset from yBottomU (bottom of upper graph)
-  symbol: '\u2715'   // ✕ character
+  r: 5, // button radius
+  offsetY: -8, // Y offset from yBottomU (bottom of upper graph)
+  symbol: '\u2715', // ✕ character
 };
 
 export const GSRRenderer = {
@@ -51,9 +51,9 @@ export const GSRRenderer = {
   // both: a fresh RLE pass only when the analyzer instance or its
   // _dataVersion has changed since the last call. See _getBandSegments.
   _bandCache: {
-    osm:   { analyzer: null, dataVersion: null, segments: null },
-    ndvi:  { analyzer: null, dataVersion: null, segments: null, range: null },
-    emFog: { analyzer: null, dataVersion: null, segments: null, range: null }
+    osm: { analyzer: null, dataVersion: null, segments: null },
+    ndvi: { analyzer: null, dataVersion: null, segments: null, range: null },
+    emFog: { analyzer: null, dataVersion: null, segments: null, range: null },
   },
 
   /**
@@ -61,7 +61,8 @@ export const GSRRenderer = {
    * Caches styles locally during a drawing pass to avoid heavy DOM reads.
    */
   getThemeColor(varName, defaultVal) {
-    if (typeof window === 'undefined' || !window.getComputedStyle) return defaultVal;
+    if (typeof window === 'undefined' || !window.getComputedStyle)
+      return defaultVal;
     if (!this._styleCache) {
       this._styleCache = window.getComputedStyle(document.documentElement);
     }

@@ -12,7 +12,8 @@ export const GeoUtils = {
    * @returns {{degToMeterLat: number, degToMeterLon: number}} Scaling factors.
    */
   getGeodesicScale(lat) {
-    const degToMeterLon = GeoUtils.METERS_PER_DEG_LAT * Math.cos(parseFloat(lat) * Math.PI / 180);
+    const degToMeterLon =
+      GeoUtils.METERS_PER_DEG_LAT * Math.cos((parseFloat(lat) * Math.PI) / 180);
     return { degToMeterLat: GeoUtils.METERS_PER_DEG_LAT, degToMeterLon };
   },
 
@@ -27,7 +28,9 @@ export const GeoUtils = {
    * @returns {number} Squared distance in metres.
    */
   distanceMetersSq(lat1, lon1, lat2, lon2, scale) {
-    const sc = scale || GeoUtils.getGeodesicScale((parseFloat(lat1) + parseFloat(lat2)) / 2);
+    const sc =
+      scale ||
+      GeoUtils.getGeodesicScale((parseFloat(lat1) + parseFloat(lat2)) / 2);
     const dy = (parseFloat(lat1) - parseFloat(lat2)) * sc.degToMeterLat;
     const dx = (parseFloat(lon1) - parseFloat(lon2)) * sc.degToMeterLon;
     return dx * dx + dy * dy;
@@ -68,7 +71,7 @@ export const GeoUtils = {
     else if (p.lon != null) lon = parseFloat(p.lon);
     else if (p.lng != null) lon = parseFloat(p.lng);
 
-    return (!isNaN(lat) && !isNaN(lon)) ? { lat, lon } : null;
+    return !isNaN(lat) && !isNaN(lon) ? { lat, lon } : null;
   },
 
   /**
@@ -81,7 +84,10 @@ export const GeoUtils = {
    */
   computeBounds(points, marginRatio = 0, filterFn) {
     if (!points || points.length === 0) return null;
-    let minLat = Infinity, maxLat = -Infinity, minLon = Infinity, maxLon = -Infinity;
+    let minLat = Infinity,
+      maxLat = -Infinity,
+      minLon = Infinity,
+      maxLon = -Infinity;
     for (let i = 0; i < points.length; i++) {
       const p = points[i];
       if (!p || (filterFn && !filterFn(p))) continue;
@@ -122,7 +128,7 @@ export const GeoUtils = {
       minLat: bounds.minLat - dLat,
       maxLat: bounds.maxLat + dLat,
       minLon: bounds.minLon - dLon,
-      maxLon: bounds.maxLon + dLon
+      maxLon: bounds.maxLon + dLon,
     };
   },
 
@@ -150,8 +156,12 @@ export const GeoUtils = {
    */
   bboxIntersects(a, b) {
     if (!a || !b) return false;
-    return a.minLat <= b.maxLat && a.maxLat >= b.minLat &&
-           a.minLon <= b.maxLon && a.maxLon >= b.minLon;
+    return (
+      a.minLat <= b.maxLat &&
+      a.maxLat >= b.minLat &&
+      a.minLon <= b.maxLon &&
+      a.maxLon >= b.minLon
+    );
   },
 
   /**
@@ -162,7 +172,10 @@ export const GeoUtils = {
    */
   unionBBox(bboxes) {
     if (!bboxes || bboxes.length === 0) return null;
-    let minLat = Infinity, maxLat = -Infinity, minLon = Infinity, maxLon = -Infinity;
+    let minLat = Infinity,
+      maxLat = -Infinity,
+      minLon = Infinity,
+      maxLon = -Infinity;
     for (const b of bboxes) {
       if (!b) continue;
       if (b.minLat < minLat) minLat = b.minLat;
@@ -184,11 +197,12 @@ export const GeoUtils = {
    * @returns {number} Bearing in radians.
    */
   bearingRad(lat1, lon1, lat2, lon2) {
-    const φ1 = parseFloat(lat1) * Math.PI / 180;
-    const φ2 = parseFloat(lat2) * Math.PI / 180;
-    const Δλ = (parseFloat(lon2) - parseFloat(lon1)) * Math.PI / 180;
+    const φ1 = (parseFloat(lat1) * Math.PI) / 180;
+    const φ2 = (parseFloat(lat2) * Math.PI) / 180;
+    const Δλ = ((parseFloat(lon2) - parseFloat(lon1)) * Math.PI) / 180;
     const y = Math.sin(Δλ) * Math.cos(φ2);
-    const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
+    const x =
+      Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
     return Math.atan2(y, x);
   },
 
@@ -203,7 +217,7 @@ export const GeoUtils = {
    */
   bearingDeg(lat1, lon1, lat2, lon2) {
     const rad = GeoUtils.bearingRad(lat1, lon1, lat2, lon2);
-    const deg = rad * 180 / Math.PI;
+    const deg = (rad * 180) / Math.PI;
     return (deg + 360) % 360;
   },
 
@@ -212,12 +226,13 @@ export const GeoUtils = {
    */
   haversineMeters(lat1, lon1, lat2, lon2) {
     const R = GeoUtils.EARTH_RADIUS_M;
-    const φ1 = lat1 * Math.PI / 180;
-    const φ2 = lat2 * Math.PI / 180;
-    const Δφ = (lat2 - lat1) * Math.PI / 180;
-    const Δλ = (lon2 - lon1) * Math.PI / 180;
-    const a = Math.sin(Δφ / 2) ** 2 +
-              Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) ** 2;
+    const φ1 = (lat1 * Math.PI) / 180;
+    const φ2 = (lat2 * Math.PI) / 180;
+    const Δφ = ((lat2 - lat1) * Math.PI) / 180;
+    const Δλ = ((lon2 - lon1) * Math.PI) / 180;
+    const a =
+      Math.sin(Δφ / 2) ** 2 +
+      Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) ** 2;
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   },
 
@@ -225,12 +240,16 @@ export const GeoUtils = {
    * Project point P(lat, lon) onto segment AB, returning distance (m) and snapped coordinates.
    */
   projectPointToSegment(lat, lon, lat1, lon1, lat2, lon2) {
-    const cosLat = Math.cos(((lat + lat1 + lat2) / 3) * Math.PI / 180);
-    const x = lon * cosLat,  y = lat;
-    const x1 = lon1 * cosLat, y1 = lat1;
-    const x2 = lon2 * cosLat, y2 = lat2;
+    const cosLat = Math.cos((((lat + lat1 + lat2) / 3) * Math.PI) / 180);
+    const x = lon * cosLat,
+      y = lat;
+    const x1 = lon1 * cosLat,
+      y1 = lat1;
+    const x2 = lon2 * cosLat,
+      y2 = lat2;
 
-    const dx = x2 - x1, dy = y2 - y1;
+    const dx = x2 - x1,
+      dy = y2 - y1;
     const l2 = dx * dx + dy * dy;
 
     let t = 0;
@@ -243,12 +262,14 @@ export const GeoUtils = {
     const projY = y1 + t * dy;
     const distLat = projY - y;
     const distLon = (projX - x) / cosLat;
-    const dist = Math.sqrt(distLat * distLat + distLon * distLon) * GeoUtils.METERS_PER_DEG_LAT;
+    const dist =
+      Math.sqrt(distLat * distLat + distLon * distLon) *
+      GeoUtils.METERS_PER_DEG_LAT;
 
     return {
       distance: dist,
       lat: projY,
-      lon: projX / cosLat
+      lon: projX / cosLat,
     };
   },
 
@@ -256,7 +277,8 @@ export const GeoUtils = {
    * Shortest distance (m) from point P(lat, lon) to line segment AB.
    */
   distanceToSegmentMeters(lat, lon, lat1, lon1, lat2, lon2) {
-    return this.projectPointToSegment(lat, lon, lat1, lon1, lat2, lon2).distance;
+    return this.projectPointToSegment(lat, lon, lat1, lon1, lat2, lon2)
+      .distance;
   },
 
   /**
@@ -278,8 +300,22 @@ export const GeoUtils = {
     const toPt = (p) => {
       if (!p) return { lat: 0, lon: 0, lng: 0 };
       if (Array.isArray(p)) return { lat: p[0], lon: p[1], lng: p[1] };
-      const lat = typeof p.lat === 'number' ? p.lat : (typeof p.lat === 'function' ? p.lat() : 0);
-      const lon = typeof p.lon === 'number' ? p.lon : (typeof p.lng === 'number' ? p.lng : (typeof p.lng === 'function' ? p.lng() : (typeof p.lon === 'function' ? p.lon() : 0)));
+      const lat =
+        typeof p.lat === 'number'
+          ? p.lat
+          : typeof p.lat === 'function'
+            ? p.lat()
+            : 0;
+      const lon =
+        typeof p.lon === 'number'
+          ? p.lon
+          : typeof p.lng === 'number'
+            ? p.lng
+            : typeof p.lng === 'function'
+              ? p.lng()
+              : typeof p.lon === 'function'
+                ? p.lon()
+                : 0;
       return { lat, lon, lng: lon };
     };
 
@@ -287,14 +323,22 @@ export const GeoUtils = {
     for (const rawP of points) {
       const p = toPt(rawP);
       const prev = pts[pts.length - 1];
-      if (!prev || Math.abs(prev.lat - p.lat) > EPS || Math.abs(prev.lon - p.lon) > EPS) {
+      if (
+        !prev ||
+        Math.abs(prev.lat - p.lat) > EPS ||
+        Math.abs(prev.lon - p.lon) > EPS
+      ) {
         pts.push(p);
       }
     }
 
     if (closed && pts.length > 1) {
-      const first = pts[0], last = pts[pts.length - 1];
-      if (Math.abs(first.lat - last.lat) < EPS && Math.abs(first.lon - last.lon) < EPS) {
+      const first = pts[0],
+        last = pts[pts.length - 1];
+      if (
+        Math.abs(first.lat - last.lat) < EPS &&
+        Math.abs(first.lon - last.lon) < EPS
+      ) {
         pts = pts.slice(0, -1);
       }
     }
@@ -334,9 +378,12 @@ export const GeoUtils = {
     if (!points || points.length < 3) return 0;
     let a = 0;
     for (let i = 0; i < points.length; i++) {
-      const p1 = points[i], p2 = points[(i + 1) % points.length];
-      const lat1 = Array.isArray(p1) ? p1[0] : p1.lat, lon1 = Array.isArray(p1) ? p1[1] : p1.lon;
-      const lat2 = Array.isArray(p2) ? p2[0] : p2.lat, lon2 = Array.isArray(p2) ? p2[1] : p2.lon;
+      const p1 = points[i],
+        p2 = points[(i + 1) % points.length];
+      const lat1 = Array.isArray(p1) ? p1[0] : p1.lat,
+        lon1 = Array.isArray(p1) ? p1[1] : p1.lon;
+      const lat2 = Array.isArray(p2) ? p2[0] : p2.lat,
+        lon2 = Array.isArray(p2) ? p2[1] : p2.lon;
       a += lon1 * lat2 - lon2 * lat1;
     }
     return Math.abs(a) / 2;
@@ -350,14 +397,17 @@ export const GeoUtils = {
     let inside = false;
     const n = poly.length;
     for (let i = 0, j = n - 1; i < n; j = i++) {
-      const pi = poly[i], pj = poly[j];
+      const pi = poly[i],
+        pj = poly[j];
       const xi = Array.isArray(pi) ? pi[1] : pi.lon;
       const yi = Array.isArray(pi) ? pi[0] : pi.lat;
       const xj = Array.isArray(pj) ? pj[1] : pj.lon;
       const yj = Array.isArray(pj) ? pj[0] : pj.lat;
 
-      if ((yi > lat) !== (yj > lat) &&
-          lon < (xj - xi) * (lat - yi) / (yj - yi) + xi) {
+      if (
+        yi > lat !== yj > lat &&
+        lon < ((xj - xi) * (lat - yi)) / (yj - yi) + xi
+      ) {
         inside = !inside;
       }
     }
@@ -375,10 +425,12 @@ export const GeoUtils = {
    * @returns {{x: number, y: number}} Fractional tile coordinates.
    */
   webMercatorXY(lat, lon, zoom) {
-    const latRad = lat * Math.PI / 180;
-    const n = Math.pow(2, zoom);
-    const x = (lon + 180) / 360 * n;
-    const y = (1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2 * n;
+    const latRad = (lat * Math.PI) / 180;
+    const n = 2 ** zoom;
+    const x = ((lon + 180) / 360) * n;
+    const y =
+      ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) *
+      n;
     return { x, y };
-  }
+  },
 };

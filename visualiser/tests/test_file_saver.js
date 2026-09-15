@@ -17,11 +17,31 @@ const { GSRFileSaver } = require('../src/core/file_saver.mjs');
 
 // ── getFormatInfo ─────────────────────────────────────────────────────────
 test('getFormatInfo: recognises every explicitly-supported extension', () => {
-  assert.deepStrictEqual(GSRFileSaver.getFormatInfo('a.csv'), { mimeType: 'text/csv', description: 'CSV File (*.csv)', ext: '.csv' });
-  assert.deepStrictEqual(GSRFileSaver.getFormatInfo('a.json'), { mimeType: 'application/json', description: 'JSON File (*.json)', ext: '.json' });
-  assert.deepStrictEqual(GSRFileSaver.getFormatInfo('a.png'), { mimeType: 'image/png', description: 'PNG Image (*.png)', ext: '.png' });
-  assert.deepStrictEqual(GSRFileSaver.getFormatInfo('a.svg'), { mimeType: 'image/svg+xml', description: 'SVG Vector Map (*.svg)', ext: '.svg' });
-  assert.deepStrictEqual(GSRFileSaver.getFormatInfo('a.zip'), { mimeType: 'application/zip', description: 'Zip Archive (*.zip)', ext: '.zip' });
+  assert.deepStrictEqual(GSRFileSaver.getFormatInfo('a.csv'), {
+    mimeType: 'text/csv',
+    description: 'CSV File (*.csv)',
+    ext: '.csv',
+  });
+  assert.deepStrictEqual(GSRFileSaver.getFormatInfo('a.json'), {
+    mimeType: 'application/json',
+    description: 'JSON File (*.json)',
+    ext: '.json',
+  });
+  assert.deepStrictEqual(GSRFileSaver.getFormatInfo('a.png'), {
+    mimeType: 'image/png',
+    description: 'PNG Image (*.png)',
+    ext: '.png',
+  });
+  assert.deepStrictEqual(GSRFileSaver.getFormatInfo('a.svg'), {
+    mimeType: 'image/svg+xml',
+    description: 'SVG Vector Map (*.svg)',
+    ext: '.svg',
+  });
+  assert.deepStrictEqual(GSRFileSaver.getFormatInfo('a.zip'), {
+    mimeType: 'application/zip',
+    description: 'Zip Archive (*.zip)',
+    ext: '.zip',
+  });
 });
 
 test('getFormatInfo: is case-insensitive on the extension', () => {
@@ -30,8 +50,16 @@ test('getFormatInfo: is case-insensitive on the extension', () => {
 });
 
 test('getFormatInfo: unknown/missing extension falls back to application/octet-stream', () => {
-  assert.deepStrictEqual(GSRFileSaver.getFormatInfo('a.xyz'), { mimeType: 'application/octet-stream', description: 'File', ext: '.xyz' });
-  assert.deepStrictEqual(GSRFileSaver.getFormatInfo('noextension'), { mimeType: 'application/octet-stream', description: 'File', ext: '' });
+  assert.deepStrictEqual(GSRFileSaver.getFormatInfo('a.xyz'), {
+    mimeType: 'application/octet-stream',
+    description: 'File',
+    ext: '.xyz',
+  });
+  assert.deepStrictEqual(GSRFileSaver.getFormatInfo('noextension'), {
+    mimeType: 'application/octet-stream',
+    description: 'File',
+    ext: '',
+  });
 });
 
 test('getFormatInfo: uses the LAST dot for filenames with multiple dots', () => {
@@ -45,7 +73,8 @@ test('saveFile: plain string content resolves true (fallback path, no DOM in Nod
 });
 
 test('saveFile: base64 data URL is decoded to a Blob without throwing', async () => {
-  const dataUrl = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+  const dataUrl =
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
   const result = await GSRFileSaver.saveFile(dataUrl, 'test_chart.png');
   assert.strictEqual(result, true);
 });
@@ -58,7 +87,9 @@ test('saveFile: non-base64 (percent-encoded) data URL is decoded to a Blob with 
   global.window = {
     showSaveFilePicker: async () => ({
       createWritable: async () => ({
-        write: async (blob) => { written = blob; },
+        write: async (blob) => {
+          written = blob;
+        },
         close: async () => {},
       }),
     }),
@@ -91,7 +122,9 @@ test('saveFile: uses window.showSaveFilePicker when available and writes the blo
       assert.strictEqual(opts.suggestedName, 'export.csv');
       return {
         createWritable: async () => ({
-          write: async (blob) => { written = blob; },
+          write: async (blob) => {
+            written = blob;
+          },
           close: async () => {},
         }),
       };
@@ -119,11 +152,20 @@ test('saveFile: showSaveFilePicker AbortError (user cancelled) returns false, no
 test('saveFile: a non-abort picker error falls back to direct download instead of rejecting', async () => {
   const created = [];
   global.window = {
-    showSaveFilePicker: async () => { throw new Error('picker not permitted in this context'); },
+    showSaveFilePicker: async () => {
+      throw new Error('picker not permitted in this context');
+    },
   };
   global.document = {
     createElement: (tag) => {
-      const el = { tag, style: {}, clicked: false, click() { this.clicked = true; } };
+      const el = {
+        tag,
+        style: {},
+        clicked: false,
+        click() {
+          this.clicked = true;
+        },
+      };
       return el;
     },
     body: {
@@ -131,25 +173,45 @@ test('saveFile: a non-abort picker error falls back to direct download instead o
       removeChild: (el) => created.push({ action: 'remove', el }),
     },
   };
-  global.URL.createObjectURL = global.URL.createObjectURL || (() => 'blob:fake-url');
+  global.URL.createObjectURL =
+    global.URL.createObjectURL || (() => 'blob:fake-url');
   global.URL.revokeObjectURL = global.URL.revokeObjectURL || (() => {});
 
   const result = await GSRFileSaver.saveFile('a,b\n1,2', 'export.csv');
-  assert.strictEqual(result, true, 'should fall through to the download-link path and still resolve true');
-  assert.strictEqual(created.length, 2, 'the DOM fallback should actually have appended and removed a download link');
-  assert.strictEqual(created[0].el.clicked, true, 'the fallback link should have been clicked to trigger the download');
+  assert.strictEqual(
+    result,
+    true,
+    'should fall through to the download-link path and still resolve true',
+  );
+  assert.strictEqual(
+    created.length,
+    2,
+    'the DOM fallback should actually have appended and removed a download link',
+  );
+  assert.strictEqual(
+    created[0].el.clicked,
+    true,
+    'the fallback link should have been clicked to trigger the download',
+  );
 
   delete global.window;
   delete global.document;
 });
 
 test('saveFile: custom `types` argument is passed straight through to showSaveFilePicker without being overridden', async () => {
-  const customTypes = [{ description: 'Custom', accept: { 'text/custom': ['.custom'] } }];
+  const customTypes = [
+    { description: 'Custom', accept: { 'text/custom': ['.custom'] } },
+  ];
   let receivedTypes = null;
   global.window = {
     showSaveFilePicker: async (opts) => {
       receivedTypes = opts.types;
-      return { createWritable: async () => ({ write: async () => {}, close: async () => {} }) };
+      return {
+        createWritable: async () => ({
+          write: async () => {},
+          close: async () => {},
+        }),
+      };
     },
   };
   await GSRFileSaver.saveFile('data', 'export.custom', customTypes);
@@ -162,7 +224,14 @@ test('saveFile: falls back to a temporary <a download> link when no File System 
   const created = [];
   global.document = {
     createElement: (tag) => {
-      const el = { tag, style: {}, clicked: false, click() { this.clicked = true; } };
+      const el = {
+        tag,
+        style: {},
+        clicked: false,
+        click() {
+          this.clicked = true;
+        },
+      };
       return el;
     },
     body: {
@@ -170,7 +239,8 @@ test('saveFile: falls back to a temporary <a download> link when no File System 
       removeChild: (el) => created.push({ action: 'remove', el }),
     },
   };
-  global.URL.createObjectURL = global.URL.createObjectURL || (() => 'blob:fake-url');
+  global.URL.createObjectURL =
+    global.URL.createObjectURL || (() => 'blob:fake-url');
   global.URL.revokeObjectURL = global.URL.revokeObjectURL || (() => {});
 
   const result = await GSRFileSaver.saveFile('a,b\n1,2', 'download_test.csv');

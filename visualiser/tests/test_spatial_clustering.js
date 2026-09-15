@@ -12,11 +12,14 @@ const test = require('node:test');
 // getConcaveBlob() delegates contour extraction to the global MarchingSquares
 // (typeof-guarded, so undefined is tolerated — but we want real boundaries
 // for most tests, so load the real thing, same pattern as GeoUtils below).
-global.MarchingSquares = require('../src/render/marching_squares.mjs').MarchingSquares;
+global.MarchingSquares =
+  require('../src/render/marching_squares.mjs').MarchingSquares;
 global.GeoUtils = require('../src/gps/geo_utils.mjs').GeoUtils;
 global.SpatialGrid = require('../src/spatial/spatial_grid.mjs').SpatialGrid;
 
-const { GSRSpatialClustering } = require('../src/spatial/spatial_clustering.mjs');
+const {
+  GSRSpatialClustering,
+} = require('../src/spatial/spatial_clustering.mjs');
 
 const METERS_PER_DEG_LAT = 111320.0;
 
@@ -31,7 +34,10 @@ test('compactClusters: empty / null input returns []', () => {
 });
 
 test('compactClusters: a single point is its own cluster', () => {
-  const clusters = GSRSpatialClustering.compactClusters([{ lat: 51.5, lon: -0.1 }], 35);
+  const clusters = GSRSpatialClustering.compactClusters(
+    [{ lat: 51.5, lon: -0.1 }],
+    35,
+  );
   assert.strictEqual(clusters.length, 1);
   assert.strictEqual(clusters[0].length, 1);
 });
@@ -40,13 +46,13 @@ test('compactClusters: points within the radius group; points beyond it split', 
   const near = [
     { lat: 0, lon: 0 },
     { lat: 20 / METERS_PER_DEG_LAT, lon: 0 },
-    { lat: 30 / METERS_PER_DEG_LAT, lon: 0 }
+    { lat: 30 / METERS_PER_DEG_LAT, lon: 0 },
   ];
   assert.strictEqual(GSRSpatialClustering.compactClusters(near, 35).length, 1);
 
   const far = [
     { lat: 0, lon: 0 },
-    { lat: 500 / METERS_PER_DEG_LAT, lon: 0 }
+    { lat: 500 / METERS_PER_DEG_LAT, lon: 0 },
   ];
   assert.strictEqual(GSRSpatialClustering.compactClusters(far, 35).length, 2);
 });
@@ -54,14 +60,19 @@ test('compactClusters: points within the radius group; points beyond it split', 
 test('compactClusters: every peak is assigned exactly once (partition)', () => {
   const peaks = [];
   for (let i = 0; i < 60; i++) {
-    peaks.push({ lat: (i * 12) / METERS_PER_DEG_LAT, lon: ((i % 5) * 8) / METERS_PER_DEG_LAT, id: i });
+    peaks.push({
+      lat: (i * 12) / METERS_PER_DEG_LAT,
+      lon: ((i % 5) * 8) / METERS_PER_DEG_LAT,
+      id: i,
+    });
   }
   const clusters = GSRSpatialClustering.compactClusters(peaks, 35);
   const seen = new Set();
-  for (const c of clusters) for (const p of c) {
-    assert.ok(!seen.has(p.id), `peak ${p.id} appears in two clusters`);
-    seen.add(p.id);
-  }
+  for (const c of clusters)
+    for (const p of c) {
+      assert.ok(!seen.has(p.id), `peak ${p.id} appears in two clusters`);
+      seen.add(p.id);
+    }
   assert.strictEqual(seen.size, peaks.length);
 });
 
@@ -73,21 +84,37 @@ test('compactClusters: a long dense corridor does NOT chain into one cluster', (
   const R = 35;
   const SEP = 1.8;
   const peaks = [];
-  for (let i = 0; i < 120; i++) peaks.push({ lat: (i * 5) / METERS_PER_DEG_LAT, lon: 0 });
+  for (let i = 0; i < 120; i++)
+    peaks.push({ lat: (i * 5) / METERS_PER_DEG_LAT, lon: 0 });
   const clusters = GSRSpatialClustering.compactClusters(peaks, R, SEP);
 
-  assert.ok(clusters.length >= 3, `expected several beads, got ${clusters.length}`);
+  assert.ok(
+    clusters.length >= 3,
+    `expected several beads, got ${clusters.length}`,
+  );
   const centroids = [];
   for (const c of clusters) {
-    let min = Infinity, max = -Infinity, sum = 0;
-    for (const p of c) { const m = p.lat * METERS_PER_DEG_LAT; if (m < min) min = m; if (m > max) max = m; sum += m; }
-    assert.ok(max - min <= 2 * SEP * R + 1e-6, `bead spans ${(max - min).toFixed(1)} m, > 2*SEP*R`);
+    let min = Infinity,
+      max = -Infinity,
+      sum = 0;
+    for (const p of c) {
+      const m = p.lat * METERS_PER_DEG_LAT;
+      if (m < min) min = m;
+      if (m > max) max = m;
+      sum += m;
+    }
+    assert.ok(
+      max - min <= 2 * SEP * R + 1e-6,
+      `bead spans ${(max - min).toFixed(1)} m, > 2*SEP*R`,
+    );
     centroids.push(sum / c.length);
   }
   centroids.sort((a, b) => a - b);
   for (let i = 1; i < centroids.length; i++) {
-    assert.ok(centroids[i] - centroids[i - 1] >= R, // seed gap >= SEP*R; centroids drift a little inward
-      `bead centroids only ${(centroids[i] - centroids[i - 1]).toFixed(1)} m apart`);
+    assert.ok(
+      centroids[i] - centroids[i - 1] >= R, // seed gap >= SEP*R; centroids drift a little inward
+      `bead centroids only ${(centroids[i] - centroids[i - 1]).toFixed(1)} m apart`,
+    );
   }
 });
 
@@ -97,17 +124,33 @@ test('compactClusters: two dense knots one merge-radius apart do NOT seed overla
   // It must now be absorbed by the first (it is inside the SEP*R ring).
   const R = 35;
   const peaks = [];
-  for (let i = 0; i < 6; i++) peaks.push({ lat: (i % 2) / METERS_PER_DEG_LAT, lon: (i % 3) / METERS_PER_DEG_LAT });
-  for (let i = 0; i < 6; i++) peaks.push({ lat: (45 + (i % 2)) / METERS_PER_DEG_LAT, lon: (i % 3) / METERS_PER_DEG_LAT });
+  for (let i = 0; i < 6; i++)
+    peaks.push({
+      lat: (i % 2) / METERS_PER_DEG_LAT,
+      lon: (i % 3) / METERS_PER_DEG_LAT,
+    });
+  for (let i = 0; i < 6; i++)
+    peaks.push({
+      lat: (45 + (i % 2)) / METERS_PER_DEG_LAT,
+      lon: (i % 3) / METERS_PER_DEG_LAT,
+    });
   const clusters = GSRSpatialClustering.compactClusters(peaks, R, 1.8);
   assert.strictEqual(clusters.length, 1);
 });
 
 test('compactClusters: deterministic — same input gives the same partition', () => {
   const peaks = [];
-  for (let i = 0; i < 40; i++) peaks.push({ lat: (i * 9) / METERS_PER_DEG_LAT, lon: ((i * 7) % 30) / METERS_PER_DEG_LAT });
-  const a = GSRSpatialClustering.compactClusters(peaks, 35).map(c => c.length);
-  const b = GSRSpatialClustering.compactClusters(peaks, 35).map(c => c.length);
+  for (let i = 0; i < 40; i++)
+    peaks.push({
+      lat: (i * 9) / METERS_PER_DEG_LAT,
+      lon: ((i * 7) % 30) / METERS_PER_DEG_LAT,
+    });
+  const a = GSRSpatialClustering.compactClusters(peaks, 35).map(
+    (c) => c.length,
+  );
+  const b = GSRSpatialClustering.compactClusters(peaks, 35).map(
+    (c) => c.length,
+  );
   assert.deepStrictEqual(a, b);
 });
 
@@ -115,15 +158,32 @@ test('compactClusters: separationFactor defaults to 1.8 and NaN/sub-1 values are
   const R = 35;
   // Two knots ~55 m apart: absorbed at the 1.8 default (55 < 63), split at 1.0.
   const peaks = [];
-  for (let i = 0; i < 5; i++) peaks.push({ lat: (i % 2) / METERS_PER_DEG_LAT, lon: 0 });
-  for (let i = 0; i < 5; i++) peaks.push({ lat: (55 + i % 2) / METERS_PER_DEG_LAT, lon: 0 });
-  assert.strictEqual(GSRSpatialClustering.compactClusters(peaks, R).length, 1, 'default 1.8 absorbs');
-  assert.strictEqual(GSRSpatialClustering.compactClusters(peaks, R, NaN).length, 1, 'NaN falls back to default');
-  assert.strictEqual(GSRSpatialClustering.compactClusters(peaks, R, 0.2).length, 2, 'sub-1 clamps to 1 (one ball apart) → split');
+  for (let i = 0; i < 5; i++)
+    peaks.push({ lat: (i % 2) / METERS_PER_DEG_LAT, lon: 0 });
+  for (let i = 0; i < 5; i++)
+    peaks.push({ lat: (55 + (i % 2)) / METERS_PER_DEG_LAT, lon: 0 });
+  assert.strictEqual(
+    GSRSpatialClustering.compactClusters(peaks, R).length,
+    1,
+    'default 1.8 absorbs',
+  );
+  assert.strictEqual(
+    GSRSpatialClustering.compactClusters(peaks, R, NaN).length,
+    1,
+    'NaN falls back to default',
+  );
+  assert.strictEqual(
+    GSRSpatialClustering.compactClusters(peaks, R, 0.2).length,
+    2,
+    'sub-1 clamps to 1 (one ball apart) → split',
+  );
 });
 
 test('compactClusters: does not mutate the input peak objects', () => {
-  const peaks = [{ lat: 51.5, lon: -0.1, amplitude: 2 }, { lat: 51.50001, lon: -0.1, amplitude: 3 }];
+  const peaks = [
+    { lat: 51.5, lon: -0.1, amplitude: 2 },
+    { lat: 51.50001, lon: -0.1, amplitude: 3 },
+  ];
   const snapshot = JSON.parse(JSON.stringify(peaks));
   GSRSpatialClustering.compactClusters(peaks, 35);
   assert.deepStrictEqual(peaks, snapshot);
@@ -133,14 +193,20 @@ test('compactClusters: does not mutate the input peak objects', () => {
 
 test('relativeAmplitudeWeight: missing/non-positive refAmplitude returns unweighted 1', () => {
   assert.strictEqual(GSRSpatialClustering.relativeAmplitudeWeight(5, null), 1);
-  assert.strictEqual(GSRSpatialClustering.relativeAmplitudeWeight(5, undefined), 1);
+  assert.strictEqual(
+    GSRSpatialClustering.relativeAmplitudeWeight(5, undefined),
+    1,
+  );
   assert.strictEqual(GSRSpatialClustering.relativeAmplitudeWeight(5, 0), 1);
   assert.strictEqual(GSRSpatialClustering.relativeAmplitudeWeight(5, -3), 1);
 });
 
 test('relativeAmplitudeWeight: invalid amplitude returns unweighted 1', () => {
   assert.strictEqual(GSRSpatialClustering.relativeAmplitudeWeight(NaN, 5), 1);
-  assert.strictEqual(GSRSpatialClustering.relativeAmplitudeWeight(undefined, 5), 1);
+  assert.strictEqual(
+    GSRSpatialClustering.relativeAmplitudeWeight(undefined, 5),
+    1,
+  );
   assert.strictEqual(GSRSpatialClustering.relativeAmplitudeWeight('x', 5), 1);
 });
 
@@ -153,11 +219,17 @@ test('relativeAmplitudeWeight: mid-range ratio returns the exact ratio (unclampe
 });
 
 test('relativeAmplitudeWeight: extreme outlier amplitude clamps at the max (default 3.0)', () => {
-  assert.strictEqual(GSRSpatialClustering.relativeAmplitudeWeight(1000, 1), 3.0);
+  assert.strictEqual(
+    GSRSpatialClustering.relativeAmplitudeWeight(1000, 1),
+    3.0,
+  );
 });
 
 test('relativeAmplitudeWeight: near-zero amplitude clamps at the min (default 0.55)', () => {
-  assert.strictEqual(GSRSpatialClustering.relativeAmplitudeWeight(0.0001, 1), 0.55);
+  assert.strictEqual(
+    GSRSpatialClustering.relativeAmplitudeWeight(0.0001, 1),
+    0.55,
+  );
 });
 
 // ─── stitchSegments ───────────────────────────────────────────────────────
@@ -168,31 +240,71 @@ test('stitchSegments: empty/undefined input returns empty array', () => {
 });
 
 test('stitchSegments: a single 2-point segment is discarded (degenerate, <3 points)', () => {
-  const segments = [[{ lat: 0, lon: 0 }, { lat: 0, lon: 1 }]];
+  const segments = [
+    [
+      { lat: 0, lon: 0 },
+      { lat: 0, lon: 1 },
+    ],
+  ];
   assert.deepStrictEqual(GSRSpatialClustering.stitchSegments(segments), []);
 });
 
 test('stitchSegments: four segments forming a closed square stitch into one closed 5-point path', () => {
-  const A = { lat: 0, lon: 0 }, B = { lat: 0, lon: 1 }, C = { lat: 1, lon: 1 }, D = { lat: 1, lon: 0 };
-  const segments = [[A, B], [B, C], [C, D], [D, A]];
+  const A = { lat: 0, lon: 0 },
+    B = { lat: 0, lon: 1 },
+    C = { lat: 1, lon: 1 },
+    D = { lat: 1, lon: 0 };
+  const segments = [
+    [A, B],
+    [B, C],
+    [C, D],
+    [D, A],
+  ];
   const paths = GSRSpatialClustering.stitchSegments(segments);
   assert.strictEqual(paths.length, 1);
-  assert.strictEqual(paths[0].length, 5, 'closed square: 4 corners + repeated start/end point');
-  assert.deepStrictEqual(paths[0][0], paths[0][paths[0].length - 1], 'first and last point of a closed loop coincide');
+  assert.strictEqual(
+    paths[0].length,
+    5,
+    'closed square: 4 corners + repeated start/end point',
+  );
+  assert.deepStrictEqual(
+    paths[0][0],
+    paths[0][paths[0].length - 1],
+    'first and last point of a closed loop coincide',
+  );
 });
 
 test('stitchSegments: order of segments does not affect the stitched result (shuffled input)', () => {
-  const A = { lat: 0, lon: 0 }, B = { lat: 0, lon: 1 }, C = { lat: 1, lon: 1 }, D = { lat: 1, lon: 0 };
-  const segments = [[C, D], [A, B], [D, A], [B, C]]; // scrambled order, some needing start-side stitching
+  const A = { lat: 0, lon: 0 },
+    B = { lat: 0, lon: 1 },
+    C = { lat: 1, lon: 1 },
+    D = { lat: 1, lon: 0 };
+  const segments = [
+    [C, D],
+    [A, B],
+    [D, A],
+    [B, C],
+  ]; // scrambled order, some needing start-side stitching
   const paths = GSRSpatialClustering.stitchSegments(segments);
   assert.strictEqual(paths.length, 1);
   assert.strictEqual(paths[0].length, 5);
 });
 
 test('stitchSegments: two disjoint closed triangles stitch into two separate paths', () => {
-  const A = { lat: 0, lon: 0 }, B = { lat: 0, lon: 1 }, C = { lat: 1, lon: 0.5 };
-  const P = { lat: 10, lon: 10 }, Q = { lat: 10, lon: 11 }, R = { lat: 11, lon: 10.5 };
-  const segments = [[A, B], [B, C], [C, A], [P, Q], [Q, R], [R, P]];
+  const A = { lat: 0, lon: 0 },
+    B = { lat: 0, lon: 1 },
+    C = { lat: 1, lon: 0.5 };
+  const P = { lat: 10, lon: 10 },
+    Q = { lat: 10, lon: 11 },
+    R = { lat: 11, lon: 10.5 };
+  const segments = [
+    [A, B],
+    [B, C],
+    [C, A],
+    [P, Q],
+    [Q, R],
+    [R, P],
+  ];
   const paths = GSRSpatialClustering.stitchSegments(segments);
   assert.strictEqual(paths.length, 2);
   for (const p of paths) assert.strictEqual(p.length, 4);
@@ -204,9 +316,18 @@ test('stitchSegments: endpoints within EPS tolerance (but not bit-identical) sti
   const BclosePrime = { lat: 0, lon: 1 + 1e-9 }; // well within the 1e-6 EPS tolerance
   const C = { lat: 1, lon: 1 };
   const D = { lat: 1, lon: 0 };
-  const segments = [[A, Bexact], [BclosePrime, C], [C, D], [D, A]];
+  const segments = [
+    [A, Bexact],
+    [BclosePrime, C],
+    [C, D],
+    [D, A],
+  ];
   const paths = GSRSpatialClustering.stitchSegments(segments);
-  assert.strictEqual(paths.length, 1, 'near-duplicate float endpoints within EPS should still be treated as connected');
+  assert.strictEqual(
+    paths.length,
+    1,
+    'near-duplicate float endpoints within EPS should still be treated as connected',
+  );
 });
 
 test('stitchSegments: endpoints farther apart than EPS remain unstitched (separate short paths)', () => {
@@ -214,7 +335,10 @@ test('stitchSegments: endpoints farther apart than EPS remain unstitched (separa
   const Bexact = { lat: 0, lon: 1 };
   const Bfar = { lat: 0, lon: 1.001 }; // far outside EPS
   const C = { lat: 1, lon: 1 };
-  const segments = [[A, Bexact], [Bfar, C]];
+  const segments = [
+    [A, Bexact],
+    [Bfar, C],
+  ];
   const paths = GSRSpatialClustering.stitchSegments(segments);
   // Neither individual 2-point segment reaches the 3-point minimum, so both are dropped.
   assert.deepStrictEqual(paths, []);
@@ -224,7 +348,7 @@ test('stitchSegments: graph walk reproduces the original O(S^2) pairwise scan (e
   // Faithful copy of the pre-refactor stitcher, kept here as an oracle.
   const stitchRef = (segments) => {
     if (!segments || segments.length === 0) return [];
-    const remaining = segments.map(s => [s[0], s[1]]);
+    const remaining = segments.map((s) => [s[0], s[1]]);
     const paths = [];
     const EPS = 1e-6;
     const d = (p, q) => Math.hypot(p.lat - q.lat, p.lon - q.lon);
@@ -237,15 +361,35 @@ test('stitchSegments: graph walk reproduces the original O(S^2) pairwise scan (e
         const end = path[path.length - 1];
         for (let i = 0; i < remaining.length; i++) {
           const s = remaining[i];
-          if (d(end, s[0]) < EPS) { path.push(s[1]); remaining.splice(i, 1); added = true; break; }
-          if (d(end, s[1]) < EPS) { path.push(s[0]); remaining.splice(i, 1); added = true; break; }
+          if (d(end, s[0]) < EPS) {
+            path.push(s[1]);
+            remaining.splice(i, 1);
+            added = true;
+            break;
+          }
+          if (d(end, s[1]) < EPS) {
+            path.push(s[0]);
+            remaining.splice(i, 1);
+            added = true;
+            break;
+          }
         }
         if (!added) {
           const start = path[0];
           for (let i = 0; i < remaining.length; i++) {
             const s = remaining[i];
-            if (d(start, s[0]) < EPS) { path.unshift(s[1]); remaining.splice(i, 1); added = true; break; }
-            if (d(start, s[1]) < EPS) { path.unshift(s[0]); remaining.splice(i, 1); added = true; break; }
+            if (d(start, s[0]) < EPS) {
+              path.unshift(s[1]);
+              remaining.splice(i, 1);
+              added = true;
+              break;
+            }
+            if (d(start, s[1]) < EPS) {
+              path.unshift(s[0]);
+              remaining.splice(i, 1);
+              added = true;
+              break;
+            }
           }
         }
       }
@@ -256,9 +400,15 @@ test('stitchSegments: graph walk reproduces the original O(S^2) pairwise scan (e
 
   // Signature invariant under path rotation / direction / ordering: for each
   // path, the sorted multiset of its point keys; then the sorted list of those.
-  const sig = (paths) => paths
-    .map(p => p.map(pt => pt.lat.toFixed(9) + ',' + pt.lon.toFixed(9)).sort().join('|'))
-    .sort();
+  const sig = (paths) =>
+    paths
+      .map((p) =>
+        p
+          .map((pt) => pt.lat.toFixed(9) + ',' + pt.lon.toFixed(9))
+          .sort()
+          .join('|'),
+      )
+      .sort();
 
   const ring = (n, cx, cy, rad) => {
     const pts = [];
@@ -270,10 +420,14 @@ test('stitchSegments: graph walk reproduces the original O(S^2) pairwise scan (e
   };
   // deterministic LCG shuffle
   let seed = 42;
-  const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+  const rnd = () =>
+    (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
   const shuffle = (a) => {
     const b = a.slice();
-    for (let i = b.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [b[i], b[j]] = [b[j], b[i]]; }
+    for (let i = b.length - 1; i > 0; i--) {
+      const j = Math.floor(rnd() * (i + 1));
+      [b[i], b[j]] = [b[j], b[i]];
+    }
     return b;
   };
 
@@ -281,14 +435,23 @@ test('stitchSegments: graph walk reproduces the original O(S^2) pairwise scan (e
     ring(12, 0.1, 51.5, 0.01),
     shuffle(ring(20, -0.1, 51.5, 0.005)),
     [...ring(8, 0.1, 51.5, 0.01), ...ring(10, 0.5, 40.0, 0.02)],
-    shuffle([...ring(6, 0, 0, 0.01), ...ring(7, 5, 5, 0.01), ...ring(9, -5, -5, 0.02)]),
+    shuffle([
+      ...ring(6, 0, 0, 0.01),
+      ...ring(7, 5, 5, 0.01),
+      ...ring(9, -5, -5, 0.02),
+    ]),
   ];
 
   for (const segs of cases) {
-    const mine = GSRSpatialClustering.stitchSegments(segs.map(s => s.slice()));
-    const ref = stitchRef(segs.map(s => s.slice()));
-    assert.deepStrictEqual(sig(mine), sig(ref),
-      'new stitcher must produce the same point-partition as the reference');
+    const mine = GSRSpatialClustering.stitchSegments(
+      segs.map((s) => s.slice()),
+    );
+    const ref = stitchRef(segs.map((s) => s.slice()));
+    assert.deepStrictEqual(
+      sig(mine),
+      sig(ref),
+      'new stitcher must produce the same point-partition as the reference',
+    );
   }
 
   // On the segment sets that getConcaveBlob() actually feeds it — real Marching
@@ -302,20 +465,30 @@ test('stitchSegments: graph walk reproduces the original O(S^2) pairwise scan (e
   const captured = [];
   const realStitch = GSRSpatialClustering.stitchSegments;
   GSRSpatialClustering.stitchSegments = function (segs) {
-    captured.push(segs.map(s => s.slice()));
+    captured.push(segs.map((s) => s.slice()));
     return realStitch.call(this, segs);
   };
   try {
     let seed2 = 20260907;
-    const rr = () => (seed2 = (seed2 * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+    const rr = () =>
+      (seed2 = (seed2 * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
     for (let t = 0; t < 8; t++) {
-      const cx = -0.12 + rr() * 0.03, cy = 51.5 + rr() * 0.02;
+      const cx = -0.12 + rr() * 0.03,
+        cy = 51.5 + rr() * 0.02;
       const cluster = [];
       const n = 4 + Math.floor(rr() * 18);
       for (let i = 0; i < n; i++) {
-        cluster.push({ lat: cy + (rr() - 0.5) * 0.004, lon: cx + (rr() - 0.5) * 0.004, amplitude: 0.3 + rr() * 2 });
+        cluster.push({
+          lat: cy + (rr() - 0.5) * 0.004,
+          lon: cx + (rr() - 0.5) * 0.004,
+          amplitude: 0.3 + rr() * 2,
+        });
       }
-      GSRSpatialClustering.getConcaveBlob(cluster, 15 + rr() * 25, 12 + rr() * 22);
+      GSRSpatialClustering.getConcaveBlob(
+        cluster,
+        15 + rr() * 25,
+        12 + rr() * 22,
+      );
     }
   } finally {
     GSRSpatialClustering.stitchSegments = realStitch;
@@ -326,23 +499,38 @@ test('stitchSegments: graph walk reproduces the original O(S^2) pairwise scan (e
   for (const segs of captured) {
     if (!segs.length) continue;
     checked++;
-    const mine = realStitch.call(GSRSpatialClustering, segs.map(s => s.slice()));
-    const ref = stitchRef(segs.map(s => s.slice()));
+    const mine = realStitch.call(
+      GSRSpatialClustering,
+      segs.map((s) => s.slice()),
+    );
+    const ref = stitchRef(segs.map((s) => s.slice()));
 
-    const lens = (ps) => ps.map(p => p.length).sort((a, b) => a - b);
-    assert.deepStrictEqual(lens(mine), lens(ref),
-      'same polyline count and per-polyline vertex count as the pairwise-scan reference');
+    const lens = (ps) => ps.map((p) => p.length).sort((a, b) => a - b);
+    assert.deepStrictEqual(
+      lens(mine),
+      lens(ref),
+      'same polyline count and per-polyline vertex count as the pairwise-scan reference',
+    );
 
     const mineVerts = [];
     for (const p of mine) for (const pt of p) mineVerts.push(pt);
     for (const p of ref) {
       for (const pt of p) {
-        const near = mineVerts.some(m => Math.abs(m.lat - pt.lat) < EPS && Math.abs(m.lon - pt.lon) < EPS);
-        assert.ok(near, `reference vertex ${pt.lat},${pt.lon} has no within-EPS match in the new stitcher output`);
+        const near = mineVerts.some(
+          (m) =>
+            Math.abs(m.lat - pt.lat) < EPS && Math.abs(m.lon - pt.lon) < EPS,
+        );
+        assert.ok(
+          near,
+          `reference vertex ${pt.lat},${pt.lon} has no within-EPS match in the new stitcher output`,
+        );
       }
     }
   }
-  assert.ok(checked > 0, 'expected getConcaveBlob to exercise stitchSegments at least once');
+  assert.ok(
+    checked > 0,
+    'expected getConcaveBlob to exercise stitchSegments at least once',
+  );
 });
 
 // ─── getConcaveBlob ───────────────────────────────────────────────────────
@@ -378,16 +566,25 @@ test('getConcaveBlob: single peak produces at least one closed path enclosing it
 test('getConcaveBlob: single-peak boundary radius roughly matches thresholdRadius', () => {
   const cluster = [{ lat: 0, lon: 0 }];
   const thresholdRadius = 18;
-  const paths = GSRSpatialClustering.getConcaveBlob(cluster, 15, thresholdRadius);
+  const paths = GSRSpatialClustering.getConcaveBlob(
+    cluster,
+    15,
+    thresholdRadius,
+  );
   const maxDist = maxDistFromPeak(cluster[0], paths);
   // Grid is 70x70 over a padded window, so allow generous tolerance for
   // interpolation/discretisation error.
-  assert.ok(maxDist > thresholdRadius * 0.7 && maxDist < thresholdRadius * 1.3,
-    `expected boundary ~${thresholdRadius}m from peak, got ${maxDist.toFixed(2)}m`);
+  assert.ok(
+    maxDist > thresholdRadius * 0.7 && maxDist < thresholdRadius * 1.3,
+    `expected boundary ~${thresholdRadius}m from peak, got ${maxDist.toFixed(2)}m`,
+  );
 });
 
 test('getConcaveBlob: two coincident (identical) peaks does not crash and still returns a valid boundary', () => {
-  const cluster = [{ lat: 10, lon: 10 }, { lat: 10, lon: 10 }];
+  const cluster = [
+    { lat: 10, lon: 10 },
+    { lat: 10, lon: 10 },
+  ];
   assert.doesNotThrow(() => {
     const paths = GSRSpatialClustering.getConcaveBlob(cluster, 15, 18);
     assert.ok(paths.length >= 1);
@@ -402,25 +599,42 @@ test('getConcaveBlob: collinear (degenerate) cluster geometry produces a valid, 
   ];
   assert.doesNotThrow(() => {
     const paths = GSRSpatialClustering.getConcaveBlob(cluster, 15, 18);
-    assert.ok(paths.length >= 1, 'collinear cluster should still yield an elongated boundary');
+    assert.ok(
+      paths.length >= 1,
+      'collinear cluster should still yield an elongated boundary',
+    );
     for (const path of paths) {
-      for (const pt of path) assert.ok(Number.isFinite(pt.lat) && Number.isFinite(pt.lon));
+      for (const pt of path)
+        assert.ok(Number.isFinite(pt.lat) && Number.isFinite(pt.lon));
     }
   });
 });
 
 test('getConcaveBlob: amplitude-weighted peak (refAmplitude supplied) grows a larger boundary than the unweighted case', () => {
   const cluster = [{ lat: 0, lon: 0, amplitude: 10 }]; // rel = 10/1 = 10, clamped to max 3.0
-  const sigma = 15, thresholdRadius = 18;
+  const sigma = 15,
+    thresholdRadius = 18;
 
-  const unweightedPaths = GSRSpatialClustering.getConcaveBlob(cluster, sigma, thresholdRadius, null);
-  const weightedPaths = GSRSpatialClustering.getConcaveBlob(cluster, sigma, thresholdRadius, 1 /* refAmplitude */);
+  const unweightedPaths = GSRSpatialClustering.getConcaveBlob(
+    cluster,
+    sigma,
+    thresholdRadius,
+    null,
+  );
+  const weightedPaths = GSRSpatialClustering.getConcaveBlob(
+    cluster,
+    sigma,
+    thresholdRadius,
+    1 /* refAmplitude */,
+  );
 
   const unweightedMax = maxDistFromPeak(cluster[0], unweightedPaths);
   const weightedMax = maxDistFromPeak(cluster[0], weightedPaths);
 
-  assert.ok(weightedMax > unweightedMax,
-    `severe peak with refAmplitude weighting (${weightedMax.toFixed(1)}m) should reach farther than unweighted (${unweightedMax.toFixed(1)}m)`);
+  assert.ok(
+    weightedMax > unweightedMax,
+    `severe peak with refAmplitude weighting (${weightedMax.toFixed(1)}m) should reach farther than unweighted (${unweightedMax.toFixed(1)}m)`,
+  );
 });
 
 test('getConcaveBlob: invalid sigma/thresholdRadius fall back to defaults instead of throwing', () => {
@@ -452,13 +666,21 @@ test('getConcaveBlob: every returned path contains at least one of the cluster p
   // Two well-separated peaks -> two separate blobs, each of which must
   // contain at least one of the actual cluster peaks (per the
   // point-in-polygon filter documented in the source).
-  const cluster = [{ lat: 0, lon: 0 }, { lat: 0.01, lon: 0.01 }]; // ~1.5km apart
+  const cluster = [
+    { lat: 0, lon: 0 },
+    { lat: 0.01, lon: 0.01 },
+  ]; // ~1.5km apart
   const paths = GSRSpatialClustering.getConcaveBlob(cluster, 15, 18);
-  assert.ok(paths.length >= 2, 'two far-apart peaks should produce at least two separate boundary islands');
+  assert.ok(
+    paths.length >= 2,
+    'two far-apart peaks should produce at least two separate boundary islands',
+  );
   for (const path of paths) {
-    const containsAPeak = cluster.some(pk => GSRSpatialClustering._isPointInPolygon
-      ? GSRSpatialClustering._isPointInPolygon(pk, path)
-      : true);
+    const containsAPeak = cluster.some((pk) =>
+      GSRSpatialClustering._isPointInPolygon
+        ? GSRSpatialClustering._isPointInPolygon(pk, path)
+        : true,
+    );
     assert.ok(containsAPeak);
   }
 });
@@ -475,23 +697,38 @@ test('getConcaveBlob: every returned path contains at least one of the cluster p
 // restructuring could plausibly get wrong: a peak far outside the cutoff
 // contributing nothing, and the splat window not clipping a peak's own
 // legitimate boundary.
-test('getConcaveBlob: a peak far outside the density cutoff does not distort a nearby peak\'s boundary radius', () => {
-  const sigma = 15, thresholdRadius = 18;
+test("getConcaveBlob: a peak far outside the density cutoff does not distort a nearby peak's boundary radius", () => {
+  const sigma = 15,
+    thresholdRadius = 18;
   // Second peak ~500m away — far beyond any plausible cutoff for this
   // sigma/threshold pairing (6*sigma = 90m) — so the boundary radius around
   // the first peak should be indistinguishable from the single-peak case.
-  const cluster = [{ lat: 0, lon: 0 }, { lat: 0.0045, lon: 0 }];
-  const paths = GSRSpatialClustering.getConcaveBlob(cluster, sigma, thresholdRadius);
+  const cluster = [
+    { lat: 0, lon: 0 },
+    { lat: 0.0045, lon: 0 },
+  ];
+  const paths = GSRSpatialClustering.getConcaveBlob(
+    cluster,
+    sigma,
+    thresholdRadius,
+  );
   const distsFromFirst = [];
   for (const path of paths) {
     for (const pt of path) {
-      const d = GeoUtils.haversineMeters(cluster[0].lat, cluster[0].lon, pt.lat, pt.lon);
+      const d = GeoUtils.haversineMeters(
+        cluster[0].lat,
+        cluster[0].lon,
+        pt.lat,
+        pt.lon,
+      );
       if (d < 100) distsFromFirst.push(d); // only points that belong to peak 0's own blob
     }
   }
   const maxDist = Math.max(...distsFromFirst);
-  assert.ok(maxDist > thresholdRadius * 0.7 && maxDist < thresholdRadius * 1.3,
-    `expected peak 0's boundary ~${thresholdRadius}m (unaffected by the far peak), got ${maxDist.toFixed(2)}m`);
+  assert.ok(
+    maxDist > thresholdRadius * 0.7 && maxDist < thresholdRadius * 1.3,
+    `expected peak 0's boundary ~${thresholdRadius}m (unaffected by the far peak), got ${maxDist.toFixed(2)}m`,
+  );
 });
 
 test('getConcaveBlob: a threshold deep in the Gaussian tail (thresholdRadius >> sigma) still reaches its boundary radius', () => {
@@ -501,12 +738,19 @@ test('getConcaveBlob: a threshold deep in the Gaussian tail (thresholdRadius >> 
   // below thresholdRadius instead of reaching it, because contributions
   // between the (buggy) cutoff and the real isolevel distance would be
   // dropped as if they were negligible when they aren't, at this shape.
-  const sigma = 5, thresholdRadius = 25;
+  const sigma = 5,
+    thresholdRadius = 25;
   const cluster = [{ lat: 0, lon: 0 }];
-  const paths = GSRSpatialClustering.getConcaveBlob(cluster, sigma, thresholdRadius);
+  const paths = GSRSpatialClustering.getConcaveBlob(
+    cluster,
+    sigma,
+    thresholdRadius,
+  );
   const maxDist = maxDistFromPeak(cluster[0], paths);
-  assert.ok(maxDist > thresholdRadius * 0.7 && maxDist < thresholdRadius * 1.3,
-    `expected boundary ~${thresholdRadius}m even deep in the tail, got ${maxDist.toFixed(2)}m`);
+  assert.ok(
+    maxDist > thresholdRadius * 0.7 && maxDist < thresholdRadius * 1.3,
+    `expected boundary ~${thresholdRadius}m even deep in the tail, got ${maxDist.toFixed(2)}m`,
+  );
 });
 
 test('getConcaveBlob: three peaks spanning near/mid/far distances all get correctly-sized independent boundaries', () => {
@@ -514,17 +758,30 @@ test('getConcaveBlob: three peaks spanning near/mid/far distances all get correc
   // too-small splat window would clip its boundary, and the far peak is
   // close enough (relative to a buggy huge cutoff) that it could wrongly
   // bleed into the others if the cutoff distance were computed wrong.
-  const sigma = 4.15, thresholdRadius = 5; // matches this codebase's actual default clustering params
+  const sigma = 4.15,
+    thresholdRadius = 5; // matches this codebase's actual default clustering params
   const cluster = [
     { lat: 0, lon: 0 },
-    { lat: 0.00036, lon: 0 },  // ~40m north
-    { lat: 0.0054, lon: 0 },   // ~600m north
+    { lat: 0.00036, lon: 0 }, // ~40m north
+    { lat: 0.0054, lon: 0 }, // ~600m north
   ];
-  const paths = GSRSpatialClustering.getConcaveBlob(cluster, sigma, thresholdRadius);
-  assert.ok(paths.length >= 2, 'well-separated peaks should not all merge into one blob');
+  const paths = GSRSpatialClustering.getConcaveBlob(
+    cluster,
+    sigma,
+    thresholdRadius,
+  );
+  assert.ok(
+    paths.length >= 2,
+    'well-separated peaks should not all merge into one blob',
+  );
   // Every peak must be inside at least one returned path (isolated-island filter).
   for (const pk of cluster) {
-    const found = paths.some(path => GeoUtils.pointInPolygon(pk.lat, pk.lon, path));
-    assert.ok(found, `peak at (${pk.lat},${pk.lon}) should be enclosed by its own boundary blob`);
+    const found = paths.some((path) =>
+      GeoUtils.pointInPolygon(pk.lat, pk.lon, path),
+    );
+    assert.ok(
+      found,
+      `peak at (${pk.lat},${pk.lon}) should be enclosed by its own boundary blob`,
+    );
   }
 });

@@ -24,7 +24,6 @@
 import { ResponseDynamics } from './response_dynamics.mjs';
 
 export const SCRDeconvolution = {
-
   /**
    * Build the canonical bi-exponential SCRF kernel sampled at the given rate.
    *
@@ -113,7 +112,10 @@ export const SCRDeconvolution = {
   _updateChol(RI, columns, activeSet, newIndex, zeroTol) {
     const newVec = columns[newIndex];
     if (activeSet.length === 0) {
-      return { RI: [Float64Array.from([Math.sqrt(this._dot(newVec, newVec))])], flag: 0 };
+      return {
+        RI: [Float64Array.from([Math.sqrt(this._dot(newVec, newVec))])],
+        flag: 0,
+      };
     }
 
     const rhs = new Float64Array(activeSet.length);
@@ -139,7 +141,12 @@ export const SCRDeconvolution = {
     return { RI: next, flag: 0 };
   },
 
-  _buildReferenceDictionary(sampleRate, tauSlow = 2.0, tauFast = 0.5, kernelSec = 10.0) {
+  _buildReferenceDictionary(
+    sampleRate,
+    tauSlow = 2.0,
+    tauFast = 0.5,
+    kernelSec = 10.0,
+  ) {
     const durationR = 70;
     const Lreg = Math.round(20 * sampleRate * 3);
     const N = Math.round(durationR * sampleRate);
@@ -223,7 +230,7 @@ export const SCRDeconvolution = {
 
   _resampledLength(inputLength, sampleRate, targetRate) {
     if (sampleRate === targetRate) return inputLength;
-    return Math.max(1, Math.round(targetRate * inputLength / sampleRate));
+    return Math.max(1, Math.round((targetRate * inputLength) / sampleRate));
   },
 
   _polyphaseResample(signal, upFactor, downFactor) {
@@ -233,19 +240,24 @@ export const SCRDeconvolution = {
     const cutoff = 1 / maxRate;
     for (let i = 0; i < taps.length; i++) {
       const n = i - halfLen;
-      const base = (n === 0)
-        ? cutoff
-        : Math.sin(Math.PI * cutoff * n) / (Math.PI * n);
-      const window = 0.54 + 0.46 * Math.cos(Math.PI * n / halfLen);
+      const base =
+        n === 0 ? cutoff : Math.sin(Math.PI * cutoff * n) / (Math.PI * n);
+      const window = 0.54 + 0.46 * Math.cos((Math.PI * n) / halfLen);
       taps[i] = upFactor * base * window;
     }
 
-    const outputLength = Math.max(1, Math.round(signal.length * upFactor / downFactor));
+    const outputLength = Math.max(
+      1,
+      Math.round((signal.length * upFactor) / downFactor),
+    );
     const out = new Float64Array(outputLength);
     for (let i = 0; i < outputLength; i++) {
       const center = i * downFactor;
       const srcStart = Math.max(0, Math.ceil((center - halfLen) / upFactor));
-      const srcEnd = Math.min(signal.length - 1, Math.floor((center + halfLen) / upFactor));
+      const srcEnd = Math.min(
+        signal.length - 1,
+        Math.floor((center + halfLen) / upFactor),
+      );
       let sum = 0;
       for (let j = srcStart; j <= srcEnd; j++) {
         sum += signal[j] * taps[center - j * upFactor + halfLen];
@@ -257,7 +269,11 @@ export const SCRDeconvolution = {
 
   _linearResampleTo(signal, sampleRate, targetRate) {
     if (sampleRate === targetRate) {
-      return { values: Float64Array.from(signal), outputLength: signal.length, rate: sampleRate };
+      return {
+        values: Float64Array.from(signal),
+        outputLength: signal.length,
+        rate: sampleRate,
+      };
     }
     if (sampleRate > targetRate) {
       const gcd = this._gcd(sampleRate, targetRate);
@@ -266,7 +282,11 @@ export const SCRDeconvolution = {
       const out = this._polyphaseResample(signal, upFactor, downFactor);
       return { values: out, outputLength: out.length, rate: targetRate };
     }
-    const outputLength = this._resampledLength(signal.length, sampleRate, targetRate);
+    const outputLength = this._resampledLength(
+      signal.length,
+      sampleRate,
+      targetRate,
+    );
     const out = new Float64Array(outputLength);
     const scale = sampleRate / targetRate;
     for (let i = 0; i < outputLength; i++) {
@@ -280,7 +300,8 @@ export const SCRDeconvolution = {
   },
 
   _linearResampleBack(signal, inputRate, targetLength, targetRate) {
-    if (signal.length === targetLength && inputRate === targetRate) return Float64Array.from(signal);
+    if (signal.length === targetLength && inputRate === targetRate)
+      return Float64Array.from(signal);
     const out = new Float64Array(targetLength);
     const scale = inputRate / targetRate;
     for (let i = 0; i < targetLength; i++) {
@@ -294,19 +315,30 @@ export const SCRDeconvolution = {
   },
 
   _resampleSparseDriverBack(signal, inputRate, targetLength, targetRate) {
-    if (signal.length === targetLength && inputRate === targetRate) return Float64Array.from(signal);
+    if (signal.length === targetLength && inputRate === targetRate)
+      return Float64Array.from(signal);
     const out = new Float64Array(targetLength);
     const scale = targetRate / inputRate;
     for (let i = 0; i < signal.length; i++) {
       const amp = signal[i];
       if (amp <= 0) continue;
-      const idx = Math.max(0, Math.min(targetLength - 1, Math.round(i * scale)));
+      const idx = Math.max(
+        0,
+        Math.min(targetLength - 1, Math.round(i * scale)),
+      );
       out[idx] += amp;
     }
     return out;
   },
 
-  _runReferenceLasso(columns, s, sampleRate, maxIter, epsilon, strictReference = false) {
+  _runReferenceLasso(
+    columns,
+    s,
+    sampleRate,
+    maxIter,
+    epsilon,
+    strictReference = false,
+  ) {
     const W = columns.length;
     const zeroTol = 1e-5;
     const optTol = -10;
@@ -324,13 +356,24 @@ export const SCRDeconvolution = {
       c[j] = val;
       if (val > lambda) lambda = val;
     }
-    if (lambda < 0) throw new Error('y is not expressible as a non-negative linear combination of the dictionary');
+    if (lambda < 0)
+      throw new Error(
+        'y is not expressible as a non-negative linear combination of the dictionary',
+      );
     if (lambda <= zeroTol) {
-      return { beta: x, iterations, activationHist: [], lambda, residual: Float64Array.from(s), converged: true };
+      return {
+        beta: x,
+        iterations,
+        activationHist: [],
+        lambda,
+        residual: Float64Array.from(s),
+        converged: true,
+      };
     }
 
     let newIndices = [];
-    for (let j = 0; j < W; j++) if (Math.abs(c[j] - lambda) < zeroTol) newIndices.push(j);
+    for (let j = 0; j < W; j++)
+      if (Math.abs(c[j] - lambda) < zeroTol) newIndices.push(j);
     const collinear = new Set();
     const activeSet = [];
     const activationHist = [];
@@ -366,12 +409,19 @@ export const SCRDeconvolution = {
         lambda = -Infinity;
         newIndices = [];
         for (let j = 0; j < W; j++) if (c[j] > lambda) lambda = c[j];
-        for (let j = 0; j < W; j++) if (Math.abs(c[j] - lambda) < zeroTol) newIndices.push(j);
+        for (let j = 0; j < W; j++)
+          if (Math.abs(c[j] - lambda) < zeroTol) newIndices.push(j);
         activeSet.length = 0;
         RI = null;
         for (const idx of newIndices) {
           iterations++;
-          const updated = this._updateChol(RI, columns, activeSet, idx, zeroTol);
+          const updated = this._updateChol(
+            RI,
+            columns,
+            activeSet,
+            idx,
+            zeroTol,
+          );
           RI = updated.RI;
           if (updated.flag) collinear.add(idx);
           else activeSet.push(idx);
@@ -387,20 +437,31 @@ export const SCRDeconvolution = {
         }
         if (lambda <= zeroTol) break;
         for (let j = 0; j < W; j++) {
-          if (!collinear.has(j) && Math.abs(c[j] - lambda) < zeroTol) newIndices.push(j);
+          if (!collinear.has(j) && Math.abs(c[j] - lambda) < zeroTol)
+            newIndices.push(j);
         }
         for (const idx of newIndices) {
           iterations++;
-          const updated = this._updateChol(RI, columns, activeSet, idx, zeroTol);
+          const updated = this._updateChol(
+            RI,
+            columns,
+            activeSet,
+            idx,
+            zeroTol,
+          );
           RI = updated.RI;
           if (updated.flag) collinear.add(idx);
-          else { activeSet.push(idx); activationHist.push(idx); }
+          else {
+            activeSet.push(idx);
+            activationHist.push(idx);
+          }
         }
         if (activeSet.length === 0) break;
       }
 
       const activeSigns = new Float64Array(activeSet.length);
-      for (let i = 0; i < activeSet.length; i++) activeSigns[i] = Math.sign(c[activeSet[i]]);
+      for (let i = 0; i < activeSet.length; i++)
+        activeSigns[i] = Math.sign(c[activeSet[i]]);
       const z = this._solveUpperTriangular(RI, activeSigns, true);
       const dxActive = this._solveUpperTriangular(RI, z, false);
       const dx = new Float64Array(W);
@@ -458,12 +519,22 @@ export const SCRDeconvolution = {
       for (let i = 0; i < res.length; i++) res[i] -= gammaMin * v[i];
       for (let j = 0; j < W; j++) c[j] -= gammaMin * ATv[j];
 
-      if ((lambda - gammaMin) < optTol || (lambdaStop > 0 && lambda <= lambdaStop) || (epsilon > 0 && this._norm2(res) <= epsilon)) {
+      if (
+        lambda - gammaMin < optTol ||
+        (lambdaStop > 0 && lambda <= lambdaStop) ||
+        (epsilon > 0 && this._norm2(res) <= epsilon)
+      ) {
         newIndices = [];
         done = true;
         if (!strictReference) break;
       }
-      if (this._norm2(res, 0, Math.min(res.length, Math.round(sampleRate * 20))) <= resStop2) {
+      if (
+        this._norm2(
+          res,
+          0,
+          Math.min(res.length, Math.round(sampleRate * 20)),
+        ) <= resStop2
+      ) {
         done = true;
         if (!strictReference) break;
       }
@@ -478,7 +549,13 @@ export const SCRDeconvolution = {
       } else {
         for (const idx of newIndices) {
           iterations++;
-          const updated = this._updateChol(RI, columns, activeSet, idx, zeroTol);
+          const updated = this._updateChol(
+            RI,
+            columns,
+            activeSet,
+            idx,
+            zeroTol,
+          );
           RI = updated.RI;
           if (updated.flag) {
             collinear.add(idx);
@@ -496,7 +573,10 @@ export const SCRDeconvolution = {
       if (strictReference) {
         let hasNegative = false;
         for (let j = 0; j < W; j++) {
-          if (x[j] < 0) { hasNegative = true; break; }
+          if (x[j] < 0) {
+            hasNegative = true;
+            break;
+          }
         }
         if (hasNegative) {
           x.set(xOld);
@@ -512,7 +592,14 @@ export const SCRDeconvolution = {
       }
     }
 
-    return { beta: x, iterations, activationHist, lambda, residual: res, converged: !rolledBack };
+    return {
+      beta: x,
+      iterations,
+      activationHist,
+      lambda,
+      residual: res,
+      converged: !rolledBack,
+    };
   },
 
   /**
@@ -556,14 +643,15 @@ export const SCRDeconvolution = {
     const n = phasic.length;
     const strictReference = opts.strictReference || false;
 
-    const maxIter   = opts.maxIter   ?? (strictReference ? 40 : 120);
-    const lr        = opts.lr        ?? 1.0;
-    const convTol   = opts.convTol   ?? 0.001;
+    const maxIter = opts.maxIter ?? (strictReference ? 40 : 120);
+    const lr = opts.lr ?? 1.0;
+    const convTol = opts.convTol ?? 0.001;
     const minGapSec = opts.minImpulseGapSec ?? 0.5;
     const epsilon = opts.epsilon ?? 1.0;
     const dminSec = opts.dminSec ?? (strictReference ? 1.25 : 0.25);
     const rho = opts.rho ?? (strictReference ? 0.025 : 0.0);
-    const algorithm = opts.algorithm === 'matching_pursuit' ? 'matching_pursuit' : 'sparseda';
+    const algorithm =
+      opts.algorithm === 'matching_pursuit' ? 'matching_pursuit' : 'sparseda';
 
     if (n === 0) {
       return {
@@ -572,15 +660,20 @@ export const SCRDeconvolution = {
         kernel: new Float64Array(0),
         iterations: 0,
         impulseLog: [],
-        converged: true
+        converged: true,
       };
     }
 
     if (algorithm === 'matching_pursuit') {
-      const tauSlow   = opts.tauSlow   ?? 2.0;
-      const tauFast   = opts.tauFast   ?? 0.75;
+      const tauSlow = opts.tauSlow ?? 2.0;
+      const tauFast = opts.tauFast ?? 0.75;
       const kernelSec = opts.kernelSec ?? 5.0;
-      const canonicalKernel = this.buildSCRFKernel(sampleRate, tauSlow, tauFast, kernelSec);
+      const canonicalKernel = this.buildSCRFKernel(
+        sampleRate,
+        tauSlow,
+        tauFast,
+        kernelSec,
+      );
       if (n === 1) {
         const driver = new Float64Array(1);
         const clean = new Float64Array(1);
@@ -595,17 +688,39 @@ export const SCRDeconvolution = {
           clean,
           kernel: canonicalKernel,
           iterations: hasAmp ? 1 : 0,
-          impulseLog: hasAmp ? [{ clampedIndex: 0, trueIndex: 0, amplitude: val, atomIdx: 0, atomName: 'standard' }] : [],
-          converged: true
+          impulseLog: hasAmp
+            ? [
+                {
+                  clampedIndex: 0,
+                  trueIndex: 0,
+                  amplitude: val,
+                  atomIdx: 0,
+                  atomName: 'standard',
+                },
+              ]
+            : [],
+          converged: true,
         };
       }
-      return this._deconvolveMP(phasic, sampleRate, canonicalKernel, maxIter, lr, convTol);
+      return this._deconvolveMP(
+        phasic,
+        sampleRate,
+        canonicalKernel,
+        maxIter,
+        lr,
+        convTol,
+      );
     }
 
-    const tauSlow   = opts.tauSlow   ?? 2.0;
-    const tauFast   = opts.tauFast   ?? 0.5;
+    const tauSlow = opts.tauSlow ?? 2.0;
+    const tauFast = opts.tauFast ?? 0.5;
     const kernelSec = opts.kernelSec ?? 10.0;
-    const referenceKernel = this.buildSCRFKernel(sampleRate, tauSlow, tauFast, kernelSec);
+    const referenceKernel = this.buildSCRFKernel(
+      sampleRate,
+      tauSlow,
+      tauFast,
+      kernelSec,
+    );
     if (n === 1) {
       const driver = new Float64Array(1);
       const clean = new Float64Array(1);
@@ -619,18 +734,42 @@ export const SCRDeconvolution = {
         iterations: 0,
         impulseLog: [],
         converged: true,
-        applyRescale: false
+        applyRescale: false,
       };
     }
 
-    return this._deconvolveSparsEDA(phasic, sampleRate, referenceKernel, maxIter, epsilon, dminSec, rho, tauSlow, tauFast, kernelSec, opts.strictReference || false);
+    return this._deconvolveSparsEDA(
+      phasic,
+      sampleRate,
+      referenceKernel,
+      maxIter,
+      epsilon,
+      dminSec,
+      rho,
+      tauSlow,
+      tauFast,
+      kernelSec,
+      opts.strictReference || false,
+    );
   },
 
   /**
    * Core SparsEDA implementation: port of the official reference solver.
    * @private
    */
-  _deconvolveSparsEDA(phasic, sampleRate, canonicalKernel, maxIter, epsilon, dminSec, rho, tauSlow = 2.0, tauFast = 0.5, kernelSec = 10.0, strictReference = false) {
+  _deconvolveSparsEDA(
+    phasic,
+    sampleRate,
+    canonicalKernel,
+    maxIter,
+    epsilon,
+    dminSec,
+    rho,
+    tauSlow = 2.0,
+    tauFast = 0.5,
+    kernelSec = 10.0,
+    strictReference = false,
+  ) {
     const n = phasic.length;
     if (n === 0) {
       return {
@@ -641,13 +780,16 @@ export const SCRDeconvolution = {
         iterations: 0,
         impulseLog: [],
         converged: true,
-        applyRescale: false
+        applyRescale: false,
       };
     }
 
     let hasPositive = false;
     for (let i = 0; i < n; i++) {
-      if (phasic[i] > 0) { hasPositive = true; break; }
+      if (phasic[i] > 0) {
+        hasPositive = true;
+        break;
+      }
     }
     if (!hasPositive) {
       return {
@@ -658,7 +800,7 @@ export const SCRDeconvolution = {
         iterations: 0,
         impulseLog: [],
         converged: true,
-        applyRescale: false
+        applyRescale: false,
       };
     }
 
@@ -668,15 +810,29 @@ export const SCRDeconvolution = {
     const signalAddOrig = new Float64Array(n + padStartOrig + padEndOrig);
     for (let i = 0; i < padStartOrig; i++) signalAddOrig[i] = phasic[0];
     signalAddOrig.set(phasic, padStartOrig);
-    for (let i = 0; i < padEndOrig; i++) signalAddOrig[padStartOrig + n + i] = phasic[n - 1];
+    for (let i = 0; i < padEndOrig; i++)
+      signalAddOrig[padStartOrig + n + i] = phasic[n - 1];
 
-    const resampled = this._linearResampleTo(signalAddOrig, sampleRate, targetRate);
+    const resampled = this._linearResampleTo(
+      signalAddOrig,
+      sampleRate,
+      targetRate,
+    );
     const signalAdd = resampled.values;
     const workRate = resampled.rate;
     const workSignalLength = this._resampledLength(n, sampleRate, targetRate);
-    const pointerS = this._resampledLength(padStartOrig, sampleRate, targetRate);
+    const pointerS = this._resampledLength(
+      padStartOrig,
+      sampleRate,
+      targetRate,
+    );
     const pointerE = pointerS + workSignalLength;
-    const { columns, Lreg, N, T, bandKernels } = this._buildReferenceDictionary(workRate, tauSlow, tauFast, kernelSec);
+    const { columns, Lreg, N, T, bandKernels } = this._buildReferenceDictionary(
+      workRate,
+      tauSlow,
+      tauFast,
+      kernelSec,
+    );
     const Ns = signalAdd.length;
     const sclAux = new Float64Array(Ns);
     const driverAux = new Float64Array(Ns);
@@ -692,13 +848,26 @@ export const SCRDeconvolution = {
       const signalCut = new Float64Array(N);
       const available = Math.min(N, Ns - start);
       signalCut.set(signalAdd.subarray(start, start + available), 0);
-      const fill = available > 0 ? signalCut[available - 1] : (start > 0 ? signalAdd[start - 1] : signalAdd[0]);
+      const fill =
+        available > 0
+          ? signalCut[available - 1]
+          : start > 0
+            ? signalAdd[start - 1]
+            : signalAdd[0];
       for (let i = available; i < N; i++) signalCut[i] = fill;
       if (b0 === 0) b0 = signalCut[0];
 
       const centered = new Float64Array(signalCut.length);
-      for (let i = 0; i < signalCut.length; i++) centered[i] = signalCut[i] - b0;
-      const lasso = this._runReferenceLasso(columns, centered, workRate, maxIter, epsilon, strictReference);
+      for (let i = 0; i < signalCut.length; i++)
+        centered[i] = signalCut[i] - b0;
+      const lasso = this._runReferenceLasso(
+        columns,
+        centered,
+        workRate,
+        maxIter,
+        epsilon,
+        strictReference,
+      );
       totalIterations += lasso.iterations;
       if (!lasso.converged) truncated = true;
       const beta = lasso.beta;
@@ -717,9 +886,20 @@ export const SCRDeconvolution = {
         const diff = signalCut[i] - signalEst[i];
         remAout[i] = diff * diff;
       }
-      let res2 = 0, res3 = 0;
-      for (let i = Math.round(20 * workRate); i < Math.round(40 * workRate); i++) res2 += remAout[i];
-      for (let i = Math.round(40 * workRate); i < Math.round(60 * workRate); i++) res3 += remAout[i];
+      let res2 = 0,
+        res3 = 0;
+      for (
+        let i = Math.round(20 * workRate);
+        i < Math.round(40 * workRate);
+        i++
+      )
+        res2 += remAout[i];
+      for (
+        let i = Math.round(40 * workRate);
+        i < Math.round(60 * workRate);
+        i++
+      )
+        res3 += remAout[i];
 
       let jump = 1;
       if (res2 < 1) {
@@ -736,7 +916,10 @@ export const SCRDeconvolution = {
         for (let i = 0; i < N; i++) scl[i] += coeff * col[i];
       }
       const driverChunk = new Float64Array(Lreg);
-      const bandChunks = Array.from({ length: 5 }, () => new Float64Array(Lreg));
+      const bandChunks = Array.from(
+        { length: 5 },
+        () => new Float64Array(Lreg),
+      );
       for (let offset = 0; offset < Lreg; offset++) {
         let sum = 0;
         for (let band = 0; band < 5; band++) {
@@ -756,7 +939,8 @@ export const SCRDeconvolution = {
 
       driverAux.set(driverChunk.subarray(0, chunkLen), start);
       sclAux.set(scl.subarray(0, chunkLen), start);
-      for (let band = 0; band < 5; band++) bandAux[band].set(bandChunks[band].subarray(0, chunkLen), start);
+      for (let band = 0; band < 5; band++)
+        bandAux[band].set(bandChunks[band].subarray(0, chunkLen), start);
       resAux.set(remAout.subarray(0, chunkLen), start);
       return chunkLen;
     };
@@ -770,7 +954,7 @@ export const SCRDeconvolution = {
     const driverWorkRaw = driverAux.slice(pointerS, pointerE);
     const tonicWork = sclAux.slice(pointerS, pointerE);
     const mseWork = resAux.slice(pointerS, pointerE);
-    const bandWorkRaw = bandAux.map(arr => arr.slice(pointerS, pointerE));
+    const bandWorkRaw = bandAux.map((arr) => arr.slice(pointerS, pointerE));
     const minGapSamples = Math.max(1, Math.round(dminSec * workRate));
 
     const candidates = [];
@@ -782,7 +966,10 @@ export const SCRDeconvolution = {
     for (const idx of candidates) {
       let farEnough = true;
       for (const prev of kept) {
-        if (Math.abs(idx - prev) < minGapSamples) { farEnough = false; break; }
+        if (Math.abs(idx - prev) < minGapSamples) {
+          farEnough = false;
+          break;
+        }
       }
       if (farEnough) kept.push(idx);
     }
@@ -812,17 +999,24 @@ export const SCRDeconvolution = {
       }
     }
 
-    const driver = this._resampleSparseDriverBack(driverWork, workRate, n, sampleRate);
+    const driver = this._resampleSparseDriverBack(
+      driverWork,
+      workRate,
+      n,
+      sampleRate,
+    );
     const clean = this._linearResampleBack(cleanWork, workRate, n, sampleRate);
     const tonic = this._linearResampleBack(tonicWork, workRate, n, sampleRate);
     const mse = this._linearResampleBack(mseWork, workRate, n, sampleRate);
 
-    const SCALE_FACTORS = (typeof ResponseDynamics !== 'undefined' && ResponseDynamics.SCALE_FACTORS)
-      ? ResponseDynamics.SCALE_FACTORS
-      : [0.5, 0.75, 1.0, 1.25, 1.5];
-    const SPEED_LABELS = (typeof ResponseDynamics !== 'undefined' && ResponseDynamics.SPEED_LABELS)
-      ? ResponseDynamics.SPEED_LABELS
-      : ['Very Slow', 'Slow', 'Standard', 'Fast', 'Very Fast'];
+    const SCALE_FACTORS =
+      typeof ResponseDynamics !== 'undefined' && ResponseDynamics.SCALE_FACTORS
+        ? ResponseDynamics.SCALE_FACTORS
+        : [0.5, 0.75, 1.0, 1.25, 1.5];
+    const SPEED_LABELS =
+      typeof ResponseDynamics !== 'undefined' && ResponseDynamics.SPEED_LABELS
+        ? ResponseDynamics.SPEED_LABELS
+        : ['Very Slow', 'Slow', 'Standard', 'Fast', 'Very Fast'];
     const scale = sampleRate / workRate;
 
     // Track dominant dictionary band for each driver activation
@@ -841,18 +1035,20 @@ export const SCRDeconvolution = {
       workDominantBands.set(targetIdx, dominantBand);
     }
 
-    const impulseLog = Array.from(driver).map((amp, i) => {
-      if (amp <= 0) return null;
-      const bandIdx = workDominantBands.has(i) ? workDominantBands.get(i) : 2;
-      return {
-        clampedIndex: i,
-        trueIndex: i,
-        amplitude: amp,
-        bandIdx,
-        scaleFactor: SCALE_FACTORS[bandIdx],
-        speedLabel: SPEED_LABELS[bandIdx]
-      };
-    }).filter(Boolean);
+    const impulseLog = Array.from(driver)
+      .map((amp, i) => {
+        if (amp <= 0) return null;
+        const bandIdx = workDominantBands.has(i) ? workDominantBands.get(i) : 2;
+        return {
+          clampedIndex: i,
+          trueIndex: i,
+          amplitude: amp,
+          bandIdx,
+          scaleFactor: SCALE_FACTORS[bandIdx],
+          speedLabel: SPEED_LABELS[bandIdx],
+        };
+      })
+      .filter(Boolean);
 
     return {
       driver,
@@ -863,7 +1059,7 @@ export const SCRDeconvolution = {
       iterations: totalIterations,
       impulseLog,
       converged: !truncated,
-      applyRescale: false
+      applyRescale: false,
     };
   },
 
@@ -888,9 +1084,13 @@ export const SCRDeconvolution = {
 
     for (let iter = 0; iter < maxIter; iter++) {
       // Find global maximum of residual
-      let maxVal = 0, maxIdx = -1;
+      let maxVal = 0,
+        maxIdx = -1;
       for (let i = 0; i < n; i++) {
-        if (residual[i] > maxVal) { maxVal = residual[i]; maxIdx = i; }
+        if (residual[i] > maxVal) {
+          maxVal = residual[i];
+          maxIdx = i;
+        }
       }
 
       if (maxVal < convTol || maxIdx < 0) break;
@@ -908,21 +1108,36 @@ export const SCRDeconvolution = {
       // onset would fall before the recording started (impIdx < 0).
       const clampedImpIdx = Math.max(0, impIdx);
       driver[clampedImpIdx] += amplitude;
-      impulseLog.push({ clampedIndex: clampedImpIdx, trueIndex: impIdx, amplitude });
+      impulseLog.push({
+        clampedIndex: clampedImpIdx,
+        trueIndex: impIdx,
+        amplitude,
+      });
 
       // Subtract kernel contribution from residual (handling negative impIdx correctly)
       const startJ = Math.max(0, impIdx);
       const startK = startJ - impIdx;
-      const endJ   = Math.min(n, impIdx + kLen);
+      const endJ = Math.min(n, impIdx + kLen);
       for (let j = startJ, k = startK; j < endJ; j++, k++) {
         residual[j] -= amplitude * kernel[k];
         if (residual[j] < 0) residual[j] = 0;
       }
     }
 
-    const clean = this.reconstructPhasic(impulseLog.map(e => ({ index: e.trueIndex, amplitude: e.amplitude })), n, kernel);
+    const clean = this.reconstructPhasic(
+      impulseLog.map((e) => ({ index: e.trueIndex, amplitude: e.amplitude })),
+      n,
+      kernel,
+    );
 
-    return { driver, clean, kernel, iterations, impulseLog, converged: iterations < maxIter };
+    return {
+      driver,
+      clean,
+      kernel,
+      iterations,
+      impulseLog,
+      converged: iterations < maxIter,
+    };
   },
 
   /**
@@ -944,9 +1159,15 @@ export const SCRDeconvolution = {
     const candidates = [];
     for (let i = 0; i < n; i++) {
       if (driver[i] <= threshold) continue;
-      const isLocalMax = (i === 0 || driver[i] >= driver[i - 1]) &&
-                          (i === n - 1 || driver[i] >= driver[i + 1]);
-      if (isLocalMax) candidates.push({ index: i, time: i / sampleRate, amplitude: driver[i] });
+      const isLocalMax =
+        (i === 0 || driver[i] >= driver[i - 1]) &&
+        (i === n - 1 || driver[i] >= driver[i + 1]);
+      if (isLocalMax)
+        candidates.push({
+          index: i,
+          time: i / sampleRate,
+          amplitude: driver[i],
+        });
     }
 
     // Phase 2: greedy NMS in descending amplitude order — the largest candidate always wins.
@@ -955,7 +1176,10 @@ export const SCRDeconvolution = {
     for (const c of candidates) {
       let tooClose = false;
       for (const a of accepted) {
-        if (Math.abs(a.index - c.index) < minGapSamples) { tooClose = true; break; }
+        if (Math.abs(a.index - c.index) < minGapSamples) {
+          tooClose = true;
+          break;
+        }
       }
       if (!tooClose) accepted.push(c);
     }
@@ -982,7 +1206,12 @@ export const SCRDeconvolution = {
       if (!k) continue;
       const kLen = k.length;
       const amp = imp.amplitude;
-      const start = imp.index !== undefined ? imp.index : (imp.onsetIdx !== undefined ? imp.onsetIdx : 0);
+      const start =
+        imp.index !== undefined
+          ? imp.index
+          : imp.onsetIdx !== undefined
+            ? imp.onsetIdx
+            : 0;
       const startJ = Math.max(0, start);
       const startK = startJ - start;
       const end = Math.min(n, start + kLen);
@@ -992,5 +1221,5 @@ export const SCRDeconvolution = {
     }
 
     return clean;
-  }
+  },
 };

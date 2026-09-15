@@ -15,8 +15,7 @@ import { GSRGlobeManager } from './globe3d.mjs';
 import { GSRGlobe3DBuildings } from './globe3d/buildings.mjs';
 import { OSMEnricher } from '../osm/osm_enrichment.mjs';
 
-  export const __methods = {
-
+export const __methods = {
   /**
    * Toggle 3D Buildings: Uses direct OpenStreetMap Overpass vector extrusion (token-free)
    * or falls back to Cesium ion 3D Tiles if configured.
@@ -28,7 +27,11 @@ import { OSMEnricher } from '../osm/osm_enrichment.mjs';
     this.show3DBuildings = show;
     this.buildingStyle = style;
     if (typeof this.onBuildingsChange === 'function') {
-      try { this.onBuildingsChange(show); } catch (e) { /* ignore */ }
+      try {
+        this.onBuildingsChange(show);
+      } catch (e) {
+        /* ignore */
+      }
     }
 
     if (!show) {
@@ -49,11 +52,18 @@ import { OSMEnricher } from '../osm/osm_enrichment.mjs';
     // in flight — that raced two primitives (a leak) and two status flickers.
     if (this._buildingsFetching) return;
 
-    if (this.currentDrawPoints && this.currentDrawPoints.length > 0 && typeof OSMEnricher !== 'undefined') {
+    if (
+      this.currentDrawPoints &&
+      this.currentDrawPoints.length > 0 &&
+      typeof OSMEnricher !== 'undefined'
+    ) {
       this._buildingsFetching = true;
       try {
         if (onStatus) onStatus('Fetching OpenStreetMap 3D buildings…');
-        const rawPoints = this.currentDrawPoints.map(p => ({ lat: p.lat, lon: p.lon }));
+        const rawPoints = this.currentDrawPoints.map((p) => ({
+          lat: p.lat,
+          lon: p.lon,
+        }));
         const bbox = OSMEnricher.calculateBBox(rawPoints, 350);
         if (bbox) {
           const osmJson = await OSMEnricher.fetchOSMData(bbox, onStatus);
@@ -66,7 +76,10 @@ import { OSMEnricher } from '../osm/osm_enrichment.mjs';
           }
         }
       } catch (err) {
-        console.warn('Direct Overpass building fetch failed, checking Cesium ion fallback:', err);
+        console.warn(
+          'Direct Overpass building fetch failed, checking Cesium ion fallback:',
+          err,
+        );
       } finally {
         this._buildingsFetching = false;
       }
@@ -84,7 +97,8 @@ import { OSMEnricher } from '../osm/osm_enrichment.mjs';
         if (typeof Cesium.createOsmBuildingsAsync === 'function') {
           this.buildingsTileset = await Cesium.createOsmBuildingsAsync();
         } else {
-          this.buildingsTileset = await Cesium.Cesium3DTileset.fromIonAssetId(96188);
+          this.buildingsTileset =
+            await Cesium.Cesium3DTileset.fromIonAssetId(96188);
         }
         this.viewer.scene.primitives.add(this.buildingsTileset);
       } catch (err) {
@@ -122,7 +136,9 @@ import { OSMEnricher } from '../osm/osm_enrichment.mjs';
       this.buildingPrimitive = null;
     }
     if (this.osmBuildingEntities && this.osmBuildingEntities.length > 0) {
-      this.osmBuildingEntities.forEach(ent => this.viewer.entities.remove(ent));
+      this.osmBuildingEntities.forEach((ent) =>
+        this.viewer.entities.remove(ent),
+      );
       this.osmBuildingEntities = [];
     }
   },
@@ -144,11 +160,10 @@ import { OSMEnricher } from '../osm/osm_enrichment.mjs';
     if (!this.buildingsTileset) return;
     this.buildingsTileset.style = new Cesium.Cesium3DTileStyle({
       color: GSRGlobe3DBuildings.tileStyleExpression(style),
-      show: true
+      show: true,
     });
     this._requestRender();
-  }
+  },
+};
 
-  };
-
-  Object.assign(GSRGlobeManager.prototype, __methods);
+Object.assign(GSRGlobeManager.prototype, __methods);

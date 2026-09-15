@@ -1,4 +1,3 @@
-'use strict';
 /**
  * Regression coverage for rAF-coalesced mouseDragged() in sketch.js.
  *
@@ -19,7 +18,10 @@ async function boot() {
   window.width = 800;
   window.height = 600;
   window.constrain = (val, low, high) => Math.min(Math.max(val, low), high);
-  window.HTMLCanvasElement.prototype.getContext = () => ({ fillStyle: '', fillRect() {} });
+  window.HTMLCanvasElement.prototype.getContext = () => ({
+    fillStyle: '',
+    fillRect() {},
+  });
   window.setup();
   return { window };
 }
@@ -37,7 +39,9 @@ test('mouseDragged: coalesces multiple drag ticks into a single redraw per frame
 
   // Track redraw() calls
   let redrawCount = 0;
-  window.redraw = () => { redrawCount++; };
+  window.redraw = () => {
+    redrawCount++;
+  };
 
   // Simulate starting a drag on the graph
   window.AppState.isDragging = true;
@@ -51,17 +55,28 @@ test('mouseDragged: coalesces multiple drag ticks into a single redraw per frame
   }
 
   // viewStartTime should be updated synchronously on the latest tick
-  assert.ok(window.AppState.viewStartTime > 0, 'viewStartTime updated synchronously');
+  assert.ok(
+    window.AppState.viewStartTime > 0,
+    'viewStartTime updated synchronously',
+  );
   const expectedViewStart = window.AppState.viewStartTime;
 
   // redraw() should NOT have been called 10 times synchronously
-  assert.strictEqual(redrawCount, 0, 'redraw was deferred to rAF, not called synchronously 10 times');
+  assert.strictEqual(
+    redrawCount,
+    0,
+    'redraw was deferred to rAF, not called synchronously 10 times',
+  );
 
   // Once rAF fires, exactly one redraw should land
   await new Promise((resolve) => {
     window.requestAnimationFrame(() => {
       assert.strictEqual(redrawCount, 1, 'exactly 1 coalesced redraw executed');
-      assert.strictEqual(window.AppState.viewStartTime, expectedViewStart, 'viewStartTime preserved');
+      assert.strictEqual(
+        window.AppState.viewStartTime,
+        expectedViewStart,
+        'viewStartTime preserved',
+      );
       resolve();
     });
   });
@@ -78,7 +93,9 @@ test('mouseDragged: handles timeline dragging coalescing', async () => {
   window.AppState.viewStartTime = 0.0;
 
   let redrawCount = 0;
-  window.redraw = () => { redrawCount++; };
+  window.redraw = () => {
+    redrawCount++;
+  };
 
   window.AppState.isDraggingTimeline = true;
 
@@ -88,12 +105,19 @@ test('mouseDragged: handles timeline dragging coalescing', async () => {
     window.mouseDragged();
   }
 
-  assert.ok(window.AppState.viewStartTime > 0, 'viewStartTime updated synchronously');
+  assert.ok(
+    window.AppState.viewStartTime > 0,
+    'viewStartTime updated synchronously',
+  );
   assert.strictEqual(redrawCount, 0, 'synchronous redraws skipped');
 
   await new Promise((resolve) => {
     window.requestAnimationFrame(() => {
-      assert.strictEqual(redrawCount, 1, '1 coalesced timeline redraw executed');
+      assert.strictEqual(
+        redrawCount,
+        1,
+        '1 coalesced timeline redraw executed',
+      );
       resolve();
     });
   });

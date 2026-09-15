@@ -19,17 +19,26 @@ global.GSR_CONST = require('./mock_constants.js');
 
 const { loadModule } = require('./support/load_module.js');
 
-loadModule(path.join(__dirname, '../src/gps/geo_utils.js'),          'GeoUtils');
-loadModule(path.join(__dirname, '../src/spatial/spatial_grid.js'),        'SpatialGrid');
-loadModule(path.join(__dirname, '../src/signal/stats_math.js'),         'StatsMath');
-loadModule(path.join(__dirname, '../src/map/map_colors.js'),         'MapColors');
-loadModule(path.join(__dirname, '../src/gps/gps_filter.js'),         'GpsFilter');
-loadModule(path.join(__dirname, '../src/gps/gps_pipeline.js'),       'GpsPipeline');
-loadModule(path.join(__dirname, '../src/signal/deconvolution.js'),       'SCRDeconvolution');
-loadModule(path.join(__dirname, '../src/signal/gsr_filter.js'),         'GsrFilter');
-loadModule(path.join(__dirname, '../src/signal/csv_parser.js'),         'GSRCSVParser');
-loadModule(path.join(__dirname, '../src/signal/analyzer.js'),            'GSRAnalyzer');
-loadModule(path.join(__dirname, '../src/render/rf_fluid_renderer.js'),   'RFFluidRenderer');
+loadModule(path.join(__dirname, '../src/gps/geo_utils.js'), 'GeoUtils');
+loadModule(
+  path.join(__dirname, '../src/spatial/spatial_grid.js'),
+  'SpatialGrid',
+);
+loadModule(path.join(__dirname, '../src/signal/stats_math.js'), 'StatsMath');
+loadModule(path.join(__dirname, '../src/map/map_colors.js'), 'MapColors');
+loadModule(path.join(__dirname, '../src/gps/gps_filter.js'), 'GpsFilter');
+loadModule(path.join(__dirname, '../src/gps/gps_pipeline.js'), 'GpsPipeline');
+loadModule(
+  path.join(__dirname, '../src/signal/deconvolution.js'),
+  'SCRDeconvolution',
+);
+loadModule(path.join(__dirname, '../src/signal/gsr_filter.js'), 'GsrFilter');
+loadModule(path.join(__dirname, '../src/signal/csv_parser.js'), 'GSRCSVParser');
+loadModule(path.join(__dirname, '../src/signal/analyzer.js'), 'GSRAnalyzer');
+loadModule(
+  path.join(__dirname, '../src/render/rf_fluid_renderer.js'),
+  'RFFluidRenderer',
+);
 
 console.log('=== Running RF Fluid & Tri-Band Pipeline Tests ===');
 
@@ -40,13 +49,17 @@ const rfCsvText = [
   'timestamp,lat,lon,hdop,fix_type,em_fog,rssi_815,rssi_868,rssi_915',
   '0.00,56.3394928,-2.7894708,3.2,3,16.6,-91.5,-92.0,-91.5',
   '0.10,56.3394927,-2.7894710,3.2,3,18.2,-75.0,-80.5,-85.0',
-  '0.20,56.3394927,-2.7894710,3.2,3,25.4,-60.0,-72.0,-78.0'
+  '0.20,56.3394927,-2.7894710,3.2,3,25.4,-60.0,-72.0,-78.0',
 ].join('\n');
 
 const analyzerRF = new GSRAnalyzer();
 analyzerRF.parseCSV(rfCsvText);
 
-assert.strictEqual(analyzerRF.raw.length, 3, 'Should parse 3 rows of standalone GPS+RF data');
+assert.strictEqual(
+  analyzerRF.raw.length,
+  3,
+  'Should parse 3 rows of standalone GPS+RF data',
+);
 assert.strictEqual(analyzerRF.raw[0].rssi_815, -91.5, 'Row 0 rssi_815 match');
 assert.strictEqual(analyzerRF.raw[1].rssi_868, -80.5, 'Row 1 rssi_868 match');
 assert.strictEqual(analyzerRF.raw[2].rssi_915, -78.0, 'Row 2 rssi_915 match');
@@ -58,16 +71,28 @@ console.log('Testing unified GSR + GPS + RF CSV parsing...');
 const fullCsvText = [
   'Time (s),Raw Conductance (uS),Latitude,Longitude,rssi_815,rssi_868,rssi_915,em_fog',
   '0.00,5.12,56.3394,-2.7894,-91.5,-91.5,-91.5,10.0',
-  '0.10,5.15,56.3395,-2.7895,-70.0,-82.0,-88.0,22.5'
+  '0.10,5.15,56.3395,-2.7895,-70.0,-82.0,-88.0,22.5',
 ].join('\n');
 
 const analyzerFull = new GSRAnalyzer();
 analyzerFull.parseCSV(fullCsvText);
 
-assert.strictEqual(analyzerFull.raw.length, 2, 'Should parse 2 rows of full GSR+GPS+RF data');
-assert.strictEqual(analyzerFull.raw[0].val, 5.12, 'Row 0 GSR conductance match');
+assert.strictEqual(
+  analyzerFull.raw.length,
+  2,
+  'Should parse 2 rows of full GSR+GPS+RF data',
+);
+assert.strictEqual(
+  analyzerFull.raw[0].val,
+  5.12,
+  'Row 0 GSR conductance match',
+);
 assert.strictEqual(analyzerFull.raw[1].rssi_815, -70.0, 'Row 1 rssi_815 match');
-assert.strictEqual(analyzerFull.hasRfData, true, 'hasRfData should be true for full CSV');
+assert.strictEqual(
+  analyzerFull.hasRfData,
+  true,
+  'hasRfData should be true for full CSV',
+);
 console.log('✓ Unified GSR + GPS + RF CSV parsed successfully');
 
 // ── 2b. Export & Re-Import Processed CSV with RF Data Test ────────────
@@ -75,22 +100,63 @@ console.log('Testing export & re-import of processed CSV with RF data...');
 analyzerFull.analyze(GSR_CONST.GSR_DEFAULT);
 const exportedCsv = analyzerFull.exportToCSV();
 
-assert.ok(exportedCsv.includes('rssi_815'), 'Exported CSV header must contain rssi_815');
-assert.ok(exportedCsv.includes('rssi_868'), 'Exported CSV header must contain rssi_868');
-assert.ok(exportedCsv.includes('rssi_915'), 'Exported CSV header must contain rssi_915');
-assert.ok(exportedCsv.includes('em_fog'), 'Exported CSV header must contain em_fog');
-assert.ok(exportedCsv.includes('-70.0'), 'Exported CSV data must contain rssi_815 value -70.0');
+assert.ok(
+  exportedCsv.includes('rssi_815'),
+  'Exported CSV header must contain rssi_815',
+);
+assert.ok(
+  exportedCsv.includes('rssi_868'),
+  'Exported CSV header must contain rssi_868',
+);
+assert.ok(
+  exportedCsv.includes('rssi_915'),
+  'Exported CSV header must contain rssi_915',
+);
+assert.ok(
+  exportedCsv.includes('em_fog'),
+  'Exported CSV header must contain em_fog',
+);
+assert.ok(
+  exportedCsv.includes('-70.0'),
+  'Exported CSV data must contain rssi_815 value -70.0',
+);
 
 const analyzerReimported = new GSRAnalyzer();
 analyzerReimported.parseCSV(exportedCsv);
 assert.strictEqual(analyzerReimported.raw.length, 2, 'Should re-import 2 rows');
-assert.strictEqual(analyzerReimported.hasRfData, true, 'hasRfData should be true on re-imported CSV');
-assert.strictEqual(analyzerReimported.raw[0].rssi_815, -91.5, 'Row 0 rssi_815 preserved on re-import');
-assert.strictEqual(analyzerReimported.raw[1].rssi_815, -70.0, 'Row 1 rssi_815 preserved on re-import');
-assert.strictEqual(analyzerReimported.raw[1].rssi_868, -82.0, 'Row 1 rssi_868 preserved on re-import');
-assert.strictEqual(analyzerReimported.raw[1].rssi_915, -88.0, 'Row 1 rssi_915 preserved on re-import');
-assert.strictEqual(analyzerReimported.raw[1].em_fog, 22.5, 'Row 1 em_fog preserved on re-import');
-console.log('✓ Export & re-import of processed CSV with RF data verified successfully');
+assert.strictEqual(
+  analyzerReimported.hasRfData,
+  true,
+  'hasRfData should be true on re-imported CSV',
+);
+assert.strictEqual(
+  analyzerReimported.raw[0].rssi_815,
+  -91.5,
+  'Row 0 rssi_815 preserved on re-import',
+);
+assert.strictEqual(
+  analyzerReimported.raw[1].rssi_815,
+  -70.0,
+  'Row 1 rssi_815 preserved on re-import',
+);
+assert.strictEqual(
+  analyzerReimported.raw[1].rssi_868,
+  -82.0,
+  'Row 1 rssi_868 preserved on re-import',
+);
+assert.strictEqual(
+  analyzerReimported.raw[1].rssi_915,
+  -88.0,
+  'Row 1 rssi_915 preserved on re-import',
+);
+assert.strictEqual(
+  analyzerReimported.raw[1].em_fog,
+  22.5,
+  'Row 1 em_fog preserved on re-import',
+);
+console.log(
+  '✓ Export & re-import of processed CSV with RF data verified successfully',
+);
 
 // ── 3. Ray-Segment Intersection Math Test ─────────────────────────────
 console.log('Testing RFFluidRenderer ray-segment intersection math...');
@@ -101,7 +167,7 @@ const mockMap = {
   getBounds: () => ({ pad: () => ({ contains: () => true }) }),
   containerPointToLayerPoint: (pt) => ({ x: pt[0], y: pt[1] }),
   latLngToContainerPoint: (ll) => ({ x: ll[0] * 10, y: ll[1] * 10 }),
-  on: () => {}
+  on: () => {},
 };
 
 const renderer = new RFFluidRenderer(mockMap);
@@ -113,108 +179,192 @@ const segP1 = { lat: -20, lon: 50 };
 const segP2 = { lat: 20, lon: 50 };
 
 const t = renderer._raySegmentIntersectionGeo(origin, dirGeo, segP1, segP2);
-assert.strictEqual(t, 50, 'Ray should intersect vertical segment at distance fraction 50');
+assert.strictEqual(
+  t,
+  50,
+  'Ray should intersect vertical segment at distance fraction 50',
+);
 
 // Test ray missing segment
 const missDir = { dLat: 1, dLon: 0 }; // Direction +Y
-const tMiss = renderer._raySegmentIntersectionGeo(origin, missDir, segP1, segP2);
-assert.strictEqual(tMiss, null, 'Ray in +Y should not intersect segment at lon = 50');
+const tMiss = renderer._raySegmentIntersectionGeo(
+  origin,
+  missDir,
+  segP1,
+  segP2,
+);
+assert.strictEqual(
+  tMiss,
+  null,
+  'Ray in +Y should not intersect segment at lon = 50',
+);
 
 console.log('✓ Ray-segment intersection math verified');
 
 // ── 4. Non-RF Data Guard & Noise Floor Alpha Test ─────────────────────
 console.log('Testing RFFluidRenderer non-RF data guard & alpha floor logic...');
 const nonRfAnalyzer = new GSRAnalyzer();
-nonRfAnalyzer.parseCSV([
-  'Time (s),Raw Conductance (uS),Latitude,Longitude',
-  '0.00,5.12,56.3394,-2.7894',
-  // ~127m from the first point (0.001deg step, not 0.0001) — comfortably past
-  // _precalculateSpatialFans's spatial-downsampling threshold (scaled to
-  // radiusMeters, ~14m at the default 35m radius) so this fixture still
-  // produces two distinct cached nodes regardless of that threshold's exact
-  // value; this section is testing the non-RF guard, not thinning.
-  '0.10,5.15,56.3405,-2.7905'
-].join('\n'));
+nonRfAnalyzer.parseCSV(
+  [
+    'Time (s),Raw Conductance (uS),Latitude,Longitude',
+    '0.00,5.12,56.3394,-2.7894',
+    // ~127m from the first point (0.001deg step, not 0.0001) — comfortably past
+    // _precalculateSpatialFans's spatial-downsampling threshold (scaled to
+    // radiusMeters, ~14m at the default 35m radius) so this fixture still
+    // produces two distinct cached nodes regardless of that threshold's exact
+    // value; this section is testing the non-RF guard, not thinning.
+    '0.10,5.15,56.3405,-2.7905',
+  ].join('\n'),
+);
 
-assert.strictEqual(nonRfAnalyzer.hasRfData, false, 'hasRfData should be false for non-RF track');
+assert.strictEqual(
+  nonRfAnalyzer.hasRfData,
+  false,
+  'hasRfData should be false for non-RF track',
+);
 
 renderer.setData(nonRfAnalyzer.raw, null);
 assert.strictEqual(renderer.cachedNodes.length, 2, 'Should cache 2 nodes');
-assert.strictEqual(renderer.cachedNodes[0].hasRf, false, 'Node 0 hasRf should be false');
-assert.strictEqual(renderer.cachedNodes[1].hasRf, false, 'Node 1 hasRf should be false');
+assert.strictEqual(
+  renderer.cachedNodes[0].hasRf,
+  false,
+  'Node 0 hasRf should be false',
+);
+assert.strictEqual(
+  renderer.cachedNodes[1].hasRf,
+  false,
+  'Node 1 hasRf should be false',
+);
 
 console.log('✓ Non-RF data guard & alpha floor logic verified');
 
 // ── 5. Adaptive RSSI Normalization & Hard Noise Floor Thresholding Test ───
-console.log('Testing adaptive RSSI normalization & hard noise floor thresholding...');
+console.log(
+  'Testing adaptive RSSI normalization & hard noise floor thresholding...',
+);
 const rfAnalyzerSample = new GSRAnalyzer();
-rfAnalyzerSample.parseCSV([
-  'timestamp,lat,lon,hdop,fix_type,em_fog,rssi_815,rssi_868,rssi_915',
-  // ~127m between consecutive points (0.001deg step) — see the comment on
-  // the non-RF guard fixture above; _calculateRssiStats reads this.cachedNodes
-  // (post spatial-downsampling), so a tightly-spaced fixture would silently
-  // thin away the very peak values these assertions check for.
-  '0.00,56.3394,-2.7894,2.5,3,10.0,-91.5,-92.0,-90.0', // Ambient noise floor (no 915 MHz signal)
-  '0.10,56.3405,-2.7905,2.5,3,10.0,-72.0,-92.0,-89.5', // Active 815 MHz LTE spike, 915 remains quiet
-  '0.20,56.3416,-2.7916,2.5,3,10.0,-91.5,-72.0,-91.0'  // Active 868 MHz Grid spike, 915 remains quiet
-].join('\n'));
+rfAnalyzerSample.parseCSV(
+  [
+    'timestamp,lat,lon,hdop,fix_type,em_fog,rssi_815,rssi_868,rssi_915',
+    // ~127m between consecutive points (0.001deg step) — see the comment on
+    // the non-RF guard fixture above; _calculateRssiStats reads this.cachedNodes
+    // (post spatial-downsampling), so a tightly-spaced fixture would silently
+    // thin away the very peak values these assertions check for.
+    '0.00,56.3394,-2.7894,2.5,3,10.0,-91.5,-92.0,-90.0', // Ambient noise floor (no 915 MHz signal)
+    '0.10,56.3405,-2.7905,2.5,3,10.0,-72.0,-92.0,-89.5', // Active 815 MHz LTE spike, 915 remains quiet
+    '0.20,56.3416,-2.7916,2.5,3,10.0,-91.5,-72.0,-91.0', // Active 868 MHz Grid spike, 915 remains quiet
+  ].join('\n'),
+);
 
 renderer.setData(rfAnalyzerSample.raw, null);
 assert.ok(renderer.rssiStats, 'rssiStats should be computed');
 assert.strictEqual(renderer.rssiStats[815].peak, -72.0, '815 peak RSSI match');
-assert.strictEqual(renderer.rssiStats[815].hasActiveSignal, true, '815 should have active signal');
+assert.strictEqual(
+  renderer.rssiStats[815].hasActiveSignal,
+  true,
+  '815 should have active signal',
+);
 
 // 915 MHz peak was -89.5 dBm (<= -85 dBm hard noise floor) -> hasActiveSignal should be false
-assert.strictEqual(renderer.rssiStats[915].hasActiveSignal, false, '915 should have NO active signal');
-assert.strictEqual(renderer._normDbm(-89.5, 915), 0.0, 'Quiet 915 band should return 0.0 everywhere');
+assert.strictEqual(
+  renderer.rssiStats[915].hasActiveSignal,
+  false,
+  '915 should have NO active signal',
+);
+assert.strictEqual(
+  renderer._normDbm(-89.5, 915),
+  0.0,
+  'Quiet 915 band should return 0.0 everywhere',
+);
 
 // Verify noise floor point for active band returns 0.0 (no fluid drawn)
 const norm815Floor = renderer._normDbm(-91.5, 815);
-assert.strictEqual(norm815Floor, 0.0, 'Noise floor signal should return 0.0 norm');
+assert.strictEqual(
+  norm815Floor,
+  0.0,
+  'Noise floor signal should return 0.0 norm',
+);
 
 // Verify elevated peak signal returns > 0.9 (vibrant fluid fan)
 const norm815Peak = renderer._normDbm(-72.0, 815);
 assert.ok(norm815Peak > 0.9, 'Peak signal should return > 0.9 norm');
 
-console.log('✓ Adaptive RSSI normalization & hard noise floor thresholding verified');
+console.log(
+  '✓ Adaptive RSSI normalization & hard noise floor thresholding verified',
+);
 
 // ── 6. Dynamic EM Fog Calculation & Analyzer Time-Series Test ─────────────
 console.log('Testing dynamic EM Fog calculation & time-series generation...');
 const missingFogCsv = [
   'timestamp,lat,lon,rssi_300,rssi_315,rssi_434,rssi_446,rssi_815,rssi_868,rssi_915',
   '0.00,56.3394,-2.7894,-82.0,-78.0,-81.0,-83.0,-90.0,-88.0,-91.5',
-  '0.10,56.3395,-2.7895,-70.0,-65.0,-60.0,-72.0,-85.0,-78.0,-80.0'
+  '0.10,56.3395,-2.7895,-70.0,-65.0,-60.0,-72.0,-85.0,-78.0,-80.0',
 ].join('\n');
 
 const dynamicFogAnalyzer = new GSRAnalyzer();
 dynamicFogAnalyzer.parseCSV(missingFogCsv);
 
 assert.strictEqual(dynamicFogAnalyzer.raw.length, 2, 'Should parse 2 rows');
-assert.ok(!isNaN(dynamicFogAnalyzer.raw[0].em_fog), 'Row 0 em_fog should be dynamically calculated');
-assert.ok(dynamicFogAnalyzer.raw[0].em_fog > 0, 'Row 0 em_fog should be positive');
-assert.ok(dynamicFogAnalyzer.raw[1].em_fog > dynamicFogAnalyzer.raw[0].em_fog, 'Row 1 em_fog should be higher than Row 0');
+assert.ok(
+  !isNaN(dynamicFogAnalyzer.raw[0].em_fog),
+  'Row 0 em_fog should be dynamically calculated',
+);
+assert.ok(
+  dynamicFogAnalyzer.raw[0].em_fog > 0,
+  'Row 0 em_fog should be positive',
+);
+assert.ok(
+  dynamicFogAnalyzer.raw[1].em_fog > dynamicFogAnalyzer.raw[0].em_fog,
+  'Row 1 em_fog should be higher than Row 0',
+);
 
 dynamicFogAnalyzer.analyze(GSR_CONST.GSR_DEFAULT);
-assert.ok(Array.isArray(dynamicFogAnalyzer.em_fog), 'analyzer.em_fog array should exist');
-assert.strictEqual(dynamicFogAnalyzer.em_fog.length, 2, 'analyzer.em_fog length should match raw length');
-assert.ok(dynamicFogAnalyzer._globalRange.em_fog, '_globalRange.em_fog should be cached');
+assert.ok(
+  Array.isArray(dynamicFogAnalyzer.em_fog),
+  'analyzer.em_fog array should exist',
+);
+assert.strictEqual(
+  dynamicFogAnalyzer.em_fog.length,
+  2,
+  'analyzer.em_fog length should match raw length',
+);
+assert.ok(
+  dynamicFogAnalyzer._globalRange.em_fog,
+  '_globalRange.em_fog should be cached',
+);
 
 renderer.setData(dynamicFogAnalyzer.raw, null);
-assert.strictEqual(renderer.cachedNodes[0].hasFog, true, 'Cached node 0 should have fog flag');
+assert.strictEqual(
+  renderer.cachedNodes[0].hasFog,
+  true,
+  'Cached node 0 should have fog flag',
+);
 assert.ok(renderer.cachedNodes[0].fog > 0, 'Cached node 0 fog should be > 0');
 
 console.log('✓ Dynamic EM Fog calculation & time-series generation verified');
 
 // ── 7. Explicit Zero em_fog Must Not Be Overwritten By The Fallback ───────
-console.log('Testing explicit em_fog=0 is preserved despite present RSSI data...');
+console.log(
+  'Testing explicit em_fog=0 is preserved despite present RSSI data...',
+);
 const zeroFogPoint = {
-  lat: 56.3394, lon: -2.7894,
+  lat: 56.3394,
+  lon: -2.7894,
   em_fog: 0,
-  rssi_300: -70.0, rssi_315: -65.0, rssi_434: -60.0, rssi_446: -72.0,
-  rssi_815: -85.0, rssi_868: -78.0, rssi_915: -80.0
+  rssi_300: -70.0,
+  rssi_315: -65.0,
+  rssi_434: -60.0,
+  rssi_446: -72.0,
+  rssi_815: -85.0,
+  rssi_868: -78.0,
+  rssi_915: -80.0,
 };
 renderer.setData([zeroFogPoint], null);
-assert.strictEqual(renderer.cachedNodes[0].fog, 0, 'Explicit em_fog=0 should stay 0, not be recomputed from RSSI');
+assert.strictEqual(
+  renderer.cachedNodes[0].fog,
+  0,
+  'Explicit em_fog=0 should stay 0, not be recomputed from RSSI',
+);
 // ── 8. Test # Band Floors (dBm) CSV Metadata Header Parsing ──────────────
 console.log('Testing # Band Floors (dBm) CSV metadata header parsing...');
 const calibratedHeaderCsv = [
@@ -222,25 +372,39 @@ const calibratedHeaderCsv = [
   '# Band Floors (dBm): 815:-91.5,868:-91.5,915:-91.5',
   'timestamp,lat,lon,rssi_815,rssi_868,rssi_915',
   '0.00,56.3394,-2.7894,-91.5,-91.5,-91.5',
-  '0.10,56.3395,-2.7895,-80.0,-75.0,-70.0'
+  '0.10,56.3395,-2.7895,-80.0,-75.0,-70.0',
 ].join('\n');
 
 const calibratedAnalyzer = new GSRAnalyzer();
 calibratedAnalyzer.parseCSV(calibratedHeaderCsv);
 
-assert.ok(calibratedAnalyzer.bandFloors, 'bandFloors object should be parsed from header');
-assert.strictEqual(calibratedAnalyzer.bandFloors['815'], -91.5, '815 MHz noise floor should be -91.5');
-assert.strictEqual(calibratedAnalyzer.bandFloors['868'], -91.5, '868 MHz noise floor should be -91.5');
-assert.strictEqual(calibratedAnalyzer.bandFloors['915'], -91.5, '915 MHz noise floor should be -91.5');
+assert.ok(
+  calibratedAnalyzer.bandFloors,
+  'bandFloors object should be parsed from header',
+);
+assert.strictEqual(
+  calibratedAnalyzer.bandFloors['815'],
+  -91.5,
+  '815 MHz noise floor should be -91.5',
+);
+assert.strictEqual(
+  calibratedAnalyzer.bandFloors['868'],
+  -91.5,
+  '868 MHz noise floor should be -91.5',
+);
+assert.strictEqual(
+  calibratedAnalyzer.bandFloors['915'],
+  -91.5,
+  '915 MHz noise floor should be -91.5',
+);
 
 // Row 0 is exactly at noise floor (-91.5), so normalized power is 0
-const row0Fog = GSRAnalyzer.calcEmFog(calibratedAnalyzer.raw[0], calibratedAnalyzer.bandFloors);
+const row0Fog = GSRAnalyzer.calcEmFog(
+  calibratedAnalyzer.raw[0],
+  calibratedAnalyzer.bandFloors,
+);
 assert.strictEqual(row0Fog, 0, 'Fog at exact noise floor should be 0');
 
 console.log('✓ # Band Floors (dBm) CSV metadata header parsing verified');
 
 console.log('ALL RF FLUID & TRI-BAND PIPELINE TESTS PASSED SUCCESSFULY!');
-
-
-
-

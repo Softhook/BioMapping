@@ -119,13 +119,25 @@ import './render/renderer_chrome.mjs';
 import './render/sketch.mjs';
 
 import {
-  setup, draw, windowResized,
-  mousePressed, mouseDragged, mouseReleased, mouseMoved, mouseWheel,
+  setup,
+  draw,
+  windowResized,
+  mousePressed,
+  mouseDragged,
+  mouseReleased,
+  mouseMoved,
+  mouseWheel,
 } from './render/sketch.mjs';
 import { GSRUI } from './ui/ui.mjs';
 
 Object.assign(window, {
-  setup, draw, windowResized,
-  mousePressed, mouseDragged, mouseReleased, mouseMoved, mouseWheel,
+  setup,
+  draw,
+  windowResized,
+  mousePressed,
+  mouseDragged,
+  mouseReleased,
+  mouseMoved,
+  mouseWheel,
   GSRUI,
 });

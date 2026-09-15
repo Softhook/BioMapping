@@ -15,7 +15,6 @@ import { GSRStorage } from './storage.mjs';
 import { GSRUI } from './ui.mjs';
 
 export const __methods = {
-
   /**
    * Update a peak's label from table or map popup input, then refresh the UI.
    * If trackId is provided, the peak belongs to that track (collective mode).
@@ -46,13 +45,19 @@ export const __methods = {
         // recomputing the places here is provably wasted (see
         // refreshPeakMarkers()'s own doc comment and
         // docs/archive/visualizer_rendering_perf_routes.md §2.4).
-        AppState.mapManager.refreshPeakMarkers(AppState.analyzer, GSRStorage.buildGpsParams(), { skipClustering: true });
+        AppState.mapManager.refreshPeakMarkers(
+          AppState.analyzer,
+          GSRStorage.buildGpsParams(),
+          { skipClustering: true },
+        );
       }
       GSRUI.updatePeaksTable();
       redraw();
     } else if (AppState.mapManager) {
       const latSlider = AppState.sliders.gpsPeakLatency;
-      const peakLatency = parseFloat(latSlider ? latSlider.value : GSR_CONST.GPS_DEFAULT.peakLatency);
+      const peakLatency = parseFloat(
+        latSlider ? latSlider.value : GSR_CONST.GPS_DEFAULT.peakLatency,
+      );
       AppState.mapManager.refreshCollectivePeakMarkers(track, peakLatency);
     }
   },
@@ -65,7 +70,7 @@ export const __methods = {
     const { track, analyzer } = this._resolveTrackAndAnalyzer(trackId);
     const peaksArr = analyzer ? analyzer.peaks : null;
     if (!peaksArr || idx >= peaksArr.length) return;
-    
+
     // Update in-memory model (avoid trim during typing to allow trailing spaces)
     const pk = peaksArr[idx];
     pk.label = value;
@@ -75,7 +80,9 @@ export const __methods = {
     this._markUnsavedLabels(track);
 
     // 1. Sync table input if it exists and is not the active typing element
-    const tableInput = document.querySelector(`.peak-label-input[data-peak-idx="${idx}"]`);
+    const tableInput = document.querySelector(
+      `.peak-label-input[data-peak-idx="${idx}"]`,
+    );
     if (tableInput && tableInput.value !== value) {
       tableInput.value = value;
       tableInput.style.height = 'auto';
@@ -98,18 +105,29 @@ export const __methods = {
    * Zoom and highlight a specific peak event when user clicks a row in the peaks table.
    */
   focusOnPeak(idx, source) {
-    if (!AppState.analyzer || !AppState.analyzer.peaks || idx >= AppState.analyzer.peaks.length) return;
+    if (
+      !AppState.analyzer ||
+      !AppState.analyzer.peaks ||
+      idx >= AppState.analyzer.peaks.length
+    )
+      return;
     const peak = AppState.analyzer.peaks[idx];
     AppState.activePeakIndex = idx;
     AppState.viewStartTime = Math.max(0, peak.onsetTime - 2);
-    AppState.viewDuration = Math.min((peak.time - peak.onsetTime) + 5, AppState.totalDuration);
+    AppState.viewDuration = Math.min(
+      peak.time - peak.onsetTime + 5,
+      AppState.totalDuration,
+    );
     AppState.zoomFactor = AppState.totalDuration / AppState.viewDuration;
-    document.querySelectorAll('#peaksTable tbody tr').forEach(r => r.classList.remove('active-row'));
+    document
+      .querySelectorAll('#peaksTable tbody tr')
+      .forEach((r) => r.classList.remove('active-row'));
     const row = document.getElementById('peakRow-' + idx);
     if (row) row.classList.add('active-row');
     redraw();
 
-    const hasGps = AppState.analyzer.raw && AppState.analyzer.raw.some(d => d.hasGps);
+    const hasGps =
+      AppState.analyzer.raw && AppState.analyzer.raw.some((d) => d.hasGps);
 
     // 1. Expand relevant panels dynamically
     if (source === 'map') {
@@ -126,34 +144,54 @@ export const __methods = {
 
     // 2. Smoothly scroll table row into view if not clicked from table itself
     if (source !== 'table' && row) {
-      setTimeout(() => {
-        row.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-      }, source === 'map' ? 100 : 0);
+      setTimeout(
+        () => {
+          row.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        },
+        source === 'map' ? 100 : 0,
+      );
     }
 
     // 3. Navigate the active map surface to the peak.
     if (source === 'table' && hasGps) {
       // SCR Events table: jump straight to the spot with the scrub dot as the
       // locator and no popup — works even when the peak-marker layer is hidden.
-      if (AppState.surfaceView === 'globe' && typeof GSRGlobe3DView !== 'undefined' && GSRGlobe3DView.isActive) {
+      if (
+        AppState.surfaceView === 'globe' &&
+        typeof GSRGlobe3DView !== 'undefined' &&
+        GSRGlobe3DView.isActive
+      ) {
         if (typeof GSRGlobe3DView.focusOnPeakLocation === 'function') {
           GSRGlobe3DView.focusOnPeakLocation(idx);
         }
-      } else if (AppState.mapManager && typeof AppState.mapManager.focusOnPeakLocation === 'function') {
-        AppState.mapManager.focusOnPeakLocation(idx, AppState.analyzer, GSRStorage.buildGpsParams());
+      } else if (
+        AppState.mapManager &&
+        typeof AppState.mapManager.focusOnPeakLocation === 'function'
+      ) {
+        AppState.mapManager.focusOnPeakLocation(
+          idx,
+          AppState.analyzer,
+          GSRStorage.buildGpsParams(),
+        );
       }
     } else if (source !== 'map' && hasGps) {
       // Graph click: fly to the peak and open its popup.
-      if (AppState.surfaceView === 'globe' && typeof GSRGlobe3DView !== 'undefined' && GSRGlobe3DView.isActive) {
+      if (
+        AppState.surfaceView === 'globe' &&
+        typeof GSRGlobe3DView !== 'undefined' &&
+        GSRGlobe3DView.isActive
+      ) {
         if (typeof GSRGlobe3DView.focusOnPeak === 'function') {
           GSRGlobe3DView.focusOnPeak(idx);
         }
       } else {
         // Phase 1 (slice 3): the peakMarkers flat array is gone; resolve the
         // marker for this peak index from the track layerGroups instead.
-        const peakMarker = (AppState.mapManager && typeof AppState.mapManager.getPeakMarkerByIndex === 'function')
-          ? AppState.mapManager.getPeakMarkerByIndex(idx)
-          : null;
+        const peakMarker =
+          AppState.mapManager &&
+          typeof AppState.mapManager.getPeakMarkerByIndex === 'function'
+            ? AppState.mapManager.getPeakMarkerByIndex(idx)
+            : null;
         if (peakMarker) {
           setTimeout(() => peakMarker.openPopup(), 100);
         }
@@ -180,7 +218,10 @@ export const __methods = {
       GSRUI.updatePeaksTable();
       redraw();
       if (AppState.mapManager) {
-        AppState.mapManager.refreshPeakMarkers(AppState.analyzer, GSRStorage.buildGpsParams());
+        AppState.mapManager.refreshPeakMarkers(
+          AppState.analyzer,
+          GSRStorage.buildGpsParams(),
+        );
       }
     } else {
       GSRUI.updateCollectiveMap();
@@ -193,7 +234,8 @@ export const __methods = {
   sortPeaksTable(col) {
     if (!col) return;
     if (AppState.peakSortColumn === col) {
-      AppState.peakSortDirection = (AppState.peakSortDirection === 'asc') ? 'desc' : 'asc';
+      AppState.peakSortDirection =
+        AppState.peakSortDirection === 'asc' ? 'desc' : 'asc';
     } else {
       AppState.peakSortColumn = col;
       AppState.peakSortDirection = 'asc';
@@ -211,14 +253,17 @@ export const __methods = {
     const curCol = AppState.peakSortColumn || 'index';
     const curDir = AppState.peakSortDirection || 'asc';
 
-    ths.forEach(th => {
+    ths.forEach((th) => {
       const col = th.dataset.sort;
       const icon = th.querySelector('.sort-icon');
       if (col === curCol) {
         th.classList.remove('sort-asc', 'sort-desc');
         th.classList.add(curDir === 'desc' ? 'sort-desc' : 'sort-asc');
         if (icon) {
-          icon.className = 'fa-solid ' + (curDir === 'desc' ? 'fa-sort-down' : 'fa-sort-up') + ' sort-icon';
+          icon.className =
+            'fa-solid ' +
+            (curDir === 'desc' ? 'fa-sort-down' : 'fa-sort-up') +
+            ' sort-icon';
         }
       } else {
         th.classList.remove('sort-asc', 'sort-desc');
@@ -233,23 +278,27 @@ export const __methods = {
    * Populate the peak events table below the graph.
    */
   updatePeaksTable() {
-    const peaks = (AppState.analyzer && AppState.analyzer.peaks) ? AppState.analyzer.peaks : [];
-    const tb    = AppState.tableBody;
+    const peaks =
+      AppState.analyzer && AppState.analyzer.peaks
+        ? AppState.analyzer.peaks
+        : [];
+    const tb = AppState.tableBody;
 
     if (!tb) return;
 
     if (peaks.length === 0) {
-      tb.innerHTML = '<tr class="empty-row"><td colspan="7">No peaks detected. Try reducing the Peak Amplitude threshold.</td></tr>';
+      tb.innerHTML =
+        '<tr class="empty-row"><td colspan="7">No peaks detected. Try reducing the Peak Amplitude threshold.</td></tr>';
       this.updatePeaksTableSortHeaders();
       return;
     }
 
     const sortCol = AppState.peakSortColumn || 'index';
-    const sortDir = (AppState.peakSortDirection === 'desc') ? -1 : 1;
+    const sortDir = AppState.peakSortDirection === 'desc' ? -1 : 1;
 
     // Create array of { p, idx } pairs to sort without mutating AppState.analyzer.peaks
     const indexedPeaks = peaks.map((p, idx) => ({ p, idx }));
-    const getRiseTime = (p) => (p.riseTime ?? (p.time - p.onsetTime) ?? 0);
+    const getRiseTime = (p) => p.riseTime ?? p.time - p.onsetTime ?? 0;
 
     indexedPeaks.sort((a, b) => {
       let diff = 0;
@@ -285,47 +334,97 @@ export const __methods = {
       return a.idx - b.idx; // Stable fallback to chronological index
     });
 
-    let rowsHtml = "";
+    let rowsHtml = '';
     indexedPeaks.forEach(({ p, idx }) => {
       const rowClass = [];
       if (idx === AppState.activePeakIndex) rowClass.push('active-row');
       if (p.excluded) rowClass.push('excluded-row');
-      const rowAttr = rowClass.length > 0 ? "class='" + rowClass.join(' ') + "'" : "";
+      const rowAttr =
+        rowClass.length > 0 ? "class='" + rowClass.join(' ') + "'" : '';
       const riseTimeStr = getRiseTime(p).toFixed(2);
       const qScore = p.qualityScore !== undefined ? p.qualityScore : 0;
       const qColor = getQualityColor(qScore, '20');
       const { pct: qPct, label: qLabel } = getQualityLabel(qScore);
 
-      const escapedLabel = (typeof GSRNotices !== 'undefined' && typeof GSRNotices.escapeHtml === 'function')
-        ? GSRNotices.escapeHtml(p.label || '')
-        : (p.label || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+      const escapedLabel =
+        typeof GSRNotices !== 'undefined' &&
+        typeof GSRNotices.escapeHtml === 'function'
+          ? GSRNotices.escapeHtml(p.label || '')
+          : (p.label || '')
+              .replace(/&/g, '&amp;')
+              .replace(/</g, '&lt;')
+              .replace(/>/g, '&gt;')
+              .replace(/"/g, '&quot;');
 
       const speedBadge = p.speedLabel
-        ? '<span class="badge-speed speed-' + p.speedLabel.toLowerCase().replace(/\s+/g, '-') + '" title="SparsEDA dynamics: ' + p.speedLabel + ' (' + (p.scaleFactor || 1) + 'x)">' + p.speedLabel + '</span>'
+        ? '<span class="badge-speed speed-' +
+          p.speedLabel.toLowerCase().replace(/\s+/g, '-') +
+          '" title="SparsEDA dynamics: ' +
+          p.speedLabel +
+          ' (' +
+          (p.scaleFactor || 1) +
+          'x)">' +
+          p.speedLabel +
+          '</span>'
         : '';
 
-      rowsHtml += '<tr id="peakRow-' + idx + '" ' + rowAttr + ' onclick="GSRUI.focusOnPeak(' + idx + ', \'table\')">' +
-        '<td>' + (idx + 1) + '</td>' +
-        '<td class="label-cell">' +
-          '<textarea class="peak-label-input" rows="1" ' +
-            'placeholder="Add label…" data-peak-idx="' + idx + '" ' +
-            'onclick="event.stopPropagation();" ' +
-            'oninput="GSRUI.handleLiveLabelInput(' + idx + ', this.value); this.style.height=\'auto\'; this.style.height=this.scrollHeight+\'px\';" ' +
-            'onchange="GSRUI.updatePeakLabel(' + idx + ', this.value)" ' +
-            'onkeydown="if(event.key===\'Enter\') { event.preventDefault(); GSRUI.updatePeakLabel(' + idx + ', this.value); this.blur(); }">' +
-            escapedLabel +
-          '</textarea>' +
+      rowsHtml +=
+        '<tr id="peakRow-' +
+        idx +
+        '" ' +
+        rowAttr +
+        ' onclick="GSRUI.focusOnPeak(' +
+        idx +
+        ", 'table')\">" +
+        '<td>' +
+        (idx + 1) +
         '</td>' +
-        '<td>' + p.amplitude.toFixed(4) + '</td>' +
-        '<td>' + riseTimeStr + speedBadge + '</td>' +
-        '<td style="background:' + qColor + '">' +
-          qPct + '% ' + qLabel + '</td>' +
+        '<td class="label-cell">' +
+        '<textarea class="peak-label-input" rows="1" ' +
+        'placeholder="Add label…" data-peak-idx="' +
+        idx +
+        '" ' +
+        'onclick="event.stopPropagation();" ' +
+        'oninput="GSRUI.handleLiveLabelInput(' +
+        idx +
+        ", this.value); this.style.height='auto'; this.style.height=this.scrollHeight+'px';\" " +
+        'onchange="GSRUI.updatePeakLabel(' +
+        idx +
+        ', this.value)" ' +
+        "onkeydown=\"if(event.key==='Enter') { event.preventDefault(); GSRUI.updatePeakLabel(" +
+        idx +
+        ', this.value); this.blur(); }">' +
+        escapedLabel +
+        '</textarea>' +
+        '</td>' +
+        '<td>' +
+        p.amplitude.toFixed(4) +
+        '</td>' +
+        '<td>' +
+        riseTimeStr +
+        speedBadge +
+        '</td>' +
+        '<td style="background:' +
+        qColor +
+        '">' +
+        qPct +
+        '% ' +
+        qLabel +
+        '</td>' +
         '<td class="exclude-cell"><button class="btn-exclude" ' +
-          'onclick="event.stopPropagation(); GSRUI.togglePeakExclusion(' + idx + ')" ' +
-          'title="' + (p.excluded ? 'Include peak' : 'Exclude peak') + '">' +
-          (p.excluded ? '<i class="fa-solid fa-plus"></i>' : '<i class="fa-solid fa-xmark"></i>') +
-          '</button></td>' +
-        '<td><button class="btn-table-action" onclick="event.stopPropagation(); GSRUI.focusOnPeak(' + idx + ', \'table\')">' +
+        'onclick="event.stopPropagation(); GSRUI.togglePeakExclusion(' +
+        idx +
+        ')" ' +
+        'title="' +
+        (p.excluded ? 'Include peak' : 'Exclude peak') +
+        '">' +
+        (p.excluded
+          ? '<i class="fa-solid fa-plus"></i>'
+          : '<i class="fa-solid fa-xmark"></i>') +
+        '</button></td>' +
+        '<td><button class="btn-table-action" onclick="event.stopPropagation(); GSRUI.focusOnPeak(' +
+        idx +
+        ", 'table')\">" +
         '<i class="fa-solid fa-arrows-to-eye"></i> View</button></td></tr>';
     });
 
@@ -336,13 +435,12 @@ export const __methods = {
 
     // Auto-size all rendered textareas
     setTimeout(() => {
-      tb.querySelectorAll('.peak-label-input').forEach(ta => {
+      tb.querySelectorAll('.peak-label-input').forEach((ta) => {
         ta.style.height = 'auto';
         ta.style.height = ta.scrollHeight + 'px';
       });
     }, 0);
   },
-
 };
 
 Object.assign(GSRUI, __methods);

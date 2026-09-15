@@ -15,7 +15,9 @@ const GSR_CONST_MOCK = require('./mock_constants.js');
 // paths) and Node has no `alert` global — stub it once here and let
 // individual tests inspect calls via `alertCalls`.
 let alertCalls = [];
-global.alert = (msg) => { alertCalls.push(msg); };
+global.alert = (msg) => {
+  alertCalls.push(msg);
+};
 
 // localStorage isn't used directly by storage.js today, but stub it
 // defensively per the task brief in case any code path touches it.
@@ -40,9 +42,13 @@ const { GSRStorage, sliderVal } = require('../src/ui/storage.mjs');
 const { AppState: RealAppState } = require('../src/core/app_state.mjs');
 const { GSR_CONST: RealGSRConst } = require('../src/core/constants.mjs');
 const { GSREvents: RealGSREvents } = require('../src/ui/events.mjs');
-const { GSRTrackManager: RealGSRTrackManager } = require('../src/ui/tracks.mjs');
+const {
+  GSRTrackManager: RealGSRTrackManager,
+} = require('../src/ui/tracks.mjs');
 const { GSRUI: RealGSRUI } = require('../src/ui/ui.mjs');
-const { GSRFileSaver: RealGSRFileSaver } = require('../src/core/file_saver.mjs');
+const {
+  GSRFileSaver: RealGSRFileSaver,
+} = require('../src/core/file_saver.mjs');
 
 function setSingletonShape(target, shape) {
   for (const k of Object.keys(target)) delete target[k];
@@ -56,7 +62,10 @@ function el(value) {
 function resetGlobals() {
   alertCalls = [];
   global.AppState = setSingletonShape(RealAppState, {});
-  global.GSR_CONST = setSingletonShape(RealGSRConst, JSON.parse(JSON.stringify(GSR_CONST_MOCK)));
+  global.GSR_CONST = setSingletonShape(
+    RealGSRConst,
+    JSON.parse(JSON.stringify(GSR_CONST_MOCK)),
+  );
   setSingletonShape(RealGSREvents, {});
   setSingletonShape(RealGSRTrackManager, {});
   setSingletonShape(RealGSRUI, {});
@@ -81,7 +90,6 @@ test('sliderVal: reads and parses el.value with default parseFloat', () => {
 test('sliderVal: uses custom parser fn (parseInt) when supplied', () => {
   assert.strictEqual(sliderVal(el('9.9'), 0, parseInt), 9);
 });
-
 
 // ── GSRStorage.readGsrSliderValues() ────────────────────────────────────
 
@@ -127,8 +135,11 @@ test('readGsrSliderValues: parses mandatory sliders and falls back to GSR_DEFAUL
 test('readGsrSliderValues: hotspotPercentile is divided by 100 when read from the (0-100) slider', () => {
   resetGlobals();
   global.AppState.sliders = {
-    medianSize: el(0), lpfWindow: el(0), tonicMethod: el('lpf'),
-    tonicWindow: el(45), peakThreshold: el(0.02),
+    medianSize: el(0),
+    lpfWindow: el(0),
+    tonicMethod: el('lpf'),
+    tonicWindow: el(45),
+    peakThreshold: el(0.02),
     hotspotPercentile: el(5), // 5% on the slider
   };
   const result = GSRStorage.readGsrSliderValues();
@@ -138,8 +149,11 @@ test('readGsrSliderValues: hotspotPercentile is divided by 100 when read from th
 test('readGsrSliderValues: useDeconvolution reflects checkbox .checked state', () => {
   resetGlobals();
   global.AppState.sliders = {
-    medianSize: el(0), lpfWindow: el(0), tonicMethod: el('lpf'),
-    tonicWindow: el(45), peakThreshold: el(0.02),
+    medianSize: el(0),
+    lpfWindow: el(0),
+    tonicMethod: el('lpf'),
+    tonicWindow: el(45),
+    peakThreshold: el(0.02),
     useDeconvolution: { checked: true },
   };
   assert.strictEqual(GSRStorage.readGsrSliderValues().useDeconvolution, true);
@@ -148,8 +162,11 @@ test('readGsrSliderValues: useDeconvolution reflects checkbox .checked state', (
 test('readGsrSliderValues: usePeakProminence reflects checkbox .checked state', () => {
   resetGlobals();
   global.AppState.sliders = {
-    medianSize: el(0), lpfWindow: el(0), tonicMethod: el('lpf'),
-    tonicWindow: el(45), peakThreshold: el(0.02),
+    medianSize: el(0),
+    lpfWindow: el(0),
+    tonicMethod: el('lpf'),
+    tonicWindow: el(45),
+    peakThreshold: el(0.02),
     usePeakProminence: { checked: true },
   };
   assert.strictEqual(GSRStorage.readGsrSliderValues().usePeakProminence, true);
@@ -158,8 +175,11 @@ test('readGsrSliderValues: usePeakProminence reflects checkbox .checked state', 
 test('readGsrSliderValues: shapeMinSnr is read straight from the slider value', () => {
   resetGlobals();
   global.AppState.sliders = {
-    medianSize: el(0), lpfWindow: el(0), tonicMethod: el('lpf'),
-    tonicWindow: el(45), peakThreshold: el(0.02),
+    medianSize: el(0),
+    lpfWindow: el(0),
+    tonicMethod: el('lpf'),
+    tonicWindow: el(45),
+    peakThreshold: el(0.02),
     shapeMinSnr: { value: '2.2', dataset: {} },
   };
   const result = GSRStorage.readGsrSliderValues();
@@ -197,9 +217,14 @@ test('readGpsSliderValues: falls back to GPS_DEFAULT for every field when slider
 test('readGpsSliderValues: reads values from present sliders', () => {
   resetGlobals();
   global.AppState.sliders = {
-    gpsSmoothing: el(0.9), gpsKalmanR: el(20), gpsMaxHdop: el(5),
-    gpsMaxSpeed: el(4), gpsRDP: el(1.5), gpsDownsample: el(1),
-    gpsTrackWeight: el(8), gpsPeakLatency: el(3),
+    gpsSmoothing: el(0.9),
+    gpsKalmanR: el(20),
+    gpsMaxHdop: el(5),
+    gpsMaxSpeed: el(4),
+    gpsRDP: el(1.5),
+    gpsDownsample: el(1),
+    gpsTrackWeight: el(8),
+    gpsPeakLatency: el(3),
     placeMergeDistance: el(50),
     maxArousalPlaces: el(12),
   };
@@ -228,14 +253,21 @@ test('readContourSliderValues: returns null when contourControls or gridResoluti
 test('readContourSliderValues: parses all contour surface sliders', () => {
   resetGlobals();
   global.AppState.contourControls = {
-    gridResolution: el(40), contourCount: el(8),
-    isolationRadius: el(50), idwExponent: el(2), surfaceOpacity: el(0.4),
+    gridResolution: el(40),
+    contourCount: el(8),
+    isolationRadius: el(50),
+    idwExponent: el(2),
+    surfaceOpacity: el(0.4),
   };
   const result = GSRStorage.readContourSliderValues();
   assert.deepStrictEqual(result, {
-    gridResolution: 40, contourCount: 8, isolationRadius: 50,
-    idwExponent: 2, peakPreservation: global.GSR_CONST.COLLECTIVE.peakPreservation,
-    coverageWeighting: global.GSR_CONST.COLLECTIVE.coverageWeighting, surfaceOpacity: 0.4,
+    gridResolution: 40,
+    contourCount: 8,
+    isolationRadius: 50,
+    idwExponent: 2,
+    peakPreservation: global.GSR_CONST.COLLECTIVE.peakPreservation,
+    coverageWeighting: global.GSR_CONST.COLLECTIVE.coverageWeighting,
+    surfaceOpacity: 0.4,
   });
 });
 
@@ -244,8 +276,12 @@ test('readContourSliderValues: parses all contour surface sliders', () => {
 test('buildGpsParams: builds the renderer-facing subset and converts downsample to boolean', () => {
   resetGlobals();
   global.AppState.sliders = {
-    gpsSmoothing: el(0.9), gpsKalmanR: el(20), gpsMaxHdop: el(5),
-    gpsMaxSpeed: el(4), gpsRDP: el(1.5), gpsDownsample: el(1),
+    gpsSmoothing: el(0.9),
+    gpsKalmanR: el(20),
+    gpsMaxHdop: el(5),
+    gpsMaxSpeed: el(4),
+    gpsRDP: el(1.5),
+    gpsDownsample: el(1),
     gpsPeakLatency: el(3),
   };
   const params = GSRStorage.buildGpsParams();
@@ -256,7 +292,10 @@ test('buildGpsParams: builds the renderer-facing subset and converts downsample 
   assert.strictEqual(params.maxSpeed, 4);
   assert.strictEqual(params.rdpTolerance, 1.5);
   assert.strictEqual(params.peakLatency, 3);
-  assert.strictEqual(params.trackWeight, GSR_CONST_MOCK.GPS_DEFAULT.trackWeight);
+  assert.strictEqual(
+    params.trackWeight,
+    GSR_CONST_MOCK.GPS_DEFAULT.trackWeight,
+  );
 });
 
 test('buildGpsParams: downsample=0 maps to false', () => {
@@ -288,18 +327,26 @@ test('exportPreset: alerts (does not throw) when AppState.sliders is entirely un
 test('exportPreset: builds a preset and hands it to downloadPresetJson via GSRFileSaver.saveFile', async () => {
   resetGlobals();
   global.AppState.sliders = {
-    medianSize: el(0), lpfWindow: el(0), tonicMethod: el('lpf'),
-    tonicWindow: el(45), peakThreshold: el(0.02),
+    medianSize: el(0),
+    lpfWindow: el(0),
+    tonicMethod: el('lpf'),
+    tonicWindow: el(45),
+    peakThreshold: el(0.02),
   };
   global.AppState.contourControls = {
-    gridResolution: el(40), contourCount: el(8),
-    isolationRadius: el(50), idwExponent: el(2), surfaceOpacity: el(0.4),
+    gridResolution: el(40),
+    contourCount: el(8),
+    isolationRadius: el(50),
+    idwExponent: el(2),
+    surfaceOpacity: el(0.4),
   };
   global.AppState.activeTrackId = null;
 
   let saved = null;
   global.GSRFileSaver = setSingletonShape(RealGSRFileSaver, {
-    saveFile: async (jsonStr, suggestedName) => { saved = { jsonStr, suggestedName }; },
+    saveFile: async (jsonStr, suggestedName) => {
+      saved = { jsonStr, suggestedName };
+    },
   });
 
   await GSRStorage.exportPreset('My Custom Name');
@@ -310,21 +357,31 @@ test('exportPreset: builds a preset and hands it to downloadPresetJson via GSRFi
   assert.strictEqual(parsed.type, 'BioMappingPreset');
   assert.strictEqual(parsed.name, 'My Custom Name');
   assert.ok(parsed.gsr && parsed.gps && parsed.contour);
-  assert.match(saved.suggestedName, /^biomapping_preset_My_Custom_Name_\d{4}-\d{2}-\d{2}\.json$/);
+  assert.match(
+    saved.suggestedName,
+    /^biomapping_preset_My_Custom_Name_\d{4}-\d{2}-\d{2}\.json$/,
+  );
 });
 
 test('exportPreset: falls back to the active track name (minus extension) when no filenameBase is given', async () => {
   resetGlobals();
   global.AppState.sliders = {
-    medianSize: el(0), lpfWindow: el(0), tonicMethod: el('lpf'),
-    tonicWindow: el(45), peakThreshold: el(0.02),
+    medianSize: el(0),
+    lpfWindow: el(0),
+    tonicMethod: el('lpf'),
+    tonicWindow: el(45),
+    peakThreshold: el(0.02),
   };
   global.AppState.activeTrackId = 'trk1';
   global.AppState.collectiveManager = {
     getTrack: (id) => (id === 'trk1' ? { name: 'session_walk.csv' } : null),
   };
   let saved = null;
-  global.GSRFileSaver = setSingletonShape(RealGSRFileSaver, { saveFile: async (jsonStr, suggestedName) => { saved = { jsonStr, suggestedName }; } });
+  global.GSRFileSaver = setSingletonShape(RealGSRFileSaver, {
+    saveFile: async (jsonStr, suggestedName) => {
+      saved = { jsonStr, suggestedName };
+    },
+  });
 
   await GSRStorage.exportPreset();
 
@@ -332,12 +389,19 @@ test('exportPreset: falls back to the active track name (minus extension) when n
   assert.strictEqual(parsed.name, 'session_walk');
 });
 
-test('downloadPresetJson: sanitizes the filename base and stamps today\'s date', async () => {
+test("downloadPresetJson: sanitizes the filename base and stamps today's date", async () => {
   resetGlobals();
   let saved = null;
-  global.GSRFileSaver = setSingletonShape(RealGSRFileSaver, { saveFile: async (jsonStr, suggestedName) => { saved = { jsonStr, suggestedName }; } });
+  global.GSRFileSaver = setSingletonShape(RealGSRFileSaver, {
+    saveFile: async (jsonStr, suggestedName) => {
+      saved = { jsonStr, suggestedName };
+    },
+  });
   await GSRStorage.downloadPresetJson({ a: 1 }, 'Weird Name!! #1');
-  assert.match(saved.suggestedName, /^biomapping_preset_Weird_Name____1_\d{4}-\d{2}-\d{2}\.json$/);
+  assert.match(
+    saved.suggestedName,
+    /^biomapping_preset_Weird_Name____1_\d{4}-\d{2}-\d{2}\.json$/,
+  );
   assert.deepStrictEqual(JSON.parse(saved.jsonStr), { a: 1 });
 });
 
@@ -360,23 +424,30 @@ class FakeFileReader {
 test('importPresetFile: does nothing when file is falsy', () => {
   resetGlobals();
   global.FileReader = FakeFileReader;
-  assert.doesNotThrow(() => GSRStorage.importPresetFile(null, () => {
-    throw new Error('callback should not be invoked');
-  }));
+  assert.doesNotThrow(() =>
+    GSRStorage.importPresetFile(null, () => {
+      throw new Error('callback should not be invoked');
+    }),
+  );
 });
 
 test('importPresetFile: parses valid JSON and calls applyPreset, invoking callback(true, preset)', async () => {
   resetGlobals();
   global.FileReader = FakeFileReader;
   global.AppState.sliders = {
-    medianSize: el(0), lpfWindow: el(0), tonicMethod: el('lpf'),
-    tonicWindow: el(45), peakThreshold: el(0.02),
+    medianSize: el(0),
+    lpfWindow: el(0),
+    tonicMethod: el('lpf'),
+    tonicWindow: el(45),
+    peakThreshold: el(0.02),
   };
   const preset = { type: 'BioMappingPreset', gsr: { medianSize: 7 }, gps: {} };
   const file = { __content: JSON.stringify(preset) };
 
   const result = await new Promise((resolve) => {
-    GSRStorage.importPresetFile(file, (success, parsedPreset) => resolve({ success, parsedPreset }));
+    GSRStorage.importPresetFile(file, (success, parsedPreset) =>
+      resolve({ success, parsedPreset }),
+    );
   });
 
   assert.strictEqual(result.success, true);
@@ -390,7 +461,9 @@ test('importPresetFile: invalid JSON triggers alert and callback(false, null)', 
   const file = { __content: '{not valid json' };
 
   const result = await new Promise((resolve) => {
-    GSRStorage.importPresetFile(file, (success, parsedPreset) => resolve({ success, parsedPreset }));
+    GSRStorage.importPresetFile(file, (success, parsedPreset) =>
+      resolve({ success, parsedPreset }),
+    );
   });
 
   assert.strictEqual(result.success, false);
@@ -414,7 +487,11 @@ test('syncSliderValueDisplays: no-op (does not throw) when GSREvents.initializeL
 test('syncSliderValueDisplays: calls GSREvents.initializeLabels when available', () => {
   resetGlobals();
   let called = false;
-  global.GSREvents = setSingletonShape(RealGSREvents, { initializeLabels: () => { called = true; } });
+  global.GSREvents = setSingletonShape(RealGSREvents, {
+    initializeLabels: () => {
+      called = true;
+    },
+  });
   GSRStorage.syncSliderValueDisplays();
   assert.strictEqual(called, true);
 });
@@ -438,16 +515,27 @@ test('applyPreset: returns false (no alert) when AppState.sliders is missing', (
 test('applyPreset: writes GSR/GPS/contour values onto the matching slider elements', () => {
   resetGlobals();
   const S = {
-    medianSize: el(0), lpfWindow: el(0), tonicMethod: el('lpf'), tonicWindow: el(0),
-    peakThreshold: el(0), minPeakQuality: el(0), hotspotPercentile: el(0),
-    gpsSmoothing: el(0), gpsKalmanR: el(0),
+    medianSize: el(0),
+    lpfWindow: el(0),
+    tonicMethod: el('lpf'),
+    tonicWindow: el(0),
+    peakThreshold: el(0),
+    minPeakQuality: el(0),
+    hotspotPercentile: el(0),
+    gpsSmoothing: el(0),
+    gpsKalmanR: el(0),
   };
   const C = { gridResolution: el(0), contourCount: el(0) };
   global.AppState.sliders = S;
   global.AppState.contourControls = C;
 
   const preset = {
-    gsr: { medianSize: 5, lpfWindow: 0.3, tonicMethod: 'median', hotspotPercentile: 0.03 },
+    gsr: {
+      medianSize: 5,
+      lpfWindow: 0.3,
+      tonicMethod: 'median',
+      hotspotPercentile: 0.03,
+    },
     gps: { smoothing: 0.8, kalmanR: 15 },
     contour: { gridResolution: 30, contourCount: 6 },
   };
@@ -467,7 +555,14 @@ test('applyPreset: writes GSR/GPS/contour values onto the matching slider elemen
 
 test('applyPreset: hotspotPercentile > 1.0 is treated as already being a percentage', () => {
   resetGlobals();
-  const S = { medianSize: el(0), lpfWindow: el(0), tonicMethod: el('lpf'), tonicWindow: el(0), peakThreshold: el(0), hotspotPercentile: el(0) };
+  const S = {
+    medianSize: el(0),
+    lpfWindow: el(0),
+    tonicMethod: el('lpf'),
+    tonicWindow: el(0),
+    peakThreshold: el(0),
+    hotspotPercentile: el(0),
+  };
   global.AppState.sliders = S;
   GSRStorage.applyPreset({ gsr: { hotspotPercentile: 4 }, gps: {} });
   assert.strictEqual(S.hotspotPercentile.value, 4);
@@ -476,13 +571,20 @@ test('applyPreset: hotspotPercentile > 1.0 is treated as already being a percent
 test('applyPreset: shapeMinSnr writes straight to the slider value', () => {
   resetGlobals();
   const S = {
-    medianSize: el(0), lpfWindow: el(0), tonicMethod: el('lpf'), tonicWindow: el(0), peakThreshold: el(0),
+    medianSize: el(0),
+    lpfWindow: el(0),
+    tonicMethod: el('lpf'),
+    tonicWindow: el(0),
+    peakThreshold: el(0),
     useDeconvolution: { checked: false },
     shapeMinSnr: { value: '0', dataset: {} },
   };
   global.AppState.sliders = S;
 
-  GSRStorage.applyPreset({ gsr: { useDeconvolution: true, shapeMinSnr: 5.5 }, gps: {} });
+  GSRStorage.applyPreset({
+    gsr: { useDeconvolution: true, shapeMinSnr: 5.5 },
+    gps: {},
+  });
 
   assert.strictEqual(S.useDeconvolution.checked, true);
   assert.strictEqual(S.shapeMinSnr.value, 5.5);
@@ -492,13 +594,20 @@ test('applyPreset: shapeMinSnr writes straight to the slider value', () => {
 test('applyPreset: usePeakProminence overrides useDeconvolution when both are enabled', () => {
   resetGlobals();
   const S = {
-    medianSize: el(0), lpfWindow: el(0), tonicMethod: el('lpf'), tonicWindow: el(0), peakThreshold: el(0),
+    medianSize: el(0),
+    lpfWindow: el(0),
+    tonicMethod: el('lpf'),
+    tonicWindow: el(0),
+    peakThreshold: el(0),
     useDeconvolution: { checked: false },
     usePeakProminence: { checked: false },
   };
   global.AppState.sliders = S;
 
-  GSRStorage.applyPreset({ gsr: { useDeconvolution: true, usePeakProminence: true }, gps: {} });
+  GSRStorage.applyPreset({
+    gsr: { useDeconvolution: true, usePeakProminence: true },
+    gps: {},
+  });
 
   assert.strictEqual(S.usePeakProminence.checked, true);
   assert.strictEqual(S.useDeconvolution.checked, false);
@@ -507,14 +616,21 @@ test('applyPreset: usePeakProminence overrides useDeconvolution when both are en
 test('applyPreset: useCvxEDA enables cvxEDA and turns off deconvolution', () => {
   resetGlobals();
   const S = {
-    medianSize: el(0), lpfWindow: el(0), tonicMethod: el('lpf'), tonicWindow: el(0), peakThreshold: el(0),
+    medianSize: el(0),
+    lpfWindow: el(0),
+    tonicMethod: el('lpf'),
+    tonicWindow: el(0),
+    peakThreshold: el(0),
     useDeconvolution: { checked: true },
     usePeakProminence: { checked: false },
     useCvxEDA: { checked: false },
   };
   global.AppState.sliders = S;
 
-  GSRStorage.applyPreset({ gsr: { useDeconvolution: true, useCvxEDA: true }, gps: {} });
+  GSRStorage.applyPreset({
+    gsr: { useDeconvolution: true, useCvxEDA: true },
+    gps: {},
+  });
 
   assert.strictEqual(S.useCvxEDA.checked, true);
   assert.strictEqual(S.useDeconvolution.checked, false);
@@ -522,7 +638,13 @@ test('applyPreset: useCvxEDA enables cvxEDA and turns off deconvolution', () => 
 
 test('applyPreset: invokes GSREvents layout hook and syncs slider displays', () => {
   resetGlobals();
-  global.AppState.sliders = { medianSize: el(0), lpfWindow: el(0), tonicMethod: el('lpf'), tonicWindow: el(0), peakThreshold: el(0) };
+  global.AppState.sliders = {
+    medianSize: el(0),
+    lpfWindow: el(0),
+    tonicMethod: el('lpf'),
+    tonicWindow: el(0),
+    peakThreshold: el(0),
+  };
   const calls = [];
   global.GSREvents = setSingletonShape(RealGSREvents, {
     updateTonicMethodLayout: () => calls.push('layout'),
@@ -535,7 +657,11 @@ test('applyPreset: invokes GSREvents layout hook and syncs slider displays', () 
 test('applyPreset: commits parsed sliders to the active track and re-analyzes it', () => {
   resetGlobals();
   global.AppState.sliders = {
-    medianSize: el(2), lpfWindow: el(0), tonicMethod: el('lpf'), tonicWindow: el(45), peakThreshold: el(0.02),
+    medianSize: el(2),
+    lpfWindow: el(0),
+    tonicMethod: el('lpf'),
+    tonicWindow: el(45),
+    peakThreshold: el(0.02),
     gpsPeakLatency: el(1.5),
   };
   global.AppState.activeTrackId = 'trk1';
@@ -543,12 +669,20 @@ test('applyPreset: commits parsed sliders to the active track and re-analyzes it
 
   let analyzeArgs = null;
   const track = {
-    analyzer: { analyze: (params, pl) => { analyzeArgs = { params, pl }; } },
+    analyzer: {
+      analyze: (params, pl) => {
+        analyzeArgs = { params, pl };
+      },
+    },
   };
-  global.AppState.collectiveManager = { getTrack: (id) => (id === 'trk1' ? track : null) };
+  global.AppState.collectiveManager = {
+    getTrack: (id) => (id === 'trk1' ? track : null),
+  };
 
   const uiCalls = [];
-  global.GSRTrackManager = setSingletonShape(RealGSRTrackManager, { renderTrackList: () => uiCalls.push('renderTrackList') });
+  global.GSRTrackManager = setSingletonShape(RealGSRTrackManager, {
+    renderTrackList: () => uiCalls.push('renderTrackList'),
+  });
   global.GSRUI = setSingletonShape(RealGSRUI, {
     runAnalysis: () => uiCalls.push('runAnalysis'),
     updateCollectiveMap: () => uiCalls.push('updateCollectiveMap'),
@@ -559,17 +693,36 @@ test('applyPreset: commits parsed sliders to the active track and re-analyzes it
   assert.strictEqual(ok, true);
   assert.ok(track.filterParams, 'track.filterParams should have been assigned');
   assert.strictEqual(track.filterParams.medianSize, 2);
-  assert.ok(track.gpsFilterParams, 'track.gpsFilterParams should have been assigned');
+  assert.ok(
+    track.gpsFilterParams,
+    'track.gpsFilterParams should have been assigned',
+  );
   assert.ok(analyzeArgs, 'track.analyzer.analyze should have been called');
   assert.strictEqual(analyzeArgs.pl, 1.5);
-  assert.deepStrictEqual(uiCalls, ['renderTrackList', 'runAnalysis', 'updateCollectiveMap']);
+  assert.deepStrictEqual(uiCalls, [
+    'renderTrackList',
+    'runAnalysis',
+    'updateCollectiveMap',
+  ]);
 });
 
 test('applyPreset: swallows an error thrown by track.analyzer.analyze() and still returns true', () => {
   resetGlobals();
-  global.AppState.sliders = { medianSize: el(0), lpfWindow: el(0), tonicMethod: el('lpf'), tonicWindow: el(0), peakThreshold: el(0) };
+  global.AppState.sliders = {
+    medianSize: el(0),
+    lpfWindow: el(0),
+    tonicMethod: el('lpf'),
+    tonicWindow: el(0),
+    peakThreshold: el(0),
+  };
   global.AppState.activeTrackId = 'trk1';
-  const track = { analyzer: { analyze: () => { throw new Error('boom'); } } };
+  const track = {
+    analyzer: {
+      analyze: () => {
+        throw new Error('boom');
+      },
+    },
+  };
   global.AppState.collectiveManager = { getTrack: () => track };
   // applyPreset() unconditionally calls GSRTrackManager.renderTrackList()
   // after the analyze() try/catch (GSRTrackManager is a real static import
@@ -577,7 +730,9 @@ test('applyPreset: swallows an error thrown by track.analyzer.analyze() and stil
   // GSRTrackManager !== 'undefined'` guard is effectively unconditional) —
   // stub it so this test stays focused on the analyze()-throws swallow
   // behaviour, not on reproducing every downstream UI call.
-  global.GSRTrackManager = setSingletonShape(RealGSRTrackManager, { renderTrackList: () => {} });
+  global.GSRTrackManager = setSingletonShape(RealGSRTrackManager, {
+    renderTrackList: () => {},
+  });
 
   assert.doesNotThrow(() => {
     const ok = GSRStorage.applyPreset({ gsr: {}, gps: {} });
@@ -613,7 +768,7 @@ test('writeGpsSliderValues: sets GPS slider values and handles mapped keys', () 
     trackWeight: 3,
     peakLatency: 2.0,
     placeMergeDistance: 40,
-    maxArousalPlaces: 15
+    maxArousalPlaces: 15,
   });
 
   assert.strictEqual(S.gpsSmoothing.value, 0.8);
@@ -627,4 +782,3 @@ test('writeGpsSliderValues: sets GPS slider values and handles mapped keys', () 
   assert.strictEqual(S.placeMergeDistance.value, 40);
   assert.strictEqual(S.maxArousalPlaces.value, 15);
 });
-

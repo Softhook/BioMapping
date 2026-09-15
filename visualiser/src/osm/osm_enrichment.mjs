@@ -1,6 +1,6 @@
 /**
  * OSM Environmental Enrichment Module for Bio Mapping
- * Handles Overpass API fetching, client-side spatial grid hashing, 
+ * Handles Overpass API fetching, client-side spatial grid hashing,
  * geometry reconstruction, and coordinate-to-feature spatial math.
  */
 
@@ -10,11 +10,11 @@ import { MapMatcher } from '../gps/map_match.mjs';
 import { OverpassClient } from './overpass_client.mjs';
 import { SpatialGrid } from '../spatial/spatial_grid.mjs';
 
-export const METERS_PER_DEG_LAT  = GeoUtils.METERS_PER_DEG_LAT;         // m per degree of latitude
-export const CELL_SIZE_DEG       = 0.001;          // spatial-hash cell (~111 m)
-export const SENTINEL_DIST       = 999;            // sentinel for "no feature nearby"
-export const DEFAULT_RADIUS_M    = 50;             // enrichment search radius
-export const DEFAULT_BBOX_BUFFER_M = 100;          // bounding-box padding
+export const METERS_PER_DEG_LAT = GeoUtils.METERS_PER_DEG_LAT; // m per degree of latitude
+export const CELL_SIZE_DEG = 0.001; // spatial-hash cell (~111 m)
+export const SENTINEL_DIST = 999; // sentinel for "no feature nearby"
+export const DEFAULT_RADIUS_M = 50; // enrichment search radius
+export const DEFAULT_BBOX_BUFFER_M = 100; // bounding-box padding
 
 // Collective-mode enrichment fetches one shared osmJson (by reference) for
 // every track covering the same bbox (ui.js's union-bbox fetch), but each
@@ -36,21 +36,35 @@ export const _spatialIndexCache = new WeakMap();
 // Two concentric rings at 1/2 and the full search radius, plus the centre
 // point (added separately). POINTS_PER_RING is indexed by ring number 1..N,
 // so entry [0] is the centre count and never read in the ring loop.
-export const SAMPLING_RINGS      = 2;              // concentric rings (excl. centre)
-export const POINTS_PER_RING     = [1, 8, 16];     // centre, ring 1 (½r), ring 2 (r)
+export const SAMPLING_RINGS = 2; // concentric rings (excl. centre)
+export const POINTS_PER_RING = [1, 8, 16]; // centre, ring 1 (½r), ring 2 (r)
 
 // -- OSM tag sets ----------------------------------------------------------
 export const MAJOR_ROAD_CLASSES = new Set([
-  'motorway', 'trunk', 'primary', 'secondary'
+  'motorway',
+  'trunk',
+  'primary',
+  'secondary',
 ]);
 // Carriageways that carry motor traffic — the "road you're near" for an
 // arousal-by-road-type analysis. A footway/path/cycleway 2 m away shouldn't
 // mask a residential or primary road 15 m away, so these win the road-class
 // label whenever one is within the search radius.
 export const VEHICULAR_ROAD_CLASSES = new Set([
-  'motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'unclassified',
-  'residential', 'living_street', 'service',
-  'motorway_link', 'trunk_link', 'primary_link', 'secondary_link', 'tertiary_link'
+  'motorway',
+  'trunk',
+  'primary',
+  'secondary',
+  'tertiary',
+  'unclassified',
+  'residential',
+  'living_street',
+  'service',
+  'motorway_link',
+  'trunk_link',
+  'primary_link',
+  'secondary_link',
+  'tertiary_link',
 ]);
 // `highway=*` values that aren't a road or path a walker travels *along*:
 // point features (stops, signals, street furniture, junction markers) and
@@ -58,33 +72,80 @@ export const VEHICULAR_ROAD_CLASSES = new Set([
 // pulls these in, and without this guard they can win the `osm_road_class`
 // label and seed junk rows in the Roads Profile.
 export const NON_ROAD_HIGHWAY = new Set([
-  'bus_stop', 'platform', 'street_lamp', 'traffic_signals', 'crossing',
-  'stop', 'give_way', 'milestone', 'speed_camera', 'passing_place',
-  'turning_circle', 'turning_loop', 'mini_roundabout', 'motorway_junction',
-  'elevator', 'emergency_bay', 'rest_area', 'services',
-  'proposed', 'construction', 'planned', 'razed', 'dismantled', 'abandoned'
+  'bus_stop',
+  'platform',
+  'street_lamp',
+  'traffic_signals',
+  'crossing',
+  'stop',
+  'give_way',
+  'milestone',
+  'speed_camera',
+  'passing_place',
+  'turning_circle',
+  'turning_loop',
+  'mini_roundabout',
+  'motorway_junction',
+  'elevator',
+  'emergency_bay',
+  'rest_area',
+  'services',
+  'proposed',
+  'construction',
+  'planned',
+  'razed',
+  'dismantled',
+  'abandoned',
 ]);
 export const AMENITY_TYPES = new Set([
-  'cafe', 'restaurant', 'pub', 'fast_food', 'bar',
-  'school', 'university', 'hospital', 'clinic',
-  'library', 'place_of_worship',
-  'parking', 'fuel'
+  'cafe',
+  'restaurant',
+  'pub',
+  'fast_food',
+  'bar',
+  'school',
+  'university',
+  'hospital',
+  'clinic',
+  'library',
+  'place_of_worship',
+  'parking',
+  'fuel',
 ]);
 
 // A `leisure=playground` is typically rubber safety surfacing and steel
 // equipment, not vegetated nature — it is deliberately NOT green space.
 export const GREEN_LEISURE = new Set(['park', 'garden', 'nature_reserve']);
-export const GREEN_LANDUSE = new Set(['grass', 'forest', 'meadow', 'recreation_ground', 'village_green', 'orchard']);
+export const GREEN_LANDUSE = new Set([
+  'grass',
+  'forest',
+  'meadow',
+  'recreation_ground',
+  'village_green',
+  'orchard',
+]);
 // `natural=wetland` is BOTH blue and green: it is a water feature for
 // `dist_water` (see WATER_NATURAL below) AND vegetated nature for `green_pct`
 // / `in_park`. A wetland geom therefore matches both _isGreenSpace and
 // _isWaterSpace, and the green / water branches of _evaluatePosition run
 // independently (not else-if), so it contributes to both metrics.
-export const GREEN_NATURAL = new Set(['wood', 'scrub', 'grassland', 'heath', 'wetland']);
+export const GREEN_NATURAL = new Set([
+  'wood',
+  'scrub',
+  'grassland',
+  'heath',
+  'wetland',
+]);
 
-export const WATER_NATURAL  = new Set(['water', 'wetland']);
-export const WATER_WATERWAY = new Set(['river', 'canal', 'stream', 'drain', 'ditch']);
-export const WATER_LANDUSE  = new Set(['basin', 'reservoir']);
+export const WATER_NATURAL = new Set(['water', 'wetland']);
+export const WATER_WATERWAY = new Set([
+  'river',
+  'canal',
+  'stream',
+  'drain',
+  'ditch',
+]);
+export const WATER_LANDUSE = new Set(['basin', 'reservoir']);
 
 // -- Tree canopy ---------------------------------------------------------
 // "Am I under / among trees" — the other half of perceived green, distinct
@@ -93,9 +154,9 @@ export const WATER_LANDUSE  = new Set(['basin', 'reservoir']);
 // nodes inside, tree-lined streets are one natural=tree_row way. So canopy_pct
 // = fraction of the sampling grid that is inside a wood/forest polygon OR
 // within CANOPY_BUFFER_M of a tree_row way / tree node.
-export const CANOPY_NATURAL_AREA = new Set(['wood']);      // polygon
-export const CANOPY_LANDUSE_AREA  = new Set(['forest']);   // polygon
-export const CANOPY_BUFFER_M     = 10;                     // crown reach around a tree_row / tree node
+export const CANOPY_NATURAL_AREA = new Set(['wood']); // polygon
+export const CANOPY_LANDUSE_AREA = new Set(['forest']); // polygon
+export const CANOPY_BUFFER_M = 10; // crown reach around a tree_row / tree node
 
 // -- Module-level helpers --------------------------------------------------
 
@@ -103,9 +164,11 @@ export const CANOPY_BUFFER_M     = 10;                     // crown reach around
 export function _isGreenSpace(geom) {
   const t = geom.tags;
   if (!t) return false;
-  return GREEN_LEISURE.has(t.leisure)  ||
-         GREEN_LANDUSE.has(t.landuse)  ||
-         GREEN_NATURAL.has(t.natural);
+  return (
+    GREEN_LEISURE.has(t.leisure) ||
+    GREEN_LANDUSE.has(t.landuse) ||
+    GREEN_NATURAL.has(t.natural)
+  );
 }
 
 /**
@@ -115,28 +178,33 @@ export function _isGreenSpace(geom) {
 export function _isCanopy(geom) {
   const t = geom.tags;
   if (!t) return false;
-  if (t.natural === 'tree')     return geom.type === 'node';
+  if (t.natural === 'tree') return geom.type === 'node';
   if (t.natural === 'tree_row') return true;
-  return CANOPY_NATURAL_AREA.has(t.natural) || CANOPY_LANDUSE_AREA.has(t.landuse);
+  return (
+    CANOPY_NATURAL_AREA.has(t.natural) || CANOPY_LANDUSE_AREA.has(t.landuse)
+  );
 }
 
 /** True when geom represents any kind of water body or waterway. */
 export function _isWaterSpace(geom) {
   const t = geom.tags;
   if (!t) return false;
-  return WATER_NATURAL.has(t.natural)   ||
-         WATER_WATERWAY.has(t.waterway) ||
-         WATER_LANDUSE.has(t.landuse);
+  return (
+    WATER_NATURAL.has(t.natural) ||
+    WATER_WATERWAY.has(t.waterway) ||
+    WATER_LANDUSE.has(t.landuse)
+  );
 }
 
 /** Extract highway classification from a way, or null. */
 export function _classifyRoad(way) {
-  return (way.tags && way.tags.highway) ? way.tags.highway : null;
+  return way.tags && way.tags.highway ? way.tags.highway : null;
 }
 
 /** Compute lat/lon centroid of a coordinate array. */
 export function _centroidOf(coords) {
-  let sumLat = 0, sumLon = 0;
+  let sumLat = 0,
+    sumLon = 0;
   for (let i = 0; i < coords.length; i++) {
     sumLat += coords[i].lat;
     sumLon += coords[i].lon;
@@ -149,9 +217,14 @@ export function _minDistanceToWay(lat, lon, way, distFn) {
   const coords = way.coordinates;
   let best = Infinity;
   for (let i = 0; i < coords.length - 1; i++) {
-    const d = distFn(lat, lon,
-      coords[i].lat, coords[i].lon,
-      coords[i + 1].lat, coords[i + 1].lon);
+    const d = distFn(
+      lat,
+      lon,
+      coords[i].lat,
+      coords[i].lon,
+      coords[i + 1].lat,
+      coords[i + 1].lon,
+    );
     if (d < best) best = d;
   }
   return best;
@@ -172,7 +245,10 @@ export function _isPointInGreenSpace(geom, lat, lon, pipFn) {
         if (geom.innerWays) {
           let inIsland = false;
           for (const iway of geom.innerWays) {
-            if (pipFn(lat, lon, iway.coordinates)) { inIsland = true; break; }
+            if (pipFn(lat, lon, iway.coordinates)) {
+              inIsland = true;
+              break;
+            }
           }
           if (inIsland) continue;
         }
@@ -189,8 +265,9 @@ export function _isPointInGreenSpace(geom, lat, lon, pipFn) {
  */
 export function _buildSamplingGrid(lat, lon, radiusMeters) {
   const radLat = radiusMeters / METERS_PER_DEG_LAT;
-  const radLon = radiusMeters / (METERS_PER_DEG_LAT * Math.cos(lat * Math.PI / 180));
-  const points = [{ lat, lon }];  // centre
+  const radLon =
+    radiusMeters / (METERS_PER_DEG_LAT * Math.cos((lat * Math.PI) / 180));
+  const points = [{ lat, lon }]; // centre
   for (let r = 1; r <= SAMPLING_RINGS; r++) {
     const frac = r / SAMPLING_RINGS;
     const rLat = radLat * frac;
@@ -200,7 +277,7 @@ export function _buildSamplingGrid(lat, lon, radiusMeters) {
       const a = (p / nPts) * 2 * Math.PI;
       points.push({
         lat: lat + rLat * Math.sin(a),
-        lon: lon + rLon * Math.cos(a)
+        lon: lon + rLon * Math.cos(a),
       });
     }
   }
@@ -235,13 +312,19 @@ export const OSMEnricher = {
      drawn polygons and the enrichment metrics can never disagree.
      ====================================================================== */
 
-  isGreenSpace(geom) { return _isGreenSpace(geom); },
-  isWaterSpace(geom) { return _isWaterSpace(geom); },
+  isGreenSpace(geom) {
+    return _isGreenSpace(geom);
+  },
+  isWaterSpace(geom) {
+    return _isWaterSpace(geom);
+  },
   // True for a carriageway a vehicle drives on (vs. a footway/path/cycleway/
   // steps a pedestrian walks). Shared with the GSR graph's context bands
   // (renderer.js) so a footpath inside a park reads as park there too,
   // rather than re-deriving its own notion of "which roads count".
-  isVehicularRoad(highwayClass) { return VEHICULAR_ROAD_CLASSES.has(highwayClass); },
+  isVehicularRoad(highwayClass) {
+    return VEHICULAR_ROAD_CLASSES.has(highwayClass);
+  },
 
   /* ======================================================================
      Bounding box & query building
@@ -264,7 +347,9 @@ export const OSMEnricher = {
   },
 
   calculateBBox(rawPoints, bufferMeters = DEFAULT_BBOX_BUFFER_M) {
-    const rawBounds = GeoUtils.computeBounds(rawPoints, 0, (pt) => this._isValidCoord(pt.lat, pt.lon));
+    const rawBounds = GeoUtils.computeBounds(rawPoints, 0, (pt) =>
+      this._isValidCoord(pt.lat, pt.lon),
+    );
     if (!rawBounds) return null;
     return GeoUtils.expandBounds(rawBounds, bufferMeters);
   },
@@ -290,9 +375,9 @@ export const OSMEnricher = {
     if (cached) return cached;
 
     const nodeMap = new Map();
-    const wayMap  = new Map();   // O(1) lookup for relation resolution
-    const ways    = [];
-    const points  = [];
+    const wayMap = new Map(); // O(1) lookup for relation resolution
+    const ways = [];
+    const points = [];
     const relations = [];
 
     // 1. Index nodes
@@ -320,7 +405,8 @@ export const OSMEnricher = {
     // 3. Resolve relations (multipolygons) — O(1) way lookup
     for (const el of osmJson.elements) {
       if (el.type === 'relation' && el.members) {
-        const outerWays = [], innerWays = [];
+        const outerWays = [],
+          innerWays = [];
         for (const mem of el.members) {
           if (mem.type === 'way') {
             const way = wayMap.get(mem.ref);
@@ -362,8 +448,10 @@ export const OSMEnricher = {
     const spatialGrid = new SpatialGrid(CELL_SIZE_DEG);
 
     const insert = (geom) => {
-      let minLat = Infinity, maxLat = -Infinity;
-      let minLon = Infinity, maxLon = -Infinity;
+      let minLat = Infinity,
+        maxLat = -Infinity;
+      let minLon = Infinity,
+        maxLon = -Infinity;
 
       const visit = (lat, lon) => {
         if (lat < minLat) minLat = lat;
@@ -386,14 +474,18 @@ export const OSMEnricher = {
       spatialGrid.insert({ minLat, maxLat, minLon, maxLon }, geom, 1);
     };
 
-    for (const p of geoms.points)    insert(p);
-    for (const w of geoms.ways)     insert(w);
+    for (const p of geoms.points) insert(p);
+    for (const w of geoms.ways) insert(w);
     for (const r of geoms.relations) insert(r);
 
     const index = {
       getNearby(lat, lon) {
-        return spatialGrid.getNearby(lat, lon, item => `${item.type}_${item.id}`);
-      }
+        return spatialGrid.getNearby(
+          lat,
+          lon,
+          (item) => `${item.type}_${item.id}`,
+        );
+      },
     };
     _spatialIndexCache.set(geoms, index);
     return index;
@@ -435,7 +527,12 @@ export const OSMEnricher = {
     const kept = [points[0]];
     for (let i = 1; i < points.length - 1; i++) {
       const prev = kept[kept.length - 1];
-      const d = this.haversine(prev.lat, prev.lon, points[i].lat, points[i].lon);
+      const d = this.haversine(
+        prev.lat,
+        prev.lon,
+        points[i].lat,
+        points[i].lon,
+      );
       if (d >= minDist) {
         kept.push(points[i]);
       }
@@ -454,24 +551,36 @@ export const OSMEnricher = {
    */
   _evaluatePosition(lat, lon, nearby, radiusMeters) {
     const distFn = this.distanceToSegment.bind(this);
-    const havFn  = this.haversine.bind(this);
-    const pipFn  = this.pointInPolygon.bind(this);
+    const havFn = this.haversine.bind(this);
+    const pipFn = this.pointInPolygon.bind(this);
 
-    let minRoadDist = Infinity, nearestRoadClass = 'none', minMajorRoadDist = Infinity;
-    let minVehRoadDist = Infinity, nearestVehRoadClass = null;
-    let inPark = 0, minWaterDist = Infinity, minGreenDist = Infinity;
-    let buildingCount = 0, treeCount = 0, amenityCount = 0;
+    let minRoadDist = Infinity,
+      nearestRoadClass = 'none',
+      minMajorRoadDist = Infinity;
+    let minVehRoadDist = Infinity,
+      nearestVehRoadClass = null;
+    let inPark = 0,
+      minWaterDist = Infinity,
+      minGreenDist = Infinity;
+    let buildingCount = 0,
+      treeCount = 0,
+      amenityCount = 0;
 
     // Sampling grid — shared by green-space coverage and tree-canopy coverage
     const samplingPoints = _buildSamplingGrid(lat, lon, radiusMeters);
-    let greenHits = 0, canopyHits = 0;
+    let greenHits = 0,
+      canopyHits = 0;
 
     for (const geom of nearby) {
       const tags = geom.tags;
       if (!tags) continue;
 
       // -- Roads --
-      if (geom.type === 'way' && tags.highway && !NON_ROAD_HIGHWAY.has(tags.highway)) {
+      if (
+        geom.type === 'way' &&
+        tags.highway &&
+        !NON_ROAD_HIGHWAY.has(tags.highway)
+      ) {
         const d = _minDistanceToWay(lat, lon, geom, distFn);
         if (d < minRoadDist) {
           minRoadDist = d;
@@ -494,7 +603,11 @@ export const OSMEnricher = {
       // not counted at all.
       if (tags.building) {
         let d = Infinity;
-        if (geom.type === 'way' && geom.coordinates && geom.coordinates.length > 1) {
+        if (
+          geom.type === 'way' &&
+          geom.coordinates &&
+          geom.coordinates.length > 1
+        ) {
           d = _minDistanceToWay(lat, lon, geom, distFn);
         } else if (geom.type === 'relation' && geom.outerWays) {
           for (const way of geom.outerWays) {
@@ -525,7 +638,11 @@ export const OSMEnricher = {
       }
 
       // -- Amenities / shops / bus stops --
-      if (tags.shop || AMENITY_TYPES.has(tags.amenity) || tags.highway === 'bus_stop') {
+      if (
+        tags.shop ||
+        AMENITY_TYPES.has(tags.amenity) ||
+        tags.highway === 'bus_stop'
+      ) {
         let d = Infinity;
         if (geom.type === 'node') {
           d = havFn(lat, lon, geom.lat, geom.lon);
@@ -552,14 +669,20 @@ export const OSMEnricher = {
           gd = 0;
         } else {
           gd = Infinity;
-          if (geom.type === 'way' && geom.coordinates && geom.coordinates.length > 1) {
+          if (
+            geom.type === 'way' &&
+            geom.coordinates &&
+            geom.coordinates.length > 1
+          ) {
             gd = _minDistanceToWay(lat, lon, geom, distFn);
           } else if (geom.type === 'relation') {
-            for (const w of (geom.outerWays || [])) {
-              if (w.coordinates && w.coordinates.length > 1) gd = Math.min(gd, _minDistanceToWay(lat, lon, w, distFn));
+            for (const w of geom.outerWays || []) {
+              if (w.coordinates && w.coordinates.length > 1)
+                gd = Math.min(gd, _minDistanceToWay(lat, lon, w, distFn));
             }
-            for (const w of (geom.innerWays || [])) {
-              if (w.coordinates && w.coordinates.length > 1) gd = Math.min(gd, _minDistanceToWay(lat, lon, w, distFn));
+            for (const w of geom.innerWays || []) {
+              if (w.coordinates && w.coordinates.length > 1)
+                gd = Math.min(gd, _minDistanceToWay(lat, lon, w, distFn));
             }
           }
         }
@@ -567,7 +690,10 @@ export const OSMEnricher = {
 
         // sampling grid density
         for (const sPt of samplingPoints) {
-          if (!sPt._hit && _isPointInGreenSpace(geom, sPt.lat, sPt.lon, pipFn)) {
+          if (
+            !sPt._hit &&
+            _isPointInGreenSpace(geom, sPt.lat, sPt.lon, pipFn)
+          ) {
             sPt._hit = true;
             greenHits++;
           }
@@ -578,20 +704,27 @@ export const OSMEnricher = {
       // Fraction of the sampling grid under a wood/forest polygon, or within
       // CANOPY_BUFFER_M of a natural=tree_row way / natural=tree node.
       if (_isCanopy(geom)) {
-        const isNode   = geom.type === 'node';                 // natural=tree
-        const isLinear = geom.tags.natural === 'tree_row';     // linear way
+        const isNode = geom.type === 'node'; // natural=tree
+        const isLinear = geom.tags.natural === 'tree_row'; // linear way
         for (const sPt of samplingPoints) {
           if (sPt._canopyHit) continue;
           let hit = false;
           if (isNode) {
-            hit = havFn(sPt.lat, sPt.lon, geom.lat, geom.lon) <= CANOPY_BUFFER_M;
+            hit =
+              havFn(sPt.lat, sPt.lon, geom.lat, geom.lon) <= CANOPY_BUFFER_M;
           } else if (isLinear) {
-            hit = geom.coordinates && geom.coordinates.length > 1 &&
-                  _minDistanceToWay(sPt.lat, sPt.lon, geom, distFn) <= CANOPY_BUFFER_M;
+            hit =
+              geom.coordinates &&
+              geom.coordinates.length > 1 &&
+              _minDistanceToWay(sPt.lat, sPt.lon, geom, distFn) <=
+                CANOPY_BUFFER_M;
           } else {
             hit = _isPointInGreenSpace(geom, sPt.lat, sPt.lon, pipFn); // wood / forest polygon
           }
-          if (hit) { sPt._canopyHit = true; canopyHits++; }
+          if (hit) {
+            sPt._canopyHit = true;
+            canopyHits++;
+          }
         }
       }
     }
@@ -607,10 +740,10 @@ export const OSMEnricher = {
     }
 
     // Sanitize distances
-    if (minRoadDist === Infinity)      minRoadDist = SENTINEL_DIST;
+    if (minRoadDist === Infinity) minRoadDist = SENTINEL_DIST;
     if (minMajorRoadDist === Infinity) minMajorRoadDist = SENTINEL_DIST;
-    if (minWaterDist === Infinity)     minWaterDist = SENTINEL_DIST;
-    if (minGreenDist === Infinity)     minGreenDist = SENTINEL_DIST;
+    if (minWaterDist === Infinity) minWaterDist = SENTINEL_DIST;
+    if (minGreenDist === Infinity) minGreenDist = SENTINEL_DIST;
 
     // Green-space and tree-canopy coverage (float — rounding deferred to display)
     const greenPct = (greenHits / samplingPoints.length) * 100;
@@ -626,7 +759,7 @@ export const OSMEnricher = {
       buildingDensity: buildingCount,
       distWater: minWaterDist,
       treeDensity: treeCount,
-      amenityCount
+      amenityCount,
     };
   },
 
@@ -642,34 +775,39 @@ export const OSMEnricher = {
     if (computedMetrics.length === 1) {
       const m = computedMetrics[0].metrics;
       for (let i = 0; i < raw.length; i++) {
-        raw[i].osm_road_class          = m.roadClass;
-        raw[i].osm_in_park             = m.inPark;
-        raw[i].osm_dist_major_road     = m.distMajorRoad;
-        raw[i].osm_green_pct_50m       = m.greenSpacePct;
-        raw[i].osm_dist_green          = m.distGreen;
-        raw[i].osm_canopy_pct_50m     = m.canopyPct;
+        raw[i].osm_road_class = m.roadClass;
+        raw[i].osm_in_park = m.inPark;
+        raw[i].osm_dist_major_road = m.distMajorRoad;
+        raw[i].osm_green_pct_50m = m.greenSpacePct;
+        raw[i].osm_dist_green = m.distGreen;
+        raw[i].osm_canopy_pct_50m = m.canopyPct;
         raw[i].osm_building_density_50m = m.buildingDensity;
-        raw[i].osm_dist_water          = m.distWater;
-        raw[i].osm_tree_density_50m    = m.treeDensity;
-        raw[i].osm_amenity_count_50m   = m.amenityCount;
+        raw[i].osm_dist_water = m.distWater;
+        raw[i].osm_tree_density_50m = m.treeDensity;
+        raw[i].osm_amenity_count_50m = m.amenityCount;
       }
       return;
     }
 
-    let segIdx = 1;  // current segment: between [segIdx-1] and [segIdx]
+    let segIdx = 1; // current segment: between [segIdx-1] and [segIdx]
 
     for (let i = 0; i < raw.length; i++) {
       // Advance segment when we cross the next evaluation index
-      while (segIdx < computedMetrics.length && i >= computedMetrics[segIdx].idx) {
+      while (
+        segIdx < computedMetrics.length &&
+        i >= computedMetrics[segIdx].idx
+      ) {
         segIdx++;
       }
 
       const prev = computedMetrics[segIdx - 1];
-      const next = computedMetrics[Math.min(segIdx, computedMetrics.length - 1)];
+      const next =
+        computedMetrics[Math.min(segIdx, computedMetrics.length - 1)];
 
       const span = next.idx - prev.idx;
       const t = span > 0 ? (i - prev.idx) / span : 0;
-      const p = prev.metrics, n = next.metrics;
+      const p = prev.metrics,
+        n = next.metrics;
 
       const lerp = (a, b) => a + (b - a) * t;
       const step = (a, b) => (t >= 0.5 ? b : a);
@@ -688,21 +826,24 @@ export const OSMEnricher = {
         return lerp(a, b);
       };
 
-      raw[i].osm_road_class          = step(p.roadClass, n.roadClass);
-      raw[i].osm_in_park             = step(p.inPark, n.inPark);
-      raw[i].osm_dist_major_road     = lerpDist(p.distMajorRoad,  n.distMajorRoad);
-      raw[i].osm_green_pct_50m       = lerp(p.greenSpacePct,  n.greenSpacePct);
-      raw[i].osm_dist_green          = lerpDist(p.distGreen,      n.distGreen);
-      raw[i].osm_canopy_pct_50m     = lerp(p.canopyPct,      n.canopyPct);
+      raw[i].osm_road_class = step(p.roadClass, n.roadClass);
+      raw[i].osm_in_park = step(p.inPark, n.inPark);
+      raw[i].osm_dist_major_road = lerpDist(p.distMajorRoad, n.distMajorRoad);
+      raw[i].osm_green_pct_50m = lerp(p.greenSpacePct, n.greenSpacePct);
+      raw[i].osm_dist_green = lerpDist(p.distGreen, n.distGreen);
+      raw[i].osm_canopy_pct_50m = lerp(p.canopyPct, n.canopyPct);
       // Discrete counts: step to the nearest evaluation point. Interpolating
       // them manufactures fractional buildings / trees / amenities that never
       // existed and over-smooths the predictor — which inflates its serial
       // autocorrelation, exactly what the dashboard then has to correct back
       // out when it down-weights the effective sample size.
-      raw[i].osm_building_density_50m = step(p.buildingDensity, n.buildingDensity);
-      raw[i].osm_dist_water          = lerpDist(p.distWater,       n.distWater);
-      raw[i].osm_tree_density_50m    = step(p.treeDensity,     n.treeDensity);
-      raw[i].osm_amenity_count_50m   = step(p.amenityCount,    n.amenityCount);
+      raw[i].osm_building_density_50m = step(
+        p.buildingDensity,
+        n.buildingDensity,
+      );
+      raw[i].osm_dist_water = lerpDist(p.distWater, n.distWater);
+      raw[i].osm_tree_density_50m = step(p.treeDensity, n.treeDensity);
+      raw[i].osm_amenity_count_50m = step(p.amenityCount, n.amenityCount);
     }
   },
 
@@ -722,11 +863,17 @@ export const OSMEnricher = {
    * @param {Object} [snapParams] - { enabled: bool, ... } road snapping config
    * @param {Function} onProgress - optional progress callback(msg)
    */
-  enrichTrack(analyzer, osmJson, radiusMeters = DEFAULT_RADIUS_M, snapParams, onProgress) {
+  enrichTrack(
+    analyzer,
+    osmJson,
+    radiusMeters = DEFAULT_RADIUS_M,
+    snapParams,
+    onProgress,
+  ) {
     const raw = analyzer.raw;
     if (!raw || raw.length === 0) return;
 
-    const doSnap  = snapParams && snapParams.enabled;
+    const doSnap = snapParams && snapParams.enabled;
 
     // Clear stale snapped positions when snapping is disabled so renderData
     // doesn't substitute from a previous enrichment run.
@@ -751,7 +898,13 @@ export const OSMEnricher = {
       // it here would map-match a snap-biased path, progressively pulling
       // coordinates toward wrong parallel roads on subsequent runs.
       const coords = analyzer.getCoordinates(i, true);
-      if (coords && coords.lat != null && coords.lon != null && !isNaN(coords.lat) && !isNaN(coords.lon)) {
+      if (
+        coords &&
+        coords.lat != null &&
+        coords.lon != null &&
+        !isNaN(coords.lat) &&
+        !isNaN(coords.lon)
+      ) {
         gpsIndices.push({ idx: i, lat: coords.lat, lon: coords.lon });
       }
     }
@@ -764,7 +917,7 @@ export const OSMEnricher = {
     if (doSnap) {
       // Spatially thin so the ramp spans a meaningful distance (~20 m
       // over 4 steps) instead of just 5.6 m at walking speed.
-      evalPoints = this._thinPoints(evalPoints, 3);  // min 3 m spacing
+      evalPoints = this._thinPoints(evalPoints, 3); // min 3 m spacing
     }
     const computedMetrics = [];
 
@@ -787,9 +940,9 @@ export const OSMEnricher = {
       // Attach the spatial-index nearby result to each eval point so
       // MapMatcher._getCandidates can reuse it without a second query.
       const matchRadius = snapParams.radiusOut || MapMatcher.MATCH_RADIUS;
-      const hmmPoints = evalPoints.map(node => ({
+      const hmmPoints = evalPoints.map((node) => ({
         ...node,
-        nearby: spatialIndex.getNearby(node.lat, node.lon)
+        nearby: spatialIndex.getNearby(node.lat, node.lon),
       }));
 
       if (onProgress) onProgress('HMM map-matching: running Viterbi...');
@@ -801,31 +954,53 @@ export const OSMEnricher = {
       }
 
       // Enrichment pass using the matched (snapped) positions.
-      if (onProgress) onProgress('HMM map-matching: computing spatial metrics...');
+      if (onProgress)
+        onProgress('HMM map-matching: computing spatial metrics...');
       for (let s = 0; s < hmmPoints.length; s++) {
         if (s % 50 === 0 && onProgress) {
-          onProgress(`Computing spatial metrics: ${s}/${hmmPoints.length} positions...`);
+          onProgress(
+            `Computing spatial metrics: ${s}/${hmmPoints.length} positions...`,
+          );
         }
-        const node    = hmmPoints[s];
+        const node = hmmPoints[s];
         const matched = hmmResults.get(node.idx);
         const evalLat = matched ? matched.lat : node.lat;
         const evalLon = matched ? matched.lon : node.lon;
 
-        const metrics = this._evaluatePosition(evalLat, evalLon, node.nearby, radiusMeters);
-        computedMetrics.push({ idx: node.idx, time: raw[node.idx].time, metrics });
+        const metrics = this._evaluatePosition(
+          evalLat,
+          evalLon,
+          node.nearby,
+          radiusMeters,
+        );
+        computedMetrics.push({
+          idx: node.idx,
+          time: raw[node.idx].time,
+          metrics,
+        });
       }
-
     } else {
       // Non-snapped evaluation loop
       for (let s = 0; s < evalPoints.length; s++) {
         if (s % 50 === 0 && onProgress) {
-          onProgress(`Computing spatial metrics: ${s}/${evalPoints.length} positions...`);
+          onProgress(
+            `Computing spatial metrics: ${s}/${evalPoints.length} positions...`,
+          );
         }
-        const node   = evalPoints[s];
+        const node = evalPoints[s];
         const nearby = spatialIndex.getNearby(node.lat, node.lon);
 
-        const metrics = this._evaluatePosition(node.lat, node.lon, nearby, radiusMeters);
-        computedMetrics.push({ idx: node.idx, time: raw[node.idx].time, metrics });
+        const metrics = this._evaluatePosition(
+          node.lat,
+          node.lon,
+          nearby,
+          radiusMeters,
+        );
+        computedMetrics.push({
+          idx: node.idx,
+          time: raw[node.idx].time,
+          metrics,
+        });
       }
     }
 
@@ -880,7 +1055,8 @@ export const OSMEnricher = {
 
     // Interpolate between valid points
     for (let k = 0; k < valid.length - 1; k++) {
-      const a = valid[k], b = valid[k + 1];
+      const a = valid[k],
+        b = valid[k + 1];
       const timeGap = raw[b].time - raw[a].time;
       if (timeGap > GPS_MAX_GAP_S) {
         for (let i = a + 1; i < b; i++) {
@@ -899,7 +1075,14 @@ export const OSMEnricher = {
           const rawLon = rawPt.lon;
           const hasGps = !isNaN(rawLat) && !isNaN(rawLon);
 
-          if (wayIdA && wayIdB && wayIdA !== wayIdB && coordsA && coordsB && hasGps) {
+          if (
+            wayIdA &&
+            wayIdB &&
+            wayIdA !== wayIdB &&
+            coordsA &&
+            coordsB &&
+            hasGps
+          ) {
             // Project onto both ways and interpolate the results to prevent sudden jumps
             const projA = this._projectToWay(rawLat, rawLon, coordsA);
             const projB = this._projectToWay(rawLat, rawLon, coordsB);
@@ -913,13 +1096,13 @@ export const OSMEnricher = {
             const alpha = alphaA + t * (alphaB - alphaA);
 
             sg[i] = {
-              lat:     alpha * snapLat + (1 - alpha) * rawLat,
-              lon:     alpha * snapLon + (1 - alpha) * rawLon,
+              lat: alpha * snapLat + (1 - alpha) * rawLat,
+              lon: alpha * snapLon + (1 - alpha) * rawLon,
               roadLat: snapLat,
               roadLon: snapLon,
               alpha,
               dist,
-              wayId:   t < 0.5 ? wayIdA : wayIdB
+              wayId: t < 0.5 ? wayIdA : wayIdB,
             };
           } else {
             // Single way projection or fallback
@@ -949,24 +1132,24 @@ export const OSMEnricher = {
               const alpha = alphaA + t * (alphaB - alphaA);
 
               sg[i] = {
-                lat:     alpha * proj.snapLat + (1 - alpha) * rawLat,
-                lon:     alpha * proj.snapLon + (1 - alpha) * rawLon,
+                lat: alpha * proj.snapLat + (1 - alpha) * rawLat,
+                lon: alpha * proj.snapLon + (1 - alpha) * rawLon,
                 roadLat: proj.snapLat,
                 roadLon: proj.snapLon,
                 alpha,
-                dist:    proj.dist,
-                wayId:   chosenWayId
+                dist: proj.dist,
+                wayId: chosenWayId,
               };
             } else {
               // Fallback: simple linear interpolation of coordinates
               sg[i] = {
-                lat:     sg[a].lat + t * (sg[b].lat - sg[a].lat),
-                lon:     sg[a].lon + t * (sg[b].lon - sg[a].lon),
+                lat: sg[a].lat + t * (sg[b].lat - sg[a].lat),
+                lon: sg[a].lon + t * (sg[b].lon - sg[a].lon),
                 roadLat: sg[a].roadLat + t * (sg[b].roadLat - sg[a].roadLat),
                 roadLon: sg[a].roadLon + t * (sg[b].roadLon - sg[a].roadLon),
-                alpha:   sg[a].alpha + t * (sg[b].alpha - sg[a].alpha),
-                dist:    sg[a].dist + t * (sg[b].dist - sg[a].dist),
-                wayId:   t < 0.5 ? wayIdA : wayIdB
+                alpha: sg[a].alpha + t * (sg[b].alpha - sg[a].alpha),
+                dist: sg[a].dist + t * (sg[b].dist - sg[a].dist),
+                wayId: t < 0.5 ? wayIdA : wayIdB,
               };
             }
           }
@@ -991,8 +1174,16 @@ export const OSMEnricher = {
     let bestSnapLon = lon;
 
     for (let i = 0; i < coords.length - 1; i++) {
-      const a = coords[i], b = coords[i + 1];
-      const proj = GeoUtils.projectPointToSegment(lat, lon, a.lat, a.lon, b.lat, b.lon);
+      const a = coords[i],
+        b = coords[i + 1];
+      const proj = GeoUtils.projectPointToSegment(
+        lat,
+        lon,
+        a.lat,
+        a.lon,
+        b.lat,
+        b.lon,
+      );
 
       if (proj.distance < minDist) {
         minDist = proj.distance;
@@ -1002,5 +1193,5 @@ export const OSMEnricher = {
     }
 
     return { snapLat: bestSnapLat, snapLon: bestSnapLon, dist: minDist };
-  }
+  },
 };

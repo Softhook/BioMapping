@@ -9,16 +9,15 @@
 import { GSR_CONST } from './constants.mjs';
 
 export const AppState = {
-
   // ── Core engine instances ──────────────────────────────────────────────────
-  analyzer: null,           // GSRAnalyzer (current active track)
-  collectiveManager: null,  // GSRCollectiveManager
-  mapManager: null,          // GSRMapManager (Leaflet controller)
+  analyzer: null, // GSRAnalyzer (current active track)
+  collectiveManager: null, // GSRCollectiveManager
+  mapManager: null, // GSRMapManager (Leaflet controller)
 
   // ── Track library ───────────────────────────────────────────────────────────
   activeTrackId: null,
-  viewMode: 'single',       // 'single' | 'collective' | 'live'  (data scope; 'live' = GSRLiveView mounted directly into #livePanel, not an iframe)
-  surfaceView: 'map',       // 'map' | 'globe'          (render surface — see globe3d_view.js)
+  viewMode: 'single', // 'single' | 'collective' | 'live'  (data scope; 'live' = GSRLiveView mounted directly into #livePanel, not an iframe)
+  surfaceView: 'map', // 'map' | 'globe'          (render surface — see globe3d_view.js)
   isDisplayMode: false,
   get isTotalFullscreen() {
     return this.isDisplayMode;
@@ -36,13 +35,14 @@ export const AppState = {
     '#e59e00', // Amber yellow
     '#cc0088', // Magenta pink
     '#0099aa', // Teal
-    '#e56a00'  // Dark orange
+    '#e56a00', // Dark orange
   ],
   trackColorIndex: 0,
 
   getNextTrackColor() {
     const c = AppState.trackColors[AppState.trackColorIndex];
-    AppState.trackColorIndex = (AppState.trackColorIndex + 1) % AppState.trackColors.length;
+    AppState.trackColorIndex =
+      (AppState.trackColorIndex + 1) % AppState.trackColors.length;
     return c;
   },
 
@@ -56,7 +56,7 @@ export const AppState = {
   isDraggingTimeline: false,
 
   totalDuration: 120.0,
-  
+
   _viewStartTime: 0.0,
   get viewStartTime() {
     return this._viewStartTime;
@@ -72,7 +72,8 @@ export const AppState = {
   },
   set viewDuration(d) {
     if (typeof d !== 'number' || isNaN(d)) return;
-    const minDur = (typeof GSR_CONST !== 'undefined') ? GSR_CONST.ZOOM_MIN_DURATION : 2.0;
+    const minDur =
+      typeof GSR_CONST !== 'undefined' ? GSR_CONST.ZOOM_MIN_DURATION : 2.0;
     this._viewDuration = Math.max(minDur, Math.min(d, this.totalDuration));
   },
 
@@ -82,8 +83,8 @@ export const AppState = {
   },
   set zoomFactor(z) {
     if (typeof z !== 'number' || isNaN(z)) return;
-    const minZ = (typeof GSR_CONST !== 'undefined') ? GSR_CONST.ZOOM_MIN : 1.0;
-    const maxZ = (typeof GSR_CONST !== 'undefined') ? GSR_CONST.ZOOM_MAX : 50.0;
+    const minZ = typeof GSR_CONST !== 'undefined' ? GSR_CONST.ZOOM_MIN : 1.0;
+    const maxZ = typeof GSR_CONST !== 'undefined' ? GSR_CONST.ZOOM_MAX : 50.0;
     this._zoomFactor = Math.max(minZ, Math.min(maxZ, z));
   },
 
@@ -128,7 +129,7 @@ export const AppState = {
   scrubSource: null,
 
   // ── SCR Peaks table sort state ─────────────────────────────────────────────
-  peakSortColumn: 'index',  // 'index' | 'label' | 'amplitude' | 'riseTime' | 'quality' | 'excluded'
+  peakSortColumn: 'index', // 'index' | 'label' | 'amplitude' | 'riseTime' | 'quality' | 'excluded'
   peakSortDirection: 'asc', // 'asc' | 'desc'
 
   // ── Environmental tables sorting ───────────────────────────────────────────
@@ -156,6 +157,6 @@ export const AppState = {
     (AppState._listeners[event] = AppState._listeners[event] || []).push(fn);
   },
   emit(event, ...args) {
-    (AppState._listeners[event] || []).forEach(fn => fn(...args));
-  }
+    (AppState._listeners[event] || []).forEach((fn) => fn(...args));
+  },
 };

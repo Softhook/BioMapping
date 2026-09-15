@@ -1,5 +1,3 @@
-'use strict';
-
 /**
  * GSRUI.enrichTrack() orchestration (ui.js) — the collective "Retrieve
  * Spatial Data" flow. The pure per-position spatial maths lives in
@@ -43,14 +41,22 @@ Object.assign(GSRUI, require('../src/ui/ui_enrichment.mjs').__methods);
 // before running, so no restore is needed between tests in this file.
 const { AppState: RealAppState } = require('../src/core/app_state.mjs');
 const { OsmCache: RealOsmCache } = require('../src/osm/osm_cache.mjs');
-const { OSMEnricher: RealOSMEnricher } = require('../src/osm/osm_enrichment.mjs');
+const {
+  OSMEnricher: RealOSMEnricher,
+} = require('../src/osm/osm_enrichment.mjs');
 
 // ── Mutable DOM stub (enrichTrack reads/writes several elements). ──
 function makeEl(props = {}) {
-  return Object.assign({
-    style: {}, innerText: '', innerHTML: '',
-    setAttribute() {}, removeAttribute() {},
-  }, props);
+  return Object.assign(
+    {
+      style: {},
+      innerText: '',
+      innerHTML: '',
+      setAttribute() {},
+      removeAttribute() {},
+    },
+    props,
+  );
 }
 function installDom(overrides = {}) {
   const els = {
@@ -63,7 +69,10 @@ function installDom(overrides = {}) {
     gpsSnapToRoads: makeEl({ checked: false }),
     ...overrides,
   };
-  global.document = { getElementById: (id) => els[id] || null, querySelector: () => null };
+  global.document = {
+    getElementById: (id) => els[id] || null,
+    querySelector: () => null,
+  };
   return els;
 }
 
@@ -73,18 +82,26 @@ function installDom(overrides = {}) {
 function installOsmStubs({ failFor = new Set(), bboxAreaKm2 = 1.0 } = {}) {
   const calls = [];
   Object.assign(RealOsmCache, {
-    async getForBBox() { return { elements: [] }; },      // always a cache hit
-    async planFetch(bbox) { return { fetchBBox: bbox, mergeIds: [] }; },
+    async getForBBox() {
+      return { elements: [] };
+    }, // always a cache hit
+    async planFetch(bbox) {
+      return { fetchBBox: bbox, mergeIds: [] };
+    },
     async store() {},
   });
   Object.assign(RealOSMEnricher, {
-    _isValidCoord: (lat, lon) => lat != null && lon != null && !isNaN(lat) && !isNaN(lon),
+    _isValidCoord: (lat, lon) =>
+      lat != null && lon != null && !isNaN(lat) && !isNaN(lon),
     calculateBBox: () => ({ minLat: 0, minLon: 0, maxLat: 0.01, maxLon: 0.01 }),
     calculateBBoxAreaKm2: () => bboxAreaKm2,
-    async fetchOSMData() { return { elements: [] }; },
+    async fetchOSMData() {
+      return { elements: [] };
+    },
     enrichTrack(analyzer) {
       calls.push(analyzer.__name);
-      if (failFor.has(analyzer.__name)) throw new Error('simulated enrichment failure');
+      if (failFor.has(analyzer.__name))
+        throw new Error('simulated enrichment failure');
       analyzer.isEnriched = true;
       analyzer.enrichmentRadius = 50;
       analyzer._dataVersion = (analyzer._dataVersion || 0) + 1;
@@ -97,7 +114,11 @@ function fakeTrack(name) {
   return {
     id: name,
     name,
-    analyzer: { __name: name, isEnriched: false, raw: [{ lat: 51.5 + Math.random() * 0.01, lon: -0.1 }] },
+    analyzer: {
+      __name: name,
+      isEnriched: false,
+      raw: [{ lat: 51.5 + Math.random() * 0.01, lon: -0.1 }],
+    },
   };
 }
 
@@ -114,9 +135,13 @@ test('enrichTrack (collective): one failing track does not stop the others', asy
 
   await GSRUI.enrichTrack(true);
 
-  assert.deepStrictEqual(calls, ['A', 'B', 'C', 'D'], 'every track was attempted, in order');
   assert.deepStrictEqual(
-    tracks.map(t => t.analyzer.isEnriched),
+    calls,
+    ['A', 'B', 'C', 'D'],
+    'every track was attempted, in order',
+  );
+  assert.deepStrictEqual(
+    tracks.map((t) => t.analyzer.isEnriched),
     [true, false, true, true],
     'A, C, D enriched; only the failing B did not',
   );
@@ -131,8 +156,12 @@ test('enrichTrack (collective): a shared fetch that times out falls back to per-
   let fetchCalls = 0;
   const calls = [];
   Object.assign(RealOsmCache, {
-    async getForBBox() { return null; },     // cache miss on both the shared and per-track paths
-    async planFetch(bbox) { return { fetchBBox: bbox, mergeIds: [] }; },
+    async getForBBox() {
+      return null;
+    }, // cache miss on both the shared and per-track paths
+    async planFetch(bbox) {
+      return { fetchBBox: bbox, mergeIds: [] };
+    },
     async store() {},
   });
   Object.assign(RealOSMEnricher, {
@@ -141,10 +170,14 @@ test('enrichTrack (collective): a shared fetch that times out falls back to per-
     calculateBBoxAreaKm2: () => 8.0,
     async fetchOSMData() {
       fetchCalls++;
-      if (fetchCalls === 1) throw new Error('Overpass API timed out after 4 attempts.');
+      if (fetchCalls === 1)
+        throw new Error('Overpass API timed out after 4 attempts.');
       return { elements: [] };
     },
-    enrichTrack(analyzer) { calls.push(analyzer.__name); analyzer.isEnriched = true; },
+    enrichTrack(analyzer) {
+      calls.push(analyzer.__name);
+      analyzer.isEnriched = true;
+    },
   });
   const tracks = ['X', 'Y', 'Z'].map(fakeTrack);
   Object.assign(RealAppState, {
@@ -156,9 +189,20 @@ test('enrichTrack (collective): a shared fetch that times out falls back to per-
 
   await GSRUI.enrichTrack(true);
 
-  assert.strictEqual(fetchCalls, 4, '1 failed shared fetch + 3 successful per-track fetches');
-  assert.deepStrictEqual(calls, ['X', 'Y', 'Z'], 'every track still enriched via the per-track fallback');
-  assert.ok(tracks.every(t => t.analyzer.isEnriched), 'the shared-fetch failure did not abort the whole batch');
+  assert.strictEqual(
+    fetchCalls,
+    4,
+    '1 failed shared fetch + 3 successful per-track fetches',
+  );
+  assert.deepStrictEqual(
+    calls,
+    ['X', 'Y', 'Z'],
+    'every track still enriched via the per-track fallback',
+  );
+  assert.ok(
+    tracks.every((t) => t.analyzer.isEnriched),
+    'the shared-fetch failure did not abort the whole batch',
+  );
 });
 
 test('enrichTrack (collective): a spread-out collection (union over the area cap) still enriches every track', async () => {
@@ -168,8 +212,12 @@ test('enrichTrack (collective): a spread-out collection (union over the area cap
   let call = 0;
   const calls = [];
   Object.assign(RealOsmCache, {
-    async getForBBox() { return null; },                  // force the per-track fetch path
-    async planFetch(bbox) { return { fetchBBox: bbox, mergeIds: [] }; },
+    async getForBBox() {
+      return null;
+    }, // force the per-track fetch path
+    async planFetch(bbox) {
+      return { fetchBBox: bbox, mergeIds: [] };
+    },
     async store() {},
   });
   Object.assign(RealOSMEnricher, {
@@ -177,8 +225,13 @@ test('enrichTrack (collective): a spread-out collection (union over the area cap
     calculateBBox: () => ({ minLat: 0, minLon: 0, maxLat: 0.01, maxLon: 0.01 }),
     // first call = the union bbox (huge); the rest = per-track (small)
     calculateBBoxAreaKm2: () => (call++ === 0 ? 40.0 : 1.0),
-    async fetchOSMData() { return { elements: [] }; },
-    enrichTrack(analyzer) { calls.push(analyzer.__name); analyzer.isEnriched = true; },
+    async fetchOSMData() {
+      return { elements: [] };
+    },
+    enrichTrack(analyzer) {
+      calls.push(analyzer.__name);
+      analyzer.isEnriched = true;
+    },
   });
   const tracks = ['P', 'Q', 'R'].map(fakeTrack);
   Object.assign(RealAppState, {
@@ -190,6 +243,10 @@ test('enrichTrack (collective): a spread-out collection (union over the area cap
 
   await GSRUI.enrichTrack(true);
 
-  assert.deepStrictEqual(calls, ['P', 'Q', 'R'], 'all three enriched despite the oversized union bbox');
-  assert.ok(tracks.every(t => t.analyzer.isEnriched));
+  assert.deepStrictEqual(
+    calls,
+    ['P', 'Q', 'R'],
+    'all three enriched despite the oversized union bbox',
+  );
+  assert.ok(tracks.every((t) => t.analyzer.isEnriched));
 });

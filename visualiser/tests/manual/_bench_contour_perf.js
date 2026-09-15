@@ -1,4 +1,3 @@
-'use strict';
 /**
  * A/B timing benchmark for Marching Squares: getContourLines (K passes, O(K×R×C))
  * vs getContourLinesMulti (1 pass, O(R×C) + precomputed coords + pruning).
@@ -48,20 +47,26 @@ function makeSyntheticGrid(rows, cols, hasMask = false) {
 const BOUNDS = { minLat: 51.0, maxLat: 52.0, minLon: -1.0, maxLon: 0.0 };
 
 const RUNS = [
-  { rows: 50,  cols: 50,  levels: 10, mask: false },
-  { rows: 50,  cols: 50,  levels: 10, mask: true },
+  { rows: 50, cols: 50, levels: 10, mask: false },
+  { rows: 50, cols: 50, levels: 10, mask: true },
   { rows: 100, cols: 100, levels: 10, mask: false },
   { rows: 100, cols: 100, levels: 30, mask: false },
-  { rows: 100, cols: 100, levels: 30, mask: true }
+  { rows: 100, cols: 100, levels: 30, mask: true },
 ];
 
-console.log('── Benchmarking Marching Squares: getContourLines vs getContourLinesMulti ──\n');
-console.log('  Size       Levels  Masked  Multi-Pass (K×O(R×C))   Single-Pass (O(R×C))   Speedup');
-console.log('  ---------------------------------------------------------------------------------');
+console.log(
+  '── Benchmarking Marching Squares: getContourLines vs getContourLinesMulti ──\n',
+);
+console.log(
+  '  Size       Levels  Masked  Multi-Pass (K×O(R×C))   Single-Pass (O(R×C))   Speedup',
+);
+console.log(
+  '  ---------------------------------------------------------------------------------',
+);
 
 for (const run of RUNS) {
   const grid = makeSyntheticGrid(run.rows, run.cols, run.mask);
-  
+
   // Generate level array
   const levels = [];
   for (let k = 1; k <= run.levels; k++) {
@@ -72,7 +77,13 @@ for (const run of RUNS) {
   const runA = () => {
     const contours = [];
     for (const lv of levels) {
-      const segs = MarchingSquares.getContourLines(grid, run.rows, run.cols, BOUNDS, lv);
+      const segs = MarchingSquares.getContourLines(
+        grid,
+        run.rows,
+        run.cols,
+        BOUNDS,
+        lv,
+      );
       if (segs.length > 0) contours.push(segs);
     }
     return contours;
@@ -80,7 +91,13 @@ for (const run of RUNS) {
 
   // B: Single-Pass
   const runB = () => {
-    return MarchingSquares.getContourLinesMulti(grid, run.rows, run.cols, BOUNDS, levels);
+    return MarchingSquares.getContourLinesMulti(
+      grid,
+      run.rows,
+      run.cols,
+      BOUNDS,
+      levels,
+    );
   };
 
   const msA = bench(runA, 100);
@@ -94,6 +111,8 @@ for (const run of RUNS) {
   const msBStr = `${msB.toFixed(3)}ms`.padStart(22);
   const speedupStr = `${speedup.toFixed(1)}x`.padStart(9);
 
-  console.log(`  ${sizeStr} ${lvStr} ${maskStr} ${msAStr} ${msBStr} ${speedupStr}`);
+  console.log(
+    `  ${sizeStr} ${lvStr} ${maskStr} ${msAStr} ${msBStr} ${speedupStr}`,
+  );
 }
 console.log('');

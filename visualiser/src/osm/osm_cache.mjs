@@ -135,12 +135,14 @@ export const OsmCache = {
    * assumption about that and is correct either way.
    */
   _findOverlapping(entries, bbox, queryVersion, nowMs) {
-    const now = (nowMs != null) ? nowMs : Date.now();
-    return entries.filter(e =>
-      e && e.bbox &&
-      e.queryVersion === queryVersion &&
-      (now - e.fetchedAt) <= this.CACHE_TTL_MS &&
-      this._bboxIntersects(e.bbox, bbox)
+    const now = nowMs != null ? nowMs : Date.now();
+    return entries.filter(
+      (e) =>
+        e &&
+        e.bbox &&
+        e.queryVersion === queryVersion &&
+        now - e.fetchedAt <= this.CACHE_TTL_MS &&
+        this._bboxIntersects(e.bbox, bbox),
     );
   },
 
@@ -157,15 +159,20 @@ export const OsmCache = {
    *   no merge is happening).
    */
   _planFetch(entries, bbox, queryVersion, nowMs) {
-    const overlapping = this._findOverlapping(entries, bbox, queryVersion, nowMs);
+    const overlapping = this._findOverlapping(
+      entries,
+      bbox,
+      queryVersion,
+      nowMs,
+    );
     if (overlapping.length === 0) {
       return { fetchBBox: bbox, mergeIds: [] };
     }
-    const unionBox = this._unionBBox([bbox, ...overlapping.map(e => e.bbox)]);
+    const unionBox = this._unionBBox([bbox, ...overlapping.map((e) => e.bbox)]);
     if (this._bboxAreaKm2(unionBox) > this.MAX_MERGE_AREA_KM2) {
       return { fetchBBox: bbox, mergeIds: [] };
     }
-    return { fetchBBox: unionBox, mergeIds: overlapping.map(e => e.id) };
+    return { fetchBBox: unionBox, mergeIds: overlapping.map((e) => e.id) };
   },
 
   /**
@@ -178,15 +185,19 @@ export const OsmCache = {
    * Returns the entry object or null. Pure — no IndexedDB access.
    */
   _pickBestMatch(entries, bbox, queryVersion, nowMs) {
-    const now = (nowMs != null) ? nowMs : Date.now();
-    let best = null, bestArea = Infinity;
+    const now = nowMs != null ? nowMs : Date.now();
+    let best = null,
+      bestArea = Infinity;
     for (const e of entries) {
       if (!e || !e.bbox) continue;
       if (e.queryVersion !== queryVersion) continue;
       if (now - e.fetchedAt > this.CACHE_TTL_MS) continue;
       if (!this._bboxContains(e.bbox, bbox)) continue;
       const area = this._bboxDegArea(e.bbox);
-      if (area < bestArea) { bestArea = area; best = e; }
+      if (area < bestArea) {
+        bestArea = area;
+        best = e;
+      }
     }
     return best;
   },
@@ -227,7 +238,10 @@ export const OsmCache = {
           db.deleteObjectStore('bbox_cache');
         }
         if (!db.objectStoreNames.contains(this.META_STORE)) {
-          db.createObjectStore(this.META_STORE, { keyPath: 'id', autoIncrement: true });
+          db.createObjectStore(this.META_STORE, {
+            keyPath: 'id',
+            autoIncrement: true,
+          });
         }
         if (!db.objectStoreNames.contains(this.DATA_STORE)) {
           db.createObjectStore(this.DATA_STORE, { keyPath: 'id' });
@@ -242,7 +256,9 @@ export const OsmCache = {
         // IndexedDB until LRU eviction eventually happens to reach them,
         // wasting quota and slowing every _getAll() metadata scan in the
         // meantime. Never blocks DB open on this — resolve either way.
-        this._cleanupStaleVersions(db).catch(() => {}).then(() => resolve(db));
+        this._cleanupStaleVersions(db)
+          .catch(() => {})
+          .then(() => resolve(db));
       };
       req.onerror = () => reject(req.error);
     });
@@ -258,8 +274,8 @@ export const OsmCache = {
     try {
       const metaList = await this._getAll(db, this.META_STORE);
       const staleIds = metaList
-        .filter(e => e && e.queryVersion !== this.QUERY_VERSION)
-        .map(e => e.id);
+        .filter((e) => e && e.queryVersion !== this.QUERY_VERSION)
+        .map((e) => e.id);
       if (staleIds.length > 0) {
         await this._deleteEntries(db, staleIds);
       }
@@ -312,12 +328,15 @@ export const OsmCache = {
    */
   _putEntry(db, meta, data, deleteIds = []) {
     return new Promise((resolve, reject) => {
-      const tx = db.transaction([this.META_STORE, this.DATA_STORE], 'readwrite');
+      const tx = db.transaction(
+        [this.META_STORE, this.DATA_STORE],
+        'readwrite',
+      );
       const metaStore = tx.objectStore(this.META_STORE);
       const dataStore = tx.objectStore(this.DATA_STORE);
       const metaReq = metaStore.put(meta);
       metaReq.onsuccess = () => {
-        const id = (meta.id != null) ? meta.id : metaReq.result;
+        const id = meta.id != null ? meta.id : metaReq.result;
         dataStore.put({ id, data });
       };
       for (const delId of deleteIds) {
@@ -333,7 +352,10 @@ export const OsmCache = {
   _deleteEntries(db, ids) {
     if (ids.length === 0) return Promise.resolve();
     return new Promise((resolve, reject) => {
-      const tx = db.transaction([this.META_STORE, this.DATA_STORE], 'readwrite');
+      const tx = db.transaction(
+        [this.META_STORE, this.DATA_STORE],
+        'readwrite',
+      );
       const metaStore = tx.objectStore(this.META_STORE);
       const dataStore = tx.objectStore(this.DATA_STORE);
       for (const id of ids) {
@@ -391,7 +413,10 @@ export const OsmCache = {
       const metaList = await this._getAll(db, this.META_STORE);
       return this._planFetch(metaList, bbox, this.QUERY_VERSION);
     } catch (err) {
-      console.warn('OsmCache.planFetch failed, fetching requested bbox only:', err);
+      console.warn(
+        'OsmCache.planFetch failed, fetching requested bbox only:',
+        err,
+      );
       return { fetchBBox: bbox, mergeIds: [] };
     }
   },
@@ -415,7 +440,7 @@ export const OsmCache = {
         bbox,
         queryVersion: this.QUERY_VERSION,
         fetchedAt: Date.now(),
-        lastAccess: Date.now()
+        lastAccess: Date.now(),
       };
       await this._putEntry(db, meta, data, supersedes);
 
@@ -424,7 +449,10 @@ export const OsmCache = {
       const metaList = await this._getAll(db, this.META_STORE);
       const toEvict = this._selectEvictions(metaList, this.MAX_ENTRIES);
       if (toEvict.length > 0) {
-        await this._deleteEntries(db, toEvict.map(e => e.id));
+        await this._deleteEntries(
+          db,
+          toEvict.map((e) => e.id),
+        );
       }
     } catch (err) {
       console.warn('OsmCache.store failed (cache disabled for this run):', err);
@@ -435,11 +463,14 @@ export const OsmCache = {
   async clear() {
     const db = await this._openDb();
     return new Promise((resolve, reject) => {
-      const tx = db.transaction([this.META_STORE, this.DATA_STORE], 'readwrite');
+      const tx = db.transaction(
+        [this.META_STORE, this.DATA_STORE],
+        'readwrite',
+      );
       tx.objectStore(this.META_STORE).clear();
       tx.objectStore(this.DATA_STORE).clear();
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });
-  }
+  },
 };

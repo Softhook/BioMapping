@@ -5,7 +5,6 @@
  *
  * Usage: node check_gate_sweep.js <ground_truth_dir>
  */
-'use strict';
 
 const fs = require('fs');
 const path = require('path');
@@ -17,7 +16,10 @@ global.GSR_CONST = require('../../mock_constants.js');
 function loadModule(filePath, varName) {
   const src = fs.readFileSync(filePath, 'utf8');
   const wrapped = src
-    .replace(new RegExp(`class ${varName}\\s*{`), `global.${varName} = class ${varName} {`)
+    .replace(
+      new RegExp(`class ${varName}\\s*{`),
+      `global.${varName} = class ${varName} {`,
+    )
     .replace(new RegExp(`const ${varName}\\s*=`), `global.${varName} =`);
   vm.runInThisContext(wrapped, { filename: filePath });
 }
@@ -59,7 +61,8 @@ function score(peakTimes, trueScrs) {
 function summarize(result) {
   const recall = result.tp / (result.tp + result.fn);
   const precision = result.tp / (result.tp + result.fp);
-  const f1 = recall + precision ? 2 * recall * precision / (recall + precision) : 0;
+  const f1 =
+    recall + precision ? (2 * recall * precision) / (recall + precision) : 0;
   return { ...result, recall, precision, f1 };
 }
 
@@ -69,19 +72,27 @@ if (!groundTruthDir) {
   process.exit(1);
 }
 
-const tracks = fs.readdirSync(groundTruthDir)
-  .filter(file => file.endsWith('.csv'))
+const tracks = fs
+  .readdirSync(groundTruthDir)
+  .filter((file) => file.endsWith('.csv'))
   .sort()
-  .map(file => {
+  .map((file) => {
     const stem = path.basename(file, '.csv');
     return {
       name: stem,
       csv: fs.readFileSync(path.join(groundTruthDir, file), 'utf8'),
-      truth: JSON.parse(fs.readFileSync(path.join(groundTruthDir, `${stem}.ground_truth.json`), 'utf8')).scrs,
+      truth: JSON.parse(
+        fs.readFileSync(
+          path.join(groundTruthDir, `${stem}.ground_truth.json`),
+          'utf8',
+        ),
+      ).scrs,
     };
   });
 
-const thresholdValues = [0.015, 0.02, 0.025, 0.03, 0.04, 0.045, 0.05, 0.075, 0.1];
+const thresholdValues = [
+  0.015, 0.02, 0.025, 0.03, 0.04, 0.045, 0.05, 0.075, 0.1,
+];
 const snrValues = [0, 1.5, 2, 2.5, 3, 4, 5, 6];
 const qualityValues = [0, 0.1, 0.2, 0.3, 0.4, 0.5];
 const candidates = [];
@@ -94,37 +105,69 @@ for (const peakThreshold of thresholdValues) {
       for (const track of tracks) {
         const analyzer = new GSRAnalyzer();
         analyzer.parseCSV(track.csv);
-        analyzer.analyze({ ...D, peakThreshold, shapeMinSnr, minPeakQuality }, 0);
-        const result = score(analyzer.peaks.map(peak => peak.time), track.truth);
+        analyzer.analyze(
+          { ...D, peakThreshold, shapeMinSnr, minPeakQuality },
+          0,
+        );
+        const result = score(
+          analyzer.peaks.map((peak) => peak.time),
+          track.truth,
+        );
         total.tp += result.tp;
         total.fn += result.fn;
         total.fp += result.fp;
         perTrack.push({ name: track.name, ...summarize(result) });
       }
-      candidates.push({ peakThreshold, shapeMinSnr, minPeakQuality, ...summarize(total), perTrack });
+      candidates.push({
+        peakThreshold,
+        shapeMinSnr,
+        minPeakQuality,
+        ...summarize(total),
+        perTrack,
+      });
     }
   }
 }
 
-candidates.sort((left, right) => right.f1 - left.f1 || right.recall - left.recall || right.precision - left.precision);
-const production = candidates.find(candidate => candidate.peakThreshold === D.peakThreshold && candidate.shapeMinSnr === D.shapeMinSnr && candidate.minPeakQuality === D.minPeakQuality);
+candidates.sort(
+  (left, right) =>
+    right.f1 - left.f1 ||
+    right.recall - left.recall ||
+    right.precision - left.precision,
+);
+const production = candidates.find(
+  (candidate) =>
+    candidate.peakThreshold === D.peakThreshold &&
+    candidate.shapeMinSnr === D.shapeMinSnr &&
+    candidate.minPeakQuality === D.minPeakQuality,
+);
 const best = candidates[0];
 
 function print(label, candidate) {
-  const pct = value => `${(value * 100).toFixed(1)}%`;
-  console.log(`${label}: amplitude >= ${candidate.peakThreshold}uS, SNR >= ${candidate.shapeMinSnr}, quality >= ${candidate.minPeakQuality}`);
-  console.log(`  recall ${pct(candidate.recall)}  precision ${pct(candidate.precision)}  F1 ${candidate.f1.toFixed(3)}  TP ${candidate.tp} FN ${candidate.fn} FP ${candidate.fp}`);
+  const pct = (value) => `${(value * 100).toFixed(1)}%`;
+  console.log(
+    `${label}: amplitude >= ${candidate.peakThreshold}uS, SNR >= ${candidate.shapeMinSnr}, quality >= ${candidate.minPeakQuality}`,
+  );
+  console.log(
+    `  recall ${pct(candidate.recall)}  precision ${pct(candidate.precision)}  F1 ${candidate.f1.toFixed(3)}  TP ${candidate.tp} FN ${candidate.fn} FP ${candidate.fp}`,
+  );
   for (const track of candidate.perTrack) {
-    console.log(`  ${track.name.padEnd(22)} recall ${pct(track.recall)}  precision ${pct(track.precision)}  F1 ${track.f1.toFixed(3)}`);
+    console.log(
+      `  ${track.name.padEnd(22)} recall ${pct(track.recall)}  precision ${pct(track.precision)}  F1 ${track.f1.toFixed(3)}`,
+    );
   }
 }
 
-console.log(`=== Full-Scan gate sweep across ${tracks.length} ground-truth tracks ===`);
+console.log(
+  `=== Full-Scan gate sweep across ${tracks.length} ground-truth tracks ===`,
+);
 print('Production defaults', production);
 print('Best in-sample candidate', best);
 console.log('\nTop five candidates:');
 for (const candidate of candidates.slice(0, 5)) {
-  console.log(`  amplitude >= ${candidate.peakThreshold}uS, SNR >= ${candidate.shapeMinSnr}, quality >= ${candidate.minPeakQuality}: F1 ${candidate.f1.toFixed(3)}, recall ${(candidate.recall * 100).toFixed(1)}%, precision ${(candidate.precision * 100).toFixed(1)}%`);
+  console.log(
+    `  amplitude >= ${candidate.peakThreshold}uS, SNR >= ${candidate.shapeMinSnr}, quality >= ${candidate.minPeakQuality}: F1 ${candidate.f1.toFixed(3)}, recall ${(candidate.recall * 100).toFixed(1)}%, precision ${(candidate.precision * 100).toFixed(1)}%`,
+  );
 }
 
 // A candidate is rejected only when it is BOTH small and slow. Unlike a plain
@@ -138,7 +181,10 @@ for (const track of tracks) {
   const analyzer = new GSRAnalyzer();
   analyzer.parseCSV(track.csv);
   analyzer.analyze({ ...D }, 0);
-  const baseline = score(analyzer.peaks.map(peak => peak.time), track.truth);
+  const baseline = score(
+    analyzer.peaks.map((peak) => peak.time),
+    track.truth,
+  );
   baselineByTrack.set(track.name, baseline.tp);
   peakSets.set(track.name, analyzer.peaks);
 }
@@ -149,26 +195,45 @@ for (const amplitudeFloor of combinedAmplitudeFloors) {
     const total = { tp: 0, fn: 0, fp: 0 };
     let retainsBaselineRecall = true;
     for (const track of tracks) {
-      const kept = peakSets.get(track.name).filter(peak =>
-        !(peak.amplitude < amplitudeFloor && peak.onsetSlope < slopeFloor));
-      const result = score(kept.map(peak => peak.time), track.truth);
+      const kept = peakSets
+        .get(track.name)
+        .filter(
+          (peak) =>
+            !(peak.amplitude < amplitudeFloor && peak.onsetSlope < slopeFloor),
+        );
+      const result = score(
+        kept.map((peak) => peak.time),
+        track.truth,
+      );
       total.tp += result.tp;
       total.fn += result.fn;
       total.fp += result.fp;
-      if (result.tp !== baselineByTrack.get(track.name)) retainsBaselineRecall = false;
+      if (result.tp !== baselineByTrack.get(track.name))
+        retainsBaselineRecall = false;
     }
-    combinedCandidates.push({ amplitudeFloor, slopeFloor, retainsBaselineRecall, ...summarize(total) });
+    combinedCandidates.push({
+      amplitudeFloor,
+      slopeFloor,
+      retainsBaselineRecall,
+      ...summarize(total),
+    });
   }
 }
 
 const safeCombined = combinedCandidates
-  .filter(candidate => candidate.retainsBaselineRecall)
-  .sort((left, right) => right.f1 - left.f1 || right.precision - left.precision);
+  .filter((candidate) => candidate.retainsBaselineRecall)
+  .sort(
+    (left, right) => right.f1 - left.f1 || right.precision - left.precision,
+  );
 console.log('\n=== Combined small-and-slow post-detection experiment ===');
 if (safeCombined.length === 0) {
-  console.log('  No candidate retained the production detector\'s true-positive count on every scenario.');
+  console.log(
+    "  No candidate retained the production detector's true-positive count on every scenario.",
+  );
 } else {
   for (const candidate of safeCombined.slice(0, 5)) {
-    console.log(`  reject when amplitude < ${candidate.amplitudeFloor}uS AND slope < ${candidate.slopeFloor}uS/s: F1 ${candidate.f1.toFixed(3)}, recall ${(candidate.recall * 100).toFixed(1)}%, precision ${(candidate.precision * 100).toFixed(1)}%, FP ${candidate.fp}`);
+    console.log(
+      `  reject when amplitude < ${candidate.amplitudeFloor}uS AND slope < ${candidate.slopeFloor}uS/s: F1 ${candidate.f1.toFixed(3)}, recall ${(candidate.recall * 100).toFixed(1)}%, precision ${(candidate.precision * 100).toFixed(1)}%, FP ${candidate.fp}`,
+    );
   }
 }

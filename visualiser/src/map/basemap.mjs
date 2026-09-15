@@ -25,12 +25,22 @@ export const GSRBasemap = {
    * guarded.
    */
   cartoTileUrl(styleSlug) {
-    let cartoKey = (typeof window !== 'undefined' && window.BIOMAP_CONFIG && window.BIOMAP_CONFIG.cartoApiKey) || '';
+    let cartoKey =
+      (typeof window !== 'undefined' &&
+        window.BIOMAP_CONFIG &&
+        window.BIOMAP_CONFIG.cartoApiKey) ||
+      '';
     if (!cartoKey) {
-      try { cartoKey = localStorage.getItem('bioMappingCartoApiKey') || ''; } catch (e) { /* no-op */ }
+      try {
+        cartoKey = localStorage.getItem('bioMappingCartoApiKey') || '';
+      } catch (e) {
+        /* no-op */
+      }
     }
-    return `https://{s}.basemaps.cartocdn.com/${styleSlug}/{z}/{x}/{y}.png` +
-      (cartoKey ? '?key=' + encodeURIComponent(cartoKey) : '');
+    return (
+      `https://{s}.basemaps.cartocdn.com/${styleSlug}/{z}/{x}/{y}.png` +
+      (cartoKey ? '?key=' + encodeURIComponent(cartoKey) : '')
+    );
   },
 
   /**

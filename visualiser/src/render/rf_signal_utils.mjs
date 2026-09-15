@@ -30,8 +30,12 @@ export const DEFAULT_GAIN = 1.15;
  * @returns {boolean}
  */
 export function bandHasActiveSignal(floor, peak) {
-  return isFinite(floor) && isFinite(peak) &&
-    (peak > HARD_NOISE_FLOOR_DBM) && ((peak - floor) >= 3.0);
+  return (
+    isFinite(floor) &&
+    isFinite(peak) &&
+    peak > HARD_NOISE_FLOOR_DBM &&
+    peak - floor >= 3.0
+  );
 }
 
 /**
@@ -52,5 +56,5 @@ export function normDbm(val, floor, peak, active, gain = DEFAULT_GAIN) {
   if (val <= threshold) return 0.0;
   const activeRange = Math.max(5.0, peak - threshold);
   const norm = Math.max(0, Math.min(1, (val - threshold) / activeRange));
-  return Math.max(0, Math.min(1, Math.pow(norm, NORM_GAMMA) * gain));
+  return Math.max(0, Math.min(1, norm ** NORM_GAMMA * gain));
 }

@@ -27,9 +27,9 @@
  */
 const assert = require('assert');
 const { test } = require('node:test');
-const fs     = require('fs');
-const os     = require('os');
-const path   = require('path');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 const { spawnSync } = require('child_process');
 
 global.window = global;
@@ -37,14 +37,26 @@ global.GSR_CONST = require('./mock_constants.js');
 
 const { loadModule } = require('./support/load_module.js');
 
-loadModule(path.join(__dirname, '../src/signal/stats_math.js'),      'StatsMath');
-loadModule(path.join(__dirname, '../src/map/map_colors.js'),      'MapColors');
-loadModule(path.join(__dirname, '../src/gps/geo_utils.js'),       'GeoUtils');
-loadModule(path.join(__dirname, '../src/render/marching_squares.js'),'MarchingSquares');
-loadModule(path.join(__dirname, '../src/spatial/spatial_clustering.js'), 'GSRSpatialClustering');
-loadModule(path.join(__dirname, '../src/map/hillshade.js'),       'Hillshade');
-loadModule(path.join(__dirname, '../src/render/contour_ring_geometry.js'), 'ContourRingGeometry');
-loadModule(path.join(__dirname, '../src/map/map_exporter.js'),   'GSRMapExporter');
+loadModule(path.join(__dirname, '../src/signal/stats_math.js'), 'StatsMath');
+loadModule(path.join(__dirname, '../src/map/map_colors.js'), 'MapColors');
+loadModule(path.join(__dirname, '../src/gps/geo_utils.js'), 'GeoUtils');
+loadModule(
+  path.join(__dirname, '../src/render/marching_squares.js'),
+  'MarchingSquares',
+);
+loadModule(
+  path.join(__dirname, '../src/spatial/spatial_clustering.js'),
+  'GSRSpatialClustering',
+);
+loadModule(path.join(__dirname, '../src/map/hillshade.js'), 'Hillshade');
+loadModule(
+  path.join(__dirname, '../src/render/contour_ring_geometry.js'),
+  'ContourRingGeometry',
+);
+loadModule(
+  path.join(__dirname, '../src/map/map_exporter.js'),
+  'GSRMapExporter',
+);
 
 const { MarchingSquares } = global;
 const GSRMapExporter = global.GSRMapExporter;
@@ -52,81 +64,141 @@ const GSRMapExporter = global.GSRMapExporter;
 console.log('── Running Isoband SVG Real-Render Regression Test ──');
 
 const hasConvert = spawnSync('which', ['convert']).status === 0;
-test(
-  'Isoband SVG real-render: exported isobands rasterize to visible content',
-  { skip: hasConvert ? false : 'ImageMagick `convert` not available — skipping real-render check.' },
-  () => {
+test('Isoband SVG real-render: exported isobands rasterize to visible content', {
+  skip: hasConvert
+    ? false
+    : 'ImageMagick `convert` not available — skipping real-render check.',
+}, () => {
+  // A peak pinned right at a corner (the original bug report scenario), at a
+  // realistic worst-case gridResolution/contourCount.
+  const rows = 80,
+    cols = 80;
+  const grid = Array.from({ length: rows }, (_, r) =>
+    Array.from({ length: cols }, (_, c) => {
+      const dr = r - 78,
+        dc = c - 78;
+      return 3.0 * Math.exp(-(dr * dr + dc * dc) / 250);
+    }),
+  );
+  const bounds = { minLat: 49.9, maxLat: 50.0, minLon: 0.0, maxLon: 0.1 };
+  const sortedVals = grid
+    .flat()
+    .slice()
+    .sort((a, b) => a - b);
+  const contourCount = 9;
+  const contours = [];
+  for (let k = 1; k <= contourCount; k++) {
+    const pct = k / (contourCount + 1);
+    const idx = Math.min(
+      sortedVals.length - 1,
+      Math.round(pct * (sortedVals.length - 1)),
+    );
+    const level = sortedVals[idx];
+    const segments = MarchingSquares.getContourLines(
+      grid,
+      rows,
+      cols,
+      bounds,
+      level,
+    );
+    if (segments.length) contours.push({ level, ratio: pct, segments });
+  }
 
-// A peak pinned right at a corner (the original bug report scenario), at a
-// realistic worst-case gridResolution/contourCount.
-const rows = 80, cols = 80;
-const grid = Array.from({ length: rows }, (_, r) =>
-  Array.from({ length: cols }, (_, c) => {
-    const dr = r - 78, dc = c - 78;
-    return 3.0 * Math.exp(-(dr * dr + dc * dc) / 250);
-  })
-);
-const bounds = { minLat: 49.9, maxLat: 50.0, minLon: 0.0, maxLon: 0.1 };
-const sortedVals = grid.flat().slice().sort((a, b) => a - b);
-const contourCount = 9;
-const contours = [];
-for (let k = 1; k <= contourCount; k++) {
-  const pct = k / (contourCount + 1);
-  const idx = Math.min(sortedVals.length - 1, Math.round(pct * (sortedVals.length - 1)));
-  const level = sortedVals[idx];
-  const segments = MarchingSquares.getContourLines(grid, rows, cols, bounds, level);
-  if (segments.length) contours.push({ level, ratio: pct, segments });
-}
+  const project = (ll) => {
+    const lat = ll.lat !== undefined ? ll.lat : ll[0];
+    const lon =
+      ll.lon !== undefined ? ll.lon : ll.lng !== undefined ? ll.lng : ll[1];
+    return { x: lon * 20000, y: (50 - lat) * 20000 };
+  };
+  const mockEl = {
+    clientWidth: 800,
+    clientHeight: 600,
+    querySelectorAll: () => [],
+    querySelector: () => null,
+  };
+  const ctx = {
+    map: { latLngToContainerPoint: project },
+    el: mockEl,
+    r: { left: 0, top: 0 },
+    w: 2000,
+    h: 2000,
+    project,
+    mgr: {
+      surfaceData: { grid, minVal: 0, maxVal: 3, bounds, sortedVals, contours },
+    },
+  };
 
-const project = (ll) => {
-  const lat = ll.lat !== undefined ? ll.lat : ll[0];
-  const lon = ll.lon !== undefined ? ll.lon : (ll.lng !== undefined ? ll.lng : ll[1]);
-  return { x: lon * 20000, y: (50 - lat) * 20000 };
-};
-const mockEl = { clientWidth: 800, clientHeight: 600, querySelectorAll: () => [], querySelector: () => null };
-const ctx = {
-  map: { latLngToContainerPoint: project }, el: mockEl, r: { left: 0, top: 0 }, w: 2000, h: 2000, project,
-  mgr: { surfaceData: { grid, minVal: 0, maxVal: 3, bounds, sortedVals, contours } }
-};
+  const surface = GSRMapExporter._surface(ctx);
+  assert(
+    surface.isobands.length > 0,
+    'Sanity: at least one isoband element is produced',
+  );
 
-const surface = GSRMapExporter._surface(ctx);
-assert(surface.isobands.length > 0, 'Sanity: at least one isoband element is produced');
+  const svg = [
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2000 2000" width="2000" height="2000">',
+    '  <rect x="0" y="0" width="2000" height="2000" fill="#0b0d16" />',
+    ...surface.isobands.map((p) => '  ' + p),
+    '</svg>',
+  ].join('\n');
 
-const svg = [
-  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2000 2000" width="2000" height="2000">',
-  '  <rect x="0" y="0" width="2000" height="2000" fill="#0b0d16" />',
-  ...surface.isobands.map(p => '  ' + p),
-  '</svg>'
-].join('\n');
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'isoband-render-'));
+  const svgPath = path.join(tmpDir, 'test.svg');
+  const pngPath = path.join(tmpDir, 'test.png');
+  fs.writeFileSync(svgPath, svg);
 
-const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'isoband-render-'));
-const svgPath = path.join(tmpDir, 'test.svg');
-const pngPath = path.join(tmpDir, 'test.png');
-fs.writeFileSync(svgPath, svg);
+  const result = spawnSync(
+    'convert',
+    ['-background', '#0b0d16', svgPath, pngPath],
+    { encoding: 'utf8' },
+  );
+  assert.strictEqual(
+    result.status,
+    0,
+    `convert should succeed rasterizing the exported SVG (stderr: ${result.stderr})`,
+  );
 
-const result = spawnSync('convert', ['-background', '#0b0d16', svgPath, pngPath], { encoding: 'utf8' });
-assert.strictEqual(result.status, 0, `convert should succeed rasterizing the exported SVG (stderr: ${result.stderr})`);
+  // Ask ImageMagick how much the render differs from a solid background fill.
+  // `-metric AE -format %[distortion]` already returns a normalized value in
+  // [0, 1] (verified directly: identical images -> 0, fully-swapped colors on
+  // a single channel -> 1, half a canvas swapped -> 0.5) — it is NOT a raw
+  // differing-pixel count, despite looking like one. Do not re-divide by pixel
+  // count here; that silently shrank real, substantial distortion (~0.35 on a
+  // visibly-rendered isoband PNG) down to ~0.0000001, which is what caused
+  // this test to report "0.0%" and fail even though the image was correct.
+  const compare = spawnSync(
+    'convert',
+    [
+      pngPath,
+      '(',
+      '-clone',
+      '0',
+      '-fill',
+      '#0b0d16',
+      '-colorize',
+      '100',
+      ')',
+      '-metric',
+      'AE',
+      '-compare',
+      '-format',
+      '%[distortion]',
+      'info:',
+    ],
+    { encoding: 'utf8' },
+  );
+  const diffFraction = parseFloat(compare.stdout);
 
-// Ask ImageMagick how much the render differs from a solid background fill.
-// `-metric AE -format %[distortion]` already returns a normalized value in
-// [0, 1] (verified directly: identical images -> 0, fully-swapped colors on
-// a single channel -> 1, half a canvas swapped -> 0.5) — it is NOT a raw
-// differing-pixel count, despite looking like one. Do not re-divide by pixel
-// count here; that silently shrank real, substantial distortion (~0.35 on a
-// visibly-rendered isoband PNG) down to ~0.0000001, which is what caused
-// this test to report "0.0%" and fail even though the image was correct.
-const compare = spawnSync('convert', [
-  pngPath, '(', '-clone', '0', '-fill', '#0b0d16', '-colorize', '100', ')',
-  '-metric', 'AE', '-compare', '-format', '%[distortion]', 'info:'
-], { encoding: 'utf8' });
-const diffFraction = parseFloat(compare.stdout);
+  fs.rmSync(tmpDir, { recursive: true, force: true });
 
-fs.rmSync(tmpDir, { recursive: true, force: true });
-
-assert(!isNaN(diffFraction), `ImageMagick comparison against solid background produced a numeric result (got: "${compare.stdout}", stderr: "${compare.stderr}")`);
-assert(
-  diffFraction > 0.05,
-  `Rendered PNG has a substantial fraction of non-background pixels (i.e. the isobands actually rendered, not blank): ${(diffFraction * 100).toFixed(1)}%`
-);
-console.log(`✓ Exported isobands render as actual visible content in a real SVG engine (${(diffFraction * 100).toFixed(1)}% non-background pixels)`);
+  assert(
+    !isNaN(diffFraction),
+    `ImageMagick comparison against solid background produced a numeric result (got: "${compare.stdout}", stderr: "${compare.stderr}")`,
+  );
+  assert(
+    diffFraction > 0.05,
+    `Rendered PNG has a substantial fraction of non-background pixels (i.e. the isobands actually rendered, not blank): ${(diffFraction * 100).toFixed(1)}%`,
+  );
+  console.log(
+    `✓ Exported isobands render as actual visible content in a real SVG engine (${(diffFraction * 100).toFixed(1)}% non-background pixels)`,
+  );
 });

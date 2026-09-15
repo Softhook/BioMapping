@@ -46,13 +46,20 @@ test('buildSCRFKernel: is normalised so the peak value is exactly 1.0', () => {
 test('buildSCRFKernel: rises to a single peak then monotonically decays (bi-exponential shape)', () => {
   const kernel = SCRDeconvolution.buildSCRFKernel(SR);
   let peakIdx = 0;
-  for (let i = 1; i < kernel.length; i++) if (kernel[i] > kernel[peakIdx]) peakIdx = i;
+  for (let i = 1; i < kernel.length; i++)
+    if (kernel[i] > kernel[peakIdx]) peakIdx = i;
 
   for (let i = 1; i <= peakIdx; i++) {
-    assert.ok(kernel[i] >= kernel[i - 1] - 1e-12, `kernel should rise monotonically up to the peak at ${i}`);
+    assert.ok(
+      kernel[i] >= kernel[i - 1] - 1e-12,
+      `kernel should rise monotonically up to the peak at ${i}`,
+    );
   }
   for (let i = peakIdx + 1; i < kernel.length; i++) {
-    assert.ok(kernel[i] <= kernel[i - 1] + 1e-12, `kernel should decay monotonically after the peak at ${i}`);
+    assert.ok(
+      kernel[i] <= kernel[i - 1] + 1e-12,
+      `kernel should decay monotonically after the peak at ${i}`,
+    );
   }
 });
 
@@ -71,8 +78,10 @@ test('buildSCRFKernel: a larger tauSlow produces a longer decay tail (more energ
   const fastDecay = SCRDeconvolution.buildSCRFKernel(SR, 1.0, 0.75, 8.0);
   const slowDecay = SCRDeconvolution.buildSCRFKernel(SR, 4.0, 0.75, 8.0);
   const tailIdx = Math.floor(fastDecay.length * 0.75);
-  assert.ok(slowDecay[tailIdx] > fastDecay[tailIdx],
-    'slower tauSlow should retain more amplitude late in the kernel');
+  assert.ok(
+    slowDecay[tailIdx] > fastDecay[tailIdx],
+    'slower tauSlow should retain more amplitude late in the kernel',
+  );
 });
 
 // ═════════════════════════════════════════════════════════════════════════
@@ -84,7 +93,7 @@ test('convolve: zero driver produces zero output of the same length', () => {
   const driver = new Float64Array(30);
   const out = SCRDeconvolution.convolve(driver, kernel);
   assert.strictEqual(out.length, 30);
-  assert.ok(Array.from(out).every(v => v === 0));
+  assert.ok(Array.from(out).every((v) => v === 0));
 });
 
 test('convolve: a single unit impulse reproduces the kernel shape, causally shifted', () => {
@@ -97,7 +106,10 @@ test('convolve: a single unit impulse reproduces the kernel shape, causally shif
   for (let i = 0; i < 10; i++) assert.strictEqual(out[i], 0);
   // out[10 + j] === kernel[j] for a unit impulse.
   for (let j = 0; j < kernel.length && 10 + j < out.length; j++) {
-    assert.ok(Math.abs(out[10 + j] - kernel[j]) < 1e-12, `out[${10 + j}] should equal kernel[${j}]`);
+    assert.ok(
+      Math.abs(out[10 + j] - kernel[j]) < 1e-12,
+      `out[${10 + j}] should equal kernel[${j}]`,
+    );
   }
 });
 
@@ -111,8 +123,10 @@ test('convolve: output is truncated to the driver length even when the kernel wo
 
 test('convolve: scales linearly with driver amplitude', () => {
   const kernel = SCRDeconvolution.buildSCRFKernel(SR);
-  const driver1 = new Float64Array(40); driver1[5] = 1.0;
-  const driver2 = new Float64Array(40); driver2[5] = 3.0;
+  const driver1 = new Float64Array(40);
+  driver1[5] = 1.0;
+  const driver2 = new Float64Array(40);
+  driver2[5] = 3.0;
   const out1 = SCRDeconvolution.convolve(driver1, kernel);
   const out2 = SCRDeconvolution.convolve(driver2, kernel);
   for (let i = 0; i < 40; i++) {
@@ -122,14 +136,21 @@ test('convolve: scales linearly with driver amplitude', () => {
 
 test('convolve: is additive across two well-separated impulses (superposition)', () => {
   const kernel = SCRDeconvolution.buildSCRFKernel(SR, 2.0, 0.75, 2.0); // short 20-sample kernel
-  const driverA = new Float64Array(60); driverA[5] = 1.0;
-  const driverB = new Float64Array(60); driverB[40] = 1.0;
-  const driverBoth = new Float64Array(60); driverBoth[5] = 1.0; driverBoth[40] = 1.0;
+  const driverA = new Float64Array(60);
+  driverA[5] = 1.0;
+  const driverB = new Float64Array(60);
+  driverB[40] = 1.0;
+  const driverBoth = new Float64Array(60);
+  driverBoth[5] = 1.0;
+  driverBoth[40] = 1.0;
   const outA = SCRDeconvolution.convolve(driverA, kernel);
   const outB = SCRDeconvolution.convolve(driverB, kernel);
   const outBoth = SCRDeconvolution.convolve(driverBoth, kernel);
   for (let i = 0; i < 60; i++) {
-    assert.ok(Math.abs(outBoth[i] - (outA[i] + outB[i])) < 1e-9, `sample ${i} should be additive`);
+    assert.ok(
+      Math.abs(outBoth[i] - (outA[i] + outB[i])) < 1e-9,
+      `sample ${i} should be additive`,
+    );
   }
 });
 
@@ -141,7 +162,7 @@ test('deconvolve: all-zero phasic converges immediately with zero iterations and
   const phasic = new Float64Array(50);
   const result = SCRDeconvolution.deconvolve(phasic, SR, MP);
   assert.strictEqual(result.iterations, 0);
-  assert.ok(Array.from(result.driver).every(v => v === 0));
+  assert.ok(Array.from(result.driver).every((v) => v === 0));
   assert.strictEqual(result.impulseLog.length, 0);
 });
 
@@ -159,12 +180,21 @@ test('deconvolve: recovers the true position and amplitude of a single isolated 
   const kernel = SCRDeconvolution.buildSCRFKernel(SR, 2.0, 0.75, 5.0);
   const phasic = SCRDeconvolution.convolve(trueDriver, kernel);
 
-  const result = SCRDeconvolution.deconvolve(phasic, SR, { ...MP, maxIter: 20 });
-  assert.strictEqual(result.iterations, 1, 'a single clean isolated atom should converge in one MP iteration');
+  const result = SCRDeconvolution.deconvolve(phasic, SR, {
+    ...MP,
+    maxIter: 20,
+  });
+  assert.strictEqual(
+    result.iterations,
+    1,
+    'a single clean isolated atom should converge in one MP iteration',
+  );
   assert.strictEqual(result.impulseLog.length, 1);
   assert.strictEqual(result.impulseLog[0].trueIndex, 30);
-  assert.ok(Math.abs(result.impulseLog[0].amplitude - 1.2) < 1e-9,
-    'a perfectly clean single-atom signal should be recovered with the exact input amplitude');
+  assert.ok(
+    Math.abs(result.impulseLog[0].amplitude - 1.2) < 1e-9,
+    'a perfectly clean single-atom signal should be recovered with the exact input amplitude',
+  );
 });
 
 test('deconvolve: negative-index onsets (SCR apex within kPeakIdx samples of t=0) are clamped into driver[0]', () => {
@@ -178,8 +208,15 @@ test('deconvolve: negative-index onsets (SCR apex within kPeakIdx samples of t=0
   phasic[0] = 5.0;
   const result = SCRDeconvolution.deconvolve(phasic, SR, { ...MP, maxIter: 3 });
   assert.strictEqual(result.impulseLog.length, 1);
-  assert.ok(result.impulseLog[0].trueIndex < 0, 'true onset should be modeled as predating the recording');
-  assert.strictEqual(result.impulseLog[0].clampedIndex, 0, 'driver storage position must be clamped to 0');
+  assert.ok(
+    result.impulseLog[0].trueIndex < 0,
+    'true onset should be modeled as predating the recording',
+  );
+  assert.strictEqual(
+    result.impulseLog[0].clampedIndex,
+    0,
+    'driver storage position must be clamped to 0',
+  );
   assert.strictEqual(result.driver[0], result.impulseLog[0].amplitude);
 });
 
@@ -194,16 +231,32 @@ test('deconvolve: respects the maxIter budget on a signal that would otherwise n
   const n = 500;
   const phasic = new Float64Array(n);
   for (let i = 10; i < n; i += 10) phasic[i] = 0.5; // 49 separated spikes
-  const result = SCRDeconvolution.deconvolve(phasic, SR, { ...MP, maxIter: 5, convTol: 0.001 });
-  assert.strictEqual(result.iterations, 5, 'maxIter=5 with 49 available spikes should use the full budget');
+  const result = SCRDeconvolution.deconvolve(phasic, SR, {
+    ...MP,
+    maxIter: 5,
+    convTol: 0.001,
+  });
+  assert.strictEqual(
+    result.iterations,
+    5,
+    'maxIter=5 with 49 available spikes should use the full budget',
+  );
 });
 
 test('deconvolve: convTol stops iteration once the residual max falls below threshold', () => {
   const n = 60;
   const phasic = new Float64Array(n);
   phasic[20] = 0.0005; // below a convTol of 0.001
-  const result = SCRDeconvolution.deconvolve(phasic, SR, { ...MP, convTol: 0.001, maxIter: 50 });
-  assert.strictEqual(result.iterations, 0, 'a residual entirely below convTol should never place an atom');
+  const result = SCRDeconvolution.deconvolve(phasic, SR, {
+    ...MP,
+    convTol: 0.001,
+    maxIter: 50,
+  });
+  assert.strictEqual(
+    result.iterations,
+    0,
+    'a residual entirely below convTol should never place an atom',
+  );
 });
 
 test('deconvolve: driver stays non-negative throughout (nonnegative deconvolution)', () => {
@@ -219,21 +272,35 @@ test('deconvolve: driver stays non-negative throughout (nonnegative deconvolutio
   trueDriver[150] = 1.3;
   const kernel = SCRDeconvolution.buildSCRFKernel(SR);
   const phasic = SCRDeconvolution.convolve(trueDriver, kernel);
-  const result = SCRDeconvolution.deconvolve(phasic, SR, { ...MP, maxIter: 50 });
-  assert.ok(Array.from(result.driver).every(v => v >= 0), 'driver must be nonnegative everywhere');
+  const result = SCRDeconvolution.deconvolve(phasic, SR, {
+    ...MP,
+    maxIter: 50,
+  });
+  assert.ok(
+    Array.from(result.driver).every((v) => v >= 0),
+    'driver must be nonnegative everywhere',
+  );
 });
 
 test('deconvolve: returns the same kernel buildSCRFKernel would produce for the given options', () => {
   const phasic = new Float64Array(30);
   const opts = { tauSlow: 1.5, tauFast: 0.5, kernelSec: 3.0 };
   const result = SCRDeconvolution.deconvolve(phasic, SR, { ...opts, ...MP });
-  const expectedKernel = SCRDeconvolution.buildSCRFKernel(SR, opts.tauSlow, opts.tauFast, opts.kernelSec);
+  const expectedKernel = SCRDeconvolution.buildSCRFKernel(
+    SR,
+    opts.tauSlow,
+    opts.tauFast,
+    opts.kernelSec,
+  );
   assert.deepStrictEqual(Array.from(result.kernel), Array.from(expectedKernel));
 });
 
 test('deconvolve: single-sample phasic array does not throw', () => {
   assert.doesNotThrow(() => {
-    const result = SCRDeconvolution.deconvolve(new Float64Array([0.5]), SR, { ...MP, maxIter: 5 });
+    const result = SCRDeconvolution.deconvolve(new Float64Array([0.5]), SR, {
+      ...MP,
+      maxIter: 5,
+    });
     assert.strictEqual(result.driver.length, 1);
   });
 });
@@ -248,8 +315,15 @@ test('deconvolve: a signal with no positive samples places zero impulses', () =>
   // yields no impulses, which holds either way.
   const phasic = new Float64Array(30);
   phasic[10] = -3.0; // physically invalid input
-  const result = SCRDeconvolution.deconvolve(phasic, SR, { ...MP, maxIter: 10 });
-  assert.strictEqual(result.iterations, 0, 'an entirely-negative-or-zero phasic should never place an atom');
+  const result = SCRDeconvolution.deconvolve(phasic, SR, {
+    ...MP,
+    maxIter: 10,
+  });
+  assert.strictEqual(
+    result.iterations,
+    0,
+    'an entirely-negative-or-zero phasic should never place an atom',
+  );
 });
 
 // ═════════════════════════════════════════════════════════════════════════
@@ -257,8 +331,14 @@ test('deconvolve: a signal with no positive samples places zero impulses', () =>
 // ═════════════════════════════════════════════════════════════════════════
 
 test('detectImpulses: empty/all-zero driver returns no impulses', () => {
-  assert.deepStrictEqual(SCRDeconvolution.detectImpulses(new Float64Array(0), SR), []);
-  assert.deepStrictEqual(SCRDeconvolution.detectImpulses(new Float64Array(40), SR), []);
+  assert.deepStrictEqual(
+    SCRDeconvolution.detectImpulses(new Float64Array(0), SR),
+    [],
+  );
+  assert.deepStrictEqual(
+    SCRDeconvolution.detectImpulses(new Float64Array(40), SR),
+    [],
+  );
 });
 
 test('detectImpulses: finds well-separated local maxima above threshold', () => {
@@ -295,8 +375,16 @@ test('detectImpulses: within minGapSec, keeps the larger-amplitude candidate (no
   driver[10] = 0.3; // smaller, earlier
   driver[13] = 0.9; // bigger, 0.3s later — within minGapSec=0.5
   const impulses = SCRDeconvolution.detectImpulses(driver, SR, 0.005, 0.5);
-  assert.strictEqual(impulses.length, 1, 'the two close candidates should collapse to one via NMS');
-  assert.strictEqual(impulses[0].index, 13, 'the larger-amplitude candidate must win, not the earlier one');
+  assert.strictEqual(
+    impulses.length,
+    1,
+    'the two close candidates should collapse to one via NMS',
+  );
+  assert.strictEqual(
+    impulses[0].index,
+    13,
+    'the larger-amplitude candidate must win, not the earlier one',
+  );
 });
 
 test('detectImpulses: candidates farther apart than minGapSec are both kept', () => {
@@ -313,7 +401,7 @@ test('detectImpulses: result is sorted ascending by index', () => {
   driver[5] = 0.4;
   driver[35] = 0.9;
   const impulses = SCRDeconvolution.detectImpulses(driver, SR, 0.005, 0.5);
-  const indices = impulses.map(i => i.index);
+  const indices = impulses.map((i) => i.index);
   const sorted = [...indices].sort((a, b) => a - b);
   assert.deepStrictEqual(indices, sorted);
 });
@@ -340,13 +428,17 @@ test('reconstructPhasic: empty impulse list produces an all-zero signal of lengt
   const kernel = SCRDeconvolution.buildSCRFKernel(SR);
   const clean = SCRDeconvolution.reconstructPhasic([], 50, kernel);
   assert.strictEqual(clean.length, 50);
-  assert.ok(Array.from(clean).every(v => v === 0));
+  assert.ok(Array.from(clean).every((v) => v === 0));
 });
 
 test('reconstructPhasic: a single non-negative-index impulse reproduces amplitude * kernel starting at its index', () => {
   const kernel = SCRDeconvolution.buildSCRFKernel(SR, 2.0, 0.75, 2.0); // 20-sample kernel
   const n = 60;
-  const clean = SCRDeconvolution.reconstructPhasic([{ index: 15, amplitude: 2.0 }], n, kernel);
+  const clean = SCRDeconvolution.reconstructPhasic(
+    [{ index: 15, amplitude: 2.0 }],
+    n,
+    kernel,
+  );
   for (let i = 0; i < 15; i++) assert.strictEqual(clean[i], 0);
   for (let j = 0; j < kernel.length; j++) {
     assert.ok(Math.abs(clean[15 + j] - 2.0 * kernel[j]) < 1e-12);
@@ -359,8 +451,15 @@ test('reconstructPhasic: a negative-index impulse contributes only its visible (
   // kernel[12:] should appear, starting at clean[0].
   const kernel = SCRDeconvolution.buildSCRFKernel(SR); // default 50-sample kernel
   const n = 30;
-  const clean = SCRDeconvolution.reconstructPhasic([{ index: -12, amplitude: 5.0 }], n, kernel);
-  assert.ok(Math.abs(clean[0] - 5.0 * kernel[12]) < 1e-12, 'clean[0] should be amplitude * kernel[12], not kernel[0]');
+  const clean = SCRDeconvolution.reconstructPhasic(
+    [{ index: -12, amplitude: 5.0 }],
+    n,
+    kernel,
+  );
+  assert.ok(
+    Math.abs(clean[0] - 5.0 * kernel[12]) < 1e-12,
+    'clean[0] should be amplitude * kernel[12], not kernel[0]',
+  );
   for (let j = 12; j < kernel.length && j - 12 < n; j++) {
     assert.ok(Math.abs(clean[j - 12] - 5.0 * kernel[j]) < 1e-12);
   }
@@ -370,32 +469,59 @@ test('reconstructPhasic: multiple well-separated impulses sum without leaking in
   const kernel = SCRDeconvolution.buildSCRFKernel(SR, 2.0, 0.75, 2.0); // 20-sample kernel
   const n = 60;
   const clean = SCRDeconvolution.reconstructPhasic(
-    [{ index: 0, amplitude: 1.0 }, { index: 30, amplitude: 1.0 }], n, kernel
+    [
+      { index: 0, amplitude: 1.0 },
+      { index: 30, amplitude: 1.0 },
+    ],
+    n,
+    kernel,
   );
   // The two 20-sample kernel copies (at 0 and 30) never overlap, so the gap
   // between them (samples 20-29) must be exactly zero.
   for (let i = 20; i < 30; i++) assert.strictEqual(clean[i], 0);
-  for (let j = 0; j < kernel.length; j++) assert.ok(Math.abs(clean[j] - kernel[j]) < 1e-12);
-  for (let j = 0; j < kernel.length; j++) assert.ok(Math.abs(clean[30 + j] - kernel[j]) < 1e-12);
+  for (let j = 0; j < kernel.length; j++)
+    assert.ok(Math.abs(clean[j] - kernel[j]) < 1e-12);
+  for (let j = 0; j < kernel.length; j++)
+    assert.ok(Math.abs(clean[30 + j] - kernel[j]) < 1e-12);
 });
 
 test('reconstructPhasic: overlapping impulses sum additively (superposition, not replacement)', () => {
   const kernel = SCRDeconvolution.buildSCRFKernel(SR, 2.0, 0.75, 5.0); // 50-sample kernel
   const n = 60;
-  const cleanSingle = SCRDeconvolution.reconstructPhasic([{ index: 5, amplitude: 1.0 }], n, kernel);
+  const cleanSingle = SCRDeconvolution.reconstructPhasic(
+    [{ index: 5, amplitude: 1.0 }],
+    n,
+    kernel,
+  );
   const cleanDouble = SCRDeconvolution.reconstructPhasic(
-    [{ index: 5, amplitude: 1.0 }, { index: 5, amplitude: 1.0 }], n, kernel
+    [
+      { index: 5, amplitude: 1.0 },
+      { index: 5, amplitude: 1.0 },
+    ],
+    n,
+    kernel,
   );
   for (let i = 0; i < n; i++) {
-    assert.ok(Math.abs(cleanDouble[i] - 2 * cleanSingle[i]) < 1e-9, `sample ${i} should sum linearly`);
+    assert.ok(
+      Math.abs(cleanDouble[i] - 2 * cleanSingle[i]) < 1e-9,
+      `sample ${i} should sum linearly`,
+    );
   }
 });
 
 test('reconstructPhasic: contribution is truncated at signal length n', () => {
   const kernel = SCRDeconvolution.buildSCRFKernel(SR, 2.0, 0.75, 5.0); // 50-sample kernel
   const n = 20;
-  const clean = SCRDeconvolution.reconstructPhasic([{ index: 10, amplitude: 1.0 }], n, kernel);
-  assert.strictEqual(clean.length, 20, 'output must not exceed n even though the kernel would extend past it');
+  const clean = SCRDeconvolution.reconstructPhasic(
+    [{ index: 10, amplitude: 1.0 }],
+    n,
+    kernel,
+  );
+  assert.strictEqual(
+    clean.length,
+    20,
+    'output must not exceed n even though the kernel would extend past it',
+  );
 });
 
 // ═════════════════════════════════════════════════════════════════════════
@@ -410,8 +536,14 @@ test('round trip: deconvolve + reconstructPhasic (using trueIndex) recovers a cl
   const kernel = SCRDeconvolution.buildSCRFKernel(SR, 2.0, 0.75, 5.0);
   const phasic = SCRDeconvolution.convolve(trueDriver, kernel);
 
-  const result = SCRDeconvolution.deconvolve(phasic, SR, { ...MP, maxIter: 20 });
-  const impulses = result.impulseLog.map(l => ({ index: l.trueIndex, amplitude: l.amplitude }));
+  const result = SCRDeconvolution.deconvolve(phasic, SR, {
+    ...MP,
+    maxIter: 20,
+  });
+  const impulses = result.impulseLog.map((l) => ({
+    index: l.trueIndex,
+    amplitude: l.amplitude,
+  }));
   const clean = SCRDeconvolution.reconstructPhasic(impulses, n, result.kernel);
 
   // Tolerance of 1e-6 rather than an exact match: two independent floating-point
@@ -419,8 +551,12 @@ test('round trip: deconvolve + reconstructPhasic (using trueIndex) recovers a cl
   // rounding, though for a single clean isolated atom they should agree almost
   // exactly.
   let maxDiff = 0;
-  for (let i = 0; i < n; i++) maxDiff = Math.max(maxDiff, Math.abs(clean[i] - phasic[i]));
-  assert.ok(maxDiff < 1e-6, `reconstructed signal should closely match the original for a single clean atom, got maxDiff=${maxDiff}`);
+  for (let i = 0; i < n; i++)
+    maxDiff = Math.max(maxDiff, Math.abs(clean[i] - phasic[i]));
+  assert.ok(
+    maxDiff < 1e-6,
+    `reconstructed signal should closely match the original for a single clean atom, got maxDiff=${maxDiff}`,
+  );
 });
 
 // ═════════════════════════════════════════════════════════════════════════

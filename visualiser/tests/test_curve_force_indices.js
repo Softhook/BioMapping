@@ -1,7 +1,5 @@
-'use strict';
-
 const assert = require('assert');
-const test   = require('node:test');
+const test = require('node:test');
 
 global.GSR_CONST = require('./mock_constants.js');
 global.width = 1000;
@@ -13,7 +11,7 @@ const { AppState } = require('../src/core/app_state.mjs');
 AppState.analyzer = {
   findClosestIndex(t) {
     return Math.max(0, Math.round(t * 10));
-  }
+  },
 };
 const { GSRRenderer } = require('../src/render/renderer.mjs');
 // _buildCurveContext lives in the object-augment split renderer_curve.js
@@ -44,7 +42,9 @@ test('two-pointer merge in _buildCurveContext matches legacy Set+sort across ran
     const forceIndices = [];
     for (let k = 0; k < numForced; k++) {
       // mix of visible, before, after, duplicates, and edge values
-      forceIndices.push(Math.floor(Math.random() * (endIdx - startIdx + 100)) + startIdx - 50);
+      forceIndices.push(
+        Math.floor(Math.random() * (endIdx - startIdx + 100)) + startIdx - 50,
+      );
     }
 
     // Create synthetic series data
@@ -55,20 +55,43 @@ test('two-pointer merge in _buildCurveContext matches legacy Set+sort across ran
     const tMin = data[startIdx].time;
     const tMax = data[endIdx].time;
 
-    const ctx = GSRRenderer._buildCurveContext(data, tMin, tMax, 0, 10, 0, 100, forceIndices);
-    const legacy = (ctx.step === 1) ? null : legacySetSortMerge(ctx.startIdx, ctx.endIdx, ctx.step, forceIndices);
+    const ctx = GSRRenderer._buildCurveContext(
+      data,
+      tMin,
+      tMax,
+      0,
+      10,
+      0,
+      100,
+      forceIndices,
+    );
+    const legacy =
+      ctx.step === 1
+        ? null
+        : legacySetSortMerge(ctx.startIdx, ctx.endIdx, ctx.step, forceIndices);
 
     if (legacy === null) {
       assert.strictEqual(ctx.indices, null);
     } else {
       assert.ok(Array.isArray(ctx.indices), 'indices should be an array');
-      assert.strictEqual(ctx.indices.length, legacy.length, `length mismatch at trial ${trial}`);
+      assert.strictEqual(
+        ctx.indices.length,
+        legacy.length,
+        `length mismatch at trial ${trial}`,
+      );
       for (let i = 0; i < legacy.length; i++) {
-        assert.strictEqual(ctx.indices[i], legacy[i], `value mismatch at idx ${i}, trial ${trial}`);
+        assert.strictEqual(
+          ctx.indices[i],
+          legacy[i],
+          `value mismatch at idx ${i}, trial ${trial}`,
+        );
       }
       // Strict monotonicity test
       for (let i = 1; i < ctx.indices.length; i++) {
-        assert.ok(ctx.indices[i] > ctx.indices[i - 1], `not strictly monotonic at ${i}`);
+        assert.ok(
+          ctx.indices[i] > ctx.indices[i - 1],
+          `not strictly monotonic at ${i}`,
+        );
       }
     }
   }
@@ -80,7 +103,20 @@ test('when step === 1 (fully zoomed in), indices is null to avoid redundant arra
     data.push({ time: i * 0.1, val: 1.0 });
   }
   // With only 20 samples visible, count < DRAW_MAX_VERTICES so step is 1
-  const ctx = GSRRenderer._buildCurveContext(data, 1.0, 2.0, 0, 5, 0, 100, [12, 15, 18]);
+  const ctx = GSRRenderer._buildCurveContext(
+    data,
+    1.0,
+    2.0,
+    0,
+    5,
+    0,
+    100,
+    [12, 15, 18],
+  );
   assert.strictEqual(ctx.step, 1);
-  assert.strictEqual(ctx.indices, null, 'step 1 does not need forced index merge since all samples are drawn');
+  assert.strictEqual(
+    ctx.indices,
+    null,
+    'step 1 does not need forced index merge since all samples are drawn',
+  );
 });

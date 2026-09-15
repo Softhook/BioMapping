@@ -29,40 +29,106 @@ import { GSRTrackManager } from './tracks.mjs';
 import { GSRUI } from './ui.mjs';
 
 export const GSR_SLIDER_DEFS = [
-  { id: 'medianSize',        labelId: 'valMedianSize',        suffix: ' s' },
-  { id: 'lpfWindow',         labelId: 'valLpfWindow',         suffix: ' s' },
-  { id: 'tonicWindow',       labelId: 'valTonicWindow',       suffix: ' s' },
-  { id: 'peakThreshold',     labelId: 'valPeakThreshold',     suffix: ' μS' },
-  { id: 'minPeakQuality',    labelId: 'valMinPeakQuality',    suffix: '' },
+  { id: 'medianSize', labelId: 'valMedianSize', suffix: ' s' },
+  { id: 'lpfWindow', labelId: 'valLpfWindow', suffix: ' s' },
+  { id: 'tonicWindow', labelId: 'valTonicWindow', suffix: ' s' },
+  { id: 'peakThreshold', labelId: 'valPeakThreshold', suffix: ' μS' },
+  { id: 'minPeakQuality', labelId: 'valMinPeakQuality', suffix: '' },
   { id: 'hotspotPercentile', labelId: 'valHotspotPercentile', suffix: ' %' },
-  { id: 'shapeMinSnr',       labelId: 'valShapeMinSnr',       suffix: '×' },
+  { id: 'shapeMinSnr', labelId: 'valShapeMinSnr', suffix: '×' },
 ];
 
 // `bindGps: true` entries are wired by bindGpsSlider() in setupEventListeners();
 // the rest (peak latency, snap radius, place-merge distance) keep bespoke event
 // wiring elsewhere but still take their formatter from here.
 export const GPS_SLIDER_DEFS = [
-  { id: 'gpsSmoothing',       labelId: 'valGpsSmoothing',       fmt: v => v.toFixed(2),                bindGps: true },
-  { id: 'gpsKalmanR',         labelId: 'valGpsKalmanR',         fmt: v => `${v} m²`,                   bindGps: true },
-  { id: 'gpsMaxHdop',         labelId: 'valGpsMaxHdop',         fmt: v => `≤ ${v.toFixed(1)}`,         bindGps: true },
-  { id: 'gpsMaxSpeed',        labelId: 'valGpsMaxSpeed',        fmt: v => GSREvents.fmtMaxSpeed(v),    bindGps: true },
-  { id: 'gpsRDP',             labelId: 'valGpsRDP',             fmt: v => v === 0 ? 'off' : `${v} m`,  bindGps: true },
-  { id: 'gpsTrackWeight',     labelId: 'valGpsTrackWeight',     fmt: v => `${v} px`,                   bindGps: true },
-  { id: 'gpsPeakLatency',     labelId: 'valGpsPeakLatency',     fmt: v => `${v.toFixed(1)} s` },
-  { id: 'gpsSnapRadius',      labelId: 'valGpsSnapRadius',      fmt: v => `${v} m` },
-  { id: 'placeMergeDistance', labelId: 'valPlaceMergeDistance', fmt: v => `${v} m` },
-  { id: 'maxArousalPlaces',   labelId: 'valMaxArousalPlaces',   fmt: v => `${Math.round(v)}` },
+  {
+    id: 'gpsSmoothing',
+    labelId: 'valGpsSmoothing',
+    fmt: (v) => v.toFixed(2),
+    bindGps: true,
+  },
+  {
+    id: 'gpsKalmanR',
+    labelId: 'valGpsKalmanR',
+    fmt: (v) => `${v} m²`,
+    bindGps: true,
+  },
+  {
+    id: 'gpsMaxHdop',
+    labelId: 'valGpsMaxHdop',
+    fmt: (v) => `≤ ${v.toFixed(1)}`,
+    bindGps: true,
+  },
+  {
+    id: 'gpsMaxSpeed',
+    labelId: 'valGpsMaxSpeed',
+    fmt: (v) => GSREvents.fmtMaxSpeed(v),
+    bindGps: true,
+  },
+  {
+    id: 'gpsRDP',
+    labelId: 'valGpsRDP',
+    fmt: (v) => (v === 0 ? 'off' : `${v} m`),
+    bindGps: true,
+  },
+  {
+    id: 'gpsTrackWeight',
+    labelId: 'valGpsTrackWeight',
+    fmt: (v) => `${v} px`,
+    bindGps: true,
+  },
+  {
+    id: 'gpsPeakLatency',
+    labelId: 'valGpsPeakLatency',
+    fmt: (v) => `${v.toFixed(1)} s`,
+  },
+  { id: 'gpsSnapRadius', labelId: 'valGpsSnapRadius', fmt: (v) => `${v} m` },
+  {
+    id: 'placeMergeDistance',
+    labelId: 'valPlaceMergeDistance',
+    fmt: (v) => `${v} m`,
+  },
+  {
+    id: 'maxArousalPlaces',
+    labelId: 'valMaxArousalPlaces',
+    fmt: (v) => `${Math.round(v)}`,
+  },
 ];
 
 export const CONTOUR_SLIDER_DEFS = [
-  { id: 'gridResolution',    labelId: 'valGridResolution',    fmt: v => `${v} x ${v}` },
-  { id: 'contourCount',      labelId: 'valContourCount',      fmt: v => `${v} lines` },
-  { id: 'isolationRadius',   labelId: 'valIsolationRadius',   fmt: v => `${v} m` },
-  { id: 'idwExponent',       labelId: 'valIdwExponent',       fmt: v => v.toFixed(1) },
-  { id: 'peakPreservation',  labelId: 'valPeakPreservation',  fmt: v => `${Math.round(v * 100)}%` },
-  { id: 'coverageWeighting', labelId: 'valCoverageWeighting', fmt: v => `${Math.round(v * 100)}%` },
-  { id: 'surfaceOpacity',    labelId: 'valSurfaceOpacity',    fmt: v => `${Math.round(v * 100)}%` },
-  { id: 'hillshadeStrength', labelId: 'valHillshadeStrength', fmt: v => `${Math.round(v * 100)}%` },
+  {
+    id: 'gridResolution',
+    labelId: 'valGridResolution',
+    fmt: (v) => `${v} x ${v}`,
+  },
+  { id: 'contourCount', labelId: 'valContourCount', fmt: (v) => `${v} lines` },
+  {
+    id: 'isolationRadius',
+    labelId: 'valIsolationRadius',
+    fmt: (v) => `${v} m`,
+  },
+  { id: 'idwExponent', labelId: 'valIdwExponent', fmt: (v) => v.toFixed(1) },
+  {
+    id: 'peakPreservation',
+    labelId: 'valPeakPreservation',
+    fmt: (v) => `${Math.round(v * 100)}%`,
+  },
+  {
+    id: 'coverageWeighting',
+    labelId: 'valCoverageWeighting',
+    fmt: (v) => `${Math.round(v * 100)}%`,
+  },
+  {
+    id: 'surfaceOpacity',
+    labelId: 'valSurfaceOpacity',
+    fmt: (v) => `${Math.round(v * 100)}%`,
+  },
+  {
+    id: 'hillshadeStrength',
+    labelId: 'valHillshadeStrength',
+    fmt: (v) => `${Math.round(v * 100)}%`,
+  },
 ];
 
 /**
@@ -72,8 +138,8 @@ export const CONTOUR_SLIDER_DEFS = [
  * can't drift apart, and a new overlay is just one more entry here.
  */
 export const GRAPH_BAND_TOGGLE_DEFS = [
-  { id: 'showOsmGraphBands',   stateKey: 'showOsmContext' },
-  { id: 'showNdviGraphBands',  stateKey: 'showNdviContext' },
+  { id: 'showOsmGraphBands', stateKey: 'showOsmContext' },
+  { id: 'showNdviGraphBands', stateKey: 'showNdviContext' },
   { id: 'showEmFogGraphBands', stateKey: 'showEmFogContext' },
 ];
 
@@ -86,7 +152,8 @@ export const GSREvents = {
    */
   _id(id) {
     const el = document.getElementById(id);
-    if (!el) console.warn('GSR Map Analyzer: DOM element #' + id + ' not found.');
+    if (!el)
+      console.warn('GSR Map Analyzer: DOM element #' + id + ' not found.');
     return el;
   },
 
@@ -94,18 +161,37 @@ export const GSREvents = {
    * Cache all frequently-accessed DOM elements into AppState.
    */
   cacheDOMElements() {
-    AppState.fileInput    = GSREvents._id('fileInput');
-    AppState.dropZone     = GSREvents._id('dropZone');
-    AppState.tableBody    = document.querySelector('#peaksTable tbody');
+    AppState.fileInput = GSREvents._id('fileInput');
+    AppState.dropZone = GSREvents._id('dropZone');
+    AppState.tableBody = document.querySelector('#peaksTable tbody');
 
     // Sliders & Selection inputs
     const sliderKeys = [
-      'medianSize', 'lpfWindow', 'tonicWindow', 'tonicMethod', 'peakThreshold', 'minPeakQuality', 'hotspotPercentile',
+      'medianSize',
+      'lpfWindow',
+      'tonicWindow',
+      'tonicMethod',
+      'peakThreshold',
+      'minPeakQuality',
+      'hotspotPercentile',
       'shapeMinSnr',
-      'gpsSmoothing', 'gpsKalmanR', 'gpsMaxHdop', 'gpsMaxSpeed', 'gpsRDP', 'gpsTrackWeight', 'gpsPeakLatency',
-      'gpsSnapToRoads', 'gpsSnapRadius',
-      'placeMergeDistance', 'maxArousalPlaces',
-      'graphView', 'useDeconvolution', 'useSparsEDA', 'usePeakProminence', 'useCvxEDA', 'useGaitFilter'
+      'gpsSmoothing',
+      'gpsKalmanR',
+      'gpsMaxHdop',
+      'gpsMaxSpeed',
+      'gpsRDP',
+      'gpsTrackWeight',
+      'gpsPeakLatency',
+      'gpsSnapToRoads',
+      'gpsSnapRadius',
+      'placeMergeDistance',
+      'maxArousalPlaces',
+      'graphView',
+      'useDeconvolution',
+      'useSparsEDA',
+      'usePeakProminence',
+      'useCvxEDA',
+      'useGaitFilter',
     ];
     for (const key of sliderKeys) {
       AppState.sliders[key] = GSREvents._id(key);
@@ -120,7 +206,7 @@ export const GSREvents = {
       peakCount: 'statPeakCount',
       peakFreq: 'statPeakFreq',
       spatialData: 'statSpatialData',
-      spatialDataCard: 'statSpatialDataCard'
+      spatialDataCard: 'statSpatialDataCard',
     };
     for (const [key, id] of Object.entries(statKeys)) {
       AppState.statFields[key] = GSREvents._id(id);
@@ -128,14 +214,24 @@ export const GSREvents = {
 
     // Contour controls (used in collective map)
     const contourKeys = [
-      'gridResolution', 'contourCount', 'isolationRadius', 'idwExponent', 'peakPreservation',
-      'coverageWeighting', 'topoSource', 'normalizeZScore', 'surfaceOpacity', 'hillshadeStrength'
+      'gridResolution',
+      'contourCount',
+      'isolationRadius',
+      'idwExponent',
+      'peakPreservation',
+      'coverageWeighting',
+      'topoSource',
+      'normalizeZScore',
+      'surfaceOpacity',
+      'hillshadeStrength',
     ];
     AppState.contourControls = {};
     for (const key of contourKeys) {
       AppState.contourControls[key] = GSREvents._id(key);
     }
-    AppState.contourControls.showShadedSurface = GSREvents._id('btnToggleMapSurface');
+    AppState.contourControls.showShadedSurface = GSREvents._id(
+      'btnToggleMapSurface',
+    );
   },
 
   /**
@@ -161,10 +257,14 @@ export const GSREvents = {
   bindTableSort(tableId, sortMethod) {
     const table = document.getElementById(tableId);
     if (!table) return;
-    table.querySelectorAll('thead th.sortable').forEach(th => {
+    table.querySelectorAll('thead th.sortable').forEach((th) => {
       th.addEventListener('click', () => {
         const col = th.dataset.sort;
-        if (col && typeof GSRUI !== 'undefined' && typeof GSRUI[sortMethod] === 'function') {
+        if (
+          col &&
+          typeof GSRUI !== 'undefined' &&
+          typeof GSRUI[sortMethod] === 'function'
+        ) {
           GSRUI[sortMethod](col);
         }
       });
@@ -230,8 +330,8 @@ export const GSREvents = {
    */
   updateSnapRadiusVisibility() {
     const toggle = document.getElementById('gpsSnapToRoads');
-    const group  = document.getElementById('snapRadiusGroup');
-    if (group) group.style.display = (toggle && toggle.checked) ? '' : 'none';
+    const group = document.getElementById('snapRadiusGroup');
+    if (group) group.style.display = toggle && toggle.checked ? '' : 'none';
   },
 
   /**
@@ -241,9 +341,11 @@ export const GSREvents = {
    * initializeLabels() instead of re-declaring it inline.
    */
   _sliderDef(id) {
-    return GSR_SLIDER_DEFS.find(d => d.id === id)
-      || GPS_SLIDER_DEFS.find(d => d.id === id)
-      || CONTOUR_SLIDER_DEFS.find(d => d.id === id);
+    return (
+      GSR_SLIDER_DEFS.find((d) => d.id === id) ||
+      GPS_SLIDER_DEFS.find((d) => d.id === id) ||
+      CONTOUR_SLIDER_DEFS.find((d) => d.id === id)
+    );
   },
 
   /**
@@ -255,7 +357,7 @@ export const GSREvents = {
   _gsrLabelText(slider, suffix) {
     const val = parseFloat(slider.value);
     const step = parseFloat(slider.step) || 0.1;
-    const decimals = step < 0.1 ? 2 : (suffix.includes('μS') ? 3 : 1);
+    const decimals = step < 0.1 ? 2 : suffix.includes('μS') ? 3 : 1;
     return val === 0 ? 'off' : val.toFixed(decimals) + suffix;
   },
 
@@ -265,7 +367,7 @@ export const GSREvents = {
    */
   bindGsrSlider(id, labelId, suffix) {
     const slider = document.getElementById(id);
-    const label  = document.getElementById(labelId);
+    const label = document.getElementById(labelId);
     const updateDim = () => GSREvents.updateFilterDim(slider);
 
     // Initial dim state
@@ -293,7 +395,7 @@ export const GSREvents = {
    */
   bindGpsSlider(id, labelId, fmt, parentId) {
     const slider = document.getElementById(id);
-    const label  = document.getElementById(labelId);
+    const label = document.getElementById(labelId);
     const updateDim = () => GSREvents.updateFilterDim(slider, parentId);
 
     // Initial dim state
@@ -331,7 +433,7 @@ export const GSREvents = {
    */
   bindArousalPlacesSlider(id, labelId, fmt) {
     const slider = document.getElementById(id);
-    const label  = document.getElementById(labelId);
+    const label = document.getElementById(labelId);
     if (!slider) return;
     const updateDim = () => GSREvents.updateFilterDim(slider);
     updateDim();
@@ -373,17 +475,30 @@ export const GSREvents = {
     let min, max, defVal, recLeft, recWidth, helpText;
 
     if (method === 'percentile') {
-      min = 5; max = 45; defVal = 15;
-      recLeft = '12.5%'; recWidth = '50%';
-      helpText = 'Wider windows isolate baseline from peaks. <strong>Recommended:</strong> 10–30 s.';
+      min = 5;
+      max = 45;
+      defVal = 15;
+      recLeft = '12.5%';
+      recWidth = '50%';
+      helpText =
+        'Wider windows isolate baseline from peaks. <strong>Recommended:</strong> 10–30 s.';
     } else if (method === 'median') {
-      min = 10; max = 60; defVal = 30;
-      recLeft = '20%'; recWidth = '50%';
-      helpText = 'Robust median window to exclude peaks. <strong>Recommended:</strong> 20–45 s.';
-    } else { // 'lpf' / 'ema'
-      min = 15; max = 90; defVal = 45;
-      recLeft = '20%'; recWidth = '40%';
-      helpText = 'Low-pass equivalent window for EMA smoothing. <strong>Recommended:</strong> 30–60 s.';
+      min = 10;
+      max = 60;
+      defVal = 30;
+      recLeft = '20%';
+      recWidth = '50%';
+      helpText =
+        'Robust median window to exclude peaks. <strong>Recommended:</strong> 20–45 s.';
+    } else {
+      // 'lpf' / 'ema'
+      min = 15;
+      max = 90;
+      defVal = 45;
+      recLeft = '20%';
+      recWidth = '40%';
+      helpText =
+        'Low-pass equivalent window for EMA smoothing. <strong>Recommended:</strong> 30–60 s.';
     }
 
     if (slider) {
@@ -447,8 +562,13 @@ export const GSREvents = {
     const v = S.graphView.value;
     AppState.graphView = v;
     if (v !== 'signal') AppState.lowerGraphMode = v;
-    const showLayerBtns = (v === 'signal');
-    for (const id of ['btnToggleRaw', 'btnToggleFiltered', 'btnToggleTonic', 'btnTogglePhasic']) {
+    const showLayerBtns = v === 'signal';
+    for (const id of [
+      'btnToggleRaw',
+      'btnToggleFiltered',
+      'btnToggleTonic',
+      'btnTogglePhasic',
+    ]) {
       const b = document.getElementById(id);
       if (b) b.style.display = showLayerBtns ? '' : 'none';
     }
@@ -479,7 +599,9 @@ export const GSREvents = {
     const S = AppState.sliders;
 
     // ── GSR slider bindings ──────────────────────────────────────────────────
-    GSR_SLIDER_DEFS.forEach(d => GSREvents.bindGsrSlider(d.id, d.labelId, d.suffix));
+    GSR_SLIDER_DEFS.forEach((d) =>
+      GSREvents.bindGsrSlider(d.id, d.labelId, d.suffix),
+    );
 
     S.tonicMethod.addEventListener('change', () => {
       GSREvents.updateTonicMethodLayout(false);
@@ -491,12 +613,17 @@ export const GSREvents = {
     // alternative ON forces the others OFF (setting .checked in code does not
     // re-fire 'change', so no loop). Turning all OFF drops back to the default
     // full-scan detector. Each re-runs the full pipeline.
-    const detectorToggles = ['usePeakProminence', 'useDeconvolution', 'useSparsEDA', 'useCvxEDA'];
-    detectorToggles.forEach(id => {
+    const detectorToggles = [
+      'usePeakProminence',
+      'useDeconvolution',
+      'useSparsEDA',
+      'useCvxEDA',
+    ];
+    detectorToggles.forEach((id) => {
       if (!S[id]) return;
       S[id].addEventListener('change', () => {
         if (S[id].checked) {
-          detectorToggles.forEach(other => {
+          detectorToggles.forEach((other) => {
             if (other !== id && S[other]) S[other].checked = false;
           });
         }
@@ -543,9 +670,15 @@ export const GSREvents = {
     });
 
     // ── Canvas Control Buttons ────────────────────────────────────────────────
-    document.getElementById('btnZoomIn').addEventListener('click',    () => GSRUI.zoomCanvas(1.5));
-    document.getElementById('btnZoomOut').addEventListener('click',   () => GSRUI.zoomCanvas(0.67));
-    document.getElementById('btnResetView').addEventListener('click', GSRUI.resetView);
+    document
+      .getElementById('btnZoomIn')
+      .addEventListener('click', () => GSRUI.zoomCanvas(1.5));
+    document
+      .getElementById('btnZoomOut')
+      .addEventListener('click', () => GSRUI.zoomCanvas(0.67));
+    document
+      .getElementById('btnResetView')
+      .addEventListener('click', GSRUI.resetView);
 
     // ── Curve Toggle Buttons ──────────────────────────────────────────────────
     const bindToggle = (btnId, prop) => {
@@ -556,18 +689,19 @@ export const GSREvents = {
         redraw();
       });
     };
-    bindToggle('btnToggleRaw',      'showRaw');
+    bindToggle('btnToggleRaw', 'showRaw');
     bindToggle('btnToggleFiltered', 'showFiltered');
-    bindToggle('btnToggleTonic',    'showTonic');
-    bindToggle('btnTogglePhasic',   'showPhasic');
-    bindToggle('btnTogglePeaks',    'showPeaks');
+    bindToggle('btnToggleTonic', 'showTonic');
+    bindToggle('btnTogglePhasic', 'showPhasic');
+    bindToggle('btnTogglePeaks', 'showPeaks');
     bindToggle('btnToggleHotspots', 'showHotspots');
 
     // ── Page Unload & Keyboard Listener ──────────────────────────────────────
     window.addEventListener('beforeunload', (e) => {
-      const hasDirty = AppState.collectiveManager && AppState.collectiveManager.tracks
-        ? AppState.collectiveManager.tracks.some(t => t.hasUnsavedLabels)
-        : false;
+      const hasDirty =
+        AppState.collectiveManager && AppState.collectiveManager.tracks
+          ? AppState.collectiveManager.tracks.some((t) => t.hasUnsavedLabels)
+          : false;
       if (hasDirty) {
         e.preventDefault();
         e.returnValue = '';
@@ -584,7 +718,10 @@ export const GSREvents = {
     AppState.fileInput.addEventListener('click', () => {
       GSRTrackManager._browserFsSave = AppState.isBrowserFullscreen;
     });
-    AppState.fileInput.addEventListener('change', GSRTrackManager.handleFileSelect);
+    AppState.fileInput.addEventListener(
+      'change',
+      GSRTrackManager.handleFileSelect,
+    );
 
     AppState.dropZone.addEventListener('dragover', (e) => {
       e.preventDefault();
@@ -610,20 +747,37 @@ export const GSREvents = {
     });
 
     // ── Export Buttons ────────────────────────────────────────────────────────
-    document.getElementById('exportCsvBtn').addEventListener('click',   GSRUI.exportCSV);
-    document.getElementById('exportImageBtn').addEventListener('click', GSRUI.saveCanvasImage);
-    document.getElementById('exportMapBtn').addEventListener('click',   GSRUI.saveMapImage);
-    document.getElementById('exportSvgBtn').addEventListener('click', async () => {
-      if (AppState.mapManager) await GSRMapExporter.exportToSvg(AppState.mapManager);
-    });
-    document.getElementById('exportCzmlBtn').addEventListener('click', () => GSREvents.export3DTrack('czml'));
-    document.getElementById('exportKmlBtn').addEventListener('click',  () => GSREvents.export3DTrack('kml'));
-    document.getElementById('exportProjectBtn').addEventListener('click', () => {
-      GSRCollectiveProject.exportProject();
-    });
+    document
+      .getElementById('exportCsvBtn')
+      .addEventListener('click', GSRUI.exportCSV);
+    document
+      .getElementById('exportImageBtn')
+      .addEventListener('click', GSRUI.saveCanvasImage);
+    document
+      .getElementById('exportMapBtn')
+      .addEventListener('click', GSRUI.saveMapImage);
+    document
+      .getElementById('exportSvgBtn')
+      .addEventListener('click', async () => {
+        if (AppState.mapManager)
+          await GSRMapExporter.exportToSvg(AppState.mapManager);
+      });
+    document
+      .getElementById('exportCzmlBtn')
+      .addEventListener('click', () => GSREvents.export3DTrack('czml'));
+    document
+      .getElementById('exportKmlBtn')
+      .addEventListener('click', () => GSREvents.export3DTrack('kml'));
+    document
+      .getElementById('exportProjectBtn')
+      .addEventListener('click', () => {
+        GSRCollectiveProject.exportProject();
+      });
 
     // ── Demo Loader ──────────────────────────────────────────────────────────
-    document.getElementById('loadDemoBtn').addEventListener('click', GSRTrackManager.loadDefaultTrack);
+    document
+      .getElementById('loadDemoBtn')
+      .addEventListener('click', GSRTrackManager.loadDefaultTrack);
   },
 
   /**
@@ -631,12 +785,13 @@ export const GSREvents = {
    */
   _bindGpsControls() {
     // ── GPS slider bindings ──────────────────────────────────────────────────
-    GPS_SLIDER_DEFS.filter(d => d.bindGps)
-      .forEach(d => GSREvents.bindGpsSlider(d.id, d.labelId, d.fmt));
+    GPS_SLIDER_DEFS.filter((d) => d.bindGps).forEach((d) =>
+      GSREvents.bindGpsSlider(d.id, d.labelId, d.fmt),
+    );
 
     // ── Arousal Places slider binding ───────────────────────────────────────
     // Scoped refresh (Arousal Places layer only), not a full rerenderMap().
-    ['placeMergeDistance', 'maxArousalPlaces'].forEach(id => {
+    ['placeMergeDistance', 'maxArousalPlaces'].forEach((id) => {
       const d = GSREvents._sliderDef(id);
       if (d) GSREvents.bindArousalPlacesSlider(d.id, d.labelId, d.fmt);
     });
@@ -645,7 +800,7 @@ export const GSREvents = {
     // Re-evaluates road snapping locally from cached OSM data when released.
     {
       const slider = document.getElementById('gpsSnapRadius');
-      const label  = document.getElementById('valGpsSnapRadius');
+      const label = document.getElementById('valGpsSnapRadius');
       if (slider && label) {
         const fmt = GSREvents._sliderDef('gpsSnapRadius').fmt;
         const updateDim = () => GSREvents.updateFilterDim(slider);
@@ -698,7 +853,7 @@ export const GSREvents = {
     // Peak latency — re-render map only (no analysis needed)
     {
       const slider = document.getElementById('gpsPeakLatency');
-      const label  = document.getElementById('valGpsPeakLatency');
+      const label = document.getElementById('valGpsPeakLatency');
       const fmt = GSREvents._sliderDef('gpsPeakLatency').fmt;
       const updateDim = () => {
         GSREvents.updateFilterDim(slider);
@@ -706,7 +861,10 @@ export const GSREvents = {
       updateDim();
       const runHeavyWork = GSREvents.rafCoalesce(() => {
         GSRUI.rerenderMap();
-        if (typeof GSRUI !== 'undefined' && typeof GSRUI.updateEnvironmentalDashboard === 'function') {
+        if (
+          typeof GSRUI !== 'undefined' &&
+          typeof GSRUI.updateEnvironmentalDashboard === 'function'
+        ) {
           GSRUI.updateEnvironmentalDashboard();
         }
       });
@@ -734,21 +892,33 @@ export const GSREvents = {
     // One header, two engines: when the 3D globe is the mounted surface the
     // shared controls dispatch to it instead of / as well as the Leaflet map
     // (see GSRGlobe3DView.applyToggle / applyRfMode / zoom).
-    const g3d = () => (typeof GSRGlobe3DView !== 'undefined') ? GSRGlobe3DView : null;
+    const g3d = () =>
+      typeof GSRGlobe3DView !== 'undefined' ? GSRGlobe3DView : null;
     const onGlobe = () => AppState.surfaceView === 'globe';
 
     document.getElementById('btnMapZoomIn').addEventListener('click', () => {
-      if (onGlobe()) { if (g3d()) g3d().zoom(-1); return; }
+      if (onGlobe()) {
+        if (g3d()) g3d().zoom(-1);
+        return;
+      }
       if (AppState.mapManager) AppState.mapManager.zoomIn();
     });
     document.getElementById('btnMapZoomOut').addEventListener('click', () => {
-      if (onGlobe()) { if (g3d()) g3d().zoom(1); return; }
+      if (onGlobe()) {
+        if (g3d()) g3d().zoom(1);
+        return;
+      }
       if (AppState.mapManager) AppState.mapManager.zoomOut();
     });
-    document.getElementById('btnMapZoomExtent').addEventListener('click', () => {
-      if (onGlobe()) { if (g3d()) g3d().fitTrack(); return; }
-      if (AppState.mapManager) AppState.mapManager.fitToTrack();
-    });
+    document
+      .getElementById('btnMapZoomExtent')
+      .addEventListener('click', () => {
+        if (onGlobe()) {
+          if (g3d()) g3d().fitTrack();
+          return;
+        }
+        if (AppState.mapManager) AppState.mapManager.fitToTrack();
+      });
     const btnToggleRFFluid = document.getElementById('btnToggleRFFluid');
     if (btnToggleRFFluid) {
       btnToggleRFFluid.addEventListener('click', () => {
@@ -763,7 +933,8 @@ export const GSREvents = {
     const rfFluidMode = document.getElementById('rfFluidMode');
     if (rfFluidMode) {
       rfFluidMode.addEventListener('change', (e) => {
-        if (AppState.mapManager) AppState.mapManager.setRFFluidMode(e.target.value);
+        if (AppState.mapManager)
+          AppState.mapManager.setRFFluidMode(e.target.value);
         if (g3d()) g3d().applyRfMode(e.target.value);
       });
     }
@@ -778,15 +949,20 @@ export const GSREvents = {
         if (g3d()) g3d().applyToggle(g3dName, on);
       });
     };
-    bindSharedToggle('btnToggleMapPeaks',    'togglePeaks',    'peaks');
+    bindSharedToggle('btnToggleMapPeaks', 'togglePeaks', 'peaks');
     bindSharedToggle('btnToggleMapHotspots', 'toggleHotspots', 'hotspots');
-    bindSharedToggle('btnToggleMapLabels',   'toggleLabels',   'labels');
+    bindSharedToggle('btnToggleMapLabels', 'toggleLabels', 'labels');
     bindSharedToggle('btnToggleMapClusters', 'toggleClusters', 'clusters');
 
-    const btnToggleMapIsolines = document.getElementById('btnToggleMapIsolines');
+    const btnToggleMapIsolines = document.getElementById(
+      'btnToggleMapIsolines',
+    );
     btnToggleMapIsolines.addEventListener('click', () => {
       btnToggleMapIsolines.classList.toggle('active');
-      if (AppState.mapManager) AppState.mapManager.toggleIsolines(btnToggleMapIsolines.classList.contains('active'));
+      if (AppState.mapManager)
+        AppState.mapManager.toggleIsolines(
+          btnToggleMapIsolines.classList.contains('active'),
+        );
     });
 
     const btnToggleMapSurface = document.getElementById('btnToggleMapSurface');
@@ -803,31 +979,43 @@ export const GSREvents = {
     const btnToggleMapTracks = document.getElementById('btnToggleMapTracks');
     btnToggleMapTracks.addEventListener('click', () => {
       btnToggleMapTracks.classList.toggle('active');
-      if (AppState.mapManager) AppState.mapManager.toggleTracks(btnToggleMapTracks.classList.contains('active'));
+      if (AppState.mapManager)
+        AppState.mapManager.toggleTracks(
+          btnToggleMapTracks.classList.contains('active'),
+        );
     });
 
-    document.getElementById('mapColoringMetric').addEventListener('change', (e) => {
-      if (AppState.mapManager) {
-        AppState.mapManager.activeColoringMetric = e.target.value;
-        // Only the path's colour changes here — a full rerenderMap() also
-        // destroys/rebuilds peak+hotspot markers for no reason (perf-routes
-        // doc §2.2). Single-track view has a scoped path-only refresh;
-        // collective mode still does the full rebuild (out of scope for
-        // this pass — renderCollectiveData()'s per-track loop needs its own
-        // investigation before a partial-render path is worth the risk).
-        if (AppState.viewMode === 'single' && AppState.analyzer && AppState.analyzer.raw.length > 0) {
-          GSRTrackManager.saveActiveGpsParams();
-          AppState.mapManager.refreshPath(AppState.analyzer, GSRStorage.buildGpsParams());
-        } else {
-          GSRUI.rerenderMap();
+    document
+      .getElementById('mapColoringMetric')
+      .addEventListener('change', (e) => {
+        if (AppState.mapManager) {
+          AppState.mapManager.activeColoringMetric = e.target.value;
+          // Only the path's colour changes here — a full rerenderMap() also
+          // destroys/rebuilds peak+hotspot markers for no reason (perf-routes
+          // doc §2.2). Single-track view has a scoped path-only refresh;
+          // collective mode still does the full rebuild (out of scope for
+          // this pass — renderCollectiveData()'s per-track loop needs its own
+          // investigation before a partial-render path is worth the risk).
+          if (
+            AppState.viewMode === 'single' &&
+            AppState.analyzer &&
+            AppState.analyzer.raw.length > 0
+          ) {
+            GSRTrackManager.saveActiveGpsParams();
+            AppState.mapManager.refreshPath(
+              AppState.analyzer,
+              GSRStorage.buildGpsParams(),
+            );
+          } else {
+            GSRUI.rerenderMap();
+          }
         }
-      }
-      // Forward the metric change to the 3D globe immediately when it is the
-      // active surface. Without this the globe only updates after the map emits
-      // 'map:rendered' → 250ms debounce → full renderData rebuild. The
-      // setColoringMetric() fast path avoids that wall-primitive teardown.
-      if (g3d()) g3d().applyColorMetric(e.target.value);
-    });
+        // Forward the metric change to the 3D globe immediately when it is the
+        // active surface. Without this the globe only updates after the map emits
+        // 'map:rendered' → 250ms debounce → full renderData rebuild. The
+        // setColoringMetric() fast path avoids that wall-primitive teardown.
+        if (g3d()) g3d().applyColorMetric(e.target.value);
+      });
 
     // ── Panel Collapse Toggles (DRY via bindCollapseButton) ──────────────────
     // The map panel's height now also tracks whether the GSR graph and events
@@ -836,8 +1024,15 @@ export const GSREvents = {
     // Collapsing a panel fires no resize event, so nudge Leaflet and the p5
     // canvas once the CSS max-height transition has settled.
     const refreshMapAfterPanelResize = () => {
-      if (AppState.mapManager && AppState.mapManager.map && typeof AppState.mapManager.map.invalidateSize === 'function') {
-        AppState.mapManager.map.invalidateSize({ pan: false, debounceMoveend: true });
+      if (
+        AppState.mapManager &&
+        AppState.mapManager.map &&
+        typeof AppState.mapManager.map.invalidateSize === 'function'
+      ) {
+        AppState.mapManager.map.invalidateSize({
+          pan: false,
+          debounceMoveend: true,
+        });
       }
       if (typeof windowResized === 'function') {
         requestAnimationFrame(() => windowResized());
@@ -845,20 +1040,27 @@ export const GSREvents = {
       }
     };
 
-    GSREvents.bindCollapseButton('btnEventsCollapse',        'eventsPanel', refreshMapAfterPanelResize);
-    GSREvents.bindCollapseButton('btnGsrFilteringCollapse',  'gsrFilteringCard');
-    GSREvents.bindCollapseButton('btnPeakDetectionCollapse', 'peakDetectionCard');
-    GSREvents.bindCollapseButton('btnGpsFilteringCollapse',  'gpsFilteringCard');
-    GSREvents.bindCollapseButton('btnMapDisplayCollapse',    'mapDisplayCard');
-    GSREvents.bindCollapseButton('btnImportCollapse',        'importCard');
-    GSREvents.bindCollapseButton('btnExportCollapse',        'exportCard');
-    GSREvents.bindCollapseButton('btnContourCollapse',       'contourSettingsCard');
+    GSREvents.bindCollapseButton(
+      'btnEventsCollapse',
+      'eventsPanel',
+      refreshMapAfterPanelResize,
+    );
+    GSREvents.bindCollapseButton('btnGsrFilteringCollapse', 'gsrFilteringCard');
+    GSREvents.bindCollapseButton(
+      'btnPeakDetectionCollapse',
+      'peakDetectionCard',
+    );
+    GSREvents.bindCollapseButton('btnGpsFilteringCollapse', 'gpsFilteringCard');
+    GSREvents.bindCollapseButton('btnMapDisplayCollapse', 'mapDisplayCard');
+    GSREvents.bindCollapseButton('btnImportCollapse', 'importCard');
+    GSREvents.bindCollapseButton('btnExportCollapse', 'exportCard');
+    GSREvents.bindCollapseButton('btnContourCollapse', 'contourSettingsCard');
     // Collapsing the panel doesn't move the mouse, so no mouseleave fires on
     // the canvas — reset mouseOverCanvas here so mouseMoved() (sketch.js)
     // doesn't keep forcing redraws while the mouse sits over the collapsed
     // graph's old screen area. (handleScrubber's own elementFromPoint
     // hit-test is what actually keeps the scrubber from reactivating.)
-    GSREvents.bindCollapseButton('btnGsrCollapse',           'gsrPanel', (collapsed) => {
+    GSREvents.bindCollapseButton('btnGsrCollapse', 'gsrPanel', (collapsed) => {
       if (collapsed) {
         AppState.mouseOverCanvas = false;
         AppState.hoveredIndex = -1;
@@ -868,16 +1070,19 @@ export const GSREvents = {
       // Collapsing/expanding the graph resizes the map (see the CSS rule above).
       refreshMapAfterPanelResize();
     });
-    GSREvents.bindCollapseButton('btnMapCollapse',           'mapPanel', () => {
+    GSREvents.bindCollapseButton('btnMapCollapse', 'mapPanel', () => {
       const mapPanel = document.getElementById('mapPanel');
       if (mapPanel) delete mapPanel.dataset.autoCollapsedNoSpatial;
       refreshMapAfterPanelResize();
     });
-    GSREvents.bindCollapseButton('btnOsmEnrichmentCollapse', 'osmEnrichmentCard');
-    GSREvents.bindCollapseButton('btnEnvCollapse',           'environmentalPanel');
+    GSREvents.bindCollapseButton(
+      'btnOsmEnrichmentCollapse',
+      'osmEnrichmentCard',
+    );
+    GSREvents.bindCollapseButton('btnEnvCollapse', 'environmentalPanel');
 
     // ── Table Column Sorting ────────────────────────────────────────────────
-    GSREvents.bindTableSort('peaksTable',       'sortPeaksTable');
+    GSREvents.bindTableSort('peaksTable', 'sortPeaksTable');
     GSREvents.bindTableSort('correlationTable', 'sortCorrelationTable');
     GSREvents.bindTableSort('roadArousalTable', 'sortRoadArousalTable');
   },
@@ -927,11 +1132,12 @@ export const GSREvents = {
         const activeGsr = GSRStorage.readGsrSliderValues();
         const activeGps = GSRStorage.readGpsSliderValues();
 
-        tracks.forEach(track => {
+        tracks.forEach((track) => {
           track.filterParams = JSON.parse(JSON.stringify(activeGsr));
           track.gpsFilterParams = JSON.parse(JSON.stringify(activeGps));
           try {
-            const pl = (track.gpsFilterParams && track.gpsFilterParams.peakLatency) || 0;
+            const pl =
+              (track.gpsFilterParams && track.gpsFilterParams.peakLatency) || 0;
             track.analyzer.analyze(track.filterParams, pl);
           } catch (e) {
             console.warn(`Re-analysing track "${track.name}" failed:`, e);
@@ -942,7 +1148,10 @@ export const GSREvents = {
           if (typeof GSRUI.runAnalysis === 'function') {
             GSRUI.runAnalysis();
           }
-          if (AppState.viewMode === 'collective' && typeof GSRUI.updateCollectiveMap === 'function') {
+          if (
+            AppState.viewMode === 'collective' &&
+            typeof GSRUI.updateCollectiveMap === 'function'
+          ) {
             GSRUI.updateCollectiveMap();
           }
         }
@@ -972,32 +1181,41 @@ export const GSREvents = {
       });
     }
 
-    document.getElementById('btnEnrichTrack').addEventListener('click', () => GSRUI.enrichTrack(true));
+    document
+      .getElementById('btnEnrichTrack')
+      .addEventListener('click', () => GSRUI.enrichTrack(true));
 
-    document.getElementById('btnClearOsmCache').addEventListener('click', async () => {
-      // Ask via the shared notices layer; fall back to a no-op (rather than
-      // silently clearing) if no notice layer is available.
-      const proceed = (typeof GSRNotices !== 'undefined')
-        ? await GSRNotices.dialog({
-            title: 'Clear OSM Cache',
-            message: 'Clear locally cached OpenStreetMap data? Future enrichment will re-fetch from the Overpass API.',
-            buttons: [{ label: 'Clear', value: 'clear', style: 'danger' }],
-            dismissLabel: 'Cancel',
-            tone: 'warn',
-          })
-        : null;
-      if (proceed !== 'clear') return;
-      try {
-        await OsmCache.clear();
-        if (typeof NDVISampler !== 'undefined' && typeof NDVISampler.clearCache === 'function') {
-          NDVISampler.clearCache();
+    document
+      .getElementById('btnClearOsmCache')
+      .addEventListener('click', async () => {
+        // Ask via the shared notices layer; fall back to a no-op (rather than
+        // silently clearing) if no notice layer is available.
+        const proceed =
+          typeof GSRNotices !== 'undefined'
+            ? await GSRNotices.dialog({
+                title: 'Clear OSM Cache',
+                message:
+                  'Clear locally cached OpenStreetMap data? Future enrichment will re-fetch from the Overpass API.',
+                buttons: [{ label: 'Clear', value: 'clear', style: 'danger' }],
+                dismissLabel: 'Cancel',
+                tone: 'warn',
+              })
+            : null;
+        if (proceed !== 'clear') return;
+        try {
+          await OsmCache.clear();
+          if (
+            typeof NDVISampler !== 'undefined' &&
+            typeof NDVISampler.clearCache === 'function'
+          ) {
+            NDVISampler.clearCache();
+          }
+          alert('OSM and satellite tile cache cleared.');
+        } catch (err) {
+          console.error('OsmCache.clear failed:', err);
+          alert('Could not clear the OSM cache: ' + err.message);
         }
-        alert('OSM and satellite tile cache cleared.');
-      } catch (err) {
-        console.error('OsmCache.clear failed:', err);
-        alert('Could not clear the OSM cache: ' + err.message);
-      }
-    });
+      });
 
     // The OSM overlay (2D vector shapes / 3D extruded buildings) is one shared
     // toggle. The click only flips the intent — GSRUI.setOsmOverlay records it,
@@ -1024,23 +1242,39 @@ export const GSREvents = {
       btnSampleNdvi.addEventListener('click', () => GSRUI.sampleNdviTrack());
     }
 
-    const copernicusInstanceInput = document.getElementById('copernicusInstanceId');
-    const copernicusRawLayerInput = document.getElementById('copernicusRawLayerId');
+    const copernicusInstanceInput = document.getElementById(
+      'copernicusInstanceId',
+    );
+    const copernicusRawLayerInput = document.getElementById(
+      'copernicusRawLayerId',
+    );
     const copernicusTimeInput = document.getElementById('copernicusTimeRange');
     const syncCopernicusBadges = () => {
       const activeBadge = document.getElementById('copernicusActiveBadge');
       const defaultBadge = document.getElementById('copernicusDefaultBadge');
-      const hasId = typeof NDVISampler !== 'undefined' ? NDVISampler.hasCopernicusConfig() : false;
-      if (activeBadge) activeBadge.style.display = hasId ? 'inline-block' : 'none';
-      if (defaultBadge) defaultBadge.style.display = hasId ? 'none' : 'inline-block';
+      const hasId =
+        typeof NDVISampler !== 'undefined'
+          ? NDVISampler.hasCopernicusConfig()
+          : false;
+      if (activeBadge)
+        activeBadge.style.display = hasId ? 'inline-block' : 'none';
+      if (defaultBadge)
+        defaultBadge.style.display = hasId ? 'none' : 'inline-block';
     };
 
     if (copernicusInstanceInput) {
-      const activeId = typeof NDVISampler !== 'undefined' ? NDVISampler.getInstanceId() : '';
+      const activeId =
+        typeof NDVISampler !== 'undefined' ? NDVISampler.getInstanceId() : '';
       if (activeId) copernicusInstanceInput.value = activeId;
       copernicusInstanceInput.addEventListener('change', () => {
-        if (typeof localStorage !== 'undefined' && typeof localStorage.setItem === 'function') {
-          localStorage.setItem('copernicus_instance_id', copernicusInstanceInput.value.trim());
+        if (
+          typeof localStorage !== 'undefined' &&
+          typeof localStorage.setItem === 'function'
+        ) {
+          localStorage.setItem(
+            'copernicus_instance_id',
+            copernicusInstanceInput.value.trim(),
+          );
         }
         syncCopernicusBadges();
         if (AppState.mapManager && AppState.mapManager.ndviTileLayer) {
@@ -1049,11 +1283,20 @@ export const GSREvents = {
       });
     }
     if (copernicusRawLayerInput) {
-      const activeRawLayer = typeof NDVISampler !== 'undefined' ? NDVISampler.getRawLayerId() : 'NDVI_RAW';
+      const activeRawLayer =
+        typeof NDVISampler !== 'undefined'
+          ? NDVISampler.getRawLayerId()
+          : 'NDVI_RAW';
       if (activeRawLayer) copernicusRawLayerInput.value = activeRawLayer;
       copernicusRawLayerInput.addEventListener('change', () => {
-        if (typeof localStorage !== 'undefined' && typeof localStorage.setItem === 'function') {
-          localStorage.setItem('copernicus_raw_layer_id', copernicusRawLayerInput.value.trim());
+        if (
+          typeof localStorage !== 'undefined' &&
+          typeof localStorage.setItem === 'function'
+        ) {
+          localStorage.setItem(
+            'copernicus_raw_layer_id',
+            copernicusRawLayerInput.value.trim(),
+          );
         }
         // The map overlay renders this same raw layer directly (see
         // map_manager_osm.js: showNdviLayer) — re-render it if visible.
@@ -1063,11 +1306,20 @@ export const GSREvents = {
       });
     }
     if (copernicusTimeInput) {
-      const activeTime = typeof NDVISampler !== 'undefined' ? NDVISampler.getTimeRange() : '2024-05-01/2024-09-30';
+      const activeTime =
+        typeof NDVISampler !== 'undefined'
+          ? NDVISampler.getTimeRange()
+          : '2024-05-01/2024-09-30';
       if (activeTime) copernicusTimeInput.value = activeTime;
       copernicusTimeInput.addEventListener('change', () => {
-        if (typeof localStorage !== 'undefined' && typeof localStorage.setItem === 'function') {
-          localStorage.setItem('copernicus_time_range', copernicusTimeInput.value.trim());
+        if (
+          typeof localStorage !== 'undefined' &&
+          typeof localStorage.setItem === 'function'
+        ) {
+          localStorage.setItem(
+            'copernicus_time_range',
+            copernicusTimeInput.value.trim(),
+          );
         }
         if (AppState.mapManager && AppState.mapManager.ndviTileLayer) {
           AppState.mapManager.showNdviLayer();
@@ -1081,7 +1333,8 @@ export const GSREvents = {
         if (typeof NDVISampler !== 'undefined') NDVISampler.clearCredentials();
         if (copernicusInstanceInput) copernicusInstanceInput.value = '';
         if (copernicusRawLayerInput) copernicusRawLayerInput.value = 'NDVI_RAW';
-        if (copernicusTimeInput) copernicusTimeInput.value = '2024-05-01/2024-09-30';
+        if (copernicusTimeInput)
+          copernicusTimeInput.value = '2024-05-01/2024-09-30';
         syncCopernicusBadges();
         if (AppState.mapManager && AppState.mapManager.ndviTileLayer) {
           AppState.mapManager.showNdviLayer();
@@ -1100,8 +1353,10 @@ export const GSREvents = {
     const bindEnvTab = (btnId, panelId) => {
       const btn = document.getElementById(btnId);
       btn.addEventListener('click', () => {
-        document.querySelectorAll('#envTabSwitcher .view-tab').forEach(b => b.classList.remove('active'));
-        document.querySelectorAll('.env-tab-content').forEach(p => {
+        document
+          .querySelectorAll('#envTabSwitcher .view-tab')
+          .forEach((b) => b.classList.remove('active'));
+        document.querySelectorAll('.env-tab-content').forEach((p) => {
           p.style.display = 'none';
           p.classList.remove('active');
         });
@@ -1115,22 +1370,26 @@ export const GSREvents = {
       });
     };
     bindEnvTab('btnEnvTabCorrelation', 'envTabCorrelation');
-    bindEnvTab('btnEnvTabScatter',     'envTabScatter');
-    bindEnvTab('btnEnvTabRoads',       'envTabRoads');
+    bindEnvTab('btnEnvTabScatter', 'envTabScatter');
+    bindEnvTab('btnEnvTabRoads', 'envTabRoads');
 
-    document.getElementById('scatterEnvMetric').addEventListener('change', () => GSRUI.updateEnvironmentalDashboard());
-    document.getElementById('scatterBioMetric').addEventListener('change', () => GSRUI.updateEnvironmentalDashboard());
+    document
+      .getElementById('scatterEnvMetric')
+      .addEventListener('change', () => GSRUI.updateEnvironmentalDashboard());
+    document
+      .getElementById('scatterBioMetric')
+      .addEventListener('change', () => GSRUI.updateEnvironmentalDashboard());
   },
 
   /**
    * View switcher (Single Track ↔ Collective Map Surface).
    */
   bindViewSwitcher() {
-    const btnSingleView      = document.getElementById('btnSingleView');
-    const btnCollectiveView  = document.getElementById('btnCollectiveView');
-    const btnLiveView        = document.getElementById('btnLiveView');
-    const livePanel          = document.getElementById('livePanel');
-    const appMainLayout      = document.querySelector('.main-layout');
+    const btnSingleView = document.getElementById('btnSingleView');
+    const btnCollectiveView = document.getElementById('btnCollectiveView');
+    const btnLiveView = document.getElementById('btnLiveView');
+    const livePanel = document.getElementById('livePanel');
+    const appMainLayout = document.querySelector('.main-layout');
     const contourSettingsCard = document.getElementById('contourSettingsCard');
 
     // Leaving the Live view: drop the layout class and the tab highlight, and
@@ -1146,8 +1405,11 @@ export const GSREvents = {
       const sbToggle = document.getElementById('btnSidebarToggle');
       if (sbToggle) sbToggle.hidden = false;
       // Drop the edge-to-edge display mode (F) if it was left on.
-      if (typeof GSRLayoutManager !== 'undefined' && GSRLayoutManager._liveDisplayModeActive &&
-          GSRLayoutManager._liveDisplayModeActive()) {
+      if (
+        typeof GSRLayoutManager !== 'undefined' &&
+        GSRLayoutManager._liveDisplayModeActive &&
+        GSRLayoutManager._liveDisplayModeActive()
+      ) {
         GSRLayoutManager.exitLiveDisplayMode();
       }
       // In-app tab switch: pause rendering but keep BLE link live in background.
@@ -1161,7 +1423,7 @@ export const GSREvents = {
     const collectiveOnlyMapBtns = [
       document.getElementById('btnToggleMapIsolines'),
       document.getElementById('btnToggleMapSurface'),
-      document.getElementById('btnToggleMapTracks')
+      document.getElementById('btnToggleMapTracks'),
     ].filter(Boolean);
 
     // The map-header metric dropdown has no per-track path colouring to drive
@@ -1170,8 +1432,10 @@ export const GSREvents = {
     const mapColoringMetric = document.getElementById('mapColoringMetric');
     const topoSourceSelect = document.getElementById('topoSource');
     const setHeaderMetricControl = (mode) => {
-      if (mapColoringMetric) mapColoringMetric.style.display = mode === 'collective' ? 'none' : '';
-      if (topoSourceSelect) topoSourceSelect.style.display = mode === 'collective' ? '' : 'none';
+      if (mapColoringMetric)
+        mapColoringMetric.style.display = mode === 'collective' ? 'none' : '';
+      if (topoSourceSelect)
+        topoSourceSelect.style.display = mode === 'collective' ? '' : 'none';
     };
     setHeaderMetricControl(AppState.viewMode);
 
@@ -1187,21 +1451,30 @@ export const GSREvents = {
       }
       appMainLayout.classList.remove('collective-mode');
       contourSettingsCard.style.display = 'none';
-      collectiveOnlyMapBtns.forEach(btn => btn.style.display = 'none');
+      collectiveOnlyMapBtns.forEach((btn) => (btn.style.display = 'none'));
       setHeaderMetricControl('single');
 
       const peakCard = document.getElementById('peakDetectionCard');
       if (peakCard) peakCard.style.display = '';
 
       const btnEnrich = document.getElementById('btnEnrichTrack');
-      if (btnEnrich) btnEnrich.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> Retrieve Spatial Data';
+      if (btnEnrich)
+        btnEnrich.innerHTML =
+          '<i class="fa-solid fa-wand-magic-sparkles"></i> Retrieve Spatial Data';
 
       document.getElementById('gsrPanel').style.display = '';
       document.getElementById('eventsPanel').style.display = '';
 
       // Force synchronous measurement of the new container size without panning the map
-      if (AppState.mapManager && AppState.mapManager.map && typeof AppState.mapManager.map.invalidateSize === 'function') {
-        AppState.mapManager.map.invalidateSize({ pan: false, debounceMoveend: true });
+      if (
+        AppState.mapManager &&
+        AppState.mapManager.map &&
+        typeof AppState.mapManager.map.invalidateSize === 'function'
+      ) {
+        AppState.mapManager.map.invalidateSize({
+          pan: false,
+          debounceMoveend: true,
+        });
       }
 
       if (typeof windowResized === 'function') {
@@ -1232,14 +1505,16 @@ export const GSREvents = {
 
       appMainLayout.classList.add('collective-mode');
       contourSettingsCard.style.display = '';
-      collectiveOnlyMapBtns.forEach(btn => btn.style.display = '');
+      collectiveOnlyMapBtns.forEach((btn) => (btn.style.display = ''));
       setHeaderMetricControl('collective');
 
       const peakCard = document.getElementById('peakDetectionCard');
       if (peakCard) peakCard.style.display = 'none';
 
       const btnEnrich = document.getElementById('btnEnrichTrack');
-      if (btnEnrich) btnEnrich.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> Retrieve Spatial Data';
+      if (btnEnrich)
+        btnEnrich.innerHTML =
+          '<i class="fa-solid fa-wand-magic-sparkles"></i> Retrieve Spatial Data';
 
       document.getElementById('gsrPanel').style.display = 'none';
       document.getElementById('eventsPanel').style.display = 'none';
@@ -1253,8 +1528,15 @@ export const GSREvents = {
       AppState.emit('scrub', { clear: true });
 
       // Force synchronous measurement of the new expanded container dimensions without panning the map
-      if (AppState.mapManager && AppState.mapManager.map && typeof AppState.mapManager.map.invalidateSize === 'function') {
-        AppState.mapManager.map.invalidateSize({ pan: false, debounceMoveend: true });
+      if (
+        AppState.mapManager &&
+        AppState.mapManager.map &&
+        typeof AppState.mapManager.map.invalidateSize === 'function'
+      ) {
+        AppState.mapManager.map.invalidateSize({
+          pan: false,
+          debounceMoveend: true,
+        });
       }
 
       // Render collective map immediately without 150ms debounce lag on mode swap
@@ -1287,7 +1569,7 @@ export const GSREvents = {
         const appContainer = document.querySelector('.app-container');
         if (appContainer) appContainer.classList.add('live-mode');
         contourSettingsCard.style.display = 'none';
-        collectiveOnlyMapBtns.forEach(btn => btn.style.display = 'none');
+        collectiveOnlyMapBtns.forEach((btn) => (btn.style.display = 'none'));
 
         // Live mode hides the sidebar entirely, so close the mobile drawer and
         // hide its hamburger — there is nothing behind it to open.
@@ -1323,8 +1605,11 @@ export const GSREvents = {
       // rather than a second detection — one signal decides both this and
       // the Live view's own map-first default. Desktop (AppState.viewMode
       // stays 'single' as today) is completely unaffected.
-      if (typeof GSRLiveView !== 'undefined' && typeof GSRLiveView.isCompactLayout === 'function' &&
-          GSRLiveView.isCompactLayout()) {
+      if (
+        typeof GSRLiveView !== 'undefined' &&
+        typeof GSRLiveView.isCompactLayout === 'function' &&
+        GSRLiveView.isCompactLayout()
+      ) {
         enterLiveView();
       }
     }
@@ -1339,8 +1624,8 @@ export const GSREvents = {
    * so these listeners are harmless there.
    */
   bindMobileSidebar() {
-    const btn      = document.getElementById('btnSidebarToggle');
-    const layout   = document.querySelector('.main-layout');
+    const btn = document.getElementById('btnSidebarToggle');
+    const layout = document.querySelector('.main-layout');
     const backdrop = document.getElementById('sidebarBackdrop');
     if (!btn || !layout) return;
 
@@ -1376,8 +1661,8 @@ export const GSREvents = {
 
     if (typeof GSRGlobe3DView !== 'undefined') GSRGlobe3DView.init();
 
-    const mapEl     = document.getElementById('map');
-    const globeEl   = document.getElementById('globe3dContainer');
+    const mapEl = document.getElementById('map');
+    const globeEl = document.getElementById('globe3dContainer');
     const settings3d = document.getElementById('mapDisplay3DGroup');
     const mapDisplayCard = document.getElementById('mapDisplayCard');
     const cameraBtns = [
@@ -1385,9 +1670,11 @@ export const GSREvents = {
       document.getElementById('g3dBtnTour'),
       document.getElementById('g3dBtnPersp3D'),
       document.getElementById('g3dBtnPerspTop'),
-      document.getElementById('g3dBtnNorth')
+      document.getElementById('g3dBtnNorth'),
     ];
-    const show = (el, on) => { if (el) el.style.display = on ? '' : 'none'; };
+    const show = (el, on) => {
+      if (el) el.style.display = on ? '' : 'none';
+    };
 
     const setSurface = (target) => {
       if (AppState.surfaceView === target) return;
@@ -1395,16 +1682,19 @@ export const GSREvents = {
       const toGlobe = target === 'globe';
 
       AppState.surfaceView = target;
-      tabs.forEach(t => t.classList.toggle('active', t.dataset.surface === target));
+      tabs.forEach((t) =>
+        t.classList.toggle('active', t.dataset.surface === target),
+      );
       show(mapEl, !toGlobe);
       show(globeEl, toGlobe);
       show(settings3d, toGlobe);
-      cameraBtns.forEach(btn => show(btn, toGlobe));
+      cameraBtns.forEach((btn) => show(btn, toGlobe));
 
       // The Map Display card ships collapsed; switching to the globe reveals the
       // 3D-only settings inside it, so expand it once so they aren't stranded
       // behind a collapsed header. Never auto-recollapses — the user's call.
-      if (toGlobe && mapDisplayCard) mapDisplayCard.classList.remove('collapsed');
+      if (toGlobe && mapDisplayCard)
+        mapDisplayCard.classList.remove('collapsed');
 
       if (typeof GSRGlobe3DView !== 'undefined') {
         if (toGlobe) GSRGlobe3DView.activate();
@@ -1414,10 +1704,19 @@ export const GSREvents = {
       // Re-render the shared OSM overlay on the now-mounted surface. 2D takes
       // effect immediately; the globe re-syncs from GSRGlobe3DView.activate()
       // once its manager is built (its manager isn't ready yet here).
-      if (typeof GSRUI !== 'undefined' && GSRUI.syncOsmOverlay) GSRUI.syncOsmOverlay();
+      if (typeof GSRUI !== 'undefined' && GSRUI.syncOsmOverlay)
+        GSRUI.syncOsmOverlay();
 
-      if (!toGlobe && AppState.mapManager && AppState.mapManager.map && typeof AppState.mapManager.map.invalidateSize === 'function') {
-        AppState.mapManager.map.invalidateSize({ pan: false, debounceMoveend: true });
+      if (
+        !toGlobe &&
+        AppState.mapManager &&
+        AppState.mapManager.map &&
+        typeof AppState.mapManager.map.invalidateSize === 'function'
+      ) {
+        AppState.mapManager.map.invalidateSize({
+          pan: false,
+          debounceMoveend: true,
+        });
         // A track loaded while the globe was up left its auto-fit deferred (the
         // hidden map can't be flown to) — frame it now that 2D is back.
         if (typeof AppState.mapManager._applyPendingFit === 'function') {
@@ -1427,7 +1726,9 @@ export const GSREvents = {
     };
 
     GSREvents.setSurface = setSurface;
-    tabs.forEach(t => t.addEventListener('click', () => setSurface(t.dataset.surface)));
+    tabs.forEach((t) =>
+      t.addEventListener('click', () => setSurface(t.dataset.surface)),
+    );
   },
 
   /**
@@ -1441,9 +1742,11 @@ export const GSREvents = {
   export3DTrack(kind) {
     const analyzer = AppState.analyzer;
     const mm = AppState.mapManager;
-    const drawPoints = (AppState.viewMode !== 'collective' && mm) ? mm._lastDrawPoints : null;
+    const drawPoints =
+      AppState.viewMode !== 'collective' && mm ? mm._lastDrawPoints : null;
     if (!analyzer || !drawPoints || drawPoints.length < 2) {
-      const msg = 'Load a single track with GPS data before exporting the 3D track.';
+      const msg =
+        'Load a single track with GPS data before exporting the 3D track.';
       if (typeof GSRNotices !== 'undefined') GSRNotices.warn(msg, 'export3d');
       else console.warn('[export3d]', msg);
       return;
@@ -1451,19 +1754,25 @@ export const GSREvents = {
     const extEl = document.getElementById('g3dExtrusionScale');
     const opts = {
       metric: (mm && mm.activeColoringMetric) || 'phasic',
-      extrusionScale: extEl ? parseFloat(extEl.value) : undefined
+      extrusionScale: extEl ? parseFloat(extEl.value) : undefined,
     };
-    const baseName = (typeof GSRUI !== 'undefined' && typeof GSRUI._exportFilenameBase === 'function')
-      ? GSRUI._exportFilenameBase()
-      : 'biomapping_track';
+    const baseName =
+      typeof GSRUI !== 'undefined' &&
+      typeof GSRUI._exportFilenameBase === 'function'
+        ? GSRUI._exportFilenameBase()
+        : 'biomapping_track';
     if (kind === 'kml') {
       GSRGlobe3DExport.download(
         GSRGlobe3DExport.buildKml(analyzer, drawPoints, opts),
-        `${baseName}_3d.kml`, 'application/vnd.google-earth.kml+xml');
+        `${baseName}_3d.kml`,
+        'application/vnd.google-earth.kml+xml',
+      );
     } else {
       GSRGlobe3DExport.download(
         GSRGlobe3DExport.buildCzml(analyzer, drawPoints, opts),
-        `${baseName}_3d.czml`, 'application/json');
+        `${baseName}_3d.czml`,
+        'application/json',
+      );
     }
   },
 
@@ -1496,7 +1805,7 @@ export const GSREvents = {
       });
     };
 
-    CONTOUR_SLIDER_DEFS.forEach(d => bindCi(d.id, d.labelId, d.fmt));
+    CONTOUR_SLIDER_DEFS.forEach((d) => bindCi(d.id, d.labelId, d.fmt));
 
     const topoSource = document.getElementById('topoSource');
     topoSource.addEventListener('change', () => {
@@ -1531,8 +1840,9 @@ export const GSREvents = {
     // GSR value labels (shared "off"/decimals/suffix rule — see _gsrLabelText).
     for (const d of GSR_SLIDER_DEFS) {
       const slider = document.getElementById(d.id);
-      const label  = document.getElementById(d.labelId);
-      if (slider && label) label.innerText = GSREvents._gsrLabelText(slider, d.suffix);
+      const label = document.getElementById(d.labelId);
+      if (slider && label)
+        label.innerText = GSREvents._gsrLabelText(slider, d.suffix);
     }
 
     // Initial tonic method layout and visibility setup (preserving saved settings value)
@@ -1541,7 +1851,7 @@ export const GSREvents = {
     // GPS value labels (per-slider formatter from GPS_SLIDER_DEFS).
     for (const d of GPS_SLIDER_DEFS) {
       const slider = document.getElementById(d.id);
-      const label  = document.getElementById(d.labelId);
+      const label = document.getElementById(d.labelId);
       if (slider && label) label.innerText = d.fmt(parseFloat(slider.value));
     }
 
@@ -1564,17 +1874,23 @@ export const GSREvents = {
       };
       CONTOUR_SLIDER_DEFS.forEach(updateCLabel);
 
-      const btnToggleMapSurface = document.getElementById('btnToggleMapSurface');
+      const btnToggleMapSurface = document.getElementById(
+        'btnToggleMapSurface',
+      );
       const opacityGroup = document.getElementById('surfaceOpacityGroup');
       if (btnToggleMapSurface && opacityGroup) {
-        opacityGroup.classList.toggle('ctrl-inert', !btnToggleMapSurface.classList.contains('active'));
+        opacityGroup.classList.toggle(
+          'ctrl-inert',
+          !btnToggleMapSurface.classList.contains('active'),
+        );
       }
 
       GSREvents.updatePeakPreservationInertState();
     }
 
     // Sync dim state for all sliders across all control cards
-    document.querySelectorAll('input[type="range"]').forEach(slider => GSREvents.updateFilterDim(slider));
+    document
+      .querySelectorAll('input[type="range"]')
+      .forEach((slider) => GSREvents.updateFilterDim(slider));
   },
-
 };

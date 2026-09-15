@@ -7,7 +7,6 @@
  * `formatDateUK`, `formatDateShort`) that pass `this.recordingStartTime` through.
  */
 export const AnalyzerTimeFormat = {
-
   /**
    * True when session-relative time should be shown instead of wall-clock time
    * — i.e. no real recording start was restored from the CSV.
@@ -45,14 +44,22 @@ export const AnalyzerTimeFormat = {
       const m = Math.floor((totalSec % 3600) / 60);
       const s = totalSec % 60;
       return h > 0
-        ? h + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0')
+        ? h +
+            ':' +
+            String(m).padStart(2, '0') +
+            ':' +
+            String(s).padStart(2, '0')
         : m + ':' + String(s).padStart(2, '0');
     }
 
     const d = new Date((recordingStartTime + relativeSeconds) * 1000);
-    return String(d.getUTCHours()).padStart(2, '0') + ':' +
-           String(d.getUTCMinutes()).padStart(2, '0') + ':' +
-           String(d.getUTCSeconds()).padStart(2, '0');
+    return (
+      String(d.getUTCHours()).padStart(2, '0') +
+      ':' +
+      String(d.getUTCMinutes()).padStart(2, '0') +
+      ':' +
+      String(d.getUTCSeconds()).padStart(2, '0')
+    );
   },
 
   /**
@@ -68,13 +75,27 @@ export const AnalyzerTimeFormat = {
     }
 
     const d = new Date((recordingStartTime + relativeSeconds) * 1000);
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-                    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
     const day = d.getUTCDate();
     const month = months[d.getUTCMonth()];
     const year = d.getUTCFullYear();
 
-    return day + AnalyzerTimeFormat.ordinalSuffix(day) + ' ' + month + ' ' + year;
+    return (
+      day + AnalyzerTimeFormat.ordinalSuffix(day) + ' ' + month + ' ' + year
+    );
   },
 
   /**
@@ -95,5 +116,5 @@ export const AnalyzerTimeFormat = {
     const year = d.getUTCFullYear();
 
     return day + '.' + month + '.' + year;
-  }
+  },
 };

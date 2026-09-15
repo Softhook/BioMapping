@@ -14,8 +14,7 @@
 import { AppState } from '../core/app_state.mjs';
 import { GSRGlobeManager } from './globe3d.mjs';
 
-  export const __methods = {
-
+export const __methods = {
   /**
    * Fly camera to focus on a specific peak index.
    * @param {number} peakIdx  index into analyzer.peaks
@@ -23,7 +22,8 @@ import { GSRGlobeManager } from './globe3d.mjs';
    */
   flyToPeak(peakIdx, analyzer) {
     if (!this.viewer || typeof Cesium === 'undefined') return;
-    const a = analyzer || (typeof AppState !== 'undefined' ? AppState.analyzer : null);
+    const a =
+      analyzer || (typeof AppState !== 'undefined' ? AppState.analyzer : null);
     if (!a || !a.peaks || peakIdx < 0 || peakIdx >= a.peaks.length) return;
 
     const peak = a.peaks[peakIdx];
@@ -50,7 +50,7 @@ import { GSRGlobeManager } from './globe3d.mjs';
 
     this.viewer.camera.flyToBoundingSphere(boundingSphere, {
       offset: offset,
-      duration: 1.2
+      duration: 1.2,
     });
   },
 
@@ -65,7 +65,8 @@ import { GSRGlobeManager } from './globe3d.mjs';
    */
   focusOnPeakLocation(peakIdx, analyzer) {
     if (!this.viewer || typeof Cesium === 'undefined') return;
-    const a = analyzer || (typeof AppState !== 'undefined' ? AppState.analyzer : null);
+    const a =
+      analyzer || (typeof AppState !== 'undefined' ? AppState.analyzer : null);
     if (!a || !a.peaks || peakIdx < 0 || peakIdx >= a.peaks.length) return;
 
     const peak = a.peaks[peakIdx];
@@ -91,7 +92,11 @@ import { GSRGlobeManager } from './globe3d.mjs';
         // entity fallback, the beacon entity's point graphic. A latency-
         // connector entity shares the same _biomapPeakIndex but is the rose
         // line, not the circle (no point graphic) — skip it.
-        const pt = ent._isPeakPointPrimitive ? ent : (ent.point && !ent.polyline ? ent.point : null);
+        const pt = ent._isPeakPointPrimitive
+          ? ent
+          : ent.point && !ent.polyline
+            ? ent.point
+            : null;
         if (!pt) continue;
         pt.show = false;
         this._focusHiddenPeakPoint = pt;
@@ -105,7 +110,11 @@ import { GSRGlobeManager } from './globe3d.mjs';
     // dot well above the circle over any non-flat ground.
     if (this.scrubEntity) {
       const wallHeight = this._peakWallHeight(a, peak);
-      this.scrubEntity.position = Cesium.Cartesian3.fromDegrees(coords.lon, coords.lat, wallHeight + 3.0);
+      this.scrubEntity.position = Cesium.Cartesian3.fromDegrees(
+        coords.lon,
+        coords.lat,
+        wallHeight + 3.0,
+      );
       this.scrubEntity.show = true;
     }
     this.flyToPeak(peakIdx, a);
@@ -125,7 +134,9 @@ import { GSRGlobeManager } from './globe3d.mjs';
     this._wakeRenderLoop();
 
     // Convert track points to 3D Cartesian positions
-    const positions = this.currentDrawPoints.map(p => Cesium.Cartesian3.fromDegrees(p.lon, p.lat));
+    const positions = this.currentDrawPoints.map((p) =>
+      Cesium.Cartesian3.fromDegrees(p.lon, p.lat),
+    );
 
     // Compute exact 3D bounding sphere encompassing the walk
     const boundingSphere = Cesium.BoundingSphere.fromPoints(positions);
@@ -139,7 +150,7 @@ import { GSRGlobeManager } from './globe3d.mjs';
 
     this.viewer.camera.flyToBoundingSphere(boundingSphere, {
       offset: offset,
-      duration: 1.5
+      duration: 1.5,
     });
   },
 
@@ -156,22 +167,26 @@ import { GSRGlobeManager } from './globe3d.mjs';
   },
 
   startOrbit() {
-    if (!this.viewer || this.currentDrawPoints.length === 0 || this._isOrbiting) return;
+    if (!this.viewer || this.currentDrawPoints.length === 0 || this._isOrbiting)
+      return;
     this.stopTour();
 
     // Render the spin a little softer so it stays smooth on slower GPUs;
     // stopOrbit() puts it back. See _orbitResolutionScale.
     this.viewer.resolutionScale = this._orbitResolutionScale;
 
-    const coords = this.currentDrawPoints.map(p => Cesium.Cartographic.fromDegrees(p.lon, p.lat));
+    const coords = this.currentDrawPoints.map((p) =>
+      Cesium.Cartographic.fromDegrees(p.lon, p.lat),
+    );
     const rectangle = Cesium.Rectangle.fromCartographicArray(coords);
     const centerCartographic = Cesium.Rectangle.center(rectangle);
     const center = Cesium.Cartographic.toCartesian(centerCartographic);
 
-    const distance = Cesium.Cartesian3.distance(
-      center,
-      Cesium.Cartographic.toCartesian(Cesium.Rectangle.northwest(rectangle))
-    ) * 2.5;
+    const distance =
+      Cesium.Cartesian3.distance(
+        center,
+        Cesium.Cartographic.toCartesian(Cesium.Rectangle.northwest(rectangle)),
+      ) * 2.5;
 
     let heading = this.viewer.camera.heading;
     const pitch = Cesium.Math.toRadians(-35.0);
@@ -180,7 +195,7 @@ import { GSRGlobeManager } from './globe3d.mjs';
       heading += 0.003;
       this.viewer.camera.lookAt(
         center,
-        new Cesium.HeadingPitchRange(heading, pitch, Math.max(distance, 300))
+        new Cesium.HeadingPitchRange(heading, pitch, Math.max(distance, 300)),
       );
     };
 
@@ -193,7 +208,8 @@ import { GSRGlobeManager } from './globe3d.mjs';
       this._idleRenderTimer = null;
     }
     this.viewer.scene.requestRenderMode = false;
-    this._orbitRemoveCallback = this.viewer.clock.onTick.addEventListener(orbitStep);
+    this._orbitRemoveCallback =
+      this.viewer.clock.onTick.addEventListener(orbitStep);
     this._isOrbiting = true;
   },
 
@@ -211,8 +227,7 @@ import { GSRGlobeManager } from './globe3d.mjs';
       this.viewer.scene.requestRenderMode = this.requestRenderMode;
       this.viewer.resolutionScale = this._resolutionScale;
     }
-  }
+  },
+};
 
-  };
-
-  Object.assign(GSRGlobeManager.prototype, __methods);
+Object.assign(GSRGlobeManager.prototype, __methods);

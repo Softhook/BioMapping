@@ -11,7 +11,6 @@
  * Usage (normally via check_cleaning_agreement.sh, not directly):
  *   node check_cleaning_agreement.js <python.json> <track.csv>
  */
-'use strict';
 
 const fs = require('fs');
 const path = require('path');
@@ -23,7 +22,10 @@ global.GSR_CONST = require('../../mock_constants.js');
 function loadModule(filePath, varName) {
   const src = fs.readFileSync(filePath, 'utf8');
   const wrapped = src
-    .replace(new RegExp(`class ${varName}\\s*{`), `global.${varName} = class ${varName} {`)
+    .replace(
+      new RegExp(`class ${varName}\\s*{`),
+      `global.${varName} = class ${varName} {`,
+    )
     .replace(new RegExp(`const ${varName}\\s*=`), `global.${varName} =`);
   vm.runInThisContext(wrapped, { filename: filePath });
 }
@@ -40,20 +42,35 @@ const useGaitFilter = process.env.BIOMAP_USE_GAIT_FILTER === '1';
 const D = { ...global.GSR_CONST.GSR_DEFAULT, useGaitFilter };
 const ourCleaningDescription = D.useGaitFilter
   ? `1Hz ${global.GSR_CONST.GAIT_FILTER.type.toUpperCase()} gait low-pass`
-  : (D.lpfWindow > 0 ? `${D.lpfWindow}s box LPF` : 'raw (no filter)');
+  : D.lpfWindow > 0
+    ? `${D.lpfWindow}s box LPF`
+    : 'raw (no filter)';
 
 function stats(a, b) {
   const n = Math.min(a.length, b.length);
-  let maxDiff = 0, sumAbs = 0, sumSq = 0;
-  let sumA = 0, sumB = 0, sumAB = 0, sumA2 = 0, sumB2 = 0;
+  let maxDiff = 0,
+    sumAbs = 0,
+    sumSq = 0;
+  let sumA = 0,
+    sumB = 0,
+    sumAB = 0,
+    sumA2 = 0,
+    sumB2 = 0;
   for (let i = 0; i < n; i++) {
-    const x = a[i], y = b[i];
+    const x = a[i],
+      y = b[i];
     const d = Math.abs(x - y);
     maxDiff = Math.max(maxDiff, d);
-    sumAbs += d; sumSq += d * d;
-    sumA += x; sumB += y; sumAB += x * y; sumA2 += x * x; sumB2 += y * y;
+    sumAbs += d;
+    sumSq += d * d;
+    sumA += x;
+    sumB += y;
+    sumAB += x * y;
+    sumA2 += x * x;
+    sumB2 += y * y;
   }
-  const meanA = sumA / n, meanB = sumB / n;
+  const meanA = sumA / n,
+    meanB = sumB / n;
   const cov = sumAB / n - meanA * meanB;
   const varA = sumA2 / n - meanA * meanA;
   const varB = sumB2 / n - meanB * meanB;
@@ -68,7 +85,9 @@ function stats(a, b) {
 
 const [, , jsonPath, csvPath] = process.argv;
 if (!jsonPath || !csvPath) {
-  console.error('Usage: node check_cleaning_agreement.js <python.json> <track.csv>');
+  console.error(
+    'Usage: node check_cleaning_agreement.js <python.json> <track.csv>',
+  );
   process.exit(1);
 }
 
@@ -78,10 +97,14 @@ const csvText = fs.readFileSync(csvPath, 'utf8');
 const a = new GSRAnalyzer();
 a.parseCSV(csvText);
 a.analyze({ ...D }, 0);
-const ourCleaned = a.filtered.map(d => d.val);
+const ourCleaned = a.filtered.map((d) => d.val);
 
 const name = path.basename(csvPath, '.csv');
 const s = stats(ourCleaned, py.cleaned);
 
-console.log(`=== ${name}: cleaning-stage agreement (ours: ${ourCleaningDescription}, medianSize=${D.medianSize}  vs  NeuroKit2: eda_clean 4th-order 3Hz Butterworth) ===`);
-console.log(`  n=${s.n}  max|diff|=${s.maxDiff.toFixed(4)}uS  mean|diff|=${s.meanAbsDiff.toFixed(4)}uS  RMSE=${s.rmse.toFixed(4)}uS  r=${s.r.toFixed(4)}`);
+console.log(
+  `=== ${name}: cleaning-stage agreement (ours: ${ourCleaningDescription}, medianSize=${D.medianSize}  vs  NeuroKit2: eda_clean 4th-order 3Hz Butterworth) ===`,
+);
+console.log(
+  `  n=${s.n}  max|diff|=${s.maxDiff.toFixed(4)}uS  mean|diff|=${s.meanAbsDiff.toFixed(4)}uS  RMSE=${s.rmse.toFixed(4)}uS  r=${s.r.toFixed(4)}`,
+);

@@ -11,7 +11,10 @@
  * class focused on the arousal wall + camera.
  */
 
-import { bandHasActiveSignal as bandHasActiveSignalShared, normDbm as normDbmShared } from '../../render/rf_signal_utils.mjs';
+import {
+  bandHasActiveSignal as bandHasActiveSignalShared,
+  normDbm as normDbmShared,
+} from '../../render/rf_signal_utils.mjs';
 
 export const GSRGlobe3DRf = {
   /**
@@ -48,14 +51,20 @@ export const GSRGlobe3DRf = {
 
     // 1. Gather points that have GPS + inspect RSSI / EM-fog data.
     const rfPoints = [];
-    let min815 = Infinity, max815 = -Infinity;
-    let min868 = Infinity, max868 = -Infinity;
-    let min915 = Infinity, max915 = -Infinity;
-    let minFog = Infinity, maxFog = -Infinity;
+    let min815 = Infinity,
+      max815 = -Infinity;
+    let min868 = Infinity,
+      max868 = -Infinity;
+    let min915 = Infinity,
+      max915 = -Infinity;
+    let minFog = Infinity,
+      maxFog = -Infinity;
     // Per-band "is there a real signal here" flags — set from the measured
     // dBm spread below. Default true so the synthetic-field path (no radio
     // hardware in the file) is left exactly as it was.
-    let active815 = true, active868 = true, active915 = true;
+    let active815 = true,
+      active868 = true,
+      active915 = true;
 
     for (let i = 0; i < drawPoints.length; i++) {
       const pt = drawPoints[i];
@@ -65,25 +74,39 @@ export const GSRGlobe3DRf = {
       const r815 = rawRow.rssi_815 ?? rawRow.r815 ?? rawRow.r_815;
       const r868 = rawRow.rssi_868 ?? rawRow.r868 ?? rawRow.r_868;
       const r915 = rawRow.rssi_915 ?? rawRow.r915 ?? rawRow.r_915;
-      const fog  = rawRow.em_fog ?? rawRow.emFog ?? rawRow.fog;
+      const fog = rawRow.em_fog ?? rawRow.emFog ?? rawRow.fog;
 
-      const has815 = (r815 !== undefined && !isNaN(r815));
-      const has868 = (r868 !== undefined && !isNaN(r868));
-      const has915 = (r915 !== undefined && !isNaN(r915));
-      const hasFog = (fog !== undefined && !isNaN(fog));
+      const has815 = r815 !== undefined && !isNaN(r815);
+      const has868 = r868 !== undefined && !isNaN(r868);
+      const has915 = r915 !== undefined && !isNaN(r915);
+      const hasFog = fog !== undefined && !isNaN(fog);
 
-      if (has815) { if (r815 < min815) min815 = r815; if (r815 > max815) max815 = r815; }
-      if (has868) { if (r868 < min868) min868 = r868; if (r868 > max868) max868 = r868; }
-      if (has915) { if (r915 < min915) min915 = r915; if (r915 > max915) max915 = r915; }
-      if (hasFog) { if (fog < minFog) minFog = fog; if (fog > maxFog) maxFog = fog; }
+      if (has815) {
+        if (r815 < min815) min815 = r815;
+        if (r815 > max815) max815 = r815;
+      }
+      if (has868) {
+        if (r868 < min868) min868 = r868;
+        if (r868 > max868) max868 = r868;
+      }
+      if (has915) {
+        if (r915 < min915) min915 = r915;
+        if (r915 > max915) max915 = r915;
+      }
+      if (hasFog) {
+        if (fog < minFog) minFog = fog;
+        if (fog > maxFog) maxFog = fog;
+      }
 
       rfPoints.push({
-        lat: pt.lat, lon: pt.lon, origIdx: pt.origIdx,
+        lat: pt.lat,
+        lon: pt.lon,
+        origIdx: pt.origIdx,
         r815: has815 ? r815 : null,
         r868: has868 ? r868 : null,
         r915: has915 ? r915 : null,
         fog: hasFog ? fog : null,
-        hasRf: (has815 || has868 || has915 || hasFog)
+        hasRf: has815 || has868 || has915 || hasFog,
       });
     }
 
@@ -93,14 +116,20 @@ export const GSRGlobe3DRf = {
 
     // No hardware radio chips in this dataset -> synthesise an ambient field.
     if (!hasMeasuredRf) {
-      min815 = 0; max815 = 1; min868 = 0; max868 = 1;
-      min915 = 0; max915 = 1; minFog = 0; maxFog = 1;
+      min815 = 0;
+      max815 = 1;
+      min868 = 0;
+      max868 = 1;
+      min915 = 0;
+      max915 = 1;
+      minFog = 0;
+      maxFog = 1;
       for (let i = 0; i < rfPoints.length; i++) {
         const frac = i / Math.max(1, rfPoints.length - 1);
         rfPoints[i].r815 = 0.35 + 0.65 * Math.sin(frac * Math.PI * 4);
         rfPoints[i].r868 = 0.35 + 0.65 * Math.sin(frac * Math.PI * 3 + 1.2);
         rfPoints[i].r915 = 0.35 + 0.65 * Math.cos(frac * Math.PI * 5 + 0.5);
-        rfPoints[i].fog  = 0.3 + 0.7 * Math.sin(frac * Math.PI * 2);
+        rfPoints[i].fog = 0.3 + 0.7 * Math.sin(frac * Math.PI * 2);
       }
     } else {
       // Squelch, mirroring RFFluidRenderer._calculateRssiStats(): a band
@@ -114,10 +143,22 @@ export const GSRGlobe3DRf = {
       active815 = bandHasActiveSignal(min815, max815);
       active868 = bandHasActiveSignal(min868, max868);
       active915 = bandHasActiveSignal(min915, max915);
-      if (!isFinite(min815) || !isFinite(max815) || min815 >= max815) { min815 = -92.0; max815 = -50.0; }
-      if (!isFinite(min868) || !isFinite(max868) || min868 >= max868) { min868 = -92.0; max868 = -50.0; }
-      if (!isFinite(min915) || !isFinite(max915) || min915 >= max915) { min915 = -92.0; max915 = -50.0; }
-      if (!isFinite(minFog) || !isFinite(maxFog) || minFog >= maxFog) { minFog = 0.0; maxFog = 100.0; }
+      if (!isFinite(min815) || !isFinite(max815) || min815 >= max815) {
+        min815 = -92.0;
+        max815 = -50.0;
+      }
+      if (!isFinite(min868) || !isFinite(max868) || min868 >= max868) {
+        min868 = -92.0;
+        max868 = -50.0;
+      }
+      if (!isFinite(min915) || !isFinite(max915) || min915 >= max915) {
+        min915 = -92.0;
+        max915 = -50.0;
+      }
+      if (!isFinite(minFog) || !isFinite(maxFog) || minFog >= maxFog) {
+        minFog = 0.0;
+        maxFog = 100.0;
+      }
     }
 
     // A single-band mode over a squelched band has nothing to show — same
@@ -134,14 +175,23 @@ export const GSRGlobe3DRf = {
     //    elsewhere).
     const cum = [0];
     for (let i = 1; i < rfPoints.length; i++) {
-      cum[i] = cum[i - 1] + haversineM(
-        rfPoints[i - 1].lat, rfPoints[i - 1].lon, rfPoints[i].lat, rfPoints[i].lon);
+      cum[i] =
+        cum[i - 1] +
+        haversineM(
+          rfPoints[i - 1].lat,
+          rfPoints[i - 1].lon,
+          rfPoints[i].lat,
+          rfPoints[i].lon,
+        );
     }
     const totalLen = cum[cum.length - 1];
 
     let spacing = this.SLUG_SPACING_M;
     let count = Math.floor(totalLen / spacing) + 1;
-    if (count > this.MAX_SLUGS) { count = this.MAX_SLUGS; spacing = totalLen / (count - 1); }
+    if (count > this.MAX_SLUGS) {
+      count = this.MAX_SLUGS;
+      spacing = totalLen / (count - 1);
+    }
     if (count < 2) count = Math.min(rfPoints.length, 2);
 
     const instances = [];
@@ -160,13 +210,22 @@ export const GSRGlobe3DRf = {
       const v815 = lerpRf(p0.r815, p1.r815, f);
       const v868 = lerpRf(p0.r868, p1.r868, f);
       const v915 = lerpRf(p0.r915, p1.r915, f);
-      const vFog = lerpRf(p0.fog,  p1.fog,  f);
+      const vFog = lerpRf(p0.fog, p1.fog, f);
 
-      const norm815 = hasMeasuredRf ? normDbm(v815, min815, max815, active815) : clamp01(v815 ?? 0);
-      const norm868 = hasMeasuredRf ? normDbm(v868, min868, max868, active868) : clamp01(v868 ?? 0);
-      const norm915 = hasMeasuredRf ? normDbm(v915, min915, max915, active915) : clamp01(v915 ?? 0);
-      const normFog = clamp01(hasMeasuredRf
-        ? (((vFog ?? minFog) - minFog) / (maxFog - minFog)) : (vFog ?? 0));
+      const norm815 = hasMeasuredRf
+        ? normDbm(v815, min815, max815, active815)
+        : clamp01(v815 ?? 0);
+      const norm868 = hasMeasuredRf
+        ? normDbm(v868, min868, max868, active868)
+        : clamp01(v868 ?? 0);
+      const norm915 = hasMeasuredRf
+        ? normDbm(v915, min915, max915, active915)
+        : clamp01(v915 ?? 0);
+      const normFog = clamp01(
+        hasMeasuredRf
+          ? ((vFog ?? minFog) - minFog) / (maxFog - minFog)
+          : (vFog ?? 0),
+      );
 
       // Colour channels match the 2D RF fluid overlay exactly
       // (RFFluidRenderer.redraw()): 815 MHz = pure red, 868 MHz = pure green,
@@ -174,23 +233,34 @@ export const GSRGlobe3DRf = {
       // fog level. Visibility of a weak slug comes from the `intensity`-scaled
       // alpha below (the 3D analogue of the 2D alpha ramp), not from tinting
       // the colour, so the same data reads as the same hue on both surfaces.
-      let r = 0, g = 0, b = 0, intensity = 0;
+      let r = 0,
+        g = 0,
+        b = 0,
+        intensity = 0;
       if (mode === 'triband') {
         r = norm815;
         g = norm868;
         b = norm915;
         intensity = Math.max(norm815, norm868, norm915);
       } else if (mode === '815') {
-        r = 1.0; g = 0.0; b = 0.0;
+        r = 1.0;
+        g = 0.0;
+        b = 0.0;
         intensity = norm815;
       } else if (mode === '868') {
-        r = 0.0; g = 1.0; b = 0.0;
+        r = 0.0;
+        g = 1.0;
+        b = 0.0;
         intensity = norm868;
       } else if (mode === '915') {
-        r = 0.0; g = 0.0; b = 1.0;
+        r = 0.0;
+        g = 0.0;
+        b = 1.0;
         intensity = norm915;
       } else {
-        r = normFog; g = 0.0; b = 1.0 - normFog;
+        r = normFog;
+        g = 0.0;
+        b = 1.0 - normFog;
         intensity = Math.max(0.2, normFog);
       }
 
@@ -203,27 +273,30 @@ export const GSRGlobe3DRf = {
       // lifts the volumetric ceiling. Vertical radius stays modest so the
       // fluid hugs the street the way the 2D overlay does.
       const horiz = spacing * this.SLUG_OVERLAP * (0.75 + 0.45 * intensity);
-      const vert  = 4.0 + (baseCeiling - 4.0) * intensity;
+      const vert = 4.0 + (baseCeiling - 4.0) * intensity;
 
       try {
-        instances.push(new Cesium.GeometryInstance({
-          geometry: new Cesium.EllipsoidGeometry({
-            radii: new Cesium.Cartesian3(horiz, horiz, vert),
-            // Modest tessellation: the slugs blur together, so a smooth
-            // 64×64 sphere (Cesium's default) would be wasted triangles.
-            stackPartitions: 12,
-            slicePartitions: 12,
-            vertexFormat: Cesium.PerInstanceColorAppearance.VERTEX_FORMAT
+        instances.push(
+          new Cesium.GeometryInstance({
+            geometry: new Cesium.EllipsoidGeometry({
+              radii: new Cesium.Cartesian3(horiz, horiz, vert),
+              // Modest tessellation: the slugs blur together, so a smooth
+              // 64×64 sphere (Cesium's default) would be wasted triangles.
+              stackPartitions: 12,
+              slicePartitions: 12,
+              vertexFormat: Cesium.PerInstanceColorAppearance.VERTEX_FORMAT,
+            }),
+            modelMatrix: Cesium.Transforms.eastNorthUpToFixedFrame(
+              Cesium.Cartesian3.fromDegrees(lon, lat, 0.0),
+            ),
+            attributes: {
+              color: Cesium.ColorGeometryInstanceAttribute.fromColor(
+                new Cesium.Color(r, g, b, opacity * (0.34 + 0.5 * intensity)),
+              ),
+            },
+            id: `rf-slug-${k}`,
           }),
-          modelMatrix: Cesium.Transforms.eastNorthUpToFixedFrame(
-            Cesium.Cartesian3.fromDegrees(lon, lat, 0.0)
-          ),
-          attributes: {
-            color: Cesium.ColorGeometryInstanceAttribute.fromColor(
-              new Cesium.Color(r, g, b, opacity * (0.34 + 0.5 * intensity)))
-          },
-          id: `rf-slug-${k}`
-        }));
+        );
       } catch (err) {
         // Skip a geometry error cleanly.
       }
@@ -233,13 +306,18 @@ export const GSRGlobe3DRf = {
 
     return new Cesium.Primitive({
       geometryInstances: instances,
-      appearance: new Cesium.PerInstanceColorAppearance({ translucent: true, closed: true }),
-      asynchronous: true
+      appearance: new Cesium.PerInstanceColorAppearance({
+        translucent: true,
+        closed: true,
+      }),
+      asynchronous: true,
     });
-  }
+  },
 };
 
-export function clamp01(v) { return Math.max(0.0, Math.min(1.0, v)); }
+export function clamp01(v) {
+  return Math.max(0.0, Math.min(1.0, v));
+}
 
 /** Great-circle distance in metres between two lat/lon points. */
 export function haversineM(lat1, lon1, lat2, lon2) {
@@ -247,7 +325,8 @@ export function haversineM(lat1, lon1, lat2, lon2) {
   const toRad = Math.PI / 180;
   const dLat = (lat2 - lat1) * toRad;
   const dLon = (lon2 - lon1) * toRad;
-  const s = Math.sin(dLat / 2) ** 2 +
+  const s =
+    Math.sin(dLat / 2) ** 2 +
     Math.cos(lat1 * toRad) * Math.cos(lat2 * toRad) * Math.sin(dLon / 2) ** 2;
   return 2 * R * Math.asin(Math.min(1, Math.sqrt(s)));
 }
@@ -258,8 +337,8 @@ export function haversineM(lat1, lon1, lat2, lon2) {
  * so the band simply contributes nothing at that slug.
  */
 export function lerpRf(x, y, f) {
-  const xn = (x === null || x === undefined || isNaN(x));
-  const yn = (y === null || y === undefined || isNaN(y));
+  const xn = x === null || x === undefined || isNaN(x);
+  const yn = y === null || y === undefined || isNaN(y);
   if (xn && yn) return null;
   if (xn) return y;
   if (yn) return x;

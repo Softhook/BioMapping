@@ -21,8 +21,6 @@
  */
 
 export const DWT = (() => {
-  "use strict";
-
   // ── Daubechies db3 coefficients (EXACT PyWavelets values) ──────────────
   // Verified against pywt 'db3' — manual periodization forward DWT matches
   // pywt.dwt(x, 'db3', mode='periodization') to machine precision.
@@ -34,44 +32,32 @@ export const DWT = (() => {
   //
   // All filters:   Σ = √2 (low-pass) or 0 (high-pass),  Σ² = 1
   //
-  const DEC_LO = [    // analysis low-pass  (scaling function)
-    0.0352262918857095,
-   -0.0854412738820267,
-   -0.1350110200102546,
-    0.4598775021184915,
-    0.8068915093110925,
-    0.3326705529500826
+  const DEC_LO = [
+    // analysis low-pass  (scaling function)
+    0.0352262918857095, -0.0854412738820267, -0.1350110200102546,
+    0.4598775021184915, 0.8068915093110925, 0.3326705529500826,
   ];
 
-  const DEC_HI = [    // analysis high-pass (wavelet function)
-   -0.3326705529500826,
-    0.8068915093110925,
-   -0.4598775021184915,
-   -0.1350110200102546,
-    0.0854412738820267,
-    0.0352262918857095
+  const DEC_HI = [
+    // analysis high-pass (wavelet function)
+    -0.3326705529500826, 0.8068915093110925, -0.4598775021184915,
+    -0.1350110200102546, 0.0854412738820267, 0.0352262918857095,
   ];
 
-  const REC_LO = [    // synthesis low-pass  = reverse(DEC_LO)
-    0.3326705529500826,
-    0.8068915093110925,
-    0.4598775021184915,
-   -0.1350110200102546,
-   -0.0854412738820267,
-    0.0352262918857095
+  const REC_LO = [
+    // synthesis low-pass  = reverse(DEC_LO)
+    0.3326705529500826, 0.8068915093110925, 0.4598775021184915,
+    -0.1350110200102546, -0.0854412738820267, 0.0352262918857095,
   ];
 
-  const REC_HI = [    // synthesis high-pass = (-1)^n · DEC_LO[n]
-    0.0352262918857095,
-    0.0854412738820267,
-   -0.1350110200102546,
-   -0.4598775021184915,
-    0.8068915093110925,
-   -0.3326705529500826
+  const REC_HI = [
+    // synthesis high-pass = (-1)^n · DEC_LO[n]
+    0.0352262918857095, 0.0854412738820267, -0.1350110200102546,
+    -0.4598775021184915, 0.8068915093110925, -0.3326705529500826,
   ];
 
-  const Nf = DEC_LO.length;  // 6
-  const HALF = Nf >>> 1;     // 3 (filter half-length)
+  const Nf = DEC_LO.length; // 6
+  const HALF = Nf >>> 1; // 3 (filter half-length)
 
   // ── Helpers ────────────────────────────────────────────────────────────
 
@@ -110,8 +96,8 @@ export const DWT = (() => {
    */
   function _mirrorPad(signal, levels) {
     const n = signal.length;
-    const minPad = Nf << (levels - 1);      // Nf * 2^(levels-1)
-    const factor = 1 << levels;              // 2^levels
+    const minPad = Nf << (levels - 1); // Nf * 2^(levels-1)
+    const factor = 1 << levels; // 2^levels
 
     // Find the smallest padLen ≥ minPad such that n + 2·padLen is a
     // multiple of 2^levels.  This guarantees every intermediate cA has
@@ -121,7 +107,8 @@ export const DWT = (() => {
     // If n is odd, n + 2·padLen is always odd, which can never be a
     // multiple of an even factor.  In that case we make the right
     // padding one sample longer (asymmetric by one sample).
-    let padLeft = minPad, padRight = minPad;
+    let padLeft = minPad,
+      padRight = minPad;
     let totalLen = n + padLeft + padRight;
 
     if (n % 2 === 0) {
@@ -177,7 +164,8 @@ export const DWT = (() => {
     const cD = new Float64Array(outLen);
 
     for (let k = 0; k < outLen; k++) {
-      let sA = 0, sD = 0;
+      let sA = 0,
+        sD = 0;
       for (let j = 0; j < Nf; j++) {
         const idx = _mod(HALF + 2 * k - j, n);
         sA += DEC_LO[j] * signal[idx];
@@ -226,7 +214,11 @@ export const DWT = (() => {
     const originalLen = signal.length;
 
     // Mirror-pad to absorb boundary artifacts
-    const { data: padded, padLen: padLeft, padRight } = _mirrorPad(signal, levels);
+    const {
+      data: padded,
+      padLen: padLeft,
+      padRight,
+    } = _mirrorPad(signal, levels);
 
     // Padded length is guaranteed to be a multiple of 2^levels,
     // so every intermediate cA has even length — no per-level
@@ -249,7 +241,7 @@ export const DWT = (() => {
     if (arr.length === 0) return 0;
     const s = Array.prototype.slice.call(arr).sort((a, b) => a - b);
     const m = s.length >>> 1;
-    return (s.length & 1) ? s[m] : 0.5 * (s[m - 1] + s[m]);
+    return s.length & 1 ? s[m] : 0.5 * (s[m - 1] + s[m]);
   }
 
   /** Robust noise sigma from a detail band: MAD / 0.6745. */
@@ -289,12 +281,18 @@ export const DWT = (() => {
     for (let i = 0; i < n; i++) mean += detail[i];
     mean /= n;
     let varSum = 0;
-    for (let i = 0; i < n; i++) { const d = detail[i] - mean; varSum += d * d; }
+    for (let i = 0; i < n; i++) {
+      const d = detail[i] - mean;
+      varSum += d * d;
+    }
     const s2 = sigma * sigma;
-    const sigX2 = (varSum / n) - s2;
+    const sigX2 = varSum / n - s2;
     if (sigX2 <= 1e-12) {
       let mx = 0;
-      for (let i = 0; i < n; i++) { const av = Math.abs(detail[i]); if (av > mx) mx = av; }
+      for (let i = 0; i < n; i++) {
+        const av = Math.abs(detail[i]);
+        if (av > mx) mx = av;
+      }
       return mx;
     }
     return s2 / Math.sqrt(sigX2);
@@ -344,12 +342,16 @@ export const DWT = (() => {
 
     // Frequency-anchor the depth so band edges stay fixed in Hz across sample
     // rates: the deepest detail band bottoms out near ~0.3 Hz. At 10 Hz → 4.
-    const levels = Math.max(3, Math.min(6, Math.round(Math.log2(sampleRate / 0.6))));
-    if (n < (1 << levels)) return Array.prototype.slice.call(signal);
+    const levels = Math.max(
+      3,
+      Math.min(6, Math.round(Math.log2(sampleRate / 0.6))),
+    );
+    if (n < 1 << levels) return Array.prototype.slice.call(signal);
 
-    const cfg = (mode === 'strong')
-      ? { bands: [1, 2, 3, 4], mult: (j) => (j <= 2 ? 1.6 : 1.0) }
-      : { bands: [1, 2],       mult: () => 1.0 };
+    const cfg =
+      mode === 'strong'
+        ? { bands: [1, 2, 3, 4], mult: (j) => (j <= 2 ? 1.6 : 1.0) }
+        : { bands: [1, 2], mult: () => 1.0 };
 
     const K = Math.max(1, (opts.shifts != null ? opts.shifts : 8) | 0);
 

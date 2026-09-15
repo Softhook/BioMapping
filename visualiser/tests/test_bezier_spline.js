@@ -12,7 +12,8 @@ const test = require('node:test');
 const { BezierSpline } = require('../src/render/bezier_spline.mjs');
 
 const close = (a, b, tol = 1e-6) => Math.abs(a - b) <= tol;
-const pointsClose = (p, q, tol = 1e-6) => close(p.x, q.x, tol) && close(p.y, q.y, tol);
+const pointsClose = (p, q, tol = 1e-6) =>
+  close(p.x, q.x, tol) && close(p.y, q.y, tol);
 
 // ── catmullRomToBezier ──────────────────────────────────────────────────
 
@@ -30,26 +31,42 @@ test('catmullRomToBezier: single point returns that point as start, no segments'
 });
 
 test('catmullRomToBezier: two points produces exactly one segment ending at the second point', () => {
-  const pts = [{ x: 0, y: 0 }, { x: 10, y: 0 }];
+  const pts = [
+    { x: 0, y: 0 },
+    { x: 10, y: 0 },
+  ];
   const r = BezierSpline.catmullRomToBezier(pts, false);
   assert.strictEqual(r.segments.length, 1);
   assert.ok(pointsClose(r.segments[0].end, { x: 10, y: 0 }));
 });
 
 test('catmullRomToBezier: open path produces n-1 segments for n points, each ending at the next point', () => {
-  const pts = [{ x: 0, y: 0 }, { x: 10, y: 5 }, { x: 20, y: 0 }, { x: 30, y: 8 }];
+  const pts = [
+    { x: 0, y: 0 },
+    { x: 10, y: 5 },
+    { x: 20, y: 0 },
+    { x: 30, y: 8 },
+  ];
   const r = BezierSpline.catmullRomToBezier(pts, false);
   assert.strictEqual(r.segments.length, 3);
   for (let i = 0; i < 3; i++) {
-    assert.ok(pointsClose(r.segments[i].end, pts[i + 1]), `segment ${i} should end at pts[${i + 1}]`);
+    assert.ok(
+      pointsClose(r.segments[i].end, pts[i + 1]),
+      `segment ${i} should end at pts[${i + 1}]`,
+    );
   }
   assert.deepStrictEqual(r.start, pts[0]);
 });
 
 test('catmullRomToBezier: on a straight line, control points also fall exactly on the line (no curvature introduced)', () => {
-  const pts = [{ x: 0, y: 0 }, { x: 5, y: 0 }, { x: 10, y: 0 }, { x: 20, y: 0 }];
+  const pts = [
+    { x: 0, y: 0 },
+    { x: 5, y: 0 },
+    { x: 10, y: 0 },
+    { x: 20, y: 0 },
+  ];
   const r = BezierSpline.catmullRomToBezier(pts, false);
-  r.segments.forEach(s => {
+  r.segments.forEach((s) => {
     assert.ok(close(s.c1.y, 0), 'c1.y should stay on the line');
     assert.ok(close(s.c2.y, 0), 'c2.y should stay on the line');
   });
@@ -57,7 +74,13 @@ test('catmullRomToBezier: on a straight line, control points also fall exactly o
 
 test('catmullRomToBezier: closed ring (duplicated closing vertex) produces m segments and wraps continuously', () => {
   // Square ring, closing vertex duplicated as chaikinSmooth(...,closed=true) produces.
-  const square = [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }, { x: 0, y: 0 }];
+  const square = [
+    { x: 0, y: 0 },
+    { x: 10, y: 0 },
+    { x: 10, y: 10 },
+    { x: 0, y: 10 },
+    { x: 0, y: 0 },
+  ];
   const r = BezierSpline.catmullRomToBezier(square, true);
   assert.strictEqual(r.segments.length, 4);
   // Last segment should end back where it started (closed loop).
@@ -67,7 +90,12 @@ test('catmullRomToBezier: closed ring (duplicated closing vertex) produces m seg
 test('catmullRomToBezier: uneven point spacing does not overshoot wildly (centripetal, not uniform)', () => {
   // A pathological point set: one segment much shorter than its neighbors.
   // Uniform Catmull-Rom is known to overshoot/loop here; centripetal should not.
-  const pts = [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100.5, y: 0.5 }, { x: 200, y: 0 }];
+  const pts = [
+    { x: 0, y: 0 },
+    { x: 100, y: 0 },
+    { x: 100.5, y: 0.5 },
+    { x: 200, y: 0 },
+  ];
   const r = BezierSpline.catmullRomToBezier(pts, false);
   // Control points around the tiny middle segment should stay within a sane
   // bounding box of their neighbors — not fly off far past them.
@@ -80,19 +108,33 @@ test('catmullRomToBezier: uneven point spacing does not overshoot wildly (centri
 // ── bsplineToBezier ──────────────────────────────────────────────────────
 
 test('bsplineToBezier: open (non-closed) input returns no segments', () => {
-  const pts = [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }];
+  const pts = [
+    { x: 0, y: 0 },
+    { x: 10, y: 0 },
+    { x: 10, y: 10 },
+  ];
   const r = BezierSpline.bsplineToBezier(pts, false);
   assert.deepStrictEqual(r.segments, []);
 });
 
 test('bsplineToBezier: fewer than 3 unique points (after de-duplicating the closing vertex) returns no segments', () => {
-  const pts = [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 0, y: 0 }]; // 2 unique points, closed
+  const pts = [
+    { x: 0, y: 0 },
+    { x: 10, y: 0 },
+    { x: 0, y: 0 },
+  ]; // 2 unique points, closed
   const r = BezierSpline.bsplineToBezier(pts, true);
   assert.deepStrictEqual(r.segments, []);
 });
 
 test('bsplineToBezier: closed square ring produces one segment per edge, wrapping continuously', () => {
-  const square = [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }, { x: 0, y: 0 }];
+  const square = [
+    { x: 0, y: 0 },
+    { x: 10, y: 0 },
+    { x: 10, y: 10 },
+    { x: 0, y: 10 },
+    { x: 0, y: 0 },
+  ];
   const r = BezierSpline.bsplineToBezier(square, true);
   assert.strictEqual(r.segments.length, 4);
   // Each segment's end must equal the next segment's implicit start (C0 continuity) —
@@ -101,7 +143,11 @@ test('bsplineToBezier: closed square ring produces one segment per edge, wrappin
   // where segment i ended.
   for (let i = 0; i < 4; i++) {
     const nextStart = i === 3 ? r.start : undefined;
-    if (nextStart) assert.ok(pointsClose(r.segments[i].end, nextStart), 'ring should close back to its own start point');
+    if (nextStart)
+      assert.ok(
+        pointsClose(r.segments[i].end, nextStart),
+        'ring should close back to its own start point',
+      );
   }
 });
 
@@ -110,24 +156,41 @@ test('bsplineToBezier: every Bézier hull point is a convex combination of its 4
   // overshoot around it; B-spline must stay within the convex hull of every
   // 4-point window it blends.
   const ring = [
-    { x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 100, y: 11 }, { x: 0, y: 10 }, { x: 0, y: 0 }
+    { x: 0, y: 0 },
+    { x: 10, y: 0 },
+    { x: 10, y: 10 },
+    { x: 100, y: 11 },
+    { x: 0, y: 10 },
+    { x: 0, y: 0 },
   ];
   const r = BezierSpline.bsplineToBezier(ring, true);
   const unique = ring.slice(0, -1);
-  const minX = Math.min(...unique.map(p => p.x)) - 1e-6;
-  const maxX = Math.max(...unique.map(p => p.x)) + 1e-6;
-  const minY = Math.min(...unique.map(p => p.y)) - 1e-6;
-  const maxY = Math.max(...unique.map(p => p.y)) + 1e-6;
-  r.segments.forEach(s => {
-    [s.c1, s.c2, s.end].forEach(p => {
-      assert.ok(p.x >= minX && p.x <= maxX, `x=${p.x} escaped the source points' bounding box [${minX},${maxX}]`);
-      assert.ok(p.y >= minY && p.y <= maxY, `y=${p.y} escaped the source points' bounding box [${minY},${maxY}]`);
+  const minX = Math.min(...unique.map((p) => p.x)) - 1e-6;
+  const maxX = Math.max(...unique.map((p) => p.x)) + 1e-6;
+  const minY = Math.min(...unique.map((p) => p.y)) - 1e-6;
+  const maxY = Math.max(...unique.map((p) => p.y)) + 1e-6;
+  r.segments.forEach((s) => {
+    [s.c1, s.c2, s.end].forEach((p) => {
+      assert.ok(
+        p.x >= minX && p.x <= maxX,
+        `x=${p.x} escaped the source points' bounding box [${minX},${maxX}]`,
+      );
+      assert.ok(
+        p.y >= minY && p.y <= maxY,
+        `y=${p.y} escaped the source points' bounding box [${minY},${maxY}]`,
+      );
     });
   });
 });
 
 test('bsplineToBezier vs catmullRomToBezier: B-spline does not pass through the source vertices (approximating), Catmull-Rom does (interpolating)', () => {
-  const square = [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }, { x: 0, y: 0 }];
+  const square = [
+    { x: 0, y: 0 },
+    { x: 10, y: 0 },
+    { x: 10, y: 10 },
+    { x: 0, y: 10 },
+    { x: 0, y: 0 },
+  ];
   const catmull = BezierSpline.catmullRomToBezier(square, true);
   const bspline = BezierSpline.bsplineToBezier(square, true);
 
@@ -144,24 +207,48 @@ test('bsplineToBezier vs catmullRomToBezier: B-spline does not pass through the 
 test('fitPathD: formats SVG path data for empty, linear, and curved splines', () => {
   // Empty & single points
   assert.strictEqual(BezierSpline.fitPathD([]), '');
-  assert.strictEqual(BezierSpline.fitPathD([{ x: 10.5, y: 20.25 }]), 'M10.500 20.250');
+  assert.strictEqual(
+    BezierSpline.fitPathD([{ x: 10.5, y: 20.25 }]),
+    'M10.500 20.250',
+  );
 
   // Straight lines (2 points or curveMode='none')
-  const line = [{ x: 0, y: 0 }, { x: 10, y: 10 }];
-  assert.strictEqual(BezierSpline.fitPathD(line), 'M0.000 0.000 L10.000 10.000');
-  assert.strictEqual(BezierSpline.fitPathD(line, { closed: true }), 'M0.000 0.000 L10.000 10.000 Z');
+  const line = [
+    { x: 0, y: 0 },
+    { x: 10, y: 10 },
+  ];
+  assert.strictEqual(
+    BezierSpline.fitPathD(line),
+    'M0.000 0.000 L10.000 10.000',
+  );
+  assert.strictEqual(
+    BezierSpline.fitPathD(line, { closed: true }),
+    'M0.000 0.000 L10.000 10.000 Z',
+  );
 
   // Catmull-Rom curved path
-  const curve = [{ x: 0, y: 0 }, { x: 10, y: 5 }, { x: 20, y: 0 }];
+  const curve = [
+    { x: 0, y: 0 },
+    { x: 10, y: 5 },
+    { x: 20, y: 0 },
+  ];
   const dCurve = BezierSpline.fitPathD(curve, { curveMode: 'catmull-rom' });
   assert.ok(dCurve.startsWith('M0.000 0.000 C'));
   assert.ok(dCurve.includes('20.000 0.000'));
 
   // Closed B-spline path
-  const closedSquare = [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }, { x: 0, y: 0 }];
-  const dBSpline = BezierSpline.fitPathD(closedSquare, { curveMode: 'bspline', closed: true });
+  const closedSquare = [
+    { x: 0, y: 0 },
+    { x: 10, y: 0 },
+    { x: 10, y: 10 },
+    { x: 0, y: 10 },
+    { x: 0, y: 0 },
+  ];
+  const dBSpline = BezierSpline.fitPathD(closedSquare, {
+    curveMode: 'bspline',
+    closed: true,
+  });
   assert.ok(dBSpline.startsWith('M'));
   assert.ok(dBSpline.endsWith(' Z'));
   assert.ok(dBSpline.includes(' C'));
 });
-

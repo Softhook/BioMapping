@@ -67,7 +67,8 @@ export const GSRLayoutManager = {
       if (typeof GSRGlobe3DView === 'undefined') return;
       if (GSRGlobe3DView.onResize) GSRGlobe3DView.onResize();
       // Fullscreen hides the GSR graph — stop the globe's reverse-hover scrub.
-      if (GSRGlobe3DView.onPanelFullscreenChange) GSRGlobe3DView.onPanelFullscreenChange(on);
+      if (GSRGlobe3DView.onPanelFullscreenChange)
+        GSRGlobe3DView.onPanelFullscreenChange(on);
     });
     this.setupPanelFullscreen('btnEventsFullscreen', 'eventsPanel');
     this.setupPanelFullscreen('btnEnvFullscreen', 'environmentalPanel');
@@ -89,7 +90,11 @@ export const GSRLayoutManager = {
     if (canvasContainer) {
       this._canvasObserver = new ResizeObserver((entries) => {
         const e = entries[entries.length - 1];
-        this._scheduleResize('canvas', e.contentRect.width, e.contentRect.height);
+        this._scheduleResize(
+          'canvas',
+          e.contentRect.width,
+          e.contentRect.height,
+        );
       });
       this._canvasObserver.observe(canvasContainer);
     }
@@ -112,7 +117,9 @@ export const GSRLayoutManager = {
       this._globeObserver.observe(globeElement);
     }
 
-    const regressionContainer = document.querySelector('.regression-chart-container');
+    const regressionContainer = document.querySelector(
+      '.regression-chart-container',
+    );
     if (regressionContainer) {
       this._regressionObserver = new ResizeObserver(() => {
         this._scheduleResize('regression');
@@ -141,9 +148,10 @@ export const GSRLayoutManager = {
     this._pendingResizes.set(role, { w, h });
 
     if (this._resizeRaf) return;
-    const raf = (typeof requestAnimationFrame === 'function')
-      ? requestAnimationFrame
-      : (fn) => setTimeout(fn, 0);
+    const raf =
+      typeof requestAnimationFrame === 'function'
+        ? requestAnimationFrame
+        : (fn) => setTimeout(fn, 0);
     this._resizeRaf = raf(() => {
       this._resizeRaf = null;
       const pending = this._pendingResizes;
@@ -152,8 +160,11 @@ export const GSRLayoutManager = {
       for (const [r, dims] of pending.entries()) {
         if (r === 'canvas') this.resizeCanvas(dims.w, dims.h);
         else if (r === 'map') this.resizeMap(dims.w, dims.h);
-        else if (r === 'regression' && typeof GSRUI !== 'undefined' &&
-                 typeof GSRUI.drawRegressionScatterPlot === 'function') {
+        else if (
+          r === 'regression' &&
+          typeof GSRUI !== 'undefined' &&
+          typeof GSRUI.drawRegressionScatterPlot === 'function'
+        ) {
           GSRUI.drawRegressionScatterPlot();
         }
       }
@@ -238,8 +249,13 @@ export const GSRLayoutManager = {
 
   /** @private Whether the Live view tab is the one on screen. */
   _isLiveView() {
-    return (typeof AppState !== 'undefined' && AppState.viewMode === 'live') ||
-      !!(typeof document !== 'undefined' && document.querySelector('.app-container.live-mode'));
+    return (
+      (typeof AppState !== 'undefined' && AppState.viewMode === 'live') ||
+      !!(
+        typeof document !== 'undefined' &&
+        document.querySelector('.app-container.live-mode')
+      )
+    );
   },
 
   /** @private Whether Live display mode is currently on. */
@@ -299,8 +315,14 @@ export const GSRLayoutManager = {
    * @private
    */
   _triggerPanelResize(panelId, overlay) {
-    const w = (overlay && overlay.clientWidth) || window.innerWidth || document.documentElement.clientWidth;
-    const h = (overlay && overlay.clientHeight) || window.innerHeight || document.documentElement.clientHeight;
+    const w =
+      (overlay && overlay.clientWidth) ||
+      window.innerWidth ||
+      document.documentElement.clientWidth;
+    const h =
+      (overlay && overlay.clientHeight) ||
+      window.innerHeight ||
+      document.documentElement.clientHeight;
 
     if (panelId === 'mapPanel') {
       this.resizeMap(w, h);
@@ -317,7 +339,11 @@ export const GSRLayoutManager = {
     this._shortcutsBound = true;
 
     document.addEventListener('keydown', (e) => {
-      if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
+      if (
+        e.target &&
+        (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')
+      )
+        return;
 
       if (e.key === 'f' || e.key === 'F') {
         e.preventDefault();
@@ -382,7 +408,11 @@ export const GSRLayoutManager = {
       // #liveMap is under no ResizeObserver — re-measure it now that the
       // viewport has actually changed size (the request()/exit() call that
       // started this is async; the size only settles here).
-      if (this._isLiveView() && typeof GSRLiveView !== 'undefined' && GSRLiveView.onDisplayModeChange) {
+      if (
+        this._isLiveView() &&
+        typeof GSRLiveView !== 'undefined' &&
+        GSRLiveView.onDisplayModeChange
+      ) {
         GSRLiveView.onDisplayModeChange(active);
       }
     });
@@ -407,7 +437,8 @@ export const GSRLayoutManager = {
     this._fsTearDownTimer = setTimeout(() => {
       // Fullscreen was re-asserted (e.g. GSRFullscreen's sticky restore) or the
       // page is hidden (phone lock) — leave the chrome in place either way.
-      if (GSRFullscreen.active || document.visibilityState !== 'visible') return;
+      if (GSRFullscreen.active || document.visibilityState !== 'visible')
+        return;
 
       if (this._liveDisplayModeActive()) {
         el.classList.remove('live-display-mode');
@@ -423,17 +454,17 @@ export const GSRLayoutManager = {
    * Bind specific section panel fullscreen modes.
    */
   setupPanelFullscreen(btnId, panelId, onStateChange) {
-    const btn   = document.getElementById(btnId);
+    const btn = document.getElementById(btnId);
     const panel = document.getElementById(panelId);
     if (!btn || !panel) return;
 
     let overlay = null;
-    let marker  = null;
-    let isFs    = false;
+    let marker = null;
+    let isFs = false;
 
     const getOverlayParent = () => {
       const fsEl = document.querySelector('.app-container');
-      return (GSRFullscreen.active && fsEl) ? fsEl : document.body;
+      return GSRFullscreen.active && fsEl ? fsEl : document.body;
     };
 
     const enter = () => {
@@ -483,7 +514,10 @@ export const GSRLayoutManager = {
         overlay = null;
       }
 
-      if (this._activeFullscreenPanel && this._activeFullscreenPanel.exit === exit) {
+      if (
+        this._activeFullscreenPanel &&
+        this._activeFullscreenPanel.exit === exit
+      ) {
         this._activeFullscreenPanel = null;
       }
 
@@ -502,5 +536,5 @@ export const GSRLayoutManager = {
    */
   exitAllPanelFullscreen() {
     this._activePanelExits.forEach((exitFn) => exitFn());
-  }
+  },
 };

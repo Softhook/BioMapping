@@ -5,20 +5,32 @@
  * Run: node visualiser/tests/test_osm_hard_shapes.js
  */
 const assert = require('assert');
-const path   = require('path');
+const path = require('path');
 
 global.window = global;
 global.GSR_CONST = require('./mock_constants.js');
 
 const { loadModule } = require('./support/load_module.js');
 
-loadModule(path.join(__dirname, '../src/signal/stats_math.js'),      'StatsMath');
-loadModule(path.join(__dirname, '../src/map/map_colors.js'),      'MapColors');
-loadModule(path.join(__dirname, '../src/gps/geo_utils.js'),       'GeoUtils');
-loadModule(path.join(__dirname, '../src/render/marching_squares.js'),'MarchingSquares');
-loadModule(path.join(__dirname, '../src/spatial/spatial_clustering.js'), 'GSRSpatialClustering');
-loadModule(path.join(__dirname, '../src/render/bezier_spline.js'),   'BezierSpline');
-loadModule(path.join(__dirname, '../src/map/map_exporter.js'),   'GSRMapExporter');
+loadModule(path.join(__dirname, '../src/signal/stats_math.js'), 'StatsMath');
+loadModule(path.join(__dirname, '../src/map/map_colors.js'), 'MapColors');
+loadModule(path.join(__dirname, '../src/gps/geo_utils.js'), 'GeoUtils');
+loadModule(
+  path.join(__dirname, '../src/render/marching_squares.js'),
+  'MarchingSquares',
+);
+loadModule(
+  path.join(__dirname, '../src/spatial/spatial_clustering.js'),
+  'GSRSpatialClustering',
+);
+loadModule(
+  path.join(__dirname, '../src/render/bezier_spline.js'),
+  'BezierSpline',
+);
+loadModule(
+  path.join(__dirname, '../src/map/map_exporter.js'),
+  'GSRMapExporter',
+);
 
 const GSRMapExporter = global.GSRMapExporter;
 
@@ -27,14 +39,20 @@ console.log('── Running OSM Hard-Shape Export Regression Test ──');
 // Minimal fake Leaflet: just enough for _pathEl's `instanceof window.L.Polygon` check
 // and getLatLngs()/options, mirroring what map.js's drawOsmShapes() actually creates.
 class FakePolygon {
-  constructor(latlngs, options) { this._latlngs = latlngs; this.options = options; }
-  getLatLngs() { return this._latlngs; }
+  constructor(latlngs, options) {
+    this._latlngs = latlngs;
+    this.options = options;
+  }
+  getLatLngs() {
+    return this._latlngs;
+  }
 }
 global.L = { Polygon: FakePolygon };
 
 const project = (ll) => {
   const lat = ll.lat !== undefined ? ll.lat : ll[0];
-  const lon = ll.lon !== undefined ? ll.lon : (ll.lng !== undefined ? ll.lng : ll[1]);
+  const lon =
+    ll.lon !== undefined ? ll.lon : ll.lng !== undefined ? ll.lng : ll[1];
   return { x: lon * 100000, y: lat * 100000 };
 };
 const ctx = { project };
@@ -44,25 +62,40 @@ const ctx = { project };
 // the old micro-jitter culling would have silently deleted as "noise".
 const building = new FakePolygon(
   [
-    { lat: 51.50000, lon: -0.10000 },
-    { lat: 51.50000, lon: -0.09980 },
-    { lat: 51.50001, lon: -0.09980 }, // ~1.1px from the previous point at this projection scale
-    { lat: 51.50001, lon: -0.10000 }
+    { lat: 51.5, lon: -0.1 },
+    { lat: 51.5, lon: -0.0998 },
+    { lat: 51.50001, lon: -0.0998 }, // ~1.1px from the previous point at this projection scale
+    { lat: 51.50001, lon: -0.1 },
   ],
-  { color: '#4a4e69', fillColor: '#9a8c98', fillOpacity: 0.1, weight: 1 }
+  { color: '#4a4e69', fillColor: '#9a8c98', fillOpacity: 0.1, weight: 1 },
 );
 
 const svgExact = GSRMapExporter._pathEl(ctx, building, { exact: true });
 assert(svgExact, '_pathEl returns an SVG path for the OSM building polygon');
-assert(!svgExact.includes(' C'), 'Exact OSM export uses straight line segments only — no Bézier "C" curve commands');
-assert(svgExact.includes('stroke-linejoin="miter"'), 'Exact OSM export uses sharp miter joins, not rounded corners');
-assert(svgExact.includes('stroke-linecap="square"'), 'Exact OSM export uses square line caps, not rounded caps');
+assert(
+  !svgExact.includes(' C'),
+  'Exact OSM export uses straight line segments only — no Bézier "C" curve commands',
+);
+assert(
+  svgExact.includes('stroke-linejoin="miter"'),
+  'Exact OSM export uses sharp miter joins, not rounded corners',
+);
+assert(
+  svgExact.includes('stroke-linecap="square"'),
+  'Exact OSM export uses square line caps, not rounded caps',
+);
 
 // Count the number of "L" line-to commands — with exact:true, all 4 vertices should
 // survive (M + 3 L + Z), even though one pair of consecutive points is sub-1.5px apart.
 const lCount = (svgExact.match(/L/g) || []).length;
-assert.strictEqual(lCount, 3, `All 4 building vertices are preserved in the exact path (expected 3 "L" commands, got ${lCount})`);
-console.log('✓ Exact OSM export preserves every vertex with straight, sharp-cornered geometry');
+assert.strictEqual(
+  lCount,
+  3,
+  `All 4 building vertices are preserved in the exact path (expected 3 "L" commands, got ${lCount})`,
+);
+console.log(
+  '✓ Exact OSM export preserves every vertex with straight, sharp-cornered geometry',
+);
 
 // Sanity check against the OLD (non-exact) behavior applied to the same shape: this
 // is what tracks/isolines still get, and it's expected to smooth + cull.
@@ -70,9 +103,11 @@ const svgSmoothed = GSRMapExporter._pathEl(ctx, building);
 const lCountSmoothed = (svgSmoothed.match(/L/g) || []).length;
 assert(
   svgSmoothed.includes(' C') || lCountSmoothed < lCount,
-  'Sanity check: non-exact path either curves (Bézier) or culls the close-together vertex — confirms exact:true is the thing making the difference'
+  'Sanity check: non-exact path either curves (Bézier) or culls the close-together vertex — confirms exact:true is the thing making the difference',
 );
-console.log('✓ Confirmed default (non-exact) rendering is the one that smooths/culls — exact:true is the fix');
+console.log(
+  '✓ Confirmed default (non-exact) rendering is the one that smooths/culls — exact:true is the fix',
+);
 
 console.log('\n============================================================');
 console.log('OSM Hard-Shape Export Regression Test: ALL PASSED');

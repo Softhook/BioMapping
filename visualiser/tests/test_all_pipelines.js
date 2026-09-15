@@ -8,7 +8,7 @@
  * Run: node visualiser/tests/test_all_pipelines.js
  */
 
-const fs   = require('fs');
+const fs = require('fs');
 const path = require('path');
 
 // ── Bootstrap scope ─────────────────────────────────────────────────────────
@@ -17,28 +17,49 @@ global.GSR_CONST = require('./mock_constants.js');
 
 const { loadModule } = require('./support/load_module.js');
 
-loadModule(path.join(__dirname, '../src/gps/geo_utils.js'),          'GeoUtils');
-loadModule(path.join(__dirname, '../src/signal/stats_math.js'),         'StatsMath');
-loadModule(path.join(__dirname, '../src/map/map_colors.js'),         'MapColors');
-loadModule(path.join(__dirname, '../src/gps/gps_filter.js'),         'GpsFilter');
-loadModule(path.join(__dirname, '../src/gps/gps_pipeline.js'),       'GpsPipeline');
-loadModule(path.join(__dirname, '../src/signal/dwt_filter.js'),         'DWT');
-loadModule(path.join(__dirname, '../src/signal/gsr_filter.js'),         'GsrFilter');
-loadModule(path.join(__dirname, '../src/spatial/spatial_clustering.js'), 'GSRSpatialClustering');
-loadModule(path.join(__dirname, '../src/render/marching_squares.js'),   'MarchingSquares');
-loadModule(path.join(__dirname, '../src/spatial/collective_manager.js'), 'GSRCollectiveManager');
-loadModule(path.join(__dirname, '../src/signal/deconvolution.js'),  'SCRDeconvolution');
-loadModule(path.join(__dirname, '../src/signal/csv_parser.js'),     'GSRCSVParser');
-loadModule(path.join(__dirname, '../src/signal/analyzer.js'),       'GSRAnalyzer');
+loadModule(path.join(__dirname, '../src/gps/geo_utils.js'), 'GeoUtils');
+loadModule(path.join(__dirname, '../src/signal/stats_math.js'), 'StatsMath');
+loadModule(path.join(__dirname, '../src/map/map_colors.js'), 'MapColors');
+loadModule(path.join(__dirname, '../src/gps/gps_filter.js'), 'GpsFilter');
+loadModule(path.join(__dirname, '../src/gps/gps_pipeline.js'), 'GpsPipeline');
+loadModule(path.join(__dirname, '../src/signal/dwt_filter.js'), 'DWT');
+loadModule(path.join(__dirname, '../src/signal/gsr_filter.js'), 'GsrFilter');
+loadModule(
+  path.join(__dirname, '../src/spatial/spatial_clustering.js'),
+  'GSRSpatialClustering',
+);
+loadModule(
+  path.join(__dirname, '../src/render/marching_squares.js'),
+  'MarchingSquares',
+);
+loadModule(
+  path.join(__dirname, '../src/spatial/collective_manager.js'),
+  'GSRCollectiveManager',
+);
+loadModule(
+  path.join(__dirname, '../src/signal/deconvolution.js'),
+  'SCRDeconvolution',
+);
+loadModule(path.join(__dirname, '../src/signal/csv_parser.js'), 'GSRCSVParser');
+loadModule(path.join(__dirname, '../src/signal/analyzer.js'), 'GSRAnalyzer');
 
 const {
-  GeoUtils, StatsMath, MapColors, GpsFilter, GpsPipeline,
-  DWT, GsrFilter, GSRSpatialClustering, MarchingSquares, GSRCollectiveManager,
-  GSRAnalyzer
+  GeoUtils,
+  StatsMath,
+  MapColors,
+  GpsFilter,
+  GpsPipeline,
+  DWT,
+  GsrFilter,
+  GSRSpatialClustering,
+  MarchingSquares,
+  GSRCollectiveManager,
+  GSRAnalyzer,
 } = global;
 
 // ── Test framework ──────────────────────────────────────────────────────────
-let passed = 0, failed = 0;
+let passed = 0,
+  failed = 0;
 function assert(cond, msg) {
   if (cond) {
     passed++;
@@ -52,7 +73,11 @@ function assertEq(a, b, msg) {
     passed++;
   } else {
     failed++;
-    console.error('  FAIL:', msg, `expected ${JSON.stringify(b)}, got ${JSON.stringify(a)}`);
+    console.error(
+      '  FAIL:',
+      msg,
+      `expected ${JSON.stringify(b)}, got ${JSON.stringify(a)}`,
+    );
   }
 }
 function assertClose(a, b, tol, msg) {
@@ -71,86 +96,153 @@ const csvText = fs.readFileSync(csvPath, 'utf8');
 const analyzer = new GSRAnalyzer();
 analyzer.parseCSV(csvText);
 
-console.log(`  Parsed ${analyzer.raw.length} samples at ${analyzer.sampleRate.toFixed(1)} Hz`);
+console.log(
+  `  Parsed ${analyzer.raw.length} samples at ${analyzer.sampleRate.toFixed(1)} Hz`,
+);
 
 // ════════════════════════════════════════════════════════════════════════════
 //  1. GSR FILTERS & TONIC/PHASIC DECOMPOSITION
 // ════════════════════════════════════════════════════════════════════════════
 console.log('\n── 1. GSR Filter & Tonic/Phasic Decomposition ──');
 
-const gsrRaw = analyzer.raw.map(d => d.val).filter(v => !isNaN(v));
+const gsrRaw = analyzer.raw.map((d) => d.val).filter((v) => !isNaN(v));
 assert(gsrRaw.length > 100, 'Track contains sufficient raw GSR points');
 
 // Verify GsrFilter methods exist and are runnable
-assert(typeof GsrFilter.applyMedianFilter === 'function', 'GsrFilter.applyMedianFilter is a function');
-assert(typeof GsrFilter.applyZeroPhaseMovingAverage === 'function', 'GsrFilter.applyZeroPhaseMovingAverage is a function');
-assert(typeof GsrFilter.applyPercentileFilter === 'function', 'GsrFilter.applyPercentileFilter is a function');
-assert(typeof GsrFilter.applyZeroPhaseEMA === 'function', 'GsrFilter.applyZeroPhaseEMA is a function');
+assert(
+  typeof GsrFilter.applyMedianFilter === 'function',
+  'GsrFilter.applyMedianFilter is a function',
+);
+assert(
+  typeof GsrFilter.applyZeroPhaseMovingAverage === 'function',
+  'GsrFilter.applyZeroPhaseMovingAverage is a function',
+);
+assert(
+  typeof GsrFilter.applyPercentileFilter === 'function',
+  'GsrFilter.applyPercentileFilter is a function',
+);
+assert(
+  typeof GsrFilter.applyZeroPhaseEMA === 'function',
+  'GsrFilter.applyZeroPhaseEMA is a function',
+);
 
 // Run filter tests
 const medResult = GsrFilter.applyMedianFilter(gsrRaw, 5);
 assertEq(medResult.length, gsrRaw.length, 'applyMedianFilter preserves length');
 
 const smoothResult = GsrFilter.applyZeroPhaseMovingAverage(gsrRaw, 10);
-assertEq(smoothResult.length, gsrRaw.length, 'applyZeroPhaseMovingAverage preserves length');
+assertEq(
+  smoothResult.length,
+  gsrRaw.length,
+  'applyZeroPhaseMovingAverage preserves length',
+);
 
 // applyZeroPhaseButterworth & applyZeroPhaseLinkwitzRiley (the default gait
 // LPF stage, see analyzer.js step 2 + GSR_CONST.GAIT_FILTER) — checks they
 // behave like real IIR filters (DC passthrough, genuine attenuation of a fast
 // oscillation) rather than just existing.
-assert(typeof GsrFilter.applyZeroPhaseButterworth === 'function', 'GsrFilter.applyZeroPhaseButterworth is a function');
+assert(
+  typeof GsrFilter.applyZeroPhaseButterworth === 'function',
+  'GsrFilter.applyZeroPhaseButterworth is a function',
+);
 const sr = 10;
 const n = 500;
 const constSignal = new Array(n).fill(3.0);
-const butterConst = GsrFilter.applyZeroPhaseButterworth(constSignal, 0.8, 4, sr);
+const butterConst = GsrFilter.applyZeroPhaseButterworth(
+  constSignal,
+  0.8,
+  4,
+  sr,
+);
 assertEq(butterConst.length, n, 'applyZeroPhaseButterworth preserves length');
-assert(butterConst.every(v => Math.abs(v - 3.0) < 1e-6), 'applyZeroPhaseButterworth passes DC through at unity gain');
-const fastTone = Array.from({ length: n }, (_, i) => Math.sin(2 * Math.PI * 2.0 * i / sr)); // 2Hz, above the 0.8Hz cutoff
+assert(
+  butterConst.every((v) => Math.abs(v - 3.0) < 1e-6),
+  'applyZeroPhaseButterworth passes DC through at unity gain',
+);
+const fastTone = Array.from({ length: n }, (_, i) =>
+  Math.sin((2 * Math.PI * 2.0 * i) / sr),
+); // 2Hz, above the 0.8Hz cutoff
 const filteredTone = GsrFilter.applyZeroPhaseButterworth(fastTone, 0.8, 4, sr);
 const rms = (arr) => Math.sqrt(arr.reduce((s, v) => s + v * v, 0) / arr.length);
-assert(rms(filteredTone) < rms(fastTone) * 0.2, 'applyZeroPhaseButterworth substantially attenuates a tone above its cutoff');
+assert(
+  rms(filteredTone) < rms(fastTone) * 0.2,
+  'applyZeroPhaseButterworth substantially attenuates a tone above its cutoff',
+);
 
 // applyZeroPhaseLinkwitzRiley: LR4 low-pass filter
-assert(typeof GsrFilter.applyZeroPhaseLinkwitzRiley === 'function', 'GsrFilter.applyZeroPhaseLinkwitzRiley is a function');
+assert(
+  typeof GsrFilter.applyZeroPhaseLinkwitzRiley === 'function',
+  'GsrFilter.applyZeroPhaseLinkwitzRiley is a function',
+);
 const lrConst = GsrFilter.applyZeroPhaseLinkwitzRiley(constSignal, 1.0, sr);
 assertEq(lrConst.length, n, 'applyZeroPhaseLinkwitzRiley preserves length');
-assert(lrConst.every(v => Math.abs(v - 3.0) < 1e-6), 'applyZeroPhaseLinkwitzRiley passes DC through at unity gain');
+assert(
+  lrConst.every((v) => Math.abs(v - 3.0) < 1e-6),
+  'applyZeroPhaseLinkwitzRiley passes DC through at unity gain',
+);
 const lrFilteredTone = GsrFilter.applyZeroPhaseLinkwitzRiley(fastTone, 1.0, sr);
-assert(rms(lrFilteredTone) < rms(fastTone) * 0.2, 'applyZeroPhaseLinkwitzRiley substantially attenuates a tone above its cutoff');
+assert(
+  rms(lrFilteredTone) < rms(fastTone) * 0.2,
+  'applyZeroPhaseLinkwitzRiley substantially attenuates a tone above its cutoff',
+);
 
 // Run full analysis pipeline (percentile baseline)
 const analyzeParams = {
   ...GSR_CONST.GSR_DEFAULT,
   tonicMethod: 'percentile',
-  peakThreshold: 0.05
+  peakThreshold: 0.05,
 };
 analyzer.analyze(analyzeParams);
 
-assert(analyzer.tonic.length === gsrRaw.length, 'Tonic decomposition matches signal length');
-assert(analyzer.phasic.length === gsrRaw.length, 'Phasic decomposition matches signal length');
+assert(
+  analyzer.tonic.length === gsrRaw.length,
+  'Tonic decomposition matches signal length',
+);
+assert(
+  analyzer.phasic.length === gsrRaw.length,
+  'Phasic decomposition matches signal length',
+);
 
 // Check that tonic component represents a smooth baseline (low frequency)
 let tonicMaxDiff = 0;
 for (let i = 1; i < analyzer.tonic.length; i++) {
-  tonicMaxDiff = Math.max(tonicMaxDiff, Math.abs(analyzer.tonic[i].val - analyzer.tonic[i - 1].val));
+  tonicMaxDiff = Math.max(
+    tonicMaxDiff,
+    Math.abs(analyzer.tonic[i].val - analyzer.tonic[i - 1].val),
+  );
 }
-assert(tonicMaxDiff < 5.0, `Tonic baseline is smooth: max step = ${tonicMaxDiff.toFixed(3)} µS`);
+assert(
+  tonicMaxDiff < 5.0,
+  `Tonic baseline is smooth: max step = ${tonicMaxDiff.toFixed(3)} µS`,
+);
 
 // Check that phasic component has values close to zero but fluctuating
-const phasicVals = analyzer.phasic.map(d => d.val);
+const phasicVals = analyzer.phasic.map((d) => d.val);
 const phasicAvg = phasicVals.reduce((a, b) => a + b, 0) / phasicVals.length;
-assertClose(phasicAvg, 0.1, 0.5, `Phasic average fluctuates near zero: avg = ${phasicAvg.toFixed(4)}`);
+assertClose(
+  phasicAvg,
+  0.1,
+  0.5,
+  `Phasic average fluctuates near zero: avg = ${phasicAvg.toFixed(4)}`,
+);
 
 // Verify final clamp ensures zero negativity
-const negativePhasic = phasicVals.filter(v => v < 0);
-assertEq(negativePhasic.length, 0, 'Phasic final clamp prevents negative values');
+const negativePhasic = phasicVals.filter((v) => v < 0);
+assertEq(
+  negativePhasic.length,
+  0,
+  'Phasic final clamp prevents negative values',
+);
 
 // ════════════════════════════════════════════════════════════════════════════
 //  2. PHASIC PEAK DETECTION ALGORITHMS
 // ════════════════════════════════════════════════════════════════════════════
 console.log('\n── 2. GSR Phasic Peak Detection ──');
 
-assert(analyzer.peaks.length > 0, `Peaks detected in track: ${analyzer.peaks.length}`);
+assert(
+  analyzer.peaks.length > 0,
+  `Peaks detected in track: ${analyzer.peaks.length}`,
+);
 console.log(`  Detected ${analyzer.peaks.length} phasic peaks`);
 
 // Verify peak shapes have all required physical metrics
@@ -162,7 +254,7 @@ console.log('  Sample Peak Metrics:', {
   onsetSlope: firstPeak.onsetSlope.toFixed(3),
   decaySlope: firstPeak.decaySlope.toFixed(3),
   snr: firstPeak.snr.toFixed(1),
-  qualityScore: firstPeak.qualityScore.toFixed(2)
+  qualityScore: firstPeak.qualityScore.toFixed(2),
 });
 
 assert('amplitude' in firstPeak, 'Peak has amplitude metric');
@@ -174,32 +266,69 @@ assert('snr' in firstPeak, 'Peak has snr metric');
 assert('qualityScore' in firstPeak, 'Peak has qualityScore');
 
 // Check that peak quality scores fall in [0, 1] range
-const outOfBoundsQuality = analyzer.peaks.filter(p => p.qualityScore < 0 || p.qualityScore > 1.0);
-assertEq(outOfBoundsQuality.length, 0, 'All peak quality scores are between 0.0 and 1.0');
+const outOfBoundsQuality = analyzer.peaks.filter(
+  (p) => p.qualityScore < 0 || p.qualityScore > 1.0,
+);
+assertEq(
+  outOfBoundsQuality.length,
+  0,
+  'All peak quality scores are between 0.0 and 1.0',
+);
 
 // ════════════════════════════════════════════════════════════════════════════
 //  2b. CONTINUOUS AROUSAL METRICS (ISCR/AUC + COMBINED AROUSAL INDEX)
 // ════════════════════════════════════════════════════════════════════════════
-console.log('\n── 2b. Continuous Arousal Metrics (Peak Density / Phasic AUC / Arousal Index / Tri Index) ──');
+console.log(
+  '\n── 2b. Continuous Arousal Metrics (Peak Density / Phasic AUC / Arousal Index / Tri Index) ──',
+);
 
 // analyze() should have already populated these caches
-assert(analyzer.peakDensity.length === gsrRaw.length, 'peakDensity series matches signal length');
-assert(analyzer.phasicAUC.length === gsrRaw.length, 'phasicAUC series matches signal length');
-assert(analyzer.arousalIndex.length === gsrRaw.length, 'arousalIndex series matches signal length');
-assert(analyzer.triIndex.length === gsrRaw.length, 'triIndex series matches signal length');
+assert(
+  analyzer.peakDensity.length === gsrRaw.length,
+  'peakDensity series matches signal length',
+);
+assert(
+  analyzer.phasicAUC.length === gsrRaw.length,
+  'phasicAUC series matches signal length',
+);
+assert(
+  analyzer.arousalIndex.length === gsrRaw.length,
+  'arousalIndex series matches signal length',
+);
+assert(
+  analyzer.triIndex.length === gsrRaw.length,
+  'triIndex series matches signal length',
+);
 
 // Peak density should be non-negative and bounded by a sane peaks/min ceiling
-const peakDensityVals = analyzer.peakDensity.map(d => d.val);
-assert(peakDensityVals.every(v => v >= 0), 'peakDensity values are non-negative');
-assert(peakDensityVals.every(v => v <= 200), 'peakDensity values stay within a plausible peaks/min ceiling');
+const peakDensityVals = analyzer.peakDensity.map((d) => d.val);
+assert(
+  peakDensityVals.every((v) => v >= 0),
+  'peakDensity values are non-negative',
+);
+assert(
+  peakDensityVals.every((v) => v <= 200),
+  'peakDensity values stay within a plausible peaks/min ceiling',
+);
 
 // Cross-check Gaussian KDE peakDensity against a naive brute-force O(n·m) evaluation
-const activePeakTimes = analyzer.peaks.filter(p => !p.excluded).map(p => p.time);
-const winSec = (typeof GSR_CONST !== 'undefined' && GSR_CONST.TEMPORAL_PEAK_DENSITY && GSR_CONST.TEMPORAL_PEAK_DENSITY.windowSizeSec) || 60;
+const activePeakTimes = analyzer.peaks
+  .filter((p) => !p.excluded)
+  .map((p) => p.time);
+const winSec =
+  (typeof GSR_CONST !== 'undefined' &&
+    GSR_CONST.TEMPORAL_PEAK_DENSITY &&
+    GSR_CONST.TEMPORAL_PEAK_DENSITY.windowSizeSec) ||
+  60;
 const sigma = winSec / 4.0;
 const twoSigmaSq = 2 * sigma * sigma;
 const normFactor = 60.0 / (Math.sqrt(2 * Math.PI) * sigma);
-const checkIdxs = [0, Math.floor(gsrRaw.length / 3), Math.floor(gsrRaw.length / 2), gsrRaw.length - 1];
+const checkIdxs = [
+  0,
+  Math.floor(gsrRaw.length / 3),
+  Math.floor(gsrRaw.length / 2),
+  gsrRaw.length - 1,
+];
 let densityMismatch = 0;
 for (const idx of checkIdxs) {
   const t = analyzer.phasic[idx].time;
@@ -211,13 +340,21 @@ for (const idx of checkIdxs) {
     }
   }
   const expected = bruteSum * normFactor;
-  if (Math.abs(analyzer.peakDensity[idx].val - expected) > 1e-6) densityMismatch++;
+  if (Math.abs(analyzer.peakDensity[idx].val - expected) > 1e-6)
+    densityMismatch++;
 }
-assertEq(densityMismatch, 0, 'Two-pointer Gaussian KDE peakDensity matches brute-force at sampled indices');
+assertEq(
+  densityMismatch,
+  0,
+  'Two-pointer Gaussian KDE peakDensity matches brute-force at sampled indices',
+);
 
 // Phasic AUC should be non-negative (integral of a rectified, ≥0 signal)
-const aucVals = analyzer.phasicAUC.map(d => d.val);
-assert(aucVals.every(v => v >= -1e-9), 'phasicAUC values are non-negative');
+const aucVals = analyzer.phasicAUC.map((d) => d.val);
+assert(
+  aucVals.every((v) => v >= -1e-9),
+  'phasicAUC values are non-negative',
+);
 
 // Manually verify computePhasicAUC's centered-window running sum against a direct
 // trapezoid-free sum at a few interior indices, using a short window for a cheap
@@ -226,7 +363,11 @@ assert(aucVals.every(v => v >= -1e-9), 'phasicAUC values are non-negative');
 const shortWin = 5; // seconds
 const shortAuc = analyzer.computePhasicAUC(shortWin);
 const halfWinSamples = Math.round((shortWin / 2) * analyzer.sampleRate);
-const aucCheckIdxs = [halfWinSamples + 50, Math.floor(analyzer.phasic.length / 2), analyzer.phasic.length - 1 - halfWinSamples];
+const aucCheckIdxs = [
+  halfWinSamples + 50,
+  Math.floor(analyzer.phasic.length / 2),
+  analyzer.phasic.length - 1 - halfWinSamples,
+];
 let aucMismatch = 0;
 for (const idx of aucCheckIdxs) {
   if (idx < 0 || idx >= analyzer.phasic.length) continue;
@@ -235,12 +376,17 @@ for (const idx of aucCheckIdxs) {
   let directSum = 0;
   for (let j = 0; j < analyzer.phasic.length; j++) {
     const jt = analyzer.phasic[j].time;
-    if (jt >= t - halfWin && jt <= t + halfWin) directSum += Math.max(0, analyzer.phasic[j].val);
+    if (jt >= t - halfWin && jt <= t + halfWin)
+      directSum += Math.max(0, analyzer.phasic[j].val);
   }
   const directAuc = directSum / analyzer.sampleRate;
   if (Math.abs(shortAuc[idx].val - directAuc) > 1e-6) aucMismatch++;
 }
-assertEq(aucMismatch, 0, `computePhasicAUC(${shortWin}s) centered window matches direct windowed sum at sampled indices`);
+assertEq(
+  aucMismatch,
+  0,
+  `computePhasicAUC(${shortWin}s) centered window matches direct windowed sum at sampled indices`,
+);
 
 // Peak Density and Phasic AUC should be time-aligned (both centered ±halfWin around
 // each sample), not offset from each other the way a centered-vs-trailing mismatch
@@ -249,36 +395,50 @@ assertEq(aucMismatch, 0, `computePhasicAUC(${shortWin}s) centered window matches
 // minimum both should be defined (non-undefined) at every sample index.
 assert(
   analyzer.peakDensity.every((d, i) => d.time === analyzer.phasicAUC[i].time),
-  'peakDensity and phasicAUC series share identical per-sample timestamps (same indexing)'
+  'peakDensity and phasicAUC series share identical per-sample timestamps (same indexing)',
 );
 
 // Combined Arousal Index should be roughly zero-centered (weighted blend of two z-scored series)
-const arousalVals = analyzer.arousalIndex.map(d => d.val);
+const arousalVals = analyzer.arousalIndex.map((d) => d.val);
 const arousalMean = arousalVals.reduce((a, b) => a + b, 0) / arousalVals.length;
-assertClose(arousalMean, 0, 0.5, `arousalIndex is roughly zero-centered: mean = ${arousalMean.toFixed(3)}`);
+assertClose(
+  arousalMean,
+  0,
+  0.5,
+  `arousalIndex is roughly zero-centered: mean = ${arousalMean.toFixed(3)}`,
+);
 
 // Custom weights should shift the blend measurably vs. the default 0.3/0.7 split
 const tonicHeavyIndex = analyzer.computeCombinedArousalIndex(1.0, 0.0);
 const phasicHeavyIndex = analyzer.computeCombinedArousalIndex(0.0, 1.0);
 assert(
-  tonicHeavyIndex.some((d, i) => Math.abs(d.val - phasicHeavyIndex[i].val) > 1e-6),
-  'computeCombinedArousalIndex weighting actually changes the output (tonic-only vs phasic-only differ)'
+  tonicHeavyIndex.some(
+    (d, i) => Math.abs(d.val - phasicHeavyIndex[i].val) > 1e-6,
+  ),
+  'computeCombinedArousalIndex weighting actually changes the output (tonic-only vs phasic-only differ)',
 );
 
 // Tri Index should be roughly zero-centered (weighted blend of three z-scored series)
-const triVals = analyzer.triIndex.map(d => d.val);
+const triVals = analyzer.triIndex.map((d) => d.val);
 const triMean = triVals.reduce((a, b) => a + b, 0) / triVals.length;
-assertClose(triMean, 0, 0.5, `triIndex is roughly zero-centered: mean = ${triMean.toFixed(3)}`);
+assertClose(
+  triMean,
+  0,
+  0.5,
+  `triIndex is roughly zero-centered: mean = ${triMean.toFixed(3)}`,
+);
 
 // Tri Index custom weights should alter the blend predictably
 const densityOnlyTri = analyzer.computeTriIndex(0.0, 0.0, 1.0);
 const aucOnlyTri = analyzer.computeTriIndex(0.0, 1.0, 0.0);
 assert(
   densityOnlyTri.some((d, i) => Math.abs(d.val - aucOnlyTri[i].val) > 1e-6),
-  'computeTriIndex weighting changes output between density-only and auc-only'
+  'computeTriIndex weighting changes output between density-only and auc-only',
 );
 
-console.log(`  meanPhasicAUC (getStats): ${analyzer.getStats().meanPhasicAUC.toFixed(4)} µS·s`);
+console.log(
+  `  meanPhasicAUC (getStats): ${analyzer.getStats().meanPhasicAUC.toFixed(4)} µS·s`,
+);
 
 // ════════════════════════════════════════════════════════════════════════════
 //  3. SPATIAL CLUSTERING ALGORITHMS
@@ -287,47 +447,71 @@ console.log('\n── 3. Spatial Peak Clustering ──');
 
 // Mock a list of peaks with lat/lon coordinates
 // We will assign coordinates from the parsed track to the detected peaks.
-const mapPoints = analyzer.raw.filter(d => !isNaN(d.lat) && !isNaN(d.lon));
+const mapPoints = analyzer.raw.filter((d) => !isNaN(d.lat) && !isNaN(d.lon));
 const spatialPeaks = [];
 for (let i = 0; i < analyzer.peaks.length; i++) {
   const peak = analyzer.peaks[i];
   // Find a raw coordinate close to the peak onset time
-  const matchingNode = mapPoints.find(n => Math.abs(n.time - peak.time) < 1.0);
+  const matchingNode = mapPoints.find(
+    (n) => Math.abs(n.time - peak.time) < 1.0,
+  );
   if (matchingNode) {
     spatialPeaks.push({
       ...peak,
       lat: matchingNode.lat,
-      lon: matchingNode.lon
+      lon: matchingNode.lon,
     });
   }
 }
 
-console.log(`  Map-matched peaks with lat/lon coordinates: ${spatialPeaks.length} / ${analyzer.peaks.length}`);
+console.log(
+  `  Map-matched peaks with lat/lon coordinates: ${spatialPeaks.length} / ${analyzer.peaks.length}`,
+);
 
 // Run spatial clustering
 const maxDistanceMeters = 50; // group peaks within 50 meters
-const clusters = GSRSpatialClustering.compactClusters(spatialPeaks, maxDistanceMeters);
+const clusters = GSRSpatialClustering.compactClusters(
+  spatialPeaks,
+  maxDistanceMeters,
+);
 
-assert(Array.isArray(clusters), 'GSRSpatialClustering.compactClusters returns an array of clusters');
+assert(
+  Array.isArray(clusters),
+  'GSRSpatialClustering.compactClusters returns an array of clusters',
+);
 console.log(`  Grouped peaks into ${clusters.length} spatial clusters`);
 
 if (clusters.length > 0) {
   const firstCluster = clusters[0];
   assert(firstCluster.length >= 1, 'First cluster contains at least 1 peak');
-  
+
   // Calculate centroid
   const sumLat = firstCluster.reduce((sum, p) => sum + p.lat, 0);
   const sumLon = firstCluster.reduce((sum, p) => sum + p.lon, 0);
-  const centroid = { lat: sumLat / firstCluster.length, lon: sumLon / firstCluster.length };
+  const centroid = {
+    lat: sumLat / firstCluster.length,
+    lon: sumLon / firstCluster.length,
+  };
 
-  assert(!isNaN(centroid.lat) && !isNaN(centroid.lon), 'Cluster centroid is a valid coordinate');
-  console.log(`  First cluster contains ${firstCluster.length} peaks at centroid: [${centroid.lat.toFixed(5)}, ${centroid.lon.toFixed(5)}]`);
+  assert(
+    !isNaN(centroid.lat) && !isNaN(centroid.lon),
+    'Cluster centroid is a valid coordinate',
+  );
+  console.log(
+    `  First cluster contains ${firstCluster.length} peaks at centroid: [${centroid.lat.toFixed(5)}, ${centroid.lon.toFixed(5)}]`,
+  );
 
   // Verify getConcaveBlob runs and returns a valid path
   const blob = GSRSpatialClustering.getConcaveBlob(firstCluster, 15, 18);
-  assert(blob === null || Array.isArray(blob), 'getConcaveBlob returns a path array or null');
+  assert(
+    blob === null || Array.isArray(blob),
+    'getConcaveBlob returns a path array or null',
+  );
   if (Array.isArray(blob)) {
-    assert(blob.length > 0, `getConcaveBlob returned concave boundary with ${blob.length} coordinates`);
+    assert(
+      blob.length > 0,
+      `getConcaveBlob returned concave boundary with ${blob.length} coordinates`,
+    );
   }
 }
 
@@ -337,19 +521,24 @@ const syntheticPeaks = [];
 for (let i = 0; i < 1000; i++) {
   syntheticPeaks.push({
     lat: 51.5 + (Math.random() - 0.5) * 0.05,
-    lon: -0.07 + (Math.random() - 0.5) * 0.05
+    lon: -0.07 + (Math.random() - 0.5) * 0.05,
   });
 }
 const tStart = Date.now();
 const testClusters = GSRSpatialClustering.compactClusters(syntheticPeaks, 50);
 const tEnd = Date.now();
 const duration = tEnd - tStart;
-console.log(`  Clustered 1,000 peaks into ${testClusters.length} clusters in ${duration} ms`);
+console.log(
+  `  Clustered 1,000 peaks into ${testClusters.length} clusters in ${duration} ms`,
+);
 // 1000ms (not 200ms): this file runs standalone in ~15-20ms, but `npm test` now
 // runs it alongside ~850+ other tests under node:test's default concurrency,
 // and CPU contention from that made tighter budgets flaky under heavy load.
 // 1000ms still catches a real algorithmic regression while tolerating scheduling noise.
-assert(duration < 1000, `Clustered 1,000 peaks in under 1000ms (actual: ${duration}ms)`);
+assert(
+  duration < 1000,
+  `Clustered 1,000 peaks in under 1000ms (actual: ${duration}ms)`,
+);
 
 // ════════════════════════════════════════════════════════════════════════════
 //  4. MARCHING SQUARES CONTOURING ALGORITHMS
@@ -362,25 +551,44 @@ const testGrid = [
   [0, 1, 1, 1, 0],
   [0, 1, 2, 1, 0],
   [0, 1, 1, 1, 0],
-  [0, 0, 0, 0, 0]
+  [0, 0, 0, 0, 0],
 ];
 const gridRows = 5;
 const gridCols = 5;
 const gridBounds = {
-  getSouthWest: () => ({ lat: 51.50, lng: -0.10 }),
-  getNorthEast: () => ({ lat: 51.51, lng: -0.09 })
+  getSouthWest: () => ({ lat: 51.5, lng: -0.1 }),
+  getNorthEast: () => ({ lat: 51.51, lng: -0.09 }),
 };
 
 // Run marching squares contour line tracing at isolevel=0.5
-const contourLines = MarchingSquares.getContourLines(testGrid, gridRows, gridCols, gridBounds, 0.5);
+const contourLines = MarchingSquares.getContourLines(
+  testGrid,
+  gridRows,
+  gridCols,
+  gridBounds,
+  0.5,
+);
 
-assert(Array.isArray(contourLines), 'MarchingSquares.getContourLines returns an array of segments');
-assert(contourLines.length > 0, `MarchingSquares traced ${contourLines.length} contour segment lines`);
+assert(
+  Array.isArray(contourLines),
+  'MarchingSquares.getContourLines returns an array of segments',
+);
+assert(
+  contourLines.length > 0,
+  `MarchingSquares traced ${contourLines.length} contour segment lines`,
+);
 
 if (contourLines.length > 0) {
   const firstSegment = contourLines[0];
-  assert(Array.isArray(firstSegment) && firstSegment.length >= 2, 'Contour line segment is a valid coordinate array');
-  assert(typeof firstSegment[0].lat === 'number' && typeof firstSegment[0].lon === 'number', 'Segment contains valid lat/lon nodes');
+  assert(
+    Array.isArray(firstSegment) && firstSegment.length >= 2,
+    'Contour line segment is a valid coordinate array',
+  );
+  assert(
+    typeof firstSegment[0].lat === 'number' &&
+      typeof firstSegment[0].lon === 'number',
+    'Segment contains valid lat/lon nodes',
+  );
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -390,18 +598,41 @@ console.log('\n── 5. Collective Manager Topography Sources ──');
 
 const collectiveManager = new GSRCollectiveManager();
 collectiveManager.addTrack({
-  id: 'track1', name: 'Test Track', color: '#005bc4', enabled: true,
-  analyzer: analyzer, filterParams: analyzeParams
+  id: 'track1',
+  name: 'Test Track',
+  color: '#005bc4',
+  enabled: true,
+  analyzer: analyzer,
+  filterParams: analyzeParams,
 });
 
 const baseContourParams = {
-  gridResolution: 15, isolationRadius: 50, contourCount: 5, idwExponent: 2, normalizeZScore: false
+  gridResolution: 15,
+  isolationRadius: 50,
+  contourCount: 5,
+  idwExponent: 2,
+  normalizeZScore: false,
 };
 
 const surfacesBySource = {};
-for (const src of ['phasic', 'tonic', 'peaks', 'auc', 'arousal_index', 'tri_index', 'gsr', 'peak_density']) {
-  const surface = collectiveManager.generateContourSurface({ ...baseContourParams, topographySource: src });
-  assert(surface && Array.isArray(surface.contours), `generateContourSurface('${src}') returns { contours, grid, ... }`);
+for (const src of [
+  'phasic',
+  'tonic',
+  'peaks',
+  'auc',
+  'arousal_index',
+  'tri_index',
+  'gsr',
+  'peak_density',
+]) {
+  const surface = collectiveManager.generateContourSurface({
+    ...baseContourParams,
+    topographySource: src,
+  });
+  assert(
+    surface && Array.isArray(surface.contours),
+    `generateContourSurface('${src}') returns { contours, grid, ... }`,
+  );
   surfacesBySource[src] = surface;
 }
 
@@ -409,35 +640,52 @@ for (const src of ['phasic', 'tonic', 'peaks', 'auc', 'arousal_index', 'tri_inde
 // phasicAUC rather than silently falling through to the phasic branch.
 assert(
   surfacesBySource.auc.minVal !== surfacesBySource.phasic.minVal ||
-  surfacesBySource.auc.maxVal !== surfacesBySource.phasic.maxVal,
-  `'auc' topography value range differs from 'phasic' (auc: [${surfacesBySource.auc.minVal.toFixed(4)}, ${surfacesBySource.auc.maxVal.toFixed(4)}], phasic: [${surfacesBySource.phasic.minVal.toFixed(4)}, ${surfacesBySource.phasic.maxVal.toFixed(4)}])`
+    surfacesBySource.auc.maxVal !== surfacesBySource.phasic.maxVal,
+  `'auc' topography value range differs from 'phasic' (auc: [${surfacesBySource.auc.minVal.toFixed(4)}, ${surfacesBySource.auc.maxVal.toFixed(4)}], phasic: [${surfacesBySource.phasic.minVal.toFixed(4)}, ${surfacesBySource.phasic.maxVal.toFixed(4)}])`,
 );
 
 // Arousal Index surface should differ from Tonic surface likewise.
 assert(
   surfacesBySource.arousal_index.minVal !== surfacesBySource.tonic.minVal ||
-  surfacesBySource.arousal_index.maxVal !== surfacesBySource.tonic.maxVal,
-  `'arousal_index' topography value range differs from 'tonic' (arousal_index: [${surfacesBySource.arousal_index.minVal.toFixed(4)}, ${surfacesBySource.arousal_index.maxVal.toFixed(4)}], tonic: [${surfacesBySource.tonic.minVal.toFixed(4)}, ${surfacesBySource.tonic.maxVal.toFixed(4)}])`
+    surfacesBySource.arousal_index.maxVal !== surfacesBySource.tonic.maxVal,
+  `'arousal_index' topography value range differs from 'tonic' (arousal_index: [${surfacesBySource.arousal_index.minVal.toFixed(4)}, ${surfacesBySource.arousal_index.maxVal.toFixed(4)}], tonic: [${surfacesBySource.tonic.minVal.toFixed(4)}, ${surfacesBySource.tonic.maxVal.toFixed(4)}])`,
 );
 
 // Tri Index surface should generate successfully and differ from raw phasic
 assert(
   surfacesBySource.tri_index.minVal !== surfacesBySource.phasic.minVal ||
-  surfacesBySource.tri_index.maxVal !== surfacesBySource.phasic.maxVal,
-  `'tri_index' topography value range differs from 'phasic' (tri_index: [${surfacesBySource.tri_index.minVal.toFixed(4)}, ${surfacesBySource.tri_index.maxVal.toFixed(4)}], phasic: [${surfacesBySource.phasic.minVal.toFixed(4)}, ${surfacesBySource.phasic.maxVal.toFixed(4)}])`
+    surfacesBySource.tri_index.maxVal !== surfacesBySource.phasic.maxVal,
+  `'tri_index' topography value range differs from 'phasic' (tri_index: [${surfacesBySource.tri_index.minVal.toFixed(4)}, ${surfacesBySource.tri_index.maxVal.toFixed(4)}], phasic: [${surfacesBySource.phasic.minVal.toFixed(4)}, ${surfacesBySource.phasic.maxVal.toFixed(4)}])`,
 );
 
 // Combined Arousal Index is allowed to go negative (z-scored blend); AUC and
 // peak density are not.
-assert(surfacesBySource.arousal_index.minVal < 0, 'arousal_index surface can go negative (z-scored blend)');
-assert(surfacesBySource.auc.minVal >= -1e-9, 'auc surface stays non-negative (integral of a rectified signal)');
+assert(
+  surfacesBySource.arousal_index.minVal < 0,
+  'arousal_index surface can go negative (z-scored blend)',
+);
+assert(
+  surfacesBySource.auc.minVal >= -1e-9,
+  'auc surface stays non-negative (integral of a rectified signal)',
+);
 
 // Normalization toggle should run cleanly through the new z-scoring branch for 'auc'.
-const aucNormSurface = collectiveManager.generateContourSurface({ ...baseContourParams, topographySource: 'auc', normalizeZScore: true });
-assert(aucNormSurface && Array.isArray(aucNormSurface.contours), "generateContourSurface('auc', normalizeZScore: true) runs without error");
+const aucNormSurface = collectiveManager.generateContourSurface({
+  ...baseContourParams,
+  topographySource: 'auc',
+  normalizeZScore: true,
+});
+assert(
+  aucNormSurface && Array.isArray(aucNormSurface.contours),
+  "generateContourSurface('auc', normalizeZScore: true) runs without error",
+);
 
-console.log(`  auc range: [${surfacesBySource.auc.minVal.toFixed(4)}, ${surfacesBySource.auc.maxVal.toFixed(4)}] μS·s`);
-console.log(`  arousal_index range: [${surfacesBySource.arousal_index.minVal.toFixed(4)}, ${surfacesBySource.arousal_index.maxVal.toFixed(4)}]`);
+console.log(
+  `  auc range: [${surfacesBySource.auc.minVal.toFixed(4)}, ${surfacesBySource.auc.maxVal.toFixed(4)}] μS·s`,
+);
+console.log(
+  `  arousal_index range: [${surfacesBySource.arousal_index.minVal.toFixed(4)}, ${surfacesBySource.arousal_index.maxVal.toFixed(4)}]`,
+);
 
 // New raw-scale sources (GSR signal, temporal peak density): route to their own
 // series (not silently through to phasic), stay finite, and keep physical sign
@@ -445,21 +693,36 @@ console.log(`  arousal_index range: [${surfacesBySource.arousal_index.minVal.toF
 for (const src of ['gsr', 'peak_density']) {
   const s = surfacesBySource[src];
   assert(
-    s.minVal !== surfacesBySource.phasic.minVal || s.maxVal !== surfacesBySource.phasic.maxVal,
-    `'${src}' surface range differs from 'phasic' (source routing works, not a fall-through)`
+    s.minVal !== surfacesBySource.phasic.minVal ||
+      s.maxVal !== surfacesBySource.phasic.maxVal,
+    `'${src}' surface range differs from 'phasic' (source routing works, not a fall-through)`,
   );
-  assert(s.minVal >= -1e-9, `'${src}' non-normalized surface stays non-negative`);
+  assert(
+    s.minVal >= -1e-9,
+    `'${src}' non-normalized surface stays non-negative`,
+  );
   let finite = true;
-  for (const row of s.grid) for (const v of row) if (v !== null && !Number.isFinite(v)) finite = false;
+  for (const row of s.grid)
+    for (const v of row) if (v !== null && !Number.isFinite(v)) finite = false;
   assert(finite, `'${src}' grid has no NaN/Infinity`);
 }
 
 // Normalising a raw-scale source (gsr / auc / peak_density) z-scores it per
 // track: the surface must straddle zero and sit on a z-score scale.
 for (const src of ['gsr', 'auc', 'peak_density']) {
-  const s = collectiveManager.generateContourSurface({ ...baseContourParams, topographySource: src, normalizeZScore: true });
-  assert(s.minVal < 0 && s.maxVal > 0, `normalized '${src}' surface straddles zero (min ${s.minVal.toFixed(3)}, max ${s.maxVal.toFixed(3)})`);
-  assert(s.minVal > -8 && s.maxVal < 8, `normalized '${src}' surface stays on a z-score scale`);
+  const s = collectiveManager.generateContourSurface({
+    ...baseContourParams,
+    topographySource: src,
+    normalizeZScore: true,
+  });
+  assert(
+    s.minVal < 0 && s.maxVal > 0,
+    `normalized '${src}' surface straddles zero (min ${s.minVal.toFixed(3)}, max ${s.maxVal.toFixed(3)})`,
+  );
+  assert(
+    s.minVal > -8 && s.maxVal < 8,
+    `normalized '${src}' surface stays on a z-score scale`,
+  );
 }
 
 // Refactor guard: perTrackNorm applies (v - mean) / std at sample time instead
@@ -468,27 +731,55 @@ for (const src of ['gsr', 'auc', 'peak_density']) {
 // cell-identical to the old path — reproduced here by feeding a pre-standardised
 // series in with normalizeZScore:false.
 {
-  const SERIES = { gsr: 'filtered', auc: 'phasicAUC', peak_density: 'peakDensity' };
+  const SERIES = {
+    gsr: 'filtered',
+    auc: 'phasicAUC',
+    peak_density: 'peakDensity',
+  };
   for (const [src, key] of Object.entries(SERIES)) {
     const rawSeries = analyzer[key];
-    const st = GsrFilter.calculateStats(rawSeries.map(d => d.val));
+    const st = GsrFilter.calculateStats(rawSeries.map((d) => d.val));
     const std = st.std || 1;
     const clone = Object.create(Object.getPrototypeOf(analyzer));
     Object.assign(clone, analyzer);
-    clone[key] = rawSeries.map(d => ({ time: d.time, val: (d.val - st.mean) / std }));
+    clone[key] = rawSeries.map((d) => ({
+      time: d.time,
+      val: (d.val - st.mean) / std,
+    }));
     const oldMgr = new GSRCollectiveManager();
-    oldMgr.addTrack({ id: 'old', name: 'old', color: '#000', enabled: true, analyzer: clone });
-    const oldSurf = oldMgr.generateContourSurface({ ...baseContourParams, topographySource: src, normalizeZScore: false });
-    const newSurf = collectiveManager.generateContourSurface({ ...baseContourParams, topographySource: src, normalizeZScore: true });
-    let maxAbs = 0, cmp = 0;
+    oldMgr.addTrack({
+      id: 'old',
+      name: 'old',
+      color: '#000',
+      enabled: true,
+      analyzer: clone,
+    });
+    const oldSurf = oldMgr.generateContourSurface({
+      ...baseContourParams,
+      topographySource: src,
+      normalizeZScore: false,
+    });
+    const newSurf = collectiveManager.generateContourSurface({
+      ...baseContourParams,
+      topographySource: src,
+      normalizeZScore: true,
+    });
+    let maxAbs = 0,
+      cmp = 0;
     for (let r = 0; r < oldSurf.grid.length; r++) {
       for (let c = 0; c < oldSurf.grid[r].length; c++) {
-        const a = oldSurf.grid[r][c], b = newSurf.grid[r][c];
-        if (a != null && b != null) { maxAbs = Math.max(maxAbs, Math.abs(a - b)); cmp++; }
+        const a = oldSurf.grid[r][c],
+          b = newSurf.grid[r][c];
+        if (a != null && b != null) {
+          maxAbs = Math.max(maxAbs, Math.abs(a - b));
+          cmp++;
+        }
       }
     }
-    assert(cmp > 20 && maxAbs < 1e-9,
-      `'${src}': normalize path is cell-identical to the old pre-standardised-copy path (max|Δ|=${maxAbs.toExponential(2)} over ${cmp} cells)`);
+    assert(
+      cmp > 20 && maxAbs < 1e-9,
+      `'${src}': normalize path is cell-identical to the old pre-standardised-copy path (max|Δ|=${maxAbs.toExponential(2)} over ${cmp} cells)`,
+    );
   }
 }
 
@@ -502,11 +793,26 @@ const deconvAnalyzer = new GSRAnalyzer();
 deconvAnalyzer.parseCSV(csvText);
 
 // 6a. Verify SCRDeconvolution module is loaded
-assert(typeof SCRDeconvolution.buildSCRFKernel === 'function', 'SCRDeconvolution.buildSCRFKernel is a function');
-assert(typeof SCRDeconvolution.convolve === 'function', 'SCRDeconvolution.convolve is a function');
-assert(typeof SCRDeconvolution.deconvolve === 'function', 'SCRDeconvolution.deconvolve is a function');
-assert(typeof SCRDeconvolution.detectImpulses === 'function', 'SCRDeconvolution.detectImpulses is a function');
-assert(typeof SCRDeconvolution.reconstructPhasic === 'function', 'SCRDeconvolution.reconstructPhasic is a function');
+assert(
+  typeof SCRDeconvolution.buildSCRFKernel === 'function',
+  'SCRDeconvolution.buildSCRFKernel is a function',
+);
+assert(
+  typeof SCRDeconvolution.convolve === 'function',
+  'SCRDeconvolution.convolve is a function',
+);
+assert(
+  typeof SCRDeconvolution.deconvolve === 'function',
+  'SCRDeconvolution.deconvolve is a function',
+);
+assert(
+  typeof SCRDeconvolution.detectImpulses === 'function',
+  'SCRDeconvolution.detectImpulses is a function',
+);
+assert(
+  typeof SCRDeconvolution.reconstructPhasic === 'function',
+  'SCRDeconvolution.reconstructPhasic is a function',
+);
 
 // 6b. Verify the SCRF kernel has the correct bi-exponential shape
 const testSr = 10;
@@ -516,24 +822,42 @@ assert(kernel.length > 0, 'Kernel has positive length');
 assertEq(kernel[0], 0, 'Kernel starts at 0 (t=0 gives exp(0)-exp(0)=0)');
 
 // Peak should be between 0.5s and 2s (theoretical peak of Bateman function)
-let peakIdx = 0, peakVal = 0;
+let peakIdx = 0,
+  peakVal = 0;
 for (let i = 0; i < kernel.length; i++) {
-  if (kernel[i] > peakVal) { peakVal = kernel[i]; peakIdx = i; }
+  if (kernel[i] > peakVal) {
+    peakVal = kernel[i];
+    peakIdx = i;
+  }
 }
 const peakTimeSec = peakIdx / testSr;
-assert(peakVal > 0.99 && peakVal < 1.01, `Kernel peaks at 1.0 (normalised): ${peakVal.toFixed(4)}`);
-assert(peakTimeSec > 0.5 && peakTimeSec < 2.0, `Kernel peak at plausible time: ${peakTimeSec.toFixed(2)} s`);
+assert(
+  peakVal > 0.99 && peakVal < 1.01,
+  `Kernel peaks at 1.0 (normalised): ${peakVal.toFixed(4)}`,
+);
+assert(
+  peakTimeSec > 0.5 && peakTimeSec < 2.0,
+  `Kernel peak at plausible time: ${peakTimeSec.toFixed(2)} s`,
+);
 
 // Kernel should decay significantly by the tail (< 25 % of peak at 5 s)
 const tailIdx = kernel.length - 1;
-assert(kernel[tailIdx] < 0.25, `Kernel tail decayed: ${kernel[tailIdx].toFixed(4)}`);
+assert(
+  kernel[tailIdx] < 0.25,
+  `Kernel tail decayed: ${kernel[tailIdx].toFixed(4)}`,
+);
 
 // 6c. Verify convolution identity: a single unit impulse at t=0 reproduces the kernel
 const unitImpulse = new Float64Array(100);
 unitImpulse[0] = 1.0;
 const convResult = SCRDeconvolution.convolve(unitImpulse, kernel);
 for (let i = 0; i < Math.min(kernel.length, convResult.length); i++) {
-  assertClose(convResult[i], kernel[i], 1e-10, `Convolution of impulse reproduces kernel at index ${i}`);
+  assertClose(
+    convResult[i],
+    kernel[i],
+    1e-10,
+    `Convolution of impulse reproduces kernel at index ${i}`,
+  );
 }
 
 // 6d. Run full deconvolution on phasic data (without analyze — just the raw deconv)
@@ -541,62 +865,121 @@ const deconvParams = {
   ...GSR_CONST.GSR_DEFAULT,
   tonicMethod: 'percentile',
   peakThreshold: 0.05,
-  useDeconvolution: false  // first run without to get phasicVals
+  useDeconvolution: false, // first run without to get phasicVals
 };
 deconvAnalyzer.analyze(deconvParams);
-const phasicRaw = deconvAnalyzer.phasic.map(d => d.val);
-assert(phasicRaw.length === gsrRaw.length, 'Phasic data ready for deconvolution test');
+const phasicRaw = deconvAnalyzer.phasic.map((d) => d.val);
+assert(
+  phasicRaw.length === gsrRaw.length,
+  'Phasic data ready for deconvolution test',
+);
 
 // Run deconvolution with matching pursuit
-const deconvResult = SCRDeconvolution.deconvolve(phasicRaw, deconvAnalyzer.sampleRate, {
-  tauSlow: 2.0, tauFast: 0.75, maxIter: 50, lr: 1.0, convTol: 0.01,
-  algorithm: 'matching_pursuit'
-});
-assert(deconvResult.driver instanceof Float64Array, 'Deconvolution returns a driver Float64Array');
-assertEq(deconvResult.driver.length, phasicRaw.length, 'Driver signal has same length as phasic input');
-assert(deconvResult.iterations >= 1, `Matching pursuit placed ${deconvResult.iterations} atoms`);
-console.log(`  Matching pursuit: ${deconvResult.iterations} atoms, driver max=${Math.max(...deconvResult.driver).toFixed(4)}`);
+const deconvResult = SCRDeconvolution.deconvolve(
+  phasicRaw,
+  deconvAnalyzer.sampleRate,
+  {
+    tauSlow: 2.0,
+    tauFast: 0.75,
+    maxIter: 50,
+    lr: 1.0,
+    convTol: 0.01,
+    algorithm: 'matching_pursuit',
+  },
+);
+assert(
+  deconvResult.driver instanceof Float64Array,
+  'Deconvolution returns a driver Float64Array',
+);
+assertEq(
+  deconvResult.driver.length,
+  phasicRaw.length,
+  'Driver signal has same length as phasic input',
+);
+assert(
+  deconvResult.iterations >= 1,
+  `Matching pursuit placed ${deconvResult.iterations} atoms`,
+);
+console.log(
+  `  Matching pursuit: ${deconvResult.iterations} atoms, driver max=${Math.max(...deconvResult.driver).toFixed(4)}`,
+);
 
 // Driver should be nonnegative
-const negativeDriver = Array.from(deconvResult.driver).filter(v => v < -1e-10);
+const negativeDriver = Array.from(deconvResult.driver).filter(
+  (v) => v < -1e-10,
+);
 assertEq(negativeDriver.length, 0, 'Driver signal is nonnegative');
 
 // Driver should be sparse (matching pursuit only places atoms where needed)
 const driverVals = Array.from(deconvResult.driver);
-const driverNonzero = driverVals.filter(v => v > 0.001).length;
-const phasicNonzero = phasicRaw.filter(v => v > 0.001).length;
-assert(driverNonzero < phasicNonzero, `Driver is sparser than phasic: ${driverNonzero} vs ${phasicNonzero} nonzero samples`);
+const driverNonzero = driverVals.filter((v) => v > 0.001).length;
+const phasicNonzero = phasicRaw.filter((v) => v > 0.001).length;
+assert(
+  driverNonzero < phasicNonzero,
+  `Driver is sparser than phasic: ${driverNonzero} vs ${phasicNonzero} nonzero samples`,
+);
 
 // 6e. Detect impulses in the driver
-const impulses = SCRDeconvolution.detectImpulses(deconvResult.driver, deconvAnalyzer.sampleRate, 0.005, 0.5);
+const impulses = SCRDeconvolution.detectImpulses(
+  deconvResult.driver,
+  deconvAnalyzer.sampleRate,
+  0.005,
+  0.5,
+);
 assert(Array.isArray(impulses), 'detectImpulses returns an array');
-console.log(`  Detected ${impulses.length} driver impulses (threshold=0.005 µS, minGap=0.5s)`);
+console.log(
+  `  Detected ${impulses.length} driver impulses (threshold=0.005 µS, minGap=0.5s)`,
+);
 
 // Impulses should be distributed across the recording, not all clustered
 // at the start (forward-only deconvolution bias).  At least 20 % of impulses
 // must fall in the second half of the recording.
 if (impulses.length >= 4) {
   const halfN = Math.floor(phasicRaw.length / 2);
-  const inSecondHalf = impulses.filter(imp => imp.index >= halfN).length;
+  const inSecondHalf = impulses.filter((imp) => imp.index >= halfN).length;
   const pctSecondHalf = (inSecondHalf / impulses.length) * 100;
-  assert(pctSecondHalf >= 20,
-    `Impulses distributed across recording: ${pctSecondHalf.toFixed(0)} % in second half (need ≥20 %)`);
-  console.log(`  Impulse distribution: ${impulses.length - inSecondHalf} in first half, ${inSecondHalf} in second half (${pctSecondHalf.toFixed(0)} %)`);
+  assert(
+    pctSecondHalf >= 20,
+    `Impulses distributed across recording: ${pctSecondHalf.toFixed(0)} % in second half (need ≥20 %)`,
+  );
+  console.log(
+    `  Impulse distribution: ${impulses.length - inSecondHalf} in first half, ${inSecondHalf} in second half (${pctSecondHalf.toFixed(0)} %)`,
+  );
 }
 
 // Each impulse should have required fields
 if (impulses.length > 0) {
   const imp = impulses[0];
-  assert(typeof imp.index === 'number' && imp.index >= 0, 'Impulse has valid index');
-  assert(typeof imp.time === 'number' && imp.time >= 0, 'Impulse has valid time');
-  assert(typeof imp.amplitude === 'number' && imp.amplitude > 0, 'Impulse has positive amplitude');
+  assert(
+    typeof imp.index === 'number' && imp.index >= 0,
+    'Impulse has valid index',
+  );
+  assert(
+    typeof imp.time === 'number' && imp.time >= 0,
+    'Impulse has valid time',
+  );
+  assert(
+    typeof imp.amplitude === 'number' && imp.amplitude > 0,
+    'Impulse has positive amplitude',
+  );
 }
 
 // 6f. Reconstruct clean phasic from impulses
-const cleanPhasic = SCRDeconvolution.reconstructPhasic(impulses, phasicRaw.length, deconvResult.kernel);
-assertEq(cleanPhasic.length, phasicRaw.length, 'Reconstructed phasic matches input length');
+const cleanPhasic = SCRDeconvolution.reconstructPhasic(
+  impulses,
+  phasicRaw.length,
+  deconvResult.kernel,
+);
+assertEq(
+  cleanPhasic.length,
+  phasicRaw.length,
+  'Reconstructed phasic matches input length',
+);
 const cleanVals = Array.from(cleanPhasic);
-assert(cleanVals.every(v => v >= -1e-10), 'Reconstructed phasic is nonnegative');
+assert(
+  cleanVals.every((v) => v >= -1e-10),
+  'Reconstructed phasic is nonnegative',
+);
 
 // 6g. Full pipeline: analyze() with useDeconvolution=true.
 // This exercises the GLOBAL deconvolution pipeline (_runDeconvolutionPipeline):
@@ -613,10 +996,12 @@ const deconvParams2 = {
   tonicMethod: 'percentile',
   peakThreshold: deconvPeakThreshold,
   useDeconvolution: true,
-  deconvAlgorithm: 'matching_pursuit'
+  deconvAlgorithm: 'matching_pursuit',
 };
 deconvAnalyzer2.analyze(deconvParams2);
-console.log(`  Deconv pipeline: ${deconvAnalyzer2.phasicDriverPeaks.length} driver impulses → ${deconvAnalyzer2.peaks.length} detected peaks`);
+console.log(
+  `  Deconv pipeline: ${deconvAnalyzer2.phasicDriverPeaks.length} driver impulses → ${deconvAnalyzer2.peaks.length} detected peaks`,
+);
 
 // Regression guard: on this test fixture, matching pursuit should converge
 // (residual < convTol) within the configured maxIter budget, not get
@@ -625,8 +1010,10 @@ console.log(`  Deconv pipeline: ${deconvAnalyzer2.phasicDriverPeaks.length} driv
 // deconvolution runs once globally over a whole track (a 920s real
 // recording needed 424 iterations to converge naturally). If this starts
 // failing, maxIter needs to scale with expected recording length again.
-assert(!deconvAnalyzer2.phasicDeconvTruncated,
-  'Global matching pursuit converges within maxIter on the test fixture (not truncated)');
+assert(
+  !deconvAnalyzer2.phasicDeconvTruncated,
+  'Global matching pursuit converges within maxIter on the test fixture (not truncated)',
+);
 
 // Regression guard: peaks built from scanning the reconstructed phasicClean
 // curve for local maxima (_detectPeaksFromCurve — see its doc comment for
@@ -638,8 +1025,11 @@ assert(!deconvAnalyzer2.phasicDeconvTruncated,
 // separate SCRs distinguishable on the reconstructed curve), but it should
 // be the exception, not common.
 {
-  const sortedByTime = deconvAnalyzer2.peaks.map(p => p.time).sort((a, b) => a - b);
-  let runsOf3Plus = 0, curRun = 1;
+  const sortedByTime = deconvAnalyzer2.peaks
+    .map((p) => p.time)
+    .sort((a, b) => a - b);
+  let runsOf3Plus = 0,
+    curRun = 1;
   for (let i = 1; i < sortedByTime.length; i++) {
     if (sortedByTime[i] - sortedByTime[i - 1] <= 3.0) {
       curRun++;
@@ -649,9 +1039,14 @@ assert(!deconvAnalyzer2.phasicDeconvTruncated,
     }
   }
   if (curRun >= 3) runsOf3Plus++;
-  const runRate = deconvAnalyzer2.peaks.length > 0 ? runsOf3Plus / deconvAnalyzer2.peaks.length : 0;
-  assert(runRate < 0.1,
-    `Tight (>=3 peaks within 3s) clusters stay rare: ${runsOf3Plus} runs across ${deconvAnalyzer2.peaks.length} peaks`);
+  const runRate =
+    deconvAnalyzer2.peaks.length > 0
+      ? runsOf3Plus / deconvAnalyzer2.peaks.length
+      : 0;
+  assert(
+    runRate < 0.1,
+    `Tight (>=3 peaks within 3s) clusters stay rare: ${runsOf3Plus} runs across ${deconvAnalyzer2.peaks.length} peaks`,
+  );
 }
 
 // Regression guard: no two accepted peaks may be closer than the module's
@@ -660,26 +1055,41 @@ assert(!deconvAnalyzer2.phasicDeconvTruncated,
 // windows). Enforcing it globally, once, over the whole driver rules this out
 // structurally rather than by chance.
 if (deconvAnalyzer2.peaks.length > 1) {
-  const sortedTimes = deconvAnalyzer2.peaks.map(p => p.time).sort((a, b) => a - b);
+  const sortedTimes = deconvAnalyzer2.peaks
+    .map((p) => p.time)
+    .sort((a, b) => a - b);
   let minGapFound = Infinity;
   for (let i = 1; i < sortedTimes.length; i++) {
     minGapFound = Math.min(minGapFound, sortedTimes[i] - sortedTimes[i - 1]);
   }
-  assert(minGapFound >= GSR_CONST.SCRF.minImpulseGapSec - 1e-9,
-    `No near-duplicate peaks: min gap between peaks = ${minGapFound.toFixed(3)}s (>= ${GSR_CONST.SCRF.minImpulseGapSec}s required)`);
+  assert(
+    minGapFound >= GSR_CONST.SCRF.minImpulseGapSec - 1e-9,
+    `No near-duplicate peaks: min gap between peaks = ${minGapFound.toFixed(3)}s (>= ${GSR_CONST.SCRF.minImpulseGapSec}s required)`,
+  );
 }
 
 // Regression guard: peakThreshold must be enforced on every deconvolution
 // peak, same contract as the non-deconvolution path — a prior bug let
 // split/sibling peaks through with amplitude below the configured threshold.
-const belowThreshold = deconvAnalyzer2.peaks.filter(p => p.amplitude < deconvPeakThreshold);
-assertEq(belowThreshold.length, 0,
-  `All deconv peaks respect peakThreshold (${belowThreshold.length} violations)`);
+const belowThreshold = deconvAnalyzer2.peaks.filter(
+  (p) => p.amplitude < deconvPeakThreshold,
+);
+assertEq(
+  belowThreshold.length,
+  0,
+  `All deconv peaks respect peakThreshold (${belowThreshold.length} violations)`,
+);
 
 // With deconvolution enabled, the driver/clean-phasic state should actually
 // be populated (previously declared but always empty, regardless of mode).
-assert(deconvAnalyzer2.phasicDriver.length === phasicRaw.length, 'phasicDriver populated when deconvolution enabled');
-assert(deconvAnalyzer2.phasicClean.length === phasicRaw.length, 'phasicClean populated when deconvolution enabled');
+assert(
+  deconvAnalyzer2.phasicDriver.length === phasicRaw.length,
+  'phasicDriver populated when deconvolution enabled',
+);
+assert(
+  deconvAnalyzer2.phasicClean.length === phasicRaw.length,
+  'phasicClean populated when deconvolution enabled',
+);
 
 // 6f2. Memorable-event ("hotspot") metric — a separate question from
 // qualityScore (see _computeSalienceScore()'s doc comment): not "is this a
@@ -690,74 +1100,149 @@ assert(deconvAnalyzer2.phasicClean.length === phasicRaw.length, 'phasicClean pop
 // earlier absolute-score-threshold version selected too many peaks in
 // practice (27% of the census on a real busy track) to read as curated.
 {
-  const badField = deconvAnalyzer2.peaks.some(p => p.salienceScore === undefined || !isFinite(p.salienceScore) || p.salienceScore < 0 || p.salienceScore > 1);
-  assertEq(badField, false, 'Every deconvolution-mode peak has a valid salienceScore in [0,1]');
+  const badField = deconvAnalyzer2.peaks.some(
+    (p) =>
+      p.salienceScore === undefined ||
+      !isFinite(p.salienceScore) ||
+      p.salienceScore < 0 ||
+      p.salienceScore > 1,
+  );
+  assertEq(
+    badField,
+    false,
+    'Every deconvolution-mode peak has a valid salienceScore in [0,1]',
+  );
 
-  const allAreRealPeaks = deconvAnalyzer2.memorableEvents.every(p => deconvAnalyzer2.peaks.includes(p));
-  assert(allAreRealPeaks, 'memorableEvents is a subset of peaks, not a separately-built list');
+  const allAreRealPeaks = deconvAnalyzer2.memorableEvents.every((p) =>
+    deconvAnalyzer2.peaks.includes(p),
+  );
+  assert(
+    allAreRealPeaks,
+    'memorableEvents is a subset of peaks, not a separately-built list',
+  );
 
-  const activeCount = deconvAnalyzer2.peaks.filter(p => !p.excluded).length;
-  const targetCount = activeCount > 0 ? Math.max(1, Math.round(activeCount * 0.02)) : 0;
+  const activeCount = deconvAnalyzer2.peaks.filter((p) => !p.excluded).length;
+  const targetCount =
+    activeCount > 0 ? Math.max(1, Math.round(activeCount * 0.02)) : 0;
   // Amplitude-ranked, count target = top 2%; spatial spacing
   // (MEMORABLE_EVENTS.MIN_SEPARATION_M) can pull the realised count below it.
-  assert(deconvAnalyzer2.memorableEvents.length <= targetCount,
-    `memorableEvents is at most the top 2% of active peaks (target ${targetCount}, got ${deconvAnalyzer2.memorableEvents.length})`);
+  assert(
+    deconvAnalyzer2.memorableEvents.length <= targetCount,
+    `memorableEvents is at most the top 2% of active peaks (target ${targetCount}, got ${deconvAnalyzer2.memorableEvents.length})`,
+  );
 
-  const noneExcluded = deconvAnalyzer2.memorableEvents.every(p => !p.excluded);
+  const noneExcluded = deconvAnalyzer2.memorableEvents.every(
+    (p) => !p.excluded,
+  );
   assert(noneExcluded, 'No excluded peak appears in memorableEvents');
 
   let sortedDescending = true;
   for (let i = 1; i < deconvAnalyzer2.memorableEvents.length; i++) {
-    if (deconvAnalyzer2.memorableEvents[i].amplitude > deconvAnalyzer2.memorableEvents[i - 1].amplitude + 1e-9) { sortedDescending = false; break; }
+    if (
+      deconvAnalyzer2.memorableEvents[i].amplitude >
+      deconvAnalyzer2.memorableEvents[i - 1].amplitude + 1e-9
+    ) {
+      sortedDescending = false;
+      break;
+    }
   }
   assert(sortedDescending, 'memorableEvents is sorted by descending amplitude');
 
   const minSepM = GSR_CONST.MEMORABLE_EVENTS.MIN_SEPARATION_M;
   const meCoords = deconvAnalyzer2.memorableEvents
-    .map(p => deconvAnalyzer2.getCoordinates(deconvAnalyzer2.resolveLatencyIndex(p, 0)))
+    .map((p) =>
+      deconvAnalyzer2.getCoordinates(deconvAnalyzer2.resolveLatencyIndex(p, 0)),
+    )
     .filter(Boolean);
   let meMinPair = Infinity;
   for (let i = 0; i < meCoords.length; i++) {
     for (let j = i + 1; j < meCoords.length; j++) {
-      meMinPair = Math.min(meMinPair, deconvAnalyzer2._haversineMeters(meCoords[i].lat, meCoords[i].lon, meCoords[j].lat, meCoords[j].lon));
+      meMinPair = Math.min(
+        meMinPair,
+        deconvAnalyzer2._haversineMeters(
+          meCoords[i].lat,
+          meCoords[i].lon,
+          meCoords[j].lat,
+          meCoords[j].lon,
+        ),
+      );
     }
   }
-  assert(meCoords.length < 2 || meMinPair >= minSepM - 1e-6,
-    `no two hotspots closer than ${minSepM} m (closest pair ${isFinite(meMinPair) ? meMinPair.toFixed(1) : 'n/a'} m)`);
+  assert(
+    meCoords.length < 2 || meMinPair >= minSepM - 1e-6,
+    `no two hotspots closer than ${minSepM} m (closest pair ${isFinite(meMinPair) ? meMinPair.toFixed(1) : 'n/a'} m)`,
+  );
 
   // The whole point of switching to a percentile: this must stay a small
   // fraction of the census regardless of how many peaks exist, not scale up
   // to "most peaks" the way the old score>=0.5 threshold could.
-  assert(deconvAnalyzer2.memorableEvents.length <= Math.max(1, Math.ceil(activeCount * 0.05)),
-    `memorableEvents stays a small slice of the census (${deconvAnalyzer2.memorableEvents.length}/${activeCount})`);
+  assert(
+    deconvAnalyzer2.memorableEvents.length <=
+      Math.max(1, Math.ceil(activeCount * 0.05)),
+    `memorableEvents stays a small slice of the census (${deconvAnalyzer2.memorableEvents.length}/${activeCount})`,
+  );
 
   // Same checks on the non-deconvolution path (freshOff, built further below,
   // isn't available yet here — check the plain shape-based analyzer instead).
   const shapeAnalyzer = new GSRAnalyzer();
   shapeAnalyzer.parseCSV(csvText);
-  shapeAnalyzer.analyze({ ...GSR_CONST.GSR_DEFAULT, tonicMethod: 'percentile', peakThreshold: deconvPeakThreshold, useDeconvolution: false });
-  const badFieldShape = shapeAnalyzer.peaks.some(p => p.salienceScore === undefined || !isFinite(p.salienceScore));
-  assertEq(badFieldShape, false, 'Every non-deconvolution peak also has a valid salienceScore (shared method, both modes)');
-  console.log(`  Memorable events: ${deconvAnalyzer2.memorableEvents.length}/${deconvAnalyzer2.peaks.length} (decon), ${shapeAnalyzer.memorableEvents.length}/${shapeAnalyzer.peaks.length} (shape-based)`);
+  shapeAnalyzer.analyze({
+    ...GSR_CONST.GSR_DEFAULT,
+    tonicMethod: 'percentile',
+    peakThreshold: deconvPeakThreshold,
+    useDeconvolution: false,
+  });
+  const badFieldShape = shapeAnalyzer.peaks.some(
+    (p) => p.salienceScore === undefined || !isFinite(p.salienceScore),
+  );
+  assertEq(
+    badFieldShape,
+    false,
+    'Every non-deconvolution peak also has a valid salienceScore (shared method, both modes)',
+  );
+  console.log(
+    `  Memorable events: ${deconvAnalyzer2.memorableEvents.length}/${deconvAnalyzer2.peaks.length} (decon), ${shapeAnalyzer.memorableEvents.length}/${shapeAnalyzer.peaks.length} (shape-based)`,
+  );
 }
 
 // this.phasic should now point at the reconstructed clean signal
-const phasicDeconvVals = deconvAnalyzer2.phasic.map(d => d.val);
-assert(phasicDeconvVals.every(v => v >= -1e-10), 'Deconvolved phasic is nonnegative');
-assertEq(deconvAnalyzer2.phasic.length, deconvAnalyzer2.phasicClean.length, 'this.phasic is the reconstructed clean signal when deconvolution is enabled');
+const phasicDeconvVals = deconvAnalyzer2.phasic.map((d) => d.val);
+assert(
+  phasicDeconvVals.every((v) => v >= -1e-10),
+  'Deconvolved phasic is nonnegative',
+);
+assertEq(
+  deconvAnalyzer2.phasic.length,
+  deconvAnalyzer2.phasicClean.length,
+  'this.phasic is the reconstructed clean signal when deconvolution is enabled',
+);
 
 // Toggling deconvolution back off should reset driver/clean state to empty.
 const analyzeNoDeconv = {
   ...GSR_CONST.GSR_DEFAULT,
   tonicMethod: 'percentile',
   peakThreshold: deconvPeakThreshold,
-  useDeconvolution: false
+  useDeconvolution: false,
 };
 deconvAnalyzer.analyze(analyzeNoDeconv);
-assertEq(deconvAnalyzer.phasicDriver.length, 0, 'phasicDriver empty when deconvolution disabled');
-assertEq(deconvAnalyzer.phasicClean.length, 0, 'phasicClean empty when deconvolution disabled');
-assertEq(deconvAnalyzer._phasicOrig, null, 'stale _phasicOrig backup cleared when deconvolution disabled');
-console.log(`  Without deconv: ${deconvAnalyzer.peaks.length} peaks | With deconv: ${deconvAnalyzer2.peaks.length} peaks`);
+assertEq(
+  deconvAnalyzer.phasicDriver.length,
+  0,
+  'phasicDriver empty when deconvolution disabled',
+);
+assertEq(
+  deconvAnalyzer.phasicClean.length,
+  0,
+  'phasicClean empty when deconvolution disabled',
+);
+assertEq(
+  deconvAnalyzer._phasicOrig,
+  null,
+  'stale _phasicOrig backup cleared when deconvolution disabled',
+);
+console.log(
+  `  Without deconv: ${deconvAnalyzer.peaks.length} peaks | With deconv: ${deconvAnalyzer2.peaks.length} peaks`,
+);
 
 // 6h. Toggle-sequence regression guard: re-running analyze() with
 // useDeconvolution flipping off->on->off->on on ONE shared instance must
@@ -767,13 +1252,15 @@ console.log(`  Without deconv: ${deconvAnalyzer.peaks.length} peaks | With decon
 // so it stayed truthy after being toggled off).
 function snapshotAnalyzer(a) {
   return {
-    peaksSig: a.peaks.map(p => `${p.index}:${p.amplitude.toFixed(6)}`).join(','),
-    phasicSig: a.phasic.map(d => d.val.toFixed(6)).join(','),
+    peaksSig: a.peaks
+      .map((p) => `${p.index}:${p.amplitude.toFixed(6)}`)
+      .join(','),
+    phasicSig: a.phasic.map((d) => d.val.toFixed(6)).join(','),
     phasicDriverLen: a.phasicDriver.length,
     phasicCleanLen: a.phasicClean.length,
     phasicDriverPeaksLen: a.phasicDriverPeaks.length,
     phasicDeconvTruncated: a.phasicDeconvTruncated,
-    hasPhasicOrig: a._phasicOrig !== null && a._phasicOrig !== undefined
+    hasPhasicOrig: a._phasicOrig !== null && a._phasicOrig !== undefined,
   };
 }
 function paramsFor(decon) {
@@ -783,34 +1270,66 @@ function paramsFor(decon) {
     peakThreshold: deconvPeakThreshold,
     useDeconvolution: decon,
     minPeakQuality: 0.0,
-    shapeMinSnr: 0
+    shapeMinSnr: 0,
   };
 }
 
-const freshOff = new GSRAnalyzer(); freshOff.parseCSV(csvText); freshOff.analyze(paramsFor(false));
-const freshOn  = new GSRAnalyzer(); freshOn.parseCSV(csvText);  freshOn.analyze(paramsFor(true));
+const freshOff = new GSRAnalyzer();
+freshOff.parseCSV(csvText);
+freshOff.analyze(paramsFor(false));
+const freshOn = new GSRAnalyzer();
+freshOn.parseCSV(csvText);
+freshOn.analyze(paramsFor(true));
 const freshOffSnap = snapshotAnalyzer(freshOff);
-const freshOnSnap  = snapshotAnalyzer(freshOn);
+const freshOnSnap = snapshotAnalyzer(freshOn);
 
 const toggler = new GSRAnalyzer();
 toggler.parseCSV(csvText);
 toggler.analyze(paramsFor(false));
-assertEq(JSON.stringify(snapshotAnalyzer(toggler)), JSON.stringify(freshOffSnap), 'Toggle step 1 (off) matches fresh off-only instance');
+assertEq(
+  JSON.stringify(snapshotAnalyzer(toggler)),
+  JSON.stringify(freshOffSnap),
+  'Toggle step 1 (off) matches fresh off-only instance',
+);
 toggler.analyze(paramsFor(true));
-assertEq(JSON.stringify(snapshotAnalyzer(toggler)), JSON.stringify(freshOnSnap), 'Toggle step 2 (on) matches fresh on-only instance');
+assertEq(
+  JSON.stringify(snapshotAnalyzer(toggler)),
+  JSON.stringify(freshOnSnap),
+  'Toggle step 2 (on) matches fresh on-only instance',
+);
 toggler.analyze(paramsFor(false));
-assertEq(JSON.stringify(snapshotAnalyzer(toggler)), JSON.stringify(freshOffSnap), 'Toggle step 3 (off again) matches fresh off-only instance — no state leakage from "on"');
+assertEq(
+  JSON.stringify(snapshotAnalyzer(toggler)),
+  JSON.stringify(freshOffSnap),
+  'Toggle step 3 (off again) matches fresh off-only instance — no state leakage from "on"',
+);
 toggler.analyze(paramsFor(true));
-assertEq(JSON.stringify(snapshotAnalyzer(toggler)), JSON.stringify(freshOnSnap), 'Toggle step 4 (on again) matches fresh on-only instance');
+assertEq(
+  JSON.stringify(snapshotAnalyzer(toggler)),
+  JSON.stringify(freshOnSnap),
+  'Toggle step 4 (on again) matches fresh on-only instance',
+);
 
 // 6i. Non-deconvolution path parity: with useDeconvolution:false, peak
 // detection must be byte-identical to the plain default-detector path (the
 // deconvolution feature must not have altered the default detector itself —
 // confirmed against pre-deconvolution-feature analyzer.js on real track data
 // during review; this guards it going forward on the test fixture too).
-assertEq(freshOffSnap.phasicDriverLen, 0, 'Non-deconvolution path: phasicDriver stays empty');
-assertEq(freshOffSnap.phasicCleanLen, 0, 'Non-deconvolution path: phasicClean stays empty');
-assertEq(freshOffSnap.hasPhasicOrig, false, 'Non-deconvolution path: no _phasicOrig backup');
+assertEq(
+  freshOffSnap.phasicDriverLen,
+  0,
+  'Non-deconvolution path: phasicDriver stays empty',
+);
+assertEq(
+  freshOffSnap.phasicCleanLen,
+  0,
+  'Non-deconvolution path: phasicClean stays empty',
+);
+assertEq(
+  freshOffSnap.hasPhasicOrig,
+  false,
+  'Non-deconvolution path: no _phasicOrig backup',
+);
 
 // 6j. Agreement-rate regression guard: for "isolated" default-detector peaks
 // (>=3s from any other default-detector peak — no superposition ambiguity, so
@@ -840,18 +1359,22 @@ assertEq(freshOffSnap.hasPhasicOrig, false, 'Non-deconvolution path: no _phasicO
 // regression is still caught; track 053's own dedicated test file keeps a
 // tighter 85% floor since it measured higher there.
 {
-  const offTimes = freshOff.peaks.map(p => p.time).sort((a, b) => a - b);
-  const isolatedPeaks = freshOff.peaks.filter(p => {
+  const offTimes = freshOff.peaks.map((p) => p.time).sort((a, b) => a - b);
+  const isolatedPeaks = freshOff.peaks.filter((p) => {
     const idx = offTimes.indexOf(p.time);
     const gapPrev = idx > 0 ? p.time - offTimes[idx - 1] : Infinity;
-    const gapNext = idx < offTimes.length - 1 ? offTimes[idx + 1] - p.time : Infinity;
+    const gapNext =
+      idx < offTimes.length - 1 ? offTimes[idx + 1] - p.time : Infinity;
     return Math.min(gapPrev, gapNext) >= 3.0;
   });
   if (isolatedPeaks.length >= 5) {
     let matched = 0;
     for (const p of isolatedPeaks) {
-      const closest = freshOn.peaks.reduce((best, q) =>
-        Math.abs(q.time - p.time) < Math.abs(best.time - p.time) ? q : best, freshOn.peaks[0] || { time: -Infinity });
+      const closest = freshOn.peaks.reduce(
+        (best, q) =>
+          Math.abs(q.time - p.time) < Math.abs(best.time - p.time) ? q : best,
+        freshOn.peaks[0] || { time: -Infinity },
+      );
       if (closest && Math.abs(closest.time - p.time) <= 1.5) matched++;
     }
     // Floor at 55%: post-rescaling, MP amplitude overestimation is corrected
@@ -861,9 +1384,13 @@ assertEq(freshOffSnap.hasPhasicOrig, false, 'Non-deconvolution path: no _phasicO
     // are correctly removed. The floor is set at 55% to give headroom while
     // still catching the original consolidation regression (62–76%) immediately.
     const rate = matched / isolatedPeaks.length;
-    console.log(`  Agreement on isolated peaks: ${matched}/${isolatedPeaks.length} (${(rate * 100).toFixed(0)}%)`);
-    assert(rate >= 0.55,
-      `Deconvolution finds >=55% of the default detector's unambiguous isolated peaks (got ${(rate * 100).toFixed(0)}%)`);
+    console.log(
+      `  Agreement on isolated peaks: ${matched}/${isolatedPeaks.length} (${(rate * 100).toFixed(0)}%)`,
+    );
+    assert(
+      rate >= 0.55,
+      `Deconvolution finds >=55% of the default detector's unambiguous isolated peaks (got ${(rate * 100).toFixed(0)}%)`,
+    );
   }
 }
 

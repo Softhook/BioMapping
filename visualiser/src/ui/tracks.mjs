@@ -21,7 +21,15 @@ export const GSRTrackManager = {
    * one place so renderTrackList()'s empty-state branch and
    * switchActiveTrack() can't drift apart when a button gets added/removed.
    */
-  EXPORT_BUTTON_IDS: ['exportCsvBtn', 'exportImageBtn', 'exportMapBtn', 'exportSvgBtn', 'exportCzmlBtn', 'exportKmlBtn', 'exportProjectBtn'],
+  EXPORT_BUTTON_IDS: [
+    'exportCsvBtn',
+    'exportImageBtn',
+    'exportMapBtn',
+    'exportSvgBtn',
+    'exportCzmlBtn',
+    'exportKmlBtn',
+    'exportProjectBtn',
+  ],
 
   /**
    * Get all enabled tracks — delegates to GSRCollectiveManager.
@@ -31,8 +39,12 @@ export const GSRTrackManager = {
   },
 
   createTrackObject(trackId, trackName, trackColor, analyzer) {
-    const filterParams = analyzer.importedFilterParams || JSON.parse(JSON.stringify(GSR_CONST.GSR_DEFAULT));
-    const gpsFilterParams = analyzer.importedGpsFilterParams || JSON.parse(JSON.stringify(GSR_CONST.GPS_DEFAULT));
+    const filterParams =
+      analyzer.importedFilterParams ||
+      JSON.parse(JSON.stringify(GSR_CONST.GSR_DEFAULT));
+    const gpsFilterParams =
+      analyzer.importedGpsFilterParams ||
+      JSON.parse(JSON.stringify(GSR_CONST.GPS_DEFAULT));
 
     return {
       id: trackId,
@@ -53,7 +65,7 @@ export const GSRTrackManager = {
       // (visible + hidden) so visibility toggles can restore hidden ones. The
       // layerGroup only holds the currently-visible layers. Populated by
       // GSRMapManager._registerTrackLayer().
-      _ownedLayers: []
+      _ownedLayers: [],
     };
   },
 
@@ -74,13 +86,15 @@ export const GSRTrackManager = {
       display:flex;align-items:center;gap:8px;box-shadow:0 4px 24px rgba(0,0,0,0.2);
       backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
     `;
-    pill.innerHTML = '<i class="fa-solid fa-expand"></i> Restore Fullscreen <span style="opacity:0.55;font-weight:400;">(click here)</span>';
+    pill.innerHTML =
+      '<i class="fa-solid fa-expand"></i> Restore Fullscreen <span style="opacity:0.55;font-weight:400;">(click here)</span>';
 
     // Inject a <style> block for the fade-in animation
     if (!document.getElementById('fs-restore-anim')) {
       const s = document.createElement('style');
       s.id = 'fs-restore-anim';
-      s.textContent = '@keyframes fs-pill-in{from{opacity:0;transform:translateX(-50%) translateY(-12px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}';
+      s.textContent =
+        '@keyframes fs-pill-in{from{opacity:0;transform:translateX(-50%) translateY(-12px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}';
       document.head.appendChild(s);
     }
     pill.style.animation = 'fs-pill-in 0.35s ease';
@@ -133,10 +147,12 @@ export const GSRTrackManager = {
    * files dropped alongside it are ignored.
    */
   handleIncomingFiles(files) {
-    const zipFile = files.find(f => /\.zip$/i.test(f.name));
+    const zipFile = files.find((f) => /\.zip$/i.test(f.name));
     if (zipFile) {
       if (files.length > 1) {
-        console.warn(`Project zip "${zipFile.name}" was selected alongside other files — importing only the project; ignoring the rest.`);
+        console.warn(
+          `Project zip "${zipFile.name}" was selected alongside other files — importing only the project; ignoring the rest.`,
+        );
       }
       if (typeof GSRCollectiveProject !== 'undefined') {
         GSRCollectiveProject.importProject(zipFile);
@@ -151,7 +167,7 @@ export const GSRTrackManager = {
     let index = 0;
     const loadNext = () => {
       if (index >= files.length) {
-        if (AppState.fileInput) AppState.fileInput.value = "";
+        if (AppState.fileInput) AppState.fileInput.value = '';
         return;
       }
       const file = files[index];
@@ -163,10 +179,16 @@ export const GSRTrackManager = {
           const tempAnalyzer = new GSRAnalyzer();
           tempAnalyzer.parseCSV(text);
 
-          const trackId = 'track_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
+          const trackId =
+            'track_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
           const trackColor = AppState.getNextTrackColor();
 
-          const newTrack = GSRTrackManager.createTrackObject(trackId, file.name, trackColor, tempAnalyzer);
+          const newTrack = GSRTrackManager.createTrackObject(
+            trackId,
+            file.name,
+            trackColor,
+            tempAnalyzer,
+          );
 
           AppState.collectiveManager.addTrack(newTrack);
 
@@ -176,7 +198,10 @@ export const GSRTrackManager = {
           // AppState.viewMode isn't 'single' (ui.js).
           GSRTrackManager.switchActiveTrack(trackId);
 
-          GSRTrackManager.setFileStatus('success', `${AppState.collectiveManager.tracks.length} Tracks Loaded`);
+          GSRTrackManager.setFileStatus(
+            'success',
+            `${AppState.collectiveManager.tracks.length} Tracks Loaded`,
+          );
 
           index++;
           loadNext();
@@ -202,9 +227,12 @@ export const GSRTrackManager = {
     if (!info || info.status === 'none') return null;
 
     const SPEC = {
-      verified:   { icon: 'fa-circle-check',         label: 'Integrity verified' },
-      incomplete: { icon: 'fa-triangle-exclamation', label: 'Recording did not end cleanly' },
-      corrupt:    { icon: 'fa-circle-xmark',         label: 'Integrity check failed' },
+      verified: { icon: 'fa-circle-check', label: 'Integrity verified' },
+      incomplete: {
+        icon: 'fa-triangle-exclamation',
+        label: 'Recording did not end cleanly',
+      },
+      corrupt: { icon: 'fa-circle-xmark', label: 'Integrity check failed' },
     };
     const spec = SPEC[info.status];
     if (!spec) return null;
@@ -217,9 +245,9 @@ export const GSRTrackManager = {
   },
 
   renderTrackList() {
-    const container   = document.getElementById('trackListContainer');
+    const container = document.getElementById('trackListContainer');
     const listElement = document.getElementById('trackList');
-    const dropZone    = AppState.dropZone;
+    const dropZone = AppState.dropZone;
 
     if (AppState.collectiveManager.tracks.length === 0) {
       noLoop();
@@ -234,7 +262,7 @@ export const GSRTrackManager = {
       GSRUI.updateStatsPanel();
       GSRUI.updateDeconvTruncationWarning();
 
-      GSRTrackManager.EXPORT_BUTTON_IDS.forEach(id => {
+      GSRTrackManager.EXPORT_BUTTON_IDS.forEach((id) => {
         const el = document.getElementById(id);
         if (el) el.setAttribute('disabled', 'true');
       });
@@ -271,8 +299,8 @@ export const GSRTrackManager = {
 
     listElement.innerHTML = '';
 
-    AppState.collectiveManager.tracks.forEach(track => {
-      const isEditing = (track.id === AppState.activeTrackId);
+    AppState.collectiveManager.tracks.forEach((track) => {
+      const isEditing = track.id === AppState.activeTrackId;
 
       const li = document.createElement('li');
       li.className = `track-item ${isEditing ? 'active' : ''}`;
@@ -285,7 +313,9 @@ export const GSRTrackManager = {
       const details = document.createElement('div');
       details.className = 'track-details';
       details.title = 'Click to analyze and tweak';
-      details.addEventListener('click', () => GSRTrackManager.switchActiveTrack(track.id));
+      details.addEventListener('click', () =>
+        GSRTrackManager.switchActiveTrack(track.id),
+      );
 
       const name = document.createElement('span');
       name.className = 'track-name';
@@ -298,14 +328,20 @@ export const GSRTrackManager = {
       nameInput.style.display = 'none';
       nameInput.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') {
-          GSRTrackManager.finishRenameTrack(track.id, nameInput.value.trim() || track.name);
+          GSRTrackManager.finishRenameTrack(
+            track.id,
+            nameInput.value.trim() || track.name,
+          );
         } else if (e.key === 'Escape') {
           GSRTrackManager.cancelRenameTrack();
         }
         e.stopPropagation();
       });
       nameInput.addEventListener('blur', () => {
-        GSRTrackManager.finishRenameTrack(track.id, nameInput.value.trim() || track.name);
+        GSRTrackManager.finishRenameTrack(
+          track.id,
+          nameInput.value.trim() || track.name,
+        );
       });
 
       const meta = document.createElement('span');
@@ -361,11 +397,13 @@ export const GSRTrackManager = {
 
     AppState.analyzer = track.analyzer;
     AppState.analyzer.rawMinMaxCached = null; // invalidate timeline cache
-    AppState.totalDuration = (AppState.analyzer.raw.length > 0 &&
+    AppState.totalDuration =
+      AppState.analyzer.raw.length > 0 &&
       AppState.analyzer.raw[AppState.analyzer.raw.length - 1] &&
-      AppState.analyzer.raw[0])
-      ? (AppState.analyzer.raw[AppState.analyzer.raw.length - 1].time - AppState.analyzer.raw[0].time)
-      : 0;
+      AppState.analyzer.raw[0]
+        ? AppState.analyzer.raw[AppState.analyzer.raw.length - 1].time -
+          AppState.analyzer.raw[0].time
+        : 0;
 
     GSRTrackManager.loadActiveTrackParams(track);
     GSRTrackManager.loadActiveGpsParams(track);
@@ -375,7 +413,7 @@ export const GSRTrackManager = {
     GSRUI.refreshOsmControls();
     GSRTrackManager.syncMapPanelForSpatialData(track);
 
-    GSRTrackManager.EXPORT_BUTTON_IDS.forEach(id => {
+    GSRTrackManager.EXPORT_BUTTON_IDS.forEach((id) => {
       const el = document.getElementById(id);
       if (el) el.removeAttribute('disabled');
     });
@@ -400,7 +438,10 @@ export const GSRTrackManager = {
    * since the caller is about to rebuild everything from scratch anyway.
    */
   clearAllTracks() {
-    if (typeof GSRUI !== 'undefined' && typeof GSRUI.cancelCollectiveMapUpdate === 'function') {
+    if (
+      typeof GSRUI !== 'undefined' &&
+      typeof GSRUI.cancelCollectiveMapUpdate === 'function'
+    ) {
       GSRUI.cancelCollectiveMapUpdate();
     }
     AppState.collectiveManager.tracks = [];
@@ -444,7 +485,9 @@ export const GSRTrackManager = {
 
       if (AppState.activeTrackId === trackId) {
         if (AppState.collectiveManager.tracks.length > 0) {
-          GSRTrackManager.switchActiveTrack(AppState.collectiveManager.tracks[0].id);
+          GSRTrackManager.switchActiveTrack(
+            AppState.collectiveManager.tracks[0].id,
+          );
         } else {
           AppState.activeTrackId = null;
           AppState.analyzer = new GSRAnalyzer();
@@ -452,7 +495,10 @@ export const GSRTrackManager = {
       }
 
       if (AppState.collectiveManager.tracks.length > 0) {
-        GSRTrackManager.setFileStatus('success', `${AppState.collectiveManager.tracks.length} Tracks Loaded`);
+        GSRTrackManager.setFileStatus(
+          'success',
+          `${AppState.collectiveManager.tracks.length} Tracks Loaded`,
+        );
       } else {
         GSRTrackManager.setFileStatus('warning', 'No File Loaded');
       }
@@ -479,14 +525,21 @@ export const GSRTrackManager = {
     const S = AppState.sliders;
 
     for (const key of Object.keys(params)) {
-      if (key === 'useDeconvolution' || key === 'useSparsEDA' || key === 'usePeakProminence' || key === 'useCvxEDA') continue;
+      if (
+        key === 'useDeconvolution' ||
+        key === 'useSparsEDA' ||
+        key === 'usePeakProminence' ||
+        key === 'useCvxEDA'
+      )
+        continue;
       if (S[key]) {
         // hotspotPercentile is stored as a 0–1 fraction but its slider is in
         // percent (0.5–10) — convert, or a default 0.02 clamps to the 0.5 min.
         // Mirrors GSRStorage.applyPreset().
-        S[key].value = (key === 'hotspotPercentile' && params[key] <= 1.0)
-          ? params[key] * 100.0
-          : params[key];
+        S[key].value =
+          key === 'hotspotPercentile' && params[key] <= 1.0
+            ? params[key] * 100.0
+            : params[key];
       }
     }
 
@@ -545,7 +598,10 @@ export const GSRTrackManager = {
    * @param {object} [track]
    */
   syncMapPanelForSpatialData(track) {
-    if (typeof GSRUI !== 'undefined' && typeof GSRUI.syncMapPanelForSpatialData === 'function') {
+    if (
+      typeof GSRUI !== 'undefined' &&
+      typeof GSRUI.syncMapPanelForSpatialData === 'function'
+    ) {
       GSRUI.syncMapPanelForSpatialData(track);
     }
   },
@@ -616,11 +672,14 @@ export const GSRTrackManager = {
    */
   loadDefaultTrack() {
     fetch('fixtures/default_processed.csv')
-      .then(response => {
-        if (!response.ok) throw new Error('HTTP ' + response.status + ' — could not load demo data');
+      .then((response) => {
+        if (!response.ok)
+          throw new Error(
+            'HTTP ' + response.status + ' — could not load demo data',
+          );
         return response.text();
       })
-      .then(csvText => {
+      .then((csvText) => {
         try {
           const tempAnalyzer = new GSRAnalyzer();
           tempAnalyzer.parseCSV(csvText);
@@ -628,7 +687,12 @@ export const GSRTrackManager = {
           const trackId = 'track_demo_' + Date.now();
           const trackColor = AppState.getNextTrackColor();
 
-          const newTrack = GSRTrackManager.createTrackObject(trackId, 'default_processed.csv', trackColor, tempAnalyzer);
+          const newTrack = GSRTrackManager.createTrackObject(
+            trackId,
+            'default_processed.csv',
+            trackColor,
+            tempAnalyzer,
+          );
 
           AppState.collectiveManager.addTrack(newTrack);
 
@@ -637,13 +701,16 @@ export const GSRTrackManager = {
           // isn't 'single' — no separate calls needed here (see loadFilesSequentially above).
           GSRTrackManager.switchActiveTrack(trackId);
 
-          GSRTrackManager.setFileStatus('success', AppState.collectiveManager.tracks.length + ' Tracks Loaded');
+          GSRTrackManager.setFileStatus(
+            'success',
+            AppState.collectiveManager.tracks.length + ' Tracks Loaded',
+          );
         } catch (err) {
           alert('Error parsing demo data: ' + err.message);
         }
       })
-      .catch(err => {
+      .catch((err) => {
         alert('Error loading demo data: ' + err.message);
       });
-  }
+  },
 };

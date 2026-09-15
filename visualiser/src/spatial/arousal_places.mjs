@@ -35,12 +35,12 @@ export class GSRArousalPlaces {
   static buildPlaces(clusters, tracks, opts = {}) {
     if (!Array.isArray(clusters) || clusters.length === 0) return [];
 
-    const mergeM        = num(opts.mergeM, 35);
-    const footprintPad  = num(opts.footprintPadM, 10);
-    const dwellFloorS   = num(opts.dwellFloorS, 5);
+    const mergeM = num(opts.mergeM, 35);
+    const footprintPad = num(opts.footprintPadM, 10);
+    const dwellFloorS = num(opts.dwellFloorS, 5);
     const provMaxTracks = num(opts.provisionalMaxTracks, 1);
-    const minMembers    = num(opts.minMembers, 3);
-    const maxPlaces     = num(opts.maxPlaces, 20);
+    const minMembers = num(opts.minMembers, 3);
+    const maxPlaces = num(opts.maxPlaces, 20);
 
     const footprintRadiusM = mergeM / 2 + footprintPad;
     const footSq = footprintRadiusM * footprintRadiusM;
@@ -48,18 +48,20 @@ export class GSRArousalPlaces {
     const trackById = this._buildFastTrackMap(tracks);
     const candidateClusters = this._filterCandidates(clusters, minMembers);
 
-    let places = candidateClusters.map(candidate =>
+    let places = candidateClusters.map((candidate) =>
       this._scorePlace(candidate, trackById, {
         footprintRadiusM,
         footSq,
         dwellFloorS,
-        provMaxTracks
-      })
+        provMaxTracks,
+      }),
     );
 
     places.sort((a, b) => b.rate - a.rate);
     if (places.length > maxPlaces) places = places.slice(0, maxPlaces);
-    places.forEach((p, i) => { p.label = `P${i + 1}`; });
+    places.forEach((p, i) => {
+      p.label = `P${i + 1}`;
+    });
     return places;
   }
 
@@ -97,7 +99,8 @@ export class GSRArousalPlaces {
     for (let i = 0; i < n; i++) {
       const s = raw[i];
       if (s && s.hasGps !== false && s.lat != null && s.lon != null) {
-        const lat = +s.lat, lon = +s.lon;
+        const lat = +s.lat,
+          lon = +s.lon;
         if (isFinite(lat) && isFinite(lon)) {
           lats[i] = lat;
           lons[i] = lon;
@@ -144,18 +147,27 @@ export class GSRArousalPlaces {
     const n = members.length || 1;
     const { footprintRadiusM, footSq, dwellFloorS, provMaxTracks } = config;
 
-    let sumLat = 0, sumLon = 0, sumAmp = 0, maxAmp = 0, firstTime = Infinity;
-    let minLat = Infinity, maxLat = -Infinity, minLon = Infinity, maxLon = -Infinity;
+    let sumLat = 0,
+      sumLon = 0,
+      sumAmp = 0,
+      maxAmp = 0,
+      firstTime = Infinity;
+    let minLat = Infinity,
+      maxLat = -Infinity,
+      minLon = Infinity,
+      maxLon = -Infinity;
     const mCount = members.length;
     const memberLats = new Float64Array(mCount);
     const memberLons = new Float64Array(mCount);
 
     for (let i = 0; i < mCount; i++) {
       const pk = members[i];
-      const lat = +pk.lat, lon = +pk.lon;
+      const lat = +pk.lat,
+        lon = +pk.lon;
       memberLats[i] = lat;
       memberLons[i] = lon;
-      sumLat += lat; sumLon += lon;
+      sumLat += lat;
+      sumLon += lon;
       if (lat < minLat) minLat = lat;
       if (lat > maxLat) maxLat = lat;
       if (lon < minLon) minLon = lon;
@@ -163,7 +175,8 @@ export class GSRArousalPlaces {
       const a = Number(pk.amplitude) || 0;
       sumAmp += a;
       if (a > maxAmp) maxAmp = a;
-      if (typeof pk.time === 'number' && pk.time < firstTime) firstTime = pk.time;
+      if (typeof pk.time === 'number' && pk.time < firstTime)
+        firstTime = pk.time;
     }
 
     const centroidLat = sumLat / n;
@@ -174,11 +187,15 @@ export class GSRArousalPlaces {
 
     const padLat = footprintRadiusM / degLat;
     const padLon = footprintRadiusM / degLon;
-    const bMinLat = minLat - padLat, bMaxLat = maxLat + padLat;
-    const bMinLon = minLon - padLon, bMaxLon = maxLon + padLon;
+    const bMinLat = minLat - padLat,
+      bMaxLat = maxLat + padLat;
+    const bMinLon = minLon - padLon,
+      bMaxLon = maxLon + padLon;
 
-    let energy = 0, dwellSeconds = 0;
-    let osm = null, osmBestDsq = Infinity;
+    let energy = 0,
+      dwellSeconds = 0;
+    let osm = null,
+      osmBestDsq = Infinity;
 
     for (let tIdx = 0; tIdx < trackIds.length; tIdx++) {
       const tid = trackIds[tIdx];
@@ -220,16 +237,16 @@ export class GSRArousalPlaces {
           if (dc < osmBestDsq) {
             osmBestDsq = dc;
             osm = {
-              roadClass:  s.osm_road_class,
-              distGreen:  numOrNull(s.osm_dist_green),
-              canopyPct:  numOrNull(s.osm_canopy_pct_50m)
+              roadClass: s.osm_road_class,
+              distGreen: numOrNull(s.osm_dist_green),
+              canopyPct: numOrNull(s.osm_canopy_pct_50m),
             };
           }
         }
       }
     }
 
-    const rate = energy / Math.max(dwellSeconds, dwellFloorS) * 60;
+    const rate = (energy / Math.max(dwellSeconds, dwellFloorS)) * 60;
 
     return {
       label: '',
@@ -246,7 +263,7 @@ export class GSRArousalPlaces {
       dwellSeconds,
       rate,
       provisional: trackIds.length <= provMaxTracks,
-      osm
+      osm,
     };
   }
 }

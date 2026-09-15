@@ -50,7 +50,7 @@
 
 import { GSR_CONST } from '../core/constants.mjs';
 
-'use strict';
+('use strict');
 
 export const CVXEDA = {
   /**
@@ -100,8 +100,15 @@ export const CVXEDA = {
         phasic: new Float64Array(n),
         tonic: Float64Array.from(yRaw),
         driver: new Float64Array(n),
-        l: new Float64Array(0), d: new Float64Array([0, 0]), e: new Float64Array(n), obj: 0,
-        iterations: 0, converged: true, rPrim: 0, rDual: 0, pivotFires: 0
+        l: new Float64Array(0),
+        d: new Float64Array([0, 0]),
+        e: new Float64Array(n),
+        obj: 0,
+        iterations: 0,
+        converged: true,
+        rPrim: 0,
+        rDual: 0,
+        pivotFires: 0,
       };
     }
 
@@ -118,13 +125,17 @@ export const CVXEDA = {
     const delta = 1.0 / sampleRate;
 
     // ── z-score standardisation (matches NeuroKit's cvxEDA wrapper) ─────────
-    let mean = 0, std = 1;
+    let mean = 0,
+      std = 1;
     const y = new Float64Array(n);
     if (normalize) {
       for (let i = 0; i < n; i++) mean += yRaw[i];
       mean /= n;
       let v = 0;
-      for (let i = 0; i < n; i++) { const dd = yRaw[i] - mean; v += dd * dd; }
+      for (let i = 0; i < n; i++) {
+        const dd = yRaw[i] - mean;
+        v += dd * dd;
+      }
       std = Math.sqrt(v / n);
       if (!(std > 1e-8)) std = 1.0;
       for (let i = 0; i < n; i++) y[i] = (yRaw[i] - mean) / std;
@@ -150,17 +161,21 @@ export const CVXEDA = {
     const applyA = (x, out) => {
       out[0] = ar0 * x[0];
       out[1] = ar1 * x[0] + ar0 * x[1];
-      for (let i = 2; i < n; i++) out[i] = ar0 * x[i] + ar1 * x[i - 1] + ar2 * x[i - 2];
+      for (let i = 2; i < n; i++)
+        out[i] = ar0 * x[i] + ar1 * x[i - 1] + ar2 * x[i - 2];
       return out;
     };
     // Aᵀ·x  (transpose: row j of A scatters to out[j], out[j-1], out[j-2])
     const applyAT = (x, out) => {
       out.fill(0);
       out[0] += ar0 * x[0];
-      out[0] += ar1 * x[1]; out[1] += ar0 * x[1];
+      out[0] += ar1 * x[1];
+      out[1] += ar0 * x[1];
       for (let j = 2; j < n; j++) {
         const xj = x[j];
-        out[j] += ar0 * xj; out[j - 1] += ar1 * xj; out[j - 2] += ar2 * xj;
+        out[j] += ar0 * xj;
+        out[j - 1] += ar1 * xj;
+        out[j - 2] += ar2 * xj;
       }
       return out;
     };
@@ -173,10 +188,13 @@ export const CVXEDA = {
     const applyMT = (x, out) => {
       out.fill(0);
       out[0] += x[0];
-      out[0] += 2.0 * x[1]; out[1] += x[1];
+      out[0] += 2.0 * x[1];
+      out[1] += x[1];
       for (let j = 2; j < n; j++) {
         const xj = x[j];
-        out[j] += xj; out[j - 1] += 2.0 * xj; out[j - 2] += xj;
+        out[j] += xj;
+        out[j - 1] += 2.0 * xj;
+        out[j - 2] += xj;
       }
       return out;
     };
@@ -186,7 +204,8 @@ export const CVXEDA = {
     // // 2, delta_knot_s) — the floor division matters when knotStep is odd.
     const knotStep = Math.max(1, Math.round(deltaKnotSec / delta));
     const knots = [];
-    for (let k = 0; k < n + Math.floor(knotStep / 2); k += knotStep) knots.push(k);
+    for (let k = 0; k < n + Math.floor(knotStep / 2); k += knotStep)
+      knots.push(k);
     const nB = knots.length;
 
     // order-1 triangle ⊛ triangle → order-3 spline, normalised to unit peak
@@ -208,7 +227,8 @@ export const CVXEDA = {
     const bVal = new Array(nB);
     for (let j = 0; j < nB; j++) {
       const base = knots[j] - halfSpl;
-      let lo = 0, hi = spl.length;
+      let lo = 0,
+        hi = spl.length;
       if (base < 0) lo = -base;
       if (base + hi > n) hi = n - base;
       const len = Math.max(0, hi - lo);
@@ -221,8 +241,11 @@ export const CVXEDA = {
     const applyB = (l, out) => {
       out.fill(0);
       for (let j = 0; j < nB; j++) {
-        const lj = l[j]; if (lj === 0) continue;
-        const st = bStart[j], v = bVal[j], len = bLen[j];
+        const lj = l[j];
+        if (lj === 0) continue;
+        const st = bStart[j],
+          v = bVal[j],
+          len = bLen[j];
         for (let s = 0; s < len; s++) out[st + s] += lj * v[s];
       }
       return out;
@@ -243,8 +266,8 @@ export const CVXEDA = {
 
     // ── Kqs = [MᵀC | MᵀB]  (n × m) ───────────────────────────────────────
     // Two dense drift columns, nB sparse spline columns (contiguous support).
-    const qsC0 = applyMT(ones, new Float64Array(n));   // Mᵀ·1
-    const qsC1 = applyMT(cRamp, new Float64Array(n));  // Mᵀ·ramp
+    const qsC0 = applyMT(ones, new Float64Array(n)); // Mᵀ·1
+    const qsC1 = applyMT(cRamp, new Float64Array(n)); // Mᵀ·ramp
     const qsBStart = new Int32Array(nB);
     const qsBLen = new Int32Array(nB);
     const qsBVal = new Array(nB);
@@ -252,7 +275,9 @@ export const CVXEDA = {
       const col = new Float64Array(n);
       for (let j = 0; j < nB; j++) {
         col.fill(0);
-        const st = bStart[j], v = bVal[j], len = bLen[j];
+        const st = bStart[j],
+          v = bVal[j],
+          len = bLen[j];
         for (let s = 0; s < len; s++) col[st + s] = v[s];
         applyMT(col, tmpN);
         // Mᵀ widens the support by 2 samples upward.
@@ -267,20 +292,35 @@ export const CVXEDA = {
     }
     // dot(Kqs[:,r], vec) for an s-space column r
     const qsDot = (r, vec) => {
-      if (r === 0) { let a = 0; for (let i = 0; i < n; i++) a += qsC0[i] * vec[i]; return a; }
-      if (r === 1) { let a = 0; for (let i = 0; i < n; i++) a += qsC1[i] * vec[i]; return a; }
-      const j = r - 2, st = qsBStart[j], bv = qsBVal[j], len = qsBLen[j];
+      if (r === 0) {
+        let a = 0;
+        for (let i = 0; i < n; i++) a += qsC0[i] * vec[i];
+        return a;
+      }
+      if (r === 1) {
+        let a = 0;
+        for (let i = 0; i < n; i++) a += qsC1[i] * vec[i];
+        return a;
+      }
+      const j = r - 2,
+        st = qsBStart[j],
+        bv = qsBVal[j],
+        len = qsBLen[j];
       let a = 0;
       for (let s = 0; s < len; s++) a += bv[s] * vec[st + s];
       return a;
     };
     // out += Kqs · s   (accumulate the x-step coupling term)
     const qsApply = (s, out) => {
-      const s0 = s[0], s1 = s[1];
+      const s0 = s[0],
+        s1 = s[1];
       for (let i = 0; i < n; i++) out[i] += s0 * qsC0[i] + s1 * qsC1[i];
       for (let j = 0; j < nB; j++) {
-        const sj = s[2 + j]; if (sj === 0) continue;
-        const st = qsBStart[j], bv = qsBVal[j], len = qsBLen[j];
+        const sj = s[2 + j];
+        if (sj === 0) continue;
+        const st = qsBStart[j],
+          bv = qsBVal[j],
+          len = qsBLen[j];
         for (let s2 = 0; s2 < len; s2++) out[st + s2] += sj * bv[s2];
       }
       return out;
@@ -290,20 +330,39 @@ export const CVXEDA = {
     const Kss = new Float64Array(m * m);
     {
       // drift–drift
-      let c00 = 0, c01 = 0, c11 = 0;
-      for (let i = 0; i < n; i++) { c00 += 1; c01 += cRamp[i]; c11 += cRamp[i] * cRamp[i]; }
-      Kss[0] = c00; Kss[1] = c01; Kss[m] = c01; Kss[m + 1] = c11;
+      let c00 = 0,
+        c01 = 0,
+        c11 = 0;
+      for (let i = 0; i < n; i++) {
+        c00 += 1;
+        c01 += cRamp[i];
+        c11 += cRamp[i] * cRamp[i];
+      }
+      Kss[0] = c00;
+      Kss[1] = c01;
+      Kss[m] = c01;
+      Kss[m + 1] = c11;
       // drift–spline
       for (let j = 0; j < nB; j++) {
-        const st = bStart[j], v = bVal[j], len = bLen[j];
-        let d0 = 0, d1 = 0;
-        for (let s = 0; s < len; s++) { d0 += v[s]; d1 += v[s] * cRamp[st + s]; }
-        Kss[2 + j] = d0; Kss[(2 + j) * m] = d0;
-        Kss[m + 2 + j] = d1; Kss[(2 + j) * m + 1] = d1;
+        const st = bStart[j],
+          v = bVal[j],
+          len = bLen[j];
+        let d0 = 0,
+          d1 = 0;
+        for (let s = 0; s < len; s++) {
+          d0 += v[s];
+          d1 += v[s] * cRamp[st + s];
+        }
+        Kss[2 + j] = d0;
+        Kss[(2 + j) * m] = d0;
+        Kss[m + 2 + j] = d1;
+        Kss[(2 + j) * m + 1] = d1;
       }
       // spline–spline (banded: only knots within one spline width overlap)
       for (let j = 0; j < nB; j++) {
-        const stj = bStart[j], vj = bVal[j], lenj = bLen[j];
+        const stj = bStart[j],
+          vj = bVal[j],
+          lenj = bLen[j];
         for (let k = j; k < nB; k++) {
           const stk = bStart[k];
           const lo = Math.max(stj, stk);
@@ -324,10 +383,14 @@ export const CVXEDA = {
     // z/s, recomputed every Newton step) rather than a constant — the outer
     // product structure that makes this banded doesn't care either way.
     // Stored as three diagonals: kd0[i]=K[i][i], kd1[i]=K[i][i+1], kd2[i]=K[i][i+2].
-    const kd0 = new Float64Array(n), kd1 = new Float64Array(n), kd2 = new Float64Array(n);
+    const kd0 = new Float64Array(n),
+      kd1 = new Float64Array(n),
+      kd2 = new Float64Array(n);
     // Banded Cholesky factor L (lower, 2 sub-diagonals): lb0[i]=L[i][i],
     // lb1[i]=L[i][i-1], lb2[i]=L[i][i-2].
-    const lb0 = new Float64Array(n), lb1 = new Float64Array(n), lb2 = new Float64Array(n);
+    const lb0 = new Float64Array(n),
+      lb1 = new Float64Array(n),
+      lb2 = new Float64Array(n);
     // Counts how often a Cholesky pivot needed the numerical-floor fallback
     // below (factorKqq's `dj`, buildSchur's `sum`) — should be 0 on any
     // well-conditioned solve; a nonzero count flags a Newton direction that
@@ -335,7 +398,9 @@ export const CVXEDA = {
     let pivotFires = 0;
 
     const buildKqq = (w) => {
-      kd0.fill(0); kd1.fill(0); kd2.fill(0);
+      kd0.fill(0);
+      kd1.fill(0);
+      kd2.fill(0);
       const mTap = [1.0, 2.0, 1.0];
       const aTap = [ar2, ar1, ar0]; // taps at columns [i-2, i-1, i]
       for (let i = 0; i < n; i++) {
@@ -356,12 +421,17 @@ export const CVXEDA = {
     };
 
     const factorKqq = () => {
-      lb0.fill(0); lb1.fill(0); lb2.fill(0);
+      lb0.fill(0);
+      lb1.fill(0);
+      lb2.fill(0);
       for (let j = 0; j < n; j++) {
         let dj = kd0[j];
         if (j >= 1) dj -= lb1[j] * lb1[j];
         if (j >= 2) dj -= lb2[j] * lb2[j];
-        if (dj <= 0) { dj = 1e-12; pivotFires++; }
+        if (dj <= 0) {
+          dj = 1e-12;
+          pivotFires++;
+        }
         const ljj = Math.sqrt(dj);
         lb0[j] = ljj;
         if (j + 1 < n) {
@@ -370,7 +440,7 @@ export const CVXEDA = {
           lb1[j + 1] = s / ljj;
         }
         if (j + 2 < n) {
-          const s = kd2[j];               // no k<j term inside the band
+          const s = kd2[j]; // no k<j term inside the band
           lb2[j + 2] = s / ljj;
         }
       }
@@ -407,7 +477,10 @@ export const CVXEDA = {
         if (c === 0) kqsCol.set(qsC0);
         else if (c === 1) kqsCol.set(qsC1);
         else {
-          const j = c - 2, st = qsBStart[j], bv = qsBVal[j], len = qsBLen[j];
+          const j = c - 2,
+            st = qsBStart[j],
+            bv = qsBVal[j],
+            len = qsBLen[j];
           for (let s = 0; s < len; s++) kqsCol[st + s] = bv[s];
         }
         solveKqq(kqsCol, wCol);
@@ -422,7 +495,8 @@ export const CVXEDA = {
       for (let i = 0; i < m; i++) {
         for (let j = 0; j <= i; j++) {
           let sum = S[i * m + j];
-          for (let k = 0; k < j; k++) sum -= Schol[i * m + k] * Schol[j * m + k];
+          for (let k = 0; k < j; k++)
+            sum -= Schol[i * m + k] * Schol[j * m + k];
           if (i === j) {
             if (!(sum > 0)) pivotFires++;
             Schol[i * m + j] = Math.sqrt(sum > 0 ? sum : 1e-12);
@@ -454,7 +528,8 @@ export const CVXEDA = {
       solveKqq(rhsQ, t1);
       for (let r = 0; r < m; r++) rhsSred[r] = rhsS[r] - qsDot(r, t1);
       solveSchur(rhsSred, xsOut);
-      tmpN.fill(0); qsApply(xsOut, tmpN);
+      tmpN.fill(0);
+      qsApply(xsOut, tmpN);
       solveKqq(tmpN, tmpN2);
       for (let i = 0; i < n; i++) qOut[i] = t1[i] - tmpN2[i];
     };
@@ -463,18 +538,31 @@ export const CVXEDA = {
     // x = [q; d; l]. Slack sk = A·q ≥ 0, dual zk ≥ 0, complementarity sk∘zk=0.
     // (Same algorithm CVXOPT's qp() runs; see the file header.)
     const q = new Float64Array(n);
-    const xs = new Float64Array(m);          // [d0, d1, l0..l(nB-1)]
-    const sk = new Float64Array(n).fill(1);  // slack, sk = A·q at feasibility
-    const zk = new Float64Array(n).fill(1);  // dual
-    const w = new Float64Array(n);           // complementarity weight zk/sk
+    const xs = new Float64Array(m); // [d0, d1, l0..l(nB-1)]
+    const sk = new Float64Array(n).fill(1); // slack, sk = A·q at feasibility
+    const zk = new Float64Array(n).fill(1); // dual
+    const w = new Float64Array(n); // complementarity weight zk/sk
 
-    const Aq = new Float64Array(n), eModel = new Float64Array(n), bl = new Float64Array(n);
-    const rdq = new Float64Array(n), rds = new Float64Array(m), rp = new Float64Array(n);
-    const combo = new Float64Array(n), Atcombo = new Float64Array(n);
-    const dq = new Float64Array(n), dxs = new Float64Array(m), ds = new Float64Array(n), dz = new Float64Array(n);
-    const dqC = new Float64Array(n), dxsC = new Float64Array(m), dsC = new Float64Array(n), dzC = new Float64Array(n);
-    const rhsQ = new Float64Array(n), rhsSb = new Float64Array(m);
-    const gAff = new Float64Array(n), gCc = new Float64Array(n);
+    const Aq = new Float64Array(n),
+      eModel = new Float64Array(n),
+      bl = new Float64Array(n);
+    const rdq = new Float64Array(n),
+      rds = new Float64Array(m),
+      rp = new Float64Array(n);
+    const combo = new Float64Array(n),
+      Atcombo = new Float64Array(n);
+    const dq = new Float64Array(n),
+      dxs = new Float64Array(m),
+      ds = new Float64Array(n),
+      dz = new Float64Array(n);
+    const dqC = new Float64Array(n),
+      dxsC = new Float64Array(m),
+      dsC = new Float64Array(n),
+      dzC = new Float64Array(n);
+    const rhsQ = new Float64Array(n),
+      rhsSb = new Float64Array(m);
+    const gAff = new Float64Array(n),
+      gCc = new Float64Array(n);
 
     // KKT residuals at the current (q, xs, sk, zk): rdq/rds = ∇_x L, rp = the
     // slack-feasibility gap sk − A·q (both driven to 0 by infeasible-start
@@ -482,18 +570,26 @@ export const CVXEDA = {
     const computeResiduals = () => {
       applyM(q, eModel);
       for (let i = 0; i < n; i++) eModel[i] += xs[0] + xs[1] * cRamp[i];
-      bl.fill(0); applyB(xs.subarray(2), bl);
+      bl.fill(0);
+      applyB(xs.subarray(2), bl);
       for (let i = 0; i < n; i++) eModel[i] += bl[i] - y[i];
 
       applyMT(eModel, rdq);
       applyAT(zk, tmpN2);
       for (let i = 0; i < n; i++) rdq[i] += alpha * AT1[i] - tmpN2[i];
 
-      let a0 = 0, a1 = 0;
-      for (let i = 0; i < n; i++) { a0 += eModel[i]; a1 += cRamp[i] * eModel[i]; }
-      rds[0] = a0; rds[1] = a1;
+      let a0 = 0,
+        a1 = 0;
+      for (let i = 0; i < n; i++) {
+        a0 += eModel[i];
+        a1 += cRamp[i] * eModel[i];
+      }
+      rds[0] = a0;
+      rds[1] = a1;
       for (let j = 0; j < nB; j++) {
-        const st = bStart[j], v = bVal[j], len = bLen[j];
+        const st = bStart[j],
+          v = bVal[j],
+          len = bLen[j];
         let acc = 0;
         for (let s2 = 0; s2 < len; s2++) acc += v[s2] * eModel[st + s2];
         rds[2 + j] = acc + gamma * xs[2 + j];
@@ -506,45 +602,66 @@ export const CVXEDA = {
     // predictor uses γ=-sk∘zk; the corrector adds the Mehrotra second-order
     // + centering terms). Reuses whatever Kqq/Schur factorisation is current.
     const solveDirection = (gammaVec, qOut, xsOut, sOut, zOut) => {
-      for (let i = 0; i < n; i++) combo[i] = (zk[i] * rp[i] + gammaVec[i]) / sk[i];
+      for (let i = 0; i < n; i++)
+        combo[i] = (zk[i] * rp[i] + gammaVec[i]) / sk[i];
       applyAT(combo, Atcombo);
       for (let i = 0; i < n; i++) rhsQ[i] = -rdq[i] + Atcombo[i];
       for (let r = 0; r < m; r++) rhsSb[r] = -rds[r];
       solveKKT(rhsQ, rhsSb, qOut, xsOut);
       applyA(qOut, tmpN);
       for (let i = 0; i < n; i++) sOut[i] = tmpN[i] - rp[i];
-      for (let i = 0; i < n; i++) zOut[i] = (gammaVec[i] - zk[i] * sOut[i]) / sk[i];
+      for (let i = 0; i < n; i++)
+        zOut[i] = (gammaVec[i] - zk[i] * sOut[i]) / sk[i];
     };
 
     const fracToBoundary = (v, dv, tau) => {
       let amax = 1.0;
       for (let i = 0; i < n; i++) {
-        if (dv[i] < 0) { const cand = -v[i] / dv[i]; if (cand < amax) amax = cand; }
+        if (dv[i] < 0) {
+          const cand = -v[i] / dv[i];
+          if (cand < amax) amax = cand;
+        }
       }
       return tau * amax < 1 ? tau * amax : 1;
     };
 
-    let iterations = 0, converged = false, rPrim = 0, rDual = 0;
+    let iterations = 0,
+      converged = false,
+      rPrim = 0,
+      rDual = 0;
     const TAU = 0.995; // fraction-to-boundary safety factor (Wright 1997)
 
     for (let it = 0; it < maxIter; it++) {
       iterations = it + 1;
       computeResiduals();
 
-      let mu = 0; for (let i = 0; i < n; i++) mu += sk[i] * zk[i]; mu /= n;
-      let rpN = 0, rdqN = 0;
-      for (let i = 0; i < n; i++) { rpN += rp[i] * rp[i]; rdqN += rdq[i] * rdq[i]; }
-      let rdsN = 0; for (let r = 0; r < m; r++) rdsN += rds[r] * rds[r]; // drift/spline block of ∇_x L
-      rPrim = Math.sqrt(rpN); rDual = Math.sqrt(rdqN + rdsN); // full stationarity residual, both blocks
+      let mu = 0;
+      for (let i = 0; i < n; i++) mu += sk[i] * zk[i];
+      mu /= n;
+      let rpN = 0,
+        rdqN = 0;
+      for (let i = 0; i < n; i++) {
+        rpN += rp[i] * rp[i];
+        rdqN += rdq[i] * rdq[i];
+      }
+      let rdsN = 0;
+      for (let r = 0; r < m; r++) rdsN += rds[r] * rds[r]; // drift/spline block of ∇_x L
+      rPrim = Math.sqrt(rpN);
+      rDual = Math.sqrt(rdqN + rdsN); // full stationarity residual, both blocks
 
       // mu < tol is the binding criterion in practice (Newton's quadratic
       // convergence drives it to noise floor fast); rp/rd already converge
       // well ahead of it, so their bounds just need to be generously below
       // the noise floor of an O(1)-scale normalized problem, not tight.
-      if (mu < tol && rPrim < 1e-6 && rDual < 1e-4) { converged = true; break; }
+      if (mu < tol && rPrim < 1e-6 && rDual < 1e-4) {
+        converged = true;
+        break;
+      }
 
       for (let i = 0; i < n; i++) w[i] = zk[i] / sk[i];
-      buildKqq(w); factorKqq(); buildSchur();
+      buildKqq(w);
+      factorKqq();
+      buildSchur();
 
       // predictor (affine-scaling, σ=0)
       for (let i = 0; i < n; i++) gAff[i] = -sk[i] * zk[i];
@@ -552,13 +669,16 @@ export const CVXEDA = {
       const apAff = fracToBoundary(sk, ds, 1.0);
       const adAff = fracToBoundary(zk, dz, 1.0);
       let muAff = 0;
-      for (let i = 0; i < n; i++) muAff += (sk[i] + apAff * ds[i]) * (zk[i] + adAff * dz[i]);
+      for (let i = 0; i < n; i++)
+        muAff += (sk[i] + apAff * ds[i]) * (zk[i] + adAff * dz[i]);
       muAff /= n;
       let sigma = (muAff / mu) ** 3;
-      if (!(sigma >= 0)) sigma = 0; else if (sigma > 1) sigma = 1;
+      if (!(sigma >= 0)) sigma = 0;
+      else if (sigma > 1) sigma = 1;
 
       // corrector (centering + Mehrotra 2nd-order term), same factorisation
-      for (let i = 0; i < n; i++) gCc[i] = -sk[i] * zk[i] - ds[i] * dz[i] + sigma * mu;
+      for (let i = 0; i < n; i++)
+        gCc[i] = -sk[i] * zk[i] - ds[i] * dz[i] + sigma * mu;
       solveDirection(gCc, dqC, dxsC, dsC, dzC);
 
       const ap = fracToBoundary(sk, dsC, TAU);
@@ -566,8 +686,10 @@ export const CVXEDA = {
       for (let i = 0; i < n; i++) q[i] += ap * dqC[i];
       for (let r = 0; r < m; r++) xs[r] += ap * dxsC[r];
       for (let i = 0; i < n; i++) {
-        sk[i] += ap * dsC[i]; if (sk[i] < 1e-13) sk[i] = 1e-13;
-        zk[i] += ad * dzC[i]; if (zk[i] < 1e-13) zk[i] = 1e-13;
+        sk[i] += ap * dsC[i];
+        if (sk[i] < 1e-13) sk[i] = 1e-13;
+        zk[i] += ad * dzC[i];
+        if (zk[i] < 1e-13) zk[i] = 1e-13;
       }
     }
 
@@ -576,9 +698,10 @@ export const CVXEDA = {
     const tonic = new Float64Array(n);
     const driver = new Float64Array(n);
 
-    applyM(q, phasic);  // r = M·q  (reference)
-    applyA(q, driver);  // p = A·q  (reference)
-    bl.fill(0); applyB(xs.subarray(2), bl);
+    applyM(q, phasic); // r = M·q  (reference)
+    applyA(q, driver); // p = A·q  (reference)
+    bl.fill(0);
+    applyB(xs.subarray(2), bl);
 
     // Objective (reference eq. 15) and residual accumulate in the internal
     // solve space — i.e. the normalized y when normalize=true, matching what
@@ -589,10 +712,12 @@ export const CVXEDA = {
     // same noise floor the reference's own CVXOPT solve leaves behind, so no
     // active-set gating is needed (that was an ADMM-only workaround for its
     // much looser 3e-4 tolerance).
-    let resid2 = 0, alphaSum = 0;
+    let resid2 = 0,
+      alphaSum = 0;
     for (let i = 0; i < n; i++) {
       const t = bl[i] + xs[0] + xs[1] * cRamp[i];
-      const rRaw = phasic[i], pRaw = driver[i];
+      const rRaw = phasic[i],
+        pRaw = driver[i];
       const resid = rRaw + t - y[i];
       resid2 += resid * resid;
       alphaSum += pRaw;
@@ -610,10 +735,25 @@ export const CVXEDA = {
 
     // d, l rescaled to native units so d0 + d1·cRamp + B·l reproduces tonic
     // (mirrors how phasic/tonic/driver are already rescaled above).
-    const d = normalize ? new Float64Array([xs[0] * std + mean, xs[1] * std]) : new Float64Array([xs[0], xs[1]]);
+    const d = normalize
+      ? new Float64Array([xs[0] * std + mean, xs[1] * std])
+      : new Float64Array([xs[0], xs[1]]);
     const l = new Float64Array(nB);
     for (let j = 0; j < nB; j++) l[j] = normalize ? xs[2 + j] * std : xs[2 + j];
 
-    return { phasic, tonic, driver, l, d, e, obj, iterations, converged, rPrim, rDual, pivotFires };
-  }
+    return {
+      phasic,
+      tonic,
+      driver,
+      l,
+      d,
+      e,
+      obj,
+      iterations,
+      converged,
+      rPrim,
+      rDual,
+      pivotFires,
+    };
+  },
 };

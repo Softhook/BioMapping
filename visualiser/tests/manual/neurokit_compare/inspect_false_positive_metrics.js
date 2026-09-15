@@ -2,7 +2,6 @@
  * Compares Full-Scan peak metrics for known true SCRs and false detections.
  * Usage: node inspect_false_positive_metrics.js <track.csv> <ground_truth.json>
  */
-'use strict';
 
 const fs = require('fs');
 const path = require('path');
@@ -14,7 +13,10 @@ global.GSR_CONST = require('../../mock_constants.js');
 function loadModule(filePath, varName) {
   const src = fs.readFileSync(filePath, 'utf8');
   const wrapped = src
-    .replace(new RegExp(`class ${varName}\\s*{`), `global.${varName} = class ${varName} {`)
+    .replace(
+      new RegExp(`class ${varName}\\s*{`),
+      `global.${varName} = class ${varName} {`,
+    )
     .replace(new RegExp(`const ${varName}\\s*=`), `global.${varName} =`);
   vm.runInThisContext(wrapped, { filename: filePath });
 }
@@ -29,7 +31,9 @@ loadModule(path.join(SRC, 'analyzer.js'), 'GSRAnalyzer');
 
 const [, , csvPath, truthPath] = process.argv;
 if (!csvPath || !truthPath) {
-  console.error('Usage: node inspect_false_positive_metrics.js <track.csv> <ground_truth.json>');
+  console.error(
+    'Usage: node inspect_false_positive_metrics.js <track.csv> <ground_truth.json>',
+  );
   process.exit(1);
 }
 
@@ -51,7 +55,10 @@ for (const peak of analyzer.peaks) {
   for (let index = 0; index < truth.length; index++) {
     if (usedTruth[index]) continue;
     const delta = Math.abs(peak.time - truth[index].time);
-    if (delta < bestDelta) { bestIndex = index; bestDelta = delta; }
+    if (delta < bestDelta) {
+      bestIndex = index;
+      bestDelta = delta;
+    }
   }
   if (bestIndex >= 0 && bestDelta <= 1.0) {
     usedTruth[bestIndex] = true;
@@ -62,16 +69,29 @@ for (const peak of analyzer.peaks) {
 }
 
 function summary(peaks, key) {
-  const values = peaks.map(peak => peak[key]).filter(Number.isFinite).sort((a, b) => a - b);
+  const values = peaks
+    .map((peak) => peak[key])
+    .filter(Number.isFinite)
+    .sort((a, b) => a - b);
   if (!values.length) return 'n/a';
   const median = values[Math.floor(values.length / 2)];
   return `median ${median.toFixed(3)}, range ${values[0].toFixed(3)}-${values.at(-1).toFixed(3)}`;
 }
 
-console.log(`=== ${path.basename(csvPath, '.csv')}: Full-Scan metrics against known truth ===`);
+console.log(
+  `=== ${path.basename(csvPath, '.csv')}: Full-Scan metrics against known truth ===`,
+);
 for (const [label, peaks] of Object.entries(groups)) {
   console.log(`  ${label}: ${peaks.length}`);
-  for (const key of ['amplitude', 'prominence', 'riseTime', 'halfRecoveryTime', 'onsetSlope', 'snr', 'qualityScore']) {
+  for (const key of [
+    'amplitude',
+    'prominence',
+    'riseTime',
+    'halfRecoveryTime',
+    'onsetSlope',
+    'snr',
+    'qualityScore',
+  ]) {
     console.log(`    ${key.padEnd(17)} ${summary(peaks, key)}`);
   }
 }

@@ -24,7 +24,6 @@ import { StatsMath } from '../signal/stats_math.mjs';
 import { GSRSpatialClustering } from '../spatial/spatial_clustering.mjs';
 
 export const __methods = {
-
   /**
    * Remove all collective track paths and peak markers from the map.
    */
@@ -80,17 +79,20 @@ export const __methods = {
 
     // Signature of which tracks are active — used below to only auto-fit the viewport when
     // the active track set actually changed, not on every contour/cluster slider re-render.
-    const trackSetSignature = activeTracks.map(t => t.id).sort().join(',');
+    const trackSetSignature = activeTracks
+      .map((t) => t.id)
+      .sort()
+      .join(',');
 
     const allActivePeaksAcrossTracks = [];
-    let collectiveDrawPoints = [];
+    const collectiveDrawPoints = [];
     // Phase 5: per-track drawPoints/osmGeoms references (not concatenated) so
     // RFFluidRenderer.setDataForTracks() can reuse cached fan-cast geometry
     // for tracks whose data didn't change (see that method's doc comment).
     const rfTracksData = [];
 
     // 1. Draw dashed, semi-transparent paths for each track
-    activeTracks.forEach(track => {
+    activeTracks.forEach((track) => {
       const data = track.analyzer.raw;
       const p = track.gpsFilterParams || {};
 
@@ -101,22 +103,30 @@ export const __methods = {
       const layerGroup = this._getTrackLayerGroup(track);
 
       // Use cached GPS pipeline (cache keyed by track id)
-      const { drawPoints } = this._getOrBuildDrawPoints(track.id, track.analyzer, p);
+      const { drawPoints } = this._getOrBuildDrawPoints(
+        track.id,
+        track.analyzer,
+        p,
+      );
       if (drawPoints.length > 0) {
         collectiveDrawPoints.push(...drawPoints);
-        rfTracksData.push({ id: track.id, drawPoints, osmGeoms: track.analyzer && track.analyzer.osmGeoms });
+        rfTracksData.push({
+          id: track.id,
+          drawPoints,
+          osmGeoms: track.analyzer && track.analyzer.osmGeoms,
+        });
       }
 
       if (drawPoints.length < 2) return;
 
-      const latlngs = drawPoints.map(pt => [pt.lat, pt.lon]);
+      const latlngs = drawPoints.map((pt) => [pt.lat, pt.lon]);
       const trackColor = track.color || '#0ea5e9';
 
       const poly = L.polyline(latlngs, {
         color: trackColor,
         weight: 3,
         opacity: 0.35,
-        dashArray: '5, 8'
+        dashArray: '5, 8',
       });
       // Phase 1 (slice 2): the collective path renders into this track's own
       // layerGroup, never directly onto the map. Tag the group ALWAYS (even
@@ -131,7 +141,13 @@ export const __methods = {
       this._registerTrackLayer(track, poly);
 
       // 2. Draw peak dot markers — 360° label placement with collision avoidance
-      this._renderCollectiveTrackPeaks(track, layerGroup, trackColor, peakLatency, allActivePeaksAcrossTracks);
+      this._renderCollectiveTrackPeaks(
+        track,
+        layerGroup,
+        trackColor,
+        peakLatency,
+        allActivePeaksAcrossTracks,
+      );
 
       // Hotspot markers for this track — same shared icon/styling as the
       // single-track view (_renderHotspotMarkers), deliberately NOT
@@ -148,18 +164,20 @@ export const __methods = {
     if (this.rfFluidRenderer && rfTracksData.length > 0) {
       this.rfFluidRenderer.setDataForTracks(rfTracksData);
     }
-    this._updateRfFluidButtonState(activeTracks.some(t => t.analyzer && t.analyzer.hasRfData));
+    this._updateRfFluidButtonState(
+      activeTracks.some((t) => t.analyzer && t.analyzer.hasRfData),
+    );
 
     // Collective Arousal Places across every active track (map_manager_arousal_places.js).
     this._renderArousalPlacesFor(
       allActivePeaksAcrossTracks,
-      activeTracks.map(t => ({
+      activeTracks.map((t) => ({
         id: t.id,
         sampleRate: t.analyzer && t.analyzer.sampleRate,
         raw: t.analyzer && t.analyzer.raw,
-        phasic: t.analyzer && t.analyzer.phasic
+        phasic: t.analyzer && t.analyzer.phasic,
       })),
-      { collective: true, activeTrackCount: activeTracks.length }
+      { collective: true, activeTrackCount: activeTracks.length },
     );
 
     // 3. Zoom and Pan Map to fit collective bounding envelope — but only when the active
@@ -170,12 +188,16 @@ export const __methods = {
       if (bounds && this.map) {
         const bbox = [
           [bounds.minLat, bounds.minLon],
-          [bounds.maxLat, bounds.maxLon]
+          [bounds.maxLat, bounds.maxLon],
         ];
         this._flyOrFitBounds(bbox, { padding: [40, 40] });
       }
       this._lastFitBoundsTrackSet = trackSetSignature;
-      if (!this._lastFitBoundsTrackId && typeof AppState !== 'undefined' && AppState.activeTrackId) {
+      if (
+        !this._lastFitBoundsTrackId &&
+        typeof AppState !== 'undefined' &&
+        AppState.activeTrackId
+      ) {
         this._lastFitBoundsTrackId = AppState.activeTrackId;
       }
     }
@@ -189,7 +211,8 @@ export const __methods = {
     // Update legend for collective view
     this.updateLegend();
 
-    if (typeof AppState !== 'undefined' && AppState.emit) AppState.emit('map:rendered');
+    if (typeof AppState !== 'undefined' && AppState.emit)
+      AppState.emit('map:rendered');
   },
 
   /**
@@ -207,13 +230,27 @@ export const __methods = {
     }
     this.surfaceData = surfaceData;
 
-    const { contours, grid, minVal, maxVal, bounds, sortedVals, upsampledCoverageRatioGrid } = surfaceData;
+    const {
+      contours,
+      grid,
+      minVal,
+      maxVal,
+      bounds,
+      sortedVals,
+      upsampledCoverageRatioGrid,
+    } = surfaceData;
     this._collectiveTopographySource = contourParams.topographySource;
     this._legendMinVal = minVal;
     this._legendMaxVal = maxVal;
-    const { surfaceOpacity = 0.40 } = contourParams;
-    const hillshadeStrength = contourParams.hillshadeStrength !== undefined ? contourParams.hillshadeStrength : 0.0;
-    const coverageWeighting = contourParams.coverageWeighting !== undefined ? contourParams.coverageWeighting : 0.0;
+    const { surfaceOpacity = 0.4 } = contourParams;
+    const hillshadeStrength =
+      contourParams.hillshadeStrength !== undefined
+        ? contourParams.hillshadeStrength
+        : 0.0;
+    const coverageWeighting =
+      contourParams.coverageWeighting !== undefined
+        ? contourParams.coverageWeighting
+        : 0.0;
 
     // 1. Draw shaded continuous surface overlay.
     //    The overlay is created whenever there is surface data — it is NOT gated
@@ -255,7 +292,18 @@ export const __methods = {
           for (let c = 0; c < cols; c++) {
             const val = activeGrid[r][c];
             if (val === null || isNaN(val)) continue;
-            drawCell(r, c, Hillshade.valueRatio(val, minVal, maxVal, sortedVals, StatsMath.percentileRank), 50);
+            drawCell(
+              r,
+              c,
+              Hillshade.valueRatio(
+                val,
+                minVal,
+                maxVal,
+                sortedVals,
+                StatsMath.percentileRank,
+              ),
+              50,
+            );
           }
         }
       } else {
@@ -268,10 +316,20 @@ export const __methods = {
         // field, not the raw value, so the relief is the literal same
         // surface the isolines and colors are drawn from.
         const hc = GSR_CONST.HILLSHADE;
-        const { ratioGrid, shade } = Hillshade.shadeValueGrid(activeGrid, rows, cols, {
-          minVal, maxVal, sortedVals, rankFn: StatsMath.percentileRank,
-          exaggeration: hc.exaggeration, azimuthDeg: hc.azimuthDeg, altitudeDeg: hc.altitudeDeg
-        });
+        const { ratioGrid, shade } = Hillshade.shadeValueGrid(
+          activeGrid,
+          rows,
+          cols,
+          {
+            minVal,
+            maxVal,
+            sortedVals,
+            rankFn: StatsMath.percentileRank,
+            exaggeration: hc.exaggeration,
+            azimuthDeg: hc.azimuthDeg,
+            altitudeDeg: hc.altitudeDeg,
+          },
+        );
 
         for (let r = 0; r < rows; r++) {
           for (let c = 0; c < cols; c++) {
@@ -279,7 +337,12 @@ export const __methods = {
             if (ratio === null) continue;
             // Lightness carries the hillshade relief (dark = shadowed, bright =
             // sun-facing); hue/saturation still carry the data value via `ratio`.
-            const lightness = Hillshade.blendLightness(shade[r * cols + c], hillshadeStrength, hc.minLightness, hc.maxLightness);
+            const lightness = Hillshade.blendLightness(
+              shade[r * cols + c],
+              hillshadeStrength,
+              hc.minLightness,
+              hc.maxLightness,
+            );
             drawCell(r, c, ratio, lightness);
           }
         }
@@ -287,13 +350,13 @@ export const __methods = {
 
       const imageBounds = [
         [bounds.minLat, bounds.minLon],
-        [bounds.maxLat, bounds.maxLon]
+        [bounds.maxLat, bounds.maxLon],
       ];
 
       this.surfaceOverlay = L.imageOverlay(canvas.toDataURL(), imageBounds, {
         opacity: surfaceOpacity,
         interactive: false,
-        className: 'collective-surface-overlay'
+        className: 'collective-surface-overlay',
       });
       if (this.showSurface) this.surfaceOverlay.addTo(this.map);
 
@@ -321,7 +384,7 @@ export const __methods = {
         const hatchCols = cols * HATCH_SCALE;
         const hatchRows = rows * HATCH_SCALE;
         const LINE_SPACING = 5; // hatch-canvas px between diagonal line starts
-        const LINE_WIDTH = 2;   // hatch-canvas px wide
+        const LINE_WIDTH = 2; // hatch-canvas px wide
 
         const hatchCanvas = document.createElement('canvas');
         hatchCanvas.width = hatchCols;
@@ -341,15 +404,24 @@ export const __methods = {
             const covRatio = covRow[c];
             // Below the confidence threshold — the slider value, read directly as a
             // percentile rank (see generateContourSurface()'s coverage block).
-            if (covRatio === null || covRatio === undefined || covRatio >= coverageWeighting) continue;
+            if (
+              covRatio === null ||
+              covRatio === undefined ||
+              covRatio >= coverageWeighting
+            )
+              continue;
             hctx.fillRect(hc, hatchRows - 1 - hr, 1, 1);
           }
         }
-        this.coverageOverlay = L.imageOverlay(hatchCanvas.toDataURL(), imageBounds, {
-          opacity: 1,
-          interactive: false,
-          className: 'collective-coverage-hatch'
-        });
+        this.coverageOverlay = L.imageOverlay(
+          hatchCanvas.toDataURL(),
+          imageBounds,
+          {
+            opacity: 1,
+            interactive: false,
+            className: 'collective-coverage-hatch',
+          },
+        );
         if (this.showSurface) this.coverageOverlay.addTo(this.map);
       }
     }
@@ -360,41 +432,50 @@ export const __methods = {
     // read as smooth curves rather than a jagged staircase. This also collapses what used
     // to be hundreds of separate thick, disconnected strokes per level into a handful of
     // thin, continuous lines.
-    contours.forEach(c => {
+    contours.forEach((c) => {
       const color = MapColors.getHslColor(c.ratio, 100, 55);
       const formattedVal = c.level.toFixed(3);
-      const topoCfg = (typeof GSR_CONST !== 'undefined' && GSR_CONST.TOPOGRAPHY_SOURCES && GSR_CONST.TOPOGRAPHY_SOURCES[contourParams.topographySource]) || null;
-      const unit = (topoCfg && topoCfg.unit !== undefined) ? topoCfg.unit : ' μS';
+      const topoCfg =
+        (typeof GSR_CONST !== 'undefined' &&
+          GSR_CONST.TOPOGRAPHY_SOURCES &&
+          GSR_CONST.TOPOGRAPHY_SOURCES[contourParams.topographySource]) ||
+        null;
+      const unit = topoCfg && topoCfg.unit !== undefined ? topoCfg.unit : ' μS';
 
-      const stitchedPaths = (typeof GSRSpatialClustering !== 'undefined')
-        ? GSRSpatialClustering.stitchSegments(c.segments)
-        : c.segments.map(seg => [seg[0], seg[1]]);
+      const stitchedPaths =
+        typeof GSRSpatialClustering !== 'undefined'
+          ? GSRSpatialClustering.stitchSegments(c.segments)
+          : c.segments.map((seg) => [seg[0], seg[1]]);
 
-      stitchedPaths.forEach(path => {
+      stitchedPaths.forEach((path) => {
         if (!path || path.length < 2) return;
 
-        const isClosed = path.length > 2 &&
+        const isClosed =
+          path.length > 2 &&
           Math.abs(path[0].lat - path[path.length - 1].lat) < 1e-9 &&
           Math.abs(path[0].lon - path[path.length - 1].lon) < 1e-9;
 
         const smoothed = GeoUtils.chaikinSmooth(path, 3, isClosed);
 
-        const poly = L.polyline(smoothed.map(p => [p.lat, p.lon]), {
-          color: color,
-          weight: 0.75,
-          opacity: 0.85,
-          lineCap: 'round',
-          lineJoin: 'round',
-          // Leaflet simplifies polyline vertices for rendering performance by default
-          // (smoothFactor: 1.0). That simplification would strip out the extra points
-          // Chaikin smoothing just added, undoing the smoothing. Disable it so every
-          // smoothed vertex actually renders.
-          smoothFactor: 0
-        });
+        const poly = L.polyline(
+          smoothed.map((p) => [p.lat, p.lon]),
+          {
+            color: color,
+            weight: 0.75,
+            opacity: 0.85,
+            lineCap: 'round',
+            lineJoin: 'round',
+            // Leaflet simplifies polyline vertices for rendering performance by default
+            // (smoothFactor: 1.0). That simplification would strip out the extra points
+            // Chaikin smoothing just added, undoing the smoothing. Disable it so every
+            // smoothed vertex actually renders.
+            smoothFactor: 0,
+          },
+        );
 
         poly.bindTooltip(`Level: ${formattedVal}${unit}`, {
           sticky: true,
-          className: 'contour-tooltip-label'
+          className: 'contour-tooltip-label',
         });
 
         // Aggregate layer (owned by GSRMapManager, not any single track) — tagged
@@ -404,8 +485,7 @@ export const __methods = {
         this.contourLayers.push(poly);
       });
     });
-  }
-
+  },
 };
 
 Object.assign(GSRMapManager.prototype, __methods);

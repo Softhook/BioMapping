@@ -54,16 +54,17 @@ function suppressRfFluidLifecycle(window) {
 //   GSR_DEFAULT's shape bounds (rise 0.75–4.0s, half-recovery 0.65–7.5s).
 function rampRaw(from, to, steps) {
   const out = [];
-  for (let i = 1; i <= steps; i++) out.push(Math.round(from + (to - from) * i / steps));
+  for (let i = 1; i <= steps; i++)
+    out.push(Math.round(from + ((to - from) * i) / steps));
   return out;
 }
 const SAMPLE_GSR_RAW = [
-  ...Array(8).fill(10000),             // baseline
-  ...rampRaw(10000, 14000, 15),        // rise over 1.5s
-  14000,                               // apex
-  ...rampRaw(14000, 12000, 10),        // drop to half over 1.0s
-  ...rampRaw(12000, 10000, 10),        // return to baseline
-  ...Array(8).fill(10000)
+  ...Array(8).fill(10000), // baseline
+  ...rampRaw(10000, 14000, 15), // rise over 1.5s
+  14000, // apex
+  ...rampRaw(14000, 12000, 10), // drop to half over 1.0s
+  ...rampRaw(12000, 10000, 10), // return to baseline
+  ...Array(8).fill(10000),
 ];
 const SAMPLE_CSV = [
   'timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw,hacc_m',
@@ -72,13 +73,18 @@ const SAMPLE_CSV = [
     const lat = (51.5074 + i * 0.0001).toFixed(6);
     const lon = (-0.1278 + i * 0.0001).toFixed(6);
     return `${t},${lat},${lon},1.0,1.5,8,3,0.5,90,${g},3.0`;
-  })
+  }),
 ].join('\n');
 
 // Four SCRs packed into a ~20 m radius — enough member peaks for one Arousal
 // Place to survive GSR_CONST.AROUSAL_PLACES.minMembers. GPS barely moves
 // (0.00002 deg/sample ≈ 2 m) so compactClusters() groups them all.
-const CLUSTER_GSR_RAW = [].concat(SAMPLE_GSR_RAW, SAMPLE_GSR_RAW, SAMPLE_GSR_RAW, SAMPLE_GSR_RAW);
+const CLUSTER_GSR_RAW = [].concat(
+  SAMPLE_GSR_RAW,
+  SAMPLE_GSR_RAW,
+  SAMPLE_GSR_RAW,
+  SAMPLE_GSR_RAW,
+);
 const CLUSTER_CSV = [
   'timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw,hacc_m',
   ...CLUSTER_GSR_RAW.map((g, i) => {
@@ -86,10 +92,18 @@ const CLUSTER_CSV = [
     const lat = (51.5074 + i * 0.00002).toFixed(6);
     const lon = (-0.1278 + i * 0.00002).toFixed(6);
     return `${t},${lat},${lon},1.0,1.5,8,3,0.5,90,${g},3.0`;
-  })
+  }),
 ].join('\n');
 
-const RENDER_KINDS = ['path', 'peak', 'connector', 'hotspot', 'collectivePath', 'collectivePeak', 'collectiveConnector'];
+const RENDER_KINDS = [
+  'path',
+  'peak',
+  'connector',
+  'hotspot',
+  'collectivePath',
+  'collectivePeak',
+  'collectiveConnector',
+];
 
 // ── Recording Leaflet mock ─────────────────────────────────────────────────
 // Faithfully models the ownership semantics tests care about:
@@ -105,10 +119,10 @@ const RENDER_KINDS = ['path', 'peak', 'connector', 'hotspot', 'collectivePath', 
 //   - map.removeLayer(group)         → group + all children leave the map.
 function installRecordingLeaflet(window) {
   const map = {
-    _layers: new Map(),    // id -> top-level thing added to the map
-    _direct: [],           // non-group layers added via map.addLayer (recording)
-    _groups: new Map(),    // id -> layerGroup added via map.addLayer
-    _viaGroup: new Set(),  // layers currently on the map only because their group is
+    _layers: new Map(), // id -> top-level thing added to the map
+    _direct: [], // non-group layers added via map.addLayer (recording)
+    _groups: new Map(), // id -> layerGroup added via map.addLayer
+    _viaGroup: new Set(), // layers currently on the map only because their group is
     _nextId: 1,
 
     addLayer(layer) {
@@ -118,7 +132,7 @@ function installRecordingLeaflet(window) {
       if (layer._isGroup) {
         map._groups.set(layer._gsrId, layer);
         layer._onMap = true;
-        layer._children.forEach(c => map._viaGroup.add(c));
+        layer._children.forEach((c) => map._viaGroup.add(c));
       } else {
         map._direct.push(layer);
       }
@@ -131,7 +145,7 @@ function installRecordingLeaflet(window) {
         map._groups.delete(layer._gsrId);
         map._layers.delete(layer._gsrId);
         layer._onMap = false;
-        layer._children.forEach(c => map._viaGroup.delete(c));
+        layer._children.forEach((c) => map._viaGroup.delete(c));
       } else {
         const i = map._direct.indexOf(layer);
         if (i >= 0) map._direct.splice(i, 1);
@@ -152,11 +166,24 @@ function installRecordingLeaflet(window) {
     },
 
     // ── Geometry / lifecycle no-ops the render path touches ──
-    latLngToLayerPoint() { return { x: 10, y: 20 }; },
+    latLngToLayerPoint() {
+      return { x: 10, y: 20 };
+    },
     fitBounds() {},
-    setView() { return map; },
-    getBounds() { return { pad: () => ({ getNorthWest: () => ({ lat: 0, lon: 0 }), getSouthEast: () => ({ lat: 0, lon: 0 }) }) }; },
-    getSize() { return { x: 800, y: 600 }; },
+    setView() {
+      return map;
+    },
+    getBounds() {
+      return {
+        pad: () => ({
+          getNorthWest: () => ({ lat: 0, lon: 0 }),
+          getSouthEast: () => ({ lat: 0, lon: 0 }),
+        }),
+      };
+    },
+    getSize() {
+      return { x: 800, y: 600 };
+    },
     on() {},
     remove() {},
 
@@ -165,16 +192,16 @@ function installRecordingLeaflet(window) {
     // group). Used for "nothing is left behind" assertions after clear/delete.
     renderKindsOnMap() {
       return [...map._direct, ...map._viaGroup]
-        .filter(l => RENDER_KINDS.includes(l._gsrKind))
-        .map(l => l._gsrKind);
+        .filter((l) => RENDER_KINDS.includes(l._gsrKind))
+        .map((l) => l._gsrKind);
     },
     // Render-kind layers added DIRECTLY via map.addLayer (not through a group).
     // Used to prove the render path never bypasses the track's layerGroup.
     directRenderKinds() {
       return map._direct
-        .filter(l => RENDER_KINDS.includes(l._gsrKind))
-        .map(l => l._gsrKind);
-    }
+        .filter((l) => RENDER_KINDS.includes(l._gsrKind))
+        .map((l) => l._gsrKind);
+    },
   };
 
   function makeLayer(kind) {
@@ -183,15 +210,35 @@ function installRecordingLeaflet(window) {
       _isGroup: false,
       _gsrKind: kind || 'layer',
       _gsrLayerGroup: null,
-      addTo(m) { m.addLayer(this); return this; },
-      remove() { map.removeLayer(this); return this; },
-      bindPopup() { return this; },
-      bindTooltip() { return this; },
-      setZIndexOffset() { return this; },
-      setOpacity() { return this; },
-      setLatLng() { return this; },
-      on() { return this; },
-      openPopup() { return this; }
+      addTo(m) {
+        m.addLayer(this);
+        return this;
+      },
+      remove() {
+        map.removeLayer(this);
+        return this;
+      },
+      bindPopup() {
+        return this;
+      },
+      bindTooltip() {
+        return this;
+      },
+      setZIndexOffset() {
+        return this;
+      },
+      setOpacity() {
+        return this;
+      },
+      setLatLng() {
+        return this;
+      },
+      on() {
+        return this;
+      },
+      openPopup() {
+        return this;
+      },
     };
   }
 
@@ -211,7 +258,9 @@ function installRecordingLeaflet(window) {
         if (this._onMap) map._viaGroup.delete(child);
         return this;
       },
-      hasLayer(child) { return this._children.has(child._gsrId); },
+      hasLayer(child) {
+        return this._children.has(child._gsrId);
+      },
       addTo(m) {
         m.addLayer(this); // registers group + marks children on-map
         return this;
@@ -220,37 +269,79 @@ function installRecordingLeaflet(window) {
         map.removeLayer(this);
         return this;
       },
-      getLayers() { return [...this._children.values()]; },
-      eachLayer(fn) { this._children.forEach(fn); }
+      getLayers() {
+        return [...this._children.values()];
+      },
+      eachLayer(fn) {
+        this._children.forEach(fn);
+      },
     };
   }
 
   // Legend control: enough of Leaflet's Control API for _initLegend/updateLegend.
   class FakeControl {
-    constructor(options) { this.options = options || {}; }
-    _onAdd() { return window.document.createElement('div'); }
-    addTo(m) { m.addLayer(this); this._container = this._onAdd(); return this; }
-    getContainer() { return this._container; }
-    getPosition() { return this.options.position; }
+    constructor(options) {
+      this.options = options || {};
+    }
+    _onAdd() {
+      return window.document.createElement('div');
+    }
+    addTo(m) {
+      m.addLayer(this);
+      this._container = this._onAdd();
+      return this;
+    }
+    getContainer() {
+      return this._container;
+    }
+    getPosition() {
+      return this.options.position;
+    }
   }
   FakeControl.extend = (proto) => {
     class C extends FakeControl {}
-    Object.keys(proto).forEach(k => { C.prototype[k] = proto[k]; });
+    Object.keys(proto).forEach((k) => {
+      C.prototype[k] = proto[k];
+    });
     return C;
   };
 
   const L = {
     map: () => map,
     layerGroup: makeGroup,
-    polyline: (latlngs, opts) => { const l = makeLayer('path'); l._latlngs = latlngs; l._options = opts; return l; },
-    polygon: (latlngs, opts) => { const l = makeLayer('cluster'); l._latlngs = latlngs; l._options = opts; return l; },
-    marker: (latlng, opts) => { const l = makeLayer('marker'); l._latlng = latlng; l._options = opts; return l; },
+    polyline: (latlngs, opts) => {
+      const l = makeLayer('path');
+      l._latlngs = latlngs;
+      l._options = opts;
+      return l;
+    },
+    polygon: (latlngs, opts) => {
+      const l = makeLayer('cluster');
+      l._latlngs = latlngs;
+      l._options = opts;
+      return l;
+    },
+    marker: (latlng, opts) => {
+      const l = makeLayer('marker');
+      l._latlng = latlng;
+      l._options = opts;
+      return l;
+    },
     tileLayer: () => makeLayer('tile'),
-    imageOverlay: (url, bounds, opts) => { const l = makeLayer('surface'); l._url = url; l._bounds = bounds; l._options = opts; return l; },
+    imageOverlay: (url, bounds, opts) => {
+      const l = makeLayer('surface');
+      l._url = url;
+      l._bounds = bounds;
+      l._options = opts;
+      return l;
+    },
     featureGroup: function (layers) {
       const g = makeGroup();
-      (layers || []).forEach(l => g.addLayer(l));
-      g.getBounds = () => ({ getNorthWest: () => ({ lat: 0, lon: 0 }), getSouthEast: () => ({ lat: 0, lon: 0 }) });
+      (layers || []).forEach((l) => g.addLayer(l));
+      g.getBounds = () => ({
+        getNorthWest: () => ({ lat: 0, lon: 0 }),
+        getSouthEast: () => ({ lat: 0, lon: 0 }),
+      });
       return g;
     },
     divIcon: (opts) => opts || {},
@@ -261,9 +352,9 @@ function installRecordingLeaflet(window) {
         if (className) el.className = className;
         return el;
       },
-      setTransform() {}
+      setTransform() {},
     },
-    Control: FakeControl
+    Control: FakeControl,
   };
 
   window.L = L;
@@ -282,8 +373,12 @@ async function bootWithRecordingL() {
   const { window } = await bootApp();
   vm.runInThisContext('GSRSpatialClustering = undefined;');
   suppressRfFluidLifecycle(window);
-  window.HTMLCanvasElement.prototype.getContext = () => ({ fillStyle: '', fillRect() {} });
-  window.HTMLCanvasElement.prototype.toDataURL = () => 'data:image/png;base64,AA==';
+  window.HTMLCanvasElement.prototype.getContext = () => ({
+    fillStyle: '',
+    fillRect() {},
+  });
+  window.HTMLCanvasElement.prototype.toDataURL = () =>
+    'data:image/png;base64,AA==';
   const { map } = installRecordingLeaflet(window);
   window.setup();
   return { window, map, mapManager: window.AppState.mapManager };
@@ -295,8 +390,12 @@ async function bootWithRecordingL() {
 async function bootWithRecordingLClusteringOn() {
   const { window } = await bootApp();
   suppressRfFluidLifecycle(window);
-  window.HTMLCanvasElement.prototype.getContext = () => ({ fillStyle: '', fillRect() {} });
-  window.HTMLCanvasElement.prototype.toDataURL = () => 'data:image/png;base64,AA==';
+  window.HTMLCanvasElement.prototype.getContext = () => ({
+    fillStyle: '',
+    fillRect() {},
+  });
+  window.HTMLCanvasElement.prototype.toDataURL = () =>
+    'data:image/png;base64,AA==';
   const { map } = installRecordingLeaflet(window);
   window.setup();
   return { window, map, mapManager: window.AppState.mapManager };
@@ -309,7 +408,12 @@ async function bootWithRecordingLClusteringOn() {
 function addTrack(window, id, name, csvText) {
   const analyzer = new window.GSRAnalyzer();
   analyzer.parseCSV(csvText);
-  const track = window.GSRTrackManager.createTrackObject(id, name, '#ff0000', analyzer);
+  const track = window.GSRTrackManager.createTrackObject(
+    id,
+    name,
+    '#ff0000',
+    analyzer,
+  );
   analyzer.analyze(track.filterParams, 0);
   window.AppState.collectiveManager.addTrack(track);
   window.AppState.activeTrackId = id;
@@ -323,31 +427,58 @@ test('slice1: single-track render owns path/peak/hotspot layers in track.layerGr
 
   // Fixture self-check: the ownership assertions below are only meaningful if
   // this CSV actually produces peaks and hotspots — fail loudly if it stops.
-  assert.ok(track.analyzer.peaks.length > 0, 'fixture must produce at least one peak');
-  assert.ok(track.analyzer.memorableEvents.length > 0, 'fixture must produce at least one memorable event');
+  assert.ok(
+    track.analyzer.peaks.length > 0,
+    'fixture must produce at least one peak',
+  );
+  assert.ok(
+    track.analyzer.memorableEvents.length > 0,
+    'fixture must produce at least one memorable event',
+  );
 
   mapManager.renderData(track.analyzer, track.gpsFilterParams);
 
   // The track now owns a single rendering handle, and it is on the map.
-  assert.ok(track.layerGroup, 'track.layerGroup should be created by renderData');
-  assert.ok(map.hasLayer(track.layerGroup), 'track.layerGroup should be on the map');
+  assert.ok(
+    track.layerGroup,
+    'track.layerGroup should be created by renderData',
+  );
+  assert.ok(
+    map.hasLayer(track.layerGroup),
+    'track.layerGroup should be on the map',
+  );
 
-  const kinds = track.layerGroup.getLayers().map(l => l._gsrKind);
-  assert.ok(kinds.includes('path'), `path segments should live in the layerGroup (got: ${kinds})`);
-  assert.ok(kinds.includes('peak'), `peak markers should live in the layerGroup (got: ${kinds})`);
-  assert.ok(kinds.includes('hotspot'), `hotspot markers should live in the layerGroup (got: ${kinds})`);
+  const kinds = track.layerGroup.getLayers().map((l) => l._gsrKind);
+  assert.ok(
+    kinds.includes('path'),
+    `path segments should live in the layerGroup (got: ${kinds})`,
+  );
+  assert.ok(
+    kinds.includes('peak'),
+    `peak markers should live in the layerGroup (got: ${kinds})`,
+  );
+  assert.ok(
+    kinds.includes('hotspot'),
+    `hotspot markers should live in the layerGroup (got: ${kinds})`,
+  );
 
   // The single-track render path must NOT add its layers directly to the map —
   // they render only through the track's layerGroup. (Clusters are a map-level
   // aggregate and out of scope; connectors render with peaks and are checked
   // via the group.)
   const directRenderKinds = map.directRenderKinds();
-  assert.deepStrictEqual(directRenderKinds, [],
-    `no path/peak/hotspot layers should be added directly to the map (got: ${directRenderKinds})`);
+  assert.deepStrictEqual(
+    directRenderKinds,
+    [],
+    `no path/peak/hotspot layers should be added directly to the map (got: ${directRenderKinds})`,
+  );
 
   // Each render layer is reachable on the map through the group.
-  track.layerGroup.getLayers().forEach(l => {
-    assert.ok(map.hasLayer(l), `${l._gsrKind} layer should be on the map via its group`);
+  track.layerGroup.getLayers().forEach((l) => {
+    assert.ok(
+      map.hasLayer(l),
+      `${l._gsrKind} layer should be on the map via its group`,
+    );
   });
 });
 
@@ -357,27 +488,35 @@ test('slice1: peak/hotspot visibility toggles operate on the track.layerGroup', 
   mapManager.renderData(track.analyzer, track.gpsFilterParams);
 
   const group = track.layerGroup;
-  const peakLayers = group.getLayers().filter(l => l._gsrKind === 'peak');
-  const hotspotLayers = group.getLayers().filter(l => l._gsrKind === 'hotspot');
+  const peakLayers = group.getLayers().filter((l) => l._gsrKind === 'peak');
+  const hotspotLayers = group
+    .getLayers()
+    .filter((l) => l._gsrKind === 'hotspot');
   assert.ok(peakLayers.length > 0, 'fixture should render peak markers');
   assert.ok(hotspotLayers.length > 0, 'fixture should render hotspot markers');
 
   // Toggle peaks OFF — they leave the group (and the map with it); hotspots stay.
   mapManager.showPeaks = false;
   mapManager.updateMarkerVisibility();
-  peakLayers.forEach(m => {
-    assert.ok(!group.hasLayer(m), 'peak marker should be removed from the group');
+  peakLayers.forEach((m) => {
+    assert.ok(
+      !group.hasLayer(m),
+      'peak marker should be removed from the group',
+    );
     assert.ok(!map.hasLayer(m), 'peak marker should be off the map');
   });
-  hotspotLayers.forEach(m => {
-    assert.ok(group.hasLayer(m), 'hotspot should be unaffected by the peak toggle');
+  hotspotLayers.forEach((m) => {
+    assert.ok(
+      group.hasLayer(m),
+      'hotspot should be unaffected by the peak toggle',
+    );
     assert.ok(map.hasLayer(m), 'hotspot should remain on the map');
   });
 
   // Toggle peaks back ON.
   mapManager.showPeaks = true;
   mapManager.updateMarkerVisibility();
-  peakLayers.forEach(m => {
+  peakLayers.forEach((m) => {
     assert.ok(group.hasLayer(m), 'peak marker should be restored to the group');
     assert.ok(map.hasLayer(m), 'peak marker should be back on the map');
   });
@@ -385,19 +524,28 @@ test('slice1: peak/hotspot visibility toggles operate on the track.layerGroup', 
   // Toggle hotspots OFF — they leave the group; peaks stay.
   mapManager.showHotspots = false;
   mapManager.updateMarkerVisibility();
-  hotspotLayers.forEach(m => {
-    assert.ok(!group.hasLayer(m), 'hotspot marker should be removed from the group');
+  hotspotLayers.forEach((m) => {
+    assert.ok(
+      !group.hasLayer(m),
+      'hotspot marker should be removed from the group',
+    );
     assert.ok(!map.hasLayer(m), 'hotspot marker should be off the map');
   });
-  peakLayers.forEach(m => {
-    assert.ok(group.hasLayer(m), 'peak should be unaffected by the hotspot toggle');
+  peakLayers.forEach((m) => {
+    assert.ok(
+      group.hasLayer(m),
+      'peak should be unaffected by the hotspot toggle',
+    );
   });
 
   // Toggle hotspots back ON.
   mapManager.showHotspots = true;
   mapManager.updateMarkerVisibility();
-  hotspotLayers.forEach(m => {
-    assert.ok(group.hasLayer(m), 'hotspot marker should be restored to the group');
+  hotspotLayers.forEach((m) => {
+    assert.ok(
+      group.hasLayer(m),
+      'hotspot marker should be restored to the group',
+    );
     assert.ok(map.hasLayer(m), 'hotspot marker should be back on the map');
   });
 });
@@ -408,15 +556,32 @@ test('slice1: clearMap removes every track.layerGroup from the map and nulls it'
   mapManager.renderData(track.analyzer, track.gpsFilterParams);
 
   const oldGroup = track.layerGroup;
-  assert.ok(oldGroup && map.hasLayer(oldGroup), 'precondition: rendered track owns an on-map group');
-  assert.ok(map.renderKindsOnMap().length > 0, 'precondition: render layers are on the map');
+  assert.ok(
+    oldGroup && map.hasLayer(oldGroup),
+    'precondition: rendered track owns an on-map group',
+  );
+  assert.ok(
+    map.renderKindsOnMap().length > 0,
+    'precondition: render layers are on the map',
+  );
 
   mapManager.clearMap();
 
-  assert.strictEqual(track.layerGroup, null, 'clearMap should null the track layerGroup');
-  assert.ok(!map.hasLayer(oldGroup), 'clearMap should remove the track layerGroup from the map');
+  assert.strictEqual(
+    track.layerGroup,
+    null,
+    'clearMap should null the track layerGroup',
+  );
+  assert.ok(
+    !map.hasLayer(oldGroup),
+    'clearMap should remove the track layerGroup from the map',
+  );
   assert.strictEqual(map._groups.size, 0, 'no on-map groups should remain');
-  assert.deepStrictEqual(map.renderKindsOnMap(), [], 'no path/peak/hotspot layers should remain on the map');
+  assert.deepStrictEqual(
+    map.renderKindsOnMap(),
+    [],
+    'no path/peak/hotspot layers should remain on the map',
+  );
 });
 
 test('orphan-fix: clearMap removes legacy no-track-fallback layers, not just the tracking array reference', async () => {
@@ -424,7 +589,12 @@ test('orphan-fix: clearMap removes legacy no-track-fallback layers, not just the
 
   const analyzer = new window.GSRAnalyzer();
   analyzer.parseCSV(SAMPLE_CSV);
-  const track = window.GSRTrackManager.createTrackObject('orphan', 'orphan.csv', '#ff0000', analyzer);
+  const track = window.GSRTrackManager.createTrackObject(
+    'orphan',
+    'orphan.csv',
+    '#ff0000',
+    analyzer,
+  );
   analyzer.analyze(track.filterParams, 0);
 
   // Deliberately do NOT add this track to AppState.collectiveManager or make
@@ -436,14 +606,23 @@ test('orphan-fix: clearMap removes legacy no-track-fallback layers, not just the
   // on the map instead of removing them.
   mapManager.renderData(analyzer, track.gpsFilterParams);
 
-  assert.ok(map.renderKindsOnMap().length > 0, 'precondition: the legacy fallback actually rendered something');
-  assert.strictEqual(map.directRenderKinds().length, map.renderKindsOnMap().length,
-    'precondition: with no active track, layers go straight to the map, not a group');
+  assert.ok(
+    map.renderKindsOnMap().length > 0,
+    'precondition: the legacy fallback actually rendered something',
+  );
+  assert.strictEqual(
+    map.directRenderKinds().length,
+    map.renderKindsOnMap().length,
+    'precondition: with no active track, layers go straight to the map, not a group',
+  );
 
   mapManager.clearMap();
 
-  assert.deepStrictEqual(map.renderKindsOnMap(), [],
-    'clearMap must remove legacy no-track layers from the map, not just drop the tracking array reference');
+  assert.deepStrictEqual(
+    map.renderKindsOnMap(),
+    [],
+    'clearMap must remove legacy no-track layers from the map, not just drop the tracking array reference',
+  );
 });
 
 test('slice1: deleteTrack removes the track layerGroup from the map', async () => {
@@ -452,14 +631,27 @@ test('slice1: deleteTrack removes the track layerGroup from the map', async () =
   mapManager.renderData(track.analyzer, track.gpsFilterParams);
 
   const oldGroup = track.layerGroup;
-  assert.ok(oldGroup && map.hasLayer(oldGroup), 'precondition: rendered track owns an on-map group');
+  assert.ok(
+    oldGroup && map.hasLayer(oldGroup),
+    'precondition: rendered track owns an on-map group',
+  );
 
   window.GSRTrackManager.deleteTrack(track.id);
 
-  assert.ok(!window.AppState.collectiveManager.getTrack(track.id), 'track should be removed from the manager');
-  assert.ok(!map.hasLayer(oldGroup), 'deleteTrack should remove the track layerGroup from the map');
+  assert.ok(
+    !window.AppState.collectiveManager.getTrack(track.id),
+    'track should be removed from the manager',
+  );
+  assert.ok(
+    !map.hasLayer(oldGroup),
+    'deleteTrack should remove the track layerGroup from the map',
+  );
   assert.strictEqual(map._groups.size, 0, 'no on-map groups should remain');
-  assert.deepStrictEqual(map.renderKindsOnMap(), [], 'no render layers should remain on the map');
+  assert.deepStrictEqual(
+    map.renderKindsOnMap(),
+    [],
+    'no render layers should remain on the map',
+  );
 });
 
 test('slice1: re-rendering the same track leaves exactly one on-map layerGroup', async () => {
@@ -467,17 +659,40 @@ test('slice1: re-rendering the same track leaves exactly one on-map layerGroup',
   const track = addTrack(window, 't1', 't1.csv', SAMPLE_CSV);
   mapManager.renderData(track.analyzer, track.gpsFilterParams);
   const group1 = track.layerGroup;
-  assert.ok(map.hasLayer(group1), 'precondition: first render owns an on-map group');
+  assert.ok(
+    map.hasLayer(group1),
+    'precondition: first render owns an on-map group',
+  );
 
   mapManager.renderData(track.analyzer, track.gpsFilterParams);
 
-  assert.notStrictEqual(track.layerGroup, group1, 're-render should recreate the layerGroup');
-  assert.ok(!map.hasLayer(group1), 'the stale layerGroup must be removed on re-render');
-  assert.ok(map.hasLayer(track.layerGroup), 'the new layerGroup should be on the map');
-  assert.strictEqual(map._groups.size, 1, 'exactly one on-map group for one rendered track');
-  const groupKinds = track.layerGroup.getLayers().map(l => l._gsrKind).sort();
-  assert.deepStrictEqual(map.renderKindsOnMap().sort(), groupKinds,
-    'render layers on the map should exactly match the new group contents');
+  assert.notStrictEqual(
+    track.layerGroup,
+    group1,
+    're-render should recreate the layerGroup',
+  );
+  assert.ok(
+    !map.hasLayer(group1),
+    'the stale layerGroup must be removed on re-render',
+  );
+  assert.ok(
+    map.hasLayer(track.layerGroup),
+    'the new layerGroup should be on the map',
+  );
+  assert.strictEqual(
+    map._groups.size,
+    1,
+    'exactly one on-map group for one rendered track',
+  );
+  const groupKinds = track.layerGroup
+    .getLayers()
+    .map((l) => l._gsrKind)
+    .sort();
+  assert.deepStrictEqual(
+    map.renderKindsOnMap().sort(),
+    groupKinds,
+    'render layers on the map should exactly match the new group contents',
+  );
 });
 
 test('slice2: collective render gives each active track its own on-map layerGroup', async () => {
@@ -485,33 +700,76 @@ test('slice2: collective render gives each active track its own on-map layerGrou
   const trackA = addTrack(window, 'A', 'a.csv', SAMPLE_CSV);
   const trackB = addTrack(window, 'B', 'b.csv', SAMPLE_CSV);
 
-  mapManager.renderCollectiveData(window.AppState.collectiveManager, { showShadedSurface: false }, 0);
+  mapManager.renderCollectiveData(
+    window.AppState.collectiveManager,
+    { showShadedSurface: false },
+    0,
+  );
 
   // Each active track owns its own on-map layerGroup.
   assert.ok(trackA.layerGroup, 'track A should own a layerGroup');
   assert.ok(trackB.layerGroup, 'track B should own a layerGroup');
-  assert.ok(map.hasLayer(trackA.layerGroup), 'track A layerGroup should be on the map');
-  assert.ok(map.hasLayer(trackB.layerGroup), 'track B layerGroup should be on the map');
-  assert.notStrictEqual(trackA.layerGroup, trackB.layerGroup, 'each track owns a distinct layerGroup');
+  assert.ok(
+    map.hasLayer(trackA.layerGroup),
+    'track A layerGroup should be on the map',
+  );
+  assert.ok(
+    map.hasLayer(trackB.layerGroup),
+    'track B layerGroup should be on the map',
+  );
+  assert.notStrictEqual(
+    trackA.layerGroup,
+    trackB.layerGroup,
+    'each track owns a distinct layerGroup',
+  );
 
   // Each group owns that track's path/peak/hotspot layers.
-  const kindsA = trackA.layerGroup.getLayers().map(l => l._gsrKind);
-  const kindsB = trackB.layerGroup.getLayers().map(l => l._gsrKind);
-  assert.ok(kindsA.includes('collectivePath'), `A should own a path (got: ${kindsA})`);
-  assert.ok(kindsA.includes('collectivePeak'), `A should own peak markers (got: ${kindsA})`);
-  assert.ok(kindsA.includes('hotspot'), `A should own hotspots (got: ${kindsA})`);
-  assert.ok(kindsB.includes('collectivePath'), `B should own a path (got: ${kindsB})`);
-  assert.ok(kindsB.includes('collectivePeak'), `B should own peak markers (got: ${kindsB})`);
-  assert.ok(kindsB.includes('hotspot'), `B should own hotspots (got: ${kindsB})`);
+  const kindsA = trackA.layerGroup.getLayers().map((l) => l._gsrKind);
+  const kindsB = trackB.layerGroup.getLayers().map((l) => l._gsrKind);
+  assert.ok(
+    kindsA.includes('collectivePath'),
+    `A should own a path (got: ${kindsA})`,
+  );
+  assert.ok(
+    kindsA.includes('collectivePeak'),
+    `A should own peak markers (got: ${kindsA})`,
+  );
+  assert.ok(
+    kindsA.includes('hotspot'),
+    `A should own hotspots (got: ${kindsA})`,
+  );
+  assert.ok(
+    kindsB.includes('collectivePath'),
+    `B should own a path (got: ${kindsB})`,
+  );
+  assert.ok(
+    kindsB.includes('collectivePeak'),
+    `B should own peak markers (got: ${kindsB})`,
+  );
+  assert.ok(
+    kindsB.includes('hotspot'),
+    `B should own hotspots (got: ${kindsB})`,
+  );
 
   // No per-track render layer is added directly to the map — everything routes
   // through its track's layerGroup.
-  assert.deepStrictEqual(map.directRenderKinds(), [],
-    `no collective render layers should be added directly to the map (got: ${map.directRenderKinds()})`);
+  assert.deepStrictEqual(
+    map.directRenderKinds(),
+    [],
+    `no collective render layers should be added directly to the map (got: ${map.directRenderKinds()})`,
+  );
 
   // Each group's layers are on the map via their group.
-  trackA.layerGroup.getLayers().forEach(l => assert.ok(map.hasLayer(l), `A ${l._gsrKind} should be on the map`));
-  trackB.layerGroup.getLayers().forEach(l => assert.ok(map.hasLayer(l), `B ${l._gsrKind} should be on the map`));
+  trackA.layerGroup
+    .getLayers()
+    .forEach((l) =>
+      assert.ok(map.hasLayer(l), `A ${l._gsrKind} should be on the map`),
+    );
+  trackB.layerGroup
+    .getLayers()
+    .forEach((l) =>
+      assert.ok(map.hasLayer(l), `B ${l._gsrKind} should be on the map`),
+    );
 });
 
 test('slice2: re-rendering collective without a removed track leaves no stale group behind', async () => {
@@ -519,21 +777,52 @@ test('slice2: re-rendering collective without a removed track leaves no stale gr
   const trackA = addTrack(window, 'A', 'a.csv', SAMPLE_CSV);
   const trackB = addTrack(window, 'B', 'b.csv', SAMPLE_CSV);
 
-  mapManager.renderCollectiveData(window.AppState.collectiveManager, { showShadedSurface: false }, 0);
+  mapManager.renderCollectiveData(
+    window.AppState.collectiveManager,
+    { showShadedSurface: false },
+    0,
+  );
   const groupB = trackB.layerGroup;
-  assert.ok(groupB && map.hasLayer(groupB), 'precondition: B owns an on-map layerGroup');
+  assert.ok(
+    groupB && map.hasLayer(groupB),
+    'precondition: B owns an on-map layerGroup',
+  );
 
   // Remove B from the manager, then re-render collective with A only.
   window.AppState.collectiveManager.removeTrack('B');
-  mapManager.renderCollectiveData(window.AppState.collectiveManager, { showShadedSurface: false }, 0);
+  mapManager.renderCollectiveData(
+    window.AppState.collectiveManager,
+    { showShadedSurface: false },
+    0,
+  );
 
-  assert.ok(!map.hasLayer(groupB), 'the removed track B layerGroup must be gone from the map');
-  assert.strictEqual(trackB.layerGroup, null, 'removed track B layerGroup should be nulled');
-  assert.ok(map.hasLayer(trackA.layerGroup), 'track A layerGroup should remain on the map');
-  assert.strictEqual(map._groups.size, 1, 'exactly one on-map group should remain (A)');
-  const aKinds = trackA.layerGroup.getLayers().map(l => l._gsrKind).sort();
-  assert.deepStrictEqual(map.renderKindsOnMap().sort(), aKinds,
-    'only track A render layers should remain on the map');
+  assert.ok(
+    !map.hasLayer(groupB),
+    'the removed track B layerGroup must be gone from the map',
+  );
+  assert.strictEqual(
+    trackB.layerGroup,
+    null,
+    'removed track B layerGroup should be nulled',
+  );
+  assert.ok(
+    map.hasLayer(trackA.layerGroup),
+    'track A layerGroup should remain on the map',
+  );
+  assert.strictEqual(
+    map._groups.size,
+    1,
+    'exactly one on-map group should remain (A)',
+  );
+  const aKinds = trackA.layerGroup
+    .getLayers()
+    .map((l) => l._gsrKind)
+    .sort();
+  assert.deepStrictEqual(
+    map.renderKindsOnMap().sort(),
+    aKinds,
+    'only track A render layers should remain on the map',
+  );
 });
 
 test('slice2: toggling showTracks removes only the collective path layers (via their groups)', async () => {
@@ -541,30 +830,52 @@ test('slice2: toggling showTracks removes only the collective path layers (via t
   const trackA = addTrack(window, 'A', 'a.csv', SAMPLE_CSV);
   const trackB = addTrack(window, 'B', 'b.csv', SAMPLE_CSV);
 
-  mapManager.renderCollectiveData(window.AppState.collectiveManager, { showShadedSurface: false }, 0);
-  const pathsA = trackA.layerGroup.getLayers().filter(l => l._gsrKind === 'collectivePath');
-  const peaksA = trackA.layerGroup.getLayers().filter(l => l._gsrKind === 'collectivePeak');
+  mapManager.renderCollectiveData(
+    window.AppState.collectiveManager,
+    { showShadedSurface: false },
+    0,
+  );
+  const pathsA = trackA.layerGroup
+    .getLayers()
+    .filter((l) => l._gsrKind === 'collectivePath');
+  const peaksA = trackA.layerGroup
+    .getLayers()
+    .filter((l) => l._gsrKind === 'collectivePeak');
   assert.ok(pathsA.length > 0, 'fixture should render a collective path for A');
-  assert.ok(peaksA.length > 0, 'fixture should render collective peak markers for A');
-  pathsA.forEach(p => assert.ok(map.hasLayer(p), 'precondition: path is on the map'));
+  assert.ok(
+    peaksA.length > 0,
+    'fixture should render collective peak markers for A',
+  );
+  pathsA.forEach((p) =>
+    assert.ok(map.hasLayer(p), 'precondition: path is on the map'),
+  );
 
   mapManager.showTracks = false;
   mapManager.toggleTracks(false);
 
-  pathsA.forEach(p => {
-    assert.ok(!trackA.layerGroup.hasLayer(p), 'path should be removed from its track group');
+  pathsA.forEach((p) => {
+    assert.ok(
+      !trackA.layerGroup.hasLayer(p),
+      'path should be removed from its track group',
+    );
     assert.ok(!map.hasLayer(p), 'path should be off the map');
   });
-  peaksA.forEach(m => {
-    assert.ok(trackA.layerGroup.hasLayer(m), 'peak markers should be unaffected by showTracks');
+  peaksA.forEach((m) => {
+    assert.ok(
+      trackA.layerGroup.hasLayer(m),
+      'peak markers should be unaffected by showTracks',
+    );
     assert.ok(map.hasLayer(m), 'peak markers should remain on the map');
   });
 
   // Re-enable.
   mapManager.showTracks = true;
   mapManager.toggleTracks(true);
-  pathsA.forEach(p => {
-    assert.ok(trackA.layerGroup.hasLayer(p), 'path should be restored to its track group');
+  pathsA.forEach((p) => {
+    assert.ok(
+      trackA.layerGroup.hasLayer(p),
+      'path should be restored to its track group',
+    );
     assert.ok(map.hasLayer(p), 'path should be back on the map');
   });
 });
@@ -584,8 +895,14 @@ test('slice2: surface overlay is recreated on render while hidden, so it can be 
   // 1. Render with the surface ON.
   mapManager.renderCollectiveData(window.AppState.collectiveManager, {}, 0);
   const firstOverlay = mapManager.surfaceOverlay;
-  assert.ok(firstOverlay, 'precondition: a surface overlay should exist when the surface is on');
-  assert.ok(map.hasLayer(firstOverlay), 'precondition: the surface should be on the map');
+  assert.ok(
+    firstOverlay,
+    'precondition: a surface overlay should exist when the surface is on',
+  );
+  assert.ok(
+    map.hasLayer(firstOverlay),
+    'precondition: the surface should be on the map',
+  );
 
   // 2. Toggle the surface off.
   mapManager.toggleSurface(false);
@@ -593,13 +910,26 @@ test('slice2: surface overlay is recreated on render while hidden, so it can be 
 
   // 3. Simulate deleting a track while the surface is off: the delete path
   //    re-renders collective with the button's (now off) contourParams.
-  mapManager.renderCollectiveData(window.AppState.collectiveManager, { showShadedSurface: false }, 0);
-  assert.ok(mapManager.surfaceOverlay, 'render while hidden must recreate the overlay (not leave it null)');
-  assert.ok(!map.hasLayer(mapManager.surfaceOverlay), 'recreated overlay stays hidden while showSurface=false');
+  mapManager.renderCollectiveData(
+    window.AppState.collectiveManager,
+    { showShadedSurface: false },
+    0,
+  );
+  assert.ok(
+    mapManager.surfaceOverlay,
+    'render while hidden must recreate the overlay (not leave it null)',
+  );
+  assert.ok(
+    !map.hasLayer(mapManager.surfaceOverlay),
+    'recreated overlay stays hidden while showSurface=false',
+  );
 
   // 4. Toggling the surface back on must bring it back — the reported bug.
   mapManager.toggleSurface(true);
-  assert.ok(map.hasLayer(mapManager.surfaceOverlay), 'surface overlay should reappear when toggled on');
+  assert.ok(
+    map.hasLayer(mapManager.surfaceOverlay),
+    'surface overlay should reappear when toggled on',
+  );
 });
 
 test('slice3: getRenderLayers() derives the per-track layers from the layerGroups (single)', async () => {
@@ -609,25 +939,59 @@ test('slice3: getRenderLayers() derives the per-track layers from the layerGroup
 
   // The flat arrays are gone — getRenderLayers() is the source of truth,
   // derived from the track's layerGroup (so the SVG exporter can still work).
-  assert.strictEqual(mapManager.pathSegments, undefined, 'pathSegments flat array should be removed');
-  assert.strictEqual(mapManager.peakMarkers, undefined, 'peakMarkers flat array should be removed');
-  assert.strictEqual(mapManager.hotspotMarkers, undefined, 'hotspotMarkers flat array should be removed');
+  assert.strictEqual(
+    mapManager.pathSegments,
+    undefined,
+    'pathSegments flat array should be removed',
+  );
+  assert.strictEqual(
+    mapManager.peakMarkers,
+    undefined,
+    'peakMarkers flat array should be removed',
+  );
+  assert.strictEqual(
+    mapManager.hotspotMarkers,
+    undefined,
+    'hotspotMarkers flat array should be removed',
+  );
 
   const render = mapManager.getRenderLayers();
   assert.ok(render.paths.length > 0, 'paths should be derived from the group');
-  assert.ok(render.peakMarkers.length > 0, 'peak markers should be derived from the group');
-  assert.ok(render.hotspots.length > 0, 'hotspots should be derived from the group');
+  assert.ok(
+    render.peakMarkers.length > 0,
+    'peak markers should be derived from the group',
+  );
+  assert.ok(
+    render.hotspots.length > 0,
+    'hotspots should be derived from the group',
+  );
 
   const groupLayers = track.layerGroup.getLayers();
-  render.paths.forEach(p => assert.ok(groupLayers.includes(p), 'path should come from the group'));
-  render.peakMarkers.forEach(m => assert.ok(groupLayers.includes(m), 'peak/connector should come from the group'));
-  render.hotspots.forEach(m => assert.ok(groupLayers.includes(m), 'hotspot should come from the group'));
+  render.paths.forEach((p) =>
+    assert.ok(groupLayers.includes(p), 'path should come from the group'),
+  );
+  render.peakMarkers.forEach((m) =>
+    assert.ok(
+      groupLayers.includes(m),
+      'peak/connector should come from the group',
+    ),
+  );
+  render.hotspots.forEach((m) =>
+    assert.ok(groupLayers.includes(m), 'hotspot should come from the group'),
+  );
 
   // All the group's per-track layers are reachable through the accessor.
-  const renderSet = new Set([...render.paths, ...render.peakMarkers, ...render.hotspots]);
-  groupLayers.forEach(l => {
+  const renderSet = new Set([
+    ...render.paths,
+    ...render.peakMarkers,
+    ...render.hotspots,
+  ]);
+  groupLayers.forEach((l) => {
     if (['path', 'peak', 'connector', 'hotspot'].includes(l._gsrKind)) {
-      assert.ok(renderSet.has(l), `group ${l._gsrKind} should be exposed via getRenderLayers()`);
+      assert.ok(
+        renderSet.has(l),
+        `group ${l._gsrKind} should be exposed via getRenderLayers()`,
+      );
     }
   });
 });
@@ -636,17 +1000,42 @@ test('slice3: getRenderLayers() derives the collective layers from each track gr
   const { window, map, mapManager } = await bootWithRecordingL();
   const trackA = addTrack(window, 'A', 'a.csv', SAMPLE_CSV);
   const trackB = addTrack(window, 'B', 'b.csv', SAMPLE_CSV);
-  mapManager.renderCollectiveData(window.AppState.collectiveManager, { showShadedSurface: false }, 0);
+  mapManager.renderCollectiveData(
+    window.AppState.collectiveManager,
+    { showShadedSurface: false },
+    0,
+  );
 
   const render = mapManager.getRenderLayers();
-  assert.ok(render.paths.some(p => p._gsrKind === 'collectivePath'), 'collective paths should be exposed');
-  assert.ok(render.peakMarkers.some(m => m._gsrKind === 'collectivePeak'), 'collective peaks should be exposed');
-  assert.ok(render.hotspots.length > 0, 'collective hotspots should be exposed');
+  assert.ok(
+    render.paths.some((p) => p._gsrKind === 'collectivePath'),
+    'collective paths should be exposed',
+  );
+  assert.ok(
+    render.peakMarkers.some((m) => m._gsrKind === 'collectivePeak'),
+    'collective peaks should be exposed',
+  );
+  assert.ok(
+    render.hotspots.length > 0,
+    'collective hotspots should be exposed',
+  );
 
   // All collective layers come from per-track groups.
-  const allGroupLayers = [...trackA.layerGroup.getLayers(), ...trackB.layerGroup.getLayers()];
-  const renderSet = new Set([...render.paths, ...render.peakMarkers, ...render.hotspots]);
-  allGroupLayers.forEach(l => assert.ok(renderSet.has(l), `${l._gsrKind} should be exposed via getRenderLayers()`));
+  const allGroupLayers = [
+    ...trackA.layerGroup.getLayers(),
+    ...trackB.layerGroup.getLayers(),
+  ];
+  const renderSet = new Set([
+    ...render.paths,
+    ...render.peakMarkers,
+    ...render.hotspots,
+  ]);
+  allGroupLayers.forEach((l) =>
+    assert.ok(
+      renderSet.has(l),
+      `${l._gsrKind} should be exposed via getRenderLayers()`,
+    ),
+  );
 });
 
 test('slice3: getPeakMarkerByIndex resolves the marker for a peak index', async () => {
@@ -656,11 +1045,21 @@ test('slice3: getPeakMarkerByIndex resolves the marker for a peak index', async 
 
   const marker = mapManager.getPeakMarkerByIndex(0);
   assert.ok(marker, 'peak marker for index 0 should resolve');
-  assert.strictEqual(marker._gsrKind, 'peak', 'resolved marker should be a peak marker');
-  assert.ok(track.layerGroup.hasLayer(marker), 'resolved marker should live in the track group');
+  assert.strictEqual(
+    marker._gsrKind,
+    'peak',
+    'resolved marker should be a peak marker',
+  );
+  assert.ok(
+    track.layerGroup.hasLayer(marker),
+    'resolved marker should live in the track group',
+  );
 
-  assert.strictEqual(mapManager.getPeakMarkerByIndex(9999), null,
-    'an out-of-range peak index should resolve to null (no crash)');
+  assert.strictEqual(
+    mapManager.getPeakMarkerByIndex(9999),
+    null,
+    'an out-of-range peak index should resolve to null (no crash)',
+  );
 });
 
 test('slice3: clearCollectiveLayers clears the per-track layerGroups (stale-group fix)', async () => {
@@ -669,23 +1068,44 @@ test('slice3: clearCollectiveLayers clears the per-track layerGroups (stale-grou
   // render's per-track groups used to linger on the map.
   const { window, map, mapManager } = await bootWithRecordingL();
   const track = addTrack(window, 'A', 'a.csv', SAMPLE_CSV);
-  mapManager.renderCollectiveData(window.AppState.collectiveManager, { showShadedSurface: false }, 0);
+  mapManager.renderCollectiveData(
+    window.AppState.collectiveManager,
+    { showShadedSurface: false },
+    0,
+  );
   const group = track.layerGroup;
-  assert.ok(group && map.hasLayer(group), 'precondition: rendered track owns an on-map group');
+  assert.ok(
+    group && map.hasLayer(group),
+    'precondition: rendered track owns an on-map group',
+  );
 
   mapManager.clearCollectiveLayers();
 
-  assert.ok(!map.hasLayer(group), 'clearCollectiveLayers should remove the per-track group');
-  assert.strictEqual(track.layerGroup, null, 'clearCollectiveLayers should null the track layerGroup');
+  assert.ok(
+    !map.hasLayer(group),
+    'clearCollectiveLayers should remove the per-track group',
+  );
+  assert.strictEqual(
+    track.layerGroup,
+    null,
+    'clearCollectiveLayers should null the track layerGroup',
+  );
   assert.strictEqual(map._groups.size, 0, 'no on-map groups should remain');
-  assert.deepStrictEqual(map.renderKindsOnMap(), [], 'no render layers should remain on the map');
+  assert.deepStrictEqual(
+    map.renderKindsOnMap(),
+    [],
+    'no render layers should remain on the map',
+  );
 });
 
 test('slice3: fitToTrack still fits the rendered paths without the flat arrays', async () => {
   const { window, map, mapManager } = await bootWithRecordingL();
   const track = addTrack(window, 't1', 't1.csv', SAMPLE_CSV);
   mapManager.renderData(track.analyzer, track.gpsFilterParams);
-  assert.doesNotThrow(() => mapManager.fitToTrack(), 'fitToTrack should work off the derived paths');
+  assert.doesNotThrow(
+    () => mapManager.fitToTrack(),
+    'fitToTrack should work off the derived paths',
+  );
 });
 
 test('slice3: the single-track path always renders regardless of showTracks (toggle is collective-only)', async () => {
@@ -699,14 +1119,19 @@ test('slice3: the single-track path always renders regardless of showTracks (tog
 
   mapManager.showTracks = false;
   mapManager.renderData(track.analyzer, track.gpsFilterParams);
-  const kinds = track.layerGroup.getLayers().map(l => l._gsrKind);
-  assert.ok(kinds.includes('path'), 'single-track path should always render, even with showTracks=false');
+  const kinds = track.layerGroup.getLayers().map((l) => l._gsrKind);
+  assert.ok(
+    kinds.includes('path'),
+    'single-track path should always render, even with showTracks=false',
+  );
   assert.ok(kinds.includes('peak'), 'peak markers should render');
 
   // toggleTracks must NOT hide the single-track path (it only affects collective paths).
   mapManager.toggleTracks(false);
-  assert.ok(track.layerGroup.getLayers().some(l => l._gsrKind === 'path'),
-    'toggling tracks off must not hide the single-track path');
+  assert.ok(
+    track.layerGroup.getLayers().some((l) => l._gsrKind === 'path'),
+    'toggling tracks off must not hide the single-track path',
+  );
 });
 
 test('slice3: renderData renders peaks/hotspots even when every GPS fix is quality-gated out', async () => {
@@ -730,33 +1155,58 @@ test('slice3: renderData renders peaks/hotspots even when every GPS fix is quali
       const lat = (51.5074 + i * 0.0001).toFixed(6);
       const lon = (-0.1278 + i * 0.0001).toFixed(6);
       return `${t},${lat},${lon},9.0,1.5,8,3,0.5,90,${g},3.0`;
-    })
+    }),
   ].join('\n');
 
   const track = addTrack(window, 't1', 't1.csv', GATED_CSV);
 
   // Fixture self-check: the analyzer must still detect peaks (from GSR), and
   // those peaks must be placeable from raw GPS coords.
-  assert.ok(track.analyzer.peaks.length > 0, 'fixture must still produce peaks');
-  assert.ok(track.analyzer.peaks.every((peak, idx) => {
-    const coords = track.analyzer.getCoordinates(idx);
-    return coords && !isNaN(coords.lat) && !isNaN(coords.lon);
-  }), 'fixture peaks must be resolvable from raw data');
+  assert.ok(
+    track.analyzer.peaks.length > 0,
+    'fixture must still produce peaks',
+  );
+  assert.ok(
+    track.analyzer.peaks.every((peak, idx) => {
+      const coords = track.analyzer.getCoordinates(idx);
+      return coords && !isNaN(coords.lat) && !isNaN(coords.lon);
+    }),
+    'fixture peaks must be resolvable from raw data',
+  );
 
   mapManager.renderData(track.analyzer, track.gpsFilterParams);
 
   // The path is fully gated out — but the track's events must still render.
   const group = track.layerGroup;
-  assert.ok(group, 'a layerGroup should be created even when the path is gated out');
+  assert.ok(
+    group,
+    'a layerGroup should be created even when the path is gated out',
+  );
   assert.ok(map.hasLayer(group), 'the layerGroup should be on the map');
-  const kinds = group.getLayers().map(l => l._gsrKind);
-  assert.ok(!kinds.includes('path'), `no path when every fix is gated out (got: ${kinds})`);
-  assert.ok(kinds.includes('peak'), `peak markers must render without a path (got: ${kinds})`);
-  assert.ok(kinds.includes('hotspot'), `hotspot markers must render without a path (got: ${kinds})`);
+  const kinds = group.getLayers().map((l) => l._gsrKind);
+  assert.ok(
+    !kinds.includes('path'),
+    `no path when every fix is gated out (got: ${kinds})`,
+  );
+  assert.ok(
+    kinds.includes('peak'),
+    `peak markers must render without a path (got: ${kinds})`,
+  );
+  assert.ok(
+    kinds.includes('hotspot'),
+    `hotspot markers must render without a path (got: ${kinds})`,
+  );
 
   // Peaks must be on the map (via the group) and resolvable by index.
-  group.getLayers().forEach(l => assert.ok(map.hasLayer(l), `${l._gsrKind} should be on the map`));
-  assert.ok(mapManager.getPeakMarkerByIndex(0), 'peak index 0 should resolve to a rendered marker');
+  group
+    .getLayers()
+    .forEach((l) =>
+      assert.ok(map.hasLayer(l), `${l._gsrKind} should be on the map`),
+    );
+  assert.ok(
+    mapManager.getPeakMarkerByIndex(0),
+    'peak index 0 should resolve to a rendered marker',
+  );
 });
 
 test('slice3: peaks/hotspots hidden at render time still route through the track group (removal-safe)', async () => {
@@ -778,40 +1228,72 @@ test('slice3: peaks/hotspots hidden at render time still route through the track
   mapManager.showPeaks = false;
   mapManager.showHotspots = false;
   mapManager.showLabels = false;
-  mapManager.renderCollectiveData(window.AppState.collectiveManager, { showShadedSurface: false }, 0);
+  mapManager.renderCollectiveData(
+    window.AppState.collectiveManager,
+    { showShadedSurface: false },
+    0,
+  );
 
   // Toggle them back ON — this is where the old code leaked markers to the map.
   mapManager.showPeaks = true;
   mapManager.showHotspots = true;
   mapManager.updateMarkerVisibility();
 
-  assert.deepStrictEqual(map.directRenderKinds(), [],
-    'toggling peaks/hotspots on must not add any render layer directly to the map (they belong in track groups)');
+  assert.deepStrictEqual(
+    map.directRenderKinds(),
+    [],
+    'toggling peaks/hotspots on must not add any render layer directly to the map (they belong in track groups)',
+  );
 
   const trackA = window.AppState.collectiveManager.getTrack('A');
   const trackB = window.AppState.collectiveManager.getTrack('B');
-  const peakCount = trackA.layerGroup.getLayers().filter(l => l._gsrKind === 'collectivePeak').length;
-  const hotspotCount = trackA.layerGroup.getLayers().filter(l => l._gsrKind === 'hotspot').length;
-  assert.ok(peakCount > 0, 'toggled-on collective peaks should live in track A group');
-  assert.ok(hotspotCount > 0, 'toggled-on hotspots should live in track A group');
+  const peakCount = trackA.layerGroup
+    .getLayers()
+    .filter((l) => l._gsrKind === 'collectivePeak').length;
+  const hotspotCount = trackA.layerGroup
+    .getLayers()
+    .filter((l) => l._gsrKind === 'hotspot').length;
+  assert.ok(
+    peakCount > 0,
+    'toggled-on collective peaks should live in track A group',
+  );
+  assert.ok(
+    hotspotCount > 0,
+    'toggled-on hotspots should live in track A group',
+  );
 
   // Snapshot A's rendered layers so we can prove removal takes them all.
   const aGroup = trackA.layerGroup;
   const aGroupLayers = aGroup.getLayers();
-  assert.ok(aGroupLayers.length > 0, 'precondition: A owns on-map group layers');
+  assert.ok(
+    aGroupLayers.length > 0,
+    'precondition: A owns on-map group layers',
+  );
 
   // Removing a track must take its (now group-owned) peaks/hotspots with it.
   window.GSRTrackManager.deleteTrack('A');
-  assert.ok(!map.hasLayer(aGroup), 'track A group should be removed from the map');
-  aGroupLayers.forEach(l => {
-    assert.ok(!map.hasLayer(l), `A's ${l._gsrKind} should be off the map after removal`);
+  assert.ok(
+    !map.hasLayer(aGroup),
+    'track A group should be removed from the map',
+  );
+  aGroupLayers.forEach((l) => {
+    assert.ok(
+      !map.hasLayer(l),
+      `A's ${l._gsrKind} should be off the map after removal`,
+    );
   });
 
   // B's group survives (only A was removed) — then removing B empties the map.
-  assert.ok(map.hasLayer(trackB.layerGroup), 'track B group should remain on the map');
+  assert.ok(
+    map.hasLayer(trackB.layerGroup),
+    'track B group should remain on the map',
+  );
   window.GSRTrackManager.deleteTrack('B');
-  assert.deepStrictEqual(map.renderKindsOnMap(), [],
-    `deleting all tracks must leave no render layers behind (got: ${map.renderKindsOnMap()})`);
+  assert.deepStrictEqual(
+    map.renderKindsOnMap(),
+    [],
+    `deleting all tracks must leave no render layers behind (got: ${map.renderKindsOnMap()})`,
+  );
   assert.strictEqual(map._groups.size, 0, 'no on-map groups should remain');
 });
 
@@ -833,29 +1315,51 @@ test('slice3: RF Fluid button stays in sync with showRFFluid across no-RF→RF r
   mapManager.showRFFluid = true;
   btn.classList.add('active');
   assert.ok(mapManager.showRFFluid, 'precondition: showRFFluid is true');
-  assert.ok(btn.classList.contains('active'), 'precondition: button is pressed');
+  assert.ok(
+    btn.classList.contains('active'),
+    'precondition: button is pressed',
+  );
 
   // 1. Render a no-RF track → button disabled + unpressed, but showRFFluid stays true.
   mapManager._updateRfFluidButtonState(false);
-  assert.ok(btn.hasAttribute('disabled'), 'no-RF track should disable the RF Fluid button');
-  assert.ok(!btn.classList.contains('active'), 'no-RF track should unpressed the button');
+  assert.ok(
+    btn.hasAttribute('disabled'),
+    'no-RF track should disable the RF Fluid button',
+  );
+  assert.ok(
+    !btn.classList.contains('active'),
+    'no-RF track should unpressed the button',
+  );
 
   // 2. Render with RF data again → button re-enabled AND re-pressed (matching
   //    the still-true showRFFluid), so the fluid is clearly "on".
   mapManager._updateRfFluidButtonState(true);
-  assert.ok(!btn.hasAttribute('disabled'), 'RF track should re-enable the button');
-  assert.ok(btn.classList.contains('active'),
-    'RF track must restore the button pressed state to match showRFFluid (regression)');
-  assert.ok(mapManager.showRFFluid, 'showRFFluid unchanged by button-state sync');
+  assert.ok(
+    !btn.hasAttribute('disabled'),
+    'RF track should re-enable the button',
+  );
+  assert.ok(
+    btn.classList.contains('active'),
+    'RF track must restore the button pressed state to match showRFFluid (regression)',
+  );
+  assert.ok(
+    mapManager.showRFFluid,
+    'showRFFluid unchanged by button-state sync',
+  );
 
   // 3. User toggles fluid OFF → showRFFluid false; a no-RF then RF sequence
   //    must NOT silently re-enable the fluid.
   mapManager.showRFFluid = false;
   mapManager._updateRfFluidButtonState(false); // no-RF track
-  mapManager._updateRfFluidButtonState(true);  // RF track
-  assert.ok(!btn.classList.contains('active'),
-    'after user toggled off, the RF Fluid button must stay unpressed through a re-render');
-  assert.ok(!mapManager.showRFFluid, 'showRFFluid stays false after user toggled off');
+  mapManager._updateRfFluidButtonState(true); // RF track
+  assert.ok(
+    !btn.classList.contains('active'),
+    'after user toggled off, the RF Fluid button must stay unpressed through a re-render',
+  );
+  assert.ok(
+    !mapManager.showRFFluid,
+    'showRFFluid stays false after user toggled off',
+  );
 });
 
 test('slice3: entering collective (0 active tracks) drops a lingering scrub marker', async () => {
@@ -869,14 +1373,19 @@ test('slice3: entering collective (0 active tracks) drops a lingering scrub mark
 
   // Show the scrub indicator (as if hovering the graph in single mode).
   mapManager.setScrubPosition(51.5, -0.1);
-  assert.ok(map.hasLayer(mapManager.scrubMarker), 'precondition: scrub marker shown on the map');
+  assert.ok(
+    map.hasLayer(mapManager.scrubMarker),
+    'precondition: scrub marker shown on the map',
+  );
 
   // The 0-active-tracks collective path (ui.js _updateCollectiveMapNow) only
   // calls clearCollectiveLayers().
   mapManager.clearCollectiveLayers();
 
-  assert.ok(!map.hasLayer(mapManager.scrubMarker),
-    'clearCollectiveLayers should drop the scrub marker (no graph to scrub in collective view)');
+  assert.ok(
+    !map.hasLayer(mapManager.scrubMarker),
+    'clearCollectiveLayers should drop the scrub marker (no graph to scrub in collective view)',
+  );
 });
 
 // ── refreshPeakMarkers (docs/archive/visualizer_rendering_perf_routes.md §2.2) ──────
@@ -892,7 +1401,8 @@ test('refreshPeakMarkers: rebuilds only peak/connector layers, leaving path and 
   const track = addTrack(window, 't1', 't1.csv', SAMPLE_CSV);
   mapManager.renderData(track.analyzer, track.gpsFilterParams);
 
-  const byKind = (layers, kinds) => layers.filter(l => kinds.includes(l._gsrKind));
+  const byKind = (layers, kinds) =>
+    layers.filter((l) => kinds.includes(l._gsrKind));
   const before = track.layerGroup.getLayers();
   const pathBefore = byKind(before, ['path']);
   const hotspotBefore = byKind(before, ['hotspot']);
@@ -909,21 +1419,55 @@ test('refreshPeakMarkers: rebuilds only peak/connector layers, leaving path and 
   const hotspotAfter = byKind(after, ['hotspot']);
   const peakAfter = byKind(after, ['peak', 'connector']);
 
-  assert.strictEqual(pathAfter.length, pathBefore.length, 'path layer count unchanged');
-  assert.ok(pathBefore.every(l => pathAfter.includes(l)), 'every path layer instance survives refreshPeakMarkers untouched');
+  assert.strictEqual(
+    pathAfter.length,
+    pathBefore.length,
+    'path layer count unchanged',
+  );
+  assert.ok(
+    pathBefore.every((l) => pathAfter.includes(l)),
+    'every path layer instance survives refreshPeakMarkers untouched',
+  );
 
-  assert.strictEqual(hotspotAfter.length, hotspotBefore.length, 'hotspot layer count unchanged');
-  assert.ok(hotspotBefore.every(l => hotspotAfter.includes(l)), 'every hotspot layer instance survives refreshPeakMarkers untouched');
+  assert.strictEqual(
+    hotspotAfter.length,
+    hotspotBefore.length,
+    'hotspot layer count unchanged',
+  );
+  assert.ok(
+    hotspotBefore.every((l) => hotspotAfter.includes(l)),
+    'every hotspot layer instance survives refreshPeakMarkers untouched',
+  );
 
-  assert.ok(peakBefore.every(l => !peakAfter.includes(l)), 'old peak/connector layer instances are replaced, not reused');
-  peakBefore.forEach(l => assert.ok(!map.hasLayer(l), 'old peak/connector layer removed from the map'));
-  peakAfter.forEach(l => assert.ok(map.hasLayer(l), 'new peak/connector layer is on the map via the track group'));
+  assert.ok(
+    peakBefore.every((l) => !peakAfter.includes(l)),
+    'old peak/connector layer instances are replaced, not reused',
+  );
+  peakBefore.forEach((l) =>
+    assert.ok(
+      !map.hasLayer(l),
+      'old peak/connector layer removed from the map',
+    ),
+  );
+  peakAfter.forEach((l) =>
+    assert.ok(
+      map.hasLayer(l),
+      'new peak/connector layer is on the map via the track group',
+    ),
+  );
 
   // No duplicates and no orphans: exactly one on-map group, its contents are
   // exactly path (untouched) + hotspot (untouched) + the fresh peak/connector set.
-  assert.strictEqual(map._groups.size, 1, 'still exactly one on-map layerGroup for the track');
-  assert.strictEqual(after.length, pathAfter.length + hotspotAfter.length + peakAfter.length,
-    'group contains only path+hotspot+peak/connector layers — nothing orphaned or duplicated');
+  assert.strictEqual(
+    map._groups.size,
+    1,
+    'still exactly one on-map layerGroup for the track',
+  );
+  assert.strictEqual(
+    after.length,
+    pathAfter.length + hotspotAfter.length + peakAfter.length,
+    'group contains only path+hotspot+peak/connector layers — nothing orphaned or duplicated',
+  );
 });
 
 test('refreshPeakMarkers: falls back to a full renderData() when there is no resolvable active track', async () => {
@@ -938,9 +1482,18 @@ test('refreshPeakMarkers: falls back to a full renderData() when there is no res
   mapManager.refreshPeakMarkers(track.analyzer, track.gpsFilterParams);
 
   const kinds = map.renderKindsOnMap();
-  assert.ok(kinds.includes('path'), 'fallback renderData() still renders the path');
-  assert.ok(kinds.includes('peak'), 'fallback renderData() still renders peaks');
-  assert.ok(kinds.includes('hotspot'), 'fallback renderData() still renders hotspots');
+  assert.ok(
+    kinds.includes('path'),
+    'fallback renderData() still renders the path',
+  );
+  assert.ok(
+    kinds.includes('peak'),
+    'fallback renderData() still renders peaks',
+  );
+  assert.ok(
+    kinds.includes('hotspot'),
+    'fallback renderData() still renders hotspots',
+  );
 });
 
 test('updatePeakLabel (ui.js): commits a label via refreshPeakMarkers, not a full renderData() rebuild', async () => {
@@ -950,20 +1503,32 @@ test('updatePeakLabel (ui.js): commits a label via refreshPeakMarkers, not a ful
   mapManager.renderData(track.analyzer, track.gpsFilterParams);
 
   const before = track.layerGroup.getLayers();
-  const pathBefore = before.filter(l => l._gsrKind === 'path');
-  const hotspotBefore = before.filter(l => l._gsrKind === 'hotspot');
+  const pathBefore = before.filter((l) => l._gsrKind === 'path');
+  const hotspotBefore = before.filter((l) => l._gsrKind === 'hotspot');
   assert.ok(pathBefore.length > 0, 'fixture renders at least one path segment');
   assert.ok(hotspotBefore.length > 0, 'fixture renders at least one hotspot');
 
   window.GSRUI.updatePeakLabel(0, 'Interesting spot');
 
-  assert.strictEqual(track.analyzer.peaks[0].label, 'Interesting spot', 'label was actually committed');
+  assert.strictEqual(
+    track.analyzer.peaks[0].label,
+    'Interesting spot',
+    'label was actually committed',
+  );
 
   const after = track.layerGroup.getLayers();
-  const pathAfter = after.filter(l => l._gsrKind === 'path');
-  const hotspotAfter = after.filter(l => l._gsrKind === 'hotspot');
-  assert.deepStrictEqual(pathAfter, pathBefore, 'committing a label through the real ui.js path must not rebuild path layers');
-  assert.deepStrictEqual(hotspotAfter, hotspotBefore, 'committing a label through the real ui.js path must not rebuild hotspot layers');
+  const pathAfter = after.filter((l) => l._gsrKind === 'path');
+  const hotspotAfter = after.filter((l) => l._gsrKind === 'hotspot');
+  assert.deepStrictEqual(
+    pathAfter,
+    pathBefore,
+    'committing a label through the real ui.js path must not rebuild path layers',
+  );
+  assert.deepStrictEqual(
+    hotspotAfter,
+    hotspotBefore,
+    'committing a label through the real ui.js path must not rebuild hotspot layers',
+  );
 });
 
 // ── togglePeakExclusion (ui.js) — Phase 6 step 2 ────────────────────────────
@@ -978,21 +1543,33 @@ test('togglePeakExclusion (ui.js): commits via refreshPeakMarkers, not a full re
   mapManager.renderData(track.analyzer, track.gpsFilterParams);
 
   const before = track.layerGroup.getLayers();
-  const pathBefore = before.filter(l => l._gsrKind === 'path');
-  const hotspotBefore = before.filter(l => l._gsrKind === 'hotspot');
+  const pathBefore = before.filter((l) => l._gsrKind === 'path');
+  const hotspotBefore = before.filter((l) => l._gsrKind === 'hotspot');
   assert.ok(pathBefore.length > 0, 'fixture renders at least one path segment');
   assert.ok(hotspotBefore.length > 0, 'fixture renders at least one hotspot');
 
   const wasExcluded = track.analyzer.peaks[0].excluded;
   window.GSRUI.togglePeakExclusion(0);
 
-  assert.strictEqual(track.analyzer.peaks[0].excluded, !wasExcluded, 'exclusion flag was actually flipped');
+  assert.strictEqual(
+    track.analyzer.peaks[0].excluded,
+    !wasExcluded,
+    'exclusion flag was actually flipped',
+  );
 
   const after = track.layerGroup.getLayers();
-  const pathAfter = after.filter(l => l._gsrKind === 'path');
-  const hotspotAfter = after.filter(l => l._gsrKind === 'hotspot');
-  assert.deepStrictEqual(pathAfter, pathBefore, 'toggling exclusion through the real ui.js path must not rebuild path layers');
-  assert.deepStrictEqual(hotspotAfter, hotspotBefore, 'toggling exclusion through the real ui.js path must not rebuild hotspot layers');
+  const pathAfter = after.filter((l) => l._gsrKind === 'path');
+  const hotspotAfter = after.filter((l) => l._gsrKind === 'hotspot');
+  assert.deepStrictEqual(
+    pathAfter,
+    pathBefore,
+    'toggling exclusion through the real ui.js path must not rebuild path layers',
+  );
+  assert.deepStrictEqual(
+    hotspotAfter,
+    hotspotBefore,
+    'toggling exclusion through the real ui.js path must not rebuild hotspot layers',
+  );
 });
 
 // ── refreshPeakMarkers skipClustering (docs/archive/visualizer_rendering_perf_routes.md §2.4) ──
@@ -1013,13 +1590,23 @@ test('updatePeakLabel (ui.js): a label edit leaves existing Arousal Place layers
   mapManager.renderData(track.analyzer, track.gpsFilterParams);
 
   const clustersBefore = mapManager.clusterLayers.slice();
-  assert.ok(clustersBefore.length > 0, 'fixture renders at least one Arousal Place layer');
+  assert.ok(
+    clustersBefore.length > 0,
+    'fixture renders at least one Arousal Place layer',
+  );
 
   window.GSRUI.updatePeakLabel(0, 'Interesting spot');
 
-  assert.strictEqual(track.analyzer.peaks[0].label, 'Interesting spot', 'label was actually committed');
-  assert.deepStrictEqual(mapManager.clusterLayers, clustersBefore,
-    'a label edit must not recompute Arousal Places — the clusterer input (lat/lon/amplitude) is unaffected by a label');
+  assert.strictEqual(
+    track.analyzer.peaks[0].label,
+    'Interesting spot',
+    'label was actually committed',
+  );
+  assert.deepStrictEqual(
+    mapManager.clusterLayers,
+    clustersBefore,
+    'a label edit must not recompute Arousal Places — the clusterer input (lat/lon/amplitude) is unaffected by a label',
+  );
 });
 
 test('togglePeakExclusion (ui.js): an exclusion toggle DOES recompute Arousal Place layers (clusterer input changed)', async () => {
@@ -1029,15 +1616,21 @@ test('togglePeakExclusion (ui.js): an exclusion toggle DOES recompute Arousal Pl
   mapManager.renderData(track.analyzer, track.gpsFilterParams);
 
   const clustersBefore = mapManager.clusterLayers.slice();
-  assert.ok(clustersBefore.length > 0, 'fixture renders at least one Arousal Place layer');
+  assert.ok(
+    clustersBefore.length > 0,
+    'fixture renders at least one Arousal Place layer',
+  );
 
   window.GSRUI.togglePeakExclusion(0);
 
   // Excluding a peak changes the active-peak set that feeds the clusterer, so
   // the layers must be rebuilt — assert the array was actually touched
   // (new instances), not reused by reference like the label-edit path.
-  assert.notDeepStrictEqual(mapManager.clusterLayers, clustersBefore,
-    'toggling exclusion must recompute Arousal Places, unlike a label edit');
+  assert.notDeepStrictEqual(
+    mapManager.clusterLayers,
+    clustersBefore,
+    'toggling exclusion must recompute Arousal Places, unlike a label edit',
+  );
 });
 
 test('refreshPeakMarkers({ skipClustering: true }): replaces peak/connector layers exactly like the default call, only clustering differs', async () => {
@@ -1045,17 +1638,36 @@ test('refreshPeakMarkers({ skipClustering: true }): replaces peak/connector laye
   const track = addTrack(window, 't1', 't1.csv', SAMPLE_CSV);
   mapManager.renderData(track.analyzer, track.gpsFilterParams);
 
-  const byKind = (layers, kinds) => layers.filter(l => kinds.includes(l._gsrKind));
-  const peakBefore = byKind(track.layerGroup.getLayers(), ['peak', 'connector']);
+  const byKind = (layers, kinds) =>
+    layers.filter((l) => kinds.includes(l._gsrKind));
+  const peakBefore = byKind(track.layerGroup.getLayers(), [
+    'peak',
+    'connector',
+  ]);
   assert.ok(peakBefore.length > 0, 'fixture renders at least one peak marker');
 
   track.analyzer.peaks[0].label = 'Edited label';
-  mapManager.refreshPeakMarkers(track.analyzer, track.gpsFilterParams, { skipClustering: true });
+  mapManager.refreshPeakMarkers(track.analyzer, track.gpsFilterParams, {
+    skipClustering: true,
+  });
 
   const peakAfter = byKind(track.layerGroup.getLayers(), ['peak', 'connector']);
-  assert.ok(peakBefore.every(l => !peakAfter.includes(l)), 'old peak/connector layer instances are still replaced, not reused');
-  peakBefore.forEach(l => assert.ok(!map.hasLayer(l), 'old peak/connector layer removed from the map'));
-  peakAfter.forEach(l => assert.ok(map.hasLayer(l), 'new peak/connector layer is on the map via the track group'));
+  assert.ok(
+    peakBefore.every((l) => !peakAfter.includes(l)),
+    'old peak/connector layer instances are still replaced, not reused',
+  );
+  peakBefore.forEach((l) =>
+    assert.ok(
+      !map.hasLayer(l),
+      'old peak/connector layer removed from the map',
+    ),
+  );
+  peakAfter.forEach((l) =>
+    assert.ok(
+      map.hasLayer(l),
+      'new peak/connector layer is on the map via the track group',
+    ),
+  );
 });
 
 // ── Arousal Places compute cache (perf-routes doc §2.4 follow-up) ──────────────
@@ -1067,23 +1679,33 @@ test('refreshPeakMarkers({ skipClustering: true }): replaces peak/connector laye
 // the geometry compute is cached.
 
 function spyOnArousalCompute(window) {
-  const SC = window.GSRSpatialClustering, AP = window.GSRArousalPlaces;
+  const SC = window.GSRSpatialClustering,
+    AP = window.GSRArousalPlaces;
   const orig = {
     compactClusters: SC.compactClusters,
     buildPlaces: AP.buildPlaces,
-    getConcaveBlob: SC.getConcaveBlob
+    getConcaveBlob: SC.getConcaveBlob,
   };
   const counts = { compactClusters: 0, buildPlaces: 0, getConcaveBlob: 0 };
-  SC.compactClusters = (...a) => { counts.compactClusters++; return orig.compactClusters.apply(SC, a); };
-  AP.buildPlaces     = (...a) => { counts.buildPlaces++;     return orig.buildPlaces.apply(AP, a); };
-  SC.getConcaveBlob  = (...a) => { counts.getConcaveBlob++;  return orig.getConcaveBlob.apply(SC, a); };
+  SC.compactClusters = (...a) => {
+    counts.compactClusters++;
+    return orig.compactClusters.apply(SC, a);
+  };
+  AP.buildPlaces = (...a) => {
+    counts.buildPlaces++;
+    return orig.buildPlaces.apply(AP, a);
+  };
+  SC.getConcaveBlob = (...a) => {
+    counts.getConcaveBlob++;
+    return orig.getConcaveBlob.apply(SC, a);
+  };
   return {
     counts,
     restore() {
       SC.compactClusters = orig.compactClusters;
       AP.buildPlaces = orig.buildPlaces;
       SC.getConcaveBlob = orig.getConcaveBlob;
-    }
+    },
   };
 }
 
@@ -1094,7 +1716,10 @@ test('_renderArousalPlacesFor: an unchanged re-render reuses the cache (no re-cl
   mapManager.renderData(track.analyzer, track.gpsFilterParams);
 
   const clustersFirst = mapManager.clusterLayers.slice();
-  assert.ok(clustersFirst.length > 0, 'fixture renders at least one Arousal Place layer');
+  assert.ok(
+    clustersFirst.length > 0,
+    'fixture renders at least one Arousal Place layer',
+  );
 
   const spy = spyOnArousalCompute(window);
   try {
@@ -1103,13 +1728,30 @@ test('_renderArousalPlacesFor: an unchanged re-render reuses the cache (no re-cl
     spy.restore();
   }
 
-  assert.strictEqual(spy.counts.compactClusters, 0, 'compactClusters not re-run on an unchanged render');
-  assert.strictEqual(spy.counts.buildPlaces, 0, 'buildPlaces not re-run on an unchanged render');
-  assert.strictEqual(spy.counts.getConcaveBlob, 0, 'getConcaveBlob not re-run on an unchanged render');
-  assert.strictEqual(mapManager.clusterLayers.length, clustersFirst.length,
-    'the same number of Arousal Place layers is rebuilt from the cached geometry');
-  assert.ok(clustersFirst.every(l => !mapManager.clusterLayers.includes(l)),
-    'a cache hit still yields fresh Leaflet layer instances (clearMap removed the old ones)');
+  assert.strictEqual(
+    spy.counts.compactClusters,
+    0,
+    'compactClusters not re-run on an unchanged render',
+  );
+  assert.strictEqual(
+    spy.counts.buildPlaces,
+    0,
+    'buildPlaces not re-run on an unchanged render',
+  );
+  assert.strictEqual(
+    spy.counts.getConcaveBlob,
+    0,
+    'getConcaveBlob not re-run on an unchanged render',
+  );
+  assert.strictEqual(
+    mapManager.clusterLayers.length,
+    clustersFirst.length,
+    'the same number of Arousal Place layers is rebuilt from the cached geometry',
+  );
+  assert.ok(
+    clustersFirst.every((l) => !mapManager.clusterLayers.includes(l)),
+    'a cache hit still yields fresh Leaflet layer instances (clearMap removed the old ones)',
+  );
 });
 
 test('_renderArousalPlacesFor: toggling peak exclusion misses the cache (active-peak set changed)', async () => {
@@ -1125,8 +1767,16 @@ test('_renderArousalPlacesFor: toggling peak exclusion misses the cache (active-
   } finally {
     spy.restore();
   }
-  assert.strictEqual(spy.counts.buildPlaces, 1, 'an exclusion toggle forces exactly one re-score');
-  assert.strictEqual(spy.counts.compactClusters, 1, 'an exclusion toggle forces exactly one re-cluster');
+  assert.strictEqual(
+    spy.counts.buildPlaces,
+    1,
+    'an exclusion toggle forces exactly one re-score',
+  );
+  assert.strictEqual(
+    spy.counts.compactClusters,
+    1,
+    'an exclusion toggle forces exactly one re-cluster',
+  );
 });
 
 test('refreshArousalPlaces(): rebuilds only the Arousal Place layers, leaving path/peak/hotspot untouched', async () => {
@@ -1135,24 +1785,45 @@ test('refreshArousalPlaces(): rebuilds only the Arousal Place layers, leaving pa
   window.AppState.viewMode = 'single';
   mapManager.renderData(track.analyzer, track.gpsFilterParams);
 
-  const byKind = (layers, kinds) => layers.filter(l => kinds.includes(l._gsrKind));
+  const byKind = (layers, kinds) =>
+    layers.filter((l) => kinds.includes(l._gsrKind));
   const before = track.layerGroup.getLayers();
   const pathBefore = byKind(before, ['path']);
   const peakBefore = byKind(before, ['peak', 'connector']);
   const hotspotBefore = byKind(before, ['hotspot']);
   const clustersBefore = mapManager.clusterLayers.slice();
-  assert.ok(clustersBefore.length > 0, 'fixture renders at least one Arousal Place layer');
+  assert.ok(
+    clustersBefore.length > 0,
+    'fixture renders at least one Arousal Place layer',
+  );
 
   mapManager.refreshArousalPlaces();
 
   const after = track.layerGroup.getLayers();
-  assert.deepStrictEqual(byKind(after, ['path']), pathBefore, 'path layers untouched by reference');
-  assert.deepStrictEqual(byKind(after, ['peak', 'connector']), peakBefore, 'peak/connector layers untouched by reference');
-  assert.deepStrictEqual(byKind(after, ['hotspot']), hotspotBefore, 'hotspot layers untouched by reference');
-  assert.ok(clustersBefore.every(l => !map.hasLayer(l)), 'old Arousal Place layers removed from the map');
-  assert.ok(mapManager.clusterLayers.length > 0
-    && mapManager.clusterLayers.every(l => !clustersBefore.includes(l)),
-    'Arousal Place layers rebuilt as fresh instances');
+  assert.deepStrictEqual(
+    byKind(after, ['path']),
+    pathBefore,
+    'path layers untouched by reference',
+  );
+  assert.deepStrictEqual(
+    byKind(after, ['peak', 'connector']),
+    peakBefore,
+    'peak/connector layers untouched by reference',
+  );
+  assert.deepStrictEqual(
+    byKind(after, ['hotspot']),
+    hotspotBefore,
+    'hotspot layers untouched by reference',
+  );
+  assert.ok(
+    clustersBefore.every((l) => !map.hasLayer(l)),
+    'old Arousal Place layers removed from the map',
+  );
+  assert.ok(
+    mapManager.clusterLayers.length > 0 &&
+      mapManager.clusterLayers.every((l) => !clustersBefore.includes(l)),
+    'Arousal Place layers rebuilt as fresh instances',
+  );
 });
 
 test('refreshArousalPlaces(): a changed merge distance re-runs clustering (cache miss on P.mergeM)', async () => {
@@ -1172,7 +1843,11 @@ test('refreshArousalPlaces(): a changed merge distance re-runs clustering (cache
   } finally {
     spy.restore();
   }
-  assert.strictEqual(spy.counts.compactClusters, 1, 'a new merge distance forces exactly one re-cluster');
+  assert.strictEqual(
+    spy.counts.compactClusters,
+    1,
+    'a new merge distance forces exactly one re-cluster',
+  );
 });
 
 test('refreshArousalPlaces(): a changed max places slider re-slices places and rebuilds layer', async () => {
@@ -1192,15 +1867,23 @@ test('refreshArousalPlaces(): a changed max places slider re-slices places and r
   } finally {
     spy.restore();
   }
-  assert.strictEqual(spy.counts.buildPlaces, 1, 'a new max places forces buildPlaces re-run');
-  assert.strictEqual(mapManager._arousalPlacesCache.places.length, 1, 'places capped to maxArousalPlaces');
+  assert.strictEqual(
+    spy.counts.buildPlaces,
+    1,
+    'a new max places forces buildPlaces re-run',
+  );
+  assert.strictEqual(
+    mapManager._arousalPlacesCache.places.length,
+    1,
+    'places capped to maxArousalPlaces',
+  );
 });
 
 test('_renderArousalPlacesFor: a rapid drag defers recompute, then the settle timer runs it once', async () => {
   const { window, mapManager } = await bootWithRecordingLClusteringOn();
   const track = addTrack(window, 't1', 't1.csv', CLUSTER_CSV);
   window.AppState.viewMode = 'single';
-  mapManager.renderData(track.analyzer, track.gpsFilterParams);   // primes the cache
+  mapManager.renderData(track.analyzer, track.gpsFilterParams); // primes the cache
 
   const slider = window.AppState.sliders.placeMergeDistance;
   const spy = spyOnArousalCompute(window);
@@ -1210,12 +1893,26 @@ test('_renderArousalPlacesFor: a rapid drag defers recompute, then the settle ti
       slider.value = String(parseFloat(slider.value) + 5);
       mapManager.refreshArousalPlaces();
     }
-    assert.strictEqual(spy.counts.compactClusters, 0, 'mid-drag frames redraw from cache, no recompute');
-    assert.ok(mapManager.clusterLayers.length > 0, 'places still on the map during the drag');
-    assert.ok(mapManager._arousalSettleTimer, 'a settle recompute is scheduled');
+    assert.strictEqual(
+      spy.counts.compactClusters,
+      0,
+      'mid-drag frames redraw from cache, no recompute',
+    );
+    assert.ok(
+      mapManager.clusterLayers.length > 0,
+      'places still on the map during the drag',
+    );
+    assert.ok(
+      mapManager._arousalSettleTimer,
+      'a settle recompute is scheduled',
+    );
 
-    await new Promise(r => setTimeout(r, 240));   // let the 180 ms settle timer fire
-    assert.strictEqual(spy.counts.compactClusters, 1, 'exactly one recompute once the drag settles');
+    await new Promise((r) => setTimeout(r, 240)); // let the 180 ms settle timer fire
+    assert.strictEqual(
+      spy.counts.compactClusters,
+      1,
+      'exactly one recompute once the drag settles',
+    );
   } finally {
     spy.restore();
   }
@@ -1225,13 +1922,19 @@ test('refreshArousalPlaces(): falls back to a full rerenderMap() when nothing ha
   const { window, mapManager } = await bootWithRecordingLClusteringOn();
   let rerendered = 0;
   const orig = window.GSRUI.rerenderMap;
-  window.GSRUI.rerenderMap = () => { rerendered++; };
+  window.GSRUI.rerenderMap = () => {
+    rerendered++;
+  };
   try {
     mapManager.refreshArousalPlaces();
   } finally {
     window.GSRUI.rerenderMap = orig;
   }
-  assert.strictEqual(rerendered, 1, 'no cached Arousal Places input → defer to the full render path');
+  assert.strictEqual(
+    rerendered,
+    1,
+    'no cached Arousal Places input → defer to the full render path',
+  );
 });
 
 // ── refreshPath (docs/archive/visualizer_rendering_perf_routes.md §2.2) ────────────
@@ -1245,7 +1948,8 @@ test('refreshPath: rebuilds only path layers, leaving peak/connector and hotspot
   const track = addTrack(window, 't1', 't1.csv', SAMPLE_CSV);
   mapManager.renderData(track.analyzer, track.gpsFilterParams);
 
-  const byKind = (layers, kinds) => layers.filter(l => kinds.includes(l._gsrKind));
+  const byKind = (layers, kinds) =>
+    layers.filter((l) => kinds.includes(l._gsrKind));
   const before = track.layerGroup.getLayers();
   const pathBefore = byKind(before, ['path']);
   const hotspotBefore = byKind(before, ['hotspot']);
@@ -1262,16 +1966,39 @@ test('refreshPath: rebuilds only path layers, leaving peak/connector and hotspot
   const hotspotAfter = byKind(after, ['hotspot']);
   const peakAfter = byKind(after, ['peak', 'connector']);
 
-  assert.ok(peakBefore.every(l => peakAfter.includes(l)), 'every peak/connector layer instance survives refreshPath untouched');
-  assert.ok(hotspotBefore.every(l => hotspotAfter.includes(l)), 'every hotspot layer instance survives refreshPath untouched');
+  assert.ok(
+    peakBefore.every((l) => peakAfter.includes(l)),
+    'every peak/connector layer instance survives refreshPath untouched',
+  );
+  assert.ok(
+    hotspotBefore.every((l) => hotspotAfter.includes(l)),
+    'every hotspot layer instance survives refreshPath untouched',
+  );
 
-  assert.ok(pathBefore.every(l => !pathAfter.includes(l)), 'old path layer instances are replaced, not reused');
-  pathBefore.forEach(l => assert.ok(!map.hasLayer(l), 'old path layer removed from the map'));
-  pathAfter.forEach(l => assert.ok(map.hasLayer(l), 'new path layer is on the map via the track group'));
+  assert.ok(
+    pathBefore.every((l) => !pathAfter.includes(l)),
+    'old path layer instances are replaced, not reused',
+  );
+  pathBefore.forEach((l) =>
+    assert.ok(!map.hasLayer(l), 'old path layer removed from the map'),
+  );
+  pathAfter.forEach((l) =>
+    assert.ok(
+      map.hasLayer(l),
+      'new path layer is on the map via the track group',
+    ),
+  );
 
-  assert.strictEqual(map._groups.size, 1, 'still exactly one on-map layerGroup for the track');
-  assert.strictEqual(after.length, pathAfter.length + hotspotAfter.length + peakAfter.length,
-    'group contains only path+hotspot+peak/connector layers — nothing orphaned or duplicated');
+  assert.strictEqual(
+    map._groups.size,
+    1,
+    'still exactly one on-map layerGroup for the track',
+  );
+  assert.strictEqual(
+    after.length,
+    pathAfter.length + hotspotAfter.length + peakAfter.length,
+    'group contains only path+hotspot+peak/connector layers — nothing orphaned or duplicated',
+  );
 });
 
 test('refreshPath: falls back to a full renderData() when there is no resolvable active track', async () => {
@@ -1284,9 +2011,18 @@ test('refreshPath: falls back to a full renderData() when there is no resolvable
   mapManager.refreshPath(track.analyzer, track.gpsFilterParams);
 
   const kinds = map.renderKindsOnMap();
-  assert.ok(kinds.includes('path'), 'fallback renderData() still renders the path');
-  assert.ok(kinds.includes('peak'), 'fallback renderData() still renders peaks');
-  assert.ok(kinds.includes('hotspot'), 'fallback renderData() still renders hotspots');
+  assert.ok(
+    kinds.includes('path'),
+    'fallback renderData() still renders the path',
+  );
+  assert.ok(
+    kinds.includes('peak'),
+    'fallback renderData() still renders peaks',
+  );
+  assert.ok(
+    kinds.includes('hotspot'),
+    'fallback renderData() still renders hotspots',
+  );
 });
 
 test('mapColoringMetric dropdown (events.js): single-track view commits via refreshPath, not a full rerenderMap()', async () => {
@@ -1296,8 +2032,10 @@ test('mapColoringMetric dropdown (events.js): single-track view commits via refr
   mapManager.renderData(track.analyzer, track.gpsFilterParams);
 
   const before = track.layerGroup.getLayers();
-  const peakBefore = before.filter(l => l._gsrKind === 'peak' || l._gsrKind === 'connector');
-  const hotspotBefore = before.filter(l => l._gsrKind === 'hotspot');
+  const peakBefore = before.filter(
+    (l) => l._gsrKind === 'peak' || l._gsrKind === 'connector',
+  );
+  const hotspotBefore = before.filter((l) => l._gsrKind === 'hotspot');
   assert.ok(peakBefore.length > 0, 'fixture renders at least one peak marker');
   assert.ok(hotspotBefore.length > 0, 'fixture renders at least one hotspot');
 
@@ -1305,13 +2043,27 @@ test('mapColoringMetric dropdown (events.js): single-track view commits via refr
   select.value = 'hdopQuality';
   select.dispatchEvent(new window.Event('change'));
 
-  assert.strictEqual(mapManager.activeColoringMetric, 'hdopQuality', 'metric was actually applied');
+  assert.strictEqual(
+    mapManager.activeColoringMetric,
+    'hdopQuality',
+    'metric was actually applied',
+  );
 
   const after = track.layerGroup.getLayers();
-  const peakAfter = after.filter(l => l._gsrKind === 'peak' || l._gsrKind === 'connector');
-  const hotspotAfter = after.filter(l => l._gsrKind === 'hotspot');
-  assert.deepStrictEqual(peakAfter, peakBefore, 'switching coloring metric through the real events.js wiring must not rebuild peak layers');
-  assert.deepStrictEqual(hotspotAfter, hotspotBefore, 'switching coloring metric through the real events.js wiring must not rebuild hotspot layers');
+  const peakAfter = after.filter(
+    (l) => l._gsrKind === 'peak' || l._gsrKind === 'connector',
+  );
+  const hotspotAfter = after.filter((l) => l._gsrKind === 'hotspot');
+  assert.deepStrictEqual(
+    peakAfter,
+    peakBefore,
+    'switching coloring metric through the real events.js wiring must not rebuild peak layers',
+  );
+  assert.deepStrictEqual(
+    hotspotAfter,
+    hotspotBefore,
+    'switching coloring metric through the real events.js wiring must not rebuild hotspot layers',
+  );
 });
 
 // ── refreshCollectivePeakMarkers (Phase 6 step 2, collective-mode investigation) ──
@@ -1323,20 +2075,37 @@ test('mapColoringMetric dropdown (events.js): single-track view commits via refr
 // unlike togglePeakExclusion (still full-rebuild — excluded IS read by
 // clustering/contours), this is safe to scope to just the edited track.
 
-test('refreshCollectivePeakMarkers: rebuilds only the target track\'s peak/connector layers, leaving its own path/hotspot and the OTHER track entirely untouched', async () => {
+test("refreshCollectivePeakMarkers: rebuilds only the target track's peak/connector layers, leaving its own path/hotspot and the OTHER track entirely untouched", async () => {
   const { window, map, mapManager } = await bootWithRecordingL();
   const trackA = addTrack(window, 'A', 'a.csv', SAMPLE_CSV);
   const trackB = addTrack(window, 'B', 'b.csv', SAMPLE_CSV);
-  mapManager.renderCollectiveData(window.AppState.collectiveManager, { showShadedSurface: false }, 0);
+  mapManager.renderCollectiveData(
+    window.AppState.collectiveManager,
+    { showShadedSurface: false },
+    0,
+  );
 
-  const byKind = (layers, kinds) => layers.filter(l => kinds.includes(l._gsrKind));
+  const byKind = (layers, kinds) =>
+    layers.filter((l) => kinds.includes(l._gsrKind));
   const beforeA = trackA.layerGroup.getLayers();
   const pathBeforeA = byKind(beforeA, ['collectivePath']);
   const hotspotBeforeA = byKind(beforeA, ['hotspot']);
-  const peakBeforeA = byKind(beforeA, ['collectivePeak', 'collectiveConnector']);
-  assert.ok(pathBeforeA.length > 0, 'fixture renders at least one path segment for A');
-  assert.ok(hotspotBeforeA.length > 0, 'fixture renders at least one hotspot for A');
-  assert.ok(peakBeforeA.length > 0, 'fixture renders at least one peak marker for A');
+  const peakBeforeA = byKind(beforeA, [
+    'collectivePeak',
+    'collectiveConnector',
+  ]);
+  assert.ok(
+    pathBeforeA.length > 0,
+    'fixture renders at least one path segment for A',
+  );
+  assert.ok(
+    hotspotBeforeA.length > 0,
+    'fixture renders at least one hotspot for A',
+  );
+  assert.ok(
+    peakBeforeA.length > 0,
+    'fixture renders at least one peak marker for A',
+  );
   const beforeB = trackB.layerGroup.getLayers().slice();
 
   trackA.analyzer.peaks[0].label = 'Edited in collective view';
@@ -1347,21 +2116,58 @@ test('refreshCollectivePeakMarkers: rebuilds only the target track\'s peak/conne
   const hotspotAfterA = byKind(afterA, ['hotspot']);
   const peakAfterA = byKind(afterA, ['collectivePeak', 'collectiveConnector']);
 
-  assert.strictEqual(pathAfterA.length, pathBeforeA.length, 'A: path layer count unchanged');
-  assert.ok(pathBeforeA.every(l => pathAfterA.includes(l)), 'A: every path layer instance survives untouched');
-  assert.strictEqual(hotspotAfterA.length, hotspotBeforeA.length, 'A: hotspot layer count unchanged');
-  assert.ok(hotspotBeforeA.every(l => hotspotAfterA.includes(l)), 'A: every hotspot layer instance survives untouched');
+  assert.strictEqual(
+    pathAfterA.length,
+    pathBeforeA.length,
+    'A: path layer count unchanged',
+  );
+  assert.ok(
+    pathBeforeA.every((l) => pathAfterA.includes(l)),
+    'A: every path layer instance survives untouched',
+  );
+  assert.strictEqual(
+    hotspotAfterA.length,
+    hotspotBeforeA.length,
+    'A: hotspot layer count unchanged',
+  );
+  assert.ok(
+    hotspotBeforeA.every((l) => hotspotAfterA.includes(l)),
+    'A: every hotspot layer instance survives untouched',
+  );
 
-  assert.ok(peakBeforeA.every(l => !peakAfterA.includes(l)), 'A: old peak/connector layer instances are replaced, not reused');
-  peakBeforeA.forEach(l => assert.ok(!map.hasLayer(l), 'A: old peak/connector layer removed from the map'));
-  peakAfterA.forEach(l => assert.ok(map.hasLayer(l), 'A: new peak/connector layer is on the map via the track group'));
+  assert.ok(
+    peakBeforeA.every((l) => !peakAfterA.includes(l)),
+    'A: old peak/connector layer instances are replaced, not reused',
+  );
+  peakBeforeA.forEach((l) =>
+    assert.ok(
+      !map.hasLayer(l),
+      'A: old peak/connector layer removed from the map',
+    ),
+  );
+  peakAfterA.forEach((l) =>
+    assert.ok(
+      map.hasLayer(l),
+      'A: new peak/connector layer is on the map via the track group',
+    ),
+  );
 
-  assert.deepStrictEqual(trackB.layerGroup.getLayers(), beforeB,
-    'B: an unrelated track\'s layers must be completely untouched by a refresh scoped to A');
+  assert.deepStrictEqual(
+    trackB.layerGroup.getLayers(),
+    beforeB,
+    "B: an unrelated track's layers must be completely untouched by a refresh scoped to A",
+  );
 
-  assert.strictEqual(map._groups.size, 2, 'still exactly two on-map layerGroups (A + B)');
-  assert.strictEqual(afterA.length, pathAfterA.length + hotspotAfterA.length + peakAfterA.length,
-    'A: group contains only path+hotspot+peak/connector layers — nothing orphaned or duplicated');
+  assert.strictEqual(
+    map._groups.size,
+    2,
+    'still exactly two on-map layerGroups (A + B)',
+  );
+  assert.strictEqual(
+    afterA.length,
+    pathAfterA.length + hotspotAfterA.length + peakAfterA.length,
+    'A: group contains only path+hotspot+peak/connector layers — nothing orphaned or duplicated',
+  );
 });
 
 test('refreshCollectivePeakMarkers: falls back to a full collective rebuild when the track has no layerGroup', async () => {
@@ -1369,19 +2175,35 @@ test('refreshCollectivePeakMarkers: falls back to a full collective rebuild when
   const trackA = addTrack(window, 'A', 'a.csv', SAMPLE_CSV);
   window.AppState.viewMode = 'collective';
   // Never rendered — trackA.layerGroup is still null.
-  assert.strictEqual(trackA.layerGroup, null, 'precondition: track has not been rendered yet');
+  assert.strictEqual(
+    trackA.layerGroup,
+    null,
+    'precondition: track has not been rendered yet',
+  );
 
   mapManager.refreshCollectivePeakMarkers(trackA, 0);
   // refreshCollectivePeakMarkers's fallback goes through the real, debounced
   // GSRUI.updateCollectiveMap() (150ms) — same entry point every other
   // collective-mode trigger uses.
-  await new Promise(resolve => setTimeout(resolve, 250));
+  await new Promise((resolve) => setTimeout(resolve, 250));
 
-  assert.ok(trackA.layerGroup, 'fallback should have rendered the track, giving it a layerGroup');
-  const kinds = trackA.layerGroup.getLayers().map(l => l._gsrKind);
-  assert.ok(kinds.includes('collectivePath'), 'fallback full rebuild still renders the path');
-  assert.ok(kinds.includes('collectivePeak'), 'fallback full rebuild still renders peaks');
-  assert.ok(kinds.includes('hotspot'), 'fallback full rebuild still renders hotspots');
+  assert.ok(
+    trackA.layerGroup,
+    'fallback should have rendered the track, giving it a layerGroup',
+  );
+  const kinds = trackA.layerGroup.getLayers().map((l) => l._gsrKind);
+  assert.ok(
+    kinds.includes('collectivePath'),
+    'fallback full rebuild still renders the path',
+  );
+  assert.ok(
+    kinds.includes('collectivePeak'),
+    'fallback full rebuild still renders peaks',
+  );
+  assert.ok(
+    kinds.includes('hotspot'),
+    'fallback full rebuild still renders hotspots',
+  );
 });
 
 test('updatePeakLabel (ui.js) in collective mode: commits via refreshCollectivePeakMarkers, not a full rebuild', async () => {
@@ -1389,21 +2211,49 @@ test('updatePeakLabel (ui.js) in collective mode: commits via refreshCollectiveP
   const trackA = addTrack(window, 'A', 'a.csv', SAMPLE_CSV);
   const trackB = addTrack(window, 'B', 'b.csv', SAMPLE_CSV);
   window.AppState.viewMode = 'collective';
-  mapManager.renderCollectiveData(window.AppState.collectiveManager, { showShadedSurface: false }, 0);
+  mapManager.renderCollectiveData(
+    window.AppState.collectiveManager,
+    { showShadedSurface: false },
+    0,
+  );
 
-  const pathBeforeA = trackA.layerGroup.getLayers().filter(l => l._gsrKind === 'collectivePath');
-  const hotspotBeforeA = trackA.layerGroup.getLayers().filter(l => l._gsrKind === 'hotspot');
+  const pathBeforeA = trackA.layerGroup
+    .getLayers()
+    .filter((l) => l._gsrKind === 'collectivePath');
+  const hotspotBeforeA = trackA.layerGroup
+    .getLayers()
+    .filter((l) => l._gsrKind === 'hotspot');
   const beforeB = trackB.layerGroup.getLayers().slice();
 
   window.GSRUI.updatePeakLabel(0, 'Committed label', 'A');
 
-  assert.strictEqual(trackA.analyzer.peaks[0].label, 'Committed label', 'label was actually committed');
+  assert.strictEqual(
+    trackA.analyzer.peaks[0].label,
+    'Committed label',
+    'label was actually committed',
+  );
 
-  const pathAfterA = trackA.layerGroup.getLayers().filter(l => l._gsrKind === 'collectivePath');
-  const hotspotAfterA = trackA.layerGroup.getLayers().filter(l => l._gsrKind === 'hotspot');
-  assert.deepStrictEqual(pathAfterA, pathBeforeA, 'committing a label through the real ui.js path must not rebuild A\'s path layers');
-  assert.deepStrictEqual(hotspotAfterA, hotspotBeforeA, 'committing a label through the real ui.js path must not rebuild A\'s hotspot layers');
-  assert.deepStrictEqual(trackB.layerGroup.getLayers(), beforeB, 'track B must be completely untouched');
+  const pathAfterA = trackA.layerGroup
+    .getLayers()
+    .filter((l) => l._gsrKind === 'collectivePath');
+  const hotspotAfterA = trackA.layerGroup
+    .getLayers()
+    .filter((l) => l._gsrKind === 'hotspot');
+  assert.deepStrictEqual(
+    pathAfterA,
+    pathBeforeA,
+    "committing a label through the real ui.js path must not rebuild A's path layers",
+  );
+  assert.deepStrictEqual(
+    hotspotAfterA,
+    hotspotBeforeA,
+    "committing a label through the real ui.js path must not rebuild A's hotspot layers",
+  );
+  assert.deepStrictEqual(
+    trackB.layerGroup.getLayers(),
+    beforeB,
+    'track B must be completely untouched',
+  );
 });
 
 test('_refreshTrackLayers helper: correctly strips target kind layers and dispatches renderFn', async () => {
@@ -1411,7 +2261,9 @@ test('_refreshTrackLayers helper: correctly strips target kind layers and dispat
   const track = addTrack(window, 'A', 'a.csv', SAMPLE_CSV);
   mapManager.renderData(track.analyzer, { trackWeight: 5, peakLatency: 0 });
 
-  const initialPeaks = track.layerGroup.getLayers().filter(l => l._gsrKind === 'peak');
+  const initialPeaks = track.layerGroup
+    .getLayers()
+    .filter((l) => l._gsrKind === 'peak');
   assert.ok(initialPeaks.length > 0);
 
   let rendered = false;
@@ -1420,8 +2272,14 @@ test('_refreshTrackLayers helper: correctly strips target kind layers and dispat
   });
 
   assert.strictEqual(rendered, true);
-  const remainingPeaks = track.layerGroup.getLayers().filter(l => l._gsrKind === 'peak');
-  assert.strictEqual(remainingPeaks.length, 0, 'peak layers were stripped before renderFn');
+  const remainingPeaks = track.layerGroup
+    .getLayers()
+    .filter((l) => l._gsrKind === 'peak');
+  assert.strictEqual(
+    remainingPeaks.length,
+    0,
+    'peak layers were stripped before renderFn',
+  );
 });
 
 test('inPark colouring: in-park segments render green, out-of-park grey (not an all-grey LUT)', async () => {
@@ -1431,18 +2289,27 @@ test('inPark colouring: in-park segments render green, out-of-park grey (not an 
   // Enrich raw rows directly (no network): first half in a park, second half not.
   const raw = track.analyzer.raw;
   const mid = raw.length >> 1;
-  raw.forEach((row, i) => { row.osm_in_park = (i < mid) ? 1 : 0; });
+  raw.forEach((row, i) => {
+    row.osm_in_park = i < mid ? 1 : 0;
+  });
 
   mapManager.activeColoringMetric = 'inPark';
   mapManager.renderData(track.analyzer, track.gpsFilterParams);
 
   const colors = new Set(
-    track.layerGroup.getLayers()
-      .filter(l => l._gsrKind === 'path')
-      .map(l => l._options && l._options.color)
+    track.layerGroup
+      .getLayers()
+      .filter((l) => l._gsrKind === 'path')
+      .map((l) => l._options && l._options.color),
   );
-  assert.ok(colors.has('#00e575'), `in-park segments render green (got: ${[...colors]})`);
-  assert.ok(colors.has('#666666'), `out-of-park segments render grey (got: ${[...colors]})`);
+  assert.ok(
+    colors.has('#00e575'),
+    `in-park segments render green (got: ${[...colors]})`,
+  );
+  assert.ok(
+    colors.has('#666666'),
+    `out-of-park segments render grey (got: ${[...colors]})`,
+  );
 });
 
 test('distance-metric colouring: the 999 "none nearby" sentinel is excluded from the colour range', async () => {
@@ -1450,12 +2317,20 @@ test('distance-metric colouring: the 999 "none nearby" sentinel is excluded from
   const track = addTrack(window, 't1', 't1.csv', SAMPLE_CSV);
 
   track.analyzer.raw.forEach((row, i) => {
-    row.osm_dist_water = (i < 10) ? 999 : (i % 20); // some "none nearby", rest 0..19 m
+    row.osm_dist_water = i < 10 ? 999 : i % 20; // some "none nearby", rest 0..19 m
   });
 
   mapManager.activeColoringMetric = 'distWater';
   mapManager.renderData(track.analyzer, track.gpsFilterParams);
 
-  assert.strictEqual(mapManager._legendMinVal, 0, 'min is the closest real distance');
-  assert.strictEqual(mapManager._legendMaxVal, 19, 'max excludes the 999 sentinel');
+  assert.strictEqual(
+    mapManager._legendMinVal,
+    0,
+    'min is the closest real distance',
+  );
+  assert.strictEqual(
+    mapManager._legendMaxVal,
+    19,
+    'max excludes the 999 sentinel',
+  );
 });

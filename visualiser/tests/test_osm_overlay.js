@@ -26,46 +26,80 @@ async function capturePolys(fn) {
   const calls = [];
   window.L.polygon = (rings, style) => {
     calls.push({ rings, style });
-    return { addTo() { return this; } };
+    return {
+      addTo() {
+        return this;
+      },
+    };
   };
   fn(mgr, window);
   // { park: <ringCount>, water: <ringCount>, building: <ringCount> }
   const byCat = { park: 0, water: 0, building: 0 };
   for (const c of calls) {
-    const cat = Object.keys(STYLE_FILL).find(k => STYLE_FILL[k] === (c.style && c.style.fillColor));
+    const cat = Object.keys(STYLE_FILL).find(
+      (k) => STYLE_FILL[k] === (c.style && c.style.fillColor),
+    );
     if (cat) byCat[cat] += c.rings.length;
   }
   return byCat;
 }
 
 const way = (id, tags) => ({
-  type: 'way', id, tags,
-  coordinates: [{ lat: 0, lon: 0 }, { lat: 0, lon: 1 }, { lat: 1, lon: 1 }, { lat: 0, lon: 0 }],
+  type: 'way',
+  id,
+  tags,
+  coordinates: [
+    { lat: 0, lon: 0 },
+    { lat: 0, lon: 1 },
+    { lat: 1, lon: 1 },
+    { lat: 0, lon: 0 },
+  ],
 });
 
 test('drawOsmShapes: a wetland is drawn as park (green) — it is green space, matching in_park / green_pct', async () => {
   const byCat = await capturePolys((mgr) =>
-    mgr.drawOsmShapes({ ways: [way('w', { natural: 'wetland' })], relations: [] }));
-  assert.strictEqual(byCat.park, 1, 'wetland ring drawn in the green/park layer');
-  assert.strictEqual(byCat.water, 0, 'wetland is not ALSO drawn blue (overlay paints one colour; green wins)');
+    mgr.drawOsmShapes({
+      ways: [way('w', { natural: 'wetland' })],
+      relations: [],
+    }),
+  );
+  assert.strictEqual(
+    byCat.park,
+    1,
+    'wetland ring drawn in the green/park layer',
+  );
+  assert.strictEqual(
+    byCat.water,
+    0,
+    'wetland is not ALSO drawn blue (overlay paints one colour; green wins)',
+  );
 });
 
 test('drawOsmShapes: a playground is drawn as NOTHING — it is not green space', async () => {
   const byCat = await capturePolys((mgr) =>
-    mgr.drawOsmShapes({ ways: [way('p', { leisure: 'playground' })], relations: [] }));
-  assert.strictEqual(byCat.park + byCat.water + byCat.building, 0,
-    'leisure=playground produces no overlay polygon at all');
+    mgr.drawOsmShapes({
+      ways: [way('p', { leisure: 'playground' })],
+      relations: [],
+    }),
+  );
+  assert.strictEqual(
+    byCat.park + byCat.water + byCat.building,
+    0,
+    'leisure=playground produces no overlay polygon at all',
+  );
 });
 
 test('drawOsmShapes: park / lake / building each land in their own layer', async () => {
-  const byCat = await capturePolys((mgr) => mgr.drawOsmShapes({
-    ways: [
-      way('pk', { leisure: 'park' }),
-      way('lk', { natural: 'water' }),
-      way('bl', { building: 'yes' }),
-      way('pg', { leisure: 'playground' }),   // excluded
-    ],
-    relations: [],
-  }));
+  const byCat = await capturePolys((mgr) =>
+    mgr.drawOsmShapes({
+      ways: [
+        way('pk', { leisure: 'park' }),
+        way('lk', { natural: 'water' }),
+        way('bl', { building: 'yes' }),
+        way('pg', { leisure: 'playground' }), // excluded
+      ],
+      relations: [],
+    }),
+  );
   assert.deepStrictEqual(byCat, { park: 1, water: 1, building: 1 });
 });

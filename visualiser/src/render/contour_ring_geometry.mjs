@@ -9,7 +9,6 @@ import { GeoUtils } from '../gps/geo_utils.mjs';
 import { GSRSpatialClustering } from '../spatial/spatial_clustering.mjs';
 
 export class ContourRingGeometry {
-
   // ═══════════════════════════════════════════════════════════════════
   //  Loops
   // ═══════════════════════════════════════════════════════════════════
@@ -23,7 +22,8 @@ export class ContourRingGeometry {
    * walk or tangent-extrapolated tip pushes outward.
    */
   static toLoop(rawPoints) {
-    if (!rawPoints || rawPoints.length === 0) return { points: [], length: 0, diag: 0 };
+    if (!rawPoints || rawPoints.length === 0)
+      return { points: [], length: 0, diag: 0 };
     let t = 0;
     const b = GeoUtils.computeBounds(rawPoints);
     const points = rawPoints.map((p, i) => {
@@ -33,7 +33,8 @@ export class ContourRingGeometry {
       }
       return { ...p, t };
     });
-    const first = points[0], last = points[points.length - 1];
+    const first = points[0],
+      last = points[points.length - 1];
     const closingLen = Math.hypot(first.lat - last.lat, first.lon - last.lon);
     const diag = Math.hypot(b.maxLat - b.minLat, b.maxLon - b.minLon) || 1e-9;
     return { points, length: last.t + closingLen, diag };
@@ -45,12 +46,37 @@ export class ContourRingGeometry {
    * and it's always included even when a data mask is also present.
    */
   static buildRectangleLoop(grid, rows, cols, bounds) {
-    const latSpan = bounds.maxLat - bounds.minLat, lonSpan = bounds.maxLon - bounds.minLon;
+    const latSpan = bounds.maxLat - bounds.minLat,
+      lonSpan = bounds.maxLon - bounds.minLon;
     const raw = [];
-    for (let c = 0; c < cols; c++) raw.push({ lat: bounds.maxLat, lon: bounds.minLon + (c / (cols - 1)) * lonSpan, val: grid[rows - 1][c], normal: { lat: 1, lon: 0 } });
-    for (let r = rows - 2; r >= 0; r--) raw.push({ lat: bounds.minLat + (r / (rows - 1)) * latSpan, lon: bounds.maxLon, val: grid[r][cols - 1], normal: { lat: 0, lon: 1 } });
-    for (let c = cols - 2; c >= 0; c--) raw.push({ lat: bounds.minLat, lon: bounds.minLon + (c / (cols - 1)) * lonSpan, val: grid[0][c], normal: { lat: -1, lon: 0 } });
-    for (let r = 1; r <= rows - 2; r++) raw.push({ lat: bounds.minLat + (r / (rows - 1)) * latSpan, lon: bounds.minLon, val: grid[r][0], normal: { lat: 0, lon: -1 } });
+    for (let c = 0; c < cols; c++)
+      raw.push({
+        lat: bounds.maxLat,
+        lon: bounds.minLon + (c / (cols - 1)) * lonSpan,
+        val: grid[rows - 1][c],
+        normal: { lat: 1, lon: 0 },
+      });
+    for (let r = rows - 2; r >= 0; r--)
+      raw.push({
+        lat: bounds.minLat + (r / (rows - 1)) * latSpan,
+        lon: bounds.maxLon,
+        val: grid[r][cols - 1],
+        normal: { lat: 0, lon: 1 },
+      });
+    for (let c = cols - 2; c >= 0; c--)
+      raw.push({
+        lat: bounds.minLat,
+        lon: bounds.minLon + (c / (cols - 1)) * lonSpan,
+        val: grid[0][c],
+        normal: { lat: -1, lon: 0 },
+      });
+    for (let r = 1; r <= rows - 2; r++)
+      raw.push({
+        lat: bounds.minLat + (r / (rows - 1)) * latSpan,
+        lon: bounds.minLon,
+        val: grid[r][0],
+        normal: { lat: 0, lon: -1 },
+      });
     return this.toLoop(raw);
   }
 
@@ -65,30 +91,43 @@ export class ContourRingGeometry {
    * corner is valid and the true local outward direction.
    */
   static traceMaskBoundary(grid, rows, cols, bounds) {
-    const isValid = (r, c) => grid[r][c] !== null && grid[r][c] !== undefined && !isNaN(grid[r][c]);
-    const minLat = bounds.minLat, maxLat = bounds.maxLat, minLon = bounds.minLon, maxLon = bounds.maxLon;
+    const isValid = (r, c) =>
+      grid[r][c] !== null && grid[r][c] !== undefined && !isNaN(grid[r][c]);
+    const minLat = bounds.minLat,
+      maxLat = bounds.maxLat,
+      minLon = bounds.minLon,
+      maxLon = bounds.maxLon;
     const pos = (r, c) => ({
       lat: minLat + (r / (rows - 1)) * (maxLat - minLat),
-      lon: minLon + (c / (cols - 1)) * (maxLon - minLon)
+      lon: minLon + (c / (cols - 1)) * (maxLon - minLon),
     });
     const edgePoint = (r1, c1, r2, c2) => {
-      const p1 = pos(r1, c1), p2 = pos(r2, c2);
+      const p1 = pos(r1, c1),
+        p2 = pos(r2, c2);
       const v1Valid = isValid(r1, c1);
-      const validPos = v1Valid ? p1 : p2, nullPos = v1Valid ? p2 : p1;
+      const validPos = v1Valid ? p1 : p2,
+        nullPos = v1Valid ? p2 : p1;
       const validVal = v1Valid ? grid[r1][c1] : grid[r2][c2];
-      const dir = { lat: nullPos.lat - validPos.lat, lon: nullPos.lon - validPos.lon };
+      const dir = {
+        lat: nullPos.lat - validPos.lat,
+        lon: nullPos.lon - validPos.lon,
+      };
       const len = Math.hypot(dir.lat, dir.lon) || 1e-9;
       return {
-        lat: (p1.lat + p2.lat) / 2, lon: (p1.lon + p2.lon) / 2,
+        lat: (p1.lat + p2.lat) / 2,
+        lon: (p1.lon + p2.lon) / 2,
         val: validVal,
-        normal: { lat: dir.lat / len, lon: dir.lon / len }
+        normal: { lat: dir.lat / len, lon: dir.lon / len },
       };
     };
 
     const segs = [];
     for (let r = 0; r < rows - 1; r++) {
       for (let c = 0; c < cols - 1; c++) {
-        const vNW = isValid(r, c), vNE = isValid(r, c + 1), vSE = isValid(r + 1, c + 1), vSW = isValid(r + 1, c);
+        const vNW = isValid(r, c),
+          vNE = isValid(r, c + 1),
+          vSE = isValid(r + 1, c + 1),
+          vSW = isValid(r + 1, c);
         let idx = 0;
         if (vNW) idx |= 8;
         if (vNE) idx |= 4;
@@ -102,20 +141,50 @@ export class ContourRingGeometry {
         const L = () => edgePoint(r, c, r + 1, c);
 
         switch (idx) {
-          case 1:  segs.push([B(), L()]); break;
-          case 2:  segs.push([R(), B()]); break;
-          case 3:  segs.push([R(), L()]); break;
-          case 4:  segs.push([T(), R()]); break;
-          case 5:  segs.push([T(), R()]); segs.push([B(), L()]); break;
-          case 6:  segs.push([T(), B()]); break;
-          case 7:  segs.push([T(), L()]); break;
-          case 8:  segs.push([L(), T()]); break;
-          case 9:  segs.push([B(), T()]); break;
-          case 10: segs.push([L(), B()]); segs.push([T(), R()]); break;
-          case 11: segs.push([R(), T()]); break;
-          case 12: segs.push([L(), R()]); break;
-          case 13: segs.push([B(), R()]); break;
-          case 14: segs.push([L(), B()]); break;
+          case 1:
+            segs.push([B(), L()]);
+            break;
+          case 2:
+            segs.push([R(), B()]);
+            break;
+          case 3:
+            segs.push([R(), L()]);
+            break;
+          case 4:
+            segs.push([T(), R()]);
+            break;
+          case 5:
+            segs.push([T(), R()]);
+            segs.push([B(), L()]);
+            break;
+          case 6:
+            segs.push([T(), B()]);
+            break;
+          case 7:
+            segs.push([T(), L()]);
+            break;
+          case 8:
+            segs.push([L(), T()]);
+            break;
+          case 9:
+            segs.push([B(), T()]);
+            break;
+          case 10:
+            segs.push([L(), B()]);
+            segs.push([T(), R()]);
+            break;
+          case 11:
+            segs.push([R(), T()]);
+            break;
+          case 12:
+            segs.push([L(), R()]);
+            break;
+          case 13:
+            segs.push([B(), R()]);
+            break;
+          case 14:
+            segs.push([L(), B()]);
+            break;
         }
       }
     }
@@ -136,7 +205,8 @@ export class ContourRingGeometry {
       const next = [];
       const blend = (a, b, f) => a + (b - a) * f;
       for (let i = 0; i < n; i++) {
-        const p0 = pts[i], p1 = pts[(i + 1) % n];
+        const p0 = pts[i],
+          p1 = pts[(i + 1) % n];
         const mk = (f) => {
           const nlat = blend(p0.normal.lat, p1.normal.lat, f);
           const nlon = blend(p0.normal.lon, p1.normal.lon, f);
@@ -145,7 +215,7 @@ export class ContourRingGeometry {
             lat: blend(p0.lat, p1.lat, f),
             lon: blend(p0.lon, p1.lon, f),
             val: blend(p0.val ?? 0, p1.val ?? 0, f),
-            normal: { lat: nlat / nlen, lon: nlon / nlen }
+            normal: { lat: nlat / nlen, lon: nlon / nlen },
           };
         };
         next.push(mk(0.25), mk(0.75));
@@ -183,22 +253,30 @@ export class ContourRingGeometry {
   static buildBoundaryLoops(grid, rows, cols, bounds) {
     const loops = [this.buildRectangleLoop(grid, rows, cols, bounds)];
 
-    const hasNull = grid.some(row => row.some(v => v === null || v === undefined || isNaN(v)));
+    const hasNull = grid.some((row) =>
+      row.some((v) => v === null || v === undefined || isNaN(v)),
+    );
     if (!hasNull) return loops;
 
     const segs = this.traceMaskBoundary(grid, rows, cols, bounds);
     if (!segs.length) return loops;
 
-    const stitched = (typeof GSRSpatialClustering !== 'undefined' && typeof GSRSpatialClustering.stitchSegments === 'function')
-      ? GSRSpatialClustering.stitchSegments(segs)
-      : segs.map(s => [s[0], s[1]]);
+    const stitched =
+      typeof GSRSpatialClustering !== 'undefined' &&
+      typeof GSRSpatialClustering.stitchSegments === 'function'
+        ? GSRSpatialClustering.stitchSegments(segs)
+        : segs.map((s) => [s[0], s[1]]);
 
-    stitched.forEach(path => {
+    stitched.forEach((path) => {
       if (!path || path.length < 3) return;
-      const first = path[0], last = path[path.length - 1];
-      const closed = Math.hypot(first.lat - last.lat, first.lon - last.lon) < 1e-9;
+      const first = path[0],
+        last = path[path.length - 1];
+      const closed =
+        Math.hypot(first.lat - last.lat, first.lon - last.lon) < 1e-9;
       if (!closed) return;
-      const smoothed = this.recomputeSmoothNormals(this.smoothLoopPoints(path.slice(0, -1), 3));
+      const smoothed = this.recomputeSmoothNormals(
+        this.smoothLoopPoints(path.slice(0, -1), 3),
+      );
       loops.push(this.toLoop(smoothed));
     });
 
@@ -226,7 +304,14 @@ export class ContourRingGeometry {
    * (owned entirely by boundaryWalk) instead of two independent ones stacked
    * back-to-back.
    */
-  static tangentExtrapolate(pts, diag, extrapStart = true, extrapEnd = true, startNormal = null, endNormal = null) {
+  static tangentExtrapolate(
+    pts,
+    diag,
+    extrapStart = true,
+    extrapEnd = true,
+    startNormal = null,
+    endNormal = null,
+  ) {
     if (!pts || pts.length < 2) return pts || [];
 
     const unit = (v) => {
@@ -240,27 +325,57 @@ export class ContourRingGeometry {
     const blendedDir = (from, to, normal, normalWeight) => {
       const tangent = unit({ lat: to.lat - from.lat, lon: to.lon - from.lon });
       const n = normal || { lat: 0, lon: 0 };
-      return unit({ lat: tangent.lat + n.lat * normalWeight, lon: tangent.lon + n.lon * normalWeight });
+      return unit({
+        lat: tangent.lat + n.lat * normalWeight,
+        lon: tangent.lon + n.lon * normalWeight,
+      });
     };
 
     const n = pts.length;
     // How far the visible continuation reaches past the real edge before
     // curving into the closure — a fraction of the *relevant* boundary's own
     // diagonal.
-    const L1 = 0.12 * diag, L2 = 0.28 * diag;
-    const extend = (from, dir, dist) => ({ lat: from.lat + dir.lat * dist, lon: from.lon + dir.lon * dist });
+    const L1 = 0.12 * diag,
+      L2 = 0.28 * diag;
+    const extend = (from, dir, dist) => ({
+      lat: from.lat + dir.lat * dist,
+      lon: from.lon + dir.lon * dist,
+    });
 
     const head = [];
     if (extrapStart) {
-      const nearDir = blendedDir(pts[Math.min(1, n - 1)], pts[0], startNormal, 0.35);
-      const farDir  = blendedDir(pts[Math.min(1, n - 1)], pts[0], startNormal, 0.7);
+      const nearDir = blendedDir(
+        pts[Math.min(1, n - 1)],
+        pts[0],
+        startNormal,
+        0.35,
+      );
+      const farDir = blendedDir(
+        pts[Math.min(1, n - 1)],
+        pts[0],
+        startNormal,
+        0.7,
+      );
       head.push(extend(pts[0], farDir, L2), extend(pts[0], nearDir, L1));
     }
     const tail = [];
     if (extrapEnd) {
-      const nearDir = blendedDir(pts[Math.max(0, n - 2)], pts[n - 1], endNormal, 0.35);
-      const farDir  = blendedDir(pts[Math.max(0, n - 2)], pts[n - 1], endNormal, 0.7);
-      tail.push(extend(pts[n - 1], nearDir, L1), extend(pts[n - 1], farDir, L2));
+      const nearDir = blendedDir(
+        pts[Math.max(0, n - 2)],
+        pts[n - 1],
+        endNormal,
+        0.35,
+      );
+      const farDir = blendedDir(
+        pts[Math.max(0, n - 2)],
+        pts[n - 1],
+        endNormal,
+        0.7,
+      );
+      tail.push(
+        extend(pts[n - 1], nearDir, L1),
+        extend(pts[n - 1], farDir, L2),
+      );
     }
 
     return [...head, ...pts, ...tail];
@@ -288,12 +403,12 @@ export class ContourRingGeometry {
 
     const getLL = (p) => ({
       lat: p.lat !== undefined ? p.lat : p[0],
-      lon: p.lon !== undefined ? p.lon : (p.lng !== undefined ? p.lng : p[1])
+      lon: p.lon !== undefined ? p.lon : p.lng !== undefined ? p.lng : p[1],
     });
 
     const nearestOnLoop = (loop, latlon) => {
       let best = null;
-      loop.points.forEach(p => {
+      loop.points.forEach((p) => {
         const d = Math.hypot(p.lat - latlon.lat, p.lon - latlon.lon);
         if (!best || d < best.d) best = { d, t: p.t, normal: p.normal };
       });
@@ -304,23 +419,43 @@ export class ContourRingGeometry {
     openPaths.forEach((path, idx) => {
       const first = getLL(path[0]);
       const last = getLL(path[path.length - 1]);
-      let bestLoopIdx = 0, bestScore = Infinity, bestFirst = null, bestLast = null;
+      let bestLoopIdx = 0,
+        bestScore = Infinity,
+        bestFirst = null,
+        bestLast = null;
       loops.forEach((loop, li) => {
         if (loop.points.length === 0) return;
         const nf = nearestOnLoop(loop, first);
         const nl = nearestOnLoop(loop, last);
         const score = nf.d + nl.d;
-        if (score < bestScore) { bestScore = score; bestLoopIdx = li; bestFirst = nf; bestLast = nl; }
+        if (score < bestScore) {
+          bestScore = score;
+          bestLoopIdx = li;
+          bestFirst = nf;
+          bestLast = nl;
+        }
       });
       if (!bestFirst) return;
-      endpoints.push({ t: bestFirst.t, loopIdx: bestLoopIdx, normal: bestFirst.normal, pathIdx: idx, which: 'start' });
-      endpoints.push({ t: bestLast.t, loopIdx: bestLoopIdx, normal: bestLast.normal, pathIdx: idx, which: 'end' });
+      endpoints.push({
+        t: bestFirst.t,
+        loopIdx: bestLoopIdx,
+        normal: bestFirst.normal,
+        pathIdx: idx,
+        which: 'start',
+      });
+      endpoints.push({
+        t: bestLast.t,
+        loopIdx: bestLoopIdx,
+        normal: bestLast.normal,
+        pathIdx: idx,
+        which: 'end',
+      });
     });
     if (endpoints.length === 0) return [];
 
     const rings = [];
     const byLoop = new Map();
-    endpoints.forEach(e => {
+    endpoints.forEach((e) => {
       if (!byLoop.has(e.loopIdx)) byLoop.set(e.loopIdx, []);
       byLoop.get(e.loopIdx).push(e);
     });
@@ -345,11 +480,17 @@ export class ContourRingGeometry {
           const a = pts[i];
           if (Math.abs(a.t - t) < T_EPS) return a.val;
           const b = pts[(i + 1) % pts.length];
-          const bt = (i === pts.length - 1) ? b.t + L : b.t;
+          const bt = i === pts.length - 1 ? b.t + L : b.t;
           if (Math.abs(bt - t) < T_EPS) return b.val;
           if (t >= a.t && t <= bt) {
-            if (a.val === null || b.val === null || isNaN(a.val) || isNaN(b.val)) return null;
-            const span = (bt - a.t) || 1e-9;
+            if (
+              a.val === null ||
+              b.val === null ||
+              isNaN(a.val) ||
+              isNaN(b.val)
+            )
+              return null;
+            const span = bt - a.t || 1e-9;
             return a.val + (b.val - a.val) * ((t - a.t) / span);
           }
         }
@@ -360,7 +501,7 @@ export class ContourRingGeometry {
         let span = tTo - tFrom;
         while (span <= 1e-9) span += L;
         const nodes = loop.points
-          .map(node => ({ node, rel: (((node.t - tFrom) % L) + L) % L }))
+          .map((node) => ({ node, rel: (((node.t - tFrom) % L) + L) % L }))
           .filter(({ rel }) => rel > 1e-9 && rel < span - 1e-9)
           .sort((a, b) => a.rel - b.rel);
         if (nodes.length === 0) return [];
@@ -371,17 +512,26 @@ export class ContourRingGeometry {
 
         let localMax = 0;
         nodes.forEach(({ node }) => {
-          const excess = (node.val === null || isNaN(node.val)) ? 0 : Math.max(0, node.val - level);
+          const excess =
+            node.val === null || isNaN(node.val)
+              ? 0
+              : Math.max(0, node.val - level);
           if (excess > localMax) localMax = excess;
         });
 
         return nodes.map(({ node, rel }) => {
           const relPos = rel / span;
           const envelope = Math.sin(Math.PI * relPos);
-          const excess = (node.val === null || isNaN(node.val)) ? 0 : Math.max(0, node.val - level);
+          const excess =
+            node.val === null || isNaN(node.val)
+              ? 0
+              : Math.max(0, node.val - level);
           const dataFrac = localMax > 1e-9 ? excess / localMax : 0;
           const dist = L2 * envelope * (0.3 + 0.7 * dataFrac);
-          return { lat: node.lat + node.normal.lat * dist, lon: node.lon + node.normal.lon * dist };
+          return {
+            lat: node.lat + node.normal.lat * dist,
+            lon: node.lon + node.normal.lon * dist,
+          };
         });
       };
 
@@ -405,7 +555,10 @@ export class ContourRingGeometry {
         let guard = 0;
 
         while (guard++ <= n + 2) {
-          if (usedEndpoint[curIdx]) { closedOk = false; break; }
+          if (usedEndpoint[curIdx]) {
+            closedOk = false;
+            break;
+          }
           usedEndpoint[curIdx] = true;
 
           const ep = sorted[curIdx];
@@ -418,7 +571,10 @@ export class ContourRingGeometry {
             curvePts = path.slice().reverse().map(getLL);
             otherIdx = endpointIndex.get(`${ep.pathIdx}:start`);
           }
-          if (otherIdx === undefined) { closedOk = false; break; }
+          if (otherIdx === undefined) {
+            closedOk = false;
+            break;
+          }
           usedEndpoint[otherIdx] = true;
 
           const prevIdx = (otherIdx - 1 + n) % n;
@@ -431,15 +587,29 @@ export class ContourRingGeometry {
             boundaryPts = boundaryWalk(sorted[otherIdx].t, sorted[nextIdx].t);
           } else if (backward && !forward) {
             nextIdx = prevIdx;
-            boundaryPts = boundaryWalk(sorted[nextIdx].t, sorted[otherIdx].t).reverse();
+            boundaryPts = boundaryWalk(
+              sorted[nextIdx].t,
+              sorted[otherIdx].t,
+            ).reverse();
           } else if (forward) {
             nextIdx = (otherIdx + 1) % n;
             boundaryPts = boundaryWalk(sorted[otherIdx].t, sorted[nextIdx].t);
-          } else { closedOk = false; break; }
+          } else {
+            closedOk = false;
+            break;
+          }
 
-          segments.push({ curvePts, boundaryPtsAfter: boundaryPts, startNormal: ep.normal, endNormal: sorted[otherIdx].normal });
+          segments.push({
+            curvePts,
+            boundaryPtsAfter: boundaryPts,
+            startNormal: ep.normal,
+            endNormal: sorted[otherIdx].normal,
+          });
 
-          if (nextIdx === s) { closedOk = true; break; }
+          if (nextIdx === s) {
+            closedOk = true;
+            break;
+          }
           curIdx = nextIdx;
         }
 
@@ -454,10 +624,16 @@ export class ContourRingGeometry {
             const prevBoundary = segments[(i - 1 + m) % m].boundaryPtsAfter;
             const extrapStart = prevBoundary.length === 0;
             const extrapEnd = segments[i].boundaryPtsAfter.length === 0;
-            ring.push(...this.tangentExtrapolate(
-              segments[i].curvePts, loop.diag, extrapStart, extrapEnd,
-              segments[i].startNormal, segments[i].endNormal
-            ));
+            ring.push(
+              ...this.tangentExtrapolate(
+                segments[i].curvePts,
+                loop.diag,
+                extrapStart,
+                extrapEnd,
+                segments[i].startNormal,
+                segments[i].endNormal,
+              ),
+            );
             ring.push(...segments[i].boundaryPtsAfter);
           }
         }
@@ -498,7 +674,7 @@ export class ContourRingGeometry {
    * @returns {Array<Array>} one hole-list per ring (parallel to `rings`), each a list of point arrays
    */
   static findInteriorHoles(rings, loops) {
-    return rings.map(ring => {
+    return rings.map((ring) => {
       const ringArea = GeoUtils.shoelaceArea(ring);
       const holes = [];
       for (let i = 1; i < loops.length; i++) {
@@ -506,11 +682,16 @@ export class ContourRingGeometry {
         if (!loopPts || loopPts.length < 3) continue;
         const loopArea = GeoUtils.shoelaceArea(loopPts);
         if (loopArea > ringArea * 0.5) continue; // too close in size — likely the ring's own boundary, not an interior island
-        let cLat = 0, cLon = 0;
-        loopPts.forEach(p => { cLat += p.lat; cLon += p.lon; });
-        cLat /= loopPts.length; cLon /= loopPts.length;
+        let cLat = 0,
+          cLon = 0;
+        loopPts.forEach((p) => {
+          cLat += p.lat;
+          cLon += p.lon;
+        });
+        cLat /= loopPts.length;
+        cLon /= loopPts.length;
         if (GeoUtils.pointInPolygon(cLat, cLon, ring)) {
-          holes.push(loopPts.map(p => ({ lat: p.lat, lon: p.lon })));
+          holes.push(loopPts.map((p) => ({ lat: p.lat, lon: p.lon })));
         }
       }
       return holes;
@@ -537,18 +718,27 @@ export class ContourRingGeometry {
   static buildIsobandRings(contours, grid, rows, cols, bounds) {
     const loops = this.buildBoundaryLoops(grid, rows, cols, bounds);
 
-    return contours.map(c => {
-      const stitchedPaths = (typeof GSRSpatialClustering !== 'undefined' && typeof GSRSpatialClustering.stitchSegments === 'function')
-        ? GSRSpatialClustering.stitchSegments(c.segments)
-        : (c.segments || []).map(seg => [seg[0], seg[1]]);
+    return contours.map((c) => {
+      const stitchedPaths =
+        typeof GSRSpatialClustering !== 'undefined' &&
+        typeof GSRSpatialClustering.stitchSegments === 'function'
+          ? GSRSpatialClustering.stitchSegments(c.segments)
+          : (c.segments || []).map((seg) => [seg[0], seg[1]]);
 
-      const isClosedPath = (rawPath) => rawPath.length >= 3 &&
-        Math.abs((rawPath[0].lat ?? rawPath[0][0]) - (rawPath[rawPath.length - 1].lat ?? rawPath[rawPath.length - 1][0])) < 1e-9 &&
-        Math.abs((rawPath[0].lon ?? rawPath[0][1]) - (rawPath[rawPath.length - 1].lon ?? rawPath[rawPath.length - 1][1])) < 1e-9;
+      const isClosedPath = (rawPath) =>
+        rawPath.length >= 3 &&
+        Math.abs(
+          (rawPath[0].lat ?? rawPath[0][0]) -
+            (rawPath[rawPath.length - 1].lat ?? rawPath[rawPath.length - 1][0]),
+        ) < 1e-9 &&
+        Math.abs(
+          (rawPath[0].lon ?? rawPath[0][1]) -
+            (rawPath[rawPath.length - 1].lon ?? rawPath[rawPath.length - 1][1]),
+        ) < 1e-9;
 
       const closedPaths = [];
       const openPaths = [];
-      stitchedPaths.forEach(rawPath => {
+      stitchedPaths.forEach((rawPath) => {
         if (!rawPath || rawPath.length < 2) return;
         (isClosedPath(rawPath) ? closedPaths : openPaths).push(rawPath);
       });

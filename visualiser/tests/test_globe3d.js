@@ -29,8 +29,12 @@ const GLOBE3D = path.join(APP_DIR, 'src', 'map', 'globe3d.mjs');
 // file's .js sibling is deleted (convert_file.js --write) — resolve whichever
 // extension is actually on disk, same rule as tests/support/load_module.js.
 const GLOBE3D_AUGMENTS = [
-  'globe3d_osm.js', 'globe3d_rf.js', 'globe3d_peaks.js',
-  'globe3d_toggles.js', 'globe3d_navigation.js', 'globe3d_tour.js',
+  'globe3d_osm.js',
+  'globe3d_rf.js',
+  'globe3d_peaks.js',
+  'globe3d_toggles.js',
+  'globe3d_navigation.js',
+  'globe3d_tour.js',
 ].map((f) => {
   const jsPath = path.join(APP_DIR, 'src', 'map', f);
   const mjsPath = jsPath.replace(/\.js$/, '.mjs');
@@ -41,15 +45,21 @@ const GLOBE3D_AUGMENTS = [
 // Any property access yields a callable/constructable stub; chained calls
 // (Color.fromCssColorString(x).withAlpha(y)) just keep returning stubs.
 function autoStub() {
-  const fn = function () { return autoStub(); };
+  const fn = function () {
+    return autoStub();
+  };
   return new Proxy(fn, {
     get(target, prop) {
       if (prop in target) return target[prop];
       if (prop === 'isDestroyed') return () => false;
       return autoStub();
     },
-    apply() { return autoStub(); },
-    construct() { return autoStub(); },
+    apply() {
+      return autoStub();
+    },
+    construct() {
+      return autoStub();
+    },
   });
 }
 
@@ -64,10 +74,18 @@ function freshEnv() {
       if (i !== -1) listeners.splice(i, 1);
     },
     // deterministic rAF — the test drives frames via flushRaf()
-    requestAnimationFrame: (fn) => { rafQueue.push(fn); return rafQueue.length; },
-    cancelAnimationFrame: (id) => { if (id) rafQueue[id - 1] = null; },
+    requestAnimationFrame: (fn) => {
+      rafQueue.push(fn);
+      return rafQueue.length;
+    },
+    cancelAnimationFrame: (id) => {
+      if (id) rafQueue[id - 1] = null;
+    },
   };
-  global.window.__flushRaf = () => { const q = rafQueue.splice(0); q.forEach((fn) => fn && fn()); };
+  global.window.__flushRaf = () => {
+    const q = rafQueue.splice(0);
+    q.forEach((fn) => fn && fn());
+  };
   global.document = {
     activeElement: null,
     createElement: () => autoStub(),
@@ -78,12 +96,21 @@ function freshEnv() {
   scene.globe = autoStub();
   const viewer = {
     destroyed: false,
-    isDestroyed() { return this.destroyed; },
-    destroy() { this.destroyed = true; },
+    isDestroyed() {
+      return this.destroyed;
+    },
+    destroy() {
+      this.destroyed = true;
+    },
     scene,
     camera: autoStub(),
     clock: { onTick: { addEventListener: () => () => {} } },
-    entities: { add: () => ({}), remove: () => {}, suspendEvents() {}, resumeEvents() {} },
+    entities: {
+      add: () => ({}),
+      remove: () => {},
+      suspendEvents() {},
+      resumeEvents() {},
+    },
     imageryLayers: { removeAll() {}, addImageryProvider() {} },
   };
   const Cesium = autoStub();
@@ -91,7 +118,9 @@ function freshEnv() {
     toRadians: (deg) => (deg * Math.PI) / 180,
     toDegrees: (rad) => (rad * 180) / Math.PI,
   };
-  Cesium.Viewer = function () { return viewer; };
+  Cesium.Viewer = function () {
+    return viewer;
+  };
   Cesium.Ion = { defaultAccessToken: '' };
   global.Cesium = Cesium;
 
@@ -107,7 +136,8 @@ function loadFresh() {
   for (const augment of GLOBE3D_AUGMENTS) {
     // .mjs (converted): same as globe3d.mjs above — can't be cache-busted,
     // and has no module-level mutable state, so it's required once and reused.
-    if (!augment.endsWith('.mjs')) delete require.cache[require.resolve(augment)];
+    if (!augment.endsWith('.mjs'))
+      delete require.cache[require.resolve(augment)];
     Object.assign(mod.GSRGlobeManager.prototype, require(augment));
   }
   return mod;
@@ -127,12 +157,28 @@ test('public API the page depends on is present', () => {
   const { GSRGlobeManager } = loadFresh();
   const proto = GSRGlobeManager.prototype;
   for (const method of [
-    'renderData', 'destroy', 'setColoringMetric', 'setExtrusionScale', 'togglePeaks',
-    'toggleHotspots', 'toggleLabels', 'toggleClusters',
-    'setBasemap', 'toggle3DBuildings', 'apply3DBuildingStyle', 'toggle3DRf',
-    'flyToTrack', 'toggleOrbit', 'setViewPerspective', 'resetNorth',
-    'startTour', 'stopTour', 'toggleTour', 'onTourStep',
-    'setScrubPosition', 'onPeakClick',
+    'renderData',
+    'destroy',
+    'setColoringMetric',
+    'setExtrusionScale',
+    'togglePeaks',
+    'toggleHotspots',
+    'toggleLabels',
+    'toggleClusters',
+    'setBasemap',
+    'toggle3DBuildings',
+    'apply3DBuildingStyle',
+    'toggle3DRf',
+    'flyToTrack',
+    'toggleOrbit',
+    'setViewPerspective',
+    'resetNorth',
+    'startTour',
+    'stopTour',
+    'toggleTour',
+    'onTourStep',
+    'setScrubPosition',
+    'onPeakClick',
   ]) {
     assert.strictEqual(typeof proto[method], 'function', `missing ${method}()`);
   }
@@ -167,14 +213,19 @@ test('keyboardFlight: false adds no window key listeners; true (default) does', 
     const { listeners } = freshEnv();
     const { GSRGlobeManager } = loadFresh();
     const mgr = new GSRGlobeManager('c', { keyboardFlight: false });
-    assert.deepStrictEqual(listeners.filter((l) => l.type.startsWith('key')), []);
+    assert.deepStrictEqual(
+      listeners.filter((l) => l.type.startsWith('key')),
+      [],
+    );
     mgr.destroy();
   }
   {
     const { listeners } = freshEnv();
     const { GSRGlobeManager } = loadFresh();
     const mgr = new GSRGlobeManager('c');
-    const keys = listeners.filter((l) => l.type === 'keydown' || l.type === 'keyup');
+    const keys = listeners.filter(
+      (l) => l.type === 'keydown' || l.type === 'keyup',
+    );
     assert.strictEqual(keys.length, 2, 'keydown + keyup bound by default');
     mgr.destroy();
   }
@@ -187,7 +238,10 @@ test('destroy() removes the window listeners and tears the viewer down', () => {
   assert.ok(listeners.some((l) => l.type === 'keydown'));
 
   mgr.destroy();
-  assert.deepStrictEqual(listeners.filter((l) => l.type.startsWith('key')), []);
+  assert.deepStrictEqual(
+    listeners.filter((l) => l.type.startsWith('key')),
+    [],
+  );
   assert.strictEqual(viewer.destroyed, true);
   assert.strictEqual(mgr.viewer, null);
   mgr.destroy(); // idempotent
@@ -197,16 +251,30 @@ test('requestRenderMode: default off (continuous); opt-in on for an embedded hos
   freshEnv();
   let seen = null;
   const origViewer = global.Cesium.Viewer;
-  global.Cesium.Viewer = function (id, o) { seen = o; return origViewer(id, o); };
+  global.Cesium.Viewer = function (id, o) {
+    seen = o;
+    return origViewer(id, o);
+  };
   const { GSRGlobeManager } = loadFresh();
 
   const a = new GSRGlobeManager('c', { keyboardFlight: false });
-  assert.strictEqual(seen.requestRenderMode, false, 'standalone default: continuous render');
+  assert.strictEqual(
+    seen.requestRenderMode,
+    false,
+    'standalone default: continuous render',
+  );
   a.destroy();
 
   seen = null;
-  const b = new GSRGlobeManager('c', { keyboardFlight: false, requestRenderMode: true });
-  assert.strictEqual(seen.requestRenderMode, true, 'embedded host: render on demand');
+  const b = new GSRGlobeManager('c', {
+    keyboardFlight: false,
+    requestRenderMode: true,
+  });
+  assert.strictEqual(
+    seen.requestRenderMode,
+    true,
+    'embedded host: render on demand',
+  );
   assert.strictEqual(seen.maximumRenderTimeChange, Infinity);
   b.destroy();
 });
@@ -214,15 +282,27 @@ test('requestRenderMode: default off (continuous); opt-in on for an embedded hos
 test('render-on-demand host: _wakeRenderLoop bursts continuous, then retires to on-demand', async () => {
   freshEnv();
   const { GSRGlobeManager } = loadFresh();
-  const mgr = new GSRGlobeManager('c', { keyboardFlight: false, requestRenderMode: true, idleRenderMs: 20 });
+  const mgr = new GSRGlobeManager('c', {
+    keyboardFlight: false,
+    requestRenderMode: true,
+    idleRenderMs: 20,
+  });
   const scene = mgr.viewer.scene;
   scene.requestRenderMode = true;
 
   mgr._wakeRenderLoop();
-  assert.strictEqual(scene.requestRenderMode, false, 'interaction drops the scene to continuous rendering');
+  assert.strictEqual(
+    scene.requestRenderMode,
+    false,
+    'interaction drops the scene to continuous rendering',
+  );
 
   await new Promise((r) => setTimeout(r, 45));
-  assert.strictEqual(scene.requestRenderMode, true, 'idle timer hands the scene back to render-on-demand');
+  assert.strictEqual(
+    scene.requestRenderMode,
+    true,
+    'idle timer hands the scene back to render-on-demand',
+  );
   assert.strictEqual(mgr._idleRenderTimer, null);
   mgr.destroy();
 });
@@ -234,23 +314,41 @@ test('_wakeRenderLoop is inert for a continuous host and while a 360° orbit own
   const cont = new GSRGlobeManager('c', { keyboardFlight: false }); // requestRenderMode off
   cont.viewer.scene.requestRenderMode = true;
   cont._wakeRenderLoop();
-  assert.strictEqual(cont.viewer.scene.requestRenderMode, true, 'continuous host: bridge never touches requestRenderMode');
+  assert.strictEqual(
+    cont.viewer.scene.requestRenderMode,
+    true,
+    'continuous host: bridge never touches requestRenderMode',
+  );
   cont.destroy();
 
-  const emb = new GSRGlobeManager('c', { keyboardFlight: false, requestRenderMode: true });
+  const emb = new GSRGlobeManager('c', {
+    keyboardFlight: false,
+    requestRenderMode: true,
+  });
   emb._isOrbiting = true;
   emb.viewer.scene.requestRenderMode = true;
   emb._wakeRenderLoop();
-  assert.strictEqual(emb.viewer.scene.requestRenderMode, true, 'no burst while an orbit is running');
+  assert.strictEqual(
+    emb.viewer.scene.requestRenderMode,
+    true,
+    'no burst while an orbit is running',
+  );
   emb.destroy();
 });
 
 test('destroy() cancels a pending idle-retire timer', () => {
   freshEnv();
   const { GSRGlobeManager } = loadFresh();
-  const mgr = new GSRGlobeManager('c', { keyboardFlight: false, requestRenderMode: true });
+  const mgr = new GSRGlobeManager('c', {
+    keyboardFlight: false,
+    requestRenderMode: true,
+  });
   mgr._wakeRenderLoop();
-  assert.notStrictEqual(mgr._idleRenderTimer, null, 'timer armed by the interaction');
+  assert.notStrictEqual(
+    mgr._idleRenderTimer,
+    null,
+    'timer armed by the interaction',
+  );
   mgr.destroy();
   assert.strictEqual(mgr._idleRenderTimer, null, 'timer cleared on teardown');
 });
@@ -262,7 +360,11 @@ test('viewer renders at devicePixelRatio x a constant resolutionScale (default 1
   const { GSRGlobeManager } = loadFresh();
   const mgr = new GSRGlobeManager('c', { keyboardFlight: false });
 
-  assert.strictEqual(viewer.useBrowserRecommendedResolution, false, 'honours devicePixelRatio');
+  assert.strictEqual(
+    viewer.useBrowserRecommendedResolution,
+    false,
+    'honours devicePixelRatio',
+  );
   assert.strictEqual(viewer.resolutionScale, 1.2, 'default supersample factor');
   mgr.destroy();
 });
@@ -274,17 +376,32 @@ test('globe.tileCacheSize defaults to 500 with preloadSiblings enabled, and acce
     const mgr = new GSRGlobeManager('c', { keyboardFlight: false });
 
     assert.strictEqual(mgr.tileCacheSize, 500, 'default tileCacheSize is 500');
-    assert.strictEqual(viewer.scene.globe.tileCacheSize, 500, 'assigned to Cesium globe');
-    assert.strictEqual(viewer.scene.globe.preloadSiblings, true, 'preloadSiblings is enabled');
+    assert.strictEqual(
+      viewer.scene.globe.tileCacheSize,
+      500,
+      'assigned to Cesium globe',
+    );
+    assert.strictEqual(
+      viewer.scene.globe.preloadSiblings,
+      true,
+      'preloadSiblings is enabled',
+    );
     mgr.destroy();
   }
   {
     const { viewer } = freshEnv();
     const { GSRGlobeManager } = loadFresh();
-    const mgr = new GSRGlobeManager('c', { keyboardFlight: false, tileCacheSize: 350 });
+    const mgr = new GSRGlobeManager('c', {
+      keyboardFlight: false,
+      tileCacheSize: 350,
+    });
 
     assert.strictEqual(mgr.tileCacheSize, 350, 'custom tileCacheSize honored');
-    assert.strictEqual(viewer.scene.globe.tileCacheSize, 350, 'custom value assigned to Cesium globe');
+    assert.strictEqual(
+      viewer.scene.globe.tileCacheSize,
+      350,
+      'custom value assigned to Cesium globe',
+    );
     mgr.destroy();
   }
 });
@@ -292,7 +409,10 @@ test('globe.tileCacheSize defaults to 500 with preloadSiblings enabled, and acce
 test('resolutionScale option overrides the default; it is held constant (no per-frame watcher)', () => {
   const { viewer } = freshEnv();
   const { GSRGlobeManager } = loadFresh();
-  const mgr = new GSRGlobeManager('c', { keyboardFlight: false, resolutionScale: 1 });
+  const mgr = new GSRGlobeManager('c', {
+    keyboardFlight: false,
+    resolutionScale: 1,
+  });
 
   assert.strictEqual(viewer.resolutionScale, 1);
   // No dynamic-resolution machinery left to leak.
@@ -313,7 +433,9 @@ test('360° orbit lowers render resolution for its duration, restores the normal
 
   const { GSRGlobeManager } = loadFresh();
   const mgr = new GSRGlobeManager('c', {
-    keyboardFlight: false, resolutionScale: 1.2, orbitResolutionScale: 0.8,
+    keyboardFlight: false,
+    resolutionScale: 1.2,
+    orbitResolutionScale: 0.8,
   });
   mgr.currentDrawPoints = [
     { lon: 0, lat: 0, time: 0, origIdx: 0 },
@@ -323,11 +445,19 @@ test('360° orbit lowers render resolution for its duration, restores the normal
 
   mgr.startOrbit();
   assert.strictEqual(mgr._isOrbiting, true);
-  assert.strictEqual(viewer.resolutionScale, 0.8, 'orbit runs at the lower scale');
+  assert.strictEqual(
+    viewer.resolutionScale,
+    0.8,
+    'orbit runs at the lower scale',
+  );
 
   mgr.stopOrbit();
   assert.strictEqual(mgr._isOrbiting, false);
-  assert.strictEqual(viewer.resolutionScale, 1.2, 'normal scale restored on stop');
+  assert.strictEqual(
+    viewer.resolutionScale,
+    1.2,
+    'normal scale restored on stop',
+  );
   mgr.destroy();
 });
 
@@ -337,12 +467,16 @@ test('renderData needs host-supplied drawPoints — it never runs a GPS chain', 
   const mgr = new GSRGlobeManager('c');
 
   let wallCalls = 0;
-  mgr._render3DWallAndPath = () => { wallCalls++; };
+  mgr._render3DWallAndPath = () => {
+    wallCalls++;
+  };
   mgr.flyToTrack = () => {};
 
   // no drawPoints -> warn + bail, nothing drawn
   let warned = 0;
-  mgr._notifyWarn = () => { warned++; };
+  mgr._notifyWarn = () => {
+    warned++;
+  };
   mgr.renderData({ raw: [{}, {}], peaks: [] }, {}, {});
   assert.strictEqual(wallCalls, 0, 'nothing rendered without host drawPoints');
   assert.strictEqual(warned, 1);
@@ -364,11 +498,18 @@ test('renderData({ isPreview: true }) suppresses the fly-to', () => {
   const mgr = new GSRGlobeManager('c');
   mgr._render3DWallAndPath = () => {};
   let flew = 0;
-  mgr.flyToTrack = () => { flew++; };
+  mgr.flyToTrack = () => {
+    flew++;
+  };
   const drawPoints = [
-    { lat: 0, lon: 0, time: 0, origIdx: 0 }, { lat: 1, lon: 1, time: 1, origIdx: 1 },
+    { lat: 0, lon: 0, time: 0, origIdx: 0 },
+    { lat: 1, lon: 1, time: 1, origIdx: 1 },
   ];
-  mgr.renderData({ raw: [{}, {}], peaks: [] }, {}, { drawPoints, isPreview: true });
+  mgr.renderData(
+    { raw: [{}, {}], peaks: [] },
+    {},
+    { drawPoints, isPreview: true },
+  );
   assert.strictEqual(flew, 0, 'isPreview suppressed the fly-to');
   mgr.renderData({ raw: [{}, {}], peaks: [] }, {}, { drawPoints });
   assert.strictEqual(flew, 1, 'a normal render flies to the track');
@@ -393,18 +534,26 @@ const { MapColors: REAL_MAP_COLORS } = require('../src/map/map_colors.mjs');
 function installWallCapture() {
   const seg = [];
   const cssParses = [];
-  global.Cesium.WallGeometry = function (opts) { this._opts = opts; return this; };
+  global.Cesium.WallGeometry = function (opts) {
+    this._opts = opts;
+    return this;
+  };
   global.Cesium.GeometryInstance = function (opts) {
     const g = opts.geometry._opts;
     seg.push({
-      maxHeights: g.maximumHeights, minHeights: g.minimumHeights,
-      nPos: g.positions.length, color: opts.attributes.color,
+      maxHeights: g.maximumHeights,
+      minHeights: g.minimumHeights,
+      nPos: g.positions.length,
+      color: opts.attributes.color,
     });
     return opts;
   };
   global.Cesium.ColorGeometryInstanceAttribute = { fromColor: (c) => c };
   global.Cesium.Color = {
-    fromCssColorString: (s) => { cssParses.push(s); return { _css: s, withAlpha: () => ({ _css: s }) }; },
+    fromCssColorString: (s) => {
+      cssParses.push(s);
+      return { _css: s, withAlpha: () => ({ _css: s }) };
+    },
     WHITE: { withAlpha: () => ({}) },
   };
   global.MapColors = REAL_MAP_COLORS;
@@ -435,14 +584,21 @@ test('renderData({ colorMetric, colorRange }) drives colour from the host, not a
   ];
 
   const { seg, cssParses } = installWallCapture();
-  mgr.renderData(analyzer, {}, { drawPoints, colorMetric: 'em_fog', colorRange: { min: 0, max: 100 } });
+  mgr.renderData(
+    analyzer,
+    {},
+    { drawPoints, colorMetric: 'em_fog', colorRange: { min: 0, max: 100 } },
+  );
 
   assert.strictEqual(mgr.activeColoringMetric, 'em_fog', 'host metric adopted');
   assert.deepStrictEqual(mgr.externalColorRange, { min: 0, max: 100 });
   assert.ok(seg.length > 0, 'a wall segment was built');
   // colour LUT keyed by the HOST range (0..100), not the drawn points (10..90)
   assert.strictEqual(mgr._cesiumColorLutKey, 'em_fog|0.0000|100.0000');
-  assert.ok(cssParses.length > 0 && cssParses.length <= 30, `bounded colour LUT (${cssParses.length})`);
+  assert.ok(
+    cssParses.length > 0 && cssParses.length <= 30,
+    `bounded colour LUT (${cssParses.length})`,
+  );
   mgr.destroy();
 });
 
@@ -460,12 +616,18 @@ test('_getMetricSeries resolves OSM/Satellite/hdop metrics to their raw field, n
   };
 
   assert.deepStrictEqual(mgr._getMetricSeries(analyzer, 'greenPct'), [10, 90]);
-  assert.deepStrictEqual(mgr._getMetricSeries(analyzer, 'hdopQuality'), [1.2, 3.4]);
+  assert.deepStrictEqual(
+    mgr._getMetricSeries(analyzer, 'hdopQuality'),
+    [1.2, 3.4],
+  );
   assert.deepStrictEqual(mgr._getMetricSeries(analyzer, 'ndvi'), [0.4, 0.8]);
   assert.deepStrictEqual(mgr._getMetricSeries(analyzer, 'gsr'), [99, 99]);
   // Absent / NaN enrichment columns -> null ("no data"), so the wall renderer's
   // `?? minVal` fallback and its min/max scan both treat them consistently.
-  assert.deepStrictEqual(mgr._getMetricSeries(analyzer, 'distWater'), [null, null]);
+  assert.deepStrictEqual(mgr._getMetricSeries(analyzer, 'distWater'), [
+    null,
+    null,
+  ]);
 
   mgr.destroy();
   delete global.GSR_CONST;
@@ -494,17 +656,31 @@ test('renderData colours the wall by an OSM environmental metric, not raw GSR', 
   ];
 
   const { seg, cssParses } = installWallCapture();
-  mgr.renderData(analyzer, {}, { drawPoints, colorMetric: 'greenPct', colorRange: { min: 0, max: 100 } });
+  mgr.renderData(
+    analyzer,
+    {},
+    { drawPoints, colorMetric: 'greenPct', colorRange: { min: 0, max: 100 } },
+  );
 
-  assert.strictEqual(mgr._cesiumColorLutKey, 'greenPct|0.0000|100.0000', 'LUT keyed to greenPct + host range');
-  assert.ok(cssParses.length > 0 && cssParses.length <= 30, `bounded colour LUT (${cssParses.length})`);
+  assert.strictEqual(
+    mgr._cesiumColorLutKey,
+    'greenPct|0.0000|100.0000',
+    'LUT keyed to greenPct + host range',
+  );
+  assert.ok(
+    cssParses.length > 0 && cssParses.length <= 30,
+    `bounded colour LUT (${cssParses.length})`,
+  );
   assert.strictEqual(seg.length, 1, 'one wall segment for the two points');
 
   // greenPct 10..90 averages to 50 → bucket 15 of 30; raw-GSR fallback would
   // average 99 → bucket 29. Assert the wall picked the greenPct bucket.
   const greenPctLut = REAL_MAP_COLORS.getColorLut('greenPct', 0, 100);
-  assert.strictEqual(seg[0].color._css, greenPctLut[15],
-    'wall colour is the greenPct bucket for the 10..90 data, not the GSR fallback');
+  assert.strictEqual(
+    seg[0].color._css,
+    greenPctLut[15],
+    'wall colour is the greenPct bucket for the 10..90 data, not the GSR fallback',
+  );
 
   mgr.destroy();
   delete global.GSR_CONST;
@@ -518,10 +694,7 @@ test('renderData colours the wall by inPark categories (binary OSM metric)', () 
   mgr.flyToTrack = () => {};
 
   const analyzer = {
-    raw: [
-      { osm_in_park: 0 },
-      { osm_in_park: 1 },
-    ],
+    raw: [{ osm_in_park: 0 }, { osm_in_park: 1 }],
     peaks: [],
     phasic: [{ val: 1 }, { val: 5 }],
   };
@@ -531,11 +704,19 @@ test('renderData colours the wall by inPark categories (binary OSM metric)', () 
   ];
 
   const { seg } = installWallCapture();
-  mgr.renderData(analyzer, {}, { drawPoints, colorMetric: 'inPark', colorRange: { min: 0, max: 1 } });
+  mgr.renderData(
+    analyzer,
+    {},
+    { drawPoints, colorMetric: 'inPark', colorRange: { min: 0, max: 1 } },
+  );
 
   assert.strictEqual(seg.length, 1);
   // inPark 0 → grey, 1 → green; the segment's leading category (0) wins.
-  assert.strictEqual(seg[0].color._css, '#666666', 'inPark=0 segment renders grey, not a GSR colour');
+  assert.strictEqual(
+    seg[0].color._css,
+    '#666666',
+    'inPark=0 segment renders grey, not a GSR colour',
+  );
 
   mgr.destroy();
   delete global.GSR_CONST;
@@ -560,20 +741,33 @@ test('the wall colour LUT is bounded (≤30) and reused across a same-range redr
 
   const { seg, cssParses } = installWallCapture();
   mgr.renderData(analyzer, {}, { drawPoints, colorMetric: 'phasic' });
-  assert.ok(cssParses.length <= 30, `LUT bounded: ${cssParses.length} parses for ${n - 1} segments`);
-  assert.ok(seg.length < n / 2, `same-bucket runs merged: ${seg.length} instances for ${n - 1} segments`);
+  assert.ok(
+    cssParses.length <= 30,
+    `LUT bounded: ${cssParses.length} parses for ${n - 1} segments`,
+  );
+  assert.ok(
+    seg.length < n / 2,
+    `same-bucket runs merged: ${seg.length} instances for ${n - 1} segments`,
+  );
   const afterFirst = cssParses.length;
 
   // a redraw at the same metric+range must not re-parse anything
   mgr._render3DWallAndPath(analyzer, drawPoints);
-  assert.strictEqual(cssParses.length, afterFirst, 'colour LUT reused, no re-parse on redraw');
+  assert.strictEqual(
+    cssParses.length,
+    afterFirst,
+    'colour LUT reused, no re-parse on redraw',
+  );
   mgr.destroy();
 });
 
 test('_decimateForWall thins a big track, keeps endpoints / peaks / gap edges, no synthetic gaps', () => {
   freshEnv();
   const { GSRGlobeManager } = loadFresh();
-  const mgr = new GSRGlobeManager('c', { keyboardFlight: false, wallMaxSegments: 1000 });
+  const mgr = new GSRGlobeManager('c', {
+    keyboardFlight: false,
+    wallMaxSegments: 1000,
+  });
 
   const n = 8000;
   const colorSeries = new Array(n);
@@ -582,47 +776,79 @@ test('_decimateForWall thins a big track, keeps endpoints / peaks / gap edges, n
     // mostly a straight, flat, single-colour run (should thin hard)…
     let t = i * 0.1;
     if (i >= 4000 && i < 4200) t += 40; // …with a 40 s GPS drop-out at i≈4000
-    colorSeries[i] = (i > 6000) ? Math.sin(i / 3) : 0.5; // busy tail — keep density
-    drawPoints.push({ lat: 51.5 + i * 1e-6, lon: -0.1 + i * 2e-6, time: t, origIdx: i, isRfPeak: (i === 1234 || i === 7777) });
+    colorSeries[i] = i > 6000 ? Math.sin(i / 3) : 0.5; // busy tail — keep density
+    drawPoints.push({
+      lat: 51.5 + i * 1e-6,
+      lon: -0.1 + i * 2e-6,
+      time: t,
+      origIdx: i,
+      isRfPeak: i === 1234 || i === 7777,
+    });
   }
   const heightAt = () => 2;
-  const bucketOf = (v) => Math.max(0, Math.min(29, Math.floor(((v - -1) / 2) * 30)));
+  const bucketOf = (v) =>
+    Math.max(0, Math.min(29, Math.floor(((v - -1) / 2) * 30)));
 
-  const out = mgr._decimateForWall(drawPoints, colorSeries, heightAt, bucketOf, -1);
+  const out = mgr._decimateForWall(
+    drawPoints,
+    colorSeries,
+    heightAt,
+    bucketOf,
+    -1,
+  );
 
   assert.ok(out.length < n / 4, `thinned hard: ${out.length} of ${n}`);
   assert.ok(out.length <= 1000 * 3, `stays near the budget: ${out.length}`);
   assert.strictEqual(out[0], drawPoints[0], 'first point kept');
   assert.strictEqual(out[out.length - 1], drawPoints[n - 1], 'last point kept');
-  assert.ok(out.includes(drawPoints[1234]) && out.includes(drawPoints[7777]), 'RF peaks kept');
+  assert.ok(
+    out.includes(drawPoints[1234]) && out.includes(drawPoints[7777]),
+    'RF peaks kept',
+  );
 
   // no pair of kept points is > 15 s apart unless it straddles the real drop-out
   let straddle = 0;
   for (let i = 1; i < out.length; i++) {
     const dt = out[i].time - out[i - 1].time;
-    if (dt > 15) { straddle++; assert.ok(out[i - 1].origIdx < 4200 && out[i].origIdx >= 4000, `gap only at the real drop-out (${out[i - 1].origIdx}→${out[i].origIdx})`); }
+    if (dt > 15) {
+      straddle++;
+      assert.ok(
+        out[i - 1].origIdx < 4200 && out[i].origIdx >= 4000,
+        `gap only at the real drop-out (${out[i - 1].origIdx}→${out[i].origIdx})`,
+      );
+    }
   }
   assert.strictEqual(straddle, 1, 'exactly one >15 s hop — the real drop-out');
 
   // the busy tail keeps far more density than the flat body
-  const inRange = (lo, hi) => out.filter((p) => p.origIdx >= lo && p.origIdx < hi).length;
-  assert.ok(inRange(6000, 8000) > inRange(1000, 3000), 'busy tail kept denser than the flat body');
+  const inRange = (lo, hi) =>
+    out.filter((p) => p.origIdx >= lo && p.origIdx < hi).length;
+  assert.ok(
+    inRange(6000, 8000) > inRange(1000, 3000),
+    'busy tail kept denser than the flat body',
+  );
 
   // below budget: identity (no-op)
   const small = drawPoints.slice(0, 500);
-  assert.strictEqual(mgr._decimateForWall(small, colorSeries, heightAt, bucketOf, -1), small);
+  assert.strictEqual(
+    mgr._decimateForWall(small, colorSeries, heightAt, bucketOf, -1),
+    small,
+  );
   mgr.destroy();
 });
 
 test('wall height uses the arousal heightMetric even when colour is a non-magnitude metric', () => {
   freshEnv();
   const { GSRGlobeManager } = loadFresh();
-  const mgr = new GSRGlobeManager('c', { keyboardFlight: false, heightMetric: 'phasic' });
+  const mgr = new GSRGlobeManager('c', {
+    keyboardFlight: false,
+    heightMetric: 'phasic',
+  });
 
   const analyzer = {
     raw: [{}, {}],
-    em_fog: [{ val: 0 }, { val: 0 }],      // colour series — flat
-    phasic: [{ val: 1 }, { val: 5 }],      // height series — varies
+    em_fog: [{ val: 0 }, { val: 0 }], // colour series — flat
+    phasic: [{ val: 1 }, { val: 5 }], // height series — varies
   };
   const drawPoints = [
     { lat: 0, lon: 0, time: 0, origIdx: 0 },
@@ -644,12 +870,15 @@ test('wall height uses the arousal heightMetric even when colour is a non-magnit
 test('wall height follows EDASymp itself (smooth spectral series, not the spiky phasic fallback)', () => {
   freshEnv();
   const { GSRGlobeManager } = loadFresh();
-  const mgr = new GSRGlobeManager('c', { keyboardFlight: false, heightMetric: 'phasic' });
+  const mgr = new GSRGlobeManager('c', {
+    keyboardFlight: false,
+    heightMetric: 'phasic',
+  });
 
   const analyzer = {
     raw: [{}, {}],
-    edasymp: [{ val: 0.02 }, { val: 0.08 }],   // colour AND height series
-    phasic: [{ val: 1 }, { val: 5 }],          // would make a jagged wall if used
+    edasymp: [{ val: 0.02 }, { val: 0.08 }], // colour AND height series
+    phasic: [{ val: 1 }, { val: 5 }], // would make a jagged wall if used
   };
   const drawPoints = [
     { lat: 0, lon: 0, time: 0, origIdx: 0 },
@@ -678,15 +907,27 @@ test('a LEFT_CLICK on a peak marker reports its analyzer.peaks index to onPeakCl
   let handler = null;
   global.Cesium.ScreenSpaceEventHandler = function () {
     handler = {
-      actions: {}, destroyed: false,
-      setInputAction(fn, type) { this.actions[type] = fn; },
-      removeInputAction(type) { delete this.actions[type]; },
-      isDestroyed() { return this.destroyed; },
-      destroy() { this.destroyed = true; },
+      actions: {},
+      destroyed: false,
+      setInputAction(fn, type) {
+        this.actions[type] = fn;
+      },
+      removeInputAction(type) {
+        delete this.actions[type];
+      },
+      isDestroyed() {
+        return this.destroyed;
+      },
+      destroy() {
+        this.destroyed = true;
+      },
     };
     return handler;
   };
-  global.Cesium.ScreenSpaceEventType = { LEFT_CLICK: 'LEFT_CLICK', LEFT_DOUBLE_CLICK: 'LEFT_DOUBLE_CLICK' };
+  global.Cesium.ScreenSpaceEventType = {
+    LEFT_CLICK: 'LEFT_CLICK',
+    LEFT_DOUBLE_CLICK: 'LEFT_DOUBLE_CLICK',
+  };
 
   const { GSRGlobeManager } = loadFresh();
   const mgr = new GSRGlobeManager('c', { keyboardFlight: false });
@@ -703,16 +944,23 @@ test('a LEFT_CLICK on a peak marker reports its analyzer.peaks index to onPeakCl
 
   pickResult = { id: { _biomapPeakIndex: 4 } };
   click({ position: { x: 120, y: 55 } });
-  pickResult = { id: {} };            // a non-peak entity
+  pickResult = { id: {} }; // a non-peak entity
   click({ position: { x: 0, y: 0 } });
-  pickResult = undefined;             // empty space
+  pickResult = undefined; // empty space
   click({ position: { x: 0, y: 0 } });
 
-  assert.deepStrictEqual(got, [[4, { x: 120, y: 55 }]],
-    'only the peak click reported — analyzer.peaks index + canvas position');
+  assert.deepStrictEqual(
+    got,
+    [[4, { x: 120, y: 55 }]],
+    'only the peak click reported — analyzer.peaks index + canvas position',
+  );
 
   mgr.destroy();
-  assert.strictEqual(handler.destroyed, true, 'canvas handler torn down with the manager');
+  assert.strictEqual(
+    handler.destroyed,
+    true,
+    'canvas handler torn down with the manager',
+  );
 });
 
 // ── Panel-header layer parity with the 2D map (hotspots / labels / clusters) ─
@@ -720,8 +968,8 @@ test('a LEFT_CLICK on a peak marker reports its analyzer.peaks index to onPeakCl
 /** A 2-point analysed track with peaks/hotspots at known coords. */
 function parityTrack() {
   const peaks = [
-    { index: 0, label: 'Church',  qualityScore: 0.9, amplitude: 1 },
-    { index: 1, label: '',        qualityScore: 0.9, amplitude: 2 },
+    { index: 0, label: 'Church', qualityScore: 0.9, amplitude: 1 },
+    { index: 1, label: '', qualityScore: 0.9, amplitude: 2 },
   ];
   const analyzer = {
     raw: [{}, {}],
@@ -747,13 +995,20 @@ test('renderData draws memorable-event hotspots; toggleHotspots(false) clears th
 
   mgr.renderData(analyzer, {}, { drawPoints, isPreview: true });
   assert.ok(mgr.hotspotEntities.length > 0, 'a hotspot star was built');
-  assert.strictEqual(mgr.hotspotEntities[0]._biomapPeakIndex, 1, 'tagged with the analyzer.peaks index');
+  assert.strictEqual(
+    mgr.hotspotEntities[0]._biomapPeakIndex,
+    1,
+    'tagged with the analyzer.peaks index',
+  );
 
   mgr.toggleHotspots(false);
   assert.strictEqual(mgr.hotspotEntities.length, 0, 'hotspots cleared');
 
   mgr.toggleHotspots(true);
-  assert.ok(mgr.hotspotEntities.length > 0, 'hotspots redrawn from the cached track');
+  assert.ok(
+    mgr.hotspotEntities.length > 0,
+    'hotspots redrawn from the cached track',
+  );
   mgr.destroy();
 });
 
@@ -762,16 +1017,30 @@ test('renderData applies the Track Width slider (gpsParams.trackWeight) to the 3
   installWallCapture();
   const { GSRGlobeManager } = loadFresh();
   // Ground path is opt-in (off by default — the 3D view is the extruded wall).
-  const mgr = new GSRGlobeManager('c', { keyboardFlight: false, showGroundPath: true });
+  const mgr = new GSRGlobeManager('c', {
+    keyboardFlight: false,
+    showGroundPath: true,
+  });
   mgr.flyToTrack = () => {};
   const added = [];
-  mgr.viewer.entities.add = (o) => { added.push(o); return {}; };
+  mgr.viewer.entities.add = (o) => {
+    added.push(o);
+    return {};
+  };
   const { analyzer, drawPoints } = parityTrack();
 
-  mgr.renderData(analyzer, { trackWeight: 12 }, { drawPoints, isPreview: true });
+  mgr.renderData(
+    analyzer,
+    { trackWeight: 12 },
+    { drawPoints, isPreview: true },
+  );
   const ground = added.find((o) => o && o.name === 'Biomap Ground Path');
   assert.ok(ground, 'ground path entity built');
-  assert.strictEqual(ground.polyline.width, 12, 'ground path width tracks the slider');
+  assert.strictEqual(
+    ground.polyline.width,
+    12,
+    'ground path width tracks the slider',
+  );
   assert.strictEqual(mgr.trackWidth, 12);
   mgr.destroy();
 });
@@ -783,14 +1052,19 @@ test('renderData shifts peak/hotspot markers by the Peak-latency slider (gpsPara
   const mgr = new GSRGlobeManager('c', { keyboardFlight: false });
   mgr.flyToTrack = () => {};
 
-  const peaks = [{ index: 5, time: 10, qualityScore: 0.9, amplitude: 1, label: '' }];
+  const peaks = [
+    { index: 5, time: 10, qualityScore: 0.9, amplitude: 1, label: '' },
+  ];
   const seen = [];
   const analyzer = {
     raw: new Array(6).fill({}),
     phasic: new Array(6).fill({ val: 0.5 }),
     peaks,
-    memorableEvents: [peaks[0]],          // a hotspot IS a peak
-    getCoordinates: (i) => { seen.push(i); return { lat: i * 0.001, lon: i * 0.001 }; },
+    memorableEvents: [peaks[0]], // a hotspot IS a peak
+    getCoordinates: (i) => {
+      seen.push(i);
+      return { lat: i * 0.001, lon: i * 0.001 };
+    },
     findClosestIndex: (t) => Math.max(0, Math.round(t)),
   };
   const drawPoints = [
@@ -802,7 +1076,10 @@ test('renderData shifts peak/hotspot markers by the Peak-latency slider (gpsPara
   assert.strictEqual(mgr.peakLatency, 3);
   // peak sample at t=10 → marker planted at the GPS fix 3 s earlier:
   // findClosestIndex(10 - 3) = 7, for the peak spire AND the hotspot star.
-  assert.ok(seen.includes(7), 'marker position resolved at the latency-shifted index');
+  assert.ok(
+    seen.includes(7),
+    'marker position resolved at the latency-shifted index',
+  );
   mgr.destroy();
 });
 
@@ -815,12 +1092,32 @@ test('clusterPolygons handed in by the 2D view render as ground blobs; toggleClu
   const { analyzer, drawPoints } = parityTrack();
 
   const clusterPolygons = [
-    { ring: [[0, 0], [0, 0.002], [0.002, 0.002], [0.002, 0]], color: '#ff5252', fillOpacity: 0.3 },
+    {
+      ring: [
+        [0, 0],
+        [0, 0.002],
+        [0.002, 0.002],
+        [0.002, 0],
+      ],
+      color: '#ff5252',
+      fillOpacity: 0.3,
+    },
     { ring: [[1, 1]] }, // degenerate — skipped
   ];
-  mgr.renderData(analyzer, {}, { drawPoints, clusterPolygons, isPreview: true });
-  assert.ok(mgr.clusterEntities.length > 0, 'the valid hull became fill + outline entities');
-  assert.strictEqual(mgr.currentClusterPolygons, clusterPolygons, 'hulls cached for a later toggle');
+  mgr.renderData(
+    analyzer,
+    {},
+    { drawPoints, clusterPolygons, isPreview: true },
+  );
+  assert.ok(
+    mgr.clusterEntities.length > 0,
+    'the valid hull became fill + outline entities',
+  );
+  assert.strictEqual(
+    mgr.currentClusterPolygons,
+    clusterPolygons,
+    'hulls cached for a later toggle',
+  );
 
   mgr.toggleClusters(false);
   assert.strictEqual(mgr.clusterEntities.length, 0, 'cluster blobs cleared');
@@ -840,11 +1137,17 @@ test('toggleLabels(true) with peaks off keeps only the labelled peaks on screen'
 
   mgr.togglePeaks(false);
   // labels still on → the one labelled peak survives (its circle = 1)
-  assert.ok(mgr.peakEntities.length > 0 && mgr.peakEntities.length < bothOn,
-    `only labelled peak kept: ${mgr.peakEntities.length} of ${bothOn}`);
+  assert.ok(
+    mgr.peakEntities.length > 0 && mgr.peakEntities.length < bothOn,
+    `only labelled peak kept: ${mgr.peakEntities.length} of ${bothOn}`,
+  );
 
   mgr.toggleLabels(false);
-  assert.strictEqual(mgr.peakEntities.length, 0, 'peaks off + labels off → nothing');
+  assert.strictEqual(
+    mgr.peakEntities.length,
+    0,
+    'peaks off + labels off → nothing',
+  );
   mgr.destroy();
 });
 
@@ -858,7 +1161,9 @@ test('focusOnPeakLocation hides the peak circle, not the latency-connector line'
 
   // Peak latency > 0 with a shifted fix → _renderPeakSpires builds BOTH a rose
   // connector entity and the circle, each tagged with _biomapPeakIndex 0.
-  const peaks = [{ index: 5, time: 10, qualityScore: 0.9, amplitude: 1, label: 'Bridge' }];
+  const peaks = [
+    { index: 5, time: 10, qualityScore: 0.9, amplitude: 1, label: 'Bridge' },
+  ];
   const analyzer = {
     raw: new Array(6).fill({}),
     phasic: new Array(6).fill({ val: 0.5 }),
@@ -873,12 +1178,21 @@ test('focusOnPeakLocation hides the peak circle, not the latency-connector line'
   ];
 
   mgr.renderData(analyzer, { peakLatency: 3 }, { drawPoints, isPreview: true });
-  assert.ok(mgr.peakEntities.length >= 2, 'connector entity + circle primitive both present');
+  assert.ok(
+    mgr.peakEntities.length >= 2,
+    'connector entity + circle primitive both present',
+  );
 
   mgr.focusOnPeakLocation(0, analyzer);
-  assert.ok(mgr._focusHiddenPeakPoint, 'a peak circle was hidden for the locator dot');
-  assert.strictEqual(mgr._focusHiddenPeakPoint._isPeakPointPrimitive, true,
-    'the hidden element is the circle primitive, not the rose latency line');
+  assert.ok(
+    mgr._focusHiddenPeakPoint,
+    'a peak circle was hidden for the locator dot',
+  );
+  assert.strictEqual(
+    mgr._focusHiddenPeakPoint._isPeakPointPrimitive,
+    true,
+    'the hidden element is the circle primitive, not the rose latency line',
+  );
   mgr.destroy();
 });
 
@@ -889,20 +1203,40 @@ function scrubEnv() {
   const base = freshEnv();
   global.Cesium.ScreenSpaceEventHandler = function () {
     return {
-      actions: {}, destroyed: false,
-      setInputAction(fn, type) { this.actions[type] = fn; },
-      removeInputAction(type) { delete this.actions[type]; },
-      isDestroyed() { return this.destroyed; },
-      destroy() { this.destroyed = true; },
+      actions: {},
+      destroyed: false,
+      setInputAction(fn, type) {
+        this.actions[type] = fn;
+      },
+      removeInputAction(type) {
+        delete this.actions[type];
+      },
+      isDestroyed() {
+        return this.destroyed;
+      },
+      destroy() {
+        this.destroyed = true;
+      },
     };
   };
   global.Cesium.ScreenSpaceEventType = {
-    LEFT_CLICK: 'LEFT_CLICK', LEFT_DOUBLE_CLICK: 'LEFT_DOUBLE_CLICK', MOUSE_MOVE: 'MOUSE_MOVE',
+    LEFT_CLICK: 'LEFT_CLICK',
+    LEFT_DOUBLE_CLICK: 'LEFT_DOUBLE_CLICK',
+    MOUSE_MOVE: 'MOUSE_MOVE',
   };
-  global.Cesium.Math = { toDegrees: (r) => r * 180 / Math.PI, toRadians: (d) => d * Math.PI / 180 };
+  global.Cesium.Math = {
+    toDegrees: (r) => (r * 180) / Math.PI,
+    toRadians: (d) => (d * Math.PI) / 180,
+  };
   global.Cesium.Cartographic = {
-    fromCartesian: (c) => ({ latitude: (c.lat || 0) * Math.PI / 180, longitude: (c.lon || 0) * Math.PI / 180 }),
-    fromDegrees: (lon, lat) => ({ latitude: (lat || 0) * Math.PI / 180, longitude: (lon || 0) * Math.PI / 180 }),
+    fromCartesian: (c) => ({
+      latitude: ((c.lat || 0) * Math.PI) / 180,
+      longitude: ((c.lon || 0) * Math.PI) / 180,
+    }),
+    fromDegrees: (lon, lat) => ({
+      latitude: ((lat || 0) * Math.PI) / 180,
+      longitude: ((lon || 0) * Math.PI) / 180,
+    }),
     toCartesian: () => ({ x: 0, y: 0, z: 0 }),
   };
   global.Cesium.Rectangle = {
@@ -915,7 +1249,9 @@ function scrubEnv() {
     distance: () => 500,
   };
   global.Cesium.Matrix4 = { IDENTITY: 'IDENTITY' };
-  global.Cesium.HeadingPitchRange = function (h, p, r) { return { h, p, r }; };
+  global.Cesium.HeadingPitchRange = function (h, p, r) {
+    return { h, p, r };
+  };
   global.Cesium.BoundingSphere = { fromPoints: () => ({ radius: 500 }) };
   // A real canvas spy on the (otherwise auto-stubbed) scene so the mouseleave
   // listener add/remove can be asserted.
@@ -929,12 +1265,17 @@ function scrubEnv() {
   };
   // Nothing reads viewer.camera at construction, so a plain spy is safe.
   base.viewer.camera = {
-    pickEllipsoid: () => ({ lon: 0, lat: 0 }),   // overridden per test
+    pickEllipsoid: () => ({ lon: 0, lat: 0 }), // overridden per test
     positionCartographic: { height: 1000 },
     positionWC: {},
-    heading: 0, pitch: -0.6,
-    lookAt() { this._lookAt = true; },
-    lookAtTransform(m) { this._transform = m; },
+    heading: 0,
+    pitch: -0.6,
+    lookAt() {
+      this._lookAt = true;
+    },
+    lookAtTransform(m) {
+      this._transform = m;
+    },
     flyTo() {},
     flyToBoundingSphere() {},
   };
@@ -960,9 +1301,9 @@ test('MOUSE_MOVE over the track reports the nearest drawPoint origIdx; a far poi
   const handler = mgr._screenSpaceHandler;
 
   mgr.currentDrawPoints = [
-    { origIdx: 10, lat: 51.5000, lon: -0.1000 },
-    { origIdx: 11, lat: 51.5010, lon: -0.1000 },
-    { origIdx: 12, lat: 51.5020, lon: -0.1000 },
+    { origIdx: 10, lat: 51.5, lon: -0.1 },
+    { origIdx: 11, lat: 51.501, lon: -0.1 },
+    { origIdx: 12, lat: 51.502, lon: -0.1 },
   ];
 
   const got = [];
@@ -971,18 +1312,18 @@ test('MOUSE_MOVE over the track reports the nearest drawPoint origIdx; a far poi
   assert.strictEqual(typeof move, 'function', 'MOUSE_MOVE handler bound');
 
   // pointer essentially on the middle point -> its origIdx (pick runs on the frame)
-  mgr.viewer.camera.pickEllipsoid = () => ({ lon: -0.1000, lat: 51.5010 });
+  mgr.viewer.camera.pickEllipsoid = () => ({ lon: -0.1, lat: 51.501 });
   move({ endPosition: { x: 1, y: 1 } });
   window.__flushRaf();
 
   // pointer ~1km away from any point -> null
-  mgr.viewer.camera.pickEllipsoid = () => ({ lon: -0.1000, lat: 51.5100 });
+  mgr.viewer.camera.pickEllipsoid = () => ({ lon: -0.1, lat: 51.51 });
   move({ endPosition: { x: 2, y: 2 } });
   window.__flushRaf();
 
   assert.strictEqual(got.length, 2);
   assert.strictEqual(got[0][0], 11);
-  assert.deepStrictEqual(got[0][1], { lat: 51.5010, lon: -0.1000 });
+  assert.deepStrictEqual(got[0][1], { lat: 51.501, lon: -0.1 });
   assert.strictEqual(got[1][0], null);
   mgr.destroy();
 });
@@ -994,24 +1335,27 @@ test('MOUSE_MOVE picks are coalesced to one per animation frame (last position w
   const move = mgr._screenSpaceHandler.actions.MOUSE_MOVE;
 
   mgr.currentDrawPoints = [
-    { origIdx: 10, lat: 51.5000, lon: -0.1000 },
-    { origIdx: 11, lat: 51.5010, lon: -0.1000 },
-    { origIdx: 12, lat: 51.5020, lon: -0.1000 },
+    { origIdx: 10, lat: 51.5, lon: -0.1 },
+    { origIdx: 11, lat: 51.501, lon: -0.1 },
+    { origIdx: 12, lat: 51.502, lon: -0.1 },
   ];
 
   let picks = 0;
   const realPick = mgr._pickTrackPoint.bind(mgr);
-  mgr._pickTrackPoint = (p) => { picks++; return realPick(p); };
+  mgr._pickTrackPoint = (p) => {
+    picks++;
+    return realPick(p);
+  };
 
   const got = [];
   mgr.onScrubHover((idx) => got.push(idx));
 
   // three moves in one frame — only the last should be picked
-  mgr.viewer.camera.pickEllipsoid = () => ({ lon: -0.1, lat: 51.5000 });
+  mgr.viewer.camera.pickEllipsoid = () => ({ lon: -0.1, lat: 51.5 });
   move({ endPosition: { x: 1, y: 1 } });
-  mgr.viewer.camera.pickEllipsoid = () => ({ lon: -0.1, lat: 51.5010 });
+  mgr.viewer.camera.pickEllipsoid = () => ({ lon: -0.1, lat: 51.501 });
   move({ endPosition: { x: 2, y: 2 } });
-  mgr.viewer.camera.pickEllipsoid = () => ({ lon: -0.1, lat: 51.5020 });
+  mgr.viewer.camera.pickEllipsoid = () => ({ lon: -0.1, lat: 51.502 });
   move({ endPosition: { x: 3, y: 3 } });
   assert.strictEqual(picks, 0, 'nothing picked synchronously');
 
@@ -1056,10 +1400,16 @@ test('destroy() removes the mouseleave listener, releases follow-cam, nulls the 
   const mgr = new GSRGlobeManager('c', { keyboardFlight: false });
   mgr.onScrubHover(() => {});
   mgr.followScrub(51.5, -0.1);
-  assert.ok(canvasListeners.some((l) => l.t === 'mouseleave'), 'mouseleave bound in setup');
+  assert.ok(
+    canvasListeners.some((l) => l.t === 'mouseleave'),
+    'mouseleave bound in setup',
+  );
 
   mgr.destroy();
-  assert.ok(!canvasListeners.some((l) => l.t === 'mouseleave'), 'mouseleave removed');
+  assert.ok(
+    !canvasListeners.some((l) => l.t === 'mouseleave'),
+    'mouseleave removed',
+  );
   assert.strictEqual(mgr._scrubHoverCb, null);
   assert.strictEqual(mgr._scrubHoverLeaveHandler, null);
 });
@@ -1076,20 +1426,38 @@ test('WebGL context loss is prevented-default; restore rebuilds the scene; destr
   assert.ok(lost && restored, 'both context listeners bound on the canvas');
 
   let prevented = false;
-  lost.fn({ preventDefault: () => { prevented = true; } });
-  assert.ok(prevented, 'lost handler calls preventDefault so the browser can restore');
+  lost.fn({
+    preventDefault: () => {
+      prevented = true;
+    },
+  });
+  assert.ok(
+    prevented,
+    'lost handler calls preventDefault so the browser can restore',
+  );
 
-  let refreshed = 0; let basemapSet = null;
-  mgr._refreshTrack = () => { refreshed++; };
-  mgr.setBasemap = (t) => { basemapSet = t; };
+  let refreshed = 0;
+  let basemapSet = null;
+  mgr._refreshTrack = () => {
+    refreshed++;
+  };
+  mgr.setBasemap = (t) => {
+    basemapSet = t;
+  };
   mgr._currentBasemap = 'osm';
   restored.fn();
   assert.strictEqual(refreshed, 1, 'restore rebuilds the wall/peaks');
   assert.strictEqual(basemapSet, 'osm', 'restore re-adds the imagery layer');
 
   mgr.destroy();
-  assert.ok(!canvasListeners.some((l) => l.t === 'webglcontextlost'), 'lost listener removed');
-  assert.ok(!canvasListeners.some((l) => l.t === 'webglcontextrestored'), 'restored listener removed');
+  assert.ok(
+    !canvasListeners.some((l) => l.t === 'webglcontextlost'),
+    'lost listener removed',
+  );
+  assert.ok(
+    !canvasListeners.some((l) => l.t === 'webglcontextrestored'),
+    'restored listener removed',
+  );
   assert.strictEqual(mgr._onContextLost, null);
 });
 
@@ -1103,8 +1471,12 @@ test('_refreshTrack clears and rebuilds the RF volumetric layer when active', ()
 
   let rfRendered = 0;
   let rfCleared = 0;
-  mgr.render3DRfExpanse = () => { rfRendered++; };
-  mgr.clearRfEntities = () => { rfCleared++; };
+  mgr.render3DRfExpanse = () => {
+    rfRendered++;
+  };
+  mgr.clearRfEntities = () => {
+    rfCleared++;
+  };
 
   mgr.currentAnalyzer = analyzer;
   mgr.currentDrawPoints = drawPoints;
@@ -1117,7 +1489,11 @@ test('_refreshTrack clears and rebuilds the RF volumetric layer when active', ()
   mgr.showRfVolumetric = false;
   mgr._refreshTrack();
   assert.strictEqual(rfCleared, 2);
-  assert.strictEqual(rfRendered, 1, 'not rendered when showRfVolumetric is false');
+  assert.strictEqual(
+    rfRendered,
+    1,
+    'not rendered when showRfVolumetric is false',
+  );
   mgr.destroy();
 });
 
@@ -1141,9 +1517,16 @@ test('flyToTrack releases follow-cam scrub before flying', () => {
 
   let released = 0;
   let flew = 0;
-  mgr.releaseFollowScrub = () => { released++; };
-  mgr.viewer.camera.flyToBoundingSphere = () => { flew++; };
-  mgr.currentDrawPoints = [{ lat: 51.5, lon: -0.1 }, { lat: 51.6, lon: -0.2 }];
+  mgr.releaseFollowScrub = () => {
+    released++;
+  };
+  mgr.viewer.camera.flyToBoundingSphere = () => {
+    flew++;
+  };
+  mgr.currentDrawPoints = [
+    { lat: 51.5, lon: -0.1 },
+    { lat: 51.6, lon: -0.2 },
+  ];
 
   mgr.flyToTrack();
   assert.strictEqual(released, 1, 'releaseFollowScrub called before flying');
@@ -1157,14 +1540,22 @@ test('double-click fly incorporates terrain elevation', () => {
   global.Cesium.ScreenSpaceEventHandler = function () {
     handler = {
       actions: {},
-      setInputAction(fn, type) { this.actions[type] = fn; },
-      removeInputAction(type) { delete this.actions[type]; },
-      isDestroyed() { return false; },
+      setInputAction(fn, type) {
+        this.actions[type] = fn;
+      },
+      removeInputAction(type) {
+        delete this.actions[type];
+      },
+      isDestroyed() {
+        return false;
+      },
       destroy() {},
     };
     return handler;
   };
-  global.Cesium.ScreenSpaceEventType = { LEFT_DOUBLE_CLICK: 'LEFT_DOUBLE_CLICK' };
+  global.Cesium.ScreenSpaceEventType = {
+    LEFT_DOUBLE_CLICK: 'LEFT_DOUBLE_CLICK',
+  };
   global.Cesium.Cartographic = {
     fromCartesian: () => ({ longitude: 0.1, latitude: 0.2, height: 250 }),
   };
@@ -1176,15 +1567,24 @@ test('double-click fly incorporates terrain elevation', () => {
   base.viewer.camera = {
     getPickRay: () => ({}),
     positionCartographic: { height: 1000 },
-    flyTo: (opts) => { flyDestination = opts.destination; },
+    flyTo: (opts) => {
+      flyDestination = opts.destination;
+    },
   };
   base.viewer.scene.globe.pick = () => ({ x: 1, y: 2, z: 3 });
 
   const { GSRGlobeManager } = loadFresh();
-  const mgr = new GSRGlobeManager('c', { keyboardFlight: false, doubleClickFly: true });
+  const mgr = new GSRGlobeManager('c', {
+    keyboardFlight: false,
+    doubleClickFly: true,
+  });
 
   const dblClick = handler.actions.LEFT_DOUBLE_CLICK;
-  assert.strictEqual(typeof dblClick, 'function', 'LEFT_DOUBLE_CLICK handler bound');
+  assert.strictEqual(
+    typeof dblClick,
+    'function',
+    'LEFT_DOUBLE_CLICK handler bound',
+  );
 
   dblClick({ position: { x: 10, y: 10 } });
   // curHeight * 0.45 = 450, terrainHeight + 150 = 250 + 150 = 400 => max is 450
@@ -1193,7 +1593,11 @@ test('double-click fly incorporates terrain elevation', () => {
   // If camera was low (e.g. 200m) with 250m terrain: terrainHeight + 150 = 400 > 200*0.45 (90) => 400
   base.viewer.camera.positionCartographic.height = 200;
   dblClick({ position: { x: 10, y: 10 } });
-  assert.strictEqual(flyDestination.h, 400, 'targetHeight clamped to terrainHeight + 150m');
+  assert.strictEqual(
+    flyDestination.h,
+    400,
+    'targetHeight clamped to terrainHeight + 150m',
+  );
 
   mgr.destroy();
 });
@@ -1209,32 +1613,58 @@ test('tour mode: _computeTourWaypoints extracts sequential waypoints with bearin
   const drawPoints = [];
   const phasic = [];
   for (let i = 0; i < n; i++) {
-    drawPoints.push({ lat: 51.5 + i * 0.001, lon: -0.1 + i * 0.001, time: i * 2, origIdx: i });
+    drawPoints.push({
+      lat: 51.5 + i * 0.001,
+      lon: -0.1 + i * 0.001,
+      time: i * 2,
+      origIdx: i,
+    });
     phasic.push({ val: i % 5 === 0 ? 3.0 : 0.5 });
   }
 
   mgr.currentDrawPoints = drawPoints;
-  mgr.currentAnalyzer = { raw: new Array(n).fill({}), phasic, peaks: [{ index: 10 }, { index: 30 }] };
+  mgr.currentAnalyzer = {
+    raw: new Array(n).fill({}),
+    phasic,
+    peaks: [{ index: 10 }, { index: 30 }],
+  };
   mgr.currentPeaks = mgr.currentAnalyzer.peaks;
   mgr.heightMetric = 'phasic';
   mgr.extrusionScale = 10;
   mgr.baseHeight = 2;
 
   const waypoints = mgr._computeTourWaypoints();
-  assert.ok(waypoints.length >= 10 && waypoints.length <= 30, `waypoint count in expected range (${waypoints.length})`);
-  assert.strictEqual(waypoints[0].drawPointIndex, 0, 'first waypoint is track start');
-  assert.strictEqual(waypoints[waypoints.length - 1].drawPointIndex, n - 1, 'last waypoint is track end');
+  assert.ok(
+    waypoints.length >= 10 && waypoints.length <= 30,
+    `waypoint count in expected range (${waypoints.length})`,
+  );
+  assert.strictEqual(
+    waypoints[0].drawPointIndex,
+    0,
+    'first waypoint is track start',
+  );
+  assert.strictEqual(
+    waypoints[waypoints.length - 1].drawPointIndex,
+    n - 1,
+    'last waypoint is track end',
+  );
 
   // Check bearing calculation (roughly ~45° northeast)
-  assert.ok(waypoints[0].bearingDeg >= 30 && waypoints[0].bearingDeg <= 60, `bearing is forward (${waypoints[0].bearingDeg})`);
+  assert.ok(
+    waypoints[0].bearingDeg >= 30 && waypoints[0].bearingDeg <= 60,
+    `bearing is forward (${waypoints[0].bearingDeg})`,
+  );
 
   // Check peak detection, GSR height scaling, and effectiveHeight headroom
-  const peakWp = waypoints.find(w => w.origIdx === 10);
+  const peakWp = waypoints.find((w) => w.origIdx === 10);
   assert.ok(peakWp, 'peak at index 10 was included as a waypoint');
   assert.strictEqual(peakWp.isPeak, true);
   // baseHeight 2 + val 3.0 * scale 10 = 32
   assert.strictEqual(peakWp.gsrHeight, 32);
-  assert.ok(peakWp.effectiveHeight >= 32 + 15, 'effectiveHeight includes annotation headroom for peaks');
+  assert.ok(
+    peakWp.effectiveHeight >= 32 + 15,
+    'effectiveHeight includes annotation headroom for peaks',
+  );
 
   mgr.destroy();
 });
@@ -1246,19 +1676,31 @@ test('startTour / stopTour / toggleTour lifecycle and camera flight', () => {
 
   const n = 20;
   mgr.currentDrawPoints = Array.from({ length: n }, (_, i) => ({
-    lat: 51.5 + i * 0.0005, lon: -0.1, time: i, origIdx: i
+    lat: 51.5 + i * 0.0005,
+    lon: -0.1,
+    time: i,
+    origIdx: i,
   }));
-  mgr.currentAnalyzer = { raw: new Array(n).fill({}), phasic: new Array(n).fill({ val: 1 }) };
+  mgr.currentAnalyzer = {
+    raw: new Array(n).fill({}),
+    phasic: new Array(n).fill({ val: 1 }),
+  };
   mgr.currentPeaks = [];
 
-  let flights = [];
-  mgr.viewer.camera.flyTo = (opts) => { flights.push(opts); };
+  const flights = [];
+  mgr.viewer.camera.flyTo = (opts) => {
+    flights.push(opts);
+  };
 
-  let progress = [];
-  mgr.onTourStep((stepIdx, totalSteps, wp) => { progress.push([stepIdx, totalSteps, wp]); });
+  const progress = [];
+  mgr.onTourStep((stepIdx, totalSteps, wp) => {
+    progress.push([stepIdx, totalSteps, wp]);
+  });
 
-  let scrubSet = [];
-  mgr.setScrubPosition = (lat, lon, height) => { scrubSet.push([lat, lon, height]); };
+  const scrubSet = [];
+  mgr.setScrubPosition = (lat, lon, height) => {
+    scrubSet.push([lat, lon, height]);
+  };
 
   assert.strictEqual(mgr._isTouring, false);
   const active = mgr.toggleTour();
@@ -1269,11 +1711,17 @@ test('startTour / stopTour / toggleTour lifecycle and camera flight', () => {
   assert.strictEqual(progress.length, 1, 'tour step progress emitted');
   assert.strictEqual(progress[0][0], 0, 'step 0 reported');
   assert.ok(scrubSet.length >= 1, 'scrub position set to waypoint coordinates');
-  assert.ok(typeof scrubSet[0][2] === 'number', 'scrub position includes track height');
+  assert.ok(
+    typeof scrubSet[0][2] === 'number',
+    'scrub position includes track height',
+  );
 
   // Trigger flight completion -> schedules next step timer
   flights[0].complete();
-  assert.ok(mgr._tourStepTimeout !== null, 'pause timer armed after flight completion');
+  assert.ok(
+    mgr._tourStepTimeout !== null,
+    'pause timer armed after flight completion',
+  );
 
   // Stop tour clears state and notifies progress listener with null
   mgr.stopTour();
@@ -1291,7 +1739,7 @@ test('setScrubPosition auto-resolves height from drawn track when not explicitly
 
   mgr.currentDrawPoints = [
     { lat: 51.5, lon: -0.1, time: 0, origIdx: 0 },
-    { lat: 51.51, lon: -0.11, time: 1, origIdx: 1 }
+    { lat: 51.51, lon: -0.11, time: 1, origIdx: 1 },
   ];
   mgr.currentAnalyzer = { raw: [{}, {}], phasic: [{ val: 5 }, { val: 10 }] };
   mgr.extrusionScale = 5;
@@ -1316,9 +1764,12 @@ test('startOrbit, setViewPerspective, and destroy cancel an active tour', () => 
   mgr.currentDrawPoints = [
     { lat: 51.5, lon: -0.1, time: 0, origIdx: 0 },
     { lat: 51.501, lon: -0.1, time: 1, origIdx: 1 },
-    { lat: 51.502, lon: -0.1, time: 2, origIdx: 2 }
+    { lat: 51.502, lon: -0.1, time: 2, origIdx: 2 },
   ];
-  mgr.currentAnalyzer = { raw: [{}, {}, {}], phasic: [{ val: 1 }, { val: 1 }, { val: 1 }] };
+  mgr.currentAnalyzer = {
+    raw: [{}, {}, {}],
+    phasic: [{ val: 1 }, { val: 1 }, { val: 1 }],
+  };
   mgr.currentPeaks = [];
   mgr.viewer.camera.flyTo = () => {};
 
@@ -1351,7 +1802,9 @@ test('renderData with empty or null analyzer clears all entities and resets stat
   const mgr = new GSRGlobeManager('c', { keyboardFlight: false });
 
   let cleared = 0;
-  mgr.clearAll = () => { cleared++; };
+  mgr.clearAll = () => {
+    cleared++;
+  };
 
   mgr.currentDrawPoints = [{ lat: 51.5, lon: -0.1 }];
   mgr.currentPeaks = [{ index: 0 }];
@@ -1374,7 +1827,9 @@ test('camera pitch clamping constrains pitch within [-89.9°, -10.0°] and clean
   const { GSRGlobeManager } = loadFresh();
 
   let setViewArgs = null;
-  viewer.camera.setView = (args) => { setViewArgs = args; };
+  viewer.camera.setView = (args) => {
+    setViewArgs = args;
+  };
   viewer.camera.heading = 1.23;
 
   const mgr = new GSRGlobeManager('c', { keyboardFlight: false });
@@ -1384,7 +1839,10 @@ test('camera pitch clamping constrains pitch within [-89.9°, -10.0°] and clean
   mgr._enforceCameraPitchBounds();
   assert.ok(setViewArgs, 'setView called when pitch is level with ground');
   const expectedMaxPitch = Cesium.Math.toRadians(-10.0);
-  assert.ok(Math.abs(setViewArgs.orientation.pitch - expectedMaxPitch) < 1e-6, 'clamped to -10° max pitch');
+  assert.ok(
+    Math.abs(setViewArgs.orientation.pitch - expectedMaxPitch) < 1e-6,
+    'clamped to -10° max pitch',
+  );
   assert.strictEqual(setViewArgs.orientation.heading, 1.23);
   assert.strictEqual(setViewArgs.orientation.roll, 0.0);
 
@@ -1407,16 +1865,22 @@ test('camera pitch clamping constrains pitch within [-89.9°, -10.0°] and clean
   setViewArgs = null;
   viewer.camera.pitch = Cesium.Math.toRadians(-45.0);
   mgr._enforceCameraPitchBounds();
-  assert.strictEqual(setViewArgs, null, 'no setView needed when pitch is within safe bounds');
+  assert.strictEqual(
+    setViewArgs,
+    null,
+    'no setView needed when pitch is within safe bounds',
+  );
 
   // 5. destroy unregisters preRender pitch clamp listener
   let pitchClampRemoved = false;
-  mgr._pitchClampRemover = () => { pitchClampRemoved = true; };
+  mgr._pitchClampRemover = () => {
+    pitchClampRemoved = true;
+  };
   mgr.destroy();
-  assert.strictEqual(pitchClampRemoved, true, 'pitch clamp listener cleaned up on destroy');
+  assert.strictEqual(
+    pitchClampRemoved,
+    true,
+    'pitch clamp listener cleaned up on destroy',
+  );
   assert.strictEqual(mgr._pitchClampRemover, null);
 });
-
-
-
-

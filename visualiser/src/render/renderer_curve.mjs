@@ -16,8 +16,7 @@ import { GSR_CONST } from '../core/constants.mjs';
 import { GSRRenderer } from './renderer.mjs';
 import { ResponseDynamics } from '../signal/response_dynamics.mjs';
 
-  export const __methods = {
-
+export const __methods = {
   /**
    * Compute common context for curve drawing: clamped indices, step, spline decision, and scale factors.
    *
@@ -32,9 +31,21 @@ import { ResponseDynamics } from '../signal/response_dynamics.mjs';
    *   ~96% of peak markers landed between drawn vertices even though every
    *   one of them is an exact local maximum of the underlying data.
    */
-  _buildCurveContext(data, tMin, tMax, yMin, yMax, yTop, yBottom, forceIndices) {
+  _buildCurveContext(
+    data,
+    tMin,
+    tMax,
+    yMin,
+    yMax,
+    yTop,
+    yBottom,
+    forceIndices,
+  ) {
     const startIdx = Math.max(0, AppState.analyzer.findClosestIndex(tMin) - 1);
-    const endIdx   = Math.min(data.length - 1, AppState.analyzer.findClosestIndex(tMax) + 1);
+    const endIdx = Math.min(
+      data.length - 1,
+      AppState.analyzer.findClosestIndex(tMax) + 1,
+    );
     const count = endIdx - startIdx + 1;
     if (count <= 0) return null;
 
@@ -42,9 +53,9 @@ import { ResponseDynamics } from '../signal/response_dynamics.mjs';
     const useSpline = count < GSR_CONST.SPLINE_THRESHOLD;
 
     const tSpan = tMax - tMin;
-    const xSpan = (width - GSR_CONST.MARGIN.right) - GSR_CONST.MARGIN.left;
-    const yScale = (yMax - yMin) > 0 ? ((yTop - yBottom) / (yMax - yMin)) : 0;
-    const xScale = tSpan > 0 ? (xSpan / tSpan) : 0;
+    const xSpan = width - GSR_CONST.MARGIN.right - GSR_CONST.MARGIN.left;
+    const yScale = yMax - yMin > 0 ? (yTop - yBottom) / (yMax - yMin) : 0;
+    const xScale = tSpan > 0 ? xSpan / tSpan : 0;
 
     // Build the actual index sequence to draw: the uniform stride, plus any
     // forced indices merged in and de-duplicated, kept in ascending order.
@@ -97,7 +108,16 @@ import { ResponseDynamics } from '../signal/response_dynamics.mjs';
       }
     }
 
-    return { startIdx, endIdx, count, step, useSpline, xScale, yScale, indices };
+    return {
+      startIdx,
+      endIdx,
+      count,
+      step,
+      useSpline,
+      xScale,
+      yScale,
+      indices,
+    };
   },
 
   _drawVertices(ctx, data, tMin, yMin, yBottom, useCurveVertex) {
@@ -121,14 +141,26 @@ import { ResponseDynamics } from '../signal/response_dynamics.mjs';
     }
   },
 
-  _drawPeakShadedRegion(p, tMin, scales, yBottomL, yMinL, fillColor, xOnset, xPeak) {
+  _drawPeakShadedRegion(
+    p,
+    tMin,
+    scales,
+    yBottomL,
+    yMinL,
+    fillColor,
+    xOnset,
+    xPeak,
+  ) {
     fill(fillColor);
     noStroke();
     beginShape();
     vertex(xOnset, yBottomL);
     for (let i = p.onsetIndex; i <= p.index; i++) {
-      const xVal = GSR_CONST.MARGIN.left + (AppState.analyzer.phasic[i].time - tMin) * scales.xScale;
-      const yVal = yBottomL + (AppState.analyzer.phasic[i].val - yMinL) * scales.yScaleL;
+      const xVal =
+        GSR_CONST.MARGIN.left +
+        (AppState.analyzer.phasic[i].time - tMin) * scales.xScale;
+      const yVal =
+        yBottomL + (AppState.analyzer.phasic[i].val - yMinL) * scales.yScaleL;
       vertex(xVal, yVal);
     }
     vertex(xPeak, yBottomL);
@@ -139,9 +171,29 @@ import { ResponseDynamics } from '../signal/response_dynamics.mjs';
    * Draw a line/curve from data points with optional spline smoothing.
    * @param {Array<number>} [forceIndices] - See _buildCurveContext().
    */
-  drawSignalCurve(data, tMin, tMax, yMin, yMax, yTop, yBottom, lineColor, lineWt, forceIndices) {
+  drawSignalCurve(
+    data,
+    tMin,
+    tMax,
+    yMin,
+    yMax,
+    yTop,
+    yBottom,
+    lineColor,
+    lineWt,
+    forceIndices,
+  ) {
     if (!data || data.length === 0) return;
-    const ctx = this._buildCurveContext(data, tMin, tMax, yMin, yMax, yTop, yBottom, forceIndices);
+    const ctx = this._buildCurveContext(
+      data,
+      tMin,
+      tMax,
+      yMin,
+      yMax,
+      yTop,
+      yBottom,
+      forceIndices,
+    );
     if (!ctx) return;
     const drawIndices = ctx.indices || null;
 
@@ -175,14 +227,34 @@ import { ResponseDynamics } from '../signal/response_dynamics.mjs';
   /**
    * @param {Array<number>} [forceIndices] - See _buildCurveContext().
    */
-  drawPhasicArea(data, tMin, tMax, yMin, yMax, yTop, yBottom, fillColorHex, forceIndices) {
+  drawPhasicArea(
+    data,
+    tMin,
+    tMax,
+    yMin,
+    yMax,
+    yTop,
+    yBottom,
+    fillColorHex,
+    forceIndices,
+  ) {
     if (!data || data.length === 0) return;
-    const ctx = this._buildCurveContext(data, tMin, tMax, yMin, yMax, yTop, yBottom, forceIndices);
+    const ctx = this._buildCurveContext(
+      data,
+      tMin,
+      tMax,
+      yMin,
+      yMax,
+      yTop,
+      yBottom,
+      forceIndices,
+    );
     if (!ctx) return;
     const drawIndices = ctx.indices || null;
 
     noStroke();
-    const fillHex = fillColorHex || this.getThemeColor('--color-phasic', '#008f3c');
+    const fillHex =
+      fillColorHex || this.getThemeColor('--color-phasic', '#008f3c');
     fill(color(fillHex + '19'));
 
     const dFirst = data[ctx.startIdx];
@@ -194,12 +266,14 @@ import { ResponseDynamics } from '../signal/response_dynamics.mjs';
     if (ctx.useSpline) {
       curveVertex(xStart, yBottom);
       this._drawVertices(ctx, data, tMin, yMin, yBottom, true);
-      const xEnd = GSR_CONST.MARGIN.left + (data[ctx.endIdx].time - tMin) * ctx.xScale;
+      const xEnd =
+        GSR_CONST.MARGIN.left + (data[ctx.endIdx].time - tMin) * ctx.xScale;
       curveVertex(xEnd, yBottom);
       vertex(xEnd, yBottom);
     } else {
       this._drawVertices(ctx, data, tMin, yMin, yBottom, false);
-      const xEnd = GSR_CONST.MARGIN.left + (data[ctx.endIdx].time - tMin) * ctx.xScale;
+      const xEnd =
+        GSR_CONST.MARGIN.left + (data[ctx.endIdx].time - tMin) * ctx.xScale;
       vertex(xEnd, yBottom);
     }
 
@@ -222,9 +296,28 @@ import { ResponseDynamics } from '../signal/response_dynamics.mjs';
    * @param {number} yBottom
    * @param {Array<number>} [forceIndices]
    */
-  drawResponseDynamicsPhasic(phasicData, dynData, tMin, tMax, yMin, yMax, yTop, yBottom, forceIndices) {
+  drawResponseDynamicsPhasic(
+    phasicData,
+    dynData,
+    tMin,
+    tMax,
+    yMin,
+    yMax,
+    yTop,
+    yBottom,
+    forceIndices,
+  ) {
     if (!phasicData || phasicData.length === 0) return;
-    const ctx = this._buildCurveContext(phasicData, tMin, tMax, yMin, yMax, yTop, yBottom, forceIndices);
+    const ctx = this._buildCurveContext(
+      phasicData,
+      tMin,
+      tMax,
+      yMin,
+      yMax,
+      yTop,
+      yBottom,
+      forceIndices,
+    );
     if (!ctx) return;
 
     const basePhasicHex = this.getThemeColor('--color-phasic', '#008f3c');
@@ -237,8 +330,8 @@ import { ResponseDynamics } from '../signal/response_dynamics.mjs';
       for (let k = 0; k < drawIndices.length; k++) {
         const i = drawIndices[k];
         const d = phasicData[i];
-        const dynVal = (dynData && dynData[i]) ? dynData[i].val : 0;
-        const bucket = RD ? RD.getBucketIndex(dynVal) : (dynVal <= 0 ? 0 : 3);
+        const dynVal = dynData && dynData[i] ? dynData[i].val : 0;
+        const bucket = RD ? RD.getBucketIndex(dynVal) : dynVal <= 0 ? 0 : 3;
         const x = GSR_CONST.MARGIN.left + (d.time - tMin) * ctx.xScale;
         const y = yBottom + (d.val - yMin) * ctx.yScale;
         pts.push({ x, y, bucket });
@@ -246,8 +339,8 @@ import { ResponseDynamics } from '../signal/response_dynamics.mjs';
     } else {
       for (let i = ctx.startIdx; i <= ctx.endIdx; i += ctx.step) {
         const d = phasicData[i];
-        const dynVal = (dynData && dynData[i]) ? dynData[i].val : 0;
-        const bucket = RD ? RD.getBucketIndex(dynVal) : (dynVal <= 0 ? 0 : 3);
+        const dynVal = dynData && dynData[i] ? dynData[i].val : 0;
+        const bucket = RD ? RD.getBucketIndex(dynVal) : dynVal <= 0 ? 0 : 3;
         const x = GSR_CONST.MARGIN.left + (d.time - tMin) * ctx.xScale;
         const y = yBottom + (d.val - yMin) * ctx.yScale;
         pts.push({ x, y, bucket });
@@ -310,7 +403,6 @@ import { ResponseDynamics } from '../signal/response_dynamics.mjs';
       endShape();
     }
   },
+};
 
-  };
-
-  Object.assign(GSRRenderer, __methods);
+Object.assign(GSRRenderer, __methods);

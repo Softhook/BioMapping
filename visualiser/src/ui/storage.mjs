@@ -21,7 +21,11 @@ import { GSRUI } from './ui.mjs';
 
 export function sliderVal(el, fallback, fn) {
   fn = fn || parseFloat;
-  return el ? fn(el.value) : (typeof fallback === 'string' ? fn(fallback) : fallback);
+  return el
+    ? fn(el.value)
+    : typeof fallback === 'string'
+      ? fn(fallback)
+      : fallback;
 }
 
 export const GSRStorage = {
@@ -33,25 +37,35 @@ export const GSRStorage = {
   readGsrSliderValues() {
     const S = AppState.sliders;
     if (!S || !S.medianSize) return null;
-    const D  = GSR_CONST.GSR_DEFAULT;
+    const D = GSR_CONST.GSR_DEFAULT;
     const PS = GSR_CONST.PEAK_SHAPE;
     return {
-      medianSize:    parseFloat(S.medianSize.value),
-      lpfWindow:     parseFloat(S.lpfWindow.value),
-      useGaitFilter:         (S.useGaitFilter && S.useGaitFilter.checked) || false,
-      tonicMethod:   S.tonicMethod.value,
-      tonicWindow:   parseInt(S.tonicWindow.value),
+      medianSize: parseFloat(S.medianSize.value),
+      lpfWindow: parseFloat(S.lpfWindow.value),
+      useGaitFilter: (S.useGaitFilter && S.useGaitFilter.checked) || false,
+      tonicMethod: S.tonicMethod.value,
+      tonicWindow: parseInt(S.tonicWindow.value),
       peakThreshold: parseFloat(S.peakThreshold.value),
       // Optional sliders — fall back to GSR_DEFAULT (correct values for these keys)
-      minPeakQuality:        sliderVal(S.minPeakQuality,       D.minPeakQuality),
-      peakDensityWindow:     sliderVal(S.peakDensityWindow,    D.peakDensityWindow || 10, parseInt),
-      hotspotPercentile:     sliderVal(S.hotspotPercentile,    (D.hotspotPercentile ? D.hotspotPercentile * 100 : 2.0)) / 100.0,
+      minPeakQuality: sliderVal(S.minPeakQuality, D.minPeakQuality),
+      peakDensityWindow: sliderVal(
+        S.peakDensityWindow,
+        D.peakDensityWindow || 10,
+        parseInt,
+      ),
+      hotspotPercentile:
+        sliderVal(
+          S.hotspotPercentile,
+          D.hotspotPercentile ? D.hotspotPercentile * 100 : 2.0,
+        ) / 100.0,
       // Min SNR — the only shape gate the live detectors use (default + deconvolution).
-      shapeMinSnr:           sliderVal(S.shapeMinSnr,          PS.MIN_SNR),
-      useDeconvolution:       (S.useDeconvolution && S.useDeconvolution.checked) || false,
-      useSparsEDA:            (S.useSparsEDA && S.useSparsEDA.checked) || false,
-      usePeakProminence:      (S.usePeakProminence && S.usePeakProminence.checked) || false,
-      useCvxEDA:              (S.useCvxEDA && S.useCvxEDA.checked) || false
+      shapeMinSnr: sliderVal(S.shapeMinSnr, PS.MIN_SNR),
+      useDeconvolution:
+        (S.useDeconvolution && S.useDeconvolution.checked) || false,
+      useSparsEDA: (S.useSparsEDA && S.useSparsEDA.checked) || false,
+      usePeakProminence:
+        (S.usePeakProminence && S.usePeakProminence.checked) || false,
+      useCvxEDA: (S.useCvxEDA && S.useCvxEDA.checked) || false,
     };
   },
 
@@ -63,19 +77,23 @@ export const GSRStorage = {
   readGpsSliderValues() {
     const S = AppState.sliders;
     if (!S) return null;
-    const D  = GSR_CONST.GPS_DEFAULT;
+    const D = GSR_CONST.GPS_DEFAULT;
     const AP = GSR_CONST.AROUSAL_PLACES;
     return {
-      smoothing:          sliderVal(S.gpsSmoothing,       D.smoothing),
-      kalmanR:            sliderVal(S.gpsKalmanR,         D.kalmanR),
-      maxHdop:            sliderVal(S.gpsMaxHdop,         D.maxHdop),
-      maxSpeed:           sliderVal(S.gpsMaxSpeed,        D.maxSpeed),
-      rdpTolerance:       sliderVal(S.gpsRDP,             D.rdpTolerance),
-      downsample:         sliderVal(S.gpsDownsample,      D.downsample ? 1 : 0, parseInt),
-      trackWeight:        sliderVal(S.gpsTrackWeight,     D.trackWeight,        parseInt),
-      peakLatency:        sliderVal(S.gpsPeakLatency,     D.peakLatency),
+      smoothing: sliderVal(S.gpsSmoothing, D.smoothing),
+      kalmanR: sliderVal(S.gpsKalmanR, D.kalmanR),
+      maxHdop: sliderVal(S.gpsMaxHdop, D.maxHdop),
+      maxSpeed: sliderVal(S.gpsMaxSpeed, D.maxSpeed),
+      rdpTolerance: sliderVal(S.gpsRDP, D.rdpTolerance),
+      downsample: sliderVal(S.gpsDownsample, D.downsample ? 1 : 0, parseInt),
+      trackWeight: sliderVal(S.gpsTrackWeight, D.trackWeight, parseInt),
+      peakLatency: sliderVal(S.gpsPeakLatency, D.peakLatency),
       placeMergeDistance: sliderVal(S.placeMergeDistance, AP ? AP.mergeM : 35),
-      maxArousalPlaces:   sliderVal(S.maxArousalPlaces,   AP ? AP.maxPlaces : 20, parseInt)
+      maxArousalPlaces: sliderVal(
+        S.maxArousalPlaces,
+        AP ? AP.maxPlaces : 20,
+        parseInt,
+      ),
     };
   },
 
@@ -100,12 +118,13 @@ export const GSRStorage = {
       trackWeight: 'gpsTrackWeight',
       peakLatency: 'gpsPeakLatency',
       placeMergeDistance: 'placeMergeDistance',
-      maxArousalPlaces: 'maxArousalPlaces'
+      maxArousalPlaces: 'maxArousalPlaces',
     };
 
     for (const [key, val] of Object.entries(gps)) {
       if (val === undefined) continue;
-      const sliderKey = gpsMap[key] || ('gps' + key.charAt(0).toUpperCase() + key.slice(1));
+      const sliderKey =
+        gpsMap[key] || 'gps' + key.charAt(0).toUpperCase() + key.slice(1);
       const slider = S[sliderKey] || S[key];
       if (slider) {
         slider.value = val;
@@ -120,13 +139,21 @@ export const GSRStorage = {
     const C = AppState.contourControls;
     if (!C || !C.gridResolution) return null;
     return {
-      gridResolution:  parseInt(C.gridResolution.value),
-      contourCount:    parseInt(C.contourCount.value),
+      gridResolution: parseInt(C.gridResolution.value),
+      contourCount: parseInt(C.contourCount.value),
       isolationRadius: parseFloat(C.isolationRadius.value),
-      idwExponent:     parseFloat(C.idwExponent.value),
-      peakPreservation: parseFloat(C.peakPreservation ? C.peakPreservation.value : GSR_CONST.COLLECTIVE.peakPreservation),
-      coverageWeighting: parseFloat(C.coverageWeighting ? C.coverageWeighting.value : GSR_CONST.COLLECTIVE.coverageWeighting),
-      surfaceOpacity:  parseFloat(C.surfaceOpacity.value)
+      idwExponent: parseFloat(C.idwExponent.value),
+      peakPreservation: parseFloat(
+        C.peakPreservation
+          ? C.peakPreservation.value
+          : GSR_CONST.COLLECTIVE.peakPreservation,
+      ),
+      coverageWeighting: parseFloat(
+        C.coverageWeighting
+          ? C.coverageWeighting.value
+          : GSR_CONST.COLLECTIVE.coverageWeighting,
+      ),
+      surfaceOpacity: parseFloat(C.surfaceOpacity.value),
     };
   },
 
@@ -138,14 +165,14 @@ export const GSRStorage = {
   buildGpsParams() {
     const raw = this.readGpsSliderValues();
     return {
-      smoothing:    raw.smoothing,
-      kalmanR:      raw.kalmanR,
-      maxHdop:      raw.maxHdop,
-      maxSpeed:     raw.maxSpeed,
+      smoothing: raw.smoothing,
+      kalmanR: raw.kalmanR,
+      maxHdop: raw.maxHdop,
+      maxSpeed: raw.maxSpeed,
       rdpTolerance: raw.rdpTolerance,
-      downsample:   raw.downsample === 1,
-      trackWeight:  raw.trackWeight,
-      peakLatency:  raw.peakLatency
+      downsample: raw.downsample === 1,
+      trackWeight: raw.trackWeight,
+      peakLatency: raw.peakLatency,
     };
   },
 
@@ -157,21 +184,27 @@ export const GSRStorage = {
     const gsr = this.readGsrSliderValues();
     const gps = this.readGpsSliderValues();
     if (!gsr || !gps) {
-      alert("No active slider settings found to export.");
+      alert('No active slider settings found to export.');
       return;
     }
 
-    const activeTrack = AppState.activeTrackId ? AppState.collectiveManager.getTrack(AppState.activeTrackId) : null;
-    const baseName = filenameBase || (activeTrack ? activeTrack.name.replace(/\.[^/.]+$/, "") : "custom_preset");
+    const activeTrack = AppState.activeTrackId
+      ? AppState.collectiveManager.getTrack(AppState.activeTrackId)
+      : null;
+    const baseName =
+      filenameBase ||
+      (activeTrack
+        ? activeTrack.name.replace(/\.[^/.]+$/, '')
+        : 'custom_preset');
 
     const preset = {
-      type: "BioMappingPreset",
+      type: 'BioMappingPreset',
       version: 1,
       name: baseName,
       exportedAt: new Date().toISOString(),
       gsr: gsr,
       gps: gps,
-      contour: this.readContourSliderValues()
+      contour: this.readContourSliderValues(),
     };
 
     // Save via GSRFileSaver save location dialog box
@@ -181,7 +214,7 @@ export const GSRStorage = {
   async downloadPresetJson(preset, filenameBase) {
     const jsonStr = JSON.stringify(preset, null, 2);
     const stamp = new Date().toISOString().slice(0, 10);
-    const suggestedName = `biomapping_preset_${(filenameBase || "preset").replace(/[^a-zA-Z0-9_-]/g, "_")}_${stamp}.json`;
+    const suggestedName = `biomapping_preset_${(filenameBase || 'preset').replace(/[^a-zA-Z0-9_-]/g, '_')}_${stamp}.json`;
     await GSRFileSaver.saveFile(jsonStr, suggestedName);
   },
 
@@ -197,7 +230,7 @@ export const GSRStorage = {
         const success = this.applyPreset(preset);
         if (callback) callback(success, preset);
       } catch (err) {
-        alert("Invalid preset file format: " + err.message);
+        alert('Invalid preset file format: ' + err.message);
         if (callback) callback(false, null);
       }
     };
@@ -209,7 +242,10 @@ export const GSRStorage = {
    * without triggering duplicate analysis runs or map re-renders.
    */
   syncSliderValueDisplays() {
-    if (typeof GSREvents !== 'undefined' && typeof GSREvents.initializeLabels === 'function') {
+    if (
+      typeof GSREvents !== 'undefined' &&
+      typeof GSREvents.initializeLabels === 'function'
+    ) {
       GSREvents.initializeLabels();
     }
   },
@@ -219,7 +255,7 @@ export const GSRStorage = {
    */
   applyPreset(preset) {
     if (!preset) {
-      alert("Invalid preset file.");
+      alert('Invalid preset file.');
       return false;
     }
 
@@ -230,21 +266,34 @@ export const GSRStorage = {
     if (!S) return false;
 
     // Restore GSR sliders
-    if (gsr.medianSize !== undefined && S.medianSize) S.medianSize.value = gsr.medianSize;
-    if (gsr.lpfWindow !== undefined && S.lpfWindow) S.lpfWindow.value = gsr.lpfWindow;
-    if (gsr.useGaitFilter !== undefined && S.useGaitFilter) S.useGaitFilter.checked = !!gsr.useGaitFilter;
+    if (gsr.medianSize !== undefined && S.medianSize)
+      S.medianSize.value = gsr.medianSize;
+    if (gsr.lpfWindow !== undefined && S.lpfWindow)
+      S.lpfWindow.value = gsr.lpfWindow;
+    if (gsr.useGaitFilter !== undefined && S.useGaitFilter)
+      S.useGaitFilter.checked = !!gsr.useGaitFilter;
     // A retired baseline method (e.g. a preset saved with 'dwt') would be an
     // invalid <select> value — a DOM no-op that leaves a stale label; ignore it.
-    if (gsr.tonicMethod !== undefined && S.tonicMethod &&
-        ['percentile', 'median', 'lpf'].includes(gsr.tonicMethod)) {
+    if (
+      gsr.tonicMethod !== undefined &&
+      S.tonicMethod &&
+      ['percentile', 'median', 'lpf'].includes(gsr.tonicMethod)
+    ) {
       S.tonicMethod.value = gsr.tonicMethod;
     }
-    if (gsr.tonicWindow !== undefined && S.tonicWindow) S.tonicWindow.value = gsr.tonicWindow;
-    if (gsr.peakThreshold !== undefined && S.peakThreshold) S.peakThreshold.value = gsr.peakThreshold;
-    if (gsr.minPeakQuality !== undefined && S.minPeakQuality) S.minPeakQuality.value = gsr.minPeakQuality;
-    if (gsr.peakDensityWindow !== undefined && S.peakDensityWindow) S.peakDensityWindow.value = gsr.peakDensityWindow;
+    if (gsr.tonicWindow !== undefined && S.tonicWindow)
+      S.tonicWindow.value = gsr.tonicWindow;
+    if (gsr.peakThreshold !== undefined && S.peakThreshold)
+      S.peakThreshold.value = gsr.peakThreshold;
+    if (gsr.minPeakQuality !== undefined && S.minPeakQuality)
+      S.minPeakQuality.value = gsr.minPeakQuality;
+    if (gsr.peakDensityWindow !== undefined && S.peakDensityWindow)
+      S.peakDensityWindow.value = gsr.peakDensityWindow;
     if (gsr.hotspotPercentile !== undefined && S.hotspotPercentile) {
-      S.hotspotPercentile.value = gsr.hotspotPercentile > 1.0 ? gsr.hotspotPercentile : gsr.hotspotPercentile * 100.0;
+      S.hotspotPercentile.value =
+        gsr.hotspotPercentile > 1.0
+          ? gsr.hotspotPercentile
+          : gsr.hotspotPercentile * 100.0;
     }
 
     if (gsr.useDeconvolution !== undefined && S.useDeconvolution) {
@@ -273,7 +322,8 @@ export const GSRStorage = {
       if (S.useDeconvolution) S.useDeconvolution.checked = false;
     }
 
-    if (gsr.shapeMinSnr !== undefined && S.shapeMinSnr) S.shapeMinSnr.value = gsr.shapeMinSnr;
+    if (gsr.shapeMinSnr !== undefined && S.shapeMinSnr)
+      S.shapeMinSnr.value = gsr.shapeMinSnr;
 
     // Restore GPS & Spatial Clustering sliders
     this.writeGpsSliderValues(gps);
@@ -282,17 +332,27 @@ export const GSRStorage = {
     const contour = preset.contour;
     const C = AppState.contourControls;
     if (contour && C) {
-      if (contour.gridResolution !== undefined && C.gridResolution) C.gridResolution.value = contour.gridResolution;
-      if (contour.contourCount !== undefined && C.contourCount) C.contourCount.value = contour.contourCount;
-      if (contour.isolationRadius !== undefined && C.isolationRadius) C.isolationRadius.value = contour.isolationRadius;
-      if (contour.idwExponent !== undefined && C.idwExponent) C.idwExponent.value = contour.idwExponent;
-      if (contour.peakPreservation !== undefined && C.peakPreservation) C.peakPreservation.value = contour.peakPreservation;
-      if (contour.coverageWeighting !== undefined && C.coverageWeighting) C.coverageWeighting.value = contour.coverageWeighting;
-      if (contour.surfaceOpacity !== undefined && C.surfaceOpacity) C.surfaceOpacity.value = contour.surfaceOpacity;
+      if (contour.gridResolution !== undefined && C.gridResolution)
+        C.gridResolution.value = contour.gridResolution;
+      if (contour.contourCount !== undefined && C.contourCount)
+        C.contourCount.value = contour.contourCount;
+      if (contour.isolationRadius !== undefined && C.isolationRadius)
+        C.isolationRadius.value = contour.isolationRadius;
+      if (contour.idwExponent !== undefined && C.idwExponent)
+        C.idwExponent.value = contour.idwExponent;
+      if (contour.peakPreservation !== undefined && C.peakPreservation)
+        C.peakPreservation.value = contour.peakPreservation;
+      if (contour.coverageWeighting !== undefined && C.coverageWeighting)
+        C.coverageWeighting.value = contour.coverageWeighting;
+      if (contour.surfaceOpacity !== undefined && C.surfaceOpacity)
+        C.surfaceOpacity.value = contour.surfaceOpacity;
     }
 
     // Refresh dependent layout: tonic-window slider config.
-    if (typeof GSREvents !== 'undefined' && typeof GSREvents.updateTonicMethodLayout === 'function') {
+    if (
+      typeof GSREvents !== 'undefined' &&
+      typeof GSREvents.updateTonicMethodLayout === 'function'
+    ) {
       GSREvents.updateTonicMethodLayout();
     }
 
@@ -306,10 +366,14 @@ export const GSRStorage = {
         track.filterParams = this.readGsrSliderValues();
         track.gpsFilterParams = this.readGpsSliderValues();
         try {
-          const pl = (track.gpsFilterParams && track.gpsFilterParams.peakLatency) || 0;
+          const pl =
+            (track.gpsFilterParams && track.gpsFilterParams.peakLatency) || 0;
           track.analyzer.analyze(track.filterParams, pl);
         } catch (e) {
-          console.warn(`Re-analysing active track failed after loading preset:`, e);
+          console.warn(
+            `Re-analysing active track failed after loading preset:`,
+            e,
+          );
         }
         if (typeof GSRTrackManager !== 'undefined') {
           GSRTrackManager.renderTrackList();
@@ -318,12 +382,15 @@ export const GSRStorage = {
           if (typeof GSRUI.runAnalysis === 'function') {
             GSRUI.runAnalysis();
           }
-          if (AppState.viewMode === 'collective' && typeof GSRUI.updateCollectiveMap === 'function') {
+          if (
+            AppState.viewMode === 'collective' &&
+            typeof GSRUI.updateCollectiveMap === 'function'
+          ) {
             GSRUI.updateCollectiveMap();
           }
         }
       }
     }
     return true;
-  }
+  },
 };
