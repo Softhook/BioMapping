@@ -10,7 +10,7 @@
 const assert = require('assert');
 const test = require('node:test');
 
-const { AppState } = require('../src/core/app_state.js');
+const { AppState } = require('../src/core/app_state.mjs');
 
 test('getNextTrackColor: cycles through the palette in order and wraps around', () => {
   // Note: getNextTrackColor()'s body reads/writes `AppState.trackColors` /
@@ -69,14 +69,18 @@ test('viewDuration: clamps to [2.0, totalDuration] using the hardcoded fallback 
   assert.strictEqual(AppState.viewDuration, 40);
 });
 
-test('viewDuration: consults the real GSR_CONST.ZOOM_MIN_DURATION when it is declared (regression test ' +
-  'for a fixed bug: the setter used to gate on `window.GSR_CONST`, which nothing in the app ever sets, ' +
-  'so constants.js\'s ZOOM_MIN_DURATION was silently ignored — see app_state.js:65 history)', () => {
-  global.GSR_CONST = { ZOOM_MIN_DURATION: 7, ZOOM_MIN: 1, ZOOM_MAX: 50 };
+test('viewDuration: consults the real, statically-imported GSR_CONST.ZOOM_MIN_DURATION (regression test ' +
+  'for a fixed bug: the setter used to gate on `window.GSR_CONST`, which nothing in the app ever set, ' +
+  'so constants.js\'s ZOOM_MIN_DURATION was silently ignored — see app_state.js history; under the real ' +
+  'ES-module import this is now structurally guaranteed rather than a runtime lookup, so this mutates the ' +
+  'same imported object app_state.mjs holds a live binding to)', () => {
+  const { GSR_CONST } = require('../src/core/constants.mjs');
+  const original = GSR_CONST.ZOOM_MIN_DURATION;
+  GSR_CONST.ZOOM_MIN_DURATION = 7;
   AppState.totalDuration = 100;
   AppState.viewDuration = 1; // below the now-configured min of 7
   assert.strictEqual(AppState.viewDuration, 7);
-  delete global.GSR_CONST;
+  GSR_CONST.ZOOM_MIN_DURATION = original;
 });
 
 test('viewDuration: silently ignores non-number / NaN assignments', () => {
@@ -97,14 +101,19 @@ test('zoomFactor: clamps to [1.0, 50.0] using the hardcoded fallback when GSR_CO
   assert.strictEqual(AppState.zoomFactor, 10);
 });
 
-test('zoomFactor: consults the real GSR_CONST.ZOOM_MIN/ZOOM_MAX when it is declared (regression test ' +
-  'for the same fixed window.GSR_CONST-vs-bare-GSR_CONST bug as viewDuration, app_state.js:75-76)', () => {
-  global.GSR_CONST = { ZOOM_MIN_DURATION: 2, ZOOM_MIN: 3, ZOOM_MAX: 20 };
+test('zoomFactor: consults the real, statically-imported GSR_CONST.ZOOM_MIN/ZOOM_MAX (regression test ' +
+  'for the same fixed window.GSR_CONST-vs-bare-GSR_CONST bug as viewDuration)', () => {
+  const { GSR_CONST } = require('../src/core/constants.mjs');
+  const originalMin = GSR_CONST.ZOOM_MIN;
+  const originalMax = GSR_CONST.ZOOM_MAX;
+  GSR_CONST.ZOOM_MIN = 3;
+  GSR_CONST.ZOOM_MAX = 20;
   AppState.zoomFactor = 0.5;
   assert.strictEqual(AppState.zoomFactor, 3, 'below the now-configured min of 3');
   AppState.zoomFactor = 999;
   assert.strictEqual(AppState.zoomFactor, 20, 'above the now-configured max of 20');
-  delete global.GSR_CONST;
+  GSR_CONST.ZOOM_MIN = originalMin;
+  GSR_CONST.ZOOM_MAX = originalMax;
 });
 
 test('zoomFactor: silently ignores non-number / NaN assignments', () => {
@@ -116,7 +125,7 @@ test('zoomFactor: silently ignores non-number / NaN assignments', () => {
 });
 
 test('default state shape: key fields start with documented defaults', () => {
-  const fresh = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'core', 'app_state.js'), 'utf8');
+  const fresh = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'core', 'app_state.mjs'), 'utf8');
   // Sanity-check the defaults documented in the module comments are actually
   // present in source, since AppState is a singleton mutated by the tests
   // above and can't be freshly re-instantiated without re-parsing the file.

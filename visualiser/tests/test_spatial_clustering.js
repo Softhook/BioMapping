@@ -16,7 +16,7 @@ global.MarchingSquares = require('../src/render/marching_squares.mjs').MarchingS
 global.GeoUtils = require('../src/gps/geo_utils.mjs').GeoUtils;
 global.SpatialGrid = require('../src/spatial/spatial_grid.mjs').SpatialGrid;
 
-const { GSRSpatialClustering } = require('../src/spatial/spatial_clustering.js');
+const { GSRSpatialClustering } = require('../src/spatial/spatial_clustering.mjs');
 
 const METERS_PER_DEG_LAT = 111320.0;
 
@@ -432,14 +432,19 @@ test('getConcaveBlob: invalid sigma/thresholdRadius fall back to defaults instea
 });
 
 test('getConcaveBlob: returns [] (without throwing) when MarchingSquares is unavailable', () => {
-  const saved = global.MarchingSquares;
-  delete global.MarchingSquares;
+  // Under the real ES-module import, `MarchingSquares` itself is always
+  // defined (a static import can't resolve to undefined), so the guard this
+  // exercises checks for the method it actually calls instead — stubbing
+  // that out is the equivalent of the library failing to provide it.
+  const { MarchingSquares } = require('../src/render/marching_squares.mjs');
+  const saved = MarchingSquares.getContourLines;
+  delete MarchingSquares.getContourLines;
   try {
     const cluster = [{ lat: 0, lon: 0 }];
     const paths = GSRSpatialClustering.getConcaveBlob(cluster, 15, 18);
     assert.deepStrictEqual(paths, []);
   } finally {
-    global.MarchingSquares = saved;
+    MarchingSquares.getContourLines = saved;
   }
 });
 

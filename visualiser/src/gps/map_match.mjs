@@ -44,7 +44,10 @@
  *     strings).  If timestamps are in a different unit the chain-breaking
  *     threshold will be wrong.
  */
-const MapMatcher = {
+import { GSR_CONST } from '../core/constants.mjs';
+import { GeoUtils } from './geo_utils.mjs';
+
+export const MapMatcher = {
 
   /** GPS position error std dev (metres).  Newson & Krumm use 4.07 m. */
   SIGMA_M: 4.07,
@@ -480,10 +483,3 @@ const MapMatcher = {
     'footway':       -8,  'path':         -8
   }
 };
-
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { MapMatcher };
-}
-if (typeof window !== 'undefined') {
-  window.MapMatcher = MapMatcher;
-}

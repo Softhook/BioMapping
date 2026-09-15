@@ -13,7 +13,7 @@ const test = require('node:test');
 // onto Node's `global` before requiring, same pattern as tests/test_osm_enrichment.js.
 global.GeoUtils = require('../src/gps/geo_utils.mjs').GeoUtils;
 
-const { MapMatcher } = require('../src/gps/map_match.js');
+const { MapMatcher } = require('../src/gps/map_match.mjs');
 
 const METERS_PER_DEG_LAT = 111320.0;
 

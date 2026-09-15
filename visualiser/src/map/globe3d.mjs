@@ -22,7 +22,13 @@
 // loaded before this file — see tests/test_html_wiring.js.
 
 /** basemap id -> factory producing a fresh Cesium imagery provider (no API key required) */
-const BASEMAP_PROVIDERS = {
+import { GSR_CONST } from '../core/constants.mjs';
+import { GSRNotices } from '../core/notices.mjs';
+import { GSRBasemap } from './basemap.mjs';
+import { MapColors } from './map_colors.mjs';
+import { ResponseDynamics } from '../signal/response_dynamics.mjs';
+
+export const BASEMAP_PROVIDERS = {
   satellite: () => new Cesium.UrlTemplateImageryProvider({
     url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
     maximumLevel: 19,
@@ -51,7 +57,7 @@ const BASEMAP_PROVIDERS = {
  * Colouring metric -> analyzer per-sample series field. Mirrors DERIVED_METRIC_SERIES
  * in map.js; anything not listed falls back to the raw GSR series.
  */
-const SERIES_FIELD = {
+export const SERIES_FIELD = {
   phasic: 'phasic',
   tonic: 'tonic',
   arousalIndex: 'arousalIndex',
@@ -77,10 +83,10 @@ const SERIES_FIELD = {
  * are ~100× smaller than the µS-scale series, so the extrusion is subtle at
  * the default scale — raise the extrusion slider to exaggerate it.
  */
-const HEIGHT_CAPABLE_METRICS = new Set(['gsr', 'phasic', 'tonic', 'arousalIndex', 'triIndex', 'peakDensity', 'phasicAUC', 'edasymp']);
+export const HEIGHT_CAPABLE_METRICS = new Set(['gsr', 'phasic', 'tonic', 'arousalIndex', 'triIndex', 'peakDensity', 'phasicAUC', 'edasymp']);
 
 /** Unwrap one analyzer series sample ({time,val} | number) to a plain float. */
-const seriesValue = (d) =>
+export const seriesValue = (d) =>
   (d && typeof d === 'object' && 'val' in d) ? d.val : (typeof d === 'number' ? d : 0);
 
 /**
@@ -90,7 +96,7 @@ const seriesValue = (d) =>
  * null when the metric has no raw-field mapping (e.g. an unknown metric or a
  * derived SERIES_FIELD metric, which callers resolve elsewhere).
  */
-const rawMetricField = (metric) => {
+export const rawMetricField = (metric) => {
   if (metric === 'gsr') return 'gsr';
   if (metric === 'hdopQuality') return 'hdop';
   if (typeof GSR_CONST !== 'undefined') {
@@ -109,13 +115,13 @@ const rawMetricField = (metric) => {
 // (see _decimateForWall): a walk can carry >10k display points and at the zoom
 // that frames the whole track they are tens of points per pixel. Override per
 // instance with options.wallMaxSegments (Infinity disables thinning).
-const WALL_MAX_SEGMENTS = 2500;
+export const WALL_MAX_SEGMENTS = 2500;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GSRGlobeManager
 // ─────────────────────────────────────────────────────────────────────────────
 
-class GSRGlobeManager {
+export class GSRGlobeManager {
   /**
    * @param {string} containerId  DOM id of the element to mount the Cesium viewer in.
    * @param {object} [options]
@@ -1738,7 +1744,6 @@ class GSRGlobeManager {
     });
   }
 
-
   // GSRGlobeManager is completed by prototype-augment files loaded immediately
   // after this one (see index.html / boot_app.js SCRIPT_ORDER):
   //   globe3d_osm.js         — 3D OSM building extrusion (orchestration; geometry in globe3d/buildings.js)
@@ -1750,14 +1755,4 @@ class GSRGlobeManager {
   // 3D track export (CZML / KML) lives in src/map/globe3d/exporters.js and is
   // driven from the main Export Options panel — it needs no live viewer. The 3D
   // PNG snapshot was dropped: the app's Save Canvas / Bio Map PNG covers it.
-}
-
-if (typeof module !== 'undefined' && module.exports) {
-  if (typeof global !== 'undefined' && typeof global.ResponseDynamics === 'undefined') {
-    try { global.ResponseDynamics = require('../signal/response_dynamics.mjs').ResponseDynamics; } catch (_) {}
-  }
-  module.exports = { GSRGlobeManager, BASEMAP_PROVIDERS, SERIES_FIELD, HEIGHT_CAPABLE_METRICS, seriesValue };
-}
-if (typeof window !== 'undefined') {
-  window.GSRGlobeManager = GSRGlobeManager;
 }

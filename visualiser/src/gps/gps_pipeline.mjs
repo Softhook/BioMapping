@@ -1,7 +1,9 @@
 /**
  * GPS Filter Pipeline — standalone helper functions for trajectory cleaning, gating, and display downsampling.
  */
-const GpsPipeline = {
+import { GpsFilter } from './gps_filter.mjs';
+
+export const GpsPipeline = {
 
   /**
    * HDOP gate: rejects GPS anchors with poor satellite geometry.
@@ -231,10 +233,3 @@ const GpsPipeline = {
     return draw;
   }
 };
-
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { GpsPipeline };
-}
-if (typeof window !== 'undefined') {
-  window.GpsPipeline = GpsPipeline;
-}

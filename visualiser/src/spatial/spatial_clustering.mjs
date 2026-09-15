@@ -2,7 +2,12 @@
  * GSR Spatial Clustering Utility.
  * Groups stress peaks by geodesic distance and computes smooth, concave boundary paths.
  */
-class GSRSpatialClustering {
+import { GSR_CONST } from '../core/constants.mjs';
+import { GeoUtils } from '../gps/geo_utils.mjs';
+import { MarchingSquares } from '../render/marching_squares.mjs';
+import { SpatialGrid } from './spatial_grid.mjs';
+
+export class GSRSpatialClustering {
   /**
    * Helper to compute conversion factors from degrees to meters at a given latitude.
    *
@@ -38,8 +43,6 @@ class GSRSpatialClustering {
     const dx = (parseFloat(lon1) - parseFloat(lon2)) * scale.degToMeterLon;
     return dx * dx + dy * dy;
   }
-
-
 
   /**
    * Compact spatial clustering for the Arousal Places layer.
@@ -322,7 +325,7 @@ class GSRSpatialClustering {
     // MarchingSquares.getContourLines expects grid[r][c] semantics — build a
     // lightweight row-accessor array that reads from the flat buffer without
     // copying data. Each element is a Float64Array view over its own row slice.
-    if (typeof MarchingSquares === 'undefined') {
+    if (!MarchingSquares || typeof MarchingSquares.getContourLines !== 'function') {
       console.warn("MarchingSquares is not defined. Cannot generate concave blobs.");
       return [];
     }
@@ -443,12 +446,4 @@ class GSRSpatialClustering {
 
     return paths;
   }
-}
-
-// Make globally available
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { GSRSpatialClustering };
-}
-if (typeof window !== 'undefined') {
-  window.GSRSpatialClustering = GSRSpatialClustering;
 }

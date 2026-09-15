@@ -2,10 +2,10 @@
 
 See `docs/visualizer_modularity_plan.md`'s "drop dual-mode for real ES
 modules" section and the plan this session ran from for full context.
-**Current status: layers 0-1 (33 of 93 files) converted and wired into
-`npm test`, suite green. Layers 2-7 (60 files) not yet started — see "Next
+**Current status: layers 0-2 (39 of 93 files) converted and wired into
+`npm test`, suite green. Layers 3-7 (54 files) not yet started — see "Next
 steps" near the end of this file for the exact resume point, including the
-full layer-2 file list.**
+full layer-3 file list (a 2-file SCC).**
 
 ## `build_import_manifest.js` (step 1)
 
@@ -351,19 +351,78 @@ on, not the exception — layer 1 just hit it first.
 
 Suite verified 1345/1345 green three times in a row before committing.
 
+### Layer 2 (6 files) — DONE
+
+Every layer-2 leaf converted: `src/core/app_state.js`,
+`src/signal/cvxeda.js`, `src/spatial/spatial_clustering.js`,
+`src/gps/map_match.js`, `src/gps/gps_pipeline.js`, `src/map/globe3d.js`.
+
+**This layer's first real "a bare identifier the source only conditionally
+consulted becomes a hard static import" edge surfaced a new-but-expected
+test-authoring pattern** (not a `realm_bridge.js`/realm-model bug — a
+consequence of real ES module semantics, same general shape as layer 1's
+cache-busting edge, just one level up): several source files have a
+`typeof X === 'undefined' ? fallback : X.field` guard, written for the
+dual-mode era where `X` was a bare reference into the shared global/script
+scope and could genuinely be absent (script not yet loaded, or a test
+deliberately unset it). Once the file that declares `X` converts and the
+consuming file picks up a real `import { X } from './x.mjs'`, that guard's
+`typeof X === 'undefined'` branch becomes **structurally unreachable** — a
+static import either resolves or the whole module fails to load; it can
+never silently resolve to `undefined`. Two real instances, both fixed by
+adapting the test to mutate the real imported singleton's own properties in
+place (still real coverage of the *fallback logic*, just no longer able to
+fake "the import itself is missing", which is no longer a real scenario):
+
+1. `src/core/app_state.js`'s `viewDuration`/`zoomFactor` setters gate on
+   bare `GSR_CONST` (from `constants.mjs`, layer 1). `test_app_state.js`'s
+   two "consults the real GSR_CONST" regression tests used to set
+   `global.GSR_CONST = {...}` — now inert, since `app_state.mjs` holds a
+   static import binding to the *real* `constants.mjs` object, not a global
+   lookup. Fixed: `require('../src/core/constants.mjs')` in the test to get
+   that exact same singleton object (Node's ESM module cache guarantees
+   it — one instance per resolved URL, process-wide) and temporarily
+   overwrite its fields (`GSR_CONST.ZOOM_MIN_DURATION = 7`, restored after),
+   which `app_state.mjs`'s live binding sees immediately since it's a
+   property mutation, not a rebinding. The two "hardcoded fallback when
+   GSR_CONST is not declared" tests are left as-is — they still pass (the
+   real constants happen to equal the hardcoded fallback numbers) but no
+   longer exercise the fallback branch, which is now genuinely dead code;
+   not worth deleting, harmless to leave.
+2. `src/spatial/spatial_clustering.js`'s `getConcaveBlob` gates on bare
+   `MarchingSquares` (layer 0) the same way. Here the guard was tightened
+   instead of left dead — `typeof MarchingSquares === 'undefined'` became
+   `!MarchingSquares || typeof MarchingSquares.getContourLines !==
+   'function'`, a real, still-meaningful defensive check (protects against
+   the export shape changing or the method being stripped, not just "did
+   the script tag load") that a test can still exercise by deleting
+   `MarchingSquares.getContourLines` off the real imported object.
+
+Also as expected per the layer-1 precedent: two NOT-yet-converted `src/`
+dual-mode tails (`globe3d_peaks.js`, `globe3d_tour.js`, both layer 3) had a
+literal `require('./globe3d.js')` in their CommonJS branch (used to pull
+`SERIES_FIELD`/`seriesValue`/etc. onto `global` for their own method bodies
+to bare-reference) — updated to `require('./globe3d.mjs')` inline, not
+deferred; `boot_app.js`'s `SCRIPT_ORDER` itself needed no change, since
+`resolveFile()` already swaps the extension dynamically. And the usual
+direct-`require`/path-literal test fixes: `test_app_state.js`,
+`test_map_match.js`, `test_spatial_clustering.js`, `test_current_pipeline.js`
+(a bare `global.CVXEDA = require(...)` became a destructured
+`({ CVXEDA: global.CVXEDA } = require(...))` once `cvxeda.mjs` exports the
+named `CVXEDA` binding instead of a raw `module.exports =`), and
+`test_globe3d.js` (path updated to `.mjs`; its own `loadFresh()` used to
+`delete require.cache[...]` on `globe3d.js` to force a fresh reload per
+test — confirmed empirically that this never actually re-executes an
+ESM's top-level code even after cache deletion (unlike a real CJS file),
+so with no module-level mutable state in `globe3d.mjs` to worry about, the
+busting was simply dropped for that one file while it stays in place for
+the still-CJS augment files).
+
+Suite verified 1345/1345 green three times in a row before committing.
+
 ### Next steps, in order
 
-1. **Layer 2 (6 files, all independent leaves — order doesn't matter):**
-   `src/core/app_state.js`, `src/signal/cvxeda.js`,
-   `src/spatial/spatial_clustering.js`, `src/gps/map_match.js`,
-   `src/gps/gps_pipeline.js`, `src/map/globe3d.js`. Same process as layers
-   0-1: `node tests/manual/esm_migration/convert_file.js <file> --write`,
-   then re-run `npm test`; fix any surfaced direct
-   `require('../src/X.js')`/raw-`readFileSync` test references inline (see
-   layer 1 above for the pattern) — don't defer. If `npm test` surfaces a
-   NEW realm-model bug class (not one already fixed in `realm_bridge.js`
-   across layers 0-1), fix it there too, not with a workaround in a test.
-2. Continue layer by layer: 3 (13 files — **one 2-file SCC:
+1. Continue layer by layer, starting at layer 3 (13 files — **one 2-file SCC:
    `analyzer.js`↔`csv_parser.js`, convert as one atomic batch**), 4 (4
    files), 5 (1 file), 6 (22 files — **one 13-file SCC: `ui.js`,
    `events.js`, `tracks.js`, `storage.js`, `sketch.js`, `live_view.js`,
@@ -371,8 +430,20 @@ Suite verified 1345/1345 green three times in a row before committing.
    `map_exporter.js`, `map_popups.js`, `globe3d_view.js`,
    `layout_manager.js` — convert as one atomic batch**), 7 (14 files, the
    most composite — last layer, includes `index.html`'s eventual final
-   entry points).
-3. Once every file is converted: the atomic browser cutover (index.html →
+   entry points). Same process each time: `node
+   tests/manual/esm_migration/convert_file.js <file> --write`, then re-run
+   `npm test`; fix any surfaced direct `require('../src/X.js')`/raw-
+   `readFileSync` test references and any not-yet-converted `src/` dual-mode
+   tail that literally `require()`s a now-`.mjs` file inline (see layers 1-2
+   above for the patterns) — don't defer. If a source file has a
+   `typeof X === 'undefined'`-style fallback gating on a name that just
+   became a real static import, expect it to go structurally dead the same
+   way `app_state.js`'s `GSR_CONST` gate did in layer 2 — adapt the test to
+   mutate the real imported singleton in place rather than trying to fake
+   the import itself as absent. If `npm test` surfaces a genuinely new
+   realm-model bug class (not one already fixed in `realm_bridge.js` across
+   layers 0-1), fix it there too, not with a workaround in a test.
+2. Once every file is converted: the atomic browser cutover (index.html →
    single `<script type="module">`, `boot_app.js`/`boot_live.js` themselves
    rewritten one more time to a real dynamic-import-based loader instead of
    the migration-era realm bridge, `package.json` gets `"type": "module"`)

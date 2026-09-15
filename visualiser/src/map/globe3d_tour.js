@@ -304,7 +304,7 @@
   };
 
   if (typeof module !== 'undefined' && module.exports) {
-    Object.assign(global, require('./globe3d.js'));
+    Object.assign(global, require('./globe3d.mjs'));
     module.exports = __methods;
   } else {
     Object.assign(GSRGlobeManager.prototype, __methods);

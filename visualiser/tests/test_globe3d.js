@@ -19,7 +19,7 @@ const assert = require('node:assert');
 const path = require('path');
 
 const APP_DIR = path.join(__dirname, '..');
-const GLOBE3D = path.join(APP_DIR, 'src', 'map', 'globe3d.js');
+const GLOBE3D = path.join(APP_DIR, 'src', 'map', 'globe3d.mjs');
 // Prototype-augment files (see globe3d.js's class-tail manifest comment):
 // under plain require() (this file's per-test isolation harness) each one
 // exports its method object instead of assigning onto a live global, so
@@ -91,7 +91,10 @@ function freshEnv() {
 }
 
 function loadFresh() {
-  delete require.cache[require.resolve(GLOBE3D)];
+  // globe3d.mjs has no module-level mutable state, and Node's require()-of-
+  // ESM synthetic module can't be cache-busted (delete require.cache leaves
+  // the same underlying instance) — so it's required once and reused as-is;
+  // only the not-yet-converted CJS augment files below need fresh reloading.
   const mod = require(GLOBE3D);
   for (const augment of GLOBE3D_AUGMENTS) {
     delete require.cache[require.resolve(augment)];

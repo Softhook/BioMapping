@@ -48,9 +48,11 @@
  * solver needed for comparable accuracy.
  */
 
+import { GSR_CONST } from '../core/constants.mjs';
+
 'use strict';
 
-const CVXEDA = {
+export const CVXEDA = {
   /**
    * Decompose an electrodermal activity signal into tonic, phasic and driver.
    *
@@ -615,10 +617,3 @@ const CVXEDA = {
     return { phasic, tonic, driver, l, d, e, obj, iterations, converged, rPrim, rDual, pivotFires };
   }
 };
-
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = CVXEDA;
-}
-if (typeof window !== 'undefined') {
-  window.CVXEDA = CVXEDA;
-}

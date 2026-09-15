@@ -6,7 +6,9 @@
  * All files access state through `AppState.xxx` instead of bare globals.
  */
 
-const AppState = {
+import { GSR_CONST } from './constants.mjs';
+
+export const AppState = {
 
   // ── Core engine instances ──────────────────────────────────────────────────
   analyzer: null,           // GSRAnalyzer (current active track)
@@ -157,10 +159,3 @@ const AppState = {
     (AppState._listeners[event] || []).forEach(fn => fn(...args));
   }
 };
-
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { AppState };
-}
-if (typeof window !== 'undefined') {
-  window.AppState = AppState;
-}
