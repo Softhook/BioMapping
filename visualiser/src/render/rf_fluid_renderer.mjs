@@ -13,7 +13,10 @@
  * - Zoom End: Redrawn at crisp resolution.
  */
 
-class RFFluidRenderer {
+import { GSRAnalyzer } from '../signal/analyzer.mjs';
+import { SpatialGrid } from '../spatial/spatial_grid.mjs';
+
+export class RFFluidRenderer {
   constructor(map, options = {}) {
     this.map = map;
     this.options = Object.assign({
@@ -905,11 +908,4 @@ class RFFluidRenderer {
     result.polygons = polygons;
     return result;
   }
-}
-
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { RFFluidRenderer };
-}
-if (typeof window !== 'undefined') {
-  window.RFFluidRenderer = RFFluidRenderer;
 }

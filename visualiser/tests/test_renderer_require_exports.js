@@ -3,7 +3,7 @@
 /**
  * Regression coverage for renderer.js's plain-require() export surface.
  *
- * renderer_bands.js and renderer_interaction.js each reference module-level
+ * renderer_interaction.js references module-level
  * names (getQualityColor/getQualityLabel/EXCLUDED_STYLE/NORMAL_DASH/
  * EXCLUDE_BTN) as bare identifiers, resolvable under the browser/vm path
  * because they share renderer.js's lexical scope. Under plain CommonJS
@@ -20,13 +20,13 @@
  * instead of waiting for the next plain-require() test to trip over a
  * ReferenceError.
  *
- * renderer_chrome.js and renderer_markers.js converted to real ES modules
- * (each now a static `import { ... } from './renderer.mjs'`, composing
- * itself onto GSRRenderer as a top-level side effect) — the require-branch
- * this file exercises no longer exists for them, and the global-stamping
- * trick it checks for is structurally impossible to get wrong once bare
- * identifiers are real lexical import bindings, so they're dropped from the
- * loop below rather than kept failing.
+ * renderer_chrome.js, renderer_markers.js, and renderer_bands.js converted
+ * to real ES modules (each now a static `import { ... } from
+ * './renderer.mjs'`, composing itself onto GSRRenderer as a top-level side
+ * effect) — the require-branch this file exercises no longer exists for
+ * them, and the global-stamping trick it checks for is structurally
+ * impossible to get wrong once bare identifiers are real lexical import
+ * bindings, so they're dropped from the loop below rather than kept failing.
  */
 const assert = require('assert');
 const test   = require('node:test');
@@ -44,7 +44,7 @@ test('renderer.js exports every module-level name its augment files read bare', 
   assert.deepStrictEqual(mod.getQualityLabel(0.9), { pct: 90, label: 'High' });
 });
 
-for (const augment of ['renderer_bands.js', 'renderer_interaction.js']) {
+for (const augment of ['renderer_interaction.js']) {
   test(`${augment}'s require-branch resolves every bare identifier it needs onto global`, () => {
     // Fresh require each time so an augment file loaded earlier in this
     // process can't leave a stale `global.X` behind that masks a broken stamp.

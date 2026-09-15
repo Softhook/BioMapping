@@ -22,8 +22,13 @@
  * available bare; a name missing there is a bug in renderer.js's exports, not
  * something to patch around here.
  */
-(function () {
-  const __methods = {
+import { AppState } from '../core/app_state.mjs';
+import { GSR_CONST } from '../core/constants.mjs';
+import { MapColors } from '../map/map_colors.mjs';
+import { OSMEnricher } from '../osm/osm_enrichment.mjs';
+import { GSRRenderer } from './renderer.mjs';
+
+  export const __methods = {
 
   /**
    * Environmental classification for background bands and tooltip context.
@@ -317,15 +322,4 @@
 
   };
 
-  if (typeof module !== 'undefined' && module.exports) {
-    // ES-module migration: renderer.js gets a temporary .mjs extension when
-    // converted (convert_file.js --write), deleting the .js — same
-    // resolution rule as boot_app.js's resolveFile().
-    const rendererPath = require('fs').existsSync(require('path').join(__dirname, 'renderer.mjs'))
-      ? './renderer.mjs' : './renderer.js';
-    Object.assign(global, require(rendererPath));
-    module.exports = __methods;
-  } else {
-    Object.assign(GSRRenderer, __methods);
-  }
-})();
+  Object.assign(GSRRenderer, __methods);

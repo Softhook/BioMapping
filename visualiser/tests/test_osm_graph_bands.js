@@ -44,7 +44,12 @@ const { GSRRenderer } = require('../src/render/renderer.mjs');
 // renderer_bands.js (see renderer.js's class-tail manifest comment) — under
 // plain require() it hands back its method object instead of assigning
 // onto a live global.
-Object.assign(GSRRenderer, require('../src/render/renderer_bands.js'));
+Object.assign(GSRRenderer, require('../src/render/renderer_bands.mjs'));
+// renderer_bands.mjs holds a static `import { AppState } from
+// '../core/app_state.mjs'` live binding — a `global.AppState = {...}` shadow
+// no longer reaches it (ES-module migration), so mutate the real imported
+// singleton's own `.analyzer` property in place instead.
+const { AppState } = require('../src/core/app_state.mjs');
 
 test('OSM classification reuses MapColors road/park colours (no separate palette)', () => {
   const primary = GSRRenderer._classifyOsmContext({ osm_road_class: 'primary', osm_in_park: 0 });
@@ -179,12 +184,10 @@ test('drawOsmContextBands generates run-length encoded segments and draws rects'
     raw.push({ time: t, val: 1.0, osm_road_class: rc, osm_in_park: inPark });
   }
 
-  global.AppState = {
-    analyzer: {
-      raw,
-      findClosestIndex(t) {
-        return Math.max(0, Math.min(raw.length - 1, Math.round(t * 10)));
-      }
+  AppState.analyzer = {
+    raw,
+    findClosestIndex(t) {
+      return Math.max(0, Math.min(raw.length - 1, Math.round(t * 10)));
     }
   };
 

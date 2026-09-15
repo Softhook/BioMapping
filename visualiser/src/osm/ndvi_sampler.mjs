@@ -43,7 +43,10 @@
  *     config.local.js only — never committed to git.
  */
 
-const NDVISampler = {
+import { GeoUtils } from '../gps/geo_utils.mjs';
+import { OSMEnricher } from './osm_enrichment.mjs';
+
+export const NDVISampler = {
   // Earth equatorial circumference in meters (EPSG:3857)
   EARTH_CIRCUMFERENCE_M: 40075016.686,
 
@@ -1418,7 +1421,4 @@ if (typeof window !== 'undefined') {
 }
 if (typeof global !== 'undefined') {
   global.NDVISampler = NDVISampler;
-}
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { NDVISampler };
 }

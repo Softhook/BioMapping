@@ -16,8 +16,11 @@
  * app), module.exports hands back the method object instead so the caller can
  * Object.assign it onto the freshly-required class itself.
  */
-(function () {
-  const __methods = {
+import { GSRGlobeManager } from './globe3d.mjs';
+import { GSRGlobe3DBuildings } from './globe3d/buildings.mjs';
+import { OSMEnricher } from '../osm/osm_enrichment.mjs';
+
+  export const __methods = {
 
   /**
    * Toggle 3D Buildings: Uses direct OpenStreetMap Overpass vector extrusion (token-free)
@@ -153,9 +156,4 @@
 
   };
 
-  if (typeof module !== 'undefined' && module.exports) {
-    module.exports = __methods;
-  } else {
-    Object.assign(GSRGlobeManager.prototype, __methods);
-  }
-})();
+  Object.assign(GSRGlobeManager.prototype, __methods);

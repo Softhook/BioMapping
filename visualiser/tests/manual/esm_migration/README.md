@@ -2,8 +2,8 @@
 
 See `docs/visualizer_modularity_plan.md`'s "drop dual-mode for real ES
 modules" section and the plan this session ran from for full context.
-**Current status: layers 0-3 (52 of 93 files) converted and wired into
-`npm test`, suite green. Layers 4-7 (41 files) not yet started — see "Next
+**Current status: layers 0-4 (56 of 93 files) converted and wired into
+`npm test`, suite green. Layers 5-7 (37 files) not yet started — see "Next
 steps" near the end of this file for the exact resume point, including the
 full layer-6 file list (a 13-file SCC).**
 
@@ -81,7 +81,7 @@ augment files" pattern plus a bare `document` reference, standing in for a
 real subsystem without pulling in Leaflet/p5/Cesium stubbing just to prove
 the mechanism.
 
-## Step 3: converting src/ (IN PROGRESS — layers 0-3/8 done, see "Next steps" below)
+## Step 3: converting src/ (IN PROGRESS — layers 0-4/8 done, see "Next steps" below)
 
 `convert_file.js` (committed) mechanically converts one file: strips the
 dual-mode tail (keeping a real composition side effect like
@@ -475,10 +475,36 @@ commit with nothing touched.
 Suite verified 1343/1345 (the 2 pre-existing failures, unchanged) green
 three times in a row before committing.
 
+### Layer 4 (4 files) — DONE
+
+`rf_fluid_renderer.js`, `ndvi_sampler.js`, `globe3d_osm.js`,
+`renderer_bands.js` — no SCC, sequential conversion.
+
+Same two by-now-routine patterns, no new `realm_bridge.js` bugs:
+
+- Direct `.js` requires in `test_ndvi_sampler.js`,
+  `test_emfog_graph_bands.js`, `test_ndvi_graph_bands.js`,
+  `test_osm_graph_bands.js` swapped to `.mjs`.
+- `renderer_bands.mjs`'s new static `import { AppState } from
+  '../core/app_state.mjs'` (same live-binding edge as layer 3's
+  `renderer_curve.mjs`) turned a `global.AppState = {...}` full-replacement
+  shadow inert in all three graph-bands test files — fixed by requiring the
+  real `app_state.mjs` singleton once at file scope and mutating its
+  `.analyzer` property in place at each call site instead of replacing
+  `global.AppState` wholesale.
+- `test_renderer_require_exports.js`: `renderer_bands.js` dropped from its
+  require-branch-stamping loop (same reasoning as `renderer_chrome.js`/
+  `renderer_markers.js` in layer 3 — only `renderer_interaction.js`, still
+  layer 7, remains in that loop now).
+
+Suite verified 1342/1345 (test count dropped by one more with this loop
+entry removed; the 2 pre-existing failures unchanged) green three times in a
+row before committing.
+
 ### Next steps, in order
 
-1. Continue layer by layer, starting at layer 4 (4
-   files), 5 (1 file), 6 (22 files — **one 13-file SCC: `ui.js`,
+1. Continue layer by layer, starting at layer 5 (1
+   file: `map.js`), 6 (22 files — **one 13-file SCC: `ui.js`,
    `events.js`, `tracks.js`, `storage.js`, `sketch.js`, `live_view.js`,
    `live_graph.js`, `live_map.js`, `collective_project.js`,
    `map_exporter.js`, `map_popups.js`, `globe3d_view.js`,

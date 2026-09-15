@@ -38,7 +38,12 @@ const { GSRRenderer } = require('../src/render/renderer.mjs');
 // The EM-fog band methods live in the object-augment split renderer_bands.js
 // (see renderer.js's class-tail manifest comment) — under plain require()
 // it hands back its method object instead of assigning onto a live global.
-Object.assign(GSRRenderer, require('../src/render/renderer_bands.js'));
+Object.assign(GSRRenderer, require('../src/render/renderer_bands.mjs'));
+// renderer_bands.mjs holds a static `import { AppState } from
+// '../core/app_state.mjs'` live binding — a `global.AppState = {...}` shadow
+// no longer reaches it (ES-module migration), so mutate the real imported
+// singleton's own `.analyzer` property in place instead.
+const { AppState } = require('../src/core/app_state.mjs');
 
 function makeAnalyzer(raw) {
   return {
@@ -90,13 +95,13 @@ test('drawEmFogContextBands: renders one rect per segment in view, none when ana
     const t = i * 0.1;
     raw.push({ time: t, val: 1.0, em_fog: t < 2.5 ? 5 : 90 });
   }
-  global.AppState = { analyzer: makeAnalyzer(raw) };
+  AppState.analyzer = makeAnalyzer(raw);
 
   GSRRenderer.drawEmFogContextBands(0, 5, 50, 400);
   assert.strictEqual(rectCalls.length, 2);
 
   rectCalls.length = 0;
-  global.AppState = { analyzer: null };
+  AppState.analyzer = null;
   GSRRenderer.drawEmFogContextBands(0, 5, 50, 400);
   assert.strictEqual(rectCalls.length, 0);
 });
