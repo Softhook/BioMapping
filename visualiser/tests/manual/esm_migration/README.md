@@ -1,9 +1,11 @@
-# ES-module migration tooling (steps 1-2)
+# ES-module migration (branch `esm-migration`)
 
 See `docs/visualizer_modularity_plan.md`'s "drop dual-mode for real ES
 modules" section and the plan this session ran from for full context.
-Everything here is prep/tooling — no `src/` or `tests/` file has been
-converted yet. Nothing here is wired into `npm test`.
+**Current status: layer 0 (24 of 93 files) converted and wired into
+`npm test`, suite green. Layers 1-7 (69 files) not yet started — see "Next
+steps" near the end of this file for the exact resume point, including the
+full layer-1 file list.**
 
 ## `build_import_manifest.js` (step 1)
 
@@ -79,7 +81,7 @@ augment files" pattern plus a bare `document` reference, standing in for a
 real subsystem without pulling in Leaflet/p5/Cesium stubbing just to prove
 the mechanism.
 
-## Step 3: converting src/ (IN PROGRESS — see handoff below)
+## Step 3: converting src/ (IN PROGRESS — layer 0/8 done, see "Next steps" below)
 
 `convert_file.js` (committed) mechanically converts one file: strips the
 dual-mode tail (keeping a real composition side effect like
@@ -165,21 +167,149 @@ around in a test):
    the function's own doc comment already promised.
 
 Suite verified 1345/1345 green twice in a row, zero files converted, before
-committing this checkpoint.
+committing this checkpoint (`5f1c6c9`).
 
-**Next steps, in order:**
-1. Start real conversion: `node tests/manual/esm_migration/convert_file.js
-   <file> --write` for each of `scc_layers.json`'s layer-0 files (24 files,
-   all independent leaves — order within the layer doesn't matter). After
-   each file (or small batch): re-run `npm test`; any test that plain-
-   `require()`s or vm-loads that specific file directly (grep for the
-   file's basename across `tests/`) needs its loader swapped for a plain
-   `import()` in the SAME commit — this is "step 4" work, done file-by-file
-   in lockstep with step 3, not deferred to the end.
-2. Continue layer by layer. Layers 3 and 6 (see above) convert as one
-   atomic batch each, everything else one file at a time.
-3. `boot_live.js` needs the identical realm-model rewrite eventually
-   (currently untouched, still old `vm.createContext(window)`) — do it
-   whenever a `live/*.js` file (all in layer 6's big cycle) is about to
-   convert, not before. Give it the same 3 fixes above proactively rather
-   than rediscovering them via a second failing full-suite run.
+### Prep work done before any layer-0 file converted (commit `cadc0a1`)
+
+34 lightweight (non-jsdom) unit test files each hand-rolled their own local
+`loadModule(filePath, varName)` helper (regex-rewrite the dual-mode source,
+`vm.runInThisContext` it) to pull in individual `src/` files without booting
+the full app via `boot_app.js`. Every one would have broken the moment its
+target file(s) converted, and several load a dozen files each — so all 34
+were pointed at one shared `tests/support/load_module.js` instead (mirrors
+`boot_app.js`'s own `resolveFile()` rule: `.js` still there → the same
+regex+vm technique; `.mjs` exists → plain synchronous `require()` — Node
+natively supports `require()`-ing a real ES module with no top-level await,
+verified against this project's converted files — kept deliberately
+*synchronous*, since several of these 34 files are plain top-level scripts
+with no `node:test` wrapping at all and can't be made async). Zero files
+converted at this point; pure refactor, suite still 1345/1345 before and
+after.
+
+### Layer 0 (24 files) — DONE (commit `0d038b1`)
+
+Every layer-0 leaf converted: `notices.js` (previous checkpoint) plus
+`response_dynamics`, `fullscreen`, `geo_utils`, `file_saver`,
+`analyzer_time_format`, `stats_math`, `spectral_eda`, `hillshade`,
+`spatial_grid`, `marching_squares`, `bezier_spline`, `basemap`, `renderer`,
+`overpass_client`, `live_state`, `live_tile_cache`, `map_markers`,
+`live_csv`, `live_binary_parser`, `dwt_filter`,
+`map/globe3d/{exporters,rf_expanse,buildings}`.
+
+`boot_live.js` got the identical realm-model rewrite `boot_app.js` already
+had — required once layer 0 included several `live/*.js` files
+`LIVE_SCRIPT_ORDER` also loads. The shared realm-model machinery
+(`installJsdomGlobals`, `resolveFile`, `wrapForRepeatedExecution`,
+`loadScriptFile`, the timer-leak sweep) was extracted out of `boot_app.js`
+into `tests/support/realm_bridge.js` so both harnesses use one
+implementation instead of drifting — `boot_app.js` itself was refactored to
+call into it too (behavior-preserving, verified before touching
+`boot_live.js`).
+
+Doing this rewrite for real (not just boot_app.js in isolation) surfaced
+several more realm-model bugs, all fixed in `realm_bridge.js` — general
+fixes, not specific to this batch, so future layers shouldn't hit them
+again:
+
+1. **A converted file's real top-level side effect only ran on the FIRST
+   import in the process.** Node's ES module loader caches a module by its
+   resolved specifier for the process lifetime — `live_tile_cache.mjs`'s
+   `L.tileLayer.cache = function(){...}` (needs to re-attach to THIS boot's
+   fresh `L` mock) and `notices.mjs`'s `window.addEventListener('error', ...)`
+   (needs to re-register on THIS boot's fresh window) only fired once,
+   ever. Fixed with a cache-busting `?t=n` query string on every `import()`
+   call, forcing a genuinely fresh module instance (and therefore a fresh
+   top-level run) on every boot — matching what
+   `wrapForRepeatedExecution` already guaranteed for not-yet-converted
+   files.
+2. **A `class`/`function` reflected as get-only (from the `const`-crash fix
+   in the previous checkpoint) silently swallowed a legitimate test-side
+   reassignment.** Several tests deliberately null out a not-yet-converted
+   file's top-level class via `vm.runInThisContext('RFFluidRenderer =
+   undefined;')` to opt out of a feature (`test_map_layer_ownership.js`'s
+   `bootWithRecordingL`) — a get-only accessor no-ops that write in sloppy
+   mode instead of applying it, so the real class stayed in place and the
+   test's mock (missing `getPane`) got hit for real. Verified empirically
+   that unlike `const`, reassigning a `class`/`function`/`let`/`var`
+   top-level binding from a SEPARATE, later `vm.runInThisContext` script
+   does NOT throw (`vm.runInThisContext('class Foo{}');
+   vm.runInThisContext('Foo = undefined;')` succeeds silently) — so
+   `topLevelMutableNames()` (`tests/manual/esm_migration/lib/
+   top_level_names.js`) now includes class/function declarations too;
+   only a real `const` stays get-only.
+3. **Node's own native `navigator`/`fetch` were silently winning over
+   jsdom's `window.navigator`/`window.fetch`.** Same class of bug as the
+   `Blob`/`URL` fix from the previous checkpoint, just not caught until a
+   test that overrides `window.navigator.bluetooth` or `window.fetch`
+   actually ran — extended `FORCE_BRIDGE_OVER_NATIVE` to cover both.
+4. **A converted file's exports were reflected onto `global` but not
+   `window`.** Several tests read a module's own exports via
+   `const { X } = window` (matching pre-conversion behavior, where the
+   wrapped-file branch already bridged both) — `loadScriptFile`'s converted
+   branch now reflects onto both too.
+5. **The big one: a name loaded by only ONE harness's boot leaked into the
+   other.** `boot_app.js`'s `SCRIPT_ORDER` and `boot_live.js`'s
+   `LIVE_SCRIPT_ORDER` overlap but differ — e.g. `GSRLayoutManager` loads
+   only via `boot_app.js`. Once both share one realm, a name from a
+   PREVIOUS `bootApp()` call stayed on `global` as a live property forever
+   (nothing ever clears it), so a LATER `bootLive()` boot in the same
+   process — `test_fullscreen_restore.js` calls both — silently inherited
+   it and took the wrong branch (`live_view.js`'s FAB fullscreen handler
+   prefers `GSRLayoutManager.enterLiveDisplayMode` over
+   `GSRFullscreen.request` whenever the former is merely *defined*, not
+   actually relevant to the standalone-live-view scenario). Fixed by
+   tracking every name ever reflected onto `global` and sweeping all of
+   them at the top of every boot (either harness) — same reasoning as the
+   `setTimeout` leak sweep in the previous checkpoint; both are now one
+   `clearPreviousBoot()` entry point.
+
+Two test-authored bugs the realm-model change also exposed, fixed in the
+test files themselves (not app code): `test_live_app.js`'s
+`recordingTimers()` patched `window.setTimeout`, but a bare
+`setTimeout(...)` call in not-yet-converted app code resolves through
+`global.setTimeout` (`realm_bridge.js`'s own leak-tracking wrapper around
+the real native timer) — so the override recorded nothing and the real,
+multi-second backoff delays actually ran (several tests took 3-23 REAL
+seconds until this was fixed). And two of its inline
+`vm.runInThisContext` snippets declared `const __orig = ...` in two
+different tests, colliding with the same top-level-redeclaration
+restriction `wrapForRepeatedExecution` works around for real `src/` files —
+changed to `var` (redeclaration-safe, verified empirically) since these are
+one-off test snippets, not files worth wrapping.
+
+Suite verified 1345/1345 green three times in a row before committing.
+
+### Next steps, in order
+
+1. **Layer 1 (9 files, all independent leaves — order doesn't matter):**
+   `src/core/constants.js`, `src/signal/gsr_filter.js`,
+   `src/signal/deconvolution.js`, `src/map/map_colors.js`,
+   `src/osm/osm_cache.js`, `src/gps/gps_filter.js`,
+   `src/live/live_bluetooth.js`, `src/spatial/arousal_places.js`,
+   `src/render/label_placement.js`. Same process as layer 0: `node
+   tests/manual/esm_migration/convert_file.js <file> --write`, then re-run
+   `npm test` — the loadModule/boot_app.js/boot_live.js loaders should now
+   need ZERO further edits per file (that was the whole point of this
+   checkpoint's prep work), but a handful of test files still directly
+   `require('../src/X.js')` or `readFileSync` raw source for
+   content-matching assertions (grep the file's basename across `tests/`
+   the same way this checkpoint did) — expect a few of those per layer,
+   fix inline as they surface, don't defer. If `npm test` surfaces a NEW
+   realm-model bug class (not one of the 5 above), fix it in
+   `realm_bridge.js`, not with a workaround in a test.
+2. Continue layer by layer: 2 (6 files), 3 (13 files — **one 2-file SCC:
+   `analyzer.js`↔`csv_parser.js`, convert as one atomic batch**), 4 (4
+   files), 5 (1 file), 6 (22 files — **one 13-file SCC: `ui.js`,
+   `events.js`, `tracks.js`, `storage.js`, `sketch.js`, `live_view.js`,
+   `live_graph.js`, `live_map.js`, `collective_project.js`,
+   `map_exporter.js`, `map_popups.js`, `globe3d_view.js`,
+   `layout_manager.js` — convert as one atomic batch**), 7 (14 files, the
+   most composite — last layer, includes `index.html`'s eventual final
+   entry points).
+3. Once every file is converted: the atomic browser cutover (index.html →
+   single `<script type="module">`, `boot_app.js`/`boot_live.js` themselves
+   rewritten one more time to a real dynamic-import-based loader instead of
+   the migration-era realm bridge, `package.json` gets `"type": "module"`)
+   — this is the step where the app goes from "intentionally
+   non-functional in the browser mid-migration" back to working, and where
+   this branch is finally safe to merge to `main`. Not attempted yet.
