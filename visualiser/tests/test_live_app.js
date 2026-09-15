@@ -797,7 +797,13 @@ test('renderStatus: connection button shows "Connect" on a fresh load (no device
   assert.strictEqual(btn.style.display, '', 'connection button is visible when disconnected');
   assert.strictEqual(btn.textContent, 'Connect', 'shows "Connect" before any device is connected');
 
-  run(context, 'bleManager = { device: {} }'); // stand-in for "attemptConnect() has run at least once"
+  // stand-in for "attemptConnect() has run at least once" — bleManager is
+  // real module-scope state on the converted live_view.mjs; a bare
+  // `bleManager = ...` assignment against the shared realm's global no
+  // longer reaches it (an ES module's exported `let` binding can't be
+  // written from outside), so go through the test hook GSRLiveView already
+  // exposes for exactly this.
+  run(context, 'GSRLiveView._setBleManagerForTest({ device: {} })');
   run(context, "renderStatus('disconnected')");
 
   assert.strictEqual(btn.style.display, '', 'still visible');
@@ -1955,7 +1961,7 @@ test('drawGraph: runs no analysis on the draw path — analyze() and decomposeTo
 test('feedLiveAnalyzer: analyses every packet through the warmup, then wall-clock-throttles', async () => {
   const { context } = await bootLive();
   // Shrink the warmup so the test stays fast: 20 rows instead of 400.
-  run(context, 'LIVE_ANALYZE_WARMUP_ROWS = 20;');
+  run(context, 'GSRLiveView._setLiveAnalyzeTuningForTest(20);');
   run(context, `
     globalThis.__n = 0;
     var __orig = GSRAnalyzer.prototype.analyze;
@@ -1972,7 +1978,7 @@ test('feedLiveAnalyzer: analyses every packet through the warmup, then wall-cloc
 
 test('feedLiveAnalyzer: a new analyze() runs once the throttle interval has elapsed', async () => {
   const { context } = await bootLive();
-  run(context, 'LIVE_ANALYZE_WARMUP_ROWS = 5; LIVE_ANALYZE_MIN_INTERVAL_MS = 1000;');
+  run(context, 'GSRLiveView._setLiveAnalyzeTuningForTest(5, 1000);');
   run(context, `
     globalThis.__n = 0;
     var __orig = GSRAnalyzer.prototype.analyze;
@@ -2001,7 +2007,7 @@ test('feedLiveAnalyzer: a new analyze() runs once the throttle interval has elap
 
 test('feedLiveAnalyzer: analyses only a trailing LIVE_ANALYZE_WINDOW_S slice, not the whole session', async () => {
   const { context } = await bootLive();
-  run(context, 'LIVE_ANALYZE_WARMUP_ROWS = 100000;'); // disable the throttle so every feed re-windows
+  run(context, 'GSRLiveView._setLiveAnalyzeTuningForTest(100000);'); // disable the throttle so every feed re-windows
   run(context, `
     for (let i = 0; i < 1600; i++) {
       LiveState.addPacket({ valid: false, gsrRaw: 1000 + (i % 50), timestamp: i * 0.3 });
@@ -2024,7 +2030,7 @@ test('feedLiveAnalyzer: analyses only a trailing LIVE_ANALYZE_WINDOW_S slice, no
 test('drawGraph: a gap still breaks the trace after the analysis window has slid past the session start', async () => {
   const { window, context } = await bootLive();
   const calls = recordCanvas(window);
-  run(context, 'LIVE_ANALYZE_WARMUP_ROWS = 100000;');
+  run(context, 'GSRLiveView._setLiveAnalyzeTuningForTest(100000);');
   // ~1500 packets (~450s) so the 300s window no longer starts at packet 0;
   // a single +10s discontinuity at i=1450, inside the visible 120s window.
   run(context, `

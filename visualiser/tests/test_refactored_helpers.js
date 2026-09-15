@@ -427,7 +427,18 @@ test('GSRUI resolution and marking helpers function correctly', () => {
   const mockAnalyzer = { peaks: [ { time: 10, label: 'test' } ], setPeakLabel() {} };
   const mockTrack = { id: 'track_123', analyzer: mockAnalyzer, hasUnsavedLabels: false };
 
-  global.AppState = {
+  // ui.mjs holds a real static `import { AppState } from '../core/app_state.mjs'`
+  // binding, not a bare global lookup — replacing global.AppState wholesale
+  // (the old dual-mode trick) no longer reaches it. Mutate the real
+  // singleton's own properties in place instead (same pattern as
+  // test_app_state.js's GSR_CONST fix), restoring them after.
+  const { AppState: RealAppState } = require('../src/core/app_state.mjs');
+  const original = {
+    activeTrackId: RealAppState.activeTrackId,
+    analyzer: RealAppState.analyzer,
+    collectiveManager: RealAppState.collectiveManager,
+  };
+  Object.assign(RealAppState, {
     activeTrackId: 'track_123',
     analyzer: mockAnalyzer,
     collectiveManager: {
@@ -436,22 +447,24 @@ test('GSRUI resolution and marking helpers function correctly', () => {
         return null;
       }
     }
-  };
+  });
 
-  // Test _resolveTrackAndAnalyzer in single/collective mode
-  const resolvedSingle = GSRUI._resolveTrackAndAnalyzer(null);
-  assert.strictEqual(resolvedSingle.track, mockTrack);
-  assert.strictEqual(resolvedSingle.analyzer, mockAnalyzer);
+  try {
+    // Test _resolveTrackAndAnalyzer in single/collective mode
+    const resolvedSingle = GSRUI._resolveTrackAndAnalyzer(null);
+    assert.strictEqual(resolvedSingle.track, mockTrack);
+    assert.strictEqual(resolvedSingle.analyzer, mockAnalyzer);
 
-  const resolvedCollective = GSRUI._resolveTrackAndAnalyzer('track_123');
-  assert.strictEqual(resolvedCollective.track, mockTrack);
-  assert.strictEqual(resolvedCollective.analyzer, mockAnalyzer);
+    const resolvedCollective = GSRUI._resolveTrackAndAnalyzer('track_123');
+    assert.strictEqual(resolvedCollective.track, mockTrack);
+    assert.strictEqual(resolvedCollective.analyzer, mockAnalyzer);
 
-  // Test _markUnsavedLabels
-  GSRUI._markUnsavedLabels(mockTrack);
-  assert.strictEqual(mockTrack.hasUnsavedLabels, true);
-
-  delete global.AppState;
+    // Test _markUnsavedLabels
+    GSRUI._markUnsavedLabels(mockTrack);
+    assert.strictEqual(mockTrack.hasUnsavedLabels, true);
+  } finally {
+    Object.assign(RealAppState, original);
+  }
 });
 
 test('GsrFilter.applyMedianFilter: delegates correctly to applyPercentileFilter', () => {

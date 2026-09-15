@@ -66,6 +66,16 @@ export function isCompactLiveLayout() {
     window.matchMedia(LIVE_MOBILE_QUERY).matches;
 }
 
+// GSRLayoutManager is now a real static import (see the ui/live/render "app
+// glue" SCC note in tests/manual/esm_migration/README.md), so it exists in
+// every context — including standalone live.html, which never loads
+// index.html's app shell. `.app-container` (only present in index.html's
+// markup) is the real in-app/standalone signal GSRLayoutManager's own
+// enterLiveDisplayMode()/exitLiveDisplayMode() already gate on internally.
+function isInAppShell() {
+  return typeof document !== 'undefined' && !!document.querySelector('.app-container');
+}
+
 // ==========================================================================
 // The live UI markup — single source of truth, injected by mount(). Kept
 // byte-for-byte equivalent to the old live.html <body> (only #map became
@@ -746,17 +756,17 @@ export function bindLiveFab() {
       setMapVisible(true);
       closeFabMenu();
     } else if (btn.dataset.action === 'enter-fullscreen') {
-      if (typeof GSRLayoutManager !== 'undefined' && GSRLayoutManager.enterLiveDisplayMode) {
+      if (isInAppShell() && GSRLayoutManager.enterLiveDisplayMode) {
         GSRLayoutManager.enterLiveDisplayMode();
       } else if (typeof GSRFullscreen !== 'undefined') {
-        // Standalone live.html has no GSRLayoutManager — fullscreen the
-        // document root directly; GSRFullscreen keeps it sticky across
-        // lock/unlock just like the in-app path.
+        // Standalone live.html has no .app-container for GSRLayoutManager
+        // to act on — fullscreen the document root directly; GSRFullscreen
+        // keeps it sticky across lock/unlock just like the in-app path.
         GSRFullscreen.request(document.documentElement);
       }
       closeFabMenu();
     } else if (btn.dataset.action === 'exit-fullscreen') {
-      if (typeof GSRLayoutManager !== 'undefined' && GSRLayoutManager.exitLiveDisplayMode) {
+      if (isInAppShell() && GSRLayoutManager.exitLiveDisplayMode) {
         GSRLayoutManager.exitLiveDisplayMode();
       } else if (typeof GSRFullscreen !== 'undefined') {
         GSRFullscreen.exit();
@@ -942,8 +952,11 @@ export function bindLiveKeyboardShortcuts() {
     // once, no unmount) — only claim the p/m/c shortcuts while the Live
     // view is actually the one on screen. (There is no live-view fullscreen
     // shortcut: in-app GSRLayoutManager owns F for the whole app; standalone
-    // live.html has no self-fullscreen affordance.)
-    if (typeof AppState !== 'undefined' && AppState.viewMode !== 'live') return;
+    // live.html has no self-fullscreen affordance.) AppState is a real
+    // static import now (always defined, defaulting to viewMode:'single'),
+    // so `isInAppShell()` — not AppState's mere existence — is what tells
+    // standalone live.html apart from index.html's embedded Live tab.
+    if (isInAppShell() && AppState.viewMode !== 'live') return;
     // Don't hijack keys while typing in an input.
     if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
 
@@ -1087,6 +1100,14 @@ export const GSRLiveView = {
   isCompactLayout: isCompactLiveLayout,
   isViewActive: () => viewActive,
   _setBleManagerForTest: (m) => { bleManager = m; },
+  // feedLiveAnalyzer()'s warmup/throttle tuning is deliberately module-scope
+  // `let`, not writable from outside a real ES module (unlike the old
+  // dual-mode global scope a test's bare `WARMUP_ROWS = n` reassignment used
+  // to reach) — tests that shrink these for speed go through here instead.
+  _setLiveAnalyzeTuningForTest: (warmupRows, minIntervalMs) => {
+    if (warmupRows !== undefined) LIVE_ANALYZE_WARMUP_ROWS = warmupRows;
+    if (minIntervalMs !== undefined) LIVE_ANALYZE_MIN_INTERVAL_MS = minIntervalMs;
+  },
 
   // Encapsulated connection controller for state inspection and testing
   connectionController: LiveConnectionController,
