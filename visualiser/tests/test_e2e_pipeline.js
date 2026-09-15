@@ -12,19 +12,7 @@ const path = require('path');
 // Same bootstrap as test_refactor.js.
 const vm = require('vm');
 
-function loadModule(filePath, varName) {
-  const src = fs.readFileSync(filePath, 'utf8');
-  const wrapped = src
-    .replace(
-      new RegExp(`class ${varName}\\s*{`),
-      `global.${varName} = class ${varName} {`
-    )
-    .replace(
-      new RegExp(`const ${varName}\\s*=`),
-      `global.${varName} =`
-    );
-  vm.runInThisContext(wrapped, { filename: filePath });
-}
+const { loadModule } = require('./support/load_module.js');
 
 // Mock GSR_CONST (same as mock_constants.js)
 global.GSR_CONST = require('./mock_constants.js');

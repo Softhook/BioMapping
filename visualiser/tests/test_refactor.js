@@ -23,18 +23,8 @@ global.GSR_CONST = require('./mock_constants.js');
 // resolve through the global object chain, and the test file accesses them
 // via the same `global.Name` references.
 const vm = require('vm');
-const fs = require('fs');
 
-function loadModule(filePath, varName) {
-  const src = fs.readFileSync(filePath, 'utf8');
-  // Replace the top-level const declaration with a global assignment.
-  // The modules all follow the pattern:  const Foo = { ... };
-  const wrapped = src.replace(
-    new RegExp(`const ${varName}\\s*=`),
-    `global.${varName} =`
-  );
-  vm.runInThisContext(wrapped, { filename: filePath });
-}
+const { loadModule } = require('./support/load_module.js');
 
 // Load order must match index.html dependencies.
 loadModule(__dirname + '/../src/gps/geo_utils.js',    'GeoUtils');

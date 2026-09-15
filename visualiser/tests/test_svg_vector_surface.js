@@ -7,17 +7,7 @@ const assert = require('assert');
 const path   = require('path');
 
 // Bootstrap dependencies
-function loadModule(filePath, exportName) {
-  const fs = require('fs');
-  const code = fs.readFileSync(filePath, 'utf8');
-  const fn = new Function('module', 'exports', 'require', '__dirname', 'window', 'global', code);
-  const dummyModule = { exports: {} };
-  global.window = global.window || global;
-  fn(dummyModule, dummyModule.exports, require, path.dirname(filePath), global.window, global);
-  if (exportName && global.window[exportName]) {
-    global[exportName] = global.window[exportName];
-  }
-}
+const { loadModule } = require('./support/load_module.js');
 
 // mock_constants.js is a plain CommonJS module (module.exports = {...}), not
 // a window.X=... browser-style script — require() it directly rather than

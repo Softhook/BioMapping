@@ -14,17 +14,7 @@ const path = require('path');
 
 // Load a source file that only assigns to window.X (no CommonJS export) via a
 // function wrapper, mirroring test_svg_vector_surface.js.
-function loadModule(filePath, exportName) {
-  const fs = require('fs');
-  const code = fs.readFileSync(filePath, 'utf8');
-  const fn = new Function('module', 'exports', 'require', '__dirname', 'window', 'global', code);
-  const dummyModule = { exports: {} };
-  global.window = global.window || global;
-  fn(dummyModule, dummyModule.exports, require, path.dirname(filePath), global.window, global);
-  if (exportName && global.window[exportName]) {
-    global[exportName] = global.window[exportName];
-  }
-}
+const { loadModule } = require('./support/load_module.js');
 
 loadModule(path.join(__dirname, '../src/gps/geo_utils.js'), 'GeoUtils');
 loadModule(path.join(__dirname, '../src/render/bezier_spline.js'), 'BezierSpline');

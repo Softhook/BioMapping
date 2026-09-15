@@ -10,29 +10,14 @@
  * Run: node visualiser/tests/test_rf_fluid.js
  */
 
-const fs   = require('fs');
 const path = require('path');
-const vm   = require('vm');
 const assert = require('assert');
 
 // Bootstrap scope
 global.window = global;
 global.GSR_CONST = require('./mock_constants.js');
 
-function loadModule(filePath, varName) {
-  const src = fs.readFileSync(filePath, 'utf8');
-  let wrapped = src;
-  if (varName) {
-    wrapped = src.replace(
-      new RegExp(`class ${varName}\\s*{`),
-      `global.${varName} = class ${varName} {`
-    ).replace(
-      new RegExp(`const ${varName}\\s*=`),
-      `global.${varName} =`
-    );
-  }
-  vm.runInThisContext(wrapped, { filename: filePath });
-}
+const { loadModule } = require('./support/load_module.js');
 
 loadModule(path.join(__dirname, '../src/gps/geo_utils.js'),          'GeoUtils');
 loadModule(path.join(__dirname, '../src/spatial/spatial_grid.js'),        'SpatialGrid');

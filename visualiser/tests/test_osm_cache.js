@@ -14,17 +14,8 @@
  * Run: node tests/test_osm_cache.js
  */
 
-const vm = require('vm');
-const fs = require('fs');
 
-function loadModule(filePath, varName) {
-  const src = fs.readFileSync(filePath, 'utf8');
-  const wrapped = src.replace(
-    new RegExp(`const ${varName}\\s*=`),
-    `global.${varName} =`
-  );
-  vm.runInThisContext(wrapped, { filename: filePath });
-}
+const { loadModule } = require('./support/load_module.js');
 
 loadModule(__dirname + '/../src/gps/geo_utils.js', 'GeoUtils');
 loadModule(__dirname + '/../src/osm/osm_cache.js', 'OsmCache');

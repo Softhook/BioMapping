@@ -13,20 +13,12 @@
  */
 'use strict';
 
-const fs   = require('fs');
 const path = require('path');
-const vm   = require('vm');
 
 global.window = global;
 global.GSR_CONST = require('./mock_constants.js');
 
-function loadModule(filePath, varName) {
-  const src = fs.readFileSync(filePath, 'utf8');
-  const wrapped = src
-    .replace(new RegExp(`class ${varName}\\s*{`), `global.${varName} = class ${varName} {`)
-    .replace(new RegExp(`const ${varName}\\s*=`), `global.${varName} =`);
-  vm.runInThisContext(wrapped, { filename: filePath });
-}
+const { loadModule } = require('./support/load_module.js');
 loadModule(path.join(__dirname, '../src/signal/dwt_filter.js'), 'DWT');
 loadModule(path.join(__dirname, '../src/signal/gsr_filter.js'), 'GsrFilter');
 loadModule(path.join(__dirname, '../src/signal/deconvolution.js'), 'SCRDeconvolution');

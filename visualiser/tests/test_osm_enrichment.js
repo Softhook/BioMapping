@@ -16,19 +16,8 @@
 // top-level `const Name = ...` into `global.Name = ...`.
 
 const vm = require('vm');
-const fs = require('fs');
 
-function loadModule(filePath, varName) {
-  const src = fs.readFileSync(filePath, 'utf8');
-  const wrapped = src.replace(
-    new RegExp(`class ${varName}\\s*{`),
-    `global.${varName} = class ${varName} {`
-  ).replace(
-    new RegExp(`const ${varName}\\s*=`),
-    `global.${varName} =`
-  );
-  vm.runInThisContext(wrapped, { filename: filePath });
-}
+const { loadModule } = require('./support/load_module.js');
 
 // Load order: GeoUtils and SpatialGrid first (osm_enrichment's
 // buildSpatialIndex depends on SpatialGrid), then MapMatcher (osm_enrichment's

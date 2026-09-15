@@ -4,9 +4,7 @@
  * Run: node visualiser/tests/test_fractional_filters.js
  */
 
-const fs   = require('fs');
 const path = require('path');
-const vm   = require('vm');
 const assert = require('assert');
 
 // ── Bootstrap scope ─────────────────────────────────────────────────────────
@@ -16,17 +14,7 @@ global.GSRAnalyzer = {
   calcEmFog: () => 0.0
 };
 
-function loadModule(filePath, varName) {
-  const src = fs.readFileSync(filePath, 'utf8');
-  const wrapped = src.replace(
-    new RegExp(`class ${varName}\\s*{`),
-    `global.${varName} = class ${varName} {`
-  ).replace(
-    new RegExp(`const ${varName}\\s*=`),
-    `global.${varName} =`
-  );
-  vm.runInThisContext(wrapped, { filename: filePath });
-}
+const { loadModule } = require('./support/load_module.js');
 
 loadModule(path.join(__dirname, '../src/signal/stats_math.js'),         'StatsMath');
 loadModule(path.join(__dirname, '../src/signal/gsr_filter.js'),         'GsrFilter');

@@ -33,24 +33,13 @@ const assert = require('assert');
 const test   = require('node:test');
 const fs     = require('fs');
 const path   = require('path');
-const vm     = require('vm');
 
 global.window = global;
 global.GSR_CONST = require('./mock_constants.js');
 
 // ── Bootstrap: same pattern as test_analyzer_refactoring.js — analyzer.js's
 //    analyze() references these as bare globals (window.X in the browser). ──
-function loadModule(filePath, varName) {
-  const src = fs.readFileSync(filePath, 'utf8');
-  const wrapped = src.replace(
-    new RegExp(`class ${varName}\\s*{`),
-    `global.${varName} = class ${varName} {`
-  ).replace(
-    new RegExp(`const ${varName}\\s*=`),
-    `global.${varName} =`
-  );
-  vm.runInThisContext(wrapped, { filename: filePath });
-}
+const { loadModule } = require('./support/load_module.js');
 
 loadModule(path.join(__dirname, '../src/gps/geo_utils.js'),     'GeoUtils');
 loadModule(path.join(__dirname, '../src/signal/stats_math.js'),    'StatsMath');   // also read directly by ui.js

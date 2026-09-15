@@ -30,23 +30,12 @@ const { test } = require('node:test');
 const fs     = require('fs');
 const os     = require('os');
 const path   = require('path');
-const vm     = require('vm');
 const { spawnSync } = require('child_process');
 
 global.window = global;
 global.GSR_CONST = require('./mock_constants.js');
 
-function loadModule(filePath, varName) {
-  const src = fs.readFileSync(filePath, 'utf8');
-  const wrapped = src.replace(
-    new RegExp(`class ${varName}\\s*{`),
-    `global.${varName} = class ${varName} {`
-  ).replace(
-    new RegExp(`const ${varName}\\s*=`),
-    `global.${varName} =`
-  );
-  vm.runInThisContext(wrapped, { filename: filePath });
-}
+const { loadModule } = require('./support/load_module.js');
 
 loadModule(path.join(__dirname, '../src/signal/stats_math.js'),      'StatsMath');
 loadModule(path.join(__dirname, '../src/map/map_colors.js'),      'MapColors');

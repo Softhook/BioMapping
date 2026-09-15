@@ -16,24 +16,12 @@
  * Run: node visualiser/tests/test_masked_grid_isobands.js
  */
 const assert = require('assert');
-const fs     = require('fs');
 const path   = require('path');
-const vm     = require('vm');
 
 global.window = global;
 global.GSR_CONST = require('./mock_constants.js');
 
-function loadModule(filePath, varName) {
-  const src = fs.readFileSync(filePath, 'utf8');
-  const wrapped = src.replace(
-    new RegExp(`class ${varName}\\s*{`),
-    `global.${varName} = class ${varName} {`
-  ).replace(
-    new RegExp(`const ${varName}\\s*=`),
-    `global.${varName} =`
-  );
-  vm.runInThisContext(wrapped, { filename: filePath });
-}
+const { loadModule } = require('./support/load_module.js');
 
 loadModule(path.join(__dirname, '../src/signal/stats_math.js'),      'StatsMath');
 loadModule(path.join(__dirname, '../src/map/map_colors.js'),      'MapColors');
