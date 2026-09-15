@@ -27,7 +27,7 @@ global.TOP = 'top';
 
 // Real MapColors — the NDVI bands must reuse the exact same LUT the map's
 // 'ndvi_50m' path colouring uses (map_manager_path.js), not a second ramp.
-const { MapColors } = require('../src/map/map_colors.js');
+const { MapColors } = require('../src/map/map_colors.mjs');
 global.MapColors = MapColors;
 
 const { GSRRenderer } = require('../src/render/renderer.mjs');

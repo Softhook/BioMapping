@@ -5,7 +5,7 @@ const test = require('node:test');
 const path = require('path');
 const fs = require('fs');
 
-const SCRDeconvolution = require('../src/signal/deconvolution.js');
+const { SCRDeconvolution } = require('../src/signal/deconvolution.mjs');
 
 const ref = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures/sparseda_reference.json'), 'utf8'));
 

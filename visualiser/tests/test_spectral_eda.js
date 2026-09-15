@@ -235,14 +235,8 @@ test('analyzer: edasymp series is populated after analyze()', () => {
   global.window = global;
   global.GSR_CONST = require('./mock_constants.js');
 
-  // gsr_filter.js has no CommonJS export — load it the same way the app's
-  // other vm-based test loaders do (const GsrFilter = → global.GsrFilter =).
-  const fsSync = require('fs');
-  const path = require('path');
-  const vm = require('vm');
-  const gsfSrc = fsSync.readFileSync(path.join(__dirname, '../src/signal/gsr_filter.js'), 'utf8')
-    .replace(/const GsrFilter\s*=/, 'global.GsrFilter =');
-  vm.runInThisContext(gsfSrc, { filename: 'gsr_filter.js' });
+  const { GsrFilter } = require('../src/signal/gsr_filter.mjs');
+  global.GsrFilter = GsrFilter;
 
   const { GSRAnalyzer } = require('../src/signal/analyzer.js');
 

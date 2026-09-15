@@ -2,24 +2,15 @@
 
 const assert = require('assert');
 const test   = require('node:test');
-const fs     = require('fs');
-const path   = require('path');
-const vm     = require('vm');
 
 global.GSR_CONST = require('./mock_constants.js');
 global.MarchingSquares = require('../src/render/marching_squares.mjs').MarchingSquares;
 
-// gsr_filter.js is a bare `const GsrFilter = {…}` with no module.exports, so it
-// has to be evaluated into the global scope the same way the analyzer tests do.
 // The collective manager's z-score normalization (topographySource 'auc') goes
 // through GsrFilter.calculateStats → StatsMath.calculateStats, so both must be
 // live for the normalized-surface test below to exercise the real path.
 global.StatsMath = require('../src/signal/stats_math.mjs').StatsMath;
-(function loadGsrFilter() {
-  const src = fs.readFileSync(path.join(__dirname, '../src/signal/gsr_filter.js'), 'utf8');
-  vm.runInThisContext(src.replace(/const GsrFilter\s*=/, 'global.GsrFilter ='),
-    { filename: 'gsr_filter.js' });
-})();
+global.GsrFilter = require('../src/signal/gsr_filter.mjs').GsrFilter;
 
 const { GSRCollectiveManager } = require('../src/spatial/collective_manager.js');
 

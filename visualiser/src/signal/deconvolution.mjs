@@ -21,7 +21,9 @@
  *   `matching_pursuit` path is retained separately for backward compatibility.
  */
 
-const SCRDeconvolution = {
+import { ResponseDynamics } from './response_dynamics.mjs';
+
+export const SCRDeconvolution = {
 
   /**
    * Build the canonical bi-exponential SCRF kernel sampled at the given rate.
@@ -563,7 +565,6 @@ const SCRDeconvolution = {
     const rho = opts.rho ?? (strictReference ? 0.025 : 0.0);
     const algorithm = opts.algorithm === 'matching_pursuit' ? 'matching_pursuit' : 'sparseda';
 
-
     if (n === 0) {
       return {
         driver: new Float64Array(0),
@@ -993,10 +994,3 @@ const SCRDeconvolution = {
     return clean;
   }
 };
-
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = SCRDeconvolution;
-}
-if (typeof window !== 'undefined') {
-  window.SCRDeconvolution = SCRDeconvolution;
-}

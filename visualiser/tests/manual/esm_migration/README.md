@@ -2,10 +2,10 @@
 
 See `docs/visualizer_modularity_plan.md`'s "drop dual-mode for real ES
 modules" section and the plan this session ran from for full context.
-**Current status: layer 0 (24 of 93 files) converted and wired into
-`npm test`, suite green. Layers 1-7 (69 files) not yet started — see "Next
+**Current status: layers 0-1 (33 of 93 files) converted and wired into
+`npm test`, suite green. Layers 2-7 (60 files) not yet started — see "Next
 steps" near the end of this file for the exact resume point, including the
-full layer-1 file list.**
+full layer-2 file list.**
 
 ## `build_import_manifest.js` (step 1)
 
@@ -279,25 +279,91 @@ one-off test snippets, not files worth wrapping.
 
 Suite verified 1345/1345 green three times in a row before committing.
 
+### Layer 1 (9 files) — DONE
+
+Every layer-1 leaf converted: `src/core/constants.js`,
+`src/signal/gsr_filter.js`, `src/signal/deconvolution.js`,
+`src/map/map_colors.js`, `src/osm/osm_cache.js`, `src/gps/gps_filter.js`,
+`src/live/live_bluetooth.js`, `src/spatial/arousal_places.js`,
+`src/render/label_placement.js`.
+
+As expected per the previous checkpoint's note, a handful of test files
+directly `require('../src/X.js')` or `readFileSync`'d the raw dual-mode
+source for content-matching assertions instead of going through
+`boot_app.js`/`boot_live.js` — fixed inline in each: `test_map_colors.js`,
+`test_ndvi_graph_bands.js`, `test_osm_graph_bands.js`,
+`test_emfog_graph_bands.js`, `test_globe3d.js`, `test_arousal_places.js`,
+`test_label_placement.js`, `test_sparseda_reference.js`,
+`test_deconvolution.js`, `test_gps_filter.js` (path updated to `.mjs`, and
+a bare `const X = require(...)` changed to a destructured `const { X } =
+require(...)` wherever the file exports a named binding rather than a
+single default), plus three files (`test_response_dynamics.js`,
+`test_osm_metrics_table.js`, `test_spectral_eda.js`,
+`test_collective_active_metric.js`) whose own `vm.runInThisContext`-based
+raw-source-eval trick for loading `constants.js`/`gsr_filter.js` (predating
+`load_module.js`) is replaced with a plain `require('../src/X.mjs')` —
+simpler, and it no longer needs a separate vm realm to dodge prototype-
+identity mismatches now that there's a real module namespace object to
+`require()` instead of raw script text to eval.
+
+**This layer's first real converted-file-imports-converted-file edge
+surfaced a genuine NEW realm-model bug class** (as anticipated — see the
+previous checkpoint's closing note): `src/live/live_bluetooth.js` has a
+real static `import { LiveState } from './live_state.mjs'` (LiveState
+being a layer-0 file). `loadScriptFile`'s per-entry cache-busting query
+string (`?t=<n>`, incremented once per `import()` call) only busts the
+SCRIPT_ORDER entry's OWN top-level `import()` — an internal, relative
+`import` statement inside that entry's source carries no query string at
+all, so Node resolves and caches it completely independently, by its own
+plain URL, forever (the first time ANYTHING in the process ever resolves
+it). Result: `LiveConnectionController`'s bare-global
+`LiveState.setStatus('connecting')` (resolving through
+`reflectOntoGlobal`'s fresh-every-boot copy) and
+`GSRLiveBluetoothManager._setStatus('connected')` (resolving through its
+own static-imported, forever-stale `LiveState` binding) were silently
+mutating two different objects — `attemptConnect()` looked permanently
+stuck on "connecting" to every test and to `global.LiveState` alike, no
+matter how the fake BLE stack behaved. Confirmed as a boot-generation
+divergence problem, not a live_bluetooth.js logic bug, by tracing both
+`LiveState` bindings to different objects across a single `bootLive()`
+call.
+
+Fixed generally in `realm_bridge.js`, not per-file: one process-wide
+`module.registerHooks({ resolve })` (the synchronous, in-thread hook API —
+not the worker-thread `module.register`, so it can read a plain module-
+level `bootGeneration` counter directly, no message-passing needed),
+registered once at module load. It appends the CURRENT boot generation's
+`?t=<gen>` query to every resolution landing under this project's own
+`src/` tree, regardless of whether that resolution came from
+`loadScriptFile`'s own top-level `import()` or a nested static `import`
+inside an already-converted file — so both paths converge on the exact
+same resolved URL, and therefore the exact same cached module instance,
+for the life of one boot; `bootGeneration` increments once inside
+`clearPreviousBoot()`, giving every subsequent boot a genuinely fresh set
+of instances together, consistently, matching a real page reload.
+`loadScriptFile`'s own manual `?t=` construction was deleted — the hook is
+now the single place that does this, for every resolution path at once.
+This is a **general fix**, not specific to `live_bluetooth`/`live_state`:
+every later layer converts files in dependency order specifically so they
+import already-converted earlier-layer files, so this exact edge (one
+converted file statically importing another) becomes the norm from here
+on, not the exception — layer 1 just hit it first.
+
+Suite verified 1345/1345 green three times in a row before committing.
+
 ### Next steps, in order
 
-1. **Layer 1 (9 files, all independent leaves — order doesn't matter):**
-   `src/core/constants.js`, `src/signal/gsr_filter.js`,
-   `src/signal/deconvolution.js`, `src/map/map_colors.js`,
-   `src/osm/osm_cache.js`, `src/gps/gps_filter.js`,
-   `src/live/live_bluetooth.js`, `src/spatial/arousal_places.js`,
-   `src/render/label_placement.js`. Same process as layer 0: `node
-   tests/manual/esm_migration/convert_file.js <file> --write`, then re-run
-   `npm test` — the loadModule/boot_app.js/boot_live.js loaders should now
-   need ZERO further edits per file (that was the whole point of this
-   checkpoint's prep work), but a handful of test files still directly
-   `require('../src/X.js')` or `readFileSync` raw source for
-   content-matching assertions (grep the file's basename across `tests/`
-   the same way this checkpoint did) — expect a few of those per layer,
-   fix inline as they surface, don't defer. If `npm test` surfaces a NEW
-   realm-model bug class (not one of the 5 above), fix it in
-   `realm_bridge.js`, not with a workaround in a test.
-2. Continue layer by layer: 2 (6 files), 3 (13 files — **one 2-file SCC:
+1. **Layer 2 (6 files, all independent leaves — order doesn't matter):**
+   `src/core/app_state.js`, `src/signal/cvxeda.js`,
+   `src/spatial/spatial_clustering.js`, `src/gps/map_match.js`,
+   `src/gps/gps_pipeline.js`, `src/map/globe3d.js`. Same process as layers
+   0-1: `node tests/manual/esm_migration/convert_file.js <file> --write`,
+   then re-run `npm test`; fix any surfaced direct
+   `require('../src/X.js')`/raw-`readFileSync` test references inline (see
+   layer 1 above for the pattern) — don't defer. If `npm test` surfaces a
+   NEW realm-model bug class (not one already fixed in `realm_bridge.js`
+   across layers 0-1), fix it there too, not with a workaround in a test.
+2. Continue layer by layer: 3 (13 files — **one 2-file SCC:
    `analyzer.js`↔`csv_parser.js`, convert as one atomic batch**), 4 (4
    files), 5 (1 file), 6 (22 files — **one 13-file SCC: `ui.js`,
    `events.js`, `tracks.js`, `storage.js`, `sketch.js`, `live_view.js`,

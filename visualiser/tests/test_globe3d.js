@@ -366,7 +366,7 @@ test('renderData({ isPreview: true }) suppresses the fly-to', () => {
 // 2D is the source of truth: colour metric + range come from the host, height
 // is a separate arousal series so a non-magnitude colour metric still extrudes.
 
-const { MapColors: REAL_MAP_COLORS } = require('../src/map/map_colors.js');
+const { MapColors: REAL_MAP_COLORS } = require('../src/map/map_colors.mjs');
 
 /**
  * Install Cesium/MapColors capture around the REAL _render3DWallAndPath.

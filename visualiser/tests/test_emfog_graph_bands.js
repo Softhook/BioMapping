@@ -31,7 +31,7 @@ global.TOP = 'top';
 // machinery NDVI uses (see test_ndvi_graph_bands.js) — this file exists to
 // prove a *second* metric plugged into it correctly, not to re-test the
 // shared machinery itself.
-const { MapColors } = require('../src/map/map_colors.js');
+const { MapColors } = require('../src/map/map_colors.mjs');
 global.MapColors = MapColors;
 
 const { GSRRenderer } = require('../src/render/renderer.mjs');

@@ -28,7 +28,7 @@ global.TOP = 'top';
 
 // Real MapColors — the graph bands must reuse the exact colours the map's
 // "Road Class" layer/legend already use, not a second palette.
-const { MapColors } = require('../src/map/map_colors.js');
+const { MapColors } = require('../src/map/map_colors.mjs');
 global.MapColors = MapColors;
 
 // Real OSMEnricher (osm_enrichment.js needs GeoUtils as a global at require

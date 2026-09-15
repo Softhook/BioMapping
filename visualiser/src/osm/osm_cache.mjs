@@ -58,7 +58,9 @@
  *   - The cache is capped at MAX_ENTRIES; the least-recently-used entry
  *     is evicted once the cap is exceeded.
  */
-const OsmCache = {
+import { GeoUtils } from '../gps/geo_utils.mjs';
+
+export const OsmCache = {
   DB_NAME: 'biomap_osm_cache',
   DB_VERSION: 2,
   META_STORE: 'bbox_meta',

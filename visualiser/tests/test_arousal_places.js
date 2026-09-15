@@ -9,7 +9,7 @@ const assert = require('assert');
 const test = require('node:test');
 
 global.GeoUtils = require('../src/gps/geo_utils.mjs').GeoUtils;
-const { GSRArousalPlaces } = require('../src/spatial/arousal_places.js');
+const { GSRArousalPlaces } = require('../src/spatial/arousal_places.mjs');
 
 const M_PER_DEG = 111320.0;
 // Most tests care about scoring, not the noise filter — keep minMembers low and

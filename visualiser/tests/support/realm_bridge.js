@@ -21,7 +21,43 @@ const path = require('path');
 const vm = require('vm');
 const espree = require('espree');
 const { pathToFileURL } = require('url');
+const { registerHooks } = require('module');
 const { topLevelDeclaredNames, topLevelMutableNames } = require('../manual/esm_migration/lib/top_level_names.js');
+
+// Node's ESM resolver caches a module by its exact resolved URL for the
+// process lifetime. Busting only loadScriptFile's OWN `import()` call for a
+// SCRIPT_ORDER entry (a per-call query string, as this used to do) isn't
+// enough once one converted file statically imports ANOTHER converted
+// file: that internal `import ... from './x.mjs'` specifier carries no
+// query string, so it resolves — and caches — completely independently of
+// whatever busted URL loadScriptFile used for x.mjs's own entry. Caught by
+// live_bluetooth.mjs's `import { LiveState } from './live_state.mjs'`:
+// LiveConnectionController's bare-global `LiveState.setStatus('connecting')`
+// and the manager's `this._setStatus('connected')` (which goes through its
+// own static-imported LiveState binding) were silently mutating two
+// different objects — the connect() flow looked permanently stuck
+// "connecting" from the test's/global's point of view.
+//
+// Fixed with one process-wide resolve hook — synchronous, in-thread
+// (`module.registerHooks`, not the worker-thread `module.register`, so it
+// can read `bootGeneration` directly with no message-passing) — that
+// appends the CURRENT generation's query to EVERY resolution under this
+// project's own src/ tree, whether reached via loadScriptFile's top-level
+// `import()` or a nested static `import` inside an already-converted file.
+// Both paths then resolve to the identical URL, so Node's module cache
+// hands back the identical instance, for the life of one boot. Registered
+// once at module load (this file is only require()d once per process).
+let bootGeneration = 0;
+const SRC_ROOT = pathToFileURL(path.join(__dirname, '..', '..') + path.sep).href;
+registerHooks({
+  resolve(specifier, context, nextResolve) {
+    const result = nextResolve(specifier, context);
+    if (result.url.startsWith(SRC_ROOT) && result.url.endsWith('.mjs') && !result.url.includes('?t=')) {
+      return { ...result, url: `${result.url}?t=${bootGeneration}` };
+    }
+    return result;
+  },
+});
 
 // CAUTION if reusing this outside a booted jsdom window: `new Blob([superMock()])`
 // against Node's *native* global Blob crashes the whole process with a native
@@ -231,16 +267,15 @@ function clearLeakedTimersFromPreviousBoot() {
 // top-level side effect — e.g. live_tile_cache.mjs's `L.tileLayer.cache =
 // function(){...}`, which needs to re-attach to THIS boot's fresh `L`
 // mock, or notices.mjs's `window.addEventListener('error', ...)`, which
-// needs to re-register on THIS boot's fresh window. A cache-busting query
-// string (proven in tests/manual/esm_migration/pilot/) forces a genuinely
-// fresh module instance — and therefore a fresh run of its top-level code —
-// on every single boot, matching wrapForRepeatedExecution's same guarantee
-// for not-yet-converted files below.
-let importBustCounter = 0;
+// needs to re-register on THIS boot's fresh window. Cache-busting (see the
+// resolve hook + `bootGeneration` above this file's header comment) forces
+// a genuinely fresh module instance — and therefore a fresh run of its
+// top-level code — on every single boot, matching wrapForRepeatedExecution's
+// same guarantee for not-yet-converted files below.
 
 /**
  * Loads one script-order entry into the shared realm: `.mjs` (converted) →
- * `await import()` (cache-busted, see above) + `Object.assign(global, mod)`
+ * `await import()` (cache-busted by the resolve hook above) + `Object.assign(global, mod)`
  * (a test-harness-only compat shim, mirroring the old window.X = X exposure
  * — makes a converted file's exports resolvable as bare identifiers by any
  * file further down the order that hasn't converted yet; never written into
@@ -294,8 +329,7 @@ async function loadScriptFile(appDir, relFile, window) {
   const { rel, converted } = resolveFile(appDir, relFile);
   const absPath = path.join(appDir, rel);
   if (converted) {
-    const bustedUrl = `${pathToFileURL(absPath).href}?t=${importBustCounter++}`;
-    const mod = await import(bustedUrl);
+    const mod = await import(pathToFileURL(absPath).href);
     reflectOntoGlobal(mod, global);
     reflectOntoGlobal(mod, window);
   } else {
@@ -312,6 +346,7 @@ async function loadScriptFile(appDir, relFile, window) {
 // EITHER harness) could have left running or lying around, restoring the
 // "each call is fully isolated" contract before building the fresh window.
 function clearPreviousBoot() {
+  bootGeneration++;
   clearLeakedTimersFromPreviousBoot();
   clearPreviousBootGlobals();
 }

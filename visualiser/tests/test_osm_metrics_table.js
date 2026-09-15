@@ -9,27 +9,12 @@
 
 const assert = require('assert');
 const test = require('node:test');
-const fs = require('fs');
-const path = require('path');
-const vm = require('vm');
 
-// constants.js declares `const GSR_CONST = {...}` with no module.exports (it's
-// a plain <script>-tag global in the browser) — every other test loads
-// mock_constants.js instead and never the real file directly. Load it via
-// vm.runInThisContext (same pattern as every other test's `loadModule`
-// helper) into a distinctly-named global rather than `global.GSR_CONST`
-// itself, so it can't clash with whatever other test files in the same
-// `node --test` run already assigned that name to (their own mock).
-// Deliberately NOT vm.createContext — that creates a genuinely separate
-// realm with its own Array/Object prototypes, which makes every
-// assert.deepStrictEqual below fail on prototype identity even when every
-// property matches.
-const constantsSrc = fs.readFileSync(path.join(__dirname, '../src/core/constants.js'), 'utf8');
-vm.runInThisContext(
-  constantsSrc.replace('const GSR_CONST', 'global.__REAL_GSR_CONST__'),
-  { filename: 'constants.js' }
-);
-const GSR_CONST = global.__REAL_GSR_CONST__;
+// constants.js is a real ES module now — require() it directly (Node
+// natively supports require()-ing an ES module with no top-level await),
+// which also avoids the prototype-identity issues a separate vm realm
+// would cause every assert.deepStrictEqual below.
+const { GSR_CONST } = require('../src/core/constants.mjs');
 
 const MOCK_GSR_CONST = require('./mock_constants.js');
 

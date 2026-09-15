@@ -6,7 +6,9 @@
  * All functions operate on plain Float64Array-compatible arrays.
  */
 
-const GsrFilter = {
+import { StatsMath } from './stats_math.mjs';
+
+export const GsrFilter = {
 
   /**
    * Create a sliding sorted window pre-seeded with the first `half+1` elements
@@ -470,10 +472,3 @@ const GsrFilter = {
     return { tonic: tonicVals, phasic: phasicVals };
   }
 };
-
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = GsrFilter;
-}
-if (typeof window !== 'undefined') {
-  window.GsrFilter = GsrFilter;
-}

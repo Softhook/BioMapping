@@ -17,7 +17,9 @@
  * add / remove are O(1); a query is O(boxes in the three scanned bands), which
  * for non-degenerate label layouts is a small constant.
  */
-class YBandIndex {
+import { GSRNotices } from '../core/notices.mjs';
+
+export class YBandIndex {
   constructor(bandHeight, overlapFn) {
     this._h = bandHeight;
     this._overlap = overlapFn;
@@ -68,7 +70,7 @@ class YBandIndex {
   }
 }
 
-class GSRLabelManager {
+export class GSRLabelManager {
   /**
    * Estimate pixel width of label text at font-size 10px (Inter proportionals).
    */
@@ -289,11 +291,4 @@ class GSRLabelManager {
     });
   }
 
-}
-
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { GSRLabelManager };
-}
-if (typeof window !== 'undefined') {
-  window.GSRLabelManager = GSRLabelManager;
 }

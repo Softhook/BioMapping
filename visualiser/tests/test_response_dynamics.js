@@ -1,23 +1,19 @@
 const test = require('node:test');
 const assert = require('node:assert');
-const fs = require('node:fs');
-const path = require('node:path');
-const vm = require('node:vm');
 
 const { ResponseDynamics } = require('../src/signal/response_dynamics.mjs');
 global.ResponseDynamics = ResponseDynamics;
 
 // Load real constants.js
-const constantsSrc = fs.readFileSync(path.join(__dirname, '../src/core/constants.js'), 'utf8');
-const GSR_CONST = vm.runInNewContext(constantsSrc + '\n; GSR_CONST;', { ResponseDynamics });
+const { GSR_CONST } = require('../src/core/constants.mjs');
 global.GSR_CONST = GSR_CONST;
 
-const SCRDeconvolution = require('../src/signal/deconvolution.js');
+const { SCRDeconvolution } = require('../src/signal/deconvolution.mjs');
 global.SCRDeconvolution = SCRDeconvolution;
-const { GsrFilter } = require('../src/signal/gsr_filter.js');
+const { GsrFilter } = require('../src/signal/gsr_filter.mjs');
 global.GsrFilter = GsrFilter;
 
-const { MapColors } = require('../src/map/map_colors.js');
+const { MapColors } = require('../src/map/map_colors.mjs');
 const { GSRAnalyzer } = require('../src/signal/analyzer.js');
 
 test('Response Dynamics: ResponseDynamics domain module unit tests', () => {

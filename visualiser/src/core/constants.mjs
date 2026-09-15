@@ -3,7 +3,9 @@
  * Single source of truth for magic numbers scattered across files.
  */
 
-const GSR_CONST = {
+import { ResponseDynamics } from '../signal/response_dynamics.mjs';
+
+export const GSR_CONST = {
 
   // ── Graph layout (p5.js canvas) ──────────────────────────────────────────
   MARGIN: { top: 22, bottom: 10, left: 70, right: 35, gap: 40 },
@@ -162,7 +164,6 @@ const GSR_CONST = {
     sparsedaApexSearchHalfWinSec: 0.5,
     deconvAlgorithm: 'matching_pursuit' // 'sparseda' | 'matching_pursuit' | 'cvxeda'
   },
-
 
   // ── cvxEDA Convex Optimization Decomposition (Greco, Citi et al., 2016) ─
   // Faithful port of the reference cvxEDA.py `qp` path: the identical QP
@@ -362,7 +363,6 @@ const GSR_CONST = {
       'Slow':      '#3b82f6', // 0.75x (Vivid Blue)
       'Very Slow': '#8b5cf6'  // 0.5x (Deep Purple / Lingering tension)
     },
-
 
   // Display unit for the 'phasicDriver' graph view, keyed by
   // analyzer._driverAlgorithm — the two detectors' "driver" arrays are not

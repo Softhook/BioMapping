@@ -6,7 +6,9 @@
  * All functions operate on arrays of { lat, lon, time, ... } point objects.
  */
 
-const GpsFilter = {
+import { GeoUtils } from './geo_utils.mjs';
+
+export const GpsFilter = {
 
   /**
    * Speed plausibility check: rejects points whose Doppler-derived speed
@@ -59,8 +61,6 @@ const GpsFilter = {
     }
     return kept;
   },
-
-
 
   /**
    * Forward-backward Kalman smoother on Lat and Lon (Rauch-Tung-Striebel).
@@ -550,7 +550,3 @@ const GpsFilter = {
     return result;
   }
 };
-
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = GpsFilter;
-}

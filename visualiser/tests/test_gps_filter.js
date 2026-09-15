@@ -19,7 +19,7 @@ const test = require('node:test');
 const { GeoUtils } = require('../src/gps/geo_utils.mjs');
 global.GeoUtils = GeoUtils;
 
-const GpsFilter = require('../src/gps/gps_filter.js');
+const { GpsFilter } = require('../src/gps/gps_filter.mjs');
 
 const closeTo = (actual, expected, tolerance = 1e-5, msg = '') => {
   assert.ok(

@@ -36,8 +36,11 @@
  * UUID can be read off the console instead of guessed at again.
  */
 
-const BLE_SERVICE_UUID = '8fe5b3d5-2e7f-4a98-2a48-7acc60fe0000';
-const BLE_RX_CHAR_UUID = '19ed82ae-ed21-4c9d-4145-228e61fe0000'; // Flipper TX / host notify
+import { GSRLiveBinaryParser } from './live_binary_parser.mjs';
+import { LiveState } from './live_state.mjs';
+
+export const BLE_SERVICE_UUID = '8fe5b3d5-2e7f-4a98-2a48-7acc60fe0000';
+export const BLE_RX_CHAR_UUID = '19ed82ae-ed21-4c9d-4145-228e61fe0000'; // Flipper TX / host notify
 
 // None of BluetoothRemoteGATTServer.connect() / getPrimaryService() /
 // getCharacteristic() / startNotifications() carries a built-in timeout, and
@@ -56,9 +59,9 @@ const BLE_RX_CHAR_UUID = '19ed82ae-ed21-4c9d-4145-228e61fe0000'; // Flipper TX /
 // for a working attempt's connect + service/characteristic discovery to
 // finish while failing fast instead of wedging Android's BLE controller in
 // HCI_LE_Create_Connection for 15 seconds.
-const BLE_SUBSCRIBE_TIMEOUT_MS = 5000;
+export const BLE_SUBSCRIBE_TIMEOUT_MS = 5000;
 
-class GSRLiveBluetoothManager {
+export class GSRLiveBluetoothManager {
   constructor(onStatusText, options = {}) {
     this.device = null;
     this.characteristic = null;
@@ -570,14 +573,4 @@ class GSRLiveBluetoothManager {
       clearTimeout(timer);
     }
   }
-}
-
-if (typeof window !== 'undefined') {
-  window.GSRLiveBluetoothManager = GSRLiveBluetoothManager;
-  window.BLE_SERVICE_UUID = BLE_SERVICE_UUID;
-  window.BLE_RX_CHAR_UUID = BLE_RX_CHAR_UUID;
-  window.BLE_SUBSCRIBE_TIMEOUT_MS = BLE_SUBSCRIBE_TIMEOUT_MS;
-}
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { GSRLiveBluetoothManager, BLE_SERVICE_UUID, BLE_RX_CHAR_UUID, BLE_SUBSCRIBE_TIMEOUT_MS };
 }

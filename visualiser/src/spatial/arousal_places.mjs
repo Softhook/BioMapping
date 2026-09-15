@@ -13,7 +13,9 @@
  * Pure module: no DOM, no Leaflet. GeoUtils is the only dependency and is
  * typeof-guarded so host tests can run without it.
  */
-class GSRArousalPlaces {
+import { GeoUtils } from '../gps/geo_utils.mjs';
+
+export class GSRArousalPlaces {
   /**
    * @param {Array<Array<object>>} clusters - Output of
    *   GSRSpatialClustering.compactClusters(): each entry an array of member peak
@@ -251,24 +253,18 @@ class GSRArousalPlaces {
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
-function num(v, fallback) {
+export function num(v, fallback) {
   const n = parseFloat(v);
   return isNaN(n) ? fallback : n;
 }
-function numOrNull(v) {
+export function numOrNull(v) {
   const n = parseFloat(v);
   return isNaN(n) ? null : n;
 }
-function geoScale(lat) {
+export function geoScale(lat) {
   if (typeof GeoUtils !== 'undefined' && typeof GeoUtils.getGeodesicScale === 'function') {
     return GeoUtils.getGeodesicScale(lat);
   }
   const DEG_TO_M_LAT = 111320.0;
   return { degToMeterLat: DEG_TO_M_LAT, degToMeterLon: DEG_TO_M_LAT * Math.cos(lat * Math.PI / 180) };
-}
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { GSRArousalPlaces };
-}
-if (typeof window !== 'undefined') {
-  window.GSRArousalPlaces = GSRArousalPlaces;
 }
