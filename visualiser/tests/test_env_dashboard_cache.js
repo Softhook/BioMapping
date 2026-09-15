@@ -57,7 +57,18 @@ const { GSRUI }       = require('../src/ui/ui.mjs');
 // straight onto GSRUI, so we do that assignment here ourselves.
 Object.assign(GSRUI, require('../src/ui/ui_correlation_table.mjs').__methods);
 Object.assign(GSRUI, require('../src/ui/ui_road_profile.mjs').__methods);
-Object.assign(GSRUI, require('../src/ui/ui_environmental_dashboard.js'));
+Object.assign(GSRUI, require('../src/ui/ui_environmental_dashboard.mjs').__methods);
+
+// ui_environmental_dashboard.mjs (and ui_correlation_table.mjs/
+// ui_road_profile.mjs above) hold real static `import { AppState } from
+// '../core/app_state.mjs'` bindings, not bare global lookups — every
+// `global.AppState = {...}` wholesale replacement below is inert against
+// them. Mutate the real singleton's own fields in place instead (same
+// pattern as layer 2's GSR_CONST fix) — safe as a merge (not a reset)
+// since every call site here explicitly sets every field
+// updateEnvironmentalDashboard's cache-target logic branches on
+// (viewMode + analyzer, or viewMode + collectiveManager).
+const { AppState: RealAppState } = require('../src/core/app_state.mjs');
 
 // ── Fixture: a real recorded track (same file test_all_pipelines.js uses). ──
 const csvText = fs.readFileSync(path.join(__dirname, '../../tracks/biomap_048.csv'), 'utf8');
@@ -119,7 +130,7 @@ test('GSRUI.correlationBand: |r| bands are negligible <.10, small <.20, moderate
 
 test('updateEnvironmentalDashboard (single mode): cache reused across repeated calls when nothing changed', () => {
   const a = buildEnrichedAnalyzer();
-  global.AppState = { viewMode: 'single', analyzer: a, activeTrackId: 'trkA' };
+  Object.assign(RealAppState, { viewMode: 'single', analyzer: a, activeTrackId: 'trkA' });
 
   GSRUI.updateEnvironmentalDashboard();
   const first = a._cachedEnvStats;
@@ -132,7 +143,7 @@ test('updateEnvironmentalDashboard (single mode): cache reused across repeated c
 
 test('updateEnvironmentalDashboard (single mode): EM Fog is included as a correlation feature when the track carries readings', () => {
   const a = buildEnrichedAnalyzer();
-  global.AppState = { viewMode: 'single', analyzer: a, activeTrackId: 'trkA' };
+  Object.assign(RealAppState, { viewMode: 'single', analyzer: a, activeTrackId: 'trkA' });
 
   GSRUI.updateEnvironmentalDashboard();
   const rows = a._cachedEnvStats.correlationMatrix;
@@ -145,7 +156,7 @@ test('updateEnvironmentalDashboard (single mode): EM Fog is included as a correl
   // And absent when no sample carries a reading.
   const b = buildEnrichedAnalyzer();
   b.raw.forEach(pt => { pt.em_fog = NaN; });
-  global.AppState = { viewMode: 'single', analyzer: b, activeTrackId: 'trkB' };
+  Object.assign(RealAppState, { viewMode: 'single', analyzer: b, activeTrackId: 'trkB' });
   GSRUI.updateEnvironmentalDashboard();
   assert.ok(!b._cachedEnvStats.correlationMatrix.some(r => r.key === 'em_fog'),
     'EM Fog row omitted when every reading is NaN');
@@ -155,7 +166,7 @@ test('updateEnvironmentalDashboard (single mode): correlation matrix carries FDR
   const a = buildEnrichedAnalyzer();
   // Re-stamp road class so one bucket is the OSM catch-all "unclassified".
   a.raw.forEach((pt, i) => { pt.osm_road_class = ['residential', 'unclassified', 'primary'][i % 3]; });
-  global.AppState = { viewMode: 'single', analyzer: a, activeTrackId: 'trkA' };
+  Object.assign(RealAppState, { viewMode: 'single', analyzer: a, activeTrackId: 'trkA' });
 
   GSRUI.updateEnvironmentalDashboard();
   const stats = a._cachedEnvStats;
@@ -193,7 +204,7 @@ test('updateEnvironmentalDashboard (single mode): correlation matrix carries FDR
 
 test('updateEnvironmentalDashboard (single mode): the highest-vs-lowest road gap is Bonferroni-corrected for being the widest of N classes', () => {
   const a = buildEnrichedAnalyzer(); // default fixture stamps 3 road classes
-  global.AppState = { viewMode: 'single', analyzer: a, activeTrackId: 'trkA' };
+  Object.assign(RealAppState, { viewMode: 'single', analyzer: a, activeTrackId: 'trkA' });
 
   GSRUI.updateEnvironmentalDashboard();
   const rc = a._cachedEnvStats.roadComparison;
@@ -208,7 +219,7 @@ test('updateEnvironmentalDashboard (single mode): the highest-vs-lowest road gap
 test('updateEnvironmentalDashboard (single mode): a factor that never changes along the route is flagged as no-variance and left unstarred', () => {
   const a = buildEnrichedAnalyzer();
   a.raw.forEach(pt => { pt.osm_green_pct_50m = 42; }); // constant everywhere
-  global.AppState = { viewMode: 'single', analyzer: a, activeTrackId: 'trkA' };
+  Object.assign(RealAppState, { viewMode: 'single', analyzer: a, activeTrackId: 'trkA' });
 
   GSRUI.updateEnvironmentalDashboard();
   const row = a._cachedEnvStats.correlationMatrix.find(r => r.key === 'osm_green_pct_50m');
@@ -219,7 +230,7 @@ test('updateEnvironmentalDashboard (single mode): a factor that never changes al
 test('updateEnvironmentalDashboard (single mode): recomputes after setPeakLabel edits the active track', () => {
   const a = buildEnrichedAnalyzer();
   assert.ok(a.peaks.length > 0, 'sanity: fixture produces at least one peak under default params');
-  global.AppState = { viewMode: 'single', analyzer: a, activeTrackId: 'trkA' };
+  Object.assign(RealAppState, { viewMode: 'single', analyzer: a, activeTrackId: 'trkA' });
 
   GSRUI.updateEnvironmentalDashboard();
   const before = a._cachedEnvStats;
@@ -234,7 +245,7 @@ test('updateEnvironmentalDashboard (single mode): recomputes after setPeakLabel 
 test('updateEnvironmentalDashboard (single mode): recomputes after setPeakExcluded toggles a peak', () => {
   const a = buildEnrichedAnalyzer();
   assert.ok(a.peaks.length > 0, 'sanity: fixture produces at least one peak under default params');
-  global.AppState = { viewMode: 'single', analyzer: a, activeTrackId: 'trkA' };
+  Object.assign(RealAppState, { viewMode: 'single', analyzer: a, activeTrackId: 'trkA' });
 
   GSRUI.updateEnvironmentalDashboard();
   const before = a._cachedEnvStats;
@@ -248,7 +259,7 @@ test('updateEnvironmentalDashboard (single mode): recomputes after setPeakExclud
 
 test('updateEnvironmentalDashboard (single mode): recomputes after the active track is re-analyzed', () => {
   const a = buildEnrichedAnalyzer();
-  global.AppState = { viewMode: 'single', analyzer: a, activeTrackId: 'trkA' };
+  Object.assign(RealAppState, { viewMode: 'single', analyzer: a, activeTrackId: 'trkA' });
 
   GSRUI.updateEnvironmentalDashboard();
   const before = a._cachedEnvStats;
@@ -269,7 +280,7 @@ test('updateEnvironmentalDashboard (collective mode): method scales with walk co
   });
   const run = (n) => {
     const cm = { getActiveTracks: () => mkTracks(n) };
-    global.AppState = { viewMode: 'collective', collectiveManager: cm };
+    Object.assign(RealAppState, { viewMode: 'collective', collectiveManager: cm });
     GSRUI.updateEnvironmentalDashboard();
     return cm._cachedEnvStats.correlationMatrix.filter(r => r.hasVariance);
   };
@@ -303,7 +314,7 @@ test('updateEnvironmentalDashboard: tonic gets its own longer-lag environment, P
     return { id: 'trk' + k, analyzer: a };
   });
   const cm = { getActiveTracks: () => mkTracks(6) };
-  global.AppState = { viewMode: 'collective', collectiveManager: cm };
+  Object.assign(RealAppState, { viewMode: 'collective', collectiveManager: cm });
   GSRUI.updateEnvironmentalDashboard();
   const stats = cm._cachedEnvStats;
 
@@ -354,7 +365,7 @@ test('updateEnvironmentalDashboard: the road profile groups tonic arousal by the
     a.tonic[i].val = tonicClassIsService ? 100 : 1;
   });
 
-  global.AppState = { viewMode: 'single', analyzer: a, activeTrackId: 'trkA' };
+  Object.assign(RealAppState, { viewMode: 'single', analyzer: a, activeTrackId: 'trkA' });
   GSRUI.updateEnvironmentalDashboard();
   const prof = a._cachedEnvStats.roadProfile;
   const service = prof.find(p => p.name === 'service');
@@ -384,7 +395,7 @@ test('updateEnvironmentalDashboard (collective mode): only enriched tracks are a
   const all = [...enriched, { id: 'trkBare', analyzer: bare }];
 
   const cm = { getActiveTracks: () => all };
-  global.AppState = { viewMode: 'collective', collectiveManager: cm };
+  Object.assign(RealAppState, { viewMode: 'collective', collectiveManager: cm });
   GSRUI.updateEnvironmentalDashboard();
 
   const stats = cm._cachedEnvStats;
@@ -395,7 +406,7 @@ test('updateEnvironmentalDashboard (collective mode): only enriched tracks are a
 
 test('updateEnvironmentalDashboard (single mode): correlation cells use the single-recording method', () => {
   const a = buildEnrichedAnalyzer();
-  global.AppState = { viewMode: 'single', analyzer: a, activeTrackId: 'trkA' };
+  Object.assign(RealAppState, { viewMode: 'single', analyzer: a, activeTrackId: 'trkA' });
   GSRUI.updateEnvironmentalDashboard();
   a._cachedEnvStats.correlationMatrix.filter(r => r.hasVariance).forEach(r => {
     assert.strictEqual(r.mPhasic, 'single', `${r.key}: single walk -> 'single' method`);
@@ -414,7 +425,7 @@ test('updateEnvironmentalDashboard (collective mode): mutating ONE of several ac
       { id: 'trkB', analyzer: trackB },
     ],
   };
-  global.AppState = { viewMode: 'collective', collectiveManager };
+  Object.assign(RealAppState, { viewMode: 'collective', collectiveManager });
 
   GSRUI.updateEnvironmentalDashboard();
   const first = collectiveManager._cachedEnvStats;
@@ -485,7 +496,7 @@ test('updateEnvironmentalDashboard (single mode): computes speed-adjusted partia
   a.raw.forEach((pt, i) => {
     pt.speedKts = 1.0 + (i % 20) * 0.1; // varying speed
   });
-  global.AppState = { viewMode: 'single', analyzer: a, activeTrackId: 'trkA' };
+  Object.assign(RealAppState, { viewMode: 'single', analyzer: a, activeTrackId: 'trkA' });
 
   GSRUI.updateEnvironmentalDashboard();
   const stats = a._cachedEnvStats;
@@ -502,12 +513,8 @@ test('updateEnvironmentalDashboard (single mode): computes speed-adjusted partia
 
 test('sortCorrelationTable: toggles sort direction and sorts matrix rows accordingly', () => {
   const savedDoc = global.document;
-  // ui_correlation_table.mjs holds a real static `import { AppState } from
-  // '../core/app_state.mjs'` binding, not a bare global lookup — replacing
-  // global.AppState wholesale is inert against it. Mutate the real
-  // singleton's own fields in place instead (same pattern as layer 2's
-  // GSR_CONST fix / this file's sortRoadArousalTable test), restored after.
-  const { AppState: RealAppState } = require('../src/core/app_state.mjs');
+  // restored after, unlike the wholesale-merge calls above — this test needs
+  // an exact pristine corrSortColumn/corrSortDirection, not a merge.
   const original = {
     corrSortColumn: RealAppState.corrSortColumn,
     corrSortDirection: RealAppState.corrSortDirection,
@@ -568,13 +575,8 @@ test('sortCorrelationTable: toggles sort direction and sorts matrix rows accordi
 
 test('sortRoadArousalTable: toggles sort direction and sorts road profile rows', () => {
   const savedDoc = global.document;
-  // ui_road_profile.mjs holds a real static `import { AppState } from
-  // '../core/app_state.mjs'` binding, not a bare global lookup — replacing
-  // global.AppState wholesale (as other tests in this file do, for the
-  // still-CJS ui_environmental_dashboard.js) is inert against it. Mutate
-  // the real singleton's own fields in place instead (same pattern as
-  // layer 2's GSR_CONST fix), restored after.
-  const { AppState: RealAppState } = require('../src/core/app_state.mjs');
+  // restored after, same as sortCorrelationTable above — this test needs an
+  // exact pristine roadSortColumn/roadSortDirection, not a merge.
   const original = {
     roadSortColumn: RealAppState.roadSortColumn,
     roadSortDirection: RealAppState.roadSortDirection,

@@ -522,7 +522,7 @@ test('GSRUI.sampleNdviTrack: successfully resolves single-mode track without fal
   Object.assign(GSRUI, require('../src/ui/ui_stats_panel.mjs').__methods);
   Object.assign(GSRUI, require('../src/ui/ui_correlation_table.mjs').__methods);
   Object.assign(GSRUI, require('../src/ui/ui_road_profile.mjs').__methods);
-  Object.assign(GSRUI, require('../src/ui/ui_environmental_dashboard.js'));
+  Object.assign(GSRUI, require('../src/ui/ui_environmental_dashboard.mjs').__methods);
   global.document = {
     getElementById: (id) => ({
       style: {},
@@ -555,12 +555,12 @@ test('GSRUI.sampleNdviTrack: successfully resolves single-mode track without fal
     { time: 1.0, lat: 55.9535, lon: -3.1898 }
   ];
 
-  // ui_enrichment.mjs holds a real static `import { AppState } from
-  // '../core/app_state.mjs'` binding, not a bare global lookup — replacing
-  // global.AppState wholesale is inert against it. Point global.AppState AT
-  // the real singleton (still-CJS ui_environmental_dashboard.js, reached via
-  // refreshOsmControls()'s cascade, still reads the bare global) and mutate
-  // its fields in place, so both paths see the same object.
+  // ui_enrichment.mjs (and the rest of refreshOsmControls()'s cascade) holds
+  // a real static `import { AppState } from '../core/app_state.mjs'`
+  // binding, not a bare global lookup — replacing global.AppState wholesale
+  // is inert against it. Alias global.AppState to the real singleton and
+  // mutate its fields in place instead (same pattern as layer 2's GSR_CONST
+  // fix).
   const { AppState: RealAppState } = require('../src/core/app_state.mjs');
   global.AppState = RealAppState;
   Object.assign(RealAppState, {

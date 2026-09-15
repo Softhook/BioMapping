@@ -8,8 +8,12 @@
  * (ui_correlation_table.js), the road profile (ui_road_profile.js), and the
  * scatter plots.
  */
-(function () {
-const __methods = {
+import { AppState } from '../core/app_state.mjs';
+import { GSR_CONST } from '../core/constants.mjs';
+import { StatsMath } from '../signal/stats_math.mjs';
+import { GSRUI } from './ui.mjs';
+
+export const __methods = {
 
   updateEnvironmentalDashboard() {
     // Every active track (the walks the user has toggled on), and the
@@ -464,10 +468,4 @@ const __methods = {
 
 };
 
-if (typeof module !== 'undefined' && module.exports) {
-  Object.assign(global, require('./ui.mjs'));
-  module.exports = __methods;
-} else {
-  Object.assign(GSRUI, __methods);
-}
-})();
+Object.assign(GSRUI, __methods);
