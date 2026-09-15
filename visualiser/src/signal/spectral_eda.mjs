@@ -32,7 +32,7 @@
  * `SpectralEDA` and are guarded with `typeof SpectralEDA !== 'undefined'`
  * so vm-based tests that don't load this file still run.
  */
-const SpectralEDA = {
+export const SpectralEDA = {
   // The published sympathetic band (Posada-Quintero 2016). Upper bound is
   // exclusive — NeuroKit2's _signal_power_instant_compute uses `f < 0.25`.
   BAND_HZ: [0.045, 0.25],
@@ -577,6 +577,3 @@ const SpectralEDA = {
     return out;
   },
 };
-
-if (typeof window !== 'undefined') window.SpectralEDA = SpectralEDA;
-if (typeof module !== 'undefined' && module.exports) module.exports = { SpectralEDA };

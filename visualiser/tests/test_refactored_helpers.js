@@ -18,17 +18,14 @@ const test   = require('node:test');
 const fs     = require('fs');
 const vm     = require('vm');
 const path   = require('path');
+const { loadModule } = require('./support/load_module.js');
 
 // ── Loader helpers ────────────────────────────────────────────────────────────
 global.window    = global;
 global.GSR_CONST = require('./mock_constants.js');
 
 function loadBrowserModule(relPath, varName) {
-  const src     = fs.readFileSync(path.join(__dirname, relPath), 'utf8');
-  const wrapped = src
-    .replace(new RegExp(`class ${varName}\\s*{`), `global.${varName} = class ${varName} {`)
-    .replace(new RegExp(`const ${varName}\\s*=`),  `global.${varName} =`);
-  vm.runInThisContext(wrapped, { filename: relPath });
+  loadModule(path.join(__dirname, relPath), varName);
 }
 
 loadBrowserModule('../src/gps/geo_utils.js',    'GeoUtils');

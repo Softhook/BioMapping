@@ -11,7 +11,7 @@
  * require()-able from tests.
  */
 
-const LiveState = {
+export const LiveState = {
   status: 'disconnected', // 'connecting' | 'connected' | 'reconnecting' | 'disconnected'
   packets: [],
   gapCount: 0,
@@ -48,8 +48,3 @@ const LiveState = {
     this.emit('packet', pkt);
   },
 };
-
-if (typeof window !== 'undefined') window.LiveState = LiveState;
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { LiveState };
-}

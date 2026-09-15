@@ -13,14 +13,14 @@
 
 // Mirrors SERIES_FIELD in src/map/globe3d.js (and DERIVED_METRIC_SERIES in map.js) —
 // colouring metric -> analyzer per-sample series field.
-const G3DX_SERIES_FIELD = {
+export const G3DX_SERIES_FIELD = {
   phasic: 'phasic', tonic: 'tonic', arousalIndex: 'arousalIndex', triIndex: 'triIndex',
   peakDensity: 'peakDensity', phasicAUC: 'phasicAUC', edasymp: 'edasymp', em_fog: 'em_fog', emFog: 'em_fog'
 };
-const g3dxSeriesValue = (d) =>
+export const g3dxSeriesValue = (d) =>
   (d && typeof d === 'object' && 'val' in d) ? d.val : (typeof d === 'number' ? d : 0);
 
-const GSRGlobe3DExport = {
+export const GSRGlobe3DExport = {
   DEFAULT_BASE_HEIGHT: 2.0,
   DEFAULT_EXTRUSION: 8.0,
 
@@ -136,10 +136,3 @@ ${coords.trim()}
     URL.revokeObjectURL(url);
   }
 };
-
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { GSRGlobe3DExport };
-}
-if (typeof window !== 'undefined') {
-  window.GSRGlobe3DExport = GSRGlobe3DExport;
-}

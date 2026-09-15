@@ -26,18 +26,22 @@ const test = require('node:test');
 const vm = require('vm');
 const { bootLive } = require('./support/boot_live.js');
 
+// `context` is accepted (and ignored) throughout this file for historical
+// reasons — pre-realm-model-migration, live.html's top-level bindings lived
+// in their own separate vm context, reached via `context`. bootLive() now
+// shares the one real Node realm with everything else (see boot_app.js's
+// header comment for the full rationale), so a not-yet-converted file's
+// bindings are just bare identifiers in that shared realm — plain
+// vm.runInThisContext(expr) reaches them with no context object needed.
 function run(context, expr) {
-  return vm.runInContext(expr, context);
+  return vm.runInThisContext(expr);
 }
 
-// vm contexts have their own realm (own Array/Object prototypes), so an
-// array built inside `context` fails assert.deepStrictEqual against a
-// same-looking array built in this file's realm — "same structure but not
-// reference-equal". Round-tripping through JSON rebuilds it in THIS
-// realm; fine here since every value these tests pull out this way is
-// plain booleans/numbers.
+// Same-realm now (see run() above), so no cross-realm prototype mismatch —
+// this JSON round-trip is kept only because callers still expect a plain,
+// assert.deepStrictEqual-friendly value back.
 function runJSON(context, expr) {
-  return JSON.parse(JSON.stringify(vm.runInContext(expr, context)));
+  return JSON.parse(JSON.stringify(vm.runInThisContext(expr)));
 }
 
 // One valid 45-byte wire packet (docs/archive/bluetooth_serial_investigation.md
@@ -92,15 +96,18 @@ function buildPacket({
 //                            'no': the method doesn't exist (unsupported
 //                            platform) — tryResumeDevice() must fall back.
 let fakeDeviceCounter = 0;
+let cachedBytesToDataView;
 function makeFakeBle(context, {
   failRequestDevice = false, missingService = false, reconnectFailures = 0,
   watchAdvertisements = 'yes', getDevices = 'self',
 } = {}) {
-  // Build the notification's DataView with the vm context's own typed-array
-  // constructors, so `new Uint8Array(e.target.value.buffer)` inside live.html
-  // consumes a same-realm ArrayBuffer.
-  const bytesToDataView = context.__bytesToDataView || (context.__bytesToDataView =
-    vm.runInContext('(bytes => new DataView(Uint8Array.from(bytes).buffer))', context));
+  // Same realm as live.html now (see run()'s comment above), so any
+  // Uint8Array/DataView built here already IS what `new
+  // Uint8Array(e.target.value.buffer)` inside live.html consumes — cached
+  // once at module scope since the expression is realm-invariant, not
+  // per-bootLive()-call.
+  const bytesToDataView = cachedBytesToDataView || (cachedBytesToDataView =
+    vm.runInThisContext('(bytes => new DataView(Uint8Array.from(bytes).buffer))'));
 
   const charHandlers = [];
   // type -> Set<fn> — a real EventTarget's shape, needed here (unlike the
@@ -210,23 +217,32 @@ function makeFakeBle(context, {
   };
 }
 
-// Replaces the context's setTimeout with one that fires (near-)immediately
-// and records the delay it was asked for, so a test can await
-// _handleDisconnect()'s whole retry loop in ~no time and still assert the
-// real backoff schedule. Returns { delays, restore }.
+// Replaces setTimeout with one that fires (near-)immediately and records
+// the delay it was asked for, so a test can await _handleDisconnect()'s
+// whole retry loop in ~no time and still assert the real backoff schedule.
+// Returns { delays, restore }.
+//
+// Patches `global.setTimeout`, not `window.setTimeout`: live_bluetooth.js's
+// bare `setTimeout(...)` calls resolve through the shared realm's `global`
+// (see boot_app.js's header comment on the realm-model bridge), which is
+// tests/support/realm_bridge.js's own leak-tracking wrapper around the
+// REAL native setTimeout, not anything reachable via `window`. `real` here
+// IS that wrapper, so delegating to it on every recorded call keeps this
+// test's own fired timers covered by the cross-boot leak sweep same as
+// everything else — only the requested delay is intercepted.
 function recordingTimers(window) {
   const delays = [];
-  const real = window.setTimeout;
-  window.setTimeout = (fn, ms) => { delays.push(ms); return real(fn, 0); };
-  return { delays, restore() { window.setTimeout = real; } };
+  const real = global.setTimeout;
+  global.setTimeout = (fn, ms) => { delays.push(ms); return real(fn, 0); };
+  return { delays, restore() { global.setTimeout = real; } };
 }
 
 // ==========================================================================
 // LiveState.addPacket() — gap detection
 // ==========================================================================
 
-test('addPacket: no gap for packets arriving at the expected cadence', () => {
-  const { context } = bootLive();
+test('addPacket: no gap for packets arriving at the expected cadence', async () => {
+  const { context } = await bootLive();
   run(context, "LiveState.addPacket({ timestamp: 0.0, gsrRaw: 1 })");
   run(context, "LiveState.addPacket({ timestamp: 0.3, gsrRaw: 2 })");
   const gaps = runJSON(context, 'LiveState.packets.map(p => !!p.gap)');
@@ -234,8 +250,8 @@ test('addPacket: no gap for packets arriving at the expected cadence', () => {
   assert.strictEqual(run(context, 'LiveState.gapCount'), 0);
 });
 
-test('addPacket: flags a real dropped/disconnected interval as a gap', () => {
-  const { context } = bootLive();
+test('addPacket: flags a real dropped/disconnected interval as a gap', async () => {
+  const { context } = await bootLive();
   run(context, "LiveState.addPacket({ timestamp: 0.0, gsrRaw: 1 })");
   run(context, "LiveState.addPacket({ timestamp: 5.0, gsrRaw: 2 })"); // way past 2x the 0.3s interval
   const gaps = runJSON(context, 'LiveState.packets.map(p => !!p.gap)');
@@ -243,21 +259,21 @@ test('addPacket: flags a real dropped/disconnected interval as a gap', () => {
   assert.strictEqual(run(context, 'LiveState.gapCount'), 1);
 });
 
-test('addPacket: regression — a timestamp that resets lower than the previous packet is a gap, not a silently-accepted negative delta', () => {
+test('addPacket: regression — a timestamp that resets lower than the previous packet is a gap, not a silently-accepted negative delta', async () => {
   // The wire timestamp is device-uptime ms, not wall-clock. Reconnecting to
   // a different (or power-cycled) device restarts that counter near zero,
   // so a plain `delta > threshold` check misses it (a negative delta never
   // exceeds a positive threshold) and would let the map/graph draw a bogus
   // line connecting two unrelated sessions.
-  const { context } = bootLive();
+  const { context } = await bootLive();
   run(context, "LiveState.addPacket({ timestamp: 100.0, gsrRaw: 1 })");
   run(context, "LiveState.addPacket({ timestamp: 0.5, gsrRaw: 2 })"); // device restarted its clock
   const gaps = runJSON(context, 'LiveState.packets.map(p => !!p.gap)');
   assert.deepStrictEqual(gaps, [false, true]);
 });
 
-test('addPacket: an exactly-equal timestamp (duplicate delivery) is also treated as a gap, not a divide-by-zero-shaped edge case', () => {
-  const { context } = bootLive();
+test('addPacket: an exactly-equal timestamp (duplicate delivery) is also treated as a gap, not a divide-by-zero-shaped edge case', async () => {
+  const { context } = await bootLive();
   run(context, "LiveState.addPacket({ timestamp: 1.0, gsrRaw: 1 })");
   run(context, "LiveState.addPacket({ timestamp: 1.0, gsrRaw: 2 })");
   assert.strictEqual(run(context, 'LiveState.packets[1].gap'), true);
@@ -268,8 +284,8 @@ test('addPacket: an exactly-equal timestamp (duplicate delivery) is also treated
 // BLE connection (see attemptConnect()'s call site).
 // ==========================================================================
 
-test('resetSession: clears accumulated packets/gaps/position/color-range state', () => {
-  const { window, context } = bootLive();
+test('resetSession: clears accumulated packets/gaps/position/color-range state', async () => {
+  const { window, context } = await bootLive();
   run(context, "LiveState.addPacket({ timestamp: 0.0, gsrRaw: 10 })");
   run(context, "LiveState.addPacket({ timestamp: 5.0, gsrRaw: 20 })"); // creates a gap
   run(context, "liveLastLatLng = [51.5, -0.12]");
@@ -287,8 +303,8 @@ test('resetSession: clears accumulated packets/gaps/position/color-range state',
   assert.strictEqual(run(context, 'lastPacketArrivalTime'), 0);
 });
 
-test('resetSession: puts the footer stats and export button back to their pre-connection state, and empties the analyser buffer', () => {
-  const { window, context } = bootLive();
+test('resetSession: puts the footer stats and export button back to their pre-connection state, and empties the analyser buffer', async () => {
+  const { window, context } = await bootLive();
   window.document.getElementById('exportBtn').disabled = false;
   window.document.getElementById('statPackets').textContent = 'Packets: 42';
   window.document.getElementById('statGaps').textContent = 'Gaps: 3';
@@ -311,7 +327,7 @@ test('resetSession: puts the footer stats and export button back to their pre-co
 });
 
 test('attemptConnect: resets session state as soon as a device is requested, so a "New Connection" after a previous session never carries its packets over — even if the new connection attempt itself then fails', async () => {
-  const { window, context } = bootLive();
+  const { window, context } = await bootLive();
   run(context, "LiveState.addPacket({ timestamp: 0.0, gsrRaw: 1 })");
   run(context, "LiveState.addPacket({ timestamp: 0.3, gsrRaw: 2 })");
   assert.strictEqual(run(context, 'LiveState.packets.length'), 2);
@@ -327,7 +343,7 @@ test('attemptConnect: resets session state as soon as a device is requested, so 
 });
 
 test('attemptConnect: leaves existing session data alone when Web Bluetooth is not available at all (nothing was actually attempted)', async () => {
-  const { window, context } = bootLive();
+  const { window, context } = await bootLive();
   run(context, "LiveState.addPacket({ timestamp: 0.0, gsrRaw: 1 })");
   window.navigator.bluetooth = undefined;
 
@@ -342,8 +358,8 @@ test('attemptConnect: leaves existing session data alone when Web Bluetooth is n
 // (a/b/c/d.basemaps.cartocdn.com) share one cache entry.
 // ==========================================================================
 
-test('normalizeTileCacheUrl: folds every tile subdomain to "a"', () => {
-  const { context } = bootLive();
+test('normalizeTileCacheUrl: folds every tile subdomain to "a"', async () => {
+  const { context } = await bootLive();
   const norm = (u) => run(context, `normalizeTileCacheUrl(${JSON.stringify(u)})`);
   assert.strictEqual(
     norm('https://b.basemaps.cartocdn.com/light_all/15/1000/2000.png'),
@@ -355,8 +371,8 @@ test('normalizeTileCacheUrl: folds every tile subdomain to "a"', () => {
   );
 });
 
-test('normalizeTileCacheUrl: an already-"a" URL round-trips unchanged, and an unrelated URL is left alone', () => {
-  const { context } = bootLive();
+test('normalizeTileCacheUrl: an already-"a" URL round-trips unchanged, and an unrelated URL is left alone', async () => {
+  const { context } = await bootLive();
   const norm = (u) => run(context, `normalizeTileCacheUrl(${JSON.stringify(u)})`);
   assert.strictEqual(
     norm('https://a.basemaps.cartocdn.com/light_all/1/2/3.png'),
@@ -365,8 +381,8 @@ test('normalizeTileCacheUrl: an already-"a" URL round-trips unchanged, and an un
   assert.strictEqual(norm('https://example.com/tile.png'), 'https://example.com/tile.png');
 });
 
-test('normalizeTileCacheUrl: strips the CARTO ?key=… query so a key change does not orphan the tile cache', () => {
-  const { context } = bootLive();
+test('normalizeTileCacheUrl: strips the CARTO ?key=… query so a key change does not orphan the tile cache', async () => {
+  const { context } = await bootLive();
   const norm = (u) => run(context, `normalizeTileCacheUrl(${JSON.stringify(u)})`);
   assert.strictEqual(
     norm('https://c.basemaps.cartocdn.com/light_all/15/1000/2000.png?key=abc123'),
@@ -383,8 +399,8 @@ test('normalizeTileCacheUrl: strips the CARTO ?key=… query so a key change doe
 // hideMap/setMapVisible comments for why).
 // ==========================================================================
 
-test('toggleMapBtn: shows the map panel, initializes liveMap, and enables Cache Map — all with no BLE connection', () => {
-  const { window, context } = bootLive();
+test('toggleMapBtn: shows the map panel, initializes liveMap, and enables Cache Map — all with no BLE connection', async () => {
+  const { window, context } = await bootLive();
   assert.ok(window.document.getElementById('app').classList.contains('no-map'));
   assert.strictEqual(window.document.getElementById('cacheMapBtn').disabled, true);
 
@@ -396,8 +412,8 @@ test('toggleMapBtn: shows the map panel, initializes liveMap, and enables Cache 
   assert.ok(run(context, 'liveMap') !== null, 'liveMap should be constructed once shown');
 });
 
-test('toggleMapBtn: hides the map again on a second click, without destroying the underlying liveMap instance', () => {
-  const { window, context } = bootLive();
+test('toggleMapBtn: hides the map again on a second click, without destroying the underlying liveMap instance', async () => {
+  const { window, context } = await bootLive();
   window.document.getElementById('toggleMapBtn').click();
   window.document.getElementById('toggleMapBtn').click();
 
@@ -413,22 +429,24 @@ test('toggleMapBtn: hides the map again on a second click, without destroying th
 // "Show Map" tap.
 // ==========================================================================
 
-test('mount(): desktop (the default matchMedia stub) keeps the graph-first default — map stays hidden until toggled', () => {
-  const { window, context } = bootLive();
+test('mount(): desktop (the default matchMedia stub) keeps the graph-first default — map stays hidden until toggled', async () => {
+  const { window, context } = await bootLive();
   assert.ok(window.document.getElementById('app').classList.contains('no-map'), 'graph fullscreen by default');
   assert.strictEqual(run(context, 'liveMap'), null, 'map not constructed until shown');
 });
 
-test('mount(): a compact/coarse-pointer boot defaults to the map shown, not the graph', () => {
-  const { window, context } = bootLive({ compact: true });
+test('mount(): a compact/coarse-pointer boot defaults to the map shown, not the graph', async () => {
+  const { window, context } = await bootLive({ compact: true });
   assert.ok(!window.document.getElementById('app').classList.contains('no-map'), 'map visible by default on mobile');
   assert.ok(run(context, 'liveMap') !== null, 'the map is constructed immediately, not lazily on a user tap');
   assert.strictEqual(window.document.getElementById('toggleMapBtn').textContent, 'Hide Map (M)');
 });
 
-test('mount(): Phasic is drawn under the signal on desktop, but stays off on the compact (mobile) layout', () => {
-  assert.strictEqual(run(bootLive().context, 'liveGsrView.showPhasic'), true, 'desktop draws phasic under the signal');
-  assert.strictEqual(run(bootLive({ compact: true }).context, 'liveGsrView.showPhasic'), false, 'mobile graph is too small for the phasic overlay');
+test('mount(): Phasic is drawn under the signal on desktop, but stays off on the compact (mobile) layout', async () => {
+  await bootLive();
+  assert.strictEqual(run(null, 'liveGsrView.showPhasic'), true, 'desktop draws phasic under the signal');
+  await bootLive({ compact: true });
+  assert.strictEqual(run(null, 'liveGsrView.showPhasic'), false, 'mobile graph is too small for the phasic overlay');
 });
 
 // ==========================================================================
@@ -439,8 +457,8 @@ test('mount(): Phasic is drawn under the signal on desktop, but stays off on the
 // setMapVisible() the desktop header controls do.
 // ==========================================================================
 
-test('the FAB menu offers ordered chips: Graph, toggles, metrics, and Full Screen while map is showing', () => {
-  const { window } = bootLive({ compact: true }); // map shown by default
+test('the FAB menu offers ordered chips: Graph, toggles, metrics, and Full Screen while map is showing', async () => {
+  const { window } = await bootLive({ compact: true }); // map shown by default
   const menu = window.document.getElementById('liveFabMenu');
   const chips = [...menu.querySelectorAll('button')];
   assert.deepStrictEqual(
@@ -454,8 +472,8 @@ test('the FAB menu offers ordered chips: Graph, toggles, metrics, and Full Scree
   assert.ok(!chips[5].classList.contains('active'));
 });
 
-test('the FAB menu offers Map chip instead of Graph once the graph is fullscreen (map hidden)', () => {
-  const { window } = bootLive(); // desktop default: graph-first, map hidden
+test('the FAB menu offers Map chip instead of Graph once the graph is fullscreen (map hidden)', async () => {
+  const { window } = await bootLive(); // desktop default: graph-first, map hidden
   const menu = window.document.getElementById('liveFabMenu');
   const chips = [...menu.querySelectorAll('button')];
   assert.deepStrictEqual(
@@ -464,8 +482,8 @@ test('the FAB menu offers Map chip instead of Graph once the graph is fullscreen
   );
 });
 
-test('tapping a FAB metric chip sets the shared metric (same as the #liveGraphView dropdown) and closes the menu', () => {
-  const { window, context } = bootLive({ compact: true });
+test('tapping a FAB metric chip sets the shared metric (same as the #liveGraphView dropdown) and closes the menu', async () => {
+  const { window, context } = await bootLive({ compact: true });
   const toggle = window.document.getElementById('liveFabToggle');
   const menu = window.document.getElementById('liveFabMenu');
   toggle.click();
@@ -480,8 +498,8 @@ test('tapping a FAB metric chip sets the shared metric (same as the #liveGraphVi
   assert.ok(menu.querySelector('[data-metric="phasic"]').classList.contains('active'));
 });
 
-test('tapping the FAB\'s Graph chip switches to the fullscreen graph (mapVisible false); tapping Map from there switches back', () => {
-  const { window } = bootLive({ compact: true }); // starts map-visible
+test('tapping the FAB\'s Graph chip switches to the fullscreen graph (mapVisible false); tapping Map from there switches back', async () => {
+  const { window } = await bootLive({ compact: true }); // starts map-visible
   const app = window.document.getElementById('app');
   const menu = window.document.getElementById('liveFabMenu');
 
@@ -501,8 +519,8 @@ test('tapping the FAB\'s Graph chip switches to the fullscreen graph (mapVisible
   );
 });
 
-test('tapping a FAB toggle chip flips the GSR layer on/off and syncs the header toggle', () => {
-  const { window, context } = bootLive({ compact: true });
+test('tapping a FAB toggle chip flips the GSR layer on/off and syncs the header toggle', async () => {
+  const { window, context } = await bootLive({ compact: true });
   const toggle = window.document.getElementById('liveFabToggle');
   const menu = window.document.getElementById('liveFabMenu');
   toggle.click();
@@ -521,8 +539,8 @@ test('tapping a FAB toggle chip flips the GSR layer on/off and syncs the header 
   assert.ok(!headerPeaksBtn.classList.contains('active'), 'header button in sync');
 });
 
-test('tapping anywhere outside the FAB closes an open menu', () => {
-  const { window } = bootLive({ compact: true });
+test('tapping anywhere outside the FAB closes an open menu', async () => {
+  const { window } = await bootLive({ compact: true });
   const toggle = window.document.getElementById('liveFabToggle');
   const menu = window.document.getElementById('liveFabMenu');
   toggle.click();
@@ -540,8 +558,8 @@ test('tapping anywhere outside the FAB closes an open menu', () => {
 // recolorAllTrackSegments(), not just segments drawn after the switch.
 // ==========================================================================
 
-test('setLiveGraphMetric: switching to phasic immediately recolours every already-drawn segment from its packet\'s .phasic value', () => {
-  const { context } = bootLive();
+test('setLiveGraphMetric: switching to phasic immediately recolours every already-drawn segment from its packet\'s .phasic value', async () => {
+  const { context } = await bootLive();
   run(context, 'showMap()');
   // Packets already carry a .phasic value, standing in for what
   // feedLiveAnalyzer() would normally have mirrored onto them by now.
@@ -563,8 +581,8 @@ test('setLiveGraphMetric: switching to phasic immediately recolours every alread
   assert.strictEqual(colors[1], 'hsl(0, 90%, 50%)');
 });
 
-test('setLiveGraphMetric: switching to tonic immediately recolours every already-drawn segment from its packet\'s .tonic value', () => {
-  const { context } = bootLive();
+test('setLiveGraphMetric: switching to tonic immediately recolours every already-drawn segment from its packet\'s .tonic value', async () => {
+  const { context } = await bootLive();
   run(context, 'showMap()');
   run(context, `
     updateLiveMap({ valid: true, lat: 51.0, lon: 0.0, gsrRaw: 1000, tonic: 1.0, hdop: 1.0, fixType: 3, sats: 8, gap: false });
@@ -580,15 +598,15 @@ test('setLiveGraphMetric: switching to tonic immediately recolours every already
   assert.strictEqual(colors[1], 'hsl(0, 90%, 50%)');
 });
 
-test('setLiveGraphMetric: a repeated/unknown metric is a no-op (no redundant recolour pass, no throw)', () => {
-  const { context } = bootLive();
+test('setLiveGraphMetric: a repeated/unknown metric is a no-op (no redundant recolour pass, no throw)', async () => {
+  const { context } = await bootLive();
   run(context, "setLiveGraphMetric('signal')"); // already the default
   assert.doesNotThrow(() => run(context, "setLiveGraphMetric('not-a-real-metric')"));
   assert.strictEqual(run(context, 'liveGsrView.graphView'), 'signal');
 });
 
-test('the #liveGraphView dropdown change event drives the exact same setLiveGraphMetric() the FAB chips call', () => {
-  const { window, context } = bootLive();
+test('the #liveGraphView dropdown change event drives the exact same setLiveGraphMetric() the FAB chips call', async () => {
+  const { window, context } = await bootLive();
   const sel = window.document.getElementById('liveGraphView');
   sel.value = 'tonic';
   sel.dispatchEvent(new window.Event('change', { bubbles: true }));
@@ -602,8 +620,8 @@ test('the #liveGraphView dropdown change event drives the exact same setLiveGrap
 // a phone rotation or a desktop resize crossing the mobile breakpoint.
 // ==========================================================================
 
-test('a window resize invalidates the live map\'s size (not just activate()/onDisplayModeChange())', () => {
-  const { window, context } = bootLive();
+test('a window resize invalidates the live map\'s size (not just activate()/onDisplayModeChange())', async () => {
+  const { window, context } = await bootLive();
   run(context, 'showMap()');
   const before = run(context, 'liveMap.calls.invalidateSize');
 
@@ -613,7 +631,7 @@ test('a window resize invalidates the live map\'s size (not just activate()/onDi
 });
 
 test('an orientationchange event invalidates the live map size immediately and on delayed passes', async () => {
-  const { window, context } = bootLive();
+  const { window, context } = await bootLive();
   run(context, 'showMap()');
   const before = run(context, 'liveMap.calls.invalidateSize');
 
@@ -625,7 +643,7 @@ test('an orientationchange event invalidates the live map size immediately and o
 });
 
 test('a screen.orientation change event invalidates the live map size', async () => {
-  const { window, context } = bootLive();
+  const { window, context } = await bootLive();
   run(context, 'showMap()');
   const before = run(context, 'liveMap.calls.invalidateSize');
 
@@ -633,8 +651,8 @@ test('a screen.orientation change event invalidates the live map size', async ()
   assert.ok(run(context, 'liveMap.calls.invalidateSize') >= before + 1, 'invalidation on screen.orientation change');
 });
 
-test('connectBtn is disabled during connecting/reconnecting, and enabled on disconnected', () => {
-  const { window, context } = bootLive();
+test('connectBtn is disabled during connecting/reconnecting, and enabled on disconnected', async () => {
+  const { window, context } = await bootLive();
   const connectBtn = window.document.getElementById('connectBtn');
   assert.strictEqual(connectBtn.disabled, false, 'enabled when disconnected');
 
@@ -653,8 +671,8 @@ test('connectBtn is disabled during connecting/reconnecting, and enabled on disc
 // caching possible without any GPS fix at all (device or browser).
 // ==========================================================================
 
-test('goToLatLon: rejects out-of-range/non-numeric input without showing or moving the map', () => {
-  const { window, context } = bootLive();
+test('goToLatLon: rejects out-of-range/non-numeric input without showing or moving the map', async () => {
+  const { window, context } = await bootLive();
   let alerted = null;
   window.alert = (msg) => { alerted = msg; };
 
@@ -668,8 +686,8 @@ test('goToLatLon: rejects out-of-range/non-numeric input without showing or movi
   assert.ok(window.document.getElementById('app').classList.contains('no-map'));
 });
 
-test('goToLatLon: valid coordinates show the map (if hidden) and pan/zoom it there', () => {
-  const { window, context } = bootLive();
+test('goToLatLon: valid coordinates show the map (if hidden) and pan/zoom it there', async () => {
+  const { window, context } = await bootLive();
   assert.ok(window.document.getElementById('app').classList.contains('no-map'));
 
   run(context, 'goToLatLon(48.8566, 2.3522, 15)');
@@ -681,8 +699,8 @@ test('goToLatLon: valid coordinates show the map (if hidden) and pan/zoom it the
   assert.strictEqual(run(context, 'liveMap.getZoom()'), 15);
 });
 
-test('goToLatLon: reused on an already-visible map just re-pans it, without re-initializing liveMap', () => {
-  const { window, context } = bootLive();
+test('goToLatLon: reused on an already-visible map just re-pans it, without re-initializing liveMap', async () => {
+  const { window, context } = await bootLive();
   window.document.getElementById('toggleMapBtn').click();
   const firstMap = run(context, 'liveMap');
 
@@ -698,7 +716,7 @@ test('goToLatLon: reused on an already-visible map just re-pans it, without re-i
 // ==========================================================================
 
 test('cacheCurrentMapArea: downloads tiles for a never-before-cached view', async () => {
-  const { window, context } = bootLive();
+  const { window, context } = await bootLive();
   run(context, 'goToLatLon(51.5074, -0.1278, 15)');
 
   let fetchCalls = 0;
@@ -710,7 +728,7 @@ test('cacheCurrentMapArea: downloads tiles for a never-before-cached view', asyn
 });
 
 test('cacheCurrentMapArea: regression — re-caching the identical view makes zero network requests, using Cache Storage instead', async () => {
-  const { window, context } = bootLive();
+  const { window, context } = await bootLive();
   run(context, 'goToLatLon(51.5074, -0.1278, 15)');
 
   let fetchCalls = 0;
@@ -724,7 +742,7 @@ test('cacheCurrentMapArea: regression — re-caching the identical view makes ze
 });
 
 test('cacheCurrentMapArea: a genuinely new area still hits the network even after a previous area was fully cached', async () => {
-  const { window, context } = bootLive();
+  const { window, context } = await bootLive();
   window.fetch = async () => new window.Response('tile-bytes', { status: 200 });
 
   run(context, 'goToLatLon(51.5074, -0.1278, 15)'); // London
@@ -749,7 +767,7 @@ test('cacheCurrentMapArea: regression — every zoom level in the pre-fetch rang
   // reports as a CORS failure, since error responses carry no CORS
   // headers, masking the real cause. This asserts every requested URL's
   // {z} matches the zoom loop iteration that produced its x/y.
-  const { window, context } = bootLive();
+  const { window, context } = await bootLive();
   run(context, 'goToLatLon(51.5074, -0.1278, 15)');
 
   const requestedUrls = [];
@@ -771,8 +789,8 @@ test('cacheCurrentMapArea: regression — every zoom level in the pre-fetch rang
 // and disconnect across connection states.
 // ==========================================================================
 
-test('renderStatus: connection button shows "Connect" on a fresh load (no device yet), "Reconnect" once attempted', () => {
-  const { window, context } = bootLive();
+test('renderStatus: connection button shows "Connect" on a fresh load (no device yet), "Reconnect" once attempted', async () => {
+  const { window, context } = await bootLive();
   run(context, "renderStatus('disconnected')");
 
   const btn = window.document.getElementById('connectionBtn');
@@ -786,8 +804,8 @@ test('renderStatus: connection button shows "Connect" on a fresh load (no device
   assert.strictEqual(btn.textContent, 'Reconnect', 'shows "Reconnect" once a prior device is known');
 });
 
-test('renderStatus: connection button shows "Disconnect" while connected and "Reconnecting…" while reconnecting', () => {
-  const { window, context } = bootLive();
+test('renderStatus: connection button shows "Disconnect" while connected and "Reconnecting…" while reconnecting', async () => {
+  const { window, context } = await bootLive();
   const btn = window.document.getElementById('connectionBtn');
 
   run(context, "renderStatus('connected')");
@@ -800,7 +818,7 @@ test('renderStatus: connection button shows "Disconnect" while connected and "Re
 });
 
 test('connectionBtn click: disconnects while connected, and does reconnect or new connection as needed', async (t) => {
-  const { window, context } = bootLive();
+  const { window, context } = await bootLive();
   const ble = makeFakeBle(context);
   window.navigator.bluetooth = ble.bluetooth;
   const btn = window.document.getElementById('connectionBtn');
@@ -823,7 +841,7 @@ test('connectionBtn click: disconnects while connected, and does reconnect or ne
 });
 
 test('connectionBtn click: flips to "New Connection" when manual reconnect fails, and next click triggers fresh connect', async (t) => {
-  const { window, context } = bootLive();
+  const { window, context } = await bootLive();
   const bleA = makeFakeBle(context, { reconnectFailures: 99 });
   window.navigator.bluetooth = bleA.bluetooth;
   const btn = window.document.getElementById('connectionBtn');
@@ -857,7 +875,7 @@ test('connectionBtn click: flips to "New Connection" when manual reconnect fails
 });
 
 test('abandon(): immediately aborts in-flight _waitBeforeRetry backoff without waiting or calling _subscribe', async (t) => {
-  const { window, context } = bootLive();
+  const { window, context } = await bootLive();
   const bleA = makeFakeBle(context);
   window.navigator.bluetooth = bleA.bluetooth;
   await run(context, 'attemptConnect()');
@@ -882,8 +900,8 @@ test('abandon(): immediately aborts in-flight _waitBeforeRetry backoff without w
 // Live-tracking zoom level and delayed phasic recoloring of the track.
 // ==========================================================================
 
-test('updateLiveMap: the first GPS fix zooms to LIVE_ZOOM (18), replacing the old fixed 17', () => {
-  const { context } = bootLive();
+test('updateLiveMap: the first GPS fix zooms to LIVE_ZOOM (18), replacing the old fixed 17', async () => {
+  const { context } = await bootLive();
   run(context, 'showMap()');
   run(context, "updateLiveMap({ valid: true, lat: 51.5, lon: -0.12, gsrRaw: 1000, hdop: 1.0, fixType: 3, sats: 8, gap: false })");
 
@@ -891,8 +909,8 @@ test('updateLiveMap: the first GPS fix zooms to LIVE_ZOOM (18), replacing the ol
   assert.strictEqual(run(context, 'liveMap.getZoom()'), 18);
 });
 
-test('flushSettledSegments: holds a segment back until its packet is BOTH metric-annotated AND old enough, then draws it once with the settled colour', () => {
-  const { context } = bootLive();
+test('flushSettledSegments: holds a segment back until its packet is BOTH metric-annotated AND old enough, then draws it once with the settled colour', async () => {
+  const { context } = await bootLive();
   // The active metric defaults to 'signal' (raw, no settling needed at all)
   // — switch to 'phasic' so flushSettledSegments() actually queues/settles.
   run(context, "liveGsrView.graphView = 'phasic';");
@@ -928,8 +946,8 @@ test('flushSettledSegments: holds a segment back until its packet is BOTH metric
   assert.strictEqual(run(context, 'liveMap._layers.find(l => l.latlngs).options.color'), 'hsl(0, 90%, 50%)');
 });
 
-test('resetSession: clears pendingSegments, allTrackSegments and phasicMax, so a stale entry from a prior session (whose pkt.phasic will never be set again) can never wedge the next session\'s flush queue', () => {
-  const { context } = bootLive();
+test('resetSession: clears pendingSegments, allTrackSegments and phasicMax, so a stale entry from a prior session (whose pkt.phasic will never be set again) can never wedge the next session\'s flush queue', async () => {
+  const { context } = await bootLive();
   run(context, `
     pendingSegments.push({ prevLatLng: [0, 0], latlng: [1, 1], pkt: { timestamp: 0 } });
     allTrackSegments.push({ pkt: { timestamp: 0 }, line: L.polyline([[0, 0], [0, 0]], {}) });
@@ -943,8 +961,8 @@ test('resetSession: clears pendingSegments, allTrackSegments and phasicMax, so a
   assert.strictEqual(run(context, 'phasicMax'), 0);
 });
 
-test('resetSession: removes all track polyline layers and liveMarker from liveMap', () => {
-  const { context } = bootLive();
+test('resetSession: removes all track polyline layers and liveMarker from liveMap', async () => {
+  const { context } = await bootLive();
   run(context, 'showMap()');
   run(context, `
     updateLiveMap({ valid: true, lat: 51.0, lon: 0.0, gsrRaw: 1000, hdop: 1.0, fixType: 3, sats: 8, gap: false });
@@ -961,8 +979,8 @@ test('resetSession: removes all track polyline layers and liveMarker from liveMa
   assert.strictEqual(run(context, 'liveMarker'), null);
 });
 
-test('end-to-end: a walking session draws only settled trail segments; the recent tail stays pending until it settles', () => {
-  const { context } = bootLive();
+test('end-to-end: a walking session draws only settled trail segments; the recent tail stays pending until it settles', async () => {
+  const { context } = await bootLive();
   // The active metric defaults to 'signal' — switch to 'phasic' so this
   // exercises the deferred-draw path the test is about.
   run(context, "liveGsrView.graphView = 'phasic';");
@@ -1012,7 +1030,7 @@ test('end-to-end: a walking session draws only settled trail segments; the recen
 // ==========================================================================
 
 test('attemptConnect: a real BLE notification flows through the parser to LiveState, the footer, and the live map', async (t) => {
-  const { window, context } = bootLive();
+  const { window, context } = await bootLive();
   const ble = makeFakeBle(context);
   window.navigator.bluetooth = ble.bluetooth;
 
@@ -1063,7 +1081,7 @@ test('attemptConnect: a real BLE notification flows through the parser to LiveSt
 });
 
 test('updateLiveMap: mobile live layout draws map trace twice as thick (weight 6)', async (t) => {
-  const { window, context } = bootLive({ compact: true });
+  const { window, context } = await bootLive({ compact: true });
   const ble = makeFakeBle(context);
   window.navigator.bluetooth = ble.bluetooth;
 
@@ -1080,7 +1098,7 @@ test('updateLiveMap: mobile live layout draws map trace twice as thick (weight 6
 });
 
 test('attemptConnect: an invalid (no-fix) notification still counts as a packet and updates stats, but draws nothing on the map', async (t) => {
-  const { window, context } = bootLive();
+  const { window, context } = await bootLive();
   const ble = makeFakeBle(context);
   window.navigator.bluetooth = ble.bluetooth;
 
@@ -1101,7 +1119,7 @@ test('attemptConnect: an invalid (no-fix) notification still counts as a packet 
 });
 
 test('attemptConnect: a service-UUID mismatch fails the connect and surfaces the discovered UUIDs, without marking the session connected', async () => {
-  const { window, context } = bootLive();
+  const { window, context } = await bootLive();
   const ble = makeFakeBle(context, { missingService: true });
   window.navigator.bluetooth = ble.bluetooth;
 
@@ -1142,11 +1160,11 @@ async function settle(pred, tries = 200) {
 // assertion that skips the explicit reset would hang `npm test`. t.after()
 // runs regardless, so the loop always stops.
 function stopLoopAfter(t, context) {
-  t.after(() => { try { vm.runInContext("LiveState.setStatus('disconnected')", context); } catch { /* torn down */ } });
+  t.after(() => { try { vm.runInThisContext("LiveState.setStatus('disconnected')"); } catch { /* torn down */ } });
 }
 
 test('_handleDisconnect: retries then recovers — status ends "connected", loop stops early on the first successful re-subscribe', async (t) => {
-  const { window, context } = bootLive();
+  const { window, context } = await bootLive();
   const ble = makeFakeBle(context, { reconnectFailures: 2 }); // 2 fail, 3rd succeeds
   window.navigator.bluetooth = ble.bluetooth;
   await run(context, 'attemptConnect()');
@@ -1169,7 +1187,7 @@ test('_handleDisconnect: retries then recovers — status ends "connected", loop
 });
 
 test('_handleDisconnect: gives up after exactly 6 attempts, drops to "disconnected", and surfaces the last error via onStatusText', async (t) => {
-  const { window, context } = bootLive();
+  const { window, context } = await bootLive();
   const ble = makeFakeBle(context, { reconnectFailures: 99 }); // every reconnect fails
   window.navigator.bluetooth = ble.bluetooth;
   await run(context, 'attemptConnect()');
@@ -1211,7 +1229,7 @@ test('_handleDisconnect: gives up after exactly 6 attempts, drops to "disconnect
 // ==========================================================================
 
 test('_waitBeforeRetry: wakes early on advertisementreceived instead of waiting out the full delay', async (t) => {
-  const { window, context } = bootLive();
+  const { window, context } = await bootLive();
   const ble = makeFakeBle(context);
   window.navigator.bluetooth = ble.bluetooth;
   await run(context, 'attemptConnect()');
@@ -1235,7 +1253,7 @@ test('_waitBeforeRetry: wakes early on advertisementreceived instead of waiting 
 });
 
 test('background watch: after auto-reconnect exhausts, the device reappearing later triggers an automatic reconnect with no user action', async (t) => {
-  const { window, context } = bootLive();
+  const { window, context } = await bootLive();
   // Exactly enough failures to exhaust the bounded loop (subscribeCalls
   // 2..7, matching its 6 attempts) — the 8th call, made by the background
   // watch's own reconnect attempt, then succeeds.
@@ -1260,7 +1278,7 @@ test('background watch: after auto-reconnect exhausts, the device reappearing la
 });
 
 test('background watch: re-arms itself if the triggered reconnect attempt fails, instead of giving up for good', async (t) => {
-  const { window, context } = bootLive();
+  const { window, context } = await bootLive();
   const ble = makeFakeBle(context, { reconnectFailures: 99 }); // every attempt fails, including the background one
   window.navigator.bluetooth = ble.bluetooth;
   await run(context, 'attemptConnect()');
@@ -1279,7 +1297,7 @@ test('background watch: re-arms itself if the triggered reconnect attempt fails,
 });
 
 test('background watch: a subsequent intentional disconnect (deactivate) stops it — the user leaving the view must not still auto-reconnect', async (t) => {
-  const { window, context } = bootLive();
+  const { window, context } = await bootLive();
   const ble = makeFakeBle(context, { reconnectFailures: 99 });
   window.navigator.bluetooth = ble.bluetooth;
   run(context, 'showMap()');
@@ -1300,7 +1318,7 @@ test('background watch: a subsequent intentional disconnect (deactivate) stops i
 });
 
 test('reconnect resilience degrades gracefully when watchAdvertisements is unsupported (e.g. iOS/Bluefy) — same bounded backoff as before, no background watch', async (t) => {
-  const { window, context } = bootLive();
+  const { window, context } = await bootLive();
   const ble = makeFakeBle(context, { reconnectFailures: 99, watchAdvertisements: 'no' });
   window.navigator.bluetooth = ble.bluetooth;
   await run(context, 'attemptConnect()');
@@ -1321,7 +1339,7 @@ test('reconnect resilience degrades gracefully when watchAdvertisements is unsup
 });
 
 test('_handleDisconnect: a second gattserverdisconnected while a reconnect loop is already running is a no-op (the _reconnecting guard)', async (t) => {
-  const { window, context } = bootLive();
+  const { window, context } = await bootLive();
   const ble = makeFakeBle(context);
   window.navigator.bluetooth = ble.bluetooth;
   await run(context, 'attemptConnect()');
@@ -1362,7 +1380,7 @@ test('_handleDisconnect: a second gattserverdisconnected while a reconnect loop 
 // gapCount and drawing spurious breaks. Fixed by binding the handler once in
 // the constructor and remove-then-add'ing it in _subscribe().
 test('_handleDisconnect: after a successful auto-reconnect, one BLE notification yields exactly one packet', async (t) => {
-  const { window, context } = bootLive();
+  const { window, context } = await bootLive();
   const ble = makeFakeBle(context, { reconnectFailures: 1 });
   window.navigator.bluetooth = ble.bluetooth;
   run(context, 'showMap()');
@@ -1399,7 +1417,7 @@ test('_handleDisconnect: after a successful auto-reconnect, one BLE notification
 // must be bounded, since _subscribe() now wraps the whole pipeline in one
 // timeout rather than just the connect step.
 test('_subscribe: a hung gatt.connect() times out instead of blocking the caller forever, and cancels the pending native connect', async (t) => {
-  const { window, context } = bootLive();
+  const { window, context } = await bootLive();
   const ble = makeFakeBle(context);
   window.navigator.bluetooth = ble.bluetooth;
   await run(context, 'attemptConnect()');
@@ -1428,7 +1446,7 @@ test('_subscribe: a hung gatt.connect() times out instead of blocking the caller
 });
 
 test('_subscribe: a hung getPrimaryService() (connect succeeds, discovery never settles) is bounded too, not just the initial connect', async (t) => {
-  const { window, context } = bootLive();
+  const { window, context } = await bootLive();
   const ble = makeFakeBle(context);
   window.navigator.bluetooth = ble.bluetooth;
   await run(context, 'attemptConnect()');
@@ -1468,7 +1486,7 @@ test('_subscribe: a hung getPrimaryService() (connect succeeds, discovery never 
 // away, because disconnect() only cancelled the link when gatt.connected was
 // already true — a connect() still in flight hasn't set that flag yet.
 test('disconnect: cancels the GATT link even while "connected" is still false (a pending connect attempt)', async (t) => {
-  const { window, context } = bootLive();
+  const { window, context } = await bootLive();
   const ble = makeFakeBle(context);
   window.navigator.bluetooth = ble.bluetooth;
   await run(context, 'attemptConnect()');
@@ -1498,7 +1516,7 @@ test('disconnect: cancels the GATT link even while "connected" is still false (a
 // this was a real, reproducible bug before abandon() existed — this test
 // pins the fixed behavior.
 test('attemptConnect ("New Connection"): a stale reconnect loop from a superseded manager must not clobber the new connection\'s status', async (t) => {
-  const { window, context } = bootLive();
+  const { window, context } = await bootLive();
   const bleA = makeFakeBle(context, { reconnectFailures: 99 }); // A never recovers on its own
   window.navigator.bluetooth = bleA.bluetooth;
   await run(context, 'attemptConnect()');
@@ -1543,7 +1561,7 @@ test('attemptConnect ("New Connection"): a stale reconnect loop from a supersede
 // superseded, but this covers the narrower case of an attempt already
 // committed to when abandonment happens mid-flight.
 test('attemptConnect ("New Connection"): a superseded manager\'s already-in-flight reconnect succeeding must not resurrect its status either', async (t) => {
-  const { window, context } = bootLive();
+  const { window, context } = await bootLive();
   const bleA = makeFakeBle(context); // A's reconnect attempt will succeed once unblocked
   window.navigator.bluetooth = bleA.bluetooth;
   await run(context, 'attemptConnect()');
@@ -1580,7 +1598,7 @@ test('attemptConnect ("New Connection"): a superseded manager\'s already-in-flig
 // when the platform still remembers the permission grant, there's no list
 // to fail to show it in.
 test('tryResumeDevice: "New Connection" silently reacquires the same previously-permitted device, skipping the chooser', async (t) => {
-  const { window, context } = bootLive();
+  const { window, context } = await bootLive();
   const ble = makeFakeBle(context); // getDevices() defaults to resolving [device] — "platform remembers it"
   window.navigator.bluetooth = ble.bluetooth;
   await run(context, 'attemptConnect()');
@@ -1600,7 +1618,7 @@ test('tryResumeDevice: "New Connection" silently reacquires the same previously-
 });
 
 test('tryResumeDevice: falls back to the normal requestDevice() chooser when getDevices() has no match', async (t) => {
-  const { window, context } = bootLive();
+  const { window, context } = await bootLive();
   const bleA = makeFakeBle(context);
   window.navigator.bluetooth = bleA.bluetooth;
   await run(context, 'attemptConnect()');
@@ -1630,7 +1648,7 @@ test('tryResumeDevice: falls back to the normal requestDevice() chooser when get
 // working connection nobody asked to close, and marking the fallout
 // "intentional" (suppressing the auto-reconnect a real drop should get).
 test('tryResumeDevice: an orphaned resume attempt that later times out must not disconnect a newer successful connection on the same instance', async (t) => {
-  const { window, context } = bootLive();
+  const { window, context } = await bootLive();
   const ble = makeFakeBle(context); // getDevices() resolves [device] by default — a remembered device
   window.navigator.bluetooth = ble.bluetooth;
   await run(context, 'attemptConnect()'); // initial pairing — no previousDevice, no tryResumeDevice() involved
@@ -1695,7 +1713,7 @@ test('tryResumeDevice: an orphaned resume attempt that later times out must not 
 });
 
 test('tryResumeDevice: falls back cleanly when navigator.bluetooth.getDevices is unsupported', async (t) => {
-  const { window, context } = bootLive();
+  const { window, context } = await bootLive();
   const ble = makeFakeBle(context, { getDevices: 'no' });
   window.navigator.bluetooth = ble.bluetooth;
   await run(context, 'attemptConnect()');
@@ -1721,9 +1739,8 @@ test('tryResumeDevice: falls back cleanly when navigator.bluetooth.getDevices is
 // so a test sees exactly the text/filename the Export button would save
 // without jsdom needing showSaveFilePicker or a real <a download>.
 function captureCsvExport(context) {
-  vm.runInContext(
+  vm.runInThisContext(
     'GSRFileSaver.saveFile = (content, name) => { globalThis.__savedCsv = { text: content, name }; return Promise.resolve(true); };',
-    context,
   );
   return {
     get text() { return run(context, 'globalThis.__savedCsv && globalThis.__savedCsv.text'); },
@@ -1731,8 +1748,8 @@ function captureCsvExport(context) {
   };
 }
 
-test('exportCsv: hands GSRFileSaver a .csv name and the full buildLiveCsv text (integrity bracket included)', () => {
-  const { context } = bootLive();
+test('exportCsv: hands GSRFileSaver a .csv name and the full buildLiveCsv text (integrity bracket included)', async () => {
+  const { context } = await bootLive();
   const csv = captureCsvExport(context);
   run(context, 'Date.now = () => 1700000123456'); // -> epoch seconds 1700000123
 
@@ -1767,8 +1784,8 @@ test('exportCsv: hands GSRFileSaver a .csv name and the full buildLiveCsv text (
   assert.match(csv.text, /\n# End rows:2 bytes:\d+ crc32:[0-9a-f]{8} end_time:1700000123 overflows:0 flush_fails:0\n$/);
 });
 
-test('exportCsv: RecordingStartTime is wall-clock-now minus the last packet\'s device uptime, floored', () => {
-  const { context } = bootLive();
+test('exportCsv: RecordingStartTime is wall-clock-now minus the last packet\'s device uptime, floored', async () => {
+  const { context } = await bootLive();
   const csv = captureCsvExport(context);
   run(context, 'Date.now = () => 1_699_999_999_000'); // epoch seconds 1699999999
   run(context, 'LiveState.packets = [{ timestamp: 100.9, valid: false, lat: NaN, lon: NaN, hdop: 99.9, pdop: 99.9, sats: 0, fixType: 0, speedKts: 0, courseDeg: 0, gsrRaw: 1 }]');
@@ -1779,8 +1796,8 @@ test('exportCsv: RecordingStartTime is wall-clock-now minus the last packet\'s d
   assert.match(csv.text, /^# Integrity: crc32 v1\n# RecordingStartTime:1699999899\n/);
 });
 
-test('exportCsv: a session with no packets still produces a valid file (header + zero-row trailer)', () => {
-  const { context } = bootLive();
+test('exportCsv: a session with no packets still produces a valid file (header + zero-row trailer)', async () => {
+  const { context } = await bootLive();
   const csv = captureCsvExport(context);
   run(context, 'Date.now = () => 1700000000000');
 
@@ -1806,8 +1823,8 @@ const FIX = (over = {}) => JSON.stringify({
 const segLatLngs = (context) =>
   runJSON(context, 'liveMap._layers.filter(l => l.latlngs).map(l => l.latlngs)');
 
-test('updateLiveMap: a fix worse than LIVE_MAX_HDOP (2.0) is dropped — no segment, and it does not advance the trail anchor', () => {
-  const { context } = bootLive();
+test('updateLiveMap: a fix worse than LIVE_MAX_HDOP (2.0) is dropped — no segment, and it does not advance the trail anchor', async () => {
+  const { context } = await bootLive();
   run(context, 'showMap()');
 
   run(context, `updateLiveMap(${FIX({ lat: 51.0, lon: 0.0 })})`);       // 1st good fix: view + marker, no segment
@@ -1822,8 +1839,8 @@ test('updateLiveMap: a fix worse than LIVE_MAX_HDOP (2.0) is dropped — no segm
   assert.deepStrictEqual(segs[0], [[51.0, 0.0], [51.5, 0.5]], 'segment bridges the two GOOD fixes, skipping the rejected one');
 });
 
-test('updateLiveMap: fixType gating — 1 (no fix) is rejected, 0 (unknown) and >=2 are accepted', () => {
-  const { context } = bootLive();
+test('updateLiveMap: fixType gating — 1 (no fix) is rejected, 0 (unknown) and >=2 are accepted', async () => {
+  const { context } = await bootLive();
   run(context, 'showMap()');
 
   run(context, `updateLiveMap(${FIX({ lat: 51.0, lon: 0.0, fixType: 3 })})`); // anchor
@@ -1839,8 +1856,8 @@ test('updateLiveMap: fixType gating — 1 (no fix) is rejected, 0 (unknown) and 
   ]);
 });
 
-test('updateLiveMap: a gap fix breaks the trail — the next segment resumes from the gap point, never bridged across it', () => {
-  const { context } = bootLive();
+test('updateLiveMap: a gap fix breaks the trail — the next segment resumes from the gap point, never bridged across it', async () => {
+  const { context } = await bootLive();
   // In tonic/phasic mode segments are queued (not drawn) until settled, so
   // this asserts the QUEUE geometry — where the gap is actually broken.
   run(context, "liveGsrView.graphView = 'phasic';");
@@ -1862,8 +1879,8 @@ test('updateLiveMap: a gap fix breaks the trail — the next segment resumes fro
   );
 });
 
-test('updateLiveMap: an invalid / NaN-position sample is a no-op — no marker, no segment, anchor untouched', () => {
-  const { context } = bootLive();
+test('updateLiveMap: an invalid / NaN-position sample is a no-op — no marker, no segment, anchor untouched', async () => {
+  const { context } = await bootLive();
   run(context, 'showMap()');
   run(context, `updateLiveMap(${FIX({ lat: 51.0, lon: 0.0 })})`); // anchor
   const before = runJSON(context, 'liveLastLatLng');
@@ -1911,8 +1928,8 @@ function recordCanvas(window) {
   return calls;
 }
 
-test('drawGraph: runs no analysis on the draw path — analyze() and decomposeTonicPhasic() are never called from a redraw', () => {
-  const { context } = bootLive();
+test('drawGraph: runs no analysis on the draw path — analyze() and decomposeTonicPhasic() are never called from a redraw', async () => {
+  const { context } = await bootLive();
   run(context, `
     for (let i = 0; i < 200; i++) {
       LiveState.addPacket({ valid: true, lat: 51.5, lon: -0.12, gsrRaw: 1000 + (i % 40),
@@ -1935,13 +1952,13 @@ test('drawGraph: runs no analysis on the draw path — analyze() and decomposeTo
   assert.strictEqual(calls.decomp, 0, 'drawGraph() must not run decomposeTonicPhasic()');
 });
 
-test('feedLiveAnalyzer: analyses every packet through the warmup, then wall-clock-throttles', () => {
-  const { context } = bootLive();
+test('feedLiveAnalyzer: analyses every packet through the warmup, then wall-clock-throttles', async () => {
+  const { context } = await bootLive();
   // Shrink the warmup so the test stays fast: 20 rows instead of 400.
   run(context, 'LIVE_ANALYZE_WARMUP_ROWS = 20;');
   run(context, `
     globalThis.__n = 0;
-    const __orig = GSRAnalyzer.prototype.analyze;
+    var __orig = GSRAnalyzer.prototype.analyze;
     GSRAnalyzer.prototype.analyze = function (...a) { globalThis.__n++; return __orig.apply(this, a); };
     for (let i = 0; i < 60; i++) {
       LiveState.addPacket({ valid: false, gsrRaw: 1000 + (i % 30), timestamp: i * 0.3 });
@@ -1953,12 +1970,12 @@ test('feedLiveAnalyzer: analyses every packet through the warmup, then wall-cloc
   assert.strictEqual(run(context, 'globalThis.__n'), 20);
 });
 
-test('feedLiveAnalyzer: a new analyze() runs once the throttle interval has elapsed', () => {
-  const { context } = bootLive();
+test('feedLiveAnalyzer: a new analyze() runs once the throttle interval has elapsed', async () => {
+  const { context } = await bootLive();
   run(context, 'LIVE_ANALYZE_WARMUP_ROWS = 5; LIVE_ANALYZE_MIN_INTERVAL_MS = 1000;');
   run(context, `
     globalThis.__n = 0;
-    const __orig = GSRAnalyzer.prototype.analyze;
+    var __orig = GSRAnalyzer.prototype.analyze;
     GSRAnalyzer.prototype.analyze = function (...a) { globalThis.__n++; return __orig.apply(this, a); };
     globalThis.__now = 10000;
     globalThis.__realNow = Date.now;
@@ -1982,8 +1999,8 @@ test('feedLiveAnalyzer: a new analyze() runs once the throttle interval has elap
   assert.strictEqual(run(context, 'globalThis.__n'), 6, 'one more analyze after the interval elapsed');
 });
 
-test('feedLiveAnalyzer: analyses only a trailing LIVE_ANALYZE_WINDOW_S slice, not the whole session', () => {
-  const { context } = bootLive();
+test('feedLiveAnalyzer: analyses only a trailing LIVE_ANALYZE_WINDOW_S slice, not the whole session', async () => {
+  const { context } = await bootLive();
   run(context, 'LIVE_ANALYZE_WARMUP_ROWS = 100000;'); // disable the throttle so every feed re-windows
   run(context, `
     for (let i = 0; i < 1600; i++) {
@@ -2004,8 +2021,8 @@ test('feedLiveAnalyzer: analyses only a trailing LIVE_ANALYZE_WINDOW_S slice, no
   assert.strictEqual(run(context, 'liveAnalyzer.filtered.length'), rawLen);
 });
 
-test('drawGraph: a gap still breaks the trace after the analysis window has slid past the session start', () => {
-  const { window, context } = bootLive();
+test('drawGraph: a gap still breaks the trace after the analysis window has slid past the session start', async () => {
+  const { window, context } = await bootLive();
   const calls = recordCanvas(window);
   run(context, 'LIVE_ANALYZE_WARMUP_ROWS = 100000;');
   // ~1500 packets (~450s) so the 300s window no longer starts at packet 0;
@@ -2032,8 +2049,8 @@ test('drawGraph: a gap still breaks the trace after the analysis window has slid
   assert.strictEqual(moveTos, 2, 'the base offset is applied to the gap lookup');
 });
 
-test('drawGraph: regression — a gap packet lifts the pen in the plotted curve, so the line never bridges a dropout', () => {
-  const { window, context } = bootLive();
+test('drawGraph: regression — a gap packet lifts the pen in the plotted curve, so the line never bridges a dropout', async () => {
+  const { window, context } = await bootLive();
   const calls = recordCanvas(window);
 
   // 30 packets at the 0.3s cadence with a single +10s discontinuity at
@@ -2063,8 +2080,8 @@ test('drawGraph: regression — a gap packet lifts the pen in the plotted curve,
   assert.strictEqual(moveTos, 2, 'initial pen-down + exactly one gap-forced pen-up');
 });
 
-test('GSR controls: the view dropdown offers only Signal / Tonic / Phasic — no session-normalised metric views', () => {
-  const { window, context } = bootLive();
+test('GSR controls: the view dropdown offers only Signal / Tonic / Phasic — no session-normalised metric views', async () => {
+  const { window, context } = await bootLive();
   const opts = [...window.document.getElementById('liveGraphView').options].map((o) => o.value);
   assert.deepStrictEqual(opts, ['signal', 'tonic', 'phasic']);
   // LIVE_GRAPH_VIEWS is the matching lookup — same three keys, nothing else.
@@ -2074,8 +2091,8 @@ test('GSR controls: the view dropdown offers only Signal / Tonic / Phasic — no
   );
 });
 
-test('GSR controls: the view dropdown switches the plotted series, the value readout and the label together', () => {
-  const { window, context } = bootLive();
+test('GSR controls: the view dropdown switches the plotted series, the value readout and the label together', async () => {
+  const { window, context } = await bootLive();
 
   // A step up partway so tonic/phasic decomposition has a real, non-zero
   // phasic residual to show rather than a flat signal.
@@ -2128,8 +2145,8 @@ test('GSR controls: the view dropdown switches the plotted series, the value rea
 // map-visibility bookkeeping.
 // ==========================================================================
 
-test('renderStatus: maps each connection status to its badge label and modifier class', () => {
-  const { window, context } = bootLive();
+test('renderStatus: maps each connection status to its badge label and modifier class', async () => {
+  const { window, context } = await bootLive();
   const badge = window.document.getElementById('statusBadge');
 
   run(context, "renderStatus('connecting')");
@@ -2154,8 +2171,8 @@ test('renderStatus: maps each connection status to its badge label and modifier 
   assert.strictEqual(badge.className, 'badge');
 });
 
-test('renderStatus: also updates #appHeaderStatusBadge when mounted in index.html', () => {
-  const { window, context } = bootLive();
+test('renderStatus: also updates #appHeaderStatusBadge when mounted in index.html', async () => {
+  const { window, context } = await bootLive();
   const headerBadge = window.document.createElement('span');
   headerBadge.id = 'appHeaderStatusBadge';
   headerBadge.className = 'badge';
@@ -2170,8 +2187,8 @@ test('renderStatus: also updates #appHeaderStatusBadge when mounted in index.htm
   assert.strictEqual(headerBadge.className, 'badge bad');
 });
 
-test('the animation loop starts only while connected/reconnecting and stops (with one final redraw) otherwise', (t) => {
-  const { context } = bootLive();
+test('the animation loop starts only while connected/reconnecting and stops (with one final redraw) otherwise', async (t) => {
+  const { context } = await bootLive();
   stopLoopAfter(t, context);
 
   assert.strictEqual(run(context, 'animationFrameId'), null, 'idle on load');
@@ -2189,8 +2206,8 @@ test('the animation loop starts only while connected/reconnecting and stops (wit
   assert.strictEqual(run(context, 'animationFrameId'), null);
 });
 
-test('keyboard: "m" toggles the map exactly like the Show/Hide Map button', () => {
-  const { window, context } = bootLive();
+test('keyboard: "m" toggles the map exactly like the Show/Hide Map button', async () => {
+  const { window, context } = await bootLive();
   const fire = (key, target) =>
     (target || window).dispatchEvent(new window.KeyboardEvent('keydown', { key, bubbles: true }));
 
@@ -2206,8 +2223,8 @@ test('keyboard: "m" toggles the map exactly like the Show/Hide Map button', () =
   assert.strictEqual(run(context, 'mapVisible'), false);
 });
 
-test('keyboard: "p" toggles the Phasic overlay layer via its button', () => {
-  const { window, context } = bootLive();
+test('keyboard: "p" toggles the Phasic overlay layer via its button', async () => {
+  const { window, context } = await bootLive();
   const fire = (key) => window.dispatchEvent(new window.KeyboardEvent('keydown', { key, bubbles: true }));
 
   assert.strictEqual(run(context, 'liveGsrView.showPhasic'), true, 'desktop default: phasic under the signal');
@@ -2218,8 +2235,8 @@ test('keyboard: "p" toggles the Phasic overlay layer via its button', () => {
   assert.strictEqual(run(context, 'liveGsrView.showPhasic'), true);
 });
 
-test('keyboard: shortcuts are suppressed while the user is typing in an input element', () => {
-  const { window, context } = bootLive();
+test('keyboard: shortcuts are suppressed while the user is typing in an input element', async () => {
+  const { window, context } = await bootLive();
   const input = window.document.createElement('input');
   window.document.body.appendChild(input);
 
@@ -2230,8 +2247,8 @@ test('keyboard: shortcuts are suppressed while the user is typing in an input el
   assert.ok(window.document.getElementById('app').classList.contains('no-map'), 'typing "m" into an input does not toggle the map');
 });
 
-test('setMapVisible: keeps mapVisible, the button label, and the #app.no-map class in sync across repeated calls', () => {
-  const { window, context } = bootLive();
+test('setMapVisible: keeps mapVisible, the button label, and the #app.no-map class in sync across repeated calls', async () => {
+  const { window, context } = await bootLive();
   const app = window.document.getElementById('app');
   const btn = window.document.getElementById('toggleMapBtn');
 
@@ -2252,8 +2269,8 @@ test('setMapVisible: keeps mapVisible, the button label, and the #app.no-map cla
   assert.ok(!btn.classList.contains('active'));
 });
 
-test('My Location: a successful geolocation fix pans the map there', () => {
-  const { window, context } = bootLive();
+test('My Location: a successful geolocation fix pans the map there', async () => {
+  const { window, context } = await bootLive();
   // boot_live.js stubs getCurrentPosition to succeed at 51.5074 / -0.1278.
   window.document.getElementById('myLocationBtn').click();
 
@@ -2263,8 +2280,8 @@ test('My Location: a successful geolocation fix pans the map there', () => {
   assert.strictEqual(center.lng, -0.1278);
 });
 
-test('My Location: centers on live walker position when BLE GPS packets exist', () => {
-  const { window, context } = bootLive();
+test('My Location: centers on live walker position when BLE GPS packets exist', async () => {
+  const { window, context } = await bootLive();
   run(context, 'LiveState.addPacket({ timestamp: 1.0, gsrRaw: 10, lat: 37.7749, lon: -122.4194, valid: true, fixType: 3, hdop: 1.0 })');
 
   window.document.getElementById('myLocationBtn').click();
@@ -2273,8 +2290,8 @@ test('My Location: centers on live walker position when BLE GPS packets exist', 
   assert.strictEqual(center.lng, -122.4194);
 });
 
-test('liveMetricGroup: segmented buttons switch metric and sync with liveGsrView and FAB', () => {
-  const { window, context } = bootLive();
+test('liveMetricGroup: segmented buttons switch metric and sync with liveGsrView and FAB', async () => {
+  const { window, context } = await bootLive();
   const tonicBtn = window.document.getElementById('liveMetricTonic');
   const phasicBtn = window.document.getElementById('liveMetricPhasic');
   const signalBtn = window.document.getElementById('liveMetricSignal');
@@ -2294,16 +2311,16 @@ test('liveMetricGroup: segmented buttons switch metric and sync with liveGsrView
   assert.ok(signalBtn.classList.contains('active'));
 });
 
-test('mount: pre-populates connectErr when Web Bluetooth is not supported', () => {
-  const { window } = bootLive();
+test('mount: pre-populates connectErr when Web Bluetooth is not supported', async () => {
+  const { window } = await bootLive();
   // boot_live has window.navigator.bluetooth = undefined by default
   const errEl = window.document.getElementById('connectErr');
   assert.match(errEl.textContent, /Web Bluetooth/);
   assert.match(errEl.textContent, /Bluefy/);
 });
 
-test('My Location: a browser with no geolocation alerts instead of throwing', () => {
-  const { window } = bootLive();
+test('My Location: a browser with no geolocation alerts instead of throwing', async () => {
+  const { window } = await bootLive();
   let alerted = null;
   window.alert = (m) => { alerted = m; };
   window.navigator.geolocation = undefined;
@@ -2312,8 +2329,8 @@ test('My Location: a browser with no geolocation alerts instead of throwing', ()
   assert.match(alerted || '', /[Gg]eolocation/);
 });
 
-test('on load the toolbar renders its initial state — map hidden, GSR layer toggles at their defaults, disconnected', () => {
-  const { window, context } = bootLive();
+test('on load the toolbar renders its initial state — map hidden, GSR layer toggles at their defaults, disconnected', async () => {
+  const { window, context } = await bootLive();
   assert.strictEqual(window.document.getElementById('toggleMapBtn').textContent, 'Show Map (M)');
   assert.strictEqual(window.document.getElementById('statusBadge').textContent, 'Disconnected');
   // Filtered/Tonic/Peaks/Hotspots start active; Raw is gone from the live
@@ -2338,8 +2355,8 @@ test('on load the toolbar renders its initial state — map hidden, GSR layer to
 // resume the same session and Export CSV still works.
 // ==========================================================================
 
-test('deactivate: stops the redraw loop, clears viewActive, and drops to "disconnected"', (t) => {
-  const { context } = bootLive();
+test('deactivate: stops the redraw loop, clears viewActive, and drops to "disconnected"', async (t) => {
+  const { context } = await bootLive();
   stopLoopAfter(t, context);
 
   assert.strictEqual(run(context, 'viewActive'), true, 'active by default (standalone semantics)');
@@ -2358,7 +2375,7 @@ test('deactivate: stops the redraw loop, clears viewActive, and drops to "discon
 });
 
 test('deactivate: disconnects the BLE radio but keeps the session buffer (Reconnect can resume it)', async (t) => {
-  const { window, context } = bootLive();
+  const { window, context } = await bootLive();
   const ble = makeFakeBle(context);
   window.navigator.bluetooth = ble.bluetooth;
   run(context, 'showMap()');
@@ -2384,7 +2401,7 @@ test('deactivate: disconnects the BLE radio but keeps the session buffer (Reconn
 });
 
 test('deactivate: the intentional disconnect does not trigger the auto-reconnect backoff', async (t) => {
-  const { window, context } = bootLive();
+  const { window, context } = await bootLive();
   const ble = makeFakeBle(context);
   window.navigator.bluetooth = ble.bluetooth;
   await run(context, 'attemptConnect()');
@@ -2400,7 +2417,7 @@ test('deactivate: the intentional disconnect does not trigger the auto-reconnect
 });
 
 test('after an intentional disconnect, Reconnect resumes the same session and re-arms auto-reconnect', async (t) => {
-  const { window, context } = bootLive();
+  const { window, context } = await bootLive();
   const ble = makeFakeBle(context);
   window.navigator.bluetooth = ble.bluetooth;
   await run(context, 'attemptConnect()');
@@ -2425,8 +2442,8 @@ test('after an intentional disconnect, Reconnect resumes the same session and re
   assert.ok(ble.subscribeCallCount() >= 3, 'a re-subscribe attempt was made');
 });
 
-test('activate: does not start the loop when no session is live', (t) => {
-  const { context } = bootLive();
+test('activate: does not start the loop when no session is live', async (t) => {
+  const { context } = await bootLive();
   stopLoopAfter(t, context);
 
   run(context, 'GSRLiveView.deactivate()');
@@ -2435,8 +2452,8 @@ test('activate: does not start the loop when no session is live', (t) => {
   assert.strictEqual(run(context, 'animationFrameId'), null, 'nothing to animate while disconnected');
 });
 
-test('activate: re-measures the Leaflet map (invalidateSize) — it may have been sized while the panel was hidden', () => {
-  const { context } = bootLive();
+test('activate: re-measures the Leaflet map (invalidateSize) — it may have been sized while the panel was hidden', async () => {
+  const { context } = await bootLive();
   run(context, 'showMap()'); // builds liveMap
   const before = run(context, 'liveMap.calls.invalidateSize');
 
@@ -2446,14 +2463,14 @@ test('activate: re-measures the Leaflet map (invalidateSize) — it may have bee
   assert.ok(run(context, 'liveMap.calls.invalidateSize') > before, 'activate() calls liveMap.invalidateSize()');
 });
 
-test('activate: is a safe no-op before any map exists', () => {
-  const { context } = bootLive();
+test('activate: is a safe no-op before any map exists', async () => {
+  const { context } = await bootLive();
   assert.strictEqual(run(context, 'liveMap'), null);
   assert.doesNotThrow(() => run(context, 'GSRLiveView.deactivate(); GSRLiveView.activate()'));
 });
 
-test('a status change while deactivated arms the loop, but no frame draws until re-activated', (t) => {
-  const { window, context } = bootLive();
+test('a status change while deactivated arms the loop, but no frame draws until re-activated', async (t) => {
+  const { window, context } = await bootLive();
   stopLoopAfter(t, context);
   const calls = recordCanvas(window);
 
@@ -2489,8 +2506,8 @@ function recordStrokes(window) {
   return strokes;
 }
 
-test('drawGraph: the primary GSR trace is the app\'s --color-filtered blue at weight 2.2 (single-view "Signal" styling)', () => {
-  const { window, context } = bootLive();
+test('drawGraph: the primary GSR trace is the app\'s --color-filtered blue at weight 2.2 (single-view "Signal" styling)', async () => {
+  const { window, context } = await bootLive();
   const strokes = recordStrokes(window);
   // A monotonic ramp — no SCR peaks, so no peak/hotspot dot strokes; the
   // Filtered layer is the last stroke() (drawn on top of Raw + Tonic).
@@ -2505,8 +2522,8 @@ test('drawGraph: the primary GSR trace is the app\'s --color-filtered blue at we
   assert.strictEqual(trace.lineWidth, 2.2);
 });
 
-test('drawGraph: the Phasic (SCR) view draws its trace in --color-phasic green at weight 2', () => {
-  const { window, context } = bootLive();
+test('drawGraph: the Phasic (SCR) view draws its trace in --color-phasic green at weight 2', async () => {
+  const { window, context } = await bootLive();
   const strokes = recordStrokes(window);
   run(context, `
     for (let i = 0; i < 60; i++) LiveState.addPacket({ valid: true, lat: 51.5, lon: -0.12,
@@ -2520,8 +2537,8 @@ test('drawGraph: the Phasic (SCR) view draws its trace in --color-phasic green a
   assert.strictEqual(trace.lineWidth, 2);
 });
 
-test('drawGraph: a hotspot renders as a hollow --color-hotspot ring (weight 2) with a ★, matching the single-track graph', () => {
-  const { window, context } = bootLive();
+test('drawGraph: a hotspot renders as a hollow --color-hotspot ring (weight 2) with a ★, matching the single-track graph', async () => {
+  const { window, context } = await bootLive();
   const rec = { strokes: [], texts: [] };
   const ctx = {
     setTransform() {}, clearRect() {}, beginPath() {}, closePath() {},
@@ -2557,8 +2574,8 @@ test('drawGraph: a hotspot renders as a hollow --color-hotspot ring (weight 2) w
     'plain peaks are filled dots, not stroked rings');
 });
 
-test('drawGraph: renders the grid + L-shaped axis before the trace (>= 3 stroke passes)', () => {
-  const { window, context } = bootLive();
+test('drawGraph: renders the grid + L-shaped axis before the trace (>= 3 stroke passes)', async () => {
+  const { window, context } = await bootLive();
   const strokes = recordStrokes(window);
   run(context, `
     for (let i = 0; i < 40; i++) LiveState.addPacket({ valid: true, lat: 51.5, lon: -0.12,
@@ -2569,8 +2586,8 @@ test('drawGraph: renders the grid + L-shaped axis before the trace (>= 3 stroke 
   assert.ok(strokes.length >= 4, `expected grid+axis+trace passes, got ${strokes.length}`);
 });
 
-test('niceStep: yields 1/2/5 x 10^n steps giving roughly five divisions', () => {
-  const { context } = bootLive();
+test('niceStep: yields 1/2/5 x 10^n steps giving roughly five divisions', async () => {
+  const { context } = await bootLive();
   const step = (span) => run(context, `niceStep(${span})`);
   assert.strictEqual(step(10), 2);     // rough 2  -> 2
   assert.strictEqual(step(50), 10);    // rough 10 -> 10
@@ -2588,8 +2605,8 @@ test('niceStep: yields 1/2/5 x 10^n steps giving roughly five divisions', () => 
 // toolbar button or an F shortcut of its own.
 // ==========================================================================
 
-test('the live view binds no fullscreen control — no #toggleFullscreenBtn, and F does nothing here', () => {
-  const { window } = bootLive();
+test('the live view binds no fullscreen control — no #toggleFullscreenBtn, and F does nothing here', async () => {
+  const { window } = await bootLive();
   assert.strictEqual(window.document.getElementById('toggleFullscreenBtn'), null, 'no fullscreen button');
   let reqs = 0;
   window.document.documentElement.requestFullscreen = () => { reqs++; return Promise.resolve(); };
@@ -2604,8 +2621,8 @@ test('the live view binds no fullscreen control — no #toggleFullscreenBtn, and
 // polylines it pins) grow without bound in the meantime.
 // ==========================================================================
 
-test('pendingSegments is capped even when drawGraph() never runs to drain it', () => {
-  const { window, context } = bootLive();
+test('pendingSegments is capped even when drawGraph() never runs to drain it', async () => {
+  const { window, context } = await bootLive();
   // 'signal' (the default) never queues anything at all — switch to a
   // metric that does, so there's a queue to cap in the first place.
   run(context, "liveGsrView.graphView = 'phasic';");
@@ -2623,7 +2640,7 @@ test('pendingSegments is capped even when drawGraph() never runs to drain it', (
 });
 
 test('disconnect(): immediately aborts in-flight retry wait and does not arm passive background watch', async (t) => {
-  const { window, context } = bootLive();
+  const { window, context } = await bootLive();
   const ble = makeFakeBle(context, { reconnectFailures: 99 });
   window.navigator.bluetooth = ble.bluetooth;
   await run(context, 'attemptConnect()');
@@ -2646,14 +2663,14 @@ test('disconnect(): immediately aborts in-flight retry wait and does not arm pas
   assert.strictEqual(ble.advertisementHandlerCount(), 0, 'passive background watch must not be armed after user disconnect');
 });
 
-test('compact mobile layout: sets Cache Map button label without shortcut suffix', () => {
-  const { window } = bootLive({ compact: true });
+test('compact mobile layout: sets Cache Map button label without shortcut suffix', async () => {
+  const { window } = await bootLive({ compact: true });
   const cacheMapBtn = window.document.getElementById('cacheMapBtn');
   assert.strictEqual(cacheMapBtn.textContent, 'Cache Map');
 });
 
-test('orientation change resets window scroll position to (0, 0)', () => {
-  const { window } = bootLive();
+test('orientation change resets window scroll position to (0, 0)', async () => {
+  const { window } = await bootLive();
   let scrolledTo = null;
   window.scrollTo = (x, y) => { scrolledTo = [x, y]; };
 

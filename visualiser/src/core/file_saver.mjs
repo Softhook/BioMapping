@@ -3,7 +3,7 @@
  * Provides a unified API for exporting files using the native OS "Save Location" dialog box
  * (File System Access API `showSaveFilePicker`) with automatic fallback to direct download.
  */
-const GSRFileSaver = {
+export const GSRFileSaver = {
   /**
    * Infer MIME type and description from suggested filename extension.
    * @param {string} filename
@@ -108,10 +108,3 @@ const GSRFileSaver = {
     return true;
   }
 };
-
-if (typeof window !== 'undefined') {
-  window.GSRFileSaver = GSRFileSaver;
-}
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = GSRFileSaver;
-}

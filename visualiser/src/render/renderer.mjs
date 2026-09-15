@@ -8,7 +8,7 @@
  * High (≥0.7) → green #008f3c, Medium (≥0.4) → amber #e59e00, Low → red #d10024.
  * If alphaSuffix is provided (e.g. '20'), appends it for RGBA-style hex.
  */
-function getQualityColor(score, alphaSuffix) {
+export function getQualityColor(score, alphaSuffix) {
   const base = score >= 0.7 ? '#008f3c' : (score >= 0.4 ? '#e59e00' : '#d10024');
   return alphaSuffix ? base + alphaSuffix : base;
 }
@@ -16,14 +16,14 @@ function getQualityColor(score, alphaSuffix) {
 /**
  * Get peak quality label string ('High', 'Med', 'Low') and percent.
  */
-function getQualityLabel(score) {
+export function getQualityLabel(score) {
   const pct = Math.round(score * 100);
   const label = score >= 0.7 ? 'High' : (score >= 0.4 ? 'Med' : 'Low');
   return { pct, label };
 }
 
 // Excluded-peak visual style constants
-const EXCLUDED_STYLE = {
+export const EXCLUDED_STYLE = {
   color:     '#9a9a9a',
   lineColor: '#b0b0b0',
   lineAlpha: '3c',
@@ -33,15 +33,15 @@ const EXCLUDED_STYLE = {
   dotWeight: 1.5
 };
 
-const NORMAL_DASH = [3, 3];
+export const NORMAL_DASH = [3, 3];
 
-const EXCLUDE_BTN = {
+export const EXCLUDE_BTN = {
   r: 5,              // button radius
   offsetY: -8,       // Y offset from yBottomU (bottom of upper graph)
   symbol: '\u2715'   // ✕ character
 };
 
-const GSRRenderer = {
+export const GSRRenderer = {
   _styleCache: null,
   // Boundary-digitising slack for "is this footpath in the park" — see
   // _classifyOsmContext's doc comment.
@@ -90,10 +90,3 @@ const GSRRenderer = {
   //   renderer_interaction.js — click/hit-testing + graph-scrub hover
   //   renderer_chrome.js      — grid, tooltip, timeline overview
 };
-
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { GSRRenderer, getQualityColor, getQualityLabel, EXCLUDED_STYLE, NORMAL_DASH, EXCLUDE_BTN };
-}
-if (typeof window !== 'undefined') {
-  window.GSRRenderer = GSRRenderer;
-}

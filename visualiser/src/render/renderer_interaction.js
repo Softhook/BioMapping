@@ -348,7 +348,12 @@
   };
 
   if (typeof module !== 'undefined' && module.exports) {
-    Object.assign(global, require('./renderer.js'));
+    // ES-module migration: renderer.js gets a temporary .mjs extension when
+    // converted (convert_file.js --write), deleting the .js — same
+    // resolution rule as boot_app.js's resolveFile().
+    const rendererPath = require('fs').existsSync(require('path').join(__dirname, 'renderer.mjs'))
+      ? './renderer.mjs' : './renderer.js';
+    Object.assign(global, require(rendererPath));
     module.exports = __methods;
   } else {
     Object.assign(GSRRenderer, __methods);

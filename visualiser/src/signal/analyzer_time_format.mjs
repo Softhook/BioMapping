@@ -6,7 +6,7 @@
  * GSRAnalyzer keeps thin instance wrappers (`formatClockTime`, `formatTimeOnly`,
  * `formatDateUK`, `formatDateShort`) that pass `this.recordingStartTime` through.
  */
-const AnalyzerTimeFormat = {
+export const AnalyzerTimeFormat = {
 
   /**
    * True when session-relative time should be shown instead of wall-clock time
@@ -97,10 +97,3 @@ const AnalyzerTimeFormat = {
     return day + '.' + month + '.' + year;
   }
 };
-
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { AnalyzerTimeFormat };
-}
-if (typeof window !== 'undefined') {
-  window.AnalyzerTimeFormat = AnalyzerTimeFormat;
-}

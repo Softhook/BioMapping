@@ -12,11 +12,11 @@
  * that test goes red until this decoder is reconciled.
  */
 
-const PACKET_SIZE = 45;
-const MAGIC_0 = 0x42; // 'B'
-const MAGIC_1 = 0x4d; // 'M'
+export const PACKET_SIZE = 45;
+export const MAGIC_0 = 0x42; // 'B'
+export const MAGIC_1 = 0x4d; // 'M'
 
-class GSRLiveBinaryParser {
+export class GSRLiveBinaryParser {
   /**
    * @param {(pkt: object) => void} onPacketParsed
    */
@@ -91,9 +91,4 @@ class GSRLiveBinaryParser {
       valid: !!valid,
     });
   }
-}
-
-if (typeof window !== 'undefined') window.GSRLiveBinaryParser = GSRLiveBinaryParser;
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { GSRLiveBinaryParser, PACKET_SIZE, MAGIC_0, MAGIC_1 };
 }

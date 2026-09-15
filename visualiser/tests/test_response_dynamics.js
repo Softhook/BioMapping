@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
-const { ResponseDynamics } = require('../src/signal/response_dynamics.js');
+const { ResponseDynamics } = require('../src/signal/response_dynamics.mjs');
 global.ResponseDynamics = ResponseDynamics;
 
 // Load real constants.js

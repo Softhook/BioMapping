@@ -9,7 +9,7 @@
  * the fetch orchestration, the ion-tiles fallback, and the scene lifecycle.
  */
 
-const GSRGlobe3DBuildings = {
+export const GSRGlobe3DBuildings = {
   /** Per-style default fill colour for extruded OSM footprints. */
   fillColor(style) {
     switch (style) {
@@ -288,10 +288,3 @@ const GSRGlobe3DBuildings = {
     return surfacePrimitive;
   }
 };
-
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { GSRGlobe3DBuildings };
-}
-if (typeof window !== 'undefined') {
-  window.GSRGlobe3DBuildings = GSRGlobe3DBuildings;
-}

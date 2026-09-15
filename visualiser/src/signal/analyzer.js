@@ -19,10 +19,10 @@ if (typeof module !== 'undefined' && module.exports) {
     try { global.CVXEDA = require('./cvxeda.js'); } catch (_) {}
   }
   if (typeof global.SpectralEDA === 'undefined') {
-    try { global.SpectralEDA = require('./spectral_eda.js').SpectralEDA; } catch (_) {}
+    try { global.SpectralEDA = require('./spectral_eda.mjs').SpectralEDA; } catch (_) {}
   }
   if (typeof global.ResponseDynamics === 'undefined') {
-    try { global.ResponseDynamics = require('./response_dynamics.js').ResponseDynamics; } catch (_) {}
+    try { global.ResponseDynamics = require('./response_dynamics.mjs').ResponseDynamics; } catch (_) {}
   }
 }
 

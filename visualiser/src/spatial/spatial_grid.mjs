@@ -15,7 +15,7 @@
  * wrappers around this shared bucket mechanism, not folded together, since
  * they're genuinely different correctness requirements per caller.
  */
-class SpatialGrid {
+export class SpatialGrid {
   constructor(cellSizeLat, cellSizeLon) {
     this.grid = new Map();
     this.cellSizeLat = cellSizeLat;
@@ -132,11 +132,4 @@ class SpatialGrid {
       centerCol
     };
   }
-}
-
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { SpatialGrid };
-}
-if (typeof window !== 'undefined') {
-  window.SpatialGrid = SpatialGrid;
 }

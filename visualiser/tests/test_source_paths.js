@@ -69,6 +69,12 @@ test('every relative source path used by tests/ resolves inside visualiser/', ()
       const resolved = path.resolve(path.dirname(file), ref);
       if (path.relative(VIS_DIR, resolved).startsWith('..')) continue; // outside visualiser/
       if (fs.existsSync(resolved) || fs.existsSync(resolved + '.js')) continue;
+      // ES-module migration (tests/manual/esm_migration/): a converted
+      // src/ file's .js sibling is deliberately deleted (convert_file.js
+      // --write) — same resolution rule as boot_app.js's resolveFile()/
+      // tests/support/load_module.js, which every loadModule('../src/…')
+      // reference in this walk goes through at runtime.
+      if (resolved.endsWith('.js') && fs.existsSync(resolved.replace(/\.js$/, '.mjs'))) continue;
       broken.push(`${path.relative(VIS_DIR, file)} → '${ref}'`);
     }
   }

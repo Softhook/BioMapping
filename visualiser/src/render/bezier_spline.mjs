@@ -3,7 +3,7 @@
  * plain {x,y} point arrays (typically already-projected pixel coordinates) —
  * no SVG string building, no DOM, no lat/lon assumptions.
  */
-const BezierSpline = {
+export const BezierSpline = {
   /**
    * Centripetal Catmull-Rom spline, converted to cubic Bézier segments.
    *
@@ -142,8 +142,3 @@ const BezierSpline = {
     return closed ? d + ' Z' : d;
   }
 };
-
-if (typeof window !== 'undefined') window.BezierSpline = BezierSpline;
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { BezierSpline };
-}

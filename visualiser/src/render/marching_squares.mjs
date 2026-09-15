@@ -4,7 +4,7 @@
  * on GSR analysis or map rendering.
  */
 
-class MarchingSquares {
+export class MarchingSquares {
   /**
    * Saddle disambiguation: mean of a cell's valid (non-null) corner values,
    * used to decide which way the two segments connect for the ambiguous
@@ -292,11 +292,4 @@ class MarchingSquares {
 
     return result;
   }
-}
-
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { MarchingSquares };
-}
-if (typeof window !== 'undefined') {
-  window.MarchingSquares = MarchingSquares;
 }

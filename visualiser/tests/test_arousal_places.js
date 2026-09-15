@@ -8,7 +8,7 @@
 const assert = require('assert');
 const test = require('node:test');
 
-global.GeoUtils = require('../src/gps/geo_utils.js').GeoUtils;
+global.GeoUtils = require('../src/gps/geo_utils.mjs').GeoUtils;
 const { GSRArousalPlaces } = require('../src/spatial/arousal_places.js');
 
 const M_PER_DEG = 111320.0;

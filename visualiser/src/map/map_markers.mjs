@@ -15,7 +15,7 @@
  * `analyzer` is a GSRAnalyzer instance whose .raw rows carry { lat, lon } —
  * the same shape feedLiveAnalyzer() builds for the live view.
  */
-const GSRMapMarkers = {
+export const GSRMapMarkers = {
 
   /**
    * Raw-sample index a peak/hotspot marker should be planted at, applying the
@@ -69,10 +69,3 @@ const GSRMapMarkers = {
   }
 
 };
-
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { GSRMapMarkers };
-}
-if (typeof window !== 'undefined') {
-  window.GSRMapMarkers = GSRMapMarkers;
-}

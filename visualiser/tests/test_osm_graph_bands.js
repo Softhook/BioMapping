@@ -35,11 +35,11 @@ global.MapColors = MapColors;
 // time — it reads GeoUtils.METERS_PER_DEG_LAT at module scope) so
 // isVehicularRoad() is the exact same predicate osm_enrichment.js itself
 // uses to pick a road over a footway, not a second copy of that class list.
-global.GeoUtils = require('../src/gps/geo_utils.js').GeoUtils;
+global.GeoUtils = require('../src/gps/geo_utils.mjs').GeoUtils;
 const { OSMEnricher } = require('../src/osm/osm_enrichment.js');
 global.OSMEnricher = OSMEnricher;
 
-const { GSRRenderer } = require('../src/render/renderer.js');
+const { GSRRenderer } = require('../src/render/renderer.mjs');
 // The OSM context-band methods live in the object-augment split
 // renderer_bands.js (see renderer.js's class-tail manifest comment) — under
 // plain require() it hands back its method object instead of assigning

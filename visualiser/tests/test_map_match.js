@@ -11,7 +11,7 @@ const test = require('node:test');
 // map_match.js references the global `GeoUtils` (bare identifier, not
 // window.GeoUtils) for haversine distance — load the real implementation
 // onto Node's `global` before requiring, same pattern as tests/test_osm_enrichment.js.
-global.GeoUtils = require('../src/gps/geo_utils.js').GeoUtils;
+global.GeoUtils = require('../src/gps/geo_utils.mjs').GeoUtils;
 
 const { MapMatcher } = require('../src/gps/map_match.js');
 

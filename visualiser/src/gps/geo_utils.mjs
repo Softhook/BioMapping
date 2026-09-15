@@ -1,7 +1,7 @@
 /**
  * Shared geographical geometry utilities for the Bio Mapping GSR analyser.
  */
-const GeoUtils = {
+export const GeoUtils = {
   EARTH_RADIUS_M: 6371000,
   METERS_PER_DEG_LAT: 111320,
 
@@ -364,8 +364,3 @@ const GeoUtils = {
     return inside;
   }
 };
-
-if (typeof window !== 'undefined') window.GeoUtils = GeoUtils;
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { GeoUtils };
-}

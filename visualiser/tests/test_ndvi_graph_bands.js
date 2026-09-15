@@ -30,7 +30,7 @@ global.TOP = 'top';
 const { MapColors } = require('../src/map/map_colors.js');
 global.MapColors = MapColors;
 
-const { GSRRenderer } = require('../src/render/renderer.js');
+const { GSRRenderer } = require('../src/render/renderer.mjs');
 // The NDVI band methods live in the object-augment split renderer_bands.js
 // (see renderer.js's class-tail manifest comment) — under plain require()
 // it hands back its method object instead of assigning onto a live global.

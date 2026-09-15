@@ -2,7 +2,7 @@
  * Overpass API Client for Bio Mapping.
  * Handles rate limits, backoffs, retries, mirror fallback, and network queries.
  */
-const OverpassClient = {
+export const OverpassClient = {
   // Tried in order. Only a connection-level failure (the host itself
   // unreachable — DNS/TCP/CORS, surfaced by fetch() as a thrown TypeError,
   // never an HTTP status) falls through to the next one; a real HTTP error
@@ -276,10 +276,3 @@ out skel qt;`;
     }
   }
 };
-
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { OverpassClient };
-}
-if (typeof window !== 'undefined') {
-  window.OverpassClient = OverpassClient;
-}

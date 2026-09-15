@@ -15,7 +15,7 @@
  *   - Event-gated time-series computation with distance-weighted overlap resolution
  */
 
-const ResponseDynamics = {
+export const ResponseDynamics = {
 
   /**
    * Canonical multi-scale dictionary dilation factors.
@@ -293,10 +293,3 @@ const ResponseDynamics = {
     return series;
   }
 };
-
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { ResponseDynamics };
-}
-if (typeof window !== 'undefined') {
-  window.ResponseDynamics = ResponseDynamics;
-}

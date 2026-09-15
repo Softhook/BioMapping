@@ -15,7 +15,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const { SpectralEDA } = require('../../../src/signal/spectral_eda.js');
+const { SpectralEDA } = require('../../../src/signal/spectral_eda.mjs');
 
 // Mirrors run_neurokit.to_microsiemens (same unit detection as GSRCSVParser).
 function toMicrosiemens(vals) {

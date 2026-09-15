@@ -23,7 +23,7 @@
  * tests/support/boot_live.js, cross-checked against the real HTML by
  * tests/test_html_wiring.js.
  */
-const GSRFullscreen = {
+export const GSRFullscreen = {
   _target: null,
   _listeners: new Set(),
   _bound: false,
@@ -114,10 +114,3 @@ const GSRFullscreen = {
     this._listeners.forEach((fn) => fn(active));
   }
 };
-
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { GSRFullscreen };
-}
-if (typeof window !== 'undefined') {
-  window.GSRFullscreen = GSRFullscreen;
-}

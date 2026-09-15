@@ -13,7 +13,7 @@
 
 // Fold the CDN subdomain and drop the query string (the CARTO ?key=...), so
 // every subdomain — and any key rotation — maps to one cache entry per tile.
-function normalizeTileCacheUrl(url) {
+export function normalizeTileCacheUrl(url) {
   return url
     .replace(/https:\/\/[a-d]\.basemaps\.cartocdn\.com/, 'https://a.basemaps.cartocdn.com')
     .replace(/\?.*$/, '');
@@ -32,7 +32,7 @@ function normalizeTileCacheUrl(url) {
 // while keeping the target zoom's x/y — a mismatched, invalid tile request
 // the CDN 400s (and, lacking CORS headers on that error response, the
 // browser reports as a blocked-by-CORS failure instead of the real cause).
-function buildTileUrl(urlTemplate, x, y, z) {
+export function buildTileUrl(urlTemplate, x, y, z) {
   const retina = ((typeof window !== 'undefined' && window.devicePixelRatio || 1) > 1) ? '@2x' : '';
   return urlTemplate
     .replace('{s}', 'a') // any subdomain serves identical tiles; cache keys are normalized to 'a' anyway
@@ -42,7 +42,7 @@ function buildTileUrl(urlTemplate, x, y, z) {
     .replace('{r}', retina);
 }
 
-function latLngToTileCoords(latlng, zoom) {
+export function latLngToTileCoords(latlng, zoom) {
   const lat = latlng.lat;
   const lon = latlng.lng;
   const x = Math.floor((lon + 180) / 360 * Math.pow(2, zoom));
@@ -132,13 +132,4 @@ if (typeof L !== 'undefined' && L.TileLayer) {
   L.tileLayer.cache = function (url, options) {
     return new L_TileLayer_Cache(url, options);
   };
-}
-
-if (typeof window !== 'undefined') {
-  window.normalizeTileCacheUrl = normalizeTileCacheUrl;
-  window.buildTileUrl = buildTileUrl;
-  window.latLngToTileCoords = latLngToTileCoords;
-}
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { normalizeTileCacheUrl, buildTileUrl, latLngToTileCoords };
 }

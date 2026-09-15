@@ -12,7 +12,7 @@
  * arousal/phasic/tonic grid, which is already the same shape as a DEM: a
  * regular raster of scalar "height" values.
  */
-class Hillshade {
+export class Hillshade {
   /**
    * @param {Array<Array<number|null>>} grid  rows x cols, null = masked/no data
    * @param {number} rows
@@ -185,11 +185,4 @@ class Hillshade {
     const shadedLightness = minLightness + shade * (maxLightness - minLightness);
     return baseLightness + strength * (shadedLightness - baseLightness);
   }
-}
-
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { Hillshade };
-}
-if (typeof window !== 'undefined') {
-  window.Hillshade = Hillshade;
 }

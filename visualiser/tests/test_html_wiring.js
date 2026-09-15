@@ -28,7 +28,15 @@ const { SCRIPT_ORDER } = require('./support/boot_app.js');
 const { LIVE_SCRIPT_ORDER } = require('./support/boot_live.js');
 
 const APP_DIR = path.join(__dirname, '..');
-const readApp = (rel) => fs.readFileSync(path.join(APP_DIR, rel), 'utf8');
+// ES-module migration: a converted src/ file's .js sibling is deleted
+// (convert_file.js --write) — same resolution rule as boot_app.js's
+// resolveFile(). Only matters for the src/*.js reads below; index.html/
+// live.html themselves are never converted.
+const readApp = (rel) => {
+  const full = path.join(APP_DIR, rel);
+  const mjsFull = full.replace(/\.js$/, '.mjs');
+  return fs.readFileSync(rel.endsWith('.js') && !fs.existsSync(full) && fs.existsSync(mjsFull) ? mjsFull : full, 'utf8');
+};
 
 // runtime-config pre-loads, not app modules — excluded from the order check
 const NON_MODULE = new Set(['config.js', 'config.local.js']);

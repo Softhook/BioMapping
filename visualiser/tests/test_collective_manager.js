@@ -21,7 +21,7 @@ const assert = require('assert');
 const test = require('node:test');
 
 global.GSR_CONST = require('./mock_constants.js');
-global.MarchingSquares = require('../src/render/marching_squares.js').MarchingSquares;
+global.MarchingSquares = require('../src/render/marching_squares.mjs').MarchingSquares;
 
 const { GSRCollectiveManager } = require('../src/spatial/collective_manager.js');
 
@@ -467,7 +467,7 @@ test('generateContourSurface: IDW grid matches an independent brute-force refere
 // Single-pass multi-isolevel output must be identical to K separate
 // getContourLines() calls on the same grid and levels.
 
-const { MarchingSquares: MS } = require('../src/render/marching_squares.js');
+const { MarchingSquares: MS } = require('../src/render/marching_squares.mjs');
 
 function segmentsToKey(segs) {
   // Canonical string for a segment array — order-invariant within each segment

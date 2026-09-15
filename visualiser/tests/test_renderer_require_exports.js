@@ -24,7 +24,7 @@ const assert = require('assert');
 const test   = require('node:test');
 
 test('renderer.js exports every module-level name its augment files read bare', () => {
-  const mod = require('../src/render/renderer.js');
+  const mod = require('../src/render/renderer.mjs');
   assert.strictEqual(typeof mod.GSRRenderer, 'object');
   assert.strictEqual(typeof mod.getQualityColor, 'function');
   assert.strictEqual(typeof mod.getQualityLabel, 'function');
@@ -40,13 +40,13 @@ for (const augment of ['renderer_bands.js', 'renderer_chrome.js', 'renderer_mark
   test(`${augment}'s require-branch resolves every bare identifier it needs onto global`, () => {
     // Fresh require each time so an augment file loaded earlier in this
     // process can't leave a stale `global.X` behind that masks a broken stamp.
-    delete require.cache[require.resolve('../src/render/renderer.js')];
+    delete require.cache[require.resolve('../src/render/renderer.mjs')];
     delete require.cache[require.resolve(`../src/render/${augment}`)];
     for (const name of ['GSRRenderer', 'getQualityColor', 'getQualityLabel', 'EXCLUDED_STYLE', 'NORMAL_DASH', 'EXCLUDE_BTN']) {
       delete global[name];
     }
 
-    const { GSRRenderer } = require('../src/render/renderer.js');
+    const { GSRRenderer } = require('../src/render/renderer.mjs');
     const methods = require(`../src/render/${augment}`);
     Object.assign(GSRRenderer, methods);
 

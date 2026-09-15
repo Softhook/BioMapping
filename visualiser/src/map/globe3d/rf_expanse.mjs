@@ -11,7 +11,7 @@
  * class focused on the arousal wall + camera.
  */
 
-const GSRGlobe3DRf = {
+export const GSRGlobe3DRf = {
   /**
    * Target along-track spacing between slugs, in metres. The track is
    * resampled to this pitch (by arc length, so walking speed and GPS
@@ -237,10 +237,10 @@ const GSRGlobe3DRf = {
   }
 };
 
-function clamp01(v) { return Math.max(0.0, Math.min(1.0, v)); }
+export function clamp01(v) { return Math.max(0.0, Math.min(1.0, v)); }
 
 /** Great-circle distance in metres between two lat/lon points. */
-function haversineM(lat1, lon1, lat2, lon2) {
+export function haversineM(lat1, lon1, lat2, lon2) {
   const R = 6371000;
   const toRad = Math.PI / 180;
   const dLat = (lat2 - lat1) * toRad;
@@ -255,7 +255,7 @@ function haversineM(lat1, lon1, lat2, lon2) {
  * absent at an endpoint) falls back to the other endpoint; both null -> null,
  * so the band simply contributes nothing at that slug.
  */
-function lerpRf(x, y, f) {
+export function lerpRf(x, y, f) {
   const xn = (x === null || x === undefined || isNaN(x));
   const yn = (y === null || y === undefined || isNaN(y));
   if (xn && yn) return null;
@@ -269,7 +269,7 @@ function lerpRf(x, y, f) {
  * band peak must clear the -90 dBm hardware noise floor AND the band must
  * span at least 3 dB. `mn`/`mx` are the raw per-band RSSI extremes in dBm.
  */
-function bandHasActiveSignal(mn, mx) {
+export function bandHasActiveSignal(mn, mx) {
   return isFinite(mn) && isFinite(mx) && (mx > -90.0) && ((mx - mn) >= 3.0);
 }
 
@@ -279,18 +279,11 @@ function bandHasActiveSignal(mn, mx) {
  * a gamma-boosted 0..1 ramp from there up to the band peak. Keeps the 3D
  * expanse and the 2D overlay squelching identical data identically.
  */
-function normDbm(val, mn, mx, active) {
+export function normDbm(val, mn, mx, active) {
   if (val === null || val === undefined || isNaN(val) || !active) return 0.0;
   const threshold = Math.max(-90.0, mn + 3.0);
   if (val <= threshold) return 0.0;
   const activeRange = Math.max(5.0, mx - threshold);
   const norm = clamp01((val - threshold) / activeRange);
   return clamp01(Math.pow(norm, 0.75) * 1.15);
-}
-
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { GSRGlobe3DRf };
-}
-if (typeof window !== 'undefined') {
-  window.GSRGlobe3DRf = GSRGlobe3DRf;
 }

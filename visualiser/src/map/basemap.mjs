@@ -11,10 +11,10 @@
  * consumers (see index.html / live.html's script list).
  */
 
-const CARTO_ATTRIBUTION =
+export const CARTO_ATTRIBUTION =
   '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors © <a href="https://carto.com/attributions">CARTO</a>';
 
-const GSRBasemap = {
+export const GSRBasemap = {
   ATTRIBUTION: CARTO_ATTRIBUTION,
 
   /**
@@ -43,6 +43,3 @@ const GSRBasemap = {
     return { maxZoom: 22, maxNativeZoom: 19, attribution: CARTO_ATTRIBUTION };
   },
 };
-
-if (typeof window !== 'undefined') window.GSRBasemap = GSRBasemap;
-if (typeof module !== 'undefined' && module.exports) module.exports = { GSRBasemap };

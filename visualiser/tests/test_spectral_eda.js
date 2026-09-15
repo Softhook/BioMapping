@@ -10,7 +10,7 @@
 const assert = require('assert');
 const test = require('node:test');
 
-const { SpectralEDA } = require('../src/signal/spectral_eda.js');
+const { SpectralEDA } = require('../src/signal/spectral_eda.mjs');
 
 const closeTo = (actual, expected, tolerance, msg) => {
   assert.ok(Math.abs(actual - expected) <= tolerance,

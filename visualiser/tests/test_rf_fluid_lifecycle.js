@@ -30,15 +30,14 @@ global.window = { devicePixelRatio: 1 };
 
 // rf_fluid_renderer.js declares `class RFFluidRenderer { ... }` with no
 // module.exports at all (unlike the files touched elsewhere in this pass) —
-// load it via vm the same way several pre-existing tests in this suite do
-// for un-exported classes, rather than editing production source just to
-// add an export hook for a class with no guard either way already.
-const vm = require('vm');
-const spatialGridSrc = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'spatial', 'spatial_grid.js'), 'utf8');
-vm.runInThisContext(spatialGridSrc.replace('class SpatialGrid', 'global.SpatialGrid = class SpatialGrid'), { filename: 'spatial_grid.js' });
-
-const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'render', 'rf_fluid_renderer.js'), 'utf8');
-vm.runInThisContext(src.replace('class RFFluidRenderer', 'global.RFFluidRenderer = class RFFluidRenderer'), { filename: 'rf_fluid_renderer.js' });
+// load it via the shared loadModule() helper the same way several
+// pre-existing tests in this suite do for un-exported classes, rather than
+// editing production source just to add an export hook for a class with no
+// guard either way already.
+const path = require('path');
+const { loadModule } = require('./support/load_module.js');
+loadModule(path.join(__dirname, '..', 'src', 'spatial', 'spatial_grid.js'), 'SpatialGrid');
+loadModule(path.join(__dirname, '..', 'src', 'render', 'rf_fluid_renderer.js'), 'RFFluidRenderer');
 const RFFluidRenderer = global.RFFluidRenderer;
 
 function makeFakeMap(overrides = {}) {

@@ -1,7 +1,7 @@
 /**
  * Shared statistical mathematics helper routines for the Bio Mapping GSR analyser.
  */
-const StatsMath = {
+export const StatsMath = {
   /**
    * Percentile rank of `value` within a pre-sorted (ascending) array, via binary search.
    * Returns the fraction (0..1) of entries at or below `value`. Used to map a grid value to
@@ -489,10 +489,3 @@ const StatsMath = {
     return -tmp + Math.log(2.5066282746310005 * sum / x);
   }
 };
-
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { StatsMath };
-}
-if (typeof window !== 'undefined') {
-  window.StatsMath = StatsMath;
-}

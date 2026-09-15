@@ -4,7 +4,7 @@
  * The live view has to write a CSV byte-compatible with a file the Flipper's
  * SD logger writes, and decode a wire packet byte-identical to the one the
  * firmware packs. Both sides currently keep hand-copied mirrors of firmware
- * constants (visualiser/src/live/live_csv.js, .../live_binary_parser.js) —
+ * constants (visualiser/src/live/live_csv.mjs, .../live_binary_parser.js) —
  * nothing else stops them drifting when the firmware format changes.
  *
  * This test reads the firmware source directly and asserts the visualiser
@@ -46,7 +46,7 @@ if (!fs.existsSync(FW)) {
 }
 
 function runContractTests() {
-  const { buildLiveCsv } = require('../src/live/live_csv.js');
+  const { buildLiveCsv } = require('../src/live/live_csv.mjs');
   const { GSRCSVParser } = (() => {
     global.window = global;
     global.GSR_CONST = require('./mock_constants.js');
@@ -55,7 +55,14 @@ function runContractTests() {
   })();
 
   const readFw = (rel) => fs.readFileSync(path.join(FW, rel), 'utf8');
-  const readLive = (name) => fs.readFileSync(path.join(LIVE, name), 'utf8');
+  // ES-module migration: a converted src/live/ file's .js sibling is
+  // deleted (convert_file.js --write) — same resolution rule as
+  // boot_app.js's resolveFile().
+  const readLive = (name) => {
+    const full = path.join(LIVE, name);
+    const mjsFull = full.replace(/\.js$/, '.mjs');
+    return fs.readFileSync(name.endsWith('.js') && !fs.existsSync(full) && fs.existsSync(mjsFull) ? mjsFull : full, 'utf8');
+  };
 
   // Fail with an actionable message when a firmware anchor can't be found —
   // that means the firmware was refactored and this test + the visualiser

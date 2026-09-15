@@ -1,5 +1,5 @@
 /**
- * buildLiveCsv (src/live/live_csv.js) — the live session → CSV serialiser.
+ * buildLiveCsv (src/live/live_csv.mjs) — the live session → CSV serialiser.
  *
  * The contract it has to hold: a live export must be byte-compatible with a
  * track the firmware's SD logger writes, so the visualiser imports and
@@ -23,7 +23,7 @@ global.window = global;
 global.GSR_CONST = require('./mock_constants.js');
 global.GSRAnalyzer = { calcEmFog: () => NaN };
 
-const { buildLiveCsv } = require('../src/live/live_csv.js');
+const { buildLiveCsv } = require('../src/live/live_csv.mjs');
 const { GSRCSVParser } = require('../src/signal/csv_parser.js');
 
 const NOW_MS = 1_700_000_123_456; // -> epoch seconds 1_700_000_123

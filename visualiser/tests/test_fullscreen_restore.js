@@ -193,7 +193,7 @@ test('panel display mode re-asserts fullscreen after a lock/unlock', async () =>
 // ==========================================================================
 
 test('standalone FAB Full Screen is sticky across a lock/unlock', async () => {
-  const { window } = bootLive();
+  const { window } = await bootLive();
   const fs = installFullscreen(window, window.document.documentElement);
 
   const enterChip = window.document.querySelector('[data-action="enter-fullscreen"]');
@@ -214,7 +214,7 @@ test('standalone FAB Full Screen is sticky across a lock/unlock', async () => {
 });
 
 test('standalone FAB Exit Full Screen clears the sticky target', async () => {
-  const { window } = bootLive();
+  const { window } = await bootLive();
   const fs = installFullscreen(window, window.document.documentElement);
 
   window.document.querySelector('[data-action="enter-fullscreen"]')
@@ -257,13 +257,13 @@ test('the file-dialog "Restore Fullscreen" pill re-enters fullscreen on click', 
 // ==========================================================================
 
 test('screen wake lock is re-acquired on visibility return while connected', async (t) => {
-  const { window, context } = bootLive();
+  const { window } = await bootLive();
   let wakeRequests = 0;
   window.navigator.wakeLock = {
     request: async () => { wakeRequests++; return { released: false, release: async () => {} }; },
   };
 
-  const run = (expr) => vm.runInContext(expr, context);
+  const run = (expr) => vm.runInThisContext(expr);
   run("LiveState.setStatus('connected')");
   await wait(0);
   assert.strictEqual(wakeRequests, 1, 'connected status acquires the wake lock once');
@@ -277,7 +277,7 @@ test('screen wake lock is re-acquired on visibility return while connected', asy
 });
 
 test('no wake lock is acquired on visibility return while disconnected', async () => {
-  const { window, context } = bootLive();
+  const { window } = await bootLive();
   let wakeRequests = 0;
   window.navigator.wakeLock = {
     request: async () => { wakeRequests++; return { released: false, release: async () => {} }; },
@@ -287,6 +287,4 @@ test('no wake lock is acquired on visibility return while disconnected', async (
   setVisibility(window, 'visible');
   await wait(0);
   assert.strictEqual(wakeRequests, 0, 'disconnected -> no wake lock request');
-
-  void context;
 });

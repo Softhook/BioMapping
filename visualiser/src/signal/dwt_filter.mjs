@@ -20,7 +20,7 @@
  * was not adopted as a pipeline stage.
  */
 
-const DWT = (() => {
+export const DWT = (() => {
   "use strict";
 
   // ── Daubechies db3 coefficients (EXACT PyWavelets values) ──────────────
@@ -243,7 +243,6 @@ const DWT = (() => {
     return { approximation: current, details, originalLen, padLeft, padRight };
   }
 
-
   // ── Wavelet-shrinkage denoise (translation-invariant via cycle-spinning) ──
 
   function _median(arr) {
@@ -378,10 +377,3 @@ const DWT = (() => {
 
   return { decompose, reconstructFull, denoise };
 })();
-
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = DWT;
-}
-if (typeof window !== 'undefined') {
-  window.DWT = DWT;
-}

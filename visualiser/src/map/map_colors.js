@@ -239,7 +239,7 @@ const MapColors = {
 
 if (typeof module !== 'undefined' && module.exports) {
   if (typeof global !== 'undefined' && typeof global.ResponseDynamics === 'undefined') {
-    try { global.ResponseDynamics = require('../signal/response_dynamics.js').ResponseDynamics; } catch (_) {}
+    try { global.ResponseDynamics = require('../signal/response_dynamics.mjs').ResponseDynamics; } catch (_) {}
   }
   module.exports = { MapColors };
 }

@@ -1754,7 +1754,7 @@ class GSRGlobeManager {
 
 if (typeof module !== 'undefined' && module.exports) {
   if (typeof global !== 'undefined' && typeof global.ResponseDynamics === 'undefined') {
-    try { global.ResponseDynamics = require('../signal/response_dynamics.js').ResponseDynamics; } catch (_) {}
+    try { global.ResponseDynamics = require('../signal/response_dynamics.mjs').ResponseDynamics; } catch (_) {}
   }
   module.exports = { GSRGlobeManager, BASEMAP_PROVIDERS, SERIES_FIELD, HEIGHT_CAPABLE_METRICS, seriesValue };
 }

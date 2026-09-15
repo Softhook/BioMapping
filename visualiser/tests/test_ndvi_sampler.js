@@ -13,7 +13,7 @@ const zlib = require('zlib');
 global.window = global;
 global.GSR_CONST = require('./mock_constants.js');
 global.GSRAnalyzer = { calcEmFog: () => NaN };
-global.StatsMath = require('../src/signal/stats_math.js').StatsMath;
+global.StatsMath = require('../src/signal/stats_math.mjs').StatsMath;
 
 const { NDVISampler } = require('../src/osm/ndvi_sampler.js');
 const { GSRCSVParser } = require('../src/signal/csv_parser.js');
@@ -753,7 +753,7 @@ test('_fetchRawTilePool: honors abort signal', async () => {
 // ---------------------------------------------------------------------------
 
 test('sampleTrack: integrates cleanly with GeoUtils bounding box expansion', async () => {
-  global.GeoUtils = require('../src/gps/geo_utils.js').GeoUtils || require('../src/gps/geo_utils.js');
+  global.GeoUtils = require('../src/gps/geo_utils.mjs').GeoUtils || require('../src/gps/geo_utils.mjs');
   setCopernicusConfig();
   mockUniformNdviFetch(0.55);
 

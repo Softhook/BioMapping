@@ -16,7 +16,7 @@ const assert = require('assert');
 const test = require('node:test');
 
 // Ensure GeoUtils is available globally and required
-const { GeoUtils } = require('../src/gps/geo_utils.js');
+const { GeoUtils } = require('../src/gps/geo_utils.mjs');
 global.GeoUtils = GeoUtils;
 
 const GpsFilter = require('../src/gps/gps_filter.js');
