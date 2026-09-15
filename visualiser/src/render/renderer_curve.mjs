@@ -8,13 +8,8 @@
  * every draw*Curve/Area method reads; it has no dependency on any other
  * augment file, only the app-wide globals GSR_CONST/AppState/width.
 
- * Dual-mode export (like renderer.js's own tail): under a browser <script>
- * tag or the shared vm context (tests/support/boot_app.js), GSRRenderer is a
- * live global and this assigns straight onto it. Under plain CommonJS
- * require() (several dedicated band/curve test files require renderer.js
- * directly instead of booting the whole app), module.exports hands back the
- * method object instead so the caller can Object.assign it onto the
- * freshly-required object itself.
+ * Assigned onto GSRRenderer via Object.assign at the file's tail (a plain ESM
+ * static import/export, loaded once by app_entry.mjs).
  */
 import { AppState } from '../core/app_state.mjs';
 import { GSR_CONST } from '../core/constants.mjs';

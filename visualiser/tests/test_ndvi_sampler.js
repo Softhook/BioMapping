@@ -178,16 +178,6 @@ test('latLonToTile: bounds stay in [0, 255] for pixel coordinates', () => {
   }
 });
 
-test('latLonToTile and tileToLatLon: round-trip consistency', () => {
-  const zoom = 15;
-  const original = { lat: 51.505, lon: -0.09 };
-  const t = NDVISampler.latLonToTile(original.lat, original.lon, zoom);
-  const back = NDVISampler.tileToLatLon(t.tileX, t.tileY, zoom);
-
-  closeTo(back.lat, original.lat, 0.02, 'latitude roundtrip');
-  closeTo(back.lon, original.lon, 0.02, 'longitude roundtrip');
-});
-
 test('tileToBbox: generates valid EPSG:3857 bounding box for Copernicus WMS', () => {
   const bbox = NDVISampler.tileToBbox(8500, 5350, 14);
   assert.strictEqual(bbox.length, 4);
@@ -594,29 +584,16 @@ test('GSRUI.sampleNdviTrack: successfully resolves single-mode track without fal
 // 8. Provider Registry & Resolution Tests (visual map overlay only)
 // ---------------------------------------------------------------------------
 
-test('PROVIDERS: registry contains standard fallback imagery providers and handles resolution', () => {
+test('PROVIDERS: registry contains standard fallback imagery providers', () => {
   assert.ok(NDVISampler.PROVIDERS.sentinel2_cloudless, 'sentinel2_cloudless provider exists');
   assert.ok(NDVISampler.PROVIDERS.nasa_gibs, 'nasa_gibs provider exists');
   assert.ok(NDVISampler.PROVIDERS.custom, 'custom provider exists');
 
   const s2 = NDVISampler.getProvider('sentinel2_cloudless');
   assert.strictEqual(s2.type, 'xyz');
-  const resolvedS2 = NDVISampler.resolveTileUrl(s2, 10, 20, 5);
-  assert.ok(resolvedS2.includes('/5/20/10.jpg'));
 
   const nasa = NDVISampler.getProvider('nasa_gibs');
   assert.strictEqual(nasa.type, 'xyz');
-  const resolvedNasa = NDVISampler.resolveTileUrl(nasa, 5, 10, 4);
-  assert.ok(resolvedNasa.includes('/4/10/5.png'));
-
-  const registered = NDVISampler.registerProvider('test_landsat', {
-    name: 'Landsat 8 (visual)',
-    type: 'xyz',
-    urlTemplate: 'https://tiles.example.com/{z}/{x}/{y}.png'
-  });
-  assert.strictEqual(registered, true);
-  const resolvedCustom = NDVISampler.resolveTileUrl('test_landsat', 1, 2, 3);
-  assert.strictEqual(resolvedCustom, 'https://tiles.example.com/3/1/2.png');
 });
 
 test('getActiveProvider: falls back to open sentinel-2 (or an explicit custom URL), regardless of Copernicus config', () => {

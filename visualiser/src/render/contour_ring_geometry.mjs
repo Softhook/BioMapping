@@ -25,9 +25,7 @@ export class ContourRingGeometry {
   static toLoop(rawPoints) {
     if (!rawPoints || rawPoints.length === 0) return { points: [], length: 0, diag: 0 };
     let t = 0;
-    const b = (typeof GeoUtils !== 'undefined' && typeof GeoUtils.computeBounds === 'function')
-      ? GeoUtils.computeBounds(rawPoints)
-      : { minLat: 0, maxLat: 0, minLon: 0, maxLon: 0 };
+    const b = GeoUtils.computeBounds(rawPoints);
     const points = rawPoints.map((p, i) => {
       if (i > 0) {
         const prev = rawPoints[i - 1];

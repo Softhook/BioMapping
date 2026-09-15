@@ -110,25 +110,6 @@ export const NDVISampler = {
   },
 
   /**
-   * Register or override a satellite provider (visual overlay only).
-   * @param {string} id
-   * @param {Object} definition
-   * @returns {boolean}
-   */
-  registerProvider(id, definition) {
-    if (!id || typeof definition !== 'object') return false;
-    const provider = Object.assign({ id }, definition);
-    if (!provider.buildUrl && provider.urlTemplate) {
-      provider.buildUrl = (tileX, tileY, zoom, options = {}) => {
-        const tmpl = options.urlTemplate || provider.urlTemplate;
-        return tmpl.replace('{z}', zoom).replace('{x}', tileX).replace('{y}', tileY).replace('{s}', 'a');
-      };
-    }
-    this.PROVIDERS[id] = provider;
-    return true;
-  },
-
-  /**
    * Determine the active *fallback imagery* provider for the visual map
    * overlay — only consulted when no Copernicus instance is configured, in
    * which case there's no raw raster to render and showNdviLayer falls back
@@ -144,35 +125,6 @@ export const NDVISampler = {
       return this.PROVIDERS.custom;
     }
     return this.PROVIDERS.sentinel2_cloudless;
-  },
-
-  /**
-   * Resolve a visual-overlay tile request URL using the provider registry.
-   * @param {string|Object} providerOrId
-   * @param {number} tileX
-   * @param {number} tileY
-   * @param {number} zoom
-   * @param {Object} [options={}]
-   * @returns {string}
-   */
-  resolveTileUrl(providerOrId, tileX, tileY, zoom, options = {}) {
-    const provider = (typeof providerOrId === 'string') ? this.getProvider(providerOrId) : providerOrId;
-    if (!provider) return '';
-    if (typeof provider.buildUrl === 'function') {
-      if (provider.type === 'wms') {
-        const bbox = this.tileToBbox(tileX, tileY, zoom);
-        return provider.buildUrl(bbox, options);
-      }
-      return provider.buildUrl(tileX, tileY, zoom, options);
-    }
-    if (provider.urlTemplate) {
-      return provider.urlTemplate
-        .replace('{z}', zoom)
-        .replace('{x}', tileX)
-        .replace('{y}', tileY)
-        .replace('{s}', 'a');
-    }
-    return '';
   },
 
   // ---------------------------------------------------------------------------
@@ -375,10 +327,7 @@ export const NDVISampler = {
    * @returns {{ tileX: number, tileY: number, pixelX: number, pixelY: number, worldX: number, worldY: number }}
    */
   latLonToTile(lat, lon, zoom) {
-    const latRad = (lat * Math.PI) / 180;
-    const n = Math.pow(2, zoom);
-    const x = ((lon + 180) / 360) * n;
-    const y = (1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2 * n;
+    const { x, y } = GeoUtils.webMercatorXY(lat, lon, zoom);
 
     const tileX = Math.floor(x);
     const tileY = Math.floor(y);
@@ -393,21 +342,6 @@ export const NDVISampler = {
       worldX: x * 256,
       worldY: y * 256
     };
-  },
-
-  /**
-   * Inverse Web Mercator projection from tile coordinates to (lat, lon).
-   * @param {number} tileX
-   * @param {number} tileY
-   * @param {number} zoom
-   * @returns {{ lat: number, lon: number }}
-   */
-  tileToLatLon(tileX, tileY, zoom) {
-    const n = Math.pow(2, zoom);
-    const lon = (tileX / n) * 360 - 180;
-    const latRad = Math.atan(Math.sinh(Math.PI * (1 - 2 * tileY / n)));
-    const lat = (latRad * 180) / Math.PI;
-    return { lat, lon };
   },
 
   /**
@@ -438,16 +372,7 @@ export const NDVISampler = {
    * @private
    */
   _isValidCoord(lat, lon) {
-    if (typeof OSMEnricher !== 'undefined' && typeof OSMEnricher._isValidCoord === 'function') {
-      return OSMEnricher._isValidCoord(lat, lon);
-    }
-    if (typeof GeoUtils !== 'undefined' && typeof GeoUtils.extractCoord === 'function') {
-      const c = GeoUtils.extractCoord({ lat, lon });
-      if (!c) return false;
-      return c.lat >= -90 && c.lat <= 90 && c.lon >= -180 && c.lon <= 180 && !(c.lat === 0 && c.lon === 0);
-    }
-    return typeof lat === 'number' && !isNaN(lat) && typeof lon === 'number' && !isNaN(lon) &&
-           lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180 && !(lat === 0 && lon === 0);
+    return OSMEnricher._isValidCoord(lat, lon);
   },
 
   // ---------------------------------------------------------------------------
@@ -911,10 +836,8 @@ export const NDVISampler = {
       const osmBbox = OSMEnricher.calculateBBox(rawPoints, bufferMeters);
       if (osmBbox) return osmBbox;
     }
-    const rawBounds = (typeof GeoUtils !== 'undefined' && typeof GeoUtils.computeBounds === 'function')
-      ? GeoUtils.computeBounds(rawPoints, 0, (pt) => this._isValidCoord(pt.lat, pt.lon))
-      : null;
-    if (rawBounds && typeof GeoUtils.expandBounds === 'function') {
+    const rawBounds = GeoUtils.computeBounds(rawPoints, 0, (pt) => this._isValidCoord(pt.lat, pt.lon));
+    if (rawBounds) {
       return GeoUtils.expandBounds(rawBounds, bufferMeters);
     }
     // Standalone fallback
@@ -947,16 +870,7 @@ export const NDVISampler = {
    */
   calculateBBoxAreaKm2(bbox) {
     if (!bbox) return 0;
-    if (typeof OSMEnricher !== 'undefined' && typeof OSMEnricher.calculateBBoxAreaKm2 === 'function') {
-      return OSMEnricher.calculateBBoxAreaKm2(bbox);
-    }
-    if (typeof GeoUtils !== 'undefined' && typeof GeoUtils.bboxAreaKm2 === 'function') {
-      return GeoUtils.bboxAreaKm2(bbox);
-    }
-    const midLat = (bbox.minLat + bbox.maxLat) / 2;
-    const h = (bbox.maxLat - bbox.minLat) * 111.32;
-    const w = (bbox.maxLon - bbox.minLon) * 111.32 * Math.cos((midLat * Math.PI) / 180);
-    return Math.abs(h * w);
+    return OSMEnricher.calculateBBoxAreaKm2(bbox);
   },
 
   /**

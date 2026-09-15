@@ -11,6 +11,8 @@
  * class focused on the arousal wall + camera.
  */
 
+import { bandHasActiveSignal as bandHasActiveSignalShared, normDbm as normDbmShared } from '../../render/rf_signal_utils.mjs';
+
 export const GSRGlobe3DRf = {
   /**
    * Target along-track spacing between slugs, in metres. The track is
@@ -265,25 +267,22 @@ export function lerpRf(x, y, f) {
 }
 
 /**
- * Mirrors RFFluidRenderer._calculateRssiStats()'s active-signal test: the
- * band peak must clear the -90 dBm hardware noise floor AND the band must
- * span at least 3 dB. `mn`/`mx` are the raw per-band RSSI extremes in dBm.
+ * Shared with RFFluidRenderer._calculateRssiStats() via rf_signal_utils.mjs
+ * so the 3D expanse and the 2D overlay squelch identical data identically:
+ * a band only counts as active if its peak clears the -90 dBm hardware
+ * noise floor AND spans at least 3 dB. `mn`/`mx` are the raw per-band RSSI
+ * extremes in dBm.
  */
 export function bandHasActiveSignal(mn, mx) {
-  return isFinite(mn) && isFinite(mx) && (mx > -90.0) && ((mx - mn) >= 3.0);
+  return bandHasActiveSignalShared(mn, mx);
 }
 
 /**
- * Mirrors RFFluidRenderer._normDbm(): 0 for an inactive band or any sample
- * at/below the local threshold (the greater of -90 dBm and floor + 3 dB);
- * a gamma-boosted 0..1 ramp from there up to the band peak. Keeps the 3D
- * expanse and the 2D overlay squelching identical data identically.
+ * Shared with RFFluidRenderer._normDbm() via rf_signal_utils.mjs: 0 for an
+ * inactive band or any sample at/below the local threshold (the greater of
+ * -90 dBm and floor + 3 dB); a gamma-boosted 0..1 ramp from there up to the
+ * band peak.
  */
 export function normDbm(val, mn, mx, active) {
-  if (val === null || val === undefined || isNaN(val) || !active) return 0.0;
-  const threshold = Math.max(-90.0, mn + 3.0);
-  if (val <= threshold) return 0.0;
-  const activeRange = Math.max(5.0, mx - threshold);
-  const norm = clamp01((val - threshold) / activeRange);
-  return clamp01(Math.pow(norm, 0.75) * 1.15);
+  return normDbmShared(val, mn, mx, active);
 }

@@ -87,18 +87,6 @@ export const __methods = {
       this.rfFluidRenderer.setMode(mode);
     }
     this.updateLegend();
-  },
-
-  setRFFluidOpacity(opacity) {
-    if (this.rfFluidRenderer) {
-      this.rfFluidRenderer.setOpacity(opacity);
-    }
-  },
-
-  setRFFluidRadius(radius) {
-    if (this.rfFluidRenderer) {
-      this.rfFluidRenderer.setRadius(radius);
-    }
   }
 
 };

@@ -11,7 +11,6 @@ import { OverpassClient } from './overpass_client.mjs';
 import { SpatialGrid } from '../spatial/spatial_grid.mjs';
 
 export const METERS_PER_DEG_LAT  = GeoUtils.METERS_PER_DEG_LAT;         // m per degree of latitude
-export const METERS_PER_DEG_LAT_KM = METERS_PER_DEG_LAT / 1000.0;       // km per degree (area calcs)
 export const CELL_SIZE_DEG       = 0.001;          // spatial-hash cell (~111 m)
 export const SENTINEL_DIST       = 999;            // sentinel for "no feature nearby"
 export const DEFAULT_RADIUS_M    = 50;             // enrichment search radius
@@ -265,23 +264,13 @@ export const OSMEnricher = {
   },
 
   calculateBBox(rawPoints, bufferMeters = DEFAULT_BBOX_BUFFER_M) {
-    const rawBounds = (typeof GeoUtils !== 'undefined' && typeof GeoUtils.computeBounds === 'function')
-      ? GeoUtils.computeBounds(rawPoints, 0, (pt) => this._isValidCoord(pt.lat, pt.lon))
-      : null;
+    const rawBounds = GeoUtils.computeBounds(rawPoints, 0, (pt) => this._isValidCoord(pt.lat, pt.lon));
     if (!rawBounds) return null;
-    return (typeof GeoUtils.expandBounds === 'function')
-      ? GeoUtils.expandBounds(rawBounds, bufferMeters)
-      : rawBounds;
+    return GeoUtils.expandBounds(rawBounds, bufferMeters);
   },
 
   calculateBBoxAreaKm2(bbox) {
-    if (typeof GeoUtils !== 'undefined' && typeof GeoUtils.bboxAreaKm2 === 'function') {
-      return GeoUtils.bboxAreaKm2(bbox);
-    }
-    const midLat = (bbox.minLat + bbox.maxLat) / 2;
-    const h = (bbox.maxLat - bbox.minLat) * METERS_PER_DEG_LAT_KM;
-    const w = (bbox.maxLon - bbox.minLon) * METERS_PER_DEG_LAT_KM * Math.cos(midLat * Math.PI / 180);
-    return h * w;
+    return GeoUtils.bboxAreaKm2(bbox);
   },
 
   /* ======================================================================

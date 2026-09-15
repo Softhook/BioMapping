@@ -1109,7 +1109,4 @@ export const GSRLiveView = {
     if (warmupRows !== undefined) LIVE_ANALYZE_WARMUP_ROWS = warmupRows;
     if (minIntervalMs !== undefined) LIVE_ANALYZE_MIN_INTERVAL_MS = minIntervalMs;
   },
-
-  // Encapsulated connection controller for state inspection and testing
-  connectionController: LiveConnectionController,
 };

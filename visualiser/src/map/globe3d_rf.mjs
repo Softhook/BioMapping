@@ -7,13 +7,8 @@
  * the actual corridor geometry is built by the pure GSRGlobe3DRf module
  * (src/map/globe3d/rf_expanse.js), loaded earlier.
 
- * Dual-mode export (like globe3d.js's own tail): under a browser <script> tag
- * or the shared vm context (tests/support/boot_app.js), GSRGlobeManager is a
- * live global and this assigns straight onto its prototype. Under plain
- * CommonJS require() (tests/test_globe3d.js's per-test isolation harness,
- * which requires globe3d.js fresh for each test instead of booting the whole
- * app), module.exports hands back the method object instead so the caller can
- * Object.assign it onto the freshly-required class itself.
+ * Assigned onto GSRGlobeManager.prototype via Object.assign at the file's
+ * tail (a plain ESM static import/export, loaded once by app_entry.mjs).
  */
 import { GSRGlobeManager } from './globe3d.mjs';
 import { GSRGlobe3DRf } from './globe3d/rf_expanse.mjs';

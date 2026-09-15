@@ -11,6 +11,8 @@
  * inline in live.html.
  */
 
+import { GeoUtils } from '../gps/geo_utils.mjs';
+
 // Fold the CDN subdomain and drop the query string (the CARTO ?key=...), so
 // every subdomain — and any key rotation — maps to one cache entry per tile.
 export function normalizeTileCacheUrl(url) {
@@ -43,11 +45,8 @@ export function buildTileUrl(urlTemplate, x, y, z) {
 }
 
 export function latLngToTileCoords(latlng, zoom) {
-  const lat = latlng.lat;
-  const lon = latlng.lng;
-  const x = Math.floor((lon + 180) / 360 * Math.pow(2, zoom));
-  const y = Math.floor((1 - Math.log(Math.tan(lat * Math.PI / 180) + 1 / Math.cos(lat * Math.PI / 180)) / Math.PI) / 2 * Math.pow(2, zoom));
-  return { x, y };
+  const { x, y } = GeoUtils.webMercatorXY(latlng.lat, latlng.lng, zoom);
+  return { x: Math.floor(x), y: Math.floor(y) };
 }
 
 // ==========================================================================

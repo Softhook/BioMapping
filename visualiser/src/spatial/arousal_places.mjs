@@ -262,9 +262,5 @@ export function numOrNull(v) {
   return isNaN(n) ? null : n;
 }
 export function geoScale(lat) {
-  if (typeof GeoUtils !== 'undefined' && typeof GeoUtils.getGeodesicScale === 'function') {
-    return GeoUtils.getGeodesicScale(lat);
-  }
-  const DEG_TO_M_LAT = 111320.0;
-  return { degToMeterLat: DEG_TO_M_LAT, degToMeterLon: DEG_TO_M_LAT * Math.cos(lat * Math.PI / 180) };
+  return GeoUtils.getGeodesicScale(lat);
 }

@@ -362,5 +362,23 @@ export const GeoUtils = {
       }
     }
     return inside;
+  },
+
+  /**
+   * Web Mercator projection of (lat, lon) to fractional tile coordinates at
+   * a given zoom — the {x, y} whose integer part is the tile index and
+   * fractional part is the position within that tile.
+   *
+   * @param {number} lat - Latitude in degrees.
+   * @param {number} lon - Longitude in degrees.
+   * @param {number} zoom - Map zoom level.
+   * @returns {{x: number, y: number}} Fractional tile coordinates.
+   */
+  webMercatorXY(lat, lon, zoom) {
+    const latRad = lat * Math.PI / 180;
+    const n = Math.pow(2, zoom);
+    const x = (lon + 180) / 360 * n;
+    const y = (1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2 * n;
+    return { x, y };
   }
 };

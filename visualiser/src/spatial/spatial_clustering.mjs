@@ -16,32 +16,7 @@ export class GSRSpatialClustering {
    * @private
    */
   static _getGeodesicScale(lat) {
-    if (typeof GeoUtils !== 'undefined' && typeof GeoUtils.getGeodesicScale === 'function') {
-      return GeoUtils.getGeodesicScale(lat);
-    }
-    const DEG_TO_M_LAT = 111320.0;
-    const degToMeterLon = DEG_TO_M_LAT * Math.cos(parseFloat(lat) * Math.PI / 180);
-    return { degToMeterLat: DEG_TO_M_LAT, degToMeterLon };
-  }
-
-  /**
-   * Helper to compute squared geodesic distance in meters (saves Math.sqrt for performance).
-   *
-   * @param {number} lat1 - Point 1 latitude.
-   * @param {number} lon1 - Point 1 longitude.
-   * @param {number} lat2 - Point 2 latitude.
-   * @param {number} lon2 - Point 2 longitude.
-   * @param {{degToMeterLat: number, degToMeterLon: number}} scale - Scale factors.
-   * @returns {number} Squared geodesic distance in meters.
-   * @private
-   */
-  static _getDistanceMetersSq(lat1, lon1, lat2, lon2, scale) {
-    if (typeof GeoUtils !== 'undefined' && typeof GeoUtils.distanceMetersSq === 'function') {
-      return GeoUtils.distanceMetersSq(lat1, lon1, lat2, lon2, scale);
-    }
-    const dy = (parseFloat(lat1) - parseFloat(lat2)) * scale.degToMeterLat;
-    const dx = (parseFloat(lon1) - parseFloat(lon2)) * scale.degToMeterLon;
-    return dx * dx + dy * dy;
+    return GeoUtils.getGeodesicScale(lat);
   }
 
   /**
@@ -225,17 +200,13 @@ export class GSRSpatialClustering {
     if (isNaN(rThreshold) || rThreshold <= 0) rThreshold = 18;
 
     // Find bounds of the cluster
-    const rawBounds = (typeof GeoUtils !== 'undefined' && typeof GeoUtils.computeBounds === 'function')
-      ? GeoUtils.computeBounds(cluster)
-      : null;
+    const rawBounds = GeoUtils.computeBounds(cluster);
     if (!rawBounds) return [];
 
     // Calculate required padding dynamically to prevent superposition boundary clipping at grid edges
     const peakCount = cluster.length;
     const paddingMeters = Math.sqrt(rThreshold * rThreshold + 2 * s * s * Math.log(Math.max(1, peakCount))) + 15;
-    const bounds = (typeof GeoUtils !== 'undefined' && typeof GeoUtils.expandBounds === 'function')
-      ? GeoUtils.expandBounds(rawBounds, paddingMeters)
-      : rawBounds;
+    const bounds = GeoUtils.expandBounds(rawBounds, paddingMeters);
 
     const latMid = (bounds.minLat + bounds.maxLat) / 2;
     const scale = GSRSpatialClustering._getGeodesicScale(latMid);
@@ -276,7 +247,7 @@ export class GSRSpatialClustering {
     // cell-major loop (scan every cell for every peak, discard most) — that
     // only bought ~20%, because V8's Math.exp() itself turned out to be
     // cheap (~0.5ns/call); the real cost was the ~4M row/col/peak loop
-    // iterations and _getDistanceMetersSq() calls, 94% of which computed a
+    // iterations and distance calls, 94% of which computed a
     // distance only to immediately discard it. Restructured to loop peaks
     // first and "splat" each one's contribution only onto the small
     // row/col window that could possibly be within cutoffDSq of it — same

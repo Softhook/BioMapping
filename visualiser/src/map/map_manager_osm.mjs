@@ -227,16 +227,6 @@ export const __methods = {
   },
 
   /**
-   * Adjust NDVI tile layer opacity.
-   * @param {number} opacity - 0.0 to 1.0
-   */
-  setNdviOpacity(opacity) {
-    if (this.ndviTileLayer) {
-      this.ndviTileLayer.setOpacity(opacity);
-    }
-  },
-
-  /**
    * Toggle NDVI tile layer on or off.
    * @param {boolean} [show] - Explicit state, or toggles if undefined
    * @param {Object} [options={}]

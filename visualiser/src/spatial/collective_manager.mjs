@@ -258,9 +258,7 @@ export class GSRCollectiveManager {
 
     // Expand bounds by the isolationRadius buffer (with a 20% margin) to ensure that the
     // contour surface interpolator is not chopped off at the grid margins.
-    bounds = (typeof GeoUtils !== 'undefined' && typeof GeoUtils.expandBounds === 'function')
-      ? GeoUtils.expandBounds(bounds, isolationRadius * 1.2)
-      : bounds;
+    bounds = GeoUtils.expandBounds(bounds, isolationRadius * 1.2);
 
     const active = this.getActiveTracks();
     if (active.length === 0) return null;
@@ -451,19 +449,10 @@ export class GSRCollectiveManager {
     let grid = Array.from({ length: rows }, () => new Array(cols).fill(null));
 
     const latMid = (bounds.minLat + bounds.maxLat) / 2;
-    const { degToMeterLat: DEG_TO_M_LAT, degToMeterLon: DEG_TO_M_LON } = (typeof GeoUtils !== 'undefined' && typeof GeoUtils.getGeodesicScale === 'function')
-      ? GeoUtils.getGeodesicScale(latMid)
-      : { degToMeterLat: 111320.0, degToMeterLon: 111320.0 * Math.cos(latMid * Math.PI / 180) };
-
-    const scale = { degToMeterLat: DEG_TO_M_LAT, degToMeterLon: DEG_TO_M_LON };
-    const getDistanceMeters = (lat1, lon1, lat2, lon2) => {
-      if (typeof GeoUtils !== 'undefined' && typeof GeoUtils.distanceMeters === 'function') {
-        return GeoUtils.distanceMeters(lat1, lon1, lat2, lon2, scale);
-      }
-      const dy = (lat1 - lat2) * DEG_TO_M_LAT;
-      const dx = (lon1 - lon2) * DEG_TO_M_LON;
-      return Math.sqrt(dx * dx + dy * dy);
-    };
+    const scale = GeoUtils.getGeodesicScale(latMid);
+    const { degToMeterLat: DEG_TO_M_LAT, degToMeterLon: DEG_TO_M_LON } = scale;
+    const getDistanceMeters = (lat1, lon1, lat2, lon2) =>
+      GeoUtils.distanceMeters(lat1, lon1, lat2, lon2, scale);
 
     const latStep = rows > 1 ? (bounds.maxLat - bounds.minLat) / (rows - 1) : 0;
     const lonStep = cols > 1 ? (bounds.maxLon - bounds.minLon) / (cols - 1) : 0;

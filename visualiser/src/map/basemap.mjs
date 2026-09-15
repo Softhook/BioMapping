@@ -15,8 +15,6 @@ export const CARTO_ATTRIBUTION =
   '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors © <a href="https://carto.com/attributions">CARTO</a>';
 
 export const GSRBasemap = {
-  ATTRIBUTION: CARTO_ATTRIBUTION,
-
   /**
    * Resolve the CARTO key (config.local.js's BIOMAP_CONFIG.cartoApiKey, then
    * a guarded localStorage fallback) and build the {s}/{z}/{x}/{y} tile URL

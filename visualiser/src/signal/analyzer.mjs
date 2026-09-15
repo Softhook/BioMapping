@@ -2101,7 +2101,7 @@ export class GSRAnalyzer {
    * find. peakThreshold and the artefact ceiling (_prominenceNMS) always apply.
    *
    * Cost: one _topographicProminence() sweep (O(n log n)) + one _prominenceNMS()
-   * + one _prominencePeakAt() per survivor (a few hundred per track).
+   * + one _buildPeakWithMetrics() per survivor (a few hundred per track).
    *
    * @param {object} params - Analysis params (peakThreshold, minPeakQuality).
    * @private
@@ -2159,14 +2159,6 @@ export class GSRAnalyzer {
     peak.qualityScore = this._computePeakQuality(peak);
     peak.salienceScore = this._computeSalienceScore(peak);
     return peak;
-  }
-
-  /**
-   * Backwards-compatibility alias for _buildPeakWithMetrics().
-   * @private
-   */
-  _prominencePeakAt(...args) {
-    return this._buildPeakWithMetrics(...args);
   }
 
   /**

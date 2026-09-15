@@ -111,26 +111,12 @@ export const OsmCache = {
 
   /** True if `a` and `b` overlap at all (including one containing the other, or touching). */
   _bboxIntersects(a, b) {
-    return (typeof GeoUtils !== 'undefined' && typeof GeoUtils.bboxIntersects === 'function')
-      ? GeoUtils.bboxIntersects(a, b)
-      : (a.minLat <= b.maxLat && a.maxLat >= b.minLat && a.minLon <= b.maxLon && a.maxLon >= b.minLon);
+    return GeoUtils.bboxIntersects(a, b);
   },
 
   /** Smallest bbox that contains every bbox in `bboxes`. */
   _unionBBox(bboxes) {
-    if (typeof GeoUtils !== 'undefined' && typeof GeoUtils.unionBBox === 'function') {
-      return GeoUtils.unionBBox(bboxes);
-    }
-    if (!bboxes || bboxes.length === 0) return null;
-    let minLat = Infinity, maxLat = -Infinity, minLon = Infinity, maxLon = -Infinity;
-    for (const b of bboxes) {
-      if (!b) continue;
-      if (b.minLat < minLat) minLat = b.minLat;
-      if (b.maxLat > maxLat) maxLat = b.maxLat;
-      if (b.minLon < minLon) minLon = b.minLon;
-      if (b.maxLon > maxLon) maxLon = b.maxLon;
-    }
-    return minLat === Infinity ? null : { minLat, maxLat, minLon, maxLon };
+    return GeoUtils.unionBBox(bboxes);
   },
 
   /**
@@ -138,15 +124,7 @@ export const OsmCache = {
    * at higher latitudes). Delegates to GeoUtils.bboxAreaKm2.
    */
   _bboxAreaKm2(bbox) {
-    if (typeof GeoUtils !== 'undefined' && typeof GeoUtils.bboxAreaKm2 === 'function') {
-      return GeoUtils.bboxAreaKm2(bbox);
-    }
-    if (!bbox) return 0;
-    const METERS_PER_DEG_LAT_KM = 111.32;
-    const midLat = (bbox.minLat + bbox.maxLat) / 2;
-    const h = (bbox.maxLat - bbox.minLat) * METERS_PER_DEG_LAT_KM;
-    const w = (bbox.maxLon - bbox.minLon) * METERS_PER_DEG_LAT_KM * Math.cos(midLat * Math.PI / 180);
-    return h * w;
+    return GeoUtils.bboxAreaKm2(bbox);
   },
 
   /**

@@ -608,9 +608,7 @@ export class GSRMapExporter {
     surfaceData.cachedIsobandRings.forEach(item => {
       const fillColor = this._ratioToHex(item.ratio);
 
-      const smoothRing = (ring) => (typeof GeoUtils !== 'undefined' && typeof GeoUtils.chaikinSmooth === 'function')
-        ? GeoUtils.chaikinSmooth(ring, 3, true)
-        : ring;
+      const smoothRing = (ring) => GeoUtils.chaikinSmooth(ring, 3, true);
 
       item.rings.forEach((ring, idx) => {
         const d = this._pathD(ctx, smoothRing(ring), true, true, false, true, 'bspline');
@@ -918,27 +916,11 @@ export class GSRMapExporter {
   // ═══════════════════════════════════════════════════════════════════
 
   static _hslToHex(h, s = 100, l = 50) {
-    if (typeof MapColors !== 'undefined' && typeof MapColors.hslToHex === 'function') {
-      return MapColors.hslToHex(h, s, l);
-    }
-    s /= 100;
-    l /= 100;
-    const a = s * Math.min(l, 1 - l);
-    const f = n => {
-      const k = (n + h / 30) % 12;
-      const color = l - a * Math.max(Math.min(k - 3, 9 - k, 1), -1);
-      return Math.round(255 * color).toString(16).padStart(2, '0');
-    };
-    return `#${f(0)}${f(8)}${f(4)}`;
+    return MapColors.hslToHex(h, s, l);
   }
 
   static _ratioToHex(ratio, lightness = 50) {
-    if (typeof MapColors !== 'undefined' && typeof MapColors.ratioToHex === 'function') {
-      return MapColors.ratioToHex(ratio, lightness);
-    }
-    const r = Math.max(0, Math.min(1, ratio));
-    const hue = (1.0 - r) * 120;
-    return this._hslToHex(hue, 100, lightness);
+    return MapColors.ratioToHex(ratio, lightness);
   }
 
   /**
@@ -948,15 +930,7 @@ export class GSRMapExporter {
    * @private
    */
   static _toHex(color) {
-    if (typeof MapColors !== 'undefined' && typeof MapColors.hslStringToHex === 'function') {
-      return MapColors.hslStringToHex(color);
-    }
-    if (!color || typeof color !== 'string' || color[0] === '#') return color;
-    const m = color.match(/^hsl\(\s*([\d.]+)\s*,\s*([\d.]+)%\s*,\s*([\d.]+)%\s*\)$/i);
-    if (m) {
-      return this._hslToHex(parseFloat(m[1]), parseFloat(m[2]), parseFloat(m[3]));
-    }
-    return color;
+    return MapColors.hslStringToHex(color);
   }
 
   static _img(x, y, w, h, url) {

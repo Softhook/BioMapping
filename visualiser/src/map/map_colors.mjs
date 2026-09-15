@@ -3,6 +3,11 @@
  */
 import { ResponseDynamics } from '../signal/response_dynamics.mjs';
 
+function normalize(val, minVal, maxVal) {
+  if (maxVal === minVal) return 0;
+  return Math.max(0, Math.min(1, (val - minVal) / (maxVal - minVal)));
+}
+
 export const MapColors = {
   _colorLutCache: new Map(),
 
@@ -108,9 +113,7 @@ export const MapColors = {
     }
 
     if (metric === 'em_fog' || metric === 'emFog') {
-      let ratio = 0;
-      if (maxVal !== minVal) ratio = (val - minVal) / (maxVal - minVal);
-      ratio = Math.max(0, Math.min(1, ratio));
+      const ratio = normalize(val, minVal, maxVal);
       const hue = 220 + ratio * 80; // Blue (220) -> Purple/Magenta (300)
       return `hsl(${hue}, 90%, 55%)`;
     }
@@ -140,18 +143,12 @@ export const MapColors = {
       // Low HDOP = good accuracy (green), high HDOP = poor accuracy (red).
       // Sentinel 99.9 (no data) rendered grey.
       if (isNaN(val) || val >= 50) return '#888888';
-      let ratio = 0;
-      if (maxVal !== minVal) ratio = (val - minVal) / (maxVal - minVal);
-      ratio = Math.max(0, Math.min(1, ratio));
+      const ratio = normalize(val, minVal, maxVal);
       const hue = Math.round((1.0 - ratio) * 120);
       return `hsl(${hue}, 90%, 45%)`;
     }
 
-    let ratio = 0;
-    if (maxVal !== minVal) {
-      ratio = (val - minVal) / (maxVal - minVal);
-    }
-    ratio = Math.max(0, Math.min(1, ratio));
+    const ratio = normalize(val, minVal, maxVal);
 
     if (metric === 'greenPct') {
       // Brown (0%) to Green (100%)

@@ -15,6 +15,7 @@
 
 import { GSRAnalyzer } from '../signal/analyzer.mjs';
 import { SpatialGrid } from '../spatial/spatial_grid.mjs';
+import { bandHasActiveSignal, normDbm } from './rf_signal_utils.mjs';
 
 export class RFFluidRenderer {
   constructor(map, options = {}) {
@@ -494,16 +495,10 @@ export class RFFluidRenderer {
       }
     }
 
-    // Absolute Hardware / Squelch noise floor cutoff (-90.0 dBm).
-    // Readings at or below -90.0 dBm are ambient noise, not active RF detections.
-    const hardNoiseFloor = -90.0;
-
     const calcBandStats = (minVal, maxVal) => {
       const floor = isFinite(minVal) ? minVal : -91.5;
       const peak  = isFinite(maxVal) ? maxVal : -91.5;
-      // Active signal flag: peak must exceed absolute noise floor (-90.0 dBm) AND rise >= 3.0 dBm above track minimum floor
-      const hasActiveSignal = (peak > hardNoiseFloor) && ((peak - floor) >= 3.0);
-      return { floor, peak, hasActiveSignal };
+      return { floor, peak, hasActiveSignal: bandHasActiveSignal(floor, peak) };
     };
 
     this.rssiStats = {
@@ -524,27 +519,7 @@ export class RFFluidRenderer {
       ? this.rssiStats[bandKey]
       : { floor: -91.5, peak: -60.0, hasActiveSignal: false };
 
-    // If band has no active signals exceeding noise floor on this track, return 0.0
-    if (!stats.hasActiveSignal) return 0.0;
-
-    const hardNoiseFloor = -90.0;
-    const floor = stats.floor;
-    const peak  = stats.peak;
-
-    // Threshold offset: signal must exceed both absolute hard noise floor (-90 dBm) AND local floor + 3.0 dBm
-    const threshold = Math.max(hardNoiseFloor, floor + 3.0);
-
-    if (val <= threshold) {
-      return 0.0; // Ambient noise floor — zero fluid rendered
-    }
-
-    const activeRange = Math.max(5.0, peak - threshold);
-    let norm = (val - threshold) / activeRange;
-    norm = Math.max(0, Math.min(1, norm));
-
-    // Non-linear gamma curve (0.75) for high visual contrast on active detections
-    const boosted = Math.pow(norm, 0.75) * (this.options.gain || 1.15);
-    return Math.max(0, Math.min(1, boosted));
+    return normDbm(val, stats.floor, stats.peak, stats.hasActiveSignal, this.options.gain || 1.15);
   }
 
   setMode(mode) {

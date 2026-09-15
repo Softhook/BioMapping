@@ -64,33 +64,7 @@ export const __protoMethods = {
 
     allPeaks.forEach(({ peak, index, coords, px, py }) => {
       const displayLabel = peak.label || '';
-
-      let marker;
-      const hasLabel = displayLabel && displayLabel.trim();
-      if (hasLabel) {
-        const dirResult = labelPositions.get(index);
-        if (dirResult) {
-          marker = L.marker([coords.lat, coords.lon], {
-            icon: GSRLabelManager.buildLabelledIcon(px, py, displayLabel, dirResult, { showGlow: false, dotPx: 6 })
-          });
-          // Bump labelled markers above unlabelled markers and path layers
-          marker.setZIndexOffset(1000);
-          marker.hasLabel = true;
-        } else {
-          // All 8 positions overlapped — no room for a text label, but the
-          // peak still HAS one. Keep hasLabel true (so it survives a
-          // showPeaks-off/showLabels-on filter and outranks plain dots via
-          // z-index) and surface the text on hover instead of dropping it
-          // with no trace.
-          marker = L.marker([coords.lat, coords.lon], { icon: simpleIcon });
-          marker.setZIndexOffset(1000);
-          marker.bindTooltip(displayLabel, { direction: 'top', offset: [0, -6] });
-          marker.hasLabel = true;
-        }
-      } else {
-        marker = L.marker([coords.lat, coords.lon], { icon: simpleIcon });
-        marker.hasLabel = false;
-      }
+      const marker = this._buildPeakMarker(coords.lat, coords.lon, displayLabel, labelPositions.get(index), simpleIcon, px, py);
 
       // Phase 1 (slice 3): tag the peak index so focusOnPeak can resolve the
       // marker without the old flat array.
@@ -188,6 +162,43 @@ export const __protoMethods = {
         { collective: false, activeTrackCount: 1 }
       );
     }
+  },
+
+  /**
+   * Build a peak dot/label marker: label-collision icon selection (a
+   * labelled icon when `dirResult` has room, a plain dot with a hover
+   * tooltip when all 8 label positions overlapped, or a plain dot when
+   * there's no label at all). Shared by _renderPeakMarkers() (single-track)
+   * and _renderCollectiveTrackPeaks() (collective) so the two can't drift
+   * apart visually — same pattern as _createHotspotMarker() below. Callers
+   * differ on _gsrKind/_gsrPeakIndex tagging, popup binding and how the
+   * marker gets added to the map, so this only builds and returns it.
+   * @private
+   */
+  _buildPeakMarker(lat, lon, displayLabel, dirResult, simpleIcon, px, py) {
+    const hasLabel = !!(displayLabel && displayLabel.trim());
+    if (!hasLabel) {
+      const marker = L.marker([lat, lon], { icon: simpleIcon });
+      marker.hasLabel = false;
+      return marker;
+    }
+    if (dirResult) {
+      const marker = L.marker([lat, lon], {
+        icon: GSRLabelManager.buildLabelledIcon(px, py, displayLabel, dirResult, { showGlow: false, dotPx: 6 })
+      });
+      marker.setZIndexOffset(1000);
+      marker.hasLabel = true;
+      return marker;
+    }
+    // All 8 positions overlapped — no room for a text label, but the peak
+    // still HAS one. Keep hasLabel true (so it survives a showPeaks-off/
+    // showLabels-on filter and outranks plain dots via z-index) and surface
+    // the text on hover instead of dropping it with no trace.
+    const marker = L.marker([lat, lon], { icon: simpleIcon });
+    marker.setZIndexOffset(1000);
+    marker.bindTooltip(displayLabel, { direction: 'top', offset: [0, -6] });
+    marker.hasLabel = true;
+    return marker;
   },
 
   /**
@@ -332,31 +343,7 @@ export const __protoMethods = {
 
     collectiveAllPeaks.forEach(({ peak, index, lat, lon, px, py }) => {
       const displayLabel = peak.label || '';
-
-      let marker;
-      const hasLabel = displayLabel && displayLabel.trim();
-      if (hasLabel) {
-        const dirResult = collectivePositions.get(index);
-        if (dirResult) {
-          marker = L.marker([lat, lon], {
-            icon: GSRLabelManager.buildLabelledIcon(px, py, displayLabel, dirResult, { showGlow: false, dotPx: 6 })
-          });
-          // Bump labelled markers above everything else on the map
-          marker.setZIndexOffset(1000);
-          marker.hasLabel = true;
-        } else {
-          // All 8 positions overlapped — see the matching comment in
-          // _renderPeakMarkers: keep hasLabel true and surface the text via
-          // a hover tooltip instead of silently dropping it.
-          marker = L.marker([lat, lon], { icon: collectiveSimpleIcon });
-          marker.setZIndexOffset(1000);
-          marker.bindTooltip(displayLabel, { direction: 'top', offset: [0, -6] });
-          marker.hasLabel = true;
-        }
-      } else {
-        marker = L.marker([lat, lon], { icon: collectiveSimpleIcon });
-        marker.hasLabel = false;
-      }
+      const marker = this._buildPeakMarker(lat, lon, displayLabel, collectivePositions.get(index), collectiveSimpleIcon, px, py);
 
       // closeButton: false — see the matching comment on the peak-marker
       // bindPopup() in _renderPeakMarkers(); click-away already dismisses it.

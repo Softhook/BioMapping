@@ -83,9 +83,7 @@ export const GpsFilter = {
 
     // Convert R and Q from metres squared to degrees squared using geodesic scale.
     const meanLat = points.reduce((s, p) => s + p.lat, 0) / n;
-    const scale = (typeof GeoUtils !== 'undefined' && typeof GeoUtils.getGeodesicScale === 'function')
-      ? GeoUtils.getGeodesicScale(meanLat)
-      : { degToMeterLat: 111320, degToMeterLon: 111320 * Math.cos(meanLat * Math.PI / 180) };
+    const scale = GeoUtils.getGeodesicScale(meanLat);
     const M_TO_DEG_LAT = 1.0 / scale.degToMeterLat;
     const M_TO_DEG_LON = 1.0 / scale.degToMeterLon;
     const M2_TO_DEG2_LAT = M_TO_DEG_LAT * M_TO_DEG_LAT;
@@ -389,10 +387,8 @@ export const GpsFilter = {
         prevHeadingY = headingY;
         prevHeadingX = headingX;
 
-        const scale = (typeof GeoUtils !== 'undefined' && typeof GeoUtils.getGeodesicScale === 'function')
-          ? GeoUtils.getGeodesicScale(prev.lat)
-          : { degToMeterLat: 111320, degToMeterLon: 111320 * Math.cos(prev.lat * DEG_TO_RAD) };
-        
+        const scale = GeoUtils.getGeodesicScale(prev.lat);
+
         predLat = prev.lat + (speedMs * headingY * dt) / scale.degToMeterLat;
         predLon = prev.lon + (speedMs * headingX * dt) / scale.degToMeterLon;
       } else {

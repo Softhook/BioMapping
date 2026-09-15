@@ -75,17 +75,7 @@ export const MapPopups = {
     }
 
     if (pCurrent && pNext) {
-      if (typeof GeoUtils !== 'undefined' && typeof GeoUtils.bearingDeg === 'function') {
-        return GeoUtils.bearingDeg(pCurrent.lat, pCurrent.lon, pNext.lat, pNext.lon);
-      }
-      const rad = Math.PI / 180;
-      const lat1Rad = pCurrent.lat * rad, lat2Rad = pNext.lat * rad;
-      const dLonRad = (pNext.lon - pCurrent.lon) * rad;
-      const y = Math.sin(dLonRad) * Math.cos(lat2Rad);
-      const x = Math.cos(lat1Rad) * Math.sin(lat2Rad) -
-                Math.sin(lat1Rad) * Math.cos(lat2Rad) * Math.cos(dLonRad);
-      const brng = Math.atan2(y, x) / rad;
-      return (brng + 360) % 360;
+      return GeoUtils.bearingDeg(pCurrent.lat, pCurrent.lon, pNext.lat, pNext.lon);
     }
 
     return 0;

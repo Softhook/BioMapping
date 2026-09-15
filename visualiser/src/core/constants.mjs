@@ -10,8 +10,6 @@ export const GSR_CONST = {
   // ── Graph layout (p5.js canvas) ──────────────────────────────────────────
   MARGIN: { top: 22, bottom: 10, left: 70, right: 35, gap: 40 },
 
-  GRAPH_UPPER_RATIO: 0.62,  // Upper graph (GSR) proportion of plot area
-  GRAPH_LOWER_RATIO: 0.38,  // Lower graph (Phasic) proportion
   TIMELINE_HEIGHT: 22,      // Overview timeline bar height (px)
   TIMELINE_GAP: 12,         // Gap between main graph and timeline (px)
 
