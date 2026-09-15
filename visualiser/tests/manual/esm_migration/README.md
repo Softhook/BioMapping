@@ -2,10 +2,9 @@
 
 See `docs/visualizer_modularity_plan.md`'s "drop dual-mode for real ES
 modules" section and the plan this session ran from for full context.
-**Current status: layers 0-5 plus layer 6's 13-file SCC (70 of 93 files)
-converted and wired into `npm test`, suite green. Layer 6's remaining 9
-`map_manager_*.js` files, and all of layer 7 (14 files), not yet started —
-see "Next steps" near the end of this file for the exact resume point.**
+**Current status: layers 0-6 (79 of 93 files) converted and wired into
+`npm test`, suite green. Layer 7 (14 files) not yet started — see "Next
+steps" near the end of this file for the exact resume point.**
 
 ## `build_import_manifest.js` (step 1)
 
@@ -618,18 +617,52 @@ adapted tests, not worked around:
 Suite verified 1340/1342 (the 2 pre-existing failures, unchanged) green
 three times in a row before committing (`42fbb45`).
 
+### Layer 6's remaining 9 `map_manager_*.js` files — DONE
+
+`map_manager_process.js`, `map_manager_legend.js`, `map_manager_layers.js`,
+`map_manager_osm.js`, `map_manager_rf_fluid.js`, `map_manager_viewport.js`,
+`map_manager_render.js`, `map_manager_collective.js`,
+`map_manager_toggles.js` converted sequentially (no SCC between them, same
+as layer 4/5).
+
+Routine, by-now-expected pattern on 8 of the 9: each drops out of
+`test_map_ui_augment_require_exports.js`'s `MAP_PROTO_AUGMENTS`
+require-branch loop once it's a real ES module (that loop exercises the
+old dual-mode CJS tail, which no longer exists) — same precedent as
+`renderer_chrome.js`/`renderer_markers.js`/`renderer_bands.js` in layers
+3-4. Only `map_manager_arousal_places.js` and `map_manager_path.js`
+(layer 7) remain in that list now.
+
+One new variant on `map_manager_viewport.js`: `test_map_viewport_deferred_fit.js`
+had its own isolated raw-source `readFileSync`+`vm.runInContext` harness
+(a bare local stub `GSRMapManager`, deliberately NOT the real class, to
+keep the two methods under test free of Leaflet/map.js's other
+dependencies) — broken once `map_manager_viewport.mjs` gained a real
+static `import { GSRMapManager } from './map.mjs'`, since a separate vm
+context can no longer intercept or redirect that import to the test's
+stub. Fixed by requiring the converted file's `__methods` export object
+directly (`const { __methods } = require('../src/map/map_manager_viewport.mjs')`)
+and `Object.assign`-ing it onto the local stub constructor instead —
+preserves the original isolation intent without needing a vm context at
+all. General lesson for any later layer: an isolated-stub test harness
+that reads a file's raw source (rather than going through
+`boot_app.js`/`boot_live.js`) breaks the moment that file's own imports
+become real static ones; the fix is to `require()` the converted file's
+named `__methods`/export and assign it onto the test's own stub, not to
+import the file's real upstream dependency too.
+
+Suite verified 1331/1333 (the 2 pre-existing failures, unchanged) green
+three times in a row before committing (`1cb21c5`).
+
 ### Next steps, in order
 
-1. Layer 6's remaining 9 files — `map_manager_process.js`,
-   `map_manager_legend.js`, `map_manager_layers.js`, `map_manager_osm.js`,
-   `map_manager_rf_fluid.js`, `map_manager_viewport.js`,
-   `map_manager_render.js`, `map_manager_collective.js`,
-   `map_manager_toggles.js` (no SCC between them — sequential, same as
-   layer 4/5). Then layer 7 (14 files: `map_manager_path.js`,
-   `map_manager_peaks.js`, `map_manager_arousal_places.js`, 9
-   `src/ui/ui_*.js` files, `renderer_interaction.js` — the most composite,
-   last layer, includes `index.html`'s eventual final entry points). Same
-   process each time: `node tests/manual/esm_migration/convert_file.js
+1. Layer 7 (14 files: `map_manager_path.js`, `map_manager_peaks.js`,
+   `map_manager_arousal_places.js`, 9 `src/ui/ui_*.js` files,
+   `renderer_interaction.js` — the most composite, last layer, includes
+   `index.html`'s eventual final entry points). Check `scc_layers.json`
+   for any SCC among them before converting (none of the earlier
+   "remaining 9" had one, but layer 7 hasn't been checked file-by-file
+   yet). Same process each time: `node tests/manual/esm_migration/convert_file.js
    <file> --write`, then re-run `npm test`; fix any surfaced direct
    `require('../src/X.js')`/raw-`readFileSync` test references and any
    not-yet-converted `src/` dual-mode tail that literally `require()`s a
@@ -642,7 +675,11 @@ three times in a row before committing (`42fbb45`).
    module's internal state, it needs a real exported hook from that module
    (layer 6's `_setXForTest` pattern above) — reflected-global writes to an
    `export let` are a structural dead end, not just an edge case to patch
-   around. If `npm test` surfaces a genuinely new realm-model bug class
+   around. If an isolated-stub test harness reads a file's raw source
+   directly, expect it to break once that file gains a real static import
+   of its own — `require()` the converted file's export and assign it onto
+   the test's stub instead (this layer's `map_manager_viewport.js` case
+   above). If `npm test` surfaces a genuinely new realm-model bug class
    beyond these, fix it in `realm_bridge.js` (if it's about the boot/import
    machinery) or the source file itself (if it's about ESM's actual write
    semantics, as above) — never in a test-only workaround.

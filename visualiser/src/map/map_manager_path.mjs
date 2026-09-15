@@ -21,7 +21,13 @@
 // _renderPathSegments — rather than baked into the GPS-cached drawPoints,
 // since those are cached across GSR re-analyses keyed only on GPS params and
 // would otherwise go stale the moment a GSR slider changes.
-const DERIVED_METRIC_SERIES = {
+import { AppState } from '../core/app_state.mjs';
+import { GSR_CONST } from '../core/constants.mjs';
+import { MapColors } from './map_colors.mjs';
+import { GSRMapManager } from './map.mjs';
+import { GSRStorage } from '../ui/storage.mjs';
+
+export const DERIVED_METRIC_SERIES = {
   phasic: 'phasic',
   tonic: 'tonic',
   peakDensity: 'peakDensity',
@@ -38,10 +44,10 @@ const DERIVED_METRIC_SERIES = {
 // (osm_enrichment.js SENTINEL_DIST). It must not enter the colour range —
 // otherwise real 0..~100 m distances collapse into the first couple of buckets
 // and the whole path reads as one colour.
-const DISTANCE_METRICS = new Set(['distMajorRoad', 'distWater', 'distGreen']);
+export const DISTANCE_METRICS = new Set(['distMajorRoad', 'distWater', 'distGreen']);
 
 /** True when `v` is not a real measurement for `metric` (NaN/missing/sentinel). */
-const isNoDataValue = (metric, v) => {
+export const isNoDataValue = (metric, v) => {
   if (v === undefined || v === null || (typeof v === 'number' && isNaN(v))) return true;
   if (DISTANCE_METRICS.has(metric)) return v >= 999;
   return false;

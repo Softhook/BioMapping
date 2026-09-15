@@ -14,8 +14,16 @@
  * GSRSpatialClustering, GSRArousalPlaces, MapPopups, GSR_CONST and AppState,
  * all resolved at call time.
  */
-(function () {
-const __methods = {
+import { AppState } from '../core/app_state.mjs';
+import { GSR_CONST } from '../core/constants.mjs';
+import { GeoUtils } from '../gps/geo_utils.mjs';
+import { MapPopups } from './map_popups.mjs';
+import { GSRMapManager } from './map.mjs';
+import { GSRArousalPlaces } from '../spatial/arousal_places.mjs';
+import { GSRSpatialClustering } from '../spatial/spatial_clustering.mjs';
+import { GSRUI } from '../ui/ui.mjs';
+
+export const __methods = {
 
   /**
    * Cluster a set of active (non-excluded) peaks into Arousal Places and render
@@ -498,10 +506,4 @@ const __methods = {
 
 };
 
-if (typeof module !== 'undefined' && module.exports) {
-  Object.assign(global, require('./map.mjs'));
-  module.exports = __methods;
-} else {
-  Object.assign(GSRMapManager.prototype, __methods);
-}
-})();
+Object.assign(GSRMapManager.prototype, __methods);
