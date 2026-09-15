@@ -57,7 +57,7 @@ function stitchSegmentsOld(segments) {
   return paths;
 }
 
-const { GSRSpatialClustering } = require('../../src/spatial/spatial_clustering.js');
+const { GSRSpatialClustering } = require('../../src/spatial/spatial_clustering.mjs');
 const stitchSegmentsNew = GSRSpatialClustering.stitchSegments;
 
 function generateLoopSegments(count) {
@@ -124,7 +124,7 @@ function benchHotspotLookup(peakCount, hotspotCount, iterations) {
 // ─────────────────────────────────────────────────────────────────────────────
 // 3. Label placement simulated annealing
 // ─────────────────────────────────────────────────────────────────────────────
-const { GSRLabelManager } = require('../../src/render/label_placement.js');
+const { GSRLabelManager } = require('../../src/render/label_placement.mjs');
 
 function generateLabelCandidates(labelCount) {
   const items = [];

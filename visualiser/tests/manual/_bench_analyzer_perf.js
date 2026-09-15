@@ -26,24 +26,13 @@
 
 const fs = require('fs');
 const path = require('path');
-const vm = require('vm');
 
 const TRACKS_DIR = path.join(__dirname, '..', '..', '..', 'tracks');
 
 global.window = global;
 global.GSR_CONST = require('../mock_constants.js');
 
-function loadModule(filePath, varName) {
-  const src = fs.readFileSync(filePath, 'utf8');
-  const wrapped = src.replace(
-    new RegExp(`class ${varName}\\s*{`),
-    `global.${varName} = class ${varName} {`
-  ).replace(
-    new RegExp(`const ${varName}\\s*=`),
-    `global.${varName} =`
-  );
-  vm.runInThisContext(wrapped, { filename: filePath });
-}
+const { loadModule } = require('../support/load_module.js');
 
 loadModule(path.join(__dirname, '..', '..', 'src', 'gps', 'geo_utils.js'), 'GeoUtils');
 loadModule(path.join(__dirname, '..', '..', 'src', 'signal', 'stats_math.js'), 'StatsMath');
@@ -54,8 +43,8 @@ loadModule(path.join(__dirname, '..', '..', 'src', 'signal', 'dwt_filter.js'), '
 loadModule(path.join(__dirname, '..', '..', 'src', 'signal', 'gsr_filter.js'), 'GsrFilter');
 loadModule(path.join(__dirname, '..', '..', 'src', 'signal', 'deconvolution.js'), 'SCRDeconvolution');
 
-const { GSRAnalyzer } = require('../../src/signal/analyzer.js');
-const { GSRCSVParser } = require('../../src/signal/csv_parser.js');
+const { GSRAnalyzer } = require('../../src/signal/analyzer.mjs');
+const { GSRCSVParser } = require('../../src/signal/csv_parser.mjs');
 
 function median(nums) {
   const s = [...nums].sort((a, b) => a - b);
