@@ -20,7 +20,7 @@ const APP_DIR = path.join(__dirname, '..');
 
 // ── Vendored CesiumJS (no runtime CDN — BioMapping runs offline) ────────────
 
-test('CesiumJS is vendored locally and globe3d_view loads it from disk, not a CDN', () => {
+test('CesiumJS is vendored locally and globe3d_view loads it from disk, not a CDN', async () => {
   for (const rel of ['vendor/cesium/Cesium.js', 'vendor/cesium/Widgets/widgets.css']) {
     assert.ok(fs.existsSync(path.join(APP_DIR, rel)), `missing vendored file: ${rel}`);
   }
@@ -38,8 +38,8 @@ const vis = (window, id) => {
 
 // ── 3D track export moved to the main Export Options panel ─────────────────
 
-test('CZML/KML export live in the main Export Options card; the 3D Snapshot is gone', () => {
-  const { window } = bootApp();
+test('CZML/KML export live in the main Export Options card; the 3D Snapshot is gone', async () => {
+  const { window } = await bootApp();
   window.setup();
   const doc = window.document;
 
@@ -54,8 +54,8 @@ test('CZML/KML export live in the main Export Options card; the 3D Snapshot is g
   assert.ok(window.GSRTrackManager.EXPORT_BUTTON_IDS.includes('exportKmlBtn'));
 });
 
-test('export3DTrack: downloads only for a single track with drawPoints', () => {
-  const { window } = bootApp();
+test('export3DTrack: downloads only for a single track with drawPoints', async () => {
+  const { window } = await bootApp();
   window.setup();
   const AppState = window.AppState;
 
@@ -86,8 +86,8 @@ test('export3DTrack: downloads only for a single track with drawPoints', () => {
   assert.strictEqual(downloaded, null, 'collective scope is not exported');
 });
 
-test('surface switcher swaps the render container inside #mapPanel and reveals the 3D settings', () => {
-  const { window } = bootApp();
+test('surface switcher swaps the render container inside #mapPanel and reveals the 3D settings', async () => {
+  const { window } = await bootApp();
   window.setup();
 
   const btnGlobe = window.document.getElementById('btnGlobeSurface');
@@ -131,8 +131,8 @@ test('surface switcher swaps the render container inside #mapPanel and reveals t
   assert.ok(!vis(window, 'g3dBtnOrbit'));
 });
 
-test('shared header toggles dispatch to the globe manager while 3D is the mounted surface', () => {
-  const { window } = bootApp();
+test('shared header toggles dispatch to the globe manager while 3D is the mounted surface', async () => {
+  const { window } = await bootApp();
   window.setup();
   const V = window.GSRGlobe3DView;
 
@@ -170,7 +170,7 @@ test('shared header toggles dispatch to the globe manager while 3D is the mounte
 });
 
 test('the map header OSM button toggles 3D buildings (shared OSM data) while the globe is mounted', async () => {
-  const { window } = bootApp();
+  const { window } = await bootApp();
   window.setup();
   const V = window.GSRGlobe3DView;
   const doc = window.document;
@@ -206,7 +206,7 @@ test('the map header OSM button toggles 3D buildings (shared OSM data) while the
 });
 
 test('applyBuildings clears status messages (e.g. "Parsing geographical payload...") once completed or deactivated', async () => {
-  const { window } = bootApp();
+  const { window } = await bootApp();
   window.setup();
   const V = window.GSRGlobe3DView;
   const doc = window.document;
@@ -242,7 +242,7 @@ test('applyBuildings clears status messages (e.g. "Parsing geographical payload.
 });
 
 test('_resolveOsmJson reuses analyzer.osmJson and reconstructs osmGeoms for the 2D OSM button', async () => {
-  const { window } = bootApp();
+  const { window } = await bootApp();
   window.setup();
   const V = window.GSRGlobe3DView;
 
@@ -255,8 +255,8 @@ test('_resolveOsmJson reuses analyzer.osmJson and reconstructs osmGeoms for the 
   assert.ok(window.AppState.analyzer.osmGeoms, 'osmGeoms reconstructed so the 2D OSM shapes button can show');
 });
 
-test('_resolveOsmJson requests the SAME bbox buffer as the 2D enrichment (cache hit both ways)', () => {
-  const { window } = bootApp();
+test('_resolveOsmJson requests the SAME bbox buffer as the 2D enrichment (cache hit both ways)', async () => {
+  const { window } = await bootApp();
   window.setup();
   const doc = window.document;
   doc.getElementById('osmRadius').value = '80';
@@ -265,8 +265,8 @@ test('_resolveOsmJson requests the SAME bbox buffer as the 2D enrichment (cache 
   assert.strictEqual(window.GSRGlobe3DView._osmBboxBufferM(), 130);
 });
 
-test('the OSM/buildings toggle state persists across a 2D↔3D surface switch', () => {
-  const { window } = bootApp();
+test('the OSM/buildings toggle state persists across a 2D↔3D surface switch', async () => {
+  const { window } = await bootApp();
   window.setup();
   const doc = window.document;
   const V = window.GSRGlobe3DView;
@@ -297,8 +297,8 @@ test('the OSM/buildings toggle state persists across a 2D↔3D surface switch', 
   assert.notStrictEqual(osm.style.display, 'none', 'button still visible');
 });
 
-test('switching surface leaves no fullscreen overlay behind', () => {
-  const { window } = bootApp();
+test('switching surface leaves no fullscreen overlay behind', async () => {
+  const { window } = await bootApp();
   window.setup();
   const doc = window.document;
   doc.getElementById('btnGlobeSurface').click();
@@ -306,8 +306,8 @@ test('switching surface leaves no fullscreen overlay behind', () => {
   assert.strictEqual(doc.querySelector('.panel-fullscreen-overlay'), null);
 });
 
-test('#mapPanel fullscreen while 3D is active re-measures the globe', () => {
-  const { window } = bootApp();
+test('#mapPanel fullscreen while 3D is active re-measures the globe', async () => {
+  const { window } = await bootApp();
   window.setup();
   const doc = window.document;
 
@@ -326,8 +326,8 @@ test('#mapPanel fullscreen while 3D is active re-measures the globe', () => {
   window.GSRGlobe3DView.onResize = orig;
 });
 
-test('the 3D globe legend renders the exact same markup as the 2D map legend', () => {
-  const { window } = bootApp();
+test('the 3D globe legend renders the exact same markup as the 2D map legend', async () => {
+  const { window } = await bootApp();
   window.setup();
   const doc = window.document;
   const mm = window.AppState.mapManager;
@@ -346,15 +346,15 @@ test('the 3D globe legend renders the exact same markup as the 2D map legend', (
   assert.ok(doc.getElementById('g3dLegend').classList.contains('map-legend'), 'uses the 2D legend card style');
 });
 
-test('the "Loading 3D engine" / imagery status is gone', () => {
+test('the "Loading 3D engine" / imagery status is gone', async () => {
   const src = fs.readFileSync(path.join(APP_DIR, 'src/map/globe3d_view.js'), 'utf8');
   assert.ok(!/Loading 3D engine/.test(src), 'the loading-3D-engine text is gone');
   assert.ok(!/Loading map imagery/.test(src), 'the loading-imagery text is gone');
   assert.ok(!/_watchImageryLoad/.test(src), 'the imagery-load watcher is gone');
 });
 
-test('the map header RF band (#rfFluidMode) re-applies the 3D volumetric field', () => {
-  const { window } = bootApp();
+test('the map header RF band (#rfFluidMode) re-applies the 3D volumetric field', async () => {
+  const { window } = await bootApp();
   window.setup();
   const doc = window.document;
   const calls = [];
@@ -374,8 +374,8 @@ test('the map header RF band (#rfFluidMode) re-applies the 3D volumetric field',
   window.GSRGlobe3DView.isActive = false;
 });
 
-test('_editPeakLabel mounts the map peak popup in the globe container and closes it', () => {
-  const { window } = bootApp();
+test('_editPeakLabel mounts the map peak popup in the globe container and closes it', async () => {
+  const { window } = await bootApp();
   window.setup();
   const V = window.GSRGlobe3DView;
 
@@ -408,8 +408,8 @@ test('_editPeakLabel mounts the map peak popup in the globe container and closes
   assert.strictEqual(window.document.getElementById('globe3dPeakPopup'), null, 'closed');
 });
 
-test('_pushFromMap fits the globe to the track only when the active track changed', () => {
-  const { window } = bootApp();
+test('_pushFromMap fits the globe to the track only when the active track changed', async () => {
+  const { window } = await bootApp();
   window.setup();
   const V = window.GSRGlobe3DView;
 
@@ -433,8 +433,8 @@ test('_pushFromMap fits the globe to the track only when the active track change
   V.manager = null;
 });
 
-test('GSRGlobe3DView.init is idempotent and exposes the read-only push API', () => {
-  const { window } = bootApp();
+test('GSRGlobe3DView.init is idempotent and exposes the read-only push API', async () => {
+  const { window } = await bootApp();
   window.setup();
   const V = window.GSRGlobe3DView;
   assert.ok(V);
@@ -461,8 +461,8 @@ function spyManager() {
   };
 }
 
-test('_onScrub: graph source moves the cursor AND drives the follow-cam', () => {
-  const { window } = bootApp();
+test('_onScrub: graph source moves the cursor AND drives the follow-cam', async () => {
+  const { window } = await bootApp();
   window.setup();
   const V = window.GSRGlobe3DView;
   V.isActive = true;
@@ -473,8 +473,8 @@ test('_onScrub: graph source moves the cursor AND drives the follow-cam', () => 
   assert.deepStrictEqual(V.manager.calls, [['set', 51.5, -0.1], ['follow', 51.5, -0.1]]);
 });
 
-test('_onScrub: globe (self) source moves the cursor but never the camera', () => {
-  const { window } = bootApp();
+test('_onScrub: globe (self) source moves the cursor but never the camera', async () => {
+  const { window } = await bootApp();
   window.setup();
   const V = window.GSRGlobe3DView;
   V.isActive = true;
@@ -485,8 +485,8 @@ test('_onScrub: globe (self) source moves the cursor but never the camera', () =
   assert.deepStrictEqual(V.manager.calls, [['set', 51.5, -0.1]]);
 });
 
-test('_onScrub: clear hides the cursor and releases the follow-cam', () => {
-  const { window } = bootApp();
+test('_onScrub: clear hides the cursor and releases the follow-cam', async () => {
+  const { window } = await bootApp();
   window.setup();
   const V = window.GSRGlobe3DView;
   V.isActive = true;
@@ -505,8 +505,8 @@ test('_onScrub: clear hides the cursor and releases the follow-cam', () => {
   assert.deepStrictEqual(V.manager.calls, []);
 });
 
-test('_onScrub: inactive surface ignores scrubs; identical non-graph coords dedupe', () => {
-  const { window } = bootApp();
+test('_onScrub: inactive surface ignores scrubs; identical non-graph coords dedupe', async () => {
+  const { window } = await bootApp();
   window.setup();
   const V = window.GSRGlobe3DView;
   V.manager = spyManager();
@@ -522,8 +522,8 @@ test('_onScrub: inactive surface ignores scrubs; identical non-graph coords dedu
   assert.strictEqual(V.manager.calls.filter((c) => c[0] === 'set').length, 1);
 });
 
-test('_onScrubHover: takes cursor ownership, sets hoveredIndex, emits on the shared channel', () => {
-  const { window } = bootApp();
+test('_onScrubHover: takes cursor ownership, sets hoveredIndex, emits on the shared channel', async () => {
+  const { window } = await bootApp();
   window.setup();
   const V = window.GSRGlobe3DView;
   const AppState = window.AppState;
@@ -548,8 +548,8 @@ test('_onScrubHover: takes cursor ownership, sets hoveredIndex, emits on the sha
   assert.strictEqual(seen.at(-1).clear, true);
 });
 
-test('_onScrubHover: no-op outside single-track scope', () => {
-  const { window } = bootApp();
+test('_onScrubHover: no-op outside single-track scope', async () => {
+  const { window } = await bootApp();
   window.setup();
   const V = window.GSRGlobe3DView;
   const AppState = window.AppState;
@@ -561,8 +561,8 @@ test('_onScrubHover: no-op outside single-track scope', () => {
   assert.strictEqual(AppState.scrubSource, null, 'collective view has no graph to scrub');
 });
 
-test('_onScrubHover: no-op while the panel is fullscreen (the graph is hidden)', () => {
-  const { window } = bootApp();
+test('_onScrubHover: no-op while the panel is fullscreen (the graph is hidden)', async () => {
+  const { window } = await bootApp();
   window.setup();
   const doc = window.document;
   const V = window.GSRGlobe3DView;
@@ -589,8 +589,8 @@ test('_onScrubHover: no-op while the panel is fullscreen (the graph is hidden)',
   assert.strictEqual(AppState.scrubSource, 'globe', 'reverse-hover scrub works again after exit');
 });
 
-test('onPanelFullscreenChange(true) drops a globe-owned scrub and hands the graph back', () => {
-  const { window } = bootApp();
+test('onPanelFullscreenChange(true) drops a globe-owned scrub and hands the graph back', async () => {
+  const { window } = await bootApp();
   window.setup();
   const V = window.GSRGlobe3DView;
   const AppState = window.AppState;
@@ -617,8 +617,8 @@ test('onPanelFullscreenChange(true) drops a globe-owned scrub and hands the grap
   V.isActive = false;
 });
 
-test('shared "scrub" event reaches BOTH the 2D map and the 3D globe', () => {
-  const { window } = bootApp();
+test('shared "scrub" event reaches BOTH the 2D map and the 3D globe', async () => {
+  const { window } = await bootApp();
   window.setup();
   const V = window.GSRGlobe3DView;
   const AppState = window.AppState;
@@ -637,8 +637,8 @@ test('shared "scrub" event reaches BOTH the 2D map and the 3D globe', () => {
   assert.ok(V.manager.calls.some((c) => c[0] === 'follow'));
 });
 
-test('deactivate() clears the 3D cursor and hands ownership back to the graph', () => {
-  const { window } = bootApp();
+test('deactivate() clears the 3D cursor and hands ownership back to the graph', async () => {
+  const { window } = await bootApp();
   window.setup();
   const V = window.GSRGlobe3DView;
   const AppState = window.AppState;
@@ -659,8 +659,8 @@ test('deactivate() clears the 3D cursor and hands ownership back to the graph', 
   assert.ok(seen.some((p) => p.clear));
 });
 
-test('renderer.handleScrubber does not wipe a globe-owned hover (ownership token)', () => {
-  const { window } = bootApp();
+test('renderer.handleScrubber does not wipe a globe-owned hover (ownership token)', async () => {
+  const { window } = await bootApp();
   window.setup();
   const AppState = window.AppState;
 
@@ -695,8 +695,8 @@ test('renderer.handleScrubber does not wipe a globe-owned hover (ownership token
   AppState.emit = origEmit;
 });
 
-test('applyColorMetric forwards metric to manager and updates the 3D legend', () => {
-  const { window } = bootApp();
+test('applyColorMetric forwards metric to manager and updates the 3D legend', async () => {
+  const { window } = await bootApp();
   window.setup();
   const V = window.GSRGlobe3DView;
   const doc = window.document;
@@ -723,8 +723,8 @@ test('applyColorMetric forwards metric to manager and updates the 3D legend', ()
   V.isActive = false;
 });
 
-test('Tour button in 3D camera controls toggles manager tour and updates UI', () => {
-  const { window } = bootApp();
+test('Tour button in 3D camera controls toggles manager tour and updates UI', async () => {
+  const { window } = await bootApp();
   window.setup();
   const V = window.GSRGlobe3DView;
   const doc = window.document;
@@ -773,8 +773,8 @@ test('Tour button in 3D camera controls toggles manager tour and updates UI', ()
   V.isActive = false;
 });
 
-test('collective mode switches active 3D globe surface back to 2D map and prevents 3D globe activation', () => {
-  const { window } = bootApp();
+test('collective mode switches active 3D globe surface back to 2D map and prevents 3D globe activation', async () => {
+  const { window } = await bootApp();
   window.setup();
   const doc = window.document;
 
@@ -816,7 +816,7 @@ test('collective mode switches active 3D globe surface back to 2D map and preven
 });
 
 test('GSRGlobe3DView._pushFromMap and activate() are no-ops in collective mode', async () => {
-  const { window } = bootApp();
+  const { window } = await bootApp();
   window.setup();
   const V = window.GSRGlobe3DView;
 
@@ -837,8 +837,8 @@ test('GSRGlobe3DView._pushFromMap and activate() are no-ops in collective mode',
   V.manager = null;
 });
 
-test('GSRGlobe3DView.focusOnPeak flies camera and opens 3D popup', () => {
-  const { window } = bootApp();
+test('GSRGlobe3DView.focusOnPeak flies camera and opens 3D popup', async () => {
+  const { window } = await bootApp();
   window.setup();
   const V = window.GSRGlobe3DView;
 
@@ -867,8 +867,8 @@ test('GSRGlobe3DView.focusOnPeak flies camera and opens 3D popup', () => {
   V.isActive = false;
 });
 
-test('GSRUI.focusOnPeak from the SCR table routes to GSRGlobe3DView.focusOnPeakLocation (no popup) when 3D is active', () => {
-  const { window } = bootApp();
+test('GSRUI.focusOnPeak from the SCR table routes to GSRGlobe3DView.focusOnPeakLocation (no popup) when 3D is active', async () => {
+  const { window } = await bootApp();
   window.setup();
   const V = window.GSRGlobe3DView;
 
@@ -892,8 +892,8 @@ test('GSRUI.focusOnPeak from the SCR table routes to GSRGlobe3DView.focusOnPeakL
   V.isActive = false;
 });
 
-test('3D peak click triggers GSRUI.focusOnPeak with source=map and opens popup', () => {
-  const { window } = bootApp();
+test('3D peak click triggers GSRUI.focusOnPeak with source=map and opens popup', async () => {
+  const { window } = await bootApp();
   window.setup();
   const V = window.GSRGlobe3DView;
 
@@ -929,8 +929,8 @@ test('3D peak click triggers GSRUI.focusOnPeak with source=map and opens popup',
   V.manager = null;
 });
 
-test('the 3D globe attribution displays dynamic attribution based on basemap and buildings', () => {
-  const { window } = bootApp();
+test('the 3D globe attribution displays dynamic attribution based on basemap and buildings', async () => {
+  const { window } = await bootApp();
   window.setup();
   const V = window.GSRGlobe3DView;
   const doc = window.document;
@@ -988,7 +988,7 @@ test('the 3D globe attribution displays dynamic attribution based on basemap and
 });
 
 test('OSM overlay: setOsmOverlay + syncOsmOverlay keep 2D⇄3D in lock-step both ways', async () => {
-  const { window } = bootApp();
+  const { window } = await bootApp();
   window.setup();
   const doc = window.document;
   const V = window.GSRGlobe3DView;
@@ -1077,7 +1077,7 @@ test('OSM overlay: setOsmOverlay + syncOsmOverlay keep 2D⇄3D in lock-step both
 });
 
 test('OSM overlay: a 2D turn-on with no cached geometry fetches once, then draws', async () => {
-  const { window } = bootApp();
+  const { window } = await bootApp();
   window.setup();
   const GSRUI = window.GSRUI;
   const AppState = window.AppState;
@@ -1114,7 +1114,7 @@ test('OSM overlay: a 2D turn-on with no cached geometry fetches once, then draws
 });
 
 test('OSM overlay: toggled back off mid-fetch is honoured (no forced-on)', async () => {
-  const { window } = bootApp();
+  const { window } = await bootApp();
   window.setup();
   const GSRUI = window.GSRUI;
   const AppState = window.AppState;

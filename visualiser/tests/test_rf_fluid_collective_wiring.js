@@ -46,8 +46,8 @@ function addTrack(window, id, name, csvText) {
   return track;
 }
 
-function bootCollectiveWithTwoTracks() {
-  const { window } = bootApp();
+async function bootCollectiveWithTwoTracks() {
+  const { window } = await bootApp();
   // jsdom canvases have no 2d context by default; renderCollectiveData()'s
   // contour-surface rasterization (map.js renderContours(), unrelated to RF
   // fluid) needs one — same stub test_map_layer_ownership.js uses.
@@ -62,8 +62,8 @@ function bootCollectiveWithTwoTracks() {
   return { window, mapManager, trackA, trackB };
 }
 
-test('renderCollectiveData wires per-track drawPoints/osmGeoms into RFFluidRenderer.setDataForTracks, not a concatenated setData blob', () => {
-  const { window, mapManager } = bootCollectiveWithTwoTracks();
+test('renderCollectiveData wires per-track drawPoints/osmGeoms into RFFluidRenderer.setDataForTracks, not a concatenated setData blob', async () => {
+  const { window, mapManager } = await bootCollectiveWithTwoTracks();
 
   const setDataForTracksCalls = [];
   const setDataCalls = [];
@@ -87,8 +87,8 @@ test('renderCollectiveData wires per-track drawPoints/osmGeoms into RFFluidRende
   });
 });
 
-test('renderCollectiveData re-renders reuse the same per-track drawPoints reference for an unchanged track', () => {
-  const { window, mapManager, trackB } = bootCollectiveWithTwoTracks();
+test('renderCollectiveData re-renders reuse the same per-track drawPoints reference for an unchanged track', async () => {
+  const { window, mapManager, trackB } = await bootCollectiveWithTwoTracks();
 
   const calls = [];
   mapManager.rfFluidRenderer.setDataForTracks = (tracksData) => { calls.push(tracksData); };
@@ -117,8 +117,8 @@ test('renderCollectiveData re-renders reuse the same per-track drawPoints refere
     'track B\'s own GPS param change must produce a new drawPoints reference so its fan cast actually recomputes');
 });
 
-test('_clearRfFluid (via clearAll at the top of renderCollectiveData) blanks the canvas through clear(), not the single-blob setData([], null)', () => {
-  const { window, mapManager } = bootCollectiveWithTwoTracks();
+test('_clearRfFluid (via clearAll at the top of renderCollectiveData) blanks the canvas through clear(), not the single-blob setData([], null)', async () => {
+  const { window, mapManager } = await bootCollectiveWithTwoTracks();
 
   let clearCalls = 0;
   let setDataCalls = 0;

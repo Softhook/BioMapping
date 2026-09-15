@@ -36,15 +36,15 @@ const SAMPLE_CSV = buildCsv(Array(20).fill(0));
 
 const EXPECTED_KEYS = ['lat', 'lon', 'time', 'hdop', 'pdop', 'hacc', 'speedKts', 'course', 'fixType', 'origIdx'].sort();
 
-function boot() {
-  const { window, context } = bootApp();
+async function boot() {
+  const { window } = await bootApp();
   window.HTMLCanvasElement.prototype.getContext = () => ({ fillStyle: '', fillRect() {} });
   window.setup();
   return { window, mapManager: window.AppState.mapManager };
 }
 
-test('_collectGpsPoints: returns only the fields the GPS pipeline reads, not the full raw row', () => {
-  const { window, mapManager } = boot();
+test('_collectGpsPoints: returns only the fields the GPS pipeline reads, not the full raw row', async () => {
+  const { window, mapManager } = await boot();
   const analyzer = new window.GSRAnalyzer();
   analyzer.parseCSV(SAMPLE_CSV);
 
@@ -67,8 +67,8 @@ test('_collectGpsPoints: returns only the fields the GPS pipeline reads, not the
   }
 });
 
-test('_collectGpsPoints: preserves values for every field it does carry', () => {
-  const { window, mapManager } = boot();
+test('_collectGpsPoints: preserves values for every field it does carry', async () => {
+  const { window, mapManager } = await boot();
   const analyzer = new window.GSRAnalyzer();
   analyzer.parseCSV(SAMPLE_CSV);
 
@@ -88,13 +88,13 @@ test('_collectGpsPoints: preserves values for every field it does carry', () => 
   }
 });
 
-test('_collectGpsPoints: full pipeline output (drawPoints) still carries every raw field untouched', () => {
+test('_collectGpsPoints: full pipeline output (drawPoints) still carries every raw field untouched', async () => {
   // The trim only touches the internal gpsPoints intermediate — drawPoints
   // (what every caller actually consumes, and what the coloring-metric
   // dropdown reads arbitrary raw fields like osm_road_class/rssi_815 from
   // dynamically via `_getMetricKey()`) is built straight from `data[i]`, not
   // from gpsPoints, so it must be completely unaffected.
-  const { window, mapManager } = boot();
+  const { window, mapManager } = await boot();
   const analyzer = new window.GSRAnalyzer();
   analyzer.parseCSV(SAMPLE_CSV);
   const gpsParams = { maxHdop: 2.0, smoothing: 0.5, kalmanR: 10, maxSpeed: 30.0, rdpTolerance: 0, downsample: false };

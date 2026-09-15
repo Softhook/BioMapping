@@ -44,22 +44,22 @@ function installFakeFileReader(window) {
   };
 }
 
-test('app boots via setup() without throwing, and wires up AppState', () => {
-  const { window } = bootApp();
+test('app boots via setup() without throwing, and wires up AppState', async () => {
+  const { window } = await bootApp();
   assert.doesNotThrow(() => window.setup());
   assert.ok(window.AppState.analyzer, 'AppState.analyzer should be constructed');
   assert.ok(window.AppState.collectiveManager, 'AppState.collectiveManager should be constructed');
   assert.ok(window.AppState.mapManager, 'AppState.mapManager should be constructed');
 });
 
-test('windowResized() runs without throwing after boot', () => {
-  const { window } = bootApp();
+test('windowResized() runs without throwing after boot', async () => {
+  const { window } = await bootApp();
   window.setup();
   assert.doesNotThrow(() => window.windowResized());
 });
 
 test('loading a track via the real file-drop pipeline adds it to AppState.collectiveManager', async () => {
-  const { window } = bootApp();
+  const { window } = await bootApp();
   installFakeFileReader(window);
   window.setup();
 
@@ -86,7 +86,7 @@ test('loading a track via the real file-drop pipeline adds it to AppState.collec
 });
 
 test('loading a track while in collective view mode refreshes the collective map (via switchActiveTrack -> runAnalysis, not a separate call)', async () => {
-  const { window, document } = bootApp();
+  const { window, document } = await bootApp();
   installFakeFileReader(window);
   window.setup();
 
@@ -113,7 +113,7 @@ test('loading a track while in collective view mode refreshes the collective map
 });
 
 test('Deconvolution and Prominence detector toggles are mutually exclusive via the real wired-up DOM', async () => {
-  const { window, document } = bootApp();
+  const { window, document } = await bootApp();
   installFakeFileReader(window);
   window.setup();
 
@@ -158,7 +158,7 @@ test('Deconvolution and Prominence detector toggles are mutually exclusive via t
 });
 
 test('the "Driver (ISCR)" graph view is enabled only while a deconvolution/cvxEDA detector is active', async () => {
-  const { window, document } = bootApp();
+  const { window, document } = await bootApp();
   installFakeFileReader(window);
   window.setup();
 
@@ -200,7 +200,7 @@ test('the "Driver (ISCR)" graph view is enabled only while a deconvolution/cvxED
 });
 
 test('deleteTrack removes the track and leaves a clean, consistent AppState', async () => {
-  const { window } = bootApp();
+  const { window } = await bootApp();
   installFakeFileReader(window);
   window.setup();
 
@@ -222,7 +222,7 @@ test('deleteTrack removes the track and leaves a clean, consistent AppState', as
 });
 
 test('toggling view mode (single <-> collective) via the real wired-up DOM buttons preserves viewport without refitting', async () => {
-  const { window, document } = bootApp();
+  const { window, document } = await bootApp();
   installFakeFileReader(window);
   window.setup();
 
@@ -265,7 +265,7 @@ test('toggling view mode (single <-> collective) via the real wired-up DOM butto
 });
 
 test('GSRCollectiveProject.exportProject() with a loaded track completes successfully (regression test for a fixed bug: suggestedName used to be referenced undeclared, crashing every export)', async () => {
-  const { window } = bootApp();
+  const { window } = await bootApp();
   installFakeFileReader(window);
   window.setup();
 

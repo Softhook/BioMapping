@@ -88,8 +88,8 @@ const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 // In-app Live view display mode (index.html + GSRLayoutManager).
 // ==========================================================================
 
-function bootInAppLive() {
-  const { window } = bootApp();
+async function bootInAppLive() {
+  const { window } = await bootApp();
   installCanvas2D(window);
   window.setup();
   const document = window.document;
@@ -105,7 +105,7 @@ function pressF(window) {
 }
 
 test('Live display mode survives a phone lock/unlock — fullscreen is re-asserted on return', async () => {
-  const { window, document, appContainer, fs } = bootInAppLive();
+  const { window, document, appContainer, fs } = await bootInAppLive();
 
   pressF(window);
   assert.ok(appContainer.classList.contains('live-display-mode'), 'F enters live display mode');
@@ -133,7 +133,7 @@ test('Live display mode survives a phone lock/unlock — fullscreen is re-assert
 });
 
 test('a deliberate exit (browser drops fullscreen while visible) tears down display mode and is NOT resurrected by a later lock/unlock', async () => {
-  const { window, document, appContainer, fs } = bootInAppLive();
+  const { window, document, appContainer, fs } = await bootInAppLive();
 
   pressF(window);
   assert.ok(appContainer.classList.contains('live-display-mode'));
@@ -158,7 +158,7 @@ test('a deliberate exit (browser drops fullscreen while visible) tears down disp
 // ==========================================================================
 
 test('panel display mode re-asserts fullscreen after a lock/unlock', async () => {
-  const { window } = bootApp();
+  const { window } = await bootApp();
   window.setup();
   const doc = window.document;
 
@@ -236,8 +236,8 @@ test('standalone FAB Exit Full Screen clears the sticky target', async () => {
 // File-dialog "Restore Fullscreen" pill (src/ui/tracks.js).
 // ==========================================================================
 
-test('the file-dialog "Restore Fullscreen" pill re-enters fullscreen on click', () => {
-  const { window, document } = bootApp();
+test('the file-dialog "Restore Fullscreen" pill re-enters fullscreen on click', async () => {
+  const { window, document } = await bootApp();
   installCanvas2D(window);
   window.setup();
   const appContainer = document.querySelector('.app-container');

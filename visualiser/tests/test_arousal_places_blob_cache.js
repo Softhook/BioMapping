@@ -15,8 +15,8 @@ const test = require('node:test');
 const assert = require('node:assert');
 const { bootApp } = require('./support/boot_app.js');
 
-function setup() {
-  const { window: w } = bootApp();
+async function setup() {
+  const { window: w } = await bootApp();
   w.setup();
   const mm = w.AppState.mapManager;
   const SC = w.GSRSpatialClustering;
@@ -32,8 +32,8 @@ const members = [
   { lat: 51.5001, lon: -0.1198, amplitude: 0.040 },
 ];
 
-test('_concaveBlobFor: identical inputs hit the memo (one KDE)', () => {
-  const { mm, restore, calls } = setup();
+test('_concaveBlobFor: identical inputs hit the memo (one KDE)', async () => {
+  const { mm, restore, calls } = await setup();
   try {
     const a = mm._concaveBlobFor(members, 12, 18, 0.04);
     const b = mm._concaveBlobFor(members, 12, 18, 0.04);
@@ -42,8 +42,8 @@ test('_concaveBlobFor: identical inputs hit the memo (one KDE)', () => {
   } finally { restore(); }
 });
 
-test('_concaveBlobFor: a tonic-drag-scale amplitude nudge stays in the same bucket → memo hit', () => {
-  const { mm, restore, calls } = setup();
+test('_concaveBlobFor: a tonic-drag-scale amplitude nudge stays in the same bucket → memo hit', async () => {
+  const { mm, restore, calls } = await setup();
   try {
     mm._concaveBlobFor(members, 12, 18, 0.04);
     // every amplitude and the mean scaled by ~0.5 % — the amplitude/mean ratio
@@ -54,8 +54,8 @@ test('_concaveBlobFor: a tonic-drag-scale amplitude nudge stays in the same buck
   } finally { restore(); }
 });
 
-test('_concaveBlobFor: a real geometry change misses the memo', () => {
-  const { mm, restore, calls } = setup();
+test('_concaveBlobFor: a real geometry change misses the memo', async () => {
+  const { mm, restore, calls } = await setup();
   try {
     mm._concaveBlobFor(members, 12, 18, 0.04);
     const moved = members.map((m, i) => i === 0 ? { ...m, lat: m.lat + 0.002 } : m);
@@ -69,8 +69,8 @@ test('_concaveBlobFor: a real geometry change misses the memo', () => {
   } finally { restore(); }
 });
 
-test('_concaveBlobFor: cache is bounded at 256 entries', () => {
-  const { mm, restore } = setup();
+test('_concaveBlobFor: cache is bounded at 256 entries', async () => {
+  const { mm, restore } = await setup();
   try {
     for (let i = 0; i < 300; i++) {
       mm._concaveBlobFor([{ lat: 51.5 + i * 1e-4, lon: -0.12, amplitude: 0.03 }], 12, 18, 0.03);

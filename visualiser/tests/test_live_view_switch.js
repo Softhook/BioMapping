@@ -19,8 +19,8 @@ const assert = require('assert');
 const test = require('node:test');
 const { bootApp } = require('./support/boot_app.js');
 
-function boot(opts) {
-  const { window } = bootApp(opts);
+async function boot(opts) {
+  const { window } = await bootApp(opts);
   // boot_app.js stubs p5 but not a raw 2D canvas context; the live view's
   // drawGraph() needs one the moment its map is shown. Minimal no-op stub,
   // same shape boot_live.js installs.
@@ -46,16 +46,16 @@ function boot(opts) {
   };
 }
 
-test('the Live tab exists in the real index.html markup, alongside Single Track and Collective', () => {
-  const { btnSingle, btnCollective, btnLive } = boot();
+test('the Live tab exists in the real index.html markup, alongside Single Track and Collective', async () => {
+  const { btnSingle, btnCollective, btnLive } = await boot();
   assert.ok(btnSingle, 'btnSingleView present');
   assert.ok(btnCollective, 'btnCollectiveView present');
   assert.ok(btnLive, 'btnLiveView present');
   assert.match(btnLive.textContent.trim(), /Live/);
 });
 
-test('#livePanel starts empty — the live UI is not built until the tab is first opened', () => {
-  const { window, livePanel } = boot();
+test('#livePanel starts empty — the live UI is not built until the tab is first opened', async () => {
+  const { window, livePanel } = await boot();
   assert.ok(livePanel, '#livePanel present');
   assert.strictEqual(livePanel.children.length, 0, 'no live DOM yet');
   assert.ok(!window.GSRLiveView._mounted, 'GSRLiveView not mounted on load');
@@ -70,14 +70,14 @@ test('#livePanel starts empty — the live UI is not built until the tab is firs
 // actually wants to browse/load a CSV.
 // ==========================================================================
 
-test('a desktop boot (the default matchMedia stub) still lands on Single Track, as today', () => {
-  const { window } = boot();
+test('a desktop boot (the default matchMedia stub) still lands on Single Track, as today', async () => {
+  const { window } = await boot();
   assert.strictEqual(window.AppState.viewMode, 'single');
   assert.ok(!window.GSRLiveView._mounted, 'Live was never auto-entered');
 });
 
-test('a compact/coarse-pointer boot lands directly on Live — mounted, activated, and the active tab', () => {
-  const { window, layout, btnSingle, btnLive, livePanel } = boot({ compact: true });
+test('a compact/coarse-pointer boot lands directly on Live — mounted, activated, and the active tab', async () => {
+  const { window, layout, btnSingle, btnLive, livePanel } = await boot({ compact: true });
   assert.strictEqual(window.AppState.viewMode, 'live');
   assert.ok(layout.classList.contains('live-mode'));
   assert.ok(btnLive.classList.contains('active'));
@@ -86,8 +86,8 @@ test('a compact/coarse-pointer boot lands directly on Live — mounted, activate
   assert.ok(livePanel.querySelector('#statusBadge'), 'the live UI was actually built into the panel');
 });
 
-test('a compact boot still leaves the Single/Collective/Live tab row clickable — one tap back to Single Track', () => {
-  const { window, layout, btnSingle, btnLive, click } = boot({ compact: true });
+test('a compact boot still leaves the Single/Collective/Live tab row clickable — one tap back to Single Track', async () => {
+  const { window, layout, btnSingle, btnLive, click } = await boot({ compact: true });
   assert.strictEqual(window.AppState.viewMode, 'live');
 
   click(btnSingle);
@@ -98,8 +98,8 @@ test('a compact boot still leaves the Single/Collective/Live tab row clickable �
   assert.ok(!btnLive.classList.contains('active'));
 });
 
-test('clicking Live switches viewMode, adds the live-mode class, moves the active tab, and mounts the live UI', () => {
-  const { window, layout, btnSingle, btnCollective, btnLive, livePanel, click } = boot();
+test('clicking Live switches viewMode, adds the live-mode class, moves the active tab, and mounts the live UI', async () => {
+  const { window, layout, btnSingle, btnCollective, btnLive, livePanel, click } = await boot();
   assert.strictEqual(window.AppState.viewMode, 'single');
 
   click(btnLive);
@@ -115,8 +115,8 @@ test('clicking Live switches viewMode, adds the live-mode class, moves the activ
   assert.ok(livePanel.querySelector('#statusBadge'), 'the live UI was built into the panel');
 });
 
-test('clicking Live twice is a no-op the second time (guarded on viewMode)', () => {
-  const { window, layout, btnLive, click } = boot();
+test('clicking Live twice is a no-op the second time (guarded on viewMode)', async () => {
+  const { window, layout, btnLive, click } = await boot();
   click(btnLive);
   assert.doesNotThrow(() => click(btnLive));
   assert.strictEqual(window.AppState.viewMode, 'live');
@@ -124,8 +124,8 @@ test('clicking Live twice is a no-op the second time (guarded on viewMode)', () 
   assert.ok(btnLive.classList.contains('active'));
 });
 
-test('switching Live -> Single tears down live-mode and restores the single view', () => {
-  const { window, layout, btnSingle, btnLive, click } = boot();
+test('switching Live -> Single tears down live-mode and restores the single view', async () => {
+  const { window, layout, btnSingle, btnLive, click } = await boot();
   click(btnLive);
   click(btnSingle);
 
@@ -136,8 +136,8 @@ test('switching Live -> Single tears down live-mode and restores the single view
   assert.ok(!btnLive.classList.contains('active'), 'Live tab deactivated');
 });
 
-test('switching Live -> Collective tears down live-mode and enters collective-mode', () => {
-  const { window, layout, btnCollective, btnLive, click } = boot();
+test('switching Live -> Collective tears down live-mode and enters collective-mode', async () => {
+  const { window, layout, btnCollective, btnLive, click } = await boot();
   click(btnLive);
   click(btnCollective);
 
@@ -148,8 +148,8 @@ test('switching Live -> Collective tears down live-mode and enters collective-mo
   assert.ok(!btnLive.classList.contains('active'), 'Live tab deactivated');
 });
 
-test('the live UI stays mounted once built — Live -> Collective -> Live does not rebuild it', () => {
-  const { window, btnCollective, btnLive, livePanel, click } = boot();
+test('the live UI stays mounted once built — Live -> Collective -> Live does not rebuild it', async () => {
+  const { window, btnCollective, btnLive, livePanel, click } = await boot();
   click(btnLive);
   const badge = livePanel.querySelector('#statusBadge');
   assert.ok(badge, 'built on first open');
@@ -161,8 +161,8 @@ test('the live UI stays mounted once built — Live -> Collective -> Live does n
   assert.strictEqual(window.AppState.viewMode, 'live');
 });
 
-test('the live view keyboard shortcuts only fire while Live is the active view', () => {
-  const { window, document, btnSingle, btnLive, livePanel, click } = boot();
+test('the live view keyboard shortcuts only fire while Live is the active view', async () => {
+  const { window, document, btnSingle, btnLive, livePanel, click } = await boot();
   const key = (k) => window.dispatchEvent(new window.KeyboardEvent('keydown', { key: k, bubbles: true }));
 
   click(btnLive); // mounts + Live is active
@@ -178,14 +178,14 @@ test('the live view keyboard shortcuts only fire while Live is the active view',
   assert.notStrictEqual(mapBtn.textContent, labelWhileLive, '"m" toggles the map again once Live is active');
 });
 
-test('the live panel ships no fullscreen button of its own — the top-bar Full screen button / GSRLayoutManager cover it', () => {
-  const { btnLive, livePanel, click } = boot();
+test('the live panel ships no fullscreen button of its own — the top-bar Full screen button / GSRLayoutManager cover it', async () => {
+  const { btnLive, livePanel, click } = await boot();
   click(btnLive);
   assert.strictEqual(livePanel.querySelector('#toggleFullscreenBtn'), null);
 });
 
-test('in-app the F key puts the Live view into edge-to-edge display mode (header hidden + .app-container fullscreen)', () => {
-  const { window, document, btnLive, click } = boot();
+test('in-app the F key puts the Live view into edge-to-edge display mode (header hidden + .app-container fullscreen)', async () => {
+  const { window, document, btnLive, click } = await boot();
   const appContainer = document.querySelector('.app-container');
   let appReqs = 0, docElReqs = 0;
   appContainer.requestFullscreen = () => { appReqs++; return Promise.resolve(); };
@@ -203,8 +203,8 @@ test('in-app the F key puts the Live view into edge-to-edge display mode (header
   assert.ok(!appContainer.classList.contains('live-display-mode'), 'F again exits display mode');
 });
 
-test('leaving the Live view clears live display mode', () => {
-  const { window, document, btnSingle, btnLive, click } = boot();
+test('leaving the Live view clears live display mode', async () => {
+  const { window, document, btnSingle, btnLive, click } = await boot();
   const appContainer = document.querySelector('.app-container');
   appContainer.requestFullscreen = () => Promise.resolve();
   document.exitFullscreen = () => Promise.resolve();
@@ -217,8 +217,8 @@ test('leaving the Live view clears live display mode', () => {
   assert.ok(!appContainer.classList.contains('live-display-mode'), 'display mode does not leak into Single view');
 });
 
-test('leaving the Live view stands the live controller down (deactivate)', () => {
-  const { window, btnSingle, btnLive, click } = boot();
+test('leaving the Live view stands the live controller down (deactivate)', async () => {
+  const { window, btnSingle, btnLive, click } = await boot();
   click(btnLive);
   window.GSRLiveView.activate();
   let deactivated = 0;
@@ -235,8 +235,8 @@ test('leaving the Live view stands the live controller down (deactivate)', () =>
   assert.strictEqual(passedInAppSwitch, true, 'deactivate called with inAppSwitch = true');
 });
 
-test('the mobile hamburger toggles the .sidebar-open drawer class and its aria-expanded state', () => {
-  const { document, layout, click } = boot();
+test('the mobile hamburger toggles the .sidebar-open drawer class and its aria-expanded state', async () => {
+  const { document, layout, click } = await boot();
   const toggle = document.getElementById('btnSidebarToggle');
   const backdrop = document.getElementById('sidebarBackdrop');
   assert.ok(toggle, '#btnSidebarToggle present in the markup');
@@ -252,8 +252,8 @@ test('the mobile hamburger toggles the .sidebar-open drawer class and its aria-e
   assert.strictEqual(toggle.getAttribute('aria-expanded'), 'false');
 });
 
-test('entering Live hides the mobile hamburger and closes the drawer; leaving restores it', () => {
-  const { document, layout, btnSingle, btnLive, click } = boot();
+test('entering Live hides the mobile hamburger and closes the drawer; leaving restores it', async () => {
+  const { document, layout, btnSingle, btnLive, click } = await boot();
   const toggle = document.getElementById('btnSidebarToggle');
   click(toggle); // open the drawer first
   assert.ok(layout.classList.contains('sidebar-open'));
@@ -266,8 +266,8 @@ test('entering Live hides the mobile hamburger and closes the drawer; leaving re
   assert.strictEqual(toggle.hidden, false, 'hamburger restored when controls are reachable again');
 });
 
-test('entering Live mode stops the p5 draw loop (noLoop), leaving the canvas idle', () => {
-  const { window, btnLive, click } = boot();
+test('entering Live mode stops the p5 draw loop (noLoop), leaving the canvas idle', async () => {
+  const { window, btnLive, click } = await boot();
   let noLoopCalls = 0;
   const realNoLoop = window.noLoop;
   window.noLoop = (...a) => { noLoopCalls++; return realNoLoop && realNoLoop.apply(window, a); };
@@ -277,8 +277,8 @@ test('entering Live mode stops the p5 draw loop (noLoop), leaving the canvas idl
   assert.ok(noLoopCalls >= 1, 'noLoop() called on entering Live view');
 });
 
-test('header status badge exists and updates with connection status in live mode', () => {
-  const { window, document, btnLive, click } = boot();
+test('header status badge exists and updates with connection status in live mode', async () => {
+  const { window, document, btnLive, click } = await boot();
   const headerBadge = document.getElementById('appHeaderStatusBadge');
   assert.ok(headerBadge, '#appHeaderStatusBadge present in header-left');
 
@@ -296,8 +296,8 @@ test('header status badge exists and updates with connection status in live mode
   assert.ok(headerBadge.classList.contains('bad'));
 });
 
-test('clicking #btnFullscreen in live mode toggles live-display-mode edge-to-edge', () => {
-  const { window, document, btnLive, click } = boot();
+test('clicking #btnFullscreen in live mode toggles live-display-mode edge-to-edge', async () => {
+  const { window, document, btnLive, click } = await boot();
   const appContainer = document.querySelector('.app-container');
   appContainer.requestFullscreen = () => Promise.resolve();
   document.exitFullscreen = () => Promise.resolve();
@@ -317,8 +317,8 @@ test('clicking #btnFullscreen in live mode toggles live-display-mode edge-to-edg
   assert.ok(!btnFs.classList.contains('is-fullscreen'));
 });
 
-test('in live-display-mode, FAB menu offers Exit Full Screen chip and toolbar offers Exit button', () => {
-  const { window, document, btnLive, click } = boot();
+test('in live-display-mode, FAB menu offers Exit Full Screen chip and toolbar offers Exit button', async () => {
+  const { window, document, btnLive, click } = await boot();
   const appContainer = document.querySelector('.app-container');
   appContainer.requestFullscreen = () => Promise.resolve();
   document.exitFullscreen = () => Promise.resolve();
@@ -347,8 +347,8 @@ test('in live-display-mode, FAB menu offers Exit Full Screen chip and toolbar of
   assert.ok(!appContainer.classList.contains('live-display-mode'), 'clicking toolbar exit button exits display mode');
 });
 
-test('GSRLiveView.deactivate(true) pauses canvas loop without dropping BLE connection or changing status to disconnected', () => {
-  const { window, btnLive, click } = boot();
+test('GSRLiveView.deactivate(true) pauses canvas loop without dropping BLE connection or changing status to disconnected', async () => {
+  const { window, btnLive, click } = await boot();
   click(btnLive);
   window.LiveState.setStatus('connected');
 
@@ -366,8 +366,8 @@ test('GSRLiveView.deactivate(true) pauses canvas loop without dropping BLE conne
   assert.strictEqual(window.GSRLiveView.isViewActive(), false, 'viewActive is false');
 });
 
-test('GSRLiveView.deactivate(false) fully disconnects BLE and sets status to disconnected', () => {
-  const { window, btnLive, click } = boot();
+test('GSRLiveView.deactivate(false) fully disconnects BLE and sets status to disconnected', async () => {
+  const { window, btnLive, click } = await boot();
   click(btnLive);
   window.LiveState.setStatus('connected');
 

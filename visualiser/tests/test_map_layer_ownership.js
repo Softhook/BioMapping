@@ -255,9 +255,9 @@ function installRecordingLeaflet(window) {
 // binding so the tests exercise a deterministic surface: paths+peaks+hotspots.
 // jsdom canvases have no 2d context, but the collective surface renderer needs
 // one (fillStyle/fillRect) plus a toDataURL for the image overlay.
-function bootWithRecordingL() {
-  const { window, context } = bootApp();
-  vm.runInContext('RFFluidRenderer = undefined; GSRSpatialClustering = undefined;', context);
+async function bootWithRecordingL() {
+  const { window } = await bootApp();
+  vm.runInThisContext('RFFluidRenderer = undefined; GSRSpatialClustering = undefined;');
   window.HTMLCanvasElement.prototype.getContext = () => ({ fillStyle: '', fillRect() {} });
   window.HTMLCanvasElement.prototype.toDataURL = () => 'data:image/png;base64,AA==';
   const { map } = installRecordingLeaflet(window);
@@ -268,9 +268,9 @@ function bootWithRecordingL() {
 // Same as bootWithRecordingL() but leaves GSRSpatialClustering defined — used
 // only by the skipClustering tests below, which need real cluster-blob
 // layers to assert survive-by-reference (vs. replaced) behavior.
-function bootWithRecordingLClusteringOn() {
-  const { window, context } = bootApp();
-  vm.runInContext('RFFluidRenderer = undefined;', context);
+async function bootWithRecordingLClusteringOn() {
+  const { window } = await bootApp();
+  vm.runInThisContext('RFFluidRenderer = undefined;');
   window.HTMLCanvasElement.prototype.getContext = () => ({ fillStyle: '', fillRect() {} });
   window.HTMLCanvasElement.prototype.toDataURL = () => 'data:image/png;base64,AA==';
   const { map } = installRecordingLeaflet(window);
@@ -293,8 +293,8 @@ function addTrack(window, id, name, csvText) {
   return track;
 }
 
-test('slice1: single-track render owns path/peak/hotspot layers in track.layerGroup', () => {
-  const { window, map, mapManager } = bootWithRecordingL();
+test('slice1: single-track render owns path/peak/hotspot layers in track.layerGroup', async () => {
+  const { window, map, mapManager } = await bootWithRecordingL();
   const track = addTrack(window, 't1', 't1.csv', SAMPLE_CSV);
 
   // Fixture self-check: the ownership assertions below are only meaningful if
@@ -327,8 +327,8 @@ test('slice1: single-track render owns path/peak/hotspot layers in track.layerGr
   });
 });
 
-test('slice1: peak/hotspot visibility toggles operate on the track.layerGroup', () => {
-  const { window, map, mapManager } = bootWithRecordingL();
+test('slice1: peak/hotspot visibility toggles operate on the track.layerGroup', async () => {
+  const { window, map, mapManager } = await bootWithRecordingL();
   const track = addTrack(window, 't1', 't1.csv', SAMPLE_CSV);
   mapManager.renderData(track.analyzer, track.gpsFilterParams);
 
@@ -378,8 +378,8 @@ test('slice1: peak/hotspot visibility toggles operate on the track.layerGroup', 
   });
 });
 
-test('slice1: clearMap removes every track.layerGroup from the map and nulls it', () => {
-  const { window, map, mapManager } = bootWithRecordingL();
+test('slice1: clearMap removes every track.layerGroup from the map and nulls it', async () => {
+  const { window, map, mapManager } = await bootWithRecordingL();
   const track = addTrack(window, 't1', 't1.csv', SAMPLE_CSV);
   mapManager.renderData(track.analyzer, track.gpsFilterParams);
 
@@ -395,8 +395,8 @@ test('slice1: clearMap removes every track.layerGroup from the map and nulls it'
   assert.deepStrictEqual(map.renderKindsOnMap(), [], 'no path/peak/hotspot layers should remain on the map');
 });
 
-test('orphan-fix: clearMap removes legacy no-track-fallback layers, not just the tracking array reference', () => {
-  const { window, map, mapManager } = bootWithRecordingL();
+test('orphan-fix: clearMap removes legacy no-track-fallback layers, not just the tracking array reference', async () => {
+  const { window, map, mapManager } = await bootWithRecordingL();
 
   const analyzer = new window.GSRAnalyzer();
   analyzer.parseCSV(SAMPLE_CSV);
@@ -422,8 +422,8 @@ test('orphan-fix: clearMap removes legacy no-track-fallback layers, not just the
     'clearMap must remove legacy no-track layers from the map, not just drop the tracking array reference');
 });
 
-test('slice1: deleteTrack removes the track layerGroup from the map', () => {
-  const { window, map, mapManager } = bootWithRecordingL();
+test('slice1: deleteTrack removes the track layerGroup from the map', async () => {
+  const { window, map, mapManager } = await bootWithRecordingL();
   const track = addTrack(window, 't1', 't1.csv', SAMPLE_CSV);
   mapManager.renderData(track.analyzer, track.gpsFilterParams);
 
@@ -438,8 +438,8 @@ test('slice1: deleteTrack removes the track layerGroup from the map', () => {
   assert.deepStrictEqual(map.renderKindsOnMap(), [], 'no render layers should remain on the map');
 });
 
-test('slice1: re-rendering the same track leaves exactly one on-map layerGroup', () => {
-  const { window, map, mapManager } = bootWithRecordingL();
+test('slice1: re-rendering the same track leaves exactly one on-map layerGroup', async () => {
+  const { window, map, mapManager } = await bootWithRecordingL();
   const track = addTrack(window, 't1', 't1.csv', SAMPLE_CSV);
   mapManager.renderData(track.analyzer, track.gpsFilterParams);
   const group1 = track.layerGroup;
@@ -456,8 +456,8 @@ test('slice1: re-rendering the same track leaves exactly one on-map layerGroup',
     'render layers on the map should exactly match the new group contents');
 });
 
-test('slice2: collective render gives each active track its own on-map layerGroup', () => {
-  const { window, map, mapManager } = bootWithRecordingL();
+test('slice2: collective render gives each active track its own on-map layerGroup', async () => {
+  const { window, map, mapManager } = await bootWithRecordingL();
   const trackA = addTrack(window, 'A', 'a.csv', SAMPLE_CSV);
   const trackB = addTrack(window, 'B', 'b.csv', SAMPLE_CSV);
 
@@ -490,8 +490,8 @@ test('slice2: collective render gives each active track its own on-map layerGrou
   trackB.layerGroup.getLayers().forEach(l => assert.ok(map.hasLayer(l), `B ${l._gsrKind} should be on the map`));
 });
 
-test('slice2: re-rendering collective without a removed track leaves no stale group behind', () => {
-  const { window, map, mapManager } = bootWithRecordingL();
+test('slice2: re-rendering collective without a removed track leaves no stale group behind', async () => {
+  const { window, map, mapManager } = await bootWithRecordingL();
   const trackA = addTrack(window, 'A', 'a.csv', SAMPLE_CSV);
   const trackB = addTrack(window, 'B', 'b.csv', SAMPLE_CSV);
 
@@ -512,8 +512,8 @@ test('slice2: re-rendering collective without a removed track leaves no stale gr
     'only track A render layers should remain on the map');
 });
 
-test('slice2: toggling showTracks removes only the collective path layers (via their groups)', () => {
-  const { window, map, mapManager } = bootWithRecordingL();
+test('slice2: toggling showTracks removes only the collective path layers (via their groups)', async () => {
+  const { window, map, mapManager } = await bootWithRecordingL();
   const trackA = addTrack(window, 'A', 'a.csv', SAMPLE_CSV);
   const trackB = addTrack(window, 'B', 'b.csv', SAMPLE_CSV);
 
@@ -545,7 +545,7 @@ test('slice2: toggling showTracks removes only the collective path layers (via t
   });
 });
 
-test('slice2: surface overlay is recreated on render while hidden, so it can be toggled back on', () => {
+test('slice2: surface overlay is recreated on render while hidden, so it can be toggled back on', async () => {
   // Regression for: "delete a track while the collective surface is off, and
   // the surface won't come back when toggled on." renderContours() used to gate
   // overlay *creation* on the button's showShadedSurface, but every render
@@ -553,7 +553,7 @@ test('slice2: surface overlay is recreated on render while hidden, so it can be 
   // hidden (exactly what deleteTrack triggers via updateCollectiveMap) left
   // surfaceOverlay null, and toggleSurface(true)'s `if (!this.surfaceOverlay)
   // return;` had nothing to re-add.
-  const { window, map, mapManager } = bootWithRecordingL();
+  const { window, map, mapManager } = await bootWithRecordingL();
   addTrack(window, 'A', 'a.csv', SAMPLE_CSV);
   addTrack(window, 'B', 'b.csv', SAMPLE_CSV);
 
@@ -578,8 +578,8 @@ test('slice2: surface overlay is recreated on render while hidden, so it can be 
   assert.ok(map.hasLayer(mapManager.surfaceOverlay), 'surface overlay should reappear when toggled on');
 });
 
-test('slice3: getRenderLayers() derives the per-track layers from the layerGroups (single)', () => {
-  const { window, map, mapManager } = bootWithRecordingL();
+test('slice3: getRenderLayers() derives the per-track layers from the layerGroups (single)', async () => {
+  const { window, map, mapManager } = await bootWithRecordingL();
   const track = addTrack(window, 't1', 't1.csv', SAMPLE_CSV);
   mapManager.renderData(track.analyzer, track.gpsFilterParams);
 
@@ -608,8 +608,8 @@ test('slice3: getRenderLayers() derives the per-track layers from the layerGroup
   });
 });
 
-test('slice3: getRenderLayers() derives the collective layers from each track group', () => {
-  const { window, map, mapManager } = bootWithRecordingL();
+test('slice3: getRenderLayers() derives the collective layers from each track group', async () => {
+  const { window, map, mapManager } = await bootWithRecordingL();
   const trackA = addTrack(window, 'A', 'a.csv', SAMPLE_CSV);
   const trackB = addTrack(window, 'B', 'b.csv', SAMPLE_CSV);
   mapManager.renderCollectiveData(window.AppState.collectiveManager, { showShadedSurface: false }, 0);
@@ -625,8 +625,8 @@ test('slice3: getRenderLayers() derives the collective layers from each track gr
   allGroupLayers.forEach(l => assert.ok(renderSet.has(l), `${l._gsrKind} should be exposed via getRenderLayers()`));
 });
 
-test('slice3: getPeakMarkerByIndex resolves the marker for a peak index', () => {
-  const { window, map, mapManager } = bootWithRecordingL();
+test('slice3: getPeakMarkerByIndex resolves the marker for a peak index', async () => {
+  const { window, map, mapManager } = await bootWithRecordingL();
   const track = addTrack(window, 't1', 't1.csv', SAMPLE_CSV);
   mapManager.renderData(track.analyzer, track.gpsFilterParams);
 
@@ -639,11 +639,11 @@ test('slice3: getPeakMarkerByIndex resolves the marker for a peak index', () => 
     'an out-of-range peak index should resolve to null (no crash)');
 });
 
-test('slice3: clearCollectiveLayers clears the per-track layerGroups (stale-group fix)', () => {
+test('slice3: clearCollectiveLayers clears the per-track layerGroups (stale-group fix)', async () => {
   // Regression for: uncheck the last track in collective view -> ui.js calls
   // clearCollectiveLayers() and returns (no re-render), so the previous
   // render's per-track groups used to linger on the map.
-  const { window, map, mapManager } = bootWithRecordingL();
+  const { window, map, mapManager } = await bootWithRecordingL();
   const track = addTrack(window, 'A', 'a.csv', SAMPLE_CSV);
   mapManager.renderCollectiveData(window.AppState.collectiveManager, { showShadedSurface: false }, 0);
   const group = track.layerGroup;
@@ -657,20 +657,20 @@ test('slice3: clearCollectiveLayers clears the per-track layerGroups (stale-grou
   assert.deepStrictEqual(map.renderKindsOnMap(), [], 'no render layers should remain on the map');
 });
 
-test('slice3: fitToTrack still fits the rendered paths without the flat arrays', () => {
-  const { window, map, mapManager } = bootWithRecordingL();
+test('slice3: fitToTrack still fits the rendered paths without the flat arrays', async () => {
+  const { window, map, mapManager } = await bootWithRecordingL();
   const track = addTrack(window, 't1', 't1.csv', SAMPLE_CSV);
   mapManager.renderData(track.analyzer, track.gpsFilterParams);
   assert.doesNotThrow(() => mapManager.fitToTrack(), 'fitToTrack should work off the derived paths');
 });
 
-test('slice3: the single-track path always renders regardless of showTracks (toggle is collective-only)', () => {
+test('slice3: the single-track path always renders regardless of showTracks (toggle is collective-only)', async () => {
   // Regression: gating the single-track path on showTracks meant a leftover
   // showTracks=false from a collective toggle hid the active track's path in
   // single mode — with no way to restore it (the Tracks button is hidden in
   // single view). The single path always renders; toggleTracks only affects
   // collective paths.
-  const { window, map, mapManager } = bootWithRecordingL();
+  const { window, map, mapManager } = await bootWithRecordingL();
   const track = addTrack(window, 't1', 't1.csv', SAMPLE_CSV);
 
   mapManager.showTracks = false;
@@ -685,7 +685,7 @@ test('slice3: the single-track path always renders regardless of showTracks (tog
     'toggling tracks off must not hide the single-track path');
 });
 
-test('slice3: renderData renders peaks/hotspots even when every GPS fix is quality-gated out', () => {
+test('slice3: renderData renders peaks/hotspots even when every GPS fix is quality-gated out', async () => {
   // Regression for: "a track in single mode where I couldn't see any of the
   // peaks." Some real tracks have ALL GPS fixes dropped by the quality gates
   // (e.g. every HDOP > the 3.0 default), so the GPS pipeline returns an empty
@@ -695,7 +695,7 @@ test('slice3: renderData renders peaks/hotspots even when every GPS fix is quali
   // analyzer.getCoordinates, independent of the filter pipeline. The map must
   // still show the track's events (peaks + hotspots) when there's no drawable
   // path.
-  const { window, map, mapManager } = bootWithRecordingL();
+  const { window, map, mapManager } = await bootWithRecordingL();
 
   // Same SCR fixture as SAMPLE_CSV but with HDOP 9.0 on every fix — well above
   // the default gate (GPS_DEFAULT.maxHdop = 3.0), so the whole path is gated.
@@ -735,7 +735,7 @@ test('slice3: renderData renders peaks/hotspots even when every GPS fix is quali
   assert.ok(mapManager.getPeakMarkerByIndex(0), 'peak index 0 should resolve to a rendered marker');
 });
 
-test('slice3: peaks/hotspots hidden at render time still route through the track group (removal-safe)', () => {
+test('slice3: peaks/hotspots hidden at render time still route through the track group (removal-safe)', async () => {
   // Regression for: "in collective view I removed all the tracks and all the
   // peaks and hotspots were left behind." When peaks/hotspots were toggled OFF
   // at render time, their markers were created but never tagged with
@@ -744,7 +744,7 @@ test('slice3: peaks/hotspots hidden at render time still route through the track
   // direct-to-map add — so removing the track (which removes only its
   // layerGroup) left those peaks/hotspots on the map. The group tag must be
   // applied regardless of visibility.
-  const { window, map, mapManager } = bootWithRecordingL();
+  const { window, map, mapManager } = await bootWithRecordingL();
   addTrack(window, 'A', 'a.csv', SAMPLE_CSV);
   addTrack(window, 'B', 'b.csv', SAMPLE_CSV);
   window.AppState.activeTrackId = 'A';
@@ -791,7 +791,7 @@ test('slice3: peaks/hotspots hidden at render time still route through the track
   assert.strictEqual(map._groups.size, 0, 'no on-map groups should remain');
 });
 
-test('slice3: RF Fluid button stays in sync with showRFFluid across no-RF→RF renders', () => {
+test('slice3: RF Fluid button stays in sync with showRFFluid across no-RF→RF renders', async () => {
   // Regression for: "RF fluid visible on the loaded track even when the button
   // is not pressed, in collective mode." _updateRfFluidButtonState(false) (a
   // no-RF track) used to clear the button's 'active' class and disable it while
@@ -800,7 +800,7 @@ test('slice3: RF Fluid button stays in sync with showRFFluid across no-RF→RF r
   // data) re-enabled the button but did NOT restore its pressed state — so the
   // fluid rendered behind an "unpressed" button with no way to turn it off.
   // The button + renderer must be re-synced to the real showRFFluid value.
-  const { window, mapManager } = bootWithRecordingL();
+  const { window, mapManager } = await bootWithRecordingL();
   const btn = window.document.getElementById('btnToggleRFFluid');
   assert.ok(btn, 'RF Fluid button should exist in the booted DOM');
 
@@ -834,13 +834,13 @@ test('slice3: RF Fluid button stays in sync with showRFFluid across no-RF→RF r
   assert.ok(!mapManager.showRFFluid, 'showRFFluid stays false after user toggled off');
 });
 
-test('slice3: entering collective (0 active tracks) drops a lingering scrub marker', () => {
+test('slice3: entering collective (0 active tracks) drops a lingering scrub marker', async () => {
   // Regression for: "black pulsing dot on the map while not in the scrub graph
   // window." Hovering the single-track graph shows the map scrub indicator;
   // entering collective with 0 active tracks calls clearCollectiveLayers() (not
   // clearMap), which used to leave that marker on the map — and with noLoop()
   // stopping handleScrubber there, nothing ever hid it.
-  const { window, map, mapManager } = bootWithRecordingL();
+  const { window, map, mapManager } = await bootWithRecordingL();
   addTrack(window, 'A', 'a.csv', SAMPLE_CSV);
 
   // Show the scrub indicator (as if hovering the graph in single mode).
@@ -863,8 +863,8 @@ test('slice3: entering collective (0 active tracks) drops a lingering scrub mark
 // layers must be fully replaced (proving the label/collision change actually
 // took effect), and nothing is left orphaned or duplicated on the map.
 
-test('refreshPeakMarkers: rebuilds only peak/connector layers, leaving path and hotspot layers untouched', () => {
-  const { window, map, mapManager } = bootWithRecordingL();
+test('refreshPeakMarkers: rebuilds only peak/connector layers, leaving path and hotspot layers untouched', async () => {
+  const { window, map, mapManager } = await bootWithRecordingL();
   const track = addTrack(window, 't1', 't1.csv', SAMPLE_CSV);
   mapManager.renderData(track.analyzer, track.gpsFilterParams);
 
@@ -902,8 +902,8 @@ test('refreshPeakMarkers: rebuilds only peak/connector layers, leaving path and 
     'group contains only path+hotspot+peak/connector layers — nothing orphaned or duplicated');
 });
 
-test('refreshPeakMarkers: falls back to a full renderData() when there is no resolvable active track', () => {
-  const { window, map, mapManager } = bootWithRecordingL();
+test('refreshPeakMarkers: falls back to a full renderData() when there is no resolvable active track', async () => {
+  const { window, map, mapManager } = await bootWithRecordingL();
   const track = addTrack(window, 't1', 't1.csv', SAMPLE_CSV);
   mapManager.renderData(track.analyzer, track.gpsFilterParams);
 
@@ -919,8 +919,8 @@ test('refreshPeakMarkers: falls back to a full renderData() when there is no res
   assert.ok(kinds.includes('hotspot'), 'fallback renderData() still renders hotspots');
 });
 
-test('updatePeakLabel (ui.js): commits a label via refreshPeakMarkers, not a full renderData() rebuild', () => {
-  const { window, map, mapManager } = bootWithRecordingL();
+test('updatePeakLabel (ui.js): commits a label via refreshPeakMarkers, not a full renderData() rebuild', async () => {
+  const { window, map, mapManager } = await bootWithRecordingL();
   const track = addTrack(window, 't1', 't1.csv', SAMPLE_CSV);
   window.AppState.viewMode = 'single';
   mapManager.renderData(track.analyzer, track.gpsFilterParams);
@@ -947,8 +947,8 @@ test('updatePeakLabel (ui.js): commits a label via refreshPeakMarkers, not a ful
 // changes one peak marker's styling, so it should go through
 // refreshPeakMarkers() too, not a full renderData() rebuild.
 
-test('togglePeakExclusion (ui.js): commits via refreshPeakMarkers, not a full renderData() rebuild', () => {
-  const { window, map, mapManager } = bootWithRecordingL();
+test('togglePeakExclusion (ui.js): commits via refreshPeakMarkers, not a full renderData() rebuild', async () => {
+  const { window, map, mapManager } = await bootWithRecordingL();
   const track = addTrack(window, 't1', 't1.csv', SAMPLE_CSV);
   window.AppState.viewMode = 'single';
   mapManager.renderData(track.analyzer, track.gpsFilterParams);
@@ -982,8 +982,8 @@ test('togglePeakExclusion (ui.js): commits via refreshPeakMarkers, not a full re
 // bootWithRecordingL() (which nulls GSRSpatialClustering out of scope for
 // every other test in this file).
 
-test('updatePeakLabel (ui.js): a label edit leaves existing Arousal Place layers untouched by reference', () => {
-  const { window, mapManager } = bootWithRecordingLClusteringOn();
+test('updatePeakLabel (ui.js): a label edit leaves existing Arousal Place layers untouched by reference', async () => {
+  const { window, mapManager } = await bootWithRecordingLClusteringOn();
   const track = addTrack(window, 't1', 't1.csv', CLUSTER_CSV);
   window.AppState.viewMode = 'single';
   mapManager.renderData(track.analyzer, track.gpsFilterParams);
@@ -998,8 +998,8 @@ test('updatePeakLabel (ui.js): a label edit leaves existing Arousal Place layers
     'a label edit must not recompute Arousal Places — the clusterer input (lat/lon/amplitude) is unaffected by a label');
 });
 
-test('togglePeakExclusion (ui.js): an exclusion toggle DOES recompute Arousal Place layers (clusterer input changed)', () => {
-  const { window, mapManager } = bootWithRecordingLClusteringOn();
+test('togglePeakExclusion (ui.js): an exclusion toggle DOES recompute Arousal Place layers (clusterer input changed)', async () => {
+  const { window, mapManager } = await bootWithRecordingLClusteringOn();
   const track = addTrack(window, 't1', 't1.csv', CLUSTER_CSV);
   window.AppState.viewMode = 'single';
   mapManager.renderData(track.analyzer, track.gpsFilterParams);
@@ -1016,8 +1016,8 @@ test('togglePeakExclusion (ui.js): an exclusion toggle DOES recompute Arousal Pl
     'toggling exclusion must recompute Arousal Places, unlike a label edit');
 });
 
-test('refreshPeakMarkers({ skipClustering: true }): replaces peak/connector layers exactly like the default call, only clustering differs', () => {
-  const { window, map, mapManager } = bootWithRecordingLClusteringOn();
+test('refreshPeakMarkers({ skipClustering: true }): replaces peak/connector layers exactly like the default call, only clustering differs', async () => {
+  const { window, map, mapManager } = await bootWithRecordingLClusteringOn();
   const track = addTrack(window, 't1', 't1.csv', SAMPLE_CSV);
   mapManager.renderData(track.analyzer, track.gpsFilterParams);
 
@@ -1063,8 +1063,8 @@ function spyOnArousalCompute(window) {
   };
 }
 
-test('_renderArousalPlacesFor: an unchanged re-render reuses the cache (no re-cluster / re-score / re-blob)', () => {
-  const { window, mapManager } = bootWithRecordingLClusteringOn();
+test('_renderArousalPlacesFor: an unchanged re-render reuses the cache (no re-cluster / re-score / re-blob)', async () => {
+  const { window, mapManager } = await bootWithRecordingLClusteringOn();
   const track = addTrack(window, 't1', 't1.csv', CLUSTER_CSV);
   window.AppState.viewMode = 'single';
   mapManager.renderData(track.analyzer, track.gpsFilterParams);
@@ -1088,8 +1088,8 @@ test('_renderArousalPlacesFor: an unchanged re-render reuses the cache (no re-cl
     'a cache hit still yields fresh Leaflet layer instances (clearMap removed the old ones)');
 });
 
-test('_renderArousalPlacesFor: toggling peak exclusion misses the cache (active-peak set changed)', () => {
-  const { window, mapManager } = bootWithRecordingLClusteringOn();
+test('_renderArousalPlacesFor: toggling peak exclusion misses the cache (active-peak set changed)', async () => {
+  const { window, mapManager } = await bootWithRecordingLClusteringOn();
   const track = addTrack(window, 't1', 't1.csv', CLUSTER_CSV);
   window.AppState.viewMode = 'single';
   mapManager.renderData(track.analyzer, track.gpsFilterParams);
@@ -1105,8 +1105,8 @@ test('_renderArousalPlacesFor: toggling peak exclusion misses the cache (active-
   assert.strictEqual(spy.counts.compactClusters, 1, 'an exclusion toggle forces exactly one re-cluster');
 });
 
-test('refreshArousalPlaces(): rebuilds only the Arousal Place layers, leaving path/peak/hotspot untouched', () => {
-  const { window, map, mapManager } = bootWithRecordingLClusteringOn();
+test('refreshArousalPlaces(): rebuilds only the Arousal Place layers, leaving path/peak/hotspot untouched', async () => {
+  const { window, map, mapManager } = await bootWithRecordingLClusteringOn();
   const track = addTrack(window, 't1', 't1.csv', CLUSTER_CSV);
   window.AppState.viewMode = 'single';
   mapManager.renderData(track.analyzer, track.gpsFilterParams);
@@ -1131,8 +1131,8 @@ test('refreshArousalPlaces(): rebuilds only the Arousal Place layers, leaving pa
     'Arousal Place layers rebuilt as fresh instances');
 });
 
-test('refreshArousalPlaces(): a changed merge distance re-runs clustering (cache miss on P.mergeM)', () => {
-  const { window, mapManager } = bootWithRecordingLClusteringOn();
+test('refreshArousalPlaces(): a changed merge distance re-runs clustering (cache miss on P.mergeM)', async () => {
+  const { window, mapManager } = await bootWithRecordingLClusteringOn();
   const track = addTrack(window, 't1', 't1.csv', CLUSTER_CSV);
   window.AppState.viewMode = 'single';
   mapManager.renderData(track.analyzer, track.gpsFilterParams);
@@ -1151,8 +1151,8 @@ test('refreshArousalPlaces(): a changed merge distance re-runs clustering (cache
   assert.strictEqual(spy.counts.compactClusters, 1, 'a new merge distance forces exactly one re-cluster');
 });
 
-test('refreshArousalPlaces(): a changed max places slider re-slices places and rebuilds layer', () => {
-  const { window, mapManager } = bootWithRecordingLClusteringOn();
+test('refreshArousalPlaces(): a changed max places slider re-slices places and rebuilds layer', async () => {
+  const { window, mapManager } = await bootWithRecordingLClusteringOn();
   const track = addTrack(window, 't1', 't1.csv', CLUSTER_CSV);
   window.AppState.viewMode = 'single';
   mapManager.renderData(track.analyzer, track.gpsFilterParams);
@@ -1173,7 +1173,7 @@ test('refreshArousalPlaces(): a changed max places slider re-slices places and r
 });
 
 test('_renderArousalPlacesFor: a rapid drag defers recompute, then the settle timer runs it once', async () => {
-  const { window, mapManager } = bootWithRecordingLClusteringOn();
+  const { window, mapManager } = await bootWithRecordingLClusteringOn();
   const track = addTrack(window, 't1', 't1.csv', CLUSTER_CSV);
   window.AppState.viewMode = 'single';
   mapManager.renderData(track.analyzer, track.gpsFilterParams);   // primes the cache
@@ -1197,8 +1197,8 @@ test('_renderArousalPlacesFor: a rapid drag defers recompute, then the settle ti
   }
 });
 
-test('refreshArousalPlaces(): falls back to a full rerenderMap() when nothing has rendered yet', () => {
-  const { window, mapManager } = bootWithRecordingLClusteringOn();
+test('refreshArousalPlaces(): falls back to a full rerenderMap() when nothing has rendered yet', async () => {
+  const { window, mapManager } = await bootWithRecordingLClusteringOn();
   let rerendered = 0;
   const orig = window.GSRUI.rerenderMap;
   window.GSRUI.rerenderMap = () => { rerendered++; };
@@ -1216,8 +1216,8 @@ test('refreshArousalPlaces(): falls back to a full rerenderMap() when nothing ha
 // peak and hotspot layers too. Mirrors the refreshPeakMarkers contract tests
 // above with path/peaks swapped.
 
-test('refreshPath: rebuilds only path layers, leaving peak/connector and hotspot layers untouched', () => {
-  const { window, map, mapManager } = bootWithRecordingL();
+test('refreshPath: rebuilds only path layers, leaving peak/connector and hotspot layers untouched', async () => {
+  const { window, map, mapManager } = await bootWithRecordingL();
   const track = addTrack(window, 't1', 't1.csv', SAMPLE_CSV);
   mapManager.renderData(track.analyzer, track.gpsFilterParams);
 
@@ -1250,8 +1250,8 @@ test('refreshPath: rebuilds only path layers, leaving peak/connector and hotspot
     'group contains only path+hotspot+peak/connector layers — nothing orphaned or duplicated');
 });
 
-test('refreshPath: falls back to a full renderData() when there is no resolvable active track', () => {
-  const { window, map, mapManager } = bootWithRecordingL();
+test('refreshPath: falls back to a full renderData() when there is no resolvable active track', async () => {
+  const { window, map, mapManager } = await bootWithRecordingL();
   const track = addTrack(window, 't1', 't1.csv', SAMPLE_CSV);
   mapManager.renderData(track.analyzer, track.gpsFilterParams);
 
@@ -1265,8 +1265,8 @@ test('refreshPath: falls back to a full renderData() when there is no resolvable
   assert.ok(kinds.includes('hotspot'), 'fallback renderData() still renders hotspots');
 });
 
-test('mapColoringMetric dropdown (events.js): single-track view commits via refreshPath, not a full rerenderMap()', () => {
-  const { window, map, mapManager } = bootWithRecordingL();
+test('mapColoringMetric dropdown (events.js): single-track view commits via refreshPath, not a full rerenderMap()', async () => {
+  const { window, map, mapManager } = await bootWithRecordingL();
   const track = addTrack(window, 't1', 't1.csv', SAMPLE_CSV);
   window.AppState.viewMode = 'single';
   mapManager.renderData(track.analyzer, track.gpsFilterParams);
@@ -1299,8 +1299,8 @@ test('mapColoringMetric dropdown (events.js): single-track view commits via refr
 // unlike togglePeakExclusion (still full-rebuild — excluded IS read by
 // clustering/contours), this is safe to scope to just the edited track.
 
-test('refreshCollectivePeakMarkers: rebuilds only the target track\'s peak/connector layers, leaving its own path/hotspot and the OTHER track entirely untouched', () => {
-  const { window, map, mapManager } = bootWithRecordingL();
+test('refreshCollectivePeakMarkers: rebuilds only the target track\'s peak/connector layers, leaving its own path/hotspot and the OTHER track entirely untouched', async () => {
+  const { window, map, mapManager } = await bootWithRecordingL();
   const trackA = addTrack(window, 'A', 'a.csv', SAMPLE_CSV);
   const trackB = addTrack(window, 'B', 'b.csv', SAMPLE_CSV);
   mapManager.renderCollectiveData(window.AppState.collectiveManager, { showShadedSurface: false }, 0);
@@ -1341,7 +1341,7 @@ test('refreshCollectivePeakMarkers: rebuilds only the target track\'s peak/conne
 });
 
 test('refreshCollectivePeakMarkers: falls back to a full collective rebuild when the track has no layerGroup', async () => {
-  const { window, map, mapManager } = bootWithRecordingL();
+  const { window, map, mapManager } = await bootWithRecordingL();
   const trackA = addTrack(window, 'A', 'a.csv', SAMPLE_CSV);
   window.AppState.viewMode = 'collective';
   // Never rendered — trackA.layerGroup is still null.
@@ -1360,8 +1360,8 @@ test('refreshCollectivePeakMarkers: falls back to a full collective rebuild when
   assert.ok(kinds.includes('hotspot'), 'fallback full rebuild still renders hotspots');
 });
 
-test('updatePeakLabel (ui.js) in collective mode: commits via refreshCollectivePeakMarkers, not a full rebuild', () => {
-  const { window, map, mapManager } = bootWithRecordingL();
+test('updatePeakLabel (ui.js) in collective mode: commits via refreshCollectivePeakMarkers, not a full rebuild', async () => {
+  const { window, map, mapManager } = await bootWithRecordingL();
   const trackA = addTrack(window, 'A', 'a.csv', SAMPLE_CSV);
   const trackB = addTrack(window, 'B', 'b.csv', SAMPLE_CSV);
   window.AppState.viewMode = 'collective';
@@ -1382,8 +1382,8 @@ test('updatePeakLabel (ui.js) in collective mode: commits via refreshCollectiveP
   assert.deepStrictEqual(trackB.layerGroup.getLayers(), beforeB, 'track B must be completely untouched');
 });
 
-test('_refreshTrackLayers helper: correctly strips target kind layers and dispatches renderFn', () => {
-  const { window, mapManager } = bootWithRecordingL();
+test('_refreshTrackLayers helper: correctly strips target kind layers and dispatches renderFn', async () => {
+  const { window, mapManager } = await bootWithRecordingL();
   const track = addTrack(window, 'A', 'a.csv', SAMPLE_CSV);
   mapManager.renderData(track.analyzer, { trackWeight: 5, peakLatency: 0 });
 
@@ -1391,7 +1391,7 @@ test('_refreshTrackLayers helper: correctly strips target kind layers and dispat
   assert.ok(initialPeaks.length > 0);
 
   let rendered = false;
-  mapManager._refreshTrackLayers(track, new Set(['peak']), () => {
+  mapManager._refreshTrackLayers(track, new Set(['peak']), async () => {
     rendered = true;
   });
 
@@ -1400,8 +1400,8 @@ test('_refreshTrackLayers helper: correctly strips target kind layers and dispat
   assert.strictEqual(remainingPeaks.length, 0, 'peak layers were stripped before renderFn');
 });
 
-test('inPark colouring: in-park segments render green, out-of-park grey (not an all-grey LUT)', () => {
-  const { window, mapManager } = bootWithRecordingL();
+test('inPark colouring: in-park segments render green, out-of-park grey (not an all-grey LUT)', async () => {
+  const { window, mapManager } = await bootWithRecordingL();
   const track = addTrack(window, 't1', 't1.csv', SAMPLE_CSV);
 
   // Enrich raw rows directly (no network): first half in a park, second half not.
@@ -1421,8 +1421,8 @@ test('inPark colouring: in-park segments render green, out-of-park grey (not an 
   assert.ok(colors.has('#666666'), `out-of-park segments render grey (got: ${[...colors]})`);
 });
 
-test('distance-metric colouring: the 999 "none nearby" sentinel is excluded from the colour range', () => {
-  const { window, mapManager } = bootWithRecordingL();
+test('distance-metric colouring: the 999 "none nearby" sentinel is excluded from the colour range', async () => {
+  const { window, mapManager } = await bootWithRecordingL();
   const track = addTrack(window, 't1', 't1.csv', SAMPLE_CSV);
 
   track.analyzer.raw.forEach((row, i) => {

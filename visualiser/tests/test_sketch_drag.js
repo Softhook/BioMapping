@@ -14,18 +14,18 @@ const assert = require('assert');
 const test = require('node:test');
 const { bootApp } = require('./support/boot_app.js');
 
-function boot() {
-  const { window, context } = bootApp();
+async function boot() {
+  const { window } = await bootApp();
   window.width = 800;
   window.height = 600;
   window.constrain = (val, low, high) => Math.min(Math.max(val, low), high);
   window.HTMLCanvasElement.prototype.getContext = () => ({ fillStyle: '', fillRect() {} });
   window.setup();
-  return { window, context };
+  return { window };
 }
 
-test('mouseDragged: coalesces multiple drag ticks into a single redraw per frame', (t, done) => {
-  const { window } = boot();
+test('mouseDragged: coalesces multiple drag ticks into a single redraw per frame', async () => {
+  const { window } = await boot();
 
   // Populate synthetic raw data
   const raw = [];
@@ -58,15 +58,17 @@ test('mouseDragged: coalesces multiple drag ticks into a single redraw per frame
   assert.strictEqual(redrawCount, 0, 'redraw was deferred to rAF, not called synchronously 10 times');
 
   // Once rAF fires, exactly one redraw should land
-  window.requestAnimationFrame(() => {
-    assert.strictEqual(redrawCount, 1, 'exactly 1 coalesced redraw executed');
-    assert.strictEqual(window.AppState.viewStartTime, expectedViewStart, 'viewStartTime preserved');
-    done();
+  await new Promise((resolve) => {
+    window.requestAnimationFrame(() => {
+      assert.strictEqual(redrawCount, 1, 'exactly 1 coalesced redraw executed');
+      assert.strictEqual(window.AppState.viewStartTime, expectedViewStart, 'viewStartTime preserved');
+      resolve();
+    });
   });
 });
 
-test('mouseDragged: handles timeline dragging coalescing', (t, done) => {
-  const { window } = boot();
+test('mouseDragged: handles timeline dragging coalescing', async () => {
+  const { window } = await boot();
 
   const raw = [];
   for (let i = 0; i < 100; i++) raw.push({ time: i * 0.1, val: 5.0 });
@@ -89,8 +91,10 @@ test('mouseDragged: handles timeline dragging coalescing', (t, done) => {
   assert.ok(window.AppState.viewStartTime > 0, 'viewStartTime updated synchronously');
   assert.strictEqual(redrawCount, 0, 'synchronous redraws skipped');
 
-  window.requestAnimationFrame(() => {
-    assert.strictEqual(redrawCount, 1, '1 coalesced timeline redraw executed');
-    done();
+  await new Promise((resolve) => {
+    window.requestAnimationFrame(() => {
+      assert.strictEqual(redrawCount, 1, '1 coalesced timeline redraw executed');
+      resolve();
+    });
   });
 });

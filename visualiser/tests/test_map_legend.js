@@ -8,8 +8,8 @@ const assert = require('assert');
 const test = require('node:test');
 const { bootApp } = require('./support/boot_app.js');
 
-test('Map Legend: single mode - default gsr metric', () => {
-  const { window, document } = bootApp();
+test('Map Legend: single mode - default gsr metric', async () => {
+  const { window, document } = await bootApp();
   window.setup();
   
   const legendDiv = document.createElement('div');
@@ -32,8 +32,8 @@ test('Map Legend: single mode - default gsr metric', () => {
   assert.ok(html.includes('hsl(120,90%,50%)'), 'Should use correct HSL green');
 });
 
-test('Map Legend: single mode - em_fog metric', () => {
-  const { window, document } = bootApp();
+test('Map Legend: single mode - em_fog metric', async () => {
+  const { window, document } = await bootApp();
   window.setup();
   
   const legendDiv = document.createElement('div');
@@ -56,8 +56,8 @@ test('Map Legend: single mode - em_fog metric', () => {
   assert.ok(html.includes('hsl(300,90%,55%)'), 'Should use EM Fog end color');
 });
 
-test('Map Legend: single mode - OSM distance/canopy metrics use their own gradients', () => {
-  const { window, document } = bootApp();
+test('Map Legend: single mode - OSM distance/canopy metrics use their own gradients', async () => {
+  const { window, document } = await bootApp();
   window.setup();
   
   const legendDiv = document.createElement('div');
@@ -83,8 +83,8 @@ test('Map Legend: single mode - OSM distance/canopy metrics use their own gradie
   }
 });
 
-test('Map Legend: collective mode - Phasic AUC topography', () => {
-  const { window, document } = bootApp();
+test('Map Legend: collective mode - Phasic AUC topography', async () => {
+  const { window, document } = await bootApp();
   window.setup();
   
   const legendDiv = document.createElement('div');
@@ -105,8 +105,8 @@ test('Map Legend: collective mode - Phasic AUC topography', () => {
   assert.ok(html.includes('2.5 μS·s'), 'Should format max value with unit');
 });
 
-test('GSRUI.drawRegressionScatterPlot: data source resolution matches viewMode', () => {
-  const { window } = bootApp();
+test('GSRUI.drawRegressionScatterPlot: data source resolution matches viewMode', async () => {
+  const { window } = await bootApp();
   window.setup();
 
   const fakeCanvas = window.document.createElement('canvas');
@@ -160,8 +160,8 @@ test('GSRUI.drawRegressionScatterPlot: data source resolution matches viewMode',
   assert.strictEqual(lastX[2], 60);
 });
 
-test('GSRUI._percentileSorted: robust axis-clip bounds used by the regression scatter', () => {
-  const { window } = bootApp();
+test('GSRUI._percentileSorted: robust axis-clip bounds used by the regression scatter', async () => {
+  const { window } = await bootApp();
   const PS = window.GSRUI._percentileSorted;
 
   assert.strictEqual(PS([], 0.5), 0, 'empty array → 0');
@@ -177,8 +177,8 @@ test('GSRUI._percentileSorted: robust axis-clip bounds used by the regression sc
   assert.strictEqual(PS([10, 20, 30, 40], 0.5), 25, 'sorted median by interpolation');
 });
 
-test('GSRUI.drawRegressionScatter: continuous X plots points + trend + badge, binary X draws per-group boxes, empty data plots nothing (fake 2D context)', () => {
-  const { window } = bootApp();
+test('GSRUI.drawRegressionScatter: continuous X plots points + trend + badge, binary X draws per-group boxes, empty data plots nothing (fake 2D context)', async () => {
+  const { window } = await bootApp();
   // jsdom has no real canvas 2D context — record calls on a permissive stub so
   // the drawing logic (percentile clip, density loop, binary box-and-whisker
   // branch, badge) is exercised end to end.

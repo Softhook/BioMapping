@@ -7,7 +7,7 @@
  * the only two topic-file augment families with NO dual-mode tail at all —
  * bare `Object.assign(GSRMapManager.prototype, {...})` / `Object.assign(GSRUI,
  * {...})`, unconditionally. That worked because every existing test reaches
- * them only via bootApp()'s shared vm context, where the assignment always
+ * them only via await bootApp()'s shared vm context, where the assignment always
  * runs against the one shared GSRMapManager/GSRUI. It meant neither family
  * could be plain-require()'d in isolation (a bare assign has nothing to
  * attach to under Node's per-module scope) — unlike globe3d_*.js/
@@ -40,18 +40,18 @@ const UI_AUGMENTS = [
   'ui_peaks_table.js', 'ui_road_profile.js', 'ui_stats_panel.js',
 ];
 
-test('map.js exports GSRMapManager', () => {
+test('map.js exports GSRMapManager', async () => {
   const { GSRMapManager } = require('../src/map/map.js');
   assert.strictEqual(typeof GSRMapManager, 'function');
 });
 
-test('ui.js exports GSRUI', () => {
+test('ui.js exports GSRUI', async () => {
   const { GSRUI } = require('../src/ui/ui.js');
   assert.strictEqual(typeof GSRUI, 'object');
 });
 
 for (const augment of MAP_PROTO_AUGMENTS) {
-  test(`${augment}'s require-branch resolves GSRMapManager onto global and merges onto the prototype`, () => {
+  test(`${augment}'s require-branch resolves GSRMapManager onto global and merges onto the prototype`, async () => {
     // Fresh require each time so an augment loaded earlier in this process
     // can't leave a stale global.GSRMapManager behind that masks a broken stamp.
     delete require.cache[require.resolve('../src/map/map.js')];
@@ -71,7 +71,7 @@ for (const augment of MAP_PROTO_AUGMENTS) {
   });
 }
 
-test("map_manager_peaks.js's require-branch resolves prototype AND static methods", () => {
+test("map_manager_peaks.js's require-branch resolves prototype AND static methods", async () => {
   delete require.cache[require.resolve('../src/map/map.js')];
   delete require.cache[require.resolve('../src/map/map_manager_peaks.js')];
   delete global.GSRMapManager;
@@ -94,7 +94,7 @@ test("map_manager_peaks.js's require-branch resolves prototype AND static method
 });
 
 for (const augment of UI_AUGMENTS) {
-  test(`${augment}'s require-branch resolves GSRUI onto global and merges onto it`, () => {
+  test(`${augment}'s require-branch resolves GSRUI onto global and merges onto it`, async () => {
     delete require.cache[require.resolve('../src/ui/ui.js')];
     delete require.cache[require.resolve(`../src/ui/${augment}`)];
     delete global.GSRUI;

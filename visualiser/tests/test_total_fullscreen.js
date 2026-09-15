@@ -2,8 +2,8 @@ const test = require('node:test');
 const assert = require('node:assert');
 const { bootApp } = require('./support/boot_app.js');
 
-test('no small icon in panel headers', () => {
-  const { window } = bootApp();
+test('no small icon in panel headers', async () => {
+  const { window } = await bootApp();
   window.setup();
   const doc = window.document;
 
@@ -12,8 +12,8 @@ test('no small icon in panel headers', () => {
   assert.strictEqual(doc.querySelector('.total-fullscreen-btn'), null);
 });
 
-test('GSRLayoutManager programmatic display mode API', () => {
-  const { window } = bootApp();
+test('GSRLayoutManager programmatic display mode API', async () => {
+  const { window } = await bootApp();
   window.setup();
   const doc = window.document;
   const lm = window.GSRLayoutManager;
@@ -53,8 +53,8 @@ test('GSRLayoutManager programmatic display mode API', () => {
   mapFsBtn.click();
 });
 
-test('pressing F while in panel fullscreen toggles display mode', () => {
-  const { window } = bootApp();
+test('pressing F while in panel fullscreen toggles display mode', async () => {
+  const { window } = await bootApp();
   window.setup();
   const doc = window.document;
 
@@ -89,8 +89,8 @@ test('pressing F while in panel fullscreen toggles display mode', () => {
   assert.strictEqual(doc.querySelector('.panel-fullscreen-overlay'), null);
 });
 
-test('pressing Escape in display mode exits display mode first, then exits fullscreen on next Escape', () => {
-  const { window } = bootApp();
+test('pressing Escape in display mode exits display mode first, then exits fullscreen on next Escape', async () => {
+  const { window } = await bootApp();
   window.setup();
   const doc = window.document;
 
@@ -113,8 +113,8 @@ test('pressing Escape in display mode exits display mode first, then exits fulls
   assert.strictEqual(doc.querySelector('.panel-fullscreen-overlay'), null, 'overlay removed');
 });
 
-test('GSR panel display mode toggles via F and cleans up on exit', () => {
-  const { window } = bootApp();
+test('GSR panel display mode toggles via F and cleans up on exit', async () => {
+  const { window } = await bootApp();
   window.setup();
   const doc = window.document;
 

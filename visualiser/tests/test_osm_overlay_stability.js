@@ -19,8 +19,8 @@ const way = (id, tags) => ({
   coordinates: [{ lat: 0, lon: 0 }, { lat: 0, lon: 1 }, { lat: 1, lon: 1 }, { lat: 0, lon: 0 }],
 });
 
-function setup() {
-  const { window: w } = bootApp();
+async function setup() {
+  const { window: w } = await bootApp();
   w.setup();
   const mgr = w.AppState.mapManager;
   mgr.map = mgr.map || {};
@@ -38,8 +38,8 @@ function setup() {
   return { w, mgr, drawSpy };
 }
 
-test('clearMap() no longer tears down the OSM overlay', () => {
-  const { mgr } = setup();
+test('clearMap() no longer tears down the OSM overlay', async () => {
+  const { mgr } = await setup();
   mgr.drawOsmShapes({ ways: [way('a', { building: 'yes' })], relations: [] });
   assert.ok(mgr.osmLayers.length > 0);
 
@@ -48,8 +48,8 @@ test('clearMap() no longer tears down the OSM overlay', () => {
   assert.ok(mgr.osmLayers.length > 0, 'OSM polygons survive a clearMap() (and so a full renderData() rebuild)');
 });
 
-test('syncOsmOverlay: a track switch redraws for the new geometry, clears for none', () => {
-  const { w, mgr, drawSpy } = setup();
+test('syncOsmOverlay: a track switch redraws for the new geometry, clears for none', async () => {
+  const { w, mgr, drawSpy } = await setup();
   const GSRUI = w.GSRUI;
   const geomsA = { ways: [way('a', { building: 'yes' })], relations: [] };
   const geomsB = { ways: [way('b', { building: 'yes' })], relations: [] };
@@ -68,8 +68,8 @@ test('syncOsmOverlay: a track switch redraws for the new geometry, clears for no
   assert.strictEqual(mgr.osmLayers.length, 0, 'overlay cleared for a track with no geometry');
 });
 
-test('clearAllTracks resets the OSM toggle and clears the overlay', () => {
-  const { w, mgr } = setup();
+test('clearAllTracks resets the OSM toggle and clears the overlay', async () => {
+  const { w, mgr } = await setup();
   const GSRUI = w.GSRUI;
   w.AppState.analyzer = { raw: [{ lat: 51, lon: -0.1 }], osmGeoms: { ways: [way('a', { building: 'yes' })], relations: [] } };
   GSRUI._osmOverlayOn = true;

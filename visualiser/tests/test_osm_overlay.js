@@ -18,8 +18,8 @@ const { bootApp } = require('./support/boot_app.js');
 
 const STYLE_FILL = { park: '#52b788', water: '#90e0ef', building: '#9a8c98' };
 
-function capturePolys(fn) {
-  const { window } = bootApp();
+async function capturePolys(fn) {
+  const { window } = await bootApp();
   window.setup();
   const mgr = window.AppState.mapManager;
   mgr.map = mgr.map || {};
@@ -43,22 +43,22 @@ const way = (id, tags) => ({
   coordinates: [{ lat: 0, lon: 0 }, { lat: 0, lon: 1 }, { lat: 1, lon: 1 }, { lat: 0, lon: 0 }],
 });
 
-test('drawOsmShapes: a wetland is drawn as park (green) — it is green space, matching in_park / green_pct', () => {
-  const byCat = capturePolys((mgr) =>
+test('drawOsmShapes: a wetland is drawn as park (green) — it is green space, matching in_park / green_pct', async () => {
+  const byCat = await capturePolys((mgr) =>
     mgr.drawOsmShapes({ ways: [way('w', { natural: 'wetland' })], relations: [] }));
   assert.strictEqual(byCat.park, 1, 'wetland ring drawn in the green/park layer');
   assert.strictEqual(byCat.water, 0, 'wetland is not ALSO drawn blue (overlay paints one colour; green wins)');
 });
 
-test('drawOsmShapes: a playground is drawn as NOTHING — it is not green space', () => {
-  const byCat = capturePolys((mgr) =>
+test('drawOsmShapes: a playground is drawn as NOTHING — it is not green space', async () => {
+  const byCat = await capturePolys((mgr) =>
     mgr.drawOsmShapes({ ways: [way('p', { leisure: 'playground' })], relations: [] }));
   assert.strictEqual(byCat.park + byCat.water + byCat.building, 0,
     'leisure=playground produces no overlay polygon at all');
 });
 
-test('drawOsmShapes: park / lake / building each land in their own layer', () => {
-  const byCat = capturePolys((mgr) => mgr.drawOsmShapes({
+test('drawOsmShapes: park / lake / building each land in their own layer', async () => {
+  const byCat = await capturePolys((mgr) => mgr.drawOsmShapes({
     ways: [
       way('pk', { leisure: 'park' }),
       way('lk', { natural: 'water' }),

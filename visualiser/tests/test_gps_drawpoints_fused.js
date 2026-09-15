@@ -18,11 +18,11 @@ const { bootApp } = require('./support/boot_app.js');
 
 const TRACKS_DIR = path.join(__dirname, '..', '..', 'tracks');
 
-function boot() {
-  const { window, context } = bootApp();
+async function boot() {
+  const { window } = await bootApp();
   window.HTMLCanvasElement.prototype.getContext = () => ({ fillStyle: '', fillRect() {} });
   window.setup();
-  return { window, context, mapManager: window.AppState.mapManager };
+  return { window, mapManager: window.AppState.mapManager };
 }
 
 // Reference implementation of the legacy two-step approach
@@ -43,11 +43,11 @@ function legacyBuildDrawPoints(data, filteredGps, sampleRate, doDownsample, forc
   return GpsPipeline.downsampleForDisplay(drawPoints, sampleRate, doDownsample, forceIndexSet);
 }
 
-test('buildDrawPoints: returns byte-for-byte identical output to legacy two-step method (downsample=true)', () => {
-  const { window, context, mapManager } = boot();
-  const GpsPipeline = vm.runInContext('GpsPipeline', context);
-  const GpsFilter = vm.runInContext('GpsFilter', context);
-  const gpsDefault = vm.runInContext('GSR_CONST.GPS_DEFAULT', context);
+test('buildDrawPoints: returns byte-for-byte identical output to legacy two-step method (downsample=true)', async () => {
+  const { window, mapManager } = await boot();
+  const GpsPipeline = vm.runInThisContext('GpsPipeline');
+  const GpsFilter = vm.runInThisContext('GpsFilter');
+  const gpsDefault = vm.runInThisContext('GSR_CONST.GPS_DEFAULT');
 
   const analyzer = new window.GSRAnalyzer();
   const csv = fs.readFileSync(path.join(TRACKS_DIR, 'biomap_048.csv'), 'utf8');
@@ -71,11 +71,11 @@ test('buildDrawPoints: returns byte-for-byte identical output to legacy two-step
   assert.deepStrictEqual(fused, legacy, 'output matches byte-for-byte');
 });
 
-test('buildDrawPoints: returns byte-for-byte identical output to legacy two-step method (downsample=false)', () => {
-  const { window, context, mapManager } = boot();
-  const GpsPipeline = vm.runInContext('GpsPipeline', context);
-  const GpsFilter = vm.runInContext('GpsFilter', context);
-  const gpsDefault = vm.runInContext('GSR_CONST.GPS_DEFAULT', context);
+test('buildDrawPoints: returns byte-for-byte identical output to legacy two-step method (downsample=false)', async () => {
+  const { window, mapManager } = await boot();
+  const GpsPipeline = vm.runInThisContext('GpsPipeline');
+  const GpsFilter = vm.runInThisContext('GpsFilter');
+  const gpsDefault = vm.runInThisContext('GSR_CONST.GPS_DEFAULT');
 
   const analyzer = new window.GSRAnalyzer();
   const csv = fs.readFileSync(path.join(TRACKS_DIR, 'biomap_048.csv'), 'utf8');
@@ -99,9 +99,9 @@ test('buildDrawPoints: returns byte-for-byte identical output to legacy two-step
   assert.deepStrictEqual(fused, legacy, 'output matches byte-for-byte');
 });
 
-test('buildDrawPoints: correctly handles forced RF peak indices that fall between strides', () => {
-  const { window, context } = boot();
-  const GpsPipeline = vm.runInContext('GpsPipeline', context);
+test('buildDrawPoints: correctly handles forced RF peak indices that fall between strides', async () => {
+  const { window } = await boot();
+  const GpsPipeline = vm.runInThisContext('GpsPipeline');
 
   // 25 synthetic points at 10 Hz with indices 0..24
   const data = [];
@@ -122,18 +122,18 @@ test('buildDrawPoints: correctly handles forced RF peak indices that fall betwee
   assert.ok(fused.every((p, i) => i === 0 || p.origIdx > fused[i - 1].origIdx), 'indices remain strictly ascending');
 });
 
-test('buildDrawPoints: handles empty data or null filteredGps gracefully', () => {
-  const { window, context } = boot();
-  const GpsPipeline = vm.runInContext('GpsPipeline', context);
+test('buildDrawPoints: handles empty data or null filteredGps gracefully', async () => {
+  const { window } = await boot();
+  const GpsPipeline = vm.runInThisContext('GpsPipeline');
 
   assert.strictEqual(GpsPipeline.buildDrawPoints([], [], 10, true).length, 0);
   assert.strictEqual(GpsPipeline.buildDrawPoints(null, null, 10, true).length, 0);
   assert.strictEqual(GpsPipeline.buildDrawPoints([{ val: 1 }], [{ lat: NaN, lon: NaN }], 10, true).length, 0);
 });
 
-test('_getOrBuildDrawPoints: integrates buildDrawPoints and caches successfully', () => {
-  const { window, context, mapManager } = boot();
-  const gpsDefault = vm.runInContext('GSR_CONST.GPS_DEFAULT', context);
+test('_getOrBuildDrawPoints: integrates buildDrawPoints and caches successfully', async () => {
+  const { window, mapManager } = await boot();
+  const gpsDefault = vm.runInThisContext('GSR_CONST.GPS_DEFAULT');
 
   const analyzer = new window.GSRAnalyzer();
   const csv = fs.readFileSync(path.join(TRACKS_DIR, 'biomap_048.csv'), 'utf8');

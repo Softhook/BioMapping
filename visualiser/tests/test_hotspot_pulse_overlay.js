@@ -5,7 +5,7 @@
  * _prunePulseRings()/clearPulseRings() are the only thing standing between
  * "renders on demand" and "silently piles up orphaned DOM nodes forever" —
  * this doesn't need a real browser/CSS engine to catch that class of bug,
- * just real DOM structure, which jsdom (via bootApp()) provides faithfully.
+ * just real DOM structure, which jsdom (via await bootApp()) provides faithfully.
  * Actual CSS animation behavior (does it visually pulse) was verified
  * separately against a live browser, not here — jsdom doesn't run a real
  * CSS engine, so animation-name/keyframe assertions would be meaningless.
@@ -16,8 +16,8 @@ const assert = require('assert');
 const test = require('node:test');
 const { bootApp } = require('./support/boot_app.js');
 
-test('_syncPulseRing creates a positioned div under #canvasContainer, keyed for reuse', () => {
-  const { window, document } = bootApp();
+test('_syncPulseRing creates a positioned div under #canvasContainer, keyed for reuse', async () => {
+  const { window, document } = await bootApp();
   const { GSRRenderer } = window;
 
   GSRRenderer._syncPulseRing('0:upper', 100, 50, 6, '#ff1744');
@@ -36,8 +36,8 @@ test('_syncPulseRing creates a positioned div under #canvasContainer, keyed for 
   assert.strictEqual(ring.style.top, (50 - d / 2) + 'px');
 });
 
-test('_syncPulseRing called again with the same key reuses the element (repositions, does not duplicate)', () => {
-  const { window, document } = bootApp();
+test('_syncPulseRing called again with the same key reuses the element (repositions, does not duplicate)', async () => {
+  const { window, document } = await bootApp();
   const { GSRRenderer } = window;
 
   GSRRenderer._syncPulseRing('0:upper', 100, 50, 6, '#ff1744');
@@ -53,8 +53,8 @@ test('_syncPulseRing called again with the same key reuses the element (repositi
   assert.strictEqual(rings[0].style.left, (120 - d / 2) + 'px', 'position was updated on the reused element');
 });
 
-test('a distinct key creates a distinct element alongside the first', () => {
-  const { window, document } = bootApp();
+test('a distinct key creates a distinct element alongside the first', async () => {
+  const { window, document } = await bootApp();
   const { GSRRenderer } = window;
 
   GSRRenderer._syncPulseRing('0:upper', 100, 50, 6, '#ff1744');
@@ -64,8 +64,8 @@ test('a distinct key creates a distinct element alongside the first', () => {
   assert.strictEqual(overlay.querySelectorAll('.graph-hotspot-pulse').length, 2);
 });
 
-test('_prunePulseRings removes only the keys not in the current seen set', () => {
-  const { window, document } = bootApp();
+test('_prunePulseRings removes only the keys not in the current seen set', async () => {
+  const { window, document } = await bootApp();
   const { GSRRenderer } = window;
 
   GSRRenderer._syncPulseRing('0:upper', 100, 50, 6, '#ff1744');
@@ -82,8 +82,8 @@ test('_prunePulseRings removes only the keys not in the current seen set', () =>
   assert.strictEqual(GSRRenderer._pulseRingEls.has('2:upper'), true);
 });
 
-test('clearPulseRings removes every ring and empties the tracking map', () => {
-  const { window, document } = bootApp();
+test('clearPulseRings removes every ring and empties the tracking map', async () => {
+  const { window, document } = await bootApp();
   const { GSRRenderer } = window;
 
   GSRRenderer._syncPulseRing('0:upper', 100, 50, 6, '#ff1744');
@@ -96,8 +96,8 @@ test('clearPulseRings removes every ring and empties the tracking map', () => {
   assert.strictEqual(GSRRenderer._pulseRingEls.size, 0);
 });
 
-test('drawPlaceholder() clears any leftover pulse rings — the "nothing to show" path can\'t leave stale rings floating over it', () => {
-  const { window, document } = bootApp();
+test('drawPlaceholder() clears any leftover pulse rings — the "nothing to show" path can\'t leave stale rings floating over it', async () => {
+  const { window, document } = await bootApp();
   const { GSRRenderer } = window;
 
   GSRRenderer._syncPulseRing('0:upper', 100, 50, 6, '#ff1744');
@@ -109,8 +109,8 @@ test('drawPlaceholder() clears any leftover pulse rings — the "nothing to show
   assert.strictEqual(overlay.querySelectorAll('.graph-hotspot-pulse').length, 0);
 });
 
-test('drawHotspotMarkers() clears pulse rings when showHotspots is off, even if memorableEvents is non-empty (stale state from before the toggle)', () => {
-  const { window, document } = bootApp();
+test('drawHotspotMarkers() clears pulse rings when showHotspots is off, even if memorableEvents is non-empty (stale state from before the toggle)', async () => {
+  const { window, document } = await bootApp();
   const { GSRRenderer, AppState } = window;
 
   // Seed a ring directly (simulating one left over from before the toggle),

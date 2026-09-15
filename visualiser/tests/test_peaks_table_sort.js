@@ -71,8 +71,8 @@ function createSampleAnalyzer() {
   };
 }
 
-test('peaks table renders empty row when no peaks detected', () => {
-  const { window } = bootApp();
+test('peaks table renders empty row when no peaks detected', async () => {
+  const { window } = await bootApp();
   window.setup();
   window.AppState.analyzer = { peaks: [] };
 
@@ -82,8 +82,8 @@ test('peaks table renders empty row when no peaks detected', () => {
   assert.ok(rows[0].classList.contains('empty-row'));
 });
 
-test('peaks table renders in default chronological index order', () => {
-  const { window } = bootApp();
+test('peaks table renders in default chronological index order', async () => {
+  const { window } = await bootApp();
   window.setup();
   window.AppState.analyzer = createSampleAnalyzer();
   window.AppState.peakSortColumn = 'index';
@@ -107,8 +107,8 @@ test('peaks table renders in default chronological index order', () => {
   assert.strictEqual(rows[2].children[0].textContent, '3');
 });
 
-test('sorting peaks table by amplitude ascending and descending', () => {
-  const { window } = bootApp();
+test('sorting peaks table by amplitude ascending and descending', async () => {
+  const { window } = await bootApp();
   window.setup();
   window.AppState.analyzer = createSampleAnalyzer();
 
@@ -146,8 +146,8 @@ test('sorting peaks table by amplitude ascending and descending', () => {
   assert.strictEqual(rows[2].children[2].textContent, '0.4000');
 });
 
-test('sorting peaks table by label (alphabetical)', () => {
-  const { window } = bootApp();
+test('sorting peaks table by label (alphabetical)', async () => {
+  const { window } = await bootApp();
   window.setup();
   window.AppState.analyzer = createSampleAnalyzer();
 
@@ -169,8 +169,8 @@ test('sorting peaks table by label (alphabetical)', () => {
   assert.strictEqual(rows[2].id, 'peakRow-2');
 });
 
-test('sorting peaks table by rise time', () => {
-  const { window } = bootApp();
+test('sorting peaks table by rise time', async () => {
+  const { window } = await bootApp();
   window.setup();
   window.AppState.analyzer = createSampleAnalyzer();
 
@@ -185,8 +185,8 @@ test('sorting peaks table by rise time', () => {
   assert.strictEqual(rows[2].id, 'peakRow-1');
 });
 
-test('sorting peaks table by quality score', () => {
-  const { window } = bootApp();
+test('sorting peaks table by quality score', async () => {
+  const { window } = await bootApp();
   window.setup();
   window.AppState.analyzer = createSampleAnalyzer();
 
@@ -205,8 +205,8 @@ test('sorting peaks table by quality score', () => {
   assert.strictEqual(rows[2].id, 'peakRow-2');
 });
 
-test('sorting peaks table by exclusion status', () => {
-  const { window } = bootApp();
+test('sorting peaks table by exclusion status', async () => {
+  const { window } = await bootApp();
   window.setup();
   window.AppState.analyzer = createSampleAnalyzer();
 
@@ -218,8 +218,8 @@ test('sorting peaks table by exclusion status', () => {
   assert.strictEqual(rows[2].id, 'peakRow-2');
 });
 
-test('table headers update sort classes and icons on click', () => {
-  const { window } = bootApp();
+test('table headers update sort classes and icons on click', async () => {
+  const { window } = await bootApp();
   window.setup();
   window.AppState.analyzer = createSampleAnalyzer();
 
@@ -252,8 +252,8 @@ test('table headers update sort classes and icons on click', () => {
   assert.ok(thAmp.querySelector('.sort-icon').classList.contains('fa-sort'));
 });
 
-test('sorted table actions and inputs target the correct original peak index', () => {
-  const { window } = bootApp();
+test('sorted table actions and inputs target the correct original peak index', async () => {
+  const { window } = await bootApp();
   window.setup();
   const analyzer = createSampleAnalyzer();
   window.AppState.analyzer = analyzer;
