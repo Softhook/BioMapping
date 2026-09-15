@@ -400,6 +400,9 @@ export const GSRTrackManager = {
    * since the caller is about to rebuild everything from scratch anyway.
    */
   clearAllTracks() {
+    if (typeof GSRUI !== 'undefined' && typeof GSRUI.cancelCollectiveMapUpdate === 'function') {
+      GSRUI.cancelCollectiveMapUpdate();
+    }
     AppState.collectiveManager.tracks = [];
     AppState.activeTrackId = null;
     AppState.analyzer = new GSRAnalyzer();

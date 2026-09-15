@@ -233,6 +233,7 @@ export const __methods = {
       canvas.width = cols;
       canvas.height = rows;
       const ctx = canvas.getContext('2d');
+      if (!ctx) return;
 
       // Remember for GSRMapExporter's SVG export, which recomputes this same
       // shading over its own vector mesh (map_exporter.js _buildVectorMesh)
@@ -326,6 +327,7 @@ export const __methods = {
         hatchCanvas.width = hatchCols;
         hatchCanvas.height = hatchRows;
         const hctx = hatchCanvas.getContext('2d');
+        if (!hctx) return;
         hctx.fillStyle = 'rgba(43, 40, 35, 0.6)';
         for (let hr = 0; hr < hatchRows; hr++) {
           const r = Math.floor(hr / HATCH_SCALE);

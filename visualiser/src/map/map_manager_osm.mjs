@@ -143,6 +143,7 @@ export const __methods = {
           tile.width = 256;
           tile.height = 256;
           const ctx = tile.getContext('2d');
+          if (!ctx) { done(null, tile); return; }
           const url = NDVISampler.buildRawTileUrl(coords.x, coords.y, coords.z, options);
 
           const paintAndFinish = (rasterTile) => {

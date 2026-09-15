@@ -32,6 +32,13 @@ export const __methods = {
     }, 150);
   },
 
+  cancelCollectiveMapUpdate() {
+    if (this._collectiveDebounceId) {
+      clearTimeout(this._collectiveDebounceId);
+      this._collectiveDebounceId = null;
+    }
+  },
+
   _updateCollectiveMapNow() {
     if (!AppState.mapManager) return;
 
