@@ -2,10 +2,10 @@
 
 See `docs/visualizer_modularity_plan.md`'s "drop dual-mode for real ES
 modules" section and the plan this session ran from for full context.
-**Current status: layers 0-5 (57 of 93 files) converted and wired into
-`npm test`, suite green. Layers 6-7 (36 files) not yet started — see "Next
-steps" near the end of this file for the exact resume point, including the
-full layer-6 file list (a 13-file SCC).**
+**Current status: layers 0-5 plus layer 6's 13-file SCC (70 of 93 files)
+converted and wired into `npm test`, suite green. Layer 6's remaining 9
+`map_manager_*.js` files, and all of layer 7 (14 files), not yet started —
+see "Next steps" near the end of this file for the exact resume point.**
 
 ## `build_import_manifest.js` (step 1)
 
@@ -553,27 +553,99 @@ one specific to `map.js`'s central, heavily-depended-on role:
 Suite verified 1342/1345 (the 2 pre-existing failures unchanged) green three
 times in a row before committing.
 
+### Layer 6's 13-file SCC — DONE
+
+`ui.js`, `events.js`, `tracks.js`, `storage.js`, `sketch.js`, `live_view.js`,
+`live_graph.js`, `live_map.js`, `collective_project.js`, `map_exporter.js`,
+`map_popups.js`, `globe3d_view.js`, `layout_manager.js` converted together
+as one atomic batch (the cycle — `layout_manager.js` imports `live_view.js`
+for `GSRLiveView.onDisplayModeChange`, `live_view.js` imports
+`layout_manager.js` for `GSRLayoutManager.enter/exitLiveDisplayMode` —
+converts cleanly under real ES modules' live bindings).
+
+This batch's first-ever "two files in the SCC statically import each
+other, AND one of them (`live_view.js`) is shared between two host pages
+that load a different subset of the SCC" edge surfaced **two new
+realm-model bug classes**, both fixed in `src/live/live_view.mjs` +
+adapted tests, not worked around:
+
+1. **`typeof X !== 'undefined'` context-detection guards go structurally
+   always-true once `X` is a real static import — including for
+   distinguishing which of two HOST PAGES is running, not just "is this
+   optional feature loaded."** `live.html` (standalone) never loads
+   `layout_manager.js`/`app_state.js` in its script list; `index.html`
+   does. Pre-conversion, `live_view.js` bare-referenced `GSRLayoutManager`/
+   `AppState` and `typeof X === 'undefined'` genuinely told the two contexts
+   apart. Post-conversion, `live_view.mjs`'s own `import
+   { GSRLayoutManager } from './layout_manager.mjs'` (needed for the SCC)
+   and `import { AppState } from '../core/app_state.mjs'` make both always
+   defined everywhere, including standalone `live.html` — silently killing
+   the FAB fullscreen chip and the p/m/c keyboard shortcuts there (the
+   `typeof` guards now always took the in-app branch, which no-ops with no
+   `.app-container` in the document). Fixed with a new `isInAppShell()`
+   helper — `!!document.querySelector('.app-container')` — the actual
+   distinguishing signal, already relied on internally by
+   `GSRLayoutManager.enterLiveDisplayMode()`'s own `if (!app) return;`
+   guard. General lesson for any later file with a similar "which host page
+   is this" check: find the real DOM/state signal the guard was a proxy
+   for, don't just swap in an always-true replacement.
+2. **A test can't reassign a converted module's `export let` from outside —
+   silently, not even with an error.** `run(context, 'bleManager = {...}')`
+   / `'LIVE_ANALYZE_WARMUP_ROWS = 20'` used to work because
+   `wrapForRepeatedExecution`'s accessor reflection gave external
+   `vm.runInThisContext` writes a real path back into the wrapped file's
+   local scope (see layer-0's bug #5 for that mechanism). A real ES module
+   namespace object's `[[Set]]` is unconditionally a no-op (verified
+   empirically: `mod.counter = 99` neither throws nor changes `mod.counter`
+   read back) — `realm_bridge.js`'s `reflectOntoGlobal` setter
+   (`source[name] = v`) was already doing the right call, it just silently
+   fails against a namespace object; there is no vm/import-level fix
+   possible here, unlike bug classes 1-5 in earlier layers. Fixed at the
+   source level instead: `live_view.mjs` already had one precedent for
+   this exact need (`GSRLiveView._setBleManagerForTest`, apparently added
+   ahead of this migration) — added a matching
+   `_setLiveAnalyzeTuningForTest(warmupRows, minIntervalMs)` and pointed
+   `test_live_app.js`'s three `feedLiveAnalyzer` tests at it, and adapted
+   `test_refactored_helpers.js`'s `GSRUI` test to mutate the real
+   `app_state.mjs` `AppState` singleton's properties in place (the
+   layer-2 `GSR_CONST` pattern) instead of replacing `global.AppState`
+   wholesale. **General rule for any later layer:** a test that needs to
+   inject state into a converted module can only do it through a real
+   exported function/object the module itself provides — add one
+   (following the `_setXForTest` naming already in use) if none exists;
+   never rely on reflected-global writes reaching an `export let`.
+
+Suite verified 1340/1342 (the 2 pre-existing failures, unchanged) green
+three times in a row before committing (`42fbb45`).
+
 ### Next steps, in order
 
-1. Continue layer by layer, starting at layer 6 (22 files — **one 13-file SCC: `ui.js`,
-   `events.js`, `tracks.js`, `storage.js`, `sketch.js`, `live_view.js`,
-   `live_graph.js`, `live_map.js`, `collective_project.js`,
-   `map_exporter.js`, `map_popups.js`, `globe3d_view.js`,
-   `layout_manager.js` — convert as one atomic batch**), 7 (14 files, the
-   most composite — last layer, includes `index.html`'s eventual final
-   entry points). Same process each time: `node
-   tests/manual/esm_migration/convert_file.js <file> --write`, then re-run
-   `npm test`; fix any surfaced direct `require('../src/X.js')`/raw-
-   `readFileSync` test references and any not-yet-converted `src/` dual-mode
-   tail that literally `require()`s a now-`.mjs` file inline (see layers 1-2
-   above for the patterns) — don't defer. If a source file has a
-   `typeof X === 'undefined'`-style fallback gating on a name that just
-   became a real static import, expect it to go structurally dead the same
-   way `app_state.js`'s `GSR_CONST` gate did in layer 2 — adapt the test to
-   mutate the real imported singleton in place rather than trying to fake
-   the import itself as absent. If `npm test` surfaces a genuinely new
-   realm-model bug class (not one already fixed in `realm_bridge.js` across
-   layers 0-1), fix it there too, not with a workaround in a test.
+1. Layer 6's remaining 9 files — `map_manager_process.js`,
+   `map_manager_legend.js`, `map_manager_layers.js`, `map_manager_osm.js`,
+   `map_manager_rf_fluid.js`, `map_manager_viewport.js`,
+   `map_manager_render.js`, `map_manager_collective.js`,
+   `map_manager_toggles.js` (no SCC between them — sequential, same as
+   layer 4/5). Then layer 7 (14 files: `map_manager_path.js`,
+   `map_manager_peaks.js`, `map_manager_arousal_places.js`, 9
+   `src/ui/ui_*.js` files, `renderer_interaction.js` — the most composite,
+   last layer, includes `index.html`'s eventual final entry points). Same
+   process each time: `node tests/manual/esm_migration/convert_file.js
+   <file> --write`, then re-run `npm test`; fix any surfaced direct
+   `require('../src/X.js')`/raw-`readFileSync` test references and any
+   not-yet-converted `src/` dual-mode tail that literally `require()`s a
+   now-`.mjs` file inline (see layers 1-2 above) — don't defer. If a
+   source file has a `typeof X === 'undefined'`-style fallback gating on a
+   name that just became a real static import, expect it to go
+   structurally dead (layer 2's `GSR_CONST` pattern, or layer 6's SCC
+   context-detection variant above) — adapt the test accordingly rather
+   than faking absence. If a test needs to inject/override a converted
+   module's internal state, it needs a real exported hook from that module
+   (layer 6's `_setXForTest` pattern above) — reflected-global writes to an
+   `export let` are a structural dead end, not just an edge case to patch
+   around. If `npm test` surfaces a genuinely new realm-model bug class
+   beyond these, fix it in `realm_bridge.js` (if it's about the boot/import
+   machinery) or the source file itself (if it's about ESM's actual write
+   semantics, as above) — never in a test-only workaround.
 2. Once every file is converted: the atomic browser cutover (index.html →
    single `<script type="module">`, `boot_app.js`/`boot_live.js` themselves
    rewritten one more time to a real dynamic-import-based loader instead of
