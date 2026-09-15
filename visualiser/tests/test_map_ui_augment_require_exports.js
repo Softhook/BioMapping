@@ -3,6 +3,13 @@
 /**
  * Regression coverage for map.js/ui.js's plain-require() export surface.
  *
+ * map.js converted to a real ES module (map.mjs) in the ES-module migration
+ * — it no longer has a dual-mode tail to stamp `global.GSRMapManager` for
+ * the still-not-yet-converted map_manager_*.js augments below, so the tests
+ * that require it directly do that stamp themselves now (see the comment at
+ * the MAP_PROTO_AUGMENTS loop). ui.js hasn't converted yet (layer 6), so its
+ * half of this file is unaffected.
+ *
  * map_manager_*.js (12 files) and ui_*.js (10 files) were, until this split,
  * the only two topic-file augment families with NO dual-mode tail at all —
  * bare `Object.assign(GSRMapManager.prototype, {...})` / `Object.assign(GSRUI,
@@ -41,7 +48,7 @@ const UI_AUGMENTS = [
 ];
 
 test('map.js exports GSRMapManager', async () => {
-  const { GSRMapManager } = require('../src/map/map.js');
+  const { GSRMapManager } = require('../src/map/map.mjs');
   assert.strictEqual(typeof GSRMapManager, 'function');
 });
 
@@ -54,11 +61,18 @@ for (const augment of MAP_PROTO_AUGMENTS) {
   test(`${augment}'s require-branch resolves GSRMapManager onto global and merges onto the prototype`, async () => {
     // Fresh require each time so an augment loaded earlier in this process
     // can't leave a stale global.GSRMapManager behind that masks a broken stamp.
-    delete require.cache[require.resolve('../src/map/map.js')];
+    // map.js converted to a real ES module (map.mjs) — it no longer has a
+    // dual-mode tail to stamp `global.GSRMapManager` itself (the require()d
+    // instance also can't be cache-busted, and has no module-level mutable
+    // state to need it), so this test does that stamp itself now, standing
+    // in for what the file used to do automatically, so the
+    // still-not-yet-converted map_manager_*.js augments (layer 6) — which
+    // reference `GSRMapManager` bare, not `this.` — keep resolving it.
     delete require.cache[require.resolve(`../src/map/${augment}`)];
     delete global.GSRMapManager;
 
-    const { GSRMapManager } = require('../src/map/map.js');
+    const { GSRMapManager } = require('../src/map/map.mjs');
+    global.GSRMapManager = GSRMapManager;
     const methods = require(`../src/map/${augment}`);
     Object.assign(GSRMapManager.prototype, methods);
 
@@ -72,11 +86,11 @@ for (const augment of MAP_PROTO_AUGMENTS) {
 }
 
 test("map_manager_peaks.js's require-branch resolves prototype AND static methods", async () => {
-  delete require.cache[require.resolve('../src/map/map.js')];
   delete require.cache[require.resolve('../src/map/map_manager_peaks.js')];
   delete global.GSRMapManager;
 
-  const { GSRMapManager } = require('../src/map/map.js');
+  const { GSRMapManager } = require('../src/map/map.mjs');
+  global.GSRMapManager = GSRMapManager;
   const { protoMethods, staticMethods } = require('../src/map/map_manager_peaks.js');
   Object.assign(GSRMapManager.prototype, protoMethods);
   Object.assign(GSRMapManager, staticMethods);

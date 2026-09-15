@@ -103,7 +103,7 @@ const __methods = {
 };
 
 if (typeof module !== 'undefined' && module.exports) {
-  Object.assign(global, require('./map.js'));
+  Object.assign(global, require('./map.mjs'));
   module.exports = __methods;
 } else {
   Object.assign(GSRMapManager.prototype, __methods);

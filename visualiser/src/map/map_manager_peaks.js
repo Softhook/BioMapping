@@ -495,7 +495,7 @@ const __staticMethods = {
 };
 
 if (typeof module !== 'undefined' && module.exports) {
-  Object.assign(global, require('./map.js'));
+  Object.assign(global, require('./map.mjs'));
   module.exports = { protoMethods: __protoMethods, staticMethods: __staticMethods };
 } else {
   Object.assign(GSRMapManager.prototype, __protoMethods);

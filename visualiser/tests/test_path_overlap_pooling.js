@@ -12,7 +12,7 @@ const assert = require('assert');
 const test = require('node:test');
 
 global.GeoUtils = require('../src/gps/geo_utils.mjs').GeoUtils;
-const { GSRMapManager } = require('../src/map/map.js');
+const { GSRMapManager } = require('../src/map/map.mjs');
 
 const LAT0 = 51.5;
 const LON0 = -0.12;

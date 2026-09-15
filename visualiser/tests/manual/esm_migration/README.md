@@ -2,8 +2,8 @@
 
 See `docs/visualizer_modularity_plan.md`'s "drop dual-mode for real ES
 modules" section and the plan this session ran from for full context.
-**Current status: layers 0-4 (56 of 93 files) converted and wired into
-`npm test`, suite green. Layers 5-7 (37 files) not yet started — see "Next
+**Current status: layers 0-5 (57 of 93 files) converted and wired into
+`npm test`, suite green. Layers 6-7 (36 files) not yet started — see "Next
 steps" near the end of this file for the exact resume point, including the
 full layer-6 file list (a 13-file SCC).**
 
@@ -81,7 +81,7 @@ augment files" pattern plus a bare `document` reference, standing in for a
 real subsystem without pulling in Leaflet/p5/Cesium stubbing just to prove
 the mechanism.
 
-## Step 3: converting src/ (IN PROGRESS — layers 0-4/8 done, see "Next steps" below)
+## Step 3: converting src/ (IN PROGRESS — layers 0-5/8 done, see "Next steps" below)
 
 `convert_file.js` (committed) mechanically converts one file: strips the
 dual-mode tail (keeping a real composition side effect like
@@ -501,10 +501,61 @@ Suite verified 1342/1345 (test count dropped by one more with this loop
 entry removed; the 2 pre-existing failures unchanged) green three times in a
 row before committing.
 
+### Layer 5 (1 file: `map.js`) — DONE
+
+The single biggest test blast radius so far — 46 test failures across 3
+files, all from the two already-established patterns plus one genuinely new
+one specific to `map.js`'s central, heavily-depended-on role:
+
+- **A `typeof X !== 'undefined'` opt-OUT guard (the inverse of layers 1-2's
+  opt-in fallback) goes structurally always-true once `X` is a real static
+  import**, breaking a test's deliberate "pretend this optional feature
+  isn't loaded" trick: `map.mjs`'s constructor has `if (typeof
+  RFFluidRenderer !== 'undefined') this.rfFluidRenderer = new
+  RFFluidRenderer(...)`, and `test_map_layer_ownership.js`'s
+  `bootWithRecordingL()`/`bootWithRecordingLClusteringOn()` used
+  `vm.runInThisContext('RFFluidRenderer = undefined')` to keep RF Fluid's
+  Leaflet-pane lifecycle (deliberately out of scope for that file's
+  lightweight recording-Leaflet mock) from ever constructing — now a no-op,
+  since a real import binding is invisible to and can't be reassigned by a
+  separate vm script. Since every `bootApp()` call resolves a genuinely
+  fresh module instance (realm_bridge.js's per-boot-generation cache-busting
+  — a plain top-level `require()` outside any boot would patch a stale,
+  unrelated generation), the fix reads `window.RFFluidRenderer` fresh after
+  each `bootApp()` and no-ops its `_initCanvas`/`_bindEvents` prototype
+  methods there, before `window.setup()` constructs `GSRMapManager` — the
+  real class still gets used, just without a lifecycle these 43 tests don't
+  cover. Fixed all 43 failures in that one file. (`GSRSpatialClustering`'s
+  half of the same nulling call still works unmodified — `map.mjs` doesn't
+  import it at all, so it's still read as a genuinely mutable bare global by
+  whichever not-yet-converted file does.)
+- **Genuinely new pattern: the CORE file of a not-yet-converted augment
+  family converts before its augments do (the reverse of every previous
+  layer, where the augment converted and the still-CJS core/sibling needed a
+  `require()` path fix).** `map.js`'s old dual-mode tail used to stamp
+  `global.GSRMapManager = GSRMapManager` itself on every plain `require()`,
+  which is the ONLY reason the 11 still-CJS `map_manager_*.js` augments
+  (layer 6) — which reference `GSRMapManager` bare, not `this.`, in their own
+  method bodies — could resolve it when required directly (independent of a
+  full `bootApp()` boot). A real ES module has no such tail, so
+  `test_map_ui_augment_require_exports.js`'s `MAP_PROTO_AUGMENTS` loop
+  (12 tests) now does that stamp itself — `global.GSRMapManager =
+  GSRMapManager` right after `require('../src/map/map.mjs')`, standing in
+  for what the file used to do automatically — and all 11 `map_manager_*.js`
+  files' own inline `require('./map.js')` (their CommonJS branch pulling in
+  `GSRMapManager` the same way) updated to `.mjs`, same as layers 1-2's
+  "not-yet-converted dual-mode tail literally requires a now-`.mjs` file"
+  fix, just found on 11 files instead of 1-2. `ui.js`/`UI_AUGMENTS`, in the
+  same test file, are untouched — `ui.js` hasn't converted yet (layer 6).
+- Routine: `test_path_overlap_pooling.js`'s direct `require('../src/map/map.js')`
+  swapped to `.mjs`.
+
+Suite verified 1342/1345 (the 2 pre-existing failures unchanged) green three
+times in a row before committing.
+
 ### Next steps, in order
 
-1. Continue layer by layer, starting at layer 5 (1
-   file: `map.js`), 6 (22 files — **one 13-file SCC: `ui.js`,
+1. Continue layer by layer, starting at layer 6 (22 files — **one 13-file SCC: `ui.js`,
    `events.js`, `tracks.js`, `storage.js`, `sketch.js`, `live_view.js`,
    `live_graph.js`, `live_map.js`, `collective_project.js`,
    `map_exporter.js`, `map_popups.js`, `globe3d_view.js`,

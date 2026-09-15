@@ -26,6 +26,27 @@ const test = require('node:test');
 const vm = require('vm');
 const { bootApp } = require('./support/boot_app.js');
 
+// map.mjs holds a real static `import { RFFluidRenderer } from
+// '../render/rf_fluid_renderer.mjs'` (ES-module migration) — the
+// `vm.runInThisContext('RFFluidRenderer = undefined')` trick below no longer
+// stops map.mjs's constructor from instantiating it (a lexical import
+// binding is invisible to, and can't be reassigned by, a separate vm script;
+// it would only set a pointless `global.RFFluidRenderer`). RF fluid's full
+// lifecycle (Leaflet panes, zoom-anim glue) is still deliberately out of
+// scope for this file's recording-Leaflet mock, so _initCanvas/_bindEvents
+// are no-op'd on the real class's prototype instead, right after each
+// bootApp() and before window.setup() constructs GSRMapManager — `new
+// RFFluidRenderer(map, { visible: false })` then constructs harmlessly with
+// `canvas`/`ctx` left null. Every bootApp() call gets a genuinely fresh
+// module instance (realm_bridge.js's per-boot-generation cache-busting), so
+// this must patch `window.RFFluidRenderer` freshly each call, not a
+// once-at-file-load `require()`'d copy — that copy is a stale generation the
+// map.mjs a given boot resolves to has never heard of.
+function suppressRfFluidLifecycle(window) {
+  window.RFFluidRenderer.prototype._initCanvas = () => {};
+  window.RFFluidRenderer.prototype._bindEvents = () => {};
+}
+
 // ── Fixture ────────────────────────────────────────────────────────────────
 // One clean SCR in raw ADC units (the parser divides by 1000 ⇒ µS), so the
 // analyzer finds exactly one peak (and from it, one memorable event / hotspot):
@@ -250,14 +271,17 @@ function installRecordingLeaflet(window) {
 }
 
 // Boots the real app with the recording Leaflet mock installed before setup().
-// RF fluid + spatial clustering are map-level aggregate layers (owned by
-// GSRMapManager, out of slice-1 scope); they're nulled via the shared lexical
-// binding so the tests exercise a deterministic surface: paths+peaks+hotspots.
-// jsdom canvases have no 2d context, but the collective surface renderer needs
+// RF fluid (see the RFFluidRenderer prototype no-ops above) + spatial
+// clustering are map-level aggregate layers (owned by GSRMapManager, out of
+// slice-1 scope); spatial clustering is nulled via the shared lexical
+// binding (map.mjs itself doesn't import it, so this still works) so the
+// tests exercise a deterministic surface: paths+peaks+hotspots. jsdom
+// canvases have no 2d context, but the collective surface renderer needs
 // one (fillStyle/fillRect) plus a toDataURL for the image overlay.
 async function bootWithRecordingL() {
   const { window } = await bootApp();
-  vm.runInThisContext('RFFluidRenderer = undefined; GSRSpatialClustering = undefined;');
+  vm.runInThisContext('GSRSpatialClustering = undefined;');
+  suppressRfFluidLifecycle(window);
   window.HTMLCanvasElement.prototype.getContext = () => ({ fillStyle: '', fillRect() {} });
   window.HTMLCanvasElement.prototype.toDataURL = () => 'data:image/png;base64,AA==';
   const { map } = installRecordingLeaflet(window);
@@ -270,7 +294,7 @@ async function bootWithRecordingL() {
 // layers to assert survive-by-reference (vs. replaced) behavior.
 async function bootWithRecordingLClusteringOn() {
   const { window } = await bootApp();
-  vm.runInThisContext('RFFluidRenderer = undefined;');
+  suppressRfFluidLifecycle(window);
   window.HTMLCanvasElement.prototype.getContext = () => ({ fillStyle: '', fillRect() {} });
   window.HTMLCanvasElement.prototype.toDataURL = () => 'data:image/png;base64,AA==';
   const { map } = installRecordingLeaflet(window);

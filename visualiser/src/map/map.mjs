@@ -1,7 +1,12 @@
 // Leaflet.js Map Manager for GSR + GPS Visualisation
 // Handles path rendering, arousal color-coding, and peak marker overlays.
 
-class GSRMapManager {
+import { GSR_CONST } from '../core/constants.mjs';
+import { GeoUtils } from '../gps/geo_utils.mjs';
+import { GSRBasemap } from './basemap.mjs';
+import { RFFluidRenderer } from '../render/rf_fluid_renderer.mjs';
+
+export class GSRMapManager {
   constructor(mapContainerId) {
     this.containerId = mapContainerId;
     this.map = null;
@@ -361,11 +366,4 @@ class GSRMapManager {
   //   map_manager_toggles.js   — layer visibility toggles
   // The overlap-pooling primitives (_buildOverlapCells / _overlapPooledAccessor /
   // _pathRetraces) remain here as statics — pure functions, unit-tested directly.
-}
-
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { GSRMapManager };
-}
-if (typeof window !== 'undefined') {
-  window.GSRMapManager = GSRMapManager;
 }
