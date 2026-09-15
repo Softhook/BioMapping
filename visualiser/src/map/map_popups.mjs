@@ -10,7 +10,10 @@
  * Depends on the globals L (Leaflet), GSRUI (label/exclude handlers), and
  * GeoUtils (bearing) — all resolved when a popup opens, not at load time.
  */
-const MapPopups = {
+import { GeoUtils } from '../gps/geo_utils.mjs';
+import { GSRUI } from '../ui/ui.mjs';
+
+export const MapPopups = {
 
   /**
    * Resize+reposition an open popup to fit its current content WITHOUT
@@ -274,15 +277,8 @@ const MapPopups = {
   }
 };
 
-function formatMMSS(seconds) {
+export function formatMMSS(seconds) {
   const s = Math.max(0, Math.round(Number(seconds) || 0));
   const m = Math.floor(s / 60);
   return `${m}:${String(s % 60).padStart(2, '0')}`;
-}
-
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { MapPopups };
-}
-if (typeof window !== 'undefined') {
-  window.MapPopups = MapPopups;
 }

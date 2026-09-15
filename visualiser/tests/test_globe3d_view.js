@@ -24,7 +24,7 @@ test('CesiumJS is vendored locally and globe3d_view loads it from disk, not a CD
   for (const rel of ['vendor/cesium/Cesium.js', 'vendor/cesium/Widgets/widgets.css']) {
     assert.ok(fs.existsSync(path.join(APP_DIR, rel)), `missing vendored file: ${rel}`);
   }
-  const viewSrc = fs.readFileSync(path.join(APP_DIR, 'src/map/globe3d_view.js'), 'utf8');
+  const viewSrc = fs.readFileSync(path.join(APP_DIR, 'src/map/globe3d_view.mjs'), 'utf8');
   const baseMatch = viewSrc.match(/const CESIUM_BASE\s*=\s*'([^']+)'/);
   assert.ok(baseMatch, 'CESIUM_BASE constant not found');
   assert.ok(!/^https?:/.test(baseMatch[1]), `CESIUM_BASE must be a local path, got ${baseMatch[1]}`);
@@ -347,7 +347,7 @@ test('the 3D globe legend renders the exact same markup as the 2D map legend', a
 });
 
 test('the "Loading 3D engine" / imagery status is gone', async () => {
-  const src = fs.readFileSync(path.join(APP_DIR, 'src/map/globe3d_view.js'), 'utf8');
+  const src = fs.readFileSync(path.join(APP_DIR, 'src/map/globe3d_view.mjs'), 'utf8');
   assert.ok(!/Loading 3D engine/.test(src), 'the loading-3D-engine text is gone');
   assert.ok(!/Loading map imagery/.test(src), 'the loading-imagery text is gone');
   assert.ok(!/_watchImageryLoad/.test(src), 'the imagery-load watcher is gone');

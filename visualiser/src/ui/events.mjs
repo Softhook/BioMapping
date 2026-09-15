@@ -12,7 +12,23 @@
  * GSR sliders share one formatting rule (see GSREvents._gsrLabelText); GPS and
  * contour sliders each carry an explicit `fmt(value) -> string`.
  */
-const GSR_SLIDER_DEFS = [
+import { AppState } from '../core/app_state.mjs';
+import { GSRLayoutManager } from '../core/layout_manager.mjs';
+import { GSRNotices } from '../core/notices.mjs';
+import { GSRLiveView } from '../live/live_view.mjs';
+import { GSRGlobe3DView } from '../map/globe3d_view.mjs';
+import { GSRGlobe3DExport } from '../map/globe3d/exporters.mjs';
+import { GSRMapExporter } from '../map/map_exporter.mjs';
+import { NDVISampler } from '../osm/ndvi_sampler.mjs';
+import { OsmCache } from '../osm/osm_cache.mjs';
+import { GSRRenderer } from '../render/renderer.mjs';
+import { windowResized } from '../render/sketch.mjs';
+import { GSRCollectiveProject } from '../spatial/collective_project.mjs';
+import { GSRStorage } from './storage.mjs';
+import { GSRTrackManager } from './tracks.mjs';
+import { GSRUI } from './ui.mjs';
+
+export const GSR_SLIDER_DEFS = [
   { id: 'medianSize',        labelId: 'valMedianSize',        suffix: ' s' },
   { id: 'lpfWindow',         labelId: 'valLpfWindow',         suffix: ' s' },
   { id: 'tonicWindow',       labelId: 'valTonicWindow',       suffix: ' s' },
@@ -25,7 +41,7 @@ const GSR_SLIDER_DEFS = [
 // `bindGps: true` entries are wired by bindGpsSlider() in setupEventListeners();
 // the rest (peak latency, snap radius, place-merge distance) keep bespoke event
 // wiring elsewhere but still take their formatter from here.
-const GPS_SLIDER_DEFS = [
+export const GPS_SLIDER_DEFS = [
   { id: 'gpsSmoothing',       labelId: 'valGpsSmoothing',       fmt: v => v.toFixed(2),                bindGps: true },
   { id: 'gpsKalmanR',         labelId: 'valGpsKalmanR',         fmt: v => `${v} m²`,                   bindGps: true },
   { id: 'gpsMaxHdop',         labelId: 'valGpsMaxHdop',         fmt: v => `≤ ${v.toFixed(1)}`,         bindGps: true },
@@ -38,7 +54,7 @@ const GPS_SLIDER_DEFS = [
   { id: 'maxArousalPlaces',   labelId: 'valMaxArousalPlaces',   fmt: v => `${Math.round(v)}` },
 ];
 
-const CONTOUR_SLIDER_DEFS = [
+export const CONTOUR_SLIDER_DEFS = [
   { id: 'gridResolution',    labelId: 'valGridResolution',    fmt: v => `${v} x ${v}` },
   { id: 'contourCount',      labelId: 'valContourCount',      fmt: v => `${v} lines` },
   { id: 'isolationRadius',   labelId: 'valIsolationRadius',   fmt: v => `${v} m` },
@@ -55,7 +71,7 @@ const CONTOUR_SLIDER_DEFS = [
  * (bindLabelsAndListeners) and the post-preset resync (initializeLabels)
  * can't drift apart, and a new overlay is just one more entry here.
  */
-const GRAPH_BAND_TOGGLE_DEFS = [
+export const GRAPH_BAND_TOGGLE_DEFS = [
   { id: 'showOsmGraphBands',   stateKey: 'showOsmContext' },
   { id: 'showNdviGraphBands',  stateKey: 'showNdviContext' },
   { id: 'showEmFogGraphBands', stateKey: 'showEmFogContext' },
@@ -64,7 +80,7 @@ const GRAPH_BAND_TOGGLE_DEFS = [
 /**
  * Safe DOM lookup — warns on missing elements without crashing.
  */
-const GSREvents = {
+export const GSREvents = {
   /**
    * Safe DOM lookup — warns on missing elements without crashing.
    */
@@ -154,8 +170,6 @@ const GSREvents = {
       });
     });
   },
-
-
 
   /**
    * Wrap fn so repeated calls collapse into one trailing-edge call per
@@ -1128,7 +1142,6 @@ const GSREvents = {
     document.getElementById('scatterBioMetric').addEventListener('change', () => GSRUI.updateEnvironmentalDashboard());
   },
 
-
   /**
    * View switcher (Single Track ↔ Collective Map Surface).
    */
@@ -1585,10 +1598,3 @@ const GSREvents = {
   },
 
 };
-
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { GSREvents };
-}
-if (typeof window !== 'undefined') {
-  window.GSREvents = GSREvents;
-}

@@ -30,7 +30,7 @@
 const assert = require('assert');
 const test = require('node:test');
 
-const { GSRMapExporter } = require('../src/map/map_exporter.js');
+const { GSRMapExporter } = require('../src/map/map_exporter.mjs');
 
 // ── _hslToHex / _ratioToHex ─────────────────────────────────────────────
 test('_hslToHex: pure red/green/blue hues resolve to their expected hex primaries', () => {

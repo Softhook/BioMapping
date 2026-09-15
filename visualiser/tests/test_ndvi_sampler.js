@@ -514,7 +514,7 @@ test('GSRUI.sampleNdviTrack: successfully resolves single-mode track without fal
   setCopernicusConfig();
   mockUniformNdviFetch(0.4);
 
-  const { GSRUI } = require('../src/ui/ui.js');
+  const { GSRUI } = require('../src/ui/ui.mjs');
   Object.assign(GSRUI, require('../src/ui/ui_enrichment.js'));
   // sampleNdviTrack()'s success path calls refreshOsmControls(), which cascades
   // into the stats indicator and (if enriched) the environmental dashboard.

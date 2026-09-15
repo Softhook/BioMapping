@@ -25,7 +25,29 @@ global.localStorage = {
   removeItem: () => {},
 };
 
-const { GSRStorage, sliderVal } = require('../src/ui/storage.js');
+const { GSRStorage, sliderVal } = require('../src/ui/storage.mjs');
+
+// storage.mjs holds real static imports of AppState/GSR_CONST/GSREvents/
+// GSRTrackManager/GSRUI/GSRFileSaver — a `global.X = {...}` full-replacement
+// shadow (this file's old bare-global pattern) no longer reaches any of
+// them (ES-module migration), so every reset/override below mutates the
+// REAL singleton's own properties in place instead. `delete
+// global.GSREvents` (etc.) used to simulate "not loaded yet" for storage.js's
+// `typeof X !== 'undefined'` guards; those guards are now structurally
+// always-true (a real import can't be undefined), so the equivalent reset
+// is an EMPTY object — the guard's second half (`typeof X.method ===
+// 'function'`) still gates correctly on a method that doesn't exist.
+const { AppState: RealAppState } = require('../src/core/app_state.mjs');
+const { GSR_CONST: RealGSRConst } = require('../src/core/constants.mjs');
+const { GSREvents: RealGSREvents } = require('../src/ui/events.mjs');
+const { GSRTrackManager: RealGSRTrackManager } = require('../src/ui/tracks.mjs');
+const { GSRUI: RealGSRUI } = require('../src/ui/ui.mjs');
+const { GSRFileSaver: RealGSRFileSaver } = require('../src/core/file_saver.mjs');
+
+function setSingletonShape(target, shape) {
+  for (const k of Object.keys(target)) delete target[k];
+  return Object.assign(target, shape);
+}
 
 function el(value) {
   return { value: String(value) };
@@ -33,12 +55,12 @@ function el(value) {
 
 function resetGlobals() {
   alertCalls = [];
-  global.AppState = {};
-  global.GSR_CONST = JSON.parse(JSON.stringify(GSR_CONST_MOCK));
-  delete global.GSREvents;
-  delete global.GSRTrackManager;
-  delete global.GSRUI;
-  delete global.GSRFileSaver;
+  global.AppState = setSingletonShape(RealAppState, {});
+  global.GSR_CONST = setSingletonShape(RealGSRConst, JSON.parse(JSON.stringify(GSR_CONST_MOCK)));
+  setSingletonShape(RealGSREvents, {});
+  setSingletonShape(RealGSRTrackManager, {});
+  setSingletonShape(RealGSRUI, {});
+  setSingletonShape(RealGSRFileSaver, {});
 }
 
 // ── sliderVal() ──────────────────────────────────────────────────────────
@@ -276,9 +298,9 @@ test('exportPreset: builds a preset and hands it to downloadPresetJson via GSRFi
   global.AppState.activeTrackId = null;
 
   let saved = null;
-  global.GSRFileSaver = {
+  global.GSRFileSaver = setSingletonShape(RealGSRFileSaver, {
     saveFile: async (jsonStr, suggestedName) => { saved = { jsonStr, suggestedName }; },
-  };
+  });
 
   await GSRStorage.exportPreset('My Custom Name');
 
@@ -302,7 +324,7 @@ test('exportPreset: falls back to the active track name (minus extension) when n
     getTrack: (id) => (id === 'trk1' ? { name: 'session_walk.csv' } : null),
   };
   let saved = null;
-  global.GSRFileSaver = { saveFile: async (jsonStr, suggestedName) => { saved = { jsonStr, suggestedName }; } };
+  global.GSRFileSaver = setSingletonShape(RealGSRFileSaver, { saveFile: async (jsonStr, suggestedName) => { saved = { jsonStr, suggestedName }; } });
 
   await GSRStorage.exportPreset();
 
@@ -313,7 +335,7 @@ test('exportPreset: falls back to the active track name (minus extension) when n
 test('downloadPresetJson: sanitizes the filename base and stamps today\'s date', async () => {
   resetGlobals();
   let saved = null;
-  global.GSRFileSaver = { saveFile: async (jsonStr, suggestedName) => { saved = { jsonStr, suggestedName }; } };
+  global.GSRFileSaver = setSingletonShape(RealGSRFileSaver, { saveFile: async (jsonStr, suggestedName) => { saved = { jsonStr, suggestedName }; } });
   await GSRStorage.downloadPresetJson({ a: 1 }, 'Weird Name!! #1');
   assert.match(saved.suggestedName, /^biomapping_preset_Weird_Name____1_\d{4}-\d{2}-\d{2}\.json$/);
   assert.deepStrictEqual(JSON.parse(saved.jsonStr), { a: 1 });
@@ -379,7 +401,12 @@ test('importPresetFile: invalid JSON triggers alert and callback(false, null)', 
 
 // ── GSRStorage.syncSliderValueDisplays() ─────────────────────────────────
 
-test('syncSliderValueDisplays: no-op (does not throw) when GSREvents is undefined', () => {
+test('syncSliderValueDisplays: no-op (does not throw) when GSREvents.initializeLabels is not a function', () => {
+  // GSREvents is a real static import now (ES-module migration) — it can
+  // never be `undefined`, so the "not loaded yet" case this guards against
+  // is an empty GSREvents (what resetGlobals() leaves it as), not an
+  // undefined one; storage.mjs's `typeof GSREvents.initializeLabels ===
+  // 'function'` half of the guard still gates on that correctly.
   resetGlobals();
   assert.doesNotThrow(() => GSRStorage.syncSliderValueDisplays());
 });
@@ -387,7 +414,7 @@ test('syncSliderValueDisplays: no-op (does not throw) when GSREvents is undefine
 test('syncSliderValueDisplays: calls GSREvents.initializeLabels when available', () => {
   resetGlobals();
   let called = false;
-  global.GSREvents = { initializeLabels: () => { called = true; } };
+  global.GSREvents = setSingletonShape(RealGSREvents, { initializeLabels: () => { called = true; } });
   GSRStorage.syncSliderValueDisplays();
   assert.strictEqual(called, true);
 });
@@ -497,10 +524,10 @@ test('applyPreset: invokes GSREvents layout hook and syncs slider displays', () 
   resetGlobals();
   global.AppState.sliders = { medianSize: el(0), lpfWindow: el(0), tonicMethod: el('lpf'), tonicWindow: el(0), peakThreshold: el(0) };
   const calls = [];
-  global.GSREvents = {
+  global.GSREvents = setSingletonShape(RealGSREvents, {
     updateTonicMethodLayout: () => calls.push('layout'),
     initializeLabels: () => calls.push('labels'),
-  };
+  });
   GSRStorage.applyPreset({ gsr: {}, gps: {} });
   assert.deepStrictEqual(calls, ['layout', 'labels']);
 });
@@ -521,11 +548,11 @@ test('applyPreset: commits parsed sliders to the active track and re-analyzes it
   global.AppState.collectiveManager = { getTrack: (id) => (id === 'trk1' ? track : null) };
 
   const uiCalls = [];
-  global.GSRTrackManager = { renderTrackList: () => uiCalls.push('renderTrackList') };
-  global.GSRUI = {
+  global.GSRTrackManager = setSingletonShape(RealGSRTrackManager, { renderTrackList: () => uiCalls.push('renderTrackList') });
+  global.GSRUI = setSingletonShape(RealGSRUI, {
     runAnalysis: () => uiCalls.push('runAnalysis'),
     updateCollectiveMap: () => uiCalls.push('updateCollectiveMap'),
-  };
+  });
 
   const ok = GSRStorage.applyPreset({ gsr: {}, gps: {} });
 
@@ -544,6 +571,13 @@ test('applyPreset: swallows an error thrown by track.analyzer.analyze() and stil
   global.AppState.activeTrackId = 'trk1';
   const track = { analyzer: { analyze: () => { throw new Error('boom'); } } };
   global.AppState.collectiveManager = { getTrack: () => track };
+  // applyPreset() unconditionally calls GSRTrackManager.renderTrackList()
+  // after the analyze() try/catch (GSRTrackManager is a real static import
+  // now — always defined in practice, so storage.mjs's `typeof
+  // GSRTrackManager !== 'undefined'` guard is effectively unconditional) —
+  // stub it so this test stays focused on the analyze()-throws swallow
+  // behaviour, not on reproducing every downstream UI call.
+  global.GSRTrackManager = setSingletonShape(RealGSRTrackManager, { renderTrackList: () => {} });
 
   assert.doesNotThrow(() => {
     const ok = GSRStorage.applyPreset({ gsr: {}, gps: {} });

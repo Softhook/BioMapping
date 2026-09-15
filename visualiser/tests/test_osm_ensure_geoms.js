@@ -26,7 +26,7 @@ loadModule(path.join(__dirname, '../src/gps/geo_utils.js'), 'GeoUtils');
 loadModule(path.join(__dirname, '../src/signal/stats_math.js'), 'StatsMath');
 loadModule(path.join(__dirname, '../src/map/map_colors.js'), 'MapColors');
 
-const { GSRUI } = require('../src/ui/ui.js');
+const { GSRUI } = require('../src/ui/ui.mjs');
 Object.assign(GSRUI, require('../src/ui/ui_enrichment.js'));
 
 function installDom(overrides = {}) {

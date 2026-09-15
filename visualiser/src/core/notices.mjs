@@ -238,7 +238,7 @@ export class GSRNotices {
   }
 }
 
-if (typeof window !== 'undefined') {
+if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
   // Known-benign browser diagnostics that fire through window.onerror but are
   // NOT app errors. Surfacing these as red toasts is noise (a resize burst can
   // emit hundreds). Kept in one list so the "don't fail silently" guarantee

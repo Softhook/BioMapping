@@ -21,7 +21,16 @@
  *   02_<track-name>.csv
  *   ...
  */
-const GSRCollectiveProject = {
+import { AppState } from '../core/app_state.mjs';
+import { GSR_CONST } from '../core/constants.mjs';
+import { GSRFileSaver } from '../core/file_saver.mjs';
+import { GSRNotices } from '../core/notices.mjs';
+import { GSRAnalyzer } from '../signal/analyzer.mjs';
+import { GSREvents } from '../ui/events.mjs';
+import { GSRTrackManager } from '../ui/tracks.mjs';
+import { GSRUI } from '../ui/ui.mjs';
+
+export const GSRCollectiveProject = {
   MANIFEST_VERSION: 1,
 
   // Map toggle buttons whose on/off state is collective-view-only chrome —
@@ -345,10 +354,3 @@ const GSRCollectiveProject = {
     }
   }
 };
-
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { GSRCollectiveProject };
-}
-if (typeof window !== 'undefined') {
-  window.GSRCollectiveProject = GSRCollectiveProject;
-}

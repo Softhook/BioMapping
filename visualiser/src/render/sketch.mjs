@@ -1,20 +1,42 @@
-let _cachedPeakAnalyzer = null;
-let _cachedPeakList = null;
-let _cachedPeakDataVersion = null;
-let _cachedActivePeaks = [];
-let _cachedFilteredForce = [];
-let _cachedMetricForce = [];
-let _cachedDriverForce = [];  // Driver spike apex indices — forced into decimation stride so spikes survive zoom-out
+import { AppState } from '../core/app_state.mjs';
+import { GSR_CONST } from '../core/constants.mjs';
+import { GSRLayoutManager } from '../core/layout_manager.mjs';
+import { GSRMapManager } from '../map/map.mjs';
+import { GSRRenderer } from './renderer.mjs';
+import { GSRAnalyzer } from '../signal/analyzer.mjs';
+import { GSRCollectiveManager } from '../spatial/collective_manager.mjs';
+import { GSREvents } from '../ui/events.mjs';
+import { GSRTrackManager } from '../ui/tracks.mjs';
+import { GSRUI } from '../ui/ui.mjs';
+
+export let _cachedPeakAnalyzer = null;
+export let _cachedPeakList = null;
+export let _cachedPeakDataVersion = null;
+export let _cachedActivePeaks = [];
+export let _cachedFilteredForce = [];
+export let _cachedMetricForce = [];
+export let _cachedDriverForce = [];  // Driver spike apex indices — forced into decimation stride so spikes survive zoom-out
 
 // Coalesced redraw functions for high-frequency input events (drag, hover, wheel).
-// Initialized at module scope before setup() so hoisted p5 event callbacks (e.g. mouseMoved)
-// never hit a Temporal Dead Zone (TDZ) ReferenceError if p5 fires an event during page load.
-const _safeRedraw = () => { if (typeof redraw === 'function') redraw(); };
-let coalescedDragRedraw  = (typeof GSREvents !== 'undefined' && GSREvents.rafCoalesce) ? GSREvents.rafCoalesce(_safeRedraw) : _safeRedraw;
-let coalescedHoverRedraw = (typeof GSREvents !== 'undefined' && GSREvents.rafCoalesce) ? GSREvents.rafCoalesce(_safeRedraw) : _safeRedraw;
-let coalescedZoomRedraw  = (typeof GSREvents !== 'undefined' && GSREvents.rafCoalesce) ? GSREvents.rafCoalesce(_safeRedraw) : _safeRedraw;
+// sketch.js and events.js are both in the same ES-module import cycle
+// (scc_layers.json layer 6) — reading GSREvents at sketch.mjs's own module
+// top level (as this used to, before setup() existed, back when GSREvents
+// was a bare global that might not have loaded yet) hits the live binding
+// mid-circular-init and throws "Cannot access 'GSREvents' before
+// initialization" (TDZ). setup() runs only once every module in the graph
+// has fully evaluated, so these are assigned there instead — behaviour-
+// identical, since nothing outside this file ever reads them before setup()
+// runs anyway (only mouseDragged/mouseMoved/mouseWheel below call them).
+export const _safeRedraw = () => { if (typeof redraw === 'function') redraw(); };
+export let coalescedDragRedraw  = _safeRedraw;
+export let coalescedHoverRedraw = _safeRedraw;
+export let coalescedZoomRedraw  = _safeRedraw;
 
-function setup() {
+export function setup() {
+  coalescedDragRedraw  = GSREvents.rafCoalesce ? GSREvents.rafCoalesce(_safeRedraw) : _safeRedraw;
+  coalescedHoverRedraw = GSREvents.rafCoalesce ? GSREvents.rafCoalesce(_safeRedraw) : _safeRedraw;
+  coalescedZoomRedraw  = GSREvents.rafCoalesce ? GSREvents.rafCoalesce(_safeRedraw) : _safeRedraw;
+
   AppState.collectiveManager = new GSRCollectiveManager();
   AppState.analyzer = new GSRAnalyzer();
   AppState.mapManager = new GSRMapManager('map');
@@ -75,14 +97,14 @@ function setup() {
   GSRRenderer.drawPlaceholder();
 }
 
-function windowResized() {
+export function windowResized() {
   const container = document.getElementById('canvasContainer');
   if (container) {
     GSRLayoutManager.resizeCanvas(container.clientWidth, container.clientHeight);
   }
 }
 
-function draw() {
+export function draw() {
   if (!AppState.analyzer || !AppState.analyzer.raw || AppState.analyzer.raw.length === 0) {
     GSRRenderer.drawPlaceholder();
     return;
@@ -416,7 +438,7 @@ function draw() {
   if (showTimeline) GSRRenderer.drawTimelineOverview(innerWidth, timelineHeight);
 }
 
-function updateCanvasCursor() {
+export function updateCanvasCursor() {
   if (!AppState.myCanvas || !AppState.myCanvas.elt) return;
   let cur = 'default';
   if (AppState.isDragging || AppState.isDraggingTimeline) {
@@ -436,7 +458,7 @@ function updateCanvasCursor() {
   AppState.myCanvas.elt.style.cursor = cur;
 }
 
-function mousePressed() {
+export function mousePressed() {
   if (AppState.analyzer.raw.length === 0) return;
 
   // Check for click on an on-canvas exclude ✕ / ＋ button — abort drag if hit
@@ -469,7 +491,7 @@ function mousePressed() {
   }
 }
 
-function mouseDragged() {
+export function mouseDragged() {
   if (AppState.isDraggingTimeline && AppState.analyzer.raw.length > 0) {
     updateCanvasCursor();
     const dragTime = map(mouseX, GSR_CONST.MARGIN.left, width - GSR_CONST.MARGIN.right, 0, AppState.totalDuration);
@@ -488,20 +510,20 @@ function mouseDragged() {
   }
 }
 
-function mouseReleased() {
+export function mouseReleased() {
   AppState.isDragging = false;
   AppState.isDraggingTimeline = false;
   updateCanvasCursor();
 }
 
-function mouseMoved() {
+export function mouseMoved() {
   if (AppState.mouseOverCanvas) {
     updateCanvasCursor();
     coalescedHoverRedraw();
   }
 }
 
-function mouseWheel(event) {
+export function mouseWheel(event) {
   if (mouseX >= GSR_CONST.MARGIN.left && mouseX <= width - GSR_CONST.MARGIN.right &&
       mouseY >= GSR_CONST.MARGIN.top && mouseY <= AppState.yGraphBottom) {
 

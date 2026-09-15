@@ -193,7 +193,7 @@ const __methods = {
 };
 
 if (typeof module !== 'undefined' && module.exports) {
-  Object.assign(global, require('./ui.js'));
+  Object.assign(global, require('./ui.mjs'));
   module.exports = __methods;
 } else {
   Object.assign(GSRUI, __methods);

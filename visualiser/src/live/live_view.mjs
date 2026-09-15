@@ -48,8 +48,20 @@
 // once (at mount, and once at index.html boot), not live-updating, so a
 // mid-session resize/rotation never yanks a layout choice the user is
 // already in. Supports phones in portrait (<=768px) and landscape (<=500px height).
-const LIVE_MOBILE_QUERY = '((max-width: 768px) and (pointer: coarse)), ((max-height: 500px) and (pointer: coarse))';
-function isCompactLiveLayout() {
+import { AppState } from '../core/app_state.mjs';
+import { GSR_CONST } from '../core/constants.mjs';
+import { GSRFileSaver } from '../core/file_saver.mjs';
+import { GSRFullscreen } from '../core/fullscreen.mjs';
+import { GSRLayoutManager } from '../core/layout_manager.mjs';
+import { GSRLiveBluetoothManager } from './live_bluetooth.mjs';
+import { buildLiveCsv } from './live_csv.mjs';
+import { LIVE_GRAPH_VIEWS, NS_TO_US, drawGraph } from './live_graph.mjs';
+import { LIVE_ZOOM, allTrackSegments, cacheCurrentMapArea, clearLiveMapMarkers, flushSettledSegments, gsrMax, gsrMin, hideMap, lastLivePanAt, liveLastLatLng, liveMap, liveMarker, pendingSegments, phasicMax, recolorAllTrackSegments, renderLiveMapMarkers, resetLiveMapSession, showMap, tonicMax, tonicMin, updateLiveMap } from './live_map.mjs';
+import { LiveState } from './live_state.mjs';
+import { GSRAnalyzer } from '../signal/analyzer.mjs';
+
+export const LIVE_MOBILE_QUERY = '((max-width: 768px) and (pointer: coarse)), ((max-height: 500px) and (pointer: coarse))';
+export function isCompactLiveLayout() {
   return typeof window !== 'undefined' && typeof window.matchMedia === 'function' &&
     window.matchMedia(LIVE_MOBILE_QUERY).matches;
 }
@@ -59,7 +71,7 @@ function isCompactLiveLayout() {
 // byte-for-byte equivalent to the old live.html <body> (only #map became
 // #liveMap, to avoid colliding with index.html's analysis map).
 // ==========================================================================
-const LIVE_VIEW_MARKUP = `
+export const LIVE_VIEW_MARKUP = `
 <div id="app" class="no-map">
   <!-- Everything on one wrapping row: the toolbar action strip, the graph
        layer-toggle strip and the view dropdown all live in <header> so they
@@ -171,7 +183,7 @@ const LIVE_VIEW_MARKUP = `
 // The app's shipped GSR defaults, no slider UI. Deconvolution and prominence
 // stay off: full-scan trough-to-peak is O(n) and the only detector that
 // stays real-time safe on a continuously growing buffer.
-const LIVE_ANALYZE_PARAMS = (typeof GSR_CONST !== 'undefined' && GSR_CONST.GSR_DEFAULT)
+export const LIVE_ANALYZE_PARAMS = (typeof GSR_CONST !== 'undefined' && GSR_CONST.GSR_DEFAULT)
   ? Object.assign({}, GSR_CONST.GSR_DEFAULT, { useDeconvolution: false, useSparsEDA: false, usePeakProminence: false, useCvxEDA: false })
   : {
       medianSize: 0, lpfWindow: 0, useGaitFilter: true, tonicMethod: 'lpf', tonicWindow: 45,
@@ -199,27 +211,27 @@ const LIVE_ANALYZE_PARAMS = (typeof GSR_CONST !== 'undefined' && GSR_CONST.GSR_D
 //
 // `let` on the tunables so tests can retune without feeding thousands of
 // packets or waiting on a real clock.
-const LIVE_ANALYZE_WINDOW_S = 300;       // trailing slice handed to analyze()
-let LIVE_ANALYZE_WARMUP_ROWS = 400;      // ~2 min of session at STREAM_INTERVAL_S
-let LIVE_ANALYZE_MIN_INTERVAL_MS = 1500;
-let lastLiveAnalyzeAt = 0;               // Date.now() of the last analyze(); reset per session
+export const LIVE_ANALYZE_WINDOW_S = 300;       // trailing slice handed to analyze()
+export let LIVE_ANALYZE_WARMUP_ROWS = 400;      // ~2 min of session at STREAM_INTERVAL_S
+export let LIVE_ANALYZE_MIN_INTERVAL_MS = 1500;
+export let lastLiveAnalyzeAt = 0;               // Date.now() of the last analyze(); reset per session
 
 // Trailing seconds of the analysed buffer whose tonic/phasic/peaks are still
 // provisional — decomposeTonicPhasic is zero-phase and has a ±6s look-ahead
 // local-floor pass, so the newest samples haven't settled. Matches
 // PHASIC_COLOR_LAG_S. Peak / hotspot markers are not drawn inside this tail.
-const LIVE_SETTLE_TAIL_S = 8;
+export const LIVE_SETTLE_TAIL_S = 8;
 
 // The mobile FAB's metric chips — same three options as #liveGraphView above
 // (kept as separate short labels since the FAB chips are much narrower than
 // the dropdown's option text). Order matches the dropdown.
-const LIVE_FAB_METRICS = [
+export const LIVE_FAB_METRICS = [
   { value: 'signal', label: 'Signal' },
   { value: 'tonic', label: 'Tonic' },
   { value: 'phasic', label: 'Phasic' },
 ];
 
-const LIVE_FAB_TOGGLES = [
+export const LIVE_FAB_TOGGLES = [
   { key: 'showPeaks', id: 'liveBtnTogglePeaks', label: 'Peaks' },
   { key: 'showHotspots', id: 'liveBtnToggleHotspots', label: 'Hotspots' },
 ];
@@ -230,7 +242,7 @@ const LIVE_FAB_TOGGLES = [
 // where it is drawn underneath the filtered signal exactly like the main
 // visualiser's Signal view; on the compact (mobile) layout the graph is too
 // small to carry the extra trace so it stays off.
-const liveGsrView = {
+export const liveGsrView = {
   showFiltered: true, showTonic: true,
   showPhasic: !isCompactLiveLayout(),
   showPeaks: true, showHotspots: true,
@@ -242,14 +254,14 @@ const liveGsrView = {
 // LiveState.packets of liveAnalyzer.raw[0], so an analyser-local row / peak
 // index `i` maps to packet `liveAnalyzerBase + i` (drawGraph()'s gap lookup
 // and the phasic mirror below both rely on that). Reset per session.
-let liveAnalyzer = null;
-let liveAnalyzerBase = 0;
+export let liveAnalyzer = null;
+export let liveAnalyzerBase = 0;
 
 // Rebuild the analyser's trailing-window buffer from the newest
 // LIVE_ANALYZE_WINDOW_S of LiveState.packets, then re-run the pipeline
 // (subject to the wall-clock throttle above) and refresh the map's delayed
 // phasic recolour from the same decomposition.
-function feedLiveAnalyzer() {
+export function feedLiveAnalyzer() {
   if (typeof GSRAnalyzer === 'undefined') return; // analysis deps not on the page
   if (!liveAnalyzer) {
     liveAnalyzer = new GSRAnalyzer();
@@ -328,7 +340,7 @@ function feedLiveAnalyzer() {
 // app's exports use, with the plain-download fallback when the File System
 // Access API isn't available.
 // ==========================================================================
-function exportCsv() {
+export function exportCsv() {
   const name = `biomap_live_${new Date().toISOString().replace(/[:.]/g, '-')}.csv`;
   return GSRFileSaver.saveFile(buildLiveCsv(LiveState.packets, Date.now()), name);
 }
@@ -336,26 +348,26 @@ function exportCsv() {
 // ==========================================================================
 // Wire-up state — element refs and session bookkeeping, assigned by mount().
 // ==========================================================================
-let statusBadge, connectionBtn, exportBtn,
+export let statusBadge, connectionBtn, exportBtn,
     connectOverlay, connectBtn, connectErr, reconnectErr,
     cacheMapBtn, toggleMapBtn,
     liveFabToggle, liveFabMenu;
 
-let needNewConnection = false;
-let bleManager = null;
-let lastPacketTimestamp = 0;
-let lastPacketArrivalTime = 0;
-let animationFrameId = null;
-let wakeLock = null;
-let mapVisible = false;
+export let needNewConnection = false;
+export let bleManager = null;
+export let lastPacketTimestamp = 0;
+export let lastPacketArrivalTime = 0;
+export let animationFrameId = null;
+export let wakeLock = null;
+export let mapVisible = false;
 // Whether the live view is the one on screen. Always true for standalone
 // live.html; index.html's view switcher flips it via activate()/deactivate()
 // so the redraw loop doesn't run against a hidden panel.
-let viewActive = true;
+export let viewActive = true;
 
-const MANUAL_LOCATION_ZOOM = 15;
+export const MANUAL_LOCATION_ZOOM = 15;
 
-async function requestWakeLock() {
+export async function requestWakeLock() {
   if ('wakeLock' in navigator) {
     try {
       if (wakeLock && !wakeLock.released) {
@@ -368,7 +380,7 @@ async function requestWakeLock() {
   }
 }
 
-function releaseWakeLock() {
+export function releaseWakeLock() {
   if (wakeLock !== null) {
     try {
       if (!wakeLock.released) wakeLock.release().catch(() => {});
@@ -377,7 +389,7 @@ function releaseWakeLock() {
   }
 }
 
-function startAnimationLoop() {
+export function startAnimationLoop() {
   if (animationFrameId) return;
   function frame() {
     if (viewActive && (LiveState.status === 'connected' || LiveState.status === 'reconnecting')) {
@@ -388,7 +400,7 @@ function startAnimationLoop() {
   animationFrameId = requestAnimationFrame(frame);
 }
 
-function stopAnimationLoop() {
+export function stopAnimationLoop() {
   if (animationFrameId) {
     cancelAnimationFrame(animationFrameId);
     animationFrameId = null;
@@ -397,7 +409,7 @@ function stopAnimationLoop() {
 
 // Connection orchestration controller: handles Web Bluetooth lifecycle,
 // connection button state transitions, and connection action dispatch.
-const LiveConnectionController = {
+export const LiveConnectionController = {
   get needNewConnection() {
     return needNewConnection;
   },
@@ -509,7 +521,7 @@ const LiveConnectionController = {
   },
 };
 
-function renderStatus(status) {
+export function renderStatus(status) {
   const labels = {
     connecting: ['Connecting…', ''],
     connected: ['Live', 'live'],
@@ -540,25 +552,14 @@ function renderStatus(status) {
 // counter. Carrying the old session's packets/last-position/color-range
 // into that would misdraw the graph window and put a bogus connecting line
 // on the map (see addPacket()'s gap-detection comment), so start clean.
-function resetSession() {
-  if (liveMap) {
-    for (const { line } of allTrackSegments) {
-      if (typeof line.remove === 'function') line.remove();
-      else if (typeof liveMap.removeLayer === 'function') liveMap.removeLayer(line);
-    }
-    if (liveMarker) {
-      if (typeof liveMarker.remove === 'function') liveMarker.remove();
-      else if (typeof liveMap.removeLayer === 'function') liveMap.removeLayer(liveMarker);
-      liveMarker = null;
-    }
-  }
+export function resetSession() {
+  // live_map.js owns liveMap/liveMarker/liveLastLatLng/gsrMin-Max/tonicMin-
+  // Max/phasicMax/lastLivePanAt as its own module-level state — an imported
+  // `let` binding is read-only outside its own module, so it resets them
+  // itself instead of this file reassigning them directly (both files freely
+  // reassigned one shared global here in the pre-ES-module dual-mode era).
+  resetLiveMapSession();
   LiveState.reset();
-  liveLastLatLng = null;
-  gsrMin = Infinity;
-  gsrMax = -Infinity;
-  tonicMin = Infinity;
-  tonicMax = -Infinity;
-  phasicMax = 0;
   // A pending entry's pkt.tonic/pkt.phasic only ever gets set by a
   // feedLiveAnalyzer() that still has that packet in LiveState.packets —
   // once packets is reset above, any leftover entry from the old session
@@ -572,7 +573,6 @@ function resetSession() {
   if (liveAnalyzer) liveAnalyzer.raw = [];
   liveAnalyzerBase = 0;
   lastLiveAnalyzeAt = 0;
-  lastLivePanAt = 0;
   document.getElementById('statPackets').textContent = 'Packets: 0';
   document.getElementById('statGaps').textContent = 'Gaps: 0';
   document.getElementById('statGps').textContent = 'GPS: --';
@@ -584,7 +584,7 @@ function resetSession() {
 
 // Connects over Web Bluetooth using the browser's device chooser. We show all
 // nearby devices so that custom-named or renamed Flippers can connect.
-async function attemptConnect(forceNewChooser = false) {
+export async function attemptConnect(forceNewChooser = false) {
   return LiveConnectionController.connect(forceNewChooser);
 }
 
@@ -592,7 +592,7 @@ async function attemptConnect(forceNewChooser = false) {
 // dropdown — index.html's #gsrPanel header controls, minus Raw and the
 // left-sidebar sliders. Each just flips a liveGsrView flag and redraws;
 // analysis itself always runs with the app's shipped GSR_DEFAULT params.
-const LIVE_GSR_TOGGLES = [
+export const LIVE_GSR_TOGGLES = [
   ['liveBtnToggleFiltered', 'showFiltered'],
   ['liveBtnToggleTonic', 'showTonic'],
   ['liveBtnTogglePhasic', 'showPhasic'],
@@ -600,7 +600,7 @@ const LIVE_GSR_TOGGLES = [
   ['liveBtnToggleHotspots', 'showHotspots'],
 ];
 
-function bindLiveGsrControls() {
+export function bindLiveGsrControls() {
   for (const [id, key] of LIVE_GSR_TOGGLES) {
     const btn = document.getElementById(id);
     if (!btn) continue;
@@ -626,7 +626,7 @@ function bindLiveGsrControls() {
 // #liveGraphView dropdown and the mobile FAB's metric chips both call this
 // same function, so there is exactly one code path regardless of which UI
 // drove the change.
-function setLiveGraphMetric(metric) {
+export function setLiveGraphMetric(metric) {
   if (!LIVE_GRAPH_VIEWS[metric] || liveGsrView.graphView === metric) return;
   liveGsrView.graphView = metric;
   const sel = document.getElementById('liveGraphView');
@@ -640,7 +640,7 @@ function setLiveGraphMetric(metric) {
   recolorAllTrackSegments();
 }
 
-function updateToggleMapBtn() {
+export function updateToggleMapBtn() {
   toggleMapBtn.textContent = mapVisible ? 'Hide Map (M)' : 'Show Map (M)';
   toggleMapBtn.classList.toggle('active', mapVisible);
 }
@@ -649,7 +649,7 @@ function updateToggleMapBtn() {
 // re-showing an already-visible map) and the toggle button's own label/state
 // can't drift apart the way they could when each caller (the toggle click,
 // and both branches of goToLatLon below) flipped them separately.
-function setMapVisible(visible) {
+export function setMapVisible(visible) {
   mapVisible = visible;
   if (visible) showMap(); else hideMap();
   updateToggleMapBtn();
@@ -666,20 +666,20 @@ function setMapVisible(visible) {
 // in Graph mode (mapVisible false, today's `.no-map` fullscreen graph) it's
 // a Map chip instead, since there is only one destination to offer there.
 // ==========================================================================
-function closeFabMenu() {
+export function closeFabMenu() {
   if (!liveFabMenu) return;
   liveFabMenu.classList.remove('open');
   if (liveFabToggle) liveFabToggle.setAttribute('aria-expanded', 'false');
 }
 
-function toggleFabMenu() {
+export function toggleFabMenu() {
   if (!liveFabMenu) return;
   const open = !liveFabMenu.classList.contains('open');
   liveFabMenu.classList.toggle('open', open);
   if (liveFabToggle) liveFabToggle.setAttribute('aria-expanded', String(open));
 }
 
-function renderFabMenu() {
+export function renderFabMenu() {
   if (!liveFabMenu) return;
   const chips = [];
 
@@ -712,7 +712,7 @@ function renderFabMenu() {
   liveFabMenu.innerHTML = chips.join('');
 }
 
-function bindLiveFab() {
+export function bindLiveFab() {
   const fab = document.getElementById('liveFab');
   liveFabToggle = document.getElementById('liveFabToggle');
   liveFabMenu = document.getElementById('liveFabMenu');
@@ -780,7 +780,7 @@ function bindLiveFab() {
   document.addEventListener('click', handleOutsideClose);
 }
 
-function goToLatLon(lat, lon, zoom) {
+export function goToLatLon(lat, lon, zoom) {
   if (!Number.isFinite(lat) || !Number.isFinite(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) {
     alert('Enter a valid latitude (-90 to 90) and longitude (-180 to 180).');
     return;
@@ -799,7 +799,7 @@ function goToLatLon(lat, lon, zoom) {
 // above, which already used this shape.
 // ==========================================================================
 
-function initLiveViewDom(container) {
+export function initLiveViewDom(container) {
   // .live-view scopes every rule in styles.css's "Live Stream (BLE) view"
   // section to this subtree — so the live UI's bare header/footer/button
   // selectors never leak into the host page.
@@ -824,7 +824,7 @@ function initLiveViewDom(container) {
   }
 }
 
-function bindLiveStateListeners() {
+export function bindLiveStateListeners() {
   // Bind the shared fullscreen/visibility sticky-restore machinery (also
   // bound by GSRLayoutManager.init() in index.html — idempotent). In the
   // standalone page this is the only caller.
@@ -869,7 +869,7 @@ function bindLiveStateListeners() {
   });
 }
 
-function bindLiveConnectionControls() {
+export function bindLiveConnectionControls() {
   connectBtn.addEventListener('click', attemptConnect);
 
   // Lets the map be shown, panned, and cached before (or without)
@@ -886,7 +886,7 @@ function bindLiveConnectionControls() {
   exportBtn.addEventListener('click', exportCsv);
 }
 
-function bindLiveMapControls() {
+export function bindLiveMapControls() {
   cacheMapBtn.addEventListener('click', cacheCurrentMapArea);
 
   toggleMapBtn.addEventListener('click', () => setMapVisible(!mapVisible));
@@ -936,7 +936,7 @@ function bindLiveMapControls() {
   }
 }
 
-function bindLiveKeyboardShortcuts() {
+export function bindLiveKeyboardShortcuts() {
   window.addEventListener('keydown', (e) => {
     // Inside index.html these listeners outlive the Live tab (mount is
     // once, no unmount) — only claim the p/m/c shortcuts while the Live
@@ -960,7 +960,7 @@ function bindLiveKeyboardShortcuts() {
   });
 }
 
-function bindLiveResizeHandling(container) {
+export function bindLiveResizeHandling(container) {
   // Invalidate liveMap and redraw graph on resize or orientation change.
   // Also observe the container with ResizeObserver so any container
   // dimension changes (e.g. mobile orientation change, display mode toggle)
@@ -1003,7 +1003,7 @@ function bindLiveResizeHandling(container) {
 // GSRLiveView — build the DOM into `container` and bind everything. Call
 // once. Idempotent (a second call is a no-op).
 // ==========================================================================
-const GSRLiveView = {
+export const GSRLiveView = {
   _mounted: false,
 
   mount(container) {
@@ -1091,8 +1091,3 @@ const GSRLiveView = {
   // Encapsulated connection controller for state inspection and testing
   connectionController: LiveConnectionController,
 };
-
-if (typeof window !== 'undefined') window.GSRLiveView = GSRLiveView;
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { GSRLiveView };
-}

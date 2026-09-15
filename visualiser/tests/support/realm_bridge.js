@@ -289,15 +289,30 @@ function clearLeakedTimersFromPreviousBoot() {
  */
 // A plain `Object.assign(target, source)` INVOKES any getter on `source`
 // and copies the resulting VALUE as a fresh data property — losing
-// liveness. Both a real ES module namespace object's exports (genuinely
+// liveness for BOTH a real ES module namespace object's exports (genuinely
 // live bindings — reflect a later `export let x` reassignment inside the
-// module) and wrapForRepeatedExecution's getter/setter bridge (emulating
-// the same liveness for a not-yet-converted file) need the DESCRIPTOR
-// copied instead, so reads on `target` keep going through to the source's
-// live binding. `configurable: true` is forced on the copy regardless of
-// the source's own (a module namespace's own properties are
-// non-configurable) — `target` here is `global`/`window`, which must stay
-// redefinable across every later boot.
+// module) and wrapForRepeatedExecution's getter/setter bridge (emulating the
+// same liveness for a not-yet-converted file). Naively copying the
+// DESCRIPTOR instead (an earlier version of this function did) fixes the
+// bridge case (its descriptor already carries live get/set functions) but
+// NOT the namespace case: `Object.getOwnPropertyDescriptor(moduleNamespace,
+// name)` returns a plain frozen-at-that-instant VALUE descriptor — a
+// namespace object's internal live-binding semantics are an ECMAScript
+// Module Environment Record, not something `Object.getOwnPropertyDescriptor`
+// can observe as an accessor — so a later `export let x = ...; x =
+// newValue` reassignment inside the module never reached a global/window
+// copy taken this way (confirmed empirically: `mod.x` updates, a copied
+// descriptor's `.value` does not). First hit in layer 6, where a converted
+// file's own exported `let` (e.g. live_map.js's `liveLastLatLng`) is
+// reassigned post-boot and read back via `window.X` in a test. Fixed with a
+// live getter/setter that re-reads `source[name]` on every access instead —
+// works uniformly whether `source` is a real module namespace (whose own
+// properties are non-writable, so the setter silently no-ops on an external
+// write, matching real browser ESM semantics) or the bridge object (whose
+// own setter has real effects, unchanged since this just proxies through
+// it). `configurable: true` is forced regardless of the source's own (a
+// module namespace's own properties are non-configurable) — `target` here
+// is `global`/`window`, which must stay redefinable across every later boot.
 // Every name ever reflected onto `global` (not `window` — a fresh jsdom
 // window never carries anything over). boot_app.js's SCRIPT_ORDER and
 // boot_live.js's LIVE_SCRIPT_ORDER overlap but differ (e.g. GSRLayoutManager
@@ -319,9 +334,14 @@ function clearPreviousBootGlobals() {
 }
 
 function reflectOntoGlobal(source, target) {
-  for (const [name, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(source))) {
+  for (const name of Object.keys(Object.getOwnPropertyDescriptors(source))) {
     if (target === global) reflectedGlobalNames.add(name);
-    Object.defineProperty(target, name, { ...descriptor, configurable: true });
+    Object.defineProperty(target, name, {
+      get() { return source[name]; },
+      set(v) { source[name] = v; },
+      configurable: true,
+      enumerable: true,
+    });
   }
 }
 

@@ -12,12 +12,19 @@
  * @param {*}                fallback - Default value when el is null/absent
  * @param {Function}         [fn]     - Parser: parseFloat (default) or parseInt
  */
-function sliderVal(el, fallback, fn) {
+import { AppState } from '../core/app_state.mjs';
+import { GSR_CONST } from '../core/constants.mjs';
+import { GSRFileSaver } from '../core/file_saver.mjs';
+import { GSREvents } from './events.mjs';
+import { GSRTrackManager } from './tracks.mjs';
+import { GSRUI } from './ui.mjs';
+
+export function sliderVal(el, fallback, fn) {
   fn = fn || parseFloat;
   return el ? fn(el.value) : (typeof fallback === 'string' ? fn(fallback) : fallback);
 }
 
-const GSRStorage = {
+export const GSRStorage = {
   /**
    * Read current GSR slider values into a clean param object.
    * Shared by tracks.js, storage.js, and ui.js.
@@ -47,7 +54,6 @@ const GSRStorage = {
       useCvxEDA:              (S.useCvxEDA && S.useCvxEDA.checked) || false
     };
   },
-
 
   /**
    * Read current GPS slider values into a clean param object.
@@ -321,11 +327,3 @@ const GSRStorage = {
     return true;
   }
 };
-
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { GSRStorage, sliderVal };
-}
-if (typeof window !== 'undefined') {
-  window.GSRStorage = GSRStorage;
-}
-

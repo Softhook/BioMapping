@@ -43,7 +43,7 @@ loadBrowserModule('../src/ui/tracks.js',       'GSRTrackManager');
 // a relative require internally (see renderer.js's class-tail manifest
 // comment) — loading ui.js a second way here would produce a second, distinct
 // GSRUI object that the two loaders would then fight over.
-global.GSRUI = require('../src/ui/ui.js').GSRUI;
+global.GSRUI = require('../src/ui/ui.mjs').GSRUI;
 Object.assign(global.GSRUI, require('../src/ui/ui_stats_panel.js'));
 
 loadBrowserModule('../src/signal/analyzer.js', 'GSRAnalyzer');

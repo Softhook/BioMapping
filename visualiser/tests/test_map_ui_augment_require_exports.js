@@ -53,7 +53,7 @@ test('map.js exports GSRMapManager', async () => {
 });
 
 test('ui.js exports GSRUI', async () => {
-  const { GSRUI } = require('../src/ui/ui.js');
+  const { GSRUI } = require('../src/ui/ui.mjs');
   assert.strictEqual(typeof GSRUI, 'object');
 });
 
@@ -109,11 +109,14 @@ test("map_manager_peaks.js's require-branch resolves prototype AND static method
 
 for (const augment of UI_AUGMENTS) {
   test(`${augment}'s require-branch resolves GSRUI onto global and merges onto it`, async () => {
-    delete require.cache[require.resolve('../src/ui/ui.js')];
+    // ui.js converted to a real ES module (ui.mjs) — same "can't be cache-
+    // busted, has no module-level mutable state, so require it once and
+    // stamp global.GSRUI itself" fix as map.mjs above.
     delete require.cache[require.resolve(`../src/ui/${augment}`)];
     delete global.GSRUI;
 
-    const { GSRUI } = require('../src/ui/ui.js');
+    const { GSRUI } = require('../src/ui/ui.mjs');
+    global.GSRUI = GSRUI;
     const methods = require(`../src/ui/${augment}`);
     Object.assign(GSRUI, methods);
 

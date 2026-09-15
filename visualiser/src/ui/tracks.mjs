@@ -3,7 +3,19 @@
  * Extracted from ui.js.
  */
 
-const GSRTrackManager = {
+import { AppState } from '../core/app_state.mjs';
+import { GSR_CONST } from '../core/constants.mjs';
+import { GSRFullscreen } from '../core/fullscreen.mjs';
+import { GSRGlobe3DView } from '../map/globe3d_view.mjs';
+import { GSRRenderer } from '../render/renderer.mjs';
+import { windowResized } from '../render/sketch.mjs';
+import { GSRAnalyzer } from '../signal/analyzer.mjs';
+import { GSRCollectiveProject } from '../spatial/collective_project.mjs';
+import { GSREvents } from './events.mjs';
+import { GSRStorage } from './storage.mjs';
+import { GSRUI } from './ui.mjs';
+
+export const GSRTrackManager = {
   /**
    * Buttons that only make sense once at least one track is loaded — kept in
    * one place so renderTrackList()'s empty-state branch and
@@ -632,10 +644,3 @@ const GSRTrackManager = {
       });
   }
 };
-
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { GSRTrackManager };
-}
-if (typeof window !== 'undefined') {
-  window.GSRTrackManager = GSRTrackManager;
-}

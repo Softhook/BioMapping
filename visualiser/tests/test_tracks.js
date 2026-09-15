@@ -37,8 +37,27 @@ global.requestAnimationFrame = () => {};
 
 global.GSR_CONST = require('./mock_constants.js');
 
-global.GSREvents = { initializeLabels: () => {} };
-global.GSRUI = {
+// tracks.mjs holds real static imports of GSREvents/GSRUI/GSRRenderer/
+// GSRStorage (from events.mjs/ui.mjs/renderer.mjs/storage.mjs) — a
+// `global.X = {...}` full-replacement shadow (this file's old bare-global
+// pattern) no longer reaches any of them (ES-module migration), so every
+// mock below is applied by mutating the REAL singleton's own properties in
+// place instead. GSRRenderer was already a real import as far back as layer
+// 0 of the migration — its mock was silently inert from that point on;
+// harmless here since no test in this file exercises `drawPlaceholder`.
+const { GSREvents: RealGSREvents } = require('../src/ui/events.mjs');
+const { GSRUI: RealGSRUI } = require('../src/ui/ui.mjs');
+const { GSRRenderer: RealGSRRenderer } = require('../src/render/renderer.mjs');
+const { GSRStorage: RealGSRStorage } = require('../src/ui/storage.mjs');
+const { GSRCollectiveProject: RealGSRCollectiveProject } = require('../src/spatial/collective_project.mjs');
+
+function setSingletonShape(target, shape) {
+  for (const k of Object.keys(target)) delete target[k];
+  return Object.assign(target, shape);
+}
+
+global.GSREvents = setSingletonShape(RealGSREvents, { initializeLabels: () => {} });
+global.GSRUI = setSingletonShape(RealGSRUI, {
   updatePeaksTable: () => {},
   updateStatsPanel: () => {},
   updateDeconvTruncationWarning: () => {},
@@ -47,8 +66,8 @@ global.GSRUI = {
   refreshOsmControls: () => {},
   updateCollectiveMap: () => { global.__collectiveMapUpdated = true; },
   showUnsavedLabelsModal: (name, id, cb) => { global.__unsavedModal = { name, id, cb }; },
-};
-global.GSRRenderer = { drawPlaceholder: () => {} };
+});
+global.GSRRenderer = setSingletonShape(RealGSRRenderer, { drawPlaceholder: () => {} });
 
 // deleteTrack() unconditionally calls saveActiveGpsParams(), which reads
 // GSRStorage.readGpsSliderValues() — provide an inert default so tests that
@@ -60,7 +79,7 @@ const defaultGSRStorage = {
   readGpsSliderValues: () => ({}),
   writeGpsSliderValues: () => {},
 };
-global.GSRStorage = defaultGSRStorage;
+global.GSRStorage = setSingletonShape(RealGSRStorage, defaultGSRStorage);
 
 /**
  * Fake GSRAnalyzer — exposes exactly the surface tracks.js reads/writes:
@@ -96,7 +115,26 @@ class FakeAnalyzer {
   formatDateShort() { return 'Jan 1'; }
   formatTimeOnly() { return '00:00'; }
 }
-global.GSRAnalyzer = FakeAnalyzer;
+// tracks.mjs holds a static `import { GSRAnalyzer } from
+// '../signal/analyzer.mjs'` live binding — `global.GSRAnalyzer =
+// FakeAnalyzer` (this file's old bare-global pattern) no longer reaches it,
+// and unlike a plain-object singleton (GSRUI/GSREvents/etc. above) a CLASS
+// import can't be reset-and-reassigned in place either — its own binding is
+// still read-only from outside. Fixed like layer 5's RFFluidRenderer fix:
+// patch the real class's prototype instead, so `new GSRAnalyzer()` (what
+// tracks.mjs's own code actually calls) behaves like FakeAnalyzer for the
+// one method whose real behavior would break these tests' deterministic
+// fixtures — parseCSV (the real parser throws on `text === '__THROW__'`-
+// shaped nonsense, doesn't understand `__IMPORTED__`, and needs a real CSV
+// header tracks.js's own fixtures don't bother providing, since they test
+// tracks.js's OWN logic, not the CSV parser). formatDateShort/formatTimeOnly
+// are read only from inside the stubbed-out renderTrackList (see file
+// header), so left real — real GSRAnalyzer's constructor already
+// initializes raw/peaks/importedFilterParams/importedGpsFilterParams/
+// recordingStartTime/rawMinMaxCached compatibly with what FakeAnalyzer set.
+const { GSRAnalyzer: RealGSRAnalyzer } = require('../src/signal/analyzer.mjs');
+RealGSRAnalyzer.prototype.parseCSV = FakeAnalyzer.prototype.parseCSV;
+global.GSRAnalyzer = RealGSRAnalyzer;
 
 function makeMockElement() {
   return {
@@ -128,14 +166,25 @@ global.document = {
   body: { appendChild() {} },
 };
 
-const { GSRTrackManager } = require('../src/ui/tracks.js');
+const { GSRTrackManager } = require('../src/ui/tracks.mjs');
 const { GSRCollectiveManager } = require('../src/spatial/collective_manager.mjs');
+const { AppState: RealAppState } = require('../src/core/app_state.mjs');
 
 // renderTrackList is DOM construction, not state logic — see file header.
 GSRTrackManager.renderTrackList = () => { global.__renderCount = (global.__renderCount || 0) + 1; };
 
 /** Builds a fresh AppState-shaped object backed by a real GSRCollectiveManager. */
+// tracks.mjs holds a static `import { AppState } from '../core/app_state.mjs'`
+// live binding — `global.AppState = {...}` (this file's old bare-global
+// pattern, from when tracks.js referenced AppState as a plain global) no
+// longer reaches it, since a real import binding is invisible to code
+// outside the module graph (ES-module migration). Fixed by resetting the
+// REAL app_state.mjs singleton's own properties in place and handing that
+// same object back — callers still assign the result to `global.AppState`
+// for their own bookkeeping/assertions, which keeps working unchanged since
+// it's the exact object tracks.mjs reads too.
 function freshAppState(overrides) {
+  for (const k of Object.keys(RealAppState)) delete RealAppState[k];
   const base = {
     collectiveManager: new GSRCollectiveManager(),
     activeTrackId: null,
@@ -168,7 +217,7 @@ function freshAppState(overrides) {
       (this._listeners[event] || []).forEach(fn => fn(...args));
     },
   };
-  return Object.assign(base, overrides);
+  return Object.assign(RealAppState, base, overrides);
 }
 
 function makeTrack(id, overrides) {
@@ -329,7 +378,7 @@ test('deleteTrack: removing the last remaining track clears activeTrackId and re
 
   assert.deepStrictEqual(global.AppState.collectiveManager.tracks, []);
   assert.strictEqual(global.AppState.activeTrackId, null);
-  assert.ok(global.AppState.analyzer instanceof FakeAnalyzer, 'a fresh analyzer replaces the deleted one');
+  assert.ok(global.AppState.analyzer instanceof RealGSRAnalyzer, 'a fresh analyzer replaces the deleted one');
   assert.notStrictEqual(global.AppState.analyzer, t1.analyzer);
   assert.strictEqual(clearAllCalled, true, 'map is cleared when the library goes empty');
   delete global.AppState;
@@ -408,7 +457,7 @@ test('clearAllTracks: empties the track list, clears the active pointer, resets 
 
   assert.deepStrictEqual(global.AppState.collectiveManager.tracks, []);
   assert.strictEqual(global.AppState.activeTrackId, null);
-  assert.ok(global.AppState.analyzer instanceof FakeAnalyzer);
+  assert.ok(global.AppState.analyzer instanceof RealGSRAnalyzer);
   assert.strictEqual(global.AppState.trackColorIndex, 0, 'color palette restarts like a fresh page load');
   assert.strictEqual(clearAllCalled, true);
   delete global.AppState;
@@ -600,21 +649,21 @@ test('saveActiveTrackParams: reads slider values via GSRStorage and stores them 
   global.AppState.collectiveManager.addTrack(t1);
   global.AppState.activeTrackId = 't1';
   const params = { peakThreshold: 0.03, useDeconvolution: true };
-  global.GSRStorage = { readGsrSliderValues: () => params };
+  global.GSRStorage = setSingletonShape(RealGSRStorage, { readGsrSliderValues: () => params });
 
   GSRTrackManager.saveActiveTrackParams();
 
   assert.strictEqual(t1.filterParams, params);
-  global.GSRStorage = defaultGSRStorage;
+  global.GSRStorage = setSingletonShape(RealGSRStorage, defaultGSRStorage);
   delete global.AppState;
 });
 
 test('saveActiveTrackParams: no-op when there is no active track', () => {
   resetSpies();
   global.AppState = freshAppState();
-  global.GSRStorage = { readGsrSliderValues: () => ({ x: 1 }) };
+  global.GSRStorage = setSingletonShape(RealGSRStorage, { readGsrSliderValues: () => ({ x: 1 }) });
   assert.doesNotThrow(() => GSRTrackManager.saveActiveTrackParams());
-  global.GSRStorage = defaultGSRStorage;
+  global.GSRStorage = setSingletonShape(RealGSRStorage, defaultGSRStorage);
   delete global.AppState;
 });
 
@@ -635,16 +684,16 @@ test('loadActiveTrackParams + saveActiveTrackParams round-trip a params object t
   assert.strictEqual(global.AppState.sliders.useDeconvolution.checked, false);
 
   // Now round-trip back out via save.
-  global.GSRStorage = {
+  global.GSRStorage = setSingletonShape(RealGSRStorage, {
     readGsrSliderValues: () => ({
       peakThreshold: global.AppState.sliders.peakThreshold.value,
       useDeconvolution: global.AppState.sliders.useDeconvolution.checked,
     }),
-  };
+  });
   GSRTrackManager.saveActiveTrackParams();
   assert.deepStrictEqual(t1.filterParams, { peakThreshold: 0.045, useDeconvolution: false });
 
-  global.GSRStorage = defaultGSRStorage;
+  global.GSRStorage = setSingletonShape(RealGSRStorage, defaultGSRStorage);
   delete global.AppState;
 });
 
@@ -717,21 +766,21 @@ test('saveActiveGpsParams: reads GPS slider values via GSRStorage and stores the
   global.AppState.collectiveManager.addTrack(t1);
   global.AppState.activeTrackId = 't1';
   const gpsParams = { smoothing: 0.8, kalmanR: 12 };
-  global.GSRStorage = { readGpsSliderValues: () => gpsParams };
+  global.GSRStorage = setSingletonShape(RealGSRStorage, { readGpsSliderValues: () => gpsParams });
 
   GSRTrackManager.saveActiveGpsParams();
 
   assert.strictEqual(t1.gpsFilterParams, gpsParams);
-  global.GSRStorage = defaultGSRStorage;
+  global.GSRStorage = setSingletonShape(RealGSRStorage, defaultGSRStorage);
   delete global.AppState;
 });
 
 test('saveActiveGpsParams: no-op when there is no active track', () => {
   resetSpies();
   global.AppState = freshAppState();
-  global.GSRStorage = { readGpsSliderValues: () => ({}) };
+  global.GSRStorage = setSingletonShape(RealGSRStorage, { readGpsSliderValues: () => ({}) });
   assert.doesNotThrow(() => GSRTrackManager.saveActiveGpsParams());
-  global.GSRStorage = defaultGSRStorage;
+  global.GSRStorage = setSingletonShape(RealGSRStorage, defaultGSRStorage);
   delete global.AppState;
 });
 
@@ -742,13 +791,13 @@ test('loadActiveGpsParams: forwards gpsFilterParams to GSRStorage.writeGpsSlider
   resetSpies();
   global.AppState = freshAppState();
   const seen = [];
-  global.GSRStorage = { ...defaultGSRStorage, writeGpsSliderValues: (gps) => seen.push(gps) };
+  global.GSRStorage = setSingletonShape(RealGSRStorage, { ...defaultGSRStorage, writeGpsSliderValues: (gps) => seen.push(gps) });
 
   const gpsParams = { smoothing: 0.5, kalmanR: 10, rdpTolerance: 1.5 };
   GSRTrackManager.loadActiveGpsParams({ gpsFilterParams: gpsParams });
 
   assert.deepStrictEqual(seen, [gpsParams]);
-  global.GSRStorage = defaultGSRStorage;
+  global.GSRStorage = setSingletonShape(RealGSRStorage, defaultGSRStorage);
   delete global.AppState;
 });
 
@@ -756,11 +805,11 @@ test('loadActiveGpsParams: no-op for a null track or a track with no gpsFilterPa
   resetSpies();
   global.AppState = freshAppState();
   let calls = 0;
-  global.GSRStorage = { ...defaultGSRStorage, writeGpsSliderValues: () => calls++ };
+  global.GSRStorage = setSingletonShape(RealGSRStorage, { ...defaultGSRStorage, writeGpsSliderValues: () => calls++ });
   assert.doesNotThrow(() => GSRTrackManager.loadActiveGpsParams(null));
   assert.doesNotThrow(() => GSRTrackManager.loadActiveGpsParams({}));
   assert.strictEqual(calls, 0, 'writeGpsSliderValues not called when there are no params');
-  global.GSRStorage = defaultGSRStorage;
+  global.GSRStorage = setSingletonShape(RealGSRStorage, defaultGSRStorage);
   delete global.AppState;
 });
 
@@ -950,7 +999,7 @@ test('handleIncomingFiles: a lone .zip is routed to GSRCollectiveProject.importP
   global.AppState = freshAppState();
   global.AppState.fileInput = { value: 'stale' };
   let importedFile = null;
-  global.GSRCollectiveProject = { importProject: (f) => { importedFile = f; } };
+  global.GSRCollectiveProject = setSingletonShape(RealGSRCollectiveProject, { importProject: (f) => { importedFile = f; } });
 
   GSRTrackManager.handleIncomingFiles([{ name: 'project.zip' }]);
 
@@ -965,7 +1014,7 @@ test('handleIncomingFiles: a .zip mixed with loose CSVs wins — the CSVs are ig
   resetSpies();
   global.AppState = freshAppState();
   let importedFile = null;
-  global.GSRCollectiveProject = { importProject: (f) => { importedFile = f; } };
+  global.GSRCollectiveProject = setSingletonShape(RealGSRCollectiveProject, { importProject: (f) => { importedFile = f; } });
 
   GSRTrackManager.handleIncomingFiles([
     { name: 'walk.csv', content: 'x' },

@@ -26,25 +26,28 @@
 // markers. No zoom/pan/timeline-drag — it's a live rolling window, not the
 // main app's interactive track view.
 // ==========================================================================
-const GRAPH_WINDOW_S = 120;
+import { LiveState } from './live_state.mjs';
+import { LIVE_SETTLE_TAIL_S, lastPacketArrivalTime, lastPacketTimestamp, liveAnalyzer, liveAnalyzerBase, liveGsrView } from './live_view.mjs';
+
+export const GRAPH_WINDOW_S = 120;
 
 // Plot inset — room for the left Y-axis value labels and the bottom time
 // labels, echoing src/core/constants.js's GSR_CONST.MARGIN (70/35/22/10)
 // scaled down for this compact panel.
-const GRAPH_MARGIN = { top: 12, right: 12, bottom: 20, left: 58 };
+export const GRAPH_MARGIN = { top: 12, right: 12, bottom: 20, left: 58 };
 
 // The live wire format carries GSR in nanosiemens (firmware
 // gsr_sensor_get_raw — docs/csv_schema.md); the rest of the app works in
 // microsiemens, and GSRCSVParser divides logged nS by 1000 on import
 // (src/signal/csv_parser.js "Auto-detect Units"). Match that here so the
 // live readout, its axis and the single-track "Signal" view are one scale.
-const NS_TO_US = 1 / 1000;
+export const NS_TO_US = 1 / 1000;
 
 // Per-view axis metadata for the Signal / Tonic / Phasic views (the subset
 // of index.html's #graphView that makes sense on a live rolling window —
 // no session-normalised metric views). `key` is the GSRAnalyzer series
 // property; 'signal' has none (it is the multi-layer Raw/Filtered/Tonic view).
-const LIVE_GRAPH_VIEWS = {
+export const LIVE_GRAPH_VIEWS = {
   signal: { label: 'GSR (μS)',      decimals: 2, unit: ' μS', allowNeg: false },
   tonic:  { key: 'tonic',  label: 'Tonic (SCL)',  decimals: 2, unit: ' μS', allowNeg: false },
   phasic: { key: 'phasic', label: 'Phasic (SCR)', decimals: 3, unit: ' μS', allowNeg: false },
@@ -54,7 +57,7 @@ const LIVE_GRAPH_VIEWS = {
 // reads the same custom properties via getThemeColor) so the two graphs
 // stay visually identical. Falls back to the light-theme defaults when no
 // stylesheet is in scope (the unit-test jsdom).
-function graphThemeColor(name, fallback) {
+export function graphThemeColor(name, fallback) {
   try {
     const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
     return v || fallback;
@@ -66,7 +69,7 @@ function graphThemeColor(name, fallback) {
 // A "1 / 2 / 5 × 10ⁿ" gridline step giving ~5 divisions across `span` — the
 // same shape as renderer.js's drawGridY step presets, computed rather than
 // table-driven since a live session's GSR (µS) has no fixed range.
-function niceStep(span) {
+export function niceStep(span) {
   if (!(span > 0)) return 1;
   const rough = span / 5;
   const mag = Math.pow(10, Math.floor(Math.log10(rough)));
@@ -74,7 +77,7 @@ function niceStep(span) {
   return (norm >= 5 ? 5 : norm >= 2 ? 2 : 1) * mag;
 }
 
-function drawGraph() {
+export function drawGraph() {
   const canvas = document.getElementById('graph');
   const wrap = document.getElementById('graphWrap');
   const dpr = window.devicePixelRatio || 1;

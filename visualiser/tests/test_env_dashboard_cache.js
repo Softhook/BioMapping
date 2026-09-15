@@ -51,7 +51,7 @@ loadModule(path.join(__dirname, '../src/signal/gsr_filter.js'),    'GsrFilter');
 loadModule(path.join(__dirname, '../src/signal/deconvolution.js'), 'SCRDeconvolution');
 
 const { GSRAnalyzer } = require('../src/signal/analyzer.mjs');
-const { GSRUI }       = require('../src/ui/ui.js');
+const { GSRUI }       = require('../src/ui/ui.mjs');
 // ui_*.js augments are dual-mode (see renderer.js's class-tail manifest comment) —
 // under plain require() they hand back their method object instead of assigning
 // straight onto GSRUI, so we do that assignment here ourselves.

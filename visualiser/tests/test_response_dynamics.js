@@ -161,7 +161,7 @@ test('Response Dynamics: GSRAnalyzer delegation & peak exclusion reactivity', ()
 
 test('Response Dynamics: UI sync logic', () => {
   global.window = global;
-  const { GSRUI } = require('../src/ui/ui.js');
+  const { GSRUI } = require('../src/ui/ui.mjs');
   Object.assign(GSRUI, require('../src/ui/ui_stats_panel.js'));
   global.AppState = {
     analyzer: {

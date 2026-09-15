@@ -22,7 +22,22 @@ global.document = { getElementById: () => null };
 global.alert = () => {};
 global.confirm = () => true;
 
-const { GSRCollectiveProject } = require('../src/spatial/collective_project.js');
+const { GSRCollectiveProject } = require('../src/spatial/collective_project.mjs');
+
+// collective_project.mjs holds real static imports of AppState/GSRTrackManager/
+// GSRFileSaver (from app_state.mjs/tracks.mjs/file_saver.mjs) — a `global.X =
+// {...}` full-replacement shadow (this file's old bare-global pattern) no
+// longer reaches any of them (ES-module migration), so every mock below
+// mutates the REAL singleton's own properties in place instead.
+const { AppState: RealAppState } = require('../src/core/app_state.mjs');
+const { GSRTrackManager: RealGSRTrackManager } = require('../src/ui/tracks.mjs');
+const { GSRFileSaver: RealGSRFileSaver } = require('../src/core/file_saver.mjs');
+const { GSRNotices: RealGSRNotices } = require('../src/core/notices.mjs');
+
+function setSingletonShape(target, shape) {
+  for (const k of Object.keys(target)) delete target[k];
+  return Object.assign(target, shape);
+}
 
 // ── _sanitizeName ────────────────────────────────────────────────────────
 test('_sanitizeName: strips a file extension and replaces disallowed characters', () => {
@@ -83,13 +98,13 @@ test('_applyValues: coerces truthy/falsy values to boolean for checkboxes', () =
 
 // ── _buildManifest ───────────────────────────────────────────────────────
 test('_buildManifest: assembles version, active track index, tracks, settings and view toggles', () => {
-  global.AppState = {
+  global.AppState = setSingletonShape(RealAppState, {
     collectiveManager: { tracks: [{ id: 't1' }, { id: 't2' }] },
     activeTrackId: 't2',
     viewMode: 'collective',
     sliders: { gpsPeakLatency: { type: 'text', value: '2.0' } },
     contourControls: { gridResolution: { type: 'text', value: '40' } },
-  };
+  });
   const elById = {
     btnToggleMapPeaks: { classList: { contains: () => true } },
   };
@@ -111,13 +126,13 @@ test('_buildManifest: assembles version, active track index, tracks, settings an
 });
 
 test('_buildManifest: activeTrackIndex is -1 when the active track is not found in the track list', () => {
-  global.AppState = {
+  global.AppState = setSingletonShape(RealAppState, {
     collectiveManager: { tracks: [{ id: 't1' }] },
     activeTrackId: 'does-not-exist',
     viewMode: 'single',
     sliders: {},
     contourControls: {},
-  };
+  });
   const manifest = GSRCollectiveProject._buildManifest([]);
   assert.strictEqual(manifest.activeTrackIndex, -1);
   delete global.AppState;
@@ -128,7 +143,7 @@ test('exportProject: shows an alert and does not throw when JSZip is unavailable
   delete global.JSZip;
   let alerted = null;
   global.alert = (msg) => { alerted = msg; };
-  global.AppState = { collectiveManager: { tracks: [{}] } };
+  global.AppState = setSingletonShape(RealAppState, { collectiveManager: { tracks: [{}] } });
 
   await GSRCollectiveProject.exportProject();
   assert.ok(alerted && alerted.includes('Zip support failed to load'));
@@ -141,7 +156,7 @@ test('exportProject: shows an alert when there are no tracks to export', async (
   global.JSZip = class {};
   let alerted = null;
   global.alert = (msg) => { alerted = msg; };
-  global.AppState = { collectiveManager: { tracks: [] } };
+  global.AppState = setSingletonShape(RealAppState, { collectiveManager: { tracks: [] } });
 
   await GSRCollectiveProject.exportProject();
   assert.ok(alerted && alerted.includes('No tracks loaded to export'));
@@ -160,10 +175,10 @@ test('exportProject: builds a suggestedName from the current date and hands the 
     file(name, content) { this.files[name] = content; }
     async generateAsync() { return 'fake-blob'; }
   };
-  global.GSRTrackManager = { saveActiveTrackParams() {}, saveActiveGpsParams() {} };
+  global.GSRTrackManager = setSingletonShape(RealGSRTrackManager, { saveActiveTrackParams() {}, saveActiveGpsParams() {} });
   let saveFileCalled = false;
   let savedName = null;
-  global.GSRFileSaver = { saveFile: async (blob, name) => { saveFileCalled = true; savedName = name; return true; } };
+  global.GSRFileSaver = setSingletonShape(RealGSRFileSaver, { saveFile: async (blob, name) => { saveFileCalled = true; savedName = name; return true; } });
 
   const track = {
     name: 'Morning Walk',
@@ -177,13 +192,13 @@ test('exportProject: builds a suggestedName from the current date and hands the 
     gpsFilterParams: {},
     hasUnsavedLabels: true,
   };
-  global.AppState = {
+  global.AppState = setSingletonShape(RealAppState, {
     collectiveManager: { tracks: [track] },
     activeTrackId: null,
     viewMode: 'single',
     sliders: {},
     contourControls: {},
-  };
+  });
   let alertMsg = null;
   global.alert = (msg) => { alertMsg = msg; };
 
@@ -233,7 +248,7 @@ test('importProject: shows an alert and does not throw when JSZip is unavailable
 
 test('importProject: rejects a zip with no manifest.json as an error, surfaced via alert', async () => {
   global.JSZip = { loadAsync: async () => ({ file: () => null }) };
-  global.AppState = { collectiveManager: { tracks: [] } };
+  global.AppState = setSingletonShape(RealAppState, { collectiveManager: { tracks: [] } });
   let alertMsg = null;
   global.alert = (msg) => { alertMsg = msg; };
 
@@ -251,7 +266,7 @@ test('importProject: rejects a manifest with an empty/missing tracks array', asy
       file: (name) => name === 'manifest.json' ? { async: async () => JSON.stringify({ tracks: [] }) } : null,
     }),
   };
-  global.AppState = { collectiveManager: { tracks: [] } };
+  global.AppState = setSingletonShape(RealAppState, { collectiveManager: { tracks: [] } });
   let alertMsg = null;
   global.alert = (msg) => { alertMsg = msg; };
 
@@ -265,9 +280,9 @@ test('importProject: rejects a manifest with an empty/missing tracks array', asy
 
 test('importProject: prompts for confirmation before replacing an existing non-empty track list', async () => {
   let dialogCalled = false;
-  global.GSRNotices = { dialog: async () => { dialogCalled = true; return null; } }; // decline — import should abort
+  global.GSRNotices = setSingletonShape(RealGSRNotices, { dialog: async () => { dialogCalled = true; return null; } }); // decline — import should abort
   global.JSZip = { loadAsync: async () => ({ file: () => null }) };
-  global.AppState = { collectiveManager: { tracks: [{ id: 'existing' }] } };
+  global.AppState = setSingletonShape(RealAppState, { collectiveManager: { tracks: [{ id: 'existing' }] } });
 
   await GSRCollectiveProject.importProject({ name: 'project.zip' });
   assert.strictEqual(dialogCalled, true, 'the replace-tracks dialog was shown');

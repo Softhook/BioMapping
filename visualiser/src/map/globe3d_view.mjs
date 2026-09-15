@@ -32,9 +32,17 @@
 // so the 3D globe works with no network at all — BioMapping is offline field
 // kit. Refresh it with: npm i --no-save cesium@<ver> && cp -R
 // node_modules/cesium/Build/Cesium visualiser/vendor/cesium (drop index.*).
-const CESIUM_BASE = 'vendor/cesium/';
+import { AppState } from '../core/app_state.mjs';
+import { GSRGlobeManager } from './globe3d.mjs';
+import { MapPopups } from './map_popups.mjs';
+import { OsmCache } from '../osm/osm_cache.mjs';
+import { OSMEnricher } from '../osm/osm_enrichment.mjs';
+import { GSRStorage } from '../ui/storage.mjs';
+import { GSRUI } from '../ui/ui.mjs';
 
-const GSRGlobe3DView = {
+export const CESIUM_BASE = 'vendor/cesium/';
+
+export const GSRGlobe3DView = {
 
   manager: null,
   isActive: false,
@@ -891,10 +899,3 @@ const GSRGlobe3DView = {
     el.style.display = msg ? 'block' : 'none';
   }
 };
-
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { GSRGlobe3DView };
-}
-if (typeof window !== 'undefined') {
-  window.GSRGlobe3DView = GSRGlobe3DView;
-}

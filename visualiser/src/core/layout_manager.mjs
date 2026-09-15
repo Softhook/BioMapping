@@ -2,7 +2,14 @@
  * GSRLayoutManager
  * Centralized manager for window sizing, ResizeObservers, and panel/browser fullscreen overlays.
  */
-const GSRLayoutManager = {
+import { AppState } from './app_state.mjs';
+import { GSRFullscreen } from './fullscreen.mjs';
+import { GSRLiveView } from '../live/live_view.mjs';
+import { GSRGlobe3DView } from '../map/globe3d_view.mjs';
+import { GSRRenderer } from '../render/renderer.mjs';
+import { GSRUI } from '../ui/ui.mjs';
+
+export const GSRLayoutManager = {
   // Active panel-fullscreen exit callbacks
   _activePanelExits: new Set(),
   // Currently active fullscreen panel descriptor: { panelId, panel, overlay, exit }
@@ -497,10 +504,3 @@ const GSRLayoutManager = {
     this._activePanelExits.forEach((exitFn) => exitFn());
   }
 };
-
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { GSRLayoutManager };
-}
-if (typeof window !== 'undefined') {
-  window.GSRLayoutManager = GSRLayoutManager;
-}

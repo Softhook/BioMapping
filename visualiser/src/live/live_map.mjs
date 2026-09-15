@@ -26,7 +26,16 @@
 // src/core/constants.js's GPS_DEFAULT.maxHdop (docs/csv_schema.md's "HDOP
 // Gate Design" — 2.0 is the post-processing quality filter, distinct from
 // the firmware's permissive 5.0 logging gate).
-const LIVE_MAX_HDOP = 2.0;
+import { GpsPipeline } from '../gps/gps_pipeline.mjs';
+import { drawGraph } from './live_graph.mjs';
+import { LiveState } from './live_state.mjs';
+import { buildTileUrl, latLngToTileCoords, normalizeTileCacheUrl } from './live_tile_cache.mjs';
+import { LIVE_SETTLE_TAIL_S, closeFabMenu, isCompactLiveLayout, liveAnalyzer, liveGsrView } from './live_view.mjs';
+import { GSRBasemap } from '../map/basemap.mjs';
+import { MapColors } from '../map/map_colors.mjs';
+import { GSRMapMarkers } from '../map/map_markers.mjs';
+
+export const LIVE_MAX_HDOP = 2.0;
 
 // ==========================================================================
 // Leaflet map wrapper — same CartoDB "light_all" tile layer + init options
@@ -34,11 +43,11 @@ const LIVE_MAX_HDOP = 2.0;
 // the plan doc's "Dark Matter" reference didn't match the real file —
 // checked directly rather than carried over unverified).
 // ==========================================================================
-let liveMap = null;
-let liveLastLatLng = null;
-let liveMarker = null;
-let gsrMin = Infinity, gsrMax = -Infinity;
-let tonicMin = Infinity, tonicMax = -Infinity;
+export let liveMap = null;
+export let liveLastLatLng = null;
+export let liveMarker = null;
+export let gsrMin = Infinity, gsrMax = -Infinity;
+export let tonicMin = Infinity, tonicMax = -Infinity;
 
 // Tonic/phasic colouring is DEFERRED: the zero-phase decomposition
 // (decomposeTonicPhasic) needs a ±6s look-ahead, so a sample's value isn't
@@ -51,17 +60,17 @@ let tonicMin = Infinity, tonicMax = -Infinity;
 // decomposeTonicPhasic — 0 is a meaningful "at baseline" reference point,
 // unlike gsrMin/gsrMax/tonicMin which have no natural floor) so only the
 // ceiling needs to track the session's peak.
-let phasicMax = 0;
+export let phasicMax = 0;
 
 // FIFO of undrawn segments awaiting a settled tonic/phasic value. Each entry
 // captures its geometry at arrival time ({ prevLatLng, latlng, pkt }) so a
 // mid-queue gap is still broken correctly when the segment is drawn later.
-const pendingSegments = [];
+export const pendingSegments = [];
 
 // How long a tonic/phasic value needs to settle (decomposeTonicPhasic's ±6s
 // local-floor window + margin). A queued segment is drawn once this long has
 // passed since its packet arrived.
-const PHASIC_COLOR_LAG_S = 8;
+export const PHASIC_COLOR_LAG_S = 8;
 
 // Hard cap on the deferred-segment backlog. flushSettledSegments() runs from
 // feedLiveAnalyzer() (every packet through the warmup, then once per
@@ -69,14 +78,14 @@ const PHASIC_COLOR_LAG_S = 8;
 // settled. If analyse() stalls for a long stretch the queue could grow; past
 // the cap the oldest undrawn segment is simply dropped (a short visual gap,
 // the same outcome resetSession() and an abrupt end accept).
-const PENDING_SEGMENTS_MAX = 1200; // ~6 min at STREAM_INTERVAL_S
+export const PENDING_SEGMENTS_MAX = 1200; // ~6 min at STREAM_INTERVAL_S
 
 // Every segment drawn this session — {pkt, line} pairs, so switching the
 // active metric (FAB chip tap / #liveGraphView dropdown change) can
 // immediately repaint the WHOLE track via recolorAllTrackSegments(). Grows
 // for the life of a session like LiveState.packets already does;
 // resetSession() clears it.
-const allTrackSegments = [];
+export const allTrackSegments = [];
 
 // Draws each queued segment whose tonic/phasic value has settled, in FIFO
 // order, with the active metric's final colour. Reads liveGsrView.graphView
@@ -85,7 +94,7 @@ const allTrackSegments = [];
 // immediate repaint of segments already on the map when the switch happens.
 // 'signal' (raw) needs no settling at all, so any queued segment (left over
 // from a tonic/phasic stretch) is drawn immediately.
-function flushSettledSegments() {
+export function flushSettledSegments() {
   const metric = liveGsrView.graphView;
   const lastPkt = LiveState.packets[LiveState.packets.length - 1];
   if (!lastPkt) return;
@@ -126,7 +135,7 @@ function flushSettledSegments() {
 // segment whose target metric hasn't been computed yet keeps its current
 // colour; the undrawn queue is flushed (for signal) or left to settle (for
 // tonic/phasic).
-function recolorAllTrackSegments() {
+export function recolorAllTrackSegments() {
   const metric = liveGsrView.graphView;
   if (metric === 'signal') {
     for (const { pkt, line } of allTrackSegments) {
@@ -156,7 +165,7 @@ function recolorAllTrackSegments() {
 // Offline tile caching — the L.TileLayer.cache subclass and the
 // normalizeTileCacheUrl / buildTileUrl / latLngToTileCoords helpers live in
 // src/live/live_tile_cache.js (loaded before this file, after Leaflet).
-async function cacheCurrentMapArea() {
+export async function cacheCurrentMapArea() {
   if (!liveMap) return;
   const bounds = liveMap.getBounds();
   const currentZoom = Math.round(liveMap.getZoom());
@@ -262,7 +271,7 @@ async function cacheCurrentMapArea() {
   }
 }
 
-function initLiveMap() {
+export function initLiveMap() {
   liveMap = L.map('liveMap', {
     zoomControl: true,
     scrollWheelZoom: true,
@@ -302,24 +311,50 @@ function initLiveMap() {
 // unsettled tail (LIVE_SETTLE_TAIL_S) are withheld, matching the graph's own
 // peak-marker suppression.
 // ==========================================================================
-const liveMapPeakMarkers = new Map();
-const liveMapHotspotMarkers = new Map();
+export const liveMapPeakMarkers = new Map();
+export const liveMapHotspotMarkers = new Map();
 
-function _removeLiveMapMarker(marker) {
+export function _removeLiveMapMarker(marker) {
   if (!marker) return;
   if (typeof marker.remove === 'function') marker.remove();
   else if (liveMap && typeof liveMap.removeLayer === 'function') liveMap.removeLayer(marker);
 }
 
-function clearLiveMapMarkers() {
+export function clearLiveMapMarkers() {
   liveMapPeakMarkers.forEach(_removeLiveMapMarker);
   liveMapHotspotMarkers.forEach(_removeLiveMapMarker);
   liveMapPeakMarkers.clear();
   liveMapHotspotMarkers.clear();
 }
 
+// A new session's resetSession() (live_view.js) needs to reset this file's
+// own module-level position/range state — an imported `let` binding is a
+// read-only view outside its own module (unlike the old dual-mode era, where
+// this was just a shared global both files freely reassigned), so this file
+// has to do the reassignment itself and hand back a callable, not a value.
+export function resetLiveMapSession() {
+  if (liveMap) {
+    for (const { line } of allTrackSegments) {
+      if (typeof line.remove === 'function') line.remove();
+      else if (typeof liveMap.removeLayer === 'function') liveMap.removeLayer(line);
+    }
+    if (liveMarker) {
+      if (typeof liveMarker.remove === 'function') liveMarker.remove();
+      else if (typeof liveMap.removeLayer === 'function') liveMap.removeLayer(liveMarker);
+      liveMarker = null;
+    }
+  }
+  liveLastLatLng = null;
+  gsrMin = Infinity;
+  gsrMax = -Infinity;
+  tonicMin = Infinity;
+  tonicMax = -Infinity;
+  phasicMax = 0;
+  lastLivePanAt = 0;
+}
+
 // Reconcile one marker layer (peaks or hotspots) against the wanted set.
-function _syncLiveMapMarkerSet(markerMap, peaks, iconBuilder) {
+export function _syncLiveMapMarkerSet(markerMap, peaks, iconBuilder) {
   const A = liveAnalyzer;
   if (!A || !liveMap) return;
   const lastPkt = LiveState.packets[LiveState.packets.length - 1];
@@ -352,7 +387,7 @@ function _syncLiveMapMarkerSet(markerMap, peaks, iconBuilder) {
   }
 }
 
-function renderLiveMapMarkers() {
+export function renderLiveMapMarkers() {
   if (!liveMap || typeof GSRMapMarkers === 'undefined') return;
   if (!liveAnalyzer || !liveAnalyzer.raw || liveAnalyzer.raw.length === 0) {
     clearLiveMapMarkers();
@@ -373,7 +408,7 @@ function renderLiveMapMarkers() {
 // Map visibility is a manual toggle (toggleMapBtn / showMap / hideMap below),
 // not something GPS packets turn on — so an area can be panned to and cached
 // before there's any GPS reception at all.
-function showMap() {
+export function showMap() {
   document.getElementById('app').classList.remove('no-map');
   if (!liveMap) {
     initLiveMap();
@@ -384,7 +419,7 @@ function showMap() {
   renderLiveMapMarkers();
 }
 
-function hideMap() {
+export function hideMap() {
   document.getElementById('app').classList.add('no-map');
   drawGraph();
 }
@@ -394,13 +429,13 @@ function hideMap() {
 // fills a comfortable chunk of a phone screen while the per-segment color
 // stays legible — zoom 17's wider view diluted color detail across a much
 // longer, less relevant stretch of the walk.
-const LIVE_ZOOM = 18;
+export const LIVE_ZOOM = 18;
 
 // Polyline stroke width on the live follow-map. Mobile screens (coarse pointer /
 // phone viewports) draw twice as thick (6px vs desktop's 3px) for outdoor
 // readability on high-DPI displays.
-const LIVE_TRACK_WEIGHT_DESKTOP = 3;
-const LIVE_TRACK_WEIGHT_MOBILE = 6;
+export const LIVE_TRACK_WEIGHT_DESKTOP = 3;
+export const LIVE_TRACK_WEIGHT_MOBILE = 6;
 
 // Recentre the follow-map on the walker at most this often. panTo() with
 // animation re-renders every track polyline on every frame of the tween, so
@@ -408,10 +443,10 @@ const LIVE_TRACK_WEIGHT_MOBILE = 6;
 // near-continuous full-layer redraw. The walker's dot still moves every
 // packet (liveMarker.setLatLng below) — only the map's recentre lags, by at
 // most this interval, which at walking pace is a few metres of drift.
-const LIVE_PAN_MIN_INTERVAL_MS = 900;
-let lastLivePanAt = 0;
+export const LIVE_PAN_MIN_INTERVAL_MS = 900;
+export let lastLivePanAt = 0;
 
-function updateLiveMap(pkt) {
+export function updateLiveMap(pkt) {
   if (!pkt.valid || isNaN(pkt.lat) || isNaN(pkt.lon)) return;
   const gated = GpsPipeline.applyFixTypeGate(
     GpsPipeline.applyHdopGate([pkt], LIVE_MAX_HDOP), 2);

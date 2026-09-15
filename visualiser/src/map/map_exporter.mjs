@@ -3,13 +3,25 @@
  * Compiles Leaflet map vector features, contours, track paths, and markers into a single
  * Illustrator-compatible, resolution-independent layered SVG with zero external references.
  */
-const SVG_NS   = 'http://www.w3.org/2000/svg';
-const XLINK_NS = 'http://www.w3.org/1999/xlink';
-const AI_NS    = 'http://ns.adobe.com/AdobeIllustrator/10.0/';
-const BG       = '#0b0d16';
-const LABEL    = '#000000';
+import { AppState } from '../core/app_state.mjs';
+import { GSR_CONST } from '../core/constants.mjs';
+import { GSRFileSaver } from '../core/file_saver.mjs';
+import { GSRNotices } from '../core/notices.mjs';
+import { GeoUtils } from '../gps/geo_utils.mjs';
+import { Hillshade } from './hillshade.mjs';
+import { MapColors } from './map_colors.mjs';
+import { BezierSpline } from '../render/bezier_spline.mjs';
+import { ContourRingGeometry } from '../render/contour_ring_geometry.mjs';
+import { StatsMath } from '../signal/stats_math.mjs';
+import { GSRUI } from '../ui/ui.mjs';
 
-class GSRMapExporter {
+export const SVG_NS   = 'http://www.w3.org/2000/svg';
+export const XLINK_NS = 'http://www.w3.org/1999/xlink';
+export const AI_NS    = 'http://ns.adobe.com/AdobeIllustrator/10.0/';
+export const BG       = '#0b0d16';
+export const LABEL    = '#000000';
+
+export class GSRMapExporter {
 
   // ═══════════════════════════════════════════════════════════════════
   //  Public API
@@ -1010,11 +1022,4 @@ class GSRMapExporter {
       URL.revokeObjectURL(url);
     }
   }
-}
-
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { GSRMapExporter };
-}
-if (typeof window !== 'undefined') {
-  window.GSRMapExporter = GSRMapExporter;
 }

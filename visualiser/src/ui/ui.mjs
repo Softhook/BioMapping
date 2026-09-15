@@ -13,7 +13,14 @@
  * rest (order between them doesn't matter, only that they all follow ui.js).
  */
 
-const GSRUI = {
+import { AppState } from '../core/app_state.mjs';
+import { GSRNotices } from '../core/notices.mjs';
+import { GSRCollectiveProject } from '../spatial/collective_project.mjs';
+import { GSREvents } from './events.mjs';
+import { GSRStorage } from './storage.mjs';
+import { GSRTrackManager } from './tracks.mjs';
+
+export const GSRUI = {
 
   _resolveTrackAndAnalyzer(trackId) {
     let track = null;
@@ -191,10 +198,3 @@ const GSRUI = {
   },
 
 };
-
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { GSRUI };
-}
-if (typeof window !== 'undefined') {
-  window.GSRUI = GSRUI;
-}
