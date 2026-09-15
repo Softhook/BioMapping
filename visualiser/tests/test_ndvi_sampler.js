@@ -515,7 +515,7 @@ test('GSRUI.sampleNdviTrack: successfully resolves single-mode track without fal
   mockUniformNdviFetch(0.4);
 
   const { GSRUI } = require('../src/ui/ui.mjs');
-  Object.assign(GSRUI, require('../src/ui/ui_enrichment.js'));
+  Object.assign(GSRUI, require('../src/ui/ui_enrichment.mjs').__methods);
   // sampleNdviTrack()'s success path calls refreshOsmControls(), which cascades
   // into the stats indicator and (if enriched) the environmental dashboard.
   Object.assign(GSRUI, require('../src/ui/ui_osm_overlay.mjs').__methods);
@@ -555,7 +555,15 @@ test('GSRUI.sampleNdviTrack: successfully resolves single-mode track without fal
     { time: 1.0, lat: 55.9535, lon: -3.1898 }
   ];
 
-  global.AppState = {
+  // ui_enrichment.mjs holds a real static `import { AppState } from
+  // '../core/app_state.mjs'` binding, not a bare global lookup — replacing
+  // global.AppState wholesale is inert against it. Point global.AppState AT
+  // the real singleton (still-CJS ui_environmental_dashboard.js, reached via
+  // refreshOsmControls()'s cascade, still reads the bare global) and mutate
+  // its fields in place, so both paths see the same object.
+  const { AppState: RealAppState } = require('../src/core/app_state.mjs');
+  global.AppState = RealAppState;
+  Object.assign(RealAppState, {
     viewMode: 'single',
     activeTrackId: 'track_demo_123',
     analyzer: {
@@ -566,7 +574,7 @@ test('GSRUI.sampleNdviTrack: successfully resolves single-mode track without fal
       getCoordinates: (i) => ({ lat: rawPoints[i].lat, lon: rawPoints[i].lon }),
       findClosestIndex: (t) => 0
     }
-  };
+  });
 
   let alertMessage = null;
   global.alert = (msg) => { alertMessage = msg; };
@@ -574,8 +582,8 @@ test('GSRUI.sampleNdviTrack: successfully resolves single-mode track without fal
   await GSRUI.sampleNdviTrack(false);
 
   assert.strictEqual(alertMessage, null, `Should not alert error: ${alertMessage}`);
-  assert.strictEqual(global.AppState.analyzer.isEnriched, true);
-  assert.strictEqual(global.AppState.analyzer.hasNdvi, true);
+  assert.strictEqual(RealAppState.analyzer.isEnriched, true);
+  assert.strictEqual(RealAppState.analyzer.hasNdvi, true);
   assert.ok(typeof rawPoints[0].ndvi === 'number' && !isNaN(rawPoints[0].ndvi));
   assert.ok(typeof rawPoints[0].ndvi_50m === 'number' && !isNaN(rawPoints[0].ndvi_50m));
 

@@ -11,7 +11,10 @@
  *   2. a geographically spread-out collection (union bbox over the area cap)
  *      still enriches every track, fetching OSM data per track.
  *
- * OsmCache, OSMEnricher and the DOM are stubbed — no IndexedDB, no network.
+ * OsmCache, OSMEnricher and the DOM are stubbed (by monkey-patching the real
+ * modules' own singleton objects, since ui_enrichment.mjs holds real static
+ * imports of them post-ES-module-migration — see the comment by their
+ * requires below) — no IndexedDB, no network.
  *
  * Run: node --test tests/test_osm_enrich_orchestration.js
  */
@@ -30,7 +33,17 @@ loadModule(path.join(__dirname, '../src/signal/stats_math.js'), 'StatsMath');
 loadModule(path.join(__dirname, '../src/map/map_colors.js'), 'MapColors');
 
 const { GSRUI } = require('../src/ui/ui.mjs');
-Object.assign(GSRUI, require('../src/ui/ui_enrichment.js'));
+Object.assign(GSRUI, require('../src/ui/ui_enrichment.mjs').__methods);
+
+// ui_enrichment.mjs holds real static imports of AppState, OsmCache and
+// OSMEnricher (not bare global lookups) — replacing global.AppState/
+// OsmCache/OSMEnricher wholesale is inert against it. Monkey-patch the
+// real singletons' methods/fields in place instead (same pattern as
+// layer 2's GSR_CONST fix); each test below reinstalls its own fakes
+// before running, so no restore is needed between tests in this file.
+const { AppState: RealAppState } = require('../src/core/app_state.mjs');
+const { OsmCache: RealOsmCache } = require('../src/osm/osm_cache.mjs');
+const { OSMEnricher: RealOSMEnricher } = require('../src/osm/osm_enrichment.mjs');
 
 // ── Mutable DOM stub (enrichTrack reads/writes several elements). ──
 function makeEl(props = {}) {
@@ -59,12 +72,12 @@ function installDom(overrides = {}) {
 //    should throw (simulating bad geometry / an Overpass error). ──
 function installOsmStubs({ failFor = new Set(), bboxAreaKm2 = 1.0 } = {}) {
   const calls = [];
-  global.OsmCache = {
+  Object.assign(RealOsmCache, {
     async getForBBox() { return { elements: [] }; },      // always a cache hit
     async planFetch(bbox) { return { fetchBBox: bbox, mergeIds: [] }; },
     async store() {},
-  };
-  global.OSMEnricher = {
+  });
+  Object.assign(RealOSMEnricher, {
     _isValidCoord: (lat, lon) => lat != null && lon != null && !isNaN(lat) && !isNaN(lon),
     calculateBBox: () => ({ minLat: 0, minLon: 0, maxLat: 0.01, maxLon: 0.01 }),
     calculateBBoxAreaKm2: () => bboxAreaKm2,
@@ -76,7 +89,7 @@ function installOsmStubs({ failFor = new Set(), bboxAreaKm2 = 1.0 } = {}) {
       analyzer.enrichmentRadius = 50;
       analyzer._dataVersion = (analyzer._dataVersion || 0) + 1;
     },
-  };
+  });
   return calls;
 }
 
@@ -92,10 +105,10 @@ test('enrichTrack (collective): one failing track does not stop the others', asy
   installDom();
   const calls = installOsmStubs({ failFor: new Set(['B']) });
   const tracks = ['A', 'B', 'C', 'D'].map(fakeTrack);
-  global.AppState = {
+  Object.assign(RealAppState, {
     viewMode: 'collective',
     collectiveManager: { getActiveTracks: () => tracks },
-  };
+  });
   GSRUI.refreshOsmControls = () => {};
   GSRUI.rerenderMap = () => {};
 
@@ -117,12 +130,12 @@ test('enrichTrack (collective): a shared fetch that times out falls back to per-
   // track's own bbox is small and should still be fetched individually.
   let fetchCalls = 0;
   const calls = [];
-  global.OsmCache = {
+  Object.assign(RealOsmCache, {
     async getForBBox() { return null; },     // cache miss on both the shared and per-track paths
     async planFetch(bbox) { return { fetchBBox: bbox, mergeIds: [] }; },
     async store() {},
-  };
-  global.OSMEnricher = {
+  });
+  Object.assign(RealOSMEnricher, {
     _isValidCoord: (lat, lon) => lat != null && !isNaN(lat),
     calculateBBox: () => ({ minLat: 0, minLon: 0, maxLat: 0.01, maxLon: 0.01 }),
     calculateBBoxAreaKm2: () => 8.0,
@@ -132,12 +145,12 @@ test('enrichTrack (collective): a shared fetch that times out falls back to per-
       return { elements: [] };
     },
     enrichTrack(analyzer) { calls.push(analyzer.__name); analyzer.isEnriched = true; },
-  };
+  });
   const tracks = ['X', 'Y', 'Z'].map(fakeTrack);
-  global.AppState = {
+  Object.assign(RealAppState, {
     viewMode: 'collective',
     collectiveManager: { getActiveTracks: () => tracks },
-  };
+  });
   GSRUI.refreshOsmControls = () => {};
   GSRUI.rerenderMap = () => {};
 
@@ -154,24 +167,24 @@ test('enrichTrack (collective): a spread-out collection (union over the area cap
   // each individual track still reports 1 km², under the cap.
   let call = 0;
   const calls = [];
-  global.OsmCache = {
+  Object.assign(RealOsmCache, {
     async getForBBox() { return null; },                  // force the per-track fetch path
     async planFetch(bbox) { return { fetchBBox: bbox, mergeIds: [] }; },
     async store() {},
-  };
-  global.OSMEnricher = {
+  });
+  Object.assign(RealOSMEnricher, {
     _isValidCoord: (lat, lon) => lat != null && !isNaN(lat),
     calculateBBox: () => ({ minLat: 0, minLon: 0, maxLat: 0.01, maxLon: 0.01 }),
     // first call = the union bbox (huge); the rest = per-track (small)
     calculateBBoxAreaKm2: () => (call++ === 0 ? 40.0 : 1.0),
     async fetchOSMData() { return { elements: [] }; },
     enrichTrack(analyzer) { calls.push(analyzer.__name); analyzer.isEnriched = true; },
-  };
+  });
   const tracks = ['P', 'Q', 'R'].map(fakeTrack);
-  global.AppState = {
+  Object.assign(RealAppState, {
     viewMode: 'collective',
     collectiveManager: { getActiveTracks: () => tracks },
-  };
+  });
   GSRUI.refreshOsmControls = () => {};
   GSRUI.rerenderMap = () => {};
 

@@ -8,8 +8,13 @@
  * (ensureOsmGeoms, enrichTrack, sampleNdviTrack) that populate each
  * analyzer's per-point spatial metadata.
  */
-(function () {
-const __methods = {
+import { AppState } from '../core/app_state.mjs';
+import { NDVISampler } from '../osm/ndvi_sampler.mjs';
+import { OsmCache } from '../osm/osm_cache.mjs';
+import { OSMEnricher } from '../osm/osm_enrichment.mjs';
+import { GSRUI } from './ui.mjs';
+
+export const __methods = {
 
   /**
    * Resolve active tracks with valid GPS fixes for environmental/spatial processing.
@@ -390,10 +395,4 @@ const __methods = {
 
 };
 
-if (typeof module !== 'undefined' && module.exports) {
-  Object.assign(global, require('./ui.mjs'));
-  module.exports = __methods;
-} else {
-  Object.assign(GSRUI, __methods);
-}
-})();
+Object.assign(GSRUI, __methods);

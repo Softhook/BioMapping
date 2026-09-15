@@ -8,7 +8,10 @@
  *
  *   analyzer.osmJson (memory) → OsmCache.getForBBox → planFetch + fetch + store
  *
- * OsmCache, OSMEnricher and the DOM are stubbed — no IndexedDB, no network.
+ * OsmCache, OSMEnricher and the DOM are stubbed (by monkey-patching the real
+ * modules' own singleton objects, since ui_enrichment.mjs holds real static
+ * imports of them post-ES-module-migration — see the comment by their
+ * requires below) — no IndexedDB, no network.
  *
  * Run: node --test tests/test_osm_ensure_geoms.js
  */
@@ -27,7 +30,17 @@ loadModule(path.join(__dirname, '../src/signal/stats_math.js'), 'StatsMath');
 loadModule(path.join(__dirname, '../src/map/map_colors.js'), 'MapColors');
 
 const { GSRUI } = require('../src/ui/ui.mjs');
-Object.assign(GSRUI, require('../src/ui/ui_enrichment.js'));
+Object.assign(GSRUI, require('../src/ui/ui_enrichment.mjs').__methods);
+
+// ui_enrichment.mjs holds real static imports of AppState, OsmCache and
+// OSMEnricher (not bare global lookups) — replacing global.AppState/
+// OsmCache/OSMEnricher wholesale is inert against it. Monkey-patch the
+// real singletons' methods/fields in place instead (same pattern as
+// layer 2's GSR_CONST fix); each test below reinstalls its own fakes
+// before running, so no restore is needed between tests in this file.
+const { AppState: RealAppState } = require('../src/core/app_state.mjs');
+const { OsmCache: RealOsmCache } = require('../src/osm/osm_cache.mjs');
+const { OSMEnricher: RealOSMEnricher } = require('../src/osm/osm_enrichment.mjs');
 
 function installDom(overrides = {}) {
   const mk = (props = {}) => Object.assign({ style: {}, value: '' }, props);
@@ -50,12 +63,12 @@ function installOsmStubs({
 } = {}) {
   const log = { getForBBox: 0, planFetch: 0, fetch: 0, store: 0, reconstruct: 0 };
 
-  global.OsmCache = {
+  Object.assign(RealOsmCache, {
     async getForBBox() { log.getForBBox++; return cacheHitJson; },
     async planFetch(bbox) { log.planFetch++; return { fetchBBox: bbox, mergeIds: [] }; },
     async store() { log.store++; },
-  };
-  global.OSMEnricher = {
+  });
+  Object.assign(RealOSMEnricher, {
     _isValidCoord: (lat, lon) =>
       lat != null && lon != null && !isNaN(lat) && !isNaN(lon) &&
       Math.abs(lat) > 0.001 && Math.abs(lon) > 0.001,
@@ -70,7 +83,7 @@ function installOsmStubs({
       log.reconstruct++;
       return { __from: json, ways: [], relations: [] };
     },
-  };
+  });
   return log;
 }
 
@@ -79,7 +92,7 @@ function fakeAnalyzer() {
 }
 
 function installSingleTrack(analyzer) {
-  global.AppState = { viewMode: 'single', analyzer, collectiveManager: null, activeTrackId: null };
+  Object.assign(RealAppState, { viewMode: 'single', analyzer, collectiveManager: null, activeTrackId: null });
 }
 
 test('ensureOsmGeoms: cache hit reconstructs geoms, no network fetch', async () => {
@@ -181,12 +194,12 @@ test('ensureOsmGeoms (collective): one failing fetch does not stop the others', 
   installDom();
   let call = 0;
   const log = { fetch: 0 };
-  global.OsmCache = {
+  Object.assign(RealOsmCache, {
     async getForBBox() { return null; },
     async planFetch(bbox) { return { fetchBBox: bbox, mergeIds: [] }; },
     async store() {},
-  };
-  global.OSMEnricher = {
+  });
+  Object.assign(RealOSMEnricher, {
     _isValidCoord: (lat, lon) => lat != null && !isNaN(lat),
     calculateBBox: () => ({ minLat: 0, minLon: 0, maxLat: 0.01, maxLon: 0.01 }),
     calculateBBoxAreaKm2: () => 1.0,
@@ -197,12 +210,12 @@ test('ensureOsmGeoms (collective): one failing fetch does not stop the others', 
       return { elements: [call] };
     },
     reconstructGeometries: (json) => ({ __from: json, ways: [], relations: [] }),
-  };
+  });
   const tracks = ['A', 'B', 'C'].map(name => ({ id: name, name, analyzer: fakeAnalyzer() }));
-  global.AppState = {
+  Object.assign(RealAppState, {
     viewMode: 'collective',
     collectiveManager: { getActiveTracks: () => tracks },
-  };
+  });
 
   const res = await GSRUI.ensureOsmGeoms();
 
