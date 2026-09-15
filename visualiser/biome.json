@@ -17,7 +17,11 @@
   "linter": {
     "enabled": true,
     "rules": {
-      "preset": "recommended"
+      "preset": "recommended",
+      "suspicious": {
+        "noGlobalIsNan": "off",
+        "noGlobalIsFinite": "off"
+      }
     }
   },
   "overrides": [
