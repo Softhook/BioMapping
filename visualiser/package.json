@@ -4,9 +4,13 @@
   "description": "Test harness for the browser-based GSR/RF track visualiser. No build step or bundler — the app itself stays plain ES modules loaded directly by the browser; this only adds a Node test runner for tests/.",
   "scripts": {
     "test": "node --test tests/*.js",
-    "bench": "node tests/manual/bench/run.js"
+    "bench": "node tests/manual/bench/run.js",
+    "lint": "biome check src tests",
+    "lint:fix": "biome check --write src tests",
+    "format": "biome format --write src tests"
   },
   "devDependencies": {
+    "@biomejs/biome": "2.5.13",
     "eslint-scope": "^9.1.2",
     "espree": "^11.2.0",
     "jsdom": "^30.0.1"
