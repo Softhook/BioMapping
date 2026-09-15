@@ -1124,104 +1124,11 @@
        gitignored config.local.js. Not an app module — see config.local.example.js. -->
   <script src="config.js"></script>
 
-  <!-- Scripts — load order matters: AppState+constants first, sketch.js last.
-       This list is mirrored by SCRIPT_ORDER in tests/support/boot_app.js;
-       tests/test_html_wiring.js fails if the two drift apart. -->
-  <script src="src/core/notices.js"></script>
-  <script src="src/core/app_state.js"></script>
-  <script src="src/core/fullscreen.js"></script>
-  <script src="src/core/layout_manager.js"></script>
-  <script src="src/core/constants.js"></script>
-  <script src="src/gps/geo_utils.js"></script>
-  <script src="src/spatial/spatial_grid.js"></script>
-  <script src="src/core/file_saver.js"></script>
-  <script src="src/signal/stats_math.js"></script>
-  <script src="src/osm/overpass_client.js"></script>
-  <script src="src/osm/osm_cache.js"></script>
-  <script src="src/signal/dwt_filter.js"></script>
-  <script src="src/signal/deconvolution.js"></script>
-  <script src="src/signal/cvxeda.js"></script>
-  <script src="src/signal/csv_parser.js"></script>
-  <script src="src/signal/spectral_eda.js"></script>
-  <script src="src/signal/analyzer_time_format.js"></script>
-  <script src="src/signal/response_dynamics.js"></script>
-  <script src="src/signal/analyzer.js"></script>
-  <script src="src/osm/osm_enrichment.js"></script>
-  <script src="src/osm/ndvi_sampler.js"></script>
-  <script src="src/gps/map_match.js"></script>
-  <script src="src/signal/gsr_filter.js"></script>
-  <script src="src/render/marching_squares.js"></script>
-  <script src="src/map/hillshade.js"></script>
-  <script src="src/spatial/spatial_clustering.js"></script>
-  <script src="src/spatial/arousal_places.js"></script>
-  <script src="src/spatial/collective_manager.js"></script>
-  <script src="src/gps/gps_filter.js"></script>
-  <script src="src/map/basemap.js"></script>
-  <script src="src/map/map_colors.js"></script>
-  <script src="src/gps/gps_pipeline.js"></script>
-  <script src="src/map/map_markers.js"></script>
-  <!-- Live Stream (BLE) view — depends on gsr_filter / map_colors / gps_pipeline
-       above and Leaflet; consumed by events.js's view switcher below. -->
-  <script src="src/live/live_binary_parser.js"></script>
-  <script src="src/live/live_state.js"></script>
-  <script src="src/live/live_bluetooth.js"></script>
-  <script src="src/live/live_csv.js"></script>
-  <script src="src/live/live_tile_cache.js"></script>
-  <script src="src/live/live_graph.js"></script>
-  <script src="src/live/live_map.js"></script>
-  <script src="src/live/live_view.js"></script>
-  <script src="src/render/label_placement.js"></script>
-  <script src="src/render/bezier_spline.js"></script>
-  <script src="src/render/contour_ring_geometry.js"></script>
-  <script src="src/map/map_exporter.js"></script>
-  <script src="src/render/rf_fluid_renderer.js"></script>
-  <script src="src/map/map_popups.js"></script>
-  <script src="src/map/map.js"></script>
-  <script src="src/map/map_manager_process.js"></script>
-  <script src="src/map/map_manager_legend.js"></script>
-  <script src="src/map/map_manager_layers.js"></script>
-  <script src="src/map/map_manager_osm.js"></script>
-  <script src="src/map/map_manager_rf_fluid.js"></script>
-  <script src="src/map/map_manager_viewport.js"></script>
-  <script src="src/map/map_manager_render.js"></script>
-  <script src="src/map/map_manager_path.js"></script>
-  <script src="src/map/map_manager_peaks.js"></script>
-  <script src="src/map/map_manager_arousal_places.js"></script>
-  <script src="src/map/map_manager_collective.js"></script>
-  <script src="src/map/map_manager_toggles.js"></script>
-  <script src="src/map/globe3d/exporters.js"></script>
-  <script src="src/map/globe3d/rf_expanse.js"></script>
-  <script src="src/map/globe3d/buildings.js"></script>
-  <script src="src/map/globe3d.js"></script>
-  <script src="src/map/globe3d_osm.js"></script>
-  <script src="src/map/globe3d_rf.js"></script>
-  <script src="src/map/globe3d_peaks.js"></script>
-  <script src="src/map/globe3d_toggles.js"></script>
-  <script src="src/map/globe3d_navigation.js"></script>
-  <script src="src/map/globe3d_tour.js"></script>
-  <script src="src/map/globe3d_view.js"></script>
-  <script src="src/ui/storage.js"></script>
-  <script src="src/ui/events.js"></script>
-  <script src="src/ui/tracks.js"></script>
-  <script src="src/spatial/collective_project.js"></script>
-  <script src="src/ui/ui.js"></script>
-  <script src="src/ui/ui_peaks_table.js"></script>
-  <script src="src/ui/ui_stats_panel.js"></script>
-  <script src="src/ui/ui_collective_map.js"></script>
-  <script src="src/ui/ui_export.js"></script>
-  <script src="src/ui/ui_osm_overlay.js"></script>
-  <script src="src/ui/ui_enrichment.js"></script>
-  <script src="src/ui/ui_correlation_table.js"></script>
-  <script src="src/ui/ui_road_profile.js"></script>
-  <script src="src/ui/ui_environmental_dashboard.js"></script>
-  <script src="src/ui/ui_modals.js"></script>
-  <script src="src/render/renderer.js"></script>
-  <script src="src/render/renderer_bands.js"></script>
-  <script src="src/render/renderer_curve.js"></script>
-  <script src="src/render/renderer_markers.js"></script>
-  <script src="src/render/renderer_interaction.js"></script>
-  <script src="src/render/renderer_chrome.js"></script>
-  <script src="src/render/sketch.js"></script>
+  <!-- Real entry point — a static ES-module import graph of all 93 src/
+       files (dependency order is resolved by the module graph itself, not
+       this tag). Mirrored by SCRIPT_ORDER in tests/support/boot_app.js;
+       tests/test_script_order.js fails if the two drift apart. -->
+  <script type="module" src="src/app_entry.mjs"></script>
 
   <!-- Street-Level Imagery Modal Overlay -->
   <div class="streetview-modal-overlay" id="streetviewModal" style="display:none;" onclick="GSRUI.closeStreetViewModal(event)">

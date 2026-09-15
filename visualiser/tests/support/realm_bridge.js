@@ -1,52 +1,40 @@
 /**
- * Shared realm-model machinery for the ES-module migration test harnesses
- * (tests/support/boot_app.js for index.html, tests/support/boot_live.js for
- * live.html). Both boot a jsdom window and load a list of real src/ files,
- * some not-yet-converted (dual-mode tail, `vm.runInThisContext`), some
- * already-converted (real ES module, dynamic `import()`) — and a
- * dynamically-`import()`ed file necessarily executes in Node's own real
- * global realm (no way to make `import()` target a separate
- * `vm.createContext`), so for a not-yet-converted file to still see an
- * already-converted file's exports as a bare global (and vice versa), BOTH
- * must run in that SAME real realm. That one shared realm is what this
- * module bridges a jsdom window onto and what makes mixing converted and
- * unconverted files during the migration possible at all. See
- * tests/manual/esm_migration/pilot/boot_pilot.js for where the base
- * technique was first proven, and this project's git history for the two
- * bugs it surfaced when actually exercised at scale (recorded in each
- * function's own comment below).
+ * Shared boot machinery for the test harnesses (tests/support/boot_app.js
+ * for index.html, tests/support/boot_live.js for live.html). Both boot a
+ * jsdom window, bridge it onto Node's `global` (a dynamically-`import()`ed
+ * ES module necessarily executes in Node's own real global realm — there is
+ * no way to make `import()` target a separate `vm.createContext`), then
+ * `import()` every file in a fixed load-order list into that shared realm.
+ *
+ * All 93 src/ files are real ES modules (the ES-module migration —
+ * tests/manual/esm_migration/README.md — is done), so nothing here mixes
+ * module and non-module loading paths any more; every app-to-app reference
+ * is a real `import` statement, resolved by the module graph itself. What's
+ * left is purely a TEST convenience: many existing tests read a class/
+ * singleton back via `window.X` or `global.X` after boot instead of doing
+ * their own `require()`/`import()` of the exact file — reflectOntoGlobal()
+ * below exists for them, not for the app's own cross-file resolution.
  */
-const fs = require('fs');
 const path = require('path');
-const vm = require('vm');
-const espree = require('espree');
 const { pathToFileURL } = require('url');
 const { registerHooks } = require('module');
-const { topLevelDeclaredNames, topLevelMutableNames } = require('../manual/esm_migration/lib/top_level_names.js');
 
 // Node's ESM resolver caches a module by its exact resolved URL for the
-// process lifetime. Busting only loadScriptFile's OWN `import()` call for a
-// SCRIPT_ORDER entry (a per-call query string, as this used to do) isn't
-// enough once one converted file statically imports ANOTHER converted
-// file: that internal `import ... from './x.mjs'` specifier carries no
-// query string, so it resolves — and caches — completely independently of
-// whatever busted URL loadScriptFile used for x.mjs's own entry. Caught by
-// live_bluetooth.mjs's `import { LiveState } from './live_state.mjs'`:
-// LiveConnectionController's bare-global `LiveState.setStatus('connecting')`
-// and the manager's `this._setStatus('connected')` (which goes through its
-// own static-imported LiveState binding) were silently mutating two
-// different objects — the connect() flow looked permanently stuck
-// "connecting" from the test's/global's point of view.
-//
-// Fixed with one process-wide resolve hook — synchronous, in-thread
-// (`module.registerHooks`, not the worker-thread `module.register`, so it
-// can read `bootGeneration` directly with no message-passing) — that
-// appends the CURRENT generation's query to EVERY resolution under this
-// project's own src/ tree, whether reached via loadScriptFile's top-level
-// `import()` or a nested static `import` inside an already-converted file.
-// Both paths then resolve to the identical URL, so Node's module cache
-// hands back the identical instance, for the life of one boot. Registered
-// once at module load (this file is only require()d once per process).
+// process lifetime — without busting, a SECOND `bootApp()`/`bootLive()` call
+// in the same test file would reuse the FIRST call's module instances,
+// silently skipping every file's top-level side effect (e.g. notices.mjs's
+// `window.addEventListener('error', ...)`, which needs to re-register on
+// THIS boot's fresh window; live_tile_cache.mjs's `L.tileLayer.cache =
+// function(){...}`, which needs to re-attach to THIS boot's fresh `L` mock).
+// One process-wide resolve hook — synchronous, in-thread (`module.registerHooks`,
+// not the worker-thread `module.register`, so it can read `bootGeneration`
+// directly with no message-passing) — appends the CURRENT generation's query
+// to every resolution under this project's own src/ tree, whichever of
+// loadScriptFile's own top-level `import()` calls or a nested static
+// `import` inside another src/ file triggered it. Both converge on the
+// identical resolved URL, hence the identical cached instance, for the life
+// of one boot. Registered once at module load (this file is only require()d
+// once per process).
 let bootGeneration = 0;
 const SRC_ROOT = pathToFileURL(path.join(__dirname, '..', '..') + path.sep).href;
 registerHooks({
@@ -134,13 +122,13 @@ const FORCE_BRIDGE_OVER_NATIVE = new Set(['Blob', 'URL', 'navigator', 'fetch']);
  *
  * Everything else on `window` gets a live, bidirectional accessor on
  * `global` (skipped only for a name Node itself already natively provides —
- * see NATIVE_GLOBAL_KEYS) rather than a one-time value copy: test code and
- * app code both routinely reassign a window property AFTER boot (a mock
- * Leaflet swapped in post-setup, `window.mouseX` updated per drag tick,
- * `window.constrain` overridden per test) and expect a bare identifier
- * reference inside already-loaded app code to see the new value — which
- * only works if `global.X` keeps forwarding to whatever `window.X` current
- * holds, not a snapshot taken at boot.
+ * see NATIVE_GLOBAL_KEYS) rather than a one-time value copy: test code
+ * routinely reassigns a window property AFTER boot (a mock Leaflet swapped
+ * in post-setup, `window.mouseX` updated per drag tick, `window.constrain`
+ * overridden per test) and expects a bare identifier reference inside
+ * already-loaded app code to see the new value — which only works if
+ * `global.X` keeps forwarding to whatever `window.X` currently holds, not a
+ * snapshot taken at boot.
  */
 function installJsdomGlobals(window) {
   for (const key of Object.getOwnPropertyNames(window)) {
@@ -156,65 +144,6 @@ function installJsdomGlobals(window) {
   }
   global.window = window;
   global.document = window.document;
-}
-
-/** Does this script-order entry have a converted (.mjs) sibling yet? Resolves to whichever exists — never both, by construction (convert_file.js deletes the .js when it writes the .mjs). `appDir` is the repo's visualiser/ root. */
-function resolveFile(appDir, relFile) {
-  const mjsRel = relFile.replace(/\.js$/, '.mjs');
-  if (fs.existsSync(path.join(appDir, mjsRel))) return { rel: mjsRel, converted: true };
-  return { rel: relFile, converted: false };
-}
-
-// A not-yet-converted file's top-level `class`/`const`/`let` declarations
-// live in the realm's shared global LEXICAL environment when run via
-// `vm.runInThisContext` (this is exactly the real-browser `<script>` tag
-// semantics the realm-model switch relies on for cross-file bare-identifier
-// references — see this file's header comment). That lexical environment
-// persists for the whole Node process, and — unlike plain global-object
-// properties — cannot be redeclared: a second boot re-running the same
-// file's source throws `SyntaxError: Identifier 'X' has already been
-// declared`. Fixed by running each file's source inside a fresh function
-// scope every call (so its declarations never touch the shared lexical
-// environment) and reflecting its real top-level names onto `global`
-// afterwards as plain, freely-overwritable object properties — which is how
-// later bare-identifier lookups still resolve them. Never written into any
-// real src/ file; a test-harness-only technique, same spirit as the
-// `Object.assign(global, mod)` bridge used for already-converted files.
-const wrappedSourceCache = new Map(); // absolute file path -> { wrapped, declaredNames }
-
-function wrapForRepeatedExecution(absPath, src) {
-  let entry = wrappedSourceCache.get(absPath);
-  if (entry) return entry;
-  const ast = espree.parse(src, { ecmaVersion: 2022, sourceType: 'script' });
-  const declaredNames = [...topLevelDeclaredNames(ast.body)];
-  const mutableNames = topLevelMutableNames(ast.body);
-  // Getter/setter pairs, not a plain `{name}` shorthand snapshot: a file
-  // like live_view.js reassigns its own top-level `let liveAnalyzer` from
-  // inside a later-called function (mount() sets it once connected) — a
-  // one-time snapshot at import time would freeze `global.liveAnalyzer` at
-  // whatever it was (usually still `null`) forever, since that reassignment
-  // only ever touches the closure's own binding, not the reflected copy. A
-  // setter is generated for every name EXCEPT a `const` one
-  // (topLevelMutableNames — see its own comment for why `class`/`function`
-  // belong on the "gets a setter" side despite looking as immutable as
-  // `const`). Generating a setter for a `const` throws "Assignment to
-  // constant variable" the moment anything writes to the reflected global
-  // on a LATER boot — including the declaring file's own dual-mode tail
-  // (e.g. ndvi_sampler.js's `global.NDVISampler = NDVISampler;`), which by
-  // then is writing through a STALE setter left over from an
-  // earlier boot's now-orphaned closure.
-  const returnExpr = declaredNames.length
-    ? `{${declaredNames.map((n) => mutableNames.has(n)
-      ? `get ${n}(){return ${n};},set ${n}(v){${n}=v;}`
-      : `get ${n}(){return ${n};}`).join(',')}}`
-    : '{}';
-  // No newline between `{` and `${src}`: keeps every line of src at its
-  // original line number in stack traces (only the wrapper's own closing
-  // lines are appended after src's final line).
-  const wrapped = `(function(){${src}\n;return ${returnExpr};\n})()`;
-  entry = { wrapped, declaredNames };
-  wrappedSourceCache.set(absPath, entry);
-  return entry;
 }
 
 // Node's native setTimeout/setInterval (bare `setTimeout(...)` in e.g.
@@ -258,61 +187,28 @@ function clearLeakedTimersFromPreviousBoot() {
   pendingTimers.clear();
 }
 
-// Node's ES module loader caches a module by its resolved specifier for the
-// life of the process — a second `import()` of the SAME converted file (a
-// LATER boot in the same test file) returns the cached module WITHOUT
-// re-running its top-level code. Fine for a file that only declares
-// classes/consts (Object.assign(global, mod) re-copies the same, still-
-// correct values every time) but silently wrong for one with a real
-// top-level side effect — e.g. live_tile_cache.mjs's `L.tileLayer.cache =
-// function(){...}`, which needs to re-attach to THIS boot's fresh `L`
-// mock, or notices.mjs's `window.addEventListener('error', ...)`, which
-// needs to re-register on THIS boot's fresh window. Cache-busting (see the
-// resolve hook + `bootGeneration` above this file's header comment) forces
-// a genuinely fresh module instance — and therefore a fresh run of its
-// top-level code — on every single boot, matching wrapForRepeatedExecution's
-// same guarantee for not-yet-converted files below.
-
 /**
- * Loads one script-order entry into the shared realm: `.mjs` (converted) →
- * `await import()` (cache-busted by the resolve hook above) + `Object.assign(global, mod)`
- * (a test-harness-only compat shim, mirroring the old window.X = X exposure
- * — makes a converted file's exports resolvable as bare identifiers by any
- * file further down the order that hasn't converted yet; never written into
- * any real src/ file); still `.js` → wrapForRepeatedExecution +
- * vm.runInThisContext. Both branches reflect the result onto `global` (a
- * later not-yet-converted file's bare reference) AND `window` — some test
- * code and some src files (e.g. sketch.js's p5 "global mode" `function
- * setup(){}`) read these back via `window.X`, true browser `<script>`
- * semantics for a bare top-level declaration, and several tests read a
- * converted file's own exports the same way (`const { X } = window;`).
+ * Loads one script-order entry (a real ES module) into the shared realm:
+ * `import()` it (cache-busted by the resolve hook above) and reflect its
+ * exports onto both `global` (so a bare identifier reference — none left in
+ * real src/ code, but plenty of test code still does this — resolves) and
+ * `window` (true browser `<script>` semantics for anything that reads a
+ * module's exports back via `window.X`, and what sketch.mjs's p5 "global
+ * mode" functions need — see src/app_entry.mjs's own header comment for how
+ * the real browser handles that).
  */
 // A plain `Object.assign(target, source)` INVOKES any getter on `source`
 // and copies the resulting VALUE as a fresh data property — losing
-// liveness for BOTH a real ES module namespace object's exports (genuinely
-// live bindings — reflect a later `export let x` reassignment inside the
-// module) and wrapForRepeatedExecution's getter/setter bridge (emulating the
-// same liveness for a not-yet-converted file). Naively copying the
-// DESCRIPTOR instead (an earlier version of this function did) fixes the
-// bridge case (its descriptor already carries live get/set functions) but
-// NOT the namespace case: `Object.getOwnPropertyDescriptor(moduleNamespace,
-// name)` returns a plain frozen-at-that-instant VALUE descriptor — a
-// namespace object's internal live-binding semantics are an ECMAScript
-// Module Environment Record, not something `Object.getOwnPropertyDescriptor`
-// can observe as an accessor — so a later `export let x = ...; x =
-// newValue` reassignment inside the module never reached a global/window
-// copy taken this way (confirmed empirically: `mod.x` updates, a copied
-// descriptor's `.value` does not). First hit in layer 6, where a converted
-// file's own exported `let` (e.g. live_map.js's `liveLastLatLng`) is
-// reassigned post-boot and read back via `window.X` in a test. Fixed with a
-// live getter/setter that re-reads `source[name]` on every access instead —
-// works uniformly whether `source` is a real module namespace (whose own
-// properties are non-writable, so the setter silently no-ops on an external
-// write, matching real browser ESM semantics) or the bridge object (whose
-// own setter has real effects, unchanged since this just proxies through
-// it). `configurable: true` is forced regardless of the source's own (a
-// module namespace's own properties are non-configurable) — `target` here
-// is `global`/`window`, which must stay redefinable across every later boot.
+// liveness for a real ES module namespace object's exports (genuinely live
+// bindings — reflect a later `export let x` reassignment inside the
+// module). Fixed with a live getter/setter that re-reads `source[name]` on
+// every access instead: a namespace object's own properties are non-
+// writable, so the setter silently no-ops on an external write (matching
+// real browser ESM semantics) — confirmed empirically (`mod.x = 99` neither
+// throws nor changes `mod.x` read back). `configurable: true` is forced
+// regardless of the source's own (a module namespace's own properties are
+// non-configurable) — `target` here is `global`/`window`, which must stay
+// redefinable across every later boot.
 // Every name ever reflected onto `global` (not `window` — a fresh jsdom
 // window never carries anything over). boot_app.js's SCRIPT_ORDER and
 // boot_live.js's LIVE_SCRIPT_ORDER overlap but differ (e.g. GSRLayoutManager
@@ -346,19 +242,10 @@ function reflectOntoGlobal(source, target) {
 }
 
 async function loadScriptFile(appDir, relFile, window) {
-  const { rel, converted } = resolveFile(appDir, relFile);
-  const absPath = path.join(appDir, rel);
-  if (converted) {
-    const mod = await import(pathToFileURL(absPath).href);
-    reflectOntoGlobal(mod, global);
-    reflectOntoGlobal(mod, window);
-  } else {
-    const src = fs.readFileSync(absPath, 'utf8');
-    const { wrapped } = wrapForRepeatedExecution(absPath, src);
-    const bridge = vm.runInThisContext(wrapped, { filename: rel });
-    reflectOntoGlobal(bridge, global);
-    reflectOntoGlobal(bridge, window);
-  }
+  const absPath = path.join(appDir, relFile);
+  const mod = await import(pathToFileURL(absPath).href);
+  reflectOntoGlobal(mod, global);
+  reflectOntoGlobal(mod, window);
 }
 
 // Single entry point both harnesses call at the very top of their boot
@@ -374,8 +261,6 @@ function clearPreviousBoot() {
 module.exports = {
   superMock,
   installJsdomGlobals,
-  resolveFile,
-  wrapForRepeatedExecution,
   clearPreviousBoot,
   loadScriptFile,
 };

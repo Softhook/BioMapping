@@ -27,7 +27,7 @@ const GLOBE3D = path.join(APP_DIR, 'src', 'map', 'globe3d.mjs');
 // exports its method object instead of assigning onto a live global, so
 // loadFresh() below applies them itself. ES-module migration: a converted
 // file's .js sibling is deleted (convert_file.js --write) — resolve whichever
-// extension is actually on disk, same rule as boot_app.js's resolveFile().
+// extension is actually on disk, same rule as tests/support/load_module.js.
 const GLOBE3D_AUGMENTS = [
   'globe3d_osm.js', 'globe3d_rf.js', 'globe3d_peaks.js',
   'globe3d_toggles.js', 'globe3d_navigation.js', 'globe3d_tour.js',

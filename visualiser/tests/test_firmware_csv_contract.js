@@ -56,8 +56,8 @@ function runContractTests() {
 
   const readFw = (rel) => fs.readFileSync(path.join(FW, rel), 'utf8');
   // ES-module migration: a converted src/live/ file's .js sibling is
-  // deleted (convert_file.js --write) — same resolution rule as
-  // boot_app.js's resolveFile().
+  // deleted (convert_file.js --write) — same .js/.mjs resolution rule as
+  // tests/support/load_module.js.
   const readLive = (name) => {
     const full = path.join(LIVE, name);
     const mjsFull = full.replace(/\.js$/, '.mjs');

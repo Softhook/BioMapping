@@ -13,8 +13,8 @@ const fs = require('fs');
 const path = require('path');
 
 // ES-module migration: a converted file's .js sibling is deleted when its
-// .mjs is written (convert_file.js --write) — same resolution rule as
-// boot_app.js's resolveFile()/tests/support/load_module.js.
+// .mjs is written (convert_file.js --write) — same .js/.mjs resolution
+// rule as tests/support/load_module.js.
 const G3D = (f) => {
   const jsPath = path.join(__dirname, '..', 'src', 'map', 'globe3d', f);
   const mjsPath = jsPath.replace(/\.js$/, '.mjs');

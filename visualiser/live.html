@@ -25,34 +25,6 @@
 <script src="vendor/leaflet/leaflet.js"></script>
 <!-- Runtime config: window.BIOMAP_CONFIG. Committed; on a local origin it also pulls in the optional gitignored config.local.js. See config.local.example.js -->
 <script src="config.js"></script>
-<!-- Shared GSR analysis engine — the live graph runs the same
-     GSRAnalyzer.analyze() pipeline as the main visualiser (Filtered/Tonic/
-     Phasic, peak detection, the derived-metric views) on its growing packet
-     buffer. constants.js first (GSR_CONST); analyzer.js's csv_parser dep is
-     not needed here (the live view feeds analyzer.raw directly, never
-     parseCSV()). index.html already loads all of these before live_view.js. -->
-<script src="src/core/constants.js"></script>
-<script src="src/signal/gsr_filter.js"></script>
-<script src="src/signal/deconvolution.js"></script>
-<script src="src/signal/spectral_eda.js"></script>
-<script src="src/signal/analyzer_time_format.js"></script>
-<script src="src/signal/analyzer.js"></script>
-<script src="src/map/basemap.js"></script>
-<script src="src/map/map_colors.js"></script>
-<script src="src/gps/gps_pipeline.js"></script>
-<!-- Shared OS "Save location" dialog helper — used by the Export CSV button
-     so the live view saves the same way as the rest of the app. -->
-<script src="src/core/file_saver.js"></script>
-<script src="src/live/live_binary_parser.js"></script>
-<script src="src/live/live_state.js"></script>
-<script src="src/live/live_bluetooth.js"></script>
-<script src="src/live/live_csv.js"></script>
-<script src="src/live/live_tile_cache.js"></script>
-<script src="src/live/live_graph.js"></script>
-<script src="src/live/live_map.js"></script>
-<script src="src/core/fullscreen.js"></script>
-<script src="src/map/map_markers.js"></script>
-<script src="src/live/live_view.js"></script>
 <style>
   /* Standalone page shell only — the live UI itself is styled by the
      ".live-view" section of styles.css. */
@@ -65,8 +37,9 @@
      so the same markup + wiring can be a panel inside index.html. This page
      is just the standalone host: one container, one mount call. -->
 <div id="liveRoot"></div>
-<script>
-  GSRLiveView.mount(document.getElementById('liveRoot'));
-</script>
+<!-- Real entry point — imports the live view's src/ files (mirrored by
+     LIVE_SCRIPT_ORDER in tests/support/boot_live.js; tests/test_script_order.js
+     fails if the two drift apart) then mounts GSRLiveView itself. -->
+<script type="module" src="src/live_entry.mjs"></script>
 </body>
 </html>

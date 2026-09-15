@@ -1,15 +1,18 @@
 /**
  * Guards the wiring between the two HTML entry points and the files they pull
  * off disk — the seam a directory reorg is most likely to break silently,
- * because a wrong <script src> or fetch() path throws only in a real browser,
- * never in the unit suite.
+ * because a wrong <script src>/import or fetch() path throws only in a real
+ * browser, never in the unit suite.
  *
- * 1. index.html's local <script> order stays identical to SCRIPT_ORDER in
- *    tests/support/boot_app.js (the jsdom smoke harness loads that copy, not
- *    index.html's real tags — nothing else keeps the two in step).
- * 2. live.html loads exactly the src/ modules its GSRLiveView.mount() shell
- *    depends on, in load order (mirrored by tests/support/boot_live.js).
- * 3. every local href/src in either HTML file resolves to a real file.
+ * 1. src/app_entry.mjs's own bare-import list stays identical to
+ *    SCRIPT_ORDER in tests/support/boot_app.js (the jsdom smoke harness
+ *    loads that copy, not app_entry.mjs itself — nothing else keeps the two
+ *    in step). index.html itself carries no per-file list any more — it's a
+ *    single `<script type="module" src="src/app_entry.mjs">`.
+ * 2. src/live_entry.mjs's own import list matches LIVE_SCRIPT_ORDER in
+ *    tests/support/boot_live.js, the same role #1 plays for app_entry.mjs.
+ * 3. every local href/src in either HTML file (plus every import in both
+ *    entry modules) resolves to a real file.
  * 4. the demo CSV that tracks.js fetch()es at runtime actually exists where
  *    the fetch path points.
  *
@@ -28,15 +31,7 @@ const { SCRIPT_ORDER } = require('./support/boot_app.js');
 const { LIVE_SCRIPT_ORDER } = require('./support/boot_live.js');
 
 const APP_DIR = path.join(__dirname, '..');
-// ES-module migration: a converted src/ file's .js sibling is deleted
-// (convert_file.js --write) — same resolution rule as boot_app.js's
-// resolveFile(). Only matters for the src/*.js reads below; index.html/
-// live.html themselves are never converted.
-const readApp = (rel) => {
-  const full = path.join(APP_DIR, rel);
-  const mjsFull = full.replace(/\.js$/, '.mjs');
-  return fs.readFileSync(rel.endsWith('.js') && !fs.existsSync(full) && fs.existsSync(mjsFull) ? mjsFull : full, 'utf8');
-};
+const readApp = (rel) => fs.readFileSync(path.join(APP_DIR, rel), 'utf8');
 
 // runtime-config pre-loads, not app modules — excluded from the order check
 const NON_MODULE = new Set(['config.js', 'config.local.js']);
@@ -53,39 +48,53 @@ function localRefs(html) {
     .map((m) => m[1])
     .filter(isLocal);
 }
-/** local `<script src>` app modules, in document order */
-function scriptSrcs(html) {
-  return [...html.matchAll(/<script\s+src="([^"]+)"><\/script>/g)]
-    .map((m) => m[1])
-    .filter((s) => isLocal(s) && !NON_MODULE.has(s) && !s.startsWith('vendor/'));
+
+/**
+ * Every bare `import '...'` specifier in an entry module, in source order,
+ * resolved back to a SCRIPT_ORDER-style path (`src/...`) relative to
+ * `visualiser/`. Only the plain side-effect imports at the top count — the
+ * later named `import { ... } from './render/sketch.mjs'`-style imports
+ * (re-exposing a few names onto `window`) reference files already imported
+ * above, so including them would just duplicate entries.
+ */
+function entryImports(entryRelPath) {
+  const src = readApp(entryRelPath);
+  const entryDir = path.posix.dirname(entryRelPath.replace(/\\/g, '/')); // 'src'
+  const seen = new Set();
+  const order = [];
+  for (const m of src.matchAll(/^import '(\.[^']+)';$/gm)) {
+    const resolved = path.posix.normalize(`${entryDir}/${m[1]}`);
+    if (!seen.has(resolved)) { seen.add(resolved); order.push(resolved); }
+  }
+  return order;
 }
 
-test('index.html <script src> order matches boot_app.js SCRIPT_ORDER', () => {
-  assert.deepStrictEqual(scriptSrcs(readApp('index.html')), SCRIPT_ORDER);
+test("src/app_entry.mjs's import list matches boot_app.js SCRIPT_ORDER", () => {
+  assert.deepStrictEqual(entryImports('src/app_entry.mjs'), SCRIPT_ORDER);
 });
 
-test('live.html loads exactly the shared src/ modules tests/support/boot_live.js runs in the same order', () => {
+test("src/live_entry.mjs's import list matches boot_live.js LIVE_SCRIPT_ORDER", () => {
   // boot_live.js no longer reads live.html at all (so the live_view test
   // suite doesn't depend on the standalone page's existence) — this is the
   // guard that keeps its hard-coded LIVE_SCRIPT_ORDER from drifting out of
-  // sync with the real file, the same role SCRIPT_ORDER/boot_app.js plays
-  // for index.html above.
-  assert.deepStrictEqual(scriptSrcs(readApp('live.html')), LIVE_SCRIPT_ORDER);
+  // sync with the real file, the same role SCRIPT_ORDER/app_entry.mjs plays
+  // above.
+  assert.deepStrictEqual(entryImports('src/live_entry.mjs'), LIVE_SCRIPT_ORDER);
 });
 
-// ES-module migration (tests/manual/esm_migration/): a converted src/ file's
-// .js sibling is deliberately deleted (convert_file.js --write) before the
-// atomic index.html cutover to <script type="module"> — see boot_app.js's
-// own resolveFile(), which applies the identical rule for the jsdom harness.
-// Until that cutover, a `.js` reference whose `.mjs` sibling exists is a
-// known, tracked mid-migration state, not a missing file.
-const existsOnDisk = (rel) =>
-  fs.existsSync(path.join(APP_DIR, rel)) || fs.existsSync(path.join(APP_DIR, rel.replace(/\.js$/, '.mjs')));
+const existsOnDisk = (rel) => fs.existsSync(path.join(APP_DIR, rel));
 
 for (const page of ['index.html', 'live.html']) {
   test(`${page}: every local href/src resolves to a file on disk`, () => {
     const missing = localRefs(readApp(page)).filter((rel) => !existsOnDisk(rel));
     assert.deepStrictEqual(missing, [], `${page} points at missing file(s)`);
+  });
+}
+
+for (const entry of ['src/app_entry.mjs', 'src/live_entry.mjs']) {
+  test(`${entry}: every imported file resolves to a file on disk`, () => {
+    const missing = entryImports(entry).filter((rel) => !existsOnDisk(rel));
+    assert.deepStrictEqual(missing, [], `${entry} imports missing file(s)`);
   });
 }
 
@@ -115,18 +124,18 @@ test('config.js injects config.local.js only on a local origin, guarded against 
 });
 
 test('the CARTO basemap key resolution lives in one shared module, consumed by map.js / live_map.js / globe3d.js', () => {
-  const src = readApp('src/map/basemap.js');
+  const src = readApp('src/map/basemap.mjs');
   assert.match(src, /BIOMAP_CONFIG\s*&&\s*window\.BIOMAP_CONFIG\.cartoApiKey/, 'basemap.js reads BIOMAP_CONFIG.cartoApiKey');
   assert.match(src, /getItem\(['"]bioMappingCartoApiKey['"]\)/, 'basemap.js falls back to the localStorage key');
   assert.match(src, /try\s*\{[^}]*getItem\(['"]bioMappingCartoApiKey/, 'basemap.js guards the localStorage read in try/catch');
   assert.match(src, /\?key=['"]\s*\+\s*encodeURIComponent\(cartoKey\)/, 'basemap.js appends an encoded ?key=');
-  for (const rel of ['src/map/map.js', 'src/live/live_map.js', 'src/map/globe3d.js']) {
+  for (const rel of ['src/map/map.mjs', 'src/live/live_map.mjs', 'src/map/globe3d.mjs']) {
     assert.match(readApp(rel), /GSRBasemap\.cartoTileUrl/, `${rel} uses the shared GSRBasemap.cartoTileUrl`);
   }
 });
 
 test('the demo CSV tracks.js fetch()es exists at that path', () => {
-  const src = readApp('src/ui/tracks.js');
+  const src = readApp('src/ui/tracks.mjs');
   const fetched = [...src.matchAll(/fetch\(['"]([^'"]+)['"]\)/g)]
     .map((m) => m[1])
     .filter(isLocal);

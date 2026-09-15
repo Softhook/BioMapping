@@ -1,9 +1,8 @@
 /**
  * Smoke-test harness: boots the REAL app (real index.html DOM + every real
- * visualiser/*.js source file, unmodified, in the exact order
- * index.html loads them) inside jsdom, with a hand-rolled stand-in for the
- * CDN libraries (Leaflet, p5, JSZip) instead of loading them for
- * real.
+ * src/*.mjs source module, unmodified, in the exact order src/app_entry.mjs
+ * imports them) inside jsdom, with a hand-rolled stand-in for the CDN
+ * libraries (Leaflet, p5, JSZip) instead of loading them for real.
  *
  * This is deliberately NOT trying to be a faithful Leaflet/p5 reimplementation
  * — per-function unit coverage of the DOM/Leaflet/p5 rendering glue
@@ -21,22 +20,13 @@
  * the wrong pixels" bugs — that class of bug is out of scope here by design
  * (see docs/archive/visualizer_test_coverage_plan.md).
  *
- * ES-MODULE MIGRATION (see docs/visualizer_modularity_plan.md and
- * tests/manual/esm_migration/): as src/ files convert from the dual-mode
- * tail to real export/import (getting a temporary .mjs extension along the
- * way — see convert_file.js), tests/support/realm_bridge.js loads each one
- * of two ways — not yet converted (still .js): `vm.runInThisContext(src)`,
- * run in NODE'S OWN real global realm, NOT a separate `vm.createContext`
- * (Pattern A's existing tests already establish this technique: a separate
- * context breaks Array/Object prototype identity across
- * `assert.deepStrictEqual`; running in this realm keeps it correct); already
- * converted (.mjs exists): `await import()`, the real ES module — which
- * necessarily executes in this SAME real Node realm too, so a not-yet-
- * converted file's bare reference to an already-converted name still
- * resolves. Both paths therefore share ONE realm, which is what makes mixing
- * converted and unconverted files during the migration possible at all.
- * `bootApp()` is async as a direct consequence — dynamic `import()` has no
- * synchronous form in Node.
+ * Every src/ file is a real ES module (the ES-module migration —
+ * tests/manual/esm_migration/README.md — is done): `bootApp()` dynamically
+ * `import()`s each one in SCRIPT_ORDER, in the same jsdom-bridged realm (see
+ * realm_bridge.js) so post-boot test code can read a class/singleton back
+ * via `window.X`/`global.X` without doing its own `require()`. `bootApp()`
+ * is async as a direct consequence — dynamic `import()` has no synchronous
+ * form in Node.
  */
 
 const fs = require('fs');
@@ -47,29 +37,25 @@ const { superMock, installJsdomGlobals, clearPreviousBoot, loadScriptFile } = re
 
 const APP_DIR = path.join(__dirname, '..', '..');
 
-// Real script load order, copied from index.html's own <script src="...">
-// list (local app files only — the 4 CDN libraries are stubbed instead).
-// Kept byte-for-byte in sync with index.html by tests/support/test_script_order.js.
-// NOTE: during the ES-module migration this stays the list of ORIGINAL .js
-// paths — realm_bridge.js's resolveFile() transparently swaps in a file's
-// .mjs sibling once it's been converted, so this array itself needs no
-// edits per file.
+// Real module load order, mirroring src/app_entry.mjs's own import list
+// (local app files only — the 4 CDN libraries are stubbed instead). Kept in
+// sync with it by tests/test_html_wiring.js.
 const SCRIPT_ORDER = [
-  'src/core/notices.js', 'src/core/app_state.js', 'src/core/fullscreen.js', 'src/core/layout_manager.js', 'src/core/constants.js',
-  'src/gps/geo_utils.js', 'src/spatial/spatial_grid.js', 'src/core/file_saver.js',
-  'src/signal/stats_math.js', 'src/osm/overpass_client.js', 'src/osm/osm_cache.js', 'src/signal/dwt_filter.js', 'src/signal/deconvolution.js', 'src/signal/cvxeda.js',
-  'src/signal/csv_parser.js', 'src/signal/spectral_eda.js', 'src/signal/analyzer_time_format.js', 'src/signal/response_dynamics.js', 'src/signal/analyzer.js', 'src/osm/osm_enrichment.js', 'src/osm/ndvi_sampler.js', 'src/gps/map_match.js', 'src/signal/gsr_filter.js', 'src/render/marching_squares.js',
-  'src/map/hillshade.js', 'src/spatial/spatial_clustering.js', 'src/spatial/arousal_places.js', 'src/spatial/collective_manager.js', 'src/gps/gps_filter.js', 'src/map/basemap.js', 'src/map/map_colors.js', 'src/gps/gps_pipeline.js', 'src/map/map_markers.js',
-  'src/live/live_binary_parser.js', 'src/live/live_state.js', 'src/live/live_bluetooth.js', 'src/live/live_csv.js', 'src/live/live_tile_cache.js', 'src/live/live_graph.js', 'src/live/live_map.js', 'src/live/live_view.js',
-  'src/render/label_placement.js', 'src/render/bezier_spline.js', 'src/render/contour_ring_geometry.js', 'src/map/map_exporter.js', 'src/render/rf_fluid_renderer.js', 'src/map/map_popups.js', 'src/map/map.js', 'src/map/map_manager_process.js', 'src/map/map_manager_legend.js', 'src/map/map_manager_layers.js', 'src/map/map_manager_osm.js', 'src/map/map_manager_rf_fluid.js', 'src/map/map_manager_viewport.js', 'src/map/map_manager_render.js', 'src/map/map_manager_path.js', 'src/map/map_manager_peaks.js', 'src/map/map_manager_arousal_places.js', 'src/map/map_manager_collective.js', 'src/map/map_manager_toggles.js',
-  'src/map/globe3d/exporters.js', 'src/map/globe3d/rf_expanse.js', 'src/map/globe3d/buildings.js',
-  'src/map/globe3d.js', 'src/map/globe3d_osm.js', 'src/map/globe3d_rf.js', 'src/map/globe3d_peaks.js', 'src/map/globe3d_toggles.js', 'src/map/globe3d_navigation.js', 'src/map/globe3d_tour.js', 'src/map/globe3d_view.js', 'src/ui/storage.js',
-  'src/ui/events.js', 'src/ui/tracks.js', 'src/spatial/collective_project.js', 'src/ui/ui.js',
-  'src/ui/ui_peaks_table.js', 'src/ui/ui_stats_panel.js', 'src/ui/ui_collective_map.js',
-  'src/ui/ui_export.js', 'src/ui/ui_osm_overlay.js', 'src/ui/ui_enrichment.js',
-  'src/ui/ui_correlation_table.js', 'src/ui/ui_road_profile.js',
-  'src/ui/ui_environmental_dashboard.js', 'src/ui/ui_modals.js',
-  'src/render/renderer.js', 'src/render/renderer_bands.js', 'src/render/renderer_curve.js', 'src/render/renderer_markers.js', 'src/render/renderer_interaction.js', 'src/render/renderer_chrome.js', 'src/render/sketch.js',
+  'src/core/notices.mjs', 'src/core/app_state.mjs', 'src/core/fullscreen.mjs', 'src/core/layout_manager.mjs', 'src/core/constants.mjs',
+  'src/gps/geo_utils.mjs', 'src/spatial/spatial_grid.mjs', 'src/core/file_saver.mjs',
+  'src/signal/stats_math.mjs', 'src/osm/overpass_client.mjs', 'src/osm/osm_cache.mjs', 'src/signal/dwt_filter.mjs', 'src/signal/deconvolution.mjs', 'src/signal/cvxeda.mjs',
+  'src/signal/csv_parser.mjs', 'src/signal/spectral_eda.mjs', 'src/signal/analyzer_time_format.mjs', 'src/signal/response_dynamics.mjs', 'src/signal/analyzer.mjs', 'src/osm/osm_enrichment.mjs', 'src/osm/ndvi_sampler.mjs', 'src/gps/map_match.mjs', 'src/signal/gsr_filter.mjs', 'src/render/marching_squares.mjs',
+  'src/map/hillshade.mjs', 'src/spatial/spatial_clustering.mjs', 'src/spatial/arousal_places.mjs', 'src/spatial/collective_manager.mjs', 'src/gps/gps_filter.mjs', 'src/map/basemap.mjs', 'src/map/map_colors.mjs', 'src/gps/gps_pipeline.mjs', 'src/map/map_markers.mjs',
+  'src/live/live_binary_parser.mjs', 'src/live/live_state.mjs', 'src/live/live_bluetooth.mjs', 'src/live/live_csv.mjs', 'src/live/live_tile_cache.mjs', 'src/live/live_graph.mjs', 'src/live/live_map.mjs', 'src/live/live_view.mjs',
+  'src/render/label_placement.mjs', 'src/render/bezier_spline.mjs', 'src/render/contour_ring_geometry.mjs', 'src/map/map_exporter.mjs', 'src/render/rf_fluid_renderer.mjs', 'src/map/map_popups.mjs', 'src/map/map.mjs', 'src/map/map_manager_process.mjs', 'src/map/map_manager_legend.mjs', 'src/map/map_manager_layers.mjs', 'src/map/map_manager_osm.mjs', 'src/map/map_manager_rf_fluid.mjs', 'src/map/map_manager_viewport.mjs', 'src/map/map_manager_render.mjs', 'src/map/map_manager_path.mjs', 'src/map/map_manager_peaks.mjs', 'src/map/map_manager_arousal_places.mjs', 'src/map/map_manager_collective.mjs', 'src/map/map_manager_toggles.mjs',
+  'src/map/globe3d/exporters.mjs', 'src/map/globe3d/rf_expanse.mjs', 'src/map/globe3d/buildings.mjs',
+  'src/map/globe3d.mjs', 'src/map/globe3d_osm.mjs', 'src/map/globe3d_rf.mjs', 'src/map/globe3d_peaks.mjs', 'src/map/globe3d_toggles.mjs', 'src/map/globe3d_navigation.mjs', 'src/map/globe3d_tour.mjs', 'src/map/globe3d_view.mjs', 'src/ui/storage.mjs',
+  'src/ui/events.mjs', 'src/ui/tracks.mjs', 'src/spatial/collective_project.mjs', 'src/ui/ui.mjs',
+  'src/ui/ui_peaks_table.mjs', 'src/ui/ui_stats_panel.mjs', 'src/ui/ui_collective_map.mjs',
+  'src/ui/ui_export.mjs', 'src/ui/ui_osm_overlay.mjs', 'src/ui/ui_enrichment.mjs',
+  'src/ui/ui_correlation_table.mjs', 'src/ui/ui_road_profile.mjs',
+  'src/ui/ui_environmental_dashboard.mjs', 'src/ui/ui_modals.mjs',
+  'src/render/renderer.mjs', 'src/render/renderer_bands.mjs', 'src/render/renderer_curve.mjs', 'src/render/renderer_markers.mjs', 'src/render/renderer_interaction.mjs', 'src/render/renderer_chrome.mjs', 'src/render/sketch.mjs',
 ];
 
 // p5 "global mode" functions/constants referenced as bare identifiers by

@@ -1,34 +1,25 @@
 /**
- * Boots the live view's real source files, unmodified, into a bare jsdom
+ * Boots the live view's real source modules, unmodified, into a bare jsdom
  * document — mirroring tests/support/boot_app.js's approach for index.html,
  * but WITHOUT reading visualiser/live.html off disk. That file is just a
- * thin standalone host (load these same scripts, then
+ * thin standalone host (load these same modules, then
  * `GSRLiveView.mount(#liveRoot)`) — every real DOM element and event wiring
  * the tests exercise is built by GSRLiveView.mount() itself, not present in
  * live.html's raw markup, so this harness doesn't need the file to exist at
  * all; it builds an equivalent one-div document and calls mount() the same
- * way live.html's inline script (and index.html's view switcher) do. This
- * keeps the live_view test suite independent of whether the standalone page
- * is ever deleted.
+ * way live.html's own src/live_entry.mjs does. This keeps the live_view
+ * test suite independent of whether the standalone page is ever deleted.
  *
- * LIVE_SCRIPT_ORDER is the load order live.html's <head> currently uses,
- * kept in sync with the real file by test_html_wiring.js (which imports this
- * same array — the same cross-check boot_app.js's SCRIPT_ORDER gets against
- * index.html).
+ * LIVE_SCRIPT_ORDER mirrors src/live_entry.mjs's own import list, kept in
+ * sync with it by tests/test_html_wiring.js.
  *
- * ES-MODULE MIGRATION (see docs/visualizer_modularity_plan.md and
- * tests/manual/esm_migration/): loads each SCRIPT_ORDER entry through the
- * same tests/support/realm_bridge.js as boot_app.js — see that file's
- * header comment for the full realm-sharing rationale. A not-yet-converted
- * file's top-level `const`/`function` declarations (drawGraph in
- * live_graph.js, liveMap in live_map.js, resetSession / goToLatLon /
- * renderStatus in live_view.js, plus LiveState / GSRLiveBluetoothManager /
- * normalizeTileCacheUrl in their own modules) live in the shared realm's
- * lexical scope, not as a `window`/`global` property — reach them with
- * `vm.runInThisContext('someName')`, the same pattern
- * test_map_layer_ownership.js uses against boot_app.js. `bootLive()` is
- * async as a direct consequence of the shared realm bridge (dynamic
- * `import()` has no synchronous form).
+ * Every src/ file is a real ES module (the ES-module migration —
+ * tests/manual/esm_migration/README.md — is done): loads each
+ * LIVE_SCRIPT_ORDER entry through the same tests/support/realm_bridge.js as
+ * boot_app.js, into the same jsdom-bridged realm, so post-boot test code
+ * can read a class/singleton back via `window.X`/`global.X`. `bootLive()`
+ * is async as a direct consequence — dynamic `import()` has no synchronous
+ * form in Node.
  *
  * Scope, matching docs/archive/visualizer_test_coverage_plan.md's philosophy for
  * boot_app.js: this is for exercising real logic (gap detection, session
@@ -41,38 +32,37 @@
  */
 
 const path = require('path');
-const vm = require('vm');
 const { JSDOM } = require('jsdom');
 const { installMatchMedia } = require('./matchmedia_stub.js');
 const { installJsdomGlobals, clearPreviousBoot, loadScriptFile } = require('./realm_bridge.js');
 
 const APP_DIR = path.join(__dirname, '..', '..');
 
-// Real script load order, copied from live.html's own <script src="..."> list
+// Real module load order, mirroring src/live_entry.mjs's own import list
 // (vendor/ Leaflet and config.js are stubbed/skipped instead — same call
-// boot_app.js makes for index.html's CDN libs). Kept in sync with live.html
-// by tests/test_html_wiring.js, which imports this exact array.
+// boot_app.js makes for index.html's CDN libs). Kept in sync with it by
+// tests/test_html_wiring.js.
 const LIVE_SCRIPT_ORDER = [
-  'src/core/constants.js',
-  'src/signal/gsr_filter.js',
-  'src/signal/deconvolution.js',
-  'src/signal/spectral_eda.js',
-  'src/signal/analyzer_time_format.js',
-  'src/signal/analyzer.js',
-  'src/map/basemap.js',
-  'src/map/map_colors.js',
-  'src/gps/gps_pipeline.js',
-  'src/core/file_saver.js',
-  'src/live/live_binary_parser.js',
-  'src/live/live_state.js',
-  'src/live/live_bluetooth.js',
-  'src/live/live_csv.js',
-  'src/live/live_tile_cache.js',
-  'src/live/live_graph.js',
-  'src/live/live_map.js',
-  'src/core/fullscreen.js',
-  'src/map/map_markers.js',
-  'src/live/live_view.js',
+  'src/core/constants.mjs',
+  'src/signal/gsr_filter.mjs',
+  'src/signal/deconvolution.mjs',
+  'src/signal/spectral_eda.mjs',
+  'src/signal/analyzer_time_format.mjs',
+  'src/signal/analyzer.mjs',
+  'src/map/basemap.mjs',
+  'src/map/map_colors.mjs',
+  'src/gps/gps_pipeline.mjs',
+  'src/core/file_saver.mjs',
+  'src/live/live_binary_parser.mjs',
+  'src/live/live_state.mjs',
+  'src/live/live_bluetooth.mjs',
+  'src/live/live_csv.mjs',
+  'src/live/live_tile_cache.mjs',
+  'src/live/live_graph.mjs',
+  'src/live/live_map.mjs',
+  'src/core/fullscreen.mjs',
+  'src/map/map_markers.mjs',
+  'src/live/live_view.mjs',
 ];
 
 function makeLeafletMock() {
@@ -241,13 +231,10 @@ function installCanvas2DStub(window) {
 }
 
 /**
- * Boots the live view's real source files into a bare one-div jsdom window,
- * then mounts GSRLiveView into it — the same two steps live.html's own
- * inline script performs, just without needing that file on disk.
- * Returns { window, document } — see file header for why a not-yet-
- * converted file's own top-level bindings need `vm.runInThisContext('someName')`
- * to reach, not a returned vm context (no separate context exists any more
- * in the shared-realm model).
+ * Boots the live view's real source modules into a bare one-div jsdom
+ * window, then mounts GSRLiveView into it — the same two steps
+ * src/live_entry.mjs performs, just without needing live.html on disk.
+ * Returns { window, document }.
  *
  * @param {{compact?: boolean}} [opts] - `compact: true` simulates a mobile
  *   device for GSRLiveView.isCompactLayout()'s matchMedia check. Defaults to
@@ -303,7 +290,7 @@ async function bootLive({ compact = false } = {}) {
   for (const file of LIVE_SCRIPT_ORDER) {
     await loadScriptFile(APP_DIR, file, window);
   }
-  vm.runInThisContext("GSRLiveView.mount(document.getElementById('liveRoot'))", { filename: 'boot_live.js (mount)' });
+  global.GSRLiveView.mount(window.document.getElementById('liveRoot'));
 
   return { window, document: window.document };
 }
