@@ -1415,10 +1415,3 @@ export const NDVISampler = {
     };
   }
 };
-
-if (typeof window !== 'undefined') {
-  window.NDVISampler = NDVISampler;
-}
-if (typeof global !== 'undefined') {
-  global.NDVISampler = NDVISampler;
-}

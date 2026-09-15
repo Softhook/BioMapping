@@ -1368,9 +1368,7 @@ export class GSRGlobeManager {
 
     if (discrete) {
       if (metric === 'responseDynamics') {
-        const RD = (typeof ResponseDynamics !== 'undefined')
-          ? ResponseDynamics
-          : (typeof global !== 'undefined' && global.ResponseDynamics ? global.ResponseDynamics : null);
+        const RD = ResponseDynamics;
         const speedColors = RD ? RD.SPEED_COLORS : {
           'Very Slow': '#8b5cf6', 'Slow': '#3b82f6', 'Standard': '#10b981', 'Fast': '#f97316', 'Very Fast': '#ef4444'
         };

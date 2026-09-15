@@ -233,9 +233,7 @@ import { ResponseDynamics } from '../signal/response_dynamics.mjs';
     if (!ctx) return;
 
     const basePhasicHex = this.getThemeColor('--color-phasic', '#008f3c');
-    const RD = (typeof ResponseDynamics !== 'undefined')
-      ? ResponseDynamics
-      : (typeof global !== 'undefined' && global.ResponseDynamics ? global.ResponseDynamics : null);
+    const RD = ResponseDynamics;
 
     // Collect rendered points with speed bucket
     const pts = [];

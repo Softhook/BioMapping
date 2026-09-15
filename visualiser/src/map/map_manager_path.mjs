@@ -53,8 +53,7 @@ export const isNoDataValue = (metric, v) => {
   return false;
 };
 
-(function () {
-const __methods = {
+export const __methods = {
 
   /**
    * The ground distance (metres) that the rendered track stroke spans at the
@@ -307,10 +306,4 @@ const __methods = {
 
 };
 
-if (typeof module !== 'undefined' && module.exports) {
-  Object.assign(global, require('./map.mjs'));
-  module.exports = __methods;
-} else {
-  Object.assign(GSRMapManager.prototype, __methods);
-}
-})();
+Object.assign(GSRMapManager.prototype, __methods);

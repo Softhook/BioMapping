@@ -116,9 +116,7 @@ export const MapColors = {
     }
 
     if (metric === 'responseDynamics') {
-      const RD = (typeof ResponseDynamics !== 'undefined')
-        ? ResponseDynamics
-        : (typeof global !== 'undefined' && global.ResponseDynamics ? global.ResponseDynamics : null);
+      const RD = ResponseDynamics;
       if (RD) return RD.getColor(val);
       if (val === undefined || val === null || isNaN(val) || val <= 0) {
         return 'transparent';

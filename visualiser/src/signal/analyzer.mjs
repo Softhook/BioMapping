@@ -6,13 +6,7 @@
 // Handles variable-rate (10 Hz GSR, up to 5 Hz GPS) CSV files.
 //
 // CSV parsing lives in a dedicated pure module (csv_parser.js) so it can be
-// tested independently; this file delegates to it by the bare name GSRCSVParser
-// (no top-level declaration here, so there is no redeclaration clash with the
-// module's own class declaration in the shared global lexical environment).
-//  - Browser: index.html loads csv_parser.js via <script> before analyzer.js
-//    (window global).
-//  - Node tests: vm-based loaders expose it as a global; the CommonJS
-//    require() path below does the same so the bare reference resolves.
+// tested independently; imported directly below.
 import { GSR_CONST } from '../core/constants.mjs';
 import { AnalyzerTimeFormat } from './analyzer_time_format.mjs';
 import { GSRCSVParser } from './csv_parser.mjs';
@@ -21,19 +15,6 @@ import { SCRDeconvolution } from './deconvolution.mjs';
 import { GsrFilter } from './gsr_filter.mjs';
 import { ResponseDynamics } from './response_dynamics.mjs';
 import { SpectralEDA } from './spectral_eda.mjs';
-
-if (typeof module !== 'undefined' && module.exports) {
-  global.GSRCSVParser = require('./csv_parser.js').GSRCSVParser;
-  if (typeof global.CVXEDA === 'undefined') {
-    try { global.CVXEDA = require('./cvxeda.js'); } catch (_) {}
-  }
-  if (typeof global.SpectralEDA === 'undefined') {
-    try { global.SpectralEDA = require('./spectral_eda.mjs').SpectralEDA; } catch (_) {}
-  }
-  if (typeof global.ResponseDynamics === 'undefined') {
-    try { global.ResponseDynamics = require('./response_dynamics.mjs').ResponseDynamics; } catch (_) {}
-  }
-}
 
 export class GSRAnalyzer {
   constructor() {
@@ -1206,9 +1187,7 @@ export class GSRAnalyzer {
    */
   computeResponseDynamics() {
     const n = (this.raw && this.raw.length > 0) ? this.raw.length : (this.times ? this.times.length : 0);
-    const RD = (typeof ResponseDynamics !== 'undefined')
-      ? ResponseDynamics
-      : (typeof global !== 'undefined' && global.ResponseDynamics ? global.ResponseDynamics : null);
+    const RD = ResponseDynamics;
     if (!RD) return [];
     return RD.computeSeries({
       n,
@@ -1227,9 +1206,7 @@ export class GSRAnalyzer {
    * @private
    */
   _tagSparsedaPeaksAndStats() {
-    const RD = (typeof ResponseDynamics !== 'undefined')
-      ? ResponseDynamics
-      : (typeof global !== 'undefined' && global.ResponseDynamics ? global.ResponseDynamics : null);
+    const RD = ResponseDynamics;
     if (!RD) return;
     this.sparsedaStats = RD.tagPeaks(this.peaks, this.phasicDriverPeaks, this.sampleRate);
   }
