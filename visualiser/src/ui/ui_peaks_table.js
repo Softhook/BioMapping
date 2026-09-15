@@ -6,7 +6,8 @@
  * focusing/zooming the timeline and active map surface to a peak, exclusion
  * toggling, and building/sorting the #peaksTable rows.
  */
-Object.assign(GSRUI, {
+(function () {
+const __methods = {
 
   /**
    * Update a peak's label from table or map popup input, then refresh the UI.
@@ -335,4 +336,12 @@ Object.assign(GSRUI, {
     }, 0);
   },
 
-});
+};
+
+if (typeof module !== 'undefined' && module.exports) {
+  Object.assign(global, require('./ui.js'));
+  module.exports = __methods;
+} else {
+  Object.assign(GSRUI, __methods);
+}
+})();

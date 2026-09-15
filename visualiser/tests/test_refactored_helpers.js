@@ -42,8 +42,13 @@ loadBrowserModule('../src/signal/deconvolution.js','SCRDeconvolution');
 loadBrowserModule('../src/signal/csv_parser.js',    'GSRCSVParser');
 loadBrowserModule('../src/map/map_exporter.js', 'GSRMapExporter');
 loadBrowserModule('../src/ui/tracks.js',       'GSRTrackManager');
-loadBrowserModule('../src/ui/ui.js',           'GSRUI');
-require('../src/ui/ui_stats_panel.js');
+// ui.js/ui_stats_panel.js are loaded via require(), not loadBrowserModule,
+// because ui_stats_panel.js's own dual-mode require-branch pulls in ui.js via
+// a relative require internally (see renderer.js's class-tail manifest
+// comment) — loading ui.js a second way here would produce a second, distinct
+// GSRUI object that the two loaders would then fight over.
+global.GSRUI = require('../src/ui/ui.js').GSRUI;
+Object.assign(global.GSRUI, require('../src/ui/ui_stats_panel.js'));
 
 const analyzerSrc = fs.readFileSync(path.join(__dirname, '../src/signal/analyzer.js'), 'utf8');
 vm.runInThisContext(analyzerSrc, { filename: 'analyzer.js' });

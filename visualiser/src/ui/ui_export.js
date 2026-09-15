@@ -6,7 +6,8 @@
  * active map surface (2D Leaflet or 3D Cesium) PNG export, plus the shared
  * filename-sanitising helper they all use.
  */
-Object.assign(GSRUI, {
+(function () {
+const __methods = {
 
   /**
    * Get a sanitised filename base from the active track name.
@@ -130,4 +131,12 @@ Object.assign(GSRUI, {
     }
   },
 
-});
+};
+
+if (typeof module !== 'undefined' && module.exports) {
+  Object.assign(global, require('./ui.js'));
+  module.exports = __methods;
+} else {
+  Object.assign(GSRUI, __methods);
+}
+})();

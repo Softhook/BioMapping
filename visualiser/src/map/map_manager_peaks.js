@@ -19,7 +19,8 @@
  * Also depends on the globals L, GSRUI, GSRSpatialClustering and AppState
  * (resolved at call time).
  */
-Object.assign(GSRMapManager.prototype, {
+(function () {
+const __protoMethods = {
 
   _renderPeakMarkers(analyzer, data, peakLatency, track, options) {
     options = options || {};
@@ -458,9 +459,9 @@ Object.assign(GSRMapManager.prototype, {
     return GSRMapMarkers.hotspotMarkerCoords(analyzer, peak, peakLatency);
   },
 
-});
+};
 
-Object.assign(GSRMapManager, {
+const __staticMethods = {
 
   /**
    * Build the shared Leaflet divIcon for every hotspot marker on the map —
@@ -491,4 +492,13 @@ Object.assign(GSRMapManager, {
     return GSRMapMarkers.buildPeakIcon(L);
   }
 
-});
+};
+
+if (typeof module !== 'undefined' && module.exports) {
+  Object.assign(global, require('./map.js'));
+  module.exports = { protoMethods: __protoMethods, staticMethods: __staticMethods };
+} else {
+  Object.assign(GSRMapManager.prototype, __protoMethods);
+  Object.assign(GSRMapManager, __staticMethods);
+}
+})();

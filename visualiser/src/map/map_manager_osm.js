@@ -11,7 +11,8 @@
  * Depends on the globals L and AppState (resolved at call time) and on
  * this._getOrBuildDrawPoints (map_manager_process.js).
  */
-Object.assign(GSRMapManager.prototype, {
+(function () {
+const __methods = {
 
   /**
    * Draw OSM vector geometry overlays (parks, water, buildings) on the map.
@@ -245,4 +246,12 @@ Object.assign(GSRMapManager.prototype, {
     return shouldShow;
   }
 
-});
+};
+
+if (typeof module !== 'undefined' && module.exports) {
+  Object.assign(global, require('./map.js'));
+  module.exports = __methods;
+} else {
+  Object.assign(GSRMapManager.prototype, __methods);
+}
+})();

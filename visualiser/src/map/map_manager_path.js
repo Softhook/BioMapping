@@ -47,7 +47,8 @@ const isNoDataValue = (metric, v) => {
   return false;
 };
 
-Object.assign(GSRMapManager.prototype, {
+(function () {
+const __methods = {
 
   /**
    * The ground distance (metres) that the rendered track stroke spans at the
@@ -298,4 +299,12 @@ Object.assign(GSRMapManager.prototype, {
     this.updateLegend();
   }
 
-});
+};
+
+if (typeof module !== 'undefined' && module.exports) {
+  Object.assign(global, require('./map.js'));
+  module.exports = __methods;
+} else {
+  Object.assign(GSRMapManager.prototype, __methods);
+}
+})();

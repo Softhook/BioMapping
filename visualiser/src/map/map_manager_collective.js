@@ -14,7 +14,8 @@
  * Depends on the globals L, MapColors, Hillshade, StatsMath, GSR_CONST,
  * GSRSpatialClustering, GeoUtils and AppState (resolved at call time).
  */
-Object.assign(GSRMapManager.prototype, {
+(function () {
+const __methods = {
 
   /**
    * Remove all collective track paths and peak markers from the map.
@@ -395,4 +396,12 @@ Object.assign(GSRMapManager.prototype, {
     });
   }
 
-});
+};
+
+if (typeof module !== 'undefined' && module.exports) {
+  Object.assign(global, require('./map.js'));
+  module.exports = __methods;
+} else {
+  Object.assign(GSRMapManager.prototype, __methods);
+}
+})();

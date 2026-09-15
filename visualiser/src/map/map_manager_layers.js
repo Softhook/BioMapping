@@ -17,7 +17,8 @@
  * Depends on the global L, and (via the prototype) clearOsmShapes /
  * _clearRfFluid / updateLegend / clearCollectiveLayers from the other augments.
  */
-Object.assign(GSRMapManager.prototype, {
+(function () {
+const __methods = {
 
   /**
    * Remove all layers in the array from the map and clear the array.
@@ -208,4 +209,12 @@ Object.assign(GSRMapManager.prototype, {
     this.clearCollectiveLayers();
   }
 
-});
+};
+
+if (typeof module !== 'undefined' && module.exports) {
+  Object.assign(global, require('./map.js'));
+  module.exports = __methods;
+} else {
+  Object.assign(GSRMapManager.prototype, __methods);
+}
+})();

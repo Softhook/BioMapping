@@ -26,7 +26,11 @@ const vm = require('vm');
 // two methods under test, touches nothing but `this.map` — so a bare stub
 // constructor plus a fake map is all the harness needs.
 function loadViewportProto() {
-  const context = { module: { exports: {} } };
+  // No `module` on the context: map_manager_viewport.js's dual-mode tail
+  // (see renderer.js's class-tail manifest comment) then takes the
+  // browser/vm else-branch and assigns straight onto the stub constructor
+  // below, which is all this harness needs.
+  const context = {};
   context.GSRMapManager = function GSRMapManager() {};
   context.Object = Object;
   vm.createContext(context);

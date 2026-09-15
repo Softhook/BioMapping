@@ -30,19 +30,7 @@
 const assert = require('assert');
 const test = require('node:test');
 
-// map_exporter.js has no export guard at all (class GSRMapExporter, only
-// `window.GSRMapExporter = GSRMapExporter;` unconditionally at the tail) —
-// load it via vm the same way pre-existing tests in this suite already do
-// for it (see tests/test_isoband_boundary_closure.js), rather than editing
-// production source just to add a hook.
-const vm = require('vm');
-const fs = require('fs');
-const path = require('path');
-
-const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'map', 'map_exporter.js'), 'utf8');
-global.window = global;
-vm.runInThisContext(src.replace('class GSRMapExporter', 'global.GSRMapExporter = class GSRMapExporter'), { filename: 'map_exporter.js' });
-const GSRMapExporter = global.GSRMapExporter;
+const { GSRMapExporter } = require('../src/map/map_exporter.js');
 
 // ── _hslToHex / _ratioToHex ─────────────────────────────────────────────
 test('_hslToHex: pure red/green/blue hues resolve to their expected hex primaries', () => {

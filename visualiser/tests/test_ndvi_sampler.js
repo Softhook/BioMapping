@@ -515,14 +515,14 @@ test('GSRUI.sampleNdviTrack: successfully resolves single-mode track without fal
   mockUniformNdviFetch(0.4);
 
   const { GSRUI } = require('../src/ui/ui.js');
-  require('../src/ui/ui_enrichment.js');
+  Object.assign(GSRUI, require('../src/ui/ui_enrichment.js'));
   // sampleNdviTrack()'s success path calls refreshOsmControls(), which cascades
   // into the stats indicator and (if enriched) the environmental dashboard.
-  require('../src/ui/ui_osm_overlay.js');
-  require('../src/ui/ui_stats_panel.js');
-  require('../src/ui/ui_correlation_table.js');
-  require('../src/ui/ui_road_profile.js');
-  require('../src/ui/ui_environmental_dashboard.js');
+  Object.assign(GSRUI, require('../src/ui/ui_osm_overlay.js'));
+  Object.assign(GSRUI, require('../src/ui/ui_stats_panel.js'));
+  Object.assign(GSRUI, require('../src/ui/ui_correlation_table.js'));
+  Object.assign(GSRUI, require('../src/ui/ui_road_profile.js'));
+  Object.assign(GSRUI, require('../src/ui/ui_environmental_dashboard.js'));
   global.document = {
     getElementById: (id) => ({
       style: {},

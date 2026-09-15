@@ -8,7 +8,8 @@
  * collective surface via AppState.mapManager, and refreshes the aggregate
  * stat cards.
  */
-Object.assign(GSRUI, {
+(function () {
+const __methods = {
 
   /**
    * Render all active tracks on the collective map with contour lines.
@@ -82,4 +83,12 @@ Object.assign(GSRUI, {
     if (F.peakFreq)  F.peakFreq.innerText  = meanPeakFreq.toFixed(2) + " / min";
   },
 
-});
+};
+
+if (typeof module !== 'undefined' && module.exports) {
+  Object.assign(global, require('./ui.js'));
+  module.exports = __methods;
+} else {
+  Object.assign(GSRUI, __methods);
+}
+})();

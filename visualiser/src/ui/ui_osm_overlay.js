@@ -10,7 +10,8 @@
  * above _osmOverlayOn for the full contract. Depends on ui_enrichment.js's
  * ensureOsmGeoms() for the on-demand fetch.
  */
-Object.assign(GSRUI, {
+(function () {
+const __methods = {
 
   /**
    * OSM ways/relations to draw as map overlays for whichever tracks are
@@ -237,4 +238,12 @@ Object.assign(GSRUI, {
     }
   },
 
-});
+};
+
+if (typeof module !== 'undefined' && module.exports) {
+  Object.assign(global, require('./ui.js'));
+  module.exports = __methods;
+} else {
+  Object.assign(GSRUI, __methods);
+}
+})();

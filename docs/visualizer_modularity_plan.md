@@ -417,6 +417,137 @@ which want fresh per-test module isolation `bootApp()` doesn't offer) wasn't
 changed — this fix makes the dual-mode bridge between them correct and
 low-maintenance, not something the codebase has migrated away from.
 
+## Module-loading consistency: retrofitting the two earlier splits (2026-09-15)
+
+The `renderer.js`/`globe3d.js` splits got a dual-mode tail (browser/vm live-global
+assign vs. CommonJS `module.exports`, with a `require()`-branch bridge for any
+bare cross-references) because `test_globe3d.js` forced the issue. The two
+*earlier* splits — `map_manager_*.js` (12 files, the original precedent) and
+`ui_*.js` (10 files) — never got the same treatment, because no test happened
+to plain-`require()` them in isolation. Both families were still bare
+`Object.assign(GSRMapManager.prototype, {...})` / `Object.assign(GSRUI, {...})`
+with no guard at all — meaning neither could be `require()`'d standalone, an
+inconsistency with every other augment family and a real gap, not a cosmetic
+one: grepping confirmed `map_manager_peaks.js`, `map_manager_path.js`, and
+eight of the ten `ui_*.js` files reference their own object bare
+(`GSRMapManager._buildPeakIcon()`, `GSRUI.correlationBand()`, etc.) from inside
+their own methods — exactly the self-reference shape that produced a silent
+`global.X = undefined` in the `renderer.js` bug above.
+
+All 22 files now carry the same dual-mode tail as `globe3d_*.js`/`renderer_*.js`
+(`map.js`/`ui.js` as the bridge target). Bodies moved verbatim into a
+`const __methods = {...}` wrapped in an IIFE — no logic changes, confirmed by
+`node --check` on every file plus the diff shape (open/close lines only).
+`map_manager_peaks.js` is the one exception with two `Object.assign` blocks in
+the same file (prototype methods + two `GSRMapManager`-static icon builders);
+a single `module.exports` can't carry two independent bridges, so it exports
+`{ protoMethods, staticMethods }` instead of a flat method object — a shape
+specific to that file, not a new house style, since nothing else in either
+family has this split.
+
+Fixing the guard surfaced a **real regression**, not just a gap: 7 existing
+test files did a bare side-effect `require('../src/ui/ui_X.js')` relying on
+the OLD unconditional `Object.assign(GSRUI, {...})` running on `require`
+regardless of environment. Once the guard existed, plain `require()` took the
+export branch instead, so the assignment never happened and later calls threw
+`TypeError: GSRUI.someMethod is not a function`. Fixed by wrapping each site as
+`Object.assign(GSRUI, require('../src/ui/ui_X.js'))`, the same convention
+`test_curve_force_indices.js` etc. already use for the renderer/globe3d
+augments (`test_env_dashboard_cache.js`, `test_osm_enrich_orchestration.js`,
+`test_osm_ensure_geoms.js`, `test_response_dynamics.js`, `test_ndvi_sampler.js`).
+One file (`test_refactored_helpers.js`) needed a different fix: its own
+`loadBrowserModule()` helper loads `ui.js` via `vm.runInThisContext` + regex
+source-rewriting onto `global.GSRUI`, but `ui_stats_panel.js`'s new
+require-branch does its own internal `require('./ui.js')` — a SEPARATE
+CommonJS-cached `GSRUI` object, distinct from the vm-loaded one, so the two
+loaders fought over `global.GSRUI`. Fixed by loading `ui.js` itself via plain
+`require()` at that one site too (safe — `ui.js` already fully dual-exports;
+bare identifiers inside its methods still resolve at call time via the global
+object either way). A fourth, unrelated custom harness
+(`test_map_viewport_deferred_fit.js`, a hand-rolled `vm.createContext({module:
+{exports:{}}, GSRMapManager: stub})` sandbox) broke differently: it had always
+provided a dummy `module` object, which used to be inert but now satisfies the
+guard's `if` branch and crashes on the missing `global`/`require` that branch
+assumes — fixed by dropping `module` from that sandbox so the else-branch
+(the one this harness actually wants) runs, matching its own header comment's
+intent.
+
+Two smaller gaps in the same "does every file support plain `require()`"
+audit, unrelated to the augment-file guard: `gsr_filter.js` had **no** export
+block at all (not even the old unconditional pattern) — fixed with the
+standard `module.exports` / `window.X` dual tail matching every sibling in
+`src/signal/`. `map_exporter.js` had an unconditional `window.GSRMapExporter =
+...` that would throw under plain Node (no `window` global) were it not for
+call sites pre-setting `global.window = global` — fixed the same way, which
+also let `test_map_exporter_geometry.js` drop its own vm/regex workaround
+(stale comment and all) for a plain `require()`.
+
+New `tests/test_map_ui_augment_require_exports.js` (24 tests) locks in the
+`map_manager_*.js`/`ui_*.js` fix the same way `test_renderer_require_exports.js`
+locked in the `renderer.js` one: exercises every augment's require-branch
+directly, asserting the core class/object lands on `global` and every
+exported member actually attaches — so the same bug class fails here instead
+of waiting for the next ad hoc plain-`require()` test to trip over a
+`ReferenceError`. Full suite 1345/1345 green throughout; headless-browser
+smoke pass not re-run this session (no production runtime-path code changed —
+every touched file's browser/vm else-branch is byte-identical to what it
+replaced, so the existing 2026-09-15 smoke pass still covers it).
+
+**Code-review pass (2026-09-15), no bugs found.** Full trace of the
+dual-mode pattern across all 22 converted files, cross-checked against this
+section's own claims, plus a clean suite run. Two fragility/maintenance
+observations, deliberately left as-is rather than fixed, since the ES-modules
+migration above removes this whole pattern (tail included) whenever it
+happens — fixing it now would be throwaway work:
+- `typeof module !== 'undefined' && module.exports` is a fragile proxy for
+  "am I under Node's `require()`" — it already misfired once in this diff
+  (`test_map_viewport_deferred_fit.js`'s vm sandbox stubbed a `module` object
+  for an unrelated reason, which took the wrong branch and crashed; fixed by
+  dropping `module` from that one sandbox). Any future test reusing a generic
+  vm sandbox that happens to include a `module` stub could hit the same thing.
+- The 12-line dual-mode tail is now duplicated verbatim across 23+ files
+  (12 `map_manager_*.js`, 10 `ui_*.js`, plus the pre-existing
+  `renderer_*`/`globe3d_*` files) with no shared helper — a maintenance cost
+  if the bridging convention needs another fix before the ES-modules
+  migration lands.
+
+**Not done, left as a follow-up:** a *third* test-loading convention still
+exists alongside `bootApp()` and plain `require()` — half a dozen test files
+(`test_env_dashboard_cache.js`, `test_ndvi_sampler.js`,
+`test_isoband_boundary_closure.js` among them) hand-roll their own
+`vm.runInThisContext` + regex source-rewrite loader for files that, as of this
+session, all now support plain `require()` cleanly. Collapsing those onto
+`require()` would remove a whole bespoke mechanism, but touching each site
+means re-verifying every one of that file's other loaded dependencies too —
+larger and separately-risked from this session's fix, not attempted here.
+
+## Bigger follow-up (wanted, not scheduled): drop dual-mode for real ES modules
+
+The dual-mode tail every augment file now carries (`if (typeof module !==
+'undefined' ...) { ...CommonJS... } else { ...stamp onto the shared browser/vm
+global... }`) is a workaround, not a design the codebase is aiming for. It
+exists because the app loads as ~70 plain `<script src="...">` tags in
+`index.html` with no build step (all files share one implicit global scope),
+while the test suite wants to `require()` a single file in isolation (Node's
+CommonJS gives each file its own private scope, nothing shared unless
+exported) — two different sharing mechanisms, so every multi-file class/object
+has to ask "which one am I in?" at load time. This session made the pattern
+*consistent* across all four topic-file-split families; it didn't remove the
+need for it.
+
+The real fix is native ES modules (`import`/`export`) — supported directly by
+both modern browsers (`<script type="module">`) and Node, with no `global`
+stamping, no `typeof module !== 'undefined'` branching, and explicit
+import/export instead of implicit shared scope. The user has confirmed this
+is wanted, but explicitly **not now** — it's a much larger migration than
+today's session: it would touch every one of the ~70 source files' load/export
+tails, `index.html`'s script list, `boot_app.js`'s `SCRIPT_ORDER` +
+`vm.createContext` approach (module scripts don't execute via `vm.runInContext`
+the same way), and every test file's loader (`require()`, `bootApp()`, and the
+half-dozen custom `vm`/regex loaders above all need re-deriving for module
+semantics). Scope it properly as its own session before starting — don't fold
+it into an unrelated change.
+
 ## Verification, every step
 
 1. `cd visualiser && npm test` — full suite must stay green.

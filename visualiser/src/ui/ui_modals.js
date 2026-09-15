@@ -5,7 +5,8 @@
  * Covers the Street View modal (tabbed embed + API key entry) and the
  * export-preset save modal.
  */
-Object.assign(GSRUI, {
+(function () {
+const __methods = {
 
   /**
    * Open the street-level imagery modal overlay at the given coordinates.
@@ -202,4 +203,12 @@ Object.assign(GSRUI, {
     this.closeExportPresetModal();
   },
 
-});
+};
+
+if (typeof module !== 'undefined' && module.exports) {
+  Object.assign(global, require('./ui.js'));
+  module.exports = __methods;
+} else {
+  Object.assign(GSRUI, __methods);
+}
+})();

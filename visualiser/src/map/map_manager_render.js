@@ -15,7 +15,8 @@
  * Depends on the global AppState (resolved at call time); everything else it
  * calls is another GSRMapManager prototype method.
  */
-Object.assign(GSRMapManager.prototype, {
+(function () {
+const __methods = {
 
   /**
    * Render color-coded path segments and add stress peak markers.
@@ -251,4 +252,12 @@ Object.assign(GSRMapManager.prototype, {
     );
   }
 
-});
+};
+
+if (typeof module !== 'undefined' && module.exports) {
+  Object.assign(global, require('./map.js'));
+  module.exports = __methods;
+} else {
+  Object.assign(GSRMapManager.prototype, __methods);
+}
+})();

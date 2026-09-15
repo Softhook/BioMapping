@@ -8,7 +8,8 @@
  * (ensureOsmGeoms, enrichTrack, sampleNdviTrack) that populate each
  * analyzer's per-point spatial metadata.
  */
-Object.assign(GSRUI, {
+(function () {
+const __methods = {
 
   /**
    * Resolve active tracks with valid GPS fixes for environmental/spatial processing.
@@ -387,4 +388,12 @@ Object.assign(GSRUI, {
     }
   },
 
-});
+};
+
+if (typeof module !== 'undefined' && module.exports) {
+  Object.assign(global, require('./ui.js'));
+  module.exports = __methods;
+} else {
+  Object.assign(GSRUI, __methods);
+}
+})();

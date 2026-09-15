@@ -10,7 +10,8 @@
  *
  * Depends on the global L (resolved at call time).
  */
-Object.assign(GSRMapManager.prototype, {
+(function () {
+const __methods = {
 
   _getTrackSetSignature(collectiveManager) {
     if (!collectiveManager) return '';
@@ -156,4 +157,12 @@ Object.assign(GSRMapManager.prototype, {
     }
   }
 
-});
+};
+
+if (typeof module !== 'undefined' && module.exports) {
+  Object.assign(global, require('./map.js'));
+  module.exports = __methods;
+} else {
+  Object.assign(GSRMapManager.prototype, __methods);
+}
+})();

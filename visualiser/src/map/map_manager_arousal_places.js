@@ -14,7 +14,8 @@
  * GSRSpatialClustering, GSRArousalPlaces, MapPopups, GSR_CONST and AppState,
  * all resolved at call time.
  */
-Object.assign(GSRMapManager.prototype, {
+(function () {
+const __methods = {
 
   /**
    * Cluster a set of active (non-excluded) peaks into Arousal Places and render
@@ -495,4 +496,12 @@ Object.assign(GSRMapManager.prototype, {
     return container;
   }
 
-});
+};
+
+if (typeof module !== 'undefined' && module.exports) {
+  Object.assign(global, require('./map.js'));
+  module.exports = __methods;
+} else {
+  Object.assign(GSRMapManager.prototype, __methods);
+}
+})();

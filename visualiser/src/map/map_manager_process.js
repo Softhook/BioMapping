@@ -8,7 +8,8 @@
  *
  * Depends on the globals GpsPipeline and GpsFilter (resolved at call time).
  */
-Object.assign(GSRMapManager.prototype, {
+(function () {
+const __methods = {
 
   /**
    * Hash GPS filter params for cache key comparison.
@@ -128,4 +129,12 @@ Object.assign(GSRMapManager.prototype, {
     return pts;
   }
 
-});
+};
+
+if (typeof module !== 'undefined' && module.exports) {
+  Object.assign(global, require('./map.js'));
+  module.exports = __methods;
+} else {
+  Object.assign(GSRMapManager.prototype, __methods);
+}
+})();

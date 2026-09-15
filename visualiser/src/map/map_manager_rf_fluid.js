@@ -10,7 +10,8 @@
  * (this.showRFFluid / this.hasRfData). updateLegend() lives in
  * map_manager_legend.js (resolved via the prototype).
  */
-Object.assign(GSRMapManager.prototype, {
+(function () {
+const __methods = {
 
   /**
    * Clear the RF fluid canvas — shared by clearMap() and clearCollectiveLayers()
@@ -99,4 +100,12 @@ Object.assign(GSRMapManager.prototype, {
     }
   }
 
-});
+};
+
+if (typeof module !== 'undefined' && module.exports) {
+  Object.assign(global, require('./map.js'));
+  module.exports = __methods;
+} else {
+  Object.assign(GSRMapManager.prototype, __methods);
+}
+})();

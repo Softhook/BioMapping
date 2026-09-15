@@ -9,7 +9,8 @@
  * truncation warning, Phasic AUC / graph-view / response-dynamics option
  * availability).
  */
-Object.assign(GSRUI, {
+(function () {
+const __methods = {
 
   /**
    * Show/hide the SCR-deconvolution truncation warning (index.html,
@@ -228,4 +229,12 @@ Object.assign(GSRUI, {
     }
   },
 
-});
+};
+
+if (typeof module !== 'undefined' && module.exports) {
+  Object.assign(global, require('./ui.js'));
+  module.exports = __methods;
+} else {
+  Object.assign(GSRUI, __methods);
+}
+})();

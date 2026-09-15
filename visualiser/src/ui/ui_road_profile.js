@@ -6,7 +6,8 @@
  * Covers the sortable per-road-type arousal table and its rendering, fed by
  * the environmental dashboard's road-profile enrichment data.
  */
-Object.assign(GSRUI, {
+(function () {
+const __methods = {
 
   /**
    * Sort the Road Arousal table by a column key ('name'|'timeSpent'|'meanPhasic'|'stdPhasic'|'ciPhasic'|'meanTonic'|'ciTonic'|'peakRate').
@@ -189,4 +190,12 @@ Object.assign(GSRUI, {
     }
   },
 
-});
+};
+
+if (typeof module !== 'undefined' && module.exports) {
+  Object.assign(global, require('./ui.js'));
+  module.exports = __methods;
+} else {
+  Object.assign(GSRUI, __methods);
+}
+})();

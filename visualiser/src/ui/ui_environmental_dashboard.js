@@ -8,7 +8,8 @@
  * (ui_correlation_table.js), the road profile (ui_road_profile.js), and the
  * scatter plots.
  */
-Object.assign(GSRUI, {
+(function () {
+const __methods = {
 
   updateEnvironmentalDashboard() {
     // Every active track (the walks the user has toggled on), and the
@@ -461,4 +462,12 @@ Object.assign(GSRUI, {
     GSRUI.renderRoadProfile(cachedStats.roadProfile, cachedStats.roadComparison);
   },
 
-});
+};
+
+if (typeof module !== 'undefined' && module.exports) {
+  Object.assign(global, require('./ui.js'));
+  module.exports = __methods;
+} else {
+  Object.assign(GSRUI, __methods);
+}
+})();

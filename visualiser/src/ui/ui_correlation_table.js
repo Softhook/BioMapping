@@ -7,7 +7,8 @@
  * ui_road_profile.js), the scatter-plot env-variable dropdown sync, and the
  * sortable correlation-matrix table (walk-level meta-analysis results).
  */
-Object.assign(GSRUI, {
+(function () {
+const __methods = {
 
   /**
    * Paint a scatter of (x, y) points with an OLS trend line and an R² badge
@@ -549,4 +550,12 @@ Object.assign(GSRUI, {
     GSRUI.drawRegressionScatter(canvas, xVals, yVals, m, c, r2, xLabels[scatterXMetric], yLabels[scatterYMetric], isBinaryX);
   },
 
-});
+};
+
+if (typeof module !== 'undefined' && module.exports) {
+  Object.assign(global, require('./ui.js'));
+  module.exports = __methods;
+} else {
+  Object.assign(GSRUI, __methods);
+}
+})();

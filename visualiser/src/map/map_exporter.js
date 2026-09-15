@@ -1012,4 +1012,9 @@ class GSRMapExporter {
   }
 }
 
-window.GSRMapExporter = GSRMapExporter;
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { GSRMapExporter };
+}
+if (typeof window !== 'undefined') {
+  window.GSRMapExporter = GSRMapExporter;
+}

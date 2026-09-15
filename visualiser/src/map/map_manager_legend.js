@@ -14,7 +14,8 @@
  * Depends on the globals L, AppState, GSR_CONST and MapColors (resolved at call
  * time).
  */
-Object.assign(GSRMapManager.prototype, {
+(function () {
+const __methods = {
 
   /**
    * Initialise the Leaflet legend control in the bottom-right corner.
@@ -273,4 +274,12 @@ Object.assign(GSRMapManager.prototype, {
     return html;
   }
 
-});
+};
+
+if (typeof module !== 'undefined' && module.exports) {
+  Object.assign(global, require('./map.js'));
+  module.exports = __methods;
+} else {
+  Object.assign(GSRMapManager.prototype, __methods);
+}
+})();

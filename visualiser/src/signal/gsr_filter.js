@@ -470,3 +470,10 @@ const GsrFilter = {
     return { tonic: tonicVals, phasic: phasicVals };
   }
 };
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = GsrFilter;
+}
+if (typeof window !== 'undefined') {
+  window.GsrFilter = GsrFilter;
+}
