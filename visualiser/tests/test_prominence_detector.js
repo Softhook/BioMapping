@@ -24,8 +24,8 @@
  * Run: node visualiser/tests/test_prominence_detector.js
  */
 
-const fs = require('fs');
-const path = require('path');
+const fs = require('node:fs');
+const path = require('node:path');
 
 global.window = global;
 global.GSR_CONST = require('./mock_constants.js');
@@ -265,7 +265,7 @@ assert(
   );
   assert(
     p1 && p1.amplitude >= biggestOff.amplitude * 0.9,
-    `P1 amplitude is not collapsed by the crest wiggle (${p1 && p1.amplitude.toFixed(3)} vs ${biggestOff.amplitude.toFixed(3)})`,
+    `P1 amplitude is not collapsed by the crest wiggle (${p1?.amplitude.toFixed(3)} vs ${biggestOff.amplitude.toFixed(3)})`,
   );
   assert(
     p1 && Math.abs(p1.prominence - p1.amplitude) < 0.25,

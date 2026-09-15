@@ -16,9 +16,9 @@
 
 const test = require('node:test');
 const assert = require('node:assert');
-const path = require('path');
+const path = require('node:path');
 
-const fs = require('fs');
+const fs = require('node:fs');
 
 const APP_DIR = path.join(__dirname, '..');
 const GLOBE3D = path.join(APP_DIR, 'src', 'map', 'globe3d.mjs');
@@ -84,7 +84,7 @@ function freshEnv() {
   };
   global.window.__flushRaf = () => {
     const q = rafQueue.splice(0);
-    q.forEach((fn) => fn && fn());
+    q.forEach((fn) => fn?.());
   };
   global.document = {
     activeElement: null,

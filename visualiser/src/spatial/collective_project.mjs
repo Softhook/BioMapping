@@ -176,8 +176,7 @@ export const GSRCollectiveProject = {
         // track round-trips regardless of which one happens to be active.
         if (!track.analyzer.filtered || track.analyzer.filtered.length === 0) {
           try {
-            const pl =
-              (track.gpsFilterParams && track.gpsFilterParams.peakLatency) || 0;
+            const pl = track.gpsFilterParams?.peakLatency || 0;
             track.analyzer.analyze(track.filterParams, pl);
           } catch (e) {
             console.warn(
@@ -218,7 +217,7 @@ export const GSRCollectiveProject = {
       }
     } catch (err) {
       console.error('Project export failed:', err);
-      alert('Error exporting project: ' + err.message);
+      alert(`Error exporting project: ${err.message}`);
     } finally {
       if (btn) {
         btn.innerHTML = originalHtml;
@@ -402,7 +401,7 @@ export const GSRCollectiveProject = {
       }
     } catch (err) {
       console.error('Project import failed:', err);
-      alert('Error importing project: ' + err.message);
+      alert(`Error importing project: ${err.message}`);
 
       if (clearedExisting) {
         // The old track list is already gone from AppState — make sure the

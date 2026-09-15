@@ -8,8 +8,8 @@
  * Run: node visualiser/tests/test_all_pipelines.js
  */
 
-const fs = require('fs');
-const path = require('path');
+const fs = require('node:fs');
+const path = require('node:path');
 
 // ── Bootstrap scope ─────────────────────────────────────────────────────────
 global.window = global;
@@ -248,9 +248,9 @@ console.log(`  Detected ${analyzer.peaks.length} phasic peaks`);
 // Verify peak shapes have all required physical metrics
 const firstPeak = analyzer.peaks[0];
 console.log('  Sample Peak Metrics:', {
-  amplitude: firstPeak.amplitude.toFixed(3) + ' µS',
-  riseTime: firstPeak.riseTime.toFixed(1) + ' s',
-  halfRecoveryTime: firstPeak.halfRecoveryTime.toFixed(1) + ' s',
+  amplitude: `${firstPeak.amplitude.toFixed(3)} µS`,
+  riseTime: `${firstPeak.riseTime.toFixed(1)} s`,
+  halfRecoveryTime: `${firstPeak.halfRecoveryTime.toFixed(1)} s`,
   onsetSlope: firstPeak.onsetSlope.toFixed(3),
   decaySlope: firstPeak.decaySlope.toFixed(3),
   snr: firstPeak.snr.toFixed(1),

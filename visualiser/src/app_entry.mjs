@@ -119,14 +119,14 @@ import './render/renderer_chrome.mjs';
 import './render/sketch.mjs';
 
 import {
-  setup,
   draw,
-  windowResized,
-  mousePressed,
   mouseDragged,
-  mouseReleased,
   mouseMoved,
+  mousePressed,
+  mouseReleased,
   mouseWheel,
+  setup,
+  windowResized,
 } from './render/sketch.mjs';
 import { GSRUI } from './ui/ui.mjs';
 

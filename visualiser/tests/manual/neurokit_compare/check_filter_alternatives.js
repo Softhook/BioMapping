@@ -30,9 +30,9 @@
  *   node check_filter_alternatives.js <ground_truth_dir> <neurokit.json>
  */
 
-const fs = require('fs');
-const path = require('path');
-const vm = require('vm');
+const fs = require('node:fs');
+const path = require('node:path');
+const vm = require('node:vm');
 
 global.window = global;
 global.GSR_CONST = require('../../mock_constants.js');
@@ -285,7 +285,7 @@ function score(oursTimes, oursAmps, trueScrs) {
 }
 
 function fmt(label, s) {
-  const pct = (x) => (Number.isNaN(x) ? 'n/a' : (100 * x).toFixed(1) + '%');
+  const pct = (x) => (Number.isNaN(x) ? 'n/a' : `${(100 * x).toFixed(1)}%`);
   const a = s.amp;
   const ampStr = a.n
     ? `slope ${a.slope.toFixed(3)}  r ${a.r.toFixed(4)}  meanRelErr ${(100 * a.meanRelErr).toFixed(1)}%`

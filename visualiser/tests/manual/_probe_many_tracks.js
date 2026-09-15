@@ -3,9 +3,9 @@
 // pipeline, then runs the per-frame draw() for each active track, capturing the
 // first thrown error + stack. Real tracks carry RF columns / em_fog / many peaks
 // that the synthetic fixtures don't.
-const fs = require('fs');
-const path = require('path');
-const vm = require('vm');
+const fs = require('node:fs');
+const path = require('node:path');
+const vm = require('node:vm');
 const { bootApp } = require('../support/boot_app.js');
 
 const { window, context } = bootApp();
@@ -297,7 +297,7 @@ window.GSRTrackManager.loadFilesSequentially(trackFiles);
 
 const errors = [];
 window.addEventListener('error', (e) => {
-  errors.push((e.error && e.error.stack) || e.message || String(e));
+  errors.push(e.error?.stack || e.message || String(e));
 });
 
 const start = Date.now();

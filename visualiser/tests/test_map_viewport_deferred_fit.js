@@ -16,7 +16,7 @@
  * Run: node --test tests/test_map_viewport_deferred_fit.js
  */
 
-const assert = require('assert');
+const assert = require('node:assert');
 const test = require('node:test');
 
 // map_manager_viewport.js only augments GSRMapManager.prototype and, for the

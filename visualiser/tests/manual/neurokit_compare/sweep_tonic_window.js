@@ -12,9 +12,9 @@
  *   node sweep_tonic_window.js <ground_truth_dir>
  */
 
-const fs = require('fs');
-const path = require('path');
-const vm = require('vm');
+const fs = require('node:fs');
+const path = require('node:path');
+const vm = require('node:vm');
 
 global.window = global;
 global.GSR_CONST = require('../../mock_constants.js');
@@ -239,7 +239,7 @@ for (const win of WINDOWS) {
   }
 
   const agg = aggregate(fileResults);
-  const pct = (x) => (100 * x).toFixed(1) + '%';
+  const pct = (x) => `${(100 * x).toFixed(1)}%`;
   console.log(
     `  ${String(win).padStart(2)}s  | ` +
       `${pct(agg.recall).padStart(6)} | ` +

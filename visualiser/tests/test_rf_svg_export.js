@@ -2,8 +2,8 @@
  * Unit Test: Sub-GHz RF Data Vector SVG Export (Single Track & Collective View)
  * Verifies RFFluidRenderer.exportToSvgElements and GSRMapExporter RF layer generation.
  */
-const assert = require('assert');
-const path = require('path');
+const assert = require('node:assert');
+const path = require('node:path');
 
 global.window = global;
 

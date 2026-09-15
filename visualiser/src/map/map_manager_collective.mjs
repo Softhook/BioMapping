@@ -17,11 +17,11 @@
 import { AppState } from '../core/app_state.mjs';
 import { GSR_CONST } from '../core/constants.mjs';
 import { GeoUtils } from '../gps/geo_utils.mjs';
-import { Hillshade } from './hillshade.mjs';
-import { MapColors } from './map_colors.mjs';
-import { GSRMapManager } from './map.mjs';
 import { StatsMath } from '../signal/stats_math.mjs';
 import { GSRSpatialClustering } from '../spatial/spatial_clustering.mjs';
+import { Hillshade } from './hillshade.mjs';
+import { GSRMapManager } from './map.mjs';
+import { MapColors } from './map_colors.mjs';
 
 export const __methods = {
   /**
@@ -41,7 +41,7 @@ export const __methods = {
     // left over from single-track hover. clearMap covers the full clearAll()
     // path; this covers the 0-active-tracks path, which only calls
     // clearCollectiveLayers() (and noLoop() stops handleScrubber from hiding it).
-    if (this.scrubMarker && this.map && this.map.hasLayer(this.scrubMarker)) {
+    if (this.scrubMarker && this.map?.hasLayer(this.scrubMarker)) {
       this.map.removeLayer(this.scrubMarker);
     }
   },
@@ -113,7 +113,7 @@ export const __methods = {
         rfTracksData.push({
           id: track.id,
           drawPoints,
-          osmGeoms: track.analyzer && track.analyzer.osmGeoms,
+          osmGeoms: track.analyzer?.osmGeoms,
         });
       }
 
@@ -165,7 +165,7 @@ export const __methods = {
       this.rfFluidRenderer.setDataForTracks(rfTracksData);
     }
     this._updateRfFluidButtonState(
-      activeTracks.some((t) => t.analyzer && t.analyzer.hasRfData),
+      activeTracks.some((t) => t.analyzer?.hasRfData),
     );
 
     // Collective Arousal Places across every active track (map_manager_arousal_places.js).
@@ -173,9 +173,9 @@ export const __methods = {
       allActivePeaksAcrossTracks,
       activeTracks.map((t) => ({
         id: t.id,
-        sampleRate: t.analyzer && t.analyzer.sampleRate,
-        raw: t.analyzer && t.analyzer.raw,
-        phasic: t.analyzer && t.analyzer.phasic,
+        sampleRate: t.analyzer?.sampleRate,
+        raw: t.analyzer?.raw,
+        phasic: t.analyzer?.phasic,
       })),
       { collective: true, activeTrackCount: activeTracks.length },
     );
@@ -211,8 +211,7 @@ export const __methods = {
     // Update legend for collective view
     this.updateLegend();
 
-    if (typeof AppState !== 'undefined' && AppState.emit)
-      AppState.emit('map:rendered');
+    if (AppState?.emit) AppState.emit('map:rendered');
   },
 
   /**
@@ -222,7 +221,7 @@ export const __methods = {
     this.clearContours();
 
     const surfaceData = collectiveManager.generateContourSurface(contourParams);
-    if (!surfaceData || !surfaceData.contours) {
+    if (!surfaceData?.contours) {
       this._collectiveTopographySource = null;
       this._legendMinVal = 0;
       this._legendMaxVal = 0;
@@ -436,10 +435,7 @@ export const __methods = {
       const color = MapColors.getHslColor(c.ratio, 100, 55);
       const formattedVal = c.level.toFixed(3);
       const topoCfg =
-        (typeof GSR_CONST !== 'undefined' &&
-          GSR_CONST.TOPOGRAPHY_SOURCES &&
-          GSR_CONST.TOPOGRAPHY_SOURCES[contourParams.topographySource]) ||
-        null;
+        GSR_CONST?.TOPOGRAPHY_SOURCES?.[contourParams.topographySource] || null;
       const unit = topoCfg && topoCfg.unit !== undefined ? topoCfg.unit : ' μS';
 
       const stitchedPaths =

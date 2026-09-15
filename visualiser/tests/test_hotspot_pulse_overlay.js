@@ -12,7 +12,7 @@
  *
  * Run: node --test tests/test_hotspot_pulse_overlay.js
  */
-const assert = require('assert');
+const assert = require('node:assert');
 const test = require('node:test');
 const { bootApp } = require('./support/boot_app.js');
 
@@ -30,10 +30,10 @@ test('_syncPulseRing creates a positioned div under #canvasContainer, keyed for 
   assert.strictEqual(rings.length, 1);
   const ring = rings[0];
   const d = 6 * 2.33;
-  assert.strictEqual(ring.style.width, d + 'px');
-  assert.strictEqual(ring.style.height, d + 'px');
-  assert.strictEqual(ring.style.left, 100 - d / 2 + 'px');
-  assert.strictEqual(ring.style.top, 50 - d / 2 + 'px');
+  assert.strictEqual(ring.style.width, `${d}px`);
+  assert.strictEqual(ring.style.height, `${d}px`);
+  assert.strictEqual(ring.style.left, `${100 - d / 2}px`);
+  assert.strictEqual(ring.style.top, `${50 - d / 2}px`);
 });
 
 test('_syncPulseRing called again with the same key reuses the element (repositions, does not duplicate)', async () => {
@@ -60,7 +60,7 @@ test('_syncPulseRing called again with the same key reuses the element (repositi
   const d = 6 * 2.33;
   assert.strictEqual(
     rings[0].style.left,
-    120 - d / 2 + 'px',
+    `${120 - d / 2}px`,
     'position was updated on the reused element',
   );
 });

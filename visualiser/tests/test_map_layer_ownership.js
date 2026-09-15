@@ -21,9 +21,9 @@
  * Run: node --test tests/test_map_layer_ownership.js
  */
 
-const assert = require('assert');
+const assert = require('node:assert');
 const test = require('node:test');
-const vm = require('vm');
+const vm = require('node:vm');
 const { bootApp } = require('./support/boot_app.js');
 
 // map.mjs holds a real static `import { RFFluidRenderer } from
@@ -2300,7 +2300,7 @@ test('inPark colouring: in-park segments render green, out-of-park grey (not an 
     track.layerGroup
       .getLayers()
       .filter((l) => l._gsrKind === 'path')
-      .map((l) => l._options && l._options.color),
+      .map((l) => l._options?.color),
   );
   assert.ok(
     colors.has('#00e575'),

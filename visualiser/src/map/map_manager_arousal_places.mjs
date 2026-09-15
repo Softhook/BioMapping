@@ -17,11 +17,11 @@
 import { AppState } from '../core/app_state.mjs';
 import { GSR_CONST } from '../core/constants.mjs';
 import { GeoUtils } from '../gps/geo_utils.mjs';
-import { MapPopups } from './map_popups.mjs';
-import { GSRMapManager } from './map.mjs';
 import { GSRArousalPlaces } from '../spatial/arousal_places.mjs';
 import { GSRSpatialClustering } from '../spatial/spatial_clustering.mjs';
 import { GSRUI } from '../ui/ui.mjs';
+import { GSRMapManager } from './map.mjs';
+import { MapPopups } from './map_popups.mjs';
 
 export const __methods = {
   /**
@@ -162,8 +162,7 @@ export const __methods = {
     this.clusterLayers = this._clearLayerGroup(this.clusterLayers);
     const { peaks, scoreTracks, view } = this._lastArousalInput;
     this._renderArousalPlacesFor(peaks, scoreTracks, view);
-    if (typeof AppState !== 'undefined' && AppState.emit)
-      AppState.emit('map:rendered');
+    if (AppState?.emit) AppState.emit('map:rendered');
   },
 
   /**
@@ -252,15 +251,12 @@ export const __methods = {
    * @private
    */
   _arousalPlaceParams() {
-    const C =
-      typeof GSR_CONST !== 'undefined' && GSR_CONST.AROUSAL_PLACES
-        ? GSR_CONST.AROUSAL_PLACES
-        : {};
+    const C = GSR_CONST?.AROUSAL_PLACES ? GSR_CONST.AROUSAL_PLACES : {};
     const parse = (el, fallback, fn = parseFloat) => {
       const v = el ? fn(el.value) : fallback;
       return typeof v === 'number' && !isNaN(v) ? v : fallback;
     };
-    const S = (typeof AppState !== 'undefined' && AppState.sliders) || {};
+    const S = AppState?.sliders || {};
     const mergeM = parse(S.placeMergeDistance, C.mergeM || 35);
     const maxPlaces = Math.max(
       1,
@@ -378,7 +374,7 @@ export const __methods = {
       };
 
       const capM = this._nearestPlaceGap(places, i) * gapFactor;
-      ((blobRings && blobRings[i]) || []).forEach((path) => {
+      (blobRings?.[i] || []).forEach((path) => {
         const clipped = this._clipRingToRadius(
           path,
           place.lat,
@@ -545,8 +541,7 @@ export const __methods = {
   _declutterArousalPlaceBadges() {
     const badges = this._arousalPlaceBadges;
     if (
-      !badges ||
-      !badges.length ||
+      !badges?.length ||
       !this.map ||
       !this.showClusters ||
       typeof this.map.latLngToContainerPoint !== 'function'

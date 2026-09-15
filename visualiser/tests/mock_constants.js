@@ -68,14 +68,6 @@ module.exports = {
     deconvAlgorithm: 'matching_pursuit',
   },
 
-  SPARSEDA_SPEED_COLORS: {
-    'Very Fast': '#ef4444',
-    Fast: '#f97316',
-    Standard: '#10b981',
-    Slow: '#3b82f6',
-    'Very Slow': '#8b5cf6',
-  },
-
   CVXEDA: {
     tauSlow: 2.0,
     tauFast: 0.7,

@@ -36,7 +36,7 @@ export const GSRGlobe3DBuildings = {
         /* ignore invalid CSS color */
       }
     }
-    const bType = tags && tags.building;
+    const bType = tags?.building;
     if (
       bType === 'commercial' ||
       bType === 'office' ||
@@ -79,7 +79,7 @@ export const GSRGlobe3DBuildings = {
         /* ignore invalid CSS color */
       }
     }
-    const bType = tags && tags.building;
+    const bType = tags?.building;
     // Residential / living -> warm terracotta clay cap
     if (
       bType === 'residential' ||

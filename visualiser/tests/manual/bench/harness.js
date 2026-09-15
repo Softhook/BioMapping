@@ -15,9 +15,9 @@
  * every bench in this directory carries).
  */
 
-const fs = require('fs');
-const path = require('path');
-const vm = require('vm');
+const fs = require('node:fs');
+const path = require('node:path');
+const vm = require('node:vm');
 const { bootApp } = require('../../support/boot_app.js');
 
 const TRACKS_DIR = path.join(__dirname, '..', '..', '..', '..', 'tracks');
@@ -562,9 +562,7 @@ function boot() {
   });
   window.millis = window.millis || (() => 0);
   window.document.elementFromPoint = () =>
-    window.AppState && window.AppState.myCanvas
-      ? window.AppState.myCanvas.elt
-      : null;
+    window.AppState?.myCanvas ? window.AppState.myCanvas.elt : null;
   window.HTMLCanvasElement.prototype.getContext = () => ({
     fillStyle: '',
     strokeStyle: '',
@@ -675,10 +673,10 @@ function printTable(title, columns, rows) {
     Math.max(c.label.length, ...rows.map((r) => fmt(r[c.key]).length)),
   );
   const line = (cells) =>
-    '  ' + cells.map((s, i) => String(s).padEnd(widths[i])).join('  ');
+    `  ${cells.map((s, i) => String(s).padEnd(widths[i])).join('  ')}`;
   console.log(`\n${title}`);
   console.log(line(cols.map((c) => c.label)));
-  console.log('  ' + widths.map((w) => '─'.repeat(w)).join('  '));
+  console.log(`  ${widths.map((w) => '─'.repeat(w)).join('  ')}`);
   for (const r of rows) console.log(line(cols.map((c) => fmt(r[c.key]))));
 }
 

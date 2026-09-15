@@ -4,8 +4,8 @@
  * (miter) corners — not run through the GPS-track smoothing/culling pipeline.
  * Run: node visualiser/tests/test_osm_hard_shapes.js
  */
-const assert = require('assert');
-const path = require('path');
+const assert = require('node:assert');
+const path = require('node:path');
 
 global.window = global;
 global.GSR_CONST = require('./mock_constants.js');

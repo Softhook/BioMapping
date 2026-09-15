@@ -15,8 +15,8 @@
 
 const test = require('node:test');
 const assert = require('node:assert');
-const fs = require('fs');
-const path = require('path');
+const fs = require('node:fs');
+const path = require('node:path');
 
 const TESTS_DIR = __dirname;
 const VIS_DIR = path.join(__dirname, '..');
@@ -70,7 +70,7 @@ test('every relative source path used by tests/ resolves inside visualiser/', ()
     for (const ref of new Set(refsIn(src))) {
       const resolved = path.resolve(path.dirname(file), ref);
       if (path.relative(VIS_DIR, resolved).startsWith('..')) continue; // outside visualiser/
-      if (fs.existsSync(resolved) || fs.existsSync(resolved + '.js')) continue;
+      if (fs.existsSync(resolved) || fs.existsSync(`${resolved}.js`)) continue;
       // ES-module migration (tests/manual/esm_migration/): a converted
       // src/ file's .js sibling is deliberately deleted (convert_file.js
       // --write) — same .js/.mjs resolution rule as

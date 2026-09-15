@@ -10,7 +10,7 @@
  * Run: node --test tests/test_wavelet_denoise.js   (or npm test)
  */
 
-const assert = require('assert');
+const assert = require('node:assert');
 const test = require('node:test');
 
 const { DWT } = require('../src/signal/dwt_filter.mjs');

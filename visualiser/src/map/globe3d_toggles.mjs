@@ -88,8 +88,7 @@ export const __methods = {
       this._peakLabels.removeAll();
     }
     if (
-      this.viewer &&
-      this.viewer.entities &&
+      this.viewer?.entities &&
       typeof this.viewer.entities.remove === 'function'
     ) {
       this.peakEntities.forEach((ent) => {
@@ -113,8 +112,7 @@ export const __methods = {
       this._hotspotLabels.removeAll();
     }
     if (
-      this.viewer &&
-      this.viewer.entities &&
+      this.viewer?.entities &&
       typeof this.viewer.entities.remove === 'function'
     ) {
       this.hotspotEntities.forEach((ent) => {

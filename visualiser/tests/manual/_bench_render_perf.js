@@ -25,9 +25,9 @@
  * in how much real JS work they do.
  */
 
-const fs = require('fs');
-const path = require('path');
-const vm = require('vm');
+const fs = require('node:fs');
+const path = require('node:path');
+const vm = require('node:vm');
 const { bootApp } = require('../support/boot_app.js');
 
 const TRACKS_DIR = path.join(__dirname, '..', '..', '..', 'tracks');

@@ -13,7 +13,7 @@
  * Run: node --test tests/test_rf_fluid_spatial_index.js
  */
 
-const assert = require('assert');
+const assert = require('node:assert');
 const test = require('node:test');
 
 global.L = {
@@ -42,7 +42,7 @@ function fakeCanvasContext() {
   );
 }
 
-const path = require('path');
+const path = require('node:path');
 const { loadModule } = require('./support/load_module.js');
 loadModule(
   path.join(__dirname, '..', 'src', 'spatial', 'spatial_grid.js'),

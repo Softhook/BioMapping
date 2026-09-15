@@ -5,8 +5,8 @@
  * Run: node tests/test_e2e_pipeline.js
  */
 
-const fs = require('fs');
-const path = require('path');
+const fs = require('node:fs');
+const path = require('node:path');
 
 // ── Load analyser modules into global scope ─────────────────────────────────
 // Same bootstrap as test_refactor.js.

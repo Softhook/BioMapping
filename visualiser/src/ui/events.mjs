@@ -16,8 +16,8 @@ import { AppState } from '../core/app_state.mjs';
 import { GSRLayoutManager } from '../core/layout_manager.mjs';
 import { GSRNotices } from '../core/notices.mjs';
 import { GSRLiveView } from '../live/live_view.mjs';
-import { GSRGlobe3DView } from '../map/globe3d_view.mjs';
 import { GSRGlobe3DExport } from '../map/globe3d/exporters.mjs';
+import { GSRGlobe3DView } from '../map/globe3d_view.mjs';
 import { GSRMapExporter } from '../map/map_exporter.mjs';
 import { NDVISampler } from '../osm/ndvi_sampler.mjs';
 import { OsmCache } from '../osm/osm_cache.mjs';
@@ -152,8 +152,7 @@ export const GSREvents = {
    */
   _id(id) {
     const el = document.getElementById(id);
-    if (!el)
-      console.warn('GSR Map Analyzer: DOM element #' + id + ' not found.');
+    if (!el) console.warn(`GSR Map Analyzer: DOM element #${id} not found.`);
     return el;
   },
 
@@ -331,7 +330,7 @@ export const GSREvents = {
   updateSnapRadiusVisibility() {
     const toggle = document.getElementById('gpsSnapToRoads');
     const group = document.getElementById('snapRadiusGroup');
-    if (group) group.style.display = toggle && toggle.checked ? '' : 'none';
+    if (group) group.style.display = toggle?.checked ? '' : 'none';
   },
 
   /**
@@ -464,7 +463,7 @@ export const GSREvents = {
    */
   updateTonicMethodLayout(isInitial = false) {
     const S = AppState.sliders;
-    if (!S || !S.tonicMethod) return;
+    if (!S?.tonicMethod) return;
 
     const method = S.tonicMethod.value;
     const slider = document.getElementById('tonicWindow');
@@ -509,7 +508,7 @@ export const GSREvents = {
         slider.value = defVal;
       }
       if (label) {
-        label.innerText = parseFloat(slider.value).toFixed(1) + ' s';
+        label.innerText = `${parseFloat(slider.value).toFixed(1)} s`;
       }
     }
     if (rec) {
@@ -531,8 +530,8 @@ export const GSREvents = {
    */
   syncTonicBaselineControls() {
     const S = AppState.sliders;
-    if (!S || !S.tonicMethod) return;
-    const cvx = !!(S.useCvxEDA && S.useCvxEDA.checked);
+    if (!S?.tonicMethod) return;
+    const cvx = !!S.useCvxEDA?.checked;
     const jointTonic = cvx;
 
     S.tonicMethod.disabled = jointTonic;
@@ -558,7 +557,7 @@ export const GSREvents = {
    */
   applyGraphView() {
     const S = AppState.sliders;
-    if (!S || !S.graphView) return;
+    if (!S?.graphView) return;
     const v = S.graphView.value;
     AppState.graphView = v;
     if (v !== 'signal') AppState.lowerGraphMode = v;
@@ -698,10 +697,9 @@ export const GSREvents = {
 
     // ── Page Unload & Keyboard Listener ──────────────────────────────────────
     window.addEventListener('beforeunload', (e) => {
-      const hasDirty =
-        AppState.collectiveManager && AppState.collectiveManager.tracks
-          ? AppState.collectiveManager.tracks.some((t) => t.hasUnsavedLabels)
-          : false;
+      const hasDirty = AppState.collectiveManager?.tracks
+        ? AppState.collectiveManager.tracks.some((t) => t.hasUnsavedLabels)
+        : false;
       if (hasDirty) {
         e.preventDefault();
         e.returnValue = '';
@@ -810,7 +808,7 @@ export const GSREvents = {
           updateDim();
         });
         slider.addEventListener('change', () => {
-          if (AppState.analyzer && AppState.analyzer.osmJson) {
+          if (AppState.analyzer?.osmJson) {
             GSRUI.enrichTrack(false); // Recompute using local cache!
           } else {
             GSRUI.rerenderMap();
@@ -828,7 +826,7 @@ export const GSREvents = {
         GSREvents.updateSnapRadiusVisibility();
         snapToggle.addEventListener('change', () => {
           GSREvents.updateSnapRadiusVisibility();
-          if (AppState.analyzer && AppState.analyzer.osmJson) {
+          if (AppState.analyzer?.osmJson) {
             // OSM data already loaded — re-run enrichment locally
             GSRUI.enrichTrack(false);
           } else {
@@ -1025,8 +1023,7 @@ export const GSREvents = {
     // canvas once the CSS max-height transition has settled.
     const refreshMapAfterPanelResize = () => {
       if (
-        AppState.mapManager &&
-        AppState.mapManager.map &&
+        AppState.mapManager?.map &&
         typeof AppState.mapManager.map.invalidateSize === 'function'
       ) {
         AppState.mapManager.map.invalidateSize({
@@ -1136,8 +1133,7 @@ export const GSREvents = {
           track.filterParams = JSON.parse(JSON.stringify(activeGsr));
           track.gpsFilterParams = JSON.parse(JSON.stringify(activeGps));
           try {
-            const pl =
-              (track.gpsFilterParams && track.gpsFilterParams.peakLatency) || 0;
+            const pl = track.gpsFilterParams?.peakLatency || 0;
             track.analyzer.analyze(track.filterParams, pl);
           } catch (e) {
             console.warn(`Re-analysing track "${track.name}" failed:`, e);
@@ -1172,10 +1168,10 @@ export const GSREvents = {
       const radiusSlider = document.getElementById('osmRadius');
       const radiusLabel = document.getElementById('valOsmRadius');
       radiusSlider.addEventListener('input', () => {
-        radiusLabel.innerText = radiusSlider.value + ' m';
+        radiusLabel.innerText = `${radiusSlider.value} m`;
       });
       radiusSlider.addEventListener('change', () => {
-        if (AppState.analyzer && AppState.analyzer.osmJson) {
+        if (AppState.analyzer?.osmJson) {
           GSRUI.enrichTrack(false); // Re-run enrichment locally!
         }
       });
@@ -1213,7 +1209,7 @@ export const GSREvents = {
           alert('OSM and satellite tile cache cleared.');
         } catch (err) {
           console.error('OsmCache.clear failed:', err);
-          alert('Could not clear the OSM cache: ' + err.message);
+          alert(`Could not clear the OSM cache: ${err.message}`);
         }
       });
 
@@ -1277,7 +1273,7 @@ export const GSREvents = {
           );
         }
         syncCopernicusBadges();
-        if (AppState.mapManager && AppState.mapManager.ndviTileLayer) {
+        if (AppState.mapManager?.ndviTileLayer) {
           AppState.mapManager.showNdviLayer();
         }
       });
@@ -1300,7 +1296,7 @@ export const GSREvents = {
         }
         // The map overlay renders this same raw layer directly (see
         // map_manager_osm.js: showNdviLayer) — re-render it if visible.
-        if (AppState.mapManager && AppState.mapManager.ndviTileLayer) {
+        if (AppState.mapManager?.ndviTileLayer) {
           AppState.mapManager.showNdviLayer();
         }
       });
@@ -1321,7 +1317,7 @@ export const GSREvents = {
             copernicusTimeInput.value.trim(),
           );
         }
-        if (AppState.mapManager && AppState.mapManager.ndviTileLayer) {
+        if (AppState.mapManager?.ndviTileLayer) {
           AppState.mapManager.showNdviLayer();
         }
       });
@@ -1336,7 +1332,7 @@ export const GSREvents = {
         if (copernicusTimeInput)
           copernicusTimeInput.value = '2024-05-01/2024-09-30';
         syncCopernicusBadges();
-        if (AppState.mapManager && AppState.mapManager.ndviTileLayer) {
+        if (AppState.mapManager?.ndviTileLayer) {
           AppState.mapManager.showNdviLayer();
         }
       });
@@ -1405,15 +1401,11 @@ export const GSREvents = {
       const sbToggle = document.getElementById('btnSidebarToggle');
       if (sbToggle) sbToggle.hidden = false;
       // Drop the edge-to-edge display mode (F) if it was left on.
-      if (
-        typeof GSRLayoutManager !== 'undefined' &&
-        GSRLayoutManager._liveDisplayModeActive &&
-        GSRLayoutManager._liveDisplayModeActive()
-      ) {
+      if (GSRLayoutManager?._liveDisplayModeActive?.()) {
         GSRLayoutManager.exitLiveDisplayMode();
       }
       // In-app tab switch: pause rendering but keep BLE link live in background.
-      if (typeof GSRLiveView !== 'undefined' && GSRLiveView._mounted) {
+      if (GSRLiveView?._mounted) {
         GSRLiveView.deactivate(true);
       }
     };
@@ -1467,8 +1459,7 @@ export const GSREvents = {
 
       // Force synchronous measurement of the new container size without panning the map
       if (
-        AppState.mapManager &&
-        AppState.mapManager.map &&
+        AppState.mapManager?.map &&
         typeof AppState.mapManager.map.invalidateSize === 'function'
       ) {
         AppState.mapManager.map.invalidateSize({
@@ -1529,8 +1520,7 @@ export const GSREvents = {
 
       // Force synchronous measurement of the new expanded container dimensions without panning the map
       if (
-        AppState.mapManager &&
-        AppState.mapManager.map &&
+        AppState.mapManager?.map &&
         typeof AppState.mapManager.map.invalidateSize === 'function'
       ) {
         AppState.mapManager.map.invalidateSize({
@@ -1704,8 +1694,7 @@ export const GSREvents = {
       // Re-render the shared OSM overlay on the now-mounted surface. 2D takes
       // effect immediately; the globe re-syncs from GSRGlobe3DView.activate()
       // once its manager is built (its manager isn't ready yet here).
-      if (typeof GSRUI !== 'undefined' && GSRUI.syncOsmOverlay)
-        GSRUI.syncOsmOverlay();
+      if (GSRUI?.syncOsmOverlay) GSRUI.syncOsmOverlay();
 
       if (
         !toGlobe &&
@@ -1753,7 +1742,7 @@ export const GSREvents = {
     }
     const extEl = document.getElementById('g3dExtrusionScale');
     const opts = {
-      metric: (mm && mm.activeColoringMetric) || 'phasic',
+      metric: mm?.activeColoringMetric || 'phasic',
       extrusionScale: extEl ? parseFloat(extEl.value) : undefined,
     };
     const baseName =
@@ -1866,7 +1855,7 @@ export const GSREvents = {
 
     // Contour Settings Labels & Visibility Setup
     const C = AppState.contourControls;
-    if (C && C.gridResolution) {
+    if (C?.gridResolution) {
       const updateCLabel = (d) => {
         const input = document.getElementById(d.id);
         const label = document.getElementById(d.labelId);

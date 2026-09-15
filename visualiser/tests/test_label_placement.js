@@ -5,7 +5,7 @@
  * Run: node --test tests/test_label_placement.js  (or `npm test` for the whole suite)
  */
 
-const assert = require('assert');
+const assert = require('node:assert');
 const test = require('node:test');
 
 // buildLabelledIcon() calls the global Leaflet `L.divIcon`; stub it before

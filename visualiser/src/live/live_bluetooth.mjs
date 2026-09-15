@@ -67,10 +67,8 @@ export class GSRLiveBluetoothManager {
     this.characteristic = null;
     this.onStatusText = onStatusText || (() => {});
     this.onStatusChange =
-      (options && options.onStatusChange) ||
-      ((status) => LiveState.setStatus(status));
-    this.onPacket =
-      (options && options.onPacket) || ((pkt) => LiveState.addPacket(pkt));
+      options?.onStatusChange || ((status) => LiveState.setStatus(status));
+    this.onPacket = options?.onPacket || ((pkt) => LiveState.addPacket(pkt));
     this.parser = new GSRLiveBinaryParser((pkt) => this.onPacket(pkt));
     this._reconnecting = false;
     // Set by disconnect() just before it tears the GATT link down on purpose
@@ -316,7 +314,7 @@ export class GSRLiveBluetoothManager {
       // pending native connect to cancel. Leaving it running is what
       // previously left the adapter/peripheral wedged after the user
       // navigated away mid-reconnect.
-      if (this.device && this.device.gatt) {
+      if (this.device?.gatt) {
         this.device.gatt.disconnect();
       }
     } catch (e) {
@@ -533,8 +531,7 @@ export class GSRLiveBluetoothManager {
     }
     this._reconnecting = false;
     this._setStatus('disconnected');
-    const msg =
-      lastError && lastError.message ? lastError.message : String(lastError);
+    const msg = lastError?.message ? lastError.message : String(lastError);
     console.error('Live: auto-reconnect exhausted —', lastError);
     this.onStatusText(`Auto-reconnect failed: ${msg}`);
     if (!this._abandoned && !this._userDisconnected) {
@@ -561,7 +558,7 @@ export class GSRLiveBluetoothManager {
       return true;
     } catch (e) {
       this._setStatus('disconnected');
-      const msg = e && e.message ? e.message : String(e);
+      const msg = e?.message ? e.message : String(e);
       console.error('Live: manual reconnect failed —', e);
       this.onStatusText(`Reconnect failed: ${msg}`);
       return false;

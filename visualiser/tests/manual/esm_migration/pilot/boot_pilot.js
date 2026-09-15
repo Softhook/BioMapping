@@ -12,7 +12,7 @@
  * module fresh per test case (replacing today's `require.cache` deletion
  * trick used by test_globe3d.js etc.).
  */
-const path = require('path');
+const path = require('node:path');
 const { JSDOM } = require('jsdom');
 
 // Real Node identifiers a jsdom window would never legitimately shadow —

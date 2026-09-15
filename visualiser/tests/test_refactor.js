@@ -22,16 +22,16 @@ global.GSR_CONST = require('./mock_constants.js');
 // `global.Name =` makes the modules' internal references (e.g. GeoUtils.EARTH_RADIUS_M)
 // resolve through the global object chain, and the test file accesses them
 // via the same `global.Name` references.
-const vm = require('vm');
+const vm = require('node:vm');
 
 const { loadModule } = require('./support/load_module.js');
 
 // Load order must match index.html dependencies.
-loadModule(__dirname + '/../src/gps/geo_utils.js', 'GeoUtils');
-loadModule(__dirname + '/../src/signal/stats_math.js', 'StatsMath');
-loadModule(__dirname + '/../src/map/map_colors.js', 'MapColors');
-loadModule(__dirname + '/../src/gps/gps_filter.js', 'GpsFilter');
-loadModule(__dirname + '/../src/gps/gps_pipeline.js', 'GpsPipeline');
+loadModule(`${__dirname}/../src/gps/geo_utils.js`, 'GeoUtils');
+loadModule(`${__dirname}/../src/signal/stats_math.js`, 'StatsMath');
+loadModule(`${__dirname}/../src/map/map_colors.js`, 'MapColors');
+loadModule(`${__dirname}/../src/gps/gps_filter.js`, 'GpsFilter');
+loadModule(`${__dirname}/../src/gps/gps_pipeline.js`, 'GpsPipeline');
 
 const GeoUtils = global.GeoUtils;
 const StatsMath = global.StatsMath;

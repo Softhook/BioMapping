@@ -13,8 +13,8 @@
  */
 import { AppState } from '../core/app_state.mjs';
 import { GSR_CONST } from '../core/constants.mjs';
-import { GSRRenderer } from './renderer.mjs';
 import { ResponseDynamics } from '../signal/response_dynamics.mjs';
+import { GSRRenderer } from './renderer.mjs';
 
 export const __methods = {
   /**
@@ -255,7 +255,7 @@ export const __methods = {
     noStroke();
     const fillHex =
       fillColorHex || this.getThemeColor('--color-phasic', '#008f3c');
-    fill(color(fillHex + '19'));
+    fill(color(`${fillHex}19`));
 
     const dFirst = data[ctx.startIdx];
     const xStart = GSR_CONST.MARGIN.left + (dFirst.time - tMin) * ctx.xScale;
@@ -330,7 +330,7 @@ export const __methods = {
       for (let k = 0; k < drawIndices.length; k++) {
         const i = drawIndices[k];
         const d = phasicData[i];
-        const dynVal = dynData && dynData[i] ? dynData[i].val : 0;
+        const dynVal = dynData?.[i] ? dynData[i].val : 0;
         const bucket = RD ? RD.getBucketIndex(dynVal) : dynVal <= 0 ? 0 : 3;
         const x = GSR_CONST.MARGIN.left + (d.time - tMin) * ctx.xScale;
         const y = yBottom + (d.val - yMin) * ctx.yScale;
@@ -339,7 +339,7 @@ export const __methods = {
     } else {
       for (let i = ctx.startIdx; i <= ctx.endIdx; i += ctx.step) {
         const d = phasicData[i];
-        const dynVal = dynData && dynData[i] ? dynData[i].val : 0;
+        const dynVal = dynData?.[i] ? dynData[i].val : 0;
         const bucket = RD ? RD.getBucketIndex(dynVal) : dynVal <= 0 ? 0 : 3;
         const x = GSR_CONST.MARGIN.left + (d.time - tMin) * ctx.xScale;
         const y = yBottom + (d.val - yMin) * ctx.yScale;
@@ -372,10 +372,10 @@ export const __methods = {
       const b = run[0].bucket;
       if (b === 0) {
         // Resting baseline area wash (subtle 5% opacity)
-        fill(color(basePhasicHex + '0d'));
+        fill(color(`${basePhasicHex}0d`));
       } else {
         const bandColor = RD ? RD.BANDS[b - 1].color : '#10b981';
-        fill(color(bandColor + '30')); // translucent speed color wash for active peak
+        fill(color(`${bandColor}30`)); // translucent speed color wash for active peak
       }
       beginShape();
       vertex(run[0].x, yBottom);
@@ -391,7 +391,7 @@ export const __methods = {
       if (run.length < 2) continue;
       const b = run[0].bucket;
       if (b === 0) {
-        stroke(color(basePhasicHex + '70'));
+        stroke(color(`${basePhasicHex}70`));
         strokeWeight(1.5);
       } else {
         const bandColor = RD ? RD.BANDS[b - 1].color : '#10b981';

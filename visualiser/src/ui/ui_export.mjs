@@ -52,15 +52,14 @@ export const __methods = {
     const nameToSanitize = track
       ? track.name
       : AppState.activeTrackId
-        ? (AppState.collectiveManager.getTrack(AppState.activeTrackId) || {})
-            .name
+        ? AppState.collectiveManager.getTrack(AppState.activeTrackId)?.name
         : null;
     const baseName = nameToSanitize
       ? nameToSanitize.replace(/\.[^/.]+$/, '').replace(/[^a-zA-Z0-9._-]/g, '_')
       : GSRUI._exportFilenameBase();
     const saved = await GSRFileSaver.saveFile(
       csvContent,
-      baseName + '_processed.csv',
+      `${baseName}_processed.csv`,
     );
     if (saved !== false) {
       if (track) track.hasUnsavedLabels = false;
@@ -84,7 +83,7 @@ export const __methods = {
   async saveCanvasImage() {
     if (!AppState.myCanvas || AppState.analyzer.raw.length === 0) return;
     const baseName = GSRUI._exportFilenameBase();
-    const suggestedName = baseName + '_chart.png';
+    const suggestedName = `${baseName}_chart.png`;
     const canvasEl =
       document.querySelector('#sketch-container canvas') ||
       (AppState.myCanvas ? AppState.myCanvas.elt : null);
@@ -95,7 +94,7 @@ export const __methods = {
         }
       }, 'image/png');
     } else {
-      saveCanvas(AppState.myCanvas, baseName + '_chart', 'png');
+      saveCanvas(AppState.myCanvas, `${baseName}_chart`, 'png');
     }
   },
 
@@ -115,11 +114,7 @@ export const __methods = {
     }
 
     try {
-      if (
-        typeof GSRGlobe3DView !== 'undefined' &&
-        GSRGlobe3DView.isActive &&
-        GSRGlobe3DView.manager?.viewer
-      ) {
+      if (GSRGlobe3DView?.isActive && GSRGlobe3DView.manager?.viewer) {
         // 3D Globe Mode (Cesium WebGL canvas capture).
         // Primitives compiled with asynchronous:true (the wall, RF expanse)
         // are uploaded to the GPU asynchronously — they first appear in the

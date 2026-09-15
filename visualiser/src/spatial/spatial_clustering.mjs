@@ -83,7 +83,7 @@ export class GSRSpatialClustering {
     const cell = R;
     const grid = new Map();
     for (let i = 0; i < n; i++) {
-      const k = Math.floor(x[i] / cell) + '|' + Math.floor(y[i] / cell);
+      const k = `${Math.floor(x[i] / cell)}|${Math.floor(y[i] / cell)}`;
       let arr = grid.get(k);
       if (!arr) {
         arr = [];
@@ -98,7 +98,7 @@ export class GSRSpatialClustering {
       const out = [];
       for (let gx = cx - 1; gx <= cx + 1; gx++) {
         for (let gy = cy - 1; gy <= cy + 1; gy++) {
-          const arr = grid.get(gx + '|' + gy);
+          const arr = grid.get(`${gx}|${gy}`);
           if (!arr) continue;
           for (let a = 0; a < arr.length; a++) {
             const j = arr[a];
@@ -181,14 +181,8 @@ export class GSRSpatialClustering {
    * @returns {number} Clamped relative weight, in [GSR_CONST.PEAK_KDE.ampWeightMin, ampWeightMax].
    */
   static relativeAmplitudeWeight(amplitude, refAmplitude) {
-    const min =
-      typeof GSR_CONST !== 'undefined' && GSR_CONST.PEAK_KDE
-        ? GSR_CONST.PEAK_KDE.ampWeightMin
-        : 0.55;
-    const max =
-      typeof GSR_CONST !== 'undefined' && GSR_CONST.PEAK_KDE
-        ? GSR_CONST.PEAK_KDE.ampWeightMax
-        : 3.0;
+    const min = GSR_CONST?.PEAK_KDE ? GSR_CONST.PEAK_KDE.ampWeightMin : 0.55;
+    const max = GSR_CONST?.PEAK_KDE ? GSR_CONST.PEAK_KDE.ampWeightMax : 3.0;
     if (typeof refAmplitude !== 'number' || refAmplitude <= 0) return 1;
     if (typeof amplitude !== 'number' || isNaN(amplitude)) return 1;
     const rel = amplitude / refAmplitude;
@@ -466,7 +460,7 @@ export class GSRSpatialClustering {
         cy = cellOf(p.lat);
       for (let dx = -1; dx <= 1; dx++) {
         for (let dy = -1; dy <= 1; dy++) {
-          const ids = cellNodes.get(cx + dx + ',' + (cy + dy));
+          const ids = cellNodes.get(`${cx + dx},${cy + dy}`);
           if (!ids) continue;
           for (let n = 0; n < ids.length; n++) {
             const q = nodePos[ids[n]];
@@ -478,7 +472,7 @@ export class GSRSpatialClustering {
       }
       const id = nodePos.length;
       nodePos.push(p);
-      const key = cx + ',' + cy;
+      const key = `${cx},${cy}`;
       let ids = cellNodes.get(key);
       if (!ids) {
         ids = [];

@@ -17,7 +17,7 @@
  * Run: node --test tests/test_collective_manager.js  (or `npm test` for the whole suite)
  */
 
-const assert = require('assert');
+const assert = require('node:assert');
 const test = require('node:test');
 
 global.GSR_CONST = require('./mock_constants.js');

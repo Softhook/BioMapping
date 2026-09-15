@@ -428,12 +428,11 @@ export class GSRCollectiveManager {
     // of the series.
     const perTrackNorm = (raw) => {
       if (!useNormalization || !raw || raw.length === 0) return null;
-      const statsFn =
-        typeof GsrFilter !== 'undefined' && GsrFilter.calculateStats
-          ? GsrFilter.calculateStats
-          : typeof StatsMath !== 'undefined' && StatsMath.calculateStats
-            ? StatsMath.calculateStats
-            : null;
+      const statsFn = GsrFilter?.calculateStats
+        ? GsrFilter.calculateStats
+        : StatsMath?.calculateStats
+          ? StatsMath.calculateStats
+          : null;
       const s = statsFn ? statsFn(raw.map((d) => d.val)) : { mean: 0, std: 1 };
       return { mean: s.mean, std: s.std || 1 };
     };
@@ -579,10 +578,7 @@ export class GSRCollectiveManager {
       for (const pk of peaks) sum += pk.amplitude || 0;
       peaksRefAmplitude = sum / peaks.length;
     }
-    const peakSigma =
-      typeof GSR_CONST !== 'undefined' && GSR_CONST.PEAK_KDE
-        ? GSR_CONST.PEAK_KDE.sigma
-        : 15.0;
+    const peakSigma = GSR_CONST?.PEAK_KDE ? GSR_CONST.PEAK_KDE.sigma : 15.0;
 
     return { points, peaks, trackPointRanges, peaksRefAmplitude, peakSigma };
   }
@@ -794,10 +790,9 @@ export class GSRCollectiveManager {
       }
       sortedCoverageVals.sort((a, b) => a - b);
 
-      const rankFn =
-        typeof StatsMath !== 'undefined' && StatsMath.percentileRank
-          ? StatsMath.percentileRank
-          : null;
+      const rankFn = StatsMath?.percentileRank
+        ? StatsMath.percentileRank
+        : null;
       coverageRatioGrid = Array.from({ length: rows }, () =>
         new Array(cols).fill(null),
       );

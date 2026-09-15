@@ -31,7 +31,7 @@
  * logic, not on Leaflet's.
  */
 
-const path = require('path');
+const path = require('node:path');
 const { JSDOM } = require('jsdom');
 const { installMatchMedia } = require('./matchmedia_stub.js');
 const {
@@ -151,6 +151,7 @@ function makeLeafletMock() {
     // instances satisfy `instanceof L.TileLayer` — cacheCurrentMapArea()
     // relies on exactly that to find the active tile layer via eachLayer().
     static extend(members) {
+      // biome-ignore lint/complexity/noThisInStatic: must be the dynamic receiver, not the literal class, so extend() chains when called on an already-extended subclass.
       class Extended extends this {}
       Object.assign(Extended.prototype, members);
       return Extended;

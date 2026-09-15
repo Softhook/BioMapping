@@ -7,7 +7,7 @@
  * Run: node --test tests/test_osm_metrics_table.js  (or `npm test` for the whole suite)
  */
 
-const assert = require('assert');
+const assert = require('node:assert');
 const test = require('node:test');
 
 // constants.js is a real ES module now — require() it directly (Node

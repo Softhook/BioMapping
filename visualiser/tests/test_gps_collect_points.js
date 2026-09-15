@@ -13,7 +13,7 @@
  * safe. Run: node --test tests/test_gps_collect_points.js
  */
 
-const assert = require('assert');
+const assert = require('node:assert');
 const test = require('node:test');
 const { bootApp } = require('./support/boot_app.js');
 

@@ -13,7 +13,7 @@
  * what's left is the smoke test confirming renderer.mjs still exports every
  * name its (now former) augments needed.
  */
-const assert = require('assert');
+const assert = require('node:assert');
 const test = require('node:test');
 
 test('renderer.js exports every module-level name its augment files read bare', () => {

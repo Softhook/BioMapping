@@ -13,10 +13,10 @@
  * Run: node --test tests/test_cvxeda_reference.js
  */
 
-const assert = require('assert');
+const assert = require('node:assert');
 const test = require('node:test');
-const path = require('path');
-const fs = require('fs');
+const path = require('node:path');
+const fs = require('node:fs');
 
 global.window = global;
 global.GSR_CONST = require('./mock_constants.js');

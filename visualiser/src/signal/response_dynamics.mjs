@@ -139,7 +139,7 @@ export const ResponseDynamics = {
    * @returns {string} Hex color string
    */
   getSpeedColor(label) {
-    return this.SPEED_COLORS[label] || this.SPEED_COLORS['Standard'];
+    return this.SPEED_COLORS[label] || this.SPEED_COLORS.Standard;
   },
 
   /**
@@ -155,7 +155,7 @@ export const ResponseDynamics = {
     }
     const band = this.getBand(val);
     const speedLabel = band ? band.label : 'Standard';
-    const color = band ? band.color : this.SPEED_COLORS['Standard'];
+    const color = band ? band.color : this.SPEED_COLORS.Standard;
     return {
       valueStr: `${val.toFixed(2)}x (${speedLabel})`,
       color,
@@ -292,7 +292,7 @@ export const ResponseDynamics = {
     const series = new Array(n);
     for (let i = 0; i < n; i++) {
       const t =
-        raw && raw[i] && typeof raw[i].time === 'number'
+        raw?.[i] && typeof raw[i].time === 'number'
           ? raw[i].time
           : times
             ? times[i]

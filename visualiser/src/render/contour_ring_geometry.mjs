@@ -77,7 +77,7 @@ export class ContourRingGeometry {
         val: grid[r][0],
         normal: { lat: 0, lon: -1 },
       });
-    return this.toLoop(raw);
+    return ContourRingGeometry.toLoop(raw);
   }
 
   /**
@@ -251,14 +251,21 @@ export class ContourRingGeometry {
    * per disconnected masked-data "island" if the grid has any null cells.
    */
   static buildBoundaryLoops(grid, rows, cols, bounds) {
-    const loops = [this.buildRectangleLoop(grid, rows, cols, bounds)];
+    const loops = [
+      ContourRingGeometry.buildRectangleLoop(grid, rows, cols, bounds),
+    ];
 
     const hasNull = grid.some((row) =>
       row.some((v) => v === null || v === undefined || isNaN(v)),
     );
     if (!hasNull) return loops;
 
-    const segs = this.traceMaskBoundary(grid, rows, cols, bounds);
+    const segs = ContourRingGeometry.traceMaskBoundary(
+      grid,
+      rows,
+      cols,
+      bounds,
+    );
     if (!segs.length) return loops;
 
     const stitched =
@@ -274,10 +281,10 @@ export class ContourRingGeometry {
       const closed =
         Math.hypot(first.lat - last.lat, first.lon - last.lon) < 1e-9;
       if (!closed) return;
-      const smoothed = this.recomputeSmoothNormals(
-        this.smoothLoopPoints(path.slice(0, -1), 3),
+      const smoothed = ContourRingGeometry.recomputeSmoothNormals(
+        ContourRingGeometry.smoothLoopPoints(path.slice(0, -1), 3),
       );
-      loops.push(this.toLoop(smoothed));
+      loops.push(ContourRingGeometry.toLoop(smoothed));
     });
 
     return loops;
@@ -625,7 +632,7 @@ export class ContourRingGeometry {
             const extrapStart = prevBoundary.length === 0;
             const extrapEnd = segments[i].boundaryPtsAfter.length === 0;
             ring.push(
-              ...this.tangentExtrapolate(
+              ...ContourRingGeometry.tangentExtrapolate(
                 segments[i].curvePts,
                 loop.diag,
                 extrapStart,
@@ -716,7 +723,12 @@ export class ContourRingGeometry {
    * @returns {Array<{ratio:number, rings:Array, holesByRingIndex:Array<Array>}>}
    */
   static buildIsobandRings(contours, grid, rows, cols, bounds) {
-    const loops = this.buildBoundaryLoops(grid, rows, cols, bounds);
+    const loops = ContourRingGeometry.buildBoundaryLoops(
+      grid,
+      rows,
+      cols,
+      bounds,
+    );
 
     return contours.map((c) => {
       const stitchedPaths =
@@ -744,10 +756,17 @@ export class ContourRingGeometry {
       });
 
       // Edge-touching rings — closed against real grid boundary loops.
-      const closedFromOpen = this.closeOpenPaths(openPaths, loops, c.level);
+      const closedFromOpen = ContourRingGeometry.closeOpenPaths(
+        openPaths,
+        loops,
+        c.level,
+      );
 
       const rings = [...closedPaths, ...closedFromOpen];
-      const holesByRingIndex = this.findInteriorHoles(rings, loops);
+      const holesByRingIndex = ContourRingGeometry.findInteriorHoles(
+        rings,
+        loops,
+      );
 
       return { ratio: c.ratio, rings, holesByRingIndex };
     });

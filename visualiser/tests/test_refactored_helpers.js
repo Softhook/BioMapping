@@ -11,10 +11,10 @@
  *      or: npm test  (picked up by the glob)
  */
 
-const assert = require('assert');
+const assert = require('node:assert');
 const test = require('node:test');
-const fs = require('fs');
-const path = require('path');
+const fs = require('node:fs');
+const path = require('node:path');
 const { loadModule } = require('./support/load_module.js');
 
 // ── Loader helpers ────────────────────────────────────────────────────────────
@@ -680,8 +680,8 @@ test('GsrFilter.applyMedianFilter: delegates correctly to applyPercentileFilter'
 test('MapColors.ROAD_COLORS is populated and matches getColorForMetric', () => {
   const MapColors = global.MapColors;
   assert.ok(MapColors.ROAD_COLORS, 'ROAD_COLORS exists');
-  assert.strictEqual(MapColors.ROAD_COLORS['motorway'], '#ff0055');
-  assert.strictEqual(MapColors.ROAD_COLORS['primary'], '#ff6600');
+  assert.strictEqual(MapColors.ROAD_COLORS.motorway, '#ff0055');
+  assert.strictEqual(MapColors.ROAD_COLORS.primary, '#ff6600');
 
   // Verify getColorForMetric maps correctly
   assert.strictEqual(

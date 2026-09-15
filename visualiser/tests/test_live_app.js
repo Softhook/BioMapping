@@ -21,9 +21,9 @@
  * Run: node --test tests/test_live_app.js  (or `npm test` for the whole suite)
  */
 
-const assert = require('assert');
+const assert = require('node:assert');
 const test = require('node:test');
-const vm = require('vm');
+const vm = require('node:vm');
 const { bootLive } = require('./support/boot_live.js');
 
 // `context` is accepted (and ignored) throughout this file for historical

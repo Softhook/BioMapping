@@ -2,12 +2,13 @@
  * GSRLayoutManager
  * Centralized manager for window sizing, ResizeObservers, and panel/browser fullscreen overlays.
  */
-import { AppState } from './app_state.mjs';
-import { GSRFullscreen } from './fullscreen.mjs';
+
 import { GSRLiveView } from '../live/live_view.mjs';
 import { GSRGlobe3DView } from '../map/globe3d_view.mjs';
 import { GSRRenderer } from '../render/renderer.mjs';
 import { GSRUI } from '../ui/ui.mjs';
+import { AppState } from './app_state.mjs';
+import { GSRFullscreen } from './fullscreen.mjs';
 
 export const GSRLayoutManager = {
   // Active panel-fullscreen exit callbacks
@@ -187,10 +188,10 @@ export const GSRLayoutManager = {
    */
   resizeMap(w, h) {
     if (w > 0 && h > 0) {
-      if (AppState.mapManager && AppState.mapManager.map) {
+      if (AppState.mapManager?.map) {
         AppState.mapManager.map.invalidateSize();
       }
-      if (typeof GSRGlobe3DView !== 'undefined' && GSRGlobe3DView.onResize) {
+      if (GSRGlobe3DView?.onResize) {
         GSRGlobe3DView.onResize();
       }
     }
@@ -208,7 +209,7 @@ export const GSRLayoutManager = {
    */
   enterDisplayMode() {
     const active = this._activeFullscreenPanel;
-    if (!active || !active.overlay) return;
+    if (!active?.overlay) return;
 
     AppState.isDisplayMode = true;
     active.overlay.classList.add('display-mode', 'total-fullscreen');
@@ -230,7 +231,7 @@ export const GSRLayoutManager = {
     // element itself is left as-is (matches the previous behaviour).
     GSRFullscreen.clearTarget();
 
-    if (active && active.overlay) {
+    if (active?.overlay) {
       active.overlay.classList.remove('display-mode', 'total-fullscreen');
       this._triggerPanelResize(active.panelId, active.overlay);
     }
@@ -261,7 +262,7 @@ export const GSRLayoutManager = {
   /** @private Whether Live display mode is currently on. */
   _liveDisplayModeActive() {
     const app = document.querySelector('.app-container');
-    return !!(app && app.classList.contains('live-display-mode'));
+    return !!app?.classList.contains('live-display-mode');
   },
 
   /**
@@ -289,7 +290,7 @@ export const GSRLayoutManager = {
     // Always (re)assert — sets GSRFullscreen's sticky target so a lock/unlock
     // re-enters fullscreen instead of silently dropping the user out.
     GSRFullscreen.request(app);
-    if (typeof GSRLiveView !== 'undefined' && GSRLiveView.onDisplayModeChange) {
+    if (GSRLiveView?.onDisplayModeChange) {
       GSRLiveView.onDisplayModeChange(true);
     }
   },
@@ -305,7 +306,7 @@ export const GSRLayoutManager = {
       btn.classList.remove('is-fullscreen');
     }
     GSRFullscreen.exit();
-    if (typeof GSRLiveView !== 'undefined' && GSRLiveView.onDisplayModeChange) {
+    if (GSRLiveView?.onDisplayModeChange) {
       GSRLiveView.onDisplayModeChange(false);
     }
   },
@@ -316,11 +317,11 @@ export const GSRLayoutManager = {
    */
   _triggerPanelResize(panelId, overlay) {
     const w =
-      (overlay && overlay.clientWidth) ||
+      overlay?.clientWidth ||
       window.innerWidth ||
       document.documentElement.clientWidth;
     const h =
-      (overlay && overlay.clientHeight) ||
+      overlay?.clientHeight ||
       window.innerHeight ||
       document.documentElement.clientHeight;
 
@@ -408,11 +409,7 @@ export const GSRLayoutManager = {
       // #liveMap is under no ResizeObserver — re-measure it now that the
       // viewport has actually changed size (the request()/exit() call that
       // started this is async; the size only settles here).
-      if (
-        this._isLiveView() &&
-        typeof GSRLiveView !== 'undefined' &&
-        GSRLiveView.onDisplayModeChange
-      ) {
+      if (this._isLiveView() && GSRLiveView?.onDisplayModeChange) {
         GSRLiveView.onDisplayModeChange(active);
       }
     });
@@ -503,13 +500,13 @@ export const GSRLayoutManager = {
       const icon = btn.querySelector('i');
       if (icon) icon.classList.replace('fa-compress', 'fa-expand');
 
-      if (marker && marker.parentNode) {
+      if (marker?.parentNode) {
         marker.parentNode.insertBefore(panel, marker);
         marker.remove();
         marker = null;
       }
 
-      if (overlay && overlay.parentNode) {
+      if (overlay?.parentNode) {
         overlay.remove();
         overlay = null;
       }

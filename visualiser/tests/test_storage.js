@@ -6,7 +6,7 @@
  * Run: node --test tests/test_storage.js  (or `npm test` for the whole suite)
  */
 
-const assert = require('assert');
+const assert = require('node:assert');
 const test = require('node:test');
 
 const GSR_CONST_MOCK = require('./mock_constants.js');

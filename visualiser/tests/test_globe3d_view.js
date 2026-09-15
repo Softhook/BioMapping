@@ -10,10 +10,10 @@
  * src/ui/events.js (bindSurfaceSwitcher) for the code under test.
  */
 
-const assert = require('assert');
+const assert = require('node:assert');
 const test = require('node:test');
-const fs = require('fs');
-const path = require('path');
+const fs = require('node:fs');
+const path = require('node:path');
 const { bootApp } = require('./support/boot_app.js');
 
 const APP_DIR = path.join(__dirname, '..');
@@ -564,7 +564,7 @@ test('_editPeakLabel mounts the map peak popup in the globe container and closes
   );
   const pop = window.document.getElementById('globe3dPeakPopup');
   assert.ok(
-    pop && pop.querySelector('.map-popup-card'),
+    pop?.querySelector('.map-popup-card'),
     'popup mounted with the map card',
   );
   // No close button: it's redundant now that Escape/click-outside dismisses
@@ -925,7 +925,7 @@ test('renderer.handleScrubber does not wipe a globe-owned hover (ownership token
     'globe-owned hover survived the per-frame pass',
   );
   assert.strictEqual(AppState.scrubSource, 'globe');
-  assert.ok(!emitted.some((p) => p && p.clear), 'no spurious clear emitted');
+  assert.ok(!emitted.some((p) => p?.clear), 'no spurious clear emitted');
 
   AppState.emit = origEmit;
 });

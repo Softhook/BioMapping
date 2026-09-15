@@ -12,9 +12,9 @@
  * this._getOrBuildDrawPoints (map_manager_process.js).
  */
 import { AppState } from '../core/app_state.mjs';
-import { GSRMapManager } from './map.mjs';
 import { NDVISampler } from '../osm/ndvi_sampler.mjs';
 import { OSMEnricher } from '../osm/osm_enrichment.mjs';
+import { GSRMapManager } from './map.mjs';
 
 export const __methods = {
   /**
@@ -24,7 +24,7 @@ export const __methods = {
    */
   drawOsmShapes(geoms) {
     this.clearOsmShapes();
-    if (!geoms || !geoms.ways || !this.map) return;
+    if (!geoms?.ways || !this.map) return;
 
     let points = this._lastDrawPoints || [];
     if (
@@ -236,7 +236,7 @@ export const __methods = {
         attribution: 'NDVI © Copernicus / ESA',
       }).addTo(this.map);
       this.ndviTileLayer.on('tileunload', (e) => {
-        if (e && e.tile && e.tile.tagName === 'CANVAS') {
+        if (e?.tile && e.tile.tagName === 'CANVAS') {
           e.tile.width = 0;
           e.tile.height = 0;
         }

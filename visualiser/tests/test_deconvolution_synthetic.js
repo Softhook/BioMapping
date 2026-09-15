@@ -18,9 +18,9 @@
  * Run: node --test tests/test_deconvolution_synthetic.js
  */
 
-const assert = require('assert');
+const assert = require('node:assert');
 const test = require('node:test');
-const path = require('path');
+const path = require('node:path');
 
 global.window = global;
 global.GSR_CONST = require('./mock_constants.js');
@@ -74,7 +74,7 @@ function buildSyntheticCSV(scrs, durationSec, tonicLevel, noiseSd) {
   for (let i = 0; i < n; i++) {
     const t = i / SR;
     const noise = noiseSd > 0 ? noiseSd * nextRand() : 0;
-    rows.push(t.toFixed(3) + ',' + (tonicLevel + phasic[i] + noise).toFixed(6));
+    rows.push(`${t.toFixed(3)},${(tonicLevel + phasic[i] + noise).toFixed(6)}`);
   }
 
   const kPeakSec = kPeakIdx / SR;
@@ -140,7 +140,7 @@ test('synthetic: single isolated SCR is recovered (count = 1)', () => {
   assert.strictEqual(
     a.peaks.length,
     1,
-    'expected exactly 1 peak, got ' + a.peaks.length,
+    `expected exactly 1 peak, got ${a.peaks.length}`,
   );
   const diff = Math.abs(a.peaks[0].time - b.truePeakTimes[0]);
   assert.ok(
@@ -166,7 +166,7 @@ test('synthetic: five well-isolated SCRs are all recovered', () => {
   assert.strictEqual(
     a.peaks.length,
     scrs.length,
-    'expected ' + scrs.length + ' peaks, got ' + a.peaks.length,
+    `expected ${scrs.length} peaks, got ${a.peaks.length}`,
   );
 
   let matched = 0;
@@ -259,7 +259,7 @@ test('synthetic: all peaks respect peakThreshold', () => {
   assert.strictEqual(
     violations.length,
     0,
-    violations.length + ' peaks below threshold ' + threshold,
+    `${violations.length} peaks below threshold ${threshold}`,
   );
 });
 
@@ -280,7 +280,7 @@ test('synthetic: no two peaks closer than minImpulseGapSec', () => {
     minActualGap = Math.min(minActualGap, times[i] - times[i - 1]);
   assert.ok(
     times.length < 2 || minActualGap >= minGap - 1e-9,
-    'min gap = ' + minActualGap.toFixed(3) + 's, must be >= ' + minGap + 's',
+    `min gap = ${minActualGap.toFixed(3)}s, must be >= ${minGap}s`,
   );
 });
 
@@ -329,12 +329,12 @@ test('synthetic: deconvolution is deterministic', () => {
     assert.strictEqual(
       a1.peaks[i].time,
       a2.peaks[i].time,
-      'peak[' + i + '].time differs between runs',
+      `peak[${i}].time differs between runs`,
     );
     assert.strictEqual(
       a1.peaks[i].amplitude,
       a2.peaks[i].amplitude,
-      'peak[' + i + '].amplitude differs between runs',
+      `peak[${i}].amplitude differs between runs`,
     );
   }
 });
@@ -383,7 +383,7 @@ test('synthetic: noiseless single SCR — exactly 1 peak within 1.5s of true ape
   assert.strictEqual(
     a.peaks.length,
     1,
-    'noiseless single SCR must produce exactly 1 peak, got ' + a.peaks.length,
+    `noiseless single SCR must produce exactly 1 peak, got ${a.peaks.length}`,
   );
   const diff = Math.abs(a.peaks[0].time - b.truePeakTimes[0]);
   assert.ok(

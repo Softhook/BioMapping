@@ -2,9 +2,9 @@
 // all the peaks and hotspots were left behind." Renders collective with N
 // tracks, then deletes tracks one by one (deleteTrack) and after each deletion
 // reports what render layers remain ON the map and in the manager registries.
-const fs = require('fs');
-const path = require('path');
-const vm = require('vm');
+const fs = require('node:fs');
+const path = require('node:path');
+const vm = require('node:vm');
 const { bootApp } = require('../support/boot_app.js');
 
 const { window, context } = bootApp();

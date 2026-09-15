@@ -22,8 +22,8 @@
  * Run: node tests/manual/esm_migration/build_import_manifest.js
  */
 
-const fs = require('fs');
-const path = require('path');
+const fs = require('node:fs');
+const path = require('node:path');
 const espree = require('espree');
 const eslintScope = require('eslint-scope');
 const { topLevelDeclaredNames } = require('./lib/top_level_names.js');

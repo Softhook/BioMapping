@@ -37,8 +37,8 @@
  * Usage: node convert_file.js <relative/path/to/src/file.js> [--write]
  * Without --write, prints the converted source to stdout for review.
  */
-const fs = require('fs');
-const path = require('path');
+const fs = require('node:fs');
+const path = require('node:path');
 const espree = require('espree');
 
 const APP_DIR = path.join(__dirname, '..', '..', '..');
@@ -206,7 +206,7 @@ function relativeImportPath(fromFile, toFile) {
   const fromDir = path.dirname(fromFile);
   const toMjs = toFile.replace(/\.js$/, '.mjs');
   let rel = path.relative(fromDir, toMjs).split(path.sep).join('/');
-  if (!rel.startsWith('.')) rel = './' + rel;
+  if (!rel.startsWith('.')) rel = `./${rel}`;
   return rel;
 }
 
@@ -287,12 +287,10 @@ function convert(relFile, manifestEntry) {
   // statement's own range, never reaching bodyRange[1] or beyond).
   const header = src.slice(0, ast.body[0].range[0]);
 
-  const importBlock = importLines.length ? importLines.join('\n') + '\n\n' : '';
-  return (
-    (header + importBlock + bodyText)
-      .replace(/\n{3,}/g, '\n\n')
-      .replace(/\s+$/, '\n') + '\n'
-  );
+  const importBlock = importLines.length ? `${importLines.join('\n')}\n\n` : '';
+  return `${(header + importBlock + bodyText)
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/\s+$/, '\n')}\n`;
 }
 
 module.exports = {

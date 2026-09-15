@@ -53,34 +53,26 @@ import { GSR_CONST } from '../core/constants.mjs';
 import { GSRFileSaver } from '../core/file_saver.mjs';
 import { GSRFullscreen } from '../core/fullscreen.mjs';
 import { GSRLayoutManager } from '../core/layout_manager.mjs';
+import { GSRAnalyzer } from '../signal/analyzer.mjs';
 import { GSRLiveBluetoothManager } from './live_bluetooth.mjs';
 import { buildLiveCsv } from './live_csv.mjs';
-import { LIVE_GRAPH_VIEWS, NS_TO_US, drawGraph } from './live_graph.mjs';
+import { drawGraph, LIVE_GRAPH_VIEWS, NS_TO_US } from './live_graph.mjs';
 import {
-  LIVE_ZOOM,
   allTrackSegments,
   cacheCurrentMapArea,
   clearLiveMapMarkers,
   flushSettledSegments,
-  gsrMax,
-  gsrMin,
   hideMap,
-  lastLivePanAt,
-  liveLastLatLng,
+  LIVE_ZOOM,
   liveMap,
-  liveMarker,
   pendingSegments,
-  phasicMax,
   recolorAllTrackSegments,
   renderLiveMapMarkers,
   resetLiveMapSession,
   showMap,
-  tonicMax,
-  tonicMin,
   updateLiveMap,
 } from './live_map.mjs';
 import { LiveState } from './live_state.mjs';
-import { GSRAnalyzer } from '../signal/analyzer.mjs';
 
 export const LIVE_MOBILE_QUERY =
   '((max-width: 768px) and (pointer: coarse)), ((max-height: 500px) and (pointer: coarse))';
@@ -222,30 +214,29 @@ export const LIVE_VIEW_MARKUP = `
 // The app's shipped GSR defaults, no slider UI. Deconvolution and prominence
 // stay off: full-scan trough-to-peak is O(n) and the only detector that
 // stays real-time safe on a continuously growing buffer.
-export const LIVE_ANALYZE_PARAMS =
-  typeof GSR_CONST !== 'undefined' && GSR_CONST.GSR_DEFAULT
-    ? Object.assign({}, GSR_CONST.GSR_DEFAULT, {
-        useDeconvolution: false,
-        useSparsEDA: false,
-        usePeakProminence: false,
-        useCvxEDA: false,
-      })
-    : {
-        medianSize: 0,
-        lpfWindow: 0,
-        useGaitFilter: true,
-        tonicMethod: 'lpf',
-        tonicWindow: 45,
-        peakThreshold: 0.045,
-        shapeMinSnr: 2.5,
-        minPeakQuality: 0,
-        peakDensityWindow: 30,
-        hotspotPercentile: 0.02,
-        useDeconvolution: false,
-        useSparsEDA: false,
-        usePeakProminence: false,
-        useCvxEDA: false,
-      };
+export const LIVE_ANALYZE_PARAMS = GSR_CONST?.GSR_DEFAULT
+  ? Object.assign({}, GSR_CONST.GSR_DEFAULT, {
+      useDeconvolution: false,
+      useSparsEDA: false,
+      usePeakProminence: false,
+      useCvxEDA: false,
+    })
+  : {
+      medianSize: 0,
+      lpfWindow: 0,
+      useGaitFilter: true,
+      tonicMethod: 'lpf',
+      tonicWindow: 45,
+      peakThreshold: 0.045,
+      shapeMinSnr: 2.5,
+      minPeakQuality: 0,
+      peakDensityWindow: 30,
+      hotspotPercentile: 0.02,
+      useDeconvolution: false,
+      useSparsEDA: false,
+      usePeakProminence: false,
+      useCvxEDA: false,
+    };
 
 // analyze() cost is linear in the number of rows it's handed. feedLiveAnalyzer()
 // keeps that flat two ways:
@@ -379,7 +370,7 @@ export function feedLiveAnalyzer() {
   for (let i = 0; i < ph.length; i++) {
     const pkt = pkts[liveAnalyzerBase + i];
     pkt.phasic = ph[i].val;
-    if (tn && tn[i]) pkt.tonic = tn[i].val;
+    if (tn?.[i]) pkt.tonic = tn[i].val;
   }
   flushSettledSegments();
   renderLiveMapMarkers();
@@ -541,7 +532,7 @@ export const LiveConnectionController = {
     }
     // If we already have a device, try lightweight reconnect first to
     // preserve the current walk session and packet buffer.
-    if (bleManager && bleManager.device && !needNewConnection) {
+    if (bleManager?.device && !needNewConnection) {
       const ok = await bleManager.manualReconnect();
       if (ok) return;
       // Lightweight reconnect failed: the session or bond cannot be resumed
@@ -604,7 +595,7 @@ export const LiveConnectionController = {
     } catch (e) {
       LiveState.setStatus('disconnected');
       if (connectErr)
-        connectErr.textContent = e && e.message ? e.message : String(e);
+        connectErr.textContent = e?.message ? e.message : String(e);
     }
   },
 };
@@ -619,13 +610,13 @@ export function renderStatus(status) {
   const [text, cls] = labels[status] || ['Not connected', ''];
   if (statusBadge) {
     statusBadge.textContent = text;
-    statusBadge.className = 'badge' + (cls ? ' ' + cls : '');
+    statusBadge.className = `badge${cls ? ` ${cls}` : ''}`;
   }
 
   const headerBadge = document.getElementById('appHeaderStatusBadge');
   if (headerBadge) {
     headerBadge.textContent = text;
-    headerBadge.className = 'badge' + (cls ? ' ' + cls : '');
+    headerBadge.className = `badge${cls ? ` ${cls}` : ''}`;
   }
 
   LiveConnectionController.render(status);
@@ -1018,10 +1009,7 @@ export function bindLiveMapControls() {
   const liveBtnExitDisplay = document.getElementById('liveBtnExitDisplay');
   if (liveBtnExitDisplay) {
     liveBtnExitDisplay.addEventListener('click', () => {
-      if (
-        typeof GSRLayoutManager !== 'undefined' &&
-        GSRLayoutManager.exitLiveDisplayMode
-      ) {
+      if (GSRLayoutManager?.exitLiveDisplayMode) {
         GSRLayoutManager.exitLiveDisplayMode();
       }
     });
@@ -1031,7 +1019,7 @@ export function bindLiveMapControls() {
   if (metricGroup) {
     metricGroup.addEventListener('click', (e) => {
       const btn = e.target.closest('button[data-metric]');
-      if (btn && btn.dataset.metric) setLiveGraphMetric(btn.dataset.metric);
+      if (btn?.dataset.metric) setLiveGraphMetric(btn.dataset.metric);
     });
   }
 
@@ -1042,8 +1030,7 @@ export function bindLiveMapControls() {
       if (LiveState.packets && LiveState.packets.length > 0) {
         const lastPkt = LiveState.packets[LiveState.packets.length - 1];
         if (
-          lastPkt &&
-          lastPkt.valid &&
+          lastPkt?.valid &&
           Number.isFinite(lastPkt.lat) &&
           Number.isFinite(lastPkt.lon)
         ) {
@@ -1064,7 +1051,7 @@ export function bindLiveMapControls() {
           );
         },
         (err) => {
-          alert('Could not get your location: ' + err.message);
+          alert(`Could not get your location: ${err.message}`);
         },
         { enableHighAccuracy: true, timeout: 10000 },
       );

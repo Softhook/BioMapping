@@ -24,8 +24,8 @@
  * Run: node visualiser/tests/test_default_detector.js
  */
 
-const fs = require('fs');
-const path = require('path');
+const fs = require('node:fs');
+const path = require('node:path');
 
 global.window = global;
 global.GSR_CONST = require('./mock_constants.js');

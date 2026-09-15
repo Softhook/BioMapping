@@ -26,7 +26,7 @@ export const __methods = {
       AppState.viewMode === 'single'
         ? AppState.analyzer
         : AppState.collectiveManager;
-    if (cacheTarget && cacheTarget._cachedEnvStats) {
+    if (cacheTarget?._cachedEnvStats) {
       const stats = cacheTarget._cachedEnvStats;
       this.renderRoadProfile(stats.roadProfile, stats.roadComparison);
     }
@@ -159,7 +159,7 @@ export const __methods = {
       // (Bonferroni over the k-choose-2 contrasts), with the raw p shown too.
       if (comparison && isFinite(comparison.pAdj)) {
         const fmtP = (v) =>
-          v < 0.001 ? 'p &lt; 0.001' : 'p = ' + v.toFixed(3);
+          v < 0.001 ? 'p &lt; 0.001' : `p = ${v.toFixed(3)}`;
         const selNote =
           comparison.nGroups > 2
             ? ` (widest gap among ${comparison.nGroups} road classes, so corrected for that choice; raw ${fmtP(comparison.p)})`

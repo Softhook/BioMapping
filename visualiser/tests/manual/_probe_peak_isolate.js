@@ -1,9 +1,9 @@
 // Isolate why biomap_009 renders nothing in single mode despite GPS fixes.
 // Loads ONE track, clicks it, then calls renderData() directly and compares
 // on-map layers + inspects the GPS pipeline intermediate counts.
-const fs = require('fs');
-const path = require('path');
-const vm = require('vm');
+const fs = require('node:fs');
+const path = require('node:path');
+const vm = require('node:vm');
 const { bootApp } = require('../support/boot_app.js');
 
 const { window, context } = bootApp();
@@ -290,7 +290,7 @@ window.GSRTrackManager.loadFilesSequentially(trackFiles);
 
 const errors = [];
 window.addEventListener('error', (e) => {
-  errors.push((e.error && e.error.stack) || e.message || String(e));
+  errors.push(e.error?.stack || e.message || String(e));
 });
 const alerts = [];
 window.alert = (m) => {

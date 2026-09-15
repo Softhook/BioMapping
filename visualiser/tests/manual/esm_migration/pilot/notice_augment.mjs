@@ -7,6 +7,6 @@
  */
 export const augmentMethods = {
   showUrgent(msg) {
-    this.show('URGENT: ' + msg);
+    this.show(`URGENT: ${msg}`);
   },
 };

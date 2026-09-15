@@ -5,7 +5,7 @@
  * Run: node --test tests/test_map_colors.js  (or `npm test` for the whole suite)
  */
 
-const assert = require('assert');
+const assert = require('node:assert');
 const test = require('node:test');
 
 const { MapColors } = require('../src/map/map_colors.mjs');

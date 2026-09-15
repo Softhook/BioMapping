@@ -7,7 +7,7 @@
  * Run: node --test tests/test_spectral_eda.js  (or `npm test`)
  */
 
-const assert = require('assert');
+const assert = require('node:assert');
 const test = require('node:test');
 
 const { SpectralEDA } = require('../src/signal/spectral_eda.mjs');

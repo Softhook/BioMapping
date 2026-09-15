@@ -43,10 +43,9 @@ export const __methods = {
     // (which is on the map), never directly onto the map. When there is no
     // managed track for this analyzer (e.g. cacheKey 'single' fallback), the
     // renderers fall back to the legacy direct-to-map path.
-    const activeTrack =
-      typeof AppState !== 'undefined' && AppState.collectiveManager
-        ? AppState.collectiveManager.getTrack(AppState.activeTrackId)
-        : null;
+    const activeTrack = AppState?.collectiveManager
+      ? AppState.collectiveManager.getTrack(AppState.activeTrackId)
+      : null;
     const layerGroup = this._getTrackLayerGroup(activeTrack);
 
     // Use cached GPS pipeline result (cache keyed by active track id)
@@ -77,7 +76,7 @@ export const __methods = {
       if (this.rfFluidRenderer) {
         this.rfFluidRenderer.setData(drawPoints, analyzer.osmGeoms);
       }
-      this._updateRfFluidButtonState(!!(analyzer && analyzer.hasRfData));
+      this._updateRfFluidButtonState(!!analyzer?.hasRfData);
       this._renderPathSegments(
         drawPoints,
         p.trackWeight || 5,
@@ -127,8 +126,7 @@ export const __methods = {
 
     // Let the 3D globe (if mounted) pull the fresh drawPoints / metric / legend
     // range. See src/map/globe3d_view.js.
-    if (typeof AppState !== 'undefined' && AppState.emit)
-      AppState.emit('map:rendered');
+    if (AppState?.emit) AppState.emit('map:rendered');
   },
 
   /**
@@ -143,7 +141,7 @@ export const __methods = {
     for (const layer of track._ownedLayers || []) {
       if (kindSet.has(layer._gsrKind)) {
         if (this.map.hasLayer(layer)) this.map.removeLayer(layer);
-        if (track.layerGroup && track.layerGroup.hasLayer(layer)) {
+        if (track.layerGroup?.hasLayer(layer)) {
           track.layerGroup.removeLayer(layer);
         }
       } else {
@@ -162,8 +160,7 @@ export const __methods = {
     this._stripOwnedLayersByKind(track, kindSet);
     renderFn();
     if (updateVisibility) this.updateMarkerVisibility();
-    if (typeof AppState !== 'undefined' && AppState.emit)
-      AppState.emit('map:rendered');
+    if (AppState?.emit) AppState.emit('map:rendered');
   },
 
   /**
@@ -209,10 +206,9 @@ export const __methods = {
     const p = gpsParams || {};
     const opts = options || {};
 
-    const activeTrack =
-      typeof AppState !== 'undefined' && AppState.collectiveManager
-        ? AppState.collectiveManager.getTrack(AppState.activeTrackId)
-        : null;
+    const activeTrack = AppState?.collectiveManager
+      ? AppState.collectiveManager.getTrack(AppState.activeTrackId)
+      : null;
 
     if (!activeTrack) {
       this.renderData(analyzer, gpsParams);
@@ -253,10 +249,9 @@ export const __methods = {
     if (!this.map || !analyzer) return;
     const p = gpsParams || {};
 
-    const activeTrack =
-      typeof AppState !== 'undefined' && AppState.collectiveManager
-        ? AppState.collectiveManager.getTrack(AppState.activeTrackId)
-        : null;
+    const activeTrack = AppState?.collectiveManager
+      ? AppState.collectiveManager.getTrack(AppState.activeTrackId)
+      : null;
 
     if (!activeTrack) {
       this.renderData(analyzer, gpsParams);

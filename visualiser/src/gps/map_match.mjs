@@ -133,8 +133,8 @@ export const MapMatcher = {
 
       // If the GPS sequence has a large time gap, break the Markov chain —
       // the transition probability should not carry across a 30 s gap.
-      const tPrev = (raw[evalPoints[t - 1].idx] || {}).time || 0;
-      const tCurr = (raw[evalPoints[t].idx] || {}).time || 0;
+      const tPrev = raw[evalPoints[t - 1].idx]?.time || 0;
+      const tCurr = raw[evalPoints[t].idx]?.time || 0;
       const broken = tCurr - tPrev > this.MAX_GAP_S || prevCands.length === 0;
 
       const gLat1 = evalPoints[t - 1].lat,
@@ -315,14 +315,8 @@ export const MapMatcher = {
         // HEADING_W/SPEED_GATE come from GSR_CONST.SNAP (constants.js) — the single
         // source of truth for these two tuning values, so they can't drift out of sync
         // with each other the way they previously did as separately-hardcoded literals here.
-        const speedGate =
-          typeof GSR_CONST !== 'undefined' && GSR_CONST.SNAP
-            ? GSR_CONST.SNAP.SPEED_GATE
-            : 0.3;
-        const headingW =
-          typeof GSR_CONST !== 'undefined' && GSR_CONST.SNAP
-            ? GSR_CONST.SNAP.HEADING_W
-            : 0.7;
+        const speedGate = GSR_CONST?.SNAP ? GSR_CONST.SNAP.SPEED_GATE : 0.3;
+        const headingW = GSR_CONST?.SNAP ? GSR_CONST.SNAP.HEADING_W : 0.7;
         if (!isNaN(speedMs) && speedMs >= speedGate && !isNaN(courseDeg)) {
           const courseRad = (courseDeg * Math.PI) / 180;
           const segBearing = this._segmentBearing(a.lat, a.lon, b.lat, b.lon);

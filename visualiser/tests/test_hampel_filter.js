@@ -1,6 +1,6 @@
 const test = require('node:test');
-const assert = require('assert');
-const path = require('path');
+const assert = require('node:assert');
+const path = require('node:path');
 
 global.window = global;
 global.GSR_CONST = require('./mock_constants.js');

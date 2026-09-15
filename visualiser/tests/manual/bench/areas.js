@@ -409,7 +409,7 @@ const renderCollective = {
     { key: 'buildMs', label: '  of which buildPlaces' },
   ],
   run({ h, window, context, mapManager, tracks, opts }) {
-    const vm = require('vm');
+    const vm = require('node:vm');
     window.AppState.viewMode = 'collective';
     const contourParams = {
       gridResolution: 40,

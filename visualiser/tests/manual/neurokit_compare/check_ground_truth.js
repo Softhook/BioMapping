@@ -21,9 +21,9 @@
  *   node check_ground_truth.js <ground_truth.json> <neurokit.json> <track.csv>
  */
 
-const fs = require('fs');
-const path = require('path');
-const vm = require('vm');
+const fs = require('node:fs');
+const path = require('node:path');
+const vm = require('node:vm');
 
 global.window = global;
 global.GSR_CONST = require('../../mock_constants.js');
@@ -189,8 +189,8 @@ function aggregateStats(resultsList) {
 }
 
 function fmt(label, s) {
-  const pct = (x) => (Number.isNaN(x) ? 'n/a' : (100 * x).toFixed(1) + '%');
-  const base = `  ${label.padEnd(20)} recall ${pct(s.recall).padStart(6)}  precision ${pct(s.precision).padStart(6)}  F1 ${s.f1.toFixed(3)}  TP ${String(s.tp).padStart(4)} FN ${String(s.fn).padStart(4)} FP ${String(s.fp).padStart(4)}  mean|delta| ${Number.isNaN(s.meanDelta) ? 'n/a' : s.meanDelta.toFixed(3) + 's'}`;
+  const pct = (x) => (Number.isNaN(x) ? 'n/a' : `${(100 * x).toFixed(1)}%`);
+  const base = `  ${label.padEnd(20)} recall ${pct(s.recall).padStart(6)}  precision ${pct(s.precision).padStart(6)}  F1 ${s.f1.toFixed(3)}  TP ${String(s.tp).padStart(4)} FN ${String(s.fn).padStart(4)} FP ${String(s.fp).padStart(4)}  mean|delta| ${Number.isNaN(s.meanDelta) ? 'n/a' : `${s.meanDelta.toFixed(3)}s`}`;
   const a = s.amp;
   const ampStr = a.n
     ? `amp: meanAbsErr ${a.meanAbsErr.toFixed(3)}uS  meanRelErr ${(100 * a.meanRelErr).toFixed(1)}%  r ${a.r.toFixed(4)}`

@@ -1,8 +1,8 @@
 // Temporary probe: reproduce "RF fluid visible in collective mode even when the
 // RF Fluid button is not pressed." Traces the sync between the button's
 // 'active' class, GSRMapManager.showRFFluid, and the RFFluidRenderer visibility.
-const path = require('path');
-const vm = require('vm');
+const path = require('node:path');
+const vm = require('node:vm');
 const { bootApp } = require('../support/boot_app.js');
 
 const { window, context } = bootApp();
@@ -276,8 +276,7 @@ mm._updateRfFluidButtonState(true);
 state('after _updateRfFluidButtonState(true)');
 
 console.log('\n— bug check —');
-const fluidRenders =
-  mm.showRFFluid && mm.rfFluidRenderer && mm.rfFluidRenderer.options.visible;
+const fluidRenders = mm.showRFFluid && mm.rfFluidRenderer?.options.visible;
 const buttonPressed = btn.classList.contains('active');
 console.log(
   `button pressed? ${buttonPressed} | fluid will render? ${fluidRenders}`,
@@ -296,8 +295,7 @@ mm._updateRfFluidButtonState(false); // render a no-RF track
 state('after no-RF render');
 mm._updateRfFluidButtonState(true); // collective render with RF track
 state('after RF render');
-const fluidRendersB =
-  mm.showRFFluid && mm.rfFluidRenderer && mm.rfFluidRenderer.options.visible;
+const fluidRendersB = mm.showRFFluid && mm.rfFluidRenderer?.options.visible;
 const buttonPressedB = btn.classList.contains('active');
 console.log(
   `button pressed? ${buttonPressedB} | fluid will render? ${fluidRendersB}`,

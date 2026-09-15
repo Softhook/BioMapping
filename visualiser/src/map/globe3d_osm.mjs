@@ -11,9 +11,10 @@
  * Assigned onto GSRGlobeManager.prototype via Object.assign at the file's
  * tail (a plain ESM static import/export, loaded once by app_entry.mjs).
  */
-import { GSRGlobeManager } from './globe3d.mjs';
-import { GSRGlobe3DBuildings } from './globe3d/buildings.mjs';
+
 import { OSMEnricher } from '../osm/osm_enrichment.mjs';
+import { GSRGlobe3DBuildings } from './globe3d/buildings.mjs';
+import { GSRGlobeManager } from './globe3d.mjs';
 
 export const __methods = {
   /**

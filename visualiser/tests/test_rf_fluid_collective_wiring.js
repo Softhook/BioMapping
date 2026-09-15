@@ -18,7 +18,7 @@
  * Run: node --test tests/test_rf_fluid_collective_wiring.js
  */
 
-const assert = require('assert');
+const assert = require('node:assert');
 const test = require('node:test');
 const { bootApp } = require('./support/boot_app.js');
 

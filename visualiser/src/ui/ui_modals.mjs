@@ -37,13 +37,12 @@ export const __methods = {
     this._svHeading = cleanHeading;
 
     titleEl.textContent = label
-      ? 'Street-Level View — ' + label
+      ? `Street-Level View — ${label}`
       : 'Street-Level View';
-    coordsEl.textContent = lat.toFixed(5) + ', ' + lon.toFixed(5);
+    coordsEl.textContent = `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
 
     // Set Mapillary embed URL
-    mapillaryIframe.src =
-      'https://www.mapillary.com/embed?lat=' + lat + '&lng=' + lon + '&z=18';
+    mapillaryIframe.src = `https://www.mapillary.com/embed?lat=${lat}&lng=${lon}&z=18`;
 
     // Set Google Maps external link (fallback) using viewpoint API to support heading orientation
     googleLink.href =
@@ -55,16 +54,14 @@ export const __methods = {
       cleanHeading.toFixed(0);
 
     // Set Mapillary external link
-    mapillaryExtLink.href =
-      'https://www.mapillary.com/app/?lat=' + lat + '&lng=' + lon + '&z=18';
+    mapillaryExtLink.href = `https://www.mapillary.com/app/?lat=${lat}&lng=${lon}&z=18`;
 
     // Show the modal first so that the browser does not pause/optimise away the iframe loading
     modal.style.display = 'flex';
     document.body.style.overflow = 'hidden';
 
     // Set Mapillary embed URL (now loaded while modal is visible)
-    mapillaryIframe.src =
-      'https://www.mapillary.com/embed?lat=' + lat + '&lng=' + lon + '&z=18';
+    mapillaryIframe.src = `https://www.mapillary.com/embed?lat=${lat}&lng=${lon}&z=18`;
 
     // Reset Google iframe
     if (googleIframe) googleIframe.src = '';

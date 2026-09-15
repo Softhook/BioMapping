@@ -179,8 +179,7 @@ export const GSRTrackManager = {
           const tempAnalyzer = new GSRAnalyzer();
           tempAnalyzer.parseCSV(text);
 
-          const trackId =
-            'track_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
+          const trackId = `track_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
           const trackColor = AppState.getNextTrackColor();
 
           const newTrack = GSRTrackManager.createTrackObject(
@@ -206,7 +205,7 @@ export const GSRTrackManager = {
           index++;
           loadNext();
         } catch (err) {
-          alert(`Error parsing "${file.name}": ` + err.message);
+          alert(`Error parsing "${file.name}": ${err.message}`);
           index++;
           loadNext();
         }
@@ -223,7 +222,7 @@ export const GSRTrackManager = {
    * a scary marker.
    */
   _buildIntegrityMark(track) {
-    const info = track.analyzer && track.analyzer.integrity;
+    const info = track.analyzer?.integrity;
     if (!info || info.status === 'none') return null;
 
     const SPEC = {
@@ -238,7 +237,7 @@ export const GSRTrackManager = {
     if (!spec) return null;
 
     const mark = document.createElement('span');
-    mark.className = 'track-integrity track-integrity-' + info.status;
+    mark.className = `track-integrity track-integrity-${info.status}`;
     mark.innerHTML = `<i class="fa-solid ${spec.icon}"></i>`;
     mark.title = info.detail ? `${spec.label} — ${info.detail}` : spec.label;
     return mark;
@@ -270,13 +269,13 @@ export const GSRTrackManager = {
       if (AppState.mapManager) {
         AppState.mapManager.clearAll();
       }
-      if (typeof GSRGlobe3DView !== 'undefined' && GSRGlobe3DView.manager) {
+      if (GSRGlobe3DView?.manager) {
         GSRGlobe3DView.manager.clearAll();
         if (GSRGlobe3DView.els.legend) GSRGlobe3DView.els.legend.innerHTML = '';
       }
       // Nothing is loaded — clearMap() no longer drops the OSM overlay, so
       // reset the toggle and clear it explicitly.
-      if (typeof GSRUI !== 'undefined' && GSRUI.syncOsmOverlay) {
+      if (GSRUI?.syncOsmOverlay) {
         GSRUI._osmOverlayOn = false;
         GSRUI.syncOsmOverlay();
       }
@@ -349,7 +348,7 @@ export const GSRTrackManager = {
       const a = track.analyzer;
       const hasClock = a.recordingStartTime && a.recordingStartTime >= 86400;
       meta.innerText = hasClock
-        ? a.formatDateShort(0) + ' ' + a.formatTimeOnly(0)
+        ? `${a.formatDateShort(0)} ${a.formatTimeOnly(0)}`
         : '';
 
       details.appendChild(name);
@@ -453,7 +452,7 @@ export const GSRTrackManager = {
       AppState.mapManager.clearAll();
     }
     // clearMap() no longer drops the OSM overlay — reset + clear it here.
-    if (typeof GSRUI !== 'undefined' && GSRUI.syncOsmOverlay) {
+    if (GSRUI?.syncOsmOverlay) {
       GSRUI._osmOverlayOn = false;
       GSRUI.syncOsmOverlay();
     }
@@ -471,7 +470,7 @@ export const GSRTrackManager = {
       // before removing the track from the manager so the switch-active-track /
       // clearAll paths below never leave an orphaned group behind. Slice 2: also
       // forget the group from the map manager's rendered-set.
-      if (AppState.mapManager && AppState.mapManager.map && track.layerGroup) {
+      if (AppState.mapManager?.map && track.layerGroup) {
         if (AppState.mapManager.map.hasLayer(track.layerGroup)) {
           AppState.mapManager.map.removeLayer(track.layerGroup);
         }
@@ -520,7 +519,7 @@ export const GSRTrackManager = {
   },
 
   loadActiveTrackParams(track) {
-    if (!track || !track.filterParams) return;
+    if (!track?.filterParams) return;
     const params = track.filterParams;
     const S = AppState.sliders;
 
@@ -556,14 +555,14 @@ export const GSRTrackManager = {
       S.useCvxEDA.checked = !!params.useCvxEDA;
     }
     // Mutually exclusive detectors — prominence > cvxEDA > sparsEDA > deconvolution.
-    if (S.usePeakProminence && S.usePeakProminence.checked) {
+    if (S.usePeakProminence?.checked) {
       if (S.useDeconvolution) S.useDeconvolution.checked = false;
       if (S.useSparsEDA) S.useSparsEDA.checked = false;
       if (S.useCvxEDA) S.useCvxEDA.checked = false;
-    } else if (S.useCvxEDA && S.useCvxEDA.checked) {
+    } else if (S.useCvxEDA?.checked) {
       if (S.useDeconvolution) S.useDeconvolution.checked = false;
       if (S.useSparsEDA) S.useSparsEDA.checked = false;
-    } else if (S.useSparsEDA && S.useSparsEDA.checked) {
+    } else if (S.useSparsEDA?.checked) {
       if (S.useDeconvolution) S.useDeconvolution.checked = false;
     }
   },
@@ -585,7 +584,7 @@ export const GSRTrackManager = {
   },
 
   loadActiveGpsParams(track) {
-    if (!track || !track.gpsFilterParams) return;
+    if (!track?.gpsFilterParams) return;
     // Slider-key mapping lives once in GSRStorage.writeGpsSliderValues (its
     // mirror of saveActiveGpsParams' readGpsSliderValues).
     GSRStorage.writeGpsSliderValues(track.gpsFilterParams);
@@ -674,9 +673,7 @@ export const GSRTrackManager = {
     fetch('fixtures/default_processed.csv')
       .then((response) => {
         if (!response.ok)
-          throw new Error(
-            'HTTP ' + response.status + ' — could not load demo data',
-          );
+          throw new Error(`HTTP ${response.status} — could not load demo data`);
         return response.text();
       })
       .then((csvText) => {
@@ -684,7 +681,7 @@ export const GSRTrackManager = {
           const tempAnalyzer = new GSRAnalyzer();
           tempAnalyzer.parseCSV(csvText);
 
-          const trackId = 'track_demo_' + Date.now();
+          const trackId = `track_demo_${Date.now()}`;
           const trackColor = AppState.getNextTrackColor();
 
           const newTrack = GSRTrackManager.createTrackObject(
@@ -703,14 +700,14 @@ export const GSRTrackManager = {
 
           GSRTrackManager.setFileStatus(
             'success',
-            AppState.collectiveManager.tracks.length + ' Tracks Loaded',
+            `${AppState.collectiveManager.tracks.length} Tracks Loaded`,
           );
         } catch (err) {
-          alert('Error parsing demo data: ' + err.message);
+          alert(`Error parsing demo data: ${err.message}`);
         }
       })
       .catch((err) => {
-        alert('Error loading demo data: ' + err.message);
+        alert(`Error loading demo data: ${err.message}`);
       });
   },
 };

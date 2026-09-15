@@ -17,13 +17,13 @@
  */
 import { AppState } from '../core/app_state.mjs';
 import { GSR_CONST } from '../core/constants.mjs';
+import { ResponseDynamics } from '../signal/response_dynamics.mjs';
 import {
   EXCLUDED_STYLE,
   GSRRenderer,
-  NORMAL_DASH,
   getQualityColor,
+  NORMAL_DASH,
 } from './renderer.mjs';
-import { ResponseDynamics } from '../signal/response_dynamics.mjs';
 
 export const __methods = {
   /**
@@ -100,10 +100,9 @@ export const __methods = {
     // The "upper" marker normally sits on the Filtered curve; in a metric view
     // it sits on whatever series is plotted (markerSeries), at the peak's time —
     // the peak's µS amplitude has no meaning on a /min or z axis.
-    const upperSeries =
-      markerSeries && markerSeries[p.index]
-        ? markerSeries
-        : AppState.analyzer.filtered;
+    const upperSeries = markerSeries?.[p.index]
+      ? markerSeries
+      : AppState.analyzer.filtered;
     let yFilteredPeak =
       yBottomU + (upperSeries[p.index].val - yMinU) * scales.yScaleU;
     const yPhasicPeak = showLowerMarker
@@ -249,8 +248,8 @@ export const __methods = {
       // transparent) small dot so the full peak census reads as present at a
       // glance, while staying clearly lighter-weight than a hotspot (which
       // is solid-filled, larger, and carries a shaded region + connector).
-      const restStroke = isExcluded ? color(lineClr) : color(peakColor + 'd0');
-      const restFill = isExcluded ? color(canvasBg) : color(peakColor + '70');
+      const restStroke = isExcluded ? color(lineClr) : color(`${peakColor}d0`);
+      const restFill = isExcluded ? color(canvasBg) : color(`${peakColor}70`);
 
       // Shaded elevated region, onset dot, and connector line: only when
       // hovered/active, same as before — but now the onset dot and line are
@@ -259,7 +258,7 @@ export const __methods = {
       if (showLowerMarker && isEmphasized) {
         const fillClr = isExcluded
           ? color(lineClr + EXCLUDED_STYLE.fillAlpha)
-          : color(peakColor + '4b');
+          : color(`${peakColor}4b`);
         this._drawPeakShadedRegion(
           p,
           tMin,
@@ -284,7 +283,7 @@ export const __methods = {
           stroke(
             isExcluded
               ? color(lineClr + EXCLUDED_STYLE.lineAlpha)
-              : color(peakColor + '3c'),
+              : color(`${peakColor}3c`),
           );
           strokeWeight(1);
           drawingContext.setLineDash(dashPat);
@@ -355,9 +354,9 @@ export const __methods = {
           textSize(10);
           textStyle(BOLD);
           textAlign(CENTER, BOTTOM);
-          let labelText = p.label || '#' + (pIdx + 1);
+          let labelText = p.label || `#${pIdx + 1}`;
           if (labelText.length > 22) {
-            labelText = labelText.substring(0, 19) + '...';
+            labelText = `${labelText.substring(0, 19)}...`;
           }
           text(labelText, xPeak, yFilteredPeak - 8);
           textStyle(NORMAL);
@@ -393,8 +392,7 @@ export const __methods = {
    * not every frame.
    */
   _ensurePulseOverlay() {
-    if (this._pulseOverlay && this._pulseOverlay.isConnected)
-      return this._pulseOverlay;
+    if (this._pulseOverlay?.isConnected) return this._pulseOverlay;
     const container = document.getElementById('canvasContainer');
     if (!container) return null;
     const overlay = document.createElement('div');
@@ -423,10 +421,10 @@ export const __methods = {
       overlay.appendChild(el);
       this._pulseRingEls.set(key, el);
     }
-    el.style.width = d + 'px';
-    el.style.height = d + 'px';
-    el.style.left = x - d / 2 + 'px';
-    el.style.top = y - d / 2 + 'px';
+    el.style.width = `${d}px`;
+    el.style.height = `${d}px`;
+    el.style.left = `${x - d / 2}px`;
+    el.style.top = `${y - d / 2}px`;
     el.style.backgroundColor = hotspotColor;
   },
 
@@ -578,7 +576,7 @@ export const __methods = {
           scales,
           yBottomL,
           yMinL,
-          color(hotspotColor + '4b'),
+          color(`${hotspotColor}4b`),
           xOnset,
           xPeak,
         );
@@ -589,14 +587,14 @@ export const __methods = {
         circle(xOnset, yPhasicOnset, isActive ? 8 : 5);
 
         if (drawUpper) {
-          stroke(color(hotspotColor + '78'));
+          stroke(color(`${hotspotColor}78`));
           strokeWeight(1);
           drawingContext.setLineDash(NORMAL_DASH);
           line(xPeak, yFilteredPeak, xPeak, yPhasicPeak);
           drawingContext.setLineDash([]);
         }
 
-        const lowerKey = realIdx + ':lower';
+        const lowerKey = `${realIdx}:lower`;
         this._syncPulseRing(
           lowerKey,
           xPeak,
@@ -612,7 +610,7 @@ export const __methods = {
       }
 
       if (drawUpper) {
-        const upperKey = realIdx + ':upper';
+        const upperKey = `${realIdx}:upper`;
         this._syncPulseRing(
           upperKey,
           xPeak,

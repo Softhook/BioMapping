@@ -16,8 +16,8 @@
 
 const { loadModule } = require('./support/load_module.js');
 
-loadModule(__dirname + '/../src/gps/geo_utils.js', 'GeoUtils');
-loadModule(__dirname + '/../src/osm/osm_cache.js', 'OsmCache');
+loadModule(`${__dirname}/../src/gps/geo_utils.js`, 'GeoUtils');
+loadModule(`${__dirname}/../src/osm/osm_cache.js`, 'OsmCache');
 const OsmCache = global.OsmCache;
 
 // ── Test helpers ────────────────────────────────────────────────────────────
@@ -169,7 +169,7 @@ const now = 1_700_000_000_000;
 {
   const entries = [{ bbox: bboxA, queryVersion: 1, fetchedAt: now, data: 'A' }];
   const match = OsmCache._pickBestMatch(entries, bboxB, 1, now);
-  assertEq(match && match.data, 'A', '_pickBestMatch — finds containing entry');
+  assertEq(match?.data, 'A', '_pickBestMatch — finds containing entry');
 }
 
 // 2b. No containing entry → null
@@ -249,7 +249,7 @@ const now = 1_700_000_000_000;
   };
   const match = OsmCache._pickBestMatch([fresh], bboxB, 1, now);
   assertEq(
-    match && match.data,
+    match?.data,
     'fresh',
     '_pickBestMatch — entry just inside TTL is still used',
   );

@@ -23,9 +23,7 @@ export const __methods = {
           ? [{ id: AppState.activeTrackId, analyzer: AppState.analyzer }]
           : []
         : AppState.collectiveManager.getActiveTracks();
-    const activeTracks = allActive.filter(
-      (t) => t.analyzer && t.analyzer.isEnriched,
-    );
+    const activeTracks = allActive.filter((t) => t.analyzer?.isEnriched);
     const totalWalks = allActive.length;
 
     if (activeTracks.length === 0) return;
@@ -41,7 +39,7 @@ export const __methods = {
     // analyze(), setPeakLabel(), setPeakExcluded(), enrichTrack()). In the
     // cache key, so the cache self-invalidates on any of them.
     const versionSig = activeTracks
-      .map((t) => (t.analyzer && t.analyzer._dataVersion) || 0)
+      .map((t) => t.analyzer?._dataVersion || 0)
       .join(',');
 
     // Cache on the analyzer (single mode) or the collective manager
@@ -62,7 +60,7 @@ export const __methods = {
       const allData = [];
       activeTracks.forEach((track) => {
         const a = track.analyzer;
-        if (!a || !a.isEnriched || a.raw.length === 0) return;
+        if (!a?.isEnriched || a.raw.length === 0) return;
 
         let lastTime = -999;
         for (let i = 0; i < a.raw.length; i++) {
@@ -94,10 +92,10 @@ export const __methods = {
               for (let j = windowStartIdx; j <= i; j++) {
                 if (a.raw[j]) {
                   sumVal += a.raw[j].val || 0;
-                  if (a.tonic && a.tonic[j]) {
+                  if (a.tonic?.[j]) {
                     sumTonic += a.tonic[j].val || 0;
                   }
-                  if (a.phasic && a.phasic[j]) {
+                  if (a.phasic?.[j]) {
                     maxPhasic = Math.max(maxPhasic, a.phasic[j].val || 0);
                   }
                   const rawSpd = a.raw[j].speedKts;
@@ -509,10 +507,7 @@ export const __methods = {
       // class is still a lag mismatch. Falls back to the phasic-lagged group
       // when the tonic class has no group of its own, so no sample is dropped.
       allData.forEach((d) => {
-        const clsT =
-          (d.tonicEnv && d.tonicEnv.osm_road_class) ||
-          d.osm_road_class ||
-          'none';
+        const clsT = d.tonicEnv?.osm_road_class || d.osm_road_class || 'none';
         const g =
           roadGroups.get(clsT) || roadGroups.get(d.osm_road_class || 'none');
         if (!g) return;

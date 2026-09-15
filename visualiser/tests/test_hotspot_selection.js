@@ -12,7 +12,7 @@
  * Run: node visualiser/tests/test_hotspot_selection.js
  */
 
-const path = require('path');
+const path = require('node:path');
 
 global.window = global;
 

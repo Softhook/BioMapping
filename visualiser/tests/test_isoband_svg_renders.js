@@ -25,12 +25,12 @@
  *
  * Run: node visualiser/tests/test_isoband_svg_renders.js
  */
-const assert = require('assert');
+const assert = require('node:assert');
 const { test } = require('node:test');
-const fs = require('fs');
-const os = require('os');
-const path = require('path');
-const { spawnSync } = require('child_process');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { spawnSync } = require('node:child_process');
 
 global.window = global;
 global.GSR_CONST = require('./mock_constants.js');
@@ -137,7 +137,7 @@ test('Isoband SVG real-render: exported isobands rasterize to visible content', 
   const svg = [
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2000 2000" width="2000" height="2000">',
     '  <rect x="0" y="0" width="2000" height="2000" fill="#0b0d16" />',
-    ...surface.isobands.map((p) => '  ' + p),
+    ...surface.isobands.map((p) => `  ${p}`),
     '</svg>',
   ].join('\n');
 

@@ -175,7 +175,7 @@ export const BezierSpline = {
       for (let i = 1; i < points.length; i++) {
         d += ` L${points[i].x.toFixed(prec)} ${points[i].y.toFixed(prec)}`;
       }
-      return closed ? d + ' Z' : d;
+      return closed ? `${d} Z` : d;
     }
 
     let fit = null;
@@ -190,6 +190,6 @@ export const BezierSpline = {
       const s = fit.segments[i];
       d += ` C${s.c1.x.toFixed(prec)} ${s.c1.y.toFixed(prec)}, ${s.c2.x.toFixed(prec)} ${s.c2.y.toFixed(prec)}, ${s.end.x.toFixed(prec)} ${s.end.y.toFixed(prec)}`;
     }
-    return closed ? d + ' Z' : d;
+    return closed ? `${d} Z` : d;
   },
 };

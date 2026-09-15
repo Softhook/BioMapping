@@ -1,7 +1,7 @@
-const assert = require('assert');
+const assert = require('node:assert');
 const test = require('node:test');
-const fs = require('fs');
-const path = require('path');
+const fs = require('node:fs');
+const path = require('node:path');
 
 global.window = global;
 global.GSR_CONST = require('./mock_constants.js');
@@ -879,8 +879,8 @@ test('§A sliding-window min: all-equal values', () => {
 });
 
 test('§A sliding-window min: analyze() phasic is non-negative after deque fix', () => {
-  const fs = require('fs'),
-    path = require('path');
+  const fs = require('node:fs'),
+    path = require('node:path');
   const csvPath = path.join(__dirname, '..', '..', 'tracks', 'biomap_048.csv');
   if (!fs.existsSync(csvPath)) {
     return;
@@ -900,8 +900,8 @@ test('§A sliding-window min: analyze() phasic is non-negative after deque fix',
 // ── §B perf fix: computeCombinedArousalIndex with precomputedAUC (2026-08-07) ─
 
 test('§B computeCombinedArousalIndex: precomputedAUC gives identical values to fresh-computed path', () => {
-  const fs = require('fs'),
-    path = require('path');
+  const fs = require('node:fs'),
+    path = require('node:path');
   const csvPath = path.join(__dirname, '..', '..', 'tracks', 'biomap_048.csv');
   if (!fs.existsSync(csvPath)) {
     return;
@@ -924,8 +924,8 @@ test('§B computeCombinedArousalIndex: precomputedAUC gives identical values to 
 });
 
 test('§B computeCombinedArousalIndex: standalone call (no precomputedAUC) still works', () => {
-  const fs = require('fs'),
-    path = require('path');
+  const fs = require('node:fs'),
+    path = require('node:path');
   const csvPath = path.join(__dirname, '..', '..', 'tracks', 'biomap_048.csv');
   if (!fs.existsSync(csvPath)) {
     return;
@@ -939,8 +939,8 @@ test('§B computeCombinedArousalIndex: standalone call (no precomputedAUC) still
 });
 
 test('GSRAnalyzer computeTriIndex: precomputed arrays match fresh standalone computation', () => {
-  const fs = require('fs'),
-    path = require('path');
+  const fs = require('node:fs'),
+    path = require('node:path');
   const csvPath = path.join(__dirname, '..', '..', 'tracks', 'biomap_048.csv');
   if (!fs.existsSync(csvPath)) {
     return;

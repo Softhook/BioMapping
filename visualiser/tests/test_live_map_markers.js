@@ -18,7 +18,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert');
-const vm = require('vm');
+const vm = require('node:vm');
 const { bootLive } = require('./support/boot_live.js');
 
 const run = (expr) => vm.runInThisContext(expr);

@@ -27,6 +27,9 @@
 // Gate Design" — 2.0 is the post-processing quality filter, distinct from
 // the firmware's permissive 5.0 logging gate).
 import { GpsPipeline } from '../gps/gps_pipeline.mjs';
+import { GSRBasemap } from '../map/basemap.mjs';
+import { MapColors } from '../map/map_colors.mjs';
+import { GSRMapMarkers } from '../map/map_markers.mjs';
 import { drawGraph } from './live_graph.mjs';
 import { LiveState } from './live_state.mjs';
 import {
@@ -35,15 +38,12 @@ import {
   normalizeTileCacheUrl,
 } from './live_tile_cache.mjs';
 import {
-  LIVE_SETTLE_TAIL_S,
   closeFabMenu,
   isCompactLiveLayout,
+  LIVE_SETTLE_TAIL_S,
   liveAnalyzer,
   liveGsrView,
 } from './live_view.mjs';
-import { GSRBasemap } from '../map/basemap.mjs';
-import { MapColors } from '../map/map_colors.mjs';
-import { GSRMapMarkers } from '../map/map_markers.mjs';
 
 export const LIVE_MAX_HDOP = 2.0;
 
@@ -305,7 +305,7 @@ export async function cacheCurrentMapArea() {
     );
   } catch (err) {
     console.error('Map caching failed:', err);
-    alert('Failed to cache map area: ' + err.message);
+    alert(`Failed to cache map area: ${err.message}`);
     cacheMapBtn.disabled = false;
     cacheMapBtn.textContent = originalText;
   }
@@ -435,7 +435,7 @@ export function _syncLiveMapMarkerSet(markerMap, peaks, iconBuilder) {
 
 export function renderLiveMapMarkers() {
   if (!liveMap || typeof GSRMapMarkers === 'undefined') return;
-  if (!liveAnalyzer || !liveAnalyzer.raw || liveAnalyzer.raw.length === 0) {
+  if (!liveAnalyzer?.raw || liveAnalyzer.raw.length === 0) {
     clearLiveMapMarkers();
     return;
   }

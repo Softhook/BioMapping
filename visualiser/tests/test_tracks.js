@@ -22,7 +22,7 @@
  * Run: node --test tests/test_tracks.js  (or `npm test` for the whole suite)
  */
 
-const assert = require('assert');
+const assert = require('node:assert');
 const test = require('node:test');
 
 // ── Minimal global stubs so tracks.js's top-level/module references resolve
@@ -1104,7 +1104,7 @@ test('loadFilesSequentially: a parse error alerts, skips that file, and continue
   GSRTrackManager.loadFilesSequentially(files);
 
   assert.ok(
-    global.__lastAlert && global.__lastAlert.includes('bad.csv'),
+    global.__lastAlert?.includes('bad.csv'),
     'alert fired for the bad file',
   );
   const tracks = global.AppState.collectiveManager.tracks;
@@ -1266,8 +1266,7 @@ test('loadDefaultTrack: an HTTP error alerts instead of throwing, and no track i
   await flush();
 
   assert.ok(
-    global.__lastAlert &&
-      global.__lastAlert.includes('Error loading demo data'),
+    global.__lastAlert?.includes('Error loading demo data'),
     `got: ${global.__lastAlert}`,
   );
   assert.strictEqual(global.AppState.collectiveManager.tracks.length, 0);
@@ -1286,7 +1285,7 @@ test('loadDefaultTrack: a network-level fetch rejection alerts instead of throwi
   await flush();
 
   assert.ok(
-    global.__lastAlert && global.__lastAlert.includes('network down'),
+    global.__lastAlert?.includes('network down'),
     `got: ${global.__lastAlert}`,
   );
   assert.strictEqual(global.AppState.collectiveManager.tracks.length, 0);
@@ -1303,8 +1302,7 @@ test('loadDefaultTrack: a CSV parse failure alerts with the "Error parsing demo 
   await flush();
 
   assert.ok(
-    global.__lastAlert &&
-      global.__lastAlert.includes('Error parsing demo data'),
+    global.__lastAlert?.includes('Error parsing demo data'),
     `got: ${global.__lastAlert}`,
   );
   assert.strictEqual(global.AppState.collectiveManager.tracks.length, 0);

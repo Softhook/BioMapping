@@ -23,8 +23,8 @@
  * rendering dependency).
  */
 
-const fs = require('fs');
-const path = require('path');
+const fs = require('node:fs');
+const path = require('node:path');
 
 const TRACKS_DIR = path.join(__dirname, '..', '..', '..', 'tracks');
 
@@ -112,7 +112,7 @@ console.log(
 console.log(
   '  Track                   rows   peaks   HIT median    MISS median',
 );
-console.log('  ' + '-'.repeat(66));
+console.log(`  ${'-'.repeat(66)}`);
 
 for (const file of FILES) {
   const { analyzer, filterParams } = loadTrack(file);

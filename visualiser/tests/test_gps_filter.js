@@ -11,7 +11,7 @@
  * Run: node --test tests/test_gps_filter.js
  */
 
-const assert = require('assert');
+const assert = require('node:assert');
 const test = require('node:test');
 
 // Ensure GeoUtils is available globally and required

@@ -6,9 +6,9 @@
  * Run: node --test tests/test_ndvi_sampler.js
  */
 
-const assert = require('assert');
+const assert = require('node:assert');
 const test = require('node:test');
-const zlib = require('zlib');
+const zlib = require('node:zlib');
 
 global.window = global;
 global.GSR_CONST = require('./mock_constants.js');

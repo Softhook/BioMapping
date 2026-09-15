@@ -4,8 +4,8 @@
  * Run: node visualiser/tests/test_fractional_filters.js
  */
 
-const path = require('path');
-const assert = require('assert');
+const path = require('node:path');
+const assert = require('node:assert');
 
 // ── Bootstrap scope ─────────────────────────────────────────────────────────
 global.window = global;

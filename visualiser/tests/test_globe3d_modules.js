@@ -9,8 +9,8 @@
 
 const test = require('node:test');
 const assert = require('node:assert');
-const fs = require('fs');
-const path = require('path');
+const fs = require('node:fs');
+const path = require('node:path');
 
 // ES-module migration: a converted file's .js sibling is deleted when its
 // .mjs is written (convert_file.js --write) — same .js/.mjs resolution
@@ -185,7 +185,7 @@ test('download(): builds a Blob anchor and clicks it, then revokes the URL', () 
   };
   global.Blob = function (parts, opts) {
     this.parts = parts;
-    this.type = opts && opts.type;
+    this.type = opts?.type;
   };
   global.URL = {
     createObjectURL: () => {

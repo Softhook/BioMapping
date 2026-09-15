@@ -39,7 +39,7 @@ export const GSRBasemap = {
     }
     return (
       `https://{s}.basemaps.cartocdn.com/${styleSlug}/{z}/{x}/{y}.png` +
-      (cartoKey ? '?key=' + encodeURIComponent(cartoKey) : '')
+      (cartoKey ? `?key=${encodeURIComponent(cartoKey)}` : '')
     );
   },
 

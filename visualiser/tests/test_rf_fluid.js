@@ -10,8 +10,8 @@
  * Run: node visualiser/tests/test_rf_fluid.js
  */
 
-const path = require('path');
-const assert = require('assert');
+const path = require('node:path');
+const assert = require('node:assert');
 
 // Bootstrap scope
 global.window = global;

@@ -11,7 +11,7 @@
  * Usage: node merge_reference_json.js <output.json> <input1.json> [input2.json ...]
  */
 
-const fs = require('fs');
+const fs = require('node:fs');
 
 const [, , outputPath, ...inputPaths] = process.argv;
 if (!outputPath || inputPaths.length === 0) {

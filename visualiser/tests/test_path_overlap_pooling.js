@@ -8,7 +8,7 @@
  * Run: node --test tests/test_path_overlap_pooling.js
  */
 
-const assert = require('assert');
+const assert = require('node:assert');
 const test = require('node:test');
 
 global.GeoUtils = require('../src/gps/geo_utils.mjs').GeoUtils;

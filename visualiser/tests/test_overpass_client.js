@@ -6,7 +6,7 @@
  * Run: node --test tests/test_overpass_client.js  (or `npm test` for the whole suite)
  */
 
-const assert = require('assert');
+const assert = require('node:assert');
 const test = require('node:test');
 
 // overpass_client.js's real retry/backoff delays (up to 30s for a 429, and a

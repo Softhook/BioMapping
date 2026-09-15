@@ -24,8 +24,8 @@
 
 const test = require('node:test');
 const assert = require('node:assert');
-const fs = require('fs');
-const path = require('path');
+const fs = require('node:fs');
+const path = require('node:path');
 
 const { SCRIPT_ORDER } = require('./support/boot_app.js');
 const { LIVE_SCRIPT_ORDER } = require('./support/boot_live.js');
@@ -171,7 +171,7 @@ test('the CARTO basemap key resolution lives in one shared module, consumed by m
   );
   assert.match(
     src,
-    /\?key=['"]\s*\+\s*encodeURIComponent\(cartoKey\)/,
+    /\?key=\$\{encodeURIComponent\(cartoKey\)\}/,
     'basemap.js appends an encoded ?key=',
   );
   for (const rel of [

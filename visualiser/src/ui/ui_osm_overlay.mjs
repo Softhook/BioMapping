@@ -29,15 +29,13 @@ export const __methods = {
    */
   getCombinedOsmGeoms() {
     if (AppState.viewMode !== 'collective') {
-      return AppState.analyzer && AppState.analyzer.osmGeoms
-        ? AppState.analyzer.osmGeoms
-        : null;
+      return AppState.analyzer?.osmGeoms ? AppState.analyzer.osmGeoms : null;
     }
 
     if (!AppState.collectiveManager) return null;
     const tracks = AppState.collectiveManager
       .getActiveTracks()
-      .filter((t) => t.analyzer && t.analyzer.osmGeoms);
+      .filter((t) => t.analyzer?.osmGeoms);
     if (tracks.length === 0) return null;
     if (tracks.length === 1) return tracks[0].analyzer.osmGeoms;
 
@@ -101,7 +99,7 @@ export const __methods = {
       const g3d = typeof GSRGlobe3DView !== 'undefined' ? GSRGlobe3DView : null;
 
       const btn = document.getElementById('btnToggleOsmShapes');
-      if (btn && btn.classList) btn.classList[on ? 'add' : 'remove']('active');
+      if (btn?.classList) btn.classList[on ? 'add' : 'remove']('active');
 
       if (AppState.surfaceView === 'globe') {
         if (mm) mm.clearOsmShapes(); // the 2D layer must not linger under the globe
@@ -110,14 +108,13 @@ export const __methods = {
         // Also rebuild when the active track's OSM json has been replaced (a 2D
         // re-enrich / radius change while the globe is mounted) so the buildings
         // don't keep an area's stale coverage.
-        const mgr = g3d && g3d.manager;
-        const shown = !!(mgr && mgr.show3DBuildings);
+        const mgr = g3d?.manager;
+        const shown = !!mgr?.show3DBuildings;
         const staleJson = !!(
           on &&
           shown &&
           mgr &&
-          AppState.analyzer &&
-          AppState.analyzer.osmJson &&
+          AppState.analyzer?.osmJson &&
           mgr.cachedOsmJson &&
           mgr.cachedOsmJson !== AppState.analyzer.osmJson
         );
@@ -186,13 +183,13 @@ export const __methods = {
       // while the fetch was in flight — honour that, don't force it back on.
       if (!GSRUI._osmOverlayOn) return;
 
-      if (!res || !res.ok) {
+      if (!res?.ok) {
         GSRUI._osmOverlayOn = false;
         GSRUI.syncOsmOverlay();
         const msg =
           res && res.reason === 'no-gps'
             ? 'No GPS fixes in this track — no OpenStreetMap shapes to fetch.'
-            : res && res.tooBig
+            : res?.tooBig
               ? 'Track area too large (> 12 km²) to fetch OpenStreetMap shapes.'
               : 'Could not retrieve OpenStreetMap data.';
         GSRUI.setSpatialProgress(true, msg, 100, 'var(--danger)');
@@ -260,7 +257,7 @@ export const __methods = {
       const rad = firstEnriched ? firstEnriched.enrichmentRadius : null;
       if (rad) {
         document.getElementById('osmRadius').value = rad;
-        document.getElementById('valOsmRadius').innerText = rad + ' m';
+        document.getElementById('valOsmRadius').innerText = `${rad} m`;
       }
 
       GSRUI.updateEnvironmentalDashboard();
@@ -270,8 +267,8 @@ export const __methods = {
         .forEach((opt) => opt.setAttribute('disabled', 'true'));
       // Only fall back to GSR if the current metric is an OSM-only one that just
       // became unavailable — don't clobber a plain choice like Phasic.
-      const cur = select && select.selectedOptions && select.selectedOptions[0];
-      if (cur && cur.classList.contains('osm-option')) {
+      const cur = select?.selectedOptions?.[0];
+      if (cur?.classList.contains('osm-option')) {
         select.value = 'gsr';
         if (AppState.mapManager)
           AppState.mapManager.activeColoringMetric = 'gsr';

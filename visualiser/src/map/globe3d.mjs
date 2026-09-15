@@ -24,9 +24,9 @@
 /** basemap id -> factory producing a fresh Cesium imagery provider (no API key required) */
 import { GSR_CONST } from '../core/constants.mjs';
 import { GSRNotices } from '../core/notices.mjs';
+import { ResponseDynamics } from '../signal/response_dynamics.mjs';
 import { GSRBasemap } from './basemap.mjs';
 import { MapColors } from './map_colors.mjs';
-import { ResponseDynamics } from '../signal/response_dynamics.mjs';
 
 export const BASEMAP_PROVIDERS = {
   satellite: () =>
@@ -333,8 +333,7 @@ export class GSRGlobeManager {
     }
 
     // Disable Cesium Ion default key check warning
-    Cesium.Ion.defaultAccessToken =
-      (window.BIOMAP_CONFIG && window.BIOMAP_CONFIG.cesiumIonToken) || '';
+    Cesium.Ion.defaultAccessToken = window.BIOMAP_CONFIG?.cesiumIonToken || '';
 
     try {
       this.viewer = new Cesium.Viewer(this.containerId, {
@@ -519,7 +518,7 @@ export class GSRGlobeManager {
     this._screenSpaceHandler.setInputAction((click) => {
       if (!this._peakClickCb) return;
       const picked = scene.pick(click.position);
-      const idx = picked && picked.id && picked.id._biomapPeakIndex;
+      const idx = picked?.id?._biomapPeakIndex;
       if (typeof idx === 'number') {
         this._peakClickCb(idx, { x: click.position.x, y: click.position.y });
       }
@@ -574,7 +573,7 @@ export class GSRGlobeManager {
       try {
         const picked = scene.pick(pos);
         isPeak = Boolean(
-          picked && picked.id && typeof picked.id._biomapPeakIndex === 'number',
+          picked?.id && typeof picked.id._biomapPeakIndex === 'number',
         );
       } catch (_) {}
 
@@ -586,7 +585,7 @@ export class GSRGlobeManager {
         );
       }
 
-      if (scene.canvas && scene.canvas.style) {
+      if (scene.canvas?.style) {
         if (this._isDraggingGlobe) {
           scene.canvas.style.cursor = 'grabbing';
         } else if (isPeak) {
@@ -608,19 +607,16 @@ export class GSRGlobeManager {
 
     this._canvasPointerDownHandler = () => {
       this._isDraggingGlobe = true;
-      if (scene.canvas && scene.canvas.style)
-        scene.canvas.style.cursor = 'grabbing';
+      if (scene.canvas?.style) scene.canvas.style.cursor = 'grabbing';
     };
     this._canvasPointerUpHandler = () => {
       this._isDraggingGlobe = false;
-      if (scene.canvas && scene.canvas.style)
-        scene.canvas.style.cursor = 'grab';
+      if (scene.canvas?.style) scene.canvas.style.cursor = 'grab';
     };
     this._windowPointerUpHandler = () => {
       if (this._isDraggingGlobe) {
         this._isDraggingGlobe = false;
-        if (scene.canvas && scene.canvas.style)
-          scene.canvas.style.cursor = 'grab';
+        if (scene.canvas?.style) scene.canvas.style.cursor = 'grab';
       }
     };
 
@@ -642,8 +638,7 @@ export class GSRGlobeManager {
     // hover explicitly so the graph scrubber doesn't stick and restore default cursor.
     this._scrubHoverLeaveHandler = () => {
       this._isDraggingGlobe = false;
-      if (scene.canvas && scene.canvas.style)
-        scene.canvas.style.cursor = 'default';
+      if (scene.canvas?.style) scene.canvas.style.cursor = 'default';
       if (this._scrubHoverCb) this._scrubHoverCb(null);
     };
     if (scene.canvas && typeof scene.canvas.addEventListener === 'function') {
@@ -682,7 +677,7 @@ export class GSRGlobeManager {
     // 'lost' lets the browser hand the context back; on 'restored' rebuild the
     // scene contents Cesium can't restore itself (our raw primitives).
     this._onContextLost = (e) => {
-      if (e && e.preventDefault) e.preventDefault();
+      if (e?.preventDefault) e.preventDefault();
     };
     this._onContextRestored = () => {
       if (!this.viewer) return;
@@ -839,7 +834,7 @@ export class GSRGlobeManager {
     this.releaseFollowScrub();
     this.clearAll();
 
-    const canvas = this.viewer && this.viewer.scene && this.viewer.scene.canvas;
+    const canvas = this.viewer?.scene?.canvas;
     if (this._scrubHoverLeaveHandler && canvas) {
       canvas.removeEventListener('mouseleave', this._scrubHoverLeaveHandler);
     }
@@ -906,12 +901,7 @@ export class GSRGlobeManager {
       this._pitchClampRemover();
       this._pitchClampRemover = null;
     }
-    if (
-      this._wakeHandlers &&
-      this.viewer &&
-      this.viewer.scene &&
-      this.viewer.scene.canvas
-    ) {
+    if (this._wakeHandlers && this.viewer?.scene?.canvas) {
       const canvas = this.viewer.scene.canvas;
       this._wakeHandlers.forEach(({ type, h }) =>
         canvas.removeEventListener(type, h),
@@ -925,25 +915,13 @@ export class GSRGlobeManager {
     this._peakClickCb = null;
 
     if (this.viewer && !this.viewer.isDestroyed()) {
-      if (
-        this._peakPoints &&
-        this.viewer.scene &&
-        this.viewer.scene.primitives
-      ) {
+      if (this._peakPoints && this.viewer.scene?.primitives) {
         this.viewer.scene.primitives.remove(this._peakPoints);
       }
-      if (
-        this._peakLabels &&
-        this.viewer.scene &&
-        this.viewer.scene.primitives
-      ) {
+      if (this._peakLabels && this.viewer.scene?.primitives) {
         this.viewer.scene.primitives.remove(this._peakLabels);
       }
-      if (
-        this._hotspotLabels &&
-        this.viewer.scene &&
-        this.viewer.scene.primitives
-      ) {
+      if (this._hotspotLabels && this.viewer.scene?.primitives) {
         this.viewer.scene.primitives.remove(this._hotspotLabels);
       }
       this.viewer.destroy();
@@ -979,7 +957,7 @@ export class GSRGlobeManager {
    * difficult or impossible to tilt back down.
    */
   _enforceCameraPitchBounds() {
-    if (!this.viewer || !this.viewer.camera || this._isOrbiting) return;
+    if (!this.viewer?.camera || this._isOrbiting) return;
     const camera = this.viewer.camera;
     const pitch = camera.pitch;
     if (typeof pitch !== 'number' || isNaN(pitch)) return;
@@ -1158,9 +1136,7 @@ export class GSRGlobeManager {
     let terrainAlt = 0;
     try {
       if (
-        this.viewer &&
-        this.viewer.scene &&
-        this.viewer.scene.globe &&
+        this.viewer?.scene?.globe &&
         typeof this.viewer.scene.globe.getHeight === 'function'
       ) {
         const carto = Cesium.Cartographic.fromDegrees(lon, lat);
@@ -1204,11 +1180,9 @@ export class GSRGlobeManager {
   _getPointHeight(origIdx) {
     if (origIdx == null || !this.currentAnalyzer) return this.baseHeight || 2.0;
     const metric = this.activeColoringMetric;
-    const heightMetric =
-      typeof HEIGHT_CAPABLE_METRICS !== 'undefined' &&
-      HEIGHT_CAPABLE_METRICS.has(metric)
-        ? metric
-        : this.heightMetric || 'phasic';
+    const heightMetric = HEIGHT_CAPABLE_METRICS?.has(metric)
+      ? metric
+      : this.heightMetric || 'phasic';
     const series = this._getMetricSeries(this.currentAnalyzer, heightMetric);
     const rawVal = series ? series[origIdx] : 0;
     const extScale = this.extrusionScale || 8.0;
@@ -1342,7 +1316,7 @@ export class GSRGlobeManager {
     // analyze() may have refilled the analyzer's series buffers in place since
     // the last render — drop the memo so this rebuild reads fresh values.
     this._invalidateMetricSeriesCache();
-    if (!analyzer || !analyzer.raw || analyzer.raw.length === 0) {
+    if (!analyzer?.raw || analyzer.raw.length === 0) {
       this.clearAll();
       this.currentAnalyzer = null;
       this.currentDrawPoints = [];
@@ -1408,7 +1382,7 @@ export class GSRGlobeManager {
    * own the way the Entity API does. No-op in continuous-render mode.
    */
   _requestRender() {
-    if (this.requestRenderMode && this.viewer && this.viewer.scene) {
+    if (this.requestRenderMode && this.viewer?.scene) {
       this.viewer.scene.requestRender();
     }
   }
@@ -1563,11 +1537,9 @@ export class GSRGlobeManager {
           Cesium.Color.fromCssColorString(speedColors['Very Slow']).withAlpha(
             0.85,
           ),
-          Cesium.Color.fromCssColorString(speedColors['Slow']).withAlpha(0.85),
-          Cesium.Color.fromCssColorString(speedColors['Standard']).withAlpha(
-            0.85,
-          ),
-          Cesium.Color.fromCssColorString(speedColors['Fast']).withAlpha(0.85),
+          Cesium.Color.fromCssColorString(speedColors.Slow).withAlpha(0.85),
+          Cesium.Color.fromCssColorString(speedColors.Standard).withAlpha(0.85),
+          Cesium.Color.fromCssColorString(speedColors.Fast).withAlpha(0.85),
           Cesium.Color.fromCssColorString(speedColors['Very Fast']).withAlpha(
             0.85,
           ),
@@ -1787,7 +1759,7 @@ export class GSRGlobeManager {
    */
   _groundHeightAt(lat, lon) {
     try {
-      const globe = this.viewer && this.viewer.scene && this.viewer.scene.globe;
+      const globe = this.viewer?.scene?.globe;
       if (globe && typeof globe.getHeight === 'function') {
         const h = globe.getHeight(Cesium.Cartographic.fromDegrees(lon, lat));
         if (typeof h === 'number' && isFinite(h)) return h;
@@ -1822,7 +1794,7 @@ export class GSRGlobeManager {
     // (e.g. greenPct vs distWater) read different raw columns, so a single
     // '__raw__' key would collide within one render.
     const rawField = useDerived ? null : rawMetricField(metric);
-    const key = useDerived ? field : 'raw:' + (rawField || 'gsr');
+    const key = useDerived ? field : `raw:${rawField || 'gsr'}`;
 
     const cache =
       this._metricSeriesCache || (this._metricSeriesCache = new Map());
@@ -1876,7 +1848,7 @@ export class GSRGlobeManager {
    * @private
    */
   _withEntityBatch(fn) {
-    const ents = this.viewer && this.viewer.entities;
+    const ents = this.viewer?.entities;
     const batch = ents && typeof ents.suspendEvents === 'function';
     if (batch) ents.suspendEvents();
     try {
@@ -1928,7 +1900,7 @@ export class GSRGlobeManager {
         this.show3DBuildings &&
         this.cachedOsmJson &&
         !this.buildingPrimitive &&
-        !(this.buildingsTileset && this.buildingsTileset.show) &&
+        !this.buildingsTileset?.show &&
         !this._buildingsFetching
       ) {
         this.renderOsm3DBuildings(
@@ -1951,8 +1923,7 @@ export class GSRGlobeManager {
    * lets the wall wash over them from some camera angles. @private
    */
   _raiseMarkerCollections() {
-    const prims =
-      this.viewer && this.viewer.scene && this.viewer.scene.primitives;
+    const prims = this.viewer?.scene?.primitives;
     if (!prims || typeof prims.raiseToTop !== 'function') return;
     if (this._peakPoints) prims.raiseToTop(this._peakPoints);
     if (this._peakLabels) prims.raiseToTop(this._peakLabels);

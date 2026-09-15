@@ -83,17 +83,16 @@ export const __methods = {
         width - GSR_CONST.MARGIN.right,
       );
 
-      let label = t.toFixed(t % 1 !== 0 ? 1 : 0) + 's';
+      let label = `${t.toFixed(t % 1 !== 0 ? 1 : 0)}s`;
       if (t >= 3600) {
         const h = Math.floor(t / 3600);
         const m = Math.floor((t % 3600) / 60);
         const s = Math.floor(t % 60);
-        label =
-          h + ':' + (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s;
+        label = `${h}:${m < 10 ? '0' : ''}${m}:${s < 10 ? '0' : ''}${s}`;
       } else if (t >= 60) {
         const m = Math.floor(t / 60);
         const s = Math.floor(t % 60);
-        label = m + ':' + (s < 10 ? '0' : '') + s;
+        label = `${m}:${s < 10 ? '0' : ''}${s}`;
       }
       text(
         label,
@@ -233,10 +232,10 @@ export const __methods = {
       typeof textWidth === 'function' ? textWidth(s) : (s ? s.length : 0) * 6.5;
     let maxContentW = 0;
     const allRows = [
-      ['Raw:', rawVal.toFixed(4) + ' \u03bcS'],
-      ['Filtered:', filtVal.toFixed(4) + ' \u03bcS'],
-      ['Tonic (SCL):', tonicVal.toFixed(4) + ' \u03bcS'],
-      ['Phasic (SCR):', phasicVal.toFixed(4) + ' \u03bcS'],
+      ['Raw:', `${rawVal.toFixed(4)} \u03bcS`],
+      ['Filtered:', `${filtVal.toFixed(4)} \u03bcS`],
+      ['Tonic (SCL):', `${tonicVal.toFixed(4)} \u03bcS`],
+      ['Phasic (SCR):', `${phasicVal.toFixed(4)} \u03bcS`],
     ];
     for (const r of rows) {
       if (r) allRows.push([r.label || '', r.valueStr || '']);
@@ -289,7 +288,7 @@ export const __methods = {
     textSize(10);
     textStyle(BOLD);
     text(
-      'TIME: ' + AppState.analyzer.formatClockTime(time),
+      `TIME: ${AppState.analyzer.formatClockTime(time)}`,
       boxX + pad,
       boxY + pad,
     );
@@ -303,7 +302,7 @@ export const __methods = {
     this._drawTooltipRow(
       'Raw:',
       textSec,
-      rawVal.toFixed(4) + ' \u03bcS',
+      `${rawVal.toFixed(4)} \u03bcS`,
       boxX,
       boxW,
       pad,
@@ -314,7 +313,7 @@ export const __methods = {
     this._drawTooltipRow(
       'Filtered:',
       colorFiltered,
-      filtVal.toFixed(4) + ' \u03bcS',
+      `${filtVal.toFixed(4)} \u03bcS`,
       boxX,
       boxW,
       pad,
@@ -325,7 +324,7 @@ export const __methods = {
     this._drawTooltipRow(
       'Tonic (SCL):',
       colorTonic,
-      tonicVal.toFixed(4) + ' \u03bcS',
+      `${tonicVal.toFixed(4)} \u03bcS`,
       boxX,
       boxW,
       pad,
@@ -336,7 +335,7 @@ export const __methods = {
     this._drawTooltipRow(
       'Phasic (SCR):',
       colorPhasic,
-      phasicVal.toFixed(4) + ' \u03bcS',
+      `${phasicVal.toFixed(4)} \u03bcS`,
       boxX,
       boxW,
       pad,
@@ -382,7 +381,7 @@ export const __methods = {
       text('Peak Quality', boxX + pad, peakY);
       fill(qColor);
       textAlign(RIGHT, TOP);
-      text('\u25CF ' + qPct + '% ' + qLabel, boxX + boxW - pad, peakY);
+      text(`\u25CF ${qPct}% ${qLabel}`, boxX + boxW - pad, peakY);
       textStyle(NORMAL);
 
       // Details row 1: Skew + SNR
@@ -401,7 +400,7 @@ export const __methods = {
       textAlign(LEFT, TOP);
       text('SNR:', boxX + boxW * 0.5 + 4, detailY);
       textAlign(RIGHT, TOP);
-      text((nearPeak.snr || 0).toFixed(1) + 'x', boxX + boxW - pad, detailY);
+      text(`${(nearPeak.snr || 0).toFixed(1)}x`, boxX + boxW - pad, detailY);
 
       // Details row 2: Rise + Slope
       const slopeY = detailY + 15;
@@ -409,7 +408,7 @@ export const __methods = {
       text('Rise:', boxX + pad, slopeY);
       textAlign(RIGHT, TOP);
       text(
-        (nearPeak.riseTime || 0).toFixed(2) + 's',
+        `${(nearPeak.riseTime || 0).toFixed(2)}s`,
         boxX + boxW * 0.5 - 4,
         slopeY,
       );
@@ -425,7 +424,7 @@ export const __methods = {
         text('Speed:', boxX + pad, speedY);
         textAlign(RIGHT, TOP);
         text(
-          nearPeak.speedLabel + ' (' + (nearPeak.scaleFactor || 1) + 'x)',
+          `${nearPeak.speedLabel} (${nearPeak.scaleFactor || 1}x)`,
           boxX + boxW - pad,
           speedY,
         );
@@ -466,7 +465,7 @@ export const __methods = {
 
     let minRaw = Infinity;
     let maxRaw = -Infinity;
-    const globalRaw = AppState.analyzer && AppState.analyzer._rawGlobalRange;
+    const globalRaw = AppState.analyzer?._rawGlobalRange;
     if (
       globalRaw &&
       globalRaw.min !== undefined &&
@@ -474,10 +473,10 @@ export const __methods = {
     ) {
       minRaw = globalRaw.min;
       maxRaw = globalRaw.max;
-    } else if (AppState.analyzer && AppState.analyzer.rawMinMaxCached) {
+    } else if (AppState.analyzer?.rawMinMaxCached) {
       minRaw = AppState.analyzer.rawMinMaxCached.minVal;
       maxRaw = AppState.analyzer.rawMinMaxCached.maxVal;
-    } else if (AppState.analyzer && AppState.analyzer.raw) {
+    } else if (AppState.analyzer?.raw) {
       for (let i = 0; i < AppState.analyzer.raw.length; i++) {
         const val = AppState.analyzer.raw[i].val;
         if (val < minRaw) minRaw = val;
@@ -507,7 +506,7 @@ export const __methods = {
 
     // Use pre-cached peak positions (fraction of total duration)
     if (AppState.showPeaks && AppState.analyzer._timelinePeakPct) {
-      fill(color(colorPeak + 'b4')); // ~0.7 opacity
+      fill(color(`${colorPeak}b4`)); // ~0.7 opacity
       noStroke();
       const pcts = AppState.analyzer._timelinePeakPct;
       for (let j = 0; j < pcts.length; j++) {
@@ -521,7 +520,7 @@ export const __methods = {
       GSR_CONST.MARGIN.left +
       (AppState.viewStartTime + AppState.viewDuration) * xScale;
 
-    fill(color(colorFiltered + '20')); // ~0.12 opacity
+    fill(color(`${colorFiltered}20`)); // ~0.12 opacity
     stroke(colorFiltered);
     strokeWeight(1.5);
     rect(

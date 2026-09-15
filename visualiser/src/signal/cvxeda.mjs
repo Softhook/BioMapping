@@ -112,7 +112,7 @@ export const CVXEDA = {
       };
     }
 
-    const cfg = (typeof GSR_CONST !== 'undefined' && GSR_CONST.CVXEDA) || {};
+    const cfg = GSR_CONST?.CVXEDA || {};
     const tauSlow = options.tauSlow ?? cfg.tauSlow ?? 2.0;
     const tauFast = options.tauFast ?? cfg.tauFast ?? 0.7;
     const deltaKnotSec = options.deltaKnotSec ?? cfg.deltaKnotSec ?? 10.0;

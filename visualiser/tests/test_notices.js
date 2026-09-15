@@ -1,7 +1,7 @@
-const assert = require('assert');
+const assert = require('node:assert');
 const test = require('node:test');
-const path = require('path');
-const { pathToFileURL } = require('url');
+const path = require('node:path');
+const { pathToFileURL } = require('node:url');
 const { JSDOM } = require('jsdom');
 
 const { GSRNotices } = require('../src/core/notices.mjs');

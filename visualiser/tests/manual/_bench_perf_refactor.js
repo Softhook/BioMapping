@@ -1,4 +1,4 @@
-const { performance } = require('perf_hooks');
+const { performance } = require('node:perf_hooks');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. stitchSegments Benchmark (O(n²) linear scan vs O(n) Map)
@@ -135,7 +135,7 @@ function generateLabelCandidates(labelCount) {
       idx: i,
       px: 100 + (i % 10) * 30 + Math.random() * 10,
       py: 100 + Math.floor(i / 10) * 30 + Math.random() * 10,
-      text: 'Peak #' + (i + 1),
+      text: `Peak #${i + 1}`,
     });
   }
   return items;
@@ -281,10 +281,10 @@ console.log(
 );
 for (const peakCount of [10, 50, 100]) {
   const res = benchKdeGrid(peakCount);
-  const us = (v) => (v * 1000).toFixed(1) + ' us';
+  const us = (v) => `${(v * 1000).toFixed(1)} us`;
   console.log(
     `  Peaks: ${peakCount.toString().padEnd(3)} | Nested 2D: ${us(res.timeOld).padEnd(10)} | Float64Array: ${us(res.timeNew).padEnd(10)} | Speedup: ${res.speedup.toFixed(2)}x`,
   );
 }
 
-console.log('\n' + '='.repeat(70));
+console.log(`\n${'='.repeat(70)}`);

@@ -408,16 +408,15 @@ export const GSR_CONST = {
 
   // Color mapping for SparsEDA multi-scale speed categories across UI, graph, and map.
   // Defined canonically in ResponseDynamics (src/signal/response_dynamics.js).
-  SPARSEDA_SPEED_COLORS:
-    typeof ResponseDynamics !== 'undefined' && ResponseDynamics.SPEED_COLORS
-      ? ResponseDynamics.SPEED_COLORS
-      : {
-          'Very Fast': '#ef4444', // 1.5x (Vivid Red / Acute shock)
-          Fast: '#f97316', // 1.25x (Vibrant Orange)
-          Standard: '#10b981', // 1.0x (Emerald Green / Habitual)
-          Slow: '#3b82f6', // 0.75x (Vivid Blue)
-          'Very Slow': '#8b5cf6', // 0.5x (Deep Purple / Lingering tension)
-        },
+  SPARSEDA_SPEED_COLORS: ResponseDynamics?.SPEED_COLORS
+    ? ResponseDynamics.SPEED_COLORS
+    : {
+        'Very Fast': '#ef4444', // 1.5x (Vivid Red / Acute shock)
+        Fast: '#f97316', // 1.25x (Vibrant Orange)
+        Standard: '#10b981', // 1.0x (Emerald Green / Habitual)
+        Slow: '#3b82f6', // 0.75x (Vivid Blue)
+        'Very Slow': '#8b5cf6', // 0.5x (Deep Purple / Lingering tension)
+      },
 
   // Display unit for the 'phasicDriver' graph view, keyed by
   // analyzer._driverAlgorithm — the two detectors' "driver" arrays are not

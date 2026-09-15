@@ -126,7 +126,7 @@ out skel qt;`;
    * @private
    */
   _isNonRetryableError(err) {
-    if (!err || !err.message) return false;
+    if (!err?.message) return false;
     if (/malformed/i.test(err.message)) return true;
     if (/Access denied/i.test(err.message)) return true;
     if (/Request entity too large/i.test(err.message)) return true;
@@ -188,7 +188,7 @@ out skel qt;`;
 
         const response = await fetch(endpoint, {
           method: 'POST',
-          body: 'data=' + encodeURIComponent(query),
+          body: `data=${encodeURIComponent(query)}`,
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
           signal: controller.signal,
         });
@@ -203,7 +203,7 @@ out skel qt;`;
               `Invalid or truncated JSON response: ${jsonErr.message}`,
             );
           }
-          if (json && json.remark && /runtime error/i.test(json.remark)) {
+          if (json?.remark && /runtime error/i.test(json.remark)) {
             throw new Error(`Overpass server runtime error: ${json.remark}`);
           }
           return json;

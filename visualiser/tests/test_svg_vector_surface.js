@@ -3,8 +3,8 @@
  * Run: node visualiser/tests/test_svg_vector_surface.js
  */
 
-const assert = require('assert');
-const path = require('path');
+const assert = require('node:assert');
+const path = require('node:path');
 
 // Bootstrap dependencies
 const { loadModule } = require('./support/load_module.js');

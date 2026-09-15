@@ -6,8 +6,5 @@
     "tests/*.js",
     "tests/manual/**/*.js"
   ],
-  "project": [
-    "src/**/*.{js,mjs}",
-    "tests/**/*.js"
-  ]
+  "project": ["src/**/*.{js,mjs}", "tests/**/*.js"]
 }

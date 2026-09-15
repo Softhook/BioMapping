@@ -84,7 +84,7 @@ export const __methods = {
    * per-frame draws stay O(1).
    */
   _getBandSegments(cache, analyzer, build) {
-    if (!analyzer || !analyzer.raw || analyzer.raw.length === 0) return null;
+    if (!analyzer?.raw || analyzer.raw.length === 0) return null;
 
     const dataVersion = analyzer._dataVersion || 0;
     if (
@@ -215,7 +215,7 @@ export const __methods = {
       // Small category label at top of wide bands
       if (w >= 45) {
         noStroke();
-        fill(this.getThemeColor('--canvas-text', '#444444') + '66');
+        fill(`${this.getThemeColor('--canvas-text', '#444444')}66`);
         textAlign(LEFT, TOP);
         textSize(8);
         textStyle(BOLD);

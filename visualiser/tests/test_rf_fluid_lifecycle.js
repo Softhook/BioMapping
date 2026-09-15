@@ -15,7 +15,7 @@
  * Run: node --test tests/test_rf_fluid_lifecycle.js
  */
 
-const assert = require('assert');
+const assert = require('node:assert');
 const test = require('node:test');
 
 // ── Minimal Leaflet (`L`) stub — only what RFFluidRenderer actually calls ──
@@ -34,7 +34,7 @@ global.window = { devicePixelRatio: 1 };
 // pre-existing tests in this suite do for un-exported classes, rather than
 // editing production source just to add an export hook for a class with no
 // guard either way already.
-const path = require('path');
+const path = require('node:path');
 const { loadModule } = require('./support/load_module.js');
 loadModule(
   path.join(__dirname, '..', 'src', 'spatial', 'spatial_grid.js'),
@@ -203,14 +203,14 @@ test('_bindEvents: wires zoomanim and moveend/zoomend/resize/viewreset handlers 
   });
 
   const renderer = new RFFluidRenderer(map);
-  assert.ok(typeof listeners['zoomanim'] === 'function');
+  assert.ok(typeof listeners.zoomanim === 'function');
   assert.ok(
     typeof listeners['moveend zoomend resize viewreset'] === 'function',
   );
 
   assert.doesNotThrow(() => listeners['moveend zoomend resize viewreset']());
   assert.doesNotThrow(() =>
-    listeners['zoomanim']({ zoom: 16, center: { lat: 0, lon: 0 } }),
+    listeners.zoomanim({ zoom: 16, center: { lat: 0, lon: 0 } }),
   );
 });
 

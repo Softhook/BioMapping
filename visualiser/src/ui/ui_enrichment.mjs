@@ -33,11 +33,7 @@ export const __methods = {
         return { allTracks: [], validTracks: [] };
       allTracks = AppState.collectiveManager.getActiveTracks() || [];
     } else {
-      if (
-        AppState.analyzer &&
-        AppState.analyzer.raw &&
-        AppState.analyzer.raw.length > 0
-      ) {
+      if (AppState.analyzer?.raw && AppState.analyzer.raw.length > 0) {
         const trackObj =
           AppState.collectiveManager && AppState.activeTrackId
             ? AppState.collectiveManager.getTrack(AppState.activeTrackId)
@@ -81,7 +77,7 @@ export const __methods = {
     };
 
     const validTracks = allTracks.filter((t) => {
-      if (!t || !t.analyzer || !t.analyzer.raw) return false;
+      if (!t?.analyzer?.raw) return false;
       return t.analyzer.raw.some((pt) => pt && isValid(pt.lat, pt.lon));
     });
 
@@ -221,7 +217,7 @@ export const __methods = {
       }
     }
 
-    const ok = validTracks.some((t) => t.analyzer && t.analyzer.osmGeoms);
+    const ok = validTracks.some((t) => t.analyzer?.osmGeoms);
     return { ok, fetched, cached, failed, tooBig };
   },
 
@@ -264,9 +260,10 @@ export const __methods = {
     };
 
     try {
-      const radius = parseInt(document.getElementById('osmRadius').value) || 50;
+      const radius =
+        parseInt(document.getElementById('osmRadius').value, 10) || 50;
       const snapRadius =
-        parseInt(document.getElementById('gpsSnapRadius')?.value) || 25;
+        parseInt(document.getElementById('gpsSnapRadius')?.value, 10) || 25;
       const maxRadius = Math.max(radius, snapRadius);
 
       // Union bounding box over every valid track's raw coordinates.
@@ -418,8 +415,8 @@ export const __methods = {
       );
     } catch (err) {
       console.error('OSM Enrichment error:', err);
-      alert('OSM Enrichment failed: ' + err.message);
-      statusMsg.innerText = 'Error: ' + err.message;
+      alert(`OSM Enrichment failed: ${err.message}`);
+      statusMsg.innerText = `Error: ${err.message}`;
       progressBar.style.backgroundColor = 'var(--danger)';
     } finally {
       btn.removeAttribute('disabled');
@@ -504,10 +501,10 @@ export const __methods = {
       );
     } catch (err) {
       console.error('NDVI Sampling error:', err);
-      if (!silent) alert('NDVI Sampling failed: ' + err.message);
+      if (!silent) alert(`NDVI Sampling failed: ${err.message}`);
       this.setSpatialProgress(
         true,
-        'Error: ' + err.message,
+        `Error: ${err.message}`,
         100,
         'var(--danger)',
       );

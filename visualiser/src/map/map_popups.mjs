@@ -137,8 +137,7 @@ export const MapPopups = {
     const displayLabel = peak.label || '';
 
     const container = L.DomUtil.create('div');
-    container.className =
-      'map-popup-card' + (extraClass ? ' ' + extraClass : '');
+    container.className = `map-popup-card${extraClass ? ` ${extraClass}` : ''}`;
 
     // The label textarea IS the body of the popup. Empty (peak still at its
     // default numbered name) shows the "Enter label…" placeholder; a
@@ -158,7 +157,7 @@ export const MapPopups = {
     // grow past the point its position was clamped to).
     setTimeout(() => {
       input.style.height = 'auto';
-      input.style.height = input.scrollHeight + 'px';
+      input.style.height = `${input.scrollHeight}px`;
       if (typeof onResize === 'function') onResize();
     }, 0);
 
@@ -170,7 +169,7 @@ export const MapPopups = {
       MapPopups._buildStreetViewButton(
         lat,
         lon,
-        displayLabel || 'Peak #' + (index + 1),
+        displayLabel || `Peak #${index + 1}`,
         headingVal,
       ),
     );
@@ -188,7 +187,7 @@ export const MapPopups = {
     // --- Event handlers ---
     L.DomEvent.on(input, 'input', () => {
       input.style.height = 'auto';
-      input.style.height = input.scrollHeight + 'px';
+      input.style.height = `${input.scrollHeight}px`;
       if (typeof onResize === 'function') onResize();
       GSRUI.handleLiveLabelInput(index, input.value, trackId);
     });
@@ -253,7 +252,7 @@ export const MapPopups = {
    * @param {{collective:boolean, activeTrackCount:number}} ctx
    */
   buildArousalPlacePopup(place, ctx) {
-    const multiTrack = ctx && ctx.collective && ctx.activeTrackCount > 1;
+    const multiTrack = ctx?.collective && ctx.activeTrackCount > 1;
 
     const container = L.DomUtil.create('div');
     container.className = 'map-popup-card compact';

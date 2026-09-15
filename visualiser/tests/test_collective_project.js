@@ -12,7 +12,7 @@
  * Run: node --test tests/test_collective_project.js
  */
 
-const assert = require('assert');
+const assert = require('node:assert');
 const test = require('node:test');
 
 // ── Minimal global stubs so collective_project.js's top-level references
@@ -179,7 +179,7 @@ test('exportProject: shows an alert and does not throw when JSZip is unavailable
   });
 
   await GSRCollectiveProject.exportProject();
-  assert.ok(alerted && alerted.includes('Zip support failed to load'));
+  assert.ok(alerted?.includes('Zip support failed to load'));
 
   delete global.AppState;
   global.alert = () => {};
@@ -196,7 +196,7 @@ test('exportProject: shows an alert when there are no tracks to export', async (
   });
 
   await GSRCollectiveProject.exportProject();
-  assert.ok(alerted && alerted.includes('No tracks loaded to export'));
+  assert.ok(alerted?.includes('No tracks loaded to export'));
 
   delete global.AppState;
   delete global.JSZip;
@@ -314,7 +314,7 @@ test('importProject: shows an alert and does not throw when JSZip is unavailable
   };
 
   await GSRCollectiveProject.importProject({ name: 'project.zip' });
-  assert.ok(alerted && alerted.includes('Zip support failed to load'));
+  assert.ok(alerted?.includes('Zip support failed to load'));
 
   global.alert = () => {};
 });
@@ -330,7 +330,7 @@ test('importProject: rejects a zip with no manifest.json as an error, surfaced v
   };
 
   await GSRCollectiveProject.importProject({ name: 'bad.zip' });
-  assert.ok(alertMsg && alertMsg.includes('manifest.json is missing'));
+  assert.ok(alertMsg?.includes('manifest.json is missing'));
 
   delete global.JSZip;
   delete global.AppState;
@@ -355,7 +355,7 @@ test('importProject: rejects a manifest with an empty/missing tracks array', asy
   };
 
   await GSRCollectiveProject.importProject({ name: 'empty.zip' });
-  assert.ok(alertMsg && alertMsg.includes('manifest has no tracks'));
+  assert.ok(alertMsg?.includes('manifest has no tracks'));
 
   delete global.JSZip;
   delete global.AppState;

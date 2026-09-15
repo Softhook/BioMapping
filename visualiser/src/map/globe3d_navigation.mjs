@@ -24,7 +24,7 @@ export const __methods = {
     if (!this.viewer || typeof Cesium === 'undefined') return;
     const a =
       analyzer || (typeof AppState !== 'undefined' ? AppState.analyzer : null);
-    if (!a || !a.peaks || peakIdx < 0 || peakIdx >= a.peaks.length) return;
+    if (!a?.peaks || peakIdx < 0 || peakIdx >= a.peaks.length) return;
 
     const peak = a.peaks[peakIdx];
     const coords = this._latencyCoords(a, peak);
@@ -67,7 +67,7 @@ export const __methods = {
     if (!this.viewer || typeof Cesium === 'undefined') return;
     const a =
       analyzer || (typeof AppState !== 'undefined' ? AppState.analyzer : null);
-    if (!a || !a.peaks || peakIdx < 0 || peakIdx >= a.peaks.length) return;
+    if (!a?.peaks || peakIdx < 0 || peakIdx >= a.peaks.length) return;
 
     const peak = a.peaks[peakIdx];
     const coords = this._latencyCoords(a, peak);

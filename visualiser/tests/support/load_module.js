@@ -25,8 +25,8 @@
  *     files at all — see e.g. test_svg_vector_surface.js's top-level
  *     asserts), so staying synchronous keeps every caller unchanged.
  */
-const fs = require('fs');
-const vm = require('vm');
+const fs = require('node:fs');
+const vm = require('node:vm');
 
 function loadModule(filePath, varName) {
   const mjsPath = filePath.replace(/\.js$/, '.mjs');

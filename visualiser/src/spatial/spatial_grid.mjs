@@ -26,7 +26,7 @@ export class SpatialGrid {
   }
 
   _key(row, col) {
-    return row + ',' + col;
+    return `${row},${col}`;
   }
 
   _cellRange(bbox) {

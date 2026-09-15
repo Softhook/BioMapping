@@ -57,11 +57,13 @@ export const __methods = {
         cc.gridResolution
           ? cc.gridResolution.value
           : GSR_CONST.COLLECTIVE.gridResolution,
+        10,
       ),
       contourCount: parseInt(
         cc.contourCount
           ? cc.contourCount.value
           : GSR_CONST.COLLECTIVE.contourCount,
+        10,
       ),
       isolationRadius: parseFloat(
         cc.isolationRadius
@@ -129,10 +131,10 @@ export const __methods = {
     if (F.date) F.date.innerText = '--';
     if (F.startTime) F.startTime.innerText = '--';
     if (F.duration)
-      F.duration.innerText = (totalDur / 60.0).toFixed(1) + ' min';
-    if (F.meanSCL) F.meanSCL.innerText = meanSCL.toFixed(3) + ' \u03bcS';
+      F.duration.innerText = `${(totalDur / 60.0).toFixed(1)} min`;
+    if (F.meanSCL) F.meanSCL.innerText = `${meanSCL.toFixed(3)} \u03bcS`;
     if (F.peakCount) F.peakCount.innerText = totalPeaks;
-    if (F.peakFreq) F.peakFreq.innerText = meanPeakFreq.toFixed(2) + ' / min';
+    if (F.peakFreq) F.peakFreq.innerText = `${meanPeakFreq.toFixed(2)} / min`;
   },
 };
 

@@ -8,12 +8,12 @@ import { GSR_CONST } from '../core/constants.mjs';
 import { GSRFileSaver } from '../core/file_saver.mjs';
 import { GSRNotices } from '../core/notices.mjs';
 import { GeoUtils } from '../gps/geo_utils.mjs';
-import { Hillshade } from './hillshade.mjs';
-import { MapColors } from './map_colors.mjs';
 import { BezierSpline } from '../render/bezier_spline.mjs';
 import { ContourRingGeometry } from '../render/contour_ring_geometry.mjs';
 import { StatsMath } from '../signal/stats_math.mjs';
 import { GSRUI } from '../ui/ui.mjs';
+import { Hillshade } from './hillshade.mjs';
+import { MapColors } from './map_colors.mjs';
 
 export const SVG_NS = 'http://www.w3.org/2000/svg';
 export const XLINK_NS = 'http://www.w3.org/1999/xlink';
@@ -27,7 +27,7 @@ export class GSRMapExporter {
   // ═══════════════════════════════════════════════════════════════════
 
   static async exportToSvg(mgr) {
-    let ctx = this._validate(mgr);
+    let ctx = GSRMapExporter._validate(mgr);
     if (!ctx) return;
 
     // Isobands at the map edge are drawn extending past the original frame
@@ -36,26 +36,26 @@ export class GSRMapExporter {
     // that extension and then clipping it away — means everything in the
     // export is genuinely visible; there's no invisible geometry to keep in
     // sync with a clip region.
-    ctx = this._expandCanvasForIsobands(ctx);
-    await this._ensureTileCoverage(ctx, mgr);
+    ctx = GSRMapExporter._expandCanvasForIsobands(ctx);
+    await GSRMapExporter._ensureTileCoverage(ctx, mgr);
 
-    const layers = await this._gather(ctx);
-    await this._download(
-      this._render(ctx, layers),
+    const layers = await GSRMapExporter._gather(ctx);
+    await GSRMapExporter._download(
+      GSRMapExporter._render(ctx, layers),
       AppState.viewMode || 'single',
     );
   }
 
   static async exportToPng(mgr) {
-    let ctx = this._validate(mgr);
+    let ctx = GSRMapExporter._validate(mgr);
     if (!ctx) return;
 
-    ctx = this._expandCanvasForIsobands(ctx);
-    await this._ensureTileCoverage(ctx, mgr);
+    ctx = GSRMapExporter._expandCanvasForIsobands(ctx);
+    await GSRMapExporter._ensureTileCoverage(ctx, mgr);
 
-    const layers = await this._gather(ctx);
-    const svgString = this._render(ctx, layers);
-    await this._downloadPng(
+    const layers = await GSRMapExporter._gather(ctx);
+    const svgString = GSRMapExporter._render(ctx, layers);
+    await GSRMapExporter._downloadPng(
       svgString,
       ctx.w,
       ctx.h,
@@ -91,7 +91,7 @@ export class GSRMapExporter {
       return null;
     }
     const r = el.getBoundingClientRect();
-    const proj = this._getProjection(mgr, el);
+    const proj = GSRMapExporter._getProjection(mgr, el);
     return {
       map: mgr.map,
       el,
@@ -240,8 +240,8 @@ export class GSRMapExporter {
    * drawing that extension and clipping it away, we just make room for it.
    */
   static _expandCanvasForIsobands(ctx) {
-    const surfObj = this._surface(ctx);
-    const paths = (surfObj && surfObj.isobands) || [];
+    const surfObj = GSRMapExporter._surface(ctx);
+    const paths = surfObj?.isobands || [];
     if (!paths.length) return ctx;
 
     let minX = Infinity,
@@ -251,7 +251,7 @@ export class GSRMapExporter {
     paths.forEach((p) => {
       const m = p.match(/d="([^"]*)"/);
       if (!m) return;
-      const bbox = this._pathBBox(m[1]);
+      const bbox = GSRMapExporter._pathBBox(m[1]);
       if (!bbox) return;
       if (bbox.minX < minX) minX = bbox.minX;
       if (bbox.minY < minY) minY = bbox.minY;
@@ -441,21 +441,21 @@ export class GSRMapExporter {
         ? mgr.getRenderLayers()
         : { paths: [], peakMarkers: [], hotspots: [] };
     return {
-      tiles: await this._tiles(el, r),
-      rfFluid: this._rfFluid(ctx),
-      surface: this._surface(ctx),
-      osm: this._vectors(ctx, mgr.osmLayers, { exact: true }),
-      tracks: this._vectors(ctx, render.paths),
-      contours: this._vectors(ctx, mgr.contourLayers),
-      clusters: this._vectors(ctx, mgr.clusterLayers),
-      dotsAndLabels: this._markers(ctx, render.peakMarkers),
-      hotspots: this._markers(ctx, render.hotspots),
+      tiles: await GSRMapExporter._tiles(el, r),
+      rfFluid: GSRMapExporter._rfFluid(ctx),
+      surface: GSRMapExporter._surface(ctx),
+      osm: GSRMapExporter._vectors(ctx, mgr.osmLayers, { exact: true }),
+      tracks: GSRMapExporter._vectors(ctx, render.paths),
+      contours: GSRMapExporter._vectors(ctx, mgr.contourLayers),
+      clusters: GSRMapExporter._vectors(ctx, mgr.clusterLayers),
+      dotsAndLabels: GSRMapExporter._markers(ctx, render.peakMarkers),
+      hotspots: GSRMapExporter._markers(ctx, render.hotspots),
     };
   }
 
   static _rfFluid(ctx) {
     const rfRenderer = ctx.mgr?.rfFluidRenderer;
-    if (!rfRenderer || !rfRenderer.options || !rfRenderer.options.visible) {
+    if (!rfRenderer?.options?.visible) {
       return { defs: [], polygons: [] };
     }
     if (typeof rfRenderer.exportToSvgElements === 'function') {
@@ -472,9 +472,9 @@ export class GSRMapExporter {
     const { w, h } = ctx;
 
     const g = (id, name, items, extra = '') =>
-      `  <g i:layer="yes" id="${id}" data-name="${name}"${extra ? ' ' + extra : ''}>` +
-      (items && items.length
-        ? '\n' + items.map((e) => '    ' + e).join('\n') + '\n  '
+      `  <g i:layer="yes" id="${id}" data-name="${name}"${extra ? ` ${extra}` : ''}>` +
+      (items?.length
+        ? `\n${items.map((e) => `    ${e}`).join('\n')}\n  `
         : '') +
       `</g>`;
 
@@ -483,14 +483,13 @@ export class GSRMapExporter {
       : L.surface || { mesh: [], isobands: [] };
 
     const rfObj = L.rfFluid || { defs: [], layers: {}, polygons: [] };
-    const hasMask =
-      rfObj.defs && rfObj.defs.some((d) => d.includes('id="rfBuildingMask"'));
+    const hasMask = rfObj.defs?.some((d) => d.includes('id="rfBuildingMask"'));
     const maskAttr = hasMask ? 'mask="url(#rfBuildingMask)"' : '';
 
     // Build separated frequency sub-layers for Illustrator
     const rfSubLayers = [];
     if (rfObj.layers) {
-      if (rfObj.layers['815'] && rfObj.layers['815'].length) {
+      if (rfObj.layers['815']?.length) {
         rfSubLayers.push(
           g(
             'RF_815MHz_LTE',
@@ -500,7 +499,7 @@ export class GSRMapExporter {
           ),
         );
       }
-      if (rfObj.layers['868'] && rfObj.layers['868'].length) {
+      if (rfObj.layers['868']?.length) {
         rfSubLayers.push(
           g(
             'RF_868MHz_Grid',
@@ -510,7 +509,7 @@ export class GSRMapExporter {
           ),
         );
       }
-      if (rfObj.layers['915'] && rfObj.layers['915'].length) {
+      if (rfObj.layers['915']?.length) {
         rfSubLayers.push(
           g(
             'RF_915MHz_SubGHz',
@@ -520,12 +519,12 @@ export class GSRMapExporter {
           ),
         );
       }
-      if (rfObj.layers['fog'] && rfObj.layers['fog'].length) {
+      if (rfObj.layers.fog?.length) {
         rfSubLayers.push(
           g(
             'RF_EM_Fog',
             'RF Electromagnetic Fog',
-            rfObj.layers['fog'],
+            rfObj.layers.fog,
             'style="mix-blend-mode: screen;"',
           ),
         );
@@ -558,7 +557,7 @@ export class GSRMapExporter {
 
     const defsContent =
       rfObj.defs && rfObj.defs.length > 0
-        ? `  <defs>\n${rfObj.defs.map((d) => '    ' + d).join('\n')}\n  </defs>`
+        ? `  <defs>\n${rfObj.defs.map((d) => `    ${d}`).join('\n')}\n  </defs>`
         : '';
 
     const specs = [
@@ -607,12 +606,12 @@ export class GSRMapExporter {
 
   static _surface(ctx) {
     const surfaceData = ctx.mgr?.surfaceData;
-    if (!surfaceData || !surfaceData.grid || !surfaceData.bounds) {
+    if (!surfaceData?.grid || !surfaceData.bounds) {
       return { mesh: [], isobands: [] };
     }
     return {
-      mesh: this._buildVectorMesh(ctx, surfaceData),
-      isobands: this._buildVectorIsobands(ctx, surfaceData),
+      mesh: GSRMapExporter._buildVectorMesh(ctx, surfaceData),
+      isobands: GSRMapExporter._buildVectorIsobands(ctx, surfaceData),
     };
   }
 
@@ -682,7 +681,7 @@ export class GSRMapExporter {
                 hc.maxLightness,
               )
             : 50;
-          const fillColor = this._ratioToHex(ratio, lightness);
+          const fillColor = GSRMapExporter._ratioToHex(ratio, lightness);
 
           const dLat =
             rows > 1
@@ -731,7 +730,7 @@ export class GSRMapExporter {
       const pointsStr = `${pNW.x.toFixed(3)},${pNW.y.toFixed(3)} ${pNE.x.toFixed(3)},${pNE.y.toFixed(3)} ${pSE.x.toFixed(3)},${pSE.y.toFixed(3)} ${pSW.x.toFixed(3)},${pSW.y.toFixed(3)}`;
 
       mesh.push(
-        `<polygon points="${pointsStr}" fill="${this._esc(cell.fillColor)}" stroke="${this._esc(cell.fillColor)}" stroke-width="0.5" stroke-linejoin="round" />`,
+        `<polygon points="${pointsStr}" fill="${GSRMapExporter._esc(cell.fillColor)}" stroke="${GSRMapExporter._esc(cell.fillColor)}" stroke-width="0.5" stroke-linejoin="round" />`,
       );
     });
 
@@ -770,12 +769,12 @@ export class GSRMapExporter {
 
     // Project and build SVG paths using the current ctx.project
     surfaceData.cachedIsobandRings.forEach((item) => {
-      const fillColor = this._ratioToHex(item.ratio);
+      const fillColor = GSRMapExporter._ratioToHex(item.ratio);
 
       const smoothRing = (ring) => GeoUtils.chaikinSmooth(ring, 3, true);
 
       item.rings.forEach((ring, idx) => {
-        const d = this._pathD(
+        const d = GSRMapExporter._pathD(
           ctx,
           smoothRing(ring),
           true,
@@ -785,11 +784,10 @@ export class GSRMapExporter {
           'bspline',
         );
         if (!d) return;
-        const holes =
-          (item.holesByRingIndex && item.holesByRingIndex[idx]) || [];
+        const holes = item.holesByRingIndex?.[idx] || [];
         const holeDs = holes
           .map((hole) =>
-            this._pathD(
+            GSRMapExporter._pathD(
               ctx,
               smoothRing(hole),
               true,
@@ -802,7 +800,7 @@ export class GSRMapExporter {
           .filter(Boolean);
         const fullD = [d, ...holeDs].join(' ');
         isobands.push(
-          `<path d="${fullD}" fill="${this._esc(fillColor)}" stroke="none"` +
+          `<path d="${fullD}" fill="${GSRMapExporter._esc(fillColor)}" stroke="none"` +
             (holeDs.length ? ` fill-rule="evenodd"` : '') +
             ` />`,
         );
@@ -820,9 +818,15 @@ export class GSRMapExporter {
     const tiles = Array.from(el.querySelectorAll('.leaflet-tile-pane img'));
     const jobs = tiles.map(async (tile) => {
       const b = tile.getBoundingClientRect();
-      const url = await this._inlineImg(tile);
+      const url = await GSRMapExporter._inlineImg(tile);
       return url
-        ? this._img(b.left - r.left, b.top - r.top, b.width, b.height, url)
+        ? GSRMapExporter._img(
+            b.left - r.left,
+            b.top - r.top,
+            b.width,
+            b.height,
+            url,
+          )
         : null;
     });
     const results = await Promise.all(jobs);
@@ -869,7 +873,7 @@ export class GSRMapExporter {
     const out = [];
     if (!layers) return out;
     for (const l of layers) {
-      const svg = this._pathEl(ctx, l, opts);
+      const svg = GSRMapExporter._pathEl(ctx, l, opts);
       if (svg) out.push(svg);
     }
     return out;
@@ -953,7 +957,7 @@ export class GSRMapExporter {
       }
     }
 
-    const d = this._pathD(
+    const d = GSRMapExporter._pathD(
       ctx,
       latlngs,
       isPoly || isClosedLoop,
@@ -965,7 +969,7 @@ export class GSRMapExporter {
     if (!d) return null;
 
     const o = layer.options || {};
-    const esc = this._esc;
+    const esc = GSRMapExporter._esc;
     // Reduced stroke size: 1.2px thin stroke for exported track vectors.
     // Exact/OSM shapes keep the exact-mode *geometry* (every vertex, no
     // smoothing/culling — see the "exact" comment above), but the stroke
@@ -987,11 +991,11 @@ export class GSRMapExporter {
 
     return (
       `<path d="${d}"` +
-      ` stroke="${esc(this._toHex(o.color || '#ff7b00'))}"` +
+      ` stroke="${esc(GSRMapExporter._toHex(o.color || '#ff7b00'))}"` +
       ` stroke-width="${esc(strokeWidth)}"` +
       ` stroke-opacity="${esc(o.opacity ?? 0.85)}"` +
       ` stroke-dasharray="${esc(o.dashArray || 'none')}"` +
-      ` fill="${esc(isPoly ? this._toHex(o.fillColor || o.color || '#ff7b00') : 'none')}"` +
+      ` fill="${esc(isPoly ? GSRMapExporter._toHex(o.fillColor || o.color || '#ff7b00') : 'none')}"` +
       ` fill-opacity="${esc(isPoly ? (o.fillOpacity ?? 0.2) : 0)}"` +
       (exact
         ? ` stroke-linecap="square" stroke-linejoin="miter" stroke-miterlimit="10" />`
@@ -1027,7 +1031,9 @@ export class GSRMapExporter {
         (latlngs[0][0] !== null && typeof latlngs[0][0] === 'object'))
     )
       return latlngs
-        .map((s) => this._pathD(ctx, s, close, smooth, exact, cull, curveMode))
+        .map((s) =>
+          GSRMapExporter._pathD(ctx, s, close, smooth, exact, cull, curveMode),
+        )
         .filter(Boolean)
         .join(' ');
 
@@ -1076,7 +1082,7 @@ export class GSRMapExporter {
     for (let i = 1; i < pts.length; i++) {
       d += ` L${pts[i].x.toFixed(3)} ${pts[i].y.toFixed(3)}`;
     }
-    return close ? d + ' Z' : d;
+    return close ? `${d} Z` : d;
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -1110,13 +1116,13 @@ export class GSRMapExporter {
       if (!p || typeof p.x !== 'number') continue;
       const cx = p.x,
         cy = p.y;
-      const op = this._esc(
+      const op = GSRMapExporter._esc(
         parseFloat(window.getComputedStyle(el).opacity) || 1,
       );
 
-      const d = this._dotSvg(el, cx, cy, op);
+      const d = GSRMapExporter._dotSvg(el, cx, cy, op);
       if (d) dots.push(d);
-      const l = this._labelSvg(el, cx, cy, op);
+      const l = GSRMapExporter._labelSvg(el, cx, cy, op);
       if (l) labels.push(l);
     }
     return { dots, labels };
@@ -1130,9 +1136,9 @@ export class GSRMapExporter {
       const ss = window.getComputedStyle(star);
       return (
         `<text x="${cx}" y="${cy}"` +
-        ` font-size="${this._esc(ss.fontSize || '18px')}"` +
-        ` font-family="${this._esc(ss.fontFamily || 'sans-serif')}"` +
-        ` fill="${this._esc(ss.color || '#ff1744')}"` +
+        ` font-size="${GSRMapExporter._esc(ss.fontSize || '18px')}"` +
+        ` font-family="${GSRMapExporter._esc(ss.fontFamily || 'sans-serif')}"` +
+        ` fill="${GSRMapExporter._esc(ss.color || '#ff1744')}"` +
         ` text-anchor="middle" dominant-baseline="central"` +
         ` opacity="${opacity}">★</text>`
       );
@@ -1148,9 +1154,9 @@ export class GSRMapExporter {
     const r = (parseFloat(s.width) || 10) * 0.5;
     return (
       `<circle cx="${cx}" cy="${cy}" r="${r}"` +
-      ` fill="${this._esc(s.backgroundColor || '#f43f5e')}"` +
-      ` stroke="${this._esc(s.borderColor || '#ffffff')}"` +
-      ` stroke-width="${this._esc(strokeWidth)}"` +
+      ` fill="${GSRMapExporter._esc(s.backgroundColor || '#f43f5e')}"` +
+      ` stroke="${GSRMapExporter._esc(s.borderColor || '#ffffff')}"` +
+      ` stroke-width="${GSRMapExporter._esc(strokeWidth)}"` +
       ` opacity="${opacity}" />`
     );
   }
@@ -1160,7 +1166,7 @@ export class GSRMapExporter {
     if (!lbl || window.getComputedStyle(lbl).display === 'none') return null;
 
     const ls = window.getComputedStyle(lbl);
-    const tx = this._esc(lbl.textContent.trim());
+    const tx = GSRMapExporter._esc(lbl.textContent.trim());
 
     let x = cx;
     let y = cy - 8;
@@ -1180,9 +1186,9 @@ export class GSRMapExporter {
     return (
       `<text x="${x.toFixed(3)}"` +
       ` y="${y.toFixed(3)}"` +
-      ` font-size="${this._esc(ls.fontSize || '11px')}"` +
-      ` font-weight="${this._esc(ls.fontWeight || '600')}"` +
-      ` font-family="${this._esc(ls.fontFamily || 'sans-serif')}"` +
+      ` font-size="${GSRMapExporter._esc(ls.fontSize || '11px')}"` +
+      ` font-weight="${GSRMapExporter._esc(ls.fontWeight || '600')}"` +
+      ` font-family="${GSRMapExporter._esc(ls.fontFamily || 'sans-serif')}"` +
       ` fill="${LABEL}" text-anchor="middle"` +
       ` opacity="${opacity}">${tx}</text>`
     );
@@ -1211,7 +1217,7 @@ export class GSRMapExporter {
   }
 
   static _img(x, y, w, h, url) {
-    const u = this._esc(url);
+    const u = GSRMapExporter._esc(url);
     return `<image href="${u}" xlink:href="${u}" x="${x}" y="${y}" width="${w}" height="${h}" />`;
   }
 
@@ -1258,7 +1264,7 @@ export class GSRMapExporter {
         img.onerror = (e) =>
           reject(
             new Error(
-              'Failed to rasterize SVG: ' + (e?.message || 'image load error'),
+              `Failed to rasterize SVG: ${e?.message || 'image load error'}`,
             ),
           );
         img.src = url;

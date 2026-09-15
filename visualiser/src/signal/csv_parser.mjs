@@ -58,7 +58,7 @@ export class GSRCSVParser {
   static _csvEscape(val) {
     if (val === null || val === undefined) return '';
     const str = String(val).replace(/"/g, '""');
-    return '"' + str + '"';
+    return `"${str}"`;
   }
 
   /**
@@ -146,7 +146,7 @@ export class GSRCSVParser {
 
     const tok = (name) => {
       const m = trailerLine.match(
-        new RegExp('(?:^|\\s)' + name + ':([0-9a-fA-F]+)'),
+        new RegExp(`(?:^|\\s)${name}:([0-9a-fA-F]+)`),
       );
       return m ? m[1] : null;
     };
@@ -474,14 +474,14 @@ export class GSRCSVParser {
       const h = headers[i];
       // Time Column (timestamp, time, etc.)
       if (GSR_CONST.TIME_KEYWORDS.some((kw) => h.includes(kw))) {
-        if (colIndices['timestamp'] === -1) colIndices['timestamp'] = i;
+        if (colIndices.timestamp === -1) colIndices.timestamp = i;
       }
       // GSR Column (gsr_raw, gsr, etc.)
       else if (
         GSR_CONST.GSR_KEYWORDS.some((kw) => h.includes(kw)) &&
         !GSR_CONST.TIME_KEYWORDS.some((kw) => h.includes(kw))
       ) {
-        if (colIndices['gsr_raw'] === -1) colIndices['gsr_raw'] = i;
+        if (colIndices.gsr_raw === -1) colIndices.gsr_raw = i;
       }
       // Lat / Lon — skip 'alt' (altitude) which includes 'lat' as a substring
       else if (h === 'alt' || h === 'vdop' || h === 'wdop') {
@@ -489,20 +489,20 @@ export class GSRCSVParser {
         // legacy columns no longer in the canonical schema (alt).  Explicitly
         // skip so 'alt' doesn't false-match h.includes('lat') below.
       } else if (h.includes('lat')) {
-        colIndices['lat'] = i;
+        colIndices.lat = i;
       } else if (h.includes('lon') || h.includes('lng')) {
-        colIndices['lon'] = i;
+        colIndices.lon = i;
       }
       // The rest match exactly or via standard fallback
-      else if (h === 'hdop') colIndices['hdop'] = i;
-      else if (h === 'pdop') colIndices['pdop'] = i;
-      else if (h === 'hacc_m') colIndices['hacc_m'] = i;
-      else if (h === 'fix_type') colIndices['fix_type'] = i;
+      else if (h === 'hdop') colIndices.hdop = i;
+      else if (h === 'pdop') colIndices.pdop = i;
+      else if (h === 'hacc_m') colIndices.hacc_m = i;
+      else if (h === 'fix_type') colIndices.fix_type = i;
       else if (h === 'fix') {
-        if (colIndices['fix_type'] === -1) colIndices['fix_type'] = i; // fallback for older schema
-      } else if (h.includes('sat')) colIndices['sats'] = i;
-      else if (h === 'speed_kts') colIndices['speed_kts'] = i;
-      else if (h === 'course_deg') colIndices['course_deg'] = i;
+        if (colIndices.fix_type === -1) colIndices.fix_type = i; // fallback for older schema
+      } else if (h.includes('sat')) colIndices.sats = i;
+      else if (h === 'speed_kts') colIndices.speed_kts = i;
+      else if (h === 'course_deg') colIndices.course_deg = i;
     }
 
     // Processed-CSV column detection (re-imported data)
@@ -559,21 +559,21 @@ export class GSRCSVParser {
         : headers.indexOf('subghz_em_fog');
 
     // Fallbacks for main biometric columns
-    if (colIndices['timestamp'] === -1) colIndices['timestamp'] = 0;
-    if (colIndices['gsr_raw'] === -1)
-      colIndices['gsr_raw'] = headers.length > 1 ? 1 : 0;
+    if (colIndices.timestamp === -1) colIndices.timestamp = 0;
+    if (colIndices.gsr_raw === -1)
+      colIndices.gsr_raw = headers.length > 1 ? 1 : 0;
 
     // Parse data rows
     const rawDataList = [];
     for (let i = dataStartLine + 1; i < lines.length; i++) {
       const line = lines[i];
-      if (!line || !line.trim()) continue;
+      if (!line?.trim()) continue;
 
       const cols = GSRCSVParser._parseCsvLine(line);
       if (cols.length === 0) continue;
 
-      const rawTimeStr = cols[colIndices['timestamp']]
-        ? cols[colIndices['timestamp']].trim()
+      const rawTimeStr = cols[colIndices.timestamp]
+        ? cols[colIndices.timestamp].trim()
         : '';
       let timeVal = NaN;
 
@@ -593,8 +593,8 @@ export class GSRCSVParser {
       }
 
       let gsrVal =
-        colIndices['gsr_raw'] !== -1 && cols[colIndices['gsr_raw']]
-          ? parseFloat(cols[colIndices['gsr_raw']])
+        colIndices.gsr_raw !== -1 && cols[colIndices.gsr_raw]
+          ? parseFloat(cols[colIndices.gsr_raw])
           : NaN;
 
       // Parse RF fields (dBm)
@@ -632,12 +632,12 @@ export class GSRCSVParser {
 
       // Parse GPS fields (empty fields parse to NaN)
       const latVal =
-        colIndices['lat'] !== -1 && cols[colIndices['lat']]
-          ? parseFloat(cols[colIndices['lat']])
+        colIndices.lat !== -1 && cols[colIndices.lat]
+          ? parseFloat(cols[colIndices.lat])
           : NaN;
       const lonVal =
-        colIndices['lon'] !== -1 && cols[colIndices['lon']]
-          ? parseFloat(cols[colIndices['lon']])
+        colIndices.lon !== -1 && cols[colIndices.lon]
+          ? parseFloat(cols[colIndices.lon])
           : NaN;
 
       // Fallback for standalone GPS + RF CSVs (where GSR is missing/NaN)
@@ -662,32 +662,32 @@ export class GSRCSVParser {
       if (isNaN(timeVal)) continue;
 
       const hdopVal =
-        colIndices['hdop'] !== -1 && cols[colIndices['hdop']]
-          ? parseFloat(cols[colIndices['hdop']])
+        colIndices.hdop !== -1 && cols[colIndices.hdop]
+          ? parseFloat(cols[colIndices.hdop])
           : NaN;
       const pdopVal =
-        colIndices['pdop'] !== -1 && cols[colIndices['pdop']]
-          ? parseFloat(cols[colIndices['pdop']])
+        colIndices.pdop !== -1 && cols[colIndices.pdop]
+          ? parseFloat(cols[colIndices.pdop])
           : NaN;
       const haccVal =
-        colIndices['hacc_m'] !== -1 && cols[colIndices['hacc_m']]
-          ? parseFloat(cols[colIndices['hacc_m']])
+        colIndices.hacc_m !== -1 && cols[colIndices.hacc_m]
+          ? parseFloat(cols[colIndices.hacc_m])
           : NaN;
       const satsVal =
-        colIndices['sats'] !== -1 && cols[colIndices['sats']]
-          ? parseInt(cols[colIndices['sats']])
+        colIndices.sats !== -1 && cols[colIndices.sats]
+          ? parseInt(cols[colIndices.sats], 10)
           : 0;
       const fixTypeVal =
-        colIndices['fix_type'] !== -1 && cols[colIndices['fix_type']]
-          ? parseInt(cols[colIndices['fix_type']])
+        colIndices.fix_type !== -1 && cols[colIndices.fix_type]
+          ? parseInt(cols[colIndices.fix_type], 10)
           : 0;
       const speedKtsVal =
-        colIndices['speed_kts'] !== -1 && cols[colIndices['speed_kts']]
-          ? parseFloat(cols[colIndices['speed_kts']])
+        colIndices.speed_kts !== -1 && cols[colIndices.speed_kts]
+          ? parseFloat(cols[colIndices.speed_kts])
           : NaN;
       const courseVal =
-        colIndices['course_deg'] !== -1 && cols[colIndices['course_deg']]
-          ? parseFloat(cols[colIndices['course_deg']])
+        colIndices.course_deg !== -1 && cols[colIndices.course_deg]
+          ? parseFloat(cols[colIndices.course_deg])
           : NaN;
 
       // Genuine-fix marker: prefer the explicit re-imported column when present
@@ -707,7 +707,7 @@ export class GSRCSVParser {
         peakLabelColIndex !== -1 &&
         isPeakColIndex !== -1 &&
         cols[isPeakColIndex] &&
-        parseInt(cols[isPeakColIndex]) === 1
+        parseInt(cols[isPeakColIndex], 10) === 1
       ) {
         importedPeakLabel = (cols[peakLabelColIndex] || '')
           .replace(/^"|"$/g, '')
@@ -728,7 +728,7 @@ export class GSRCSVParser {
           : NaN;
       const osm_in_park =
         osmInParkColIdx !== -1 && cols[osmInParkColIdx]
-          ? parseInt(cols[osmInParkColIdx])
+          ? parseInt(cols[osmInParkColIdx], 10)
           : NaN;
       const osm_green_pct_50m =
         osmGreenPctColIdx !== -1 && cols[osmGreenPctColIdx]
@@ -963,7 +963,7 @@ export class GSRCSVParser {
     // Auto-detect Units and convert to MicroSiemens (uS)
     const avgVal =
       rawDataList.reduce((sum, d) => sum + d.val, 0) / rawDataList.length;
-    const gsrHeader = headers[colIndices['gsr_raw']] || '';
+    const gsrHeader = headers[colIndices.gsr_raw] || '';
     const isResistanceHeader =
       gsrHeader.includes('resistance') || gsrHeader.includes('ohms');
 

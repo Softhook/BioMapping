@@ -93,7 +93,7 @@ export const __methods = {
    * 900-peak walk. @private
    */
   _peakIndexMap(analyzer) {
-    const allPeaks = (analyzer && analyzer.peaks) || [];
+    const allPeaks = analyzer?.peaks || [];
     const m = new Map();
     for (let k = 0; k < allPeaks.length; k++) m.set(allPeaks[k], k);
     return m;
@@ -104,8 +104,7 @@ export const __methods = {
    * @private
    */
   _ensureMarkerCollections() {
-    if (!this.viewer || !this.viewer.scene || !this.viewer.scene.primitives)
-      return;
+    if (!this.viewer?.scene?.primitives) return;
     if (
       !this._peakPoints &&
       typeof Cesium.PointPrimitiveCollection === 'function'
@@ -146,8 +145,7 @@ export const __methods = {
 
       // Only labelled peaks get floating text — an unlabelled peak is just its
       // circle (click it to add a label).
-      const labelText =
-        peak.label && peak.label.trim() ? peak.label.trim() : '';
+      const labelText = peak.label?.trim() ? peak.label.trim() : '';
 
       // With peaks off, the "Labels" toggle still keeps labelled peaks on
       // screen — the 2D map does the same (a labelled marker survives turning
@@ -219,7 +217,7 @@ export const __methods = {
         // connector entity) for clearPeakEntities() and focusOnPeakLocation().
         pt._isPeakPointPrimitive = true;
         this.peakEntities.push(pt);
-      } else if (this.viewer && this.viewer.entities) {
+      } else if (this.viewer?.entities) {
         const beaconEntity = this.viewer.entities.add({
           name: `Peak ${i + 1}`,
           position: markerPos,
@@ -251,7 +249,7 @@ export const __methods = {
             distanceDisplayCondition: C.labelDDC,
             id: { _biomapPeakIndex: peakIdx },
           });
-        } else if (this.viewer && this.viewer.entities) {
+        } else if (this.viewer?.entities) {
           this.viewer.entities.add({
             name: `Peak ${i + 1} label`,
             position: markerPos,
@@ -283,7 +281,7 @@ export const __methods = {
    * too (a hotspot IS a peak).
    */
   _renderHotspots(analyzer) {
-    const events = analyzer && analyzer.memorableEvents;
+    const events = analyzer?.memorableEvents;
     if (!events || events.length === 0 || !this.viewer) return;
 
     this._ensureMarkerCollections();
@@ -323,7 +321,7 @@ export const __methods = {
         star._biomapPeakIndex = peakIdx;
         star._isHotspotLabelPrimitive = true; // batched label, not an entity
         this.hotspotEntities.push(star);
-      } else if (this.viewer && this.viewer.entities) {
+      } else if (this.viewer?.entities) {
         const star = this.viewer.entities.add({
           name: 'Hotspot',
           position: Cesium.Cartesian3.fromDegrees(
@@ -362,7 +360,7 @@ export const __methods = {
     if (!polys.length) return this.showClusters ? 'empty' : 'off';
     let s = (this.showClusters ? 'on:' : 'off:') + polys.length;
     for (const p of polys) {
-      const ring = (p && p.ring) || [];
+      const ring = p?.ring || [];
       s +=
         '|' +
         ring.length +
@@ -411,7 +409,7 @@ export const __methods = {
     if (!polys.length || !this.viewer) return;
 
     polys.forEach((poly) => {
-      const ring = (poly && poly.ring) || [];
+      const ring = poly?.ring || [];
       if (ring.length < 3) return;
 
       const flat = [];

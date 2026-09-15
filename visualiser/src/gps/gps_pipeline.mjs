@@ -252,7 +252,7 @@ export const GpsPipeline = {
         // so it survives collective mode's concatenation of multiple tracks'
         // drawPoints, where origIdx collides across tracks — see
         // RFFluidRenderer._precalculateSpatialFans().
-        isRfPeak: !!(forceIndexSet && forceIndexSet.has(rawIdx)),
+        isRfPeak: !!forceIndexSet?.has(rawIdx),
       };
     }
 

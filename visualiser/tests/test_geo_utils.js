@@ -5,7 +5,7 @@
  * Run: node --test tests/test_geo_utils.js  (or `npm test` for the whole suite)
  */
 
-const assert = require('assert');
+const assert = require('node:assert');
 const test = require('node:test');
 
 const { GeoUtils } = require('../src/gps/geo_utils.mjs');

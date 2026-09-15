@@ -53,12 +53,9 @@ export const __methods = {
    */
   syncPhasicAUCLabels() {
     const txt =
-      'Phasic AUC' +
-      (AppState.analyzer && AppState.analyzer.phasicAUCIsISCR ? ' (ISCR)' : '');
+      'Phasic AUC' + (AppState.analyzer?.phasicAUCIsISCR ? ' (ISCR)' : '');
     for (const selId of ['graphView', 'mapColoringMetric']) {
-      const opt = document.querySelector(
-        '#' + selId + ' option[value="phasicAUC"]',
-      );
+      const opt = document.querySelector(`#${selId} option[value="phasicAUC"]`);
       if (opt) opt.textContent = txt;
     }
   },
@@ -72,13 +69,12 @@ export const __methods = {
    * (after each analyze()) and once at startup.
    */
   syncGraphViewDetectorOptions() {
-    const sel = AppState.sliders && AppState.sliders.graphView;
+    const sel = AppState.sliders?.graphView;
     if (!sel) return;
     const opt = sel.querySelector('option[value="phasicDriver"]');
     if (!opt) return;
     const hasDriver = !!(
-      AppState.analyzer &&
-      AppState.analyzer.phasicDriver &&
+      AppState.analyzer?.phasicDriver &&
       AppState.analyzer.phasicDriver.length > 0
     );
     opt.disabled = !hasDriver;
@@ -102,7 +98,7 @@ export const __methods = {
 
     // 1. Graph view dropdown
     const graphSel =
-      (AppState.sliders && AppState.sliders.graphView) ||
+      AppState.sliders?.graphView ||
       (typeof document !== 'undefined' && document.getElementById('graphView'));
     if (graphSel && typeof graphSel.querySelector === 'function') {
       const opt = graphSel.querySelector('option[value="responseDynamics"]');
@@ -151,12 +147,12 @@ export const __methods = {
     const durSecs = Math.floor(dur % 60);
     if (F.duration) {
       F.duration.innerText =
-        durMins > 0 ? durMins + ' min ' + durSecs + ' sec' : durSecs + ' sec';
+        durMins > 0 ? `${durMins} min ${durSecs} sec` : `${durSecs} sec`;
     }
-    if (F.meanSCL) F.meanSCL.innerText = stats.meanSCL.toFixed(3) + ' \u03bcS';
+    if (F.meanSCL) F.meanSCL.innerText = `${stats.meanSCL.toFixed(3)} \u03bcS`;
     if (F.peakCount) F.peakCount.innerText = stats.peakCount;
     if (F.peakFreq)
-      F.peakFreq.innerText = stats.peakFrequency.toFixed(2) + ' / min';
+      F.peakFreq.innerText = `${stats.peakFrequency.toFixed(2)} / min`;
 
     GSRUI.updateSpatialDataIndicator();
   },
@@ -184,10 +180,9 @@ export const __methods = {
         ? AppState.collectiveManager.getActiveTracks()
         : [];
       allEnriched =
-        tracks.length > 0 &&
-        tracks.every((t) => t.analyzer && t.analyzer.isEnriched);
+        tracks.length > 0 && tracks.every((t) => t.analyzer?.isEnriched);
     } else {
-      allEnriched = !!(AppState.analyzer && AppState.analyzer.isEnriched);
+      allEnriched = !!AppState.analyzer?.isEnriched;
     }
 
     el.innerText = '●'; // ● — a plain coloured dot, no wording needed
@@ -235,15 +230,12 @@ export const __methods = {
       hasSpatial = activeTracks.some(
         (t) =>
           t.analyzer &&
-          (t.analyzer.hasSpatialData ||
-            (t.analyzer.raw && t.analyzer.raw.some((d) => d.hasGps))),
+          (t.analyzer.hasSpatialData || t.analyzer.raw?.some((d) => d.hasGps)),
       );
     } else {
       const targetTrack =
         track ||
-        (typeof AppState !== 'undefined' &&
-        AppState.collectiveManager &&
-        AppState.activeTrackId
+        (AppState?.collectiveManager && AppState.activeTrackId
           ? AppState.collectiveManager.getTrack(AppState.activeTrackId)
           : null);
       const analyzer = targetTrack
@@ -253,8 +245,7 @@ export const __methods = {
           : null;
       hasSpatial = !!(
         analyzer &&
-        (analyzer.hasSpatialData ||
-          (analyzer.raw && analyzer.raw.some((d) => d.hasGps)))
+        (analyzer.hasSpatialData || analyzer.raw?.some((d) => d.hasGps))
       );
     }
 
@@ -271,9 +262,7 @@ export const __methods = {
       mapPanel.classList.remove('collapsed');
       delete mapPanel.dataset.autoCollapsedNoSpatial;
       if (
-        typeof AppState !== 'undefined' &&
-        AppState.mapManager &&
-        AppState.mapManager.map &&
+        AppState?.mapManager?.map &&
         typeof AppState.mapManager.map.invalidateSize === 'function'
       ) {
         AppState.mapManager.map.invalidateSize({

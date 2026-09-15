@@ -10,10 +10,10 @@
  *   node benchmark_precision_rules.js
  */
 
-const fs = require('fs');
-const path = require('path');
-const vm = require('vm');
-const { execSync } = require('child_process');
+const fs = require('node:fs');
+const path = require('node:path');
+const vm = require('node:vm');
+const { execSync } = require('node:child_process');
 
 global.window = global;
 global.GSR_CONST = require('../../mock_constants.js');
@@ -280,7 +280,7 @@ for (const t of realTracks) {
     for (const nkt of nkPeaks) {
       if (kept.some((p) => Math.abs(p.time - nkt) <= 1.0)) matched++;
     }
-    const rec = ((100 * matched) / nkPeaks.length).toFixed(1) + '%';
+    const rec = `${((100 * matched) / nkPeaks.length).toFixed(1)}%`;
     recalls.push(`${matched}/${nkPeaks.length} (${rec})`);
   }
 

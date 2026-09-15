@@ -16,8 +16,8 @@
  *
  * Run: node visualiser/tests/test_isoband_boundary_closure.js
  */
-const assert = require('assert');
-const path = require('path');
+const assert = require('node:assert');
+const path = require('node:path');
 
 global.window = global;
 global.GSR_CONST = require('./mock_constants.js');
@@ -710,23 +710,20 @@ function samplesFromPathD(d) {
       '✓ _ensureTileCoverage temporarily inflates map.getSize() during _update(), then restores it',
     );
   }
-
   // 7b: no tileMargin (canvas was never expanded) and a missing layer both
   // resolve harmlessly — this step must never hang or throw and break the
   // rest of the export.
-  {
-    await GSRMapExporter._ensureTileCoverage(
-      {},
-      { baseTileLayer: null, map: {} },
-    );
-    await GSRMapExporter._ensureTileCoverage(
-      { tileMargin: { left: 500, top: 0, right: 0, bottom: 0 } },
-      { baseTileLayer: null, map: {} },
-    );
-    console.log(
-      '✓ _ensureTileCoverage resolves harmlessly with no tileMargin or no tile layer',
-    );
-  }
+  await GSRMapExporter._ensureTileCoverage(
+    {},
+    { baseTileLayer: null, map: {} },
+  );
+  await GSRMapExporter._ensureTileCoverage(
+    { tileMargin: { left: 500, top: 0, right: 0, bottom: 0 } },
+    { baseTileLayer: null, map: {} },
+  );
+  console.log(
+    '✓ _ensureTileCoverage resolves harmlessly with no tileMargin or no tile layer',
+  );
 
   console.log('\n============================================================');
   console.log('Isoband Boundary Closure Regression Test: ALL PASSED');

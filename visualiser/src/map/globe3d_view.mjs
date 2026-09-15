@@ -33,12 +33,12 @@
 // kit. Refresh it with: npm i --no-save cesium@<ver> && cp -R
 // node_modules/cesium/Build/Cesium visualiser/vendor/cesium (drop index.*).
 import { AppState } from '../core/app_state.mjs';
-import { GSRGlobeManager } from './globe3d.mjs';
-import { MapPopups } from './map_popups.mjs';
 import { OsmCache } from '../osm/osm_cache.mjs';
 import { OSMEnricher } from '../osm/osm_enrichment.mjs';
 import { GSRStorage } from '../ui/storage.mjs';
 import { GSRUI } from '../ui/ui.mjs';
+import { GSRGlobeManager } from './globe3d.mjs';
+import { MapPopups } from './map_popups.mjs';
 
 export const CESIUM_BASE = 'vendor/cesium/';
 
@@ -95,7 +95,7 @@ export const GSRGlobe3DView = {
     GSRGlobe3DView._bindCard(els);
     GSRGlobe3DView._updateAttribution();
 
-    if (typeof AppState !== 'undefined' && AppState.on) {
+    if (AppState?.on) {
       // Trailing debounce — a GSR/GPS slider drag fires 'map:rendered' dozens of
       // times a second and each push tears down and rebuilds the whole 3D wall
       // primitive. Rebuild once, ~0.25s after the user stops moving.
@@ -147,7 +147,7 @@ export const GSRGlobe3DView = {
       return;
     }
 
-    const key = p.lat.toFixed(6) + ',' + p.lon.toFixed(6);
+    const key = `${p.lat.toFixed(6)},${p.lon.toFixed(6)}`;
     if (key === GSRGlobe3DView._lastScrubKey && p.source !== 'graph') return;
     GSRGlobe3DView._lastScrubKey = key;
 
@@ -233,7 +233,7 @@ export const GSRGlobe3DView = {
     if (els.extrusion) {
       els.extrusion.addEventListener('input', (e) => {
         const v = parseFloat(e.target.value);
-        if (els.extrusionVal) els.extrusionVal.textContent = v.toFixed(1) + '×';
+        if (els.extrusionVal) els.extrusionVal.textContent = `${v.toFixed(1)}×`;
         if (m()) m().setExtrusionScale(v);
       });
     }
@@ -255,7 +255,7 @@ export const GSRGlobe3DView = {
     // off + band are the map header's RF button + #rfFluidMode). They just
     // re-apply the field with the current header band.
     const applyRfParams = () => {
-      if (m() && m().showRfVolumetric) {
+      if (m()?.showRfVolumetric) {
         m().toggle3DRf(
           true,
           GSRGlobe3DView._headerRfMode(),
@@ -266,14 +266,13 @@ export const GSRGlobe3DView = {
     };
     if (els.rfHeight)
       els.rfHeight.addEventListener('input', (e) => {
-        if (els.rfHeightVal) els.rfHeightVal.textContent = e.target.value + 'm';
+        if (els.rfHeightVal) els.rfHeightVal.textContent = `${e.target.value}m`;
         applyRfParams();
       });
     if (els.rfOpacity)
       els.rfOpacity.addEventListener('input', (e) => {
         if (els.rfOpacityVal)
-          els.rfOpacityVal.textContent =
-            Math.round(parseFloat(e.target.value) * 100) + '%';
+          els.rfOpacityVal.textContent = `${Math.round(parseFloat(e.target.value) * 100)}%`;
         applyRfParams();
       });
 
@@ -336,7 +335,7 @@ export const GSRGlobe3DView = {
   focusOnPeak(peakIdx) {
     if (!GSRGlobe3DView.isActive) return;
     const analyzer = typeof AppState !== 'undefined' ? AppState.analyzer : null;
-    if (!analyzer || !analyzer.peaks || !analyzer.peaks[peakIdx]) return;
+    if (!analyzer?.peaks?.[peakIdx]) return;
 
     if (
       GSRGlobe3DView.manager &&
@@ -356,7 +355,7 @@ export const GSRGlobe3DView = {
   focusOnPeakLocation(peakIdx) {
     if (!GSRGlobe3DView.isActive) return;
     const analyzer = typeof AppState !== 'undefined' ? AppState.analyzer : null;
-    if (!analyzer || !analyzer.peaks || !analyzer.peaks[peakIdx]) return;
+    if (!analyzer?.peaks?.[peakIdx]) return;
     if (
       GSRGlobe3DView.manager &&
       typeof GSRGlobe3DView.manager.focusOnPeakLocation === 'function'
@@ -376,7 +375,7 @@ export const GSRGlobe3DView = {
    */
   _editPeakLabel(peakIdx, windowPos) {
     const analyzer = typeof AppState !== 'undefined' ? AppState.analyzer : null;
-    const peak = analyzer && analyzer.peaks && analyzer.peaks[peakIdx];
+    const peak = analyzer?.peaks?.[peakIdx];
     if (
       !peak ||
       typeof MapPopups === 'undefined' ||
@@ -384,8 +383,7 @@ export const GSRGlobe3DView = {
     )
       return;
 
-    const coords =
-      (analyzer.getCoordinates && analyzer.getCoordinates(peak.index)) || {};
+    const coords = analyzer.getCoordinates?.(peak.index) || {};
     const trackId =
       AppState.viewMode === 'collective' ? AppState.activeTrackId : undefined;
 
@@ -404,7 +402,7 @@ export const GSRGlobe3DView = {
 
   _showPeakPopup(card, windowPos) {
     const container = GSRGlobe3DView.els.container;
-    if (!container || !card || !card.nodeType) return; // no real DOM node -> nothing to show
+    if (!container || !card?.nodeType) return; // no real DOM node -> nothing to show
     GSRGlobe3DView._closePeakPopup();
 
     const pop = document.createElement('div');
@@ -463,8 +461,8 @@ export const GSRGlobe3DView = {
     const anchor = GSRGlobe3DView._popupAnchor;
     const x = anchor ? anchor.x : cw / 2;
     const y = anchor ? anchor.y : ch / 3;
-    pop.style.left = Math.max(8, Math.min(x + 12, cw - pw - 8)) + 'px';
-    pop.style.top = Math.max(8, Math.min(y + 12, ch - pht - 8)) + 'px';
+    pop.style.left = `${Math.max(8, Math.min(x + 12, cw - pw - 8))}px`;
+    pop.style.top = `${Math.max(8, Math.min(y + 12, ch - pht - 8))}px`;
   },
 
   /** Re-clamp the open peak popup's position — see _positionPeakPopup. @private */
@@ -488,7 +486,7 @@ export const GSRGlobe3DView = {
       GSRGlobe3DView._popupDismiss = null;
     }
     const pop = document.getElementById('globe3dPeakPopup');
-    if (pop && pop.parentNode) pop.parentNode.removeChild(pop);
+    if (pop?.parentNode) pop.parentNode.removeChild(pop);
   },
 
   // ── Shared header controls, dispatched from the 2D map (src/ui/events.js) ──
@@ -502,11 +500,7 @@ export const GSRGlobe3DView = {
   /** The map header's RF band (#rfFluidMode) — the single band source now. */
   _headerRfMode() {
     const sel = document.getElementById('rfFluidMode');
-    return (
-      (sel && sel.value) ||
-      (GSRGlobe3DView.manager && GSRGlobe3DView.manager.rfMode) ||
-      'triband'
-    );
+    return sel?.value || GSRGlobe3DView.manager?.rfMode || 'triband';
   },
 
   _rfHeight() {
@@ -598,10 +592,7 @@ export const GSRGlobe3DView = {
   applyBuildings(on) {
     const mgr = GSRGlobe3DView.manager;
     if (!GSRGlobe3DView.isActive || !mgr) return Promise.resolve();
-    const style =
-      (GSRGlobe3DView.els.buildingStyle &&
-        GSRGlobe3DView.els.buildingStyle.value) ||
-      'monochrome';
+    const style = GSRGlobe3DView.els.buildingStyle?.value || 'monochrome';
 
     if (!on) {
       return Promise.resolve(
@@ -649,7 +640,7 @@ export const GSRGlobe3DView = {
    */
   _osmBboxBufferM() {
     const num = (id, dflt) => {
-      const v = parseInt((document.getElementById(id) || {}).value, 10);
+      const v = parseInt(document.getElementById(id)?.value, 10);
       return Number.isFinite(v) ? v : dflt;
     };
     return Math.max(num('osmRadius', 50), num('gpsSnapRadius', 25)) + 50;
@@ -668,7 +659,7 @@ export const GSRGlobe3DView = {
    */
   async _resolveOsmJson() {
     const analyzer = typeof AppState !== 'undefined' ? AppState.analyzer : null;
-    if (!analyzer || !analyzer.raw || analyzer.raw.length === 0) return null;
+    if (!analyzer?.raw || analyzer.raw.length === 0) return null;
     if (typeof OSMEnricher === 'undefined') return analyzer.osmJson || null;
 
     let osmJson = analyzer.osmJson || null;
@@ -704,7 +695,7 @@ export const GSRGlobe3DView = {
 
   /** Header zoom in/out (dir < 0 zooms in). Drives the Cesium camera. */
   zoom(dir) {
-    const v = GSRGlobe3DView.manager && GSRGlobe3DView.manager.viewer;
+    const v = GSRGlobe3DView.manager?.viewer;
     if (!v) return;
     const h = v.camera.positionCartographic.height;
     const step = Math.max(20, h * 0.35);
@@ -766,12 +757,12 @@ export const GSRGlobe3DView = {
         if (!document.querySelector('link[data-cesium-widgets]')) {
           const link = document.createElement('link');
           link.rel = 'stylesheet';
-          link.href = CESIUM_BASE + 'Widgets/widgets.css';
+          link.href = `${CESIUM_BASE}Widgets/widgets.css`;
           link.setAttribute('data-cesium-widgets', '1');
           document.head.appendChild(link);
         }
         const s = document.createElement('script');
-        s.src = CESIUM_BASE + 'Cesium.js';
+        s.src = `${CESIUM_BASE}Cesium.js`;
         s.async = true;
         s.onload = () => resolve();
         s.onerror = () => reject(new Error('Failed to load CesiumJS'));
@@ -809,7 +800,7 @@ export const GSRGlobe3DView = {
         // parks the viewer (useDefaultRenderLoop=false) the moment 2D is shown,
         // so this only costs frames while you're actually looking at the globe.
         requestRenderMode: false,
-        metric: (mm && mm.activeColoringMetric) || 'phasic',
+        metric: mm?.activeColoringMetric || 'phasic',
         heightMetric: 'phasic', // fixed — the wall auto-uses a magnitude colour metric, else phasic
         extrusionScale: GSRGlobe3DView.els.extrusion
           ? parseFloat(GSRGlobe3DView.els.extrusion.value)
@@ -867,8 +858,8 @@ export const GSRGlobe3DView = {
         GSRGlobe3DView._pushFromMap({ fly: true });
         GSRGlobe3DView._updateAttribution();
         // Guarantee at least one paint even when there's no track to push.
-        const v = GSRGlobe3DView.manager && GSRGlobe3DView.manager.viewer;
-        if (v && v.scene && typeof v.scene.requestRender === 'function')
+        const v = GSRGlobe3DView.manager?.viewer;
+        if (v?.scene && typeof v.scene.requestRender === 'function')
           v.scene.requestRender();
 
         // The globe manager is now built — re-sync the shared OSM overlay so the
@@ -876,8 +867,7 @@ export const GSRGlobe3DView = {
         // ran before this (manager didn't exist yet), so this is the one that
         // actually takes effect on a 2D→3D switch. Handles both directions: an
         // overlay turned off in 2D hides the warm manager's stale tileset here.
-        if (typeof GSRUI !== 'undefined' && GSRUI.syncOsmOverlay)
-          GSRUI.syncOsmOverlay();
+        if (GSRUI?.syncOsmOverlay) GSRUI.syncOsmOverlay();
       }),
     );
   },
@@ -890,7 +880,7 @@ export const GSRGlobe3DView = {
    * a feedback-loop risk (resize -> layout -> observer -> resize …).
    */
   onResize() {
-    const v = GSRGlobe3DView.manager && GSRGlobe3DView.manager.viewer;
+    const v = GSRGlobe3DView.manager?.viewer;
     if (!v) return;
     try {
       if (typeof v.resize === 'function') v.resize();
@@ -915,7 +905,7 @@ export const GSRGlobe3DView = {
         mgr.releaseFollowScrub();
     }
     GSRGlobe3DView._updateTourBtn(false);
-    if (GSRGlobe3DView.els && GSRGlobe3DView.els.btnOrbit) {
+    if (GSRGlobe3DView.els?.btnOrbit) {
       GSRGlobe3DView.els.btnOrbit.classList.remove('active');
     }
     // Hand cursor ownership back to the graph if the 3D track had it.
@@ -925,7 +915,7 @@ export const GSRGlobe3DView = {
       AppState.emit('scrub', { clear: true, source: 'globe' });
       if (typeof redraw === 'function') redraw();
     }
-    if (mgr && mgr.viewer) mgr.viewer.useDefaultRenderLoop = false; // keep warm, stop rendering
+    if (mgr?.viewer) mgr.viewer.useDefaultRenderLoop = false; // keep warm, stop rendering
   },
 
   // ── Data push (2D → 3D) ──────────────────────────────────────────────────
@@ -944,10 +934,9 @@ export const GSRGlobe3DView = {
 
     const metric = mm.activeColoringMetric || 'gsr';
     const colorRange = { min: mm._legendMinVal, max: mm._legendMaxVal };
-    const gpsParams =
-      typeof GSRStorage !== 'undefined' && GSRStorage.buildGpsParams
-        ? GSRStorage.buildGpsParams()
-        : {};
+    const gpsParams = GSRStorage?.buildGpsParams
+      ? GSRStorage.buildGpsParams()
+      : {};
 
     // Single-track scope: reuse the 2D view's exact drawPoints.
     const drawPoints = mm._lastDrawPoints || [];
@@ -1001,7 +990,7 @@ export const GSRGlobe3DView = {
   },
 
   _updateAttribution() {
-    const el = GSRGlobe3DView.els && GSRGlobe3DView.els.attribution;
+    const el = GSRGlobe3DView.els?.attribution;
     if (!el) return;
     const html = GSRGlobe3DView.buildAttributionHtml();
     el.innerHTML = html;
@@ -1010,13 +999,11 @@ export const GSRGlobe3DView = {
 
   buildAttributionHtml() {
     const basemapType =
-      (GSRGlobe3DView.els &&
-        GSRGlobe3DView.els.basemap &&
-        GSRGlobe3DView.els.basemap.value) ||
-      (GSRGlobe3DView.manager && GSRGlobe3DView.manager._currentBasemap) ||
+      GSRGlobe3DView.els?.basemap?.value ||
+      GSRGlobe3DView.manager?._currentBasemap ||
       'satellite';
     const mgr = GSRGlobe3DView.manager;
-    const hasBuildings = !!(mgr && mgr.show3DBuildings);
+    const hasBuildings = !!mgr?.show3DBuildings;
 
     let basemapCredit = '';
     switch (basemapType) {
@@ -1036,8 +1023,6 @@ export const GSRGlobe3DView = {
         basemapCredit =
           '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors';
         break;
-      case 'dark':
-      case 'positron':
       default:
         basemapCredit =
           '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> © <a href="https://carto.com/attributions" target="_blank" rel="noopener">CARTO</a>';

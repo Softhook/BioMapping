@@ -3,8 +3,8 @@
 
 import { GSR_CONST } from '../core/constants.mjs';
 import { GeoUtils } from '../gps/geo_utils.mjs';
-import { GSRBasemap } from './basemap.mjs';
 import { RFFluidRenderer } from '../render/rf_fluid_renderer.mjs';
+import { GSRBasemap } from './basemap.mjs';
 
 export class GSRMapManager {
   constructor(mapContainerId) {
@@ -253,7 +253,7 @@ export class GSRMapManager {
     // _overlapPooledAccessor via the returned `keyOf`.
     const keyOf = packable
       ? (cr, cc) => (cr - baseCr) * stride + (cc - baseCc)
-      : (cr, cc) => cr + '|' + cc;
+      : (cr, cc) => `${cr}|${cc}`;
     const keyAt = (lat, lon) =>
       keyOf(Math.floor(lat / rLat), Math.floor(lon / rLon));
 
@@ -334,7 +334,7 @@ export class GSRMapManager {
       radiusM,
       revisitGapS,
     );
-    if (!built || !built.anyRevisited) return null;
+    if (!built?.anyRevisited) return null;
 
     const { cells, keyOf, keyAt } = built;
     const pooled = new Map(); // packed cell key -> mean metric over the 3×3 block
@@ -364,7 +364,7 @@ export class GSRMapManager {
     for (const [k, v] of pooled) {
       let h = Math.round(v * 1000) | 0;
       // k is a packed integer (or a "cr|cc" string in the degenerate fallback).
-      const ks = '' + k;
+      const ks = `${k}`;
       for (let i = 0; i < ks.length; i++)
         h = (Math.imul(h, 31) + ks.charCodeAt(i)) | 0;
       sig = (sig + h) | 0;
@@ -395,7 +395,7 @@ export class GSRMapManager {
       radiusM,
       revisitGapS,
     );
-    return !!(built && built.anyRevisited);
+    return !!built?.anyRevisited;
   }
 
   // GSRMapManager is completed by prototype-augment files loaded immediately

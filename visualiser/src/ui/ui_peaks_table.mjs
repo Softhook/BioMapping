@@ -22,7 +22,7 @@ export const __methods = {
   updatePeakLabel(idx, label, trackId) {
     const { track, analyzer } = this._resolveTrackAndAnalyzer(trackId);
 
-    if (!analyzer || !analyzer.peaks || idx >= analyzer.peaks.length) return;
+    if (!analyzer?.peaks || idx >= analyzer.peaks.length) return;
     const pk = analyzer.peaks[idx];
     const clean = label.trim();
     pk.label = clean;
@@ -86,7 +86,7 @@ export const __methods = {
     if (tableInput && tableInput.value !== value) {
       tableInput.value = value;
       tableInput.style.height = 'auto';
-      tableInput.style.height = tableInput.scrollHeight + 'px';
+      tableInput.style.height = `${tableInput.scrollHeight}px`;
     }
 
     // 2. Sync map popup input if it exists and is not the active typing element
@@ -94,7 +94,7 @@ export const __methods = {
     if (mapInput && mapInput.value !== value) {
       mapInput.value = value;
       mapInput.style.height = 'auto';
-      mapInput.style.height = mapInput.scrollHeight + 'px';
+      mapInput.style.height = `${mapInput.scrollHeight}px`;
     }
 
     // 3. Immediately redraw p5.js graph to show the label text updating
@@ -105,11 +105,7 @@ export const __methods = {
    * Zoom and highlight a specific peak event when user clicks a row in the peaks table.
    */
   focusOnPeak(idx, source) {
-    if (
-      !AppState.analyzer ||
-      !AppState.analyzer.peaks ||
-      idx >= AppState.analyzer.peaks.length
-    )
+    if (!AppState.analyzer?.peaks || idx >= AppState.analyzer.peaks.length)
       return;
     const peak = AppState.analyzer.peaks[idx];
     AppState.activePeakIndex = idx;
@@ -122,22 +118,21 @@ export const __methods = {
     document
       .querySelectorAll('#peaksTable tbody tr')
       .forEach((r) => r.classList.remove('active-row'));
-    const row = document.getElementById('peakRow-' + idx);
+    const row = document.getElementById(`peakRow-${idx}`);
     if (row) row.classList.add('active-row');
     redraw();
 
-    const hasGps =
-      AppState.analyzer.raw && AppState.analyzer.raw.some((d) => d.hasGps);
+    const hasGps = AppState.analyzer.raw?.some((d) => d.hasGps);
 
     // 1. Expand relevant panels dynamically
     if (source === 'map') {
       const eventsPanel = document.getElementById('eventsPanel');
-      if (eventsPanel && eventsPanel.classList.contains('collapsed')) {
+      if (eventsPanel?.classList.contains('collapsed')) {
         eventsPanel.classList.remove('collapsed');
       }
     } else if (hasGps) {
       const mapPanel = document.getElementById('mapPanel');
-      if (mapPanel && mapPanel.classList.contains('collapsed')) {
+      if (mapPanel?.classList.contains('collapsed')) {
         mapPanel.classList.remove('collapsed');
       }
     }
@@ -204,7 +199,7 @@ export const __methods = {
    */
   togglePeakExclusion(idx, trackId) {
     const { analyzer } = this._resolveTrackAndAnalyzer(trackId);
-    if (!analyzer || !analyzer.peaks || idx >= analyzer.peaks.length) return;
+    if (!analyzer?.peaks || idx >= analyzer.peaks.length) return;
     analyzer.setPeakExcluded(idx, !analyzer.peaks[idx].excluded);
     // Refresh displays. Same path/hotspot-skip reasoning as updatePeakLabel():
     // refreshPeakMarkers() rebuilds just the peak-marker layer instead of
@@ -278,10 +273,7 @@ export const __methods = {
    * Populate the peak events table below the graph.
    */
   updatePeaksTable() {
-    const peaks =
-      AppState.analyzer && AppState.analyzer.peaks
-        ? AppState.analyzer.peaks
-        : [];
+    const peaks = AppState.analyzer?.peaks ? AppState.analyzer.peaks : [];
     const tb = AppState.tableBody;
 
     if (!tb) return;
@@ -322,7 +314,6 @@ export const __methods = {
         case 'excluded':
           diff = (a.p.excluded ? 1 : 0) - (b.p.excluded ? 1 : 0);
           break;
-        case 'index':
         default:
           diff = a.idx - b.idx;
           break;
@@ -340,7 +331,7 @@ export const __methods = {
       if (idx === AppState.activePeakIndex) rowClass.push('active-row');
       if (p.excluded) rowClass.push('excluded-row');
       const rowAttr =
-        rowClass.length > 0 ? "class='" + rowClass.join(' ') + "'" : '';
+        rowClass.length > 0 ? `class='${rowClass.join(' ')}'` : '';
       const riseTimeStr = getRiseTime(p).toFixed(2);
       const qScore = p.qualityScore !== undefined ? p.qualityScore : 0;
       const qColor = getQualityColor(qScore, '20');
@@ -437,7 +428,7 @@ export const __methods = {
     setTimeout(() => {
       tb.querySelectorAll('.peak-label-input').forEach((ta) => {
         ta.style.height = 'auto';
-        ta.style.height = ta.scrollHeight + 'px';
+        ta.style.height = `${ta.scrollHeight}px`;
       });
     }, 0);
   },

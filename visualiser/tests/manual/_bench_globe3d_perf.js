@@ -70,9 +70,9 @@
  *       the combine step). Worker-side only; ceiling ~15 ms → ~5 ms.
  */
 
-const fs = require('fs');
-const path = require('path');
-const vm = require('vm');
+const fs = require('node:fs');
+const path = require('node:path');
+const vm = require('node:vm');
 
 const APP_DIR = path.join(__dirname, '..', '..');
 const TRACKS_DIR = path.join(APP_DIR, '..', 'tracks');
@@ -438,7 +438,7 @@ function seriesFor(m) {
     em_fog: 'em_fog',
     emFog: 'em_fog',
   }[m];
-  const arr = F && analyzer[F] && analyzer[F].length ? analyzer[F] : null;
+  const arr = F && analyzer[F]?.length ? analyzer[F] : null;
   if (arr)
     return arr.map((d) =>
       d && typeof d === 'object' && 'val' in d
@@ -540,7 +540,7 @@ function buildRealInstances(wallMaxSegments) {
     },
   });
   mgr._render3DWallAndPath(analyzer, drawPoints);
-  return (mgr.__wall && mgr.__wall.geometryInstances) || [];
+  return mgr.__wall?.geometryInstances || [];
 }
 
 function realizeAndCombine(instances) {

@@ -15,9 +15,9 @@
  * their own `require()`/`import()` of the exact file — reflectOntoGlobal()
  * below exists for them, not for the app's own cross-file resolution.
  */
-const path = require('path');
-const { pathToFileURL } = require('url');
-const { registerHooks } = require('module');
+const path = require('node:path');
+const { pathToFileURL } = require('node:url');
+const { registerHooks } = require('node:module');
 
 // Node's ESM resolver caches a module by its exact resolved URL for the
 // process lifetime — without busting, a SECOND `bootApp()`/`bootLive()` call

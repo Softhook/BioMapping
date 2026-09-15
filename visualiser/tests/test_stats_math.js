@@ -6,7 +6,7 @@
  * Run: node --test tests/test_stats_math.js  (or `npm test` for the whole suite)
  */
 
-const assert = require('assert');
+const assert = require('node:assert');
 const test = require('node:test');
 
 const { StatsMath } = require('../src/signal/stats_math.mjs');

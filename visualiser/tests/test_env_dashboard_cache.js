@@ -27,10 +27,10 @@
  * Run: node tests/test_env_dashboard_cache.js  (or `npm test` for the whole suite)
  */
 
-const assert = require('assert');
+const assert = require('node:assert');
 const test = require('node:test');
-const fs = require('fs');
-const path = require('path');
+const fs = require('node:fs');
+const path = require('node:path');
 
 global.window = global;
 global.GSR_CONST = require('./mock_constants.js');
@@ -382,7 +382,7 @@ test('updateEnvironmentalDashboard (collective mode): method scales with walk co
       a.raw.forEach((pt, i) => {
         pt.osm_building_density_50m = ((i * 7 + k * 13) % 100) / 100;
       });
-      return { id: 'trk' + k, analyzer: a };
+      return { id: `trk${k}`, analyzer: a };
     });
   const run = (n) => {
     const cm = { getActiveTracks: () => mkTracks(n) };
@@ -430,7 +430,7 @@ test('updateEnvironmentalDashboard: tonic gets its own longer-lag environment, P
       a.raw.forEach((pt, i) => {
         pt.osm_building_density_50m = ((i * 7 + k * 13) % 100) / 100;
       });
-      return { id: 'trk' + k, analyzer: a };
+      return { id: `trk${k}`, analyzer: a };
     });
   const cm = { getActiveTracks: () => mkTracks(6) };
   Object.assign(RealAppState, {
@@ -497,7 +497,7 @@ test('updateEnvironmentalDashboard: the road profile groups tonic arousal by the
   // Make the tonic signal a step function keyed to the class 8 s earlier: high
   // (100) when the tonic-lag class is 'service', low (1) when it is 'primary'.
   a.raw.forEach((pt, i) => {
-    if (!a.tonic || !a.tonic[i]) return;
+    if (!a.tonic?.[i]) return;
     const tonicClassIsService = Math.floor((pt.time - 8) / 6) % 2 === 0;
     a.tonic[i].val = tonicClassIsService ? 100 : 1;
   });
@@ -536,7 +536,7 @@ test('updateEnvironmentalDashboard (collective mode): only enriched tracks are a
     a.raw.forEach((pt, i) => {
       pt.osm_building_density_50m = ((i * 7 + k * 13) % 100) / 100;
     });
-    return { id: 'trk' + k, analyzer: a };
+    return { id: `trk${k}`, analyzer: a };
   });
   const bare = new GSRAnalyzer();
   bare.parseCSV(csvText);

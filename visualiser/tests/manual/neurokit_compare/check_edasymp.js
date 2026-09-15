@@ -11,8 +11,8 @@
  *   node check_edasymp.js <python.json> <tracksdir>
  */
 
-const fs = require('fs');
-const path = require('path');
+const fs = require('node:fs');
+const path = require('node:path');
 
 const { SpectralEDA } = require('../../../src/signal/spectral_eda.mjs');
 
@@ -92,7 +92,7 @@ for (const name of names) {
     console.log(`  ${name}: NeuroKit2 returned NaN (signal <= 64 s) — skipped`);
     continue;
   }
-  const track = loadTrack(path.join(tracksDir, name + '.csv'));
+  const track = loadTrack(path.join(tracksDir, `${name}.csv`));
   const fs = samplingRateHz(track.times);
   const s = SpectralEDA.computeScalar(track.us, fs);
   const ratio = s.sympathetic / ref.eda_sympathetic;

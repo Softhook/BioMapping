@@ -92,7 +92,7 @@ test('Response Dynamics: ResponseDynamics domain module unit tests', () => {
   assert.strictEqual(dummyPeaks[1].scaleFactor, 0.75);
   assert.strictEqual(stats.totalTaggedPeaks, 2);
   assert.strictEqual(stats.speedCounts['Very Fast'], 1);
-  assert.strictEqual(stats.speedCounts['Slow'], 1);
+  assert.strictEqual(stats.speedCounts.Slow, 1);
 });
 
 test('Response Dynamics: constants definitions', () => {

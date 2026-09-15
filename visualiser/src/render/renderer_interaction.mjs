@@ -17,9 +17,9 @@
  */
 import { AppState } from '../core/app_state.mjs';
 import { GSR_CONST } from '../core/constants.mjs';
-import { EXCLUDE_BTN, GSRRenderer } from './renderer.mjs';
 import { ResponseDynamics } from '../signal/response_dynamics.mjs';
 import { GSRUI } from '../ui/ui.mjs';
+import { EXCLUDE_BTN, GSRRenderer } from './renderer.mjs';
 
 export const __methods = {
   /**
@@ -33,7 +33,7 @@ export const __methods = {
     const btnColor = isExcluded ? '#008f3c' : '#d10024';
 
     noStroke();
-    fill(color(btnColor + '1a'));
+    fill(color(`${btnColor}1a`));
     circle(btnX, btnY, btnR * 2 + 3);
 
     stroke(btnColor);
@@ -265,8 +265,7 @@ export const __methods = {
     // and tooltip row against whichever series is actually plotted.
     const lowerMode =
       (GSR_CONST.LOWER_GRAPH_MODES && AppState.lowerGraphMode) || 'phasic';
-    let lowerCfg = (GSR_CONST.LOWER_GRAPH_MODES &&
-      GSR_CONST.LOWER_GRAPH_MODES[lowerMode]) || {
+    let lowerCfg = GSR_CONST.LOWER_GRAPH_MODES?.[lowerMode] || {
       label: 'Phasic (SCR)',
       unit: 'μS',
       decimals: 4,
@@ -323,7 +322,7 @@ export const __methods = {
     textSize(10);
     textStyle(BOLD);
     textAlign(CENTER, CENTER);
-    text(dRaw.time.toFixed(1) + 's', xScrub, gapCenter);
+    text(`${dRaw.time.toFixed(1)}s`, xScrub, gapCenter);
     textStyle(NORMAL);
 
     const yU = map(dFilt.val, yMinU, yMaxU, yBottomU, GSR_CONST.MARGIN.top);
@@ -380,8 +379,7 @@ export const __methods = {
             : '') +
           ':';
     const textSec = this.getThemeColor('--text-secondary', '#444444');
-    let extraValStr =
-      dLower.val.toFixed(lowerCfg.decimals) + ' ' + lowerCfg.unit;
+    let extraValStr = `${dLower.val.toFixed(lowerCfg.decimals)} ${lowerCfg.unit}`;
     let extraColor = colorLower;
     if (lowerMode === 'responseDynamics') {
       const dynSeries = AppState.analyzer.responseDynamics || [];

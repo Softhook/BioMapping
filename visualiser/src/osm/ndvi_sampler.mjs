@@ -157,7 +157,7 @@ export const NDVISampler = {
       typeof localStorage.getItem === 'function'
     ) {
       const stored = localStorage.getItem('copernicus_instance_id');
-      if (stored && stored.trim()) return stored.trim();
+      if (stored?.trim()) return stored.trim();
     }
     if (
       typeof window !== 'undefined' &&
@@ -182,7 +182,7 @@ export const NDVISampler = {
       typeof localStorage.getItem === 'function'
     ) {
       const stored = localStorage.getItem('copernicus_raw_layer_id');
-      if (stored && stored.trim()) return stored.trim();
+      if (stored?.trim()) return stored.trim();
     }
     if (
       typeof window !== 'undefined' &&
@@ -204,7 +204,7 @@ export const NDVISampler = {
       typeof localStorage.getItem === 'function'
     ) {
       const stored = localStorage.getItem('copernicus_time_range');
-      if (stored && stored.trim()) return stored.trim();
+      if (stored?.trim()) return stored.trim();
     }
     if (
       typeof window !== 'undefined' &&
@@ -699,11 +699,7 @@ export const NDVISampler = {
    * @returns {number}
    */
   _retryAfterMs(response, fallbackMs = 5000) {
-    if (
-      !response ||
-      !response.headers ||
-      typeof response.headers.get !== 'function'
-    )
+    if (!response?.headers || typeof response.headers.get !== 'function')
       return fallbackMs;
     const val = response.headers.get('Retry-After');
     if (!val) return fallbackMs;
@@ -743,7 +739,7 @@ export const NDVISampler = {
     const onRetry = options.onRetry || (() => {});
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
-      if (signal && signal.aborted) return null;
+      if (signal?.aborted) return null;
       await this._enforceRateLimit(providerId);
 
       let response;
@@ -892,7 +888,7 @@ export const NDVISampler = {
 
     const worker = async () => {
       while (nextIdx < total) {
-        if (signal && signal.aborted) break;
+        if (signal?.aborted) break;
         const current = nextIdx++;
         const task = tasks[current];
         const cachedTile = this._getTileCache(task.url);
@@ -1224,7 +1220,7 @@ export const NDVISampler = {
     }
 
     const analyzer = track?.analyzer || track;
-    if (!analyzer || !analyzer.raw || analyzer.raw.length === 0) {
+    if (!analyzer?.raw || analyzer.raw.length === 0) {
       throw new Error('Track has no raw data points to sample.');
     }
 
@@ -1558,7 +1554,7 @@ export const NDVISampler = {
     const failedTracks = [];
 
     for (let i = 0; i < validTracks.length; i++) {
-      if (signal && signal.aborted) break;
+      if (signal?.aborted) break;
       const t = validTracks[i];
       const label = t.name || t.id || `Walk ${i + 1}`;
       const basePct = Math.round((i / validTracks.length) * 100);

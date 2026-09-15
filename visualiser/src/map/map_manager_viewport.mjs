@@ -120,10 +120,10 @@ export const __methods = {
    * next graph hover repositions it). A bad index / NaN coords is a no-op.
    */
   focusOnPeakLocation(peakIdx, analyzer, gpsParams) {
-    if (!this.map || !analyzer || !analyzer.peaks) return;
+    if (!this.map || !analyzer?.peaks) return;
     const peak = analyzer.peaks[peakIdx];
     if (!peak) return;
-    const peakLatency = (gpsParams && gpsParams.peakLatency) || 0;
+    const peakLatency = gpsParams?.peakLatency || 0;
     const coords = analyzer.getCoordinates(
       this._resolveLatencyIndex(analyzer, peak, peakLatency),
     );

@@ -7,9 +7,9 @@
  * Run: node --test tests/test_map_exporter_colors.js
  */
 
-const assert = require('assert');
+const assert = require('node:assert');
 const test = require('node:test');
-const path = require('path');
+const path = require('node:path');
 
 // Load a source file that only assigns to window.X (no CommonJS export) via a
 // function wrapper, mirroring test_svg_vector_surface.js.
@@ -141,7 +141,7 @@ test('GSRMapExporter._pathEl: a plain track polyline (fill never explicitly set)
     'sanity: fillOpacity inherited from the Path default',
   );
   assert.ok(
-    !Object.prototype.hasOwnProperty.call(trackLayer.options, 'fillOpacity'),
+    !Object.hasOwn(trackLayer.options, 'fillOpacity'),
     'sanity: fillOpacity is NOT an own property, same as real Leaflet',
   );
 

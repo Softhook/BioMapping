@@ -213,7 +213,7 @@ export const __methods = {
     const badgeText = isBinaryX
       ? 'r = ' +
         (Math.sign(m) * Math.sqrt(Math.max(0, Math.min(1, r2)))).toFixed(3)
-      : 'R² = ' + r2.toFixed(3);
+      : `R² = ${r2.toFixed(3)}`;
     const bw = ctx.measureText(badgeText).width;
     ctx.fillStyle = 'rgba(0, 85, 204, 0.08)';
     ctx.fillRect(width - padR - bw - 10, padT + 2, bw + 14, 18);
@@ -291,7 +291,7 @@ export const __methods = {
       AppState.viewMode === 'single'
         ? AppState.analyzer
         : AppState.collectiveManager;
-    if (cacheTarget && cacheTarget._cachedEnvStats) {
+    if (cacheTarget?._cachedEnvStats) {
       const stats = cacheTarget._cachedEnvStats;
       const allActive =
         AppState.viewMode === 'single'
@@ -651,7 +651,7 @@ export const __methods = {
         AppState.viewMode === 'single'
           ? AppState.analyzer
           : AppState.collectiveManager;
-      if (cacheTarget && cacheTarget._cachedEnvStats) {
+      if (cacheTarget?._cachedEnvStats) {
         dataSrc = cacheTarget._cachedEnvStats.allData;
       } else {
         dataSrc = [];
@@ -694,10 +694,10 @@ export const __methods = {
     ).forEach((m) => {
       xLabels[m.field] = m.unit ? `${m.label} (${m.unit})` : m.label;
     });
-    xLabels['em_fog'] = 'EM Fog Index (0-100)';
-    xLabels['speed'] = 'Walking Speed (m/s)';
-    xLabels['ndvi_50m'] = 'NDVI (50m Buffer)';
-    xLabels['ndvi'] = 'Point NDVI';
+    xLabels.em_fog = 'EM Fog Index (0-100)';
+    xLabels.speed = 'Walking Speed (m/s)';
+    xLabels.ndvi_50m = 'NDVI (50m Buffer)';
+    xLabels.ndvi = 'Point NDVI';
 
     const yLabels = {
       phasic: 'Phasic (momentary arousal)',

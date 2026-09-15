@@ -19,11 +19,15 @@ window.BIOMAP_CONFIG = {
 // Local dev only: layer config.local.js (gitignored, never deployed) on top of
 // the above. Gated on a local origin so the hosted site never requests it and
 // visitors get no 404. See config.local.example.js.
-(function () {
+(() => {
   var h = location.hostname;
-  var local = location.protocol === 'file:' ||
-    h === 'localhost' || h === '127.0.0.1' || h === '0.0.0.0' || h === '[::1]';
+  var local =
+    location.protocol === 'file:' ||
+    h === 'localhost' ||
+    h === '127.0.0.1' ||
+    h === '0.0.0.0' ||
+    h === '[::1]';
   if (local && document.readyState === 'loading') {
-    document.write('<script src="config.local.js"><\/script>');
+    document.write('<script src="config.local.js"></script>');
   }
 })();

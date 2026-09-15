@@ -7,7 +7,7 @@
  * Run: node --test tests/test_app_state.js
  */
 
-const assert = require('assert');
+const assert = require('node:assert');
 const test = require('node:test');
 
 const { AppState } = require('../src/core/app_state.mjs');
@@ -165,8 +165,8 @@ test('zoomFactor: silently ignores non-number / NaN assignments', () => {
 });
 
 test('default state shape: key fields start with documented defaults', () => {
-  const fresh = require('fs').readFileSync(
-    require('path').join(__dirname, '..', 'src', 'core', 'app_state.mjs'),
+  const fresh = require('node:fs').readFileSync(
+    require('node:path').join(__dirname, '..', 'src', 'core', 'app_state.mjs'),
     'utf8',
   );
   // Sanity-check the defaults documented in the module comments are actually

@@ -14,9 +14,9 @@
  * Run: node --test tests/test_osm_ensure_geoms.js
  */
 
-const assert = require('assert');
+const assert = require('node:assert');
 const test = require('node:test');
-const path = require('path');
+const path = require('node:path');
 
 global.window = global;
 global.GSR_CONST = require('./mock_constants.js');

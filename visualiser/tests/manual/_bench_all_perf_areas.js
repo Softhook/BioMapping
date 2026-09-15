@@ -32,10 +32,10 @@
  *   node tests/manual/_bench_all_perf_areas.js
  */
 
-const fs = require('fs');
-const path = require('path');
-const vm = require('vm');
-const { performance } = require('perf_hooks');
+const fs = require('node:fs');
+const path = require('node:path');
+const vm = require('node:vm');
+const { performance } = require('node:perf_hooks');
 const { bootApp } = require('../support/boot_app.js');
 
 const TRACKS_DIR = path.join(__dirname, '..', '..', '..', 'tracks');
@@ -826,6 +826,6 @@ console.log(
   `    Frame budget at 60fps is 16.6ms -> draw() consumes ${((bFullDraw.median / 16.6) * 100).toFixed(1)}% of frame budget.`,
 );
 
-console.log('\n' + '='.repeat(78));
+console.log(`\n${'='.repeat(78)}`);
 console.log('PROFILING COMPLETE');
 console.log('='.repeat(78));

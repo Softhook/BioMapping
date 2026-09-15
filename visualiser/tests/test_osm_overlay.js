@@ -37,7 +37,7 @@ async function capturePolys(fn) {
   const byCat = { park: 0, water: 0, building: 0 };
   for (const c of calls) {
     const cat = Object.keys(STYLE_FILL).find(
-      (k) => STYLE_FILL[k] === (c.style && c.style.fillColor),
+      (k) => STYLE_FILL[k] === c.style?.fillColor,
     );
     if (cat) byCat[cat] += c.rings.length;
   }

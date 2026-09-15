@@ -45,11 +45,14 @@ export class GSRArousalPlaces {
     const footprintRadiusM = mergeM / 2 + footprintPad;
     const footSq = footprintRadiusM * footprintRadiusM;
 
-    const trackById = this._buildFastTrackMap(tracks);
-    const candidateClusters = this._filterCandidates(clusters, minMembers);
+    const trackById = GSRArousalPlaces._buildFastTrackMap(tracks);
+    const candidateClusters = GSRArousalPlaces._filterCandidates(
+      clusters,
+      minMembers,
+    );
 
     let places = candidateClusters.map((candidate) =>
-      this._scorePlace(candidate, trackById, {
+      GSRArousalPlaces._scorePlace(candidate, trackById, {
         footprintRadiusM,
         footSq,
         dwellFloorS,
@@ -74,7 +77,10 @@ export class GSRArousalPlaces {
     const trackById = new Map();
     for (const trk of trackList) {
       if (!trk || trk.id == null || !Array.isArray(trk.raw)) continue;
-      trackById.set(trk.id, { trk, flat: this._getOrBuildFastCoords(trk) });
+      trackById.set(trk.id, {
+        trk,
+        flat: GSRArousalPlaces._getOrBuildFastCoords(trk),
+      });
     }
     return trackById;
   }

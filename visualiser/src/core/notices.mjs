@@ -229,7 +229,7 @@ export class GSRNotices {
   static _toast(level, context, err) {
     if (typeof document === 'undefined' || !document.body) return;
 
-    const msg = err && err.message ? err.message : String(err);
+    const msg = err?.message ? err.message : String(err);
     const isWarn = level === 'warn';
 
     let container = document.getElementById('gsr-error-toasts');
@@ -259,7 +259,7 @@ export class GSRNotices {
       boxShadow: '0 2px 8px rgba(0,0,0,.35)',
       cursor: 'pointer',
     });
-    toast.textContent = (context ? context + ': ' : '') + msg;
+    toast.textContent = (context ? `${context}: ` : '') + msg;
     toast.title = 'Click to dismiss';
     toast.addEventListener('click', () => toast.remove());
     container.appendChild(toast);

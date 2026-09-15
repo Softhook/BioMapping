@@ -58,11 +58,9 @@ export const __methods = {
     if (!pts || pts.length < 2) return [];
 
     const metric = this.activeColoringMetric;
-    const heightMetric =
-      typeof HEIGHT_CAPABLE_METRICS !== 'undefined' &&
-      HEIGHT_CAPABLE_METRICS.has(metric)
-        ? metric
-        : this.heightMetric || 'phasic';
+    const heightMetric = HEIGHT_CAPABLE_METRICS?.has(metric)
+      ? metric
+      : this.heightMetric || 'phasic';
     const heightSeries = this._getMetricSeries(
       this.currentAnalyzer,
       heightMetric,
@@ -278,8 +276,7 @@ export const __methods = {
     let terrainAlt = 0;
     try {
       if (
-        this.viewer.scene &&
-        this.viewer.scene.globe &&
+        this.viewer.scene?.globe &&
         typeof this.viewer.scene.globe.getHeight === 'function'
       ) {
         const cartoCam = Cesium.Cartographic.fromDegrees(camLon, camLat);

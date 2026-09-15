@@ -115,7 +115,7 @@ export function drawGraph() {
 
   const A = liveAnalyzer;
   const pkts = LiveState.packets;
-  if (!A || !A.raw || A.raw.length === 0) return;
+  if (!A?.raw || A.raw.length === 0) return;
 
   // Rolling "now" edge — advance between packets for 60fps scrolling while
   // streaming; freeze once disconnected (the user left the Live view, which
@@ -137,19 +137,19 @@ export function drawGraph() {
   // drawn last (on top of Raw/Tonic/Phasic), matching src/render/sketch.js.
   const layers = [];
   if (view === 'signal') {
-    if (liveGsrView.showTonic && A.tonic && A.tonic.length)
+    if (liveGsrView.showTonic && A.tonic?.length)
       layers.push({
         data: A.tonic,
         col: graphThemeColor('--color-tonic', '#a30091'),
         w: 2,
       });
-    if (liveGsrView.showPhasic && A.phasic && A.phasic.length)
+    if (liveGsrView.showPhasic && A.phasic?.length)
       layers.push({
         data: A.phasic,
-        col: graphThemeColor('--color-phasic', '#008f3c') + 'c8',
+        col: `${graphThemeColor('--color-phasic', '#008f3c')}c8`,
         w: 1.5,
       });
-    if (liveGsrView.showFiltered && A.filtered && A.filtered.length)
+    if (liveGsrView.showFiltered && A.filtered?.length)
       layers.push({
         data: A.filtered,
         col: graphThemeColor('--color-filtered', '#005bc4'),
@@ -158,7 +158,7 @@ export function drawGraph() {
       });
   } else {
     const series = A[cfg.key];
-    if (series && series.length)
+    if (series?.length)
       layers.push({
         data: series,
         col: graphThemeColor(
@@ -277,7 +277,7 @@ export function drawGraph() {
   //    non-interactive rolling window, not the zoomable track view. ─────────
   const markerSeries =
     view === 'signal'
-      ? A.filtered && A.filtered.length
+      ? A.filtered?.length
         ? A.filtered
         : A.raw
       : layers[0].data;
@@ -341,7 +341,7 @@ export function drawGraph() {
     let penDown = false;
     for (let i = s; i < d.length; i++) {
       const gp = pkts[liveAnalyzerBase + i];
-      const gap = gp && gp.gap;
+      const gap = gp?.gap;
       const x = xForT(d[i].time),
         y = yForV(d[i].val);
       if (!penDown || gap) {
@@ -362,5 +362,5 @@ export function drawGraph() {
   document.getElementById('graphValue').textContent =
     readVal.toFixed(cfg.decimals) + cfg.unit;
   document.getElementById('graphLabel').textContent =
-    cfg.label + ' — last 2 min';
+    `${cfg.label} — last 2 min`;
 }

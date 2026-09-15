@@ -8,11 +8,11 @@
  * Run: node --test tests/test_gps_drawpoints_fused.js
  */
 
-const assert = require('assert');
+const assert = require('node:assert');
 const test = require('node:test');
-const fs = require('fs');
-const path = require('path');
-const vm = require('vm');
+const fs = require('node:fs');
+const path = require('node:path');
+const vm = require('node:vm');
 const { bootApp } = require('./support/boot_app.js');
 
 const TRACKS_DIR = path.join(__dirname, '..', '..', 'tracks');
@@ -45,7 +45,7 @@ function legacyBuildDrawPoints(
         lat: fg.lat,
         lon: fg.lon,
         origIdx: i,
-        isRfPeak: !!(forceIndexSet && forceIndexSet.has(i)),
+        isRfPeak: !!forceIndexSet?.has(i),
       });
     }
   }
@@ -163,7 +163,7 @@ test('buildDrawPoints: correctly handles forced RF peak indices that fall betwee
   const data = [];
   const filteredGps = [];
   for (let i = 0; i < 25; i++) {
-    data.push({ time: i * 0.1, val: 5.0, customField: 'val_' + i });
+    data.push({ time: i * 0.1, val: 5.0, customField: `val_${i}` });
     filteredGps.push({ lat: 51.5 + i * 0.0001, lon: -0.1 + i * 0.0001 });
   }
 

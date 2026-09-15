@@ -15,7 +15,7 @@
  * gone; what's left is just the two smoke tests below confirming map.mjs/
  * ui.mjs still export their class/object.
  */
-const assert = require('assert');
+const assert = require('node:assert');
 const test = require('node:test');
 
 test('map.js exports GSRMapManager', async () => {

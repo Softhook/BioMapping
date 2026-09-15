@@ -21,8 +21,8 @@
  * Run: node visualiser/tests/test_deconvolution_059.js
  */
 
-const fs = require('fs');
-const path = require('path');
+const fs = require('node:fs');
+const path = require('node:path');
 
 global.window = global;
 global.GSR_CONST = require('./mock_constants.js');
@@ -370,7 +370,7 @@ assertEq(
     `no two hotspots closer than ${minSep} m (closest pair ${isFinite(minPair) ? minPair.toFixed(1) : 'n/a'} m)`,
   );
   console.log(
-    `\n  Memorable events: ${on.memorableEvents.length}/${on.peaks.length}, closest pair ${isFinite(minPair) ? minPair.toFixed(0) + 'm' : 'n/a'}`,
+    `\n  Memorable events: ${on.memorableEvents.length}/${on.peaks.length}, closest pair ${isFinite(minPair) ? `${minPair.toFixed(0)}m` : 'n/a'}`,
   );
 }
 

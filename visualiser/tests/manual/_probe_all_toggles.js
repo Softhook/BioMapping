@@ -2,8 +2,8 @@
 // buttons? Checks the invariant `button.classList.contains('active')` ⇔ the
 // manager's corresponding `showX` state across: initial boot, a single-track
 // render, a collective render, and a "data absent" render (the RF fluid case).
-const path = require('path');
-const vm = require('vm');
+const path = require('node:path');
+const vm = require('node:vm');
 const { bootApp } = require('../support/boot_app.js');
 
 const { window, context } = bootApp();
@@ -313,5 +313,5 @@ mm.toggleLabels(false);
 check('peaks/hotspots/labels off');
 
 console.log(
-  `\n== ${problems === 0 ? 'ALL CONSISTENT — RF Fluid was the only desync' : problems + ' DESYNCS FOUND'} ==`,
+  `\n== ${problems === 0 ? 'ALL CONSISTENT — RF Fluid was the only desync' : `${problems} DESYNCS FOUND`} ==`,
 );

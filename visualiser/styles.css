@@ -1,8 +1,10 @@
 /* Design Tokens & Theme Variables */
 :root {
-  --font-display: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  
+  --font-display:
+    "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-sans:
+    "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+
   /* Classic Light Theme Colors (Swiss Grid & Tufte style) */
   --bg-app: #fcfbf9; /* Clean paper/off-white background */
   --bg-sidebar: #f5f4f0; /* Warm gray concrete sidebar */
@@ -10,18 +12,18 @@
   --bg-card-hover: #faf9f6;
   --border-glass: #dcdbd3; /* Thin, crisp gray outline */
   --border-focus: #111111; /* Solid black outline on active/focus */
-  
+
   --text-primary: #111111; /* Sharp black text */
   --text-secondary: #444444; /* Charcoal gray */
   --text-muted: #7e7d76; /* Warm mid-tone gray */
-  
+
   /* Accents & Theme Indicators (Stark and purposeful) */
   --accent-primary: #111111; /* Stark black for primary controls */
   --accent-secondary: #666666;
   --accent-glow: rgba(0, 0, 0, 0.04);
   --accent-cyan: #06b6d4;
   --primary-color: #005bc4;
-  
+
   /* Clean Signal Colors (highly distinct on white paper) */
   --color-raw: #7c7c76; /* Neutral gray */
   --color-filtered: #005bc4; /* Swiss blue */
@@ -37,7 +39,7 @@
   --color-edasymp: #0e7490; /* EDASymp spectral sympathetic index deep cyan */
   --color-em-fog: #a855f7; /* EM Fog Index (EMF-I) glowing purple/violet */
   --color-response-dynamics: #f97316; /* Response dynamics speed multiplier bright orange */
-  
+
   --success: #008f3c;
   --warning: #cf7900;
   --danger: #d10024;
@@ -169,8 +171,6 @@ body {
   align-items: center;
 }
 
-
-
 .header-logo {
   display: flex;
   align-items: center;
@@ -218,9 +218,15 @@ body {
   border-radius: 50%;
 }
 
-.status-dot.success { background-color: var(--success); }
-.status-dot.warning { background-color: var(--warning); }
-.status-dot.danger { background-color: var(--danger); }
+.status-dot.success {
+  background-color: var(--success);
+}
+.status-dot.warning {
+  background-color: var(--warning);
+}
+.status-dot.danger {
+  background-color: var(--danger);
+}
 
 /* Layout Grid */
 .main-layout {
@@ -246,7 +252,9 @@ body {
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
   padding-right: 10px;
-  transition: opacity 0.25s ease, transform var(--transition-standard);
+  transition:
+    opacity 0.25s ease,
+    transform var(--transition-standard);
 }
 
 .main-layout.sidebar-collapsed .sidebar {
@@ -258,8 +266,12 @@ body {
 /* Mobile sidebar drawer — the hamburger toggle and its scrim are inert on
    desktop; the @media (max-width: 768px) block below turns the sidebar into
    an off-canvas drawer these two drive. */
-.sidebar-toggle-btn { display: none; }
-.sidebar-backdrop { display: none; }
+.sidebar-toggle-btn {
+  display: none;
+}
+.sidebar-backdrop {
+  display: none;
+}
 
 .control-card {
   background: var(--bg-card);
@@ -414,15 +426,15 @@ body {
 /* Red recommended-value range marker on a slider track */
 .slider-rec {
   position: absolute;
-  top: 28px;               /* same vertical position as the slider track */
-  height: 6px;             /* same height as the slider track */
+  top: 28px; /* same vertical position as the slider track */
+  height: 6px; /* same height as the slider track */
   background: rgba(209, 0, 36, 0.15);
   border-radius: 3px;
   pointer-events: none;
   z-index: 1;
 }
 .slider-rec::after {
-  content: '';
+  content: "";
   position: absolute;
   top: -1px;
   left: 0;
@@ -737,7 +749,7 @@ input[type="range"]:focus-visible,
   display: flex;
   align-items: center;
   height: 100%;
-  min-width: 0;   /* let contents shrink/truncate instead of overflowing into the next card */
+  min-width: 0; /* let contents shrink/truncate instead of overflowing into the next card */
   overflow: hidden;
   box-sizing: border-box;
   user-select: none;
@@ -775,7 +787,7 @@ input[type="range"]:focus-visible,
   overflow: hidden;
   text-overflow: ellipsis;
   min-width: 0;
-  flex-shrink: 1;   /* the label truncates first, before the value gets squeezed */
+  flex-shrink: 1; /* the label truncates first, before the value gets squeezed */
 }
 
 .stat-value {
@@ -787,7 +799,7 @@ input[type="range"]:focus-visible,
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  flex-shrink: 0;   /* the actual data value stays intact as long as possible */
+  flex-shrink: 0; /* the actual data value stays intact as long as possible */
 }
 
 /* Visualization Panel */
@@ -801,14 +813,18 @@ input[type="range"]:focus-visible,
   min-height: 190px;
   max-height: 1200px;
   overflow: hidden;
-  transition: max-height var(--transition-standard), min-height var(--transition-standard);
+  transition:
+    max-height var(--transition-standard),
+    min-height var(--transition-standard);
 }
 
 .visualization-panel .canvas-container,
 .visualization-panel .canvas-footer {
   opacity: 1;
   visibility: visible;
-  transition: opacity 0.25s ease 0.1s, visibility 0s 0.1s;
+  transition:
+    opacity 0.25s ease 0.1s,
+    visibility 0s 0.1s;
 }
 
 .panel-header {
@@ -1105,9 +1121,19 @@ input[type="range"]:focus-visible,
 }
 
 @keyframes pulse {
-  0% { transform: scale(1); opacity: 0.3; }
-  50% { transform: scale(1.05); opacity: 0.8; color: var(--accent-primary); }
-  100% { transform: scale(1); opacity: 0.3; }
+  0% {
+    transform: scale(1);
+    opacity: 0.3;
+  }
+  50% {
+    transform: scale(1.05);
+    opacity: 0.8;
+    color: var(--accent-primary);
+  }
+  100% {
+    transform: scale(1);
+    opacity: 0.3;
+  }
 }
 
 .canvas-footer {
@@ -1142,11 +1168,21 @@ input[type="range"]:focus-visible,
   display: inline-block;
 }
 
-.color-dot.raw { background-color: var(--color-raw); }
-.color-dot.filtered { background-color: var(--color-filtered); }
-.color-dot.tonic { background-color: var(--color-tonic); }
-.color-dot.phasic { background-color: var(--color-phasic); }
-.color-dot.peak { background-color: var(--color-peak); }
+.color-dot.raw {
+  background-color: var(--color-raw);
+}
+.color-dot.filtered {
+  background-color: var(--color-filtered);
+}
+.color-dot.tonic {
+  background-color: var(--color-tonic);
+}
+.color-dot.phasic {
+  background-color: var(--color-phasic);
+}
+.color-dot.peak {
+  background-color: var(--color-peak);
+}
 
 .navigation-hints {
   display: flex;
@@ -1169,14 +1205,18 @@ input[type="range"]:focus-visible,
   min-height: 180px;
   max-height: 300px; /* Default when both panels are expanded */
   flex-shrink: 1;
-  transition: max-height var(--transition-standard), min-height var(--transition-standard);
+  transition:
+    max-height var(--transition-standard),
+    min-height var(--transition-standard);
   overflow: hidden; /* Clip out-of-bounds bleed and standardise card shape */
 }
 
 .peaks-table-panel .table-container {
   opacity: 1;
   visibility: visible;
-  transition: opacity 0.25s ease 0.1s, visibility 0s 0.1s;
+  transition:
+    opacity 0.25s ease 0.1s,
+    visibility 0s 0.1s;
 }
 
 /* Dynamic max-height based on collapse state of preceding panels */
@@ -1242,7 +1282,9 @@ input[type="range"]:focus-visible,
 .peaks-table th.sortable {
   cursor: pointer;
   user-select: none;
-  transition: background 0.15s ease, color 0.15s ease;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
 }
 
 .peaks-table th.sortable:hover {
@@ -1254,7 +1296,9 @@ input[type="range"]:focus-visible,
   margin-left: 4px;
   font-size: 0.7rem;
   opacity: 0.35;
-  transition: opacity 0.15s ease, color 0.15s ease;
+  transition:
+    opacity 0.15s ease,
+    color 0.15s ease;
   vertical-align: middle;
 }
 
@@ -1362,7 +1406,9 @@ input[type="range"]:focus-visible,
   font-size: 0.85rem;
   padding: 2px 6px;
   line-height: 1;
-  transition: background 0.15s ease, border-color 0.15s ease;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease;
 }
 
 .btn-exclude:hover {
@@ -1589,11 +1635,25 @@ input[type="range"]:focus-visible,
   }
   /* On its own wrapped row the tab strip gets the full phone width, so the
      three tabs sit side by side with comfortable tap targets. */
-  .header-right { width: 100%; margin-left: 0; justify-content: flex-start; gap: 2px; }
-  .header-right #btnFullscreen { margin-left: auto; }
-  .view-switcher { flex-wrap: wrap; }
-  .header-logo h1 { font-size: 1rem; }
-  .view-tab { padding: 8px 10px; font-size: 0.8rem; }
+  .header-right {
+    width: 100%;
+    margin-left: 0;
+    justify-content: flex-start;
+    gap: 2px;
+  }
+  .header-right #btnFullscreen {
+    margin-left: auto;
+  }
+  .view-switcher {
+    flex-wrap: wrap;
+  }
+  .header-logo h1 {
+    font-size: 1rem;
+  }
+  .view-tab {
+    padding: 8px 10px;
+    font-size: 0.8rem;
+  }
 
   /* :not([hidden]) so events.js can hide it in the Live view by setting the
      `hidden` property (this app ships no [hidden]{display:none} reset). */
@@ -1606,9 +1666,17 @@ input[type="range"]:focus-visible,
   /* Undo the ≤1024px "stack everything and let the page scroll" rules: the
      drawer is out of flow now, so the container keeps the viewport height and
      the Live panel (flex:1) can fill it. */
-  .app-container { height: 100vh; height: 100dvh; overflow: hidden; }
-  .main-layout { grid-template-columns: 1fr; }
-  .main-content { overflow-y: auto; }
+  .app-container {
+    height: 100vh;
+    height: 100dvh;
+    overflow: hidden;
+  }
+  .main-layout {
+    grid-template-columns: 1fr;
+  }
+  .main-content {
+    overflow-y: auto;
+  }
 
   .sidebar {
     position: fixed;
@@ -1658,7 +1726,7 @@ input[type="range"]:focus-visible,
   font-family: var(--font-sans);
   font-size: 11px;
   line-height: 1.4;
-  box-shadow: 0 1px 5px rgba(0,0,0,0.15);
+  box-shadow: 0 1px 5px rgba(0, 0, 0, 0.15);
   min-width: 130px;
 }
 .legend-title {
@@ -1717,7 +1785,9 @@ input[type="range"]:focus-visible,
   position: relative;
   flex-shrink: 0;
   overflow: hidden;
-  transition: max-height var(--transition-standard), min-height var(--transition-standard);
+  transition:
+    max-height var(--transition-standard),
+    min-height var(--transition-standard);
 }
 
 #map {
@@ -1729,7 +1799,9 @@ input[type="range"]:focus-visible,
   z-index: 1;
   opacity: 1;
   visibility: visible;
-  transition: opacity 0.25s ease 0.1s, visibility 0s 0.1s;
+  transition:
+    opacity 0.25s ease 0.1s,
+    visibility 0s 0.1s;
 }
 
 /* Custom Marker Styling — all positioning done via inline styles.
@@ -1830,9 +1902,21 @@ input[type="range"]:focus-visible,
 }
 
 @keyframes pulse-glow {
-  0% { transform: scale(0.6); opacity: 0.9; box-shadow: 0 0 0 0 rgba(244, 63, 94, 0.7); }
-  70% { transform: scale(1.2); opacity: 0; box-shadow: 0 0 0 8px rgba(244, 63, 94, 0); }
-  100% { transform: scale(0.6); opacity: 0; box-shadow: 0 0 0 0 rgba(244, 63, 94, 0); }
+  0% {
+    transform: scale(0.6);
+    opacity: 0.9;
+    box-shadow: 0 0 0 0 rgba(244, 63, 94, 0.7);
+  }
+  70% {
+    transform: scale(1.2);
+    opacity: 0;
+    box-shadow: 0 0 0 8px rgba(244, 63, 94, 0);
+  }
+  100% {
+    transform: scale(0.6);
+    opacity: 0;
+    box-shadow: 0 0 0 0 rgba(244, 63, 94, 0);
+  }
 }
 
 /* Scrubbing Indicator Marker */
@@ -1855,8 +1939,12 @@ input[type="range"]:focus-visible,
 }
 
 @keyframes scrub-pulse {
-  from { transform: scale(0.8); }
-  to { transform: scale(1.2); }
+  from {
+    transform: scale(0.8);
+  }
+  to {
+    transform: scale(1.2);
+  }
 }
 
 /* Override Leaflet Popup Styling to match Theme */
@@ -2121,7 +2209,10 @@ input[type="range"]:focus-visible,
   max-height: none !important;
 }
 
-.panel-fullscreen-overlay #environmentalPanel .env-tab-content .table-container {
+.panel-fullscreen-overlay
+  #environmentalPanel
+  .env-tab-content
+  .table-container {
   overflow-y: visible !important;
   max-height: none !important;
   height: auto !important;
@@ -2199,7 +2290,9 @@ input[type="range"]:focus-visible,
   border: none;
   cursor: pointer;
   color: var(--text-muted);
-  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), color 0.2s ease;
+  transition:
+    transform 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+    color 0.2s ease;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2229,7 +2322,9 @@ input[type="range"]:focus-visible,
 .visualization-panel.collapsed .canvas-footer {
   opacity: 0 !important;
   visibility: hidden !important;
-  transition: opacity 0.15s ease, visibility 0s 0.15s !important;
+  transition:
+    opacity 0.15s ease,
+    visibility 0s 0.15s !important;
 }
 
 .map-panel.collapsed {
@@ -2245,7 +2340,9 @@ input[type="range"]:focus-visible,
 .map-panel.collapsed #map {
   opacity: 0 !important;
   visibility: hidden !important;
-  transition: opacity 0.15s ease, visibility 0s 0.15s !important;
+  transition:
+    opacity 0.15s ease,
+    visibility 0s 0.15s !important;
 }
 
 .peaks-table-panel.collapsed {
@@ -2261,7 +2358,9 @@ input[type="range"]:focus-visible,
 .peaks-table-panel.collapsed .table-container {
   opacity: 0 !important;
   visibility: hidden !important;
-  transition: opacity 0.15s ease, visibility 0s 0.15s !important;
+  transition:
+    opacity 0.15s ease,
+    visibility 0s 0.15s !important;
 }
 
 .visualization-panel.collapsed .canvas-controls,
@@ -2446,9 +2545,15 @@ input[type="range"]:focus-visible,
   cursor: help;
 }
 
-.track-integrity-verified   { color: #3a9a5c; }
-.track-integrity-incomplete { color: #c98a1b; }
-.track-integrity-corrupt    { color: #c0392b; }
+.track-integrity-verified {
+  color: #3a9a5c;
+}
+.track-integrity-incomplete {
+  color: #c98a1b;
+}
+.track-integrity-corrupt {
+  color: #c0392b;
+}
 
 .track-actions {
   display: flex;
@@ -2500,7 +2605,10 @@ input[type="range"]:focus-visible,
 }
 
 /* Arousal Place numbered badges (map_manager_peaks.js _renderArousalPlaces) */
-.arousal-place-badge-wrap { background: none; border: none; }
+.arousal-place-badge-wrap {
+  background: none;
+  border: none;
+}
 .arousal-place-badge {
   display: flex;
   align-items: center;
@@ -2680,7 +2788,7 @@ body:has(.live-mode) {
   --lv-warn: var(--warning);
   --lv-bad: var(--danger);
 
-  position: relative;   /* contains #connectOverlay */
+  position: relative; /* contains #connectOverlay */
   flex: 1 1 auto;
   min-height: 0;
   overflow: hidden;
@@ -2688,26 +2796,42 @@ body:has(.live-mode) {
   color: var(--lv-text);
   font-family: var(--font-sans);
 }
-.live-view *, .live-view *::before, .live-view *::after { box-sizing: border-box; }
+.live-view *,
+.live-view *::before,
+.live-view *::after {
+  box-sizing: border-box;
+}
 
 /* width:100% + flex:1 1 auto so #app fills its host in both hosts: standalone
    live.html gives it a plain block #liveRoot, but in index.html it's a flex
    item of #livePanel (a row flexbox once .live-mode makes it display:flex) and
    would otherwise shrink to its toolbar's content width — leaving the graph and
    map in a narrow left strip on a widescreen. */
-.live-view #app { display: flex; flex-direction: column; height: 100%; width: 100%; flex: 1 1 auto; min-width: 0; }
+.live-view #app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+  flex: 1 1 auto;
+  min-width: 0;
+}
 
 .live-view header {
-  display: flex; align-items: center;
-  column-gap: 10px; row-gap: 6px;
-  padding: 10px 12px; background: var(--lv-panel); border-bottom: 1px solid var(--lv-border);
+  display: flex;
+  align-items: center;
+  column-gap: 10px;
+  row-gap: 6px;
+  padding: 10px 12px;
+  background: var(--lv-panel);
+  border-bottom: 1px solid var(--lv-border);
   /* Everything on one line when it fits, wrapping onto a second line only
      when it doesn't. The two .btn-group clusters + the dropdown each stay
      intact as they wrap (flex-shrink:0). justify-content:flex-end right-
      aligns the controls the way #gsrPanel's header does in single-track
      view — and any wrapped row lands flush right too. The title's
      margin-right:auto still holds it to the left of its own line. */
-  flex-wrap: wrap; justify-content: flex-end;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   /* Keep the toolbar buttons clear of the phone status bar / camera cutout
      when the page draws edge-to-edge: standalone live.html sets
      viewport-fit=cover, and in-app display mode (F) / browser fullscreen can
@@ -2718,59 +2842,137 @@ body:has(.live-mode) {
   padding-right: max(12px, env(safe-area-inset-right));
 }
 .live-view header h1 {
-  font-size: 15px; margin: 0; font-weight: 600;
-  flex: 0 1 auto; min-width: 0; margin-right: auto;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font-size: 15px;
+  margin: 0;
+  font-weight: 600;
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-right: auto;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 /* Reconnect / status error text — kept on the one header row: it shrinks and
    ellipsises rather than forcing the row wider (the full message is also
    shown in the connect overlay). */
 .live-view header #reconnectErr {
-  flex: 0 1 auto; min-width: 0; font-size: 11px; color: var(--lv-bad);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  flex: 0 1 auto;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--lv-bad);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 /* The graph-view dropdown sits beside the two .btn-group clusters. Kill the
    inherited .select-control width:100% (it would blow the row up) and size it
    to match a .btn-group segment. */
 .live-view header #liveGraphView {
-  flex: 0 0 auto; width: auto; box-sizing: border-box; height: 25px;
-  font-size: 0.76rem; padding: 2px 8px; border-radius: 4px;
-  border: 1px solid var(--lv-border); background: var(--bg-card); color: var(--lv-text);
+  flex: 0 0 auto;
+  width: auto;
+  box-sizing: border-box;
+  height: 25px;
+  font-size: 0.76rem;
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--lv-border);
+  background: var(--bg-card);
+  color: var(--lv-text);
 }
 .live-view .badge {
-  font-size: 12px; padding: 4px 10px; border-radius: 999px;
-  border: 1px solid var(--lv-border); color: var(--lv-muted); white-space: nowrap;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--lv-border);
+  color: var(--lv-muted);
+  white-space: nowrap;
 }
-.live-view .badge.live { color: var(--lv-accent); border-color: var(--lv-accent); }
-.live-view .badge.warn { color: var(--lv-warn); border-color: var(--lv-warn); }
-.live-view .badge.bad  { color: var(--lv-bad);  border-color: var(--lv-bad); }
+.live-view .badge.live {
+  color: var(--lv-accent);
+  border-color: var(--lv-accent);
+}
+.live-view .badge.warn {
+  color: var(--lv-warn);
+  border-color: var(--lv-warn);
+}
+.live-view .badge.bad {
+  color: var(--lv-bad);
+  border-color: var(--lv-bad);
+}
 
 /* Match the app's .btn-outline (size) and .btn-outline.active / .btn-primary
    (fill) so the live toolbar reads as the same control set as the rest of
    the app rather than its own dialect. */
 .live-view button {
-  font-size: 0.76rem; padding: 4px 10px; border-radius: 4px;
-  border: 1px solid var(--lv-border); background: var(--bg-card); color: var(--lv-text);
-  cursor: pointer; touch-action: manipulation;
+  font-size: 0.76rem;
+  padding: 4px 10px;
+  border-radius: 4px;
+  border: 1px solid var(--lv-border);
+  background: var(--bg-card);
+  color: var(--lv-text);
+  cursor: pointer;
+  touch-action: manipulation;
 }
-.live-view button:disabled { opacity: 0.4; cursor: default; }
-.live-view button.primary { background: var(--text-primary); color: #fff; border-color: var(--text-primary); font-weight: 600; }
-.live-view button.active { background: var(--text-primary); color: #fff; border-color: var(--text-primary); font-weight: 600; }
+.live-view button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.live-view button.primary {
+  background: var(--text-primary);
+  color: #fff;
+  border-color: var(--text-primary);
+  font-weight: 600;
+}
+.live-view button.active {
+  background: var(--text-primary);
+  color: #fff;
+  border-color: var(--text-primary);
+  font-weight: 600;
+}
 
-.live-view #graphWrap { position: relative; background: var(--bg-card); border-bottom: 1px solid var(--lv-border); flex: 0 0 34%; min-height: 120px; }
-.live-view #graph { width: 100%; height: 100%; display: block; }
+.live-view #graphWrap {
+  position: relative;
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--lv-border);
+  flex: 0 0 34%;
+  min-height: 120px;
+}
+.live-view #graph {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
 .live-view #graphLabel {
-  position: absolute; top: 6px; left: 10px; font-size: 11px; color: var(--lv-muted);
+  position: absolute;
+  top: 6px;
+  left: 10px;
+  font-size: 11px;
+  color: var(--lv-muted);
   pointer-events: none;
 }
 .live-view #graphValue {
-  position: absolute; top: 6px; right: 10px; font-size: 13px; color: var(--lv-text); font-weight: 600;
+  position: absolute;
+  top: 6px;
+  right: 10px;
+  font-size: 13px;
+  color: var(--lv-text);
+  font-weight: 600;
   pointer-events: none;
 }
 
-.live-view #liveMap { position: relative; flex: 1 1 auto; min-height: 0; background: var(--bg-card); }
-.live-view #app.no-map #liveMap { display: none; }
-.live-view #app.no-map #graphWrap { flex: 1 1 auto; border-bottom: none; }
+.live-view #liveMap {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  background: var(--bg-card);
+}
+.live-view #app.no-map #liveMap {
+  display: none;
+}
+.live-view #app.no-map #graphWrap {
+  flex: 1 1 auto;
+  border-bottom: none;
+}
 
 /* Floating map controls (My Location) */
 .live-map-controls {
@@ -2784,40 +2986,87 @@ body:has(.live-mode) {
   pointer-events: auto;
 }
 .live-view .live-map-btn {
-  width: 38px; height: 38px; border-radius: 8px;
-  background: var(--bg-card); border: 1px solid var(--lv-border); color: var(--lv-text);
-  display: flex; align-items: center; justify-content: center;
-  font-size: 16px; cursor: pointer;
+  width: 38px;
+  height: 38px;
+  border-radius: 8px;
+  background: var(--bg-card);
+  border: 1px solid var(--lv-border);
+  color: var(--lv-text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  cursor: pointer;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-  touch-action: manipulation; padding: 0;
-  transition: background 0.15s ease, transform 0.1s ease;
+  touch-action: manipulation;
+  padding: 0;
+  transition:
+    background 0.15s ease,
+    transform 0.1s ease;
 }
-.live-view .live-map-btn:hover { background: var(--bg-hover, #f0f0f0); color: var(--text-primary); }
-.live-view .live-map-btn:active { transform: scale(0.94); }
+.live-view .live-map-btn:hover {
+  background: var(--bg-hover, #f0f0f0);
+  color: var(--text-primary);
+}
+.live-view .live-map-btn:active {
+  transform: scale(0.94);
+}
 
 .live-view footer {
-  display: flex; align-items: center; gap: 10px; padding: 8px 12px;
-  background: var(--lv-panel); border-top: 1px solid var(--lv-border); font-size: 12px; color: var(--lv-muted);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: var(--lv-panel);
+  border-top: 1px solid var(--lv-border);
+  font-size: 12px;
+  color: var(--lv-muted);
   flex-wrap: wrap;
   /* Clear the home indicator / a landscape cutout when edge-to-edge. */
   padding-bottom: max(8px, env(safe-area-inset-bottom));
   padding-left: max(12px, env(safe-area-inset-left));
   padding-right: max(12px, env(safe-area-inset-right));
 }
-.live-view footer .stat { white-space: nowrap; }
-.live-view footer .spacer { flex: 1 1 auto; }
+.live-view footer .stat {
+  white-space: nowrap;
+}
+.live-view footer .spacer {
+  flex: 1 1 auto;
+}
 
 .live-view #connectOverlay {
-  position: absolute; inset: 0; background: rgba(252, 251, 249, 0.94);
-  display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 14px;
-  text-align: center; padding: 24px;
+  position: absolute;
+  inset: 0;
+  background: rgba(252, 251, 249, 0.94);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 14px;
+  text-align: center;
+  padding: 24px;
   /* Leaflet's panes/controls reach z-index 1000; sit well above them. */
   z-index: 10000;
 }
-.live-view #connectOverlay.hidden { display: none; }
-.live-view #connectOverlay p { color: var(--lv-muted); max-width: 320px; font-size: 13px; margin: 0; }
-.live-view #connectOverlay .err { color: var(--lv-bad); font-size: 12px; max-width: 320px; }
-.live-view #reconnectErr { color: var(--lv-bad); font-size: 11px; flex-basis: 100%; }
+.live-view #connectOverlay.hidden {
+  display: none;
+}
+.live-view #connectOverlay p {
+  color: var(--lv-muted);
+  max-width: 320px;
+  font-size: 13px;
+  margin: 0;
+}
+.live-view #connectOverlay .err {
+  color: var(--lv-bad);
+  font-size: 12px;
+  max-width: 320px;
+}
+.live-view #reconnectErr {
+  color: var(--lv-bad);
+  font-size: 11px;
+  flex-basis: 100%;
+}
 
 /* Mobile (≤768px, coarse pointer — see src/live/live_view.js's
    isCompactLiveLayout(), the same check that also picks this default):
@@ -2830,7 +3079,8 @@ body:has(.live-mode) {
    conditional on the map being hidden. Desktop is untouched — the header
    remains the only UI there. Matches styles.css's one other mobile
    breakpoint (the sidebar-drawer rule, above). */
-@media ((max-width: 768px) and (pointer: coarse)), ((max-height: 500px) and (pointer: coarse)) {
+@media ((max-width: 768px) and (pointer: coarse)),
+  ((max-height: 500px) and (pointer: coarse)) {
   .live-view #liveMetricGroup,
   .live-view #liveGraphView,
   .live-view #toggleMapBtn {
@@ -2873,7 +3123,8 @@ body:has(.live-mode) {
   align-items: flex-end;
   gap: 10px;
 }
-@media ((max-width: 768px) and (pointer: coarse)), ((max-height: 500px) and (pointer: coarse)) {
+@media ((max-width: 768px) and (pointer: coarse)),
+  ((max-height: 500px) and (pointer: coarse)) {
   .live-fab {
     display: flex;
     bottom: max(16px, env(safe-area-inset-bottom));
@@ -2920,32 +3171,60 @@ body:has(.live-mode) {
   box-sizing: border-box !important;
 }
 .live-fab-menu {
-  display: flex; flex-direction: column; align-items: flex-end; gap: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
   max-height: calc(100vh - 90px);
   max-height: calc(100dvh - 90px);
   overflow-y: auto;
   scrollbar-width: none;
   -webkit-overflow-scrolling: touch;
   padding: 4px;
-  opacity: 0; pointer-events: none; transform: translateY(6px);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(6px);
   visibility: hidden;
-  transition: opacity 0.15s ease, transform 0.15s ease, visibility 0.15s ease;
+  transition:
+    opacity 0.15s ease,
+    transform 0.15s ease,
+    visibility 0.15s ease;
 }
 .live-fab-menu::-webkit-scrollbar {
   display: none;
 }
-.live-fab-menu.open { opacity: 1; pointer-events: auto; transform: translateY(0); visibility: visible; }
+.live-fab-menu.open {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+  visibility: visible;
+}
 .live-view .live-fab-chip {
-  min-height: 44px; padding: 0 16px; border-radius: 999px;
-  border: 1px solid var(--lv-border); background: var(--bg-card); color: var(--lv-text);
-  font-size: 13px; font-weight: 600; white-space: nowrap;
+  min-height: 44px;
+  padding: 0 16px;
+  border-radius: 999px;
+  border: 1px solid var(--lv-border);
+  background: var(--bg-card);
+  color: var(--lv-text);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
 }
-.live-view .live-fab-chip.active { background: var(--text-primary); color: #fff; border-color: var(--text-primary); }
-.live-view .live-fab-chip-action { background: var(--lv-accent); color: #fff; border-color: var(--lv-accent); }
+.live-view .live-fab-chip.active {
+  background: var(--text-primary);
+  color: #fff;
+  border-color: var(--text-primary);
+}
+.live-view .live-fab-chip-action {
+  background: var(--lv-accent);
+  color: #fff;
+  border-color: var(--lv-accent);
+}
 
 /* Mobile screens: prevent the header toolbar buttons from breaking onto multiple lines */
-@media (max-width: 480px), ((max-height: 500px) and (pointer: coarse)), ((max-width: 768px) and (pointer: coarse)) {
+@media (max-width: 480px), ((max-height: 500px) and (pointer: coarse)),
+  ((max-width: 768px) and (pointer: coarse)) {
   .live-view header {
     flex-wrap: nowrap;
     overflow-x: auto;
@@ -2962,13 +3241,19 @@ body:has(.live-mode) {
   /* Re-declare the safe-area longhands — a `padding` shorthand here would
      otherwise reset the cutout offsets set on the base rules above. */
   .live-view header {
-    padding: 6px 8px; gap: 6px;
+    padding: 6px 8px;
+    gap: 6px;
     padding-top: max(6px, env(safe-area-inset-top));
     padding-left: max(8px, env(safe-area-inset-left));
     padding-right: max(8px, env(safe-area-inset-right));
   }
-  .live-view header h1 { font-size: 13px; }
-  .live-view .badge { font-size: 11px; padding: 2px 6px; }
+  .live-view header h1 {
+    font-size: 13px;
+  }
+  .live-view .badge {
+    font-size: 11px;
+    padding: 2px 6px;
+  }
   .live-view header button,
   .live-view header .btn-group .btn,
   .live-view header .btn-group .btn-outline,
@@ -2985,7 +3270,8 @@ body:has(.live-mode) {
     box-sizing: border-box;
   }
   .live-view footer {
-    padding: 4px 8px; font-size: 10px;
+    padding: 4px 8px;
+    font-size: 10px;
     padding-bottom: max(4px, env(safe-area-inset-bottom));
     padding-left: max(8px, env(safe-area-inset-left));
     padding-right: max(8px, env(safe-area-inset-right));
@@ -2997,13 +3283,19 @@ body:has(.live-mode) {
    falling into Android's status bar swipe-down gesture zone or rounded screen corners. */
 @media ((max-height: 500px) and (pointer: coarse)) {
   .live-view header {
-    padding: 6px 12px; gap: 6px;
+    padding: 6px 12px;
+    gap: 6px;
     padding-top: max(10px, env(safe-area-inset-top));
     padding-left: max(16px, env(safe-area-inset-left));
     padding-right: max(16px, env(safe-area-inset-right));
   }
-  .live-view header h1 { font-size: 12px; }
-  .live-view .badge { font-size: 10px; padding: 2px 6px; }
+  .live-view header h1 {
+    font-size: 12px;
+  }
+  .live-view .badge {
+    font-size: 10px;
+    padding: 2px 6px;
+  }
   .live-view header button,
   .live-view header .btn-group .btn,
   .live-view header .btn-group .btn-outline,
@@ -3144,8 +3436,12 @@ body:has(.live-mode) {
 }
 
 @keyframes sv-fade-in {
-  from { opacity: 0; }
-  to   { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 .streetview-modal-content {
@@ -3158,13 +3454,19 @@ body:has(.live-mode) {
   max-height: 700px;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 12px 40px rgba(0,0,0,0.25);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
   animation: sv-scale-in 0.2s ease;
 }
 
 @keyframes sv-scale-in {
-  from { transform: scale(0.95); opacity: 0; }
-  to   { transform: scale(1); opacity: 1; }
+  from {
+    transform: scale(0.95);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
 }
 
 .streetview-modal-header {
@@ -3195,7 +3497,7 @@ body:has(.live-mode) {
 }
 
 .streetview-modal-header .icon-btn:hover {
-  background: rgba(17,17,17,0.06);
+  background: rgba(17, 17, 17, 0.06);
   color: var(--text-primary);
 }
 
@@ -3218,7 +3520,9 @@ body:has(.live-mode) {
   display: flex;
   align-items: center;
   gap: 6px;
-  transition: color 0.15s, border-color 0.15s;
+  transition:
+    color 0.15s,
+    border-color 0.15s;
 }
 
 .streetview-tab:hover {
@@ -3331,7 +3635,10 @@ body:has(.live-mode) {
   animation: fadeIn 0.3s ease;
   display: flex;
   flex-direction: column;
-  height: calc(100% - 45px); /* Bounded to panel height so whole section scrolls */
+  height: calc(
+    100% -
+    45px
+  ); /* Bounded to panel height so whole section scrolls */
   overflow-y: auto;
   overflow-x: hidden;
   min-height: 0;
@@ -3340,8 +3647,14 @@ body:has(.live-mode) {
 }
 
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(4px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 /* Whole-section scrolling: eliminate trapped inner scrollbars on table rows & bar items */
@@ -3393,7 +3706,7 @@ body:has(.live-mode) {
   font-weight: 600;
 }
 
-#environmentalPanel #roadArousalTable td:nth-child(n+2) {
+#environmentalPanel #roadArousalTable td:nth-child(n + 2) {
   font-variant-numeric: tabular-nums;
 }
 
@@ -3584,10 +3897,20 @@ body:has(.live-mode) {
   line-height: 1.3;
 }
 
-.corr-num { font-variant-numeric: tabular-nums; font-weight: 600; }
-.corr-num.dir-pos  { color: #b45309; }   /* toward higher arousal */
-.corr-num.dir-neg  { color: #005bc4; }   /* toward lower arousal  */
-.corr-num.dir-none { color: var(--text-muted); font-weight: 400; }
+.corr-num {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+.corr-num.dir-pos {
+  color: #b45309;
+} /* toward higher arousal */
+.corr-num.dir-neg {
+  color: #005bc4;
+} /* toward lower arousal  */
+.corr-num.dir-none {
+  color: var(--text-muted);
+  font-weight: 400;
+}
 
 .mag-chip {
   display: inline-block;
@@ -3600,11 +3923,26 @@ body:has(.live-mode) {
   vertical-align: middle;
 }
 /* grey -> amber intensity ramp = "how big", independent of direction */
-.mag-chip.mag-negligible { background: #eceff1; color: #607d8b; }
-.mag-chip.mag-small      { background: #fff1de; color: #a1621a; }
-.mag-chip.mag-moderate   { background: #ffe0b2; color: #b45309; }
-.mag-chip.mag-strong     { background: #ffcc80; color: #7c2d12; }
-.mag-chip.mag-ns         { opacity: 0.5; font-weight: 500; }
+.mag-chip.mag-negligible {
+  background: #eceff1;
+  color: #607d8b;
+}
+.mag-chip.mag-small {
+  background: #fff1de;
+  color: #a1621a;
+}
+.mag-chip.mag-moderate {
+  background: #ffe0b2;
+  color: #b45309;
+}
+.mag-chip.mag-strong {
+  background: #ffcc80;
+  color: #7c2d12;
+}
+.mag-chip.mag-ns {
+  opacity: 0.5;
+  font-weight: 500;
+}
 
 /* Correlation table layout & column sizing */
 #environmentalPanel #correlationTable {
@@ -3643,7 +3981,10 @@ body:has(.live-mode) {
 }
 
 /* Dynamic max-height when preceding panels are collapsed */
-#gsrPanel.collapsed ~ #mapPanel.collapsed ~ #eventsPanel.collapsed ~ #environmentalPanel:not(.collapsed) {
+#gsrPanel.collapsed
+  ~ #mapPanel.collapsed
+  ~ #eventsPanel.collapsed
+  ~ #environmentalPanel:not(.collapsed) {
   max-height: calc(100vh - 140px);
   min-height: 480px;
 }
@@ -3739,7 +4080,9 @@ body:has(.live-mode) {
 }
 
 /* Cesium's own credit/scene-mode chrome clutters a small embedded panel. */
-#globe3dContainer .cesium-viewer-bottom { display: none; }
+#globe3dContainer .cesium-viewer-bottom {
+  display: none;
+}
 
 /* Fill the panel-fullscreen overlay, same as #map does. */
 .panel-fullscreen-overlay #globe3dContainer {
@@ -3805,7 +4148,7 @@ body:has(.live-mode) {
 }
 
 .globe3d-attribution a {
-  color: #0078A8;
+  color: #0078a8;
   text-decoration: none;
 }
 
@@ -3837,7 +4180,3 @@ body:has(.live-mode) {
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.28);
   font-family: var(--font-sans, -apple-system, system-ui, sans-serif);
 }
-
-
-
-

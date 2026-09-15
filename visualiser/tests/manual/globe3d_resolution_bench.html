@@ -118,14 +118,14 @@
   <script>
   (() => {
     const $ = (id) => document.getElementById(id);
-    const log = (m) => { $('log').textContent += m + '\n'; };
+    const log = (m) => { $('log').textContent += `${m}\n`; };
     const SCALES = [1.0, 1.25, 1.5, 1.75, 2.0];
     const CSS_W = 1280, CSS_H = 800;
 
     $('env').innerHTML =
       `devicePixelRatio <code>${window.devicePixelRatio}</code> &nbsp;·&nbsp; ` +
       `canvas CSS <code>${CSS_W}×${CSS_H}</code> &nbsp;·&nbsp; ` +
-      `native <code>${window.devicePixelRatio > 1 ? '2.0 = ' + (CSS_W * CSS_H * 4 / 1e6).toFixed(1) + ' Mpx' : '1.0'}</code>`;
+      `native <code>${window.devicePixelRatio > 1 ? `2.0 = ${(CSS_W * CSS_H * 4 / 1e6).toFixed(1)} Mpx` : '1.0'}</code>`;
 
     // ── Synthetic track: ~6k points, sine-wander walk near Newhaven, with a
     //    burst of arousal so the wall has colour + height variation. Shape
@@ -268,7 +268,7 @@
       $('run').disabled = false;
     }
 
-    $('run').addEventListener('click', () => { run().catch((e) => log('ERROR: ' + e.message)); });
+    $('run').addEventListener('click', () => { run().catch((e) => log(`ERROR: ${e.message}`)); });
   })();
   </script>
 </body>

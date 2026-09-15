@@ -15,7 +15,7 @@
  * Run: node --test tests/test_live_view_switch.js  (or `npm test` for all)
  */
 
-const assert = require('assert');
+const assert = require('node:assert');
 const test = require('node:test');
 const { bootApp } = require('./support/boot_app.js');
 
@@ -411,7 +411,7 @@ test('entering Live mode stops the p5 draw loop (noLoop), leaving the canvas idl
   const realNoLoop = window.noLoop;
   window.noLoop = (...a) => {
     noLoopCalls++;
-    return realNoLoop && realNoLoop.apply(window, a);
+    return realNoLoop?.apply(window, a);
   };
 
   click(btnLive);

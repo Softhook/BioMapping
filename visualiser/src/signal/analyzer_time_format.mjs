@@ -49,7 +49,7 @@ export const AnalyzerTimeFormat = {
             String(m).padStart(2, '0') +
             ':' +
             String(s).padStart(2, '0')
-        : m + ':' + String(s).padStart(2, '0');
+        : `${m}:${String(s).padStart(2, '0')}`;
     }
 
     const d = new Date((recordingStartTime + relativeSeconds) * 1000);
@@ -93,9 +93,7 @@ export const AnalyzerTimeFormat = {
     const month = months[d.getUTCMonth()];
     const year = d.getUTCFullYear();
 
-    return (
-      day + AnalyzerTimeFormat.ordinalSuffix(day) + ' ' + month + ' ' + year
-    );
+    return `${day + AnalyzerTimeFormat.ordinalSuffix(day)} ${month} ${year}`;
   },
 
   /**
@@ -115,6 +113,6 @@ export const AnalyzerTimeFormat = {
     const month = String(d.getUTCMonth() + 1).padStart(2, '0');
     const year = d.getUTCFullYear();
 
-    return day + '.' + month + '.' + year;
+    return `${day}.${month}.${year}`;
   },
 };

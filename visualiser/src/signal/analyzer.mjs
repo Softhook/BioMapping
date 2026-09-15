@@ -390,7 +390,7 @@ export class GSRAnalyzer {
     if (preferRaw && raw && !isNaN(raw.lat) && !isNaN(raw.lon)) {
       return { lat: raw.lat, lon: raw.lon };
     }
-    const filtered = this.filteredGps && this.filteredGps[index];
+    const filtered = this.filteredGps?.[index];
     if (filtered && !isNaN(filtered.lat) && !isNaN(filtered.lon)) {
       return { lat: filtered.lat, lon: filtered.lon };
     }
@@ -408,15 +408,12 @@ export class GSRAnalyzer {
     if (this.hasGpsData !== undefined && typeof this.hasGpsData === 'boolean') {
       return this.hasGpsData;
     }
-    return !!(
-      this.raw &&
-      this.raw.some(
-        (d) =>
-          d.hasGps ||
-          (!isNaN(d.lat) &&
-            !isNaN(d.lon) &&
-            (Math.abs(d.lat) > 0.0001 || Math.abs(d.lon) > 0.0001)),
-      )
+    return !!this.raw?.some(
+      (d) =>
+        d.hasGps ||
+        (!isNaN(d.lat) &&
+          !isNaN(d.lon) &&
+          (Math.abs(d.lat) > 0.0001 || Math.abs(d.lon) > 0.0001)),
     );
   }
 
@@ -594,8 +591,7 @@ export class GSRAnalyzer {
       // 3. Gait Filter (Zero-phase Linkwitz-Riley LR4 @ 1.0Hz)
       let afterLPF = afterSmooth;
       if (params.useGaitFilter) {
-        const gf = (typeof GSR_CONST !== 'undefined' &&
-          GSR_CONST.GAIT_FILTER) || { cutoffHz: 1.0, type: 'lr4' };
+        const gf = GSR_CONST?.GAIT_FILTER || { cutoffHz: 1.0, type: 'lr4' };
         if (gf.type === 'butterworth') {
           afterLPF = GsrFilter.applyZeroPhaseButterworth(
             afterLPF,
@@ -644,8 +640,7 @@ export class GSRAnalyzer {
 
       // Pre-compute continuous metrics that depend only on tonic / phasic:
       const pristineAUC = this.computePhasicAUC();
-      const aiCfg = (typeof GSR_CONST !== 'undefined' &&
-        GSR_CONST.AROUSAL_INDEX) || { wTonic: 0.3, wPhasic: 0.7 };
+      const aiCfg = GSR_CONST?.AROUSAL_INDEX || { wTonic: 0.3, wPhasic: 0.7 };
       const pristineArousal = this.computeCombinedArousalIndex(
         aiCfg.wTonic,
         aiCfg.wPhasic,
@@ -730,10 +725,12 @@ export class GSRAnalyzer {
         : null;
     this.peakDensity = this.computeTemporalPeakDensity(densityWin);
 
-    const aiCfg = (typeof GSR_CONST !== 'undefined' &&
-      GSR_CONST.AROUSAL_INDEX) || { wTonic: 0.3, wPhasic: 0.7 };
-    const triCfg = (typeof GSR_CONST !== 'undefined' &&
-      GSR_CONST.TRI_INDEX) || { wTonic: 0.1, wPhasic: 0.45, wDensity: 0.45 };
+    const aiCfg = GSR_CONST?.AROUSAL_INDEX || { wTonic: 0.3, wPhasic: 0.7 };
+    const triCfg = GSR_CONST?.TRI_INDEX || {
+      wTonic: 0.1,
+      wPhasic: 0.45,
+      wDensity: 0.45,
+    };
 
     if (params.useDeconvolution || params.useCvxEDA || params.useSparsEDA) {
       this.phasicAUC = this.computePhasicAUC(); // integrates the driver → sets phasicAUCIsISCR
@@ -1014,7 +1011,7 @@ export class GSRAnalyzer {
       this.phasic = this.phasicClean;
       this.phasicZ = GsrFilter.standardizeSignal(
         this.phasic,
-        this._seriesPool && this._seriesPool.phasicZ,
+        this._seriesPool?.phasicZ,
       );
       this.phasicStd = GsrFilter.calculateStats(cleanVals).std;
       let phMn = Infinity,
@@ -1354,7 +1351,7 @@ export class GSRAnalyzer {
     this.phasic = this.phasicClean;
     this.phasicZ = GsrFilter.standardizeSignal(
       this.phasic,
-      this._seriesPool && this._seriesPool.phasicZ,
+      this._seriesPool?.phasicZ,
     );
     this.phasicStd = GsrFilter.calculateStats(cleanVals).std;
     // this.phasic is now the reconstructed curve, not the pooled pristine one
@@ -2169,10 +2166,9 @@ export class GSRAnalyzer {
     // reported field, so keying off its mere presence would rank by it too —
     // and drop large, low-prominence SCRs (crest wiggle, rising-edge, burst
     // summits) out of the hotspot set.
-    const magnitude =
-      params && params.usePeakProminence
-        ? (p) => (p.prominence != null ? p.prominence : p.amplitude)
-        : (p) => p.amplitude;
+    const magnitude = params?.usePeakProminence
+      ? (p) => (p.prominence != null ? p.prominence : p.amplitude)
+      : (p) => p.amplitude;
     const activeSorted = this.peaks
       .filter((p) => !p.excluded)
       .sort((a, b) => magnitude(b) - magnitude(a) || a.time - b.time);
@@ -2226,7 +2222,7 @@ export class GSRAnalyzer {
     const oldLabels = new Map();
     const oldExcluded = new Set();
     for (const pk of this.peaks) {
-      if (pk.label && pk.label.trim()) {
+      if (pk.label?.trim()) {
         this.setPeakLabel(pk.time, pk.label);
         oldLabels.set(pk.index, pk.label);
       }
@@ -2235,14 +2231,12 @@ export class GSRAnalyzer {
     // Merge labels/exclusions imported from a re-loaded processed CSV (time-matched)
     if (this._importedPeakLabels && this._importedPeakLabels.size > 0) {
       for (const pk of this.peaks) {
-        if (!pk.label || !pk.label.trim()) {
+        if (!pk.label?.trim()) {
           const imported = this._importedPeakLabels.get(pk.time);
           if (imported) oldLabels.set(pk.index, imported);
         }
         if (!pk.excluded) {
-          const importedEx =
-            this._importedPeakExcluded &&
-            this._importedPeakExcluded.get(pk.time);
+          const importedEx = this._importedPeakExcluded?.get(pk.time);
           if (importedEx) oldExcluded.add(pk.index);
         }
       }
@@ -2715,9 +2709,7 @@ export class GSRAnalyzer {
       return emptyDensity;
     }
 
-    const dCfg =
-      (typeof GSR_CONST !== 'undefined' && GSR_CONST.TEMPORAL_PEAK_DENSITY) ||
-      {};
+    const dCfg = GSR_CONST?.TEMPORAL_PEAK_DENSITY || {};
     const winSec =
       windowSizeSec != null && windowSizeSec > 0
         ? windowSizeSec
@@ -2997,7 +2989,7 @@ export class GSRAnalyzer {
       return;
     }
 
-    const cfg = (typeof GSR_CONST !== 'undefined' && GSR_CONST.EDASYMP) || {};
+    const cfg = GSR_CONST?.EDASYMP || {};
     // this._rawValsPool is already the raw µS values (built by
     // _ensureSeriesPool at the top of analyze()), so pass it straight through —
     // no extra signal copy.

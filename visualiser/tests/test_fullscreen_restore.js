@@ -20,7 +20,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert');
-const vm = require('vm');
+const vm = require('node:vm');
 const { bootApp } = require('./support/boot_app.js');
 const { bootLive } = require('./support/boot_live.js');
 

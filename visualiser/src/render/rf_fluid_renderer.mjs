@@ -124,8 +124,8 @@ export class RFFluidRenderer {
     const dpr = window.devicePixelRatio || 1;
     this.canvas.width = Math.round(w * dpr);
     this.canvas.height = Math.round(h * dpr);
-    this.canvas.style.width = w + 'px';
-    this.canvas.style.height = h + 'px';
+    this.canvas.style.width = `${w}px`;
+    this.canvas.style.height = `${h}px`;
 
     this._canvasTopLeftLayer = topLeft;
 
@@ -239,7 +239,7 @@ export class RFFluidRenderer {
     if (osmGeoms) {
       const allWays = (osmGeoms.ways || []).concat(osmGeoms.relations || []);
       allWays.forEach((geom) => {
-        if (!geom.tags || !geom.tags.building) return;
+        if (!geom.tags?.building) return;
         if (
           geom.type === 'way' &&
           geom.coordinates &&
@@ -507,11 +507,7 @@ export class RFFluidRenderer {
       const has915 = pt.rssi_915 !== undefined && !isNaN(pt.rssi_915);
       const emFogMissing = pt.em_fog === undefined || isNaN(pt.em_fog);
       let fog = emFogMissing ? 0 : pt.em_fog;
-      if (
-        emFogMissing &&
-        typeof GSRAnalyzer !== 'undefined' &&
-        GSRAnalyzer.calcEmFog
-      ) {
+      if (emFogMissing && GSRAnalyzer?.calcEmFog) {
         const fallback = GSRAnalyzer.calcEmFog(pt);
         if (!isNaN(fallback)) fog = fallback;
       }
@@ -589,7 +585,7 @@ export class RFFluidRenderer {
   _normDbm(val, bandKey) {
     if (val === undefined || isNaN(val)) return 0.0;
     const stats =
-      this.options.autoRange && this.rssiStats && this.rssiStats[bandKey]
+      this.options.autoRange && this.rssiStats?.[bandKey]
         ? this.rssiStats[bandKey]
         : { floor: -91.5, peak: -60.0, hasActiveSignal: false };
 

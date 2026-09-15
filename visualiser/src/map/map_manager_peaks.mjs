@@ -19,11 +19,12 @@
  * Also depends on the globals L, GSRUI, GSRSpatialClustering and AppState
  * (resolved at call time).
  */
-import { GSRMapMarkers } from './map_markers.mjs';
-import { MapPopups } from './map_popups.mjs';
-import { GSRMapManager } from './map.mjs';
+
 import { GSRLabelManager } from '../render/label_placement.mjs';
 import { GSRUI } from '../ui/ui.mjs';
+import { GSRMapManager } from './map.mjs';
+import { GSRMapMarkers } from './map_markers.mjs';
+import { MapPopups } from './map_popups.mjs';
 
 export const __protoMethods = {
   _renderPeakMarkers(analyzer, data, peakLatency, track, options) {
@@ -56,7 +57,7 @@ export const __protoMethods = {
         origPt,
         origLatLon,
       });
-      if (peak.label && peak.label.trim()) {
+      if (peak.label?.trim()) {
         labelCandidates.push({
           idx: index,
           px: pt.x,
@@ -213,7 +214,7 @@ export const __protoMethods = {
    * @private
    */
   _buildPeakMarker(lat, lon, displayLabel, dirResult, simpleIcon, px, py) {
-    const hasLabel = !!(displayLabel && displayLabel.trim());
+    const hasLabel = !!displayLabel?.trim();
     if (!hasLabel) {
       const marker = L.marker([lat, lon], { icon: simpleIcon });
       marker.hasLabel = false;
@@ -391,7 +392,7 @@ export const __protoMethods = {
           py: pt.y,
           origLatLon: origCoords ? [origCoords.lat, origCoords.lon] : null,
         });
-        if (peak.label && peak.label.trim()) {
+        if (peak.label?.trim()) {
           collectiveLabelCandidates.push({
             idx: index,
             px: pt.x,
@@ -512,7 +513,7 @@ export const __protoMethods = {
    */
   refreshCollectivePeakMarkers(track, peakLatency) {
     if (!this.map) return;
-    if (!track || !track.layerGroup) {
+    if (!track?.layerGroup) {
       if (
         typeof GSRUI !== 'undefined' &&
         typeof GSRUI.updateCollectiveMap === 'function'

@@ -84,7 +84,7 @@ test('CRLF line endings still verify — a line-ending rewrite is not corruption
 });
 
 test('a leading UTF-8 BOM still verifies', () => {
-  const bom = '\uFEFF' + trailer();
+  const bom = `\uFEFF${trailer()}`;
   assert.strictEqual(verify(bom).status, 'verified');
 });
 

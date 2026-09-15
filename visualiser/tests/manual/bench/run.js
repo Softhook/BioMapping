@@ -33,7 +33,7 @@ const h = require('./harness.js');
 const AREAS = require('./areas.js');
 
 function log(...a) {
-  process.stderr.write(a.join(' ') + '\n');
+  process.stderr.write(`${a.join(' ')}\n`);
 }
 
 function main(argv) {
@@ -43,7 +43,7 @@ function main(argv) {
     console.log(`Usage: node tests/manual/bench/run.js [area ...] [options]
 
 Areas (omit to run all):
-${AREAS.map((a) => '  ' + a.name.padEnd(18) + ' ' + a.title).join('\n')}
+${AREAS.map((a) => `  ${a.name.padEnd(18)} ${a.title}`).join('\n')}
 
 Options:
   --tracks=<spec>       track set name or comma list of CSV filenames (default: "default")
@@ -56,7 +56,7 @@ Options:
 
 Track sets:
 ${Object.entries(h.TRACK_SETS)
-  .map(([k, v]) => '  ' + k.padEnd(10) + ' ' + v.join(', '))
+  .map(([k, v]) => `  ${k.padEnd(10)} ${v.join(', ')}`)
   .join('\n')}
   all        every non-empty track CSV on disk (${h.listTracks().length} tracks)
 `);
@@ -73,10 +73,9 @@ ${Object.entries(h.TRACK_SETS)
     return;
   }
 
-  const wanted =
-    args.areas && args.areas.length
-      ? AREAS.filter((a) => args.areas.includes(a.name))
-      : AREAS;
+  const wanted = args.areas?.length
+    ? AREAS.filter((a) => args.areas.includes(a.name))
+    : AREAS;
   if (!wanted.length) {
     log(`no matching areas for: ${(args.areas || []).join(', ')}`);
     process.exit(1);
@@ -142,8 +141,8 @@ ${Object.entries(h.TRACK_SETS)
         rows = area.run({ ...base });
       }
     } catch (e) {
-      log(`  ! ${area.name} failed: ${(e && e.stack) || e}`);
-      results.areas[area.name] = { error: String((e && e.message) || e) };
+      log(`  ! ${area.name} failed: ${e?.stack || e}`);
+      results.areas[area.name] = { error: String(e?.message || e) };
       process.exitCode = 1;
       continue;
     }
@@ -157,7 +156,7 @@ ${Object.entries(h.TRACK_SETS)
     log(`  (${((Date.now() - ta) / 1000).toFixed(1)}s)`);
   }
 
-  if (args.json) process.stdout.write(JSON.stringify(results, null, 2) + '\n');
+  if (args.json) process.stdout.write(`${JSON.stringify(results, null, 2)}\n`);
   else log(`\ndone in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
 }
 

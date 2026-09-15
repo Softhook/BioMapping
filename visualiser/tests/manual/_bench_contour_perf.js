@@ -7,8 +7,8 @@
  *   node tests/manual/_bench_contour_perf.js
  */
 
-const fs = require('fs');
-const path = require('path');
+const fs = require('node:fs');
+const path = require('node:path');
 const { MarchingSquares } = require('../../src/render/marching_squares.mjs');
 
 function median(nums) {

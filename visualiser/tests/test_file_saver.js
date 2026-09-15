@@ -10,7 +10,7 @@
  * Run: node --test tests/test_file_saver.js
  */
 
-const assert = require('assert');
+const assert = require('node:assert');
 const test = require('node:test');
 
 const { GSRFileSaver } = require('../src/core/file_saver.mjs');
@@ -94,7 +94,7 @@ test('saveFile: non-base64 (percent-encoded) data URL is decoded to a Blob with 
       }),
     }),
   };
-  const dataUrl = 'data:text/plain,' + encodeURIComponent('hello world');
+  const dataUrl = `data:text/plain,${encodeURIComponent('hello world')}`;
   const result = await GSRFileSaver.saveFile(dataUrl, 'note.txt');
   assert.strictEqual(result, true);
   assert.ok(written, 'blob should have been written via the picker handle');

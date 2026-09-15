@@ -3,9 +3,9 @@
  * Usage: node inspect_false_positive_metrics.js <track.csv> <ground_truth.json>
  */
 
-const fs = require('fs');
-const path = require('path');
-const vm = require('vm');
+const fs = require('node:fs');
+const path = require('node:path');
+const vm = require('node:vm');
 
 global.window = global;
 global.GSR_CONST = require('../../mock_constants.js');

@@ -12,7 +12,7 @@
  * Run: node --test tests/test_spatial_grid.js  (or `npm test` for the whole suite)
  */
 
-const assert = require('assert');
+const assert = require('node:assert');
 const test = require('node:test');
 
 const { SpatialGrid } = require('../src/spatial/spatial_grid.mjs');

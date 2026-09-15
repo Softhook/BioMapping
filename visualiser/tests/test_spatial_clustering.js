@@ -6,7 +6,7 @@
  * Run: node --test tests/test_spatial_clustering.js  (or `npm test` for the whole suite)
  */
 
-const assert = require('assert');
+const assert = require('node:assert');
 const test = require('node:test');
 
 // getConcaveBlob() delegates contour extraction to the global MarchingSquares
@@ -404,7 +404,7 @@ test('stitchSegments: graph walk reproduces the original O(S^2) pairwise scan (e
     paths
       .map((p) =>
         p
-          .map((pt) => pt.lat.toFixed(9) + ',' + pt.lon.toFixed(9))
+          .map((pt) => `${pt.lat.toFixed(9)},${pt.lon.toFixed(9)}`)
           .sort()
           .join('|'),
       )

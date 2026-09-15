@@ -5,7 +5,7 @@
  * Run: node --test tests/test_marching_squares.js
  */
 
-const assert = require('assert');
+const assert = require('node:assert');
 const test = require('node:test');
 
 const { MarchingSquares } = require('../src/render/marching_squares.mjs');

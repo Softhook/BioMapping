@@ -7,8 +7,8 @@
 // -- Numerical constants ---------------------------------------------------
 import { GeoUtils } from '../gps/geo_utils.mjs';
 import { MapMatcher } from '../gps/map_match.mjs';
-import { OverpassClient } from './overpass_client.mjs';
 import { SpatialGrid } from '../spatial/spatial_grid.mjs';
+import { OverpassClient } from './overpass_client.mjs';
 
 export const METERS_PER_DEG_LAT = GeoUtils.METERS_PER_DEG_LAT; // m per degree of latitude
 export const CELL_SIZE_DEG = 0.001; // spatial-hash cell (~111 m)
@@ -198,7 +198,7 @@ export function _isWaterSpace(geom) {
 
 /** Extract highway classification from a way, or null. */
 export function _classifyRoad(way) {
-  return way.tags && way.tags.highway ? way.tags.highway : null;
+  return way.tags?.highway ? way.tags.highway : null;
 }
 
 /** Compute lat/lon centroid of a coordinate array. */
@@ -873,7 +873,7 @@ export const OSMEnricher = {
     const raw = analyzer.raw;
     if (!raw || raw.length === 0) return;
 
-    const doSnap = snapParams && snapParams.enabled;
+    const doSnap = snapParams?.enabled;
 
     // Clear stale snapped positions when snapping is disabled so renderData
     // doesn't substitute from a previous enrichment run.
@@ -1041,7 +1041,7 @@ export const OSMEnricher = {
 
     // Build way lookup map for geometry tracing
     const wayMap = new Map();
-    if (analyzer.osmGeoms && analyzer.osmGeoms.ways) {
+    if (analyzer.osmGeoms?.ways) {
       for (const geom of analyzer.osmGeoms.ways) {
         wayMap.set(geom.id, geom.coordinates);
       }

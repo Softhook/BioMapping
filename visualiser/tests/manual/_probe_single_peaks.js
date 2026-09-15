@@ -2,9 +2,9 @@
 // peaks" with REAL track CSVs. Loads all real tracks, then for each track enters
 // single mode and counts path/peak/hotspot layers actually ON the map (via the
 // recording Leaflet map) and in the manager's registries, plus captured errors.
-const fs = require('fs');
-const path = require('path');
-const vm = require('vm');
+const fs = require('node:fs');
+const path = require('node:path');
+const vm = require('node:vm');
 const { bootApp } = require('../support/boot_app.js');
 
 const { window, context } = bootApp();
@@ -293,7 +293,7 @@ window.GSRTrackManager.loadFilesSequentially(trackFiles);
 
 const errors = [];
 window.addEventListener('error', (e) => {
-  errors.push((e.error && e.error.stack) || e.message || String(e));
+  errors.push(e.error?.stack || e.message || String(e));
 });
 const alerts = [];
 window.alert = (m) => {
@@ -350,9 +350,9 @@ const check = () => {
       }
 
       const anal = track.analyzer;
-      const nPeaks = anal && anal.peaks ? anal.peaks.length : -1;
+      const nPeaks = anal?.peaks ? anal.peaks.length : -1;
       // GPS-fix count (renderData early-returns when drawPoints is empty)
-      const raw = anal && anal.raw ? anal.raw : [];
+      const raw = anal?.raw ? anal.raw : [];
       let nFixes = 0;
       for (const d of raw)
         if (d._isGpsFix && !isNaN(d.lat) && !isNaN(d.lon)) nFixes++;
@@ -376,7 +376,7 @@ const check = () => {
           peakMarkers++;
         else if (d._gsrKind === 'hotspot') hotspots++;
       }
-      const isRf = track.analyzer && track.analyzer.hasRfData;
+      const isRf = track.analyzer?.hasRfData;
       const flag = nPeaks > 0 && peakMarkers === 0 ? '  <-- PEAKS MISSING' : '';
       const errTag = clickErr
         ? `  clickErr=${String(clickErr.message).split('\n')[0]}`

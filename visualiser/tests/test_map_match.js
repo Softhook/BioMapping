@@ -5,7 +5,7 @@
  * Run: node --test tests/test_map_match.js  (or `npm test` for the whole suite)
  */
 
-const assert = require('assert');
+const assert = require('node:assert');
 const test = require('node:test');
 
 // map_match.js references the global `GeoUtils` (bare identifier, not

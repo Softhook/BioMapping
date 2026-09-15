@@ -30,8 +30,8 @@
 
 const test = require('node:test');
 const assert = require('node:assert');
-const fs = require('fs');
-const path = require('path');
+const fs = require('node:fs');
+const path = require('node:path');
 
 const REPO = path.join(__dirname, '..', '..');
 const FW = path.join(REPO, 'firmware');
@@ -140,7 +140,7 @@ function runContractTests() {
         'SD_LOGGER_INTEGRITY_LINE in modules/sd_logger.c',
       )[1],
     );
-    const liveMarker = emptyExport()[0] + '\n';
+    const liveMarker = `${emptyExport()[0]}\n`;
     assert.strictEqual(
       liveMarker,
       fwMarker,
@@ -159,7 +159,7 @@ function runContractTests() {
       );
     }
     const fwCols = cStr(line);
-    const liveCols = emptyExport()[3] + '\n';
+    const liveCols = `${emptyExport()[3]}\n`;
     assert.strictEqual(
       liveCols,
       fwCols,
@@ -215,9 +215,7 @@ function runContractTests() {
     // Columns 1–10 must match the firmware spec's precision exactly. Column 11
     // (hacc_m) is empty by design — the wire packet carries no horizontal
     // accuracy (documented in live_csv.js).
-    const re = new RegExp(
-      '^' + fwSpecs.slice(0, 10).map(specFrag).join(',') + ',$',
-    );
+    const re = new RegExp(`^${fwSpecs.slice(0, 10).map(specFrag).join(',')},$`);
     assert.match(
       row,
       re,
@@ -260,7 +258,7 @@ function runContractTests() {
       SAMPLE_NOW_MS,
     ).split('\n')[4];
 
-    const re = new RegExp('^' + fwSpecs.map(specFrag).join(',') + '$');
+    const re = new RegExp(`^${fwSpecs.map(specFrag).join(',')}$`);
     assert.match(
       row,
       re,

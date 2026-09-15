@@ -27,7 +27,7 @@
  * Run: node --test tests/test_map_exporter_geometry.js
  */
 
-const assert = require('assert');
+const assert = require('node:assert');
 const test = require('node:test');
 
 const { GSRMapExporter } = require('../src/map/map_exporter.mjs');

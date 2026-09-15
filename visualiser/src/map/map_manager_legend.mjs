@@ -16,9 +16,9 @@
  */
 import { AppState } from '../core/app_state.mjs';
 import { GSR_CONST } from '../core/constants.mjs';
-import { MapColors } from './map_colors.mjs';
-import { GSRMapManager } from './map.mjs';
 import { ResponseDynamics } from '../signal/response_dynamics.mjs';
+import { GSRMapManager } from './map.mjs';
+import { MapColors } from './map_colors.mjs';
 
 export const __methods = {
   /**
@@ -60,12 +60,8 @@ export const __methods = {
 
     if (isCollective) {
       const topoSource = this._collectiveTopographySource || 'phasic';
-      const topoCfg =
-        (typeof GSR_CONST !== 'undefined' &&
-          GSR_CONST.TOPOGRAPHY_SOURCES &&
-          GSR_CONST.TOPOGRAPHY_SOURCES[topoSource]) ||
-        null;
-      const title = (topoCfg && topoCfg.label) || 'Topography';
+      const topoCfg = GSR_CONST?.TOPOGRAPHY_SOURCES?.[topoSource] || null;
+      const title = topoCfg?.label || 'Topography';
       const unit = topoCfg && topoCfg.unit !== undefined ? topoCfg.unit : ' μS';
 
       const minV = this._legendMinVal;
@@ -102,12 +98,7 @@ export const __methods = {
         tonic: 'Tonic Baseline (SCL)',
         peakDensity: 'Peak Density (NS-SCR)',
         phasicAUC:
-          'Phasic AUC' +
-          (typeof AppState !== 'undefined' &&
-          AppState.analyzer &&
-          AppState.analyzer.phasicAUCIsISCR
-            ? ' (ISCR)'
-            : ''),
+          'Phasic AUC' + (AppState?.analyzer?.phasicAUCIsISCR ? ' (ISCR)' : ''),
         arousalIndex: 'Combined Arousal Index',
         triIndex: 'Tri Index',
         edasymp: 'EDASymp',
@@ -141,8 +132,8 @@ export const __methods = {
             '<div class="legend-swatch-row" style="color:#999">No data</div>';
         html += '</div>';
       } else if (metric === 'inPark') {
-        const hasYes = this._legendUniqueVals && this._legendUniqueVals.has(1);
-        const hasNo = this._legendUniqueVals && this._legendUniqueVals.has(0);
+        const hasYes = this._legendUniqueVals?.has(1);
+        const hasNo = this._legendUniqueVals?.has(0);
         html = `<div class="legend-title">${title}</div><div class="legend-swatches">`;
         if (hasYes)
           html +=

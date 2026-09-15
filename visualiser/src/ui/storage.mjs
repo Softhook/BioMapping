@@ -36,15 +36,15 @@ export const GSRStorage = {
    */
   readGsrSliderValues() {
     const S = AppState.sliders;
-    if (!S || !S.medianSize) return null;
+    if (!S?.medianSize) return null;
     const D = GSR_CONST.GSR_DEFAULT;
     const PS = GSR_CONST.PEAK_SHAPE;
     return {
       medianSize: parseFloat(S.medianSize.value),
       lpfWindow: parseFloat(S.lpfWindow.value),
-      useGaitFilter: (S.useGaitFilter && S.useGaitFilter.checked) || false,
+      useGaitFilter: S.useGaitFilter?.checked || false,
       tonicMethod: S.tonicMethod.value,
-      tonicWindow: parseInt(S.tonicWindow.value),
+      tonicWindow: parseInt(S.tonicWindow.value, 10),
       peakThreshold: parseFloat(S.peakThreshold.value),
       // Optional sliders — fall back to GSR_DEFAULT (correct values for these keys)
       minPeakQuality: sliderVal(S.minPeakQuality, D.minPeakQuality),
@@ -60,12 +60,10 @@ export const GSRStorage = {
         ) / 100.0,
       // Min SNR — the only shape gate the live detectors use (default + deconvolution).
       shapeMinSnr: sliderVal(S.shapeMinSnr, PS.MIN_SNR),
-      useDeconvolution:
-        (S.useDeconvolution && S.useDeconvolution.checked) || false,
-      useSparsEDA: (S.useSparsEDA && S.useSparsEDA.checked) || false,
-      usePeakProminence:
-        (S.usePeakProminence && S.usePeakProminence.checked) || false,
-      useCvxEDA: (S.useCvxEDA && S.useCvxEDA.checked) || false,
+      useDeconvolution: S.useDeconvolution?.checked || false,
+      useSparsEDA: S.useSparsEDA?.checked || false,
+      usePeakProminence: S.usePeakProminence?.checked || false,
+      useCvxEDA: S.useCvxEDA?.checked || false,
     };
   },
 
@@ -124,7 +122,7 @@ export const GSRStorage = {
     for (const [key, val] of Object.entries(gps)) {
       if (val === undefined) continue;
       const sliderKey =
-        gpsMap[key] || 'gps' + key.charAt(0).toUpperCase() + key.slice(1);
+        gpsMap[key] || `gps${key.charAt(0).toUpperCase()}${key.slice(1)}`;
       const slider = S[sliderKey] || S[key];
       if (slider) {
         slider.value = val;
@@ -137,10 +135,10 @@ export const GSRStorage = {
    */
   readContourSliderValues() {
     const C = AppState.contourControls;
-    if (!C || !C.gridResolution) return null;
+    if (!C?.gridResolution) return null;
     return {
-      gridResolution: parseInt(C.gridResolution.value),
-      contourCount: parseInt(C.contourCount.value),
+      gridResolution: parseInt(C.gridResolution.value, 10),
+      contourCount: parseInt(C.contourCount.value, 10),
       isolationRadius: parseFloat(C.isolationRadius.value),
       idwExponent: parseFloat(C.idwExponent.value),
       peakPreservation: parseFloat(
@@ -230,7 +228,7 @@ export const GSRStorage = {
         const success = this.applyPreset(preset);
         if (callback) callback(success, preset);
       } catch (err) {
-        alert('Invalid preset file format: ' + err.message);
+        alert(`Invalid preset file format: ${err.message}`);
         if (callback) callback(false, null);
       }
     };
@@ -311,14 +309,14 @@ export const GSRStorage = {
     // The alternative detectors are mutually exclusive; if a stored config
     // somehow has multiple, keep the higher-precedence one (prominence >
     // cvxEDA > sparsEDA > deconvolution, matching analyze()).
-    if (S.usePeakProminence && S.usePeakProminence.checked) {
+    if (S.usePeakProminence?.checked) {
       if (S.useDeconvolution) S.useDeconvolution.checked = false;
       if (S.useSparsEDA) S.useSparsEDA.checked = false;
       if (S.useCvxEDA) S.useCvxEDA.checked = false;
-    } else if (S.useCvxEDA && S.useCvxEDA.checked) {
+    } else if (S.useCvxEDA?.checked) {
       if (S.useDeconvolution) S.useDeconvolution.checked = false;
       if (S.useSparsEDA) S.useSparsEDA.checked = false;
-    } else if (S.useSparsEDA && S.useSparsEDA.checked) {
+    } else if (S.useSparsEDA?.checked) {
       if (S.useDeconvolution) S.useDeconvolution.checked = false;
     }
 
@@ -366,8 +364,7 @@ export const GSRStorage = {
         track.filterParams = this.readGsrSliderValues();
         track.gpsFilterParams = this.readGpsSliderValues();
         try {
-          const pl =
-            (track.gpsFilterParams && track.gpsFilterParams.peakLatency) || 0;
+          const pl = track.gpsFilterParams?.peakLatency || 0;
           track.analyzer.analyze(track.filterParams, pl);
         } catch (e) {
           console.warn(

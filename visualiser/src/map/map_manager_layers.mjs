@@ -86,7 +86,7 @@ export const __methods = {
       }
     };
     for (const track of this._renderedTrackGroups.values()) {
-      if (!track || !track.layerGroup) continue;
+      if (!track?.layerGroup) continue;
       for (const l of track.layerGroup.getLayers()) classify(l);
     }
     for (const l of this._unownedLayers) classify(l);
@@ -117,7 +117,7 @@ export const __methods = {
    * @private
    */
   _registerTrackLayer(track, layer) {
-    if (track && track._ownedLayers) track._ownedLayers.push(layer);
+    if (track?._ownedLayers) track._ownedLayers.push(layer);
     else this._unownedLayers.push(layer);
   },
 
@@ -129,7 +129,7 @@ export const __methods = {
   _allTrackLayers() {
     const layers = [];
     for (const track of this._renderedTrackGroups.values()) {
-      if (track && track._ownedLayers) layers.push(...track._ownedLayers);
+      if (track?._ownedLayers) layers.push(...track._ownedLayers);
     }
     if (this._unownedLayers) layers.push(...this._unownedLayers);
     return layers;
@@ -144,7 +144,7 @@ export const __methods = {
   _clearRenderedTrackGroups() {
     if (!this.map) return;
     for (const track of this._renderedTrackGroups.values()) {
-      if (track && track.layerGroup) {
+      if (track?.layerGroup) {
         if (this.map.hasLayer(track.layerGroup))
           this.map.removeLayer(track.layerGroup);
         track.layerGroup = null;

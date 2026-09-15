@@ -23,9 +23,9 @@
 // would otherwise go stale the moment a GSR slider changes.
 import { AppState } from '../core/app_state.mjs';
 import { GSR_CONST } from '../core/constants.mjs';
-import { MapColors } from './map_colors.mjs';
-import { GSRMapManager } from './map.mjs';
 import { GSRStorage } from '../ui/storage.mjs';
+import { GSRMapManager } from './map.mjs';
+import { MapColors } from './map_colors.mjs';
 
 export const DERIVED_METRIC_SERIES = {
   phasic: 'phasic',
@@ -72,10 +72,7 @@ export const __methods = {
   _overlapRadiusMetres(drawPoints, trackWeight) {
     if (!this.map || !Array.isArray(drawPoints) || drawPoints.length < 4)
       return 0;
-    const OV =
-      typeof GSR_CONST !== 'undefined' && GSR_CONST.PATH_OVERLAP
-        ? GSR_CONST.PATH_OVERLAP
-        : {};
+    const OV = GSR_CONST?.PATH_OVERLAP ? GSR_CONST.PATH_OVERLAP : {};
     const w = trackWeight > 0 ? trackWeight : 5;
     const factor = OV.widthFactor > 0 ? OV.widthFactor : 1;
     const mid = drawPoints[drawPoints.length >> 1];
@@ -125,10 +122,7 @@ export const __methods = {
 
       // Would the overlap colouring actually change at this zoom? Only the
       // visual radius moved — the path points and metric are unchanged.
-      const OV =
-        typeof GSR_CONST !== 'undefined' && GSR_CONST.PATH_OVERLAP
-          ? GSR_CONST.PATH_OVERLAP
-          : {};
+      const OV = GSR_CONST?.PATH_OVERLAP ? GSR_CONST.PATH_OVERLAP : {};
       const radiusM = this._overlapRadiusMetres(
         this._lastDrawPoints,
         this._lastPathTrackWeight,

@@ -138,8 +138,7 @@ export const OsmCache = {
     const now = nowMs != null ? nowMs : Date.now();
     return entries.filter(
       (e) =>
-        e &&
-        e.bbox &&
+        e?.bbox &&
         e.queryVersion === queryVersion &&
         now - e.fetchedAt <= this.CACHE_TTL_MS &&
         this._bboxIntersects(e.bbox, bbox),
@@ -189,7 +188,7 @@ export const OsmCache = {
     let best = null,
       bestArea = Infinity;
     for (const e of entries) {
-      if (!e || !e.bbox) continue;
+      if (!e?.bbox) continue;
       if (e.queryVersion !== queryVersion) continue;
       if (now - e.fetchedAt > this.CACHE_TTL_MS) continue;
       if (!this._bboxContains(e.bbox, bbox)) continue;

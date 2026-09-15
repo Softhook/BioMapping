@@ -2,12 +2,12 @@ import { AppState } from '../core/app_state.mjs';
 import { GSR_CONST } from '../core/constants.mjs';
 import { GSRLayoutManager } from '../core/layout_manager.mjs';
 import { GSRMapManager } from '../map/map.mjs';
-import { GSRRenderer } from './renderer.mjs';
 import { GSRAnalyzer } from '../signal/analyzer.mjs';
 import { GSRCollectiveManager } from '../spatial/collective_manager.mjs';
 import { GSREvents } from '../ui/events.mjs';
 import { GSRTrackManager } from '../ui/tracks.mjs';
 import { GSRUI } from '../ui/ui.mjs';
+import { GSRRenderer } from './renderer.mjs';
 
 export let _cachedPeakAnalyzer = null;
 export let _cachedPeakList = null;
@@ -83,7 +83,7 @@ export function setup() {
   });
   AppState.myCanvas.elt.addEventListener('mouseleave', () => {
     AppState.mouseOverCanvas = false;
-    if (AppState.myCanvas && AppState.myCanvas.elt) {
+    if (AppState.myCanvas?.elt) {
       AppState.myCanvas.elt.style.cursor = 'default';
     }
     // Without this, the scrubber/tooltip/map-cursor from the last hovered
@@ -121,11 +121,7 @@ export function windowResized() {
 }
 
 export function draw() {
-  if (
-    !AppState.analyzer ||
-    !AppState.analyzer.raw ||
-    AppState.analyzer.raw.length === 0
-  ) {
+  if (!AppState.analyzer?.raw || AppState.analyzer.raw.length === 0) {
     GSRRenderer.drawPlaceholder();
     return;
   }
@@ -253,16 +249,14 @@ export function draw() {
   // whichever detector actually produced the currently-plotted series.
   const driverCfg =
     lowerMode === 'phasicDriver'
-      ? (GSR_CONST.DRIVER_UNIT_BY_ALGORITHM &&
-          GSR_CONST.DRIVER_UNIT_BY_ALGORITHM[
-            AppState.analyzer._driverAlgorithm
-          ]) ||
-        GSR_CONST.DRIVER_UNIT_BY_ALGORITHM.matching_pursuit
+      ? GSR_CONST.DRIVER_UNIT_BY_ALGORITHM?.[
+          AppState.analyzer._driverAlgorithm
+        ] || GSR_CONST.DRIVER_UNIT_BY_ALGORITHM.matching_pursuit
       : null;
 
   let yMinLower = lowerCfg.allowNegative ? Infinity : 0;
   let yMaxLower;
-  if (viewCoversMost && global && global[lowerMode]) {
+  if (viewCoversMost && global?.[lowerMode]) {
     yMaxLower = global[lowerMode].max;
     if (lowerCfg.allowNegative) yMinLower = global[lowerMode].min;
   } else {
@@ -389,7 +383,7 @@ export function draw() {
       steps: driverCfg.gridSteps,
       defaultStep: driverCfg.gridDefaultStep,
       decimals: driverCfg.decimals,
-      unit: ' ' + driverCfg.unit,
+      unit: ` ${driverCfg.unit}`,
     };
   }
   const gridPreset = lowerGridPresets[lowerMode] || lowerGridPresets.phasic;
@@ -423,10 +417,9 @@ export function draw() {
     _cachedPeakDataVersion = AppState.analyzer
       ? AppState.analyzer._dataVersion
       : 0;
-    _cachedActivePeaks =
-      AppState.analyzer && AppState.analyzer.peaks
-        ? AppState.analyzer.peaks.filter((p) => !p.excluded)
-        : [];
+    _cachedActivePeaks = AppState.analyzer?.peaks
+      ? AppState.analyzer.peaks.filter((p) => !p.excluded)
+      : [];
     _cachedFilteredForce = [];
     for (let i = 0; i < _cachedActivePeaks.length; i++) {
       const p = _cachedActivePeaks[i];
@@ -445,8 +438,7 @@ export function draw() {
     // apex — the height is right but the shape is wrong. Clamped to [0, n-1]
     // so boundary spikes don't produce out-of-range indices.
     if (
-      AppState.analyzer &&
-      AppState.analyzer.phasicDriverPeaks &&
+      AppState.analyzer?.phasicDriverPeaks &&
       AppState.analyzer.phasicDriverPeaks.length > 0
     ) {
       const driverLen = AppState.analyzer.phasicDriver
@@ -479,7 +471,7 @@ export function draw() {
     line(GSR_CONST.MARGIN.left, y, width - GSR_CONST.MARGIN.right, y);
     drawingContext.setLineDash([]);
     if (label) {
-      fill(color(colorPeak + '96'));
+      fill(color(`${colorPeak}96`));
       noStroke();
       textSize(9);
       textAlign(RIGHT, CENTER);
@@ -546,7 +538,7 @@ export function draw() {
         yMaxUpper,
         plotTop,
         plotBottom,
-        color(colorRaw + '8c'),
+        color(`${colorRaw}8c`),
         1.5,
       );
     }
@@ -579,7 +571,7 @@ export function draw() {
         yMaxUpper,
         plotTop,
         plotBottom,
-        color(colorPhasic + 'c8'),
+        color(`${colorPhasic}c8`),
         1.5,
         metricForceIndices,
       );
@@ -807,14 +799,13 @@ export function draw() {
 }
 
 export function updateCanvasCursor() {
-  if (!AppState.myCanvas || !AppState.myCanvas.elt) return;
+  if (!AppState.myCanvas?.elt) return;
   let cur = 'default';
   if (AppState.isDragging || AppState.isDraggingTimeline) {
     cur = 'grabbing';
   } else if (
     AppState.mouseOverCanvas &&
-    AppState.analyzer &&
-    AppState.analyzer.raw &&
+    AppState.analyzer?.raw &&
     AppState.analyzer.raw.length > 0
   ) {
     if (
@@ -853,10 +844,7 @@ export function mousePressed() {
   }
 
   // Check for click on a peak marker or vertical line — select if hit and abort drag
-  if (
-    GSRRenderer.checkPeakClick &&
-    GSRRenderer.checkPeakClick(mouseX, mouseY)
-  ) {
+  if (GSRRenderer.checkPeakClick?.(mouseX, mouseY)) {
     updateCanvasCursor();
     redraw();
     return;
