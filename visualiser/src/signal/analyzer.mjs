@@ -13,6 +13,15 @@
 //    (window global).
 //  - Node tests: vm-based loaders expose it as a global; the CommonJS
 //    require() path below does the same so the bare reference resolves.
+import { GSR_CONST } from '../core/constants.mjs';
+import { AnalyzerTimeFormat } from './analyzer_time_format.mjs';
+import { GSRCSVParser } from './csv_parser.mjs';
+import { CVXEDA } from './cvxeda.mjs';
+import { SCRDeconvolution } from './deconvolution.mjs';
+import { GsrFilter } from './gsr_filter.mjs';
+import { ResponseDynamics } from './response_dynamics.mjs';
+import { SpectralEDA } from './spectral_eda.mjs';
+
 if (typeof module !== 'undefined' && module.exports) {
   global.GSRCSVParser = require('./csv_parser.js').GSRCSVParser;
   if (typeof global.CVXEDA === 'undefined') {
@@ -26,7 +35,7 @@ if (typeof module !== 'undefined' && module.exports) {
   }
 }
 
-class GSRAnalyzer {
+export class GSRAnalyzer {
   constructor() {
     this.raw = [];          // Raw signal: { time, val, lat, lon, hdop, pdop, sats, fixType, speedKts, course, hasGps }
     this.filtered = [];     // Cleaned signal: { time, val }
@@ -85,7 +94,6 @@ class GSRAnalyzer {
     this._driverAlgorithm = null;
     this.sparsedaStats = null;
     this.responseDynamics = [];
-
 
     this.sampleRate = 10;   // In Hz, auto-detected
     this.isResistance = false; // Whether original CSV was resistance (Ohms)
@@ -327,7 +335,6 @@ class GSRAnalyzer {
       }
     }
   }
-
 
   /**
    * Binary search the raw data array for the index closest to a target time.
@@ -676,7 +683,6 @@ class GSRAnalyzer {
     this.sparsedaStats = null;
     this.responseDynamics = [];
   }
-
 
   /**
    * The canonical SCRF kernel's own peak offset: samples from kernel start to
@@ -2793,11 +2799,4 @@ class GSRAnalyzer {
     }
     return cnt > 0 ? Math.sqrt(sumPsq / cnt) * 100.0 : NaN;
   }
-}
-
-if (typeof module !== 'undefined' && module.exports) {
-  global.GSRAnalyzer = GSRAnalyzer; // exposed so GSRCSVParser.parse() can reach GSRAnalyzer.calcEmFog
-  module.exports = { GSRAnalyzer };
-} else {
-  window.GSRAnalyzer = GSRAnalyzer;
 }

@@ -24,7 +24,7 @@ global.GSR_CONST = require('./mock_constants.js');
 global.GSRAnalyzer = { calcEmFog: () => NaN };
 
 const { buildLiveCsv } = require('../src/live/live_csv.mjs');
-const { GSRCSVParser } = require('../src/signal/csv_parser.js');
+const { GSRCSVParser } = require('../src/signal/csv_parser.mjs');
 
 const NOW_MS = 1_700_000_123_456; // -> epoch seconds 1_700_000_123
 

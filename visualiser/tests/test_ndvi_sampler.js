@@ -16,7 +16,7 @@ global.GSRAnalyzer = { calcEmFog: () => NaN };
 global.StatsMath = require('../src/signal/stats_math.mjs').StatsMath;
 
 const { NDVISampler } = require('../src/osm/ndvi_sampler.js');
-const { GSRCSVParser } = require('../src/signal/csv_parser.js');
+const { GSRCSVParser } = require('../src/signal/csv_parser.mjs');
 
 const closeTo = (actual, expected, tolerance = 1e-4, msg = '') => {
   assert.ok(

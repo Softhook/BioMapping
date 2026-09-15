@@ -5,7 +5,10 @@
  * DOM. Extracted out of map_exporter.js, which now only smooths/projects/
  * serializes the rings this module produces.
  */
-class ContourRingGeometry {
+import { GeoUtils } from '../gps/geo_utils.mjs';
+import { GSRSpatialClustering } from '../spatial/spatial_clustering.mjs';
+
+export class ContourRingGeometry {
 
   // ═══════════════════════════════════════════════════════════════════
   //  Loops
@@ -561,9 +564,4 @@ class ContourRingGeometry {
       return { ratio: c.ratio, rings, holesByRingIndex };
     });
   }
-}
-
-if (typeof window !== 'undefined') window.ContourRingGeometry = ContourRingGeometry;
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { ContourRingGeometry };
 }

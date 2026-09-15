@@ -23,7 +23,15 @@ const test = require('node:test');
 global.GSR_CONST = require('./mock_constants.js');
 global.MarchingSquares = require('../src/render/marching_squares.mjs').MarchingSquares;
 
-const { GSRCollectiveManager } = require('../src/spatial/collective_manager.js');
+// collective_manager.mjs holds a static `import { GSR_CONST } from
+// '../core/constants.mjs'` live binding — the `global.GSR_CONST` mock shadow
+// above no longer reaches it (ES-module migration), so mirror this file's
+// COLLECTIVE overrides (gridResolution/contourCount/peakPreservation, read as
+// defaults below) onto the real imported singleton's own properties instead.
+const { GSR_CONST: RealGSRConst } = require('../src/core/constants.mjs');
+Object.assign(RealGSRConst.COLLECTIVE, global.GSR_CONST.COLLECTIVE);
+
+const { GSRCollectiveManager } = require('../src/spatial/collective_manager.mjs');
 
 /**
  * Builds a minimal mock "analyzer" exposing exactly the surface

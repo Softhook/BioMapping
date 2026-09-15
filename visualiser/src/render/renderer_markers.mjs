@@ -20,8 +20,12 @@
  * available bare; a name missing there is a bug in renderer.js's exports, not
  * something to patch around here.
  */
-(function () {
-  const __methods = {
+import { AppState } from '../core/app_state.mjs';
+import { GSR_CONST } from '../core/constants.mjs';
+import { EXCLUDED_STYLE, GSRRenderer, NORMAL_DASH, getQualityColor } from './renderer.mjs';
+import { ResponseDynamics } from '../signal/response_dynamics.mjs';
+
+  export const __methods = {
 
   /**
    * Pixel-per-unit scale factors shared by drawPeakMarkers()/drawHotspotMarkers()
@@ -447,15 +451,4 @@
 
   };
 
-  if (typeof module !== 'undefined' && module.exports) {
-    // ES-module migration: renderer.js gets a temporary .mjs extension when
-    // converted (convert_file.js --write), deleting the .js — same
-    // resolution rule as boot_app.js's resolveFile().
-    const rendererPath = require('fs').existsSync(require('path').join(__dirname, 'renderer.mjs'))
-      ? './renderer.mjs' : './renderer.js';
-    Object.assign(global, require(rendererPath));
-    module.exports = __methods;
-  } else {
-    Object.assign(GSRRenderer, __methods);
-  }
-})();
+  Object.assign(GSRRenderer, __methods);

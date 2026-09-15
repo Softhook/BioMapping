@@ -15,7 +15,7 @@ global.window = global;
 global.GSR_CONST = require('./mock_constants.js');
 global.GSRAnalyzer = { calcEmFog: () => NaN };
 
-const { GSRCSVParser } = require('../src/signal/csv_parser.js');
+const { GSRCSVParser } = require('../src/signal/csv_parser.mjs');
 
 // ── helpers ────────────────────────────────────────────────────────────────
 

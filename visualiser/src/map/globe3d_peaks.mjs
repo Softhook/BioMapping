@@ -22,8 +22,9 @@
  * source of truth for what's available bare; a name missing there is a bug in
  * globe3d.js's exports, not something to patch around here.
  */
-(function () {
-  const __methods = {
+import { GSRGlobeManager, HEIGHT_CAPABLE_METRICS } from './globe3d.mjs';
+
+  export const __methods = {
 
   /**
    * Ground position for a peak/hotspot marker, shifted back by the Peak-latency
@@ -413,10 +414,4 @@
 
   };
 
-  if (typeof module !== 'undefined' && module.exports) {
-    Object.assign(global, require('./globe3d.mjs'));
-    module.exports = __methods;
-  } else {
-    Object.assign(GSRGlobeManager.prototype, __methods);
-  }
-})();
+  Object.assign(GSRGlobeManager.prototype, __methods);

@@ -5,18 +5,21 @@ const test   = require('node:test');
 
 global.GSR_CONST = require('./mock_constants.js');
 global.width = 1000;
-global.AppState = {
-  analyzer: {
-    findClosestIndex(t) {
-      return Math.max(0, Math.round(t * 10));
-    }
+// renderer_curve.mjs holds a static `import { AppState } from
+// '../core/app_state.mjs'` live binding — a `global.AppState = {...}`
+// shadow no longer reaches it (ES-module migration), so mutate the real
+// imported singleton's own `analyzer` property in place instead.
+const { AppState } = require('../src/core/app_state.mjs');
+AppState.analyzer = {
+  findClosestIndex(t) {
+    return Math.max(0, Math.round(t * 10));
   }
 };
 const { GSRRenderer } = require('../src/render/renderer.mjs');
 // _buildCurveContext lives in the object-augment split renderer_curve.js
 // (see renderer.js's class-tail manifest comment) — under plain require()
 // it hands back its method object instead of assigning onto a live global.
-Object.assign(GSRRenderer, require('../src/render/renderer_curve.js'));
+Object.assign(GSRRenderer, require('../src/render/renderer_curve.mjs'));
 
 function legacySetSortMerge(startIdx, endIdx, step, forceIndices) {
   const forced = [];

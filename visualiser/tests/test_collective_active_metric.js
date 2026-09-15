@@ -12,7 +12,7 @@ global.MarchingSquares = require('../src/render/marching_squares.mjs').MarchingS
 global.StatsMath = require('../src/signal/stats_math.mjs').StatsMath;
 global.GsrFilter = require('../src/signal/gsr_filter.mjs').GsrFilter;
 
-const { GSRCollectiveManager } = require('../src/spatial/collective_manager.js');
+const { GSRCollectiveManager } = require('../src/spatial/collective_manager.mjs');
 
 function makeMockTrack(id, n = 36) {
   const points = [];

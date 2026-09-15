@@ -129,7 +129,7 @@ global.document = {
 };
 
 const { GSRTrackManager } = require('../src/ui/tracks.js');
-const { GSRCollectiveManager } = require('../src/spatial/collective_manager.js');
+const { GSRCollectiveManager } = require('../src/spatial/collective_manager.mjs');
 
 // renderTrackList is DOM construction, not state logic — see file header.
 GSRTrackManager.renderTrackList = () => { global.__renderCount = (global.__renderCount || 0) + 1; };

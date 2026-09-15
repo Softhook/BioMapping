@@ -20,8 +20,8 @@ loadModule(path.join(__dirname, '../src/signal/gsr_filter.js'),         'GsrFilt
 loadModule(path.join(__dirname, '../src/signal/deconvolution.js'),      'SCRDeconvolution');
 loadModule(path.join(__dirname, '../src/signal/analyzer_time_format.js'), 'AnalyzerTimeFormat');
 
-const { GSRAnalyzer } = require('../src/signal/analyzer.js');
-const { GSRCSVParser } = require('../src/signal/csv_parser.js');
+const { GSRAnalyzer } = require('../src/signal/analyzer.mjs');
+const { GSRCSVParser } = require('../src/signal/csv_parser.mjs');
 
 // ── Time & Date Formatting Tests ─────────────────────────────────────────────
 

@@ -15,8 +15,10 @@
  * app), module.exports hands back the method object instead so the caller can
  * Object.assign it onto the freshly-required class itself.
  */
-(function () {
-  const __methods = {
+import { GSRGlobeManager } from './globe3d.mjs';
+import { GSRGlobe3DRf } from './globe3d/rf_expanse.mjs';
+
+  export const __methods = {
 
   /**
    * Toggle 3D Volumetric RF Expanse (street-filling electromagnetic fluid)
@@ -65,9 +67,4 @@
 
   };
 
-  if (typeof module !== 'undefined' && module.exports) {
-    module.exports = __methods;
-  } else {
-    Object.assign(GSRGlobeManager.prototype, __methods);
-  }
-})();
+  Object.assign(GSRGlobeManager.prototype, __methods);

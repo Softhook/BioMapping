@@ -3,7 +3,15 @@
  * Extracted from analyzer.js — pure spatial concern, no GSR analysis logic.
  */
 
-class GSRCollectiveManager {
+import { GSR_CONST } from '../core/constants.mjs';
+import { GeoUtils } from '../gps/geo_utils.mjs';
+import { MarchingSquares } from '../render/marching_squares.mjs';
+import { GsrFilter } from '../signal/gsr_filter.mjs';
+import { StatsMath } from '../signal/stats_math.mjs';
+import { GSRSpatialClustering } from './spatial_clustering.mjs';
+import { SpatialGrid } from './spatial_grid.mjs';
+
+export class GSRCollectiveManager {
   constructor() {
     this.tracks = []; // { id, name, color, enabled, analyzer, filterParams }
   }
@@ -859,11 +867,4 @@ class GSRCollectiveManager {
 
     return { contours, upsampledGrid, sortedVals };
   }
-}
-
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { GSRCollectiveManager };
-}
-if (typeof window !== 'undefined') {
-  window.GSRCollectiveManager = GSRCollectiveManager;
 }

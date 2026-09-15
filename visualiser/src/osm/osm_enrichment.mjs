@@ -5,12 +5,17 @@
  */
 
 // -- Numerical constants ---------------------------------------------------
-const METERS_PER_DEG_LAT  = GeoUtils.METERS_PER_DEG_LAT;         // m per degree of latitude
-const METERS_PER_DEG_LAT_KM = METERS_PER_DEG_LAT / 1000.0;       // km per degree (area calcs)
-const CELL_SIZE_DEG       = 0.001;          // spatial-hash cell (~111 m)
-const SENTINEL_DIST       = 999;            // sentinel for "no feature nearby"
-const DEFAULT_RADIUS_M    = 50;             // enrichment search radius
-const DEFAULT_BBOX_BUFFER_M = 100;          // bounding-box padding
+import { GeoUtils } from '../gps/geo_utils.mjs';
+import { MapMatcher } from '../gps/map_match.mjs';
+import { OverpassClient } from './overpass_client.mjs';
+import { SpatialGrid } from '../spatial/spatial_grid.mjs';
+
+export const METERS_PER_DEG_LAT  = GeoUtils.METERS_PER_DEG_LAT;         // m per degree of latitude
+export const METERS_PER_DEG_LAT_KM = METERS_PER_DEG_LAT / 1000.0;       // km per degree (area calcs)
+export const CELL_SIZE_DEG       = 0.001;          // spatial-hash cell (~111 m)
+export const SENTINEL_DIST       = 999;            // sentinel for "no feature nearby"
+export const DEFAULT_RADIUS_M    = 50;             // enrichment search radius
+export const DEFAULT_BBOX_BUFFER_M = 100;          // bounding-box padding
 
 // Collective-mode enrichment fetches one shared osmJson (by reference) for
 // every track covering the same bbox (ui.js's union-bbox fetch), but each
@@ -25,25 +30,25 @@ const DEFAULT_BBOX_BUFFER_M = 100;          // bounding-box padding
 // itself is already deduped per osmJson via _geomsCache, two tracks sharing
 // one osmJson resolve to the same geoms reference and therefore the same
 // cached spatial index too, transitively.
-const _geomsCache = new WeakMap();
-const _spatialIndexCache = new WeakMap();
+export const _geomsCache = new WeakMap();
+export const _spatialIndexCache = new WeakMap();
 
 // -- Green-space sampling grid ---------------------------------------------
 // Two concentric rings at 1/2 and the full search radius, plus the centre
 // point (added separately). POINTS_PER_RING is indexed by ring number 1..N,
 // so entry [0] is the centre count and never read in the ring loop.
-const SAMPLING_RINGS      = 2;              // concentric rings (excl. centre)
-const POINTS_PER_RING     = [1, 8, 16];     // centre, ring 1 (½r), ring 2 (r)
+export const SAMPLING_RINGS      = 2;              // concentric rings (excl. centre)
+export const POINTS_PER_RING     = [1, 8, 16];     // centre, ring 1 (½r), ring 2 (r)
 
 // -- OSM tag sets ----------------------------------------------------------
-const MAJOR_ROAD_CLASSES = new Set([
+export const MAJOR_ROAD_CLASSES = new Set([
   'motorway', 'trunk', 'primary', 'secondary'
 ]);
 // Carriageways that carry motor traffic — the "road you're near" for an
 // arousal-by-road-type analysis. A footway/path/cycleway 2 m away shouldn't
 // mask a residential or primary road 15 m away, so these win the road-class
 // label whenever one is within the search radius.
-const VEHICULAR_ROAD_CLASSES = new Set([
+export const VEHICULAR_ROAD_CLASSES = new Set([
   'motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'unclassified',
   'residential', 'living_street', 'service',
   'motorway_link', 'trunk_link', 'primary_link', 'secondary_link', 'tertiary_link'
@@ -53,14 +58,14 @@ const VEHICULAR_ROAD_CLASSES = new Set([
 // not-currently-a-way lifecycle tags. The unfiltered `way["highway"]` query
 // pulls these in, and without this guard they can win the `osm_road_class`
 // label and seed junk rows in the Roads Profile.
-const NON_ROAD_HIGHWAY = new Set([
+export const NON_ROAD_HIGHWAY = new Set([
   'bus_stop', 'platform', 'street_lamp', 'traffic_signals', 'crossing',
   'stop', 'give_way', 'milestone', 'speed_camera', 'passing_place',
   'turning_circle', 'turning_loop', 'mini_roundabout', 'motorway_junction',
   'elevator', 'emergency_bay', 'rest_area', 'services',
   'proposed', 'construction', 'planned', 'razed', 'dismantled', 'abandoned'
 ]);
-const AMENITY_TYPES = new Set([
+export const AMENITY_TYPES = new Set([
   'cafe', 'restaurant', 'pub', 'fast_food', 'bar',
   'school', 'university', 'hospital', 'clinic',
   'library', 'place_of_worship',
@@ -69,18 +74,18 @@ const AMENITY_TYPES = new Set([
 
 // A `leisure=playground` is typically rubber safety surfacing and steel
 // equipment, not vegetated nature — it is deliberately NOT green space.
-const GREEN_LEISURE = new Set(['park', 'garden', 'nature_reserve']);
-const GREEN_LANDUSE = new Set(['grass', 'forest', 'meadow', 'recreation_ground', 'village_green', 'orchard']);
+export const GREEN_LEISURE = new Set(['park', 'garden', 'nature_reserve']);
+export const GREEN_LANDUSE = new Set(['grass', 'forest', 'meadow', 'recreation_ground', 'village_green', 'orchard']);
 // `natural=wetland` is BOTH blue and green: it is a water feature for
 // `dist_water` (see WATER_NATURAL below) AND vegetated nature for `green_pct`
 // / `in_park`. A wetland geom therefore matches both _isGreenSpace and
 // _isWaterSpace, and the green / water branches of _evaluatePosition run
 // independently (not else-if), so it contributes to both metrics.
-const GREEN_NATURAL = new Set(['wood', 'scrub', 'grassland', 'heath', 'wetland']);
+export const GREEN_NATURAL = new Set(['wood', 'scrub', 'grassland', 'heath', 'wetland']);
 
-const WATER_NATURAL  = new Set(['water', 'wetland']);
-const WATER_WATERWAY = new Set(['river', 'canal', 'stream', 'drain', 'ditch']);
-const WATER_LANDUSE  = new Set(['basin', 'reservoir']);
+export const WATER_NATURAL  = new Set(['water', 'wetland']);
+export const WATER_WATERWAY = new Set(['river', 'canal', 'stream', 'drain', 'ditch']);
+export const WATER_LANDUSE  = new Set(['basin', 'reservoir']);
 
 // -- Tree canopy ---------------------------------------------------------
 // "Am I under / among trees" — the other half of perceived green, distinct
@@ -89,14 +94,14 @@ const WATER_LANDUSE  = new Set(['basin', 'reservoir']);
 // nodes inside, tree-lined streets are one natural=tree_row way. So canopy_pct
 // = fraction of the sampling grid that is inside a wood/forest polygon OR
 // within CANOPY_BUFFER_M of a tree_row way / tree node.
-const CANOPY_NATURAL_AREA = new Set(['wood']);      // polygon
-const CANOPY_LANDUSE_AREA  = new Set(['forest']);   // polygon
-const CANOPY_BUFFER_M     = 10;                     // crown reach around a tree_row / tree node
+export const CANOPY_NATURAL_AREA = new Set(['wood']);      // polygon
+export const CANOPY_LANDUSE_AREA  = new Set(['forest']);   // polygon
+export const CANOPY_BUFFER_M     = 10;                     // crown reach around a tree_row / tree node
 
 // -- Module-level helpers --------------------------------------------------
 
 /** True when geom represents any kind of green/natural space. */
-function _isGreenSpace(geom) {
+export function _isGreenSpace(geom) {
   const t = geom.tags;
   if (!t) return false;
   return GREEN_LEISURE.has(t.leisure)  ||
@@ -108,7 +113,7 @@ function _isGreenSpace(geom) {
  * True when geom contributes tree canopy: a wood/forest polygon, a
  * natural=tree_row way, or a natural=tree node.
  */
-function _isCanopy(geom) {
+export function _isCanopy(geom) {
   const t = geom.tags;
   if (!t) return false;
   if (t.natural === 'tree')     return geom.type === 'node';
@@ -117,7 +122,7 @@ function _isCanopy(geom) {
 }
 
 /** True when geom represents any kind of water body or waterway. */
-function _isWaterSpace(geom) {
+export function _isWaterSpace(geom) {
   const t = geom.tags;
   if (!t) return false;
   return WATER_NATURAL.has(t.natural)   ||
@@ -126,12 +131,12 @@ function _isWaterSpace(geom) {
 }
 
 /** Extract highway classification from a way, or null. */
-function _classifyRoad(way) {
+export function _classifyRoad(way) {
   return (way.tags && way.tags.highway) ? way.tags.highway : null;
 }
 
 /** Compute lat/lon centroid of a coordinate array. */
-function _centroidOf(coords) {
+export function _centroidOf(coords) {
   let sumLat = 0, sumLon = 0;
   for (let i = 0; i < coords.length; i++) {
     sumLat += coords[i].lat;
@@ -141,7 +146,7 @@ function _centroidOf(coords) {
 }
 
 /** Shortest distance (m) from a point to any segment of a way. */
-function _minDistanceToWay(lat, lon, way, distFn) {
+export function _minDistanceToWay(lat, lon, way, distFn) {
   const coords = way.coordinates;
   let best = Infinity;
   for (let i = 0; i < coords.length - 1; i++) {
@@ -157,7 +162,7 @@ function _minDistanceToWay(lat, lon, way, distFn) {
  * Point-in-polygon test that handles both way and relation (multipolygon)
  * geometries.  Returns true if the point lies inside the green space.
  */
-function _isPointInGreenSpace(geom, lat, lon, pipFn) {
+export function _isPointInGreenSpace(geom, lat, lon, pipFn) {
   if (geom.type === 'way' && geom.coordinates && geom.coordinates.length > 2) {
     return pipFn(lat, lon, geom.coordinates);
   }
@@ -183,7 +188,7 @@ function _isPointInGreenSpace(geom, lat, lon, pipFn) {
  * Build concentric-ring sampling points around (lat, lon).
  * Returns an array of {lat, lon} (no .contained property).
  */
-function _buildSamplingGrid(lat, lon, radiusMeters) {
+export function _buildSamplingGrid(lat, lon, radiusMeters) {
   const radLat = radiusMeters / METERS_PER_DEG_LAT;
   const radLon = radiusMeters / (METERS_PER_DEG_LAT * Math.cos(lat * Math.PI / 180));
   const points = [{ lat, lon }];  // centre
@@ -205,7 +210,7 @@ function _buildSamplingGrid(lat, lon, radiusMeters) {
 
 // -- Main OSMEnricher namespace ---------------------------------------------
 
-const OSMEnricher = {
+export const OSMEnricher = {
   // Configurable settings
   overpassEndpoint: 'https://overpass-api.de/api/interpreter',
 
@@ -1010,7 +1015,3 @@ const OSMEnricher = {
     return { snapLat: bestSnapLat, snapLon: bestSnapLon, dist: minDist };
   }
 };
-
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { OSMEnricher };
-}

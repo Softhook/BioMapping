@@ -2,10 +2,10 @@
 
 See `docs/visualizer_modularity_plan.md`'s "drop dual-mode for real ES
 modules" section and the plan this session ran from for full context.
-**Current status: layers 0-2 (39 of 93 files) converted and wired into
-`npm test`, suite green. Layers 3-7 (54 files) not yet started — see "Next
+**Current status: layers 0-3 (52 of 93 files) converted and wired into
+`npm test`, suite green. Layers 4-7 (41 files) not yet started — see "Next
 steps" near the end of this file for the exact resume point, including the
-full layer-3 file list (a 2-file SCC).**
+full layer-6 file list (a 13-file SCC).**
 
 ## `build_import_manifest.js` (step 1)
 
@@ -81,7 +81,7 @@ augment files" pattern plus a bare `document` reference, standing in for a
 real subsystem without pulling in Leaflet/p5/Cesium stubbing just to prove
 the mechanism.
 
-## Step 3: converting src/ (IN PROGRESS — layer 0/8 done, see "Next steps" below)
+## Step 3: converting src/ (IN PROGRESS — layers 0-3/8 done, see "Next steps" below)
 
 `convert_file.js` (committed) mechanically converts one file: strips the
 dual-mode tail (keeping a real composition side effect like
@@ -420,10 +420,64 @@ the still-CJS augment files).
 
 Suite verified 1345/1345 green three times in a row before committing.
 
+### Layer 3 (13 files, one 2-file SCC) — DONE
+
+`analyzer.js`↔`csv_parser.js` converted together first as the atomic SCC
+batch, then the other 11 leaves: `contour_ring_geometry.js`,
+`collective_manager.js`, `osm_enrichment.js`, `globe3d_rf.js`,
+`globe3d_peaks.js`, `globe3d_toggles.js`, `globe3d_navigation.js`,
+`globe3d_tour.js`, `renderer_curve.js`, `renderer_markers.js`,
+`renderer_chrome.js`.
+
+No new `realm_bridge.js` bugs — every failure was one of the two by-now-
+expected test-authoring patterns from layers 1-2:
+
+- **Direct `require('../src/X.js')` / `readFileSync`+`vm.runInThisContext`
+  test bootstraps**, unaffected by `boot_app.js`'s dynamic `resolveFile()`
+  (17 test files): path swapped to `.mjs` (destructuring already matched the
+  named export), or the `readFileSync`+`vm` pair replaced with a
+  `loadModule()`/`loadBrowserModule()` call for the 3 files that used it only
+  for `analyzer.js` (`test_all_pipelines.js`, `test_e2e_pipeline.js`,
+  `test_refactored_helpers.js` — dropped their now-unused `vm`/`fs` imports
+  too). `test_globe3d.js`'s `GLOBE3D_AUGMENTS` list resolves each augment's
+  actual extension on disk now, and skips the `delete require.cache[...]`
+  busting step for a `.mjs` entry (same "can't cache-bust a converted ESM,
+  and it has no module-level mutable state to need it" reasoning already
+  applied to `globe3d.mjs` itself in that file).
+- **A bare `typeof X === 'undefined'` / `global.X = mock` guard becomes
+  structurally dead or silently inert** once the file that reads `X` holds a
+  real static import instead of a global lookup: `test_curve_force_indices.js`
+  (`renderer_curve.mjs`'s `AppState` import — fixed by mutating the real
+  `app_state.mjs` singleton's `.analyzer` in place, not `global.AppState`) and
+  `test_collective_manager.js` (`collective_manager.mjs`'s `GSR_CONST`
+  import — two tests asserted against implicit `GSR_CONST.COLLECTIVE`
+  defaults that `mock_constants.js` deliberately tunes differently from
+  production, e.g. `peakPreservation: 0.0` vs the real `0.5`; fixed with one
+  `Object.assign(RealGSRConst.COLLECTIVE, mockGSRConst.COLLECTIVE)` so the
+  real singleton the module actually reads carries the test's intended
+  overrides — every other test in that file already passes its own explicit
+  `contourParams`, so this couldn't silently change their behaviour).
+
+One test file (`test_renderer_require_exports.js`) needed a real edit, not a
+mechanical one: it exercised the *pre-conversion* require-branch global-
+stamping trick for `renderer_chrome.js`/`renderer_markers.js` specifically —
+once those converted to real static imports, that trick (and the bug class it
+guards against) is structurally impossible, so they're dropped from its test
+loop (only `renderer_bands.js`/`renderer_interaction.js`, still layers 4/7,
+remain) rather than kept failing or faked.
+
+Confirmed both pre-existing failures on this branch before touching any
+layer-3 file (`test_hotspot_selection.js`'s "spacing off" spatial-selection
+case, `test_cvxeda.js`'s 2-iteration-cap truncation-flag case) are unrelated
+to the migration — same failures, byte-identical assertions, on the prior
+commit with nothing touched.
+
+Suite verified 1343/1345 (the 2 pre-existing failures, unchanged) green
+three times in a row before committing.
+
 ### Next steps, in order
 
-1. Continue layer by layer, starting at layer 3 (13 files — **one 2-file SCC:
-   `analyzer.js`↔`csv_parser.js`, convert as one atomic batch**), 4 (4
+1. Continue layer by layer, starting at layer 4 (4
    files), 5 (1 file), 6 (22 files — **one 13-file SCC: `ui.js`,
    `events.js`, `tracks.js`, `storage.js`, `sketch.js`, `live_view.js`,
    `live_graph.js`, `live_map.js`, `collective_project.js`,

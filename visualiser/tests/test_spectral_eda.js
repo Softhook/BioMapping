@@ -238,7 +238,7 @@ test('analyzer: edasymp series is populated after analyze()', () => {
   const { GsrFilter } = require('../src/signal/gsr_filter.mjs');
   global.GsrFilter = GsrFilter;
 
-  const { GSRAnalyzer } = require('../src/signal/analyzer.js');
+  const { GSRAnalyzer } = require('../src/signal/analyzer.mjs');
 
   // 120 s of synthetic raw µS data with a slow 0.1 Hz sympathetic oscillation.
   const fs = 10;

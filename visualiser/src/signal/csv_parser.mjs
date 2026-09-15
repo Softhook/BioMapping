@@ -13,7 +13,10 @@
  * Standalone — no DOM, no Leaflet, no p5.
  */
 
-class GSRCSVParser {
+import { GSR_CONST } from '../core/constants.mjs';
+import { GSRAnalyzer } from './analyzer.mjs';
+
+export class GSRCSVParser {
   /**
    * Parse one CSV line into fields, honoring quoted commas and escaped quotes
    * (RFC4180 double-quote escaping).
@@ -811,9 +814,4 @@ class GSRCSVParser {
       importedPeakExcluded: importedPeakExcluded
     };
   }
-}
-
-if (typeof window !== 'undefined') window.GSRCSVParser = GSRCSVParser;
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { GSRCSVParser };
 }

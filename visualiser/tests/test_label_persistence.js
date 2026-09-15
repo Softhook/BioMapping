@@ -19,7 +19,7 @@ loadModule(path.join(__dirname, '../src/render/marching_squares.js'),   'Marchin
 loadModule(path.join(__dirname, '../src/spatial/collective_manager.js'), 'GSRCollectiveManager');
 loadModule(path.join(__dirname, '../src/signal/deconvolution.js'),      'SCRDeconvolution');
 
-const { GSRAnalyzer } = require('../src/signal/analyzer.js');
+const { GSRAnalyzer } = require('../src/signal/analyzer.mjs');
 
 console.log('── Testing Peak Label Persistence & Store ──');
 

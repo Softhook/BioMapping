@@ -10,7 +10,6 @@ const path = require('path');
 
 // ── Load analyser modules into global scope ─────────────────────────────────
 // Same bootstrap as test_refactor.js.
-const vm = require('vm');
 
 const { loadModule } = require('./support/load_module.js');
 
@@ -26,14 +25,10 @@ loadModule(path.join(__dirname, '../src/signal/dwt_filter.js'),   'DWT');       
 loadModule(path.join(__dirname, '../src/signal/gsr_filter.js'),   'GsrFilter');  // needed by analyzer.js
 loadModule(path.join(__dirname, '../src/signal/csv_parser.js'),   'GSRCSVParser');       // needed by analyzer.js
 
-const { GeoUtils, StatsMath, MapColors, GpsFilter, GpsPipeline, GsrFilter } = global;
-
-// ── Load GSRAnalyzer class ──────────────────────────────────────────────────
-// The analyzer assigns itself to window.GSRAnalyzer at the end.
 global.window = global;
-const analyzerSrc = fs.readFileSync(path.join(__dirname, '../src/signal/analyzer.js'), 'utf8');
-vm.runInThisContext(analyzerSrc, { filename: 'analyzer.js' });
-const GSRAnalyzer = global.GSRAnalyzer;
+loadModule(path.join(__dirname, '../src/signal/analyzer.js'),     'GSRAnalyzer');
+
+const { GeoUtils, StatsMath, MapColors, GpsFilter, GpsPipeline, GsrFilter, GSRAnalyzer } = global;
 
 // ── Test helpers ────────────────────────────────────────────────────────────
 let passed = 0, failed = 0;

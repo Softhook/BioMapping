@@ -51,7 +51,7 @@ function runContractTests() {
     global.window = global;
     global.GSR_CONST = require('./mock_constants.js');
     global.GSRAnalyzer = { calcEmFog: () => NaN };
-    return require('../src/signal/csv_parser.js');
+    return require('../src/signal/csv_parser.mjs');
   })();
 
   const readFw = (rel) => fs.readFileSync(path.join(FW, rel), 'utf8');

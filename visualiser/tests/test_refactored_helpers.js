@@ -16,7 +16,6 @@
 const assert = require('assert');
 const test   = require('node:test');
 const fs     = require('fs');
-const vm     = require('vm');
 const path   = require('path');
 const { loadModule } = require('./support/load_module.js');
 
@@ -47,8 +46,7 @@ loadBrowserModule('../src/ui/tracks.js',       'GSRTrackManager');
 global.GSRUI = require('../src/ui/ui.js').GSRUI;
 Object.assign(global.GSRUI, require('../src/ui/ui_stats_panel.js'));
 
-const analyzerSrc = fs.readFileSync(path.join(__dirname, '../src/signal/analyzer.js'), 'utf8');
-vm.runInThisContext(analyzerSrc, { filename: 'analyzer.js' });
+loadBrowserModule('../src/signal/analyzer.js', 'GSRAnalyzer');
 
 const GpsFilter   = global.GpsFilter;
 const GSRAnalyzer = global.GSRAnalyzer;

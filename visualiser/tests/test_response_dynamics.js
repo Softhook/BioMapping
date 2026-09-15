@@ -14,7 +14,7 @@ const { GsrFilter } = require('../src/signal/gsr_filter.mjs');
 global.GsrFilter = GsrFilter;
 
 const { MapColors } = require('../src/map/map_colors.mjs');
-const { GSRAnalyzer } = require('../src/signal/analyzer.js');
+const { GSRAnalyzer } = require('../src/signal/analyzer.mjs');
 
 test('Response Dynamics: ResponseDynamics domain module unit tests', () => {
   // 1. Canonical scales & labels

@@ -10,7 +10,6 @@
 
 const fs   = require('fs');
 const path = require('path');
-const vm   = require('vm');
 
 // ── Bootstrap scope ─────────────────────────────────────────────────────────
 global.window = global;
@@ -30,16 +29,13 @@ loadModule(path.join(__dirname, '../src/render/marching_squares.js'),   'Marchin
 loadModule(path.join(__dirname, '../src/spatial/collective_manager.js'), 'GSRCollectiveManager');
 loadModule(path.join(__dirname, '../src/signal/deconvolution.js'),  'SCRDeconvolution');
 loadModule(path.join(__dirname, '../src/signal/csv_parser.js'),     'GSRCSVParser');
+loadModule(path.join(__dirname, '../src/signal/analyzer.js'),       'GSRAnalyzer');
 
 const {
   GeoUtils, StatsMath, MapColors, GpsFilter, GpsPipeline,
-  DWT, GsrFilter, GSRSpatialClustering, MarchingSquares, GSRCollectiveManager
+  DWT, GsrFilter, GSRSpatialClustering, MarchingSquares, GSRCollectiveManager,
+  GSRAnalyzer
 } = global;
-
-// Load GSRAnalyzer
-const analyzerSrc = fs.readFileSync(path.join(__dirname, '../src/signal/analyzer.js'), 'utf8');
-vm.runInThisContext(analyzerSrc, { filename: 'analyzer.js' });
-const GSRAnalyzer = global.GSRAnalyzer;
 
 // ── Test framework ──────────────────────────────────────────────────────────
 let passed = 0, failed = 0;

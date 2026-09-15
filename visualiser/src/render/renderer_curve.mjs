@@ -16,8 +16,12 @@
  * method object instead so the caller can Object.assign it onto the
  * freshly-required object itself.
  */
-(function () {
-  const __methods = {
+import { AppState } from '../core/app_state.mjs';
+import { GSR_CONST } from '../core/constants.mjs';
+import { GSRRenderer } from './renderer.mjs';
+import { ResponseDynamics } from '../signal/response_dynamics.mjs';
+
+  export const __methods = {
 
   /**
    * Compute common context for curve drawing: clamped indices, step, spline decision, and scale factors.
@@ -316,9 +320,4 @@
 
   };
 
-  if (typeof module !== 'undefined' && module.exports) {
-    module.exports = __methods;
-  } else {
-    Object.assign(GSRRenderer, __methods);
-  }
-})();
+  Object.assign(GSRRenderer, __methods);

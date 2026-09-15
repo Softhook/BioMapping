@@ -19,8 +19,10 @@
  * source of truth for what's available bare; a name missing there is a bug in
  * globe3d.js's exports, not something to patch around here.
  */
-(function () {
-  const __methods = {
+import { GeoUtils } from '../gps/geo_utils.mjs';
+import { GSRGlobeManager, HEIGHT_CAPABLE_METRICS, seriesValue } from './globe3d.mjs';
+
+  export const __methods = {
 
   /**
    * Register a progress callback for the automated tour: (stepIndex, totalSteps, waypoint) => void
@@ -303,10 +305,4 @@
 
   };
 
-  if (typeof module !== 'undefined' && module.exports) {
-    Object.assign(global, require('./globe3d.mjs'));
-    module.exports = __methods;
-  } else {
-    Object.assign(GSRGlobeManager.prototype, __methods);
-  }
-})();
+  Object.assign(GSRGlobeManager.prototype, __methods);

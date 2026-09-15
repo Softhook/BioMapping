@@ -36,7 +36,7 @@ global.MapColors = MapColors;
 // isVehicularRoad() is the exact same predicate osm_enrichment.js itself
 // uses to pick a road over a footway, not a second copy of that class list.
 global.GeoUtils = require('../src/gps/geo_utils.mjs').GeoUtils;
-const { OSMEnricher } = require('../src/osm/osm_enrichment.js');
+const { OSMEnricher } = require('../src/osm/osm_enrichment.mjs');
 global.OSMEnricher = OSMEnricher;
 
 const { GSRRenderer } = require('../src/render/renderer.mjs');
