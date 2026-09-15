@@ -5,8 +5,11 @@
  * Covers the Street View modal (tabbed embed + API key entry) and the
  * export-preset save modal.
  */
-(function () {
-const __methods = {
+import { AppState } from '../core/app_state.mjs';
+import { GSRStorage } from './storage.mjs';
+import { GSRUI } from './ui.mjs';
+
+export const __methods = {
 
   /**
    * Open the street-level imagery modal overlay at the given coordinates.
@@ -205,10 +208,4 @@ const __methods = {
 
 };
 
-if (typeof module !== 'undefined' && module.exports) {
-  Object.assign(global, require('./ui.mjs'));
-  module.exports = __methods;
-} else {
-  Object.assign(GSRUI, __methods);
-}
-})();
+Object.assign(GSRUI, __methods);

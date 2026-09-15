@@ -56,7 +56,7 @@ const { GSRUI }       = require('../src/ui/ui.mjs');
 // under plain require() they hand back their method object instead of assigning
 // straight onto GSRUI, so we do that assignment here ourselves.
 Object.assign(GSRUI, require('../src/ui/ui_correlation_table.js'));
-Object.assign(GSRUI, require('../src/ui/ui_road_profile.js'));
+Object.assign(GSRUI, require('../src/ui/ui_road_profile.mjs').__methods);
 Object.assign(GSRUI, require('../src/ui/ui_environmental_dashboard.js'));
 
 // ── Fixture: a real recorded track (same file test_all_pipelines.js uses). ──
@@ -557,6 +557,17 @@ test('sortCorrelationTable: toggles sort direction and sorts matrix rows accordi
 
 test('sortRoadArousalTable: toggles sort direction and sorts road profile rows', () => {
   const savedDoc = global.document;
+  // ui_road_profile.mjs holds a real static `import { AppState } from
+  // '../core/app_state.mjs'` binding, not a bare global lookup — replacing
+  // global.AppState wholesale (as other tests in this file do, for the
+  // still-CJS ui_correlation_table.js/ui_environmental_dashboard.js) is
+  // inert against it. Mutate the real singleton's own fields in place
+  // instead (same pattern as layer 2's GSR_CONST fix), restored after.
+  const { AppState: RealAppState } = require('../src/core/app_state.mjs');
+  const original = {
+    roadSortColumn: RealAppState.roadSortColumn,
+    roadSortDirection: RealAppState.roadSortDirection,
+  };
   const renderedRoads = [];
   const renderedBars = [];
   global.document = {
@@ -578,8 +589,8 @@ test('sortRoadArousalTable: toggles sort direction and sorts road profile rows',
     ];
 
     // Default sort by meanPhasic desc
-    global.AppState.roadSortColumn = 'meanPhasic';
-    global.AppState.roadSortDirection = 'desc';
+    RealAppState.roadSortColumn = 'meanPhasic';
+    RealAppState.roadSortDirection = 'desc';
     GSRUI.renderRoadProfile(profile, null);
 
     assert.match(renderedRoads[0], /footway/);     // 0.35
@@ -587,8 +598,8 @@ test('sortRoadArousalTable: toggles sort direction and sorts road profile rows',
     assert.match(renderedRoads[2], /primary/);     // 0.08
 
     // Sort by name asc
-    global.AppState.roadSortColumn = 'name';
-    global.AppState.roadSortDirection = 'asc';
+    RealAppState.roadSortColumn = 'name';
+    RealAppState.roadSortDirection = 'asc';
     renderedRoads.length = 0;
     GSRUI.renderRoadProfile(profile, null);
 
@@ -598,11 +609,12 @@ test('sortRoadArousalTable: toggles sort direction and sorts road profile rows',
 
     // Toggle direction
     GSRUI.sortRoadArousalTable('name');
-    assert.strictEqual(global.AppState.roadSortDirection, 'desc');
+    assert.strictEqual(RealAppState.roadSortDirection, 'desc');
     GSRUI.sortRoadArousalTable('name');
-    assert.strictEqual(global.AppState.roadSortDirection, 'asc');
+    assert.strictEqual(RealAppState.roadSortDirection, 'asc');
   } finally {
     global.document = savedDoc;
+    Object.assign(RealAppState, original);
   }
 });
 

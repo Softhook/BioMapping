@@ -6,8 +6,14 @@
  * active map surface (2D Leaflet or 3D Cesium) PNG export, plus the shared
  * filename-sanitising helper they all use.
  */
-(function () {
-const __methods = {
+import { AppState } from '../core/app_state.mjs';
+import { GSRFileSaver } from '../core/file_saver.mjs';
+import { GSRGlobe3DView } from '../map/globe3d_view.mjs';
+import { GSRMapExporter } from '../map/map_exporter.mjs';
+import { GSRStorage } from './storage.mjs';
+import { GSRUI } from './ui.mjs';
+
+export const __methods = {
 
   /**
    * Get a sanitised filename base from the active track name.
@@ -133,10 +139,4 @@ const __methods = {
 
 };
 
-if (typeof module !== 'undefined' && module.exports) {
-  Object.assign(global, require('./ui.mjs'));
-  module.exports = __methods;
-} else {
-  Object.assign(GSRUI, __methods);
-}
-})();
+Object.assign(GSRUI, __methods);

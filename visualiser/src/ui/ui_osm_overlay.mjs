@@ -10,8 +10,11 @@
  * above _osmOverlayOn for the full contract. Depends on ui_enrichment.js's
  * ensureOsmGeoms() for the on-demand fetch.
  */
-(function () {
-const __methods = {
+import { AppState } from '../core/app_state.mjs';
+import { GSRGlobe3DView } from '../map/globe3d_view.mjs';
+import { GSRUI } from './ui.mjs';
+
+export const __methods = {
 
   /**
    * OSM ways/relations to draw as map overlays for whichever tracks are
@@ -240,10 +243,4 @@ const __methods = {
 
 };
 
-if (typeof module !== 'undefined' && module.exports) {
-  Object.assign(global, require('./ui.mjs'));
-  module.exports = __methods;
-} else {
-  Object.assign(GSRUI, __methods);
-}
-})();
+Object.assign(GSRUI, __methods);
