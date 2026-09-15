@@ -894,26 +894,6 @@ export const GSREvents = {
       });
     }
 
-    const btnConfirmExportPreset = document.getElementById('btnConfirmExportPreset');
-    if (btnConfirmExportPreset) {
-      btnConfirmExportPreset.addEventListener('click', () => {
-        if (typeof GSRUI !== 'undefined' && typeof GSRUI.confirmExportPreset === 'function') {
-          GSRUI.confirmExportPreset();
-        }
-      });
-    }
-
-    const presetFileNameInput = document.getElementById('presetFileNameInput');
-    if (presetFileNameInput) {
-      presetFileNameInput.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') {
-          if (typeof GSRUI !== 'undefined' && typeof GSRUI.confirmExportPreset === 'function') {
-            GSRUI.confirmExportPreset();
-          }
-        }
-      });
-    }
-
     const btnApplyPreset = document.getElementById('btnApplyPreset');
     const presetFileInput = document.getElementById('presetFileInput');
     if (btnApplyPreset && presetFileInput) {

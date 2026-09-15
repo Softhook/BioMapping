@@ -16,7 +16,6 @@
 const path = require('path');
 
 global.window = global;
-global.GSR_CONST = require('./mock_constants.js');
 
 const { loadModule } = require('./support/load_module.js');
 loadModule(path.join(__dirname, '../src/signal/dwt_filter.js'), 'DWT');
@@ -25,6 +24,15 @@ loadModule(path.join(__dirname, '../src/signal/deconvolution.js'), 'SCRDeconvolu
 loadModule(path.join(__dirname, '../src/signal/csv_parser.js'), 'GSRCSVParser');
 loadModule(path.join(__dirname, '../src/signal/analyzer.js'), 'GSRAnalyzer');
 const { GSRAnalyzer } = global;
+
+// analyzer.mjs holds a real static `import { GSR_CONST } from
+// '../core/constants.mjs'` (ES-module migration) — a disconnected
+// `global.GSR_CONST = require('./mock_constants.js')` no longer reaches it,
+// so test 7 below (which mutates MIN_SEPARATION_M at runtime and expects
+// analyzer to see the change) silently ran against the real, unmutated
+// constant. Point `global.GSR_CONST` at the actual imported object instead —
+// same live singleton analyzer.mjs reads — so in-place mutation works.
+global.GSR_CONST = require('../src/core/constants.mjs').GSR_CONST;
 const MIN_SEP = global.GSR_CONST.MEMORABLE_EVENTS.MIN_SEPARATION_M; // 30 m
 
 let passed = 0, failed = 0;

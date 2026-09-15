@@ -1,7 +1,7 @@
 {
   "name": "visualiser",
   "private": true,
-  "description": "Test harness for the browser-based GSR/RF track visualiser. No build step or bundler — the app itself stays plain <script>-tag globals; this only adds a Node test runner for tests/.",
+  "description": "Test harness for the browser-based GSR/RF track visualiser. No build step or bundler — the app itself stays plain ES modules loaded directly by the browser; this only adds a Node test runner for tests/.",
   "scripts": {
     "test": "node --test tests/*.js",
     "bench": "node tests/manual/bench/run.js"

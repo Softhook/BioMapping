@@ -35,7 +35,6 @@ const path = require('path');
 const fs = require('fs');
 
 global.window = global;
-global.GSR_CONST = require('./mock_constants.js');
 
 const { loadModule } = require('./support/load_module.js');
 
@@ -47,6 +46,16 @@ loadModule(path.join(__dirname, '../src/signal/csv_parser.js'), 'GSRCSVParser');
 loadModule(path.join(__dirname, '../src/signal/analyzer.js'), 'GSRAnalyzer');
 
 const { CVXEDA, GSRAnalyzer } = global;
+
+// cvxeda.mjs and analyzer.mjs both hold a real static `import { GSR_CONST }
+// from '../core/constants.mjs'` (ES-module migration) — a disconnected
+// `global.GSR_CONST = require('./mock_constants.js')` no longer reaches
+// them, so the maxIter mutation below (forcing non-convergence through the
+// real analyzer code path) silently ran against the real, unmutated
+// constant. Point `global.GSR_CONST` at the actual imported object instead —
+// same live singleton cvxeda.mjs/analyzer.mjs read — so in-place mutation
+// works.
+global.GSR_CONST = require('../src/core/constants.mjs').GSR_CONST;
 
 const SR = 10; // Hz
 
