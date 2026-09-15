@@ -19,7 +19,7 @@
  * UI_AUGMENTS loop below) — unlike globe3d_*.js/renderer_*.js, which got the
  * require-branch treatment when test_globe3d.js needed it (see
  * docs/visualizer_modularity_plan.md's "Require/boot-up gotcha" section).
- * Several of them (ui_correlation_table.js, ui_enrichment.js,
+ * Several of them (ui_enrichment.js,
  * ui_environmental_dashboard.js) reference GSRUI bare (not `this.`) from
  * within their own method bodies — exactly the self-reference shape that
  * produced a silent `global.X = undefined` in renderer.js until
@@ -32,7 +32,7 @@ const assert = require('assert');
 const test   = require('node:test');
 
 const UI_AUGMENTS = [
-  'ui_correlation_table.js', 'ui_enrichment.js',
+  'ui_enrichment.js',
   'ui_environmental_dashboard.js',
 ];
 

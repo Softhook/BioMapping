@@ -7,8 +7,12 @@
  * ui_road_profile.js), the scatter-plot env-variable dropdown sync, and the
  * sortable correlation-matrix table (walk-level meta-analysis results).
  */
-(function () {
-const __methods = {
+import { AppState } from '../core/app_state.mjs';
+import { GSR_CONST } from '../core/constants.mjs';
+import { StatsMath } from '../signal/stats_math.mjs';
+import { GSRUI } from './ui.mjs';
+
+export const __methods = {
 
   /**
    * Paint a scatter of (x, y) points with an OLS trend line and an R² badge
@@ -552,10 +556,4 @@ const __methods = {
 
 };
 
-if (typeof module !== 'undefined' && module.exports) {
-  Object.assign(global, require('./ui.mjs'));
-  module.exports = __methods;
-} else {
-  Object.assign(GSRUI, __methods);
-}
-})();
+Object.assign(GSRUI, __methods);

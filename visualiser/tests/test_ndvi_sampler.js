@@ -520,7 +520,7 @@ test('GSRUI.sampleNdviTrack: successfully resolves single-mode track without fal
   // into the stats indicator and (if enriched) the environmental dashboard.
   Object.assign(GSRUI, require('../src/ui/ui_osm_overlay.mjs').__methods);
   Object.assign(GSRUI, require('../src/ui/ui_stats_panel.mjs').__methods);
-  Object.assign(GSRUI, require('../src/ui/ui_correlation_table.js'));
+  Object.assign(GSRUI, require('../src/ui/ui_correlation_table.mjs').__methods);
   Object.assign(GSRUI, require('../src/ui/ui_road_profile.mjs').__methods);
   Object.assign(GSRUI, require('../src/ui/ui_environmental_dashboard.js'));
   global.document = {

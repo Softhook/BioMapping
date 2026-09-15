@@ -55,7 +55,7 @@ const { GSRUI }       = require('../src/ui/ui.mjs');
 // ui_*.js augments are dual-mode (see renderer.js's class-tail manifest comment) —
 // under plain require() they hand back their method object instead of assigning
 // straight onto GSRUI, so we do that assignment here ourselves.
-Object.assign(GSRUI, require('../src/ui/ui_correlation_table.js'));
+Object.assign(GSRUI, require('../src/ui/ui_correlation_table.mjs').__methods);
 Object.assign(GSRUI, require('../src/ui/ui_road_profile.mjs').__methods);
 Object.assign(GSRUI, require('../src/ui/ui_environmental_dashboard.js'));
 
@@ -502,6 +502,16 @@ test('updateEnvironmentalDashboard (single mode): computes speed-adjusted partia
 
 test('sortCorrelationTable: toggles sort direction and sorts matrix rows accordingly', () => {
   const savedDoc = global.document;
+  // ui_correlation_table.mjs holds a real static `import { AppState } from
+  // '../core/app_state.mjs'` binding, not a bare global lookup — replacing
+  // global.AppState wholesale is inert against it. Mutate the real
+  // singleton's own fields in place instead (same pattern as layer 2's
+  // GSR_CONST fix / this file's sortRoadArousalTable test), restored after.
+  const { AppState: RealAppState } = require('../src/core/app_state.mjs');
+  const original = {
+    corrSortColumn: RealAppState.corrSortColumn,
+    corrSortDirection: RealAppState.corrSortDirection,
+  };
   const renderedNames = [];
   global.document = {
     querySelector: (s) => s.includes('correlationTable')
@@ -518,8 +528,8 @@ test('sortCorrelationTable: toggles sort direction and sorts matrix rows accordi
       { name: 'Amenity Count', rPhasic: 0.35, rTonic: 0.20, rPeaks: 0.10, hasVariance: true, mPhasic: 'single' },
       { name: 'Building Density', rPhasic: -0.10, rTonic: -0.05, rPeaks: 0.00, hasVariance: true, mPhasic: 'single' },
     ];
-    global.AppState.corrSortColumn = null;
-    global.AppState.corrSortDirection = 'asc';
+    RealAppState.corrSortColumn = null;
+    RealAppState.corrSortDirection = 'asc';
 
     // Default: preserves order
     GSRUI.renderCorrelationTable(matrix, 1, 1);
@@ -528,8 +538,8 @@ test('sortCorrelationTable: toggles sort direction and sorts matrix rows accordi
     assert.match(renderedNames[2], /Building Density/);
 
     // Sort by name asc
-    global.AppState.corrSortColumn = 'name';
-    global.AppState.corrSortDirection = 'asc';
+    RealAppState.corrSortColumn = 'name';
+    RealAppState.corrSortDirection = 'asc';
     renderedNames.length = 0;
     GSRUI.renderCorrelationTable(matrix, 1, 1);
     assert.match(renderedNames[0], /Amenity Count/);
@@ -537,8 +547,8 @@ test('sortCorrelationTable: toggles sort direction and sorts matrix rows accordi
     assert.match(renderedNames[2], /Green Space %/);
 
     // Sort by rPhasic desc (highest correlation first)
-    global.AppState.corrSortColumn = 'rPhasic';
-    global.AppState.corrSortDirection = 'desc';
+    RealAppState.corrSortColumn = 'rPhasic';
+    RealAppState.corrSortDirection = 'desc';
     renderedNames.length = 0;
     GSRUI.renderCorrelationTable(matrix, 1, 1);
     assert.match(renderedNames[0], /Amenity Count/);   // 0.35
@@ -547,11 +557,12 @@ test('sortCorrelationTable: toggles sort direction and sorts matrix rows accordi
 
     // Clicking same column toggles direction
     GSRUI.sortCorrelationTable('rPhasic');
-    assert.strictEqual(global.AppState.corrSortDirection, 'asc');
+    assert.strictEqual(RealAppState.corrSortDirection, 'asc');
     GSRUI.sortCorrelationTable('rPhasic');
-    assert.strictEqual(global.AppState.corrSortDirection, 'desc');
+    assert.strictEqual(RealAppState.corrSortDirection, 'desc');
   } finally {
     global.document = savedDoc;
+    Object.assign(RealAppState, original);
   }
 });
 
@@ -560,9 +571,9 @@ test('sortRoadArousalTable: toggles sort direction and sorts road profile rows',
   // ui_road_profile.mjs holds a real static `import { AppState } from
   // '../core/app_state.mjs'` binding, not a bare global lookup — replacing
   // global.AppState wholesale (as other tests in this file do, for the
-  // still-CJS ui_correlation_table.js/ui_environmental_dashboard.js) is
-  // inert against it. Mutate the real singleton's own fields in place
-  // instead (same pattern as layer 2's GSR_CONST fix), restored after.
+  // still-CJS ui_environmental_dashboard.js) is inert against it. Mutate
+  // the real singleton's own fields in place instead (same pattern as
+  // layer 2's GSR_CONST fix), restored after.
   const { AppState: RealAppState } = require('../src/core/app_state.mjs');
   const original = {
     roadSortColumn: RealAppState.roadSortColumn,
