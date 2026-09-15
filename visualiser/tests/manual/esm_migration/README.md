@@ -2,10 +2,10 @@
 
 See `docs/visualizer_modularity_plan.md`'s "drop dual-mode for real ES
 modules" section and the plan this session ran from for full context.
-**Current status: all 93 files converted (`find src -name '*.js' | wc -l`
-is 0) and wired into `npm test`, suite green. The per-file conversion step
-(step 3) is DONE. What's left is the one-time atomic browser cutover — see
-"Next steps" near the end of this file.**
+**Current status: MIGRATION COMPLETE.** All 93 files converted
+(`find src -name '*.js' | wc -l` is 0), the atomic browser cutover is
+done, and the app is verified working in a real browser again — see this
+file's final section for detail. This branch is safe to merge to `main`.
 
 ## `build_import_manifest.js` (step 1)
 
@@ -710,38 +710,69 @@ loop emptied the same way once `renderer_interaction.js` converted.
 1317/1319 (the 2 pre-existing failures, unchanged) green three times in a
 row before the final commit (`8322536`).
 
-### Next step: the atomic browser cutover (not attempted yet)
+### The atomic browser cutover — DONE. Migration complete.
 
-Every `src/` file is a real ES module, but the app is still intentionally
-non-functional in an actual browser — `index.html` still lists 93
-individual `<script>` tags in dependency order, and `boot_app.js`/
-`boot_live.js`'s realm-bridge machinery (jsdom-on-`global`, per-boot-
-generation cache-busting, the `wrapForRepeatedExecution`/`clearPreviousBoot`
-pair) exists purely to let the test suite mix converted `.mjs` and
-not-yet-converted `.js` files in one shared realm across 8 layers of
-incremental conversion — none of that is needed, or wanted, once every
-file is already a module.
+`index.html`/`live.html` now each load a single real entry point instead
+of individual `<script>` tags — `src/app_entry.mjs` (a static side-effect
+import of all 93 files in `SCRIPT_ORDER`'s order, plus named imports of
+sketch.mjs's 8 p5 "global mode" lifecycle functions and ui.mjs's GSRUI,
+both re-exposed onto `window` via one `Object.assign` — the only two
+things outside the module graph need them: p5.js's own auto-init, which
+polls `window.setup`/`window.draw` on the `load` event — confirmed by
+reading `vendor/p5/p5.min.js` directly — and 8 inline
+`onclick="GSRUI.foo()"` attributes still in index.html's modal markup)
+and `src/live_entry.mjs` (same idea for live.html's 20
+`LIVE_SCRIPT_ORDER` files, but since it IS the orchestration it just
+imports `GSRLiveView` and calls `.mount()` itself — nothing needs to
+reach `window`).
 
-The remaining work, all in one pass since there's no more "some converted,
-some not" state to straddle:
+`package.json` was deliberately left WITHOUT `"type": "module"` —
+browsers determine module-ness from the `<script type="module">`
+attribute, not the file extension or `package.json`, and Node already
+treats every `.mjs` file as ESM regardless of that field. Adding it would
+flip every CJS `tests/*.js` file to be interpreted as ESM by Node and
+break the whole suite for no benefit — the original plan's step 2 (in an
+earlier draft of this section) was simply wrong on this point.
 
-1. Rewrite `index.html`'s `<script>` list down to a single
-   `<script type="module" src="...">` pointing at a real entry point (the
-   equivalent of today's `SCRIPT_ORDER`'s last file) that statically
-   imports everything transitively — same for `live.html`'s
-   `LIVE_SCRIPT_ORDER` equivalent.
-2. Add `"type": "module"` to `package.json`.
-3. Rewrite `boot_app.js`/`boot_live.js` from the realm-bridge model to a
-   plain dynamic-`import()`-based loader — no more jsdom-onto-`global`
-   bridging, no more per-boot-generation cache-busting hook (Node's normal
-   ESM module cache is fine once nothing is re-executing a not-yet-converted
-   file's source per call), no more `wrapForRepeatedExecution`. This is
-   likely the biggest single edit, since ~17 test files' `bootApp()`/
-   `bootLive()` call sites and the various `_setXForTest`-style hooks added
-   along the way all need re-verifying against the simpler model.
-4. Full suite green, then manually smoke-test the app in a real browser
-   (something step 3 alone can't prove) before merging to `main`.
+`tests/support/realm_bridge.js`/`boot_app.js`/`boot_live.js` simplified
+to match: `wrapForRepeatedExecution`, `resolveFile`'s `.js`/`.mjs`
+branching, and the `vm.runInThisContext` source-eval branch of
+`loadScriptFile` were dead once every file is permanently `.mjs` — all
+removed. `boot_live.js`'s `vm.runInThisContext("GSRLiveView.mount(...)")`
+string-eval (needed only because `GSRLiveView` used to live in the vm's
+shared lexical scope for a not-yet-converted file) is now a plain
+`global.GSRLiveView.mount(...)` call. `tests/test_html_wiring.js`'s two
+sync-check tests (which used to scrape `<script src>` tags out of the
+HTML) now parse `app_entry.mjs`'s/`live_entry.mjs`'s own `import '...'`
+lines instead, since the HTML itself carries no per-file list any more.
 
-This is the step where the app goes from "intentionally non-functional in
-the browser mid-migration" back to working, and where this branch is
-finally safe to merge.
+Ahead of the cutover, an audit of every converted file for genuine
+leftover dual-mode residue (not just doc-comment staleness) found and
+fixed 4 real issues the per-file conversion had missed: `map_manager_path.mjs`
+still had its ENTIRE method body wrapped in the original file's
+`(function(){...})()` IIFE with a dead `if (typeof module !== 'undefined'
+&& module.exports) {...} else {Object.assign(...)}` branch inside it
+(flattened to match every sibling `map_manager_*.mjs`); `ndvi_sampler.mjs`
+had a leftover `window.NDVISampler =`/`global.NDVISampler =` stamp after
+its real `export`; `analyzer.mjs` had a leftover CJS `require()` block
+(one path pointing at an already-renamed `.js` file that no longer
+existed); and 4 files (`renderer_curve.mjs`, `map_colors.mjs`,
+`globe3d.mjs`, `analyzer.mjs`) had the layer-2 `GSR_CONST`-style dead
+fallback pattern on `ResponseDynamics`, gone unnoticed since it converted
+in layer 0. (Still open, lower priority: ~14 files carry stale prose in
+doc comments describing the pre-conversion require()/module.exports
+model — not live code, not fixed here.)
+
+Verified in an actual browser (Playwright + a local static server — this
+repo has no dev-server skill yet), not just the test suite: index.html
+loads with zero console errors, Load Demo Data renders the full GSR
+signal graph + peak/hotspot detection + Arousal Places map overlay with
+real OSM tiles, the embedded Live tab and standalone live.html both
+mount GSRLiveView correctly. The only browser console lines at all were
+CARTO tile 404s from a placeholder demo API key — unrelated to this
+migration, would happen identically on the pre-migration code.
+
+Suite verified 1319/1321 (the 2 pre-existing failures, unchanged — see
+this file's very first layer-3 checkpoint for what they are) green
+multiple times before each commit. **This branch is now safe to merge to
+`main`**, pending the user's own review/approval to do so.
