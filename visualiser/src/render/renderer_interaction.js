@@ -342,7 +342,7 @@
       if (emFog) extraRows.push({ label: 'EM Fog:', color: emFog.color, valueStr: emFog.value.toFixed(1) });
     }
 
-    GSRRenderer.drawTooltip(dRaw.time, dRaw.val, dFilt.val, dTonic.val, dPhasic.val, nearPeakInfo, extraRows);
+    this.drawTooltip(dRaw.time, dRaw.val, dFilt.val, dTonic.val, dPhasic.val, nearPeakInfo, extraRows);
   },
 
   };

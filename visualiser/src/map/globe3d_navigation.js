@@ -216,8 +216,6 @@
     }
   }
 
-  // ── Automated Sequential Track Tour ────────────────────────────────────────
-
   };
 
   if (typeof module !== 'undefined' && module.exports) {

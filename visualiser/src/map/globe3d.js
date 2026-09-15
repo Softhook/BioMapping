@@ -1750,11 +1750,6 @@ class GSRGlobeManager {
   // 3D track export (CZML / KML) lives in src/map/globe3d/exporters.js and is
   // driven from the main Export Options panel — it needs no live viewer. The 3D
   // PNG snapshot was dropped: the app's Save Canvas / Bio Map PNG covers it.
-
-
-  // 3D track export (CZML / KML) lives in src/map/globe3d/exporters.js and is
-  // driven from the main Export Options panel — it needs no live viewer. The 3D
-  // PNG snapshot was dropped: the app's Save Canvas / Bio Map PNG covers it.
 }
 
 if (typeof module !== 'undefined' && module.exports) {

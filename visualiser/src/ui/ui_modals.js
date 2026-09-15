@@ -202,11 +202,4 @@ Object.assign(GSRUI, {
     this.closeExportPresetModal();
   },
 
-  /**
-   * Open the Unsaved Labels Warning Modal.
-   * @param {string} trackName - Name of the track being closed/deleted.
-   * @param {string|null} trackId - ID of track being closed, or 'ALL' for multiple.
-   * @param {Function} onConfirmClose - Callback to execute if user chooses to proceed with close/deletion.
-   */
-
 });

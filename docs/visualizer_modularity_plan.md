@@ -339,11 +339,22 @@ verification used for the `ui.js`/`events.js` work:
    directly but this one couldn't, since the code's shape genuinely
    changed.
 
-**Open gap:** no headless-browser smoke pass has verified either the
-`globe3d.js` split (3D tab, peak click, tour, OSM buildings toggle) or the
-`renderer.js` split (main graph draw, hotspot/peak click, tooltip, timeline
-scrub) in an actual running page — only the Node test suite, for both. Worth
-doing together if a Playwright/Puppeteer setup becomes available.
+**Headless-browser smoke pass — DONE 2026-09-15.** Playwright turned out to
+already be reachable with no install/network fetch: `npx playwright` resolves
+via the npx package cache, and a Chromium build was already downloaded to
+`~/Library/Caches/ms-playwright`. Wrote a throwaway driver script
+(`chromium.launch()` + a local `python3 -m http.server` for `visualiser/`,
+since `fetch()`ing the demo CSV needs `http://`, not `file://`) that loaded
+the demo track and exercised all 4 areas touched this session: single-track
+graph (draw + a peak-tooltip click), 3D globe (switch + OSM-buildings toggle
++ automated tour), Collective view (contour surface), and Live view (mount).
+Screenshotted every stage — all rendered correctly (peaks/hotspots/tooltip on
+the 2D map, the extruded 3D arousal surface with peak spires, the Collective
+contour patch, Live's clean "Connect via Bluetooth" shell). Zero console
+errors traceable to any of the moved code; the sole console error seen once
+(a 504 on an unspecified resource during the Live-view stage) did not
+reproduce on a repeat run and is an external network fetch (map tiles/API),
+not a code path this session touched.
 
 Remaining steps are still pick-up-when-wanted, not scheduled commitments.
 
