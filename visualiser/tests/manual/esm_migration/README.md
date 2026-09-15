@@ -2,9 +2,10 @@
 
 See `docs/visualizer_modularity_plan.md`'s "drop dual-mode for real ES
 modules" section and the plan this session ran from for full context.
-**Current status: layers 0-6 (79 of 93 files) converted and wired into
-`npm test`, suite green. Layer 7 (14 files) not yet started — see "Next
-steps" near the end of this file for the exact resume point.**
+**Current status: all 93 files converted (`find src -name '*.js' | wc -l`
+is 0) and wired into `npm test`, suite green. The per-file conversion step
+(step 3) is DONE. What's left is the one-time atomic browser cutover — see
+"Next steps" near the end of this file.**
 
 ## `build_import_manifest.js` (step 1)
 
@@ -654,39 +655,93 @@ import the file's real upstream dependency too.
 Suite verified 1331/1333 (the 2 pre-existing failures, unchanged) green
 three times in a row before committing (`1cb21c5`).
 
-### Next steps, in order
+### Layer 7 (14 files) — DONE, all 93 files converted
 
-1. Layer 7 (14 files: `map_manager_path.js`, `map_manager_peaks.js`,
-   `map_manager_arousal_places.js`, 9 `src/ui/ui_*.js` files,
-   `renderer_interaction.js` — the most composite, last layer, includes
-   `index.html`'s eventual final entry points). Check `scc_layers.json`
-   for any SCC among them before converting (none of the earlier
-   "remaining 9" had one, but layer 7 hasn't been checked file-by-file
-   yet). Same process each time: `node tests/manual/esm_migration/convert_file.js
-   <file> --write`, then re-run `npm test`; fix any surfaced direct
-   `require('../src/X.js')`/raw-`readFileSync` test references and any
-   not-yet-converted `src/` dual-mode tail that literally `require()`s a
-   now-`.mjs` file inline (see layers 1-2 above) — don't defer. If a
-   source file has a `typeof X === 'undefined'`-style fallback gating on a
-   name that just became a real static import, expect it to go
-   structurally dead (layer 2's `GSR_CONST` pattern, or layer 6's SCC
-   context-detection variant above) — adapt the test accordingly rather
-   than faking absence. If a test needs to inject/override a converted
-   module's internal state, it needs a real exported hook from that module
-   (layer 6's `_setXForTest` pattern above) — reflected-global writes to an
-   `export let` are a structural dead end, not just an edge case to patch
-   around. If an isolated-stub test harness reads a file's raw source
-   directly, expect it to break once that file gains a real static import
-   of its own — `require()` the converted file's export and assign it onto
-   the test's stub instead (this layer's `map_manager_viewport.js` case
-   above). If `npm test` surfaces a genuinely new realm-model bug class
-   beyond these, fix it in `realm_bridge.js` (if it's about the boot/import
-   machinery) or the source file itself (if it's about ESM's actual write
-   semantics, as above) — never in a test-only workaround.
-2. Once every file is converted: the atomic browser cutover (index.html →
-   single `<script type="module">`, `boot_app.js`/`boot_live.js` themselves
-   rewritten one more time to a real dynamic-import-based loader instead of
-   the migration-era realm bridge, `package.json` gets `"type": "module"`)
-   — this is the step where the app goes from "intentionally
-   non-functional in the browser mid-migration" back to working, and where
-   this branch is finally safe to merge to `main`. Not attempted yet.
+`map_manager_path.js`, `map_manager_peaks.js`, `map_manager_arousal_places.js`
+(no SCC, checked `scc_layers.json` first — all 14 layer-7 files are
+singletons), then the 9 `src/ui/ui_*.js` files (`ui_peaks_table.js`,
+`ui_stats_panel.js`, `ui_collective_map.js`, `ui_export.js`,
+`ui_osm_overlay.js`, `ui_modals.js`, `ui_road_profile.js`,
+`ui_correlation_table.js`, `ui_enrichment.js`,
+`ui_environmental_dashboard.js` — that's 10, not 9; the plan's original
+count was off by one), then `renderer_interaction.js` last.
+
+Two genuinely new fallout patterns beyond layers 1-6's by-then-routine set,
+both fixed at the call site, never worked around:
+
+1. **A converted file's real static `import { X } from './x.mjs'` makes a
+   test's `global.X = {...}` full-object STUB replacement inert, not just a
+   `typeof`-guard's fallback branch.** Distinct from layer 2's "guard goes
+   dead" pattern: here the whole point of the test was replacing a real
+   subsystem with a fake (no network/IndexedDB), which a bare-global
+   replacement could do freely pre-conversion. Hit on `ui_enrichment.mjs`'s
+   real imports of `OsmCache`/`OSMEnricher` (both `export const X = {...}`
+   plain objects) — `test_osm_ensure_geoms.js`/`test_osm_enrich_orchestration.js`'s
+   `global.OsmCache = {...}` stubs stopped reaching the module. Fixed by
+   monkey-patching the real singletons' methods in place instead
+   (`Object.assign(RealOsmCache, {...fakeMethods})`) at every stub site —
+   safe with no restore needed since every test in both files reinstalls
+   its own fakes before running, and each test file gets its own process
+   under `node --test`.
+2. **One file's conversion can make EVERY test in another file's
+   `global.AppState = {...}` pattern inert at once, not just the one test
+   that happens to exercise a sort column.** `ui_environmental_dashboard.mjs`'s
+   real AppState import broke all ~15 of `test_env_dashboard_cache.js`'s
+   `updateEnvironmentalDashboard` tests in one commit, not just the two sort
+   tests layer 7's `ui_road_profile.js`/`ui_correlation_table.js` commits had
+   already fixed individually. Fixed once at file scope instead of per-test:
+   `global.AppState = RealAppState` (an alias, not a copy) plus a bulk
+   `global.AppState = {...}` → `Object.assign(RealAppState, {...})` rewrite
+   across every call site — safe as a merge, not a full reset, because every
+   call site already explicitly sets every field the dashboard's
+   cache-target logic branches on (`viewMode` + `analyzer`, or `viewMode` +
+   `collectiveManager`). The two sort tests' own restore-after-mutation
+   `original`/`finally` pattern (a real reset, not a merge, since they need
+   pristine sort-column state) was left as-is.
+
+Both `MAP_PROTO_AUGMENTS` (test_map_ui_augment_require_exports.js) and
+`UI_AUGMENTS` (same file) emptied out entirely once their last member
+converted — every map_manager_*.js/ui_*.js augment is now a real ES module
+with no dual-mode require-branch left to test, so both loops were deleted
+outright rather than left iterating over `[]`; `test_renderer_require_exports.js`'s
+loop emptied the same way once `renderer_interaction.js` converted.
+
+`find src -name '*.js' | wc -l` is 0; `*.mjs` is 93. Suite verified
+1317/1319 (the 2 pre-existing failures, unchanged) green three times in a
+row before the final commit (`8322536`).
+
+### Next step: the atomic browser cutover (not attempted yet)
+
+Every `src/` file is a real ES module, but the app is still intentionally
+non-functional in an actual browser — `index.html` still lists 93
+individual `<script>` tags in dependency order, and `boot_app.js`/
+`boot_live.js`'s realm-bridge machinery (jsdom-on-`global`, per-boot-
+generation cache-busting, the `wrapForRepeatedExecution`/`clearPreviousBoot`
+pair) exists purely to let the test suite mix converted `.mjs` and
+not-yet-converted `.js` files in one shared realm across 8 layers of
+incremental conversion — none of that is needed, or wanted, once every
+file is already a module.
+
+The remaining work, all in one pass since there's no more "some converted,
+some not" state to straddle:
+
+1. Rewrite `index.html`'s `<script>` list down to a single
+   `<script type="module" src="...">` pointing at a real entry point (the
+   equivalent of today's `SCRIPT_ORDER`'s last file) that statically
+   imports everything transitively — same for `live.html`'s
+   `LIVE_SCRIPT_ORDER` equivalent.
+2. Add `"type": "module"` to `package.json`.
+3. Rewrite `boot_app.js`/`boot_live.js` from the realm-bridge model to a
+   plain dynamic-`import()`-based loader — no more jsdom-onto-`global`
+   bridging, no more per-boot-generation cache-busting hook (Node's normal
+   ESM module cache is fine once nothing is re-executing a not-yet-converted
+   file's source per call), no more `wrapForRepeatedExecution`. This is
+   likely the biggest single edit, since ~17 test files' `bootApp()`/
+   `bootLive()` call sites and the various `_setXForTest`-style hooks added
+   along the way all need re-verifying against the simpler model.
+4. Full suite green, then manually smoke-test the app in a real browser
+   (something step 3 alone can't prove) before merging to `main`.
+
+This is the step where the app goes from "intentionally non-functional in
+the browser mid-migration" back to working, and where this branch is
+finally safe to merge.
