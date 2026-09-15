@@ -9,8 +9,12 @@
  * truncation warning, Phasic AUC / graph-view / response-dynamics option
  * availability).
  */
-(function () {
-const __methods = {
+import { AppState } from '../core/app_state.mjs';
+import { windowResized } from '../render/sketch.mjs';
+import { GSREvents } from './events.mjs';
+import { GSRUI } from './ui.mjs';
+
+export const __methods = {
 
   /**
    * Show/hide the SCR-deconvolution truncation warning (index.html,
@@ -231,10 +235,4 @@ const __methods = {
 
 };
 
-if (typeof module !== 'undefined' && module.exports) {
-  Object.assign(global, require('./ui.mjs'));
-  module.exports = __methods;
-} else {
-  Object.assign(GSRUI, __methods);
-}
-})();
+Object.assign(GSRUI, __methods);

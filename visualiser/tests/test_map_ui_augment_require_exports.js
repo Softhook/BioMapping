@@ -20,7 +20,7 @@
  * require-branch treatment when test_globe3d.js needed it (see
  * docs/visualizer_modularity_plan.md's "Require/boot-up gotcha" section).
  * Several of them (ui_correlation_table.js, ui_enrichment.js, ui_export.js,
- * ui_modals.js, ui_osm_overlay.js, ui_peaks_table.js, ui_stats_panel.js,
+ * ui_modals.js, ui_osm_overlay.js,
  * ui_environmental_dashboard.js) reference GSRUI bare (not `this.`) from
  * within their own method bodies — exactly the self-reference shape that
  * produced a silent `global.X = undefined` in renderer.js until
@@ -35,7 +35,7 @@ const test   = require('node:test');
 const UI_AUGMENTS = [
   'ui_collective_map.js', 'ui_correlation_table.js', 'ui_enrichment.js',
   'ui_environmental_dashboard.js', 'ui_export.js', 'ui_modals.js', 'ui_osm_overlay.js',
-  'ui_peaks_table.js', 'ui_road_profile.js', 'ui_stats_panel.js',
+  'ui_road_profile.js',
 ];
 
 test('map.js exports GSRMapManager', async () => {

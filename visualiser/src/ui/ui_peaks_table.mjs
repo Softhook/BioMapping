@@ -6,8 +6,15 @@
  * focusing/zooming the timeline and active map surface to a peak, exclusion
  * toggling, and building/sorting the #peaksTable rows.
  */
-(function () {
-const __methods = {
+import { AppState } from '../core/app_state.mjs';
+import { GSR_CONST } from '../core/constants.mjs';
+import { GSRNotices } from '../core/notices.mjs';
+import { GSRGlobe3DView } from '../map/globe3d_view.mjs';
+import { getQualityColor, getQualityLabel } from '../render/renderer.mjs';
+import { GSRStorage } from './storage.mjs';
+import { GSRUI } from './ui.mjs';
+
+export const __methods = {
 
   /**
    * Update a peak's label from table or map popup input, then refresh the UI.
@@ -338,10 +345,4 @@ const __methods = {
 
 };
 
-if (typeof module !== 'undefined' && module.exports) {
-  Object.assign(global, require('./ui.mjs'));
-  module.exports = __methods;
-} else {
-  Object.assign(GSRUI, __methods);
-}
-})();
+Object.assign(GSRUI, __methods);

@@ -38,13 +38,12 @@ loadBrowserModule('../src/signal/deconvolution.js','SCRDeconvolution');
 loadBrowserModule('../src/signal/csv_parser.js',    'GSRCSVParser');
 loadBrowserModule('../src/map/map_exporter.js', 'GSRMapExporter');
 loadBrowserModule('../src/ui/tracks.js',       'GSRTrackManager');
-// ui.js/ui_stats_panel.js are loaded via require(), not loadBrowserModule,
-// because ui_stats_panel.js's own dual-mode require-branch pulls in ui.js via
-// a relative require internally (see renderer.js's class-tail manifest
-// comment) — loading ui.js a second way here would produce a second, distinct
-// GSRUI object that the two loaders would then fight over.
+// ui.js/ui_stats_panel.js are loaded via require(), not loadBrowserModule:
+// ui_stats_panel.mjs holds a real static import of ui.mjs's GSRUI — loading
+// ui.js a second way here would produce a second, distinct GSRUI object that
+// the two loaders would then fight over.
 global.GSRUI = require('../src/ui/ui.mjs').GSRUI;
-Object.assign(global.GSRUI, require('../src/ui/ui_stats_panel.js'));
+Object.assign(global.GSRUI, require('../src/ui/ui_stats_panel.mjs').__methods);
 
 loadBrowserModule('../src/signal/analyzer.js', 'GSRAnalyzer');
 
@@ -561,6 +560,19 @@ test('GSRUI.syncMapPanelForSpatialData collapses map window for tracks with no s
   global.document = {
     getElementById: (id) => id === 'mapPanel' ? mockMapPanel : null
   };
+  // ui_stats_panel.mjs holds a real static `import { windowResized } from
+  // '../render/sketch.mjs'` binding — its `typeof windowResized === 'function'`
+  // guard is now always true (was always false in this lightweight harness
+  // pre-conversion, since windowResized was never loaded here), so the
+  // requestAnimationFrame()/setTimeout(..., 220) calls inside it are
+  // genuinely reached now. This test only asserts synchronous classList/
+  // dataset state, so both are stubbed to no-ops rather than let a real
+  // 220ms timer fire windowResized() after the test (and its document mock)
+  // have gone away.
+  const origRAF = global.requestAnimationFrame;
+  const origSetTimeout = global.setTimeout;
+  global.requestAnimationFrame = () => {};
+  global.setTimeout = () => {};
 
   try {
     const nonSpatialTrack = {
@@ -595,6 +607,8 @@ test('GSRUI.syncMapPanelForSpatialData collapses map window for tracks with no s
     assert.strictEqual(mockMapPanel.dataset.autoCollapsedNoSpatial, 'true');
   } finally {
     global.document = origDocument;
+    global.requestAnimationFrame = origRAF;
+    global.setTimeout = origSetTimeout;
   }
 });
 

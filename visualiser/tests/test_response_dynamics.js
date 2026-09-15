@@ -162,57 +162,64 @@ test('Response Dynamics: GSRAnalyzer delegation & peak exclusion reactivity', ()
 test('Response Dynamics: UI sync logic', () => {
   global.window = global;
   const { GSRUI } = require('../src/ui/ui.mjs');
-  Object.assign(GSRUI, require('../src/ui/ui_stats_panel.js'));
-  global.AppState = {
-    analyzer: {
-      _driverAlgorithm: 'sparseda'
-    },
-    sliders: {
-      graphView: {
-        value: 'signal',
-        querySelector: (sel) => {
-          if (sel === 'option[value="responseDynamics"]') return { disabled: true };
-          return null;
+  Object.assign(GSRUI, require('../src/ui/ui_stats_panel.mjs').__methods);
+  // ui_stats_panel.mjs holds a real static `import { AppState } from
+  // '../core/app_state.mjs'` binding, not a bare global lookup — replacing
+  // global.AppState wholesale is inert against it. Mutate the real
+  // singleton's own fields in place instead (same pattern as layer 2's
+  // GSR_CONST fix).
+  const { AppState: RealAppState } = require('../src/core/app_state.mjs');
+  const original = { analyzer: RealAppState.analyzer, sliders: RealAppState.sliders };
+  RealAppState.analyzer = { _driverAlgorithm: 'sparseda' };
+  RealAppState.sliders = {
+    graphView: {
+      value: 'signal',
+      querySelector: (sel) => {
+        if (sel === 'option[value="responseDynamics"]') return { disabled: true };
+        return null;
+      }
+    }
+  };
+
+  try {
+    // Mock document
+    const mapOption = { disabled: true };
+    global.document = {
+      getElementById: (id) => {
+        if (id === 'graphView') return RealAppState.sliders.graphView;
+        if (id === 'mapColoringMetric') {
+          return {
+            value: 'gsr',
+            querySelector: (sel) => {
+              if (sel === 'option[value="responseDynamics"]') return mapOption;
+              return null;
+            },
+            dispatchEvent: () => {}
+          };
         }
+        return null;
       }
-    }
-  };
+    };
 
-  // Mock document
-  const mapOption = { disabled: true };
-  global.document = {
-    getElementById: (id) => {
-      if (id === 'graphView') return global.AppState.sliders.graphView;
-      if (id === 'mapColoringMetric') {
-        return {
-          value: 'gsr',
-          querySelector: (sel) => {
-            if (sel === 'option[value="responseDynamics"]') return mapOption;
-            return null;
-          },
-          dispatchEvent: () => {}
-        };
-      }
-      return null;
-    }
-  };
+    // 1. In SparsEDA mode: options should become enabled (disabled = false)
+    GSRUI.syncResponseDynamicsOptions();
+    assert.strictEqual(mapOption.disabled, false, 'Map option should be enabled when SparsEDA is active');
 
-  // 1. In SparsEDA mode: options should become enabled (disabled = false)
-  GSRUI.syncResponseDynamicsOptions();
-  assert.strictEqual(mapOption.disabled, false, 'Map option should be enabled when SparsEDA is active');
+    // 2. When switching away from SparsEDA: options should become disabled
+    RealAppState.analyzer._driverAlgorithm = 'matching_pursuit';
+    let mapEventDispatched = false;
+    const mapElem = {
+      value: 'responseDynamics',
+      querySelector: (sel) => (sel === 'option[value="responseDynamics"]' ? mapOption : null),
+      dispatchEvent: () => { mapEventDispatched = true; }
+    };
+    global.document.getElementById = (id) => (id === 'mapColoringMetric' ? mapElem : RealAppState.sliders.graphView);
 
-  // 2. When switching away from SparsEDA: options should become disabled
-  global.AppState.analyzer._driverAlgorithm = 'matching_pursuit';
-  let mapEventDispatched = false;
-  const mapElem = {
-    value: 'responseDynamics',
-    querySelector: (sel) => (sel === 'option[value="responseDynamics"]' ? mapOption : null),
-    dispatchEvent: () => { mapEventDispatched = true; }
-  };
-  global.document.getElementById = (id) => (id === 'mapColoringMetric' ? mapElem : global.AppState.sliders.graphView);
-
-  GSRUI.syncResponseDynamicsOptions();
-  assert.strictEqual(mapOption.disabled, true, 'Map option should be disabled when SparsEDA is inactive');
-  assert.strictEqual(mapElem.value, 'gsr', 'Map selection should reset to gsr when SparsEDA is disabled');
-  assert.strictEqual(mapEventDispatched, true, 'Map change event dispatched on reset');
+    GSRUI.syncResponseDynamicsOptions();
+    assert.strictEqual(mapOption.disabled, true, 'Map option should be disabled when SparsEDA is inactive');
+    assert.strictEqual(mapElem.value, 'gsr', 'Map selection should reset to gsr when SparsEDA is disabled');
+    assert.strictEqual(mapEventDispatched, true, 'Map change event dispatched on reset');
+  } finally {
+    Object.assign(RealAppState, original);
+  }
 });
