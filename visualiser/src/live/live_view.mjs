@@ -810,6 +810,7 @@ export function goToLatLon(lat, lon, zoom) {
 // ==========================================================================
 
 export function initLiveViewDom(container) {
+  if (!container) return;
   // .live-view scopes every rule in styles.css's "Live Stream (BLE) view"
   // section to this subtree — so the live UI's bare header/footer/button
   // selectors never leak into the host page.
@@ -1020,7 +1021,7 @@ export const GSRLiveView = {
   _mounted: false,
 
   mount(container) {
-    if (this._mounted) return;
+    if (!container || this._mounted) return;
     this._mounted = true;
 
     initLiveViewDom(container);

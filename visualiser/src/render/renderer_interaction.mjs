@@ -169,7 +169,7 @@ import { GSRUI } from '../ui/ui.mjs';
       // flag are computed from the canvas' own layout box, which can go stale
       // or keep overlapping whatever took its place once the canvas is hidden
       // by CSS rather than actually moved/removed.
-      if (!AppState.myCanvas || document.elementFromPoint(winMouseX, winMouseY) !== AppState.myCanvas.elt) {
+      if (!AppState.myCanvas || (typeof document.elementFromPoint === 'function' && document.elementFromPoint(winMouseX, winMouseY) !== AppState.myCanvas.elt)) {
         this._clearScrub();
         return;
       }
