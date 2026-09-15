@@ -16,7 +16,7 @@
  * gracefully under Node / jsdom-less tests.
  */
 
-class GSRNotices {
+export class GSRNotices {
   /**
    * Report an error. Logs consistently and, in a DOM environment, shows a
    * red, non-blocking toast.
@@ -261,8 +261,4 @@ if (typeof window !== 'undefined') {
   window.addEventListener('unhandledrejection', (event) => {
     GSRNotices.report(event.reason, 'unhandledrejection');
   });
-}
-
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { GSRNotices };
 }

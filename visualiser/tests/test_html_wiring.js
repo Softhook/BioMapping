@@ -65,11 +65,18 @@ test('live.html loads exactly the shared src/ modules tests/support/boot_live.js
   assert.deepStrictEqual(scriptSrcs(readApp('live.html')), LIVE_SCRIPT_ORDER);
 });
 
+// ES-module migration (tests/manual/esm_migration/): a converted src/ file's
+// .js sibling is deliberately deleted (convert_file.js --write) before the
+// atomic index.html cutover to <script type="module"> — see boot_app.js's
+// own resolveFile(), which applies the identical rule for the jsdom harness.
+// Until that cutover, a `.js` reference whose `.mjs` sibling exists is a
+// known, tracked mid-migration state, not a missing file.
+const existsOnDisk = (rel) =>
+  fs.existsSync(path.join(APP_DIR, rel)) || fs.existsSync(path.join(APP_DIR, rel.replace(/\.js$/, '.mjs')));
+
 for (const page of ['index.html', 'live.html']) {
   test(`${page}: every local href/src resolves to a file on disk`, () => {
-    const missing = localRefs(readApp(page)).filter(
-      (rel) => !fs.existsSync(path.join(APP_DIR, rel))
-    );
+    const missing = localRefs(readApp(page)).filter((rel) => !existsOnDisk(rel));
     assert.deepStrictEqual(missing, [], `${page} points at missing file(s)`);
   });
 }

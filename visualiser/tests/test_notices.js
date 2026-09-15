@@ -2,12 +2,21 @@
 
 const assert = require('assert');
 const test   = require('node:test');
-const fs     = require('fs');
 const path   = require('path');
-const vm     = require('vm');
+const { pathToFileURL } = require('url');
 const { JSDOM } = require('jsdom');
 
-const { GSRNotices } = require('../src/core/notices.js');
+const { GSRNotices } = require('../src/core/notices.mjs');
+
+// Loads a fresh instance of notices.mjs's module scope (so its top-level
+// `window.addEventListener('error', ...)` wiring runs again against
+// whatever fake window/document is on `global` at the time) — the
+// cache-busted-specifier replacement for the old `vm.runInNewContext(src,
+// sandbox)` approach, which can't run `export`-syntax source at all.
+function importFreshNotices() {
+  const url = pathToFileURL(path.join(__dirname, '../src/core/notices.mjs')).href;
+  return import(`${url}?t=${Date.now()}-${Math.random()}`);
+}
 
 test('GSRNotices.report: logs without throwing in a no-DOM environment', () => {
   // No window/document globals are set here, so _toast() must no-op gracefully.
@@ -73,10 +82,10 @@ test('GSRNotices.report: reuses the existing container instead of stacking new o
   delete global.document;
 });
 
-test('GSRNotices: window error/unhandledrejection hooks surface uncaught errors', () => {
-  // Load notices.js into a fake window so its load-time listener wiring runs,
-  // then dispatch an uncaught error through the registered hook and verify a
-  // toast appears (the core "don't fail silently" guarantee).
+test('GSRNotices: window error/unhandledrejection hooks surface uncaught errors', async () => {
+  // Load a fresh notices.mjs against a fake window so its load-time listener
+  // wiring runs, then dispatch an uncaught error through the registered hook
+  // and verify a toast appears (the core "don't fail silently" guarantee).
   const listeners = {};
   const fakeWindow = {
     addEventListener: (type, fn) => { listeners[type] = fn; },
@@ -93,20 +102,26 @@ test('GSRNotices: window error/unhandledrejection hooks surface uncaught errors'
     body: { appendChild(c) { bodyChildren.push(c); } },
   };
 
-  const src = fs.readFileSync(path.join(__dirname, '../src/core/notices.js'), 'utf8');
-  vm.runInNewContext(src, { window: fakeWindow, document: fakeDocument, console, setTimeout });
+  global.window = fakeWindow;
+  global.document = fakeDocument;
+  try {
+    await importFreshNotices();
 
-  assert.strictEqual(typeof listeners.error, 'function', 'window error hook registered');
-  assert.strictEqual(typeof listeners.unhandledrejection, 'function', 'unhandledrejection hook registered');
+    assert.strictEqual(typeof listeners.error, 'function', 'window error hook registered');
+    assert.strictEqual(typeof listeners.unhandledrejection, 'function', 'unhandledrejection hook registered');
 
-  // Simulate an uncaught error (window 'error' event with .error populated).
-  listeners.error({ error: new Error('uncaught boom'), message: 'uncaught boom' });
-  assert.strictEqual(bodyChildren.length, 1, 'toast container appears on uncaught error');
-  const toast = bodyChildren[0].children[0];
-  assert.ok(toast.textContent.includes('uncaught boom'), 'toast surfaces the uncaught error message');
+    // Simulate an uncaught error (window 'error' event with .error populated).
+    listeners.error({ error: new Error('uncaught boom'), message: 'uncaught boom' });
+    assert.strictEqual(bodyChildren.length, 1, 'toast container appears on uncaught error');
+    const toast = bodyChildren[0].children[0];
+    assert.ok(toast.textContent.includes('uncaught boom'), 'toast surfaces the uncaught error message');
+  } finally {
+    delete global.window;
+    delete global.document;
+  }
 });
 
-test('GSRNotices: benign ResizeObserver loop diagnostic does not spawn a red toast', () => {
+test('GSRNotices: benign ResizeObserver loop diagnostic does not spawn a red toast', async () => {
   // Regression for: "223 notices ... [GSRNotices:window.onerror] ResizeObserver
   // loop completed with undelivered notifications." Browsers fire this harmless
   // diagnostic through window.onerror when a ResizeObserver callback resizes an
@@ -130,17 +145,23 @@ test('GSRNotices: benign ResizeObserver loop diagnostic does not spawn a red toa
     body: { appendChild(c) { bodyChildren.push(c); } },
   };
 
-  const src = fs.readFileSync(path.join(__dirname, '../src/core/notices.js'), 'utf8');
-  vm.runInNewContext(src, { window: fakeWindow, document: fakeDocument, console, setTimeout });
+  global.window = fakeWindow;
+  global.document = fakeDocument;
+  try {
+    await importFreshNotices();
 
-  // Fire the benign diagnostic exactly as browsers do (message on the event,
-  // no error object).
-  listeners.error({ error: undefined, message: 'ResizeObserver loop completed with undelivered notifications.' });
-  assert.strictEqual(bodyChildren.length, 0, 'benign ResizeObserver diagnostic must not create a toast');
+    // Fire the benign diagnostic exactly as browsers do (message on the
+    // event, no error object).
+    listeners.error({ error: undefined, message: 'ResizeObserver loop completed with undelivered notifications.' });
+    assert.strictEqual(bodyChildren.length, 0, 'benign ResizeObserver diagnostic must not create a toast');
 
-  // Sanity: a real error on the same hook still toasts — the filter is narrow.
-  listeners.error({ error: new Error('real boom'), message: 'real boom' });
-  assert.strictEqual(bodyChildren.length, 1, 'a real error still toasts after the benign one was swallowed');
+    // Sanity: a real error on the same hook still toasts — the filter is narrow.
+    listeners.error({ error: new Error('real boom'), message: 'real boom' });
+    assert.strictEqual(bodyChildren.length, 1, 'a real error still toasts after the benign one was swallowed');
+  } finally {
+    delete global.window;
+    delete global.document;
+  }
 });
 
 test('GSRNotices.warn: shows an amber toast (not the red error toast)', () => {
