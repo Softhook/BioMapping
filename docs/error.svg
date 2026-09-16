@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 520" style="background: #ffffff; font-family: system-ui, -apple-system, sans-serif;">
+  <!-- Title & Subtitle -->
+  <text x="50" y="40" fill="#1e293b" font-size="18" font-weight="700">BioMapping 2.0 — Measurement Error (%) Across Resistance Range</text>
+  <text x="50" y="65" fill="#64748b" font-size="12">Measurement error % on the left across 10 kΩ to 9 MΩ</text>
+
+  <!-- Background Grid & Axes -->
+  <g transform="translate(80, 95)">
+    <!-- Y-Axis Grid Lines & Labels (Linear Scale: 80px per 1%, 0% baseline at y=260) -->
+    <g stroke="#e2e8f0" stroke-width="1">
+      <line x1="0" y1="20" x2="760" y2="20" stroke-dasharray="4" />     <!-- 3.0% -->
+      <line x1="0" y1="100" x2="760" y2="100" stroke-dasharray="4" />   <!-- 2.0% -->
+      <line x1="0" y1="180" x2="760" y2="180" stroke-dasharray="4" />   <!-- 1.0% -->
+      <line x1="0" y1="220" x2="760" y2="220" stroke-dasharray="4" />   <!-- 0.5% -->
+      <line x1="0" y1="260" x2="760" y2="260" stroke="#cbd5e1" stroke-width="2" /> <!-- 0.0% -->
+      <line x1="0" y1="300" x2="760" y2="300" stroke-dasharray="4" />   <!-- -0.5% -->
+    </g>
+
+    <g fill="#64748b" font-size="11" text-anchor="end">
+      <text x="-12" y="24">3.0%</text>
+      <text x="-12" y="104">2.0%</text>
+      <text x="-12" y="184">1.0%</text>
+      <text x="-12" y="224">0.5%</text>
+      <text x="-12" y="264">0.0%</text>
+      <text x="-12" y="304">-0.5%</text>
+    </g>
+
+    <!-- Shaded Primary Accuracy Zone (47k at x=160 to 1M at x=525) - Darker Green -->
+    <rect x="160" y="-10" width="365" height="340" fill="#16a34a" fill-opacity="0.12" stroke="#15803d" stroke-dashangle="4" stroke-width="1" stroke-opacity="0.4" />
+    <text x="342.5" y="10" fill="#14532d" font-size="11" font-weight="700" text-anchor="middle">Primary Zone: 47 kΩ – 1 MΩ (≤ ±0.1% Error)</text>
+
+    <!-- Error Curve Path linking all 20 measured points -->
+    <path d="M 30,303.2 L 65,292.8 L 100,279.2 L 130,271.2 L 160,260 L 195,258.4 L 230,264.8 L 265,260 L 300,260 L 335,257.6 L 370,260 L 410,260 L 450,254.4 L 525,252 L 570,236 L 615,224.8 L 655,180.8 L 690,184.8 L 725,151.2 L 755,44" 
+          fill="none" stroke="#2563eb" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
+
+    <!-- Data Points & Labels for ALL 20 values with precise X alignment -->
+    <g font-size="10" font-weight="500" fill="#1e293b">
+      <!-- 10k (-0.54%) -->
+      <circle cx="30" cy="303.2" r="4" fill="#2563eb" /><text x="30" y="322" text-anchor="middle">10k (-0.5%)</text>
+      <!-- 15k (-0.41%) -->
+      <circle cx="65" cy="292.8" r="4" fill="#2563eb" /><text x="65" y="280" text-anchor="middle">15k</text>
+      <!-- 22k (-0.24%) -->
+      <circle cx="100" cy="279.2" r="4" fill="#2563eb" /><text x="100" y="267" text-anchor="middle">22k</text>
+      <!-- 33k (-0.14%) -->
+      <circle cx="130" cy="271.2" r="4" fill="#2563eb" /><text x="130" y="286" text-anchor="middle">33k</text>
+      <!-- 47k (0.00%) - Perfectly Aligned -->
+      <circle cx="160" cy="260" r="4.5" fill="#16a34a" /><text x="160" y="244" text-anchor="middle" fill="#15803d" font-weight="700">47k (0%)</text>
+      <!-- 68k (0.02%) -->
+      <circle cx="195" cy="258.4" r="4.5" fill="#16a34a" /><text x="195" y="278" text-anchor="middle" fill="#15803d">68k</text>
+      <!-- 100k (-0.06%) -->
+      <circle cx="230" cy="264.8" r="4.5" fill="#16a34a" /><text x="230" y="244" text-anchor="middle" fill="#15803d">100k</text>
+      <!-- 150k (0.00%) -->
+      <circle cx="265" cy="260" r="4.5" fill="#16a34a" /><text x="265" y="278" text-anchor="middle" fill="#15803d">150k</text>
+      <!-- 200k (0.00%) -->
+      <circle cx="300" cy="260" r="4.5" fill="#16a34a" /><text x="300" y="244" text-anchor="middle" fill="#15803d">200k</text>
+      <!-- 270k (0.03%) -->
+      <circle cx="335" cy="257.6" r="4.5" fill="#16a34a" /><text x="335" y="278" text-anchor="middle" fill="#15803d">270k</text>
+      <!-- 330k (0.00%) -->
+      <circle cx="370" cy="260" r="4.5" fill="#16a34a" /><text x="370" y="244" text-anchor="middle" fill="#15803d">330k</text>
+      <!-- 470k (0.00%) -->
+      <circle cx="410" cy="260" r="4.5" fill="#16a34a" /><text x="410" y="278" text-anchor="middle" fill="#15803d">470k</text>
+      <!-- 680k (0.07%) -->
+      <circle cx="450" cy="254.4" r="4.5" fill="#16a34a" /><text x="450" y="244" text-anchor="middle" fill="#15803d">680k</text>
+      <!-- 1M (0.10%) -->
+      <circle cx="525" cy="252" r="4.5" fill="#16a34a" /><text x="525" y="278" text-anchor="middle" fill="#15803d">1M (+0.1%)</text>
+      <!-- 1.5M (0.30%) -->
+      <circle cx="570" cy="236" r="4" fill="#2563eb" /><text x="570" y="222" text-anchor="middle">1.5M</text>
+      <!-- 2.2M (0.44%) -->
+      <circle cx="615" cy="224.8" r="4" fill="#2563eb" /><text x="615" y="210" text-anchor="middle">2.2M</text>
+      <!-- 3.3M (0.99%) -->
+      <circle cx="655" cy="180.8" r="4" fill="#d97706" /><text x="655" y="167" text-anchor="middle" fill="#b45309">3.3M (1.0%)</text>
+      <!-- 4.7M (0.94%) -->
+      <circle cx="690" cy="184.8" r="4" fill="#d97706" /><text x="690" y="202" text-anchor="middle" fill="#b45309">4.7M</text>
+      <!-- 6.8M (1.36%) -->
+      <circle cx="725" cy="151.2" r="4" fill="#dc2626" /><text x="725" y="137" text-anchor="middle" fill="#b91c1c">6.8M</text>
+      <!-- 9M (2.70%) -->
+      <circle cx="755" cy="44" r="4" fill="#dc2626" /><text x="755" y="28" text-anchor="middle" fill="#b91c1c" font-weight="700">9MΩ (+2.7%)</text>
+    </g>
+
+    <!-- X-Axis Baseline -->
+    <line x1="0" y1="325" x2="760" y2="325" stroke="#64748b" stroke-width="1.5" />
+  </g>
+</svg>
