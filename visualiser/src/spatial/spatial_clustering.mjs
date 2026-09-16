@@ -7,7 +7,7 @@ import { GeoUtils } from '../gps/geo_utils.mjs';
 import { MarchingSquares } from '../render/marching_squares.mjs';
 import { SpatialGrid } from './spatial_grid.mjs';
 
-export class GSRSpatialClustering {
+export const GSRSpatialClustering = {
   /**
    * Helper to compute conversion factors from degrees to meters at a given latitude.
    *
@@ -15,9 +15,9 @@ export class GSRSpatialClustering {
    * @returns {{degToMeterLat: number, degToMeterLon: number}} Scaling factors.
    * @private
    */
-  static _getGeodesicScale(lat) {
+  _getGeodesicScale(lat) {
     return GeoUtils.getGeodesicScale(lat);
-  }
+  },
 
   /**
    * Compact spatial clustering for the Arousal Places layer.
@@ -49,7 +49,7 @@ export class GSRSpatialClustering {
    *   (seeds at least one ball apart); NaN falls back to the default.
    * @returns {Array<Array<object>>} Clusters of the original peak objects.
    */
-  static compactClusters(peaks, radiusMeters = 35, separationFactor = 1.8) {
+  compactClusters(peaks, radiusMeters = 35, separationFactor = 1.8) {
     if (!peaks || peaks.length === 0) return [];
     const n = peaks.length;
     const R =
@@ -160,7 +160,7 @@ export class GSRSpatialClustering {
       seeds.push({ x: x[seed], y: y[seed], members });
     }
     return seeds.map((s) => s.members);
-  }
+  },
 
   /**
    * Relative-severity weight for a single peak's contribution to a spatial density field,
@@ -180,14 +180,14 @@ export class GSRSpatialClustering {
    *   When missing/non-positive, or when amplitude is invalid, every peak weighs 1 (unweighted).
    * @returns {number} Clamped relative weight, in [GSR_CONST.PEAK_KDE.ampWeightMin, ampWeightMax].
    */
-  static relativeAmplitudeWeight(amplitude, refAmplitude) {
+  relativeAmplitudeWeight(amplitude, refAmplitude) {
     const min = GSR_CONST?.PEAK_KDE ? GSR_CONST.PEAK_KDE.ampWeightMin : 0.55;
     const max = GSR_CONST?.PEAK_KDE ? GSR_CONST.PEAK_KDE.ampWeightMax : 3.0;
     if (typeof refAmplitude !== 'number' || refAmplitude <= 0) return 1;
     if (typeof amplitude !== 'number' || isNaN(amplitude)) return 1;
     const rel = amplitude / refAmplitude;
     return Math.max(min, Math.min(max, rel));
-  }
+  },
 
   /**
    * Generates rounded, concave boundary polygons for a cluster of peaks.
@@ -204,7 +204,7 @@ export class GSRSpatialClustering {
    *   behaviour for existing callers.
    * @returns {Array<Array<{lat: number, lon: number}>>} Array of paths (closed loops).
    */
-  static getConcaveBlob(
+  getConcaveBlob(
     cluster,
     sigma = 15,
     thresholdRadius = 18,
@@ -424,7 +424,7 @@ export class GSRSpatialClustering {
         GeoUtils.pointInPolygon(peak.lat, peak.lon, path),
       );
     });
-  }
+  },
 
   /**
    * Stitch short Marching-Squares line segments into continuous closed/open paths.
@@ -444,7 +444,7 @@ export class GSRSpatialClustering {
    * two disagree only in how they partition segments at a true junction, where
    * neither order is canonical).
    */
-  static stitchSegments(segments) {
+  stitchSegments(segments) {
     if (!segments || segments.length === 0) return [];
 
     const EPS = 1e-6; // lat/lon coincidence tolerance (~10 cm)
@@ -534,5 +534,5 @@ export class GSRSpatialClustering {
     }
 
     return paths;
-  }
-}
+  },
+};

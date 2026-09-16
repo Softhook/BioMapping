@@ -16,7 +16,7 @@
 import { GSR_CONST } from '../core/constants.mjs';
 import { calcEmFog } from './em_fog.mjs';
 
-export class GSRCSVParser {
+export const GSRCSVParser = {
   /**
    * Parse one CSV line into fields, honoring quoted commas and escaped quotes
    * (RFC4180 double-quote escaping).
@@ -24,7 +24,7 @@ export class GSRCSVParser {
    * @returns {string[]} Parsed fields
    * @private
    */
-  static _parseCsvLine(line) {
+  _parseCsvLine(line) {
     const fields = [];
     let cur = '';
     let inQuotes = false;
@@ -47,7 +47,7 @@ export class GSRCSVParser {
     }
     fields.push(cur);
     return fields;
-  }
+  },
 
   /**
    * Escape a value for CSV output using RFC4180-style double-quote escaping.
@@ -55,11 +55,11 @@ export class GSRCSVParser {
    * @returns {string}
    * @private
    */
-  static _csvEscape(val) {
+  _csvEscape(val) {
     if (val === null || val === undefined) return '';
     const str = String(val).replace(/"/g, '""');
     return `"${str}"`;
-  }
+  },
 
   /**
    * CRC32 (reflected, polynomial 0xEDB88320 — the zlib/PNG variant) over a
@@ -70,7 +70,7 @@ export class GSRCSVParser {
    * @returns {number}
    * @private
    */
-  static _crc32(input) {
+  _crc32(input) {
     let table = GSRCSVParser._crc32Table;
     if (!table) {
       table = new Uint32Array(256);
@@ -89,7 +89,7 @@ export class GSRCSVParser {
       crc = (crc >>> 8) ^ table[(crc ^ bytes[i]) & 0xff];
     }
     return (crc ^ 0xffffffff) >>> 0;
-  }
+  },
 
   /**
    * Verify the integrity bracket the device writes around a clean recording
@@ -106,7 +106,7 @@ export class GSRCSVParser {
    *           endTime?:(number|null)}}
    * @private
    */
-  static _verifyIntegrity(csvText, hasMarker, headerLineCount) {
+  _verifyIntegrity(csvText, hasMarker, headerLineCount) {
     // The firmware's SD logger (and buildLiveCsv) only ever write bare "\n"
     // line endings and no byte-order mark. A file that has since been through
     // a text editor, a spreadsheet round-trip, or a CRLF-converting transfer
@@ -205,7 +205,7 @@ export class GSRCSVParser {
         `some samples may be missing mid-track.`;
     }
     return { status: 'verified', detail, overflows, flushFails, endTime };
-  }
+  },
 
   /**
    * Interpolate GPS coordinates across a dense 10 Hz row list where anchors
@@ -221,7 +221,7 @@ export class GSRCSVParser {
    * @param {Array<object>} rawDataList - Mutable array of parsed row objects.
    * @private
    */
-  static _interpolateGPS(rawDataList) {
+  _interpolateGPS(rawDataList) {
     const gpsIndices = [];
     for (let i = 0; i < rawDataList.length; i++) {
       const d = rawDataList[i];
@@ -302,7 +302,7 @@ export class GSRCSVParser {
         hasGps: true,
       });
     }
-  }
+  },
 
   /**
    * Row indices where at least one Sub-GHz band shows a momentary spike —
@@ -317,7 +317,7 @@ export class GSRCSVParser {
    * @returns {Set<number>} Indices of momentary RF spikes
    * @private
    */
-  static _detectRfPeakIndices(data) {
+  _detectRfPeakIndices(data) {
     const BANDS = [
       'rssi_300',
       'rssi_315',
@@ -351,7 +351,7 @@ export class GSRCSVParser {
       }
     }
     return peakIndices;
-  }
+  },
 
   /**
    * Parse a CSV string into raw time/value objects with GPS/RF/OSM columns.
@@ -376,7 +376,7 @@ export class GSRCSVParser {
    * }}
    * @throws {Error} If the CSV is empty, has too few lines, or no valid data.
    */
-  static parse(csvText) {
+  parse(csvText) {
     let isResistance = false;
     let recordingStartTime = 0;
     let importedFilterParams = null;
@@ -1038,5 +1038,5 @@ export class GSRCSVParser {
       importedPeakLabels: importedPeakLabels,
       importedPeakExcluded: importedPeakExcluded,
     };
-  }
-}
+  },
+};

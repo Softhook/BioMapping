@@ -8,7 +8,7 @@
 import { GeoUtils } from '../gps/geo_utils.mjs';
 import { GSRSpatialClustering } from '../spatial/spatial_clustering.mjs';
 
-export class ContourRingGeometry {
+export const ContourRingGeometry = {
   // ═══════════════════════════════════════════════════════════════════
   //  Loops
   // ═══════════════════════════════════════════════════════════════════
@@ -21,7 +21,7 @@ export class ContourRingGeometry {
    * own bounding-box diagonal (`diag`) — used to scale how far a boundary
    * walk or tangent-extrapolated tip pushes outward.
    */
-  static toLoop(rawPoints) {
+  toLoop(rawPoints) {
     if (!rawPoints || rawPoints.length === 0)
       return { points: [], length: 0, diag: 0 };
     let t = 0;
@@ -38,14 +38,14 @@ export class ContourRingGeometry {
     const closingLen = Math.hypot(first.lat - last.lat, first.lon - last.lon);
     const diag = Math.hypot(b.maxLat - b.minLat, b.maxLon - b.minLon) || 1e-9;
     return { points, length: last.t + closingLen, diag };
-  }
+  },
 
   /**
    * The literal bounding rectangle as a loop, at grid resolution — this is the
    * only "boundary" that exists for a fully-populated grid (no masked cells),
    * and it's always included even when a data mask is also present.
    */
-  static buildRectangleLoop(grid, rows, cols, bounds) {
+  buildRectangleLoop(grid, rows, cols, bounds) {
     const latSpan = bounds.maxLat - bounds.minLat,
       lonSpan = bounds.maxLon - bounds.minLon;
     const raw = [];
@@ -78,7 +78,7 @@ export class ContourRingGeometry {
         normal: { lat: 0, lon: -1 },
       });
     return ContourRingGeometry.toLoop(raw);
-  }
+  },
 
   /**
    * Traces the "coastline" between valid (real number) and masked (null)
@@ -90,7 +90,7 @@ export class ContourRingGeometry {
    * field, tagging each traced point with the real DATA value of whichever
    * corner is valid and the true local outward direction.
    */
-  static traceMaskBoundary(grid, rows, cols, bounds) {
+  traceMaskBoundary(grid, rows, cols, bounds) {
     const isValid = (r, c) =>
       grid[r][c] !== null && grid[r][c] !== undefined && !isNaN(grid[r][c]);
     const minLat = bounds.minLat,
@@ -189,7 +189,7 @@ export class ContourRingGeometry {
       }
     }
     return segs;
-  }
+  },
 
   /**
    * Corner-cuts a closed sequence of {lat, lon, val, normal} points the same
@@ -197,7 +197,7 @@ export class ContourRingGeometry {
    * with position (chaikinSmooth only knows about lat/lon and would silently
    * drop them). This prevents staircase raster artefacts on mask boundaries.
    */
-  static smoothLoopPoints(points, iterations = 2) {
+  smoothLoopPoints(points, iterations = 2) {
     if (!points || points.length < 3) return points || [];
     let pts = points;
     for (let iter = 0; iter < iterations; iter++) {
@@ -223,14 +223,14 @@ export class ContourRingGeometry {
       pts = next;
     }
     return pts;
-  }
+  },
 
   /**
    * Replaces each point's outward normal with one derived from the *smoothed
    * loop's own local tangent* (perpendicular to it), rather than the raw
    * per-cell valid→null direction traceMaskBoundary computed.
    */
-  static recomputeSmoothNormals(points) {
+  recomputeSmoothNormals(points) {
     const n = points.length;
     if (n < 3) return points;
     return points.map((p, i) => {
@@ -243,14 +243,14 @@ export class ContourRingGeometry {
       const chosen = dot >= 0 ? perpA : { lat: -perpA.lat, lon: -perpA.lon };
       return { ...p, normal: chosen };
     });
-  }
+  },
 
   /**
    * All the closed boundary loops an open isoline path could plausibly need
    * to close against: the literal bounding rectangle, always, plus one loop
    * per disconnected masked-data "island" if the grid has any null cells.
    */
-  static buildBoundaryLoops(grid, rows, cols, bounds) {
+  buildBoundaryLoops(grid, rows, cols, bounds) {
     const loops = [
       ContourRingGeometry.buildRectangleLoop(grid, rows, cols, bounds),
     ];
@@ -288,7 +288,7 @@ export class ContourRingGeometry {
     });
 
     return loops;
-  }
+  },
 
   // ═══════════════════════════════════════════════════════════════════
   //  Extrapolation & closure
@@ -311,7 +311,7 @@ export class ContourRingGeometry {
    * (owned entirely by boundaryWalk) instead of two independent ones stacked
    * back-to-back.
    */
-  static tangentExtrapolate(
+  tangentExtrapolate(
     pts,
     diag,
     extrapStart = true,
@@ -386,7 +386,7 @@ export class ContourRingGeometry {
     }
 
     return [...head, ...pts, ...tail];
-  }
+  },
 
   /**
    * Close the open isoline paths that get cut off at the edge of the grid/map
@@ -404,7 +404,7 @@ export class ContourRingGeometry {
    *   which side of a rectangle-loop boundary stretch is "inside".
    * @returns {Array} closed point rings ready to be smoothed and filled.
    */
-  static closeOpenPaths(openPaths, loops, level) {
+  closeOpenPaths(openPaths, loops, level) {
     if (!openPaths || openPaths.length === 0) return [];
     if (!loops || loops.length === 0) return [];
 
@@ -652,7 +652,7 @@ export class ContourRingGeometry {
     });
 
     return rings;
-  }
+  },
 
   // ═══════════════════════════════════════════════════════════════════
   //  Interior holes
@@ -682,7 +682,7 @@ export class ContourRingGeometry {
    * @param {Array} loops - pre-built boundary loops (see buildBoundaryLoops)
    * @returns {Array<Array>} one hole-list per ring (parallel to `rings`), each a list of point arrays
    */
-  static findInteriorHoles(rings, loops) {
+  findInteriorHoles(rings, loops) {
     return rings.map((ring) => {
       const ringArea = GeoUtils.shoelaceArea(ring);
       const holes = [];
@@ -705,7 +705,7 @@ export class ContourRingGeometry {
       }
       return holes;
     });
-  }
+  },
 
   // ═══════════════════════════════════════════════════════════════════
   //  Orchestration
@@ -724,7 +724,7 @@ export class ContourRingGeometry {
    * @param {{minLat,minLon,maxLat,maxLon}} bounds
    * @returns {Array<{ratio:number, rings:Array, holesByRingIndex:Array<Array>}>}
    */
-  static buildIsobandRings(contours, grid, rows, cols, bounds) {
+  buildIsobandRings(contours, grid, rows, cols, bounds) {
     const loops = ContourRingGeometry.buildBoundaryLoops(
       grid,
       rows,
@@ -772,5 +772,5 @@ export class ContourRingGeometry {
 
       return { ratio: c.ratio, rings, holesByRingIndex };
     });
-  }
-}
+  },
+};

@@ -365,6 +365,7 @@ test('importProject: rejects a manifest with an empty/missing tracks array', asy
 test('importProject: prompts for confirmation before replacing an existing non-empty track list', async () => {
   let dialogCalled = false;
   global.GSRNotices = setSingletonShape(RealGSRNotices, {
+    ...RealGSRNotices,
     dialog: async () => {
       dialogCalled = true;
       return null;

@@ -16,18 +16,18 @@
  * gracefully under Node / jsdom-less tests.
  */
 
-export class GSRNotices {
+export const GSRNotices = {
   /**
    * Report an error. Logs consistently and, in a DOM environment, shows a
    * red, non-blocking toast.
    * @param {Error|string} err - The error or message to report.
    * @param {string} [context=''] - Where it came from, e.g. 'map_exporter'.
    */
-  static report(err, context = '') {
+  report(err, context = '') {
     const label = context ? `[GSRNotices:${context}]` : '[GSRNotices]';
     console.error(label, err);
     GSRNotices._toast('error', context, err);
-  }
+  },
 
   /**
    * Report a non-fatal warning. Logs via console.warn and (unless
@@ -37,13 +37,13 @@ export class GSRNotices {
    * @param {{toast?: boolean}} [options={}] - Pass { toast: false } to log
    *   only, e.g. when another UI element is already showing the warning.
    */
-  static warn(message, context = '', options = {}) {
+  warn(message, context = '', options = {}) {
     const label = context ? `[GSRNotices:${context}]` : '[GSRNotices]';
     console.warn(label, message);
     if (options.toast !== false) {
       GSRNotices._toast('warn', context, message);
     }
-  }
+  },
 
   /**
    * Show a blocking decision dialog. Creates its own overlay + card on the
@@ -60,7 +60,7 @@ export class GSRNotices {
    * @returns {Promise<*|null>} Resolves with the clicked button's value, or
    *   null when dismissed (Escape / overlay click / dismiss button / no DOM).
    */
-  static dialog(options = {}) {
+  dialog(options = {}) {
     return new Promise((resolve) => {
       if (typeof document === 'undefined' || !document.body) {
         resolve(null);
@@ -217,7 +217,7 @@ export class GSRNotices {
       // Move focus into the dialog so keyboard users are where the action is.
       if (focusables.length > 0) focusables[0].focus();
     });
-  }
+  },
 
   /**
    * Append a non-blocking toast for a notice. No-op when there is no DOM.
@@ -226,7 +226,7 @@ export class GSRNotices {
    * @param {Error|string} err - Error, warning message, or string.
    * @private
    */
-  static _toast(level, context, err) {
+  _toast(level, context, err) {
     if (typeof document === 'undefined' || !document.body) return;
 
     const msg = err?.message ? err.message : String(err);
@@ -267,22 +267,22 @@ export class GSRNotices {
     // Auto-dismiss after 8s; cap the stack so a burst can't flood the screen.
     setTimeout(() => toast.remove(), 8000);
     while (container.children.length > 5) container.firstChild.remove();
-  }
+  },
 
   /**
    * Escape HTML special characters (&, <, >, ") for safe inclusion in markup.
    * @param {*} str - Input to escape.
    * @returns {string} Escaped string.
    */
-  static escapeHtml(str) {
+  escapeHtml(str) {
     if (str == null) return '';
     return String(str)
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;');
-  }
-}
+  },
+};
 
 if (
   typeof window !== 'undefined' &&

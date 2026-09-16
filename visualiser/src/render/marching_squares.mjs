@@ -4,13 +4,13 @@
  * on GSR analysis or map rendering.
  */
 
-export class MarchingSquares {
+export const MarchingSquares = {
   /**
    * Saddle disambiguation: mean of a cell's valid (non-null) corner values,
    * used to decide which way the two segments connect for the ambiguous
    * cellIndex 5 / 10 cases. Returns 0 when every corner is masked.
    */
-  static _saddleMean(vNW, vNE, vSE, vSW, okNW, okNE, okSE, okSW) {
+  _saddleMean(vNW, vNE, vSE, vSW, okNW, okNE, okSE, okSW) {
     let sum = 0,
       count = 0;
     if (okNW) {
@@ -30,7 +30,7 @@ export class MarchingSquares {
       count++;
     }
     return count > 0 ? sum / count : 0;
-  }
+  },
 
   /**
    * Run marching squares on a 2D grid to extract contour line segments.
@@ -42,7 +42,7 @@ export class MarchingSquares {
    * @param {number} isolevel  — threshold value for the contour line
    * @returns {Array<Array<{lat:number, lon:number}>>} array of 2-point segments
    */
-  static getContourLines(grid, rows, cols, bounds, isolevel) {
+  getContourLines(grid, rows, cols, bounds, isolevel) {
     const lines = [];
     const minLat = bounds.minLat;
     const maxLat = bounds.maxLat;
@@ -205,7 +205,7 @@ export class MarchingSquares {
     }
 
     return lines;
-  }
+  },
 
   /**
    * §C perf fix (2026-08-07): single-pass multi-isolevel contour extraction.
@@ -228,7 +228,7 @@ export class MarchingSquares {
    * @param {number[]}   levels   — sorted ascending (caller's responsibility)
    * @returns {Map<number, Array<Array<{lat,lon}>>>}  level → segment array
    */
-  static getContourLinesMulti(grid, rows, cols, bounds, levels) {
+  getContourLinesMulti(grid, rows, cols, bounds, levels) {
     if (!levels || levels.length === 0) return new Map();
 
     // Pre-compute coordinate lookup arrays (replaces per-call getLatLng() math
@@ -460,5 +460,5 @@ export class MarchingSquares {
     }
 
     return result;
-  }
-}
+  },
+};

@@ -21,12 +21,12 @@ export const AI_NS = 'http://ns.adobe.com/AdobeIllustrator/10.0/';
 export const BG = '#0b0d16';
 export const LABEL = '#000000';
 
-export class GSRMapExporter {
+export const GSRMapExporter = {
   // ═══════════════════════════════════════════════════════════════════
   //  Public API
   // ═══════════════════════════════════════════════════════════════════
 
-  static async exportToSvg(mgr) {
+  async exportToSvg(mgr) {
     let ctx = GSRMapExporter._validate(mgr);
     if (!ctx) return;
 
@@ -44,9 +44,9 @@ export class GSRMapExporter {
       GSRMapExporter._render(ctx, layers),
       AppState.viewMode || 'single',
     );
-  }
+  },
 
-  static async exportToPng(mgr) {
+  async exportToPng(mgr) {
     let ctx = GSRMapExporter._validate(mgr);
     if (!ctx) return;
 
@@ -61,13 +61,13 @@ export class GSRMapExporter {
       ctx.h,
       AppState.viewMode || 'single',
     );
-  }
+  },
 
   // ═══════════════════════════════════════════════════════════════════
   //  Validation & Mercator Projection Setup
   // ═══════════════════════════════════════════════════════════════════
 
-  static _parseLatLng(ll) {
+  _parseLatLng(ll) {
     if (!ll) return { lat: 0, lon: 0 };
     let lat, lon;
     if (Array.isArray(ll)) {
@@ -78,9 +78,9 @@ export class GSRMapExporter {
       lon = ll.lon !== undefined ? ll.lon : ll.lng !== undefined ? ll.lng : 0;
     }
     return { lat, lon };
-  }
+  },
 
-  static _validate(mgr) {
+  _validate(mgr) {
     if (!mgr?.map) {
       alert('Map not initialized.');
       return null;
@@ -101,9 +101,9 @@ export class GSRMapExporter {
       project: proj.project,
       mgr,
     };
-  }
+  },
 
-  static _getProjection(mgr, el) {
+  _getProjection(mgr, el) {
     const bounds = mgr?.getBounds ? mgr.getBounds() : null;
     if (
       bounds &&
@@ -153,7 +153,7 @@ export class GSRMapExporter {
       return mgr.map.latLngToContainerPoint([lat, lon]);
     };
     return { w, h, project };
-  }
+  },
 
   // ═══════════════════════════════════════════════════════════════════
   //  Canvas & Bounding Box Helpers
@@ -169,7 +169,7 @@ export class GSRMapExporter {
    * and cheap to test directly, so start there and only sample when a curve is
    * present.
    */
-  static _pathBBox(d) {
+  _pathBBox(d) {
     if (!d) return null;
     let minX = Infinity,
       minY = Infinity,
@@ -230,7 +230,7 @@ export class GSRMapExporter {
 
     if (!isFinite(minX)) return null;
     return { minX, minY, maxX, maxY };
-  }
+  },
 
   /**
    * Runs the isoband layer once against the base (un-expanded) projection just
@@ -239,7 +239,7 @@ export class GSRMapExporter {
    * that full extent is visible with a small safety margin — instead of
    * drawing that extension and clipping it away, we just make room for it.
    */
-  static _expandCanvasForIsobands(ctx) {
+  _expandCanvasForIsobands(ctx) {
     const surfObj = GSRMapExporter._surface(ctx);
     const paths = surfObj?.isobands || [];
     if (!paths.length) return ctx;
@@ -315,7 +315,7 @@ export class GSRMapExporter {
         bottom: marginBottom,
       },
     };
-  }
+  },
 
   /**
    * Best-effort: make the live base tile layer actually fetch tiles covering
@@ -350,7 +350,7 @@ export class GSRMapExporter {
    * just means the export falls back to a blank margin rather than breaking
    * the export outright.
    */
-  static async _ensureTileCoverage(ctx, mgr) {
+  async _ensureTileCoverage(ctx, mgr) {
     const margin = ctx.tileMargin;
     if (!margin) return;
     const maxMarginPx = Math.max(
@@ -425,13 +425,13 @@ export class GSRMapExporter {
       if (typeof GSRNotices !== 'undefined')
         GSRNotices.report(err, 'map_exporter:_ensureTileCoverage');
     }
-  }
+  },
 
   // ═══════════════════════════════════════════════════════════════════
   //  Data Gathering
   // ═══════════════════════════════════════════════════════════════════
 
-  static async _gather(ctx) {
+  async _gather(ctx) {
     const { el, r, mgr } = ctx;
     // Phase 1 (slice 3): per-track render layers are derived from the track
     // layerGroups via getRenderLayers(); only the aggregate layers (OSM shapes,
@@ -451,9 +451,9 @@ export class GSRMapExporter {
       dotsAndLabels: GSRMapExporter._markers(ctx, render.peakMarkers),
       hotspots: GSRMapExporter._markers(ctx, render.hotspots),
     };
-  }
+  },
 
-  static _rfFluid(ctx) {
+  _rfFluid(ctx) {
     const rfRenderer = ctx.mgr?.rfFluidRenderer;
     if (!rfRenderer?.options?.visible) {
       return { defs: [], polygons: [] };
@@ -462,13 +462,13 @@ export class GSRMapExporter {
       return rfRenderer.exportToSvgElements(ctx.project, ctx.w, ctx.h);
     }
     return { defs: [], polygons: [] };
-  }
+  },
 
   // ═══════════════════════════════════════════════════════════════════
   //  SVG Layer Assembly & XML Rendering
   // ═══════════════════════════════════════════════════════════════════
 
-  static _render(ctx, L) {
+  _render(ctx, L) {
     const { w, h } = ctx;
 
     const g = (id, name, items, extra = '') =>
@@ -598,13 +598,13 @@ export class GSRMapExporter {
     lines.push(...specs.map((s) => g(...s)));
     lines.push('</svg>');
     return lines.join('\n');
-  }
+  },
 
   // ═══════════════════════════════════════════════════════════════════
   //  Vector Surface & Isoband Builders
   // ═══════════════════════════════════════════════════════════════════
 
-  static _surface(ctx) {
+  _surface(ctx) {
     const surfaceData = ctx.mgr?.surfaceData;
     if (!surfaceData?.grid || !surfaceData.bounds) {
       return { mesh: [], isobands: [] };
@@ -613,7 +613,7 @@ export class GSRMapExporter {
       mesh: GSRMapExporter._buildVectorMesh(ctx, surfaceData),
       isobands: GSRMapExporter._buildVectorIsobands(ctx, surfaceData),
     };
-  }
+  },
 
   /**
    * Generates cell-by-cell vector mesh polygons, each coloured by its exact
@@ -627,7 +627,7 @@ export class GSRMapExporter {
    * would build that same ratio grid a second time internally only to have
    * its result discarded whenever shading is skipped (hillshadeStrength<=0).
    */
-  static _buildVectorMesh(ctx, surfaceData) {
+  _buildVectorMesh(ctx, surfaceData) {
     const grid = surfaceData.upsampledGrid || surfaceData.grid;
     const { minVal, maxVal, bounds, sortedVals } = surfaceData;
     const rows = grid.length;
@@ -735,7 +735,7 @@ export class GSRMapExporter {
     });
 
     return mesh;
-  }
+  },
 
   /**
    * Generates smooth, boundary-closed vector Isoband fills.
@@ -747,7 +747,7 @@ export class GSRMapExporter {
    * export-session cache and the smoothing/projection/SVG-string rendering
    * on top of that geometry.
    */
-  static _buildVectorIsobands(ctx, surfaceData) {
+  _buildVectorIsobands(ctx, surfaceData) {
     const grid = surfaceData.upsampledGrid || surfaceData.grid;
     const { bounds, contours } = surfaceData;
     if (!contours || !Array.isArray(contours) || !grid) return [];
@@ -808,13 +808,13 @@ export class GSRMapExporter {
     });
 
     return isobands;
-  }
+  },
 
   // ═══════════════════════════════════════════════════════════════════
   //  Tile & Vector Element Processors
   // ═══════════════════════════════════════════════════════════════════
 
-  static async _tiles(el, r) {
+  async _tiles(el, r) {
     const tiles = Array.from(el.querySelectorAll('.leaflet-tile-pane img'));
     const jobs = tiles.map(async (tile) => {
       const b = tile.getBoundingClientRect();
@@ -831,9 +831,9 @@ export class GSRMapExporter {
     });
     const results = await Promise.all(jobs);
     return results.filter(Boolean);
-  }
+  },
 
-  static async _inlineImg(img) {
+  async _inlineImg(img) {
     const src = img.getAttribute('src') || img.src;
     if (!src) return null;
     if (src.startsWith('data:')) return src;
@@ -867,9 +867,9 @@ export class GSRMapExporter {
         GSRNotices.report(err, 'map_exporter:rasterizeImage(fetch)');
       return null;
     }
-  }
+  },
 
-  static _vectors(ctx, layers, opts) {
+  _vectors(ctx, layers, opts) {
     const out = [];
     if (!layers) return out;
     for (const l of layers) {
@@ -877,9 +877,9 @@ export class GSRMapExporter {
       if (svg) out.push(svg);
     }
     return out;
-  }
+  },
 
-  static _pathEl(ctx, layer, opts = {}) {
+  _pathEl(ctx, layer, opts = {}) {
     if (!layer || typeof layer.getLatLngs !== 'function') return null;
     const isContour = layer._gsrKind === 'contour';
     let latlngs = layer.getLatLngs();
@@ -1001,9 +1001,9 @@ export class GSRMapExporter {
         ? ` stroke-linecap="square" stroke-linejoin="miter" stroke-miterlimit="10" />`
         : ` stroke-linecap="round" stroke-linejoin="round" />`)
     );
-  }
+  },
 
-  static _pathD(
+  _pathD(
     ctx,
     latlngs,
     close,
@@ -1083,13 +1083,13 @@ export class GSRMapExporter {
       d += ` L${pts[i].x.toFixed(3)} ${pts[i].y.toFixed(3)}`;
     }
     return close ? `${d} Z` : d;
-  }
+  },
 
   // ═══════════════════════════════════════════════════════════════════
   //  Marker Processors
   // ═══════════════════════════════════════════════════════════════════
 
-  static _markers(ctx, markers) {
+  _markers(ctx, markers) {
     const dots = [],
       labels = [];
     if (!markers) return { dots, labels };
@@ -1126,9 +1126,9 @@ export class GSRMapExporter {
       if (l) labels.push(l);
     }
     return { dots, labels };
-  }
+  },
 
-  static _dotSvg(el, cx, cy, opacity) {
+  _dotSvg(el, cx, cy, opacity) {
     // Hotspots render as a red star glyph (.hotspot-star) rather than a dot —
     // export it as centred text so the marker survives an SVG/PNG export.
     const star = el.querySelector('.hotspot-star');
@@ -1159,9 +1159,9 @@ export class GSRMapExporter {
       ` stroke-width="${GSRMapExporter._esc(strokeWidth)}"` +
       ` opacity="${opacity}" />`
     );
-  }
+  },
 
-  static _labelSvg(el, cx, cy, opacity) {
+  _labelSvg(el, cx, cy, opacity) {
     const lbl = el.querySelector('.peak-map-label');
     if (!lbl || window.getComputedStyle(lbl).display === 'none') return null;
 
@@ -1192,19 +1192,19 @@ export class GSRMapExporter {
       ` fill="${LABEL}" text-anchor="middle"` +
       ` opacity="${opacity}">${tx}</text>`
     );
-  }
+  },
 
   // ═══════════════════════════════════════════════════════════════════
   //  Color, String & Download Utilities
   // ═══════════════════════════════════════════════════════════════════
 
-  static _hslToHex(h, s = 100, l = 50) {
+  _hslToHex(h, s = 100, l = 50) {
     return MapColors.hslToHex(h, s, l);
-  }
+  },
 
-  static _ratioToHex(ratio, lightness = 50) {
+  _ratioToHex(ratio, lightness = 50) {
     return MapColors.ratioToHex(ratio, lightness);
-  }
+  },
 
   /**
    * Convert a CSS color to a #rrggbb hex string so the exported SVG does not
@@ -1212,16 +1212,16 @@ export class GSRMapExporter {
    * colors pass through unchanged.
    * @private
    */
-  static _toHex(color) {
+  _toHex(color) {
     return MapColors.hslStringToHex(color);
-  }
+  },
 
-  static _img(x, y, w, h, url) {
+  _img(x, y, w, h, url) {
     const u = GSRMapExporter._esc(url);
     return `<image href="${u}" xlink:href="${u}" x="${x}" y="${y}" width="${w}" height="${h}" />`;
-  }
+  },
 
-  static _esc(v) {
+  _esc(v) {
     if (
       typeof GSRNotices !== 'undefined' &&
       typeof GSRNotices.escapeHtml === 'function'
@@ -1234,9 +1234,9 @@ export class GSRMapExporter {
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;');
-  }
+  },
 
-  static async _download(svg, mode) {
+  async _download(svg, mode) {
     const baseName =
       typeof GSRUI !== 'undefined' &&
       typeof GSRUI._exportFilenameBase === 'function'
@@ -1245,9 +1245,9 @@ export class GSRMapExporter {
     const suggestedName = `${baseName}_map_${mode}_export.svg`;
     const blob = new Blob([svg], { type: 'image/svg+xml' });
     await GSRFileSaver.saveFile(blob, suggestedName);
-  }
+  },
 
-  static async _downloadPng(svg, width, height, mode) {
+  async _downloadPng(svg, width, height, mode) {
     const baseName =
       typeof GSRUI !== 'undefined' &&
       typeof GSRUI._exportFilenameBase === 'function'
@@ -1296,5 +1296,5 @@ export class GSRMapExporter {
     } finally {
       URL.revokeObjectURL(url);
     }
-  }
-}
+  },
+};

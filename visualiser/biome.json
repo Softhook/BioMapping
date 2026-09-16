@@ -21,9 +21,6 @@
       "suspicious": {
         "noGlobalIsNan": "off",
         "noGlobalIsFinite": "off"
-      },
-      "complexity": {
-        "noStaticOnlyClass": "off"
       }
     }
   },

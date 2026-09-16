@@ -77,11 +77,11 @@ export class YBandIndex {
   }
 }
 
-export class GSRLabelManager {
+export const GSRLabelManager = {
   /**
    * Estimate pixel width of label text at font-size 10px (Inter proportionals).
    */
-  static textWidth(t) {
+  textWidth(t) {
     let w = 0;
     for (const ch of t) {
       if (ch >= 'A' && ch <= 'Z') w += 7.5;
@@ -93,7 +93,7 @@ export class GSRLabelManager {
       else w += 5;
     }
     return Math.ceil(Math.min(w + 8, 160)); // 8px padding, sane cap
-  }
+  },
 
   /**
    * Compute 360° label positions using simulated annealing — the standard
@@ -102,7 +102,7 @@ export class GSRLabelManager {
    * @param {Array} peaksWithCoords — array of { idx, px, py, text }
    * @returns {Map<number, { box: object, dir: string }>} map from peakIndex to positioned candidate
    */
-  static computeLabelPositions(peaksWithCoords) {
+  computeLabelPositions(peaksWithCoords) {
     if (peaksWithCoords.length === 0) return new Map();
 
     const H = 18; // label box height (px)
@@ -245,7 +245,7 @@ export class GSRLabelManager {
       }
     }
     return results;
-  }
+  },
 
   /**
    * Build a Leaflet divIcon that renders both the peak dot and its label,
@@ -265,7 +265,7 @@ export class GSRLabelManager {
    * @param {string} [opts.labelFontWeight='600'] - Label font weight
    * @param {string} [opts.labelExtraStyle=''] - Extra inline styles for the label
    */
-  static buildLabelledIcon(px, py, labelText, dirResult, opts = {}) {
+  buildLabelledIcon(px, py, labelText, dirResult, opts = {}) {
     const {
       dotSize = 24,
       wrapperClass = 'stress-peak-icon-wrapper',
@@ -360,5 +360,5 @@ export class GSRLabelManager {
       iconSize: [cW, cH],
       iconAnchor: [px - cLeft, py - cTop],
     });
-  }
-}
+  },
+};

@@ -12,7 +12,7 @@
  * arousal/phasic/tonic grid, which is already the same shape as a DEM: a
  * regular raster of scalar "height" values.
  */
-export class Hillshade {
+export const Hillshade = {
   /**
    * @param {Array<Array<number|null>>} grid  rows x cols, null = masked/no data
    * @param {number} rows
@@ -24,7 +24,7 @@ export class Hillshade {
    *          1 = facing the sun directly. Masked cells are left at 0 (callers
    *          already skip drawing those cells based on the grid itself).
    */
-  static compute(grid, rows, cols, cellSizeX, cellSizeY, options) {
+  compute(grid, rows, cols, cellSizeX, cellSizeY, options) {
     const opts = options || {};
     const azimuthDegTrue =
       opts.azimuthDeg !== undefined ? opts.azimuthDeg : 315;
@@ -97,7 +97,7 @@ export class Hillshade {
       }
     }
     return shade;
-  }
+  },
 
   /**
    * Canonical single-cell "raw value -> [0,1] display ratio" formula:
@@ -119,13 +119,13 @@ export class Hillshade {
    * @param {(v:number, sorted:number[]) => number} [rankFn]  e.g. StatsMath.percentileRank
    * @returns {number} ratio in [0, 1]
    */
-  static valueRatio(v, minVal, maxVal, sortedVals, rankFn) {
+  valueRatio(v, minVal, maxVal, sortedVals, rankFn) {
     if (sortedVals && sortedVals.length > 1 && typeof rankFn === 'function') {
       return rankFn(v, sortedVals);
     }
     const valRange = maxVal - minVal;
     return valRange > 1e-9 ? (v - minVal) / valRange : 0.5;
-  }
+  },
 
   /**
    * valueRatio() applied over an entire grid, preserving null/NaN cells as
@@ -137,7 +137,7 @@ export class Hillshade {
    * @param {{minVal:number, maxVal:number, sortedVals?:number[], rankFn?: Function}} config
    * @returns {(number|null)[][]}
    */
-  static buildRatioGrid(grid, _rows, _cols, config) {
+  buildRatioGrid(grid, _rows, _cols, config) {
     const { minVal, maxVal, sortedVals, rankFn } = config;
     return grid.map((row) =>
       row.map((v) =>
@@ -146,7 +146,7 @@ export class Hillshade {
           : Hillshade.valueRatio(v, minVal, maxVal, sortedVals, rankFn),
       ),
     );
-  }
+  },
 
   /**
    * Turns a raw value grid into a shaded relief in one call: builds the
@@ -174,7 +174,7 @@ export class Hillshade {
    *          exaggeration:number, azimuthDeg:number, altitudeDeg:number}} config
    * @returns {{ratioGrid: (number|null)[][], shade: Float32Array}}
    */
-  static shadeValueGrid(grid, rows, cols, config) {
+  shadeValueGrid(grid, rows, cols, config) {
     const {
       minVal,
       maxVal,
@@ -196,7 +196,7 @@ export class Hillshade {
       zFactor: exaggeration,
     });
     return { ratioGrid, shade };
-  }
+  },
 
   /**
    * Canonical "how hillshadeStrength blends toward the flat baseline"
@@ -212,7 +212,7 @@ export class Hillshade {
    * @param {number} [baseLightness=50]  the unshaded fill's own lightness
    * @returns {number} HSL lightness %
    */
-  static blendLightness(
+  blendLightness(
     shade,
     strength,
     minLightness,
@@ -222,5 +222,5 @@ export class Hillshade {
     const shadedLightness =
       minLightness + shade * (maxLightness - minLightness);
     return baseLightness + strength * (shadedLightness - baseLightness);
-  }
-}
+  },
+};

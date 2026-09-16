@@ -15,7 +15,7 @@
  */
 import { GeoUtils } from '../gps/geo_utils.mjs';
 
-export class GSRArousalPlaces {
+export const GSRArousalPlaces = {
   /**
    * @param {Array<Array<object>>} clusters - Output of
    *   GSRSpatialClustering.compactClusters(): each entry an array of member peak
@@ -32,7 +32,7 @@ export class GSRArousalPlaces {
    *     meanAmp, maxAmp, firstTime, energy, dwellSeconds, rate, provisional,
    *     osm }.
    */
-  static buildPlaces(clusters, tracks, opts = {}) {
+  buildPlaces(clusters, tracks, opts = {}) {
     if (!Array.isArray(clusters) || clusters.length === 0) return [];
 
     const mergeM = num(opts.mergeM, 35);
@@ -66,13 +66,13 @@ export class GSRArousalPlaces {
       p.label = `P${i + 1}`;
     });
     return places;
-  }
+  },
 
   /**
    * Index tracks by ID and ensure fast coordinate typed arrays are ready.
    * @private
    */
-  static _buildFastTrackMap(tracks) {
+  _buildFastTrackMap(tracks) {
     const trackList = Array.isArray(tracks) ? tracks : [];
     const trackById = new Map();
     for (const trk of trackList) {
@@ -83,14 +83,14 @@ export class GSRArousalPlaces {
       });
     }
     return trackById;
-  }
+  },
 
   /**
    * Pre-extract raw coordinates and phasic values into contiguous typed arrays
    * cached on the track instance to avoid object allocation in hot loops.
    * @private
    */
-  static _getOrBuildFastCoords(trk) {
+  _getOrBuildFastCoords(trk) {
     const raw = trk.raw;
     const n = raw.length;
     let flat = trk._fastCoords;
@@ -121,7 +121,7 @@ export class GSRArousalPlaces {
     flat = { lats, lons, phasicVals, flags, len: n, rawRef: raw };
     trk._fastCoords = flat;
     return flat;
-  }
+  },
 
   /**
    * Pre-filter: drop single-walk specks (a 1-2 peak cluster from one track is
@@ -129,7 +129,7 @@ export class GSRArousalPlaces {
    * independent walks agree on.
    * @private
    */
-  static _filterCandidates(clusters, minMembers) {
+  _filterCandidates(clusters, minMembers) {
     const candidates = [];
     for (let cIdx = 0; cIdx < clusters.length; cIdx++) {
       const cluster = clusters[cIdx];
@@ -143,13 +143,13 @@ export class GSRArousalPlaces {
       candidates.push({ cluster, members, trackIds });
     }
     return candidates;
-  }
+  },
 
   /**
    * Score a candidate cluster by dwell time, rectified phasic energy, and nearest OSM context.
    * @private
    */
-  static _scorePlace({ members, trackIds }, trackById, config) {
+  _scorePlace({ members, trackIds }, trackById, config) {
     const n = members.length || 1;
     const { footprintRadiusM, footSq, dwellFloorS, provMaxTracks } = config;
 
@@ -271,8 +271,8 @@ export class GSRArousalPlaces {
       provisional: trackIds.length <= provMaxTracks,
       osm,
     };
-  }
-}
+  },
+};
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
