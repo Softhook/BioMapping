@@ -1,7 +1,7 @@
 /**
  * GSRMapMarkers — shared peak / hotspot map-marker geometry and icons.
  *
- * Extracted from map_manager_peaks.js so the single-track 2D map, the
+ * Extracted from manager/peaks.js so the single-track 2D map, the
  * collective map, and the Live view's follow-map all draw peak dots and
  * hotspot stars from ONE definition (the Live view previously had no map
  * markers at all, and had it drawn its own it could never have matched the
@@ -19,7 +19,7 @@ export const GSRMapMarkers = {
   /**
    * Raw-sample index a peak/hotspot marker should be planted at, applying the
    * optional GPS-latency shift (find the GPS fix at peak.time - peakLatency,
-   * falling back to peak.index). Mirrors the logic map_manager_peaks.js used
+   * falling back to peak.index). Mirrors the logic manager/peaks.js used
    * to own inline; kept here so live + single-track + collective can't drift.
    */
   resolveLatencyIndex(analyzer, peak, peakLatency) {

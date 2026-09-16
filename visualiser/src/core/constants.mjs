@@ -539,7 +539,7 @@ export const GSR_CONST = {
 
   // ── Arousal Places ──────────────────────────────────────────────────────
   // The map's discrete, clickable "where did responses concentrate" layer
-  // (arousal_places.js buildPlaces + map_manager_arousal_places.js _renderArousalPlaces).
+  // (arousal_places.js buildPlaces + manager/arousal_places.js _renderArousalPlaces).
   // A place is a proximity cluster of arousal peaks, scored by dwell-normalised
   // phasic-response energy so "lots of peaks because the walker dawdled here"
   // doesn't outrank a genuinely arousing spot. mergeM (#placeMergeDistance)

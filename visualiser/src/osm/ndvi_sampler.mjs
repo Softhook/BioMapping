@@ -21,7 +21,7 @@
  * this far from tracked coverage) is left as NaN and step-held from the
  * previous genuine reading — never fabricated from an unrelated column.
  *
- * The optional on-map NDVI overlay (map_manager_osm.js: showNdviLayer) is
+ * The optional on-map NDVI overlay (manager/osm.js: showNdviLayer) is
  * rendered directly from this same raw raster — paintGreyscaleTile() maps
  * each decoded float to a grey pixel (low NDVI = black, high = white) — so
  * the picture and the sampled numbers are provably the same data, not two
@@ -50,7 +50,7 @@ export const NDVISampler = {
   // Earth equatorial circumference in meters (EPSG:3857)
   EARTH_CIRCUMFERENCE_M: 40075016.686,
 
-  // Imagery providers for the optional visual map overlay (map_manager_osm.js).
+  // Imagery providers for the optional visual map overlay (manager/osm.js).
   // None of these feed the ndvi/ndvi_50m sampling columns — see file docstring.
   DEFAULT_TILE_URL:
     'https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2021_3857/default/GoogleMapsCompatible/{z}/{y}/{x}.jpg',

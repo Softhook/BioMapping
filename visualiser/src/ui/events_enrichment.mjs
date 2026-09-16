@@ -151,7 +151,7 @@ export const __methods = {
           );
         }
         // The map overlay renders this same raw layer directly (see
-        // map_manager_osm.js: showNdviLayer) — re-render it if visible.
+        // manager/osm.js: showNdviLayer) — re-render it if visible.
         if (AppState.mapManager?.ndviTileLayer) {
           AppState.mapManager.showNdviLayer();
         }

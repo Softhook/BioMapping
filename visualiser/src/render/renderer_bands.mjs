@@ -236,7 +236,7 @@ export const __methods = {
    * sample field to read (raw[i][metric]) and the MapColors metric key, so
    * it reuses the exact same 30-bucket LUT (MapColors.getColorLut) and
    * track-wide min/max normalisation the map's own path colouring uses for
-   * that metric (map_manager_path.js) — one shared gradient definition per
+   * that metric (manager/path.js) — one shared gradient definition per
    * metric, not a second one invented for the graph. Real-world continuous
    * fields (NDVI, EM Fog) are typically step-held between sparse real
    * samples, so runs of the same bucket are usually many samples long,

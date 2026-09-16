@@ -8,9 +8,9 @@
  * enable/disable + re-sync the button for the active view, and the four
  * show/mode/opacity/radius setters the UI calls. Own the show/hide state
  * (this.showRFFluid / this.hasRfData). updateLegend() lives in
- * map_manager_legend.js (resolved via the prototype).
+ * manager/legend.js (resolved via the prototype).
  */
-import { GSRMapManager } from './map.mjs';
+import { GSRMapManager } from '../map.mjs';
 
 export const __methods = {
   /**

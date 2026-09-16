@@ -769,7 +769,7 @@ test('PROVIDERS: registry contains standard fallback imagery providers', () => {
 test('getActiveProvider: falls back to open sentinel-2 (or an explicit custom URL), regardless of Copernicus config', () => {
   // getActiveProvider is only consulted for the *fallback* imagery path —
   // when Copernicus is configured, showNdviLayer renders the raw raster
-  // directly instead (see map_manager_osm.js) and never calls this.
+  // directly instead (see manager/osm.js) and never calls this.
   clearCopernicusConfig();
   const provDefault = NDVISampler.getActiveProvider({});
   assert.strictEqual(provDefault.id, 'sentinel2_cloudless');

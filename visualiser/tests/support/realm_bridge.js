@@ -176,7 +176,7 @@ function installJsdomGlobals(window) {
 }
 
 // Node's native setTimeout/setInterval (bare `setTimeout(...)` in e.g.
-// map_manager_arousal_places.js's debounce resolves to these — `setTimeout`
+// manager/arousal_places.js's debounce resolves to these — `setTimeout`
 // is in NATIVE_GLOBAL_KEYS, left unbridged on purpose) are shared across the
 // whole process, unlike jsdom's own window-scoped timers which get torn
 // down with the window. A timer a test doesn't explicitly wait out or

@@ -1,27 +1,27 @@
 /**
  * GSRMapManager — the Arousal Places map layer. Prototype-augment split from
- * map_manager_peaks.js: proximity clusters of arousal peaks become ranked,
+ * manager/peaks.js: proximity clusters of arousal peaks become ranked,
  * clickable "place" records (dwell-normalised scoring in arousal_places.js),
  * each drawn as a clipped concave outline plus a numbered P1..Pn badge.
  *
  * _renderArousalPlacesFor() is the single entry point for both views:
- * _renderPeakMarkers() (map_manager_peaks.js) passes one track's active peaks,
- * renderCollectiveData() (map_manager_collective.js) passes every active
+ * _renderPeakMarkers() (manager/peaks.js) passes one track's active peaks,
+ * renderCollectiveData() (manager/collective.js) passes every active
  * track's. It reads the params, clusters, scores, and hands off to
  * _renderArousalPlaces().
  *
- * Loaded after map_manager_peaks.js. Depends on the globals L, GeoUtils,
+ * Loaded after manager/peaks.js. Depends on the globals L, GeoUtils,
  * GSRSpatialClustering, GSRArousalPlaces, MapPopups, GSR_CONST and AppState,
  * all resolved at call time.
  */
-import { AppState } from '../core/app_state.mjs';
-import { GSR_CONST } from '../core/constants.mjs';
-import { GeoUtils } from '../gps/geo_utils.mjs';
-import { GSRArousalPlaces } from '../spatial/arousal_places.mjs';
-import { GSRSpatialClustering } from '../spatial/spatial_clustering.mjs';
-import { GSRUI } from '../ui/ui.mjs';
-import { GSRMapManager } from './map.mjs';
-import { MapPopups } from './map_popups.mjs';
+import { AppState } from '../../core/app_state.mjs';
+import { GSR_CONST } from '../../core/constants.mjs';
+import { GeoUtils } from '../../gps/geo_utils.mjs';
+import { GSRArousalPlaces } from '../../spatial/arousal_places.mjs';
+import { GSRSpatialClustering } from '../../spatial/spatial_clustering.mjs';
+import { GSRUI } from '../../ui/ui.mjs';
+import { GSRMapManager } from '../map.mjs';
+import { MapPopups } from '../map_popups.mjs';
 
 export const __methods = {
   /**
@@ -38,7 +38,7 @@ export const __methods = {
    * changed (the common case — a GPS smoothing nudge, a non-arousal panel
    * toggle), the cache hit skips ~35 ms of the ~36 ms cost and only the cheap
    * Leaflet layer rebuild runs. Mirrors _getOrBuildDrawPoints()'s _gpsCache
-   * pattern (map_manager_process.js).
+   * pattern (manager/process.js).
    *
    * @param {Array<{lat,lon,amplitude,trackId,time}>} peaks
    * @param {Array<{id,sampleRate,raw,phasic}>} scoreTracks - Tracks buildPlaces()

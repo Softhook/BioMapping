@@ -10,7 +10,7 @@
  *
  * Depends on the global L (resolved at call time).
  */
-import { GSRMapManager } from './map.mjs';
+import { GSRMapManager } from '../map.mjs';
 
 export const __methods = {
   _getTrackSetSignature(collectiveManager) {

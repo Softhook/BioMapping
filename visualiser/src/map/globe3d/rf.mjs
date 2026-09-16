@@ -11,8 +11,8 @@
  * tail (a plain ESM static import/export, loaded once by app_entry.mjs).
  */
 
-import { GSRGlobe3DRf } from './globe3d/rf_expanse.mjs';
-import { GSRGlobeManager } from './globe3d.mjs';
+import { GSRGlobe3DRf } from './rf_expanse.mjs';
+import { GSRGlobeManager } from '../globe3d.mjs';
 
 export const __methods = {
   /**

@@ -4,15 +4,15 @@
  * these methods to GSRGlobeManager.prototype.
  *
  * flyToPeak/focusOnPeakLocation read _latencyCoords/_peakWallHeight from
- * globe3d_peaks.js (resolved via the shared prototype at call time — file
+ * globe3d/peaks.js (resolved via the shared prototype at call time — file
  * load order between augment files doesn't matter here, only that they all
  * load after globe3d.js itself).
 
  * Assigned onto GSRGlobeManager.prototype via Object.assign at the file's
  * tail (a plain ESM static import/export, loaded once by app_entry.mjs).
  */
-import { AppState } from '../core/app_state.mjs';
-import { GSRGlobeManager } from './globe3d.mjs';
+import { AppState } from '../../core/app_state.mjs';
+import { GSRGlobeManager } from '../globe3d.mjs';
 
 export const __methods = {
   /**

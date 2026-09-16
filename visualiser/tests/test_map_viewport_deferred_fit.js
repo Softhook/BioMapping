@@ -19,15 +19,15 @@
 const assert = require('node:assert');
 const test = require('node:test');
 
-// map_manager_viewport.js only augments GSRMapManager.prototype and, for the
+// manager/viewport.js only augments GSRMapManager.prototype and, for the
 // two methods under test, touches nothing but `this.map` — so a bare stub
-// constructor plus a fake map is all the harness needs. map_manager_viewport.mjs
+// constructor plus a fake map is all the harness needs. manager/viewport.mjs
 // exports its methods as a plain `__methods` object (converted file, ES-module
 // migration) — assign that onto a local stub instead of the real GSRMapManager
 // from map.mjs, keeping this test isolated from map.mjs's own dependencies.
 function loadViewportProto() {
   function GSRMapManager() {}
-  const { __methods } = require('../src/map/map_manager_viewport.mjs');
+  const { __methods } = require('../src/map/manager/viewport.mjs');
   Object.assign(GSRMapManager.prototype, __methods);
   return GSRMapManager;
 }

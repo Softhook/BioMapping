@@ -83,13 +83,13 @@ const MAP_COLORS = path.join(APP_DIR, 'src', 'map', 'map_colors.js');
 // under plain require(), each hands back its method object instead of
 // assigning onto a live global; requireGlobeManager() below applies them.
 const GLOBE3D_AUGMENTS = [
-  'globe3d_osm.js',
-  'globe3d_rf.js',
-  'globe3d_peaks.js',
-  'globe3d_toggles.js',
-  'globe3d_navigation.js',
-  'globe3d_tour.js',
-].map((f) => path.join(APP_DIR, 'src', 'map', f));
+  'osm.js',
+  'rf.js',
+  'peaks.js',
+  'toggles.js',
+  'navigation.js',
+  'tour.js',
+].map((f) => path.join(APP_DIR, 'src', 'map', 'globe3d', f));
 
 function requireGlobeManager() {
   delete require.cache[require.resolve(GLOBE3D)];

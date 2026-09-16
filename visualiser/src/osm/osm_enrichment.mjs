@@ -308,7 +308,7 @@ export const OSMEnricher = {
 
   /* ======================================================================
      Feature classification — the single source of truth for "what counts as
-     green / water", shared with map_manager_osm.js's OSM-layer overlay so the
+     green / water", shared with manager/osm.js's OSM-layer overlay so the
      drawn polygons and the enrichment metrics can never disagree.
      ====================================================================== */
 

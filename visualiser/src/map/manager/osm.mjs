@@ -9,12 +9,12 @@
  * draw points + geoms to this.rfFluidRenderer.
  *
  * Depends on the globals L and AppState (resolved at call time) and on
- * this._getOrBuildDrawPoints (map_manager_process.js).
+ * this._getOrBuildDrawPoints (manager/process.js).
  */
-import { AppState } from '../core/app_state.mjs';
-import { NDVISampler } from '../osm/ndvi_sampler.mjs';
-import { OSMEnricher } from '../osm/osm_enrichment.mjs';
-import { GSRMapManager } from './map.mjs';
+import { AppState } from '../../core/app_state.mjs';
+import { NDVISampler } from '../../osm/ndvi_sampler.mjs';
+import { OSMEnricher } from '../../osm/osm_enrichment.mjs';
+import { GSRMapManager } from '../map.mjs';
 
 export const __methods = {
   /**

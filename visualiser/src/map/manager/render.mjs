@@ -5,7 +5,7 @@
  *
  * renderData() is the full single-track rebuild: clear, resolve the active
  * track's layerGroup, run the GPS pipeline, draw path + peak + hotspot layers
- * (via the map_manager_path.js / map_manager_peaks.js methods), fit the
+ * (via the manager/path.js / manager/peaks.js methods), fit the
  * viewport on a track change, emit 'map:rendered'. refreshPeakMarkers() /
  * refreshPath() are the partial re-renders (label edit, colour-metric change)
  * that strip one kind-family and re-run a single renderer via
@@ -15,8 +15,8 @@
  * Depends on the global AppState (resolved at call time); everything else it
  * calls is another GSRMapManager prototype method.
  */
-import { AppState } from '../core/app_state.mjs';
-import { GSRMapManager } from './map.mjs';
+import { AppState } from '../../core/app_state.mjs';
+import { GSRMapManager } from '../map.mjs';
 
 export const __methods = {
   /**

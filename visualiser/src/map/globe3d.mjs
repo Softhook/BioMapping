@@ -1970,12 +1970,12 @@ export class GSRGlobeManager {
 
   // GSRGlobeManager is completed by prototype-augment files loaded immediately
   // after this one (see index.html / boot_app.js SCRIPT_ORDER):
-  //   globe3d_osm.js         — 3D OSM building extrusion (orchestration; geometry in globe3d/buildings.js)
-  //   globe3d_rf.js          — volumetric RF expanse control (orchestration; geometry in globe3d/rf_expanse.js)
-  //   globe3d_peaks.js       — peak spires, hotspots, cluster ground blobs
-  //   globe3d_toggles.js     — layer visibility toggles + entity clearing
-  //   globe3d_navigation.js  — fly-to/focus + turntable orbit
-  //   globe3d_tour.js        — automated sequential track tour
+  //   globe3d/osm.js         — 3D OSM building extrusion (orchestration; geometry in globe3d/buildings.js)
+  //   globe3d/rf.js          — volumetric RF expanse control (orchestration; geometry in globe3d/rf_expanse.js)
+  //   globe3d/peaks.js       — peak spires, hotspots, cluster ground blobs
+  //   globe3d/toggles.js     — layer visibility toggles + entity clearing
+  //   globe3d/navigation.js  — fly-to/focus + turntable orbit
+  //   globe3d/tour.js        — automated sequential track tour
   // 3D track export (CZML / KML) lives in src/map/globe3d/exporters.js and is
   // driven from the main Export Options panel — it needs no live viewer. The 3D
   // PNG snapshot was dropped: the app's Save Canvas / Bio Map PNG covers it.

@@ -14,12 +14,12 @@
  * source of truth for what's available bare; a name missing there is a bug in
  * globe3d.js's exports, not something to patch around here.
  */
-import { GeoUtils } from '../gps/geo_utils.mjs';
+import { GeoUtils } from '../../gps/geo_utils.mjs';
 import {
   GSRGlobeManager,
   HEIGHT_CAPABLE_METRICS,
   seriesValue,
-} from './globe3d.mjs';
+} from '../globe3d.mjs';
 
 export const __methods = {
   /**

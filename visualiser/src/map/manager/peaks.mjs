@@ -10,7 +10,7 @@
  * counterparts (_renderCollectiveTrackPeaks / _renderCollectiveTrackHotspots /
  * refreshCollectivePeakMarkers).
  *
- * The Arousal Places layer lives in its own split (map_manager_arousal_places.js);
+ * The Arousal Places layer lives in its own split (manager/arousal_places.js);
  * _renderPeakMarkers() and renderCollectiveData() both feed it via
  * _renderArousalPlacesFor().
  *
@@ -20,11 +20,11 @@
  * (resolved at call time).
  */
 
-import { GSRLabelManager } from '../render/label_placement.mjs';
-import { GSRUI } from '../ui/ui.mjs';
-import { GSRMapManager } from './map.mjs';
-import { GSRMapMarkers } from './map_markers.mjs';
-import { MapPopups } from './map_popups.mjs';
+import { GSRLabelManager } from '../../render/label_placement.mjs';
+import { GSRUI } from '../../ui/ui.mjs';
+import { GSRMapManager } from '../map.mjs';
+import { GSRMapMarkers } from '../map_markers.mjs';
+import { MapPopups } from '../map_popups.mjs';
 
 export const __protoMethods = {
   _renderPeakMarkers(analyzer, _data, peakLatency, track, options) {
@@ -168,7 +168,7 @@ export const __protoMethods = {
       }
     }
 
-    // Arousal Places (map_manager_arousal_places.js). Skipped when
+    // Arousal Places (manager/arousal_places.js). Skipped when
     // options.skipClustering is set — refreshPeakMarkers()'s label-edit path,
     // whose input (lat/lon/amplitude per active peak) a label can't change, so
     // recomputing here was provably wasted: ~33ms of a ~36ms single-track

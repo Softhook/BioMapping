@@ -14,11 +14,11 @@
  * Depends on the globals L, AppState, GSR_CONST and MapColors (resolved at call
  * time).
  */
-import { AppState } from '../core/app_state.mjs';
-import { GSR_CONST } from '../core/constants.mjs';
-import { ResponseDynamics } from '../signal/response_dynamics.mjs';
-import { GSRMapManager } from './map.mjs';
-import { MapColors } from './map_colors.mjs';
+import { AppState } from '../../core/app_state.mjs';
+import { GSR_CONST } from '../../core/constants.mjs';
+import { ResponseDynamics } from '../../signal/response_dynamics.mjs';
+import { GSRMapManager } from '../map.mjs';
+import { MapColors } from '../map_colors.mjs';
 
 export const __methods = {
   /**

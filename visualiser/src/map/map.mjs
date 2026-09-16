@@ -151,7 +151,7 @@ export class GSRMapManager {
 
   _getMetricKey(metric) {
     // OSM entries (roadClass..amenityCount) come from the shared
-    // GSR_CONST.OSM_METRICS table (constants.js) — map_manager_legend.js's
+    // GSR_CONST.OSM_METRICS table (constants.js) — manager/legend.js's
     // metricNames is the other consumer of that same table.
     const keys = {
       gsr: 'val',
@@ -400,18 +400,18 @@ export class GSRMapManager {
 
   // GSRMapManager is completed by prototype-augment files loaded immediately
   // after this one (see index.html / boot_app.js SCRIPT_ORDER):
-  //   map_manager_process.js   — GPS pipeline → drawPoints + cache
-  //   map_manager_legend.js    — the bottom-right legend
-  //   map_manager_layers.js    — per-track layer ownership + clearMap/clearAll
-  //   map_manager_osm.js       — OSM vector overlays
-  //   map_manager_rf_fluid.js  — RF Fluid overlay control
-  //   map_manager_viewport.js  — fit/zoom/scrub navigation
-  //   map_manager_render.js    — renderData / refreshPath / refreshPeakMarkers
-  //   map_manager_path.js      — colour-coded path segment rendering
-  //   map_manager_peaks.js     — peak / hotspot marker rendering
-  //   map_manager_arousal_places.js — the Arousal Places layer (cluster → ranked places)
-  //   map_manager_collective.js— collective / multi-track view + contours
-  //   map_manager_toggles.js   — layer visibility toggles
+  //   manager/process.js   — GPS pipeline → drawPoints + cache
+  //   manager/legend.js    — the bottom-right legend
+  //   manager/layers.js    — per-track layer ownership + clearMap/clearAll
+  //   manager/osm.js       — OSM vector overlays
+  //   manager/rf_fluid.js  — RF Fluid overlay control
+  //   manager/viewport.js  — fit/zoom/scrub navigation
+  //   manager/render.js    — renderData / refreshPath / refreshPeakMarkers
+  //   manager/path.js      — colour-coded path segment rendering
+  //   manager/peaks.js     — peak / hotspot marker rendering
+  //   manager/arousal_places.js — the Arousal Places layer (cluster → ranked places)
+  //   manager/collective.js— collective / multi-track view + contours
+  //   manager/toggles.js   — layer visibility toggles
   // The overlap-pooling primitives (_buildOverlapCells / _overlapPooledAccessor /
   // _pathRetraces) remain here as statics — pure functions, unit-tested directly.
 }

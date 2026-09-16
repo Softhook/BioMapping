@@ -29,14 +29,14 @@ const GLOBE3D = path.join(APP_DIR, 'src', 'map', 'globe3d.mjs');
 // file's .js sibling is deleted (convert_file.js --write) — resolve whichever
 // extension is actually on disk, same rule as tests/support/load_module.js.
 const GLOBE3D_AUGMENTS = [
-  'globe3d_osm.js',
-  'globe3d_rf.js',
-  'globe3d_peaks.js',
-  'globe3d_toggles.js',
-  'globe3d_navigation.js',
-  'globe3d_tour.js',
+  'osm.js',
+  'rf.js',
+  'peaks.js',
+  'toggles.js',
+  'navigation.js',
+  'tour.js',
 ].map((f) => {
-  const jsPath = path.join(APP_DIR, 'src', 'map', f);
+  const jsPath = path.join(APP_DIR, 'src', 'map', 'globe3d', f);
   const mjsPath = jsPath.replace(/\.js$/, '.mjs');
   return fs.existsSync(mjsPath) ? mjsPath : jsPath;
 });

@@ -8,9 +8,9 @@
  *
  * Depends on the globals GpsPipeline and GpsFilter (resolved at call time).
  */
-import { GpsFilter } from '../gps/gps_filter.mjs';
-import { GpsPipeline } from '../gps/gps_pipeline.mjs';
-import { GSRMapManager } from './map.mjs';
+import { GpsFilter } from '../../gps/gps_filter.mjs';
+import { GpsPipeline } from '../../gps/gps_pipeline.mjs';
+import { GSRMapManager } from '../map.mjs';
 
 export const __methods = {
   /**

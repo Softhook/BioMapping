@@ -21,11 +21,11 @@
 // _renderPathSegments — rather than baked into the GPS-cached drawPoints,
 // since those are cached across GSR re-analyses keyed only on GPS params and
 // would otherwise go stale the moment a GSR slider changes.
-import { AppState } from '../core/app_state.mjs';
-import { GSR_CONST } from '../core/constants.mjs';
-import { GSRStorage } from '../ui/storage.mjs';
-import { GSRMapManager } from './map.mjs';
-import { MapColors } from './map_colors.mjs';
+import { AppState } from '../../core/app_state.mjs';
+import { GSR_CONST } from '../../core/constants.mjs';
+import { GSRStorage } from '../../ui/storage.mjs';
+import { GSRMapManager } from '../map.mjs';
+import { MapColors } from '../map_colors.mjs';
 
 export const DERIVED_METRIC_SERIES = {
   phasic: 'phasic',

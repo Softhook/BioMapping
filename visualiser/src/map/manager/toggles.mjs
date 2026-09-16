@@ -6,7 +6,7 @@
  * showSurface / showTracks) and drive Leaflet layer inclusion + the
  * .hide-map-* CSS classes on the map container.
  */
-import { GSRMapManager } from './map.mjs';
+import { GSRMapManager } from '../map.mjs';
 
 export const __methods = {
   /**

@@ -17,7 +17,7 @@
  * Depends on the global L, and (via the prototype) clearOsmShapes /
  * _clearRfFluid / updateLegend / clearCollectiveLayers from the other augments.
  */
-import { GSRMapManager } from './map.mjs';
+import { GSRMapManager } from '../map.mjs';
 
 export const __methods = {
   /**

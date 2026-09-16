@@ -4,7 +4,7 @@
  * GSRMapManager.prototype.
  *
  * renderCollectiveData() overlays every active track (dashed paths + per-track
- * peak/hotspot markers via the map_manager_peaks.js methods), runs one global
+ * peak/hotspot markers via the manager/peaks.js methods), runs one global
  * spatial-clustering pass, frames the combined bounds, and calls
  * renderContours(); renderContours() turns collectiveManager.generateContourSurface()
  * output into the shaded surface overlay (+ optional hillshade relief and
@@ -14,14 +14,14 @@
  * Depends on the globals L, MapColors, Hillshade, StatsMath, GSR_CONST,
  * GSRSpatialClustering, GeoUtils and AppState (resolved at call time).
  */
-import { AppState } from '../core/app_state.mjs';
-import { GSR_CONST } from '../core/constants.mjs';
-import { GeoUtils } from '../gps/geo_utils.mjs';
-import { StatsMath } from '../signal/stats_math.mjs';
-import { GSRSpatialClustering } from '../spatial/spatial_clustering.mjs';
-import { Hillshade } from './hillshade.mjs';
-import { GSRMapManager } from './map.mjs';
-import { MapColors } from './map_colors.mjs';
+import { AppState } from '../../core/app_state.mjs';
+import { GSR_CONST } from '../../core/constants.mjs';
+import { GeoUtils } from '../../gps/geo_utils.mjs';
+import { StatsMath } from '../../signal/stats_math.mjs';
+import { GSRSpatialClustering } from '../../spatial/spatial_clustering.mjs';
+import { Hillshade } from '../hillshade.mjs';
+import { GSRMapManager } from '../map.mjs';
+import { MapColors } from '../map_colors.mjs';
 
 export const __methods = {
   /**
@@ -168,7 +168,7 @@ export const __methods = {
       activeTracks.some((t) => t.analyzer?.hasRfData),
     );
 
-    // Collective Arousal Places across every active track (map_manager_arousal_places.js).
+    // Collective Arousal Places across every active track (manager/arousal_places.js).
     this._renderArousalPlacesFor(
       allActivePeaksAcrossTracks,
       activeTracks.map((t) => ({
