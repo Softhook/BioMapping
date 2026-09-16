@@ -55,6 +55,7 @@ Accuracy zones by the fraction of real-world track data that falls inside them:
 | **[BITalino EDA](https://www.pluxbiosignals.com/collections/bitalino/products/electrodermal-activity-eda-sensor)** | Academic Toolkit (~£200) | **None on sensor** *(10-bit BITalino Core)* | **$15 - 30\text{ nS}$** | **$\pm 5\%$** |
 | **[Grove GSR v1.2](https://wiki.seeedstudio.com/Grove-GSR_Sensor/)** | Hobbyist Module (~£12) | **None on sensor** *(Analog out; host-dependent)* | **$> 50\text{ nS}$** | *(uncalibrated)* |
 
+
 ## Hardware
 
 **Core boards**
