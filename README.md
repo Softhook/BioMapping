@@ -37,15 +37,6 @@ Everything is logged to `/ext/biomapping/*.csv` at 10 Hz. A Live Stream mode sen
 
 The GSR front-end is built to research-grade specification and measured against a precision metal-film resistor grid (10 kΩ – 9 MΩ), full sweep in [`docs/reference_test_results.csv`](docs/reference_test_results.csv).
 
-| Device | Type / Price | ADC Resolution | Noise Floor ($\sigma$) | Accuracy / Error |
-| :--- | :--- | :--- | :--- | :--- |
-| **[BIOPAC EDA100C + MP160](https://www.biopac.com/product/electrodermal-activity-amplifier/)** | Lab Benchmark (~£8,000+) | 16-bit / 24-bit *(MP160 DAQ)* | **$< 0.5\text{ nS}$** | **$\pm 0.1\%$** |
-| **BioMapping 2.0 (This Build)** | Custom Portable (~£160) | **16-bit** *(Onboard ADS1115)* | **$2.7\text{ nS}$** | **$\pm 0.1\%$** *(calibrated)* / $\pm 0.4\%$ *(raw)* |
-| **[Empatica E4](https://support.empatica.com/hc/en-us/articles/202581999-E4-wristband-technical-specifications)** | Clinical Wearable (~£1,350) | 14-bit equiv. *(Integrated AFE)* | **$5 - 10\text{ nS}$** | **$\pm 2\% \text{ to } \pm 5\%$** |
-| **[Shimmer3 GSR+](https://shimmersensing.com/product/shimmer3-gsr-unit/)** | Research Wearable (~£650) | 12-bit *(Onboard MCU ADC)* | **$10 - 30\text{ nS}$** | **$\pm 3\% \text{ to } \pm 10\%$** |
-| **[BITalino EDA](https://www.pluxbiosignals.com/collections/bitalino/products/electrodermal-activity-eda-sensor)** | Academic Toolkit (~£200) | **None on sensor** *(10-bit BITalino Core)* | **$15 - 30\text{ nS}$** | **$\pm 5\%$** |
-| **[Grove GSR v1.2](https://wiki.seeedstudio.com/Grove-GSR_Sensor/)** | Hobbyist Module (~£12) | **None on sensor** *(Analog out; host-dependent)* | **$> 50\text{ nS}$** | **$> \pm 15\%$** *(uncalibrated)* |
-
 ![BioMapping 2.0 GSR Error Curve](docs/error.svg)
 
 Accuracy zones by the fraction of real-world track data that falls inside them:
@@ -54,6 +45,15 @@ Accuracy zones by the fraction of real-world track data that falls inside them:
 - **≤ ±0.5%** — 22 kΩ – 2.2 MΩ (455 – 45,455 nS): 99.75%
 - **≤ ±1.0%** — 15 kΩ – 4.7 MΩ (213 – 66,667 nS): 99.89%
 - Below 100 nS (over 10 MΩ) the device reports an open circuit (electrodes disconnected / air).
+
+| Device | Type / Price | ADC Resolution | Noise Floor ($\sigma$) | Accuracy / Error |
+| :--- | :--- | :--- | :--- | :--- |
+| **[BIOPAC EDA100C + MP160](https://www.biopac.com/product/electrodermal-activity-amplifier/)** | Lab Benchmark (~£8,000+) | 16-bit / 24-bit *(MP160 DAQ)* | **$< 0.5\text{ nS}$** | **$\pm 0.1\%$** |
+| **BioMapping 2.0 ** | Custom Portable (~£250) | **16-bit** *(Onboard ADS1115)* | **$2.7\text{ nS}$** | **$\pm 0.1\%$** *(calibrated)* / $\pm 0.4\%$ *(raw)* |
+| **[Empatica E4](https://support.empatica.com/hc/en-us/articles/202581999-E4-wristband-technical-specifications)** | Clinical Wearable (~£1,350) | 14-bit equiv. *(Integrated AFE)* | **$5 - 10\text{ nS}$** | **$\pm 2\% \text{ to } \pm 5\%$** |
+| **[Shimmer3 GSR+](https://shimmersensing.com/product/shimmer3-gsr-unit/)** | Research Wearable (~£650) | 12-bit *(Onboard MCU ADC)* | **$10 - 30\text{ nS}$** | **$\pm 3\% \text{ to } \pm 10\%$** |
+| **[BITalino EDA](https://www.pluxbiosignals.com/collections/bitalino/products/electrodermal-activity-eda-sensor)** | Academic Toolkit (~£200) | **None on sensor** *(10-bit BITalino Core)* | **$15 - 30\text{ nS}$** | **$\pm 5\%$** |
+| **[Grove GSR v1.2](https://wiki.seeedstudio.com/Grove-GSR_Sensor/)** | Hobbyist Module (~£12) | **None on sensor** *(Analog out; host-dependent)* | **$> 50\text{ nS}$** | *(uncalibrated)* |
 
 ## Hardware
 
