@@ -1796,8 +1796,8 @@ export class GSRGlobeManager {
     const rawField = useDerived ? null : rawMetricField(metric);
     const key = useDerived ? field : `raw:${rawField || 'gsr'}`;
 
-    const cache =
-      this._metricSeriesCache || (this._metricSeriesCache = new Map());
+    this._metricSeriesCache ??= new Map();
+    const cache = this._metricSeriesCache;
     const hit = cache.get(key);
     if (hit && hit.src === src) return hit.out;
 

@@ -170,7 +170,8 @@ function parseArgs(argv) {
     } else if (a === '--warmup' && i + 1 < argv.length) {
       args.warmup = Math.max(0, parseInt(argv[++i], 10) || 0);
     } else if (!a.startsWith('-')) {
-      (args.areas = args.areas || []).push(a); // bare word = area name
+      args.areas ??= [];
+      args.areas.push(a); // bare word = area name
     }
   }
   return args;

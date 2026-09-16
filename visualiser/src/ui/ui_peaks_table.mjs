@@ -115,11 +115,9 @@ export const __methods = {
       AppState.totalDuration,
     );
     AppState.zoomFactor = AppState.totalDuration / AppState.viewDuration;
-    document
-      .querySelectorAll('#peaksTable tbody tr')
-      .forEach((r) => {
-        r.classList.remove('active-row');
-      });
+    document.querySelectorAll('#peaksTable tbody tr').forEach((r) => {
+      r.classList.remove('active-row');
+    });
     const row = document.getElementById(`peakRow-${idx}`);
     if (row) row.classList.add('active-row');
     redraw();

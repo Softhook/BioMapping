@@ -488,8 +488,10 @@ export class GSRSpatialClustering {
       const a = nodeIdFor(segments[i][0]);
       const b = nodeIdFor(segments[i][1]);
       segEnds[i] = [a, b];
-      (incident[a] || (incident[a] = [])).push(i);
-      (incident[b] || (incident[b] = [])).push(i);
+      incident[a] ??= [];
+      incident[a].push(i);
+      incident[b] ??= [];
+      incident[b].push(i);
     }
 
     // ── Phase 2: walk edges into polylines ────────────────────────────────

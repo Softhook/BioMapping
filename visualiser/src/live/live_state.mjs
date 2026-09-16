@@ -23,7 +23,8 @@ export const LiveState = {
 
   _listeners: {},
   on(event, fn) {
-    (LiveState._listeners[event] = LiveState._listeners[event] || []).push(fn);
+    LiveState._listeners[event] ??= [];
+    LiveState._listeners[event].push(fn);
   },
   emit(event, ...args) {
     (LiveState._listeners[event] || []).forEach((fn) => {

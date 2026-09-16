@@ -70,7 +70,7 @@ export const GSRGlobe3DView = {
     // toggles 3D buildings while the globe is mounted) are the 2D map's —
     // src/ui/events.js dispatches them here via applyToggle / applyRfMode /
     // applyBuildings / zoom.
-    const els = (GSRGlobe3DView.els = {
+    const els = {
       container: $('globe3dContainer'),
       status: $('globe3dStatus'),
       legend: $('g3dLegend'),
@@ -90,7 +90,8 @@ export const GSRGlobe3DView = {
       btnPersp3D: $('g3dBtnPersp3D'),
       btnPerspTop: $('g3dBtnPerspTop'),
       btnNorth: $('g3dBtnNorth'),
-    });
+    };
+    GSRGlobe3DView.els = els;
 
     GSRGlobe3DView._bindCard(els);
     GSRGlobe3DView._updateAttribution();

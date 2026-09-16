@@ -181,6 +181,7 @@ body {
   height: 1.15rem;
   width: 1.15rem;
   image-rendering: pixelated;
+  /* biome-ignore lint/suspicious/noDuplicateProperties: crisp-edges fallback for browsers without pixelated support */
   image-rendering: crisp-edges;
 }
 
@@ -1668,6 +1669,7 @@ input[type="range"]:focus-visible,
      the Live panel (flex:1) can fill it. */
   .app-container {
     height: 100vh;
+    /* biome-ignore lint/suspicious/noDuplicateProperties: dvh fallback for browsers without dynamic viewport units */
     height: 100dvh;
     overflow: hidden;
   }
@@ -2488,7 +2490,7 @@ input[type="range"]:focus-visible,
 
 .track-checkbox:checked::after {
   content: "\f00c";
-  font-family: "Font Awesome 6 Free";
+  font-family: "Font Awesome 6 Free", sans-serif;
   font-weight: 900;
   color: #ffffff;
   font-size: 0.65rem;
@@ -2708,6 +2710,7 @@ input[type="range"]:focus-visible,
 .app-container:has(.live-mode),
 body:has(.live-mode) {
   height: 100vh;
+  /* biome-ignore lint/suspicious/noDuplicateProperties: dvh fallback for browsers without dynamic viewport units */
   height: 100dvh;
   overflow: hidden;
 }
@@ -3176,6 +3179,7 @@ body:has(.live-mode) {
   align-items: flex-end;
   gap: 8px;
   max-height: calc(100vh - 90px);
+  /* biome-ignore lint/suspicious/noDuplicateProperties: dvh fallback for browsers without dynamic viewport units */
   max-height: calc(100dvh - 90px);
   overflow-y: auto;
   scrollbar-width: none;
@@ -3371,6 +3375,7 @@ body:has(.live-mode) {
 .collective-coverage-hatch {
   pointer-events: none !important;
   image-rendering: pixelated;
+  /* biome-ignore lint/suspicious/noDuplicateProperties: crisp-edges fallback for browsers without pixelated support */
   image-rendering: crisp-edges;
 }
 
@@ -3407,6 +3412,7 @@ body:has(.live-mode) {
   margin: 0 !important;
   width: 100vw !important;
   height: 100vh !important;
+  /* biome-ignore lint/suspicious/noDuplicateProperties: dvh fallback for browsers without dynamic viewport units */
   height: 100dvh !important;
 }
 
@@ -4129,6 +4135,7 @@ body:has(.live-mode) {
   right: 0;
   z-index: 5;
   background: #fff;
+  /* biome-ignore lint/suspicious/noDuplicateProperties: rgba fallback for browsers without alpha-channel color support */
   background: rgba(255, 255, 255, 0.8);
   margin: 0;
   padding: 0 5px;

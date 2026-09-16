@@ -410,41 +410,39 @@ console.log('── Running Hillshade Algorithm Test ──');
 // and map_exporter.js instead of two independent copies. strength=0 must
 // return the baseline EXACTLY (this is what makes the 0% UI slider position
 // a true no-op, not an approximation). ──────────────────────────────────────
-{
-  assert.strictEqual(
-    Hillshade.blendLightness(0.9, 0, 10, 90),
-    50,
-    'strength=0 returns the default baseline (50) exactly, regardless of shade',
-  );
-  assert.strictEqual(
-    Hillshade.blendLightness(1, 1, 10, 90),
-    90,
-    'strength=1, shade=1 returns maxLightness exactly',
-  );
-  assert.strictEqual(
-    Hillshade.blendLightness(0, 1, 10, 90),
-    10,
-    'strength=1, shade=0 returns minLightness exactly',
-  );
-  assert.strictEqual(
-    Hillshade.blendLightness(1, 0.5, 10, 90),
-    70,
-    'strength=0.5 is a linear midpoint between baseline (50) and the full shaded lightness (90): 50+0.5*(90-50)=70',
-  );
-  assert.strictEqual(
-    Hillshade.blendLightness(1, 1, 10, 90, 20),
-    90,
-    'Custom baseLightness only matters when strength<1 — at strength=1 it has no effect',
-  );
-  assert.strictEqual(
-    Hillshade.blendLightness(1, 0, 10, 90, 20),
-    20,
-    'Custom baseLightness is honored at strength=0',
-  );
-  console.log(
-    '✓ blendLightness() linearly interpolates baseline -> shaded lightness, strength=0 exact no-op',
-  );
-}
+assert.strictEqual(
+  Hillshade.blendLightness(0.9, 0, 10, 90),
+  50,
+  'strength=0 returns the default baseline (50) exactly, regardless of shade',
+);
+assert.strictEqual(
+  Hillshade.blendLightness(1, 1, 10, 90),
+  90,
+  'strength=1, shade=1 returns maxLightness exactly',
+);
+assert.strictEqual(
+  Hillshade.blendLightness(0, 1, 10, 90),
+  10,
+  'strength=1, shade=0 returns minLightness exactly',
+);
+assert.strictEqual(
+  Hillshade.blendLightness(1, 0.5, 10, 90),
+  70,
+  'strength=0.5 is a linear midpoint between baseline (50) and the full shaded lightness (90): 50+0.5*(90-50)=70',
+);
+assert.strictEqual(
+  Hillshade.blendLightness(1, 1, 10, 90, 20),
+  90,
+  'Custom baseLightness only matters when strength<1 — at strength=1 it has no effect',
+);
+assert.strictEqual(
+  Hillshade.blendLightness(1, 0, 10, 90, 20),
+  20,
+  'Custom baseLightness is honored at strength=0',
+);
+console.log(
+  '✓ blendLightness() linearly interpolates baseline -> shaded lightness, strength=0 exact no-op',
+);
 
 // ── Test 11: shadeValueGrid()'s zFactor-based shading is mathematically
 // equivalent to the previous implementation, which pre-multiplied a whole

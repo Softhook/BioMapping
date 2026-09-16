@@ -171,14 +171,10 @@ console.log('\n── geo_utils.js ──');
 }
 
 // 1j. EARTH_RADIUS_M constant
-{
-  assertEq(GeoUtils.EARTH_RADIUS_M, 6371000, 'EARTH_RADIUS_M = 6,371,000');
-}
+assertEq(GeoUtils.EARTH_RADIUS_M, 6371000, 'EARTH_RADIUS_M = 6,371,000');
 
 // 1k. METERS_PER_DEG_LAT constant
-{
-  assertEq(GeoUtils.METERS_PER_DEG_LAT, 111320, 'METERS_PER_DEG_LAT = 111,320');
-}
+assertEq(GeoUtils.METERS_PER_DEG_LAT, 111320, 'METERS_PER_DEG_LAT = 111,320');
 
 // ────────────────────────────────────────────────────────────────────────────
 //  2. stats_math.js
@@ -329,18 +325,16 @@ console.log('\n── map_colors.js ──');
 }
 
 // 3j. getColorForMetric — inPark
-{
-  assertEq(
-    MapColors.getColorForMetric('inPark', 1, 0, 1),
-    '#00e575',
-    'inPark=1 → green',
-  );
-  assertEq(
-    MapColors.getColorForMetric('inPark', 0, 0, 1),
-    '#666666',
-    'inPark=0 → gray',
-  );
-}
+assertEq(
+  MapColors.getColorForMetric('inPark', 1, 0, 1),
+  '#00e575',
+  'inPark=1 → green',
+);
+assertEq(
+  MapColors.getColorForMetric('inPark', 0, 0, 1),
+  '#666666',
+  'inPark=0 → gray',
+);
 
 // 3k. getColorLut — returns 30 colors
 {
@@ -958,22 +952,18 @@ console.log('\n── Cross-module dependencies ──');
 }
 
 // 6c. applyHdopGate handles empty arrays
-{
-  assertEq(
-    GpsPipeline.applyHdopGate([], 2.0).length,
-    0,
-    'HDOP gate empty → empty',
-  );
-}
+assertEq(
+  GpsPipeline.applyHdopGate([], 2.0).length,
+  0,
+  'HDOP gate empty → empty',
+);
 
 // 6d. applyFixTypeGate handles empty arrays
-{
-  assertEq(
-    GpsPipeline.applyFixTypeGate([], 2).length,
-    0,
-    'FixType gate empty → empty',
-  );
-}
+assertEq(
+  GpsPipeline.applyFixTypeGate([], 2).length,
+  0,
+  'FixType gate empty → empty',
+);
 
 // 6e. applyFixTypeGate minFixType < 2 → passthrough
 {

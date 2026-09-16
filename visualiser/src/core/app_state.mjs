@@ -154,7 +154,8 @@ export const AppState = {
   // to remember every downstream consumer to notify by hand.
   _listeners: {},
   on(event, fn) {
-    (AppState._listeners[event] = AppState._listeners[event] || []).push(fn);
+    AppState._listeners[event] ??= [];
+    AppState._listeners[event].push(fn);
   },
   emit(event, ...args) {
     (AppState._listeners[event] || []).forEach((fn) => {

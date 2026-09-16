@@ -21,6 +21,9 @@
       "suspicious": {
         "noGlobalIsNan": "off",
         "noGlobalIsFinite": "off"
+      },
+      "complexity": {
+        "noStaticOnlyClass": "off"
       }
     }
   },
@@ -31,6 +34,22 @@
         "rules": {
           "complexity": {
             "useArrowFunction": "off"
+          },
+          "suspicious": {
+            "useIterableCallbackReturn": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["styles.css"],
+      "linter": {
+        "rules": {
+          "complexity": {
+            "noImportantStyles": "off"
+          },
+          "style": {
+            "noDescendingSpecificity": "off"
           }
         }
       }

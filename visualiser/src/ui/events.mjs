@@ -1349,11 +1349,9 @@ export const GSREvents = {
     const bindEnvTab = (btnId, panelId) => {
       const btn = document.getElementById(btnId);
       btn.addEventListener('click', () => {
-        document
-          .querySelectorAll('#envTabSwitcher .view-tab')
-          .forEach((b) => {
-            b.classList.remove('active');
-          });
+        document.querySelectorAll('#envTabSwitcher .view-tab').forEach((b) => {
+          b.classList.remove('active');
+        });
         document.querySelectorAll('.env-tab-content').forEach((p) => {
           p.style.display = 'none';
           p.classList.remove('active');
@@ -1890,10 +1888,8 @@ export const GSREvents = {
     }
 
     // Sync dim state for all sliders across all control cards
-    document
-      .querySelectorAll('input[type="range"]')
-      .forEach((slider) => {
-        GSREvents.updateFilterDim(slider);
-      });
+    document.querySelectorAll('input[type="range"]').forEach((slider) => {
+      GSREvents.updateFilterDim(slider);
+    });
   },
 };

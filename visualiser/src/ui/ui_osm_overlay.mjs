@@ -248,11 +248,9 @@ export const __methods = {
     GSRUI.syncOsmOverlay();
 
     if (isEnriched) {
-      document
-        .querySelectorAll('.osm-option')
-        .forEach((opt) => {
-          opt.removeAttribute('disabled');
-        });
+      document.querySelectorAll('.osm-option').forEach((opt) => {
+        opt.removeAttribute('disabled');
+      });
       envPanel.style.display = 'block';
 
       const firstEnriched = enriched.find((a) => a.enrichmentRadius);
@@ -264,11 +262,9 @@ export const __methods = {
 
       GSRUI.updateEnvironmentalDashboard();
     } else {
-      document
-        .querySelectorAll('.osm-option')
-        .forEach((opt) => {
-          opt.setAttribute('disabled', 'true');
-        });
+      document.querySelectorAll('.osm-option').forEach((opt) => {
+        opt.setAttribute('disabled', 'true');
+      });
       // Only fall back to GSR if the current metric is an OSM-only one that just
       // became unavailable — don't clobber a plain choice like Phasic.
       const cur = select?.selectedOptions?.[0];

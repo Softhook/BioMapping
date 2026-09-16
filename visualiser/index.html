@@ -42,7 +42,7 @@
         <!-- Mobile-only: toggles the sidebar drawer. Hidden on desktop via CSS,
              hidden in the Live view (nothing to open) via events.js. -->
         <button class="icon-btn sidebar-toggle-btn" id="btnSidebarToggle"
-                title="Controls" aria-label="Toggle controls" aria-expanded="false">
+                title="Controls" aria-label="Toggle controls" aria-expanded="false" type="button">
           <i class="fa-solid fa-bars"></i>
         </button>
 
@@ -54,17 +54,17 @@
       </div>
       <div class="header-right">
         <div class="view-switcher" id="viewSwitcher">
-          <button class="view-tab active" id="btnSingleView">
+          <button class="view-tab active" id="btnSingleView" type="button">
             <i class="fa-solid fa-chart-line"></i> Single Track
           </button>
-          <button class="view-tab" id="btnCollectiveView">
+          <button class="view-tab" id="btnCollectiveView" type="button">
             <i class="fa-solid fa-layer-group"></i> Collective
           </button>
-          <button class="view-tab" id="btnLiveView">
+          <button class="view-tab" id="btnLiveView" type="button">
             <i class="fa-solid fa-satellite-dish"></i> Live
           </button>
         </div>
-        <button class="icon-btn fullscreen-btn" id="btnFullscreen" title="Full screen (F)">
+        <button class="icon-btn fullscreen-btn" id="btnFullscreen" title="Full screen (F)" type="button">
           <i class="fa-solid fa-expand"></i>
         </button>
       </div>
@@ -79,7 +79,7 @@
         <section class="control-card upload-section" id="importCard">
           <h2>
             <i class="fa-solid fa-file-import"></i> Track Library
-            <button class="icon-btn collapse-btn" id="btnImportCollapse" title="Collapse" style="margin-left: auto;">
+            <button class="icon-btn collapse-btn" id="btnImportCollapse" title="Collapse" style="margin-left: auto;" type="button">
               <i class="fa-solid fa-chevron-down"></i>
             </button>
           </h2>
@@ -102,15 +102,15 @@
 
               <div class="track-library-footer" style="margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border-color, #e0e0e0); display: flex; flex-direction: column; gap: 8px;">
                 <div style="display: flex; gap: 8px;">
-                  <button class="btn btn-secondary btn-sm" id="btnExportPreset" title="Export current UI slider positions to a .json preset file on disk" style="flex: 1; padding: 6px 10px; font-size: 0.8rem;">
+                  <button class="btn btn-secondary btn-sm" id="btnExportPreset" title="Export current UI slider positions to a .json preset file on disk" style="flex: 1; padding: 6px 10px; font-size: 0.8rem;" type="button">
                     <i class="fa-solid fa-file-export"></i> Save Preset
                   </button>
-                  <button class="btn btn-secondary btn-sm" id="btnApplyPreset" title="Load a .json preset file from disk and set UI sliders to match" style="flex: 1; padding: 6px 10px; font-size: 0.8rem;">
+                  <button class="btn btn-secondary btn-sm" id="btnApplyPreset" title="Load a .json preset file from disk and set UI sliders to match" style="flex: 1; padding: 6px 10px; font-size: 0.8rem;" type="button">
                     <i class="fa-solid fa-file-import"></i> Load Preset
                   </button>
                   <input type="file" id="presetFileInput" accept=".json" style="display: none;">
                 </div>
-                <button class="btn btn-secondary btn-sm" id="btnApplyActiveToAll" title="Apply active track's slider settings to all loaded tracks" style="width: 100%; padding: 6px 10px; font-size: 0.8rem;">
+                <button class="btn btn-secondary btn-sm" id="btnApplyActiveToAll" title="Apply active track's slider settings to all loaded tracks" style="width: 100%; padding: 6px 10px; font-size: 0.8rem;" type="button">
                   <i class="fa-solid fa-wand-magic-sparkles"></i> Apply Current Preset to All Tracks
                 </button>
               </div>
@@ -122,7 +122,7 @@
         <section class="control-card collapsed" id="gsrFilteringCard">
           <h2>
             <i class="fa-solid fa-wave-square"></i> GSR Filtering
-            <button class="icon-btn collapse-btn" id="btnGsrFilteringCollapse" title="Collapse" style="margin-left: auto;">
+            <button class="icon-btn collapse-btn" id="btnGsrFilteringCollapse" title="Collapse" style="margin-left: auto;" type="button">
               <i class="fa-solid fa-chevron-down"></i>
             </button>
           </h2>
@@ -152,7 +152,7 @@
 
             <div class="toggle-group" style="margin-top:10px;">
               <label class="switch">
-                <input type="checkbox" id="useGaitFilter" checked>
+                <input type="checkbox" id="useGaitFilter" checked aria-label="Gait Filter">
                 <span class="slider round"></span>
               </label>
               <span class="toggle-label">3. Gait Filter</span>
@@ -190,7 +190,7 @@
         <section class="control-card collapsed" id="peakDetectionCard">
           <h2>
             <i class="fa-solid fa-arrow-trend-up"></i> Peak Detection (SCR)
-            <button class="icon-btn collapse-btn" id="btnPeakDetectionCollapse" title="Collapse" style="margin-left: auto;">
+            <button class="icon-btn collapse-btn" id="btnPeakDetectionCollapse" title="Collapse" style="margin-left: auto;" type="button">
               <i class="fa-solid fa-chevron-down"></i>
             </button>
           </h2>
@@ -201,7 +201,7 @@
 
             <div class="toggle-group">
               <label class="switch">
-                <input type="checkbox" id="usePeakProminence">
+                <input type="checkbox" id="usePeakProminence" aria-label="Prominence Detector">
                 <span class="slider round"></span>
               </label>
               <span class="toggle-label">Prominence Detector</span>
@@ -210,7 +210,7 @@
 
             <div class="toggle-group" style="margin-top:8px;">
               <label class="switch">
-                <input type="checkbox" id="useDeconvolution">
+                <input type="checkbox" id="useDeconvolution" aria-label="SCR Deconvolution (Matching Pursuit)">
                 <span class="slider round"></span>
               </label>
               <span class="toggle-label">SCR Deconvolution (Matching Pursuit)</span>
@@ -219,7 +219,7 @@
 
             <div class="toggle-group" style="margin-top:8px;">
               <label class="switch">
-                <input type="checkbox" id="useSparsEDA">
+                <input type="checkbox" id="useSparsEDA" aria-label="SCR Deconvolution (SparsEDA)">
                 <span class="slider round"></span>
               </label>
               <span class="toggle-label">SCR Deconvolution (SparsEDA)</span>
@@ -231,7 +231,7 @@
 
             <div class="toggle-group" style="margin-top:8px;">
               <label class="switch">
-                <input type="checkbox" id="useCvxEDA">
+                <input type="checkbox" id="useCvxEDA" aria-label="cvxEDA (Convex Optimization)">
                 <span class="slider round"></span>
               </label>
               <span class="toggle-label">cvxEDA (Convex Optimization)</span>
@@ -284,7 +284,7 @@
         <section class="control-card collapsed" id="gpsFilteringCard">
           <h2>
             <i class="fa-solid fa-satellite-dish"></i> GPS Filtering
-            <button class="icon-btn collapse-btn" id="btnGpsFilteringCollapse" title="Collapse" style="margin-left: auto;">
+            <button class="icon-btn collapse-btn" id="btnGpsFilteringCollapse" title="Collapse" style="margin-left: auto;" type="button">
               <i class="fa-solid fa-chevron-down"></i>
             </button>
           </h2>
@@ -353,16 +353,16 @@
         <section class="control-card collapsed" id="osmEnrichmentCard">
           <h2>
             <i class="fa-solid fa-earth-americas"></i> Spatial Data
-            <button class="icon-btn collapse-btn" id="btnOsmEnrichmentCollapse" title="Collapse" style="margin-left: auto;">
+            <button class="icon-btn collapse-btn" id="btnOsmEnrichmentCollapse" title="Collapse" style="margin-left: auto;" type="button">
               <i class="fa-solid fa-chevron-down"></i>
             </button>
           </h2>
 
           <div class="card-content">
-            <button class="btn btn-primary" id="btnEnrichTrack" style="width: 100%;">
+            <button class="btn btn-primary" id="btnEnrichTrack" style="width: 100%;" type="button">
               <i class="fa-solid fa-wand-magic-sparkles"></i> Retrieve Spatial Data
             </button>
-            <button class="btn btn-outline" id="btnSampleNdvi" style="width: 100%; margin-top: 8px;" title="Sample real Sentinel-2 NDVI ((B08-B04)/(B08+B04)) at each GPS fix from the raw Copernicus layer below — requires Satellite &amp; NDVI Settings to be configured">
+            <button class="btn btn-outline" id="btnSampleNdvi" style="width: 100%; margin-top: 8px;" title="Sample real Sentinel-2 NDVI ((B08-B04)/(B08+B04)) at each GPS fix from the raw Copernicus layer below — requires Satellite &amp; NDVI Settings to be configured" type="button">
               <i class="fa-solid fa-satellite"></i> Sample Satellite NDVI
             </button>
 
@@ -407,7 +407,7 @@
             </div>
 
             <p class="help-text" style="margin-top: 12px; margin-bottom: 4px;">Fetched OpenStreetMap data is cached locally in the browser, so re-enriching tracks in the same area doesn't re-fetch from the network.</p>
-            <button class="btn btn-outline" id="btnClearOsmCache" style="width: 100%; font-size: 0.8rem;" title="Delete all locally cached OpenStreetMap data">
+            <button class="btn btn-outline" id="btnClearOsmCache" style="width: 100%; font-size: 0.8rem;" title="Delete all locally cached OpenStreetMap data" type="button">
               <i class="fa-solid fa-trash"></i> Clear Cached Map Data
             </button>
 
@@ -426,7 +426,7 @@
 
             <div class="toggle-group">
               <label class="switch">
-                <input type="checkbox" id="gpsSnapToRoads">
+                <input type="checkbox" id="gpsSnapToRoads" aria-label="Snap to Roads &amp; Trails">
                 <span class="slider round"></span>
               </label>
               <span class="toggle-label">Snap to Roads &amp; Trails</span>
@@ -445,7 +445,7 @@
 
             <div class="toggle-group">
               <label class="switch">
-                <input type="checkbox" id="showOsmGraphBands">
+                <input type="checkbox" id="showOsmGraphBands" aria-label="Show Context Bands on GSR">
                 <span class="slider round"></span>
               </label>
               <span class="toggle-label">Show Context Bands on GSR</span>
@@ -454,7 +454,7 @@
 
             <div class="toggle-group">
               <label class="switch">
-                <input type="checkbox" id="showNdviGraphBands">
+                <input type="checkbox" id="showNdviGraphBands" aria-label="Show NDVI on GSR">
                 <span class="slider round"></span>
               </label>
               <span class="toggle-label">Show NDVI on GSR</span>
@@ -463,7 +463,7 @@
 
             <div class="toggle-group">
               <label class="switch">
-                <input type="checkbox" id="showEmFogGraphBands">
+                <input type="checkbox" id="showEmFogGraphBands" aria-label="Show EM Fog on GSR">
                 <span class="slider round"></span>
               </label>
               <span class="toggle-label">Show EM Fog on GSR</span>
@@ -476,7 +476,7 @@
         <section class="control-card collapsed" id="mapDisplayCard">
           <h2>
             <i class="fa-solid fa-map"></i> Map Display
-            <button class="icon-btn collapse-btn" id="btnMapDisplayCollapse" title="Collapse" style="margin-left: auto;">
+            <button class="icon-btn collapse-btn" id="btnMapDisplayCollapse" title="Collapse" style="margin-left: auto;" type="button">
               <i class="fa-solid fa-chevron-down"></i>
             </button>
           </h2>
@@ -575,7 +575,7 @@
         <section class="control-card" id="contourSettingsCard" style="display: none;">
           <h2>
             <i class="fa-solid fa-mountain-sun"></i> Contour Surface
-            <button class="icon-btn collapse-btn" id="btnContourCollapse" title="Collapse" style="margin-left: auto;">
+            <button class="icon-btn collapse-btn" id="btnContourCollapse" title="Collapse" style="margin-left: auto;" type="button">
               <i class="fa-solid fa-chevron-down"></i>
             </button>
           </h2>
@@ -667,32 +667,32 @@
         <section class="control-card export-section collapsed" id="exportCard">
           <h2>
             <i class="fa-solid fa-download"></i> Export Options
-            <button class="icon-btn collapse-btn" id="btnExportCollapse" title="Collapse" style="margin-left: auto;">
+            <button class="icon-btn collapse-btn" id="btnExportCollapse" title="Collapse" style="margin-left: auto;" type="button">
               <i class="fa-solid fa-chevron-down"></i>
             </button>
           </h2>
           
           <div class="card-content">
             <div class="export-buttons">
-              <button class="btn btn-secondary" id="exportCsvBtn" disabled>
+              <button class="btn btn-secondary" id="exportCsvBtn" disabled type="button">
                 <i class="fa-solid fa-file-csv"></i> Export Processed CSV
               </button>
-              <button class="btn btn-secondary" id="exportImageBtn" disabled>
+              <button class="btn btn-secondary" id="exportImageBtn" disabled type="button">
                 <i class="fa-solid fa-image"></i> Save Canvas PNG
               </button>
-              <button class="btn btn-secondary" id="exportMapBtn" disabled>
+              <button class="btn btn-secondary" id="exportMapBtn" disabled type="button">
                 <i class="fa-solid fa-map"></i> Save Bio Map PNG
               </button>
-              <button class="btn btn-secondary" id="exportSvgBtn" disabled>
+              <button class="btn btn-secondary" id="exportSvgBtn" disabled type="button">
                 <i class="fa-solid fa-file-image"></i> Export SVG Map (Vector)
               </button>
-              <button class="btn btn-secondary" id="exportCzmlBtn" disabled title="The 3D extruded arousal track as CesiumJS CZML">
+              <button class="btn btn-secondary" id="exportCzmlBtn" disabled title="The 3D extruded arousal track as CesiumJS CZML" type="button">
                 <i class="fa-solid fa-code"></i> Export 3D Track (CZML)
               </button>
-              <button class="btn btn-secondary" id="exportKmlBtn" disabled title="The 3D extruded arousal track as KML for Google Earth">
+              <button class="btn btn-secondary" id="exportKmlBtn" disabled title="The 3D extruded arousal track as KML for Google Earth" type="button">
                 <i class="fa-solid fa-earth-europe"></i> Export 3D Track (KML)
               </button>
-              <button class="btn btn-secondary" id="exportProjectBtn" disabled title="Bundles every loaded track's processed CSV plus collective view settings into one .zip you can re-import to keep working later">
+              <button class="btn btn-secondary" id="exportProjectBtn" disabled title="Bundles every loaded track's processed CSV plus collective view settings into one .zip you can re-import to keep working later" type="button">
                 <i class="fa-solid fa-file-zipper"></i> Export Collective Project (.zip)
               </button>
             </div>
@@ -774,25 +774,25 @@
         <section class="visualization-panel" id="gsrPanel">
           <div class="panel-header">
             <div class="panel-title-group">
-              <button class="icon-btn collapse-btn" id="btnGsrCollapse" title="Collapse Panel">
+              <button class="icon-btn collapse-btn" id="btnGsrCollapse" title="Collapse Panel" type="button">
                 <i class="fa-solid fa-chevron-down"></i>
               </button>
               <h3><i class="fa-solid fa-chart-area"></i> GSR Signal</h3>
             </div>
             <div class="canvas-controls">
               <div class="btn-group">
-                <button class="icon-btn" id="btnZoomIn" title="Zoom In"><i class="fa-solid fa-magnifying-glass-plus"></i></button>
-                <button class="icon-btn" id="btnZoomOut" title="Zoom Out"><i class="fa-solid fa-magnifying-glass-minus"></i></button>
-                <button class="icon-btn" id="btnResetView" title="Reset View"><i class="fa-solid fa-arrows-to-eye"></i></button>
+                <button class="icon-btn" id="btnZoomIn" title="Zoom In" type="button"><i class="fa-solid fa-magnifying-glass-plus"></i></button>
+                <button class="icon-btn" id="btnZoomOut" title="Zoom Out" type="button"><i class="fa-solid fa-magnifying-glass-minus"></i></button>
+                <button class="icon-btn" id="btnResetView" title="Reset View" type="button"><i class="fa-solid fa-arrows-to-eye"></i></button>
               </div>
               <span class="control-divider"></span>
               <div class="btn-group">
-                <button class="btn btn-outline active" id="btnToggleRaw">Raw</button>
-                <button class="btn btn-outline active" id="btnToggleFiltered">Filtered</button>
-                <button class="btn btn-outline active" id="btnToggleTonic">Tonic</button>
-                <button class="btn btn-outline" id="btnTogglePhasic">Phasic</button>
-                <button class="btn btn-outline active" id="btnTogglePeaks">Peaks</button>
-                <button class="btn btn-outline active" id="btnToggleHotspots">Hotspots</button>
+                <button class="btn btn-outline active" id="btnToggleRaw" type="button">Raw</button>
+                <button class="btn btn-outline active" id="btnToggleFiltered" type="button">Filtered</button>
+                <button class="btn btn-outline active" id="btnToggleTonic" type="button">Tonic</button>
+                <button class="btn btn-outline" id="btnTogglePhasic" type="button">Phasic</button>
+                <button class="btn btn-outline active" id="btnTogglePeaks" type="button">Peaks</button>
+                <button class="btn btn-outline active" id="btnToggleHotspots" type="button">Hotspots</button>
               </div>
               <span class="control-divider"></span>
               <select id="graphView" class="select-control" title="Graph view">
@@ -808,7 +808,7 @@
                 <option value="responseDynamics" disabled>Response Dynamics</option>
               </select>
               <span class="control-divider"></span>
-              <button class="icon-btn fullscreen-btn" id="btnGsrFullscreen" title="Full screen"><i class="fa-solid fa-expand"></i></button>
+              <button class="icon-btn fullscreen-btn" id="btnGsrFullscreen" title="Full screen" type="button"><i class="fa-solid fa-expand"></i></button>
             </div>
           </div>
           
@@ -817,7 +817,7 @@
             <div class="canvas-placeholder" id="canvasPlaceholder">
               <i class="fa-solid fa-wave-square pulse-icon"></i>
               <h3>Ready to analyse bio-sensor data</h3>
-              <button class="btn btn-primary" id="loadDemoBtn">
+              <button class="btn btn-primary" id="loadDemoBtn" type="button">
                 <i class="fa-solid fa-flask"></i> Load Demo Data
               </button>
             </div>
@@ -828,17 +828,17 @@
         <section class="map-panel" id="mapPanel">
           <div class="panel-header">
             <div class="panel-title-group">
-              <button class="icon-btn collapse-btn" id="btnMapCollapse" title="Collapse Panel">
+              <button class="icon-btn collapse-btn" id="btnMapCollapse" title="Collapse Panel" type="button">
                 <i class="fa-solid fa-chevron-down"></i>
               </button>
               <!-- Surface switcher — swaps the render engine inside this one panel
                    (Leaflet ⇄ Cesium). The header controls below drive whichever
                    is mounted; see GSREvents.setSurface / src/map/globe3d_view.js. -->
               <div class="view-switcher surface-switcher" id="surfaceSwitcher" title="Swap the map for the 3D globe (same data)">
-                <button class="view-tab surface-tab active" id="btnMapSurface" data-surface="map">
+                <button class="view-tab surface-tab active" id="btnMapSurface" data-surface="map" type="button">
                   <i class="fa-solid fa-map-location-dot"></i> 2D
                 </button>
-                <button class="view-tab surface-tab" id="btnGlobeSurface" data-surface="globe">
+                <button class="view-tab surface-tab" id="btnGlobeSurface" data-surface="globe" type="button">
                   <i class="fa-solid fa-globe"></i> 3D
                 </button>
               </div>
@@ -846,28 +846,28 @@
             </div>
             <div class="canvas-controls">
               <div class="btn-group">
-                <button class="icon-btn" id="btnMapZoomIn" title="Zoom In"><i class="fa-solid fa-magnifying-glass-plus"></i></button>
-                <button class="icon-btn" id="btnMapZoomOut" title="Zoom Out"><i class="fa-solid fa-magnifying-glass-minus"></i></button>
-                <button class="icon-btn" id="btnMapZoomExtent" title="Zoom to Extent"><i class="fa-solid fa-arrows-to-eye"></i></button>
-                <button class="icon-btn" id="g3dBtnOrbit" style="display: none;" title="360° Orbit"><i class="fa-solid fa-rotate"></i></button>
-                <button class="icon-btn" id="g3dBtnTour" style="display: none;" title="Tour"><i class="fa-solid fa-route"></i></button>
-                <button class="icon-btn" id="g3dBtnPersp3D" style="display: none;" title="3D 45° Perspective"><i class="fa-solid fa-cube"></i></button>
-                <button class="icon-btn" id="g3dBtnPerspTop" style="display: none;" title="Top View"><i class="fa-solid fa-map"></i></button>
-                <button class="icon-btn" id="g3dBtnNorth" style="display: none;" title="Reset North"><i class="fa-regular fa-compass"></i></button>
+                <button class="icon-btn" id="btnMapZoomIn" title="Zoom In" type="button"><i class="fa-solid fa-magnifying-glass-plus"></i></button>
+                <button class="icon-btn" id="btnMapZoomOut" title="Zoom Out" type="button"><i class="fa-solid fa-magnifying-glass-minus"></i></button>
+                <button class="icon-btn" id="btnMapZoomExtent" title="Zoom to Extent" type="button"><i class="fa-solid fa-arrows-to-eye"></i></button>
+                <button class="icon-btn" id="g3dBtnOrbit" style="display: none;" title="360° Orbit" type="button"><i class="fa-solid fa-rotate"></i></button>
+                <button class="icon-btn" id="g3dBtnTour" style="display: none;" title="Tour" type="button"><i class="fa-solid fa-route"></i></button>
+                <button class="icon-btn" id="g3dBtnPersp3D" style="display: none;" title="3D 45° Perspective" type="button"><i class="fa-solid fa-cube"></i></button>
+                <button class="icon-btn" id="g3dBtnPerspTop" style="display: none;" title="Top View" type="button"><i class="fa-solid fa-map"></i></button>
+                <button class="icon-btn" id="g3dBtnNorth" style="display: none;" title="Reset North" type="button"><i class="fa-regular fa-compass"></i></button>
               </div>
               <span class="control-divider"></span>
               <div class="btn-group">
-                <button class="btn btn-outline" id="btnToggleRFFluid" title="Toggle static ray-casted 3-frequency RF fluid background">RF</button>
-                <button class="btn btn-outline active" id="btnToggleMapPeaks">Peaks</button>
-                <button class="btn btn-outline active" id="btnToggleMapHotspots">Hotspots</button>
-                <button class="btn btn-outline active" id="btnToggleMapLabels">Labels</button>
-                <button class="btn btn-outline active" id="btnToggleMapClusters">Places</button>
-                <button class="btn btn-outline" id="btnToggleOsmShapes" title="Toggle OpenStreetMap layers (2D building/park/water shapes, 3D buildings on the globe). Retrieves the data on demand — from the shared local cache, or the Overpass API — the first time it is switched on.">OSM</button>
-                <button class="btn btn-outline" id="btnToggleNdviLayer" title="Toggle Sentinel-2 NDVI satellite tile layer">NDVI</button>
+                <button class="btn btn-outline" id="btnToggleRFFluid" title="Toggle static ray-casted 3-frequency RF fluid background" type="button">RF</button>
+                <button class="btn btn-outline active" id="btnToggleMapPeaks" type="button">Peaks</button>
+                <button class="btn btn-outline active" id="btnToggleMapHotspots" type="button">Hotspots</button>
+                <button class="btn btn-outline active" id="btnToggleMapLabels" type="button">Labels</button>
+                <button class="btn btn-outline active" id="btnToggleMapClusters" type="button">Places</button>
+                <button class="btn btn-outline" id="btnToggleOsmShapes" title="Toggle OpenStreetMap layers (2D building/park/water shapes, 3D buildings on the globe). Retrieves the data on demand — from the shared local cache, or the Overpass API — the first time it is switched on." type="button">OSM</button>
+                <button class="btn btn-outline" id="btnToggleNdviLayer" title="Toggle Sentinel-2 NDVI satellite tile layer" type="button">NDVI</button>
                 <!-- Collective-only -->
-                <button class="btn btn-outline active" id="btnToggleMapIsolines" style="display: none;" title="Toggle Isolines">Iso</button>
-                <button class="btn btn-outline active" id="btnToggleMapSurface" style="display: none;" title="Toggle Surface Grid">Surf</button>
-                <button class="btn btn-outline active" id="btnToggleMapTracks" style="display: none;" title="Toggle Track Paths">Tracks</button>
+                <button class="btn btn-outline active" id="btnToggleMapIsolines" style="display: none;" title="Toggle Isolines" type="button">Iso</button>
+                <button class="btn btn-outline active" id="btnToggleMapSurface" style="display: none;" title="Toggle Surface Grid" type="button">Surf</button>
+                <button class="btn btn-outline active" id="btnToggleMapTracks" style="display: none;" title="Toggle Track Paths" type="button">Tracks</button>
               </div>
               <span class="control-divider"></span>
               <select id="rfFluidMode" class="select-control btn btn-outline" title="Select RF Fluid visualization mode">
@@ -923,7 +923,7 @@
                 <option value="tri_index">Tri Index (Tonic + AUC + Density)</option>
               </select>
               <span class="control-divider"></span>
-              <button class="icon-btn fullscreen-btn" id="btnMapFullscreen" title="Full screen"><i class="fa-solid fa-expand"></i></button>
+              <button class="icon-btn fullscreen-btn" id="btnMapFullscreen" title="Full screen" type="button"><i class="fa-solid fa-expand"></i></button>
             </div>
           </div>
           <!-- Two render engines, one panel. GSREvents.setSurface toggles which
@@ -942,13 +942,13 @@
         <section class="peaks-table-panel" id="eventsPanel">
           <div class="panel-header">
             <div class="panel-title-group">
-              <button class="icon-btn collapse-btn" id="btnEventsCollapse" title="Collapse Panel">
+              <button class="icon-btn collapse-btn" id="btnEventsCollapse" title="Collapse Panel" type="button">
                 <i class="fa-solid fa-chevron-down"></i>
               </button>
               <h3><i class="fa-solid fa-list-check"></i> Skin Conductance Response (SCR) Events</h3>
             </div>
             <div class="canvas-controls">
-              <button class="icon-btn fullscreen-btn" id="btnEventsFullscreen" title="Full screen"><i class="fa-solid fa-expand"></i></button>
+              <button class="icon-btn fullscreen-btn" id="btnEventsFullscreen" title="Full screen" type="button"><i class="fa-solid fa-expand"></i></button>
             </div>
           </div>
           <div class="table-container">
@@ -976,18 +976,18 @@
         <section class="peaks-table-panel" id="environmentalPanel" style="display: none;">
           <div class="panel-header">
             <div class="panel-title-group">
-              <button class="icon-btn collapse-btn" id="btnEnvCollapse" title="Collapse Panel">
+              <button class="icon-btn collapse-btn" id="btnEnvCollapse" title="Collapse Panel" type="button">
                 <i class="fa-solid fa-chevron-down"></i>
               </button>
               <h3><i class="fa-solid fa-square-poll-vertical"></i> Environmental Analysis</h3>
             </div>
             <div class="view-switcher" id="envTabSwitcher" style="margin-left: 20px;">
-              <button class="view-tab active" id="btnEnvTabCorrelation">Correlation Matrix</button>
-              <button class="view-tab" id="btnEnvTabScatter">Regression Plot</button>
-              <button class="view-tab" id="btnEnvTabRoads">Roads Profile</button>
+              <button class="view-tab active" id="btnEnvTabCorrelation" type="button">Correlation Matrix</button>
+              <button class="view-tab" id="btnEnvTabScatter" type="button">Regression Plot</button>
+              <button class="view-tab" id="btnEnvTabRoads" type="button">Roads Profile</button>
             </div>
             <div class="canvas-controls" style="margin-left: auto;">
-              <button class="icon-btn fullscreen-btn" id="btnEnvFullscreen" title="Full screen"><i class="fa-solid fa-expand"></i></button>
+              <button class="icon-btn fullscreen-btn" id="btnEnvFullscreen" title="Full screen" type="button"><i class="fa-solid fa-expand"></i></button>
             </div>
           </div>
 
@@ -1130,30 +1130,36 @@
        tests/test_script_order.js fails if the two drift apart. -->
   <script type="module" src="src/app_entry.mjs"></script>
 
-  <!-- Street-Level Imagery Modal Overlay -->
+  <!-- Street-Level Imagery Modal Overlay. Click-outside-to-dismiss is a mouse
+       convenience on top of the header's real close button and the Escape
+       key handler (ui_modals.mjs), both already keyboard-operable. -->
+  <!-- biome-ignore lint/a11y/useKeyWithClickEvents: keyboard close path covered by the header button + Escape handler -->
+  <!-- biome-ignore lint/a11y/noStaticElementInteractions: backdrop dismiss is a mouse convenience, not the only way to close -->
   <div class="streetview-modal-overlay" id="streetviewModal" style="display:none;" onclick="GSRUI.closeStreetViewModal(event)">
+    <!-- biome-ignore lint/a11y/useKeyWithClickEvents: keyboard close path covered by the header button + Escape handler -->
+    <!-- biome-ignore lint/a11y/noStaticElementInteractions: backdrop dismiss is a mouse convenience, not the only way to close -->
     <div class="streetview-modal-content" onclick="event.stopPropagation()">
       <div class="streetview-modal-header">
         <h3><i class="fa-solid fa-street-view"></i> <span id="streetviewModalTitle">Street-Level View</span></h3>
-        <button class="icon-btn" onclick="GSRUI.closeStreetViewModal()" title="Close">
+        <button class="icon-btn" onclick="GSRUI.closeStreetViewModal()" title="Close" type="button">
           <i class="fa-solid fa-xmark"></i>
         </button>
       </div>
       <div class="streetview-modal-body">
         <div class="streetview-tab-bar">
-          <button class="streetview-tab active" id="svTabGoogle" onclick="GSRUI.switchStreetViewTab('google')">
+          <button class="streetview-tab active" id="svTabGoogle" onclick="GSRUI.switchStreetViewTab('google')" type="button">
             <i class="fa-brands fa-google"></i> Google Street View
           </button>
-          <button class="streetview-tab" id="svTabMapillary" onclick="GSRUI.switchStreetViewTab('mapillary')">
+          <button class="streetview-tab" id="svTabMapillary" onclick="GSRUI.switchStreetViewTab('mapillary')" type="button">
             <i class="fa-regular fa-map"></i> Mapillary
           </button>
         </div>
         <div class="streetview-iframe-container" id="svIframeContainer">
-          <iframe id="svIframe" allowfullscreen></iframe>
+          <iframe id="svIframe" title="Mapillary street-level view" allowfullscreen></iframe>
         </div>
         <div class="streetview-google-container" id="svGoogleContainer" style="display:none;">
           <div class="streetview-iframe-container" id="svGoogleIframeContainer" style="display:none;">
-            <iframe id="svGoogleIframe" allowfullscreen></iframe>
+            <iframe id="svGoogleIframe" title="Google Street View panorama" allowfullscreen></iframe>
           </div>
           <div class="streetview-google-fallback" id="svGoogleFallback">
             <p><i class="fa-solid fa-key"></i> Enter your Google Maps API key to embed Street View panoramas here.</p>
@@ -1163,7 +1169,7 @@
             <div class="api-key-input-row">
               <input type="text" class="api-key-input" id="svApiKeyInput"
                 placeholder="Paste your Google Maps API key…" spellcheck="false">
-              <button class="btn btn-primary btn-sm" id="svApiKeySaveBtn" onclick="GSRUI.saveGoogleMapsKey()">
+              <button class="btn btn-primary btn-sm" id="svApiKeySaveBtn" onclick="GSRUI.saveGoogleMapsKey()" type="button">
                 <i class="fa-solid fa-check"></i> Save
               </button>
             </div>
@@ -1171,7 +1177,7 @@
               <i class="fa-solid fa-circle-check"></i> Key saved. Switch away and back to load Street View.
             </p>
             <hr style="margin:12px 0;border:none;border-top:1px solid var(--border-glass);">
-            <a class="btn-external-link streetview" id="svGoogleLink" target="_blank" rel="noopener">
+            <a class="btn-external-link streetview" id="svGoogleLink" href="https://www.google.com/maps" target="_blank" rel="noopener">
               <i class="fa-brands fa-google"></i> Open in Google Maps (new tab)
             </a>
           </div>
@@ -1179,7 +1185,7 @@
       </div>
       <div class="streetview-modal-footer">
         <span class="streetview-coords" id="svModalCoords"></span>
-        <a class="btn-external-link mapillary" id="svMapillaryExtLink" target="_blank" rel="noopener">
+        <a class="btn-external-link mapillary" id="svMapillaryExtLink" href="https://www.mapillary.com" target="_blank" rel="noopener">
           <i class="fa-regular fa-map"></i> Open Mapillary in new tab
         </a>
       </div>

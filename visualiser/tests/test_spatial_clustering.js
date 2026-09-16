@@ -420,8 +420,10 @@ test('stitchSegments: graph walk reproduces the original O(S^2) pairwise scan (e
   };
   // deterministic LCG shuffle
   let seed = 42;
-  const rnd = () =>
-    (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+  const rnd = () => {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    return seed / 0x7fffffff;
+  };
   const shuffle = (a) => {
     const b = a.slice();
     for (let i = b.length - 1; i > 0; i--) {
@@ -470,8 +472,10 @@ test('stitchSegments: graph walk reproduces the original O(S^2) pairwise scan (e
   };
   try {
     let seed2 = 20260907;
-    const rr = () =>
-      (seed2 = (seed2 * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+    const rr = () => {
+      seed2 = (seed2 * 1103515245 + 12345) & 0x7fffffff;
+      return seed2 / 0x7fffffff;
+    };
     for (let t = 0; t < 8; t++) {
       const cx = -0.12 + rr() * 0.03,
         cy = 51.5 + rr() * 0.02;

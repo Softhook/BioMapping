@@ -243,7 +243,8 @@ function freshAppState(overrides) {
     // themselves, mirroring what setup() does.
     _listeners: {},
     on(event, fn) {
-      (this._listeners[event] = this._listeners[event] || []).push(fn);
+      this._listeners[event] ??= [];
+      this._listeners[event].push(fn);
     },
     emit(event, ...args) {
       (this._listeners[event] || []).forEach((fn) => fn(...args));

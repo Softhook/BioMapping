@@ -123,11 +123,10 @@ function makeFakeBle(
   // Uint8Array(e.target.value.buffer)` inside live.html consumes — cached
   // once at module scope since the expression is realm-invariant, not
   // per-bootLive()-call.
-  const bytesToDataView =
-    cachedBytesToDataView ||
-    (cachedBytesToDataView = vm.runInThisContext(
-      '(bytes => new DataView(Uint8Array.from(bytes).buffer))',
-    ));
+  cachedBytesToDataView ??= vm.runInThisContext(
+    '(bytes => new DataView(Uint8Array.from(bytes).buffer))',
+  );
+  const bytesToDataView = cachedBytesToDataView;
 
   const charHandlers = [];
   // type -> Set<fn> — a real EventTarget's shape, needed here (unlike the

@@ -295,10 +295,9 @@ console.log(
 function assertContourSmoothness(dString, maxAllowedAngleDeg = 30) {
   const bezierRegex =
     /C\s*([-\d.]+)\s+([-\d.]+),\s*([-\d.]+)\s+([-\d.]+),\s*([-\d.]+)\s+([-\d.]+)/g;
-  let match;
   const segments = [];
 
-  while ((match = bezierRegex.exec(dString)) !== null) {
+  for (const match of dString.matchAll(bezierRegex)) {
     segments.push({
       c1: { x: parseFloat(match[1]), y: parseFloat(match[2]) },
       c2: { x: parseFloat(match[3]), y: parseFloat(match[4]) },

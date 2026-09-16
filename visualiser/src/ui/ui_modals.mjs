@@ -6,6 +6,17 @@
  */
 import { GSRUI } from './ui.mjs';
 
+// Keyboard-only escape hatch matching the backdrop's click-to-dismiss —
+// the modal's own close button is already keyboard-operable, this just
+// adds the Escape shortcut on top.
+document.addEventListener('keydown', (event) => {
+  if (event.key !== 'Escape') return;
+  const modal = document.getElementById('streetviewModal');
+  if (modal && modal.style.display !== 'none') {
+    GSRUI.closeStreetViewModal();
+  }
+});
+
 export const __methods = {
   /**
    * Open the street-level imagery modal overlay at the given coordinates.

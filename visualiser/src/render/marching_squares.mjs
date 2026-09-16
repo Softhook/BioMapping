@@ -118,10 +118,10 @@ export class MarchingSquares {
         let pL = null; // Left edge intersection
 
         // Lazy calculations
-        const getT = () => pT || (pT = interpolate(r, c, r, c + 1));
-        const getR = () => pR || (pR = interpolate(r, c + 1, r + 1, c + 1));
-        const getB = () => pB || (pB = interpolate(r + 1, c, r + 1, c + 1));
-        const getL = () => pL || (pL = interpolate(r, c, r + 1, c));
+        const getT = () => (pT ??= interpolate(r, c, r, c + 1));
+        const getR = () => (pR ??= interpolate(r, c + 1, r + 1, c + 1));
+        const getB = () => (pB ??= interpolate(r + 1, c, r + 1, c + 1));
+        const getL = () => (pL ??= interpolate(r, c, r + 1, c));
 
         switch (cellIndex) {
           case 1:
@@ -328,8 +328,7 @@ export class MarchingSquares {
             pB = null,
             pL = null;
           const getT = () =>
-            pT ||
-            (pT = interp(
+            (pT ??= interp(
               latR,
               lonC,
               vNW,
@@ -341,8 +340,7 @@ export class MarchingSquares {
               isolevel,
             ));
           const getR = () =>
-            pR ||
-            (pR = interp(
+            (pR ??= interp(
               latR,
               lonC1,
               vNE,
@@ -354,8 +352,7 @@ export class MarchingSquares {
               isolevel,
             ));
           const getB = () =>
-            pB ||
-            (pB = interp(
+            (pB ??= interp(
               latR1,
               lonC,
               vSW,
@@ -367,8 +364,7 @@ export class MarchingSquares {
               isolevel,
             ));
           const getL = () =>
-            pL ||
-            (pL = interp(
+            (pL ??= interp(
               latR,
               lonC,
               vNW,
