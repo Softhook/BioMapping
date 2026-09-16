@@ -23,12 +23,10 @@
  */
 import { AppState } from '../core/app_state.mjs';
 import { GSR_CONST } from '../core/constants.mjs';
+import { Controllers } from '../core/controllers.mjs';
 import { GSRFileSaver } from '../core/file_saver.mjs';
 import { GSRNotices } from '../core/notices.mjs';
 import { GSRAnalyzer } from '../signal/analyzer.mjs';
-import { GSREvents } from '../ui/events.mjs';
-import { GSRTrackManager } from '../ui/tracks.mjs';
-import { GSRUI } from '../ui/ui.mjs';
 
 export const GSRCollectiveProject = {
   MANIFEST_VERSION: 1,
@@ -162,8 +160,8 @@ export const GSRCollectiveProject = {
       // what switchActiveTrack()/view-mode toggling already do before
       // re-analyzing. Inside the try so a failure here still restores the
       // button instead of leaving it stuck on "Zipping...".
-      GSRTrackManager.saveActiveTrackParams();
-      GSRTrackManager.saveActiveGpsParams();
+      Controllers.trackManager.saveActiveTrackParams();
+      Controllers.trackManager.saveActiveGpsParams();
 
       const zip = new JSZip();
       const manifestTracks = [];
@@ -278,7 +276,7 @@ export const GSRCollectiveProject = {
       // failure partway through still leaves the UI reflecting reality
       // (whatever tracks did load, or a clean empty state) instead of the
       // stale pre-import track list.
-      GSRTrackManager.clearAllTracks();
+      Controllers.trackManager.clearAllTracks();
       clearedExisting = true;
 
       let newActiveId = null;
@@ -342,7 +340,7 @@ export const GSRCollectiveProject = {
       // Make a track active first — this loads *that track's own* GSR/GPS
       // sliders and runs a single-track analysis pass, exactly like opening
       // any track normally would.
-      GSRTrackManager.switchActiveTrack(
+      Controllers.trackManager.switchActiveTrack(
         newActiveId || AppState.collectiveManager.tracks[0].id,
       );
 
@@ -362,10 +360,10 @@ export const GSRCollectiveProject = {
         // already applies via syncSliderValueDisplays() after doing the
         // exact same direct .value assignment.
         if (
-          typeof GSREvents !== 'undefined' &&
-          typeof GSREvents.initializeLabels === 'function'
+          Controllers.events &&
+          typeof Controllers.events.initializeLabels === 'function'
         ) {
-          GSREvents.initializeLabels();
+          Controllers.events.initializeLabels();
         }
       }
 
@@ -390,14 +388,14 @@ export const GSRCollectiveProject = {
         });
       }
 
-      GSRTrackManager.renderTrackList();
-      GSRTrackManager.setFileStatus(
+      Controllers.trackManager.renderTrackList();
+      Controllers.trackManager.setFileStatus(
         'success',
         `${AppState.collectiveManager.tracks.length} Tracks Loaded (project restored)`,
       );
 
       if (AppState.viewMode === 'collective') {
-        GSRUI.updateCollectiveMap();
+        Controllers.ui.updateCollectiveMap();
       }
     } catch (err) {
       console.error('Project import failed:', err);
@@ -407,9 +405,9 @@ export const GSRCollectiveProject = {
         // The old track list is already gone from AppState — make sure the
         // DOM agrees, whether that means showing whatever partial set of
         // tracks did load or falling back to the normal empty-library view.
-        GSRTrackManager.renderTrackList();
+        Controllers.trackManager.renderTrackList();
         const remaining = AppState.collectiveManager.tracks.length;
-        GSRTrackManager.setFileStatus(
+        Controllers.trackManager.setFileStatus(
           'warning',
           remaining > 0
             ? `${remaining} Tracks Loaded (partial project restore)`
@@ -419,3 +417,5 @@ export const GSRCollectiveProject = {
     }
   },
 };
+
+Controllers.collectiveProject = GSRCollectiveProject;

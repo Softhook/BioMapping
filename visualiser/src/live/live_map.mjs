@@ -8,42 +8,38 @@
  * Split out of src/live/live_view.js (2026-09). The shell (live_view.js)
  * owns the analyser, the view state (liveGsrView), device-class detection
  * (isCompactLiveLayout) and the FAB (closeFabMenu); the graph renderer
- * (live_graph.js) owns drawGraph. This file only reads those, bare, at call
- * time. Top-level bindings (liveMap, updateLiveMap, renderLiveMapMarkers,
- * …) live in the shared global lexical scope — see live_view.js's header —
- * so tests reach them through the vm context tests/support/boot_live.js
- * hands back.
+ * (live_graph.js) owns drawGraph. This file only reads those, through the
+ * Controllers registry (core/controllers.mjs) rather than a direct import —
+ * live_view.js imports many functions from this file, so this file importing
+ * live_view.js back would be a mutual-import cycle. Top-level bindings
+ * (liveMap, updateLiveMap, renderLiveMapMarkers, …) live in the shared
+ * global lexical scope — see live_view.js's header — so tests reach them
+ * through the vm context tests/support/boot_live.js hands back.
  *
- * Reads (bare globals, resolved at call time):
- *   LiveState                 src/live/live_state.js
+ * Reads:
+ *   LiveState, LIVE_SETTLE_TAIL_S   src/live/live_state.js (leaf)
  *   MapColors, GpsPipeline, GSRMapMarkers, GSRBasemap   src/map/, src/gps/
  *   latLngToTileCoords, buildTileUrl, normalizeTileCacheUrl   src/live/live_tile_cache.js
- *   liveGsrView, liveAnalyzer, LIVE_SETTLE_TAIL_S,
- *     isCompactLiveLayout, closeFabMenu   src/live/live_view.js (shell)
+ *   liveGsrView, liveAnalyzer, isCompactLayout, closeFabMenu
+ *                                   Controllers.liveView (src/live/live_view.js)
  *   drawGraph                 src/live/live_graph.js
  */
 
 // src/core/constants.js's GPS_DEFAULT.maxHdop (docs/csv_schema.md's "HDOP
 // Gate Design" — 2.0 is the post-processing quality filter, distinct from
 // the firmware's permissive 5.0 logging gate).
+import { Controllers } from '../core/controllers.mjs';
 import { GpsPipeline } from '../gps/gps_pipeline.mjs';
 import { GSRBasemap } from '../map/basemap.mjs';
 import { MapColors } from '../map/map_colors.mjs';
 import { GSRMapMarkers } from '../map/map_markers.mjs';
 import { drawGraph } from './live_graph.mjs';
-import { LiveState } from './live_state.mjs';
+import { LIVE_SETTLE_TAIL_S, LiveState } from './live_state.mjs';
 import {
   buildTileUrl,
   latLngToTileCoords,
   normalizeTileCacheUrl,
 } from './live_tile_cache.mjs';
-import {
-  closeFabMenu,
-  isCompactLiveLayout,
-  LIVE_SETTLE_TAIL_S,
-  liveAnalyzer,
-  liveGsrView,
-} from './live_view.mjs';
 
 export const LIVE_MAX_HDOP = 2.0;
 
@@ -107,10 +103,10 @@ export const allTrackSegments = [];
 // 'signal' (raw) needs no settling at all, so any queued segment (left over
 // from a tonic/phasic stretch) is drawn immediately.
 export function flushSettledSegments() {
-  const metric = liveGsrView.graphView;
+  const metric = Controllers.liveView.liveGsrView.graphView;
   const lastPkt = LiveState.packets[LiveState.packets.length - 1];
   if (!lastPkt) return;
-  const weight = isCompactLiveLayout()
+  const weight = Controllers.liveView.isCompactLayout()
     ? LIVE_TRACK_WEIGHT_MOBILE
     : LIVE_TRACK_WEIGHT_DESKTOP;
   while (pendingSegments.length > 0) {
@@ -152,7 +148,7 @@ export function flushSettledSegments() {
 // colour; the undrawn queue is flushed (for signal) or left to settle (for
 // tonic/phasic).
 export function recolorAllTrackSegments() {
-  const metric = liveGsrView.graphView;
+  const metric = Controllers.liveView.liveGsrView.graphView;
   if (metric === 'signal') {
     for (const { pkt, line } of allTrackSegments) {
       line.setStyle({
@@ -196,7 +192,7 @@ export async function cacheCurrentMapArea() {
   const maxZoom = Math.min(startZoom + 3, 18);
 
   const cacheMapBtn = document.getElementById('cacheMapBtn');
-  const originalText = isCompactLiveLayout()
+  const originalText = Controllers.liveView.isCompactLayout()
     ? 'Cache Map'
     : cacheMapBtn.textContent;
   cacheMapBtn.disabled = true;
@@ -333,7 +329,7 @@ export function initLiveMap() {
   document.getElementById('cacheMapBtn').disabled = false;
 
   if (typeof liveMap.on === 'function') {
-    liveMap.on('click dragstart', closeFabMenu);
+    liveMap.on('click dragstart', () => Controllers.liveView.closeFabMenu());
   }
 }
 
@@ -397,7 +393,7 @@ export function resetLiveMapSession() {
 
 // Reconcile one marker layer (peaks or hotspots) against the wanted set.
 export function _syncLiveMapMarkerSet(markerMap, peaks, iconBuilder) {
-  const A = liveAnalyzer;
+  const A = Controllers.liveView.liveAnalyzer;
   if (!A || !liveMap) return;
   const lastPkt = LiveState.packets[LiveState.packets.length - 1];
   const settledBefore = lastPkt
@@ -435,18 +431,25 @@ export function _syncLiveMapMarkerSet(markerMap, peaks, iconBuilder) {
 
 export function renderLiveMapMarkers() {
   if (!liveMap || typeof GSRMapMarkers === 'undefined') return;
-  if (!liveAnalyzer?.raw || liveAnalyzer.raw.length === 0) {
+  if (
+    !Controllers.liveView.liveAnalyzer?.raw ||
+    Controllers.liveView.liveAnalyzer.raw.length === 0
+  ) {
     clearLiveMapMarkers();
     return;
   }
   _syncLiveMapMarkerSet(
     liveMapPeakMarkers,
-    liveGsrView.showPeaks ? liveAnalyzer.peaks : null,
+    Controllers.liveView.liveGsrView.showPeaks
+      ? Controllers.liveView.liveAnalyzer.peaks
+      : null,
     GSRMapMarkers.buildPeakIcon,
   );
   _syncLiveMapMarkerSet(
     liveMapHotspotMarkers,
-    liveGsrView.showHotspots ? liveAnalyzer.memorableEvents : null,
+    Controllers.liveView.liveGsrView.showHotspots
+      ? Controllers.liveView.liveAnalyzer.memorableEvents
+      : null,
     GSRMapMarkers.buildHotspotIcon,
   );
 }
@@ -513,11 +516,11 @@ export function updateLiveMap(pkt) {
       liveMap.setView(latlng, LIVE_ZOOM);
     }
 
-    const metric = liveGsrView.graphView;
+    const metric = Controllers.liveView.liveGsrView.graphView;
     if (metric === 'signal') {
       // Raw GSR is final the instant a fix arrives — draw the segment now.
       if (liveLastLatLng && !pkt.gap) {
-        const weight = isCompactLiveLayout()
+        const weight = Controllers.liveView.isCompactLayout()
           ? LIVE_TRACK_WEIGHT_MOBILE
           : LIVE_TRACK_WEIGHT_DESKTOP;
         const line = L.polyline([liveLastLatLng, latlng], {

@@ -14,10 +14,8 @@
  */
 import { AppState } from '../core/app_state.mjs';
 import { GSR_CONST } from '../core/constants.mjs';
+import { Controllers } from '../core/controllers.mjs';
 import { GSRFileSaver } from '../core/file_saver.mjs';
-import { GSREvents } from './events.mjs';
-import { GSRTrackManager } from './tracks.mjs';
-import { GSRUI } from './ui.mjs';
 
 export function sliderVal(el, fallback, fn) {
   fn = fn || parseFloat;
@@ -241,10 +239,10 @@ export const GSRStorage = {
    */
   syncSliderValueDisplays() {
     if (
-      typeof GSREvents !== 'undefined' &&
-      typeof GSREvents.initializeLabels === 'function'
+      Controllers.events &&
+      typeof Controllers.events.initializeLabels === 'function'
     ) {
-      GSREvents.initializeLabels();
+      Controllers.events.initializeLabels();
     }
   },
 
@@ -348,10 +346,10 @@ export const GSRStorage = {
 
     // Refresh dependent layout: tonic-window slider config.
     if (
-      typeof GSREvents !== 'undefined' &&
-      typeof GSREvents.updateTonicMethodLayout === 'function'
+      Controllers.events &&
+      typeof Controllers.events.updateTonicMethodLayout === 'function'
     ) {
-      GSREvents.updateTonicMethodLayout();
+      Controllers.events.updateTonicMethodLayout();
     }
 
     // Dispatch input events on all sliders so on-screen text labels & dimmed states update immediately!
@@ -372,18 +370,18 @@ export const GSRStorage = {
             e,
           );
         }
-        if (typeof GSRTrackManager !== 'undefined') {
-          GSRTrackManager.renderTrackList();
+        if (Controllers.trackManager) {
+          Controllers.trackManager.renderTrackList();
         }
-        if (typeof GSRUI !== 'undefined') {
-          if (typeof GSRUI.runAnalysis === 'function') {
-            GSRUI.runAnalysis();
+        if (Controllers.ui) {
+          if (typeof Controllers.ui.runAnalysis === 'function') {
+            Controllers.ui.runAnalysis();
           }
           if (
             AppState.viewMode === 'collective' &&
-            typeof GSRUI.updateCollectiveMap === 'function'
+            typeof Controllers.ui.updateCollectiveMap === 'function'
           ) {
-            GSRUI.updateCollectiveMap();
+            Controllers.ui.updateCollectiveMap();
           }
         }
       }

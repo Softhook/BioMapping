@@ -4,17 +4,17 @@
  *
  * Extracted from GSRAnalyzer (analyzer.js) so the parser can be tested
  * independently of the analysis engine. parse() is stateless and returns a
- * plain result object; the only analyzer coupling is reaching
- * GSRAnalyzer.calcEmFog for the dynamic EM-fog fallback.
+ * plain result object; the dynamic EM-fog fallback uses em_fog.mjs's
+ * calcEmFog (also the source GSRAnalyzer.calcEmFog delegates to).
  *
  * Dependencies: GSR_CONST global (constants.js / tests/mock_constants.js) for
- * column-keyword and unit-conversion thresholds; GSRAnalyzer.calcEmFog.
+ * column-keyword and unit-conversion thresholds; em_fog.mjs's calcEmFog.
  *
  * Standalone — no DOM, no Leaflet, no p5.
  */
 
 import { GSR_CONST } from '../core/constants.mjs';
-import { GSRAnalyzer } from './analyzer.mjs';
+import { calcEmFog } from './em_fog.mjs';
 
 export class GSRCSVParser {
   /**
@@ -354,12 +354,6 @@ export class GSRCSVParser {
   }
 
   /**
-   * Calculate EM Fog Index (0-100) from RSSI readings across Sub-GHz bands.
-   * Canonical implementation: GSRAnalyzer.calcEmFog (analyzer.js) — the single
-   * source of truth. parse() calls it for the dynamic EM-fog fallback.
-   */
-
-  /**
    * Parse a CSV string into raw time/value objects with GPS/RF/OSM columns.
    * Pure: does not touch analyzer state; everything is returned in the result.
    *
@@ -619,7 +613,7 @@ export class GSRCSVParser {
 
       // Dynamic fallback for EM Fog if missing or NaN but RSSI values exist
       if (isNaN(em_fog)) {
-        em_fog = GSRAnalyzer.calcEmFog({
+        em_fog = calcEmFog({
           rssi_300,
           rssi_315,
           rssi_434,

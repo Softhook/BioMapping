@@ -1,12 +1,10 @@
 import { AppState } from '../core/app_state.mjs';
 import { GSR_CONST } from '../core/constants.mjs';
+import { Controllers } from '../core/controllers.mjs';
 import { GSRLayoutManager } from '../core/layout_manager.mjs';
 import { GSRMapManager } from '../map/map.mjs';
 import { GSRAnalyzer } from '../signal/analyzer.mjs';
 import { GSRCollectiveManager } from '../spatial/collective_manager.mjs';
-import { GSREvents } from '../ui/events.mjs';
-import { GSRTrackManager } from '../ui/tracks.mjs';
-import { GSRUI } from '../ui/ui.mjs';
 import { GSRRenderer } from './renderer.mjs';
 
 export let _cachedPeakAnalyzer = null;
@@ -18,15 +16,13 @@ export let _cachedMetricForce = [];
 export let _cachedDriverForce = []; // Driver spike apex indices — forced into decimation stride so spikes survive zoom-out
 
 // Coalesced redraw functions for high-frequency input events (drag, hover, wheel).
-// sketch.js and events.js are both in the same ES-module import cycle
-// (scc_layers.json layer 6) — reading GSREvents at sketch.mjs's own module
-// top level (as this used to, before setup() existed, back when GSREvents
-// was a bare global that might not have loaded yet) hits the live binding
-// mid-circular-init and throws "Cannot access 'GSREvents' before
-// initialization" (TDZ). setup() runs only once every module in the graph
-// has fully evaluated, so these are assigned there instead — behaviour-
-// identical, since nothing outside this file ever reads them before setup()
-// runs anyway (only mouseDragged/mouseMoved/mouseWheel below call them).
+// GSREvents is reached via the Controllers registry (core/controllers.mjs),
+// which events.mjs only populates once its own module has fully evaluated —
+// reading Controllers.events at sketch.mjs's own module top level could still
+// see it undefined depending on load order. setup() runs only once every
+// module in the graph has finished loading, so these are assigned there
+// instead — nothing outside this file ever reads them before setup() runs
+// anyway (only mouseDragged/mouseMoved/mouseWheel below call them).
 export const _safeRedraw = () => {
   if (typeof redraw === 'function') redraw();
 };
@@ -35,14 +31,14 @@ export let coalescedHoverRedraw = _safeRedraw;
 export let coalescedZoomRedraw = _safeRedraw;
 
 export function setup() {
-  coalescedDragRedraw = GSREvents.rafCoalesce
-    ? GSREvents.rafCoalesce(_safeRedraw)
+  coalescedDragRedraw = Controllers.events.rafCoalesce
+    ? Controllers.events.rafCoalesce(_safeRedraw)
     : _safeRedraw;
-  coalescedHoverRedraw = GSREvents.rafCoalesce
-    ? GSREvents.rafCoalesce(_safeRedraw)
+  coalescedHoverRedraw = Controllers.events.rafCoalesce
+    ? Controllers.events.rafCoalesce(_safeRedraw)
     : _safeRedraw;
-  coalescedZoomRedraw = GSREvents.rafCoalesce
-    ? GSREvents.rafCoalesce(_safeRedraw)
+  coalescedZoomRedraw = Controllers.events.rafCoalesce
+    ? Controllers.events.rafCoalesce(_safeRedraw)
     : _safeRedraw;
 
   AppState.collectiveManager = new GSRCollectiveManager();
@@ -52,13 +48,14 @@ export function setup() {
   // Phase 3 pilot (docs/archive/visualizer_architecture_refactor_plan.md): each
   // interested module reacts to 'trackRemoved' independently instead of
   // GSRTrackManager.deleteTrack() calling them all out by name.
-  AppState.on('trackRemoved', () => GSRTrackManager.renderTrackList());
+  AppState.on('trackRemoved', () => Controllers.trackManager.renderTrackList());
   AppState.on('trackRemoved', () => {
     if (AppState.collectiveManager.tracks.length === 0)
       AppState.mapManager.clearAll();
   });
   AppState.on('trackRemoved', () => {
-    if (AppState.viewMode === 'collective') GSRUI.updateCollectiveMap();
+    if (AppState.viewMode === 'collective')
+      Controllers.ui.updateCollectiveMap();
   });
 
   const container = document.getElementById('canvasContainer');
@@ -102,9 +99,9 @@ export function setup() {
     }
   });
 
-  GSREvents.cacheDOMElements();
-  GSREvents.initializeLabels();
-  GSREvents.setupEventListeners();
+  Controllers.events.cacheDOMElements();
+  Controllers.events.initializeLabels();
+  Controllers.events.setupEventListeners();
 
   noLoop();
   GSRRenderer.drawPlaceholder();

@@ -14,11 +14,9 @@
  */
 
 import { AppState } from '../core/app_state.mjs';
+import { Controllers } from '../core/controllers.mjs';
 import { GSRNotices } from '../core/notices.mjs';
-import { GSRCollectiveProject } from '../spatial/collective_project.mjs';
-import { GSREvents } from './events.mjs';
 import { GSRStorage } from './storage.mjs';
-import { GSRTrackManager } from './tracks.mjs';
 
 export const GSRUI = {
   _resolveTrackAndAnalyzer(trackId) {
@@ -55,7 +53,7 @@ export const GSRUI = {
 
     if (AppState.viewMode === 'single') {
       if (!AppState.analyzer || AppState.analyzer.raw.length === 0) return;
-      GSRTrackManager.saveActiveGpsParams();
+      Controllers.trackManager.saveActiveGpsParams();
       AppState.mapManager.renderData(
         AppState.analyzer,
         GSRStorage.buildGpsParams(),
@@ -79,7 +77,7 @@ export const GSRUI = {
       const peakLatency = GSRStorage.readGpsSliderValues().peakLatency;
 
       if (AppState.viewMode === 'single') {
-        GSRTrackManager.saveActiveTrackParams();
+        Controllers.trackManager.saveActiveTrackParams();
         AppState.analyzer.analyze(params, peakLatency);
         if (AppState.mapManager) {
           AppState.mapManager.renderData(
@@ -101,7 +99,7 @@ export const GSRUI = {
       GSRUI.updateStatsPanel();
       GSRUI.updatePeaksTable();
       GSRUI.updateDeconvTruncationWarning();
-      GSREvents.syncTonicBaselineControls();
+      Controllers.events.syncTonicBaselineControls();
       GSRUI.syncPhasicAUCLabels();
       GSRUI.syncGraphViewDetectorOptions();
       GSRUI.syncResponseDynamicsOptions();
@@ -204,8 +202,8 @@ export const GSRUI = {
     if (action === 'export') {
       let success = false;
       if (trackId === 'ALL') {
-        if (typeof GSRCollectiveProject !== 'undefined') {
-          await GSRCollectiveProject.exportProject();
+        if (Controllers.collectiveProject) {
+          await Controllers.collectiveProject.exportProject();
           success = true;
         }
       } else {
@@ -217,3 +215,5 @@ export const GSRUI = {
     }
   },
 };
+
+Controllers.ui = GSRUI;

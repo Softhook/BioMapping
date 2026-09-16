@@ -7,11 +7,12 @@
  * and by the 3D globe (globe3d_view.js _editPeakLabel, which shows the
  * identical card).
  *
- * Depends on the globals L (Leaflet), GSRUI (label/exclude handlers), and
- * GeoUtils (bearing) — all resolved when a popup opens, not at load time.
+ * Depends on the global L (Leaflet), GSRUI (label/exclude handlers, reached
+ * via the Controllers registry — see core/controllers.mjs), and GeoUtils
+ * (bearing) — all resolved when a popup opens, not at load time.
  */
+import { Controllers } from '../core/controllers.mjs';
 import { GeoUtils } from '../gps/geo_utils.mjs';
-import { GSRUI } from '../ui/ui.mjs';
 
 export const MapPopups = {
   /**
@@ -95,7 +96,7 @@ export const MapPopups = {
     btn.innerHTML = '<i class="fa-solid fa-street-view"></i>';
     L.DomEvent.on(btn, 'click', (e) => {
       L.DomEvent.stopPropagation(e);
-      GSRUI.openStreetView(lat, lon, label, heading);
+      Controllers.ui.openStreetView(lat, lon, label, heading);
     });
     L.DomEvent.disableClickPropagation(btn);
     return btn;
@@ -189,10 +190,10 @@ export const MapPopups = {
       input.style.height = 'auto';
       input.style.height = `${input.scrollHeight}px`;
       if (typeof onResize === 'function') onResize();
-      GSRUI.handleLiveLabelInput(index, input.value, trackId);
+      Controllers.ui.handleLiveLabelInput(index, input.value, trackId);
     });
     L.DomEvent.on(input, 'change', () =>
-      GSRUI.updatePeakLabel(index, input.value, trackId),
+      Controllers.ui.updatePeakLabel(index, input.value, trackId),
     );
     L.DomEvent.on(input, 'keydown', (e) => {
       if (e.key === 'Enter') {
@@ -201,7 +202,7 @@ export const MapPopups = {
         // peak-marker layer (a new marker replaces this one), so closing
         // after that would be acting on an already-discarded marker.
         marker.closePopup();
-        GSRUI.updatePeakLabel(index, input.value, trackId);
+        Controllers.ui.updatePeakLabel(index, input.value, trackId);
       }
     });
     L.DomEvent.disableClickPropagation(input);
@@ -211,7 +212,7 @@ export const MapPopups = {
       // rebuilds the peak-marker layer, so this marker must close its own
       // popup before that swap happens.
       marker.closePopup();
-      GSRUI.togglePeakExclusion(index, trackId);
+      Controllers.ui.togglePeakExclusion(index, trackId);
     });
     L.DomEvent.disableClickPropagation(excludeBtn);
 

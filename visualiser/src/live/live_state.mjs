@@ -11,6 +11,17 @@
  * require()-able from tests.
  */
 
+// Trailing seconds of the analysed buffer whose tonic/phasic/peaks are still
+// provisional — decomposeTonicPhasic is zero-phase and has a ±6s look-ahead
+// local-floor pass, so the newest samples haven't settled. Matches
+// PHASIC_COLOR_LAG_S. Peak / hotspot markers are not drawn inside this tail.
+// Lives here (rather than live_view.mjs, its logical "owner") so live_graph.mjs
+// and live_map.mjs — both of which need it — can read it from a leaf module
+// instead of importing live_view.mjs directly, which would reintroduce the
+// mutual-import cycle the Controllers registry (core/controllers.mjs) breaks
+// for the rest of the live_view.mjs/live_graph.mjs/live_map.mjs relationship.
+export const LIVE_SETTLE_TAIL_S = 8;
+
 export const LiveState = {
   status: 'disconnected', // 'connecting' | 'connected' | 'reconnecting' | 'disconnected'
   packets: [],

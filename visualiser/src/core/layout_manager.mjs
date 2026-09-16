@@ -3,11 +3,11 @@
  * Centralized manager for window sizing, ResizeObservers, and panel/browser fullscreen overlays.
  */
 
-import { GSRLiveView } from '../live/live_view.mjs';
 import { GSRGlobe3DView } from '../map/globe3d_view.mjs';
 import { GSRRenderer } from '../render/renderer.mjs';
 import { GSRUI } from '../ui/ui.mjs';
 import { AppState } from './app_state.mjs';
+import { Controllers } from './controllers.mjs';
 import { GSRFullscreen } from './fullscreen.mjs';
 
 export const GSRLayoutManager = {
@@ -290,8 +290,8 @@ export const GSRLayoutManager = {
     // Always (re)assert — sets GSRFullscreen's sticky target so a lock/unlock
     // re-enters fullscreen instead of silently dropping the user out.
     GSRFullscreen.request(app);
-    if (GSRLiveView?.onDisplayModeChange) {
-      GSRLiveView.onDisplayModeChange(true);
+    if (Controllers.liveView?.onDisplayModeChange) {
+      Controllers.liveView.onDisplayModeChange(true);
     }
   },
 
@@ -306,8 +306,8 @@ export const GSRLayoutManager = {
       btn.classList.remove('is-fullscreen');
     }
     GSRFullscreen.exit();
-    if (GSRLiveView?.onDisplayModeChange) {
-      GSRLiveView.onDisplayModeChange(false);
+    if (Controllers.liveView?.onDisplayModeChange) {
+      Controllers.liveView.onDisplayModeChange(false);
     }
   },
 
@@ -409,8 +409,8 @@ export const GSRLayoutManager = {
       // #liveMap is under no ResizeObserver — re-measure it now that the
       // viewport has actually changed size (the request()/exit() call that
       // started this is async; the size only settles here).
-      if (this._isLiveView() && GSRLiveView?.onDisplayModeChange) {
-        GSRLiveView.onDisplayModeChange(active);
+      if (this._isLiveView() && Controllers.liveView?.onDisplayModeChange) {
+        Controllers.liveView.onDisplayModeChange(active);
       }
     });
   },

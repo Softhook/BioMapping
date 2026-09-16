@@ -5,15 +5,13 @@
 
 import { AppState } from '../core/app_state.mjs';
 import { GSR_CONST } from '../core/constants.mjs';
+import { Controllers } from '../core/controllers.mjs';
 import { GSRFullscreen } from '../core/fullscreen.mjs';
 import { GSRGlobe3DView } from '../map/globe3d_view.mjs';
 import { GSRRenderer } from '../render/renderer.mjs';
 import { windowResized } from '../render/sketch.mjs';
 import { GSRAnalyzer } from '../signal/analyzer.mjs';
-import { GSRCollectiveProject } from '../spatial/collective_project.mjs';
-import { GSREvents } from './events.mjs';
 import { GSRStorage } from './storage.mjs';
-import { GSRUI } from './ui.mjs';
 
 export const GSRTrackManager = {
   /**
@@ -154,8 +152,8 @@ export const GSRTrackManager = {
           `Project zip "${zipFile.name}" was selected alongside other files — importing only the project; ignoring the rest.`,
         );
       }
-      if (typeof GSRCollectiveProject !== 'undefined') {
-        GSRCollectiveProject.importProject(zipFile);
+      if (Controllers.collectiveProject) {
+        Controllers.collectiveProject.importProject(zipFile);
       }
       if (AppState.fileInput) AppState.fileInput.value = '';
       return;
@@ -257,9 +255,9 @@ export const GSRTrackManager = {
       AppState.analyzer = new GSRAnalyzer();
       AppState.activeTrackId = null;
 
-      GSRUI.updatePeaksTable();
-      GSRUI.updateStatsPanel();
-      GSRUI.updateDeconvTruncationWarning();
+      Controllers.ui.updatePeaksTable();
+      Controllers.ui.updateStatsPanel();
+      Controllers.ui.updateDeconvTruncationWarning();
 
       GSRTrackManager.EXPORT_BUTTON_IDS.forEach((id) => {
         const el = document.getElementById(id);
@@ -275,9 +273,9 @@ export const GSRTrackManager = {
       }
       // Nothing is loaded — clearMap() no longer drops the OSM overlay, so
       // reset the toggle and clear it explicitly.
-      if (GSRUI?.syncOsmOverlay) {
-        GSRUI._osmOverlayOn = false;
-        GSRUI.syncOsmOverlay();
+      if (Controllers.ui?.syncOsmOverlay) {
+        Controllers.ui._osmOverlayOn = false;
+        Controllers.ui.syncOsmOverlay();
       }
 
       GSRTrackManager.setFileStatus('warning', 'No File Loaded');
@@ -406,10 +404,10 @@ export const GSRTrackManager = {
 
     GSRTrackManager.loadActiveTrackParams(track);
     GSRTrackManager.loadActiveGpsParams(track);
-    GSREvents.initializeLabels();
-    GSRUI.resetView();
-    GSRUI.runAnalysis();
-    GSRUI.refreshOsmControls();
+    Controllers.events.initializeLabels();
+    Controllers.ui.resetView();
+    Controllers.ui.runAnalysis();
+    Controllers.ui.refreshOsmControls();
     GSRTrackManager.syncMapPanelForSpatialData(track);
 
     GSRTrackManager.EXPORT_BUTTON_IDS.forEach((id) => {
@@ -438,10 +436,10 @@ export const GSRTrackManager = {
    */
   clearAllTracks() {
     if (
-      typeof GSRUI !== 'undefined' &&
-      typeof GSRUI.cancelCollectiveMapUpdate === 'function'
+      Controllers.ui &&
+      typeof Controllers.ui.cancelCollectiveMapUpdate === 'function'
     ) {
-      GSRUI.cancelCollectiveMapUpdate();
+      Controllers.ui.cancelCollectiveMapUpdate();
     }
     AppState.collectiveManager.tracks = [];
     AppState.activeTrackId = null;
@@ -452,9 +450,9 @@ export const GSRTrackManager = {
       AppState.mapManager.clearAll();
     }
     // clearMap() no longer drops the OSM overlay — reset + clear it here.
-    if (GSRUI?.syncOsmOverlay) {
-      GSRUI._osmOverlayOn = false;
-      GSRUI.syncOsmOverlay();
+    if (Controllers.ui?.syncOsmOverlay) {
+      Controllers.ui._osmOverlayOn = false;
+      Controllers.ui.syncOsmOverlay();
     }
   },
 
@@ -512,7 +510,7 @@ export const GSRTrackManager = {
     };
 
     if (track.hasUnsavedLabels) {
-      GSRUI.showUnsavedLabelsModal(track.name, trackId, performDelete);
+      Controllers.ui.showUnsavedLabelsModal(track.name, trackId, performDelete);
     } else {
       performDelete();
     }
@@ -598,10 +596,10 @@ export const GSRTrackManager = {
    */
   syncMapPanelForSpatialData(track) {
     if (
-      typeof GSRUI !== 'undefined' &&
-      typeof GSRUI.syncMapPanelForSpatialData === 'function'
+      Controllers.ui &&
+      typeof Controllers.ui.syncMapPanelForSpatialData === 'function'
     ) {
-      GSRUI.syncMapPanelForSpatialData(track);
+      Controllers.ui.syncMapPanelForSpatialData(track);
     }
   },
 
@@ -711,3 +709,5 @@ export const GSRTrackManager = {
       });
   },
 };
+
+Controllers.trackManager = GSRTrackManager;

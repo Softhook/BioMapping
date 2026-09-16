@@ -13,9 +13,8 @@
  * contour sliders each carry an explicit `fmt(value) -> string`.
  */
 import { AppState } from '../core/app_state.mjs';
+import { Controllers } from '../core/controllers.mjs';
 import { GSRLayoutManager } from '../core/layout_manager.mjs';
-import { GSRTrackManager } from './tracks.mjs';
-import { GSRUI } from './ui.mjs';
 
 export const GSR_SLIDER_DEFS = [
   { id: 'medianSize', labelId: 'valMedianSize', suffix: ' s' },
@@ -250,10 +249,10 @@ export const GSREvents = {
         const col = th.dataset.sort;
         if (
           col &&
-          typeof GSRUI !== 'undefined' &&
-          typeof GSRUI[sortMethod] === 'function'
+          Controllers.ui &&
+          typeof Controllers.ui[sortMethod] === 'function'
         ) {
-          GSRUI[sortMethod](col);
+          Controllers.ui[sortMethod](col);
         }
       });
     });
@@ -362,11 +361,11 @@ export const GSREvents = {
     updateDim();
 
     const runHeavyWork = GSREvents.rafCoalesce(() => {
-      if (typeof GSRTrackManager !== 'undefined') {
-        GSRTrackManager.saveActiveTrackParams();
-        GSRTrackManager.renderTrackList();
+      if (Controllers.trackManager) {
+        Controllers.trackManager.saveActiveTrackParams();
+        Controllers.trackManager.renderTrackList();
       }
-      GSRUI.runAnalysis();
+      Controllers.ui.runAnalysis();
     });
 
     slider.addEventListener('input', () => {
@@ -390,11 +389,11 @@ export const GSREvents = {
     updateDim();
 
     const runHeavyWork = GSREvents.rafCoalesce(() => {
-      if (typeof GSRTrackManager !== 'undefined') {
-        GSRTrackManager.saveActiveGpsParams();
-        GSRTrackManager.renderTrackList();
+      if (Controllers.trackManager) {
+        Controllers.trackManager.saveActiveGpsParams();
+        Controllers.trackManager.renderTrackList();
       }
-      GSRUI.rerenderMap();
+      Controllers.ui.rerenderMap();
     });
 
     slider.addEventListener('input', () => {
@@ -427,15 +426,15 @@ export const GSREvents = {
     updateDim();
 
     const runRefresh = GSREvents.rafCoalesce(() => {
-      if (typeof GSRTrackManager !== 'undefined') {
-        GSRTrackManager.saveActiveGpsParams();
-        GSRTrackManager.renderTrackList();
+      if (Controllers.trackManager) {
+        Controllers.trackManager.saveActiveGpsParams();
+        Controllers.trackManager.renderTrackList();
       }
       const mm = AppState.mapManager;
       if (mm && typeof mm.refreshArousalPlaces === 'function') {
         mm.refreshArousalPlaces();
       } else {
-        GSRUI.rerenderMap();
+        Controllers.ui.rerenderMap();
       }
     });
 
@@ -654,3 +653,5 @@ export const GSREvents = {
     });
   },
 };
+
+Controllers.events = GSREvents;

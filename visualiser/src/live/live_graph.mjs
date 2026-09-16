@@ -7,16 +7,16 @@
  *
  * Split out of src/live/live_view.js (2026-09). The shell (live_view.js)
  * owns the analyser, the view state (liveGsrView) and the packet clock;
- * this file only reads them. Top-level bindings (GRAPH_WINDOW_S,
- * LIVE_GRAPH_VIEWS, drawGraph, …) live in the shared global lexical scope —
- * see live_view.js's header — so tests reach them through the vm context
- * tests/support/boot_live.js hands back.
+ * this file only reads them, through the Controllers registry (core/
+ * controllers.mjs) rather than a direct import — live_view.js imports
+ * drawGraph/LIVE_GRAPH_VIEWS/NS_TO_US from this file, so this file importing
+ * live_view.js back would be a mutual-import cycle.
  *
- * Reads (bare globals, resolved at call time):
- *   LiveState                 src/live/live_state.js
+ * Reads:
+ *   LiveState, LIVE_SETTLE_TAIL_S   src/live/live_state.js (leaf)
  *   liveGsrView, liveAnalyzer, liveAnalyzerBase,
- *     lastPacketArrivalTime, lastPacketTimestamp,
- *     LIVE_SETTLE_TAIL_S      src/live/live_view.js (shell)
+ *     lastPacketArrivalTime, lastPacketTimestamp
+ *                                   Controllers.liveView (src/live/live_view.js)
  */
 
 // ==========================================================================
@@ -26,15 +26,8 @@
 // markers. No zoom/pan/timeline-drag — it's a live rolling window, not the
 // main app's interactive track view.
 // ==========================================================================
-import { LiveState } from './live_state.mjs';
-import {
-  LIVE_SETTLE_TAIL_S,
-  lastPacketArrivalTime,
-  lastPacketTimestamp,
-  liveAnalyzer,
-  liveAnalyzerBase,
-  liveGsrView,
-} from './live_view.mjs';
+import { Controllers } from '../core/controllers.mjs';
+import { LIVE_SETTLE_TAIL_S, LiveState } from './live_state.mjs';
 
 export const GRAPH_WINDOW_S = 120;
 
@@ -113,7 +106,7 @@ export function drawGraph() {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, w, h);
 
-  const A = liveAnalyzer;
+  const A = Controllers.liveView.liveAnalyzer;
   const pkts = LiveState.packets;
   if (!A?.raw || A.raw.length === 0) return;
 
@@ -124,32 +117,34 @@ export function drawGraph() {
   const streaming =
     LiveState.status === 'connected' || LiveState.status === 'reconnecting';
   const elapsed =
-    lastPacketArrivalTime && streaming
-      ? (Date.now() - lastPacketArrivalTime) / 1000
+    Controllers.liveView.lastPacketArrivalTime && streaming
+      ? (Date.now() - Controllers.liveView.lastPacketArrivalTime) / 1000
       : 0;
-  const lastT = (lastPacketTimestamp || A.raw[A.raw.length - 1].time) + elapsed;
+  const lastT =
+    (Controllers.liveView.lastPacketTimestamp || A.raw[A.raw.length - 1].time) +
+    elapsed;
   const t0 = lastT - GRAPH_WINDOW_S;
 
-  const view = liveGsrView.graphView;
+  const view = Controllers.liveView.liveGsrView.graphView;
   const cfg = LIVE_GRAPH_VIEWS[view] || LIVE_GRAPH_VIEWS.signal;
 
   // Series to plot, back-to-front. For 'signal' the primary Filtered trace is
   // drawn last (on top of Raw/Tonic/Phasic), matching src/render/sketch.js.
   const layers = [];
   if (view === 'signal') {
-    if (liveGsrView.showTonic && A.tonic?.length)
+    if (Controllers.liveView.liveGsrView.showTonic && A.tonic?.length)
       layers.push({
         data: A.tonic,
         col: graphThemeColor('--color-tonic', '#a30091'),
         w: 2,
       });
-    if (liveGsrView.showPhasic && A.phasic?.length)
+    if (Controllers.liveView.liveGsrView.showPhasic && A.phasic?.length)
       layers.push({
         data: A.phasic,
         col: `${graphThemeColor('--color-phasic', '#008f3c')}c8`,
         w: 1.5,
       });
-    if (liveGsrView.showFiltered && A.filtered?.length)
+    if (Controllers.liveView.liveGsrView.showFiltered && A.filtered?.length)
       layers.push({
         data: A.filtered,
         col: graphThemeColor('--color-filtered', '#005bc4'),
@@ -325,8 +320,9 @@ export function drawGraph() {
     }
   };
   // Peaks first so a hotspot's bolder ring + star sit on top where they overlap.
-  if (liveGsrView.showPeaks) drawPeakDot(A.peaks);
-  if (liveGsrView.showHotspots) drawHotspot(A.memorableEvents);
+  if (Controllers.liveView.liveGsrView.showPeaks) drawPeakDot(A.peaks);
+  if (Controllers.liveView.liveGsrView.showHotspots)
+    drawHotspot(A.memorableEvents);
 
   // ── Traces. gap flag comes from the matching LiveState.packets entry —
   //    analyser row i is packet liveAnalyzerBase + i (trailing window). ────
@@ -340,7 +336,7 @@ export function drawGraph() {
     while (s > 0 && d[s - 1].time >= t0) s--;
     let penDown = false;
     for (let i = s; i < d.length; i++) {
-      const gp = pkts[liveAnalyzerBase + i];
+      const gp = pkts[Controllers.liveView.liveAnalyzerBase + i];
       const gap = gp?.gap;
       const x = xForT(d[i].time),
         y = yForV(d[i].val);

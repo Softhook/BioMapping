@@ -33,10 +33,10 @@
 // kit. Refresh it with: npm i --no-save cesium@<ver> && cp -R
 // node_modules/cesium/Build/Cesium visualiser/vendor/cesium (drop index.*).
 import { AppState } from '../core/app_state.mjs';
+import { Controllers } from '../core/controllers.mjs';
 import { OsmCache } from '../osm/osm_cache.mjs';
 import { OSMEnricher } from '../osm/osm_enrichment.mjs';
 import { GSRStorage } from '../ui/storage.mjs';
-import { GSRUI } from '../ui/ui.mjs';
 import { GSRGlobeManager } from './globe3d.mjs';
 import { MapPopups } from './map_popups.mjs';
 
@@ -809,10 +809,10 @@ export const GSRGlobe3DView = {
       });
       GSRGlobe3DView.manager.onPeakClick((peakIdx, windowPos) => {
         if (
-          typeof GSRUI !== 'undefined' &&
-          typeof GSRUI.focusOnPeak === 'function'
+          Controllers.ui &&
+          typeof Controllers.ui.focusOnPeak === 'function'
         ) {
-          GSRUI.focusOnPeak(peakIdx, 'map');
+          Controllers.ui.focusOnPeak(peakIdx, 'map');
         }
         GSRGlobe3DView._editPeakLabel(peakIdx, windowPos);
       });
@@ -868,7 +868,7 @@ export const GSRGlobe3DView = {
         // ran before this (manager didn't exist yet), so this is the one that
         // actually takes effect on a 2D→3D switch. Handles both directions: an
         // overlay turned off in 2D hides the warm manager's stale tileset here.
-        if (GSRUI?.syncOsmOverlay) GSRUI.syncOsmOverlay();
+        if (Controllers.ui?.syncOsmOverlay) Controllers.ui.syncOsmOverlay();
       }),
     );
   },

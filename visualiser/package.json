@@ -7,10 +7,12 @@
     "bench": "node tests/manual/bench/run.js",
     "lint": "biome check src tests",
     "lint:fix": "biome check --write src tests",
+    "lint:deps": "depcruise src/app_entry.mjs src/live_entry.mjs",
     "format": "biome format --write src tests"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.13",
+    "dependency-cruiser": "^16.10.4",
     "eslint-scope": "^9.1.2",
     "espree": "^11.2.0",
     "jsdom": "^30.0.1"

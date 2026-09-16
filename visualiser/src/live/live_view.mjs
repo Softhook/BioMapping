@@ -50,6 +50,7 @@
 // already in. Supports phones in portrait (<=768px) and landscape (<=500px height).
 import { AppState } from '../core/app_state.mjs';
 import { GSR_CONST } from '../core/constants.mjs';
+import { Controllers } from '../core/controllers.mjs';
 import { GSRFileSaver } from '../core/file_saver.mjs';
 import { GSRFullscreen } from '../core/fullscreen.mjs';
 import { GSRLayoutManager } from '../core/layout_manager.mjs';
@@ -261,12 +262,6 @@ export const LIVE_ANALYZE_WINDOW_S = 300; // trailing slice handed to analyze()
 export let LIVE_ANALYZE_WARMUP_ROWS = 400; // ~2 min of session at STREAM_INTERVAL_S
 export let LIVE_ANALYZE_MIN_INTERVAL_MS = 1500;
 export let lastLiveAnalyzeAt = 0; // Date.now() of the last analyze(); reset per session
-
-// Trailing seconds of the analysed buffer whose tonic/phasic/peaks are still
-// provisional — decomposeTonicPhasic is zero-phase and has a ±6s look-ahead
-// local-floor pass, so the newest samples haven't settled. Matches
-// PHASIC_COLOR_LAG_S. Peak / hotspot markers are not drawn inside this tail.
-export const LIVE_SETTLE_TAIL_S = 8;
 
 // The mobile FAB's metric chips — same three options as #liveGraphView above
 // (kept as separate short labels since the FAB chips are much narrower than
@@ -1229,6 +1224,29 @@ export const GSRLiveView = {
   // in sync automatically rather than by comment.
   isCompactLayout: isCompactLiveLayout,
   isViewActive: () => viewActive,
+
+  // Read-only access to this file's session state for live_graph.mjs /
+  // live_map.mjs, reached through the Controllers registry (core/
+  // controllers.mjs) rather than a direct import — the two of them calling
+  // back into live_view.mjs's own drawGraph()/updateLiveMap() etc. would
+  // otherwise be a mutual-import cycle. Getters (not plain copies) so a
+  // reassignment of the underlying `let` — e.g. feedLiveAnalyzer() replacing
+  // liveAnalyzer, or a fresh packet updating lastPacketTimestamp — is always
+  // visible on the next read.
+  get liveAnalyzer() {
+    return liveAnalyzer;
+  },
+  get liveAnalyzerBase() {
+    return liveAnalyzerBase;
+  },
+  get lastPacketTimestamp() {
+    return lastPacketTimestamp;
+  },
+  get lastPacketArrivalTime() {
+    return lastPacketArrivalTime;
+  },
+  liveGsrView,
+  closeFabMenu,
   _setBleManagerForTest: (m) => {
     bleManager = m;
   },
@@ -1242,3 +1260,5 @@ export const GSRLiveView = {
       LIVE_ANALYZE_MIN_INTERVAL_MS = minIntervalMs;
   },
 };
+
+Controllers.liveView = GSRLiveView;
