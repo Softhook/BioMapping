@@ -126,6 +126,12 @@ typedef struct BioMapApp {
     // active custom cal; 0 when none is active. Loaded from
     // BioMapCalibration::r_squared, surfaced by show_current_calibration_render().
     float              cal_r_squared;
+    // Per-resistor σ (nS) from the wizard's pre-flight noise/resolution
+    // check (see CalNoiseGrade, biomap_format.h); all-zero when no custom
+    // cal is active. Loaded from BioMapCalibration::noise_std_dev, graded
+    // and surfaced by show_current_calibration_render() via
+    // calibration_noise_grade().
+    float              cal_noise_std_dev[CAL_POINTS];
     EmScanCal          rf_cal_data;     // RF Faraday calibration (em_scan_cal.h)
     bool               rf_calibrated;
     // Options > Debug Fields — runtime, persisted toggle for the diagnostic
@@ -192,11 +198,13 @@ typedef struct {
 
 #define BIOMAP_CAL_MAGIC   0x424D4341
 // v3 added the `timestamp` (Unix epoch at save) and `r_squared` (wizard fit
-// goodness) fields. A v2 file fails the version gate in
+// goodness) fields. v4 added `noise_std_dev` (per-resistor σ, nS, from the
+// wizard's pre-flight noise/resolution check — see CalNoiseGrade in
+// biomap_format.h). A file at an older version fails the version gate in
 // biomap_load_calibration() and is ignored — GSR falls back to the default
 // 1.0/0.0 transform until the wizard is re-run, same as any other format
 // change (see the version-mismatch branch there).
-#define BIOMAP_CAL_VERSION 3
+#define BIOMAP_CAL_VERSION 4
 #define BIOMAP_CAL_PATH    "/ext/biomapping/biomap.cal"
 #define BIOMAP_CAL_PATH_TMP "/ext/biomapping/biomap.cal.tmp"
 
@@ -237,6 +245,7 @@ typedef struct {
     float    offset;
     uint32_t timestamp;  // Unix epoch (RTC) when saved; 0 if the RTC was unset
     float    r_squared;  // wizard least-squares fit goodness (0..1); 0 if unknown
+    float    noise_std_dev[CAL_POINTS];  // per-resistor σ (nS) from the wizard's noise check
     uint32_t checksum;
 } BioMapCalibration;
 
@@ -266,21 +275,27 @@ typedef struct {
 } BioMapSettings;
 
 // Calibration wizard state machine.  Steps:
-//   0 = prompt 470k    4 = prompt 47k      8 = success
-//   1 = measure 470k   5 = measure 47k     9 = measurement fail
+//   0 = prompt 470k    4 = prompt 47k      8  = success
+//   1 = measure 470k   5 = measure 47k     9  = measurement fail
 //   2 = prompt 100k    6 = compute fit     10 = fit fail (bounds / R²)
-//   3 = measure 100k   7 = (unused)
+//   3 = measure 100k   7 = (unused)        11 = noise/resolution fail (σ too high)
 //
 // Lives as a stack-local in run_calibration_wizard() (biomap_gui.c), but
 // its draw callback (biomap_render.c's calibration_wizard_render()) runs
 // on the GUI service's own thread, triggered asynchronously by
 // view_port_update() — genuinely cross-thread shared for as long as the
-// wizard's ViewPort points at it. `mutex` guards every field below.
-// Structurally identical to RfCalWizardState below.
+// wizard's ViewPort points at it. `mutex` guards every field below,
+// including seconds_left, which calibration_wizard_measure()'s 20 s dwell
+// loop (biomap_gui.c) rewrites roughly once per second while a Measuring
+// step is showing — same live-countdown pattern as RfCalWizardState's
+// sampling loop.
 typedef struct {
     FuriMutex* mutex;
     int   step;
-    float measured[CAL_POINTS];  // [470k, 100k, 47k]
+    float measured[CAL_POINTS];        // [470k, 100k, 47k], nS
+    float noise_std_dev[CAL_POINTS];   // per-resistor σ from the dwell, nS
+    int   fail_idx;                     // resistor index behind step 9/11's fail screen
+    uint32_t seconds_left;              // live dwell countdown during Measuring steps
     float gain;
     float offset;
     float r_squared;              // goodness-of-fit
@@ -333,7 +348,8 @@ void run_options_screen(BioMapApp* app);
 void run_calibration_menu(BioMapApp* app);
 void run_calibration_wizard(BioMapApp* app);
 bool biomap_load_calibration(BioMapApp* app);
-void biomap_save_calibration(BioMapApp* app, float gain, float offset, float r_squared);
+void biomap_save_calibration(BioMapApp* app, float gain, float offset, float r_squared,
+                             const float noise_std_dev[CAL_POINTS]);
 void biomap_reset_calibration(BioMapApp* app);
 
 bool biomap_load_settings(BioMapApp* app);

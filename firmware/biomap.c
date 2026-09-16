@@ -152,14 +152,25 @@ bool biomap_load_calibration(BioMapApp* app) {
             if(cal.magic == BIOMAP_CAL_MAGIC) {
                 if(cal.version == BIOMAP_CAL_VERSION) {
                     if(cal.checksum == cal_checksum(&cal)) {
+                        bool noise_ok = true;
+                        for(int i = 0; i < CAL_POINTS; i++) {
+                            float sd = cal.noise_std_dev[i];
+                            if(isnan(sd) || sd < 0.0f || sd >= CAL_NOISE_ACCEPTABLE_NS) {
+                                noise_ok = false;
+                                break;
+                            }
+                        }
                         if(cal.gain >= CAL_GAIN_MIN && cal.gain <= CAL_GAIN_MAX &&
-                           cal.offset >= CAL_OFFSET_MIN && cal.offset <= CAL_OFFSET_MAX) {
+                           cal.offset >= CAL_OFFSET_MIN && cal.offset <= CAL_OFFSET_MAX &&
+                           noise_ok) {
                             furi_mutex_acquire(app->mutex, FuriWaitForever);
                             app->cal_active = true;
                             app->cal_gain = cal.gain;
                             app->cal_offset = cal.offset;
                             app->cal_timestamp = cal.timestamp;
                             app->cal_r_squared = cal.r_squared;
+                            memcpy(app->cal_noise_std_dev, cal.noise_std_dev,
+                                   sizeof(app->cal_noise_std_dev));
                             furi_mutex_release(app->mutex);
                             success = true;
                             FURI_LOG_I("BioMap",
@@ -191,7 +202,8 @@ bool biomap_load_calibration(BioMapApp* app) {
     return success;
 }
 
-void biomap_save_calibration(BioMapApp* app, float gain, float offset, float r_squared) {
+void biomap_save_calibration(BioMapApp* app, float gain, float offset, float r_squared,
+                             const float noise_std_dev[CAL_POINTS]) {
     furi_check(app, "BioMapApp: NULL app pointer");
 
     // Stamp the save time (0 if the RTC is unset — same sentinel the CSV
@@ -205,6 +217,7 @@ void biomap_save_calibration(BioMapApp* app, float gain, float offset, float r_s
     app->cal_offset = offset;
     app->cal_timestamp = timestamp;
     app->cal_r_squared = r_squared;
+    memcpy(app->cal_noise_std_dev, noise_std_dev, sizeof(app->cal_noise_std_dev));
     furi_mutex_release(app->mutex);
 
     File* file = storage_file_alloc(app->storage);
@@ -222,6 +235,7 @@ void biomap_save_calibration(BioMapApp* app, float gain, float offset, float r_s
         cal.offset  = offset;
         cal.timestamp = timestamp;
         cal.r_squared = r_squared;
+        memcpy(cal.noise_std_dev, noise_std_dev, sizeof(cal.noise_std_dev));
         cal.checksum = cal_checksum(&cal);
 
         uint16_t written = storage_file_write(file, &cal, sizeof(BioMapCalibration));
@@ -266,6 +280,7 @@ void biomap_reset_calibration(BioMapApp* app) {
     app->cal_offset = 0.0f;
     app->cal_timestamp = 0;
     app->cal_r_squared = 0.0f;
+    memset(app->cal_noise_std_dev, 0, sizeof(app->cal_noise_std_dev));
     furi_mutex_release(app->mutex);
 
     FURI_LOG_I("BioMap", "Deleted calibration file");

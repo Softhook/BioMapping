@@ -832,14 +832,16 @@ void test_nmea_parsing() {
 // CAL_POINTS comes from biomap_config.h now (via biomap_format.h) — the
 // fit engine that uses it is linked, not mirrored.
 #define CAL_MAGIC    0x424D4341u
-#define CAL_VERSION  3
+#define CAL_VERSION  4
 
 #define CAL_TARGET_470K  2127.66f
 #define CAL_TARGET_100K  10000.0f
 #define CAL_TARGET_47K   21276.6f
 
 // Mirrors BioMapCalibration (biomap.h): v3 added `timestamp` and `r_squared`
-// before the checksum, so cal_checksum() below folds both in via offsetof().
+// before the checksum; v4 added `noise_std_dev` (per-resistor σ, nS, from
+// the wizard's pre-flight noise check). cal_checksum() below folds all of
+// them in via offsetof().
 typedef struct {
     uint32_t magic;
     uint32_t version;
@@ -847,6 +849,7 @@ typedef struct {
     float    offset;
     uint32_t timestamp;
     float    r_squared;
+    float    noise_std_dev[CAL_POINTS];
     uint32_t checksum;
 } CalFile;
 
@@ -1020,11 +1023,29 @@ void test_calibration_bounds_check() {
     printf("  -> Pass\n");
 }
 
+void test_calibration_noise_grade() {
+    printf("Running test_calibration_noise_grade...\n");
+    // Thresholds from biomap_config.h: CAL_NOISE_EXCELLENT_NS = 2.0,
+    // CAL_NOISE_ACCEPTABLE_NS = 10.0 (0.002 µS / 0.010 µS on the datasheet's
+    // µS scale).
+    assert(calibration_noise_grade(0.0f) == CalNoiseExcellent);
+    assert(calibration_noise_grade(1.9f) == CalNoiseExcellent);
+
+    // Boundary: exactly at the Excellent ceiling falls into Acceptable.
+    assert(calibration_noise_grade(2.0f) == CalNoiseAcceptable);
+    assert(calibration_noise_grade(9.9f) == CalNoiseAcceptable);
+
+    // Boundary: exactly at the Acceptable ceiling fails as Poor.
+    assert(calibration_noise_grade(10.0f) == CalNoisePoor);
+    assert(calibration_noise_grade(500.0f) == CalNoisePoor);
+    printf("  -> Pass\n");
+}
+
 // ── Calibration persistence tests ─────────────────────────────────────
 
 void test_cal_checksum_deterministic() {
     printf("Running test_cal_checksum_deterministic...\n");
-    CalFile cal = { CAL_MAGIC, CAL_VERSION, 1.234f, -56.7f, 1700000000u, 0.997f, 0 };
+    CalFile cal = { CAL_MAGIC, CAL_VERSION, 1.234f, -56.7f, 1700000000u, 0.997f, {1.0f, 1.0f, 1.0f}, 0 };
     cal.checksum = cal_checksum(&cal);
 
     // Same inputs → same checksum
@@ -1037,7 +1058,7 @@ void test_cal_checksum_deterministic() {
 
 void test_cal_checksum_detects_bit_flips() {
     printf("Running test_cal_checksum_detects_bit_flips...\n");
-    CalFile cal = { CAL_MAGIC, CAL_VERSION, 1.0f, 0.0f, 1700000000u, 0.997f, 0 };
+    CalFile cal = { CAL_MAGIC, CAL_VERSION, 1.0f, 0.0f, 1700000000u, 0.997f, {1.0f, 1.0f, 1.0f}, 0 };
     cal.checksum = cal_checksum(&cal);
 
     // Flip magic — checksum must change
@@ -1075,6 +1096,12 @@ void test_cal_checksum_detects_bit_flips() {
     bad.r_squared = 0.5f;
     bad_cs = cal_checksum(&bad);
     assert(bad_cs != cal.checksum);
+
+    // Flip noise_std_dev — checksum must change (v4 folds it in)
+    bad = cal;
+    bad.noise_std_dev[1] = 7.5f;
+    bad_cs = cal_checksum(&bad);
+    assert(bad_cs != cal.checksum);
     printf("  -> Pass\n");
 }
 
@@ -1088,6 +1115,9 @@ void test_cal_serialization_roundtrip() {
     orig.offset   = -123.4f;
     orig.timestamp = 1700000000u;
     orig.r_squared = 0.9873f;
+    orig.noise_std_dev[0] = 0.8f;
+    orig.noise_std_dev[1] = 3.2f;
+    orig.noise_std_dev[2] = 1.5f;
     orig.checksum = cal_checksum(&orig);
 
     // "Write" to a byte buffer
@@ -1105,6 +1135,9 @@ void test_cal_serialization_roundtrip() {
     assert(restored.offset    == orig.offset);
     assert(restored.timestamp == orig.timestamp);
     assert(restored.r_squared == orig.r_squared);
+    for(int i = 0; i < CAL_POINTS; i++) {
+        assert(restored.noise_std_dev[i] == orig.noise_std_dev[i]);
+    }
     assert(restored.checksum  == orig.checksum);
 
     // Checksum must validate after roundtrip
@@ -1115,7 +1148,7 @@ void test_cal_serialization_roundtrip() {
 
 void test_cal_validation_magic() {
     printf("Running test_cal_validation_magic...\n");
-    CalFile cal = { CAL_MAGIC, CAL_VERSION, 1.0f, 0.0f, 1700000000u, 0.997f, 0 };
+    CalFile cal = { CAL_MAGIC, CAL_VERSION, 1.0f, 0.0f, 1700000000u, 0.997f, {1.0f, 1.0f, 1.0f}, 0 };
     cal.checksum = cal_checksum(&cal);
 
     // Correct magic → passes
@@ -1130,7 +1163,7 @@ void test_cal_validation_magic() {
 
 void test_cal_validation_version() {
     printf("Running test_cal_validation_version...\n");
-    CalFile cal = { CAL_MAGIC, CAL_VERSION, 1.0f, 0.0f, 1700000000u, 0.997f, 0 };
+    CalFile cal = { CAL_MAGIC, CAL_VERSION, 1.0f, 0.0f, 1700000000u, 0.997f, {1.0f, 1.0f, 1.0f}, 0 };
     cal.checksum = cal_checksum(&cal);
 
     // Correct version → passes
@@ -1145,7 +1178,7 @@ void test_cal_validation_version() {
 
 void test_cal_validation_checksum() {
     printf("Running test_cal_validation_checksum...\n");
-    CalFile cal = { CAL_MAGIC, CAL_VERSION, 1.0f, 0.0f, 1700000000u, 0.997f, 0 };
+    CalFile cal = { CAL_MAGIC, CAL_VERSION, 1.0f, 0.0f, 1700000000u, 0.997f, {1.0f, 1.0f, 1.0f}, 0 };
     cal.checksum = cal_checksum(&cal);
 
     // Matching checksum → passes
@@ -1181,11 +1214,25 @@ void test_cal_validation_bounds() {
     printf("  -> Pass\n");
 }
 
+// Full validation chain from biomap_load_calibration(): magic → version →
+// checksum → gain/offset bounds → per-resistor noise bounds (CAL_NOISE_
+// ACCEPTABLE_NS — a Poor-graded σ never reaches biomap_save_calibration(),
+// see biomap_gui.c's noise gatekeeper, so a saved-but-Poor record only
+// arises from corruption).
+static bool cal_chain_valid(const CalFile* c) {
+    if(c->magic != CAL_MAGIC) return false;
+    if(c->version != CAL_VERSION) return false;
+    if(c->checksum != cal_checksum(c)) return false;
+    if(!(c->gain >= 0.2f && c->gain <= 5.0f)) return false;
+    if(!(c->offset >= -20000.0f && c->offset <= 20000.0f)) return false;
+    for(int i = 0; i < CAL_POINTS; i++) {
+        if(!(c->noise_std_dev[i] >= 0.0f && c->noise_std_dev[i] < 10.0f)) return false;
+    }
+    return true;
+}
+
 void test_cal_full_validation_chain() {
     printf("Running test_cal_full_validation_chain...\n");
-    // Simulate the full validation chain from biomap_load_calibration():
-    //   magic → version → checksum → bounds
-    // All four gates must pass for the calibration to be accepted.
 
     CalFile cal;
     cal.magic   = CAL_MAGIC;
@@ -1194,57 +1241,39 @@ void test_cal_full_validation_chain() {
     cal.offset  = 200.0f;
     cal.timestamp = 1700000000u;
     cal.r_squared = 0.991f;
+    cal.noise_std_dev[0] = 0.5f;
+    cal.noise_std_dev[1] = 2.0f;
+    cal.noise_std_dev[2] = 4.5f;
     cal.checksum = cal_checksum(&cal);
 
-    bool valid = (cal.magic == CAL_MAGIC)
-              && (cal.version == CAL_VERSION)
-              && (cal.checksum == cal_checksum(&cal))
-              && (cal.gain >= 0.2f && cal.gain <= 5.0f)
-              && (cal.offset >= -20000.0f && cal.offset <= 20000.0f);
-    assert(valid);
+    assert(cal_chain_valid(&cal));
 
     // Corrupt each field one at a time and verify the chain rejects it.
     CalFile bad;
 
     // Magic corruption
     bad = cal; bad.magic = 0u;
-    assert(!((bad.magic == CAL_MAGIC)
-          && (bad.version == CAL_VERSION)
-          && (bad.checksum == cal_checksum(&bad))
-          && (bad.gain >= 0.2f && bad.gain <= 5.0f)
-          && (bad.offset >= -20000.0f && bad.offset <= 20000.0f)));
+    assert(!cal_chain_valid(&bad));
 
     // Version corruption
     bad = cal; bad.version = 0;
-    assert(!((bad.magic == CAL_MAGIC)
-          && (bad.version == CAL_VERSION)
-          && (bad.checksum == cal_checksum(&bad))
-          && (bad.gain >= 0.2f && bad.gain <= 5.0f)
-          && (bad.offset >= -20000.0f && bad.offset <= 20000.0f)));
+    assert(!cal_chain_valid(&bad));
 
     // Checksum corruption (via bit-flip in gain)
     bad = cal; bad.gain = 1.5f;  // checksum no longer matches
-    assert(!((bad.magic == CAL_MAGIC)
-          && (bad.version == CAL_VERSION)
-          && (bad.checksum == cal_checksum(&bad))
-          && (bad.gain >= 0.2f && bad.gain <= 5.0f)
-          && (bad.offset >= -20000.0f && bad.offset <= 20000.0f)));
+    assert(!cal_chain_valid(&bad));
 
     // Bounds violation — gain too high
     bad = cal; bad.gain = 5.1f; bad.checksum = cal_checksum(&bad);
-    assert(!((bad.magic == CAL_MAGIC)
-          && (bad.version == CAL_VERSION)
-          && (bad.checksum == cal_checksum(&bad))
-          && (bad.gain >= 0.2f && bad.gain <= 5.0f)
-          && (bad.offset >= -20000.0f && bad.offset <= 20000.0f)));
+    assert(!cal_chain_valid(&bad));
 
     // Bounds violation — offset too negative
     bad = cal; bad.offset = -25000.0f; bad.checksum = cal_checksum(&bad);
-    assert(!((bad.magic == CAL_MAGIC)
-          && (bad.version == CAL_VERSION)
-          && (bad.checksum == cal_checksum(&bad))
-          && (bad.gain >= 0.2f && bad.gain <= 5.0f)
-          && (bad.offset >= -20000.0f && bad.offset <= 20000.0f)));
+    assert(!cal_chain_valid(&bad));
+
+    // Bounds violation — noise too high (Poor, >= CAL_NOISE_ACCEPTABLE_NS)
+    bad = cal; bad.noise_std_dev[2] = 10.0f; bad.checksum = cal_checksum(&bad);
+    assert(!cal_chain_valid(&bad));
     printf("  -> Pass\n");
 }
 int main() {
@@ -1277,6 +1306,7 @@ int main() {
     test_calibration_degenerate_input();
     test_calibration_bounds_check();
     test_calibration_fit_reports_values_on_bounds_failure();
+    test_calibration_noise_grade();
 
     printf("\n========================================\n");
     printf("CALIBRATION PERSISTENCE\n");
@@ -1300,6 +1330,6 @@ int main() {
     test_batch_printf_rollback_on_truncation();
     test_nmea_parsing();
 
-    printf("\nAll 35 firmware unit tests passed successfully!\n");
+    printf("\nAll 36 firmware unit tests passed successfully!\n");
     return 0;
 }

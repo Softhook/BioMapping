@@ -327,7 +327,7 @@ void run_calibration_menu(BioMapApp* app) {
 
 // GSR + Sound safety invariant for the calibration wizard: this function
 // must never call into modules/sound.h, and the caller (run_calibration_
-// wizard) must never call it either during the 20-sample loop below. The
+// wizard) must never call it either during the dwell loop below. The
 // caller's one pre-measurement tone (a ~35 ms click, played right before
 // this function is entered) is made safe by the very next thing this
 // function does: a full 1 s / 10-tick buffer flush, whose discarded
@@ -336,8 +336,33 @@ void run_calibration_menu(BioMapApp* app) {
 // the equivalent, tighter-margin calculation used for recording start).
 // The caller's post-measurement tones (confirm/error/success) are safe by
 // construction: they only ever play after this function has already
-// returned with its result, i.e. after all 20 real samples were taken.
-static bool calibration_wizard_measure(GsrSensor* gsr, int resistor_idx, const float gates[CAL_POINTS][2], float* out_avg_g) {
+// returned with its result, i.e. after the whole dwell's samples were taken.
+typedef enum {
+    CalMeasureOk,
+    CalMeasureFailed,     // fewer than CAL_MIN_VALID in-gate samples over the dwell
+    CalMeasureCancelled,  // Back pressed mid-dwell
+} CalMeasureResult;
+
+// Runs one resistor's calibration dwell (CAL_DWELL_SECONDS at TICK_HZ),
+// computing the mean (for the gain/offset fit) and σ (for the pre-flight
+// noise/resolution gate — see calibration_noise_grade(), biomap_format.c)
+// in a single Welford pass over the in-gate samples: N/mean/M2 are updated
+// as each sample arrives rather than stored and revisited, same running-
+// accumulator shape as em_scan_cal_compute_stats() (modules/em_scan_cal.c)
+// uses for the RF noise floor. At this sample count the mean needs no
+// min/max trim — one outlier among CAL_DWELL_SECONDS*TICK_HZ samples has
+// negligible leverage.
+//
+// Polls the event queue every tick so Back can cancel the dwell early
+// (CalMeasureCancelled) rather than blocking the whole wizard for
+// CAL_DWELL_SECONDS — same non-blocking-peek + fixed-delay shape as
+// run_rf_calibration_wizard()'s sampling loop (biomap_rf_cal.c). Also
+// rewrites w->seconds_left every tick for calibration_wizard_render()'s
+// live countdown on the Measuring screen.
+static CalMeasureResult calibration_wizard_measure(BioMapApp* app, ViewPort* vp, WizardState* w,
+                                                    GsrSensor* gsr, int resistor_idx,
+                                                    const float gates[CAL_POINTS][2],
+                                                    float* out_avg_g, float* out_std_dev) {
     // Ensure calibration is disabled on this wizard-local sensor so measurements are raw nS
     gsr_sensor_set_calibration(gsr, false, 1.0f, 0.0f);
 
@@ -349,43 +374,51 @@ static bool calibration_wizard_measure(GsrSensor* gsr, int resistor_idx, const f
         gsr_sensor_tick(gsr);
     }
 
-    enum { CAL_SAMPLES = 20, CAL_MIN_VALID = 12 };
-    float samples[CAL_SAMPLES];
-    int total = 0;
+    // 60 % of the dwell must land in-gate — same ratio the original 20-
+    // sample/12-valid window used.
+    enum { CAL_DWELL_SECONDS = 20, CAL_MIN_VALID = 120 };
+    int total = 0, below = 0, above = 0;
     float first_raw = 0;
-    int below = 0, above = 0;
+    float mean = 0.0f, m2 = 0.0f;
 
-    for(int i = 0; i < CAL_SAMPLES; i++) {
-        furi_delay_ms(100);
+    for(uint32_t elapsed = 0; elapsed < CAL_DWELL_SECONDS * TICK_HZ; elapsed++) {
+        PluginEvent ev;
+        if(furi_message_queue_get(app->event_queue, &ev, 0) == FuriStatusOk) {
+            if(ev.type == EventTypeKey && ev.input.type == InputTypeShort &&
+               ev.input.key == InputKeyBack) {
+                return CalMeasureCancelled;
+            }
+        }
+        furi_delay_ms(1000 / TICK_HZ);
         gsr_sensor_tick(gsr);
         float g = gsr_sensor_get_raw(gsr);
-        if(i == 0) first_raw = g;
+        if(elapsed == 0) first_raw = g;
         if(g >= gates[resistor_idx][0] && g <= gates[resistor_idx][1]) {
-            samples[total++] = g;
+            total++;
+            float delta = g - mean;
+            mean += delta / (float)total;
+            m2 += delta * (g - mean);
         } else if(g < gates[resistor_idx][0]) {
             below++;
         } else {
             above++;
         }
+
+        furi_mutex_acquire(w->mutex, FuriWaitForever);
+        w->seconds_left = CAL_DWELL_SECONDS - elapsed / TICK_HZ;
+        furi_mutex_release(w->mutex);
+        view_port_update(vp);
     }
 
     if(total >= CAL_MIN_VALID) {
-        // Single-pass min/max + sum for trimmed mean
-        float s_min = samples[0], s_max = samples[0];
-        float sum_g = 0;
-        for(int i = 0; i < total; i++) {
-            float s = samples[i];
-            sum_g += s;
-            if(s < s_min) s_min = s;
-            if(s > s_max) s_max = s;
-        }
-        *out_avg_g = (sum_g - s_min - s_max) / (float)(total - 2);
-        return true;
+        *out_avg_g = mean;
+        *out_std_dev = sqrtf(m2 / (float)(total - 1));
+        return CalMeasureOk;
     } else {
         FURI_LOG_W("BioMap", "Cal measure %d failed: first_raw=%.1f in=%d below=%d above=%d gate=[%.0f, %.0f]",
                    resistor_idx, (double)first_raw, total, below, above,
                    (double)gates[resistor_idx][0], (double)gates[resistor_idx][1]);
-        return false;
+        return CalMeasureFailed;
     }
 }
 
@@ -408,6 +441,7 @@ enum {
     WizardStepSuccess       = 8,
     WizardStepMeasureFailed = 9,
     WizardStepFitFailed     = 10,
+    WizardStepNoiseFailed   = 11,
 };
 
 // Mutex-guarded WizardState field writers — collapse the repeated
@@ -419,9 +453,19 @@ static void wizard_set_step(WizardState* w, int step) {
     furi_mutex_release(w->mutex);
 }
 
-static void wizard_set_measurement(WizardState* w, int idx, float avg_g, int step) {
+static void wizard_set_measurement(WizardState* w, int idx, float avg_g, float std_dev, int step) {
     furi_mutex_acquire(w->mutex, FuriWaitForever);
     w->measured[idx] = avg_g;
+    w->noise_std_dev[idx] = std_dev;
+    w->step = step;
+    furi_mutex_release(w->mutex);
+}
+
+// Records which resistor triggered a measurement or noise-gate failure, for
+// calibration_wizard_render()'s step 9/11 fail screens.
+static void wizard_set_fail(WizardState* w, int idx, int step) {
+    furi_mutex_acquire(w->mutex, FuriWaitForever);
+    w->fail_idx = idx;
     w->step = step;
     furi_mutex_release(w->mutex);
 }
@@ -475,9 +519,14 @@ void run_calibration_wizard(BioMapApp* app) {
         // ── Back handler ──────────────────────────────────────────
         if(ev.input.key == InputKeyBack) {
             // Allowed to cancel from any prompt, success, or fail screen.
+            // Back during an active Measuring dwell is handled inside
+            // calibration_wizard_measure() itself (CalMeasureCancelled),
+            // not here — by the time this loop reads its next event the
+            // step has already moved past Measuring.
             bool cancelable = w.step == WizardStepPrompt470k || w.step == WizardStepPrompt100k ||
                               w.step == WizardStepPrompt47k || w.step == WizardStepSuccess ||
-                              w.step == WizardStepMeasureFailed || w.step == WizardStepFitFailed;
+                              w.step == WizardStepMeasureFailed || w.step == WizardStepFitFailed ||
+                              w.step == WizardStepNoiseFailed;
             if(cancelable) {
                 biomap_sound_back(app->sound_enabled);
                 break;
@@ -491,11 +540,12 @@ void run_calibration_wizard(BioMapApp* app) {
 
         if(w.step == WizardStepSuccess) {
             biomap_sound_confirm(app->sound_enabled);
-            biomap_save_calibration(app, w.gain, w.offset, w.r_squared);
+            biomap_save_calibration(app, w.gain, w.offset, w.r_squared, w.noise_std_dev);
             break;
         }
 
-        if(w.step == WizardStepMeasureFailed || w.step == WizardStepFitFailed) {
+        if(w.step == WizardStepMeasureFailed || w.step == WizardStepFitFailed ||
+           w.step == WizardStepNoiseFailed) {
             biomap_sound_click(app->sound_enabled);
             wizard_set_step(&w, WizardStepPrompt470k);
             view_port_update(vp);
@@ -514,30 +564,49 @@ void run_calibration_wizard(BioMapApp* app) {
             // own 1 s ring-buffer flush runs before it takes any real
             // sample (see the GSR+Sound comment on calibration_wizard_
             // measure). Do not move this click, or add any other sound
-            // call, to inside calibration_wizard_measure() or its 20-sample
+            // call, to inside calibration_wizard_measure() or its dwell
             // loop — that would remove the flush's settle margin.
             biomap_sound_click(app->sound_enabled);
             wizard_set_step(&w, idx * 2 + 1);  // Prompt → Measuring
             view_port_update(vp);
 
             if(!sensor_ok) {
-                wizard_set_step(&w, WizardStepMeasureFailed);
+                wizard_set_fail(&w, idx, WizardStepMeasureFailed);
                 biomap_sound_error(app->sound_enabled);
                 view_port_update(vp);
                 continue;
             }
 
-            // calibration_wizard_measure() has already returned — all 20
-            // real samples for this resistor were taken before this line
-            // runs, so the confirm/error tone below cannot affect them.
-            float avg_g = 0.0f;
-            if(calibration_wizard_measure(gsr, idx, gates, &avg_g)) {
-                wizard_set_measurement(&w, idx, avg_g, idx * 2 + 2);  // Measuring → next Prompt (or FitPending)
-                biomap_sound_confirm(app->sound_enabled); // this resistor's reading passed its gate
-            } else {
-                wizard_set_step(&w, WizardStepMeasureFailed);
+            // calibration_wizard_measure() has already returned — every
+            // real sample for this resistor's dwell was taken before this
+            // line runs, so the tones below cannot affect them.
+            float avg_g = 0.0f, std_dev = 0.0f;
+            CalMeasureResult result = calibration_wizard_measure(app, vp, &w, gsr, idx, gates,
+                                                                  &avg_g, &std_dev);
+            if(result == CalMeasureCancelled) {
+                biomap_sound_back(app->sound_enabled);
+                break;
+            } else if(result == CalMeasureFailed) {
+                wizard_set_fail(&w, idx, WizardStepMeasureFailed);
                 biomap_sound_error(app->sound_enabled);
+                view_port_update(vp);
+                continue;
             }
+
+            // Gatekeeper: a resistor whose dwell was too noisy fails the
+            // wizard outright rather than silently degrading the fit — see
+            // CAL_NOISE_ACCEPTABLE_NS (biomap_config.h). Still records the
+            // measurement so the fail screen can show the offending σ.
+            if(calibration_noise_grade(std_dev) == CalNoisePoor) {
+                wizard_set_measurement(&w, idx, avg_g, std_dev, idx * 2 + 2);
+                wizard_set_fail(&w, idx, WizardStepNoiseFailed);
+                biomap_sound_error(app->sound_enabled);
+                view_port_update(vp);
+                continue;
+            }
+
+            wizard_set_measurement(&w, idx, avg_g, std_dev, idx * 2 + 2);  // Measuring → next Prompt (or FitPending)
+            biomap_sound_confirm(app->sound_enabled); // this resistor's reading passed its gate and noise check
 
             // After the last measurement, compute the least-squares fit.
             // calibration_wizard_compute_fit() is pure arithmetic on the

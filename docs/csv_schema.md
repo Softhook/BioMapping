@@ -31,7 +31,7 @@ Each CSV begins with comment lines (prefixed `#`) before the column header:
 # DeviceName:<flipper_device_name>
 # Band Floors (dBm): 815:<float>,868:<float>,915:<float>
 # GPSChipID:<word1 word2 word3 word4 word5>
-# GSR Calibration: gain:<float>,offset:<float>
+# GSR Calibration: gain:<float>,offset:<float>,r2:<float>,noise_ns:<float>,<float>,<float>
 ```
 
 Emitted in the order shown above (`biomap_session.c`,
@@ -72,6 +72,16 @@ the logged values. It appears only when a calibration is active — a
 `biomap.cal` was loaded or one was set through the calibration wizard
 (`cal_active`, `biomap.c`). An uncalibrated recording, which runs at the
 identity fit (gain 1.0 / offset 0.0), omits the line.
+
+`r2` is the wizard's least-squares fit goodness (0..1) and `noise_ns` is the
+per-resistor σ (nanosiemens, 470k/100k/47k order) from its pre-flight
+noise/resolution check — see `CalNoiseGrade` (`biomap_format.h`) and
+`calibration_wizard_measure()`'s Welford accumulator (`biomap_gui.c`). These
+are written as the actual measured numbers, not the Excellent/Acceptable/
+Poor label the wizard screens show, so a recording's data quality is
+reportable and comparable across tracks straight from the CSV. Both ride on
+the same `cal_active` gate as `gain`/`offset` — an uncalibrated recording has
+no fit or noise data to report, so the whole line is omitted.
 
 ---
 
@@ -266,6 +276,7 @@ Defined in `modules/gsr_sensor.h` as `GSR_VALID_MIN_NS` and `GSR_VALID_MAX_NS`.
 | 1.7 | 2026-08-05 | Added `prealloc_ms` (all three debug variants) alongside `BIOMAP_SD_PREALLOC` — see `docs/archive/gps_rf_mutex_status.md`. Also: the metadata header's old `# BioMapping v1.0` / `# GPS:<module>` lines don't reflect the current format — corrected above to `# RecordingStartTime:` + conditional `# Band Floors` line. |
 | 1.8 | 2026-08-28 | Doc sync, no column changes: documented the `# GSR Calibration: gain:…,offset:…` metadata line (emitted since custom GSR calibration shipped) and corrected the metadata-header order to match `biomap_session.c`. Post-processing enrichment columns (`osm_*`, snapped GPS) are appended by the visualiser, not the firmware writer — see [`environmental_enrichment_plan.md`](environmental_enrichment_plan.md). |
 | 1.9 | 2026-08-30 | Added the **Integrity Bracket** (see section above): a `# Integrity: crc32 v1` marker as the first line of every file and a `# End rows:… bytes:… crc32:… [end_time:…] overflows:… flush_fails:…` trailer written on clean stop. No data-column changes. The visualiser verifies it on import and shows a per-track status tick. |
+| 1.10 | 2026-09-16 | The calibration wizard's 3-step resistor ladder now doubles as a pre-flight noise/resolution check (per-resistor σ via a Welford accumulator over a 20 s dwell, gated against `CAL_NOISE_ACCEPTABLE_NS`); `# GSR Calibration` gained `r2:<float>,noise_ns:<float>,<float>,<float>` so a recording's fit goodness and noise floor are real reportable numbers, not just the wizard's Excellent/Acceptable/Poor label. No data-column changes. |
 
 ---
 

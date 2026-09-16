@@ -731,18 +731,34 @@ void calibration_menu_render(Canvas* c, void* ctx) {
     draw_cal_submenu(c, ctx, "GSR Calibration");
 }
 
+// Worst-case (highest-σ) reading across the three calibration points, in
+// nS — the figure a one-line summary should report as a real, comparable
+// number rather than an Excellent/Acceptable/Poor label, same "worst wins"
+// reasoning as rf_calibration_wizard_stats_render()'s max_std.
+static float worst_noise_std_dev(const float noise_std_dev[CAL_POINTS]) {
+    float worst = noise_std_dev[0];
+    for(int i = 1; i < CAL_POINTS; i++) {
+        if(noise_std_dev[i] > worst) worst = noise_std_dev[i];
+    }
+    return worst;
+}
+
 void calibration_wizard_render(Canvas* c, void* ctx) {
     WizardState* w = (WizardState*)ctx;
 
     // Guards against run_calibration_wizard()'s measurement loop (main
-    // thread), which rewrites step/measured[]/gain/offset/r_squared as
-    // each resistor is measured — see WizardState's doc comment in
-    // biomap.h.
+    // thread), which rewrites step/measured[]/noise_std_dev[]/fail_idx/
+    // seconds_left/gain/offset/r_squared as each resistor is measured —
+    // see WizardState's doc comment in biomap.h.
     furi_mutex_acquire(w->mutex, FuriWaitForever);
     int step = w->step;
     float gain = w->gain;
     float offset = w->offset;
     float r_squared = w->r_squared;
+    int fail_idx = w->fail_idx;
+    uint32_t seconds_left = w->seconds_left;
+    float noise_std_dev[CAL_POINTS];
+    memcpy(noise_std_dev, w->noise_std_dev, sizeof(noise_std_dev));
     furi_mutex_release(w->mutex);
 
     canvas_clear(c);
@@ -750,29 +766,33 @@ void calibration_wizard_render(Canvas* c, void* ctx) {
     canvas_draw_str(c, 0, 10, "GSR Calibration");
     canvas_set_font(c, FontSecondary);
 
+    static const struct { const char* level; const char* resistor; } cal_steps[3] = {
+        {"Low", "470k"}, {"Mid", "100k"}, {"High", "47k"},
+    };
+
     switch(step) {
     case 0: case 1: case 2: case 3: case 4: case 5: {
-        static const struct { const char* level; const char* resistor; } cal_steps[3] = {
-            {"Low", "470k"}, {"Mid", "100k"}, {"High", "47k"},
-        };
         int idx = step / 2;
         if(step % 2 == 0) { // Prompt
             draw_fmt(c, 0, 25, "Step %d/3: %s (%s)",
                      idx + 1, cal_steps[idx].level, cal_steps[idx].resistor);
             draw_fmt(c, 0, 37, "Connect %s 0.1%% resistor", cal_steps[idx].resistor);
             canvas_draw_str(c, 0, 49, "OK to measure");
-        } else { // Measuring
+        } else { // Measuring — live dwell countdown (CAL_DWELL_SECONDS, biomap_gui.c)
             draw_fmt(c, 0, 25, "Measuring %s...", cal_steps[idx].resistor);
             canvas_draw_str(c, 0, 37, "Keep resistor connected");
+            draw_fmt(c, 0, 49, "%lus remaining (Back=cancel)", (unsigned long)seconds_left);
         }
         break;
     }
-    case 8: // Success
+    case 8: { // Success
+        float worst_std = worst_noise_std_dev(noise_std_dev);
         canvas_draw_str(c, 0, 23, "Calibration Success!");
         draw_fmt(c, 0, 35, "Gain: %.3fx  R\xb2: %.4f", (double)gain, (double)r_squared);
-        draw_fmt(c, 0, 47, "Offset: %.0f nS", (double)offset);
+        draw_fmt(c, 0, 47, "Off:%.0fnS  N:%.2fnS", (double)offset, (double)worst_std);
         canvas_draw_str(c, 0, 60, "OK=Save  Back=Discard");
         break;
+    }
     case 9: // Measurement failed — not enough samples in gate
         canvas_draw_str(c, 0, 25, "Calibration Failed!");
         canvas_draw_str(c, 0, 38, "Check connections.");
@@ -781,6 +801,12 @@ void calibration_wizard_render(Canvas* c, void* ctx) {
         canvas_draw_str(c, 0, 25, "Calibration Failed!");
         canvas_draw_str(c, 0, 37, "Device out of range.");
         draw_fmt(c, 0, 49, "Gain: %.3fx  R\xb2: %.4f", (double)gain, (double)r_squared);
+        break;
+    case 11: // Noise/resolution failed — sigma >= CAL_NOISE_ACCEPTABLE_NS
+        canvas_draw_str(c, 0, 25, "Pre-flight Check Failed!");
+        draw_fmt(c, 0, 37, "%s too noisy/unstable.", cal_steps[fail_idx].resistor);
+        draw_fmt(c, 0, 49, "Sigma: %.2f nS (max %.0f)",
+                 (double)noise_std_dev[fail_idx], (double)CAL_NOISE_ACCEPTABLE_NS);
         break;
     default:
         break;
@@ -813,17 +839,22 @@ void show_current_calibration_render(Canvas* c, void* ctx) {
     float offset = app->cal_offset;
     uint32_t timestamp = app->cal_timestamp;
     float r_squared = app->cal_r_squared;
+    float noise_std_dev[CAL_POINTS];
+    memcpy(noise_std_dev, app->cal_noise_std_dev, sizeof(noise_std_dev));
     furi_mutex_release(app->mutex);
 
     draw_fmt(c, 0, 23, "Active %s Cal:", active ? "Custom" : "Default");
     // Fit R² rides on the Gain line for a custom cal (same pairing as the
-    // wizard's fit-fail screen); the default transform has no fit.
+    // wizard's fit-fail screen); the default transform has no fit or
+    // noise data, so the Offset line stays plain for it.
     if(active) {
         draw_fmt(c, 0, 35, "Gain: %.3fx  R\xb2: %.3f", (double)gain, (double)r_squared);
+        draw_fmt(c, 0, 47, "Off:%.0fnS  N:%.2fnS",
+                 (double)offset, (double)worst_noise_std_dev(noise_std_dev));
     } else {
         draw_fmt(c, 0, 35, "Gain: %.3fx", (double)gain);
+        draw_fmt(c, 0, 47, "Offset: %.0f nS", (double)offset);
     }
-    draw_fmt(c, 0, 47, "Offset: %.0f nS", (double)offset);
 
     // Calibration age — custom cal only (the default transform has no save).
     if(active) draw_calibration_age(c, 0, 59, timestamp);

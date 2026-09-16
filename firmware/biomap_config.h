@@ -74,6 +74,19 @@ typedef enum {
 #define CAL_OFFSET_MIN  -20000.0f
 #define CAL_OFFSET_MAX   20000.0f
 
+// ── GSR pre-flight noise/resolution gate ───────────────────────────────
+// Grades the σ (standard deviation, nS) of the raw readings collected
+// during each resistor's calibration dwell — see calibration_noise_grade()
+// in biomap_format.c and calibration_wizard_measure()'s Welford
+// accumulator in biomap_gui.c. Units are nS, same scale as CAL_TARGET_*/
+// CAL_*_GATE in biomap.h; the µS figures a human reads off a datasheet
+// are these ÷ 1000 (1 µS = 1000 nS).
+//   σ < CAL_NOISE_EXCELLENT_NS   -> Excellent (3σ resolution < 6 nS / 0.006 µS)
+//   σ < CAL_NOISE_ACCEPTABLE_NS  -> Acceptable (3σ resolution < 30 nS / 0.030 µS)
+//   σ >= CAL_NOISE_ACCEPTABLE_NS -> Poor — fails the wizard outright, cannot save.
+#define CAL_NOISE_EXCELLENT_NS    2.0f
+#define CAL_NOISE_ACCEPTABLE_NS  10.0f
+
 // ── CSV column headers ────────────────────────────────────────────────
 // Must stay in sync with the printf format strings in biomap_format_gps_row()
 // (biomap_format.c). Changing column order here requires matching changes

@@ -426,7 +426,9 @@ static void handle_second_boundary(Session* s, NotificationApp* notifications) {
 static bool key_toggle_recording(Session* s, FuriMutex* mutex,
                                   NotificationApp* notifications, bool sound_enabled,
                                   bool rf_calibrated, const float* rf_cal_floors,
-                                  bool gsr_cal_active, float gsr_cal_gain, float gsr_cal_offset) {
+                                  bool gsr_cal_active, float gsr_cal_gain, float gsr_cal_offset,
+                                  float gsr_cal_r_squared,
+                                  const float gsr_cal_noise_std_dev[CAL_POINTS]) {
     bool start;
     furi_mutex_acquire(mutex, FuriWaitForever);
     start = !s->recording.active;
@@ -488,11 +490,19 @@ static bool key_toggle_recording(Session* s, FuriMutex* mutex,
         // before gsr_raw is ever computed (see gsr_sensor_set_calibration),
         // so this is the only record of what transform produced the
         // logged values — only emitted when a calibration is actually
-        // active, same gating style as Band Floors above.
+        // active, same gating style as Band Floors above. r2 and noise_ns
+        // are the wizard's fit goodness and per-resistor σ (470k/100k/47k,
+        // nS) from its pre-flight noise/resolution check (CalNoiseGrade,
+        // biomap_format.h) — written as the actual numbers rather than an
+        // Excellent/Acceptable/Poor label, so a recording's data quality is
+        // reportable/comparable straight from the CSV without re-running
+        // the wizard.
         if(gsr_cal_active && n > 0 && (size_t)n < sizeof(header)) {
             n += snprintf(header + n, sizeof(header) - (size_t)n,
-                         "# GSR Calibration: gain:%.4f,offset:%.4f\n",
-                         (double)gsr_cal_gain, (double)gsr_cal_offset);
+                         "# GSR Calibration: gain:%.4f,offset:%.4f,r2:%.4f,noise_ns:%.2f,%.2f,%.2f\n",
+                         (double)gsr_cal_gain, (double)gsr_cal_offset, (double)gsr_cal_r_squared,
+                         (double)gsr_cal_noise_std_dev[0], (double)gsr_cal_noise_std_dev[1],
+                         (double)gsr_cal_noise_std_dev[2]);
         }
         if(n > 0 && (size_t)n < sizeof(header)) {
             n += snprintf(header + n, sizeof(header) - (size_t)n, "%s", cols);
@@ -871,7 +881,8 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
             if(s->mode != BioMapModeLiveStream) {
                 if(key_toggle_recording(s, app->mutex, app->notifications, app->sound_enabled,
                                          app->rf_calibrated, app->rf_cal_data.noise_floor_dbm,
-                                         app->cal_active, app->cal_gain, app->cal_offset))
+                                         app->cal_active, app->cal_gain, app->cal_offset,
+                                         app->cal_r_squared, app->cal_noise_std_dev))
                     view_port_update(s->vp);
             } else {
                 // No CSV to toggle, but every other screen in this app

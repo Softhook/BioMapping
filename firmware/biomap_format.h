@@ -77,3 +77,17 @@ bool calibration_wizard_compute_fit(const float measured[CAL_POINTS],
                                     const float targets[CAL_POINTS],
                                     float* out_gain, float* out_offset,
                                     float* out_r_squared);
+
+// Pre-flight noise/resolution grade for one calibration resistor's measured
+// σ (nS) — see the CAL_NOISE_*_NS thresholds (biomap_config.h) and
+// calibration_wizard_measure()'s Welford accumulator (biomap_gui.c), which
+// computes σ across the full resistor dwell in a single pass. CalNoisePoor
+// fails the wizard outright (WizardStepNoiseFailed in biomap_gui.c) —
+// Excellent/Acceptable both pass and are shown on the success screen.
+typedef enum {
+    CalNoiseExcellent = 0,
+    CalNoiseAcceptable = 1,
+    CalNoisePoor = 2,
+} CalNoiseGrade;
+
+CalNoiseGrade calibration_noise_grade(float std_dev_ns);

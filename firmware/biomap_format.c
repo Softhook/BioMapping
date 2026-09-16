@@ -149,3 +149,9 @@ bool calibration_wizard_compute_fit(const float measured[CAL_POINTS],
     }
     return ok;
 }
+
+CalNoiseGrade calibration_noise_grade(float std_dev_ns) {
+    if(std_dev_ns < CAL_NOISE_EXCELLENT_NS) return CalNoiseExcellent;
+    if(std_dev_ns < CAL_NOISE_ACCEPTABLE_NS) return CalNoiseAcceptable;
+    return CalNoisePoor;
+}
