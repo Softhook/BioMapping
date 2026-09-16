@@ -227,3 +227,37 @@ module, etc.) — but tooling can detect and guard against it automatically:
 - Sanity-checked the gate itself: temporarily added a
   `signal|gps|osm` → `ui` import, confirmed `npm run lint:deps` caught it and
   exited non-zero, then reverted.
+
+## Follow-up review (same day, after `c32aaae`/`7b48413`/`7487c9c`)
+
+Both items §1 and §3 above, listed at the time as "unchanged and still open,"
+are now done — the codebase moved faster than this doc did. Re-verified
+directly rather than trusting the old numbers:
+
+- **§1 (god-objects) resolved.** `analyzer.mjs` 3358→2127 lines: every
+  peak-detector, quality-scorer, and stats/export method checked is now a
+  thin delegate to a new pure module (`peak_detectors.mjs`, `peak_shape.mjs`,
+  `analyzer_stats.mjs`, `analyzer_export.mjs`), not just relocated bulk.
+  `events.mjs` 1895→657 lines, split into 10 `events_*.mjs`/`ui_*.mjs`
+  part-files along its own pre-existing `_bind*Controls()` seams, wired via
+  the same `Object.assign(GSREvents, __methods)` idiom `map_manager_*.mjs`
+  already used.
+- **§3 (`src/map/` nesting) resolved.** `map_manager_*.mjs` → `map/manager/`
+  (12 files), `globe3d_*.mjs` → `map/globe3d/` (9 files); only the module
+  roots (`globe3d.mjs`, `globe3d_view.mjs`, `map.mjs`) still sit flat, which
+  is correct.
+- Re-ran the full check: `npm run lint:deps` still 0 cycles (112 modules),
+  full suite still green (1320/1320). `biome check` found 2 trivial
+  auto-fixable import-order violations in the two new `map/globe3d/*.mjs`
+  files from the move. `knip`'s ~30 "unused export" hits are false
+  positives — it doesn't trace the `Object.assign(prototype, __methods)`
+  composition pattern.
+- New largest file in the codebase is now `globe3d.mjs` (1982 lines,
+  overtaking the old `analyzer.mjs`). Read through it — it's a legitimate
+  camera/rendering/entity-lifecycle orchestrator that already delegates
+  peaks/toggles/tour/osm/rf/buildings/exporters/navigation out to
+  `map/globe3d/*`, not a dumping ground. Not a current problem, just the
+  next file worth watching if it keeps growing.
+
+**Updated verdict: architecture is clean.** No open recommendations remain
+from this review.

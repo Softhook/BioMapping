@@ -13,8 +13,8 @@
  */
 
 import { OSMEnricher } from '../../osm/osm_enrichment.mjs';
-import { GSRGlobe3DBuildings } from './buildings.mjs';
 import { GSRGlobeManager } from '../globe3d.mjs';
+import { GSRGlobe3DBuildings } from './buildings.mjs';
 
 export const __methods = {
   /**
