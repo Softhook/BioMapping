@@ -22,9 +22,11 @@ tests/test_gps_uart.c|-Imodules -Ivendor/minmea -Itests/shims
 tests/test_gsr_sensor.c|-pthread -Imodules -Itests/shims
 tests/test_sd_logger.c|-Imodules -Itests/shims
 tests/test_em_scan_cal.c|-Imodules -Itests/shims
+tests/test_em_scan_rf.c|-Imodules -Itests/shims
 tests/test_bt_stream.c|-Imodules -Itests/shims
 tests/benchmarks/analyze_gsr_filtering.c|
 tests/shims/furi_hal_mock.c|-pthread -Imodules -Itests/shims
+tests/shims/furi_hal_subghz_mock.c|-Imodules -Itests/shims
 tests/shims/storage_mock.c|-Imodules -Itests/shims
 tests/shims/bt_ble_mock.c|-Imodules -Itests/shims
 "

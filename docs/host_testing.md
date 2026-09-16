@@ -116,7 +116,7 @@ firmware/modules/              — unchanged, no test-only content, no HAL files
   gps_uart.h / .c               — NMEA parsing + framing, calls furi_hal_serial_* directly
   gsr_sensor.h / .c             — ADS1115 I2C + PGA autoranging, calls furi_hal_i2c_*/FuriThread directly
   sd_logger.h / .c              — auto-indexing CSV writer, calls Storage/File directly
-  em_scan_rf.h / .c             — SubGHz RF sweep/RSSI (untested on host — CC1101 SPI)
+  em_scan_rf.h / .c             — SubGHz RF sweep/RSSI, calls furi_hal_subghz_* directly
   em_scan_cal.h / .c            — RF noise-floor calibration + on-disk persistence
   bt_stream.h / .c              — BLE serial-profile lifecycle + send-or-drop (Live Stream)
   sound.h                       — untested
@@ -130,6 +130,9 @@ firmware/tests/
                                    virtual filesystem (storage_mock.c); includes
                                    log-file pre-allocation (BIOMAP_SD_PREALLOC)
   test_em_scan_cal.c            — em_scan_cal.c: RF calibration validation + persist/load
+  test_em_scan_rf.c              — em_scan_rf.c: init/deinit CC1101 sequencing,
+                                   dwell-band peak-hold (max, not last-sample),
+                                   fast-sweep one-read-per-band + retune timing
   test_bt_stream.c              — bt_stream.c: profile start/stop, connect-status
                                    callback, send-or-drop, packet packing (BLE mock shims)
   benchmarks/
@@ -146,6 +149,15 @@ firmware/tests/
     furi_hal.h / furi_hal_mock.c — fakes furi_hal_serial_* (one simulated
                                    USART1) and furi_hal_i2c_* (one simulated
                                    I2C bus/ADS1115), plus both test-injection APIs
+    furi_hal_subghz.h / furi_hal_subghz_mock.c — fakes the CC1101 control
+                                   surface (reset/idle/sleep/flush_rx/rx/
+                                   load_custom_preset/set_frequency_and_path)
+                                   for test_em_scan_rf.c only — a separate,
+                                   single-threaded mock, mutually exclusive
+                                   with furi_hal_mock.c's own RSSI mock (used
+                                   instead by test_gsr_sensor.c)
+    lib/subghz/devices/cc1101_configs.h — stub preset array symbol
+                                   em_scan_rf.c loads by pointer
     storage/storage.h / storage_mock.c — fakes storage_file_*/storage_dir_*
                                    with a real in-memory filesystem (paths ->
                                    byte buffers), plus test-injection APIs to
@@ -216,7 +228,7 @@ Approximate test counts — the exact numbers drift with each addition; run
 | `modules/sd_logger.c` | Yes (`Storage`/`File`) | ✅ `tests/test_sd_logger.c` (~24 tests, includes `BIOMAP_SD_PREALLOC` & CRC32 integrity trailer) |
 | `modules/em_scan_cal.c` | No (pure calc + Storage for persist) | ✅ `tests/test_em_scan_cal.c` (~5 tests) |
 | `modules/bt_stream.c` | Yes (`Bt`/`ble_profile_serial_*`) | ✅ `tests/test_bt_stream.c` (~13 tests, BLE mock shims) |
-| `modules/em_scan_rf.c` | Yes (CC1101 SPI) | ❌ (SPI-bound; RF pacing verified on-device — see `archive/gps_rf_mutex_status.md`) |
+| `modules/em_scan_rf.c` | Yes (CC1101 SPI) | ✅ `tests/test_em_scan_rf.c` (~9 tests, dedicated `furi_hal_subghz_mock.c`) |
 | `modules/sound.h` | Yes (`furi_hal_speaker_*`) | ❌ |
 
 `test_gps_uart.c` covers every NMEA sentence type `gps_uart_parse_line()`
@@ -319,6 +331,23 @@ of the ordinary stop chirp so a failed final flush is audibly distinct
 from a clean stop. No host test exists for `biomap_session.c` itself (it's Flipper-SDK-heavy,
 not pipeline-pure), so this path was verified by a full `ufbt build` rather
 than a host test.
+
+`test_em_scan_rf.c` (added 2026-09-16) drives the real, unmodified
+`modules/em_scan_rf.c` against a dedicated `furi_hal_subghz_mock.c` — not
+`furi_hal_mock.c`'s existing (weak) `em_scan_rf_*` fakes, which exist so
+`test_gsr_sensor.c` can stand in for this module rather than link it.
+Covers `em_scan_rf_init()`'s reset→preset→per-band-tune sequence (including
+that a few hundred Hz of simulated PLL quantization drift doesn't change
+behaviour, only the log line), `em_scan_rf_deinit()`'s idle+sleep,
+`em_scan_rf_dwell_band()`'s peak-hold (returns the MAX RSSI seen across
+exactly `EM_SCAN_DWELL_MS` polls, not a single snapshot — the specific bug
+this function's own doc comment says an earlier, naive version had), and
+`em_scan_rf_fast_sweep_snapshot()`'s one-read-per-band behaviour plus its
+`out_retune_peak_ms` contract (provably excludes the RSSI read itself,
+since nothing in this harness advances the fake tick except that read).
+The mock is single-threaded by design, unlike `gsr_sensor.c`'s worker-backed
+tests — `em_scan_rf.c`'s functions are plain synchronous calls with no
+thread of their own.
 
 `modules/sound.h` (`furi_hal_speaker_*`) remains the one hardware-touching
 file with no host test — it's a thin beep/tone wrapper with little logic

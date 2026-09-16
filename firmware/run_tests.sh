@@ -133,6 +133,15 @@ gcc -Wall -Wextra -I . -I modules -I tests/shims -o build/test_em_scan_cal \
 ./build/test_em_scan_cal
 
 echo
+echo "== test_em_scan_rf (CC1101 sub-GHz sweep: init/deinit sequencing, peak-hold, per-band snapshot) =="
+# Own dedicated mock (furi_hal_subghz_mock.c), not furi_hal_mock.c — see that
+# file's banner for why the two are mutually exclusive per test binary.
+gcc -Wall -Wextra -I . -I modules -I tests/shims -o build/test_em_scan_rf \
+    tests/test_em_scan_rf.c modules/em_scan_rf.c \
+    tests/shims/furi_hal_subghz_mock.c -lm
+./build/test_em_scan_rf
+
+echo
 echo "== test_bt_stream (BLE serial profile lifecycle / send-or-drop logic) =="
 gcc -Wall -Wextra -I . -I modules -I tests/shims -o build/test_bt_stream \
     tests/test_bt_stream.c modules/bt_stream.c \
