@@ -81,7 +81,9 @@ function installRecordingLeaflet() {
       if (l._isGroup) {
         map._groups.set(l._gsrId, l);
         l._onMap = true;
-        l._children.forEach((c) => map._viaGroup.add(c));
+        l._children.forEach((c) => {
+          map._viaGroup.add(c);
+        });
       } else map._direct.push(l);
       return map;
     },
@@ -91,7 +93,9 @@ function installRecordingLeaflet() {
         map._groups.delete(l._gsrId);
         map._layers.delete(l._gsrId);
         l._onMap = false;
-        l._children.forEach((c) => map._viaGroup.delete(c));
+        l._children.forEach((c) => {
+          map._viaGroup.delete(c);
+        });
       } else {
         const i = map._direct.indexOf(l);
         if (i >= 0) map._direct.splice(i, 1);
@@ -402,9 +406,9 @@ const check = () => {
     console.log(
       `\nTracks with analyzer peaks but 0 on-map peak markers: ${missingPeaks.length}`,
     );
-    missingPeaks.forEach((m) =>
-      console.log(`  ${m.i}: ${m.name} peaks=${m.nPeaks}`),
-    );
+    missingPeaks.forEach((m) => {
+      console.log(`  ${m.i}: ${m.name} peaks=${m.nPeaks}`);
+    });
     console.log(`Tracks with 0 analyzer peaks: ${noPeaks.length}`);
     if (errors.length) {
       console.log(`\nCaptured ${errors.length} window.onerror:`);
@@ -413,9 +417,9 @@ const check = () => {
         const k = e.split('\n')[0];
         counts[k] = (counts[k] || 0) + 1;
       });
-      Object.entries(counts).forEach(([msg, c]) =>
-        console.log(`  x${c}  ${msg}`),
-      );
+      Object.entries(counts).forEach(([msg, c]) => {
+        console.log(`  x${c}  ${msg}`);
+      });
     }
     return;
   }

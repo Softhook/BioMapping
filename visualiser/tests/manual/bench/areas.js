@@ -368,7 +368,9 @@ const contourSurface = {
   ],
   run({ h, window, mapManager, tracks, GSR_CONST, opts }) {
     const cm = window.AppState.collectiveManager;
-    tracks.forEach((t) => h.primeGps(mapManager, t, GSR_CONST)); // filtered coords, as the real collective flow
+    tracks.forEach((t) => {
+      h.primeGps(mapManager, t, GSR_CONST); // filtered coords, as the real collective flow
+    });
     const base = {
       gridResolution: 40,
       upsampledResolution: 120,

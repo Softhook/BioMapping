@@ -370,7 +370,9 @@ async function bootLive({ compact = false } = {}) {
         if (idx !== -1) orientationListeners.splice(idx, 1);
       },
       dispatchEvent: (e) => {
-        orientationListeners.forEach((fn) => fn(e));
+        orientationListeners.forEach((fn) => {
+          fn(e);
+        });
         return true;
       },
     };

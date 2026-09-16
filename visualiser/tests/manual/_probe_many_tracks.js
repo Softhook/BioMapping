@@ -84,7 +84,9 @@ function installRecordingLeaflet() {
       if (l._isGroup) {
         map._groups.set(l._gsrId, l);
         l._onMap = true;
-        l._children.forEach((c) => map._viaGroup.add(c));
+        l._children.forEach((c) => {
+          map._viaGroup.add(c);
+        });
       } else map._direct.push(l);
       return map;
     },
@@ -94,7 +96,9 @@ function installRecordingLeaflet() {
         map._groups.delete(l._gsrId);
         map._layers.delete(l._gsrId);
         l._onMap = false;
-        l._children.forEach((c) => map._viaGroup.delete(c));
+        l._children.forEach((c) => {
+          map._viaGroup.delete(c);
+        });
       } else {
         const i = map._direct.indexOf(l);
         if (i >= 0) map._direct.splice(i, 1);
@@ -313,9 +317,9 @@ const check = () => {
         const k = e.split('\n')[0];
         counts[k] = (counts[k] || 0) + 1;
       });
-      Object.entries(counts).forEach(([msg, c]) =>
-        console.log(`\nload x${c}  ${msg}`),
-      );
+      Object.entries(counts).forEach(([msg, c]) => {
+        console.log(`\nload x${c}  ${msg}`);
+      });
     }
 
     // Now the user's exact repro: click each track in the track list (single

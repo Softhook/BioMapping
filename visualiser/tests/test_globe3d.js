@@ -84,7 +84,9 @@ function freshEnv() {
   };
   global.window.__flushRaf = () => {
     const q = rafQueue.splice(0);
-    q.forEach((fn) => fn?.());
+    q.forEach((fn) => {
+      fn?.();
+    });
   };
   global.document = {
     activeElement: null,

@@ -32,7 +32,9 @@ function installRecordingLeaflet() {
       if (l._isGroup) {
         map._groups.set(l._gsrId, l);
         l._onMap = true;
-        l._children.forEach((c) => map._viaGroup.add(c));
+        l._children.forEach((c) => {
+          map._viaGroup.add(c);
+        });
       } else map._direct.push(l);
       return map;
     },
@@ -42,7 +44,9 @@ function installRecordingLeaflet() {
         map._groups.delete(l._gsrId);
         map._layers.delete(l._gsrId);
         l._onMap = false;
-        l._children.forEach((c) => map._viaGroup.delete(c));
+        l._children.forEach((c) => {
+          map._viaGroup.delete(c);
+        });
       } else {
         const i = map._direct.indexOf(l);
         if (i >= 0) map._direct.splice(i, 1);
@@ -220,7 +224,9 @@ function installRecordingLeaflet() {
     },
     featureGroup: function (layers) {
       const g = makeGroup();
-      (layers || []).forEach((l) => g.addLayer(l));
+      (layers || []).forEach((l) => {
+        g.addLayer(l);
+      });
       g.getBounds = () => ({
         getNorthWest: () => ({ lat: 0, lon: 0 }),
         getSouthEast: () => ({ lat: 0, lon: 0 }),

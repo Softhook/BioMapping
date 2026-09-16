@@ -247,7 +247,9 @@ function freshAppState(overrides) {
       this._listeners[event].push(fn);
     },
     emit(event, ...args) {
-      (this._listeners[event] || []).forEach((fn) => fn(...args));
+      (this._listeners[event] || []).forEach((fn) => {
+        fn(...args);
+      });
     },
   };
   return Object.assign(RealAppState, base, overrides);

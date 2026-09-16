@@ -384,8 +384,12 @@ test('_kalmanForwardPass: stationary signal → output stays on the stationary v
     getRLat,
     getRLon,
   );
-  out.forwardLats.forEach((v, i) => closeTo(v, 51.5, 1e-6, `lat[${i}]`));
-  out.forwardLons.forEach((v, i) => closeTo(v, -0.1, 1e-6, `lon[${i}]`));
+  out.forwardLats.forEach((v, i) => {
+    closeTo(v, 51.5, 1e-6, `lat[${i}]`);
+  });
+  out.forwardLons.forEach((v, i) => {
+    closeTo(v, -0.1, 1e-6, `lon[${i}]`);
+  });
 });
 
 // ══════════════════════════════════════════════════════════════════════════════

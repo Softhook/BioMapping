@@ -132,7 +132,9 @@ function installRecordingLeaflet(window) {
       if (layer._isGroup) {
         map._groups.set(layer._gsrId, layer);
         layer._onMap = true;
-        layer._children.forEach((c) => map._viaGroup.add(c));
+        layer._children.forEach((c) => {
+          map._viaGroup.add(c);
+        });
       } else {
         map._direct.push(layer);
       }
@@ -145,7 +147,9 @@ function installRecordingLeaflet(window) {
         map._groups.delete(layer._gsrId);
         map._layers.delete(layer._gsrId);
         layer._onMap = false;
-        layer._children.forEach((c) => map._viaGroup.delete(c));
+        layer._children.forEach((c) => {
+          map._viaGroup.delete(c);
+        });
       } else {
         const i = map._direct.indexOf(layer);
         if (i >= 0) map._direct.splice(i, 1);
@@ -337,7 +341,9 @@ function installRecordingLeaflet(window) {
     },
     featureGroup: function (layers) {
       const g = makeGroup();
-      (layers || []).forEach((l) => g.addLayer(l));
+      (layers || []).forEach((l) => {
+        g.addLayer(l);
+      });
       g.getBounds = () => ({
         getNorthWest: () => ({ lat: 0, lon: 0 }),
         getSouthEast: () => ({ lat: 0, lon: 0 }),
@@ -760,16 +766,12 @@ test('slice2: collective render gives each active track its own on-map layerGrou
   );
 
   // Each group's layers are on the map via their group.
-  trackA.layerGroup
-    .getLayers()
-    .forEach((l) =>
-      assert.ok(map.hasLayer(l), `A ${l._gsrKind} should be on the map`),
-    );
-  trackB.layerGroup
-    .getLayers()
-    .forEach((l) =>
-      assert.ok(map.hasLayer(l), `B ${l._gsrKind} should be on the map`),
-    );
+  trackA.layerGroup.getLayers().forEach((l) => {
+    assert.ok(map.hasLayer(l), `A ${l._gsrKind} should be on the map`);
+  });
+  trackB.layerGroup.getLayers().forEach((l) => {
+    assert.ok(map.hasLayer(l), `B ${l._gsrKind} should be on the map`);
+  });
 });
 
 test('slice2: re-rendering collective without a removed track leaves no stale group behind', async () => {
@@ -846,9 +848,9 @@ test('slice2: toggling showTracks removes only the collective path layers (via t
     peaksA.length > 0,
     'fixture should render collective peak markers for A',
   );
-  pathsA.forEach((p) =>
-    assert.ok(map.hasLayer(p), 'precondition: path is on the map'),
-  );
+  pathsA.forEach((p) => {
+    assert.ok(map.hasLayer(p), 'precondition: path is on the map');
+  });
 
   mapManager.showTracks = false;
   mapManager.toggleTracks(false);
@@ -967,18 +969,18 @@ test('slice3: getRenderLayers() derives the per-track layers from the layerGroup
   );
 
   const groupLayers = track.layerGroup.getLayers();
-  render.paths.forEach((p) =>
-    assert.ok(groupLayers.includes(p), 'path should come from the group'),
-  );
-  render.peakMarkers.forEach((m) =>
+  render.paths.forEach((p) => {
+    assert.ok(groupLayers.includes(p), 'path should come from the group');
+  });
+  render.peakMarkers.forEach((m) => {
     assert.ok(
       groupLayers.includes(m),
       'peak/connector should come from the group',
-    ),
-  );
-  render.hotspots.forEach((m) =>
-    assert.ok(groupLayers.includes(m), 'hotspot should come from the group'),
-  );
+    );
+  });
+  render.hotspots.forEach((m) => {
+    assert.ok(groupLayers.includes(m), 'hotspot should come from the group');
+  });
 
   // All the group's per-track layers are reachable through the accessor.
   const renderSet = new Set([
@@ -1030,12 +1032,12 @@ test('slice3: getRenderLayers() derives the collective layers from each track gr
     ...render.peakMarkers,
     ...render.hotspots,
   ]);
-  allGroupLayers.forEach((l) =>
+  allGroupLayers.forEach((l) => {
     assert.ok(
       renderSet.has(l),
       `${l._gsrKind} should be exposed via getRenderLayers()`,
-    ),
-  );
+    );
+  });
 });
 
 test('slice3: getPeakMarkerByIndex resolves the marker for a peak index', async () => {
@@ -1198,11 +1200,9 @@ test('slice3: renderData renders peaks/hotspots even when every GPS fix is quali
   );
 
   // Peaks must be on the map (via the group) and resolvable by index.
-  group
-    .getLayers()
-    .forEach((l) =>
-      assert.ok(map.hasLayer(l), `${l._gsrKind} should be on the map`),
-    );
+  group.getLayers().forEach((l) => {
+    assert.ok(map.hasLayer(l), `${l._gsrKind} should be on the map`);
+  });
   assert.ok(
     mapManager.getPeakMarkerByIndex(0),
     'peak index 0 should resolve to a rendered marker',
@@ -1443,18 +1443,18 @@ test('refreshPeakMarkers: rebuilds only peak/connector layers, leaving path and 
     peakBefore.every((l) => !peakAfter.includes(l)),
     'old peak/connector layer instances are replaced, not reused',
   );
-  peakBefore.forEach((l) =>
+  peakBefore.forEach((l) => {
     assert.ok(
       !map.hasLayer(l),
       'old peak/connector layer removed from the map',
-    ),
-  );
-  peakAfter.forEach((l) =>
+    );
+  });
+  peakAfter.forEach((l) => {
     assert.ok(
       map.hasLayer(l),
       'new peak/connector layer is on the map via the track group',
-    ),
-  );
+    );
+  });
 
   // No duplicates and no orphans: exactly one on-map group, its contents are
   // exactly path (untouched) + hotspot (untouched) + the fresh peak/connector set.
@@ -1656,18 +1656,18 @@ test('refreshPeakMarkers({ skipClustering: true }): replaces peak/connector laye
     peakBefore.every((l) => !peakAfter.includes(l)),
     'old peak/connector layer instances are still replaced, not reused',
   );
-  peakBefore.forEach((l) =>
+  peakBefore.forEach((l) => {
     assert.ok(
       !map.hasLayer(l),
       'old peak/connector layer removed from the map',
-    ),
-  );
-  peakAfter.forEach((l) =>
+    );
+  });
+  peakAfter.forEach((l) => {
     assert.ok(
       map.hasLayer(l),
       'new peak/connector layer is on the map via the track group',
-    ),
-  );
+    );
+  });
 });
 
 // ── Arousal Places compute cache (perf-routes doc §2.4 follow-up) ──────────────
@@ -1979,15 +1979,15 @@ test('refreshPath: rebuilds only path layers, leaving peak/connector and hotspot
     pathBefore.every((l) => !pathAfter.includes(l)),
     'old path layer instances are replaced, not reused',
   );
-  pathBefore.forEach((l) =>
-    assert.ok(!map.hasLayer(l), 'old path layer removed from the map'),
-  );
-  pathAfter.forEach((l) =>
+  pathBefore.forEach((l) => {
+    assert.ok(!map.hasLayer(l), 'old path layer removed from the map');
+  });
+  pathAfter.forEach((l) => {
     assert.ok(
       map.hasLayer(l),
       'new path layer is on the map via the track group',
-    ),
-  );
+    );
+  });
 
   assert.strictEqual(
     map._groups.size,
@@ -2139,18 +2139,18 @@ test("refreshCollectivePeakMarkers: rebuilds only the target track's peak/connec
     peakBeforeA.every((l) => !peakAfterA.includes(l)),
     'A: old peak/connector layer instances are replaced, not reused',
   );
-  peakBeforeA.forEach((l) =>
+  peakBeforeA.forEach((l) => {
     assert.ok(
       !map.hasLayer(l),
       'A: old peak/connector layer removed from the map',
-    ),
-  );
-  peakAfterA.forEach((l) =>
+    );
+  });
+  peakAfterA.forEach((l) => {
     assert.ok(
       map.hasLayer(l),
       'A: new peak/connector layer is on the map via the track group',
-    ),
-  );
+    );
+  });
 
   assert.deepStrictEqual(
     trackB.layerGroup.getLayers(),

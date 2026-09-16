@@ -34,9 +34,6 @@
         "rules": {
           "complexity": {
             "useArrowFunction": "off"
-          },
-          "suspicious": {
-            "useIterableCallbackReturn": "off"
           }
         }
       }

@@ -143,7 +143,10 @@ function makeFakeBle(
     if (deviceHandlers[type]) deviceHandlers[type].delete(fn);
   }
   function fireDevice(type) {
-    if (deviceHandlers[type]) [...deviceHandlers[type]].forEach((fn) => fn());
+    if (deviceHandlers[type])
+      [...deviceHandlers[type]].forEach((fn) => {
+        fn();
+      });
   }
   let subscribeCalls = 0; // getCharacteristic() calls == _subscribe() attempts
   let subscribeGate = null; // when set, the next getCharacteristic() awaits it
@@ -239,7 +242,9 @@ function makeFakeBle(
     watchAdvertisementsCallCount: () => watchAdvertisementsCalls,
     fireNotification(byteArray) {
       const value = bytesToDataView(byteArray);
-      charHandlers.forEach((fn) => fn({ target: { value } }));
+      charHandlers.forEach((fn) => {
+        fn({ target: { value } });
+      });
     },
     fireDisconnect() {
       fireDevice('gattserverdisconnected');
