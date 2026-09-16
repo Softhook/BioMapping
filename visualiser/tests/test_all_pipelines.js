@@ -86,6 +86,10 @@ function assertClose(a, b, tol, msg) {
 // ── Load Real CSV track ──
 console.log('Loading track biomap_048.csv...');
 const csvPath = path.join(__dirname, '../../tracks/biomap_048.csv');
+if (!fs.existsSync(csvPath)) {
+  console.log(`Skipping: ${csvPath} not found (local track fixture)`);
+  process.exit(0);
+}
 const csvText = fs.readFileSync(csvPath, 'utf8');
 const analyzer = new GSRAnalyzer();
 analyzer.parseCSV(csvText);

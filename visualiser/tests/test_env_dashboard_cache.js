@@ -74,11 +74,14 @@ Object.assign(
 // (viewMode + analyzer, or viewMode + collectiveManager).
 const { AppState: RealAppState } = require('../src/core/app_state.mjs');
 
-// ── Fixture: a real recorded track (same file test_all_pipelines.js uses). ──
-const csvText = fs.readFileSync(
-  path.join(__dirname, '../../tracks/biomap_048.csv'),
-  'utf8',
+// ── Fixture: a real recorded track (biomap_048.csv if present, or checked-in default_processed.csv). ──
+const track048Path = path.join(__dirname, '../../tracks/biomap_048.csv');
+const defaultFixture = path.join(
+  __dirname,
+  '../fixtures/default_processed.csv',
 );
+const csvPath = fs.existsSync(track048Path) ? track048Path : defaultFixture;
+const csvText = fs.readFileSync(csvPath, 'utf8');
 
 /**
  * Builds a fully analyzed, "enriched" GSRAnalyzer from the real fixture CSV.

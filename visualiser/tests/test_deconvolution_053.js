@@ -59,6 +59,10 @@ function assertEq(a, b, msg) {
 
 console.log('Loading track biomap_053.csv...');
 const csvPath = path.join(__dirname, '../../tracks/biomap_053.csv');
+if (!fs.existsSync(csvPath)) {
+  console.log(`Skipping: ${csvPath} not found (local track fixture)`);
+  process.exit(0);
+}
 const csvText = fs.readFileSync(csvPath, 'utf8');
 
 function analyzeTrack(decon) {

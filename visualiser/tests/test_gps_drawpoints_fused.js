@@ -16,6 +16,16 @@ const vm = require('node:vm');
 const { bootApp } = require('./support/boot_app.js');
 
 const TRACKS_DIR = path.join(__dirname, '..', '..', 'tracks');
+const DEFAULT_FIXTURE = path.join(
+  __dirname,
+  '..',
+  'fixtures',
+  'default_processed.csv',
+);
+const track048Path = path.join(TRACKS_DIR, 'biomap_048.csv');
+const TRACK_CSV_PATH = fs.existsSync(track048Path)
+  ? track048Path
+  : DEFAULT_FIXTURE;
 
 async function boot() {
   const { window } = await bootApp();
@@ -64,7 +74,7 @@ test('buildDrawPoints: returns byte-for-byte identical output to legacy two-step
   const gpsDefault = vm.runInThisContext('GSR_CONST.GPS_DEFAULT');
 
   const analyzer = new window.GSRAnalyzer();
-  const csv = fs.readFileSync(path.join(TRACKS_DIR, 'biomap_048.csv'), 'utf8');
+  const csv = fs.readFileSync(TRACK_CSV_PATH, 'utf8');
   analyzer.parseCSV(csv);
 
   const p = { ...gpsDefault, downsample: true };
@@ -113,7 +123,7 @@ test('buildDrawPoints: returns byte-for-byte identical output to legacy two-step
   const gpsDefault = vm.runInThisContext('GSR_CONST.GPS_DEFAULT');
 
   const analyzer = new window.GSRAnalyzer();
-  const csv = fs.readFileSync(path.join(TRACKS_DIR, 'biomap_048.csv'), 'utf8');
+  const csv = fs.readFileSync(TRACK_CSV_PATH, 'utf8');
   analyzer.parseCSV(csv);
 
   const p = { ...gpsDefault, downsample: false };
@@ -229,7 +239,7 @@ test('_getOrBuildDrawPoints: integrates buildDrawPoints and caches successfully'
   const gpsDefault = vm.runInThisContext('GSR_CONST.GPS_DEFAULT');
 
   const analyzer = new window.GSRAnalyzer();
-  const csv = fs.readFileSync(path.join(TRACKS_DIR, 'biomap_048.csv'), 'utf8');
+  const csv = fs.readFileSync(TRACK_CSV_PATH, 'utf8');
   analyzer.parseCSV(csv);
 
   const p = { ...gpsDefault, downsample: true };
