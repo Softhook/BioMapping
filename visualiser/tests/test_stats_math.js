@@ -618,7 +618,7 @@ test('calculateLinearRegression: zero variance in x (denM===0, vertical scatter)
 test('calculateLinearRegression: noisy data yields 0 <= r2 <= 1 and a regression line close to the generating trend', () => {
   const x = [1, 2, 3, 4, 5, 6, 7, 8];
   const y = [2.1, 3.9, 6.2, 7.8, 10.1, 11.9, 14.2, 15.8]; // ~ y = 2x
-  const { m, c, r2 } = StatsMath.calculateLinearRegression(x, y);
+  const { m, r2 } = StatsMath.calculateLinearRegression(x, y);
   closeTo(m, 2, 0.2);
   assert.ok(r2 >= 0 && r2 <= 1, `r2 should be in [0,1], got ${r2}`);
   assert.ok(r2 > 0.95, 'clean near-linear data should fit very well');

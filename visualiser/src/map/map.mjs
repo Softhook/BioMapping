@@ -143,7 +143,7 @@ export class GSRMapManager {
     this.map.on('zoomend', () => {
       try {
         this._declutterArousalPlaceBadges();
-      } catch (e) {
+      } catch (_e) {
         /* a zoom must never break */
       }
     });

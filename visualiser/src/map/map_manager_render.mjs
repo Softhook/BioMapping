@@ -46,7 +46,7 @@ export const __methods = {
     const activeTrack = AppState?.collectiveManager
       ? AppState.collectiveManager.getTrack(AppState.activeTrackId)
       : null;
-    const layerGroup = this._getTrackLayerGroup(activeTrack);
+    const _layerGroup = this._getTrackLayerGroup(activeTrack);
 
     // Use cached GPS pipeline result (cache keyed by active track id)
     const cacheKey = AppState.activeTrackId || 'single';

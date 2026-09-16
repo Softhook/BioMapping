@@ -37,7 +37,7 @@ loadModule(
   'GSRMapExporter',
 );
 
-const { MarchingSquares, GSRSpatialClustering, GeoUtils } = global;
+const { MarchingSquares, GSRSpatialClustering } = global;
 const GSRMapExporter = global.GSRMapExporter;
 
 console.log('── Running Edge-of-Map-Extent Isoband Regression Test ──');

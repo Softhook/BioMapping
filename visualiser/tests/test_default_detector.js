@@ -47,7 +47,11 @@ const GAP = global.GSR_CONST.PEAK_MIN_GAP;
 let passed = 0,
   failed = 0;
 const assert = (c, m) => {
-  c ? passed++ : (failed++, console.error('  FAIL:', m));
+  if (c) passed++;
+  else {
+    failed++;
+    console.error('  FAIL:', m);
+  }
 };
 
 const csvText = fs.readFileSync(

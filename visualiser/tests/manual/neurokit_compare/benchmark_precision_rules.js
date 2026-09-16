@@ -294,4 +294,4 @@ for (const t of realTracks) {
 // Clean up
 try {
   execSync(`rm -rf "${tmpDir}"`);
-} catch (e) {}
+} catch (_e) {}

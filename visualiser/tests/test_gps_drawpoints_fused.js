@@ -156,7 +156,7 @@ test('buildDrawPoints: returns byte-for-byte identical output to legacy two-step
 });
 
 test('buildDrawPoints: correctly handles forced RF peak indices that fall between strides', async () => {
-  const { window } = await boot();
+  await boot();
   const GpsPipeline = vm.runInThisContext('GpsPipeline');
 
   // 25 synthetic points at 10 Hz with indices 0..24
@@ -205,7 +205,7 @@ test('buildDrawPoints: correctly handles forced RF peak indices that fall betwee
 });
 
 test('buildDrawPoints: handles empty data or null filteredGps gracefully', async () => {
-  const { window } = await boot();
+  await boot();
   const GpsPipeline = vm.runInThisContext('GpsPipeline');
 
   assert.strictEqual(GpsPipeline.buildDrawPoints([], [], 10, true).length, 0);

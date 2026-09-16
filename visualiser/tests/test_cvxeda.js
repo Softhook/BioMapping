@@ -30,7 +30,7 @@
 const assert = require('node:assert');
 const test = require('node:test');
 const path = require('node:path');
-const fs = require('node:fs');
+const _fs = require('node:fs');
 
 global.window = global;
 

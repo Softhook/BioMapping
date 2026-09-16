@@ -213,7 +213,7 @@ function makeLeafletMock() {
       if (idx !== -1) this._layers.splice(idx, 1);
       return this;
     }
-    on(event, handler) {
+    on(_event, _handler) {
       return this;
     }
   }
@@ -365,7 +365,7 @@ async function bootLive({ compact = false } = {}) {
       addEventListener: (type, fn) => {
         if (type === 'change') orientationListeners.push(fn);
       },
-      removeEventListener: (type, fn) => {
+      removeEventListener: (_type, fn) => {
         const idx = orientationListeners.indexOf(fn);
         if (idx !== -1) orientationListeners.splice(idx, 1);
       },

@@ -48,7 +48,7 @@ loadModule(
   'GSRMapExporter',
 );
 
-const { MarchingSquares, GSRSpatialClustering, GeoUtils } = global;
+const { MarchingSquares, GSRSpatialClustering } = global;
 const GSRMapExporter = global.GSRMapExporter;
 
 console.log(
@@ -409,7 +409,7 @@ function openClosedSplit(stitched) {
     cols,
     bounds,
   );
-  const maskLoop = loops.find((l, i) => i !== 0); // index 0 is always the rectangle
+  const maskLoop = loops.find((_l, i) => i !== 0); // index 0 is always the rectangle
   assert(maskLoop, 'Sanity: a mask coastline loop exists for this grid');
 
   let minLat = Infinity,

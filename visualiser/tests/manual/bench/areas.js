@@ -57,7 +57,7 @@ const analyze = {
     { key: 'hitMs', label: 'HIT ms' },
     { key: 'missMs', label: 'MISS ms' },
   ],
-  run({ h, window, track, GSR_CONST, opts }) {
+  run({ h, track, GSR_CONST, opts }) {
     const { analyzer } = track;
     const params = JSON.parse(JSON.stringify(GSR_CONST.GSR_DEFAULT));
     const hit = h.bench(
@@ -231,7 +231,7 @@ const gpsPipeline = {
     { key: 'drawPts', label: 'drawPts' },
     { key: 'frameMs', label: 'frame ms' },
   ],
-  run({ h, window, mapManager, track, GSR_CONST, opts }) {
+  run({ h, mapManager, track, GSR_CONST, opts }) {
     const p = JSON.parse(JSON.stringify(GSR_CONST.GPS_DEFAULT));
     const baseR = p.kalmanR || 10;
     let drawPts = 0,
@@ -269,7 +269,7 @@ const renderSingle = {
     { key: 'warmMs', label: 'refresh warm' },
     { key: 'missMs', label: 'refresh miss' },
   ],
-  run({ h, window, mapManager, track, GSR_CONST, opts }) {
+  run({ h, mapManager, track, GSR_CONST, opts }) {
     const p = JSON.parse(JSON.stringify(GSR_CONST.GPS_DEFAULT));
     window.AppState.viewMode = 'single';
     window.AppState.activeTrackId = track.id;

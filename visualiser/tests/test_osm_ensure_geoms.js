@@ -256,7 +256,7 @@ test('ensureOsmGeoms (collective): one failing fetch does not stop the others', 
     async store() {},
   });
   Object.assign(RealOSMEnricher, {
-    _isValidCoord: (lat, lon) => lat != null && !isNaN(lat),
+    _isValidCoord: (lat, _lon) => lat != null && !isNaN(lat),
     calculateBBox: () => ({ minLat: 0, minLon: 0, maxLat: 0.01, maxLon: 0.01 }),
     calculateBBoxAreaKm2: () => 1.0,
     async fetchOSMData() {

@@ -449,7 +449,7 @@ export function releaseWakeLock() {
   if (wakeLock !== null) {
     try {
       if (!wakeLock.released) wakeLock.release().catch(() => {});
-    } catch (e) {}
+    } catch (_e) {}
     wakeLock = null;
   }
 }

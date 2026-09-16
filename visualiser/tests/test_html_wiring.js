@@ -34,7 +34,7 @@ const APP_DIR = path.join(__dirname, '..');
 const readApp = (rel) => fs.readFileSync(path.join(APP_DIR, rel), 'utf8');
 
 // runtime-config pre-loads, not app modules — excluded from the order check
-const NON_MODULE = new Set(['config.js', 'config.local.js']);
+const _NON_MODULE = new Set(['config.js', 'config.local.js']);
 
 // a URL that names a file this repo ships (not a CDN, in-page anchor, or scheme link)
 const isLocal = (url) =>

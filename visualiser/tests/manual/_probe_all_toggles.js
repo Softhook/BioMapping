@@ -2,11 +2,11 @@
 // buttons? Checks the invariant `button.classList.contains('active')` ⇔ the
 // manager's corresponding `showX` state across: initial boot, a single-track
 // render, a collective render, and a "data absent" render (the RF fluid case).
-const path = require('node:path');
-const vm = require('node:vm');
+const _path = require('node:path');
+const _vm = require('node:vm');
 const { bootApp } = require('../support/boot_app.js');
 
-const { window, context } = bootApp();
+const { window } = bootApp();
 window.HTMLCanvasElement.prototype.getContext = () => ({
   fillStyle: '',
   fillRect() {},
@@ -279,7 +279,7 @@ console.log('— after boot (no data) —');
 check('boot');
 
 console.log('\n— user toggles each button (simulate click) —');
-MAP_TOGGLES.forEach(([btnId, getState]) => {
+MAP_TOGGLES.forEach(([btnId, _getState]) => {
   const btn = window.document.getElementById(btnId);
   btn.classList.toggle('active');
   const pressed = btn.classList.contains('active');

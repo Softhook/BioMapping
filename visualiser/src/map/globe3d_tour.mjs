@@ -289,7 +289,7 @@ export const __methods = {
           typeof hWp === 'number' && isFinite(hWp) ? Math.max(0, hWp) : 0;
         terrainAlt = Math.max(validHCam, validHWp);
       }
-    } catch (e) {}
+    } catch (_e) {}
 
     const targetAltitude = terrainAlt + altitudeOffset;
     const destination = Cesium.Cartesian3.fromDegrees(

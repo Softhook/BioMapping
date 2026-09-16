@@ -124,14 +124,14 @@ export class GSRLabelManager {
       p.tw = W; // cache for later use
       const halfW = W / 2;
       const gens = [
-        ['S', (px, py, g) => px - halfW, (px, py, g) => py + g],
-        ['N', (px, py, g) => px - halfW, (px, py, g) => py - H - g],
-        ['E', (px, py, g) => px + g, (px, py, g) => py - H / 2],
-        ['W', (px, py, g) => px - W - g, (px, py, g) => py - H / 2],
-        ['SE', (px, py, g) => px + g, (px, py, g) => py + g],
-        ['SW', (px, py, g) => px - W - g, (px, py, g) => py + g],
-        ['NE', (px, py, g) => px + g, (px, py, g) => py - H - g],
-        ['NW', (px, py, g) => px - W - g, (px, py, g) => py - H - g],
+        ['S', (px, _py, _g) => px - halfW, (_px, py, g) => py + g],
+        ['N', (px, _py, _g) => px - halfW, (_px, py, g) => py - H - g],
+        ['E', (px, _py, g) => px + g, (_px, py, _g) => py - H / 2],
+        ['W', (px, _py, g) => px - W - g, (_px, py, _g) => py - H / 2],
+        ['SE', (px, _py, g) => px + g, (_px, py, g) => py + g],
+        ['SW', (px, _py, g) => px - W - g, (_px, py, g) => py + g],
+        ['NE', (px, _py, g) => px + g, (_px, py, g) => py - H - g],
+        ['NW', (px, _py, g) => px - W - g, (_px, py, g) => py - H - g],
       ];
 
       const candidates = [];
@@ -278,7 +278,7 @@ export class GSRLabelManager {
       labelExtraStyle = '',
     } = opts;
 
-    const H = 18;
+    const _H = 18;
     const box = dirResult.box;
     const W = box.right - box.left;
     const DS = dotSize;

@@ -165,7 +165,7 @@ test('enrichTrack (collective): a shared fetch that times out falls back to per-
     async store() {},
   });
   Object.assign(RealOSMEnricher, {
-    _isValidCoord: (lat, lon) => lat != null && !isNaN(lat),
+    _isValidCoord: (lat, _lon) => lat != null && !isNaN(lat),
     calculateBBox: () => ({ minLat: 0, minLon: 0, maxLat: 0.01, maxLon: 0.01 }),
     calculateBBoxAreaKm2: () => 8.0,
     async fetchOSMData() {
@@ -221,7 +221,7 @@ test('enrichTrack (collective): a spread-out collection (union over the area cap
     async store() {},
   });
   Object.assign(RealOSMEnricher, {
-    _isValidCoord: (lat, lon) => lat != null && !isNaN(lat),
+    _isValidCoord: (lat, _lon) => lat != null && !isNaN(lat),
     calculateBBox: () => ({ minLat: 0, minLon: 0, maxLat: 0.01, maxLon: 0.01 }),
     // first call = the union bbox (huge); the rest = per-track (small)
     calculateBBoxAreaKm2: () => (call++ === 0 ? 40.0 : 1.0),

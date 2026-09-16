@@ -56,11 +56,11 @@ export const GSRFullscreen = {
     try {
       await fn.call(target, options);
       return true;
-    } catch (err) {
+    } catch (_err) {
       try {
         await fn.call(target);
         return true;
-      } catch (err2) {
+      } catch (_err2) {
         if (this._target === target) this._target = null;
         return false;
       }
@@ -81,7 +81,7 @@ export const GSRFullscreen = {
     try {
       await fn.call(document);
       return true;
-    } catch (err) {
+    } catch (_err) {
       return false;
     }
   },
@@ -121,6 +121,8 @@ export const GSRFullscreen = {
 
   _emit() {
     const active = this.active;
-    this._listeners.forEach((fn) => fn(active));
+    this._listeners.forEach((fn) => {
+      fn(active);
+    });
   },
 };

@@ -157,6 +157,8 @@ export const AppState = {
     (AppState._listeners[event] = AppState._listeners[event] || []).push(fn);
   },
   emit(event, ...args) {
-    (AppState._listeners[event] || []).forEach((fn) => fn(...args));
+    (AppState._listeners[event] || []).forEach((fn) => {
+      fn(...args);
+    });
   },
 };

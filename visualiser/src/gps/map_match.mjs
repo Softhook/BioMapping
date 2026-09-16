@@ -281,8 +281,8 @@ export const MapMatcher = {
    * distance (nearest road-class-adjusted segment first).
    */
   _getCandidates(lat, lon, nearby, radiusM, speedMs, courseDeg) {
-    const cosLat = Math.cos((lat * Math.PI) / 180);
-    const MDEG = 111320;
+    const _cosLat = Math.cos((lat * Math.PI) / 180);
+    const _MDEG = 111320;
 
     const candidates = [];
 

@@ -24,7 +24,7 @@ const { bootApp } = require('./support/boot_app.js');
 function buildCsv(rows) {
   const header =
     'timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw,hacc_m,rssi_815,osm_road_class';
-  const lines = rows.map((r, i) => {
+  const lines = rows.map((_r, i) => {
     const t = (i * 0.1).toFixed(2);
     const lat = (51.5074 + i * 0.0001).toFixed(6);
     const lon = (-0.1278 + i * 0.0001).toFixed(6);

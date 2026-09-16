@@ -532,6 +532,8 @@ export const GSRLayoutManager = {
    * Helper to close all panel-level fullscreens before browser fullscreen transition.
    */
   exitAllPanelFullscreen() {
-    this._activePanelExits.forEach((exitFn) => exitFn());
+    this._activePanelExits.forEach((exitFn) => {
+      exitFn();
+    });
   },
 };

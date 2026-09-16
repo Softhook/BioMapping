@@ -33,7 +33,7 @@ export const GSRBasemap = {
     if (!cartoKey) {
       try {
         cartoKey = localStorage.getItem('bioMappingCartoApiKey') || '';
-      } catch (e) {
+      } catch (_e) {
         /* no-op */
       }
     }

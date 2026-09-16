@@ -403,7 +403,9 @@ export class GSRCollectiveManager {
 
     // Adaptive downsampling — target ~20k points for ~30 ms loop
     let totalRawPoints = 0;
-    active.forEach((t) => (totalRawPoints += t.analyzer.raw.length));
+    active.forEach((t) => {
+      totalRawPoints += t.analyzer.raw.length;
+    });
     const globalStride = Math.max(
       1,
       Math.round(totalRawPoints / GSR_CONST.CONTOUR_MAX_POINTS),

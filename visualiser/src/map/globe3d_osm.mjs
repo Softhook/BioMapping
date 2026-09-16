@@ -30,7 +30,7 @@ export const __methods = {
     if (typeof this.onBuildingsChange === 'function') {
       try {
         this.onBuildingsChange(show);
-      } catch (e) {
+      } catch (_e) {
         /* ignore */
       }
     }
@@ -137,9 +137,9 @@ export const __methods = {
       this.buildingPrimitive = null;
     }
     if (this.osmBuildingEntities && this.osmBuildingEntities.length > 0) {
-      this.osmBuildingEntities.forEach((ent) =>
-        this.viewer.entities.remove(ent),
-      );
+      this.osmBuildingEntities.forEach((ent) => {
+        this.viewer.entities.remove(ent);
+      });
       this.osmBuildingEntities = [];
     }
   },

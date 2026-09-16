@@ -903,9 +903,9 @@ export class GSRGlobeManager {
     }
     if (this._wakeHandlers && this.viewer?.scene?.canvas) {
       const canvas = this.viewer.scene.canvas;
-      this._wakeHandlers.forEach(({ type, h }) =>
-        canvas.removeEventListener(type, h),
-      );
+      this._wakeHandlers.forEach(({ type, h }) => {
+        canvas.removeEventListener(type, h);
+      });
     }
     this._wakeHandlers = null;
     if (this._screenSpaceHandler && !this._screenSpaceHandler.isDestroyed()) {
@@ -1058,7 +1058,7 @@ export class GSRGlobeManager {
     let provider;
     try {
       provider = this._createImageryProvider(type);
-    } catch (err) {
+    } catch (_err) {
       this._notifyWarn('Could not switch basemap — keeping the current one.');
       return;
     }
@@ -1071,7 +1071,7 @@ export class GSRGlobeManager {
     if (typeof this.onBasemapChange === 'function') {
       try {
         this.onBasemapChange(type);
-      } catch (e) {
+      } catch (_e) {
         /* ignore */
       }
     }
@@ -1143,7 +1143,7 @@ export class GSRGlobeManager {
         const h = this.viewer.scene.globe.getHeight(carto);
         if (typeof h === 'number' && isFinite(h)) terrainAlt = Math.max(0, h);
       }
-    } catch (e) {}
+    } catch (_e) {}
 
     const pos = Cesium.Cartesian3.fromDegrees(
       lon,
@@ -1675,7 +1675,7 @@ export class GSRGlobeManager {
             id: `biomap-wall-${instanceSeq++}`,
           }),
         );
-      } catch (err) {
+      } catch (_err) {
         // Skip a degenerate run (coincident points) cleanly.
       }
       runPos = runMax = null;
@@ -1764,7 +1764,7 @@ export class GSRGlobeManager {
         const h = globe.getHeight(Cesium.Cartographic.fromDegrees(lon, lat));
         if (typeof h === 'number' && isFinite(h)) return h;
       }
-    } catch (e) {
+    } catch (_e) {
       /* terrain not ready */
     }
     return 0;

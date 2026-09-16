@@ -1510,7 +1510,7 @@ test('clearTrackEntities, clearPeakEntities, clearRfEntities do not throw when v
 });
 
 test('flyToTrack releases follow-cam scrub before flying', () => {
-  const env = scrubEnv();
+  const _env = scrubEnv();
   global.Cesium.BoundingSphere = { fromPoints: () => ({ radius: 500 }) };
   const { GSRGlobeManager } = loadFresh();
   const mgr = new GSRGlobeManager('c', { keyboardFlight: false });
@@ -1670,7 +1670,7 @@ test('tour mode: _computeTourWaypoints extracts sequential waypoints with bearin
 });
 
 test('startTour / stopTour / toggleTour lifecycle and camera flight', () => {
-  const env = scrubEnv();
+  const _env = scrubEnv();
   const { GSRGlobeManager } = loadFresh();
   const mgr = new GSRGlobeManager('c', { keyboardFlight: false });
 
@@ -1757,7 +1757,7 @@ test('setScrubPosition auto-resolves height from drawn track when not explicitly
 });
 
 test('startOrbit, setViewPerspective, and destroy cancel an active tour', () => {
-  const env = scrubEnv();
+  const _env = scrubEnv();
   const { GSRGlobeManager } = loadFresh();
   const mgr = new GSRGlobeManager('c', { keyboardFlight: false });
 

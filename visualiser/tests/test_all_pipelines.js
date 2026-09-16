@@ -44,12 +44,6 @@ loadModule(path.join(__dirname, '../src/signal/csv_parser.js'), 'GSRCSVParser');
 loadModule(path.join(__dirname, '../src/signal/analyzer.js'), 'GSRAnalyzer');
 
 const {
-  GeoUtils,
-  StatsMath,
-  MapColors,
-  GpsFilter,
-  GpsPipeline,
-  DWT,
   GsrFilter,
   GSRSpatialClustering,
   MarchingSquares,

@@ -137,7 +137,7 @@ export class Hillshade {
    * @param {{minVal:number, maxVal:number, sortedVals?:number[], rankFn?: Function}} config
    * @returns {(number|null)[][]}
    */
-  static buildRatioGrid(grid, rows, cols, config) {
+  static buildRatioGrid(grid, _rows, _cols, config) {
     const { minVal, maxVal, sortedVals, rankFn } = config;
     return grid.map((row) =>
       row.map((v) =>

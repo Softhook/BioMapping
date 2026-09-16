@@ -2,8 +2,8 @@
 // all the peaks and hotspots were left behind." Renders collective with N
 // tracks, then deletes tracks one by one (deleteTrack) and after each deletion
 // reports what render layers remain ON the map and in the manager registries.
-const fs = require('node:fs');
-const path = require('node:path');
+const _fs = require('node:fs');
+const _path = require('node:path');
 const vm = require('node:vm');
 const { bootApp } = require('../support/boot_app.js');
 
@@ -297,9 +297,9 @@ function countMapLayers() {
   return counts;
 }
 
-const A = addTrack('A', 'A.csv', 0);
-const B = addTrack('B', 'B.csv', 0.01);
-const C = addTrack('C', 'C.csv', 0.02);
+const _A = addTrack('A', 'A.csv', 0);
+const _B = addTrack('B', 'B.csv', 0.01);
+const _C = addTrack('C', 'C.csv', 0.02);
 
 window.AppState.activeTrackId = 'A';
 window.AppState.viewMode = 'collective';
@@ -371,8 +371,8 @@ console.log(
 console.log(
   '\n\n== SCENARIO 2: render with peaks/hotspots OFF, toggle ON, then delete ==',
 );
-const A2 = addTrack('A2', 'A2.csv', 0);
-const B2 = addTrack('B2', 'B2.csv', 0.01);
+const _A2 = addTrack('A2', 'A2.csv', 0);
+const _B2 = addTrack('B2', 'B2.csv', 0.01);
 window.AppState.activeTrackId = 'A2';
 
 mm.showPeaks = false;

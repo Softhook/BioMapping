@@ -783,7 +783,7 @@ export const GSRGlobe3DView = {
 
     try {
       await GSRGlobe3DView._ensureCesium();
-    } catch (e) {
+    } catch (_e) {
       GSRGlobe3DView._setStatus(
         'Could not load the 3D globe engine (offline?). The 2D map still works.',
       );
@@ -822,7 +822,7 @@ export const GSRGlobe3DView = {
         GSRGlobe3DView._updateAttribution();
       GSRGlobe3DView.manager.onBuildingsChange = () =>
         GSRGlobe3DView._updateAttribution();
-      GSRGlobe3DView.manager.onTourStep((stepIdx, totalSteps, wp) => {
+      GSRGlobe3DView.manager.onTourStep((_stepIdx, _totalSteps, wp) => {
         if (wp) {
           GSRGlobe3DView._updateTourBtn(true);
           if (typeof AppState !== 'undefined') {
@@ -886,7 +886,7 @@ export const GSRGlobe3DView = {
       if (typeof v.resize === 'function') v.resize();
       if (v.scene && typeof v.scene.requestRender === 'function')
         v.scene.requestRender();
-    } catch (e) {
+    } catch (_e) {
       /* no-op */
     }
   },

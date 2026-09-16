@@ -93,7 +93,7 @@ export const __methods = {
 
     // 1. Draw dashed, semi-transparent paths for each track
     activeTracks.forEach((track) => {
-      const data = track.analyzer.raw;
+      const _data = track.analyzer.raw;
       const p = track.gpsFilterParams || {};
 
       // Phase 1 (slice 2): each active track owns a layerGroup; all of this

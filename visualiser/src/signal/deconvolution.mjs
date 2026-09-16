@@ -402,7 +402,7 @@ export const SCRDeconvolution = {
 
     const res = Float64Array.from(s);
     let done = false;
-    let hitIterCap = false;
+    let _hitIterCap = false;
     let rolledBack = false;
     while (!done) {
       if (activationHist.length === 4 && strictReference) {
@@ -566,7 +566,7 @@ export const SCRDeconvolution = {
         }
       }
       if (iterations >= maxIter) {
-        hitIterCap = true;
+        _hitIterCap = true;
         done = true;
       }
 
@@ -646,7 +646,7 @@ export const SCRDeconvolution = {
     const maxIter = opts.maxIter ?? (strictReference ? 40 : 120);
     const lr = opts.lr ?? 1.0;
     const convTol = opts.convTol ?? 0.001;
-    const minGapSec = opts.minImpulseGapSec ?? 0.5;
+    const _minGapSec = opts.minImpulseGapSec ?? 0.5;
     const epsilon = opts.epsilon ?? 1.0;
     const dminSec = opts.dminSec ?? (strictReference ? 1.25 : 0.25);
     const rho = opts.rho ?? (strictReference ? 0.025 : 0.0);
@@ -1065,7 +1065,7 @@ export const SCRDeconvolution = {
    * Legacy Matching Pursuit implementation (retained for backward compatibility).
    * @private
    */
-  _deconvolveMP(phasic, sampleRate, kernel, maxIter, lr, convTol) {
+  _deconvolveMP(phasic, _sampleRate, kernel, maxIter, lr, convTol) {
     const n = phasic.length;
     const kLen = kernel.length;
     let kPeakIdx = 0;

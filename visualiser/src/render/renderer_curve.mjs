@@ -195,7 +195,7 @@ export const __methods = {
       forceIndices,
     );
     if (!ctx) return;
-    const drawIndices = ctx.indices || null;
+    const _drawIndices = ctx.indices || null;
 
     noFill();
     stroke(lineColor);
@@ -250,7 +250,7 @@ export const __methods = {
       forceIndices,
     );
     if (!ctx) return;
-    const drawIndices = ctx.indices || null;
+    const _drawIndices = ctx.indices || null;
 
     noStroke();
     const fillHex =

@@ -28,15 +28,7 @@ loadModule(path.join(__dirname, '../src/signal/csv_parser.js'), 'GSRCSVParser');
 global.window = global;
 loadModule(path.join(__dirname, '../src/signal/analyzer.js'), 'GSRAnalyzer');
 
-const {
-  GeoUtils,
-  StatsMath,
-  MapColors,
-  GpsFilter,
-  GpsPipeline,
-  GsrFilter,
-  GSRAnalyzer,
-} = global;
+const { GeoUtils, GpsFilter, GpsPipeline, GSRAnalyzer } = global;
 
 // ── Test helpers ────────────────────────────────────────────────────────────
 let passed = 0,
@@ -59,7 +51,7 @@ function assertEq(a, b, msg) {
     );
   }
 }
-function assertClose(a, b, tol, msg) {
+function _assertClose(a, b, tol, msg) {
   if (Math.abs(a - b) <= tol) passed++;
   else {
     failed++;

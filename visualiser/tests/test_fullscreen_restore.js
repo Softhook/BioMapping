@@ -131,7 +131,7 @@ function pressF(window) {
 }
 
 test('Live display mode survives a phone lock/unlock — fullscreen is re-asserted on return', async () => {
-  const { window, document, appContainer, fs } = await bootInAppLive();
+  const { window, appContainer, fs } = await bootInAppLive();
 
   pressF(window);
   assert.ok(
@@ -170,7 +170,7 @@ test('Live display mode survives a phone lock/unlock — fullscreen is re-assert
 });
 
 test('a deliberate exit (browser drops fullscreen while visible) tears down display mode and is NOT resurrected by a later lock/unlock', async () => {
-  const { window, document, appContainer, fs } = await bootInAppLive();
+  const { window, appContainer, fs } = await bootInAppLive();
 
   pressF(window);
   assert.ok(appContainer.classList.contains('live-display-mode'));

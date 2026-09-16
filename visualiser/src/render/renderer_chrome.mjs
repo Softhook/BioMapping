@@ -444,7 +444,7 @@ export const __methods = {
       '--canvas-axis',
       'rgba(17, 17, 17, 0.15)',
     );
-    const textSec = this.getThemeColor('--text-secondary', '#444444');
+    const _textSec = this.getThemeColor('--text-secondary', '#444444');
     const colorPeak = this.getThemeColor('--color-peak', '#d10024');
     const colorFiltered = this.getThemeColor('--color-filtered', '#005bc4');
 

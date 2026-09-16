@@ -452,7 +452,7 @@ export const StatsMath = {
   calculateLinearRegression(x, y) {
     const n = x.length;
     if (n === 0) return { m: 0, c: 0, r2: 0 };
-    const { sumX, sumY, sumXY, sumX2, sumY2 } = this._computeSums(x, y);
+    const { sumX, sumY, sumXY, sumX2 } = this._computeSums(x, y);
     const meanX = sumX / n;
     const meanY = sumY / n;
 
@@ -540,7 +540,7 @@ export const StatsMath = {
     const x = z;
     let sum = 1.000000000190015;
     const coeffs = [
-      76.18009172947146, -86.50532032941677, 24.01409824083091,
+      76.18009172947146, -86.50532032941678, 24.01409824083091,
       -1.231739572450155, 1.208650973866179e-3, -5.395239384953e-6,
     ];
     let y = x;
@@ -549,6 +549,6 @@ export const StatsMath = {
     for (let i = 0; i < 6; i++) {
       sum += coeffs[i] / ++y;
     }
-    return -tmp + Math.log((2.5066282746310005 * sum) / x);
+    return -tmp + Math.log((2.5066282746310007 * sum) / x);
   },
 };

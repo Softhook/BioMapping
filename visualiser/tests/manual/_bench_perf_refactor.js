@@ -93,18 +93,18 @@ function benchHotspotLookup(peakCount, hotspotCount, iterations) {
 
   // Old: indexOf inside loop on every redraw frame
   const t0 = performance.now();
-  let dummy1 = 0;
+  let _dummy1 = 0;
   for (let it = 0; it < iterations; it++) {
     for (const h of hotspots) {
       const idx = peaks.indexOf(h);
-      dummy1 += idx;
+      _dummy1 += idx;
     }
   }
   const timeOld = performance.now() - t0;
 
   // New: memoized Map (built once when peaks array changes, reused across frames)
   const t1 = performance.now();
-  let dummy2 = 0;
+  let _dummy2 = 0;
   let memoizedMap = null;
   let lastPeaksRef = null;
   for (let it = 0; it < iterations; it++) {
@@ -115,7 +115,7 @@ function benchHotspotLookup(peakCount, hotspotCount, iterations) {
     }
     for (const h of hotspots) {
       const idx = memoizedMap.has(h) ? memoizedMap.get(h) : -1;
-      dummy2 += idx;
+      _dummy2 += idx;
     }
   }
   const timeNew = performance.now() - t1;

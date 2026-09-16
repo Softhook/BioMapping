@@ -52,8 +52,7 @@ export const __methods = {
    * it's the phasic-response integral and stays plain "Phasic AUC".
    */
   syncPhasicAUCLabels() {
-    const txt =
-      'Phasic AUC' + (AppState.analyzer?.phasicAUCIsISCR ? ' (ISCR)' : '');
+    const txt = `Phasic AUC${AppState.analyzer?.phasicAUCIsISCR ? ' (ISCR)' : ''}`;
     for (const selId of ['graphView', 'mapColoringMetric']) {
       const opt = document.querySelector(`#${selId} option[value="phasicAUC"]`);
       if (opt) opt.textContent = txt;

@@ -125,7 +125,9 @@ export const __methods = {
 
   clearOsmShapes() {
     if (this.osmLayers) {
-      this.osmLayers.forEach((layer) => this.map.removeLayer(layer));
+      this.osmLayers.forEach((layer) => {
+        this.map.removeLayer(layer);
+      });
     }
     this.osmLayers = [];
   },

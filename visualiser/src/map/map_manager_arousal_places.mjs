@@ -551,7 +551,7 @@ export const __methods = {
     let pts;
     try {
       pts = badges.map((b) => this.map.latLngToContainerPoint([b.lat, b.lon]));
-    } catch (e) {
+    } catch (_e) {
       return;
     }
 

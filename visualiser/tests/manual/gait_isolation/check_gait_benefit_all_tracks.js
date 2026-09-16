@@ -216,7 +216,7 @@ for (const file of files) {
       gaitP.sampleRate,
     );
     boxRes = slidingSpeedCorrelation(boxP.phasicVals, speeds, boxP.sampleRate);
-  } catch (e) {
+  } catch (_e) {
     continue;
   }
   // Need enough windows, and some real speed spread, for the correlation to
@@ -250,7 +250,7 @@ const meanBrisk = (side) =>
         briskRows.length) *
       100
     : 0;
-const improvedVsNone = (side) =>
+const _improvedVsNone = (side) =>
   rows.filter((r) => Math.abs(r[side].r) < Math.abs(r.noneRes.r)).length;
 const briskReducedVsNone = (side) =>
   briskRows.filter((r) => r[side].briskMean < r.noneRes.briskMean).length;

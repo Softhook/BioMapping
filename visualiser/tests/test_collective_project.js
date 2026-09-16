@@ -227,7 +227,7 @@ test(
     let saveFileCalled = false;
     let savedName = null;
     global.GSRFileSaver = setSingletonShape(RealGSRFileSaver, {
-      saveFile: async (blob, name) => {
+      saveFile: async (_blob, name) => {
         saveFileCalled = true;
         savedName = name;
         return true;

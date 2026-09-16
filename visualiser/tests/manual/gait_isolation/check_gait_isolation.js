@@ -365,7 +365,7 @@ const useBoxzen = (sizeSec, prefilterHz) => () => {
 // via the synthetic non-gait scenarios in check_filter_alternatives.js) - so
 // mop up that residual noise with a short box pass after it, short enough
 // that it costs little of the amplitude fidelity Butterworth just bought.
-const useButterworthPlusBox = (cutoffHz, order, boxSec) => () => {
+const _useButterworthPlusBox = (cutoffHz, order, boxSec) => () => {
   GsrFilter.applyZeroPhaseMovingAverage = (arr) => {
     const afterButter = originalButterworth(
       arr,

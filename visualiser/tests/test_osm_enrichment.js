@@ -15,7 +15,7 @@
 // browser, so we load them via vm.runInThisContext and rewrite their
 // top-level `const Name = ...` into `global.Name = ...`.
 
-const vm = require('node:vm');
+const _vm = require('node:vm');
 
 const { loadModule } = require('./support/load_module.js');
 

@@ -452,7 +452,7 @@ const check = () => {
       console.log(
         `4 applyPreKalmanFilters: ${pts.length} (dropped ${pts2.length - pts.length})`,
       );
-      const pts3 = pts;
+      const _pts3 = pts;
       if (anal.snappedGps) {
         pts = window.GpsPipeline.applySnapCorrection(pts, anal.snappedGps);
         console.log(`5 applySnapCorrection: ${pts.length}`);

@@ -660,7 +660,7 @@ export class RFFluidRenderer {
   redraw() {
     if (!this.ctx || !this.canvas || !this.options.visible || !this.map) return;
 
-    const size = this.map.getSize();
+    const _size = this.map.getSize();
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
     if (!this.cachedNodes || this.cachedNodes.length === 0) return;

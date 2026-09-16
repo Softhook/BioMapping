@@ -22,7 +22,7 @@ global.GSR_CONST = require('./mock_constants.js');
 // `global.Name =` makes the modules' internal references (e.g. GeoUtils.EARTH_RADIUS_M)
 // resolve through the global object chain, and the test file accesses them
 // via the same `global.Name` references.
-const vm = require('node:vm');
+const _vm = require('node:vm');
 
 const { loadModule } = require('./support/load_module.js');
 
@@ -199,7 +199,7 @@ console.log('\n── stats_math.js ──');
 {
   const x = [1, 2, 3, 4, 5];
   const y = [10, 8, 6, 4, 2];
-  const { r, p } = StatsMath.calculatePearsonCorrelation(x, y);
+  const { r } = StatsMath.calculatePearsonCorrelation(x, y);
   assertClose(r, -1.0, 1e-10, 'Pearson perfect negative → r=-1');
 }
 
@@ -223,7 +223,7 @@ console.log('\n── stats_math.js ──');
 
 // 2e. calculatePearsonCorrelation — single element
 {
-  const { r, p } = StatsMath.calculatePearsonCorrelation([5], [5]);
+  const { r } = StatsMath.calculatePearsonCorrelation([5], [5]);
   assertEq(r, 0, 'Pearson single → r=0 (den=0)');
 }
 
@@ -241,7 +241,7 @@ console.log('\n── stats_math.js ──');
 {
   const x = [1, 2, 3];
   const y = [5, 5, 5];
-  const { m, c, r2 } = StatsMath.calculateLinearRegression(x, y);
+  const { m, c } = StatsMath.calculateLinearRegression(x, y);
   assertClose(m, 0, 1e-10, 'LinReg flat → m=0');
   assertClose(c, 5, 1e-10, 'LinReg flat → c=5');
 }
@@ -361,7 +361,7 @@ console.log('\n── map_colors.js ──');
 
 // 3m. getColorLut — different params produce different cache keys
 {
-  const lut3 = MapColors.getColorLut('gsr', 0, 200);
+  const _lut3 = MapColors.getColorLut('gsr', 0, 200);
   assertEq(
     MapColors._colorLutCache.size,
     2,
@@ -475,7 +475,7 @@ console.log('\n── gps_filter.js ──');
 
 // 4i. applyKalman — extreme smoothing flattens noise
 {
-  const pts = [
+  const _pts = [
     { lat: 0, lon: 0, time: 0, hdop: 1 },
     { lat: 0.001, lon: 0, time: 1, hdop: 1 },
     { lat: 0.0, lon: 0, time: 2, hdop: 1 }, // noise spike

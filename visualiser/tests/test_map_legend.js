@@ -137,10 +137,10 @@ test('GSRUI.drawRegressionScatterPlot: data source resolution matches viewMode',
 
   // Stub drawRegressionScatter to verify the parameters it was called with
   let lastX = null,
-    lastY = null;
-  window.GSRUI.drawRegressionScatter = (canvas, xVals, yVals) => {
+    _lastY = null;
+  window.GSRUI.drawRegressionScatter = (_canvas, xVals, yVals) => {
     lastX = xVals;
-    lastY = yVals;
+    _lastY = yVals;
   };
 
   // Mock cached stats on single track and collective manager

@@ -33,14 +33,14 @@ const { bootLive } = require('./support/boot_live.js');
 // header comment for the full rationale), so a not-yet-converted file's
 // bindings are just bare identifiers in that shared realm — plain
 // vm.runInThisContext(expr) reaches them with no context object needed.
-function run(context, expr) {
+function run(_context, expr) {
   return vm.runInThisContext(expr);
 }
 
 // Same-realm now (see run() above), so no cross-realm prototype mismatch —
 // this JSON round-trip is kept only because callers still expect a plain,
 // assert.deepStrictEqual-friendly value back.
-function runJSON(context, expr) {
+function runJSON(_context, expr) {
   return JSON.parse(JSON.stringify(vm.runInThisContext(expr)));
 }
 
@@ -109,7 +109,7 @@ function buildPacket({
 let fakeDeviceCounter = 0;
 let cachedBytesToDataView;
 function makeFakeBle(
-  context,
+  _context,
   {
     failRequestDevice = false,
     missingService = false,
@@ -279,7 +279,7 @@ function makeFakeBle(
 // IS that wrapper, so delegating to it on every recorded call keeps this
 // test's own fired timers covered by the cross-boot leak sweep same as
 // everything else — only the requested delay is intercepted.
-function recordingTimers(window) {
+function recordingTimers(_window) {
   const delays = [];
   const real = global.setTimeout;
   global.setTimeout = (fn, ms) => {
@@ -342,7 +342,7 @@ test('addPacket: an exactly-equal timestamp (duplicate delivery) is also treated
 // ==========================================================================
 
 test('resetSession: clears accumulated packets/gaps/position/color-range state', async () => {
-  const { window, context } = await bootLive();
+  const { context } = await bootLive();
   run(context, 'LiveState.addPacket({ timestamp: 0.0, gsrRaw: 10 })');
   run(context, 'LiveState.addPacket({ timestamp: 5.0, gsrRaw: 20 })'); // creates a gap
   run(context, 'liveLastLatLng = [51.5, -0.12]');
@@ -1622,7 +1622,7 @@ async function settle(pred, tries = 200) {
 // requestAnimationFrame loop (jsdom's rAF is a non-unref'd timer) — a failing
 // assertion that skips the explicit reset would hang `npm test`. t.after()
 // runs regardless, so the loop always stops.
-function stopLoopAfter(t, context) {
+function stopLoopAfter(t, _context) {
   t.after(() => {
     try {
       vm.runInThisContext("LiveState.setStatus('disconnected')");
@@ -1989,7 +1989,7 @@ test('_subscribe: a hung gatt.connect() times out instead of blocking the caller
   let threw = false;
   try {
     await run(context, 'bleManager._subscribe()');
-  } catch (e) {
+  } catch (_e) {
     threw = true;
   }
   timers.restore();
@@ -2037,7 +2037,7 @@ test('_subscribe: a hung getPrimaryService() (connect succeeds, discovery never 
   let threw = false;
   try {
     await run(context, 'bleManager._subscribe()');
-  } catch (e) {
+  } catch (_e) {
     threw = true;
   }
   timers.restore();
@@ -3716,7 +3716,7 @@ test('the live view binds no fullscreen control — no #toggleFullscreenBtn, and
 // ==========================================================================
 
 test('pendingSegments is capped even when drawGraph() never runs to drain it', async () => {
-  const { window, context } = await bootLive();
+  const { context } = await bootLive();
   // 'signal' (the default) never queues anything at all — switch to a
   // metric that does, so there's a queue to cap in the first place.
   run(context, "liveGsrView.graphView = 'phasic';");

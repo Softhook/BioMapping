@@ -297,7 +297,7 @@ export const GSRGlobe3DRf = {
             id: `rf-slug-${k}`,
           }),
         );
-      } catch (err) {
+      } catch (_err) {
         // Skip a geometry error cleanly.
       }
     }

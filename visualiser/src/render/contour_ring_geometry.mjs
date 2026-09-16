@@ -477,7 +477,9 @@ export class ContourRingGeometry {
       const isMaskLoop = loopIdx !== 0;
 
       const endpointIndex = new Map();
-      sorted.forEach((e, i) => endpointIndex.set(`${e.pathIdx}:${e.which}`, i));
+      sorted.forEach((e, i) => {
+        endpointIndex.set(`${e.pathIdx}:${e.which}`, i);
+      });
 
       const T_EPS = 1e-7;
       const sampleLoopVal = (tRaw) => {

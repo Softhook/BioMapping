@@ -432,7 +432,7 @@ export class GSRMapExporter {
   // ═══════════════════════════════════════════════════════════════════
 
   static async _gather(ctx) {
-    const { map, el, r, mgr } = ctx;
+    const { el, r, mgr } = ctx;
     // Phase 1 (slice 3): per-track render layers are derived from the track
     // layerGroups via getRenderLayers(); only the aggregate layers (OSM shapes,
     // contours, clusters) are still read off the manager directly.

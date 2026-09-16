@@ -673,7 +673,7 @@ test('GSRUI.sampleNdviTrack: successfully resolves single-mode track without fal
     require('../src/ui/ui_environmental_dashboard.mjs').__methods,
   );
   global.document = {
-    getElementById: (id) => ({
+    getElementById: (_id) => ({
       style: {},
       setAttribute: () => {},
       removeAttribute: () => {},
@@ -721,7 +721,7 @@ test('GSRUI.sampleNdviTrack: successfully resolves single-mode track without fal
       _dataVersion: 1,
       peaks: [],
       getCoordinates: (i) => ({ lat: rawPoints[i].lat, lon: rawPoints[i].lon }),
-      findClosestIndex: (t) => 0,
+      findClosestIndex: (_t) => 0,
     },
   });
 
@@ -1202,7 +1202,7 @@ test('sampleTracks: handles dispersed walks and isolates failures cleanly', asyn
       get isEnriched() {
         return false;
       },
-      set isEnriched(v) {
+      set isEnriched(_v) {
         throw new Error('Storage write lock failure');
       },
     },

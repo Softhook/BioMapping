@@ -32,7 +32,7 @@ export const GSRGlobe3DBuildings = {
           tags['building:colour'] || tags['building:color'],
         );
         if (c) return c;
-      } catch (e) {
+      } catch (_e) {
         /* ignore invalid CSS color */
       }
     }
@@ -75,7 +75,7 @@ export const GSRGlobe3DBuildings = {
           tags['roof:colour'] || tags['roof:color'],
         );
         if (c) return c;
-      } catch (e) {
+      } catch (_e) {
         /* ignore invalid CSS color */
       }
     }
@@ -142,6 +142,9 @@ export const GSRGlobe3DBuildings = {
       case 'glass':
         return "color('rgba(52, 100, 138, 0.45)')";
       default:
+        // Cesium3DTileStyle expression syntax — ${building}/${height} are evaluated
+        // by Cesium's style engine against tile feature properties, not JS interpolation.
+        // biome-ignore lint/suspicious/noTemplateCurlyInString: see comment above
         return "Boolean(${building} === 'residential' || ${building} === 'house' || ${building} === 'apartments') ? color('#b56958') : Boolean(${building} === 'commercial' || ${building} === 'office' || ${building} === 'retail') ? color('#8d9ba8') : Boolean(${height} > 25) ? color('#b0bac6') : color('#ded7cb')";
     }
   },
@@ -239,7 +242,7 @@ export const GSRGlobe3DBuildings = {
               id: `osm-building-${i}`,
             }),
           );
-        } catch (err) {
+        } catch (_err) {
           // Skip an invalid / degenerate polygon cleanly.
         }
       }
@@ -304,7 +307,7 @@ export const GSRGlobe3DBuildings = {
             id: `osm-building-body-${i}`,
           }),
         );
-      } catch (err) {
+      } catch (_err) {
         // Skip body if geometry fails
       }
 
@@ -325,7 +328,7 @@ export const GSRGlobe3DBuildings = {
             id: `osm-building-roof-${i}`,
           }),
         );
-      } catch (err) {
+      } catch (_err) {
         // Skip roof if geometry fails
       }
 
@@ -348,7 +351,7 @@ export const GSRGlobe3DBuildings = {
             }),
           );
         }
-      } catch (err) {
+      } catch (_err) {
         // Skip outline if geometry fails
       }
     }

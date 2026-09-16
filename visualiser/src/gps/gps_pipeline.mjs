@@ -66,9 +66,9 @@ export const GpsPipeline = {
   reconstructFilteredGps(analyzer, data, gpsPoints) {
     const filteredGps = new Array(data.length);
     const filteredMap = new Map();
-    gpsPoints.forEach((p) =>
-      filteredMap.set(p.origIdx, { lat: p.lat, lon: p.lon }),
-    );
+    gpsPoints.forEach((p) => {
+      filteredMap.set(p.origIdx, { lat: p.lat, lon: p.lon });
+    });
 
     const validIndices = gpsPoints.map((p) => p.origIdx).sort((a, b) => a - b);
     if (validIndices.length === 0) {

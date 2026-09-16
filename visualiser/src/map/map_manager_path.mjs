@@ -84,7 +84,7 @@ export const __methods = {
       if (!(mPerPx > 0)) return 0;
       const cap = OV.maxRadiusM > 0 ? OV.maxRadiusM : 60;
       return Math.min(w * mPerPx * factor, cap);
-    } catch (e) {
+    } catch (_e) {
       return 0;
     }
   },
@@ -148,7 +148,7 @@ export const __methods = {
           ? GSRStorage.buildGpsParams()
           : {};
       this.refreshPath(AppState.analyzer, params);
-    } catch (e) {
+    } catch (_e) {
       /* a zoom must never break — worst case the overlap colour lags a step */
     }
   },

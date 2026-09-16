@@ -234,8 +234,7 @@ test('the live UI stays mounted once built — Live -> Collective -> Live does n
 });
 
 test('the live view keyboard shortcuts only fire while Live is the active view', async () => {
-  const { window, document, btnSingle, btnLive, livePanel, click } =
-    await boot();
+  const { window, btnSingle, btnLive, livePanel, click } = await boot();
   const key = (k) =>
     window.dispatchEvent(
       new window.KeyboardEvent('keydown', { key: k, bubbles: true }),
@@ -442,7 +441,7 @@ test('header status badge exists and updates with connection status in live mode
 });
 
 test('clicking #btnFullscreen in live mode toggles live-display-mode edge-to-edge', async () => {
-  const { window, document, btnLive, click } = await boot();
+  const { document, btnLive, click } = await boot();
   const appContainer = document.querySelector('.app-container');
   appContainer.requestFullscreen = () => Promise.resolve();
   document.exitFullscreen = () => Promise.resolve();
@@ -469,7 +468,7 @@ test('clicking #btnFullscreen in live mode toggles live-display-mode edge-to-edg
 });
 
 test('in live-display-mode, FAB menu offers Exit Full Screen chip and toolbar offers Exit button', async () => {
-  const { window, document, btnLive, click } = await boot();
+  const { document, btnLive, click } = await boot();
   const appContainer = document.querySelector('.app-container');
   appContainer.requestFullscreen = () => Promise.resolve();
   document.exitFullscreen = () => Promise.resolve();
@@ -542,10 +541,10 @@ test('GSRLiveView.deactivate(false) fully disconnects BLE and sets status to dis
   click(btnLive);
   window.LiveState.setStatus('connected');
 
-  let disconnectCalled = false;
+  let _disconnectCalled = false;
   const mockBleManager = {
     disconnect: () => {
-      disconnectCalled = true;
+      _disconnectCalled = true;
     },
     device: { id: 'mock-123' },
   };

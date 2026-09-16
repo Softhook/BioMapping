@@ -73,7 +73,9 @@ export const __methods = {
       this.viewer.scene.primitives.remove(this.wallPrimitive);
       this.wallPrimitive = null;
     }
-    this.trackEntities.forEach((ent) => this.viewer.entities.remove(ent));
+    this.trackEntities.forEach((ent) => {
+      this.viewer.entities.remove(ent);
+    });
     this.trackEntities = [];
   },
 
@@ -128,7 +130,9 @@ export const __methods = {
   /** Clear the spatial-cluster ground-blob entities. */
   clearClusterEntities() {
     if (!this.viewer) return;
-    this.clusterEntities.forEach((ent) => this.viewer.entities.remove(ent));
+    this.clusterEntities.forEach((ent) => {
+      this.viewer.entities.remove(ent);
+    });
     this.clusterEntities = [];
   },
 

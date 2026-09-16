@@ -577,7 +577,7 @@ export const NDVISampler = {
     const bitsPerSample = Array.isArray(tags[258]) ? tags[258][0] : tags[258];
     const compression = tags[259] || 1;
     const samplesPerPixel = tags[277] || 1;
-    const rowsPerStrip = tags[278] || height;
+    const _rowsPerStrip = tags[278] || height;
     const stripOffsets = Array.isArray(tags[273]) ? tags[273] : [tags[273]];
     const stripByteCounts = Array.isArray(tags[279]) ? tags[279] : [tags[279]];
     const sampleFormat = tags[339]
@@ -838,7 +838,7 @@ export const NDVISampler = {
         const json = JSON.parse(text);
         const msg = json?.error?.message || json?.message;
         if (msg) return String(msg).slice(0, 300);
-      } catch (jsonErr) {
+      } catch (_jsonErr) {
         // Not JSON — fall through to XML/plain-text handling below.
       }
       const xmlMatch = text.match(
@@ -846,7 +846,7 @@ export const NDVISampler = {
       );
       if (xmlMatch) return xmlMatch[1].trim().slice(0, 300);
       return text.trim().slice(0, 300);
-    } catch (readErr) {
+    } catch (_readErr) {
       return '';
     }
   },
@@ -913,7 +913,7 @@ export const NDVISampler = {
           signal,
           providerId,
           maxRetries,
-          onRetry: (attempt, waitMs, reason) => {
+          onRetry: (attempt, _waitMs, reason) => {
             onTileProgress(
               completed,
               total,

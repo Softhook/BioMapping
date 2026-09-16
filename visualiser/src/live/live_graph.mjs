@@ -82,7 +82,7 @@ export function graphThemeColor(name, fallback) {
       .getPropertyValue(name)
       .trim();
     return v || fallback;
-  } catch (e) {
+  } catch (_e) {
     return fallback;
   }
 }

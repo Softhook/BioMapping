@@ -369,7 +369,7 @@ function benchRfSpatialIndex() {
         get(target, prop) {
           if (prop in target) return target[prop];
           if (prop === 'canvas') return { width: 400, height: 300 };
-          return (...args) =>
+          return (..._args) =>
             String(prop).startsWith('create')
               ? new Proxy({}, { get: () => () => {} })
               : undefined;
@@ -595,7 +595,7 @@ function benchCollectiveTrackPeakRefresh() {
     '   (map.js, Phase 6 step 2 collective piece; fixture: 4 real same-city tracks)\n',
   );
 
-  const { window, mapManager, context } = bootWithRecordingL();
+  const { window, mapManager } = bootWithRecordingL();
   window.AppState.viewMode = 'collective';
   const tracks = COLLECTIVE_FIXTURE_FILES.map((f, idx) =>
     loadRealTrack(window, `bench-${idx}`, f),

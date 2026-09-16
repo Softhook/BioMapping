@@ -32,7 +32,7 @@ function fakeCanvasContext() {
       get(target, prop) {
         if (prop in target) return target[prop];
         if (prop === 'canvas') return { width: 400, height: 300 };
-        return (...args) => {
+        return (..._args) => {
           if (String(prop).startsWith('create'))
             return new Proxy({}, { get: () => () => {} });
           return undefined;

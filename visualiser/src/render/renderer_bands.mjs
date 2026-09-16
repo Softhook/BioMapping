@@ -285,7 +285,7 @@ export const __methods = {
   _drawContinuousBand(segments, tMin, tMax, yTop, yBottom) {
     const bandHeight = yBottom - yTop;
     noStroke();
-    this._drawBandSegments(segments, tMin, tMax, (seg, x1, x2, w) => {
+    this._drawBandSegments(segments, tMin, tMax, (seg, x1, _x2, w) => {
       fill(
         MapColors.hexToRgba(
           MapColors.hslStringToHex(seg.cls.hsl),

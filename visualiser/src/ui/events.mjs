@@ -598,9 +598,9 @@ export const GSREvents = {
     const S = AppState.sliders;
 
     // ── GSR slider bindings ──────────────────────────────────────────────────
-    GSR_SLIDER_DEFS.forEach((d) =>
-      GSREvents.bindGsrSlider(d.id, d.labelId, d.suffix),
-    );
+    GSR_SLIDER_DEFS.forEach((d) => {
+      GSREvents.bindGsrSlider(d.id, d.labelId, d.suffix);
+    });
 
     S.tonicMethod.addEventListener('change', () => {
       GSREvents.updateTonicMethodLayout(false);
@@ -783,9 +783,9 @@ export const GSREvents = {
    */
   _bindGpsControls() {
     // ── GPS slider bindings ──────────────────────────────────────────────────
-    GPS_SLIDER_DEFS.filter((d) => d.bindGps).forEach((d) =>
-      GSREvents.bindGpsSlider(d.id, d.labelId, d.fmt),
-    );
+    GPS_SLIDER_DEFS.filter((d) => d.bindGps).forEach((d) => {
+      GSREvents.bindGpsSlider(d.id, d.labelId, d.fmt);
+    });
 
     // ── Arousal Places slider binding ───────────────────────────────────────
     // Scoped refresh (Arousal Places layer only), not a full rerenderMap().
@@ -1351,7 +1351,9 @@ export const GSREvents = {
       btn.addEventListener('click', () => {
         document
           .querySelectorAll('#envTabSwitcher .view-tab')
-          .forEach((b) => b.classList.remove('active'));
+          .forEach((b) => {
+            b.classList.remove('active');
+          });
         document.querySelectorAll('.env-tab-content').forEach((p) => {
           p.style.display = 'none';
           p.classList.remove('active');
@@ -1443,7 +1445,9 @@ export const GSREvents = {
       }
       appMainLayout.classList.remove('collective-mode');
       contourSettingsCard.style.display = 'none';
-      collectiveOnlyMapBtns.forEach((btn) => (btn.style.display = 'none'));
+      collectiveOnlyMapBtns.forEach((btn) => {
+        btn.style.display = 'none';
+      });
       setHeaderMetricControl('single');
 
       const peakCard = document.getElementById('peakDetectionCard');
@@ -1496,7 +1500,9 @@ export const GSREvents = {
 
       appMainLayout.classList.add('collective-mode');
       contourSettingsCard.style.display = '';
-      collectiveOnlyMapBtns.forEach((btn) => (btn.style.display = ''));
+      collectiveOnlyMapBtns.forEach((btn) => {
+        btn.style.display = '';
+      });
       setHeaderMetricControl('collective');
 
       const peakCard = document.getElementById('peakDetectionCard');
@@ -1559,7 +1565,9 @@ export const GSREvents = {
         const appContainer = document.querySelector('.app-container');
         if (appContainer) appContainer.classList.add('live-mode');
         contourSettingsCard.style.display = 'none';
-        collectiveOnlyMapBtns.forEach((btn) => (btn.style.display = 'none'));
+        collectiveOnlyMapBtns.forEach((btn) => {
+          btn.style.display = 'none';
+        });
 
         // Live mode hides the sidebar entirely, so close the mobile drawer and
         // hide its hamburger — there is nothing behind it to open.
@@ -1672,13 +1680,15 @@ export const GSREvents = {
       const toGlobe = target === 'globe';
 
       AppState.surfaceView = target;
-      tabs.forEach((t) =>
-        t.classList.toggle('active', t.dataset.surface === target),
-      );
+      tabs.forEach((t) => {
+        t.classList.toggle('active', t.dataset.surface === target);
+      });
       show(mapEl, !toGlobe);
       show(globeEl, toGlobe);
       show(settings3d, toGlobe);
-      cameraBtns.forEach((btn) => show(btn, toGlobe));
+      cameraBtns.forEach((btn) => {
+        show(btn, toGlobe);
+      });
 
       // The Map Display card ships collapsed; switching to the globe reveals the
       // 3D-only settings inside it, so expand it once so they aren't stranded
@@ -1715,9 +1725,9 @@ export const GSREvents = {
     };
 
     GSREvents.setSurface = setSurface;
-    tabs.forEach((t) =>
-      t.addEventListener('click', () => setSurface(t.dataset.surface)),
-    );
+    tabs.forEach((t) => {
+      t.addEventListener('click', () => setSurface(t.dataset.surface));
+    });
   },
 
   /**
@@ -1794,7 +1804,9 @@ export const GSREvents = {
       });
     };
 
-    CONTOUR_SLIDER_DEFS.forEach((d) => bindCi(d.id, d.labelId, d.fmt));
+    CONTOUR_SLIDER_DEFS.forEach((d) => {
+      bindCi(d.id, d.labelId, d.fmt);
+    });
 
     const topoSource = document.getElementById('topoSource');
     topoSource.addEventListener('change', () => {
@@ -1880,6 +1892,8 @@ export const GSREvents = {
     // Sync dim state for all sliders across all control cards
     document
       .querySelectorAll('input[type="range"]')
-      .forEach((slider) => GSREvents.updateFilterDim(slider));
+      .forEach((slider) => {
+        GSREvents.updateFilterDim(slider);
+      });
   },
 };

@@ -67,7 +67,6 @@ loadModule(
 );
 
 const { GSRAnalyzer } = require('../../src/signal/analyzer.mjs');
-const { GSRCSVParser } = require('../../src/signal/csv_parser.mjs');
 
 function median(nums) {
   const s = [...nums].sort((a, b) => a - b);

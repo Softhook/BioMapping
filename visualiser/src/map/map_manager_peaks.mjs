@@ -27,7 +27,7 @@ import { GSRMapMarkers } from './map_markers.mjs';
 import { MapPopups } from './map_popups.mjs';
 
 export const __protoMethods = {
-  _renderPeakMarkers(analyzer, data, peakLatency, track, options) {
+  _renderPeakMarkers(analyzer, _data, peakLatency, track, options) {
     options = options || {};
     const layerGroup = track ? track.layerGroup : null;
     const map = this.map;
@@ -302,7 +302,7 @@ export const __protoMethods = {
     if (!events || events.length === 0) return;
 
     events.forEach((peak) => {
-      const marker = this._createHotspotMarker(
+      const _marker = this._createHotspotMarker(
         analyzer,
         peak,
         peakLatency,
@@ -331,7 +331,7 @@ export const __protoMethods = {
     if (!events || events.length === 0) return;
 
     events.forEach((peak) => {
-      const marker = this._createHotspotMarker(
+      const _marker = this._createHotspotMarker(
         analyzer,
         peak,
         peakLatency,

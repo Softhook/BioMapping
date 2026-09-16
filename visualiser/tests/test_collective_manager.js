@@ -359,7 +359,7 @@ test('generateContourSurface: a narrow isolationRadius masks (nulls) grid cells 
 });
 
 test('generateContourSurface: peaks marked excluded are omitted from the "peaks" topography source', () => {
-  const mgr = new GSRCollectiveManager();
+  const _mgr = new GSRCollectiveManager();
   const sharedPoints = [
     { lat: 51.5, lon: -0.1 },
     { lat: 51.5005, lon: -0.1005 },

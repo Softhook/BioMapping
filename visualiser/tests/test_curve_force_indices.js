@@ -37,7 +37,7 @@ test('two-pointer merge in _buildCurveContext matches legacy Set+sort across ran
   for (let trial = 0; trial < 1000; trial++) {
     const startIdx = Math.floor(Math.random() * 500);
     const endIdx = startIdx + Math.floor(Math.random() * 3000) + 10;
-    const step = Math.floor(Math.random() * 15) + 2; // step >= 2
+    const _step = Math.floor(Math.random() * 15) + 2; // step >= 2
     const numForced = Math.floor(Math.random() * 40);
     const forceIndices = [];
     for (let k = 0; k < numForced; k++) {

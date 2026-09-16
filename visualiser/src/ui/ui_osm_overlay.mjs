@@ -250,7 +250,9 @@ export const __methods = {
     if (isEnriched) {
       document
         .querySelectorAll('.osm-option')
-        .forEach((opt) => opt.removeAttribute('disabled'));
+        .forEach((opt) => {
+          opt.removeAttribute('disabled');
+        });
       envPanel.style.display = 'block';
 
       const firstEnriched = enriched.find((a) => a.enrichmentRadius);
@@ -264,7 +266,9 @@ export const __methods = {
     } else {
       document
         .querySelectorAll('.osm-option')
-        .forEach((opt) => opt.setAttribute('disabled', 'true'));
+        .forEach((opt) => {
+          opt.setAttribute('disabled', 'true');
+        });
       // Only fall back to GSR if the current metric is an OSM-only one that just
       // became unavailable — don't clobber a plain choice like Phasic.
       const cur = select?.selectedOptions?.[0];

@@ -170,7 +170,7 @@ test('calcEmFog: two bands (norm=0 and norm=1) → RMS = 70.71', () => {
 //  2. GSRCSVParser._interpolateGPS
 // ══════════════════════════════════════════════════════════════════════════════
 
-function makeAnalyzer() {
+function _makeAnalyzer() {
   return new GSRAnalyzer();
 }
 
@@ -702,7 +702,7 @@ test('GSRAnalyzer peak detection helpers work correctly', () => {
   const analyzer = new GSRAnalyzer();
   analyzer.sampleRate = 10;
   // Mock filtered signal for noise floor check
-  analyzer.filtered = Array.from({ length: 20 }, (_, i) => ({ val: 0.1 }));
+  analyzer.filtered = Array.from({ length: 20 }, (_, _i) => ({ val: 0.1 }));
 
   const vals = [0.1, 0.1, 0.2, 0.5, 0.8, 0.4, 0.2, 0.1, 0.1];
   const times = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8];

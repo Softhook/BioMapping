@@ -1,11 +1,11 @@
 // Temporary probe: reproduce "RF fluid visible in collective mode even when the
 // RF Fluid button is not pressed." Traces the sync between the button's
 // 'active' class, GSRMapManager.showRFFluid, and the RFFluidRenderer visibility.
-const path = require('node:path');
-const vm = require('node:vm');
+const _path = require('node:path');
+const _vm = require('node:vm');
 const { bootApp } = require('../support/boot_app.js');
 
-const { window, context } = bootApp();
+const { window } = bootApp();
 // Keep RFFluidRenderer REAL so we can observe its options.visible; stub only the
 // spatial clustering aggregate. Canvas needs a 2d context + map stub.
 window.HTMLCanvasElement.prototype.getContext = () => ({

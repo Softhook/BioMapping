@@ -328,7 +328,7 @@ const check = () => {
     console.log(
       `\n== ${n} real tracks loaded in ${Date.now() - start}ms; load errors: ${errors.length} ==`,
     );
-    const mm = window.AppState.mapManager;
+    const _mm = window.AppState.mapManager;
 
     console.log('\n-- single-track mode: per-track on-map layer counts --');
     window.AppState.viewMode = 'single';

@@ -149,7 +149,7 @@ export class GSRArousalPlaces {
    * Score a candidate cluster by dwell time, rectified phasic energy, and nearest OSM context.
    * @private
    */
-  static _scorePlace({ cluster, members, trackIds }, trackById, config) {
+  static _scorePlace({ members, trackIds }, trackById, config) {
     const n = members.length || 1;
     const { footprintRadiusM, footSq, dwellFloorS, provMaxTracks } = config;
 

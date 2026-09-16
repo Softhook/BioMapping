@@ -37,7 +37,7 @@ global.CVXEDA = require(path.join(SRC, 'cvxeda.js'));
 loadModule(path.join(SRC, 'deconvolution.js'), 'SCRDeconvolution');
 loadModule(path.join(SRC, 'csv_parser.js'), 'GSRCSVParser');
 loadModule(path.join(SRC, 'analyzer.js'), 'GSRAnalyzer');
-const { GSRAnalyzer, GsrFilter } = global;
+const { GSRAnalyzer } = global;
 const D = global.GSR_CONST.GSR_DEFAULT;
 
 const TONIC_METHODS = [

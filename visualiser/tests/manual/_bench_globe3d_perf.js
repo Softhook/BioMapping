@@ -107,7 +107,7 @@ const { bootApp } = require('../support/boot_app.js');
 let realCesium = null;
 try {
   realCesium = require('cesium');
-} catch (e) {
+} catch (_e) {
   console.log(
     '\n  This bench needs CesiumJS as a dev dependency to measure the real',
   );
@@ -503,7 +503,7 @@ function buildPerSegmentInstances(vf) {
           id: `s-${i}`,
         }),
       );
-    } catch (e) {
+    } catch (_e) {
       /* skip degenerate */
     }
   }

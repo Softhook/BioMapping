@@ -97,8 +97,7 @@ export const __methods = {
         phasic: 'Phasic (SCR)',
         tonic: 'Tonic Baseline (SCL)',
         peakDensity: 'Peak Density (NS-SCR)',
-        phasicAUC:
-          'Phasic AUC' + (AppState?.analyzer?.phasicAUCIsISCR ? ' (ISCR)' : ''),
+        phasicAUC: `Phasic AUC${AppState?.analyzer?.phasicAUCIsISCR ? ' (ISCR)' : ''}`,
         arousalIndex: 'Combined Arousal Index',
         triIndex: 'Tri Index',
         edasymp: 'EDASymp',

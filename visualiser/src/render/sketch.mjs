@@ -456,7 +456,7 @@ export function draw() {
       _cachedDriverForce = [];
     }
   }
-  const activePeaks = _cachedActivePeaks;
+  const _activePeaks = _cachedActivePeaks;
   const filteredForceIndices = _cachedFilteredForce;
   const metricForceIndices = _cachedMetricForce;
   const driverForceIndices = _cachedDriverForce;

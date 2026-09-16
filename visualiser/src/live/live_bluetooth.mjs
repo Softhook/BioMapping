@@ -233,7 +233,7 @@ export class GSRLiveBluetoothManager {
       if (isCurrent || device !== this.device) {
         try {
           device.gatt.disconnect();
-        } catch (e2) {
+        } catch (_e2) {
           /* nothing to cancel */
         }
       }
@@ -305,7 +305,7 @@ export class GSRLiveBluetoothManager {
         if (typeof char.stopNotifications === 'function') {
           char.stopNotifications().catch(() => {});
         }
-      } catch (e) {}
+      } catch (_e) {}
     }
     try {
       // Call disconnect() unconditionally rather than gating on gatt.connected
@@ -317,7 +317,7 @@ export class GSRLiveBluetoothManager {
       if (this.device?.gatt) {
         this.device.gatt.disconnect();
       }
-    } catch (e) {
+    } catch (_e) {
       /* link already down — nothing to close */
     }
   }
@@ -372,7 +372,7 @@ export class GSRLiveBluetoothManager {
         this.device
           .watchAdvertisements({ signal: this._retryWaitController.signal })
           .catch(() => {});
-      } catch (e) {
+      } catch (_e) {
         /* ignore synchronous throw if Bluetooth is unpermitted/disabled */
       }
     });
@@ -406,7 +406,7 @@ export class GSRLiveBluetoothManager {
         .catch(() => {
           this._stopBackgroundWatch();
         });
-    } catch (e) {
+    } catch (_e) {
       this._stopBackgroundWatch();
     }
   }
@@ -592,7 +592,7 @@ export class GSRLiveBluetoothManager {
     let known;
     try {
       known = await navigator.bluetooth.getDevices();
-    } catch (e) {
+    } catch (_e) {
       return false;
     }
     const match = known.find((d) => d.id === candidateDevice.id);
@@ -614,7 +614,7 @@ export class GSRLiveBluetoothManager {
       await Promise.race([this._subscribe(), timeout]);
       this._setStatus('connected');
       return true;
-    } catch (e) {
+    } catch (_e) {
       if (this.device) {
         this.device.removeEventListener(
           'gattserverdisconnected',
@@ -627,7 +627,7 @@ export class GSRLiveBluetoothManager {
           ) {
             this.device.gatt.disconnect();
           }
-        } catch (e2) {}
+        } catch (_e2) {}
         this.device = null;
       }
       return false;

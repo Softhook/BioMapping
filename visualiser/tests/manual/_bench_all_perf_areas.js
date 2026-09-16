@@ -35,7 +35,6 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
-const { performance } = require('node:perf_hooks');
 const { bootApp } = require('../support/boot_app.js');
 
 const TRACKS_DIR = path.join(__dirname, '..', '..', '..', 'tracks');

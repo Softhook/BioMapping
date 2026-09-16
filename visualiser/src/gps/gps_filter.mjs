@@ -377,7 +377,7 @@ export const GpsFilter = {
 
     const KNOTS_TO_MS = 0.51444;
     const DEG_TO_RAD = Math.PI / 180;
-    const M_TO_DEG_LAT = 1.0 / GeoUtils.METERS_PER_DEG_LAT;
+    const _M_TO_DEG_LAT = 1.0 / GeoUtils.METERS_PER_DEG_LAT;
 
     // Initialise dead-reckoning heading tracker from the first point's course.
     // Using a local variable avoids both the off-by-one indexing bug
@@ -541,7 +541,9 @@ export const GpsFilter = {
           });
         } else {
           // Cluster too small — keep individual points
-          cluster.forEach((pt) => result.push(pt));
+          cluster.forEach((pt) => {
+            result.push(pt);
+          });
         }
         i = j;
       } else {

@@ -60,7 +60,7 @@ console.log('── Running Hillshade Algorithm Test ──');
   let maxShade = -Infinity,
     minShade = Infinity,
     argmaxAz = null,
-    argminAz = null;
+    _argminAz = null;
   for (let az = 0; az < 360; az += 5) {
     const shade = Hillshade.compute(grid, rows, cols, 1, 1, {
       azimuthDeg: az,
@@ -73,7 +73,7 @@ console.log('── Running Hillshade Algorithm Test ──');
     }
     if (v < minShade) {
       minShade = v;
-      argminAz = az;
+      _argminAz = az;
     }
   }
 
@@ -375,7 +375,7 @@ console.log('── Running Hillshade Algorithm Test ──');
     'Degenerate minVal===maxVal falls back to the neutral 0.5 ratio, not division by zero/NaN',
   );
   assert.strictEqual(
-    Hillshade.valueRatio(30, 10, 50, [42], (v, s) => 0.9),
+    Hillshade.valueRatio(30, 10, 50, [42], (_v, _s) => 0.9),
     0.5,
     'A single-element sortedVals (rank undefined) is treated as "no real distribution" and falls back to linear, ignoring rankFn',
   );

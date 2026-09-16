@@ -308,7 +308,7 @@ test('applyBuildings clears status messages (e.g. "Parsing geographical payload.
   V.manager = {
     show3DBuildings: false,
     cachedOsmJson: null,
-    toggle3DBuildings: (on, style, onStatus) => {
+    toggle3DBuildings: (on, _style, onStatus) => {
       if (on && onStatus) onStatus('Parsing geographical payload...');
       return Promise.resolve();
     },
@@ -384,7 +384,7 @@ test('the OSM/buildings toggle state persists across a 2D↔3D surface switch', 
   const { window } = await bootApp();
   window.setup();
   const doc = window.document;
-  const V = window.GSRGlobe3DView;
+  const _V = window.GSRGlobe3DView;
 
   // track already carries OSM geometry, so the 2D button is available
   window.AppState.analyzer = {
@@ -1190,10 +1190,10 @@ test('3D peak click triggers GSRUI.focusOnPeak with source=map and opens popup',
   window.setup();
   const V = window.GSRGlobe3DView;
 
-  let registeredClickCb = null;
+  let _registeredClickCb = null;
   V.manager = {
     onPeakClick: (cb) => {
-      registeredClickCb = cb;
+      _registeredClickCb = cb;
     },
     onScrubHover: () => {},
     onTourStep: () => {},

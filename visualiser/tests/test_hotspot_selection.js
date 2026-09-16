@@ -40,7 +40,11 @@ const MIN_SEP = global.GSR_CONST.MEMORABLE_EVENTS.MIN_SEPARATION_M; // 30 m
 let passed = 0,
   failed = 0;
 const assert = (c, m) => {
-  c ? passed++ : (failed++, console.error('  FAIL:', m));
+  if (c) passed++;
+  else {
+    failed++;
+    console.error('  FAIL:', m);
+  }
 };
 
 // Build an analyzer with a hand-placed peak list. `spec` entries:

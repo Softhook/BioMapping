@@ -25,7 +25,10 @@ export const __methods = {
    */
   _clearLayerGroup(arr) {
     if (!this.map) return;
-    if (arr) arr.forEach((item) => this.map.removeLayer(item));
+    if (arr)
+      arr.forEach((item) => {
+        this.map.removeLayer(item);
+      });
     return [];
   },
 

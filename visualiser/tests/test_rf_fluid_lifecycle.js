@@ -65,7 +65,7 @@ function makeFakeMap(overrides = {}) {
           getSouthEast: () => ({ lat: 51.5, lon: -0.1 }),
         }),
       }),
-      latLngToLayerPoint: (ll) => ({ x: 100, y: 100 }),
+      latLngToLayerPoint: (_ll) => ({ x: 100, y: 100 }),
       getZoomScale: () => 1,
       getZoom: () => 15,
       getSize: () => ({ x: 800, y: 600 }),
@@ -92,7 +92,7 @@ function fakeCanvasContext() {
       get(target, prop) {
         if (prop in target) return target[prop];
         if (prop === 'canvas') return { width: 400, height: 300 };
-        return (...args) => {
+        return (..._args) => {
           // Methods that create sub-objects (gradients, patterns) need to
           // return something with an addColorStop-shaped API of their own.
           if (String(prop).startsWith('create')) {
@@ -167,7 +167,7 @@ test('resizeCanvas: sizes the canvas to the padded viewport in device pixels', (
   global.L.DomUtil.create = () => canvasEl;
   global.window.devicePixelRatio = 2;
 
-  const renderer = new RFFluidRenderer(map);
+  const _renderer = new RFFluidRenderer(map);
   assert.strictEqual(
     canvasEl.width,
     400,
@@ -202,7 +202,7 @@ test('_bindEvents: wires zoomanim and moveend/zoomend/resize/viewreset handlers 
     getContext: () => fakeCanvasContext(),
   });
 
-  const renderer = new RFFluidRenderer(map);
+  const _renderer = new RFFluidRenderer(map);
   assert.ok(typeof listeners.zoomanim === 'function');
   assert.ok(
     typeof listeners['moveend zoomend resize viewreset'] === 'function',

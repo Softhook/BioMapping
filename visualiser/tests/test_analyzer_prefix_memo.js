@@ -25,7 +25,6 @@ loadModule(
 );
 
 const { GSRAnalyzer } = require('../src/signal/analyzer.mjs');
-const { GSRCSVParser } = require('../src/signal/csv_parser.mjs');
 
 const FIX_CSV = fs.readFileSync(
   path.join(__dirname, '..', 'fixtures', 'default_processed.csv'),
