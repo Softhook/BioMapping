@@ -712,6 +712,64 @@ test('_onScrub: inactive surface ignores scrubs; identical non-graph coords dedu
   assert.strictEqual(V.manager.calls.filter((c) => c[0] === 'set').length, 1);
 });
 
+test('_tweenGraphToTourStep animates the GSR graph view window onto a hotspot waypoint over the flight duration', async () => {
+  const { window } = await bootApp();
+  window.setup();
+  const V = window.GSRGlobe3DView;
+  const AppState = window.AppState;
+
+  AppState.viewStartTime = 0;
+  AppState.viewDuration = 100;
+
+  const wp = { graphWinStart: 40, graphWinDuration: 12 };
+  V._tweenGraphToTourStep(wp, 0.25); // 250ms flight
+  assert.ok(V._graphTweenHandle != null, 'tween scheduled a frame');
+
+  await new Promise((resolve) => setTimeout(resolve, 500));
+
+  assert.ok(
+    Math.abs(AppState.viewStartTime - 40) < 0.5,
+    `view panned onto the hotspot window (got ${AppState.viewStartTime})`,
+  );
+  assert.ok(
+    Math.abs(AppState.viewDuration - 12) < 0.5,
+    `view zoomed onto the hotspot window (got ${AppState.viewDuration})`,
+  );
+  assert.strictEqual(
+    V._graphTweenHandle,
+    null,
+    'tween cleared its handle on completion',
+  );
+});
+
+test('_cancelGraphTween stops an in-flight pan before it reaches the target', async () => {
+  const { window } = await bootApp();
+  window.setup();
+  const V = window.GSRGlobe3DView;
+  const AppState = window.AppState;
+
+  AppState.viewStartTime = 0;
+  AppState.viewDuration = 100;
+
+  V._tweenGraphToTourStep({ graphWinStart: 40, graphWinDuration: 12 }, 5); // slow 5s flight
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  V._cancelGraphTween();
+  const frozenStart = AppState.viewStartTime;
+  assert.strictEqual(V._graphTweenHandle, null);
+  assert.notStrictEqual(
+    frozenStart,
+    40,
+    'cancelled well before reaching the target',
+  );
+
+  await new Promise((resolve) => setTimeout(resolve, 120));
+  assert.strictEqual(
+    AppState.viewStartTime,
+    frozenStart,
+    'view window stayed put after cancel',
+  );
+});
+
 test('_onScrubHover: takes cursor ownership, sets hoveredIndex, emits on the shared channel', async () => {
   const { window } = await bootApp();
   window.setup();

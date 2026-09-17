@@ -158,18 +158,99 @@ export const GSRGlobe3DView = {
     mgr._requestRender();
   },
 
+  // ── Hotspot tour -> GSR graph pan/zoom sync ───────────────────────────────
+
   /**
-   * True unless the map/globe panel is in its own panel-fullscreen overlay —
-   * which hides the GSR graph (and the 2D map). Browser fullscreen keeps them
-   * visible, so it doesn't count.
+   * Animate the GSR graph's visible time window (AppState.viewStartTime /
+   * viewDuration) from wherever it currently sits onto a tour waypoint's
+   * pre-computed hotspot window (wp.graphWinStart/graphWinDuration, set in
+   * tour.js), over the same duration as the camera's flight to that waypoint —
+   * one continuous cinematic move instead of a jump-cut. No-op for fallback
+   * (non-hotspot) waypoints, which carry no graph window.
+   */
+  _tweenGraphToTourStep(wp, flightDurationSec) {
+    if (
+      typeof AppState === 'undefined' ||
+      !wp ||
+      wp.graphWinStart == null ||
+      wp.graphWinDuration == null
+    )
+      return;
+    GSRGlobe3DView._cancelGraphTween();
+    // The graph is offscreen (collapsed, or the panel is fullscreen) —
+    // nothing would be seen panning, so skip the per-frame rAF loop and
+    // AppState churn entirely rather than tweening a view nobody can see.
+    if (!GSRGlobe3DView._graphVisible()) return;
+
+    const fromStart = AppState.viewStartTime;
+    const fromDuration = AppState.viewDuration;
+    const toStart = wp.graphWinStart;
+    const toDuration = wp.graphWinDuration;
+    const durationMs = Math.max(300, (flightDurationSec || 2) * 1000);
+    const raf =
+      typeof window !== 'undefined' && window.requestAnimationFrame
+        ? window.requestAnimationFrame.bind(window)
+        : null;
+    if (!raf) {
+      // No rAF (headless/test environment) — snap straight to the target.
+      AppState.viewStartTime = toStart;
+      AppState.viewDuration = toDuration;
+      if (typeof redraw === 'function') redraw();
+      return;
+    }
+
+    const now = () =>
+      typeof performance !== 'undefined' ? performance.now() : Date.now();
+    const startTs = now();
+
+    const step = () => {
+      // The panel can collapse mid-flight (e.g. the user hides the GSR graph
+      // while a tour is running) — stop paying for the rAF loop the moment
+      // there's nothing on screen to see it pan.
+      if (!GSRGlobe3DView._graphVisible()) {
+        GSRGlobe3DView._graphTweenHandle = null;
+        return;
+      }
+      const t = Math.min(1, (now() - startTs) / durationMs);
+      // Ease-in-out cubic, matching the camera flight's own easing feel.
+      const e = t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2;
+      AppState.viewStartTime = fromStart + (toStart - fromStart) * e;
+      AppState.viewDuration = fromDuration + (toDuration - fromDuration) * e;
+      if (typeof redraw === 'function') redraw();
+      GSRGlobe3DView._graphTweenHandle = t < 1 ? raf(step) : null;
+    };
+    GSRGlobe3DView._graphTweenHandle = raf(step);
+  },
+
+  /** Cancel any in-flight tour->graph pan tween (tour stopped/paused). */
+  _cancelGraphTween() {
+    if (
+      GSRGlobe3DView._graphTweenHandle != null &&
+      typeof window !== 'undefined' &&
+      window.cancelAnimationFrame
+    ) {
+      window.cancelAnimationFrame(GSRGlobe3DView._graphTweenHandle);
+    }
+    GSRGlobe3DView._graphTweenHandle = null;
+  },
+
+  /**
+   * True unless the GSR graph is off screen: the map/globe panel is in its
+   * own panel-fullscreen overlay (hides the GSR graph and the 2D map;
+   * browser fullscreen keeps them visible, so it doesn't count), or the GSR
+   * panel itself is collapsed (#gsrPanel.collapsed — the same class
+   * btnGsrCollapse toggles, see events_map_panel.mjs).
    */
   _graphVisible() {
     const c = GSRGlobe3DView.els.container;
-    return !(
+    if (
       c &&
       typeof c.closest === 'function' &&
       c.closest('.panel-fullscreen-overlay')
-    );
+    )
+      return false;
+    const gsrPanel = document.getElementById('gsrPanel');
+    return !gsrPanel?.classList.contains('collapsed');
   },
 
   /**
@@ -823,23 +904,27 @@ export const GSRGlobe3DView = {
         GSRGlobe3DView._updateAttribution();
       GSRGlobe3DView.manager.onBuildingsChange = () =>
         GSRGlobe3DView._updateAttribution();
-      GSRGlobe3DView.manager.onTourStep((_stepIdx, _totalSteps, wp) => {
-        if (wp) {
-          GSRGlobe3DView._updateTourBtn(true);
-          if (typeof AppState !== 'undefined') {
-            AppState.hoveredIndex = wp.origIdx;
-            AppState.emit('scrub', {
-              lat: wp.lat,
-              lon: wp.lon,
-              index: wp.origIdx,
-              source: 'globe',
-            });
-            if (typeof redraw === 'function') redraw();
+      GSRGlobe3DView.manager.onTourStep(
+        (_stepIdx, _totalSteps, wp, flightDurationSec) => {
+          if (wp) {
+            GSRGlobe3DView._updateTourBtn(true);
+            if (typeof AppState !== 'undefined') {
+              AppState.hoveredIndex = wp.origIdx;
+              AppState.emit('scrub', {
+                lat: wp.lat,
+                lon: wp.lon,
+                index: wp.origIdx,
+                source: 'globe',
+              });
+              if (typeof redraw === 'function') redraw();
+            }
+            GSRGlobe3DView._tweenGraphToTourStep(wp, flightDurationSec);
+          } else {
+            GSRGlobe3DView._updateTourBtn(false);
+            GSRGlobe3DView._cancelGraphTween();
           }
-        } else {
-          GSRGlobe3DView._updateTourBtn(false);
-        }
-      });
+        },
+      );
     } else if (GSRGlobe3DView.manager.viewer) {
       GSRGlobe3DView.manager.viewer.useDefaultRenderLoop = true;
     }

@@ -1734,6 +1734,481 @@ test('startTour / stopTour / toggleTour lifecycle and camera flight', () => {
   mgr.destroy();
 });
 
+/**
+ * Shared fixture for hotspot-tour tests: a straight, north-headed n-point
+ * track (lat climbs, lon fixed) with a flat phasic series, plus a given set
+ * of curated peaks. `memorableEvents` defaults to `peaks` in array order;
+ * pass a different order to prove the tour re-sorts chronologically.
+ */
+function hotspotTourFixture(n, peaks, memorableEvents) {
+  const drawPoints = [];
+  const phasic = [];
+  for (let i = 0; i < n; i++) {
+    drawPoints.push({ lat: 51.5 + i * 0.0005, lon: -0.1, time: i, origIdx: i });
+    phasic.push({ val: 0.5 });
+  }
+  const analyzer = {
+    raw: new Array(n).fill({}),
+    phasic,
+    peaks,
+    memorableEvents: memorableEvents || peaks,
+    getCoordinates: (i) => ({ lat: 51.5 + i * 0.0005, lon: -0.1 }),
+  };
+  return { drawPoints, phasic, analyzer };
+}
+
+/** Angular distance between two headings (radians), shortest way round. */
+const circularDist = (a, b) => {
+  const twoPi = Math.PI * 2;
+  let d = (a - b) % twoPi;
+  if (d > Math.PI) d -= twoPi;
+  else if (d < -Math.PI) d += twoPi;
+  return Math.abs(d);
+};
+
+test('_computeHotspotTourWaypoints visits analyzer.memorableEvents in walk order, not array/rank order, with graph windows', () => {
+  freshEnv();
+  const { GSRGlobeManager } = loadFresh();
+  const mgr = new GSRGlobeManager('c', { keyboardFlight: false });
+
+  const peakEarly = { index: 5, time: 5, onsetTime: 2, amplitude: 1.0 };
+  const peakLate = { index: 20, time: 40, onsetTime: 36, amplitude: 2.0 };
+  // Deliberately reversed / not time-sorted, to prove the tour re-sorts.
+  const { drawPoints, analyzer } = hotspotTourFixture(
+    30,
+    [peakEarly, peakLate],
+    [peakLate, peakEarly],
+  );
+
+  mgr.currentDrawPoints = drawPoints;
+  mgr.currentAnalyzer = analyzer;
+  mgr.currentPeaks = analyzer.peaks;
+  mgr.heightMetric = 'phasic';
+  mgr.extrusionScale = 10;
+  mgr.baseHeight = 2;
+
+  const waypoints = mgr._computeHotspotTourWaypoints();
+  assert.strictEqual(waypoints.length, 2, 'one waypoint per hotspot');
+  assert.strictEqual(
+    waypoints[0].origIdx,
+    5,
+    'earliest hotspot (time=5) visited first',
+  );
+  assert.strictEqual(
+    waypoints[1].origIdx,
+    20,
+    'later hotspot (time=40) visited second',
+  );
+
+  assert.strictEqual(waypoints[0].lat, 51.5025);
+  assert.strictEqual(waypoints[0].lon, -0.1);
+  // baseHeight 2 + phasic 0.5 * extrusionScale 10 = 7
+  assert.strictEqual(waypoints[0].gsrHeight, 7);
+  assert.strictEqual(waypoints[0].effectiveHeight, 21); // 7 + 14 headroom
+  assert.strictEqual(waypoints[0].isPeak, true);
+
+  // Graph window: onset 2 -> start = max(0, 2-6) = 0; duration = max(16, min(34, 5-2+16)) = 19
+  assert.strictEqual(waypoints[0].graphWinStart, 0);
+  assert.strictEqual(waypoints[0].graphWinDuration, 19);
+  // Graph window: onset 36 -> start = 30; duration = max(16, min(34, 40-36+16)) = 20
+  assert.strictEqual(waypoints[1].graphWinStart, 30);
+  assert.strictEqual(waypoints[1].graphWinDuration, 20);
+
+  // _computeTourWaypoints prefers the hotspot list over generic track sampling.
+  const tourWaypoints = mgr._computeTourWaypoints();
+  assert.deepStrictEqual(
+    tourWaypoints.map((w) => w.origIdx),
+    [5, 20],
+    '_computeTourWaypoints delegates to the hotspot builder when hotspots exist',
+  );
+
+  mgr.destroy();
+});
+
+test('_shortestHeadingTo re-expresses an angle as the numerically closest representation to a reference, never the long way round', () => {
+  freshEnv();
+  const { GSRGlobeManager } = loadFresh();
+  const mgr = new GSRGlobeManager('c', { keyboardFlight: false });
+
+  const deg = (d) => (d * Math.PI) / 180;
+
+  // 350° target, reference near 0° -> should land near -10°, not +350°.
+  assert.ok(
+    Math.abs(mgr._shortestHeadingTo(deg(350), deg(0)) - deg(-10)) < 1e-9,
+  );
+  // 10° target, reference near 350° (i.e. -10°) -> should land near 370°.
+  assert.ok(
+    Math.abs(mgr._shortestHeadingTo(deg(10), deg(-10)) - deg(10)) < 1e-9,
+  );
+  // Reference not a finite number -> returned unchanged.
+  assert.strictEqual(mgr._shortestHeadingTo(deg(200), undefined), deg(200));
+  assert.strictEqual(mgr._shortestHeadingTo(deg(200), NaN), deg(200));
+
+  mgr.destroy();
+});
+
+test('hotspot tour camera: side-on angled framing never flips the long way around between consecutive hotspots', () => {
+  freshEnv();
+  const { GSRGlobeManager } = loadFresh();
+  const mgr = new GSRGlobeManager('c', { keyboardFlight: false });
+
+  const peakEarly = { index: 5, time: 5, onsetTime: 2, amplitude: 1.0 };
+  const peakLate = { index: 20, time: 40, onsetTime: 36, amplitude: 2.0 };
+  const { drawPoints, analyzer } = hotspotTourFixture(30, [
+    peakEarly,
+    peakLate,
+  ]);
+
+  mgr.currentDrawPoints = drawPoints;
+  mgr.currentAnalyzer = analyzer;
+  mgr.currentPeaks = analyzer.peaks;
+  mgr.heightMetric = 'phasic';
+  mgr.extrusionScale = 10;
+  mgr.baseHeight = 2;
+
+  const flights = [];
+  mgr.viewer.camera.flyTo = (opts) => flights.push(opts);
+  const progress = [];
+  mgr.onTourStep((stepIdx, totalSteps, wp, flightDuration) => {
+    progress.push({ stepIdx, totalSteps, wp, flightDuration });
+  });
+
+  mgr.startTour();
+  assert.strictEqual(flights.length, 1);
+  assert.ok(
+    Math.abs(flights[0].orientation.pitch - (-30 * Math.PI) / 180) < 1e-9,
+    'pitch is -30°',
+  );
+  assert.strictEqual(
+    flights[0].duration,
+    2.6,
+    'first leg uses the opening flight duration',
+  );
+  assert.strictEqual(
+    progress[0].flightDuration,
+    2.6,
+    'callback receives the flight duration',
+  );
+
+  // Manually advance to step 1 without waiting on the real dwell timer,
+  // mirroring how _executeTourStep is driven internally.
+  mgr._executeTourStep(1);
+  assert.strictEqual(flights.length, 2);
+
+  // Both hotspots sit on the same straight, northbound leg of the track (the
+  // forward bearing barely changes between them), so there is no reason for
+  // the camera to swing to the opposite side — it should keep filming from
+  // (near) the same side rather than spinning ~244° "around the back" the
+  // way a blind step-parity alternation would.
+  const delta = circularDist(
+    flights[1].orientation.heading,
+    flights[0].orientation.heading,
+  );
+  assert.ok(
+    delta < (30 * Math.PI) / 180,
+    `consecutive stops keep a continuous heading, not a flip (delta ${(delta * 180) / Math.PI}°)`,
+  );
+
+  // Hop from idx5 (51.5025N) to idx20 (51.51N) is ~835m -> duration scales up
+  // from the 2.2s floor, well past the fixed 1.6s the old chase-cam used.
+  assert.ok(
+    flights[1].duration > 2.2 && flights[1].duration <= 6.5,
+    `leg duration scales with hop distance (got ${flights[1].duration})`,
+  );
+
+  mgr.stopTour();
+  mgr.destroy();
+});
+
+test("hotspot tour camera picks whichever side keeps the shortest turn from the camera's current heading", () => {
+  freshEnv();
+  const { GSRGlobeManager } = loadFresh();
+  const mgr = new GSRGlobeManager('c', { keyboardFlight: false });
+
+  const peak = { index: 5, time: 5, onsetTime: 2, amplitude: 1.0 };
+  const { drawPoints, analyzer } = hotspotTourFixture(10, [peak]);
+
+  mgr.currentDrawPoints = drawPoints;
+  mgr.currentAnalyzer = analyzer;
+  mgr.currentPeaks = analyzer.peaks;
+  mgr.heightMetric = 'phasic';
+  mgr.extrusionScale = 10;
+  mgr.baseHeight = 2;
+
+  const flights = [];
+  mgr.viewer.camera.flyTo = (opts) => flights.push(opts);
+  mgr.onTourStep(() => {});
+
+  // Forward bearing is ~0°, so the two candidate side-on shots sit at
+  // roughly 302° (+122° side) and 58° (-122° side). Priming the camera at
+  // 300° should make the tour pick the +122° side, since it's the near-zero
+  // turn from where the camera already is.
+  mgr.viewer.camera.heading = (300 * Math.PI) / 180;
+  mgr.startTour();
+  assert.strictEqual(flights.length, 1);
+  const expectedNear = ((122 + 180) * Math.PI) / 180; // ~302°
+  const expectedFar = ((-122 + 180) * Math.PI) / 180; // ~58°
+  assert.ok(
+    circularDist(flights[0].orientation.heading, expectedNear) <
+      circularDist(flights[0].orientation.heading, expectedFar),
+    `picked the side closest to the primed camera heading (got ${flights[0].orientation.heading})`,
+  );
+
+  mgr.stopTour();
+  mgr.destroy();
+});
+
+test('camera heading for a tour step depends only on the live camera heading, never on drifted state carried from earlier steps', () => {
+  // Regression test for a real bug: an earlier version tracked its own
+  // "last chosen heading" across steps instead of reading the camera's live
+  // heading fresh each time. Cesium's flyTo interpolator only ever corrects
+  // its live heading by a SINGLE +/-2*PI shift to land within one turn of
+  // whatever heading it's given — it does not correct for a target that's
+  // already several turns away from reality. A self-tracked reference is
+  // only ever kept within one turn of the *previous* step's reference, so
+  // over many tour stops it can silently drift multiple full turns away
+  // from where the camera really is; once handed to flyTo, that drifted
+  // target made the camera visibly spin through several full rotations to
+  // get there. The fix removed that tracking entirely — this test proves a
+  // step's chosen heading is fully determined by its own waypoint and
+  // whatever the camera's live heading happens to be, never by whether (or
+  // how) earlier steps were played.
+  freshEnv();
+  const { GSRGlobeManager } = loadFresh();
+  const mgr = new GSRGlobeManager('c', { keyboardFlight: false });
+
+  const peakEarly = { index: 5, time: 5, onsetTime: 2, amplitude: 1.0 };
+  const peakLate = { index: 20, time: 40, onsetTime: 36, amplitude: 2.0 };
+  const { drawPoints, analyzer } = hotspotTourFixture(30, [
+    peakEarly,
+    peakLate,
+  ]);
+
+  mgr.currentDrawPoints = drawPoints;
+  mgr.currentAnalyzer = analyzer;
+  mgr.currentPeaks = analyzer.peaks;
+  mgr.heightMetric = 'phasic';
+  mgr.extrusionScale = 10;
+  mgr.baseHeight = 2;
+  mgr._tourWaypoints = mgr._computeTourWaypoints();
+  mgr._isTouring = true;
+  mgr.onTourStep(() => {});
+
+  const primedHeading = (17 * Math.PI) / 180;
+
+  // Jump straight to step 1 without step 0 ever having run.
+  const flightsDirect = [];
+  mgr.viewer.camera.flyTo = (opts) => flightsDirect.push(opts);
+  mgr.viewer.camera.heading = primedHeading;
+  mgr._executeTourStep(1);
+
+  // Play step 0 first (the stub camera never actually moves, which is
+  // exactly the case that used to let internal heading-tracking drift), then
+  // re-prime the same live heading before step 1 and confirm it lands on the
+  // identical heading either way.
+  const flightsPlayed = [];
+  mgr.viewer.camera.flyTo = (opts) => flightsPlayed.push(opts);
+  mgr.viewer.camera.heading = primedHeading;
+  mgr._executeTourStep(0);
+  mgr.viewer.camera.heading = primedHeading;
+  mgr._executeTourStep(1);
+
+  assert.strictEqual(flightsDirect.length, 1);
+  assert.strictEqual(flightsPlayed.length, 2);
+  assert.strictEqual(
+    flightsDirect[0].orientation.heading,
+    flightsPlayed[1].orientation.heading,
+    'step 1 is fully determined by wp + live camera heading, independent of step 0 having run',
+  );
+
+  mgr.destroy();
+});
+
+/** Shared fixture for the obstruction-vs-turn side-selection tests below. */
+function obstructionFixture() {
+  const peak = { index: 5, time: 5, onsetTime: 2, amplitude: 1.0 };
+  const { drawPoints, phasic, analyzer } = hotspotTourFixture(30, [peak]);
+  return { n: 30, drawPoints, phasic, analyzer };
+}
+
+/**
+ * Given a computed hotspot waypoint, plant `count` tall obstacle points from
+ * "another leg of the track" directly along the +122° side's sightline
+ * (same geometry _executeTourStep itself uses), each with a wall height
+ * comfortably taller than the sightline at any point along it, so every one
+ * registers as a real obstruction once _sightlineObstructionCount is height-
+ * aware. Obstacle draw-points are appended far away by array INDEX (past the
+ * ±8-sample exclusion window), so they read as unrelated track geometry, not
+ * the hotspot's own local approach/departure; their phasic entries land at
+ * fresh indices too, and `analyzer.phasic` is REPLACED (new array reference)
+ * rather than mutated in place, so the manager's per-metric series cache
+ * (keyed on array identity) doesn't serve a stale pre-obstacle snapshot.
+ */
+function plantObstaclesOnPlusSide(mgr, wp, drawPoints, phasic, count) {
+  const wallHeight = 2 + 0.5 * 10; // baseHeight + phasic * extrusionScale
+  const effH = Math.max(wallHeight + 14, 20);
+  const backDistMeters = Math.max(90, effH * 2.2 + 70);
+  const latRad = (wp.lat * Math.PI) / 180;
+  const offsetPlusRad = ((wp.bearingDeg + 122) * Math.PI) / 180;
+  const camLatPlus =
+    wp.lat + (backDistMeters * Math.cos(offsetPlusRad)) / 111320.0;
+  const camLonPlus =
+    wp.lon +
+    (backDistMeters * Math.sin(offsetPlusRad)) /
+      (111320.0 * Math.max(0.1, Math.cos(latRad)));
+
+  const ts = Array.from({ length: count }, (_, k) => 0.2 + k * 0.1);
+  const obstacles = ts.map((t, k) => ({
+    lat: camLatPlus + (wp.lat - camLatPlus) * t,
+    lon: camLonPlus + (wp.lon - camLonPlus) * t,
+    time: 500 + k,
+    origIdx: drawPoints.length + k,
+  }));
+  mgr.currentDrawPoints = drawPoints.concat(obstacles);
+  // A tall wall (val 10 -> height 2 + 10*10 = 102) clears the sightline
+  // altitude everywhere along it (max ~77m, right by the camera).
+  mgr.currentAnalyzer.phasic = phasic.concat(
+    obstacles.map(() => ({ val: 10.0 })),
+  );
+}
+
+test('_sightlineObstructionCount only counts an obstruction whose own wall height actually reaches the sightline', () => {
+  freshEnv();
+  const { GSRGlobeManager } = loadFresh();
+  const mgr = new GSRGlobeManager('c', { keyboardFlight: false });
+
+  // Camera 100m due north of the target; a candidate obstruction sits
+  // exactly halfway along that line, so the sightline there is at half the
+  // camera's altitude above ground.
+  const camLat = 51.5 + 100 / 111320;
+  const camLon = -0.1;
+  const camAlt = 40;
+  const targetLat = 51.5;
+  const targetLon = -0.1;
+  const pts = [{ lat: (camLat + targetLat) / 2, lon: -0.1, origIdx: 0 }];
+  const targetDrawIdx = 999; // far away by array index -> never excluded
+
+  const lowCount = mgr._sightlineObstructionCount(
+    pts,
+    targetDrawIdx,
+    camLat,
+    camLon,
+    camAlt,
+    targetLat,
+    targetLon,
+    [0], // baseH + 0*extScale = baseH, well under the ~20m sightline here
+    2,
+    10,
+  );
+  const tallCount = mgr._sightlineObstructionCount(
+    pts,
+    targetDrawIdx,
+    camLat,
+    camLon,
+    camAlt,
+    targetLat,
+    targetLon,
+    [5], // baseH + 5*extScale = 52, well above the ~20m sightline here
+    2,
+    10,
+  );
+  assert.strictEqual(
+    lowCount,
+    0,
+    'a low wall well under the sightline does not obstruct',
+  );
+  assert.strictEqual(
+    tallCount,
+    1,
+    'a tall wall poking above the sightline does obstruct',
+  );
+
+  mgr.destroy();
+});
+
+test('hotspot tour camera avoids a side that is severely obstructed, even against a favourable turn', () => {
+  freshEnv();
+  const { GSRGlobeManager } = loadFresh();
+  const mgr = new GSRGlobeManager('c', { keyboardFlight: false });
+  const { drawPoints, phasic, analyzer } = obstructionFixture();
+
+  mgr.currentDrawPoints = drawPoints;
+  mgr.currentAnalyzer = analyzer;
+  mgr.currentPeaks = analyzer.peaks;
+  mgr.heightMetric = 'phasic';
+  mgr.extrusionScale = 10;
+  mgr.baseHeight = 2;
+
+  const [wp] = mgr._computeHotspotTourWaypoints();
+  // 6 tall obstacle points cost 6*0.5 = 3.0 rad — enough to beat even the
+  // ~2.02 rad (116°) turn cost of abandoning a heading primed onto this side.
+  plantObstaclesOnPlusSide(mgr, wp, drawPoints, phasic, 6);
+
+  const flights = [];
+  mgr.viewer.camera.flyTo = (opts) => flights.push(opts);
+  mgr.onTourStep(() => {});
+
+  // Prime the camera heading to strongly favour the OBSTRUCTED (+122°) side
+  // via turn-continuity alone — proving severe obstruction still overrides it.
+  mgr.viewer.camera.heading = ((wp.bearingDeg + 122 + 180) * Math.PI) / 180;
+
+  mgr.startTour();
+  assert.strictEqual(flights.length, 1);
+
+  const expectedClearHeading = ((wp.bearingDeg - 122 + 180) * Math.PI) / 180;
+  const expectedObstructedHeading =
+    ((wp.bearingDeg + 122 + 180) * Math.PI) / 180;
+  assert.ok(
+    circularDist(flights[0].orientation.heading, expectedClearHeading) <
+      circularDist(flights[0].orientation.heading, expectedObstructedHeading),
+    `picked the unobstructed side despite the primed heading favouring the blocked one (got ${flights[0].orientation.heading})`,
+  );
+
+  mgr.stopTour();
+  mgr.destroy();
+});
+
+test('hotspot tour camera keeps a strongly favoured turn despite a couple of borderline obstruction points', () => {
+  freshEnv();
+  const { GSRGlobeManager } = loadFresh();
+  const mgr = new GSRGlobeManager('c', { keyboardFlight: false });
+  const { drawPoints, phasic, analyzer } = obstructionFixture();
+
+  mgr.currentDrawPoints = drawPoints;
+  mgr.currentAnalyzer = analyzer;
+  mgr.currentPeaks = analyzer.peaks;
+  mgr.heightMetric = 'phasic';
+  mgr.extrusionScale = 10;
+  mgr.baseHeight = 2;
+
+  const [wp] = mgr._computeHotspotTourWaypoints();
+  // Only 2 tall obstacle points cost 2*0.5 = 1.0 rad — turning is favoured
+  // to dominate, so this should NOT be enough to justify a ~2.02 rad (116°)
+  // turn away from a heading the camera already had.
+  plantObstaclesOnPlusSide(mgr, wp, drawPoints, phasic, 2);
+
+  const flights = [];
+  mgr.viewer.camera.flyTo = (opts) => flights.push(opts);
+  mgr.onTourStep(() => {});
+
+  mgr.viewer.camera.heading = ((wp.bearingDeg + 122 + 180) * Math.PI) / 180;
+
+  mgr.startTour();
+  assert.strictEqual(flights.length, 1);
+
+  const expectedClearHeading = ((wp.bearingDeg - 122 + 180) * Math.PI) / 180;
+  const expectedObstructedHeading =
+    ((wp.bearingDeg + 122 + 180) * Math.PI) / 180;
+  assert.ok(
+    circularDist(flights[0].orientation.heading, expectedObstructedHeading) <
+      circularDist(flights[0].orientation.heading, expectedClearHeading),
+    `kept the favoured heading rather than spinning around for a couple of borderline points (got ${flights[0].orientation.heading})`,
+  );
+
+  mgr.stopTour();
+  mgr.destroy();
+});
+
 test('setScrubPosition auto-resolves height from drawn track when not explicitly provided', () => {
   freshEnv();
   const { GSRGlobeManager } = loadFresh();
