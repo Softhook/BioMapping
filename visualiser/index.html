@@ -290,11 +290,6 @@
           </h2>
 
           <div class="card-content">
-            <p class="help-text" style="margin-bottom:12px;color:var(--text-muted);">
-              <strong>Automatic:</strong> Fix ≥ 2D → Stop averaging → Speed filter →
-              Velocity smoother (ZUPT).  Tuned for pedestrian GSR mapping.
-            </p>
-
             <div class="slider-group">
               <div class="slider-label">
                 <span>Path Responsiveness</span>
@@ -303,16 +298,6 @@
               <input type="range" id="gpsSmoothing" min="0.02" max="10" step="0.02" value="0.5">
               <div class="slider-rec" style="left:5%; width:15%"></div>
               <p class="help-text">How quickly the path responds to GPS movement.</p>
-            </div>
-
-            <div class="slider-group">
-              <div class="slider-label">
-                <span>GPS Precision</span>
-                <span class="slider-value" id="valGpsKalmanR">10 m²</span>
-              </div>
-              <input type="range" id="gpsKalmanR" min="0.5" max="150" step="0.5" value="10">
-              <div class="slider-rec" style="left:6%; width:13%"></div>
-              <p class="help-text">How much you trust each GPS reading. On M10Q this is overridden by accuracy value.</p>
             </div>
 
             <div class="slider-group">
@@ -497,7 +482,7 @@
                 <span class="slider-value" id="valGpsPeakLatency">2.0 s</span>
               </div>
               <input type="range" id="gpsPeakLatency" min="0" max="5" step="0.1" value="2.0">
-              <p class="help-text">Spatial offset for each peak due to physiological stimulous delay.</p>
+              <p class="help-text">Spatial offset for each peak due to physiological stimulus delay.</p>
             </div>
 
             <div class="control-subgroup-title">Arousal Places</div>

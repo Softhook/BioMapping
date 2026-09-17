@@ -4,19 +4,11 @@ Loose ideas and unscheduled work. Promote anything real to its own doc under `do
 
 ## Priority
 
-Create a more engaging tour that uses some cool cinematic camera moves on the 3d map to move between hotspots Make sure we show the hotspot and track in the best way possible. So from side onto the track at a bit of an angle to be able to see properly where it's located. Think about how to create an algorithm that works out the best way to display that hotspot and to transition between those views. The idea is that we create a cinematic fly-through experience while showing the real hotspot highlights of the walk. 
-
-
-
-remove slider 
-GPS Precision (#gpsKalmanR, 0.5–150 m²)
-
-
-
-
-
-- sound annotations -
-Allow people to record little audio snippets attached to peaks and hotspots. Investigate how they could be saved on the server and then played back. Maybe these could be from an audio file recorded at the same time and then timestamped to correlate, or they could be simply looking at the map, pressing a record button over the hotspot 
+- **Sound annotations** — allow people to record little audio snippets attached
+  to peaks and hotspots. Investigate how they could be saved on the server and
+  then played back. Maybe these could be from an audio file recorded at the same
+  time and then timestamped to correlate, or they could be simply looking at the
+  map, pressing a record button over the hotspot. 
 
 - **Airport / acoustic context** — would a microphone make sense there? See
   [acoustic_aircraft_detection_proposal.md](acoustic_aircraft_detection_proposal.md).
@@ -135,8 +127,6 @@ uncharacterised:
   `applyVelocitySmoothing` each reimplement "prefer `hacc_m` unless 99.9,
   else DOP², prefer `pdop`, clamp [0.5, 10]" plus the hand-maintained
   `hAcc ≈ HDOP×2.5` inverse. Two places, drift hazard.
-- §4 (CSV version history) of `gps_filtering_pipeline.md` — already says
-  "superseded, see `csv_schema.md`".
 
 ### Add
 

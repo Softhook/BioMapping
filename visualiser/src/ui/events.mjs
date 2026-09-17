@@ -37,12 +37,6 @@ export const GPS_SLIDER_DEFS = [
     bindGps: true,
   },
   {
-    id: 'gpsKalmanR',
-    labelId: 'valGpsKalmanR',
-    fmt: (v) => `${v} m²`,
-    bindGps: true,
-  },
-  {
     id: 'gpsMaxHdop',
     labelId: 'valGpsMaxHdop',
     fmt: (v) => `≤ ${v.toFixed(1)}`,
@@ -163,7 +157,6 @@ export const GSREvents = {
       'hotspotPercentile',
       'shapeMinSnr',
       'gpsSmoothing',
-      'gpsKalmanR',
       'gpsMaxHdop',
       'gpsMaxSpeed',
       'gpsRDP',

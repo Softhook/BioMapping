@@ -109,29 +109,18 @@ timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw,hacc_m
 
 ---
 
-## 4. CSV Version History
-
-Superseded — the canonical, up-to-date version history and column list live
-in [`csv_schema.md`](csv_schema.md) (currently at v1.9: RF columns, a runtime
-debug-column toggle, metadata-header lines, and integrity CRC32 brackets). The
-columns this pipeline actually consumes — `lat`, `lon`, `hdop`, `pdop`,
-`fix_type`, `speed_kts`, `course_deg`, `hacc_m` — have been stable since
-schema v1.2.
-
----
-
-## 5. Parameter Guidelines & Tuning
+## 4. Parameter Guidelines & Tuning
 
 The filters can be tuned in the visualiser interface:
 - **Smoothing ($\alpha_{\text{base}}$)**: Controls velocity-aided smoothing. Default `0.5`. Lower values trust dead-reckoning more; higher values trust the raw GPS coordinate.
 - **Process Noise ($Q$)**: Kalman process variance. Default `0.5` $m^2$.
-- **Measurement Noise ($R$)**: Kalman measurement variance. Default `10.0` $m^2$.
+- **Measurement Noise ($R$)**: Kalman measurement variance baseline. Default `10.0` $m^2$. On M10Q hardware with `$PUBX,00`, this is dynamically replaced by $(hacc\_m)^2$.
 - **RDP Tolerance**: Trajectory simplification distance. Default `0.5` meters.
 - **Stationary Threshold**: Stop-averaging speed gate. Default `0.5` knots.
 
 ---
 
-## 6. Direct Spatial Error (`hAcc`) Integration
+## 5. Direct Spatial Error (`hAcc`) Integration
 
 Measurement noise variance $R$ in the Kalman filter ([`gps_filter.js`](../visualiser/src/gps/gps_filter.js)) now prefers the physical accuracy estimate over DOP-scaling when it's available:
 
