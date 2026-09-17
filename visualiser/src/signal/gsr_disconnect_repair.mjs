@@ -55,29 +55,14 @@ export function detectAndRepairGsrDisconnects(raw, opts = {}) {
   // 1. Exact-repeat runs (the open-circuit floor plateau), by elapsed time
   // rather than a fixed sample count — GSR is nominally 10 Hz but this keeps
   // the detector correct if that ever isn't exactly true.
-  const flatRuns = [];
-  let i = 0;
-  while (i < n) {
-    let j = i + 1;
-    while (j < n && raw[j].val === raw[i].val) j++;
-    if (raw[j - 1].time - raw[i].time >= minFlatSeconds)
-      flatRuns.push([i, j - 1]);
-    i = j;
-  }
+  const flatRuns = findFlatRuns(raw, minFlatSeconds);
   if (flatRuns.length === 0) return { vals, spans };
 
   // 2. Merge runs that sit close together in time — initial electrode contact
   // bounces (make/break/make) produce several short floor runs a few samples
   // apart, punctuated by non-repeating partial-contact blips that would
   // otherwise slip through unrepaired between them.
-  const merged = [flatRuns[0].slice()];
-  for (let k = 1; k < flatRuns.length; k++) {
-    const prev = merged[merged.length - 1];
-    const cur = flatRuns[k];
-    if (raw[cur[0]].time - raw[prev[1]].time <= mergeGapSeconds)
-      prev[1] = cur[1];
-    else merged.push(cur.slice());
-  }
+  const merged = mergeCloseRuns(raw, flatRuns, mergeGapSeconds);
 
   // 3. Extend each merged span forward through the reconnect transient, then
   // confirm + bridge it (or report it unrepaired/unconfirmed).
@@ -89,24 +74,15 @@ export function detectAndRepairGsrDisconnects(raw, opts = {}) {
     // silently wrong repair anchored inside still-disconnected data. `limit`
     // is the first index this span may not claim.
     const nextSpanStart = k + 1 < merged.length ? merged[k + 1][0] : n;
-    const flatEndTime = raw[flatEnd].time;
 
-    let end = flatEnd;
-    let settled = 0;
-    while (
-      end + 1 < nextSpanStart &&
-      raw[end + 1].time - flatEndTime <= maxSettleSeconds
-    ) {
-      const scale = Math.max(
-        Math.abs(raw[end].val),
-        Math.abs(raw[end + 1].val),
-        1e-9,
-      );
-      const relDelta = Math.abs(raw[end + 1].val - raw[end].val) / scale;
-      end++;
-      if (relDelta > settleFrac) settled = 0;
-      else if (++settled >= settleHoldSamples) break;
-    }
+    const end = findSettleIndex(
+      raw,
+      flatEnd,
+      nextSpanStart,
+      maxSettleSeconds,
+      settleFrac,
+      settleHoldSamples,
+    );
 
     const leftAnchor = start - 1;
     const rightAnchor = end + 1;
@@ -116,30 +92,142 @@ export function detectAndRepairGsrDisconnects(raw, opts = {}) {
     const hasLeft = leftAnchor >= 0;
     const hasRight = rightAnchor < n && rightAnchor < nextSpanStart;
 
-    const flatVal = raw[start].val;
-    const confirmed =
-      (!hasLeft && !hasRight) || // the whole reachable track is one flat value — unambiguous regardless of ratio
-      (hasLeft && jumpRatio(flatVal, raw[leftAnchor].val) >= minJumpRatio) ||
-      (hasRight && jumpRatio(flatVal, raw[rightAnchor].val) >= minJumpRatio);
+    const confirmed = isSpanConfirmed(
+      raw,
+      start,
+      leftAnchor,
+      rightAnchor,
+      hasLeft,
+      hasRight,
+      minJumpRatio,
+    );
     if (!confirmed) continue; // looks like a coincidental flat stretch at a normal level, not a disconnect
 
     const span = { startIdx: start, endIdx: end, repaired: false };
     const v0 = hasLeft ? raw[leftAnchor].val : NaN;
     const v1 = hasRight ? raw[rightAnchor].val : NaN;
+
     if (hasLeft && hasRight && Number.isFinite(v0) && Number.isFinite(v1)) {
-      const t0 = raw[leftAnchor].time;
-      const t1 = raw[rightAnchor].time;
-      const dt = t1 - t0;
-      for (let idx = leftAnchor + 1; idx < rightAnchor; idx++) {
-        const frac = dt > 0 ? (raw[idx].time - t0) / dt : 0;
-        vals[idx] = v0 + (v1 - v0) * frac;
-      }
+      interpolateSpan(raw, vals, leftAnchor, rightAnchor, v0, v1);
       span.repaired = true;
     }
     spans.push(span);
   }
 
   return { vals, spans };
+}
+
+/**
+ * Finds runs of bit-identical consecutive sample values lasting at least minFlatSeconds.
+ */
+function findFlatRuns(raw, minFlatSeconds) {
+  const n = raw.length;
+  const flatRuns = [];
+  let i = 0;
+  while (i < n) {
+    let j = i + 1;
+    while (j < n && raw[j].val === raw[i].val) j++;
+    if (raw[j - 1].time - raw[i].time >= minFlatSeconds) {
+      flatRuns.push([i, j - 1]);
+    }
+    i = j;
+  }
+  return flatRuns;
+}
+
+/**
+ * Merges adjacent flat runs that sit within mergeGapSeconds of each other.
+ */
+function mergeCloseRuns(raw, flatRuns, mergeGapSeconds) {
+  const merged = [flatRuns[0].slice()];
+  for (let k = 1; k < flatRuns.length; k++) {
+    const prev = merged[merged.length - 1];
+    const cur = flatRuns[k];
+    if (raw[cur[0]].time - raw[prev[1]].time <= mergeGapSeconds) {
+      prev[1] = cur[1];
+    } else {
+      merged.push(cur.slice());
+    }
+  }
+  return merged;
+}
+
+/**
+ * Searches forward past flatEnd through electrode bounce and RC settling until
+ * consecutive relative changes stay below settleFrac for settleHoldSamples, or until
+ * nextSpanStart / maxSettleSeconds is hit.
+ */
+function findSettleIndex(
+  raw,
+  flatEnd,
+  nextSpanStart,
+  maxSettleSeconds,
+  settleFrac,
+  settleHoldSamples,
+) {
+  const flatEndTime = raw[flatEnd].time;
+  let end = flatEnd;
+  let settled = 0;
+
+  while (
+    end + 1 < nextSpanStart &&
+    raw[end + 1].time - flatEndTime <= maxSettleSeconds
+  ) {
+    const scale = Math.max(
+      Math.abs(raw[end].val),
+      Math.abs(raw[end + 1].val),
+      1e-9,
+    );
+    const relDelta = Math.abs(raw[end + 1].val - raw[end].val) / scale;
+    end++;
+    if (relDelta > settleFrac) {
+      settled = 0;
+    } else if (++settled >= settleHoldSamples) {
+      break;
+    }
+  }
+
+  return end;
+}
+
+/**
+ * Confirms whether a flat run looks like an authentic disconnect (via jump ratio)
+ * rather than a coincidental flat stretch at normal signal levels.
+ */
+function isSpanConfirmed(
+  raw,
+  start,
+  leftAnchor,
+  rightAnchor,
+  hasLeft,
+  hasRight,
+  minJumpRatio,
+) {
+  if (!hasLeft && !hasRight) {
+    // The whole reachable track is one flat value — unambiguous regardless of ratio
+    return true;
+  }
+  const flatVal = raw[start].val;
+  if (hasLeft && jumpRatio(flatVal, raw[leftAnchor].val) >= minJumpRatio) {
+    return true;
+  }
+  if (hasRight && jumpRatio(flatVal, raw[rightAnchor].val) >= minJumpRatio) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Bridges the gap between leftAnchor and rightAnchor using straight-line interpolation.
+ */
+function interpolateSpan(raw, vals, leftAnchor, rightAnchor, v0, v1) {
+  const t0 = raw[leftAnchor].time;
+  const t1 = raw[rightAnchor].time;
+  const dt = t1 - t0;
+  for (let idx = leftAnchor + 1; idx < rightAnchor; idx++) {
+    const frac = dt > 0 ? (raw[idx].time - t0) / dt : 0;
+    vals[idx] = v0 + (v1 - v0) * frac;
+  }
 }
 
 /** Ratio between the larger and smaller magnitude of two values, direction-agnostic. */

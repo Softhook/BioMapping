@@ -1,0 +1,8 @@
+{
+  "servers": {
+    "refactogent": {
+      "type": "stdio",
+      "command": "/opt/homebrew/bin/refactogent-mcp"
+    }
+  }
+}

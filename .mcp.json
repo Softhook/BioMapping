@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "refactogent": {
+      "command": "/opt/homebrew/bin/refactogent-mcp"
+    }
+  }
+}
