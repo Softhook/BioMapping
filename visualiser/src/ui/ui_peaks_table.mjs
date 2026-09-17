@@ -213,9 +213,13 @@ export const __methods = {
       GSRUI.updatePeaksTable();
       redraw();
       if (AppState.mapManager) {
+        // refreshHotspots: true — unlike a label edit, an exclusion toggle
+        // can change whether this peak's hotspot star should still render
+        // (see refreshPeakMarkers()'s doc comment).
         AppState.mapManager.refreshPeakMarkers(
           AppState.analyzer,
           GSRStorage.buildGpsParams(),
+          { refreshHotspots: true },
         );
       }
     } else {

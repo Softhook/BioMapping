@@ -1480,6 +1480,14 @@ input[type="range"]:focus-visible,
   opacity: 0.7;
 }
 
+/* Map popup Save + Exclude action group (right side of popup-bottom-row) */
+.popup-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
 /* Map popup exclude button */
 .btn-exclude-popup {
   background: none;
@@ -1499,6 +1507,29 @@ input[type="range"]:focus-visible,
 
 .btn-exclude-popup:hover {
   background: rgba(209, 0, 36, 0.08);
+}
+
+/* Map popup Save button — explicit commit affordance for the label
+   textarea (it also auto-saves on blur/Enter, but this gives an on-screen
+   "I'm done" action so the interaction isn't guesswork). */
+.btn-save-popup {
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  color: var(--color-phasic, #008f3c);
+  cursor: pointer;
+  font-size: 0.85rem;
+  padding: 2px 5px;
+  line-height: 1;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: background 0.15s ease;
+}
+
+.btn-save-popup:hover {
+  background: rgba(0, 143, 60, 0.08);
 }
 
 .popup-header-row {

@@ -292,6 +292,13 @@ export const __methods = {
     );
 
     events.forEach((peak) => {
+      // A hotspot IS a peak (memorableEvents references analyzer.peaks), and
+      // _renderPeakSpires()'s caller already filters excluded peaks out of
+      // `currentPeaks` before drawing spires — mirror that here so an
+      // excluded peak's star doesn't keep showing as curated/important after
+      // memorableEvents itself may not have been recomputed since the toggle.
+      if (peak.excluded) return;
+
       const coords = this._latencyCoords(analyzer, peak);
       if (!coords || isNaN(coords.lat) || isNaN(coords.lon)) return;
 

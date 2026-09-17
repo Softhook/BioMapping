@@ -551,6 +551,11 @@ export const __methods = {
 
     for (const p of AppState.analyzer.memorableEvents) {
       if (this._peakOutOfView(p, tMin, tMax)) continue;
+      // Excluded peaks fall back to drawPeakMarkers()'s own excluded styling
+      // (dimmed, dashed) instead of also glowing as a hotspot star — a
+      // hotspot IS a peak (memorableEvents is a subset of analyzer.peaks), so
+      // excluding it must stop it reading as curated/important here too.
+      if (p.excluded) continue;
 
       const { xPeak, xOnset, yFilteredPeak, yPhasicPeak, yPhasicOnset } =
         this._computePeakScreenPos(

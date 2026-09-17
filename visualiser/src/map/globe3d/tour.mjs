@@ -119,6 +119,10 @@ export const __methods = {
     // sample (to read local bearing from).
     const resolved = [];
     for (const peak of events) {
+      // A hotspot IS a peak (memorableEvents references analyzer.peaks), so
+      // an excluded one must stop being treated as a curated tour stop too —
+      // same guard as the hotspot star itself (globe3d/peaks.mjs).
+      if (peak.excluded) continue;
       const coords = this._latencyCoords(a, peak);
       if (!coords || isNaN(coords.lat) || isNaN(coords.lon)) continue;
       let nearestIdx = -1;

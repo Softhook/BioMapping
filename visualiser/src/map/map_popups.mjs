@@ -175,11 +175,17 @@ export const MapPopups = {
       ),
     );
 
-    const excludeBtn = L.DomUtil.create(
-      'button',
-      'btn-exclude-popup',
-      bottomRow,
-    );
+    // Right-hand action group: Save + Exclude. Save gives the label textarea
+    // an explicit, visible "I'm done" affordance — before this, the only way
+    // to commit was to click away (blur) or guess that Enter works, with no
+    // on-screen sign either would do anything.
+    const actions = L.DomUtil.create('div', 'popup-actions', bottomRow);
+
+    const saveBtn = L.DomUtil.create('button', 'btn-save-popup', actions);
+    saveBtn.title = 'Save label';
+    saveBtn.innerHTML = '<i class="fa-solid fa-check"></i> Save';
+
+    const excludeBtn = L.DomUtil.create('button', 'btn-exclude-popup', actions);
     excludeBtn.title = peak.excluded ? 'Include peak' : 'Exclude peak';
     excludeBtn.innerHTML = peak.excluded
       ? '<i class="fa-solid fa-plus"></i> Include'
@@ -207,6 +213,24 @@ export const MapPopups = {
     });
     L.DomEvent.disableClickPropagation(input);
 
+    // mousedown preventDefault — WITHOUT this, clicking either button first
+    // moves focus away from the textarea, firing the textarea's own 'change'
+    // handler above and committing the label BEFORE the button's click
+    // handler runs its own commit, double-rebuilding the peak-marker layer
+    // (closing an already-stale marker on the second call) for what should
+    // be one commit. Keeping focus on the textarea suppresses that blur
+    // entirely — a click event still fires normally without the element
+    // taking focus.
+    L.DomEvent.on(saveBtn, 'mousedown', (e) => e.preventDefault());
+    L.DomEvent.on(saveBtn, 'click', () => {
+      // Same ordering reason as the Enter/Exclude handlers: closing after
+      // updatePeakLabel() would act on an already-discarded marker.
+      marker.closePopup();
+      Controllers.ui.updatePeakLabel(index, input.value, trackId);
+    });
+    L.DomEvent.disableClickPropagation(saveBtn);
+
+    L.DomEvent.on(excludeBtn, 'mousedown', (e) => e.preventDefault());
     L.DomEvent.on(excludeBtn, 'click', () => {
       // Same ordering reason as the Enter handler above: togglePeakExclusion()
       // rebuilds the peak-marker layer, so this marker must close its own

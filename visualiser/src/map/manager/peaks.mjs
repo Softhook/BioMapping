@@ -294,6 +294,13 @@ export const __protoMethods = {
     if (clickCallback) {
       marker.on('click', () => clickCallback(index));
     }
+
+    // Dim excluded hotspots the same way _renderPeakMarkers() dims excluded
+    // peak dots — a hotspot IS a peak (memorableEvents holds the same object
+    // references as analyzer.peaks), so excluding it must be visible here too.
+    if (peak.excluded) {
+      marker.setOpacity(0.35);
+    }
     return marker;
   },
 

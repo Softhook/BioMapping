@@ -231,7 +231,8 @@ function installRecordingLeaflet(window) {
       setZIndexOffset() {
         return this;
       },
-      setOpacity() {
+      setOpacity(value) {
+        this._opacity = value;
         return this;
       },
       setLatLng() {
@@ -1532,9 +1533,14 @@ test('updatePeakLabel (ui.js): commits a label via refreshPeakMarkers, not a ful
 });
 
 // ── togglePeakExclusion (ui.js) — Phase 6 step 2 ────────────────────────────
-// Same shape as the updatePeakLabel migration above: an exclusion toggle only
-// changes one peak marker's styling, so it should go through
-// refreshPeakMarkers() too, not a full renderData() rebuild.
+// Same shape as the updatePeakLabel migration above for path layers: an
+// exclusion toggle never touches path segments, so those still go through
+// refreshPeakMarkers() without a path rebuild. Hotspot layers are the one
+// exception — a hotspot star is the SAME peak object as its plain-peak
+// marker (analyzer.memorableEvents references analyzer.peaks), so excluding
+// a peak that's currently a hotspot must be reflected there too (dimmed,
+// like the plain peak dot), which requires rebuilding the hotspot layer
+// (see refreshPeakMarkers()'s opts.refreshHotspots).
 
 test('togglePeakExclusion (ui.js): commits via refreshPeakMarkers, not a full renderData() rebuild', async () => {
   const { window, mapManager } = await bootWithRecordingL();
@@ -1547,12 +1553,22 @@ test('togglePeakExclusion (ui.js): commits via refreshPeakMarkers, not a full re
   const hotspotBefore = before.filter((l) => l._gsrKind === 'hotspot');
   assert.ok(pathBefore.length > 0, 'fixture renders at least one path segment');
   assert.ok(hotspotBefore.length > 0, 'fixture renders at least one hotspot');
+  assert.ok(
+    hotspotBefore.every((m) => m._opacity === undefined),
+    'no hotspot starts dimmed before any exclusion',
+  );
 
-  const wasExcluded = track.analyzer.peaks[0].excluded;
-  window.GSRUI.togglePeakExclusion(0);
+  // Toggle exclusion on a peak that IS a hotspot — the case this rebuild
+  // exists for (see doc comment above): the plain peak dot and the hotspot
+  // star are the same underlying peak object.
+  const hotspotPeak = track.analyzer.memorableEvents[0];
+  assert.ok(hotspotPeak, 'fixture produces at least one hotspot event');
+  const hotspotIdx = track.analyzer.peaks.indexOf(hotspotPeak);
+  const wasExcluded = track.analyzer.peaks[hotspotIdx].excluded;
+  window.GSRUI.togglePeakExclusion(hotspotIdx);
 
   assert.strictEqual(
-    track.analyzer.peaks[0].excluded,
+    track.analyzer.peaks[hotspotIdx].excluded,
     !wasExcluded,
     'exclusion flag was actually flipped',
   );
@@ -1565,10 +1581,21 @@ test('togglePeakExclusion (ui.js): commits via refreshPeakMarkers, not a full re
     pathBefore,
     'toggling exclusion through the real ui.js path must not rebuild path layers',
   );
-  assert.deepStrictEqual(
+  assert.notDeepStrictEqual(
     hotspotAfter,
     hotspotBefore,
-    'toggling exclusion through the real ui.js path must not rebuild hotspot layers',
+    'toggling exclusion through the real ui.js path MUST rebuild hotspot layers, so an excluded hotspot stops showing as fully-included',
+  );
+  assert.strictEqual(
+    hotspotAfter.length,
+    hotspotBefore.length,
+    'hotspots are dimmed when excluded, not removed — same count as before',
+  );
+  const dimmed = hotspotAfter.filter((m) => m._opacity === 0.35);
+  assert.strictEqual(
+    dimmed.length,
+    1,
+    "exactly the newly-excluded peak's hotspot star is actually dimmed (not just rebuilt)",
   );
 });
 

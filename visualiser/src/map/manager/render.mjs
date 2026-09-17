@@ -187,19 +187,25 @@ export const __methods = {
    * case the existing cluster blobs are already correct and left untouched
    * — same reasoning as leaving path/hotspot layers alone.
    *
-   * @param {object} [options] – { skipClustering: bool }. Pass true only
-   *   when the caller's change is provably invisible to the Arousal Places
-   *   clusterer (GSRSpatialClustering.compactClusters() + GSRArousalPlaces
-   *   .buildPlaces() — lat/lon/amplitude per non-excluded peak plus phasic,
-   *   see _renderArousalPlacesFor()) — a label edit qualifies (ui.js:
-   *   updatePeakLabel()), an exclusion toggle does NOT (ui.js:
-   *   togglePeakExclusion() must omit this / pass false, since excluding a
-   *   peak changes the active-peak set). Found and added via real A/B
-   *   benchmarking (docs/archive/visualizer_rendering_perf_routes.md §2.4) —
-   *   clustering was ~33ms of a ~36ms single-track refresh, the reason this
-   *   method was only ~1.1x faster than a full renderData() rebuild for a
-   *   label edit despite already skipping path/hotspot work. (The compute is
-   *   now also fingerprint-cached — see _renderArousalPlacesFor.)
+   * @param {object} [options] – { skipClustering: bool, refreshHotspots: bool }.
+   *   skipClustering: true only when the caller's change is provably
+   *   invisible to the Arousal Places clusterer (GSRSpatialClustering
+   *   .compactClusters() + GSRArousalPlaces.buildPlaces() — lat/lon/amplitude
+   *   per non-excluded peak plus phasic, see _renderArousalPlacesFor()) — a
+   *   label edit qualifies (ui.js: updatePeakLabel()), an exclusion toggle
+   *   does NOT (ui.js: togglePeakExclusion() must omit this / pass false,
+   *   since excluding a peak changes the active-peak set). Found and added
+   *   via real A/B benchmarking (docs/archive/visualizer_rendering_perf_routes.md
+   *   §2.4) — clustering was ~33ms of a ~36ms single-track refresh, the
+   *   reason this method was only ~1.1x faster than a full renderData()
+   *   rebuild for a label edit despite already skipping path/hotspot work.
+   *   (The compute is now also fingerprint-cached — see
+   *   _renderArousalPlacesFor.)
+   *   refreshHotspots: true when the caller's change can flip whether a peak
+   *   should render as a hotspot star (a label edit can't; an exclusion
+   *   toggle can, since a hotspot IS a peak — see togglePeakExclusion()).
+   *   Defaults to false/omitted so a label edit keeps skipping the hotspot
+   *   rebuild.
    */
   refreshPeakMarkers(analyzer, gpsParams, options) {
     if (!this.map || !analyzer) return;
@@ -219,17 +225,33 @@ export const __methods = {
       this.clusterLayers = this._clearLayerGroup(this.clusterLayers);
     }
 
+    // 'hotspot' only joins the stripped/rebuilt kind set when the caller
+    // says so (opts.refreshHotspots) — a hotspot star is the same peak
+    // object as its plain-peak marker (analyzer.memorableEvents references
+    // analyzer.peaks), so an exclusion toggle must rebuild it too, or a
+    // stale hotspot marker survives on the map after its peak is excluded
+    // (togglePeakExclusion() passes refreshHotspots: true). A label edit
+    // can't change which peaks are hotspots, so it leaves this false and
+    // keeps skipping the hotspot rebuild, same as before.
+    const kinds = opts.refreshHotspots
+      ? new Set(['peak', 'connector', 'hotspot'])
+      : new Set(['peak', 'connector']);
+
     this._refreshTrackLayers(
       activeTrack,
-      new Set(['peak', 'connector']),
-      () =>
+      kinds,
+      () => {
         this._renderPeakMarkers(
           analyzer,
           analyzer.raw,
           p.peakLatency || 0,
           activeTrack,
           { skipClustering: !!opts.skipClustering },
-        ),
+        );
+        if (opts.refreshHotspots) {
+          this._renderHotspotMarkers(analyzer, p.peakLatency || 0, activeTrack);
+        }
+      },
       true,
     );
   },
