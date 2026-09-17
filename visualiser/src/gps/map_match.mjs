@@ -87,7 +87,17 @@ export const MapMatcher = {
     const n = evalPoints.length;
     if (n === 0) return new Map();
 
-    // ── 1. Build candidate lists ─────────────────────────────────────────
+    const allCands = this._collectAllCandidates(evalPoints, raw, radius);
+    const { V, B } = this._viterbiForward(evalPoints, raw, allCands);
+    const path = this._viterbiBacktrace(V, B, allCands);
+    return this._buildResultsMap(evalPoints, path, allCands, radius);
+  },
+
+  /**
+   * 1. Build candidate road segment lists for each evaluation point.
+   */
+  _collectAllCandidates(evalPoints, raw, radius) {
+    const n = evalPoints.length;
     const allCands = new Array(n);
     for (let i = 0; i < n; i++) {
       const pt = evalPoints[i];
@@ -103,22 +113,26 @@ export const MapMatcher = {
         courseDeg,
       );
     }
+    return allCands;
+  },
 
-    // ── 2. Viterbi forward pass (log-probabilities) ──────────────────────
-    // V[t] = Float64Array of log-probs for each candidate at time t.
-    // B[t] = Int32Array of backpointers into allCands[t-1].
+  /**
+   * 2. Viterbi forward pass (log-probabilities) across the sequence.
+   * V[t] = Float64Array of log-probs for each candidate at time t.
+   * B[t] = Int32Array of backpointers into allCands[t-1].
+   */
+  _viterbiForward(evalPoints, raw, allCands) {
+    const n = evalPoints.length;
     const V = new Array(n);
     const B = new Array(n);
 
     // Initialise from first point using emission only.
-    {
-      const c0 = allCands[0];
-      V[0] = new Float64Array(c0.length);
-      for (let j = 0; j < c0.length; j++) {
-        V[0][j] = this._logEmit(c0[j].dist, c0[j].bearingDiffRad);
-      }
-      B[0] = null;
+    const c0 = allCands[0];
+    V[0] = new Float64Array(c0.length);
+    for (let j = 0; j < c0.length; j++) {
+      V[0][j] = this._logEmit(c0[j].dist, c0[j].bearingDiffRad);
     }
+    B[0] = null;
 
     for (let t = 1; t < n; t++) {
       const prevCands = allCands[t - 1];
@@ -137,10 +151,10 @@ export const MapMatcher = {
       const tCurr = raw[evalPoints[t].idx]?.time || 0;
       const broken = tCurr - tPrev > this.MAX_GAP_S || prevCands.length === 0;
 
-      const gLat1 = evalPoints[t - 1].lat,
-        gLon1 = evalPoints[t - 1].lon;
-      const gLat2 = evalPoints[t].lat,
-        gLon2 = evalPoints[t].lon;
+      const gLat1 = evalPoints[t - 1].lat;
+      const gLon1 = evalPoints[t - 1].lon;
+      const gLat2 = evalPoints[t].lat;
+      const gLon2 = evalPoints[t].lon;
 
       const vCurr = new Float64Array(currCands.length);
       const bCurr = new Int32Array(currCands.length).fill(-1);
@@ -179,7 +193,7 @@ export const MapMatcher = {
         }
 
         // If no valid predecessor was found (all vPrev[i] were non-finite
-        // or prevCands was empty), restart from emission alone.  bestPrev
+        // or prevCands was empty), restart from emission alone. bestPrev
         // stays −1 so the backtrace detects the broken chain correctly.
         vCurr[j] = (bestPrev >= 0 ? bestScore : 0) + logE;
         bCurr[j] = bestPrev;
@@ -189,22 +203,27 @@ export const MapMatcher = {
       B[t] = bCurr;
     }
 
-    // ── 3. Backtrace ─────────────────────────────────────────────────────
+    return { V, B };
+  },
+
+  /**
+   * 3. Backtrace through backpointers to find the most probable sequence.
+   */
+  _viterbiBacktrace(V, B, allCands) {
+    const n = V.length;
     const path = new Int32Array(n).fill(-1);
 
     // Best candidate at the last time step.
-    {
-      const vLast = V[n - 1];
-      let best = -1,
-        bestV = -Infinity;
-      for (let j = 0; j < vLast.length; j++) {
-        if (vLast[j] > bestV) {
-          bestV = vLast[j];
-          best = j;
-        }
+    const vLast = V[n - 1];
+    let best = -1;
+    let bestV = -Infinity;
+    for (let j = 0; j < vLast.length; j++) {
+      if (vLast[j] > bestV) {
+        bestV = vLast[j];
+        best = j;
       }
-      path[n - 1] = best;
     }
+    path[n - 1] = best;
 
     for (let t = n - 2; t >= 0; t--) {
       const nextIdx = path[t + 1];
@@ -218,22 +237,29 @@ export const MapMatcher = {
         bArr[nextIdx] < 0 ||
         allCands[t + 1].length === 0
       ) {
-        let best = -1,
-          bestV = -Infinity;
+        let bestCandidate = -1;
+        let bestCandidateScore = -Infinity;
         const vt = V[t];
         for (let j = 0; j < vt.length; j++) {
-          if (vt[j] > bestV) {
-            bestV = vt[j];
-            best = j;
+          if (vt[j] > bestCandidateScore) {
+            bestCandidateScore = vt[j];
+            bestCandidate = j;
           }
         }
-        path[t] = best;
+        path[t] = bestCandidate;
       } else {
         path[t] = bArr[nextIdx];
       }
     }
 
-    // ── 4. Build result map (raw-array index → snapped position) ─────────
+    return path;
+  },
+
+  /**
+   * 4. Build result map (raw-array index → snapped position).
+   */
+  _buildResultsMap(evalPoints, path, allCands, radius) {
+    const n = evalPoints.length;
     const results = new Map();
 
     for (let t = 0; t < n; t++) {
@@ -281,9 +307,6 @@ export const MapMatcher = {
    * distance (nearest road-class-adjusted segment first).
    */
   _getCandidates(lat, lon, nearby, radiusM, speedMs, courseDeg) {
-    const _cosLat = Math.cos((lat * Math.PI) / 180);
-    const _MDEG = 111320;
-
     const candidates = [];
 
     for (const geom of nearby) {
