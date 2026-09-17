@@ -436,11 +436,14 @@ export const __methods = {
       });
       this.clusterEntities.push(fillEnt);
 
-      // The dashed outline is NOT clamp-to-ground: a ground polyline and the
+      // The outline is NOT clamp-to-ground: a ground polyline and the
       // ClassificationType fill resolve depth in different passes and shimmer
       // where they coincide. Lift it a few cm above the surface instead — over
       // the sampled terrain height when Cesium World Terrain is on, else 0
       // (the flat ellipsoid the rest of the 3D scene is built against).
+      // Solid colour, not PolylineDashMaterialProperty: Cesium recomputes the
+      // dash pattern relative to the camera every frame, which reads as the
+      // outline crawling whenever the camera moves.
       const groundH = this._groundHeightAt(
         sumLat / ring.length,
         sumLon / ring.length,
@@ -455,10 +458,7 @@ export const __methods = {
         polyline: {
           positions: Cesium.Cartesian3.fromDegreesArrayHeights(outFlat),
           width: 2.0,
-          material: new Cesium.PolylineDashMaterialProperty({
-            color: baseColor.withAlpha(0.9),
-            dashLength: 12.0,
-          }),
+          material: baseColor.withAlpha(0.9),
         },
       });
       this.clusterEntities.push(outlineEnt);
