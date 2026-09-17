@@ -164,7 +164,7 @@ Debug-only appended columns when enabled:
 - `i2c_peak_ms`, `rf_rssi_peak_ms`, `rf_retune_peak_ms`
 - `flush_peak_ms`, `log_fill_bytes`, `log_fill_peak_bytes`, `log_overflow_count`, `log_flush_fail_count`
 - `pga_change_count`, `i2c_consec_fail` (all GSR-bearing modes, including GSR-only)
-- `prealloc_ms` (all three variants) — one-shot SD log-file pre-allocation duration at recording start, session-constant rather than a lifetime-max like the columns above (`BIOMAP_SD_PREALLOC`, see `docs/archive/gps_rf_mutex_status.md`'s "option E" entries)
+- `prealloc_ms` (all three variants) — one-shot SD log-file pre-allocation duration at recording start, session-constant rather than a lifetime-max like the columns above (`BIOMAP_SD_PREALLOC`)
 
 ### Debug Column Definitions
 
@@ -271,10 +271,10 @@ Defined in `modules/gsr_sensor.h` as `GSR_VALID_MIN_NS` and `GSR_VALID_MAX_NS`.
 | 1.2 | 2026-07 | Added `hacc_m` (M10Q-only physical accuracy in meters, `$PUBX,00`); total 11 columns |
 | 1.3 | 2026-07 | Added SubGHz RF columns (`rssi_815/868/915` & `rssi_peak_815/868/915`) for `GPS+GSR+RF` mode; total 17 columns |
 | 1.4 | 2026-07 | Removed `rssi_peak_815/868/915` (decaying peak-hold) — redundant with raw RSSI for offline analysis; total 14 columns |
-| 1.5 | 2026-08-05 | Debug-field review (see `docs/archive/gps_rf_mutex_status.md`): added `gps_reinit_count` (GPS-bearing debug modes) and `pga_change_count`/`i2c_consec_fail` (all GSR-bearing debug modes) — promoted from serial-only/Diagnostics-screen-only readings that never reached the CSV. No production (non-debug) column changes. |
+| 1.5 | 2026-08-05 | Debug-field review: added `gps_reinit_count` (GPS-bearing debug modes) and `pga_change_count`/`i2c_consec_fail` (all GSR-bearing debug modes) — promoted from serial-only/Diagnostics-screen-only readings that never reached the CSV. No production (non-debug) column changes. |
 | 1.6 | 2026-08-05 | `BIOMAP_DEBUG_FIELDS` compile-time switch replaced with a persisted runtime Options-menu toggle (`BioMapApp::debug_fields_enabled`, Options > Debug Fields), off by default. No column-list changes — same debug columns as 1.5, just switchable per-session without a rebuild. |
-| 1.7 | 2026-08-05 | Added `prealloc_ms` (all three debug variants) alongside `BIOMAP_SD_PREALLOC` — see `docs/archive/gps_rf_mutex_status.md`. Also: the metadata header's old `# BioMapping v1.0` / `# GPS:<module>` lines don't reflect the current format — corrected above to `# RecordingStartTime:` + conditional `# Band Floors` line. |
-| 1.8 | 2026-08-28 | Doc sync, no column changes: documented the `# GSR Calibration: gain:…,offset:…` metadata line (emitted since custom GSR calibration shipped) and corrected the metadata-header order to match `biomap_session.c`. Post-processing enrichment columns (`osm_*`, snapped GPS) are appended by the visualiser, not the firmware writer — see [`environmental_enrichment_plan.md`](environmental_enrichment_plan.md). |
+| 1.7 | 2026-08-05 | Added `prealloc_ms` (all three debug variants) alongside `BIOMAP_SD_PREALLOC`. Also: corrected metadata header format to `# RecordingStartTime:` + conditional `# Band Floors` line. |
+| 1.8 | 2026-08-28 | Doc sync, no column changes: documented the `# GSR Calibration: gain:…,offset:…` metadata line (emitted since custom GSR calibration shipped) and corrected the metadata-header order to match `biomap_session.c`. Post-processing enrichment columns (`osm_*`, snapped GPS) are appended by the visualiser, not the firmware writer. |
 | 1.9 | 2026-08-30 | Added the **Integrity Bracket** (see section above): a `# Integrity: crc32 v1` marker as the first line of every file and a `# End rows:… bytes:… crc32:… [end_time:…] overflows:… flush_fails:…` trailer written on clean stop. No data-column changes. The visualiser verifies it on import and shows a per-track status tick. |
 | 1.10 | 2026-09-16 | The calibration wizard's 3-step resistor ladder now doubles as a pre-flight noise/resolution check (per-resistor σ via a Welford accumulator over a 20 s dwell, gated against `CAL_NOISE_ACCEPTABLE_NS`); `# GSR Calibration` gained `r2:<float>,noise_ns:<float>,<float>,<float>` so a recording's fit goodness and noise floor are real reportable numbers, not just the wizard's Excellent/Acceptable/Poor label. No data-column changes. |
 

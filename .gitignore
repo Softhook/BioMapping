@@ -8,6 +8,7 @@ __pycache__/
 .env.local
 config.local.js
 /tracks
+/research/
 build/
 dist/
 node_modules/
