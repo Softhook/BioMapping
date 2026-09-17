@@ -463,6 +463,60 @@ test('360° orbit lowers render resolution for its duration, restores the normal
   mgr.destroy();
 });
 
+test('setAutoCameraSpeed scales the 360° orbit rotation rate per tick', () => {
+  const { viewer } = freshEnv();
+  viewer.camera = { heading: 0, lookAt() {}, lookAtTransform() {} };
+  global.Cesium.Cartesian3 = { distance: () => 1000 };
+  global.Cesium.Math = { toRadians: (d) => (d * Math.PI) / 180 };
+  // Spy on HeadingPitchRange to read each tick's resulting heading — orbitStep
+  // holds `heading` as a local closure variable, so this is the only way to
+  // observe the per-tick increment from outside.
+  const hprCalls = [];
+  global.Cesium.HeadingPitchRange = function (heading) {
+    hprCalls.push(heading);
+  };
+
+  let tick = null;
+  viewer.clock = {
+    onTick: {
+      addEventListener: (cb) => {
+        tick = cb;
+        return () => {};
+      },
+    },
+  };
+
+  const { GSRGlobeManager } = loadFresh();
+  const mgr = new GSRGlobeManager('c', { keyboardFlight: false });
+  mgr.currentDrawPoints = [
+    { lon: 0, lat: 0, time: 0, origIdx: 0 },
+    { lon: 0.01, lat: 0.01, time: 1, origIdx: 1 },
+  ];
+
+  mgr.startOrbit();
+  assert.strictEqual(typeof tick, 'function', 'orbit tick captured');
+
+  tick();
+  tick();
+  assert.strictEqual(hprCalls.length, 2);
+  const defaultStep = hprCalls[1] - hprCalls[0];
+  assert.ok(
+    Math.abs(defaultStep - 0.003) < 1e-9,
+    `default per-tick heading step is 0.003 rad (got ${defaultStep})`,
+  );
+
+  mgr.setAutoCameraSpeed(2.0); // Up-arrow shortcut's effect, live mid-orbit
+  tick();
+  const fastStep = hprCalls[2] - hprCalls[1];
+  assert.ok(
+    Math.abs(fastStep - 0.006) < 1e-9,
+    `2x speed doubles the per-tick heading step (got ${fastStep})`,
+  );
+
+  mgr.stopOrbit();
+  mgr.destroy();
+});
+
 test('renderData needs host-supplied drawPoints — it never runs a GPS chain', () => {
   freshEnv();
   const { GSRGlobeManager } = loadFresh();
@@ -2022,6 +2076,251 @@ test('camera heading for a tour step depends only on the live camera heading, ne
   );
 
   mgr.destroy();
+});
+
+test('pauseTour freezes the tour during its dwell pause; resumeTour re-flies the same waypoint', () => {
+  freshEnv();
+  const { GSRGlobeManager } = loadFresh();
+  const mgr = new GSRGlobeManager('c', { keyboardFlight: false });
+
+  const peakEarly = { index: 5, time: 5, onsetTime: 2, amplitude: 1.0 };
+  const peakLate = { index: 20, time: 40, onsetTime: 36, amplitude: 2.0 };
+  const { drawPoints, analyzer } = hotspotTourFixture(30, [
+    peakEarly,
+    peakLate,
+  ]);
+  mgr.currentDrawPoints = drawPoints;
+  mgr.currentAnalyzer = analyzer;
+  mgr.currentPeaks = analyzer.peaks;
+  mgr.heightMetric = 'phasic';
+  mgr.extrusionScale = 10;
+  mgr.baseHeight = 2;
+
+  const flights = [];
+  mgr.viewer.camera.flyTo = (opts) => flights.push(opts);
+  mgr.onTourStep(() => {});
+
+  mgr.startTour();
+  assert.strictEqual(flights.length, 1);
+  flights[0].complete(); // flight lands, dwell timer armed
+  assert.ok(mgr._tourStepTimeout !== null);
+
+  mgr.pauseTour();
+  assert.strictEqual(
+    mgr._isTouring,
+    true,
+    'pause keeps the tour session alive',
+  );
+  assert.strictEqual(mgr._isPaused, true);
+  assert.strictEqual(mgr._tourStepTimeout, null, 'dwell timer cleared');
+  assert.strictEqual(flights.length, 1, 'no new flight issued just by pausing');
+
+  // Pausing again while already paused is a no-op.
+  mgr.pauseTour();
+  assert.strictEqual(mgr._isPaused, true);
+
+  mgr.resumeTour();
+  assert.strictEqual(mgr._isPaused, false);
+  assert.strictEqual(mgr._isTouring, true);
+  assert.strictEqual(flights.length, 2, 'resume re-flies the same waypoint');
+  assert.strictEqual(
+    mgr._tourStepIndex,
+    0,
+    'still the same waypoint, not advanced',
+  );
+
+  // Resuming again while not paused is a no-op.
+  mgr.resumeTour();
+  assert.strictEqual(flights.length, 2);
+
+  mgr.stopTour();
+  mgr.destroy();
+});
+
+test('toggleTourPause cancels an in-flight camera move without stopping the tour; a genuinely external cancel still stops it', () => {
+  freshEnv();
+  const { GSRGlobeManager } = loadFresh();
+  const mgr = new GSRGlobeManager('c', { keyboardFlight: false });
+
+  const peak = { index: 5, time: 5, onsetTime: 2, amplitude: 1.0 };
+  const { drawPoints, analyzer } = hotspotTourFixture(10, [peak]);
+  mgr.currentDrawPoints = drawPoints;
+  mgr.currentAnalyzer = analyzer;
+  mgr.currentPeaks = analyzer.peaks;
+  mgr.heightMetric = 'phasic';
+  mgr.extrusionScale = 10;
+  mgr.baseHeight = 2;
+
+  const flights = [];
+  // Mirror real Cesium: camera.cancelFlight() synchronously invokes the
+  // pending flight's own `cancel` callback.
+  mgr.viewer.camera.flyTo = (opts) => flights.push(opts);
+  mgr.viewer.camera.cancelFlight = () => {
+    const last = flights[flights.length - 1];
+    if (last?.cancel) last.cancel();
+  };
+  mgr.onTourStep(() => {});
+
+  mgr.startTour();
+  assert.strictEqual(flights.length, 1);
+
+  // Deliberate pause mid-flight: cancels the flight, but the tour survives.
+  mgr.toggleTourPause();
+  assert.strictEqual(mgr._isPaused, true);
+  assert.strictEqual(
+    mgr._isTouring,
+    true,
+    'a deliberate pause does not stop the tour',
+  );
+
+  mgr.toggleTourPause(); // resume
+  assert.strictEqual(mgr._isPaused, false);
+  assert.strictEqual(flights.length, 2, 'resume re-issued a flight');
+
+  // A genuinely external interruption (not routed through pause/jump) still
+  // stops the tour exactly as it did before pause/jump existed.
+  flights[1].cancel();
+  assert.strictEqual(
+    mgr._isTouring,
+    false,
+    'an external cancel still stops the tour',
+  );
+
+  mgr.destroy();
+});
+
+test('tourNext/tourPrevious jump directly between tour waypoints, clamp at the ends, and implicitly un-pause', () => {
+  freshEnv();
+  const { GSRGlobeManager } = loadFresh();
+  const mgr = new GSRGlobeManager('c', { keyboardFlight: false });
+
+  const peaks = [
+    { index: 5, time: 5, onsetTime: 2, amplitude: 1.0 },
+    { index: 15, time: 15, onsetTime: 12, amplitude: 1.0 },
+    { index: 25, time: 25, onsetTime: 22, amplitude: 1.0 },
+  ];
+  const { drawPoints, analyzer } = hotspotTourFixture(30, peaks);
+  mgr.currentDrawPoints = drawPoints;
+  mgr.currentAnalyzer = analyzer;
+  mgr.currentPeaks = analyzer.peaks;
+  mgr.heightMetric = 'phasic';
+  mgr.extrusionScale = 10;
+  mgr.baseHeight = 2;
+
+  const flights = [];
+  mgr.viewer.camera.flyTo = (opts) => flights.push(opts);
+  mgr.viewer.camera.cancelFlight = () => {
+    const last = flights[flights.length - 1];
+    if (last?.cancel) last.cancel();
+  };
+  mgr.onTourStep(() => {});
+
+  // Not touring yet -> no-op.
+  mgr.tourNext();
+  assert.strictEqual(flights.length, 0);
+
+  mgr.startTour();
+  assert.strictEqual(mgr._tourStepIndex, 0);
+  assert.strictEqual(flights.length, 1);
+
+  mgr.tourNext();
+  assert.strictEqual(mgr._tourStepIndex, 1);
+  assert.strictEqual(flights.length, 2);
+  assert.strictEqual(mgr._isTouring, true, 'jumping does not stop the tour');
+
+  mgr.tourNext();
+  assert.strictEqual(mgr._tourStepIndex, 2);
+  assert.strictEqual(flights.length, 3);
+
+  // Already at the last waypoint -> clamped, no new flight.
+  mgr.tourNext();
+  assert.strictEqual(mgr._tourStepIndex, 2);
+  assert.strictEqual(flights.length, 3);
+
+  mgr.tourPrevious();
+  assert.strictEqual(mgr._tourStepIndex, 1);
+  assert.strictEqual(flights.length, 4);
+
+  // Pause, then jump — a manual jump should implicitly resume.
+  mgr.pauseTour();
+  assert.strictEqual(mgr._isPaused, true);
+  mgr.tourPrevious();
+  assert.strictEqual(
+    mgr._isPaused,
+    false,
+    'a manual jump implicitly un-pauses',
+  );
+  assert.strictEqual(mgr._tourStepIndex, 0);
+
+  // Already at the first waypoint -> clamped.
+  mgr.tourPrevious();
+  assert.strictEqual(mgr._tourStepIndex, 0);
+
+  mgr.stopTour();
+  mgr.destroy();
+});
+
+test('setAutoCameraSpeed clamps to [0.25x, 4x] and scales tour flight duration inversely', () => {
+  freshEnv();
+  const { GSRGlobeManager } = loadFresh();
+  const mgr = new GSRGlobeManager('c', { keyboardFlight: false });
+
+  assert.strictEqual(mgr._autoCameraSpeed, 1.0, 'default speed is 1x');
+  assert.strictEqual(mgr.setAutoCameraSpeed(1.25), 1.25);
+  assert.strictEqual(mgr.setAutoCameraSpeed(1.25), 1.56); // 1.25*1.25=1.5625 -> 2dp
+
+  mgr._autoCameraSpeed = 10; // force past the ceiling to prove it clamps down
+  assert.strictEqual(
+    mgr.setAutoCameraSpeed(1),
+    4.0,
+    'clamps to the 4x ceiling',
+  );
+  mgr._autoCameraSpeed = 0.01;
+  assert.strictEqual(
+    mgr.setAutoCameraSpeed(1),
+    0.25,
+    'clamps to the 0.25x floor',
+  );
+  mgr.destroy();
+
+  // Flight duration scales inversely with speed — compared as a ratio
+  // against a matching default-speed run, rather than a hardcoded absolute
+  // value, so this doesn't hinge on one fixture's incidental turn-floor
+  // geometry (see _chooseTourShot's turn-duration floor).
+  const runAt = (speed) => {
+    freshEnv();
+    const { GSRGlobeManager: GM } = loadFresh();
+    const m = new GM('c', { keyboardFlight: false });
+    const peak = { index: 5, time: 5, onsetTime: 2, amplitude: 1.0 };
+    const { drawPoints, analyzer } = hotspotTourFixture(10, [peak]);
+    m.currentDrawPoints = drawPoints;
+    m.currentAnalyzer = analyzer;
+    m.currentPeaks = analyzer.peaks;
+    m.heightMetric = 'phasic';
+    m.extrusionScale = 10;
+    m.baseHeight = 2;
+    m._autoCameraSpeed = speed;
+    const flights = [];
+    m.viewer.camera.flyTo = (opts) => flights.push(opts);
+    m.onTourStep(() => {});
+    m.startTour();
+    m.stopTour();
+    m.destroy();
+    return flights[0].duration;
+  };
+
+  const normal = runAt(1.0);
+  const fast = runAt(2.0);
+  assert.ok(
+    Math.abs(fast - normal / 2) < 1e-9,
+    `2x speed halves the flight duration (normal=${normal}, fast=${fast})`,
+  );
+
+  const slow = runAt(0.5);
+  assert.ok(
+    Math.abs(slow - normal / 0.5) < 1e-9,
+    `0.5x speed doubles the flight duration (normal=${normal}, slow=${slow})`,
+  );
 });
 
 /** Shared fixture for the obstruction-vs-turn side-selection tests below. */

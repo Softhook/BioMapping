@@ -1088,6 +1088,160 @@ test('Tour button in 3D camera controls toggles manager tour and updates UI', as
   V.isActive = false;
 });
 
+// ── 3D globe keyboard shortcuts ─────────────────────────────────────────────
+
+test('Space toggles tour pause/resume via keyboard, updating the tour button and cancelling the graph tween on pause', async () => {
+  const { window } = await bootApp();
+  window.setup();
+  const V = window.GSRGlobe3DView;
+  const doc = window.document;
+  const btnTour = doc.getElementById('g3dBtnTour');
+
+  let toggleCalls = 0;
+  V.manager = {
+    _isTouring: true,
+    _isPaused: false,
+    _isOrbiting: false,
+    toggleTourPause() {
+      toggleCalls++;
+      this._isPaused = !this._isPaused;
+    },
+  };
+  V.isActive = true;
+
+  let tweenCancels = 0;
+  const realCancel = V._cancelGraphTween;
+  V._cancelGraphTween = () => {
+    tweenCancels++;
+  };
+
+  const space = () =>
+    doc.dispatchEvent(new window.KeyboardEvent('keydown', { key: ' ' }));
+
+  space();
+  assert.strictEqual(toggleCalls, 1);
+  assert.strictEqual(V.manager._isPaused, true);
+  assert.strictEqual(tweenCancels, 1, 'pausing cancels the graph tween');
+  assert.match(btnTour.innerHTML, /fa-play/, 'paused shows a play/resume icon');
+  assert.strictEqual(btnTour.title, 'Resume Tour (Space)');
+
+  space();
+  assert.strictEqual(toggleCalls, 2);
+  assert.strictEqual(V.manager._isPaused, false);
+  assert.strictEqual(tweenCancels, 1, 'resuming does not re-cancel the tween');
+  assert.match(btnTour.innerHTML, /fa-pause/, 'resumed shows the pause icon');
+  assert.strictEqual(btnTour.title, 'Pause Tour');
+
+  V._cancelGraphTween = realCancel;
+  V.manager = null;
+  V.isActive = false;
+});
+
+test('3D globe keyboard shortcuts: Space/arrows are no-ops with no tour running, while typing, or while the 2D map is showing', async () => {
+  const { window } = await bootApp();
+  window.setup();
+  const V = window.GSRGlobe3DView;
+  const doc = window.document;
+
+  let calls = 0;
+  V.manager = {
+    _isTouring: false,
+    _isPaused: false,
+    _isOrbiting: false,
+    toggleTourPause: () => calls++,
+    tourPrevious: () => calls++,
+    tourNext: () => calls++,
+    setAutoCameraSpeed: () => calls++,
+  };
+
+  const dispatch = (key, target) =>
+    (target || doc).dispatchEvent(
+      new window.KeyboardEvent('keydown', { key, bubbles: true }),
+    );
+
+  // Nothing running (not touring, not orbiting) — every key is a no-op.
+  V.isActive = true;
+  for (const key of [' ', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown']) {
+    dispatch(key);
+  }
+  assert.strictEqual(calls, 0, 'no-op while idle (no tour/orbit running)');
+
+  // A tour/orbit IS running, but the 2D map is showing (isActive false).
+  V.manager._isTouring = true;
+  V.isActive = false;
+  dispatch(' ');
+  dispatch('ArrowLeft');
+  assert.strictEqual(
+    calls,
+    0,
+    'no-op while the 3D globe is not the active surface',
+  );
+
+  // Running AND active, but focus is in a text field.
+  V.isActive = true;
+  const ta = doc.createElement('textarea');
+  doc.body.appendChild(ta);
+  dispatch(' ', ta);
+  dispatch('ArrowRight', ta);
+  assert.strictEqual(calls, 0, 'no-op while typing into a text field');
+  ta.remove();
+
+  // Sanity check the mock is actually wired: same keys now fire for real.
+  dispatch(' ');
+  assert.strictEqual(calls, 1);
+
+  V.manager = null;
+  V.isActive = false;
+});
+
+test('ArrowLeft/ArrowRight jump between tour hotspots; ArrowUp/ArrowDown adjust speed for either a tour or an orbit', async () => {
+  const { window } = await bootApp();
+  window.setup();
+  const V = window.GSRGlobe3DView;
+  const doc = window.document;
+
+  const calls = [];
+  V.manager = {
+    _isTouring: true,
+    _isPaused: false,
+    _isOrbiting: false,
+    tourPrevious: () => calls.push('prev'),
+    tourNext: () => calls.push('next'),
+    setAutoCameraSpeed: (factor) => calls.push(factor),
+  };
+  V.isActive = true;
+
+  const dispatch = (key) =>
+    doc.dispatchEvent(new window.KeyboardEvent('keydown', { key }));
+
+  dispatch('ArrowRight');
+  dispatch('ArrowLeft');
+  assert.deepStrictEqual(calls, ['next', 'prev']);
+
+  dispatch('ArrowUp');
+  assert.strictEqual(calls.at(-1) > 1, true, 'ArrowUp speeds up (factor > 1)');
+
+  dispatch('ArrowDown');
+  assert.strictEqual(
+    calls.at(-1) < 1,
+    true,
+    'ArrowDown slows down (factor < 1)',
+  );
+
+  // Up/Down also work for a running orbit even with no tour active.
+  calls.length = 0;
+  V.manager._isTouring = false;
+  V.manager._isOrbiting = true;
+  dispatch('ArrowUp');
+  assert.strictEqual(calls.length, 1, 'ArrowUp also drives orbit speed');
+  // Left/Right stay tour-only — orbiting alone does not enable hotspot jumps.
+  dispatch('ArrowLeft');
+  assert.strictEqual(calls.length, 1, 'ArrowLeft is a no-op for a plain orbit');
+
+  V.manager = null;
+  V.isActive = false;
+});
+
 test('collective mode switches active 3D globe surface back to 2D map and prevents 3D globe activation', async () => {
   const { window } = await bootApp();
   window.setup();

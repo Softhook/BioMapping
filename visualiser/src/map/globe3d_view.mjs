@@ -123,6 +123,74 @@ export const GSRGlobe3DView = {
       // it to the 2D map). A 'graph'-sourced scrub also drives the follow-cam.
       AppState.on('scrub', (p) => GSRGlobe3DView._onScrub(p));
     }
+
+    // Document-level, bound once for the page's lifetime — same pattern as
+    // layout_manager.mjs's setupKeyboardShortcuts() and live_view.mjs's
+    // bindLiveKeyboardShortcuts(), so no teardown is needed here either.
+    document.addEventListener('keydown', GSRGlobe3DView._onKeyDown);
+  },
+
+  // ── Keyboard shortcuts (3D globe only) ────────────────────────────────────
+
+  /**
+   * Every keyboard shortcut scoped to the 3D globe lives here, in one place,
+   * rather than spread across GSRGlobeManager. That's also why the manager's
+   * own WASD/arrow keyboardFlight is constructed with keyboardFlight:false
+   * (see activate() below) — this controller owns every key binding for the
+   * embedded globe, so there's no risk of two handlers fighting over the
+   * same arrow key.
+   *
+   *   Space        pause / resume the running tour
+   *   ArrowLeft    jump to the previous tour hotspot
+   *   ArrowRight   jump to the next tour hotspot
+   *   ArrowUp      speed up (tour dwell/flight, or a running 360° orbit)
+   *   ArrowDown    slow down (same)
+   *
+   * Each binding is a no-op unless the 3D globe is the active surface, the
+   * user isn't typing into a text field, and (for every key here) the
+   * relevant thing — a tour, or for Up/Down an orbit too — is actually
+   * running; there is deliberately no "idle" behaviour (e.g. Left/Right
+   * kicking off a tour from a standstill).
+   */
+  _onKeyDown(e) {
+    if (!GSRGlobe3DView.isActive) return;
+    const tag = e.target?.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+    const mgr = GSRGlobe3DView.manager;
+    if (!mgr) return;
+
+    switch (e.key) {
+      case ' ':
+      case 'Spacebar': // older browsers
+        if (!mgr._isTouring) return;
+        e.preventDefault();
+        mgr.toggleTourPause();
+        if (mgr._isPaused) GSRGlobe3DView._cancelGraphTween();
+        GSRGlobe3DView._updateTourBtn(true, mgr._isPaused);
+        break;
+      case 'ArrowLeft':
+        if (!mgr._isTouring) return;
+        e.preventDefault();
+        mgr.tourPrevious();
+        break;
+      case 'ArrowRight':
+        if (!mgr._isTouring) return;
+        e.preventDefault();
+        mgr.tourNext();
+        break;
+      case 'ArrowUp':
+        if (!mgr._isTouring && !mgr._isOrbiting) return;
+        e.preventDefault();
+        mgr.setAutoCameraSpeed(1.25);
+        break;
+      case 'ArrowDown':
+        if (!mgr._isTouring && !mgr._isOrbiting) return;
+        e.preventDefault();
+        mgr.setAutoCameraSpeed(1 / 1.25);
+        break;
+      default:
+        return;
+    }
   },
 
   // ── Scrub sync (2D graph <-> 3D globe) ────────────────────────────────────
@@ -398,16 +466,27 @@ export const GSRGlobe3DView = {
       });
   },
 
-  _updateTourBtn(isTouring) {
+  /**
+   * `isPaused` only matters while `isTouring` is true — it reflects the
+   * Space-bar pause/resume shortcut, not the button's own click behaviour
+   * (clicking the button always fully stops/restarts the tour via
+   * toggleTour(), regardless of pause state).
+   */
+  _updateTourBtn(isTouring, isPaused) {
     const btn = GSRGlobe3DView.els
       ? GSRGlobe3DView.els.btnTour
       : document.getElementById('g3dBtnTour');
     if (!btn) return;
     btn.classList.toggle('active', !!isTouring);
-    btn.innerHTML = isTouring
-      ? '<i class="fa-solid fa-pause"></i>'
-      : '<i class="fa-solid fa-route"></i>';
-    btn.title = isTouring ? 'Pause Tour' : 'Tour';
+    if (isTouring && isPaused) {
+      btn.innerHTML = '<i class="fa-solid fa-play"></i>';
+      btn.title = 'Resume Tour (Space)';
+    } else {
+      btn.innerHTML = isTouring
+        ? '<i class="fa-solid fa-pause"></i>'
+        : '<i class="fa-solid fa-route"></i>';
+      btn.title = isTouring ? 'Pause Tour' : 'Tour';
+    }
   },
 
   /**

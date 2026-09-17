@@ -328,11 +328,89 @@ export const __methods = {
     if (this._tourWaypoints.length === 0) return;
 
     this._isTouring = true;
+    this._isPaused = false;
     this._tourStepIndex = 0;
     this._tourLastSide = null;
     this._wakeRenderLoop();
 
     this._executeTourStep(0);
+  },
+
+  /**
+   * Pause the running tour: freezes the camera exactly where it is right now
+   * (cancelling any in-flight camera.flyTo, or clearing a pending dwell
+   * timer) without losing tour progress. resumeTour() continues from the
+   * same waypoint. No-op unless a tour is actually running and not already
+   * paused. The Space-bar shortcut's pause half (see toggleTourPause).
+   */
+  pauseTour() {
+    if (!this._isTouring || this._isPaused) return;
+    this._isPaused = true;
+    if (this._tourStepTimeout) {
+      clearTimeout(this._tourStepTimeout);
+      this._tourStepTimeout = null;
+    }
+    this._cancelTourFlight();
+  },
+
+  /**
+   * Resume a paused tour from the same waypoint it was frozen at — re-flies
+   * from wherever the camera currently sits onto that waypoint's shot and
+   * re-enters the normal dwell/advance chain from there. No-op unless the
+   * tour is actually paused. The Space-bar shortcut's resume half.
+   */
+  resumeTour() {
+    if (!this._isTouring || !this._isPaused) return;
+    this._isPaused = false;
+    this._executeTourStep(this._tourStepIndex);
+  },
+
+  /** Toggle pause/resume — the Space-bar shortcut's entry point. */
+  toggleTourPause() {
+    if (this._isPaused) this.resumeTour();
+    else this.pauseTour();
+    return this._isPaused;
+  },
+
+  /**
+   * Jump straight to the next/previous tour waypoint (Left/Right-arrow
+   * shortcuts), cancelling whatever the camera is currently doing and
+   * implicitly un-pausing. No wraparound — a step past either end is simply
+   * a no-op, so repeatedly pressing the arrow at the first/last hotspot just
+   * stays put rather than looping.
+   */
+  tourNext() {
+    this._jumpToTourStep(this._tourStepIndex + 1);
+  },
+  tourPrevious() {
+    this._jumpToTourStep(this._tourStepIndex - 1);
+  },
+
+  _jumpToTourStep(stepIdx) {
+    if (!this._isTouring) return;
+    if (stepIdx < 0 || stepIdx >= this._tourWaypoints.length) return;
+    if (this._tourStepTimeout) {
+      clearTimeout(this._tourStepTimeout);
+      this._tourStepTimeout = null;
+    }
+    this._isPaused = false;
+    this._cancelTourFlight();
+    this._executeTourStep(stepIdx);
+  },
+
+  /**
+   * Cancel whatever camera.flyTo the tour currently has in flight, without
+   * letting that flight's own `cancel` callback (see _executeTourStep) treat
+   * the interruption as an externally-stopped tour — pause/jump navigation
+   * cancels flights on purpose and wants tour state to survive it. A no-op
+   * (nothing in flight, or no flight to cancel) is harmless: Cesium simply
+   * ignores cancelFlight() when idle.
+   */
+  _cancelTourFlight() {
+    if (typeof this.viewer?.camera?.cancelFlight !== 'function') return;
+    this._tourManualInterrupt = true;
+    this.viewer.camera.cancelFlight();
+    this._tourManualInterrupt = false;
   },
 
   /**
@@ -581,6 +659,11 @@ export const __methods = {
       flightDuration,
       turnCost / MAX_TURN_RATE_RAD_PER_SEC,
     );
+    // Up/Down speed shortcuts (globe3d_view.mjs) — applied last so they scale
+    // the whole flight uniformly, turn-duration floor included. Only takes
+    // effect from this hop onward; Cesium can't retarget an in-flight
+    // duration, so a speed change mid-flight lands on the NEXT waypoint.
+    flightDuration = flightDuration / (this._autoCameraSpeed || 1.0);
 
     // Notify listeners (scrub sync / GSR graph pan, in sync with the flight) —
     // after flightDuration's final value so the graph tween runs the same
@@ -630,8 +713,10 @@ export const __methods = {
       duration: flightDuration,
       complete: () => {
         if (!this._isTouring) return;
-        // Pause at each waypoint (longer pause on hotspots so user can observe)
-        const pauseMs = wp.isPeak ? 2800 : 1500;
+        // Pause at each waypoint (longer pause on hotspots so user can
+        // observe), scaled by the same speed multiplier as the flight.
+        const pauseMs =
+          (wp.isPeak ? 2800 : 1500) / (this._autoCameraSpeed || 1.0);
         this._tourStepTimeout = setTimeout(() => {
           if (this._isTouring) {
             this._executeTourStep(stepIdx + 1);
@@ -639,6 +724,10 @@ export const __methods = {
         }, pauseMs);
       },
       cancel: () => {
+        // Pause/jump navigation cancels flights on purpose (see
+        // _cancelTourFlight) — only an externally-interrupted flight (e.g.
+        // the user grabs the camera) counts as the tour being stopped.
+        if (this._tourManualInterrupt) return;
         if (this._isTouring) {
           this.stopTour();
         }
@@ -656,6 +745,7 @@ export const __methods = {
     }
     const wasTouring = this._isTouring;
     this._isTouring = false;
+    this._isPaused = false;
     if (wasTouring && this._tourCallback) {
       this._tourCallback(null, 0, null);
     }

@@ -307,10 +307,22 @@ export class GSRGlobeManager {
 
     // Automated Track Tour state
     this._isTouring = false;
+    this._isPaused = false;
     this._tourStepTimeout = null;
     this._tourStepIndex = 0;
     this._tourWaypoints = [];
     this._tourCallback = null;
+    // Set true only for the duration of a deliberate camera.cancelFlight()
+    // call (pause/jump navigation — see tour.mjs's _cancelTourFlight), so
+    // the interrupted flight's own `cancel` handler doesn't mistake it for
+    // an externally-stopped tour.
+    this._tourManualInterrupt = false;
+
+    // Shared speed multiplier for automated camera motion — both the tour's
+    // flight/dwell timing (tour.mjs) and the 360° orbit's rotation rate
+    // (navigation.mjs) read this same value, adjusted by the Up/Down arrow
+    // shortcuts (globe3d_view.mjs). See adjustAutoCameraSpeed().
+    this._autoCameraSpeed = 1.0;
 
     this.initViewer();
   }
@@ -1966,6 +1978,24 @@ export class GSRGlobeManager {
       this._extrusionRaf = 0;
       this._refreshTrack();
     });
+  }
+
+  /**
+   * Nudge the shared auto-camera speed multiplier — the tour's flight/dwell
+   * timing (tour.mjs's _executeTourStep) and the 360° orbit's rotation rate
+   * (navigation.mjs's orbitStep) both read `this._autoCameraSpeed` directly,
+   * so one dial covers whichever is running. `factor` multiplies the current
+   * speed (e.g. 1.25 to speed up, 1/1.25 to slow down); the result is
+   * clamped to [0.25x, 4x] and rounded to 2dp to avoid float drift across
+   * repeated presses. A change only takes effect from the next tour hop
+   * onward — Cesium can't retarget an in-flight camera.flyTo's duration —
+   * but applies immediately to a running orbit, which re-reads it every tick.
+   */
+  setAutoCameraSpeed(factor) {
+    const next = (this._autoCameraSpeed || 1.0) * factor;
+    this._autoCameraSpeed =
+      Math.round(Math.min(4.0, Math.max(0.25, next)) * 100) / 100;
+    return this._autoCameraSpeed;
   }
 
   // GSRGlobeManager is completed by prototype-augment files loaded immediately

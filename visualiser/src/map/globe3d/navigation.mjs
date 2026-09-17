@@ -192,7 +192,9 @@ export const __methods = {
     const pitch = Cesium.Math.toRadians(-35.0);
 
     const orbitStep = () => {
-      heading += 0.003;
+      // Re-read every tick so the Up/Down speed shortcuts (globe3d_view.mjs)
+      // take effect immediately, not just on the next orbit start.
+      heading += 0.003 * (this._autoCameraSpeed || 1.0);
       this.viewer.camera.lookAt(
         center,
         new Cesium.HeadingPitchRange(heading, pitch, Math.max(distance, 300)),
