@@ -62,8 +62,8 @@ Accuracy zones by the fraction of real-world track data that falls inside them:
 | [Shimmer3 GSR+](https://shimmersensing.com/product/shimmer3-gsr-unit/) | Research Wearable (~£650) | 12-bit *(Onboard MCU ADC)* | Unknown | ±3% to ±10% |
 | [Movisens EdaMove 4](https://www.movisens.com/en/products/eda-and-activity-sensor/) | Ambulatory Research (~£800+ est.) | 14-bit | Unknown | Unknown |
 | [BITalino EDA](https://www.pluxbiosignals.com/collections/bitalino/products/electrodermal-activity-eda-sensor) | Academic Toolkit (~£200) | 10-bit *(BITalino Core)* | Unknown | Unknown |
-| [ProtoCentral tinyGSR](https://protocentral.com/product/protocentral-tinygsr-gsr-eda-digital-output-sensor-board-qwiic-stemma-qt/) | Maker Breakout (~£16) | 12-bit *(TI TLA2022 delta-sigma ADC)* | Unknown | Unknown |
-| [Grove GSR v1.2](https://wiki.seeedstudio.com/Grove-GSR_Sensor/) | Hobbyist Module (~£12) | None on sensor *(Analog out; host-dependent)* | Unknown | Unknown |
+| [ProtoCentral tinyGSR](https://protocentral.com/product/protocentral-tinygsr-gsr-eda-digital-output-sensor-board-qwiic-stemma-qt/) | Maker Breakout (~£16) | Sensor only | Unknown | Unknown |
+| [Grove GSR v1.2](https://wiki.seeedstudio.com/Grove-GSR_Sensor/) | Hobbyist Module (~£12) | Sensor Only | Unknown | Unknown |
 
 > **Note on comparisons:** Most manufacturers do not publish detailed technical specifications. Where figures do appear, they reflect different testing conditions, comparing a bench-measured noise floor against a precision resistor grid (BioMapping 2.0) are not directly equivalent. The BioMapping 2.0 data come from testing that most manufacturers have not performed or chosen to publish.
 
