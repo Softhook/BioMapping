@@ -140,6 +140,57 @@ test('GSRUI.correlationBand: |r| bands are negligible <.10, small <.20, moderate
   assert.strictEqual(band(NaN), 'negligible'); // guarded: NaN -> negligible, never throws
 });
 
+test('updateEnvironmentalDashboard (single mode): a GSR sensor disconnect is excluded from the correlation feed, not averaged in', () => {
+  const a = buildEnrichedAnalyzer();
+
+  // Splice in a 3s open-circuit floor (0.01 — far below anything the real
+  // fixture reads, ~7-8 in this range) mid-track, then re-analyze so
+  // gsrDisconnectSpans picks it up. Rebuilds `raw` as a fresh array (rather
+  // than mutating samples in place) so the disconnect-repair cache — keyed
+  // on raw identity, same convention as the series pool and prefix cache —
+  // actually sees new data, exactly as a real reload/re-parse would.
+  const flatStart = 2000;
+  const flatLen = 30; // 3s at this fixture's 10Hz
+  a.raw = a.raw.map((r, i) =>
+    i >= flatStart && i < flatStart + flatLen ? { ...r, val: 0.01 } : r,
+  );
+  a.analyze(GSR_CONST.GSR_DEFAULT, 0);
+  assert.ok(
+    a.gsrDisconnectSpans?.some(
+      (s) => s.startIdx <= flatStart && s.endIdx >= flatStart + flatLen - 1,
+    ),
+    'sanity: the spliced-in dropout was detected',
+  );
+
+  Object.assign(RealAppState, {
+    viewMode: 'single',
+    analyzer: a,
+    activeTrackId: 'trkA',
+  });
+  GSRUI.updateEnvironmentalDashboard();
+
+  const t0 = a.raw[flatStart].time;
+  const t1 = a.raw[flatStart + flatLen - 1].time;
+  const nearDropout = a._cachedEnvStats.allData.filter(
+    (d) => d.time >= t0 - 1 && d.time <= t1 + 1,
+  );
+  assert.ok(
+    nearDropout.length > 0,
+    'sanity: at least one sampled point survives around the dropout (edges of its window are real data)',
+  );
+  // A window that averaged in even one or two floor (0.01) samples out of its
+  // 10 would still read well under half the fixture's real ~7-8 level; a
+  // window that was entirely disconnected must be skipped outright rather
+  // than falling back to the floor value itself. Either way, no reported
+  // point near the dropout should show a contaminated low reading.
+  nearDropout.forEach((d) => {
+    assert.ok(
+      d.val > 3,
+      `point at t=${d.time} reads ${d.val} — the disconnected samples leaked into its average`,
+    );
+  });
+});
+
 test('updateEnvironmentalDashboard (single mode): cache reused across repeated calls when nothing changed', () => {
   const a = buildEnrichedAnalyzer();
   Object.assign(RealAppState, {

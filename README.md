@@ -14,9 +14,9 @@ It has two parts:
 The first Bio Mapping device (Christian Nold, 2004) was used in workshops with thousands of people across sixteen countries. Participants walked through an area wearing the device and then annotated the recorded data together, producing collective emotion maps. Results from those workshops are published online — the [Greenwich Emotion Map](http://emotionmap.net/), the [San Francisco Emotion Map](http://www.sf.biomapping.net/) and the [Stockport Emotion Map](http://stockport.emotionmap.net/) — and the approach is discussed in the book [*Emotional Cartography*](http://www.emotionalcartography.net/).
 
 ## Bio Mapping 2.0
-Unlike a lot of academic research around Galvanic Skin Response, which can feel clinical and bogged down in jargon, this project takes a different path. The goal is a system that is technically rigorous while open for everyday community interpretation. While the old version was great at getting people involved, it didn't provide the insight into what was happening inside the body and the technical rigour and legitimacy to defend the data. 
+Unlike a lot of academic research around Galvanic Skin Response, which can feel clinical, bogged down in jargon and caught in cartesian dualism, this project takes a different path. The goal is a system that is technically rigorous while open for everyday community interpretation. While the old Bio Mapping process was great at getting people involved, it didn't provide the insight into what was happening inside the body and the technical rigour and legitimacy to defend the community data. 
 
-Bio Mapping 2.0 is a high-fidelity successor that takes you much deeper into the body. It uses more sophisticated hardware and software to track subtle nervous system responses and create a new vision of the mind-body relationship. This new version aims to give communities reliable tools to tackle real-world issues like local planning, environmental stress, and civic change.
+Bio Mapping 2.0 is a high-fidelity successor that takes you much deeper into the body. It uses much more sophisticated hardware and software to track subtle nervous system responses and articulate a new vision of the mind-body. This new version aims to give communities a rigerous and playful tool to tackle real-world issues like local planning, environmental stress, and civic change.
 
 ## Quick Start
 

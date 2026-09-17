@@ -62,11 +62,23 @@ export const __methods = {
         const a = track.analyzer;
         if (!a?.isEnriched || a.raw.length === 0) return;
 
+        // GSR sensor disconnects (see gsr_disconnect_repair.mjs) are detected
+        // unconditionally regardless of the "Repair Sensor Disconnects"
+        // toggle. A disconnected sample — pinned at the open-circuit floor,
+        // or a straight-line interpolation bridging one — is not a real
+        // measurement, so it must not feed a genuine environmental
+        // correlation. GPS/speed are unaffected: the location is still real
+        // even when the GSR sensor wasn't reading anything meaningful.
+        const disconnectSpans = a.gsrDisconnectSpans || [];
+        const isDisconnected = (j) =>
+          disconnectSpans.some((s) => j >= s.startIdx && j <= s.endIdx);
+
         let lastTime = -999;
         for (let i = 0; i < a.raw.length; i++) {
           const pt = a.raw[i];
           // Sample at ~1 Hz (keeps the point set manageable)
           if (pt.time - lastTime >= 1.0) {
+            lastTime = pt.time; // keep the ~1Hz cadence even if this sample ends up excluded below
             const coords = a.getCoordinates(i);
             if (coords) {
               // Phasic + peaks: environment read `latency` seconds earlier —
@@ -90,24 +102,31 @@ export const __methods = {
               let speedCount = 0;
               let count = 0;
               for (let j = windowStartIdx; j <= i; j++) {
-                if (a.raw[j]) {
-                  sumVal += a.raw[j].val || 0;
-                  if (a.tonic?.[j]) {
-                    sumTonic += a.tonic[j].val || 0;
-                  }
-                  if (a.phasic?.[j]) {
-                    maxPhasic = Math.max(maxPhasic, a.phasic[j].val || 0);
-                  }
-                  const rawSpd = a.raw[j].speedKts;
-                  if (typeof rawSpd === 'number' && !isNaN(rawSpd)) {
-                    sumSpeed += rawSpd * 0.514444; // knots -> m/s
-                    speedCount++;
-                  }
-                  count++;
+                if (!a.raw[j]) continue;
+                const rawSpd = a.raw[j].speedKts;
+                if (typeof rawSpd === 'number' && !isNaN(rawSpd)) {
+                  sumSpeed += rawSpd * 0.514444; // knots -> m/s
+                  speedCount++;
                 }
+                if (isDisconnected(j)) continue; // no real GSR reading at this sample
+                sumVal += a.raw[j].val || 0;
+                if (a.tonic?.[j]) {
+                  sumTonic += a.tonic[j].val || 0;
+                }
+                if (a.phasic?.[j]) {
+                  maxPhasic = Math.max(maxPhasic, a.phasic[j].val || 0);
+                }
+                count++;
               }
-              const avgVal = count > 0 ? sumVal / count : pt.val;
-              const avgTonic = count > 0 && a.tonic ? sumTonic / count : 0;
+              // The whole trailing window was disconnected — there is no
+              // real GSR reading to correlate against this location at all
+              // (falling back to pt.val would just be the floor/interpolated
+              // value again), so skip the point entirely rather than fake one.
+              if (count === 0) {
+                continue;
+              }
+              const avgVal = sumVal / count;
+              const avgTonic = a.tonic ? sumTonic / count : 0;
               const finalPhasic = a.phasic ? maxPhasic : 0;
               const avgSpeed =
                 speedCount > 0
@@ -170,7 +189,6 @@ export const __methods = {
                       : NaN,
                 },
               });
-              lastTime = pt.time;
             }
           }
         }

@@ -15,6 +15,7 @@ import { GSRCSVParser } from './csv_parser.mjs';
 import { CVXEDA } from './cvxeda.mjs';
 import { SCRDeconvolution } from './deconvolution.mjs';
 import { calcEmFog } from './em_fog.mjs';
+import { detectAndRepairGsrDisconnects } from './gsr_disconnect_repair.mjs';
 import { GsrFilter } from './gsr_filter.mjs';
 import { PeakDetectors } from './peak_detectors.mjs';
 import { PeakShape } from './peak_shape.mjs';
@@ -118,6 +119,18 @@ export class GSRAnalyzer {
     this._wasDeconv = false;
     this._rawGlobalRange = null;
     this._timelinePointsCache = null;
+    // Disconnect detection output, cached alongside this.raw identity/length
+    // like the series pool above; see gsr_disconnect_repair.mjs. Detection
+    // itself always runs (it's a cheap O(n) pass, cached per raw load, not
+    // per analyze() call) so this.gsrDisconnectSpans is available for other
+    // consumers — e.g. the environmental dashboard excludes these samples
+    // from its correlation stats — regardless of the repairGsrDisconnects
+    // toggle. That toggle only controls whether the *main filter pipeline*
+    // (stage 1 onward) is fed the straight-line-bridged values instead of
+    // the pristine ones; a span's presence in this list never implies the
+    // signal curves were altered.
+    this._disconnectRepairCache = null;
+    this.gsrDisconnectSpans = null;
     // Memoised stages 1–3 output (filter + decomposition), keyed on the four
     // params that feed it; see analyze(). Nulled whenever the series pool is
     // rebuilt (raw data changed).
@@ -529,7 +542,28 @@ export class GSRAnalyzer {
       '|' +
       params.tonicMethod +
       '|' +
-      !!params.useGaitFilter;
+      !!params.useGaitFilter +
+      '|' +
+      !!params.repairGsrDisconnects;
+
+    // Disconnect detection always runs and is cached once per raw-data load
+    // (see the constructor comment) — this.gsrDisconnectSpans is available
+    // to other consumers regardless of the toggle below. repairGsrDisconnects
+    // (off by default) only decides whether stage 1 is fed the straight-line-
+    // bridged values in place of the pristine _rawValsPool; this.raw itself
+    // is never mutated, so the "Raw" curve keeps showing what was recorded.
+    if (
+      !this._disconnectRepairCache ||
+      this._disconnectRepairCache.raw !== this.raw ||
+      this._disconnectRepairCache.vals.length !== n
+    ) {
+      const { vals, spans } = detectAndRepairGsrDisconnects(this.raw);
+      this._disconnectRepairCache = { raw: this.raw, vals, spans };
+    }
+    this.gsrDisconnectSpans = this._disconnectRepairCache.spans;
+    const rawInputVals = params.repairGsrDisconnects
+      ? this._disconnectRepairCache.vals
+      : this._rawValsPool;
 
     let phasicVals;
     if (this._prefixCache && this._prefixCache.key === prefixKey) {
@@ -564,7 +598,7 @@ export class GSRAnalyzer {
         Math.round(params.medianSize * this.sampleRate),
       );
       const afterArtifact = GsrFilter.applyHampelFilter(
-        this._rawValsPool,
+        rawInputVals,
         medWindowSize,
       );
 
@@ -757,7 +791,7 @@ export class GSRAnalyzer {
       this.phasicAUC,
       this.peakDensity,
     );
-    this._computeEDASymp();
+    this._computeEDASymp(rawInputVals);
     const efArr = this._seriesPool.em_fog;
     let efMn = Infinity,
       efMx = -Infinity;
@@ -2038,19 +2072,25 @@ export class GSRAnalyzer {
    * EDASymp (0.045–0.25 Hz spectral sympathetic index) — Posada-Quintero &
    * Chon (2016), computed by the pure SpectralEDA module (spectral_eda.js).
    *
-   * Runs on the RAW µS signal (this.raw[i].val) so it is independent of the
+   * Runs on the raw (pre-filter) µS signal so it is independent of the
    * median / low-pass / tonic / detector sliders — a standalone spectral
-   * metric, not a by-product of the decomposition. Because it only depends on
-   * the raw data (and sample rate), the per-sample series is cached across
-   * re-analyses keyed on raw identity + length, so slider drags don't re-run
-   * the Welch windowing.
+   * metric, not a by-product of the decomposition. It still reads
+   * `rawInputVals` (the disconnect-repaired series when that toggle is on)
+   * rather than the pristine pool directly: an unbridged dropout is a sharp
+   * step to and from the open-circuit floor, and Welch windowing would smear
+   * that broadband transient across every frequency bin in any window that
+   * overlaps it, corrupting the 0.045–0.25 Hz sympathetic band for the whole
+   * window, not just the dropout's own samples. Because it depends on that
+   * input (and sample rate), the per-sample series is cached keyed on raw
+   * identity + length + which vals array fed it, so slider drags don't
+   * re-run the Welch windowing, but toggling disconnect repair does.
    *
    * Guarded with `typeof SpectralEDA !== 'undefined'` so vm-based test
    * loaders that don't load spectral_eda.js still run analyze() (they just
    * leave edasymp empty) — same convention as GSRNotices.
    * @private
    */
-  _computeEDASymp() {
+  _computeEDASymp(rawInputVals) {
     const n = this.raw.length;
     if (n === 0 || typeof SpectralEDA === 'undefined') {
       this.edasymp = [];
@@ -2058,19 +2098,21 @@ export class GSRAnalyzer {
     }
 
     const cache = this._edasympCache;
-    if (cache && cache.raw === this.raw && cache.n === n) {
+    if (
+      cache &&
+      cache.raw === this.raw &&
+      cache.n === n &&
+      cache.vals === rawInputVals
+    ) {
       this.edasymp = cache.edasymp;
       return;
     }
 
     const cfg = GSR_CONST?.EDASYMP || {};
-    // this._rawValsPool is already the raw µS values (built by
-    // _ensureSeriesPool at the top of analyze()), so pass it straight through —
-    // no extra signal copy.
     const times = new Float64Array(n);
     for (let i = 0; i < n; i++) times[i] = this.raw[i].time;
     const series = SpectralEDA.computeSeries(
-      this._rawValsPool,
+      rawInputVals,
       times,
       this.sampleRate,
       {
@@ -2079,7 +2121,12 @@ export class GSRAnalyzer {
       },
     );
     this.edasymp = SpectralEDA.mapToSamples(series, times);
-    this._edasympCache = { raw: this.raw, n, edasymp: this.edasymp };
+    this._edasympCache = {
+      raw: this.raw,
+      n,
+      vals: rawInputVals,
+      edasymp: this.edasymp,
+    };
   }
   /**
    * Track-level summary statistics. Delegates to AnalyzerStats.getStats.

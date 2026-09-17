@@ -58,6 +58,13 @@ export const __methods = {
       S.useGaitFilter.addEventListener('change', () => GSRUI.runAnalysis());
     }
 
+    // ── Disconnect repair toggle (straight-line bridge over cuff dropouts) ──
+    if (S.repairGsrDisconnects) {
+      S.repairGsrDisconnects.addEventListener('change', () =>
+        GSRUI.runAnalysis(),
+      );
+    }
+
     // ── Graph view selector ─────────────────────────────────────────────────
     // Rendering-only setting (no re-analysis needed). One dropdown picks the
     // whole plot: 'signal' or a single derived metric. Choosing a metric view

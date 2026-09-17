@@ -165,6 +165,7 @@ export const GSREvents = {
       'usePeakProminence',
       'useCvxEDA',
       'useGaitFilter',
+      'repairGsrDisconnects',
     ];
     for (const key of sliderKeys) {
       AppState.sliders[key] = GSREvents._id(key);

@@ -41,6 +41,7 @@ export const GSRStorage = {
       medianSize: parseFloat(S.medianSize.value),
       lpfWindow: parseFloat(S.lpfWindow.value),
       useGaitFilter: S.useGaitFilter?.checked || false,
+      repairGsrDisconnects: S.repairGsrDisconnects?.checked || false,
       tonicMethod: S.tonicMethod.value,
       tonicWindow: parseInt(S.tonicWindow.value, 10),
       peakThreshold: parseFloat(S.peakThreshold.value),
@@ -272,6 +273,8 @@ export const GSRStorage = {
       S.lpfWindow.value = gsr.lpfWindow;
     if (gsr.useGaitFilter !== undefined && S.useGaitFilter)
       S.useGaitFilter.checked = !!gsr.useGaitFilter;
+    if (gsr.repairGsrDisconnects !== undefined && S.repairGsrDisconnects)
+      S.repairGsrDisconnects.checked = !!gsr.repairGsrDisconnects;
     // A retired baseline method (e.g. a preset saved with 'dwt') would be an
     // invalid <select> value — a DOM no-op that leaves a stale label; ignore it.
     if (

@@ -285,3 +285,64 @@ test('analyzer: edasymp series is populated after analyze()', () => {
     'edasymp has non-zero values',
   );
 });
+
+test('analyzer: edasymp reads the disconnect-repaired signal, not the pristine raw, when the toggle is on', () => {
+  global.window = global;
+  global.GSR_CONST = require('./mock_constants.js');
+
+  const { GsrFilter } = require('../src/signal/gsr_filter.mjs');
+  global.GsrFilter = GsrFilter;
+
+  const { GSRAnalyzer } = require('../src/signal/analyzer.mjs');
+
+  // Same 120 s synthetic sympathetic oscillation as above, but with a 2 s
+  // sensor dropout pinned at 100 (far outside the ~1.7-2.3 signal range,
+  // easily clearing the disconnect confirmation's jump-ratio gate) spliced
+  // in around the middle. A raw, unbridged step like that is a broadband
+  // transient that Welch windowing smears across the whole window it falls
+  // in — edasymp must reflect the repaired, not the pristine, series.
+  const fs = 10;
+  const n = fs * 120;
+  const disconnectStart = fs * 60;
+  const disconnectLen = fs * 2;
+  const buildRows = () => {
+    const rows = [];
+    for (let i = 0; i < n; i++) {
+      const t = i / fs;
+      const inDropout =
+        i >= disconnectStart && i < disconnectStart + disconnectLen;
+      rows.push({
+        time: t,
+        val: inDropout ? 100 : 2 + 0.3 * Math.sin(2 * Math.PI * 0.1 * t),
+      });
+    }
+    return rows;
+  };
+
+  const baseParams = JSON.parse(JSON.stringify(global.GSR_CONST.GSR_DEFAULT));
+
+  const aOff = new GSRAnalyzer();
+  aOff.raw = buildRows();
+  aOff.sampleRate = fs;
+  aOff.analyze({ ...baseParams, repairGsrDisconnects: false });
+
+  const aOn = new GSRAnalyzer();
+  aOn.raw = buildRows();
+  aOn.sampleRate = fs;
+  aOn.analyze({ ...baseParams, repairGsrDisconnects: true });
+
+  assert.strictEqual(
+    aOn.gsrDisconnectSpans?.length,
+    1,
+    'sanity check: the synthetic dropout was actually detected and bridged',
+  );
+  assert.strictEqual(aOn.gsrDisconnectSpans[0].repaired, true);
+
+  const midIdx = disconnectStart + Math.floor(disconnectLen / 2);
+  assert.ok(
+    aOn.edasymp[midIdx].val < aOff.edasymp[midIdx].val,
+    `repaired edasymp (${aOn.edasymp[midIdx].val}) should read lower than the ` +
+      `unbridged version (${aOff.edasymp[midIdx].val}) at the dropout — the ` +
+      'raw step artifact must not still be leaking into the spectral index',
+  );
+});
