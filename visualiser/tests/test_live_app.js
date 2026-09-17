@@ -2994,8 +2994,9 @@ test('drawGraph: the secondary stats line reports Peaks/min from A.peakDensity a
   `,
   );
 
-  const statsText = window.document.getElementById('graphSecondaryStats')
-    .textContent;
+  const statsText = window.document.getElementById(
+    'graphSecondaryStats',
+  ).textContent;
   assert.match(
     statsText,
     /^Peaks\/min: \d+\.\d · Mean SCL: (--|\d+\.\d{2} μS)$/,
@@ -3022,7 +3023,10 @@ test('drawGraph: the secondary stats line reports Peaks/min from A.peakDensity a
     })()`,
   );
   const meanScl = Number(statsText.match(/Mean SCL: ([\d.]+)/)[1]);
-  assert.ok(expected !== null, 'test setup should have produced a tonic window');
+  assert.ok(
+    expected !== null,
+    'test setup should have produced a tonic window',
+  );
   assert.ok(
     Math.abs(meanScl - expected) < 0.01,
     `Mean SCL readout ${meanScl} should match the recomputed window mean ${expected}`,

@@ -367,7 +367,7 @@ export function drawGraph() {
   // would be pure waste for a number that hasn't moved.
   const peakRate = Controllers.liveView.livePeakRatePerMin || 0;
   const meanScl = Controllers.liveView.liveMeanScl;
-  const meanSclText = meanScl != null ? meanScl.toFixed(2) + ' μS' : '--';
+  const meanSclText = meanScl != null ? `${meanScl.toFixed(2)} μS` : '--';
   document.getElementById('graphSecondaryStats').textContent =
     `Peaks/min: ${peakRate.toFixed(1)} · Mean SCL: ${meanSclText}`;
 }
