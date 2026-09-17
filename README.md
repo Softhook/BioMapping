@@ -53,7 +53,7 @@ Accuracy zones by the fraction of real-world track data that falls inside them:
 - **≤ ±1.0%** — 15 kΩ – 4.7 MΩ (213 – 66,667 nS): 99.89%
 - Below 100 nS (over 10 MΩ) the device reports an open circuit (electrodes disconnected / air).
 
-| Device | Type / Price | ADC Resolution | Noise Floor ($\sigma$) | Accuracy / Error |
+| Device | Type / Price | ADC Resolution | Noise Floor | Accuracy / Error |
 | :--- | :--- | :--- | :--- | :--- |
 | [BIOPAC EDA100C + MP160](https://www.biopac.com/product/electrodermal-activity-amplifier/) | Lab Benchmark (~£8,000+) | 16-bit *(MP160 DAQ)* | 0.7 nS *(published sensitivity)* | Unknown |
 | **[BioMapping 2.0](https://github.com/Softhook/BioMapping)** | **Custom Portable (~£250)** | **16-bit** *(Onboard ADS1115)* | **2.7 nS** | **±0.1% *(calibrated)* / ±0.4% *(raw)*** |
@@ -65,7 +65,7 @@ Accuracy zones by the fraction of real-world track data that falls inside them:
 | [ProtoCentral tinyGSR](https://protocentral.com/product/protocentral-tinygsr-gsr-eda-digital-output-sensor-board-qwiic-stemma-qt/) | Maker Breakout (~£16) | 12-bit *(TI TLA2022 delta-sigma ADC)* | Unknown | Unknown |
 | [Grove GSR v1.2](https://wiki.seeedstudio.com/Grove-GSR_Sensor/) | Hobbyist Module (~£12) | None on sensor *(Analog out; host-dependent)* | Unknown | Unknown |
 
-> **Note on comparisons:** Drawing meaningful conclusions from this table is difficult. Most manufacturers do not publish detailed EDA technical specifications — noise floor, measurement accuracy, and ADC resolution in physical units are rarely disclosed. Where figures do appear, they reflect different testing conditions, methodologies, and definitions: a published "sensitivity" (BIOPAC), an ADC step size (Empatica), and a bench-measured noise floor against a precision resistor grid (BioMapping 2.0) are not directly equivalent. The BioMapping 2.0 figures come from explicit calibration testing that most manufacturers have not performed or chosen to publish.
+> **Note on comparisons:** Drawing conclusions from this table is difficult. Most manufacturers do not publish detailed technical specifications. Where figures do appear, they reflect different testing conditions, comparing a bench-measured noise floor against a precision resistor grid (BioMapping 2.0) are not directly equivalent. The BioMapping 2.0 data come from testing that most manufacturers have not performed or chosen to publish.
 
 
 ## Components
