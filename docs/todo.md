@@ -34,16 +34,10 @@ From a full read of `firmware/` (2026-09). Ordered by payoff:
   wizard states → `biomap_wizard.h`.
 - **P5 — One "RF active" rule.** `has_rf()` (includes Diagnostics) vs the
   literal `rf_viz` gate in `biomap_render.c` are two drifting definitions.
-- **P6 — Hygiene.**
-  - [x] ~~Rename `PluginEvent`~~ **Done 2026-09-17:** renamed to `BioMapEvent`
-    across all ~14 call sites (`biomap.c`, `biomap_gui.c`, `biomap_session.c`,
-    `biomap_rf_cal.c`, `gps_uart.c`, `biomap_events.h`, test shims).
-  - [x] ~~Fix `gps_uart.h`'s mid-file `../biomap_config.h` include~~ **Done
-    2026-09-17:** moved up next to the other includes (no circular
-    dependency — `biomap_config.h` has no includes of its own).
-  - Move `sound.h` melodies to a `sound.c` — not done; deferred (header-only
-    `static inline` is currently harmless, this is a bigger header→TU
-    migration than the other two).
+- **P6 — Hygiene.** Move `sound.h` melodies to a `sound.c` — header-only
+  `static inline` is currently harmless, but a bigger header→TU migration
+  than the other hygiene items already done (`PluginEvent`→`BioMapEvent`
+  rename, `gps_uart.h` include reorder).
 
 ## Analysis ideas
 
@@ -167,14 +161,6 @@ uncharacterised:
 
 ### Smaller notes
 
-- [x] ~~Q and R sliders (m², with χ² gates) aren't tunable by a field
-  researcher — they invite cargo-cult fiddling that shifts conclusions.~~
-  **Resolved:** Both raw mathematical sliders removed from UI. $R$ scales
-  dynamically per-point from M10Q $hAcc$; $Q$ is bound directly to the
-  activity `Max Speed` setting ($Q = 0.5 \times (v_{\text{max}} / 3.0)^2$).
-  The pre-Kalman velocity-smoothing stage keeps its own fixed alpha rather
-  than sharing $Q$ — that stage's alpha is an unrelated DOP-adaptive blend
-  weight in [0,1], and reusing $Q$ there saturated it at Run/Bike speeds.
 - **Potential:** the pre-Kalman alpha above is still a fixed guess (0.5,
   `GSR_CONST.GPS_DEFAULT.smoothing`), not derived from data — it stands in
   for the trust ratio between the raw GPS fix and the Doppler-based
@@ -275,14 +261,6 @@ done; these are the optional follow-ups still worth doing.
   broadcasting, Android Chrome reconnection when the phone display sleeps or
   goes in a pocket mid-walk, and packet-drop rates (`bt_telemetry` debug line
   already logs `bt_tx_peak_ms` / `bt_drop`).
-- [x] ~~`gsr->available` dead code~~ **Done 2026-09-17:** field and all 23
-  `if(!gsr->available) return;` guards removed from `modules/gsr_sensor.c`
-  (`gsr_sensor_available()` was already independent — it reads `i2c_working`,
-  not this field). `gsr_sensor_free()`'s always-true wrapping `if` unindented.
-  Verified zero behaviour change: every removed guard's return value matched
-  the field's natural zero-initialised default, since `tick()` already
-  no-ops via a separate live `i2c_working` check. Host test suite (incl.
-  `test_gsr_sensor` + its ThreadSanitizer pass) green.
 - **RF/GSR concurrency — test-coverage gaps** (from
   `archive/gps_rf_mutex_status.md`). Both low priority, no suspected defect:
   - The RF-vs-GSR TOCTOU is covered by a stress test that raises confidence
