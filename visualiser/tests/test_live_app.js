@@ -2977,6 +2977,58 @@ test('GSR controls: the view dropdown switches the plotted series, the value rea
   );
 });
 
+test('drawGraph: the secondary stats line reports Peaks/min from A.peakDensity and Mean SCL from the visible tonic window', async () => {
+  const { window, context } = await bootLive();
+
+  // Three step-ups spaced well apart so full-scan detects distinct SCRs
+  // (peaks/min > 0) and the tonic (SCL) trace has settled to a non-zero level.
+  run(
+    context,
+    `
+    for (let i = 0; i < 90; i++) {
+      LiveState.addPacket({ valid: true, lat: 51.5, lon: -0.12,
+        gsrRaw: (i % 30 < 3) ? 1800 : 1000,
+        hdop: 1.0, pdop: 1.5, speedKts: 2, courseDeg: 90, sats: 9, fixType: 3, timestamp: i * 0.3 });
+    }
+    drawGraph();
+  `,
+  );
+
+  const statsText = window.document.getElementById('graphSecondaryStats')
+    .textContent;
+  assert.match(
+    statsText,
+    /^Peaks\/min: \d+\.\d · Mean SCL: (--|\d+\.\d{2} μS)$/,
+    statsText,
+  );
+
+  const peakRate = Number(statsText.match(/Peaks\/min: ([\d.]+)/)[1]);
+  assert.ok(
+    peakRate > 0,
+    `expected a positive NS-SCR rate off repeated step-ups, got ${peakRate}`,
+  );
+
+  // Mean SCL matches the tonic series averaged over the same GRAPH_WINDOW_S
+  // window drawGraph() itself plots from (t0 = lastT - GRAPH_WINDOW_S).
+  const expected = runJSON(
+    context,
+    `(() => {
+      const A = liveAnalyzer;
+      const lastT = lastPacketTimestamp;
+      const t0 = lastT - GRAPH_WINDOW_S;
+      let sum = 0, n = 0;
+      for (const pt of A.tonic) if (pt.time >= t0) { sum += pt.val; n++; }
+      return n ? sum / n : null;
+    })()`,
+  );
+  const meanScl = Number(statsText.match(/Mean SCL: ([\d.]+)/)[1]);
+  assert.ok(expected !== null, 'test setup should have produced a tonic window');
+  assert.ok(
+    Math.abs(meanScl - expected) < 0.01,
+    `Mean SCL readout ${meanScl} should match the recomputed window mean ${expected}`,
+  );
+});
+
 // ==========================================================================
 // Wire-up characterisation (renderStatus / the animation loop / keyboard
 // shortcuts / setMapVisible / the geolocation "My Location" button).

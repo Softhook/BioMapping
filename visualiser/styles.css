@@ -2993,6 +2993,14 @@ body:has(.live-mode) {
   font-weight: 600;
   pointer-events: none;
 }
+.live-view #graphSecondaryStats {
+  position: absolute;
+  top: 24px;
+  right: 10px;
+  font-size: 10px;
+  color: var(--lv-muted);
+  pointer-events: none;
+}
 
 .live-view #liveMap {
   position: relative;

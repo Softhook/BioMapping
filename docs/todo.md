@@ -5,8 +5,6 @@ Loose ideas and unscheduled work. Promote anything real to its own doc under `do
 ## Priority
 
 
-- In live mode show the peaks per minute and the Means SCL at the top near where the live GSR level is show.
-
 - shoould we embedd the calibration age into the csv header? helps with tracebility
 
 - **Sound annotations** — allow people to record little audio snippets attached

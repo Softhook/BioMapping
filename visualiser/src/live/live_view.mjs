@@ -57,7 +57,12 @@ import { GSRLayoutManager } from '../core/layout_manager.mjs';
 import { GSRAnalyzer } from '../signal/analyzer.mjs';
 import { GSRLiveBluetoothManager } from './live_bluetooth.mjs';
 import { buildLiveCsv } from './live_csv.mjs';
-import { drawGraph, LIVE_GRAPH_VIEWS, NS_TO_US } from './live_graph.mjs';
+import {
+  drawGraph,
+  GRAPH_WINDOW_S,
+  LIVE_GRAPH_VIEWS,
+  NS_TO_US,
+} from './live_graph.mjs';
 import {
   allTrackSegments,
   cacheCurrentMapArea,
@@ -149,6 +154,7 @@ export const LIVE_VIEW_MARKUP = `
     <canvas id="graph"></canvas>
     <span id="graphLabel">GSR (μS) — last 2 min</span>
     <span id="graphValue">--</span>
+    <span id="graphSecondaryStats">Peaks/min: -- &middot; Mean SCL: --</span>
   </div>
 
   <div id="liveMap">
@@ -300,6 +306,15 @@ export const liveGsrView = {
 export let liveAnalyzer = null;
 export let liveAnalyzerBase = 0;
 
+// Peaks/min + Mean SCL readouts (see LIVE_VIEW_MARKUP's #graphSecondaryStats)
+// — computed here, once per analyze() pass, NOT in drawGraph()'s 60fps loop.
+// A fresh mean-of-window scan every animation frame would run 60x/s for data
+// that only changes once per feedLiveAnalyzer() call (throttled to at most
+// one per LIVE_ANALYZE_MIN_INTERVAL_MS); caching it here instead means
+// drawGraph() just formats two already-known numbers. Reset per session.
+export let livePeakRatePerMin = 0;
+export let liveMeanScl = null; // null = no tonic samples yet
+
 // Rebuild the analyser's trailing-window buffer from the newest
 // LIVE_ANALYZE_WINDOW_S of LiveState.packets, then re-run the pipeline
 // (subject to the wall-clock throttle above) and refresh the map's delayed
@@ -367,6 +382,27 @@ export function feedLiveAnalyzer() {
     pkt.phasic = ph[i].val;
     if (tn?.[i]) pkt.tonic = tn[i].val;
   }
+
+  // Peaks/min: the latest point of the KDE-based NS-SCR rate A.analyze()
+  // already computes every call regardless of which graph view is showing.
+  livePeakRatePerMin = A.peakDensity?.length
+    ? A.peakDensity[A.peakDensity.length - 1].val
+    : 0;
+  // Mean SCL: tonic averaged over the same trailing GRAPH_WINDOW_S the graph
+  // itself plots, so the number matches what's on screen.
+  if (tn?.length) {
+    const cutoffT = tn[tn.length - 1].time - GRAPH_WINDOW_S;
+    let sum = 0,
+      n = 0;
+    for (let i = tn.length - 1; i >= 0 && tn[i].time >= cutoffT; i--) {
+      sum += tn[i].val;
+      n++;
+    }
+    liveMeanScl = n ? sum / n : null;
+  } else {
+    liveMeanScl = null;
+  }
+
   flushSettledSegments();
   renderLiveMapMarkers();
 }
@@ -647,6 +683,8 @@ export function resetSession() {
   if (liveAnalyzer) liveAnalyzer.raw = [];
   liveAnalyzerBase = 0;
   lastLiveAnalyzeAt = 0;
+  livePeakRatePerMin = 0;
+  liveMeanScl = null;
   document.getElementById('statPackets').textContent = 'Packets: 0';
   document.getElementById('statGaps').textContent = 'Gaps: 0';
   document.getElementById('statGps').textContent = 'GPS: --';
@@ -1244,6 +1282,12 @@ export const GSRLiveView = {
   },
   get lastPacketArrivalTime() {
     return lastPacketArrivalTime;
+  },
+  get livePeakRatePerMin() {
+    return livePeakRatePerMin;
+  },
+  get liveMeanScl() {
+    return liveMeanScl;
   },
   liveGsrView,
   closeFabMenu,

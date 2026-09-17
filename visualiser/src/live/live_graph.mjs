@@ -359,4 +359,15 @@ export function drawGraph() {
     readVal.toFixed(cfg.decimals) + cfg.unit;
   document.getElementById('graphLabel').textContent =
     `${cfg.label} — last 2 min`;
+
+  // Peaks/min + Mean SCL — cached numbers from the last feedLiveAnalyzer()
+  // pass (src/live/live_view.js), not recomputed here. This draw loop runs
+  // at 60fps; the underlying analysis only changes once per throttled
+  // analyze() call, so scanning A.tonic/A.peakDensity again on every frame
+  // would be pure waste for a number that hasn't moved.
+  const peakRate = Controllers.liveView.livePeakRatePerMin || 0;
+  const meanScl = Controllers.liveView.liveMeanScl;
+  const meanSclText = meanScl != null ? meanScl.toFixed(2) + ' μS' : '--';
+  document.getElementById('graphSecondaryStats').textContent =
+    `Peaks/min: ${peakRate.toFixed(1)} · Mean SCL: ${meanSclText}`;
 }
