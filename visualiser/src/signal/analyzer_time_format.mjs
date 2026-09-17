@@ -6,6 +6,27 @@
  * GSRAnalyzer keeps thin instance wrappers (`formatClockTime`, `formatTimeOnly`,
  * `formatDateUK`, `formatDateShort`) that pass `this.recordingStartTime` through.
  */
+
+const MONTH_NAMES = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+];
+
+/** Zero-pads an integer to at least two digits. */
+function pad2(num) {
+  return String(num).padStart(2, '0');
+}
+
 export const AnalyzerTimeFormat = {
   /**
    * True when session-relative time should be shown instead of wall-clock time
@@ -24,9 +45,11 @@ export const AnalyzerTimeFormat = {
    * @returns {string}
    */
   ordinalSuffix(day) {
-    if (day % 10 === 1 && day !== 11) return 'st';
-    if (day % 10 === 2 && day !== 12) return 'nd';
-    if (day % 10 === 3 && day !== 13) return 'rd';
+    if (day % 100 >= 11 && day % 100 <= 13) return 'th';
+    const rem = day % 10;
+    if (rem === 1) return 'st';
+    if (rem === 2) return 'nd';
+    if (rem === 3) return 'rd';
     return 'th';
   },
 
@@ -43,23 +66,11 @@ export const AnalyzerTimeFormat = {
       const h = Math.floor(totalSec / 3600);
       const m = Math.floor((totalSec % 3600) / 60);
       const s = totalSec % 60;
-      return h > 0
-        ? h +
-            ':' +
-            String(m).padStart(2, '0') +
-            ':' +
-            String(s).padStart(2, '0')
-        : `${m}:${String(s).padStart(2, '0')}`;
+      return h > 0 ? `${h}:${pad2(m)}:${pad2(s)}` : `${m}:${pad2(s)}`;
     }
 
     const d = new Date((recordingStartTime + relativeSeconds) * 1000);
-    return (
-      String(d.getUTCHours()).padStart(2, '0') +
-      ':' +
-      String(d.getUTCMinutes()).padStart(2, '0') +
-      ':' +
-      String(d.getUTCSeconds()).padStart(2, '0')
-    );
+    return `${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}:${pad2(d.getUTCSeconds())}`;
   },
 
   /**
@@ -75,25 +86,11 @@ export const AnalyzerTimeFormat = {
     }
 
     const d = new Date((recordingStartTime + relativeSeconds) * 1000);
-    const months = [
-      'Jan',
-      'Feb',
-      'Mar',
-      'Apr',
-      'May',
-      'Jun',
-      'Jul',
-      'Aug',
-      'Sep',
-      'Oct',
-      'Nov',
-      'Dec',
-    ];
     const day = d.getUTCDate();
-    const month = months[d.getUTCMonth()];
+    const month = MONTH_NAMES[d.getUTCMonth()];
     const year = d.getUTCFullYear();
 
-    return `${day + AnalyzerTimeFormat.ordinalSuffix(day)} ${month} ${year}`;
+    return `${day}${AnalyzerTimeFormat.ordinalSuffix(day)} ${month} ${year}`;
   },
 
   /**
@@ -109,8 +106,8 @@ export const AnalyzerTimeFormat = {
     }
 
     const d = new Date((recordingStartTime + relativeSeconds) * 1000);
-    const day = String(d.getUTCDate()).padStart(2, '0');
-    const month = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const day = pad2(d.getUTCDate());
+    const month = pad2(d.getUTCMonth() + 1);
     const year = d.getUTCFullYear();
 
     return `${day}.${month}.${year}`;
