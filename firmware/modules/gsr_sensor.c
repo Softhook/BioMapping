@@ -160,7 +160,6 @@ _Static_assert((SENSOR_BUFFER_SIZE & (SENSOR_BUFFER_SIZE - 1)) == 0,
 
 struct GsrSensor {
     float   raw;        // skin conductance in nanosiemens (nS)
-    bool    available;
     bool    connected;  // false after 20+ ticks of zero readings (cuffs disconnected)
     bool    i2c_working; // false when consecutive I2C reads fail
     uint8_t pga_index;  // active PGA setting (0 … ADS_PGA_MAX)
@@ -612,7 +611,6 @@ GsrSensor* gsr_sensor_alloc(void) {
     }
     furi_hal_i2c_release(&furi_hal_i2c_handle_external);
 
-    gsr->available = true;
     gsr->i2c_working = probed;
     FURI_LOG_I("GsrSensor", "I2C Probe %s", probed ? "OK" : "not found");
 
@@ -687,31 +685,29 @@ GsrSensor* gsr_sensor_alloc(void) {
 
 void gsr_sensor_free(GsrSensor* gsr) {
     furi_check(gsr, "GsrSensor: NULL in free()");
-    if(gsr->available) {
-        // Reuse gsr_sensor_set_rf_enabled()'s disable ordering (flip the
-        // flag, wait for the worker to leave the SPI region, then the
-        // hardware deinit) rather than duplicating it — deinit'ing the radio
-        // before the worker knows RF is off would race an in-flight
-        // get_rssi()/set_band(). See that function's doc comment.
-        if(gsr->rf_enabled) {
-            gsr_sensor_set_rf_enabled(gsr, false);
-        }
-        gsr->running = false;
-        furi_thread_join(gsr->thread);
-        furi_thread_free(gsr->thread);
-
-        // Put ADS1115 into low-power single-shot/power-down mode (MODE bit = 1)
-        furi_hal_i2c_acquire(&furi_hal_i2c_handle_external);
-        uint8_t cfg[2] = {(uint8_t)(pga_msb(gsr->pga_index) | 0x01), 0xE3};
-        furi_hal_i2c_write_mem(
-            &furi_hal_i2c_handle_external,
-            ADS1115_I2C_ADDR, ADS1115_CONFIG_REG,
-            cfg, 2, 50);
-        furi_hal_i2c_release(&furi_hal_i2c_handle_external);
-
-        furi_mutex_free(gsr->mutex);
-        furi_mutex_free(gsr->rf_mutex);
+    // Reuse gsr_sensor_set_rf_enabled()'s disable ordering (flip the
+    // flag, wait for the worker to leave the SPI region, then the
+    // hardware deinit) rather than duplicating it — deinit'ing the radio
+    // before the worker knows RF is off would race an in-flight
+    // get_rssi()/set_band(). See that function's doc comment.
+    if(gsr->rf_enabled) {
+        gsr_sensor_set_rf_enabled(gsr, false);
     }
+    gsr->running = false;
+    furi_thread_join(gsr->thread);
+    furi_thread_free(gsr->thread);
+
+    // Put ADS1115 into low-power single-shot/power-down mode (MODE bit = 1)
+    furi_hal_i2c_acquire(&furi_hal_i2c_handle_external);
+    uint8_t cfg[2] = {(uint8_t)(pga_msb(gsr->pga_index) | 0x01), 0xE3};
+    furi_hal_i2c_write_mem(
+        &furi_hal_i2c_handle_external,
+        ADS1115_I2C_ADDR, ADS1115_CONFIG_REG,
+        cfg, 2, 50);
+    furi_hal_i2c_release(&furi_hal_i2c_handle_external);
+
+    furi_mutex_free(gsr->mutex);
+    furi_mutex_free(gsr->rf_mutex);
     free(gsr);
 }
 
@@ -724,7 +720,6 @@ bool gsr_sensor_available(const GsrSensor* gsr) {
 
 bool gsr_sensor_is_connected(const GsrSensor* gsr) {
     furi_check(gsr, "GsrSensor: NULL in is_connected()");
-    if(!gsr->available) return false;
     furi_mutex_acquire(gsr->mutex, FuriWaitForever);
     bool connected = gsr->connected;
     furi_mutex_release(gsr->mutex);
@@ -735,7 +730,6 @@ float gsr_sensor_get_raw(const GsrSensor* gsr) {
     // Called every tick (10Hz) during recording — the highest-frequency
     // call site among the promoted checks in this file.
     furi_check(gsr, "GsrSensor: NULL in get_raw()");
-    if(!gsr->available) return 0.0f;
     furi_mutex_acquire(gsr->mutex, FuriWaitForever);
     float val = gsr->raw;
     furi_mutex_release(gsr->mutex);
@@ -748,7 +742,6 @@ float gsr_sensor_get_raw(const GsrSensor* gsr) {
 // the raw sample and the filtered mean use the exact same underlying data.
 float gsr_sensor_get_raw_sample_ns(const GsrSensor* gsr) {
     furi_check(gsr, "GsrSensor: NULL in get_raw_sample_ns()");
-    if(!gsr->available) return 0.0f;
 
     furi_mutex_acquire(gsr->mutex, FuriWaitForever);
     int32_t norm = gsr->tick_last_norm;
@@ -760,7 +753,6 @@ float gsr_sensor_get_raw_sample_ns(const GsrSensor* gsr) {
 
 int32_t gsr_sensor_get_raw_sample_count(const GsrSensor* gsr) {
     furi_check(gsr, "GsrSensor: NULL in get_raw_sample_count()");
-    if(!gsr->available) return 0;
     furi_mutex_acquire(gsr->mutex, FuriWaitForever);
     int32_t val = gsr->tick_last_norm;
     furi_mutex_release(gsr->mutex);
@@ -769,7 +761,6 @@ int32_t gsr_sensor_get_raw_sample_count(const GsrSensor* gsr) {
 
 int32_t gsr_sensor_get_mean_count(const GsrSensor* gsr) {
     furi_check(gsr, "GsrSensor: NULL in get_mean_count()");
-    if(!gsr->available) return 0;
     // tick_mean_norm is written by tick() on the main thread but read here
     // from whatever thread calls this accessor (the GUI render thread, in
     // production) — genuinely cross-thread, so it needs gsr->mutex like
@@ -788,7 +779,6 @@ int32_t gsr_sensor_get_mean_count(const GsrSensor* gsr) {
 // Always ≥ 1 (see the i==0-unconditional note in gsr_sensor_tick()).
 int32_t gsr_sensor_get_window_samples(const GsrSensor* gsr) {
     furi_check(gsr, "GsrSensor: NULL in get_window_samples()");
-    if(!gsr->available) return 0;
     // Cross-thread (GUI render thread reads what tick() writes on the main
     // thread) — see gsr_sensor_get_mean_count()'s comment.
     furi_mutex_acquire(gsr->mutex, FuriWaitForever);
@@ -799,7 +789,6 @@ int32_t gsr_sensor_get_window_samples(const GsrSensor* gsr) {
 
 uint8_t gsr_sensor_get_pga_index(const GsrSensor* gsr) {
     furi_check(gsr, "GsrSensor: NULL in get_pga_index()");
-    if(!gsr->available) return ADS_PGA_DEFAULT;
     furi_mutex_acquire(gsr->mutex, FuriWaitForever);
     uint8_t val = gsr->pga_index;
     furi_mutex_release(gsr->mutex);
@@ -813,7 +802,6 @@ uint8_t gsr_sensor_get_pga_index(const GsrSensor* gsr) {
 // docs/gsr_filtering_analysis.md, Recommendation 1.
 float gsr_sensor_get_worker_hz(const GsrSensor* gsr) {
     furi_check(gsr, "GsrSensor: NULL in get_worker_hz()");
-    if(!gsr->available) return 0.0f;
     // Cross-thread — see gsr_sensor_get_mean_count()'s comment.
     furi_mutex_acquire(gsr->mutex, FuriWaitForever);
     float val = gsr->worker_hz_cached;
@@ -829,7 +817,6 @@ float gsr_sensor_get_worker_hz(const GsrSensor* gsr) {
 // until the first window has elapsed (optimistic default, not a claim).
 float gsr_sensor_get_success_rate(const GsrSensor* gsr) {
     furi_check(gsr, "GsrSensor: NULL in get_success_rate()");
-    if(!gsr->available) return 100.0f;
     // Cross-thread — see gsr_sensor_get_mean_count()'s comment.
     furi_mutex_acquire(gsr->mutex, FuriWaitForever);
     float val = gsr->success_rate_cached;
@@ -849,7 +836,6 @@ float gsr_sensor_get_success_rate(const GsrSensor* gsr) {
 // the first window has elapsed (optimistic default, not a claim).
 float gsr_sensor_get_duplicate_rate(const GsrSensor* gsr) {
     furi_check(gsr, "GsrSensor: NULL in get_duplicate_rate()");
-    if(!gsr->available) return 0.0f;
     // Cross-thread — see gsr_sensor_get_mean_count()'s comment.
     furi_mutex_acquire(gsr->mutex, FuriWaitForever);
     float val = gsr->duplicate_rate_cached;
@@ -862,7 +848,6 @@ float gsr_sensor_get_duplicate_rate(const GsrSensor* gsr) {
 // in a stale re-read of the ADS1115 register.
 float gsr_sensor_get_stale_rate(const GsrSensor* gsr) {
     furi_check(gsr, "GsrSensor: NULL in get_stale_rate()");
-    if(!gsr->available) return 0.0f;
     // Cross-thread — see gsr_sensor_get_mean_count()'s comment.
     furi_mutex_acquire(gsr->mutex, FuriWaitForever);
     float val = gsr->stale_rate_cached;
@@ -872,7 +857,6 @@ float gsr_sensor_get_stale_rate(const GsrSensor* gsr) {
 
 uint32_t gsr_sensor_get_stack_space(const GsrSensor* gsr) {
     furi_check(gsr, "GsrSensor: NULL in get_stack_space()");
-    if(!gsr->available) return 0;
     // furi_thread_get_stack_space() takes a FuriThreadId (the RTOS handle
     // from furi_thread_get_id()), not the FuriThread* wrapper itself — see
     // em_scan_rf_worker_get_stack_space()'s comment for the same fix.
@@ -888,7 +872,6 @@ uint32_t gsr_sensor_get_stack_space(const GsrSensor* gsr) {
 // threshold (gsr_sensor_worker()) actually fires. For diagnostics.
 uint32_t gsr_sensor_get_consecutive_failures(const GsrSensor* gsr) {
     furi_check(gsr, "GsrSensor: NULL in get_consecutive_failures()");
-    if(!gsr->available) return 0;
     furi_mutex_acquire(gsr->mutex, FuriWaitForever);
     uint32_t val = gsr->consecutive_failures;
     furi_mutex_release(gsr->mutex);
@@ -908,7 +891,6 @@ uint32_t gsr_sensor_get_consecutive_failures(const GsrSensor* gsr) {
 // data"), or if unavailable.  For diagnostics.
 uint32_t gsr_sensor_get_duplicate_gap_min_ticks(const GsrSensor* gsr) {
     furi_check(gsr, "GsrSensor: NULL in get_duplicate_gap_min_ticks()");
-    if(!gsr->available) return UINT32_MAX;
     // Cross-thread — see gsr_sensor_get_mean_count()'s comment.
     furi_mutex_acquire(gsr->mutex, FuriWaitForever);
     uint32_t val = gsr->duplicate_gap_min_cached;
@@ -922,7 +904,6 @@ uint32_t gsr_sensor_get_duplicate_gap_min_ticks(const GsrSensor* gsr) {
 // ranges". For diagnostics.
 uint32_t gsr_sensor_get_pga_change_count(const GsrSensor* gsr) {
     furi_check(gsr, "GsrSensor: NULL in get_pga_change_count()");
-    if(!gsr->available) return 0;
     // Cross-thread — see gsr_sensor_get_mean_count()'s comment.
     furi_mutex_acquire(gsr->mutex, FuriWaitForever);
     uint32_t val = gsr->pga_change_rate_cached;
@@ -936,7 +917,6 @@ uint32_t gsr_sensor_get_pga_change_count(const GsrSensor* gsr) {
 // covers both call sites. For diagnostics.
 uint32_t gsr_sensor_get_i2c_peak_ms(const GsrSensor* gsr) {
     furi_check(gsr, "GsrSensor: NULL in get_i2c_peak_ms()");
-    if(!gsr->available) return 0;
     furi_mutex_acquire(gsr->mutex, FuriWaitForever);
     uint32_t val = gsr->i2c_peak_ms;
     furi_mutex_release(gsr->mutex);
@@ -950,7 +930,6 @@ uint32_t gsr_sensor_get_i2c_peak_ms(const GsrSensor* gsr) {
 // contend with the ADC path. For diagnostics.
 uint32_t gsr_sensor_get_rf_rssi_peak_ms(const GsrSensor* gsr) {
     furi_check(gsr, "GsrSensor: NULL in get_rf_rssi_peak_ms()");
-    if(!gsr->available) return 0;
     furi_mutex_acquire(gsr->rf_mutex, FuriWaitForever);
     uint32_t val = gsr->rf_rssi_peak_ms;
     furi_mutex_release(gsr->rf_mutex);
@@ -962,7 +941,6 @@ uint32_t gsr_sensor_get_rf_rssi_peak_ms(const GsrSensor* gsr) {
 // — see gsr_sensor_get_rf_rssi_peak_ms()'s comment. For diagnostics.
 uint32_t gsr_sensor_get_rf_retune_peak_ms(const GsrSensor* gsr) {
     furi_check(gsr, "GsrSensor: NULL in get_rf_retune_peak_ms()");
-    if(!gsr->available) return 0;
     furi_mutex_acquire(gsr->rf_mutex, FuriWaitForever);
     uint32_t val = gsr->rf_retune_peak_ms;
     furi_mutex_release(gsr->rf_mutex);
@@ -1005,7 +983,6 @@ void gsr_sensor_tick(GsrSensor* gsr) {
     // Called every tick (10Hz) from the main thread during recording — the
     // single highest-frequency call site in this file.
     furi_check(gsr, "GsrSensor: NULL in tick()");
-    if(!gsr->available) return;
 
     // ── Roll the worker-Hz measurement window (~1 s) ────────────────────
     // Deliberately independent of the i2c_ok early-return below — if the
@@ -1185,7 +1162,6 @@ void gsr_sensor_tick(GsrSensor* gsr) {
 
 void gsr_sensor_set_calibration(GsrSensor* gsr, bool active, float gain, float offset) {
     furi_check(gsr, "GsrSensor: NULL in set_calibration()");
-    if(!gsr->available) return;
     furi_mutex_acquire(gsr->mutex, FuriWaitForever);
     gsr->cal_active = active;
     gsr->cal_gain = gain;
@@ -1234,7 +1210,6 @@ static void rf_reset_snapshot(GsrSensor* gsr) {
 
 void gsr_sensor_set_rf_enabled(GsrSensor* gsr, bool enabled) {
     furi_check(gsr, "GsrSensor: NULL in set_rf_enabled()");
-    if(!gsr->available) return;
     if(gsr->rf_enabled == enabled) return;
 
     if(enabled) {
@@ -1280,7 +1255,6 @@ void gsr_sensor_set_rf_enabled(GsrSensor* gsr, bool enabled) {
 
 void gsr_sensor_get_rf_snapshot(const GsrSensor* gsr, float* out_rssi_dbm) {
     furi_check(gsr, "GsrSensor: NULL in get_rf_snapshot()");
-    if(!gsr->available) return;
     furi_check(out_rssi_dbm, "GsrSensor: NULL out_rssi_dbm");
     furi_mutex_acquire(gsr->rf_mutex, FuriWaitForever);
     memcpy(out_rssi_dbm, gsr->rf_rssi_dbm, sizeof(gsr->rf_rssi_dbm));

@@ -62,7 +62,7 @@ int32_t biomap_app(void* p) {
         .debug_fields_enabled = false,
     };
 
-    app->event_queue   = furi_message_queue_alloc(EVENT_QUEUE_DEPTH, sizeof(PluginEvent));
+    app->event_queue   = furi_message_queue_alloc(EVENT_QUEUE_DEPTH, sizeof(BioMapEvent));
     app->mutex         = furi_mutex_alloc(FuriMutexTypeNormal);
     app->notifications = furi_record_open(RECORD_NOTIFICATION);
     app->storage       = furi_record_open(RECORD_STORAGE);

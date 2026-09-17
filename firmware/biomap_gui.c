@@ -10,12 +10,12 @@
 // ==========================================================================
 
 void biomap_input_callback(InputEvent* e, void* ctx) {
-    PluginEvent ev = {.type = EventTypeKey, .input = *e};
+    BioMapEvent ev = {.type = EventTypeKey, .input = *e};
     furi_message_queue_put((FuriMessageQueue*)ctx, &ev, FuriWaitForever);
 }
 
 void biomap_timer_callback(void* ctx) {
-    PluginEvent ev = {.type = EventTypeTick};
+    BioMapEvent ev = {.type = EventTypeTick};
     // Non-blocking: software timer callbacks run in the system timer daemon
     // task.  Blocking here would stall all OS timers (key repeat, backlight
     // dimming, etc.) when the queue is full.  The increased EVENT_QUEUE_DEPTH
@@ -55,7 +55,7 @@ void vp_pop(BioMapApp* app, ViewPort* vp) {
 
 // Drain any stale events from the queue before starting a sub-screen loop.
 void drain_stale_events(FuriMessageQueue* q) {
-    PluginEvent ev;
+    BioMapEvent ev;
     while(furi_message_queue_get(q, &ev, 0) == FuriStatusOk);
 }
 
@@ -90,7 +90,7 @@ int32_t biomap_gui_show_menu(BioMapApp* app) {
     ViewPort* vp = vp_push(app, menu_render, &ctx);
     drain_stale_events(app->event_queue);
 
-    PluginEvent ev;
+    BioMapEvent ev;
     int32_t result = -1;
     bool running = true;
     while(running) {
@@ -161,7 +161,7 @@ void run_options_screen(BioMapApp* app) {
     ViewPort* vp = vp_push(app, options_render, &ctx);
 
     drain_stale_events(app->event_queue);
-    PluginEvent ev;
+    BioMapEvent ev;
     while(furi_message_queue_get(app->event_queue, &ev, FuriWaitForever) == FuriStatusOk) {
         if(ev.type == EventTypeKey && ev.input.type == InputTypeShort) {
             if(ev.input.key == InputKeyBack) {
@@ -244,7 +244,7 @@ void run_options_screen(BioMapApp* app) {
 void run_simple_viewer(BioMapApp* app, ViewPortDrawCallback render, void* ctx) {
     ViewPort* vp = vp_push(app, render, ctx);
     drain_stale_events(app->event_queue);
-    PluginEvent ev;
+    BioMapEvent ev;
     while(furi_message_queue_get(app->event_queue, &ev, FuriWaitForever) == FuriStatusOk) {
         if(ev.type == EventTypeKey && ev.input.type == InputTypeShort) {
             if(ev.input.key == InputKeyBack || ev.input.key == InputKeyOk) {
@@ -283,7 +283,7 @@ void run_cal_submenu(BioMapApp* app, ViewPortDrawCallback render,
     CalSubmenuContext ctx = {.app = app, .selection = 0};
     ViewPort* vp = vp_push(app, render, &ctx);
     drain_stale_events(app->event_queue);
-    PluginEvent ev;
+    BioMapEvent ev;
     while(furi_message_queue_get(app->event_queue, &ev, FuriWaitForever) == FuriStatusOk) {
         if(ev.type == EventTypeKey && ev.input.type == InputTypeShort) {
             if(ev.input.key == InputKeyBack) {
@@ -382,7 +382,7 @@ static CalMeasureResult calibration_wizard_measure(BioMapApp* app, ViewPort* vp,
     float mean = 0.0f, m2 = 0.0f;
 
     for(uint32_t elapsed = 0; elapsed < CAL_DWELL_SECONDS * TICK_HZ; elapsed++) {
-        PluginEvent ev;
+        BioMapEvent ev;
         if(furi_message_queue_get(app->event_queue, &ev, 0) == FuriStatusOk) {
             if(ev.type == EventTypeKey && ev.input.type == InputTypeShort &&
                ev.input.key == InputKeyBack) {
@@ -490,7 +490,7 @@ void run_calibration_wizard(BioMapApp* app) {
     furi_check(w.mutex, "WizardState: mutex alloc failed");
     ViewPort* vp = vp_push(app, calibration_wizard_render, &w);
     drain_stale_events(app->event_queue);
-    PluginEvent ev;
+    BioMapEvent ev;
     
     // Allocate the GSR sensor once for all measurements.
     GsrSensor* gsr = gsr_sensor_alloc();

@@ -64,7 +64,7 @@ void run_rf_calibration_wizard(BioMapApp* app) {
     furi_mutex_release(w.mutex);
     bool cancelled = false;
     for(uint32_t elapsed = 0; elapsed < 30 * TICK_HZ; elapsed++) {
-        PluginEvent ev;
+        BioMapEvent ev;
         if(furi_message_queue_get(app->event_queue, &ev, 0) == FuriStatusOk) {
             if(ev.type == EventTypeKey && ev.input.type == InputTypeShort) {
                 if(ev.input.key == InputKeyBack) {
@@ -107,7 +107,7 @@ void run_rf_calibration_wizard(BioMapApp* app) {
     int band = 0;
     bool sampling_cancelled = false;
     for(uint32_t elapsed = 0; elapsed < 20 * TICK_HZ; elapsed++) {
-        PluginEvent ev;
+        BioMapEvent ev;
         if(furi_message_queue_get(app->event_queue, &ev, 0) == FuriStatusOk) {
             if(ev.type == EventTypeKey && ev.input.type == InputTypeShort
                 && ev.input.key == InputKeyBack) {
@@ -177,7 +177,7 @@ void run_rf_calibration_wizard(BioMapApp* app) {
     // ── Result screen: OK saves (if passed), Back discards ─────────────
     drain_stale_events(app->event_queue);
     while(true) {
-        PluginEvent ev;
+        BioMapEvent ev;
         if(furi_message_queue_get(app->event_queue, &ev, FuriWaitForever) != FuriStatusOk) continue;
         if(ev.type != EventTypeKey || ev.input.type != InputTypeShort) continue;
 

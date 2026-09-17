@@ -34,8 +34,16 @@ From a full read of `firmware/` (2026-09). Ordered by payoff:
   wizard states → `biomap_wizard.h`.
 - **P5 — One "RF active" rule.** `has_rf()` (includes Diagnostics) vs the
   literal `rf_viz` gate in `biomap_render.c` are two drifting definitions.
-- **P6 — Hygiene.** Rename `PluginEvent`; fix `gps_uart.h`'s mid-file
-  `../biomap_config.h` include; move `sound.h` melodies to a `sound.c`.
+- **P6 — Hygiene.**
+  - [x] ~~Rename `PluginEvent`~~ **Done 2026-09-17:** renamed to `BioMapEvent`
+    across all ~14 call sites (`biomap.c`, `biomap_gui.c`, `biomap_session.c`,
+    `biomap_rf_cal.c`, `gps_uart.c`, `biomap_events.h`, test shims).
+  - [x] ~~Fix `gps_uart.h`'s mid-file `../biomap_config.h` include~~ **Done
+    2026-09-17:** moved up next to the other includes (no circular
+    dependency — `biomap_config.h` has no includes of its own).
+  - Move `sound.h` melodies to a `sound.c` — not done; deferred (header-only
+    `static inline` is currently harmless, this is a bigger header→TU
+    migration than the other two).
 
 ## Analysis ideas
 
@@ -191,6 +199,29 @@ uncharacterised:
   schema bump + visualiser parser/filter wiring on top. Worth doing if the
   fusion accuracy matters enough to justify touching the RX path; not
   attempted yet.
+- **Full binary-only (UBX) GPS protocol — considered 2026-09-17, not
+  recommended as scoped.** Idea: drop NMEA entirely on M10Q and read only
+  binary `UBX-NAV-PVT` (+ `UBX-NAV-SAT` for the per-satellite/SBAS detail
+  GSA/GSV currently provide), on the theory that less serial data would
+  free main-thread time — e.g. to sample GSR more often. Investigated and
+  the premise doesn't hold: GSR already runs at the ADS1115's hardware
+  ceiling (860 SPS, config byte in `gsr_sensor.c`) on its own dedicated
+  `GsrSensorWorker` thread, independent of the GPS main thread; and the
+  CSV row rate is a fixed 10 Hz `EventTypeTick` in `biomap_session.c`,
+  already rationed against GPS-parsing overrun by
+  `GPS_RX_MAX_DRAIN_BYTES_PER_CALL`/`GPS_RX_MAX_LINES_PER_CALL`
+  (`gps_uart.c`). Neither is CPU-starved by NMEA parsing today, so binary
+  framing wouldn't change either rate. Real costs of going binary-only:
+  drops L76K support entirely (Quectel, no UBX) or forces a second,
+  structurally different continuous RX path keyed on `GPS_MODULE`; trades
+  NMEA's self-recovering line framing for sync-byte/length/checksum binary
+  framing that can misalign on a single dropped byte (existing UBX code in
+  `gps_uart.c` only does this for one-shot config ACKs today, never as a
+  continuous per-IRQ parser); and needs its own watchdog rewrite (current
+  one is NMEA-line-validity based). Only real payoff is unlocking
+  `sAcc`/`headAcc` for the fusion idea above — better captured by the
+  mixed NMEA+UBX approach already noted there (add one narrow binary
+  parser alongside the working NMEA path) than by a full protocol cutover.
 - `_collectGpsPoints` hand-copies 10 fields (deliberate, per the
   profiling comment) — a test asserting the filter stages only read those
   keys would stop the list rotting silently.
@@ -244,11 +275,14 @@ done; these are the optional follow-ups still worth doing.
   broadcasting, Android Chrome reconnection when the phone display sleeps or
   goes in a pocket mid-walk, and packet-drop rates (`bt_telemetry` debug line
   already logs `bt_tx_peak_ms` / `bt_drop`).
-- **`gsr->available` dead code** — set `true` unconditionally at alloc, never
-  set `false`; every `if(!gsr->available) return;` guard in
-  `modules/gsr_sensor.c` is unreachable. Removing it touches ~20 accessor
-  call sites plus `gsr_sensor_available()` for zero behaviour change. Purely a
-  tidy-up, doable any time.
+- [x] ~~`gsr->available` dead code~~ **Done 2026-09-17:** field and all 23
+  `if(!gsr->available) return;` guards removed from `modules/gsr_sensor.c`
+  (`gsr_sensor_available()` was already independent — it reads `i2c_working`,
+  not this field). `gsr_sensor_free()`'s always-true wrapping `if` unindented.
+  Verified zero behaviour change: every removed guard's return value matched
+  the field's natural zero-initialised default, since `tick()` already
+  no-ops via a separate live `i2c_working` check. Host test suite (incl.
+  `test_gsr_sensor` + its ThreadSanitizer pass) green.
 - **RF/GSR concurrency — test-coverage gaps** (from
   `archive/gps_rf_mutex_status.md`). Both low priority, no suspected defect:
   - The RF-vs-GSR TOCTOU is covered by a stress test that raises confidence

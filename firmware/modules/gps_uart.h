@@ -10,6 +10,7 @@
 #include <furi_hal.h>
 #include <notification/notification_messages.h>
 #include "../vendor/minmea/minmea.h"
+#include "../biomap_config.h"
 
 #define GPS_RX_BUF_SIZE   (1024 * 5)
 #define GPS_BAUD_RATE     9600
@@ -37,8 +38,6 @@ typedef struct GpsStatus {
 } GpsStatus;
 
 typedef struct GpsUart GpsUart;
-
-#include "../biomap_config.h"
 
 // Lifecycle — caller owns event_queue until free() returns. `notifications`
 // is accepted for API-shape consistency with other module allocators but is

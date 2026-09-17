@@ -80,7 +80,7 @@ static void gps_uart_irq_cb(
         }
         if(!g->rx_pending) {
             g->rx_pending = true;
-            PluginEvent ev = {.type = EventTypeUart};
+            BioMapEvent ev = {.type = EventTypeUart};
             furi_message_queue_put(g->event_queue, &ev, 0);
         }
     }
@@ -1124,7 +1124,7 @@ void gps_uart_process_rx(GpsUart* g) {
     } while(len > 0);
 
     if(budget_hit && (len > 0 || may_have_more_stream || has_more_complete_lines)) {
-        PluginEvent ev = {.type = EventTypeUart};
+        BioMapEvent ev = {.type = EventTypeUart};
         if(furi_message_queue_put(g->event_queue, &ev, 0) == FuriStatusOk) {
             g->rx_pending = true;
         }

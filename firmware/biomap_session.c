@@ -604,7 +604,7 @@ static bool key_zoom_horizontal(Session* s, FuriMutex* mutex, bool zoom_out) {
 // ── Handle one key press during a recording session ────────────────────────
 // Returns true if the event was consumed (the caller should continue its
 // event loop without further processing for this iteration).
-static bool handle_recording_key(PluginEvent* ev, Session* s,
+static bool handle_recording_key(BioMapEvent* ev, Session* s,
                                   FuriMutex* mutex, ViewPort* vp, bool sound_enabled) {
     if(ev->type != EventTypeKey || ev->input.type != InputTypeShort)
         return false;
@@ -846,7 +846,7 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
     s->timer = furi_timer_alloc(biomap_timer_callback, FuriTimerTypePeriodic, app->event_queue);
     furi_timer_start(s->timer, furi_kernel_get_tick_frequency() / TICK_HZ);
 
-    PluginEvent ev;
+    BioMapEvent ev;
     while(s->running) {
         if(furi_message_queue_get(app->event_queue, &ev, FuriWaitForever) != FuriStatusOk)
             continue;
