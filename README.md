@@ -9,18 +9,22 @@ It has two parts:
 - **[The Hardware](#the-hardware)** — a Flipper Zero wired to a custom skin-response sensor and a GPS module, logging to the SD card as CSV.
 - **[The Visualiser](#the-visualiser)** — browser-based analysis and mapping suite ([launch online](https://softhook.github.io/BioMapping/visualiser/) or open [`visualiser/index.html`](visualiser/index.html)).
 
-## Quick Start
-
-1. **Build the hardware** — gather the [components](#components) and follow the [wiring guide](docs/wiring_guide.md).
-2. **Flash the app** — download `biomap.fap` from the [Releases](https://github.com/Softhook/BioMapping/releases) page and copy it to your Flipper's SD card, or build from `firmware/` with [`ufbt`](https://pypi.org/project/ufbt/).
-3. **Record a walk** — launch the Bio Mapping app on the Flipper, clip on the electrodes, and walk. Logs save to `/ext/biomapping/*.csv` on the SD card.
-4. **Analyse & map** — drop your CSV into the [online visualiser](https://softhook.github.io/BioMapping/visualiser/) — no install needed.
-
 ## The Original Bio Mapping
 
 The first Bio Mapping device (Christian Nold, 2004) was used in workshops with thousands of people across sixteen countries. Participants walked through an area wearing the device and then annotated the recorded data together, producing collective emotion maps. Results from those workshops are published online — the [Greenwich Emotion Map](http://emotionmap.net/), the [San Francisco Emotion Map](http://www.sf.biomapping.net/) and the [Stockport Emotion Map](http://stockport.emotionmap.net/) — and the approach is discussed in the book [*Emotional Cartography*](http://www.emotionalcartography.net/).
 
-BioMapping 2.0 is a high-fidelity successor that takes you much deeper into the body and uses more sophisticated hardware and software to identify subtle nervous system responses and create a new vision of the mind-body relationship.
+## Bio Mapping 2.0
+Unlike a lot of academic research around Galvanic Skin Response, which can feel clinical and bogged down in jargon, this project takes a different path. The goal is a system that is technically rigorous while open for everyday community interpretation. While the old version was great at getting people involved, it didn't provide the insight into what was happening inside the body and the technical rigour and legitimacy to defend the data. 
+
+Bio Mapping 2.0 is a high-fidelity successor that takes you much deeper into the body. It uses more sophisticated hardware and software to track subtle nervous system responses and create a new vision of the mind-body relationship. This new version aims to give communities reliable tools to tackle real-world issues like local planning, environmental stress, and civic change.
+
+## Quick Start
+
+1. **Build the hardware or talk to me** — gather the [components](#components) and follow the [wiring guide](docs/wiring_guide.md).
+2. **Flash the app** — download `biomap.fap` from the [Releases](https://github.com/Softhook/BioMapping/releases) page and copy it to your Flipper's SD card, or build from `firmware/` with [`ufbt`](https://pypi.org/project/ufbt/).
+3. **Record a walk** — launch the Bio Mapping app on the Flipper, clip on the electrodes, and walk. Logs save to `/ext/biomapping/*.csv` on the SD card.
+4. **Analyse & map** — drop your CSV into the [online visualiser](https://softhook.github.io/BioMapping/visualiser/) — no install needed.
+
 
 ---
 

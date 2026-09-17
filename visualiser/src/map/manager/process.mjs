@@ -8,17 +8,39 @@
  *
  * Depends on the globals GpsPipeline and GpsFilter (resolved at call time).
  */
+import { GSR_CONST } from '../../core/constants.mjs';
 import { GpsFilter } from '../../gps/gps_filter.mjs';
 import { GpsPipeline } from '../../gps/gps_pipeline.mjs';
 import { GSRMapManager } from '../map.mjs';
 
 export const __methods = {
   /**
+   * Resolve effective smoothing (Kalman process noise Q).
+   * Respects explicit p.smoothing (legacy project/CSV imports), or
+   * binds dynamically to activity maxSpeed: Q = 0.5 * (maxSpeed / 3.0)^2.
+   */
+  _resolveSmoothing(p) {
+    if (
+      typeof p?.smoothing === 'number' &&
+      !isNaN(p.smoothing) &&
+      p.smoothing > 0
+    ) {
+      return p.smoothing;
+    }
+    const maxSpeed =
+      typeof p?.maxSpeed === 'number' && !isNaN(p.maxSpeed) && p.maxSpeed > 0
+        ? p.maxSpeed
+        : 3.0;
+    return 0.5 * (maxSpeed / 3.0) ** 2;
+  },
+
+  /**
    * Hash GPS filter params for cache key comparison.
    * Only hashes params that affect the GPS pipeline output.
    */
   _hashGpsParams(p) {
-    return `${p.maxHdop || 3.0}|${p.smoothing || 0.5}|${p.kalmanR || 10}|${p.maxSpeed || 3.0}|${p.downsample ? 1 : 0}|${p.rdpTolerance || 0}`;
+    const smoothing = this._resolveSmoothing(p);
+    return `${p.maxHdop || 3.0}|${smoothing.toFixed(3)}|${p.kalmanR || 10}|${p.maxSpeed || 3.0}|${p.downsample ? 1 : 0}|${p.rdpTolerance || 0}`;
   },
 
   /**
@@ -83,12 +105,21 @@ export const __methods = {
     gpsPoints = GpsPipeline.applyHdopGate(gpsPoints, p.maxHdop || 3.0);
     gpsPoints = GpsPipeline.applyFixTypeGate(gpsPoints);
 
-    const smoothing = p.smoothing || 0.5;
+    const maxSpeed =
+      typeof p?.maxSpeed === 'number' && !isNaN(p.maxSpeed) && p.maxSpeed > 0
+        ? p.maxSpeed
+        : 3.0;
+    const smoothing = this._resolveSmoothing(p);
     const kalmanR = p.kalmanR || 10;
+    // Pre-Kalman velocity smoothing takes its own fixed alpha, NOT the
+    // maxSpeed-derived Kalman Q above. applyVelocitySmoothing's alpha is an
+    // unrelated DOP-adaptive blend weight expected in roughly [0,1]; feeding
+    // it Q would saturate its `alpha / dop` clamp at Run/Bike speeds,
+    // defeating the DOP-adaptive trust it's meant to provide.
     gpsPoints = GpsPipeline.applyPreKalmanFilters(
       gpsPoints,
-      smoothing,
-      p.maxSpeed || 3.0,
+      GSR_CONST.GPS_DEFAULT.smoothing,
+      maxSpeed,
     );
 
     if (analyzer.snappedGps) {

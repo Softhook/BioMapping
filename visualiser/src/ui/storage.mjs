@@ -75,11 +75,15 @@ export const GSRStorage = {
     if (!S) return null;
     const D = GSR_CONST.GPS_DEFAULT;
     const AP = GSR_CONST.AROUSAL_PLACES;
+    const maxSpeed = sliderVal(S.gpsMaxSpeed, D.maxSpeed);
+    const baseSmoothing = D.smoothing !== undefined ? D.smoothing : 0.5;
+    const baseSpeed = D.maxSpeed || 3.0;
+    const tiedSmoothing = baseSmoothing * (maxSpeed / baseSpeed) ** 2;
     return {
-      smoothing: sliderVal(S.gpsSmoothing, D.smoothing),
+      smoothing: sliderVal(S.gpsSmoothing, tiedSmoothing),
       kalmanR: sliderVal(S.gpsKalmanR, D.kalmanR),
       maxHdop: sliderVal(S.gpsMaxHdop, D.maxHdop),
-      maxSpeed: sliderVal(S.gpsMaxSpeed, D.maxSpeed),
+      maxSpeed: maxSpeed,
       rdpTolerance: sliderVal(S.gpsRDP, D.rdpTolerance),
       downsample: sliderVal(S.gpsDownsample, D.downsample ? 1 : 0, parseInt),
       trackWeight: sliderVal(S.gpsTrackWeight, D.trackWeight, parseInt),

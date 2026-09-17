@@ -292,12 +292,12 @@
           <div class="card-content">
             <div class="slider-group">
               <div class="slider-label">
-                <span>Path Responsiveness</span>
-                <span class="slider-value" id="valGpsSmoothing">0.5</span>
+                <span>Max Speed</span>
+                <span class="slider-value" id="valGpsMaxSpeed">3.0 m/s (Walk)</span>
               </div>
-              <input type="range" id="gpsSmoothing" min="0.02" max="10" step="0.02" value="0.5">
-              <div class="slider-rec" style="left:5%; width:15%"></div>
-              <p class="help-text">How quickly the path responds to GPS movement.</p>
+              <input type="range" id="gpsMaxSpeed" min="1.0" max="12.0" step="0.5" value="3.0">
+              <div class="slider-rec" style="left:17%; width:25%"></div>
+              <p class="help-text">Activity speed limit & motion model. <strong>Walk</strong> ≈ 3 m/s, <strong>Run</strong> ≈ 5 m/s, <strong>Bike</strong> ≈ 10 m/s.</p>
             </div>
 
             <div class="slider-group">
@@ -308,16 +308,6 @@
               <input type="range" id="gpsMaxHdop" min="0.8" max="5.0" step="0.2" value="3.0">
               <div class="slider-rec" style="left:40%; width:40%"></div>
               <p class="help-text">Rejects GPS fixes with poor satellite geometry. <strong>2.0</strong> = urban canyons, <strong>3.0</strong> = default, <strong>5.0</strong> = open sky (matches firmware pre-filter).</p>
-            </div>
-
-            <div class="slider-group">
-              <div class="slider-label">
-                <span>Max Speed</span>
-                <span class="slider-value" id="valGpsMaxSpeed">3.0 m/s (Walk)</span>
-              </div>
-              <input type="range" id="gpsMaxSpeed" min="1.0" max="12.0" step="0.5" value="3.0">
-              <div class="slider-rec" style="left:17%; width:25%"></div>
-              <p class="help-text">Rejects GPS jumps that imply impossible speeds. <strong>Walk</strong> ≈ 3 m/s, <strong>Run</strong> ≈ 5 m/s, <strong>Bike</strong> ≈ 10 m/s.</p>
             </div>
 
             <div class="control-subgroup-title">Display</div>

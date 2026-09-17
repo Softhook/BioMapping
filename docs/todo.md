@@ -159,10 +159,38 @@ uncharacterised:
 
 ### Smaller notes
 
-- Q and R sliders (m², with χ² gates) aren't tunable by a field
-  researcher — they invite cargo-cult fiddling that shifts conclusions.
-  Consider one "trust GPS ↔ trust smoothing" slider mapped to joint (Q,R)
-  presets, the rest behind an "advanced" disclosure.
+- [x] ~~Q and R sliders (m², with χ² gates) aren't tunable by a field
+  researcher — they invite cargo-cult fiddling that shifts conclusions.~~
+  **Resolved:** Both raw mathematical sliders removed from UI. $R$ scales
+  dynamically per-point from M10Q $hAcc$; $Q$ is bound directly to the
+  activity `Max Speed` setting ($Q = 0.5 \times (v_{\text{max}} / 3.0)^2$).
+  The pre-Kalman velocity-smoothing stage keeps its own fixed alpha rather
+  than sharing $Q$ — that stage's alpha is an unrelated DOP-adaptive blend
+  weight in [0,1], and reusing $Q$ there saturated it at Run/Bike speeds.
+- **Potential:** the pre-Kalman alpha above is still a fixed guess (0.5,
+  `GSR_CONST.GPS_DEFAULT.smoothing`), not derived from data — it stands in
+  for the trust ratio between the raw GPS fix and the Doppler-based
+  dead-reckoning prediction, and today we only have a live accuracy metric
+  ($hAcc$) for the GPS side. The M10Q's `UBX-NAV-PVT` message (class 0x01,
+  id 0x07, 92-byte payload) carries `sAcc` (speed accuracy, mm/s, offset
+  68) and `headAcc` (heading accuracy, 1e-5 deg, offset 72) — no NMEA or
+  `$PUBX` sentence carries either field, confirmed against the u-blox M10
+  SPG 5.10 Interface Description. With those, `applyVelocitySmoothing`
+  could do real inverse-variance fusion ($R_{gps}=hAcc^2$ vs an $R_{dr}$
+  derived from `sAcc`/`headAcc`) instead of the ad hoc `alpha/dop` ratio,
+  removing the free constant entirely. Two real costs: (1) enabling it
+  needs `CFG-MSGOUT-UBX_NAV_PVT_UART1` (key `0x20910007`) turned on *and*
+  the UART1 output protocol mask flipped from NMEA-only (currently `0002`
+  at [gps_uart.c](../firmware/modules/gps_uart.c) — see the "outProto"
+  comment) to mixed NMEA+UBX; (2) the live RX path
+  ([gps_uart.c](../firmware/modules/gps_uart.c)) is a single-byte-per-IRQ
+  NMEA line accumulator with no binary-frame awareness outside the
+  one-shot startup ACK/UNIQID reads — continuous NAV-PVT would need a real
+  second state machine in that interrupt path to detect `0xB5 0x62` sync
+  mid-stream without corrupting the interleaved NMEA lines. Then a CSV
+  schema bump + visualiser parser/filter wiring on top. Worth doing if the
+  fusion accuracy matters enough to justify touching the RX path; not
+  attempted yet.
 - `_collectGpsPoints` hand-copies 10 fields (deliberate, per the
   profiling comment) — a test asserting the filter stages only read those
   keys would stop the list rotting silently.

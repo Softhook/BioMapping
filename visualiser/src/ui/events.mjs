@@ -31,12 +31,6 @@ export const GSR_SLIDER_DEFS = [
 // wiring elsewhere but still take their formatter from here.
 export const GPS_SLIDER_DEFS = [
   {
-    id: 'gpsSmoothing',
-    labelId: 'valGpsSmoothing',
-    fmt: (v) => v.toFixed(2),
-    bindGps: true,
-  },
-  {
     id: 'gpsMaxHdop',
     labelId: 'valGpsMaxHdop',
     fmt: (v) => `≤ ${v.toFixed(1)}`,
@@ -156,7 +150,6 @@ export const GSREvents = {
       'minPeakQuality',
       'hotspotPercentile',
       'shapeMinSnr',
-      'gpsSmoothing',
       'gpsMaxHdop',
       'gpsMaxSpeed',
       'gpsRDP',
