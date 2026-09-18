@@ -229,8 +229,3 @@ Full-Scan's precision reflects that real tonic micro-fluctuations produce more o
 Prefer a change only when it improves known-answer performance across the full
 suite, especially `synth_compound_noisy`, without reducing compound-response
 recall. If it improves NeuroKit2 agreement but loses known events, reject it.
-
----
-
-> [!NOTE]
-> For the chronological 30-item investigation log and calibration history, see [`research/eda_detection_benchmark.md`](../research/eda_detection_benchmark.md).
