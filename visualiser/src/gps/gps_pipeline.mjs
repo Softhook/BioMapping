@@ -1,9 +1,38 @@
 /**
  * GPS Filter Pipeline — standalone helper functions for trajectory cleaning, gating, and display downsampling.
  */
+import { GeoUtils } from './geo_utils.mjs';
 import { GpsFilter } from './gps_filter.mjs';
 
+// Absolute distance ceiling for a "plausible" gap, regardless of how much
+// time it spans — guards a long gap between two points that happen to be
+// close together but were actually reached by a real detour (e.g. a
+// building walk-through), not a straight line.
+const GPS_GAP_MAX_DIST_M = 100;
+
 export const GpsPipeline = {
+  /**
+   * Is the gap between two consecutive GPS points a plausible piece of the
+   * same continuous walk, safe to connect with a straight line/chord? Used
+   * by both reconstructFilteredGps (10Hz interpolation vs NaN) and the map
+   * renderer's path-segment breaking (_renderPathSegments in
+   * manager/path.mjs) so "is this gap trustworthy" is answered once instead
+   * of each place picking its own threshold and disagreeing — the two used
+   * to independently allow a gap through as long as it was time-wise "not
+   * too old" (30s), with no read on the distance actually implied, so an
+   * anchor pair a filter stage had already flagged as physically
+   * implausible (e.g. a huge jump in a fraction of a second) still got
+   * rendered as a straight line.
+   *
+   * @param {number} distM - straight-line distance between the two points (m)
+   * @param {number} dt - time between them (s)
+   * @param {number} maxSpeed - plausible speed ceiling (m/s)
+   */
+  isPlausibleGap(distM, dt, maxSpeed) {
+    const impliedSpeedMs = dt > 0 ? distM / dt : Infinity;
+    return impliedSpeedMs <= maxSpeed && distM <= GPS_GAP_MAX_DIST_M;
+  },
+
   /**
    * HDOP gate: rejects GPS anchors with poor satellite geometry.
    * Points without HDOP data are always kept.
@@ -62,8 +91,12 @@ export const GpsPipeline = {
 
   /**
    * Reconstruct full 10 Hz filtered GPS path.
+   *
+   * @param {number} [maxSpeed] - plausible speed ceiling (m/s), the same
+   *   value fed to applySpeedFilter/Kalman Q — used to decide whether a gap
+   *   between anchors is safe to draw as a straight chord.
    */
-  reconstructFilteredGps(analyzer, data, gpsPoints) {
+  reconstructFilteredGps(analyzer, data, gpsPoints, maxSpeed = 3.0) {
     const filteredGps = new Array(data.length);
     const filteredMap = new Map();
     gpsPoints.forEach((p) => {
@@ -84,8 +117,11 @@ export const GpsPipeline = {
     for (let i = 0; i < firstIdx; i++)
       filteredGps[i] = { lat: firstCoord.lat, lon: firstCoord.lon };
 
-    // Interpolate between valid points, leaving large gaps (>30s) as NaN
-    const GPS_INTERP_MAX_GAP_S = 30;
+    // Interpolate between valid points, leaving gaps too implausible to draw
+    // as a straight chord as NaN. A flat 30s time-only rule fabricates ~42m
+    // of invented path at walking pace while needlessly blanking a genuine
+    // 30s+ stop where the anchors barely moved — gate on the gap's own
+    // implied speed/distance instead (see isPlausibleGap).
     for (let k = 0; k < validIndices.length - 1; k++) {
       const idxA = validIndices[k],
         idxB = validIndices[k + 1];
@@ -93,7 +129,8 @@ export const GpsPipeline = {
         cB = filteredMap.get(idxB);
       filteredGps[idxA] = { lat: cA.lat, lon: cA.lon };
       const timeGap = data[idxB].time - data[idxA].time;
-      if (timeGap > GPS_INTERP_MAX_GAP_S) {
+      const gapDistM = GeoUtils.haversineMeters(cA.lat, cA.lon, cB.lat, cB.lon);
+      if (!GpsPipeline.isPlausibleGap(gapDistM, timeGap, maxSpeed)) {
         for (let i = idxA + 1; i < idxB; i++) {
           filteredGps[i] = { lat: NaN, lon: NaN };
         }
@@ -120,24 +157,29 @@ export const GpsPipeline = {
   /**
    * Cached version of reconstructFilteredGps.
    */
-  reconstructFilteredGpsCached(analyzer, data, gpsPoints) {
+  reconstructFilteredGpsCached(analyzer, data, gpsPoints, maxSpeed = 3.0) {
     const n = gpsPoints.length;
     if (n === 0) {
       if (!analyzer._filteredGpsCacheKey) {
-        GpsPipeline.reconstructFilteredGps(analyzer, data, gpsPoints);
+        GpsPipeline.reconstructFilteredGps(analyzer, data, gpsPoints, maxSpeed);
         analyzer._filteredGpsCacheKey = 'empty';
       }
       return;
     }
-    // Include lat/lon of first, mid, and last point so the cache invalidates
-    // when the Kalman filter output changes (slider-driven Q/R changes).
-    const first = gpsPoints[0],
-      mid = gpsPoints[Math.floor(n / 2)],
-      last = gpsPoints[n - 1];
-    const key = `${first.origIdx}|${first.lat.toFixed(6)},${first.lon.toFixed(6)}|${mid.origIdx}|${mid.lat.toFixed(6)},${mid.lon.toFixed(6)}|${last.origIdx}|${last.lat.toFixed(6)},${last.lon.toFixed(6)}|${n}`;
+    // O(n) rolling hash over every point so a mid-track edit that leaves the
+    // first/mid/last points untouched still invalidates the cache (a plain
+    // first/mid/last sample missed exactly that case).
+    let hash = 0;
+    for (let i = 0; i < n; i++) {
+      const p = gpsPoints[i];
+      hash = (Math.imul(hash, 31) + p.origIdx) | 0;
+      hash = (Math.imul(hash, 31) + Math.round(p.lat * 1e7)) | 0;
+      hash = (Math.imul(hash, 31) + Math.round(p.lon * 1e7)) | 0;
+    }
+    const key = `${hash}|${n}|${maxSpeed}`;
     if (analyzer._filteredGpsCacheKey === key) return;
 
-    GpsPipeline.reconstructFilteredGps(analyzer, data, gpsPoints);
+    GpsPipeline.reconstructFilteredGps(analyzer, data, gpsPoints, maxSpeed);
     analyzer._filteredGpsCacheKey = key;
   },
 

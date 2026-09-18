@@ -78,7 +78,7 @@ function computeCharacterizationMetrics(csvText, paramOverrides = {}) {
   pts = GpsPipeline.applyPreKalmanFilters(pts, p.smoothing, p.maxSpeed);
   const finalPts = GpsFilter.applyKalman(pts, p.smoothing, p.kalmanR);
 
-  GpsPipeline.reconstructFilteredGps(analyzer, data, finalPts);
+  GpsPipeline.reconstructFilteredGps(analyzer, data, finalPts, p.maxSpeed);
   const fg = analyzer.filteredGps;
 
   const validFg = [];

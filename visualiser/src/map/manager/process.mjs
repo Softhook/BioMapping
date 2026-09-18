@@ -44,25 +44,24 @@ export const __methods = {
   },
 
   /**
-   * Lightweight fingerprint of road-snap data so the cache invalidates
-   * when OSM enrichment produces different snap results.
+   * Fingerprint of road-snap data so the cache invalidates when OSM
+   * enrichment produces different snap results. O(n) rolling hash over every
+   * entry — a first/mid/last sample missed a mid-track re-snap that left
+   * those three positions unchanged.
    */
   _snapFingerprint(snappedGps) {
     if (!snappedGps) return 'nosnap';
     const keys = Object.keys(snappedGps);
     const n = keys.length;
     if (n === 0) return 'nosnap';
-    // Hash: count + first + mid + last alpha values
-    const first = snappedGps[keys[0]];
-    const mid = snappedGps[keys[Math.floor(n / 2)]];
-    const last = snappedGps[keys[n - 1]];
-    const fa =
-      first && typeof first.alpha === 'number' ? first.alpha.toFixed(3) : '?';
-    const ma =
-      mid && typeof mid.alpha === 'number' ? mid.alpha.toFixed(3) : '?';
-    const la =
-      last && typeof last.alpha === 'number' ? last.alpha.toFixed(3) : '?';
-    return `${n}|${fa}|${ma}|${la}`;
+    let hash = 0;
+    for (const key of keys) {
+      const sg = snappedGps[key];
+      const alpha = sg && typeof sg.alpha === 'number' ? sg.alpha : -1;
+      hash = (Math.imul(hash, 31) + Number(key)) | 0;
+      hash = (Math.imul(hash, 31) + Math.round(alpha * 1e3)) | 0;
+    }
+    return `${n}|${hash}`;
   },
 
   /**
@@ -132,7 +131,12 @@ export const __methods = {
     gpsPoints = GpsFilter.applyKalman(gpsPoints, smoothing, kalmanR);
 
     // Reconstruct full 10 Hz filtered GPS path (cached on analyzer)
-    GpsPipeline.reconstructFilteredGpsCached(analyzer, data, gpsPoints);
+    GpsPipeline.reconstructFilteredGpsCached(
+      analyzer,
+      data,
+      gpsPoints,
+      maxSpeed,
+    );
 
     // Build drawPoints from the 10 Hz reconstructed filtered GPS path, selecting
     // downsampled indices first so only surviving points are constructed with the

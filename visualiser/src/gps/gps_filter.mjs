@@ -10,6 +10,48 @@ import { GeoUtils } from './geo_utils.mjs';
 
 export const GpsFilter = {
   /**
+   * Shared DOP fallback preference: pdop (chip-computed from all
+   * constellations via GSA — most accurate) over hdop, falling back to
+   * `fallbackDefault` when neither is valid. Sentinel values >= 50.0 (e.g.
+   * 99.9 "unknown") are treated as invalid. Used by both
+   * measurementVarianceM2() and applyVelocitySmoothing() so the "which DOP
+   * field do we trust" decision lives in exactly one place.
+   */
+  _preferredDop(pt, fallbackDefault) {
+    if (!isNaN(pt.pdop) && pt.pdop > 0 && pt.pdop < 50.0) return pt.pdop;
+    if (!isNaN(pt.hdop) && pt.hdop > 0 && pt.hdop < 50.0) return pt.hdop;
+    return fallbackDefault;
+  },
+
+  /**
+   * Canonical measurement-noise-variance model (m²): prefers hacc_m — the
+   * u-blox M10Q's physical EKF horizontal accuracy from $PUBX,00 — over
+   * DOP²-scaling of R_base_m2, since DOP (satellite geometry) can look fine
+   * while multipath drives true position error up (e.g. HDOP 1.2 but hAcc
+   * 15 m in an urban canyon). hacc_m is u-blox-only: on L76K hardware, or
+   * before the first $PUBX,00 sentence, it's the 99.9 "unknown" sentinel and
+   * this falls back to DOP²-scaling, clamped to [0.5, 10.0] — below 0.5 is
+   * unrealistically optimistic, above 10.0 the HDOP gate has already
+   * filtered most points.
+   *
+   * Consumed directly by applyKalman(); applyVelocitySmoothing() derives its
+   * own DOP-equivalent trust weight from the same `_preferredDop` fallback
+   * (see that function) rather than this m² result directly, since it needs
+   * a unitless ~[0.5,10] divisor for its alpha blend, not a variance scaled
+   * by the Kalman R slider.
+   *
+   * @param {object} pt - point with optional hacc/pdop/hdop fields
+   * @param {number} R_base_m2 - base measurement variance (m²) to scale by DOP²
+   */
+  measurementVarianceM2(pt, R_base_m2) {
+    if (!isNaN(pt.hacc) && pt.hacc > 0 && pt.hacc < 50.0) {
+      return pt.hacc * pt.hacc;
+    }
+    const h = Math.max(0.5, Math.min(10.0, this._preferredDop(pt, 1.0)));
+    return R_base_m2 * h * h;
+  },
+
+  /**
    * Speed plausibility check: rejects points whose Doppler-derived speed
    * (from the GPS RMC sentence, stored in speedKts) exceeds maxSpeed (m/s).
    * Doppler velocity is ~10× more accurate than position-derived speed
@@ -108,34 +150,12 @@ export const GpsFilter = {
     const Q_LAT = Q_m2 * M2_TO_DEG2_LAT;
     const Q_LON = Q_m2 * M2_TO_DEG2_LON;
 
-    // Helper: scale R by DOP².  Prefer PDOP (chip-computed from all
-    // constellations via GSA — most accurate) when available; fall back to HDOP.
-    // Sentinel values >= 50.0 (e.g. 99.9 unknown) are treated as invalid.
-    // Clamp DOP to [0.5, 10.0] — below 0.5 is unrealistically optimistic;
-    // above 10.0 the HDOP gate has already filtered most points, but the
-    // velocity smoother also uses this range so both filters agree on how
-    // much to deweight a high-DOP fix.
-    const getDop = (pt) => {
-      if (!isNaN(pt.pdop) && pt.pdop > 0 && pt.pdop < 50.0) return pt.pdop;
-      if (!isNaN(pt.hdop) && pt.hdop > 0 && pt.hdop < 50.0) return pt.hdop;
-      return 1.0;
-    };
-    // Effective measurement variance in m², per point.  Prefers hacc_m — the
-    // u-blox M10Q's physical EKF horizontal accuracy from $PUBX,00 — over
-    // DOP²-scaling when available, since DOP (satellite geometry) can look
-    // fine while multipath drives true position error up (e.g. HDOP 1.2 but
-    // hAcc 15 m in an urban canyon). hacc_m is u-blox-only: on L76K hardware,
-    // or before the first $PUBX,00 sentence, it's the 99.9 "unknown" sentinel
-    // and this falls back to the pre-existing DOP²-scaling of the R_m2 slider.
-    const getEffectiveRm2 = (pt) => {
-      if (!isNaN(pt.hacc) && pt.hacc > 0 && pt.hacc < 50.0) {
-        return pt.hacc * pt.hacc;
-      }
-      const h = Math.max(0.5, Math.min(10.0, getDop(pt)));
-      return R_m2 * h * h;
-    };
-    const getRLat = (pt) => getEffectiveRm2(pt) * M2_TO_DEG2_LAT;
-    const getRLon = (pt) => getEffectiveRm2(pt) * M2_TO_DEG2_LON;
+    // Effective measurement variance in m², per point — see
+    // measurementVarianceM2() for the shared hacc/DOP fallback model.
+    const getRLat = (pt) =>
+      this.measurementVarianceM2(pt, R_m2) * M2_TO_DEG2_LAT;
+    const getRLon = (pt) =>
+      this.measurementVarianceM2(pt, R_m2) * M2_TO_DEG2_LON;
 
     const { forwardLats, forwardLons, fwdCovLat, fwdCovLon, isOutlier } =
       this._kalmanForwardPass(
@@ -401,16 +421,12 @@ export const GpsFilter = {
       // same hAcc ≈ HDOP × 2.5 nominal relationship used for the OLED
       // hacc_disp fallback (biomap_render.c) — since it reflects physical
       // multipath error that PDOP/HDOP geometry alone can miss (see the same
-      // rationale in getEffectiveRm2() below). Falls back to PDOP, then HDOP.
-      // Sentinel values >= 50.0 (e.g. 99.9 unknown) are treated as invalid.
+      // rationale in measurementVarianceM2() above). Falls back to the shared
+      // pdop-then-hdop preference (_preferredDop) used by the Kalman filter.
       const dop =
         !isNaN(curr.hacc) && curr.hacc > 0 && curr.hacc < 50.0
           ? curr.hacc / 2.5
-          : !isNaN(curr.pdop) && curr.pdop > 0 && curr.pdop < 50.0
-            ? curr.pdop
-            : !isNaN(curr.hdop) && curr.hdop > 0 && curr.hdop < 50.0
-              ? curr.hdop
-              : 2.0;
+          : this._preferredDop(curr, 2.0);
       const h = Math.max(0.5, Math.min(10, dop));
       const effectiveAlpha = Math.max(0.05, Math.min(0.98, alpha / h));
 

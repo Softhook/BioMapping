@@ -128,10 +128,16 @@ uncharacterised:
   RDP + a max-vertex cap does the job better; the method's own comment
   says the live path already uses `buildDrawPoints` and this form only
   survives for globe3d/tests.
-- Duplicate hAcc/DOP noise model — `getEffectiveRm2()` and
-  `applyVelocitySmoothing` each reimplement "prefer `hacc_m` unless 99.9,
-  else DOP², prefer `pdop`, clamp [0.5, 10]" plus the hand-maintained
-  `hAcc ≈ HDOP×2.5` inverse. Two places, drift hazard.
+- ~~Duplicate hAcc/DOP noise model~~ — done (2026-09-18): extracted
+  `GpsFilter.measurementVarianceM2(pt, R_base_m2)` (the canonical hacc/DOP²
+  model, used directly by `applyKalman`) and `GpsFilter._preferredDop(pt,
+  fallbackDefault)` (the shared pdop-then-hdop preference chain, used by
+  both `measurementVarianceM2` and `applyVelocitySmoothing`). The `hAcc ≈
+  HDOP×2.5` conversion stays local to `applyVelocitySmoothing` — it's a
+  genuinely different quantity (a unitless DOP-equivalent divisor for the
+  alpha blend, not a variance scaled by the Kalman R slider), not
+  accidental duplication. Byte-identical output confirmed via
+  test_gps_characterization.js (no baseline change needed) + full suite.
 
 ### Add
 
@@ -148,15 +154,42 @@ uncharacterised:
   n_innovation_rejected, median_hacc, pct_interpolated, longest_gap_m}` to
   the user and to the environmental-analysis layer, so coordinate
   uncertainty propagates into the significance tests.
-- **Distance/speed-aware gap rule** to replace the flat
-  `GPS_INTERP_MAX_GAP_S = 30`. 30 s stationary is fine; 30 s at walking
-  pace is ~42 m of invented path. Break interpolation when implied speed >
-  `maxSpeed` or gap distance > threshold.
-- **O(n) cache checksum.** `_snapFingerprint` and
-  `reconstructFilteredGpsCached` hash first/mid/last samples as a proxy
-  for "array changed" — a mid-track change that doesn't move the mid
-  element is a silent stale render. A running `Σ(lat·31 + lon)` is O(n)
-  once and removes the bug class.
+- ~~**Distance/speed-aware gap rule**~~ — done (2026-09-18): replaced the
+  flat `GPS_INTERP_MAX_GAP_S = 30` with a plausibility gate in
+  `reconstructFilteredGps` — blanks a gap to NaN when its implied speed
+  exceeds `maxSpeed` (threaded through from the same param used by the
+  speed filter/Kalman Q) or its straight-line distance exceeds 100 m,
+  otherwise draws the chord regardless of how long the gap lasted. A 143 s
+  real-track gap that only moved ~37 m (0.26 m/s) now interpolates instead
+  of blanking; a synthetic ~111 m/s gap that used to slip through at <30 s
+  now correctly blanks (caught by test_refactor.js, which had that exact
+  unrealistic fixture — fixed alongside this). Verified via
+  test_gps_characterization.js (committed fixture unaffected — no gaps
+  >30s in it either way; local tracks' sanity bounds still hold) + full
+  suite green.
+  - **Follow-up found by user testing (2026-09-18):** the map renderer had
+    its *own*, separate, still-flat `> 30s` gap-break rule
+    (`_renderPathSegments` in `manager/path.mjs`, used to decide whether to
+    draw a connecting line vs. start a new polyline segment) — a third,
+    independent copy of "is this gap trustworthy," blind to distance. At an
+    aggressive Max Speed setting (e.g. 1 m/s, well under walking pace) the
+    speed filter rejects nearly every real fix, occasionally leaving two
+    surviving anchors 200+m apart but under a second apart in time — the
+    render's time-only check drew a straight line across that regardless of
+    `reconstructFilteredGps`'s (distance-aware) decision, since that
+    decision only affects the *interpolated* points between two anchors,
+    never whether the anchors themselves get connected. Reproduced on
+    `tracks/biomap_029.csv` at maxSpeed=1 (a real ~209m/0.6s jump), fixed by
+    extracting the shared decision into `GpsPipeline.isPlausibleGap(distM,
+    dt, maxSpeed)` and using it in both places instead of two independent
+    thresholds. New tests in test_refactor.js (5c2); verified visually
+    (before/after screenshot diff on the exact repro) and via full suite.
+- ~~**O(n) cache checksum.**~~ — done (2026-09-18): both
+  `_snapFingerprint` (process.mjs) and `reconstructFilteredGpsCached`
+  (gps_pipeline.mjs) now fold every point through an O(n) rolling hash
+  (`Math.imul(hash, 31) + value`, order- and position-sensitive) instead of
+  sampling first/mid/last, closing the silent-stale-cache class where a
+  mid-track edit left those three positions unchanged.
 - ~~**Characterisation harness**~~ — done (2026-09-18):
   `tests/test_gps_characterization.js` runs the production filter chain
   (gates → pre-Kalman filters → Kalman+RTS → 10Hz reconstruction) over

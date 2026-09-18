@@ -824,6 +824,40 @@ console.log('\n── gps_pipeline.js ──');
   assertEq(result[0].lat, 50, 'SnapCorrection no-ops with empty snap data');
 }
 
+// 5c2. isPlausibleGap — shared gap criterion used by both reconstructFilteredGps
+// (interpolate vs blank) and the map renderer's path-segment breaking
+// (manager/path.js's _renderPathSegments)
+{
+  // Walking pace, well under maxSpeed → plausible
+  assert(
+    GpsPipeline.isPlausibleGap(10, 8, 3.0),
+    'isPlausibleGap: slow, short gap is plausible',
+  );
+  // Implied speed (100m/1s = 100 m/s) far exceeds maxSpeed → not plausible,
+  // even though the gap itself is short in time — this is exactly the
+  // biomap_029/maxSpeed=1 bug: a huge jump in a fraction of a second used
+  // to sail through a time-only gate.
+  assert(
+    !GpsPipeline.isPlausibleGap(100, 1, 3.0),
+    'isPlausibleGap: implausible implied speed rejected regardless of how short the time gap is',
+  );
+  // Under the absolute distance ceiling (100m) but still too fast → rejected
+  assert(
+    !GpsPipeline.isPlausibleGap(95, 10, 3.0),
+    'isPlausibleGap: under the distance ceiling but implied speed still too high',
+  );
+  // Over the absolute distance ceiling even at a plausible average speed → rejected
+  assert(
+    !GpsPipeline.isPlausibleGap(150, 100, 3.0),
+    'isPlausibleGap: distance ceiling rejects a long real detour disguised as a low average speed',
+  );
+  // Zero elapsed time with nonzero distance → infinite implied speed → rejected
+  assert(
+    !GpsPipeline.isPlausibleGap(5, 0, 3.0),
+    'isPlausibleGap: zero dt with real distance is never plausible',
+  );
+}
+
 // 5d. reconstructFilteredGps — interpolates between anchors
 {
   const mockAnalyzer = { filteredGps: null };
@@ -834,18 +868,22 @@ console.log('\n── gps_pipeline.js ──');
     { time: 3 },
     { time: 4 },
   ];
+  // ~8m diagonal over 4s (~2 m/s) — within the default 3.0 m/s plausibility
+  // gate, unlike a 0.004° (~445m) jump which would now correctly be
+  // rejected as an implausible ~111 m/s implied speed (see the speed-aware
+  // gap rule in reconstructFilteredGps).
   const gpsPoints = [
     { lat: 0, lon: 0, origIdx: 0 },
-    { lat: 0.004, lon: 0.004, origIdx: 4 },
+    { lat: 0.00005, lon: 0.00005, origIdx: 4 },
   ];
   GpsPipeline.reconstructFilteredGps(mockAnalyzer, data, gpsPoints);
   const fg = mockAnalyzer.filteredGps;
   assertEq(fg.length, 5, 'reconstructFilteredGps fills full array');
   assertEq(fg[0].lat, 0, 'reconstructFilteredGps first anchor');
-  assertEq(fg[4].lat, 0.004, 'reconstructFilteredGps last anchor');
+  assertEq(fg[4].lat, 0.00005, 'reconstructFilteredGps last anchor');
   // Middle points should be interpolated
   assert(
-    fg[2].lat > 0 && fg[2].lat < 0.004,
+    fg[2].lat > 0 && fg[2].lat < 0.00005,
     'reconstructFilteredGps interpolates middle',
   );
 }
@@ -860,7 +898,7 @@ console.log('\n── gps_pipeline.js ──');
   ];
   GpsPipeline.reconstructFilteredGps(mockAnalyzer, data, gpsPoints);
   const fg = mockAnalyzer.filteredGps;
-  // Gap between idx 0 (time 0) and idx 3 (time 60) is 60s > 30s → NaN
+  // ~1,570km over 60s is wildly implausible at any maxSpeed → NaN
   assert(isNaN(fg[1].lat), 'reconstructFilteredGps NaN on large gap');
 }
 

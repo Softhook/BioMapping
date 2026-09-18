@@ -23,6 +23,8 @@
 // would otherwise go stale the moment a GSR slider changes.
 import { AppState } from '../../core/app_state.mjs';
 import { GSR_CONST } from '../../core/constants.mjs';
+import { GeoUtils } from '../../gps/geo_utils.mjs';
+import { GpsPipeline } from '../../gps/gps_pipeline.mjs';
 import { GSRStorage } from '../../ui/storage.mjs';
 import { GSRMapManager } from '../map.mjs';
 import { MapColors } from '../map_colors.mjs';
@@ -153,7 +155,13 @@ export const __methods = {
     }
   },
 
-  _renderPathSegments(drawPoints, trackWeight, analyzer, track) {
+  _renderPathSegments(
+    drawPoints,
+    trackWeight,
+    analyzer,
+    track,
+    maxSpeed = 3.0,
+  ) {
     const layerGroup = track ? track.layerGroup : null;
     const metric = this.activeColoringMetric || 'gsr';
     const key = this._getMetricKey(metric);
@@ -269,15 +277,29 @@ export const __methods = {
       ? null
       : MapColors.getColorLut(metric, minVal, maxVal);
 
-    // Split drawPoints into continuous path segments, breaking at GPS gaps > 30 s.
-    const GPS_PATH_GAP_S = 30;
+    // Split drawPoints into continuous path segments, breaking wherever the
+    // gap to the previous point isn't a plausible piece of the same walk —
+    // same distance/speed criterion reconstructFilteredGps uses to decide
+    // whether to interpolate or blank a gap (see GpsPipeline.isPlausibleGap).
+    // A flat time-only break (the old `> 30s` rule) misses a gap where a
+    // filter stage upstream already dropped enough real fixes that two
+    // surviving anchors end up implausibly far apart in a *short* time — e.g.
+    // an aggressive Max Speed setting rejecting most real fixes can leave two
+    // anchors 200+m apart less than a second apart, which a time-only check
+    // happily draws as a straight line.
     const segments = [[]];
     for (let i = 0; i < drawPoints.length; i++) {
-      if (
-        i > 0 &&
-        drawPoints[i].time - drawPoints[i - 1].time > GPS_PATH_GAP_S
-      ) {
-        segments.push([]);
+      if (i > 0) {
+        const dt = drawPoints[i].time - drawPoints[i - 1].time;
+        const distM = GeoUtils.haversineMeters(
+          drawPoints[i - 1].lat,
+          drawPoints[i - 1].lon,
+          drawPoints[i].lat,
+          drawPoints[i].lon,
+        );
+        if (!GpsPipeline.isPlausibleGap(distM, dt, maxSpeed)) {
+          segments.push([]);
+        }
       }
       segments[segments.length - 1].push(drawPoints[i]);
     }
