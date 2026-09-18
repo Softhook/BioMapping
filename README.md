@@ -216,6 +216,7 @@ Bug reports, hardware build notes, and pull requests are welcome. A few things t
   - `npm run lint` — [Biome](https://biomejs.dev/) linter (also runs on every PR via CI)
   - `npm run format` — auto-format with Biome
 - CI runs lint and tests automatically on every pull request against `main`.
+- Run `git config core.hooksPath .githooks` once per clone to enable a pre-commit hook that auto-formats/lints staged visualiser files with Biome, so CI's lint step doesn't fail on something that could have been caught locally.
 
 **Docs & CSV Schema**
 - [`docs/csv_schema.md`](docs/csv_schema.md) is the canonical schema shared by the firmware and both visualiser pages — update it whenever the CSV format changes.
