@@ -69,7 +69,7 @@ Accuracy zones by the fraction of real-world track data that falls inside them:
 | [ProtoCentral tinyGSR](https://protocentral.com/product/protocentral-tinygsr-gsr-eda-digital-output-sensor-board-qwiic-stemma-qt/) | Maker Breakout (~£16) | Sensor only | Unknown | Unknown |
 | [Grove GSR v1.2](https://wiki.seeedstudio.com/Grove-GSR_Sensor/) | Hobbyist Module (~£12) | Sensor Only | Unknown | Unknown |
 
-> **Note on comparisons:** Most manufacturers do not publish detailed technical specifications. Where figures do appear, they reflect different testing conditions, comparing a bench-measured noise floor against a precision resistor grid (BioMapping 2.0) are not directly equivalent. The BioMapping 2.0 data come from testing that most manufacturers have not performed or chosen to publish.
+> **Note on comparisons:** Most manufacturers do not publish detailed technical specifications. Where figures do appear, they reflect different testing conditions, comparing a bench-measured noise floor against a precision resistor grid. One of the most useful comparisons is ADC resolution as a indication of overall hardware quality and usage intension.
 
 
 ## Components
