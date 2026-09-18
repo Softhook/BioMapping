@@ -23,9 +23,7 @@ export const SUB_GHZ_BANDS = [
  * Normalizes an RSSI dBm reading between floor and saturation ceiling into [0.0, 1.0].
  */
 export function normalizeBandRssi(rssi, floor = DEFAULT_FLOOR_DBM) {
-  const range = SATURATION_CEILING_DBM - floor;
-  if (range <= 0) return 0.0;
-  const fraction = (rssi - floor) / range;
+  const fraction = (rssi - floor) / (SATURATION_CEILING_DBM - floor);
   return Math.min(1.0, Math.max(0.0, fraction));
 }
 

@@ -416,6 +416,40 @@ export const GsrFilter = {
   },
 
   /**
+   * Two-pass monotonic-deque running minimum: result[i] = min(vals[j]) for j
+   * in [i - halfWin, i + halfWin], in O(n) regardless of halfWin.
+   *
+   * Factored out of decomposeTonicPhasic's local-floor envelope correction,
+   * which was carrying this deque machinery inline.
+   *
+   * @param {Array<number>} vals
+   * @param {number} halfWin
+   * @returns {Array<number>}
+   */
+  _slidingWindowMin(vals, halfWin) {
+    const n = vals.length;
+    const bwd = new Array(n);
+    const dq1 = [];
+    for (let i = 0; i < n; i++) {
+      if (dq1.length > 0 && dq1[0] < i - halfWin) dq1.shift();
+      while (dq1.length > 0 && vals[dq1[dq1.length - 1]] >= vals[i])
+        dq1.pop();
+      dq1.push(i);
+      bwd[i] = vals[dq1[0]];
+    }
+    const result = new Array(n);
+    const dq2 = [];
+    for (let i = n - 1; i >= 0; i--) {
+      if (dq2.length > 0 && dq2[0] > i + halfWin) dq2.shift();
+      while (dq2.length > 0 && vals[dq2[dq2.length - 1]] >= vals[i])
+        dq2.pop();
+      dq2.push(i);
+      result[i] = Math.min(bwd[i], vals[dq2[0]]);
+    }
+    return result;
+  },
+
+  /**
    * Decomposes a filtered/smoothed signal into Tonic and Phasic components.
    * Reuses the exact same logic and local-floor envelope correction from the analyzer.
    *
@@ -457,32 +491,7 @@ export const GsrFilter = {
       phasicVals = afterLPF.map((v, i) => v - tonicVals[i]);
 
       const floorHalf = Math.max(1, Math.round(6 * sampleRate)); // ±6 s
-      const localOffsets = new Array(n);
-      {
-        const bwd = new Array(n);
-        const dq1 = [];
-        for (let i = 0; i < n; i++) {
-          if (dq1.length > 0 && dq1[0] < i - floorHalf) dq1.shift();
-          while (
-            dq1.length > 0 &&
-            phasicVals[dq1[dq1.length - 1]] >= phasicVals[i]
-          )
-            dq1.pop();
-          dq1.push(i);
-          bwd[i] = phasicVals[dq1[0]];
-        }
-        const dq2 = [];
-        for (let i = n - 1; i >= 0; i--) {
-          if (dq2.length > 0 && dq2[0] > i + floorHalf) dq2.shift();
-          while (
-            dq2.length > 0 &&
-            phasicVals[dq2[dq2.length - 1]] >= phasicVals[i]
-          )
-            dq2.pop();
-          dq2.push(i);
-          localOffsets[i] = Math.min(bwd[i], phasicVals[dq2[0]]);
-        }
-      }
+      const localOffsets = this._slidingWindowMin(phasicVals, floorHalf);
 
       // Light smoothing on offset curve (4 s window)
       const smoothOffsets = this.applyZeroPhaseMovingAverage(
