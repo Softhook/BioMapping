@@ -107,13 +107,43 @@ with its own hand-tuned trust heuristic (`α_base/DOP`, `snappedGps.alpha`,
 `R_base·DOP²`, clamp `3·√R_base`), tuned in isolation, interactions
 uncharacterised:
 
-- Velocity-aided smoothing pre-pulls each fix toward a dead-reckoned path,
-  then the Kalman treats that pre-smoothed point as an *independent*
-  measurement with variance `R` — the same correction is counted twice
-  (the "covariance deflation" the fix-only Kalman input is meant to
-  avoid). Fold velocity smoothing into the Kalman as a proper
-  constant-velocity motion model + process noise instead of a separate
+- **Velocity-aided smoothing double-count — investigated 2026-09-18, NOT
+  changed.** Pre-pulls each fix toward a dead-reckoned path, then the
+  Kalman treats that pre-smoothed point as an *independent* measurement
+  with variance `R` — the same correction is counted twice (the
+  "covariance deflation" the fix-only Kalman input is meant to avoid). The
+  theoretically-correct fix is folding velocity into the Kalman as a
+  proper constant-velocity motion model (position+velocity state, not
+  today's two independent position-only 1D filters) instead of a separate
   EMA stage.
+  Before implementing, A/B-tested the *naive* version of this fix (just
+  removing `applyVelocitySmoothing` from `applyPreKalmanFilters`, feeding
+  raw fixes straight to the existing Kalman) across every local track.
+  Most tracks moved < 1m; several moved 10–62m (`biomap_019` worst case).
+  Root-caused the 62m case: a raw GPS multipath jump (~72m sideways) whose
+  *self-reported* Doppler speed happened to read low, fooling the
+  (unchanged) speed filter into accepting it. With velocity smoothing:
+  the dead-reckoned prediction — informed by real recent speed/course —
+  recognises the jump as implausible and mostly ignores it, so Kalman
+  never sees a bad measurement. Without it: the raw jump reaches Kalman
+  directly, drags its internal state off course, and several subsequent
+  *genuine* fixes get rejected by the χ² gate for disagreeing with the
+  now-corrupted state (classic outlier-poisons-state lockout).
+  **Conclusion:** velocity smoothing is not just redundant — on real
+  tracks it's currently doing real outlier-rejection work the Kalman
+  filter's own gate doesn't do on its own (its gate only checks "did the
+  position move too far from last time," not "does this agree with the
+  recently observed heading/speed"). The naive removal is a real
+  regression, not a safe cleanup. The full fix (proper multi-dimensional
+  CV state, so Kalman's *own* prediction — not a separate EMA stage — uses
+  recent velocity to judge implausible jumps) would likely preserve this
+  protection, but is a substantially bigger rewrite (new matrix-based
+  filter math, current lat/lon filters aren't even coupled) with no
+  ground-truth GPS data available to verify the result is actually
+  better, unlike the other fixes in this section. Decided not to attempt
+  it without a clearer trigger (e.g. ground-truth data becoming
+  available, or a concrete complaint about tracking quality this would
+  address). Left as-is.
 - ~~**Snap fires before the χ² innovation gate.**~~ — done (2026-09-18):
   moved `applySnapCorrection` in `manager/process.js` to run AFTER
   `applyKalman` instead of before, so a wrong parallel-street snap can no
