@@ -4,9 +4,10 @@
 
 BioMapping 2.0 records your Galvanic Skin Response — a measure of emotional arousal — mapped to your geographical location as you walk through an environment.
 
-It has two parts:
+It has three parts:
 
-- **[The Hardware](#the-hardware)** — a Flipper Zero wired to a custom skin-response sensor and a GPS module, logging to the SD card as CSV.
+- **[The Hardware](#the-hardware)** — a custom skin-response sensor circuit and a GPS module wired to a Flipper Zero.
+- **[The Firmware](#the-firmware)** — a C application on the Flipper Zero.
 - **[The Visualiser](#the-visualiser)** — browser-based analysis and mapping suite ([launch online](https://softhook.github.io/BioMapping/visualiser/) or open [`visualiser/index.html`](visualiser/index.html)).
 
 ## The Original Bio Mapping
@@ -100,6 +101,20 @@ Accuracy zones by the fraction of real-world track data that falls inside them:
 The circuit uses both channels of a rail-to-rail dual op-amp: one as a buffered 0.5 V virtual-ground reference (V_ref), and one as a transimpedance amplifier (TIA) that converts skin current to a voltage read differentially by the ADS1115. Two 4.7 kΩ safety resistors protect the electrodes, and a 100 nF feedback capacitor acts as a hardware low-pass filter against 50/60 Hz mains hum.
 
 Full step-by-step pin connections, op-amp pinout, and build phases are in **[`docs/wiring_guide.md`](docs/wiring_guide.md)**.
+
+---
+
+# The Firmware
+
+The onboard firmware (written in C in `firmware/`) runs as an external application (`biomap.fap`) on the Flipper Zero. It acts as an active signal conditioning and synchronization engine, managing the ADC, the GPS module, and the SubGHz radio concurrently.
+
+## What the Firmware Does
+
+- **Real-Time Dynamic Auto-Ranging:** Human skin conductance spans several orders of magnitude across individuals and resting states (from under 500 nS to tens of thousands of nS). The firmware steps the ADS1115's Programmable Gain Amplifier (PGA) across four voltage ranges (from ±2.048 V down to ±0.256 V). A 4 ms settle-gate discards conversion transients during gain switches, and counts are normalised [calibrated wide-range error curve](#hardware-accuracy--device-comparison).
+Looking at other open-source and maker EDA devices whose firmware is available to inspect, almost none implement auto-ranging in firmware.
+
+- **50/60 Hz Mains Hum Rejection:** Ambulatory electrode pick up AC mains hum from power lines. The ADC uses a background thread to compute a 100 ms boxcar average to null 50 Hz, 60 Hz, and their harmonics (100 Hz, 120 Hz).
+- **Multi-Sensor Synchronisation:**  Parses 10 Hz GNSS sentences from the u-blox SAM-M10Q over UART, paces SubGHz RF RSSI snapshots across 815/868/915 MHz without blocking biometric sampling, and streams over Bluetooth or writes to SD.
 
 ## Installing the App
 
