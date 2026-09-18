@@ -157,10 +157,19 @@ uncharacterised:
   for "array changed" — a mid-track change that doesn't move the mid
   element is a silent stale render. A running `Σ(lat·31 + lon)` is O(n)
   once and removes the bug class.
-- **Characterisation harness** — run the pipeline over the fixture tracks
-  and assert aggregate metrics (total length, vertex count, %
-  interpolated, max deviation from raw) stay within bounds, so a
-  filter-tuning change can't silently distort every track.
+- ~~**Characterisation harness**~~ — done (2026-09-18):
+  `tests/test_gps_characterization.js` runs the production filter chain
+  (gates → pre-Kalman filters → Kalman+RTS → 10Hz reconstruction) over
+  `fixtures/default_processed.csv` and asserts total path length, vertex
+  count, % interpolated, and max deviation from raw against a committed
+  golden-master (`tests/fixtures/gps_characterization_baseline.json`,
+  regenerated only deliberately via
+  `tests/support/gen_gps_characterization_baseline.js`). It also
+  opportunistically sweeps every local `tracks/*.csv` (gitignored, so
+  sanity-bound checks only — no pinned values) for broader real-world
+  coverage on dev machines. This is now the regression net for the filter
+  reorder / fusion work still queued below (snap-vs-χ² ordering, folding
+  velocity smoothing into the Kalman as a motion model).
 
 ### Smaller notes
 
