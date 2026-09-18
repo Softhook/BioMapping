@@ -114,11 +114,20 @@ uncharacterised:
   avoid). Fold velocity smoothing into the Kalman as a proper
   constant-velocity motion model + process noise instead of a separate
   EMA stage.
-- **Snap fires before the χ² innovation gate.** A wrong parallel-street
-  snap gets baked into the "measurement", and the 3σ gate then rejects
-  the *good* raw points that disagree with it. Snap should be a soft
-  constraint inside/after the filter, or the gate should see raw and
-  snapped separately.
+- ~~**Snap fires before the χ² innovation gate.**~~ — done (2026-09-18):
+  moved `applySnapCorrection` in `manager/process.js` to run AFTER
+  `applyKalman` instead of before, so a wrong parallel-street snap can no
+  longer poison the filter's internal state or be measured against by the
+  RTS displacement clamp — it's now a cosmetic pull applied to the
+  already-gated, already-smoothed estimate. (The HMM matcher itself was
+  already computed on raw coordinates only, decoupled from this ordering —
+  see `docs/gps_filtering_pipeline.md` §3.3.) Proved with a synthetic
+  sustained wrong-street snap (`tests/test_gps_snap_kalman_order.js`):
+  under the old order, genuine fixes resuming right after a bad-snap
+  stretch were measurably pulled toward the contamination (verified by
+  temporarily reverting the order and confirming the new test fails);
+  under the fixed order they land within ~4m of truth (vs. ~inches of
+  ordinary RTS boundary smoothing). Full suite green (1402 tests).
 
 ### Remove
 

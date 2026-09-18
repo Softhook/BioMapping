@@ -121,14 +121,24 @@ export const __methods = {
       maxSpeed,
     );
 
+    gpsPoints = GpsFilter.applyKalman(gpsPoints, smoothing, kalmanR);
+
+    // Road snap runs AFTER the Kalman filter, not before. Snapping first
+    // would feed the χ² innovation gate a "measurement" that's already been
+    // pulled onto whatever road the HMM matcher guessed — including a wrong
+    // parallel-street snap — so a bad snap could poison the filter's state
+    // and cause the gate to reject good raw fixes that disagreed with it,
+    // and the RTS displacement clamp (meant to bound the smoother near the
+    // real GPS fix) would be measuring distance from the snapped position
+    // instead. Applying it after treats the road as a soft cosmetic pull on
+    // the already-gated, already-smoothed estimate, never as evidence the
+    // filter itself has to trust.
     if (analyzer.snappedGps) {
       gpsPoints = GpsPipeline.applySnapCorrection(
         gpsPoints,
         analyzer.snappedGps,
       );
     }
-
-    gpsPoints = GpsFilter.applyKalman(gpsPoints, smoothing, kalmanR);
 
     // Reconstruct full 10 Hz filtered GPS path (cached on analyzer)
     GpsPipeline.reconstructFilteredGpsCached(

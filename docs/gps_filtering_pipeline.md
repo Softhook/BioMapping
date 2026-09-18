@@ -24,13 +24,17 @@ graph TD
     C --> D[Stop-Averaging <br/> Stationary Centroid Clamping]
     D --> E[Speed Plausibility Filter <br/> Doppler & Fallback Speed Check]
     E --> F[Velocity-Aided Smoothing <br/> Dead-Reckoning & ZUPT]
-    F --> G[HMM-Viterbi Map Matcher <br/> OSM Road snaps if enabled]
-    G --> H[DOP-Adaptive Kalman Filter <br/> with Chi-Squared Innovation Gate]
+    F --> H[DOP-Adaptive Kalman Filter <br/> with Chi-Squared Innovation Gate]
     H --> I[RTS Backward Smoother <br/> Zero-Phase Smoothing & Clamp]
-    I --> J[Downsampling for Display <br/> downsample rate]
+    I --> G[Snap Correction <br/> soft pull toward pre-computed HMM road match]
+    G --> J[Downsampling for Display <br/> downsample rate]
     J --> K[RDP Simplification <br/> Ramer-Douglas-Peucker]
     K --> L[Leaflet Rendering]
+
+    M[HMM-Viterbi Map Matcher <br/> runs on RAW coords, once, during OSM enrichment] -.->|produces snappedGps, consumed by G| G
 ```
+
+Note the map matcher (`M`) is *not* part of the per-render filter chain above it — it runs once during OSM enrichment, directly on raw GPS coordinates (never on filtered/Kalman output, to avoid a feedback loop where a prior render's snap bias would pull the next enrichment pass toward the wrong road — see `osm_enrichment.js`'s `getCoordinates(i, true)` call). Its output, `analyzer.snappedGps`, is then consumed by step `G` on every render.
 
 ---
 
@@ -79,7 +83,7 @@ timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw,hacc_m
      $$\text{blended\_pos} = \alpha_{\text{effective}} \times \text{GPS\_fix} + (1 - \alpha_{\text{effective}}) \times \text{predicted\_pos}$$
      This de-weights the GPS fix during high-DOP intervals (e.g. multipath).
 
-### 3.3 Map Snapping (`map_match.js` & `gps_pipeline.js`)
+### 3.3 HMM Map Matching — computed once, outside the render pipeline (`map_match.js` & `osm_enrichment.js`)
 6. **HMM-Viterbi Map Matcher (`MapMatcher.match`)**:
    - **Purpose**: Global sequence map matching to snap trajectories to real road segments.
    - **Emission Probability**: Models a Gaussian distribution based on orthogonal distance $d$ to the candidate road segment:
@@ -88,22 +92,27 @@ timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw,hacc_m
      $$\log p(r_j \mid r_i) = -\frac{|d_{\text{GPS}} - d_{\text{route}}|}{\beta} - \log\beta$$
      Jumping parallel streets or traversing disconnected roads results in huge penalties.
    - **Viterbi Selection**: Computes the globally most likely candidate path.
-7. **Snap Correction (`applySnapCorrection`)**:
-   - Blends raw and snapped coordinates based on a confidence value $\alpha$ stored in `snappedGps`.
+   - Runs once, during OSM enrichment, on **raw** GPS coordinates only — deliberately never on filtered/Kalman output, to avoid a feedback loop where a prior render's snap bias would pull the next enrichment pass further toward the wrong road. Its result is cached on `analyzer.snappedGps` and consumed by step 9 on every subsequent render.
 
 ### 3.4 Kalman Filter & Zero-Phase Smoothing (`gps_filter.js`)
-8. **DOP-Adaptive Kalman Filter (`applyKalman`)**:
+7. **DOP-Adaptive Kalman Filter (`applyKalman`)**:
    - **DOP Scaling**: Base measurement noise variance $R$ is scaled by $\text{DOP}^2$, preferring chip-computed `pdop` over `hdop`, clamped to $[0.5, 10.0]$:
      $$R_{\text{effective}} = R_{\text{base}} \times \text{DOP}^2$$
    - **Chi-Squared Innovation Gate**: Inside the forward Kalman pass, measurement innovation is checked:
      $$\chi^2_{\text{lat}} = \frac{(\text{lat}_{\text{meas}} - \text{lat}_{\text{pred}})^2}{P_{\text{pred}} + R_{\text{effective}}}$$
      Rejects coordinates whose innovation exceeds $\chi^2 = 9.0$ ($3\sigma$ threshold for 1 DOF, representing $99.7\%$ confidence). Upon rejection, the process covariance $P$ is multiplied by $5.0$ to expand the search radius and prevent filter lockout.
+   - The gate evaluates innovation against the pre-snap (gated + pre-Kalman-filtered) coordinate — see §3.5 for why snap correction is deliberately applied *after* this stage rather than before it.
 
-9. **Rauch-Tung-Striebel (RTS) Smoother (`applyKalman` backward pass)**:
+8. **Rauch-Tung-Striebel (RTS) Smoother (`applyKalman` backward pass)**:
    - Performs a zero-phase backward smoothing pass using the forward covariance histories to resolve delay lags.
    - **Displacement Clamp**: Clamps the final smoothed position to be within $3\sqrt{R_{\text{base}}}$ meters of the raw coordinate, preventing the smoother from pulling corners or straightaways too far from actual coordinates. Scales degrees to meters using $\cos(\text{lat})$ for longitudinal displacements to prevent clamp bias.
 
-### 3.5 Post-Processing & Display (`gps_pipeline.js` & `gps_filter.js`)
+### 3.5 Snap Correction — applied AFTER the Kalman filter (`gps_pipeline.js`)
+9. **Snap Correction (`applySnapCorrection`)**:
+   - Blends the Kalman/RTS output toward the pre-computed road match, based on a confidence value $\alpha$ stored in `snappedGps`.
+   - **Why after, not before (fixed 2026-09-18):** snapping used to run before the Kalman filter, so a wrong parallel-street snap became the "measurement" the χ² gate judged — the gate would then reject subsequent *good* raw fixes for disagreeing with the bad snap, and the RTS displacement clamp (meant to bound the smoother near the true GPS fix) was measuring distance from the snapped position instead of the real one. Running it after treats the road match as a cosmetic pull on an already-gated, already-smoothed estimate, never as evidence the filter itself has to trust.
+
+### 3.6 Post-Processing & Display (`gps_pipeline.js` & `gps_filter.js`)
 10. **Downsampling for Display (`downsampleForDisplay`)**: Retains every $N$-th point (sample rate, e.g. downsampling from 10 Hz recording down to 1 Hz) for Leaflet performance.
 11. **Ramer-Douglas-Peucker (`applyRDP`)**: Reduces track vertices within a physical distance tolerance to keep page rendering lightweight.
 
