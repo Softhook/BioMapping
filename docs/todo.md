@@ -182,11 +182,91 @@ uncharacterised:
 
 - **One `measurementVarianceM2(row)`** noise-model function, consumed by
   every stage.
-- **Velocity-based 10 Hz reconstruction.** `reconstructFilteredGps`
-  currently draws straight chords between filtered fixes; the smoothed
-  Kalman state already has velocity — reconstruct with constant-velocity /
-  cubic Hermite for a faithful path at ~zero extra cost. Cornering at
-  speed currently renders as a polyline chord.
+- ~~**Velocity-based 10 Hz reconstruction.**~~ — done (2026-09-18), with a
+  correction: the Kalman filter does NOT actually carry a velocity state
+  (confirmed while investigating the item above — it's two independent
+  position-only 1D filters), so "the smoothed Kalman state already has
+  velocity" wasn't accurate. Used the anchors' own raw Doppler
+  speed+course instead (still present on `data[idxA]`/`data[idxB]`,
+  untouched by any filter stage) as cubic Hermite tangents between
+  anchors, replacing the straight-chord lerp — falls back to the
+  unchanged plain lerp when either anchor lacks speed/course (~2% of real
+  segments). Added an overshoot guard
+  (`HERMITE_TANGENT_CLAMP_K = 1.0`, clamps each tangent to at most the
+  segment's own chord length) after empirically A/B-testing against every
+  local track first: median deviation from the old straight chord is
+  ~0 (most inter-fix motion is already straight), p99 ~12% of chord
+  length, worst case across the whole corpus ~80% of chord length (never
+  a wild loop), and total reconstructed path length moves only +0.06–0.13%
+  corpus-wide. New tests: `_velocityDegPerSec`/`_clampHermiteTangent`/
+  `_hermitePoint` unit tests plus an integration test proving a real
+  corner (different heading at each anchor) visibly bends the fill-in
+  points away from the straight lerp, and a fallback test proving
+  no-speed-data tracks stay byte-identical to the old behaviour. Full
+  suite green (1402 tests); golden-master characterisation baseline
+  unaffected (committed fixture has no Doppler data, so it already used
+  the fallback path).
+  **Follow-up fix (same day):** user reported broken/disconnected path
+  segments on `tracks/biomap_029.csv`, 2D map only (3D globe reuses the
+  same `drawPoints`, but only the 2D renderer breaks the polyline on a
+  locally-implausible sub-step — see `_renderPathSegments` in
+  `map/manager/path.mjs`). Root cause: `_clampHermiteTangent` compared a
+  deg/**sec** tangent straight against a bare-**degrees** chord length —
+  a unit mismatch that only cancelled out for ~1s anchor gaps. Worse, even
+  with that fixed (clamp against chord/dtTotal, i.e. the chord's own
+  average velocity), a segment whose *measured* endpoint speed undershoots
+  the chord's average velocity (typically because real fixes were dropped
+  mid-segment by the HDOP/fix-type gate) still forces the curve to speed
+  up mid-segment to land on cB — locally exceeding maxSpeed even though
+  both anchors and the chord average are fine. Fixed by building the
+  candidate curve into a temp array and checking every consecutive pair
+  (anchors included) against the same `isPlausibleGap` the renderer uses;
+  if any sub-step fails, fall back to the plain lerp for that whole
+  segment — a straight lerp's fastest sub-step is always the chord
+  average, so it can never fail a check the anchor pair already passed.
+  Confirmed on `biomap_029.csv`: 5 local implausible-speed sub-steps before
+  the fix (only 1 with the old pre-Hermite code, a genuine single-fix
+  blip), 1 after (same index, same blip). New regression test covers the
+  slow-tangent/fast-chord fallback case. Suite green (1402 tests).
+  **Second follow-up (same day):** user then reported the *same symptom*
+  on `tracks/biomap_026.csv` at a 45 m Snap Radius, unrelated to the
+  Hermite fix above — traced to the already-committed `ccc3c82` "gps
+  pipeline fix" (earlier the same day, on `main`), which replaced the old
+  flat 30 s-only path-break rule with the speed-aware `isPlausibleGap` in
+  both `reconstructFilteredGps` and `_renderPathSegments`. That rule is
+  correct in spirit, but a large Snap Radius (`_snapAlpha`'s cosine
+  falloff in `map_match.mjs` pulls points far more aggressively past
+  ~25 m) makes the HMM matcher more likely to snap two adjacent,
+  near-simultaneous fixes onto two different nearby ways at an ambiguous
+  junction — a real jump the old lenient rule would have silently drawn
+  through, the new strict one correctly refuses. Per user's direction
+  ("trust snap-corrected jumps more"): added
+  `GpsPipeline.gapSpeedMultiplier(snappedGps, idxA, idxB)` — returns
+  `SNAP_GAP_SPEED_MULTIPLIER` (4×) when both endpoints have
+  `snappedGps[idx].alpha > 0`, else 1. `isPlausibleGap` now takes an
+  optional multiplier; wired into both the outer anchor-gap gate and the
+  new Hermite-segment plausibility check in `reconstructFilteredGps`, and
+  into `_renderPathSegments`'s break check via `analyzer.snappedGps`. The
+  absolute distance cap (`GPS_GAP_MAX_DIST_M` = 100 m) is untouched either
+  way. New tests cover the multiplier's four alpha combinations and the
+  connect/blank behaviour end to end. Suite green (1402 tests).
+  **Third follow-up (same day):** user still saw breaks and asked for none,
+  ever — "make the 2D map look like the 3D globe" (which never applied
+  `isPlausibleGap` to begin with, so it never broke). Removed the
+  plausibility-based segment split from `_renderPathSegments` entirely —
+  `drawPoints` is now always drawn as one continuous polyline. This doesn't
+  reintroduce fabricated data: `reconstructFilteredGps` still blanks a
+  genuinely implausible gap to NaN, and `buildDrawPoints` still drops NaN
+  entries, so `drawPoints` simply skips straight from the last point before
+  the gap to the first point after it — the renderer just no longer
+  refuses to draw a line across that skip. `isPlausibleGap` /
+  `gapSpeedMultiplier` stay in `gps_pipeline.mjs` (still gate the NaN
+  interpolate-vs-blank decision and the Hermite-segment fallback from the
+  first follow-up above) — only the 2D-only *second* use of them, the
+  render-time break, is gone. Dropped the now-unused `maxSpeed` param from
+  `_renderPathSegments` and its two `render.mjs` call sites, and the
+  `GeoUtils`/`GpsPipeline` imports that only served the removed check.
+  Suite green (1402 tests).
 - **Per-track GPS quality report** — the chain silently drops points at
   four stages (HDOP gate, fix-type gate, speed-filter recovery latch, χ²
   rejections, RTS clamp saturation). Surface `{n_raw, n_gated,

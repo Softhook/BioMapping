@@ -858,6 +858,110 @@ console.log('\n── gps_pipeline.js ──');
   );
 }
 
+// 5c3. Hermite reconstruction helpers — velocity vector, tangent clamp, curve
+{
+  const scale = GeoUtils.getGeodesicScale(51.5);
+
+  // _velocityDegPerSec: NaN speed or course -> null (triggers the linear fallback)
+  assert(
+    GpsPipeline._velocityDegPerSec(NaN, 90, scale) === null,
+    '_velocityDegPerSec: NaN speed -> null',
+  );
+  assert(
+    GpsPipeline._velocityDegPerSec(2, NaN, scale) === null,
+    '_velocityDegPerSec: NaN course -> null',
+  );
+  // Course 0 (NMEA: due north) -> pure latitude component, ~zero longitude
+  {
+    const v = GpsPipeline._velocityDegPerSec(2, 0, scale);
+    assert(
+      v.vLat > 0,
+      '_velocityDegPerSec: course 0 has positive lat component',
+    );
+    assertClose(
+      v.vLon,
+      0,
+      1e-12,
+      '_velocityDegPerSec: course 0 has ~zero lon component',
+    );
+  }
+  // Course 90 (due east) -> pure longitude component, ~zero latitude
+  {
+    const v = GpsPipeline._velocityDegPerSec(2, 90, scale);
+    assertClose(
+      v.vLat,
+      0,
+      1e-12,
+      '_velocityDegPerSec: course 90 has ~zero lat component',
+    );
+    assert(
+      v.vLon > 0,
+      '_velocityDegPerSec: course 90 has positive lon component',
+    );
+  }
+
+  // _clampHermiteTangent: small tangent (under the limit) passes through unchanged
+  {
+    const v = { vLat: 0.0001, vLon: 0 };
+    const clamped = GpsPipeline._clampHermiteTangent(v, 1.0, 1.0); // chordMagDeg=1, dtTotal=1 -> limit=1 (K=1.0)
+    assertEq(
+      clamped.vLat,
+      v.vLat,
+      '_clampHermiteTangent: under-limit tangent unchanged (lat)',
+    );
+    assertEq(
+      clamped.vLon,
+      v.vLon,
+      '_clampHermiteTangent: under-limit tangent unchanged (lon)',
+    );
+  }
+  // Oversized tangent gets scaled down to exactly the limit magnitude
+  {
+    const v = { vLat: 10, vLon: 0 };
+    const chordMagDeg = 0.001;
+    const clamped = GpsPipeline._clampHermiteTangent(v, chordMagDeg, 1.0);
+    assertClose(
+      Math.hypot(clamped.vLat, clamped.vLon),
+      chordMagDeg, // K=1.0
+      1e-9,
+      '_clampHermiteTangent: oversized tangent scaled down to the K*chord limit',
+    );
+  }
+  // Zero-magnitude tangent (stationary anchor) passes through as-is, no divide-by-zero
+  {
+    const clamped = GpsPipeline._clampHermiteTangent(
+      { vLat: 0, vLon: 0 },
+      1.0,
+      1.0,
+    );
+    assertEq(
+      clamped.vLat,
+      0,
+      '_clampHermiteTangent: zero tangent stays zero (lat)',
+    );
+    assertEq(
+      clamped.vLon,
+      0,
+      '_clampHermiteTangent: zero tangent stays zero (lon)',
+    );
+  }
+
+  // _hermitePoint: boundary conditions — t=0 reproduces cA exactly, t=1 reproduces cB exactly,
+  // regardless of the tangents (standard Hermite spline property).
+  {
+    const cA = { lat: 51.5, lon: -0.1 };
+    const cB = { lat: 51.501, lon: -0.099 };
+    const m0 = { vLat: 0.0005, vLon: 0.0002 };
+    const m1 = { vLat: -0.0003, vLon: 0.0004 };
+    const p0 = GpsPipeline._hermitePoint(cA, cB, m0, m1, 10, 0);
+    assertClose(p0.lat, cA.lat, 1e-12, '_hermitePoint: t=0 reproduces cA.lat');
+    assertClose(p0.lon, cA.lon, 1e-12, '_hermitePoint: t=0 reproduces cA.lon');
+    const p1 = GpsPipeline._hermitePoint(cA, cB, m0, m1, 10, 1);
+    assertClose(p1.lat, cB.lat, 1e-12, '_hermitePoint: t=1 reproduces cB.lat');
+    assertClose(p1.lon, cB.lon, 1e-12, '_hermitePoint: t=1 reproduces cB.lon');
+  }
+}
+
 // 5d. reconstructFilteredGps — interpolates between anchors
 {
   const mockAnalyzer = { filteredGps: null };
@@ -900,6 +1004,178 @@ console.log('\n── gps_pipeline.js ──');
   const fg = mockAnalyzer.filteredGps;
   // ~1,570km over 60s is wildly implausible at any maxSpeed → NaN
   assert(isNaN(fg[1].lat), 'reconstructFilteredGps NaN on large gap');
+}
+
+// 5e2. reconstructFilteredGps — Hermite bends toward measured heading at a corner
+{
+  const mockAnalyzer = { filteredGps: null };
+  const data = [];
+  for (let i = 0; i <= 10; i++) data.push({ time: i });
+  // Anchor A heading due east (90°); anchor B arrives heading due north (0°) —
+  // a real corner. Doppler speed/course live on the raw `data` rows, not on
+  // gpsPoints (reconstructFilteredGps reads them from data[idxA]/data[idxB]).
+  data[0].speedKts = 3;
+  data[0].course = 90;
+  data[10].speedKts = 3;
+  data[10].course = 0;
+
+  const gpsPoints = [
+    { lat: 51.5, lon: -0.1, origIdx: 0 },
+    { lat: 51.5005, lon: -0.0997, origIdx: 10 },
+  ];
+  GpsPipeline.reconstructFilteredGps(mockAnalyzer, data, gpsPoints, 10.0);
+  const fg = mockAnalyzer.filteredGps;
+  const mid = fg[5];
+  const lerpMidLat = (gpsPoints[0].lat + gpsPoints[1].lat) / 2;
+  const lerpMidLon = (gpsPoints[0].lon + gpsPoints[1].lon) / 2;
+  assert(
+    Math.abs(mid.lat - lerpMidLat) > 1e-7 ||
+      Math.abs(mid.lon - lerpMidLon) > 1e-7,
+    'reconstructFilteredGps: Hermite midpoint at a corner differs from the plain straight-chord midpoint',
+  );
+  // Endpoints are exact regardless of the curve in between (Hermite boundary property)
+  assertEq(
+    fg[0].lat,
+    gpsPoints[0].lat,
+    'reconstructFilteredGps: Hermite still reproduces anchor A exactly',
+  );
+  assertEq(
+    fg[10].lat,
+    gpsPoints[1].lat,
+    'reconstructFilteredGps: Hermite still reproduces anchor B exactly',
+  );
+}
+
+// 5e3. reconstructFilteredGps — falls back to plain lerp when speed/course are missing
+{
+  const mockAnalyzer = { filteredGps: null };
+  const data = [];
+  for (let i = 0; i <= 10; i++) data.push({ time: i }); // no speedKts/course fields at all
+  const gpsPoints = [
+    { lat: 51.5, lon: -0.1, origIdx: 0 },
+    { lat: 51.5005, lon: -0.0997, origIdx: 10 },
+  ];
+  GpsPipeline.reconstructFilteredGps(mockAnalyzer, data, gpsPoints, 10.0);
+  const fg = mockAnalyzer.filteredGps;
+  const mid = fg[5];
+  const lerpMidLat = (gpsPoints[0].lat + gpsPoints[1].lat) / 2;
+  const lerpMidLon = (gpsPoints[0].lon + gpsPoints[1].lon) / 2;
+  assertClose(
+    mid.lat,
+    lerpMidLat,
+    1e-12,
+    'reconstructFilteredGps: no speed/course data -> exact plain lerp (unchanged fallback behaviour)',
+  );
+  assertClose(
+    mid.lon,
+    lerpMidLon,
+    1e-12,
+    'reconstructFilteredGps: no speed/course -> exact plain lerp (lon)',
+  );
+}
+
+// 5e4. reconstructFilteredGps — falls back to plain lerp when the endpoint
+// tangents are much slower than the chord's own average velocity (e.g. real
+// fixes dropped mid-segment by the HDOP/fix-type gate, so the anchors sit
+// further apart than either one's own instantaneous speed implies). A naive
+// Hermite curve there has to speed up mid-segment to still land on cB,
+// which can exceed maxSpeed locally even though the chord average doesn't
+// (found via tracks/biomap_029.csv producing extra broken 2D path segments
+// that the 3D globe — which doesn't apply this same local-speed check — did
+// not show).
+{
+  const mockAnalyzer = { filteredGps: null };
+  const data = [];
+  for (let i = 0; i <= 8; i++) data.push({ time: i * 0.1 });
+  data[0].speedKts = 0;
+  data[0].course = 0;
+  data[8].speedKts = 0;
+  data[8].course = 0;
+
+  const cA = { lat: 51.5, lon: -0.1 };
+  const cB = { lat: 51.5 + 2.16 / 111320, lon: -0.1 }; // ~2.16 m north over 0.8s -> avg 2.7 m/s
+  const gpsPoints = [
+    { ...cA, origIdx: 0 },
+    { ...cB, origIdx: 8 },
+  ];
+  GpsPipeline.reconstructFilteredGps(mockAnalyzer, data, gpsPoints, 3.0);
+  const fg = mockAnalyzer.filteredGps;
+
+  for (let i = 0; i <= 8; i++) {
+    const ratio = i / 8;
+    assertClose(
+      fg[i].lat,
+      cA.lat + ratio * (cB.lat - cA.lat),
+      1e-12,
+      `reconstructFilteredGps: slow-tangent/fast-chord segment falls back to plain lerp at i=${i}`,
+    );
+  }
+}
+
+// 5e5. gapSpeedMultiplier / reconstructFilteredGps — a gap whose implied
+// speed exceeds maxSpeed is still blanked to NaN by default (raw GPS jitter
+// isn't trustworthy), but is connected once both anchors were confidently
+// road-snapped (a matched-road jump is more trustworthy than the same jump
+// in raw GPS) — found via tracks/biomap_026.csv producing extra broken 2D
+// segments at large Snap Radius values, worst at HMM-matcher junction
+// candidate flips.
+{
+  assertEq(
+    GpsPipeline.gapSpeedMultiplier(null, 0, 1),
+    1,
+    'gapSpeedMultiplier: no snappedGps -> multiplier 1',
+  );
+  assertEq(
+    GpsPipeline.gapSpeedMultiplier({ 0: { alpha: 0.9 } }, 0, 1),
+    1,
+    'gapSpeedMultiplier: only one side snapped -> multiplier 1',
+  );
+  assert(
+    GpsPipeline.gapSpeedMultiplier(
+      { 0: { alpha: 0.9 }, 1: { alpha: 0.5 } },
+      0,
+      1,
+    ) > 1,
+    'gapSpeedMultiplier: both sides confidently snapped -> multiplier > 1',
+  );
+  assertEq(
+    GpsPipeline.gapSpeedMultiplier(
+      { 0: { alpha: 0 }, 1: { alpha: 0.5 } },
+      0,
+      1,
+    ),
+    1,
+    'gapSpeedMultiplier: alpha=0 on one side (no actual pull) -> multiplier 1',
+  );
+
+  const data = [];
+  for (let i = 0; i <= 5; i++) data.push({ time: i * 0.1 });
+  const cA = { lat: 51.556, lon: -0.071 };
+  const cB = { lat: 51.556 + 5 / 111320, lon: -0.071 }; // ~5m over 0.5s -> 10 m/s, fails maxSpeed=3.0
+  const gpsPoints = [
+    { ...cA, origIdx: 0 },
+    { ...cB, origIdx: 5 },
+  ];
+
+  const unsnapped = { filteredGps: null, snappedGps: null };
+  GpsPipeline.reconstructFilteredGps(unsnapped, data, gpsPoints, 3.0);
+  assert(
+    isNaN(unsnapped.filteredGps[2].lat),
+    'reconstructFilteredGps: fast unsnapped gap stays blanked (NaN)',
+  );
+
+  const snapped = {
+    filteredGps: null,
+    snappedGps: {
+      0: { alpha: 0.9, roadLat: cA.lat, roadLon: cA.lon },
+      5: { alpha: 0.9, roadLat: cB.lat, roadLon: cB.lon },
+    },
+  };
+  GpsPipeline.reconstructFilteredGps(snapped, data, gpsPoints, 3.0);
+  assert(
+    !isNaN(snapped.filteredGps[2].lat),
+    'reconstructFilteredGps: same fast gap is connected once both anchors are confidently road-snapped',
+  );
 }
 
 // 5f. reconstructFilteredGpsCached — cache hits

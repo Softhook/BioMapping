@@ -82,7 +82,6 @@ export const __methods = {
         p.trackWeight || 5,
         analyzer,
         activeTrack,
-        p.maxSpeed || 3.0,
       );
     } else {
       // Every GPS fix was dropped by the quality gates (e.g. all HDOP values
@@ -297,7 +296,6 @@ export const __methods = {
           p.trackWeight || 5,
           analyzer,
           activeTrack,
-          p.maxSpeed || 3.0,
         ),
       false,
     );
