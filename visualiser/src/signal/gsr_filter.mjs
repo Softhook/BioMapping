@@ -432,8 +432,7 @@ export const GsrFilter = {
     const dq1 = [];
     for (let i = 0; i < n; i++) {
       if (dq1.length > 0 && dq1[0] < i - halfWin) dq1.shift();
-      while (dq1.length > 0 && vals[dq1[dq1.length - 1]] >= vals[i])
-        dq1.pop();
+      while (dq1.length > 0 && vals[dq1[dq1.length - 1]] >= vals[i]) dq1.pop();
       dq1.push(i);
       bwd[i] = vals[dq1[0]];
     }
@@ -441,8 +440,7 @@ export const GsrFilter = {
     const dq2 = [];
     for (let i = n - 1; i >= 0; i--) {
       if (dq2.length > 0 && dq2[0] > i + halfWin) dq2.shift();
-      while (dq2.length > 0 && vals[dq2[dq2.length - 1]] >= vals[i])
-        dq2.pop();
+      while (dq2.length > 0 && vals[dq2[dq2.length - 1]] >= vals[i]) dq2.pop();
       dq2.push(i);
       result[i] = Math.min(bwd[i], vals[dq2[0]]);
     }
