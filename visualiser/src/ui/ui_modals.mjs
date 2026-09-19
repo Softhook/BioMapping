@@ -1,23 +1,11 @@
 /**
- * GSRUI — modal dialogs. Object-augment split from ui.js: loaded
- * immediately after ui.js, adds these methods to the shared GSRUI object.
+ * GSRUI — modal dialogs. Service object spread into GSRUI (ui.mjs), so `this`
+ * is GSRUI at call time. The Escape/backdrop/button listeners live in
+ * events_modals.mjs.
  *
  * Covers the Street View modal (tabbed embed + API key entry).
  */
-import { GSRUI } from './ui.mjs';
-
-// Keyboard-only escape hatch matching the backdrop's click-to-dismiss —
-// the modal's own close button is already keyboard-operable, this just
-// adds the Escape shortcut on top.
-document.addEventListener('keydown', (event) => {
-  if (event.key !== 'Escape') return;
-  const modal = document.getElementById('streetviewModal');
-  if (modal && modal.style.display !== 'none') {
-    GSRUI.closeStreetViewModal();
-  }
-});
-
-export const __methods = {
+export const ModalsUI = {
   /**
    * Open the street-level imagery modal overlay at the given coordinates.
    * Shows Mapillary by default; Google Street View embed if API key is set.
@@ -78,7 +66,7 @@ export const __methods = {
     if (googleIframe) googleIframe.src = '';
 
     // Start on Google tab (left)
-    GSRUI.switchStreetViewTab('google');
+    this.switchStreetViewTab('google');
 
     // Restore saved API key into input field
     const keyInput = document.getElementById('svApiKeyInput');
@@ -185,5 +173,3 @@ export const __methods = {
     }
   },
 };
-
-Object.assign(GSRUI, __methods);

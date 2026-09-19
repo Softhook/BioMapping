@@ -11,9 +11,8 @@
 import { AppState } from '../core/app_state.mjs';
 import { GSR_CONST } from '../core/constants.mjs';
 import { StatsMath } from '../signal/stats_math.mjs';
-import { GSRUI } from './ui.mjs';
 
-export const __methods = {
+export const EnvironmentalDashboardUI = {
   updateEnvironmentalDashboard() {
     // Every active track (the walks the user has toggled on), and the
     // enriched subset the analysis can actually use.
@@ -671,18 +670,13 @@ export const __methods = {
     );
 
     // enriched-walk count is cached; totalWalks (incl. not-yet-enriched) is live.
-    GSRUI.syncScatterEnvOptions(hasEmFog, hasSpeed, hasNdvi);
-    GSRUI.renderCorrelationTable(
+    this.syncScatterEnvOptions(hasEmFog, hasSpeed, hasNdvi);
+    this.renderCorrelationTable(
       cachedStats.correlationMatrix,
       cachedStats.trackCount,
       totalWalks,
     );
-    GSRUI.drawRegressionScatterPlot(cachedStats.allData);
-    GSRUI.renderRoadProfile(
-      cachedStats.roadProfile,
-      cachedStats.roadComparison,
-    );
+    this.drawRegressionScatterPlot(cachedStats.allData);
+    this.renderRoadProfile(cachedStats.roadProfile, cachedStats.roadComparison);
   },
 };
-
-Object.assign(GSRUI, __methods);

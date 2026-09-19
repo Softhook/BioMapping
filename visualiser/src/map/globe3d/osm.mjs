@@ -13,10 +13,10 @@
  */
 
 import { OSMEnricher } from '../../osm/osm_enrichment.mjs';
-import { GSRGlobeManager } from '../globe3d.mjs';
 import { GSRGlobe3DBuildings } from './buildings.mjs';
+import { GSRGlobeBase } from './globe3d_base.mjs';
 
-export const __methods = {
+export class GSRGlobeOsm extends GSRGlobeBase {
   /**
    * Toggle 3D Buildings: Uses direct OpenStreetMap Overpass vector extrusion (token-free)
    * or falls back to Cesium ion 3D Tiles if configured.
@@ -114,7 +114,7 @@ export const __methods = {
     this.apply3DBuildingStyle(style);
     this._requestRender();
     if (onStatus) onStatus('');
-  },
+  }
 
   /**
    * Extrude raw OpenStreetMap Overpass building footprints into one batched GPU
@@ -129,7 +129,7 @@ export const __methods = {
       this.buildingPrimitive = prim;
       this.viewer.scene.primitives.add(prim);
     }
-  },
+  }
 
   clearOsmBuildingEntities() {
     if (this.buildingPrimitive) {
@@ -142,7 +142,7 @@ export const __methods = {
       });
       this.osmBuildingEntities = [];
     }
-  },
+  }
 
   /**
    * Apply architectural 3D Tile styling
@@ -164,7 +164,5 @@ export const __methods = {
       show: true,
     });
     this._requestRender();
-  },
-};
-
-Object.assign(GSRGlobeManager.prototype, __methods);
+  }
+}

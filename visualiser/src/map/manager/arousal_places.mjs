@@ -20,10 +20,10 @@ import { GeoUtils } from '../../gps/geo_utils.mjs';
 import { GSRArousalPlaces } from '../../spatial/arousal_places.mjs';
 import { GSRSpatialClustering } from '../../spatial/spatial_clustering.mjs';
 import { GSRUI } from '../../ui/ui.mjs';
-import { GSRMapManager } from '../map.mjs';
 import { MapPopups } from '../map_popups.mjs';
+import { GSRMapPeaks } from './peaks.mjs';
 
-export const __methods = {
+export class GSRMapArousalPlaces extends GSRMapPeaks {
   /**
    * Cluster a set of active (non-excluded) peaks into Arousal Places and render
    * them. Renders nothing when the clustering libs aren't loaded or `peaks` is
@@ -110,7 +110,7 @@ export const __methods = {
       refAmplitude,
       drawGapFactor: P.drawGapFactor,
     });
-  },
+  }
 
   /**
    * True when _renderArousalPlacesFor was last called very recently — i.e. a
@@ -121,7 +121,7 @@ export const __methods = {
    */
   _arousalInteracting() {
     return Date.now() - (this._arousalLastRenderTs || 0) < 140;
-  },
+  }
 
   /**
    * (Re)arm a trailing timer that does one real Arousal Places recompute +
@@ -136,7 +136,7 @@ export const __methods = {
       this._arousalLastRenderTs = 0; // defeat _arousalInteracting() for this run
       this.refreshArousalPlaces(); // strips clusterLayers, replays with current input
     }, 180);
-  },
+  }
 
   /**
    * Re-render ONLY the Arousal Places layer — the scoped refresh for the
@@ -163,7 +163,7 @@ export const __methods = {
     const { peaks, scoreTracks, view } = this._lastArousalInput;
     this._renderArousalPlacesFor(peaks, scoreTracks, view);
     if (AppState?.emit) AppState.emit('map:rendered');
-  },
+  }
 
   /**
    * Fingerprint every input _renderArousalPlacesFor()'s memoised computation
@@ -239,7 +239,7 @@ export const __methods = {
     mixF(view.activeTrackCount || 0);
 
     return (h >>> 0).toString(36);
-  },
+  }
 
   /**
    * Read the "Place Merge Distance" slider (#placeMergeDistance) and
@@ -271,7 +271,7 @@ export const __methods = {
       separationFactor: C.seedSeparationFactor || 1.8,
       drawGapFactor: C.drawGapFactor || 0.46,
     };
-  },
+  }
 
   /**
    * getConcaveBlob() with a per-cluster memo. The 70x70 KDE splat inside
@@ -315,7 +315,7 @@ export const __methods = {
       this._blobRingCache.set(key, ring);
     }
     return ring;
-  },
+  }
 
   /** Mean amplitude across {amplitude} peak objects — the getConcaveBlob() severity reference. @private */
   _meanAmplitude(pts) {
@@ -323,7 +323,7 @@ export const __methods = {
     let sum = 0;
     for (const p of pts) sum += p.amplitude || 0;
     return sum / pts.length;
-  },
+  }
 
   /**
    * Render the ranked place records from GSRArousalPlaces.buildPlaces(): per
@@ -424,7 +424,7 @@ export const __methods = {
     });
 
     this._declutterArousalPlaceBadges();
-  },
+  }
 
   /** The divIcon for one Arousal Place badge; `extra` > 0 renders a "+N" merge count. @private */
   _arousalBadgeIcon({ px, color, fontRem, label }, extra = 0) {
@@ -437,7 +437,7 @@ export const __methods = {
       iconSize: [px, px],
       iconAnchor: [px / 2, px / 2],
     });
-  },
+  }
 
   /**
    * Outline style for one Arousal Place (the badge is styled separately by rank).
@@ -474,7 +474,7 @@ export const __methods = {
     const tooltip = `${place.label}${walks} · ${peaks} · ${place.rate.toFixed(2)} µS·s/min${prov}`;
 
     return { color, fillOpacity, weight, dashArray, tooltip, ratio };
-  },
+  }
 
   /**
    * Metres from place `i` to its nearest neighbour. The outline of `i` is later
@@ -499,7 +499,7 @@ export const __methods = {
       if (d < nnSq) nnSq = d;
     }
     return Math.sqrt(nnSq);
-  },
+  }
 
   /**
    * Uniformly scale a lat/lon ring toward (cLat, cLon) so its farthest vertex
@@ -528,7 +528,7 @@ export const __methods = {
       lat: cLat + (p.lat - cLat) * k,
       lon: cLon + (p.lon - cLon) * k,
     }));
-  },
+  }
 
   /**
    * Fold Arousal Place badges that would visually collide at the current zoom
@@ -586,7 +586,7 @@ export const __methods = {
           : b.popupBuilder,
       );
     }
-  },
+  }
 
   /** Popup for a folded "+N" Arousal Place badge: the top place's card with a merge note prepended. @private */
   _buildFoldedPlacePopup(b, mergeNote) {
@@ -595,7 +595,5 @@ export const __methods = {
     note.textContent = mergeNote;
     container.insertBefore(note, container.firstChild);
     return container;
-  },
-};
-
-Object.assign(GSRMapManager.prototype, __methods);
+  }
+}

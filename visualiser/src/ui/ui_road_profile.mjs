@@ -7,9 +7,8 @@
  * the environmental dashboard's road-profile enrichment data.
  */
 import { AppState } from '../core/app_state.mjs';
-import { GSRUI } from './ui.mjs';
 
-export const __methods = {
+export const RoadProfileUI = {
   /**
    * Sort the Road Arousal table by a column key ('name'|'timeSpent'|'meanPhasic'|'stdPhasic'|'ciPhasic'|'meanTonic'|'ciTonic'|'peakRate').
    */
@@ -237,5 +236,3 @@ export const __methods = {
     }
   },
 };
-
-Object.assign(GSRUI, __methods);

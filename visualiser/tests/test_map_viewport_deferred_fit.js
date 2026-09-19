@@ -26,10 +26,8 @@ const test = require('node:test');
 // migration) — assign that onto a local stub instead of the real GSRMapManager
 // from map.mjs, keeping this test isolated from map.mjs's own dependencies.
 function loadViewportProto() {
-  function GSRMapManager() {}
-  const { __methods } = require('../src/map/manager/viewport.mjs');
-  Object.assign(GSRMapManager.prototype, __methods);
-  return GSRMapManager;
+  const { GSRMapViewport } = require('../src/map/manager/viewport.mjs');
+  return GSRMapViewport;
 }
 
 function makeFakeMap(size) {

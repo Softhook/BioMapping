@@ -8,13 +8,12 @@
  * object.
  */
 import { AppState } from '../core/app_state.mjs';
+import { Controllers } from '../core/controllers.mjs';
 import { GSRNotices } from '../core/notices.mjs';
 import { NDVISampler } from '../osm/ndvi_sampler.mjs';
 import { OsmCache } from '../osm/osm_cache.mjs';
-import { GSREvents } from './events.mjs';
-import { GSRUI } from './ui.mjs';
 
-export const __methods = {
+export const EnrichmentEvents = {
   /**
    * OSM enrichment radius/retrieve/clear-cache, the shared OSM overlay toggle, and NDVI layer/sample/Copernicus config controls.
    */
@@ -28,14 +27,14 @@ export const __methods = {
       });
       radiusSlider.addEventListener('change', () => {
         if (AppState.analyzer?.osmJson) {
-          GSRUI.enrichTrack(false); // Re-run enrichment locally!
+          Controllers.ui?.enrichTrack(false); // Re-run enrichment locally!
         }
       });
     }
 
     document
       .getElementById('btnEnrichTrack')
-      .addEventListener('click', () => GSRUI.enrichTrack(true));
+      .addEventListener('click', () => Controllers.ui?.enrichTrack(true));
 
     document
       .getElementById('btnClearOsmCache')
@@ -75,7 +74,7 @@ export const __methods = {
     // GSRUI.syncOsmOverlay renders it on whichever surface is mounted.
     const btnToggleOsmShapes = document.getElementById('btnToggleOsmShapes');
     btnToggleOsmShapes.addEventListener('click', () => {
-      GSRUI.setOsmOverlay(!GSRUI._osmOverlayOn);
+      Controllers.ui?.setOsmOverlay(!Controllers.ui?._osmOverlayOn);
     });
 
     const btnToggleNdviLayer = document.getElementById('btnToggleNdviLayer');
@@ -91,7 +90,9 @@ export const __methods = {
 
     const btnSampleNdvi = document.getElementById('btnSampleNdvi');
     if (btnSampleNdvi) {
-      btnSampleNdvi.addEventListener('click', () => GSRUI.sampleNdviTrack());
+      btnSampleNdvi.addEventListener('click', () =>
+        Controllers.ui?.sampleNdviTrack(),
+      );
     }
 
     const copernicusInstanceInput = document.getElementById(
@@ -197,5 +198,3 @@ export const __methods = {
     syncCopernicusBadges();
   },
 };
-
-Object.assign(GSREvents, __methods);

@@ -8,11 +8,10 @@
  * object.
  */
 import { AppState } from '../core/app_state.mjs';
+import { Controllers } from '../core/controllers.mjs';
 import { GSRGlobe3DView } from '../map/globe3d_view.mjs';
-import { GSREvents } from './events.mjs';
-import { GSRUI } from './ui.mjs';
 
-export const __methods = {
+export const SurfaceSwitcherEvents = {
   /**
    * Surface switcher (2D Map ↔ 3D Globe). Orthogonal to the Single/Collective
    * scope switcher above. Leaflet and Cesium are equivalent display engines
@@ -72,7 +71,7 @@ export const __methods = {
       // Re-render the shared OSM overlay on the now-mounted surface. 2D takes
       // effect immediately; the globe re-syncs from GSRGlobe3DView.activate()
       // once its manager is built (its manager isn't ready yet here).
-      if (GSRUI?.syncOsmOverlay) GSRUI.syncOsmOverlay();
+      Controllers.ui?.syncOsmOverlay?.();
 
       if (
         !toGlobe &&
@@ -91,12 +90,9 @@ export const __methods = {
         }
       }
     };
-
-    GSREvents.setSurface = setSurface;
+    this.setSurface = setSurface;
     tabs.forEach((t) => {
       t.addEventListener('click', () => setSurface(t.dataset.surface));
     });
   },
 };
-
-Object.assign(GSREvents, __methods);

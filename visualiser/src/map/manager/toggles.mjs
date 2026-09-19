@@ -6,16 +6,16 @@
  * showSurface / showTracks) and drive Leaflet layer inclusion + the
  * .hide-map-* CSS classes on the map container.
  */
-import { GSRMapManager } from '../map.mjs';
+import { GSRMapCollective } from './collective.mjs';
 
-export const __methods = {
+export class GSRMapToggles extends GSRMapCollective {
   /**
    * Toggle the visibility of the stress peak markers on the map layer.
    */
   togglePeaks(visible) {
     this.showPeaks = visible;
     this.updateMarkerVisibility();
-  },
+  }
 
   /**
    * Toggle the visibility of the stress peak labels (text) on the map layer.
@@ -23,7 +23,7 @@ export const __methods = {
   toggleLabels(visible) {
     this.showLabels = visible;
     this.updateMarkerVisibility();
-  },
+  }
 
   /**
    * Toggle the visibility of the hotspot (memorable-event) markers on the map layer.
@@ -31,7 +31,7 @@ export const __methods = {
   toggleHotspots(visible) {
     this.showHotspots = visible;
     this.updateMarkerVisibility();
-  },
+  }
 
   /**
    * Update Leaflet map layer inclusion and CSS class styles based on current peak/label toggles.
@@ -89,7 +89,7 @@ export const __methods = {
     allHotspotMarkers.forEach((m) => {
       this._toggleLayer(m, this.showHotspots);
     });
-  },
+  }
 
   /**
    * Phase 1 (slice 1/2): show/hide a single layer. If the layer is owned by a
@@ -111,7 +111,7 @@ export const __methods = {
     } else {
       if (this.map.hasLayer(m)) this.map.removeLayer(m);
     }
-  },
+  }
 
   /**
    * Toggle the visibility of the stress peak clusters on the map layer.
@@ -126,7 +126,7 @@ export const __methods = {
     if (visible && typeof this._declutterArousalPlaceBadges === 'function') {
       this._declutterArousalPlaceBadges();
     }
-  },
+  }
 
   /**
    * Toggle the visibility of the collective topographic isoline (contour line) layer.
@@ -136,7 +136,7 @@ export const __methods = {
     this.contourLayers.forEach((m) => {
       this._toggleLayer(m, visible);
     });
-  },
+  }
 
   /**
    * Toggle the visibility of the collective shaded surface overlay.
@@ -161,7 +161,7 @@ export const __methods = {
           this.map.removeLayer(this.coverageOverlay);
       }
     }
-  },
+  }
 
   /**
    * Toggle the visibility of the individual track polylines drawn in collective mode.
@@ -177,7 +177,5 @@ export const __methods = {
     for (const m of this._allTrackLayers()) {
       if (m._gsrKind === 'collectivePath') this._toggleLayer(m, visible);
     }
-  },
-};
-
-Object.assign(GSRMapManager.prototype, __methods);
+  }
+}

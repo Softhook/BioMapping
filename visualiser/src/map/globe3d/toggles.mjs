@@ -11,9 +11,9 @@
  * Assigned onto GSRGlobeManager.prototype via Object.assign at the file's
  * tail (a plain ESM static import/export, loaded once by app_entry.mjs).
  */
-import { GSRGlobeManager } from '../globe3d.mjs';
+import { GSRGlobePeaks } from './peaks.mjs';
 
-export const __methods = {
+export class GSRGlobeToggles extends GSRGlobePeaks {
   /**
    * Toggle 3D peak spires
    */
@@ -25,7 +25,7 @@ export const __methods = {
       this._renderPeakSpires(this.currentAnalyzer, this.currentPeaks);
     }
     this._requestRender();
-  },
+  }
 
   /**
    * Toggle the floating peak labels. With spires off, this still keeps the
@@ -38,7 +38,7 @@ export const __methods = {
       this._renderPeakSpires(this.currentAnalyzer, this.currentPeaks);
     }
     this._requestRender();
-  },
+  }
 
   /**
    * Toggle the memorable-event hotspot markers (analyzer.memorableEvents).
@@ -50,7 +50,7 @@ export const __methods = {
       this._renderHotspots(this.currentAnalyzer);
     }
     this._requestRender();
-  },
+  }
 
   /**
    * Toggle the spatial-cluster ground blobs (hulls handed in by the 2D view via
@@ -62,7 +62,7 @@ export const __methods = {
     if (visible) this._renderClusterBlobs();
     this._clusterBlobSig = this._clusterBlobSignature(); // keep _syncClusterBlobs in step
     this._requestRender();
-  },
+  }
 
   /**
    * Clear the batched wall primitive and the ground-path entity.
@@ -77,7 +77,7 @@ export const __methods = {
       this.viewer.entities.remove(ent);
     });
     this.trackEntities = [];
-  },
+  }
 
   /**
    * Clear peak spire entities
@@ -103,7 +103,7 @@ export const __methods = {
     // The focus-hidden circle (focusOnPeakLocation) is one of the entities just
     // removed — drop the stale ref so the next focus doesn't touch it.
     this._focusHiddenPeakPoint = null;
-  },
+  }
 
   /** Clear the memorable-event hotspot entities. */
   clearHotspotEntities() {
@@ -125,7 +125,7 @@ export const __methods = {
       });
     }
     this.hotspotEntities = [];
-  },
+  }
 
   /** Clear the spatial-cluster ground-blob entities. */
   clearClusterEntities() {
@@ -134,7 +134,7 @@ export const __methods = {
       this.viewer.entities.remove(ent);
     });
     this.clusterEntities = [];
-  },
+  }
 
   /**
    * Clear all entities
@@ -148,7 +148,5 @@ export const __methods = {
     this.clearRfEntities();
     this._clusterBlobSig = null; // force the next _syncClusterBlobs to rebuild
     if (this.scrubEntity) this.scrubEntity.show = false;
-  },
-};
-
-Object.assign(GSRGlobeManager.prototype, __methods);
+  }
+}

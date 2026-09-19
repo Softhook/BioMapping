@@ -17,9 +17,10 @@
  * source of truth for what's available bare; a name missing there is a bug in
  * globe3d.js's exports, not something to patch around here.
  */
-import { GSRGlobeManager, HEIGHT_CAPABLE_METRICS } from '../globe3d.mjs';
+import { HEIGHT_CAPABLE_METRICS } from './globe3d_base.mjs';
+import { GSRGlobeRf } from './rf.mjs';
 
-export const __methods = {
+export class GSRGlobePeaks extends GSRGlobeRf {
   /**
    * Ground position for a peak/hotspot marker, shifted back by the Peak-latency
    * slider so the spire lands on the GPS fix `peakLatency` seconds before the
@@ -38,7 +39,7 @@ export const __methods = {
     }
     const si = analyzer.findClosestIndex(Math.max(0, (peak.time || 0) - lat));
     return analyzer.getCoordinates(si >= 0 ? si : peak.index);
-  },
+  }
 
   /**
    * Calculate 3D wall extrusion height for a peak sample.
@@ -53,7 +54,7 @@ export const __methods = {
       ? (heightSeries[peak.index] ?? peak.amplitude ?? 0)
       : (peak.amplitude ?? 0);
     return this.baseHeight + Math.max(0, val) * this.extrusionScale;
-  },
+  }
 
   /**
    * Cesium constants reused for every peak/hotspot marker — parsed once, not
@@ -83,7 +84,7 @@ export const __methods = {
       };
     }
     return this._mc;
-  },
+  }
 
   /**
    * `peak object -> its index in analyzer.peaks`. Peak and hotspot markers are
@@ -97,7 +98,7 @@ export const __methods = {
     const m = new Map();
     for (let k = 0; k < allPeaks.length; k++) m.set(allPeaks[k], k);
     return m;
-  },
+  }
 
   /**
    * Lazily initialize batched primitive collections for peak markers and hotspots.
@@ -123,7 +124,7 @@ export const __methods = {
         new Cesium.LabelCollection(),
       );
     }
-  },
+  }
 
   /**
    * Render the 3D peak markers (a small circle just above the wall top, no
@@ -270,7 +271,7 @@ export const __methods = {
         }
       }
     });
-  },
+  }
 
   /**
    * Render the "memorable event" hotspots — analyzer.memorableEvents, the same
@@ -353,7 +354,7 @@ export const __methods = {
         this.hotspotEntities.push(star);
       }
     });
-  },
+  }
 
   /**
    * Cheap content fingerprint of the current cluster hulls + their visibility.
@@ -390,7 +391,7 @@ export const __methods = {
       }
     }
     return s;
-  },
+  }
 
   /**
    * Rebuild the ground blobs only when the hulls or the Clusters toggle changed
@@ -403,7 +404,7 @@ export const __methods = {
     this.clearClusterEntities();
     if (this.showClusters) this._renderClusterBlobs();
     this._clusterBlobSig = sig;
-  },
+  }
 
   /**
    * Draw the 2D map's spatial-cluster hulls as translucent ground blobs. The
@@ -470,7 +471,5 @@ export const __methods = {
       });
       this.clusterEntities.push(outlineEnt);
     });
-  },
-};
-
-Object.assign(GSRGlobeManager.prototype, __methods);
+  }
+}

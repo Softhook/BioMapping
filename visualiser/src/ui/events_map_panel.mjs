@@ -8,25 +8,25 @@
  * object.
  */
 import { AppState } from '../core/app_state.mjs';
+import { Controllers } from '../core/controllers.mjs';
 import { GSRGlobe3DView } from '../map/globe3d_view.mjs';
 import { windowResized } from '../render/sketch.mjs';
-import { CONTOUR_SLIDER_DEFS, GSREvents } from './events.mjs';
+import { CONTOUR_SLIDER_DEFS } from './events_slider_defs.mjs';
 import { GSRStorage } from './storage.mjs';
 import { GSRTrackManager } from './tracks.mjs';
-import { GSRUI } from './ui.mjs';
 
-export const __methods = {
+export const MapPanelEvents = {
   /**
    * View/surface switchers, contour inputs, the map panel's zoom/RF-fluid/shared 2D-3D toggles and coloring-metric selector, panel collapse buttons, and table column sorting.
    */
   _bindMapPanelControls() {
     // ── View Switcher ────────────────────────────────────────────────────────
-    GSREvents.bindViewSwitcher();
-    GSREvents.bindSurfaceSwitcher();
-    GSREvents.bindMobileSidebar();
+    this.bindViewSwitcher();
+    this.bindSurfaceSwitcher();
+    this.bindMobileSidebar();
 
     // ── Contour Settings ─────────────────────────────────────────────────────
-    GSREvents.bindContourInputs();
+    this.bindContourInputs();
 
     // ── Map Panel Controls ───────────────────────────────────────────────────
     // One header, two engines: when the 3D globe is the mounted surface the
@@ -147,7 +147,7 @@ export const __methods = {
               GSRStorage.buildGpsParams(),
             );
           } else {
-            GSRUI.rerenderMap();
+            Controllers.ui?.rerenderMap();
           }
         }
         // Forward the metric change to the 3D globe immediately when it is the
@@ -179,27 +179,24 @@ export const __methods = {
       }
     };
 
-    GSREvents.bindCollapseButton(
+    this.bindCollapseButton(
       'btnEventsCollapse',
       'eventsPanel',
       refreshMapAfterPanelResize,
     );
-    GSREvents.bindCollapseButton('btnGsrFilteringCollapse', 'gsrFilteringCard');
-    GSREvents.bindCollapseButton(
-      'btnPeakDetectionCollapse',
-      'peakDetectionCard',
-    );
-    GSREvents.bindCollapseButton('btnGpsFilteringCollapse', 'gpsFilteringCard');
-    GSREvents.bindCollapseButton('btnMapDisplayCollapse', 'mapDisplayCard');
-    GSREvents.bindCollapseButton('btnImportCollapse', 'importCard');
-    GSREvents.bindCollapseButton('btnExportCollapse', 'exportCard');
-    GSREvents.bindCollapseButton('btnContourCollapse', 'contourSettingsCard');
+    this.bindCollapseButton('btnGsrFilteringCollapse', 'gsrFilteringCard');
+    this.bindCollapseButton('btnPeakDetectionCollapse', 'peakDetectionCard');
+    this.bindCollapseButton('btnGpsFilteringCollapse', 'gpsFilteringCard');
+    this.bindCollapseButton('btnMapDisplayCollapse', 'mapDisplayCard');
+    this.bindCollapseButton('btnImportCollapse', 'importCard');
+    this.bindCollapseButton('btnExportCollapse', 'exportCard');
+    this.bindCollapseButton('btnContourCollapse', 'contourSettingsCard');
     // Collapsing the panel doesn't move the mouse, so no mouseleave fires on
     // the canvas — reset mouseOverCanvas here so mouseMoved() (sketch.js)
     // doesn't keep forcing redraws while the mouse sits over the collapsed
     // graph's old screen area. (handleScrubber's own elementFromPoint
     // hit-test is what actually keeps the scrubber from reactivating.)
-    GSREvents.bindCollapseButton('btnGsrCollapse', 'gsrPanel', (collapsed) => {
+    this.bindCollapseButton('btnGsrCollapse', 'gsrPanel', (collapsed) => {
       if (collapsed) {
         AppState.mouseOverCanvas = false;
         AppState.hoveredIndex = -1;
@@ -209,28 +206,26 @@ export const __methods = {
       // Collapsing/expanding the graph resizes the map (see the CSS rule above).
       refreshMapAfterPanelResize();
     });
-    GSREvents.bindCollapseButton('btnMapCollapse', 'mapPanel', () => {
+    this.bindCollapseButton('btnMapCollapse', 'mapPanel', () => {
       const mapPanel = document.getElementById('mapPanel');
       if (mapPanel) delete mapPanel.dataset.autoCollapsedNoSpatial;
       refreshMapAfterPanelResize();
     });
-    GSREvents.bindCollapseButton(
-      'btnOsmEnrichmentCollapse',
-      'osmEnrichmentCard',
-    );
-    GSREvents.bindCollapseButton('btnEnvCollapse', 'environmentalPanel');
+    this.bindCollapseButton('btnOsmEnrichmentCollapse', 'osmEnrichmentCard');
+    this.bindCollapseButton('btnEnvCollapse', 'environmentalPanel');
 
     // ── Table Column Sorting ────────────────────────────────────────────────
-    GSREvents.bindTableSort('peaksTable', 'sortPeaksTable');
-    GSREvents.bindTableSort('correlationTable', 'sortCorrelationTable');
-    GSREvents.bindTableSort('roadArousalTable', 'sortRoadArousalTable');
+    this.bindTableSort('peaksTable', 'sortPeaksTable');
+    this.bindTableSort('correlationTable', 'sortCorrelationTable');
+    this.bindTableSort('roadArousalTable', 'sortRoadArousalTable');
   },
   /**
    * Contour settings sliders.
    */
   bindContourInputs() {
-    const triggerUpdate = GSREvents.rafCoalesce(() => {
-      if (AppState.viewMode === 'collective') GSRUI.updateCollectiveMap();
+    const triggerUpdate = this.rafCoalesce(() => {
+      if (AppState.viewMode === 'collective')
+        Controllers.ui?.updateCollectiveMap();
     });
 
     const bindCi = (id, labelId, fmt) => {
@@ -239,7 +234,7 @@ export const __methods = {
       // Initial dim state — matters for hillshadeStrength specifically,
       // whose default is 0 ("off"); the others can never reach 0 (all have
       // min > 0), so this is a no-op for them.
-      GSREvents.updateFilterDim(input);
+      this.updateFilterDim(input);
       input.addEventListener('input', () => {
         if (label) label.innerText = fmt(parseFloat(input.value));
         // Without this, a slider that starts at 0 (only hillshadeStrength
@@ -249,7 +244,7 @@ export const __methods = {
         // own dim state gets re-evaluated on drag (unlike bindGsrSlider/
         // bindGpsSlider, which call updateFilterDim from their own input
         // handlers already).
-        GSREvents.updateFilterDim(input);
+        this.updateFilterDim(input);
         triggerUpdate();
       });
     };
@@ -260,10 +255,10 @@ export const __methods = {
 
     const topoSource = document.getElementById('topoSource');
     topoSource.addEventListener('change', () => {
-      GSREvents.updatePeakPreservationInertState();
+      this.updatePeakPreservationInertState();
       triggerUpdate();
     });
-    GSREvents.updatePeakPreservationInertState();
+    this.updatePeakPreservationInertState();
 
     const normalizeZ = document.getElementById('normalizeZScore');
     if (normalizeZ) {
@@ -271,5 +266,3 @@ export const __methods = {
     }
   },
 };
-
-Object.assign(GSREvents, __methods);

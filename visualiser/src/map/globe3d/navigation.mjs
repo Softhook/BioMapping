@@ -12,9 +12,9 @@
  * tail (a plain ESM static import/export, loaded once by app_entry.mjs).
  */
 import { AppState } from '../../core/app_state.mjs';
-import { GSRGlobeManager } from '../globe3d.mjs';
+import { GSRGlobeToggles } from './toggles.mjs';
 
-export const __methods = {
+export class GSRGlobeNavigation extends GSRGlobeToggles {
   /**
    * Fly camera to focus on a specific peak index.
    * @param {number} peakIdx  index into analyzer.peaks
@@ -52,7 +52,7 @@ export const __methods = {
       offset: offset,
       duration: 1.2,
     });
-  },
+  }
 
   /**
    * Park the scrub dot at a peak's position and fly to it, with no popup. The
@@ -118,7 +118,7 @@ export const __methods = {
       this.scrubEntity.show = true;
     }
     this.flyToPeak(peakIdx, a);
-  },
+  }
 
   /**
    * Fly camera to encompass and perfectly center the entire active track.
@@ -152,7 +152,7 @@ export const __methods = {
       offset: offset,
       duration: 1.5,
     });
-  },
+  }
 
   /**
    * Toggle 360-degree turntable orbit around track center
@@ -164,7 +164,7 @@ export const __methods = {
       this.startOrbit();
     }
     return this._isOrbiting;
-  },
+  }
 
   startOrbit() {
     if (!this.viewer || this.currentDrawPoints.length === 0 || this._isOrbiting)
@@ -213,7 +213,7 @@ export const __methods = {
     this._orbitRemoveCallback =
       this.viewer.clock.onTick.addEventListener(orbitStep);
     this._isOrbiting = true;
-  },
+  }
 
   stopOrbit() {
     if (!this._isOrbiting) return;
@@ -229,7 +229,5 @@ export const __methods = {
       this.viewer.scene.requestRenderMode = this.requestRenderMode;
       this.viewer.resolutionScale = this._resolutionScale;
     }
-  },
-};
-
-Object.assign(GSRGlobeManager.prototype, __methods);
+  }
+}

@@ -14,9 +14,9 @@
 import { AppState } from '../../core/app_state.mjs';
 import { NDVISampler } from '../../osm/ndvi_sampler.mjs';
 import { OSMEnricher } from '../../osm/osm_enrichment.mjs';
-import { GSRMapManager } from '../map.mjs';
+import { GSRMapLegend } from './legend.mjs';
 
-export const __methods = {
+export class GSRMapOsm extends GSRMapLegend {
   /**
    * Draw OSM vector geometry overlays (parks, water, buildings) on the map.
    * Accepts pre-built geoms (from analyzer.osmGeoms) to avoid redundant
@@ -121,7 +121,7 @@ export const __methods = {
       const poly = L.polygon(rings, STYLES[category]).addTo(this.map);
       this.osmLayers.push(poly);
     }
-  },
+  }
 
   clearOsmShapes() {
     if (this.osmLayers) {
@@ -130,7 +130,7 @@ export const __methods = {
       });
     }
     this.osmLayers = [];
-  },
+  }
 
   /**
    * Show the satellite/vegetation map overlay. When a Copernicus instance is
@@ -269,7 +269,7 @@ export const __methods = {
     };
 
     this.ndviTileLayer = L.tileLayer(url, layerOpts).addTo(this.map);
-  },
+  }
 
   /**
    * Remove NDVI tile layer from map.
@@ -279,7 +279,7 @@ export const __methods = {
       this.map.removeLayer(this.ndviTileLayer);
     }
     this.ndviTileLayer = null;
-  },
+  }
 
   /**
    * Toggle NDVI tile layer on or off.
@@ -294,7 +294,5 @@ export const __methods = {
       this.hideNdviLayer();
     }
     return shouldShow;
-  },
-};
-
-Object.assign(GSRMapManager.prototype, __methods);
+  }
+}

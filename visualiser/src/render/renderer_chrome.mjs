@@ -17,9 +17,9 @@
  */
 import { AppState } from '../core/app_state.mjs';
 import { GSR_CONST } from '../core/constants.mjs';
-import { GSRRenderer, getQualityColor, getQualityLabel } from './renderer.mjs';
+import { getQualityColor, getQualityLabel } from './renderer_constants.mjs';
 
-export const __methods = {
+export const RendererChrome = {
   /**
    * @param {boolean} [singleGraph] - When true there is only one plot region
    *   spanning MARGIN.top..yUpperBottom (yLowerBottom is ignored); time labels
@@ -532,5 +532,3 @@ export const __methods = {
     );
   },
 };
-
-Object.assign(GSRRenderer, __methods);

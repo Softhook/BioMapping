@@ -31,7 +31,6 @@ loadModule(path.join(__dirname, '../src/signal/stats_math.js'), 'StatsMath');
 loadModule(path.join(__dirname, '../src/map/map_colors.js'), 'MapColors');
 
 const { GSRUI } = require('../src/ui/ui.mjs');
-Object.assign(GSRUI, require('../src/ui/ui_enrichment.mjs').__methods);
 
 // ui_enrichment.mjs holds real static imports of AppState, OsmCache and
 // OSMEnricher (not bare global lookups) — replacing global.AppState/

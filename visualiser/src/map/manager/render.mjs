@@ -16,9 +16,9 @@
  * calls is another GSRMapManager prototype method.
  */
 import { AppState } from '../../core/app_state.mjs';
-import { GSRMapManager } from '../map.mjs';
+import { GSRMapToggles } from './toggles.mjs';
 
-export const __methods = {
+export class GSRMapRender extends GSRMapToggles {
   /**
    * Render color-coded path segments and add stress peak markers.
    *
@@ -127,7 +127,7 @@ export const __methods = {
     // Let the 3D globe (if mounted) pull the fresh drawPoints / metric / legend
     // range. See src/map/globe3d_view.js.
     if (AppState?.emit) AppState.emit('map:rendered');
-  },
+  }
 
   /**
    * Remove every layer whose `_gsrKind` is in `kindSet` from the map and from
@@ -149,7 +149,7 @@ export const __methods = {
       }
     }
     track._ownedLayers = keep;
-  },
+  }
 
   /**
    * Helper to strip track layers by kind set, run a render callback, and emit map:rendered.
@@ -161,7 +161,7 @@ export const __methods = {
     renderFn();
     if (updateVisibility) this.updateMarkerVisibility();
     if (AppState?.emit) AppState.emit('map:rendered');
-  },
+  }
 
   /**
    * Re-render ONLY the active track's peak markers (+ connector lines +
@@ -254,7 +254,7 @@ export const __methods = {
       },
       true,
     );
-  },
+  }
 
   /**
    * Re-render ONLY the active track's path segments — used by the map-
@@ -299,7 +299,5 @@ export const __methods = {
         ),
       false,
     );
-  },
-};
-
-Object.assign(GSRMapManager.prototype, __methods);
+  }
+}

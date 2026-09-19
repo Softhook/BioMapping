@@ -5,13 +5,13 @@
  */
 import { AppState } from '../core/app_state.mjs';
 import { GSR_CONST } from '../core/constants.mjs';
+import { Controllers } from '../core/controllers.mjs';
 import { GSRFileSaver } from '../core/file_saver.mjs';
 import { GSRNotices } from '../core/notices.mjs';
 import { GeoUtils } from '../gps/geo_utils.mjs';
 import { BezierSpline } from '../render/bezier_spline.mjs';
 import { ContourRingGeometry } from '../render/contour_ring_geometry.mjs';
 import { StatsMath } from '../signal/stats_math.mjs';
-import { GSRUI } from '../ui/ui.mjs';
 import { Hillshade } from './hillshade.mjs';
 import { MapColors } from './map_colors.mjs';
 
@@ -1238,9 +1238,8 @@ export const GSRMapExporter = {
 
   async _download(svg, mode) {
     const baseName =
-      typeof GSRUI !== 'undefined' &&
-      typeof GSRUI._exportFilenameBase === 'function'
-        ? GSRUI._exportFilenameBase()
+      typeof Controllers.ui?._exportFilenameBase === 'function'
+        ? Controllers.ui._exportFilenameBase()
         : 'biomapping';
     const suggestedName = `${baseName}_map_${mode}_export.svg`;
     const blob = new Blob([svg], { type: 'image/svg+xml' });
@@ -1249,9 +1248,8 @@ export const GSRMapExporter = {
 
   async _downloadPng(svg, width, height, mode) {
     const baseName =
-      typeof GSRUI !== 'undefined' &&
-      typeof GSRUI._exportFilenameBase === 'function'
-        ? GSRUI._exportFilenameBase()
+      typeof Controllers.ui?._exportFilenameBase === 'function'
+        ? Controllers.ui._exportFilenameBase()
         : 'biomapping';
     const suggestedName = `${baseName}_map_${mode}_export.png`;
 

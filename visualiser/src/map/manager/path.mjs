@@ -26,8 +26,9 @@ import { GSR_CONST } from '../../core/constants.mjs';
 import { GeoUtils } from '../../gps/geo_utils.mjs';
 import { GpsPipeline } from '../../gps/gps_pipeline.mjs';
 import { GSRStorage } from '../../ui/storage.mjs';
-import { GSRMapManager } from '../map.mjs';
+import { GSRMapBase } from '../map_base.mjs';
 import { MapColors } from '../map_colors.mjs';
+import { GSRMapRfFluid } from './rf_fluid.mjs';
 
 const DERIVED_METRIC_SERIES = {
   phasic: 'phasic',
@@ -56,7 +57,7 @@ const isNoDataValue = (metric, v) => {
   return false;
 };
 
-export const __methods = {
+export class GSRMapPath extends GSRMapRfFluid {
   /**
    * The ground distance (metres) that the rendered track stroke spans at the
    * map's current zoom — i.e. the centre-line gap at which two strokes of
@@ -85,7 +86,7 @@ export const __methods = {
     } catch (_e) {
       return 0;
     }
-  },
+  }
 
   /**
    * zoomend hook. The overlap-aware path colour keys off the stroke's
@@ -127,7 +128,7 @@ export const __methods = {
       );
       let sig = 0;
       if (radiusM > 0) {
-        const acc = GSRMapManager._overlapPooledAccessor(
+        const acc = GSRMapBase._overlapPooledAccessor(
           this._lastDrawPoints,
           this._lastPathGetVal,
           { radiusM, revisitGapS: OV.revisitGapS || 15 },
@@ -149,7 +150,7 @@ export const __methods = {
     } catch (_e) {
       /* a zoom must never break — worst case the overlap colour lags a step */
     }
-  },
+  }
 
   _renderPathSegments(drawPoints, trackWeight, analyzer, track) {
     const layerGroup = track ? track.layerGroup : null;
@@ -193,11 +194,10 @@ export const __methods = {
       const maxR = OV.maxRadiusM || 60;
       const radiusM = this._overlapRadiusMetres(drawPoints, trackWeight);
       if (radiusM > 0) {
-        const pooledAt = GSRMapManager._overlapPooledAccessor(
-          drawPoints,
-          getVal,
-          { radiusM, revisitGapS: gapS },
-        );
+        const pooledAt = GSRMapBase._overlapPooledAccessor(drawPoints, getVal, {
+          radiusM,
+          revisitGapS: gapS,
+        });
         if (pooledAt) {
           valAt = pooledAt;
           hasRetrace = true;
@@ -211,7 +211,7 @@ export const __methods = {
       if (!hasRetrace) {
         hasRetrace =
           !(radiusM > 0 && radiusM >= maxR) &&
-          GSRMapManager._pathRetraces(drawPoints, {
+          GSRMapBase._pathRetraces(drawPoints, {
             radiusM: maxR,
             revisitGapS: gapS,
           });
@@ -378,7 +378,5 @@ export const __methods = {
 
     // Update legend with current metric and data range
     this.updateLegend();
-  },
-};
-
-Object.assign(GSRMapManager.prototype, __methods);
+  }
+}

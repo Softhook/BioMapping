@@ -15,114 +15,49 @@
 import { AppState } from '../core/app_state.mjs';
 import { Controllers } from '../core/controllers.mjs';
 import { GSRLayoutManager } from '../core/layout_manager.mjs';
+import { EnrichmentEvents } from './events_enrichment.mjs';
+import { EnvironmentalDashboardEvents } from './events_environmental_dashboard.mjs';
+import { FileExportEvents } from './events_file_export.mjs';
+import { GpsEvents } from './events_gps.mjs';
+import { GsrAnalysisEvents } from './events_gsr_analysis.mjs';
+import { MapPanelEvents } from './events_map_panel.mjs';
+import { ModalEvents } from './events_modals.mjs';
+import { PresetEvents } from './events_presets.mjs';
+import {
+  CONTOUR_SLIDER_DEFS,
+  fmtMaxSpeed,
+  GPS_SLIDER_DEFS,
+  GRAPH_BAND_TOGGLE_DEFS,
+  GSR_SLIDER_DEFS,
+} from './events_slider_defs.mjs';
+import { SurfaceSwitcherEvents } from './events_surface_switcher.mjs';
+import { TimelineEvents } from './events_timeline.mjs';
+import { ViewSwitcherEvents } from './events_view_switcher.mjs';
 
-export const GSR_SLIDER_DEFS = [
-  { id: 'medianSize', labelId: 'valMedianSize', suffix: ' s' },
-  { id: 'lpfWindow', labelId: 'valLpfWindow', suffix: ' s' },
-  { id: 'tonicWindow', labelId: 'valTonicWindow', suffix: ' s' },
-  { id: 'peakThreshold', labelId: 'valPeakThreshold', suffix: ' μS' },
-  { id: 'minPeakQuality', labelId: 'valMinPeakQuality', suffix: '' },
-  { id: 'hotspotPercentile', labelId: 'valHotspotPercentile', suffix: ' %' },
-  { id: 'shapeMinSnr', labelId: 'valShapeMinSnr', suffix: '×' },
-];
-
-// `bindGps: true` entries are wired by bindGpsSlider() in setupEventListeners();
-// the rest (peak latency, snap radius, place-merge distance) keep bespoke event
-// wiring elsewhere but still take their formatter from here.
-export const GPS_SLIDER_DEFS = [
-  {
-    id: 'gpsMaxHdop',
-    labelId: 'valGpsMaxHdop',
-    fmt: (v) => `≤ ${v.toFixed(1)}`,
-    bindGps: true,
-  },
-  {
-    id: 'gpsMaxSpeed',
-    labelId: 'valGpsMaxSpeed',
-    fmt: (v) => GSREvents.fmtMaxSpeed(v),
-    bindGps: true,
-  },
-  {
-    id: 'gpsRDP',
-    labelId: 'valGpsRDP',
-    fmt: (v) => (v === 0 ? 'off' : `${v} m`),
-    bindGps: true,
-  },
-  {
-    id: 'gpsTrackWeight',
-    labelId: 'valGpsTrackWeight',
-    fmt: (v) => `${v} px`,
-    bindGps: true,
-  },
-  {
-    id: 'gpsPeakLatency',
-    labelId: 'valGpsPeakLatency',
-    fmt: (v) => `${v.toFixed(1)} s`,
-  },
-  { id: 'gpsSnapRadius', labelId: 'valGpsSnapRadius', fmt: (v) => `${v} m` },
-  {
-    id: 'placeMergeDistance',
-    labelId: 'valPlaceMergeDistance',
-    fmt: (v) => `${v} m`,
-  },
-  {
-    id: 'maxArousalPlaces',
-    labelId: 'valMaxArousalPlaces',
-    fmt: (v) => `${Math.round(v)}`,
-  },
-];
-
-export const CONTOUR_SLIDER_DEFS = [
-  {
-    id: 'gridResolution',
-    labelId: 'valGridResolution',
-    fmt: (v) => `${v} x ${v}`,
-  },
-  { id: 'contourCount', labelId: 'valContourCount', fmt: (v) => `${v} lines` },
-  {
-    id: 'isolationRadius',
-    labelId: 'valIsolationRadius',
-    fmt: (v) => `${v} m`,
-  },
-  { id: 'idwExponent', labelId: 'valIdwExponent', fmt: (v) => v.toFixed(1) },
-  {
-    id: 'peakPreservation',
-    labelId: 'valPeakPreservation',
-    fmt: (v) => `${Math.round(v * 100)}%`,
-  },
-  {
-    id: 'coverageWeighting',
-    labelId: 'valCoverageWeighting',
-    fmt: (v) => `${Math.round(v * 100)}%`,
-  },
-  {
-    id: 'surfaceOpacity',
-    labelId: 'valSurfaceOpacity',
-    fmt: (v) => `${Math.round(v * 100)}%`,
-  },
-  {
-    id: 'hillshadeStrength',
-    labelId: 'valHillshadeStrength',
-    fmt: (v) => `${Math.round(v * 100)}%`,
-  },
-];
-
-/**
- * Graph background-band overlay toggles (OSM context, NDVI, EM Fog, ...) —
- * checkbox id + the AppState flag it mirrors. One shared table so wiring
- * (bindLabelsAndListeners) and the post-preset resync (initializeLabels)
- * can't drift apart, and a new overlay is just one more entry here.
- */
-export const GRAPH_BAND_TOGGLE_DEFS = [
-  { id: 'showOsmGraphBands', stateKey: 'showOsmContext' },
-  { id: 'showNdviGraphBands', stateKey: 'showNdviContext' },
-  { id: 'showEmFogGraphBands', stateKey: 'showEmFogContext' },
-];
+export {
+  CONTOUR_SLIDER_DEFS,
+  fmtMaxSpeed,
+  GPS_SLIDER_DEFS,
+  GRAPH_BAND_TOGGLE_DEFS,
+  GSR_SLIDER_DEFS,
+};
 
 /**
  * Safe DOM lookup — warns on missing elements without crashing.
  */
 export const GSREvents = {
+  ...GsrAnalysisEvents,
+  ...TimelineEvents,
+  ...FileExportEvents,
+  ...GpsEvents,
+  ...MapPanelEvents,
+  ...PresetEvents,
+  ...EnrichmentEvents,
+  ...EnvironmentalDashboardEvents,
+  ...SurfaceSwitcherEvents,
+  ...ViewSwitcherEvents,
+  ...ModalEvents,
+
   /**
    * Safe DOM lookup — warns on missing elements without crashing.
    */
@@ -561,6 +496,7 @@ export const GSREvents = {
     this._bindPresetControls();
     this._bindEnrichmentControls();
     this._bindEnvironmentalDashboardControls();
+    this._bindModalControls();
 
     // ── Centralised Layout & Fullscreen Management ───────────────────────────
     GSRLayoutManager.init();

@@ -21,9 +21,9 @@ import { AppState } from '../core/app_state.mjs';
 import { GSR_CONST } from '../core/constants.mjs';
 import { MapColors } from '../map/map_colors.mjs';
 import { OSMEnricher } from '../osm/osm_enrichment.mjs';
-import { GSRRenderer } from './renderer.mjs';
+import { PARK_EDGE_TOLERANCE_M } from './renderer_constants.mjs';
 
-export const __methods = {
+export const RendererBands = {
   /**
    * Environmental classification for background bands and tooltip context.
    * Reuses MapColors' existing roadClass/inPark colouring (same lookup the
@@ -64,7 +64,7 @@ export const __methods = {
       sample.osm_in_park === 1 ||
       sample.osm_in_park === true ||
       (typeof sample.osm_dist_green === 'number' &&
-        sample.osm_dist_green <= GSRRenderer.PARK_EDGE_TOLERANCE_M);
+        sample.osm_dist_green <= PARK_EDGE_TOLERANCE_M);
     if (inPark) {
       return {
         key: 'park',
@@ -375,5 +375,3 @@ export const __methods = {
     );
   },
 };
-
-Object.assign(GSRRenderer, __methods);

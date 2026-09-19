@@ -11,10 +11,10 @@
  * tail (a plain ESM static import/export, loaded once by app_entry.mjs).
  */
 
-import { GSRGlobeManager } from '../globe3d.mjs';
+import { GSRGlobeOsm } from './osm.mjs';
 import { GSRGlobe3DRf } from './rf_expanse.mjs';
 
-export const __methods = {
+export class GSRGlobeRf extends GSRGlobeOsm {
   /**
    * Toggle 3D Volumetric RF Expanse (street-filling electromagnetic fluid)
    * @param {boolean} show
@@ -33,7 +33,7 @@ export const __methods = {
       this.render3DRfExpanse(this.currentAnalyzer, this.currentDrawPoints);
     }
     this._requestRender();
-  },
+  }
 
   /**
    * Render the 3D Volumetric RF Expanse (glowing semi-dome fluid slugs). The
@@ -52,7 +52,7 @@ export const __methods = {
       this.rfPrimitive = prim;
       this.viewer.scene.primitives.add(prim);
     }
-  },
+  }
 
   clearRfEntities() {
     if (!this.viewer) return;
@@ -60,7 +60,5 @@ export const __methods = {
       this.viewer.scene.primitives.remove(this.rfPrimitive);
       this.rfPrimitive = null;
     }
-  },
-};
-
-Object.assign(GSRGlobeManager.prototype, __methods);
+  }
+}

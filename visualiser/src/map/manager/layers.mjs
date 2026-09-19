@@ -17,9 +17,9 @@
  * Depends on the global L, and (via the prototype) clearOsmShapes /
  * _clearRfFluid / updateLegend / clearCollectiveLayers from the other augments.
  */
-import { GSRMapManager } from '../map.mjs';
+import { GSRMapBase } from '../map_base.mjs';
 
-export const __methods = {
+export class GSRMapLayers extends GSRMapBase {
   /**
    * Remove all layers in the array from the map and clear the array.
    */
@@ -30,7 +30,7 @@ export const __methods = {
         this.map.removeLayer(item);
       });
     return [];
-  },
+  }
 
   /**
    * Phase 1 (slice 1): return (creating it if needed) the track's single
@@ -52,7 +52,7 @@ export const __methods = {
     // no longer in the collective manager (see clearMap).
     this._renderedTrackGroups.set(track.id, track);
     return track.layerGroup;
-  },
+  }
 
   /**
    * Phase 1 (slice 2): forget a track's rendered group without touching the
@@ -61,7 +61,7 @@ export const __methods = {
    */
   _forgetTrackGroup(trackId) {
     this._renderedTrackGroups.delete(trackId);
-  },
+  }
 
   /**
    * Phase 1 (slice 3): the currently-rendered per-track layers, derived from
@@ -94,7 +94,7 @@ export const __methods = {
     }
     for (const l of this._unownedLayers) classify(l);
     return { paths, peakMarkers, hotspots };
-  },
+  }
 
   /**
    * Phase 1 (slice 3): resolve the rendered marker for a peak index (used by
@@ -111,7 +111,7 @@ export const __methods = {
       }
     }
     return null;
-  },
+  }
 
   /**
    * Phase 1 (slice 3): record a layer as owned by a track (or, in the legacy
@@ -122,7 +122,7 @@ export const __methods = {
   _registerTrackLayer(track, layer) {
     if (track?._ownedLayers) track._ownedLayers.push(layer);
     else this._unownedLayers.push(layer);
-  },
+  }
 
   /**
    * Phase 1 (slice 3): every per-track render layer this manager has created
@@ -136,7 +136,7 @@ export const __methods = {
     }
     if (this._unownedLayers) layers.push(...this._unownedLayers);
     return layers;
-  },
+  }
 
   /**
    * Phase 1 (slice 2/3): remove every per-track layerGroup this manager has
@@ -163,7 +163,7 @@ export const __methods = {
       if (this.map.hasLayer(layer)) this.map.removeLayer(layer);
     }
     this._unownedLayers = [];
-  },
+  }
 
   /**
    * Reset path and markers on map
@@ -208,7 +208,7 @@ export const __methods = {
     this._legendUniqueVals = null;
     this.hasRfData = false;
     this.updateLegend();
-  },
+  }
 
   /**
    * Wipe every rendered map layer — single-track and collective, RF included.
@@ -219,7 +219,5 @@ export const __methods = {
   clearAll() {
     this.clearMap();
     this.clearCollectiveLayers();
-  },
-};
-
-Object.assign(GSRMapManager.prototype, __methods);
+  }
+}

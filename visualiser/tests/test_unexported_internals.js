@@ -83,7 +83,7 @@ const UNEXPORTED_TARGETS = {
   },
   'src/map/manager/path.mjs': {
     unexported: ['DERIVED_METRIC_SERIES', 'DISTANCE_METRICS', 'isNoDataValue'],
-    expectedExports: ['__methods'],
+    expectedExports: ['GSRMapPath'],
   },
   'src/map/basemap.mjs': {
     unexported: ['CARTO_ATTRIBUTION'],

@@ -17,8 +17,29 @@ import { AppState } from '../core/app_state.mjs';
 import { Controllers } from '../core/controllers.mjs';
 import { GSRNotices } from '../core/notices.mjs';
 import { GSRStorage } from './storage.mjs';
+import { CollectiveMapUI } from './ui_collective_map.mjs';
+import { CorrelationTableUI } from './ui_correlation_table.mjs';
+import { EnrichmentUI } from './ui_enrichment.mjs';
+import { EnvironmentalDashboardUI } from './ui_environmental_dashboard.mjs';
+import { ExportUI } from './ui_export.mjs';
+import { ModalsUI } from './ui_modals.mjs';
+import { OsmOverlayUI } from './ui_osm_overlay.mjs';
+import { PeaksTableUI } from './ui_peaks_table.mjs';
+import { RoadProfileUI } from './ui_road_profile.mjs';
+import { StatsPanelUI } from './ui_stats_panel.mjs';
 
 export const GSRUI = {
+  ...PeaksTableUI,
+  ...StatsPanelUI,
+  ...CollectiveMapUI,
+  ...ExportUI,
+  ...OsmOverlayUI,
+  ...EnrichmentUI,
+  ...CorrelationTableUI,
+  ...RoadProfileUI,
+  ...EnvironmentalDashboardUI,
+  ...ModalsUI,
+
   _resolveTrackAndAnalyzer(trackId) {
     let track = null;
     let analyzer = null;

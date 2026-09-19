@@ -12,9 +12,8 @@
  */
 import { AppState } from '../core/app_state.mjs';
 import { GSRGlobe3DView } from '../map/globe3d_view.mjs';
-import { GSRUI } from './ui.mjs';
 
-export const __methods = {
+export const OsmOverlayUI = {
   /**
    * OSM ways/relations to draw as map overlays for whichever tracks are
    * currently active: a single analyzer's osmGeoms in single-track mode,
@@ -94,7 +93,7 @@ export const __methods = {
    */
   syncOsmOverlay() {
     try {
-      const on = GSRUI._osmOverlayOn;
+      const on = this._osmOverlayOn;
       const mm = AppState.mapManager;
       const g3d = typeof GSRGlobe3DView !== 'undefined' ? GSRGlobe3DView : null;
 
@@ -123,7 +122,7 @@ export const __methods = {
       }
 
       if (!mm) return;
-      const geoms = on ? GSRUI.getCombinedOsmGeoms() : null;
+      const geoms = on ? this.getCombinedOsmGeoms() : null;
       if (geoms)
         mm.drawOsmShapes(geoms); // drawOsmShapes clears first — safe to repeat
       else mm.clearOsmShapes();
@@ -143,23 +142,23 @@ export const __methods = {
    */
   async setOsmOverlay(on) {
     on = !!on;
-    GSRUI._osmOverlayOn = on;
+    this._osmOverlayOn = on;
 
     // Outer guard: this is invoked fire-and-forget from a DOM click handler, so
     // nothing below may surface as an unhandled rejection.
     try {
-      GSRUI.syncOsmOverlay();
+      this.syncOsmOverlay();
 
       if (!on) return;
       if (AppState.surfaceView === 'globe') return; // applyBuildings self-resolves
-      if (GSRUI.getCombinedOsmGeoms()) return; // syncOsmOverlay already drew it
-      if (GSRUI._osmFetching) return; // a fetch is already running
+      if (this.getCombinedOsmGeoms()) return; // syncOsmOverlay already drew it
+      if (this._osmFetching) return; // a fetch is already running
 
-      GSRUI._osmFetching = true;
+      this._osmFetching = true;
       const btn = document.getElementById('btnToggleOsmShapes');
       const label = btn ? btn.innerHTML : '';
       if (btn) btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
-      GSRUI.setSpatialProgress(
+      this.setSpatialProgress(
         true,
         'Retrieving OpenStreetMap shapes…',
         15,
@@ -168,36 +167,36 @@ export const __methods = {
 
       let res;
       try {
-        res = await GSRUI.ensureOsmGeoms((msg) =>
-          GSRUI.setSpatialProgress(true, msg, 55, '#ff7b00'),
+        res = await this.ensureOsmGeoms((msg) =>
+          this.setSpatialProgress(true, msg, 55, '#ff7b00'),
         );
       } catch (e) {
         console.warn('OSM overlay fetch failed:', e);
         res = { ok: false };
       } finally {
-        GSRUI._osmFetching = false;
+        this._osmFetching = false;
         if (btn) btn.innerHTML = label;
       }
 
       // The user toggled the overlay back off (or it was turned off elsewhere)
       // while the fetch was in flight — honour that, don't force it back on.
-      if (!GSRUI._osmOverlayOn) return;
+      if (!this._osmOverlayOn) return;
 
       if (!res?.ok) {
-        GSRUI._osmOverlayOn = false;
-        GSRUI.syncOsmOverlay();
+        this._osmOverlayOn = false;
+        this.syncOsmOverlay();
         const msg =
           res && res.reason === 'no-gps'
             ? 'No GPS fixes in this track — no OpenStreetMap shapes to fetch.'
             : res?.tooBig
               ? 'Track area too large (> 12 km²) to fetch OpenStreetMap shapes.'
               : 'Could not retrieve OpenStreetMap data.';
-        GSRUI.setSpatialProgress(true, msg, 100, 'var(--danger)');
-        setTimeout(() => GSRUI.setSpatialProgress(false), 6000);
+        this.setSpatialProgress(true, msg, 100, 'var(--danger)');
+        setTimeout(() => this.setSpatialProgress(false), 6000);
         return;
       }
 
-      GSRUI.setSpatialProgress(
+      this.setSpatialProgress(
         true,
         res.fetched
           ? 'OpenStreetMap shapes fetched.'
@@ -205,13 +204,13 @@ export const __methods = {
         100,
         '#2d6a4f',
       );
-      setTimeout(() => GSRUI.setSpatialProgress(false), 3000);
+      setTimeout(() => this.setSpatialProgress(false), 3000);
 
       // Unlock the OSM colour-metric options / env dashboard that key off geoms;
       // refreshOsmControls ends by calling syncOsmOverlay, which draws.
-      GSRUI.refreshOsmControls();
+      this.refreshOsmControls();
     } catch (e) {
-      GSRUI._osmFetching = false;
+      this._osmFetching = false;
       console.warn('setOsmOverlay failed:', e);
     }
   },
@@ -237,7 +236,7 @@ export const __methods = {
     const enriched = analyzers.filter((a) => a.isEnriched);
     const isEnriched = enriched.length > 0;
 
-    GSRUI.updateSpatialDataIndicator();
+    this.updateSpatialDataIndicator();
 
     const select = document.getElementById('mapColoringMetric');
     const envPanel = document.getElementById('environmentalPanel');
@@ -245,7 +244,7 @@ export const __methods = {
     // Re-render the shared OSM overlay for the now-active track(s) / surface.
     // syncOsmOverlay is a pure synchronous reconcile — no fetch, no throw — so
     // this is safe on every track switch / enrichment. See GSRUI.setOsmOverlay.
-    GSRUI.syncOsmOverlay();
+    this.syncOsmOverlay();
 
     if (isEnriched) {
       document.querySelectorAll('.osm-option').forEach((opt) => {
@@ -260,7 +259,7 @@ export const __methods = {
         document.getElementById('valOsmRadius').innerText = `${rad} m`;
       }
 
-      GSRUI.updateEnvironmentalDashboard();
+      this.updateEnvironmentalDashboard();
     } else {
       document.querySelectorAll('.osm-option').forEach((opt) => {
         opt.setAttribute('disabled', 'true');
@@ -277,5 +276,3 @@ export const __methods = {
     }
   },
 };
-
-Object.assign(GSRUI, __methods);

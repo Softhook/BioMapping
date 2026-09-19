@@ -219,7 +219,6 @@ test('Response Dynamics: GSRAnalyzer delegation & peak exclusion reactivity', ()
 test('Response Dynamics: UI sync logic', () => {
   global.window = global;
   const { GSRUI } = require('../src/ui/ui.mjs');
-  Object.assign(GSRUI, require('../src/ui/ui_stats_panel.mjs').__methods);
   // ui_stats_panel.mjs holds a real static `import { AppState } from
   // '../core/app_state.mjs'` binding, not a bare global lookup — replacing
   // global.AppState wholesale is inert against it. Mutate the real

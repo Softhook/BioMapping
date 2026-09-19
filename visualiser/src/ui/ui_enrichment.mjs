@@ -12,9 +12,8 @@ import { AppState } from '../core/app_state.mjs';
 import { NDVISampler } from '../osm/ndvi_sampler.mjs';
 import { OsmCache } from '../osm/osm_cache.mjs';
 import { OSMEnricher } from '../osm/osm_enrichment.mjs';
-import { GSRUI } from './ui.mjs';
 
-export const __methods = {
+export const EnrichmentUI = {
   /**
    * Resolve active tracks with valid GPS fixes for environmental/spatial processing.
    * Shared by OpenStreetMap enrichment and satellite NDVI sampling.
@@ -225,7 +224,7 @@ export const __methods = {
    * Orchestrates bounding box computation, Overpass fetching, and spatial enrichment.
    */
   async enrichTrack(forceFetch = false) {
-    if (GSRUI._enriching) return;
+    if (this._enriching) return;
 
     const { allTracks, validTracks } = this.getSpatialTracks({
       silent: false,
@@ -244,7 +243,7 @@ export const __methods = {
     }
 
     const originalText = btn.innerHTML;
-    GSRUI._enriching = true;
+    this._enriching = true;
     btn.setAttribute('disabled', 'true');
     btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Enriching...';
 
@@ -387,8 +386,8 @@ export const __methods = {
       }
 
       updateProgress('Redrawing visualiser…', 96);
-      GSRUI.refreshOsmControls();
-      GSRUI.rerenderMap();
+      this.refreshOsmControls();
+      this.rerenderMap();
       // rerenderMap() only touches the Leaflet map — the p5 GSR graph (whose
       // context bands read the same osm_road_class/osm_in_park fields this
       // pass just rewrote, e.g. after a "Snap to Roads" reclassification)
@@ -421,7 +420,7 @@ export const __methods = {
     } finally {
       btn.removeAttribute('disabled');
       btn.innerHTML = originalText;
-      GSRUI._enriching = false;
+      this._enriching = false;
     }
   },
 
@@ -429,7 +428,7 @@ export const __methods = {
    * Sample Point NDVI and 50m Buffer Mean NDVI across active tracks via offscreen canvas streaming.
    */
   async sampleNdviTrack(silent = false) {
-    if (GSRUI._samplingNdvi) return;
+    if (this._samplingNdvi) return;
 
     const validTracks = this.getValidTracksForSpatialAnalysis({
       silent,
@@ -437,7 +436,7 @@ export const __methods = {
     });
     if (validTracks.length === 0) return;
 
-    GSRUI._samplingNdvi = true;
+    this._samplingNdvi = true;
 
     const btn = document.getElementById('btnSampleNdvi');
     const originalText = btn ? btn.innerHTML : '';
@@ -463,8 +462,8 @@ export const __methods = {
         },
       });
 
-      GSRUI.refreshOsmControls();
-      GSRUI.rerenderMap();
+      this.refreshOsmControls();
+      this.rerenderMap();
       // Same reasoning as enrichTrack() above: rerenderMap() only touches the
       // Leaflet map, but the p5 GSR graph's NDVI context bands read the
       // ndvi/ndvi_50m fields this sampling pass just wrote.
@@ -509,7 +508,7 @@ export const __methods = {
         'var(--danger)',
       );
     } finally {
-      GSRUI._samplingNdvi = false;
+      this._samplingNdvi = false;
       if (btn) {
         btn.removeAttribute('disabled');
         btn.innerHTML = originalText;
@@ -517,5 +516,3 @@ export const __methods = {
     }
   },
 };
-
-Object.assign(GSRUI, __methods);

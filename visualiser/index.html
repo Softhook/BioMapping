@@ -1116,25 +1116,21 @@
 
   <!-- Street-Level Imagery Modal Overlay. Click-outside-to-dismiss is a mouse
        convenience on top of the header's real close button and the Escape
-       key handler (ui_modals.mjs), both already keyboard-operable. -->
-  <!-- biome-ignore lint/a11y/useKeyWithClickEvents: keyboard close path covered by the header button + Escape handler -->
-  <!-- biome-ignore lint/a11y/noStaticElementInteractions: backdrop dismiss is a mouse convenience, not the only way to close -->
-  <div class="streetview-modal-overlay" id="streetviewModal" style="display:none;" onclick="GSRUI.closeStreetViewModal(event)">
-    <!-- biome-ignore lint/a11y/useKeyWithClickEvents: keyboard close path covered by the header button + Escape handler -->
-    <!-- biome-ignore lint/a11y/noStaticElementInteractions: backdrop dismiss is a mouse convenience, not the only way to close -->
-    <div class="streetview-modal-content" onclick="event.stopPropagation()">
+       key handler (events_modals.mjs), both already keyboard-operable. -->
+  <div class="streetview-modal-overlay" id="streetviewModal" style="display:none;">
+    <div class="streetview-modal-content">
       <div class="streetview-modal-header">
         <h3><i class="fa-solid fa-street-view"></i> <span id="streetviewModalTitle">Street-Level View</span></h3>
-        <button class="icon-btn" onclick="GSRUI.closeStreetViewModal()" title="Close" type="button">
+        <button class="icon-btn" id="svModalCloseBtn" title="Close" type="button">
           <i class="fa-solid fa-xmark"></i>
         </button>
       </div>
       <div class="streetview-modal-body">
         <div class="streetview-tab-bar">
-          <button class="streetview-tab active" id="svTabGoogle" onclick="GSRUI.switchStreetViewTab('google')" type="button">
+          <button class="streetview-tab active" id="svTabGoogle" type="button">
             <i class="fa-brands fa-google"></i> Google Street View
           </button>
-          <button class="streetview-tab" id="svTabMapillary" onclick="GSRUI.switchStreetViewTab('mapillary')" type="button">
+          <button class="streetview-tab" id="svTabMapillary" type="button">
             <i class="fa-regular fa-map"></i> Mapillary
           </button>
         </div>
@@ -1153,7 +1149,7 @@
             <div class="api-key-input-row">
               <input type="text" class="api-key-input" id="svApiKeyInput"
                 placeholder="Paste your Google Maps API key…" spellcheck="false">
-              <button class="btn btn-primary btn-sm" id="svApiKeySaveBtn" onclick="GSRUI.saveGoogleMapsKey()" type="button">
+              <button class="btn btn-primary btn-sm" id="svApiKeySaveBtn" type="button">
                 <i class="fa-solid fa-check"></i> Save
               </button>
             </div>

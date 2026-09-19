@@ -7,10 +7,9 @@
  * immediately after events.js, adds these methods to the shared GSREvents
  * object.
  */
-import { GSREvents } from './events.mjs';
-import { GSRUI } from './ui.mjs';
+import { Controllers } from '../core/controllers.mjs';
 
-export const __methods = {
+export const EnvironmentalDashboardEvents = {
   /**
    * Environmental dashboard tab switcher and scatter-plot metric selects.
    */
@@ -32,7 +31,7 @@ export const __methods = {
           pEl.style.display = 'flex';
           pEl.classList.add('active');
         }
-        GSRUI.updateEnvironmentalDashboard();
+        Controllers.ui?.updateEnvironmentalDashboard();
       });
     };
     bindEnvTab('btnEnvTabCorrelation', 'envTabCorrelation');
@@ -41,11 +40,13 @@ export const __methods = {
 
     document
       .getElementById('scatterEnvMetric')
-      .addEventListener('change', () => GSRUI.updateEnvironmentalDashboard());
+      .addEventListener('change', () =>
+        Controllers.ui?.updateEnvironmentalDashboard(),
+      );
     document
       .getElementById('scatterBioMetric')
-      .addEventListener('change', () => GSRUI.updateEnvironmentalDashboard());
+      .addEventListener('change', () =>
+        Controllers.ui?.updateEnvironmentalDashboard(),
+      );
   },
 };
-
-Object.assign(GSREvents, __methods);

@@ -8,10 +8,10 @@
  * object.
  */
 import { AppState } from '../core/app_state.mjs';
-import { GSR_SLIDER_DEFS, GSREvents } from './events.mjs';
-import { GSRUI } from './ui.mjs';
+import { Controllers } from '../core/controllers.mjs';
+import { GSR_SLIDER_DEFS } from './events_slider_defs.mjs';
 
-export const __methods = {
+export const GsrAnalysisEvents = {
   /**
    * GSR filter sliders, alternative-detector toggles, gait filter, graph-view selector.
    */
@@ -20,12 +20,12 @@ export const __methods = {
 
     // ── GSR slider bindings ──────────────────────────────────────────────────
     GSR_SLIDER_DEFS.forEach((d) => {
-      GSREvents.bindGsrSlider(d.id, d.labelId, d.suffix);
+      this.bindGsrSlider(d.id, d.labelId, d.suffix);
     });
 
     S.tonicMethod.addEventListener('change', () => {
-      GSREvents.updateTonicMethodLayout(false);
-      GSRUI.runAnalysis();
+      this.updateTonicMethodLayout(false);
+      Controllers.ui?.runAnalysis();
     });
 
     // ── Alternative-detector toggles (Prominence / Deconv / SparsEDA / cvxEDA) ──
@@ -47,21 +47,23 @@ export const __methods = {
             if (other !== id && S[other]) S[other].checked = false;
           });
         }
-        GSREvents.syncTonicBaselineControls();
-        GSRUI.runAnalysis();
+        this.syncTonicBaselineControls();
+        Controllers.ui?.runAnalysis();
       });
     });
-    GSREvents.syncTonicBaselineControls(); // initial state
+    this.syncTonicBaselineControls(); // initial state
 
     // ── Gait filter toggle (Linkwitz-Riley LR4 gait filter) ──
     if (S.useGaitFilter) {
-      S.useGaitFilter.addEventListener('change', () => GSRUI.runAnalysis());
+      S.useGaitFilter.addEventListener('change', () =>
+        Controllers.ui?.runAnalysis(),
+      );
     }
 
     // ── Disconnect repair toggle (straight-line bridge over cuff dropouts) ──
     if (S.repairGsrDisconnects) {
       S.repairGsrDisconnects.addEventListener('change', () =>
-        GSRUI.runAnalysis(),
+        Controllers.ui?.runAnalysis(),
       );
     }
 
@@ -71,10 +73,8 @@ export const __methods = {
     // also arms it as lowerGraphMode. The Raw/Filtered/Tonic/Phasic curve
     // toggles are only meaningful in 'signal' view, so hide them otherwise.
     if (S.graphView) {
-      GSREvents.applyGraphView();
-      S.graphView.addEventListener('change', () => GSREvents.applyGraphView());
+      this.applyGraphView();
+      S.graphView.addEventListener('change', () => this.applyGraphView());
     }
   },
 };
-
-Object.assign(GSREvents, __methods);

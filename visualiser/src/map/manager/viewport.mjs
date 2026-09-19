@@ -10,9 +10,9 @@
  *
  * Depends on the global L (resolved at call time).
  */
-import { GSRMapManager } from '../map.mjs';
+import { GSRMapProcess } from './process.mjs';
 
-export const __methods = {
+export class GSRMapViewport extends GSRMapProcess {
   _getTrackSetSignature(collectiveManager) {
     if (!collectiveManager) return '';
     const active = collectiveManager.getActiveTracks
@@ -22,7 +22,7 @@ export const __methods = {
       .map((t) => t.id)
       .sort()
       .join(',');
-  },
+  }
 
   _fitBounds(drawPoints, opts = {}) {
     if (!this.map || !drawPoints || drawPoints.length === 0) return;
@@ -30,7 +30,7 @@ export const __methods = {
       drawPoints.map((p) => [p.lat, p.lon]),
       opts,
     );
-  },
+  }
 
   /**
    * Animate the map to a bounds (LatLngBounds or a [lat, lon] pair array),
@@ -65,7 +65,7 @@ export const __methods = {
     } else if (typeof this.map.fitBounds === 'function') {
       this.map.fitBounds(bounds, fitOpts);
     }
-  },
+  }
 
   /**
    * Replay a fit that _flyOrFitBounds() deferred because the map was hidden
@@ -81,7 +81,7 @@ export const __methods = {
     if (size && (!size.x || !size.y)) return;
     this._pendingFit = null;
     this._flyOrFitBounds(pending.bounds, { ...pending.opts, fly: false });
-  },
+  }
 
   /**
    * Zoom the map in by one level.
@@ -90,7 +90,7 @@ export const __methods = {
     if (this.map) {
       this.map.zoomIn();
     }
-  },
+  }
 
   /**
    * Zoom the map out by one level.
@@ -99,7 +99,7 @@ export const __methods = {
     if (this.map) {
       this.map.zoomOut();
     }
-  },
+  }
 
   /**
    * Zoom and pan the map to fit the current polyline track extent.
@@ -110,7 +110,7 @@ export const __methods = {
       const group = new L.featureGroup(paths);
       this._flyOrFitBounds(group.getBounds());
     }
-  },
+  }
 
   /**
    * Jump the map straight to a peak's location and park the scrub dot there.
@@ -147,7 +147,7 @@ export const __methods = {
     } else {
       this.map.setView(latlng, this.map.getZoom());
     }
-  },
+  }
 
   /**
    * Set scrubbing indicator dot position
@@ -171,7 +171,5 @@ export const __methods = {
         this.map.panTo(pos);
       }
     }
-  },
-};
-
-Object.assign(GSRMapManager.prototype, __methods);
+  }
+}

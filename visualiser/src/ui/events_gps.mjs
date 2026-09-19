@@ -8,28 +8,27 @@
  * object.
  */
 import { AppState } from '../core/app_state.mjs';
+import { Controllers } from '../core/controllers.mjs';
 import {
   GPS_SLIDER_DEFS,
   GRAPH_BAND_TOGGLE_DEFS,
-  GSREvents,
-} from './events.mjs';
-import { GSRUI } from './ui.mjs';
+} from './events_slider_defs.mjs';
 
-export const __methods = {
+export const GpsEvents = {
   /**
    * GPS filter sliders, the Arousal Places slider, road-snap radius/toggle, graph background-band overlay toggles, and peak-latency (map-only re-render).
    */
   _bindGpsControls() {
     // ── GPS slider bindings ──────────────────────────────────────────────────
     GPS_SLIDER_DEFS.filter((d) => d.bindGps).forEach((d) => {
-      GSREvents.bindGpsSlider(d.id, d.labelId, d.fmt);
+      this.bindGpsSlider(d.id, d.labelId, d.fmt);
     });
 
     // ── Arousal Places slider binding ───────────────────────────────────────
     // Scoped refresh (Arousal Places layer only), not a full rerenderMap().
     ['placeMergeDistance', 'maxArousalPlaces'].forEach((id) => {
-      const d = GSREvents._sliderDef(id);
-      if (d) GSREvents.bindArousalPlacesSlider(d.id, d.labelId, d.fmt);
+      const d = this._sliderDef(id);
+      if (d) this.bindArousalPlacesSlider(d.id, d.labelId, d.fmt);
     });
 
     // ── Snap radius slider ───────────────────────────────────────────────────
@@ -38,8 +37,8 @@ export const __methods = {
       const slider = document.getElementById('gpsSnapRadius');
       const label = document.getElementById('valGpsSnapRadius');
       if (slider && label) {
-        const fmt = GSREvents._sliderDef('gpsSnapRadius').fmt;
-        const updateDim = () => GSREvents.updateFilterDim(slider);
+        const fmt = this._sliderDef('gpsSnapRadius').fmt;
+        const updateDim = () => this.updateFilterDim(slider);
         updateDim();
         slider.addEventListener('input', () => {
           label.innerText = fmt(parseFloat(slider.value));
@@ -47,9 +46,9 @@ export const __methods = {
         });
         slider.addEventListener('change', () => {
           if (AppState.analyzer?.osmJson) {
-            GSRUI.enrichTrack(false); // Recompute using local cache!
+            Controllers.ui?.enrichTrack(false); // Recompute using local cache!
           } else {
-            GSRUI.rerenderMap();
+            Controllers.ui?.rerenderMap();
           }
         });
       }
@@ -61,15 +60,15 @@ export const __methods = {
     {
       const snapToggle = document.getElementById('gpsSnapToRoads');
       if (snapToggle) {
-        GSREvents.updateSnapRadiusVisibility();
+        this.updateSnapRadiusVisibility();
         snapToggle.addEventListener('change', () => {
-          GSREvents.updateSnapRadiusVisibility();
+          this.updateSnapRadiusVisibility();
           if (AppState.analyzer?.osmJson) {
             // OSM data already loaded — re-run enrichment locally
-            GSRUI.enrichTrack(false);
+            Controllers.ui?.enrichTrack(false);
           } else {
             // No OSM data yet — just re-render
-            GSRUI.rerenderMap();
+            Controllers.ui?.rerenderMap();
           }
         });
       }
@@ -90,19 +89,14 @@ export const __methods = {
     {
       const slider = document.getElementById('gpsPeakLatency');
       const label = document.getElementById('valGpsPeakLatency');
-      const fmt = GSREvents._sliderDef('gpsPeakLatency').fmt;
+      const fmt = this._sliderDef('gpsPeakLatency').fmt;
       const updateDim = () => {
-        GSREvents.updateFilterDim(slider);
+        this.updateFilterDim(slider);
       };
       updateDim();
-      const runHeavyWork = GSREvents.rafCoalesce(() => {
-        GSRUI.rerenderMap();
-        if (
-          typeof GSRUI !== 'undefined' &&
-          typeof GSRUI.updateEnvironmentalDashboard === 'function'
-        ) {
-          GSRUI.updateEnvironmentalDashboard();
-        }
+      const runHeavyWork = this.rafCoalesce(() => {
+        Controllers.ui?.rerenderMap();
+        Controllers.ui?.updateEnvironmentalDashboard?.();
       });
       slider.addEventListener('input', () => {
         label.innerText = fmt(parseFloat(slider.value));
@@ -112,5 +106,3 @@ export const __methods = {
     }
   },
 };
-
-Object.assign(GSREvents, __methods);

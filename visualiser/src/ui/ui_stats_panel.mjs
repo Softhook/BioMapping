@@ -10,11 +10,9 @@
  * availability).
  */
 import { AppState } from '../core/app_state.mjs';
-import { windowResized } from '../render/sketch.mjs';
-import { GSREvents } from './events.mjs';
-import { GSRUI } from './ui.mjs';
+import { Controllers } from '../core/controllers.mjs';
 
-export const __methods = {
+export const StatsPanelUI = {
   /**
    * Show/hide the SCR-deconvolution truncation warning (index.html,
    * #deconvTruncationWarning). phasicDeconvTruncated is set by
@@ -79,7 +77,7 @@ export const __methods = {
     opt.disabled = !hasDriver;
     if (!hasDriver && sel.value === 'phasicDriver') {
       sel.value = 'signal';
-      GSREvents.applyGraphView();
+      Controllers.events?.applyGraphView();
     }
   },
 
@@ -104,12 +102,7 @@ export const __methods = {
       if (opt) opt.disabled = !isSparsEDA;
       if (!isSparsEDA && graphSel.value === 'responseDynamics') {
         graphSel.value = 'signal';
-        if (
-          typeof GSREvents !== 'undefined' &&
-          typeof GSREvents.applyGraphView === 'function'
-        ) {
-          GSREvents.applyGraphView();
-        }
+        Controllers.events?.applyGraphView();
       }
     }
 
@@ -153,7 +146,7 @@ export const __methods = {
     if (F.peakFreq)
       F.peakFreq.innerText = `${stats.peakFrequency.toFixed(2)} / min`;
 
-    GSRUI.updateSpatialDataIndicator();
+    this.updateSpatialDataIndicator();
   },
 
   /**
@@ -269,12 +262,13 @@ export const __methods = {
           debounceMoveend: true,
         });
       }
-      if (typeof windowResized === 'function') {
-        requestAnimationFrame(() => windowResized());
-        setTimeout(() => windowResized(), 220);
+      if (
+        typeof window !== 'undefined' &&
+        typeof window.windowResized === 'function'
+      ) {
+        requestAnimationFrame(() => window.windowResized());
+        setTimeout(() => window.windowResized(), 220);
       }
     }
   },
 };
-
-Object.assign(GSRUI, __methods);

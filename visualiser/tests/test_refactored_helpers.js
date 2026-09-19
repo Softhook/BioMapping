@@ -41,7 +41,6 @@ loadBrowserModule('../src/ui/tracks.js', 'GSRTrackManager');
 // ui.js a second way here would produce a second, distinct GSRUI object that
 // the two loaders would then fight over.
 global.GSRUI = require('../src/ui/ui.mjs').GSRUI;
-Object.assign(global.GSRUI, require('../src/ui/ui_stats_panel.mjs').__methods);
 
 loadBrowserModule('../src/signal/analyzer.js', 'GSRAnalyzer');
 

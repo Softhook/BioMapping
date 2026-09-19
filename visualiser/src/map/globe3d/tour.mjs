@@ -19,11 +19,8 @@
  * globe3d.js's exports, not something to patch around here.
  */
 import { GeoUtils } from '../../gps/geo_utils.mjs';
-import {
-  GSRGlobeManager,
-  HEIGHT_CAPABLE_METRICS,
-  seriesValue,
-} from '../globe3d.mjs';
+import { HEIGHT_CAPABLE_METRICS, seriesValue } from './globe3d_base.mjs';
+import { GSRGlobeNavigation } from './navigation.mjs';
 
 // ── Hotspot shot-side selection tuning ──────────────────────────────────────
 // See _chooseTourShot's doc comment for the cost model these combine into.
@@ -32,13 +29,13 @@ const OBSTRUCTION_COST_RAD = 0.5; // per blocking point, in turn-equivalent radi
 const SIDE_STICKINESS_RAD = 0.8; // bias favouring whichever side the previous hotspot used
 const MAX_TURN_RATE_RAD_PER_SEC = (65.0 * Math.PI) / 180.0; // ~65°/s: brisk but legible
 
-export const __methods = {
+export class GSRGlobeTour extends GSRGlobeNavigation {
   /**
    * Register a progress callback for the automated tour: (stepIndex, totalSteps, waypoint) => void
    */
   onTourStep(cb) {
     this._tourCallback = typeof cb === 'function' ? cb : null;
-  },
+  }
 
   /**
    * Toggle automated sequential tour along the track
@@ -50,7 +47,7 @@ export const __methods = {
       this.startTour();
     }
     return this._isTouring;
-  },
+  }
 
   /**
    * Calculate forward azimuth/bearing (in degrees 0-360) from p1 to p2.
@@ -58,7 +55,7 @@ export const __methods = {
   _calculateBearing(p1, p2) {
     if (!p1 || !p2) return 0;
     return GeoUtils.bearingDeg(p1.lat, p1.lon, p2.lat, p2.lon);
-  },
+  }
 
   /**
    * Local track bearing at drawn-point index `idx`: looks `lookAheadSteps`
@@ -78,7 +75,7 @@ export const __methods = {
       return this._calculateBearing(pts[lookBehindIdx] || pts[idx - 1], p);
     }
     return 0;
-  },
+  }
 
   /**
    * Compute the tour's waypoint sequence. Prefers the real curated Hotspots
@@ -90,7 +87,7 @@ export const __methods = {
     const hotspotWaypoints = this._computeHotspotTourWaypoints();
     if (hotspotWaypoints.length > 0) return hotspotWaypoints;
     return this._computeTrackTourWaypoints();
-  },
+  }
 
   /**
    * Build tour waypoints from analyzer.memorableEvents (the curated Hotspot
@@ -181,7 +178,7 @@ export const __methods = {
         graphWinDuration,
       };
     });
-  },
+  }
 
   /**
    * Fallback waypoint builder: evenly-spaced samples along the track plus
@@ -313,7 +310,7 @@ export const __methods = {
     }
 
     return waypoints;
-  },
+  }
 
   /**
    * Start the automated sequential tour.
@@ -338,7 +335,7 @@ export const __methods = {
     this._wakeRenderLoop();
 
     this._executeTourStep(0);
-  },
+  }
 
   /**
    * Pause the running tour: freezes the camera exactly where it is right now
@@ -355,7 +352,7 @@ export const __methods = {
       this._tourStepTimeout = null;
     }
     this._cancelTourFlight();
-  },
+  }
 
   /**
    * Resume a paused tour from the same waypoint it was frozen at — re-flies
@@ -367,14 +364,14 @@ export const __methods = {
     if (!this._isTouring || !this._isPaused) return;
     this._isPaused = false;
     this._executeTourStep(this._tourStepIndex);
-  },
+  }
 
   /** Toggle pause/resume — the Space-bar shortcut's entry point. */
   toggleTourPause() {
     if (this._isPaused) this.resumeTour();
     else this.pauseTour();
     return this._isPaused;
-  },
+  }
 
   /**
    * Jump straight to the next/previous tour waypoint (Left/Right-arrow
@@ -385,10 +382,10 @@ export const __methods = {
    */
   tourNext() {
     this._jumpToTourStep(this._tourStepIndex + 1);
-  },
+  }
   tourPrevious() {
     this._jumpToTourStep(this._tourStepIndex - 1);
-  },
+  }
 
   _jumpToTourStep(stepIdx) {
     if (!this._isTouring) return;
@@ -400,7 +397,7 @@ export const __methods = {
     this._isPaused = false;
     this._cancelTourFlight();
     this._executeTourStep(stepIdx);
-  },
+  }
 
   /**
    * Cancel whatever camera.flyTo the tour currently has in flight, without
@@ -415,7 +412,7 @@ export const __methods = {
     this._tourManualInterrupt = true;
     this.viewer.camera.cancelFlight();
     this._tourManualInterrupt = false;
-  },
+  }
 
   /**
    * `targetRad`'s angle, shifted by a multiple of 2π so it's the numerically
@@ -445,7 +442,7 @@ export const __methods = {
     if (delta > Math.PI) delta -= twoPi;
     else if (delta < -Math.PI) delta += twoPi;
     return fromRad + delta;
-  },
+  }
 
   /**
    * 3D-aware obstruction count for a shot from (camLat, camLon, camAlt) at
@@ -514,7 +511,7 @@ export const __methods = {
       if (pointHeight > sightAlt + HEIGHT_MARGIN_M) count++;
     }
     return count;
-  },
+  }
 
   /**
    * Pick which side of the track to shoot a hotspot from — roughly
@@ -596,7 +593,7 @@ export const __methods = {
       candidates[0].cost <= candidates[1].cost ? candidates[0] : candidates[1];
     this._tourLastSide = chosen.side;
     return chosen;
-  },
+  }
 
   /**
    * Execute a single tour step and schedule the next.
@@ -737,7 +734,7 @@ export const __methods = {
         }
       },
     });
-  },
+  }
 
   /**
    * Stop tour playback and clear timers.
@@ -753,7 +750,5 @@ export const __methods = {
     if (wasTouring && this._tourCallback) {
       this._tourCallback(null, 0, null);
     }
-  },
-};
-
-Object.assign(GSRGlobeManager.prototype, __methods);
+  }
+}

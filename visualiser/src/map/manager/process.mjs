@@ -11,9 +11,9 @@
 import { GSR_CONST } from '../../core/constants.mjs';
 import { GpsFilter } from '../../gps/gps_filter.mjs';
 import { GpsPipeline } from '../../gps/gps_pipeline.mjs';
-import { GSRMapManager } from '../map.mjs';
+import { GSRMapLayers } from './layers.mjs';
 
-export const __methods = {
+export class GSRMapProcess extends GSRMapLayers {
   /**
    * Resolve effective smoothing (Kalman process noise Q).
    * Respects explicit p.smoothing (legacy project/CSV imports), or
@@ -32,7 +32,7 @@ export const __methods = {
         ? p.maxSpeed
         : 3.0;
     return 0.5 * (maxSpeed / 3.0) ** 2;
-  },
+  }
 
   /**
    * Hash GPS filter params for cache key comparison.
@@ -41,7 +41,7 @@ export const __methods = {
   _hashGpsParams(p) {
     const smoothing = this._resolveSmoothing(p);
     return `${p.maxHdop || 3.0}|${smoothing.toFixed(3)}|${p.kalmanR || 10}|${p.maxSpeed || 3.0}|${p.downsample ? 1 : 0}|${p.rdpTolerance || 0}`;
-  },
+  }
 
   /**
    * Fingerprint of road-snap data so the cache invalidates when OSM
@@ -62,7 +62,7 @@ export const __methods = {
       hash = (Math.imul(hash, 31) + Math.round(alpha * 1e3)) | 0;
     }
     return `${n}|${hash}`;
-  },
+  }
 
   /**
    * Run the full GPS filter pipeline and cache the result.
@@ -171,7 +171,7 @@ export const __methods = {
       drawPoints,
     });
     return { gpsPoints, drawPoints };
-  },
+  }
 
   _collectGpsPoints(data) {
     const pts = [];
@@ -208,7 +208,5 @@ export const __methods = {
       }
     }
     return pts;
-  },
-};
-
-Object.assign(GSRMapManager.prototype, __methods);
+  }
+}

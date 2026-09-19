@@ -22,11 +22,11 @@
 
 import { GSRLabelManager } from '../../render/label_placement.mjs';
 import { GSRUI } from '../../ui/ui.mjs';
-import { GSRMapManager } from '../map.mjs';
 import { GSRMapMarkers } from '../map_markers.mjs';
 import { MapPopups } from '../map_popups.mjs';
+import { GSRMapPath } from './path.mjs';
 
-export const __protoMethods = {
+export class GSRMapPeaks extends GSRMapPath {
   _renderPeakMarkers(analyzer, _data, peakLatency, track, options) {
     options = options || {};
     const layerGroup = track ? track.layerGroup : null;
@@ -76,7 +76,7 @@ export const __protoMethods = {
     // full peak census can run into the hundreds/thousands, so a subdued
     // marker keeps hotspots (see _renderHotspotMarkers) as the visually
     // dominant layer, mirroring the graph's peaks-vs-hotspots hierarchy.
-    const simpleIcon = GSRMapManager._buildPeakIcon();
+    const simpleIcon = GSRMapPeaks._buildPeakIcon();
 
     allPeaks.forEach(({ peak, index, coords, px, py }) => {
       const displayLabel = peak.label || '';
@@ -200,7 +200,7 @@ export const __protoMethods = {
         { collective: false, activeTrackCount: 1 },
       );
     }
-  },
+  }
 
   /**
    * Build a peak dot/label marker: label-collision icon selection (a
@@ -243,7 +243,7 @@ export const __protoMethods = {
     marker.bindTooltip(displayLabel, { direction: 'top', offset: [0, -6] });
     marker.hasLabel = true;
     return marker;
-  },
+  }
 
   /**
    * Internal helper to construct and initialise a Leaflet hotspot marker.
@@ -264,7 +264,7 @@ export const __protoMethods = {
     if (!coords) return null;
 
     const layerGroup = track ? track.layerGroup : null;
-    const hotspotIcon = GSRMapManager._buildHotspotIcon();
+    const hotspotIcon = GSRMapPeaks._buildHotspotIcon();
     const marker = L.marker([coords.lat, coords.lon], { icon: hotspotIcon });
     marker.setZIndexOffset(1500); // Above both regular peak dots and labels
     // Phase 1 (slice 1): single-track hotspots render into the track's
@@ -302,7 +302,7 @@ export const __protoMethods = {
       marker.setOpacity(0.35);
     }
     return marker;
-  },
+  }
 
   _renderHotspotMarkers(analyzer, peakLatency, track) {
     const events = analyzer.memorableEvents;
@@ -319,11 +319,11 @@ export const __protoMethods = {
         track,
       );
     });
-  },
+  }
 
   /**
    * Collective/multi-track counterpart to _renderHotspotMarkers() — same
-   * shared icon (GSRMapManager._buildHotspotIcon()) and position math
+   * shared icon (GSRMapPeaks._buildHotspotIcon()) and position math
    * (_hotspotMarkerCoords()), so the two views can't visually drift apart.
    * Popup/interaction wiring follows the existing collective peak-marker
    * convention instead of the single-track one: bindPopup only, no
@@ -355,7 +355,7 @@ export const __protoMethods = {
         track,
       );
     });
-  },
+  }
 
   /**
    * Render one track's collective-mode peak dot markers + connector lines,
@@ -425,10 +425,10 @@ export const __protoMethods = {
     );
 
     // Compact dot-only icon for unlabelled peaks — the same shared icon
-    // single-track peaks use (GSRMapManager._buildPeakIcon()), not
+    // single-track peaks use (GSRMapPeaks._buildPeakIcon()), not
     // per-track-coloured, so a peak looks identical regardless of which view
     // it's shown in.
-    const collectiveSimpleIcon = GSRMapManager._buildPeakIcon();
+    const collectiveSimpleIcon = GSRMapPeaks._buildPeakIcon();
 
     collectiveAllPeaks.forEach(({ peak, index, lat, lon, px, py }) => {
       const displayLabel = peak.label || '';
@@ -494,7 +494,7 @@ export const __protoMethods = {
         this._registerTrackLayer(track, conn);
       }
     }
-  },
+  }
 
   /**
    * Re-render ONLY one track's collective-mode peak dot markers + connector
@@ -546,7 +546,7 @@ export const __protoMethods = {
         ),
       true,
     );
-  },
+  }
 
   /**
    * Resolve the raw-sample index a marker should be positioned at, applying
@@ -558,7 +558,7 @@ export const __protoMethods = {
    */
   _resolveLatencyIndex(analyzer, peak, peakLatency) {
     return GSRMapMarkers.resolveLatencyIndex(analyzer, peak, peakLatency);
-  },
+  }
 
   /**
    * Resolve the {lat, lon} position for a hotspot marker. Shared by both
@@ -567,39 +567,21 @@ export const __protoMethods = {
    */
   _hotspotMarkerCoords(analyzer, peak, peakLatency) {
     return GSRMapMarkers.hotspotMarkerCoords(analyzer, peak, peakLatency);
-  },
-};
+  }
 
-export const __staticMethods = {
-  /**
-   * Build the shared Leaflet divIcon for every hotspot marker on the map —
-   * single-track (_renderHotspotMarkers) and collective/multi-track
-   * (renderCollectiveData) both call it, so the two views can't drift apart
-   * visually. The glyph is a red star (★, .hotspot-star), consistent across the
-   * GSR graph, the 2D map and the 3D globe (peaks are a small circle
-   * everywhere; hotspots are a star). Behind it sits the expanding pulse-glow
-   * ring (.hotspot-glow-ring, styles.css): peak markers are static (see
-   * drawPeakMarkers() in renderer.js), so the animation is reserved for the
-   * small curated hotspot set, to draw the eye to what matters.
-   * @private
-   */
-  _buildHotspotIcon() {
+  static _buildHotspotIcon() {
     return GSRMapMarkers.buildHotspotIcon(L);
-  },
+  }
 
-  /**
-   * Build the shared Leaflet divIcon for every unlabelled, non-hotspot peak
-   * marker — single-track (_renderPeakMarkers) and collective/multi-track
-   * (renderCollectiveData) both call it, so a peak looks identical on both
-   * views: small, quality-neutral --color-peak red dot, no per-track colour, no
-   * animation. In collective view you tell tracks apart by clicking a marker
-   * (the popup shows the track name), not by dot colour.
-   * @private
-   */
-  _buildPeakIcon() {
+  static _buildPeakIcon() {
     return GSRMapMarkers.buildPeakIcon(L);
-  },
-};
+  }
 
-Object.assign(GSRMapManager.prototype, __protoMethods);
-Object.assign(GSRMapManager, __staticMethods);
+  _buildHotspotIcon() {
+    return GSRMapPeaks._buildHotspotIcon();
+  }
+
+  _buildPeakIcon() {
+    return GSRMapPeaks._buildPeakIcon();
+  }
+}

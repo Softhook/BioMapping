@@ -8,15 +8,14 @@
  * object.
  */
 import { AppState } from '../core/app_state.mjs';
+import { Controllers } from '../core/controllers.mjs';
 import { GSRNotices } from '../core/notices.mjs';
 import { GSRGlobe3DExport } from '../map/globe3d/exporters.mjs';
 import { GSRMapExporter } from '../map/map_exporter.mjs';
 import { GSRCollectiveProject } from '../spatial/collective_project.mjs';
-import { GSREvents } from './events.mjs';
 import { GSRTrackManager } from './tracks.mjs';
-import { GSRUI } from './ui.mjs';
 
-export const __methods = {
+export const FileExportEvents = {
   /**
    * File upload / drag-drop, the demo-track loader, and every export button (CSV, PNG, map PNG/SVG, CZML/KML, project bundle).
    */
@@ -57,13 +56,13 @@ export const __methods = {
     // ── Export Buttons ────────────────────────────────────────────────────────
     document
       .getElementById('exportCsvBtn')
-      .addEventListener('click', GSRUI.exportCSV);
+      .addEventListener('click', () => Controllers.ui?.exportCSV());
     document
       .getElementById('exportImageBtn')
-      .addEventListener('click', GSRUI.saveCanvasImage);
+      .addEventListener('click', () => Controllers.ui?.saveCanvasImage());
     document
       .getElementById('exportMapBtn')
-      .addEventListener('click', GSRUI.saveMapImage);
+      .addEventListener('click', () => Controllers.ui?.saveMapImage());
     document
       .getElementById('exportSvgBtn')
       .addEventListener('click', async () => {
@@ -72,10 +71,10 @@ export const __methods = {
       });
     document
       .getElementById('exportCzmlBtn')
-      .addEventListener('click', () => GSREvents.export3DTrack('czml'));
+      .addEventListener('click', () => FileExportEvents.export3DTrack('czml'));
     document
       .getElementById('exportKmlBtn')
-      .addEventListener('click', () => GSREvents.export3DTrack('kml'));
+      .addEventListener('click', () => FileExportEvents.export3DTrack('kml'));
     document
       .getElementById('exportProjectBtn')
       .addEventListener('click', () => {
@@ -113,9 +112,8 @@ export const __methods = {
       extrusionScale: extEl ? parseFloat(extEl.value) : undefined,
     };
     const baseName =
-      typeof GSRUI !== 'undefined' &&
-      typeof GSRUI._exportFilenameBase === 'function'
-        ? GSRUI._exportFilenameBase()
+      typeof Controllers.ui?._exportFilenameBase === 'function'
+        ? Controllers.ui._exportFilenameBase()
         : 'biomapping_track';
     if (kind === 'kml') {
       GSRGlobe3DExport.download(
@@ -132,5 +130,3 @@ export const __methods = {
     }
   },
 };
-
-Object.assign(GSREvents, __methods);

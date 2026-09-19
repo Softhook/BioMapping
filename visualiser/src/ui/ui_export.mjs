@@ -11,9 +11,8 @@ import { GSRFileSaver } from '../core/file_saver.mjs';
 import { GSRGlobe3DView } from '../map/globe3d_view.mjs';
 import { GSRMapExporter } from '../map/map_exporter.mjs';
 import { GSRStorage } from './storage.mjs';
-import { GSRUI } from './ui.mjs';
 
-export const __methods = {
+export const ExportUI = {
   /**
    * Get a sanitised filename base from the active track name.
    */
@@ -56,7 +55,7 @@ export const __methods = {
         : null;
     const baseName = nameToSanitize
       ? nameToSanitize.replace(/\.[^/.]+$/, '').replace(/[^a-zA-Z0-9._-]/g, '_')
-      : GSRUI._exportFilenameBase();
+      : this._exportFilenameBase();
     const saved = await GSRFileSaver.saveFile(
       csvContent,
       `${baseName}_processed.csv`,
@@ -82,7 +81,7 @@ export const __methods = {
    */
   async saveCanvasImage() {
     if (!AppState.myCanvas || AppState.analyzer.raw.length === 0) return;
-    const baseName = GSRUI._exportFilenameBase();
+    const baseName = this._exportFilenameBase();
     const suggestedName = `${baseName}_chart.png`;
     const canvasEl =
       document.querySelector('#sketch-container canvas') ||
@@ -122,7 +121,7 @@ export const __methods = {
         // snapshot always captures fully-rendered geometry.
         const viewer = GSRGlobe3DView.manager.viewer;
         const canvas = viewer.scene.canvas;
-        const baseName = GSRUI._exportFilenameBase();
+        const baseName = this._exportFilenameBase();
         const mode = AppState.viewMode || 'single';
         const suggestedName = `${baseName}_globe3d_${mode}_export.png`;
 
@@ -160,5 +159,3 @@ export const __methods = {
     }
   },
 };
-
-Object.assign(GSRUI, __methods);

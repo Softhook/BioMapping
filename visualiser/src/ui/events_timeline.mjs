@@ -8,10 +8,9 @@
  * object.
  */
 import { AppState } from '../core/app_state.mjs';
-import { GSREvents } from './events.mjs';
-import { GSRUI } from './ui.mjs';
+import { Controllers } from '../core/controllers.mjs';
 
-export const __methods = {
+export const TimelineEvents = {
   /**
    * Scrub-dot relay to the map, timeline zoom/reset buttons, curve show/hide toggles, unsaved-labels unload guard.
    */
@@ -35,13 +34,13 @@ export const __methods = {
     // ── Canvas Control Buttons ────────────────────────────────────────────────
     document
       .getElementById('btnZoomIn')
-      .addEventListener('click', () => GSRUI.zoomCanvas(1.5));
+      .addEventListener('click', () => Controllers.ui?.zoomCanvas(1.5));
     document
       .getElementById('btnZoomOut')
-      .addEventListener('click', () => GSRUI.zoomCanvas(0.67));
+      .addEventListener('click', () => Controllers.ui?.zoomCanvas(0.67));
     document
       .getElementById('btnResetView')
-      .addEventListener('click', GSRUI.resetView);
+      .addEventListener('click', () => Controllers.ui?.resetView());
 
     // ── Curve Toggle Buttons ──────────────────────────────────────────────────
     const bindToggle = (btnId, prop) => {
@@ -71,5 +70,3 @@ export const __methods = {
     });
   },
 };
-
-Object.assign(GSREvents, __methods);

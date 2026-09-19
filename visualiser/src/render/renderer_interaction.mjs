@@ -17,11 +17,11 @@
  */
 import { AppState } from '../core/app_state.mjs';
 import { GSR_CONST } from '../core/constants.mjs';
+import { Controllers } from '../core/controllers.mjs';
 import { ResponseDynamics } from '../signal/response_dynamics.mjs';
-import { GSRUI } from '../ui/ui.mjs';
-import { EXCLUDE_BTN, GSRRenderer } from './renderer.mjs';
+import { EXCLUDE_BTN } from './renderer_constants.mjs';
 
-export const __methods = {
+export const RendererInteraction = {
   /**
    * Draw a small exclude ✕ or re-include ＋ circle on the canvas.
    * Called per-peak from drawPeakMarkers when the scrub line is near.
@@ -110,7 +110,7 @@ export const __methods = {
   checkExcludeHit(mx, my) {
     const btn = this._hitExcludeButton(mx, my);
     if (btn) {
-      GSRUI.togglePeakExclusion(btn.idx);
+      Controllers.ui?.togglePeakExclusion?.(btn.idx);
       return true;
     }
     return false;
@@ -130,7 +130,7 @@ export const __methods = {
   checkPeakClick(mx, my) {
     const target = this._hitPeakTarget(mx, my);
     if (target) {
-      GSRUI.focusOnPeak(target.idx, 'graph');
+      Controllers.ui?.focusOnPeak?.(target.idx, 'graph');
       return true;
     }
     return false;
@@ -452,5 +452,3 @@ export const __methods = {
     );
   },
 };
-
-Object.assign(GSRRenderer, __methods);

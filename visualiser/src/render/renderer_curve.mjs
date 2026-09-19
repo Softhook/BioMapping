@@ -14,9 +14,8 @@
 import { AppState } from '../core/app_state.mjs';
 import { GSR_CONST } from '../core/constants.mjs';
 import { ResponseDynamics } from '../signal/response_dynamics.mjs';
-import { GSRRenderer } from './renderer.mjs';
 
-export const __methods = {
+export const RendererCurve = {
   /**
    * Compute common context for curve drawing: clamped indices, step, spline decision, and scale factors.
    *
@@ -404,5 +403,3 @@ export const __methods = {
     }
   },
 };
-
-Object.assign(GSRRenderer, __methods);

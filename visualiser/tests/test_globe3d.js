@@ -18,28 +18,8 @@ const test = require('node:test');
 const assert = require('node:assert');
 const path = require('node:path');
 
-const fs = require('node:fs');
-
 const APP_DIR = path.join(__dirname, '..');
 const GLOBE3D = path.join(APP_DIR, 'src', 'map', 'globe3d.mjs');
-// Prototype-augment files (see globe3d.js's class-tail manifest comment):
-// under plain require() (this file's per-test isolation harness) each one
-// exports its method object instead of assigning onto a live global, so
-// loadFresh() below applies them itself. ES-module migration: a converted
-// file's .js sibling is deleted (convert_file.js --write) — resolve whichever
-// extension is actually on disk, same rule as tests/support/load_module.js.
-const GLOBE3D_AUGMENTS = [
-  'osm.js',
-  'rf.js',
-  'peaks.js',
-  'toggles.js',
-  'navigation.js',
-  'tour.js',
-].map((f) => {
-  const jsPath = path.join(APP_DIR, 'src', 'map', 'globe3d', f);
-  const mjsPath = jsPath.replace(/\.js$/, '.mjs');
-  return fs.existsSync(mjsPath) ? mjsPath : jsPath;
-});
 
 // ── A minimal Cesium stand-in ───────────────────────────────────────────────
 // Any property access yields a callable/constructable stub; chained calls
@@ -130,19 +110,7 @@ function freshEnv() {
 }
 
 function loadFresh() {
-  // globe3d.mjs has no module-level mutable state, and Node's require()-of-
-  // ESM synthetic module can't be cache-busted (delete require.cache leaves
-  // the same underlying instance) — so it's required once and reused as-is;
-  // only the not-yet-converted CJS augment files below need fresh reloading.
-  const mod = require(GLOBE3D);
-  for (const augment of GLOBE3D_AUGMENTS) {
-    // .mjs (converted): same as globe3d.mjs above — can't be cache-busted,
-    // and has no module-level mutable state, so it's required once and reused.
-    if (!augment.endsWith('.mjs'))
-      delete require.cache[require.resolve(augment)];
-    Object.assign(mod.GSRGlobeManager.prototype, require(augment));
-  }
-  return mod;
+  return require(GLOBE3D);
 }
 
 test('exports the manager and the module-level helpers', () => {

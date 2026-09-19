@@ -8,12 +8,11 @@
  * object.
  */
 import { AppState } from '../core/app_state.mjs';
-import { GSREvents } from './events.mjs';
+import { Controllers } from '../core/controllers.mjs';
 import { GSRStorage } from './storage.mjs';
 import { GSRTrackManager } from './tracks.mjs';
-import { GSRUI } from './ui.mjs';
 
-export const __methods = {
+export const PresetEvents = {
   /**
    * Export/import/apply-to-all-tracks for GSR+GPS parameter presets.
    */
@@ -70,15 +69,15 @@ export const __methods = {
           }
         });
 
-        if (typeof GSRUI !== 'undefined') {
-          if (typeof GSRUI.runAnalysis === 'function') {
-            GSRUI.runAnalysis();
+        if (Controllers.ui) {
+          if (typeof Controllers.ui.runAnalysis === 'function') {
+            Controllers.ui.runAnalysis();
           }
           if (
             AppState.viewMode === 'collective' &&
-            typeof GSRUI.updateCollectiveMap === 'function'
+            typeof Controllers.ui.updateCollectiveMap === 'function'
           ) {
-            GSRUI.updateCollectiveMap();
+            Controllers.ui.updateCollectiveMap();
           }
         }
 
@@ -89,5 +88,3 @@ export const __methods = {
     }
   },
 };
-
-Object.assign(GSREvents, __methods);

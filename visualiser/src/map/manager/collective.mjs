@@ -20,10 +20,10 @@ import { GeoUtils } from '../../gps/geo_utils.mjs';
 import { StatsMath } from '../../signal/stats_math.mjs';
 import { GSRSpatialClustering } from '../../spatial/spatial_clustering.mjs';
 import { Hillshade } from '../hillshade.mjs';
-import { GSRMapManager } from '../map.mjs';
 import { MapColors } from '../map_colors.mjs';
+import { GSRMapArousalPlaces } from './arousal_places.mjs';
 
-export const __methods = {
+export class GSRMapCollective extends GSRMapArousalPlaces {
   /**
    * Remove all collective track paths and peak markers from the map.
    */
@@ -44,7 +44,7 @@ export const __methods = {
     if (this.scrubMarker && this.map?.hasLayer(this.scrubMarker)) {
       this.map.removeLayer(this.scrubMarker);
     }
-  },
+  }
 
   /**
    * Remove only the topographic isolines layer from the map.
@@ -59,7 +59,7 @@ export const __methods = {
       this.map.removeLayer(this.coverageOverlay);
       this.coverageOverlay = null;
     }
-  },
+  }
 
   /**
    * Render all active tracks overlaid simultaneously, then draw contour lines.
@@ -212,7 +212,7 @@ export const __methods = {
     this.updateLegend();
 
     if (AppState?.emit) AppState.emit('map:rendered');
-  },
+  }
 
   /**
    * Call contour generation math and draw vector polyline boundaries
@@ -481,7 +481,5 @@ export const __methods = {
         this.contourLayers.push(poly);
       });
     });
-  },
-};
-
-Object.assign(GSRMapManager.prototype, __methods);
+  }
+}

@@ -17,10 +17,10 @@
 import { AppState } from '../../core/app_state.mjs';
 import { GSR_CONST } from '../../core/constants.mjs';
 import { ResponseDynamics } from '../../signal/response_dynamics.mjs';
-import { GSRMapManager } from '../map.mjs';
 import { MapColors } from '../map_colors.mjs';
+import { GSRMapViewport } from './viewport.mjs';
 
-export const __methods = {
+export class GSRMapLegend extends GSRMapViewport {
   /**
    * Initialise the Leaflet legend control in the bottom-right corner.
    */
@@ -35,7 +35,7 @@ export const __methods = {
     });
     this._legendControl = new LegendControl({ position: 'bottomright' });
     this._legendControl.addTo(this.map);
-  },
+  }
 
   /**
    * Update the legend to reflect the current colouring metric and data range.
@@ -45,7 +45,7 @@ export const __methods = {
     const el = this._legendControl.getContainer();
     if (!el) return;
     el.innerHTML = this.buildLegendHtml();
-  },
+  }
 
   /**
    * Build the legend's inner HTML for the current colouring metric / data range /
@@ -307,7 +307,5 @@ export const __methods = {
     }
 
     return html;
-  },
-};
-
-Object.assign(GSRMapManager.prototype, __methods);
+  }
+}

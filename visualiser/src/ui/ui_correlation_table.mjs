@@ -10,9 +10,8 @@
 import { AppState } from '../core/app_state.mjs';
 import { GSR_CONST } from '../core/constants.mjs';
 import { StatsMath } from '../signal/stats_math.mjs';
-import { GSRUI } from './ui.mjs';
 
-export const __methods = {
+export const CorrelationTableUI = {
   /**
    * Paint a scatter of (x, y) points with an OLS trend line and an R² badge
    * onto `canvas`. Pure drawing — caller supplies the fitted m, c, r2.
@@ -80,11 +79,11 @@ export const __methods = {
       maxX = 1.5;
     } else {
       const xSorted = [...xVals].sort((a, b) => a - b);
-      minX = GSRUI._percentileSorted(xSorted, 0.02);
-      maxX = GSRUI._percentileSorted(xSorted, 0.98);
+      minX = this._percentileSorted(xSorted, 0.02);
+      maxX = this._percentileSorted(xSorted, 0.98);
     }
-    const minY = GSRUI._percentileSorted(ySorted, 0.02);
-    let maxY = GSRUI._percentileSorted(ySorted, 0.98);
+    const minY = this._percentileSorted(ySorted, 0.02);
+    let maxY = this._percentileSorted(ySorted, 0.98);
 
     if (maxX <= minX) maxX = minX + 1;
     if (maxY <= minY) maxY = minY + 1;
@@ -140,11 +139,11 @@ export const __methods = {
         for (let i = 0; i < n; i++) if (xVals[i] === g) col.push(yVals[i]);
         if (col.length < 3) continue;
         col.sort((a, b) => a - b);
-        const q1 = GSRUI._percentileSorted(col, 0.25);
-        const md = GSRUI._percentileSorted(col, 0.5);
-        const q3 = GSRUI._percentileSorted(col, 0.75);
-        const w1 = GSRUI._percentileSorted(col, 0.1);
-        const w2 = GSRUI._percentileSorted(col, 0.9);
+        const q1 = this._percentileSorted(col, 0.25);
+        const md = this._percentileSorted(col, 0.5);
+        const q3 = this._percentileSorted(col, 0.75);
+        const w1 = this._percentileSorted(col, 0.1);
+        const w2 = this._percentileSorted(col, 0.9);
         const cx = mapX(g);
         ctx.strokeStyle = trendC;
         ctx.fillStyle = 'rgba(0, 85, 204, 0.10)';
@@ -455,7 +454,7 @@ export const __methods = {
         .sort(byEffect);
       if (sig.length > 0) {
         const top = sig[0];
-        const band = GSRUI.correlationBand(top.r);
+        const band = this.correlationBand(top.r);
         if (band.key === 'negligible')
           return `Reliable but negligible (r ≈ ${top.r.toFixed(2)}) — detectable, too small to matter`;
         const how =
@@ -466,7 +465,7 @@ export const __methods = {
       }
 
       const best = chans.slice().sort(byEffect)[0];
-      const bestBand = GSRUI.correlationBand(best.r);
+      const bestBand = this.correlationBand(best.r);
       if (bestBand.key === 'negligible') {
         // A negligible *pooled* effect can hide real per-walk effects that
         // just don't agree in size/direction — high I² means "walks
@@ -495,8 +494,8 @@ export const __methods = {
         typeof row.rTonicSpeedAdj === 'number' &&
         isFinite(row.rTonicSpeedAdj)
       ) {
-        const rawBand = GSRUI.correlationBand(row.rTonic);
-        const adjBand = GSRUI.correlationBand(row.rTonicSpeedAdj);
+        const rawBand = this.correlationBand(row.rTonic);
+        const adjBand = this.correlationBand(row.rTonicSpeedAdj);
         if (rawBand.key !== 'negligible' && adjBand.key === 'negligible') {
           speedNote =
             ' (tonic link becomes negligible after controlling for walking speed)';
@@ -562,7 +561,7 @@ export const __methods = {
           chip =
             '<span class="mag-chip mag-negligible mag-ns">no variation</span>';
         } else {
-          const band = GSRUI.correlationBand(r);
+          const band = this.correlationBand(r);
           let tag = '';
           if (isTested(m)) {
             const isSig = typeof q === 'number' && isFinite(q) && q < 0.05;
@@ -595,8 +594,8 @@ export const __methods = {
           isFinite(speedAdjR) &&
           Math.abs(speedAdjR - r) >= 0.02
         ) {
-          const adjBand = GSRUI.correlationBand(speedAdjR);
-          const moved = adjBand.key !== GSRUI.correlationBand(r).key;
+          const adjBand = this.correlationBand(speedAdjR);
+          const moved = adjBand.key !== this.correlationBand(r).key;
           const style = moved
             ? 'color: #e67e22; font-weight: 500;'
             : 'color: var(--text-muted);';
@@ -704,7 +703,7 @@ export const __methods = {
       tonic: 'Tonic (baseline arousal)',
     };
 
-    GSRUI.drawRegressionScatter(
+    this.drawRegressionScatter(
       canvas,
       xVals,
       yVals,
@@ -717,5 +716,3 @@ export const __methods = {
     );
   },
 };
-
-Object.assign(GSRUI, __methods);

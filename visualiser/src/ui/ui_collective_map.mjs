@@ -10,10 +10,8 @@
  */
 import { AppState } from '../core/app_state.mjs';
 import { GSR_CONST } from '../core/constants.mjs';
-import { GSRTrackManager } from './tracks.mjs';
-import { GSRUI } from './ui.mjs';
 
-export const __methods = {
+export const CollectiveMapUI = {
   /**
    * Render all active tracks on the collective map with contour lines.
    * Debounced at 150 ms to avoid redundant recalculation during slider drag.
@@ -41,7 +39,10 @@ export const __methods = {
   _updateCollectiveMapNow() {
     if (!AppState.mapManager) return;
 
-    if (GSRTrackManager.getActiveTracks().length === 0) {
+    if (
+      !AppState.collectiveManager ||
+      AppState.collectiveManager.getActiveTracks().length === 0
+    ) {
       AppState.mapManager.clearCollectiveLayers();
       const F0 = AppState.statFields;
       if (F0.duration) F0.duration.innerText = '--';
@@ -114,7 +115,7 @@ export const __methods = {
       sumSCL = 0,
       sclCount = 0;
 
-    GSRTrackManager.getActiveTracks().forEach((track) => {
+    (AppState.collectiveManager?.getActiveTracks() || []).forEach((track) => {
       const stats = track.analyzer.getStats();
       totalDur += stats.duration;
       totalPeaks += stats.peakCount;
@@ -137,5 +138,3 @@ export const __methods = {
     if (F.peakFreq) F.peakFreq.innerText = `${meanPeakFreq.toFixed(2)} / min`;
   },
 };
-
-Object.assign(GSRUI, __methods);

@@ -12,17 +12,12 @@
  * order they're listed in below (ESM, unlike the old `<script>`-tag list,
  * resolves the graph itself) — this order is kept the same as SCRIPT_ORDER
  * purely for easy diffing against it, not because it's load-bearing here.
- *
- * Two names need to escape this module's scope, because their consumers are
- * NOT other ES modules:
+ * One set of names needs to escape this module's scope, because their consumers
+ * are NOT other ES modules:
  *  - p5.js's "global mode" auto-detects `window.setup`/`window.draw`/etc. as
  *    bare properties of `window` — sketch.mjs exports these as ordinary
  *    named exports (module-scoped, not on `window`, under real ESM), so
  *    they're re-exposed explicitly below.
- *  - GSRUI is called from a handful of inline `onclick="GSRUI.foo()"`
- *    attributes still in index.html's markup (modal close buttons etc.) —
- *    inline event-handler attributes execute in the global scope, which a
- *    module's top-level bindings never reach automatically either.
  */
 import './core/notices.mjs';
 import './core/app_state.mjs';
@@ -71,29 +66,31 @@ import './render/contour_ring_geometry.mjs';
 import './map/map_exporter.mjs';
 import './render/rf_fluid_renderer.mjs';
 import './map/map_popups.mjs';
-import './map/map.mjs';
-import './map/manager/process.mjs';
-import './map/manager/legend.mjs';
+import './map/map_base.mjs';
 import './map/manager/layers.mjs';
+import './map/manager/process.mjs';
+import './map/manager/viewport.mjs';
+import './map/manager/legend.mjs';
 import './map/manager/osm.mjs';
 import './map/manager/rf_fluid.mjs';
-import './map/manager/viewport.mjs';
-import './map/manager/render.mjs';
 import './map/manager/path.mjs';
 import './map/manager/peaks.mjs';
 import './map/manager/arousal_places.mjs';
 import './map/manager/collective.mjs';
 import './map/manager/toggles.mjs';
+import './map/manager/render.mjs';
+import './map/map.mjs';
 import './map/globe3d/exporters.mjs';
 import './map/globe3d/rf_expanse.mjs';
 import './map/globe3d/buildings.mjs';
-import './map/globe3d.mjs';
+import './map/globe3d/globe3d_base.mjs';
 import './map/globe3d/osm.mjs';
 import './map/globe3d/rf.mjs';
 import './map/globe3d/peaks.mjs';
 import './map/globe3d/toggles.mjs';
 import './map/globe3d/navigation.mjs';
 import './map/globe3d/tour.mjs';
+import './map/globe3d.mjs';
 import './map/globe3d_view.mjs';
 import './ui/storage.mjs';
 import './ui/events.mjs';
@@ -107,6 +104,7 @@ import './ui/events_enrichment.mjs';
 import './ui/events_environmental_dashboard.mjs';
 import './ui/events_view_switcher.mjs';
 import './ui/events_surface_switcher.mjs';
+import './ui/events_modals.mjs';
 import './ui/tracks.mjs';
 import './spatial/collective_project.mjs';
 import './ui/ui.mjs';
@@ -138,7 +136,6 @@ import {
   setup,
   windowResized,
 } from './render/sketch.mjs';
-import { GSRUI } from './ui/ui.mjs';
 
 Object.assign(window, {
   setup,
@@ -149,5 +146,4 @@ Object.assign(window, {
   mouseReleased,
   mouseMoved,
   mouseWheel,
-  GSRUI,
 });

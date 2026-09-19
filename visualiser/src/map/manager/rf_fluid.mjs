@@ -10,9 +10,9 @@
  * (this.showRFFluid / this.hasRfData). updateLegend() lives in
  * manager/legend.js (resolved via the prototype).
  */
-import { GSRMapManager } from '../map.mjs';
+import { GSRMapOsm } from './osm.mjs';
 
-export const __methods = {
+export class GSRMapRfFluid extends GSRMapOsm {
   /**
    * Clear the RF fluid canvas — shared by clearMap() and clearCollectiveLayers()
    * so the two "which layers am I clearing" branches can't drift apart and
@@ -31,7 +31,7 @@ export const __methods = {
     if (this.rfFluidRenderer) {
       this.rfFluidRenderer.clear();
     }
-  },
+  }
 
   /**
    * Enable/disable the RF Fluid toggle button + mode select for the active
@@ -71,7 +71,7 @@ export const __methods = {
         rfFluidMode.removeAttribute('disabled');
       }
     }
-  },
+  }
 
   toggleRFFluid(show) {
     this.showRFFluid = show !== undefined ? show : !this.showRFFluid;
@@ -80,14 +80,12 @@ export const __methods = {
     }
     this.updateLegend();
     return this.showRFFluid;
-  },
+  }
 
   setRFFluidMode(mode) {
     if (this.rfFluidRenderer) {
       this.rfFluidRenderer.setMode(mode);
     }
     this.updateLegend();
-  },
-};
-
-Object.assign(GSRMapManager.prototype, __methods);
+  }
+}

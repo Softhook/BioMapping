@@ -20,12 +20,11 @@ import { GSR_CONST } from '../core/constants.mjs';
 import { ResponseDynamics } from '../signal/response_dynamics.mjs';
 import {
   EXCLUDED_STYLE,
-  GSRRenderer,
   getQualityColor,
   NORMAL_DASH,
-} from './renderer.mjs';
+} from './renderer_constants.mjs';
 
-export const __methods = {
+export const RendererMarkers = {
   /**
    * Pixel-per-unit scale factors shared by drawPeakMarkers()/drawHotspotMarkers()
    * (and their _computePeakScreenPos() calls) — pulled out since both methods
@@ -665,5 +664,3 @@ export const __methods = {
     this._prunePulseRings(seenPulseKeys);
   },
 };
-
-Object.assign(GSRRenderer, __methods);

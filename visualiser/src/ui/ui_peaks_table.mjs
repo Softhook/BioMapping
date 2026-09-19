@@ -12,9 +12,8 @@ import { GSRNotices } from '../core/notices.mjs';
 import { GSRGlobe3DView } from '../map/globe3d_view.mjs';
 import { getQualityColor, getQualityLabel } from '../render/renderer.mjs';
 import { GSRStorage } from './storage.mjs';
-import { GSRUI } from './ui.mjs';
 
-export const __methods = {
+export const PeaksTableUI = {
   /**
    * Update a peak's label from table or map popup input, then refresh the UI.
    * If trackId is provided, the peak belongs to that track (collective mode).
@@ -51,7 +50,7 @@ export const __methods = {
           { skipClustering: true },
         );
       }
-      GSRUI.updatePeaksTable();
+      this.updatePeaksTable();
       redraw();
     } else if (AppState.mapManager) {
       const latSlider = AppState.sliders.gpsPeakLatency;
@@ -210,7 +209,7 @@ export const __methods = {
     // so the places must be recomputed here (see §2.4 and
     // refreshPeakMarkers()'s own doc comment).
     if (AppState.viewMode === 'single') {
-      GSRUI.updatePeaksTable();
+      this.updatePeaksTable();
       redraw();
       if (AppState.mapManager) {
         // refreshHotspots: true — unlike a label edit, an exclusion toggle
@@ -223,7 +222,7 @@ export const __methods = {
         );
       }
     } else {
-      GSRUI.updateCollectiveMap();
+      this.updateCollectiveMap();
     }
   },
 
@@ -437,5 +436,3 @@ export const __methods = {
     }, 0);
   },
 };
-
-Object.assign(GSRUI, __methods);

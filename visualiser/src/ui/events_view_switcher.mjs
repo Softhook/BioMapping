@@ -8,14 +8,13 @@
  * object.
  */
 import { AppState } from '../core/app_state.mjs';
+import { Controllers } from '../core/controllers.mjs';
 import { GSRLayoutManager } from '../core/layout_manager.mjs';
 import { GSRLiveView } from '../live/live_view.mjs';
 import { GSRRenderer } from '../render/renderer.mjs';
 import { windowResized } from '../render/sketch.mjs';
-import { GSREvents } from './events.mjs';
-import { GSRUI } from './ui.mjs';
 
-export const __methods = {
+export const ViewSwitcherEvents = {
   /**
    * View switcher (Single Track ↔ Collective Map Surface).
    */
@@ -113,13 +112,13 @@ export const __methods = {
         windowResized();
       }
       if (AppState.analyzer && AppState.analyzer.raw.length > 0) {
-        GSRUI.runAnalysis();
+        Controllers.ui?.runAnalysis();
       } else {
         noLoop();
         GSRRenderer.drawPlaceholder();
         if (AppState.mapManager) AppState.mapManager.clearMap();
       }
-      GSRUI.refreshOsmControls(); // resync OSM Layers button/indicator to the now-active single track
+      Controllers.ui?.refreshOsmControls(); // resync OSM Layers button/indicator to the now-active single track
     });
 
     btnCollectiveView.addEventListener('click', () => {
@@ -131,8 +130,8 @@ export const __methods = {
 
       // Collective mode only supports the 2D map. If the 3D globe was active,
       // revert to the 2D map surface immediately.
-      if (typeof GSREvents.setSurface === 'function') {
-        GSREvents.setSurface('map');
+      if (typeof Controllers.events?.setSurface === 'function') {
+        Controllers.events.setSurface('map');
       }
 
       appMainLayout.classList.add('collective-mode');
@@ -173,18 +172,18 @@ export const __methods = {
       }
 
       // Render collective map immediately without 150ms debounce lag on mode swap
-      if (typeof GSRUI !== 'undefined') {
-        if (GSRUI._collectiveDebounceId) {
-          clearTimeout(GSRUI._collectiveDebounceId);
-          GSRUI._collectiveDebounceId = null;
+      if (Controllers.ui) {
+        if (Controllers.ui._collectiveDebounceId) {
+          clearTimeout(Controllers.ui._collectiveDebounceId);
+          Controllers.ui._collectiveDebounceId = null;
         }
-        if (typeof GSRUI._updateCollectiveMapNow === 'function') {
-          GSRUI._updateCollectiveMapNow();
-        } else if (typeof GSRUI.updateCollectiveMap === 'function') {
-          GSRUI.updateCollectiveMap();
+        if (typeof Controllers.ui._updateCollectiveMapNow === 'function') {
+          Controllers.ui._updateCollectiveMapNow();
+        } else if (typeof Controllers.ui.updateCollectiveMap === 'function') {
+          Controllers.ui.updateCollectiveMap();
         }
-        if (typeof GSRUI.refreshOsmControls === 'function') {
-          GSRUI.refreshOsmControls();
+        if (typeof Controllers.ui.refreshOsmControls === 'function') {
+          Controllers.ui.refreshOsmControls();
         }
       }
     });
@@ -281,5 +280,3 @@ export const __methods = {
     });
   },
 };
-
-Object.assign(GSREvents, __methods);
