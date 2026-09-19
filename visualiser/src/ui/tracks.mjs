@@ -552,6 +552,12 @@ export const GSRTrackManager = {
         key === 'useCvxEDA'
       )
         continue;
+      // Checkboxes: assigning .value is a silent no-op, so the previous
+      // track's ticked state would leak into this one.
+      if (key === 'useGaitFilter' || key === 'repairGsrDisconnects') {
+        if (S[key]) S[key].checked = !!params[key];
+        continue;
+      }
       if (S[key]) {
         // hotspotPercentile is stored as a 0–1 fraction but its slider is in
         // percent (0.5–10) — convert, or a default 0.02 clamps to the 0.5 min.
