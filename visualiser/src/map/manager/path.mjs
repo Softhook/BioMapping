@@ -23,6 +23,8 @@
 // would otherwise go stale the moment a GSR slider changes.
 import { AppState } from '../../core/app_state.mjs';
 import { GSR_CONST } from '../../core/constants.mjs';
+import { GeoUtils } from '../../gps/geo_utils.mjs';
+import { GpsPipeline } from '../../gps/gps_pipeline.mjs';
 import { GSRStorage } from '../../ui/storage.mjs';
 import { GSRMapManager } from '../map.mjs';
 import { MapColors } from '../map_colors.mjs';
@@ -269,13 +271,23 @@ export const __methods = {
       ? null
       : MapColors.getColorLut(metric, minVal, maxVal);
 
-    // drawPoints is drawn as one continuous run — a genuinely implausible
-    // gap (see GpsPipeline.isPlausibleGap) is already excluded from
-    // drawPoints upstream (reconstructFilteredGps blanks it to NaN, and
-    // buildDrawPoints drops NaN entries), so what's left here is always
-    // meant to connect, however far apart in time or space two consecutive
-    // points end up.
-    const segments = [drawPoints];
+    // Break the polyline only at physically impossible jumps (see
+    // GpsPipeline.isImpossibleJump). Blanked gaps and adjacent far-apart
+    // anchors both reach here as neighbouring points, so this is the one
+    // place that stops a straight line being drawn across them. Merely
+    // noisy or snap-offset fixes are deliberately kept connected.
+    const segments = [[]];
+    for (let i = 0; i < drawPoints.length; i++) {
+      if (i > 0) {
+        const a = drawPoints[i - 1];
+        const b = drawPoints[i];
+        const distM = GeoUtils.haversineMeters(a.lat, a.lon, b.lat, b.lon);
+        if (GpsPipeline.isImpossibleJump(distM, b.time - a.time)) {
+          segments.push([]);
+        }
+      }
+      segments[segments.length - 1].push(drawPoints[i]);
+    }
 
     // Reusable array for latlngs to reduce GC pressure
     const latlngsBuf = [];

@@ -19,6 +19,13 @@ const GPS_GAP_MAX_DIST_M = 100;
 // actually was. Still bounded by GPS_GAP_MAX_DIST_M either way.
 const SNAP_GAP_SPEED_MULTIPLIER = 4;
 
+// A jump is "impossible" (not merely a bad fix or a road-snap misplacement)
+// only when it needs more than this speed AND covers more than the minimum
+// distance. Deliberately far looser than the user's maxSpeed: multipath and
+// snap errors are tens of metres and must stay on the line, not be cut out.
+const IMPOSSIBLE_JUMP_SPEED_MS = 20;
+const IMPOSSIBLE_JUMP_MIN_DIST_M = 50;
+
 const KNOTS_TO_MS = 0.51444;
 const DEG_TO_RAD = Math.PI / 180;
 
@@ -166,6 +173,18 @@ export const GpsPipeline = {
       impliedSpeedMs <= maxSpeed * speedMultiplier &&
       distM <= GPS_GAP_MAX_DIST_M
     );
+  },
+
+  /**
+   * Is the jump between two consecutive draw points physically impossible
+   * for any real track (e.g. 500 m in a second)? Used only to break the
+   * rendered polyline; far looser than isPlausibleGap so noisy-but-real
+   * data (bad reception, snap-to-road offsets) is never cut.
+   */
+  isImpossibleJump(distM, dt) {
+    if (distM <= IMPOSSIBLE_JUMP_MIN_DIST_M) return false;
+    const speedMs = dt > 0 ? distM / dt : Infinity;
+    return speedMs > IMPOSSIBLE_JUMP_SPEED_MS;
   },
 
   /**

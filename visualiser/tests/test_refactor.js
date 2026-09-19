@@ -858,6 +858,26 @@ console.log('\n── gps_pipeline.js ──');
   );
 }
 
+// 5c2b. isImpossibleJump — lenient render-break rule: only jumps no real
+// track (or snap/multipath error) could produce; noisy real data stays joined.
+{
+  // 500 m in 1 s: impossible
+  assert(GpsPipeline.isImpossibleJump(500, 1), 'impossible jump breaks');
+  assert(
+    GpsPipeline.isImpossibleJump(60, 0),
+    'zero dt with real distance breaks',
+  );
+  // Bad reception / snap offsets: 30 m in 1 s (30 m/s but under the distance floor)
+  assert(!GpsPipeline.isImpossibleJump(30, 1), 'tens-of-metres wobble is kept');
+  // 12 m/s over 10 s = 120 m: fast (above walking maxSpeed) but plausible, kept
+  assert(
+    !GpsPipeline.isImpossibleJump(120, 10),
+    'fast-but-possible gap is kept',
+  );
+  // Stopped / tiny move
+  assert(!GpsPipeline.isImpossibleJump(0, 1), 'no movement is kept');
+}
+
 // 5c3. Hermite reconstruction helpers — velocity vector, tangent clamp, curve
 {
   const scale = GeoUtils.getGeodesicScale(51.5);
