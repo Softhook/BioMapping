@@ -5,6 +5,7 @@
   "scripts": {
     "test": "node --test tests/*.js",
     "bench": "node tests/manual/bench/run.js",
+    "bench:stokey": "node tests/manual/bench/bench_stokey.js",
     "lint": "biome check src tests",
     "lint:fix": "biome check --write src tests",
     "lint:deps": "depcruise src/app_entry.mjs src/live_entry.mjs",

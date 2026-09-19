@@ -468,7 +468,70 @@ const renderCollective = {
   },
 };
 
+// ───────────────────────────────────────────────────────────────────────────
+const csvParse = {
+  name: 'csv-parse',
+  title:
+    'GSRCSVParser.parse() — raw CSV text parsing, GPS/RF extraction, and integrity check',
+  perTrack: true,
+  columns: [
+    { key: 'sizeKb', label: 'size KB' },
+    { key: 'rows', label: 'rows' },
+    { key: 'parseMs', label: 'parse ms' },
+    { key: 'mbPerSec', label: 'MB/s' },
+  ],
+  run({ h, window, track, opts }) {
+    const parser = window.GSRCSVParser || global.GSRCSVParser;
+    const text = track.csvText;
+    const sizeKb = (text.length / 1024).toFixed(1);
+    const b = h.bench(() => parser.parse(text), B(opts, { iters: 10 }));
+    const mbPerSec = text.length / (1024 * 1024) / (b.median / 1000);
+    return {
+      sizeKb,
+      rows: track.rows,
+      parseMs: b.median,
+      mbPerSec: mbPerSec.toFixed(1),
+    };
+  },
+};
+
+// ───────────────────────────────────────────────────────────────────────────
+const trackSwitch = {
+  name: 'track-switch',
+  title:
+    'switchActiveTrack() — user switching between loaded tracks in the sidebar',
+  perTrack: false,
+  columns: [
+    { key: 'tracks', label: 'tracks' },
+    { key: 'switchMs', label: 'switch ms' },
+  ],
+  run({ h, window, tracks, opts }) {
+    if (tracks.length < 2) {
+      return [{ track: 'N/A', tracks: tracks.length, switchMs: 0 }];
+    }
+    const tm = window.GSRTrackManager || global.GSRTrackManager;
+    const idA = tracks[0].id;
+    const idB = tracks[1].id;
+    let toggle = false;
+    const b = h.bench(
+      () => {
+        toggle = !toggle;
+        tm.switchActiveTrack(toggle ? idB : idA);
+      },
+      B(opts, { iters: 10, warmup: 2 }),
+    );
+    return [
+      {
+        track: `${tracks[0].filename.replace(/\.csv$/, '')} ↔ ${tracks[1].filename.replace(/\.csv$/, '')}`,
+        tracks: tracks.length,
+        switchMs: b.median,
+      },
+    ];
+  },
+};
+
 module.exports = [
+  csvParse,
   analyze,
   signalMetrics,
   arousalPlaces,
@@ -478,4 +541,5 @@ module.exports = [
   graphDraw,
   contourSurface,
   renderCollective,
+  trackSwitch,
 ];

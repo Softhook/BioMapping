@@ -4,8 +4,9 @@
  *   node tests/manual/bench/run.js [area ...] [options]
  *
  * Areas (omit to run all):
- *   analyze  signal-metrics  arousal-places  label-placement  gps-pipeline
- *   render-single  graph-draw  contour-surface  render-collective
+ *   csv-parse  analyze  signal-metrics  arousal-places  label-placement
+ *   gps-pipeline  render-single  graph-draw  contour-surface  render-collective
+ *   track-switch
  *
  * Options:
  *   --tracks=<spec>   comma list of set names + filenames. Sets: tiny small

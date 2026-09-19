@@ -633,7 +633,8 @@ async function boot() {
  */
 function loadTrack(window, filename, id) {
   const analyzer = new window.GSRAnalyzer();
-  analyzer.parseCSV(fs.readFileSync(path.join(TRACKS_DIR, filename), 'utf8'));
+  const csvText = fs.readFileSync(path.join(TRACKS_DIR, filename), 'utf8');
+  analyzer.parseCSV(csvText);
   const track = window.GSRTrackManager.createTrackObject(
     id,
     filename,
@@ -648,6 +649,7 @@ function loadTrack(window, filename, id) {
     filename,
     analyzer,
     track,
+    csvText,
     rows: analyzer.raw.length,
     peaks: analyzer.peaks.filter((p) => !p.excluded).length,
   };

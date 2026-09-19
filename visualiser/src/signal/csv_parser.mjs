@@ -25,6 +25,9 @@ export const GSRCSVParser = {
    * @private
    */
   _parseCsvLine(line) {
+    if (line.indexOf('"') === -1) {
+      return line.split(',');
+    }
     const fields = [];
     let cur = '';
     let inQuotes = false;
@@ -116,7 +119,12 @@ export const GSRCSVParser = {
     // CRC / byte count / row count describe the bytes the device wrote;
     // genuine content edits still fail the check. parse() already reads the
     // data itself newline-agnostically (it splits on /\r?\n/).
-    csvText = csvText.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n');
+    if (csvText.charCodeAt(0) === 0xfeff) {
+      csvText = csvText.slice(1);
+    }
+    if (csvText.includes('\r\n')) {
+      csvText = csvText.replace(/\r\n/g, '\n');
+    }
 
     const trailerIdx = csvText.lastIndexOf('\n# End ');
 
@@ -243,18 +251,18 @@ export const GSRCSVParser = {
 
     // 1. Fill rows before the first fix
     const firstGps = rawDataList[gpsIndices[0]];
-    for (let i = 0; i < gpsIndices[0]; i++) {
-      Object.assign(rawDataList[i], {
-        lat: firstGps.lat,
-        lon: firstGps.lon,
-        sats: firstGps.sats,
-        hdop: firstGps.hdop,
-        pdop: firstGps.pdop,
-        fixType: firstGps.fixType,
-        speedKts: firstGps.speedKts,
-        course: firstGps.course,
-        hasGps: true,
-      });
+    const firstIdx = gpsIndices[0];
+    for (let i = 0; i < firstIdx; i++) {
+      const r = rawDataList[i];
+      r.lat = firstGps.lat;
+      r.lon = firstGps.lon;
+      r.sats = firstGps.sats;
+      r.hdop = firstGps.hdop;
+      r.pdop = firstGps.pdop;
+      r.fixType = firstGps.fixType;
+      r.speedKts = firstGps.speedKts;
+      r.course = firstGps.course;
+      r.hasGps = true;
     }
 
     // 2. Linearly interpolate between adjacent anchors
@@ -287,20 +295,19 @@ export const GSRCSVParser = {
     }
 
     // 3. Fill rows after the last fix
-    const lastGps = rawDataList[gpsIndices[gpsIndices.length - 1]];
     const lastGpsIdx = gpsIndices[gpsIndices.length - 1];
+    const lastGps = rawDataList[lastGpsIdx];
     for (let i = lastGpsIdx + 1; i < rawDataList.length; i++) {
-      Object.assign(rawDataList[i], {
-        lat: lastGps.lat,
-        lon: lastGps.lon,
-        sats: lastGps.sats,
-        hdop: lastGps.hdop,
-        pdop: lastGps.pdop,
-        fixType: lastGps.fixType,
-        speedKts: lastGps.speedKts,
-        course: lastGps.course,
-        hasGps: true,
-      });
+      const r = rawDataList[i];
+      r.lat = lastGps.lat;
+      r.lon = lastGps.lon;
+      r.sats = lastGps.sats;
+      r.hdop = lastGps.hdop;
+      r.pdop = lastGps.pdop;
+      r.fixType = lastGps.fixType;
+      r.speedKts = lastGps.speedKts;
+      r.course = lastGps.course;
+      r.hasGps = true;
     }
   },
 
@@ -317,8 +324,8 @@ export const GSRCSVParser = {
    * @returns {Set<number>} Indices of momentary RF spikes
    * @private
    */
-  _detectRfPeakIndices(data) {
-    const BANDS = [
+  _detectRfPeakIndices(data, activeBands = null) {
+    const BANDS = activeBands || [
       'rssi_300',
       'rssi_315',
       'rssi_434',
@@ -327,6 +334,7 @@ export const GSRCSVParser = {
       'rssi_868',
       'rssi_915',
     ];
+    if (BANDS.length === 0) return new Set();
     const PROMINENCE_DB = 3.5;
     const n = data.length;
     const peakIndices = new Set();
@@ -520,6 +528,27 @@ export const GSRCSVParser = {
     // processed CSVs exported before this column existed).
     const isGpsFixColIdx = headers.indexOf('is_gps_fix');
 
+    const RF_BANDS = [
+      'rssi_300',
+      'rssi_315',
+      'rssi_434',
+      'rssi_446',
+      'rssi_815',
+      'rssi_868',
+      'rssi_915',
+    ];
+    const rfColIdx = {};
+    const activeRfBands = [];
+    for (const band of RF_BANDS) {
+      rfColIdx[band] = headers.indexOf(band);
+      if (rfColIdx[band] !== -1) activeRfBands.push(band);
+    }
+    const emFogColIdx =
+      headers.indexOf('em_fog') !== -1
+        ? headers.indexOf('em_fog')
+        : headers.indexOf('subghz_em_fog');
+    const hasAnyRf = activeRfBands.length > 0 || emFogColIdx !== -1;
+
     // OSM environmental column detection
     const osmRoadClassColIdx = headers.indexOf('osm_road_class');
     const osmDistMajorRoadColIdx = headers.indexOf('osm_dist_major_road');
@@ -533,24 +562,19 @@ export const GSRCSVParser = {
     const osmAmenityCountColIdx = headers.indexOf('osm_amenity_count_50m');
     const ndviColIdx = headers.indexOf('ndvi');
     const ndvi50mColIdx = headers.indexOf('ndvi_50m');
-
-    // RF column detection (300, 315, 434, 446, 815, 868, 915 MHz RSSI & EM fog)
-    // EM fog has a legacy alias (subghz_em_fog) so it's handled separately.
-    const RF_BANDS = [
-      'rssi_300',
-      'rssi_315',
-      'rssi_434',
-      'rssi_446',
-      'rssi_815',
-      'rssi_868',
-      'rssi_915',
-    ];
-    const rfColIdx = {};
-    for (const band of RF_BANDS) rfColIdx[band] = headers.indexOf(band);
-    const emFogColIdx =
-      headers.indexOf('em_fog') !== -1
-        ? headers.indexOf('em_fog')
-        : headers.indexOf('subghz_em_fog');
+    const hasAnyOsm =
+      osmRoadClassColIdx !== -1 ||
+      osmDistMajorRoadColIdx !== -1 ||
+      osmInParkColIdx !== -1 ||
+      osmGreenPctColIdx !== -1 ||
+      osmDistGreenColIdx !== -1 ||
+      osmCanopyPctColIdx !== -1 ||
+      osmBldDensityColIdx !== -1 ||
+      osmDistWaterColIdx !== -1 ||
+      osmTreeDensityColIdx !== -1 ||
+      osmAmenityCountColIdx !== -1 ||
+      ndviColIdx !== -1 ||
+      ndvi50mColIdx !== -1;
 
     // Fallbacks for main biometric columns
     if (colIndices.timestamp === -1) colIndices.timestamp = 0;
@@ -559,11 +583,25 @@ export const GSRCSVParser = {
 
     // Parse data rows
     const rawDataList = [];
+    const importedPeakEntries = [];
+    const rfRow = {
+      rssi_300: NaN,
+      rssi_315: NaN,
+      rssi_434: NaN,
+      rssi_446: NaN,
+      rssi_815: NaN,
+      rssi_868: NaN,
+      rssi_915: NaN,
+    };
+
     for (let i = dataStartLine + 1; i < lines.length; i++) {
       const line = lines[i];
       if (!line?.trim()) continue;
 
-      const cols = GSRCSVParser._parseCsvLine(line);
+      const cols =
+        line.indexOf('"') === -1
+          ? line.split(',')
+          : GSRCSVParser._parseCsvLine(line);
       if (cols.length === 0) continue;
 
       const rawTimeStr = cols[colIndices.timestamp]
@@ -592,36 +630,44 @@ export const GSRCSVParser = {
           : NaN;
 
       // Parse RF fields (dBm)
-      const rfRow = {};
-      for (const band of RF_BANDS) {
-        const idx = rfColIdx[band];
-        rfRow[band] = idx !== -1 && cols[idx] ? parseFloat(cols[idx]) : NaN;
-      }
-      const {
-        rssi_300,
-        rssi_315,
-        rssi_434,
-        rssi_446,
-        rssi_815,
-        rssi_868,
-        rssi_915,
-      } = rfRow;
-      let em_fog =
-        emFogColIdx !== -1 && cols[emFogColIdx]
-          ? parseFloat(cols[emFogColIdx])
-          : NaN;
+      let rssi_300 = NaN;
+      let rssi_315 = NaN;
+      let rssi_434 = NaN;
+      let rssi_446 = NaN;
+      let rssi_815 = NaN;
+      let rssi_868 = NaN;
+      let rssi_915 = NaN;
+      let em_fog = NaN;
 
-      // Dynamic fallback for EM Fog if missing or NaN but RSSI values exist
-      if (isNaN(em_fog)) {
-        em_fog = calcEmFog({
-          rssi_300,
-          rssi_315,
-          rssi_434,
-          rssi_446,
-          rssi_815,
-          rssi_868,
-          rssi_915,
-        });
+      if (hasAnyRf) {
+        if (rfColIdx.rssi_300 !== -1 && cols[rfColIdx.rssi_300])
+          rssi_300 = parseFloat(cols[rfColIdx.rssi_300]);
+        if (rfColIdx.rssi_315 !== -1 && cols[rfColIdx.rssi_315])
+          rssi_315 = parseFloat(cols[rfColIdx.rssi_315]);
+        if (rfColIdx.rssi_434 !== -1 && cols[rfColIdx.rssi_434])
+          rssi_434 = parseFloat(cols[rfColIdx.rssi_434]);
+        if (rfColIdx.rssi_446 !== -1 && cols[rfColIdx.rssi_446])
+          rssi_446 = parseFloat(cols[rfColIdx.rssi_446]);
+        if (rfColIdx.rssi_815 !== -1 && cols[rfColIdx.rssi_815])
+          rssi_815 = parseFloat(cols[rfColIdx.rssi_815]);
+        if (rfColIdx.rssi_868 !== -1 && cols[rfColIdx.rssi_868])
+          rssi_868 = parseFloat(cols[rfColIdx.rssi_868]);
+        if (rfColIdx.rssi_915 !== -1 && cols[rfColIdx.rssi_915])
+          rssi_915 = parseFloat(cols[rfColIdx.rssi_915]);
+
+        if (emFogColIdx !== -1 && cols[emFogColIdx]) {
+          em_fog = parseFloat(cols[emFogColIdx]);
+        }
+        if (isNaN(em_fog)) {
+          rfRow.rssi_300 = rssi_300;
+          rfRow.rssi_315 = rssi_315;
+          rfRow.rssi_434 = rssi_434;
+          rfRow.rssi_446 = rssi_446;
+          rfRow.rssi_815 = rssi_815;
+          rfRow.rssi_868 = rssi_868;
+          rfRow.rssi_915 = rssi_915;
+          em_fog = calcEmFog(rfRow);
+        }
       }
 
       // Parse GPS fields (empty fields parse to NaN)
@@ -695,71 +741,70 @@ export const GSRCSVParser = {
       }
 
       // Read peak label from processed-CSV re-import
-      let importedPeakLabel = '';
-      let importedPeakExcluded = false;
       if (
         peakLabelColIndex !== -1 &&
         isPeakColIndex !== -1 &&
         cols[isPeakColIndex] &&
         parseInt(cols[isPeakColIndex], 10) === 1
       ) {
-        importedPeakLabel = (cols[peakLabelColIndex] || '')
+        const importedPeakLabel = (cols[peakLabelColIndex] || '')
           .replace(/^"|"$/g, '')
           .trim();
-        if (peakExcludedColIndex !== -1 && cols[peakExcludedColIndex]) {
-          importedPeakExcluded = cols[peakExcludedColIndex].trim() === '1';
+        const importedPeakExcluded =
+          peakExcludedColIndex !== -1 && cols[peakExcludedColIndex]
+            ? cols[peakExcludedColIndex].trim() === '1'
+            : false;
+        if (importedPeakLabel || importedPeakExcluded) {
+          importedPeakEntries.push({
+            index: rawDataList.length,
+            label: importedPeakLabel,
+            excluded: importedPeakExcluded,
+          });
         }
       }
 
       // Parse OSM fields
-      const osm_road_class =
-        osmRoadClassColIdx !== -1 && cols[osmRoadClassColIdx]
-          ? cols[osmRoadClassColIdx].trim().replace(/^"|"$/g, '')
-          : null;
-      const osm_dist_major_road =
-        osmDistMajorRoadColIdx !== -1 && cols[osmDistMajorRoadColIdx]
-          ? parseFloat(cols[osmDistMajorRoadColIdx])
-          : NaN;
-      const osm_in_park =
-        osmInParkColIdx !== -1 && cols[osmInParkColIdx]
-          ? parseInt(cols[osmInParkColIdx], 10)
-          : NaN;
-      const osm_green_pct_50m =
-        osmGreenPctColIdx !== -1 && cols[osmGreenPctColIdx]
-          ? parseFloat(cols[osmGreenPctColIdx])
-          : NaN;
-      const osm_dist_green =
-        osmDistGreenColIdx !== -1 && cols[osmDistGreenColIdx]
-          ? parseFloat(cols[osmDistGreenColIdx])
-          : NaN;
-      const osm_canopy_pct_50m =
-        osmCanopyPctColIdx !== -1 && cols[osmCanopyPctColIdx]
-          ? parseFloat(cols[osmCanopyPctColIdx])
-          : NaN;
-      const osm_building_density_50m =
-        osmBldDensityColIdx !== -1 && cols[osmBldDensityColIdx]
-          ? parseFloat(cols[osmBldDensityColIdx])
-          : NaN;
-      const osm_dist_water =
-        osmDistWaterColIdx !== -1 && cols[osmDistWaterColIdx]
-          ? parseFloat(cols[osmDistWaterColIdx])
-          : NaN;
-      const osm_tree_density_50m =
-        osmTreeDensityColIdx !== -1 && cols[osmTreeDensityColIdx]
-          ? parseFloat(cols[osmTreeDensityColIdx])
-          : NaN;
-      const osm_amenity_count_50m =
-        osmAmenityCountColIdx !== -1 && cols[osmAmenityCountColIdx]
-          ? parseFloat(cols[osmAmenityCountColIdx])
-          : NaN;
-      const ndviVal =
-        ndviColIdx !== -1 && cols[ndviColIdx]
-          ? parseFloat(cols[ndviColIdx])
-          : NaN;
-      const ndvi50mVal =
-        ndvi50mColIdx !== -1 && cols[ndvi50mColIdx]
-          ? parseFloat(cols[ndvi50mColIdx])
-          : NaN;
+      let osm_road_class = null;
+      let osm_dist_major_road = NaN;
+      let osm_in_park = NaN;
+      let osm_green_pct_50m = NaN;
+      let osm_dist_green = NaN;
+      let osm_canopy_pct_50m = NaN;
+      let osm_building_density_50m = NaN;
+      let osm_dist_water = NaN;
+      let osm_tree_density_50m = NaN;
+      let osm_amenity_count_50m = NaN;
+      let ndviVal = NaN;
+      let ndvi50mVal = NaN;
+
+      if (hasAnyOsm) {
+        if (osmRoadClassColIdx !== -1 && cols[osmRoadClassColIdx])
+          osm_road_class = cols[osmRoadClassColIdx]
+            .trim()
+            .replace(/^"|"$/g, '');
+        if (osmDistMajorRoadColIdx !== -1 && cols[osmDistMajorRoadColIdx])
+          osm_dist_major_road = parseFloat(cols[osmDistMajorRoadColIdx]);
+        if (osmInParkColIdx !== -1 && cols[osmInParkColIdx])
+          osm_in_park = parseInt(cols[osmInParkColIdx], 10);
+        if (osmGreenPctColIdx !== -1 && cols[osmGreenPctColIdx])
+          osm_green_pct_50m = parseFloat(cols[osmGreenPctColIdx]);
+        if (osmDistGreenColIdx !== -1 && cols[osmDistGreenColIdx])
+          osm_dist_green = parseFloat(cols[osmDistGreenColIdx]);
+        if (osmCanopyPctColIdx !== -1 && cols[osmCanopyPctColIdx])
+          osm_canopy_pct_50m = parseFloat(cols[osmCanopyPctColIdx]);
+        if (osmBldDensityColIdx !== -1 && cols[osmBldDensityColIdx])
+          osm_building_density_50m = parseFloat(cols[osmBldDensityColIdx]);
+        if (osmDistWaterColIdx !== -1 && cols[osmDistWaterColIdx])
+          osm_dist_water = parseFloat(cols[osmDistWaterColIdx]);
+        if (osmTreeDensityColIdx !== -1 && cols[osmTreeDensityColIdx])
+          osm_tree_density_50m = parseFloat(cols[osmTreeDensityColIdx]);
+        if (osmAmenityCountColIdx !== -1 && cols[osmAmenityCountColIdx])
+          osm_amenity_count_50m = parseFloat(cols[osmAmenityCountColIdx]);
+        if (ndviColIdx !== -1 && cols[ndviColIdx])
+          ndviVal = parseFloat(cols[ndviColIdx]);
+        if (ndvi50mColIdx !== -1 && cols[ndvi50mColIdx])
+          ndvi50mVal = parseFloat(cols[ndvi50mColIdx]);
+      }
 
       rawDataList.push({
         time: timeVal,
@@ -775,8 +820,6 @@ export const GSRCSVParser = {
         course: courseVal,
         hasGps: false,
         _isGpsFix: isGpsFixVal,
-        _importLabel: importedPeakLabel,
-        _importExcluded: importedPeakExcluded,
         rssi_300: rssi_300,
         rssi_315: rssi_315,
         rssi_434: rssi_434,
@@ -818,10 +861,17 @@ export const GSRCSVParser = {
       );
     }
 
-    // Check GSR value range (physiological: 0.1–50 000 nS)
-    const gsrVals = rawDataList.map((d) => d.val);
-    const gsrMin = Math.min(...gsrVals);
-    const gsrMax = Math.max(...gsrVals);
+    // Check GSR value range (physiological: 0.1–50 000 nS) in a single pass
+    let gsrMin = Infinity;
+    let gsrMax = -Infinity;
+    let gsrSum = 0;
+    const nRows = rawDataList.length;
+    for (let i = 0; i < nRows; i++) {
+      const v = rawDataList[i].val;
+      if (v < gsrMin) gsrMin = v;
+      if (v > gsrMax) gsrMax = v;
+      gsrSum += v;
+    }
     if (gsrMin < 0.1) {
       warnings.push(
         `GSR contains near-zero values (min ${gsrMin.toFixed(1)} nS). Sensor may have been disconnected.`,
@@ -841,21 +891,30 @@ export const GSRCSVParser = {
     // empty with no other explanation. Relative std cutoff (0.05 %) separates
     // a dead trace from a real low-arousal one (real quiet tracks still run
     // ~1–2 % relative std after electrode contact).
-    let gsrMean = 0;
-    for (const v of gsrVals) gsrMean += v;
-    gsrMean /= gsrVals.length;
+    const gsrMean = gsrSum / nRows;
     let gsrSq = 0;
-    for (const v of gsrVals) gsrSq += (v - gsrMean) ** 2;
-    const gsrStd = Math.sqrt(gsrSq / gsrVals.length);
-    const distinctGsr = new Set(gsrVals).size;
-    if (
-      gsrVals.length >= 50 &&
-      (distinctGsr <= 3 || (gsrMean > 0 && gsrStd / gsrMean < 5e-4))
-    ) {
-      warnings.push(
-        `GSR signal is flat (${distinctGsr} distinct value${distinctGsr === 1 ? '' : 's'}, ` +
-          `std ${gsrStd.toPrecision(2)}). Electrode was likely not in skin contact — no SCR peaks can be detected.`,
-      );
+    for (let i = 0; i < nRows; i++) {
+      const diff = rawDataList[i].val - gsrMean;
+      gsrSq += diff * diff;
+    }
+    const gsrStd = Math.sqrt(gsrSq / nRows);
+
+    if (nRows >= 50) {
+      const isRelStdLow = gsrMean > 0 && gsrStd / gsrMean < 5e-4;
+      // A dead trace has <=3 distinct values; a relatively flat one needs the
+      // full count for the message. Otherwise stop as soon as a 4th appears.
+      const distinctSet = new Set();
+      for (let i = 0; i < nRows; i++) {
+        distinctSet.add(rawDataList[i].val);
+        if (distinctSet.size > 3 && !isRelStdLow) break;
+      }
+      const distinctGsr = distinctSet.size;
+      if (distinctGsr <= 3 || isRelStdLow) {
+        warnings.push(
+          `GSR signal is flat (${distinctGsr} distinct value${distinctGsr === 1 ? '' : 's'}, ` +
+            `std ${gsrStd.toPrecision(2)}). Electrode was likely not in skin contact — no SCR peaks can be detected.`,
+        );
+      }
     }
 
     // Check for (0, 0) GPS sentinel values
@@ -925,21 +984,15 @@ export const GSRCSVParser = {
     }
 
     // Build imported peak label and exclusion lookup (time→label/excluded, after offset).
-    // Rebuild each row without the _import* scratch keys rather than `delete`-ing
-    // them: `delete` forces the object into V8 dictionary mode for the rest of
-    // its life, and these rows are hot — nearly every render path iterates
-    // analyzer.raw. The map's GPS pipeline alone spreads every row into a
-    // drawPoint on each slider frame; a dictionary-mode spread is ~10x slower
-    // than a fast-property one (~125ms vs ~12ms on a 35k-row track), and making
-    // the rows fast-mode also sped up analyze(), buildPlaces() and the collective
-    // render measurably (tests/manual/bench).
+    // Labels and exclusions were captured in importedPeakEntries during row parsing,
+    // avoiding scratch keys and rest-spreading across thousands of hot rawDataList objects.
     const importedPeakLabels = new Map();
     const importedPeakExcluded = new Map();
-    for (let i = 0; i < rawDataList.length; i++) {
-      const { _importLabel, _importExcluded, ...clean } = rawDataList[i];
-      if (_importLabel) importedPeakLabels.set(clean.time, _importLabel);
-      if (_importExcluded) importedPeakExcluded.set(clean.time, true);
-      rawDataList[i] = clean;
+    for (let k = 0; k < importedPeakEntries.length; k++) {
+      const entry = importedPeakEntries[k];
+      const row = rawDataList[entry.index];
+      if (entry.label) importedPeakLabels.set(row.time, entry.label);
+      if (entry.excluded) importedPeakExcluded.set(row.time, true);
     }
 
     // Auto-detect sample rate
@@ -980,19 +1033,21 @@ export const GSRCSVParser = {
     // ─────────────────────────────────────────────────────────────────────────
     GSRCSVParser._interpolateGPS(rawDataList);
 
-    const hasRfData = rawDataList.some(
-      (r) =>
-        !isNaN(r.rssi_300) ||
-        !isNaN(r.rssi_315) ||
-        !isNaN(r.rssi_434) ||
-        !isNaN(r.rssi_446) ||
-        !isNaN(r.rssi_815) ||
-        !isNaN(r.rssi_868) ||
-        !isNaN(r.rssi_915) ||
-        !isNaN(r.em_fog),
-    );
+    const hasRfData = hasAnyRf
+      ? rawDataList.some(
+          (r) =>
+            !isNaN(r.rssi_300) ||
+            !isNaN(r.rssi_315) ||
+            !isNaN(r.rssi_434) ||
+            !isNaN(r.rssi_446) ||
+            !isNaN(r.rssi_815) ||
+            !isNaN(r.rssi_868) ||
+            !isNaN(r.rssi_915) ||
+            !isNaN(r.em_fog),
+        )
+      : false;
     const rfPeakIndices = hasRfData
-      ? GSRCSVParser._detectRfPeakIndices(rawDataList)
+      ? GSRCSVParser._detectRfPeakIndices(rawDataList, activeRfBands)
       : new Set();
     const hasGpsData = rawDataList.some((r) => r.hasGps);
 
