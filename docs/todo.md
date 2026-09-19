@@ -107,24 +107,6 @@ correctness / structure concerns. Promote to its own doc if picked up.
   RDP + a max-vertex cap does the job better; the method's own comment
   says the live path already uses `buildDrawPoints` and this form only
   survives for globe3d/tests.
-- **Visual track quality report popup (Track Library hover card)** — when
-  hovering the cursor over a track item in the track library (`#trackList`),
-  display a rich visual popup card summarizing recording metadata, sensor
-  health, and data quality at a glance:
-  - **Header & Walk Metadata:** Filename, start date/time, duration, distance
-    (e.g., `38 mins • 2.6 km`), and user annotation count (`🏷️ 4 Notes` vs
-    `Unannotated`).
-  - **Integrity Status:** Green tick (`verified` FNV-1a footer), warning
-    triangle (`incomplete` ungraceful cutoff), or error mark (`corrupt`).
-  - **Sensor Health Grid:**
-    - **GSR:** Skin contact status (`Good Contact` vs `Flatline / Disconnected`),
-      dynamic range ($\mu\text{S}$ min/max/std), and detected SCR peak count.
-    - **GPS:** Fix retention percentage, median accuracy ($\pm hAcc$ in metres, or
-      HDOP), and continuity status (e.g. `Solid (0 dropouts)` vs `X dropouts >30s`).
-    - **RF (if present):** Active frequency bands (815, 868, 915 MHz), packet
-      activity, and detected RF hotspots (hidden or marked `Not recorded` if no RF data).
-  - **Warning Banner:** Prominently surfaces any parser validation alerts
-    (e.g. flatline electrode, no satellite lock, sensor disconnected).
 
 
 

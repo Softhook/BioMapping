@@ -12,6 +12,7 @@ import { GSRRenderer } from '../render/renderer.mjs';
 import { windowResized } from '../render/sketch.mjs';
 import { GSRAnalyzer } from '../signal/analyzer.mjs';
 import { GSRStorage } from './storage.mjs';
+import { GSRTrackQualityPopup } from './track_quality_popup.mjs';
 
 export const GSRTrackManager = {
   /**
@@ -303,6 +304,15 @@ export const GSRTrackManager = {
       li.className = `track-item ${isEditing ? 'active' : ''}`;
       li.dataset.trackId = track.id;
 
+      li.addEventListener('mouseenter', () => {
+        if (!AppState._renamingTrackId) {
+          GSRTrackQualityPopup.show(track, li);
+        }
+      });
+      li.addEventListener('mouseleave', () => {
+        GSRTrackQualityPopup.hide();
+      });
+
       const badge = document.createElement('span');
       badge.className = 'track-color-badge';
       badge.style.backgroundColor = track.color;
@@ -346,7 +356,7 @@ export const GSRTrackManager = {
       const a = track.analyzer;
       const hasClock = a.recordingStartTime && a.recordingStartTime >= 86400;
       meta.innerText = hasClock
-        ? `${a.formatDateShort(0)} ${a.formatTimeOnly(0)}`
+        ? `${GSRTrackQualityPopup.formatDateUK(a.recordingStartTime)}, ${a.formatTimeOnly(0)}`
         : '';
 
       details.appendChild(name);
@@ -388,6 +398,7 @@ export const GSRTrackManager = {
   },
 
   switchActiveTrack(trackId) {
+    GSRTrackQualityPopup.hide();
     AppState.activeTrackId = trackId;
     const track = AppState.collectiveManager.getTrack(trackId);
     if (!track) return;
@@ -435,6 +446,7 @@ export const GSRTrackManager = {
    * since the caller is about to rebuild everything from scratch anyway.
    */
   clearAllTracks() {
+    GSRTrackQualityPopup.hide();
     if (
       Controllers.ui &&
       typeof Controllers.ui.cancelCollectiveMapUpdate === 'function'
@@ -457,6 +469,7 @@ export const GSRTrackManager = {
   },
 
   deleteTrack(trackId) {
+    GSRTrackQualityPopup.hide();
     const track = AppState.collectiveManager.getTrack(trackId);
     if (!track) return;
 
@@ -617,6 +630,7 @@ export const GSRTrackManager = {
    * Start renaming a track — replace the name span with an input field.
    */
   startRenameTrack(trackId) {
+    GSRTrackQualityPopup.hide();
     // Cancel any existing rename first
     if (AppState._renamingTrackId) {
       GSRTrackManager.cancelRenameTrack();
