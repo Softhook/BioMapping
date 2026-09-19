@@ -19,7 +19,7 @@
  */
 import { GSRNotices } from '../core/notices.mjs';
 
-export class YBandIndex {
+class YBandIndex {
   constructor(bandHeight, overlapFn) {
     this._h = bandHeight;
     this._overlap = overlapFn;

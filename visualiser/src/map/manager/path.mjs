@@ -29,7 +29,7 @@ import { GSRStorage } from '../../ui/storage.mjs';
 import { GSRMapManager } from '../map.mjs';
 import { MapColors } from '../map_colors.mjs';
 
-export const DERIVED_METRIC_SERIES = {
+const DERIVED_METRIC_SERIES = {
   phasic: 'phasic',
   tonic: 'tonic',
   peakDensity: 'peakDensity',
@@ -46,14 +46,10 @@ export const DERIVED_METRIC_SERIES = {
 // (osm_enrichment.js SENTINEL_DIST). It must not enter the colour range —
 // otherwise real 0..~100 m distances collapse into the first couple of buckets
 // and the whole path reads as one colour.
-export const DISTANCE_METRICS = new Set([
-  'distMajorRoad',
-  'distWater',
-  'distGreen',
-]);
+const DISTANCE_METRICS = new Set(['distMajorRoad', 'distWater', 'distGreen']);
 
 /** True when `v` is not a real measurement for `metric` (NaN/missing/sentinel). */
-export const isNoDataValue = (metric, v) => {
+const isNoDataValue = (metric, v) => {
   if (v === undefined || v === null || (typeof v === 'number' && isNaN(v)))
     return true;
   if (DISTANCE_METRICS.has(metric)) return v >= 999;

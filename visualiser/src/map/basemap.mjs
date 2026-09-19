@@ -11,7 +11,7 @@
  * consumers (see index.html / live.html's script list).
  */
 
-export const CARTO_ATTRIBUTION =
+const CARTO_ATTRIBUTION =
   '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors © <a href="https://carto.com/attributions">CARTO</a>';
 
 export const GSRBasemap = {

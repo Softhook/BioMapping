@@ -270,4 +270,4 @@ async function bootApp({ compact = false } = {}) {
   return { window, document: window.document };
 }
 
-module.exports = { bootApp, superMock, SCRIPT_ORDER };
+module.exports = { bootApp, SCRIPT_ORDER };

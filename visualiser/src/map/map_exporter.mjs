@@ -15,11 +15,11 @@ import { GSRUI } from '../ui/ui.mjs';
 import { Hillshade } from './hillshade.mjs';
 import { MapColors } from './map_colors.mjs';
 
-export const SVG_NS = 'http://www.w3.org/2000/svg';
-export const XLINK_NS = 'http://www.w3.org/1999/xlink';
-export const AI_NS = 'http://ns.adobe.com/AdobeIllustrator/10.0/';
-export const BG = '#0b0d16';
-export const LABEL = '#000000';
+const SVG_NS = 'http://www.w3.org/2000/svg';
+const XLINK_NS = 'http://www.w3.org/1999/xlink';
+const AI_NS = 'http://ns.adobe.com/AdobeIllustrator/10.0/';
+const BG = '#0b0d16';
+const LABEL = '#000000';
 
 export const GSRMapExporter = {
   // ═══════════════════════════════════════════════════════════════════

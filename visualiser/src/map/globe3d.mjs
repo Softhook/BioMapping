@@ -122,7 +122,7 @@ export const seriesValue = (d) =>
  * null when the metric has no raw-field mapping (e.g. an unknown metric or a
  * derived SERIES_FIELD metric, which callers resolve elsewhere).
  */
-export const rawMetricField = (metric) => {
+const rawMetricField = (metric) => {
   if (metric === 'gsr') return 'gsr';
   if (metric === 'hdopQuality') return 'hdop';
   if (typeof GSR_CONST !== 'undefined') {
@@ -141,7 +141,7 @@ export const rawMetricField = (metric) => {
 // (see _decimateForWall): a walk can carry >10k display points and at the zoom
 // that frames the whole track they are tens of points per pixel. Override per
 // instance with options.wallMaxSegments (Infinity disables thinning).
-export const WALL_MAX_SEGMENTS = 2500;
+const WALL_MAX_SEGMENTS = 2500;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GSRGlobeManager

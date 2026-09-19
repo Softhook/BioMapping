@@ -490,7 +490,11 @@ console.log('\n── OSMEnricher: _evaluatePosition ──');
 // the nominal outer ring produced zero points and coverage stopped at ~33 m
 // of a 50 m radius).
 {
-  const grid = global._buildSamplingGrid(51.5, -0.1, 50);
+  const grid = (OSMEnricher._buildSamplingGrid || global._buildSamplingGrid)(
+    51.5,
+    -0.1,
+    50,
+  );
   let maxD = 0;
   for (const p of grid) {
     maxD = Math.max(maxD, GeoUtils.haversineMeters(51.5, -0.1, p.lat, p.lon));

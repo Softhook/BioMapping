@@ -7,13 +7,13 @@ import { GSRAnalyzer } from '../signal/analyzer.mjs';
 import { GSRCollectiveManager } from '../spatial/collective_manager.mjs';
 import { GSRRenderer } from './renderer.mjs';
 
-export let _cachedPeakAnalyzer = null;
-export let _cachedPeakList = null;
-export let _cachedPeakDataVersion = null;
-export let _cachedActivePeaks = [];
-export let _cachedFilteredForce = [];
-export let _cachedMetricForce = [];
-export let _cachedDriverForce = []; // Driver spike apex indices — forced into decimation stride so spikes survive zoom-out
+let _cachedPeakAnalyzer = null;
+let _cachedPeakList = null;
+let _cachedPeakDataVersion = null;
+let _cachedActivePeaks = [];
+let _cachedFilteredForce = [];
+let _cachedMetricForce = [];
+let _cachedDriverForce = []; // Driver spike apex indices — forced into decimation stride so spikes survive zoom-out
 
 // Coalesced redraw functions for high-frequency input events (drag, hover, wheel).
 // GSREvents is reached via the Controllers registry (core/controllers.mjs),
@@ -23,12 +23,12 @@ export let _cachedDriverForce = []; // Driver spike apex indices — forced into
 // module in the graph has finished loading, so these are assigned there
 // instead — nothing outside this file ever reads them before setup() runs
 // anyway (only mouseDragged/mouseMoved/mouseWheel below call them).
-export const _safeRedraw = () => {
+const _safeRedraw = () => {
   if (typeof redraw === 'function') redraw();
 };
-export let coalescedDragRedraw = _safeRedraw;
-export let coalescedHoverRedraw = _safeRedraw;
-export let coalescedZoomRedraw = _safeRedraw;
+let coalescedDragRedraw = _safeRedraw;
+let coalescedHoverRedraw = _safeRedraw;
+let coalescedZoomRedraw = _safeRedraw;
 
 export function setup() {
   coalescedDragRedraw = Controllers.events.rafCoalesce
@@ -795,7 +795,7 @@ export function draw() {
     GSRRenderer.drawTimelineOverview(innerWidth, timelineHeight);
 }
 
-export function updateCanvasCursor() {
+function updateCanvasCursor() {
   if (!AppState.myCanvas?.elt) return;
   let cur = 'default';
   if (AppState.isDragging || AppState.isDraggingTimeline) {

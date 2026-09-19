@@ -276,14 +276,14 @@ export const GSRArousalPlaces = {
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
-export function num(v, fallback) {
+function num(v, fallback) {
   const n = parseFloat(v);
   return isNaN(n) ? fallback : n;
 }
-export function numOrNull(v) {
+function numOrNull(v) {
   const n = parseFloat(v);
   return isNaN(n) ? null : n;
 }
-export function geoScale(lat) {
+function geoScale(lat) {
   return GeoUtils.getGeodesicScale(lat);
 }

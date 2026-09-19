@@ -315,12 +315,12 @@ export const GSRGlobe3DRf = {
   },
 };
 
-export function clamp01(v) {
+function clamp01(v) {
   return Math.max(0.0, Math.min(1.0, v));
 }
 
 /** Great-circle distance in metres between two lat/lon points. */
-export function haversineM(lat1, lon1, lat2, lon2) {
+function haversineM(lat1, lon1, lat2, lon2) {
   const R = 6371000;
   const toRad = Math.PI / 180;
   const dLat = (lat2 - lat1) * toRad;
@@ -336,7 +336,7 @@ export function haversineM(lat1, lon1, lat2, lon2) {
  * absent at an endpoint) falls back to the other endpoint; both null -> null,
  * so the band simply contributes nothing at that slug.
  */
-export function lerpRf(x, y, f) {
+function lerpRf(x, y, f) {
   const xn = x === null || x === undefined || isNaN(x);
   const yn = y === null || y === undefined || isNaN(y);
   if (xn && yn) return null;
@@ -352,7 +352,7 @@ export function lerpRf(x, y, f) {
  * noise floor AND spans at least 3 dB. `mn`/`mx` are the raw per-band RSSI
  * extremes in dBm.
  */
-export function bandHasActiveSignal(mn, mx) {
+function bandHasActiveSignal(mn, mx) {
   return bandHasActiveSignalShared(mn, mx);
 }
 
@@ -362,6 +362,6 @@ export function bandHasActiveSignal(mn, mx) {
  * -90 dBm and floor + 3 dB); a gamma-boosted 0..1 ramp from there up to the
  * band peak.
  */
-export function normDbm(val, mn, mx, active) {
+function normDbm(val, mn, mx, active) {
   return normDbmShared(val, mn, mx, active);
 }

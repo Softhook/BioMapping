@@ -10,11 +10,11 @@ import { MapMatcher } from '../gps/map_match.mjs';
 import { SpatialGrid } from '../spatial/spatial_grid.mjs';
 import { OverpassClient } from './overpass_client.mjs';
 
-export const METERS_PER_DEG_LAT = GeoUtils.METERS_PER_DEG_LAT; // m per degree of latitude
-export const CELL_SIZE_DEG = 0.001; // spatial-hash cell (~111 m)
-export const SENTINEL_DIST = 999; // sentinel for "no feature nearby"
-export const DEFAULT_RADIUS_M = 50; // enrichment search radius
-export const DEFAULT_BBOX_BUFFER_M = 100; // bounding-box padding
+const METERS_PER_DEG_LAT = GeoUtils.METERS_PER_DEG_LAT; // m per degree of latitude
+const CELL_SIZE_DEG = 0.001; // spatial-hash cell (~111 m)
+const SENTINEL_DIST = 999; // sentinel for "no feature nearby"
+const DEFAULT_RADIUS_M = 50; // enrichment search radius
+const DEFAULT_BBOX_BUFFER_M = 100; // bounding-box padding
 
 // Collective-mode enrichment fetches one shared osmJson (by reference) for
 // every track covering the same bbox (ui.js's union-bbox fetch), but each
@@ -29,18 +29,18 @@ export const DEFAULT_BBOX_BUFFER_M = 100; // bounding-box padding
 // itself is already deduped per osmJson via _geomsCache, two tracks sharing
 // one osmJson resolve to the same geoms reference and therefore the same
 // cached spatial index too, transitively.
-export const _geomsCache = new WeakMap();
-export const _spatialIndexCache = new WeakMap();
+const _geomsCache = new WeakMap();
+const _spatialIndexCache = new WeakMap();
 
 // -- Green-space sampling grid ---------------------------------------------
 // Two concentric rings at 1/2 and the full search radius, plus the centre
 // point (added separately). POINTS_PER_RING is indexed by ring number 1..N,
 // so entry [0] is the centre count and never read in the ring loop.
-export const SAMPLING_RINGS = 2; // concentric rings (excl. centre)
-export const POINTS_PER_RING = [1, 8, 16]; // centre, ring 1 (½r), ring 2 (r)
+const SAMPLING_RINGS = 2; // concentric rings (excl. centre)
+const POINTS_PER_RING = [1, 8, 16]; // centre, ring 1 (½r), ring 2 (r)
 
 // -- OSM tag sets ----------------------------------------------------------
-export const MAJOR_ROAD_CLASSES = new Set([
+const MAJOR_ROAD_CLASSES = new Set([
   'motorway',
   'trunk',
   'primary',
@@ -50,7 +50,7 @@ export const MAJOR_ROAD_CLASSES = new Set([
 // arousal-by-road-type analysis. A footway/path/cycleway 2 m away shouldn't
 // mask a residential or primary road 15 m away, so these win the road-class
 // label whenever one is within the search radius.
-export const VEHICULAR_ROAD_CLASSES = new Set([
+const VEHICULAR_ROAD_CLASSES = new Set([
   'motorway',
   'trunk',
   'primary',
@@ -71,7 +71,7 @@ export const VEHICULAR_ROAD_CLASSES = new Set([
 // not-currently-a-way lifecycle tags. The unfiltered `way["highway"]` query
 // pulls these in, and without this guard they can win the `osm_road_class`
 // label and seed junk rows in the Roads Profile.
-export const NON_ROAD_HIGHWAY = new Set([
+const NON_ROAD_HIGHWAY = new Set([
   'bus_stop',
   'platform',
   'street_lamp',
@@ -97,7 +97,7 @@ export const NON_ROAD_HIGHWAY = new Set([
   'dismantled',
   'abandoned',
 ]);
-export const AMENITY_TYPES = new Set([
+const AMENITY_TYPES = new Set([
   'cafe',
   'restaurant',
   'pub',
@@ -115,8 +115,8 @@ export const AMENITY_TYPES = new Set([
 
 // A `leisure=playground` is typically rubber safety surfacing and steel
 // equipment, not vegetated nature — it is deliberately NOT green space.
-export const GREEN_LEISURE = new Set(['park', 'garden', 'nature_reserve']);
-export const GREEN_LANDUSE = new Set([
+const GREEN_LEISURE = new Set(['park', 'garden', 'nature_reserve']);
+const GREEN_LANDUSE = new Set([
   'grass',
   'forest',
   'meadow',
@@ -129,7 +129,7 @@ export const GREEN_LANDUSE = new Set([
 // / `in_park`. A wetland geom therefore matches both _isGreenSpace and
 // _isWaterSpace, and the green / water branches of _evaluatePosition run
 // independently (not else-if), so it contributes to both metrics.
-export const GREEN_NATURAL = new Set([
+const GREEN_NATURAL = new Set([
   'wood',
   'scrub',
   'grassland',
@@ -137,15 +137,9 @@ export const GREEN_NATURAL = new Set([
   'wetland',
 ]);
 
-export const WATER_NATURAL = new Set(['water', 'wetland']);
-export const WATER_WATERWAY = new Set([
-  'river',
-  'canal',
-  'stream',
-  'drain',
-  'ditch',
-]);
-export const WATER_LANDUSE = new Set(['basin', 'reservoir']);
+const WATER_NATURAL = new Set(['water', 'wetland']);
+const WATER_WATERWAY = new Set(['river', 'canal', 'stream', 'drain', 'ditch']);
+const WATER_LANDUSE = new Set(['basin', 'reservoir']);
 
 // -- Tree canopy ---------------------------------------------------------
 // "Am I under / among trees" — the other half of perceived green, distinct
@@ -154,14 +148,14 @@ export const WATER_LANDUSE = new Set(['basin', 'reservoir']);
 // nodes inside, tree-lined streets are one natural=tree_row way. So canopy_pct
 // = fraction of the sampling grid that is inside a wood/forest polygon OR
 // within CANOPY_BUFFER_M of a tree_row way / tree node.
-export const CANOPY_NATURAL_AREA = new Set(['wood']); // polygon
-export const CANOPY_LANDUSE_AREA = new Set(['forest']); // polygon
-export const CANOPY_BUFFER_M = 10; // crown reach around a tree_row / tree node
+const CANOPY_NATURAL_AREA = new Set(['wood']); // polygon
+const CANOPY_LANDUSE_AREA = new Set(['forest']); // polygon
+const CANOPY_BUFFER_M = 10; // crown reach around a tree_row / tree node
 
 // -- Module-level helpers --------------------------------------------------
 
 /** True when geom represents any kind of green/natural space. */
-export function _isGreenSpace(geom) {
+function _isGreenSpace(geom) {
   const t = geom.tags;
   if (!t) return false;
   return (
@@ -175,7 +169,7 @@ export function _isGreenSpace(geom) {
  * True when geom contributes tree canopy: a wood/forest polygon, a
  * natural=tree_row way, or a natural=tree node.
  */
-export function _isCanopy(geom) {
+function _isCanopy(geom) {
   const t = geom.tags;
   if (!t) return false;
   if (t.natural === 'tree') return geom.type === 'node';
@@ -186,7 +180,7 @@ export function _isCanopy(geom) {
 }
 
 /** True when geom represents any kind of water body or waterway. */
-export function _isWaterSpace(geom) {
+function _isWaterSpace(geom) {
   const t = geom.tags;
   if (!t) return false;
   return (
@@ -197,12 +191,12 @@ export function _isWaterSpace(geom) {
 }
 
 /** Extract highway classification from a way, or null. */
-export function _classifyRoad(way) {
+function _classifyRoad(way) {
   return way.tags?.highway ? way.tags.highway : null;
 }
 
 /** Compute lat/lon centroid of a coordinate array. */
-export function _centroidOf(coords) {
+function _centroidOf(coords) {
   let sumLat = 0,
     sumLon = 0;
   for (let i = 0; i < coords.length; i++) {
@@ -213,7 +207,7 @@ export function _centroidOf(coords) {
 }
 
 /** Shortest distance (m) from a point to any segment of a way. */
-export function _minDistanceToWay(lat, lon, way, distFn) {
+function _minDistanceToWay(lat, lon, way, distFn) {
   const coords = way.coordinates;
   let best = Infinity;
   for (let i = 0; i < coords.length - 1; i++) {
@@ -234,7 +228,7 @@ export function _minDistanceToWay(lat, lon, way, distFn) {
  * Point-in-polygon test that handles both way and relation (multipolygon)
  * geometries.  Returns true if the point lies inside the green space.
  */
-export function _isPointInGreenSpace(geom, lat, lon, pipFn) {
+function _isPointInGreenSpace(geom, lat, lon, pipFn) {
   if (geom.type === 'way' && geom.coordinates && geom.coordinates.length > 2) {
     return pipFn(lat, lon, geom.coordinates);
   }
@@ -263,7 +257,7 @@ export function _isPointInGreenSpace(geom, lat, lon, pipFn) {
  * Build concentric-ring sampling points around (lat, lon).
  * Returns an array of {lat, lon} (no .contained property).
  */
-export function _buildSamplingGrid(lat, lon, radiusMeters) {
+function _buildSamplingGrid(lat, lon, radiusMeters) {
   const radLat = radiusMeters / METERS_PER_DEG_LAT;
   const radLon =
     radiusMeters / (METERS_PER_DEG_LAT * Math.cos((lat * Math.PI) / 180));
@@ -324,6 +318,10 @@ export const OSMEnricher = {
   // rather than re-deriving its own notion of "which roads count".
   isVehicularRoad(highwayClass) {
     return VEHICULAR_ROAD_CLASSES.has(highwayClass);
+  },
+
+  _buildSamplingGrid(lat, lon, radiusMeters) {
+    return _buildSamplingGrid(lat, lon, radiusMeters);
   },
 
   /* ======================================================================

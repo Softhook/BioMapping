@@ -13,7 +13,7 @@
 
 // Mirrors SERIES_FIELD in src/map/globe3d.js (and DERIVED_METRIC_SERIES in map.js) —
 // colouring metric -> analyzer per-sample series field.
-export const G3DX_SERIES_FIELD = {
+const G3DX_SERIES_FIELD = {
   phasic: 'phasic',
   tonic: 'tonic',
   arousalIndex: 'arousalIndex',
@@ -24,7 +24,7 @@ export const G3DX_SERIES_FIELD = {
   em_fog: 'em_fog',
   emFog: 'em_fog',
 };
-export const g3dxSeriesValue = (d) =>
+const g3dxSeriesValue = (d) =>
   d && typeof d === 'object' && 'val' in d
     ? d.val
     : typeof d === 'number'

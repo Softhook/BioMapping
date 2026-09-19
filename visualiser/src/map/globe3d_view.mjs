@@ -40,7 +40,7 @@ import { GSRStorage } from '../ui/storage.mjs';
 import { GSRGlobeManager } from './globe3d.mjs';
 import { MapPopups } from './map_popups.mjs';
 
-export const CESIUM_BASE = 'vendor/cesium/';
+const CESIUM_BASE = 'vendor/cesium/';
 
 export const GSRGlobe3DView = {
   manager: null,

@@ -119,6 +119,4 @@ function computeCharacterizationMetrics(csvText, paramOverrides = {}) {
 
 module.exports = {
   computeCharacterizationMetrics,
-  collectGpsPoints,
-  pathLengthMeters,
 };

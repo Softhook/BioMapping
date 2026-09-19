@@ -8,16 +8,15 @@
 
 // Absolute hardware/squelch noise floor. Readings at or below this are
 // ambient noise, not active RF detections, regardless of the track's own
-// dynamic range.
-export const HARD_NOISE_FLOOR_DBM = -90.0;
+const HARD_NOISE_FLOOR_DBM = -90.0;
 
 // Gamma curve applied to the normalised 0..1 ramp for higher visual
 // contrast on active detections.
-export const NORM_GAMMA = 0.75;
+const NORM_GAMMA = 0.75;
 
 // Default post-gamma gain, so a strong signal still reaches full intensity
 // after the gamma curve compresses the top of the range.
-export const DEFAULT_GAIN = 1.15;
+const DEFAULT_GAIN = 1.15;
 
 /**
  * A band only counts as "active" if its peak clears the hard noise floor
