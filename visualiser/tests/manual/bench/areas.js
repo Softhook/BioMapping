@@ -410,8 +410,7 @@ const renderCollective = {
     { key: 'coldMs', label: 'cold render' },
     { key: 'buildMs', label: '  of which buildPlaces' },
   ],
-  run({ h, window, context, mapManager, tracks, opts }) {
-    const vm = require('node:vm');
+  run({ h, window, mapManager, tracks, opts }) {
     window.AppState.viewMode = 'collective';
     const contourParams = {
       gridResolution: 40,
@@ -430,7 +429,7 @@ const renderCollective = {
     );
 
     // Time buildPlaces() inside the cold render without leaving the wrapper installed.
-    const AP = vm.runInContext('GSRArousalPlaces', context);
+    const AP = window.GSRArousalPlaces || global.GSRArousalPlaces;
     const orig = AP.buildPlaces.bind(AP);
     const bCfg = B(opts, { iters: 6 });
     const buildSamples = [];

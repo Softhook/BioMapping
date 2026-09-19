@@ -1,7 +1,7 @@
 /**
  * index.html's real entry point — the browser-side counterpart of
  * tests/support/boot_app.js's SCRIPT_ORDER (kept in sync with it by
- * tests/test_script_order.js; the two must list the same 93 files, in the
+ * tests/test_html_wiring.js; the two must list the same 93 files, in the
  * same order).
  *
  * Every file below is imported purely for its own top-level side effect

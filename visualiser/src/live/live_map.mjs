@@ -54,7 +54,7 @@ export let liveLastLatLng = null;
 export let liveMarker = null;
 export let gsrMin = Infinity,
   gsrMax = -Infinity;
-export let tonicMin = Infinity,
+let tonicMin = Infinity,
   tonicMax = -Infinity;
 
 // Tonic/phasic colouring is DEFERRED: the zero-phase decomposition
@@ -78,7 +78,7 @@ export const pendingSegments = [];
 // How long a tonic/phasic value needs to settle (decomposeTonicPhasic's ±6s
 // local-floor window + margin). A queued segment is drawn once this long has
 // passed since its packet arrived.
-export const PHASIC_COLOR_LAG_S = 8;
+const PHASIC_COLOR_LAG_S = 8;
 
 // Hard cap on the deferred-segment backlog. flushSettledSegments() runs from
 // feedLiveAnalyzer() (every packet through the warmup, then once per
@@ -307,7 +307,7 @@ export async function cacheCurrentMapArea() {
   }
 }
 
-export function initLiveMap() {
+function initLiveMap() {
   liveMap = L.map('liveMap', {
     zoomControl: true,
     scrollWheelZoom: true,
@@ -349,7 +349,7 @@ export function initLiveMap() {
 export const liveMapPeakMarkers = new Map();
 export const liveMapHotspotMarkers = new Map();
 
-export function _removeLiveMapMarker(marker) {
+function _removeLiveMapMarker(marker) {
   if (!marker) return;
   if (typeof marker.remove === 'function') marker.remove();
   else if (liveMap && typeof liveMap.removeLayer === 'function')
@@ -392,7 +392,7 @@ export function resetLiveMapSession() {
 }
 
 // Reconcile one marker layer (peaks or hotspots) against the wanted set.
-export function _syncLiveMapMarkerSet(markerMap, peaks, iconBuilder) {
+function _syncLiveMapMarkerSet(markerMap, peaks, iconBuilder) {
   const A = Controllers.liveView.liveAnalyzer;
   if (!A || !liveMap) return;
   const lastPkt = LiveState.packets[LiveState.packets.length - 1];
@@ -483,8 +483,8 @@ export const LIVE_ZOOM = 18;
 // Polyline stroke width on the live follow-map. Mobile screens (coarse pointer /
 // phone viewports) draw twice as thick (6px vs desktop's 3px) for outdoor
 // readability on high-DPI displays.
-export const LIVE_TRACK_WEIGHT_DESKTOP = 3;
-export const LIVE_TRACK_WEIGHT_MOBILE = 6;
+const LIVE_TRACK_WEIGHT_DESKTOP = 3;
+const LIVE_TRACK_WEIGHT_MOBILE = 6;
 
 // Recentre the follow-map on the walker at most this often. panTo() with
 // animation re-renders every track polyline on every frame of the tween, so
@@ -492,8 +492,8 @@ export const LIVE_TRACK_WEIGHT_MOBILE = 6;
 // near-continuous full-layer redraw. The walker's dot still moves every
 // packet (liveMarker.setLatLng below) — only the map's recentre lags, by at
 // most this interval, which at walking pace is a few metres of drift.
-export const LIVE_PAN_MIN_INTERVAL_MS = 900;
-export let lastLivePanAt = 0;
+const LIVE_PAN_MIN_INTERVAL_MS = 900;
+let lastLivePanAt = 0;
 
 export function updateLiveMap(pkt) {
   if (!pkt.valid || isNaN(pkt.lat) || isNaN(pkt.lon)) return;

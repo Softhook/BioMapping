@@ -17,7 +17,6 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const vm = require('node:vm');
 const { bootApp } = require('../../support/boot_app.js');
 
 const TRACKS_DIR = path.join(__dirname, '..', '..', '..', '..', 'tracks');
@@ -507,10 +506,13 @@ function installRecordingLeaflet(window) {
  * faster than they are (measured). Booting is ~150ms; the per-track analyze()
  * is the real cost and is unavoidable either way.
  */
-function boot() {
-  const { window, context } = bootApp();
+async function boot() {
+  const { window } = await bootApp();
 
-  vm.runInContext('RFFluidRenderer = undefined;', context);
+  if (window.RFFluidRenderer?.prototype) {
+    window.RFFluidRenderer.prototype._initCanvas = () => {};
+    window.RFFluidRenderer.prototype._bindEvents = () => {};
+  }
   // p5 "global mode" identifiers renderer.js / sketch.js use bare, beyond what
   // boot_app already stubs (grepped from those two files).
   const p5names = [
@@ -616,12 +618,12 @@ function boot() {
 
   return {
     window,
-    context,
+    context: window,
     mapManager: window.AppState.mapManager,
     L: window.L,
     map: window.L.map(),
-    GSR_CONST: vm.runInContext('GSR_CONST', context),
-    ctxGlobal: (name) => vm.runInContext(name, context),
+    GSR_CONST: window.GSR_CONST || global.GSR_CONST,
+    ctxGlobal: (name) => window[name] || global[name],
   };
 }
 

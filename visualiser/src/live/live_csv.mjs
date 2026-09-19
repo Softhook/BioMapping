@@ -43,8 +43,8 @@
 // here rather than reused from csv_parser.js so the standalone live.html
 // doesn't have to pull that whole module in (it drags GSR_CONST + GSRAnalyzer)
 // just for this one helper.
-export let _crc32Table = null;
-export function _liveCrc32(bytes) {
+let _crc32Table = null;
+function _liveCrc32(bytes) {
   if (!_crc32Table) {
     _crc32Table = new Uint32Array(256);
     for (let n = 0; n < 256; n++) {
@@ -62,9 +62,9 @@ export function _liveCrc32(bytes) {
 
 // firmware/modules/sd_logger.c SD_LOGGER_INTEGRITY_LINE — the file's first
 // line, folded into the CRC the trailer carries.
-export const LIVE_INTEGRITY_MARKER = '# Integrity: crc32 v1\n';
+const LIVE_INTEGRITY_MARKER = '# Integrity: crc32 v1\n';
 // firmware/biomap_config.h BIOMAP_CSV_COLS_GPS_GSR_PROD, verbatim.
-export const LIVE_CSV_COLUMNS =
+const LIVE_CSV_COLUMNS =
   'timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw,hacc_m\n';
 
 export function buildLiveCsv(packets, nowMs) {

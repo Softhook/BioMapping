@@ -39,8 +39,8 @@
 import { GSRLiveBinaryParser } from './live_binary_parser.mjs';
 import { LiveState } from './live_state.mjs';
 
-export const BLE_SERVICE_UUID = '8fe5b3d5-2e7f-4a98-2a48-7acc60fe0000';
-export const BLE_RX_CHAR_UUID = '19ed82ae-ed21-4c9d-4145-228e61fe0000'; // Flipper TX / host notify
+const BLE_SERVICE_UUID = '8fe5b3d5-2e7f-4a98-2a48-7acc60fe0000';
+const BLE_RX_CHAR_UUID = '19ed82ae-ed21-4c9d-4145-228e61fe0000'; // Flipper TX / host notify
 
 // None of BluetoothRemoteGATTServer.connect() / getPrimaryService() /
 // getCharacteristic() / startNotifications() carries a built-in timeout, and

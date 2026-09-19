@@ -34,7 +34,7 @@ export const GRAPH_WINDOW_S = 120;
 // Plot inset — room for the left Y-axis value labels and the bottom time
 // labels, echoing src/core/constants.js's GSR_CONST.MARGIN (70/35/22/10)
 // scaled down for this compact panel.
-export const GRAPH_MARGIN = { top: 12, right: 12, bottom: 20, left: 58 };
+const GRAPH_MARGIN = { top: 12, right: 12, bottom: 20, left: 58 };
 
 // The live wire format carries GSR in nanosiemens (firmware
 // gsr_sensor_get_raw — docs/csv_schema.md); the rest of the app works in
@@ -69,7 +69,7 @@ export const LIVE_GRAPH_VIEWS = {
 // reads the same custom properties via getThemeColor) so the two graphs
 // stay visually identical. Falls back to the light-theme defaults when no
 // stylesheet is in scope (the unit-test jsdom).
-export function graphThemeColor(name, fallback) {
+function graphThemeColor(name, fallback) {
   try {
     const v = getComputedStyle(document.documentElement)
       .getPropertyValue(name)

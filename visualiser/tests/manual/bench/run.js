@@ -36,7 +36,7 @@ function log(...a) {
   process.stderr.write(`${a.join(' ')}\n`);
 }
 
-function main(argv) {
+async function main(argv) {
   const args = h.parseArgs(argv);
 
   if (args.help) {
@@ -115,7 +115,7 @@ ${Object.entries(h.TRACK_SETS)
   for (const area of wanted) {
     const ta = Date.now();
     log(`\n▶ ${area.name} — booting + loading ${files.length} track(s) …`);
-    const ctx = h.boot();
+    const ctx = await h.boot();
     const tracks = files.map((f, i) => h.loadTrack(ctx.window, f, `bt${i}`));
     const base = {
       h,

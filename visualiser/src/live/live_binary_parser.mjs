@@ -13,8 +13,8 @@
  */
 
 export const PACKET_SIZE = 45;
-export const MAGIC_0 = 0x42; // 'B'
-export const MAGIC_1 = 0x4d; // 'M'
+const MAGIC_0 = 0x42; // 'B'
+const MAGIC_1 = 0x4d; // 'M'
 
 export class GSRLiveBinaryParser {
   /**
