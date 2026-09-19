@@ -668,6 +668,9 @@ export const GSR_CONST = {
   // genuinely never implemented, not just disconnected from this constant.
   SNAP: {
     HEADING_W: 0.7, // heading penalty weight in map-matcher candidate ranking
+    HEADING_DEAD_DEG: 10, // emission heading penalty ignores mismatches below this
+    HEADING_SIGMA_DEG: 20, // Gaussian width of the emission heading penalty beyond the dead zone
+    HEADING_MAX_PENALTY: 6, // log-unit cap so a bad course can't veto a road outright
     SPEED_GATE: 0.3, // m/s — below this speed, course is unreliable so the heading penalty is skipped
   },
 

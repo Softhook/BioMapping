@@ -453,3 +453,100 @@ test('_routeDistViaJunction: returns Infinity for ways with no shared endpoint w
   };
   assert.strictEqual(MapMatcher._routeDistViaJunction(c1, c3), Infinity);
 });
+
+test('match: passing a connected side-road junction on a steady heading does not detour onto the side road', () => {
+  // Main road runs east, split at the junction (lon 0.0006); a side road
+  // leaves the junction due north.  The walker keeps course 90° but one fix
+  // (GPS drift) lands nearer the side road than the main road.  Without a
+  // heading term the connected side road is a cheap detour.
+  const mainA = way('MAIN_A', [
+    { lat: 0, lon: 0 },
+    { lat: 0, lon: 0.0006 },
+  ]);
+  const mainB = way('MAIN_B', [
+    { lat: 0, lon: 0.0006 },
+    { lat: 0, lon: 0.0012 },
+  ]);
+  const side = way('SIDE', [
+    { lat: 0, lon: 0.0006 },
+    { lat: metersToLatDeg(60), lon: 0.0006 },
+  ]);
+  const nearby = [mainA, mainB, side];
+  const lat = metersToLatDeg(14); // walking a verge 14 m north of the main road
+  const evalPoints = [
+    0.0003, 0.0004, 0.0005, 0.000595, 0.0006, 0.000605, 0.0007, 0.0008, 0.0009,
+  ].map((lon, idx) => ({ idx, lat, lon, nearby }));
+  const raw = evalPoints.map((_, i) => ({
+    time: i,
+    speedKts: 2.5,
+    course: 90,
+  }));
+
+  const result = MapMatcher.match(evalPoints, raw, 50);
+
+  for (let idx = 0; idx < evalPoints.length; idx++) {
+    assert.notStrictEqual(
+      result.get(idx).wayId,
+      'SIDE',
+      `point ${idx} must not snap onto the side road`,
+    );
+  }
+});
+
+test('match: an acute (30°) Y-junction side road is not detoured onto either, at a steady heading', () => {
+  // Side road leaves the junction at 30° to the walker's direction of travel
+  // (roads are rarely 90°).  Fixes drift beside the side road for a few samples.
+  const J = 0.0006;
+  const mainA = way('MAIN_A', [
+    { lat: 0, lon: 0 },
+    { lat: 0, lon: J },
+  ]);
+  const mainB = way('MAIN_B', [
+    { lat: 0, lon: J },
+    { lat: 0, lon: 0.0012 },
+  ]);
+  const cosLat = 1; // test area is at the equator
+  const len = 0.0005; // ≈ 55 m
+  const ang = (30 * Math.PI) / 180;
+  const side = way('SIDE', [
+    { lat: 0, lon: J },
+    { lat: len * Math.sin(ang), lon: J + (len * Math.cos(ang)) / cosLat },
+  ]);
+  const nearby = [mainA, mainB, side];
+  // Walk east on a line 3 m north of the main road; near the junction that
+  // line sits nearer the side road than the main road.
+  const lat = metersToLatDeg(6);
+  const evalPoints = [
+    0.0003, 0.0004, 0.0005, 0.00062, 0.00065, 0.00068, 0.0007, 0.0008, 0.0009,
+  ].map((lon, idx) => ({ idx, lat, lon, nearby }));
+  const raw = evalPoints.map((_, i) => ({
+    time: i,
+    speedKts: 2.5,
+    course: 90,
+  }));
+  const result = MapMatcher.match(evalPoints, raw, 50);
+  for (let idx = 0; idx < evalPoints.length; idx++) {
+    assert.notStrictEqual(result.get(idx).wayId, 'SIDE', `point ${idx}`);
+  }
+});
+
+test('match: a reported near-zero speed suppresses the heading term even when fixes wander', () => {
+  const main = way('MAIN', [
+    { lat: 0, lon: 0 },
+    { lat: 0, lon: 0.001 },
+  ]);
+  const nearby = [main];
+  // ~8 m of stationary wander east–west; the road runs east–west so any
+  // fake chord would align anyway — use a north–south wander instead.
+  const evalPoints = [0, 1, 2, 3].map((i) => ({
+    idx: i,
+    lat: metersToLatDeg(i % 2 ? 4 : -4),
+    lon: 0.0005,
+    nearby,
+  }));
+  const raw = evalPoints.map((_, i) => ({ time: i, speedKts: 0, course: 0 }));
+  const cands = MapMatcher._collectAllCandidates(evalPoints, raw, 50);
+  for (const c of cands) {
+    for (const cand of c) assert.ok(Number.isNaN(cand.bearingDiffRad));
+  }
+});

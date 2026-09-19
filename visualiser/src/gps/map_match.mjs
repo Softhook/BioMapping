@@ -72,6 +72,16 @@ export const MapMatcher = {
    *  Viterbi transition is broken (sequence restarts from emission only). */
   MAX_GAP_S: 30,
 
+  /** Minimum fix separation (m) for a bearing to be trusted. */
+  MIN_CHORD_M: 6,
+
+  /** Excursion run must depart from the travel direction by more than this.
+   *  Deliberately well under 90°: side roads meet at acute Y-junction angles too. */
+  EXCURSION_ANGLE_DEG: 25,
+
+  /** Longest run (m of raw travel) still treated as a passing glitch rather than a real detour. */
+  EXCURSION_MAX_M: 60,
+
   /**
    * Run HMM-Viterbi map matching over a sequence of GPS evaluation points.
    *
@@ -90,6 +100,7 @@ export const MapMatcher = {
     const allCands = this._collectAllCandidates(evalPoints, raw, radius);
     const { V, B } = this._viterbiForward(evalPoints, raw, allCands);
     const path = this._viterbiBacktrace(V, B, allCands);
+    this._removeSideRoadExcursions(evalPoints, path, allCands, radius);
     return this._buildResultsMap(evalPoints, path, allCands, radius);
   },
 
@@ -102,8 +113,20 @@ export const MapMatcher = {
     for (let i = 0; i < n; i++) {
       const pt = evalPoints[i];
       const rawPt = raw[pt.idx] || {};
-      const speedMs = !isNaN(rawPt.speedKts) ? rawPt.speedKts * 0.514444 : NaN;
-      const courseDeg = !isNaN(rawPt.course) ? rawPt.course : NaN;
+      let speedMs = !isNaN(rawPt.speedKts) ? rawPt.speedKts * 0.514444 : NaN;
+      // Prefer the heading implied by the fixes either side over the
+      // reported course: it's available wherever there is movement and isn't
+      // hostage to a stale or missing RMC course field.
+      const chord = this._chordBearingDeg(evalPoints, i);
+      const courseDeg = !isNaN(chord)
+        ? chord
+        : !isNaN(rawPt.course)
+          ? rawPt.course
+          : NaN;
+      // Only stand in for a missing speed: a reported near-zero speed must
+      // still suppress the heading term (wander while stationary can span
+      // several metres and would otherwise fake a direction).
+      if (!isNaN(chord) && isNaN(speedMs)) speedMs = 1;
       allCands[i] = this._getCandidates(
         pt.lat,
         pt.lon,
@@ -301,6 +324,109 @@ export const MapMatcher = {
   // ─── Internal helpers ────────────────────────────────────────────────────
 
   /**
+   * Bearing (deg) of travel around eval point i, from the nearest fix at
+   * least MIN_CHORD_M behind to the nearest at least MIN_CHORD_M ahead
+   * (looking ≤ 8 fixes each way).  NaN when the walker hasn't moved enough.
+   */
+  _chordBearingDeg(pts, i) {
+    const far = (dir) => {
+      for (let k = 1; k <= 8; k++) {
+        const j = i + dir * k;
+        if (j < 0 || j >= pts.length) break;
+        if (
+          this._haversineM(pts[i].lat, pts[i].lon, pts[j].lat, pts[j].lon) >=
+          this.MIN_CHORD_M
+        ) {
+          return pts[j];
+        }
+      }
+      return null;
+    };
+    const a = far(-1) || pts[i];
+    const b = far(1) || pts[i];
+    if (
+      a === b ||
+      this._haversineM(a.lat, a.lon, b.lat, b.lon) < this.MIN_CHORD_M
+    ) {
+      return NaN;
+    }
+    const br = this._segmentBearing(a.lat, a.lon, b.lat, b.lon);
+    return ((br * 180) / Math.PI + 360) % 360;
+  },
+
+  /**
+   * Post-pass safety net: a run of fixes matched to a side way S, bracketed by
+   * two other ways, while the walker's overall travel across that run ran
+   * AWAY from S's direction (by more than EXCURSION_ANGLE_DEG, not
+   * necessarily 90°), is a glitch (a walker passing a junction, not turning
+   * into it).  Those fixes are re-assigned to their best
+   * non-S candidate.  Runs where no alternative road exists for every fix,
+   * or where travel is too short to give a direction (a genuine U-turn),
+   * are left alone.  Mutates `path`.
+   */
+  _removeSideRoadExcursions(pts, path, allCands, radius) {
+    const n = path.length;
+    const wayAt = (t) =>
+      path[t] >= 0 && allCands[t][path[t]] ? allCands[t][path[t]].wayId : null;
+    const limit = (this.EXCURSION_ANGLE_DEG * Math.PI) / 180;
+
+    let s = 1;
+    while (s < n - 1) {
+      const w = wayAt(s);
+      if (w == null || w === wayAt(s - 1)) {
+        s++;
+        continue;
+      }
+      let e = s;
+      while (e + 1 < n && wayAt(e + 1) === w) e++;
+      const before = wayAt(s - 1);
+      const after = e + 1 < n ? wayAt(e + 1) : null;
+      if (before != null && after != null && after !== w) {
+        const a = pts[s - 1];
+        const b = pts[e + 1];
+        const travel = this._haversineM(a.lat, a.lon, b.lat, b.lon);
+        if (travel >= this.MIN_CHORD_M && travel <= this.EXCURSION_MAX_M) {
+          const dir = this._segmentBearing(a.lat, a.lon, b.lat, b.lon);
+          const mid = (s + e) >> 1;
+          const seg = allCands[mid][path[mid]];
+          const sb = this._segmentBearing(
+            seg.coords[seg.segIdx].lat,
+            seg.coords[seg.segIdx].lon,
+            seg.coords[seg.segIdx + 1].lat,
+            seg.coords[seg.segIdx + 1].lon,
+          );
+          const diff = Math.min(
+            this._angularDiff(dir, sb),
+            this._angularDiff(dir, sb + Math.PI),
+          );
+          if (diff > limit) {
+            const repl = [];
+            for (let t = s; t <= e; t++) {
+              let bi = -1;
+              let bs = -Infinity;
+              allCands[t].forEach((c, j) => {
+                if (c.wayId === w || c.dist > radius) return;
+                const sc = this._logEmit(c.dist, c.bearingDiffRad);
+                if (sc > bs) {
+                  bs = sc;
+                  bi = j;
+                }
+              });
+              repl.push(bi);
+            }
+            if (repl.every((j) => j >= 0)) {
+              repl.forEach((j, k) => {
+                path[s + k] = j;
+              });
+            }
+          }
+        }
+      }
+      s = e + 1;
+    }
+  },
+
+  /**
    * Find and rank candidate road segments for a GPS fix.
    * Projects the fix onto every segment of every highway way within
    * radiusM metres and returns up to MAX_CANDS, sorted by effective
@@ -372,15 +498,34 @@ export const MapMatcher = {
   /**
    * Log emission probability for a candidate.
    * Gaussian centred on the perpendicular distance from the GPS fix to the
-   * road segment (Newson & Krumm 2009 §3.1).  Bearing is handled during
-   * candidate ranking (effDist) but deliberately excluded here to avoid
-   * double-counting.
+   * road segment (Newson & Krumm 2009 §3.1), plus a heading-mismatch penalty so a
+   * side road crossed at right angles can't win at a junction.
    */
-  _logEmit(dist, _bearingDiffRad) {
+  _logEmit(dist, bearingDiffRad) {
     const s = this.SIGMA_M;
     return (
-      -0.5 * (dist / s) * (dist / s) - Math.log(s * Math.sqrt(2 * Math.PI))
+      -0.5 * (dist / s) * (dist / s) -
+      Math.log(s * Math.sqrt(2 * Math.PI)) -
+      this._headingPenalty(bearingDiffRad)
     );
+  },
+
+  /**
+   * Log-penalty for travelling across a segment rather than along it.
+   * Without this, passing a side-road junction lets the path dip onto the
+   * side road whenever the fix is momentarily closer to it than to the main
+   * road, even though the course never changed.  A dead zone absorbs course
+   * noise and curved geometry; the cap keeps a wrong course from vetoing an
+   * otherwise obvious road.  NaN (stationary / no course) → no penalty.
+   */
+  _headingPenalty(bearingDiffRad) {
+    if (isNaN(bearingDiffRad)) return 0;
+    const cfg = GSR_CONST?.SNAP;
+    const dead = ((cfg ? cfg.HEADING_DEAD_DEG : 10) * Math.PI) / 180;
+    const sigma = ((cfg ? cfg.HEADING_SIGMA_DEG : 20) * Math.PI) / 180;
+    const cap = cfg ? cfg.HEADING_MAX_PENALTY : 6;
+    const excess = Math.max(0, bearingDiffRad - dead) / sigma;
+    return Math.min(cap, 0.5 * excess * excess);
   },
 
   /**
