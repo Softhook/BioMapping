@@ -236,3 +236,6 @@ export const GSRUI = {
 };
 
 Controllers.ui = GSRUI;
+
+// Inline on*= handlers in generated table HTML resolve names on window.
+if (typeof window !== 'undefined') window.GSRUI = GSRUI;
