@@ -1,19 +1,9 @@
 /**
  * GSRRenderer — click/hit-testing (peak targets, the exclude button) and
  * graph-scrub hover handling.
- * Object-augment split from renderer.js: loaded after renderer.js, adds
- * these methods to the shared GSRRenderer object.
- *
- * Reads the module-level EXCLUDE_BTN constant from renderer.js's own header
- * — see the dual-mode note below for how that stays resolvable under plain
- * require().
- *
- * Assigned onto GSRRenderer via Object.assign at the file's tail (a plain ESM
- * static import/export, loaded once by app_entry.mjs).
- * entire export surface onto `global` rather than naming individual identifiers
- * — renderer.js's module.exports is the single source of truth for what's
- * available bare; a name missing there is a bug in renderer.js's exports, not
- * something to patch around here.
+ * Extracted module for GSRRenderer click/hit-testing (peak targets, the exclude button)
+ * and graph-scrub hover handling. Exported as `RendererInteraction` and composed
+ * onto `GSRRenderer` in renderer.mjs.
  */
 import { AppState } from '../core/app_state.mjs';
 import { GSR_CONST } from '../core/constants.mjs';

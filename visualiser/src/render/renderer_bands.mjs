@@ -1,21 +1,14 @@
 /**
  * GSRRenderer — background context bands behind the signal graph (OSM road/
  * park classification, NDVI green-cover, EM-fog intensity).
- * Object-augment split from renderer.js: loaded after renderer.js, adds
- * these methods to the shared GSRRenderer object.
+ * Extracted module for GSRRenderer background context bands. Exported as
+ * `RendererBands` and composed onto `GSRRenderer` in renderer.mjs.
  *
  * Two band families share the RLE-segment-cache machinery
  * (_getBandSegments/_rleSegments for the discrete OSM classification,
  * _getContinuousBandSegments/_continuousColorAt for the continuous NDVI/
  * EM-fog gradients) but read from the same this._bandCache slots set up in
- * renderer.js itself.
-
- * Assigned onto GSRRenderer via Object.assign at the file's tail (a plain ESM
- * static import/export, loaded once by app_entry.mjs).
- * entire export surface onto `global` rather than naming individual identifiers
- * — renderer.js's module.exports is the single source of truth for what's
- * available bare; a name missing there is a bug in renderer.js's exports, not
- * something to patch around here.
+ * renderer.mjs itself.
  */
 import { AppState } from '../core/app_state.mjs';
 import { GSR_CONST } from '../core/constants.mjs';

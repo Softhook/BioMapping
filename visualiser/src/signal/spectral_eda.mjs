@@ -26,11 +26,8 @@
  * reflection padding and steady-state initial conditions so the edge
  * behaviour matches too.
  *
- * Exports follow the repo's dual-export convention (geo_utils.js style):
- * browser <script> tag assigns window.SpectralEDA; CommonJS require() gets
- * { SpectralEDA }. Consumers (analyzer.js) reference the bare global
- * `SpectralEDA` and are guarded with `typeof SpectralEDA !== 'undefined'`
- * so vm-based tests that don't load this file still run.
+ * Exported as an ES module (`export const SpectralEDA = { ... }`), imported
+ * directly by analyzer.mjs and live_entry.mjs.
  */
 export const SpectralEDA = {
   // The published sympathetic band (Posada-Quintero 2016). Upper bound is

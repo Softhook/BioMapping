@@ -1,19 +1,9 @@
 /**
  * GSRRenderer — static graph chrome: the X/Y grid, the hover tooltip, and
  * the bottom timeline-overview strip.
- * Object-augment split from renderer.js: loaded after renderer.js, adds
- * these methods to the shared GSRRenderer object.
- *
- * Reads the module-level getQualityColor()/getQualityLabel() from
- * renderer.js's own header — see the dual-mode note below for how that stays
- * resolvable under plain require().
- *
- * Assigned onto GSRRenderer via Object.assign at the file's tail (a plain ESM
- * static import/export, loaded once by app_entry.mjs).
- * entire export surface onto `global` rather than naming individual identifiers
- * — renderer.js's module.exports is the single source of truth for what's
- * available bare; a name missing there is a bug in renderer.js's exports, not
- * something to patch around here.
+ * Extracted module for GSRRenderer static graph chrome: the X/Y grid, the hover
+ * tooltip, and the bottom timeline-overview strip. Exported as `RendererChrome`
+ * and composed onto `GSRRenderer` in renderer.mjs.
  */
 import { AppState } from '../core/app_state.mjs';
 import { GSR_CONST } from '../core/constants.mjs';

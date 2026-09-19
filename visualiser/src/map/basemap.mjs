@@ -1,14 +1,13 @@
 /**
  * Shared CARTO basemap helpers — the single source of truth for the raster
  * basemap URL, attribution and key resolution used by:
- *   GSRMapManager.initMap()        src/map/map.js
- *   initLiveMap()                  src/live/live_map.js
- *   BASEMAP_PROVIDERS              src/map/globe3d.js
+ *   GSRMapManager.initMap()        src/map/map.mjs
+ *   initLiveMap()                  src/live/live_map.mjs
+ *   BASEMAP_PROVIDERS              src/map/globe3d/globe3d_base.mjs
  *
  * The key resolution (BIOMAP_CONFIG.cartoApiKey → localStorage → ?key=) was
  * previously copy-pasted into all three, with the drift hazard pinned by
- * tests/test_html_wiring.js. Loaded as a classic <script> before all three
- * consumers (see index.html / live.html's script list).
+ * tests/test_html_wiring.js. Imported as an ES module by all three consumers.
  */
 
 const CARTO_ATTRIBUTION =

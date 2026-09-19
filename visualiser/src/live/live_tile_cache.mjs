@@ -1,14 +1,12 @@
 /**
  * Offline tile caching for the live map — a Leaflet TileLayer subclass
  * backed by the Cache Storage API, plus the URL helpers it and
- * cacheCurrentMapArea() share. Loaded as a classic <script> AFTER Leaflet
- * (it calls L.TileLayer.extend at load time) and registers
- * L.tileLayer.cache(url, options).
+ * cacheCurrentMapArea() share. Registers L.tileLayer.cache(url, options)
+ * if Leaflet is present at import time.
  *
  * Pure helpers (no DOM, no module state): normalizeTileCacheUrl,
- * buildTileUrl, latLngToTileCoords — all require()-able for tests. The
- * subclass touches document/caches/fetch/URL directly, same as it did
- * inline in live.html.
+ * buildTileUrl, latLngToTileCoords. The subclass touches
+ * document/caches/fetch/URL directly.
  */
 
 import { GeoUtils } from '../gps/geo_utils.mjs';

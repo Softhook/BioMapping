@@ -1,15 +1,10 @@
 /**
  * GSRGlobeManager — camera fly-to/focus + turntable orbit.
- * Prototype-augment split from globe3d.js: loaded after globe3d.js, adds
- * these methods to GSRGlobeManager.prototype.
+ * Class layer for GSRGlobeManager camera fly-to/focus and turntable orbit
+ * (`GSRGlobeNavigation extends GSRGlobeToggles`).
  *
- * flyToPeak/focusOnPeakLocation read _latencyCoords/_peakWallHeight from
- * globe3d/peaks.js (resolved via the shared prototype at call time — file
- * load order between augment files doesn't matter here, only that they all
- * load after globe3d.js itself).
-
- * Assigned onto GSRGlobeManager.prototype via Object.assign at the file's
- * tail (a plain ESM static import/export, loaded once by app_entry.mjs).
+ * flyToPeak/focusOnPeakLocation read _latencyCoords/_peakWallHeight inherited
+ * from GSRGlobePeaks.
  */
 import { AppState } from '../../core/app_state.mjs';
 import { GSRGlobeToggles } from './toggles.mjs';

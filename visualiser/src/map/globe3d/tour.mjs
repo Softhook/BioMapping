@@ -1,22 +1,15 @@
 /**
  * GSRGlobeManager — automated cinematic Hotspot tour.
- * Prototype-augment split from globe3d.js: loaded after globe3d.js, adds
- * these methods to GSRGlobeManager.prototype.
+ * Class layer for GSRGlobeManager automated cinematic Hotspot tour
+ * (`GSRGlobeTour extends GSRGlobeNavigation`).
  *
  * _computeTourWaypoints visits analyzer.memorableEvents (the curated Hotspot
  * subset — same star markers the map/graph show) in walk order, falling back
  * to generic evenly-spaced track sampling when there are no hotspots; reads
- * this.currentAnalyzer/_getMetricSeries/_latencyCoords/_peakWallHeight
- * (core/peaks.js). _executeTourStep drives the camera the same way flyToPeak
- * does but with its own dwell/timeout bookkeeping (this._tourStepTimeout
- * etc.) and a side-on angled shot per hotspot instead of a fixed offset.
-
- * Assigned onto GSRGlobeManager.prototype via Object.assign at the file's
- * tail (a plain ESM static import/export, loaded once by app_entry.mjs).
- * below copies globe3d.js's entire export surface onto `global` rather than
- * naming individual identifiers — globe3d.js's module.exports is the single
- * source of truth for what's available bare; a name missing there is a bug in
- * globe3d.js's exports, not something to patch around here.
+ * this.currentAnalyzer/_getMetricSeries/_latencyCoords/_peakWallHeight.
+ * _executeTourStep drives the camera the same way flyToPeak does but with its
+ * own dwell/timeout bookkeeping (this._tourStepTimeout etc.) and a side-on
+ * angled shot per hotspot instead of a fixed offset.
  */
 import { GeoUtils } from '../../gps/geo_utils.mjs';
 import { HEIGHT_CAPABLE_METRICS, seriesValue } from './globe3d_base.mjs';

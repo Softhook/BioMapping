@@ -6,32 +6,16 @@
  * markup.
  *
  * This file is the SHELL: markup, BLE connection/session lifecycle, and
- * analysis orchestration (feedLiveAnalyzer). The two renderers were split
- * out (2026-09) and load before this file:
- *   live_graph.js             drawGraph + GRAPH_WINDOW_S / LIVE_GRAPH_VIEWS
- *   live_map.js               liveMap / updateLiveMap / markers / tile cache
+ * analysis orchestration (feedLiveAnalyzer). Sibling live modules provide:
+ *   live_graph.mjs            drawGraph + GRAPH_WINDOW_S / LIVE_GRAPH_VIEWS
+ *   live_map.mjs              liveMap / updateLiveMap / markers / tile cache
  *
- * All three files are classic <script>s sharing one global lexical scope, so
- * top-level `const`/`function` bindings declared in one are visible (and,
- * for `let`, assignable) in the others — the same mechanism the sibling
- * modules (LiveState, GSRLiveBluetoothManager, …) already use. Declare each
- * name in exactly one file.
- *
- * Depends on these page-level globals (loaded as classic <script>s before
- * this file — see live.html's <head> and index.html's script list):
- *   GSR_CONST                 src/core/constants.js       (analysis params + view presets)
- *   GsrFilter                 src/signal/gsr_filter.js
- *   GSRAnalyzer               src/signal/analyzer.js      (the graph's analysis engine)
- *   GSRFileSaver              src/core/file_saver.js
- *   GSRLiveBinaryParser       src/live/live_binary_parser.js
- *   LiveState                 src/live/live_state.js
- *   GSRLiveBluetoothManager   src/live/live_bluetooth.js
- *   buildLiveCsv              src/live/live_csv.js
+ * Sibling circular references are broken via Controllers.liveView (see
+ * src/core/controllers.mjs).
  *
  * Usage:  GSRLiveView.mount(containerEl)   — build + wire once
- * Tests reach the module-level functions/state (drawGraph, liveMap,
- * resetSession, …) through the vm context tests/support/boot_live.js hands
- * back, rather than through this file's one public `GSRLiveView` export.
+ * Tests reach module-level functions/state through the test runner realm
+ * bridge reflection (tests/support/realm_bridge.js).
  */
 
 // Device-class detection — map-primary mobile layout vs graph-primary
@@ -663,11 +647,10 @@ export function renderStatus(status) {
 // into that would misdraw the graph window and put a bogus connecting line
 // on the map (see addPacket()'s gap-detection comment), so start clean.
 export function resetSession() {
-  // live_map.js owns liveMap/liveMarker/liveLastLatLng/gsrMin-Max/tonicMin-
+  // live_map.mjs owns liveMap/liveMarker/liveLastLatLng/gsrMin-Max/tonicMin-
   // Max/phasicMax/lastLivePanAt as its own module-level state — an imported
   // `let` binding is read-only outside its own module, so it resets them
-  // itself instead of this file reassigning them directly (both files freely
-  // reassigned one shared global here in the pre-ES-module dual-mode era).
+  // itself via resetLiveMapSession().
   resetLiveMapSession();
   LiveState.reset();
   // A pending entry's pkt.tonic/pkt.phasic only ever gets set by a
@@ -1294,10 +1277,9 @@ export const GSRLiveView = {
   _setBleManagerForTest: (m) => {
     bleManager = m;
   },
-  // feedLiveAnalyzer()'s warmup/throttle tuning is deliberately module-scope
-  // `let`, not writable from outside a real ES module (unlike the old
-  // dual-mode global scope a test's bare `WARMUP_ROWS = n` reassignment used
-  // to reach) — tests that shrink these for speed go through here instead.
+  // feedLiveAnalyzer()'s warmup/throttle tuning is module-scope `let`,
+  // not writable directly from outside this ES module — tests that shrink
+  // these for speed go through here instead.
   _setLiveAnalyzeTuningForTest: (warmupRows, minIntervalMs) => {
     if (warmupRows !== undefined) LIVE_ANALYZE_WARMUP_ROWS = warmupRows;
     if (minIntervalMs !== undefined)

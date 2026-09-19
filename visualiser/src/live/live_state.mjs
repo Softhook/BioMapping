@@ -6,9 +6,8 @@
  *
  * Pure: no DOM, no transport. GSRLiveBluetoothManager (src/live/
  * live_bluetooth.js) feeds it decoded packets via addPacket(); the view
- * layer subscribes with on('status'|'packet', …). Loaded as a classic
- * <script> by both live.html and (once integrated) index.html, and
- * require()-able from tests.
+ * layer subscribes with on('status'|'packet', …). Exported as an ES module
+ * and imported by live modules.
  */
 
 // Trailing seconds of the analysed buffer whose tonic/phasic/peaks are still

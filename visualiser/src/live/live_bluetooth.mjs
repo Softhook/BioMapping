@@ -7,8 +7,8 @@
  * 'gattserverdisconnected'.
  *
  * No DOM. Surfaces human-readable failure text through the onStatusText
- * callback the caller passes in. Loaded as a classic <script> by live.html
- * (and, once integrated, index.html); require()-able from tests.
+ * callback the caller passes in. Exported as an ES module, imported by
+ * live_view.mjs.
  *
  * Reconnect resilience — three independent, individually feature-detected
  * layers, each degrading to today's plain-backoff behaviour where the

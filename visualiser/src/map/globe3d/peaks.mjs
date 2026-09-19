@@ -1,21 +1,14 @@
 /**
  * GSRGlobeManager — peak spires, memorable-event hotspots, and spatial
  * cluster ground blobs.
- * Prototype-augment split from globe3d.js: loaded after globe3d.js, adds
- * these methods to GSRGlobeManager.prototype.
+ * Class layer for GSRGlobeManager peak spires, memorable-event hotspots, and spatial
+ * cluster ground blobs (`GSRGlobePeaks extends GSRGlobeRf`).
  *
  * Reads the batched marker collections (this._peakPoints / this._peakLabels /
  * this._hotspotLabels) and entity arrays (this.peakEntities / hotspotEntities /
- * clusterEntities) set up by the core class; _getMetricSeries and its cache
- * stay in globe3d.js since the wall renderer and the tour waypoint builder
+ * clusterEntities) set up by the base class; _getMetricSeries and its cache
+ * stay in globe3d_base.mjs since the wall renderer and the tour waypoint builder
  * read it too.
-
- * Assigned onto GSRGlobeManager.prototype via Object.assign at the file's
- * tail (a plain ESM static import/export, loaded once by app_entry.mjs).
- * below copies globe3d.js's entire export surface onto `global` rather than
- * naming individual identifiers — globe3d.js's module.exports is the single
- * source of truth for what's available bare; a name missing there is a bug in
- * globe3d.js's exports, not something to patch around here.
  */
 import { HEIGHT_CAPABLE_METRICS } from './globe3d_base.mjs';
 import { GSRGlobeRf } from './rf.mjs';

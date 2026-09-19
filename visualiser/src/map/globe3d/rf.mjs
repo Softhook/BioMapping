@@ -1,14 +1,11 @@
 /**
  * GSRGlobeManager — 3D volumetric RF expanse control.
- * Prototype-augment split from globe3d.js: loaded after globe3d.js, adds
- * these methods to GSRGlobeManager.prototype.
+ * Class layer for GSRGlobeManager 3D volumetric RF expanse control
+ * (`GSRGlobeRf extends GSRGlobeOsm`).
  *
  * Orchestration only (toggle state, scene add/remove of this.rfPrimitive) —
- * the actual corridor geometry is built by the pure GSRGlobe3DRf module
- * (src/map/globe3d/rf_expanse.js), loaded earlier.
-
- * Assigned onto GSRGlobeManager.prototype via Object.assign at the file's
- * tail (a plain ESM static import/export, loaded once by app_entry.mjs).
+ * the actual corridor geometry is built by GSRGlobe3DRf
+ * (src/map/globe3d/rf_expanse.mjs).
  */
 
 import { GSRGlobeOsm } from './osm.mjs';

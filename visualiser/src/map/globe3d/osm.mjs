@@ -1,15 +1,11 @@
 /**
  * GSRGlobeManager — 3D OSM building extrusion.
- * Prototype-augment split from globe3d.js: loaded after globe3d.js, adds
- * these methods to GSRGlobeManager.prototype.
+ * Class layer for GSRGlobeManager 3D OSM building extrusion
+ * (`GSRGlobeOsm extends GSRGlobeBase`).
  *
  * Orchestration only (fetch/fallback/scene lifecycle around
  * this.buildingsTileset / this.buildingPrimitive) — the actual footprint
- * geometry is built by the pure GSRGlobe3DBuildings module
- * (src/map/globe3d/buildings.js), loaded earlier.
-
- * Assigned onto GSRGlobeManager.prototype via Object.assign at the file's
- * tail (a plain ESM static import/export, loaded once by app_entry.mjs).
+ * geometry is built by GSRGlobe3DBuildings (src/map/globe3d/buildings.mjs).
  */
 
 import { OSMEnricher } from '../../osm/osm_enrichment.mjs';

@@ -1,15 +1,12 @@
 /**
  * GSRRenderer — signal curve, phasic area fill, and response-dynamics
  * overlay drawing.
- * Object-augment split from renderer.js: loaded after renderer.js, adds
- * these methods to the shared GSRRenderer object.
+ * Extracted module for GSRRenderer signal curve, phasic area fill, and
+ * response-dynamics overlay drawing. Exported as `RendererCurve` and
+ * composed onto `GSRRenderer` in renderer.mjs.
  *
  * _buildCurveContext is the shared per-frame viewport/step/spline context
- * every draw*Curve/Area method reads; it has no dependency on any other
- * augment file, only the app-wide globals GSR_CONST/AppState/width.
-
- * Assigned onto GSRRenderer via Object.assign at the file's tail (a plain ESM
- * static import/export, loaded once by app_entry.mjs).
+ * every draw*Curve/Area method reads.
  */
 import { AppState } from '../core/app_state.mjs';
 import { GSR_CONST } from '../core/constants.mjs';

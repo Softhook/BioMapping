@@ -1,15 +1,12 @@
 /**
  * GSRGlobeManager — layer visibility toggles + entity clearing.
- * Prototype-augment split from globe3d.js: loaded after globe3d.js, adds
- * these methods to GSRGlobeManager.prototype.
+ * Class layer for GSRGlobeManager layer visibility toggles + entity clearing
+ * (`GSRGlobeToggles extends GSRGlobePeaks`).
  *
- * Mirrors the 2D map's show/clear surface (see manager/toggles.js /
- * manager/layers.js) for the 3D peak/hotspot/cluster/track layers.
+ * Mirrors the 2D map's show/clear surface (see manager/toggles.mjs /
+ * manager/layers.mjs) for the 3D peak/hotspot/cluster/track layers.
  * clearAll() is the one teardown entry point a track switch or context loss
- * calls, and reaches across into the OSM/RF augment files' own clear methods.
-
- * Assigned onto GSRGlobeManager.prototype via Object.assign at the file's
- * tail (a plain ESM static import/export, loaded once by app_entry.mjs).
+ * calls, and reaches across into the OSM/RF class layers' own clear methods.
  */
 import { GSRGlobePeaks } from './peaks.mjs';
 

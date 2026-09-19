@@ -5,24 +5,18 @@
  * markers against the live analyser's sliding window, and handles offline
  * tile caching + map visibility.
  *
- * Split out of src/live/live_view.js (2026-09). The shell (live_view.js)
+ * Split out of live_view (2026-09). The shell (live_view.mjs)
  * owns the analyser, the view state (liveGsrView), device-class detection
- * (isCompactLiveLayout) and the FAB (closeFabMenu); the graph renderer
- * (live_graph.js) owns drawGraph. This file only reads those, through the
- * Controllers registry (core/controllers.mjs) rather than a direct import —
- * live_view.js imports many functions from this file, so this file importing
- * live_view.js back would be a mutual-import cycle. Top-level bindings
- * (liveMap, updateLiveMap, renderLiveMapMarkers, …) live in the shared
- * global lexical scope — see live_view.js's header — so tests reach them
- * through the vm context tests/support/boot_live.js hands back.
+ * and the FAB (closeFabMenu); the graph renderer (live_graph.mjs) owns drawGraph.
+ * This file reads those through the Controllers registry (core/controllers.mjs)
+ * to avoid mutual-import cycles.
  *
  * Reads:
- *   LiveState, LIVE_SETTLE_TAIL_S   src/live/live_state.js (leaf)
+ *   LiveState, LIVE_SETTLE_TAIL_S   src/live/live_state.mjs (leaf)
  *   MapColors, GpsPipeline, GSRMapMarkers, GSRBasemap   src/map/, src/gps/
- *   latLngToTileCoords, buildTileUrl, normalizeTileCacheUrl   src/live/live_tile_cache.js
- *   liveGsrView, liveAnalyzer, isCompactLayout, closeFabMenu
- *                                   Controllers.liveView (src/live/live_view.js)
- *   drawGraph                 src/live/live_graph.js
+ *   latLngToTileCoords, buildTileUrl, normalizeTileCacheUrl   src/live/live_tile_cache.mjs
+ *   liveGsrView, liveAnalyzer, isCompactLayout, closeFabMenu   Controllers.liveView
+ *   drawGraph                 src/live/live_graph.mjs
  */
 
 // src/core/constants.js's GPS_DEFAULT.maxHdop (docs/csv_schema.md's "HDOP
@@ -363,11 +357,10 @@ export function clearLiveMapMarkers() {
   liveMapHotspotMarkers.clear();
 }
 
-// A new session's resetSession() (live_view.js) needs to reset this file's
-// own module-level position/range state — an imported `let` binding is a
-// read-only view outside its own module (unlike the old dual-mode era, where
-// this was just a shared global both files freely reassigned), so this file
-// has to do the reassignment itself and hand back a callable, not a value.
+// A new session's resetSession() (live_view.mjs) needs to reset this module's
+// own position/range state — an imported `let` binding is a read-only live
+// binding outside its own module, so this module exports resetLiveMapSession()
+// to reassign its own state.
 export function resetLiveMapSession() {
   if (liveMap) {
     for (const { line } of allTrackSegments) {

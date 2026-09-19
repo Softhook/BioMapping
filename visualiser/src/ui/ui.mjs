@@ -5,12 +5,10 @@
  * All shared state is accessed through AppState.
  *
  * Everything else GSRUI used to hold now lives in topic-split sibling
- * files (ui_peaks_table.js, ui_stats_panel.js, ui_collective_map.js,
- * ui_export.js, ui_osm_overlay.js, ui_enrichment.js, ui_correlation_table.js,
- * ui_road_profile.js, ui_environmental_dashboard.js, ui_modals.js), each
- * doing Object.assign(GSRUI, {...}) the same way map.js's split files
- * augment GSRMapManager.prototype. Load order: this file first, then the
- * rest (order between them doesn't matter, only that they all follow ui.js).
+ * modules (ui_peaks_table.mjs, ui_stats_panel.mjs, ui_collective_map.mjs,
+ * ui_export.mjs, ui_osm_overlay.mjs, ui_enrichment.mjs, ui_correlation_table.mjs,
+ * ui_road_profile.mjs, ui_environmental_dashboard.mjs, ui_modals.mjs), composed
+ * into GSRUI below.
  */
 
 import { AppState } from '../core/app_state.mjs';
