@@ -289,11 +289,9 @@ export const GpsPipeline = {
     for (let i = 0; i < firstIdx; i++)
       filteredGps[i] = { lat: firstCoord.lat, lon: firstCoord.lon };
 
-    // Interpolate between valid points, leaving gaps too implausible to draw
-    // as a straight chord as NaN. A flat 30s time-only rule fabricates ~42m
-    // of invented path at walking pace while needlessly blanking a genuine
-    // 30s+ stop where the anchors barely moved — gate on the gap's own
-    // implied speed/distance instead (see isPlausibleGap).
+    // Interpolate between valid points, leaving only physically impossible
+    // jumps as NaN (see isImpossibleJump). Anything less — a brisk walk, a
+    // noisy fix, a snap offset — is real data and stays connected.
     for (let k = 0; k < validIndices.length - 1; k++) {
       const idxA = validIndices[k],
         idxB = validIndices[k + 1];
@@ -307,9 +305,7 @@ export const GpsPipeline = {
         idxA,
         idxB,
       );
-      if (
-        !GpsPipeline.isPlausibleGap(gapDistM, timeGap, maxSpeed, gapSpeedMult)
-      ) {
+      if (GpsPipeline.isImpossibleJump(gapDistM, timeGap)) {
         for (let i = idxA + 1; i < idxB; i++) {
           filteredGps[i] = { lat: NaN, lon: NaN };
         }

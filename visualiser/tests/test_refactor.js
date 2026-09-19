@@ -1177,24 +1177,29 @@ console.log('\n── gps_pipeline.js ──');
     { ...cB, origIdx: 5 },
   ];
 
+  // 10 m/s over 5 m is noise-level, not impossible: connected with or without snap
   const unsnapped = { filteredGps: null, snappedGps: null };
   GpsPipeline.reconstructFilteredGps(unsnapped, data, gpsPoints, 3.0);
   assert(
-    isNaN(unsnapped.filteredGps[2].lat),
-    'reconstructFilteredGps: fast unsnapped gap stays blanked (NaN)',
+    !isNaN(unsnapped.filteredGps[2].lat),
+    'reconstructFilteredGps: fast-but-not-impossible gap stays connected',
   );
 
-  const snapped = {
-    filteredGps: null,
-    snappedGps: {
-      0: { alpha: 0.9, roadLat: cA.lat, roadLon: cA.lon },
-      5: { alpha: 0.9, roadLat: cB.lat, roadLon: cB.lon },
-    },
-  };
-  GpsPipeline.reconstructFilteredGps(snapped, data, gpsPoints, 3.0);
+  // A genuinely impossible jump (~500 m in 0.5 s) is still blanked
+  const farB = { lat: 51.556 + 500 / 111320, lon: -0.071 };
+  const impossible = { filteredGps: null, snappedGps: null };
+  GpsPipeline.reconstructFilteredGps(
+    impossible,
+    data,
+    [
+      { ...cA, origIdx: 0 },
+      { ...farB, origIdx: 5 },
+    ],
+    3.0,
+  );
   assert(
-    !isNaN(snapped.filteredGps[2].lat),
-    'reconstructFilteredGps: same fast gap is connected once both anchors are confidently road-snapped',
+    isNaN(impossible.filteredGps[2].lat),
+    'reconstructFilteredGps: impossible jump is blanked (NaN)',
   );
 }
 
