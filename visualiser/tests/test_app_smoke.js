@@ -229,8 +229,11 @@ test('the "Driver (ISCR)" graph view is enabled only while a deconvolution/cvxED
   );
 
   // Enable deconvolution → a driver series is produced → the option unlocks.
+  // (The toggle handler yields a frame so the busy spinner can paint first.)
+  const settle = () => new Promise((r) => setTimeout(r, 120));
   decon.checked = true;
   fireChange(decon);
+  await settle();
   assert.strictEqual(
     driverOpt.disabled,
     false,
@@ -245,6 +248,7 @@ test('the "Driver (ISCR)" graph view is enabled only while a deconvolution/cvxED
 
   decon.checked = false;
   fireChange(decon);
+  await settle();
   assert.strictEqual(
     driverOpt.disabled,
     true,

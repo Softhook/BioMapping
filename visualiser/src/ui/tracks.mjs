@@ -4,6 +4,7 @@
  */
 
 import { AppState } from '../core/app_state.mjs';
+import { BusyOverlay } from '../core/busy_overlay.mjs';
 import { GSR_CONST } from '../core/constants.mjs';
 import { Controllers } from '../core/controllers.mjs';
 import { GSRFullscreen } from '../core/fullscreen.mjs';
@@ -164,9 +165,13 @@ export const GSRTrackManager = {
 
   loadFilesSequentially(files) {
     let index = 0;
+    const releaseBusy = BusyOverlay.begin(
+      files.length > 1 ? 'Loading tracks…' : 'Loading track…',
+    );
     const loadNext = () => {
       if (index >= files.length) {
         if (AppState.fileInput) AppState.fileInput.value = '';
+        releaseBusy();
         return;
       }
       const file = files[index];
@@ -208,6 +213,11 @@ export const GSRTrackManager = {
           index++;
           loadNext();
         }
+      };
+      reader.onerror = () => {
+        alert(`Could not read "${file.name}".`);
+        index++;
+        loadNext();
       };
       reader.readAsText(file);
     };

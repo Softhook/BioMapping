@@ -4477,3 +4477,67 @@ body:has(.live-mode) {
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.28);
   font-family: var(--font-sans, -apple-system, system-ui, sans-serif);
 }
+
+/* ── Busy overlay (src/core/busy_overlay.mjs) ────────────────────────────
+   Fades in after a short delay so quick operations never flash it. */
+.busy-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10001;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(252, 251, 249, 0.55);
+  cursor: progress;
+  opacity: 0;
+  animation: busy-overlay-in 0.15s ease-out 0.25s forwards;
+}
+
+.busy-overlay[hidden] {
+  display: none;
+}
+
+.busy-overlay-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 20px 28px;
+  background: var(--bg-card, #fff);
+  border: 1px solid var(--border-glass, #dcdbd3);
+  border-radius: 8px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.18);
+  font-family: var(--font-sans, -apple-system, system-ui, sans-serif);
+  color: var(--text-primary, #111);
+}
+
+.busy-overlay-spinner {
+  width: 34px;
+  height: 34px;
+  border: 3px solid var(--border-glass, #dcdbd3);
+  border-top-color: var(--accent-primary, #111);
+  border-radius: 50%;
+  animation: busy-overlay-spin 0.8s linear infinite;
+}
+
+.busy-overlay-label {
+  font-size: 13px;
+}
+
+@keyframes busy-overlay-in {
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes busy-overlay-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .busy-overlay-spinner {
+    animation-duration: 2.4s;
+  }
+}

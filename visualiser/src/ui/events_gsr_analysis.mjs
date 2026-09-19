@@ -8,6 +8,7 @@
  * object.
  */
 import { AppState } from '../core/app_state.mjs';
+import { BusyOverlay } from '../core/busy_overlay.mjs';
 import { Controllers } from '../core/controllers.mjs';
 import { GSR_SLIDER_DEFS } from './events_slider_defs.mjs';
 
@@ -48,7 +49,7 @@ export const GsrAnalysisEvents = {
           });
         }
         this.syncTonicBaselineControls();
-        Controllers.ui?.runAnalysis();
+        BusyOverlay.run('Re-analysing…', () => Controllers.ui?.runAnalysis());
       });
     });
     this.syncTonicBaselineControls(); // initial state

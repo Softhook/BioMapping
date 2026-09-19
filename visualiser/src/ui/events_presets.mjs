@@ -8,6 +8,7 @@
  * object.
  */
 import { AppState } from '../core/app_state.mjs';
+import { BusyOverlay } from '../core/busy_overlay.mjs';
 import { Controllers } from '../core/controllers.mjs';
 import { GSRStorage } from './storage.mjs';
 import { GSRTrackManager } from './tracks.mjs';
@@ -58,32 +59,34 @@ export const PresetEvents = {
         const activeGsr = GSRStorage.readGsrSliderValues();
         const activeGps = GSRStorage.readGpsSliderValues();
 
-        tracks.forEach((track) => {
-          track.filterParams = JSON.parse(JSON.stringify(activeGsr));
-          track.gpsFilterParams = JSON.parse(JSON.stringify(activeGps));
-          try {
-            const pl = track.gpsFilterParams?.peakLatency || 0;
-            track.analyzer.analyze(track.filterParams, pl);
-          } catch (e) {
-            console.warn(`Re-analysing track "${track.name}" failed:`, e);
+        BusyOverlay.run('Applying settings to all tracks…', () => {
+          tracks.forEach((track) => {
+            track.filterParams = JSON.parse(JSON.stringify(activeGsr));
+            track.gpsFilterParams = JSON.parse(JSON.stringify(activeGps));
+            try {
+              const pl = track.gpsFilterParams?.peakLatency || 0;
+              track.analyzer.analyze(track.filterParams, pl);
+            } catch (e) {
+              console.warn(`Re-analysing track "${track.name}" failed:`, e);
+            }
+          });
+
+          if (Controllers.ui) {
+            if (typeof Controllers.ui.runAnalysis === 'function') {
+              Controllers.ui.runAnalysis();
+            }
+            if (
+              AppState.viewMode === 'collective' &&
+              typeof Controllers.ui.updateCollectiveMap === 'function'
+            ) {
+              Controllers.ui.updateCollectiveMap();
+            }
+          }
+
+          if (typeof GSRTrackManager !== 'undefined') {
+            GSRTrackManager.renderTrackList();
           }
         });
-
-        if (Controllers.ui) {
-          if (typeof Controllers.ui.runAnalysis === 'function') {
-            Controllers.ui.runAnalysis();
-          }
-          if (
-            AppState.viewMode === 'collective' &&
-            typeof Controllers.ui.updateCollectiveMap === 'function'
-          ) {
-            Controllers.ui.updateCollectiveMap();
-          }
-        }
-
-        if (typeof GSRTrackManager !== 'undefined') {
-          GSRTrackManager.renderTrackList();
-        }
       });
     }
   },

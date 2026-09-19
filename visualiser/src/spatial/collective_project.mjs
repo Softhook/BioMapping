@@ -22,6 +22,7 @@
  *   ...
  */
 import { AppState } from '../core/app_state.mjs';
+import { BusyOverlay } from '../core/busy_overlay.mjs';
 import { GSR_CONST } from '../core/constants.mjs';
 import { Controllers } from '../core/controllers.mjs';
 import { GSRFileSaver } from '../core/file_saver.mjs';
@@ -256,6 +257,7 @@ export const GSRCollectiveProject = {
     // since AppState no longer matches whatever the DOM was last showing.
     let clearedExisting = false;
 
+    const releaseBusy = BusyOverlay.begin('Importing project…');
     try {
       const zip = await JSZip.loadAsync(file);
       const manifestEntry = zip.file('manifest.json');
@@ -414,6 +416,8 @@ export const GSRCollectiveProject = {
             : 'No File Loaded',
         );
       }
+    } finally {
+      releaseBusy();
     }
   },
 };
