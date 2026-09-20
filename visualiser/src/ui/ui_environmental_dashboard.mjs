@@ -676,7 +676,9 @@ export const EnvironmentalDashboardUI = {
         }
         if (pts.length < 2) return;
 
-        const passages = Junctions.classifyPassages(pts, a.osmGeoms.ways);
+        const passages = Junctions.classifyPassages(pts, a.osmGeoms.ways, {
+          includeControl: true,
+        });
         if (!passages || passages.length === 0) return;
         allPassages.push(...passages);
 

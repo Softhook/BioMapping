@@ -42,6 +42,12 @@ export const Junctions = {
   /** Consecutive fixes near one node further apart than this (m of track)
    *  are separate visits to it. */
   VISIT_GAP_M: 6,
+  /** Minimum distance (m) a mid-block control fix must be from any candidate junction node. */
+  CONTROL_MIN_NODE_DIST_M: 30,
+  /** Minimum distance (m of track) a control fix must be from any detected junction passage. */
+  CONTROL_MIN_PASSAGE_DIST_M: 25,
+  /** Minimum distance (m of track) between consecutive control samples along the same road. */
+  CONTROL_SPACING_M: 25,
 
   nodeKey(lat, lon) {
     return `${lat.toFixed(6)},${lon.toFixed(6)}`;
@@ -113,13 +119,14 @@ export const Junctions = {
    *   matched fixes in time order (snapped position + way).  When rawLat/rawLon
    *   are given, a passage is only turn/straight/reverse if snapped and raw agree.
    * @param {Array} ways Overpass ways covering the track.
+   * @param {object} [opts] Options ({ includeControl?: boolean })
    * @returns {Array<object>} one entry per passage, time-ordered:
    *   {key, lat, lon, i, idx, time, iBefore, iAfter, kind, degree, decision,
    *    turnAngleDeg, rawTurnAngleDeg, inWay, outWay, inClass, outClass}
-   *   kind: 'choice' | 'change' | 'choice+change'
-   *   decision: 'straight' | 'turn' | 'reverse' | 'ambiguous'
+   *   kind: 'choice' | 'change' | 'choice+change' | 'control'
+   *   decision: 'straight' | 'turn' | 'reverse' | 'ambiguous' | 'control'
    */
-  classifyPassages(pts, ways) {
+  classifyPassages(pts, ways, opts = {}) {
     const { nodes, wayNodes } = this.buildIndex(ways);
     const R = this.PASS_RADIUS_M;
 
@@ -168,10 +175,150 @@ export const Junctions = {
       }
       flush();
     }
-    return this._mergeNearby(
+    const juncs = this._mergeNearby(
       passages.sort((a, b) => a.i - b.i),
       cum,
     );
+    if (opts.includeControl) {
+      const controls = this.findControlPassages(pts, ways, juncs, cum, {
+        nodes,
+        wayNodes,
+      });
+      return [...juncs, ...controls].sort((a, b) => a.i - b.i);
+    }
+    return juncs;
+  },
+
+  /**
+   * Identify mid-block control passages along straight road segments away from any junction.
+   *
+   * @param {Array} pts matched fixes in time order
+   * @param {Array} ways Overpass ways covering the track
+   * @param {Array} juncPassages already classified junction passages
+   * @param {number[]} [cum] cumulative track distance array (optional, computed if missing)
+   * @param {object} [cache] pre-built { nodes, wayNodes } index
+   * @returns {Array<object>} control passages
+   */
+  findControlPassages(pts, ways, juncPassages = [], cum = null, cache = null) {
+    if (!pts || pts.length < 2) return [];
+    if (!cum) {
+      cum = new Array(pts.length).fill(0);
+      for (let k = 1; k < pts.length; k++) {
+        cum[k] =
+          cum[k - 1] +
+          GeoUtils.haversineMeters(
+            pts[k - 1].lat,
+            pts[k - 1].lon,
+            pts[k].lat,
+            pts[k].lon,
+          );
+      }
+    }
+
+    const { nodes, wayNodes } = cache || this.buildIndex(ways);
+    const wayMap = new Map();
+    for (const w of ways) {
+      if (w?.id != null) wayMap.set(w.id, w);
+    }
+
+    const controls = [];
+    let lastControlCum = -Infinity;
+
+    const arm = (i, dir) => {
+      let dist = 0;
+      let j = i;
+      const targetWay = pts[i].wayId;
+      while (j + dir >= 0 && j + dir < pts.length && dist < this.ARM_M) {
+        if (pts[j + dir].wayId !== targetWay) break;
+        dist += GeoUtils.haversineMeters(
+          pts[j].lat,
+          pts[j].lon,
+          pts[j + dir].lat,
+          pts[j + dir].lon,
+        );
+        j += dir;
+      }
+      return dist >= this.MIN_ARM_M ? j : -1;
+    };
+
+    const brg = (a, b) => GeoUtils.bearingDeg(a.lat, a.lon, b.lat, b.lon);
+    const wrap = (d) => ((((d + 180) % 360) + 360) % 360) - 180;
+
+    for (let i = 0; i < pts.length; i++) {
+      const p = pts[i];
+      if (!this._onWay(p)) continue;
+      const w = wayMap.get(p.wayId);
+      if (!w) continue;
+
+      // 1. Spacing from previous control passage
+      if (cum[i] - lastControlCum < this.CONTROL_SPACING_M) continue;
+
+      // 2. Distance along track from any junction passage
+      let nearJunc = false;
+      for (const jp of juncPassages) {
+        if (Math.abs(cum[i] - cum[jp.i]) < this.CONTROL_MIN_PASSAGE_DIST_M) {
+          nearJunc = true;
+          break;
+        }
+      }
+      if (nearJunc) continue;
+
+      // 3. Spatial distance from any candidate junction node on this way
+      const nodeKeys = wayNodes.get(p.wayId) || [];
+      let tooCloseToNode = false;
+      for (const key of nodeKeys) {
+        const n = nodes.get(key);
+        if (!n) continue;
+        const d = GeoUtils.haversineMeters(p.lat, p.lon, n.lat, n.lon);
+        if (d < this.CONTROL_MIN_NODE_DIST_M) {
+          tooCloseToNode = true;
+          break;
+        }
+      }
+      if (tooCloseToNode) continue;
+
+      // 4. Arms before and after must stay on this way and be straight
+      const iBefore = arm(i, -1);
+      const iAfter = arm(i, 1);
+      if (iBefore < 0 || iAfter < 0) continue;
+
+      const bIn = brg(pts[iBefore], pts[i]);
+      const bOut = brg(pts[i], pts[iAfter]);
+      const turn = wrap(bOut - bIn);
+      if (this._label(turn) !== 'straight') continue;
+
+      let rawTurn = null;
+      if (p.rawLat != null) {
+        const rb = (a, b) =>
+          GeoUtils.bearingDeg(a.rawLat, a.rawLon, b.rawLat, b.rawLon);
+        rawTurn = wrap(rb(pts[i], pts[iAfter]) - rb(pts[iBefore], pts[i]));
+        if (this._label(rawTurn) !== 'straight') continue;
+      }
+
+      const charStr = this.characterOf(w);
+      controls.push({
+        key: `ctrl_${p.wayId}_${p.time}`,
+        lat: p.lat,
+        lon: p.lon,
+        i,
+        idx: p.idx,
+        time: p.time,
+        iBefore,
+        iAfter,
+        kind: 'control',
+        degree: 2,
+        decision: 'control',
+        turnAngleDeg: turn,
+        rawTurnAngleDeg: rawTurn,
+        inWay: p.wayId,
+        outWay: p.wayId,
+        inClass: charStr,
+        outClass: charStr,
+      });
+      lastControlCum = cum[i];
+    }
+
+    return controls;
   },
 
   /** Collapse passages within MERGE_M of track into one, keeping the richest node. */

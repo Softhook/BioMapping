@@ -90,6 +90,7 @@ export const JunctionsTableUI = {
     // Summary counts
     const nTurn = passages.filter((p) => p.decision === 'turn').length;
     const nStraight = passages.filter((p) => p.decision === 'straight').length;
+    const nControl = passages.filter((p) => p.decision === 'control').length;
     const nReverse = passages.filter((p) => p.decision === 'reverse').length;
     const nAmbiguous = passages.filter(
       (p) => p.decision === 'ambiguous',
@@ -113,6 +114,7 @@ export const JunctionsTableUI = {
       ).length;
     const nDroppedTurn = lost('turn');
     const nDroppedStraight = lost('straight');
+    const nDroppedControl = lost('control');
     // Turns cluster in dense areas, so they can lose far more windows than
     // straights — which biases who is left to compare.
     const keptFrac = (n, dropped) => (n ? (n - dropped) / n : 1);
@@ -130,10 +132,11 @@ export const JunctionsTableUI = {
         <span><strong>Passages:</strong> ${passages.length} total</span>
         <span class="junction-stat-chip turn" title="Turn angle ≥ 40°"><i class="fa-solid fa-arrow-turn-up"></i> ${nTurn} Turns</span>
         <span class="junction-stat-chip straight" title="Turn angle ≤ 25°"><i class="fa-solid fa-arrow-up"></i> ${nStraight} Straight</span>
+        <span class="junction-stat-chip control" title="Mid-block straight road segments ≥ 30 m from any junction"><i class="fa-solid fa-road"></i> ${nControl} Control</span>
         <span class="junction-stat-chip reverse" title="Turn angle ≥ 135° (U-turns)"><i class="fa-solid fa-rotate-left"></i> ${nReverse} Reverse</span>
         <span class="junction-stat-chip ambiguous" title="Angle 25°–40° or snapped vs raw GPS disagree"><i class="fa-solid fa-circle-question"></i> ${nAmbiguous} Ambiguous</span>
         <span class="junction-stat-chip" style="background: rgba(0,85,204,0.1); color: #0055cc; font-weight: 600;" title="Junctions visited multiple times with both turn and straight choices"><i class="fa-solid fa-code-compare"></i> ${nPaired} Paired Junctions</span>
-        <span class="junction-stat-chip ambiguous" title="Passages within ~20 s of another junction, or with too little GSR, are left out so no sample is counted twice. Reverse and ambiguous passages are never compared."><i class="fa-solid fa-filter"></i> no clean window: ${nDroppedTurn} of ${nTurn} turns, ${nDroppedStraight} of ${nStraight} straights · ${nReverse + nAmbiguous} reverse/ambiguous not compared</span>
+        <span class="junction-stat-chip ambiguous" title="Passages within ~20 s of another junction, or with too little GSR, are left out so no sample is counted twice. Reverse and ambiguous passages are never compared."><i class="fa-solid fa-filter"></i> no clean window: ${nDroppedTurn} of ${nTurn} turns, ${nDroppedStraight} of ${nStraight} straights, ${nDroppedControl} of ${nControl} controls · ${nReverse + nAmbiguous} reverse/ambiguous not compared</span>
         ${skewedLoss ? '<span class="junction-stat-chip reverse" title="One class lost many more windows than the other (usually turns, which sit in dense areas), so the passages compared may not be representative."><i class="fa-solid fa-triangle-exclamation"></i> Uneven loss of turns vs straights — comparison may be biased</span>' : ''}
       `;
     }
@@ -141,7 +144,7 @@ export const JunctionsTableUI = {
     if (comparison.length === 0) {
       const tr = document.createElement('tr');
       tr.innerHTML = `
-        <td colspan="6" style="text-align: center; color: var(--text-muted); padding: 24px;">
+        <td colspan="8" style="text-align: center; color: var(--text-muted); padding: 24px;">
           ${
             passages.length === 0
               ? 'No junction passages detected. Ensure tracks are enriched with OpenStreetMap road data and road snapping is enabled.'
@@ -209,7 +212,7 @@ export const JunctionsTableUI = {
       const first = comparison[0];
       const nT = first.nTurn;
       const nS = first.nStraight;
-      const lowPower = nPaired < 5 || Math.min(nT, nS) < 30;
+      const lowPower = nPaired < 15 || Math.min(nT, nS) < 30;
       let icon = 'fa-equals';
       let headline =
         'No detectable difference between turning and going straight';
@@ -257,9 +260,19 @@ export const JunctionsTableUI = {
         if (!r) return '';
         const tVal = r.meanTurn ?? 0;
         const sVal = r.meanStraight ?? 0;
-        const maxVal = Math.max(Math.abs(tVal), Math.abs(sVal), 0.001);
+        const cVal = r.meanControl;
+        const hasControl = Number.isFinite(cVal);
+        const maxVal = Math.max(
+          Math.abs(tVal),
+          Math.abs(sVal),
+          hasControl ? Math.abs(cVal) : 0,
+          0.001,
+        );
         const tPct = Math.min(100, (Math.abs(tVal) / maxVal) * 100);
         const sPct = Math.min(100, (Math.abs(sVal) / maxVal) * 100);
+        const cPct = hasControl
+          ? Math.min(100, (Math.abs(cVal) / maxVal) * 100)
+          : 0;
 
         const diff = Number.isFinite(r.diff) ? r.diff : tVal - sVal;
         const pctDiff = safePct(r, diff, sVal);
@@ -297,6 +310,18 @@ export const JunctionsTableUI = {
                 </div>
                 <span style="font-family:monospace; min-width:55px; text-align:right;">${fmt(sVal)} μS</span>
               </div>
+              ${
+                hasControl
+                  ? `
+              <div class="junction-value-row">
+                <span style="font-weight:600; min-width:65px;"><i class="fa-solid fa-road" style="color:#007bff;"></i> Control:</span>
+                <div class="junction-bar-track">
+                  <div class="junction-bar-fill control" style="width: ${cPct}%;"></div>
+                </div>
+                <span style="font-family:monospace; min-width:55px; text-align:right;">${fmt(cVal)} μS</span>
+              </div>`
+                  : ''
+              }
             </div>
           </div>
         `;
@@ -335,6 +360,11 @@ export const JunctionsTableUI = {
           const diffB = b.diff ?? 0;
           return dir * (diffA - diffB);
         }
+        if (col === 'diffJunction') {
+          const diffA = a.diffJunction ?? 0;
+          const diffB = b.diffJunction ?? 0;
+          return dir * (diffA - diffB);
+        }
         if (col === 'pVal') {
           return dir * ((a.q ?? 1) - (b.q ?? 1));
         }
@@ -350,6 +380,20 @@ export const JunctionsTableUI = {
         ? r.diff
         : (r.meanTurn ?? 0) - (r.meanStraight ?? 0);
       const pct = safePct(r, diff, r.meanStraight);
+
+      const diffJunc = r.diffJunction;
+      const pctJunc = safePct(r, diffJunc, r.meanControl);
+      const badgeClassJunc =
+        r.verdictJunction === 'none' || !Number.isFinite(diffJunc)
+          ? 'neutral'
+          : diffJunc > neutralBand(r.metric)
+            ? 'higher'
+            : diffJunc < -neutralBand(r.metric)
+              ? 'lower'
+              : 'neutral';
+      const diffJuncFormatted = Number.isFinite(diffJunc)
+        ? fmtDiff(diffJunc, pctJunc, r.metric)
+        : '—';
 
       // Verdict rests on the BH-corrected q across all rows, not the raw p.
       // Paired (within-junction) is used only with enough paired junctions;
@@ -383,7 +427,9 @@ export const JunctionsTableUI = {
         <td>${metricLabels[r.metric] || r.metric}</td>
         <td><span class="junction-turn-val"><i class="fa-solid fa-arrow-turn-up"></i> ${fmt(r.meanTurn, digits)}${unit}</span> <span style="font-size:0.75rem; color:var(--text-muted);">(n=${r.nTurnUsed ?? r.nTurn})</span></td>
         <td><span class="junction-straight-val"><i class="fa-solid fa-arrow-up"></i> ${fmt(r.meanStraight, digits)}${unit}</span> <span style="font-size:0.75rem; color:var(--text-muted);">(n=${r.nStraightUsed ?? r.nStraight})</span></td>
+        <td><span class="junction-control-val"><i class="fa-solid fa-road"></i> ${fmt(r.meanControl, digits)}${unit}</span> <span style="font-size:0.75rem; color:var(--text-muted);">(n=${r.nControlUsed ?? r.nControl ?? 0})</span></td>
         <td><span class="junction-diff-badge ${badgeClass}">${diffFormatted}</span></td>
+        <td><span class="junction-diff-badge ${badgeClassJunc}">${diffJuncFormatted}</span></td>
         <td>${verdictChip}</td>
       `;
       tbody.appendChild(tr);

@@ -215,3 +215,80 @@ test('classifyPassages: two visits far apart stay two passages at any spacing', 
     assert.strictEqual(out.length, 2, `step ${step}`);
   }
 });
+
+test('findControlPassages / includeControl: extracts mid-block control on long straight road away from junctions', () => {
+  // Long east-west road from 0 to 300 m with vertices at J1 (100 m) and J2 (250 m).
+  // Between 100 m and 250 m is a 150 m straight stretch.
+  const SIDE1 = way('SIDE1', [
+    { lat: 0, lon: m(100) },
+    { lat: m(50), lon: m(100) },
+  ]);
+  const SIDE2 = way('SIDE2', [
+    { lat: 0, lon: m(250) },
+    { lat: m(50), lon: m(250) },
+  ]);
+  const LONG_RD = way('LONG_RD', [
+    { lat: 0, lon: 0 },
+    { lat: 0, lon: m(100) },
+    { lat: 0, lon: m(250) },
+    { lat: 0, lon: m(300) },
+  ]);
+  const track = [];
+  for (let x = 0; x <= 300; x += 3) {
+    track.push([0, m(x), 'LONG_RD']);
+  }
+  const juncOnly = Junctions.classifyPassages(pts(track), [
+    LONG_RD,
+    SIDE1,
+    SIDE2,
+  ]);
+  assert.strictEqual(juncOnly.length, 2);
+  assert.ok(juncOnly.every((p) => p.decision === 'straight'));
+
+  const withControl = Junctions.classifyPassages(
+    pts(track),
+    [LONG_RD, SIDE1, SIDE2],
+    {
+      includeControl: true,
+    },
+  );
+  const controls = withControl.filter((p) => p.decision === 'control');
+  assert.ok(controls.length >= 1, `expected controls, got ${controls.length}`);
+  assert.strictEqual(controls[0].kind, 'control');
+  assert.strictEqual(controls[0].inWay, 'LONG_RD');
+  assert.strictEqual(controls[0].outWay, 'LONG_RD');
+  // Control must be at least 30 m away from both J1 (100 m) and J2 (250 m)
+  for (const ctrl of controls) {
+    const lonM = ctrl.lon * 111320;
+    assert.ok(
+      Math.abs(lonM - 100) >= 28 && Math.abs(lonM - 250) >= 28,
+      `ctrl too close to node: ${lonM}`,
+    );
+  }
+});
+
+test('findControlPassages: road with close junctions (< 30 m) yields no control passages', () => {
+  // Junctions at 50 m and 90 m (gap = 40 m < 2 * 30 m)
+  const SIDE1 = way('SIDE1', [
+    { lat: 0, lon: m(50) },
+    { lat: m(50), lon: m(50) },
+  ]);
+  const SIDE2 = way('SIDE2', [
+    { lat: 0, lon: m(90) },
+    { lat: m(50), lon: m(90) },
+  ]);
+  const SHORT_RD = way('SHORT_RD', [
+    { lat: 0, lon: 0 },
+    { lat: 0, lon: m(50) },
+    { lat: 0, lon: m(90) },
+    { lat: 0, lon: m(140) },
+  ]);
+  const track = [];
+  for (let x = 30; x <= 110; x += 3) track.push([0, m(x), 'SHORT_RD']);
+  const controls = Junctions.findControlPassages(pts(track), [
+    SHORT_RD,
+    SIDE1,
+    SIDE2,
+  ]);
+  assert.strictEqual(controls.length, 0);
+});

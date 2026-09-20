@@ -1251,6 +1251,7 @@ input[type="range"]:focus-visible,
 
 .table-container {
   overflow: auto;
+  overscroll-behavior: contain;
   scrollbar-gutter: stable;
   flex-grow: 1;
   min-height: 0;
@@ -4069,6 +4070,11 @@ body:has(.live-mode) {
   color: #495057;
 }
 
+.junction-stat-chip.control {
+  background: rgba(0, 123, 255, 0.12);
+  color: #0069d9;
+}
+
 /* Junction insight headline banner */
 .junction-insight-banner {
   background: rgba(0, 85, 204, 0.05);
@@ -4170,6 +4176,10 @@ body:has(.live-mode) {
   background: #218838;
 }
 
+.junction-bar-fill.control {
+  background: #007bff;
+}
+
 .junction-diff-badge {
   display: inline-flex;
   align-items: center;
@@ -4205,6 +4215,14 @@ body:has(.live-mode) {
 
 .junction-straight-val {
   color: #218838;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.junction-control-val {
+  color: #007bff;
   font-weight: 600;
   display: inline-flex;
   align-items: center;

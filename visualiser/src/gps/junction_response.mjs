@@ -35,7 +35,7 @@ export const JunctionResponse = {
   PERMUTATIONS: 5000,
   /** Fewer paired junctions than this and the paired test is too coarse to
    *  be the headline (its permutation p can't get small). */
-  MIN_PAIRED: 5,
+  MIN_PAIRED: 15,
   /** q below this is "supported"; a raw p below it alone is only "suggestive". */
   ALPHA: 0.05,
 
@@ -223,8 +223,8 @@ export const JunctionResponse = {
   /**
    * Shift every record's level so tracks differ only by what happened at their
    * junctions: value − trackMean + grandMean, where the means are over that
-   * track's turn+straight records.  Tracks with only one of the two carry no
-   * within-track contrast and are dropped.  Records without a trackId pass
+   * track's compared records. Tracks with no within-track variation
+   * carry no contrast and are dropped. Records without a trackId pass
    * through unchanged.
    */
   _adjustForTrack(recs, val) {
@@ -235,11 +235,10 @@ export const JunctionResponse = {
       by.get(r.trackId).push(r);
     }
     const mean = (a) => a.reduce((x, y) => x + y, 0) / a.length;
-    const usable = [...by.values()].filter(
-      (rs) =>
-        rs.some((r) => r.decision === 'turn') &&
-        rs.some((r) => r.decision === 'straight'),
-    );
+    const usable = [...by.values()].filter((rs) => {
+      const decs = new Set(rs.map((r) => r.decision));
+      return decs.size >= 2;
+    });
     const grand = usable.length ? mean(usable.flat().map(val)) : 0;
     const out = [];
     for (const r of recs) {
@@ -255,15 +254,18 @@ export const JunctionResponse = {
   },
 
   /**
-   * Turn-vs-straight tests on records pooled across tracks.  Each record needs
-   * {key, decision, before, after, delta} (+ trackId for the per-track
-   * adjustment); only 'turn' and 'straight' are used (reverse / ambiguous are
-   * excluded).  Returns rows with the chosen `test` ('paired' | 'pooled'), its
-   * `p` and BH `q` across all rows, and a `verdict`.
+   * Turn-vs-straight and junction-vs-control tests on records pooled across tracks.
+   * Each record needs {key, decision, before, after, delta} (+ trackId for the per-track
+   * adjustment); 'turn', 'straight', and 'control' are used (reverse / ambiguous are
+   * excluded). Returns rows with the chosen `test` ('paired' | 'pooled'), its
+   * `p` and BH `q` across all rows, control baseline means and contrasts, and verdicts.
    */
   compare(records) {
     const recs = records.filter(
-      (r) => r.decision === 'turn' || r.decision === 'straight',
+      (r) =>
+        r.decision === 'turn' ||
+        r.decision === 'straight' ||
+        r.decision === 'control',
     );
     const rows = [];
     for (const phase of ['before', 'after', 'delta']) {
@@ -274,10 +276,44 @@ export const JunctionResponse = {
           recs,
           (r) => r[phase][metric],
         );
-        const nTurn = items.filter((x) => x.r.decision === 'turn').length;
-        const nStraight = items.length - nTurn;
+        const turnItems = items.filter((x) => x.r.decision === 'turn');
+        const straightItems = items.filter((x) => x.r.decision === 'straight');
+        const controlItems = items.filter((x) => x.r.decision === 'control');
+
+        const nTurn = turnItems.length;
+        const nStraight = straightItems.length;
+        const nControl = controlItems.length;
+
+        // Turn vs Straight contrast
+        const turnVsStraightItems = items.filter(
+          (x) => x.r.decision === 'turn' || x.r.decision === 'straight',
+        );
         const pooled = this._pooledPermutation(
-          items.map((x) => ({
+          turnVsStraightItems.map((x) => ({
+            v: x.v,
+            turn: x.r.decision === 'turn',
+            group: x.r.trackId ?? null,
+          })),
+        );
+
+        // Straight vs Control (Junction vs Open Road baseline) contrast
+        const straightVsControlItems = items.filter(
+          (x) => x.r.decision === 'straight' || x.r.decision === 'control',
+        );
+        const pooledJunction = this._pooledPermutation(
+          straightVsControlItems.map((x) => ({
+            v: x.v,
+            turn: x.r.decision === 'straight',
+            group: x.r.trackId ?? null,
+          })),
+        );
+
+        // Turn vs Control contrast
+        const turnVsControlItems = items.filter(
+          (x) => x.r.decision === 'turn' || x.r.decision === 'control',
+        );
+        const pooledTurnControl = this._pooledPermutation(
+          turnVsControlItems.map((x) => ({
             v: x.v,
             turn: x.r.decision === 'turn',
             group: x.r.trackId ?? null,
@@ -287,6 +323,7 @@ export const JunctionResponse = {
         // Paired contrast uses the raw values: the junction itself is the control.
         const byKey = new Map();
         for (const r of recs) {
+          if (r.decision !== 'turn' && r.decision !== 'straight') continue;
           if (!byKey.has(r.key)) byKey.set(r.key, { turn: [], straight: [] });
           byKey.get(r.key)[r.decision].push(r[phase][metric]);
         }
@@ -305,12 +342,30 @@ export const JunctionResponse = {
         const meanStraight = usePaired
           ? mean(groups.map((g) => mean(g.straight)))
           : pooled.meanB;
+        const meanControl =
+          controlItems.length >= 2
+            ? mean(controlItems.map((x) => x.v))
+            : controlItems.length === 1
+              ? controlItems[0].v
+              : NaN;
+
+        const diff = meanTurn - meanStraight;
+        const diffJunction =
+          Number.isFinite(meanStraight) && Number.isFinite(meanControl)
+            ? meanStraight - meanControl
+            : NaN;
+        const diffTurnControl =
+          Number.isFinite(meanTurn) && Number.isFinite(meanControl)
+            ? meanTurn - meanControl
+            : NaN;
+
         rows.push({
           phase,
           metric,
           // All usable windows overall …
           nTurn,
           nStraight,
+          nControl,
           nTracks,
           // … and those the reported test actually used.
           nTurnUsed: usePaired
@@ -319,25 +374,51 @@ export const JunctionResponse = {
           nStraightUsed: usePaired
             ? groups.reduce((a, g) => a + g.straight.length, 0)
             : nStraight,
+          nControlUsed: nControl,
           meanTurn,
           meanStraight,
-          diff: meanTurn - meanStraight,
+          meanControl,
+          diff,
+          diffJunction,
+          diffTurnControl,
           pooledP: pooled.p,
           pairedN: paired.n,
           pairedMeanDiff: paired.meanDiff,
           pairedP: paired.p,
           test,
           p: usePaired ? paired.p : pooled.p,
+          pJunction: pooledJunction.p,
+          pTurnControl: pooledTurnControl.p,
         });
       }
     }
     const q = StatsMath.benjaminiHochberg(rows.map((r) => r.p));
+    const qJunction = StatsMath.benjaminiHochberg(
+      rows.map((r) => r.pJunction ?? 1),
+    );
+    const qTurnControl = StatsMath.benjaminiHochberg(
+      rows.map((r) => r.pTurnControl ?? 1),
+    );
     rows.forEach((r, i) => {
       r.q = q[i];
+      r.qJunction = qJunction[i];
+      r.qTurnControl = qTurnControl[i];
       r.verdict =
         r.q < this.ALPHA
           ? 'supported'
           : r.p < this.ALPHA
+            ? 'suggestive'
+            : 'none';
+      r.verdictJunction =
+        r.qJunction < this.ALPHA
+          ? 'supported'
+          : r.pJunction < this.ALPHA
+            ? 'suggestive'
+            : 'none';
+      r.verdictTurnControl =
+        r.qTurnControl < this.ALPHA
+          ? 'supported'
+          : r.pTurnControl < this.ALPHA
             ? 'suggestive'
             : 'none';
     });

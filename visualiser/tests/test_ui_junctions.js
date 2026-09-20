@@ -297,3 +297,38 @@ test('renderJunctionsTable: never shows a percentage on a change (delta) row', (
   );
   assert.ok(!/%\)/.test(tbodyEl.children[0].innerHTML));
 });
+
+test('renderJunctionsTable: renders open road control chip, moment card bar, and table columns', () => {
+  const { summaryEl, cardsEl, tbodyEl } = setupDOM();
+  const passages = [
+    { key: 'J1', time: 1, decision: 'turn' },
+    { key: 'J1', time: 9, decision: 'straight' },
+    { key: 'C1', time: 25, decision: 'control' },
+  ];
+  const responses = [
+    { key: 'J1', time: 1, decision: 'turn' },
+    { key: 'J1', time: 9, decision: 'straight' },
+    { key: 'C1', time: 25, decision: 'control' },
+  ];
+  const row = mockRow('after', 'meanPhasic', {
+    meanTurn: 0.5,
+    meanStraight: 0.4,
+    meanControl: 0.2,
+    diff: 0.1,
+    diffJunction: 0.2,
+    verdict: 'supported',
+    verdictJunction: 'supported',
+  });
+  JunctionsTableUI.renderJunctionsTable({
+    passages,
+    responses,
+    comparison: [row],
+  });
+
+  assert.ok(summaryEl.innerHTML.includes('1 Control'));
+  assert.ok(cardsEl.innerHTML.includes('Control:'));
+  assert.ok(cardsEl.innerHTML.includes('0.200 μS'));
+  assert.ok(tbodyEl.children[0].innerHTML.includes('junction-control-val'));
+  assert.ok(tbodyEl.children[0].innerHTML.includes('0.200 μS'));
+  assert.ok(tbodyEl.children[0].innerHTML.includes('+0.200 μS'));
+});

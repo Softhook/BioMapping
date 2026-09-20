@@ -58,10 +58,10 @@ test('responses: passages without GSR coverage on both sides are dropped', () =>
 });
 
 function synthetic(effect) {
-  // 12 junctions × (2 turn + 2 straight); after-window peakRate = base + effect for turns.
+  // 16 junctions × (2 turn + 2 straight); after-window peakRate = base + effect for turns.
   const recs = [];
   const rng = JunctionResponse._rng(7);
-  for (let j = 0; j < 12; j++) {
+  for (let j = 0; j < 16; j++) {
     const jBase = rng() * 10; // junction-specific level — the confound pairing removes
     for (const d of ['turn', 'turn', 'straight', 'straight']) {
       const noise = (rng() - 0.5) * 2;
@@ -85,7 +85,7 @@ test('compare: a planted turn effect is found by the paired test despite big bet
   const r = row(rows, 'after', 'peakRate');
   assert.ok(r.pairedP < 0.01, `pairedP ${r.pairedP}`);
   assert.ok(Math.abs(r.pairedMeanDiff - 3) < 0.8, `diff ${r.pairedMeanDiff}`);
-  assert.strictEqual(r.pairedN, 12);
+  assert.strictEqual(r.pairedN, 16);
 });
 
 test('compare: with no effect the paired test does not fire, and the "before" phase is null', () => {
@@ -112,7 +112,7 @@ test('compare: reverse and ambiguous passages are excluded', () => {
     },
   ]);
   const r = row(JunctionResponse.compare(recs), 'after', 'peakRate');
-  assert.strictEqual(r.nTurn + r.nStraight, 48);
+  assert.strictEqual(r.nTurn + r.nStraight, 64);
 });
 
 test('pairedPermutation: fewer than two junctions cannot be tested', () => {
@@ -246,7 +246,7 @@ test('compare: the means shown always agree with the difference tested (paired a
     after: { peakRate: v, meanPhasic: v },
     delta: { peakRate: 0, meanPhasic: 0, meanTonic: 0 },
   });
-  for (let j = 0; j < 6; j++) {
+  for (let j = 0; j < 16; j++) {
     recs.push(mk(`J${j}`, 'A', 'turn', 10 * j + 4));
     recs.push(mk(`J${j}`, 'A', 'straight', 10 * j));
   }
@@ -255,9 +255,9 @@ test('compare: the means shown always agree with the difference tested (paired a
   assert.strictEqual(r.test, 'paired');
   assert.ok(Math.abs(r.diff - 4) < 1e-9, `diff ${r.diff}`);
   assert.ok(Math.abs(r.meanTurn - r.meanStraight - r.diff) < 1e-9);
-  assert.strictEqual(r.nTurnUsed, 6);
-  assert.strictEqual(r.nStraightUsed, 6);
-  assert.strictEqual(r.nStraight, 26); // overall usable windows still reported
+  assert.strictEqual(r.nTurnUsed, 16);
+  assert.strictEqual(r.nStraightUsed, 16);
+  assert.strictEqual(r.nStraight, 36); // overall usable windows still reported
 
   const pooledRow = row(
     JunctionResponse.compare(synthetic(0).slice(0, 12)),
@@ -269,4 +269,41 @@ test('compare: the means shown always agree with the difference tested (paired a
     Math.abs(pooledRow.meanTurn - pooledRow.meanStraight - pooledRow.diff) <
       1e-9,
   );
+});
+
+test('compare: control condition provides mid-block baseline and computes junction contrasts', () => {
+  // 10 turns (val ~ 5), 10 straights (val ~ 5), 10 controls (val ~ 2) on track T1
+  const recs = [];
+  const mk = (key, d, v) => ({
+    key,
+    trackId: 'T1',
+    decision: d,
+    before: { peakRate: v, meanPhasic: v },
+    after: { peakRate: v, meanPhasic: v },
+    delta: { peakRate: 0, meanPhasic: 0, meanTonic: 0 },
+  });
+  for (let i = 0; i < 10; i++) {
+    recs.push(mk(`J${i}`, 'turn', 5.0));
+    recs.push(mk(`J${i}`, 'straight', 5.0));
+    recs.push(mk(`C${i}`, 'control', 2.0));
+  }
+  const rows = JunctionResponse.compare(recs);
+  const r = row(rows, 'after', 'meanPhasic');
+
+  assert.strictEqual(r.nTurn, 10);
+  assert.strictEqual(r.nStraight, 10);
+  assert.strictEqual(r.nControl, 10);
+  assert.ok(Math.abs(r.meanTurn - 5.0) < 0.1);
+  assert.ok(Math.abs(r.meanStraight - 5.0) < 0.1);
+  assert.ok(Math.abs(r.meanControl - 2.0) < 0.1);
+
+  // Turn vs Straight diff should be ~0
+  assert.ok(Math.abs(r.diff) < 0.1, `diff ${r.diff}`);
+  // Junction vs Open Road (Straight vs Control) diff should be ~3.0
+  assert.ok(
+    Math.abs(r.diffJunction - 3.0) < 0.1,
+    `diffJunction ${r.diffJunction}`,
+  );
+  // Straight vs Control should detect the planted effect
+  assert.ok(r.pJunction < 0.05, `pJunction ${r.pJunction}`);
 });
