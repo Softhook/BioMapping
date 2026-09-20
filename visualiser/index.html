@@ -969,6 +969,7 @@
               <button class="view-tab active" id="btnEnvTabCorrelation" type="button">Correlation Matrix</button>
               <button class="view-tab" id="btnEnvTabScatter" type="button">Regression Plot</button>
               <button class="view-tab" id="btnEnvTabRoads" type="button">Roads Profile</button>
+              <button class="view-tab" id="btnEnvTabJunctions" type="button">Junction Turns</button>
             </div>
             <div class="canvas-controls" style="margin-left: auto;">
               <button class="icon-btn fullscreen-btn" id="btnEnvFullscreen" title="Full screen" type="button"><i class="fa-solid fa-expand"></i></button>
@@ -1088,6 +1089,60 @@
                 <!-- Bar chart populated dynamically -->
               </div>
             </div>
+          </div>
+
+          <!-- Tab 4: Junction Turns -->
+          <div class="env-tab-content" id="envTabJunctions" style="display: none; padding: 16px;">
+            <p class="help-text" style="margin: 0 0 12px 0;">
+              Compares GSR at road junctions where the walker <strong>turned</strong> versus <strong>carried straight on</strong>, in the 10&nbsp;s before and 10&nbsp;s after each junction (clipped at midpoints so no sample is counted twice). This shows association only, and needs many junctions or repeat walks before a difference means anything.
+            </p>
+
+            <div class="junction-summary-row" id="junctionSummaryRow">
+              <span><strong>Passages:</strong> 0 total</span>
+            </div>
+
+            <!-- Headline takeaway banner -->
+            <div class="junction-insight-banner" id="junctionInsightBanner" style="display: none;">
+              <!-- Populated dynamically in JavaScript -->
+            </div>
+
+            <!-- The 3 Key Moments Cards Grid -->
+            <div class="junction-cards-grid" id="junctionCardsGrid">
+              <!-- Populated dynamically in JavaScript -->
+            </div>
+
+            <div class="table-container" style="margin-top: 14px;">
+              <table class="peaks-table" id="junctionsTable">
+                <thead>
+                  <tr>
+                    <th class="sortable" data-sort="phase" title="Sort by Moment">Moment <i class="fa-solid fa-sort sort-icon"></i></th>
+                    <th class="sortable" data-sort="metric" title="Sort by Measurement">Measurement <i class="fa-solid fa-sort sort-icon"></i></th>
+                    <th class="sortable" data-sort="meanTurn" title="Sort by Turn Mean"><i class="fa-solid fa-arrow-turn-up" style="color:#c82333; margin-right:4px;"></i> When Turning <i class="fa-solid fa-sort sort-icon"></i></th>
+                    <th class="sortable" data-sort="meanStraight" title="Sort by Straight Mean"><i class="fa-solid fa-arrow-up" style="color:#218838; margin-right:4px;"></i> When Straight <i class="fa-solid fa-sort sort-icon"></i></th>
+                    <th class="sortable" data-sort="diff" title="Sort by Difference">Difference (Turn vs Straight) <i class="fa-solid fa-sort sort-icon"></i></th>
+                    <th class="sortable" data-sort="pVal" title="Sort by Statistical Significance">Evidence (q = corrected) <i class="fa-solid fa-sort sort-icon"></i></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <!-- Populated dynamically in JavaScript -->
+                </tbody>
+              </table>
+            </div>
+
+            <details class="env-guidance-details">
+              <summary>
+                <i class="fa-solid fa-circle-info"></i>
+                <span>Methodological guidance &amp; how to read junction contrasts</span>
+                <i class="fa-solid fa-chevron-down details-chevron"></i>
+              </summary>
+              <div class="env-guidance-content">
+                <p><strong>Before vs. after</strong>: the 10&nbsp;s before a junction is the approach; the 10&nbsp;s after is the response plus the tail of whatever happened before it (an SCR takes several seconds to decay), so the two windows are not independent.</p>
+                <p><strong>Verdicts use q, not p</strong>: seven measures are tested, so every p-value is Benjamini–Hochberg corrected across them. "Supported" needs q&nbsp;&lt;&nbsp;0.05. A raw p&nbsp;&lt;&nbsp;0.05 that doesn't survive is shown only as a weak hint.</p>
+                <p><strong>Paired vs. pooled</strong>: with at least 5 junctions walked both ways, a within-junction permutation test is used, which controls for the junction's own surroundings. Otherwise a pooled permutation test (labels shuffled within each walk, so a few large responses can't fake a difference) runs on values adjusted for each walk's own average level (so bigger-amplitude walks don't look like an effect); only walks that contain both turns and straights count. Passages within a walk are still correlated, so the pooled result is indicative.</p>
+                <p><strong>Confounds not controlled</strong>: going straight usually means staying on the main road and turning usually means leaving it, so road type, traffic, crossings and walking speed are mixed with the label. Turning also changes gait and sensor movement.</p>
+                <p><strong>What is left out</strong>: passages within ~20&nbsp;s of another junction or with under 5&nbsp;s of clean GSR are dropped (this favours quiet areas over dense grids); reverse (U-turn) and ambiguous passages, including those where the snapped and raw GPS headings disagree, are never compared. Peaks you've excluded are ignored.</p>
+              </div>
+            </details>
           </div>
         </section>
 

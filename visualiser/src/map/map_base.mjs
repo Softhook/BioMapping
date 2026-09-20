@@ -89,7 +89,7 @@ export class GSRMapBase {
     // Default view zoomed out
     this.map = L.map(this.containerId, {
       zoomControl: false,
-      scrollWheelZoom: true,
+      scrollWheelZoom: false,
       preferCanvas: true,
       zoomSnap: 0.25,
       zoomDelta: 0.25,

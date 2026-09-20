@@ -1,0 +1,272 @@
+/**
+ * Unit tests for junction_response.mjs — GSR windows around junction passages
+ * and turn-vs-straight tests.  Run: node --test tests/test_junction_response.js
+ */
+const assert = require('node:assert');
+const test = require('node:test');
+
+const { JunctionResponse } = require('../src/gps/junction_response.mjs');
+
+// 1 Hz series, `n` seconds; peaks/phasic supplied by fn(t).
+function series(n, fn) {
+  const s = { time: [], phasic: [], tonic: [], isPeak: [] };
+  for (let t = 0; t < n; t++) {
+    const v = fn(t);
+    s.time.push(t);
+    s.phasic.push(v.phasic ?? 0);
+    s.tonic.push(v.tonic ?? 0);
+    s.isPeak.push(v.peak ? 1 : 0);
+  }
+  return s;
+}
+const P = (time, decision = 'turn', key = 'K') => ({
+  key,
+  decision,
+  kind: 'choice',
+  time,
+});
+
+test('responses: before/after windows summarise the right samples', () => {
+  // peaks only in the 10 s AFTER t=50; phasic 1 before, 3 after.
+  const s = series(100, (t) => ({
+    phasic: t < 50 ? 1 : 3,
+    peak: t >= 50 && t < 60 && t % 2 === 0,
+  }));
+  const [r] = JunctionResponse.responses([P(50)], s);
+  assert.strictEqual(r.before.peakRate, 0);
+  assert.strictEqual(r.after.peakRate, 30); // 5 peaks in 10 s → 30/min
+  assert.strictEqual(r.before.meanPhasic, 1);
+  assert.strictEqual(r.after.meanPhasic, 3);
+  assert.strictEqual(r.delta.meanPhasic, 2);
+});
+
+test('responses: windows are clipped at the midpoint to neighbours and never overlap', () => {
+  const s = series(100, () => ({ peak: true }));
+  const rs = JunctionResponse.responses([P(40), P(48, 'straight', 'K2')], s);
+  // 8 s apart → each side clipped to 4 s < MIN_WINDOW_S(5) on the shared side → both dropped.
+  assert.strictEqual(rs.length, 0);
+  const ok = JunctionResponse.responses([P(40), P(52, 'straight', 'K2')], s);
+  assert.strictEqual(ok.length, 2);
+  assert.strictEqual(ok[0].after.peakRate, 60 * (6 / 6)); // 46-40 = 6 s, all peaks
+});
+
+test('responses: passages without GSR coverage on both sides are dropped', () => {
+  const s = series(30, () => ({}));
+  assert.strictEqual(JunctionResponse.responses([P(2)], s).length, 0); // no "before"
+  assert.strictEqual(JunctionResponse.responses([P(28)], s).length, 0); // no "after"
+  assert.strictEqual(JunctionResponse.responses([P(15)], s).length, 1);
+});
+
+function synthetic(effect) {
+  // 12 junctions × (2 turn + 2 straight); after-window peakRate = base + effect for turns.
+  const recs = [];
+  const rng = JunctionResponse._rng(7);
+  for (let j = 0; j < 12; j++) {
+    const jBase = rng() * 10; // junction-specific level — the confound pairing removes
+    for (const d of ['turn', 'turn', 'straight', 'straight']) {
+      const noise = (rng() - 0.5) * 2;
+      const after = jBase + noise + (d === 'turn' ? effect : 0);
+      recs.push({
+        key: `J${j}`,
+        decision: d,
+        before: { peakRate: jBase, meanPhasic: 0 },
+        after: { peakRate: after, meanPhasic: 0 },
+        delta: { peakRate: after - jBase, meanPhasic: 0, meanTonic: 0 },
+      });
+    }
+  }
+  return recs;
+}
+const row = (rows, phase, metric) =>
+  rows.find((r) => r.phase === phase && r.metric === metric);
+
+test('compare: a planted turn effect is found by the paired test despite big between-junction variation', () => {
+  const rows = JunctionResponse.compare(synthetic(3));
+  const r = row(rows, 'after', 'peakRate');
+  assert.ok(r.pairedP < 0.01, `pairedP ${r.pairedP}`);
+  assert.ok(Math.abs(r.pairedMeanDiff - 3) < 0.8, `diff ${r.pairedMeanDiff}`);
+  assert.strictEqual(r.pairedN, 12);
+});
+
+test('compare: with no effect the paired test does not fire, and the "before" phase is null', () => {
+  const rows = JunctionResponse.compare(synthetic(0));
+  assert.ok(row(rows, 'after', 'peakRate').pairedP > 0.05);
+  assert.ok(row(rows, 'before', 'peakRate').pairedP > 0.9); // identical by construction
+});
+
+test('compare: reverse and ambiguous passages are excluded', () => {
+  const recs = synthetic(0).concat([
+    {
+      key: 'X',
+      decision: 'ambiguous',
+      before: { peakRate: 99, meanPhasic: 0 },
+      after: { peakRate: 99, meanPhasic: 0 },
+      delta: { peakRate: 0, meanPhasic: 0, meanTonic: 0 },
+    },
+    {
+      key: 'X',
+      decision: 'reverse',
+      before: { peakRate: 99, meanPhasic: 0 },
+      after: { peakRate: 99, meanPhasic: 0 },
+      delta: { peakRate: 0, meanPhasic: 0, meanTonic: 0 },
+    },
+  ]);
+  const r = row(JunctionResponse.compare(recs), 'after', 'peakRate');
+  assert.strictEqual(r.nTurn + r.nStraight, 48);
+});
+
+test('pairedPermutation: fewer than two junctions cannot be tested', () => {
+  assert.strictEqual(
+    JunctionResponse.pairedPermutation([{ turn: [1], straight: [2] }]).p,
+    1,
+  );
+});
+
+test('compare: per-track level differences are not mistaken for a turn effect', () => {
+  // Track B has 5x the GSR amplitude of A; within each track turns == straights.
+  const recs = [];
+  const rng = JunctionResponse._rng(11);
+  for (const [trackId, scale] of [
+    ['A', 1],
+    ['B', 5],
+    ['C', 3],
+  ]) {
+    for (let i = 0; i < 20; i++) {
+      // Make the turn/straight mix uneven: B is mostly turns.
+      const d = (trackId === 'B' ? i % 5 !== 0 : i % 5 === 0)
+        ? 'turn'
+        : 'straight';
+      const v = scale * (1 + (rng() - 0.5) * 0.2);
+      recs.push({
+        key: `${trackId}${i}`,
+        trackId,
+        decision: d,
+        before: { peakRate: v, meanPhasic: v },
+        after: { peakRate: v, meanPhasic: v },
+        delta: { peakRate: 0, meanPhasic: 0, meanTonic: 0 },
+      });
+    }
+  }
+  const r = row(JunctionResponse.compare(recs), 'after', 'meanPhasic');
+  assert.strictEqual(r.nTracks, 3);
+  assert.ok(r.pooledP > 0.05, `pooledP ${r.pooledP}`);
+  // Without the adjustment the same data look hugely "significant".
+  const raw = recs.map((x) => ({ ...x, trackId: undefined }));
+  assert.ok(
+    row(JunctionResponse.compare(raw), 'after', 'meanPhasic').pooledP < 0.05,
+  );
+});
+
+test('compare: tracks holding only one decision type are ignored by the pooled test', () => {
+  const mk = (trackId, d, v) => ({
+    key: `${trackId}${v}`,
+    trackId,
+    decision: d,
+    before: { peakRate: v, meanPhasic: v },
+    after: { peakRate: v, meanPhasic: v },
+    delta: { peakRate: 0, meanPhasic: 0, meanTonic: 0 },
+  });
+  const recs = [
+    ...[1, 2, 3].map((v) => mk('both', 'turn', v)),
+    ...[1, 2, 3].map((v) => mk('both', 'straight', v + 0.1)),
+    ...[7, 8, 9].map((v) => mk('onlyStraight', 'straight', v)),
+  ];
+  const r = row(JunctionResponse.compare(recs), 'after', 'meanPhasic');
+  assert.strictEqual(r.nTracks, 1);
+  assert.strictEqual(r.nTurn + r.nStraight, 6);
+});
+
+test('compare: verdict rests on BH q — a lone p<0.05 among many nulls is "suggestive"', () => {
+  const rows = JunctionResponse.compare(synthetic(0));
+  for (const r of rows)
+    assert.ok(['none', 'suggestive', 'supported'].includes(r.verdict));
+  assert.ok(rows.every((r) => Number.isFinite(r.q) && r.q >= r.p - 1e-12));
+  const strong = JunctionResponse.compare(synthetic(3));
+  assert.strictEqual(row(strong, 'after', 'peakRate').verdict, 'supported');
+  assert.strictEqual(row(strong, 'after', 'peakRate').test, 'paired');
+});
+
+test('compare: too few paired junctions falls back to the pooled test as headline', () => {
+  const recs = synthetic(0).filter((r) => Number(r.key.slice(1)) < 3);
+  const r = row(JunctionResponse.compare(recs), 'after', 'peakRate');
+  assert.strictEqual(r.test, 'pooled');
+  assert.strictEqual(r.p, r.pooledP);
+});
+
+test('pooled permutation: one huge outlier among few turns does not produce significance', () => {
+  const mk = (d, v) => ({
+    key: `${d}${v}`,
+    trackId: 'A',
+    decision: d,
+    before: { peakRate: 0, meanPhasic: v },
+    after: { peakRate: 0, meanPhasic: v },
+    delta: { peakRate: 0, meanPhasic: 0, meanTonic: 0 },
+  });
+  const recs = [
+    ...[0.2, 0.25, 0.3, 0.2, 0.22, 3.0].map((v) => mk('turn', v)),
+    ...[0.3, 0.25, 0.2, 0.28, 0.24, 0.3, 0.26, 0.22, 0.3, 0.25].map((v) =>
+      mk('straight', v),
+    ),
+  ];
+  const r = row(JunctionResponse.compare(recs), 'after', 'meanPhasic');
+  assert.ok(r.pooledP > 0.05, `pooledP ${r.pooledP}`);
+  assert.strictEqual(r.test, 'pooled');
+});
+
+test('pooled permutation: labels shuffle within track only (a track-level offset is not an effect)', () => {
+  const recs = [];
+  for (const [t, base] of [
+    ['A', 1],
+    ['B', 9],
+  ]) {
+    for (let i = 0; i < 8; i++)
+      recs.push({
+        key: `${t}${i}`,
+        trackId: t,
+        decision: i % 2 ? 'turn' : 'straight',
+        before: { peakRate: base, meanPhasic: base },
+        after: { peakRate: base, meanPhasic: base },
+        delta: { peakRate: 0, meanPhasic: 0, meanTonic: 0 },
+      });
+  }
+  const r = row(JunctionResponse.compare(recs), 'after', 'meanPhasic');
+  assert.ok(r.pooledP > 0.9, `pooledP ${r.pooledP}`);
+});
+
+test('compare: the means shown always agree with the difference tested (paired and pooled)', () => {
+  // Paired junctions where turns > straights by exactly 4 within each junction,
+  // but junctions differ hugely in level, and there are extra straight-only passages
+  // at a low level: pooled means would differ from the paired contrast.
+  const recs = [];
+  const mk = (key, trackId, d, v) => ({
+    key,
+    trackId,
+    decision: d,
+    before: { peakRate: v, meanPhasic: v },
+    after: { peakRate: v, meanPhasic: v },
+    delta: { peakRate: 0, meanPhasic: 0, meanTonic: 0 },
+  });
+  for (let j = 0; j < 6; j++) {
+    recs.push(mk(`J${j}`, 'A', 'turn', 10 * j + 4));
+    recs.push(mk(`J${j}`, 'A', 'straight', 10 * j));
+  }
+  for (let j = 0; j < 20; j++) recs.push(mk(`S${j}`, 'A', 'straight', 1));
+  const r = row(JunctionResponse.compare(recs), 'after', 'peakRate');
+  assert.strictEqual(r.test, 'paired');
+  assert.ok(Math.abs(r.diff - 4) < 1e-9, `diff ${r.diff}`);
+  assert.ok(Math.abs(r.meanTurn - r.meanStraight - r.diff) < 1e-9);
+  assert.strictEqual(r.nTurnUsed, 6);
+  assert.strictEqual(r.nStraightUsed, 6);
+  assert.strictEqual(r.nStraight, 26); // overall usable windows still reported
+
+  const pooledRow = row(
+    JunctionResponse.compare(synthetic(0).slice(0, 12)),
+    'after',
+    'peakRate',
+  );
+  assert.strictEqual(pooledRow.test, 'pooled');
+  assert.ok(
+    Math.abs(pooledRow.meanTurn - pooledRow.meanStraight - pooledRow.diff) <
+      1e-9,
+  );
+});

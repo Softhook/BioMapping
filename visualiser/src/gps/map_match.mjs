@@ -46,6 +46,7 @@
  */
 import { GSR_CONST } from '../core/constants.mjs';
 import { GeoUtils } from './geo_utils.mjs';
+import { Junctions } from './junctions.mjs';
 
 export const MapMatcher = {
   /** GPS position error std dev (metres).  Newson & Krumm use 4.07 m. */
@@ -78,6 +79,10 @@ export const MapMatcher = {
   /** Excursion run must depart from the travel direction by more than this.
    *  Deliberately well under 90°: side roads meet at acute Y-junction angles too. */
   EXCURSION_ANGLE_DEG: 25,
+
+  /** A run bridging two unconnected ways is kept unless its fixes sit this much
+   *  further (m, mean) from it than from the best alternative. */
+  BRIDGE_FIT_MARGIN_M: 2,
 
   /** Longest run (m of raw travel) still treated as a passing glitch rather than a real detour. */
   EXCURSION_MAX_M: 60,
@@ -382,6 +387,21 @@ export const MapMatcher = {
       const before = wayAt(s - 1);
       const after = e + 1 < n ? wayAt(e + 1) : null;
       if (before != null && after != null && after !== w) {
+        const repl = this._bestAlternatives(allCands, s, e, w, radius);
+        // If the roads either side of the run don't meet directly, the run is
+        // the only route between them: the walker genuinely turned onto it,
+        // provided the fixes actually sit on it (topology alone can be wrong
+        // where footway networks are poorly connected).
+        const bridged =
+          before !== after &&
+          !Junctions.waysShareNode(
+            allCands[s - 1][path[s - 1]].coords,
+            allCands[e + 1][path[e + 1]].coords,
+          );
+        if (bridged && this._runFitsAsWell(allCands, path, s, e, repl)) {
+          s = e + 1;
+          continue;
+        }
         const a = pts[s - 1];
         const b = pts[e + 1];
         const travel = this._haversineM(a.lat, a.lon, b.lat, b.lon);
@@ -399,31 +419,46 @@ export const MapMatcher = {
             this._angularDiff(dir, sb),
             this._angularDiff(dir, sb + Math.PI),
           );
-          if (diff > limit) {
-            const repl = [];
-            for (let t = s; t <= e; t++) {
-              let bi = -1;
-              let bs = -Infinity;
-              allCands[t].forEach((c, j) => {
-                if (c.wayId === w || c.dist > radius) return;
-                const sc = this._logEmit(c.dist, c.bearingDiffRad);
-                if (sc > bs) {
-                  bs = sc;
-                  bi = j;
-                }
-              });
-              repl.push(bi);
-            }
-            if (repl.every((j) => j >= 0)) {
-              repl.forEach((j, k) => {
-                path[s + k] = j;
-              });
-            }
+          if (diff > limit && repl.every((j) => j >= 0)) {
+            repl.forEach((j, k) => {
+              path[s + k] = j;
+            });
           }
         }
       }
       s = e + 1;
     }
+  },
+
+  /** Best non-`w` candidate index for each fix in [s, e] (-1 where none in range). */
+  _bestAlternatives(allCands, s, e, w, radius) {
+    const repl = [];
+    for (let t = s; t <= e; t++) {
+      let bi = -1;
+      let bs = -Infinity;
+      allCands[t].forEach((c, j) => {
+        if (c.wayId === w || c.dist > radius) return;
+        const sc = this._logEmit(c.dist, c.bearingDiffRad);
+        if (sc > bs) {
+          bs = sc;
+          bi = j;
+        }
+      });
+      repl.push(bi);
+    }
+    return repl;
+  },
+
+  /** True when the matched run [s, e] sits no materially further from the fixes than `repl`. */
+  _runFitsAsWell(allCands, path, s, e, repl) {
+    if (!repl.every((j) => j >= 0)) return true;
+    let own = 0;
+    let alt = 0;
+    for (let t = s; t <= e; t++) {
+      own += allCands[t][path[t]].dist;
+      alt += allCands[t][repl[t - s]].dist;
+    }
+    return (own - alt) / (e - s + 1) <= this.BRIDGE_FIT_MARGIN_M;
   },
 
   /**

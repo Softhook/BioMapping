@@ -10,6 +10,8 @@
  */
 import { AppState } from '../core/app_state.mjs';
 import { GSR_CONST } from '../core/constants.mjs';
+import { JunctionResponse } from '../gps/junction_response.mjs';
+import { Junctions } from '../gps/junctions.mjs';
 import { StatsMath } from '../signal/stats_math.mjs';
 
 export const EnvironmentalDashboardUI = {
@@ -645,6 +647,92 @@ export const EnvironmentalDashboardUI = {
         delete p._nEffPhasic;
       }); // drop internals before caching
 
+      // ── Junction turn vs straight analysis ───────────────────────────
+      const allPassages = [];
+      const allJunctionResponses = [];
+
+      activeTracks.forEach((track) => {
+        const a = track.analyzer;
+        if (!a?.isEnriched || !a.osmGeoms?.ways || !a.snappedGps) return;
+
+        // Build pts for Junctions.classifyPassages
+        const pts = [];
+        const raw = a.raw || [];
+        for (let i = 0; i < raw.length; i++) {
+          const sg = a.snappedGps[i];
+          const rawPt = raw[i];
+          if (sg && !isNaN(sg.lat) && !isNaN(sg.lon) && sg.wayId != null) {
+            pts.push({
+              idx: i,
+              time: rawPt.time,
+              lat: sg.lat,
+              lon: sg.lon,
+              wayId: sg.wayId,
+              dist: sg.dist ?? 0,
+              rawLat: rawPt.lat,
+              rawLon: rawPt.lon,
+            });
+          }
+        }
+        if (pts.length < 2) return;
+
+        const passages = Junctions.classifyPassages(pts, a.osmGeoms.ways);
+        if (!passages || passages.length === 0) return;
+        allPassages.push(...passages);
+
+        // Build series for JunctionResponse.responses
+        const pLen = a.phasic ? a.phasic.length : 0;
+        if (pLen === 0) return;
+
+        const pTimes = new Array(pLen);
+        const pVals = new Array(pLen);
+        const tVals = new Array(pLen);
+        const isPeak = new Uint8Array(pLen);
+
+        const peakTimes = new Set(
+          (a.peaks || [])
+            .filter((pk) => !pk.excluded)
+            .map((pk) => Math.round(pk.time * 100) / 100),
+        );
+
+        for (let i = 0; i < pLen; i++) {
+          const pt = a.phasic[i];
+          const time = pt.time;
+          pTimes[i] = time;
+          pVals[i] = pt.val;
+          tVals[i] = a.tonic?.[i] ? a.tonic[i].val : 0;
+          const rounded = Math.round(time * 100) / 100;
+          if (peakTimes.has(rounded)) {
+            isPeak[i] = 1;
+          }
+        }
+
+        const series = {
+          time: pTimes,
+          phasic: pVals,
+          tonic: tVals,
+          isPeak: Array.from(isPeak),
+        };
+
+        const resps = JunctionResponse.responses(passages, series, {
+          trackId: track.id,
+        });
+        if (resps && resps.length > 0) {
+          allJunctionResponses.push(...resps);
+        }
+      });
+
+      let junctionComparison = [];
+      if (allJunctionResponses.length > 0) {
+        junctionComparison = JunctionResponse.compare(allJunctionResponses);
+      }
+
+      const junctionStats = {
+        passages: allPassages,
+        responses: allJunctionResponses,
+        comparison: junctionComparison,
+      };
+
       cacheTarget._cachedEnvStats = {
         latency,
         trackCount: activeTracks.length,
@@ -654,6 +742,7 @@ export const EnvironmentalDashboardUI = {
         correlationMatrix,
         roadProfile,
         roadComparison,
+        junctionStats,
       };
     }
 
@@ -678,5 +767,8 @@ export const EnvironmentalDashboardUI = {
     );
     this.drawRegressionScatterPlot(cachedStats.allData);
     this.renderRoadProfile(cachedStats.roadProfile, cachedStats.roadComparison);
+    if (typeof this.renderJunctionsTable === 'function') {
+      this.renderJunctionsTable(cachedStats.junctionStats);
+    }
   },
 };

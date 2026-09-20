@@ -1251,7 +1251,6 @@ input[type="range"]:focus-visible,
 
 .table-container {
   overflow: auto;
-  overscroll-behavior: contain;
   scrollbar-gutter: stable;
   flex-grow: 1;
   min-height: 0;
@@ -2206,7 +2205,8 @@ input[type="range"]:focus-visible,
   height: auto !important;
 }
 
-.panel-fullscreen-overlay #environmentalPanel #envTabRoads.active {
+.panel-fullscreen-overlay #environmentalPanel #envTabRoads.active,
+.panel-fullscreen-overlay #environmentalPanel #envTabJunctions.active {
   display: flex !important;
   flex-direction: column !important;
   gap: 20px !important;
@@ -4004,6 +4004,211 @@ body:has(.live-mode) {
 
 #environmentalPanel #roadArousalTable td:nth-child(n + 2) {
   font-variant-numeric: tabular-nums;
+}
+
+#environmentalPanel #junctionsTable {
+  width: 100%;
+  table-layout: auto;
+}
+
+#environmentalPanel #junctionsTable th,
+#environmentalPanel #junctionsTable td {
+  padding: 7px 10px;
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+#environmentalPanel #junctionsTable td:first-child {
+  font-weight: 600;
+}
+
+#environmentalPanel #junctionsTable td:nth-child(n + 2) {
+  font-variant-numeric: tabular-nums;
+}
+
+.junction-summary-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  background: var(--bg-hover, rgba(0, 0, 0, 0.03));
+  border-radius: 4px;
+  font-size: 0.8rem;
+}
+
+.junction-stat-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 12px;
+  font-weight: 500;
+  font-size: 0.76rem;
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.junction-stat-chip.turn {
+  background: rgba(220, 53, 69, 0.12);
+  color: #c82333;
+}
+
+.junction-stat-chip.straight {
+  background: rgba(40, 167, 69, 0.12);
+  color: #218838;
+}
+
+.junction-stat-chip.reverse {
+  background: rgba(255, 193, 7, 0.2);
+  color: #856404;
+}
+
+.junction-stat-chip.ambiguous {
+  background: rgba(108, 117, 125, 0.14);
+  color: #495057;
+}
+
+/* Junction insight headline banner */
+.junction-insight-banner {
+  background: rgba(0, 85, 204, 0.05);
+  border: 1px solid rgba(0, 85, 204, 0.2);
+  border-left: 4px solid #0055cc;
+  border-radius: 4px;
+  padding: 12px 16px;
+  margin-bottom: 14px;
+}
+
+.junction-insight-headline {
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: #0055cc;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.junction-insight-text {
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin: 0;
+}
+
+/* 3 Key Moments Cards Grid */
+.junction-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.junction-moment-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-glass);
+  border-radius: 6px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.junction-moment-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.junction-moment-title {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.junction-moment-sub {
+  font-size: 0.76rem;
+  color: var(--text-muted);
+}
+
+.junction-moment-values {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.junction-value-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.8rem;
+}
+
+.junction-bar-track {
+  flex-grow: 1;
+  height: 6px;
+  background: rgba(0, 0, 0, 0.06);
+  border-radius: 3px;
+  margin: 0 10px;
+  overflow: hidden;
+}
+
+.junction-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+}
+
+.junction-bar-fill.turn {
+  background: #c82333;
+}
+
+.junction-bar-fill.straight {
+  background: #218838;
+}
+
+.junction-diff-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 7px;
+  border-radius: 10px;
+  font-size: 0.76rem;
+  font-weight: 600;
+}
+
+.junction-diff-badge.higher {
+  background: rgba(220, 53, 69, 0.12);
+  color: #c82333;
+}
+
+.junction-diff-badge.lower {
+  background: rgba(40, 167, 69, 0.12);
+  color: #218838;
+}
+
+.junction-diff-badge.neutral {
+  background: rgba(108, 117, 125, 0.12);
+  color: #6c757d;
+}
+
+.junction-turn-val {
+  color: #c82333;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.junction-straight-val {
+  color: #218838;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 
 #environmentalPanel .env-tab-content .help-text {

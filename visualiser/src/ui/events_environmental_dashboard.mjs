@@ -37,6 +37,17 @@ export const EnvironmentalDashboardEvents = {
     bindEnvTab('btnEnvTabCorrelation', 'envTabCorrelation');
     bindEnvTab('btnEnvTabScatter', 'envTabScatter');
     bindEnvTab('btnEnvTabRoads', 'envTabRoads');
+    bindEnvTab('btnEnvTabJunctions', 'envTabJunctions');
+
+    // Junctions Table Column Sorting
+    const juncTable = document.getElementById('junctionsTable');
+    if (juncTable) {
+      juncTable.querySelectorAll('thead th.sortable').forEach((th) => {
+        th.addEventListener('click', () => {
+          Controllers.ui?.sortJunctionsTable(th.dataset.sort);
+        });
+      });
+    }
 
     document
       .getElementById('scatterEnvMetric')

@@ -20,6 +20,7 @@ import { CorrelationTableUI } from './ui_correlation_table.mjs';
 import { EnrichmentUI } from './ui_enrichment.mjs';
 import { EnvironmentalDashboardUI } from './ui_environmental_dashboard.mjs';
 import { ExportUI } from './ui_export.mjs';
+import { JunctionsTableUI } from './ui_junctions_table.mjs';
 import { ModalsUI } from './ui_modals.mjs';
 import { OsmOverlayUI } from './ui_osm_overlay.mjs';
 import { PeaksTableUI } from './ui_peaks_table.mjs';
@@ -35,6 +36,7 @@ export const GSRUI = {
   ...EnrichmentUI,
   ...CorrelationTableUI,
   ...RoadProfileUI,
+  ...JunctionsTableUI,
   ...EnvironmentalDashboardUI,
   ...ModalsUI,
 

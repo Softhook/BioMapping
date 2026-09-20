@@ -137,6 +137,8 @@ export const AppState = {
   corrSortDirection: 'asc',
   roadSortColumn: 'meanPhasic',
   roadSortDirection: 'desc',
+  junctionSortColumn: null, // null preserves default order; or 'phase'|'metric'|'meanTurn'|'meanStraight'|'pairedMeanDiff'|'pairedP'|'pairedQ'
+  junctionSortDirection: 'asc',
 
   // ── DOM element cache (populated by cacheDOMElements) ──────────────────────
   sliders: {},

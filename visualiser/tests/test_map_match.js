@@ -550,3 +550,39 @@ test('match: a reported near-zero speed suppresses the heading term even when fi
     for (const cand of c) assert.ok(Number.isNaN(cand.bearingDiffRad));
   }
 });
+
+test('match: a real turn onto a short link road (only route to the next road) is kept, not stripped as a glitch', () => {
+  // A runs east to the junction J; LINK leaves J due north for ~12 m; T then
+  // continues east from the top of LINK.  A and T share no node: LINK is the
+  // only way between them, so the walker genuinely turned onto it.
+  const J = 0.0006;
+  const topLat = metersToLatDeg(12);
+  const A = way('A', [
+    { lat: 0, lon: 0 },
+    { lat: 0, lon: J },
+  ]);
+  const LINK = way('LINK', [
+    { lat: 0, lon: J },
+    { lat: topLat, lon: J },
+  ]);
+  const T = way('T', [
+    { lat: topLat, lon: J },
+    { lat: topLat, lon: 0.0012 },
+  ]);
+  const nearby = [A, LINK, T];
+  const m = (x) => x / 111320; // metres → degrees (equator)
+  const track = [];
+  for (let x = 0; x < 67; x += 4) track.push({ lat: 0, lon: m(x) }); // east on A
+  for (let y = 4; y < 12; y += 4) track.push({ lat: m(y), lon: J }); // north on LINK
+  for (let x = 4; x <= 40; x += 4) track.push({ lat: topLat, lon: J + m(x) }); // east on T
+  const evalPoints = track.map((p, idx) => ({ idx, ...p, nearby }));
+  const raw = evalPoints.map((_, i) => ({
+    time: i,
+    speedKts: 2.5,
+    course: NaN,
+  }));
+
+  const result = MapMatcher.match(evalPoints, raw, 50);
+  const ways = evalPoints.map((p) => result.get(p.idx).wayId);
+  assert.ok(ways.includes('LINK'), `LINK was stripped: ${ways.join(',')}`);
+});

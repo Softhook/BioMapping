@@ -1,0 +1,394 @@
+/**
+ * GSRUI — junction turn-vs-straight contrast table & visual cards.
+ * Object-augment split composed into GSRUI in ui.mjs.
+ */
+import { AppState } from '../core/app_state.mjs';
+
+export const JunctionsTableUI = {
+  /**
+   * Sort the Junctions contrast table by column key.
+   */
+  sortJunctionsTable(col) {
+    if (!col) return;
+    if (AppState.junctionSortColumn === col) {
+      AppState.junctionSortDirection =
+        AppState.junctionSortDirection === 'asc' ? 'desc' : 'asc';
+    } else {
+      AppState.junctionSortColumn = col;
+      AppState.junctionSortDirection =
+        col === 'phase' || col === 'metric' ? 'asc' : 'desc';
+    }
+    const cacheTarget =
+      AppState.viewMode === 'single'
+        ? AppState.analyzer
+        : AppState.collectiveManager;
+    if (cacheTarget?._cachedEnvStats?.junctionStats) {
+      this.renderJunctionsTable(cacheTarget._cachedEnvStats.junctionStats);
+    }
+  },
+
+  /**
+   * Update header icons and classes on junctionsTable according to active sort state.
+   */
+  updateJunctionsTableSortHeaders() {
+    if (
+      typeof document === 'undefined' ||
+      typeof document.getElementById !== 'function'
+    )
+      return;
+    const table = document.getElementById('junctionsTable');
+    if (!table || typeof table.querySelectorAll !== 'function') return;
+    const ths = table.querySelectorAll('thead th.sortable');
+    const curCol = AppState.junctionSortColumn;
+    const curDir = AppState.junctionSortDirection || 'asc';
+
+    ths.forEach((th) => {
+      const col = th.dataset.sort;
+      const icon = th.querySelector('.sort-icon');
+      if (col === curCol) {
+        th.classList.remove('sort-asc', 'sort-desc');
+        th.classList.add(curDir === 'desc' ? 'sort-desc' : 'sort-asc');
+        if (icon) {
+          icon.className =
+            'fa-solid ' +
+            (curDir === 'desc' ? 'fa-sort-down' : 'fa-sort-up') +
+            ' sort-icon';
+        }
+      } else {
+        th.classList.remove('sort-asc', 'sort-desc');
+        if (icon) {
+          icon.className = 'fa-solid fa-sort sort-icon';
+        }
+      }
+    });
+  },
+
+  /**
+   * Render cached junction stats to HTML (headline banner, 3 moment cards, and detailed table).
+   *
+   * @param {{passages:Array, responses:Array, comparison:Array}} junctionStats
+   */
+  renderJunctionsTable(junctionStats) {
+    if (typeof document === 'undefined') return;
+
+    const tbody = document.querySelector('#junctionsTable tbody');
+    const summaryContainer = document.getElementById('junctionSummaryRow');
+    const bannerContainer = document.getElementById('junctionInsightBanner');
+    const cardsContainer = document.getElementById('junctionCardsGrid');
+    if (!tbody) return;
+
+    tbody.innerHTML = '';
+    if (cardsContainer) cardsContainer.innerHTML = '';
+    if (bannerContainer) {
+      bannerContainer.innerHTML = '';
+      bannerContainer.style.display = 'none';
+    }
+
+    const passages = junctionStats?.passages || [];
+    const comparison = junctionStats?.comparison || [];
+
+    // Summary counts
+    const nTurn = passages.filter((p) => p.decision === 'turn').length;
+    const nStraight = passages.filter((p) => p.decision === 'straight').length;
+    const nReverse = passages.filter((p) => p.decision === 'reverse').length;
+    const nAmbiguous = passages.filter(
+      (p) => p.decision === 'ambiguous',
+    ).length;
+
+    // Paired junctions: count distinct keys with at least one turn and one straight response
+    const byKey = new Map();
+    (junctionStats?.responses || []).forEach((r) => {
+      if (r.decision === 'turn' || r.decision === 'straight') {
+        if (!byKey.has(r.key)) byKey.set(r.key, new Set());
+        byKey.get(r.key).add(r.decision);
+      }
+    });
+    // Confident passages that lost their window to clipping / too little GSR.
+    const haveResponse = new Set(
+      (junctionStats?.responses || []).map((r) => `${r.key}@${r.time}`),
+    );
+    const lost = (dec) =>
+      passages.filter(
+        (p) => p.decision === dec && !haveResponse.has(`${p.key}@${p.time}`),
+      ).length;
+    const nDroppedTurn = lost('turn');
+    const nDroppedStraight = lost('straight');
+    // Turns cluster in dense areas, so they can lose far more windows than
+    // straights — which biases who is left to compare.
+    const keptFrac = (n, dropped) => (n ? (n - dropped) / n : 1);
+    const skewedLoss =
+      Math.abs(
+        keptFrac(nTurn, nDroppedTurn) - keptFrac(nStraight, nDroppedStraight),
+      ) > 0.2;
+    let nPaired = 0;
+    for (const decs of byKey.values()) {
+      if (decs.has('turn') && decs.has('straight')) nPaired++;
+    }
+
+    if (summaryContainer) {
+      summaryContainer.innerHTML = `
+        <span><strong>Passages:</strong> ${passages.length} total</span>
+        <span class="junction-stat-chip turn" title="Turn angle ≥ 40°"><i class="fa-solid fa-arrow-turn-up"></i> ${nTurn} Turns</span>
+        <span class="junction-stat-chip straight" title="Turn angle ≤ 25°"><i class="fa-solid fa-arrow-up"></i> ${nStraight} Straight</span>
+        <span class="junction-stat-chip reverse" title="Turn angle ≥ 135° (U-turns)"><i class="fa-solid fa-rotate-left"></i> ${nReverse} Reverse</span>
+        <span class="junction-stat-chip ambiguous" title="Angle 25°–40° or snapped vs raw GPS disagree"><i class="fa-solid fa-circle-question"></i> ${nAmbiguous} Ambiguous</span>
+        <span class="junction-stat-chip" style="background: rgba(0,85,204,0.1); color: #0055cc; font-weight: 600;" title="Junctions visited multiple times with both turn and straight choices"><i class="fa-solid fa-code-compare"></i> ${nPaired} Paired Junctions</span>
+        <span class="junction-stat-chip ambiguous" title="Passages within ~20 s of another junction, or with too little GSR, are left out so no sample is counted twice. Reverse and ambiguous passages are never compared."><i class="fa-solid fa-filter"></i> no clean window: ${nDroppedTurn} of ${nTurn} turns, ${nDroppedStraight} of ${nStraight} straights · ${nReverse + nAmbiguous} reverse/ambiguous not compared</span>
+        ${skewedLoss ? '<span class="junction-stat-chip reverse" title="One class lost many more windows than the other (usually turns, which sit in dense areas), so the passages compared may not be representative."><i class="fa-solid fa-triangle-exclamation"></i> Uneven loss of turns vs straights — comparison may be biased</span>' : ''}
+      `;
+    }
+
+    if (comparison.length === 0) {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td colspan="6" style="text-align: center; color: var(--text-muted); padding: 24px;">
+          ${
+            passages.length === 0
+              ? 'No junction passages detected. Ensure tracks are enriched with OpenStreetMap road data and road snapping is enabled.'
+              : 'Passages detected, but insufficient clean 10 s non-overlapping GSR windows around junctions for comparison.'
+          }
+        </td>
+      `;
+      tbody.appendChild(tr);
+      this.updateJunctionsTableSortHeaders();
+      return;
+    }
+
+    // ── Helper formatters ──────────────────────────────────────────────────
+    const fmt = (v, digits = 3) =>
+      Number.isFinite(v) ? v.toFixed(digits) : '—';
+    const neutralBand = (metric) => (metric === 'peakRate' ? 0.5 : 0.02);
+    // A percentage is only meaningful when the difference is backed by the
+    // statistics and the baseline is a level well away from zero (never for a
+    // change row, whose baseline can be negative).
+    const safePct = (r, diff, base) =>
+      r.phase !== 'delta' &&
+      r.verdict !== 'none' &&
+      Math.abs(base) > neutralBand(r.metric) * 5
+        ? (diff / Math.abs(base)) * 100
+        : null;
+    const fmtP = (v) => {
+      if (!Number.isFinite(v)) return '—';
+      return v < 0.001 ? '< 0.001' : v.toFixed(3);
+    };
+    const unitOf = (metric) => (metric === 'peakRate' ? ' /min' : ' μS');
+    const fmtDiff = (diff, pct, metric) => {
+      if (!Number.isFinite(diff)) return '—';
+      const sign = diff > 0 ? '+' : '';
+      const unit = unitOf(metric);
+      const digits = metric === 'peakRate' ? 2 : 3;
+      const diffStr = `${sign}${diff.toFixed(digits)}${unit}`;
+      if (pct != null && Number.isFinite(pct)) {
+        const pctSign = pct > 0 ? '+' : '';
+        return `${diffStr} (${pctSign}${pct.toFixed(0)}%)`;
+      }
+      return diffStr;
+    };
+
+    // ── 1. Headline verdict ────────────────────────────────────────────────
+    // Decided on the BH-corrected q across every test, never on one chosen row
+    // or an uncorrected p.
+    const phaseLabels = {
+      before: 'Before (10 s)',
+      after: 'After (10 s)',
+      delta: 'Change (after − before)',
+    };
+    const metricLabels = {
+      peakRate: 'Peak Rate (/min)',
+      meanPhasic: 'Arousal Spikes (Phasic)',
+      meanTonic: 'Baseline Tension (Tonic)',
+    };
+    if (bannerContainer) {
+      const byQ = (a, b) => a.q - b.q;
+      const supported = comparison
+        .filter((r) => r.verdict === 'supported')
+        .sort(byQ);
+      const suggestive = comparison
+        .filter((r) => r.verdict === 'suggestive')
+        .sort((a, b) => a.p - b.p);
+      const first = comparison[0];
+      const nT = first.nTurn;
+      const nS = first.nStraight;
+      const lowPower = nPaired < 5 || Math.min(nT, nS) < 30;
+      let icon = 'fa-equals';
+      let headline =
+        'No detectable difference between turning and going straight';
+      let detail = '';
+      const describe = (r) =>
+        `${metricLabels[r.metric] || r.metric}, ${(phaseLabels[r.phase] || r.phase).toLowerCase()}: turn ${fmt(r.meanTurn, r.metric === 'peakRate' ? 2 : 3)} vs straight ${fmt(r.meanStraight, r.metric === 'peakRate' ? 2 : 3)}${unitOf(r.metric)} (${r.test} test, p=${fmtP(r.p)}, q=${fmtP(r.q)})`;
+      if (supported.length) {
+        const r = supported[0];
+        icon = r.diff > 0 ? 'fa-arrow-trend-up' : 'fa-arrow-trend-down';
+        headline = `Turns and straights differ in ${supported.length} of ${comparison.length} measures`;
+        detail = `Strongest: ${describe(r)}. This is an association; it doesn't show that turning caused it.`;
+      } else if (suggestive.length) {
+        icon = 'fa-circle-question';
+        headline = 'No robust difference — one or more weak hints only';
+        detail = `Best hint: ${describe(suggestive[0])}. It doesn't survive correcting for ${comparison.length} tests, so treat it as a hypothesis to check with more walks.`;
+      }
+      bannerContainer.innerHTML = `
+        <div class="junction-insight-headline">
+          <i class="fa-solid ${icon}"></i> ${headline}
+        </div>
+        <p class="junction-insight-text">
+          ${detail ? `${detail}<br>` : ''}Based on ${nT} turns vs ${nS} straights across ${first.nTracks || 1} walk(s); ${nPaired} junction(s) had both.${
+            lowPower && !supported.length
+              ? ' <strong>This sample is small, so a null here is not evidence of no effect.</strong>'
+              : ''
+          }
+        </p>
+      `;
+      bannerContainer.style.display = 'block';
+    }
+
+    // ── 2. The 3 Moment Cards ──────────────────────────────────────────────
+    if (cardsContainer) {
+      const appPhasic = comparison.find(
+        (r) => r.phase === 'before' && r.metric === 'meanPhasic',
+      );
+      const consPhasic = comparison.find(
+        (r) => r.phase === 'after' && r.metric === 'meanPhasic',
+      );
+      const deltaPhasic = comparison.find(
+        (r) => r.phase === 'delta' && r.metric === 'meanPhasic',
+      );
+
+      const renderCard = (title, sub, r) => {
+        if (!r) return '';
+        const tVal = r.meanTurn ?? 0;
+        const sVal = r.meanStraight ?? 0;
+        const maxVal = Math.max(Math.abs(tVal), Math.abs(sVal), 0.001);
+        const tPct = Math.min(100, (Math.abs(tVal) / maxVal) * 100);
+        const sPct = Math.min(100, (Math.abs(sVal) / maxVal) * 100);
+
+        const diff = Number.isFinite(r.diff) ? r.diff : tVal - sVal;
+        const pctDiff = safePct(r, diff, sVal);
+        // Only colour a difference the statistics back up.
+        const band = neutralBand(r.metric);
+        const badgeClass =
+          r.verdict === 'none'
+            ? 'neutral'
+            : diff > band
+              ? 'higher'
+              : diff < -band
+                ? 'lower'
+                : 'neutral';
+        const badgeText = fmtDiff(diff, pctDiff, r.metric);
+        const evidence = `${r.test} test, p=${fmtP(r.p)}, q=${fmtP(r.q)}`;
+        return `
+          <div class="junction-moment-card">
+            <div class="junction-moment-header">
+              <span class="junction-moment-title">${title}</span>
+              <span class="junction-diff-badge ${badgeClass}">${badgeText}</span>
+            </div>
+            <span class="junction-moment-sub">${sub} · ${evidence}</span>
+            <div class="junction-moment-values">
+              <div class="junction-value-row">
+                <span style="font-weight:600; min-width:65px;"><i class="fa-solid fa-arrow-turn-up" style="color:#c82333;"></i> Turn:</span>
+                <div class="junction-bar-track">
+                  <div class="junction-bar-fill turn" style="width: ${tPct}%;"></div>
+                </div>
+                <span style="font-family:monospace; min-width:55px; text-align:right;">${fmt(tVal)} μS</span>
+              </div>
+              <div class="junction-value-row">
+                <span style="font-weight:600; min-width:65px;"><i class="fa-solid fa-arrow-up" style="color:#218838;"></i> Straight:</span>
+                <div class="junction-bar-track">
+                  <div class="junction-bar-fill straight" style="width: ${sPct}%;"></div>
+                </div>
+                <span style="font-family:monospace; min-width:55px; text-align:right;">${fmt(sVal)} μS</span>
+              </div>
+            </div>
+          </div>
+        `;
+      };
+
+      cardsContainer.innerHTML = [
+        renderCard(
+          '1. Before (10 s)',
+          'Level just before the junction',
+          appPhasic,
+        ),
+        renderCard(
+          '2. After (10 s)',
+          'Level just after the junction',
+          consPhasic,
+        ),
+        renderCard(
+          '3. Change (After − Before)',
+          'How much the level moved across the junction',
+          deltaPhasic,
+        ),
+      ].join('');
+    }
+
+    // ── 3. Detailed Results Table ──────────────────────────────────────────
+    const rows = [...comparison];
+    if (AppState.junctionSortColumn) {
+      const col = AppState.junctionSortColumn;
+      const dir = AppState.junctionSortDirection === 'desc' ? -1 : 1;
+      rows.sort((a, b) => {
+        if (col === 'phase' || col === 'metric') {
+          return dir * (a[col] || '').localeCompare(b[col] || '');
+        }
+        if (col === 'diff') {
+          const diffA = a.diff ?? 0;
+          const diffB = b.diff ?? 0;
+          return dir * (diffA - diffB);
+        }
+        if (col === 'pVal') {
+          return dir * ((a.q ?? 1) - (b.q ?? 1));
+        }
+        const valA = a[col] ?? 0;
+        const valB = b[col] ?? 0;
+        return dir * (valA - valB);
+      });
+    }
+
+    rows.forEach((r) => {
+      const tr = document.createElement('tr');
+      const diff = Number.isFinite(r.diff)
+        ? r.diff
+        : (r.meanTurn ?? 0) - (r.meanStraight ?? 0);
+      const pct = safePct(r, diff, r.meanStraight);
+
+      // Verdict rests on the BH-corrected q across all rows, not the raw p.
+      // Paired (within-junction) is used only with enough paired junctions;
+      // otherwise the pooled permutation test on per-walk-adjusted values.
+      const testNote =
+        r.test === 'paired'
+          ? `Within-junction paired permutation test (k=${r.pairedN} junctions)`
+          : `Pooled permutation test (n=${r.nTurnUsed ?? r.nTurn} vs ${r.nStraightUsed ?? r.nStraight}, ${r.nTracks || 1} walk(s), levels adjusted per walk). Passages within a walk are correlated, so treat as indicative`;
+      const badgeClass =
+        r.verdict === 'none'
+          ? 'neutral'
+          : diff > neutralBand(r.metric)
+            ? 'higher'
+            : diff < -neutralBand(r.metric)
+              ? 'lower'
+              : 'neutral';
+      const diffFormatted = fmtDiff(diff, pct, r.metric);
+
+      const verdictChip =
+        r.verdict === 'supported'
+          ? `<span class="mag-chip mag-strong" title="${testNote}">Supported (q=${fmtP(r.q)})</span>`
+          : r.verdict === 'suggestive'
+            ? `<span class="mag-chip mag-moderate" title="${testNote}. Uncorrected p&lt;0.05 but q&gt;=0.05 after adjusting for all tests">Weak hint only (p=${fmtP(r.p)}, q=${fmtP(r.q)})</span>`
+            : `<span class="mag-chip mag-negligible" title="${testNote}">n.s. (p=${fmtP(r.p)}, q=${fmtP(r.q)})</span>`;
+
+      const digits = r.metric === 'peakRate' ? 2 : 3;
+      const unit = r.metric === 'peakRate' ? ' /min' : ' μS';
+
+      tr.innerHTML = `
+        <td><strong>${phaseLabels[r.phase] || r.phase}</strong></td>
+        <td>${metricLabels[r.metric] || r.metric}</td>
+        <td><span class="junction-turn-val"><i class="fa-solid fa-arrow-turn-up"></i> ${fmt(r.meanTurn, digits)}${unit}</span> <span style="font-size:0.75rem; color:var(--text-muted);">(n=${r.nTurnUsed ?? r.nTurn})</span></td>
+        <td><span class="junction-straight-val"><i class="fa-solid fa-arrow-up"></i> ${fmt(r.meanStraight, digits)}${unit}</span> <span style="font-size:0.75rem; color:var(--text-muted);">(n=${r.nStraightUsed ?? r.nStraight})</span></td>
+        <td><span class="junction-diff-badge ${badgeClass}">${diffFormatted}</span></td>
+        <td>${verdictChip}</td>
+      `;
+      tbody.appendChild(tr);
+    });
+
+    this.updateJunctionsTableSortHeaders();
+  },
+};
