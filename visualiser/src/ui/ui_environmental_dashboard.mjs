@@ -11,7 +11,6 @@
 import { AppState } from '../core/app_state.mjs';
 import { GSR_CONST } from '../core/constants.mjs';
 import { JunctionResponse } from '../gps/junction_response.mjs';
-import { Junctions } from '../gps/junctions.mjs';
 import { OSMEnricher } from '../osm/osm_enrichment.mjs';
 import { PhysioLatency } from '../signal/physio_latency.mjs';
 import { StatsMath } from '../signal/stats_math.mjs';
@@ -722,7 +721,6 @@ export const EnvironmentalDashboardUI = {
           comparison: [],
           overview: [],
           tracksNeedingGeoms: 0,
-          totalEnrichedTracks: activeTracks.length,
         }
       );
     }
@@ -745,21 +743,12 @@ export const EnvironmentalDashboardUI = {
       if (!a?.isEnriched) return;
 
       // Snapping for analysis only: never turns map snapping on as a side effect.
-      const snapped = a.osmGeoms?.ways
-        ? OSMEnricher.analysisSnap(a, snapRadius)
-        : null;
-      if (!snapped) return;
-
-      const pts = Junctions.buildPts(a.raw || [], snapped);
-      if (pts.length < 2) return;
-
-      const passages = Junctions.classifyPassages(pts, a.osmGeoms.ways, {
-        includeControl: true,
-      });
-      if (!passages || passages.length === 0) return;
-      passages.forEach((p) => {
-        p.trackId = track.id;
-      });
+      const found = OSMEnricher.junctionPassages(a, snapRadius);
+      if (!found || found.passages.length === 0) return;
+      const passages = found.passages.map((p) => ({
+        ...p,
+        trackId: track.id,
+      }));
       allPassages.push(...passages);
 
       // Build series for JunctionResponse.responses
@@ -803,7 +792,7 @@ export const EnvironmentalDashboardUI = {
         time: pTimes,
         phasic: pVals,
         tonic: tVals,
-        isPeak: Array.from(isPeak),
+        isPeak,
       };
 
       const resps = JunctionResponse.responses(passages, series, {
@@ -833,7 +822,6 @@ export const EnvironmentalDashboardUI = {
       comparison: junctionComparison,
       overview: junctionOverview,
       tracksNeedingGeoms: tracksNeedingGeoms.length,
-      totalEnrichedTracks: activeTracks.length,
     };
   },
 };

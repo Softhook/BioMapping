@@ -72,11 +72,11 @@ export const EnvironmentalDashboardEvents = {
       });
     }
 
-    // Delegate click on dynamically added #btnFetchJunctionGeoms
+    // Delegate click on dynamically added .btn-fetch-junction-geoms
     const envTabJunctions = document.getElementById('envTabJunctions');
     if (envTabJunctions) {
       envTabJunctions.addEventListener('click', (e) => {
-        const fetchBtn = e.target.closest('#btnFetchJunctionGeoms');
+        const fetchBtn = e.target.closest('.btn-fetch-junction-geoms');
         if (fetchBtn && Controllers.ui?.ensureOsmGeoms) {
           fetchBtn.disabled = true;
           fetchBtn.innerHTML =

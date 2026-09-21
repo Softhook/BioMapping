@@ -3,6 +3,14 @@
  * Object-augment split composed into GSRUI in ui.mjs.
  */
 import { AppState } from '../core/app_state.mjs';
+import { JunctionResponse } from '../gps/junction_response.mjs';
+
+const WINDOW = `${JunctionResponse.WINDOW_S} s`;
+const neutralBand = (metric) => (metric === 'peakRate' ? 0.5 : 0.02);
+const fmtP = (v) => {
+  if (!Number.isFinite(v)) return '—';
+  return v < 0.001 ? '< 0.001' : v.toFixed(3);
+};
 
 export const JunctionsTableUI = {
   /**
@@ -79,10 +87,6 @@ export const JunctionsTableUI = {
     if (rows.length === 0) return;
 
     const fmt = (v, d) => (Number.isFinite(v) ? v.toFixed(d) : '—');
-    const fmtP = (v) => {
-      if (!Number.isFinite(v)) return '—';
-      return v < 0.001 ? '< 0.001' : v.toFixed(3);
-    };
     const labels = {
       meanPhasic: { name: 'Arousal level (phasic)', unit: ' μS', digits: 3 },
       peakRate: { name: 'Peaks per minute', unit: ' /min', digits: 2 },
@@ -92,7 +96,6 @@ export const JunctionsTableUI = {
         digits: 3,
       },
     };
-    const band = (metric) => (metric === 'peakRate' ? 0.5 : 0.02);
 
     const supported = rows.filter((r) => r.verdict === 'supported');
     const suggestive = rows
@@ -145,7 +148,7 @@ export const JunctionsTableUI = {
       .map((r) => {
         const l = labels[r.metric];
         const badge =
-          r.verdict === 'none' || Math.abs(r.diff) <= band(r.metric)
+          r.verdict === 'none' || Math.abs(r.diff) <= neutralBand(r.metric)
             ? 'neutral'
             : r.diff > 0
               ? 'higher'
@@ -172,7 +175,7 @@ export const JunctionsTableUI = {
         <i class="fa-solid ${icon}"></i> ${headline}
       </div>
       <p class="junction-insight-text">
-        Near a junction vs a plain stretch of road at least 30&nbsp;m from one — whether the walker turned, went straight or doubled back doesn't matter here. Based on ${first.nJunction} junction passages vs ${first.nRoad} plain-road spots across ${first.nTracks || 1} walk(s); ±10&nbsp;s around each, each walk adjusted for its own average level.${powerNote}
+        Near a junction vs a plain stretch of road at least 30&nbsp;m from one — whether the walker turned, went straight or doubled back doesn't matter here. Based on ${first.nJunction} junction passages vs ${first.nRoad} plain-road spots across ${first.nTracks || 1} walk(s); ±${JunctionResponse.WINDOW_S}&nbsp;s around each, each walk adjusted for its own average level.${powerNote}
       </p>
       <div class="table-container" style="margin-top: 8px;">
         <table class="peaks-table">
@@ -265,7 +268,7 @@ export const JunctionsTableUI = {
         ${skewedLoss ? '<span class="junction-stat-chip reverse" title="One class lost many more windows than the other (usually turns, which sit in dense areas), so the passages compared may not be representative."><i class="fa-solid fa-triangle-exclamation"></i> Uneven loss of turns vs straights — comparison may be biased</span>' : ''}
         ${
           junctionStats?.tracksNeedingGeoms > 0
-            ? `<button id="btnFetchJunctionGeoms" class="junction-stat-chip" style="background: rgba(255,123,0,0.12); color: #c45d00; border: 1px solid rgba(255,123,0,0.4); cursor: pointer;" title="Retrieve OpenStreetMap road network geometry to snap and detect junctions on ${junctionStats.tracksNeedingGeoms} walk(s)"><i class="fa-solid fa-wand-magic-sparkles"></i> ${junctionStats.tracksNeedingGeoms} walk(s) need road geometries — click to retrieve</button>`
+            ? `<button class="junction-stat-chip btn-fetch-junction-geoms" style="background: rgba(255,123,0,0.12); color: #c45d00; border: 1px solid rgba(255,123,0,0.4); cursor: pointer;" title="Retrieve OpenStreetMap road network geometry to snap and detect junctions on ${junctionStats.tracksNeedingGeoms} walk(s)"><i class="fa-solid fa-wand-magic-sparkles"></i> ${junctionStats.tracksNeedingGeoms} walk(s) need road geometries — click to retrieve</button>`
             : ''
         }
       `;
@@ -279,11 +282,11 @@ export const JunctionsTableUI = {
             passages.length === 0
               ? junctionStats?.tracksNeedingGeoms > 0
                 ? `<span>${junctionStats.tracksNeedingGeoms} walk(s) have spatial metrics but need OpenStreetMap road geometries to detect junctions.</span><br>
-                   <button id="btnFetchJunctionGeoms" class="btn-primary" style="margin-top: 12px; padding: 6px 14px; font-size: 0.85rem; cursor: pointer;">
+                   <button class="btn-primary btn-fetch-junction-geoms" style="margin-top: 12px; padding: 6px 14px; font-size: 0.85rem; cursor: pointer;">
                      <i class="fa-solid fa-wand-magic-sparkles"></i> Retrieve Road Geometries & Detect Junctions (${junctionStats.tracksNeedingGeoms} Walks)
                    </button>`
                 : 'No junction passages detected. Ensure tracks are enriched with OpenStreetMap road data and road snapping is enabled.'
-              : 'Passages detected, but insufficient clean 10 s non-overlapping GSR windows around junctions for comparison.'
+              : `Passages detected, but insufficient clean ${WINDOW} non-overlapping GSR windows around junctions for comparison.`
           }
         </td>
       `;
@@ -295,7 +298,6 @@ export const JunctionsTableUI = {
     // ── Helper formatters ──────────────────────────────────────────────────
     const fmt = (v, digits = 3) =>
       Number.isFinite(v) ? v.toFixed(digits) : '—';
-    const neutralBand = (metric) => (metric === 'peakRate' ? 0.5 : 0.02);
     // A percentage is only meaningful when the difference is backed by the
     // statistics and the baseline is a level well away from zero (never for a
     // change row, whose baseline can be negative).
@@ -306,10 +308,6 @@ export const JunctionsTableUI = {
       Math.abs(base) > neutralBand(r.metric) * 5
         ? (diff / Math.abs(base)) * 100
         : null;
-    const fmtP = (v) => {
-      if (!Number.isFinite(v)) return '—';
-      return v < 0.001 ? '< 0.001' : v.toFixed(3);
-    };
     const unitOf = (metric) => (metric === 'peakRate' ? ' /min' : ' μS');
     const fmtDiff = (diff, pct, metric) => {
       if (!Number.isFinite(diff)) return '—';
@@ -331,8 +329,8 @@ export const JunctionsTableUI = {
     // Decided on the BH-corrected q across every test, never on one chosen row
     // or an uncorrected p.
     const phaseLabels = {
-      before: 'Before (10 s)',
-      after: 'After (10 s)',
+      before: `Before (${WINDOW})`,
+      after: `After (${WINDOW})`,
       delta: 'Change (after − before)',
     };
     const metricLabels = {
@@ -476,12 +474,12 @@ export const JunctionsTableUI = {
 
       cardsContainer.innerHTML = [
         renderCard(
-          '1. Before (10 s)',
+          `1. Before (${WINDOW})`,
           'Level just before the junction',
           appPhasic,
         ),
         renderCard(
-          '2. After (10 s)',
+          `2. After (${WINDOW})`,
           'Level just after the junction',
           consPhasic,
         ),

@@ -101,6 +101,10 @@ export const MapPanelEvents = {
         btnJunctionDebug.classList.toggle('active');
         JunctionDebug.toggle(btnJunctionDebug.classList.contains('active'));
       });
+      // Keep the overlay in step with track / snap / view changes.
+      AppState.on('map:rendered', () => {
+        if (JunctionDebug.isOn()) JunctionDebug.refresh();
+      });
     }
 
     const btnToggleMapIsolines = document.getElementById(

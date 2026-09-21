@@ -366,10 +366,10 @@ test('pairedPermutation and _pooledPermutation: handle NaN observations safely w
   assert.ok(Number.isNaN(pairedNaN.meanDiff));
 
   const pooledNaN = JunctionResponse._pooledPermutation([
-    { v: NaN, turn: true, group: 'A' },
-    { v: 1, turn: true, group: 'A' },
-    { v: 2, turn: false, group: 'A' },
-    { v: 3, turn: false, group: 'A' },
+    { v: NaN, inA: true, group: 'A' },
+    { v: 1, inA: true, group: 'A' },
+    { v: 2, inA: false, group: 'A' },
+    { v: 3, inA: false, group: 'A' },
   ]);
   assert.strictEqual(pooledNaN.p, 1);
   assert.ok(Number.isNaN(pooledNaN.meanA));

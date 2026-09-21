@@ -108,6 +108,41 @@ export const Junctions = {
     return way?.tags?.service === 'parking_aisle';
   },
 
+  /** Cumulative track distance (m) at each fix. */
+  _cumulative(pts) {
+    const cum = new Array(pts.length).fill(0);
+    for (let k = 1; k < pts.length; k++) {
+      cum[k] =
+        cum[k - 1] +
+        GeoUtils.haversineMeters(
+          pts[k - 1].lat,
+          pts[k - 1].lon,
+          pts[k].lat,
+          pts[k].lon,
+        );
+    }
+    return cum;
+  },
+
+  /**
+   * Signed deflection (deg) between the leg pts[a]→pts[b] and the leg
+   * pts[c]→pts[d], on snapped positions and (when every fix carries them) raw
+   * ones.  `raw` is null when any raw position is missing.
+   * @returns {{turn:number, raw:number|null}}
+   */
+  _deflection(pts, a, b, c, d) {
+    const wrap = (deg) => ((((deg + 180) % 360) + 360) % 360) - 180;
+    const [pa, pb, pc, pd] = [pts[a], pts[b], pts[c], pts[d]];
+    const brg = (u, v) => GeoUtils.bearingDeg(u.lat, u.lon, v.lat, v.lon);
+    const turn = wrap(brg(pc, pd) - brg(pa, pb));
+    if ([pa, pb, pc, pd].some((q) => q.rawLat == null || q.rawLon == null)) {
+      return { turn, raw: null };
+    }
+    const rb = (u, v) =>
+      GeoUtils.bearingDeg(u.rawLat, u.rawLon, v.rawLat, v.rawLon);
+    return { turn, raw: wrap(rb(pc, pd) - rb(pa, pb)) };
+  },
+
   /**
    * Coarse lat/lon grid over junction nodes for radius queries.  Cells are
    * 0.001° (≥ 55 m wide at UK latitudes), so a 3×3 block covers any radius up
@@ -326,7 +361,7 @@ export const Junctions = {
    *   matched fixes in time order (snapped position + way).  When rawLat/rawLon
    *   are given, a passage is only turn/straight/reverse if snapped and raw agree.
    * @param {Array} ways Overpass ways covering the track.
-   * @param {object} [opts] Options ({ includeControl?: boolean })
+   * @param {object} [opts] { includeControl?: boolean, index?: a buildIndex result to reuse }
    * @returns {Array<object>} one entry per passage, time-ordered:
    *   {key, lat, lon, i, idx, time, iBefore, iAfter, kind, degree, decision,
    *    turnAngleDeg, rawTurnAngleDeg, inWay, outWay, inClass, outClass}
@@ -334,21 +369,9 @@ export const Junctions = {
    *   decision: 'straight' | 'turn' | 'reverse' | 'ambiguous' | 'control'
    */
   classifyPassages(pts, ways, opts = {}) {
-    const { nodes, wayNodes } = this.buildIndex(ways);
+    const { nodes, wayNodes } = opts.index || this.buildIndex(ways);
     const R = this.PASS_RADIUS_M;
-
-    // Cumulative track distance at each fix, so gaps are in metres.
-    const cum = new Array(pts.length).fill(0);
-    for (let k = 1; k < pts.length; k++) {
-      cum[k] =
-        cum[k - 1] +
-        GeoUtils.haversineMeters(
-          pts[k - 1].lat,
-          pts[k - 1].lon,
-          pts[k].lat,
-          pts[k].lon,
-        );
-    }
+    const cum = this._cumulative(pts);
 
     // 1. Candidate (node, fix) pairs.  A fix on a road/path only checks the
     // nodes of its own way.  A fix on a sidewalk/crossing — which is not in
@@ -438,19 +461,7 @@ export const Junctions = {
    */
   findControlPassages(pts, ways, juncPassages = [], cum = null, cache = null) {
     if (!pts || pts.length < 2) return [];
-    if (!cum) {
-      cum = new Array(pts.length).fill(0);
-      for (let k = 1; k < pts.length; k++) {
-        cum[k] =
-          cum[k - 1] +
-          GeoUtils.haversineMeters(
-            pts[k - 1].lat,
-            pts[k - 1].lon,
-            pts[k].lat,
-            pts[k].lon,
-          );
-      }
-    }
+    cum ??= this._cumulative(pts);
 
     const { nodes } = cache || this.buildIndex(ways);
     const grid = this._nodeGrid(nodes);
@@ -474,9 +485,6 @@ export const Junctions = {
       }
       return Math.abs(cum[j] - cum[i]) >= this.MIN_ARM_M ? j : -1;
     };
-
-    const brg = (a, b) => GeoUtils.bearingDeg(a.lat, a.lon, b.lat, b.lon);
-    const wrap = (d) => ((((d + 180) % 360) + 360) % 360) - 180;
 
     for (let i = 0; i < pts.length; i++) {
       const p = pts[i];
@@ -512,25 +520,15 @@ export const Junctions = {
       const iAfter = arm(i, 1);
       if (iBefore < 0 || iAfter < 0) continue;
 
-      const bIn = brg(pts[iBefore], pts[i]);
-      const bOut = brg(pts[i], pts[iAfter]);
-      const turn = wrap(bOut - bIn);
+      const { turn, raw: rawTurn } = this._deflection(
+        pts,
+        iBefore,
+        i,
+        i,
+        iAfter,
+      );
       if (this._label(turn) !== 'straight') continue;
-
-      let rawTurn = null;
-      if (
-        p.rawLat != null &&
-        p.rawLon != null &&
-        pts[iBefore]?.rawLat != null &&
-        pts[iBefore]?.rawLon != null &&
-        pts[iAfter]?.rawLat != null &&
-        pts[iAfter]?.rawLon != null
-      ) {
-        const rb = (a, b) =>
-          GeoUtils.bearingDeg(a.rawLat, a.rawLon, b.rawLat, b.rawLon);
-        rawTurn = wrap(rb(pts[i], pts[iAfter]) - rb(pts[iBefore], pts[i]));
-        if (this._label(rawTurn) !== 'straight') continue;
-      }
+      if (rawTurn != null && this._label(rawTurn) !== 'straight') continue;
 
       const charStr = this.characterOf(w);
       candidates.push({
@@ -626,10 +624,7 @@ export const Junctions = {
       // Representative passage is the richest/most definitive node in the cluster
       const best = cluster.reduce((a, b) => (rank(b) > rank(a) ? b : a));
 
-      // Deterministic canonical cluster key: lexicographically lowest node/cluster key
-      const canonicalKey = [
-        ...new Set(cluster.map((p) => p.clusterKey || p.key)),
-      ].sort()[0];
+      const canonicalKey = [...new Set(cluster.map((p) => p.key))].sort()[0];
 
       // Span approach and exit arms across the entire crossroads cluster
       const iBefore = Math.min(...cluster.map((p) => p.iBefore));
@@ -645,39 +640,16 @@ export const Junctions = {
             : 'change';
 
       // Overall trajectory deflection across the whole multi-node crossroads
-      const brg = (a, b) => GeoUtils.bearingDeg(a.lat, a.lon, b.lat, b.lon);
-      const wrap = (d) => ((((d + 180) % 360) + 360) % 360) - 180;
+      const first = cluster[0];
+      const last = cluster[cluster.length - 1];
       let clusterTurnAngle = null;
       let clusterDecision = null;
       let clusterRawTurnAngle = null;
-
-      if (
-        pts?.[iBefore] &&
-        pts[iAfter] &&
-        pts[cluster[0].i] &&
-        pts[cluster[cluster.length - 1].i]
-      ) {
-        const bIn = brg(pts[iBefore], pts[cluster[0].i]);
-        const bOut = brg(pts[cluster[cluster.length - 1].i], pts[iAfter]);
-        clusterTurnAngle = wrap(bOut - bIn);
-        clusterDecision = this._label(clusterTurnAngle);
-
-        if (
-          pts[cluster[0].i].rawLat != null &&
-          pts[cluster[0].i].rawLon != null &&
-          pts[cluster[cluster.length - 1].i].rawLat != null &&
-          pts[cluster[cluster.length - 1].i].rawLon != null &&
-          pts[iBefore]?.rawLat != null &&
-          pts[iBefore]?.rawLon != null &&
-          pts[iAfter]?.rawLat != null &&
-          pts[iAfter]?.rawLon != null
-        ) {
-          const rb = (a, b) =>
-            GeoUtils.bearingDeg(a.rawLat, a.rawLon, b.rawLat, b.rawLon);
-          const rbIn = rb(pts[iBefore], pts[cluster[0].i]);
-          const rbOut = rb(pts[cluster[cluster.length - 1].i], pts[iAfter]);
-          clusterRawTurnAngle = wrap(rbOut - rbIn);
-        }
+      if (pts?.[iBefore] && pts[iAfter] && pts[first.i] && pts[last.i]) {
+        const d = this._deflection(pts, iBefore, first.i, last.i, iAfter);
+        clusterTurnAngle = d.turn;
+        clusterRawTurnAngle = d.raw;
+        clusterDecision = this._label(d.turn);
       }
 
       // The overall path through the crossroads decides. A single node's arms
@@ -723,10 +695,9 @@ export const Junctions = {
 
       // Temporal anchor: anchor time to the entrance of the crossroads cluster
       // so the "before" approach window is strictly prior to entering the junction.
-      const timeEnter = cluster[0].time;
-      const timeExit = cluster[cluster.length - 1].time;
-      const clusterSpanM =
-        cum[cluster[cluster.length - 1].i] - cum[cluster[0].i];
+      const timeEnter = first.time;
+      const timeExit = last.time;
+      const clusterSpanM = cum[last.i] - cum[first.i];
 
       return {
         ...best,
@@ -740,10 +711,10 @@ export const Junctions = {
         decision,
         turnAngleDeg,
         rawTurnAngleDeg,
-        inWay: cluster[0].inWay,
-        outWay: cluster[cluster.length - 1].outWay,
-        inClass: cluster[0].inClass,
-        outClass: cluster[cluster.length - 1].outClass,
+        inWay: first.inWay,
+        outWay: last.outWay,
+        inClass: first.inClass,
+        outClass: last.outClass,
         iBefore,
         iAfter,
         mergedCount: cluster.length,
@@ -764,30 +735,17 @@ export const Junctions = {
   },
 
   /** Build one passage at fix index i of node n, or null if not a real one. */
-  _passage(pts, n, i, cum = null, wayMap = null) {
+  _passage(pts, n, i, cum, wayMap = null) {
     const arm = (dir) => {
       let j = i;
-      if (cum) {
-        while (
-          j + dir >= 0 &&
-          j + dir < pts.length &&
-          Math.abs(cum[j + dir] - cum[i]) < this.ARM_M
-        ) {
-          j += dir;
-        }
-        return Math.abs(cum[j] - cum[i]) >= this.MIN_ARM_M ? j : -1;
-      }
-      let dist = 0;
-      while (j + dir >= 0 && j + dir < pts.length && dist < this.ARM_M) {
-        dist += GeoUtils.haversineMeters(
-          pts[j].lat,
-          pts[j].lon,
-          pts[j + dir].lat,
-          pts[j + dir].lon,
-        );
+      while (
+        j + dir >= 0 &&
+        j + dir < pts.length &&
+        Math.abs(cum[j + dir] - cum[i]) < this.ARM_M
+      ) {
         j += dir;
       }
-      return dist >= this.MIN_ARM_M ? j : -1;
+      return Math.abs(cum[j] - cum[i]) >= this.MIN_ARM_M ? j : -1;
     };
     const iBefore = arm(-1);
     const iAfter = arm(1);
@@ -828,28 +786,12 @@ export const Junctions = {
     const change = inClass !== outClass;
     if (!choice && !change) return null;
 
-    const brg = (a, b) => GeoUtils.bearingDeg(a.lat, a.lon, b.lat, b.lon);
-    const bIn = brg(pts[iBefore], pts[i]);
-    const bOut = brg(pts[i], pts[iAfter]);
-    const wrap = (d) => ((((d + 180) % 360) + 360) % 360) - 180;
-    const turn = wrap(bOut - bIn);
-    let decision = this._label(turn);
-
     // Snapping can add or hide a corner, so when the raw fixes are supplied
     // the walker only counts as having turned (or not) if both agree.
-    let rawTurn = null;
-    if (
-      pts[i].rawLat != null &&
-      pts[i].rawLon != null &&
-      pts[iBefore]?.rawLat != null &&
-      pts[iBefore]?.rawLon != null &&
-      pts[iAfter]?.rawLat != null &&
-      pts[iAfter]?.rawLon != null
-    ) {
-      const rb = (a, b) =>
-        GeoUtils.bearingDeg(a.rawLat, a.rawLon, b.rawLat, b.rawLon);
-      rawTurn = wrap(rb(pts[i], pts[iAfter]) - rb(pts[iBefore], pts[i]));
-      if (this._label(rawTurn) !== decision) decision = 'ambiguous';
+    const { turn, raw: rawTurn } = this._deflection(pts, iBefore, i, i, iAfter);
+    let decision = this._label(turn);
+    if (rawTurn != null && this._label(rawTurn) !== decision) {
+      decision = 'ambiguous';
     }
 
     return {
@@ -864,7 +806,7 @@ export const Junctions = {
       iBefore,
       iAfter,
       kind: choice && change ? 'choice+change' : choice ? 'choice' : 'change',
-      degree: n.degree,
+      degree: n.clusterDegree ?? n.degree,
       decision,
       turnAngleDeg: turn,
       rawTurnAngleDeg: rawTurn,

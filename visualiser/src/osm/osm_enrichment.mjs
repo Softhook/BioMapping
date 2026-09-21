@@ -6,6 +6,7 @@
 
 // -- Numerical constants ---------------------------------------------------
 import { GeoUtils } from '../gps/geo_utils.mjs';
+import { Junctions } from '../gps/junctions.mjs';
 import { MapMatcher } from '../gps/map_match.mjs';
 import { SpatialGrid } from '../spatial/spatial_grid.mjs';
 import { OverpassClient } from './overpass_client.mjs';
@@ -1283,5 +1284,39 @@ export const OSMEnricher = {
     });
     analyzer._analysisSnap = { raw: analyzer.raw, geoms, r: snapRadius, gps };
     return gps;
+  },
+
+  /**
+   * Junction passages for one enriched track (control samples included), on
+   * the analysis snap.  Memoised per (snap, geoms, radius) so the analysis
+   * table and the map debug overlay share one classification.
+   * @returns {{pts:Array, passages:Array, nodes:Map}|null} null when the track
+   *   has no road geometry or too few matched fixes.
+   */
+  junctionPassages(analyzer, snapRadius = 25) {
+    if (!analyzer?.isEnriched || !analyzer.osmGeoms?.ways) return null;
+    const snapped = this.analysisSnap(analyzer, snapRadius);
+    if (!snapped) return null;
+    const c = analyzer._junctionPassages;
+    if (c && c.snapped === snapped && c.ways === analyzer.osmGeoms.ways) {
+      return c.result;
+    }
+    const pts = Junctions.buildPts(analyzer.raw || [], snapped);
+    let result = null;
+    if (pts.length >= 2) {
+      const ways = analyzer.osmGeoms.ways;
+      const index = Junctions.buildIndex(ways);
+      const passages = Junctions.classifyPassages(pts, ways, {
+        includeControl: true,
+        index,
+      });
+      result = { pts, passages, nodes: index.nodes };
+    }
+    analyzer._junctionPassages = {
+      snapped,
+      ways: analyzer.osmGeoms.ways,
+      result,
+    };
+    return result;
   },
 };

@@ -11,7 +11,7 @@
  * never touches the per-track layer groups.  Enriched tracks only.
  */
 import { AppState } from '../core/app_state.mjs';
-import { Junctions } from '../gps/junctions.mjs';
+import { GSRNotices } from '../core/notices.mjs';
 import { OSMEnricher } from '../osm/osm_enrichment.mjs';
 
 const DECISION_COLOUR = {
@@ -118,21 +118,17 @@ export const JunctionDebug = {
 
     for (const { id, a } of this._analyzers()) {
       if (!a?.isEnriched || !a.osmGeoms?.ways) continue;
-      const snapped = OSMEnricher.analysisSnap(a, snapRadius);
-      if (!snapped) continue;
-      const pts = Junctions.buildPts(a.raw || [], snapped);
-      if (pts.length < 2) continue;
-      const passages = Junctions.classifyPassages(pts, a.osmGeoms.ways, {
-        includeControl: true,
-      });
-
-      const { nodes } = Junctions.buildIndex(a.osmGeoms.ways);
+      const found = OSMEnricher.junctionPassages(a, snapRadius);
+      if (!found) continue;
+      const { pts, passages, nodes } = found;
       const describeWays = (key) =>
         [...(nodes.get(key)?.ways.values() || [])]
           .map((w) => {
             const t = w.tags || {};
             const sub = t.footway || t.service || t.cycleway || '';
-            return `${t.highway}${sub ? `/${sub}` : ''} ${t.name || '(unnamed)'} #${w.id}`;
+            return GSRNotices.escapeHtml(
+              `${t.highway}${sub ? `/${sub}` : ''} ${t.name || '(unnamed)'} #${w.id}`,
+            );
           })
           .join('<br>&nbsp;&nbsp;');
 
