@@ -827,56 +827,49 @@ console.log('\n── gps_pipeline.js ──');
 // 5c2. isPlausibleGap — shared gap criterion used by both reconstructFilteredGps
 // (interpolate vs blank) and the map renderer's path-segment breaking
 // (manager/path.js's _renderPathSegments)
-{
-  // Walking pace, well under maxSpeed → plausible
-  assert(
-    GpsPipeline.isPlausibleGap(10, 8, 3.0),
-    'isPlausibleGap: slow, short gap is plausible',
-  );
-  // Implied speed (100m/1s = 100 m/s) far exceeds maxSpeed → not plausible,
-  // even though the gap itself is short in time — this is exactly the
-  // biomap_029/maxSpeed=1 bug: a huge jump in a fraction of a second used
-  // to sail through a time-only gate.
-  assert(
-    !GpsPipeline.isPlausibleGap(100, 1, 3.0),
-    'isPlausibleGap: implausible implied speed rejected regardless of how short the time gap is',
-  );
-  // Under the absolute distance ceiling (100m) but still too fast → rejected
-  assert(
-    !GpsPipeline.isPlausibleGap(95, 10, 3.0),
-    'isPlausibleGap: under the distance ceiling but implied speed still too high',
-  );
-  // Over the absolute distance ceiling even at a plausible average speed → rejected
-  assert(
-    !GpsPipeline.isPlausibleGap(150, 100, 3.0),
-    'isPlausibleGap: distance ceiling rejects a long real detour disguised as a low average speed',
-  );
-  // Zero elapsed time with nonzero distance → infinite implied speed → rejected
-  assert(
-    !GpsPipeline.isPlausibleGap(5, 0, 3.0),
-    'isPlausibleGap: zero dt with real distance is never plausible',
-  );
-}
+// Walking pace, well under maxSpeed → plausible
+assert(
+  GpsPipeline.isPlausibleGap(10, 8, 3.0),
+  'isPlausibleGap: slow, short gap is plausible',
+);
+// Implied speed (100m/1s = 100 m/s) far exceeds maxSpeed → not plausible,
+// even though the gap itself is short in time — this is exactly the
+// biomap_029/maxSpeed=1 bug: a huge jump in a fraction of a second used
+// to sail through a time-only gate.
+assert(
+  !GpsPipeline.isPlausibleGap(100, 1, 3.0),
+  'isPlausibleGap: implausible implied speed rejected regardless of how short the time gap is',
+);
+// Under the absolute distance ceiling (100m) but still too fast → rejected
+assert(
+  !GpsPipeline.isPlausibleGap(95, 10, 3.0),
+  'isPlausibleGap: under the distance ceiling but implied speed still too high',
+);
+// Over the absolute distance ceiling even at a plausible average speed → rejected
+assert(
+  !GpsPipeline.isPlausibleGap(150, 100, 3.0),
+  'isPlausibleGap: distance ceiling rejects a long real detour disguised as a low average speed',
+);
+// Zero elapsed time with nonzero distance → infinite implied speed → rejected
+assert(
+  !GpsPipeline.isPlausibleGap(5, 0, 3.0),
+  'isPlausibleGap: zero dt with real distance is never plausible',
+);
 
 // 5c2b. isImpossibleJump — lenient render-break rule: only jumps no real
 // track (or snap/multipath error) could produce; noisy real data stays joined.
-{
-  // 500 m in 1 s: impossible
-  assert(GpsPipeline.isImpossibleJump(500, 1), 'impossible jump breaks');
-  assert(
-    GpsPipeline.isImpossibleJump(60, 0),
-    'zero dt with real distance breaks',
-  );
-  // Bad reception / snap offsets: 30 m in 1 s (30 m/s but under the distance floor)
-  assert(!GpsPipeline.isImpossibleJump(30, 1), 'tens-of-metres wobble is kept');
-  // 12 m/s over 10 s = 120 m: fast (above walking maxSpeed) but plausible, kept
-  assert(
-    !GpsPipeline.isImpossibleJump(120, 10),
-    'fast-but-possible gap is kept',
-  );
-  // Stopped / tiny move
-  assert(!GpsPipeline.isImpossibleJump(0, 1), 'no movement is kept');
-}
+// 500 m in 1 s: impossible
+assert(GpsPipeline.isImpossibleJump(500, 1), 'impossible jump breaks');
+assert(
+  GpsPipeline.isImpossibleJump(60, 0),
+  'zero dt with real distance breaks',
+);
+// Bad reception / snap offsets: 30 m in 1 s (30 m/s but under the distance floor)
+assert(!GpsPipeline.isImpossibleJump(30, 1), 'tens-of-metres wobble is kept');
+// 12 m/s over 10 s = 120 m: fast (above walking maxSpeed) but plausible, kept
+assert(!GpsPipeline.isImpossibleJump(120, 10), 'fast-but-possible gap is kept');
+// Stopped / tiny move
+assert(!GpsPipeline.isImpossibleJump(0, 1), 'no movement is kept');
 
 // 5c3. Hermite reconstruction helpers — velocity vector, tangent clamp, curve
 {

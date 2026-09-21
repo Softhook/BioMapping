@@ -1192,4 +1192,96 @@ export const OSMEnricher = {
 
     return { snapLat: bestSnapLat, snapLon: bestSnapLon, dist: minDist };
   },
+
+  /**
+   * Fast HMM road-snapping for a track against reconstructed OSM geometries.
+   * Useful when geometries are already available (e.g. from cache or OSM shapes)
+   * so an enriched track can classify junction turns without a slow full re-enrichment.
+   *
+   * @param {object} analyzer
+   * @param {object} geoms
+   * @param {number} [snapRadius=25]
+   * @param {{commit?: boolean}} [opts] commit:false leaves analyzer.snappedGps
+   *   and _dataVersion untouched (the map keeps showing raw positions when the
+   *   user has snapping off); the result is returned only.
+   * @returns {Array<object>|null}
+   */
+  snapTrackGps(analyzer, geoms, snapRadius = 25, opts = {}) {
+    const commit = opts.commit !== false;
+    const raw = analyzer?.raw;
+    if (!raw || raw.length === 0 || !geoms?.ways || geoms.ways.length === 0) {
+      return null;
+    }
+
+    analyzer.osmGeoms = geoms;
+    const spatialIndex = this.buildSpatialIndex(geoms);
+
+    const gpsIndices = [];
+    for (let i = 0; i < raw.length; i++) {
+      const coords = analyzer.getCoordinates(i, true);
+      if (
+        coords &&
+        coords.lat != null &&
+        coords.lon != null &&
+        !isNaN(coords.lat) &&
+        !isNaN(coords.lon)
+      ) {
+        gpsIndices.push({ idx: i, lat: coords.lat, lon: coords.lon });
+      }
+    }
+    if (gpsIndices.length === 0) return null;
+
+    let evalPoints = this._selectEvaluationPoints(raw, gpsIndices);
+    evalPoints = this._thinPoints(evalPoints, 3);
+
+    const matchRadius = snapRadius || MapMatcher.MATCH_RADIUS;
+    const hmmPoints = evalPoints.map((node) => ({
+      ...node,
+      nearby: spatialIndex.getNearby(node.lat, node.lon),
+    }));
+
+    const hmmResults = MapMatcher.match(hmmPoints, raw, matchRadius);
+    const snappedGps = new Array(raw.length);
+    for (let i = 0; i < raw.length; i++) {
+      snappedGps[i] = { lat: NaN, lon: NaN };
+    }
+    for (const [idx, r] of hmmResults) {
+      snappedGps[idx] = r;
+    }
+    const prev = analyzer.snappedGps;
+    analyzer.snappedGps = snappedGps;
+    this._interpolateSnappedGps(analyzer, raw);
+    const result = analyzer.snappedGps;
+    if (commit) {
+      analyzer._dataVersion = (analyzer._dataVersion || 0) + 1;
+    } else {
+      analyzer.snappedGps = prev;
+    }
+    return result;
+  },
+
+  /**
+   * Snapped positions for analysis (junction detection). Uses the committed
+   * analyzer.snappedGps when snapping is on; otherwise a private snap that is
+   * cached per (raw, geoms, radius) and never reaches the map.
+   */
+  analysisSnap(analyzer, snapRadius = 25) {
+    if (analyzer.snappedGps) return analyzer.snappedGps;
+    const geoms = analyzer.osmGeoms;
+    if (!geoms?.ways) return null;
+    const c = analyzer._analysisSnap;
+    if (
+      c &&
+      c.raw === analyzer.raw &&
+      c.geoms === geoms &&
+      c.r === snapRadius
+    ) {
+      return c.gps;
+    }
+    const gps = this.snapTrackGps(analyzer, geoms, snapRadius, {
+      commit: false,
+    });
+    analyzer._analysisSnap = { raw: analyzer.raw, geoms, r: snapRadius, gps };
+    return gps;
+  },
 };

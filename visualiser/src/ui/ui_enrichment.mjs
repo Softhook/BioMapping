@@ -24,27 +24,27 @@ export const EnrichmentUI = {
   getSpatialTracks(options = {}) {
     const silent = Boolean(options.silent);
     const featureLabel = options.featureLabel || 'spatial data retrieval';
-    const isCollective = AppState.viewMode === 'collective';
+    const isCollective =
+      AppState.viewMode === 'collective' ||
+      Boolean(
+        options.allTracks || options.allLoaded || options.scope === 'all',
+      );
 
     let allTracks = [];
-    if (isCollective) {
-      if (!AppState.collectiveManager)
-        return { allTracks: [], validTracks: [] };
+    if (isCollective && AppState.collectiveManager) {
       allTracks = AppState.collectiveManager.getActiveTracks() || [];
-    } else {
-      if (AppState.analyzer?.raw && AppState.analyzer.raw.length > 0) {
-        const trackObj =
-          AppState.collectiveManager && AppState.activeTrackId
-            ? AppState.collectiveManager.getTrack(AppState.activeTrackId)
-            : null;
-        allTracks = [
-          {
-            id: AppState.activeTrackId,
-            name: trackObj?.name || 'Walk',
-            analyzer: AppState.analyzer,
-          },
-        ];
-      }
+    } else if (AppState.analyzer?.raw && AppState.analyzer.raw.length > 0) {
+      const trackObj =
+        AppState.collectiveManager && AppState.activeTrackId
+          ? AppState.collectiveManager.getTrack(AppState.activeTrackId)
+          : null;
+      allTracks = [
+        {
+          id: AppState.activeTrackId,
+          name: trackObj?.name || 'Walk',
+          analyzer: AppState.analyzer,
+        },
+      ];
     }
 
     if (allTracks.length === 0) {

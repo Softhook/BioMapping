@@ -7,16 +7,18 @@
  * immediately after events.js, adds these methods to the shared GSREvents
  * object.
  */
+import { AppState } from '../core/app_state.mjs';
 import { Controllers } from '../core/controllers.mjs';
 
 export const EnvironmentalDashboardEvents = {
   /**
-   * Environmental dashboard tab switcher and scatter-plot metric selects.
+   * Environmental dashboard tab switcher, scope switcher, and metric selects.
    */
   _bindEnvironmentalDashboardControls() {
     // Dashboard Tab Switcher
     const bindEnvTab = (btnId, panelId) => {
       const btn = document.getElementById(btnId);
+      if (!btn) return;
       btn.addEventListener('click', () => {
         document.querySelectorAll('#envTabSwitcher .view-tab').forEach((b) => {
           b.classList.remove('active');
@@ -31,6 +33,27 @@ export const EnvironmentalDashboardEvents = {
           pEl.style.display = 'flex';
           pEl.classList.add('active');
         }
+
+        // If user switches to Junction Turns tab and tracks are missing OSM geoms,
+        // attempt a background ensureOsmGeoms (reuses cache or fetches)
+        if (btnId === 'btnEnvTabJunctions' && Controllers.ui?.ensureOsmGeoms) {
+          const allActive =
+            AppState.viewMode === 'collective'
+              ? AppState.collectiveManager?.getActiveTracks?.() || []
+              : AppState.analyzer
+                ? [{ analyzer: AppState.analyzer }]
+                : [];
+          const missing = allActive.some(
+            (t) => t.analyzer?.isEnriched && !t.analyzer?.osmGeoms?.ways,
+          );
+          if (missing) {
+            Controllers.ui
+              .ensureOsmGeoms()
+              .then(() => Controllers.ui?.updateEnvironmentalDashboard?.())
+              .catch((e) => console.warn('ensureOsmGeoms failed:', e));
+          }
+        }
+
         Controllers.ui?.updateEnvironmentalDashboard();
       });
     };
@@ -49,14 +72,36 @@ export const EnvironmentalDashboardEvents = {
       });
     }
 
+    // Delegate click on dynamically added #btnFetchJunctionGeoms
+    const envTabJunctions = document.getElementById('envTabJunctions');
+    if (envTabJunctions) {
+      envTabJunctions.addEventListener('click', (e) => {
+        const fetchBtn = e.target.closest('#btnFetchJunctionGeoms');
+        if (fetchBtn && Controllers.ui?.ensureOsmGeoms) {
+          fetchBtn.disabled = true;
+          fetchBtn.innerHTML =
+            '<i class="fa-solid fa-spinner fa-spin"></i> Retrieving Road Geometries…';
+          Controllers.ui
+            .ensureOsmGeoms()
+            .then(() => {
+              Controllers.ui?.updateEnvironmentalDashboard();
+            })
+            .catch((err) => {
+              console.warn('ensureOsmGeoms failed:', err);
+              Controllers.ui?.updateEnvironmentalDashboard();
+            });
+        }
+      });
+    }
+
     document
       .getElementById('scatterEnvMetric')
-      .addEventListener('change', () =>
+      ?.addEventListener('change', () =>
         Controllers.ui?.updateEnvironmentalDashboard(),
       );
     document
       .getElementById('scatterBioMetric')
-      .addEventListener('change', () =>
+      ?.addEventListener('change', () =>
         Controllers.ui?.updateEnvironmentalDashboard(),
       );
   },

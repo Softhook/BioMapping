@@ -332,3 +332,91 @@ test('renderJunctionsTable: renders open road control chip, moment card bar, and
   assert.ok(tbodyEl.children[0].innerHTML.includes('0.200 μS'));
   assert.ok(tbodyEl.children[0].innerHTML.includes('+0.200 μS'));
 });
+
+test('renderJunctionsTable: sorting safely handles rows with NaN diffJunction or meanControl', () => {
+  const { tbodyEl } = setupDOM();
+  const rowWithControl = mockRow('before', 'meanPhasic', {
+    meanTurn: 0.5,
+    meanStraight: 0.3,
+    meanControl: 0.2,
+    diff: 0.2,
+    diffJunction: 0.1,
+  });
+  const rowWithoutControl = mockRow('after', 'meanPhasic', {
+    meanTurn: 0.6,
+    meanStraight: 0.4,
+    meanControl: NaN,
+    diff: 0.2,
+    diffJunction: NaN,
+  });
+
+  // Sort by diffJunction descending
+  AppState.junctionSortColumn = 'diffJunction';
+  AppState.junctionSortDirection = 'desc';
+
+  JunctionsTableUI.renderJunctionsTable(
+    baseStats([rowWithoutControl, rowWithControl]),
+  );
+
+  // The row with finite diffJunction should be first, NaN second
+  assert.strictEqual(tbodyEl.children.length, 2);
+  assert.ok(tbodyEl.children[0].innerHTML.includes('Before (10 s)'));
+  assert.ok(tbodyEl.children[1].innerHTML.includes('After (10 s)'));
+
+  // Sort by diffJunction ascending — finite first (or NaN sink to bottom)
+  const { tbodyEl: tbodyElAsc } = setupDOM();
+  AppState.junctionSortDirection = 'asc';
+  JunctionsTableUI.renderJunctionsTable(
+    baseStats([rowWithoutControl, rowWithControl]),
+  );
+  assert.strictEqual(tbodyElAsc.children.length, 2);
+  assert.ok(tbodyElAsc.children[0].innerHTML.includes('Before (10 s)'));
+  assert.ok(tbodyElAsc.children[1].innerHTML.includes('After (10 s)'));
+});
+
+test('sortJunctionsTable: pVal defaults to asc and tie-breaks on raw p', () => {
+  setupDOM();
+  // Switching to pVal should set direction to asc
+  AppState.junctionSortColumn = 'diff';
+  AppState.junctionSortDirection = 'desc';
+  JunctionsTableUI.sortJunctionsTable('pVal');
+  assert.strictEqual(AppState.junctionSortColumn, 'pVal');
+  assert.strictEqual(AppState.junctionSortDirection, 'asc');
+
+  // Verify sorting order: equal q (0.05) tie-breaks on raw p (0.01 vs 0.04)
+  const rowA = mockRow('before', 'meanPhasic', {
+    q: 0.05,
+    p: 0.04,
+  });
+  const rowB = mockRow('after', 'meanPhasic', {
+    q: 0.05,
+    p: 0.01,
+  });
+  const { tbodyEl } = setupDOM();
+  AppState.junctionSortColumn = 'pVal';
+  AppState.junctionSortDirection = 'asc';
+  JunctionsTableUI.renderJunctionsTable(baseStats([rowA, rowB]));
+
+  // rowB has lower raw p, so should appear first
+  assert.strictEqual(tbodyEl.children.length, 2);
+  assert.ok(tbodyEl.children[0].innerHTML.includes('After (10 s)'));
+  assert.ok(tbodyEl.children[1].innerHTML.includes('Before (10 s)'));
+});
+
+test('renderJunctionsTable: junction diff badge includes informative title tooltip', () => {
+  const { tbodyEl } = setupDOM();
+  const row = mockRow('after', 'meanPhasic', {
+    diffJunction: 0.25,
+    pJunction: 0.012,
+    qJunction: 0.034,
+    testJunction: 'pooled',
+    verdictJunction: 'supported',
+    nTurn: 5,
+    nStraight: 5,
+    nControl: 10,
+  });
+  JunctionsTableUI.renderJunctionsTable(baseStats([row]));
+  const rowHtml = tbodyEl.children[0].innerHTML;
+  assert.ok(rowHtml.includes('title="Junction vs Open Road:'));
+  assert.ok(rowHtml.includes('p=0.012, q=0.034'));
+});

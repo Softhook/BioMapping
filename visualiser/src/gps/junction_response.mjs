@@ -32,6 +32,9 @@ export const JunctionResponse = {
   MIN_WINDOW_S: 5,
   /** …or with fewer than this many GSR samples. */
   MIN_SAMPLES: 5,
+  /** …or with GSR covering less than this fraction of the window (recording
+   *  start/end, dropouts): rates are computed over the covered time only. */
+  MIN_COVERAGE: 0.8,
   PERMUTATIONS: 5000,
   /** Fewer paired junctions than this and the paired test is too coarse to
    *  be the headline (its permutation p can't get small). */
@@ -42,7 +45,7 @@ export const JunctionResponse = {
   METRICS: ['peakRate', 'meanPhasic', 'meanTonic'],
 
   /** Summarise series samples with time in [t0, t1). */
-  _summarise(series, t0, t1) {
+  _summarise(series, t0, t1, dt = 0) {
     const { time, phasic, tonic, isPeak } = series;
     let n = 0;
     let sumP = 0;
@@ -55,16 +58,38 @@ export const JunctionResponse = {
     ) {
       n++;
       sumP += phasic[i];
-      sumT += tonic[i];
-      if (isPeak[i]) peaks++;
+      if (tonic) sumT += tonic[i] ?? 0;
+      if (isPeak?.[i]) peaks++;
     }
     const dur = t1 - t0;
-    if (n < this.MIN_SAMPLES || dur < this.MIN_WINDOW_S) return null;
+    // Time actually observed: a window running off the recording or across a
+    // dropout must not be divided by its nominal length.
+    const covered = dt > 0 ? Math.min(dur, n * dt) : dur;
+    if (
+      n < this.MIN_SAMPLES ||
+      dur < this.MIN_WINDOW_S ||
+      covered < this.MIN_COVERAGE * dur ||
+      !Number.isFinite(sumP) ||
+      !Number.isFinite(sumT)
+    ) {
+      return null;
+    }
     return {
-      peakRate: (peaks / dur) * 60,
+      peakRate: (peaks / covered) * 60,
       meanPhasic: sumP / n,
       meanTonic: sumT / n,
     };
+  },
+
+  /** Median sample spacing (s); 0 when it can't be estimated. */
+  _sampleInterval(time) {
+    const n = time?.length ?? 0;
+    if (n < 2) return 0;
+    const step = Math.max(1, Math.floor(n / 200));
+    const d = [];
+    for (let i = step; i < n; i += step) d.push(time[i] - time[i - step]);
+    d.sort((a, b) => a - b);
+    return d[d.length >> 1] / step;
   },
 
   _lowerBound(arr, x) {
@@ -86,21 +111,20 @@ export const JunctionResponse = {
    */
   responses(passages, series, opts = {}) {
     const W = opts.windowS ?? this.WINDOW_S;
+    const dt = this._sampleInterval(series.time);
     const sorted = [...passages].sort((a, b) => a.time - b.time);
     const out = [];
     sorted.forEach((p, i) => {
       const prev = sorted[i - 1];
       const next = sorted[i + 1];
-      const t0 = Math.max(
-        p.time - W,
-        prev ? (prev.time + p.time) / 2 : -Infinity,
-      );
-      const t1 = Math.min(
-        p.time + W,
-        next ? (next.time + p.time) / 2 : Infinity,
-      );
-      const before = this._summarise(series, t0, p.time);
-      const after = this._summarise(series, p.time, t1);
+      const enter = p.timeEnter ?? p.time;
+      const exit = p.timeExit ?? p.time;
+      const prevExit = prev ? (prev.timeExit ?? prev.time) : -Infinity;
+      const nextEnter = next ? (next.timeEnter ?? next.time) : Infinity;
+      const t0 = Math.max(enter - W, prev ? (prevExit + enter) / 2 : -Infinity);
+      const t1 = Math.min(exit + W, next ? (exit + nextEnter) / 2 : Infinity);
+      const before = this._summarise(series, t0, enter, dt);
+      const after = this._summarise(series, exit, t1, dt);
       if (!before || !after) return;
       const delta = {};
       for (const m of this.METRICS) delta[m] = after[m] - before[m];
@@ -110,6 +134,8 @@ export const JunctionResponse = {
         decision: p.decision,
         kind: p.kind,
         time: p.time,
+        timeEnter: enter,
+        timeExit: exit,
         before,
         after,
         delta,
@@ -141,21 +167,34 @@ export const JunctionResponse = {
     const mean = (a) => a.reduce((x, y) => x + y, 0) / a.length;
     const stat = (gs) => mean(gs.map((g) => mean(g.turn) - mean(g.straight)));
     const observed = stat(groups);
+    if (!Number.isFinite(observed)) return { n, meanDiff: NaN, p: 1 };
+
+    const pre = groups.map((g) => {
+      const all = [...g.turn, ...g.straight];
+      const nT = g.turn.length;
+      const nS = g.straight.length;
+      const sTotal = all.reduce((x, y) => x + y, 0);
+      return { all, nT, nS, sTotal };
+    });
+
     const rand = this._rng(seed);
     let extreme = 0;
     for (let it = 0; it < this.PERMUTATIONS; it++) {
-      const perm = groups.map((g) => {
-        const all = [...g.turn, ...g.straight];
+      let sumDiff = 0;
+      for (const p of pre) {
+        const { all, nT, nS, sTotal } = p;
         for (let i = all.length - 1; i > 0; i--) {
           const j = Math.floor(rand() * (i + 1));
-          [all[i], all[j]] = [all[j], all[i]];
+          const t = all[i];
+          all[i] = all[j];
+          all[j] = t;
         }
-        return {
-          turn: all.slice(0, g.turn.length),
-          straight: all.slice(g.turn.length),
-        };
-      });
-      if (Math.abs(stat(perm)) >= Math.abs(observed) - 1e-12) extreme++;
+        let sTurn = 0;
+        for (let i = 0; i < nT; i++) sTurn += all[i];
+        sumDiff += sTurn / nT - (sTotal - sTurn) / nS;
+      }
+      const permStat = sumDiff / n;
+      if (Math.abs(permStat) >= Math.abs(observed) - 1e-12) extreme++;
     }
     return {
       n,
@@ -180,33 +219,39 @@ export const JunctionResponse = {
       if (!groups.has(x.group)) groups.set(x.group, []);
       groups.get(x.group).push(x);
     }
-    const stat = (flags) => {
-      let sT = 0;
-      let sS = 0;
-      let k = 0;
-      for (const g of groups.values()) {
-        for (let i = 0; i < g.length; i++, k++) {
-          if (flags[k]) sT += g[i].v;
-          else sS += g[i].v;
-        }
-      }
-      return sT / nT - sS / nS;
-    };
+    const allVals = [];
     const flags = [];
-    for (const g of groups.values()) for (const x of g) flags.push(x.turn);
+    const groupLens = [];
+    let sumTotal = 0;
+    for (const g of groups.values()) {
+      groupLens.push(g.length);
+      for (const x of g) {
+        allVals.push(x.v);
+        flags.push(x.turn);
+        sumTotal += x.v;
+      }
+    }
+    const stat = (fl) => {
+      let sT = 0;
+      for (let i = 0; i < allVals.length; i++) {
+        if (fl[i]) sT += allVals[i];
+      }
+      return sT / nT - (sumTotal - sT) / nS;
+    };
     const observed = stat(flags);
+    if (!Number.isFinite(observed)) return { meanA: NaN, meanB: NaN, p: 1 };
     const rand = this._rng(seed);
     let extreme = 0;
     for (let it = 0; it < this.PERMUTATIONS; it++) {
       let k = 0;
-      for (const g of groups.values()) {
-        const f = flags.slice(k, k + g.length);
-        for (let i = f.length - 1; i > 0; i--) {
+      for (const len of groupLens) {
+        for (let i = len - 1; i > 0; i--) {
           const j = Math.floor(rand() * (i + 1));
-          [f[i], f[j]] = [f[j], f[i]];
+          const t = flags[k + i];
+          flags[k + i] = flags[k + j];
+          flags[k + j] = t;
         }
-        for (let i = 0; i < f.length; i++) flags[k + i] = f[i];
-        k += g.length;
+        k += len;
       }
       if (Math.abs(stat(flags)) >= Math.abs(observed) - 1e-12) extreme++;
     }
@@ -268,52 +313,66 @@ export const JunctionResponse = {
         r.decision === 'control',
     );
     const rows = [];
+    const turnVsStraightRecs = recs.filter(
+      (r) => r.decision === 'turn' || r.decision === 'straight',
+    );
+    const straightVsControlRecs = recs.filter(
+      (r) => r.decision === 'straight' || r.decision === 'control',
+    );
+    const turnVsControlRecs = recs.filter(
+      (r) => r.decision === 'turn' || r.decision === 'control',
+    );
+
+    const nControl = recs.filter((r) => r.decision === 'control').length;
+
+    const mean = (a) => a.reduce((x, y) => x + y, 0) / a.length;
+
     for (const phase of ['before', 'after', 'delta']) {
       for (const metric of this.METRICS) {
         // meanTonic level is a between-place quantity; only its change is asked about.
         if (metric === 'meanTonic' && phase !== 'delta') continue;
-        const { items, nTracks } = this._adjustForTrack(
-          recs,
-          (r) => r[phase][metric],
-        );
-        const turnItems = items.filter((x) => x.r.decision === 'turn');
-        const straightItems = items.filter((x) => x.r.decision === 'straight');
-        const controlItems = items.filter((x) => x.r.decision === 'control');
+        const val = (r) => r[phase][metric];
 
+        // 1. Turn vs Straight contrast
+        const { items: tvsItems, nTracks: nTracksTvs } = this._adjustForTrack(
+          turnVsStraightRecs,
+          val,
+        );
+        const turnItems = tvsItems.filter((x) => x.r.decision === 'turn');
+        const straightItems = tvsItems.filter(
+          (x) => x.r.decision === 'straight',
+        );
         const nTurn = turnItems.length;
         const nStraight = straightItems.length;
-        const nControl = controlItems.length;
 
-        // Turn vs Straight contrast
-        const turnVsStraightItems = items.filter(
-          (x) => x.r.decision === 'turn' || x.r.decision === 'straight',
-        );
         const pooled = this._pooledPermutation(
-          turnVsStraightItems.map((x) => ({
+          tvsItems.map((x) => ({
             v: x.v,
             turn: x.r.decision === 'turn',
             group: x.r.trackId ?? null,
           })),
         );
 
-        // Straight vs Control (Junction vs Open Road baseline) contrast
-        const straightVsControlItems = items.filter(
-          (x) => x.r.decision === 'straight' || x.r.decision === 'control',
+        // 2. Straight vs Control (Junction vs Open Road baseline) contrast
+        const { items: svcItems } = this._adjustForTrack(
+          straightVsControlRecs,
+          val,
         );
         const pooledJunction = this._pooledPermutation(
-          straightVsControlItems.map((x) => ({
+          svcItems.map((x) => ({
             v: x.v,
             turn: x.r.decision === 'straight',
             group: x.r.trackId ?? null,
           })),
         );
 
-        // Turn vs Control contrast
-        const turnVsControlItems = items.filter(
-          (x) => x.r.decision === 'turn' || x.r.decision === 'control',
+        // 3. Turn vs Control contrast
+        const { items: tvcItems } = this._adjustForTrack(
+          turnVsControlRecs,
+          val,
         );
         const pooledTurnControl = this._pooledPermutation(
-          turnVsControlItems.map((x) => ({
+          tvcItems.map((x) => ({
             v: x.v,
             turn: x.r.decision === 'turn',
             group: x.r.trackId ?? null,
@@ -322,19 +381,18 @@ export const JunctionResponse = {
 
         // Paired contrast uses the raw values: the junction itself is the control.
         const byKey = new Map();
-        for (const r of recs) {
-          if (r.decision !== 'turn' && r.decision !== 'straight') continue;
+        for (const r of turnVsStraightRecs) {
           if (!byKey.has(r.key)) byKey.set(r.key, { turn: [], straight: [] });
-          byKey.get(r.key)[r.decision].push(r[phase][metric]);
+          byKey.get(r.key)[r.decision].push(val(r));
         }
         const groups = [...byKey.values()].filter(
           (g) => g.turn.length && g.straight.length,
         );
         const paired = this.pairedPermutation(groups);
         const test = paired.n >= this.MIN_PAIRED ? 'paired' : 'pooled';
+
         // Report the means, counts and difference from the SAME sample the
         // p-value is about, so the numbers shown always agree with each other.
-        const mean = (a) => a.reduce((x, y) => x + y, 0) / a.length;
         const usePaired = test === 'paired';
         const meanTurn = usePaired
           ? mean(groups.map((g) => mean(g.turn)))
@@ -342,22 +400,50 @@ export const JunctionResponse = {
         const meanStraight = usePaired
           ? mean(groups.map((g) => mean(g.straight)))
           : pooled.meanB;
-        const meanControl =
-          controlItems.length >= 2
-            ? mean(controlItems.map((x) => x.v))
-            : controlItems.length === 1
-              ? controlItems[0].v
+
+        const rawControls = recs.filter((r) => r.decision === 'control');
+        const rawControlMean =
+          rawControls.length >= 2
+            ? mean(rawControls.map(val))
+            : rawControls.length === 1
+              ? val(rawControls[0])
               : NaN;
 
-        const diff = meanTurn - meanStraight;
         const diffJunction =
-          Number.isFinite(meanStraight) && Number.isFinite(meanControl)
-            ? meanStraight - meanControl
-            : NaN;
+          Number.isFinite(pooledJunction.meanA) &&
+          Number.isFinite(pooledJunction.meanB)
+            ? pooledJunction.meanA - pooledJunction.meanB
+            : Number.isFinite(meanStraight) && Number.isFinite(rawControlMean)
+              ? meanStraight - rawControlMean
+              : NaN;
+
+        // Ensure meanControl is aligned with the reported meanStraight baseline so
+        // that meanStraight - meanControl === diffJunction identically.
+        const meanControl =
+          Number.isFinite(meanStraight) && Number.isFinite(diffJunction)
+            ? meanStraight - diffJunction
+            : Number.isFinite(pooledJunction.meanB)
+              ? pooledJunction.meanB
+              : rawControlMean;
+
+        const diff = meanTurn - meanStraight;
         const diffTurnControl =
           Number.isFinite(meanTurn) && Number.isFinite(meanControl)
             ? meanTurn - meanControl
             : NaN;
+
+        const nTurnUsed = usePaired
+          ? groups.reduce((a, g) => a + g.turn.length, 0)
+          : tvsItems.filter((x) => x.r.decision === 'turn').length;
+        const nStraightUsed = usePaired
+          ? groups.reduce((a, g) => a + g.straight.length, 0)
+          : tvsItems.filter((x) => x.r.decision === 'straight').length;
+        const nStraightJuncUsed = svcItems.filter(
+          (x) => x.r.decision === 'straight',
+        ).length;
+        const nControlUsed = svcItems.filter(
+          (x) => x.r.decision === 'control',
+        ).length;
 
         rows.push({
           phase,
@@ -366,17 +452,15 @@ export const JunctionResponse = {
           nTurn,
           nStraight,
           nControl,
-          nTracks,
+          nTracks: nTracksTvs,
           // … and those the reported test actually used.
-          nTurnUsed: usePaired
-            ? groups.reduce((a, g) => a + g.turn.length, 0)
-            : nTurn,
-          nStraightUsed: usePaired
-            ? groups.reduce((a, g) => a + g.straight.length, 0)
-            : nStraight,
-          nControlUsed: nControl,
+          nTurnUsed,
+          nStraightUsed,
+          nStraightJuncUsed,
+          nControlUsed: nControlUsed > 0 ? nControlUsed : nControl,
           meanTurn,
           meanStraight,
+          meanStraightJunction: pooledJunction.meanA,
           meanControl,
           diff,
           diffJunction,

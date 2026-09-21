@@ -119,6 +119,7 @@ export const ViewSwitcherEvents = {
         if (AppState.mapManager) AppState.mapManager.clearMap();
       }
       Controllers.ui?.refreshOsmControls(); // resync OSM Layers button/indicator to the now-active single track
+      Controllers.ui?.updateEnvironmentalDashboard?.();
     });
 
     btnCollectiveView.addEventListener('click', () => {
@@ -184,6 +185,9 @@ export const ViewSwitcherEvents = {
         }
         if (typeof Controllers.ui.refreshOsmControls === 'function') {
           Controllers.ui.refreshOsmControls();
+        }
+        if (typeof Controllers.ui.updateEnvironmentalDashboard === 'function') {
+          Controllers.ui.updateEnvironmentalDashboard();
         }
       }
     });

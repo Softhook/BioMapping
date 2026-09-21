@@ -370,7 +370,11 @@ export const GSRCollectiveProject = {
       }
 
       const targetMode =
-        manifest.viewMode === 'collective' ? 'collective' : 'single';
+        manifest.tracks && manifest.tracks.length > 1
+          ? 'collective'
+          : manifest.viewMode === 'collective'
+            ? 'collective'
+            : 'single';
       if (AppState.viewMode !== targetMode) {
         const toggleBtn = document.getElementById(
           targetMode === 'collective' ? 'btnCollectiveView' : 'btnSingleView',
@@ -398,6 +402,12 @@ export const GSRCollectiveProject = {
 
       if (AppState.viewMode === 'collective') {
         Controllers.ui.updateCollectiveMap();
+      }
+      if (typeof Controllers.ui?.refreshOsmControls === 'function') {
+        Controllers.ui.refreshOsmControls();
+      }
+      if (typeof Controllers.ui?.updateEnvironmentalDashboard === 'function') {
+        Controllers.ui.updateEnvironmentalDashboard();
       }
     } catch (err) {
       console.error('Project import failed:', err);

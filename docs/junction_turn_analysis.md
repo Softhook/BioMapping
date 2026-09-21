@@ -1,6 +1,6 @@
 # Junction turn/straight analysis, and what it means for road snapping
 
-Status as of 2026-09-20. Everything here is **uncommitted** in the working tree.
+Status as of 2026-09-21. Landed and refactored.
 
 ## 1. Why this exists
 
@@ -205,5 +205,26 @@ high turn values; a hypothesis only.
 **Bugs found by this pass** (all fixed): displayed means came from the pooled sample while the
 difference came from the paired test (numbers disagreed); percentages on change rows.
 
-**Still open:** no ground truth for turn/straight; confounds uncontrolled; the unrelated
-`scrollWheelZoom: false` edit in `map_base.mjs` is not part of this work.
+**Still open:** no ground truth for turn/straight; confounds uncontrolled. The unrelated `scrollWheelZoom: false` edit in `map_base.mjs` was reverted to `true`.
+
+## 8. Review pass 2026-09-21 (concept + implementation audit)
+
+Current constants: `MERGE_M` 20 / `MAX_CLUSTER_SPAN_M` 25 (multi-node crossroads collapse to one passage; the
+"3 m" in section 2 is superseded). Control passages (mid-block, ≥30 m of track from any junction) are the
+open-road baseline for the Junction-vs-Control columns.
+
+Bugs found and fixed:
+
+- **Merged-crossroads label.** A cluster was labelled `turn` if *any* node read as a turn, so walking
+  straight across a staggered crossroads (jog between two nodes) was counted as a turn. The overall
+  path in→out of the whole cluster now decides; per-node labels are only a fallback.
+- **Window coverage.** Peak rate divided by the nominal window length even when the window ran off the
+  start/end of the recording or across a dropout, biasing rate low. Rates now use covered time, and a
+  window with < 80 % GSR coverage is dropped (`MIN_COVERAGE`).
+- UI referenced non-existent `testJunction`/`pairedNJunction` fields (Junction-vs-Control is always pooled);
+  tooltip text simplified.
+
+Verified sound (no change): bearing sign/thresholds, snapped-vs-raw agreement rule, visit splitting,
+window clipping at neighbour midpoints, per-walk centring + within-walk label permutation, paired
+within-junction permutation, BH across the family. Known limits unchanged: no ground truth, correlated
+passages, the three contrast families (T-vs-S, S-vs-C, T-vs-C) are each BH-corrected separately, not jointly.

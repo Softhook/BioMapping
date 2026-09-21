@@ -4304,8 +4304,9 @@ body:has(.live-mode) {
   min-width: 260px;
 }
 
-/* Tab 3 Roads Profile: Clean full-width vertical layout with smooth section scrolling */
-#environmentalPanel #envTabRoads.active {
+/* Tab 3 Roads Profile & Tab 4 Junction Turns: Clean full-width vertical layout with smooth section scrolling */
+#environmentalPanel #envTabRoads.active,
+#environmentalPanel #envTabJunctions.active {
   display: flex !important;
   flex-direction: column !important;
   gap: 16px;

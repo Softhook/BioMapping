@@ -16,7 +16,7 @@ export const JunctionsTableUI = {
     } else {
       AppState.junctionSortColumn = col;
       AppState.junctionSortDirection =
-        col === 'phase' || col === 'metric' ? 'asc' : 'desc';
+        col === 'phase' || col === 'metric' || col === 'pVal' ? 'asc' : 'desc';
     }
     const cacheTarget =
       AppState.viewMode === 'single'
@@ -105,12 +105,14 @@ export const JunctionsTableUI = {
       }
     });
     // Confident passages that lost their window to clipping / too little GSR.
-    const haveResponse = new Set(
-      (junctionStats?.responses || []).map((r) => `${r.key}@${r.time}`),
-    );
+    const respKey = (r) =>
+      r.trackId != null
+        ? `${r.trackId}@${r.key}@${r.time}`
+        : `${r.key}@${r.time}`;
+    const haveResponse = new Set((junctionStats?.responses || []).map(respKey));
     const lost = (dec) =>
       passages.filter(
-        (p) => p.decision === dec && !haveResponse.has(`${p.key}@${p.time}`),
+        (p) => p.decision === dec && !haveResponse.has(respKey(p)),
       ).length;
     const nDroppedTurn = lost('turn');
     const nDroppedStraight = lost('straight');
@@ -138,6 +140,11 @@ export const JunctionsTableUI = {
         <span class="junction-stat-chip" style="background: rgba(0,85,204,0.1); color: #0055cc; font-weight: 600;" title="Junctions visited multiple times with both turn and straight choices"><i class="fa-solid fa-code-compare"></i> ${nPaired} Paired Junctions</span>
         <span class="junction-stat-chip ambiguous" title="Passages within ~20 s of another junction, or with too little GSR, are left out so no sample is counted twice. Reverse and ambiguous passages are never compared."><i class="fa-solid fa-filter"></i> no clean window: ${nDroppedTurn} of ${nTurn} turns, ${nDroppedStraight} of ${nStraight} straights, ${nDroppedControl} of ${nControl} controls · ${nReverse + nAmbiguous} reverse/ambiguous not compared</span>
         ${skewedLoss ? '<span class="junction-stat-chip reverse" title="One class lost many more windows than the other (usually turns, which sit in dense areas), so the passages compared may not be representative."><i class="fa-solid fa-triangle-exclamation"></i> Uneven loss of turns vs straights — comparison may be biased</span>' : ''}
+        ${
+          junctionStats?.tracksNeedingGeoms > 0
+            ? `<button id="btnFetchJunctionGeoms" class="junction-stat-chip" style="background: rgba(255,123,0,0.12); color: #c45d00; border: 1px solid rgba(255,123,0,0.4); cursor: pointer;" title="Retrieve OpenStreetMap road network geometry to snap and detect junctions on ${junctionStats.tracksNeedingGeoms} walk(s)"><i class="fa-solid fa-wand-magic-sparkles"></i> ${junctionStats.tracksNeedingGeoms} walk(s) need road geometries — click to retrieve</button>`
+            : ''
+        }
       `;
     }
 
@@ -147,7 +154,12 @@ export const JunctionsTableUI = {
         <td colspan="8" style="text-align: center; color: var(--text-muted); padding: 24px;">
           ${
             passages.length === 0
-              ? 'No junction passages detected. Ensure tracks are enriched with OpenStreetMap road data and road snapping is enabled.'
+              ? junctionStats?.tracksNeedingGeoms > 0
+                ? `<span>${junctionStats.tracksNeedingGeoms} walk(s) have spatial metrics but need OpenStreetMap road geometries to detect junctions.</span><br>
+                   <button id="btnFetchJunctionGeoms" class="btn-primary" style="margin-top: 12px; padding: 6px 14px; font-size: 0.85rem; cursor: pointer;">
+                     <i class="fa-solid fa-wand-magic-sparkles"></i> Retrieve Road Geometries & Detect Junctions (${junctionStats.tracksNeedingGeoms} Walks)
+                   </button>`
+                : 'No junction passages detected. Ensure tracks are enriched with OpenStreetMap road data and road snapping is enabled.'
               : 'Passages detected, but insufficient clean 10 s non-overlapping GSR windows around junctions for comparison.'
           }
         </td>
@@ -164,9 +176,10 @@ export const JunctionsTableUI = {
     // A percentage is only meaningful when the difference is backed by the
     // statistics and the baseline is a level well away from zero (never for a
     // change row, whose baseline can be negative).
-    const safePct = (r, diff, base) =>
+    const safePct = (r, diff, base, verdict = r?.verdict) =>
       r.phase !== 'delta' &&
-      r.verdict !== 'none' &&
+      verdict !== 'none' &&
+      Number.isFinite(base) &&
       Math.abs(base) > neutralBand(r.metric) * 5
         ? (diff / Math.abs(base)) * 100
         : null;
@@ -177,13 +190,16 @@ export const JunctionsTableUI = {
     const unitOf = (metric) => (metric === 'peakRate' ? ' /min' : ' μS');
     const fmtDiff = (diff, pct, metric) => {
       if (!Number.isFinite(diff)) return '—';
-      const sign = diff > 0 ? '+' : '';
+      const cleanDiff =
+        Math.abs(diff) < (metric === 'peakRate' ? 0.005 : 0.0005) ? 0 : diff;
+      const sign = cleanDiff > 0 ? '+' : '';
       const unit = unitOf(metric);
       const digits = metric === 'peakRate' ? 2 : 3;
-      const diffStr = `${sign}${diff.toFixed(digits)}${unit}`;
+      const diffStr = `${sign}${cleanDiff.toFixed(digits)}${unit}`;
       if (pct != null && Number.isFinite(pct)) {
-        const pctSign = pct > 0 ? '+' : '';
-        return `${diffStr} (${pctSign}${pct.toFixed(0)}%)`;
+        const cleanPct = Math.abs(pct) < 0.5 ? 0 : pct;
+        const pctSign = cleanPct > 0 ? '+' : '';
+        return `${diffStr} (${pctSign}${cleanPct.toFixed(0)}%)`;
       }
       return diffStr;
     };
@@ -229,16 +245,18 @@ export const JunctionsTableUI = {
         headline = 'No robust difference — one or more weak hints only';
         detail = `Best hint: ${describe(suggestive[0])}. It doesn't survive correcting for ${comparison.length} tests, so treat it as a hypothesis to check with more walks.`;
       }
+
+      const powerNote =
+        lowPower && !supported.length
+          ? ' <strong>This sample is small, so a null here is not evidence of no effect.</strong>'
+          : '';
+
       bannerContainer.innerHTML = `
         <div class="junction-insight-headline">
           <i class="fa-solid ${icon}"></i> ${headline}
         </div>
         <p class="junction-insight-text">
-          ${detail ? `${detail}<br>` : ''}Based on ${nT} turns vs ${nS} straights across ${first.nTracks || 1} walk(s); ${nPaired} junction(s) had both.${
-            lowPower && !supported.length
-              ? ' <strong>This sample is small, so a null here is not evidence of no effect.</strong>'
-              : ''
-          }
+          ${detail ? `${detail}<br>` : ''}Based on ${nT} turns vs ${nS} straights across ${first.nTracks || 1} walk(s); ${nPaired} junction(s) had both.${powerNote}
         </p>
       `;
       bannerContainer.style.display = 'block';
@@ -288,6 +306,12 @@ export const JunctionsTableUI = {
                 : 'neutral';
         const badgeText = fmtDiff(diff, pctDiff, r.metric);
         const evidence = `${r.test} test, p=${fmtP(r.p)}, q=${fmtP(r.q)}`;
+        const fmtCardVal = (v) => {
+          if (!Number.isFinite(v)) return '—';
+          const clean = Math.abs(v) < 0.0005 ? 0 : v;
+          const sign = r.phase === 'delta' && clean > 0 ? '+' : '';
+          return `${sign}${clean.toFixed(3)}`;
+        };
         return `
           <div class="junction-moment-card">
             <div class="junction-moment-header">
@@ -301,14 +325,14 @@ export const JunctionsTableUI = {
                 <div class="junction-bar-track">
                   <div class="junction-bar-fill turn" style="width: ${tPct}%;"></div>
                 </div>
-                <span style="font-family:monospace; min-width:55px; text-align:right;">${fmt(tVal)} μS</span>
+                <span style="font-family:monospace; min-width:55px; text-align:right;">${fmtCardVal(tVal)} μS</span>
               </div>
               <div class="junction-value-row">
                 <span style="font-weight:600; min-width:65px;"><i class="fa-solid fa-arrow-up" style="color:#218838;"></i> Straight:</span>
                 <div class="junction-bar-track">
                   <div class="junction-bar-fill straight" style="width: ${sPct}%;"></div>
                 </div>
-                <span style="font-family:monospace; min-width:55px; text-align:right;">${fmt(sVal)} μS</span>
+                <span style="font-family:monospace; min-width:55px; text-align:right;">${fmtCardVal(sVal)} μS</span>
               </div>
               ${
                 hasControl
@@ -318,7 +342,7 @@ export const JunctionsTableUI = {
                 <div class="junction-bar-track">
                   <div class="junction-bar-fill control" style="width: ${cPct}%;"></div>
                 </div>
-                <span style="font-family:monospace; min-width:55px; text-align:right;">${fmt(cVal)} μS</span>
+                <span style="font-family:monospace; min-width:55px; text-align:right;">${fmtCardVal(cVal)} μS</span>
               </div>`
                   : ''
               }
@@ -351,26 +375,24 @@ export const JunctionsTableUI = {
     if (AppState.junctionSortColumn) {
       const col = AppState.junctionSortColumn;
       const dir = AppState.junctionSortDirection === 'desc' ? -1 : 1;
+      const toNum = (v) =>
+        Number.isFinite(v) ? v : dir === 1 ? Infinity : -Infinity;
       rows.sort((a, b) => {
         if (col === 'phase' || col === 'metric') {
           return dir * (a[col] || '').localeCompare(b[col] || '');
         }
         if (col === 'diff') {
-          const diffA = a.diff ?? 0;
-          const diffB = b.diff ?? 0;
-          return dir * (diffA - diffB);
+          return dir * (toNum(a.diff) - toNum(b.diff));
         }
         if (col === 'diffJunction') {
-          const diffA = a.diffJunction ?? 0;
-          const diffB = b.diffJunction ?? 0;
-          return dir * (diffA - diffB);
+          return dir * (toNum(a.diffJunction) - toNum(b.diffJunction));
         }
         if (col === 'pVal') {
-          return dir * ((a.q ?? 1) - (b.q ?? 1));
+          const diffQ = toNum(a.q) - toNum(b.q);
+          if (diffQ !== 0) return dir * diffQ;
+          return dir * (toNum(a.p) - toNum(b.p));
         }
-        const valA = a[col] ?? 0;
-        const valB = b[col] ?? 0;
-        return dir * (valA - valB);
+        return dir * (toNum(a[col]) - toNum(b[col]));
       });
     }
 
@@ -382,7 +404,7 @@ export const JunctionsTableUI = {
       const pct = safePct(r, diff, r.meanStraight);
 
       const diffJunc = r.diffJunction;
-      const pctJunc = safePct(r, diffJunc, r.meanControl);
+      const pctJunc = safePct(r, diffJunc, r.meanControl, r.verdictJunction);
       const badgeClassJunc =
         r.verdictJunction === 'none' || !Number.isFinite(diffJunc)
           ? 'neutral'
@@ -400,8 +422,10 @@ export const JunctionsTableUI = {
       // otherwise the pooled permutation test on per-walk-adjusted values.
       const testNote =
         r.test === 'paired'
-          ? `Within-junction paired permutation test (k=${r.pairedN} junctions)`
-          : `Pooled permutation test (n=${r.nTurnUsed ?? r.nTurn} vs ${r.nStraightUsed ?? r.nStraight}, ${r.nTracks || 1} walk(s), levels adjusted per walk). Passages within a walk are correlated, so treat as indicative`;
+          ? `Turn vs Straight: Within-junction paired permutation test (k=${r.pairedN} junctions)`
+          : `Turn vs Straight: Pooled permutation test (n=${r.nTurnUsed ?? r.nTurn} vs ${r.nStraightUsed ?? r.nStraight}, ${r.nTracks || 1} walk(s), levels adjusted per walk). Passages within a walk are correlated, so treat as indicative`;
+      const testNoteJunc = `Pooled permutation test vs open road (n=${r.nStraightJuncUsed ?? r.nStraightUsed ?? r.nStraight} straight vs ${r.nControlUsed ?? r.nControl ?? 0} control, levels adjusted per walk)`;
+      const juncEvidenceTitle = `Junction vs Open Road: ${testNoteJunc}; p=${fmtP(r.pJunction)}, q=${fmtP(r.qJunction)}`;
       const badgeClass =
         r.verdict === 'none'
           ? 'neutral'
@@ -429,7 +453,7 @@ export const JunctionsTableUI = {
         <td><span class="junction-straight-val"><i class="fa-solid fa-arrow-up"></i> ${fmt(r.meanStraight, digits)}${unit}</span> <span style="font-size:0.75rem; color:var(--text-muted);">(n=${r.nStraightUsed ?? r.nStraight})</span></td>
         <td><span class="junction-control-val"><i class="fa-solid fa-road"></i> ${fmt(r.meanControl, digits)}${unit}</span> <span style="font-size:0.75rem; color:var(--text-muted);">(n=${r.nControlUsed ?? r.nControl ?? 0})</span></td>
         <td><span class="junction-diff-badge ${badgeClass}">${diffFormatted}</span></td>
-        <td><span class="junction-diff-badge ${badgeClassJunc}">${diffJuncFormatted}</span></td>
+        <td><span class="junction-diff-badge ${badgeClassJunc}" title="${juncEvidenceTitle}">${diffJuncFormatted}</span></td>
         <td>${verdictChip}</td>
       `;
       tbody.appendChild(tr);

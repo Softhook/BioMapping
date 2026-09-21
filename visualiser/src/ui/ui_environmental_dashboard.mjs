@@ -12,18 +12,25 @@ import { AppState } from '../core/app_state.mjs';
 import { GSR_CONST } from '../core/constants.mjs';
 import { JunctionResponse } from '../gps/junction_response.mjs';
 import { Junctions } from '../gps/junctions.mjs';
+import { OSMEnricher } from '../osm/osm_enrichment.mjs';
 import { StatsMath } from '../signal/stats_math.mjs';
 
 export const EnvironmentalDashboardUI = {
   updateEnvironmentalDashboard() {
+    const isCollective = AppState.viewMode === 'collective';
+
     // Every active track (the walks the user has toggled on), and the
     // enriched subset the analysis can actually use.
-    const allActive =
-      AppState.viewMode === 'single'
-        ? AppState.analyzer
+    // In collective mode: all active tracks. In single mode: just the active track.
+    const allActive = isCollective
+      ? AppState.collectiveManager?.getActiveTracks
+        ? AppState.collectiveManager.getActiveTracks()
+        : AppState.analyzer
           ? [{ id: AppState.activeTrackId, analyzer: AppState.analyzer }]
           : []
-        : AppState.collectiveManager.getActiveTracks();
+      : AppState.analyzer
+        ? [{ id: AppState.activeTrackId, analyzer: AppState.analyzer }]
+        : [];
     const activeTracks = allActive.filter((t) => t.analyzer?.isEnriched);
     const totalWalks = allActive.length;
 
@@ -43,15 +50,17 @@ export const EnvironmentalDashboardUI = {
       .map((t) => t.analyzer?._dataVersion || 0)
       .join(',');
 
-    // Cache on the analyzer (single mode) or the collective manager
-    // (collective mode — survives active-track switches).
+    // Cache on the analyzer (single active mode) or the collective manager
+    // (all mode — survives active-track switches).
+    const effectiveScope = isCollective ? 'all' : 'active';
     const cacheTarget =
-      AppState.viewMode === 'single'
+      effectiveScope === 'active'
         ? AppState.analyzer
-        : AppState.collectiveManager;
+        : AppState.collectiveManager || AppState.analyzer;
     const cache = cacheTarget._cachedEnvStats;
     const needsRecalc =
       !cache ||
+      cache.scope !== effectiveScope ||
       cache.latency !== latency ||
       cache.trackCount !== activeTracks.length ||
       cache.trackIds !== trackIdsStr ||
@@ -647,95 +656,8 @@ export const EnvironmentalDashboardUI = {
         delete p._nEffPhasic;
       }); // drop internals before caching
 
-      // ── Junction turn vs straight analysis ───────────────────────────
-      const allPassages = [];
-      const allJunctionResponses = [];
-
-      activeTracks.forEach((track) => {
-        const a = track.analyzer;
-        if (!a?.isEnriched || !a.osmGeoms?.ways || !a.snappedGps) return;
-
-        // Build pts for Junctions.classifyPassages
-        const pts = [];
-        const raw = a.raw || [];
-        for (let i = 0; i < raw.length; i++) {
-          const sg = a.snappedGps[i];
-          const rawPt = raw[i];
-          if (sg && !isNaN(sg.lat) && !isNaN(sg.lon) && sg.wayId != null) {
-            pts.push({
-              idx: i,
-              time: rawPt.time,
-              lat: sg.lat,
-              lon: sg.lon,
-              wayId: sg.wayId,
-              dist: sg.dist ?? 0,
-              rawLat: rawPt.lat,
-              rawLon: rawPt.lon,
-            });
-          }
-        }
-        if (pts.length < 2) return;
-
-        const passages = Junctions.classifyPassages(pts, a.osmGeoms.ways, {
-          includeControl: true,
-        });
-        if (!passages || passages.length === 0) return;
-        allPassages.push(...passages);
-
-        // Build series for JunctionResponse.responses
-        const pLen = a.phasic ? a.phasic.length : 0;
-        if (pLen === 0) return;
-
-        const pTimes = new Array(pLen);
-        const pVals = new Array(pLen);
-        const tVals = new Array(pLen);
-        const isPeak = new Uint8Array(pLen);
-
-        const peakTimes = new Set(
-          (a.peaks || [])
-            .filter((pk) => !pk.excluded)
-            .map((pk) => Math.round(pk.time * 100) / 100),
-        );
-
-        for (let i = 0; i < pLen; i++) {
-          const pt = a.phasic[i];
-          const time = pt.time;
-          pTimes[i] = time;
-          pVals[i] = pt.val;
-          tVals[i] = a.tonic?.[i] ? a.tonic[i].val : 0;
-          const rounded = Math.round(time * 100) / 100;
-          if (peakTimes.has(rounded)) {
-            isPeak[i] = 1;
-          }
-        }
-
-        const series = {
-          time: pTimes,
-          phasic: pVals,
-          tonic: tVals,
-          isPeak: Array.from(isPeak),
-        };
-
-        const resps = JunctionResponse.responses(passages, series, {
-          trackId: track.id,
-        });
-        if (resps && resps.length > 0) {
-          allJunctionResponses.push(...resps);
-        }
-      });
-
-      let junctionComparison = [];
-      if (allJunctionResponses.length > 0) {
-        junctionComparison = JunctionResponse.compare(allJunctionResponses);
-      }
-
-      const junctionStats = {
-        passages: allPassages,
-        responses: allJunctionResponses,
-        comparison: junctionComparison,
-      };
-
       cacheTarget._cachedEnvStats = {
+        scope: effectiveScope,
         latency,
         trackCount: activeTracks.length,
         trackIds: trackIdsStr,
@@ -744,7 +666,6 @@ export const EnvironmentalDashboardUI = {
         correlationMatrix,
         roadProfile,
         roadComparison,
-        junctionStats,
       };
     }
 
@@ -770,7 +691,159 @@ export const EnvironmentalDashboardUI = {
     this.drawRegressionScatterPlot(cachedStats.allData);
     this.renderRoadProfile(cachedStats.roadProfile, cachedStats.roadComparison);
     if (typeof this.renderJunctionsTable === 'function') {
-      this.renderJunctionsTable(cachedStats.junctionStats);
+      this.renderJunctionsTable(
+        this._junctionStatsFor(
+          cacheTarget,
+          effectiveScope,
+          activeTracks,
+          trackIdsStr,
+          versionSig,
+        ),
+      );
     }
+  },
+
+  /**
+   * Junction turn-vs-straight stats. Independent of the latency slider and the
+   * environmental correlations, so it has its own cache and is only computed
+   * while the Junction Turns tab is showing; otherwise the last result (or an
+   * empty placeholder) is returned without doing any work.
+   */
+  _junctionStatsFor(cacheTarget, scope, activeTracks, trackIdsStr, versionSig) {
+    const snapRadius =
+      parseInt(document.getElementById('gpsSnapRadius')?.value, 10) || 25;
+    const key = [scope, trackIdsStr, versionSig, snapRadius].join('|');
+    const cached = cacheTarget._cachedJunctionStats;
+    if (cached?.key === key) return cached.stats;
+    const tab = document.getElementById('envTabJunctions');
+    if (tab?.classList && !tab.classList.contains('active')) {
+      return (
+        cached?.stats || {
+          passages: [],
+          responses: [],
+          comparison: [],
+          tracksNeedingGeoms: 0,
+          totalEnrichedTracks: activeTracks.length,
+        }
+      );
+    }
+    const stats = this._computeJunctionStats(activeTracks, snapRadius);
+    cacheTarget._cachedJunctionStats = { key, stats };
+    return stats;
+  },
+
+  _computeJunctionStats(activeTracks, snapRadius) {
+    // ── Junction turn vs straight analysis ───────────────────────────
+    const allPassages = [];
+    const allJunctionResponses = [];
+
+    activeTracks.forEach((track) => {
+      const a = track.analyzer;
+      if (!a?.isEnriched) return;
+
+      // Snapping for analysis only: never turns map snapping on as a side effect.
+      const snapped = a.osmGeoms?.ways
+        ? OSMEnricher.analysisSnap(a, snapRadius)
+        : null;
+      if (!snapped) return;
+
+      // Build pts for Junctions.classifyPassages
+      const pts = [];
+      const raw = a.raw || [];
+      for (let i = 0; i < raw.length; i++) {
+        const sg = snapped[i];
+        const rawPt = raw[i];
+        if (sg && !isNaN(sg.lat) && !isNaN(sg.lon) && sg.wayId != null) {
+          pts.push({
+            idx: i,
+            time: rawPt.time,
+            lat: sg.lat,
+            lon: sg.lon,
+            wayId: sg.wayId,
+            dist: sg.dist ?? 0,
+            rawLat: rawPt.lat,
+            rawLon: rawPt.lon,
+          });
+        }
+      }
+      if (pts.length < 2) return;
+
+      const passages = Junctions.classifyPassages(pts, a.osmGeoms.ways, {
+        includeControl: true,
+      });
+      if (!passages || passages.length === 0) return;
+      passages.forEach((p) => {
+        p.trackId = track.id;
+      });
+      allPassages.push(...passages);
+
+      // Build series for JunctionResponse.responses
+      const pLen = a.phasic ? a.phasic.length : 0;
+      if (pLen === 0) return;
+
+      const pTimes = new Array(pLen);
+      const pVals = new Array(pLen);
+      const tVals = new Array(pLen);
+      const isPeak = new Uint8Array(pLen);
+
+      for (let i = 0; i < pLen; i++) {
+        pTimes[i] = a.phasic[i].time;
+        pVals[i] = a.phasic[i].val;
+        tVals[i] = a.tonic?.[i] ? a.tonic[i].val : 0;
+      }
+
+      if (a.peaks && a.peaks.length > 0) {
+        const fallbackTimes = [];
+        for (const pk of a.peaks) {
+          if (pk.excluded) continue;
+          if (pk.idx != null && pk.idx >= 0 && pk.idx < pLen) {
+            isPeak[pk.idx] = 1;
+          } else if (pk.time != null) {
+            fallbackTimes.push(pk.time);
+          }
+        }
+        if (fallbackTimes.length > 0) {
+          const timeSet = new Set(
+            fallbackTimes.map((t) => Math.round(t * 100) / 100),
+          );
+          for (let i = 0; i < pLen; i++) {
+            if (timeSet.has(Math.round(pTimes[i] * 100) / 100)) {
+              isPeak[i] = 1;
+            }
+          }
+        }
+      }
+
+      const series = {
+        time: pTimes,
+        phasic: pVals,
+        tonic: tVals,
+        isPeak: Array.from(isPeak),
+      };
+
+      const resps = JunctionResponse.responses(passages, series, {
+        trackId: track.id,
+      });
+      if (resps && resps.length > 0) {
+        allJunctionResponses.push(...resps);
+      }
+    });
+
+    let junctionComparison = [];
+    if (allJunctionResponses.length > 0) {
+      junctionComparison = JunctionResponse.compare(allJunctionResponses);
+    }
+
+    const tracksNeedingGeoms = activeTracks.filter(
+      (t) => !t.analyzer?.osmGeoms?.ways,
+    );
+
+    return {
+      passages: allPassages,
+      responses: allJunctionResponses,
+      comparison: junctionComparison,
+      tracksNeedingGeoms: tracksNeedingGeoms.length,
+      totalEnrichedTracks: activeTracks.length,
+    };
   },
 };

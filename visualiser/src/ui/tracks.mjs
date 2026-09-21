@@ -530,6 +530,8 @@ export const GSRTrackManager = {
       // view) each subscribe to 'trackRemoved' independently — see the
       // AppState.on(...) registrations in sketch.js's setup().
       AppState.emit('trackRemoved', trackId);
+      Controllers.ui?.refreshOsmControls?.();
+      Controllers.ui?.updateEnvironmentalDashboard?.();
     };
 
     if (track.hasUnsavedLabels) {

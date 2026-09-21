@@ -307,3 +307,251 @@ test('compare: control condition provides mid-block baseline and computes juncti
   // Straight vs Control should detect the planted effect
   assert.ok(r.pJunction < 0.05, `pJunction ${r.pJunction}`);
 });
+
+test('compare: multi-track data with disjoint conditions isolates contrast adjustments', () => {
+  // Track T1 has turns (6.0) and straights (2.0), but no controls.
+  // Track T2 has straights (2.0) and controls (1.0), but no turns.
+  const recs = [];
+  const mk = (key, trackId, d, v) => ({
+    key,
+    trackId,
+    decision: d,
+    before: { peakRate: v, meanPhasic: v },
+    after: { peakRate: v, meanPhasic: v },
+    delta: { peakRate: 0, meanPhasic: 0, meanTonic: 0 },
+  });
+
+  for (let i = 0; i < 8; i++) {
+    recs.push(mk(`J_T1_${i}`, 'T1', 'turn', 6.0));
+    recs.push(mk(`J_T1_${i}`, 'T1', 'straight', 2.0));
+  }
+  for (let i = 0; i < 8; i++) {
+    recs.push(mk(`J_T2_${i}`, 'T2', 'straight', 2.0));
+    recs.push(mk(`C_T2_${i}`, 'T2', 'control', 1.0));
+  }
+
+  const rows = JunctionResponse.compare(recs);
+  const r = row(rows, 'after', 'meanPhasic');
+
+  // Counts from usable tracks for Turn vs Straight
+  assert.strictEqual(r.nTurn, 8);
+  assert.strictEqual(r.nStraight, 8);
+  assert.strictEqual(r.nControl, 8);
+
+  // Turn vs Straight contrast should ONLY use T1 (8 turns, 8 straights)
+  assert.strictEqual(r.nTurnUsed, 8);
+  assert.strictEqual(r.nStraightUsed, 8);
+  assert.ok(Math.abs(r.diff - 4.0) < 0.1, `expected diff ~4.0, got ${r.diff}`);
+  assert.ok(r.p < 0.05, `expected p < 0.05, got ${r.p}`);
+
+  // Straight vs Control should ONLY use T2 (8 straights, 8 controls)
+  assert.strictEqual(r.nControlUsed, 8);
+  assert.ok(
+    Math.abs(r.diffJunction - 1.0) < 0.1,
+    `expected diffJunction ~1.0, got ${r.diffJunction}`,
+  );
+  assert.ok(
+    r.pJunction < 0.05,
+    `expected pJunction < 0.05, got ${r.pJunction}`,
+  );
+});
+
+test('pairedPermutation and _pooledPermutation: handle NaN observations safely without false significance', () => {
+  // If inputs are NaN or cause NaN observed statistics, p must return 1, not < 0.001
+  const pairedNaN = JunctionResponse.pairedPermutation([
+    { turn: [NaN], straight: [1] },
+    { turn: [2], straight: [3] },
+  ]);
+  assert.strictEqual(pairedNaN.p, 1);
+  assert.ok(Number.isNaN(pairedNaN.meanDiff));
+
+  const pooledNaN = JunctionResponse._pooledPermutation([
+    { v: NaN, turn: true, group: 'A' },
+    { v: 1, turn: true, group: 'A' },
+    { v: 2, turn: false, group: 'A' },
+    { v: 3, turn: false, group: 'A' },
+  ]);
+  assert.strictEqual(pooledNaN.p, 1);
+  assert.ok(Number.isNaN(pooledNaN.meanA));
+  assert.ok(Number.isNaN(pooledNaN.meanB));
+});
+
+test('compare: passages with all-NaN metrics yield p = 1 and verdict = none without throwing', () => {
+  const recs = [
+    {
+      key: 'J1',
+      decision: 'turn',
+      before: { peakRate: NaN, meanPhasic: NaN },
+      after: { peakRate: NaN, meanPhasic: NaN },
+      delta: { peakRate: NaN, meanPhasic: NaN, meanTonic: NaN },
+    },
+    {
+      key: 'J1',
+      decision: 'straight',
+      before: { peakRate: NaN, meanPhasic: NaN },
+      after: { peakRate: NaN, meanPhasic: NaN },
+      delta: { peakRate: NaN, meanPhasic: NaN, meanTonic: NaN },
+    },
+  ];
+  const rows = JunctionResponse.compare(recs);
+  assert.ok(rows.length > 0);
+  for (const r of rows) {
+    assert.strictEqual(r.p, 1);
+    assert.strictEqual(r.verdict, 'none');
+  }
+});
+
+test('compare: paired test for Turn vs Straight preserves clean Straight vs Control contrast', () => {
+  // 12 paired junctions (Turn = 4.0, Straight = 2.0)
+  // Plus 12 controls on the same track with Control = 1.0.
+  // Straight vs Control should be exactly 2.0 - 1.0 = 1.0.
+  const recs = [];
+  const mk = (key, d, v) => ({
+    key,
+    decision: d,
+    before: { peakRate: v, meanPhasic: v },
+    after: { peakRate: v, meanPhasic: v },
+    delta: { peakRate: 0, meanPhasic: 0, meanTonic: 0 },
+  });
+
+  for (let i = 0; i < 16; i++) {
+    recs.push(mk(`J_${i}`, 'turn', 4.0));
+    recs.push(mk(`J_${i}`, 'straight', 2.0));
+    recs.push(mk(`C_${i}`, 'control', 1.0));
+  }
+
+  const rows = JunctionResponse.compare(recs);
+  const r = row(rows, 'after', 'meanPhasic');
+
+  // Paired test is triggered since pairedN = 16 >= MIN_PAIRED (15)
+  assert.strictEqual(r.test, 'paired');
+  assert.strictEqual(r.pairedN, 16);
+  assert.ok(Math.abs(r.diff - 2.0) < 0.1, `diff ${r.diff}`);
+
+  // diffJunction should reflect Straight (2.0) vs Control (1.0) = 1.0
+  assert.ok(
+    Math.abs(r.diffJunction - 1.0) < 0.1,
+    `expected diffJunction ~1.0, got ${r.diffJunction}`,
+  );
+  assert.ok(
+    r.pJunction < 0.05,
+    `expected pJunction < 0.05, got ${r.pJunction}`,
+  );
+});
+
+test('responses: consolidated crossroads cleanly isolates before and after windows from in-crossing samples', () => {
+  // Walker enters crossroads at t = 100 and exits at t = 115 (15 s crossing).
+  // Approach (90-100) has phasic = 2.0
+  // In-crossing (100-115) has huge distraction spike = 99.0
+  // Departure (115-125) has phasic = 3.0
+  const time = [];
+  const phasic = [];
+  const tonic = [];
+  for (let t = 80; t <= 135; t++) {
+    time.push(t);
+    const v = t < 100 ? 2.0 : t < 115 ? 99.0 : 3.0;
+    phasic.push(v);
+    tonic.push(10.0);
+  }
+  const series = {
+    time,
+    phasic,
+    tonic,
+    isPeak: new Array(time.length).fill(0),
+  };
+
+  const passage = {
+    key: 'CROSSROADS_1',
+    decision: 'turn',
+    kind: 'choice',
+    time: 100,
+    timeEnter: 100,
+    timeExit: 115,
+  };
+
+  const resp = JunctionResponse.responses([passage], series);
+  assert.strictEqual(resp.length, 1);
+  const r = resp[0];
+
+  // before window must be purely on the approach [90, 100), mean = 2.0
+  assert.ok(
+    Math.abs(r.before.meanPhasic - 2.0) < 1e-6,
+    `expected before ~2.0, got ${r.before.meanPhasic}`,
+  );
+  // after window must be purely on departure [115, 125), mean = 3.0 (NOT contaminated by mid-street 99.0)
+  assert.ok(
+    Math.abs(r.after.meanPhasic - 3.0) < 1e-6,
+    `expected after ~3.0, got ${r.after.meanPhasic}`,
+  );
+  // delta should be exactly 3.0 - 2.0 = 1.0
+  assert.ok(
+    Math.abs(r.delta.meanPhasic - 1.0) < 1e-6,
+    `expected delta ~1.0, got ${r.delta.meanPhasic}`,
+  );
+});
+
+test('compare: multi-track unequal condition distribution preserves exact meanStraight - meanControl === diffJunction arithmetic', () => {
+  // Simulates unbalanced multi-walk datasets (like Stokey)
+  const recs = [];
+  const mk = (key, trackId, d, v) => ({
+    key,
+    trackId,
+    decision: d,
+    before: { peakRate: v, meanPhasic: v },
+    after: { peakRate: v, meanPhasic: v },
+    delta: { peakRate: 0, meanPhasic: 0, meanTonic: 0 },
+  });
+
+  // Track 1: mostly turns, low baseline
+  for (let i = 0; i < 10; i++) recs.push(mk(`J1_t_${i}`, 'T1', 'turn', 0.2));
+  for (let i = 0; i < 2; i++) recs.push(mk(`J1_s_${i}`, 'T1', 'straight', 0.2));
+  for (let i = 0; i < 2; i++) recs.push(mk(`C1_c_${i}`, 'T1', 'control', 0.3));
+
+  // Track 2: mostly straights/controls, high baseline
+  for (let i = 0; i < 2; i++) recs.push(mk(`J2_t_${i}`, 'T2', 'turn', 0.4));
+  for (let i = 0; i < 10; i++)
+    recs.push(mk(`J2_s_${i}`, 'T2', 'straight', 0.4));
+  for (let i = 0; i < 10; i++) recs.push(mk(`C2_c_${i}`, 'T2', 'control', 0.6));
+
+  const rows = JunctionResponse.compare(recs);
+  for (const r of rows) {
+    if (!Number.isFinite(r.meanStraight) || !Number.isFinite(r.meanControl))
+      continue;
+    const expectedDiffJunc = r.meanStraight - r.meanControl;
+    assert.ok(
+      Math.abs(r.diffJunction - expectedDiffJunc) < 1e-9,
+      `diffJunction (${r.diffJunction}) must match meanStraight - meanControl (${expectedDiffJunc})`,
+    );
+  }
+});
+
+test('responses: a window running off the start of the recording is dropped, and a dropout is not counted as quiet time', () => {
+  const series = { time: [], phasic: [], tonic: [], isPeak: [] };
+  for (let t = 0; t < 100; t += 0.1) {
+    // dropout 40–46 s
+    if (t >= 40 && t < 46) continue;
+    series.time.push(t);
+    series.phasic.push(0.1);
+    series.tonic.push(1);
+    series.isPeak.push(Math.abs(t % 1) < 0.05 ? 1 : 0);
+  }
+  // Only 5 s of GSR before t=5: window would be [-5,5) → dropped.
+  const early = JunctionResponse.responses(
+    [{ key: 'a', decision: 'straight', kind: 'choice', time: 5 }],
+    series,
+  );
+  assert.strictEqual(early.length, 0);
+  // Clean window: 1 peak/s → 60/min.
+  const ok = JunctionResponse.responses(
+    [{ key: 'b', decision: 'straight', kind: 'choice', time: 30 }],
+    series,
+  );
+  assert.strictEqual(ok.length, 1);
+  assert.ok(Math.abs(ok[0].before.peakRate - 60) < 1.5);
+  // Passage at 50: after-window [50,60) is clean but before-window [40,50) is 60% missing → dropped.
+  const gap = JunctionResponse.responses(
+    [{ key: 'c', decision: 'straight', kind: 'choice', time: 50 }],
+    series,
+  );
+  assert.strictEqual(gap.length, 0);
+});
