@@ -439,18 +439,15 @@ test('compare: paired test for Turn vs Straight preserves clean Straight vs Cont
   );
 });
 
-test('responses: consolidated crossroads cleanly isolates before and after windows from in-crossing samples', () => {
-  // Walker enters crossroads at t = 100 and exits at t = 115 (15 s crossing).
-  // Approach (90-100) has phasic = 2.0
-  // In-crossing (100-115) has huge distraction spike = 99.0
-  // Departure (115-125) has phasic = 3.0
+test('responses: "after" starts at junction entry, so the traversal (where the response lands) is inside it', () => {
+  // Walker enters at t = 100 and exits at t = 112 (12 s crossing).
+  // Approach (<100) phasic 2.0; from entry on (the response) 3.0.
   const time = [];
   const phasic = [];
   const tonic = [];
   for (let t = 80; t <= 135; t++) {
     time.push(t);
-    const v = t < 100 ? 2.0 : t < 115 ? 99.0 : 3.0;
-    phasic.push(v);
+    phasic.push(t < 100 ? 2.0 : 3.0);
     tonic.push(10.0);
   }
   const series = {
@@ -459,34 +456,37 @@ test('responses: consolidated crossroads cleanly isolates before and after windo
     tonic,
     isPeak: new Array(time.length).fill(0),
   };
-
   const passage = {
     key: 'CROSSROADS_1',
     decision: 'turn',
     kind: 'choice',
     time: 100,
     timeEnter: 100,
-    timeExit: 115,
+    timeExit: 112,
   };
 
-  const resp = JunctionResponse.responses([passage], series);
-  assert.strictEqual(resp.length, 1);
-  const r = resp[0];
+  const [r] = JunctionResponse.responses([passage], series);
+  assert.strictEqual(r.before.meanPhasic, 2.0); // [90, 100)
+  assert.strictEqual(r.after.meanPhasic, 3.0); // [100, 110) — starts at entry, not exit
+  assert.strictEqual(r.delta.meanPhasic, 1.0);
+});
 
-  // before window must be purely on the approach [90, 100), mean = 2.0
-  assert.ok(
-    Math.abs(r.before.meanPhasic - 2.0) < 1e-6,
-    `expected before ~2.0, got ${r.before.meanPhasic}`,
-  );
-  // after window must be purely on departure [115, 125), mean = 3.0 (NOT contaminated by mid-street 99.0)
-  assert.ok(
-    Math.abs(r.after.meanPhasic - 3.0) < 1e-6,
-    `expected after ~3.0, got ${r.after.meanPhasic}`,
-  );
-  // delta should be exactly 3.0 - 2.0 = 1.0
-  assert.ok(
-    Math.abs(r.delta.meanPhasic - 1.0) < 1e-6,
-    `expected delta ~1.0, got ${r.delta.meanPhasic}`,
+test('responses: a passage whose traversal exceeds MAX_TRAVERSAL_S is dropped', () => {
+  const s = series(300, () => ({ phasic: 1 }));
+  const ok = {
+    ...P(100),
+    timeEnter: 100,
+    timeExit: 100 + JunctionResponse.MAX_TRAVERSAL_S,
+  };
+  const long = {
+    ...P(200, 'turn', 'L'),
+    timeEnter: 200,
+    timeExit: 200 + JunctionResponse.MAX_TRAVERSAL_S + 1,
+  };
+  const out = JunctionResponse.responses([ok, long], s);
+  assert.deepStrictEqual(
+    out.map((r) => r.key),
+    ['K'],
   );
 });
 
@@ -554,4 +554,98 @@ test('responses: a window running off the start of the recording is dropped, and
     series,
   );
   assert.strictEqual(gap.length, 0);
+});
+
+test('responses: lag reads the GSR response that follows the junction, not the walker-time window', () => {
+  // A response evoked at the junction (t=50) shows up 3 s later in the GSR:
+  // phasic 1 before t=53, 3 from t=53.  peaks only in [53, 63).
+  const s = series(120, (t) => ({
+    phasic: t < 53 ? 1 : 3,
+    peak: t >= 53 && t < 63 && t % 2 === 1,
+    tonic: t,
+  }));
+  const p = [P(50)];
+
+  // No lag: the 'after' window [50, 60) is contaminated by pre-response samples.
+  const [plain] = JunctionResponse.responses(p, s);
+  assert.ok(plain.after.meanPhasic < 3);
+
+  // Lag 3 s: 'before' = GSR in [43, 53) (all baseline), 'after' = [53, 63).
+  const lag = { phasic: 3, tonic: 3 };
+  const [r] = JunctionResponse.responses(p, s, { lag });
+  assert.strictEqual(r.before.meanPhasic, 1);
+  assert.strictEqual(r.after.meanPhasic, 3);
+  assert.strictEqual(r.before.peakRate, 0);
+  assert.strictEqual(r.after.peakRate, 30);
+  // tonic ramps 1/s, so each window's mean shifts by exactly the lag
+  assert.strictEqual(plain.before.meanTonic + 3, r.before.meanTonic);
+});
+
+test('responses: tonic uses its own (longer) lag', () => {
+  const s = series(120, (t) => ({ tonic: t }));
+  const [a] = JunctionResponse.responses([P(50)], s, {
+    lag: { phasic: 0, tonic: 0 },
+  });
+  const [b] = JunctionResponse.responses([P(50)], s, {
+    lag: { phasic: 0, tonic: 8 },
+  });
+  assert.strictEqual(b.before.meanTonic - a.before.meanTonic, 8);
+});
+
+// ── compareJunctionVsRoad: any junction (whatever the walker did) vs plain road ──
+function overviewRecs({ junctionShift = 0, peakShift = 0 } = {}) {
+  const recs = [];
+  const decisions = ['turn', 'straight', 'reverse', 'ambiguous', 'control'];
+  for (const trackId of ['A', 'B', 'C']) {
+    // per-walk level offset the adjustment has to remove
+    const walk = trackId === 'A' ? 0 : trackId === 'B' ? 1 : 2;
+    for (let i = 0; i < 40; i++) {
+      const decision = decisions[i % decisions.length];
+      const isRoad = decision === 'control';
+      const noise = ((i * 37) % 11) / 100; // deterministic, ~±0.05
+      const level = walk + noise + (isRoad ? 0 : junctionShift);
+      const rate = 10 + noise * 10 + (isRoad ? 0 : peakShift);
+      recs.push({
+        key: `${trackId}${i}`,
+        trackId,
+        decision,
+        before: { meanPhasic: level, peakRate: rate, meanTonic: 0 },
+        after: { meanPhasic: level, peakRate: rate, meanTonic: 0 },
+        delta: { meanPhasic: 0, peakRate: 0, meanTonic: 0 },
+      });
+    }
+  }
+  return recs;
+}
+
+test('compareJunctionVsRoad: reverse and ambiguous count as junction passages', () => {
+  const rows = JunctionResponse.compareJunctionVsRoad(overviewRecs());
+  const level = rows.find((r) => r.metric === 'meanPhasic');
+  // per walk: 8 each of turn/straight/reverse/ambiguous (32 junction) + 8 road
+  assert.strictEqual(level.nJunction, 96);
+  assert.strictEqual(level.nRoad, 24);
+  assert.strictEqual(level.nTracks, 3);
+});
+
+test('compareJunctionVsRoad: a planted junction effect is supported, a walk-level offset is not', () => {
+  const planted = JunctionResponse.compareJunctionVsRoad(
+    overviewRecs({ junctionShift: 0.3, peakShift: 3 }),
+  );
+  for (const m of ['meanPhasic', 'peakRate']) {
+    const r = planted.find((x) => x.metric === m);
+    assert.strictEqual(r.verdict, 'supported', `${m} q=${r.q}`);
+    assert.ok(r.diff > 0);
+  }
+  // no junction effect: the 0/1/2 µS walk offsets must not leak in as one
+  const none = JunctionResponse.compareJunctionVsRoad(overviewRecs());
+  for (const r of none) {
+    assert.strictEqual(r.verdict, 'none', `${r.metric} p=${r.p}`);
+    assert.ok(Math.abs(r.diff) < 0.05);
+  }
+});
+
+test('compareJunctionVsRoad: needs both groups', () => {
+  const onlyJunctions = overviewRecs().filter((r) => r.decision !== 'control');
+  const rows = JunctionResponse.compareJunctionVsRoad(onlyJunctions);
+  assert.ok(rows.every((r) => r.verdict === 'none' && r.p === 1));
 });

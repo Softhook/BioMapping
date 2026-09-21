@@ -420,3 +420,86 @@ test('renderJunctionsTable: junction diff badge includes informative title toolt
   assert.ok(rowHtml.includes('title="Junction vs Open Road:'));
   assert.ok(rowHtml.includes('p=0.012, q=0.034'));
 });
+
+test('renderJunctionOverview: shows junction-vs-plain-road box with verdict and counts', () => {
+  setupDOM();
+  const box = { innerHTML: '', style: {} };
+  const inner = global.document.getElementById;
+  global.document.getElementById = (id) =>
+    id === 'junctionOverviewBox' ? box : inner(id);
+  const row = (metric, over) => ({
+    metric,
+    nJunction: 120,
+    nRoad: 40,
+    nTracks: 4,
+    meanJunction: 0.3,
+    meanRoad: 0.25,
+    diff: 0.05,
+    p: 0.5,
+    q: 0.8,
+    verdict: 'none',
+    ...over,
+  });
+  JunctionsTableUI.renderJunctionOverview({
+    overview: [
+      row('meanPhasic'),
+      row('peakRate', {
+        meanJunction: 13.4,
+        meanRoad: 12.6,
+        diff: 0.8,
+        p: 0.03,
+        q: 0.2,
+        verdict: 'suggestive',
+      }),
+      row('change'),
+    ],
+  });
+  assert.strictEqual(box.style.display, 'block');
+  assert.ok(box.innerHTML.includes('No robust difference'));
+  assert.ok(
+    box.innerHTML.includes('peaks per minute is higher near junctions'),
+  );
+  assert.ok(
+    box.innerHTML.includes(
+      '120 junction passages vs 40 plain-road spots across 4 walk(s)',
+    ),
+  );
+
+  // nothing to show → hidden
+  JunctionsTableUI.renderJunctionOverview({ overview: [] });
+  assert.strictEqual(box.style.display, 'none');
+  assert.strictEqual(box.innerHTML, '');
+});
+
+test('renderJunctionOverview: no plain road → explains why instead of an empty table', () => {
+  setupDOM();
+  const box = { innerHTML: '', style: {} };
+  const inner = global.document.getElementById;
+  global.document.getElementById = (id) =>
+    id === 'junctionOverviewBox' ? box : inner(id);
+  const row = (metric) => ({
+    metric,
+    nJunction: 0,
+    nRoad: 0,
+    nTracks: 0,
+    meanJunction: Number.NaN,
+    meanRoad: Number.NaN,
+    diff: Number.NaN,
+    p: 1,
+    q: 1,
+    verdict: 'none',
+  });
+  const responses = [
+    ...Array.from({ length: 28 }, () => ({ decision: 'turn' })),
+    { decision: 'straight' },
+  ];
+  JunctionsTableUI.renderJunctionOverview({
+    overview: [row('meanPhasic'), row('peakRate'), row('change')],
+    responses,
+  });
+  assert.strictEqual(box.style.display, 'block');
+  assert.ok(box.innerHTML.includes("Can't compare"));
+  assert.ok(box.innerHTML.includes('No plain-road spot was found'));
+  assert.ok(box.innerHTML.includes('29 junction passage(s) and 0 plain-road'));
+  assert.ok(!box.innerHTML.includes('<table'));
+});

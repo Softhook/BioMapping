@@ -10,6 +10,7 @@
 import { AppState } from '../core/app_state.mjs';
 import { Controllers } from '../core/controllers.mjs';
 import { GSRGlobe3DView } from '../map/globe3d_view.mjs';
+import { JunctionDebug } from '../map/junction_debug.mjs';
 import { windowResized } from '../render/sketch.mjs';
 import { CONTOUR_SLIDER_DEFS } from './events_slider_defs.mjs';
 import { GSRStorage } from './storage.mjs';
@@ -93,6 +94,14 @@ export const MapPanelEvents = {
     bindSharedToggle('btnToggleMapHotspots', 'toggleHotspots', 'hotspots');
     bindSharedToggle('btnToggleMapLabels', 'toggleLabels', 'labels');
     bindSharedToggle('btnToggleMapClusters', 'toggleClusters', 'clusters');
+
+    const btnJunctionDebug = document.getElementById('btnToggleJunctionDebug');
+    if (btnJunctionDebug) {
+      btnJunctionDebug.addEventListener('click', () => {
+        btnJunctionDebug.classList.toggle('active');
+        JunctionDebug.toggle(btnJunctionDebug.classList.contains('active'));
+      });
+    }
 
     const btnToggleMapIsolines = document.getElementById(
       'btnToggleMapIsolines',

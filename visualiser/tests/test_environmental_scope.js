@@ -238,17 +238,20 @@ test('GSRCollectiveProject: multi-track bundle targets collective view even if m
   }
 });
 
-test('EnvironmentalDashboardUI._junctionStatsFor: no work while the Junction tab is hidden; cached once shown, independent of latency', () => {
+test('EnvironmentalDashboardUI._junctionStatsFor: no work while the Junction tab is hidden; cached once shown, recomputed when the latency slider moves', () => {
   const {
     EnvironmentalDashboardUI,
   } = require('../src/ui/ui_environmental_dashboard.mjs');
   const originalDoc = global.document;
   let tabActive = false;
+  let latencyValue = '2.0';
   global.document = {
     getElementById: (id) =>
       id === 'envTabJunctions'
         ? { classList: { contains: () => tabActive } }
-        : null,
+        : id === 'gpsPeakLatency'
+          ? { value: latencyValue }
+          : null,
   };
   let computes = 0;
   const ui = {
@@ -269,6 +272,9 @@ test('EnvironmentalDashboardUI._junctionStatsFor: no work while the Junction tab
     assert.strictEqual(computes, 1, 'second call served from cache');
     ui._junctionStatsFor(target, 'all', [], 'a', 'v2');
     assert.strictEqual(computes, 2, 'data change recomputes');
+    latencyValue = '3.0';
+    ui._junctionStatsFor(target, 'all', [], 'a', 'v2');
+    assert.strictEqual(computes, 3, 'latency change recomputes');
   } finally {
     global.document = originalDoc;
   }

@@ -267,6 +267,37 @@ test('findControlPassages / includeControl: extracts mid-block control on long s
   }
 });
 
+test('findControlPassages: controls sit mid-stretch, not at the edge of the exclusion zone', () => {
+  // Junctions at 100 m and 250 m; the 150 m stretch between them has its
+  // middle at 175 m. The first eligible fix would be ~130 m (30 m after J1).
+  const SIDE1 = way('SIDE1', [
+    { lat: 0, lon: m(100) },
+    { lat: m(50), lon: m(100) },
+  ]);
+  const SIDE2 = way('SIDE2', [
+    { lat: 0, lon: m(250) },
+    { lat: m(50), lon: m(250) },
+  ]);
+  const LONG_RD = way('LONG_RD', [
+    { lat: 0, lon: 0 },
+    { lat: 0, lon: m(100) },
+    { lat: 0, lon: m(250) },
+    { lat: 0, lon: m(300) },
+  ]);
+  const track = [];
+  for (let x = 0; x <= 300; x += 3) track.push([0, m(x), 'LONG_RD']);
+  const controls = Junctions.classifyPassages(
+    pts(track),
+    [LONG_RD, SIDE1, SIDE2],
+    { includeControl: true },
+  ).filter((p) => p.decision === 'control');
+  const xs = controls.map((c) => (c.lon * 111320) | 0);
+  assert.ok(
+    xs.some((x) => Math.abs(x - 175) <= 6),
+    `expected a control near the stretch middle (175 m), got ${xs}`,
+  );
+});
+
 test('findControlPassages: road with close junctions (< 30 m) yields no control passages', () => {
   // Junctions at 50 m and 90 m (gap = 40 m < 2 * 30 m)
   const SIDE1 = way('SIDE1', [
@@ -685,4 +716,131 @@ test('classifyPassages: carrying straight across a staggered crossroads is "stra
   assert.strictEqual(out[0].mergedCount, 2);
   assert.strictEqual(out[0].decision, 'straight');
   assert.ok(Math.abs(out[0].turnAngleDeg) < 10);
+});
+
+// ── Pavement walkers (sidewalk / crossing ways) ──────────────────────────────
+
+// A sidewalk 6 m north of the through road, running the same length.
+const SIDEWALK = way(
+  'SIDEWALK',
+  [
+    { lat: m(6), lon: 0 },
+    { lat: m(6), lon: m(200) },
+  ],
+  { highway: 'footway', footway: 'sidewalk' },
+);
+
+test('isPedestrianAdjunct: sidewalks and crossings only, not park footways', () => {
+  assert.ok(Junctions.isPedestrianAdjunct(SIDEWALK));
+  assert.ok(
+    Junctions.isPedestrianAdjunct(
+      way('X', [], { highway: 'footway', footway: 'crossing' }),
+    ),
+  );
+  assert.ok(
+    !Junctions.isPedestrianAdjunct(way('P', [], { highway: 'footway' })),
+  );
+  assert.ok(!Junctions.isPedestrianAdjunct(way('R', [], {})));
+});
+
+test('buildIndex: a spur or crossing joining a sidewalk mid-block is not a junction', () => {
+  const spur = way(
+    'SPUR',
+    [
+      { lat: m(6), lon: m(100) },
+      { lat: m(20), lon: m(100) },
+    ],
+    { highway: 'footway' },
+  );
+  const crossing = way(
+    'XING',
+    [
+      { lat: m(6), lon: m(50) },
+      { lat: 0, lon: m(50) },
+    ],
+    { highway: 'footway', footway: 'crossing' },
+  );
+  const road = way('ROAD', [
+    { lat: 0, lon: 0 },
+    { lat: 0, lon: m(50) },
+    { lat: 0, lon: m(200) },
+  ]);
+  const { nodes } = Junctions.buildIndex([SIDEWALK, spur, crossing, road]);
+  assert.strictEqual(nodes.size, 0);
+});
+
+test('classifyPassages: a walker on the sidewalk is seen passing the road junction beside them', () => {
+  const track = [];
+  for (let x = 60; x <= 140; x += 4) track.push([m(6), m(x), 'SIDEWALK']);
+  const out = Junctions.classifyPassages(pts(track), [
+    MAIN_W,
+    MAIN_E,
+    SIDE,
+    SIDEWALK,
+  ]);
+  assert.strictEqual(out.length, 1);
+  assert.strictEqual(out[0].kind, 'choice');
+  assert.strictEqual(out[0].decision, 'straight');
+  assert.strictEqual(out[0].inWay, 'SIDEWALK');
+});
+
+test('classifyPassages: a sidewalk walker far from any road junction sees none', () => {
+  const track = [];
+  for (let x = 20; x <= 60; x += 4) track.push([m(6), m(x), 'SIDEWALK']);
+  const out = Junctions.classifyPassages(pts(track), [
+    MAIN_W,
+    MAIN_E,
+    SIDE,
+    SIDEWALK,
+  ]);
+  assert.strictEqual(out.length, 0);
+});
+
+test('findControlPassages: a control fix is kept off any nearby junction node, whatever way it is on', () => {
+  const track = [];
+  for (let x = 90; x <= 110; x += 4) track.push([m(6), m(x), 'SIDEWALK']);
+  const out = Junctions.findControlPassages(
+    pts(track),
+    [MAIN_W, MAIN_E, SIDE, SIDEWALK],
+    [],
+  );
+  assert.strictEqual(out.length, 0);
+});
+
+test('classifyPassages: loitering and GPS wander around one junction is one passage', () => {
+  const track = [];
+  for (let x = 60; x < 96; x += 4) track.push([0, m(x), 'MAIN_W']);
+  // Mill about within ~12 m of the node, with excursions longer than the old
+  // 6 m visit gap, then carry straight on.
+  for (const dx of [-8, 6, -10, 9, -7, 4])
+    track.push([m(3), m(100 + dx), 'MAIN_W']);
+  for (let x = 104; x <= 140; x += 4) track.push([0, m(x), 'MAIN_E']);
+  const out = Junctions.classifyPassages(pts(track), [MAIN_W, MAIN_E, SIDE]);
+  assert.strictEqual(out.length, 1);
+});
+
+test('buildIndex: a parking aisle joining a road does not create a junction, an alley does', () => {
+  const road = way('ROAD', [
+    { lat: 0, lon: 0 },
+    { lat: 0, lon: m(50) },
+    { lat: 0, lon: m(100) },
+  ]);
+  const aisle = way(
+    'AISLE',
+    [
+      { lat: 0, lon: m(50) },
+      { lat: m(20), lon: m(50) },
+    ],
+    { highway: 'service', service: 'parking_aisle' },
+  );
+  const alley = way(
+    'ALLEY',
+    [
+      { lat: 0, lon: m(50) },
+      { lat: m(-20), lon: m(50) },
+    ],
+    { highway: 'service', service: 'alley' },
+  );
+  assert.strictEqual(Junctions.buildIndex([road, aisle]).nodes.size, 0);
+  assert.strictEqual(Junctions.buildIndex([road, alley]).nodes.size, 1);
 });

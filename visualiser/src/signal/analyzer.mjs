@@ -1719,12 +1719,20 @@ export class GSRAnalyzer {
   resolveLatencyIndex(peak, peakLatency) {
     if (!(peakLatency > 0))
       return peak && peak.index !== undefined ? peak.index : 0;
-    const shiftedTime = Math.max(
-      0,
-      (peak && peak.time !== undefined ? peak.time : 0) - peakLatency,
+    const si = this.stimulusIndexAt(
+      peak && peak.time !== undefined ? peak.time : 0,
+      peakLatency,
     );
-    const si = this.findClosestIndex(shiftedTime);
     return si >= 0 ? si : peak && peak.index !== undefined ? peak.index : 0;
+  }
+
+  /**
+   * Index of the sample the walker was at `lag` seconds before `time` — the
+   * place a GSR reading at `time` actually responds to (see PhysioLatency).
+   * -1 when the track is empty.
+   */
+  stimulusIndexAt(time, lag) {
+    return this.findClosestIndex(Math.max(0, time - (lag || 0)));
   }
 
   /**

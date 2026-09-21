@@ -65,9 +65,16 @@ export const Junctions = {
     'construction',
     'planned',
   ]),
-  /** Consecutive fixes near one node further apart than this (m of track)
-   *  are separate visits to it. */
-  VISIT_GAP_M: 6,
+  /** footway=* values that are the pavement/crossing furniture of a road, not
+   *  routes in their own right.  Mapped as separate ways, they add degree-3
+   *  nodes all along a street (spurs, crossing connectors) that are not
+   *  decisions.  They are left out of the junction index; a walker snapped to
+   *  one is matched to nearby road nodes instead (see classifyPassages). */
+  PEDESTRIAN_ADJUNCT_FOOTWAY: new Set(['sidewalk', 'crossing']),
+  /** Fixes near one node are one visit until the track gets further than this
+   *  (m) from it.  Loitering at a crossing — waiting for a signal, GPS wander —
+   *  stays inside this and is one passage, not several. */
+  VISIT_LEAVE_M: 30,
   /** Minimum distance (m) a mid-block control fix must be from any candidate junction node. */
   CONTROL_MIN_NODE_DIST_M: 30,
   /** Minimum distance (m of track) a control fix must be from any detected junction passage. */
@@ -85,6 +92,51 @@ export const Junctions = {
       return '';
     }
     return `${lat.toFixed(6)},${lon.toFixed(6)}`;
+  },
+
+  /** True for a sidewalk / crossing way (see PEDESTRIAN_ADJUNCT_FOOTWAY). */
+  isPedestrianAdjunct(way) {
+    const t = way?.tags;
+    return (
+      t?.highway === 'footway' && this.PEDESTRIAN_ADJUNCT_FOOTWAY.has(t.footway)
+    );
+  },
+
+  /** Car-park internals (service=parking_aisle) are not places a walker
+   *  chooses a route, so they never create junction nodes. */
+  isParkingAisle(way) {
+    return way?.tags?.service === 'parking_aisle';
+  },
+
+  /**
+   * Coarse lat/lon grid over junction nodes for radius queries.  Cells are
+   * 0.001° (≥ 55 m wide at UK latitudes), so a 3×3 block covers any radius up
+   * to ~30 m; callers still apply their own exact distance test.
+   * @returns {{near: function(number, number): object[]}}
+   */
+  _nodeGrid(nodes) {
+    const CELL = 0.001;
+    const cells = new Map();
+    const cx = (v) => Math.floor(v / CELL);
+    for (const n of nodes.values()) {
+      const k = `${cx(n.lat)},${cx(n.lon)}`;
+      if (!cells.has(k)) cells.set(k, []);
+      cells.get(k).push(n);
+    }
+    return {
+      near(lat, lon) {
+        const out = [];
+        const a = cx(lat);
+        const b = cx(lon);
+        for (let da = -1; da <= 1; da++) {
+          for (let db = -1; db <= 1; db++) {
+            const c = cells.get(`${a + da},${b + db}`);
+            if (c) out.push(...c);
+          }
+        }
+        return out;
+      },
+    };
   },
 
   /** True when the two ways share at least one vertex. */
@@ -120,6 +172,8 @@ export const Junctions = {
         w.type !== 'way' ||
         !w.tags?.highway ||
         this.NON_ROAD_HIGHWAY.has(w.tags.highway) ||
+        this.isPedestrianAdjunct(w) ||
+        this.isParkingAisle(w) ||
         !w.coordinates ||
         w.coordinates.length < 2
       ) {
@@ -237,6 +291,35 @@ export const Junctions = {
   },
 
   /**
+   * Matched fixes for classifyPassages: one entry per raw row that snapped to a
+   * way.  Shared by the junction analysis and the map debug layer so both see
+   * identical input.
+   *
+   * @param {Array<{time:number,lat:number,lon:number}>} raw
+   * @param {Array<{lat:number,lon:number,wayId:*,dist?:number}|null>} snapped
+   */
+  buildPts(raw, snapped) {
+    const pts = [];
+    for (let i = 0; i < raw.length; i++) {
+      const sg = snapped[i];
+      const rawPt = raw[i];
+      if (sg && !isNaN(sg.lat) && !isNaN(sg.lon) && sg.wayId != null) {
+        pts.push({
+          idx: i,
+          time: rawPt.time,
+          lat: sg.lat,
+          lon: sg.lon,
+          wayId: sg.wayId,
+          dist: sg.dist ?? 0,
+          rawLat: rawPt.lat,
+          rawLon: rawPt.lon,
+        });
+      }
+    }
+    return pts;
+  },
+
+  /**
    * Classify every junction the matched track passes.
    *
    * @param {Array<{idx:number,time:number,lat:number,lon:number,wayId:*,dist?:number,rawLat?:number,rawLon?:number}>} pts
@@ -267,16 +350,24 @@ export const Junctions = {
         );
     }
 
-    // 1. Candidate (node, fix) pairs, only checking nodes on the fix's own way.
+    // 1. Candidate (node, fix) pairs.  A fix on a road/path only checks the
+    // nodes of its own way.  A fix on a sidewalk/crossing — which is not in
+    // the index — checks every road node within reach, since that is the only
+    // way a pavement walker can be seen passing a side street.
+    const wayMap = new Map();
+    for (const w of ways) if (w?.id != null) wayMap.set(w.id, w);
+    const grid = this._nodeGrid(nodes);
     const byNode = new Map();
     pts.forEach((p, i) => {
-      if (!this._onWay(p) || !wayNodes.has(p.wayId)) return;
-      for (const key of wayNodes.get(p.wayId)) {
-        const n = nodes.get(key);
+      if (!this._onWay(p)) return;
+      const candidates = this.isPedestrianAdjunct(wayMap.get(p.wayId))
+        ? grid.near(p.lat, p.lon)
+        : (wayNodes.get(p.wayId) || []).map((k) => nodes.get(k));
+      for (const n of candidates) {
         const d = GeoUtils.haversineMeters(p.lat, p.lon, n.lat, n.lon);
         if (d > R) continue;
-        if (!byNode.has(key)) byNode.set(key, []);
-        byNode.get(key).push({ i, d });
+        if (!byNode.has(n.key)) byNode.set(n.key, []);
+        byNode.get(n.key).push({ i, d });
       }
     });
 
@@ -286,12 +377,25 @@ export const Junctions = {
       const n = nodes.get(key);
       let run = [hits[0]];
       const flush = () => {
-        const best = run.reduce((a, b) => (b.d < a.d ? b : a));
-        const p = this._passage(pts, n, best.i, cum);
-        if (p) passages.push(p);
+        // Closest fix first; if its arms are unusable (mid-wobble, too short)
+        // fall back to the next closest rather than losing the visit.
+        for (const h of [...run].sort((a, b) => a.d - b.d)) {
+          const p = this._passage(pts, n, h.i, cum, wayMap);
+          if (p) {
+            passages.push(p);
+            break;
+          }
+        }
       };
       for (let h = 1; h < hits.length; h++) {
-        if (cum[hits[h].i] - cum[hits[h - 1].i] > this.VISIT_GAP_M) {
+        let farthest = 0;
+        for (let k = hits[h - 1].i + 1; k < hits[h].i; k++) {
+          farthest = Math.max(
+            farthest,
+            GeoUtils.haversineMeters(pts[k].lat, pts[k].lon, n.lat, n.lon),
+          );
+        }
+        if (farthest > this.VISIT_LEAVE_M) {
           flush();
           run = [];
         }
@@ -317,6 +421,14 @@ export const Junctions = {
   /**
    * Identify mid-block control passages along straight road segments away from any junction.
    *
+   * Every eligible fix is a candidate, and candidates are accepted in order of
+   * distance from the nearest junction (farthest first, subject to
+   * CONTROL_SPACING_M).  Taking the first eligible fix instead puts every
+   * control right at the edge of the exclusion zone — in the wake of the
+   * junction just passed, whose lingering response would then be mistaken for
+   * an open-road effect.  Farthest-first puts controls in the middle of the
+   * stretch, where the walker has had the longest to settle.
+   *
    * @param {Array} pts matched fixes in time order
    * @param {Array} ways Overpass ways covering the track
    * @param {Array} juncPassages already classified junction passages
@@ -340,14 +452,14 @@ export const Junctions = {
       }
     }
 
-    const { nodes, wayNodes } = cache || this.buildIndex(ways);
+    const { nodes } = cache || this.buildIndex(ways);
+    const grid = this._nodeGrid(nodes);
     const wayMap = new Map();
     for (const w of ways) {
       if (w?.id != null) wayMap.set(w.id, w);
     }
 
-    const controls = [];
-    let lastControlCum = -Infinity;
+    const candidates = [];
 
     const arm = (i, dir) => {
       let j = i;
@@ -372,39 +484,30 @@ export const Junctions = {
       const w = wayMap.get(p.wayId);
       if (!w) continue;
 
-      // 1. Spacing from previous control passage
-      if (cum[i] - lastControlCum < this.CONTROL_SPACING_M) continue;
-
-      // 2. Distance along track from any junction passage or cluster extent
-      let nearJunc = false;
+      // 1. Distance along track from the nearest junction passage or cluster extent
+      let juncDist = Infinity;
       for (const jp of juncPassages) {
         const juncMin = jp.iBefore != null ? cum[jp.iBefore] : cum[jp.i];
         const juncMax = jp.iAfter != null ? cum[jp.iAfter] : cum[jp.i];
-        if (
-          cum[i] >= juncMin - this.CONTROL_MIN_PASSAGE_DIST_M &&
-          cum[i] <= juncMax + this.CONTROL_MIN_PASSAGE_DIST_M
-        ) {
-          nearJunc = true;
-          break;
-        }
+        const d = Math.max(juncMin - cum[i], cum[i] - juncMax, 0);
+        if (d < juncDist) juncDist = d;
       }
-      if (nearJunc) continue;
+      if (juncDist < this.CONTROL_MIN_PASSAGE_DIST_M) continue;
 
-      // 3. Spatial distance from any candidate junction node on this way
-      const nodeKeys = wayNodes.get(p.wayId) || [];
+      // 2. Spatial distance from any candidate junction node
       let tooCloseToNode = false;
-      for (const key of nodeKeys) {
-        const n = nodes.get(key);
-        if (!n) continue;
-        const d = GeoUtils.haversineMeters(p.lat, p.lon, n.lat, n.lon);
-        if (d < this.CONTROL_MIN_NODE_DIST_M) {
+      for (const n of grid.near(p.lat, p.lon)) {
+        if (
+          GeoUtils.haversineMeters(p.lat, p.lon, n.lat, n.lon) <
+          this.CONTROL_MIN_NODE_DIST_M
+        ) {
           tooCloseToNode = true;
           break;
         }
       }
       if (tooCloseToNode) continue;
 
-      // 4. Arms before and after must stay on this way and be straight
+      // 3. Arms before and after must stay on this way and be straight
       const iBefore = arm(i, -1);
       const iAfter = arm(i, 1);
       if (iBefore < 0 || iAfter < 0) continue;
@@ -430,29 +533,45 @@ export const Junctions = {
       }
 
       const charStr = this.characterOf(w);
-      controls.push({
-        key: `ctrl_${p.wayId}_${p.time}`,
-        lat: p.lat,
-        lon: p.lon,
-        i,
-        idx: p.idx,
-        time: p.time,
-        iBefore,
-        iAfter,
-        kind: 'control',
-        degree: 2,
-        decision: 'control',
-        turnAngleDeg: turn,
-        rawTurnAngleDeg: rawTurn,
-        inWay: p.wayId,
-        outWay: p.wayId,
-        inClass: charStr,
-        outClass: charStr,
+      candidates.push({
+        juncDist,
+        passage: {
+          key: `ctrl_${p.wayId}_${p.time}`,
+          lat: p.lat,
+          lon: p.lon,
+          i,
+          idx: p.idx,
+          time: p.time,
+          iBefore,
+          iAfter,
+          kind: 'control',
+          degree: 2,
+          decision: 'control',
+          turnAngleDeg: turn,
+          rawTurnAngleDeg: rawTurn,
+          inWay: p.wayId,
+          outWay: p.wayId,
+          inClass: charStr,
+          outClass: charStr,
+        },
       });
-      lastControlCum = cum[i];
     }
 
-    return controls;
+    // Farthest from a junction first; ties keep track order.
+    const byIsolation = candidates
+      .map((c, k) => ({ ...c, k }))
+      .sort((a, b) => b.juncDist - a.juncDist || a.k - b.k);
+    const accepted = [];
+    for (const c of byIsolation) {
+      const at = cum[c.passage.i];
+      if (
+        accepted.some((a) => Math.abs(cum[a.i] - at) < this.CONTROL_SPACING_M)
+      ) {
+        continue;
+      }
+      accepted.push(c.passage);
+    }
+    return accepted.sort((a, b) => a.i - b.i);
   },
 
   /**
@@ -645,7 +764,7 @@ export const Junctions = {
   },
 
   /** Build one passage at fix index i of node n, or null if not a real one. */
-  _passage(pts, n, i, cum = null) {
+  _passage(pts, n, i, cum = null, wayMap = null) {
     const arm = (dir) => {
       let j = i;
       if (cum) {
@@ -674,31 +793,37 @@ export const Junctions = {
     const iAfter = arm(1);
     if (iBefore < 0 || iAfter < 0) return null;
 
+    // The walker's dominant way over an arm: preferably one meeting at this
+    // node, else (a pavement walker, whose sidewalk is not in the index)
+    // whatever way they were on.
     const dominantWay = (from, to) => {
-      const counts = new Map();
       const waysMap = n.clusterWays || n.ways;
-      for (let k = from; k <= to; k++) {
-        const w = this._onWay(pts[k]) ? pts[k].wayId : null;
-        if (w != null && waysMap.has(w))
-          counts.set(w, (counts.get(w) || 0) + 1);
-      }
-      let best = null;
-      let bc = 0;
-      for (const [w, c] of counts) {
-        if (c > bc) {
-          best = w;
-          bc = c;
+      const tally = (accept) => {
+        const counts = new Map();
+        for (let k = from; k <= to; k++) {
+          const w = this._onWay(pts[k]) ? pts[k].wayId : null;
+          if (w != null && accept(w)) counts.set(w, (counts.get(w) || 0) + 1);
         }
-      }
-      return best;
+        let best = null;
+        let bc = 0;
+        for (const [w, c] of counts) {
+          if (c > bc) {
+            best = w;
+            bc = c;
+          }
+        }
+        return best;
+      };
+      return tally((w) => waysMap.has(w)) ?? tally(() => true);
     };
     const inWay = dominantWay(iBefore, i);
     const outWay = dominantWay(i, iAfter);
     if (inWay == null || outWay == null) return null;
 
     const waysMap = n.clusterWays || n.ways;
-    const inClass = this.characterOf(waysMap.get(inWay));
-    const outClass = this.characterOf(waysMap.get(outWay));
+    const wayOf = (id) => waysMap.get(id) || wayMap?.get(id);
+    const inClass = this.characterOf(wayOf(inWay));
+    const outClass = this.characterOf(wayOf(outWay));
     const choice = (n.clusterDegree ?? n.degree) >= 3;
     const change = inClass !== outClass;
     if (!choice && !change) return null;

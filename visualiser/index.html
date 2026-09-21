@@ -846,6 +846,7 @@
                 <button class="btn btn-outline active" id="btnToggleMapHotspots" type="button">Hotspots</button>
                 <button class="btn btn-outline active" id="btnToggleMapLabels" type="button">Labels</button>
                 <button class="btn btn-outline active" id="btnToggleMapClusters" type="button">Places</button>
+                <button class="btn btn-outline" id="btnToggleJunctionDebug" title="Debug: ring every detected junction passage (ring = decision: orange turn, blue straight, purple reverse, grey ambiguous, green control; dot = why flagged: orange choice, blue tag-change only, purple both). Needs OSM-enriched tracks." type="button">Junctions</button>
                 <button class="btn btn-outline" id="btnToggleOsmShapes" title="Toggle OpenStreetMap layers (2D building/park/water shapes, 3D buildings on the globe). Retrieves the data on demand — from the shared local cache, or the Overpass API — the first time it is switched on." type="button">OSM</button>
                 <button class="btn btn-outline" id="btnToggleNdviLayer" title="Toggle Sentinel-2 NDVI satellite tile layer" type="button">NDVI</button>
                 <!-- Collective-only -->
@@ -1093,8 +1094,13 @@
 
           <!-- Tab 4: Junction Turns -->
           <div class="env-tab-content" id="envTabJunctions" style="display: none; padding: 16px;">
+            <!-- Overview: near any junction vs plain road -->
+            <div class="junction-insight-banner" id="junctionOverviewBox" style="display: none; margin-bottom: 14px;">
+              <!-- Populated dynamically in JavaScript -->
+            </div>
+
             <p class="help-text" style="margin: 0 0 12px 0;">
-              Compares GSR at road junctions where the walker <strong>turned</strong> versus <strong>carried straight on</strong>, in the 10&nbsp;s before and 10&nbsp;s after each junction (clipped at midpoints so no sample is counted twice). This shows association only, and needs many junctions or repeat walks before a difference means anything.
+              Below, GSR at road junctions where the walker <strong>turned</strong> versus <strong>carried straight on</strong>, in the 10&nbsp;s before and 10&nbsp;s after each junction (clipped at midpoints so no sample is counted twice). This shows association only, and needs many junctions or repeat walks before a difference means anything.
             </p>
 
             <div class="junction-summary-row" id="junctionSummaryRow">
@@ -1143,7 +1149,7 @@
                 <p><strong>Verdicts use q, not p</strong>: multiple measures are tested, so every p-value is Benjamini–Hochberg corrected across them. "Supported" needs q&nbsp;&lt;&nbsp;0.05. A raw p&nbsp;&lt;&nbsp;0.05 that doesn't survive is shown only as a weak hint.</p>
                 <p><strong>Paired vs. pooled</strong>: with at least 15 junctions walked both ways, a within-junction permutation test is used, which controls for the junction's own surroundings. Otherwise a pooled permutation test (labels shuffled within each walk, so a few large responses can't fake a difference) runs on values adjusted for each walk's own average level (so bigger-amplitude walks don't look like an effect); only walks that contain multiple conditions count. Passages within a walk are still correlated, so the pooled result is indicative.</p>
                 <p><strong>Confounds not controlled</strong>: going straight usually means staying on the main road and turning usually means leaving it, so road type, traffic, crossings and walking speed are mixed with the label. In dense urban networks, uninterrupted open-road sections (at least 30&nbsp;m from any side street) are often major commercial arterial roads, which can carry higher ambient arousal than quiet residential turnings. Turning also changes gait and sensor movement.</p>
-                <p><strong>What is left out</strong>: passages within ~20&nbsp;s of another junction or with under 5&nbsp;s of clean GSR are dropped (this favours quiet areas over dense grids); reverse (U-turn) and ambiguous passages, including those where the snapped and raw GPS headings disagree, are never compared. Peaks you've excluded are ignored.</p>
+                <p><strong>What is left out</strong>: passages within ~20&nbsp;s of another junction or with under 5&nbsp;s of clean GSR are dropped (this favours quiet areas over dense grids); reverse (U-turn) and ambiguous passages, including those where the snapped and raw GPS headings disagree, are never compared in the turn-vs-straight table (the overview box above counts them, since it doesn't care what the walker did). Peaks you've excluded are ignored.</p>
               </div>
             </details>
           </div>

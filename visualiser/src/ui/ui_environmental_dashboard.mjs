@@ -13,6 +13,7 @@ import { GSR_CONST } from '../core/constants.mjs';
 import { JunctionResponse } from '../gps/junction_response.mjs';
 import { Junctions } from '../gps/junctions.mjs';
 import { OSMEnricher } from '../osm/osm_enrichment.mjs';
+import { PhysioLatency } from '../signal/physio_latency.mjs';
 import { StatsMath } from '../signal/stats_math.mjs';
 
 export const EnvironmentalDashboardUI = {
@@ -36,12 +37,9 @@ export const EnvironmentalDashboardUI = {
 
     if (activeTracks.length === 0) return;
 
-    const latency =
-      parseFloat(document.getElementById('gpsPeakLatency').value) || 2.0;
-    // SCL (tonic) follows its driver several times more slowly than an SCR, so
-    // its environment is read further back than the phasic/peaks latency —
-    // scaled from the same knob (×4, capped at 30 s ≈ ~40 m at walking pace).
-    const tonicLatency = Math.min(30, latency * 4);
+    const { phasic: latency, tonic: tonicLatency } = PhysioLatency.lags(
+      PhysioLatency.fromSlider(),
+    );
     const trackIdsStr = activeTracks.map((t) => t.id).join(',');
     // Per-track mutation fingerprint (analyzer._dataVersion is bumped by
     // analyze(), setPeakLabel(), setPeakExcluded(), enrichTrack()). In the
@@ -95,11 +93,9 @@ export const EnvironmentalDashboardUI = {
               // an SCR lags its trigger and the subject has since moved on.
               // Tonic: read `tonicLatency` (a larger lag) earlier — SCL tracks
               // its driver over a slower time course (envPtTonic below).
-              const envIdx = a.findClosestIndex(Math.max(0, pt.time - latency));
+              const envIdx = a.stimulusIndexAt(pt.time, latency);
               const envPt = envIdx !== -1 ? a.raw[envIdx] : pt;
-              const envIdxT = a.findClosestIndex(
-                Math.max(0, pt.time - tonicLatency),
-              );
+              const envIdxT = a.stimulusIndexAt(pt.time, tonicLatency);
               const envPtTonic = envIdxT !== -1 ? a.raw[envIdxT] : pt;
 
               // Aggregate arousal over the trailing 1 s (10 samples @ 10 Hz):
@@ -552,7 +548,7 @@ export const EnvironmentalDashboardUI = {
         const a = track.analyzer;
         const peaks = a.peaks.filter((p) => !p.excluded);
         peaks.forEach((p) => {
-          const idx = a.findClosestIndex(Math.max(0, p.time - latency));
+          const idx = a.stimulusIndexAt(p.time, latency);
           const rc =
             idx !== -1 && a.raw[idx].osm_road_class
               ? a.raw[idx].osm_road_class
@@ -704,15 +700,17 @@ export const EnvironmentalDashboardUI = {
   },
 
   /**
-   * Junction turn-vs-straight stats. Independent of the latency slider and the
-   * environmental correlations, so it has its own cache and is only computed
-   * while the Junction Turns tab is showing; otherwise the last result (or an
-   * empty placeholder) is returned without doing any work.
+   * Junction turn-vs-straight stats. Independent of the environmental
+   * correlations, so it has its own cache (keyed on the latency slider too —
+   * the GSR windows move with it) and is only computed while the Junction
+   * Turns tab is showing; otherwise the last result (or an empty placeholder)
+   * is returned without doing any work.
    */
   _junctionStatsFor(cacheTarget, scope, activeTracks, trackIdsStr, versionSig) {
     const snapRadius =
       parseInt(document.getElementById('gpsSnapRadius')?.value, 10) || 25;
-    const key = [scope, trackIdsStr, versionSig, snapRadius].join('|');
+    const latency = PhysioLatency.fromSlider();
+    const key = [scope, trackIdsStr, versionSig, snapRadius, latency].join('|');
     const cached = cacheTarget._cachedJunctionStats;
     if (cached?.key === key) return cached.stats;
     const tab = document.getElementById('envTabJunctions');
@@ -722,17 +720,22 @@ export const EnvironmentalDashboardUI = {
           passages: [],
           responses: [],
           comparison: [],
+          overview: [],
           tracksNeedingGeoms: 0,
           totalEnrichedTracks: activeTracks.length,
         }
       );
     }
-    const stats = this._computeJunctionStats(activeTracks, snapRadius);
+    const stats = this._computeJunctionStats(
+      activeTracks,
+      snapRadius,
+      PhysioLatency.lags(latency),
+    );
     cacheTarget._cachedJunctionStats = { key, stats };
     return stats;
   },
 
-  _computeJunctionStats(activeTracks, snapRadius) {
+  _computeJunctionStats(activeTracks, snapRadius, lag) {
     // ── Junction turn vs straight analysis ───────────────────────────
     const allPassages = [];
     const allJunctionResponses = [];
@@ -747,25 +750,7 @@ export const EnvironmentalDashboardUI = {
         : null;
       if (!snapped) return;
 
-      // Build pts for Junctions.classifyPassages
-      const pts = [];
-      const raw = a.raw || [];
-      for (let i = 0; i < raw.length; i++) {
-        const sg = snapped[i];
-        const rawPt = raw[i];
-        if (sg && !isNaN(sg.lat) && !isNaN(sg.lon) && sg.wayId != null) {
-          pts.push({
-            idx: i,
-            time: rawPt.time,
-            lat: sg.lat,
-            lon: sg.lon,
-            wayId: sg.wayId,
-            dist: sg.dist ?? 0,
-            rawLat: rawPt.lat,
-            rawLon: rawPt.lon,
-          });
-        }
-      }
+      const pts = Junctions.buildPts(a.raw || [], snapped);
       if (pts.length < 2) return;
 
       const passages = Junctions.classifyPassages(pts, a.osmGeoms.ways, {
@@ -823,6 +808,7 @@ export const EnvironmentalDashboardUI = {
 
       const resps = JunctionResponse.responses(passages, series, {
         trackId: track.id,
+        lag,
       });
       if (resps && resps.length > 0) {
         allJunctionResponses.push(...resps);
@@ -830,8 +816,11 @@ export const EnvironmentalDashboardUI = {
     });
 
     let junctionComparison = [];
+    let junctionOverview = [];
     if (allJunctionResponses.length > 0) {
       junctionComparison = JunctionResponse.compare(allJunctionResponses);
+      junctionOverview =
+        JunctionResponse.compareJunctionVsRoad(allJunctionResponses);
     }
 
     const tracksNeedingGeoms = activeTracks.filter(
@@ -842,6 +831,7 @@ export const EnvironmentalDashboardUI = {
       passages: allPassages,
       responses: allJunctionResponses,
       comparison: junctionComparison,
+      overview: junctionOverview,
       tracksNeedingGeoms: tracksNeedingGeoms.length,
       totalEnrichedTracks: activeTracks.length,
     };

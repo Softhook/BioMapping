@@ -64,6 +64,128 @@ export const JunctionsTableUI = {
   },
 
   /**
+   * Overview box: arousal near ANY junction (turn, straight, U-turn or unclear)
+   * vs on plain road. Fed by JunctionResponse.compareJunctionVsRoad.
+   *
+   * @param {{passages:Array, overview:Array}} junctionStats
+   */
+  renderJunctionOverview(junctionStats) {
+    if (typeof document === 'undefined') return;
+    const box = document.getElementById('junctionOverviewBox');
+    if (!box) return;
+    box.innerHTML = '';
+    box.style.display = 'none';
+    const rows = junctionStats?.overview || [];
+    if (rows.length === 0) return;
+
+    const fmt = (v, d) => (Number.isFinite(v) ? v.toFixed(d) : '—');
+    const fmtP = (v) => {
+      if (!Number.isFinite(v)) return '—';
+      return v < 0.001 ? '< 0.001' : v.toFixed(3);
+    };
+    const labels = {
+      meanPhasic: { name: 'Arousal level (phasic)', unit: ' μS', digits: 3 },
+      peakRate: { name: 'Peaks per minute', unit: ' /min', digits: 2 },
+      change: {
+        name: 'Change across the spot (after − before)',
+        unit: ' μS',
+        digits: 3,
+      },
+    };
+    const band = (metric) => (metric === 'peakRate' ? 0.5 : 0.02);
+
+    const supported = rows.filter((r) => r.verdict === 'supported');
+    const suggestive = rows
+      .filter((r) => r.verdict === 'suggestive')
+      .sort((a, b) => a.p - b.p);
+    const first = rows[0];
+
+    // The test needs at least two of each, from walks that have both. Say so
+    // plainly instead of showing an empty table and a meaningless p = 1.
+    if (first.nJunction < 2 || first.nRoad < 2) {
+      const resp = junctionStats?.responses || [];
+      const availRoad = resp.filter((r) => r.decision === 'control').length;
+      const availJunction = resp.length - availRoad;
+      const why =
+        availRoad === 0
+          ? 'No plain-road spot was found: one has to be on a straight stretch at least 30&nbsp;m from any junction, and this walk has none (short walk, or junctions close together).'
+          : availJunction === 0
+            ? 'No junction passage has enough clean GSR either side of it.'
+            : 'There are too few of one kind, in walks that have both, to compare.';
+      box.innerHTML = `
+        <div class="junction-insight-headline">
+          <i class="fa-solid fa-ban"></i> Can't compare junctions with plain road here
+        </div>
+        <p class="junction-insight-text">
+          ${why} Usable so far: ${availJunction} junction passage(s) and ${availRoad} plain-road spot(s).
+        </p>`;
+      box.style.display = 'block';
+      return;
+    }
+    const lowPower = Math.min(first.nJunction, first.nRoad) < 30;
+
+    let icon = 'fa-equals';
+    let headline =
+      'No detectable difference in arousal between junctions and plain road';
+    if (supported.length) {
+      const r = [...supported].sort((a, b) => a.q - b.q)[0];
+      icon = r.diff > 0 ? 'fa-arrow-trend-up' : 'fa-arrow-trend-down';
+      headline = `Arousal differs between junctions and plain road in ${supported.length} of ${rows.length} measures`;
+    } else if (suggestive.length) {
+      icon = 'fa-circle-question';
+      const r = suggestive[0];
+      headline = `No robust difference — one weak hint: ${labels[r.metric].name.toLowerCase()} is ${r.diff > 0 ? 'higher' : 'lower'} near junctions (p=${fmtP(r.p)}, but q=${fmtP(r.q)} after correcting for ${rows.length} tests)`;
+    }
+    const powerNote =
+      lowPower && !supported.length
+        ? ' <strong>This sample is small, so a null here is not evidence of no effect.</strong>'
+        : '';
+
+    const body = rows
+      .map((r) => {
+        const l = labels[r.metric];
+        const badge =
+          r.verdict === 'none' || Math.abs(r.diff) <= band(r.metric)
+            ? 'neutral'
+            : r.diff > 0
+              ? 'higher'
+              : 'lower';
+        const sign = r.diff > 0 ? '+' : '';
+        const chip =
+          r.verdict === 'supported'
+            ? `<span class="mag-chip mag-strong">Supported (q=${fmtP(r.q)})</span>`
+            : r.verdict === 'suggestive'
+              ? `<span class="mag-chip mag-moderate" title="Uncorrected p&lt;0.05 but q&gt;=0.05 after adjusting for all tests">Weak hint only (p=${fmtP(r.p)}, q=${fmtP(r.q)})</span>`
+              : `<span class="mag-chip mag-negligible">n.s. (p=${fmtP(r.p)}, q=${fmtP(r.q)})</span>`;
+        return `<tr>
+          <td>${l.name}</td>
+          <td>${fmt(r.meanJunction, l.digits)}${l.unit}</td>
+          <td>${fmt(r.meanRoad, l.digits)}${l.unit}</td>
+          <td><span class="junction-diff-badge ${badge}">${Number.isFinite(r.diff) ? `${sign}${r.diff.toFixed(l.digits)}${l.unit}` : '—'}</span></td>
+          <td>${chip}</td>
+        </tr>`;
+      })
+      .join('');
+
+    box.innerHTML = `
+      <div class="junction-insight-headline">
+        <i class="fa-solid ${icon}"></i> ${headline}
+      </div>
+      <p class="junction-insight-text">
+        Near a junction vs a plain stretch of road at least 30&nbsp;m from one — whether the walker turned, went straight or doubled back doesn't matter here. Based on ${first.nJunction} junction passages vs ${first.nRoad} plain-road spots across ${first.nTracks || 1} walk(s); ±10&nbsp;s around each, each walk adjusted for its own average level.${powerNote}
+      </p>
+      <div class="table-container" style="margin-top: 8px;">
+        <table class="peaks-table">
+          <thead><tr>
+            <th>Measure</th><th>Near a junction</th><th>Plain road</th><th>Difference</th><th>Evidence (q = corrected)</th>
+          </tr></thead>
+          <tbody>${body}</tbody>
+        </table>
+      </div>`;
+    box.style.display = 'block';
+  },
+
+  /**
    * Render cached junction stats to HTML (headline banner, 3 moment cards, and detailed table).
    *
    * @param {{passages:Array, responses:Array, comparison:Array}} junctionStats
@@ -77,6 +199,7 @@ export const JunctionsTableUI = {
     const cardsContainer = document.getElementById('junctionCardsGrid');
     if (!tbody) return;
 
+    this.renderJunctionOverview(junctionStats);
     tbody.innerHTML = '';
     if (cardsContainer) cardsContainer.innerHTML = '';
     if (bannerContainer) {
@@ -138,7 +261,7 @@ export const JunctionsTableUI = {
         <span class="junction-stat-chip reverse" title="Turn angle ≥ 135° (U-turns)"><i class="fa-solid fa-rotate-left"></i> ${nReverse} Reverse</span>
         <span class="junction-stat-chip ambiguous" title="Angle 25°–40° or snapped vs raw GPS disagree"><i class="fa-solid fa-circle-question"></i> ${nAmbiguous} Ambiguous</span>
         <span class="junction-stat-chip" style="background: rgba(0,85,204,0.1); color: #0055cc; font-weight: 600;" title="Junctions visited multiple times with both turn and straight choices"><i class="fa-solid fa-code-compare"></i> ${nPaired} Paired Junctions</span>
-        <span class="junction-stat-chip ambiguous" title="Passages within ~20 s of another junction, or with too little GSR, are left out so no sample is counted twice. Reverse and ambiguous passages are never compared."><i class="fa-solid fa-filter"></i> no clean window: ${nDroppedTurn} of ${nTurn} turns, ${nDroppedStraight} of ${nStraight} straights, ${nDroppedControl} of ${nControl} controls · ${nReverse + nAmbiguous} reverse/ambiguous not compared</span>
+        <span class="junction-stat-chip ambiguous" title="Passages within ~20 s of another junction, with a traversal over 20 s, or with too little GSR, are left out so no sample is counted twice. Reverse and ambiguous passages are never compared."><i class="fa-solid fa-filter"></i> no clean window: ${nDroppedTurn} of ${nTurn} turns, ${nDroppedStraight} of ${nStraight} straights, ${nDroppedControl} of ${nControl} controls · ${nReverse + nAmbiguous} reverse/ambiguous not compared</span>
         ${skewedLoss ? '<span class="junction-stat-chip reverse" title="One class lost many more windows than the other (usually turns, which sit in dense areas), so the passages compared may not be representative."><i class="fa-solid fa-triangle-exclamation"></i> Uneven loss of turns vs straights — comparison may be biased</span>' : ''}
         ${
           junctionStats?.tracksNeedingGeoms > 0

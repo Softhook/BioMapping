@@ -711,6 +711,7 @@ test('GSRUI.sampleNdviTrack: successfully resolves single-mode track without fal
       peaks: [],
       getCoordinates: (i) => ({ lat: rawPoints[i].lat, lon: rawPoints[i].lon }),
       findClosestIndex: (_t) => 0,
+      stimulusIndexAt: (_t) => 0,
     },
   });
 

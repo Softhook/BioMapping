@@ -14,8 +14,20 @@
  *                junction for the p-value.  Controls for the junction's own
  *                surroundings and needs no distributional assumptions.
  *
- * Windows are clipped at the midpoint to neighbouring passages so no GSR
- * sample is counted in two passages.
+ * "Before" is the window ending at the junction's entry; "after" starts AT the
+ * entry, so the traversal itself is inside it — that is where the response to
+ * the decision lands (a turn's SCR peaks a few seconds after entry), and
+ * starting "after" at the exit reads it from partway down its falling edge.
+ * A passage whose traversal is longer than MAX_TRAVERSAL_S (a merged cluster,
+ * a stop, a mis-snap) is dropped: its "after" window would not be about the
+ * junction.  Windows are clipped at the midpoint between neighbouring entries
+ * so no GSR sample is counted in two passages.
+ *
+ * Junction times are GPS (place) times, but GSR lags what evoked it
+ * (PhysioLatency).  The windows are laid out in place time and each GSR
+ * channel is read `lag` seconds later, so "after" starts once the response to
+ * leaving the junction can show, and "before" is not credited with the
+ * response to the junction itself.
  *
  * Records carry a trackId.  For the pooled test each level is centred on its
  * own track's mean (a per-walk fixed effect) so people/walks with a bigger GSR
@@ -30,6 +42,8 @@ export const JunctionResponse = {
   WINDOW_S: 10,
   /** A window shorter than this (s) after clipping is dropped. */
   MIN_WINDOW_S: 5,
+  /** Passages whose entry→exit span exceeds this (s) are dropped. */
+  MAX_TRAVERSAL_S: 20,
   /** …or with fewer than this many GSR samples. */
   MIN_SAMPLES: 5,
   /** …or with GSR covering less than this fraction of the window (recording
@@ -44,31 +58,51 @@ export const JunctionResponse = {
 
   METRICS: ['peakRate', 'meanPhasic', 'meanTonic'],
 
-  /** Summarise series samples with time in [t0, t1). */
-  _summarise(series, t0, t1, dt = 0) {
+  /**
+   * Summarise series samples for the place-time window [t0, t1).  Phasic and
+   * peaks are read from [t0 + lag.phasic, t1 + lag.phasic), tonic from its own
+   * (longer) lag; both must be adequately covered.
+   */
+  _summarise(series, t0, t1, dt = 0, lag = {}) {
     const { time, phasic, tonic, isPeak } = series;
+    const lp = lag.phasic || 0;
+    const lt = lag.tonic || 0;
     let n = 0;
     let sumP = 0;
-    let sumT = 0;
     let peaks = 0;
     for (
-      let i = this._lowerBound(time, t0);
-      i < time.length && time[i] < t1;
+      let i = this._lowerBound(time, t0 + lp);
+      i < time.length && time[i] < t1 + lp;
       i++
     ) {
       n++;
       sumP += phasic[i];
-      if (tonic) sumT += tonic[i] ?? 0;
       if (isPeak?.[i]) peaks++;
+    }
+    let nT = n;
+    let sumT = 0;
+    if (tonic) {
+      nT = 0;
+      for (
+        let i = this._lowerBound(time, t0 + lt);
+        i < time.length && time[i] < t1 + lt;
+        i++
+      ) {
+        nT++;
+        sumT += tonic[i] ?? 0;
+      }
     }
     const dur = t1 - t0;
     // Time actually observed: a window running off the recording or across a
     // dropout must not be divided by its nominal length.
     const covered = dt > 0 ? Math.min(dur, n * dt) : dur;
+    const coveredT = dt > 0 ? Math.min(dur, nT * dt) : dur;
     if (
       n < this.MIN_SAMPLES ||
+      nT < this.MIN_SAMPLES ||
       dur < this.MIN_WINDOW_S ||
       covered < this.MIN_COVERAGE * dur ||
+      coveredT < this.MIN_COVERAGE * dur ||
       !Number.isFinite(sumP) ||
       !Number.isFinite(sumT)
     ) {
@@ -77,7 +111,7 @@ export const JunctionResponse = {
     return {
       peakRate: (peaks / covered) * 60,
       meanPhasic: sumP / n,
-      meanTonic: sumT / n,
+      meanTonic: sumT / nT,
     };
   },
 
@@ -106,6 +140,8 @@ export const JunctionResponse = {
   /**
    * @param {Array} passages from Junctions.classifyPassages (one track)
    * @param {{time:number[],phasic:number[],tonic:number[],isPeak:number[]}} series
+   * @param {{windowS?:number, trackId?:*, lag?:{phasic:number,tonic:number}}} [opts]
+   *   `lag` = PhysioLatency.lags(slider); omitted → no latency shift.
    * @returns {Array<{key,trackId,decision,kind,time,before,after,delta}>} passages with a
    *   usable window on both sides.
    */
@@ -119,12 +155,19 @@ export const JunctionResponse = {
       const next = sorted[i + 1];
       const enter = p.timeEnter ?? p.time;
       const exit = p.timeExit ?? p.time;
-      const prevExit = prev ? (prev.timeExit ?? prev.time) : -Infinity;
-      const nextEnter = next ? (next.timeEnter ?? next.time) : Infinity;
-      const t0 = Math.max(enter - W, prev ? (prevExit + enter) / 2 : -Infinity);
-      const t1 = Math.min(exit + W, next ? (exit + nextEnter) / 2 : Infinity);
-      const before = this._summarise(series, t0, enter, dt);
-      const after = this._summarise(series, exit, t1, dt);
+      if (exit - enter > this.MAX_TRAVERSAL_S) return;
+      const prevEnter = prev ? (prev.timeEnter ?? prev.time) : null;
+      const nextEnter = next ? (next.timeEnter ?? next.time) : null;
+      const t0 = Math.max(
+        enter - W,
+        prevEnter != null ? (prevEnter + enter) / 2 : -Infinity,
+      );
+      const t1 = Math.min(
+        enter + W,
+        nextEnter != null ? (enter + nextEnter) / 2 : Infinity,
+      );
+      const before = this._summarise(series, t0, enter, dt, opts.lag);
+      const after = this._summarise(series, enter, t1, dt, opts.lag);
       if (!before || !after) return;
       const delta = {};
       for (const m of this.METRICS) delta[m] = after[m] - before[m];
@@ -272,7 +315,7 @@ export const JunctionResponse = {
    * carry no contrast and are dropped. Records without a trackId pass
    * through unchanged.
    */
-  _adjustForTrack(recs, val) {
+  _adjustForTrack(recs, val, group = (r) => r.decision) {
     const by = new Map();
     for (const r of recs) {
       if (r.trackId == null) continue;
@@ -281,8 +324,8 @@ export const JunctionResponse = {
     }
     const mean = (a) => a.reduce((x, y) => x + y, 0) / a.length;
     const usable = [...by.values()].filter((rs) => {
-      const decs = new Set(rs.map((r) => r.decision));
-      return decs.size >= 2;
+      const groups = new Set(rs.map(group));
+      return groups.size >= 2;
     });
     const grand = usable.length ? mean(usable.flat().map(val)) : 0;
     const out = [];
@@ -503,6 +546,59 @@ export const JunctionResponse = {
         r.qTurnControl < this.ALPHA
           ? 'supported'
           : r.pTurnControl < this.ALPHA
+            ? 'suggestive'
+            : 'none';
+    });
+    return rows;
+  },
+
+  /**
+   * Arousal near ANY junction vs on plain road, ignoring what the walker did
+   * there: turn, straight, reverse and ambiguous passages all count as
+   * "junction"; controls are "road".  Each record's window pair is collapsed to
+   * the whole ±window around the point (mean of before and after), plus the
+   * change across it.  Same walk-adjusted permutation test as compare(); one BH
+   * q across the three measures.
+   * @returns {Array<{metric,nJunction,nRoad,nTracks,meanJunction,meanRoad,diff,p,q,verdict}>}
+   */
+  compareJunctionVsRoad(records) {
+    const isRoad = (r) => r.decision === 'control';
+    const group = (r) => (isRoad(r) ? 'road' : 'junction');
+    const recs = records.filter((r) => r.before && r.after && r.delta);
+    const both = (f) => (r) => (f(r.before) + f(r.after)) / 2;
+    const measures = [
+      { metric: 'meanPhasic', val: both((w) => w.meanPhasic) },
+      { metric: 'peakRate', val: both((w) => w.peakRate) },
+      { metric: 'change', val: (r) => r.delta.meanPhasic },
+    ];
+    const rows = measures.map(({ metric, val }) => {
+      const { items, nTracks } = this._adjustForTrack(recs, val, group);
+      const test = this._pooledPermutation(
+        items.map((x) => ({
+          v: x.v,
+          turn: !isRoad(x.r),
+          group: x.r.trackId ?? null,
+        })),
+      );
+      const nJunction = items.filter((x) => !isRoad(x.r)).length;
+      return {
+        metric,
+        nJunction,
+        nRoad: items.length - nJunction,
+        nTracks,
+        meanJunction: test.meanA,
+        meanRoad: test.meanB,
+        diff: test.meanA - test.meanB,
+        p: test.p,
+      };
+    });
+    const q = StatsMath.benjaminiHochberg(rows.map((r) => r.p));
+    rows.forEach((r, i) => {
+      r.q = q[i];
+      r.verdict =
+        r.q < this.ALPHA
+          ? 'supported'
+          : r.p < this.ALPHA
             ? 'suggestive'
             : 'none';
     });
