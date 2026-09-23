@@ -17,6 +17,12 @@ export const AppState = {
   // ── Track library ───────────────────────────────────────────────────────────
   activeTrackId: null,
   viewMode: 'single', // 'single' | 'collective' | 'live'  (data scope; 'live' = GSRLiveView mounted directly into #livePanel, not an iframe)
+  // Collective view's own Arousal Places settings — separate from each walk's
+  // (track.gpsFilterParams), which Single view shows. Saved in project files.
+  collectivePlaces: {
+    placeMergeDistance: GSR_CONST.AROUSAL_PLACES.mergeM,
+    maxArousalPlaces: GSR_CONST.AROUSAL_PLACES.maxPlaces,
+  },
   surfaceView: 'map', // 'map' | 'globe'          (render surface — see globe3d_view.js)
   isDisplayMode: false,
   get isTotalFullscreen() {

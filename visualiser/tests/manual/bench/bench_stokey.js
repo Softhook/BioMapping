@@ -141,7 +141,6 @@ Options:
       analyzer,
       filterParams,
       gpsFilterParams,
-      settingsSource: analyzer.importedFilterParams ? 'imported' : 'standard',
     };
     window.AppState.collectiveManager.addTrack(newTrack);
   }

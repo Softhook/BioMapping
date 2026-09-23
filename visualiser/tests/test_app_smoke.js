@@ -391,3 +391,186 @@ test('GSRCollectiveProject.exportProject() with a loaded track completes success
     `export should succeed without an error alert, got: ${alertMsg}`,
   );
 });
+
+// ── Collective view: each track keeps its own settings ────────────────────
+// Two walks whose CSVs carry different GSR + GPS settings.
+const csvWith = (gsr, gps) =>
+  `# FilterParams:${JSON.stringify(gsr)}\n# GpsFilterParams:${JSON.stringify(gps)}\n${SAMPLE_CSV}`;
+const ANNA = csvWith(
+  { peakThreshold: 0.2, shapeMinSnr: 4 },
+  { peakLatency: 1.0, placeMergeDistance: 20, maxSpeed: 2.0 },
+);
+const BEN = csvWith(
+  { peakThreshold: 0.045, shapeMinSnr: 2.5 },
+  { peakLatency: 3.0, placeMergeDistance: 80, maxSpeed: 6.0 },
+);
+
+async function bootWithAnnaAndBen() {
+  const { window, document } = await bootApp();
+  installFakeFileReader(window);
+  window.setup();
+  await new Promise((resolve, reject) => {
+    window.GSRTrackManager.loadFilesSequentially([
+      makeFakeFile('anna.csv', ANNA),
+      makeFakeFile('ben.csv', BEN),
+    ]);
+    const start = Date.now();
+    const check = () => {
+      if (window.AppState.collectiveManager.tracks.length === 2)
+        return resolve();
+      if (Date.now() - start > 2000)
+        return reject(new Error('tracks never loaded within 2s'));
+      setTimeout(check, 10);
+    };
+    check();
+  });
+  const [anna, ben] = window.AppState.collectiveManager.tracks;
+  const click = (id) =>
+    document.getElementById(id).dispatchEvent(new window.Event('click'));
+  return { window, document, anna, ben, click };
+}
+
+test("collective view: clicking tracks never overwrites another track's GSR settings; each analyses with its own", async () => {
+  const { window, anna, ben, click } = await bootWithAnnaAndBen();
+  click('btnCollectiveView');
+
+  const seen = new Map();
+  for (const t of [anna, ben]) {
+    const orig = t.analyzer.analyze.bind(t.analyzer);
+    t.analyzer.analyze = (params, pl) => {
+      seen.set(t, params.peakThreshold);
+      return orig(params, pl);
+    };
+  }
+
+  window.GSRTrackManager.switchActiveTrack(ben.id);
+  window.GSRTrackManager.switchActiveTrack(anna.id);
+  window.GSRTrackManager.switchActiveTrack(ben.id);
+
+  assert.strictEqual(anna.filterParams.peakThreshold, 0.2);
+  assert.strictEqual(anna.filterParams.shapeMinSnr, 4);
+  assert.strictEqual(ben.filterParams.peakThreshold, 0.045);
+  assert.strictEqual(
+    seen.get(anna),
+    0.2,
+    'Anna analysed with her own threshold',
+  );
+  assert.strictEqual(
+    seen.get(ben),
+    0.045,
+    'Ben analysed with his own threshold',
+  );
+});
+
+test("collective view: Places sliders are Collective view's own setting — no walk's is changed, and each view keeps its own", async () => {
+  const { window, document, anna, ben, click } = await bootWithAnnaAndBen();
+  const slider = document.getElementById('placeMergeDistance');
+  const annaOwn = anna.gpsFilterParams.placeMergeDistance;
+  const benOwn = ben.gpsFilterParams.placeMergeDistance;
+  click('btnCollectiveView');
+
+  slider.value = '55';
+  slider.dispatchEvent(new window.Event('input'));
+  await new Promise((r) => setTimeout(r, 50)); // rafCoalesce
+
+  assert.strictEqual(window.AppState.collectivePlaces.placeMergeDistance, 55);
+  assert.strictEqual(anna.gpsFilterParams.placeMergeDistance, annaOwn);
+  assert.strictEqual(ben.gpsFilterParams.placeMergeDistance, benOwn);
+
+  window.GSRTrackManager.switchActiveTrack(anna.id);
+  assert.strictEqual(slider.value, '55', 'not reset by a click');
+
+  // Single view shows the open walk's own value; back in Collective, its own.
+  click('btnSingleView');
+  assert.strictEqual(slider.value, String(annaOwn));
+  click('btnCollectiveView');
+  assert.strictEqual(slider.value, '55');
+});
+
+test('collective view: unrelated actions (map re-render) do not push collective values onto tracks', async () => {
+  const { window, anna, ben, click } = await bootWithAnnaAndBen();
+  click('btnCollectiveView');
+  window.GSRTrackManager.switchActiveTrack(anna.id);
+  window.GSRUI.rerenderMap();
+  window.GSRTrackManager.saveActiveGpsParams();
+  assert.strictEqual(anna.gpsFilterParams.peakLatency, 1.0);
+  assert.strictEqual(ben.gpsFilterParams.peakLatency, 3.0);
+});
+
+test("returning to Single view restores the active track's own settings into the sliders", async () => {
+  const { window, document, anna, click } = await bootWithAnnaAndBen();
+  click('btnCollectiveView');
+  window.GSRTrackManager.switchActiveTrack(anna.id);
+  click('btnSingleView');
+  assert.strictEqual(document.getElementById('peakThreshold').value, '0.2');
+  assert.strictEqual(document.getElementById('gpsPeakLatency').value, '1');
+  assert.strictEqual(document.getElementById('placeMergeDistance').value, '20');
+  assert.strictEqual(anna.filterParams.peakThreshold, 0.2);
+});
+
+test('collective view: no walk is selected; clicking one zooms the map to it without selecting or re-analysing', async () => {
+  const { window, document, anna, ben, click } = await bootWithAnnaAndBen();
+  const singleViewTrack = window.AppState.activeTrackId;
+  click('btnCollectiveView');
+
+  assert.strictEqual(
+    document.querySelectorAll('#trackList .track-item.active').length,
+    0,
+    'no highlighted walk in collective view',
+  );
+
+  const zoomed = [];
+  window.AppState.mapManager.zoomToTrack = (t) => {
+    zoomed.push(t);
+    return true;
+  };
+  let analyses = 0;
+  for (const t of [anna, ben]) {
+    const orig = t.analyzer.analyze.bind(t.analyzer);
+    t.analyzer.analyze = (...a) => {
+      analyses++;
+      return orig(...a);
+    };
+  }
+  const row = [...document.querySelectorAll('#trackList .track-item')].find(
+    (li) => li.dataset.trackId === ben.id,
+  );
+  row.querySelector('.track-details').dispatchEvent(new window.Event('click'));
+
+  assert.deepStrictEqual(zoomed, [ben], 'map zoomed to the clicked walk');
+  assert.strictEqual(window.AppState.activeTrackId, singleViewTrack);
+  assert.strictEqual(analyses, 0, 'a click does not re-analyse anything');
+
+  click('btnSingleView');
+  const active = document.querySelectorAll('#trackList .track-item.active');
+  assert.strictEqual(active.length, 1, 'Single view shows its walk again');
+  assert.strictEqual(active[0].dataset.trackId, singleViewTrack);
+});
+
+test('collective view: radius/snap re-enrichment checks every walk for OSM data, not a hidden selection', async () => {
+  const { window, anna, ben, click } = await bootWithAnnaAndBen();
+  click('btnCollectiveView');
+  const other = window.AppState.activeTrackId === anna.id ? ben : anna;
+  assert.strictEqual(window.GSRUI.hasOsmData(), false);
+  other.analyzer.osmJson = { elements: [] };
+  assert.strictEqual(window.GSRUI.hasOsmData(), true);
+});
+
+test('collective view: each walk is analysed and placed with its own peak latency', async () => {
+  const { window, anna, ben, click } = await bootWithAnnaAndBen();
+  const seen = new Map();
+  for (const t of [anna, ben]) {
+    const orig = t.analyzer.analyze.bind(t.analyzer);
+    t.analyzer.analyze = (params, pl) => {
+      seen.set(t, pl);
+      return orig(params, pl);
+    };
+  }
+  click('btnCollectiveView');
+  window.GSRUI.runAnalysis();
+  assert.strictEqual(seen.get(anna), 1.0);
+  assert.strictEqual(seen.get(ben), 3.0);
+  const mm = window.AppState.mapManager;
+  assert.strictEqual(mm._trackPeakLatency(anna), 1.0);
+  assert.strictEqual(mm._trackPeakLatency(ben), 3.0);
+});

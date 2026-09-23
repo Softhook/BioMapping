@@ -609,7 +609,6 @@ test('GSRTrackManager.createTrackObject: constructs valid track representation',
   assert.strictEqual(track.analyzer, analyzerMock);
   assert.strictEqual(track.filterParams.medianSize, 5);
   assert.strictEqual(track.gpsFilterParams.smoothing, 0.1);
-  assert.strictEqual(track.settingsSource, 'imported');
 });
 
 test('GSRUI resolution and marking helpers function correctly', () => {

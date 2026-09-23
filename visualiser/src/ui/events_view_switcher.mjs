@@ -13,6 +13,7 @@ import { GSRLayoutManager } from '../core/layout_manager.mjs';
 import { GSRLiveView } from '../live/live_view.mjs';
 import { GSRRenderer } from '../render/renderer.mjs';
 import { windowResized } from '../render/sketch.mjs';
+import { GSRStorage } from './storage.mjs';
 
 export const ViewSwitcherEvents = {
   /**
@@ -111,6 +112,18 @@ export const ViewSwitcherEvents = {
       if (typeof windowResized === 'function') {
         windowResized();
       }
+      // The sliders may still show collective values or another track's — put
+      // the active track's own settings back before Single view re-analyses
+      // and saves from them.
+      const activeTrack = AppState.collectiveManager?.getTrack(
+        AppState.activeTrackId,
+      );
+      if (activeTrack && Controllers.trackManager) {
+        Controllers.trackManager.loadActiveTrackParams(activeTrack);
+        Controllers.trackManager.loadActiveGpsParams(activeTrack);
+        Controllers.events?.initializeLabels?.();
+      }
+      Controllers.trackManager?.renderTrackList(); // re-show the open walk
       if (AppState.analyzer && AppState.analyzer.raw.length > 0) {
         Controllers.ui?.runAnalysis();
       } else {
@@ -136,6 +149,10 @@ export const ViewSwitcherEvents = {
       }
 
       appMainLayout.classList.add('collective-mode');
+      Controllers.trackManager?.renderTrackList(); // no selected walk here
+      // The Places sliders now show Collective view's own settings.
+      GSRStorage.showCollectivePlaces();
+      Controllers.events?.initializeLabels?.();
       contourSettingsCard.style.display = '';
       collectiveOnlyMapBtns.forEach((btn) => {
         btn.style.display = '';

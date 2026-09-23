@@ -773,7 +773,7 @@ export class GSRAnalyzer {
       };
     }
 
-    // 5. Phasic Peak Detection. Exactly one of three mutually-exclusive
+    // 5. Phasic Peak Detection. Exactly one of five mutually-exclusive
     // pipelines builds this.peaks per analyze() call. Min Peak Quality applies
     // in every mode; Min SNR in every mode except prominence.
     //   - full-scan (default, no flag): the trough-to-peak amplitude criterion
@@ -790,6 +790,8 @@ export class GSRAnalyzer {
     //     pass that replaces this.phasic with a resolved, superposition-free
     //     reconstruction and builds peaks from its driver impulses. Morphology
     //     is fixed by the SCRF kernel.
+    //   - cvxEDA / sparsEDA (params.useCvxEDA / params.useSparsEDA): the same
+    //     deconvolution pipeline with a different solver (deconvAlgorithm).
     // Precedence when several flags are set: prominence > cvxEDA >
     // sparsEDA > deconvolution > full-scan (default).
     if (params.usePeakProminence) {

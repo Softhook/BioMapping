@@ -7,7 +7,6 @@
  * toggling, and building/sorting the #peaksTable rows.
  */
 import { AppState } from '../core/app_state.mjs';
-import { GSR_CONST } from '../core/constants.mjs';
 import { GSRNotices } from '../core/notices.mjs';
 import { GSRGlobe3DView } from '../map/globe3d_view.mjs';
 import { getQualityColor, getQualityLabel } from '../render/renderer.mjs';
@@ -56,11 +55,7 @@ export const PeaksTableUI = {
       this.updatePeaksTable();
       redraw();
     } else if (AppState.mapManager) {
-      const latSlider = AppState.sliders.gpsPeakLatency;
-      const peakLatency = parseFloat(
-        latSlider ? latSlider.value : GSR_CONST.GPS_DEFAULT.peakLatency,
-      );
-      AppState.mapManager.refreshCollectivePeakMarkers(track, peakLatency);
+      AppState.mapManager.refreshCollectivePeakMarkers(track);
     }
   },
 

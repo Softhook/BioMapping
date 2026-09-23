@@ -297,3 +297,56 @@ test('enrichTrack: a setting changed mid-run triggers one re-run with the new se
   assert.strictEqual(GSRUI._enrichRerunQueued, false);
   assert.strictEqual(GSRUI._enriching, false);
 });
+
+test('enrichTrack: in-memory OSM JSON is reused only while it covers the current radius', async () => {
+  installDom();
+  const calls = installOsmStubs();
+  // bbox grows with the buffer, like the real calculateBBox
+  RealOSMEnricher.calculateBBox = (_raw, bufferM) => ({
+    minLat: 0,
+    minLon: 0,
+    maxLat: bufferM / 1e4,
+    maxLon: bufferM / 1e4,
+  });
+  let lookups = 0;
+  const wider = { elements: ['wider'] };
+  RealOsmCache.getForBBox = async () => {
+    lookups++;
+    return wider;
+  };
+  const narrow = { elements: ['narrow'] };
+  const track = fakeTrack('A');
+  // fetched at osmRadius 50 / snap 25 → buffer 100 m
+  track.analyzer.osmJson = narrow;
+  track.analyzer.osmJsonBBox = RealOSMEnricher.calculateBBox(null, 100);
+  const tracks = [track];
+  const prevSliders = RealAppState.sliders;
+  const sliders = {
+    osmRadius: makeEl({ value: '50' }),
+    gpsSnapRadius: makeEl({ value: '25' }),
+  };
+  Object.assign(RealAppState, {
+    viewMode: 'collective',
+    sliders,
+    collectiveManager: { getActiveTracks: () => tracks },
+  });
+  GSRUI.refreshOsmControls = () => {};
+  GSRUI.rerenderMap = () => {};
+
+  // Same radius: the in-memory JSON covers it — no cache lookup.
+  await GSRUI.enrichTrack(false);
+  assert.strictEqual(lookups, 0);
+  assert.strictEqual(track.analyzer.osmJson, narrow);
+
+  // Radius raised to 200 m → buffer 250 m: the old JSON no longer covers it.
+  sliders.osmRadius.value = '200';
+  await GSRUI.enrichTrack(false);
+  assert.strictEqual(lookups, 1, 'went back to the cache');
+  assert.strictEqual(track.analyzer.osmJson, wider);
+  assert.deepStrictEqual(
+    track.analyzer.osmJsonBBox,
+    RealOSMEnricher.calculateBBox(null, 250),
+  );
+  assert.deepStrictEqual(calls, ['A', 'A']);
+  RealAppState.sliders = prevSliders;
+});

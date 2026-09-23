@@ -201,34 +201,6 @@ body {
   text-transform: none;
 }
 
-.header-status {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  background: #f5f4f0;
-  padding: 5px 12px;
-  border-radius: 4px;
-  font-size: 0.8rem;
-  border: 1px solid var(--border-glass);
-  font-weight: 500;
-}
-
-.status-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-}
-
-.status-dot.success {
-  background-color: var(--success);
-}
-.status-dot.warning {
-  background-color: var(--warning);
-}
-.status-dot.danger {
-  background-color: var(--danger);
-}
-
 /* Layout Grid */
 .main-layout {
   display: grid;
@@ -2952,11 +2924,24 @@ input[type="range"]:focus-visible,
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4) !important;
 }
 
-/* View Mode Toggles (Layout switches) */
+/* View Mode Toggles (Layout switches). Collective view shows only
+   collective settings and actions; per-track ones (filtering, peak
+   detection, the single-track path width, per-walk latency, presets taken
+   from one walk, single-walk exports) are hidden — there is no selected
+   walk here. */
 .main-layout.collective-mode #gsrPanel,
 .main-layout.collective-mode #eventsPanel,
 .main-layout.collective-mode #gsrFilteringCard,
 .main-layout.collective-mode #gpsFilteringCard,
+.main-layout.collective-mode #gpsTrackWeightGroup,
+.main-layout.collective-mode #gpsPeakLatencyGroup,
+.main-layout.collective-mode #btnExportPreset,
+.main-layout.collective-mode #btnApplyPreset,
+.main-layout.collective-mode #btnApplyActiveToAll,
+.main-layout.collective-mode #exportCsvBtn,
+.main-layout.collective-mode #exportImageBtn,
+.main-layout.collective-mode #exportCzmlBtn,
+.main-layout.collective-mode #exportKmlBtn,
 .main-layout.collective-mode #mapDisplay3DGroup,
 .main-layout.collective-mode .surface-switcher {
   display: none !important;

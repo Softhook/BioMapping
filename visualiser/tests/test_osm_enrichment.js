@@ -173,6 +173,46 @@ assertEq(
 // ════════════════════════════════════════════════════════════════════════
 //  2. OSMEnricher — geometry reconstruction
 // ════════════════════════════════════════════════════════════════════════
+console.log('\n── OSMEnricher: setAnalyzerOsmJson / osmJsonFor ──');
+
+{
+  const covered = { minLat: 51, minLon: -0.2, maxLat: 51.1, maxLon: -0.1 };
+  const inside = { minLat: 51.02, minLon: -0.18, maxLat: 51.08, maxLon: -0.12 };
+  const wider = { minLat: 50.9, minLon: -0.3, maxLat: 51.2, maxLon: 0 };
+  const json = { elements: [] };
+  const a = { osmGeoms: { stale: true } };
+
+  OSMEnricher.setAnalyzerOsmJson(a, json, covered);
+  assertEq(a.osmJson, json, 'setAnalyzerOsmJson — stores the JSON');
+  assertEq(a.osmJsonBBox, covered, 'setAnalyzerOsmJson — records its coverage');
+  assertEq(a.osmGeoms, null, 'setAnalyzerOsmJson — new JSON drops stale geoms');
+
+  a.osmGeoms = { fresh: true };
+  OSMEnricher.setAnalyzerOsmJson(a, json, covered);
+  assert(a.osmGeoms?.fresh, 'setAnalyzerOsmJson — same JSON keeps its geoms');
+
+  assertEq(
+    OSMEnricher.osmJsonFor(a, inside),
+    json,
+    'osmJsonFor — covered bbox reuses JSON',
+  );
+  assertEq(
+    OSMEnricher.osmJsonFor(a, wider),
+    null,
+    'osmJsonFor — wider bbox (radius raised) → null',
+  );
+  assertEq(
+    OSMEnricher.osmJsonFor({ osmJson: json }, inside),
+    null,
+    'osmJsonFor — unknown coverage → null',
+  );
+  assertEq(
+    OSMEnricher.osmJsonFor({}, inside),
+    null,
+    'osmJsonFor — no JSON → null',
+  );
+}
+
 console.log('\n── OSMEnricher: reconstructGeometries ──');
 
 // 2a. Ways resolve node references into coordinates; tagged nodes become points

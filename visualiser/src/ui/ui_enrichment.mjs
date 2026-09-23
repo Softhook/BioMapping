@@ -12,8 +12,20 @@ import { AppState } from '../core/app_state.mjs';
 import { NDVISampler } from '../osm/ndvi_sampler.mjs';
 import { OsmCache } from '../osm/osm_cache.mjs';
 import { OSMEnricher } from '../osm/osm_enrichment.mjs';
+import { GSRStorage } from './storage.mjs';
 
 export const EnrichmentUI = {
+  /**
+   * True when the walks in view already carry OSM data — so a radius or
+   * snap change should re-run enrichment. Collective view checks every walk,
+   * Single view the open one.
+   */
+  hasOsmData() {
+    return this.getSpatialTracks({ silent: true }).validTracks.some(
+      (t) => t.analyzer?.osmJson,
+    );
+  },
+
   /**
    * Resolve active tracks with valid GPS fixes for environmental/spatial processing.
    * Shared by OpenStreetMap enrichment and satellite NDVI sampling.
@@ -161,10 +173,7 @@ export const EnrichmentUI = {
       };
     }
 
-    const osmRadius =
-      parseInt(document.getElementById('osmRadius')?.value, 10) || 50;
-    const snapRadius =
-      parseInt(document.getElementById('gpsSnapRadius')?.value, 10) || 25;
+    const { osmRadius, snapRadius } = GSRStorage.readEnrichmentRadii();
     const bufferM = Math.max(osmRadius, snapRadius) + 50;
     const AREA_CAP_KM2 = 12.0;
 
@@ -174,18 +183,21 @@ export const EnrichmentUI = {
       tooBig = 0;
     for (const t of validTracks) {
       const analyzer = t.analyzer;
-      if (analyzer.osmGeoms) {
+      const bbox = OSMEnricher.calculateBBox(analyzer.raw, bufferM);
+      if (!bbox) {
+        failed++;
+        continue;
+      }
+      // Geometry is reusable only while its JSON still covers the current
+      // radius (raising a radius widens the bbox past the old fetch).
+      if (analyzer.osmGeoms && OSMEnricher.osmJsonFor(analyzer, bbox)) {
         cached++;
         continue;
       }
       try {
-        let json = analyzer.osmJson || null;
+        let json = OSMEnricher.osmJsonFor(analyzer, bbox);
+        let coveredBBox = bbox;
         if (!json) {
-          const bbox = OSMEnricher.calculateBBox(analyzer.raw, bufferM);
-          if (!bbox) {
-            failed++;
-            continue;
-          }
           if (OSMEnricher.calculateBBoxAreaKm2(bbox) > AREA_CAP_KM2) {
             tooBig++;
             continue;
@@ -201,14 +213,16 @@ export const EnrichmentUI = {
               report(m),
             );
             if (json) OsmCache.store(plan.fetchBBox, json, plan.mergeIds);
+            coveredBBox = plan.fetchBBox;
             fetched++;
           }
+          if (!json) {
+            failed++;
+            continue;
+          }
+          // shared with enrichTrack's in-memory reuse
+          OSMEnricher.setAnalyzerOsmJson(analyzer, json, coveredBBox);
         }
-        if (!json) {
-          failed++;
-          continue;
-        }
-        analyzer.osmJson = json; // shared with enrichTrack's in-memory reuse
         analyzer.osmGeoms = OSMEnricher.reconstructGeometries(json);
       } catch (e) {
         console.warn('ensureOsmGeoms: fetch failed for track', t.id, e);
@@ -264,10 +278,8 @@ export const EnrichmentUI = {
     };
 
     try {
-      const radius =
-        parseInt(document.getElementById('osmRadius').value, 10) || 50;
-      const snapRadius =
-        parseInt(document.getElementById('gpsSnapRadius')?.value, 10) || 25;
+      const { osmRadius: radius, snapRadius } =
+        GSRStorage.readEnrichmentRadii();
       const maxRadius = Math.max(radius, snapRadius);
 
       // Union bounding box over every valid track's raw coordinates.
@@ -298,10 +310,20 @@ export const EnrichmentUI = {
       // collection still enriches every track — each walk's own bbox is small.
       let sharedJson = null;
       const singleFetch = unionArea <= AREA_CAP_KM2;
-      const allInMem =
-        !forceFetch && validTracks.every((t) => t.analyzer.osmJson);
+      // Each track's in-memory JSON, if it still covers that track's bbox at
+      // the current radius — after a radius increase it doesn't, and reusing
+      // it would enrich the walk's outermost points against missing features.
+      const trackBBox = (t) =>
+        OSMEnricher.calculateBBox(t.analyzer.raw, maxRadius + 50);
+      const inMemFor = (t) => {
+        if (forceFetch) return null;
+        const tb = trackBBox(t);
+        return tb ? OSMEnricher.osmJsonFor(t.analyzer, tb) : null;
+      };
+      const allInMem = validTracks.every((t) => inMemFor(t));
 
       let sharedFetchFailed = false;
+      let sharedBBox = unionBBox;
       if (singleFetch && !allInMem) {
         updateProgress('Checking local cache…', 10);
         sharedJson = await OsmCache.getForBBox(unionBBox);
@@ -321,6 +343,7 @@ export const EnrichmentUI = {
               updateProgress(msg),
             );
             OsmCache.store(plan.fetchBBox, sharedJson, plan.mergeIds);
+            sharedBBox = plan.fetchBBox;
           } catch (sharedErr) {
             // The combined bbox fitting under the area cap doesn't mean the
             // query is cheap — many walks clustered in one dense city area
@@ -354,14 +377,10 @@ export const EnrichmentUI = {
         const basePct = 45 + Math.round((50 * i) / validTracks.length);
         updateProgress(`[${i + 1}/${validTracks.length}] ${label}…`, basePct);
         try {
-          let json =
-            sharedJson ||
-            (!forceFetch && t.analyzer.osmJson ? t.analyzer.osmJson : null);
+          let json = sharedJson || inMemFor(t);
+          let coveredBBox = sharedJson ? sharedBBox : t.analyzer.osmJsonBBox;
           if (!json) {
-            const tb = OSMEnricher.calculateBBox(
-              t.analyzer.raw,
-              maxRadius + 50,
-            );
+            const tb = trackBBox(t);
             if (!tb) {
               failed.push(label);
               continue;
@@ -371,15 +390,17 @@ export const EnrichmentUI = {
               continue;
             }
             json = await OsmCache.getForBBox(tb);
+            coveredBBox = tb;
             if (!json) {
               const plan = await OsmCache.planFetch(tb);
               json = await OSMEnricher.fetchOSMData(plan.fetchBBox, (msg) =>
                 updateProgress(`[${i + 1}/${validTracks.length}] ${msg}`),
               );
               OsmCache.store(plan.fetchBBox, json, plan.mergeIds);
+              coveredBBox = plan.fetchBBox;
             }
           }
-          t.analyzer.osmJson = json;
+          OSMEnricher.setAnalyzerOsmJson(t.analyzer, json, coveredBBox);
           OSMEnricher.enrichTrack(t.analyzer, json, radius, snapParams, (msg) =>
             updateProgress(`[${i + 1}/${validTracks.length}] ${msg}`),
           );

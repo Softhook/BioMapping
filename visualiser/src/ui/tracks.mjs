@@ -8,6 +8,7 @@ import { BusyOverlay } from '../core/busy_overlay.mjs';
 import { GSR_CONST } from '../core/constants.mjs';
 import { Controllers } from '../core/controllers.mjs';
 import { GSRFullscreen } from '../core/fullscreen.mjs';
+import { GSRNotices } from '../core/notices.mjs';
 import { GSRGlobe3DView } from '../map/globe3d_view.mjs';
 import { GSRRenderer } from '../render/renderer.mjs';
 import { windowResized } from '../render/sketch.mjs';
@@ -54,7 +55,6 @@ export const GSRTrackManager = {
       analyzer: analyzer,
       filterParams: filterParams,
       gpsFilterParams: gpsFilterParams,
-      settingsSource: analyzer.importedFilterParams ? 'imported' : 'standard',
       // Phase 1 (slice 1): the track's single Leaflet rendering handle — an
       // L.layerGroup() owning this track's path/peak/hotspot layers. Lazily
       // created by GSRMapManager._getTrackLayerGroup() on first render; null
@@ -201,11 +201,6 @@ export const GSRTrackManager = {
           // AppState.viewMode isn't 'single' (ui.js).
           GSRTrackManager.switchActiveTrack(trackId);
 
-          GSRTrackManager.setFileStatus(
-            'success',
-            `${AppState.collectiveManager.tracks.length} Tracks Loaded`,
-          );
-
           index++;
           loadNext();
         } catch (err) {
@@ -289,8 +284,6 @@ export const GSRTrackManager = {
         Controllers.ui.syncOsmOverlay();
       }
 
-      GSRTrackManager.setFileStatus('warning', 'No File Loaded');
-
       const placeholder = document.getElementById('canvasPlaceholder');
       if (placeholder) placeholder.style.display = 'flex';
       noLoop();
@@ -307,8 +300,13 @@ export const GSRTrackManager = {
 
     listElement.innerHTML = '';
 
+    // Collective view has no selected track: every walk keeps its own
+    // settings, and clicking one only zooms the map to it. activeTrackId
+    // still records the walk Single view shows.
+    const collective = AppState.viewMode === 'collective';
+
     AppState.collectiveManager.tracks.forEach((track) => {
-      const isEditing = track.id === AppState.activeTrackId;
+      const isEditing = !collective && track.id === AppState.activeTrackId;
 
       const li = document.createElement('li');
       li.className = `track-item ${isEditing ? 'active' : ''}`;
@@ -329,10 +327,16 @@ export const GSRTrackManager = {
 
       const details = document.createElement('div');
       details.className = 'track-details';
-      details.title = 'Click to analyze and tweak';
-      details.addEventListener('click', () =>
-        GSRTrackManager.switchActiveTrack(track.id),
-      );
+      details.title = collective
+        ? 'Click to zoom the map to this walk'
+        : 'Click to analyze and tweak';
+      details.addEventListener('click', () => {
+        if (AppState.viewMode === 'collective') {
+          GSRTrackManager.zoomToTrack(track.id);
+        } else {
+          GSRTrackManager.switchActiveTrack(track.id);
+        }
+      });
 
       const name = document.createElement('span');
       name.className = 'track-name';
@@ -407,6 +411,19 @@ export const GSRTrackManager = {
     });
   },
 
+  /**
+   * Collective view's track-list click: fit the map to that walk without
+   * selecting it or touching any settings.
+   */
+  zoomToTrack(trackId) {
+    const track = AppState.collectiveManager.getTrack(trackId);
+    const mm = AppState.mapManager;
+    if (!track || typeof mm?.zoomToTrack !== 'function') return;
+    if (!mm.zoomToTrack(track)) {
+      GSRNotices.warn(`"${track.name}" has no GPS path to zoom to.`, 'zoom');
+    }
+  },
+
   switchActiveTrack(trackId) {
     GSRTrackQualityPopup.hide();
     AppState.activeTrackId = trackId;
@@ -467,6 +484,8 @@ export const GSRTrackManager = {
     AppState.activeTrackId = null;
     AppState.analyzer = new GSRAnalyzer();
     AppState.trackColorIndex = 0; // restart the colour palette, matching a fresh page load
+    // A project without saved Places settings must not inherit the last one's.
+    GSRStorage.resetCollectivePlaces();
 
     if (AppState.mapManager) {
       AppState.mapManager.clearAll();
@@ -514,15 +533,6 @@ export const GSRTrackManager = {
         }
       }
 
-      if (AppState.collectiveManager.tracks.length > 0) {
-        GSRTrackManager.setFileStatus(
-          'success',
-          `${AppState.collectiveManager.tracks.length} Tracks Loaded`,
-        );
-      } else {
-        GSRTrackManager.setFileStatus('warning', 'No File Loaded');
-      }
-
       // Phase 3 pilot (docs/archive/visualizer_architecture_refactor_plan.md): notify
       // interested modules instead of calling them directly by name.
       // GSRTrackManager (renderTrackList), GSRMapManager (clearAll when the
@@ -543,7 +553,10 @@ export const GSRTrackManager = {
 
   loadActiveTrackParams(track) {
     if (!track?.filterParams) return;
-    const params = track.filterParams;
+    // Fill any key the track's params lack from the shipped defaults — a
+    // missing key would otherwise leave the previously open track's slider
+    // value in place, and runAnalysis() would then analyse this track with it.
+    const params = { ...GSR_CONST.GSR_DEFAULT, ...track.filterParams };
     const S = AppState.sliders;
 
     for (const key of Object.keys(params)) {
@@ -608,6 +621,10 @@ export const GSRTrackManager = {
   },
 
   saveActiveGpsParams() {
+    // Collective view hides the per-track GPS controls, so there is nothing
+    // of the active track's to save — and its Places sliders show Collective
+    // view's own settings (GSRStorage.saveCollectivePlaces), not the track's.
+    if (AppState.viewMode === 'collective') return;
     if (!AppState.activeTrackId) return;
     const track = AppState.collectiveManager.getTrack(AppState.activeTrackId);
     if (!track) return;
@@ -618,8 +635,22 @@ export const GSRTrackManager = {
   loadActiveGpsParams(track) {
     if (!track?.gpsFilterParams) return;
     // Slider-key mapping lives once in GSRStorage.writeGpsSliderValues (its
-    // mirror of saveActiveGpsParams' readGpsSliderValues).
-    GSRStorage.writeGpsSliderValues(track.gpsFilterParams);
+    // mirror of saveActiveGpsParams' readGpsSliderValues). In Collective view
+    // the Places sliders show Collective view's own settings, not the
+    // track's; in Single view a walk saved before it had Places settings
+    // gets the defaults rather than the previous slider value.
+    if (AppState.viewMode === 'collective') {
+      GSRStorage.writeGpsSliderValues(track.gpsFilterParams, {
+        skipKeys: GSRStorage.PLACE_KEYS,
+      });
+      return;
+    }
+    const AP = GSR_CONST.AROUSAL_PLACES;
+    GSRStorage.writeGpsSliderValues({
+      placeMergeDistance: AP.mergeM,
+      maxArousalPlaces: AP.maxPlaces,
+      ...track.gpsFilterParams,
+    });
   },
 
   /**
@@ -635,16 +666,6 @@ export const GSRTrackManager = {
     ) {
       Controllers.ui.syncMapPanelForSpatialData(track);
     }
-  },
-
-  /**
-   * Update the file status indicator in the header.
-   */
-  setFileStatus(type, text) {
-    const el = document.getElementById('fileStatus');
-    if (!el) return;
-    el.querySelector('.status-dot').className = `status-dot ${type}`;
-    el.querySelector('.status-text').innerText = text;
   },
 
   /**
@@ -730,11 +751,6 @@ export const GSRTrackManager = {
           // (via GSRUI.runAnalysis()) updateCollectiveMap() whenever AppState.viewMode
           // isn't 'single' — no separate calls needed here (see loadFilesSequentially above).
           GSRTrackManager.switchActiveTrack(trackId);
-
-          GSRTrackManager.setFileStatus(
-            'success',
-            `${AppState.collectiveManager.tracks.length} Tracks Loaded`,
-          );
         } catch (err) {
           alert(`Error parsing demo data: ${err.message}`);
         }

@@ -20,6 +20,10 @@ const APP_DIR = path.join(__dirname, '..');
 
 // ── Vendored CesiumJS (no runtime CDN — BioMapping runs offline) ────────────
 
+// An in-memory osmJson's recorded coverage — comfortably wider than the
+// buffered bbox around the (51, -0.1) fixture point, so it is reused.
+const COVERING_BBOX = { minLat: 50, minLon: -1, maxLat: 52, maxLon: 1 };
+
 test('CesiumJS is vendored locally and globe3d_view loads it from disk, not a CDN', async () => {
   for (const rel of [
     'vendor/cesium/Cesium.js',
@@ -251,6 +255,7 @@ test('the map header OSM button toggles 3D buildings (shared OSM data) while the
   window.AppState.analyzer = {
     raw: [{ lat: 51, lon: -0.1 }],
     osmJson,
+    osmJsonBBox: COVERING_BBOX,
     osmGeoms: { ways: [], relations: [] },
   };
 
@@ -356,7 +361,11 @@ test('_resolveOsmJson reuses analyzer.osmJson and reconstructs osmGeoms for the 
 
   // no geoms yet, but raw json present (e.g. a stale cache load)
   const osmJson = { elements: [{ type: 'node', id: 1, lat: 51, lon: -0.1 }] };
-  window.AppState.analyzer = { raw: [{ lat: 51, lon: -0.1 }], osmJson };
+  window.AppState.analyzer = {
+    raw: [{ lat: 51, lon: -0.1 }],
+    osmJson,
+    osmJsonBBox: COVERING_BBOX,
+  };
 
   const got = await V._resolveOsmJson();
   assert.strictEqual(

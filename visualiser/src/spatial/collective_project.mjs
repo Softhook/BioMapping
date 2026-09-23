@@ -28,6 +28,7 @@ import { Controllers } from '../core/controllers.mjs';
 import { GSRFileSaver } from '../core/file_saver.mjs';
 import { GSRNotices } from '../core/notices.mjs';
 import { GSRAnalyzer } from '../signal/analyzer.mjs';
+import { GSRStorage } from '../ui/storage.mjs';
 
 export const GSRCollectiveProject = {
   MANIFEST_VERSION: 1,
@@ -46,15 +47,10 @@ export const GSRCollectiveProject = {
     btnToggleMapTracks: 'toggleTracks',
   },
 
-  // Sliders that describe the *collective view* itself rather than any one
-  // track's GSR/GPS processing — safe to restore globally without
-  // conflicting with each track's own per-track filterParams/gpsFilterParams
-  // (which travel with that track's CSV instead, per the doc comment above).
-  COLLECTIVE_SLIDER_KEYS: [
-    'gpsPeakLatency',
-    'placeMergeDistance',
-    'maxArousalPlaces',
-  ],
+  // Collective view's own Arousal Places settings (AppState.collectivePlaces),
+  // saved under manifest.settings.sliders. Each walk keeps its own separate
+  // Places settings and peak latency in its gpsFilterParams (its own CSV).
+  COLLECTIVE_SLIDER_KEYS: GSRStorage.PLACE_KEYS,
   CONTOUR_KEYS: [
     'gridResolution',
     'contourCount',
@@ -106,6 +102,19 @@ export const GSRCollectiveProject = {
     });
   },
 
+  /**
+   * The saved slider values that are still collective settings
+   * (COLLECTIVE_SLIDER_KEYS). Older projects also saved gpsPeakLatency,
+   * which is now per walk and must not override the open walk's own.
+   */
+  _collectiveSliderValues(saved) {
+    const out = {};
+    for (const key of this.COLLECTIVE_SLIDER_KEYS) {
+      if (saved && key in saved) out[key] = saved[key];
+    }
+    return out;
+  },
+
   _buildManifest(manifestTracks) {
     const activeIndex = AppState.collectiveManager.tracks.findIndex(
       (t) => t.id === AppState.activeTrackId,
@@ -124,10 +133,9 @@ export const GSRCollectiveProject = {
       activeTrackIndex: activeIndex,
       tracks: manifestTracks,
       settings: {
-        sliders: this._pickValues(
-          AppState.sliders,
-          this.COLLECTIVE_SLIDER_KEYS,
-        ),
+        // Collective view's own Places settings, not the sliders (which show
+        // the open walk's in Single view).
+        sliders: this._collectiveSliderValues(AppState.collectivePlaces),
         contour: this._pickValues(AppState.contourControls, this.CONTOUR_KEYS),
       },
       viewToggles,
@@ -310,9 +318,6 @@ export const GSRCollectiveProject = {
             analyzer,
             filterParams,
             gpsFilterParams,
-            settingsSource: analyzer.importedFilterParams
-              ? 'imported'
-              : 'standard',
           };
           AppState.collectiveManager.addTrack(newTrack);
           if (i === manifest.activeTrackIndex) newActiveId = trackId;
@@ -340,18 +345,24 @@ export const GSRCollectiveProject = {
       }
 
       // Make a track active first — this loads *that track's own* GSR/GPS
-      // sliders and runs a single-track analysis pass, exactly like opening
-      // any track normally would.
+      // sliders and re-analyses, exactly like opening any track normally
+      // would. In Collective view every track is analysed with its own
+      // settings, so no track takes on the active one's.
       Controllers.trackManager.switchActiveTrack(
         newActiveId || AppState.collectiveManager.tracks[0].id,
       );
 
-      // Re-apply the collective-only view settings (peak latency, cluster and
-      // contour sliders) *after* switchActiveTrack(), since it just
-      // overwrote gpsPeakLatency with that one track's individually-saved
-      // value — the project's own saved collective settings should win here.
+      // Restore Collective view's own settings: its Places settings (kept
+      // apart from every walk's — see _collectiveSliderValues) and the
+      // contour sliders. The Places sliders show them once the view is
+      // Collective; contour applies *after* switchActiveTrack().
       if (manifest.settings) {
-        this._applyValues(AppState.sliders, manifest.settings.sliders);
+        for (const [key, val] of Object.entries(
+          this._collectiveSliderValues(manifest.settings.sliders),
+        )) {
+          const n = Number(val);
+          if (Number.isFinite(n)) AppState.collectivePlaces[key] = n;
+        }
         this._applyValues(AppState.contourControls, manifest.settings.contour);
         // _applyValues() sets el.value directly, which does NOT fire an
         // 'input' event — so the on-screen text labels (e.g. "40 x 40" next
@@ -367,6 +378,12 @@ export const GSRCollectiveProject = {
         ) {
           Controllers.events.initializeLabels();
         }
+      }
+      // Even with no saved Places settings: clearAllTracks() reset them, and
+      // the sliders must not keep showing the previous project's.
+      if (AppState.viewMode === 'collective') {
+        GSRStorage.showCollectivePlaces();
+        Controllers.events?.initializeLabels?.();
       }
 
       const targetMode =
@@ -395,10 +412,6 @@ export const GSRCollectiveProject = {
       }
 
       Controllers.trackManager.renderTrackList();
-      Controllers.trackManager.setFileStatus(
-        'success',
-        `${AppState.collectiveManager.tracks.length} Tracks Loaded (project restored)`,
-      );
 
       if (AppState.viewMode === 'collective') {
         Controllers.ui.updateCollectiveMap();
@@ -418,13 +431,6 @@ export const GSRCollectiveProject = {
         // DOM agrees, whether that means showing whatever partial set of
         // tracks did load or falling back to the normal empty-library view.
         Controllers.trackManager.renderTrackList();
-        const remaining = AppState.collectiveManager.tracks.length;
-        Controllers.trackManager.setFileStatus(
-          'warning',
-          remaining > 0
-            ? `${remaining} Tracks Loaded (partial project restore)`
-            : 'No File Loaded',
-        );
       }
     } finally {
       releaseBusy();

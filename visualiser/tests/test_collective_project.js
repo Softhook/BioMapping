@@ -117,12 +117,31 @@ test('_applyValues: coerces truthy/falsy values to boolean for checkboxes', () =
 });
 
 // ── _buildManifest ───────────────────────────────────────────────────────
+test('_collectiveSliderValues: keeps collective settings, drops the per-walk latency an older project saved', () => {
+  assert.deepStrictEqual(
+    GSRCollectiveProject._collectiveSliderValues({
+      gpsPeakLatency: '2.0',
+      placeMergeDistance: '45',
+      maxArousalPlaces: '12',
+    }),
+    { placeMergeDistance: '45', maxArousalPlaces: '12' },
+  );
+  assert.deepStrictEqual(
+    GSRCollectiveProject._collectiveSliderValues(null),
+    {},
+  );
+});
+
 test('_buildManifest: assembles version, active track index, tracks, settings and view toggles', () => {
   global.AppState = setSingletonShape(RealAppState, {
     collectiveManager: { tracks: [{ id: 't1' }, { id: 't2' }] },
     activeTrackId: 't2',
     viewMode: 'collective',
-    sliders: { gpsPeakLatency: { type: 'text', value: '2.0' } },
+    sliders: {
+      gpsPeakLatency: { type: 'text', value: '2.0' },
+      placeMergeDistance: { type: 'text', value: '45' }, // the open walk's
+    },
+    collectivePlaces: { placeMergeDistance: 60, maxArousalPlaces: 12 },
     contourControls: { gridResolution: { type: 'text', value: '40' } },
   });
   const elById = {
@@ -143,7 +162,15 @@ test('_buildManifest: assembles version, active track index, tracks, settings an
   );
   assert.strictEqual(manifest.viewMode, 'collective');
   assert.strictEqual(manifest.tracks.length, 2);
-  assert.strictEqual(manifest.settings.sliders.gpsPeakLatency, '2.0');
+  assert.deepStrictEqual(
+    manifest.settings.sliders,
+    { placeMergeDistance: 60, maxArousalPlaces: 12 },
+    "Collective view's own Places settings, not the sliders",
+  );
+  assert.ok(
+    !('gpsPeakLatency' in manifest.settings.sliders),
+    'peak latency is per walk, not a collective setting',
+  );
   assert.strictEqual(manifest.settings.contour.gridResolution, '40');
   assert.strictEqual(manifest.viewToggles.btnToggleMapPeaks, true);
   assert.ok(

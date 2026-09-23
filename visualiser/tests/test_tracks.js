@@ -90,6 +90,9 @@ const defaultGSRStorage = {
   readGsrSliderValues: () => ({}),
   readGpsSliderValues: () => ({}),
   writeGpsSliderValues: () => {},
+  resetCollectivePlaces: () => {
+    global.__collectivePlacesReset = true;
+  },
 };
 global.GSRStorage = setSingletonShape(RealGSRStorage, defaultGSRStorage);
 
@@ -183,7 +186,7 @@ function makeMockElement() {
 // Default document stub — getElementById returns null (all call sites that
 // hit it in the covered methods guard with `if (el)`/`if (!el) return;`),
 // createElement returns a generic mock element. Tests that need to observe
-// a specific element (setFileStatus, startRenameTrack) override
+// a specific element (e.g. startRenameTrack) override
 // getElementById/querySelector locally and restore afterwards.
 global.document = {
   getElementById: () => null,
@@ -543,10 +546,17 @@ test('clearAllTracks: empties the track list, clears the active pointer, resets 
     },
   };
 
+  global.__collectivePlacesReset = false;
+
   GSRTrackManager.clearAllTracks();
 
   assert.deepStrictEqual(global.AppState.collectiveManager.tracks, []);
   assert.strictEqual(global.AppState.activeTrackId, null);
+  assert.strictEqual(
+    global.__collectivePlacesReset,
+    true,
+    "Collective Places settings reset, so the next project can't inherit them",
+  );
   assert.ok(global.AppState.analyzer instanceof RealGSRAnalyzer);
   assert.strictEqual(
     global.AppState.trackColorIndex,
@@ -822,6 +832,32 @@ test('loadActiveTrackParams + saveActiveTrackParams round-trip a params object t
   delete global.AppState;
 });
 
+test("loadActiveTrackParams: a key missing from the track falls back to GSR_DEFAULT, not the previous track's slider", () => {
+  resetSpies();
+  global.AppState = freshAppState();
+  global.AppState.sliders = {
+    shapeMinSnr: { value: 2.5, dataset: {} },
+    peakThreshold: { value: 0.045, dataset: {} },
+  };
+  const { GSR_CONST: REAL_CONST } = require('../src/core/constants.mjs');
+  const a = makeTrack('a', {
+    filterParams: { peakThreshold: 0.2, shapeMinSnr: 4.0 },
+  });
+  // e.g. params from a CSV exported before shapeMinSnr existed
+  const b = makeTrack('b', { filterParams: { peakThreshold: 0.05 } });
+
+  GSRTrackManager.loadActiveTrackParams(a);
+  assert.strictEqual(global.AppState.sliders.shapeMinSnr.value, 4.0);
+  GSRTrackManager.loadActiveTrackParams(b);
+
+  assert.strictEqual(global.AppState.sliders.peakThreshold.value, 0.05);
+  assert.strictEqual(
+    global.AppState.sliders.shapeMinSnr.value,
+    REAL_CONST.GSR_DEFAULT.shapeMinSnr,
+  );
+  delete global.AppState;
+});
+
 test('loadActiveTrackParams: writes matching keys to slider values and sets detector checkbox checked states', () => {
   resetSpies();
   global.AppState = freshAppState();
@@ -931,8 +967,21 @@ test('loadActiveGpsParams: forwards gpsFilterParams to GSRStorage.writeGpsSlider
 
   const gpsParams = { smoothing: 0.5, kalmanR: 10, rdpTolerance: 1.5 };
   GSRTrackManager.loadActiveGpsParams({ gpsFilterParams: gpsParams });
+  // A walk saved without Places settings gets the defaults, not the
+  // previous slider value; one that has its own keeps them.
+  GSRTrackManager.loadActiveGpsParams({
+    gpsFilterParams: { placeMergeDistance: 80, maxArousalPlaces: 5 },
+  });
 
-  assert.deepStrictEqual(seen, [gpsParams]);
+  const AP = require('../src/core/constants.mjs').GSR_CONST.AROUSAL_PLACES;
+  assert.deepStrictEqual(seen, [
+    {
+      placeMergeDistance: AP.mergeM,
+      maxArousalPlaces: AP.maxPlaces,
+      ...gpsParams,
+    },
+    { placeMergeDistance: 80, maxArousalPlaces: 5 },
+  ]);
   global.GSRStorage = setSingletonShape(RealGSRStorage, defaultGSRStorage);
   delete global.AppState;
 });
@@ -954,62 +1003,6 @@ test('loadActiveGpsParams: no-op for a null track or a track with no gpsFilterPa
   );
   global.GSRStorage = setSingletonShape(RealGSRStorage, defaultGSRStorage);
   delete global.AppState;
-});
-
-// ═══════════════════════════════════════════════════════════════════════
-// setFileStatus
-// ═══════════════════════════════════════════════════════════════════════
-
-function mockFileStatusDom() {
-  const dot = makeMockElement();
-  const text = makeMockElement();
-  const el = makeMockElement();
-  el.querySelector = (sel) =>
-    sel === '.status-dot' ? dot : sel === '.status-text' ? text : null;
-  const prevGetById = global.document.getElementById;
-  global.document.getElementById = (id) => (id === 'fileStatus' ? el : null);
-  return {
-    dot,
-    text,
-    restore: () => {
-      global.document.getElementById = prevGetById;
-    },
-  };
-}
-
-test('setFileStatus: "success" sets the dot class and status text', () => {
-  resetSpies();
-  const dom = mockFileStatusDom();
-  GSRTrackManager.setFileStatus('success', '3 Tracks Loaded');
-  assert.strictEqual(dom.dot.className, 'status-dot success');
-  assert.strictEqual(dom.text.innerText, '3 Tracks Loaded');
-  dom.restore();
-});
-
-test('setFileStatus: "warning" sets the dot class and status text', () => {
-  resetSpies();
-  const dom = mockFileStatusDom();
-  GSRTrackManager.setFileStatus('warning', 'No File Loaded');
-  assert.strictEqual(dom.dot.className, 'status-dot warning');
-  assert.strictEqual(dom.text.innerText, 'No File Loaded');
-  dom.restore();
-});
-
-test('setFileStatus: forwards an arbitrary status type verbatim into the class name (e.g. "error")', () => {
-  resetSpies();
-  const dom = mockFileStatusDom();
-  GSRTrackManager.setFileStatus('error', 'Something broke');
-  assert.strictEqual(dom.dot.className, 'status-dot error');
-  assert.strictEqual(dom.text.innerText, 'Something broke');
-  dom.restore();
-});
-
-test('setFileStatus: does nothing (does not throw) when the #fileStatus element is missing', () => {
-  resetSpies();
-  const prevGetById = global.document.getElementById;
-  global.document.getElementById = () => null;
-  assert.doesNotThrow(() => GSRTrackManager.setFileStatus('success', 'x'));
-  global.document.getElementById = prevGetById;
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -1044,7 +1037,6 @@ test('loadFilesSequentially: parses each file, adds a track, and switches active
   const track = global.AppState.collectiveManager.tracks[0];
   assert.strictEqual(track.name, 'walk1.csv');
   assert.strictEqual(track.enabled, true);
-  assert.strictEqual(track.settingsSource, 'standard');
   assert.strictEqual(
     global.AppState.activeTrackId,
     track.id,
@@ -1082,7 +1074,7 @@ test('loadFilesSequentially: processes multiple files in order, each getting the
   delete global.AppState;
 });
 
-test('loadFilesSequentially: a processed CSV with imported params sets settingsSource to "imported" and uses those params', () => {
+test('loadFilesSequentially: a processed CSV with imported params uses those params', () => {
   resetSpies();
   global.AppState = freshAppState();
   GSRTrackManager.loadFilesSequentially([
@@ -1090,7 +1082,6 @@ test('loadFilesSequentially: a processed CSV with imported params sets settingsS
   ]);
 
   const track = global.AppState.collectiveManager.tracks[0];
-  assert.strictEqual(track.settingsSource, 'imported');
   assert.strictEqual(track.filterParams.peakThreshold, 0.5);
   assert.strictEqual(track.gpsFilterParams.smoothing, 0.9);
   delete global.AppState;

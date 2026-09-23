@@ -13,6 +13,7 @@
 import { AppState } from '../core/app_state.mjs';
 import { GSRNotices } from '../core/notices.mjs';
 import { OSMEnricher } from '../osm/osm_enrichment.mjs';
+import { GSRStorage } from '../ui/storage.mjs';
 
 const DECISION_COLOUR = {
   turn: '#e8590c',
@@ -110,8 +111,7 @@ export const JunctionDebug = {
     }
     if (!this._on) return;
 
-    const snapRadius =
-      parseInt(document.getElementById('gpsSnapRadius')?.value, 10) || 25;
+    const { snapRadius } = GSRStorage.readEnrichmentRadii();
     const group = L.layerGroup();
     const drawnNodes = new Set();
     let total = 0;

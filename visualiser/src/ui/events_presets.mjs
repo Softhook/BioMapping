@@ -9,6 +9,7 @@
  */
 import { AppState } from '../core/app_state.mjs';
 import { BusyOverlay } from '../core/busy_overlay.mjs';
+import { GSR_CONST } from '../core/constants.mjs';
 import { Controllers } from '../core/controllers.mjs';
 import { GSRStorage } from './storage.mjs';
 import { GSRTrackManager } from './tracks.mjs';
@@ -64,23 +65,19 @@ export const PresetEvents = {
             track.filterParams = JSON.parse(JSON.stringify(activeGsr));
             track.gpsFilterParams = JSON.parse(JSON.stringify(activeGps));
             try {
-              const pl = track.gpsFilterParams?.peakLatency || 0;
-              track.analyzer.analyze(track.filterParams, pl);
+              track.analyzer.analyze(
+                track.filterParams,
+                track.gpsFilterParams.peakLatency ??
+                  GSR_CONST.GPS_DEFAULT.peakLatency,
+              );
             } catch (e) {
               console.warn(`Re-analysing track "${track.name}" failed:`, e);
             }
           });
 
-          if (Controllers.ui) {
-            if (typeof Controllers.ui.runAnalysis === 'function') {
-              Controllers.ui.runAnalysis();
-            }
-            if (
-              AppState.viewMode === 'collective' &&
-              typeof Controllers.ui.updateCollectiveMap === 'function'
-            ) {
-              Controllers.ui.updateCollectiveMap();
-            }
+          // Single-view only (hidden in Collective view, like the presets).
+          if (typeof Controllers.ui?.runAnalysis === 'function') {
+            Controllers.ui.runAnalysis();
           }
 
           if (typeof GSRTrackManager !== 'undefined') {

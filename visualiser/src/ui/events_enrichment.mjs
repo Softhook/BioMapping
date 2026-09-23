@@ -27,8 +27,8 @@ export const EnrichmentEvents = {
         radiusLabel.innerText = `${radiusSlider.value} m`;
       });
       radiusSlider.addEventListener('change', () => {
-        if (AppState.analyzer?.osmJson) {
-          Controllers.ui?.enrichTrack(false); // Re-run enrichment locally!
+        if (Controllers.ui?.hasOsmData?.()) {
+          Controllers.ui?.enrichTrack(false); // re-uses in-memory/cached OSM data when it still covers the new radius
         }
       });
     }

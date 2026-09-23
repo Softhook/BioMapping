@@ -26,6 +26,8 @@ loadModule(
 
 const { GSRAnalyzer } = require('../src/signal/analyzer.mjs');
 const { GSRCSVParser } = require('../src/signal/csv_parser.mjs');
+// The parser completes embedded settings from the real shipped defaults.
+const { GSR_CONST: REAL_CONST } = require('../src/core/constants.mjs');
 
 // ── Time & Date Formatting Tests ─────────────────────────────────────────────
 
@@ -131,8 +133,14 @@ time,gsr,osm_road_class
   a.parseCSV(csv);
 
   assert.strictEqual(a.recordingStartTime, 1798725600);
-  assert.deepStrictEqual(a.importedFilterParams, { peakThreshold: 0.03 });
-  assert.deepStrictEqual(a.importedGpsFilterParams, { maxHdop: 2.5 });
+  assert.deepStrictEqual(a.importedFilterParams, {
+    ...REAL_CONST.GSR_DEFAULT,
+    peakThreshold: 0.03,
+  });
+  assert.deepStrictEqual(a.importedGpsFilterParams, {
+    ...REAL_CONST.GPS_DEFAULT,
+    maxHdop: 2.5,
+  });
   assert.strictEqual(a.enrichmentRadius, 75);
   assert.deepStrictEqual(a.bandFloors, { rssi_868: -105, rssi_915: -98 });
 });
@@ -288,8 +296,14 @@ time,gsr,osm_road_class
   assert.strictEqual(res.raw.length, 2);
   assert.strictEqual(res.isResistance, false);
   assert.strictEqual(res.recordingStartTime, 1798725600);
-  assert.deepStrictEqual(res.importedFilterParams, { peakThreshold: 0.03 });
-  assert.deepStrictEqual(res.importedGpsFilterParams, { maxHdop: 2.5 });
+  assert.deepStrictEqual(res.importedFilterParams, {
+    ...REAL_CONST.GSR_DEFAULT,
+    peakThreshold: 0.03,
+  });
+  assert.deepStrictEqual(res.importedGpsFilterParams, {
+    ...REAL_CONST.GPS_DEFAULT,
+    maxHdop: 2.5,
+  });
   // EnrichmentRadius metadata passthrough + enriched flag (OSM column present)
   assert.strictEqual(res.enrichmentRadius, 75);
   assert.strictEqual(res.isEnriched, true);
@@ -1291,4 +1305,48 @@ test('prefix cache: re-parsing new raw data invalidates the cached prefix', () =
   } finally {
     GsrFilter.decomposeTonicPhasic = realDecompose;
   }
+});
+
+test('GSRCSVParser.parse: embedded FilterParams from an older export are completed from GSR_DEFAULT', () => {
+  // Exported before shapeMinSnr/repairGsrDisconnects existed, with the
+  // retired 'dwt' baseline and a NaN that JSON serialised as null.
+  const csv = `# FilterParams:{"peakThreshold":0.08,"tonicMethod":"dwt","dwtLevel":6,"minPeakQuality":null}
+# GpsFilterParams:{"maxSpeed":6}
+time,gsr
+0.0,1.5
+0.1,1.6`;
+  const res = GSRCSVParser.parse(csv);
+  const fp = res.importedFilterParams;
+  assert.strictEqual(fp.peakThreshold, 0.08, 'embedded value kept');
+  assert.strictEqual(fp.shapeMinSnr, REAL_CONST.GSR_DEFAULT.shapeMinSnr);
+  assert.strictEqual(fp.repairGsrDisconnects, false);
+  assert.strictEqual(fp.tonicMethod, REAL_CONST.GSR_DEFAULT.tonicMethod);
+  assert.strictEqual(fp.minPeakQuality, REAL_CONST.GSR_DEFAULT.minPeakQuality);
+  assert.strictEqual(fp.dwtLevel, 6, 'unknown keys are kept, not dropped');
+  for (const k of Object.keys(REAL_CONST.GSR_DEFAULT)) {
+    assert.ok(Object.hasOwn(fp, k), `missing key ${k}`);
+  }
+  assert.strictEqual(res.importedGpsFilterParams.maxSpeed, 6);
+  assert.strictEqual(
+    res.importedGpsFilterParams.peakLatency,
+    REAL_CONST.GPS_DEFAULT.peakLatency,
+  );
+});
+
+test('GSRCSVParser.parse: a non-object FilterParams payload is ignored', () => {
+  const csv = `# FilterParams:[1,2]
+# GpsFilterParams:42
+time,gsr
+0.0,1.5
+0.1,1.6`;
+  const res = GSRCSVParser.parse(csv);
+  assert.strictEqual(res.importedFilterParams, null);
+  assert.strictEqual(res.importedGpsFilterParams, null);
+});
+
+test('PEAK_SHAPE.MIN_SNR fallback matches the shipped Min SNR default', () => {
+  assert.strictEqual(
+    REAL_CONST.PEAK_SHAPE.MIN_SNR,
+    REAL_CONST.GSR_DEFAULT.shapeMinSnr,
+  );
 });

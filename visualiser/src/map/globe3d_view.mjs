@@ -800,17 +800,15 @@ export const GSRGlobe3DView = {
    * the 2D enrich / 3D buildings toggle runs first, the other reuses its cache.
    */
   _osmBboxBufferM() {
-    const num = (id, dflt) => {
-      const v = parseInt(document.getElementById(id)?.value, 10);
-      return Number.isFinite(v) ? v : dflt;
-    };
-    return Math.max(num('osmRadius', 50), num('gpsSnapRadius', 25)) + 50;
+    const { osmRadius, snapRadius } = GSRStorage.readEnrichmentRadii();
+    return Math.max(osmRadius, snapRadius) + 50;
   },
 
   /**
    * Resolve the Overpass JSON for the active track's area, sharing every layer
    * of the 2D enrichment's cache:
-   *   1. analyzer.osmJson (already in memory from a 2D enrich or a prior toggle)
+   *   1. analyzer.osmJson (in memory from a 2D enrich or a prior toggle), if
+   *      it still covers the current radius (OSMEnricher.osmJsonFor)
    *   2. OsmCache.getForBBox (the persistent cross-session cache)
    *   3. one Overpass fetch via OsmCache.planFetch, then OsmCache.store
    * On a fresh fetch it also stashes analyzer.osmJson and reconstructs
@@ -823,24 +821,31 @@ export const GSRGlobe3DView = {
     if (!analyzer?.raw || analyzer.raw.length === 0) return null;
     if (typeof OSMEnricher === 'undefined') return analyzer.osmJson || null;
 
-    let osmJson = analyzer.osmJson || null;
-    if (!osmJson && typeof OsmCache !== 'undefined') {
-      const bbox = OSMEnricher.calculateBBox(
-        analyzer.raw,
-        GSRGlobe3DView._osmBboxBufferM(),
-      );
-      if (bbox) {
-        osmJson = await OsmCache.getForBBox(bbox);
-        if (!osmJson) {
-          const plan = await OsmCache.planFetch(bbox);
-          osmJson = await OSMEnricher.fetchOSMData(plan.fetchBBox, (m) =>
-            GSRGlobe3DView._setStatus(m),
-          );
-          if (osmJson) OsmCache.store(plan.fetchBBox, osmJson, plan.mergeIds);
-        }
+    const bbox = OSMEnricher.calculateBBox(
+      analyzer.raw,
+      GSRGlobe3DView._osmBboxBufferM(),
+    );
+    // In-memory JSON only while it still covers the current radius.
+    let osmJson = bbox ? OSMEnricher.osmJsonFor(analyzer, bbox) : null;
+    if (!osmJson && bbox && typeof OsmCache !== 'undefined') {
+      let coveredBBox = bbox;
+      osmJson = await OsmCache.getForBBox(bbox);
+      if (!osmJson) {
+        const plan = await OsmCache.planFetch(bbox);
+        osmJson = await OSMEnricher.fetchOSMData(plan.fetchBBox, (m) =>
+          GSRGlobe3DView._setStatus(m),
+        );
+        if (osmJson) OsmCache.store(plan.fetchBBox, osmJson, plan.mergeIds);
+        coveredBBox = plan.fetchBBox;
       }
-      if (osmJson) analyzer.osmJson = osmJson; // shared with GSRUI.enrichTrack's in-memory reuse
+      // shared with GSRUI.enrichTrack's in-memory reuse
+      if (osmJson)
+        OSMEnricher.setAnalyzerOsmJson(analyzer, osmJson, coveredBBox);
     }
+    // Last resort when the cache/fetch came up empty: the narrower in-memory
+    // JSON. Fine for 3D buildings (a few edge ones may be missing); the 2D
+    // enrichment paths re-check coverage via osmJsonFor() before reusing it.
+    if (!osmJson) osmJson = analyzer.osmJson || null;
 
     // Reconstruct geometry whenever we have json but no geoms (a cache load or a
     // fresh fetch) — this is all the 2D OSM vector-shapes button needs.

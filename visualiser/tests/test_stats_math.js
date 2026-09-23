@@ -837,3 +837,23 @@ test('partialCorrelation: direct relationship independent of covariate is preser
     `partial correlation remains strong (got ${partial.r})`,
   );
 });
+
+test('partialCorrelation: significance uses df = nEff - 3 (one covariate removed)', () => {
+  // Deterministic pseudo-random series, weakly related through z.
+  let seed = 7;
+  const rnd = () => {
+    seed = (seed * 16807) % 2147483647;
+    return seed / 2147483647 - 0.5;
+  };
+  const n = 40;
+  const z = Array.from({ length: n }, () => rnd());
+  const x = z.map((v) => v + rnd());
+  const y = x.map((v, i) => 0.4 * v + 0.3 * z[i] + rnd());
+
+  const res = StatsMath.partialCorrelation(x, y, z);
+  const expectedP = StatsMath._tTestPValue(
+    res.r * Math.sqrt((res.nEff - 3) / (1 - res.r * res.r)),
+    res.nEff - 3,
+  );
+  assert.ok(Math.abs(res.p - expectedP) < 1e-12, `p=${res.p} vs ${expectedP}`);
+});

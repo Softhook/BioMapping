@@ -165,6 +165,21 @@ export const GeoUtils = {
   },
 
   /**
+   * True if `outer` fully contains `inner`, with `toleranceDeg` slack to
+   * absorb tiny floating-point differences between two requests for
+   * essentially the same area. False if either is missing.
+   */
+  bboxContains(outer, inner, toleranceDeg = 0.0005) {
+    if (!outer || !inner) return false;
+    return (
+      outer.minLat - toleranceDeg <= inner.minLat &&
+      outer.maxLat + toleranceDeg >= inner.maxLat &&
+      outer.minLon - toleranceDeg <= inner.minLon &&
+      outer.maxLon + toleranceDeg >= inner.maxLon
+    );
+  },
+
+  /**
    * Smallest bounding box that contains every bbox in `bboxes`.
    *
    * @param {Array<{minLat: number, maxLat: number, minLon: number, maxLon: number}>} bboxes

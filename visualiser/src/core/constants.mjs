@@ -42,11 +42,19 @@ export const GSR_CONST = {
     peakLatency: 2.0,
   },
 
+  // ── OSM enrichment radii (#osmRadius, #gpsSnapRadius) ────────────────────
+  // Read via GSRStorage.readEnrichmentRadii(). The Overpass fetch bbox is
+  // buffered by max(osmRadius, snapRadius) + 50 m.
+  ENRICHMENT_DEFAULT: {
+    osmRadius: 50, // m — feature search radius around each sample
+    snapRadius: 25, // m — road-snapping / junction-passage radius
+  },
+
   // ── GSR filter defaults ──────────────────────────────────────────────────
   // The default detector (full-scan trough-to-peak) gates on amplitude
   // (peakThreshold), Min SNR (shapeMinSnr) and composite quality
   // (minPeakQuality) only — the literature SCR criteria. Both extra gates ship
-  // at recall-oriented values: Min SNR 1.5 is a light noise guard that mostly
+  // at recall-oriented values: Min SNR 2.5 is a light noise guard that mostly
   // matters when the LPF is lowered/off, and Min Peak Quality ships off (0).
   // Raise either per recording when precision matters more than recall.
   GSR_DEFAULT: {
@@ -60,6 +68,8 @@ export const GSR_CONST = {
     // (GSR_CONST.GAIT_FILTER) specifically tuned to reject ~1.4-2.0Hz walking-gait
     // artefacts without ringing or genuine SCR peak amplitude loss.
     useGaitFilter: true,
+    // Off by default: detect and bridge sensor-disconnect dropouts.
+    repairGsrDisconnects: false,
     tonicMethod: 'lpf',
     tonicWindow: 45,
     peakThreshold: 0.045,
@@ -72,6 +82,10 @@ export const GSR_CONST = {
     usePeakProminence: false,
     useCvxEDA: false,
   },
+
+  // Valid #tonicMethod options. Imported CSVs/presets carrying anything else
+  // (e.g. the retired 'dwt') fall back to GSR_DEFAULT.tonicMethod.
+  TONIC_METHODS: ['lpf', 'median', 'percentile'],
 
   // ── Gait low-pass filter (useGaitFilter toggle) ──────────────────────────
   // A zero-phase 4th-order Linkwitz-Riley filter at 1.0Hz - GSR_DEFAULT.useGaitFilter's
@@ -273,7 +287,7 @@ export const GSR_CONST = {
   // literals, not these constants.
   PEAK_SHAPE: {
     MAX_RISE_TIME: 4.0, // Max onset→peak (s) — onset walk-back search bound
-    MIN_SNR: 1.5, // Min signal-to-noise ratio fallback — matches GSR_DEFAULT.shapeMinSnr
+    MIN_SNR: 2.5, // Min signal-to-noise ratio fallback — must match GSR_DEFAULT.shapeMinSnr
     QUALITY_WEIGHTS: {
       // For composite quality score (0–1)
       amplitude: 0.2, // Higher amplitude = more confident

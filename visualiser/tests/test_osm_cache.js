@@ -19,6 +19,7 @@ const { loadModule } = require('./support/load_module.js');
 loadModule(`${__dirname}/../src/gps/geo_utils.js`, 'GeoUtils');
 loadModule(`${__dirname}/../src/osm/osm_cache.js`, 'OsmCache');
 const OsmCache = global.OsmCache;
+const GeoUtils = global.GeoUtils;
 
 // ── Test helpers ────────────────────────────────────────────────────────────
 let passed = 0,
@@ -89,25 +90,25 @@ const bboxPartial2 = {
 };
 
 // ════════════════════════════════════════════════════════════════════════
-//  1. _bboxContains
+//  1. bboxContains
 // ════════════════════════════════════════════════════════════════════════
-console.log('\n── OsmCache._bboxContains ──');
+console.log('\n── GeoUtils.bboxContains ──');
 
 assert(
-  OsmCache._bboxContains(bboxA, bboxB),
-  '_bboxContains — inner bbox fully inside outer → true',
+  GeoUtils.bboxContains(bboxA, bboxB),
+  'bboxContains — inner bbox fully inside outer → true',
 );
 assert(
-  !OsmCache._bboxContains(bboxB, bboxA),
-  '_bboxContains — outer bbox does not fit inside inner → false',
+  !GeoUtils.bboxContains(bboxB, bboxA),
+  'bboxContains — outer bbox does not fit inside inner → false',
 );
 assert(
-  !OsmCache._bboxContains(bboxA, bboxC),
-  '_bboxContains — disjoint bboxes → false',
+  !GeoUtils.bboxContains(bboxA, bboxC),
+  'bboxContains — disjoint bboxes → false',
 );
 assert(
-  OsmCache._bboxContains(bboxA, bboxA),
-  '_bboxContains — identical bbox contains itself → true',
+  GeoUtils.bboxContains(bboxA, bboxA),
+  'bboxContains — identical bbox contains itself → true',
 );
 
 // Partial overlap (neither bbox contains the other) must NOT count as a hit —
@@ -120,14 +121,14 @@ assert(
     maxLat: bboxA.maxLat + 0.005,
     maxLon: bboxA.maxLon + 0.005,
   };
-  assert(OsmCache._bboxContains(bboxA, bboxA), 'sanity: bboxA overlaps itself'); // baseline
+  assert(GeoUtils.bboxContains(bboxA, bboxA), 'sanity: bboxA overlaps itself'); // baseline
   assert(
-    !OsmCache._bboxContains(bboxA, partial),
-    '_bboxContains — bbox that only partially overlaps (not fully inside) → false',
+    !GeoUtils.bboxContains(bboxA, partial),
+    'bboxContains — bbox that only partially overlaps (not fully inside) → false',
   );
   assert(
-    !OsmCache._bboxContains(partial, bboxA),
-    '_bboxContains — partial overlap is not containment in either direction',
+    !GeoUtils.bboxContains(partial, bboxA),
+    'bboxContains — partial overlap is not containment in either direction',
   );
 }
 
@@ -140,8 +141,8 @@ assert(
     maxLon: bboxA.maxLon - 0.0001,
   };
   assert(
-    OsmCache._bboxContains(bboxA, nearlyA),
-    '_bboxContains — tiny rounding differences absorbed by tolerance',
+    GeoUtils.bboxContains(bboxA, nearlyA),
+    'bboxContains — tiny rounding differences absorbed by tolerance',
   );
 }
 {
@@ -153,8 +154,8 @@ assert(
     maxLon: bboxA.maxLon,
   };
   assert(
-    !OsmCache._bboxContains(bboxA, justOutside),
-    '_bboxContains — genuinely-outside bbox not absorbed by tolerance',
+    !GeoUtils.bboxContains(bboxA, justOutside),
+    'bboxContains — genuinely-outside bbox not absorbed by tolerance',
   );
 }
 
@@ -467,7 +468,7 @@ assert(
     'sanity: huge bbox overlaps bboxPartial (not full containment)',
   );
   assert(
-    !OsmCache._bboxContains(huge, bboxPartial),
+    !GeoUtils.bboxContains(huge, bboxPartial),
     'sanity: huge bbox does not fully contain bboxPartial',
   );
 

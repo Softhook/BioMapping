@@ -99,15 +99,10 @@ export const CollectiveMapUI = {
         : 0.0,
     };
 
-    const lat = parseFloat(
-      AppState.sliders.gpsPeakLatency
-        ? AppState.sliders.gpsPeakLatency.value
-        : GSR_CONST.GPS_DEFAULT.peakLatency,
-    );
+    // Peak latency is per walk (each track's gpsFilterParams).
     AppState.mapManager.renderCollectiveData(
       AppState.collectiveManager,
       contourParams,
-      lat,
     );
 
     let totalDur = 0,

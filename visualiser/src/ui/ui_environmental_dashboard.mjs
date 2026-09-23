@@ -14,6 +14,7 @@ import { JunctionResponse } from '../gps/junction_response.mjs';
 import { OSMEnricher } from '../osm/osm_enrichment.mjs';
 import { PhysioLatency } from '../signal/physio_latency.mjs';
 import { StatsMath } from '../signal/stats_math.mjs';
+import { GSRStorage } from './storage.mjs';
 
 export const EnvironmentalDashboardUI = {
   updateEnvironmentalDashboard() {
@@ -36,9 +37,13 @@ export const EnvironmentalDashboardUI = {
 
     if (activeTracks.length === 0) return;
 
-    const { phasic: latency, tonic: tonicLatency } = PhysioLatency.lags(
-      PhysioLatency.fromSlider(),
-    );
+    // Each walk's stimulus latency: its own saved value in Collective view
+    // (the Latency Offset slider is hidden there), the live slider otherwise.
+    const latencyOf = (track) =>
+      isCollective
+        ? PhysioLatency.normalise(track.gpsFilterParams?.peakLatency)
+        : PhysioLatency.fromSlider();
+    const latencySig = activeTracks.map(latencyOf).join(',');
     const trackIdsStr = activeTracks.map((t) => t.id).join(',');
     // Per-track mutation fingerprint (analyzer._dataVersion is bumped by
     // analyze(), setPeakLabel(), setPeakExcluded(), enrichTrack()). In the
@@ -58,7 +63,7 @@ export const EnvironmentalDashboardUI = {
     const needsRecalc =
       !cache ||
       cache.scope !== effectiveScope ||
-      cache.latency !== latency ||
+      cache.latency !== latencySig ||
       cache.trackCount !== activeTracks.length ||
       cache.trackIds !== trackIdsStr ||
       cache.versionSig !== versionSig;
@@ -68,6 +73,9 @@ export const EnvironmentalDashboardUI = {
       activeTracks.forEach((track) => {
         const a = track.analyzer;
         if (!a?.isEnriched || a.raw.length === 0) return;
+        const { phasic: latency, tonic: tonicLatency } = PhysioLatency.lags(
+          latencyOf(track),
+        );
 
         // GSR sensor disconnects (see gsr_disconnect_repair.mjs) are detected
         // unconditionally regardless of the "Repair Sensor Disconnects"
@@ -545,6 +553,7 @@ export const EnvironmentalDashboardUI = {
 
       activeTracks.forEach((track) => {
         const a = track.analyzer;
+        const { phasic: latency } = PhysioLatency.lags(latencyOf(track));
         const peaks = a.peaks.filter((p) => !p.excluded);
         peaks.forEach((p) => {
           const idx = a.stimulusIndexAt(p.time, latency);
@@ -653,7 +662,7 @@ export const EnvironmentalDashboardUI = {
 
       cacheTarget._cachedEnvStats = {
         scope: effectiveScope,
-        latency,
+        latency: latencySig,
         trackCount: activeTracks.length,
         trackIds: trackIdsStr,
         versionSig,
@@ -693,6 +702,7 @@ export const EnvironmentalDashboardUI = {
           activeTracks,
           trackIdsStr,
           versionSig,
+          latencyOf,
         ),
       );
     }
@@ -700,16 +710,24 @@ export const EnvironmentalDashboardUI = {
 
   /**
    * Junction turn-vs-straight stats. Independent of the environmental
-   * correlations, so it has its own cache (keyed on the latency slider too —
+   * correlations, so it has its own cache (keyed on each walk's latency too —
    * the GSR windows move with it) and is only computed while the Junction
    * Turns tab is showing; otherwise the last result (or an empty placeholder)
    * is returned without doing any work.
    */
-  _junctionStatsFor(cacheTarget, scope, activeTracks, trackIdsStr, versionSig) {
-    const snapRadius =
-      parseInt(document.getElementById('gpsSnapRadius')?.value, 10) || 25;
-    const latency = PhysioLatency.fromSlider();
-    const key = [scope, trackIdsStr, versionSig, snapRadius, latency].join('|');
+  _junctionStatsFor(
+    cacheTarget,
+    scope,
+    activeTracks,
+    trackIdsStr,
+    versionSig,
+    latencyOf = () => PhysioLatency.fromSlider(),
+  ) {
+    const { snapRadius } = GSRStorage.readEnrichmentRadii();
+    const latencySig = activeTracks.map(latencyOf).join(',');
+    const key = [scope, trackIdsStr, versionSig, snapRadius, latencySig].join(
+      '|',
+    );
     const cached = cacheTarget._cachedJunctionStats;
     if (cached?.key === key) return cached.stats;
     const tab = document.getElementById('envTabJunctions');
@@ -724,16 +742,15 @@ export const EnvironmentalDashboardUI = {
         }
       );
     }
-    const stats = this._computeJunctionStats(
-      activeTracks,
-      snapRadius,
-      PhysioLatency.lags(latency),
+    const stats = this._computeJunctionStats(activeTracks, snapRadius, (t) =>
+      PhysioLatency.lags(latencyOf(t)),
     );
     cacheTarget._cachedJunctionStats = { key, stats };
     return stats;
   },
 
-  _computeJunctionStats(activeTracks, snapRadius, lag) {
+  /** @param {(track: object) => {phasic: number, tonic: number}} lagOf */
+  _computeJunctionStats(activeTracks, snapRadius, lagOf) {
     // ── Junction turn vs straight analysis ───────────────────────────
     const allPassages = [];
     const allJunctionResponses = [];
@@ -797,7 +814,7 @@ export const EnvironmentalDashboardUI = {
 
       const resps = JunctionResponse.responses(passages, series, {
         trackId: track.id,
-        lag,
+        lag: lagOf(track),
       });
       if (resps && resps.length > 0) {
         allJunctionResponses.push(...resps);

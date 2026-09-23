@@ -25,10 +25,16 @@ module.exports = {
     peakLatency: 2.0,
   },
 
+  ENRICHMENT_DEFAULT: {
+    osmRadius: 50,
+    snapRadius: 25,
+  },
+
   GSR_DEFAULT: {
     medianSize: 0,
     lpfWindow: 0,
     useGaitFilter: true,
+    repairGsrDisconnects: false,
     tonicMethod: 'lpf',
     tonicWindow: 45,
     peakThreshold: 0.045,
@@ -41,6 +47,8 @@ module.exports = {
     usePeakProminence: false,
     useCvxEDA: false,
   },
+
+  TONIC_METHODS: ['lpf', 'median', 'percentile'],
 
   GAIT_FILTER: { cutoffHz: 1.0, type: 'lr4', order: 4 },
 
@@ -117,7 +125,7 @@ module.exports = {
 
   PEAK_SHAPE: {
     MAX_RISE_TIME: 4.0,
-    MIN_SNR: 1.5,
+    MIN_SNR: 2.5,
     QUALITY_WEIGHTS: {
       amplitude: 0.2,
       riseTime: 0.15,

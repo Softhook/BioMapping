@@ -64,7 +64,7 @@ export class GSRMapCollective extends GSRMapArousalPlaces {
   /**
    * Render all active tracks overlaid simultaneously, then draw contour lines.
    */
-  renderCollectiveData(collectiveManager, contourParams = {}, peakLatency) {
+  renderCollectiveData(collectiveManager, contourParams = {}) {
     this.clearAll(); // Clear single-track drawing + prior collective layers
 
     const activeTracks = collectiveManager.getActiveTracks();
@@ -95,6 +95,8 @@ export class GSRMapCollective extends GSRMapArousalPlaces {
     activeTracks.forEach((track) => {
       const _data = track.analyzer.raw;
       const p = track.gpsFilterParams || {};
+      // Each walk's own stimulus latency (Collective view has no shared one).
+      const peakLatency = this._trackPeakLatency(track);
 
       // Phase 1 (slice 2): each active track owns a layerGroup; all of this
       // track's collective layers (path, peaks, connectors, hotspots) render

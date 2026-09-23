@@ -357,6 +357,33 @@ export const OSMEnricher = {
     return GeoUtils.bboxAreaKm2(bbox);
   },
 
+  /**
+   * Stash Overpass JSON on an analyzer together with the bbox it is known to
+   * cover (the fetched bbox, or the requested bbox on a cache hit). Every
+   * writer of analyzer.osmJson goes through here so osmJsonFor() can tell
+   * whether the in-memory copy is still wide enough for the current radius.
+   */
+  setAnalyzerOsmJson(analyzer, json, coveredBBox) {
+    // Geometry reconstructed from a replaced JSON is stale (rebuilding it is
+    // cheap — reconstructGeometries() memoises per JSON object).
+    if (analyzer.osmJson !== json) analyzer.osmGeoms = null;
+    analyzer.osmJson = json;
+    analyzer.osmJsonBBox = json ? coveredBBox || null : null;
+  },
+
+  /**
+   * The analyzer's in-memory Overpass JSON if it covers `bbox`, else null —
+   * e.g. after the OSM or snap radius was raised, the JSON fetched for the
+   * old, smaller buffer no longer reaches every feature within the new radius
+   * of the walk's outermost points, so the caller must go back to the cache.
+   */
+  osmJsonFor(analyzer, bbox) {
+    if (!analyzer?.osmJson) return null;
+    return GeoUtils.bboxContains(analyzer.osmJsonBBox, bbox)
+      ? analyzer.osmJson
+      : null;
+  },
+
   /* ======================================================================
      Overpass API
      ====================================================================== */

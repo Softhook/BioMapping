@@ -107,6 +107,10 @@ function installOsmStubs({
   return log;
 }
 
+// The fixed bbox the calculateBBox stub returns — an osmJsonBBox equal to it
+// "covers the current radius".
+const COVERING_BBOX = { minLat: 0, minLon: 0, maxLat: 0.01, maxLon: 0.01 };
+
 function fakeAnalyzer() {
   return {
     raw: [
@@ -184,6 +188,8 @@ test('ensureOsmGeoms: an analyzer that already has osmGeoms is left untouched', 
   const log = installOsmStubs({ cacheHitJson: { elements: [] } });
   const analyzer = fakeAnalyzer();
   const existing = { ways: [], relations: [], __from: 'preexisting' };
+  analyzer.osmJson = { elements: [] };
+  analyzer.osmJsonBBox = COVERING_BBOX;
   analyzer.osmGeoms = existing;
   installSingleTrack(analyzer);
 
@@ -206,6 +212,7 @@ test('ensureOsmGeoms: reuses analyzer.osmJson already in memory (no cache, no fe
   const analyzer = fakeAnalyzer();
   const inMem = { elements: ['in-mem'] };
   analyzer.osmJson = inMem;
+  analyzer.osmJsonBBox = COVERING_BBOX;
   installSingleTrack(analyzer);
 
   const res = await GSRUI.ensureOsmGeoms();
@@ -214,6 +221,31 @@ test('ensureOsmGeoms: reuses analyzer.osmJson already in memory (no cache, no fe
   assert.strictEqual(log.getForBBox, 0);
   assert.strictEqual(log.fetch, 0);
   assert.strictEqual(analyzer.osmGeoms.__from, inMem);
+});
+
+test('ensureOsmGeoms: in-memory osmJson that no longer covers the current radius goes back to the cache', async () => {
+  installDom();
+  const cacheJson = { elements: ['wider'] };
+  const log = installOsmStubs({ cacheHitJson: cacheJson });
+  const analyzer = fakeAnalyzer();
+  // Fetched for a smaller radius: its bbox sits inside the current one.
+  analyzer.osmJson = { elements: ['narrow'] };
+  analyzer.osmJsonBBox = {
+    minLat: 0.004,
+    minLon: 0.004,
+    maxLat: 0.006,
+    maxLon: 0.006,
+  };
+  analyzer.osmGeoms = { ways: [], relations: [], __from: 'stale' };
+  installSingleTrack(analyzer);
+
+  const res = await GSRUI.ensureOsmGeoms();
+
+  assert.strictEqual(res.ok, true);
+  assert.strictEqual(log.getForBBox, 1, 'the cache is consulted');
+  assert.strictEqual(analyzer.osmJson, cacheJson);
+  assert.deepStrictEqual(analyzer.osmJsonBBox, COVERING_BBOX);
+  assert.strictEqual(analyzer.osmGeoms.__from, cacheJson, 'geoms rebuilt');
 });
 
 test('ensureOsmGeoms: no GPS fixes → { ok:false, reason:"no-gps" }', async () => {

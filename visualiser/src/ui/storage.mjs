@@ -1,7 +1,13 @@
 /**
- * Settings Management & LocalStorage Persistence.
- * Uses AppState.sliders instead of bare globals.
+ * Settings management: reads/writes the analysis sliders (AppState.sliders)
+ * and exports/imports them as .json preset files. Nothing here persists to
+ * browser storage — settings travel with presets, processed CSVs and
+ * project zips.
  */
+import { AppState } from '../core/app_state.mjs';
+import { GSR_CONST } from '../core/constants.mjs';
+import { Controllers } from '../core/controllers.mjs';
+import { GSRFileSaver } from '../core/file_saver.mjs';
 
 /**
  * Typed slider value reader with automatic fallback.
@@ -12,11 +18,6 @@
  * @param {*}                fallback - Default value when el is null/absent
  * @param {Function}         [fn]     - Parser: parseFloat (default) or parseInt
  */
-import { AppState } from '../core/app_state.mjs';
-import { GSR_CONST } from '../core/constants.mjs';
-import { Controllers } from '../core/controllers.mjs';
-import { GSRFileSaver } from '../core/file_saver.mjs';
-
 export function sliderVal(el, fallback, fn) {
   fn = fn || parseFloat;
   return el
@@ -27,6 +28,14 @@ export function sliderVal(el, fallback, fn) {
 }
 
 export const GSRStorage = {
+  /**
+   * The Arousal Places settings. Each walk has its own (in gpsFilterParams,
+   * shown in Single view) and Collective view has a separate set
+   * (AppState.collectivePlaces); the same sliders show whichever applies.
+   * Keep in step with GSRCollectiveProject.COLLECTIVE_SLIDER_KEYS.
+   */
+  PLACE_KEYS: ['placeMergeDistance', 'maxArousalPlaces'],
+
   /**
    * Read current GSR slider values into a clean param object.
    * Shared by tracks.js, storage.js, and ui.js.
@@ -103,8 +112,9 @@ export const GSRStorage = {
    * Shared by tracks.js and storage.js.
    *
    * @param {object} gps - GPS parameter values.
+   * @param {{skipKeys?: string[]}} [opts] - keys to leave untouched
    */
-  writeGpsSliderValues(gps) {
+  writeGpsSliderValues(gps, { skipKeys = [] } = {}) {
     if (!gps || typeof gps !== 'object') return;
     const S = AppState.sliders;
     if (!S) return;
@@ -123,7 +133,7 @@ export const GSRStorage = {
     };
 
     for (const [key, val] of Object.entries(gps)) {
-      if (val === undefined) continue;
+      if (val === undefined || skipKeys.includes(key)) continue;
       const sliderKey =
         gpsMap[key] || `gps${key.charAt(0).toUpperCase()}${key.slice(1)}`;
       const slider = S[sliderKey] || S[key];
@@ -131,6 +141,44 @@ export const GSRStorage = {
         slider.value = val;
       }
     }
+  },
+
+  /** Store the Places sliders' values as Collective view's own settings. */
+  saveCollectivePlaces() {
+    const current = this.readGpsSliderValues();
+    if (!current) return;
+    for (const key of this.PLACE_KEYS) {
+      AppState.collectivePlaces[key] = current[key];
+    }
+  },
+
+  /** Put Collective view's Places settings back to the shipped defaults. */
+  resetCollectivePlaces() {
+    const AP = GSR_CONST.AROUSAL_PLACES;
+    AppState.collectivePlaces = {
+      placeMergeDistance: AP.mergeM,
+      maxArousalPlaces: AP.maxPlaces,
+    };
+  },
+
+  /** Show Collective view's own Places settings on the sliders. */
+  showCollectivePlaces() {
+    this.writeGpsSliderValues(AppState.collectivePlaces);
+  },
+
+  /**
+   * Current OSM enrichment radii in metres (#osmRadius, #gpsSnapRadius),
+   * falling back to GSR_CONST.ENRICHMENT_DEFAULT when a slider is absent.
+   *
+   * @returns {{osmRadius: number, snapRadius: number}}
+   */
+  readEnrichmentRadii() {
+    const S = AppState.sliders || {};
+    const D = GSR_CONST.ENRICHMENT_DEFAULT;
+    return {
+      osmRadius: sliderVal(S.osmRadius, D.osmRadius, parseInt),
+      snapRadius: sliderVal(S.gpsSnapRadius, D.snapRadius, parseInt),
+    };
   },
 
   /**
@@ -155,6 +203,9 @@ export const GSRStorage = {
           : GSR_CONST.COLLECTIVE.coverageWeighting,
       ),
       surfaceOpacity: parseFloat(C.surfaceOpacity.value),
+      hillshadeStrength: C.hillshadeStrength
+        ? parseFloat(C.hillshadeStrength.value)
+        : 0,
     };
   },
 
@@ -206,6 +257,7 @@ export const GSRStorage = {
       gsr: gsr,
       gps: gps,
       contour: this.readContourSliderValues(),
+      enrichment: this.readEnrichmentRadii(),
     };
 
     // Save via GSRFileSaver save location dialog box
@@ -280,7 +332,7 @@ export const GSRStorage = {
     if (
       gsr.tonicMethod !== undefined &&
       S.tonicMethod &&
-      ['percentile', 'median', 'lpf'].includes(gsr.tonicMethod)
+      GSR_CONST.TONIC_METHODS.includes(gsr.tonicMethod)
     ) {
       S.tonicMethod.value = gsr.tonicMethod;
     }
@@ -349,6 +401,29 @@ export const GSRStorage = {
         C.coverageWeighting.value = contour.coverageWeighting;
       if (contour.surfaceOpacity !== undefined && C.surfaceOpacity)
         C.surfaceOpacity.value = contour.surfaceOpacity;
+      if (contour.hillshadeStrength !== undefined && C.hillshadeStrength)
+        C.hillshadeStrength.value = contour.hillshadeStrength;
+    }
+
+    // Restore OSM enrichment radii. Only 'input' is fired here (label update);
+    // the re-enrichment their 'change' handlers would each start runs once,
+    // below, after the walk has taken the preset.
+    const enrichment = preset.enrichment;
+    let radiiChanged = false;
+    if (enrichment) {
+      for (const [key, sliderKey] of [
+        ['osmRadius', 'osmRadius'],
+        ['snapRadius', 'gpsSnapRadius'],
+      ]) {
+        const el = S[sliderKey];
+        if (!el || enrichment[key] === undefined) continue;
+        if (String(el.value) === String(enrichment[key])) continue;
+        el.value = enrichment[key];
+        radiiChanged = true;
+        if (typeof el.dispatchEvent === 'function') {
+          el.dispatchEvent(new Event('input'));
+        }
+      }
     }
 
     // Refresh dependent layout: tonic-window slider config.
@@ -362,36 +437,37 @@ export const GSRStorage = {
     // Dispatch input events on all sliders so on-screen text labels & dimmed states update immediately!
     this.syncSliderValueDisplays();
 
-    // Commit to active track if one exists
-    if (AppState.activeTrackId) {
-      const track = AppState.collectiveManager.getTrack(AppState.activeTrackId);
-      if (track) {
-        track.filterParams = this.readGsrSliderValues();
-        track.gpsFilterParams = this.readGpsSliderValues();
-        try {
-          const pl = track.gpsFilterParams?.peakLatency || 0;
-          track.analyzer.analyze(track.filterParams, pl);
-        } catch (e) {
-          console.warn(
-            `Re-analysing active track failed after loading preset:`,
-            e,
-          );
-        }
-        if (Controllers.trackManager) {
-          Controllers.trackManager.renderTrackList();
-        }
-        if (Controllers.ui) {
-          if (typeof Controllers.ui.runAnalysis === 'function') {
-            Controllers.ui.runAnalysis();
-          }
-          if (
-            AppState.viewMode === 'collective' &&
-            typeof Controllers.ui.updateCollectiveMap === 'function'
-          ) {
-            Controllers.ui.updateCollectiveMap();
-          }
-        }
+    // Commit to the open walk. Presets are per-walk settings, so Load Preset
+    // is Single-view only (hidden in Collective view, like Save Preset).
+    const track = AppState.activeTrackId
+      ? AppState.collectiveManager?.getTrack(AppState.activeTrackId)
+      : null;
+    if (track) {
+      track.filterParams = this.readGsrSliderValues();
+      track.gpsFilterParams = this.readGpsSliderValues();
+      try {
+        track.analyzer.analyze(
+          track.filterParams,
+          track.gpsFilterParams.peakLatency ??
+            GSR_CONST.GPS_DEFAULT.peakLatency,
+        );
+      } catch (e) {
+        console.warn(
+          'Re-analysing active track failed after loading preset:',
+          e,
+        );
       }
+      if (Controllers.trackManager) {
+        Controllers.trackManager.renderTrackList();
+      }
+      if (typeof Controllers.ui?.runAnalysis === 'function') {
+        Controllers.ui.runAnalysis();
+      }
+    }
+    // Radii changed: re-enrich once if the walk already has OSM data (it
+    // re-uses that data or the cache while it still covers the new radius).
+    if (radiiChanged && Controllers.ui?.hasOsmData?.()) {
+      Controllers.ui.enrichTrack(false);
     }
     return true;
   },

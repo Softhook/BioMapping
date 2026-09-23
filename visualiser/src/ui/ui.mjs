@@ -12,6 +12,7 @@
  */
 
 import { AppState } from '../core/app_state.mjs';
+import { GSR_CONST } from '../core/constants.mjs';
 import { Controllers } from '../core/controllers.mjs';
 import { GSRNotices } from '../core/notices.mjs';
 import { GSRStorage } from './storage.mjs';
@@ -107,11 +108,17 @@ export const GSRUI = {
           );
         }
       } else {
+        // Collective view: every track keeps its own GSR settings and peak
+        // latency — the per-track controls are hidden here, and the sliders
+        // only hold the Single-view walk's values.
         if (AppState.collectiveManager) {
           const activeTracks = AppState.collectiveManager.getActiveTracks();
           activeTracks.forEach((track) => {
-            track.analyzer.analyze(params, peakLatency);
-            track.filterParams = { ...params };
+            track.analyzer.analyze(
+              track.filterParams || GSR_CONST.GSR_DEFAULT,
+              track.gpsFilterParams?.peakLatency ??
+                GSR_CONST.GPS_DEFAULT.peakLatency,
+            );
           });
         }
         GSRUI.updateCollectiveMap();

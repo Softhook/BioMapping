@@ -24,6 +24,25 @@ export class GSRMapViewport extends GSRMapProcess {
       .join(',');
   }
 
+  /**
+   * Fit the map to one track's drawn path — Collective view's track-list
+   * click. Reuses the per-track draw-point cache the collective render fills.
+   *
+   * @param {object} track
+   * @returns {boolean} false when the track has no drawable GPS path
+   */
+  zoomToTrack(track) {
+    if (!this.map || !track?.analyzer) return false;
+    const { drawPoints } = this._getOrBuildDrawPoints(
+      track.id,
+      track.analyzer,
+      track.gpsFilterParams || {},
+    );
+    if (!drawPoints || drawPoints.length === 0) return false;
+    this._fitBounds(drawPoints, { padding: [40, 40] });
+    return true;
+  }
+
   _fitBounds(drawPoints, opts = {}) {
     if (!this.map || !drawPoints || drawPoints.length === 0) return;
     this._flyOrFitBounds(

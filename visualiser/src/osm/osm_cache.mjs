@@ -90,20 +90,6 @@ export const OsmCache = {
      fetchedAt/lastAccess) — never the data blobs.
      ====================================================================== */
 
-  /**
-   * True if `outer` fully contains `inner`, with `toleranceDeg` slack to
-   * absorb tiny floating-point/rounding differences between two requests
-   * for essentially the same area.
-   */
-  _bboxContains(outer, inner, toleranceDeg = 0.0005) {
-    return (
-      outer.minLat - toleranceDeg <= inner.minLat &&
-      outer.maxLat + toleranceDeg >= inner.maxLat &&
-      outer.minLon - toleranceDeg <= inner.minLon &&
-      outer.maxLon + toleranceDeg >= inner.maxLon
-    );
-  },
-
   /** Area of a bbox in square degrees (only used for relative comparison — not m²). */
   _bboxDegArea(bbox) {
     return (bbox.maxLat - bbox.minLat) * (bbox.maxLon - bbox.minLon);
@@ -191,7 +177,7 @@ export const OsmCache = {
       if (!e?.bbox) continue;
       if (e.queryVersion !== queryVersion) continue;
       if (now - e.fetchedAt > this.CACHE_TTL_MS) continue;
-      if (!this._bboxContains(e.bbox, bbox)) continue;
+      if (!GeoUtils.bboxContains(e.bbox, bbox)) continue;
       const area = this._bboxDegArea(e.bbox);
       if (area < bestArea) {
         bestArea = area;

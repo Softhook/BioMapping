@@ -238,7 +238,7 @@ test('GSRCollectiveProject: multi-track bundle targets collective view even if m
   }
 });
 
-test('EnvironmentalDashboardUI._junctionStatsFor: no work while the Junction tab is hidden; cached once shown, recomputed when the latency slider moves', () => {
+test('EnvironmentalDashboardUI._junctionStatsFor: no work while the Junction tab is hidden; cached once shown, recomputed when a latency changes', () => {
   const {
     EnvironmentalDashboardUI,
   } = require('../src/ui/ui_environmental_dashboard.mjs');
@@ -262,19 +262,32 @@ test('EnvironmentalDashboardUI._junctionStatsFor: no work while the Junction tab
     },
   };
   const target = {};
+  const walks = [{ id: 'a' }];
   try {
-    const hidden = ui._junctionStatsFor(target, 'all', [], 'a', 'v1');
+    const hidden = ui._junctionStatsFor(target, 'all', walks, 'a', 'v1');
     assert.strictEqual(computes, 0);
     assert.deepStrictEqual(hidden.comparison, []);
     tabActive = true;
-    ui._junctionStatsFor(target, 'all', [], 'a', 'v1');
-    ui._junctionStatsFor(target, 'all', [], 'a', 'v1');
+    ui._junctionStatsFor(target, 'all', walks, 'a', 'v1');
+    ui._junctionStatsFor(target, 'all', walks, 'a', 'v1');
     assert.strictEqual(computes, 1, 'second call served from cache');
-    ui._junctionStatsFor(target, 'all', [], 'a', 'v2');
+    ui._junctionStatsFor(target, 'all', walks, 'a', 'v2');
     assert.strictEqual(computes, 2, 'data change recomputes');
     latencyValue = '3.0';
-    ui._junctionStatsFor(target, 'all', [], 'a', 'v2');
+    ui._junctionStatsFor(target, 'all', walks, 'a', 'v2');
     assert.strictEqual(computes, 3, 'latency change recomputes');
+
+    // Collective view: each walk's own latency, not the slider.
+    const own = [{ id: 'a', gpsFilterParams: { peakLatency: 1 } }];
+    const latencyOf = (t) => t.gpsFilterParams.peakLatency;
+    ui._junctionStatsFor(target, 'all', own, 'a', 'v2', latencyOf);
+    assert.strictEqual(computes, 4);
+    latencyValue = '4.0'; // hidden slider moving changes nothing
+    ui._junctionStatsFor(target, 'all', own, 'a', 'v2', latencyOf);
+    assert.strictEqual(computes, 4, 'slider ignored in collective');
+    own[0].gpsFilterParams.peakLatency = 2.5;
+    ui._junctionStatsFor(target, 'all', own, 'a', 'v2', latencyOf);
+    assert.strictEqual(computes, 5, "a walk's own latency change recomputes");
   } finally {
     global.document = originalDoc;
   }

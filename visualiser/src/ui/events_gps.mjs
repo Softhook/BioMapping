@@ -45,8 +45,8 @@ export const GpsEvents = {
           updateDim();
         });
         slider.addEventListener('change', () => {
-          if (AppState.analyzer?.osmJson) {
-            Controllers.ui?.enrichTrack(false); // Recompute using local cache!
+          if (Controllers.ui?.hasOsmData?.()) {
+            Controllers.ui?.enrichTrack(false); // re-uses in-memory/cached OSM data when it still covers the new radius
           } else {
             Controllers.ui?.rerenderMap();
           }
@@ -63,7 +63,7 @@ export const GpsEvents = {
         this.updateSnapRadiusVisibility();
         snapToggle.addEventListener('change', () => {
           this.updateSnapRadiusVisibility();
-          if (AppState.analyzer?.osmJson) {
+          if (Controllers.ui?.hasOsmData?.()) {
             // OSM data already loaded — re-run enrichment locally
             Controllers.ui?.enrichTrack(false);
           } else {
@@ -97,6 +97,7 @@ export const GpsEvents = {
       };
       updateDim();
       const rerenderMap = this.rafCoalesce(() => {
+        this.commitMapDisplaySetting();
         Controllers.ui?.rerenderMap();
       });
       slider.addEventListener('input', () => {

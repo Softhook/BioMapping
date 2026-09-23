@@ -33,6 +33,7 @@ import {
 import { SurfaceSwitcherEvents } from './events_surface_switcher.mjs';
 import { TimelineEvents } from './events_timeline.mjs';
 import { ViewSwitcherEvents } from './events_view_switcher.mjs';
+import { GSRStorage } from './storage.mjs';
 
 export {
   CONTOUR_SLIDER_DEFS,
@@ -92,6 +93,7 @@ export const GSREvents = {
       'gpsPeakLatency',
       'gpsSnapToRoads',
       'gpsSnapRadius',
+      'osmRadius',
       'placeMergeDistance',
       'maxArousalPlaces',
       'graphView',
@@ -332,13 +334,27 @@ export const GSREvents = {
   },
 
   /**
+   * Persist a moved map-display slider (Latency Offset, Arousal Places). In
+   * Collective view — where only the Arousal Places ones are shown — the
+   * value is Collective view's own setting and no walk's is touched; in
+   * Single view it belongs to the open walk only.
+   */
+  commitMapDisplaySetting() {
+    if (AppState.viewMode === 'collective') {
+      GSRStorage.saveCollectivePlaces();
+    } else {
+      Controllers.trackManager?.saveActiveGpsParams();
+    }
+  },
+
+  /**
    * Bind the "Place Merge Distance" slider (#placeMergeDistance). Unlike the
    * generic GPS sliders it does NOT trigger a full rerenderMap() — the merge
    * distance only reshapes the Arousal Places layer, so a scoped
    * mapManager.refreshArousalPlaces() rebuilds just that (perf-routes doc
    * SS2.2), leaving path/peak/hotspot/contour layers alone. Still persists the
-   * value via saveActiveGpsParams() (it rides in gpsFilterParams / the project
-   * file). Falls back to rerenderMap() if the scoped method is unavailable.
+   * value via commitMapDisplaySetting() (it rides in gpsFilterParams / the
+   * project file). Falls back to rerenderMap() if the scoped method is unavailable.
    */
   bindArousalPlacesSlider(id, labelId, fmt) {
     const slider = document.getElementById(id);
@@ -348,8 +364,8 @@ export const GSREvents = {
     updateDim();
 
     const runRefresh = GSREvents.rafCoalesce(() => {
+      GSREvents.commitMapDisplaySetting();
       if (Controllers.trackManager) {
-        Controllers.trackManager.saveActiveGpsParams();
         Controllers.trackManager.renderTrackList();
       }
       const mm = AppState.mapManager;

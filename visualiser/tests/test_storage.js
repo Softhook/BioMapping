@@ -258,6 +258,7 @@ test('readContourSliderValues: parses all contour surface sliders', () => {
     isolationRadius: el(50),
     idwExponent: el(2),
     surfaceOpacity: el(0.4),
+    hillshadeStrength: el(0.3),
   };
   const result = GSRStorage.readContourSliderValues();
   assert.deepStrictEqual(result, {
@@ -268,6 +269,7 @@ test('readContourSliderValues: parses all contour surface sliders', () => {
     peakPreservation: global.GSR_CONST.COLLECTIVE.peakPreservation,
     coverageWeighting: global.GSR_CONST.COLLECTIVE.coverageWeighting,
     surfaceOpacity: 0.4,
+    hillshadeStrength: 0.3,
   });
 });
 
@@ -654,7 +656,7 @@ test('applyPreset: invokes GSREvents layout hook and syncs slider displays', () 
   assert.deepStrictEqual(calls, ['layout', 'labels']);
 });
 
-test('applyPreset: commits parsed sliders to the active track and re-analyzes it', () => {
+test("applyPreset: commits to the open walk only, never another walk's settings", () => {
   resetGlobals();
   global.AppState.sliders = {
     medianSize: el(2),
@@ -675,7 +677,9 @@ test('applyPreset: commits parsed sliders to the active track and re-analyzes it
       },
     },
   };
+  const other = { analyzer: { analyze: () => {} } };
   global.AppState.collectiveManager = {
+    tracks: [track, other],
     getTrack: (id) => (id === 'trk1' ? track : null),
   };
 
@@ -685,25 +689,128 @@ test('applyPreset: commits parsed sliders to the active track and re-analyzes it
   });
   global.GSRUI = setSingletonShape(RealGSRUI, {
     runAnalysis: () => uiCalls.push('runAnalysis'),
-    updateCollectiveMap: () => uiCalls.push('updateCollectiveMap'),
   });
 
   const ok = GSRStorage.applyPreset({ gsr: {}, gps: {} });
 
   assert.strictEqual(ok, true);
-  assert.ok(track.filterParams, 'track.filterParams should have been assigned');
   assert.strictEqual(track.filterParams.medianSize, 2);
-  assert.ok(
-    track.gpsFilterParams,
-    'track.gpsFilterParams should have been assigned',
-  );
-  assert.ok(analyzeArgs, 'track.analyzer.analyze should have been called');
+  assert.ok(track.gpsFilterParams);
   assert.strictEqual(analyzeArgs.pl, 1.5);
-  assert.deepStrictEqual(uiCalls, [
-    'renderTrackList',
-    'runAnalysis',
-    'updateCollectiveMap',
-  ]);
+  assert.strictEqual(other.filterParams, undefined, 'other walk untouched');
+  assert.strictEqual(other.gpsFilterParams, undefined, 'other walk untouched');
+  assert.deepStrictEqual(uiCalls, ['renderTrackList', 'runAnalysis']);
+});
+
+test('applyPreset (single view): commits only to the active track', () => {
+  resetGlobals();
+  global.AppState.sliders = {
+    medianSize: el(2),
+    lpfWindow: el(0),
+    tonicMethod: el('lpf'),
+    tonicWindow: el(45),
+    peakThreshold: el(0.02),
+  };
+  global.AppState.activeTrackId = 'trk1';
+  global.AppState.viewMode = 'single';
+  const track = { analyzer: { analyze: () => {} } };
+  const other = { analyzer: { analyze: () => {} } };
+  global.AppState.collectiveManager = {
+    tracks: [track, other],
+    getTrack: (id) => (id === 'trk1' ? track : null),
+  };
+  global.GSRTrackManager = setSingletonShape(RealGSRTrackManager, {
+    renderTrackList: () => {},
+  });
+  global.GSRUI = setSingletonShape(RealGSRUI, { runAnalysis: () => {} });
+
+  assert.strictEqual(GSRStorage.applyPreset({ gsr: {}, gps: {} }), true);
+  assert.strictEqual(track.filterParams.medianSize, 2);
+  assert.strictEqual(other.filterParams, undefined, 'other track untouched');
+});
+
+test('applyPreset: changed OSM/snap radii re-enrich once, after the walk is re-analysed', () => {
+  resetGlobals();
+  const fired = [];
+  const radiusEl = (value, name) => ({
+    value: String(value),
+    dispatchEvent: (e) => fired.push(`${name}:${e.type}`),
+  });
+  global.AppState.sliders = {
+    medianSize: el(2),
+    lpfWindow: el(0),
+    tonicMethod: el('lpf'),
+    tonicWindow: el(45),
+    peakThreshold: el(0.02),
+    osmRadius: radiusEl(50, 'osm'),
+    gpsSnapRadius: radiusEl(25, 'snap'),
+  };
+  global.AppState.activeTrackId = 'trk1';
+  global.AppState.viewMode = 'single';
+  const track = { analyzer: { analyze: () => {} } };
+  global.AppState.collectiveManager = { getTrack: () => track };
+  global.GSRTrackManager = setSingletonShape(RealGSRTrackManager, {
+    renderTrackList: () => {},
+  });
+  const uiCalls = [];
+  global.GSRUI = setSingletonShape(RealGSRUI, {
+    runAnalysis: () => uiCalls.push('runAnalysis'),
+    hasOsmData: () => true,
+    enrichTrack: (force) => uiCalls.push(`enrichTrack:${force}`),
+  });
+
+  GSRStorage.applyPreset({
+    gsr: {},
+    gps: {},
+    enrichment: { osmRadius: 80, snapRadius: 40 },
+  });
+
+  assert.strictEqual(global.AppState.sliders.osmRadius.value, 80);
+  assert.strictEqual(global.AppState.sliders.gpsSnapRadius.value, 40);
+  assert.deepStrictEqual(
+    fired,
+    ['osm:input', 'snap:input'],
+    "labels update, but no per-slider 'change' (each would start its own enrichment)",
+  );
+  assert.deepStrictEqual(uiCalls, ['runAnalysis', 'enrichTrack:false']);
+});
+
+test('applyPreset: unchanged radii do not re-enrich', () => {
+  resetGlobals();
+  global.AppState.sliders = {
+    medianSize: el(2),
+    lpfWindow: el(0),
+    tonicMethod: el('lpf'),
+    tonicWindow: el(45),
+    peakThreshold: el(0.02),
+    osmRadius: el(50),
+    gpsSnapRadius: el(25),
+  };
+  const uiCalls = [];
+  global.GSRUI = setSingletonShape(RealGSRUI, {
+    hasOsmData: () => true,
+    enrichTrack: () => uiCalls.push('enrichTrack'),
+  });
+
+  GSRStorage.applyPreset({
+    gsr: {},
+    gps: {},
+    enrichment: { osmRadius: 50, snapRadius: 25 },
+  });
+  assert.deepStrictEqual(uiCalls, []);
+});
+
+test('resetCollectivePlaces: restores the shipped Arousal Places defaults', () => {
+  resetGlobals();
+  global.AppState.collectivePlaces = {
+    placeMergeDistance: 99,
+    maxArousalPlaces: 3,
+  };
+  GSRStorage.resetCollectivePlaces();
+  assert.deepStrictEqual(global.AppState.collectivePlaces, {
+    placeMergeDistance: global.GSR_CONST.AROUSAL_PLACES.mergeM,
+    maxArousalPlaces: global.GSR_CONST.AROUSAL_PLACES.maxPlaces,
+  });
 });
 
 test('applyPreset: swallows an error thrown by track.analyzer.analyze() and still returns true', () => {

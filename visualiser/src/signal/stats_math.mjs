@@ -210,14 +210,17 @@ export const StatsMath = {
    * Pearson r whose two-tailed p-value is corrected for serial
    * autocorrelation via the effective pair count (correlationEffectiveN).
    * The point estimate r is unchanged. Returns { r, p, n, nEff }.
+   *
+   * @param {number} [nCovariates=0] - covariates already partialled out of
+   *   x and y (each costs one degree of freedom: df = nEff - 2 - nCovariates)
    */
-  calculateAutocorrCorrelation(x, y) {
+  calculateAutocorrCorrelation(x, y, nCovariates = 0) {
     const n = Math.min(x ? x.length : 0, y ? y.length : 0);
     const { r } = this.calculatePearsonCorrelation(x, y);
     const nEff = this.correlationEffectiveN(x, y);
     let p = 1;
-    if (nEff > 3 && Math.abs(r) < 1) {
-      const df = nEff - 2;
+    if (nEff - nCovariates > 3 && Math.abs(r) < 1) {
+      const df = nEff - 2 - nCovariates;
       const t = r * Math.sqrt(df / (1 - r * r));
       p = StatsMath._tTestPValue(t, df);
     }
@@ -260,7 +263,8 @@ export const StatsMath = {
       resY[i] = ySlice[i] - (regY.m * zSlice[i] + regY.c);
     }
 
-    const resCorr = this.calculateAutocorrCorrelation(resX, resY);
+    // One covariate (z) partialled out → one fewer degree of freedom.
+    const resCorr = this.calculateAutocorrCorrelation(resX, resY, 1);
     return {
       r: resCorr.r,
       p: resCorr.p,

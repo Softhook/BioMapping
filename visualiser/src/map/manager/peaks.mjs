@@ -20,6 +20,7 @@
  * (resolved at call time).
  */
 
+import { GSR_CONST } from '../../core/constants.mjs';
 import { GSRNotices } from '../../core/notices.mjs';
 import { GSRLabelManager } from '../../render/label_placement.mjs';
 import { GSRUI } from '../../ui/ui.mjs';
@@ -524,7 +525,7 @@ export class GSRMapPeaks extends GSRMapPath {
    * track isn't a currently-active/rendered one (no layerGroup to refresh
    * into) — same reasoning as refreshPeakMarkers()'s no-track fallback.
    */
-  refreshCollectivePeakMarkers(track, peakLatency) {
+  refreshCollectivePeakMarkers(track) {
     if (!this.map) return;
     if (!track?.layerGroup) {
       if (
@@ -547,11 +548,20 @@ export class GSRMapPeaks extends GSRMapPath {
           track,
           layerGroup,
           trackColor,
-          peakLatency || 0,
+          this._trackPeakLatency(track),
           null,
         ),
       true,
     );
+  }
+
+  /**
+   * A walk's own stimulus latency (s) from its gpsFilterParams — the
+   * collective map has no shared latency; each walk is shifted by its own.
+   */
+  _trackPeakLatency(track) {
+    const v = track?.gpsFilterParams?.peakLatency;
+    return Number.isFinite(v) ? v : GSR_CONST.GPS_DEFAULT.peakLatency;
   }
 
   /**

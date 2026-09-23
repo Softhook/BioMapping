@@ -508,3 +508,43 @@ test('bearingDeg and bearingRad: accurately calculate forward azimuth across car
   // South-West diagonal
   closeTo(GeoUtils.bearingDeg(1, 1, 0, 0), 225, 0.5, 'South-West bearing');
 });
+
+// ---------------------------------------------------------------------------
+// bboxContains
+// ---------------------------------------------------------------------------
+
+test('bboxContains: containment, tolerance and missing inputs', () => {
+  const outer = { minLat: 0, minLon: 0, maxLat: 1, maxLon: 1 };
+  assert.strictEqual(
+    GeoUtils.bboxContains(outer, {
+      minLat: 0.2,
+      minLon: 0.2,
+      maxLat: 0.8,
+      maxLon: 0.8,
+    }),
+    true,
+  );
+  assert.strictEqual(GeoUtils.bboxContains(outer, outer), true, 'equal counts');
+  assert.strictEqual(
+    GeoUtils.bboxContains(outer, {
+      minLat: 0,
+      minLon: 0,
+      maxLat: 1.1,
+      maxLon: 1,
+    }),
+    false,
+    'sticks out on one side',
+  );
+  assert.strictEqual(
+    GeoUtils.bboxContains(outer, {
+      minLat: 0,
+      minLon: 0,
+      maxLat: 1.0004,
+      maxLon: 1,
+    }),
+    true,
+    'within the default 0.0005° tolerance',
+  );
+  assert.strictEqual(GeoUtils.bboxContains(null, outer), false);
+  assert.strictEqual(GeoUtils.bboxContains(outer, undefined), false);
+});

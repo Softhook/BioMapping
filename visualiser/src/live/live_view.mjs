@@ -195,11 +195,11 @@ const LIVE_VIEW_MARKUP = `
 // only; a live rolling window is the wrong place for a session-normalised
 // score). analyze() still computes them, they're just not plotted here.
 //
-// analyze() re-walks the WHOLE buffer each call, so its cost grows with the
-// session: order 1ms/call in the first minutes, tens of ms an hour in (it is
-// linear in row count, not flat). feedLiveAnalyzer() throttles it to at most
-// one call per LIVE_ANALYZE_MIN_INTERVAL_MS after a short warmup — the graph
-// is a 2-minute rolling window and doesn't need more.
+// analyze() re-walks every row it is handed, so its cost is linear in row
+// count. feedLiveAnalyzer() keeps that flat by handing it only a trailing
+// window (see below) and throttling it to at most one call per
+// LIVE_ANALYZE_MIN_INTERVAL_MS after a short warmup — the graph is a
+// 2-minute rolling window and doesn't need more.
 // ==========================================================================
 
 // The app's shipped GSR defaults, no slider UI. Deconvolution and prominence

@@ -16,6 +16,29 @@
 import { GSR_CONST } from '../core/constants.mjs';
 import { calcEmFog } from './em_fog.mjs';
 
+/**
+ * Complete a settings object embedded in a CSV (`# FilterParams:` /
+ * `# GpsFilterParams:`) from the shipped defaults. A file exported before a
+ * setting existed lacks that key; left missing, it would silently hit a
+ * detector's internal fallback on import and then inherit whatever the
+ * previously open track had on its slider when the user switches to it.
+ * Keys the defaults don't know are kept; null/undefined values fall back.
+ *
+ * @param {*} parsed    - JSON.parse output (anything)
+ * @param {object} defaults
+ * @returns {object|null} null when `parsed` isn't a plain object
+ */
+function withDefaults(parsed, defaults) {
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return null;
+  }
+  const out = { ...defaults };
+  for (const [k, v] of Object.entries(parsed)) {
+    if (v !== null && v !== undefined) out[k] = v;
+  }
+  return out;
+}
+
 export const GSRCSVParser = {
   /**
    * Parse one CSV line into fields, honoring quoted commas and escaped quotes
@@ -428,16 +451,26 @@ export const GSRCSVParser = {
         }
       } else if (line.startsWith('# FilterParams:')) {
         try {
-          importedFilterParams = JSON.parse(
-            line.substring('# FilterParams:'.length).trim(),
+          importedFilterParams = withDefaults(
+            JSON.parse(line.substring('# FilterParams:'.length).trim()),
+            GSR_CONST.GSR_DEFAULT,
           );
+          // A retired baseline method (e.g. 'dwt') isn't a valid option.
+          if (
+            importedFilterParams &&
+            !GSR_CONST.TONIC_METHODS.includes(importedFilterParams.tonicMethod)
+          ) {
+            importedFilterParams.tonicMethod =
+              GSR_CONST.GSR_DEFAULT.tonicMethod;
+          }
         } catch (e) {
           console.warn('Failed to parse FilterParams metadata:', e);
         }
       } else if (line.startsWith('# GpsFilterParams:')) {
         try {
-          importedGpsFilterParams = JSON.parse(
-            line.substring('# GpsFilterParams:'.length).trim(),
+          importedGpsFilterParams = withDefaults(
+            JSON.parse(line.substring('# GpsFilterParams:'.length).trim()),
+            GSR_CONST.GPS_DEFAULT,
           );
         } catch (e) {
           console.warn('Failed to parse GpsFilterParams metadata:', e);
