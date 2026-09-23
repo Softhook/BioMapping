@@ -24,7 +24,7 @@ const VIS_DIR = path.join(__dirname, '..');
 function walk(dir) {
   const out = [];
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    if (entry.name === 'node_modules') continue;
+    if (entry.name === 'node_modules' || entry.name.startsWith('.')) continue;
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) out.push(...walk(full));
     else if (entry.name.endsWith('.js')) out.push(full);
@@ -70,6 +70,27 @@ test('every relative source path used by tests/ resolves inside visualiser/', ()
     for (const ref of new Set(refsIn(src))) {
       const resolved = path.resolve(path.dirname(file), ref);
       if (path.relative(VIS_DIR, resolved).startsWith('..')) continue; // outside visualiser/
+
+      // Ignore runtime cache, build, or hidden directories (e.g. .cache, dist, build)
+      const rel = path.relative(VIS_DIR, resolved);
+      const segments = rel.split(path.sep);
+      if (
+        segments.some((s) => s.startsWith('.') || s === 'build' || s === 'dist')
+      ) {
+        continue;
+      }
+
+      // If ref has no extension and does not resolve to an existing directory or module,
+      // it is a dynamic runtime path (e.g. scratch output dir), not a source file reference.
+      if (
+        !path.extname(resolved) &&
+        !fs.existsSync(resolved) &&
+        !fs.existsSync(`${resolved}.js`) &&
+        !fs.existsSync(`${resolved}.mjs`)
+      ) {
+        continue;
+      }
+
       if (fs.existsSync(resolved) || fs.existsSync(`${resolved}.js`)) continue;
       // ES-module migration (tests/manual/esm_migration/): a converted
       // src/ file's .js sibling is deliberately deleted (convert_file.js

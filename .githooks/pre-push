@@ -1,0 +1,22 @@
+#!/bin/sh
+# Pre-push hook: run linting and tests before pushing to remote
+set -e
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT/visualiser"
+
+echo "==> Running pre-push checks (lint, lint:deps, test)..."
+
+# Warn if there are untracked source files that might cause CI to fail
+UNTRACKED_SRC=$(git status --porcelain src/ tests/ 2>/dev/null | grep '^[?][?]' || true)
+if [ -n "$UNTRACKED_SRC" ]; then
+  echo "⚠️  Untracked files detected in visualiser/src or visualiser/tests:"
+  echo "$UNTRACKED_SRC"
+  echo "   If any committed code imports these, CI will fail."
+fi
+
+npm run lint
+npm run lint:deps
+npm test
+
+echo "==> All pre-push checks passed!"

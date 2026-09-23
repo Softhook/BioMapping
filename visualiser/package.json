@@ -10,6 +10,7 @@
     "lint:fix": "biome check --write src tests",
     "lint:deps": "depcruise src/app_entry.mjs src/live_entry.mjs",
     "lint:unused": "knip",
+    "check": "npm run lint && npm run lint:deps && npm test",
     "format": "biome format --write src tests"
   },
   "devDependencies": {

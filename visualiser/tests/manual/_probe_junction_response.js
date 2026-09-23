@@ -43,7 +43,7 @@ const { PhysioLatency } = require(
   path.join(ROOT, 'src/signal/physio_latency.mjs'),
 );
 
-const CACHE_DIR = path.join(__dirname, '.cache');
+const CACHE_DIR = path.resolve(__dirname, '.cache');
 const INPUTS = (
   process.argv.length > 2
     ? process.argv.slice(2)

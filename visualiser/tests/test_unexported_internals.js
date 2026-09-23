@@ -144,7 +144,7 @@ function getAllFiles(dir, exts, acc = []) {
   for (const entry of entries) {
     const p = path.join(dir, entry.name);
     if (entry.isDirectory()) {
-      if (entry.name !== 'node_modules' && entry.name !== '.git') {
+      if (entry.name !== 'node_modules' && !entry.name.startsWith('.')) {
         getAllFiles(p, exts, acc);
       }
     } else if (exts.includes(path.extname(entry.name))) {
