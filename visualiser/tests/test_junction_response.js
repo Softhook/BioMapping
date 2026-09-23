@@ -649,3 +649,13 @@ test('compareJunctionVsRoad: needs both groups', () => {
   const rows = JunctionResponse.compareJunctionVsRoad(onlyJunctions);
   assert.ok(rows.every((r) => r.verdict === 'none' && r.p === 1));
 });
+
+test('compare: below MIN_PAIRED the paired test is skipped and the pooled test is reported', () => {
+  // Only 4 junctions have both a turn and a straight.
+  const recs = synthetic(3).filter((r) => Number(r.key.slice(1)) < 4);
+  const r = row(JunctionResponse.compare(recs), 'after', 'peakRate');
+  assert.strictEqual(r.test, 'pooled');
+  assert.strictEqual(r.pairedN, 4);
+  assert.ok(Number.isNaN(r.pairedP));
+  assert.strictEqual(r.p, r.pooledP);
+});

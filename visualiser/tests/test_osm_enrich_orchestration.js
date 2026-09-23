@@ -249,3 +249,51 @@ test('enrichTrack (collective): a spread-out collection (union over the area cap
   );
   assert.ok(tracks.every((t) => t.analyzer.isEnriched));
 });
+
+test('enrichTrack: a setting changed mid-run triggers one re-run with the new setting', async () => {
+  const els = installDom();
+  const calls = installOsmStubs();
+  const snapSeen = [];
+  const plainEnrich = RealOSMEnricher.enrichTrack;
+  RealOSMEnricher.enrichTrack = (analyzer, _json, _radius, snapParams) => {
+    snapSeen.push(snapParams.enabled);
+    plainEnrich(analyzer);
+  };
+  // Hold the first run at its cache lookup so the second call lands mid-run.
+  let release;
+  const held = new Promise((r) => {
+    release = r;
+  });
+  let lookups = 0;
+  RealOsmCache.getForBBox = async () => {
+    if (lookups++ === 0) await held;
+    return { elements: [] };
+  };
+  const tracks = [fakeTrack('A')];
+  Object.assign(RealAppState, {
+    viewMode: 'collective',
+    collectiveManager: { getActiveTracks: () => tracks },
+  });
+  GSRUI.refreshOsmControls = () => {};
+  GSRUI.rerenderMap = () => {};
+
+  const first = GSRUI.enrichTrack(true);
+  els.gpsSnapToRoads.checked = true; // user ticks "Snap to Roads" mid-run
+  await GSRUI.enrichTrack(false); // returns at once: a run is in progress
+  assert.deepStrictEqual(calls, [], 'no second run started alongside');
+
+  release();
+  await first;
+  for (let i = 0; i < 20 && calls.length < 2; i++) {
+    await new Promise((r) => setImmediate(r));
+  }
+
+  assert.deepStrictEqual(calls, ['A', 'A'], 'exactly one re-run');
+  assert.deepStrictEqual(
+    snapSeen,
+    [false, true],
+    're-run used the new setting',
+  );
+  assert.strictEqual(GSRUI._enrichRerunQueued, false);
+  assert.strictEqual(GSRUI._enriching, false);
+});

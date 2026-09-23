@@ -10,6 +10,7 @@
 import { AppState } from '../core/app_state.mjs';
 import { Controllers } from '../core/controllers.mjs';
 import { GSRNotices } from '../core/notices.mjs';
+import { SafeStorage } from '../core/safe_storage.mjs';
 import { NDVISampler } from '../osm/ndvi_sampler.mjs';
 import { OsmCache } from '../osm/osm_cache.mjs';
 
@@ -120,15 +121,10 @@ export const EnrichmentEvents = {
         typeof NDVISampler !== 'undefined' ? NDVISampler.getInstanceId() : '';
       if (activeId) copernicusInstanceInput.value = activeId;
       copernicusInstanceInput.addEventListener('change', () => {
-        if (
-          typeof localStorage !== 'undefined' &&
-          typeof localStorage.setItem === 'function'
-        ) {
-          localStorage.setItem(
-            'copernicus_instance_id',
-            copernicusInstanceInput.value.trim(),
-          );
-        }
+        SafeStorage.set(
+          'copernicus_instance_id',
+          copernicusInstanceInput.value.trim(),
+        );
         syncCopernicusBadges();
         if (AppState.mapManager?.ndviTileLayer) {
           AppState.mapManager.showNdviLayer();
@@ -142,15 +138,10 @@ export const EnrichmentEvents = {
           : 'NDVI_RAW';
       if (activeRawLayer) copernicusRawLayerInput.value = activeRawLayer;
       copernicusRawLayerInput.addEventListener('change', () => {
-        if (
-          typeof localStorage !== 'undefined' &&
-          typeof localStorage.setItem === 'function'
-        ) {
-          localStorage.setItem(
-            'copernicus_raw_layer_id',
-            copernicusRawLayerInput.value.trim(),
-          );
-        }
+        SafeStorage.set(
+          'copernicus_raw_layer_id',
+          copernicusRawLayerInput.value.trim(),
+        );
         // The map overlay renders this same raw layer directly (see
         // manager/osm.js: showNdviLayer) — re-render it if visible.
         if (AppState.mapManager?.ndviTileLayer) {
@@ -165,15 +156,10 @@ export const EnrichmentEvents = {
           : '2024-05-01/2024-09-30';
       if (activeTime) copernicusTimeInput.value = activeTime;
       copernicusTimeInput.addEventListener('change', () => {
-        if (
-          typeof localStorage !== 'undefined' &&
-          typeof localStorage.setItem === 'function'
-        ) {
-          localStorage.setItem(
-            'copernicus_time_range',
-            copernicusTimeInput.value.trim(),
-          );
-        }
+        SafeStorage.set(
+          'copernicus_time_range',
+          copernicusTimeInput.value.trim(),
+        );
         if (AppState.mapManager?.ndviTileLayer) {
           AppState.mapManager.showNdviLayer();
         }

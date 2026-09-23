@@ -853,7 +853,11 @@ export const GSRMapExporter = {
     }
 
     try {
-      const res = await fetch(src, { mode: 'cors' });
+      // A stalled tile server must not hang the whole export.
+      const res = await fetch(src, {
+        mode: 'cors',
+        signal: AbortSignal.timeout(20000),
+      });
       if (!res.ok) return null;
       const blob = await res.blob();
       return await new Promise((resolve, reject) => {

@@ -417,8 +417,11 @@ export const JunctionResponse = {
         const groups = [...byKey.values()].filter(
           (g) => g.turn.length && g.straight.length,
         );
-        const paired = this.pairedPermutation(groups);
-        const usePaired = paired.n >= this.MIN_PAIRED;
+        // Below MIN_PAIRED the paired test isn't reported, so skip its permutations.
+        const usePaired = groups.length >= this.MIN_PAIRED;
+        const paired = usePaired
+          ? this.pairedPermutation(groups)
+          : { n: groups.length, meanDiff: NaN, p: NaN };
 
         // Report the means, counts and difference from the SAME sample the
         // p-value is about, so the numbers shown always agree with each other.

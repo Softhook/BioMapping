@@ -81,7 +81,9 @@ test('rows carry no import scratch keys; imported labels/exclusions are captured
   const rows = series(60, (i) => 500 + i).map((l, i) => {
     if (i === 10) return `${l},1,"Cafe",0`;
     if (i === 20) return `${l},1,,1`;
-    if (i === 30) return `${l},0,"ignored",1`;
+    // Non-peak row: its label is a saved label whose peak wasn't detected,
+    // so it is kept; an exclusion there means nothing and is ignored.
+    if (i === 30) return `${l},0,"Hidden",1`;
     return `${l},0,,0`;
   });
   const r = GSRCSVParser.parse(
@@ -92,8 +94,10 @@ test('rows carry no import scratch keys; imported labels/exclusions are captured
   for (const row of list.slice(0, 5)) {
     assert.ok(!('_importLabel' in row) && !('_importExcluded' in row));
   }
-  assert.strictEqual(r.importedPeakLabels.size, 1);
-  assert.strictEqual([...r.importedPeakLabels.values()][0], 'Cafe');
+  assert.deepStrictEqual(
+    [...r.importedPeakLabels.values()],
+    ['Cafe', 'Hidden'],
+  );
   assert.strictEqual(r.importedPeakExcluded.size, 1);
 });
 
@@ -131,4 +135,38 @@ test('OSM columns: present -> parsed; absent -> null/NaN', () => {
   assert.strictEqual(l[0].osm_road_class, 'primary');
   assert.strictEqual(l[0].osm_dist_water, 12.5);
   assert.ok(Number.isNaN(l[0].osm_dist_major_road));
+});
+
+test('processed-CSV reimport reads the Pre-Kalman fixes, not the filtered Latitude/Longitude', () => {
+  const header =
+    'Time (s),Raw Conductance (uS),Filtered Conductance (uS),Tonic Baseline (uS),Phasic Response (uS),IsPeak,PeakAmplitude,PeakLabel,PeakExcluded,Latitude,Longitude,Pre-Kalman Latitude,Pre-Kalman Longitude';
+  const rows = Array.from(
+    { length: 50 },
+    (_, i) =>
+      `${(i * 0.1).toFixed(1)},${1 + i * 0.01},1,1,0,0,,,,51.000000,0.000000,52.000000,1.000000`,
+  );
+  const r = GSRCSVParser.parse(csv(header, rows));
+  assert.strictEqual(r.raw[10].lat, 52);
+  assert.strictEqual(r.raw[10].lon, 1);
+});
+
+test('processed-CSV reimport without Pre-Kalman columns reads Latitude/Longitude', () => {
+  const header =
+    'Time (s),Raw Conductance (uS),Filtered Conductance (uS),Tonic Baseline (uS),Phasic Response (uS),IsPeak,PeakAmplitude,PeakLabel,PeakExcluded,Latitude,Longitude';
+  const rows = Array.from(
+    { length: 50 },
+    (_, i) =>
+      `${(i * 0.1).toFixed(1)},${1 + i * 0.01},1,1,0,0,,,,51.000000,0.500000`,
+  );
+  const r = GSRCSVParser.parse(csv(header, rows));
+  assert.strictEqual(r.raw[10].lat, 51);
+  assert.strictEqual(r.raw[10].lon, 0.5);
+});
+
+test('sample rate: one early logging gap does not skew the estimate', () => {
+  const times = [];
+  for (let i = 0; i < 120; i++) times.push(i * 0.1 + (i >= 20 ? 5 : 0)); // 5 s dropout at 2 s
+  const rows = times.map((t, i) => `${t.toFixed(1)},${1 + (i % 7) * 0.01}`);
+  const r = GSRCSVParser.parse(csv('timestamp,gsr_raw', rows));
+  assert.ok(Math.abs(r.sampleRate - 10) < 1e-6, `sampleRate ${r.sampleRate}`);
 });

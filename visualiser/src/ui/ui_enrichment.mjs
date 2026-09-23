@@ -224,7 +224,12 @@ export const EnrichmentUI = {
    * Orchestrates bounding box computation, Overpass fetching, and spatial enrichment.
    */
   async enrichTrack(forceFetch = false) {
-    if (this._enriching) return;
+    if (this._enriching) {
+      // A snap-radius / snap-toggle change mid-run: re-run once this one
+      // finishes so the new setting isn't silently dropped.
+      this._enrichRerunQueued = true;
+      return;
+    }
 
     const { allTracks, validTracks } = this.getSpatialTracks({
       silent: false,
@@ -421,6 +426,10 @@ export const EnrichmentUI = {
       btn.removeAttribute('disabled');
       btn.innerHTML = originalText;
       this._enriching = false;
+      if (this._enrichRerunQueued) {
+        this._enrichRerunQueued = false;
+        this.enrichTrack(false);
+      }
     }
   },
 

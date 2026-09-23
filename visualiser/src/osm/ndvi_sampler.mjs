@@ -43,6 +43,7 @@
  *     config.local.js only — never committed to git.
  */
 
+import { SafeStorage } from '../core/safe_storage.mjs';
 import { GeoUtils } from '../gps/geo_utils.mjs';
 import { OSMEnricher } from './osm_enrichment.mjs';
 
@@ -152,13 +153,8 @@ export const NDVISampler = {
    * @returns {string}
    */
   getInstanceId() {
-    if (
-      typeof localStorage !== 'undefined' &&
-      typeof localStorage.getItem === 'function'
-    ) {
-      const stored = localStorage.getItem('copernicus_instance_id');
-      if (stored?.trim()) return stored.trim();
-    }
+    const stored = SafeStorage.get('copernicus_instance_id');
+    if (stored?.trim()) return stored.trim();
     if (
       typeof window !== 'undefined' &&
       window.BIOMAP_CONFIG &&
@@ -177,13 +173,8 @@ export const NDVISampler = {
    * @returns {string}
    */
   getRawLayerId() {
-    if (
-      typeof localStorage !== 'undefined' &&
-      typeof localStorage.getItem === 'function'
-    ) {
-      const stored = localStorage.getItem('copernicus_raw_layer_id');
-      if (stored?.trim()) return stored.trim();
-    }
+    const stored = SafeStorage.get('copernicus_raw_layer_id');
+    if (stored?.trim()) return stored.trim();
     if (
       typeof window !== 'undefined' &&
       window.BIOMAP_CONFIG &&
@@ -199,13 +190,8 @@ export const NDVISampler = {
    * @returns {string}
    */
   getTimeRange() {
-    if (
-      typeof localStorage !== 'undefined' &&
-      typeof localStorage.getItem === 'function'
-    ) {
-      const stored = localStorage.getItem('copernicus_time_range');
-      if (stored?.trim()) return stored.trim();
-    }
+    const stored = SafeStorage.get('copernicus_time_range');
+    if (stored?.trim()) return stored.trim();
     if (
       typeof window !== 'undefined' &&
       window.BIOMAP_CONFIG &&
@@ -228,14 +214,9 @@ export const NDVISampler = {
    * Clear all locally saved Copernicus credentials from localStorage.
    */
   clearCredentials() {
-    if (
-      typeof localStorage !== 'undefined' &&
-      typeof localStorage.removeItem === 'function'
-    ) {
-      localStorage.removeItem('copernicus_instance_id');
-      localStorage.removeItem('copernicus_raw_layer_id');
-      localStorage.removeItem('copernicus_time_range');
-    }
+    SafeStorage.remove('copernicus_instance_id');
+    SafeStorage.remove('copernicus_raw_layer_id');
+    SafeStorage.remove('copernicus_time_range');
   },
 
   /**

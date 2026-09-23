@@ -20,6 +20,7 @@
  * (resolved at call time).
  */
 
+import { GSRNotices } from '../../core/notices.mjs';
 import { GSRLabelManager } from '../../render/label_placement.mjs';
 import { GSRUI } from '../../ui/ui.mjs';
 import { GSRMapMarkers } from '../map_markers.mjs';
@@ -240,7 +241,12 @@ export class GSRMapPeaks extends GSRMapPath {
     // the text on hover instead of dropping it with no trace.
     const marker = L.marker([lat, lon], { icon: simpleIcon });
     marker.setZIndexOffset(1000);
-    marker.bindTooltip(displayLabel, { direction: 'top', offset: [0, -6] });
+    // Leaflet renders a string tooltip as HTML, and labels can come from an
+    // imported CSV, so escape it.
+    marker.bindTooltip(GSRNotices.escapeHtml(displayLabel), {
+      direction: 'top',
+      offset: [0, -6],
+    });
     marker.hasLabel = true;
     return marker;
   }

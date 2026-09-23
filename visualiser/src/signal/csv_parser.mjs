@@ -53,6 +53,15 @@ export const GSRCSVParser = {
   },
 
   /**
+   * Peak-label text as stored and exported: trimmed, line breaks folded to
+   * spaces. parse() splits on newlines before it handles quotes, so a label
+   * with a pasted newline would otherwise split its row in the exported CSV.
+   */
+  cleanLabel(label) {
+    return (label || '').replace(/\s*[\r\n]+\s*/g, ' ').trim();
+  },
+
+  /**
    * Escape a value for CSV output using RFC4180-style double-quote escaping.
    * @param {*} val - Value to escape (null/undefined -> '')
    * @returns {string}
@@ -471,6 +480,12 @@ export const GSRCSVParser = {
       colIndices[colName] = -1;
     }
 
+    // A processed export carries both the Kalman-filtered Latitude/Longitude
+    // and the Pre-Kalman fixes. Re-import re-runs the GPS pipeline, so it must
+    // read the pre-Kalman fixes — the filtered ones would be filtered twice.
+    let preKalmanLat = -1;
+    let preKalmanLon = -1;
+
     // Map headers to canonical names
     for (let i = 0; i < headers.length; i++) {
       const h = headers[i];
@@ -490,10 +505,14 @@ export const GSRCSVParser = {
         // These are either firmware columns never written (vdop/wdop) or
         // legacy columns no longer in the canonical schema (alt).  Explicitly
         // skip so 'alt' doesn't false-match h.includes('lat') below.
+      } else if (h.startsWith('pre-kalman') && h.includes('lat')) {
+        preKalmanLat = i;
+      } else if (h.startsWith('pre-kalman') && h.includes('lon')) {
+        preKalmanLon = i;
       } else if (h.includes('lat')) {
-        colIndices.lat = i;
+        if (colIndices.lat === -1) colIndices.lat = i;
       } else if (h.includes('lon') || h.includes('lng')) {
-        colIndices.lon = i;
+        if (colIndices.lon === -1) colIndices.lon = i;
       }
       // The rest match exactly or via standard fallback
       else if (h === 'hdop') colIndices.hdop = i;
@@ -505,6 +524,10 @@ export const GSRCSVParser = {
       } else if (h.includes('sat')) colIndices.sats = i;
       else if (h === 'speed_kts') colIndices.speed_kts = i;
       else if (h === 'course_deg') colIndices.course_deg = i;
+    }
+    if (preKalmanLat !== -1 && preKalmanLon !== -1) {
+      colIndices.lat = preKalmanLat;
+      colIndices.lon = preKalmanLon;
     }
 
     // Processed-CSV column detection (re-imported data)
@@ -740,18 +763,20 @@ export const GSRCSVParser = {
         isGpsFixVal = cols[isGpsFixColIdx].trim() === '1';
       }
 
-      // Read peak label from processed-CSV re-import
-      if (
-        peakLabelColIndex !== -1 &&
+      // Read peak label / exclusion from processed-CSV re-import. A label is
+      // read on any row: one whose peak wasn't detected when the file was
+      // saved is written on a non-peak row (see AnalyzerExport.toCSV).
+      // Exclusion only means something on a peak row.
+      const rowIsPeak =
         isPeakColIndex !== -1 &&
-        cols[isPeakColIndex] &&
-        parseInt(cols[isPeakColIndex], 10) === 1
-      ) {
+        !!cols[isPeakColIndex] &&
+        parseInt(cols[isPeakColIndex], 10) === 1;
+      if (peakLabelColIndex !== -1 && (rowIsPeak || cols[peakLabelColIndex])) {
         const importedPeakLabel = (cols[peakLabelColIndex] || '')
           .replace(/^"|"$/g, '')
           .trim();
         const importedPeakExcluded =
-          peakExcludedColIndex !== -1 && cols[peakExcludedColIndex]
+          rowIsPeak && peakExcludedColIndex !== -1 && cols[peakExcludedColIndex]
             ? cols[peakExcludedColIndex].trim() === '1'
             : false;
         if (importedPeakLabel || importedPeakExcluded) {
@@ -1002,9 +1027,11 @@ export const GSRCSVParser = {
       const diff = rawDataList[i].time - rawDataList[i - 1].time;
       if (diff > 0) timeDiffs.push(diff);
     }
+    // Median, not mean: one logging gap near the start would drag a mean
+    // down (a 5 s dropout turns 10 Hz into ~6.7 Hz).
     if (timeDiffs.length > 0) {
-      const avgDiff = timeDiffs.reduce((a, b) => a + b, 0) / timeDiffs.length;
-      sampleRate = 1.0 / avgDiff;
+      timeDiffs.sort((a, b) => a - b);
+      sampleRate = 1.0 / timeDiffs[timeDiffs.length >> 1];
     }
 
     // Auto-detect Units and convert to MicroSiemens (uS)

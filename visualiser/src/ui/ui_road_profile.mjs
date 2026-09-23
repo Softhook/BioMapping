@@ -7,6 +7,10 @@
  * the environmental dashboard's road-profile enrichment data.
  */
 import { AppState } from '../core/app_state.mjs';
+import { GSRNotices } from '../core/notices.mjs';
+
+// Road classes come from OSM tags or an imported CSV — escape before innerHTML.
+const esc = (s) => GSRNotices.escapeHtml(s);
 
 export const RoadProfileUI = {
   /**
@@ -101,7 +105,7 @@ export const RoadProfileUI = {
       const fmt = (v) => v.toFixed(3);
       const tr = document.createElement('tr');
       tr.innerHTML = `
-        <td><span style="font-family: monospace; font-size: 0.8rem;">${p.name}</span></td>
+        <td><span style="font-family: monospace; font-size: 0.8rem;">${esc(p.name)}</span></td>
         <td>${p.timeSpent} s <span style="color: var(--text-muted); font-size: 0.78rem;">(~${p.effSamples} eff.)</span></td>
         <td>${fmt(p.meanPhasic)} μS</td>
         <td>${fmt(p.stdPhasic)} μS</td>
@@ -117,7 +121,7 @@ export const RoadProfileUI = {
       const percent =
         maxPhasicVal > 0 ? (p.meanPhasic / maxPhasicVal) * 100 : 0;
       barRow.innerHTML = `
-        <div class="road-bar-label" title="${p.name}">${p.name}</div>
+        <div class="road-bar-label" title="${esc(p.name)}">${esc(p.name)}</div>
         <div class="road-bar-track">
           <div class="road-bar-fill" style="width: ${percent}%;"></div>
         </div>
@@ -146,9 +150,9 @@ export const RoadProfileUI = {
         const diff =
           ((highest.meanPhasic - lowest.meanPhasic) / lowest.meanPhasic) * 100;
         lines.push(
-          `Your strongest arousal was on <strong>${highest.name}</strong> roads (${highest.meanPhasic.toFixed(3)} μS), ` +
+          `Your strongest arousal was on <strong>${esc(highest.name)}</strong> roads (${highest.meanPhasic.toFixed(3)} μS), ` +
             `which is <strong>${Math.abs(diff).toFixed(0)}% ${diff > 0 ? 'higher' : 'lower'}</strong> ` +
-            `than ${lowest.name} roads (${lowest.meanPhasic.toFixed(3)} μS).`,
+            `than ${esc(lowest.name)} roads (${lowest.meanPhasic.toFixed(3)} μS).`,
         );
       }
 
@@ -183,7 +187,7 @@ export const RoadProfileUI = {
           `⚠️ <strong>Low confidence:</strong> ${unreliable
             .map(
               (p) =>
-                `${p.name} (~${p.effSamples} independent samples, CI ±${p.ciPhasic.toFixed(3)})`,
+                `${esc(p.name)} (~${p.effSamples} independent samples, CI ±${p.ciPhasic.toFixed(3)})`,
             )
             .join(', ')} — treat these numbers as rough estimates.`,
         );
@@ -193,7 +197,7 @@ export const RoadProfileUI = {
           .slice()
           .sort((a, b) => b.effSamples - a.effSamples)[0];
         lines.push(
-          `✅ <strong>Most reliable:</strong> ${best.name} roads (~${best.effSamples} independent samples, CI ±${best.ciPhasic.toFixed(3)}) — the most trustworthy comparison point.`,
+          `✅ <strong>Most reliable:</strong> ${esc(best.name)} roads (~${best.effSamples} independent samples, CI ±${best.ciPhasic.toFixed(3)}) — the most trustworthy comparison point.`,
         );
       }
 
@@ -207,7 +211,7 @@ export const RoadProfileUI = {
           `${highVar
             .map(
               (p) =>
-                `<strong>${p.name}</strong> has high variability (Std Dev ${p.stdPhasic.toFixed(3)} μS) — ` +
+                `<strong>${esc(p.name)}</strong> has high variability (Std Dev ${p.stdPhasic.toFixed(3)} μS) — ` +
                 `some parts were very calm, others very reactive.`,
             )
             .join(' ')}`,
@@ -218,7 +222,7 @@ export const RoadProfileUI = {
           `${lowVar
             .map(
               (p) =>
-                `<strong>${p.name}</strong> is very consistent (Std Dev ${p.stdPhasic.toFixed(3)} μS) — ` +
+                `<strong>${esc(p.name)}</strong> is very consistent (Std Dev ${p.stdPhasic.toFixed(3)} μS) — ` +
                 `your arousal stayed steady throughout.`,
             )
             .join(' ')}`,

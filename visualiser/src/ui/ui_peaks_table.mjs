@@ -11,6 +11,7 @@ import { GSR_CONST } from '../core/constants.mjs';
 import { GSRNotices } from '../core/notices.mjs';
 import { GSRGlobe3DView } from '../map/globe3d_view.mjs';
 import { getQualityColor, getQualityLabel } from '../render/renderer.mjs';
+import { GSRCSVParser } from '../signal/csv_parser.mjs';
 import { GSRStorage } from './storage.mjs';
 
 export const PeaksTableUI = {
@@ -23,10 +24,12 @@ export const PeaksTableUI = {
 
     if (!analyzer?.peaks || idx >= analyzer.peaks.length) return;
     const pk = analyzer.peaks[idx];
-    const clean = label.trim();
-    pk.label = clean;
-    if (typeof analyzer.setPeakLabel === 'function') {
-      analyzer.setPeakLabel(pk.time, clean);
+    const clean = GSRCSVParser.cleanLabel(label);
+    if (typeof analyzer.relabelPeak === 'function') {
+      analyzer.relabelPeak(pk, clean);
+    } else {
+      pk.label = clean;
+      analyzer.setPeakLabel?.(pk.time, clean);
     }
     this._markUnsavedLabels(track);
 
@@ -72,9 +75,11 @@ export const PeaksTableUI = {
 
     // Update in-memory model (avoid trim during typing to allow trailing spaces)
     const pk = peaksArr[idx];
-    pk.label = value;
-    if (analyzer && typeof analyzer.setPeakLabel === 'function') {
-      analyzer.setPeakLabel(pk.time, value);
+    if (typeof analyzer?.relabelPeak === 'function') {
+      analyzer.relabelPeak(pk, value);
+    } else {
+      pk.label = value;
+      analyzer?.setPeakLabel?.(pk.time, value);
     }
     this._markUnsavedLabels(track);
 

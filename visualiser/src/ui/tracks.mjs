@@ -547,6 +547,9 @@ export const GSRTrackManager = {
     const S = AppState.sliders;
 
     for (const key of Object.keys(params)) {
+      // Params can come from an imported file: only touch real slider keys,
+      // never inherited ones like "__proto__" (would pollute Object.prototype).
+      if (!Object.hasOwn(S, key)) continue;
       if (
         key === 'useDeconvolution' ||
         key === 'useSparsEDA' ||

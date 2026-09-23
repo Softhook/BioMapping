@@ -213,7 +213,7 @@ export class GSRMapOsm extends GSRMapLegend {
             return tile;
           }
 
-          fetch(url)
+          fetch(url, { signal: AbortSignal.timeout(30000) })
             .then((r) =>
               r.ok
                 ? r.arrayBuffer()

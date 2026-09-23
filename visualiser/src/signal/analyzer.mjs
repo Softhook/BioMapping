@@ -268,7 +268,7 @@ export class GSRAnalyzer {
    */
   setPeakLabel(time, label) {
     if (time == null) return;
-    const cleanLabel = (label || '').trim();
+    const cleanLabel = GSRCSVParser.cleanLabel(label);
     const key = Number(time.toFixed(3));
     if (cleanLabel) {
       this._userPeakLabels.set(key, cleanLabel);
@@ -281,6 +281,64 @@ export class GSRAnalyzer {
       }
     }
     this._dataVersion++;
+  }
+
+  /**
+   * Pair each stored label with the detected peak showing it: same text,
+   * within 1 s, closest pairs first, each side used at most once. Two nearby
+   * peaks can carry the same text, so "any same-text peak within 1 s" would
+   * credit one peak with both entries.
+   * @returns {Map<number, object>} store key -> peak
+   * @private
+   */
+  _matchLabelEntriesToPeaks() {
+    const pairs = [];
+    for (const pk of this.peaks || []) {
+      const text = GSRCSVParser.cleanLabel(pk.label);
+      if (!text) continue;
+      for (const [t, stored] of this._userPeakLabels) {
+        const diff = Math.abs(pk.time - t);
+        if (stored === text && diff <= 1.0) pairs.push({ t, pk, diff });
+      }
+    }
+    pairs.sort((a, b) => a.diff - b.diff);
+    const byKey = new Map();
+    const usedPeaks = new Set();
+    for (const { t, pk } of pairs) {
+      if (byKey.has(t) || usedPeaks.has(pk)) continue;
+      byKey.set(t, pk);
+      usedPeaks.add(pk);
+    }
+    return byKey;
+  }
+
+  /**
+   * Set a detected peak's label from a user edit. Drops the store entry that
+   * held the peak's previous text first: after re-analysis a peak can sit up
+   * to 1 s from the time its label was stored under, so writing at peak.time
+   * alone would leave the old text behind as a hidden, still-exported label.
+   */
+  relabelPeak(peak, label) {
+    for (const [t, pk] of this._matchLabelEntriesToPeaks()) {
+      if (pk === peak) this._userPeakLabels.delete(t);
+    }
+    peak.label = label;
+    this.setPeakLabel(peak.time, label);
+  }
+
+  /**
+   * Stored labels with no detected peak showing them right now (e.g. the
+   * peak threshold was raised past it). They are still the user's labels and
+   * must be exported, or saving would silently drop them.
+   * @returns {Array<{time:number, label:string}>}
+   */
+  hiddenPeakLabels() {
+    const shown = this._matchLabelEntriesToPeaks();
+    const hidden = [];
+    for (const [t, text] of this._userPeakLabels) {
+      if (!shown.has(t)) hidden.push({ time: t, label: text });
+    }
+    return hidden;
   }
 
   /**
@@ -2161,6 +2219,7 @@ export class GSRAnalyzer {
         tonic: this.tonic,
         phasic: this.phasic,
         peaks: this.peaks,
+        hiddenLabels: this.hiddenPeakLabels(),
         filteredGps: this.filteredGps,
         isEnriched: this.isEnriched,
         enrichmentRadius: this.enrichmentRadius,

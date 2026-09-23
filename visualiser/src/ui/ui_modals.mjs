@@ -5,6 +5,8 @@
  *
  * Covers the Street View modal (tabbed embed + API key entry).
  */
+import { SafeStorage } from '../core/safe_storage.mjs';
+
 export const ModalsUI = {
   /**
    * Open the street-level imagery modal overlay at the given coordinates.
@@ -70,7 +72,7 @@ export const ModalsUI = {
 
     // Restore saved API key into input field
     const keyInput = document.getElementById('svApiKeyInput');
-    const savedKey = localStorage.getItem('bioMappingGoogleMapsKey');
+    const savedKey = SafeStorage.get('bioMappingGoogleMapsKey');
     if (keyInput && savedKey) {
       keyInput.value = savedKey;
     }
@@ -116,7 +118,7 @@ export const ModalsUI = {
     googleContainer.style.display = tab === 'google' ? '' : 'none';
 
     if (tab === 'google' && this._svLat != null && this._svLon != null) {
-      const apiKey = localStorage.getItem('bioMappingGoogleMapsKey');
+      const apiKey = SafeStorage.get('bioMappingGoogleMapsKey');
       if (apiKey) {
         googleIframeContainer.style.display = '';
         googleFallback.style.display = 'none';
@@ -163,7 +165,7 @@ export const ModalsUI = {
     if (!input) return;
     const key = input.value.trim();
     if (key) {
-      localStorage.setItem('bioMappingGoogleMapsKey', key);
+      SafeStorage.set('bioMappingGoogleMapsKey', key);
       if (msg) {
         msg.style.display = '';
         setTimeout(() => {

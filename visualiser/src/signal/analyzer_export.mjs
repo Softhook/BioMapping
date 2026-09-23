@@ -33,6 +33,7 @@ export const AnalyzerExport = {
       tonic,
       phasic,
       peaks,
+      hiddenLabels = [],
       filteredGps,
       isEnriched,
       enrichmentRadius,
@@ -135,6 +136,33 @@ export const AnalyzerExport = {
       peakByIndex.set(peaks[pi].index, peaks[pi]);
     }
 
+    // Labels whose peak isn't detected under the current settings go on the
+    // nearest row with no label of its own (IsPeak 0) so saving keeps them;
+    // re-import reads a PeakLabel on any row.
+    const hiddenLabelByRow = new Map();
+    const rowTaken = (i) =>
+      hiddenLabelByRow.has(i) || !!peakByIndex.get(i)?.label?.trim();
+    for (const { time, label } of hiddenLabels) {
+      let lo = 0;
+      let hi = raw.length - 1;
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (raw[mid].time < time) lo = mid + 1;
+        else hi = mid;
+      }
+      if (lo > 0 && time - raw[lo - 1].time < raw[lo].time - time) lo--;
+      for (let d = 0; d < raw.length; d++) {
+        if (lo + d < raw.length && !rowTaken(lo + d)) {
+          hiddenLabelByRow.set(lo + d, label);
+          break;
+        }
+        if (lo - d >= 0 && !rowTaken(lo - d)) {
+          hiddenLabelByRow.set(lo - d, label);
+          break;
+        }
+      }
+    }
+
     for (let i = 0; i < raw.length; i++) {
       let isPeak = 0;
       let peakAmp = '';
@@ -147,6 +175,8 @@ export const AnalyzerExport = {
         peakAmp = peak.amplitude.toFixed(4);
         peakLabel = peak.label || '';
         peakExcluded = peak.excluded ? '1' : '0';
+      } else if (hiddenLabelByRow.has(i)) {
+        peakLabel = hiddenLabelByRow.get(i);
       }
 
       let latVal = raw[i].lat;
@@ -186,7 +216,7 @@ export const AnalyzerExport = {
         `${phasic[i].val.toFixed(4)},` +
         `${isPeak},` +
         `${peakAmp},` +
-        `${GSRCSVParser._csvEscape(peakLabel)},` +
+        `${GSRCSVParser._csvEscape(GSRCSVParser.cleanLabel(peakLabel))},` +
         `${peakExcluded},` +
         `${latStr},` +
         `${lonStr}`;

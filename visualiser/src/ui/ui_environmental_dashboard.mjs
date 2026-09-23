@@ -770,8 +770,8 @@ export const EnvironmentalDashboardUI = {
         const fallbackTimes = [];
         for (const pk of a.peaks) {
           if (pk.excluded) continue;
-          if (pk.idx != null && pk.idx >= 0 && pk.idx < pLen) {
-            isPeak[pk.idx] = 1;
+          if (pk.index != null && pk.index >= 0 && pk.index < pLen) {
+            isPeak[pk.index] = 1;
           } else if (pk.time != null) {
             fallbackTimes.push(pk.time);
           }

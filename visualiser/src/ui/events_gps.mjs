@@ -85,7 +85,9 @@ export const GpsEvents = {
       });
     }
 
-    // Peak latency — re-render map only (no analysis needed)
+    // Peak latency — the map follows the drag; the environmental dashboard
+    // (junction permutation tests take seconds on a large collective) only
+    // recomputes on release.
     {
       const slider = document.getElementById('gpsPeakLatency');
       const label = document.getElementById('valGpsPeakLatency');
@@ -94,14 +96,16 @@ export const GpsEvents = {
         this.updateFilterDim(slider);
       };
       updateDim();
-      const runHeavyWork = this.rafCoalesce(() => {
+      const rerenderMap = this.rafCoalesce(() => {
         Controllers.ui?.rerenderMap();
-        Controllers.ui?.updateEnvironmentalDashboard?.();
       });
       slider.addEventListener('input', () => {
         label.innerText = fmt(parseFloat(slider.value));
         updateDim();
-        runHeavyWork();
+        rerenderMap();
+      });
+      slider.addEventListener('change', () => {
+        Controllers.ui?.updateEnvironmentalDashboard?.();
       });
     }
   },
