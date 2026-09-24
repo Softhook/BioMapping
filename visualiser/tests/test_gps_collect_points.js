@@ -155,3 +155,36 @@ test('_collectGpsPoints: full pipeline output (drawPoints) still carries every r
     );
   }
 });
+
+test('legacy `fix` column (GGA fix quality) is not read as fix_type — its fixes still draw', async () => {
+  // Pre-July-2026 firmware logged `fix` = GGA quality (1 = GPS fix) and no
+  // fix_type. Read as fix_type, 1 means "no fix" and the fix-type gate
+  // dropped every point of these recordings.
+  const { window, mapManager } = await boot();
+  const rows = Array.from({ length: 20 }, (_r, i) => {
+    const lat = (51.5074 + i * 0.00001).toFixed(6);
+    const lon = (-0.1278 + i * 0.00001).toFixed(6);
+    return `${(i * 1.0).toFixed(1)},${lat},${lon},50.0,9,1,10000`;
+  });
+  const analyzer = new window.GSRAnalyzer();
+  analyzer.parseCSV(
+    ['timestamp,lat,lon,alt,sats,fix,gsr_raw', ...rows].join('\n'),
+  );
+  assert.ok(
+    analyzer.raw.every((r) => !r.fixType),
+    'legacy `fix` must not populate fixType',
+  );
+  const { drawPoints } = mapManager._getOrBuildDrawPoints(
+    'legacy-track',
+    analyzer,
+    {
+      maxHdop: 3.0,
+      smoothing: 0.5,
+      kalmanR: 10,
+      maxSpeed: 30.0,
+      rdpTolerance: 0,
+      downsample: false,
+    },
+  );
+  assert.ok(drawPoints.length > 0, 'legacy recording draws a GPS path');
+});

@@ -64,7 +64,11 @@ export const GpsFilter = {
    * filter holds the last known-good coordinates but advances the timestamp.
    * This keeps the spatial reference correct while preventing an unbounded
    * gap in the timeline.  A genuinely sustained fast-movement event will
-   * clear naturally once the GPS returns to a plausible speed.
+   * clear naturally once the Doppler speed returns to a plausible value.
+   * Position-derived speed is measured FROM the held point, so it can never
+   * return to plausible after a real jump (a re-acquisition) — every later
+   * fix would be rejected and re-held there, freezing the rest of the track.
+   * In that case recovery re-anchors at the current fix instead.
    */
   applySpeedFilter(points, maxSpeed) {
     if (!maxSpeed || isNaN(maxSpeed) || maxSpeed <= 0 || points.length < 2)
@@ -83,7 +87,8 @@ export const GpsFilter = {
       // Fall back to position-derived haversine/dt for sub-epoch steps.
       let speed;
       const dt = Math.max(0.001, curr.time - prev.time);
-      if (!isNaN(curr.speedKts) && dt >= 0.15) {
+      const doppler = !isNaN(curr.speedKts) && dt >= 0.15;
+      if (doppler) {
         speed = curr.speedKts * 0.514444; // knots → m/s
       } else {
         const dist = GeoUtils.haversineMeters(
@@ -101,7 +106,7 @@ export const GpsFilter = {
       } else {
         consecutiveRejections++;
         if (consecutiveRejections >= 10) {
-          kept.push({ ...curr, lat: prev.lat, lon: prev.lon });
+          kept.push(doppler ? { ...curr, lat: prev.lat, lon: prev.lon } : curr);
           consecutiveRejections = 0;
         }
       }

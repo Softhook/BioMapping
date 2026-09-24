@@ -102,6 +102,30 @@ test('applySpeedFilter: activates recovery latch after 10 consecutive rejections
   );
 });
 
+test('applySpeedFilter: without Doppler, recovery re-anchors at the new position instead of freezing the track', () => {
+  // A 1 m/s walk with one real ~22 m re-acquisition jump at t=5 and no
+  // speedKts (older CSVs). Position-derived speed is measured from the held
+  // point, so holding it would reject — and re-hold — every later fix.
+  const points = [];
+  for (let i = 0; i <= 40; i++) {
+    const jump = i >= 5 ? 0.0002 : 0; // ~22 m north
+    points.push({ lat: 51.5 + jump + i * 0.000009, lon: -0.1, time: i });
+  }
+
+  const filtered = GpsFilter.applySpeedFilter(points, 3.0);
+  const last = filtered[filtered.length - 1];
+  assert.strictEqual(last.time, 40, 'the walk keeps its later fixes');
+  assert.strictEqual(
+    last.lat,
+    points[40].lat,
+    'later fixes keep their own position, not the pre-jump one',
+  );
+  assert.ok(
+    filtered.length > 30,
+    `only the fixes before recovery are dropped (${filtered.length})`,
+  );
+});
+
 // ── applyKalman ─────────────────────────────────────────────────────────────
 
 test('applyKalman: returns points unmodified for invalid noise parameters or single point', () => {

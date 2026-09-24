@@ -252,8 +252,9 @@ test('GSRAnalyzer parseCSV: canonical column synonyms (sec/latitude/longitude/ns
   // speed_kts / course_deg
   assert.strictEqual(a.raw[0].speedKts, 3.2);
   assert.strictEqual(a.raw[0].course, 270);
-  // 'fix' -> fix_type fallback (older schema)
-  assert.strictEqual(a.raw[0].fixType, 3);
+  // Older firmware's 'fix' is GGA fix quality, not fix_type (1 = GPS fix
+  // there, "no fix" in fix_type) — it must not be read as one.
+  assert.strictEqual(a.raw[0].fixType, 0);
 });
 
 test('GSRAnalyzer parseCSV: longitude lng synonym and explicit is_gps_fix column', () => {

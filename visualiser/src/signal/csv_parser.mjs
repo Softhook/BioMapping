@@ -553,7 +553,9 @@ export const GSRCSVParser = {
       else if (h === 'hacc_m') colIndices.hacc_m = i;
       else if (h === 'fix_type') colIndices.fix_type = i;
       else if (h === 'fix') {
-        if (colIndices.fix_type === -1) colIndices.fix_type = i; // fallback for older schema
+        // Older firmware's GGA fix quality (0 none, 1 GPS, 2 DGPS), not the
+        // GSA fix_type (1 = no fix): read as fix_type, every ordinary fix
+        // fails the fix-type gate. A no-fix row already has no lat/lon.
       } else if (h.includes('sat')) colIndices.sats = i;
       else if (h === 'speed_kts') colIndices.speed_kts = i;
       else if (h === 'course_deg') colIndices.course_deg = i;

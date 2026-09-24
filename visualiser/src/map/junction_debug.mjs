@@ -61,9 +61,10 @@ export const JunctionDebug = {
 
   _analyzers() {
     if (AppState.viewMode === 'collective') {
-      return (AppState.collectiveManager?.tracks || [])
-        .filter((t) => t.visible !== false)
-        .map((t) => ({ id: t.id, a: t.analyzer }));
+      return (AppState.collectiveManager?.getActiveTracks() || []).map((t) => ({
+        id: t.id,
+        a: t.analyzer,
+      }));
     }
     return AppState.analyzer ? [{ id: 'current', a: AppState.analyzer }] : [];
   },
@@ -166,7 +167,8 @@ export const JunctionDebug = {
               `track ${id}, t=${Math.round(p.time)}<br>` +
               `degree ${p.degree}, turn ${fmt(p.turnAngleDeg)} ` +
               `(raw ${fmt(p.rawTurnAngleDeg)})<br>` +
-              `in ${p.inClass ?? '–'} → out ${p.outClass ?? '–'}<br>` +
+              `in ${GSRNotices.escapeHtml(p.inClass ?? '–')} → ` +
+              `out ${GSRNotices.escapeHtml(p.outClass ?? '–')}<br>` +
               `ways here:<br>&nbsp;&nbsp;${describeWays(p.key) || '–'}`,
           )
           .addTo(group);
