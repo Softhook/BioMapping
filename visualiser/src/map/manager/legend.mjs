@@ -101,7 +101,7 @@ export class GSRMapLegend extends GSRMapViewport {
         arousalIndex: 'Combined Arousal Index',
         triIndex: 'Tri Index',
         edasymp: 'EDASymp',
-        responseDynamics: 'Response Dynamics (Speed)',
+        responseDynamics: 'Rise Speed',
         em_fog: 'EM Fog Index (0-100)',
         hdopQuality: 'GPS Accuracy (HDOP)',
       };
@@ -154,10 +154,7 @@ export class GSRMapLegend extends GSRMapViewport {
           <div class="legend-title">${title}</div>
           <div class="legend-scale">
             <div class="legend-gradient" style="background: ${gradientCss};"></div>
-            <div class="legend-labels"><span>0.50x (Slow)</span><span>1.50x (Fast)</span></div>
-          </div>
-          <div class="legend-note" style="margin-top: 6px; font-size: 11px; color: #64748b;">
-            Active peaks only (resting track transparent)
+            <div class="legend-labels"><span>Drawn-out</span><span>Sharp</span></div>
           </div>`;
       } else {
         // Continuous metrics — build gradient bar

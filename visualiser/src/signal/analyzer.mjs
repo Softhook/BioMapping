@@ -79,6 +79,7 @@ export class GSRAnalyzer {
     // amplitude — GSR_CONST.DRIVER_UNIT_BY_ALGORITHM carries the display unit
     // for each. Null when no driver is populated.
     this._driverAlgorithm = null;
+    this._sparsedaKinetics = null; // SparsEDA band kernels, for peak rise times
     this.sparsedaStats = null;
     this.responseDynamics = [];
 
@@ -1315,6 +1316,9 @@ export class GSRAnalyzer {
             index: i,
             time: times[i],
             amplitude: result.driver[i],
+            height: meta ? meta.height : result.driver[i],
+            onsetSec: meta ? meta.onsetSec : i / this.sampleRate,
+            bandAmps: meta ? meta.bandAmps : null,
             bandIdx: meta ? meta.bandIdx : 2,
             durationScale: meta ? meta.durationScale : 1.0,
             scaleFactor: meta ? meta.scaleFactor : 1.0,
@@ -1322,6 +1326,13 @@ export class GSRAnalyzer {
           });
         }
       }
+      this._sparsedaKinetics = result.bandKernels
+        ? {
+            bandKernels: result.bandKernels,
+            workRate: result.workRate,
+            signal: deconvInput,
+          }
+        : null;
       reconstructionImpulses = this.phasicDriverPeaks.map(
         ({ index, amplitude }) => ({ index, amplitude }),
       );
@@ -1638,7 +1649,8 @@ export class GSRAnalyzer {
   }
 
   /**
-   * Annotate detected peaks with SparsEDA scale factor, speed label, and band index,
+   * Annotate detected peaks with SparsEDA response speed (from each peak's
+   * measured rise time — see ResponseDynamics.REFERENCE_RISE_SEC) and band index,
    * and compute track-level summary dynamics statistics.
    * Delegated to the ResponseDynamics domain module.
    * @private
@@ -1650,6 +1662,7 @@ export class GSRAnalyzer {
       this.peaks,
       this.phasicDriverPeaks,
       this.sampleRate,
+      this._sparsedaKinetics,
     );
   }
 

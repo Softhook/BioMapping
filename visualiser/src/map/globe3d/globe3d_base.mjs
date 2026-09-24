@@ -1540,25 +1540,13 @@ export class GSRGlobeBase {
     if (discrete) {
       if (metric === 'responseDynamics') {
         const RD = ResponseDynamics;
-        const speedColors = RD
-          ? RD.SPEED_COLORS
-          : {
-              'Very Slow': '#8b5cf6',
-              Slow: '#3b82f6',
-              Standard: '#10b981',
-              Fast: '#f97316',
-              'Very Fast': '#ef4444',
-            };
+        const bandColors = RD
+          ? RD.BANDS.map((b) => b.color)
+          : ['#8b5cf6', '#3b82f6', '#10b981', '#f97316', '#ef4444'];
         const colors = [
           Cesium.Color.TRANSPARENT,
-          Cesium.Color.fromCssColorString(speedColors['Very Slow']).withAlpha(
-            0.85,
-          ),
-          Cesium.Color.fromCssColorString(speedColors.Slow).withAlpha(0.85),
-          Cesium.Color.fromCssColorString(speedColors.Standard).withAlpha(0.85),
-          Cesium.Color.fromCssColorString(speedColors.Fast).withAlpha(0.85),
-          Cesium.Color.fromCssColorString(speedColors['Very Fast']).withAlpha(
-            0.85,
+          ...bandColors.map((c) =>
+            Cesium.Color.fromCssColorString(c).withAlpha(0.85),
           ),
         ];
         const indexOf = (v) =>

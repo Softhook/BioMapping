@@ -362,7 +362,7 @@ export const RendererInteraction = {
     // deconvolved driver (see analyzer.computePhasicAUC).
     const lowerLabel =
       lowerMode === 'responseDynamics'
-        ? 'Dynamics:'
+        ? 'Rise speed:'
         : lowerCfg.label +
           (lowerMode === 'phasicAUC' && AppState.analyzer.phasicAUCIsISCR
             ? ' (ISCR)'

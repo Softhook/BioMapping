@@ -25,6 +25,17 @@ import { ResponseDynamics } from './response_dynamics.mjs';
 
 export const SCRDeconvolution = {
   /**
+   * SparsEDA dictionary time-stretch factors (1.0 = the canonical kernel,
+   * 0.5 = twice as fast). The slowest rises in ~1.4 s, quicker than many
+   * real SCRs (~1-3 s), but adding slower kernels (2x, 2.5x) lets the solver
+   * merge neighbouring responses into one drawn-out atom: ground-truth F1
+   * fell .81 -> .78. So detection keeps these five and rise time is measured
+   * on the signal instead (ResponseDynamics.measurePeakRise). Override per
+   * call with opts.stretches.
+   */
+  REFERENCE_STRETCHES: [0.5, 0.75, 1.0, 1.25, 1.5],
+
+  /**
    * Build the canonical bi-exponential SCRF kernel sampled at the given rate.
    *
    * @param {number} sampleRate - Sampling rate in Hz (e.g. 10).
@@ -195,14 +206,14 @@ export const SCRDeconvolution = {
     tauSlow = 2.0,
     tauFast = 0.5,
     kernelSec = 10.0,
+    srFactors = this.REFERENCE_STRETCHES,
   ) {
     const durationR = 70;
     const Lreg = Math.round(20 * sampleRate * 3);
     const N = Math.round(durationR * sampleRate);
     const T = 6;
-    const columns = new Array(T + 5 * Lreg);
+    const columns = new Array(T + srFactors.length * Lreg);
     const bandKernels = [];
-    const srFactors = [0.5, 0.75, 1.0, 1.25, 1.5];
 
     for (let band = 0; band < srFactors.length; band++) {
       const srF = sampleRate * srFactors[band];
@@ -812,6 +823,7 @@ export const SCRDeconvolution = {
       kernelSec,
       opts.strictReference || false,
       opts.zeroBaseline || false,
+      opts.stretches ?? this.REFERENCE_STRETCHES,
     );
   },
 
@@ -832,6 +844,7 @@ export const SCRDeconvolution = {
     kernelSec = 10.0,
     strictReference = false,
     zeroBaseline = false,
+    stretches = this.REFERENCE_STRETCHES,
   ) {
     const n = phasic.length;
     if (n === 0) {
@@ -905,11 +918,13 @@ export const SCRDeconvolution = {
       tauSlow,
       tauFast,
       kernelSec,
+      stretches,
     );
+    const nBands = bandKernels.length;
     const Ns = signalAdd.length;
     const sclAux = new Float64Array(Ns);
     const driverAux = new Float64Array(Ns);
-    const bandAux = Array.from({ length: 5 }, () => new Float64Array(Ns));
+    const bandAux = Array.from({ length: nBands }, () => new Float64Array(Ns));
     const resAux = new Float64Array(Ns);
     // zeroBaseline only: the summed response of atoms already committed by
     // earlier windows. Their kernels decay on into later windows; unless that
@@ -1015,12 +1030,12 @@ export const SCRDeconvolution = {
       }
       const driverChunk = new Float64Array(Lreg);
       const bandChunks = Array.from(
-        { length: 5 },
+        { length: nBands },
         () => new Float64Array(Lreg),
       );
       for (let offset = 0; offset < Lreg; offset++) {
         let sum = 0;
-        for (let band = 0; band < 5; band++) {
+        for (let band = 0; band < nBands; band++) {
           const coeff = beta[T + band * Lreg + offset];
           bandChunks[band][offset] = coeff;
           sum += coeff;
@@ -1037,7 +1052,7 @@ export const SCRDeconvolution = {
 
       if (committed) {
         for (let offset = 0; offset < chunkLen; offset++) {
-          for (let band = 0; band < 5; band++) {
+          for (let band = 0; band < nBands; band++) {
             const amp = bandChunks[band][offset];
             if (amp <= 0) continue;
             const kern = bandKernels[band];
@@ -1050,7 +1065,7 @@ export const SCRDeconvolution = {
 
       driverAux.set(driverChunk.subarray(0, chunkLen), start);
       sclAux.set(scl.subarray(0, chunkLen), start);
-      for (let band = 0; band < 5; band++)
+      for (let band = 0; band < nBands; band++)
         bandAux[band].set(bandChunks[band].subarray(0, chunkLen), start);
       resAux.set(remAout.subarray(0, chunkLen), start);
       return chunkLen;
@@ -1112,7 +1127,7 @@ export const SCRDeconvolution = {
         if (lo > 0 && idx - keptSorted[lo - 1] <= Math.abs(k - idx))
           k = keptSorted[lo - 1];
         driverWork[k] += driverWorkRaw[idx];
-        for (let band = 0; band < 5; band++) {
+        for (let band = 0; band < nBands; band++) {
           bandWork[band][k] += bandWorkRaw[band][idx];
           bandWork[band][idx] = 0;
         }
@@ -1135,7 +1150,7 @@ export const SCRDeconvolution = {
     // and that response is never seen. Production only: the reference has no
     // such term, and its clean must stay consistent with the rho-pruned driver.
     for (let idx = 0; !strictReference && idx < pointerS; idx++) {
-      for (let band = 0; band < 5; band++) {
+      for (let band = 0; band < nBands; band++) {
         const amp = bandAux[band][idx];
         if (!(amp > 0)) continue;
         const kernel = bandKernels[band];
@@ -1148,7 +1163,7 @@ export const SCRDeconvolution = {
     }
     for (let idx = 0; idx < driverWork.length; idx++) {
       if (driverWork[idx] <= 0) continue;
-      for (let band = 0; band < 5; band++) {
+      for (let band = 0; band < nBands; band++) {
         const amp = bandWork[band][idx];
         if (amp <= 0) continue;
         const kernel = bandKernels[band];
@@ -1167,48 +1182,82 @@ export const SCRDeconvolution = {
     const tonic = this._linearResampleBack(tonicWork, workRate, n, sampleRate);
     const mse = this._linearResampleBack(mseWork, workRate, n, sampleRate);
 
-    const SCALE_FACTORS = ResponseDynamics?.SCALE_FACTORS
-      ? ResponseDynamics.SCALE_FACTORS
-      : [0.5, 0.75, 1.0, 1.25, 1.5];
-    const SPEED_LABELS = ResponseDynamics?.SPEED_LABELS
-      ? ResponseDynamics.SPEED_LABELS
-      : ['Very Slow', 'Slow', 'Standard', 'Fast', 'Very Fast'];
     const scale = sampleRate / workRate;
 
-    // Track dominant dictionary band for each driver activation
-    const workDominantBands = new Map();
+    // Track dominant dictionary band for each driver activation. Every band
+    // kernel is scaled to unit energy, so a slower (longer) kernel has a lower
+    // peak and needs a larger coefficient for the same bump: compare bands by
+    // the height each one contributes (coefficient × kernel peak), not by raw
+    // coefficient, or the choice is biased towards the slow bands.
+    const bandPeakHeight = bandKernels.map((k) => {
+      let m = 0;
+      for (let i = 0; i < k.length; i++) if (k[i] > m) m = k[i];
+      return m;
+    });
+    const templateRise = bandKernels.map(
+      (_, b) =>
+        ResponseDynamics.measureBump(
+          [
+            {
+              onsetSec: 0,
+              bandAmps: bandKernels.map((__, j) => (j === b ? 1 : 0)),
+            },
+          ],
+          bandKernels,
+          workRate,
+        ).rise,
+    );
+    const workDominant = new Map();
     for (let i = 0; i < driverWork.length; i++) {
       if (driverWork[i] <= 0) continue;
       let dominantBand = 2;
-      let maxAmp = -1;
-      for (let b = 0; b < 5; b++) {
-        if (bandWork[b][i] > maxAmp) {
-          maxAmp = bandWork[b][i];
+      let maxHeight = -1;
+      let height = 0;
+      for (let b = 0; b < nBands; b++) {
+        const h = Math.max(0, bandWork[b][i]) * bandPeakHeight[b];
+        height += h;
+        if (h > maxHeight) {
+          maxHeight = h;
           dominantBand = b;
         }
       }
       const targetIdx = Math.max(0, Math.min(n - 1, Math.round(i * scale)));
-      workDominantBands.set(targetIdx, dominantBand);
+      workDominant.set(targetIdx, {
+        band: dominantBand,
+        height,
+        onsetSec: i / workRate,
+        bandAmps: bandWork.map((arr) => Math.max(0, arr[i])),
+      });
     }
 
     const impulseLog = Array.from(driver)
       .map((amp, i) => {
         if (amp <= 0) return null;
-        const bandIdx = workDominantBands.has(i) ? workDominantBands.get(i) : 2;
-        // Dictionary band b stretches the kernel in time by SCALE_FACTORS[b]
-        // (0.5 = compressed, the FASTEST response; 1.5 = the slowest). The
-        // speed factor ResponseDynamics works in is the mirror image (1.5 =
-        // "Very Fast"), so the two are carried separately: durationScale for
-        // kernel geometry (apex prediction), scaleFactor/speedLabel for speed.
-        const speedIdx = SCALE_FACTORS.length - 1 - bandIdx;
+        const dom = workDominant.get(i);
+        const bandIdx = dom ? dom.band : 2;
+        const height = dom ? dom.height : amp;
+        // Band b stretches the kernel in time by stretches[b] (0.5 = the
+        // fastest response). The atom's own speed uses the same rule as a
+        // peak's (ResponseDynamics.speedFor): its dominant kernel's rise time,
+        // relative to what is typical for its height. Peaks are normally
+        // labelled from their rebuilt bump instead; this is the fallback.
+        const speed = ResponseDynamics.speedFor(templateRise[bandIdx], height);
         return {
           clampedIndex: i,
           trueIndex: i,
           amplitude: amp,
+          // Peak height of this atom's bump in signal units (summed over
+          // bands) — comparable across bands, unlike `amplitude`.
+          height,
+          // Exact onset time and per-band coefficients, so the response's
+          // own bump can be rebuilt from bandKernels (see
+          // ResponseDynamics.riseTimeOf).
+          onsetSec: dom ? dom.onsetSec : i / sampleRate,
+          bandAmps: dom ? dom.bandAmps : null,
           bandIdx,
-          durationScale: SCALE_FACTORS[bandIdx],
-          scaleFactor: SCALE_FACTORS[speedIdx],
-          speedLabel: SPEED_LABELS[speedIdx],
+          durationScale: stretches[bandIdx],
+          scaleFactor: speed.scaleFactor,
+          speedLabel: speed.speedLabel,
         };
       })
       .filter(Boolean);
@@ -1221,6 +1270,8 @@ export const SCRDeconvolution = {
       kernel: canonicalKernel,
       iterations: totalIterations,
       impulseLog,
+      bandKernels,
+      workRate,
       converged: !truncated,
       applyRescale: false,
     };

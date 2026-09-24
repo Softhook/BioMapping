@@ -251,11 +251,14 @@ export function draw() {
         ] || GSR_CONST.DRIVER_UNIT_BY_ALGORITHM.matching_pursuit
       : null;
 
+  // Rise Speed plots the phasic (coloured by speed), so it scales to the
+  // phasic's range, not the speed-factor series'.
+  const rangeKey = lowerMode === 'responseDynamics' ? 'phasic' : lowerMode;
   let yMinLower = lowerCfg.allowNegative ? Infinity : 0;
   let yMaxLower;
-  if (viewCoversMost && global?.[lowerMode]) {
-    yMaxLower = global[lowerMode].max;
-    if (lowerCfg.allowNegative) yMinLower = global[lowerMode].min;
+  if (viewCoversMost && global?.[rangeKey]) {
+    yMaxLower = global[rangeKey].max;
+    if (lowerCfg.allowNegative) yMinLower = global[rangeKey].min;
   } else {
     yMaxLower = -Infinity;
     for (let i = idxStart; i <= idxEnd; i++) {

@@ -83,7 +83,7 @@ export const StatsPanelUI = {
 
   /**
    * The 'responseDynamics' graph view and map coloring metric plot the continuous
-   * response speed multiplier computed during SparsEDA deconvolution.
+   * rise-speed factor computed for SparsEDA peaks (see ResponseDynamics).
    * Enable the dropdown option in both #graphView and #mapColoringMetric only when
    * SparsEDA is active; if either is the current selection when the user switches
    * away from SparsEDA, fall back cleanly to 'signal' (graph) or 'gsr' (map).

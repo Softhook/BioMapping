@@ -411,10 +411,12 @@ export const RendererChrome = {
       if (nearPeak.speedLabel) {
         const speedY = slopeY + 15;
         textAlign(LEFT, TOP);
-        text('Speed:', boxX + pad, speedY);
+        text('Rise speed:', boxX + pad, speedY);
         textAlign(RIGHT, TOP);
         text(
-          `${nearPeak.speedLabel} (${nearPeak.scaleFactor || 1}x)`,
+          nearPeak.possibleArtefact
+            ? `${nearPeak.speedLabel} — check contact`
+            : `${nearPeak.speedLabel} (${nearPeak.scaleFactor || 1}x)`,
           boxX + boxW - pad,
           speedY,
         );

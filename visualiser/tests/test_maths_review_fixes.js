@@ -75,10 +75,11 @@ test('SparsEDA labels a fast (time-compressed) SCR fast and a slow one slow', ()
     r.impulseLog
       .filter((e) => Math.abs(e.trueIndex / fs - t0) < 3)
       .sort((a, b) => b.amplitude - a.amplitude)[0];
-  assert.strictEqual(near(20).speedLabel, 'Very Fast');
+  // Speed runs opposite to the kernel stretch: the compressed one is fastest.
+  assert.strictEqual(near(20).speedLabel, 'Sharp');
   assert.strictEqual(near(20).durationScale, 0.5);
-  assert.strictEqual(near(70).speedLabel, 'Very Slow');
   assert.strictEqual(near(70).durationScale, 1.5);
+  assert.ok(near(70).scaleFactor < near(20).scaleFactor);
 });
 
 test('matching-pursuit reconstruction excludes impulses below peakThreshold', () => {

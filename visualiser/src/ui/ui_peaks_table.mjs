@@ -355,12 +355,19 @@ export const PeaksTableUI = {
       const speedBadge = p.speedLabel
         ? '<span class="badge-speed speed-' +
           p.speedLabel.toLowerCase().replace(/\s+/g, '-') +
-          '" title="SparsEDA dynamics: ' +
+          (p.possibleArtefact ? ' speed-check' : '') +
+          '" title="Rise speed: ' +
           p.speedLabel +
+          (p.speedRiseTime ? ', rose in ' + p.speedRiseTime + ' s' : '') +
           ' (' +
           (p.scaleFactor || 1) +
-          'x)">' +
+          'x typical for its size; 1-3 s is normal)' +
+          (p.possibleArtefact
+            ? '. Very sharp rise: check for electrode movement or pressure.'
+            : '') +
+          '">' +
           p.speedLabel +
+          (p.possibleArtefact ? ' ?' : '') +
           '</span>'
         : '';
 

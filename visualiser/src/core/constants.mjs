@@ -422,10 +422,10 @@ export const GSR_CONST = {
       showPeakOverlay: false,
       allowNegative: false,
     },
-    // SparsEDA Response Dynamics — Phasic SCR amplitude colored by autonomic response speed.
-    // Height represents Phasic amplitude (μS); colour indicates multi-scale dilation speed (0.50x to 1.50x).
+    // SparsEDA rise speed — Phasic SCR amplitude coloured by how quickly each
+    // response rose, relative to typical for its size (see ResponseDynamics).
     responseDynamics: {
-      label: 'Response Dynamics (Speed)',
+      label: 'Rise Speed',
       unit: 'μS',
       decimals: 3,
       colorVar: '--color-response-dynamics',
@@ -435,17 +435,9 @@ export const GSR_CONST = {
     },
   },
 
-  // Color mapping for SparsEDA multi-scale speed categories across UI, graph, and map.
-  // Defined canonically in ResponseDynamics (src/signal/response_dynamics.js).
-  SPARSEDA_SPEED_COLORS: ResponseDynamics?.SPEED_COLORS
-    ? ResponseDynamics.SPEED_COLORS
-    : {
-        'Very Fast': '#ef4444', // 1.5x (Vivid Red / Acute shock)
-        Fast: '#f97316', // 1.25x (Vibrant Orange)
-        Standard: '#10b981', // 1.0x (Emerald Green / Habitual)
-        Slow: '#3b82f6', // 0.75x (Vivid Blue)
-        'Very Slow': '#8b5cf6', // 0.5x (Deep Purple / Lingering tension)
-      },
+  // Colour for each SparsEDA rise-speed category across UI, graph, and map.
+  // Defined canonically in ResponseDynamics (src/signal/response_dynamics.mjs).
+  SPARSEDA_SPEED_COLORS: ResponseDynamics.SPEED_COLORS,
 
   // Display unit for the 'phasicDriver' graph view, keyed by
   // analyzer._driverAlgorithm — the two detectors' "driver" arrays are not

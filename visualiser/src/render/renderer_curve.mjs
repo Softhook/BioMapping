@@ -277,7 +277,7 @@ export const RendererCurve = {
   },
 
   /**
-   * Draw the Phasic curve with segments and filled area colored by Response Dynamics speed.
+   * Draw the Phasic curve with segments and filled area coloured by rise speed (ResponseDynamics).
    * Height represents Phasic amplitude (μS).
    * Resting baseline intervals are drawn in a soft, muted baseline color.
    * Active response intervals are filled and stroked in their respective speed colors (Red, Orange, Green, Blue, Purple).

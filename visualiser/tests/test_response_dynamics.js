@@ -17,25 +17,21 @@ const { MapColors } = require('../src/map/map_colors.mjs');
 const { GSRAnalyzer } = require('../src/signal/analyzer.mjs');
 
 test('Response Dynamics: ResponseDynamics domain module unit tests', () => {
-  // 1. Canonical scales & labels
-  assert.deepStrictEqual(
-    ResponseDynamics.SCALE_FACTORS,
-    [0.5, 0.75, 1.0, 1.25, 1.5],
-  );
+  // 1. Canonical labels (ascending speed factor)
   assert.deepStrictEqual(ResponseDynamics.SPEED_LABELS, [
-    'Very Slow',
-    'Slow',
-    'Standard',
-    'Fast',
-    'Very Fast',
+    'Very drawn-out',
+    'Drawn-out',
+    'Typical',
+    'Brief',
+    'Sharp',
   ]);
 
   // 2. Band resolution
-  assert.strictEqual(ResponseDynamics.getBand(0.5).label, 'Very Slow');
-  assert.strictEqual(ResponseDynamics.getBand(0.75).label, 'Slow');
-  assert.strictEqual(ResponseDynamics.getBand(1.0).label, 'Standard');
-  assert.strictEqual(ResponseDynamics.getBand(1.25).label, 'Fast');
-  assert.strictEqual(ResponseDynamics.getBand(1.5).label, 'Very Fast');
+  assert.strictEqual(ResponseDynamics.getBand(0.5).label, 'Very drawn-out');
+  assert.strictEqual(ResponseDynamics.getBand(0.75).label, 'Drawn-out');
+  assert.strictEqual(ResponseDynamics.getBand(1.0).label, 'Typical');
+  assert.strictEqual(ResponseDynamics.getBand(1.25).label, 'Brief');
+  assert.strictEqual(ResponseDynamics.getBand(1.5).label, 'Sharp');
   assert.strictEqual(ResponseDynamics.getBand(0.0), null);
   assert.strictEqual(ResponseDynamics.getBand(-1.0), null);
   assert.strictEqual(ResponseDynamics.getBand(NaN), null);
@@ -60,39 +56,126 @@ test('Response Dynamics: ResponseDynamics domain module unit tests', () => {
   assert.strictEqual(tipRest.valueStr, 'Resting');
   assert.strictEqual(tipRest.color, '#999999');
 
-  const tipFast = ResponseDynamics.formatTooltip(1.25);
-  assert.strictEqual(tipFast.valueStr, '1.25x (Fast)');
-  assert.strictEqual(tipFast.color, '#f97316');
+  const tipBrief = ResponseDynamics.formatTooltip(1.25);
+  assert.strictEqual(tipBrief.valueStr, '1.25x (Brief)');
+  assert.strictEqual(tipBrief.color, '#f97316');
 
-  // 6. Peak tagging & statistics
+  // 6. Peak tagging & statistics (fallback path: no kernels, so the
+  // strongest atom's own label is used)
   const dummyPeaks = [
     { index: 10, amplitude: 0.5 },
     { index: 50, amplitude: 0.8 },
   ];
   const dummyDrivers = [
-    {
-      index: 8,
-      amplitude: 0.5,
-      speedLabel: 'Very Fast',
-      scaleFactor: 1.5,
-      bandIdx: 4,
-    },
-    {
-      index: 48,
-      amplitude: 0.8,
-      speedLabel: 'Slow',
-      scaleFactor: 0.75,
-      bandIdx: 1,
-    },
+    { index: 8, amplitude: 0.5, speedLabel: 'Sharp', scaleFactor: 1.5 },
+    { index: 48, amplitude: 0.8, speedLabel: 'Drawn-out', scaleFactor: 0.75 },
   ];
   const stats = ResponseDynamics.tagPeaks(dummyPeaks, dummyDrivers, 4);
-  assert.strictEqual(dummyPeaks[0].speedLabel, 'Very Fast');
+  assert.strictEqual(dummyPeaks[0].speedLabel, 'Sharp');
   assert.strictEqual(dummyPeaks[0].scaleFactor, 1.5);
-  assert.strictEqual(dummyPeaks[1].speedLabel, 'Slow');
+  assert.strictEqual(dummyPeaks[1].speedLabel, 'Drawn-out');
   assert.strictEqual(dummyPeaks[1].scaleFactor, 0.75);
   assert.strictEqual(stats.totalTaggedPeaks, 2);
-  assert.strictEqual(stats.speedCounts['Very Fast'], 1);
-  assert.strictEqual(stats.speedCounts.Slow, 1);
+  assert.strictEqual(stats.speedCounts.Sharp, 1);
+  assert.strictEqual(stats.speedCounts['Drawn-out'], 1);
+});
+
+test('Response Dynamics: tagPeaks picks the tallest bump, not the biggest slow-band coefficient', () => {
+  // A slow-band atom needs a larger coefficient than a fast-band one for the
+  // same bump (unit-energy kernels), so raw coefficients must not decide.
+  const peaks = [{ index: 20, onsetIndex: 10 }];
+  const drivers = [
+    { index: 12, amplitude: 1.0, height: 0.31, speedLabel: 'Sharp' },
+    { index: 11, amplitude: 1.5, height: 0.27, speedLabel: 'Very drawn-out' },
+  ];
+  ResponseDynamics.tagPeaks(peaks, drivers, 10);
+  assert.strictEqual(peaks[0].speedLabel, 'Sharp');
+});
+
+test('Response Dynamics: speedFor allows for size — a bigger response is expected to rise more slowly', () => {
+  const RD = ResponseDynamics;
+  const rise = RD.REFERENCE_RISE_SEC;
+  assert.strictEqual(RD.speedFor(rise, RD.REFERENCE_HEIGHT).scaleFactor, 1);
+  const big = RD.speedFor(rise, RD.REFERENCE_HEIGHT * 5).scaleFactor;
+  const small = RD.speedFor(rise, RD.REFERENCE_HEIGHT / 5).scaleFactor;
+  assert.ok(big > 1 && small < 1, `big ${big}, small ${small}`);
+  // No height: no size term.
+  assert.strictEqual(RD.speedFor(rise).scaleFactor, 1);
+});
+
+test('SparsEDA: each atom is labelled from its template rise time', () => {
+  const FS = 10;
+  const bat = (t, ts, tf) =>
+    t <= 0 ? 0 : Math.exp(-t / ts) - Math.exp(-t / tf);
+  const topAtom = (stretch) => {
+    const y = new Float64Array(60 * FS);
+    for (let i = 0; i < y.length; i++)
+      y[i] = bat(i / FS - 10, 2 * stretch, 0.5 * stretch);
+    const r = SCRDeconvolution.deconvolve(y, FS, {
+      algorithm: 'sparseda',
+      zeroBaseline: true,
+      rho: 0,
+    });
+    return r.impulseLog.reduce((a, b) => (b.height > a.height ? b : a));
+  };
+  const quick = topAtom(0.5);
+  const mid = topAtom(1.0);
+  const slow = topAtom(1.5);
+  assert.strictEqual(quick.durationScale, 0.5);
+  assert.strictEqual(slow.durationScale, 1.5);
+  assert.strictEqual(quick.speedLabel, 'Sharp');
+  assert.ok(quick.scaleFactor > mid.scaleFactor);
+  assert.ok(mid.scaleFactor > slow.scaleFactor);
+});
+
+test('Response Dynamics: peak rise time is measured beyond the dictionary range, and very sharp rises are flagged', () => {
+  // Three isolated responses: compressed (true 10%-to-apex rise 0.45 s),
+  // dictionary-standard (0.89 s), and three times slower (2.67 s) — far
+  // slower than the slowest dictionary kernel (1.34 s). The model alone
+  // can't express that; the signal-side measurement must.
+  const FS = 10;
+  const bat = (t, ts, tf) =>
+    t <= 0 ? 0 : Math.exp(-t / ts) - Math.exp(-t / tf);
+  const events = [
+    [10, 0.5],
+    [40, 1.0],
+    [70, 3.0],
+  ];
+  const y = new Float64Array(110 * FS);
+  for (const [t0, s] of events)
+    for (let i = 0; i < y.length; i++) y[i] += bat(i / FS - t0, 2 * s, 0.5 * s);
+  const r = SCRDeconvolution.deconvolve(y, FS, {
+    algorithm: 'sparseda',
+    zeroBaseline: true,
+    rho: 0,
+  });
+  const drivers = r.impulseLog.map((e) => ({ ...e, index: e.trueIndex }));
+  const peaksFor = () =>
+    events.map(([t0]) => {
+      let apex = t0 * FS;
+      while (y[apex + 1] > y[apex]) apex++;
+      return { index: apex, onsetIndex: t0 * FS };
+    });
+  const kinetics = { bandKernels: r.bandKernels, workRate: r.workRate };
+
+  const modelOnly = peaksFor();
+  ResponseDynamics.tagPeaks(modelOnly, drivers, FS, kinetics);
+  const peaks = peaksFor();
+  ResponseDynamics.tagPeaks(peaks, drivers, FS, { ...kinetics, signal: y });
+
+  const [quick, standard, slow] = peaks;
+  assert.ok(quick.speedRiseTime < standard.speedRiseTime);
+  assert.ok(standard.speedRiseTime < slow.speedRiseTime);
+  assert.ok(
+    Math.abs(slow.speedRiseTime - 2.67) < 0.3,
+    `slow rise ${slow.speedRiseTime} (model alone ${modelOnly[2].speedRiseTime})`,
+  );
+  assert.ok(modelOnly[2].speedRiseTime < slow.speedRiseTime);
+  assert.strictEqual(slow.speedLabel, 'Very drawn-out');
+  assert.strictEqual(quick.speedLabel, 'Sharp');
+  assert.strictEqual(quick.possibleArtefact, true);
+  assert.strictEqual(standard.possibleArtefact, false);
+  assert.strictEqual(slow.possibleArtefact, false);
 });
 
 test('Response Dynamics: constants definitions', () => {
@@ -107,8 +190,7 @@ test('Response Dynamics: constants definitions', () => {
     GSR_CONST.SPARSEDA_SPEED_COLORS,
     'SPARSEDA_SPEED_COLORS is defined',
   );
-  const speeds = ['Very Slow', 'Slow', 'Standard', 'Fast', 'Very Fast'];
-  for (const s of speeds) {
+  for (const s of ResponseDynamics.SPEED_LABELS) {
     assert.ok(
       GSR_CONST.SPARSEDA_SPEED_COLORS[s],
       `Color exists for speed ${s}`,
@@ -132,15 +214,15 @@ test('Response Dynamics: MapColors.getColorForMetric integration', () => {
     'NaN maps to transparent resting color',
   );
 
-  // Test 0.5x (Very Slow, Purple)
+  // Test 0.5x (Very drawn-out, Purple)
   const c05 = MapColors.getColorForMetric('responseDynamics', 0.5);
   assert.strictEqual(c05, '#8b5cf6');
 
-  // Test 1.0x (Standard, Green)
+  // Test 1.0x (Typical, Green)
   const c10 = MapColors.getColorForMetric('responseDynamics', 1.0);
   assert.strictEqual(c10, '#10b981');
 
-  // Test 1.5x (Very Fast, Red)
+  // Test 1.5x (Sharp, Red)
   const c15 = MapColors.getColorForMetric('responseDynamics', 1.5);
   assert.strictEqual(c15, '#ef4444');
 });
