@@ -401,17 +401,12 @@ export const JunctionsTableUI = {
         const sVal = r.meanStraight ?? 0;
         const cVal = r.meanControl;
         const hasControl = Number.isFinite(cVal);
-        const maxVal = Math.max(
-          Math.abs(tVal),
-          Math.abs(sVal),
-          hasControl ? Math.abs(cVal) : 0,
-          0.001,
-        );
-        const tPct = Math.min(100, (Math.abs(tVal) / maxVal) * 100);
-        const sPct = Math.min(100, (Math.abs(sVal) / maxVal) * 100);
-        const cPct = hasControl
-          ? Math.min(100, (Math.abs(cVal) / maxVal) * 100)
-          : 0;
+        // A class with no usable windows has a NaN mean: no bar, not a NaN width.
+        const mag = (v) => (Number.isFinite(v) ? Math.abs(v) : 0);
+        const maxVal = Math.max(mag(tVal), mag(sVal), mag(cVal), 0.001);
+        const tPct = Math.min(100, (mag(tVal) / maxVal) * 100);
+        const sPct = Math.min(100, (mag(sVal) / maxVal) * 100);
+        const cPct = Math.min(100, (mag(cVal) / maxVal) * 100);
 
         const diff = Number.isFinite(r.diff) ? r.diff : tVal - sVal;
         const pctDiff = safePct(r, diff, sVal);

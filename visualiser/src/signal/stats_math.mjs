@@ -479,6 +479,24 @@ export const StatsMath = {
     return { m, c, r2 };
   },
 
+  /**
+   * Two-tailed critical t for a (1 - alpha) confidence interval on `df`
+   * degrees of freedom (non-integer df allowed, e.g. from an effective N).
+   * Bisection on _tTestPValue; returns 1.96-ish for large df.
+   */
+  tCritical(df, alpha = 0.05) {
+    if (!(df > 0)) return NaN;
+    let lo = 0;
+    let hi = 1;
+    while (StatsMath._tTestPValue(hi, df) > alpha && hi < 1e6) hi *= 2;
+    for (let i = 0; i < 60; i++) {
+      const mid = (lo + hi) / 2;
+      if (StatsMath._tTestPValue(mid, df) > alpha) lo = mid;
+      else hi = mid;
+    }
+    return (lo + hi) / 2;
+  },
+
   _tTestPValue(t, df) {
     const x = df / (df + t * t);
     const a = df / 2;
@@ -490,6 +508,13 @@ export const StatsMath = {
   _regIncompleteBeta(x, a, b) {
     if (x <= 0) return 0;
     if (x >= 1) return 1;
+    // The continued fraction only converges for x < (a+1)/(a+b+2) (Numerical
+    // Recipes §6.4); above that use I_x(a,b) = 1 - I_{1-x}(b,a). A t-test's
+    // x = df/(df+t²) sits near 1 for small t, where the unconverged fraction
+    // gave p ≈ 0.001 for t ≈ 0.
+    if (x > (a + 1) / (a + b + 2)) {
+      return 1 - StatsMath._regIncompleteBeta(1 - x, b, a);
+    }
     const maxIter = 200;
     const eps = 1e-12;
     const front = Math.exp(

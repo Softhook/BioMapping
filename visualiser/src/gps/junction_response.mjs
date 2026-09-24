@@ -434,6 +434,8 @@ export const JunctionResponse = {
 
         // The control baseline is expressed against the reported straight mean
         // so that meanStraight − meanControl === diffJunction identically.
+        // With no turns there is no reported straight mean, but the controls
+        // still have one of their own.
         const rawControls = recs
           .filter((r) => r.decision === 'control')
           .map(val);
@@ -442,11 +444,12 @@ export const JunctionResponse = {
           Number.isFinite(svc.meanA) && Number.isFinite(svc.meanB)
             ? svc.meanA - svc.meanB
             : meanStraight - rawControlMean;
-        const meanControl = Number.isFinite(diffJunction)
-          ? meanStraight - diffJunction
-          : Number.isFinite(svc.meanB)
-            ? svc.meanB
-            : rawControlMean;
+        const meanControl =
+          Number.isFinite(diffJunction) && Number.isFinite(meanStraight)
+            ? meanStraight - diffJunction
+            : Number.isFinite(svc.meanB)
+              ? svc.meanB
+              : rawControlMean;
 
         rows.push({
           phase,

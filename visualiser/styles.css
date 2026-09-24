@@ -1252,6 +1252,11 @@ input[type="range"]:focus-visible,
   white-space: nowrap;
 }
 
+/* µ (U+00B5) uppercases to Greek capital Mu, so "µS" would read as "MS". */
+.peaks-table th .unit {
+  text-transform: none;
+}
+
 .peaks-table th.sortable {
   cursor: pointer;
   user-select: none;

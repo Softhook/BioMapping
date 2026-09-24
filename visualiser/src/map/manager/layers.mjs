@@ -33,6 +33,16 @@ export class GSRMapLayers extends GSRMapBase {
   }
 
   /**
+   * Remove the Arousal Places layers and forget their badges. The badge list
+   * must go with them: _declutterArousalPlaceBadges() re-adds its markers on
+   * every zoom, so a stale list puts the previous places back on the map.
+   */
+  _clearArousalPlaceLayers() {
+    this.clusterLayers = this._clearLayerGroup(this.clusterLayers);
+    this._arousalPlaceBadges = [];
+  }
+
+  /**
    * Phase 1 (slice 1): return (creating it if needed) the track's single
    * render handle — an L.layerGroup() added to the map that owns all of this
    * track's path/peak/hotspot layers. Null tracks (a bare analyzer rendered
@@ -180,7 +190,7 @@ export class GSRMapLayers extends GSRMapBase {
 
     // Aggregates (spatial clusters) + RF fluid + legend are map-level, owned by
     // GSRMapManager rather than any single track.
-    this.clusterLayers = this._clearLayerGroup(this.clusterLayers);
+    this._clearArousalPlaceLayers();
     // The Arousal Places compute cache survives (fingerprint-guarded), but the
     // last input reference must not — refreshArousalPlaces() would otherwise
     // replay places for a track that's no longer rendered.

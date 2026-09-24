@@ -1853,6 +1853,34 @@ test('refreshArousalPlaces(): rebuilds only the Arousal Place layers, leaving pa
   );
 });
 
+test('clearMap: a later zoom does not put the previous Arousal Place badges back', async () => {
+  const { window, map, mapManager } = await bootWithRecordingLClusteringOn();
+  const track = addTrack(window, 't1', 't1.csv', CLUSTER_CSV);
+  window.AppState.viewMode = 'single';
+  mapManager.renderData(track.analyzer, track.gpsFilterParams);
+  const badges = mapManager.clusterLayers.filter(
+    (l) => l._gsrKind === 'arousalPlace',
+  );
+  assert.ok(badges.length > 0, 'fixture renders at least one place badge');
+
+  // The declutter pass runs on every zoomend; give the mock what it needs.
+  map.latLngToContainerPoint = () => ({ x: 0, y: 0 });
+  for (const b of badges) {
+    b.setIcon = () => {};
+    b.setTooltipContent = () => {};
+  }
+
+  // e.g. switching to a walk with no GPS: the map is cleared and no new
+  // places are drawn, then the viewport changes.
+  mapManager.clearMap();
+  mapManager._declutterArousalPlaceBadges();
+
+  assert.ok(
+    badges.every((b) => !map.hasLayer(b)),
+    'cleared badges stay off the map after a zoom',
+  );
+});
+
 test('refreshArousalPlaces(): a changed merge distance re-runs clustering (cache miss on P.mergeM)', async () => {
   const { window, mapManager } = await bootWithRecordingLClusteringOn();
   const track = addTrack(window, 't1', 't1.csv', CLUSTER_CSV);

@@ -33,7 +33,7 @@ export class GSRMapCollective extends GSRMapArousalPlaces {
     // "uncheck the last track" path (which calls this without a re-render)
     // can't leave a stale group behind.
     this._clearRenderedTrackGroups();
-    this.clusterLayers = this._clearLayerGroup(this.clusterLayers);
+    this._clearArousalPlaceLayers();
     this._lastArousalInput = null;
     this.clearContours();
     this._clearRfFluid();

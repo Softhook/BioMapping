@@ -159,7 +159,7 @@ export class GSRMapArousalPlaces extends GSRMapPeaks {
         GSRUI.rerenderMap();
       return;
     }
-    this.clusterLayers = this._clearLayerGroup(this.clusterLayers);
+    this._clearArousalPlaceLayers();
     const { peaks, scoreTracks, view } = this._lastArousalInput;
     this._renderArousalPlacesFor(peaks, scoreTracks, view);
     if (AppState?.emit) AppState.emit('map:rendered');

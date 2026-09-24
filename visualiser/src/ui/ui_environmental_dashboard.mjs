@@ -601,10 +601,14 @@ export const EnvironmentalDashboardUI = {
           (s, w) => s + StatsMath.effectiveSampleSize(w.tonicVals),
           0,
         );
-        const ciPhasic =
-          nEffPhasic > 1 ? (1.96 * stdPhasic) / Math.sqrt(nEffPhasic) : 0;
-        const ciTonic =
-          nEffTonic > 1 ? (1.96 * stdTonic) / Math.sqrt(nEffTonic) : 0;
+        // t rather than z: a briefly-walked road class has only a handful of
+        // effective samples, where 1.96 would understate the interval.
+        const ci95 = (std, nEff) =>
+          nEff > 1
+            ? (StatsMath.tCritical(nEff - 1) * std) / Math.sqrt(nEff)
+            : 0;
+        const ciPhasic = ci95(stdPhasic, nEffPhasic);
+        const ciTonic = ci95(stdTonic, nEffTonic);
         roadProfile.push({
           name: key,
           timeSpent: n,

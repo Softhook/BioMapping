@@ -308,6 +308,35 @@ test('compare: control condition provides mid-block baseline and computes juncti
   assert.ok(r.pJunction < 0.05, `pJunction ${r.pJunction}`);
 });
 
+test('compare: with no turns the open-road mean is still reported', () => {
+  // A walk with straights and controls but no turns: there is no reported
+  // straight mean (the turn-vs-straight test has nothing to compare), which
+  // must not blank out the controls' own mean.
+  const mk = (key, d, v) => ({
+    key,
+    trackId: 'T1',
+    decision: d,
+    before: { peakRate: v, meanPhasic: v },
+    after: { peakRate: v, meanPhasic: v },
+    delta: { peakRate: 0, meanPhasic: 0, meanTonic: 0 },
+  });
+  const recs = [];
+  for (let i = 0; i < 6; i++) {
+    recs.push(mk(`J${i}`, 'straight', 5.0 + i * 0.01));
+    recs.push(mk(`C${i}`, 'control', 2.0 + i * 0.01));
+  }
+  const r = row(JunctionResponse.compare(recs), 'after', 'meanPhasic');
+  assert.ok(!Number.isFinite(r.meanStraight), 'no turn-vs-straight sample');
+  assert.ok(
+    Math.abs(r.meanControl - 2.025) < 1e-9,
+    `meanControl ${r.meanControl}`,
+  );
+  assert.ok(
+    Math.abs(r.diffJunction - 3.0) < 1e-9,
+    `diffJunction ${r.diffJunction}`,
+  );
+});
+
 test('compare: multi-track data with disjoint conditions isolates contrast adjustments', () => {
   // Track T1 has turns (6.0) and straights (2.0), but no controls.
   // Track T2 has straights (2.0) and controls (1.0), but no turns.

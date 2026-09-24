@@ -222,7 +222,7 @@ export class GSRMapRender extends GSRMapToggles {
     }
 
     if (!opts.skipClustering) {
-      this.clusterLayers = this._clearLayerGroup(this.clusterLayers);
+      this._clearArousalPlaceLayers();
     }
 
     // 'hotspot' only joins the stripped/rebuilt kind set when the caller

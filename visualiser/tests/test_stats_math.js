@@ -137,6 +137,44 @@ test('calculatePearsonCorrelation: p-value decreases as the correlation strength
 // correlationEffectiveN, calculateAutocorrCorrelation)
 // ---------------------------------------------------------------------------
 
+test('_tTestPValue: a near-zero t is not significant at any df (incomplete-beta symmetry branch)', () => {
+  // x = df/(df+t²) is ~1 here, outside the continued fraction's convergence
+  // region; without the symmetry branch t ≈ 0 came back as p ≈ 0.001.
+  for (const df of [5, 30, 100, 1000, 20000]) {
+    for (const t of [1e-5, 0.01]) {
+      const p = StatsMath._tTestPValue(t, df);
+      assert.ok(p > 0.99, `t=${t}, df=${df}: p=${p}`);
+    }
+  }
+  // Reference two-tailed values (standard t tables).
+  const cases = [
+    [0.1, 100, 0.92054],
+    [1.96, 1e6, 0.05],
+    [2.228, 10, 0.05],
+    [1, 1, 0.5],
+    [2, 10, 0.07339],
+  ];
+  for (const [t, df, want] of cases) {
+    const p = StatsMath._tTestPValue(t, df);
+    assert.ok(Math.abs(p - want) < 2e-4, `t=${t}, df=${df}: ${p} vs ${want}`);
+  }
+});
+
+test('tCritical: matches t tables and tends to 1.96', () => {
+  const cases = [
+    [1, 12.706],
+    [2, 4.303],
+    [5, 2.571],
+    [30, 2.042],
+    [1e6, 1.96],
+  ];
+  for (const [df, want] of cases) {
+    const t = StatsMath.tCritical(df);
+    assert.ok(Math.abs(t - want) < 2e-3, `df=${df}: ${t} vs ${want}`);
+  }
+  assert.ok(Number.isNaN(StatsMath.tCritical(0)));
+});
+
 test('autocorrelation: acf[0] is 1; a monotone ramp stays near 1 for many lags; alternating flips sign each lag', () => {
   const ramp = [];
   for (let i = 0; i < 200; i++) ramp.push(i);
