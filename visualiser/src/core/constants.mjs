@@ -171,17 +171,29 @@ export const GSR_CONST = {
     // comment in analyzer.js. Deliberately far below impulseThreshold; this
     // only rejects near-zero apexes, not small-but-real ones.
     minApexVal: 0.001,
-    // SparsEDA-specific defaults. Production mode uses relaxed suppressors
-    // (dminSec=0.25, rho=0.0, Kmax=120) with absolute driver thresholding
-    // (sparsedaImpulseThreshold=0.005) and cvxEDA-style driver-anchored apex
-    // resolution, preserving rapid compound bursts and preventing global track-max
-    // wipeouts while strictReference: true retains the paper's exact laboratory defaults.
-    sparsedaKmax: 120,
-    sparsedaEpsilon: 1.0,
+    // SparsEDA-specific defaults (production; strictReference: true keeps the
+    // paper's laboratory settings). The input is the tonic-subtracted phasic,
+    // run with a zero baseline. epsilon is the lasso's stop on the ABSOLUTE
+    // L2 residual of a whole 70 s window (560 samples at 8 Hz): 1.0 meant an
+    // RMS of ~0.04 µS, so windows of ordinary 0.05-0.3 µS responses stopped
+    // after one or two atoms and whole stretches went unmodelled. It is now
+    // per track: NoiseMult · √560 · σ̂_noise clamped to [sparsedaEpsilon,
+    // sparsedaEpsilonCap], σ̂ measured after the gait filter — see
+    // GSRAnalyzer._sparsedaEpsilon. Chosen on ground truth (neurokit_compare/
+    // check_ground_truth, 45 synthetic tracks, gait filter on) and confirmed on
+    // a second held-out seed set: F1 0.80 / 0.81 vs 0.70 for a fixed 0.1 and
+    // 0.78 for the best fixed value (0.75). Multipliers of 16+ lose recall.
+    // Real walks can measure several times noisier than any synthetic track;
+    // the cap keeps them inside the validated range. Kmax 240
+    // (was 120) lets dense walking windows converge — at 120 the fit sat
+    // 20-30% under the phasic; 480 over-fits and is ~10x slower. dminSec-
+    // suppressed atoms are merged into their kept neighbour, not dropped.
+    sparsedaKmax: 240,
+    sparsedaEpsilon: 0.1, // floor
+    sparsedaEpsilonNoiseMult: 8,
+    sparsedaEpsilonCap: 1.0,
     sparsedaDminSec: 0.25,
     sparsedaRho: 0.0,
-    sparsedaImpulseThreshold: 0.005,
-    sparsedaApexSearchHalfWinSec: 0.5,
     deconvAlgorithm: 'matching_pursuit', // 'sparseda' | 'matching_pursuit' | 'cvxeda'
   },
 

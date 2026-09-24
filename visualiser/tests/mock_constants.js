@@ -66,13 +66,13 @@ module.exports = {
     cvxMinImpulseGapSec: 0.8,
     cvxApexSearchHalfWinSec: 1.0,
     minApexVal: 0.001,
-    sparsedaKmax: 120,
+    sparsedaKmax: 240,
 
-    sparsedaEpsilon: 1.0,
+    sparsedaEpsilon: 0.1,
+    sparsedaEpsilonNoiseMult: 8,
+    sparsedaEpsilonCap: 1.0,
     sparsedaDminSec: 0.25,
     sparsedaRho: 0.0,
-    sparsedaImpulseThreshold: 0.005,
-    sparsedaApexSearchHalfWinSec: 0.5,
     deconvAlgorithm: 'matching_pursuit',
   },
 

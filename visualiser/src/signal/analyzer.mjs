@@ -240,6 +240,7 @@ export class GSRAnalyzer {
     }
     this._timelinePointsCache = tl;
     this._prefixCache = null; // pooled prefix result is tied to this raw data
+    this._deconvSolveCache = null; // ditto (keyed on the prefix's phasic array)
     this._wasDeconv = false; // fresh zeroed pool buffers — no deconvolution state to carry
 
     this._seriesPoolRaw = raw;
@@ -950,6 +951,54 @@ export class GSRAnalyzer {
   }
 
   /**
+   * SparsEDA's lasso stops once a 70 s window's residual L2 norm reaches
+   * epsilon. A fixed value is either too loose for a quiet sensor (stops
+   * before real responses are fitted) or too tight for a noisy one (keeps
+   * fitting noise as responses), so scale it to this track's noise σ̂
+   * (_noiseSigma), times √N for the window's N samples at SparsEDA's 8 Hz
+   * work rate, times a multiplier, clamped to [floor, cap]. The cap is the
+   * top of the range the ground-truth sweep validated: real recordings (the
+   * live ones especially) can measure far noisier than any synthetic track,
+   * and an unclamped epsilon there drops most of a walk's responses.
+   * @private
+   */
+  _sparsedaEpsilon(scf) {
+    const floor = scf.sparsedaEpsilon ?? 0.1;
+    const mult = scf.sparsedaEpsilonNoiseMult ?? 8;
+    const cap = scf.sparsedaEpsilonCap ?? 1.0;
+    if (!(mult > 0)) return floor;
+    const WINDOW_SAMPLES = 70 * 8; // SparsEDA window (70 s) at 8 Hz
+    const eps = mult * Math.sqrt(WINDOW_SAMPLES) * this._noiseSigma();
+    return Math.min(Math.max(floor, cap), Math.max(floor, eps));
+  }
+
+  /**
+   * Robust white noise σ̂ (µS) left in the signal SparsEDA's input is built
+   * from: 1.4826·median|Δfiltered| / √2 (differencing white noise scales its
+   * σ by √2; SCRs rise over seconds, so Δ is dominated by the noise). Read
+   * AFTER the gait filter: on raw, footstep ripple counts as noise and a walk
+   * is judged far noisier than it is. Memoised on the raw array plus the
+   * prefix key — .filtered is a pooled buffer rewritten in place, so its
+   * identity says nothing about which filter settings produced it. 0 when
+   * unavailable.
+   * @private
+   */
+  _noiseSigma() {
+    const x = this.filtered;
+    const n = x?.length ?? 0;
+    if (n < 10) return 0;
+    const key = this._prefixCache?.key;
+    const memo = this._noiseSigmaMemo;
+    if (key && memo?.raw === this.raw && memo.key === key) return memo.sigma;
+    const dev = new Float64Array(n - 1);
+    for (let i = 1; i < n; i++) dev[i - 1] = Math.abs(x[i].val - x[i - 1].val);
+    dev.sort();
+    const sigma = (1.4826 * dev[(n - 1) >> 1]) / Math.SQRT2;
+    this._noiseSigmaMemo = key ? { raw: this.raw, key, sigma } : null;
+    return sigma;
+  }
+
+  /**
    * The canonical SCRF kernel's own peak offset: samples from kernel start to
    * kernel apex. _runDeconvolutionPipeline() uses it to predict where an
    * impulse's reconstructed apex should land, for resolveApex()'s search.
@@ -1205,9 +1254,11 @@ export class GSRAnalyzer {
       algorithm === 'sparseda'
         ? {
             maxIter: scf.sparsedaKmax ?? 120,
-            epsilon: scf.sparsedaEpsilon ?? 1.0,
+            epsilon: this._sparsedaEpsilon(scf),
             dminSec: scf.sparsedaDminSec ?? 0.25,
             rho: scf.sparsedaRho ?? 0.0,
+            // Input is the tonic-subtracted phasic (floor 0), not raw SC.
+            zeroBaseline: true,
             algorithm: algorithm,
           }
         : {
@@ -1220,11 +1271,19 @@ export class GSRAnalyzer {
             minImpulseGapSec: scf.minImpulseGapSec,
             algorithm: algorithm,
           };
-    const result = SCRDeconvolution.deconvolve(
-      deconvInput,
-      this.sampleRate,
-      deconvOpts,
-    );
+    // The solve depends only on the phasic input and the solver options, not
+    // on any peak-detection slider (threshold, SNR, quality, hotspots), so
+    // reuse it while those are all that changed. phasicVals is the prefix
+    // cache's array, so its identity changes exactly when filtering or
+    // decomposition does. Nothing below mutates `result` (every downstream
+    // array or impulse object is a fresh copy).
+    const solveKey = `${this.sampleRate}|${JSON.stringify(deconvOpts)}`;
+    const sc = this._deconvSolveCache;
+    const result =
+      sc && sc.input === phasicVals && sc.key === solveKey
+        ? sc.result
+        : SCRDeconvolution.deconvolve(deconvInput, this.sampleRate, deconvOpts);
+    this._deconvSolveCache = { input: phasicVals, key: solveKey, result };
 
     // Diagnostic: whether the selected deconvolution path converged before
     // exhausting its iteration budget. A truncated run means real SCRs may
@@ -1528,51 +1587,22 @@ export class GSRAnalyzer {
     }
     this._seriesRange.phasic = { min: phMn, max: phMx };
 
-    // Build the final, displayed peak list.
-    // For SparsEDA, candidate apex positions come from the sparse driver impulses
-    // resolved to local curve apices via dictionary-scaled kernel offsets — mirroring
-    // the cvxEDA architecture (Ledalab CDA approach, Benedek & Kaernbach 2010a).
-    let candidateIndices = null;
-    if (algorithm === 'sparseda') {
-      const kernel =
-        result.kernel ||
-        SCRDeconvolution.buildSCRFKernel(this.sampleRate, 2.0, 0.5, 10.0);
-      const kPeakIdx = this._kernelPeakOffset(kernel);
-      const halfWinSec = scf.sparsedaApexSearchHalfWinSec ?? 0.5;
-
-      const apexSearchHalfWin = Math.max(
-        1,
-        Math.round(halfWinSec * this.sampleRate),
-      );
-      const minImpulse = scf.sparsedaImpulseThreshold ?? 0.005;
-      candidateIndices = this.phasicDriverPeaks
-        .filter((p) => p.amplitude >= minImpulse)
-        .map(({ index, durationScale }) => {
-          // Kernel geometry uses the dictionary's time dilation, not the
-          // speed factor (its mirror image — see _deconvolveSparsEDA).
-          const scaledKPeak = Math.round(kPeakIdx * (durationScale || 1.0));
-          const predicted = Math.min(n - 1, index + scaledKPeak);
-          const lo = Math.max(0, index, predicted - apexSearchHalfWin);
-          const hi = Math.min(n - 1, predicted + apexSearchHalfWin);
-          let bestIdx = Math.max(index, predicted),
-            bestVal = cleanVals[bestIdx] || 0;
-          for (let j = lo; j <= hi; j++) {
-            if (cleanVals[j] > bestVal) {
-              bestVal = cleanVals[j];
-              bestIdx = j;
-            }
-          }
-          return bestIdx;
-        });
-    }
-
+    // Build the final, displayed peak list by scanning the reconstructed
+    // curve directly (both matching pursuit and SparsEDA). SparsEDA used to
+    // map each driver atom to one apex via a kernel-offset window, copied
+    // from the cvxEDA branch — but there the indirection filters L1 ripple,
+    // whereas this curve is literally a sum of non-negative atoms, so every
+    // local maximum on it is atom-supported already. Where responses overlap,
+    // several atoms' windows landed on the same neighbour and a visible peak
+    // between them got no candidate at all. Ground truth: the direct scan
+    // recovers +2-3% of responses at unchanged precision.
     this.peaks = this._detectPeaksFromCurve(
       cleanVals,
       times,
       params,
       oldLabels,
       oldExcluded,
-      candidateIndices,
+      null,
     );
     this._assignExclusionsToPeaks(); // before computeResponseDynamics(), which skips excluded peaks
     if (algorithm === 'sparseda') {

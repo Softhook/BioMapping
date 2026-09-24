@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Ground-truth detector race: generates synthetic tracks with a KNOWN true
 # SCR count/timing (NeuroKit2's own canonical response function, placed
-# under our control - see generate_ground_truth.py), then scores our three
+# under our control - see generate_ground_truth.py), then scores our five
 # detectors AND three independent reference toolboxes' own detectors against
 # that known answer: NeuroKit2 (run_neurokit.py), the REAL MATLAB-source
 # Ledalab run via Octave (run_ledalab.py - see eda_detection_benchmark.md

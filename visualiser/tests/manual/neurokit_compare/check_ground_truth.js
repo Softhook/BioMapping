@@ -23,30 +23,20 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const vm = require('node:vm');
 
 global.window = global;
-global.GSR_CONST = require('../../mock_constants.js');
+global.GSR_CONST = require('../../../src/core/constants.mjs').GSR_CONST;
 const minGapOverride = Number.parseFloat(process.env.BIOMAP_PEAK_MIN_GAP);
 if (Number.isFinite(minGapOverride) && minGapOverride > 0) {
   global.GSR_CONST.PEAK_MIN_GAP = minGapOverride;
 }
 
-function loadModule(filePath, varName) {
-  const src = fs.readFileSync(filePath, 'utf8');
-  const wrapped = src
-    .replace(
-      new RegExp(`class ${varName}\\s*{`),
-      `global.${varName} = class ${varName} {`,
-    )
-    .replace(new RegExp(`const ${varName}\\s*=`), `global.${varName} =`);
-  vm.runInThisContext(wrapped, { filename: filePath });
-}
+const { loadModule } = require('../../support/load_module.js');
 
 const SRC = path.join(__dirname, '../../../src/signal');
 loadModule(path.join(SRC, 'dwt_filter.js'), 'DWT');
 loadModule(path.join(SRC, 'gsr_filter.js'), 'GsrFilter');
-global.CVXEDA = require(path.join(SRC, 'cvxeda.js'));
+loadModule(path.join(SRC, 'cvxeda.js'), 'CVXEDA');
 loadModule(path.join(SRC, 'deconvolution.js'), 'SCRDeconvolution');
 loadModule(path.join(SRC, 'csv_parser.js'), 'GSRCSVParser');
 loadModule(path.join(SRC, 'analyzer.js'), 'GSRAnalyzer');
@@ -256,12 +246,14 @@ const DETECTORS = compareTonicVariants
       ],
       ['cvxEDA (B-spline)', { useCvxEDA: true }],
       ['Deconvolution (MP)', { useDeconvolution: true }],
+      ['SparsEDA', { useSparsEDA: true }],
     ]
   : [
       ['Full-Scan', {}],
       ['Prominence', { usePeakProminence: true }],
       ['cvxEDA', { useCvxEDA: true }],
       ['Deconvolution', { useDeconvolution: true }],
+      ['SparsEDA', { useSparsEDA: true }],
     ];
 
 const firstArg = args[0];

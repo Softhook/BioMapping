@@ -23,39 +23,20 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const vm = require('node:vm');
 
 global.window = global;
-global.GSR_CONST = require('../../mock_constants.js');
+global.GSR_CONST = require('../../../src/core/constants.mjs').GSR_CONST;
 const minGapOverride = Number.parseFloat(process.env.BIOMAP_PEAK_MIN_GAP);
 if (Number.isFinite(minGapOverride) && minGapOverride > 0) {
   global.GSR_CONST.PEAK_MIN_GAP = minGapOverride;
 }
 
-function loadModule(filePath, varName) {
-  const src = fs.readFileSync(filePath, 'utf8');
-  const wrapped = src
-    .replace(
-      new RegExp(`class ${varName}\\s*{`),
-      `global.${varName} = class ${varName} {`,
-    )
-    .replace(new RegExp(`const ${varName}\\s*=`), `global.${varName} =`);
-  vm.runInThisContext(wrapped, { filename: filePath });
-}
+const { loadModule } = require('../../support/load_module.js');
 
 const SRC = path.join(__dirname, '../../../src/signal');
 loadModule(path.join(SRC, 'dwt_filter.js'), 'DWT');
 loadModule(path.join(SRC, 'gsr_filter.js'), 'GsrFilter');
-// Plain require(), not loadModule(): cvxeda.js already exports via
-// module.exports (see its own tail), and it must be set as global.CVXEDA
-// BEFORE analyzer.js loads below - analyzer.js's cvxEDA branch is gated on
-// `typeof CVXEDA !== 'undefined'`, and its own internal fallback (a require
-// call of the same module, guarded by try/catch) silently no-ops here
-// (vm.runInThisContext code has no `require` in scope, so that try/catch
-// always falls through). Skipping this line means every "cvxEDA" run below
-// silently degrades to matching-pursuit deconvolution instead - which is
-// what happened here previously.
-global.CVXEDA = require(path.join(SRC, 'cvxeda.js'));
+loadModule(path.join(SRC, 'cvxeda.js'), 'CVXEDA');
 loadModule(path.join(SRC, 'deconvolution.js'), 'SCRDeconvolution');
 loadModule(path.join(SRC, 'csv_parser.js'), 'GSRCSVParser');
 loadModule(path.join(SRC, 'analyzer.js'), 'GSRAnalyzer');

@@ -17,8 +17,8 @@ where it put each SCR. Placing them ourselves - same canonical waveform
 injected amplitude of every response, which is the entire point of a
 ground-truth test.
 
-Outputs, per track: a BioMapping-format CSV (timestamp,gsr_raw - the minimal
-columns GSRCSVParser needs) and a ground-truth JSON (true peak time +
+Outputs, per track: a BioMapping-format CSV (timestamp,gsr_raw in nS - the
+minimal columns GSRCSVParser needs) and a ground-truth JSON (true peak time +
 amplitude per SCR, plus generation params), both under a directory this
 script's caller supplies.
 
@@ -305,7 +305,10 @@ def main():
             n = len(eda)
             ts = np.arange(n) / OUTPUT_SAMPLING_RATE
 
-            data = {'timestamp': ts, 'gsr_raw': eda}
+            # gsr_raw is nS by the firmware CSV schema (docs/csv_schema.md);
+            # GSRCSVParser reads a bare gsr_raw column as nS, so a µS value
+            # here would load 1000x too small.
+            data = {'timestamp': ts, 'gsr_raw': eda * 1000.0}
             if speed_kts is not None:
                 data['speed_kts'] = speed_kts
             df = pd.DataFrame(data)

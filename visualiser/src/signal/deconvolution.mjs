@@ -85,25 +85,47 @@ export const SCRDeconvolution = {
   },
 
   _dot(a, b) {
+    // SparsEDA dictionary columns carry their non-zero span as _s/_e (see
+    // _buildReferenceDictionary): each is a ~10 s kernel inside a 70 s window,
+    // so restricting the loop to the overlap skips only exact-zero products
+    // and returns the identical sum at a fraction of the cost.
+    let lo = 0;
+    let hi = a.length;
+    if (a._e !== undefined) {
+      lo = a._s;
+      hi = a._e;
+    }
+    if (b._e !== undefined) {
+      if (b._s > lo) lo = b._s;
+      if (b._e < hi) hi = b._e;
+    }
     let sum = 0;
-    for (let i = 0; i < a.length; i++) sum += a[i] * b[i];
+    for (let i = lo; i < hi; i++) sum += a[i] * b[i];
     return sum;
   },
 
+  // The lasso's Cholesky factor R (upper triangular, R^T R = A^T A over the
+  // active columns) is stored COLUMN-wise: U[j] is column j, holding rows
+  // 0..j. Adding an atom appends a column instead of copying the matrix, and
+  // removing one is an O(k^2) Givens update (_cholDelete) instead of a
+  // from-scratch rebuild.
   _solveUpperTriangular(U, b, transpose = false) {
     const n = b.length;
     const x = new Float64Array(n);
     if (transpose) {
+      // R^T x = b: row i of R^T is column i of R.
       for (let i = 0; i < n; i++) {
+        const col = U[i];
         let sum = b[i];
-        for (let k = 0; k < i; k++) sum -= U[k][i] * x[k];
-        x[i] = sum / U[i][i];
+        for (let k = 0; k < i; k++) sum -= col[k] * x[k];
+        x[i] = sum / col[i];
       }
       return x;
     }
+    // R x = b, back substitution: R[i][k] = U[k][i].
     for (let i = n - 1; i >= 0; i--) {
       let sum = b[i];
-      for (let k = i + 1; k < n; k++) sum -= U[i][k] * x[k];
+      for (let k = i + 1; k < n; k++) sum -= U[k][i] * x[k];
       x[i] = sum / U[i][i];
     }
     return x;
@@ -111,7 +133,7 @@ export const SCRDeconvolution = {
 
   _updateChol(RI, columns, activeSet, newIndex, zeroTol) {
     const newVec = columns[newIndex];
-    if (activeSet.length === 0) {
+    if (!RI || activeSet.length === 0) {
       return {
         RI: [Float64Array.from([Math.sqrt(this._dot(newVec, newVec))])],
         flag: 0,
@@ -128,17 +150,44 @@ export const SCRDeconvolution = {
     if (q <= zeroTol) return { RI, flag: 1 };
 
     const m = RI.length;
-    const next = new Array(m + 1);
-    for (let r = 0; r < m; r++) {
-      const row = new Float64Array(m + 1);
-      row.set(RI[r], 0);
-      row[m] = p[r];
-      next[r] = row;
+    const col = new Float64Array(m + 1);
+    col.set(p, 0);
+    col[m] = Math.sqrt(q);
+    RI.push(col);
+    return { RI, flag: 0 };
+  },
+
+  /**
+   * Remove active column `pos` from the column-stored factor and restore
+   * upper-triangular form with Givens rotations (the standard QR column
+   * delete). Mathematically the factor of the remaining columns, as a
+   * rebuild would give, in O(k^2) instead of O(k^3) plus k^2 dot products.
+   */
+  _cholDelete(RI, pos) {
+    RI.splice(pos, 1);
+    const m = RI.length;
+    for (let k = pos; k < m; k++) {
+      // Column k now has one sub-diagonal entry at row k+1; rotate rows
+      // k, k+1 to zero it, applying the same rotation to later columns.
+      const ck = RI[k];
+      const a = ck[k];
+      const b = ck[k + 1];
+      const r = Math.hypot(a, b);
+      const c = r > 0 ? a / r : 1;
+      const sn = r > 0 ? b / r : 0;
+      const trimmed = new Float64Array(k + 1);
+      trimmed.set(ck.subarray(0, k), 0);
+      trimmed[k] = r;
+      RI[k] = trimmed;
+      for (let j = k + 1; j < m; j++) {
+        const cj = RI[j];
+        const x = cj[k];
+        const y = cj[k + 1];
+        cj[k] = c * x + sn * y;
+        cj[k + 1] = -sn * x + c * y;
+      }
     }
-    const last = new Float64Array(m + 1);
-    last[m] = Math.sqrt(q);
-    next[m] = last;
-    return { RI: next, flag: 0 };
+    return RI;
   },
 
   _buildReferenceDictionary(
@@ -172,6 +221,8 @@ export const SCRDeconvolution = {
         const col = new Float64Array(N);
         const limit = Math.min(rf.length, N - c);
         for (let k = 0; k < limit; k++) col[c + k] = rf[k];
+        col._s = c; // non-zero span, read by _dot / the lasso's v update
+        col._e = c + limit;
         columns[base + c] = col;
       }
     }
@@ -207,6 +258,12 @@ export const SCRDeconvolution = {
     for (const col of [c0, c1, c2, c3, c4, c5]) {
       for (let i = 0; i < N; i++) col[i] /= sclScale;
     }
+    c0._s = c1._s = 0;
+    c0._e = c1._e = Lreg;
+    c2._s = c3._s = start2;
+    c2._e = c3._e = Lreg;
+    c4._s = c5._s = start4;
+    c4._e = c5._e = Lreg;
     columns[0] = c0;
     columns[1] = c1;
     columns[2] = c2;
@@ -376,6 +433,7 @@ export const SCRDeconvolution = {
       if (Math.abs(c[j] - lambda) < zeroTol) newIndices.push(j);
     const collinear = new Set();
     const activeSet = [];
+    const isActive = new Uint8Array(W); // membership flag for activeSet
     const activationHist = [];
     let RI = null;
     for (const idx of newIndices) {
@@ -386,19 +444,10 @@ export const SCRDeconvolution = {
         collinear.add(idx);
       } else {
         activeSet.push(idx);
+        isActive[idx] = 1;
         activationHist.push(idx);
       }
     }
-
-    const rebuildChol = () => {
-      RI = null;
-      const tempActive = [];
-      for (const idx of activeSet) {
-        const updated = this._updateChol(RI, columns, tempActive, idx, zeroTol);
-        RI = updated.RI;
-        tempActive.push(idx);
-      }
-    };
 
     const res = Float64Array.from(s);
     let done = false;
@@ -411,6 +460,7 @@ export const SCRDeconvolution = {
         for (let j = 0; j < W; j++) if (c[j] > lambda) lambda = c[j];
         for (let j = 0; j < W; j++)
           if (Math.abs(c[j] - lambda) < zeroTol) newIndices.push(j);
+        for (const j of activeSet) isActive[j] = 0;
         activeSet.length = 0;
         RI = null;
         for (const idx of newIndices) {
@@ -424,7 +474,10 @@ export const SCRDeconvolution = {
           );
           RI = updated.RI;
           if (updated.flag) collinear.add(idx);
-          else activeSet.push(idx);
+          else {
+            activeSet.push(idx);
+            isActive[idx] = 1;
+          }
         }
         activationHist.push(...activeSet);
       } else if (activeSet.length > 0) {
@@ -453,6 +506,7 @@ export const SCRDeconvolution = {
           if (updated.flag) collinear.add(idx);
           else {
             activeSet.push(idx);
+            isActive[idx] = 1;
             activationHist.push(idx);
           }
         }
@@ -472,7 +526,9 @@ export const SCRDeconvolution = {
         const coeff = dxActive[i];
         if (coeff === 0) continue;
         const col = columns[activeSet[i]];
-        for (let r = 0; r < s.length; r++) v[r] += coeff * col[r];
+        const r0 = col._e !== undefined ? col._s : 0;
+        const r1 = col._e !== undefined ? col._e : s.length;
+        for (let r = r0; r < r1; r++) v[r] += coeff * col[r];
       }
 
       const ATv = new Float64Array(W);
@@ -484,7 +540,7 @@ export const SCRDeconvolution = {
         let best = Infinity;
         const denomEps = 1e-12;
         for (let j = 0; j < W; j++) {
-          if (activeSet.includes(j) || collinear.has(j)) continue;
+          if (isActive[j] || collinear.has(j)) continue;
           const gamma = (lambda - c[j]) / (1 - ATv[j] + denomEps);
           if (gamma < zeroTol) continue;
           if (gamma < best - zeroTol) {
@@ -543,9 +599,13 @@ export const SCRDeconvolution = {
         // Variable reached zero from above: drop from activeSet and continue
         x[dropIdx] = 0;
         const pos = activeSet.indexOf(dropIdx);
-        if (pos >= 0) activeSet.splice(pos, 1);
+        if (pos >= 0) {
+          activeSet.splice(pos, 1);
+          isActive[dropIdx] = 0;
+          if (activeSet.length === 0) RI = null;
+          else RI = this._cholDelete(RI, pos);
+        }
         collinear.clear();
-        rebuildChol();
       } else {
         for (const idx of newIndices) {
           iterations++;
@@ -561,6 +621,7 @@ export const SCRDeconvolution = {
             collinear.add(idx);
           } else {
             activeSet.push(idx);
+            isActive[idx] = 1;
             activationHist.push(idx);
           }
         }
@@ -750,6 +811,7 @@ export const SCRDeconvolution = {
       tauFast,
       kernelSec,
       opts.strictReference || false,
+      opts.zeroBaseline || false,
     );
   },
 
@@ -769,6 +831,7 @@ export const SCRDeconvolution = {
     tauFast = 0.5,
     kernelSec = 10.0,
     strictReference = false,
+    zeroBaseline = false,
   ) {
     const n = phasic.length;
     if (n === 0) {
@@ -808,10 +871,20 @@ export const SCRDeconvolution = {
     const padStartOrig = Math.round(20 * sampleRate);
     const padEndOrig = Math.round(60 * sampleRate);
     const signalAddOrig = new Float64Array(n + padStartOrig + padEndOrig);
-    for (let i = 0; i < padStartOrig; i++) signalAddOrig[i] = phasic[0];
+    // Reference: pad with the edge value (it subtracts that same value as the
+    // window baseline, so the pad is flat zero). With zeroBaseline the edge
+    // value can be mid-response, and a long flat plateau is something no
+    // decaying SCR atom can fit; a mirror image is (a rise into the edge).
+    const clampIdx = (i) => Math.max(0, Math.min(n - 1, i));
+    for (let i = 0; i < padStartOrig; i++)
+      signalAddOrig[i] = zeroBaseline
+        ? phasic[clampIdx(padStartOrig - i)]
+        : phasic[0];
     signalAddOrig.set(phasic, padStartOrig);
     for (let i = 0; i < padEndOrig; i++)
-      signalAddOrig[padStartOrig + n + i] = phasic[n - 1];
+      signalAddOrig[padStartOrig + n + i] = zeroBaseline
+        ? phasic[clampIdx(n - 2 - i)]
+        : phasic[n - 1];
 
     const resampled = this._linearResampleTo(
       signalAddOrig,
@@ -838,6 +911,12 @@ export const SCRDeconvolution = {
     const driverAux = new Float64Array(Ns);
     const bandAux = Array.from({ length: 5 }, () => new Float64Array(Ns));
     const resAux = new Float64Array(Ns);
+    // zeroBaseline only: the summed response of atoms already committed by
+    // earlier windows. Their kernels decay on into later windows; unless that
+    // tail is removed before the next solve, the next window re-explains it
+    // with fresh atoms at its start and the reconstruction counts it twice
+    // (vertical jumps + overshoot at every window boundary).
+    const committed = zeroBaseline ? new Float64Array(Ns) : null;
     let cutS = 0;
     let cutE = N;
     let b0 = 0;
@@ -855,7 +934,17 @@ export const SCRDeconvolution = {
             ? signalAdd[start - 1]
             : signalAdd[0];
       for (let i = available; i < N; i++) signalCut[i] = fill;
-      if (b0 === 0) b0 = signalCut[0];
+      // The reference takes the window's first sample as the SCL start and
+      // carries the ramp estimate forward. That assumes RAW conductance. For a
+      // tonic-subtracted phasic input (zeroBaseline) the floor is 0 by
+      // construction: a window that happens to start on a response would
+      // otherwise shift the whole window below zero, where the non-negative
+      // SCR atoms can't reach, and the solver spends its budget on the ramps.
+      if (zeroBaseline) {
+        b0 = 0;
+        for (let i = 0; i < N && start + i < Ns; i++)
+          signalCut[i] -= committed[start + i];
+      } else if (b0 === 0) b0 = signalCut[0];
 
       const centered = new Float64Array(signalCut.length);
       for (let i = 0; i < signalCut.length; i++)
@@ -901,10 +990,19 @@ export const SCRDeconvolution = {
       )
         res3 += remAout[i];
 
+      // Advance past the 20-40 / 40-60 s chunks too when they're already
+      // fitted. The reference judges that against an absolute 1 (units²),
+      // which a phasic of 0.05-0.3 µS never reaches, so a window whose first
+      // 20 s were quiet (the lasso's early resStop2 exit) skipped a full 60 s
+      // with nothing modelled. For phasic input judge each chunk against the
+      // same noise scale as epsilon: its residual RMS at the noise level.
+      const jumpTol = zeroBaseline
+        ? (epsilon * epsilon * Math.round(20 * workRate)) / N
+        : 1;
       let jump = 1;
-      if (res2 < 1) {
+      if (res2 < jumpTol) {
         jump = 2;
-        if (res3 < 1) jump = 3;
+        if (res3 < jumpTol) jump = 3;
       }
 
       const scl = new Float64Array(N);
@@ -935,7 +1033,20 @@ export const SCRDeconvolution = {
       const b0Row = Math.max(0, Math.min(N - 1, naturalChunkLen - 1));
       let nextB0 = b0;
       for (let j = 0; j < T; j++) nextB0 += columns[j][b0Row] * beta[j];
-      b0 = nextB0;
+      b0 = zeroBaseline ? 0 : nextB0;
+
+      if (committed) {
+        for (let offset = 0; offset < chunkLen; offset++) {
+          for (let band = 0; band < 5; band++) {
+            const amp = bandChunks[band][offset];
+            if (amp <= 0) continue;
+            const kern = bandKernels[band];
+            const at = start + offset;
+            const lim = Math.min(kern.length, Ns - at);
+            for (let k = 0; k < lim; k++) committed[at + k] += amp * kern[k];
+          }
+        }
+      }
 
       driverAux.set(driverChunk.subarray(0, chunkLen), start);
       sclAux.set(scl.subarray(0, chunkLen), start);
@@ -975,11 +1086,41 @@ export const SCRDeconvolution = {
     }
 
     const driverWork = new Float64Array(driverWorkRaw.length);
-    let maxKept = 0;
-    for (const idx of kept) {
-      driverWork[idx] = driverWorkRaw[idx];
-      if (driverWork[idx] > maxKept) maxKept = driverWork[idx];
+    // Per-band coefficients the reconstruction uses. In production mode
+    // (not strictReference) an atom suppressed by the dmin gap is MERGED
+    // into the kept atom it sits next to rather than discarded: LARS often
+    // splits one response across adjacent onset samples, and dropping the
+    // smaller half threw away ~half of every response's amplitude (and the
+    // reconstruction then under-fitted the phasic). strictReference keeps the
+    // reference's discard behaviour.
+    const bandWork = bandWorkRaw.map((arr) => Float64Array.from(arr));
+    for (const idx of kept) driverWork[idx] = driverWorkRaw[idx];
+    if (!strictReference) {
+      const keptSorted = [...kept].sort((a, b) => a - b);
+      const keptSet = new Set(kept);
+      for (const idx of candidates) {
+        if (keptSet.has(idx)) continue;
+        // Nearest kept atom (one always lies within minGapSamples).
+        let lo = 0,
+          hi = keptSorted.length - 1;
+        while (lo < hi) {
+          const mid = (lo + hi) >> 1;
+          if (keptSorted[mid] < idx) lo = mid + 1;
+          else hi = mid;
+        }
+        let k = keptSorted[lo];
+        if (lo > 0 && idx - keptSorted[lo - 1] <= Math.abs(k - idx))
+          k = keptSorted[lo - 1];
+        driverWork[k] += driverWorkRaw[idx];
+        for (let band = 0; band < 5; band++) {
+          bandWork[band][k] += bandWorkRaw[band][idx];
+          bandWork[band][idx] = 0;
+        }
+      }
     }
+    let maxKept = 0;
+    for (const idx of kept)
+      if (driverWork[idx] > maxKept) maxKept = driverWork[idx];
     const threshold = rho * maxKept;
     if (threshold > 0) {
       for (let i = 0; i < driverWork.length; i++) {
@@ -988,10 +1129,27 @@ export const SCRDeconvolution = {
     }
 
     const cleanWork = new Float64Array(driverWork.length);
+    // Atoms whose onset falls in the start pad (a response already under way
+    // when recording began) aren't in the sliced driver, but their visible
+    // tail is part of the signal: add it, or the reconstruction starts at 0
+    // and that response is never seen. Production only: the reference has no
+    // such term, and its clean must stay consistent with the rho-pruned driver.
+    for (let idx = 0; !strictReference && idx < pointerS; idx++) {
+      for (let band = 0; band < 5; band++) {
+        const amp = bandAux[band][idx];
+        if (!(amp > 0)) continue;
+        const kernel = bandKernels[band];
+        for (let k = pointerS - idx; k < kernel.length; k++) {
+          const at = idx + k - pointerS;
+          if (at >= cleanWork.length) break;
+          cleanWork[at] += amp * kernel[k];
+        }
+      }
+    }
     for (let idx = 0; idx < driverWork.length; idx++) {
       if (driverWork[idx] <= 0) continue;
       for (let band = 0; band < 5; band++) {
-        const amp = bandWorkRaw[band][idx];
+        const amp = bandWork[band][idx];
         if (amp <= 0) continue;
         const kernel = bandKernels[band];
         const limit = Math.min(kernel.length, cleanWork.length - idx);
@@ -1024,8 +1182,8 @@ export const SCRDeconvolution = {
       let dominantBand = 2;
       let maxAmp = -1;
       for (let b = 0; b < 5; b++) {
-        if (bandWorkRaw[b][i] > maxAmp) {
-          maxAmp = bandWorkRaw[b][i];
+        if (bandWork[b][i] > maxAmp) {
+          maxAmp = bandWork[b][i];
           dominantBand = b;
         }
       }
