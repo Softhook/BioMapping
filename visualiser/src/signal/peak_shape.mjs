@@ -128,6 +128,15 @@ export const PeakShape = {
    * less contaminated by the response's own shape than an absolute-deviation
    * estimate over the same samples.
    *
+   * What it actually measures: the white-noise reading std(Δx)/√2 = σ only
+   * holds for uncorrelated noise. The filtered signal has been low-passed
+   * (1 Hz gait filter at 10 Hz by default), so adjacent samples are strongly
+   * correlated and sensor noise contributes little to Δx; what dominates is
+   * how much the local SLOPE varies over the ±halfWindow (curvature, e.g.
+   * the bend at an SCR onset). So SNR = amplitude / this is a
+   * "size vs local slope wobble" ratio, not amplitude in units of noise σ —
+   * treat Min SNR as an empirically tuned gate, not a statistical one.
+   *
    * Uses the filtered signal (median+LPF, pre-decomposition), indexed
    * directly rather than mapped to a plain array first: this runs once per
    * candidate peak but only reads a small ±halfWindow slice, so a full-array

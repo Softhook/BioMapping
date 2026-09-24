@@ -601,14 +601,40 @@ export const EnvironmentalDashboardUI = {
           (s, w) => s + StatsMath.effectiveSampleSize(w.tonicVals),
           0,
         );
+        // Standard error with the walk as the independent unit. Within a
+        // walk, serial correlation is handled by the effective N; across
+        // walks, each walk has its own baseline, so samples from different
+        // walks are not exchangeable. With 2+ walks contributing, use the
+        // larger of the within-walk SE and the between-walk SE of the walk
+        // means (the latter on k-1 df) — the same "can only widen" rule as
+        // the modified Knapp–Hartung SE in StatsMath.metaCorrelation.
+        const MIN_WALK_SAMPLES = 5;
+        const seOf = (std, nEff, key) => {
+          const within = {
+            se: nEff > 1 ? std / Math.sqrt(nEff) : 0,
+            df: Math.max(1, nEff - 1),
+          };
+          const means = walkArrs
+            .map((w) => w[key])
+            .filter((a) => a.length >= MIN_WALK_SAMPLES)
+            .map((a) => a.reduce((s, v) => s + v, 0) / a.length);
+          const k = means.length;
+          if (k < 2) return within;
+          const m = means.reduce((s, v) => s + v, 0) / k;
+          const sdB = Math.sqrt(
+            means.reduce((s, v) => s + (v - m) ** 2, 0) / (k - 1),
+          );
+          const between = { se: sdB / Math.sqrt(k), df: k - 1 };
+          return between.se > within.se ? between : within;
+        };
+        const sePhasic = seOf(stdPhasic, nEffPhasic, 'phasicVals');
+        const seTonic = seOf(stdTonic, nEffTonic, 'tonicVals');
         // t rather than z: a briefly-walked road class has only a handful of
-        // effective samples, where 1.96 would understate the interval.
-        const ci95 = (std, nEff) =>
-          nEff > 1
-            ? (StatsMath.tCritical(nEff - 1) * std) / Math.sqrt(nEff)
-            : 0;
-        const ciPhasic = ci95(stdPhasic, nEffPhasic);
-        const ciTonic = ci95(stdTonic, nEffTonic);
+        // effective samples (or walks), where 1.96 would understate the interval.
+        const ci95 = ({ se, df }) =>
+          se > 0 ? StatsMath.tCritical(df) * se : 0;
+        const ciPhasic = ci95(sePhasic);
+        const ciTonic = ci95(seTonic);
         roadProfile.push({
           name: key,
           timeSpent: n,
@@ -620,16 +646,15 @@ export const EnvironmentalDashboardUI = {
           ciPhasic,
           ciTonic,
           peakRate: val.peaks / (n / 60),
-          _phasicVals: val.phasicVals,
-          _nEffPhasic: nEffPhasic,
+          _sePhasic: sePhasic,
         });
       });
       roadProfile.sort((a, b) => b.meanPhasic - a.meanPhasic);
 
-      // Highest vs lowest road class: a Welch t-test on effective sample
-      // sizes (a CI-overlap check is not a valid significance test), using the
-      // per-walk-summed effective N so the autocorrelation isn't measured
-      // across the joins between walks. hi and lo are the extremes of
+      // Highest vs lowest road class: a Welch t-test on each class's
+      // walk-aware standard error (a CI-overlap check is not a valid
+      // significance test) — within-walk effective N, or the between-walk SE
+      // when walks disagree more than that. hi and lo are the extremes of
       // `roadProfile.length` group means, picked *after* seeing the data —
       // testing that gap as if it were pre-specified inflates the false-positive
       // rate, so Bonferroni-adjust the p by the number of pairwise contrasts
@@ -638,10 +663,20 @@ export const EnvironmentalDashboardUI = {
       if (roadProfile.length >= 2) {
         const hi = roadProfile[0];
         const lo = roadProfile[roadProfile.length - 1];
-        const w = StatsMath.welchTTest(hi._phasicVals, lo._phasicVals, true, {
-          a: hi._nEffPhasic,
-          b: lo._nEffPhasic,
-        });
+        // Welch t on the same walk-aware SEs as the CIs, Welch–Satterthwaite df.
+        const a = hi._sePhasic;
+        const b = lo._sePhasic;
+        const va = a.se ** 2;
+        const vb = b.se ** 2;
+        const se = Math.sqrt(va + vb);
+        const t = se > 0 ? (hi.meanPhasic - lo.meanPhasic) / se : 0;
+        const df =
+          va + vb > 0 ? (va + vb) ** 2 / (va ** 2 / a.df + vb ** 2 / b.df) : 0;
+        const w = {
+          t,
+          df,
+          p: se > 0 && df > 0 ? StatsMath._tTestPValue(t, df) : 1,
+        };
         const nPairs = (roadProfile.length * (roadProfile.length - 1)) / 2;
         roadComparison = {
           highName: hi.name,
@@ -660,8 +695,7 @@ export const EnvironmentalDashboardUI = {
         };
       }
       roadProfile.forEach((p) => {
-        delete p._phasicVals;
-        delete p._nEffPhasic;
+        delete p._sePhasic;
       }); // drop internals before caching
 
       cacheTarget._cachedEnvStats = {

@@ -564,7 +564,6 @@ export const SpectralEDA = {
     const fHigh = SpectralEDA.BAND_HZ[1];
 
     const d2 = SpectralEDA.posadaSignal(signal, fs);
-    const t0 = times[0];
     const n2 = d2.length;
     // < 8 samples @ 2 Hz (= 4 s) is too short for a meaningful spectrum.
     if (n2 < 8) return [];
@@ -586,10 +585,14 @@ export const SpectralEDA = {
     const out = [];
     const half = nperseg >> 1;
     for (let start = 0; start + nperseg <= n2; start += hop2) {
-      // Window-centre time on the ORIGINAL time base: the preprocessed signal
-      // is resampled to 2 Hz, so d2 sample `i` sits at t0 + i/2 seconds
-      // (independent of the source sampling rate).
-      const tCenter = t0 + (start + half) / 2;
+      // Window-centre time on the ORIGINAL time base. d2 sample `i` was taken
+      // from source sample i·fs/2 (_decimateTo2Hz), so read its time off the
+      // real timestamps: t0 + i/2 assumes perfectly even sampling and drifts
+      // on a recording that drops samples (~2% at 9.8 Hz ⇒ ~36 s by 30 min).
+      const tCenter = SpectralEDA._timeAtIndex(
+        times,
+        ((start + half) * fs) / 2,
+      );
 
       SpectralEDA._fftSegment(d2, start, nperseg, nfft, win, re, im);
       const bandPower = SpectralEDA._bandPowerFromFft(
@@ -604,6 +607,20 @@ export const SpectralEDA = {
       out.push({ time: tCenter, val: Number.isNaN(bandPower) ? 0 : bandPower });
     }
     return out;
+  },
+
+  /**
+   * Time at fractional source-sample index `pos`, linearly interpolated
+   * between timestamps and clamped to the recording's ends.
+   * @private
+   */
+  _timeAtIndex(times, pos) {
+    const n = times.length;
+    if (pos <= 0) return times[0];
+    if (pos >= n - 1) return times[n - 1];
+    const i0 = Math.floor(pos);
+    const f = pos - i0;
+    return times[i0] + f * (times[i0 + 1] - times[i0]);
   },
 
   /**

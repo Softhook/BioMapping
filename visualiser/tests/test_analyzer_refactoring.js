@@ -95,9 +95,10 @@ test('GSRAnalyzer formatting: absolute dates when recordingStartTime is real', (
 // ── CSV Parsing & Interpolation Tests ────────────────────────────────────────
 
 test('GSRAnalyzer parseCSV: basic parsing and column mapping', () => {
+  // gsr_raw is the firmware column, in nS by schema → read back as µS.
   const csv = `time,lat,lon,gsr_raw,hdop,sats
-1000.0,51.5074,-0.1278,2.5,1.2,8
-1000.1,51.5075,-0.1279,2.6,1.3,9`;
+1000.0,51.5074,-0.1278,2500,1.2,8
+1000.1,51.5075,-0.1279,2600,1.3,9`;
 
   const a = new GSRAnalyzer();
   a.parseCSV(csv);

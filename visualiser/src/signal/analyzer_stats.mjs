@@ -17,6 +17,24 @@ import { GSR_CONST } from '../core/constants.mjs';
 
 export const AnalyzerStats = {
   /**
+   * Error function, Abramowitz & Stegun 7.1.26 (|error| < 1.5e-7).
+   * @private
+   */
+  _erf(x) {
+    const sgn = x < 0 ? -1 : 1;
+    const a = Math.abs(x);
+    const t = 1 / (1 + 0.3275911 * a);
+    const y =
+      1 -
+      ((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t - 0.284496736) *
+        t +
+        0.254829592) *
+        t *
+        Math.exp(-a * a);
+    return sgn * y;
+  },
+
+  /**
    * Continuous Temporal Peak Density (Non-Specific SCR Frequency), in
    * peaks/minute, computed via 1D Gaussian Kernel Density Estimation (KDE)
    * where the kernel bandwidth (sigma) is scaled directly by the spotlight window width.
@@ -64,9 +82,19 @@ export const AnalyzerStats = {
     const density = new Array(n);
     let lo = 0,
       hi = 0;
+    // Edge correction: near the start/end part of each kernel falls outside
+    // the recording, where no peak could have been observed, so the raw sum
+    // under-reads by up to half. Divide by the kernel mass that lies inside
+    // [tFirst, tLast] (renormalisation / reflection-free boundary correction).
+    const tFirst = phasic[0].time;
+    const tLast = phasic[n - 1].time;
+    // Standard normal CDF.
+    const normCdf = (z) => 0.5 * (1 + AnalyzerStats._erf(z / Math.SQRT2));
 
     for (let i = 0; i < n; i++) {
       const t = phasic[i].time;
+      const inside =
+        normCdf((tLast - t) / sigma) - normCdf((tFirst - t) / sigma);
       const tStart = t - maxDist;
       const tEnd = t + maxDist;
 
@@ -81,7 +109,7 @@ export const AnalyzerStats = {
 
       density[i] = {
         time: t,
-        val: kernelSum * normFactor,
+        val: (kernelSum * normFactor) / Math.max(0.5, inside),
       };
     }
     return density;
@@ -165,9 +193,18 @@ export const AnalyzerStats = {
         lo++;
       }
 
+      // Edge correction: a centred window that runs off either end of the
+      // recording only saw part of its span; scale up to the full window so
+      // the first/last windowSizeSec/2 seconds don't read low by up to half.
+      const covered =
+        Math.min(tEnd, src[n - 1].time) - Math.max(tStart, src[0].time);
+      const edgeScale =
+        covered > 0 && covered < windowSizeSec
+          ? windowSizeSec / Math.max(covered, windowSizeSec / 2)
+          : 1;
       auc[i] = {
         time: t,
-        val: runningSum / sampleRate, // Convert running sum to a time-integral (µS·s)
+        val: (runningSum / sampleRate) * edgeScale, // time-integral (µS·s)
       };
     }
     return { series: auc, isISCR: useDriver };

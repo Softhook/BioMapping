@@ -14,7 +14,7 @@ const { Hillshade } = require('../src/map/hillshade.mjs');
 
 console.log('── Running Hillshade Algorithm Test ──');
 
-// ── Test 1: a perfectly flat surface shades uniformly at cos(altitude),
+// ── Test 1: a perfectly flat surface shades uniformly at sin(altitude) (= cos of the solar zenith),
 // independent of azimuth (slope=0 means the azimuth/aspect term vanishes
 // entirely — this isolates the altitude term from the slope/aspect math). ──
 {
@@ -27,24 +27,24 @@ console.log('── Running Hillshade Algorithm Test ──');
         azimuthDeg,
         altitudeDeg,
       });
-      const expected = Math.cos((altitudeDeg * Math.PI) / 180);
+      const expected = Math.sin((altitudeDeg * Math.PI) / 180);
       for (let r = 1; r < rows - 1; r++) {
         for (let c = 1; c < cols - 1; c++) {
           assert(
             Math.abs(shade[r * cols + c] - expected) < 1e-5,
-            `Flat grid (alt=${altitudeDeg}, az=${azimuthDeg}) cell (${r},${c}) shade=${shade[r * cols + c]} should equal cos(altitude)=${expected}`,
+            `Flat grid (alt=${altitudeDeg}, az=${azimuthDeg}) cell (${r},${c}) shade=${shade[r * cols + c]} should equal sin(altitude)=${expected}`,
           );
         }
       }
     }
   }
   console.log(
-    '✓ Flat surface shades uniformly at cos(altitude), independent of azimuth',
+    '✓ Flat surface shades uniformly at sin(altitude), independent of azimuth',
   );
 }
 
 // ── Test 2: a tilted plane's illumination, scanned over every azimuth, has
-// a maximum of cos(altitude - slope) and a minimum of max(0, cos(altitude + slope))
+// a maximum of sin(altitude + slope) and a minimum of max(0, sin(altitude - slope))
 // — the closed-form bounds any Lambertian relief-shading formula must hit
 // regardless of the azimuth/aspect compass calibration. ─────────────────────
 {
@@ -82,16 +82,16 @@ console.log('── Running Hillshade Algorithm Test ──');
   // expected bounds independently of Hillshade's internals.
   const slopeRad = Math.atan(Math.sqrt(3 * 3 + 0 * 0));
   const altitudeRad = (altitudeDeg * Math.PI) / 180;
-  const expectedMax = Math.cos(altitudeRad - slopeRad);
-  const expectedMin = Math.max(0, Math.cos(altitudeRad + slopeRad));
+  const expectedMax = Math.sin(altitudeRad + slopeRad);
+  const expectedMin = Math.max(0, Math.sin(altitudeRad - slopeRad));
 
   assert(
     Math.abs(maxShade - expectedMax) < 0.02,
-    `Max shade over all azimuths (${maxShade.toFixed(4)}) should match cos(altitude-slope)=${expectedMax.toFixed(4)}`,
+    `Max shade over all azimuths (${maxShade.toFixed(4)}) should match sin(altitude+slope)=${expectedMax.toFixed(4)}`,
   );
   assert(
     Math.abs(minShade - expectedMin) < 0.02,
-    `Min shade over all azimuths (${minShade.toFixed(4)}) should match max(0,cos(altitude+slope))=${expectedMin.toFixed(4)}`,
+    `Min shade over all azimuths (${minShade.toFixed(4)}) should match max(0,sin(altitude-slope))=${expectedMin.toFixed(4)}`,
   );
 
   // The point diametrically opposite the (unique) brightest azimuth must be
@@ -113,7 +113,7 @@ console.log('── Running Hillshade Algorithm Test ──');
   );
 
   console.log(
-    `✓ Tilted-plane illumination bounded by [cos(alt+slope), cos(alt-slope)] across all azimuths, minimum sits exactly opposite the (unique) brightest azimuth (argmax=${argmaxAz}°)`,
+    `✓ Tilted-plane illumination bounded by [sin(alt-slope), sin(alt+slope)] across all azimuths, minimum sits exactly opposite the (unique) brightest azimuth (argmax=${argmaxAz}°)`,
   );
 }
 

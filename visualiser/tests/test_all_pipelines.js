@@ -337,8 +337,26 @@ for (const idx of checkIdxs) {
       bruteSum += Math.exp(-(dt * dt) / twoSigmaSq);
     }
   }
-  const expected = bruteSum * normFactor;
-  if (Math.abs(analyzer.peakDensity[idx].val - expected) > 1e-6)
+  // Edge correction: divide by the kernel mass inside the recording,
+  // integrated numerically here (independent of the implementation's erf).
+  const tFirst = analyzer.phasic[0].time;
+  const tLast = analyzer.phasic[analyzer.phasic.length - 1].time;
+  const lo = Math.max(tFirst, t - 8 * sigma);
+  const hi = Math.min(tLast, t + 8 * sigma);
+  const steps = 20000;
+  const h = (hi - lo) / steps;
+  let inside = 0;
+  for (let k = 0; k <= steps; k++) {
+    const s = lo + k * h;
+    const g =
+      Math.exp(-((s - t) ** 2) / twoSigmaSq) / (Math.sqrt(2 * Math.PI) * sigma);
+    inside += (k === 0 || k === steps ? 0.5 : 1) * g * h;
+  }
+  const expected = (bruteSum * normFactor) / Math.max(0.5, inside);
+  if (
+    Math.abs(analyzer.peakDensity[idx].val - expected) >
+    1e-5 * Math.max(1, Math.abs(expected))
+  )
     densityMismatch++;
 }
 assertEq(

@@ -34,6 +34,7 @@ export const CorrelationTableUI = {
     xLabel,
     yLabel,
     isBinaryX = false,
+    walkCount = 1,
   ) {
     if (!canvas || typeof canvas.getContext !== 'function') return;
     const ctx = canvas.getContext('2d');
@@ -209,10 +210,15 @@ export const CorrelationTableUI = {
     // one (there R² is just the squared point-biserial correlation).
     ctx.font = 'bold 10px Inter, sans-serif';
     ctx.textAlign = 'right';
+    // With several walks the points are pooled across walks with different
+    // baselines, so this fit mixes between-walk and within-walk variation —
+    // it can disagree with the correlation table's per-walk meta-analysis.
+    // Say so on the badge rather than let it pass as the same statistic.
+    const pooled = walkCount > 1 ? `pooled, ${walkCount} walks: ` : '';
     const badgeText = isBinaryX
-      ? 'r = ' +
+      ? `${pooled}r = ` +
         (Math.sign(m) * Math.sqrt(Math.max(0, Math.min(1, r2)))).toFixed(3)
-      : `R² = ${r2.toFixed(3)}`;
+      : `${pooled}R² = ${r2.toFixed(3)}`;
     const bw = ctx.measureText(badgeText).width;
     ctx.fillStyle = 'rgba(0, 85, 204, 0.08)';
     ctx.fillRect(width - padR - bw - 10, padT + 2, bw + 14, 18);
@@ -660,6 +666,7 @@ export const CorrelationTableUI = {
       (m) => m.field === scatterXMetric && m.kind === 'binary',
     );
     const yIsTonic = scatterYMetric !== 'phasic';
+    const walkIds = new Set();
     dataSrc.forEach((d) => {
       // Tonic uses the longer-lag environment, phasic the shorter-lag one —
       // same split as the correlation table.
@@ -680,6 +687,7 @@ export const CorrelationTableUI = {
       ) {
         xVals.push(x);
         yVals.push(y);
+        walkIds.add(d.trackId);
       }
     });
 
@@ -713,6 +721,7 @@ export const CorrelationTableUI = {
       xLabels[scatterXMetric],
       yLabels[scatterYMetric],
       isBinaryX,
+      walkIds.size,
     );
   },
 };

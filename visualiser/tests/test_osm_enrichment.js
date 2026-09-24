@@ -1563,10 +1563,10 @@ console.log('\n── OSMEnricher: _projectToTimeline ──');
 
 // 6a-sentinel. Distance fields must NOT lerp across the SENTINEL_DIST marker
 // ("no feature within radius" = 999) — a lerp would manufacture bogus
-// mid-range distances. When exactly one endpoint is the sentinel, hold the
-// *real* endpoint's value across the whole segment (stepping to the sentinel
-// at the midpoint would silently drop half the transition from every consumer
-// that filters === 999). Both endpoints sentinel → sentinel. Green % still lerps.
+// mid-range distances. When exactly one endpoint is the sentinel the distance
+// is censored (> radius), so step at the midpoint: the sentinel half stays
+// sentinel rather than being given the real endpoint's (fabricated) near
+// distance. Both endpoints sentinel → sentinel. Green % still lerps.
 {
   const computedMetrics = [
     {
@@ -1605,39 +1605,39 @@ console.log('\n── OSMEnricher: _projectToTimeline ──');
 
   assertClose(
     raw[3].osm_dist_green,
-    15,
+    999,
     1e-9,
-    '_projectToTimeline — dist_green: real endpoint held past a sentinel (t<0.5)',
+    '_projectToTimeline — dist_green: sentinel half stays sentinel (t<0.5)',
   );
   assertClose(
     raw[7].osm_dist_green,
     15,
     1e-9,
-    '_projectToTimeline — dist_green: real endpoint held past a sentinel (t>=0.5)',
+    '_projectToTimeline — dist_green: real endpoint on its own half (t>=0.5)',
   );
   assertClose(
     raw[3].osm_dist_major_road,
-    8,
+    999,
     1e-9,
-    '_projectToTimeline — sentinel prev endpoint: real value held across the segment (t<0.5)',
+    '_projectToTimeline — sentinel prev endpoint: sentinel half stays sentinel (t<0.5)',
   );
   assertClose(
     raw[7].osm_dist_major_road,
     8,
     1e-9,
-    '_projectToTimeline — sentinel prev endpoint: real value held across the segment (t>=0.5)',
+    '_projectToTimeline — sentinel prev endpoint: real value on its own half (t>=0.5)',
   );
   assertClose(
     raw[3].osm_dist_water,
-    12,
+    999,
     1e-9,
-    '_projectToTimeline — water dist: real value held past a sentinel endpoint (t<0.5)',
+    '_projectToTimeline — water dist: sentinel half stays sentinel (t<0.5)',
   );
   assertClose(
     raw[7].osm_dist_water,
     12,
     1e-9,
-    '_projectToTimeline — water dist: real value held past a sentinel endpoint (t>=0.5)',
+    '_projectToTimeline — water dist: real value on its own half (t>=0.5)',
   );
   assertClose(
     raw[5].osm_green_pct_50m,

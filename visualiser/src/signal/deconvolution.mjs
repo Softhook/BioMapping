@@ -1037,13 +1037,20 @@ export const SCRDeconvolution = {
       .map((amp, i) => {
         if (amp <= 0) return null;
         const bandIdx = workDominantBands.has(i) ? workDominantBands.get(i) : 2;
+        // Dictionary band b stretches the kernel in time by SCALE_FACTORS[b]
+        // (0.5 = compressed, the FASTEST response; 1.5 = the slowest). The
+        // speed factor ResponseDynamics works in is the mirror image (1.5 =
+        // "Very Fast"), so the two are carried separately: durationScale for
+        // kernel geometry (apex prediction), scaleFactor/speedLabel for speed.
+        const speedIdx = SCALE_FACTORS.length - 1 - bandIdx;
         return {
           clampedIndex: i,
           trueIndex: i,
           amplitude: amp,
           bandIdx,
-          scaleFactor: SCALE_FACTORS[bandIdx],
-          speedLabel: SPEED_LABELS[bandIdx],
+          durationScale: SCALE_FACTORS[bandIdx],
+          scaleFactor: SCALE_FACTORS[speedIdx],
+          speedLabel: SPEED_LABELS[speedIdx],
         };
       })
       .filter(Boolean);

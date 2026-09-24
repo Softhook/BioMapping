@@ -47,8 +47,12 @@ export const Hillshade = {
     const cx = cellSizeX > 0 ? cellSizeX : 1;
     const cy = cellSizeY > 0 ? cellSizeY : 1;
 
-    const cosAlt = Math.cos(altitudeRad);
-    const sinAlt = Math.sin(altitudeRad);
+    // ESRI/Horn: hs = cos(Z)·cos(slope) + sin(Z)·sin(slope)·cos(az − aspect)
+    // with zenith Z = 90° − altitude, i.e. cos(Z) = sin(alt), sin(Z) = cos(alt).
+    // Flat ground therefore lights at sin(altitude): a low sun darkens it and
+    // lengthens relief contrast, a high sun flattens it.
+    const cosZen = Math.sin(altitudeRad);
+    const sinZen = Math.cos(altitudeRad);
     const shade = new Float32Array(rows * cols);
 
     // 3x3 Horn's-method neighborhood lookup, hoisted OUTSIDE the per-cell
@@ -91,8 +95,8 @@ export const Hillshade = {
         if (aspect < 0) aspect += 2 * Math.PI;
 
         const hs =
-          cosAlt * Math.cos(slope) +
-          sinAlt * Math.sin(slope) * Math.cos(azimuthRad - aspect);
+          cosZen * Math.cos(slope) +
+          sinZen * Math.sin(slope) * Math.cos(azimuthRad - aspect);
         shade[r * cols + c] = hs > 0 ? hs : 0;
       }
     }

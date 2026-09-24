@@ -195,10 +195,13 @@ export const GSR_CONST = {
     tauSlow: 2.0, // Bateman slow decay τ (s) — reference default tau0
     tauFast: 0.7, // Bateman fast rise τ (s) — reference default tau1 (Greco et al. 2016 / NeuroKit)
     deltaKnotSec: 10.0, // Tonic cubic B-spline knot spacing (s)
-    // L1 weight on the driver. The paper quotes α ≈ 8e-4 at 25 Hz; BioMapping
-    // samples at 10 Hz, where the same inter-event sparsity needs a
-    // proportionally stronger penalty (≈ 8e-4 · 25/10). Raise it to merge
-    // fewer ripples, lower it to keep more small SCRs.
+    // L1 weight on the driver (the reference / NeuroKit default is 8e-4).
+    // NOT a sample-rate correction: the data term and 1ᵀp both scale with
+    // the number of samples, so the fit-vs-sparsity trade-off is independent
+    // of fs (checked: synthetic SCRs recover the same amplitudes at 10 and
+    // 25 Hz for a fixed α). 2e-3 is this project's own, stronger sparsity
+    // choice. Raise it to merge more ripple into fewer events, lower it
+    // towards 8e-4 to keep more small SCRs.
     alpha: 2e-3,
     gamma: 1e-2, // L2 weight on tonic spline smoothness
     maxIter: 50, // Newton iteration cap. Real tracks converge in ~10-25;
@@ -637,17 +640,15 @@ export const GSR_CONST = {
     altitudeDeg: 35, // sun elevation above the horizon — lower angle = longer, more dramatic shadows
     exaggeration: 6.0, // full 0..1 normalised value range mapped to this many grid-cell widths of "height"
     // minLightness/maxLightness are deliberately NOT symmetric around the 50%
-    // baseline. Flat (unsloped) cells always render at cos(altitudeDeg) —
-    // here cos(35deg) = 0.82 — regardless of exaggeration, so a naive
-    // symmetric range (e.g. 8..92) brightens almost the ENTIRE surface well
-    // above baseline (flat cells alone landed at ~76%), leaving true shadow
-    // as the rare exception instead of the common case. maxLightness=60 puts
-    // that same flat-cell brightness back at ~50% (neutral, matching the old
-    // unshaded look), so brightening only shows up where a slope genuinely
-    // faces the sun MORE than ambient — while minLightness stays low so
-    // slopes facing away still read as a real, strong shadow.
+    // baseline. Flat (unsloped) cells always render at sin(altitudeDeg) (the
+    // cosine of the solar zenith) — here sin(35deg) = 0.574 — regardless of
+    // exaggeration. maxLightness is chosen so that flat-cell shade lands back
+    // at ~50% (6 + 0.574 * (83 - 6) = 50.2, neutral, matching the unshaded
+    // look), so brightening only shows up where a slope genuinely faces the
+    // sun MORE than ambient — while minLightness stays low so slopes facing
+    // away still read as a real, strong shadow.
     minLightness: 6, // HSL lightness % for fully-shadowed cells
-    maxLightness: 60, // HSL lightness % for cells facing the sun directly
+    maxLightness: 83, // HSL lightness % for cells facing the sun directly
   },
 
   // ── Memorable-event ("hotspot") selection ────────────────────────────────

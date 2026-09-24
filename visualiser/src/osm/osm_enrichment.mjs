@@ -262,17 +262,28 @@ function _buildSamplingGrid(lat, lon, radiusMeters) {
   const radLat = radiusMeters / METERS_PER_DEG_LAT;
   const radLon =
     radiusMeters / (METERS_PER_DEG_LAT * Math.cos((lat * Math.PI) / 180));
-  const points = [{ lat, lon }]; // centre
-  for (let r = 1; r <= SAMPLING_RINGS; r++) {
-    const frac = r / SAMPLING_RINGS;
+  // Each point carries the share of the buffer's AREA it stands for: ring k
+  // (radius k/K) covers the annulus between the midpoints to its neighbours
+  // (the outermost ring stops at the buffer edge), the centre the disc inside
+  // the first midpoint. Unweighted, the 16 perimeter points were 64% of the
+  // vote for ~44% of the area, so the "% within r" read as "% on the edge".
+  const K = SAMPLING_RINGS;
+  const centreR = 0.5 / K;
+  const points = [{ lat, lon, w: centreR * centreR }]; // centre
+  for (let r = 1; r <= K; r++) {
+    const frac = r / K;
     const rLat = radLat * frac;
     const rLon = radLon * frac;
     const nPts = POINTS_PER_RING[r];
+    const inner = (r - 0.5) / K;
+    const outer = Math.min(1, (r + 0.5) / K);
+    const w = (outer * outer - inner * inner) / nPts;
     for (let p = 0; p < nPts; p++) {
       const a = (p / nPts) * 2 * Math.PI;
       points.push({
         lat: lat + rLat * Math.sin(a),
         lon: lon + rLon * Math.cos(a),
+        w,
       });
     }
   }
@@ -721,7 +732,7 @@ export const OSMEnricher = {
             _isPointInGreenSpace(geom, sPt.lat, sPt.lon, pipFn)
           ) {
             sPt._hit = true;
-            greenHits++;
+            greenHits += sPt.w;
           }
         }
       }
@@ -749,7 +760,7 @@ export const OSMEnricher = {
           }
           if (hit) {
             sPt._canopyHit = true;
-            canopyHits++;
+            canopyHits += sPt.w;
           }
         }
       }
@@ -772,8 +783,9 @@ export const OSMEnricher = {
     if (minGreenDist === Infinity) minGreenDist = SENTINEL_DIST;
 
     // Green-space and tree-canopy coverage (float — rounding deferred to display)
-    const greenPct = (greenHits / samplingPoints.length) * 100;
-    const canopyPct = (canopyHits / samplingPoints.length) * 100;
+    // Area-weighted (the point weights sum to 1).
+    const greenPct = greenHits * 100;
+    const canopyPct = canopyHits * 100;
 
     return {
       roadClass: nearestRoadClass,
@@ -838,17 +850,13 @@ export const OSMEnricher = {
       const lerp = (a, b) => a + (b - a) * t;
       const step = (a, b) => (t >= 0.5 ? b : a);
       // Distance fields: when one endpoint is the SENTINEL_DIST "no feature
-      // within radius" marker we can't interpolate — a lerp would invent
-      // mid-range distances. Hold the *real* endpoint's value across the whole
-      // segment rather than stepping to the sentinel at the midpoint: the
-      // sentinel half is silently dropped by every consumer that filters
-      // === 999 (map colour, correlation matrix, scatter), so stepping to it
-      // biases distance stats toward "feature nearby" samples. Both endpoints
-      // sentinel → sentinel.
+      // within radius" marker the distance is censored (> radius), so a lerp
+      // would invent mid-range distances. Step instead: each sample takes its
+      // nearer evaluation point's value, so the far half stays "beyond
+      // radius" (and is dropped by consumers that filter === 999) rather than
+      // being given a fabricated near distance.
       const lerpDist = (a, b) => {
-        if (a === SENTINEL_DIST && b === SENTINEL_DIST) return SENTINEL_DIST;
-        if (a === SENTINEL_DIST) return b;
-        if (b === SENTINEL_DIST) return a;
+        if (a === SENTINEL_DIST || b === SENTINEL_DIST) return step(a, b);
         return lerp(a, b);
       };
 

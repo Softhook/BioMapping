@@ -103,7 +103,15 @@ export const PeakDetectors = {
         ri = find(ri);
         if (rn === ri) continue;
         const c = vals[i]; // col height between the two runs
-        const lo = compMax[ri] < compMax[rn] ? ri : rn;
+        // Equal summits (a flat apex) keep the LEFTMOST sample as the run's
+        // summit: that is the sample the local-maximum test
+        // (v[i] > v[i-1] && v[i] >= v[i+1]) picks, so it must carry the
+        // prominence rather than being dominated at a zero-height col.
+        const lo =
+          compMax[ri] < compMax[rn] ||
+          (compMax[ri] === compMax[rn] && compPeak[ri] > compPeak[rn])
+            ? ri
+            : rn;
         const hi = lo === ri ? rn : ri;
         if (prom[compPeak[lo]] < 0)
           prom[compPeak[lo]] = Math.max(0, compMax[lo] - c);

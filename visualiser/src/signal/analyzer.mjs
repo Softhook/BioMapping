@@ -1257,6 +1257,7 @@ export class GSRAnalyzer {
             time: times[i],
             amplitude: result.driver[i],
             bandIdx: meta ? meta.bandIdx : 2,
+            durationScale: meta ? meta.durationScale : 1.0,
             scaleFactor: meta ? meta.scaleFactor : 1.0,
             speedLabel: meta ? meta.speedLabel : 'Standard',
           });
@@ -1400,14 +1401,15 @@ export class GSRAnalyzer {
           });
         }
       }
-      cleanValsRaw =
-        result.clean && result.clean.length === n
-          ? new Float64Array(result.clean)
-          : SCRDeconvolution.reconstructPhasic(
-              reconstructionImpulses,
-              n,
-              result.kernel,
-            );
+      // Always rebuild from the GATED set. deconvolve() also returns its own
+      // `clean`, but that is every matching-pursuit atom, including the ones
+      // the gate above just rejected — using it would make the gate a no-op
+      // and break the rescaling invariant below.
+      cleanValsRaw = SCRDeconvolution.reconstructPhasic(
+        reconstructionImpulses,
+        n,
+        result.kernel,
+      );
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -1545,8 +1547,10 @@ export class GSRAnalyzer {
       const minImpulse = scf.sparsedaImpulseThreshold ?? 0.005;
       candidateIndices = this.phasicDriverPeaks
         .filter((p) => p.amplitude >= minImpulse)
-        .map(({ index, scaleFactor }) => {
-          const scaledKPeak = Math.round(kPeakIdx * (scaleFactor || 1.0));
+        .map(({ index, durationScale }) => {
+          // Kernel geometry uses the dictionary's time dilation, not the
+          // speed factor (its mirror image — see _deconvolveSparsEDA).
+          const scaledKPeak = Math.round(kPeakIdx * (durationScale || 1.0));
           const predicted = Math.min(n - 1, index + scaledKPeak);
           const lo = Math.max(0, index, predicted - apexSearchHalfWin);
           const hi = Math.min(n - 1, predicted + apexSearchHalfWin);

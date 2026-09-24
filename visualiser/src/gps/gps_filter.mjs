@@ -215,7 +215,10 @@ export const GpsFilter = {
     getRLon,
   ) {
     const n = points.length;
-    const CHI2_THRESH = 9.0; // 3σ for 1 DOF (99.7 % confidence)
+    // One joint test on the 2-D innovation, 2 DOF at the 3σ-equivalent
+    // 99.73 % level. Gating each axis on its own let one fix be accepted in
+    // latitude and rejected in longitude — half of a multipath jump applied.
+    const CHI2_THRESH = 11.83;
     const forwardLats = new Array(n);
     const forwardLons = new Array(n);
     const fwdCovLat = new Array(n);
@@ -254,28 +257,23 @@ export const GpsFilter = {
       const gainVarLat = pPLat + R_LAT;
       const gainVarLon = pPLon + R_LON;
 
-      // Chi-squared test: reject if |innov| > 3σ
+      // Normalised squared innovation per axis, summed for the joint gate.
       const chi2Lat = (innovLat * innovLat) / gateVarLat;
       const chi2Lon = (innovLon * innovLon) / gateVarLon;
 
-      if (chi2Lat < CHI2_THRESH) {
+      if (chi2Lat + chi2Lon < CHI2_THRESH) {
         const kLat = pPLat / gainVarLat;
         xLat = xLat + kLat * innovLat;
         PLat = (1 - kLat) * pPLat;
+        const kLon = pPLon / gainVarLon;
+        xLon = xLon + kLon * innovLon;
+        PLon = (1 - kLon) * pPLon;
       } else {
         // Outlier: inflate covariance so the filter can recover.
         // Without inflation, Q·dt (~0.5 m²/s) is too slow to grow P
         // and the filter stays locked out permanently (cascade rejection).
         isOutlier[i] = 1;
         PLat = pPLat * 5.0;
-      }
-
-      if (chi2Lon < CHI2_THRESH) {
-        const kLon = pPLon / gainVarLon;
-        xLon = xLon + kLon * innovLon;
-        PLon = (1 - kLon) * pPLon;
-      } else {
-        isOutlier[i] = 1;
         PLon = pPLon * 5.0;
       }
 

@@ -179,12 +179,14 @@ export const MarchingSquares = {
               seVal,
               swVal,
             );
+            // Centre high joins the high NW/SE corners, so the contour cuts
+            // off the low NE and SW corners (mirror of case 5).
             if (vCenter >= isolevel) {
-              lines.push([getL(), getT()]);
-              lines.push([getB(), getR()]);
-            } else {
               lines.push([getL(), getB()]);
               lines.push([getT(), getR()]);
+            } else {
+              lines.push([getL(), getT()]);
+              lines.push([getB(), getR()]);
             }
             break;
           }
@@ -433,12 +435,14 @@ export const MarchingSquares = {
                 okSE,
                 okSW,
               );
+              // Centre high joins the high NW/SE corners, so the contour cuts
+              // off the low NE and SW corners (mirror of case 5).
               if (vCenter >= isolevel) {
-                segs.push([getL(), getT()]);
-                segs.push([getB(), getR()]);
-              } else {
                 segs.push([getL(), getB()]);
                 segs.push([getT(), getR()]);
+              } else {
+                segs.push([getL(), getT()]);
+                segs.push([getB(), getR()]);
               }
               break;
             }

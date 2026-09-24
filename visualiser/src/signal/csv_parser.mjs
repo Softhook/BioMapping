@@ -41,6 +41,24 @@ function withDefaults(parsed, defaults) {
 
 export const GSRCSVParser = {
   /**
+   * Unit stated by a (lower-cased) GSR column header: 'ns' for the
+   * firmware's `gsr_raw` (nanosiemens per docs/csv_schema.md) or an explicit
+   * nS marker, 'us' for an explicit µS marker (the visualiser's own export
+   * writes "Raw Conductance (uS)"), 'ohm' for resistance, or null when the
+   * header doesn't say and the caller must guess from magnitude.
+   * @param {string} header
+   * @returns {'ns'|'us'|'ohm'|null}
+   * @private
+   */
+  _gsrUnitFromHeader(header) {
+    const h = (header || '').trim().toLowerCase();
+    if (h.includes('resistance') || h.includes('ohm')) return 'ohm';
+    if (/\((us|µs|μs)\)|microsiemens/.test(h)) return 'us';
+    if (h === 'gsr_raw' || /\(ns\)|nanosiemens/.test(h)) return 'ns';
+    return null;
+  },
+
+  /**
    * Parse one CSV line into fields, honoring quoted commas and escaped quotes
    * (RFC4180 double-quote escaping).
    * @param {string} line - A single CSV data/header line
@@ -1075,10 +1093,19 @@ export const GSRCSVParser = {
     const avgVal =
       rawDataList.reduce((sum, d) => sum + d.val, 0) / rawDataList.length;
     const gsrHeader = headers[colIndices.gsr_raw] || '';
-    const isResistanceHeader =
-      gsrHeader.includes('resistance') || gsrHeader.includes('ohms');
+    const gsrUnit = GSRCSVParser._gsrUnitFromHeader(gsrHeader);
 
-    if (isResistanceHeader || avgVal > GSR_CONST.RESISTANCE_MIN_AVG) {
+    // A header that states its unit wins over the magnitude guess: the
+    // firmware's `gsr_raw` is nS by schema (docs/csv_schema.md), and a
+    // mostly-disconnected nS recording averages under MICROSIEMENS_MIN_AVG,
+    // which the guess would leave 1000x too large.
+    if (gsrUnit === 'ns') {
+      rawDataList.forEach((d) => {
+        d.val = d.val / 1000.0;
+      });
+    } else if (gsrUnit === 'us') {
+      // already µS
+    } else if (gsrUnit === 'ohm' || avgVal > GSR_CONST.RESISTANCE_MIN_AVG) {
       isResistance = true;
       rawDataList.forEach((d) => {
         d.val = d.val > 0 ? 1000000.0 / d.val : 0;

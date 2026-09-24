@@ -734,8 +734,11 @@ export const MapMatcher = {
   },
 
   _angularDiff(a, b) {
-    let d = Math.abs(a - b);
-    if (d > Math.PI) d = 2 * Math.PI - d;
+    // Reduce to [0, 2π) first: course is [0, 2π) but atan2 bearings are
+    // (−π, π], so |a − b| alone can exceed 2π and fold to a negative angle.
+    const TWO_PI = 2 * Math.PI;
+    let d = (((a - b) % TWO_PI) + TWO_PI) % TWO_PI;
+    if (d > Math.PI) d = TWO_PI - d;
     return d;
   },
 

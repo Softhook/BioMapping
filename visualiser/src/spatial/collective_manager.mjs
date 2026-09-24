@@ -879,6 +879,15 @@ export class GSRCollectiveManager {
       // terms fall off together.
       const envelopeSigma = idwRadius / 3;
       const twoEnvSigmaSq = 2 * envelopeSigma * envelopeSigma;
+      // The envelope decays each value toward a floor, not toward 0: with
+      // z-scored (or z-blended) sources half the values are negative, and
+      // val·exp(−d²) of a negative val RISES toward 0 with distance, so the
+      // max would pick the farthest low point and lift every trough. The
+      // floor is min(0, lowest value) — exactly 0 for non-negative sources.
+      let envFloor = 0;
+      for (let i = 0; i < points.length; i++) {
+        if (points[i].val < envFloor) envFloor = points[i].val;
+      }
       for (let i = 0; i < points.length; i++) {
         const p = points[i];
         // Every point carries the already-resolved active-metric value in .val
@@ -902,7 +911,9 @@ export class GSRCollectiveManager {
               const wt = 1.0 / (d + softening) ** idwExponent;
               sumWeightedVal[idx] += wt * pointVal;
               sumWeight[idx] += wt;
-              const envelopeVal = pointVal * Math.exp(-(d * d) / twoEnvSigmaSq);
+              const envelopeVal =
+                envFloor +
+                (pointVal - envFloor) * Math.exp(-(d * d) / twoEnvSigmaSq);
               if (envelopeVal > localMaxArr[idx])
                 localMaxArr[idx] = envelopeVal;
             }

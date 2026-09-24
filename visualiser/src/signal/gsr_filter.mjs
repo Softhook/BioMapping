@@ -330,13 +330,18 @@ export const GsrFilter = {
    * resonant peaking and transient ringing on noise spikes, which inflates
    * false-positive peak counts on quiet or clean recordings.
    *
-   * Linkwitz-Riley 4 cascades two critically/maximally-flat damped sections
-   * (Q = 0.7071 each). It exhibits strictly monotonic roll-off (no overshoot
-   * or ringing), -6dB amplitude (-12dB power) at cutoffHz, and steep
-   * -80dB/decade (-48dB/octave zero-phase) high-frequency rejection.
-   * This provides the steep attenuation required to eliminate walking gait
-   * (1.4-2.0Hz) artefacts and preserve >95% true SCR amplitude, without
-   * ringing or false-peak blowouts on quiet tracks.
+   * Linkwitz-Riley 4 cascades two maximally-flat sections (Q = 0.7071 each)
+   * — much less step overshoot and ringing than a single Butterworth-4.
+   * (Butterworth-4's overall magnitude is still flat; its high-Q section
+   * shows up as time-domain ringing, not a resonant peak in |H|.)
+   *
+   * Because each Butterworth-2 pass runs forward AND backward, the applied
+   * magnitude is |H_BW2(f)|^4 = 1 / (1 + (f/fc)^4)^2: 0.25 amplitude (-12 dB)
+   * AT cutoffHz, not the -6 dB of a single causal LR4, with a zero-phase
+   * asymptotic roll-off of -48 dB/octave (-160 dB/decade). At the default
+   * 1.0 Hz: ~0.89 amplitude at 0.5 Hz, ~0.04 (-27 dB) at 1.4 Hz, ~0.004
+   * (-49 dB) at 2 Hz — enough to remove walking-gait (1.4-2.0 Hz) artefact
+   * while keeping most SCR energy, which sits well below 0.5 Hz.
    *
    * @param {Array<number>} arr        - Source data array
    * @param {number} cutoffHz          - Low-pass cutoff frequency in Hz
