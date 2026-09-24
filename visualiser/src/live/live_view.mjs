@@ -38,6 +38,7 @@ import { Controllers } from '../core/controllers.mjs';
 import { GSRFileSaver } from '../core/file_saver.mjs';
 import { GSRFullscreen } from '../core/fullscreen.mjs';
 import { GSRLayoutManager } from '../core/layout_manager.mjs';
+import { GSRNotices } from '../core/notices.mjs';
 import { GSRAnalyzer } from '../signal/analyzer.mjs';
 import { GSRLiveBluetoothManager } from './live_bluetooth.mjs';
 import { buildLiveCsv } from './live_csv.mjs';
@@ -410,12 +411,22 @@ export function feedLiveAnalyzer() {
 // app's exports use, with the plain-download fallback when the File System
 // Access API isn't available.
 // ==========================================================================
-export function exportCsv() {
+export async function exportCsv() {
   const name = `biomap_live_${new Date().toISOString().replace(/[:.]/g, '-')}.csv`;
-  return GSRFileSaver.saveFile(
+  const count = LiveState.packets.length;
+  const saved = await GSRFileSaver.saveFile(
     buildLiveCsv(LiveState.packets, Date.now()),
     name,
   );
+  if (saved !== false) savedPacketCount = count;
+  return saved;
+}
+
+// Live Stream mode does not write to the Flipper's SD card, so the packet
+// buffer is the only copy of the walk until it is exported.
+let savedPacketCount = 0;
+export function hasUnsavedRecording() {
+  return LiveState.packets.length > savedPacketCount;
 }
 
 // ==========================================================================
@@ -585,6 +596,24 @@ const LiveConnectionController = {
     // lightweight Reconnect gave up, but the device itself may still be fine.
     // If the user explicitly requested a New Connection after a failed reconnect,
     // skip tryResumeDevice so we don't spend 3.5s retrying a failed peripheral and wedging the radio.
+    // A new connection starts a fresh session (resetSession below), which
+    // would throw away an unsaved walk.
+    if (hasUnsavedRecording()) {
+      const choice = await GSRNotices.dialog({
+        title: 'Unsaved Live Recording',
+        message: `This walk (${LiveState.packets.length} packets) has not been saved. A new connection starts a fresh recording and discards it.`,
+        buttons: [
+          { label: 'Save CSV', value: 'save', style: 'primary' },
+          { label: 'Discard and Connect', value: 'discard', style: 'danger' },
+        ],
+        dismissLabel: 'Cancel',
+        tone: 'warn',
+      });
+      // Saving opens a file dialog, which uses up the click that Bluetooth
+      // device selection needs — so the user connects again afterwards.
+      if (choice === 'save') await exportCsv();
+      if (choice !== 'discard') return;
+    }
     const previousDevice =
       forceNewChooser || needNewConnection
         ? null
@@ -662,6 +691,7 @@ export function resetSession() {
   allTrackSegments.length = 0;
   lastPacketTimestamp = 0;
   lastPacketArrivalTime = 0;
+  savedPacketCount = 0;
   // Drop the analyser's trailing-window buffer too, and its base offset.
   if (liveAnalyzer) liveAnalyzer.raw = [];
   liveAnalyzerBase = 0;
@@ -1179,6 +1209,13 @@ export const GSRLiveView = {
     // keeps today's graph-first default (mapVisible starts false). See
     // isCompactLiveLayout()'s doc comment for the detection rule.
     if (isCompactLiveLayout()) setMapVisible(true);
+
+    // Closing or reloading the page would lose an unsaved walk.
+    window.addEventListener('beforeunload', (e) => {
+      if (!hasUnsavedRecording()) return;
+      e.preventDefault();
+      e.returnValue = '';
+    });
 
     // Map visibility/init is otherwise a manual toggle (toggleMapBtn / the
     // FAB's Map<->Graph chip), not tied to GPS — see showMap()/hideMap() above.

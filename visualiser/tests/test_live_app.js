@@ -408,7 +408,19 @@ test('resetSession: puts the footer stats and export button back to their pre-co
   assert.strictEqual(run(context, 'liveAnalyzer.raw.length'), 0);
 });
 
-test('attemptConnect: resets session state as soon as a device is requested, so a "New Connection" after a previous session never carries its packets over — even if the new connection attempt itself then fails', async () => {
+// Clicks the button labelled `label` in the GSRNotices dialog once it is up.
+async function answerDialog(window, label) {
+  const find = () =>
+    [...window.document.querySelectorAll('button')].find(
+      (b) => b.textContent === label,
+    );
+  await settle(() => !!find());
+  const btn = find();
+  assert.ok(btn, `dialog button "${label}" shown`);
+  btn.click();
+}
+
+test('attemptConnect: after "Discard and Connect" on an unsaved walk, resets session state as soon as a device is requested, so a "New Connection" never carries its packets over — even if the new connection attempt itself then fails', async () => {
   const { window, context } = await bootLive();
   run(context, 'LiveState.addPacket({ timestamp: 0.0, gsrRaw: 1 })');
   run(context, 'LiveState.addPacket({ timestamp: 0.3, gsrRaw: 2 })');
@@ -420,13 +432,98 @@ test('attemptConnect: resets session state as soon as a device is requested, so 
     },
   };
 
-  await run(context, 'attemptConnect()');
+  const connecting = run(context, 'attemptConnect()');
+  await answerDialog(window, 'Discard and Connect');
+  await connecting;
 
   assert.strictEqual(run(context, 'LiveState.packets.length'), 0);
   assert.match(
     window.document.getElementById('connectErr').textContent,
     /cancelled/,
   );
+});
+
+test('attemptConnect: an unsaved live walk is kept when the user cancels the new connection', async () => {
+  const { window, context } = await bootLive();
+  run(context, 'LiveState.addPacket({ timestamp: 0.0, gsrRaw: 1 })');
+  let requested = 0;
+  window.navigator.bluetooth = {
+    requestDevice: async () => {
+      requested++;
+      throw new Error('should not be reached');
+    },
+  };
+
+  const connecting = run(context, 'attemptConnect()');
+  await answerDialog(window, 'Cancel');
+  await connecting;
+
+  assert.strictEqual(run(context, 'LiveState.packets.length'), 1);
+  assert.strictEqual(requested, 0, 'no device chooser opened');
+});
+
+test('attemptConnect: "Save CSV" saves the walk without connecting; the next connect then needs no prompt', async () => {
+  const { window, context } = await bootLive();
+  run(context, 'LiveState.addPacket({ timestamp: 0.0, gsrRaw: 1 })');
+  run(context, 'LiveState.addPacket({ timestamp: 0.3, gsrRaw: 2 })');
+  const saved = [];
+  run(context, 'GSRFileSaver').saveFile = async (text) => {
+    saved.push(text);
+    return true;
+  };
+  let requested = 0;
+  window.navigator.bluetooth = {
+    requestDevice: async () => {
+      requested++;
+      throw new Error('user cancelled the device chooser');
+    },
+  };
+
+  const connecting = run(context, 'attemptConnect()');
+  await answerDialog(window, 'Save CSV');
+  await connecting;
+
+  assert.strictEqual(saved.length, 1, 'CSV saved once');
+  assert.match(saved[0], /^# Integrity: crc32 v1/);
+  assert.strictEqual(requested, 0, 'saving does not also connect');
+  assert.strictEqual(run(context, 'LiveState.packets.length'), 2);
+  assert.strictEqual(run(context, 'hasUnsavedRecording()'), false);
+
+  // Saved: connecting again goes straight through (no dialog to answer).
+  await run(context, 'attemptConnect()');
+  assert.strictEqual(requested, 1);
+  assert.strictEqual(run(context, 'LiveState.packets.length'), 0);
+});
+
+test('attemptConnect: a cancelled save leaves the walk unsaved', async () => {
+  const { window, context } = await bootLive();
+  run(context, 'LiveState.addPacket({ timestamp: 0.0, gsrRaw: 1 })');
+  run(context, 'GSRFileSaver').saveFile = async () => false;
+  window.navigator.bluetooth = { requestDevice: async () => ({}) };
+
+  const connecting = run(context, 'attemptConnect()');
+  await answerDialog(window, 'Save CSV');
+  await connecting;
+
+  assert.strictEqual(run(context, 'hasUnsavedRecording()'), true);
+  assert.strictEqual(run(context, 'LiveState.packets.length'), 1);
+});
+
+test('beforeunload: warns only while the live walk has unsaved packets', async () => {
+  const { window, context } = await bootLive();
+  const fire = () => {
+    const e = new window.Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(e);
+    return e.defaultPrevented;
+  };
+  assert.strictEqual(fire(), false, 'nothing recorded yet');
+  run(context, 'LiveState.addPacket({ timestamp: 0.0, gsrRaw: 1 })');
+  assert.strictEqual(fire(), true, 'unsaved walk');
+  run(context, 'GSRFileSaver').saveFile = async () => true;
+  await run(context, 'exportCsv()');
+  assert.strictEqual(fire(), false, 'saved');
+  run(context, 'LiveState.addPacket({ timestamp: 0.3, gsrRaw: 2 })');
+  assert.strictEqual(fire(), true, 'new packets since the save');
 });
 
 test('attemptConnect: leaves existing session data alone when Web Bluetooth is not available at all (nothing was actually attempted)', async () => {
