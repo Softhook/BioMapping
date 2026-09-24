@@ -87,6 +87,9 @@ export class GSRAnalyzer {
     this.hasGpsData = false; // Whether raw signal contains valid GPS coordinates
     this.filteredGps = [];
     this._userPeakLabels = new Map(); // Persistent time-indexed store: timestamp (sec) -> label string
+    // Same idea for exclusions: timestamp (sec) -> true (excluded) / false
+    // (explicitly re-included, which must beat an exclusion imported from CSV).
+    this._userPeakExclusions = new Map();
 
     this.rfPeakIndices = new Set(); // this.raw row indices with a momentary RF
     // spike on any band — must survive map
@@ -342,15 +345,69 @@ export class GSRAnalyzer {
   }
 
   /**
-   * Toggle (or set) a peak's excluded flag by index.
+   * Toggle (or set) a peak's excluded flag by index. Recorded by time in
+   * _userPeakExclusions so it survives re-analysis the way labels do — an
+   * index-only record was lost as soon as a slider drag hid the peak.
    */
   setPeakExcluded(idx, excluded) {
-    if (!this.peaks[idx]) return;
-    this.peaks[idx].excluded = excluded;
+    const peak = this.peaks[idx];
+    if (!peak) return;
+    for (const [t, pk] of this._matchExclusionEntriesToPeaks()) {
+      if (pk === peak) this._userPeakExclusions.delete(t);
+    }
+    peak.excluded = !!excluded;
+    this._userPeakExclusions.set(Number(peak.time.toFixed(3)), !!excluded);
     this._dataVersion++;
     if (this._driverAlgorithm === 'sparseda') {
       this.responseDynamics = this.computeResponseDynamics();
     }
+  }
+
+  /**
+   * Pair each stored exclusion decision with its detected peak: within 1 s,
+   * closest pairs first, each side used at most once (as for labels).
+   * @returns {Map<number, object>} store key -> peak
+   * @private
+   */
+  _matchExclusionEntriesToPeaks() {
+    const pairs = [];
+    for (const pk of this.peaks || []) {
+      for (const t of this._userPeakExclusions.keys()) {
+        const diff = Math.abs(pk.time - t);
+        if (diff <= 1.0) pairs.push({ t, pk, diff });
+      }
+    }
+    pairs.sort((a, b) => a.diff - b.diff);
+    const byKey = new Map();
+    const usedPeaks = new Set();
+    for (const { t, pk } of pairs) {
+      if (byKey.has(t) || usedPeaks.has(pk)) continue;
+      byKey.set(t, pk);
+      usedPeaks.add(pk);
+    }
+    return byKey;
+  }
+
+  /** Apply the stored exclusion decisions to freshly detected peaks. @private */
+  _assignExclusionsToPeaks() {
+    if (this._userPeakExclusions.size === 0) return;
+    for (const [t, pk] of this._matchExclusionEntriesToPeaks()) {
+      pk.excluded = this._userPeakExclusions.get(t);
+    }
+  }
+
+  /**
+   * Excluded peaks not detected under the current settings. Exported so a
+   * save doesn't drop them (see hiddenPeakLabels).
+   * @returns {Array<{time:number}>}
+   */
+  hiddenPeakExclusions() {
+    const shown = this._matchExclusionEntriesToPeaks();
+    const hidden = [];
+    for (const [t, excluded] of this._userPeakExclusions) {
+      if (excluded && !shown.has(t)) hidden.push({ time: t });
+    }
+    return hidden;
   }
 
   /**
@@ -560,9 +617,11 @@ export class GSRAnalyzer {
     // Restore imported peak labels/exclusions onto the persistent user-label
     // store (the parser builds the maps; only the analyzer owns setPeakLabel).
     this._importedPeakLabels = result.importedPeakLabels || new Map();
-    this._importedPeakExcluded = result.importedPeakExcluded || new Map();
     for (const [t, label] of this._importedPeakLabels.entries()) {
       this.setPeakLabel(t, label);
+    }
+    for (const t of (result.importedPeakExcluded || new Map()).keys()) {
+      this._userPeakExclusions.set(Number(t.toFixed(3)), true);
     }
 
     return this.raw;
@@ -1130,6 +1189,7 @@ export class GSRAnalyzer {
         cvxCandidateIndices,
       );
       this._assignLabelsToPeaks(this.peaks);
+      this._assignExclusionsToPeaks();
       return;
     }
 
@@ -1510,6 +1570,7 @@ export class GSRAnalyzer {
       oldExcluded,
       candidateIndices,
     );
+    this._assignExclusionsToPeaks(); // before computeResponseDynamics(), which skips excluded peaks
     if (algorithm === 'sparseda') {
       this._tagSparsedaPeaksAndStats();
       this.responseDynamics = this.computeResponseDynamics();
@@ -1591,16 +1652,7 @@ export class GSRAnalyzer {
    * Delegates to PeakShape.buildPeakObject.
    * @private
    */
-  _buildPeakObject(
-    i,
-    currVal,
-    vals,
-    times,
-    shape,
-    oldLabels,
-    oldExcluded,
-    checkImportedExcluded = false,
-  ) {
+  _buildPeakObject(i, currVal, vals, times, shape, oldLabels, oldExcluded) {
     return PeakShape.buildPeakObject(
       i,
       currVal,
@@ -1609,7 +1661,6 @@ export class GSRAnalyzer {
       shape,
       oldLabels,
       oldExcluded,
-      checkImportedExcluded,
       this._peakDetectionCtx(),
     );
   }
@@ -1628,7 +1679,6 @@ export class GSRAnalyzer {
       filtered: this.filtered,
       getMatchingLabel: (t) => this.getMatchingLabel(t),
       importedPeakLabels: this._importedPeakLabels,
-      importedPeakExcluded: this._importedPeakExcluded,
       topographicProminence: (v) => this._topographicProminence(v),
     };
   }
@@ -1917,8 +1967,9 @@ export class GSRAnalyzer {
 
   /**
    * Snapshot any user-set labels and exclusion flags from the current peak list
-   * so they survive re-analysis. Also merges labels/exclusions imported from a
-   * re-loaded processed CSV (matched by time). Called at the top of every
+   * so they survive re-analysis. Also merges labels imported from a re-loaded
+   * processed CSV (matched by time); exclusions are re-applied by time from
+   * _userPeakExclusions once detection finishes. Called at the top of every
    * detector (_detectPeaksFullScan / _detectPeaksByProminence /
    * _runDeconvolutionPipeline) before this.peaks is cleared.
    *
@@ -1941,10 +1992,6 @@ export class GSRAnalyzer {
         if (!pk.label?.trim()) {
           const imported = this._importedPeakLabels.get(pk.time);
           if (imported) oldLabels.set(pk.index, imported);
-        }
-        if (!pk.excluded) {
-          const importedEx = this._importedPeakExcluded?.get(pk.time);
-          if (importedEx) oldExcluded.add(pk.index);
         }
       }
     }
@@ -1994,6 +2041,7 @@ export class GSRAnalyzer {
       this._peakDetectionCtx(),
     );
     this._assignLabelsToPeaks(this.peaks);
+    this._assignExclusionsToPeaks();
   }
 
   /**
@@ -2043,6 +2091,7 @@ export class GSRAnalyzer {
       this._peakDetectionCtx(),
     );
     this._assignLabelsToPeaks(this.peaks);
+    this._assignExclusionsToPeaks();
   }
   /**
    * Continuous Temporal Peak Density (Non-Specific SCR Frequency), in
@@ -2222,6 +2271,7 @@ export class GSRAnalyzer {
         phasic: this.phasic,
         peaks: this.peaks,
         hiddenLabels: this.hiddenPeakLabels(),
+        hiddenExclusions: this.hiddenPeakExclusions(),
         filteredGps: this.filteredGps,
         isEnriched: this.isEnriched,
         enrichmentRadius: this.enrichmentRadius,

@@ -197,9 +197,11 @@ export const PeaksTableUI = {
    * Toggle exclusion state for a peak event, then refresh all views.
    */
   togglePeakExclusion(idx, trackId) {
-    const { analyzer } = this._resolveTrackAndAnalyzer(trackId);
+    const { track, analyzer } = this._resolveTrackAndAnalyzer(trackId);
     if (!analyzer?.peaks || idx >= analyzer.peaks.length) return;
     analyzer.setPeakExcluded(idx, !analyzer.peaks[idx].excluded);
+    // Exclusions are saved in the CSV alongside labels — same unsaved warning.
+    this._markUnsavedLabels(track);
     // Refresh displays. Same path/hotspot-skip reasoning as updatePeakLabel():
     // refreshPeakMarkers() rebuilds just the peak-marker layer instead of
     // renderData()'s full path+peaks+hotspots rebuild (see

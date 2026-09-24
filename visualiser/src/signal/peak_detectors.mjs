@@ -16,7 +16,6 @@
  *     filtered: Array<{val}>,               // for noise-floor estimation
  *     getMatchingLabel(time): string,
  *     importedPeakLabels: Map|null,
- *     importedPeakExcluded: Set|null,
  *     topographicProminence?(vals): Float64Array,
  *       // injected so GSRAnalyzer's own _topographicProminence (stubbed by
  *       // tests to count sweeps) is what actually runs, not this module's
@@ -261,7 +260,6 @@ export const PeakDetectors = {
       { ...metrics, onsetIdx, recoveryIdx },
       oldLabels,
       oldExcluded,
-      true,
       ctx,
     );
     peak.prominence = prom[idx];
@@ -577,7 +575,6 @@ export const PeakDetectors = {
         { ...metrics, onsetIdx, recoveryIdx },
         oldLabels,
         oldExcluded,
-        false,
         ctx,
       );
       // Uses the deconvolution-specific quality formula, not

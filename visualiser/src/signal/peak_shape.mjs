@@ -336,8 +336,10 @@ export const PeakShape = {
   },
 
   /**
-   * Construct a peak object from shape metrics, resolving labels and exclusion
-   * flags from both the in-memory store and (optionally) imported CSV data.
+   * Construct a peak object from shape metrics, resolving labels from the
+   * in-memory store and imported CSV data. The exclusion flag here is only the
+   * index-matched carry-over; the analyzer then applies its time-keyed
+   * exclusion store (GSRAnalyzer._assignExclusionsToPeaks).
    *
    * @param {number}  i                     - Sample index of the peak apex.
    * @param {number}  currVal               - Signal value at the apex.
@@ -348,13 +350,9 @@ export const PeakShape = {
    *     onsetSlope, decaySlope, skewnessRatio, snr }
    * @param {Map}     oldLabels             - Index→label map from pre-analysis peaks.
    * @param {Set}     oldExcluded           - Index set of excluded pre-analysis peaks.
-   * @param {boolean} [checkImportedExcluded=false]
-   *   When true also checks labelCtx.importedPeakExcluded by *time* (the raw
-   *   detectors, where the imported-CSV exclusion map exists). False in
-   *   detectPeaksFromCurve mode, which only sees the index-keyed oldExcluded.
    * @param {object}  labelCtx
-   *   { getMatchingLabel(time): string, importedPeakLabels: Map|null,
-   *     importedPeakExcluded: Set|null } — the analyzer's label-lookup state.
+   *   { getMatchingLabel(time): string, importedPeakLabels: Map|null }
+   *   — the analyzer's label-lookup state.
    * @returns {object} Peak object (qualityScore and salienceScore NOT yet set).
    */
   buildPeakObject(
@@ -365,7 +363,6 @@ export const PeakShape = {
     shape,
     oldLabels,
     oldExcluded,
-    checkImportedExcluded = false,
     labelCtx,
   ) {
     const {
@@ -401,11 +398,7 @@ export const PeakShape = {
           ? labelCtx.importedPeakLabels.get(times[i])
           : '') ||
         '',
-      excluded:
-        oldExcluded.has(i) ||
-        (checkImportedExcluded && labelCtx.importedPeakExcluded
-          ? labelCtx.importedPeakExcluded.has(times[i])
-          : false),
+      excluded: oldExcluded.has(i),
     };
   },
 };

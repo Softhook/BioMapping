@@ -81,9 +81,10 @@ test('rows carry no import scratch keys; imported labels/exclusions are captured
   const rows = series(60, (i) => 500 + i).map((l, i) => {
     if (i === 10) return `${l},1,"Cafe",0`;
     if (i === 20) return `${l},1,,1`;
-    // Non-peak row: its label is a saved label whose peak wasn't detected,
-    // so it is kept; an exclusion there means nothing and is ignored.
+    // Non-peak rows carry the label / exclusion of a peak that wasn't
+    // detected when the file was saved, so both are kept.
     if (i === 30) return `${l},0,"Hidden",1`;
+    if (i === 40) return `${l},0,,1`;
     return `${l},0,,0`;
   });
   const r = GSRCSVParser.parse(
@@ -98,7 +99,7 @@ test('rows carry no import scratch keys; imported labels/exclusions are captured
     [...r.importedPeakLabels.values()],
     ['Cafe', 'Hidden'],
   );
-  assert.strictEqual(r.importedPeakExcluded.size, 1);
+  assert.strictEqual(r.importedPeakExcluded.size, 3);
 });
 
 test('RF columns: present -> parsed; absent -> NaN with no RF flag', () => {

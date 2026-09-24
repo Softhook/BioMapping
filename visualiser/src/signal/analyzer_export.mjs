@@ -34,6 +34,7 @@ export const AnalyzerExport = {
       phasic,
       peaks,
       hiddenLabels = [],
+      hiddenExclusions = [],
       filteredGps,
       isEnriched,
       enrichmentRadius,
@@ -136,13 +137,10 @@ export const AnalyzerExport = {
       peakByIndex.set(peaks[pi].index, peaks[pi]);
     }
 
-    // Labels whose peak isn't detected under the current settings go on the
-    // nearest row with no label of its own (IsPeak 0) so saving keeps them;
-    // re-import reads a PeakLabel on any row.
-    const hiddenLabelByRow = new Map();
-    const rowTaken = (i) =>
-      hiddenLabelByRow.has(i) || !!peakByIndex.get(i)?.label?.trim();
-    for (const { time, label } of hiddenLabels) {
+    // Labels and exclusions whose peak isn't detected under the current
+    // settings go on the nearest row free for them (IsPeak 0) so saving keeps
+    // them; re-import reads PeakLabel / PeakExcluded on any row.
+    const nearestFreeRow = (time, taken) => {
       let lo = 0;
       let hi = raw.length - 1;
       while (lo < hi) {
@@ -152,15 +150,26 @@ export const AnalyzerExport = {
       }
       if (lo > 0 && time - raw[lo - 1].time < raw[lo].time - time) lo--;
       for (let d = 0; d < raw.length; d++) {
-        if (lo + d < raw.length && !rowTaken(lo + d)) {
-          hiddenLabelByRow.set(lo + d, label);
-          break;
-        }
-        if (lo - d >= 0 && !rowTaken(lo - d)) {
-          hiddenLabelByRow.set(lo - d, label);
-          break;
-        }
+        if (lo + d < raw.length && !taken(lo + d)) return lo + d;
+        if (lo - d >= 0 && !taken(lo - d)) return lo - d;
       }
+      return -1;
+    };
+    const hiddenLabelByRow = new Map();
+    for (const { time, label } of hiddenLabels) {
+      const row = nearestFreeRow(
+        time,
+        (i) => hiddenLabelByRow.has(i) || !!peakByIndex.get(i)?.label?.trim(),
+      );
+      if (row !== -1) hiddenLabelByRow.set(row, label);
+    }
+    const hiddenExcludedRows = new Set();
+    for (const { time } of hiddenExclusions) {
+      const row = nearestFreeRow(
+        time,
+        (i) => hiddenExcludedRows.has(i) || peakByIndex.has(i),
+      );
+      if (row !== -1) hiddenExcludedRows.add(row);
     }
 
     for (let i = 0; i < raw.length; i++) {
@@ -175,8 +184,9 @@ export const AnalyzerExport = {
         peakAmp = peak.amplitude.toFixed(4);
         peakLabel = peak.label || '';
         peakExcluded = peak.excluded ? '1' : '0';
-      } else if (hiddenLabelByRow.has(i)) {
-        peakLabel = hiddenLabelByRow.get(i);
+      } else {
+        peakLabel = hiddenLabelByRow.get(i) || '';
+        if (hiddenExcludedRows.has(i)) peakExcluded = '1';
       }
 
       let latVal = raw[i].lat;

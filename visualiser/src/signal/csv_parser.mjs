@@ -798,22 +798,24 @@ export const GSRCSVParser = {
         isGpsFixVal = cols[isGpsFixColIdx].trim() === '1';
       }
 
-      // Read peak label / exclusion from processed-CSV re-import. A label is
-      // read on any row: one whose peak wasn't detected when the file was
-      // saved is written on a non-peak row (see AnalyzerExport.toCSV).
-      // Exclusion only means something on a peak row.
+      // Read peak label / exclusion from processed-CSV re-import, on any row:
+      // one whose peak wasn't detected when the file was saved is written on
+      // a non-peak row (see AnalyzerExport.toCSV).
       const rowIsPeak =
         isPeakColIndex !== -1 &&
         !!cols[isPeakColIndex] &&
         parseInt(cols[isPeakColIndex], 10) === 1;
-      if (peakLabelColIndex !== -1 && (rowIsPeak || cols[peakLabelColIndex])) {
+      const excludedCell =
+        peakExcludedColIndex !== -1 ? cols[peakExcludedColIndex] : '';
+      if (
+        peakLabelColIndex !== -1 &&
+        (rowIsPeak || cols[peakLabelColIndex] || excludedCell)
+      ) {
         const importedPeakLabel = (cols[peakLabelColIndex] || '')
           .replace(/^"|"$/g, '')
           .trim();
         const importedPeakExcluded =
-          rowIsPeak && peakExcludedColIndex !== -1 && cols[peakExcludedColIndex]
-            ? cols[peakExcludedColIndex].trim() === '1'
-            : false;
+          !!excludedCell && excludedCell.trim() === '1';
         if (importedPeakLabel || importedPeakExcluded) {
           importedPeakEntries.push({
             index: rawDataList.length,
