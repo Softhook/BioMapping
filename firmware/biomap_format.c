@@ -155,3 +155,44 @@ CalNoiseGrade calibration_noise_grade(float std_dev_ns) {
     if(std_dev_ns < CAL_NOISE_ACCEPTABLE_NS) return CalNoiseAcceptable;
     return CalNoisePoor;
 }
+
+// FNV-1a — shared by the calibration and settings checksums.
+static uint32_t fnv1a_checksum(const void* data, size_t n) {
+    uint32_t h = 0x811C9DC5u;
+    const uint8_t* p = (const uint8_t*)data;
+    for(size_t i = 0; i < n; i++) {
+        h ^= p[i];
+        h *= 0x01000193u;  // FNV-1a prime
+    }
+    return h;
+}
+
+uint32_t biomap_calibration_checksum(const BioMapCalibration* cal) {
+    return fnv1a_checksum(cal, offsetof(BioMapCalibration, checksum));
+}
+
+CalRecordStatus biomap_calibration_check(const BioMapCalibration* cal) {
+    if(cal->magic != BIOMAP_CAL_MAGIC) return CalRecordBadMagic;
+    if(cal->version != BIOMAP_CAL_VERSION) return CalRecordBadVersion;
+    if(cal->checksum != biomap_calibration_checksum(cal)) return CalRecordBadChecksum;
+
+    // Written as "inside the range" so a NaN gain or offset fails too.
+    if(!(cal->gain >= CAL_GAIN_MIN && cal->gain <= CAL_GAIN_MAX)) return CalRecordOutOfBounds;
+    if(!(cal->offset >= CAL_OFFSET_MIN && cal->offset <= CAL_OFFSET_MAX)) return CalRecordOutOfBounds;
+    for(int i = 0; i < CAL_POINTS; i++) {
+        float sd = cal->noise_std_dev[i];
+        if(isnan(sd) || sd < 0.0f || sd >= CAL_NOISE_ACCEPTABLE_NS) return CalRecordOutOfBounds;
+    }
+    return CalRecordOk;
+}
+
+uint32_t biomap_settings_checksum(const BioMapSettings* s) {
+    return fnv1a_checksum(s, offsetof(BioMapSettings, checksum));
+}
+
+bool biomap_settings_valid(const BioMapSettings* s) {
+    return s->magic == BIOMAP_SETTINGS_MAGIC &&
+           s->version == BIOMAP_SETTINGS_VERSION &&
+           s->checksum == biomap_settings_checksum(s) &&
+           s->nav_model < GpsNavModelCount;
+}

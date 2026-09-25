@@ -65,13 +65,16 @@ struct GpsUart {
 // UART IRQ — fires per received byte (ISR context).
 // Posts a single EventTypeUart to the main queue; subsequent bytes are
 // drained in gps_uart_process_rx() so the queue doesn't overflow.
+// `event` is a bitmask: a byte can arrive flagged Data together with an
+// error bit (e.g. FrameError at a mismatched baud), so test the Data bit
+// rather than comparing for equality.
 static void gps_uart_irq_cb(
     FuriHalSerialHandle* handle,
     FuriHalSerialRxEvent event,
     void* context) {
     UNUSED(handle);
     GpsUart* g = (GpsUart*)context;
-    if(event == FuriHalSerialRxEventData) {
+    if(event & FuriHalSerialRxEventData) {
         uint8_t data = furi_hal_serial_async_rx(handle);
         if(furi_stream_buffer_send(g->rx_stream, &data, 1, 0) == 0) {
             // rx_stream was full — the byte is lost. See gps_uart.h's doc
@@ -480,8 +483,15 @@ static _Atomic uint32_t g_wake_first_byte_tick;
 
 static void ubx_wake_rx_cb(FuriHalSerialHandle* handle, FuriHalSerialRxEvent event, void* context) {
     UNUSED(context);
-    if(event != FuriHalSerialRxEventData) return;
+    if(!(event & FuriHalSerialRxEventData)) return; // bitmask — see gps_uart_irq_cb()
     furi_hal_serial_async_rx(handle); // read to clear the byte; its value doesn't matter
+    // Only a clean byte counts as the module answering: a garbled one can
+    // be a glitch from a module still booting, or output at another baud —
+    // neither means it is listening at 9600 yet.
+    const FuriHalSerialRxEvent errors =
+        FuriHalSerialRxEventFrameError | FuriHalSerialRxEventNoiseError |
+        FuriHalSerialRxEventOverrunError | FuriHalSerialRxEventParityError;
+    if(event & errors) return;
     if(!g_wake_rx_seen) {
         g_wake_first_byte_tick = furi_get_tick();
         g_wake_rx_seen = true;
@@ -511,7 +521,7 @@ static bool ubx_wake(FuriHalSerialHandle* handle) {
         FURI_LOG_I("GpsUart", "Wake: first byte after %lu ms",
                    (unsigned long)(g_wake_first_byte_tick - start));
     } else {
-        FURI_LOG_I("GpsUart", "Wake: no reply within %d ms", GPS_WAKE_TIMEOUT_MS);
+        FURI_LOG_W("GpsUart", "Wake: no reply within %d ms", GPS_WAKE_TIMEOUT_MS);
     }
     return answered;
 }
@@ -673,7 +683,6 @@ static UbxAckOutcome ubx_wait_ack(GpsUart* g, uint8_t want_cls, uint8_t want_id)
 // A resend right after the first wait naturally times out lands after
 // that same settling period has already elapsed, same as packets 2+ do.
 static void ubx_send_and_confirm(GpsUart* g, const uint8_t* data, size_t len, const char* label) {
-    UNUSED(label); // only referenced inside FURI_LOG_W, which host test builds compile out entirely
     for(int attempt = 0; attempt < 2; attempt++) {
         furi_stream_buffer_reset(g->rx_stream);
         furi_hal_serial_tx(g->serial_handle, data, len);
@@ -1188,11 +1197,16 @@ void gps_uart_process_rx(GpsUart* g) {
         }
     }
 
-    // ── NMEA watchdog: if no valid sentence parsed in 5 seconds, ──────
-    // the GPS module may be disconnected or malfunctioning.  A hot-start
-    // reset reverts the module to factory defaults (9600 baud on M10Q;
-    // L76K retains persisted baud).  Switch the host back to 9600 and
-    // re-run the full configure sequence to restore 115200 + settings.
+    // ── NMEA watchdog: bytes are arriving but no valid sentence has ────
+    // parsed in 5 seconds — most likely a baud mismatch after the module
+    // reset itself (M10Q reverts to 9600; L76K retains its persisted
+    // baud). Switch the host back to 9600 and re-run the full configure
+    // sequence to restore 115200 + settings.
+    //
+    // Only evaluated here, i.e. when bytes arrive: a module that has gone
+    // completely silent (unplugged) never triggers it. Deliberate — a
+    // reconfigure can't revive a missing module, and each attempt blocks
+    // the main thread for seconds waiting on ACKs that never come.
     if(g->last_valid_nmea_tick > 0) {
         uint32_t elapsed = furi_get_tick() - g->last_valid_nmea_tick;
         if(elapsed > furi_kernel_get_tick_frequency() * 5) {

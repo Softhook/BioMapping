@@ -196,15 +196,8 @@ typedef struct {
     int32_t    selection;
 } CalSubmenuContext;
 
-#define BIOMAP_CAL_MAGIC   0x424D4341
-// v3 added the `timestamp` (Unix epoch at save) and `r_squared` (wizard fit
-// goodness) fields. v4 added `noise_std_dev` (per-resistor σ, nS, from the
-// wizard's pre-flight noise/resolution check — see CalNoiseGrade in
-// biomap_format.h). A file at an older version fails the version gate in
-// biomap_load_calibration() and is ignored — GSR falls back to the default
-// 1.0/0.0 transform until the wizard is re-run, same as any other format
-// change (see the version-mismatch branch there).
-#define BIOMAP_CAL_VERSION 4
+// BioMapCalibration (the record format), BIOMAP_CAL_MAGIC/VERSION and the
+// validity check live in biomap_format.h; biomap.c owns the file I/O.
 #define BIOMAP_CAL_PATH    "/ext/biomapping/biomap.cal"
 #define BIOMAP_CAL_PATH_TMP "/ext/biomapping/biomap.cal.tmp"
 
@@ -242,41 +235,11 @@ typedef struct {
 #define CAL_LO_GATE_47K   5000.0f
 #define CAL_HI_GATE      45000.0f
 
-typedef struct {
-    uint32_t magic;
-    uint32_t version;
-    float    gain;
-    float    offset;
-    uint32_t timestamp;  // Unix epoch (RTC) when saved; 0 if the RTC was unset
-    float    r_squared;  // wizard least-squares fit goodness (0..1); 0 if unknown
-    float    noise_std_dev[CAL_POINTS];  // per-resistor σ (nS) from the wizard's noise check
-    uint32_t checksum;
-} BioMapCalibration;
-
 // ── Options persistence ─────────────────────────────────────────────────
-// Persists every Options-menu toggle (Auto-zoom, Backlight, Sound, GPS
-// Profile, Debug Fields). Same load/save/atomic-rename shape as
-// BioMapCalibration above, kept as a separate file/struct since these are
-// independent settings with their own versioning needs.
-//
-// An on-disk file whose version doesn't match BIOMAP_SETTINGS_VERSION fails
-// the check in biomap_load_settings() and falls back to defaults, same as
-// any other format change — so a version bump is all a schema change needs.
-#define BIOMAP_SETTINGS_MAGIC    0x424D4753
-#define BIOMAP_SETTINGS_VERSION  3
+// BioMapSettings (the record format) and its validity check live in
+// biomap_format.h; biomap.c owns the file I/O.
 #define BIOMAP_SETTINGS_PATH     "/ext/biomapping/biomap.settings"
 #define BIOMAP_SETTINGS_PATH_TMP "/ext/biomapping/biomap.settings.tmp"
-
-typedef struct {
-    uint32_t magic;
-    uint32_t version;
-    bool     zoom_enabled;
-    bool     backlight_on;
-    bool     sound_enabled;
-    uint32_t nav_model;
-    bool     debug_fields_enabled;
-    uint32_t checksum;
-} BioMapSettings;
 
 // Calibration wizard state machine.  Steps:
 //   0 = prompt 470k    4 = prompt 47k      8  = success

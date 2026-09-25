@@ -50,10 +50,16 @@
 #define furi_check1(cond)      assert(cond)
 #define furi_check2(cond, msg) assert(cond)
 
-#define FURI_LOG_D(tag, fmt, ...) ((void)0)
-#define FURI_LOG_I(tag, fmt, ...) ((void)0)
-#define FURI_LOG_W(tag, fmt, ...) ((void)0)
-#define FURI_LOG_E(tag, fmt, ...) ((void)0)
+// Never print, but still compile the call: `if(0) printf(...)` makes the
+// compiler type-check each format string against its arguments and counts
+// variables used only in a log line as used, exactly as on the Flipper,
+// where the logs are real. A plain ((void)0) hid both.
+#define FURI_LOG_SHIM(tag, fmt, ...) \
+    do { (void)(tag); if(0) printf(fmt, ##__VA_ARGS__); } while(0)
+#define FURI_LOG_D(tag, fmt, ...) FURI_LOG_SHIM(tag, fmt, ##__VA_ARGS__)
+#define FURI_LOG_I(tag, fmt, ...) FURI_LOG_SHIM(tag, fmt, ##__VA_ARGS__)
+#define FURI_LOG_W(tag, fmt, ...) FURI_LOG_SHIM(tag, fmt, ##__VA_ARGS__)
+#define FURI_LOG_E(tag, fmt, ...) FURI_LOG_SHIM(tag, fmt, ##__VA_ARGS__)
 
 #define FuriWaitForever 0xFFFFFFFFu
 

@@ -11,20 +11,6 @@
 #include <stdatomic.h>
 
 // ─────────────────────────────────────────────────────────────────────────────
-// TIA conversion: normalised ADC counts → nanosiemens
-//
-// Transimpedance amplifier circuit equation.  Clamped at 319000 counts
-// (≈rail saturation).  Constants: 5×10⁶ numerator, 1.504×10⁷ − 47×counts
-// denominator.  Used by both tick() and get_raw_sample_ns() — defined
-// here as file-local static inline so the two call sites share one copy.
-// ─────────────────────────────────────────────────────────────────────────────
-static inline float tia_counts_to_ns(float counts) {
-    if(counts <= 0.0f) return 0.0f;
-    if(counts > 319000.0f) counts = 319000.0f;
-    return (counts * 5000000.0f) / (15040000.0f - counts * 47.0f);
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // ADS1115 register addresses
 // ─────────────────────────────────────────────────────────────────────────────
 #define ADS1115_CONFIG_REG   0x01
@@ -43,7 +29,7 @@ static inline float tia_counts_to_ns(float counts) {
 //
 // REACHABLE RANGE (3.3 V supply, this front-end)
 //   V_diff into the ADC = 0.5 V × 47 kΩ / (R_skin + 9.4 kΩ) — bias × R_f /
-//   R_safety (see tia_counts_to_ns() and the README schematic).  A dead short
+//   R_safety (see gsr_tia_counts_to_ns() and the README schematic).  A dead short
 //   (R_skin → 0) gives 0.5 × 47000 / 9400 = 2.5 V, a hard ceiling the 9.4 kΩ
 //   electrode-safety resistors impose independent of supply.  Consequences:
 //     - pga 0 (±6.144 V) is unreachable: a 1→0 range-down needs ~30 000 counts
@@ -324,6 +310,36 @@ struct GsrSensor {
     uint32_t rf_retune_peak_ms;
 };
 
+// ~50 ms of consecutive I2C failures at the worker's ~1 kHz pace.
+#define I2C_FAIL_LOST_THRESHOLD 50
+
+// One failed I2C transaction — a conversion read or a config write, so a
+// config write that keeps failing can't retry forever while the sensor
+// still claims to be working with a frozen value. After
+// I2C_FAIL_LOST_THRESHOLD in a row, treat the sensor as disconnected so
+// the UI doesn't show a stale reading; the next successful read then runs
+// the recovery path in gsr_sensor_worker(). Worker thread only.
+static void gsr_note_i2c_failure(GsrSensor* gsr, uint32_t* consecutive_failures) {
+    (*consecutive_failures)++;
+    furi_mutex_acquire(gsr->mutex, FuriWaitForever);
+    gsr->consecutive_failures = *consecutive_failures;
+    if(*consecutive_failures >= I2C_FAIL_LOST_THRESHOLD) {
+        gsr->connected = false;
+        gsr->i2c_working = false;
+        gsr->raw = 0.0f;
+    }
+    furi_mutex_release(gsr->mutex);
+}
+
+// One successful I2C transaction: clear any failure streak. Worker only.
+static void gsr_note_i2c_success(GsrSensor* gsr, uint32_t* consecutive_failures) {
+    if(*consecutive_failures == 0) return;
+    *consecutive_failures = 0;
+    furi_mutex_acquire(gsr->mutex, FuriWaitForever);
+    gsr->consecutive_failures = 0;
+    furi_mutex_release(gsr->mutex);
+}
+
 // Background worker thread for 860 SPS ADC reading.  Writes normalised
 // samples to the ring buffer; the main thread's gsr_sensor_tick() handles
 // decimation, autoranging, and TIA computation at exact 10 Hz boundaries.
@@ -371,6 +387,7 @@ static int32_t gsr_sensor_worker(void* context) {
             furi_mutex_release(gsr->mutex);
 
             if(cfg_ok) {
+                gsr_note_i2c_success(gsr, &consecutive_failures);
                 furi_mutex_acquire(gsr->mutex, FuriWaitForever);
                 gsr->pga_changed = false;
                 furi_mutex_release(gsr->mutex);
@@ -390,7 +407,9 @@ static int32_t gsr_sensor_worker(void* context) {
                 have_last_hw = false; // new gain scale — not comparable to the pre-change code
                 furi_delay_ms(1);     // brief yield before re-looping
             } else {
-                // Config write failed — retry next iteration.
+                // Config write failed — retry next iteration, counting it
+                // toward "sensor lost" like a failed read.
+                gsr_note_i2c_failure(gsr, &consecutive_failures);
                 furi_delay_ms(1);
             }
             continue;
@@ -430,25 +449,33 @@ static int32_t gsr_sensor_worker(void* context) {
         // A successful read means I2C is alive whether or not the sample is
         // used (the settle gate below may discard it) — clear any failure
         // streak on every success.
+        bool recovering = false;
         if(ok) {
-            if(consecutive_failures != 0) {
-                consecutive_failures = 0;
-                furi_mutex_acquire(gsr->mutex, FuriWaitForever);
-                gsr->consecutive_failures = 0;
-                furi_mutex_release(gsr->mutex);
-            }
+            gsr_note_i2c_success(gsr, &consecutive_failures);
             if(!gsr->i2c_working) {
+                // Coming back from "sensor lost" (or a failed probe at
+                // alloc): the ADS1115 may have lost power meanwhile, and it
+                // powers up in single-shot mode (config reset 8583h), where
+                // the conversion register never updates. Nothing else
+                // rewrites the config at the highest gain (autoranging
+                // only writes on a gain change), so the sensor would read
+                // 0 for the rest of the session. Queue a config write for
+                // the current gain, and drop this read — it came from a
+                // chip that may still be in that power-up state.
                 furi_mutex_acquire(gsr->mutex, FuriWaitForever);
                 gsr->i2c_working = true;
+                gsr->pga_changed = true;
                 furi_mutex_release(gsr->mutex);
+                recovering = true;
             }
         }
 
         // Sample processing proper — skipped during the settle window even on
-        // a good read (the conversion may pre-date the gain change).
+        // a good read (the conversion may pre-date the gain change), and for
+        // the read that just ended a "sensor lost" spell (see above).
         // have_last_hw stays false through the window, so the first sample
         // after it is not duplicate-compared against a discarded one.
-        if(ok && !in_pga_settle) {
+        if(ok && !in_pga_settle && !recovering) {
             int16_t hw = (int16_t)((data[0] << 8) | data[1]);
 
             // Normalise using current_adc_pga (the gain that was active
@@ -485,17 +512,7 @@ static int32_t gsr_sensor_worker(void* context) {
             }
             furi_mutex_release(gsr->mutex);
         } else if(!ok) {
-            consecutive_failures++;
-            furi_mutex_acquire(gsr->mutex, FuriWaitForever);
-            gsr->consecutive_failures = consecutive_failures;
-            // After ~50 ms of continuous I2C failures, treat the sensor
-            // as disconnected so the UI doesn't show a stale frozen value.
-            if(consecutive_failures >= 50) {
-                gsr->connected = false;
-                gsr->i2c_working = false;
-                gsr->raw = 0.0f;
-            }
-            furi_mutex_release(gsr->mutex);
+            gsr_note_i2c_failure(gsr, &consecutive_failures);
         }
 
         if(!pga_changed) {
@@ -716,7 +733,13 @@ void gsr_sensor_free(GsrSensor* gsr) {
 // Accessors
 // ─────────────────────────────────────────────────────────────────────────────
 bool gsr_sensor_available(const GsrSensor* gsr) {
-    return gsr && gsr->i2c_working;
+    if(!gsr) return false;
+    // Under the mutex like every other accessor: the worker writes
+    // i2c_working on a failure streak or recovery.
+    furi_mutex_acquire(gsr->mutex, FuriWaitForever);
+    bool working = gsr->i2c_working;
+    furi_mutex_release(gsr->mutex);
+    return working;
 }
 
 bool gsr_sensor_is_connected(const GsrSensor* gsr) {
@@ -749,7 +772,7 @@ float gsr_sensor_get_raw_sample_ns(const GsrSensor* gsr) {
     furi_mutex_release(gsr->mutex);
 
     if(norm <= 0) return 0.0f;
-    return tia_counts_to_ns((float)norm);
+    return gsr_tia_counts_to_ns((float)norm);
 }
 
 int32_t gsr_sensor_get_raw_sample_count(const GsrSensor* gsr) {
@@ -1127,7 +1150,7 @@ void gsr_sensor_tick(GsrSensor* gsr) {
     // Calibration (if active) is applied AFTER the TIA, in the nS domain
     // where gain and offset were computed.
     float raw_ns;
-    raw_ns = tia_counts_to_ns(avg_norm);
+    raw_ns = gsr_tia_counts_to_ns(avg_norm);
     // Disconnect detection (Step 5 below) always checks this pre-calibration
     // value: a nonzero calibration offset can shift a true open-circuit
     // reading (raw TIA ~0 nS) into the "valid" window, masking a real

@@ -119,25 +119,8 @@ int32_t biomap_app(void* p) {
     return 0;
 }
 
-// Polynomial-rolling FNV-1a checksum over a byte range.  Shared by
-// cal_checksum (BioMapCalibration) and settings_checksum (BioMapSettings)
-// below — same algorithm, different struct types, so this factors out the
-// only part that was actually identical between them.  This avoids
-// strict-aliasing UB and is much more collision-resistant than the old
-// magic ^ *(uint32_t*)&gain … XOR.
-static uint32_t fnv1a_checksum(const void* data, size_t n) {
-    uint32_t h = 0x811C9DC5u;
-    const uint8_t* p = (const uint8_t*)data;
-    for(size_t i = 0; i < n; i++) {
-        h ^= p[i];
-        h *= 0x01000193u;  // FNV-1a prime
-    }
-    return h;
-}
-
-static uint32_t cal_checksum(const BioMapCalibration* cal) {
-    return fnv1a_checksum(cal, offsetof(BioMapCalibration, checksum));
-}
+// Record formats, checksums and validity checks for both files live in
+// biomap_format.c (SDK-free, host-tested); this file owns the SD I/O.
 
 bool biomap_load_calibration(BioMapApp* app) {
     furi_check(app, "BioMapApp: NULL app pointer");
@@ -147,53 +130,42 @@ bool biomap_load_calibration(BioMapApp* app) {
     bool success = false;
     if(storage_file_open(file, BIOMAP_CAL_PATH, FSAM_READ, FSOM_OPEN_EXISTING)) {
         BioMapCalibration cal;
-        uint16_t bytes_read = storage_file_read(file, &cal, sizeof(BioMapCalibration));
+        size_t bytes_read = storage_file_read(file, &cal, sizeof(BioMapCalibration));
         if(bytes_read == sizeof(BioMapCalibration)) {
-            if(cal.magic == BIOMAP_CAL_MAGIC) {
-                if(cal.version == BIOMAP_CAL_VERSION) {
-                    if(cal.checksum == cal_checksum(&cal)) {
-                        bool noise_ok = true;
-                        for(int i = 0; i < CAL_POINTS; i++) {
-                            float sd = cal.noise_std_dev[i];
-                            if(isnan(sd) || sd < 0.0f || sd >= CAL_NOISE_ACCEPTABLE_NS) {
-                                noise_ok = false;
-                                break;
-                            }
-                        }
-                        if(cal.gain >= CAL_GAIN_MIN && cal.gain <= CAL_GAIN_MAX &&
-                           cal.offset >= CAL_OFFSET_MIN && cal.offset <= CAL_OFFSET_MAX &&
-                           noise_ok) {
-                            furi_mutex_acquire(app->mutex, FuriWaitForever);
-                            app->cal_active = true;
-                            app->cal_gain = cal.gain;
-                            app->cal_offset = cal.offset;
-                            app->cal_timestamp = cal.timestamp;
-                            app->cal_r_squared = cal.r_squared;
-                            memcpy(app->cal_noise_std_dev, cal.noise_std_dev,
-                                   sizeof(app->cal_noise_std_dev));
-                            furi_mutex_release(app->mutex);
-                            success = true;
-                            FURI_LOG_I("BioMap",
-                                       "Loaded calibration v%lu: gain=%.4f offset=%.1f timestamp=%lu r2=%.4f",
-                                       (unsigned long)cal.version, (double)cal.gain, (double)cal.offset,
-                                       (unsigned long)cal.timestamp, (double)cal.r_squared);
-                        } else {
-                            FURI_LOG_W("BioMap", "Calibration values out of bounds!");
-                        }
-                    } else {
-                        FURI_LOG_W("BioMap", "Calibration checksum mismatch!");
-                    }
-                } else {
-                    // Version mismatch: no migration path exists because
-                    // the struct is only gain/offset.  When the format
-                    // changes (new fields), add a migration block here
-                    // that reads the old struct and populates defaults
-                    // for any new fields before bumping BIOMAP_CAL_VERSION.
-                    FURI_LOG_W("BioMap", "Calibration version mismatch (got %lu, want %d) — ignoring",
-                               (unsigned long)cal.version, BIOMAP_CAL_VERSION);
-                }
-            } else {
+            switch(biomap_calibration_check(&cal)) {
+            case CalRecordOk:
+                furi_mutex_acquire(app->mutex, FuriWaitForever);
+                app->cal_active = true;
+                app->cal_gain = cal.gain;
+                app->cal_offset = cal.offset;
+                app->cal_timestamp = cal.timestamp;
+                app->cal_r_squared = cal.r_squared;
+                memcpy(app->cal_noise_std_dev, cal.noise_std_dev,
+                       sizeof(app->cal_noise_std_dev));
+                furi_mutex_release(app->mutex);
+                success = true;
+                FURI_LOG_I("BioMap",
+                           "Loaded calibration v%lu: gain=%.4f offset=%.1f timestamp=%lu r2=%.4f",
+                           (unsigned long)cal.version, (double)cal.gain, (double)cal.offset,
+                           (unsigned long)cal.timestamp, (double)cal.r_squared);
+                break;
+            case CalRecordBadMagic:
                 FURI_LOG_W("BioMap", "Calibration file magic mismatch!");
+                break;
+            case CalRecordBadVersion:
+                // No migration path: when the format changes (new fields),
+                // add a block here that reads the old struct and fills
+                // defaults for the new fields before bumping
+                // BIOMAP_CAL_VERSION.
+                FURI_LOG_W("BioMap", "Calibration version mismatch (got %lu, want %d) — ignoring",
+                           (unsigned long)cal.version, BIOMAP_CAL_VERSION);
+                break;
+            case CalRecordBadChecksum:
+                FURI_LOG_W("BioMap", "Calibration checksum mismatch!");
+                break;
+            case CalRecordOutOfBounds:
+                FURI_LOG_W("BioMap", "Calibration values out of bounds!");
+                break;
             }
         }
         storage_file_close(file);
@@ -236,7 +208,7 @@ void biomap_save_calibration(BioMapApp* app, float gain, float offset, float r_s
         cal.timestamp = timestamp;
         cal.r_squared = r_squared;
         memcpy(cal.noise_std_dev, noise_std_dev, sizeof(cal.noise_std_dev));
-        cal.checksum = cal_checksum(&cal);
+        cal.checksum = biomap_calibration_checksum(&cal);
 
         uint16_t written = storage_file_write(file, &cal, sizeof(BioMapCalibration));
         storage_file_close(file);
@@ -328,13 +300,9 @@ void biomap_reset_rf_calibration(BioMapApp* app) {
 }
 
 // ── Options persistence ──────────────────────────────────────────────────
-// Same shape as cal_checksum/biomap_load_calibration/biomap_save_calibration
-// above — see BioMapSettings's doc comment in biomap.h for why this is a
-// separate file/struct rather than folded into the GSR calibration one.
-
-static uint32_t settings_checksum(const BioMapSettings* s) {
-    return fnv1a_checksum(s, offsetof(BioMapSettings, checksum));
-}
+// Same shape as biomap_load_calibration/biomap_save_calibration above, kept
+// as a separate file/struct since these are independent settings with their
+// own versioning needs (see BioMapSettings in biomap_format.h).
 
 bool biomap_load_settings(BioMapApp* app) {
     furi_check(app, "BioMapApp: NULL app pointer");
@@ -344,12 +312,8 @@ bool biomap_load_settings(BioMapApp* app) {
     bool success = false;
     if(storage_file_open(file, BIOMAP_SETTINGS_PATH, FSAM_READ, FSOM_OPEN_EXISTING)) {
         BioMapSettings s;
-        uint16_t bytes_read = storage_file_read(file, &s, sizeof(BioMapSettings));
-        if(bytes_read == sizeof(BioMapSettings) &&
-           s.magic == BIOMAP_SETTINGS_MAGIC &&
-           s.version == BIOMAP_SETTINGS_VERSION &&
-           s.checksum == settings_checksum(&s) &&
-           s.nav_model < GpsNavModelCount) {
+        size_t bytes_read = storage_file_read(file, &s, sizeof(BioMapSettings));
+        if(bytes_read == sizeof(BioMapSettings) && biomap_settings_valid(&s)) {
             furi_mutex_acquire(app->mutex, FuriWaitForever);
             app->zoom_enabled    = s.zoom_enabled;
             app->backlight_on    = s.backlight_on;
@@ -385,7 +349,7 @@ void biomap_save_settings(BioMapApp* app) {
         .debug_fields_enabled = app->debug_fields_enabled,
     };
     furi_mutex_release(app->mutex);
-    s.checksum = settings_checksum(&s);
+    s.checksum = biomap_settings_checksum(&s);
 
     File* file = storage_file_alloc(app->storage);
     if(!file) return;

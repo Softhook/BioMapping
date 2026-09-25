@@ -91,3 +91,71 @@ typedef enum {
 } CalNoiseGrade;
 
 CalNoiseGrade calibration_noise_grade(float std_dev_ns);
+
+// ── Calibration and settings records (on-disk formats) ────────────────
+// The records biomap.c reads from and writes to the SD card, and the checks
+// a loaded record must pass before it is applied. Kept here, SDK-free, so
+// tests/test_firmware.c checks this exact validation rather than a copy;
+// biomap.c owns the file I/O and the log messages.
+
+#define BIOMAP_CAL_MAGIC   0x424D4341
+// v3 added the `timestamp` (Unix epoch at save) and `r_squared` (wizard fit
+// goodness) fields. v4 added `noise_std_dev` (per-resistor σ, nS, from the
+// wizard's pre-flight noise/resolution check — see CalNoiseGrade above). A
+// file at an older version fails the version check and is ignored — GSR
+// falls back to the default 1.0/0.0 transform until the wizard is re-run,
+// same as any other format change.
+#define BIOMAP_CAL_VERSION 4
+
+typedef struct {
+    uint32_t magic;
+    uint32_t version;
+    float    gain;
+    float    offset;
+    uint32_t timestamp;  // Unix epoch (RTC) when saved; 0 if the RTC was unset
+    float    r_squared;  // wizard least-squares fit goodness (0..1); 0 if unknown
+    float    noise_std_dev[CAL_POINTS];  // per-resistor σ (nS) from the wizard's noise check
+    uint32_t checksum;
+} BioMapCalibration;
+
+typedef enum {
+    CalRecordOk = 0,
+    CalRecordBadMagic,
+    CalRecordBadVersion,
+    CalRecordBadChecksum,
+    // gain/offset outside CAL_GAIN_*/CAL_OFFSET_* (biomap_config.h), or a
+    // noise σ that is NaN, negative, or would grade CalNoisePoor — a Poor
+    // σ never reaches a save, so on disk it can only mean corruption.
+    CalRecordOutOfBounds,
+} CalRecordStatus;
+
+// FNV-1a over every field before `checksum`.
+uint32_t biomap_calibration_checksum(const BioMapCalibration* cal);
+
+// Checks in order: magic → version → checksum → value bounds; returns the
+// first failure.
+CalRecordStatus biomap_calibration_check(const BioMapCalibration* cal);
+
+// Options-menu settings (Auto-zoom, Backlight, Sound, GPS Profile, Debug
+// Fields). A file whose version doesn't match BIOMAP_SETTINGS_VERSION fails
+// biomap_settings_valid() and the app falls back to defaults — so a version
+// bump is all a schema change needs.
+#define BIOMAP_SETTINGS_MAGIC    0x424D4753
+#define BIOMAP_SETTINGS_VERSION  3
+
+typedef struct {
+    uint32_t magic;
+    uint32_t version;
+    bool     zoom_enabled;
+    bool     backlight_on;
+    bool     sound_enabled;
+    uint32_t nav_model;
+    bool     debug_fields_enabled;
+    uint32_t checksum;
+} BioMapSettings;
+
+// FNV-1a over every field before `checksum`.
+uint32_t biomap_settings_checksum(const BioMapSettings* s);
+
+// Magic, version, checksum, and nav_model a real GpsNavModel.
+bool biomap_settings_valid(const BioMapSettings* s);

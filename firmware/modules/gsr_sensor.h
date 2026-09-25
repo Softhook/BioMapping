@@ -65,11 +65,22 @@
 // Typical resting range: 1–20 µS = 1 000–20 000 nS.
 // Literature: Boucsein 2012 reports SCL 1–50 µS as normal range.
 // GSR_VALID_MIN_NS sits well above the observed open-circuit noise floor
-// (~17 nS of ADC leakage with cuffs removed, tia_counts_to_ns() only clamps
+// (~17 nS of ADC leakage with cuffs removed, gsr_tia_counts_to_ns() only clamps
 // to exactly 0 at counts <= 0) and well below that 1 000 nS literature
 // floor, so it can't false-trigger on genuinely dry skin.
 #define GSR_VALID_MIN_NS    100.0f    // nS — below this: open circuit
 #define GSR_VALID_MAX_NS    75000.0f  // nS — above this: rail saturation
+
+// TIA conversion: normalised ADC counts (pga_index 5 scale, see
+// gsr_sensor.c) → nanosiemens, from the transimpedance amplifier circuit
+// equation. Clamped at 319000 counts (≈ rail saturation). Inline here
+// rather than private to gsr_sensor.c so the host tests check this exact
+// formula instead of a copy of it.
+static inline float gsr_tia_counts_to_ns(float counts) {
+    if(counts <= 0.0f) return 0.0f;
+    if(counts > 319000.0f) counts = 319000.0f;
+    return (counts * 5000000.0f) / (15040000.0f - counts * 47.0f);
+}
 
 typedef struct GsrSensor GsrSensor;
 

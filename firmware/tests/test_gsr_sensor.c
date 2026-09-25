@@ -45,18 +45,28 @@ _Atomic uint32_t furi_test_tick = 1;
 // essentially unthrottled, so in practice this resolves in well under a
 // millisecond — the timeout exists only to turn "something is broken"
 // into a clear assertion failure instead of a silent hang.
-static void wait_for_more_reads(int n) {
+//
+// Each poll also advances the fake clock by 1 ms, so the worker's
+// time-based logic keeps moving — except with advance_clock false, for
+// checks parked just short of a tick threshold: on a busy machine the wait
+// takes many polls, and the added milliseconds would cross the very
+// threshold being tested.
+static void wait_for_more_reads_ex(int n, bool advance_clock) {
     int start = furi_hal_i2c_mock_read_count();
     int waited_us = 0;
     while(furi_hal_i2c_mock_read_count() < start + n) {
         usleep(200);
         waited_us += 200;
-        furi_test_advance_tick(1); // keep the fake clock moving alongside real waits
+        if(advance_clock) furi_test_advance_tick(1);
         if(waited_us > 5000000) {
             fprintf(stderr, "TIMEOUT: worker did not produce %d more I2C reads\n", n);
             assert(false);
         }
     }
+}
+
+static void wait_for_more_reads(int n) {
+    wait_for_more_reads_ex(n, true);
 }
 
 // Absolute-threshold wait, deliberately NOT a "wait for N more from
@@ -196,7 +206,7 @@ static void wait_for_peak_ms_at_least(
     }
 }
 
-// Mirrors gsr_sensor.c's tia_counts_to_ns() (documented, stable hardware
+// Mirrors gsr_sensor.h's gsr_tia_counts_to_ns() (documented, stable hardware
 // formula) — used to compute an independently-derived expected value,
 // not to duplicate the driver's control flow.
 static float expected_tia_ns(float counts) {
@@ -231,6 +241,135 @@ static void test_alloc_probe_failure(void) {
     assert(gsr_sensor_get_raw(gsr) == 0.0f);
 
     gsr_sensor_free(gsr); // must not hang — no worker thread was ever started
+    printf("  -> Pass\n");
+}
+
+// Wait (with timeout) until gsr_sensor_available() reports `want`. Leaves
+// the fake clock alone — the sensor-lost/recovery paths don't need it.
+static void wait_until_available(GsrSensor* gsr, bool want) {
+    int waited_us = 0;
+    while(gsr_sensor_available(gsr) != want) {
+        usleep(200);
+        waited_us += 200;
+        if(waited_us > 5000000) {
+            fprintf(stderr, "TIMEOUT: gsr_sensor_available() never became %d\n", want);
+            assert(false);
+        }
+    }
+}
+
+// wait_for_write_count_at_least() without advancing the fake clock, for a
+// test that needs the post-write settle gate to stay closed.
+static void wait_for_write_count_frozen_clock(int target) {
+    int waited_us = 0;
+    while(furi_hal_i2c_mock_write_count() < target) {
+        usleep(200);
+        waited_us += 200;
+        if(waited_us > 5000000) {
+            fprintf(stderr, "TIMEOUT: write_count never reached %d\n", target);
+            assert(false);
+        }
+    }
+}
+
+// The ADS1115 powers up in single-shot mode (config reset 8583h), where
+// its conversion register never updates. If it lost power while I2C was
+// failing (loose header, board replugged) — or was absent when alloc()
+// probed — nothing else rewrites the config at the highest gain, so the
+// worker must queue a config write for the current gain as soon as I2C
+// comes back. Checks both entry points into "sensor lost".
+static void assert_config_rewritten_on_recovery(GsrSensor* gsr) {
+    int writes_before = furi_hal_i2c_mock_write_count();
+    furi_hal_i2c_mock_set_read_fail(false);
+    wait_for_write_count_at_least(writes_before + 1);
+    uint8_t msb = furi_hal_i2c_mock_last_config_msb();
+    uint8_t pga = gsr_sensor_get_pga_index(gsr);
+    printf("  config msb after recovery = 0x%02X (pga %u)\n", (unsigned)msb, (unsigned)pga);
+    assert(msb == (uint8_t)(0x80u | ((uint32_t)pga << 1u))); // current gain, continuous mode
+    assert(gsr_sensor_available(gsr));
+}
+
+// The read that ends a "sensor lost" spell comes from a chip that may have
+// just powered up (conversion register 0, single-shot mode), so it must not
+// enter the average. The fake clock stays frozen from here on, so the
+// post-rewrite settle gate keeps any later read out too: the newest sample
+// tick() sees must still be the pre-loss one.
+static void test_recovery_read_not_used(void) {
+    printf("Running test_recovery_read_not_used...\n");
+    furi_hal_i2c_mock_reset();
+    furi_hal_i2c_mock_set_raw16(10000);
+    GsrSensor* gsr = gsr_sensor_alloc();
+    wait_for_more_reads(50);
+
+    furi_hal_i2c_mock_set_read_fail(true);
+    wait_until_available(gsr, false);
+
+    int writes_before = furi_hal_i2c_mock_write_count();
+    furi_hal_i2c_mock_set_next_read_once(0); // freshly powered-up chip
+    furi_hal_i2c_mock_set_read_fail(false);
+    wait_for_write_count_frozen_clock(writes_before + 1); // recovered + rewritten
+    usleep(20000); // worker keeps reading; all inside the frozen settle window
+
+    gsr_sensor_tick(gsr);
+    int32_t newest = gsr_sensor_get_raw_sample_count(gsr);
+    printf("  newest sample after recovery = %ld (pre-loss %d)\n", (long)newest, 10000 * 8);
+    assert(newest == 10000 * 8); // pga 2 -> x8; 0 would mean the recovery read was used
+    gsr_sensor_free(gsr);
+    printf("  -> Pass\n");
+}
+
+// A config write that keeps failing (connection gone mid-gain-change) must
+// count toward "sensor lost" like failed reads do. Reads stop while a write
+// is pending, so without that the worker retried forever while the sensor
+// kept claiming to work, its value frozen.
+static void test_failing_config_write_marks_sensor_lost(void) {
+    printf("Running test_failing_config_write_marks_sensor_lost...\n");
+    furi_hal_i2c_mock_reset();
+    furi_hal_i2c_mock_set_raw16(1000); // low signal -> autorange up after 5 ticks
+    GsrSensor* gsr = gsr_sensor_alloc();
+    assert(gsr_sensor_available(gsr));
+
+    furi_hal_i2c_mock_set_write_fail(true);
+    wait_for_more_reads(200);
+    for(int i = 0; i < 5; i++) gsr_sensor_tick(gsr); // queues the gain-change write
+    assert(gsr_sensor_get_pga_index(gsr) == 3);
+
+    wait_until_available(gsr, false);
+    assert(!gsr_sensor_is_connected(gsr));
+    printf("  write attempts before lost = %d\n", furi_hal_i2c_mock_write_count());
+
+    // Writes work again: the next read recovers and the pending gain lands.
+    int writes_before = furi_hal_i2c_mock_write_count();
+    furi_hal_i2c_mock_set_write_fail(false);
+    wait_for_write_count_at_least(writes_before + 1);
+    wait_until_available(gsr, true);
+    assert(furi_hal_i2c_mock_last_config_msb() == (uint8_t)(0x80u | (3u << 1u)));
+    gsr_sensor_free(gsr);
+    printf("  -> Pass\n");
+}
+
+static void test_config_rewritten_after_i2c_recovery(void) {
+    printf("Running test_config_rewritten_after_i2c_recovery...\n");
+
+    // Mid-session loss: working sensor, then sustained I2C failure.
+    furi_hal_i2c_mock_reset();
+    furi_hal_i2c_mock_set_raw16(10000);
+    GsrSensor* gsr = gsr_sensor_alloc();
+    assert(gsr_sensor_available(gsr));
+    furi_hal_i2c_mock_set_read_fail(true);
+    wait_until_available(gsr, false);
+    assert_config_rewritten_on_recovery(gsr);
+    gsr_sensor_free(gsr);
+
+    // Absent at start-up: the alloc() probe fails, so no config is written.
+    furi_hal_i2c_mock_reset();
+    furi_hal_i2c_mock_set_raw16(10000);
+    furi_hal_i2c_mock_set_read_fail(true);
+    gsr = gsr_sensor_alloc();
+    assert(!gsr_sensor_available(gsr));
+    assert(furi_hal_i2c_mock_write_count() == 0);
+    assert_config_rewritten_on_recovery(gsr);
+    gsr_sensor_free(gsr);
     printf("  -> Pass\n");
 }
 
@@ -568,7 +707,7 @@ static void test_disconnect_debounce_low_signal(void) {
 
 // Real open-circuit hardware doesn't read exactly 0 nS — ADC leakage/noise
 // with the cuffs off measures ~17 nS in the field (raw16=7 here reproduces
-// that: counts = 7*8 = 56 -> ~18.6 nS via tia_counts_to_ns()). The old
+// that: counts = 7*8 = 56 -> ~18.6 nS via gsr_tia_counts_to_ns()). The old
 // GSR_VALID_MIN_NS=0.1f threshold sat far below this, so a real disconnect
 // never tripped; GSR_VALID_MIN_NS=100.0f gives margin above this noise floor
 // while staying well under the ~1000 nS literature floor for real skin.
@@ -828,9 +967,11 @@ static void test_rf_fast_sweep_pacing_on_elapsed_time(void) {
            em_scan_rf_mock_fast_sweep_count(), count_after_first);
     assert(em_scan_rf_mock_fast_sweep_count() == count_after_first);
 
-    // Advance to just short of RF_SAMPLE_INTERVAL_MS (100 ms) — still must not sweep.
+    // Advance to just short of RF_SAMPLE_INTERVAL_MS (100 ms) — still must not
+    // sweep. The clock stays put while the worker spins (see
+    // wait_for_more_reads_ex()).
     furi_test_advance_tick(99);
-    wait_for_more_reads(50); // let worker spin
+    wait_for_more_reads_ex(50, false);
     assert(em_scan_rf_mock_fast_sweep_count() == count_after_first);
 
     // Cross the 100 ms threshold -> must perform a fast sweep now.
@@ -1367,6 +1508,9 @@ static void test_session_deinit_early_release_gui_safety(void) {
 int main(void) {
     test_alloc_probe_success();
     test_alloc_probe_failure();
+    test_config_rewritten_after_i2c_recovery();
+    test_failing_config_write_marks_sensor_lost();
+    test_recovery_read_not_used();
     test_worker_hz_accessor();
     test_success_rate_reflects_real_failure_ratio();
     test_duplicate_rate_reflects_stale_reads();

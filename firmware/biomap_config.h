@@ -12,7 +12,9 @@
 //   GPS_MODULE_M10Q  = u-blox SAM-M10Q (UBX commands, integrated patch antenna)
 #define GPS_MODULE_L76K  1
 #define GPS_MODULE_M10Q  2
+#ifndef GPS_MODULE // overridable only so run_tests.sh can also test the L76K path
 #define GPS_MODULE       GPS_MODULE_M10Q
+#endif
 
 // SD writer control for A/B diagnostics.
 // 0 = normal mode (real storage_file_write/storage_file_sync calls)

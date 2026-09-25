@@ -108,7 +108,7 @@ static void test_alloc_lifecycle(void) {
 // one's UBX-ACK-ACK/NAK. This mock never feeds any bytes back during that
 // window (furi_hal_serial_tx() is a no-op — see furi_hal_mock.c), so every
 // packet times out waiting for a reply that never arrives (logged via
-// FURI_LOG_W, compiled out under this host harness — see furi.h). This
+// FURI_LOG_W, which never prints under this host harness — see furi.h). This
 // proves the failure path is bounded and doesn't hang or crash the host
 // test's fake clock (tests/shims/furi.h's furi_get_tick() never advances
 // on its own) — the exact risk a wall-clock-deadline design would have
@@ -404,6 +404,7 @@ static void test_rx_buffer_overflow_reconfigures(void) {
     printf("  -> Pass\n");
 }
 
+#if GPS_MODULE == GPS_MODULE_M10Q
 // ── GPS chip ID capture (ubx_poll_chip_id(), M10Q only) ─────────────────
 // gps_uart_get_chip_id()'s cache AND the "have we tried" gate
 // (g_chip_id_poll_attempted) are both file-scope statics with no reset
@@ -503,6 +504,7 @@ static void test_chipid_capture(void) {
 
     printf("  -> Pass\n");
 }
+#endif // GPS_MODULE_M10Q
 
 // No valid NMEA sentence for > 5 s (furi_kernel_get_tick_frequency() * 5
 // ticks) must trigger the watchdog reinit path.
@@ -541,15 +543,20 @@ static void test_hot_start_sends_command(void) {
 }
 
 // Standalone standby — doesn't need a GpsUart at all, but does its own
-// acquire/release of the same simulated USART1.
+// acquire/release of the same simulated USART1, and must actually send
+// something (the sleep/stop command) while it holds it.
 static void test_standby_acquires_and_releases(void) {
     printf("Running test_standby_acquires_and_releases...\n");
+    furi_hal_mock_tx_log_reset();
     assert(furi_hal_mock_acquire_count() == 0);
     gps_uart_standby();
     assert(furi_hal_mock_acquire_count() == 0); // acquired then released internally
+    printf("  commands sent = %d\n", furi_hal_mock_tx_log_count());
+    assert(furi_hal_mock_tx_log_count() > 0);
     printf("  -> Pass\n");
 }
 
+#if GPS_MODULE == GPS_MODULE_M10Q
 // ── UBX-RXM-PMREQ sleep command vs the u-blox M10 spec ──────────────────
 // Checks the bytes gps_uart.c actually transmits, field by field, against
 // docs/datasheets/u-blox-M10-SPG-5.10_InterfaceDescription_UBX-21035062.pdf
@@ -711,6 +718,31 @@ static void test_alloc_wakes_before_configuring(void) {
     gps_uart_process_rx(g);
     assert(gps_uart_get_nmea_fail_count(g) == 0);
 
+    gps_uart_free(g);
+    printf("  -> Pass\n");
+}
+#endif // GPS_MODULE_M10Q
+
+// The real RX callback's `event` is a bitmask: a byte can be reported as
+// Data together with an error flag. Such a byte must still be read and
+// kept — an equality test against Data alone would drop it, splitting the
+// sentence it belongs to.
+static void test_rx_byte_with_error_flag_is_kept(void) {
+    printf("Running test_rx_byte_with_error_flag_is_kept...\n");
+    FuriMessageQueue queue = {0};
+    furi_hal_mock_clear_tx_responses();
+    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian);
+    assert(g != NULL);
+
+    const char* line = GGA_LINE;
+    furi_hal_mock_feed_byte_event((uint8_t)line[0],
+        (FuriHalSerialRxEvent)(FuriHalSerialRxEventData | FuriHalSerialRxEventFrameError));
+    furi_hal_mock_feed_string(line + 1);
+    gps_uart_process_rx(g);
+
+    GpsStatus s = gps_uart_get_status(g);
+    assert(fabs(s.latitude - 51.5557397) < 1e-6);
+    assert(gps_uart_get_nmea_fail_count(g) == 0);
     gps_uart_free(g);
     printf("  -> Pass\n");
 }
@@ -993,7 +1025,9 @@ int main(void) {
     // the one lifetime attempt would already be spent by the time it got
     // here and every assertion in it would silently fail against an
     // empty chip_id instead of testing what it claims to.
+#if GPS_MODULE == GPS_MODULE_M10Q
     test_chipid_capture();
+#endif
     test_alloc_lifecycle();
     test_cfg_ack_timeout_is_bounded();
     test_gga_updates_status();
@@ -1011,10 +1045,13 @@ int main(void) {
     test_nmea_watchdog_reconfigures();
     test_hot_start_sends_command();
     test_standby_acquires_and_releases();
+#if GPS_MODULE == GPS_MODULE_M10Q
     test_free_sends_spec_correct_sleep_command();
     test_standby_module_answers();
     test_standby_no_reply();
     test_alloc_wakes_before_configuring();
+#endif
+    test_rx_byte_with_error_flag_is_kept();
     test_malformed_line_ignored();
     test_nav_model_allocation();
     test_pubx_hacc_parsing();

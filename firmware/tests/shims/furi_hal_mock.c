@@ -160,11 +160,15 @@ void furi_hal_serial_tx(FuriHalSerialHandle* handle, const uint8_t* data, size_t
     }
 }
 
-void furi_hal_mock_feed_byte(uint8_t byte) {
+void furi_hal_mock_feed_byte_event(uint8_t byte, FuriHalSerialRxEvent event) {
     if(g_handle.running && g_handle.cb) {
         g_handle.pending_byte = byte;
-        g_handle.cb(&g_handle, FuriHalSerialRxEventData, g_handle.context);
+        g_handle.cb(&g_handle, event, g_handle.context);
     }
+}
+
+void furi_hal_mock_feed_byte(uint8_t byte) {
+    furi_hal_mock_feed_byte_event(byte, FuriHalSerialRxEventData);
 }
 
 void furi_hal_mock_feed_string(const char* s) {
@@ -212,6 +216,9 @@ static _Atomic int      g_read_count  = 0;
 static _Atomic bool     g_read_fail   = false;
 static _Atomic int      g_fail_every_nth = 0;
 static _Atomic int      g_write_count = 0;
+static _Atomic bool     g_write_fail  = false;
+static _Atomic bool     g_next_read_armed = false;
+static _Atomic int16_t  g_next_read_value = 0;
 static _Atomic uint8_t  g_last_config_msb = 0;
 // Simulates a slow/stuck I2C transaction — same real-usleep stand-in as
 // furi_hal_subghz_mock_set_rssi_delay_ms(), for a stuck ADS1115 transfer
@@ -258,7 +265,8 @@ bool furi_hal_i2c_read_mem(
         return false;
     }
 
-    int16_t v = atomic_load(&g_raw16);
+    int16_t v = atomic_exchange(&g_next_read_armed, false)
+        ? atomic_load(&g_next_read_value) : atomic_load(&g_raw16);
     if(len >= 1) data[0] = (uint8_t)((uint16_t)v >> 8);
     if(len >= 2) data[1] = (uint8_t)((uint16_t)v & 0xFF);
     atomic_store(&g_i2c_call_in_progress, false);
@@ -279,6 +287,10 @@ bool furi_hal_i2c_write_mem(
         usleep(delay_ms * 1000);
     }
     atomic_fetch_add(&g_write_count, 1);
+    if(atomic_load(&g_write_fail)) {
+        atomic_store(&g_i2c_call_in_progress, false);
+        return false;
+    }
     if(len >= 1) atomic_store(&g_last_config_msb, data[0]);
     atomic_store(&g_i2c_call_in_progress, false);
     return true;
@@ -308,6 +320,15 @@ void furi_hal_i2c_mock_set_fail_every_nth(int n) {
     atomic_store(&g_fail_every_nth, n);
 }
 
+void furi_hal_i2c_mock_set_next_read_once(int16_t value) {
+    atomic_store(&g_next_read_value, value);
+    atomic_store(&g_next_read_armed, true);
+}
+
+void furi_hal_i2c_mock_set_write_fail(bool fail) {
+    atomic_store(&g_write_fail, fail);
+}
+
 int furi_hal_i2c_mock_write_count(void) {
     return atomic_load(&g_write_count);
 }
@@ -322,6 +343,8 @@ void furi_hal_i2c_mock_reset(void) {
     atomic_store(&g_read_fail, false);
     atomic_store(&g_fail_every_nth, 0);
     atomic_store(&g_write_count, 0);
+    atomic_store(&g_write_fail, false);
+    atomic_store(&g_next_read_armed, false);
     atomic_store(&g_last_config_msb, 0);
     atomic_store(&g_i2c_delay_ms, 0);
     atomic_store(&g_i2c_call_in_progress, false);

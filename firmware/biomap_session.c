@@ -861,10 +861,10 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
         // milliseconds in has_gsr()==false modes — a rate no other mode
         // produces, which spammed "ViewPort lockup" warnings and directly
         // preceded a real hang on hardware. The Tick handler below already
-        // calls view_port_update() every tick (10 Hz) regardless of mode, so
-        // GPS-only/GPS+RF screens still redraw at that bounded rate; this
-        // only costs up to one tick (~100 ms) of extra latency before a
-        // fresh GPS reading reaches the screen.
+        // calls view_port_update() on a fixed cadence regardless of mode
+        // (every 5th tick, 2 Hz), so GPS-only/GPS+RF screens still redraw
+        // at that bounded rate; this only costs up to ~500 ms of extra
+        // latency before a fresh GPS reading reaches the screen.
         if(ev.type == EventTypeUart && s->gps) {
             gps_uart_process_rx(s->gps);
             continue;

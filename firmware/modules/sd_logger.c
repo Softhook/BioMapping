@@ -521,11 +521,10 @@ int sd_logger_batch_flush(SdLogger* l) {
 
     // Fold exactly the bytes that reached the file into the integrity
     // CRC / byte / row counters, on the confirmed-write path only, so the
-    // "# End" trailer always describes what is actually on the card. A
-    // genuine partial write that later succeeds on retry re-counts the
-    // whole batch and would CRC the duplicated prefix — but that path also
-    // bumps flush_fail_count, which the trailer reports, so the file is
-    // flagged regardless.
+    // "# End" trailer always describes what is actually on the card. After
+    // a partial write, the failure branch above already committed the
+    // prefix and kept only the unwritten tail, so a successful retry lands
+    // here with just that tail — nothing is counted twice.
     fold_committed(l, l->gsr_batch, (size_t)flushed);
 
     l->gsr_batch_len = 0;

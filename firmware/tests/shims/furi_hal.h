@@ -13,7 +13,16 @@
 #include <stdint.h>
 
 typedef enum { FuriHalSerialIdUsart } FuriHalSerialId;
-typedef enum { FuriHalSerialRxEventData } FuriHalSerialRxEvent;
+// Same bit values as the real SDK (furi_hal_serial.h): the callback's
+// `event` is a bitmask, and one byte can carry Data plus an error bit.
+typedef enum {
+    FuriHalSerialRxEventData = (1 << 0),
+    FuriHalSerialRxEventIdle = (1 << 1),
+    FuriHalSerialRxEventFrameError = (1 << 2),
+    FuriHalSerialRxEventNoiseError = (1 << 3),
+    FuriHalSerialRxEventOverrunError = (1 << 4),
+    FuriHalSerialRxEventParityError = (1 << 5),
+} FuriHalSerialRxEvent;
 
 typedef struct FuriHalSerialHandle FuriHalSerialHandle;
 
@@ -41,6 +50,8 @@ void furi_hal_serial_tx(FuriHalSerialHandle* handle, const uint8_t* data, size_t
 // arriving from the ISR. No-op if gps_uart hasn't started RX yet.
 void furi_hal_mock_feed_byte(uint8_t byte);
 void furi_hal_mock_feed_string(const char* s);
+// Same, but delivered with an explicit event mask, e.g. Data | FrameError.
+void furi_hal_mock_feed_byte_event(uint8_t byte, FuriHalSerialRxEvent event);
 
 // Test-observable: number of furi_hal_serial_control_acquire() calls
 // currently unreleased (mirrors real hardware: only one USART1).
@@ -133,6 +144,12 @@ void furi_hal_i2c_mock_set_fail_every_nth(int n);
 // recent one — pga_msb(index) encodes the PGA index being switched to.
 int     furi_hal_i2c_mock_write_count(void);
 uint8_t furi_hal_i2c_mock_last_config_msb(void);
+
+// When true, write_mem returns false (still counted in write_count).
+void    furi_hal_i2c_mock_set_write_fail(bool fail);
+// The next SUCCESSFUL read_mem returns `value` instead of the
+// set_raw16() value, once.
+void    furi_hal_i2c_mock_set_next_read_once(int16_t value);
 
 // Reset all of the above to zero/defaults. Call at the start of each test
 // — never while a previous test's GsrSensor/worker is still alive.

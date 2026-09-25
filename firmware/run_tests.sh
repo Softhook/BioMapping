@@ -77,20 +77,30 @@ fi
 echo "== test_firmware (pipeline / CSV / calibration) =="
 # biomap_format.c's only SDK dependency is FURI_LOG_W; -I tests/shims resolves
 # <furi.h> to the no-op shim, same as the other module tests below.
-gcc -Wall -Wextra -I . -I vendor/minmea -I tests/shims -o build/test_firmware \
+gcc -Wall -Wextra -Werror -I . -I vendor/minmea -I tests/shims -o build/test_firmware \
     biomap_pipeline.c biomap_format.c tests/test_firmware.c -lm
 ./build/test_firmware
 
 echo
 echo "== test_gps_uart (NMEA dispatch / RX framing) =="
-gcc -Wall -Wextra -I . -I modules -I vendor/minmea -I tests/shims -o build/test_gps_uart \
+gcc -Wall -Wextra -Werror -I . -I modules -I vendor/minmea -I tests/shims -o build/test_gps_uart \
     tests/test_gps_uart.c modules/gps_uart.c \
     tests/shims/furi_hal_mock.c -lm
 ./build/test_gps_uart
 
 echo
+echo "== test_gps_uart, L76K build (GPS_MODULE overridden) =="
+# The shipped firmware is M10Q-only, so without this the L76K branches of
+# gps_uart.c would never even be compiled. M10Q-specific tests are #if'd
+# out of this variant; everything else must pass for both modules.
+gcc -Wall -Wextra -Werror -DGPS_MODULE=GPS_MODULE_L76K -I . -I modules -I vendor/minmea -I tests/shims -o build/test_gps_uart_l76k \
+    tests/test_gps_uart.c modules/gps_uart.c \
+    tests/shims/furi_hal_mock.c -lm
+./build/test_gps_uart_l76k
+
+echo
 echo "== test_gsr_sensor (autoranging / TIA / disconnect debounce) =="
-gcc -Wall -Wextra -I . -I modules -I tests/shims -o build/test_gsr_sensor \
+gcc -Wall -Wextra -Werror -I . -I modules -I tests/shims -o build/test_gsr_sensor \
     tests/test_gsr_sensor.c modules/gsr_sensor.c \
     tests/shims/furi_hal_mock.c -lm -lpthread
 ./build/test_gsr_sensor
@@ -110,7 +120,7 @@ if [ "$RUN_TSAN" = "yes" ]; then
     # this file's own `furi_test_tick` global did, both found by this exact
     # pass during the 2026-07-30 mutex review and fixed by making them
     # _Atomic). Keep this passing whenever gsr_sensor.c's threading changes.
-    gcc -fsanitize=thread -g -O1 -I . -I modules -I tests/shims -o build/test_gsr_sensor_tsan \
+    gcc -Wall -Wextra -Werror -fsanitize=thread -g -O1 -I . -I modules -I tests/shims -o build/test_gsr_sensor_tsan \
         tests/test_gsr_sensor.c modules/gsr_sensor.c \
         tests/shims/furi_hal_mock.c -lm -lpthread
     ./build/test_gsr_sensor_tsan
@@ -120,14 +130,14 @@ fi
 
 echo
 echo "== test_sd_logger (auto-index / header / batch write) =="
-gcc -Wall -Wextra -I . -I modules -I tests/shims -o build/test_sd_logger \
+gcc -Wall -Wextra -Werror -I . -I modules -I tests/shims -o build/test_sd_logger \
     tests/test_sd_logger.c modules/sd_logger.c \
     tests/shims/storage_mock.c -lm
 ./build/test_sd_logger
 
 echo
 echo "== test_em_scan_cal (EM Scanner RF noise calibration & persistence) =="
-gcc -Wall -Wextra -I . -I modules -I tests/shims -o build/test_em_scan_cal \
+gcc -Wall -Wextra -Werror -I . -I modules -I tests/shims -o build/test_em_scan_cal \
     tests/test_em_scan_cal.c modules/em_scan_cal.c \
     tests/shims/storage_mock.c -lm
 ./build/test_em_scan_cal
@@ -136,14 +146,14 @@ echo
 echo "== test_em_scan_rf (CC1101 sub-GHz sweep: init/deinit sequencing, peak-hold, per-band snapshot) =="
 # Own dedicated mock (furi_hal_subghz_mock.c), not furi_hal_mock.c — see that
 # file's banner for why the two are mutually exclusive per test binary.
-gcc -Wall -Wextra -I . -I modules -I tests/shims -o build/test_em_scan_rf \
+gcc -Wall -Wextra -Werror -I . -I modules -I tests/shims -o build/test_em_scan_rf \
     tests/test_em_scan_rf.c modules/em_scan_rf.c \
     tests/shims/furi_hal_subghz_mock.c -lm
 ./build/test_em_scan_rf
 
 echo
 echo "== test_bt_stream (BLE serial profile lifecycle / send-or-drop logic) =="
-gcc -Wall -Wextra -I . -I modules -I tests/shims -o build/test_bt_stream \
+gcc -Wall -Wextra -Werror -I . -I modules -I tests/shims -o build/test_bt_stream \
     tests/test_bt_stream.c modules/bt_stream.c \
     tests/shims/bt_ble_mock.c -lm
 ./build/test_bt_stream
