@@ -15,7 +15,7 @@ void biomap_render_callback(Canvas* c, void* ctx);
 // Main launch menu renderer
 void menu_render(Canvas* c, void* ctx);
 
-// Options screen renderer (Reset GPS, Auto-zoom, Backlight toggles)
+// Options screen renderer (Cold Reset GPS, Auto-zoom, Backlight toggles)
 void options_render(Canvas* c, void* ctx);
 
 // Calibration menu and wizard renderers

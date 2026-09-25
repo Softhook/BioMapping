@@ -115,6 +115,7 @@ typedef struct BioMapApp {
     bool               backlight_enforced;
     bool               sound_enabled;  // Options > Sound; survives session boundaries
     GpsNavModel        nav_model;      // Options > GPS Profile (Pedestrian/Wrist/Vehicle)
+    bool               super_s;        // Options > Super-S: true = AUTO (module default), false = OFF
     bool               cal_active;
     float              cal_gain;
     float              cal_offset;
@@ -146,7 +147,7 @@ typedef struct BioMapApp {
 // ── Menu & conversion UI types ─────────────────────────────────────────
 
 #define MENU_COUNT      6
-#define OPTIONS_COUNT   9
+#define OPTIONS_COUNT   10
 
 // Menu screen selection indices — matches MENU_COUNT above and the
 // item order drawn by menu_render() (biomap_render.c).
@@ -165,7 +166,8 @@ enum {
 // the two stay in sync by construction rather than by comment.
 enum {
     OptGpsProfile = 0,
-    OptResetGps,
+    OptSuperS,
+    OptColdResetGps,
     OptAutoZoom,
     OptGsrCalibration,
     OptRfCalibration,
@@ -302,7 +304,7 @@ typedef struct {
 // omitting the token rather than recording a misleading 1970 date.
 uint32_t biomap_rtc_now_epoch(void);
 
-void run_gps_hot_start(BioMapApp* app);
+void run_gps_cold_start(BioMapApp* app);
 // Claims/releases the backlight enforce_on lock according to
 // app->backlight_on, keeping app->backlight_enforced in sync so the pair
 // can never go unbalanced (see the field's doc comment above). release()

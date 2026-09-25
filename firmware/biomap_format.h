@@ -141,7 +141,7 @@ CalRecordStatus biomap_calibration_check(const BioMapCalibration* cal);
 // biomap_settings_valid() and the app falls back to defaults — so a version
 // bump is all a schema change needs.
 #define BIOMAP_SETTINGS_MAGIC    0x424D4753
-#define BIOMAP_SETTINGS_VERSION  3
+#define BIOMAP_SETTINGS_VERSION  4
 
 typedef struct {
     uint32_t magic;
@@ -150,6 +150,7 @@ typedef struct {
     bool     backlight_on;
     bool     sound_enabled;
     uint32_t nav_model;
+    bool     super_s;
     bool     debug_fields_enabled;
     uint32_t checksum;
 } BioMapSettings;

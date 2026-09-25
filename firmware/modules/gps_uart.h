@@ -57,13 +57,16 @@ typedef struct GpsUart GpsUart;
 // Lifecycle — caller owns event_queue until free() returns. `notifications`
 // is accepted for API-shape consistency with other module allocators but is
 // not currently read or stored by this module.
-GpsUart* gps_uart_alloc(FuriMessageQueue* event_queue, NotificationApp* notifications, GpsNavModel nav_model);
+// `super_s` true leaves the module's Super-S weak-signal compensation on
+// automatic (its default); false switches it off (see ubx_send_super_s()).
+GpsUart* gps_uart_alloc(FuriMessageQueue* event_queue, NotificationApp* notifications,
+                        GpsNavModel nav_model, bool super_s);
 void     gps_uart_free(GpsUart* gps);
 
 GpsStatus gps_uart_get_status(const GpsUart* gps);
 bool      gps_uart_is_ready(const GpsUart* gps);
 void      gps_uart_process_rx(GpsUart* gps);
-void      gps_uart_send_hot_start(GpsUart* gps);
+void      gps_uart_send_cold_start(GpsUart* gps);
 
 // ── Contention diagnostics (see docs/archive/gps_rf_mutex_status.md) ──────────────
 // Cumulative, monotonic counters — the caller (biomap_session.c) diffs or

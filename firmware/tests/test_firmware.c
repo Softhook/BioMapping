@@ -1046,8 +1046,9 @@ void test_settings_record_valid() {
 
     BioMapSettings bad;
     bad = s; bad.magic = 0;                       assert(!biomap_settings_valid(&bad));
-    bad = s; bad.version = 2;                     assert(!biomap_settings_valid(&bad));
+    bad = s; bad.version = 3;                     assert(!biomap_settings_valid(&bad));
     bad = s; bad.backlight_on = true;             assert(!biomap_settings_valid(&bad)); // checksum
+    bad = s; bad.super_s = true;                  assert(!biomap_settings_valid(&bad)); // checksum covers Super-S
     // A nav_model past the enum, even correctly checksummed, is rejected.
     bad = s; bad.nav_model = GpsNavModelCount;
     bad.checksum = biomap_settings_checksum(&bad); assert(!biomap_settings_valid(&bad));

@@ -12,7 +12,7 @@
 // Every call site is a discrete, user-initiated key event or state-change
 // edge (menu nav, mode select, recording start/stop, calibration steps,
 // SD/GSR alerts, ...) handled synchronously in the same thread that already
-// does other blocking calls (furi_delay_ms(300) in run_gps_hot_start(), the
+// does other blocking calls (furi_delay_ms(300) in run_gps_cold_start(), the
 // ~2 s calibration measurement loop, mutex waits, etc.). The longest tones
 // here (success/error/warning) block for up to ~270 ms — during an active
 // recording that's 2-3 missed 100 ms timer ticks, which simply queue up
@@ -129,13 +129,13 @@ static inline void biomap_sound_recording_stop(bool enabled) {
     biomap_sound_play(enabled, notes, 2, BIOMAP_SOUND_VOL_ALERT);
 }
 
-// Success — calibration wizard fit passed, GPS hot-start acknowledged.
+// Success — calibration wizard fit passed, GPS cold start acknowledged.
 static inline void biomap_sound_success(bool enabled) {
     static const SoundNote notes[] = {{880.0f, 60}, {1174.66f, 60}, {1567.98f, 130}};
     biomap_sound_play(enabled, notes, 3, BIOMAP_SOUND_VOL_ALERT);
 }
 
-// Error — calibration measurement/fit failed, GPS hot-start failed, header
+// Error — calibration measurement/fit failed, GPS cold start failed, header
 // build failed at recording start.
 static inline void biomap_sound_error(bool enabled) {
     static const SoundNote notes[] = {{600.0f, 90}, {450.0f, 130}};

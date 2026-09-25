@@ -2,7 +2,7 @@
 // Licensed under the Bio Mapping Community Licence 1.0.
 // See LICENCE.md in the project root for terms.
 
-// Bio Mapping — app entry, GPS hot-start, and timestamp formatting.
+// Bio Mapping — app entry, GPS cold start, and timestamp formatting.
 #include "biomap.h"
 
 uint32_t biomap_rtc_now_epoch(void) {
@@ -11,10 +11,16 @@ uint32_t biomap_rtc_now_epoch(void) {
     return pipeline_unix_epoch(dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second);
 }
 
-void run_gps_hot_start(BioMapApp* app) {
-    GpsUart* g = gps_uart_alloc(app->event_queue, app->notifications, app->nav_model);
+// Options > Cold Reset GPS. Every session start already restarts the module
+// (waking from standby is a restart that keeps backup RAM), so the only
+// reset worth offering is one that also wipes what the module remembers.
+// The wipe sticks: gps_uart_free() puts the module back to sleep before it
+// can relearn anything, so the next session starts from nothing (first fix
+// ~23-29 s in open sky, SAM-M10Q datasheet).
+void run_gps_cold_start(BioMapApp* app) {
+    GpsUart* g = gps_uart_alloc(app->event_queue, app->notifications, app->nav_model, app->super_s);
     bool ok = g && gps_uart_is_ready(g);
-    if(ok) { gps_uart_send_hot_start(g); furi_delay_ms(300); }
+    if(ok) { gps_uart_send_cold_start(g); furi_delay_ms(300); }
     notification_message(app->notifications,
         ok ? &sequence_blink_green_100 : &sequence_blink_red_100);
     if(ok) {
@@ -54,6 +60,7 @@ int32_t biomap_app(void* p) {
         .backlight_enforced = false,
         .sound_enabled = true,
         .nav_model = GpsNavModelPedestrian,
+        .super_s = true,
         .cal_active = false,
         .cal_gain = 1.0f,
         .cal_offset = 0.0f,
@@ -325,13 +332,14 @@ bool biomap_load_settings(BioMapApp* app) {
             app->backlight_on    = s.backlight_on;
             app->sound_enabled   = s.sound_enabled;
             app->nav_model       = (GpsNavModel)s.nav_model;
+            app->super_s         = s.super_s;
             app->debug_fields_enabled = s.debug_fields_enabled;
             furi_mutex_release(app->mutex);
             success = true;
             FURI_LOG_I("BioMap",
-                       "Loaded settings: zoom=%d backlight=%d sound=%d nav=%lu debug_fields=%d",
+                       "Loaded settings: zoom=%d backlight=%d sound=%d nav=%lu super_s=%d debug_fields=%d",
                        s.zoom_enabled, s.backlight_on, s.sound_enabled,
-                       (unsigned long)s.nav_model, s.debug_fields_enabled);
+                       (unsigned long)s.nav_model, s.super_s, s.debug_fields_enabled);
         } else if(bytes_read == sizeof(BioMapSettings)) {
             FURI_LOG_W("BioMap", "Settings file invalid — using defaults");
         }
@@ -352,6 +360,7 @@ void biomap_save_settings(BioMapApp* app) {
         .backlight_on    = app->backlight_on,
         .sound_enabled   = app->sound_enabled,
         .nav_model       = (uint32_t)app->nav_model,
+        .super_s         = app->super_s,
         .debug_fields_enabled = app->debug_fields_enabled,
     };
     furi_mutex_release(app->mutex);

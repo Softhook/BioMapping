@@ -9,7 +9,8 @@ static const char* const menu_labels[MENU_COUNT] = {
 
 static const char* const options_labels[OPTIONS_COUNT] = {
     "GPS Profile",
-    "Reset GPS",
+    "Super-S",
+    "Cold Reset GPS",
     "Auto-zoom GSR",
     "GSR Calibration",
     "RF Calibration",
@@ -671,7 +672,7 @@ void options_render(Canvas* c, void* ctx) {
 
     // Overlay toggle state on selectable items
     for(int i = top; i < OPTIONS_COUNT && (i - top) < max_visible; i++) {
-        if(i == OptResetGps || i == OptDiagnostics) continue; // no right-aligned state text
+        if(i == OptColdResetGps || i == OptDiagnostics) continue; // no right-aligned state text
         int y = 22 + (i - top) * 10;
         const char* state;
         if(i == OptGpsProfile) {
@@ -681,6 +682,8 @@ void options_render(Canvas* c, void* ctx) {
                 "PED", "WRIST", "VEHICLE", "STATION", "SEA", "BIKE", "FLIGHT",
             };
             state = nav_model_labels[a->nav_model];
+        } else if(i == OptSuperS) {
+            state = a->super_s ? "AUTO" : "OFF";
         } else if(i == OptAutoZoom) {
             state = a->zoom_enabled ? "ON" : "OFF";
         } else if(i == OptGsrCalibration) {

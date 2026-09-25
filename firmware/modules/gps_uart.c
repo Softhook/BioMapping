@@ -25,6 +25,7 @@
 struct GpsUart {
     GpsStatus            status;
     GpsNavModel          nav_model;
+    bool                 super_s;
     FuriMutex*           status_mutex;  // protects status field
     FuriHalSerialHandle* serial_handle;
     FuriStreamBuffer*    rx_stream;
@@ -868,6 +869,20 @@ static void ubx_send_nav5(GpsUart* g, GpsNavModel nav_model) {
     ubx_send_valset(g, &pair, 1, "CFG-VALSET dynamic model");
 }
 
+// Super-S (integration manual §2.2.7): the receiver normally trusts weak
+// signals less, since weakness usually means multipath; Super-S compensates
+// for weakness that has another cause (small antenna, body nearby). The
+// MIA-M10Q manual warns that where the weakness IS multipath "the receiver
+// may overtrust distorted signals". CFG-NAVSPG-SIGATTCOMP (interface
+// description Table 24): 0 = disabled, 255 = automatic (the default).
+// Sent in both states, so switching back to automatic doesn't need a
+// power cycle.
+static void ubx_send_super_s(GpsUart* g, bool enabled) {
+    const uint8_t mode = enabled ? 255 : 0;
+    const UbxValsetPair pair = {0x201100d6, &mode, 1}; // CFG-NAVSPG-SIGATTCOMP
+    ubx_send_valset(g, &pair, 1, enabled ? "CFG-VALSET Super-S auto" : "CFG-VALSET Super-S off");
+}
+
 static const uint8_t ubx_cfg_assistnow_autonomous[] = {
     // VALSET packet enabling CFG-ANA-USE_ANA = 1 (true) for offline orbit predictions
     0xB5, 0x62, 0x06, 0x8A, 0x09, 0x00, 0x00, 0x01, 0x00, 0x00, 0x01, 0x00, 0x23, 0x10, 0x01, 0xCF, 0xC0
@@ -881,8 +896,13 @@ static const uint8_t ubx_rxm_pmreq_standby[] = {
     // tests/test_gps_uart.c checks every field against the spec.
     0xB5, 0x62, 0x02, 0x41, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, 0x61, 0x6B
 };
-static const uint8_t ubx_cfg_rst_hot[] = {
-    0xB5, 0x62, 0x06, 0x04, 0x04, 0x00, 0x00, 0x00, 0x02, 0x00, 0x10, 0x68
+static const uint8_t ubx_cfg_rst_cold[] = {
+    // UBX-CFG-RST (Interface Description §3.10.2): navBbrMask=0xFFFF (cold
+    // start: clears every backup-RAM section — orbits, position, time,
+    // AssistNow Autonomous predictions, weak-signal compensation estimates),
+    // resetMode=0x02 (controlled software reset, GNSS only).
+    // tests/test_gps_uart.c checks every field against the spec.
+    0xB5, 0x62, 0x06, 0x04, 0x04, 0x00, 0xFF, 0xFF, 0x02, 0x00, 0x0E, 0x61
 };
 // Switch the module to 115200 (sent at 9600). outProto=0002 → NMEA only
 // (0001=UBX would disable ASCII output).
@@ -1028,13 +1048,15 @@ static void gps_uart_reinit(GpsUart* g, uint32_t baud) {
     g->reinit_count++;
 }
 
-GpsUart* gps_uart_alloc(FuriMessageQueue* event_queue, NotificationApp* notifications, GpsNavModel nav_model) {
+GpsUart* gps_uart_alloc(FuriMessageQueue* event_queue, NotificationApp* notifications,
+                        GpsNavModel nav_model, bool super_s) {
     UNUSED(notifications); // not currently used by this module — see gps_uart.h's doc comment
     GpsUart* g = malloc(sizeof(GpsUart));
     furi_check(g, "GpsUart: NULL struct alloc");
 
     g->event_queue   = event_queue;
     g->nav_model     = nav_model;
+    g->super_s       = super_s;
     g->rx_offset     = 0;
     g->ready         = false;
     g->rx_pending    = false;
@@ -1289,6 +1311,7 @@ static void gps_uart_configure(GpsUart* g) {
     ubx_send_rate(g);
     ubx_send_nmea_output_rates(g);
     ubx_send_nav5(g, g->nav_model);
+    ubx_send_super_s(g, g->super_s);
     ubx_send_and_confirm(g, ubx_cfg_assistnow_autonomous, sizeof(ubx_cfg_assistnow_autonomous), "CFG-VALSET AssistNow");
     // Enable $PUBX,00 for live hAcc in metres, on UART1 once per navigation
     // solution (the rate field counts solutions, not seconds) — so 10 Hz,
@@ -1309,11 +1332,11 @@ static void gps_uart_configure(GpsUart* g) {
 }
 
 // ---------------------------------------------------------------------------
-// Hot Start reset.
+// Cold Start reset.
 // ---------------------------------------------------------------------------
-void gps_uart_send_hot_start(GpsUart* g) {
-    furi_check(g, "GpsUart: NULL in send_hot_start()");
+void gps_uart_send_cold_start(GpsUart* g) {
+    furi_check(g, "GpsUart: NULL in send_cold_start()");
     if(!g->ready || !g->serial_handle) return;
-    FURI_LOG_I("GpsUart", "Hot Start reset");
-    ubx_tx(g, ubx_cfg_rst_hot, sizeof(ubx_cfg_rst_hot));
+    FURI_LOG_I("GpsUart", "Cold Start reset");
+    ubx_tx(g, ubx_cfg_rst_cold, sizeof(ubx_cfg_rst_cold));
 }

@@ -128,12 +128,12 @@ int32_t biomap_gui_show_menu(BioMapApp* app) {
 }
 
 // ==========================================================================
-// Options screen — Reset GPS, Auto-zoom toggle
+// Options screen — Cold Reset GPS, Auto-zoom toggle
 // ==========================================================================
 //
 //  ┌─────────────────────────────┐
 //  │  Options                    │
-//  │  ▓ Reset GPS           ▓   │   ← selected
+//  │  ▓ Cold Reset GPS      ▓   │   ← selected
 //  │    Auto-zoom GSR   ON      │
 //  │    Backlight           ON  │
 //  │    GSR Calibration    YES  │
@@ -142,9 +142,9 @@ int32_t biomap_gui_show_menu(BioMapApp* app) {
 //
 //  Controls:  Up/Down → navigate     OK → select/toggle     Back → return
 
-// Toggle a bool app setting (Auto-zoom, Backlight, Sound), persist it, and
-// play a distinct on/off confirmation tone — shared by cases 2/5/6 below,
-// previously identical except which field. force_tone bypasses the
+// Toggle a bool app setting (Super-S, Auto-zoom, Backlight, Sound, Debug
+// Fields), persist it, and play a distinct on/off confirmation tone — shared
+// by the on/off rows below. force_tone bypasses the
 // `sound_enabled` gate: used only by the Sound toggle itself, so
 // muting/unmuting is always audible regardless of the new state.
 static void toggle_app_setting(BioMapApp* app, bool* field, bool force_tone) {
@@ -188,10 +188,15 @@ void run_options_screen(BioMapApp* app) {
                     biomap_save_settings(app);
                     biomap_sound_click(app->sound_enabled);
                     break;
-                case OptResetGps:
-                    // Reset GPS — VP stays visible, no need to re-create.
-                    // run_gps_hot_start() plays its own success/error tone.
-                    run_gps_hot_start(app);
+                case OptSuperS:
+                    // Applied at the next GPS start (session or Cold Reset GPS),
+                    // same as GPS Profile.
+                    toggle_app_setting(app, &app->super_s, false);
+                    break;
+                case OptColdResetGps:
+                    // Cold Reset GPS — VP stays visible, no need to re-create.
+                    // run_gps_cold_start() plays its own success/error tone.
+                    run_gps_cold_start(app);
                     view_port_update(vp);
                     continue;
                 case OptAutoZoom:
