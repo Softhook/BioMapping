@@ -419,7 +419,7 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
 
 // ── GPS chip ID cache ────────────────────────────────────────────────────
 // File-scope, not a GpsStatus/GpsUart field: this app frees and reallocs
-// GpsUart across mode switches (e.g. GSR-only standby cycling), and a
+// GpsUart across mode switches (every GPS session is its own alloc), and a
 // capture from an earlier alloc should survive into a later one within the
 // same app session rather than being lost with the struct that held it.
 // Empty ("") until ubx_poll_chip_id() (M10Q only, see below) polls and
@@ -470,8 +470,8 @@ static void ubx_tx(GpsUart* g, const uint8_t* data, size_t len) {
 // never advances on its own (see ubx_find_sync()), and on hardware
 // furi_delay_ms(1) can take 2+ ms, so the tick bound is the real one there.
 //
-// Takes a raw handle (not GpsUart*) — also called from gps_uart_standby(),
-// which has no GpsUart. Caller must have initialised the serial port at
+// Takes a raw handle (not GpsUart*) — also called at app start
+// (gps_uart_sleep_from_unknown_state()), which has no GpsUart. Caller must have initialised the serial port at
 // GPS_BAUD_RATE and must NOT have async RX running: this installs its own
 // RX callback for the wait and stops it before returning. Returns true if
 // the module answered.
@@ -912,20 +912,23 @@ static const uint8_t ubx_rxm_pmreq_standby[] = {
     // UBX-RXM-PMREQ software standby (Interface Description §3.16.6):
     // duration=0 (until woken), flags=0x06 (backup + force — force is
     // required on M10, integration manual §3.5.3.3), wakeupSources=0x08
-    // (uartrx — see ubx_wake()). Must be the last byte sent before the
-    // port is released: any later TX edge wakes the module again.
+    // (uartrx — see ubx_wake()). Must be the last byte sent: any later TX
+    // edge wakes the module again.
     // tests/test_gps_uart.c checks every field against the spec.
     0xB5, 0x62, 0x02, 0x41, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, 0x61, 0x6B
 };
 static const uint8_t ubx_cfg_rst_hot[] = {
     0xB5, 0x62, 0x06, 0x04, 0x04, 0x00, 0x00, 0x00, 0x02, 0x00, 0x10, 0x68
 };
+// Switch the module to 115200 (sent at 9600). outProto=0002 → NMEA only
+// (0001=UBX would disable ASCII output).
+static const char pubx_baud_115200[] = "$PUBX,41,1,0007,0002,115200,0*19\r\n";
 #endif
 
 static void gps_uart_configure(GpsUart* g);
 
 // Disable/enable the Expansion Service around USART1 use — this app claims
-// the pin for GPS, which Expansion also wants. Shared by alloc/free/standby.
+// the pin for GPS, which Expansion also wants.
 static void gps_uart_set_expansion_enabled(bool enabled) {
     Expansion* expansion = furi_record_open(RECORD_EXPANSION);
     if(enabled) {
@@ -934,6 +937,112 @@ static void gps_uart_set_expansion_enabled(bool enabled) {
         expansion_disable(expansion);
     }
     furi_record_close(RECORD_EXPANSION);
+}
+
+// ── USART1, held for the app's whole life ───────────────────────────────
+// Opened at app start (gps_uart_port_open()) and closed at app exit, not per
+// GPS session. A sleeping M10Q wakes on any edge on its RX pin (see
+// ubx_rxm_pmreq_standby), and a released port leaves that line floating
+// (furi_hal_serial_deinit() sets the pin to analog, no pull) and hands it to
+// the Expansion Service — on hardware the module was awake again within
+// seconds of every release. Held, the line idles steadily high, so the
+// module stays asleep on the menu and in GSR-only mode. See
+// docs/gps_sleep_investigation.md.
+static FuriHalSerialHandle* g_port = NULL;
+
+// Between GPS sessions the port listens and counts whatever arrives. A
+// sleeping module sends nothing, so a non-zero count means it woke — the
+// on-hardware check that the sleep held, logged when the idle stretch ends.
+//
+// Bytes in the first GPS_IDLE_SETTLE_MS aren't counted: after the app-start
+// sleep, hardware showed exactly 9 stray bytes every time from a module that
+// then needed a full restart to wake (so it was asleep) — leftovers from
+// going to sleep, not a wake-up.
+#define GPS_IDLE_SETTLE_MS 1000
+
+static _Atomic uint32_t g_idle_rx_bytes;
+static uint32_t g_idle_start_tick;
+static uint32_t g_idle_settle_ticks;
+static bool g_idle_watching = false;
+
+static void gps_uart_idle_rx_cb(FuriHalSerialHandle* handle, FuriHalSerialRxEvent event, void* context) {
+    UNUSED(context);
+    if(!(event & FuriHalSerialRxEventData)) return; // bitmask — see gps_uart_irq_cb()
+    furi_hal_serial_async_rx(handle); // read to clear the byte; only the count matters
+    if(furi_get_tick() - g_idle_start_tick < g_idle_settle_ticks) return;
+    g_idle_rx_bytes++;
+}
+
+static void gps_uart_idle_watch_start(void) {
+    g_idle_rx_bytes = 0;
+    g_idle_settle_ticks = (GPS_IDLE_SETTLE_MS * furi_kernel_get_tick_frequency()) / 1000;
+    g_idle_start_tick = furi_get_tick();
+    furi_hal_serial_async_rx_start(g_port, gps_uart_idle_rx_cb, NULL, false);
+    g_idle_watching = true;
+}
+
+static void gps_uart_idle_watch_stop(void) {
+    if(!g_idle_watching) return;
+    furi_hal_serial_async_rx_stop(g_port);
+    g_idle_watching = false;
+    uint32_t n = g_idle_rx_bytes;
+    if(n == 0) {
+        FURI_LOG_I("GpsUart", "Idle: GPS silent (stayed asleep)");
+    } else {
+        FURI_LOG_W("GpsUart", "Idle: %lu bytes from GPS (it was awake)", (unsigned long)n);
+    }
+}
+
+uint32_t gps_uart_get_idle_rx_count(void) {
+    return g_idle_rx_bytes;
+}
+
+// Put the module to sleep from whatever state it is in at app start: asleep,
+// awake at its 9600 default, or awake at 115200 (left configured). Always
+// sleeps it from 115200 — the path that held on hardware — never from 9600
+// straight after a restart, which failed every time.
+static void gps_uart_sleep_from_unknown_state(void) {
+    furi_hal_serial_init(g_port, GPS_BAUD_RATE);
+#if GPS_MODULE == GPS_MODULE_M10Q
+    // Wake it (a no-op if already awake), move it to 115200 and follow it
+    // there. A module already at 115200 ignores the 9600 command and
+    // simply stays there.
+    ubx_wake(g_port);
+    furi_hal_serial_tx(g_port, (const uint8_t*)pubx_baud_115200, strlen(pubx_baud_115200));
+    furi_delay_ms(200);
+    furi_hal_serial_deinit(g_port);
+    furi_hal_serial_init(g_port, GPS_BAUD_RATE_FAST);
+    furi_delay_ms(50);
+    furi_hal_serial_tx(g_port, ubx_rxm_pmreq_standby, sizeof(ubx_rxm_pmreq_standby));
+    furi_delay_ms(100); // let it finish shifting out, and any NMEA already in flight
+#elif GPS_MODULE == GPS_MODULE_L76K
+    // PCAS11,0 = stop mode (L76K&L26K Protocol Spec §2.3.11)
+    const char* stop_cmd = "$PCAS11,0*1D\r\n";
+    furi_hal_serial_tx(g_port, (const uint8_t*)stop_cmd, strlen(stop_cmd));
+    furi_delay_ms(100);
+#endif
+}
+
+void gps_uart_port_open(void) {
+    if(g_port) return;
+    gps_uart_set_expansion_enabled(false);
+    g_port = furi_hal_serial_control_acquire(GPS_UART_CH);
+    if(!g_port) {
+        FURI_LOG_E("GpsUart", "Failed to acquire USART1");
+        gps_uart_set_expansion_enabled(true);
+        return;
+    }
+    gps_uart_sleep_from_unknown_state();
+    gps_uart_idle_watch_start();
+}
+
+void gps_uart_port_close(void) {
+    if(!g_port) return;
+    gps_uart_idle_watch_stop();
+    furi_hal_serial_deinit(g_port);
+    furi_hal_serial_control_release(g_port);
+    g_port = NULL;
+    gps_uart_set_expansion_enabled(true);
 }
 
 // ── Serial baud-switch helper — stop/deinit/reinit/restart at a new baud,
@@ -1009,11 +1118,11 @@ GpsUart* gps_uart_alloc(FuriMessageQueue* event_queue, NotificationApp* notifica
 
     g->rx_stream = furi_stream_buffer_alloc(GPS_RX_BUF_SIZE, 1);
 
-    // Disable Expansion Service to free USART1 (re-enabled in free)
-    gps_uart_set_expansion_enabled(false);
-
-    g->serial_handle = furi_hal_serial_control_acquire(GPS_UART_CH);
+    g->serial_handle = g_port;
     if(g->serial_handle) {
+        gps_uart_idle_watch_stop();
+        // The port idles at 115200 after a sleep; a woken module talks at 9600.
+        furi_hal_serial_deinit(g->serial_handle);
         furi_hal_serial_init(g->serial_handle, GPS_BAUD_RATE);
 #if GPS_MODULE == GPS_MODULE_M10Q
         // Wake the module from software standby and wait until it is
@@ -1024,27 +1133,25 @@ GpsUart* gps_uart_alloc(FuriMessageQueue* event_queue, NotificationApp* notifica
         g->ready = true;
         gps_uart_configure(g);
     } else {
-        FURI_LOG_E("GpsUart", "Failed to acquire USART1");
+        FURI_LOG_E("GpsUart", "USART1 not open (see gps_uart_port_open())");
     }
 
     return g;
 }
 
 // ---------------------------------------------------------------------------
-// Free — release serial, re-enable Expansion Service
+// Free — sleep the module; the port stays open (see g_port)
 // ---------------------------------------------------------------------------
 void gps_uart_free(GpsUart* g) {
     furi_check(g, "GpsUart: NULL in free()");
     if(g->serial_handle) {
 #if GPS_MODULE == GPS_MODULE_M10Q
-        // Put u-blox module into Software Standby sleep to save power
+        // Sent at the session's 115200, the last byte before the line idles.
         ubx_tx(g, ubx_rxm_pmreq_standby, sizeof(ubx_rxm_pmreq_standby));
 #endif
         furi_hal_serial_async_rx_stop(g->serial_handle);
-        furi_hal_serial_deinit(g->serial_handle);
-        furi_hal_serial_control_release(g->serial_handle);
+        gps_uart_idle_watch_start();
     }
-    gps_uart_set_expansion_enabled(true);
     furi_stream_buffer_free(g->rx_stream);
     furi_mutex_free(g->status_mutex);
     free(g);
@@ -1279,11 +1386,8 @@ static void gps_uart_configure(GpsUart* g) {
     // batch-then-wait approach in addition to catching rejected packets.
     FURI_LOG_I("GpsUart", "Configuring u-blox SAM-M10Q");
 
-    // Switch module to 115200 baud (ASCII at 9600).
-    // outProto=0002 → NMEA only (0001=UBX would disable ASCII output).
     FURI_LOG_I("GpsUart", "Switching GPS to 115200 baud");
-    const char* pubx_baud = "$PUBX,41,1,0007,0002,115200,0*19\r\n";
-    furi_hal_serial_tx(g->serial_handle, (const uint8_t*)pubx_baud, strlen(pubx_baud));
+    furi_hal_serial_tx(g->serial_handle, (const uint8_t*)pubx_baud_115200, strlen(pubx_baud_115200));
     furi_delay_ms(200);
 
     // Switch host UART to match
@@ -1327,41 +1431,4 @@ void gps_uart_send_hot_start(GpsUart* g) {
 #elif GPS_MODULE == GPS_MODULE_M10Q
     ubx_tx(g, ubx_cfg_rst_hot, sizeof(ubx_cfg_rst_hot));
 #endif
-}
-
-// ---------------------------------------------------------------------------
-// Standalone standby — put GPS module into lowest-power sleep without a
-// full GpsUart allocation.  Acquires USART1 just long enough to send the
-// sleep command, then releases everything.  Used when entering GSR-only
-// mode so the GPS board isn't left idle at full power.
-// ---------------------------------------------------------------------------
-void gps_uart_standby(void) {
-    gps_uart_set_expansion_enabled(false);
-
-    FuriHalSerialHandle* handle = furi_hal_serial_control_acquire(GPS_UART_CH);
-    if(handle) {
-        furi_hal_serial_init(handle, GPS_BAUD_RATE);
-#if GPS_MODULE == GPS_MODULE_M10Q
-        // Sending anything wakes a sleeping module, so wake it deliberately
-        // and wait until it is listening (see ubx_wake()), then send the
-        // standby command at 9600. A module left awake at 115200 by a
-        // crashed session won't understand it — it stays awake until the
-        // next GPS session ends, costing battery only. The command is the
-        // last byte sent; the 100 ms lets it finish shifting out before the
-        // port is released.
-        ubx_wake(handle);
-        furi_hal_serial_tx(handle, ubx_rxm_pmreq_standby,
-                           sizeof(ubx_rxm_pmreq_standby));
-        furi_delay_ms(100);
-#elif GPS_MODULE == GPS_MODULE_L76K
-        // PCAS11,0 = stop mode (L76K&L26K Protocol Spec §2.3.11)
-        const char* stop_cmd = "$PCAS11,0*1D\r\n";
-        furi_hal_serial_tx(handle, (const uint8_t*)stop_cmd, strlen(stop_cmd));
-        furi_delay_ms(100);
-#endif
-        furi_hal_serial_deinit(handle);
-        furi_hal_serial_control_release(handle);
-    }
-
-    gps_uart_set_expansion_enabled(true);
 }

@@ -807,8 +807,7 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
     if(has_gps(mode) || is_live_stream) {
         s->gps = gps_uart_alloc(app->event_queue, app->notifications, app->nav_model);
     } else {
-        gps_uart_standby();
-        s->gps = NULL;
+        s->gps = NULL; // the module is already asleep — see gps_uart_port_open()
     }
     s->gsr    = (has_gsr(mode) || has_rf(mode) || is_live_stream) ? gsr_sensor_alloc() : NULL;
     if(s->gsr) {

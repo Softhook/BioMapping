@@ -86,6 +86,10 @@ int32_t biomap_app(void* p) {
     view_port_enabled_set(app->screen_vp, false);
     gui_add_view_port(app->gui, app->screen_vp, GuiLayerFullscreen);
 
+    // Held until exit so the GPS stays asleep on the menu and in GSR-only
+    // mode. Blocks for up to ~2 s while it puts the module to sleep.
+    gps_uart_port_open();
+
     _Static_assert(MenuOptions == MENU_COUNT - 1, "MENU_COUNT mismatch with MenuOptions enum");
 
     bool running = true;
@@ -107,6 +111,8 @@ int32_t biomap_app(void* p) {
     // own claim via session_deinit() before returning, so this should
     // normally be a no-op by the time we get here.
     biomap_backlight_release(app, true);
+
+    gps_uart_port_close();
 
     gui_remove_view_port(app->gui, app->screen_vp);
     view_port_free(app->screen_vp);

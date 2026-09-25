@@ -1,7 +1,8 @@
 #pragma once
 
 // GPS UART — NMEA parser for Quectel L76K / u-blox SAM-M10Q GNSS modules.
-// Acquires USART1 at alloc (disables Expansion Service), re-enables at free.
+// Holds USART1 from gps_uart_port_open() to gps_uart_port_close() (Expansion
+// Service disabled in between); the module sleeps whenever no GpsUart exists.
 // Power management via serial commands (PCAS on L76K, UBX on M10Q).
 // Thread safety: gps_uart_process_rx() and gps_uart_get_status() use an
 // internal status_mutex — do NOT hold the app mutex when calling them.
@@ -88,10 +89,15 @@ uint32_t  gps_uart_get_reinit_count(const GpsUart* gps);
 // can still see an ID found earlier.
 const char* gps_uart_get_chip_id(const GpsUart* gps);
 
-// Put the GPS module into its lowest-power standby/sleep state.
-// Acquires USART1 briefly — does NOT require a full GpsUart allocation.
-// Safe to call even when no module is connected (no-op on acquire failure).
-// M10Q: wakes the module and waits for it to talk (up to ~1.5 s — the full
-// wait only when no module answers) before sending the standby command, so
-// the command isn't lost while it restarts — see ubx_wake() in gps_uart.c.
-void      gps_uart_standby(void);
+// App lifetime: open at app start, close at app exit. Open takes USART1 and
+// puts the module to sleep (M10Q: up to ~1.9 s — wakes it first, see
+// ubx_wake() in gps_uart.c); it then stays asleep between GPS sessions
+// because the port is never released while the app runs. alloc() wakes it,
+// free() sleeps it again. Safe with no module attached; if USART1 can't be
+// taken, alloc() returns a GpsUart that is never ready.
+void      gps_uart_port_open(void);
+void      gps_uart_port_close(void);
+
+// Bytes received since the module was last put to sleep. Should stay 0
+// while it sleeps; also logged when the idle stretch ends.
+uint32_t  gps_uart_get_idle_rx_count(void);

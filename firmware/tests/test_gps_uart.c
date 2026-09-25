@@ -9,7 +9,7 @@
 //
 // Coverage: every NMEA sentence type gps_uart_parse_line() dispatches on
 // (RMC, GGA, GSA, GSV, GLL), the RX-buffer-full and NMEA-watchdog reinit
-// paths, hot start, standby, and malformed input. NOT covered: the
+// paths, hot start, port open/close + sleep, and malformed input. NOT covered: the
 // L76K-specific PCAS command path (modules/gps_uart.c's #if GPS_MODULE ==
 // GPS_MODULE_L76K branch) — biomap_config.h compiles this firmware for
 // M10Q only, so PCAS code isn't even part of this binary; testing it would
@@ -88,10 +88,12 @@ static const char* GLL_VALID_LINE =
 static const char* GLL_INVALID_LINE =
     "$GPGLL,3723.2475,N,12158.3416,W,161229.487,V,A*56\r\n";
 
+// USART1 is held from gps_uart_port_open() (main()) to gps_uart_port_close();
+// a GPS session borrows it and never releases it.
 static void test_alloc_lifecycle(void) {
     printf("Running test_alloc_lifecycle...\n");
     FuriMessageQueue queue = {0};
-    assert(furi_hal_mock_acquire_count() == 0);
+    assert(furi_hal_mock_acquire_count() == 1);
 
     GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian);
     assert(g != NULL);
@@ -99,7 +101,68 @@ static void test_alloc_lifecycle(void) {
     assert(furi_hal_mock_acquire_count() == 1);
 
     gps_uart_free(g);
+    assert(furi_hal_mock_acquire_count() == 1); // still held — releasing lets the line float
+    printf("  -> Pass\n");
+}
+
+// Port not open (acquire failed at app start): a session gets a GpsUart that
+// is never ready rather than crashing.
+static void test_alloc_without_port(void) {
+    printf("Running test_alloc_without_port...\n");
+    gps_uart_port_close();
     assert(furi_hal_mock_acquire_count() == 0);
+
+    FuriMessageQueue queue = {0};
+    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian);
+    assert(g != NULL);
+    assert(!gps_uart_is_ready(g));
+    gps_uart_free(g);
+    assert(furi_hal_mock_acquire_count() == 0);
+
+    gps_uart_port_open();
+    assert(furi_hal_mock_acquire_count() == 1);
+    printf("  -> Pass\n");
+}
+
+// Between sessions the held port counts what the module sends — the
+// on-hardware proof that it stayed asleep. Bytes arriving during a session
+// go to the NMEA parser, not the count.
+static void test_idle_bytes_counted(void) {
+    printf("Running test_idle_bytes_counted...\n");
+    FuriMessageQueue queue = {0};
+    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian);
+    gps_uart_free(g);
+    assert(gps_uart_get_idle_rx_count() == 0);
+
+    furi_test_tick += 1000; // past the settle window (see the next test)
+    furi_hal_mock_feed_string("$GN");
+    assert(gps_uart_get_idle_rx_count() == 3);
+
+    g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian);
+    furi_hal_mock_feed_string("$GN");
+    assert(gps_uart_get_idle_rx_count() == 3);
+    gps_uart_free(g);
+    assert(gps_uart_get_idle_rx_count() == 0); // reset for the new idle stretch
+    printf("  -> Pass\n");
+}
+
+// Stray bytes in the first second after a sleep command are leftovers from
+// going to sleep (hardware: exactly 9 every app start, from a module that was
+// asleep), so they don't count. Anything after that does.
+static void test_idle_count_ignores_settle_window(void) {
+    printf("Running test_idle_count_ignores_settle_window...\n");
+    FuriMessageQueue queue = {0};
+    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian);
+    gps_uart_free(g);
+
+    furi_hal_mock_feed_string("123456789");
+    furi_test_tick += 999;
+    furi_hal_mock_feed_string("x");
+    assert(gps_uart_get_idle_rx_count() == 0);
+
+    furi_test_tick += 1;
+    furi_hal_mock_feed_string("x");
+    assert(gps_uart_get_idle_rx_count() == 1);
     printf("  -> Pass\n");
 }
 
@@ -542,17 +605,20 @@ static void test_hot_start_sends_command(void) {
     printf("  -> Pass\n");
 }
 
-// Standalone standby — doesn't need a GpsUart at all, but does its own
-// acquire/release of the same simulated USART1, and must actually send
-// something (the sleep/stop command) while it holds it.
-static void test_standby_acquires_and_releases(void) {
-    printf("Running test_standby_acquires_and_releases...\n");
-    furi_hal_mock_tx_log_reset();
+// Port open/close at app start/exit: takes USART1, sends the sleep/stop
+// command while holding it, and gives it back on close.
+static void test_port_open_and_close(void) {
+    printf("Running test_port_open_and_close...\n");
+    gps_uart_port_close();
     assert(furi_hal_mock_acquire_count() == 0);
-    gps_uart_standby();
-    assert(furi_hal_mock_acquire_count() == 0); // acquired then released internally
+    gps_uart_port_close(); // second close is harmless
+    furi_hal_mock_tx_log_reset();
+    gps_uart_port_open();
+    assert(furi_hal_mock_acquire_count() == 1);
     printf("  commands sent = %d\n", furi_hal_mock_tx_log_count());
     assert(furi_hal_mock_tx_log_count() > 0);
+    gps_uart_port_open(); // second open is harmless
+    assert(furi_hal_mock_acquire_count() == 1);
     printf("  -> Pass\n");
 }
 
@@ -624,6 +690,7 @@ static void assert_pmreq_matches_m10_spec(int idx) {
 // be spec-correct, go out at the baud the module is actually running at
 // (115200 — gps_uart_configure() switched both sides), and be the LAST
 // byte sent: any later TX edge on the module's RX pin would wake it again.
+// The port stays held afterwards so the line stays quiet.
 static void test_free_sends_spec_correct_sleep_command(void) {
     printf("Running test_free_sends_spec_correct_sleep_command...\n");
     FuriMessageQueue queue = {0};
@@ -632,6 +699,7 @@ static void test_free_sends_spec_correct_sleep_command(void) {
 
     furi_hal_mock_tx_log_reset();
     gps_uart_free(g);
+    assert(furi_hal_mock_acquire_count() == 1);
 
     int idx = find_last_pmreq();
     assert(idx >= 0);
@@ -646,48 +714,51 @@ static void test_free_sends_spec_correct_sleep_command(void) {
     printf("  -> Pass\n");
 }
 
-// gps_uart_standby() (entering GSR-only mode) wakes the module, waits for
-// it to answer (ubx_wake() in gps_uart.c), then sends the standby command
-// at 9600. The mock module answers the wake byte (0xFF) with `reply` — NULL
-// for silence. Asserts the wake byte goes first, and the command is
-// spec-correct, sent at 9600, and the last byte sent.
-static void run_standby_case(const uint8_t* reply, size_t reply_len) {
+// gps_uart_port_open() (app start) finds the module in an unknown state. It
+// wakes it and waits for it to answer (ubx_wake() in gps_uart.c), moves it
+// to 115200 with $PUBX,41 at 9600, then sends the standby command at 115200
+// — sleeping from 9600 straight after a restart failed on hardware. The mock
+// module answers the wake byte (0xFF) with `reply` — NULL for silence.
+static void run_port_open_case(const uint8_t* reply, size_t reply_len) {
     static const uint8_t wake_byte[] = {0xFF};
+    gps_uart_port_close();
     furi_hal_mock_clear_tx_responses(); // test_chipid_capture leaves one unconsumed by design
     if(reply) furi_hal_mock_arm_response_for_tx(wake_byte, sizeof(wake_byte), reply, reply_len);
 
     furi_hal_mock_tx_log_reset();
-    gps_uart_standby();
-    assert(furi_hal_mock_acquire_count() == 0);
+    gps_uart_port_open();
+    assert(furi_hal_mock_acquire_count() == 1);
     assert(furi_hal_mock_tx_responses_pending() == 0); // the reply really was delivered
+    assert(furi_hal_mock_tx_log_count() == 3);
 
     size_t len;
     uint32_t baud;
-    const uint8_t* first = furi_hal_mock_tx_log_get(0, &len, &baud);
-    assert(len == 1 && first[0] == 0xFF && baud == GPS_BAUD_RATE);
+    const uint8_t* d = furi_hal_mock_tx_log_get(0, &len, &baud);
+    assert(len == 1 && d[0] == 0xFF && baud == GPS_BAUD_RATE);
+    d = furi_hal_mock_tx_log_get(1, &len, &baud);
+    assert(len > 9 && memcmp(d, "$PUBX,41,1,0007,0002,115200,", 28) == 0 && baud == GPS_BAUD_RATE);
 
-    int idx = find_last_pmreq();
-    assert(idx >= 0);
-    assert(idx == furi_hal_mock_tx_log_count() - 1); // nothing sent after it
-    furi_hal_mock_tx_log_get(idx, NULL, &baud);
-    assert(baud == GPS_BAUD_RATE);
-    assert_pmreq_matches_m10_spec(idx);
+    assert(find_last_pmreq() == 2); // the last byte sent
+    furi_hal_mock_tx_log_get(2, NULL, &baud);
+    assert(baud == GPS_BAUD_RATE_FAST);
+    assert_pmreq_matches_m10_spec(2);
+    assert(gps_uart_get_idle_rx_count() == 0); // the boot reply isn't counted as "awake"
 }
 
 // Module asleep (or freshly powered on): it restarts at its 9600 default
 // and starts sending NMEA.
-static void test_standby_module_answers(void) {
-    printf("Running test_standby_module_answers...\n");
+static void test_port_open_module_answers(void) {
+    printf("Running test_port_open_module_answers...\n");
     static const char boot[] = "$GNTXT,01,01,02,u-blox AG - www.u-blox.com*4E\r\n";
-    run_standby_case((const uint8_t*)boot, sizeof(boot) - 1);
+    run_port_open_case((const uint8_t*)boot, sizeof(boot) - 1);
     printf("  -> Pass\n");
 }
 
 // No reply (no module attached, or slower to boot than the timeout): the
-// wait must still end and the command still go out.
-static void test_standby_no_reply(void) {
-    printf("Running test_standby_no_reply...\n");
-    run_standby_case(NULL, 0);
+// wait must still end and the commands still go out.
+static void test_port_open_no_reply(void) {
+    printf("Running test_port_open_no_reply...\n");
+    run_port_open_case(NULL, 0);
     printf("  -> Pass\n");
 }
 
@@ -1017,6 +1088,9 @@ static void test_scheduler_mock_with_real_uart_drain_feedback(void) {
 }
 
 int main(void) {
+    // As at app start (biomap.c) — every GpsUart borrows the held port.
+    gps_uart_port_open();
+
     // Must run before any other test: ubx_poll_chip_id() now attempts its
     // UBX-SEC-UNIQID poll at most ONCE per process, on the first
     // gps_uart_configure() call from ANY test's gps_uart_alloc() — not
@@ -1029,6 +1103,9 @@ int main(void) {
     test_chipid_capture();
 #endif
     test_alloc_lifecycle();
+    test_alloc_without_port();
+    test_idle_bytes_counted();
+    test_idle_count_ignores_settle_window();
     test_cfg_ack_timeout_is_bounded();
     test_gga_updates_status();
     test_rmc_updates_status();
@@ -1044,11 +1121,11 @@ int main(void) {
     test_rx_buffer_overflow_reconfigures();
     test_nmea_watchdog_reconfigures();
     test_hot_start_sends_command();
-    test_standby_acquires_and_releases();
+    test_port_open_and_close();
 #if GPS_MODULE == GPS_MODULE_M10Q
     test_free_sends_spec_correct_sleep_command();
-    test_standby_module_answers();
-    test_standby_no_reply();
+    test_port_open_module_answers();
+    test_port_open_no_reply();
     test_alloc_wakes_before_configuring();
 #endif
     test_rx_byte_with_error_flag_is_kept();
@@ -1061,6 +1138,8 @@ int main(void) {
     test_rx_drain_is_chunked_not_monolithic();
     test_scheduler_mock_with_real_uart_drain_feedback();
 
+    gps_uart_port_close();
+    assert(furi_hal_mock_acquire_count() == 0);
     printf("\nAll gps_uart host tests passed successfully!\n");
     return 0;
 }
