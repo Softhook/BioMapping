@@ -3,8 +3,8 @@
  * defect that was reproduced against the old code:
  *   unit detection, map-match angle wrap, SparsEDA speed labels, the
  *   matching-pursuit gate, the marching-squares saddle, prominence plateaus,
- *   hillshade zenith, KDE/AUC edge bias, buffer area weights, the Kalman
- *   joint gate, the collective envelope floor and the EDASymp time axis.
+ *   hillshade zenith, KDE/AUC edge bias, buffer area weights, the
+ *   collective envelope floor and the EDASymp time axis.
  */
 const assert = require('node:assert');
 const test = require('node:test');
@@ -19,7 +19,6 @@ const { PeakDetectors } = require('../src/signal/peak_detectors.mjs');
 const { Hillshade } = require('../src/map/hillshade.mjs');
 const { AnalyzerStats } = require('../src/signal/analyzer_stats.mjs');
 const { OSMEnricher } = require('../src/osm/osm_enrichment.mjs');
-const { GpsFilter } = require('../src/gps/gps_filter.mjs');
 const {
   GSRCollectiveManager,
 } = require('../src/spatial/collective_manager.mjs');
@@ -165,26 +164,6 @@ test('green/canopy buffer sampling points are area-weighted', () => {
   // Perimeter ring = annulus 0.75r..r = 7/16 of the disc (was 16/25).
   const perimeter = g.slice(9).reduce((s, p) => s + p.w, 0);
   assert.ok(Math.abs(perimeter - 7 / 16) < 1e-12);
-});
-
-test('Kalman gate never half-applies a fix (joint 2-D test)', () => {
-  const pts = [];
-  for (let i = 0; i < 20; i++)
-    pts.push({ lat: 51.5, lon: -0.1, time: i, hdop: 1 });
-  // A jump that is extreme in longitude only.
-  pts[10] = { lat: 51.50002, lon: -0.099, time: 10, hdop: 1 };
-  const out = GpsFilter._kalmanForwardPass(
-    pts,
-    1e-10,
-    1e-10,
-    1e-9,
-    1e-9,
-    () => 1e-9,
-    () => 1e-9,
-  );
-  assert.strictEqual(out.isOutlier[10], 1);
-  // Rejected as a whole: latitude must not have moved toward the bad fix.
-  assert.strictEqual(out.forwardLats[10], out.forwardLats[9]);
 });
 
 test('collective peak-preservation envelope does not lift z-scored troughs toward 0', () => {

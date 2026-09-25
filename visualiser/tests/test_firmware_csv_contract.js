@@ -175,18 +175,29 @@ function runContractTests() {
       /int\s+biomap_format_gps_row\s*\([\s\S]*?\n\}/,
       'biomap_format_gps_row() in biomap_format.c',
     )[0];
-    // First snprintf literal in the function = the valid-fix + velocity branch
-    // ("%.2f,%.7f,%.7f,%.1f,%.1f,%d,%d,%.2f,%.1f,%.1f,%.1f"). The firmware
-    // also has a no-velocity branch that blanks speed_kts/course_deg, which
-    // the BLE wire can't signal (speed/course arrive as 0, not NaN) — live
-    // always emits the velocity form, so that's what we compare.
+    // The valid-fix row ("%.2f,%.7f,%.7f,%.1f,%.1f,%d,%d,%s,%s,%.1f,%.1f")
+    // takes speed_kts and course_deg as strings, each formatted on its own
+    // (and left empty when unknown — which the BLE wire can't signal: speed
+    // and course arrive as 0, not NaN, so live always has both). Substitute
+    // those two formatters' precision back into the row's %s slots.
+    const fieldSpec = (name) =>
+      cStr(
+        locate(
+          fn,
+          new RegExp(`snprintf\\(${name},[^,]+,\\s*("(?:[^"\\\\]|\\\\.)*")`),
+          `the ${name} snprintf format in biomap_format_gps_row()`,
+        )[1],
+      );
+    const velSpecs = [fieldSpec('speed'), fieldSpec('course')];
     const fwSpecs = cStr(
       locate(
         fn,
-        /snprintf\([^,]+,[^,]+,\s*("(?:[^"\\]|\\.)*")/,
+        /snprintf\([^,]+,[^,]+,\s*("%\.2f,%\.7f(?:[^"\\]|\\.)*")/,
         'the valid-fix snprintf format in biomap_format_gps_row()',
       )[1],
-    ).split(',');
+    )
+      .split(',')
+      .map((s) => (s === '%s' ? velSpecs.shift() : s));
     assert.strictEqual(
       fwSpecs.length,
       11,

@@ -32,9 +32,8 @@ async function boot() {
 }
 
 // A straight walk north at 1.4 m/s, 1 Hz fixes, good HDOP/PDOP throughout.
-// speed_kts/course_deg are left blank so applyStopAveraging/applySpeedFilter/
-// applyVelocitySmoothing (which all early-return without velocity data) stay
-// no-ops — isolating the test to the snap/Kalman interaction only.
+// speed_kts/course_deg are left blank so the Kalman filter gets no Doppler
+// velocity — isolating the test to the snap/Kalman interaction only.
 function buildStraightWalkCsv(n, latDegPerStep) {
   const lines = [
     'timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw,hacc_m',

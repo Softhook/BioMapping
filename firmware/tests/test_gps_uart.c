@@ -58,6 +58,18 @@ static const char* GGA_LINE =
 static const char* RMC_LINE =
     "$GPRMC,081836,A,3751.65,S,14507.36,E,000.0,360.0,130998,011.3,E*62\r\n";
 
+// The receiver's own estimate after losing the satellites (GGA quality 6,
+// RMC status A with mode E), ~60 m from GGA_LINE — must not count as a fix
+// or move the position. Checksums computed by script, not by hand.
+static const char* GGA_ESTIMATED_LINE =
+    "$GNGGA,203338.00,5133.40000,N,00004.30000,W,6,16,0.9,123.4,M,45.6,M,,*64\r\n";
+static const char* RMC_ESTIMATED_LINE =
+    "$GNRMC,203338.00,A,5133.40000,N,00004.30000,W,0.500,90.0,250926,,,E,V*14\r\n";
+
+// Near-still: speed reported, course left empty (course freezing).
+static const char* RMC_NO_COURSE_LINE =
+    "$GNRMC,203339.00,A,5133.34438,N,00004.28757,W,0.050,,250926,,,A,V*06\r\n";
+
 // Documented worked example from minmea.c ($GNGSA variant, SystemID=1/GPS
 // appended). 4 satellites (10,13,15,20), fix_type=3 (3D), pdop=2.5,
 // hdop=2.0, vdop=1.5 — all PRNs < 120, so no SBAS.
@@ -378,6 +390,59 @@ static void test_gll_updates_when_valid(void) {
     printf("  lat=%.6f lon=%.6f (expect %.6f, %.6f)\n", s.latitude, s.longitude, expect_lat, expect_lon);
     assert(fabs(s.latitude - expect_lat) < 1e-5);
     assert(fabs(s.longitude - expect_lon) < 1e-5);
+
+    gps_uart_free(g);
+    printf("  -> Pass\n");
+}
+
+static void test_estimated_fix_ignored(void) {
+    printf("Running test_estimated_fix_ignored...\n");
+    FuriMessageQueue queue = {0};
+    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian);
+    assert(g != NULL);
+
+    furi_hal_mock_feed_string(GGA_LINE);
+    gps_uart_process_rx(g);
+    GpsStatus before = gps_uart_get_status(g);
+    assert(gps_status_has_fix(&before));
+
+    furi_hal_mock_feed_string(GGA_ESTIMATED_LINE);
+    furi_hal_mock_feed_string(RMC_ESTIMATED_LINE);
+    gps_uart_process_rx(g);
+    GpsStatus after = gps_uart_get_status(g);
+
+    printf("  lat before=%.7f after=%.7f quality=%d fix_valid=%d\n",
+           before.latitude, after.latitude, after.fix_quality, after.fix_valid);
+    assert(after.fix_quality == 6);
+    assert(after.fix_valid == false);
+    assert(!gps_status_has_fix(&after));
+    assert(fabs(after.latitude - before.latitude) < 1e-9);
+    assert(fabs(after.longitude - before.longitude) < 1e-9);
+
+    // Quality 1–5 (GPS, DGPS, PPS, RTK) are satellite fixes; 0 (none) and
+    // 6 (estimated) are not.
+    for(int q = 1; q <= 5; q++) assert(gps_quality_is_gnss_fix(q));
+    assert(!gps_quality_is_gnss_fix(0));
+    assert(!gps_quality_is_gnss_fix(6));
+
+    gps_uart_free(g);
+    printf("  -> Pass\n");
+}
+
+static void test_rmc_speed_without_course(void) {
+    printf("Running test_rmc_speed_without_course...\n");
+    FuriMessageQueue queue = {0};
+    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian);
+    assert(g != NULL);
+
+    furi_hal_mock_feed_string(RMC_NO_COURSE_LINE);
+    gps_uart_process_rx(g);
+    GpsStatus s = gps_uart_get_status(g);
+
+    printf("  speed=%.3f course=%f fix_valid=%d\n", (double)s.speed, (double)s.course, s.fix_valid);
+    assert(s.fix_valid == true);
+    assert(fabs((double)s.speed - 0.05) < 1e-4);
+    assert(isnan(s.course));
 
     gps_uart_free(g);
     printf("  -> Pass\n");
@@ -1117,6 +1182,8 @@ int main(void) {
     test_gsv_recounts_after_window_reset();
     test_gll_updates_when_valid();
     test_gll_ignored_when_invalid();
+    test_estimated_fix_ignored();
+    test_rmc_speed_without_course();
     test_split_line_buffering();
     test_rx_buffer_overflow_reconfigures();
     test_nmea_watchdog_reconfigures();

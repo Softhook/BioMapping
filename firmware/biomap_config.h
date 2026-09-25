@@ -57,7 +57,7 @@ typedef enum {
     GpsNavModelVehicle,        // Vehicle / Automotive (dynModel = 4)
     GpsNavModelStationary,     // Stationary / Seated baseline (dynModel = 2)
     GpsNavModelSea,            // Sea / Boating / Kayaking (dynModel = 5)
-    GpsNavModelBike,           // Bicycle (dynModel = 10)
+    GpsNavModelBike,           // Bicycle (dynModel = 0, Portable — see gps_uart.c)
     GpsNavModelFlight,         // Commercial Flight / Airborne <2g (dynModel = 7)
     GpsNavModelCount,          // sentinel — number of valid GpsNavModel values, not a real mode
 } GpsNavModel;

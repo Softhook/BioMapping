@@ -86,11 +86,7 @@ export const GSRStorage = {
     const D = GSR_CONST.GPS_DEFAULT;
     const AP = GSR_CONST.AROUSAL_PLACES;
     const maxSpeed = sliderVal(S.gpsMaxSpeed, D.maxSpeed);
-    const baseSmoothing = D.smoothing !== undefined ? D.smoothing : 0.5;
-    const baseSpeed = D.maxSpeed || 3.0;
-    const tiedSmoothing = baseSmoothing * (maxSpeed / baseSpeed) ** 2;
     return {
-      smoothing: sliderVal(S.gpsSmoothing, tiedSmoothing),
       kalmanR: sliderVal(S.gpsKalmanR, D.kalmanR),
       maxHdop: sliderVal(S.gpsMaxHdop, D.maxHdop),
       maxSpeed: maxSpeed,
@@ -120,7 +116,6 @@ export const GSRStorage = {
     if (!S) return;
 
     const gpsMap = {
-      smoothing: 'gpsSmoothing',
       kalmanR: 'gpsKalmanR',
       maxHdop: 'gpsMaxHdop',
       maxSpeed: 'gpsMaxSpeed',
@@ -217,7 +212,6 @@ export const GSRStorage = {
   buildGpsParams() {
     const raw = this.readGpsSliderValues();
     return {
-      smoothing: raw.smoothing,
       kalmanR: raw.kalmanR,
       maxHdop: raw.maxHdop,
       maxSpeed: raw.maxSpeed,

@@ -14,6 +14,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const { bootApp } = require('./support/boot_app.js');
+const { GpsCvKalman } = require('../src/gps/gps_cv_kalman.mjs');
 
 const TRACKS_DIR = path.join(__dirname, '..', '..', 'tracks');
 const DEFAULT_FIXTURE = path.join(
@@ -70,7 +71,6 @@ function legacyBuildDrawPoints(
 test('buildDrawPoints: returns byte-for-byte identical output to legacy two-step method (downsample=true)', async () => {
   const { window, mapManager } = await boot();
   const GpsPipeline = vm.runInThisContext('GpsPipeline');
-  const GpsFilter = vm.runInThisContext('GpsFilter');
   const gpsDefault = vm.runInThisContext('GSR_CONST.GPS_DEFAULT');
 
   const analyzer = new window.GSRAnalyzer();
@@ -83,16 +83,10 @@ test('buildDrawPoints: returns byte-for-byte identical output to legacy two-step
   let gpsPoints = mapManager._collectGpsPoints(data);
   gpsPoints = GpsPipeline.applyHdopGate(gpsPoints, p.maxHdop || 3.0);
   gpsPoints = GpsPipeline.applyFixTypeGate(gpsPoints);
-  gpsPoints = GpsPipeline.applyPreKalmanFilters(
-    gpsPoints,
-    p.smoothing || 0.5,
-    p.maxSpeed || 3.0,
-  );
-  gpsPoints = GpsFilter.applyKalman(
-    gpsPoints,
-    p.smoothing || 0.5,
-    p.kalmanR || 10,
-  );
+  gpsPoints = GpsCvKalman.apply(gpsPoints, {
+    maxSpeed: p.maxSpeed || 3.0,
+    R_m2: p.kalmanR || 10,
+  });
   GpsPipeline.reconstructFilteredGps(analyzer, data, gpsPoints);
 
   const legacy = legacyBuildDrawPoints(
@@ -119,7 +113,6 @@ test('buildDrawPoints: returns byte-for-byte identical output to legacy two-step
 test('buildDrawPoints: returns byte-for-byte identical output to legacy two-step method (downsample=false)', async () => {
   const { window, mapManager } = await boot();
   const GpsPipeline = vm.runInThisContext('GpsPipeline');
-  const GpsFilter = vm.runInThisContext('GpsFilter');
   const gpsDefault = vm.runInThisContext('GSR_CONST.GPS_DEFAULT');
 
   const analyzer = new window.GSRAnalyzer();
@@ -132,16 +125,10 @@ test('buildDrawPoints: returns byte-for-byte identical output to legacy two-step
   let gpsPoints = mapManager._collectGpsPoints(data);
   gpsPoints = GpsPipeline.applyHdopGate(gpsPoints, p.maxHdop || 3.0);
   gpsPoints = GpsPipeline.applyFixTypeGate(gpsPoints);
-  gpsPoints = GpsPipeline.applyPreKalmanFilters(
-    gpsPoints,
-    p.smoothing || 0.5,
-    p.maxSpeed || 3.0,
-  );
-  gpsPoints = GpsFilter.applyKalman(
-    gpsPoints,
-    p.smoothing || 0.5,
-    p.kalmanR || 10,
-  );
+  gpsPoints = GpsCvKalman.apply(gpsPoints, {
+    maxSpeed: p.maxSpeed || 3.0,
+    R_m2: p.kalmanR || 10,
+  });
   GpsPipeline.reconstructFilteredGps(analyzer, data, gpsPoints);
 
   const legacy = legacyBuildDrawPoints(

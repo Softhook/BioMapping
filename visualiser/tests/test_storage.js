@@ -190,7 +190,7 @@ test('readGsrSliderValues: shapeMinSnr is read straight from the slider value', 
 
 test('readGpsSliderValues: returns null (not a throw) when AppState.sliders is undefined', () => {
   // Regression test: unlike readGsrSliderValues/readContourSliderValues, this
-  // used to have no `!S` guard and would throw a TypeError reading S.gpsSmoothing
+  // used to have no `!S` guard and would throw a TypeError reading S.gpsKalmanR
   // off undefined — which broke exportPreset()'s "no active slider settings"
   // alert path when sliders hadn't been wired up yet.
   resetGlobals();
@@ -202,7 +202,6 @@ test('readGpsSliderValues: falls back to GPS_DEFAULT for every field when slider
   global.AppState.sliders = {};
   const result = GSRStorage.readGpsSliderValues();
   const D = GSR_CONST_MOCK.GPS_DEFAULT;
-  assert.strictEqual(result.smoothing, D.smoothing);
   assert.strictEqual(result.kalmanR, D.kalmanR);
   assert.strictEqual(result.maxHdop, D.maxHdop);
   assert.strictEqual(result.maxSpeed, D.maxSpeed);
@@ -217,7 +216,6 @@ test('readGpsSliderValues: falls back to GPS_DEFAULT for every field when slider
 test('readGpsSliderValues: reads values from present sliders', () => {
   resetGlobals();
   global.AppState.sliders = {
-    gpsSmoothing: el(0.9),
     gpsKalmanR: el(20),
     gpsMaxHdop: el(5),
     gpsMaxSpeed: el(4),
@@ -229,7 +227,6 @@ test('readGpsSliderValues: reads values from present sliders', () => {
     maxArousalPlaces: el(12),
   };
   const result = GSRStorage.readGpsSliderValues();
-  assert.strictEqual(result.smoothing, 0.9);
   assert.strictEqual(result.kalmanR, 20);
   assert.strictEqual(result.maxHdop, 5);
   assert.strictEqual(result.maxSpeed, 4);
@@ -278,7 +275,6 @@ test('readContourSliderValues: parses all contour surface sliders', () => {
 test('buildGpsParams: builds the renderer-facing subset and converts downsample to boolean', () => {
   resetGlobals();
   global.AppState.sliders = {
-    gpsSmoothing: el(0.9),
     gpsKalmanR: el(20),
     gpsMaxHdop: el(5),
     gpsMaxSpeed: el(4),
@@ -288,7 +284,6 @@ test('buildGpsParams: builds the renderer-facing subset and converts downsample 
   };
   const params = GSRStorage.buildGpsParams();
   assert.strictEqual(params.downsample, true);
-  assert.strictEqual(params.smoothing, 0.9);
   assert.strictEqual(params.kalmanR, 20);
   assert.strictEqual(params.maxHdop, 5);
   assert.strictEqual(params.maxSpeed, 4);
@@ -524,7 +519,6 @@ test('applyPreset: writes GSR/GPS/contour values onto the matching slider elemen
     peakThreshold: el(0),
     minPeakQuality: el(0),
     hotspotPercentile: el(0),
-    gpsSmoothing: el(0),
     gpsKalmanR: el(0),
   };
   const C = { gridResolution: el(0), contourCount: el(0) };
@@ -538,7 +532,7 @@ test('applyPreset: writes GSR/GPS/contour values onto the matching slider elemen
       tonicMethod: 'median',
       hotspotPercentile: 0.03,
     },
-    gps: { smoothing: 0.8, kalmanR: 15 },
+    gps: { kalmanR: 15 },
     contour: { gridResolution: 30, contourCount: 6 },
   };
 
@@ -549,7 +543,6 @@ test('applyPreset: writes GSR/GPS/contour values onto the matching slider elemen
   assert.strictEqual(S.tonicMethod.value, 'median');
   // hotspotPercentile <= 1.0 -> treated as a fraction, scaled *100 for display
   assert.strictEqual(S.hotspotPercentile.value, 3);
-  assert.strictEqual(S.gpsSmoothing.value, 0.8);
   assert.strictEqual(S.gpsKalmanR.value, 15);
   assert.strictEqual(C.gridResolution.value, 30);
   assert.strictEqual(C.contourCount.value, 6);
@@ -852,7 +845,6 @@ test('applyPreset: swallows an error thrown by track.analyzer.analyze() and stil
 test('writeGpsSliderValues: sets GPS slider values and handles mapped keys', () => {
   resetGlobals();
   const S = {
-    gpsSmoothing: el(0),
     gpsKalmanR: el(0),
     gpsMaxHdop: el(0),
     gpsMaxSpeed: el(0),
@@ -866,7 +858,6 @@ test('writeGpsSliderValues: sets GPS slider values and handles mapped keys', () 
   global.AppState.sliders = S;
 
   GSRStorage.writeGpsSliderValues({
-    smoothing: 0.8,
     kalmanR: 15,
     maxHdop: 2.5,
     maxSpeed: 4.5,
@@ -878,7 +869,6 @@ test('writeGpsSliderValues: sets GPS slider values and handles mapped keys', () 
     maxArousalPlaces: 15,
   });
 
-  assert.strictEqual(S.gpsSmoothing.value, 0.8);
   assert.strictEqual(S.gpsKalmanR.value, 15);
   assert.strictEqual(S.gpsMaxHdop.value, 2.5);
   assert.strictEqual(S.gpsMaxSpeed.value, 4.5);

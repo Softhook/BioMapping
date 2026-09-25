@@ -4,8 +4,6 @@
  *
  *   1. GSRAnalyzer.calcEmFog()          — static pure function
  *   2. GSRCSVParser._interpolateGPS()  — extracted from parseCSV()
- *   3. GpsFilter._kalmanForwardPass()   — split from applyKalman()
- *   4. GpsFilter._rtsBackwardPass()     — split from applyKalman()
  *
  * Run: node --test tests/test_refactored_helpers.js
  *      or: npm test  (picked up by the glob)
@@ -28,7 +26,6 @@ function loadBrowserModule(relPath, varName) {
 loadBrowserModule('../src/gps/geo_utils.js', 'GeoUtils');
 loadBrowserModule('../src/signal/stats_math.js', 'StatsMath');
 loadBrowserModule('../src/map/map_colors.js', 'MapColors');
-loadBrowserModule('../src/gps/gps_filter.js', 'GpsFilter');
 loadBrowserModule('../src/gps/gps_pipeline.js', 'GpsPipeline');
 loadBrowserModule('../src/signal/dwt_filter.js', 'DWT');
 loadBrowserModule('../src/signal/gsr_filter.js', 'GsrFilter');
@@ -44,7 +41,6 @@ global.GSRUI = require('../src/ui/ui.mjs').GSRUI;
 
 loadBrowserModule('../src/signal/analyzer.js', 'GSRAnalyzer');
 
-const GpsFilter = global.GpsFilter;
 const GSRAnalyzer = global.GSRAnalyzer;
 const GSRCSVParser = global.GSRCSVParser;
 const GeoUtils = global.GeoUtils;
@@ -60,15 +56,6 @@ const closeTo = (actual, expected, tol, msg) => {
     `${msg || ''} — got ${actual}, expected within ±${tol} of ${expected}`,
   );
 };
-
-const pt = (lat, lon, t, extra = {}) => ({ lat, lon, time: t, ...extra });
-
-function straightTrack(lat0, lon0, lat1, lon1, n, dtSec = 1) {
-  return Array.from({ length: n }, (_, i) => {
-    const f = n > 1 ? i / (n - 1) : 0;
-    return pt(lat0 + f * (lat1 - lat0), lon0 + f * (lon1 - lon0), i * dtSec);
-  });
-}
 
 // ══════════════════════════════════════════════════════════════════════════════
 //  1. GSRAnalyzer.calcEmFog
@@ -273,263 +260,7 @@ test('_interpolateGPS: sentinel (0,0) treated as no-fix, filled from real fix', 
 });
 
 // ══════════════════════════════════════════════════════════════════════════════
-//  3. GpsFilter._kalmanForwardPass
-// ══════════════════════════════════════════════════════════════════════════════
-
-function kalmanSetup(R_m2 = 10, Q_m2 = 1) {
-  const M2 = (1 / 111320) * (1 / 111320);
-  return {
-    Q_LAT: Q_m2 * M2,
-    Q_LON: Q_m2 * M2,
-    R_LAT_BASE: R_m2 * M2,
-    R_LON_BASE: R_m2 * M2,
-    getRLat: () => R_m2 * M2,
-    getRLon: () => R_m2 * M2,
-  };
-}
-
-test('_kalmanForwardPass: output arrays match input length', () => {
-  const pts = straightTrack(0, 0, 0.01, 0.01, 10);
-  const { Q_LAT, Q_LON, R_LAT_BASE, R_LON_BASE, getRLat, getRLon } =
-    kalmanSetup();
-  const out = GpsFilter._kalmanForwardPass(
-    pts,
-    Q_LAT,
-    Q_LON,
-    R_LAT_BASE,
-    R_LON_BASE,
-    getRLat,
-    getRLon,
-  );
-  assert.strictEqual(out.forwardLats.length, 10);
-  assert.strictEqual(out.fwdCovLat.length, 10);
-});
-
-test('_kalmanForwardPass: index 0 output equals index 0 input', () => {
-  const pts = straightTrack(51.5, -0.1, 51.51, -0.09, 5);
-  const { Q_LAT, Q_LON, R_LAT_BASE, R_LON_BASE, getRLat, getRLon } =
-    kalmanSetup();
-  const out = GpsFilter._kalmanForwardPass(
-    pts,
-    Q_LAT,
-    Q_LON,
-    R_LAT_BASE,
-    R_LON_BASE,
-    getRLat,
-    getRLon,
-  );
-  assert.strictEqual(out.forwardLats[0], pts[0].lat);
-  assert.strictEqual(out.forwardLons[0], pts[0].lon);
-});
-
-test('_kalmanForwardPass: covariances are all non-negative', () => {
-  const pts = straightTrack(0, 0, 0.1, 0.1, 20);
-  const { Q_LAT, Q_LON, R_LAT_BASE, R_LON_BASE, getRLat, getRLon } =
-    kalmanSetup();
-  const out = GpsFilter._kalmanForwardPass(
-    pts,
-    Q_LAT,
-    Q_LON,
-    R_LAT_BASE,
-    R_LON_BASE,
-    getRLat,
-    getRLon,
-  );
-  assert.ok(
-    out.fwdCovLat.every((v) => v >= 0),
-    'fwdCovLat all ≥ 0',
-  );
-  assert.ok(
-    out.fwdCovLon.every((v) => v >= 0),
-    'fwdCovLon all ≥ 0',
-  );
-});
-
-test('_kalmanForwardPass: chi-squared outlier causes covariance inflation', () => {
-  // 10-degree jump will fail the chi-squared gate → P inflated 5×
-  const pts = [
-    pt(0, 0, 0),
-    pt(0.0001, 0.0001, 1),
-    pt(10, 10, 2),
-    pt(0.0002, 0.0002, 3),
-  ];
-  const { Q_LAT, Q_LON, R_LAT_BASE, R_LON_BASE, getRLat, getRLon } =
-    kalmanSetup(1, 0.1);
-  const out = GpsFilter._kalmanForwardPass(
-    pts,
-    Q_LAT,
-    Q_LON,
-    R_LAT_BASE,
-    R_LON_BASE,
-    getRLat,
-    getRLon,
-  );
-  assert.ok(
-    out.fwdCovLat[2] > out.fwdCovLat[1],
-    'outlier inflates P at index 2',
-  );
-});
-
-test('_kalmanForwardPass: stationary signal → output stays on the stationary value', () => {
-  const pts = Array.from({ length: 10 }, (_, i) => pt(51.5, -0.1, i));
-  const { Q_LAT, Q_LON, R_LAT_BASE, R_LON_BASE, getRLat, getRLon } =
-    kalmanSetup(1, 0.01);
-  const out = GpsFilter._kalmanForwardPass(
-    pts,
-    Q_LAT,
-    Q_LON,
-    R_LAT_BASE,
-    R_LON_BASE,
-    getRLat,
-    getRLon,
-  );
-  out.forwardLats.forEach((v, i) => {
-    closeTo(v, 51.5, 1e-6, `lat[${i}]`);
-  });
-  out.forwardLons.forEach((v, i) => {
-    closeTo(v, -0.1, 1e-6, `lon[${i}]`);
-  });
-});
-
-// ══════════════════════════════════════════════════════════════════════════════
-//  4. GpsFilter._rtsBackwardPass
-// ══════════════════════════════════════════════════════════════════════════════
-
-function runForward(pts, R_m2 = 10, Q_m2 = 1) {
-  const s = kalmanSetup(R_m2, Q_m2);
-  const fwd = GpsFilter._kalmanForwardPass(
-    pts,
-    s.Q_LAT,
-    s.Q_LON,
-    s.R_LAT_BASE,
-    s.R_LON_BASE,
-    s.getRLat,
-    s.getRLon,
-  );
-  return { ...fwd, Q_LAT: s.Q_LAT, Q_LON: s.Q_LON };
-}
-
-const M_TO_DEG_LAT = 1 / 111320;
-
-test('_rtsBackwardPass: output length equals input length', () => {
-  const pts = straightTrack(51.5, -0.1, 51.51, -0.09, 8);
-  const { forwardLats, forwardLons, fwdCovLat, fwdCovLon, Q_LAT, Q_LON } =
-    runForward(pts);
-  const r = GpsFilter._rtsBackwardPass(
-    pts,
-    forwardLats,
-    forwardLons,
-    fwdCovLat,
-    fwdCovLon,
-    Q_LAT,
-    Q_LON,
-    10,
-    M_TO_DEG_LAT,
-  );
-  assert.strictEqual(r.length, pts.length);
-});
-
-test('_rtsBackwardPass: last output equals last forward output', () => {
-  const pts = straightTrack(51.5, -0.1, 51.51, -0.09, 8);
-  const { forwardLats, forwardLons, fwdCovLat, fwdCovLon, Q_LAT, Q_LON } =
-    runForward(pts);
-  const r = GpsFilter._rtsBackwardPass(
-    pts,
-    forwardLats,
-    forwardLons,
-    fwdCovLat,
-    fwdCovLon,
-    Q_LAT,
-    Q_LON,
-    10,
-    M_TO_DEG_LAT,
-  );
-  const n = pts.length;
-  assert.strictEqual(r[n - 1].lat, forwardLats[n - 1]);
-  assert.strictEqual(r[n - 1].lon, forwardLons[n - 1]);
-});
-
-test('_rtsBackwardPass: non-positional fields copied from input points', () => {
-  const pts = straightTrack(51.5, -0.1, 51.51, -0.09, 5).map((p, i) => ({
-    ...p,
-    time: i,
-    hdop: 1.2,
-    myField: 42,
-  }));
-  const { forwardLats, forwardLons, fwdCovLat, fwdCovLon, Q_LAT, Q_LON } =
-    runForward(pts);
-  const r = GpsFilter._rtsBackwardPass(
-    pts,
-    forwardLats,
-    forwardLons,
-    fwdCovLat,
-    fwdCovLon,
-    Q_LAT,
-    Q_LON,
-    10,
-    M_TO_DEG_LAT,
-  );
-  r.forEach((row, i) => {
-    assert.strictEqual(row.time, i, `time at ${i}`);
-    assert.strictEqual(row.hdop, 1.2, `hdop at ${i}`);
-    assert.strictEqual(row.myField, 42, `myField at ${i}`);
-  });
-});
-
-test('_rtsBackwardPass: displacement from raw GPS clamped to 3σ', () => {
-  // Build a scenario where forward outputs are meaningfully far from raw GPS
-  // so the clamp has a chance to fire. A low-Q / high-R track where the
-  // forward filter lags behind a fast-moving point reveals the clamp behaviour.
-  //
-  // We verify the invariant: no output point is further from its raw GPS input
-  // than 3σ (= 3*sqrt(R_m2)) metres, which is the documented guarantee.
-  // Note: the very last point (index n-1) is the starting point of the RTS pass
-  // and is not smoothed/clamped by it, so we only check indices 0 to n-2.
-  const R_m2 = 1000; // large noise budget → wide clamp = 3*sqrt(1000) ≈ 94.8 m
-  const pts = straightTrack(51.5, -0.1, 51.55, -0.05, 20);
-  const { forwardLats, forwardLons, fwdCovLat, fwdCovLon, Q_LAT, Q_LON } =
-    runForward(pts, R_m2, 0.001);
-  const r = GpsFilter._rtsBackwardPass(
-    pts,
-    forwardLats,
-    forwardLons,
-    fwdCovLat,
-    fwdCovLon,
-    Q_LAT,
-    Q_LON,
-    R_m2,
-    M_TO_DEG_LAT,
-  );
-  const maxDeg = 3 * Math.sqrt(R_m2) * M_TO_DEG_LAT;
-  assert.strictEqual(r.length, pts.length, 'same length as input');
-  for (let i = 0; i < pts.length - 1; i++) {
-    const dLat = Math.abs(r[i].lat - pts[i].lat);
-    assert.ok(
-      dLat <= maxDeg + 1e-12,
-      `point ${i}: displacement ${dLat.toExponential(3)} exceeds 3σ clamp ${maxDeg.toExponential(3)}`,
-    );
-  }
-});
-
-test('applyKalman round-trip: split passes maintain end-to-end accuracy', () => {
-  // Use a realistic walking speed track (~1.9 m/s) so the filter doesn't lag.
-  // The RTS backward smoother shifts points away from their raw GPS
-  // position, but every smoothed point should stay within 5 meters of the straight-line track.
-  const pts = straightTrack(51.5, -0.1, 51.5006, -0.0994, 50);
-  const result = GpsFilter.applyKalman(pts, 1, 10);
-  assert.strictEqual(result.length, pts.length);
-  result.forEach((r, i) => {
-    const distM =
-      Math.sqrt((r.lat - pts[i].lat) ** 2 + (r.lon - pts[i].lon) ** 2) * 111320;
-    assert.ok(
-      distM < 10,
-      `point ${i}: ${distM.toFixed(2)} m from straight track (expected < 10 m)`,
-    );
-  });
-});
-
-// ══════════════════════════════════════════════════════════════════════════════
-//  5. Refactored New Helpers
+//  3. Refactored New Helpers
 // ══════════════════════════════════════════════════════════════════════════════
 
 test('GeoUtils.projectPointToSegment: closest point on segment matches expected projection', () => {

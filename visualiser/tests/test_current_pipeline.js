@@ -189,16 +189,20 @@ const lrFilteredScr = GsrFilter.applyZeroPhaseLinkwitzRiley(testScr, 1.0, sr);
 const lrApex = Math.max(...lrFilteredScr);
 const lrRetention = lrApex / truePeakVal;
 
+// The legacy box settings ran a full-width centred box twice, so a "0.5 s"
+// window was really a 2W−1-sample triangle; pass that span so this stays a
+// comparison against the filter LR4 actually replaced.
+const legacyBoxSpan = (sec) => 2 * Math.round(sec * sr) - 1;
 const box05FilteredScr = GsrFilter.applyZeroPhaseMovingAverage(
   testScr,
-  Math.round(0.5 * sr),
+  legacyBoxSpan(0.5),
 );
 const box05Apex = Math.max(...box05FilteredScr);
 const box05Retention = box05Apex / truePeakVal;
 
 const box11FilteredScr = GsrFilter.applyZeroPhaseMovingAverage(
   testScr,
-  Math.round(1.1 * sr),
+  legacyBoxSpan(1.1),
 );
 const box11Apex = Math.max(...box11FilteredScr);
 const box11Retention = box11Apex / truePeakVal;
@@ -277,11 +281,13 @@ if (track24Available) {
     'Production LR4 rejects exactly 126 false ripple peaks',
   );
 
-  // Test 3: Box 1.1s comparison on Track 24 (verifies 26% amplitude destruction)
+  // Test 3: legacy Box 1.1s comparison on Track 24 (verifies 26% amplitude
+  // destruction). The legacy "1.1 s" box spanned 2·11−1 = 21 samples, which
+  // lpfWindow now expresses directly as 2.1 s.
   const analyzerBox11 = new GSRAnalyzer();
   analyzerBox11.parseCSV(csvText);
   analyzerBox11.analyze(
-    { ...D, useGaitFilter: false, lpfWindow: 1.1, lpfMethod: 'box' },
+    { ...D, useGaitFilter: false, lpfWindow: 2.1, lpfMethod: 'box' },
     0,
   );
   const sumAmpBox11 = analyzerBox11.peaks.reduce((s, p) => s + p.amplitude, 0);

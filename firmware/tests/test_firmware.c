@@ -497,7 +497,17 @@ void test_csv_formatting() {
     format_gps_csv_row(&s, &pos, 1.25, 8345.3f, NULL, &diag);
     assert(strcmp(mock_logger_buf, "1.25,51.5557397,-0.0714595,0.9,1.3,16,3,5.25,330.2,8345.3,2.4\n") == 0);
 
-    // Case 2: Valid GPS fix but no speed/course (stationary) — RF OFF
+    // Case 2a: nearly still — speed reported, course empty (the receiver
+    // freezes course below ~0.1 m/s). The speed must still be logged.
+    pos.speed_kts = 0.05f;
+    pos.course_deg = NAN;
+
+    s.debug_fields_enabled = false;
+    mock_logger_buf[0] = '\0';
+    format_gps_csv_row(&s, &pos, 2.50, 8350.0f, NULL, &diag);
+    assert(strcmp(mock_logger_buf, "2.50,51.5557397,-0.0714595,0.9,1.3,16,3,0.05,,8350.0,2.4\n") == 0);
+
+    // Case 2b: Valid GPS fix but no speed/course at all — RF OFF
     pos.speed_kts = NAN;
     pos.course_deg = NAN;
 

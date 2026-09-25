@@ -2,7 +2,6 @@
  * GPS Filter Pipeline — standalone helper functions for trajectory cleaning, gating, and display downsampling.
  */
 import { GeoUtils } from './geo_utils.mjs';
-import { GpsFilter } from './gps_filter.mjs';
 
 // Absolute distance ceiling for a "plausible" gap, regardless of how much
 // time it spans — guards a long gap between two points that happen to be
@@ -225,16 +224,6 @@ export const GpsPipeline = {
   },
 
   /**
-   * Pre-Kalman GPS filters (run before snap+enrich pass).
-   */
-  applyPreKalmanFilters(pts, smoothing = 0.5, maxSpeed = 3.0) {
-    pts = GpsFilter.applyStopAveraging(pts);
-    pts = GpsFilter.applySpeedFilter(pts, maxSpeed);
-    pts = GpsFilter.applyVelocitySmoothing(pts, smoothing);
-    return pts;
-  },
-
-  /**
    * Post-Kalman snap correction.
    */
   applySnapCorrection(gpsPoints, snappedGps) {
@@ -265,8 +254,9 @@ export const GpsPipeline = {
    * Reconstruct full 10 Hz filtered GPS path.
    *
    * @param {number} [maxSpeed] - plausible speed ceiling (m/s), the same
-   *   value fed to applySpeedFilter/Kalman Q — used to decide whether a gap
-   *   between anchors is safe to draw as a straight chord.
+   *   value that scales the Kalman filter's acceleration noise — used to
+   *   decide whether a gap between anchors is safe to draw as a straight
+   *   chord.
    */
   reconstructFilteredGps(analyzer, data, gpsPoints, maxSpeed = 3.0) {
     const filteredGps = new Array(data.length);

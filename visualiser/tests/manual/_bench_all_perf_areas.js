@@ -756,12 +756,13 @@ console.log(
   `    _snapFingerprint on ${gpsFixes113.length.toLocaleString()} keys: median=${bSnapFp.median.toFixed(3)}ms (allocates ${gpsFixes113.length} strings on every probe)`,
 );
 
-// Full RTS smoothing pass on all 11,204 real GPS fixes from Track 113
+// Full Kalman + RTS pass on all 11,204 real GPS fixes from Track 113
+const { GpsCvKalman } = require('../../src/gps/gps_cv_kalman.mjs');
 const bKalman = bench(2, 10, () => {
-  window.GpsFilter.applyKalman(gpsFixes113, 0.5, 10);
+  GpsCvKalman.apply(gpsFixes113, { maxSpeed: 3, R_m2: 10 });
 });
 console.log(
-  `    applyKalman() on all ${gpsFixes113.length.toLocaleString()} Track 113 GPS fixes: median=${bKalman.median.toFixed(2)}ms`,
+  `    GpsCvKalman.apply() on all ${gpsFixes113.length.toLocaleString()} Track 113 GPS fixes: median=${bKalman.median.toFixed(2)}ms`,
 );
 
 // ─────────────────────────────────────────────────────────────────────────────

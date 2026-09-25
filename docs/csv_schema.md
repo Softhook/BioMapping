@@ -194,14 +194,14 @@ Debug-only appended columns when enabled:
 | # | Column | Type | Unit | Sentinel / Notes |
 |---|---|---|---|---|
 | 1 | `timestamp` | float | seconds (relative) | Seconds since recording start. Resolution = 0.1 s (TICK_HZ = 10). |
-| 2 | `lat` | float | decimal degrees | **Empty string** if no valid GPS fix this tick. |
+| 2 | `lat` | float | decimal degrees | **Empty string** if no valid GPS fix this tick. Only satellite fixes count: the receiver's own estimates after losing the satellites (GGA quality 6 / RMC mode `E`) are left empty. |
 | 3 | `lon` | float | decimal degrees | **Empty string** if no valid GPS fix. |
 | 4 | `hdop` | float | dimensionless | `99.9` = no fix or no GSA sentence yet. |
 | 5 | `pdop` | float | dimensionless | `99.9` = no GSA sentence received. Chip-computed across all constellations. |
 | 6 | `sats` | int | count | Visible satellites across all constellations (from GSV). `0` = no GSV received. |
 | 7 | `fix_type` | int | enum | `1` = no fix, `2` = 2D fix, `3` = 3D fix (from GSA sentence). |
-| 8 | `speed_kts` | float | knots | Doppler-derived speed from RMC. More accurate than position-derived. `0.0` if unavailable. |
-| 9 | `course_deg` | float | degrees (true north) | True course over ground from RMC. `0.0` if unavailable. |
+| 8 | `speed_kts` | float | knots | Doppler-derived speed from RMC. More accurate than position-derived. **Empty string** if unavailable. Logged even when `course_deg` is empty. |
+| 9 | `course_deg` | float | degrees (true north) | True course over ground from RMC. **Empty string** if unavailable — including when nearly still, where the receiver stops reporting course but still reports speed. |
 | 10 | `gsr_raw` | float | nanosiemens (nS) | Raw skin conductance. `0.0` if sensor unavailable. |
 | 11 | `hacc_m` | float | meters | Horizontal accuracy from `$PUBX,00` Field 9. **Empty string** if no valid fix. `99.9` = no `$PUBX,00`. M10Q-only. |
 | 12 | `rssi_815` | float | dBm | SubGHz 815 MHz instantaneous RSSI peak for most recent dwell on band. |

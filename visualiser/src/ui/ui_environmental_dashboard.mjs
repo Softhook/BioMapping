@@ -416,7 +416,7 @@ export const EnvironmentalDashboardUI = {
                 const resY = w.tonic.map(
                   (v, i) => v - (regY.m * w.speedTonic[i] + regY.c),
                 );
-                return { x: resX, y: resY };
+                return { x: resX, y: resY, nCovariates: 1 };
               }
               return { x: w.xTonic, y: w.tonic };
             }),

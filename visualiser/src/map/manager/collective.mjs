@@ -178,6 +178,7 @@ export class GSRMapCollective extends GSRMapArousalPlaces {
         sampleRate: t.analyzer?.sampleRate,
         raw: t.analyzer?.raw,
         phasic: t.analyzer?.phasic,
+        latency: this._trackPeakLatency(t),
       })),
       { collective: true, activeTrackCount: activeTracks.length },
     );

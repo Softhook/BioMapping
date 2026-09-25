@@ -88,13 +88,21 @@ export const GSRArousalPlaces = {
   /**
    * Pre-extract raw coordinates and phasic values into contiguous typed arrays
    * cached on the track instance to avoid object allocation in hot loops.
+   *
+   * Phasic is filed under the sample the walker was at `trk.latency` seconds
+   * earlier (nearest in time) — the same stimulus position the member peaks
+   * are plotted at — so a place's energy is the response to being there, not
+   * to where they had walked on to. Phasic whose stimulus came before the
+   * recording started has no place on the track and is left out.
    * @private
    */
   _getOrBuildFastCoords(trk) {
     const raw = trk.raw;
     const n = raw.length;
+    const lag = Math.max(0, Number(trk.latency) || 0);
     let flat = trk._fastCoords;
-    if (flat && flat.len === n && flat.rawRef === raw) return flat;
+    if (flat && flat.len === n && flat.rawRef === raw && flat.lag === lag)
+      return flat;
 
     const lats = new Float64Array(n);
     const lons = new Float64Array(n);
@@ -113,12 +121,28 @@ export const GSRArousalPlaces = {
           flags[i] = 1;
         }
       }
-      if (phasic && i < phasic.length) {
+    }
+    if (phasic) {
+      const m = Math.min(n, phasic.length);
+      let j = 0;
+      for (let i = 0; i < m; i++) {
         const v = +phasic[i].val;
-        if (v > 0) phasicVals[i] = v;
+        if (!(v > 0)) continue;
+        const t = +raw[i]?.time - lag;
+        if (lag > 0 && Number.isFinite(t)) {
+          if (t < raw[0].time) continue;
+          while (
+            j + 1 < n &&
+            Math.abs(raw[j + 1].time - t) <= Math.abs(raw[j].time - t)
+          )
+            j++;
+          phasicVals[j] += v;
+        } else {
+          phasicVals[i] += v;
+        }
       }
     }
-    flat = { lats, lons, phasicVals, flags, len: n, rawRef: raw };
+    flat = { lats, lons, phasicVals, flags, len: n, rawRef: raw, lag };
     trk._fastCoords = flat;
     return flat;
   },

@@ -197,6 +197,7 @@ export class GSRMapPeaks extends GSRMapPath {
             sampleRate: analyzer.sampleRate,
             raw: analyzer.raw,
             phasic: analyzer.phasic,
+            latency: peakLatency,
           },
         ],
         { collective: false, activeTrackCount: 1 },

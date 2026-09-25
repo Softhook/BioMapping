@@ -156,17 +156,25 @@ export const GsrFilter = {
   },
 
   /**
-   * Zero-phase moving average (forward + backward) — smooths without phase lag.
-   * Uses centred sliding window with correct edge handling.
+   * Zero-phase triangular moving average spanning `windowSize` samples in
+   * total: a centred box of (windowSize + 1) / 2 samples, run forward and
+   * then over the reversed result. Each centred box pass is already
+   * lag-free; the second pass turns the box into a triangle (smoother
+   * roll-off). The box width is halved so the triangle's full span — not
+   * each pass — equals `windowSize`; before, each pass used the full width
+   * and a "5-sample" window actually spread over 9. Fractional widths are
+   * supported (end samples weighted by the fraction); edges renormalise
+   * over the samples that exist.
    */
   applyZeroPhaseMovingAverage(arr, windowSize) {
     if (!windowSize || isNaN(windowSize) || windowSize <= 1) return [...arr];
     const n = arr.length;
     if (n === 0) return [];
+    const passWidth = (windowSize + 1) / 2;
 
     const singlePass = (data) => {
       const res = new Array(n);
-      const r = (windowSize - 1) / 2;
+      const r = (passWidth - 1) / 2;
       const m = Math.floor(r);
       const f = r - m;
       const oneMinusF = 1.0 - f;
@@ -496,10 +504,11 @@ export const GsrFilter = {
       const floorHalf = Math.max(1, Math.round(6 * sampleRate)); // ±6 s
       const localOffsets = this._slidingWindowMin(phasicVals, floorHalf);
 
-      // Light smoothing on offset curve (4 s window)
+      // Light smoothing on offset curve: a ±4 s triangle (reach stays
+      // inside the ±6 s floor window, so the no-clip guarantee above holds).
       const smoothOffsets = this.applyZeroPhaseMovingAverage(
         localOffsets,
-        Math.round(4 * sampleRate),
+        2 * Math.round(4 * sampleRate) - 1,
       );
       for (let i = 0; i < n; i++) {
         tonicVals[i] += smoothOffsets[i];

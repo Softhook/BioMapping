@@ -216,6 +216,7 @@ export class GSRMapArousalPlaces extends GSRMapPeaks {
       const phasic = Array.isArray(trk.phasic) ? trk.phasic : [];
       mixS(trk.id);
       mixF(trk.sampleRate || 0);
+      mixF(trk.latency || 0);
       mixF(raw.length);
       const rn = raw.length;
       for (const k of [0, rn >> 1, rn - 1]) {

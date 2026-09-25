@@ -78,7 +78,10 @@ const SAMPLE_CSV = [
 
 // Four SCRs packed into a ~20 m radius — enough member peaks for one Arousal
 // Place to survive GSR_CONST.AROUSAL_PLACES.minMembers. GPS barely moves
-// (0.00002 deg/sample ≈ 2 m) so compactClusters() groups them all.
+// (0.000001 deg/sample ≈ 0.1 m, ~20 m over the whole track) so
+// compactClusters() groups them all. (It used to step 0.00002 deg ≈ 2 m per
+// 0.1 s sample — hundreds of metres in all — and only clustered because stop
+// averaging pinned that whole low-speed run to one centroid.)
 const CLUSTER_GSR_RAW = [].concat(
   SAMPLE_GSR_RAW,
   SAMPLE_GSR_RAW,
@@ -89,8 +92,8 @@ const CLUSTER_CSV = [
   'timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw,hacc_m',
   ...CLUSTER_GSR_RAW.map((g, i) => {
     const t = (i * 0.1).toFixed(2);
-    const lat = (51.5074 + i * 0.00002).toFixed(6);
-    const lon = (-0.1278 + i * 0.00002).toFixed(6);
+    const lat = (51.5074 + i * 0.000001).toFixed(6);
+    const lon = (-0.1278 + i * 0.000001).toFixed(6);
     return `${t},${lat},${lon},1.0,1.5,8,3,0.5,90,${g},3.0`;
   }),
 ].join('\n');

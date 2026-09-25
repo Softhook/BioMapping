@@ -32,7 +32,6 @@ export const GSR_CONST = {
   // "Recommended: 1-3s" help text in index.html). This used to say 0 here,
   // silently disagreeing with the shipped UI default of 2.0.
   GPS_DEFAULT: {
-    smoothing: 0.5,
     kalmanR: 10,
     maxHdop: 3.0,
     maxSpeed: 3.0,

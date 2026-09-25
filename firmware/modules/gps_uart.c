@@ -193,7 +193,6 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
     case MINMEA_SENTENCE_RMC: {
         struct minmea_sentence_rmc frame;
         if(minmea_parse_rmc(&frame, line)) {
-            g->status.fix_valid = frame.valid;
             // Trust coordinates only when:
             //   - RMC Status = 'A' (data valid)
             //   - ModeInd is NOT 'E' (dead-reckoning/estimated) or 'N' (no fix)
@@ -203,6 +202,7 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
             // Spec §2.2.1: A=autonomous, D=differential, E=estimated, N=no fix.
             char mi = frame.mode_indicator;
             bool position_ok = frame.valid && (mi != 'E') && (mi != 'N');
+            g->status.fix_valid = position_ok;
             if(position_ok) {
                 g->status.latitude  = minmea_tocoord_double(&frame.latitude);
                 g->status.longitude = minmea_tocoord_double(&frame.longitude);
@@ -233,10 +233,12 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
     case MINMEA_SENTENCE_GGA: {
         struct minmea_sentence_gga frame;
         if(minmea_parse_gga(&frame, line)) {
-            // Only trust GGA position when we actually have a fix.
-            // Without this guard, a GGA arriving before RMC in a new
-            // epoch would overwrite good coordinates with 0.0.
-            if(frame.fix_quality > 0) {
+            // Only trust GGA position on a satellite fix. Without this
+            // guard, a GGA arriving before RMC in a new epoch would
+            // overwrite good coordinates with 0.0 — and an estimated
+            // (quality 6) fix would overwrite them with the receiver's
+            // guess, undoing the RMC mode-E check above.
+            if(gps_quality_is_gnss_fix(frame.fix_quality)) {
                 g->status.latitude  = minmea_tocoord_double(&frame.latitude);
                 g->status.longitude = minmea_tocoord_double(&frame.longitude);
             }
@@ -405,7 +407,8 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
         // GLL is disabled in the current PCAS config, but guard the validity
         // flag here so stale/void sentences never overwrite good coordinates.
         struct minmea_sentence_gll gll_frame;
-        if(minmea_parse_gll(&gll_frame, line) && gll_frame.status == MINMEA_GLL_STATUS_DATA_VALID) {
+        if(minmea_parse_gll(&gll_frame, line) && gll_frame.status == MINMEA_GLL_STATUS_DATA_VALID
+           && gll_frame.mode != 'E' && gll_frame.mode != 'N') {
             g->status.latitude  = minmea_tocoord_double(&gll_frame.latitude);
             g->status.longitude = minmea_tocoord_double(&gll_frame.longitude);
             g->status.time      = gll_frame.time;
@@ -895,7 +898,10 @@ static void ubx_send_nav5(GpsUart* g, GpsNavModel nav_model) {
     } else if(nav_model == GpsNavModelSea) {
         dyn_model = 5; // Sea / Boating
     } else if(nav_model == GpsNavModelBike) {
-        dyn_model = 10; // Bicycle
+        // No bicycle model exists: 10 (BIKE) is Motorbike, "not available
+        // in all products", and absent from the MIA-M10Q's list (integration
+        // manual Table 9). Portable is u-blox's general low-acceleration model.
+        dyn_model = 0; // Portable
     } else if(nav_model == GpsNavModelFlight) {
         dyn_model = 7; // Airborne <2g / Commercial Flight
     }

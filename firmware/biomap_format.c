@@ -17,22 +17,20 @@ int biomap_format_gps_row(char* out, size_t cap, bool debug_fields,
     bool gps_ok = pos->valid;
     int n;
     if(gps_ok) {
-        bool has_vel = !isnan(pos->speed_kts) && !isnan(pos->course_deg);
-        if(has_vel) {
-            n = snprintf(out, cap,
-                "%.2f,%.7f,%.7f,%.1f,%.1f,%d,%d,%.2f,%.1f,%.1f,%.1f",
-                rel, pos->lat, pos->lon,
-                (double)pos->hdop, (double)pos->pdop,
-                pos->sats, pos->fix_type,
-                (double)pos->speed_kts, (double)pos->course_deg, (double)raw,
-                (double)pos->hacc);
-        } else {
-            n = snprintf(out, cap,
-                "%.2f,%.7f,%.7f,%.1f,%.1f,%d,%d,,,%.1f,%.1f",
-                rel, pos->lat, pos->lon,
-                (double)pos->hdop, (double)pos->pdop,
-                pos->sats, pos->fix_type, (double)raw, (double)pos->hacc);
-        }
+        // Speed and course are independent: the receiver leaves course empty
+        // when nearly still (integration manual §2.2.6, course freezing) but
+        // still reports the speed — which is what tells a stop apart.
+        char speed[16] = "";
+        char course[16] = "";
+        if(!isnan(pos->speed_kts)) snprintf(speed, sizeof(speed), "%.2f", (double)pos->speed_kts);
+        if(!isnan(pos->course_deg)) snprintf(course, sizeof(course), "%.1f", (double)pos->course_deg);
+        n = snprintf(out, cap,
+            "%.2f,%.7f,%.7f,%.1f,%.1f,%d,%d,%s,%s,%.1f,%.1f",
+            rel, pos->lat, pos->lon,
+            (double)pos->hdop, (double)pos->pdop,
+            pos->sats, pos->fix_type,
+            speed, course, (double)raw,
+            (double)pos->hacc);
     } else {
         n = snprintf(out, cap, "%.2f,,,,,,,,,%.1f,", rel, (double)raw);
     }

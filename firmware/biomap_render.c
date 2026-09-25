@@ -28,7 +28,7 @@ static const char* gps_fix_label(int fix_type) {
 }
 
 static bool gps_has_fix(const GpsStatus* g) {
-    return g->fix_valid || g->fix_quality > 0;
+    return gps_status_has_fix(g);
 }
 
 // Prefer u-blox's own hAcc; fall back to HDOP*2.5 (rough metres estimate)

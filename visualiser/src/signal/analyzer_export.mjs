@@ -105,8 +105,8 @@ export const AnalyzerExport = {
       // Named "Pre-Kalman", not "Raw" — a header containing "raw" collides with
       // GSR_KEYWORDS ('raw' is a GSR-column keyword, checked before lat/lon
       // detection in parseCSV), which silently swallows the column into the
-      // gsr_raw branch and makes it unrecoverable on reimport. See gps_pipeline.js
-      // applyPreKalmanFilters for what "pre-Kalman" means here.
+      // gsr_raw branch and makes it unrecoverable on reimport. The columns
+      // hold the raw fix coordinates, before the Kalman filter.
       csv += ',Pre-Kalman Latitude,Pre-Kalman Longitude';
     }
     if (hasGpsQuality) {

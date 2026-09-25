@@ -1,13 +1,13 @@
 {
-  "_comment": "Golden-master metrics for the GPS filter pipeline (HDOP/fix-type gates → pre-Kalman filters → Kalman+RTS → 10Hz reconstruction) run over fixtures/default_processed.csv with GSR_CONST.GPS_DEFAULT params. Regenerate with `node tests/support/gen_gps_characterization_baseline.js` ONLY when a GPS filter change is an intentional behaviour change, and describe why in the commit message. See test_gps_characterization.js and docs/todo.md's 'Characterisation harness' note.",
+  "_comment": "Golden-master metrics for the GPS filter pipeline (HDOP/fix-type gates → constant-velocity Kalman+RTS → 10Hz reconstruction) run over fixtures/default_processed.csv with GSR_CONST.GPS_DEFAULT params. Regenerate with `node tests/support/gen_gps_characterization_baseline.js` ONLY when a GPS filter change is an intentional behaviour change, and describe why in the commit message. See test_gps_characterization.js and docs/todo.md's 'Characterisation harness' note.",
   "default_processed": {
     "n_raw": 11298,
     "n_raw_gps_fixes": 11204,
     "n_after_gates": 11114,
-    "vertex_count": 10767,
-    "pct_interpolated": 4.7,
-    "total_path_length_m": 1454.7,
+    "vertex_count": 11114,
+    "pct_interpolated": 1.63,
+    "total_path_length_m": 1447.3,
     "raw_path_length_m": 1684.3,
-    "max_deviation_from_raw_m": 3.45
+    "max_deviation_from_raw_m": 18.86
   }
 }

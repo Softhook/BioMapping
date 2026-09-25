@@ -25,10 +25,10 @@ typedef struct GpsStatus {
     float course;               // degrees true
     float hdop;                 // Horizontal Dilution of Precision (GGA/GSA)
     float hacc;                 // Estimated horizontal accuracy in metres (PUBX 00); 99.9 = unknown
-    int   fix_quality;          // 0=none, 1=GPS, 2=DGPS (GGA)
+    int   fix_quality;          // GGA quality: 0=none, 1=GPS, 2=DGPS, 3=PPS, 4/5=RTK, 6=estimated
     int   fix_type;             // 1=none, 2=2D, 3=3D (GSA)
     int   satellites_tracked;
-    bool  fix_valid;            // from RMC
+    bool  fix_valid;            // RMC status A and not an estimated (mode E) fix
     bool  sbas_active;          // true when any GSA PRN >= 120 (SBAS satellite in use)
     float pdop;                 // Position Dilution of Precision from GSA (chip-computed, all constellations); 99.9 = unknown
     int   active_prns[32];      // PRNs from current epoch's GSA sentences (constellation-offset)
@@ -37,6 +37,20 @@ typedef struct GpsStatus {
     struct minmea_time time;
     struct minmea_date date;
 } GpsStatus;
+
+// True when a GGA quality value is a satellite fix (1–5: GPS, DGPS, PPS,
+// RTK). 6 is the receiver's own estimate from its motion model after losing
+// the satellites — including ones it flags as invalid ("dead reckoning fix,
+// but user limits exceeded", M10 SPG 5.10 interface description §2.5.5) —
+// which the integration manual says not to use.
+static inline bool gps_quality_is_gnss_fix(int q) {
+    return q >= 1 && q <= 5;
+}
+
+// True when the latest RMC or GGA reports a satellite fix.
+static inline bool gps_status_has_fix(const GpsStatus* s) {
+    return s->fix_valid || gps_quality_is_gnss_fix(s->fix_quality);
+}
 
 typedef struct GpsUart GpsUart;
 

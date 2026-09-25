@@ -6,41 +6,20 @@
  * (this._gpsCache, keyed by track id + a params/snap fingerprint) so nudging a
  * GSR slider doesn't re-run the expensive filter chain.
  *
- * Depends on the globals GpsPipeline and GpsFilter (resolved at call time).
+ * Depends on GpsPipeline, GpsCvKalman and GpsFilter.
  */
-import { GSR_CONST } from '../../core/constants.mjs';
+import { GpsCvKalman } from '../../gps/gps_cv_kalman.mjs';
 import { GpsFilter } from '../../gps/gps_filter.mjs';
 import { GpsPipeline } from '../../gps/gps_pipeline.mjs';
 import { GSRMapLayers } from './layers.mjs';
 
 export class GSRMapProcess extends GSRMapLayers {
   /**
-   * Resolve effective smoothing (Kalman process noise Q).
-   * Respects explicit p.smoothing (legacy project/CSV imports), or
-   * binds dynamically to activity maxSpeed: Q = 0.5 * (maxSpeed / 3.0)^2.
-   */
-  _resolveSmoothing(p) {
-    if (
-      typeof p?.smoothing === 'number' &&
-      !isNaN(p.smoothing) &&
-      p.smoothing > 0
-    ) {
-      return p.smoothing;
-    }
-    const maxSpeed =
-      typeof p?.maxSpeed === 'number' && !isNaN(p.maxSpeed) && p.maxSpeed > 0
-        ? p.maxSpeed
-        : 3.0;
-    return 0.5 * (maxSpeed / 3.0) ** 2;
-  }
-
-  /**
    * Hash GPS filter params for cache key comparison.
    * Only hashes params that affect the GPS pipeline output.
    */
   _hashGpsParams(p) {
-    const smoothing = this._resolveSmoothing(p);
-    return `${p.maxHdop || 3.0}|${smoothing.toFixed(3)}|${p.kalmanR || 10}|${p.maxSpeed || 3.0}|${p.downsample ? 1 : 0}|${p.rdpTolerance || 0}`;
+    return `${p.maxHdop || 3.0}|${p.kalmanR || 10}|${p.maxSpeed || 3.0}|${p.downsample ? 1 : 0}|${p.rdpTolerance || 0}`;
   }
 
   /**
@@ -108,20 +87,9 @@ export class GSRMapProcess extends GSRMapLayers {
       typeof p?.maxSpeed === 'number' && !isNaN(p.maxSpeed) && p.maxSpeed > 0
         ? p.maxSpeed
         : 3.0;
-    const smoothing = this._resolveSmoothing(p);
     const kalmanR = p.kalmanR || 10;
-    // Pre-Kalman velocity smoothing takes its own fixed alpha, NOT the
-    // maxSpeed-derived Kalman Q above. applyVelocitySmoothing's alpha is an
-    // unrelated DOP-adaptive blend weight expected in roughly [0,1]; feeding
-    // it Q would saturate its `alpha / dop` clamp at Run/Bike speeds,
-    // defeating the DOP-adaptive trust it's meant to provide.
-    gpsPoints = GpsPipeline.applyPreKalmanFilters(
-      gpsPoints,
-      GSR_CONST.GPS_DEFAULT.smoothing,
-      maxSpeed,
-    );
-
-    gpsPoints = GpsFilter.applyKalman(gpsPoints, smoothing, kalmanR);
+    // Constant-velocity Kalman + RTS (see gps_cv_kalman.mjs).
+    gpsPoints = GpsCvKalman.apply(gpsPoints, { maxSpeed, R_m2: kalmanR });
 
     // Road snap runs AFTER the Kalman filter, not before. Snapping first
     // would feed the χ² innovation gate a "measurement" that's already been

@@ -112,18 +112,16 @@ correctness / structure concerns. Promote to its own doc if picked up.
 
 ### Smaller notes
 
-- **Potential:** the pre-Kalman alpha above is still a fixed guess (0.5,
-  `GSR_CONST.GPS_DEFAULT.smoothing`), not derived from data — it stands in
-  for the trust ratio between the raw GPS fix and the Doppler-based
-  dead-reckoning prediction, and today we only have a live accuracy metric
-  ($hAcc$) for the GPS side. The M10Q's `UBX-NAV-PVT` message (class 0x01,
-  id 0x07, 92-byte payload) carries `sAcc` (speed accuracy, mm/s, offset
-  68) and `headAcc` (heading accuracy, 1e-5 deg, offset 72) — no NMEA or
-  `$PUBX` sentence carries either field, confirmed against the u-blox M10
-  SPG 5.10 Interface Description. With those, `applyVelocitySmoothing`
-  could do real inverse-variance fusion ($R_{gps}=hAcc^2$ vs an $R_{dr}$
-  derived from `sAcc`/`headAcc`) instead of the ad hoc `alpha/dop` ratio,
-  removing the free constant entirely. Two real costs: (1) enabling it
+- **Potential:** the Kalman filter's Doppler velocity noise is still a
+  pair of fixed guesses (`SPEED_SIGMA_MS` 0.3 m/s, `COURSE_SIGMA_RAD` 15°
+  in `gps_cv_kalman.mjs`), not derived from data — today we only have a
+  live accuracy metric ($hAcc$) for the position side. The M10Q's
+  `UBX-NAV-PVT` message (class 0x01, id 0x07, 92-byte payload) carries
+  `sAcc` (speed accuracy, mm/s, offset 68) and `headAcc` (heading
+  accuracy, 1e-5 deg, offset 72) — no NMEA or `$PUBX` sentence carries
+  either field, confirmed against the u-blox M10 SPG 5.10 Interface
+  Description. With those, the velocity measurement could use the chip's
+  own per-fix noise instead of the constants. Two real costs: (1) enabling it
   needs `CFG-MSGOUT-UBX_NAV_PVT_UART1` (key `0x20910007`) turned on *and*
   the UART1 output protocol mask flipped from NMEA-only (currently `0002`
   at [gps_uart.c](../firmware/modules/gps_uart.c) — see the "outProto"

@@ -6,16 +6,15 @@
  *
  * Runs the exact same stage order as the production path
  * (src/map/manager/process.mjs#_getOrBuildDrawPoints): HDOP gate → fix-type
- * gate → pre-Kalman filters (stop-averaging, speed filter, velocity
- * smoothing) → Kalman+RTS → 10Hz reconstruction — and reduces the result to
- * the aggregate metrics docs/todo.md's "Characterisation harness" note asks
- * for: total path length, vertex count, % interpolated, max deviation from
- * raw. No display-stage (downsample/RDP) is included — those have their own
+ * gate → constant-velocity Kalman+RTS → 10Hz reconstruction — and reduces
+ * the result to the aggregate metrics docs/todo.md's "Characterisation
+ * harness" note asks for: total path length, vertex count, % interpolated,
+ * max deviation from raw. No display-stage (downsample/RDP) is included — those have their own
  * tolerance knobs and are a rendering concern, not part of the state
  * estimate this harness is guarding.
  */
 const { GSRAnalyzer } = require('../../src/signal/analyzer.mjs');
-const { GpsFilter } = require('../../src/gps/gps_filter.mjs');
+const { GpsCvKalman } = require('../../src/gps/gps_cv_kalman.mjs');
 const { GpsPipeline } = require('../../src/gps/gps_pipeline.mjs');
 const { GeoUtils } = require('../../src/gps/geo_utils.mjs');
 const { GSR_CONST } = require('../../src/core/constants.mjs');
@@ -75,8 +74,10 @@ function computeCharacterizationMetrics(csvText, paramOverrides = {}) {
   pts = GpsPipeline.applyFixTypeGate(pts);
   const nAfterGates = pts.length;
 
-  pts = GpsPipeline.applyPreKalmanFilters(pts, p.smoothing, p.maxSpeed);
-  const finalPts = GpsFilter.applyKalman(pts, p.smoothing, p.kalmanR);
+  const finalPts = GpsCvKalman.apply(pts, {
+    maxSpeed: p.maxSpeed,
+    R_m2: p.kalmanR,
+  });
 
   GpsPipeline.reconstructFilteredGps(analyzer, data, finalPts, p.maxSpeed);
   const fg = analyzer.filteredGps;

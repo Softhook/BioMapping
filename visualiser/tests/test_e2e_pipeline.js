@@ -19,7 +19,7 @@ global.GSR_CONST = require('./mock_constants.js');
 loadModule(path.join(__dirname, '../src/gps/geo_utils.js'), 'GeoUtils');
 loadModule(path.join(__dirname, '../src/signal/stats_math.js'), 'StatsMath');
 loadModule(path.join(__dirname, '../src/map/map_colors.js'), 'MapColors');
-loadModule(path.join(__dirname, '../src/gps/gps_filter.js'), 'GpsFilter');
+loadModule(path.join(__dirname, '../src/gps/gps_cv_kalman.js'), 'GpsCvKalman');
 loadModule(path.join(__dirname, '../src/gps/gps_pipeline.js'), 'GpsPipeline');
 loadModule(path.join(__dirname, '../src/signal/dwt_filter.js'), 'DWT'); // needed by analyzer.js
 loadModule(path.join(__dirname, '../src/signal/gsr_filter.js'), 'GsrFilter'); // needed by analyzer.js
@@ -28,7 +28,7 @@ loadModule(path.join(__dirname, '../src/signal/csv_parser.js'), 'GSRCSVParser');
 global.window = global;
 loadModule(path.join(__dirname, '../src/signal/analyzer.js'), 'GSRAnalyzer');
 
-const { GeoUtils, GpsFilter, GpsPipeline, GSRAnalyzer } = global;
+const { GeoUtils, GpsCvKalman, GpsPipeline, GSRAnalyzer } = global;
 
 // ── Test helpers ────────────────────────────────────────────────────────────
 let passed = 0,
@@ -184,19 +184,11 @@ if (hasValidFixes) {
 }
 console.log(`  After gates: ${gpsPoints.length} GPS anchors`);
 
-// ── 2c. Pre-Kalman filters ──
-const smoothing = 0.5;
-const maxSpeed = 3.0;
-gpsPoints = GpsPipeline.applyPreKalmanFilters(gpsPoints, smoothing, maxSpeed);
-assert(gpsPoints.length > 0, 'Pre-Kalman filters preserve points');
-console.log(`  After pre-Kalman: ${gpsPoints.length} points`);
-
-// ── 2d. Kalman filter ──
-const kalmanR = 10;
-const kalmanResult = GpsFilter.applyKalman(gpsPoints, smoothing, kalmanR);
+// ── 2c. Kalman filter ──
+const kalmanResult = GpsCvKalman.apply(gpsPoints, { maxSpeed: 3.0, R_m2: 10 });
 assertEq(kalmanResult.length, gpsPoints.length, 'Kalman preserves point count');
 
-// ── 2e. Reconstruct 10 Hz path ──
+// ── 2d. Reconstruct 10 Hz path ──
 GpsPipeline.reconstructFilteredGps(analyzer, raw, kalmanResult);
 const filteredGps = analyzer.filteredGps;
 assertEq(filteredGps.length, raw.length, 'Filtered GPS fills all rows');
@@ -209,7 +201,7 @@ console.log(
   `  Reconstructed path: ${validFiltered.length}/${raw.length} valid positions`,
 );
 
-// ── 2f. Build draw points ──
+// ── 2e. Build draw points ──
 const drawPoints = [];
 for (let i = 0; i < raw.length; i++) {
   const fg = filteredGps[i];
@@ -233,18 +225,17 @@ assertEq(
 console.log('\n── 3. Parameter sensitivity (slider bug regression) ──');
 
 // Re-run from scratch with extreme params
-function runPipeline(data, smoothingVal, kalmanRVal) {
+function runPipeline(data, maxSpeedVal, kalmanRVal) {
   let pts = collectGpsPoints(data);
   if (pts.some((p) => !isNaN(p.hdop)))
     pts = GpsPipeline.applyHdopGate(pts, 2.0);
   if (pts.some((p) => (p.fixType || 0) >= 2))
     pts = GpsPipeline.applyFixTypeGate(pts);
-  pts = GpsPipeline.applyPreKalmanFilters(pts, smoothingVal, 3.0);
-  pts = GpsFilter.applyKalman(pts, smoothingVal, kalmanRVal);
+  pts = GpsCvKalman.apply(pts, { maxSpeed: maxSpeedVal, R_m2: kalmanRVal });
   return pts;
 }
 
-const smoothPts = runPipeline(raw, 0.02, 150);
+const smoothPts = runPipeline(raw, 0.5, 150);
 const responsivePts = runPipeline(raw, 10, 0.5);
 
 // The two extremes should produce different Kalman outputs
@@ -262,7 +253,7 @@ assert(
   `Smooth vs responsive differ: RMS = ${rmsDiffM.toFixed(2)} m (should be >0.1 m)`,
 );
 console.log(
-  `  Smooth (Q=0.02,R=150) vs Responsive (Q=10,R=0.5): RMS difference = ${rmsDiffM.toFixed(2)} m`,
+  `  Smooth (maxSpeed=0.5,R=150) vs Responsive (maxSpeed=10,R=0.5): RMS difference = ${rmsDiffM.toFixed(2)} m`,
 );
 
 // ─── Verify the path actually changes with different params ───

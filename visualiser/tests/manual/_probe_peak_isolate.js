@@ -448,28 +448,18 @@ const check = () => {
         `3 applyFixTypeGate: ${pts.length} (dropped ${pts1.length - pts.length})`,
       );
       const pts2 = pts;
-      pts = window.GpsPipeline.applyPreKalmanFilters(
-        pts,
-        p.smoothing || 0.5,
-        p.maxSpeed || 3.0,
-      );
+      const { GpsCvKalman } = require('../../src/gps/gps_cv_kalman.mjs');
+      pts = GpsCvKalman.apply(pts, {
+        maxSpeed: p.maxSpeed || 3.0,
+        R_m2: p.kalmanR || 10,
+      });
       console.log(
-        `4 applyPreKalmanFilters: ${pts.length} (dropped ${pts2.length - pts.length})`,
+        `4 GpsCvKalman: ${pts.length} (dropped ${pts2.length - pts.length})`,
       );
-      const _pts3 = pts;
       if (anal.snappedGps) {
         pts = window.GpsPipeline.applySnapCorrection(pts, anal.snappedGps);
         console.log(`5 applySnapCorrection: ${pts.length}`);
       }
-      const pts4 = pts;
-      pts = window.GpsFilter.applyKalman(
-        pts,
-        p.smoothing || 0.5,
-        p.kalmanR || 10,
-      );
-      console.log(
-        `6 applyKalman: ${pts.length} (dropped ${pts4.length - pts.length})`,
-      );
     } catch (e) {
       console.log('stage-by-stage threw:', e.stack);
     }

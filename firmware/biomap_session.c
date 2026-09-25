@@ -176,8 +176,7 @@ static inline GpsPosition get_gps_position(const Session* s) {
     pos.course_deg = gs.course;
     pos.pdop       = gs.pdop;
     pos.hacc       = gs.hacc;
-    if((gs.fix_valid || gs.fix_quality > 0)
-        && !isnan(gs.latitude) && !isnan(gs.longitude)) {
+    if(gps_status_has_fix(&gs) && !isnan(gs.latitude) && !isnan(gs.longitude)) {
         pos.valid = true;
         pos.lat = gs.latitude;
         pos.lon = gs.longitude;

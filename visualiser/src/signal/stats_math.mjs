@@ -290,7 +290,12 @@ export const StatsMath = {
    * Knapp–Hartung standard error (t on k-1 df), which keeps the false-positive
    * rate near nominal for the small group counts a walk collection has.
    *
-   * @param {{x:number[], y:number[]}[]} groups
+   * A group whose x and y are residuals after partialling out covariates
+   * (e.g. walking speed) sets `nCovariates`: each costs one degree of
+   * freedom, so its Fisher-z variance is 1/(nEff - 3 - nCovariates) — the
+   * same adjustment calculateAutocorrCorrelation makes for a single walk.
+   *
+   * @param {{x:number[], y:number[], nCovariates?:number}[]} groups
    * @param {number} [minPerGroup=10] minimum usable samples for a group to count
    * @returns {{r:number, p:number, k:number, tau2:number, i2:number}} r = tanh(pooled z)
    *   (typical per-group effect), k = groups that contributed. `i2` is the
@@ -319,7 +324,8 @@ export const StatsMath = {
         continue;
       const { r } = this.calculatePearsonCorrelation(x, y);
       if (!isFinite(r)) continue;
-      const nEff = this.correlationEffectiveN(x, y);
+      const nCov = Math.max(0, g.nCovariates || 0);
+      const nEff = this.correlationEffectiveN(x, y) - nCov;
       // A walk whose predictor barely varies, or varies as one slow ramp, has
       // an effective pair count near the Fisher-z floor of 3 — it can't give an
       // independent read of the effect, so drop it rather than let a
@@ -328,7 +334,7 @@ export const StatsMath = {
       sumR += r;
       nR++;
       const rc = Math.max(-0.9999, Math.min(0.9999, r));
-      const v = 1 / (nEff - 3); // var(Fisher-z)
+      const v = 1 / (nEff - 3); // var(Fisher-z), covariate dfs already removed
       entries.push({ z: Math.atanh(rc), v });
     }
     const k = entries.length;
