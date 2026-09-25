@@ -69,13 +69,13 @@ test('calculatePearsonCorrelation: empty arrays return the neutral {r:0, p:1}', 
   });
 });
 
-test('calculatePearsonCorrelation: perfect positive correlation gives r=1; p stays at the default 1 (guarded to avoid 1-r^2 divide-by-zero)', () => {
+test('calculatePearsonCorrelation: perfect positive correlation gives r=1, p=0 (t is infinite)', () => {
   const { r, p } = StatsMath.calculatePearsonCorrelation(
     [1, 2, 3, 4, 5],
     [2, 4, 6, 8, 10],
   );
   assert.strictEqual(r, 1);
-  assert.strictEqual(p, 1);
+  assert.strictEqual(p, 0);
 });
 
 test('calculatePearsonCorrelation: perfect negative correlation gives r=-1', () => {
@@ -84,7 +84,7 @@ test('calculatePearsonCorrelation: perfect negative correlation gives r=-1', () 
     [10, 8, 6, 4, 2],
   );
   assert.strictEqual(r, -1);
-  assert.strictEqual(p, 1);
+  assert.strictEqual(p, 0);
 });
 
 test('calculatePearsonCorrelation: n=2 is always a perfect (anti)correlation by construction, p defaults to 1 (n>2 guard)', () => {

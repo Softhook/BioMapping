@@ -187,8 +187,8 @@ console.log('\n── stats_math.js ──');
   const y = [2, 4, 6, 8, 10];
   const { r, p } = StatsMath.calculatePearsonCorrelation(x, y);
   assertClose(r, 1.0, 1e-10, 'Pearson perfect positive → r=1');
-  // For r=1, t = r*sqrt((n-2)/(1-r²)) divides by zero; code returns p=1 correctly.
-  assertEq(p, 1, 'Pearson perfect positive r=1 → p=1 (undefined t)');
+  // For r=1, t = r*sqrt((n-2)/(1-r²)) is infinite, so p = 0.
+  assertEq(p, 0, 'Pearson perfect positive r=1 → p=0 (infinite t)');
 }
 
 // 2b. calculatePearsonCorrelation — perfect negative

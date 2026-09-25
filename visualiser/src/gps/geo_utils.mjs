@@ -275,11 +275,12 @@ export const GeoUtils = {
 
     const projX = x1 + t * dx;
     const projY = y1 + t * dy;
-    const distLat = projY - y;
-    const distLon = (projX - x) / cosLat;
-    const dist =
-      Math.sqrt(distLat * distLat + distLon * distLon) *
-      GeoUtils.METERS_PER_DEG_LAT;
+    // Measure in the cos(lat)-scaled plane, where both axes are in
+    // latitude-degree units; dividing dX back to raw longitude would
+    // overstate east-west offsets by 1/cos(lat) (~1.6x in London).
+    const dX = projX - x;
+    const dY = projY - y;
+    const dist = Math.sqrt(dX * dX + dY * dY) * GeoUtils.METERS_PER_DEG_LAT;
 
     return {
       distance: dist,

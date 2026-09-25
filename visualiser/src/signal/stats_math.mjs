@@ -95,6 +95,8 @@ export const StatsMath = {
       const t = r * Math.sqrt((n - 2) / (1 - r * r));
       const df = n - 2;
       p = StatsMath._tTestPValue(t, df);
+    } else if (n > 2) {
+      p = 0; // |r| = 1: t is infinite
     }
     return { r, p };
   },
@@ -132,9 +134,10 @@ export const StatsMath = {
   /**
    * Variance-inflation factor for inference on the mean of, or the
    * correlation between, serially-correlated series:
-   *   1 + 2 Σ_{k=1..K} (1 - k/n) ρa(k) ρb(k)
-   * (Bartlett 1935 for a single mean; Pyper & Peterman 1998 for a
-   * correlation — pass the same series twice for the single-mean case).
+   *   correlation (a ≠ b): 1 + 2 Σ_{k=1..K} (1 - k/n) ρa(k) ρb(k)   (Pyper & Peterman 1998)
+   *   single mean (a === b): 1 + 2 Σ_{k=1..K} (1 - k/n) ρ(k)       (Bartlett 1935)
+   * The single-mean sum is linear in ρ, not ρ²; squaring it roughly halves
+   * the inflation for a smooth EDA series and so overstates n_eff.
    * Lags are summed to n/5 and stopped at the first lag where both ACFs sit
    * inside the ±2/√n white-noise band. Never below 1. Expects a.length === b.length.
    */
@@ -175,7 +178,7 @@ export const StatsMath = {
       const ra = cka / c0a,
         rb = ckb / c0b;
       if (Math.abs(ra) < noise && Math.abs(rb) < noise) break;
-      sum += (1 - k / n) * ra * rb;
+      sum += (1 - k / n) * (a === b ? ra : ra * rb);
     }
     return Math.max(1, 1 + 2 * sum);
   },
@@ -223,6 +226,8 @@ export const StatsMath = {
       const df = nEff - 2 - nCovariates;
       const t = r * Math.sqrt(df / (1 - r * r));
       p = StatsMath._tTestPValue(t, df);
+    } else if (nEff - nCovariates > 3) {
+      p = 0; // |r| = 1: t is infinite
     }
     return { r, p, n, nEff };
   },

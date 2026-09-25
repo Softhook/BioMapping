@@ -740,10 +740,10 @@ const allGeoms = [
     coordinates: [
       { lat: 51.4999, lon: -0.09996 },
       { lat: 51.5001, lon: -0.09996 },
-    ], // ~4 m E
+    ], // ~3 m E
   };
   const closeRes = {
-    // ~13 m E
+    // ~8 m E
     type: 'way',
     id: 'res',
     tags: { highway: 'residential' },
@@ -772,13 +772,13 @@ const allGeoms = [
   );
 
   const midRes = {
-    // ~28 m E
+    // ~28 m E (0.0004° of longitude at 51.5°N)
     type: 'way',
     id: 'res2',
     tags: { highway: 'residential' },
     coordinates: [
-      { lat: 51.4999, lon: -0.09975 },
-      { lat: 51.5001, lon: -0.09975 },
+      { lat: 51.4999, lon: -0.0996 },
+      { lat: 51.5001, lon: -0.0996 },
     ],
   };
   const mid = OSMEnricher._evaluatePosition(51.5, -0.1, [footway, midRes], 50);
