@@ -14,7 +14,7 @@
  *   • per-row number formatting, fix + no-fix       (biomap_format.c)
  *   • the `# End …` trailer's token layout          (modules/sd_logger.c)
  *   • the metadata header prefixes                  (biomap_session.c)
- *   • the 45-byte wire packet's field offsets       (modules/bt_stream.{c,h})
+ *   • the 49-byte wire packet's field offsets       (modules/bt_stream.{c,h})
  *
  * When the firmware changes any of these, this test goes red with an
  * actionable message — reconcile visualiser/src/live/ (and
@@ -218,15 +218,14 @@ function runContractTests() {
           speedKts: 3.4,
           courseDeg: 270,
           gsrRaw: 1234.5,
+          hacc: 2.5,
         },
       ],
       SAMPLE_NOW_MS,
     ).split('\n')[4];
 
-    // Columns 1–10 must match the firmware spec's precision exactly. Column 11
-    // (hacc_m) is empty by design — the wire packet carries no horizontal
-    // accuracy (documented in live_csv.js).
-    const re = new RegExp(`^${fwSpecs.slice(0, 10).map(specFrag).join(',')},$`);
+    // Every column must match the firmware spec's precision exactly.
+    const re = new RegExp(`^${fwSpecs.map(specFrag).join(',')}$`);
     assert.match(
       row,
       re,
@@ -378,6 +377,7 @@ function runContractTests() {
         fixType: 3,
         speedKts: 1.5,
         courseDeg: 42,
+        hacc: 1.5,
         gsrRaw: 1000 + i,
       });
     }
@@ -390,7 +390,7 @@ function runContractTests() {
     assert.strictEqual(result.raw.length, packets.length);
   });
 
-  // ── WIRE: the 45-byte BLE packet ────────────────────────────────────
+  // ── WIRE: the 49-byte BLE packet ────────────────────────────────────
   test('WIRE: live_binary_parser.js field offsets + size match firmware bt_stream.{c,h}', () => {
     const btc = readFw('modules/bt_stream.c');
     const bth = readFw('modules/bt_stream.h');

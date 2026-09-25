@@ -13,11 +13,9 @@
  * CSV text. The save-location dialog lives with the caller (live_view.js's
  * exportCsv() → GSRFileSaver.saveFile), so this half is trivially testable.
  *
- * Two honest, unavoidable deviations from a firmware-written file — the BLE
+ * One honest, unavoidable deviation from a firmware-written file — the BLE
  * wire packet (docs/csv_schema.md §"Live Stream BLE Binary Packet Format")
  * simply doesn't carry the data:
- *   • hacc_m is always the trailing empty field (no horizontal accuracy on
- *     the wire) rather than a value or the 99.9 sentinel.
  *   • no `# GSR Calibration: gain:…,offset:…` line — the gain/offset are
  *     applied firmware-side before gsr_raw is packed (so gsr_raw IS already
  *     calibrated, same as a recorded track), but the coefficients aren't
@@ -85,12 +83,12 @@ export function buildLiveCsv(packets, nowMs) {
     if (p.valid) {
       // biomap_format_gps_row(), valid-fix branch:
       // "%.2f,%.7f,%.7f,%.1f,%.1f,%d,%d,%.2f,%.1f,%.1f,%.1f" — note speed_kts
-      // is 2 dp, everything else GPS-side is 1 dp. hacc_m (final field) is
-      // left empty (see the file header).
+      // is 2 dp, everything else GPS-side is 1 dp.
       body +=
         `${p.timestamp.toFixed(2)},${p.lat.toFixed(7)},${p.lon.toFixed(7)},` +
         `${p.hdop.toFixed(1)},${p.pdop.toFixed(1)},${p.sats},${p.fixType},` +
-        `${p.speedKts.toFixed(2)},${p.courseDeg.toFixed(1)},${p.gsrRaw.toFixed(1)},\n`;
+        `${p.speedKts.toFixed(2)},${p.courseDeg.toFixed(1)},${p.gsrRaw.toFixed(1)},` +
+        `${p.hacc.toFixed(1)}\n`;
     } else {
       // biomap_format_gps_row(), no-fix branch: "%.2f,,,,,,,,,%.1f," — only
       // timestamp and gsr_raw carry a value, every GPS column is empty.

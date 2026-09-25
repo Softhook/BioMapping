@@ -38,8 +38,6 @@ const SNAP_GAP_SPEED_MULTIPLIER = 4;
 const IMPOSSIBLE_JUMP_SPEED_MS = 20;
 const IMPOSSIBLE_JUMP_MIN_DIST_M = 50;
 
-const DEG_TO_RAD = Math.PI / 180;
-
 // Cubic Hermite tangent overshoot guard: clamps each endpoint's velocity-
 // derived tangent (deg/sec) to at most this multiple of the segment's own
 // *average* velocity (chord length / segment duration), not the raw chord
@@ -51,17 +49,15 @@ const HERMITE_TANGENT_CLAMP_K = 1.0;
 
 export const GpsPipeline = {
   /**
-   * Velocity vector (degrees/sec) from a Doppler speed+course reading, or
-   * null when either field is unavailable (old CSV, no fix at that row).
-   * NMEA course convention: 0° = North (lat direction), 90° = East (lon).
+   * Velocity vector (degrees/sec) from the filter's smoothed east/north
+   * velocity (m/s, GpsCvKalman's velE/velN), or null when the point has none
+   * (fewer than 2 fixes, so the filter never ran).
    */
-  _velocityDegPerSec(speedKts, course, scale) {
-    if (isNaN(speedKts) || isNaN(course)) return null;
-    const speedMs = speedKts * GeoUtils.KNOTS_TO_MS;
-    const courseRad = course * DEG_TO_RAD;
+  _velocityDegPerSec(velE, velN, scale) {
+    if (!Number.isFinite(velE) || !Number.isFinite(velN)) return null;
     return {
-      vLat: (speedMs * Math.cos(courseRad)) / scale.degToMeterLat,
-      vLon: (speedMs * Math.sin(courseRad)) / scale.degToMeterLon,
+      vLat: velN / scale.degToMeterLat,
+      vLon: velE / scale.degToMeterLon,
     };
   },
 
@@ -317,7 +313,7 @@ export const GpsPipeline = {
     const filteredGps = new Array(data.length);
     const filteredMap = new Map();
     gpsPoints.forEach((p) => {
-      filteredMap.set(p.origIdx, { lat: p.lat, lon: p.lon });
+      filteredMap.set(p.origIdx, p);
     });
 
     const validIndices = gpsPoints.map((p) => p.origIdx).sort((a, b) => a - b);
@@ -355,25 +351,18 @@ export const GpsPipeline = {
           filteredGps[i] = { lat: NaN, lon: NaN };
         }
       } else {
-        // Cubic Hermite through the two anchors' own measured Doppler
-        // speed+course, when both are available — a straight chord ignores
-        // heading entirely and visibly cuts corners at speed; the Hermite
-        // tangents bend the fill-in points to actually follow the measured
-        // direction of travel at each end. Falls back to the plain lerp
-        // (unchanged from before) when either anchor lacks speed/course
-        // data (~2% of real segments, per corpus testing) — old CSVs or a
-        // row with no Doppler reading.
+        // Cubic Hermite through the two anchors' velocities, as smoothed
+        // by the Kalman filter — a straight chord ignores heading entirely
+        // and cuts corners; the Hermite tangents bend the fill-in points to
+        // follow the direction of travel at each end. The filter's velocity
+        // rather than the chip's raw Doppler so the fill-in follows the same
+        // motion as the drawn fixes, and so fixes without a Doppler reading
+        // still get one; on the u-blox walks the two were indistinguishable
+        // (docs/gps_filter_review.md §5). Plain lerp when either anchor has
+        // none.
         const scale = GeoUtils.getGeodesicScale((cA.lat + cB.lat) / 2);
-        const v0 = GpsPipeline._velocityDegPerSec(
-          data[idxA].speedKts,
-          data[idxA].course,
-          scale,
-        );
-        const v1 = GpsPipeline._velocityDegPerSec(
-          data[idxB].speedKts,
-          data[idxB].course,
-          scale,
-        );
+        const v0 = GpsPipeline._velocityDegPerSec(cA.velE, cA.velN, scale);
+        const v1 = GpsPipeline._velocityDegPerSec(cB.velE, cB.velN, scale);
         const chordMagDeg = Math.hypot(cB.lat - cA.lat, cB.lon - cA.lon);
 
         let hermitePts =

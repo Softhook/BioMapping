@@ -149,8 +149,11 @@ void bt_stream_pack_packet(uint8_t out[BT_STREAM_PACKET_SIZE],
                            uint32_t timestamp_ms,
                            const GpsPosition* pos,
                            float gsr_raw) {
+    // "BN": was "BM" while the packet was 45 bytes; changed with the size so
+    // a mismatched firmware/visualiser pair reads nothing rather than
+    // misreading every packet.
     out[0] = 0x42; // 'B'
-    out[1] = 0x4d; // 'M'
+    out[1] = 0x4e; // 'N'
     memcpy(out + 2, &timestamp_ms, sizeof(timestamp_ms));
     // Not a `pos->valid ? pos->lat : 0.0` ternary — this project's build
     // treats -Wdouble-promotion as an error, and GCC's conditional-operator
@@ -177,4 +180,6 @@ void bt_stream_pack_packet(uint8_t out[BT_STREAM_PACKET_SIZE],
     out[42] = (uint8_t)pos->sats;
     out[43] = (uint8_t)pos->fix_type;
     out[44] = pos->valid ? 1 : 0;
+    // u-blox hAcc (m), 99.9 when unknown — as in the SD log's hacc_m column.
+    memcpy(out + 45, &pos->hacc, sizeof(pos->hacc));
 }

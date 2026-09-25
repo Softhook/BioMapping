@@ -1,6 +1,6 @@
 /**
  * Unit tests for live_binary_parser.js (GSRLiveBinaryParser) — the wire
- * decoder for BioMapModeLiveStream's 45-byte packed binary packets (see
+ * decoder for BioMapModeLiveStream's 49-byte packed binary packets (see
  * docs/archive/bluetooth_serial_investigation.md §5/§8). Exercises the resync-on-
  * magic-byte logic directly, since that's the part most likely to break
  * against a real, possibly-fragmenting transport (Web Serial/Web Bluetooth
@@ -17,7 +17,7 @@ const {
   PACKET_SIZE,
 } = require('../src/live/live_binary_parser.mjs');
 
-// Builds one valid 45-byte wire packet from field values, matching the
+// Builds one valid 49-byte wire packet from field values, matching the
 // offset table in docs/archive/bluetooth_serial_investigation.md §5 exactly.
 function buildPacket({
   timestampMs = 1000,
@@ -31,11 +31,12 @@ function buildPacket({
   sats = 9,
   fixType = 3,
   valid = 1,
+  hacc = 1.5,
 } = {}) {
   const buf = new Uint8Array(PACKET_SIZE);
   const view = new DataView(buf.buffer);
   buf[0] = 0x42;
-  buf[1] = 0x4d;
+  buf[1] = 0x4e;
   view.setUint32(2, timestampMs, true);
   view.setFloat64(6, lat, true);
   view.setFloat64(14, lon, true);
@@ -47,6 +48,7 @@ function buildPacket({
   buf[42] = sats;
   buf[43] = fixType;
   buf[44] = valid;
+  view.setFloat32(45, hacc, true);
   return buf;
 }
 
@@ -178,4 +180,12 @@ test('recovers cleanly and parses the next packet after a run of pure noise with
 
   assert.strictEqual(packets.length, 1);
   assert.strictEqual(packets[0].timestamp, 1.234);
+});
+
+test('packets from older firmware (45 bytes, "BM") are never misread', () => {
+  const { parser, packets } = collectPackets();
+  const old = buildPacket().subarray(0, 45);
+  old[1] = 0x4d; // 'M'
+  for (let i = 0; i < 20; i++) parser.append(old);
+  assert.strictEqual(packets.length, 0);
 });

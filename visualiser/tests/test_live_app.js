@@ -60,11 +60,12 @@ function buildPacket({
   sats = 9,
   fixType = 3,
   valid = 1,
+  hacc = 1.5,
 } = {}) {
-  const buf = new Uint8Array(45);
+  const buf = new Uint8Array(49);
   const view = new DataView(buf.buffer);
   buf[0] = 0x42;
-  buf[1] = 0x4d;
+  buf[1] = 0x4e;
   view.setUint32(2, timestampMs, true);
   view.setFloat64(6, lat, true);
   view.setFloat64(14, lon, true);
@@ -76,6 +77,7 @@ function buildPacket({
   buf[42] = sats;
   buf[43] = fixType;
   buf[44] = valid;
+  view.setFloat32(45, hacc, true);
   return Array.from(buf);
 }
 
@@ -1452,7 +1454,7 @@ test('end-to-end: a walking session draws only settled trail segments; the recen
         lat: 51.5074 + i * 0.00002,
         lon: -0.1278 + i * 0.00002,
         gsrRaw: i < 10 ? 1000 : 1400,
-        hdop: 1.0, pdop: 1.5, speedKts: 2, courseDeg: 90, sats: 9, fixType: 3,
+        hdop: 1.0, pdop: 1.5, speedKts: 2, courseDeg: 90, hacc: 1.5, sats: 9, fixType: 3,
         timestamp: i * 0.3,
       });
       drawGraph(); // stands in for the real animation loop's per-frame call
@@ -2507,9 +2509,9 @@ test('exportCsv: hands GSRFileSaver a .csv name and the full buildLiveCsv text (
     `
     LiveState.packets = [
       { timestamp: 0.30, valid: true,  lat: 51.5074, lon: -0.1278,
-        hdop: 1.2, pdop: 1.8, sats: 9, fixType: 3, speedKts: 3.4, courseDeg: 270.0, gsrRaw: 1234.5 },
+        hdop: 1.2, pdop: 1.8, sats: 9, fixType: 3, speedKts: 3.4, courseDeg: 270.0, hacc: 1.5, gsrRaw: 1234.5 },
       { timestamp: 12.60, valid: false, lat: NaN, lon: NaN,
-        hdop: 99.9, pdop: 99.9, sats: 0, fixType: 1, speedKts: 0, courseDeg: 0, gsrRaw: 800.0 },
+        hdop: 99.9, pdop: 99.9, sats: 0, fixType: 1, speedKts: 0, courseDeg: 0, hacc: 1.5, gsrRaw: 800.0 },
     ];
   `,
   );
@@ -2531,7 +2533,7 @@ test('exportCsv: hands GSRFileSaver a .csv name and the full buildLiveCsv text (
   // — speed_kts is 2 dp; hacc_m (final field) is empty on the wire.
   assert.strictEqual(
     lines[4],
-    '0.30,51.5074000,-0.1278000,1.2,1.8,9,3,3.40,270.0,1234.5,',
+    '0.30,51.5074000,-0.1278000,1.2,1.8,9,3,3.40,270.0,1234.5,1.5',
   );
   // No-fix sample: firmware's "%.2f,,,,,,,,,%.1f," branch — every GPS column
   // empty, only timestamp + gsr_raw carry a value.
@@ -2551,7 +2553,7 @@ test("exportCsv: RecordingStartTime is wall-clock-now minus the last packet's de
   run(context, 'Date.now = () => 1_699_999_999_000'); // epoch seconds 1699999999
   run(
     context,
-    'LiveState.packets = [{ timestamp: 100.9, valid: false, lat: NaN, lon: NaN, hdop: 99.9, pdop: 99.9, sats: 0, fixType: 0, speedKts: 0, courseDeg: 0, gsrRaw: 1 }]',
+    'LiveState.packets = [{ timestamp: 100.9, valid: false, lat: NaN, lon: NaN, hdop: 99.9, pdop: 99.9, sats: 0, fixType: 0, speedKts: 0, courseDeg: 0, hacc: 1.5, gsrRaw: 1 }]',
   );
 
   run(context, 'exportCsv()');
@@ -2775,7 +2777,7 @@ test('drawGraph: runs no analysis on the draw path — analyze() and decomposeTo
     `
     for (let i = 0; i < 200; i++) {
       LiveState.addPacket({ valid: true, lat: 51.5, lon: -0.12, gsrRaw: 1000 + (i % 40),
-        hdop: 1.0, pdop: 1.5, speedKts: 2, courseDeg: 90, sats: 9, fixType: 3, timestamp: i * 0.3 });
+        hdop: 1.0, pdop: 1.5, speedKts: 2, courseDeg: 90, hacc: 1.5, sats: 9, fixType: 3, timestamp: i * 0.3 });
     }
   `,
   );
@@ -2923,7 +2925,7 @@ test('drawGraph: a gap still breaks the trace after the analysis window has slid
     for (let i = 0; i < 1500; i++) {
       const t = i < 1450 ? i * 0.3 : i * 0.3 + 10;
       LiveState.addPacket({ valid: true, lat: 51.5, lon: -0.12, gsrRaw: 1000,
-        hdop: 1.0, pdop: 1.5, speedKts: 2, courseDeg: 90, sats: 9, fixType: 3, timestamp: t });
+        hdop: 1.0, pdop: 1.5, speedKts: 2, courseDeg: 90, hacc: 1.5, sats: 9, fixType: 3, timestamp: t });
     }
   `,
   );
@@ -2962,7 +2964,7 @@ test('drawGraph: regression — a gap packet lifts the pen in the plotted curve,
     `
     for (let i = 0; i < 30; i++) {
       LiveState.addPacket({ valid: true, lat: 51.5, lon: -0.12, gsrRaw: 1000,
-        hdop: 1.0, pdop: 1.5, speedKts: 2, courseDeg: 90, sats: 9, fixType: 3,
+        hdop: 1.0, pdop: 1.5, speedKts: 2, courseDeg: 90, hacc: 1.5, sats: 9, fixType: 3,
         timestamp: i < 15 ? i * 0.3 : i * 0.3 + 10 });
     }
   `,
@@ -3019,7 +3021,7 @@ test('GSR controls: the view dropdown switches the plotted series, the value rea
     for (let i = 0; i < 60; i++) {
       LiveState.addPacket({ valid: true, lat: 51.5, lon: -0.12,
         gsrRaw: i < 20 ? 1000 : 1600,
-        hdop: 1.0, pdop: 1.5, speedKts: 2, courseDeg: 90, sats: 9, fixType: 3, timestamp: i * 0.3 });
+        hdop: 1.0, pdop: 1.5, speedKts: 2, courseDeg: 90, hacc: 1.5, sats: 9, fixType: 3, timestamp: i * 0.3 });
     }
     drawGraph();
   `,
@@ -3085,7 +3087,7 @@ test('drawGraph: the secondary stats line reports Peaks/min from A.peakDensity a
     for (let i = 0; i < 90; i++) {
       LiveState.addPacket({ valid: true, lat: 51.5, lon: -0.12,
         gsrRaw: (i % 30 < 3) ? 1800 : 1000,
-        hdop: 1.0, pdop: 1.5, speedKts: 2, courseDeg: 90, sats: 9, fixType: 3, timestamp: i * 0.3 });
+        hdop: 1.0, pdop: 1.5, speedKts: 2, courseDeg: 90, hacc: 1.5, sats: 9, fixType: 3, timestamp: i * 0.3 });
     }
     drawGraph();
   `,
@@ -3712,7 +3714,7 @@ test('drawGraph: the primary GSR trace is the app\'s --color-filtered blue at we
     context,
     `
     for (let i = 0; i < 40; i++) LiveState.addPacket({ valid: true, lat: 51.5, lon: -0.12,
-      gsrRaw: 1000 + i * 5, hdop: 1, pdop: 1, speedKts: 1, courseDeg: 90, sats: 9, fixType: 3, timestamp: i * 0.3 });
+      gsrRaw: 1000 + i * 5, hdop: 1, pdop: 1, speedKts: 1, courseDeg: 90, hacc: 1.5, sats: 9, fixType: 3, timestamp: i * 0.3 });
     drawGraph();
   `,
   );
@@ -3733,7 +3735,7 @@ test('drawGraph: the Phasic (SCR) view draws its trace in --color-phasic green a
     context,
     `
     for (let i = 0; i < 60; i++) LiveState.addPacket({ valid: true, lat: 51.5, lon: -0.12,
-      gsrRaw: i < 20 ? 1000 : 1000 + i * 3, hdop: 1, pdop: 1, speedKts: 1, courseDeg: 90, sats: 9, fixType: 3, timestamp: i * 0.3 });
+      gsrRaw: i < 20 ? 1000 : 1000 + i * 3, hdop: 1, pdop: 1, speedKts: 1, courseDeg: 90, hacc: 1.5, sats: 9, fixType: 3, timestamp: i * 0.3 });
     liveGsrView.graphView = 'phasic';
     drawGraph();
   `,
@@ -3790,7 +3792,7 @@ test('drawGraph: a hotspot renders as a hollow --color-hotspot ring (weight 2) w
       const d = t - 6;
       if (d > 0) us += 1.2 * Math.exp(-d / 4) * (1 - Math.exp(-d / 0.6));
       LiveState.addPacket({ valid: true, lat: 51.5 + i * 1e-5, lon: -0.12 + i * 1e-5,
-        gsrRaw: us * 1000, hdop: 1, pdop: 1, speedKts: 1, courseDeg: 90, sats: 9, fixType: 3, timestamp: t });
+        gsrRaw: us * 1000, hdop: 1, pdop: 1, speedKts: 1, courseDeg: 90, hacc: 1.5, sats: 9, fixType: 3, timestamp: t });
     }
     drawGraph();
   `,
@@ -3819,7 +3821,7 @@ test('drawGraph: renders the grid + L-shaped axis before the trace (>= 3 stroke 
     context,
     `
     for (let i = 0; i < 40; i++) LiveState.addPacket({ valid: true, lat: 51.5, lon: -0.12,
-      gsrRaw: 1000 + i * 5, hdop: 1, pdop: 1, speedKts: 1, courseDeg: 90, sats: 9, fixType: 3, timestamp: i * 0.3 });
+      gsrRaw: 1000 + i * 5, hdop: 1, pdop: 1, speedKts: 1, courseDeg: 90, hacc: 1.5, sats: 9, fixType: 3, timestamp: i * 0.3 });
     drawGraph();
   `,
   );

@@ -213,11 +213,11 @@ Debug-only appended columns when enabled:
 
 ## Live Stream BLE Binary Packet Format
 
-In **Live Stream** mode (`BioMapModeLiveStream`), data is streamed in real time over Bluetooth Low Energy using Flipper's stock serial profile rather than logged to SD. Packets are 45 bytes, little-endian, sent every ~300 ms (`BT_STREAM_INTERVAL_MS`).
+In **Live Stream** mode (`BioMapModeLiveStream`), data is streamed in real time over Bluetooth Low Energy using Flipper's stock serial profile rather than logged to SD. Packets are 49 bytes, little-endian, sent every ~300 ms (`BT_STREAM_INTERVAL_MS`).
 
 | Offset | Size (Bytes) | Field | Type | Unit / Description |
 |---|---|---|---|---|
-| 0 | 2 | `magic` | `uint8[2]` | Synchronization bytes: `0x42 0x4D` ("BM"). |
+| 0 | 2 | `magic` | `uint8[2]` | Synchronization bytes: `0x42 0x4E` ("BN"). The older 45-byte packet without `hacc_m` used "BM", so a firmware/visualiser mismatch reads no packets instead of misreading them. |
 | 2 | 4 | `timestamp_ms` | `uint32` | Milliseconds since stream start. |
 | 6 | 8 | `lat` | `double` | Latitude in decimal degrees (IEEE 754 float64). |
 | 14 | 8 | `lon` | `double` | Longitude in decimal degrees (IEEE 754 float64). |
@@ -229,6 +229,7 @@ In **Live Stream** mode (`BioMapModeLiveStream`), data is streamed in real time 
 | 42 | 1 | `sats` | `uint8` | Satellites tracked count. |
 | 43 | 1 | `fix_type` | `uint8` | GPS fix type: `1` = None, `2` = 2D, `3` = 3D. |
 | 44 | 1 | `valid` | `uint8` | Validity bitmask: `0x01` = GPS fix valid, `0x02` = GSR sensor valid. |
+| 45 | 4 | `hacc_m` | `float` | u-blox horizontal accuracy in metres (`99.9` = unknown), exported as the CSV `hacc_m` column. |
 
 Parsed client-side by `visualiser/src/live/live_binary_parser.js` (`GSRLiveBinaryParser`). The live viewer (`visualiser/live.html`) exports recorded live sessions into canonical CSV matching the 11-column GPS+GSR format above.
 

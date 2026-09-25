@@ -154,7 +154,7 @@ static void test_tx_batch_drops_when_not_connected(void) {
     bt_stream_start(bs);
     // Deliberately never fire Connected — status stays Unavailable.
 
-    uint8_t payload[45] = {0x42, 0x4d};
+    uint8_t payload[BT_STREAM_PACKET_SIZE] = {0x42, 0x4e};
     bool sent = bt_stream_tx_batch(bs, payload, sizeof(payload));
 
     assert(!sent);
@@ -178,7 +178,7 @@ static void test_tx_batch_drops_on_send_failure(void) {
     bt_mock_fire_status_changed(BtStatusConnected);
     bt_mock_set_tx_fail(true);
 
-    uint8_t payload[45] = {0x42, 0x4d};
+    uint8_t payload[BT_STREAM_PACKET_SIZE] = {0x42, 0x4e};
     bool sent = bt_stream_tx_batch(bs, payload, sizeof(payload));
 
     assert(!sent);
@@ -203,10 +203,10 @@ static void test_tx_batch_success(void) {
     bt_stream_start(bs);
     bt_mock_fire_status_changed(BtStatusConnected);
 
-    uint8_t payload[45];
+    uint8_t payload[BT_STREAM_PACKET_SIZE];
     memset(payload, 0xAB, sizeof(payload));
     payload[0] = 0x42;
-    payload[1] = 0x4d;
+    payload[1] = 0x4e;
 
     bool sent = bt_stream_tx_batch(bs, payload, sizeof(payload));
 
@@ -232,7 +232,7 @@ static void test_tx_batch_intermittent_failures(void) {
     bt_mock_fire_status_changed(BtStatusConnected);
     bt_mock_set_tx_fail_every_nth(3);
 
-    uint8_t payload[45] = {0x42, 0x4d};
+    uint8_t payload[BT_STREAM_PACKET_SIZE] = {0x42, 0x4e};
     int sent_count = 0;
     for(int i = 0; i < 9; i++) {
         if(bt_stream_tx_batch(bs, payload, sizeof(payload))) sent_count++;
@@ -308,7 +308,7 @@ static void test_alloc_after_free_reuses_singleton_cleanly(void) {
     bt_stream_start(bs1);
     bt_mock_fire_status_changed(BtStatusConnected);
     assert(bt_stream_is_connected(bs1));
-    uint8_t payload[45] = {0x42, 0x4d};
+    uint8_t payload[BT_STREAM_PACKET_SIZE] = {0x42, 0x4e};
     bt_stream_tx_batch(bs1, payload, sizeof(payload));
     bt_stream_stop(bs1);
     bt_stream_free(bs1);
@@ -339,7 +339,8 @@ static void test_pack_packet(void) {
         .speed_kts = 5.5f,
         .course_deg = 180.0f,
         .sats = 8,
-        .fix_type = 3
+        .fix_type = 3,
+        .hacc = 2.5f
     };
     uint32_t ts1 = 123456u;
     float gsr1 = 1500.5f;
@@ -347,7 +348,7 @@ static void test_pack_packet(void) {
     bt_stream_pack_packet(out, ts1, &pos1, gsr1);
 
     assert(out[0] == 0x42);
-    assert(out[1] == 0x4d);
+    assert(out[1] == 0x4e);
 
     uint32_t ts_out;
     memcpy(&ts_out, out + 2, 4);
@@ -376,6 +377,10 @@ static void test_pack_packet(void) {
     assert(out[43] == 3);
     assert(out[44] == 1);
 
+    float hacc_out;
+    memcpy(&hacc_out, out + 45, 4);
+    assert(hacc_out == pos1.hacc);
+
     // Test 2: Invalid GPS position (NaN velocity, invalid flag)
     memset(out, 0xEE, sizeof(out));
     GpsPosition pos2 = {
@@ -395,7 +400,7 @@ static void test_pack_packet(void) {
     bt_stream_pack_packet(out, ts2, &pos2, gsr2);
 
     assert(out[0] == 0x42);
-    assert(out[1] == 0x4d);
+    assert(out[1] == 0x4e);
 
     memcpy(&ts_out, out + 2, 4);
     assert(ts_out == ts2);

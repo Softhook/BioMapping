@@ -41,6 +41,7 @@ function pkt(over = {}) {
     speedKts: 2.0,
     courseDeg: 90.0,
     gsrRaw: 1000.0,
+    hacc: 1.5,
     ...over,
   };
 }
@@ -76,7 +77,7 @@ test('RecordingStartTime is wall-clock-now minus the last packet uptime, floored
 
 // ── Row formatting vs firmware/biomap_format.c ─────────────────────────────
 
-test('a valid fix row matches biomap_format_gps_row() "%.2f,%.7f,%.7f,%.1f,%.1f,%d,%d,%.2f,%.1f,%.1f,%.1f" (hacc empty)', () => {
+test('a valid fix row matches biomap_format_gps_row() "%.2f,%.7f,%.7f,%.1f,%.1f,%d,%d,%.2f,%.1f,%.1f,%.1f"', () => {
   const csv = buildLiveCsv(
     [
       pkt({
@@ -90,6 +91,7 @@ test('a valid fix row matches biomap_format_gps_row() "%.2f,%.7f,%.7f,%.1f,%.1f,
         speedKts: 3.4,
         courseDeg: 270.0,
         gsrRaw: 1234.5,
+        hacc: 2.25,
       }),
     ],
     NOW_MS,
@@ -97,7 +99,7 @@ test('a valid fix row matches biomap_format_gps_row() "%.2f,%.7f,%.7f,%.1f,%.1f,
   const row = csv.split('\n')[4];
   assert.strictEqual(
     row,
-    '0.30,51.5074000,-0.1278000,1.2,1.8,9,3,3.40,270.0,1234.5,',
+    '0.30,51.5074000,-0.1278000,1.2,1.8,9,3,3.40,270.0,1234.5,2.3',
   );
 });
 

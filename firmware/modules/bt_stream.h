@@ -30,7 +30,7 @@
 
 #include "biomap_types.h"
 
-#define BT_STREAM_PACKET_SIZE 45
+#define BT_STREAM_PACKET_SIZE 49
 
 typedef struct BtStream BtStream;
 

@@ -29,10 +29,15 @@
  * signal gap needs no special handling — the prediction walks on at the last
  * speed and its uncertainty grows as dt³.
  *
- * After RESET_AFTER consecutive rejected position fixes the filter has lost
- * the track (a real jump it cannot explain, e.g. a re-acquisition after a
- * long outage), so it restarts on the current fix. The smoother runs
- * separately on each stretch between restarts.
+ * When every position fix for RESET_AFTER_S has been rejected, the filter
+ * has lost the track (a real jump it cannot explain), so it restarts — from
+ * the first of those rejected fixes, so the jump is drawn where it happened
+ * rather than RESET_AFTER_S late. A signal gap longer than RESET_GAP_S
+ * starts a new stretch of rejected fixes, so a lone bad fix before a gap is
+ * never where the track restarts. The wait is in seconds, not fixes: a
+ * multipath burst off buildings lasts seconds, and restarting after a few
+ * fixes drew the whole burst (docs/gps_filter_review.md §1). The smoother
+ * runs separately on each stretch between restarts.
  *
  * Stops are pinned before filtering: the fixes of a stop are all moved to
  * its mean position. The chip's own position drifts several metres over a
@@ -76,8 +81,10 @@ export const GpsCvKalman = {
   INIT_SPEED_SIGMA_MS: 3.0,
   /** χ² threshold, 2 DOF at 99.73 % (the 3σ equivalent). */
   GATE_CHI2: 11.83,
-  /** Consecutive rejected position fixes after which the filter restarts. */
-  RESET_AFTER: 5,
+  /** Time (s) of nothing but rejected position fixes after which the filter restarts. */
+  RESET_AFTER_S: 10,
+  /** A gap (s) between two rejected fixes after which they count as separate stretches. */
+  RESET_GAP_S: 1,
   /** Time (s) over which consecutive fixes' errors count as one — see header. */
   NOISE_CORR_S: 3,
   /** Doppler speed (knots, ≈ 0.26 m/s) at or below which a fix counts as stopped. */
@@ -135,8 +142,9 @@ export const GpsCvKalman = {
   },
 
   /**
-   * Smooth a GPS track: returns a new array of `{ ...pt, lat, lon }`, one
-   * per input point, input untouched (fewer than 2 points come back as is).
+   * Smooth a GPS track: returns a new array of `{ ...pt, lat, lon, velE,
+   * velN }` (velE/velN the smoothed east/north velocity, m/s), one per input
+   * point, input untouched (fewer than 2 points come back as is).
    *
    * @param {Array<{lat:number, lon:number, time:number}>} points
    * @param {{maxSpeed?:number}} [opts] - maxSpeed scales the acceleration
@@ -182,14 +190,32 @@ export const GpsCvKalman = {
 
     const x = new Float64Array(4);
     const P = new Float64Array(16);
-    let rejectRun = 0;
+    let rejectRun = 0; // consecutive rejected position fixes
+    let rejectIdx = 0; // the first of them
+    let velUsedSinceReject = 0; // Doppler counts since rejectIdx
+    let velRejectedSinceReject = 0;
 
     for (let i = 0; i < n; i++) {
+      // The rejected fixes themselves must span RESET_AFTER_S (and a gap
+      // breaks the stretch, below): otherwise one bad fix followed by a
+      // signal gap would restart the track on that bad fix.
+      const restart =
+        i === 0 ||
+        (rejectRun > 0 &&
+          points[i - 1].time - points[rejectIdx].time >= this.RESET_AFTER_S);
+      if (restart && i > 0) {
+        // Run again from the first rejected fix (see header), undoing the
+        // counts of the stretch being replayed.
+        stats.posRejected -= rejectRun;
+        stats.velUsed -= velUsedSinceReject;
+        stats.velRejected -= velRejectedSinceReject;
+        i = rejectIdx;
+      }
       const pt = points[i];
       const e = (pt.lon - lon0) * mLon;
       const nn = (pt.lat - lat0) * mLat;
 
-      if (i === 0 || rejectRun >= this.RESET_AFTER) {
+      if (restart) {
         if (i > 0) {
           segStarts.push(i);
           stats.resets++;
@@ -209,6 +235,12 @@ export const GpsCvKalman = {
         if (this._update(x, P, 0, e, nn, r, 0, r)) {
           rejectRun = 0;
         } else {
+          if (rejectRun === 0 || dt > this.RESET_GAP_S) {
+            rejectRun = 0;
+            rejectIdx = i;
+            velUsedSinceReject = 0;
+            velRejectedSinceReject = 0;
+          }
           stats.posRejected++;
           rejectRun++;
         }
@@ -216,9 +248,13 @@ export const GpsCvKalman = {
 
       const v = this._dopplerVelocity(pt);
       if (v) {
-        if (this._update(x, P, 2, v.vE, v.vN, v.rEE, v.rEN, v.rNN))
+        if (this._update(x, P, 2, v.vE, v.vN, v.rEE, v.rEN, v.rNN)) {
           stats.velUsed++;
-        else stats.velRejected++;
+          velUsedSinceReject++;
+        } else {
+          stats.velRejected++;
+          velRejectedSinceReject++;
+        }
       }
 
       xf.set(x, 4 * i);
@@ -238,6 +274,8 @@ export const GpsCvKalman = {
         ...points[i],
         lat: lat0 + xs[4 * i + 1] / mLat,
         lon: lon0 + xs[4 * i] / mLon,
+        velE: xs[4 * i + 2],
+        velN: xs[4 * i + 3],
       };
     }
     return { points: out, ...stats };

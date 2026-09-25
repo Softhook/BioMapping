@@ -9,8 +9,8 @@
 > [`csv_schema.md`](csv_schema.md) — the abbreviated history in §4 below is
 > kept only for the context it gives the pipeline discussion.
 >
-> Known problems with the filter (restarts after 0.5 s letting bad stretches
-> through, the outlier check's width, and others) are written up in
+> A review of the filter — what was fixed, what was tested and left, and the
+> harness used to test changes — is in
 > [`gps_filter_review.md`](gps_filter_review.md).
 
 ---
@@ -72,7 +72,7 @@ The app's only GPS filter. It replaced an earlier chain (stop averaging, speed f
 - **State** east/north position and velocity on a local flat plane; continuous white-noise acceleration model (Bar-Shalom §6.2), acceleration noise `0.5 m²/s³` scaled by `(maxSpeed/3)²`.
 - **Measurements**: each position fix (noise from `hacc_m`, else DOP — `GpsCvKalman.measurementVarianceM2`), and the chip's Doppler speed + course as a velocity (0.3 m/s along track, 15° across; below 0.6 m/s only "about this slow" is used, since course is noise there).
 - **Linked fixes**: the chip outputs 10 fixes/s already smoothed by its own filter, so their errors are shared. Position noise is scaled by `3 s / fix spacing` (Groves' variance inflation), so 3 s of fixes weigh as one independent fix.
-- **Outliers**: a 2-DOF χ² gate (11.83) skips a disagreeing measurement; after 5 rejected fixes in a row the track restarts on the next fix, and the smoother runs per stretch between restarts.
+- **Outliers**: a 2-DOF χ² gate (11.83) skips a disagreeing measurement. When the rejected fixes span 10 s the track restarts — from the first of them, so a real jump is drawn where it happened; a signal gap of more than 1 s between rejected fixes starts a new stretch, so a lone bad fix before a gap is never restarted on. A bad stretch shorter than that is skipped whole; the earlier rule (restart after 5 fixes = 0.5 s, on the current fix) drew any bad stretch over 0.5 s in full. The smoother runs per stretch between restarts.
 - **Stops**: before filtering, the fixes of each stop are pinned to the stop's mean position, so a stop draws as one dot. Over a long stop the chip's position drifts several metres while its speed stays near zero, and the filter alone reads that as slow walking (biomap_032b: a 3½-minute stop drew a 10 m loop). The rule copies the receiver's own "static hold" (M10 integration manual §2.2.5), which we leave switched off in the chip so the recording keeps the raw wander and the dot can be the mean of the whole stop:
   - starts at Doppler speed ≤ 0.5 kt (≈ 0.26 m/s), ends only above 1.0 kt (2×, as the chip does), so a shuffle doesn't split a stop;
   - also ends if the fixes move more than 2 m within 5 s (walking off slower than the chip's speed shows), cut back to where the movement began, or stray more than 10 m from the stop's mean (safety net);

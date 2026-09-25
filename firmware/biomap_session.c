@@ -680,7 +680,7 @@ static bool handle_recording_key(BioMapEvent* ev, Session* s,
 // ── Live Stream mode (BLE) ──────────────────────────────────────────────
 // docs/archive/bluetooth_serial_investigation.md §3/§5. No SdLogger, no CSV — GPS
 // and GSR are captured exactly like every other mode (gsr_sensor_tick()
-// runs every tick so autoranging stays current), but the 45-byte packed
+// runs every tick so autoranging stays current), but the 49-byte packed
 // binary packet is sent over BLE at BT_STREAM_INTERVAL_TICKS instead of
 // written to SD every tick.
 // Builds this tick's packet (if any is due) while app->mutex is still

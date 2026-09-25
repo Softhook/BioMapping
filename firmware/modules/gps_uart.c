@@ -1290,7 +1290,9 @@ static void gps_uart_configure(GpsUart* g) {
     ubx_send_nmea_output_rates(g);
     ubx_send_nav5(g, g->nav_model);
     ubx_send_and_confirm(g, ubx_cfg_assistnow_autonomous, sizeof(ubx_cfg_assistnow_autonomous), "CFG-VALSET AssistNow");
-    // Enable $PUBX,00 sentence at 1 Hz for live hAcc in metres. Proprietary
+    // Enable $PUBX,00 for live hAcc in metres, on UART1 once per navigation
+    // solution (the rate field counts solutions, not seconds) — so 10 Hz,
+    // with every fix: the logs show hAcc changing within 0.1–0.9 s. Proprietary
     // NMEA-PUBX-RATE (spec §2.8.3) — still current in SPG 5.10 (unlike
     // CFG-MSG), and there's no VALSET key for a proprietary PUBX sentence,
     // so this ASCII command is the only mechanism for it.

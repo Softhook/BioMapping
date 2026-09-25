@@ -497,41 +497,34 @@ assert(!GpsPipeline.isImpossibleJump(0, 1), 'no movement is kept');
 {
   const scale = GeoUtils.getGeodesicScale(51.5);
 
-  // _velocityDegPerSec: NaN speed or course -> null (triggers the linear fallback)
+  // _velocityDegPerSec: missing velocity -> null (triggers the linear fallback)
   assert(
-    GpsPipeline._velocityDegPerSec(NaN, 90, scale) === null,
-    '_velocityDegPerSec: NaN speed -> null',
+    GpsPipeline._velocityDegPerSec(undefined, 1, scale) === null,
+    '_velocityDegPerSec: no east velocity -> null',
   );
   assert(
-    GpsPipeline._velocityDegPerSec(2, NaN, scale) === null,
-    '_velocityDegPerSec: NaN course -> null',
+    GpsPipeline._velocityDegPerSec(1, NaN, scale) === null,
+    '_velocityDegPerSec: no north velocity -> null',
   );
-  // Course 0 (NMEA: due north) -> pure latitude component, ~zero longitude
+  // Due north -> pure latitude component; due east -> pure longitude
   {
-    const v = GpsPipeline._velocityDegPerSec(2, 0, scale);
-    assert(
-      v.vLat > 0,
-      '_velocityDegPerSec: course 0 has positive lat component',
-    );
-    assertClose(
-      v.vLon,
-      0,
-      1e-12,
-      '_velocityDegPerSec: course 0 has ~zero lon component',
-    );
-  }
-  // Course 90 (due east) -> pure longitude component, ~zero latitude
-  {
-    const v = GpsPipeline._velocityDegPerSec(2, 90, scale);
+    const v = GpsPipeline._velocityDegPerSec(0, 1, scale);
     assertClose(
       v.vLat,
-      0,
-      1e-12,
-      '_velocityDegPerSec: course 90 has ~zero lat component',
+      1 / scale.degToMeterLat,
+      1e-15,
+      '_velocityDegPerSec: north velocity -> lat',
     );
-    assert(
-      v.vLon > 0,
-      '_velocityDegPerSec: course 90 has positive lon component',
+    assertEq(v.vLon, 0, '_velocityDegPerSec: north velocity -> no lon');
+  }
+  {
+    const v = GpsPipeline._velocityDegPerSec(1, 0, scale);
+    assertEq(v.vLat, 0, '_velocityDegPerSec: east velocity -> no lat');
+    assertClose(
+      v.vLon,
+      1 / scale.degToMeterLon,
+      1e-15,
+      '_velocityDegPerSec: east velocity -> lon',
     );
   }
 
@@ -646,17 +639,11 @@ assert(!GpsPipeline.isImpossibleJump(0, 1), 'no movement is kept');
   const mockAnalyzer = { filteredGps: null };
   const data = [];
   for (let i = 0; i <= 10; i++) data.push({ time: i });
-  // Anchor A heading due east (90°); anchor B arrives heading due north (0°) —
-  // a real corner. Doppler speed/course live on the raw `data` rows, not on
-  // gpsPoints (reconstructFilteredGps reads them from data[idxA]/data[idxB]).
-  data[0].speedKts = 3;
-  data[0].course = 90;
-  data[10].speedKts = 3;
-  data[10].course = 0;
-
+  // Anchor A heading due east; anchor B arrives heading due north — a real
+  // corner. The velocities are the filter's (velE/velN on the gpsPoints).
   const gpsPoints = [
-    { lat: 51.5, lon: -0.1, origIdx: 0 },
-    { lat: 51.5005, lon: -0.0997, origIdx: 10 },
+    { lat: 51.5, lon: -0.1, origIdx: 0, velE: 1.5, velN: 0 },
+    { lat: 51.5005, lon: -0.0997, origIdx: 10, velE: 0, velN: 1.5 },
   ];
   GpsPipeline.reconstructFilteredGps(mockAnalyzer, data, gpsPoints, 10.0);
   const fg = mockAnalyzer.filteredGps;
@@ -681,11 +668,11 @@ assert(!GpsPipeline.isImpossibleJump(0, 1), 'no movement is kept');
   );
 }
 
-// 5e3. reconstructFilteredGps — falls back to plain lerp when speed/course are missing
+// 5e3. reconstructFilteredGps — falls back to plain lerp when the anchors carry no velocity
 {
   const mockAnalyzer = { filteredGps: null };
   const data = [];
-  for (let i = 0; i <= 10; i++) data.push({ time: i }); // no speedKts/course fields at all
+  for (let i = 0; i <= 10; i++) data.push({ time: i });
   const gpsPoints = [
     { lat: 51.5, lon: -0.1, origIdx: 0 },
     { lat: 51.5005, lon: -0.0997, origIdx: 10 },
@@ -699,13 +686,13 @@ assert(!GpsPipeline.isImpossibleJump(0, 1), 'no movement is kept');
     mid.lat,
     lerpMidLat,
     1e-12,
-    'reconstructFilteredGps: no speed/course data -> exact plain lerp (unchanged fallback behaviour)',
+    'reconstructFilteredGps: no velocity -> exact plain lerp (lat)',
   );
   assertClose(
     mid.lon,
     lerpMidLon,
     1e-12,
-    'reconstructFilteredGps: no speed/course -> exact plain lerp (lon)',
+    'reconstructFilteredGps: no velocity -> exact plain lerp (lon)',
   );
 }
 
@@ -722,13 +709,8 @@ assert(!GpsPipeline.isImpossibleJump(0, 1), 'no movement is kept');
   const mockAnalyzer = { filteredGps: null };
   const data = [];
   for (let i = 0; i <= 8; i++) data.push({ time: i * 0.1 });
-  data[0].speedKts = 0;
-  data[0].course = 0;
-  data[8].speedKts = 0;
-  data[8].course = 0;
-
-  const cA = { lat: 51.5, lon: -0.1 };
-  const cB = { lat: 51.5 + 2.16 / 111320, lon: -0.1 }; // ~2.16 m north over 0.8s -> avg 2.7 m/s
+  const cA = { lat: 51.5, lon: -0.1, velE: 0, velN: 0 };
+  const cB = { lat: 51.5 + 2.16 / 111320, lon: -0.1, velE: 0, velN: 0 }; // ~2.16 m north over 0.8s -> avg 2.7 m/s
   const gpsPoints = [
     { ...cA, origIdx: 0 },
     { ...cB, origIdx: 8 },

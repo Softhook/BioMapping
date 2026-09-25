@@ -385,8 +385,82 @@ test('a real teleport restarts the track instead of rejecting it forever', () =>
   }
   const res = GpsCvKalman.run(pts);
   assert.strictEqual(res.resets, 1);
-  for (let t = 40; t < 60; t++) {
-    assert.ok(errM(res.points[t], 500 + 1.4 * t, 0) < 3);
+  // The replayed stretch is not counted twice: one Doppler reading per fix.
+  assert.strictEqual(res.velUsed + res.velRejected, pts.length);
+  // Drawn from the moment of the jump, not RESET_AFTER_S later.
+  for (let t = 30; t < 60; t++) {
+    assert.ok(
+      errM(res.points[t], 500 + 1.4 * t, 0) < 3,
+      `t=${t}: ${errM(res.points[t], 500 + 1.4 * t, 0).toFixed(1)} m off`,
+    );
+  }
+});
+
+/** 10 Hz walk east at 1.4 m/s, hAcc 1 m; `northAt(t)` gives the fix's
+ * north offset and `skip(t)` drops fixes (a signal gap). */
+function walk10Hz(seconds, northAt, skip = () => false) {
+  const pts = [];
+  for (let k = 0; k < seconds * 10; k++) {
+    const t = k / 10;
+    if (skip(t)) continue;
+    pts.push(fix(t, 1.4 * t, northAt(t), { hacc: 1, ...doppler(1.4, 0) }));
+  }
+  return pts;
+}
+const isBadFix = (t) => Math.abs(t - 30) < 0.01;
+
+test('one bad fix just before a signal gap is skipped, not restarted on', () => {
+  // 40 m off at t=30, then nothing until t=45 (e.g. walking indoors).
+  const pts = walk10Hz(
+    60,
+    (t) => (isBadFix(t) ? 40 : 0),
+    (t) => t > 30.05 && t < 45,
+  );
+  const res = GpsCvKalman.run(pts);
+  assert.strictEqual(res.resets, 0);
+  for (const p of res.points) {
+    assert.ok(errM(p, 1.4 * p.time, 0) < 3, `t=${p.time}`);
+  }
+});
+
+test('a bad fix, a short gap, then a real jump: the jump is followed, the bad fix is not', () => {
+  // Bad fix (40 m south) at t=30, 2 s gap, then the track resumes 60 m north.
+  const pts = walk10Hz(
+    90,
+    (t) => (isBadFix(t) ? -40 : t >= 32 ? 60 : 0),
+    (t) => t > 30.05 && t < 32,
+  );
+  const res = GpsCvKalman.run(pts);
+  assert.strictEqual(res.resets, 1);
+  for (const p of res.points) {
+    const n = p.time >= 32 ? 60 : 0;
+    assert.ok(
+      errM(p, 1.4 * p.time, n) < 3,
+      `t=${p.time}: ${errM(p, 1.4 * p.time, n).toFixed(1)} m off`,
+    );
+  }
+});
+
+test('a few seconds of multipath at 10 Hz is skipped, not drawn after a restart', () => {
+  const noise = rng(7);
+  const pts = [];
+  for (let k = 0; k < 600; k++) {
+    const t = k / 10;
+    // 30 m sideways for 3 s — a reflection off a building. hAcc 1 m as on
+    // the u-blox walks, so the burst is well outside the outlier check.
+    const off = t >= 30 && t < 33 ? 30 : 0;
+    pts.push(
+      fix(t, 1.4 * t + noise(), off + noise(), { hacc: 1, ...doppler(1.4, 0) }),
+    );
+  }
+  const res = GpsCvKalman.run(pts);
+  assert.strictEqual(res.resets, 0);
+  for (let k = 0; k < 600; k++) {
+    const t = k / 10;
+    assert.ok(
+      errM(res.points[k], 1.4 * t, 0) < 3,
+      `t=${t}: ${errM(res.points[k], 1.4 * t, 0).toFixed(1)} m off`,
+    );
   }
 });
 
