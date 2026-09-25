@@ -53,6 +53,15 @@ int furi_hal_mock_acquire_count(void);
 int  furi_hal_mock_tx_count(void);
 void furi_hal_mock_reset_tx_count(void);
 
+// Test-observable TX log: the bytes of each furi_hal_serial_tx() call since
+// the last reset, plus the baud from the most recent furi_hal_serial_init()
+// at the time of the call. Up to 64 calls, 64 bytes each (longer calls are
+// truncated). Use to assert on the exact packet sent and the baud it went
+// out at, e.g. the UBX-RXM-PMREQ sleep command.
+void           furi_hal_mock_tx_log_reset(void);
+int            furi_hal_mock_tx_log_count(void);
+const uint8_t* furi_hal_mock_tx_log_get(int i, size_t* out_len, uint32_t* out_baud);
+
 // Queues a response: the next furi_hal_serial_tx() call whose bytes
 // exactly match `trigger` synchronously feeds `response` back in as if
 // received, before that TX call returns, then this entry is consumed.
@@ -68,6 +77,15 @@ void furi_hal_mock_reset_tx_count(void);
 void furi_hal_mock_arm_response_for_tx(
     const uint8_t* trigger, size_t trigger_len,
     const uint8_t* response, size_t response_len);
+
+// Drops every queued response. Only the queue's front entry is ever
+// matched, so an entry a previous test deliberately left unconsumed would
+// otherwise block every later one — call this before arming.
+void furi_hal_mock_clear_tx_responses(void);
+
+// Number of armed responses not yet delivered. 0 after the code under test
+// runs proves the response actually reached it.
+int  furi_hal_mock_tx_responses_pending(void);
 
 // ── I2C — gsr_sensor.c's ADS1115 transport ──────────────────────────────
 // Content doesn't matter — gsr_sensor.c only ever passes

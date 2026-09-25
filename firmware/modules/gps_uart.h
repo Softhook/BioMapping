@@ -91,4 +91,7 @@ const char* gps_uart_get_chip_id(const GpsUart* gps);
 // Put the GPS module into its lowest-power standby/sleep state.
 // Acquires USART1 briefly — does NOT require a full GpsUart allocation.
 // Safe to call even when no module is connected (no-op on acquire failure).
+// M10Q: wakes the module and waits for it to talk (up to ~1.5 s — the full
+// wait only when no module answers) before sending the standby command, so
+// the command isn't lost while it restarts — see ubx_wake() in gps_uart.c.
 void      gps_uart_standby(void);

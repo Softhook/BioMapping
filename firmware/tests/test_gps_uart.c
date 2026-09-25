@@ -550,6 +550,171 @@ static void test_standby_acquires_and_releases(void) {
     printf("  -> Pass\n");
 }
 
+// ── UBX-RXM-PMREQ sleep command vs the u-blox M10 spec ──────────────────
+// Checks the bytes gps_uart.c actually transmits, field by field, against
+// docs/datasheets/u-blox-M10-SPG-5.10_InterfaceDescription_UBX-21035062.pdf
+// §3.16.6 and the SAM-M10Q integration manual §3.5.3.3 ("The 'force' flag
+// must be set in UBX-RXM-PMREQ to enter software standby mode"). Meshtastic's
+// M10 driver sends the same flags/wakeupSources (src/gps/ubx.h,
+// _message_PMREQ_10). This proves the packet is what the spec asks for; it
+// can NOT prove the real module sleeps — that needs a current measurement.
+#define PMREQ_FLAG_BACKUP      0x02u
+#define PMREQ_FLAG_FORCE       0x04u
+#define PMREQ_WAKE_UARTRX      0x08u
+#define PMREQ_WAKE_DEFINED     (0x08u | 0x20u | 0x40u | 0x80u) // uartrx/extint0/extint1/spics
+
+static uint32_t le32(const uint8_t* p) {
+    return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
+}
+
+// Returns the TX-log index of the last UBX-RXM-PMREQ (class 0x02, id 0x41)
+// packet, or -1 if none was sent.
+static int find_last_pmreq(void) {
+    int found = -1;
+    for(int i = 0; i < furi_hal_mock_tx_log_count(); i++) {
+        size_t len;
+        const uint8_t* d = furi_hal_mock_tx_log_get(i, &len, NULL);
+        if(len >= 4 && d[0] == 0xB5 && d[1] == 0x62 && d[2] == 0x02 && d[3] == 0x41) found = i;
+    }
+    return found;
+}
+
+// Asserts every field of the PMREQ at TX-log index `idx` against the spec.
+static void assert_pmreq_matches_m10_spec(int idx) {
+    size_t len;
+    const uint8_t* d = furi_hal_mock_tx_log_get(idx, &len, NULL);
+
+    // Frame: 6-byte header + 16-byte payload (version-0 form) + 2 checksum.
+    assert(len == 24);
+    assert((d[4] | (d[5] << 8)) == 16);
+
+    // Fletcher-8 over class..payload, computed independently of gps_uart.c.
+    uint8_t a = 0, b = 0;
+    for(size_t i = 2; i < len - 2; i++) {
+        a = (uint8_t)(a + d[i]);
+        b = (uint8_t)(b + a);
+    }
+    assert(d[len - 2] == a && d[len - 1] == b);
+
+    const uint8_t* p = d + 6;
+    uint32_t duration = le32(p + 4);
+    uint32_t flags    = le32(p + 8);
+    uint32_t wake     = le32(p + 12);
+    printf("  PMREQ: version=%u duration=%u flags=0x%02X wakeupSources=0x%02X\n",
+           (unsigned)p[0], (unsigned)duration, (unsigned)flags, (unsigned)wake);
+
+    assert(p[0] == 0x00);                        // message version
+    assert(p[1] == 0 && p[2] == 0 && p[3] == 0); // reserved
+    assert(duration == 0);                       // 0 = sleep until a wake pin fires
+    assert(flags & PMREQ_FLAG_BACKUP);           // enter backup/standby
+    assert(flags & PMREQ_FLAG_FORCE);            // required on M10 (integration manual §3.5.3.3)
+    // duration 0 needs a real wake source, or only RESET_N/power-off wakes it.
+    assert(wake & PMREQ_WAKE_UARTRX);
+    assert((wake & ~PMREQ_WAKE_DEFINED) == 0);   // no undefined bits
+}
+
+// gps_uart_free() is the end of every GPS session. The sleep command must
+// be spec-correct, go out at the baud the module is actually running at
+// (115200 — gps_uart_configure() switched both sides), and be the LAST
+// byte sent: any later TX edge on the module's RX pin would wake it again.
+static void test_free_sends_spec_correct_sleep_command(void) {
+    printf("Running test_free_sends_spec_correct_sleep_command...\n");
+    FuriMessageQueue queue = {0};
+    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian);
+    assert(g != NULL);
+
+    furi_hal_mock_tx_log_reset();
+    gps_uart_free(g);
+
+    int idx = find_last_pmreq();
+    assert(idx >= 0);
+    assert(idx == furi_hal_mock_tx_log_count() - 1); // nothing sent after it
+
+    uint32_t baud;
+    furi_hal_mock_tx_log_get(idx, NULL, &baud);
+    printf("  sent at %u baud\n", (unsigned)baud);
+    assert(baud == GPS_BAUD_RATE_FAST);
+
+    assert_pmreq_matches_m10_spec(idx);
+    printf("  -> Pass\n");
+}
+
+// gps_uart_standby() (entering GSR-only mode) wakes the module, waits for
+// it to answer (ubx_wake() in gps_uart.c), then sends the standby command
+// at 9600. The mock module answers the wake byte (0xFF) with `reply` — NULL
+// for silence. Asserts the wake byte goes first, and the command is
+// spec-correct, sent at 9600, and the last byte sent.
+static void run_standby_case(const uint8_t* reply, size_t reply_len) {
+    static const uint8_t wake_byte[] = {0xFF};
+    furi_hal_mock_clear_tx_responses(); // test_chipid_capture leaves one unconsumed by design
+    if(reply) furi_hal_mock_arm_response_for_tx(wake_byte, sizeof(wake_byte), reply, reply_len);
+
+    furi_hal_mock_tx_log_reset();
+    gps_uart_standby();
+    assert(furi_hal_mock_acquire_count() == 0);
+    assert(furi_hal_mock_tx_responses_pending() == 0); // the reply really was delivered
+
+    size_t len;
+    uint32_t baud;
+    const uint8_t* first = furi_hal_mock_tx_log_get(0, &len, &baud);
+    assert(len == 1 && first[0] == 0xFF && baud == GPS_BAUD_RATE);
+
+    int idx = find_last_pmreq();
+    assert(idx >= 0);
+    assert(idx == furi_hal_mock_tx_log_count() - 1); // nothing sent after it
+    furi_hal_mock_tx_log_get(idx, NULL, &baud);
+    assert(baud == GPS_BAUD_RATE);
+    assert_pmreq_matches_m10_spec(idx);
+}
+
+// Module asleep (or freshly powered on): it restarts at its 9600 default
+// and starts sending NMEA.
+static void test_standby_module_answers(void) {
+    printf("Running test_standby_module_answers...\n");
+    static const char boot[] = "$GNTXT,01,01,02,u-blox AG - www.u-blox.com*4E\r\n";
+    run_standby_case((const uint8_t*)boot, sizeof(boot) - 1);
+    printf("  -> Pass\n");
+}
+
+// No reply (no module attached, or slower to boot than the timeout): the
+// wait must still end and the command still go out.
+static void test_standby_no_reply(void) {
+    printf("Running test_standby_no_reply...\n");
+    run_standby_case(NULL, 0);
+    printf("  -> Pass\n");
+}
+
+// Session start: the wake byte must go out before $PUBX,41, both at 9600,
+// and bytes the module sends during the wait must not leak into the NMEA
+// parser as a failed sentence.
+static void test_alloc_wakes_before_configuring(void) {
+    printf("Running test_alloc_wakes_before_configuring...\n");
+    static const uint8_t wake_byte[] = {0xFF};
+    static const char boot[] = "$GNTXT,01,01,02,u-blox AG - www.u-blox.com*4E\r\n";
+    furi_hal_mock_clear_tx_responses();
+    furi_hal_mock_arm_response_for_tx(wake_byte, sizeof(wake_byte),
+                                      (const uint8_t*)boot, sizeof(boot) - 1);
+    furi_hal_mock_tx_log_reset();
+
+    FuriMessageQueue queue = {0};
+    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian);
+    assert(g != NULL);
+    assert(furi_hal_mock_tx_responses_pending() == 0);
+
+    size_t len;
+    uint32_t baud;
+    const uint8_t* d = furi_hal_mock_tx_log_get(0, &len, &baud);
+    assert(len == 1 && d[0] == 0xFF && baud == GPS_BAUD_RATE);
+    d = furi_hal_mock_tx_log_get(1, &len, &baud);
+    assert(len > 9 && memcmp(d, "$PUBX,41,", 9) == 0 && baud == GPS_BAUD_RATE);
+
+    gps_uart_process_rx(g);
+    assert(gps_uart_get_nmea_fail_count(g) == 0);
+
+    gps_uart_free(g);
+    printf("  -> Pass\n");
+}
+
 // Unrecognised/garbage input must not crash and must not corrupt status —
 // gps_uart_parse_line()'s dispatch switch defaults to a no-op.
 static void test_malformed_line_ignored(void) {
@@ -846,6 +1011,10 @@ int main(void) {
     test_nmea_watchdog_reconfigures();
     test_hot_start_sends_command();
     test_standby_acquires_and_releases();
+    test_free_sends_spec_correct_sleep_command();
+    test_standby_module_answers();
+    test_standby_no_reply();
+    test_alloc_wakes_before_configuring();
     test_malformed_line_ignored();
     test_nav_model_allocation();
     test_pubx_hacc_parsing();

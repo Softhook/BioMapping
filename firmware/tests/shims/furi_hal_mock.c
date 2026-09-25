@@ -20,6 +20,22 @@ struct FuriHalSerialHandle {
 static struct FuriHalSerialHandle g_handle;
 static int g_acquired = 0;
 static int g_tx_count = 0;
+static uint32_t g_baud = 0; // last furi_hal_serial_init() baud — stamped on each TX log entry
+
+// ── TX log ──────────────────────────────────────────────────────────────
+// Records the bytes and the baud rate in effect for each furi_hal_serial_tx()
+// call since the last reset, so a test can assert on WHAT was sent and at
+// WHICH baud — not just that something was. Bytes beyond TX_LOG_MAX_BYTES
+// per call are truncated (every UBX packet this app sends fits); calls
+// beyond TX_LOG_MAX_ENTRIES are counted but not stored.
+#define TX_LOG_MAX_ENTRIES 64
+#define TX_LOG_MAX_BYTES   64
+static struct {
+    uint8_t  data[TX_LOG_MAX_BYTES];
+    size_t   len;
+    uint32_t baud;
+} g_tx_log[TX_LOG_MAX_ENTRIES];
+static int g_tx_log_count = 0;
 
 // ── TX-triggered response injection ─────────────────────────────────────
 // furi_hal_mock_feed_byte/_string() deliver synchronously, which is fine
@@ -66,6 +82,14 @@ void furi_hal_mock_arm_response_for_tx(
     g_tx_queue[i].response_len = response_len;
 }
 
+void furi_hal_mock_clear_tx_responses(void) {
+    g_tx_queue_count = 0;
+}
+
+int furi_hal_mock_tx_responses_pending(void) {
+    return (int)g_tx_queue_count;
+}
+
 FuriHalSerialHandle* furi_hal_serial_control_acquire(FuriHalSerialId id) {
     (void)id;
     if(g_acquired) return NULL;
@@ -83,7 +107,7 @@ void furi_hal_serial_control_release(FuriHalSerialHandle* handle) {
 
 void furi_hal_serial_init(FuriHalSerialHandle* handle, uint32_t baud) {
     (void)handle;
-    (void)baud;
+    g_baud = baud;
 }
 
 void furi_hal_serial_deinit(FuriHalSerialHandle* handle) {
@@ -112,6 +136,13 @@ uint8_t furi_hal_serial_async_rx(FuriHalSerialHandle* handle) {
 void furi_hal_serial_tx(FuriHalSerialHandle* handle, const uint8_t* data, size_t len) {
     (void)handle;
     g_tx_count++;
+    if(g_tx_log_count < TX_LOG_MAX_ENTRIES) {
+        size_t n = len < TX_LOG_MAX_BYTES ? len : TX_LOG_MAX_BYTES;
+        memcpy(g_tx_log[g_tx_log_count].data, data, n);
+        g_tx_log[g_tx_log_count].len = n;
+        g_tx_log[g_tx_log_count].baud = g_baud;
+    }
+    g_tx_log_count++;
     // Only the front of the queue is ever checked — a non-matching TX
     // (e.g. an unrelated CFG-VALSET packet sent before the one a test
     // armed a response for) leaves the queue untouched, exactly as a
@@ -152,6 +183,21 @@ int furi_hal_mock_tx_count(void) {
 
 void furi_hal_mock_reset_tx_count(void) {
     g_tx_count = 0;
+}
+
+void furi_hal_mock_tx_log_reset(void) {
+    g_tx_log_count = 0;
+}
+
+int furi_hal_mock_tx_log_count(void) {
+    return g_tx_log_count < TX_LOG_MAX_ENTRIES ? g_tx_log_count : TX_LOG_MAX_ENTRIES;
+}
+
+const uint8_t* furi_hal_mock_tx_log_get(int i, size_t* out_len, uint32_t* out_baud) {
+    furi_check(i >= 0 && i < furi_hal_mock_tx_log_count(), "furi_hal_mock: tx log index out of range");
+    if(out_len) *out_len = g_tx_log[i].len;
+    if(out_baud) *out_baud = g_tx_log[i].baud;
+    return g_tx_log[i].data;
 }
 
 // ── I2C — simulated ADS1115 ─────────────────────────────────────────────

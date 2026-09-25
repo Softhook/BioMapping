@@ -425,16 +425,13 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
 //
 // An earlier version of this tried to catch the chip ID opportunistically
 // from the module's $..TXT NMEA boot banner (u-blox M10 ROM 5.10 Release
-// Notes §2.3.1 documents "CHIPID=..." appearing there). Real-hardware
-// testing showed that never worked on this app's wake path: the module is
-// woken from UBX backup mode (a single byte on RX, see ubx_wake()), not a
-// true power-on reset, and three separate capture attempts — including a
-// genuine full power cycle — only ever saw baud-mismatched noise in the
-// pre-configure window, never a recognisable NMEA line. The boot banner,
-// if this module even emits one on this wake path, most likely happens
-// before the app is even running (the module is powered continuously off
-// the Flipper's 3V3 rail from well before the app is launched) — nothing
-// is listening yet at that point. Binary UBX-SEC-UNIQID below sidesteps
+// Notes §2.3.1 documents "CHIPID=..." appearing there). Three real-hardware
+// capture attempts — including a genuine full power cycle — only ever saw
+// baud-mismatched noise in the pre-configure window, never a recognisable
+// NMEA line. The banner is a one-time transient: after a power cycle it
+// most likely goes out before the app is running (the module is powered
+// continuously off the Flipper's 3V3 rail), and ubx_wake() consumes
+// whatever arrives while it waits for the module. Binary UBX-SEC-UNIQID below sidesteps
 // this entirely: a direct request/response that doesn't depend on catching
 // a one-time transient at exactly the right moment.
 //
@@ -455,13 +452,68 @@ static void ubx_tx(GpsUart* g, const uint8_t* data, size_t len) {
     furi_delay_ms(100);
 }
 
-// Wake the M10Q from Software Standby: any byte on RX brings it back to
-// full power. Takes a raw handle (not GpsUart*) — also called from
-// gps_uart_standby() before the module is fully alloc'd/torn down.
-static void ubx_wake(FuriHalSerialHandle* handle) {
+// ── Wake from software standby and wait until the module is listening ──
+// ubx_rxm_pmreq_standby (below) sets wakeupSources = uartrx, so any edge on
+// the module's RX pin wakes it. Standby clears the module's RAM
+// configuration (SAM-M10Q integration manual §3.5.3.3), so waking is a
+// restart: the module comes back at its 9600 baud default and is deaf until
+// it has booted. u-blox publish no boot time, so rather than a fixed delay
+// this waits for the first byte the module sends — its first output means
+// its UART is up. A module that was already awake answers within one NMEA
+// epoch. GPS_WAKE_TIMEOUT_MS covers boot plus one 1 Hz epoch at the
+// module's default output rate; it only runs out when no module answers.
+//
+// Bounded by iteration count AND elapsed ticks: the host test shim's tick
+// never advances on its own (see ubx_find_sync()), and on hardware
+// furi_delay_ms(1) can take 2+ ms, so the tick bound is the real one there.
+//
+// Takes a raw handle (not GpsUart*) — also called from gps_uart_standby(),
+// which has no GpsUart. Caller must have initialised the serial port at
+// GPS_BAUD_RATE and must NOT have async RX running: this installs its own
+// RX callback for the wait and stops it before returning. Returns true if
+// the module answered.
+#define GPS_WAKE_TIMEOUT_MS 1500
+
+// Written from the RX ISR, read by ubx_wake() on the main thread.
+static _Atomic bool     g_wake_rx_seen;
+static _Atomic uint32_t g_wake_first_byte_tick;
+
+static void ubx_wake_rx_cb(FuriHalSerialHandle* handle, FuriHalSerialRxEvent event, void* context) {
+    UNUSED(context);
+    if(event != FuriHalSerialRxEventData) return;
+    furi_hal_serial_async_rx(handle); // read to clear the byte; its value doesn't matter
+    if(!g_wake_rx_seen) {
+        g_wake_first_byte_tick = furi_get_tick();
+        g_wake_rx_seen = true;
+    }
+}
+
+static bool ubx_wake(FuriHalSerialHandle* handle) {
+    g_wake_rx_seen = false;
+    furi_hal_serial_async_rx_start(handle, ubx_wake_rx_cb, NULL, false);
+
+    uint32_t start = furi_get_tick();
     uint8_t dummy = 0xFF;
     furi_hal_serial_tx(handle, &dummy, 1);
-    furi_delay_ms(100);
+
+    uint32_t timeout_ticks = (GPS_WAKE_TIMEOUT_MS * furi_kernel_get_tick_frequency()) / 1000;
+    for(uint32_t i = 0; i < GPS_WAKE_TIMEOUT_MS && !g_wake_rx_seen &&
+                        (furi_get_tick() - start) < timeout_ticks;
+        i++) {
+        furi_delay_ms(1);
+    }
+    furi_hal_serial_async_rx_stop(handle);
+
+    // Hardware diagnostic: when the module was asleep, this is its restart
+    // time (near 0 when it was already awake).
+    bool answered = g_wake_rx_seen;
+    if(answered) {
+        FURI_LOG_I("GpsUart", "Wake: first byte after %lu ms",
+                   (unsigned long)(g_wake_first_byte_tick - start));
+    } else {
+        FURI_LOG_I("GpsUart", "Wake: no reply within %d ms", GPS_WAKE_TIMEOUT_MS);
+    }
+    return answered;
 }
 
 // ── UBX Fletcher-8 checksum (spec §3.4) — shared by outgoing packet
@@ -848,10 +900,13 @@ static const uint8_t ubx_cfg_assistnow_autonomous[] = {
     0xB5, 0x62, 0x06, 0x8A, 0x09, 0x00, 0x00, 0x01, 0x00, 0x00, 0x01, 0x00, 0x23, 0x10, 0x01, 0xCF, 0xC0
 };
 static const uint8_t ubx_rxm_pmreq_standby[] = {
-    // UBX-RXM-PMREQ sleep packet: duration=0 (infinite), flags=0x02 (backup
-    // bit set, force bit clear), wakeupSources=0x01. Woken in practice by
-    // ubx_wake()'s single RX byte.
-    0xB5, 0x62, 0x02, 0x41, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x56, 0x2F
+    // UBX-RXM-PMREQ software standby (Interface Description §3.16.6):
+    // duration=0 (until woken), flags=0x06 (backup + force — force is
+    // required on M10, integration manual §3.5.3.3), wakeupSources=0x08
+    // (uartrx — see ubx_wake()). Must be the last byte sent before the
+    // port is released: any later TX edge wakes the module again.
+    // tests/test_gps_uart.c checks every field against the spec.
+    0xB5, 0x62, 0x02, 0x41, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, 0x61, 0x6B
 };
 static const uint8_t ubx_cfg_rst_hot[] = {
     0xB5, 0x62, 0x06, 0x04, 0x04, 0x00, 0x00, 0x00, 0x02, 0x00, 0x10, 0x68
@@ -952,7 +1007,8 @@ GpsUart* gps_uart_alloc(FuriMessageQueue* event_queue, NotificationApp* notifica
     if(g->serial_handle) {
         furi_hal_serial_init(g->serial_handle, GPS_BAUD_RATE);
 #if GPS_MODULE == GPS_MODULE_M10Q
-        // Wake up module in case it was in Software Standby
+        // Wake the module from software standby and wait until it is
+        // listening before gps_uart_configure() sends $PUBX,41 at 9600.
         ubx_wake(g->serial_handle);
 #endif
         furi_hal_serial_async_rx_start(g->serial_handle, gps_uart_irq_cb, g, false);
@@ -1272,7 +1328,13 @@ void gps_uart_standby(void) {
     if(handle) {
         furi_hal_serial_init(handle, GPS_BAUD_RATE);
 #if GPS_MODULE == GPS_MODULE_M10Q
-        // Wake from possible standby, then send Software Standby command
+        // Sending anything wakes a sleeping module, so wake it deliberately
+        // and wait until it is listening (see ubx_wake()), then send the
+        // standby command at 9600. A module left awake at 115200 by a
+        // crashed session won't understand it — it stays awake until the
+        // next GPS session ends, costing battery only. The command is the
+        // last byte sent; the 100 ms lets it finish shifting out before the
+        // port is released.
         ubx_wake(handle);
         furi_hal_serial_tx(handle, ubx_rxm_pmreq_standby,
                            sizeof(ubx_rxm_pmreq_standby));
