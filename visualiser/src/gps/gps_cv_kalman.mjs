@@ -483,7 +483,7 @@ export const GpsCvKalman = {
 
 /** Whether a fix carries a Doppler speed (older walks have none at stops). */
 function hasSpeed(pt) {
-  return pt.speedKts >= 0;
+  return Number.isFinite(pt.speedKts) && pt.speedKts >= 0;
 }
 
 /**

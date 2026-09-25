@@ -195,17 +195,13 @@ export const GpsPipeline = {
    * Speed-ceiling multiplier for the gap between two raw-data rows, keyed by
    * whether both ends were confidently pulled onto mapped road geometry
    * (see SNAP_GAP_SPEED_MULTIPLIER above). `snappedGps` is analyzer.snappedGps
-   * — a Map/object from raw row index to `{ alpha, ... }`, or null when
+   * — an array indexed by raw row, each entry `{ alpha, ... }`, or null when
    * road-snap isn't enabled.
    */
   gapSpeedMultiplier(snappedGps, origIdxA, origIdxB) {
     if (!snappedGps) return 1;
-    const sgA = snappedGps.get
-      ? snappedGps.get(origIdxA)
-      : snappedGps[origIdxA];
-    const sgB = snappedGps.get
-      ? snappedGps.get(origIdxB)
-      : snappedGps[origIdxB];
+    const sgA = snappedGps[origIdxA];
+    const sgB = snappedGps[origIdxB];
     return sgA?.alpha > 0 && sgB?.alpha > 0 ? SNAP_GAP_SPEED_MULTIPLIER : 1;
   },
 
