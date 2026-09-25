@@ -33,6 +33,28 @@
  * the track (a real jump it cannot explain, e.g. a re-acquisition after a
  * long outage), so it restarts on the current fix. The smoother runs
  * separately on each stretch between restarts.
+ *
+ * Stops are pinned before filtering: the fixes of a stop are all moved to
+ * its mean position. The chip's own position drifts several metres over a
+ * long stop while its speed stays near zero, and the filter alone reads that
+ * slow drift as slow movement (biomap_032b: a 3½-minute stop drew a 10 m
+ * loop). Treating the zero speed as a tight velocity measurement instead
+ * still left a 4 m line. The stop rule follows the receiver's own "static
+ * hold" (u-blox M10 integration manual §2.2.5), done here afterwards so the
+ * dot is the mean of the whole stop rather than wherever the stop began, and
+ * the raw recording keeps its wander:
+ *   - a stop starts when the Doppler speed is ≤ STOP_SPEED_KTS, and only
+ *     ends when it rises above STOP_EXIT_KTS (2×, as the chip does) — so a
+ *     shuffle does not split one stop into two dots;
+ *   - it also ends when the fixes move more than STOP_MOVE_M within
+ *     STOP_MOVE_WINDOW_S (walking off slower than the chip's speed shows:
+ *     032b's first 30 s), cut back to where that movement began, or a fix
+ *     strays STOP_MAX_DIST_M from the stop's mean (a safety net);
+ *   - only stops lasting STOP_MIN_S are pinned (the chip's "wait" stage), so
+ *     slow walking is never pinned in short steps.
+ * Values chosen on the u-blox walks: none changed the street distance;
+ * exiting at 3× pinned real walking, 1.5 m / 5 s split real stops.
+ * Fixes without a speed are never pinned.
  */
 
 import { GeoUtils } from './geo_utils.mjs';
@@ -58,6 +80,17 @@ export const GpsCvKalman = {
   RESET_AFTER: 5,
   /** Time (s) over which consecutive fixes' errors count as one — see header. */
   NOISE_CORR_S: 3,
+  /** Doppler speed (knots, ≈ 0.26 m/s) at or below which a fix counts as stopped. */
+  STOP_SPEED_KTS: 0.5,
+  /** Shortest stop (s, first to last fix) that is pinned to one position. */
+  STOP_MIN_S: 5,
+  /** Once stopped, the speed (knots) the chip must exceed to end the stop. */
+  STOP_EXIT_KTS: 1.0,
+  /** A fix further than this (m) from the stop's mean position ends the stop. */
+  STOP_MAX_DIST_M: 10,
+  /** Moving more than STOP_MOVE_M (m) within STOP_MOVE_WINDOW_S (s) ends a stop. */
+  STOP_MOVE_M: 2,
+  STOP_MOVE_WINDOW_S: 5,
 
   /**
    * Position noise variance (m², per axis) for fix i: the shared hAcc/DOP
@@ -88,12 +121,19 @@ export const GpsCvKalman = {
    * tests and diagnostics.
    *
    * @returns {{points:Array, posRejected:number, velRejected:number,
-   *   velUsed:number, resets:number}}
+   *   velUsed:number, resets:number, stopsPinned:number}}
    */
   run(points, { maxSpeed = 3.0, R_m2 = 10 } = {}) {
     const n = points ? points.length : 0;
-    const stats = { posRejected: 0, velRejected: 0, velUsed: 0, resets: 0 };
+    const stats = {
+      posRejected: 0,
+      velRejected: 0,
+      velUsed: 0,
+      resets: 0,
+      stopsPinned: 0,
+    };
     if (n < 2) return { points, ...stats };
+    points = this._pinStops(points, stats);
 
     const q = this.ACCEL_PSD_WALK * (maxSpeed / 3.0) ** 2;
     const lat0 = points[0].lat;
@@ -171,6 +211,70 @@ export const GpsCvKalman = {
       };
     }
     return { points: out, ...stats };
+  },
+
+  /**
+   * Copy of `points` with every stop (see header) moved to its mean
+   * position; returns `points` itself when there is none.
+   */
+  _pinStops(points, stats) {
+    const { degToMeterLat: mLat, degToMeterLon: mLon } =
+      GeoUtils.getGeodesicScale(points[0].lat);
+    const hasSpeed = (pt) => pt.speedKts >= 0;
+    let out = points;
+    let i = 0;
+    while (i < points.length) {
+      if (!(hasSpeed(points[i]) && points[i].speedKts <= this.STOP_SPEED_KTS)) {
+        i++;
+        continue;
+      }
+      // Stay stopped until the speed clearly rises, a fix strays from the
+      // stop, or the fixes move steadily (walking off slower than the chip's
+      // speed shows). The last ends the stop where that movement began.
+      let lat = points[i].lat;
+      let lon = points[i].lon;
+      let j = i + 1;
+      let end = -1;
+      let w = i; // first fix within STOP_MOVE_WINDOW_S of fix j
+      while (j < points.length) {
+        const pt = points[j];
+        if (!hasSpeed(pt) || pt.speedKts > this.STOP_EXIT_KTS) break;
+        const m = j - i;
+        const away = Math.hypot(
+          (pt.lon - lon / m) * mLon,
+          (pt.lat - lat / m) * mLat,
+        );
+        if (away > this.STOP_MAX_DIST_M) break;
+        while (pt.time - points[w].time > this.STOP_MOVE_WINDOW_S) w++;
+        const moved = Math.hypot(
+          (pt.lon - points[w].lon) * mLon,
+          (pt.lat - points[w].lat) * mLat,
+        );
+        if (moved > this.STOP_MOVE_M) {
+          end = w;
+          break;
+        }
+        lat += pt.lat;
+        lon += pt.lon;
+        j++;
+      }
+      if (end < 0) end = j;
+      if (end > i && points[end - 1].time - points[i].time >= this.STOP_MIN_S) {
+        lat = 0;
+        lon = 0;
+        for (let k = i; k < end; k++) {
+          lat += points[k].lat;
+          lon += points[k].lon;
+        }
+        lat /= end - i;
+        lon /= end - i;
+        if (out === points) out = points.slice();
+        for (let k = i; k < end; k++) out[k] = { ...points[k], lat, lon };
+        stats.stopsPinned++;
+      }
+      i = j;
+    }
+    return out;
   },
 
   /** Start (or restart) the track on fix `pt`, velocity from Doppler if any. */

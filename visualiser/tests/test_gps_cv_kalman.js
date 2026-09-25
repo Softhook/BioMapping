@@ -299,6 +299,64 @@ test('a stop holds still instead of wandering with the noise', () => {
   );
 });
 
+test('a long stop with slowly drifting fixes draws a dot, not a loop', () => {
+  // biomap_032b, 657–858 s: the chip's speed stayed under 0.3 m/s for
+  // 3½ minutes while its position wandered ±5 m at 10 fixes a second.
+  const pts = [];
+  for (let i = 0; i < 2000; i++) {
+    const t = i / 10;
+    const e = 5 * Math.sin((2 * Math.PI * t) / 200);
+    const n = 5 * Math.sin((2 * Math.PI * t) / 130);
+    pts.push(fix(t, e, n, { speedKts: 0.05 }));
+  }
+  const res = GpsCvKalman.run(pts);
+  assert.strictEqual(res.stopsPinned, 1);
+  const en = res.points.map(toEN);
+  let drawn = 0;
+  for (let i = 1; i < en.length; i++) {
+    drawn += Math.hypot(en[i].e - en[i - 1].e, en[i].n - en[i - 1].n);
+  }
+  assert.ok(drawn < 0.1, `drew ${drawn.toFixed(1)} m while standing still`);
+});
+
+test('a brief speed blip inside a stop does not split it', () => {
+  // Enter at ≤ 0.5 kt, leave only above 1.0 kt: a 0.8 kt shuffle stays put.
+  const pts = [];
+  for (let i = 0; i < 300; i++) {
+    const t = i / 10;
+    const kts = t >= 14 && t < 15 ? 0.8 : 0.05;
+    pts.push(fix(t, Math.sin(t / 5), Math.cos(t / 7), { speedKts: kts }));
+  }
+  assert.strictEqual(GpsCvKalman.run(pts).stopsPinned, 1);
+});
+
+test('walking off slower than the chip reports ends the stop where movement began', () => {
+  // biomap_032b, 0–30 s: the chip said ~0.25 m/s (under the stop
+  // threshold) while the fixes moved off at 0.5 m/s in a steady direction.
+  const pts = [];
+  for (let i = 0; i < 300; i++) {
+    const t = i / 10;
+    const n = t < 12 ? 0 : -0.5 * (t - 12);
+    pts.push(fix(t, 0, n, { speedKts: t < 12 ? 0.05 : 0.45 }));
+  }
+  const pinned = GpsCvKalman._pinStops(pts, { stopsPinned: 0 });
+  const lastPinned = pinned.findLastIndex((p, k) => p !== pts[k]);
+  assert.ok(
+    pts[lastPinned].time <= 12.5,
+    `stop held until ${pts[lastPinned].time} s; walking began at 12 s`,
+  );
+});
+
+test('fixes without a speed, or moving slowly, are never pinned', () => {
+  const pts = [];
+  for (let t = 0; t < 20; t++) pts.push(fix(t, 0.3 * t, 0, { speedKts: NaN }));
+  for (let t = 20; t < 40; t++) pts.push(fix(t, 0.3 * t, 0, doppler(0.3, 0)));
+  const res = GpsCvKalman.run(pts);
+  assert.strictEqual(res.stopsPinned, 0);
+  const travelled = toEN(res.points[39]).e - toEN(res.points[0]).e;
+  assert.ok(travelled > 9, `only ${travelled.toFixed(1)} m of 11.7 m walked`);
+});
+
 test('a right-angle corner is followed, not cut', () => {
   const noise = rng(5);
   const pts = [];

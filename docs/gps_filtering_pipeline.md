@@ -21,7 +21,7 @@ The sequence of filters applied to the track data is ordered as follows:
 graph TD
     A[Raw GPS CSV Row] --> B[HDOP Gate <br/> maxHdop = 3.0]
     B --> C[Fix-Type Gate <br/> minFixType = 2]
-    C --> CV[Constant-Velocity Kalman <br/> position + Doppler velocity, χ² gate, RTS smoother]
+    C --> CV[Constant-Velocity Kalman <br/> stop pinning, position + Doppler velocity, χ² gate, RTS smoother]
     CV --> G[Snap Correction <br/> soft pull toward pre-computed HMM road match]
     G --> J[Downsampling for Display <br/> downsample rate]
     J --> K[RDP Simplification <br/> Ramer-Douglas-Peucker]
@@ -67,8 +67,14 @@ The app's only GPS filter. It replaced an earlier chain (stop averaging, speed f
 - **Measurements**: each position fix (noise from `hacc_m`, else DOP — `GpsFilter.measurementVarianceM2`), and the chip's Doppler speed + course as a velocity (0.3 m/s along track, 15° across; below 0.6 m/s only "about this slow" is used, since course is noise there).
 - **Linked fixes**: the chip outputs 10 fixes/s already smoothed by its own filter, so their errors are shared. Position noise is scaled by `3 s / fix spacing` (Groves' variance inflation), so 3 s of fixes weigh as one independent fix.
 - **Outliers**: a 2-DOF χ² gate (11.83) skips a disagreeing measurement; after 5 rejected fixes in a row the track restarts on the next fix, and the smoother runs per stretch between restarts.
+- **Stops**: before filtering, the fixes of each stop are pinned to the stop's mean position, so a stop draws as one dot. Over a long stop the chip's position drifts several metres while its speed stays near zero, and the filter alone reads that as slow walking (biomap_032b: a 3½-minute stop drew a 10 m loop). The rule copies the receiver's own "static hold" (M10 integration manual §2.2.5), which we leave switched off in the chip so the recording keeps the raw wander and the dot can be the mean of the whole stop:
+  - starts at Doppler speed ≤ 0.5 kt (≈ 0.26 m/s), ends only above 1.0 kt (2×, as the chip does), so a shuffle doesn't split a stop;
+  - also ends if the fixes move more than 2 m within 5 s (walking off slower than the chip's speed shows), cut back to where the movement began, or stray more than 10 m from the stop's mean (safety net);
+  - only stops lasting 5 s or more are pinned (the chip's "wait" stage), so slow walking is never pinned in short steps.
+  
+  Chosen by A/B on the u-blox walks: none of the variants changed street distance; exiting at 3× pinned real walking and caused filter restarts; 1.5 m / 5 s split real stops; a tight zero-velocity measurement instead of pinning still left a 4 m line. Fixes without a speed are never pinned, so this only acts on recordings from 2026-09-25 on (§2.2).
 - **Smoother**: exact RTS backward pass — `tests/test_gps_cv_kalman.js` checks it against a brute-force least-squares solve of the same model.
-- **Evaluation** (2026-09-25, against the earlier chain, scoring the drawn path by its distance to the nearest mapped street): on the 31 u-blox walks median 3.17 m vs 3.32 m, worst 1 % 21.0 m vs 22.9 m, 0 vs 6 spikes. On the walks from the chip without `hacc_m` (L76K) it is slightly worse (median 4.70 m vs 4.51 m), which was accepted. Robust Student-t smoothing, Gauss-Markov error states and velocity-noise inflation were tried and not adopted.
+- **Evaluation** (2026-09-25, against the earlier chain, scoring the drawn path by its distance to the nearest mapped street): on the 31 u-blox walks median 3.17 m vs 3.32 m, worst 1 % 21.0 m vs 22.9 m, 0 vs 6 spikes. On the walks from the chip without `hacc_m` (L76K) it is slightly worse (median 4.70 m vs 4.51 m), which was accepted. Robust Student-t smoothing, Gauss-Markov error states and velocity-noise inflation were tried and not adopted. Later the same day, against the raw fixes on the 32 u-blox walks with cached street data: median 3.23 m vs 3.47 m, worst 10 % 11.0 m vs 13.1 m; stop pinning did not change these. Individual walks can still come out slightly worse than raw — on biomap_032b the chip's course read 12–23° off the fixes' own direction for 40 s and the filter cut a bend by up to 8 m.
 
 ### 3.3 HMM Map Matching — computed once, outside the render pipeline (`map_match.js` & `osm_enrichment.js`)
 3. **HMM-Viterbi Map Matcher (`MapMatcher.match`)**:
