@@ -125,7 +125,8 @@ typedef enum {
     "timestamp,gsr_raw,log_fill_bytes,log_fill_peak_bytes,log_overflow_count,log_flush_fail_count," \
     "pga_change_count,i2c_consec_fail,prealloc_ms\n"
 
-// rssi_815/868/915 = raw per-band RSSI peak from the most recent dwell.
+// rssi_815/868/915 = raw per-band RSSI, one instantaneous read per band from
+// the most recent ~10 Hz sweep (em_scan_rf_fast_sweep_snapshot, no dwell).
 #define BIOMAP_CSV_COLS_GPS_GSR_RF_PROD \
     "timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw,hacc_m," \
     "rssi_815,rssi_868,rssi_915\n"

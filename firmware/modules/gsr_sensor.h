@@ -182,8 +182,9 @@ uint32_t gsr_sensor_get_duplicate_gap_min_ticks(const GsrSensor* gsr);
 // ranges.  For diagnostics.
 uint32_t gsr_sensor_get_pga_change_count(const GsrSensor* gsr);
 
-// Update calibration parameters (thread-safe).  When active is true,
-// the raw counts are scaled by gain and offset-shifted before conductance conversion.
+// Update calibration parameters (thread-safe).  When active is true, the
+// conductance is corrected after the TIA conversion, in the nS domain:
+// nS = gain * nS + offset.
 void gsr_sensor_set_calibration(GsrSensor* gsr, bool active, float gain, float offset);
 
 // Enable/disable SubGHz RF RSSI sampling on the background worker thread

@@ -28,8 +28,8 @@
 //   raw           GSR value in nS for the gsr_raw column
 //   rf_rssi       NULL when RF scanning is inactive, otherwise an
 //                 EM_SCAN_NUM_FREQS-element snapshot appended as 3 extra
-//                 columns rssi_815,rssi_868,rssi_915 (raw per-band peak
-//                 from the last dwell)
+//                 columns rssi_815,rssi_868,rssi_915 (raw per-band RSSI,
+//                 one read per band from the last sweep)
 //   diag          RowDiag contention columns; only read when debug_fields
 //
 // Pure formatter: the caller writes `out` to the SD batch with ONE

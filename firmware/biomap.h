@@ -222,16 +222,20 @@ typedef struct {
 #define CAL_TARGET_47K   21276.6f   // 1e9 / 47000
 
 // Valid-range gates for each resistor during calibration (nS).
-// Each gate is independent — a device with gain as low as CAL_GAIN_MIN
-// (below) must still pass. Example for 47k at CAL_GAIN_MIN (0.2×):
-//   21276.6 × 0.2 ≈ 4255 nS  → lower gate must be ≤ 4255.
+// The fit's gain is a CORRECTION (target = gain × measured), so a device
+// needing gain g reads target / g: CAL_GAIN_MIN (0.2) means the device
+// reads 5× high, CAL_GAIN_MAX (5.0) means it reads 5× low.
 //
-// The gates below have not all been re-derived for a genuine 0.2×-gain
-// device: CAL_LO_GATE_47K (5000) sits above the 4255 the example needs,
-// and CAL_MID_GATE_LO (3000) above its 0.2×-derived floor of 2000.
-// CAL_MID_GATE_LO also doubles as the 470k gate's upper bound, so dropping
-// it below CAL_TARGET_470K (2127.66) would break ordinary-gain 470k
-// measurement — left as-is pending a hardware-informed re-tune.
+// These gates admit a narrower range than the fit bounds. Ignoring
+// offset, each resistor's gate [lo, hi] admits gain in [target/hi,
+// target/lo]:
+//   470k: [0.71, 10.6]   100k: [0.40, 3.33]   47k: [0.47, 4.26]
+// so only a device needing gain ≈ 0.71–3.33 can complete the wizard.
+// Both binding limits come from CAL_MID_GATE_LO, which is the 470k upper
+// bound (a device reading more than ~41 % high fails) AND the 100k lower
+// bound (a device reading more than ~3.3× low fails) — so moving it
+// widens one side only by narrowing the other. Left as-is pending a
+// hardware-informed re-tune.
 #define CAL_LO_GATE        200.0f
 #define CAL_MID_GATE_LO   3000.0f
 #define CAL_MID_GATE_HI  25000.0f

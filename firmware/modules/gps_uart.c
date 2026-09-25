@@ -848,7 +848,9 @@ static const uint8_t ubx_cfg_assistnow_autonomous[] = {
     0xB5, 0x62, 0x06, 0x8A, 0x09, 0x00, 0x00, 0x01, 0x00, 0x00, 0x01, 0x00, 0x23, 0x10, 0x01, 0xCF, 0xC0
 };
 static const uint8_t ubx_rxm_pmreq_standby[] = {
-    // Software Standby sleep packet (force=1, backup=0, duration=0 (infinite), wakeup=UART RX)
+    // UBX-RXM-PMREQ sleep packet: duration=0 (infinite), flags=0x02 (backup
+    // bit set, force bit clear), wakeupSources=0x01. Woken in practice by
+    // ubx_wake()'s single RX byte.
     0xB5, 0x62, 0x02, 0x41, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x56, 0x2F
 };
 static const uint8_t ubx_cfg_rst_hot[] = {
@@ -1277,7 +1279,7 @@ void gps_uart_standby(void) {
         furi_delay_ms(100);
 #elif GPS_MODULE == GPS_MODULE_L76K
         // PCAS11,0 = stop mode (L76K&L26K Protocol Spec §2.3.11)
-        const char* stop_cmd = "$PCAS11,0*1C\r\n";
+        const char* stop_cmd = "$PCAS11,0*1D\r\n";
         furi_hal_serial_tx(handle, (const uint8_t*)stop_cmd, strlen(stop_cmd));
         furi_delay_ms(100);
 #endif

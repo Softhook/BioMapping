@@ -101,8 +101,10 @@ static void draw_graph(Canvas* c, BioMapApp* a, int gx, int gy, int gw, int gh) 
         }
     }
 
-    // Walk the ring buffer linearly — no modulo divisions per pixel.
-    int idx = a->session.pipeline.graph.head;
+    // Walk the ring buffer linearly — no modulo divisions per pixel. Start
+    // n samples back from the newest so a narrower graph (GPS+GSR+RF mode)
+    // shows the most recent n samples, not the oldest n.
+    int idx = (a->session.pipeline.graph.head + GRAPH_N - n) % GRAPH_N;
     float v0 = a->session.pipeline.graph.buf[idx] * combined_scale;
     int y_prev = cy - (int)v0;
 

@@ -78,8 +78,9 @@ static inline float tia_counts_to_ns(float counts) {
 //   the threshold — preventing oscillation around the boundary.
 //
 // OUTPUT NORMALISATION
-//   gsr_sensor_get_raw() returns counts normalised to the pga_index=5 (±0.256 V)
-//   reference where 1 unit = 7.8125 µV.  This preserves 100 % of the hardware's
+//   The worker stores counts normalised to the pga_index=5 (±0.256 V)
+//   reference where 1 unit = 7.8125 µV; tick() converts these to nS for
+//   gsr_sensor_get_raw().  This preserves 100 % of the hardware's
 //   resolution at all gain settings:
 //
 //     normalised = hw × NORM_FACTOR[pga]
@@ -167,7 +168,7 @@ struct GsrSensor {
     uint8_t zero_count; // consecutive ticks with raw == 0.0f
     bool    cal_active; // true when custom calibration is active
     float   cal_gain;   // linear calibration gain factor (default 1.0)
-    float   cal_offset; // linear calibration offset in counts (default 0.0)
+    float   cal_offset; // linear calibration offset in nS (default 0.0)
     int32_t tick_last_norm; // raw normalised count at tick's last-summed index
                              // (snapshotted during tick, used by get_raw_sample_ns)
     int32_t tick_mean_norm; // ~100 ms window mean normalised count (pre-TIA)
