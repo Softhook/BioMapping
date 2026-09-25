@@ -74,7 +74,6 @@ const SCRIPT_ORDER = [
   'src/spatial/spatial_clustering.mjs',
   'src/spatial/arousal_places.mjs',
   'src/spatial/collective_manager.mjs',
-  'src/gps/gps_filter.mjs',
   'src/map/basemap.mjs',
   'src/map/map_colors.mjs',
   'src/gps/gps_pipeline.mjs',

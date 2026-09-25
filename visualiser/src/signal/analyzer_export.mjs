@@ -50,8 +50,8 @@ export const AnalyzerExport = {
 
     const hasFilteredGps = filteredGps && filteredGps.length === raw.length;
     // GPS quality fields (hdop/pdop/hacc_m/fix_type/sats/speed_kts/course_deg) feed the
-    // Kalman noise model and the maxHdop/maxSpeed/minFixType gates (gps_filter.js,
-    // gps_pipeline.js). Without them a reloaded processed CSV can't be meaningfully
+    // Kalman noise model and the maxHdop/maxSpeed/minFixType gates (gps_cv_kalman.mjs,
+    // gps_pipeline.mjs). Without them a reloaded processed CSV can't be meaningfully
     // reprocessed with different GPS slider values, so preserve them when present.
     const hasGpsQuality = raw.some(
       (d) =>

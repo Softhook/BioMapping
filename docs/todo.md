@@ -94,9 +94,9 @@ From a full read of `firmware/` (2026-09). Ordered by payoff:
 
 ## GPS pipeline architecture
 
-High-level review of the GPS filter chain (`src/gps/gps_pipeline.js`,
-`gps_filter.js`, `map_match.js`, orchestrated in
-`src/map/map_manager_process.js`; overview in
+High-level review of the GPS filter chain (`src/gps/gps_pipeline.mjs`,
+`gps_cv_kalman.mjs`, `map_match.mjs`, orchestrated in
+`src/map/manager/process.mjs`; overview in
 `gps_filtering_pipeline.md`). The perf engineering is sound — these are
 correctness / structure concerns. Promote to its own doc if picked up.
 
@@ -157,7 +157,7 @@ correctness / structure concerns. Promote to its own doc if picked up.
   `sAcc`/`headAcc` for the fusion idea above — better captured by the
   mixed NMEA+UBX approach already noted there (add one narrow binary
   parser alongside the working NMEA path) than by a full protocol cutover.
-- `_collectGpsPoints` hand-copies 10 fields (deliberate, per the
+- `GpsPipeline.collectFixes` hand-copies 10 fields (deliberate, per the
   profiling comment) — a test asserting the filter stages only read those
   keys would stop the list rotting silently.
 

@@ -425,8 +425,8 @@ const check = () => {
     try {
       const p = window.GSRStorage.buildGpsParams();
       const data = anal.raw;
-      let pts = mm._collectGpsPoints(data);
-      console.log(`1 _collectGpsPoints: ${pts.length}`);
+      let pts = window.GpsPipeline.collectFixes(data);
+      console.log(`1 collectFixes: ${pts.length}`);
       const pts0 = pts;
       pts = window.GpsPipeline.applyHdopGate(pts, p.maxHdop || 2.0);
       console.log(
@@ -451,7 +451,6 @@ const check = () => {
       const { GpsCvKalman } = require('../../src/gps/gps_cv_kalman.mjs');
       pts = GpsCvKalman.apply(pts, {
         maxSpeed: p.maxSpeed || 3.0,
-        R_m2: p.kalmanR || 10,
       });
       console.log(
         `4 GpsCvKalman: ${pts.length} (dropped ${pts2.length - pts.length})`,

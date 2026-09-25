@@ -26,7 +26,6 @@ loadModule(
 );
 loadModule(path.join(__dirname, '../src/signal/stats_math.js'), 'StatsMath');
 loadModule(path.join(__dirname, '../src/map/map_colors.js'), 'MapColors');
-loadModule(path.join(__dirname, '../src/gps/gps_filter.js'), 'GpsFilter');
 loadModule(path.join(__dirname, '../src/gps/gps_pipeline.js'), 'GpsPipeline');
 loadModule(
   path.join(__dirname, '../src/signal/deconvolution.js'),

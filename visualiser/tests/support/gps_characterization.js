@@ -4,9 +4,9 @@
  * both call this, so the golden-master generator and the checker can never
  * drift apart).
  *
- * Runs the exact same stage order as the production path
- * (src/map/manager/process.mjs#_getOrBuildDrawPoints): HDOP gate → fix-type
- * gate → constant-velocity Kalman+RTS → 10Hz reconstruction — and reduces
+ * Runs the production stages themselves (GpsPipeline.collectFixes →
+ * filterFixes → reconstructFilteredGps, as src/map/manager/process.mjs
+ * does, without road snap) — and reduces
  * the result to the aggregate metrics docs/todo.md's "Characterisation
  * harness" note asks for: total path length, vertex count, % interpolated,
  * max deviation from raw. No display-stage (downsample/RDP) is included — those have their own
@@ -14,32 +14,9 @@
  * estimate this harness is guarding.
  */
 const { GSRAnalyzer } = require('../../src/signal/analyzer.mjs');
-const { GpsCvKalman } = require('../../src/gps/gps_cv_kalman.mjs');
 const { GpsPipeline } = require('../../src/gps/gps_pipeline.mjs');
 const { GeoUtils } = require('../../src/gps/geo_utils.mjs');
 const { GSR_CONST } = require('../../src/core/constants.mjs');
-
-function collectGpsPoints(data) {
-  const pts = [];
-  for (let i = 0; i < data.length; i++) {
-    const d = data[i];
-    if (d._isGpsFix && !isNaN(d.lat) && !isNaN(d.lon)) {
-      pts.push({
-        lat: d.lat,
-        lon: d.lon,
-        time: d.time,
-        hdop: d.hdop,
-        pdop: d.pdop,
-        hacc: d.hacc,
-        speedKts: d.speedKts,
-        course: d.course,
-        fixType: d.fixType,
-        origIdx: i,
-      });
-    }
-  }
-  return pts;
-}
 
 function pathLengthMeters(seq, latKey = 'lat', lonKey = 'lon') {
   let total = 0;
@@ -68,16 +45,11 @@ function computeCharacterizationMetrics(csvText, paramOverrides = {}) {
   analyzer.parseCSV(csvText);
   const data = analyzer.raw;
 
-  const rawPts = collectGpsPoints(data);
-
-  let pts = GpsPipeline.applyHdopGate(rawPts, p.maxHdop);
-  pts = GpsPipeline.applyFixTypeGate(pts);
-  const nAfterGates = pts.length;
-
-  const finalPts = GpsCvKalman.apply(pts, {
-    maxSpeed: p.maxSpeed,
-    R_m2: p.kalmanR,
-  });
+  const rawPts = GpsPipeline.collectFixes(data);
+  const nAfterGates = GpsPipeline.applyFixTypeGate(
+    GpsPipeline.applyHdopGate(rawPts, p.maxHdop),
+  ).length;
+  const finalPts = GpsPipeline.filterFixes(rawPts, p);
 
   GpsPipeline.reconstructFilteredGps(analyzer, data, finalPts, p.maxSpeed);
   const fg = analyzer.filteredGps;

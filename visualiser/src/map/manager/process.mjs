@@ -6,10 +6,8 @@
  * (this._gpsCache, keyed by track id + a params/snap fingerprint) so nudging a
  * GSR slider doesn't re-run the expensive filter chain.
  *
- * Depends on GpsPipeline, GpsCvKalman and GpsFilter.
+ * The stages themselves live in GpsPipeline (gps/gps_pipeline.mjs).
  */
-import { GpsCvKalman } from '../../gps/gps_cv_kalman.mjs';
-import { GpsFilter } from '../../gps/gps_filter.mjs';
 import { GpsPipeline } from '../../gps/gps_pipeline.mjs';
 import { GSRMapLayers } from './layers.mjs';
 
@@ -19,7 +17,7 @@ export class GSRMapProcess extends GSRMapLayers {
    * Only hashes params that affect the GPS pipeline output.
    */
   _hashGpsParams(p) {
-    return `${p.maxHdop || 3.0}|${p.kalmanR || 10}|${p.maxSpeed || 3.0}|${p.downsample ? 1 : 0}|${p.rdpTolerance || 0}`;
+    return `${p.maxHdop || 3.0}|${p.maxSpeed || 3.0}|${p.downsample ? 1 : 0}|${p.rdpTolerance || 0}`;
   }
 
   /**
@@ -69,8 +67,8 @@ export class GSRMapProcess extends GSRMapLayers {
 
     // ── Expensive GPS pipeline (only runs when params change) ──
     const data = analyzer.raw;
-    let gpsPoints = this._collectGpsPoints(data);
-    if (gpsPoints.length === 0) {
+    const fixes = GpsPipeline.collectFixes(data);
+    if (fixes.length === 0) {
       this._gpsCache.set(cacheKey, {
         paramsHash,
         snapFingerprint: snapFp,
@@ -80,35 +78,17 @@ export class GSRMapProcess extends GSRMapLayers {
       return { gpsPoints: [], drawPoints: [] };
     }
 
-    gpsPoints = GpsPipeline.applyHdopGate(gpsPoints, p.maxHdop || 3.0);
-    gpsPoints = GpsPipeline.applyFixTypeGate(gpsPoints);
-
     const maxSpeed =
       typeof p?.maxSpeed === 'number' && !isNaN(p.maxSpeed) && p.maxSpeed > 0
         ? p.maxSpeed
         : 3.0;
-    const kalmanR = p.kalmanR || 10;
-    // Constant-velocity Kalman + RTS (see gps_cv_kalman.mjs).
-    gpsPoints = GpsCvKalman.apply(gpsPoints, { maxSpeed, R_m2: kalmanR });
+    const gpsPoints = GpsPipeline.filterFixes(
+      fixes,
+      { maxHdop: p.maxHdop || 3.0, maxSpeed },
+      analyzer.snappedGps,
+    );
 
-    // Road snap runs AFTER the Kalman filter, not before. Snapping first
-    // would feed the χ² innovation gate a "measurement" that's already been
-    // pulled onto whatever road the HMM matcher guessed — including a wrong
-    // parallel-street snap — so a bad snap could poison the filter's state
-    // and cause the gate to reject good raw fixes that disagreed with it,
-    // and the RTS displacement clamp (meant to bound the smoother near the
-    // real GPS fix) would be measuring distance from the snapped position
-    // instead. Applying it after treats the road as a soft cosmetic pull on
-    // the already-gated, already-smoothed estimate, never as evidence the
-    // filter itself has to trust.
-    if (analyzer.snappedGps) {
-      gpsPoints = GpsPipeline.applySnapCorrection(
-        gpsPoints,
-        analyzer.snappedGps,
-      );
-    }
-
-    // Reconstruct full 10 Hz filtered GPS path (cached on analyzer)
+    // Back onto the 10 Hz grid (cached on the analyzer as filteredGps).
     GpsPipeline.reconstructFilteredGpsCached(
       analyzer,
       data,
@@ -116,9 +96,8 @@ export class GSRMapProcess extends GSRMapLayers {
       maxSpeed,
     );
 
-    // Build drawPoints from the 10 Hz reconstructed filtered GPS path, selecting
-    // downsampled indices first so only surviving points are constructed with the
-    // full field set (fused downsampling — saves ~125ms of allocation & GC per drag frame).
+    // Downsampled indices are picked before the full-width points are built
+    // (saves ~125 ms of allocation per drag frame on a large walk).
     let drawPoints = GpsPipeline.buildDrawPoints(
       data,
       analyzer.filteredGps,
@@ -126,7 +105,7 @@ export class GSRMapProcess extends GSRMapLayers {
       p.downsample === true || p.downsample === 1,
       analyzer.rfPeakIndices,
     );
-    drawPoints = GpsFilter.applyRDP(
+    drawPoints = GpsPipeline.applyRDP(
       drawPoints,
       p.rdpTolerance || 0,
       analyzer.rfPeakIndices,
@@ -139,42 +118,5 @@ export class GSRMapProcess extends GSRMapLayers {
       drawPoints,
     });
     return { gpsPoints, drawPoints };
-  }
-
-  _collectGpsPoints(data) {
-    const pts = [];
-    for (let i = 0; i < data.length; i++) {
-      // Only collect actual GPS fixes (not interpolated points) so the
-      // Kalman filter processes the true measurement rate (1-2 Hz) rather
-      // than the 10 Hz interpolated grid, preventing artificial covariance
-      // deflation and sluggish corner tracking.
-      const d = data[i];
-      if (d._isGpsFix && !isNaN(d.lat) && !isNaN(d.lon)) {
-        // Deliberately NOT a full `{ ...d, origIdx: i }` spread: this array
-        // (and every filter stage between here and reconstructFilteredGps —
-        // gate/speed/velocity/stop-averaging/Kalman) only ever reads the
-        // fields listed below, and it's discarded once reconstructFilteredGps
-        // pulls lat/lon back out (no caller of _getOrBuildDrawPoints ever
-        // destructures `gpsPoints`, only `drawPoints`, which is built
-        // separately from the raw row — see that method). Spreading the full
-        // ~29-field CSV row (rssi_*/osm_*/em_fog/val/etc., none of them read
-        // downstream) here and at every subsequent filter's own `{...pt}`
-        // copy was ~35-40% of this pipeline's real cost on a large track —
-        // found by profiling, not guessed (docs/archive/visualizer_rendering_perf_routes.md §2.7).
-        pts.push({
-          lat: d.lat,
-          lon: d.lon,
-          time: d.time,
-          hdop: d.hdop,
-          pdop: d.pdop,
-          hacc: d.hacc,
-          speedKts: d.speedKts,
-          course: d.course,
-          fixType: d.fixType,
-          origIdx: i,
-        });
-      }
-    }
-    return pts;
   }
 }

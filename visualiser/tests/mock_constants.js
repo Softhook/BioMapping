@@ -15,7 +15,6 @@ module.exports = {
   CONTOUR_MAX_POINTS: 20000,
 
   GPS_DEFAULT: {
-    kalmanR: 10,
     maxHdop: 3.0,
     maxSpeed: 3.0,
     rdpTolerance: 0,

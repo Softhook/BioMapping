@@ -8,6 +8,7 @@
 
 import { GSR_CONST } from '../core/constants.mjs';
 import { GeoUtils } from '../gps/geo_utils.mjs';
+import { GpsPipeline } from '../gps/gps_pipeline.mjs';
 
 const MONTHS = [
   'Jan',
@@ -134,7 +135,7 @@ export const GSRTrackQualityPopup = {
             row.lon,
           );
           gpsDistanceM += dist;
-          if (dt > 30 && !isImpossibleJump(dist, dt)) dropouts++;
+          if (dt > 30 && !GpsPipeline.isImpossibleJump(dist, dt)) dropouts++;
         }
         prevFix = row;
       }
@@ -570,13 +571,6 @@ export const GSRTrackQualityPopup = {
     }
   },
 };
-
-// A jump this large and fast is a GPS glitch, not a dropout.
-function isImpossibleJump(distM, dt) {
-  if (distM <= 50) return false;
-  const speed = dt > 0 ? distM / dt : Infinity;
-  return speed > 20;
-}
 
 function median(list) {
   if (list.length === 0) return null;

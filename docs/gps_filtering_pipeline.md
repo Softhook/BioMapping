@@ -2,7 +2,7 @@
 
 **Written:** 2026-07-15 · **Last checked against code:** 2026-09-25
 **Scope:** Complete overview of the GPS processing pipeline, from firmware-level quality gating through to downstream spatial analysis filters.
-**Files:** `firmware/modules/gps_uart.c`, `firmware/biomap_types.h`, `firmware/biomap_session.c`, `visualiser/src/gps/gps_cv_kalman.mjs`, `visualiser/src/gps/gps_filter.mjs`, `visualiser/src/gps/gps_pipeline.mjs`, `visualiser/src/gps/map_match.js`, `visualiser/src/map/map.js`
+**Files:** `firmware/modules/gps_uart.c`, `firmware/biomap_types.h`, `firmware/biomap_session.c`, `visualiser/src/gps/gps_cv_kalman.mjs`, `visualiser/src/gps/gps_pipeline.mjs`, `visualiser/src/gps/map_match.mjs`, `visualiser/src/map/manager/process.mjs`
 
 > The filter stages and their order still match the code as of the
 > last-checked date. For the authoritative, versioned CSV column list see
@@ -57,14 +57,16 @@ timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw,hacc_m
 
 ## 3. Visualiser Processing Pipeline
 
-### 3.1 Quality Gates (`gps_pipeline.js`)
+Every stage lives in `gps_pipeline.mjs` (the filter itself in `gps_cv_kalman.mjs`); `GSRMapManager._getOrBuildDrawPoints` (`map/manager/process.mjs`) runs them in order and caches the result: `collectFixes` → `filterFixes` (§3.1 gates, §3.2 filter, §3.4 snap) → `reconstructFilteredGps` (10 Hz) → `buildDrawPoints` + `applyRDP` (§3.5). The characterisation test harness calls the same functions, so it cannot drift from the app.
+
+### 3.1 Quality Gates (`gps_pipeline.mjs`)
 1. **HDOP Gate (`applyHdopGate`)**: Rejects points with `hdop > maxHdop` (user-adjustable in UI, default `3.0`). Points lacking HDOP are kept.
 2. **Fix-Type Gate (`applyFixTypeGate`)**: Filters out points with `fix_type == 1` (no fix). Retains 2D/3D fixes (`fix_type >= 2`).
 
 ### 3.2 Constant-velocity Kalman + RTS (`gps_cv_kalman.mjs`)
 The app's only GPS filter. It replaced an earlier chain (stop averaging, speed filter, velocity-aided smoothing, position-only Kalman + RTS with a displacement clamp), removed 2026-09-25:
 - **State** east/north position and velocity on a local flat plane; continuous white-noise acceleration model (Bar-Shalom §6.2), acceleration noise `0.5 m²/s³` scaled by `(maxSpeed/3)²`.
-- **Measurements**: each position fix (noise from `hacc_m`, else DOP — `GpsFilter.measurementVarianceM2`), and the chip's Doppler speed + course as a velocity (0.3 m/s along track, 15° across; below 0.6 m/s only "about this slow" is used, since course is noise there).
+- **Measurements**: each position fix (noise from `hacc_m`, else DOP — `GpsCvKalman.measurementVarianceM2`), and the chip's Doppler speed + course as a velocity (0.3 m/s along track, 15° across; below 0.6 m/s only "about this slow" is used, since course is noise there).
 - **Linked fixes**: the chip outputs 10 fixes/s already smoothed by its own filter, so their errors are shared. Position noise is scaled by `3 s / fix spacing` (Groves' variance inflation), so 3 s of fixes weigh as one independent fix.
 - **Outliers**: a 2-DOF χ² gate (11.83) skips a disagreeing measurement; after 5 rejected fixes in a row the track restarts on the next fix, and the smoother runs per stretch between restarts.
 - **Stops**: before filtering, the fixes of each stop are pinned to the stop's mean position, so a stop draws as one dot. Over a long stop the chip's position drifts several metres while its speed stays near zero, and the filter alone reads that as slow walking (biomap_032b: a 3½-minute stop drew a 10 m loop). The rule copies the receiver's own "static hold" (M10 integration manual §2.2.5), which we leave switched off in the chip so the recording keeps the raw wander and the dot can be the mean of the whole stop:
@@ -87,13 +89,13 @@ The app's only GPS filter. It replaced an earlier chain (stop averaging, speed f
    - **Viterbi Selection**: Computes the globally most likely candidate path.
    - Runs once, during OSM enrichment, on **raw** GPS coordinates only — deliberately never on filtered/Kalman output, to avoid a feedback loop where a prior render's snap bias would pull the next enrichment pass further toward the wrong road. Its result is cached on `analyzer.snappedGps` and consumed by step 4 on every subsequent render.
 
-### 3.4 Snap Correction — applied AFTER the Kalman filter (`gps_pipeline.js`)
+### 3.4 Snap Correction — applied AFTER the Kalman filter (`gps_pipeline.mjs`)
 4. **Snap Correction (`applySnapCorrection`)**:
    - Blends the Kalman/RTS output toward the pre-computed road match, based on a confidence value $\alpha$ stored in `snappedGps`.
-   - **Why after, not before (fixed 2026-09-18):** snapping used to run before the Kalman filter, so a wrong parallel-street snap became the "measurement" the χ² gate judged — the gate would then reject subsequent *good* raw fixes for disagreeing with the bad snap, and the RTS displacement clamp (meant to bound the smoother near the true GPS fix) was measuring distance from the snapped position instead of the real one. Running it after treats the road match as a cosmetic pull on an already-gated, already-smoothed estimate, never as evidence the filter itself has to trust.
+   - **Why after, not before (fixed 2026-09-18):** snapping used to run before the Kalman filter, so a wrong parallel-street snap became the "measurement" the χ² gate judged — the gate would then reject subsequent *good* raw fixes for disagreeing with the bad snap. Running it after treats the road match as a cosmetic pull on an already-gated, already-smoothed estimate, never as evidence the filter itself has to trust.
 
-### 3.5 Post-Processing & Display (`gps_pipeline.js` & `gps_filter.js`)
-5. **Downsampling for Display (`downsampleForDisplay`)**: Retains every $N$-th point (sample rate, e.g. downsampling from 10 Hz recording down to 1 Hz) for Leaflet performance.
+### 3.5 Post-Processing & Display (`gps_pipeline.mjs`)
+5. **Downsampling for Display (`buildDrawPoints`)**: Retains every $N$-th point (sample rate, e.g. downsampling from 10 Hz recording down to 1 Hz) for Leaflet performance.
 6. **Ramer-Douglas-Peucker (`applyRDP`)**: Reduces track vertices within a physical distance tolerance to keep page rendering lightweight.
 
 ---
@@ -102,21 +104,21 @@ The app's only GPS filter. It replaced an earlier chain (stop averaging, speed f
 
 The Kalman filter's own constants are fixed in `gps_cv_kalman.mjs`. The settings that reach it:
 - **Max Speed**: scales the acceleration noise as $(\text{maxSpeed}/3)^2$ — faster activities turn and speed up harder. Default `3.0` m/s.
-- **Measurement Noise ($R$)**: base position variance, scaled by DOP². Default `10.0` $m^2$. On M10Q hardware with `$PUBX,00`, it is replaced by $(hacc\_m)^2$.
-- **RDP Tolerance**: Trajectory simplification distance. Default `0.5` meters.
+- **Measurement noise ($R$)**: a fixed base position variance of `10` $m^2$ (`GpsCvKalman.DOP_BASE_VARIANCE_M2`), scaled by DOP² — not a setting. On M10Q hardware with `$PUBX,00`, it is replaced by $(hacc\_m)^2$.
+- **RDP Tolerance**: Trajectory simplification distance. Default `0` (off).
 
 ---
 
 ## 5. Direct Spatial Error (`hAcc`) Integration
 
-Measurement noise variance $R$ in the Kalman filter ([`gps_filter.mjs`](../visualiser/src/gps/gps_filter.mjs), used by [`gps_cv_kalman.mjs`](../visualiser/src/gps/gps_cv_kalman.mjs)) prefers the physical accuracy estimate over DOP-scaling when it's available:
+Measurement noise variance $R$ in the Kalman filter ([`gps_cv_kalman.mjs`](../visualiser/src/gps/gps_cv_kalman.mjs)) prefers the physical accuracy estimate over DOP-scaling when it's available:
 
 $$R_{\text{effective}} = \begin{cases} (\text{hacc\_m})^2 & \text{if hacc\_m valid (M10Q, post-fix)} \\ R_{\text{base}} \times \text{DOP}^2 & \text{otherwise (L76K, or pre-fix)} \end{cases}$$
 
 ### The `hAcc` Spatial Error Advantage
 The u-blox SAM-M10Q calculates **`hAcc`**—the actual physical horizontal position error in meters—via its internal extended Kalman filter covariance matrix, transmitted in the `$PUBX,00` NMEA sentence. The Flipper firmware (`modules/gps_uart.c`) extracts `hAcc` for live OLED display and, as of CSV schema v1.2, logs it as `hacc_m`.
 
-1. **Direct Kalman Variance Assignment:** When `hacc_m` is valid (not the `99.9` sentinel), the visualiser's Kalman filter (via `GpsFilter.measurementVarianceM2()` in `gps_filter.mjs` — the canonical hacc/DOP² noise model) assigns physical measurement variance directly instead of scaling by DOP².
+1. **Direct Kalman Variance Assignment:** When `hacc_m` is valid (not the `99.9` sentinel), the visualiser's Kalman filter (via `GpsCvKalman.measurementVarianceM2()` — the canonical hacc/DOP² noise model) assigns physical measurement variance directly instead of scaling by DOP².
 2. **Urban Canyon Multipath Rejection:** In urban canyons or under wet tree canopies, satellite geometry often remains acceptable ($\text{HDOP } 1.2$), causing DOP-based estimation to under-estimate measurement noise. However, physical multipath reflections cause true `hAcc` to spike from $1.5\text{ m} \longrightarrow 15.0\text{ m}$. With $R = 15^2 = 225$, the Kalman filter immediately de-weights the multipath outlier and dead-reckons smoothly past the anomaly.
 3. **L76K fallback:** `hacc_m` is u-blox-only (`$PUBX,00` is a u-blox proprietary sentence). On L76K hardware, or before the first `$PUBX,00` sentence arrives on M10Q, `hacc_m` stays at its `99.9` sentinel and the filter falls back to the existing DOP-based scaling — HDOP/PDOP remain necessary as the universal fallback, not redundant.
 4. **True Ground Error Heatmaps** (not yet implemented): visualizer tooltips/overlays showing exact ground uncertainty bounds ($\pm X.X\text{ m}$) per sample remain a future enhancement.

@@ -29,6 +29,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const { bootApp } = require('../support/boot_app.js');
+const { GpsPipeline } = require('../../src/gps/gps_pipeline.mjs');
 
 const TRACKS_DIR = path.join(__dirname, '..', '..', '..', 'tracks');
 
@@ -771,18 +772,18 @@ function benchCollectiveColdRender() {
   );
 }
 
-// ── Bench 5: GPS pipeline cache-miss cost — trimmed vs full-row-spread _collectGpsPoints() ──
+// ── Bench 5: GPS pipeline cache-miss cost — trimmed vs full-row-spread collectFixes() ──
 // What pays once per settled frame of a GPS-param slider drag (Q/R/HDOP/
 // speed/downsample/RDP sliders — anything that changes `_hashGpsParams()`'s
 // output), on a large real track: `_getOrBuildDrawPoints()`'s cache misses
 // and reruns the full pipeline (§2.1's already-fixed RF fan-cast cost is a
 // separate, later stage — this is the pipeline that FEEDS it). Same forced-
 // fallback seam bench 1 uses (method override, not a reimplementation):
-// `_collectGpsPoints` swapped back to the pre-fix full `{ ...data[i],
+// `GpsPipeline.collectFixes` swapped back to the pre-fix full `{ ...data[i],
 // origIdx: i }` spread to measure what the trim (perf-routes §2.7) removed.
 function benchGpsCollectPoints() {
   console.log(
-    '── Bench 5: GPS pipeline cache-miss cost — _collectGpsPoints() field trim ──',
+    '── Bench 5: GPS pipeline cache-miss cost — collectFixes() field trim ──',
   );
   console.log(
     '   (map.js, perf-routes §2.7; fixture: real track biomap_019.csv, 40,747 rows)\n',
@@ -792,8 +793,6 @@ function benchGpsCollectPoints() {
   const track = loadRealTrack(window, 'bench5', 'biomap_019.csv');
   const p = {
     maxHdop: 2.0,
-    smoothing: 0.5,
-    kalmanR: 10,
     maxSpeed: 3.0,
     rdpTolerance: 0,
     downsample: false,
@@ -801,7 +800,7 @@ function benchGpsCollectPoints() {
 
   console.log(`   fixture: ${track.analyzer.raw.length} raw rows\n`);
 
-  const origCollect = mapManager._collectGpsPoints.bind(mapManager);
+  const origCollect = GpsPipeline.collectFixes;
   function fullSpreadCollect(data) {
     const pts = [];
     for (let i = 0; i < data.length; i++) {
@@ -815,13 +814,13 @@ function benchGpsCollectPoints() {
   const runFullSpread = () => {
     mapManager._gpsCache.clear();
     track.analyzer._filteredGpsCacheKey = null;
-    mapManager._collectGpsPoints = fullSpreadCollect;
+    GpsPipeline.collectFixes = fullSpreadCollect;
     mapManager._getOrBuildDrawPoints('bench5', track.analyzer, p);
   };
   const runTrimmed = () => {
     mapManager._gpsCache.clear();
     track.analyzer._filteredGpsCacheKey = null;
-    mapManager._collectGpsPoints = origCollect;
+    GpsPipeline.collectFixes = origCollect;
     mapManager._getOrBuildDrawPoints('bench5', track.analyzer, p);
   };
 
@@ -831,7 +830,7 @@ function benchGpsCollectPoints() {
   printRow(trimmedResult);
   printSpeedup(fullResult, trimmedResult);
 
-  mapManager._collectGpsPoints = origCollect;
+  GpsPipeline.collectFixes = origCollect;
 }
 
 benchRfSpatialIndex();

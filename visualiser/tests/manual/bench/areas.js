@@ -233,17 +233,17 @@ const gpsPipeline = {
   ],
   run({ h, mapManager, track, GSR_CONST, opts }) {
     const p = JSON.parse(JSON.stringify(GSR_CONST.GPS_DEFAULT));
-    const baseR = p.kalmanR || 10;
+    const baseSpeed = p.maxSpeed || 3;
     let drawPts = 0,
       k = 0;
-    // Nudge kalmanR each iteration — exactly what a slider drag does. This
+    // Nudge maxSpeed each iteration — exactly what a slider drag does. This
     // busts BOTH _gpsCache (params hash) AND analyzer._filteredGpsCacheKey
     // (Kalman output moves), so the reconstruct pass runs every iteration
     // instead of short-circuiting after the first (the trap _bench_render_perf
     // Bench 4 hit). Δ is tiny — the physics is unchanged, the cache keys aren't.
     const r = h.bench(
       () => {
-        p.kalmanR = baseR + (k++ % 4) * 0.1;
+        p.maxSpeed = baseSpeed + (k++ % 4) * 0.01;
         const res = mapManager._getOrBuildDrawPoints(
           track.id,
           track.analyzer,

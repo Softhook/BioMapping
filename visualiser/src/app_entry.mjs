@@ -47,7 +47,6 @@ import './map/hillshade.mjs';
 import './spatial/spatial_clustering.mjs';
 import './spatial/arousal_places.mjs';
 import './spatial/collective_manager.mjs';
-import './gps/gps_filter.mjs';
 import './map/basemap.mjs';
 import './map/map_colors.mjs';
 import './gps/gps_pipeline.mjs';

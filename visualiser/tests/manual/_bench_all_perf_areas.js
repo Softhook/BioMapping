@@ -348,7 +348,6 @@ window.HTMLCanvasElement.prototype.getContext = () => ({
 window.HTMLCanvasElement.prototype.toDataURL = () =>
   'data:image/png;base64,AA==';
 window.GSR_CONST = vm.runInContext('GSR_CONST', context);
-window.GpsFilter = vm.runInContext('GpsFilter', context);
 
 installRecordingLeaflet(window);
 window.setup();
@@ -759,7 +758,7 @@ console.log(
 // Full Kalman + RTS pass on all 11,204 real GPS fixes from Track 113
 const { GpsCvKalman } = require('../../src/gps/gps_cv_kalman.mjs');
 const bKalman = bench(2, 10, () => {
-  GpsCvKalman.apply(gpsFixes113, { maxSpeed: 3, R_m2: 10 });
+  GpsCvKalman.apply(gpsFixes113, { maxSpeed: 3 });
 });
 console.log(
   `    GpsCvKalman.apply() on all ${gpsFixes113.length.toLocaleString()} Track 113 GPS fixes: median=${bKalman.median.toFixed(2)}ms`,

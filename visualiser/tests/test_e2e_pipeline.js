@@ -145,18 +145,7 @@ console.log(`  GPS fixes in track: ${gpsFixes.length} / ${raw.length}`);
 // ────────────────────────────────────────────────────────────────────────────
 console.log('\n── 2. GPS filter pipeline ──');
 
-// Collect GPS points (same logic as map.js:_collectGpsPoints)
-function collectGpsPoints(data) {
-  const pts = [];
-  for (let i = 0; i < data.length; i++) {
-    if (data[i]._isGpsFix && !isNaN(data[i].lat) && !isNaN(data[i].lon)) {
-      pts.push({ ...data[i], origIdx: i });
-    }
-  }
-  return pts;
-}
-
-let gpsPoints = collectGpsPoints(raw);
+let gpsPoints = GpsPipeline.collectFixes(raw);
 const initialCount = gpsPoints.length;
 assert(initialCount > 0, `GPS fix points found: ${initialCount}`);
 
@@ -185,7 +174,7 @@ if (hasValidFixes) {
 console.log(`  After gates: ${gpsPoints.length} GPS anchors`);
 
 // ── 2c. Kalman filter ──
-const kalmanResult = GpsCvKalman.apply(gpsPoints, { maxSpeed: 3.0, R_m2: 10 });
+const kalmanResult = GpsCvKalman.apply(gpsPoints, { maxSpeed: 3.0 });
 assertEq(kalmanResult.length, gpsPoints.length, 'Kalman preserves point count');
 
 // ── 2d. Reconstruct 10 Hz path ──
@@ -225,18 +214,15 @@ assertEq(
 console.log('\n── 3. Parameter sensitivity (slider bug regression) ──');
 
 // Re-run from scratch with extreme params
-function runPipeline(data, maxSpeedVal, kalmanRVal) {
-  let pts = collectGpsPoints(data);
-  if (pts.some((p) => !isNaN(p.hdop)))
-    pts = GpsPipeline.applyHdopGate(pts, 2.0);
-  if (pts.some((p) => (p.fixType || 0) >= 2))
-    pts = GpsPipeline.applyFixTypeGate(pts);
-  pts = GpsCvKalman.apply(pts, { maxSpeed: maxSpeedVal, R_m2: kalmanRVal });
-  return pts;
+function runPipeline(data, maxSpeedVal) {
+  return GpsPipeline.filterFixes(GpsPipeline.collectFixes(data), {
+    maxHdop: 2.0,
+    maxSpeed: maxSpeedVal,
+  });
 }
 
-const smoothPts = runPipeline(raw, 0.5, 150);
-const responsivePts = runPipeline(raw, 10, 0.5);
+const smoothPts = runPipeline(raw, 0.5);
+const responsivePts = runPipeline(raw, 10);
 
 // The two extremes should produce different Kalman outputs
 let totalDiffSq = 0;

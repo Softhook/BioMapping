@@ -46,10 +46,6 @@ loadModule(
   'MapColors',
 );
 loadModule(
-  path.join(__dirname, '..', '..', 'src', 'gps', 'gps_filter.js'),
-  'GpsFilter',
-);
-loadModule(
   path.join(__dirname, '..', '..', 'src', 'gps', 'gps_pipeline.js'),
   'GpsPipeline',
 );

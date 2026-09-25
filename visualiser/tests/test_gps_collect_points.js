@@ -1,23 +1,21 @@
 /**
- * Regression coverage for the `_collectGpsPoints()` field-trimming fix
- * (docs/archive/visualizer_rendering_perf_routes.md §2.7; map.js). Found via
- * profiling, not a read-through: `_collectGpsPoints()` used to spread the
- * FULL ~29-field raw CSV row (`{ ...data[i], origIdx: i }`) for every GPS
- * fix, and every filter stage between there and `reconstructFilteredGps()`
- * (gate/speed/velocity/stop-averaging/Kalman) re-spreads whatever shape it's
- * handed — so the extra fields (rssi_*, osm_*, em_fog, val, sats, hasGps,
- * _isGpsFix) got copied at every stage despite never being read by any of
- * them. The intermediate `gpsPoints` array is fully internal to
- * `_getOrBuildDrawPoints()` — no caller destructures it, only `drawPoints`,
- * which is built separately straight from the raw row — so trimming it is
- * safe. Run: node --test tests/test_gps_collect_points.js
+ * Regression coverage for the `GpsPipeline.collectFixes()` field trim
+ * (docs/archive/visualizer_rendering_perf_routes.md §2.7). Found via
+ * profiling: it used to spread the FULL ~29-field raw CSV row
+ * (`{ ...data[i], origIdx: i }`) for every GPS fix, and every filter stage
+ * after it re-spreads whatever shape it's handed — so the extra fields
+ * (rssi_*, osm_*, em_fog, val, sats, hasGps, _isGpsFix) got copied at every
+ * stage despite never being read. `drawPoints` is built separately straight
+ * from the raw row, so trimming the fixes is safe.
+ * Run: node --test tests/test_gps_collect_points.js
  */
 
 const assert = require('node:assert');
 const test = require('node:test');
 const { bootApp } = require('./support/boot_app.js');
+const { GpsPipeline } = require('../src/gps/gps_pipeline.mjs');
 
-// A CSV with the fields _collectGpsPoints's pipeline actually reads (lat,
+// A CSV with the fields the GPS pipeline actually reads (lat,
 // lon, hdop, pdop, hacc_m, speed_kts, course_deg, fix_type) PLUS several
 // fields it must NOT carry through (rssi_815, osm_road_class, sats) — proof
 // the trim drops the latter without disturbing the former.
@@ -57,8 +55,8 @@ async function boot() {
   return { window, mapManager: window.AppState.mapManager };
 }
 
-test('_collectGpsPoints: returns only the fields the GPS pipeline reads, not the full raw row', async () => {
-  const { window, mapManager } = await boot();
+test('collectFixes: returns only the fields the GPS pipeline reads, not the full raw row', async () => {
+  const { window } = await boot();
   const analyzer = new window.GSRAnalyzer();
   analyzer.parseCSV(SAMPLE_CSV);
 
@@ -75,7 +73,7 @@ test('_collectGpsPoints: returns only the fields the GPS pipeline reads, not the
   );
   assert.ok(rawKeys.includes('sats'), 'fixture sanity: raw row has sats');
 
-  const pts = mapManager._collectGpsPoints(analyzer.raw);
+  const pts = GpsPipeline.collectFixes(analyzer.raw);
   assert.ok(pts.length > 0, 'fixture produces at least one GPS fix');
 
   for (const pt of pts) {
@@ -93,12 +91,12 @@ test('_collectGpsPoints: returns only the fields the GPS pipeline reads, not the
   }
 });
 
-test('_collectGpsPoints: preserves values for every field it does carry', async () => {
-  const { window, mapManager } = await boot();
+test('collectFixes: preserves values for every field it does carry', async () => {
+  const { window } = await boot();
   const analyzer = new window.GSRAnalyzer();
   analyzer.parseCSV(SAMPLE_CSV);
 
-  const pts = mapManager._collectGpsPoints(analyzer.raw);
+  const pts = GpsPipeline.collectFixes(analyzer.raw);
   const raw = analyzer.raw;
   for (const pt of pts) {
     const src = raw[pt.origIdx];
@@ -114,7 +112,7 @@ test('_collectGpsPoints: preserves values for every field it does carry', async 
   }
 });
 
-test('_collectGpsPoints: full pipeline output (drawPoints) still carries every raw field untouched', async () => {
+test('collectFixes: full pipeline output (drawPoints) still carries every raw field untouched', async () => {
   // The trim only touches the internal gpsPoints intermediate — drawPoints
   // (what every caller actually consumes, and what the coloring-metric
   // dropdown reads arbitrary raw fields like osm_road_class/rssi_815 from
@@ -125,8 +123,6 @@ test('_collectGpsPoints: full pipeline output (drawPoints) still carries every r
   analyzer.parseCSV(SAMPLE_CSV);
   const gpsParams = {
     maxHdop: 2.0,
-    smoothing: 0.5,
-    kalmanR: 10,
     maxSpeed: 30.0,
     rdpTolerance: 0,
     downsample: false,
@@ -179,8 +175,6 @@ test('legacy `fix` column (GGA fix quality) is not read as fix_type — its fixe
     analyzer,
     {
       maxHdop: 3.0,
-      smoothing: 0.5,
-      kalmanR: 10,
       maxSpeed: 30.0,
       rdpTolerance: 0,
       downsample: false,

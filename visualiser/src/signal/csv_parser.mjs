@@ -364,8 +364,8 @@ export const GSRCSVParser = {
   /**
    * Row indices where at least one Sub-GHz band shows a momentary spike —
    * a local maximum at least RF_PEAK_PROMINENCE_DB above an adjacent sample.
-   * The map pipeline (GpsPipeline.downsampleForDisplay / GpsFilter.applyRDP,
-   * see map.js:_getOrBuildDrawPoints()) treats these as forced vertices so
+   * The map pipeline (GpsPipeline.buildDrawPoints / GpsPipeline.applyRDP,
+   * see manager/process.mjs:_getOrBuildDrawPoints()) treats these as forced vertices so
    * brief 868/915MHz-class emissions can't be simplified away before they're
    * ever drawn — plain geometric RDP/stride decimation has no notion of RF
    * magnitude and will happily erase a spike that sits on an otherwise
@@ -599,7 +599,7 @@ export const GSRCSVParser = {
     // Explicit genuine-fix marker (re-imported processed CSV only). Without this,
     // a reimported track's dense Latitude/Longitude columns would make every row
     // look like a genuine fix, collapsing the anchor-only Kalman input in
-    // map.js's _collectGpsPoints down to the full interpolated grid. Falls back
+    // GpsPipeline.collectFixes down to the full interpolated grid. Falls back
     // to the lat/lon-presence heuristic below when absent (raw device CSVs, or
     // processed CSVs exported before this column existed).
     const isGpsFixColIdx = headers.indexOf('is_gps_fix');

@@ -930,7 +930,7 @@ test('saveActiveGpsParams: reads GPS slider values via GSRStorage and stores the
   const t1 = makeTrack('t1');
   global.AppState.collectiveManager.addTrack(t1);
   global.AppState.activeTrackId = 't1';
-  const gpsParams = { smoothing: 0.8, kalmanR: 12 };
+  const gpsParams = { maxHdop: 2.5, maxSpeed: 4 };
   global.GSRStorage = setSingletonShape(RealGSRStorage, {
     readGpsSliderValues: () => gpsParams,
   });
@@ -965,7 +965,7 @@ test('loadActiveGpsParams: forwards gpsFilterParams to GSRStorage.writeGpsSlider
     writeGpsSliderValues: (gps) => seen.push(gps),
   });
 
-  const gpsParams = { smoothing: 0.5, kalmanR: 10, rdpTolerance: 1.5 };
+  const gpsParams = { maxSpeed: 3, rdpTolerance: 1.5 };
   GSRTrackManager.loadActiveGpsParams({ gpsFilterParams: gpsParams });
   // A walk saved without Places settings gets the defaults, not the
   // previous slider value; one that has its own keeps them.

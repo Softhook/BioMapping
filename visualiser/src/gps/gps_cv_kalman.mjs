@@ -9,8 +9,8 @@
  *   transition F = [I  dt·I; 0  I]
  *   process    Q = q·[dt³/3·I  dt²/2·I; dt²/2·I  dt·I]   (q in m²/s³)
  *   measured   position fix (per-fix noise from hAcc / DOP —
- *              GpsFilter.measurementVarianceM2) and the chip's Doppler
- *              speed + course as a velocity vector.
+ *              measurementVarianceM2) and the chip's Doppler speed +
+ *              course as a velocity vector.
  *
  * The chip logs 5–10 fixes a second, already smoothed by its own navigation
  * filter, so neighbouring fixes share most of their error. Treating each as
@@ -58,12 +58,12 @@
  */
 
 import { GeoUtils } from './geo_utils.mjs';
-import { GpsFilter } from './gps_filter.mjs';
 
-const KNOTS_TO_MS = 0.514444;
 const DEG = Math.PI / 180;
 
 export const GpsCvKalman = {
+  /** Position variance (m²) at DOP 1, for fixes without an hAcc reading. */
+  DOP_BASE_VARIANCE_M2: 10,
   /** Acceleration noise density (m²/s³) at walking pace (maxSpeed 3 m/s). */
   ACCEL_PSD_WALK: 0.5,
   /** 1σ error of the chip's Doppler speed (m/s). */
@@ -93,11 +93,42 @@ export const GpsCvKalman = {
   STOP_MOVE_WINDOW_S: 5,
 
   /**
-   * Position noise variance (m², per axis) for fix i: the shared hAcc/DOP
-   * model, scaled up when fixes come faster than one per NOISE_CORR_S.
+   * DOP to use for a fix: pdop (the chip's figure from all constellations,
+   * via GSA) over hdop, else `fallbackDefault`. Values ≥ 50 (e.g. the 99.9
+   * "unknown" sentinel) are ignored.
    */
-  positionVarianceM2(points, i, R_m2) {
-    const r = GpsFilter.measurementVarianceM2(points[i], R_m2);
+  _preferredDop(pt, fallbackDefault) {
+    if (!isNaN(pt.pdop) && pt.pdop > 0 && pt.pdop < 50.0) return pt.pdop;
+    if (!isNaN(pt.hdop) && pt.hdop > 0 && pt.hdop < 50.0) return pt.hdop;
+    return fallbackDefault;
+  },
+
+  /**
+   * One fix's own position noise variance (m²): the u-blox M10Q's hAcc
+   * ($PUBX,00) squared when present, since DOP (satellite geometry) can look
+   * fine while multipath drives the real error up (HDOP 1.2 but hAcc 15 m in
+   * an urban canyon). Without it — L76K walks, or before the first $PUBX,00
+   * — DOP_BASE_VARIANCE_M2 scaled by DOP², the DOP clamped to [0.5, 10]:
+   * below 0.5 is unrealistically optimistic, above 10 the HDOP gate has
+   * already dropped the fix.
+   *
+   * @param {object} pt - point with optional hacc/pdop/hdop fields
+   */
+  measurementVarianceM2(pt) {
+    if (!isNaN(pt.hacc) && pt.hacc > 0 && pt.hacc < 50.0) {
+      return pt.hacc * pt.hacc;
+    }
+    const h = Math.max(0.5, Math.min(10.0, this._preferredDop(pt, 1.0)));
+    return this.DOP_BASE_VARIANCE_M2 * h * h;
+  },
+
+  /**
+   * Position noise variance (m², per axis) for fix i as the filter uses it:
+   * measurementVarianceM2, scaled up when fixes come faster than one per
+   * NOISE_CORR_S.
+   */
+  positionVarianceM2(points, i) {
+    const r = this.measurementVarianceM2(points[i]);
     if (i === 0) return r;
     const dt = points[i].time - points[i - 1].time;
     return r * Math.max(1, this.NOISE_CORR_S / Math.max(dt, 0.01));
@@ -108,9 +139,8 @@ export const GpsCvKalman = {
    * per input point, input untouched (fewer than 2 points come back as is).
    *
    * @param {Array<{lat:number, lon:number, time:number}>} points
-   * @param {{maxSpeed?:number, R_m2?:number}} [opts] - maxSpeed scales the
-   *   acceleration noise as (maxSpeed/3)² (run/bike turn and speed up harder
-   *   than a walk); R_m2 is the base variance for the DOP fallback.
+   * @param {{maxSpeed?:number}} [opts] - maxSpeed scales the acceleration
+   *   noise as (maxSpeed/3)² (run/bike turn and speed up harder than a walk).
    */
   apply(points, opts = {}) {
     return this.run(points, opts).points;
@@ -123,7 +153,7 @@ export const GpsCvKalman = {
    * @returns {{points:Array, posRejected:number, velRejected:number,
    *   velUsed:number, resets:number, stopsPinned:number}}
    */
-  run(points, { maxSpeed = 3.0, R_m2 = 10 } = {}) {
+  run(points, { maxSpeed = 3.0 } = {}) {
     const n = points ? points.length : 0;
     const stats = {
       posRejected: 0,
@@ -164,7 +194,7 @@ export const GpsCvKalman = {
           segStarts.push(i);
           stats.resets++;
         }
-        this._init(x, P, pt, e, nn, R_m2);
+        this._init(x, P, e, nn, this.measurementVarianceM2(pt));
         rejectRun = 0;
         xp.set(x, 4 * i);
         Pp.set(P, 16 * i);
@@ -175,7 +205,7 @@ export const GpsCvKalman = {
         xp.set(x, 4 * i);
         Pp.set(P, 16 * i);
 
-        const r = this.positionVarianceM2(points, i, R_m2);
+        const r = this.positionVarianceM2(points, i);
         if (this._update(x, P, 0, e, nn, r, 0, r)) {
           rejectRun = 0;
         } else {
@@ -218,9 +248,7 @@ export const GpsCvKalman = {
    * position; returns `points` itself when there is none.
    */
   _pinStops(points, stats) {
-    const { degToMeterLat: mLat, degToMeterLon: mLon } =
-      GeoUtils.getGeodesicScale(points[0].lat);
-    const hasSpeed = (pt) => pt.speedKts >= 0;
+    const scale = GeoUtils.getGeodesicScale(points[0].lat);
     let out = points;
     let i = 0;
     while (i < points.length) {
@@ -228,40 +256,10 @@ export const GpsCvKalman = {
         i++;
         continue;
       }
-      // Stay stopped until the speed clearly rises, a fix strays from the
-      // stop, or the fixes move steadily (walking off slower than the chip's
-      // speed shows). The last ends the stop where that movement began.
-      let lat = points[i].lat;
-      let lon = points[i].lon;
-      let j = i + 1;
-      let end = -1;
-      let w = i; // first fix within STOP_MOVE_WINDOW_S of fix j
-      while (j < points.length) {
-        const pt = points[j];
-        if (!hasSpeed(pt) || pt.speedKts > this.STOP_EXIT_KTS) break;
-        const m = j - i;
-        const away = Math.hypot(
-          (pt.lon - lon / m) * mLon,
-          (pt.lat - lat / m) * mLat,
-        );
-        if (away > this.STOP_MAX_DIST_M) break;
-        while (pt.time - points[w].time > this.STOP_MOVE_WINDOW_S) w++;
-        const moved = Math.hypot(
-          (pt.lon - points[w].lon) * mLon,
-          (pt.lat - points[w].lat) * mLat,
-        );
-        if (moved > this.STOP_MOVE_M) {
-          end = w;
-          break;
-        }
-        lat += pt.lat;
-        lon += pt.lon;
-        j++;
-      }
-      if (end < 0) end = j;
+      const { end, next } = this._stopEnd(points, i, scale);
       if (end > i && points[end - 1].time - points[i].time >= this.STOP_MIN_S) {
-        lat = 0;
-        lon = 0;
+        let lat = 0;
+        let lon = 0;
         for (let k = i; k < end; k++) {
           lat += points[k].lat;
           lon += points[k].lon;
@@ -272,15 +270,51 @@ export const GpsCvKalman = {
         for (let k = i; k < end; k++) out[k] = { ...points[k], lat, lon };
         stats.stopsPinned++;
       }
-      i = j;
+      i = next;
     }
     return out;
   },
 
-  /** Start (or restart) the track on fix `pt`, velocity from Doppler if any. */
-  _init(x, P, pt, e, nn, R_m2) {
+  /**
+   * For a stop starting at fix `start`: `end` is one past its last fix and
+   * `next` is where the search for the next stop resumes. The stop lasts
+   * until the speed clearly rises (or goes missing), a fix strays from the
+   * stop's mean, or the fixes move steadily — walking off slower than the
+   * chip's speed shows — in which case it ends where that movement began.
+   */
+  _stopEnd(points, start, { degToMeterLat: mLat, degToMeterLon: mLon }) {
+    let sumLat = points[start].lat;
+    let sumLon = points[start].lon;
+    let w = start; // first fix within STOP_MOVE_WINDOW_S of fix j
+    let j = start + 1;
+    for (; j < points.length; j++) {
+      const pt = points[j];
+      if (!hasSpeed(pt) || pt.speedKts > this.STOP_EXIT_KTS) break;
+      const m = j - start;
+      const away = Math.hypot(
+        (pt.lon - sumLon / m) * mLon,
+        (pt.lat - sumLat / m) * mLat,
+      );
+      if (away > this.STOP_MAX_DIST_M) break;
+      while (pt.time - points[w].time > this.STOP_MOVE_WINDOW_S) w++;
+      const moved = Math.hypot(
+        (pt.lon - points[w].lon) * mLon,
+        (pt.lat - points[w].lat) * mLat,
+      );
+      if (moved > this.STOP_MOVE_M) return { end: w, next: j };
+      sumLat += pt.lat;
+      sumLon += pt.lon;
+    }
+    return { end: j, next: j };
+  },
+
+  /**
+   * Start (or restart) the track at (e, n) with position variance r and an
+   * unknown velocity; the fix's own Doppler reading, if any, is applied
+   * straight after as a normal update.
+   */
+  _init(x, P, e, nn, r) {
     P.fill(0);
-    const r = GpsFilter.measurementVarianceM2(pt, R_m2);
     x[0] = e;
     x[1] = nn;
     x[2] = 0;
@@ -382,8 +416,8 @@ export const GpsCvKalman = {
    * reported speed" — which is what holds a stop still.
    */
   _dopplerVelocity(pt) {
-    if (!(pt.speedKts >= 0)) return null;
-    const s = pt.speedKts * KNOTS_TO_MS;
+    if (!hasSpeed(pt)) return null;
+    const s = pt.speedKts * GeoUtils.KNOTS_TO_MS;
     const sa2 = this.SPEED_SIGMA_MS ** 2;
     if (s < this.COURSE_MIN_SPEED_MS) {
       const r = sa2 + s * s;
@@ -446,6 +480,11 @@ export const GpsCvKalman = {
     }
   },
 };
+
+/** Whether a fix carries a Doppler speed (older walks have none at stops). */
+function hasSpeed(pt) {
+  return pt.speedKts >= 0;
+}
 
 /**
  * Invert the 4×4 matrix stored at src[off..off+15] into out (Gauss-Jordan

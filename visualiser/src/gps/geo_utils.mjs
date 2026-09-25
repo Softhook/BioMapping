@@ -4,6 +4,8 @@
 export const GeoUtils = {
   EARTH_RADIUS_M: 6371000,
   METERS_PER_DEG_LAT: 111320,
+  /** One knot in m/s (1852 m per nautical mile / 3600 s). */
+  KNOTS_TO_MS: 1852 / 3600,
 
   /**
    * Conversion factors from degrees to metres at a given latitude.

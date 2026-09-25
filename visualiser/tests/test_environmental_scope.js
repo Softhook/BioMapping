@@ -13,7 +13,6 @@ const { loadModule } = require('./support/load_module.js');
 loadModule(path.join(__dirname, '../src/gps/geo_utils.js'), 'GeoUtils');
 loadModule(path.join(__dirname, '../src/signal/stats_math.js'), 'StatsMath');
 loadModule(path.join(__dirname, '../src/map/map_colors.js'), 'MapColors');
-loadModule(path.join(__dirname, '../src/gps/gps_filter.js'), 'GpsFilter');
 loadModule(path.join(__dirname, '../src/gps/gps_pipeline.js'), 'GpsPipeline');
 loadModule(path.join(__dirname, '../src/signal/dwt_filter.js'), 'DWT');
 loadModule(path.join(__dirname, '../src/signal/gsr_filter.js'), 'GsrFilter');

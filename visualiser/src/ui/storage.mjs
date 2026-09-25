@@ -87,7 +87,6 @@ export const GSRStorage = {
     const AP = GSR_CONST.AROUSAL_PLACES;
     const maxSpeed = sliderVal(S.gpsMaxSpeed, D.maxSpeed);
     return {
-      kalmanR: sliderVal(S.gpsKalmanR, D.kalmanR),
       maxHdop: sliderVal(S.gpsMaxHdop, D.maxHdop),
       maxSpeed: maxSpeed,
       rdpTolerance: sliderVal(S.gpsRDP, D.rdpTolerance),
@@ -116,7 +115,6 @@ export const GSRStorage = {
     if (!S) return;
 
     const gpsMap = {
-      kalmanR: 'gpsKalmanR',
       maxHdop: 'gpsMaxHdop',
       maxSpeed: 'gpsMaxSpeed',
       rdpTolerance: 'gpsRDP',
@@ -212,7 +210,6 @@ export const GSRStorage = {
   buildGpsParams() {
     const raw = this.readGpsSliderValues();
     return {
-      kalmanR: raw.kalmanR,
       maxHdop: raw.maxHdop,
       maxSpeed: raw.maxSpeed,
       rdpTolerance: raw.rdpTolerance,

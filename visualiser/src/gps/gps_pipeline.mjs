@@ -1,7 +1,20 @@
 /**
- * GPS Filter Pipeline — standalone helper functions for trajectory cleaning, gating, and display downsampling.
+ * GPS pipeline — the stages between a walk's raw rows and the points drawn
+ * on the map (docs/gps_filtering_pipeline.md):
+ *
+ *   collectFixes     → the real GPS fixes, trimmed to the fields used here
+ *   filterFixes      → HDOP + fix-type gates, Kalman filter + smoother
+ *                      (gps_cv_kalman.mjs), then the optional road-snap pull
+ *   reconstructFilteredGps → back onto the 10 Hz sample grid (Hermite
+ *                      curves between fixes, gaps left blank only where the
+ *                      jump is impossible)
+ *   buildDrawPoints + applyRDP → display thinning
+ *
+ * GSRMapManager (map/manager/process.mjs) runs them in that order and caches
+ * the result.
  */
 import { GeoUtils } from './geo_utils.mjs';
+import { GpsCvKalman } from './gps_cv_kalman.mjs';
 
 // Absolute distance ceiling for a "plausible" gap, regardless of how much
 // time it spans — guards a long gap between two points that happen to be
@@ -25,7 +38,6 @@ const SNAP_GAP_SPEED_MULTIPLIER = 4;
 const IMPOSSIBLE_JUMP_SPEED_MS = 20;
 const IMPOSSIBLE_JUMP_MIN_DIST_M = 50;
 
-const KNOTS_TO_MS = 0.51444;
 const DEG_TO_RAD = Math.PI / 180;
 
 // Cubic Hermite tangent overshoot guard: clamps each endpoint's velocity-
@@ -45,7 +57,7 @@ export const GpsPipeline = {
    */
   _velocityDegPerSec(speedKts, course, scale) {
     if (isNaN(speedKts) || isNaN(course)) return null;
-    const speedMs = speedKts * KNOTS_TO_MS;
+    const speedMs = speedKts * GeoUtils.KNOTS_TO_MS;
     const courseRad = course * DEG_TO_RAD;
     return {
       vLat: (speedMs * Math.cos(courseRad)) / scale.degToMeterLat,
@@ -147,17 +159,10 @@ export const GpsPipeline = {
   },
 
   /**
-   * Is the gap between two consecutive GPS points a plausible piece of the
-   * same continuous walk, safe to connect with a straight line/chord? Used
-   * by both reconstructFilteredGps (10Hz interpolation vs NaN) and the map
-   * renderer's path-segment breaking (_renderPathSegments in
-   * manager/path.mjs) so "is this gap trustworthy" is answered once instead
-   * of each place picking its own threshold and disagreeing — the two used
-   * to independently allow a gap through as long as it was time-wise "not
-   * too old" (30s), with no read on the distance actually implied, so an
-   * anchor pair a filter stage had already flagged as physically
-   * implausible (e.g. a huge jump in a fraction of a second) still got
-   * rendered as a straight line.
+   * Is a step between two points something a walk at up to maxSpeed could
+   * plausibly make? Used to check each step of a Hermite fill-in curve
+   * (_hermiteSegmentIsPlausible); the looser isImpossibleJump decides where
+   * the path is actually broken.
    *
    * @param {number} distM - straight-line distance between the two points (m)
    * @param {number} dt - time between them (s)
@@ -205,6 +210,58 @@ export const GpsPipeline = {
   },
 
   /**
+   * The real GPS fixes in `data` (not the rows between them), as small
+   * objects carrying only the fields the filter stages read plus `origIdx`,
+   * the raw row index. Copying the whole ~29-field CSV row here was ~35–40 %
+   * of the pipeline's cost on a large walk
+   * (docs/archive/visualizer_rendering_perf_routes.md §2.7); drawPoints are
+   * built from the raw rows separately, so nothing downstream misses them.
+   */
+  collectFixes(data) {
+    const pts = [];
+    for (let i = 0; i < data.length; i++) {
+      const d = data[i];
+      if (d._isGpsFix && !isNaN(d.lat) && !isNaN(d.lon)) {
+        pts.push({
+          lat: d.lat,
+          lon: d.lon,
+          time: d.time,
+          hdop: d.hdop,
+          pdop: d.pdop,
+          hacc: d.hacc,
+          speedKts: d.speedKts,
+          course: d.course,
+          fixType: d.fixType,
+          origIdx: i,
+        });
+      }
+    }
+    return pts;
+  },
+
+  /**
+   * Clean the fixes from collectFixes: HDOP and fix-type gates → Kalman
+   * filter + smoother → road-snap pull. Returns a new array.
+   *
+   * The road snap comes after the filter on purpose. Snapped positions fed
+   * into the filter would be treated as measurements, so a wrong snap (e.g.
+   * onto a parallel street) could drag the filter off and make it reject the
+   * good fixes that follow. Applied afterwards it is only a gentle pull on
+   * the finished estimate.
+   *
+   * @param {Array<object>} fixes - from collectFixes
+   * @param {{maxHdop:number, maxSpeed:number}} p
+   * @param {object|null} [snappedGps] - analyzer.snappedGps
+   */
+  filterFixes(fixes, { maxHdop, maxSpeed }, snappedGps = null) {
+    let pts = GpsPipeline.applyHdopGate(fixes, maxHdop);
+    pts = GpsPipeline.applyFixTypeGate(pts);
+    pts = GpsCvKalman.apply(pts, { maxSpeed });
+    if (snappedGps) pts = GpsPipeline.applySnapCorrection(pts, snappedGps);
+    return pts;
+  },
+
+  /**
    * HDOP gate: rejects GPS anchors with poor satellite geometry.
    * Points without HDOP data are always kept.
    */
@@ -224,7 +281,9 @@ export const GpsPipeline = {
   },
 
   /**
-   * Post-Kalman snap correction.
+   * Pull each fix towards its road-snapped position by the snap's weight
+   * `alpha` (0 = raw, 1 = on the road). Runs after the Kalman filter — see
+   * filterFixes.
    */
   applySnapCorrection(gpsPoints, snappedGps) {
     if (!snappedGps) return gpsPoints;
@@ -459,9 +518,9 @@ export const GpsPipeline = {
   /**
    * Downsample already-built point objects for Leaflet display.
    *
-   * The live 2D-map path uses buildDrawPoints() instead — the fused variant that
-   * builds and decimates in one pass from raw rows. This form is kept for callers
-   * that already hold a full point array (globe3d, e2e/unit tests).
+   * The map uses buildDrawPoints() instead — the fused variant that builds
+   * and decimates in one pass from raw rows. This form, for a full point
+   * array already in hand, is the reference the tests check it against.
    *
    * @param {Set<number>} [forceIndexSet] - analyzer.raw row indices (matched
    *   against each point's .origIdx) that must survive the stride even when
@@ -530,5 +589,95 @@ export const GpsPipeline = {
     }
 
     return draw;
+  },
+
+  /**
+   * Ramer-Douglas-Peucker (RDP) trajectory simplification.
+   * Reduces point count while preserving the overall shape.
+   *
+   * @param {Set<number>} [forceIndexSet] - analyzer.raw row indices (matched
+   *   against each point's .origIdx) that must never be dropped, regardless
+   *   of perpendicular distance — see GSRAnalyzer._detectRfPeakIndices().
+   *   Plain RDP only reasons about geometric shape, so a momentary RF spike
+   *   sitting on an otherwise-straight segment would normally fall below
+   *   tolerance and vanish.
+   */
+  applyRDP(points, tolerance, forceIndexSet) {
+    if (
+      !tolerance ||
+      isNaN(tolerance) ||
+      tolerance <= 0.001 ||
+      points.length < 3
+    )
+      return points;
+    const n = points.length;
+
+    const getPerpendicularDistance = (p, s, e) => {
+      return GeoUtils.distanceToSegmentMeters(
+        p.lat,
+        p.lon,
+        s.lat,
+        s.lon,
+        e.lat,
+        e.lon,
+      );
+    };
+
+    // keep mask: keep[i] is 1 if point i is kept, 0 if dropped.
+    const keep = new Uint8Array(n);
+    keep[0] = 1;
+    keep[n - 1] = 1;
+
+    const rdpRecurse = (startIdx, endIdx) => {
+      if (endIdx <= startIdx + 1) return;
+
+      let maxDist = 0;
+      let index = -1;
+
+      for (let i = startIdx + 1; i < endIdx; i++) {
+        const dist = getPerpendicularDistance(
+          points[i],
+          points[startIdx],
+          points[endIdx],
+        );
+        if (dist > maxDist) {
+          maxDist = dist;
+          index = i;
+        }
+      }
+
+      if (maxDist > tolerance) {
+        keep[index] = 1;
+        rdpRecurse(startIdx, index);
+        rdpRecurse(index, endIdx);
+      }
+    };
+
+    if (!forceIndexSet || forceIndexSet.size === 0) {
+      rdpRecurse(0, n - 1);
+    } else {
+      // Split into segments at forced vertices so they are guaranteed to survive
+      const boundaryIdxs = [0];
+      for (let i = 1; i < n - 1; i++) {
+        if (forceIndexSet.has(points[i].origIdx)) {
+          boundaryIdxs.push(i);
+          keep[i] = 1;
+        }
+      }
+      boundaryIdxs.push(n - 1);
+
+      for (let s = 0; s < boundaryIdxs.length - 1; s++) {
+        rdpRecurse(boundaryIdxs[s], boundaryIdxs[s + 1]);
+      }
+    }
+
+    // Build the final array of kept points in a single pass
+    const result = [];
+    for (let i = 0; i < n; i++) {
+      if (keep[i] === 1) {
+        result.push(points[i]);
+      }
+    }
+    return result;
   },
 };

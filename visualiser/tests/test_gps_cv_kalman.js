@@ -14,7 +14,6 @@
 const assert = require('node:assert');
 const test = require('node:test');
 const { GpsCvKalman } = require('../src/gps/gps_cv_kalman.mjs');
-const { GpsFilter } = require('../src/gps/gps_filter.mjs');
 const { GeoUtils } = require('../src/gps/geo_utils.mjs');
 
 const LAT0 = 51.5;
@@ -113,7 +112,7 @@ test('smoother equals the brute-force least-squares solution of the model', () =
   }
   const K = GpsCvKalman;
   const q = K.ACCEL_PSD_WALK;
-  const res = K.run(pts, { maxSpeed: 3, R_m2: 10 });
+  const res = K.run(pts, { maxSpeed: 3 });
   assert.strictEqual(res.posRejected + res.velRejected + res.resets, 0);
 
   // Normal equations Σ Hᵀ W H x = Σ Hᵀ W z over the stacked state (4 per fix).
@@ -137,7 +136,7 @@ test('smoother equals the brute-force least-squares solution of the model', () =
 
   const en = pts.map(toEN);
   // Prior on the first state, as _init sets it.
-  const r0 = GpsFilter.measurementVarianceM2(pts[0], 10);
+  const r0 = GpsCvKalman.measurementVarianceM2(pts[0], 10);
   const s0 = K.INIT_SPEED_SIGMA_MS ** 2;
   addBlock(
     [[[0, 1]], [[1, 1]]],

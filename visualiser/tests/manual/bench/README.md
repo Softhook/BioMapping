@@ -46,7 +46,7 @@ Filenames may omit `.csv`.
 | `signal-metrics` | peakDensity + phasicAUC + arousalIndex + triIndex | graphView change |
 | `arousal-places` | `compactClusters` + `buildPlaces` + every `getConcaveBlob`, split out | peak/merge slider, exclusion toggle |
 | `label-placement` | `GSRLabelManager.computeLabelPositions` at 25 / 100 / all peaks labelled | every peak-marker render |
-| `gps-pipeline` | `_getOrBuildDrawPoints` for a GPS-slider frame (kalmanR nudged each iter so the whole cache chain, reconstruct included, genuinely misses) | every GPS-slider frame |
+| `gps-pipeline` | `_getOrBuildDrawPoints` for a GPS-slider frame (maxSpeed nudged each iter so the whole cache chain, reconstruct included, genuinely misses) | every GPS-slider frame |
 | `render-single` | `renderData()` full · `refreshPeakMarkers()` warm-cache · forced miss | single-track map redraw |
 | `graph-draw` | p5 `draw()` at full zoom and a 60 s window (16.6 ms = one 60fps frame) | every hover / scrub / redraw |
 | `contour-surface` | `generateContourSurface()` IDW vs "peaks" KDE | collective contour slider |

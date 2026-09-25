@@ -2,7 +2,7 @@
  * Comprehensive regression test suite for the BioMapping GSR analyser refactoring.
  *
  * Tests all pure functions from the five extracted modules:
- *   geo_utils.js, stats_math.js, map_colors.js, gps_filter.js, gps_pipeline.js
+ *   geo_utils.js, stats_math.js, map_colors.js, gps_pipeline.js
  *
  * Run: node tests/test_refactor.js
  */
@@ -13,7 +13,6 @@
 
 // Stub for functions/modules that the tested modules may reference but
 // that we aren't testing directly here.
-global.GpsFilter = null; // placeholder, loaded below
 global.GSR_CONST = require('./mock_constants.js');
 
 // ── Load modules under test ─────────────────────────────────────────────────
@@ -30,13 +29,11 @@ const { loadModule } = require('./support/load_module.js');
 loadModule(`${__dirname}/../src/gps/geo_utils.js`, 'GeoUtils');
 loadModule(`${__dirname}/../src/signal/stats_math.js`, 'StatsMath');
 loadModule(`${__dirname}/../src/map/map_colors.js`, 'MapColors');
-loadModule(`${__dirname}/../src/gps/gps_filter.js`, 'GpsFilter');
 loadModule(`${__dirname}/../src/gps/gps_pipeline.js`, 'GpsPipeline');
 
 const GeoUtils = global.GeoUtils;
 const StatsMath = global.StatsMath;
 const MapColors = global.MapColors;
-const GpsFilter = global.GpsFilter;
 const GpsPipeline = global.GpsPipeline;
 
 // ── Test helpers ────────────────────────────────────────────────────────────
@@ -364,9 +361,9 @@ assertEq(
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-//  4. gps_filter.js
+//  4. gps_pipeline.js — gates and RDP
 // ────────────────────────────────────────────────────────────────────────────
-console.log('\n── gps_filter.js ──');
+console.log('\n── gps_pipeline.js: gates + RDP ──');
 
 // 4b. applyHdopGate — filters high HDOP
 {
@@ -400,7 +397,7 @@ console.log('\n── gps_filter.js ──');
     { lat: 0, lon: 0.0001 }, // slight zag
     { lat: 0.001, lon: 0.001 }, // far away
   ];
-  const result = GpsFilter.applyRDP(pts, 50); // 50 m tolerance
+  const result = GpsPipeline.applyRDP(pts, 50); // 50 m tolerance
   assert(
     result.length >= 2,
     `RDP returns at least endpoints (got ${result.length})`,
@@ -414,7 +411,7 @@ console.log('\n── gps_filter.js ──');
     { lat: 1, lon: 1 },
     { lat: 2, lon: 2 },
   ];
-  const result = GpsFilter.applyRDP(pts, 0);
+  const result = GpsPipeline.applyRDP(pts, 0);
   assertEq(result, pts, 'RDP zero tolerance → passthrough');
 }
 

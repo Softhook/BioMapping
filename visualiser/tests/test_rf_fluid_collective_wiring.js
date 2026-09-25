@@ -149,11 +149,11 @@ test('renderCollectiveData re-renders reuse the same per-track drawPoints refere
     'an unrelated re-render (no param change on A) must hand RFFluidRenderer the SAME drawPoints reference for A, so its fan-cast cache can skip recomputing A',
   );
 
-  // Now change ONLY track B's GPS params (a plausible "drag B's measurement
-  // noise slider" scenario) and re-render a third time.
+  // Now change ONLY track B's GPS params (a plausible "drag B's max speed
+  // slider" scenario) and re-render a third time.
   trackB.gpsFilterParams = {
     ...trackB.gpsFilterParams,
-    kalmanR: (trackB.gpsFilterParams.kalmanR || 10) + 5,
+    maxSpeed: (trackB.gpsFilterParams.maxSpeed || 3) + 1,
   };
   mapManager.renderCollectiveData(
     window.AppState.collectiveManager,
