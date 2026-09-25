@@ -133,6 +133,18 @@ static void gps_store_pdop(GpsUart* g, float pdop) {
     }
 }
 
+// ── Satellite count: never report less than GSA/GSV have seen. ─────────
+// GSV total_sats is the definitive count when available (GGA caps at 12 on
+// u-blox); falls back to the GSA active-satellite count before GSV arrives.
+static void gps_raise_sat_count(GpsUart* g) {
+    if(g->status.active_prn_count > g->status.satellites_tracked) {
+        g->status.satellites_tracked = g->status.active_prn_count;
+    }
+    if(g->status.gsv_total_sats > g->status.satellites_tracked) {
+        g->status.satellites_tracked = g->status.gsv_total_sats;
+    }
+}
+
 // NMEA sentence dispatcher
 static void gps_uart_parse_line(GpsUart* g, char* line) {
     // Parse $PUBX,00 for horizontal accuracy (hAcc in metres)
@@ -219,7 +231,10 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
                 g->status.latitude  = minmea_tocoord_double(&frame.latitude);
                 g->status.longitude = minmea_tocoord_double(&frame.longitude);
             }
+            // GGA caps at 12 on u-blox, so lift straight back to the GSA/GSV
+            // count; otherwise a row logged before the next GSA reads 12.
             g->status.satellites_tracked = frame.satellites_tracked;
+            gps_raise_sat_count(g);
             g->status.fix_quality        = frame.fix_quality;
             // Only overwrite HDOP when the field is present — minmea_tofloat
             // returns NaN for empty fields, which would clobber a good reading
@@ -283,15 +298,7 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
                 }
             }
             gps_store_pdop(g, minmea_tofloat(&frame.pdop));
-            if(g->status.active_prn_count > g->status.satellites_tracked) {
-                g->status.satellites_tracked = g->status.active_prn_count;
-            }
-            // GSV total_sats is the definitive count when available.
-            // GGA caps at 12 on u-blox; GSV reports the true per-constellation
-            // total.  Falls back to active_prn_count if GSV hasn't arrived yet.
-            if(g->status.gsv_total_sats > g->status.satellites_tracked) {
-                g->status.satellites_tracked = g->status.gsv_total_sats;
-            }
+            gps_raise_sat_count(g);
         }
     } break;
 

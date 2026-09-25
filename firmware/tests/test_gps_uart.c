@@ -384,6 +384,38 @@ static void test_gsa_same_number_different_constellations(void) {
     printf("  -> Pass\n");
 }
 
+// GGA reporting fewer satellites than GSA has already counted (the u-blox
+// GGA cap of 12) must not pull the logged count down until the next GSA.
+// Track 032b logged single-row dips to exactly 12 from this.
+static const char* GGA_8_SATS_LINE =
+    "$GNGGA,203337.00,5133.34438,N,00004.28757,W,1,08,0.9,123.4,M,45.6,M,,*63\r\n";
+
+static void test_gga_does_not_lower_sat_count(void) {
+    printf("Running test_gga_does_not_lower_sat_count...\n");
+    FuriMessageQueue queue = {0};
+    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian);
+    assert(g != NULL);
+
+    furi_hal_mock_feed_string(GSA_LINE);         // GPS 10 13 15 20
+    furi_hal_mock_feed_string(GSA_SBAS_LINE);    // SBAS 33
+    furi_hal_mock_feed_string(GSA_GALILEO_LINE); // Galileo 10 13
+    furi_hal_mock_feed_string(GSA_BEIDOU_LINE);  // BeiDou 33 10
+    gps_uart_process_rx(g);
+    furi_hal_mock_feed_string(GSA_QZSS_LINE);    // QZSS 10
+    gps_uart_process_rx(g);
+    assert(gps_uart_get_status(g).satellites_tracked == 10);
+
+    furi_hal_mock_feed_string(GGA_8_SATS_LINE);
+    gps_uart_process_rx(g);
+
+    GpsStatus s = gps_uart_get_status(g);
+    printf("  sats=%d (expect 10, not GGA's 8)\n", s.satellites_tracked);
+    assert(s.satellites_tracked == 10);
+
+    gps_uart_free(g);
+    printf("  -> Pass\n");
+}
+
 static void test_gsv_total_sats(void) {
     printf("Running test_gsv_total_sats...\n");
     FuriMessageQueue queue = {0};
@@ -1269,6 +1301,7 @@ int main(void) {
     test_gsa_beidou_33_is_not_sbas();
     test_sbas_clears_after_a_second_without();
     test_gsa_same_number_different_constellations();
+    test_gga_does_not_lower_sat_count();
     test_gsv_total_sats();
     test_gsv_duplicate_within_window_not_doubled();
     test_gsv_multi_constellation_within_window_sums();
