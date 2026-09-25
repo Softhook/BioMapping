@@ -12,7 +12,7 @@
  *              measurementVarianceM2) and the chip's Doppler speed +
  *              course as a velocity vector.
  *
- * The chip logs 5–10 fixes a second, already smoothed by its own navigation
+ * The chip logs 10 fixes a second, already smoothed by its own navigation
  * filter, so neighbouring fixes share most of their error. Treating each as
  * independent makes the filter far too sure of itself: it then gates out the
  * chip's own corrections and has to restart. Each fix's noise is therefore
@@ -107,8 +107,8 @@ export const GpsCvKalman = {
    * One fix's own position noise variance (m²): the u-blox M10Q's hAcc
    * ($PUBX,00) squared when present, since DOP (satellite geometry) can look
    * fine while multipath drives the real error up (HDOP 1.2 but hAcc 15 m in
-   * an urban canyon). Without it — L76K walks, or before the first $PUBX,00
-   * — DOP_BASE_VARIANCE_M2 scaled by DOP², the DOP clamped to [0.5, 10]:
+   * an urban canyon). Without it — before the first $PUBX,00 of a walk —
+   * DOP_BASE_VARIANCE_M2 scaled by DOP², the DOP clamped to [0.5, 10]:
    * below 0.5 is unrealistically optimistic, above 10 the HDOP gate has
    * already dropped the fix.
    *

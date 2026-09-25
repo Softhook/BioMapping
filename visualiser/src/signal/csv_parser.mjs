@@ -1,6 +1,6 @@
 /**
- * CSV parsing engine for the GSR track visualiser — variable-rate (10 Hz GSR,
- * up to 5 Hz GPS) CSV files with optional RF/OSM columns.
+ * CSV parsing engine for the GSR track visualiser — 10 Hz GSR + GPS CSV
+ * files (GPS columns empty on rows without a fix) with optional RF/OSM columns.
  *
  * Extracted from GSRAnalyzer (analyzer.js) so the parser can be tested
  * independently of the analysis engine. parse() is stateless and returns a
@@ -266,8 +266,9 @@ export const GSRCSVParser = {
   },
 
   /**
-   * Interpolate GPS coordinates across a dense 10 Hz row list where anchors
-   * arrive at the GPS fix rate (~1–5 Hz). Mutates rawDataList in-place:
+   * Interpolate GPS coordinates across a dense 10 Hz row list, filling the
+   * rows between fixes (dropouts, and the ~3 Hz live-stream export).
+   * Mutates rawDataList in-place:
    *
    * 1. Mark genuine fix rows (hasGps = true) and clear sentinel (0, 0) rows.
    * 2. Constant-fill rows before the first fix from the first fix's position.

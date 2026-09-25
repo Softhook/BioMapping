@@ -12,9 +12,7 @@
 #include <math.h>
 #include <string.h>
 #include <stdatomic.h>
-#if GPS_MODULE == GPS_MODULE_M10Q
 #include "eff_short_wordlist.h" // chip-ID mnemonic phrase — see ubx_poll_chip_id()
-#endif
 
 #define RX_LINE_BUF  1024      // max NMEA line length (~80 in practice)
 #define GSV_MAX_TALKERS 5      // GP/GL/GA/GB/GQ — one slot per constellation per accumulation window
@@ -40,6 +38,7 @@ struct GpsUart {
     char                 gsv_contributed_talkers[GSV_MAX_TALKERS][2]; // talkers already summed this window
     int                  gsv_contributed_count;
     struct minmea_time   last_epoch_time;
+    bool                 sbas_seen_this_second; // an SBAS satellite was in use since the last whole-second reset
     // Per-session log-once flags. Kept in the struct (not as function-local
     // statics) so they reset correctly on each gps_uart_alloc() call.
     bool                 gsa_talker_logged;
@@ -106,42 +105,23 @@ static inline double minmea_tocoord_double(const struct minmea_float* f) {
     return (double)deg + (double)min / ((double)f->scale * 60);
 }
 
-// ── Constellation offset helper: maps a talker ID + raw PRN to a
-// constellation-unique PRN index, so PRNs that collide across
-// constellations stay distinct in the active_prns dedup set ─────
-static int gps_get_constellation_offset(const char* talker_id, int prn) {
-    // GPS / SBAS / QZSS: GP talker (spec Table 2)
-    // QZSS always uses GP talker with PRNs 193-197 (Table 16)
-    if(talker_id[0] == 'G' && talker_id[1] == 'P') return 0;
+// ── Satellite identity for the active_prns dedup set ─────────────────
+// The M10Q runs at its defaults, NMEA 4.11 with strict satellite numbering
+// (gps_uart_configure() leaves CFG-NMEA-PROTVER/SVNUMBERING alone), which
+// reuses the same numbers across constellations: GPS 1-32, SBAS 33-64,
+// GLONASS 65-96, Galileo 1-36, BeiDou 1-63, QZSS 1-10 (u-blox M10 SPG 5.10
+// Interface Description, Table 3). The number alone is therefore ambiguous;
+// the GSA SystemID says which constellation it belongs to (1=GPS/SBAS,
+// 2=GLONASS, 3=Galileo, 4=BeiDou, 5=QZSS, §1.5.4). Strict numbers are all
+// below 100, so SystemID*100 + number is unique. A GSA without a SystemID
+// (0) keeps the bare number.
+static int gps_sat_key(int system_id, int sat) {
+    return system_id * 100 + sat;
+}
 
-    // GLONASS: GL — spec Table 16: IDs 65-88
-    if(talker_id[0] == 'G' && talker_id[1] == 'L') return 300 - 65;
-
-    // BeiDou: BD or GB — spec Table 16: IDs 1-63
-    if((talker_id[0] == 'B' && talker_id[1] == 'D') ||
-       (talker_id[0] == 'G' && talker_id[1] == 'B')) {
-        return 210;
-    }
-
-    // Galileo: GA — spec Table 16: IDs 1-36
-    // Offset 350 places Galileo indices at 351-386, clear of all other bands.
-    if(talker_id[0] == 'G' && talker_id[1] == 'A') return 350;
-
-    // Combined / Multi-constellation fallback: GN
-    // Per spec §2.2.3, GSV never uses GN talker on L76K — each constellation
-    // gets its own talker (GP/GL/BD/GA). This branch only fires for GSA on GN
-    // talker without a SystemID field (shouldn't happen on L76K/M10Q firmware
-    // because we explicitly map SystemID to a talker before calling here).
-    // GPS (1-32) and BeiDou (1-63) overlap — cannot be resolved here, so
-    // PRNs 1-32 are treated as GPS in this fallback. Use SystemID for accuracy.
-    if(talker_id[0] == 'G' && talker_id[1] == 'N') {
-        if(prn >= 193 && prn <= 197) return 0;         // QZSS (spec Table 16: 193-197, GP-offset)
-        if(prn >= 120 && prn <= 158) return 0;         // SBAS (treat as GPS offset)
-        if(prn >= 65  && prn <= 88)  return 300 - 65;  // GLONASS (spec Table 16: 65-88)
-        if(prn >= 33  && prn <= 63)  return 210;        // BeiDou unambiguous range (33-63)
-        if(prn >= 1   && prn <= 32)  return 0;          // GPS/BeiDou overlap: default to GPS
-    }
-    return 0;
+// SBAS satellites are listed under SystemID 1 with numbers 33-64 (Table 3).
+static bool gps_sat_is_sbas(int system_id, int sat) {
+    return system_id == 1 && sat >= 33 && sat <= 64;
 }
 
 // ── PDOP helper: store GSA's chip-computed Position DOP. ───────────────
@@ -155,12 +135,6 @@ static void gps_store_pdop(GpsUart* g, float pdop) {
 
 // NMEA sentence dispatcher
 static void gps_uart_parse_line(GpsUart* g, char* line) {
-    // Log proprietary PCAS messages for configuration debugging.
-    if(strncmp(line, "$PCAS", 5) == 0) {
-        FURI_LOG_D("GpsUart", "PCAS Response: %s", line);
-        return;
-    }
-
     // Parse $PUBX,00 for horizontal accuracy (hAcc in metres)
     if(strncmp(line, "$PUBX,00,", 9) == 0) {
         const char* p = line;
@@ -199,7 +173,8 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
             // ModeInd 'E' means the position is calculated from motion model,
             // not satellite observations — logging it would corrupt the track.
             // ModeInd '\0' means field absent (older NMEA 2.1) — treat as OK.
-            // Spec §2.2.1: A=autonomous, D=differential, E=estimated, N=no fix.
+            // A=autonomous, D=differential, E=estimated, N=no fix (u-blox M10
+            // SPG 5.10 Interface Description §2.5.5, position fix flags).
             char mi = frame.mode_indicator;
             bool position_ok = frame.valid && (mi != 'E') && (mi != 'N');
             g->status.fix_valid = position_ok;
@@ -222,6 +197,8 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
                frame.time.seconds != g->last_epoch_time.seconds) {
                 g->last_epoch_time = frame.time;
                 g->status.active_prn_count = 0;
+                g->status.sbas_active = g->sbas_seen_this_second;
+                g->sbas_seen_this_second = false;
                 // NOTE: gsv_total_sats is NOT reset here — it is reset inside
                 // the GSV handler on a tick-based threshold (see GSV case).
                 // RMC-based reset failed at high update rates where sub-second
@@ -263,7 +240,7 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
     case MINMEA_SENTENCE_GSA: {
         struct minmea_sentence_gsa frame;
         if(minmea_parse_gsa(&frame, line)) {
-            // Log SystemID on first sighting — both L76K and u-blox M10Q emit
+            // Log SystemID on first sighting — the u-blox M10Q emits
             // one $GNGSA per constellation per epoch, distinguished by the trailing
             // SystemID field (1=GPS, 2=GLONASS, 3=Galileo, 4=BeiDou, 5=QZSS)
             // rather than by TalkerID.
@@ -282,52 +259,27 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
             if(!isnan(gsa_hdop)) g->status.hdop = gsa_hdop;
             g->last_valid_nmea_tick = furi_get_tick();
 
-            // Check if any tracked satellite is an SBAS bird (PRN >= 120).
-            g->status.sbas_active = false;
             for(int i = 0; i < 12 && frame.sats[i]; i++) {
-                if(frame.sats[i] >= 120) {
+                int sat = frame.sats[i];
+                // Stays set until a whole second passes without an SBAS
+                // satellite in use (cleared in the RMC epoch reset): the
+                // M10Q sends one GSA per constellation, and only the
+                // SystemID 1 one can list SBAS.
+                if(gps_sat_is_sbas(frame.system_id, sat)) {
                     g->status.sbas_active = true;
-                    break;
+                    g->sbas_seen_this_second = true;
                 }
-            }
 
-            // Map PRNs to constellation-offset indices using SystemID — this is
-            // authoritative on both L76K and u-blox M10Q:
-            //   1=GPS, 2=GLONASS, 3=Galileo, 4=BeiDou, 5=QZSS.
-            // Fall back to TalkerID heuristic only when SystemID is absent (=0).
-            // QZSS (SystemID=5) uses GP talker with PRNs 193-197 — same offset as GPS.
-            // IMPORTANT: Galileo PRNs (1-36) overlap GPS PRNs (1-32). Without the
-            // explicit system_id==3 branch, GN-talker fallback would map Galileo
-            // satellites to GPS offset 0, silently merging them into the GPS
-            // PRNs in the active_prns dedup set.
-            char talker_id[2];
-            if(frame.system_id == 2) {
-                talker_id[0] = 'G'; talker_id[1] = 'L'; // GLONASS
-            } else if(frame.system_id == 3) {
-                talker_id[0] = 'G'; talker_id[1] = 'A'; // Galileo — offset 350
-            } else if(frame.system_id == 4) {
-                talker_id[0] = 'B'; talker_id[1] = 'D'; // BeiDou
-            } else {
-                // GPS (SystemID=1), QZSS (SystemID=5), or unknown (0).
-                // Both GPS and QZSS use GP talker — offset function returns 0 for both.
-                talker_id[0] = line[1]; talker_id[1] = line[2];
-            }
-
-            for(int i = 0; i < 12 && frame.sats[i]; i++) {
-                int raw_prn = frame.sats[i];
-                int offset = gps_get_constellation_offset(talker_id, raw_prn);
-                int prn_with_offset = raw_prn + offset;
-
-                // Add to active_prns list if not already present
+                int key = gps_sat_key(frame.system_id, sat);
                 bool found = false;
                 for(int k = 0; k < g->status.active_prn_count; k++) {
-                    if(g->status.active_prns[k] == prn_with_offset) {
+                    if(g->status.active_prns[k] == key) {
                         found = true;
                         break;
                     }
                 }
                 if(!found && g->status.active_prn_count < 32) {
-                    g->status.active_prns[g->status.active_prn_count++] = prn_with_offset;
+                    g->status.active_prns[g->status.active_prn_count++] = key;
                 }
             }
             gps_store_pdop(g, minmea_tofloat(&frame.pdop));
@@ -348,8 +300,8 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
         struct minmea_sentence_gsv frame;
         if(minmea_parse_gsv(&frame, line)) {
             // Log the GSV talker prefix on first sighting so we can
-            // confirm the L76K emits constellation-specific GSV
-            // ($GPGSV / $BDGSV / $GLGSV) rather than $GNGSV.
+            // confirm the module emits constellation-specific GSV
+            // ($GPGSV / $GBGSV / $GLGSV) rather than $GNGSV.
             if(!g->gsv_talker_logged) {
                 g->gsv_talker_logged = true;
                 FURI_LOG_I("GpsUart", "First GSV talker: %c%c",
@@ -404,7 +356,7 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
     } break;
 
     case MINMEA_SENTENCE_GLL: {
-        // GLL is disabled in the current PCAS config, but guard the validity
+        // GLL is not enabled in the current config, but guard the validity
         // flag here so stale/void sentences never overwrite good coordinates.
         struct minmea_sentence_gll gll_frame;
         if(minmea_parse_gll(&gll_frame, line) && gll_frame.status == MINMEA_GLL_STATUS_DATA_VALID
@@ -425,7 +377,7 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
 // GpsUart across mode switches (every GPS session is its own alloc), and a
 // capture from an earlier alloc should survive into a later one within the
 // same app session rather than being lost with the struct that held it.
-// Empty ("") until ubx_poll_chip_id() (M10Q only, see below) polls and
+// Empty ("") until ubx_poll_chip_id() (see below) polls and
 // validates one. Never cleared — once found, kept for the life of the
 // process.
 //
@@ -449,9 +401,8 @@ static char g_gps_chip_id[32] = {0};
 // ---------------------------------------------------------------------------
 // Alloc — acquire USART1, init serial, configure GPS
 // ---------------------------------------------------------------------------
-#if GPS_MODULE == GPS_MODULE_M10Q
 // ---------------------------------------------------------------------------
-// Helpers — send binary UBX packets over the GPS UART (M10Q only)
+// Helpers — send binary UBX packets over the GPS UART
 // ---------------------------------------------------------------------------
 static void ubx_tx(GpsUart* g, const uint8_t* data, size_t len) {
     furi_hal_serial_tx(g->serial_handle, data, len);
@@ -929,7 +880,6 @@ static const uint8_t ubx_cfg_rst_hot[] = {
 // Switch the module to 115200 (sent at 9600). outProto=0002 → NMEA only
 // (0001=UBX would disable ASCII output).
 static const char pubx_baud_115200[] = "$PUBX,41,1,0007,0002,115200,0*19\r\n";
-#endif
 
 static void gps_uart_configure(GpsUart* g);
 
@@ -1009,7 +959,6 @@ uint32_t gps_uart_get_idle_rx_count(void) {
 // straight after a restart, which failed every time.
 static void gps_uart_sleep_from_unknown_state(void) {
     furi_hal_serial_init(g_port, GPS_BAUD_RATE);
-#if GPS_MODULE == GPS_MODULE_M10Q
     // Wake it (a no-op if already awake), move it to 115200 and follow it
     // there. A module already at 115200 ignores the 9600 command and
     // simply stays there.
@@ -1021,12 +970,6 @@ static void gps_uart_sleep_from_unknown_state(void) {
     furi_delay_ms(50);
     furi_hal_serial_tx(g_port, ubx_rxm_pmreq_standby, sizeof(ubx_rxm_pmreq_standby));
     furi_delay_ms(100); // let it finish shifting out, and any NMEA already in flight
-#elif GPS_MODULE == GPS_MODULE_L76K
-    // PCAS11,0 = stop mode (L76K&L26K Protocol Spec §2.3.11)
-    const char* stop_cmd = "$PCAS11,0*1D\r\n";
-    furi_hal_serial_tx(g_port, (const uint8_t*)stop_cmd, strlen(stop_cmd));
-    furi_delay_ms(100);
-#endif
 }
 
 void gps_uart_port_open(void) {
@@ -1054,9 +997,9 @@ void gps_uart_port_close(void) {
 // ── Serial baud-switch helper — stop/deinit/reinit/restart at a new baud,
 // resetting the RX line-framing state (rx_offset, rx_stream) since bytes
 // framed under the old baud are meaningless at the new one. Shared by
-// gps_uart_configure()'s L76K and M10Q branches right after each module is
-// told to switch to 115200. The delay that follows differs by call site
-// (50 ms there vs. 100 ms below), so that stays at each call site.
+// gps_uart_configure() right after the module is told to switch to 115200.
+// The delay that follows differs by call site (50 ms there vs. 100 ms
+// below), so that stays at each call site.
 static void gps_uart_switch_baud(GpsUart* g, uint32_t baud) {
     furi_hal_serial_async_rx_stop(g->serial_handle);
     furi_hal_serial_deinit(g->serial_handle);
@@ -1116,6 +1059,7 @@ GpsUart* gps_uart_alloc(FuriMessageQueue* event_queue, NotificationApp* notifica
     g->last_valid_nmea_tick  = furi_get_tick();
     g->last_gsv_reset_tick   = furi_get_tick();
     g->gsv_contributed_count = 0;
+    g->sbas_seen_this_second = false;
     g->gsa_talker_logged     = false;
     g->gsv_talker_logged     = false;
     g->rx_drop_count         = 0;
@@ -1130,11 +1074,9 @@ GpsUart* gps_uart_alloc(FuriMessageQueue* event_queue, NotificationApp* notifica
         // The port idles at 115200 after a sleep; a woken module talks at 9600.
         furi_hal_serial_deinit(g->serial_handle);
         furi_hal_serial_init(g->serial_handle, GPS_BAUD_RATE);
-#if GPS_MODULE == GPS_MODULE_M10Q
         // Wake the module from software standby and wait until it is
         // listening before gps_uart_configure() sends $PUBX,41 at 9600.
         ubx_wake(g->serial_handle);
-#endif
         furi_hal_serial_async_rx_start(g->serial_handle, gps_uart_irq_cb, g, false);
         g->ready = true;
         gps_uart_configure(g);
@@ -1151,10 +1093,8 @@ GpsUart* gps_uart_alloc(FuriMessageQueue* event_queue, NotificationApp* notifica
 void gps_uart_free(GpsUart* g) {
     furi_check(g, "GpsUart: NULL in free()");
     if(g->serial_handle) {
-#if GPS_MODULE == GPS_MODULE_M10Q
         // Sent at the session's 115200, the last byte before the line idles.
         ubx_tx(g, ubx_rxm_pmreq_standby, sizeof(ubx_rxm_pmreq_standby));
-#endif
         furi_hal_serial_async_rx_stop(g->serial_handle);
         gps_uart_idle_watch_start();
     }
@@ -1199,19 +1139,6 @@ const char* gps_uart_get_chip_id(const GpsUart* g) {
     return g_gps_chip_id;
 }
 
-#if GPS_MODULE == GPS_MODULE_L76K
-// ---------------------------------------------------------------------------
-// Helpers — send PCAS commands over the GPS UART (L76K only)
-// ---------------------------------------------------------------------------
-// Send without delay — for batching multiple commands before a single wait.
-static void pcas_tx_raw(GpsUart* g, const char* cmd) {
-    furi_hal_serial_tx(g->serial_handle, (const uint8_t*)cmd, strlen(cmd));
-}
-static void pcas_tx(GpsUart* g, const char* cmd) {
-    pcas_tx_raw(g, cmd);
-    furi_delay_ms(100);
-}
-#endif
 
 // ---------------------------------------------------------------------------
 // Drain RX stream, parse complete NMEA lines; run NMEA watchdog
@@ -1312,8 +1239,7 @@ void gps_uart_process_rx(GpsUart* g) {
 
     // ── NMEA watchdog: bytes are arriving but no valid sentence has ────
     // parsed in 5 seconds — most likely a baud mismatch after the module
-    // reset itself (M10Q reverts to 9600; L76K retains its persisted
-    // baud). Switch the host back to 9600 and re-run the full configure
+    // reset itself (it reverts to 9600). Switch the host back to 9600 and re-run the full configure
     // sequence to restore 115200 + settings.
     //
     // Only evaluated here, i.e. when bytes arrive: a module that has gone
@@ -1330,60 +1256,12 @@ void gps_uart_process_rx(GpsUart* g) {
 }
 
 // ---------------------------------------------------------------------------
-// Send init sequence: switch to 115200 baud and apply module-specific config.
-// Module type is selected at compile-time via GPS_MODULE in biomap_config.h.
+// Send init sequence: switch to 115200 baud and apply the M10Q config.
 // ---------------------------------------------------------------------------
 static void gps_uart_configure(GpsUart* g) {
     furi_check(g, "GpsUart: NULL in configure()");
     if(!g->ready || !g->serial_handle) return;
 
-#if GPS_MODULE == GPS_MODULE_L76K
-    // ── Quectel L76K ──────────────────────────────────────────────────
-    // All PCAS commands verified against Quectel L76K&L26K GNSS Protocol
-    // Specification v1.2 (2021-12-16).  Checksums computed with NMEA XOR.
-    //
-    // NOTE: PCAS04 constellation setting is VOLATILE per Quectel HW manual
-    // §3.4.1 ("掉电不保存") — module always boots as GPS+BeiDou.  We re-send
-    // $PCAS04,7 on every configure() call.  PCAS01 baud rate IS persisted.
-    //
-    // NOTE: No PCAS06 (SBAS enable) command exists in the L76K protocol spec.
-    // SBAS satellites (PRN 120-158) are handled automatically by the module
-    // when visible; we detect them passively via GSA PRN ≥ 120.
-    //
-    // Delays are minimised by batching: commands before the baud switch are
-    // sent back-to-back (pcas_tx_raw), followed by a single wait.  This
-    // reduces the configure time from ~1700 ms to ~600 ms on L76K, which
-    // avoids starving the 10 Hz GSR tick timer and UI event loop.
-    FURI_LOG_I("GpsUart", "Configuring Quectel L76K");
-
-    // Hot start
-    pcas_tx(g, "$PCAS10,0*1C\r\n");
-    furi_delay_ms(100);
-
-    // Batch initial config (constellation + sentence type) — no delay between them.
-    pcas_tx_raw(g, "$PCAS04,7*1E\r\n");                           // GPS+BeiDou+GLONASS (spec §2.3.4)
-    pcas_tx_raw(g, "$PCAS03,1,0,1,0,1,0,0,0,0,0,,,0,0*03\r\n"); // GGA+GSA+RMC only (spec §2.3.3)
-    furi_delay_ms(100);
-
-    // Switch module to 115200 baud
-    FURI_LOG_I("GpsUart", "Switching GPS to 115200 baud");
-    pcas_tx_raw(g, "$PCAS01,5*19\r\n");
-    furi_delay_ms(200);
-
-    // Switch host UART to match
-    gps_uart_switch_baud(g, GPS_BAUD_RATE_FAST);
-    furi_delay_ms(50);
-
-    // Datasheet requirement (§2.3.2): Interval < 1000 ms → must use 115200
-    // baud + single-sentence output mode.  We intentionally output GGA+GSA+RMC
-    // (3 types per fix) for richer data; bandwidth at 115200 is ~11% utilised.
-    // Batch post-baud commands — no delay between them.
-    pcas_tx_raw(g, "$PCAS02,200*1D\r\n");                         // 5 Hz (spec §2.3.2)
-    pcas_tx_raw(g, "$PCAS03,1,0,1,5,1,0,0,0,0,0,,,0,0*06\r\n"); // GGA+GSA+RMC@5Hz, GSV@1Hz
-    furi_delay_ms(100);
-    FURI_LOG_I("GpsUart", "L76K running at 115200 baud, 5 Hz, GSV@1Hz");
-
-#elif GPS_MODULE == GPS_MODULE_M10Q
     // ── u-blox SAM-M10Q ───────────────────────────────────────────────
     // Each binary UBX packet below is sent and then confirmed via
     // ubx_send_and_confirm() (UBX-ACK-ACK/NAK, see its doc comment) rather
@@ -1419,22 +1297,14 @@ static void gps_uart_configure(GpsUart* g) {
     ubx_poll_chip_id(g);
 
     FURI_LOG_I("GpsUart", "M10Q running at 115200 baud, 10 Hz, GSV@1Hz");
-
-#else
-    #error "GPS_MODULE must be GPS_MODULE_L76K or GPS_MODULE_M10Q"
-#endif
 }
 
 // ---------------------------------------------------------------------------
-// Hot Start reset — module-specific via compile-time GPS_MODULE.
+// Hot Start reset.
 // ---------------------------------------------------------------------------
 void gps_uart_send_hot_start(GpsUart* g) {
     furi_check(g, "GpsUart: NULL in send_hot_start()");
     if(!g->ready || !g->serial_handle) return;
     FURI_LOG_I("GpsUart", "Hot Start reset");
-#if GPS_MODULE == GPS_MODULE_L76K
-    pcas_tx(g, "$PCAS10,0*1C\r\n");
-#elif GPS_MODULE == GPS_MODULE_M10Q
     ubx_tx(g, ubx_cfg_rst_hot, sizeof(ubx_cfg_rst_hot));
-#endif
 }

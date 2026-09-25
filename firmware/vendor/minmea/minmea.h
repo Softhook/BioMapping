@@ -91,7 +91,7 @@ struct minmea_sentence_rmc {
     struct minmea_float course;
     struct minmea_date date;
     struct minmea_float variation;
-    char mode_indicator; // L76K NMEA 2.3: A=autonomous, D=diff, E=dead-reckoning, N=no fix
+    char mode_indicator; // NMEA 2.3+: A=autonomous, D=diff, E=dead-reckoning, N=no fix
 };
 
 struct minmea_sentence_gga {
@@ -163,7 +163,7 @@ struct minmea_sentence_gsa {
     struct minmea_float pdop;
     struct minmea_float hdop;
     struct minmea_float vdop;
-    int system_id; // L76K: constellation ID appended after VDOP (1=GPS, 2=GLONASS, 4=BeiDou)
+    int system_id; // NMEA 4.10+: constellation ID appended after VDOP (1=GPS/SBAS, 2=GLONASS, 3=Galileo, 4=BeiDou, 5=QZSS)
 };
 
 struct minmea_sat_info {

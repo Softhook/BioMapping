@@ -5,17 +5,6 @@
 
 #pragma once
 
-// ── GPS module selection — set BEFORE building ────────────────────────
-// Only one firmware image is produced; change this define when you swap the
-// physical GPS board connected to the Flipper Zero.
-//   GPS_MODULE_L76K  = Quectel L76K (PCAS commands, external U.FL antenna)
-//   GPS_MODULE_M10Q  = u-blox SAM-M10Q (UBX commands, integrated patch antenna)
-#define GPS_MODULE_L76K  1
-#define GPS_MODULE_M10Q  2
-#ifndef GPS_MODULE // overridable only so run_tests.sh can also test the L76K path
-#define GPS_MODULE       GPS_MODULE_M10Q
-#endif
-
 // SD writer control for A/B diagnostics.
 // 0 = normal mode (real storage_file_write/storage_file_sync calls)
 // 1 = dry-run mode (keeps logger API active but bypasses physical SD I/O)

@@ -8,12 +8,16 @@
 > last-checked date. For the authoritative, versioned CSV column list see
 > [`csv_schema.md`](csv_schema.md) — the abbreviated history in §4 below is
 > kept only for the context it gives the pipeline discussion.
+>
+> Known problems with the filter (restarts after 0.5 s letting bad stretches
+> through, the outlier check's width, and others) are written up in
+> [`gps_filter_review.md`](gps_filter_review.md).
 
 ---
 
 ## 1. Overview & Pipeline Order
 
-The BioMapping GPS pipeline ingests raw NMEA data from the GPS chip (typically Quectel L76K or u-blox M10Q) on the Flipper Zero hardware, performs light validity checking (NaN guards, fix-validity flags), logs every reported fix to an SD card, and then applies a multi-stage post-processing filter pipeline in the web-based analyzer.
+The BioMapping GPS pipeline ingests raw NMEA data from the u-blox SAM-M10Q GPS chip on the Flipper Zero hardware, performs light validity checking (NaN guards, fix-validity flags), logs every reported fix to an SD card, and then applies a multi-stage post-processing filter pipeline in the web-based analyzer.
 
 The sequence of filters applied to the track data is ordered as follows:
 
@@ -51,7 +55,7 @@ The current CSV log format consists of 11 columns:
 ```csv
 timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw,hacc_m
 ```
-`hacc_m` is the u-blox M10Q's own EKF-computed horizontal accuracy in meters, from `$PUBX,00` Field 9. It is `99.9` (unknown) on L76K hardware, which never emits `$PUBX,00`, and before the first such sentence arrives on M10Q.
+`hacc_m` is the u-blox M10Q's own EKF-computed horizontal accuracy in meters, from `$PUBX,00` Field 9. It is `99.9` (unknown) before the first such sentence arrives.
 
 ---
 
@@ -76,7 +80,7 @@ The app's only GPS filter. It replaced an earlier chain (stop averaging, speed f
   
   Chosen by A/B on the u-blox walks: none of the variants changed street distance; exiting at 3× pinned real walking and caused filter restarts; 1.5 m / 5 s split real stops; a tight zero-velocity measurement instead of pinning still left a 4 m line. Fixes without a speed are never pinned, so this only acts on recordings from 2026-09-25 on (§2.2).
 - **Smoother**: exact RTS backward pass — `tests/test_gps_cv_kalman.js` checks it against a brute-force least-squares solve of the same model.
-- **Evaluation** (2026-09-25, against the earlier chain, scoring the drawn path by its distance to the nearest mapped street): on the 31 u-blox walks median 3.17 m vs 3.32 m, worst 1 % 21.0 m vs 22.9 m, 0 vs 6 spikes. On the walks from the chip without `hacc_m` (L76K) it is slightly worse (median 4.70 m vs 4.51 m), which was accepted. Robust Student-t smoothing, Gauss-Markov error states and velocity-noise inflation were tried and not adopted. Later the same day, against the raw fixes on the 32 u-blox walks with cached street data: median 3.23 m vs 3.47 m, worst 10 % 11.0 m vs 13.1 m; stop pinning did not change these. Individual walks can still come out slightly worse than raw — on biomap_032b the chip's course read 12–23° off the fixes' own direction for 40 s and the filter cut a bend by up to 8 m.
+- **Evaluation** (2026-09-25, against the earlier chain, scoring the drawn path by its distance to the nearest mapped street): on the 31 u-blox walks median 3.17 m vs 3.32 m, worst 1 % 21.0 m vs 22.9 m, 0 vs 6 spikes. Robust Student-t smoothing, Gauss-Markov error states and velocity-noise inflation were tried and not adopted. Later the same day, against the raw fixes on the 32 u-blox walks with cached street data: median 3.23 m vs 3.47 m, worst 10 % 11.0 m vs 13.1 m; stop pinning did not change these. Individual walks can still come out slightly worse than raw — on biomap_032b the chip's course read 12–23° off the fixes' own direction for 40 s and the filter cut a bend by up to 8 m.
 
 ### 3.3 HMM Map Matching — computed once, outside the render pipeline (`map_match.js` & `osm_enrichment.js`)
 3. **HMM-Viterbi Map Matcher (`MapMatcher.match`)**:
@@ -113,12 +117,12 @@ The Kalman filter's own constants are fixed in `gps_cv_kalman.mjs`. The settings
 
 Measurement noise variance $R$ in the Kalman filter ([`gps_cv_kalman.mjs`](../visualiser/src/gps/gps_cv_kalman.mjs)) prefers the physical accuracy estimate over DOP-scaling when it's available:
 
-$$R_{\text{effective}} = \begin{cases} (\text{hacc\_m})^2 & \text{if hacc\_m valid (M10Q, post-fix)} \\ R_{\text{base}} \times \text{DOP}^2 & \text{otherwise (L76K, or pre-fix)} \end{cases}$$
+$$R_{\text{effective}} = \begin{cases} (\text{hacc\_m})^2 & \text{if hacc\_m valid} \\ R_{\text{base}} \times \text{DOP}^2 & \text{otherwise (before the first \$PUBX,00)} \end{cases}$$
 
 ### The `hAcc` Spatial Error Advantage
 The u-blox SAM-M10Q calculates **`hAcc`**—the actual physical horizontal position error in meters—via its internal extended Kalman filter covariance matrix, transmitted in the `$PUBX,00` NMEA sentence. The Flipper firmware (`modules/gps_uart.c`) extracts `hAcc` for live OLED display and, as of CSV schema v1.2, logs it as `hacc_m`.
 
 1. **Direct Kalman Variance Assignment:** When `hacc_m` is valid (not the `99.9` sentinel), the visualiser's Kalman filter (via `GpsCvKalman.measurementVarianceM2()` — the canonical hacc/DOP² noise model) assigns physical measurement variance directly instead of scaling by DOP².
 2. **Urban Canyon Multipath Rejection:** In urban canyons or under wet tree canopies, satellite geometry often remains acceptable ($\text{HDOP } 1.2$), causing DOP-based estimation to under-estimate measurement noise. However, physical multipath reflections cause true `hAcc` to spike from $1.5\text{ m} \longrightarrow 15.0\text{ m}$. With $R = 15^2 = 225$, the Kalman filter immediately de-weights the multipath outlier and dead-reckons smoothly past the anomaly.
-3. **L76K fallback:** `hacc_m` is u-blox-only (`$PUBX,00` is a u-blox proprietary sentence). On L76K hardware, or before the first `$PUBX,00` sentence arrives on M10Q, `hacc_m` stays at its `99.9` sentinel and the filter falls back to the existing DOP-based scaling — HDOP/PDOP remain necessary as the universal fallback, not redundant.
+3. **DOP fallback:** before the first `$PUBX,00` sentence of a walk arrives, `hacc_m` stays at its `99.9` sentinel and the filter falls back to DOP-based scaling — so HDOP/PDOP are still needed.
 4. **True Ground Error Heatmaps** (not yet implemented): visualizer tooltips/overlays showing exact ground uncertainty bounds ($\pm X.X\text{ m}$) per sample remain a future enhancement.

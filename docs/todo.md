@@ -102,6 +102,9 @@ correctness / structure concerns. Promote to its own doc if picked up.
 
 ### Open items
 
+- **GPS filter problems** — see [`gps_filter_review.md`](gps_filter_review.md)
+  (2026-09-25). Top item: the filter restarts after only 0.5 s of skipped
+  fixes, so any bad stretch ≥ 0.5 s is drawn in full as a spike.
 - **Fixed-stride `downsampleForDisplay` on the live path** — time-uniform and
   geometry-blind (drops corners, keeps redundant straightaway points).
   RDP + a max-vertex cap does the job better; the method's own comment
@@ -147,9 +150,7 @@ correctness / structure concerns. Promote to its own doc if picked up.
   `GPS_RX_MAX_DRAIN_BYTES_PER_CALL`/`GPS_RX_MAX_LINES_PER_CALL`
   (`gps_uart.c`). Neither is CPU-starved by NMEA parsing today, so binary
   framing wouldn't change either rate. Real costs of going binary-only:
-  drops L76K support entirely (Quectel, no UBX) or forces a second,
-  structurally different continuous RX path keyed on `GPS_MODULE`; trades
-  NMEA's self-recovering line framing for sync-byte/length/checksum binary
+  trades NMEA's self-recovering line framing for sync-byte/length/checksum binary
   framing that can misalign on a single dropped byte (existing UBX code in
   `gps_uart.c` only does this for one-shot config ACKs today, never as a
   continuous per-IRQ parser); and needs its own watchdog rewrite (current

@@ -9,11 +9,7 @@
 //
 // Coverage: every NMEA sentence type gps_uart_parse_line() dispatches on
 // (RMC, GGA, GSA, GSV, GLL), the RX-buffer-full and NMEA-watchdog reinit
-// paths, hot start, port open/close + sleep, and malformed input. NOT covered: the
-// L76K-specific PCAS command path (modules/gps_uart.c's #if GPS_MODULE ==
-// GPS_MODULE_L76K branch) — biomap_config.h compiles this firmware for
-// M10Q only, so PCAS code isn't even part of this binary; testing it would
-// mean building a second variant with GPS_MODULE flipped, not done here.
+// paths, hot start, port open/close + sleep, and malformed input.
 //
 // Build: ./run_tests.sh (or see that script for the raw gcc invocation).
 
@@ -72,14 +68,31 @@ static const char* RMC_NO_COURSE_LINE =
 
 // Documented worked example from minmea.c ($GNGSA variant, SystemID=1/GPS
 // appended). 4 satellites (10,13,15,20), fix_type=3 (3D), pdop=2.5,
-// hdop=2.0, vdop=1.5 — all PRNs < 120, so no SBAS.
+// hdop=2.0, vdop=1.5 — all GPS numbers (1-32), so no SBAS.
 static const char* GSA_LINE =
     "$GNGSA,A,3,10,13,15,20,,,,,,,,,2.5,2.0,1.5,1*35\r\n";
 
-// Same shape as GSA_LINE with sats[0]=120 (SBAS range is PRN >= 120) to
-// exercise the sbas_active detection branch.
+// Same shape as GSA_LINE with sats[0]=33 — an SBAS satellite, as the M10Q
+// numbers them at its NMEA 4.11 strict defaults (SystemID 1, 33-64).
 static const char* GSA_SBAS_LINE =
-    "$GNGSA,A,3,120,13,15,20,,,,,,,,,2.5,2.0,1.5,1*07\r\n";
+    "$GNGSA,A,3,33,13,15,20,,,,,,,,,2.5,2.0,1.5,1*34\r\n";
+
+// Other constellations' GSAs reusing the same numbers: BeiDou (SystemID 4)
+// 33 and 10, Galileo (3) 10 and 13, QZSS (5) 10. None of these is SBAS.
+static const char* GSA_BEIDOU_LINE =
+    "$GNGSA,A,3,33,10,,,,,,,,,,,2.5,2.0,1.5,4*34\r\n";
+static const char* GSA_GALILEO_LINE =
+    "$GNGSA,A,3,10,13,,,,,,,,,,,2.5,2.0,1.5,3*31\r\n";
+static const char* GSA_QZSS_LINE =
+    "$GNGSA,A,3,10,,,,,,,,,,,,2.5,2.0,1.5,5*35\r\n";
+
+// Three RMCs one second apart, for the whole-second SBAS window.
+static const char* RMC_SECOND_40_LINE =
+    "$GNRMC,203340.00,A,5133.34438,N,00004.28757,W,0.500,90.0,250926,,,A,V*1F\r\n";
+static const char* RMC_SECOND_41_LINE =
+    "$GNRMC,203341.00,A,5133.34438,N,00004.28757,W,0.500,90.0,250926,,,A,V*1E\r\n";
+static const char* RMC_SECOND_42_LINE =
+    "$GNRMC,203342.00,A,5133.34438,N,00004.28757,W,0.500,90.0,250926,,,A,V*1D\r\n";
 
 // Single-message GSV (total_msgs=1, msg_nr=1) so it exercises the
 // msg_nr==1 total_sats-accumulation branch. total_sats=4. Talker GP.
@@ -264,7 +277,7 @@ static void test_gsa_updates_status(void) {
     assert(fabs((double)s.pdop - 2.5) < 1e-3);
     assert(s.sbas_active == false);
     assert(s.active_prn_count == 4);
-    assert(s.active_prns[0] == 10 && s.active_prns[1] == 13);
+    assert(s.active_prns[0] == 110 && s.active_prns[1] == 113); // SystemID 1 * 100 + number
     assert(s.satellites_tracked == 4); // active_prn_count, no GGA/GSV yet
 
     gps_uart_free(g);
@@ -281,8 +294,91 @@ static void test_gsa_sbas_detection(void) {
     gps_uart_process_rx(g);
 
     GpsStatus s = gps_uart_get_status(g);
-    printf("  sbas_active=%d (sats[0]=120, SBAS range is >= 120)\n", s.sbas_active);
+    printf("  sbas_active=%d (SystemID 1, sats[0]=33)\n", s.sbas_active);
     assert(s.sbas_active == true);
+
+    // The M10Q follows the GPS GSA with one per other constellation; those
+    // must not switch the flag back off.
+    furi_hal_mock_feed_string(GSA_BEIDOU_LINE);
+    furi_hal_mock_feed_string(GSA_QZSS_LINE);
+    gps_uart_process_rx(g);
+    s = gps_uart_get_status(g);
+    printf("  sbas_active=%d after BeiDou + QZSS GSAs\n", s.sbas_active);
+    assert(s.sbas_active == true);
+
+    gps_uart_free(g);
+    printf("  -> Pass\n");
+}
+
+// BeiDou also has a satellite 33; only SystemID 1 numbers 33-64 are SBAS.
+static void test_gsa_beidou_33_is_not_sbas(void) {
+    printf("Running test_gsa_beidou_33_is_not_sbas...\n");
+    FuriMessageQueue queue = {0};
+    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian);
+    assert(g != NULL);
+
+    furi_hal_mock_feed_string(GSA_BEIDOU_LINE);
+    gps_uart_process_rx(g);
+
+    GpsStatus s = gps_uart_get_status(g);
+    printf("  sbas_active=%d (SystemID 4, sats[0]=33)\n", s.sbas_active);
+    assert(s.sbas_active == false);
+
+    gps_uart_free(g);
+    printf("  -> Pass\n");
+}
+
+// SBAS stays on for the rest of the second it was seen in and the next,
+// then goes off once a whole second passes without it.
+static void test_sbas_clears_after_a_second_without(void) {
+    printf("Running test_sbas_clears_after_a_second_without...\n");
+    FuriMessageQueue queue = {0};
+    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian);
+    assert(g != NULL);
+
+    furi_hal_mock_feed_string(RMC_SECOND_40_LINE);
+    furi_hal_mock_feed_string(GSA_SBAS_LINE);
+    gps_uart_process_rx(g);
+    assert(gps_uart_get_status(g).sbas_active == true);
+
+    furi_hal_mock_feed_string(RMC_SECOND_41_LINE);
+    gps_uart_process_rx(g);
+    assert(gps_uart_get_status(g).sbas_active == true);
+    furi_hal_mock_feed_string(GSA_LINE); // second 41: no SBAS
+    gps_uart_process_rx(g);
+    assert(gps_uart_get_status(g).sbas_active == true);
+
+    furi_hal_mock_feed_string(RMC_SECOND_42_LINE);
+    gps_uart_process_rx(g);
+    GpsStatus s = gps_uart_get_status(g);
+    printf("  sbas_active=%d after a whole second without SBAS\n", s.sbas_active);
+    assert(s.sbas_active == false);
+
+    gps_uart_free(g);
+    printf("  -> Pass\n");
+}
+
+// Constellations reuse satellite numbers (GPS/Galileo/BeiDou/QZSS all have a
+// 10; SBAS and BeiDou both have a 33). Each must be counted separately.
+static void test_gsa_same_number_different_constellations(void) {
+    printf("Running test_gsa_same_number_different_constellations...\n");
+    FuriMessageQueue queue = {0};
+    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian);
+    assert(g != NULL);
+
+    furi_hal_mock_feed_string(GSA_LINE);         // GPS 10 13 15 20
+    furi_hal_mock_feed_string(GSA_SBAS_LINE);    // SBAS 33 (+ GPS 13 15 20 again)
+    furi_hal_mock_feed_string(GSA_GALILEO_LINE); // Galileo 10 13
+    furi_hal_mock_feed_string(GSA_BEIDOU_LINE);  // BeiDou 33 10
+    gps_uart_process_rx(g);
+    furi_hal_mock_feed_string(GSA_QZSS_LINE);    // QZSS 10
+    gps_uart_process_rx(g);
+
+    GpsStatus s = gps_uart_get_status(g);
+    printf("  active_prn_count=%d (expect 10 = 4 GPS + 1 SBAS + 2 Galileo + 2 BeiDou + 1 QZSS)\n",
+           s.active_prn_count);
+    assert(s.active_prn_count == 10);
+    assert(s.satellites_tracked == 10);
 
     gps_uart_free(g);
     printf("  -> Pass\n");
@@ -532,8 +628,7 @@ static void test_rx_buffer_overflow_reconfigures(void) {
     printf("  -> Pass\n");
 }
 
-#if GPS_MODULE == GPS_MODULE_M10Q
-// ── GPS chip ID capture (ubx_poll_chip_id(), M10Q only) ─────────────────
+// ── GPS chip ID capture (ubx_poll_chip_id()) ─────────────────
 // gps_uart_get_chip_id()'s cache AND the "have we tried" gate
 // (g_chip_id_poll_attempted) are both file-scope statics with no reset
 // hook — deliberately: production behaviour is that the poll is attempted
@@ -632,7 +727,6 @@ static void test_chipid_capture(void) {
 
     printf("  -> Pass\n");
 }
-#endif // GPS_MODULE_M10Q
 
 // No valid NMEA sentence for > 5 s (furi_kernel_get_tick_frequency() * 5
 // ticks) must trigger the watchdog reinit path.
@@ -687,7 +781,6 @@ static void test_port_open_and_close(void) {
     printf("  -> Pass\n");
 }
 
-#if GPS_MODULE == GPS_MODULE_M10Q
 // ── UBX-RXM-PMREQ sleep command vs the u-blox M10 spec ──────────────────
 // Checks the bytes gps_uart.c actually transmits, field by field, against
 // docs/datasheets/u-blox-M10-SPG-5.10_InterfaceDescription_UBX-21035062.pdf
@@ -857,7 +950,6 @@ static void test_alloc_wakes_before_configuring(void) {
     gps_uart_free(g);
     printf("  -> Pass\n");
 }
-#endif // GPS_MODULE_M10Q
 
 // The real RX callback's `event` is a bitmask: a byte can be reported as
 // Data together with an error flag. Such a byte must still be read and
@@ -1164,9 +1256,7 @@ int main(void) {
     // the one lifetime attempt would already be spent by the time it got
     // here and every assertion in it would silently fail against an
     // empty chip_id instead of testing what it claims to.
-#if GPS_MODULE == GPS_MODULE_M10Q
     test_chipid_capture();
-#endif
     test_alloc_lifecycle();
     test_alloc_without_port();
     test_idle_bytes_counted();
@@ -1176,6 +1266,9 @@ int main(void) {
     test_rmc_updates_status();
     test_gsa_updates_status();
     test_gsa_sbas_detection();
+    test_gsa_beidou_33_is_not_sbas();
+    test_sbas_clears_after_a_second_without();
+    test_gsa_same_number_different_constellations();
     test_gsv_total_sats();
     test_gsv_duplicate_within_window_not_doubled();
     test_gsv_multi_constellation_within_window_sums();
@@ -1189,12 +1282,10 @@ int main(void) {
     test_nmea_watchdog_reconfigures();
     test_hot_start_sends_command();
     test_port_open_and_close();
-#if GPS_MODULE == GPS_MODULE_M10Q
     test_free_sends_spec_correct_sleep_command();
     test_port_open_module_answers();
     test_port_open_no_reply();
     test_alloc_wakes_before_configuring();
-#endif
     test_rx_byte_with_error_flag_is_kept();
     test_malformed_line_ignored();
     test_nav_model_allocation();

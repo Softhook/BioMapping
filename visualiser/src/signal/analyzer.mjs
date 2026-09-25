@@ -3,7 +3,7 @@
 // See LICENCE.md in the project root for terms.
 
 // GSR/EDA Signal Analysis Engine with GPS coordinate parsing and interpolation
-// Handles variable-rate (10 Hz GSR, up to 5 Hz GPS) CSV files.
+// Handles 10 Hz GSR + GPS CSV files (GPS columns empty on rows without a fix).
 //
 // CSV parsing lives in a dedicated pure module (csv_parser.js) so it can be
 // tested independently; imported directly below.

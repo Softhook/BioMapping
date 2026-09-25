@@ -235,11 +235,7 @@ Approximate test counts — the exact numbers drift with each addition; run
 dispatches on (RMC, GGA, GSA — including SBAS PRN detection, GSV —
 elevation array + `gsv_fresh`, GLL — valid and void status), the
 RX-buffer-full reinit path, the 5 s NMEA watchdog reinit, hot start,
-standby, split-line buffering, and malformed/unrecognised input. Not
-covered: the L76K-specific PCAS command path — `biomap_config.h` compiles
-this firmware for M10Q only, so that `#if` branch isn't even part of this
-binary; testing it would mean building a second variant with `GPS_MODULE`
-flipped, not done here. Every sentence fixture's checksum was verified
+standby, split-line buffering, and malformed/unrecognised input. Every sentence fixture's checksum was verified
 with a throwaway `minmea_checksum()` probe before use, not hand-computed —
 see the checksum bug below for why that matters.
 

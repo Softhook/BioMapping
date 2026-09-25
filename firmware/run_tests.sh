@@ -89,16 +89,6 @@ gcc -Wall -Wextra -Werror -I . -I modules -I vendor/minmea -I tests/shims -o bui
 ./build/test_gps_uart
 
 echo
-echo "== test_gps_uart, L76K build (GPS_MODULE overridden) =="
-# The shipped firmware is M10Q-only, so without this the L76K branches of
-# gps_uart.c would never even be compiled. M10Q-specific tests are #if'd
-# out of this variant; everything else must pass for both modules.
-gcc -Wall -Wextra -Werror -DGPS_MODULE=GPS_MODULE_L76K -I . -I modules -I vendor/minmea -I tests/shims -o build/test_gps_uart_l76k \
-    tests/test_gps_uart.c modules/gps_uart.c \
-    tests/shims/furi_hal_mock.c -lm
-./build/test_gps_uart_l76k
-
-echo
 echo "== test_gsr_sensor (autoranging / TIA / disconnect debounce) =="
 gcc -Wall -Wextra -Werror -I . -I modules -I tests/shims -o build/test_gsr_sensor \
     tests/test_gsr_sensor.c modules/gsr_sensor.c \

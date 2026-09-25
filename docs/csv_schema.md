@@ -56,7 +56,7 @@ ID, not just a recognisable approximation. It only
 appears when GPS is active for the session **and** the poll actually got a
 valid response — best-effort (the poll gets one retry, then gives up), so
 this line may be absent even in a GPS-bearing session if the module didn't
-answer. Not emitted at all on L76K builds (no UBX protocol support). Once
+answer. Once
 found, the ID is cached for the rest of the app session, so if it's present
 on one recording it should be present on every recording after that until
 the app is closed.

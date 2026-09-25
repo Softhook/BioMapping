@@ -416,7 +416,7 @@ bool minmea_parse_gbs(struct minmea_sentence_gbs *frame, const char *sentence)
 bool minmea_parse_rmc(struct minmea_sentence_rmc *frame, const char *sentence)
 {
     // $GPRMC,081836,A,3751.65,S,14507.36,E,000.0,360.0,130998,011.3,E*62
-    // L76K adds ModeInd and NavStatus per spec §2.2.1:
+    // NMEA 2.3+ adds ModeInd, 4.10+ NavStatus (u-blox M10 Interface Description §2.7.17):
     // $GNRMC,...,MagVar,MagVarDir,ModeInd,NavStatus*CS
     char validity;
     int latitude_direction;
@@ -480,7 +480,7 @@ bool minmea_parse_gga(struct minmea_sentence_gga *frame, const char *sentence)
 bool minmea_parse_gsa(struct minmea_sentence_gsa *frame, const char *sentence)
 {
     // $GPGSA,A,3,04,05,,09,12,,,24,,,,,2.5,1.3,2.1*39
-    // $GNGSA,A,3,10,13,15,20,,,,,,,,,2.5,2.0,1.5,1*35  ← L76K appends SystemID
+    // $GNGSA,A,3,10,13,15,20,,,,,,,,,2.5,2.0,1.5,1*35  ← NMEA 4.10+ appends SystemID (u-blox §2.5.2)
 
     frame->system_id = 0; // default: unknown
     if (!minmea_scan(sentence, "tciiiiiiiiiiiiifff;i",
@@ -561,7 +561,7 @@ bool minmea_parse_gsv(struct minmea_sentence_gsv *frame, const char *sentence)
     // $GPGSV,4,4,13,39,31,170,27*40
     // $GPGSV,4,4,13*7B
     // $GPGSV,3,1,11,09,57,333,29.0,07,54,227,,04,49,043,24.5,03,43,129,,1*67
-    // L76K appends a <SignalID> field before the checksum (always 0, per spec §2.2.3)
+    // NMEA 4.10+ appends a <SignalID> field before the checksum (u-blox §2.5.2)
 
     if (!minmea_scan(sentence, "tiii;iiifiiifiiifiiif_",
             &frame->type,

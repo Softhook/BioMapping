@@ -1,9 +1,9 @@
 #pragma once
 
-// GPS UART — NMEA parser for Quectel L76K / u-blox SAM-M10Q GNSS modules.
+// GPS UART — NMEA parser for the u-blox SAM-M10Q GNSS module.
 // Holds USART1 from gps_uart_port_open() to gps_uart_port_close() (Expansion
 // Service disabled in between); the module sleeps whenever no GpsUart exists.
-// Power management via serial commands (PCAS on L76K, UBX on M10Q).
+// Power management via UBX serial commands.
 // Thread safety: gps_uart_process_rx() and gps_uart_get_status() use an
 // internal status_mutex — do NOT hold the app mutex when calling them.
 
@@ -29,9 +29,9 @@ typedef struct GpsStatus {
     int   fix_type;             // 1=none, 2=2D, 3=3D (GSA)
     int   satellites_tracked;
     bool  fix_valid;            // RMC status A and not an estimated (mode E) fix
-    bool  sbas_active;          // true when any GSA PRN >= 120 (SBAS satellite in use)
+    bool  sbas_active;          // an SBAS satellite (GSA SystemID 1, number 33-64) was in use this second or the last
     float pdop;                 // Position Dilution of Precision from GSA (chip-computed, all constellations); 99.9 = unknown
-    int   active_prns[32];      // PRNs from current epoch's GSA sentences (constellation-offset)
+    int   active_prns[32];      // satellites in use this second, from GSA, as SystemID*100 + number
     int   active_prn_count;     // number of active PRNs
     int   gsv_total_sats;       // sum of GSV total_sats across all constellations (real sat count)
     struct minmea_time time;
@@ -96,8 +96,7 @@ uint32_t  gps_uart_get_reinit_count(const GpsUart* gps);
 // gps_uart.c) rather than the raw 12-hex-digit value, e.g. "axis slang
 // boast putt chunk" — 1296^5 >= 2^48, so this is a lossless, collision-free
 // encoding of the chip ID, not just a recognisable label. Returns "" if
-// not yet captured — e.g. L76K builds (no UBX protocol support), or the
-// poll got no valid response. Not tied to a specific GpsUart allocation:
+// not yet captured — the poll got no valid response. Not tied to a specific GpsUart allocation:
 // a capture persists across gps_uart_free()/gps_uart_alloc() cycles
 // within the same app session (file-scope cache), so a later mode switch
 // can still see an ID found earlier.
