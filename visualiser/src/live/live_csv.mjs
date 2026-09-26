@@ -65,6 +65,11 @@ const LIVE_INTEGRITY_MARKER = '# Integrity: crc32 v1\n';
 const LIVE_CSV_COLUMNS =
   'timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw,hacc_m\n';
 
+// The firmware's `isnan(x) ? "" : "%.Nf"` for an optional float column.
+function fixedOrEmpty(x, digits) {
+  return Number.isFinite(x) ? x.toFixed(digits) : '';
+}
+
 export function buildLiveCsv(packets, nowMs) {
   const nowEpoch = Math.floor(nowMs / 1000);
   const startEpoch = nowEpoch - Math.floor(packets.at(-1)?.timestamp || 0);
@@ -82,12 +87,13 @@ export function buildLiveCsv(packets, nowMs) {
   for (const p of packets) {
     if (p.valid) {
       // biomap_format_gps_row(), valid-fix branch:
-      // "%.2f,%.7f,%.7f,%.1f,%.1f,%d,%d,%.2f,%.1f,%.1f,%.1f" — note speed_kts
-      // is 2 dp, everything else GPS-side is 1 dp.
+      // "%.2f,%.7f,%.7f,%.1f,%.1f,%d,%d,%s,%s,%.1f,%.1f" — speed_kts (2 dp)
+      // and course_deg (1 dp) are each empty when the receiver sent none,
+      // e.g. course when standing still.
       body +=
         `${p.timestamp.toFixed(2)},${p.lat.toFixed(7)},${p.lon.toFixed(7)},` +
         `${p.hdop.toFixed(1)},${p.pdop.toFixed(1)},${p.sats},${p.fixType},` +
-        `${p.speedKts.toFixed(2)},${p.courseDeg.toFixed(1)},${p.gsrRaw.toFixed(1)},` +
+        `${fixedOrEmpty(p.speedKts, 2)},${fixedOrEmpty(p.courseDeg, 1)},${p.gsrRaw.toFixed(1)},` +
         `${p.hacc.toFixed(1)}\n`;
     } else {
       // biomap_format_gps_row(), no-fix branch: "%.2f,,,,,,,,,%.1f," — only

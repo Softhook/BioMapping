@@ -234,7 +234,7 @@ Approximate test counts — the exact numbers drift with each addition; run
 `test_gps_uart.c` covers every NMEA sentence type `gps_uart_parse_line()`
 dispatches on (RMC, GGA, GSA — including SBAS PRN detection, GLL — valid
 and void status, PUBX 00 — hAcc and the satellite count), the
-RX-buffer-full reinit path, the 5 s NMEA watchdog reinit, hot start,
+RX-buffer-full reinit path, the 5 s NMEA watchdog reinit, cold start, Super-S,
 standby, split-line buffering, and malformed/unrecognised input. Every sentence fixture's checksum was verified
 with a throwaway `minmea_checksum()` probe before use, not hand-computed —
 see the checksum bug below for why that matters.

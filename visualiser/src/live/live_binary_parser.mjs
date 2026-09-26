@@ -14,7 +14,7 @@
 
 export const PACKET_SIZE = 49;
 const MAGIC_0 = 0x42; // 'B'
-const MAGIC_1 = 0x4e; // 'N' ("BM" was the older 45-byte packet)
+const MAGIC_1 = 0x4e; // 'N'
 
 export class GSRLiveBinaryParser {
   /**

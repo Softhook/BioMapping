@@ -77,7 +77,7 @@ test('RecordingStartTime is wall-clock-now minus the last packet uptime, floored
 
 // ── Row formatting vs firmware/biomap_format.c ─────────────────────────────
 
-test('a valid fix row matches biomap_format_gps_row() "%.2f,%.7f,%.7f,%.1f,%.1f,%d,%d,%.2f,%.1f,%.1f,%.1f"', () => {
+test('a valid fix row matches biomap_format_gps_row() "%.2f,%.7f,%.7f,%.1f,%.1f,%d,%d,%s,%s,%.1f,%.1f"', () => {
   const csv = buildLiveCsv(
     [
       pkt({
@@ -100,6 +100,25 @@ test('a valid fix row matches biomap_format_gps_row() "%.2f,%.7f,%.7f,%.1f,%.1f,
   assert.strictEqual(
     row,
     '0.30,51.5074000,-0.1278000,1.2,1.8,9,3,3.40,270.0,1234.5,2.3',
+  );
+});
+
+test('a valid fix with no speed or course leaves those fields empty, as the firmware does (not "NaN")', () => {
+  const stopped = buildLiveCsv(
+    [pkt({ timestamp: 0.3, courseDeg: NaN })],
+    NOW_MS,
+  ).split('\n')[4];
+  assert.strictEqual(
+    stopped,
+    '0.30,51.5000000,-0.1200000,1.1,1.7,8,3,2.00,,1000.0,1.5',
+  );
+  const neither = buildLiveCsv(
+    [pkt({ timestamp: 0.3, speedKts: NaN, courseDeg: NaN })],
+    NOW_MS,
+  ).split('\n')[4];
+  assert.strictEqual(
+    neither,
+    '0.30,51.5000000,-0.1200000,1.1,1.7,8,3,,,1000.0,1.5',
   );
 });
 

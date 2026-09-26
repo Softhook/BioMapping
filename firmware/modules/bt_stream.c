@@ -149,9 +149,6 @@ void bt_stream_pack_packet(uint8_t out[BT_STREAM_PACKET_SIZE],
                            uint32_t timestamp_ms,
                            const GpsPosition* pos,
                            float gsr_raw) {
-    // "BN": was "BM" while the packet was 45 bytes; changed with the size so
-    // a mismatched firmware/visualiser pair reads nothing rather than
-    // misreading every packet.
     out[0] = 0x42; // 'B'
     out[1] = 0x4e; // 'N'
     memcpy(out + 2, &timestamp_ms, sizeof(timestamp_ms));
