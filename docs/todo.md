@@ -5,42 +5,50 @@ Loose ideas and unscheduled work. Promote anything real to its own doc under `do
 ## Priority
 
 
-- shoould we embedd the calibration age into the csv header? helps with tracebility
-
 - **Sound annotations** — allow people to record little audio snippets attached
   to peaks and hotspots. Investigate how they could be saved on the server and
   then played back. Maybe these could be from an audio file recorded at the same
   time and then timestamped to correlate, or they could be simply looking at the
   map, pressing a record button over the hotspot. 
 
-- **Airport / acoustic context** — would a microphone make sense there? See
-  [acoustic_aircraft_detection_proposal.md](acoustic_aircraft_detection_proposal.md).
+- **Airport / acoustic context** — would a microphone make sense there? The
+  old proposal doc (`acoustic_aircraft_detection_proposal.md`) was removed in
+  commit `1a7806a`; get it back from git history if this is picked up.
 
 ## Firmware architecture (structural refactor)
 
-From a full read of `firmware/` (2026-09). Ordered by payoff:
+From a full read of `firmware/` (2026-09-13). Re-checked 2026-09-26: the two
+worthwhile items were done, the rest judged not worth doing (reasons below,
+so they don't get re-proposed).
 
-- **P1 — Split RF scanning out of `gsr_sensor`.** The CC1101 RF path is
-  bolted onto the ADS1115 GSR worker (`modules/gsr_sensor.c/h`), so GPS+RF
-  mode (`BioMapModeGpsOnly`, no GSR) allocates a "GSR sensor" only to run
-  RF. Extract an `rf_sensor` module with its own lifecycle; the dual-mutex
-  (`mutex` vs `rf_mutex`) complexity then disappears.
-- **P2 — Unify persistence.** Three hand-rolled versioned-blob load/save
-  paths (GSR cal FNV-1a in `biomap.c`, settings FNV-1a, RF cal CRC32 in
-  `em_scan_cal.c`) each repeat open→validate→atomic-rename. One shared
-  `persist_blob()` helper + one checksum.
-- **P3 — Split `biomap_session.c` (1083 lines).** Lifecycle + keys + tick +
-  SD-flush state machine + Live Stream + telemetry all in one file. Extract
-  `biomap_keys.c` / `biomap_tick.c` / `biomap_diag.c` along existing
-  `static` boundaries.
-- **P4 — Slim `biomap.h`.** Move persistence structs → `biomap_persist.h`,
-  wizard states → `biomap_wizard.h`.
-- **P5 — One "RF active" rule.** `has_rf()` (includes Diagnostics) vs the
-  literal `rf_viz` gate in `biomap_render.c` are two drifting definitions.
-- **P6 — Hygiene.** Move `sound.h` melodies to a `sound.c` — header-only
-  `static inline` is currently harmless, but a bigger header→TU migration
-  than the other hygiene items already done (`PluginEvent`→`BioMapEvent`
-  rename, `gps_uart.h` include reorder).
+**Done**
+
+- **P2 — Shared save code (small version, 2026-09-26).** The GSR calibration
+  and settings saves in `biomap.c` now share one `write_file_atomic()`
+  helper (write `.tmp`, then rename). Earlier, `5aa9a21` (2026-09-25) had
+  already given them one shared FNV-1a checksum in `biomap_format.c`.
+- **P4 — Slim `biomap.h` (`5aa9a21`, 2026-09-25).** The saved-file structs
+  moved to `biomap_format.h`.
+- **P5 — One "RF active" rule (2026-09-26).** The screen check in
+  `biomap_render.c` is now `has_rf(mode) && !is_diag` instead of listing
+  the RF modes by name, so a new RF mode can't be scanned but not drawn.
+- **P6 — Hygiene, 2 of 3 (2026-09-17).** `PluginEvent` → `BioMapEvent`
+  rename and `gps_uart.h` include reorder.
+
+**Decided against**
+
+- **P2, rest — make RF calibration use the same checksum / save helper.**
+  RF cal lives in its own host-tested module (`em_scan_cal.c`). Switching
+  its CRC32 to FNV-1a would make every existing RF calibration file invalid
+  and force a new Faraday-box calibration, for no gain.
+- **P3 — Split `biomap_session.c` (1092 lines).** Already divided into
+  clear sections; moving them into separate files would change nothing about
+  behaviour, and the file isn't host-tested, so only a compile would check
+  the move.
+- **P4, rest — move `WizardState` / `RfCalWizardState` to their own header.**
+  ~50 lines, no payoff.
+- **P6, rest — move `sound.h` melodies into `sound.c`.** Header-only
+  `static inline` is harmless.
 
 ## Analysis ideas
 
@@ -49,21 +57,22 @@ From a full read of `firmware/` (2026-09). Ordered by payoff:
   (no new network requests). Correlate GSR peaks and baseline arousal directly with
   named streets (*"Kingsland High St"* vs *"Quiet Mews"*), prominent POIs/venues
   (*"Rio Cinema"*, *"Dalston Junction Station"*), and urban functional typologies.
-  Automatically assign human-readable names to Arousal Places (`arousal_places.js`)
-  via spatial consensus. Full proposal in
-  [`spatial_semantics_and_annotation_analysis_plan.md`](spatial_semantics_and_annotation_analysis_plan.md).
+  Automatically assign human-readable names to Arousal Places (`src/spatial/arousal_places.mjs`)
+  via spatial consensus. The full proposal
+  (`spatial_semantics_and_annotation_analysis_plan.md`) was removed in commit
+  `1a7806a` — it's in git history.
 - **Textual & Sentiment Analysis on User Annotations:** Run client-side NLP
   lexicon scoring (AFINN/VADER) on user peak labels (`analyzer.setPeakLabel`) to
   extract emotional **Valence** (pleasant vs unpleasant). Project onto the Russell
   Affect Circumplex ($\text{Arousal (GSR)} \times \text{Valence (Text)}$) to separate
   stress/fear from joy/excitement. Classify trigger keywords into 6 urban domains
   (traffic, acoustic, social, nature, architectural, physical) and calculate
-  word-to-SCR-amplitude rankings. Details in
-  [`spatial_semantics_and_annotation_analysis_plan.md`](spatial_semantics_and_annotation_analysis_plan.md).
+  word-to-SCR-amplitude rankings. Details were in the same removed plan doc.
 - Correlate GSR against the 868 and 915 MHz RF bands.
 - **Fourth RF band — which frequency?** The sweep is fixed at 815 / 868 /
   915 MHz (`EM_SCAN_NUM_FREQS == 3`).
-  [rf_319_investigation.md](rf_319_investigation.md) works through the
+  `rf_319_investigation.md` (removed in commit `1a7806a`, still in git
+  history) works through the
   mechanical cost of a 4th slot but assumes the band is 319 MHz — a
   North-American security-sensor frequency that would mostly read the noise
   floor on UK/EU walks. That choice was never tested against alternatives.
@@ -90,7 +99,7 @@ From a full read of `firmware/` (2026-09). Ordered by payoff:
     the noise floor (~-76 vs -91 dBm) and forces the relaxed calibration
     ceiling noted in the 319 doc.
   - **Then** bump `EM_SCAN_NUM_FREQS` and follow the change-list in
-    rf_319_investigation.md — it is frequency-agnostic apart from that ceiling.
+    rf_319_investigation.md (from git history) — it is frequency-agnostic apart from that ceiling.
 
 ## GPS pipeline architecture
 
@@ -100,16 +109,29 @@ High-level review of the GPS filter chain (`src/gps/gps_pipeline.mjs`,
 `gps_filtering_pipeline.md`). The perf engineering is sound — these are
 correctness / structure concerns. Promote to its own doc if picked up.
 
+### Done (2026-09-25)
+
+- The GPS filter is now a single textbook constant-velocity Kalman filter +
+  backwards smoother (`gps_cv_kalman.mjs`); the old filter code is gone.
+- [`gps_filter_review.md`](gps_filter_review.md) has been worked through. The
+  top problem (restarting after only 0.5 s of skipped fixes, so bad stretches
+  were drawn as spikes) is fixed: it now waits 10 s (`RESET_AFTER_S`) and
+  rewinds to where the bad stretch began. The review doc records what was
+  fixed, tested and rejected, or left alone.
+- The Flipper now sends hAcc over Live Stream too, and the L76K GPS chip has
+  been dropped (M10Q only).
+
 ### Open items
 
-- **GPS filter problems** — see [`gps_filter_review.md`](gps_filter_review.md)
-  (2026-09-25). Top item: the filter restarts after only 0.5 s of skipped
-  fixes, so any bad stretch ≥ 0.5 s is drawn in full as a spike.
-- **Fixed-stride `downsampleForDisplay` on the live path** — time-uniform and
-  geometry-blind (drops corners, keeps redundant straightaway points).
-  RDP + a max-vertex cap does the job better; the method's own comment
-  says the live path already uses `buildDrawPoints` and this form only
-  survives for globe3d/tests.
+- **hAcc is too optimistic.** On real walks the chip's own accuracy estimate
+  (`hacc_m`) is about 3–4× smaller than the real error, and there is a slow
+  multipath drift that no filter can remove. The levers left are hardware /
+  chip settings: the Super-S setting (now a firmware option, on by default —
+  not yet measured on walks), a better antenna, or a dual-band receiver.
+- **Fixed-stride `downsampleForDisplay`** — time-uniform and geometry-blind
+  (drops corners, keeps redundant straightaway points). RDP + a max-vertex
+  cap does the job better. The live path already uses `buildDrawPoints`;
+  this form only survives for globe3d and tests.
 
 
 
@@ -171,11 +193,11 @@ correctness / structure concerns. Promote to its own doc if picked up.
 - **Typographic long annotations (visualiser)** — peak labels can now hold long,
   sentence-length notes, but the display paths still assume a short tag: the
   graph renderer hard-truncates to 22 chars + "…"
-  (`src/render/renderer.js` ~L523), the map label caps text width at 160 px on a
-  single unwrapped line (`GSRLabelManager.textWidth` in
-  `src/render/label_placement.js`), and the 3D globe label
-  (`src/map/globe3d.js` ~L1727) and map-popup editor
-  (`src/map/map_popups.js`) are single-line too. Render long notes as
+  (`src/render/renderer_markers.mjs` ~L347), the map label caps text width at
+  160 px on a single unwrapped line (`GSRLabelManager.textWidth` in
+  `src/render/label_placement.mjs`), and the 3D globe label
+  (`src/map/globe3d/`) and map-popup editor (`src/map/map_popups.mjs`) are
+  single-line too. Render long notes as
   properly set, wrapped blocks of text — sensible measure, hyphenation/wrap,
   max width and line count — instead of one very long line or an arbitrary
   character cut.
@@ -188,7 +210,7 @@ correctness / structure concerns. Promote to its own doc if picked up.
   like tonic/phasic) — do NOT modify `computeSeries`/`posadaSignal`/
   `welchDensity`, so the main app's shipped, NeuroKit2-cross-checked EDASymp
   stays byte-identical. Optionally gate `_computeEDASymp()` in
-  `analyzer.js:analyze()` behind a flag the live view sets (default unchanged)
+  `src/signal/analyzer.mjs:analyze()` behind a flag the live view sets (default unchanged)
   to skip the redundant full computation. Accept: live EDASymp won't match the
   offline EDASymp for the same walk (it's time-shifted ~32 s) — fine for a
   live heat overlay, not for analysis. Rationale: EDASymp is per-sample,
@@ -198,21 +220,22 @@ correctness / structure concerns. Promote to its own doc if picked up.
 
 ## Loose ends from closed investigations
 
-Carried over from archived investigations (`archive/gps_rf_mutex_status.md`,
-`archive/bluetooth_serial_investigation.md`,
-`archive/visualizer_architecture_refactor_plan.md`) — primary objectives are
-done; these are the optional follow-ups still worth doing.
+Carried over from closed investigations (`gps_rf_mutex_status.md`,
+`bluetooth_serial_investigation.md`, `visualizer_architecture_refactor_plan.md`,
+`visualizer_rendering_perf_routes.md` — the `docs/archive/` folder was removed
+in commit `1a7806a`, so they're only in git history now). Primary objectives
+are done; these are the optional follow-ups still worth doing.
 
 ### Firmware
 
 - **Live Stream (BLE) on-hardware field validation** (from
-  `archive/bluetooth_serial_investigation.md` §10 Phase 3) — the only Live
+  `bluetooth_serial_investigation.md` §10 Phase 3) — the only Live
   Stream phase left. On a real walk: battery endurance during active BLE
   broadcasting, Android Chrome reconnection when the phone display sleeps or
   goes in a pocket mid-walk, and packet-drop rates (`bt_telemetry` debug line
   already logs `bt_tx_peak_ms` / `bt_drop`).
 - **RF/GSR concurrency — test-coverage gaps** (from
-  `archive/gps_rf_mutex_status.md`). Both low priority, no suspected defect:
+  `gps_rf_mutex_status.md`). Both low priority, no suspected defect:
   - The RF-vs-GSR TOCTOU is covered by a stress test that raises confidence
     but isn't a deterministic proof. A proof needs a test-only sync hook
     inside `gsr_sensor_worker()` to pause it exactly between reading
@@ -225,8 +248,8 @@ done; these are the optional follow-ups still worth doing.
 ### Visualiser
 
 - **Dense-track label collision profiling** (from
-  `archive/visualizer_rendering_perf_routes.md` §2.3) — `computeLabelPositions`
-  in `src/render/label_placement.js` runs an O(N²) simulated-annealing pass
+  `visualizer_rendering_perf_routes.md` §2.3) — `computeLabelPositions`
+  in `src/render/label_placement.mjs` runs an O(N²) simulated-annealing pass
   (`ITERS = max(300, N*30)`, each iteration scanning all N boxes twice).
   Profile it on tracks with >100 peaks to decide whether the overlap checks
   need spatial partitioning.

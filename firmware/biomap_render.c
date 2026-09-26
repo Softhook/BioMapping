@@ -564,10 +564,11 @@ void biomap_render_callback(Canvas* c, void* ctx) {
     bool is_diag   = (a->session.mode == BioMapModeDiagnostics);
     bool has_graph = has_gsr(a->session.mode) && !is_diag;
 
-    // RF snapshot — needed by both GSR session and GPS+RF modes
+    // RF snapshot — needed by both GSR session and GPS+RF modes. Derived
+    // from has_rf() so a new RF mode can't be scanned but not drawn;
+    // Diagnostics runs RF (see has_rf()) but its screen has no RF panel.
     float rf_rssi[EM_SCAN_NUM_FREQS];
-    bool rf_viz = (a->session.mode == BioMapModeGpsGsrRf || a->session.mode == BioMapModeGpsOnly)
-               && a->session.gsr;
+    bool rf_viz = has_rf(a->session.mode) && !is_diag && a->session.gsr;
     if(rf_viz) gsr_sensor_get_rf_snapshot(a->session.gsr, rf_rssi);
 
     if(a->session.mode == BioMapModeLiveStream) {

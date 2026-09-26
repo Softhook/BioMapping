@@ -135,6 +135,36 @@ int32_t biomap_app(void* p) {
 // Record formats, checksums and validity checks for both files live in
 // biomap_format.c (SDK-free, host-tested); this file owns the SD I/O.
 
+// Write `size` bytes to `tmp_path`, then rename it over `path`. Prevents
+// corruption if power is lost or the SD card is removed mid-write — the
+// real file is either the old valid one or the new complete one, never a
+// partial write. `what` names the file in error logs.
+static bool write_file_atomic(Storage* storage, const char* tmp_path, const char* path,
+                              const void* data, size_t size, const char* what) {
+    File* file = storage_file_alloc(storage);
+    if(!file) return false;
+
+    bool ok = false;
+    if(storage_file_open(file, tmp_path, FSAM_WRITE, FSOM_CREATE_ALWAYS)) {
+        size_t written = storage_file_write(file, data, size);
+        storage_file_close(file);
+
+        if(written == size) {
+            FS_Error err = storage_common_rename(storage, tmp_path, path);
+            if(err == FSE_OK) {
+                ok = true;
+            } else {
+                FURI_LOG_E("BioMap", "%s rename failed (%d) — saved to .tmp", what, (int)err);
+            }
+        } else {
+            FURI_LOG_E("BioMap", "%s temp write truncated (%d/%d)",
+                       what, (int)written, (int)size);
+        }
+    }
+    storage_file_free(file);
+    return ok;
+}
+
 bool biomap_load_calibration(BioMapApp* app) {
     furi_check(app, "BioMapApp: NULL app pointer");
     File* file = storage_file_alloc(app->storage);
@@ -205,45 +235,23 @@ void biomap_save_calibration(BioMapApp* app, float gain, float offset, float r_s
     memcpy(app->cal_noise_std_dev, noise_std_dev, sizeof(app->cal_noise_std_dev));
     furi_mutex_release(app->mutex);
 
-    File* file = storage_file_alloc(app->storage);
-    if(!file) return;
+    BioMapCalibration cal;
+    cal.magic   = BIOMAP_CAL_MAGIC;
+    cal.version = BIOMAP_CAL_VERSION;
+    cal.gain    = gain;
+    cal.offset  = offset;
+    cal.timestamp = timestamp;
+    cal.r_squared = r_squared;
+    memcpy(cal.noise_std_dev, noise_std_dev, sizeof(cal.noise_std_dev));
+    cal.checksum = biomap_calibration_checksum(&cal);
 
-    // Write to a temp file first, then atomically rename over the real
-    // path.  This prevents corruption if power is lost or the SD card is
-    // removed mid-write — the real file is either the old valid one or
-    // the new complete one, never a partial write.
-    if(storage_file_open(file, BIOMAP_CAL_PATH_TMP, FSAM_WRITE, FSOM_CREATE_ALWAYS)) {
-        BioMapCalibration cal;
-        cal.magic   = BIOMAP_CAL_MAGIC;
-        cal.version = BIOMAP_CAL_VERSION;
-        cal.gain    = gain;
-        cal.offset  = offset;
-        cal.timestamp = timestamp;
-        cal.r_squared = r_squared;
-        memcpy(cal.noise_std_dev, noise_std_dev, sizeof(cal.noise_std_dev));
-        cal.checksum = biomap_calibration_checksum(&cal);
-
-        uint16_t written = storage_file_write(file, &cal, sizeof(BioMapCalibration));
-        storage_file_close(file);
-
-        if(written == sizeof(BioMapCalibration)) {
-            // Replace the old file atomically.
-            FS_Error err = storage_common_rename(app->storage,
-                BIOMAP_CAL_PATH_TMP, BIOMAP_CAL_PATH);
-            if(err == FSE_OK) {
-                FURI_LOG_I("BioMap",
-                           "Saved calibration v%d: gain=%.4f offset=%.1f timestamp=%lu r2=%.4f",
-                           BIOMAP_CAL_VERSION, (double)gain, (double)offset,
-                           (unsigned long)timestamp, (double)r_squared);
-            } else {
-                FURI_LOG_E("BioMap", "Rename failed (%d) — calibration saved to .tmp", (int)err);
-            }
-        } else {
-            FURI_LOG_E("BioMap", "Temp write truncated (%d/%d)",
-                       (int)written, (int)sizeof(BioMapCalibration));
-        }
+    if(write_file_atomic(app->storage, BIOMAP_CAL_PATH_TMP, BIOMAP_CAL_PATH,
+                         &cal, sizeof(cal), "Calibration")) {
+        FURI_LOG_I("BioMap",
+                   "Saved calibration v%d: gain=%.4f offset=%.1f timestamp=%lu r2=%.4f",
+                   BIOMAP_CAL_VERSION, (double)gain, (double)offset,
+                   (unsigned long)timestamp, (double)r_squared);
     }
-    storage_file_free(file);
 }
 
 void biomap_reset_calibration(BioMapApp* app) {
@@ -366,25 +374,6 @@ void biomap_save_settings(BioMapApp* app) {
     furi_mutex_release(app->mutex);
     s.checksum = biomap_settings_checksum(&s);
 
-    File* file = storage_file_alloc(app->storage);
-    if(!file) return;
-
-    // Same atomic write-then-rename as biomap_save_calibration — crash or
-    // power loss mid-write leaves the old settings file intact.
-    if(storage_file_open(file, BIOMAP_SETTINGS_PATH_TMP, FSAM_WRITE, FSOM_CREATE_ALWAYS)) {
-        uint16_t written = storage_file_write(file, &s, sizeof(BioMapSettings));
-        storage_file_close(file);
-
-        if(written == sizeof(BioMapSettings)) {
-            FS_Error err = storage_common_rename(app->storage,
-                BIOMAP_SETTINGS_PATH_TMP, BIOMAP_SETTINGS_PATH);
-            if(err != FSE_OK) {
-                FURI_LOG_E("BioMap", "Settings rename failed (%d) — saved to .tmp", (int)err);
-            }
-        } else {
-            FURI_LOG_E("BioMap", "Settings temp write truncated (%d/%d)",
-                       (int)written, (int)sizeof(BioMapSettings));
-        }
-    }
-    storage_file_free(file);
+    write_file_atomic(app->storage, BIOMAP_SETTINGS_PATH_TMP, BIOMAP_SETTINGS_PATH,
+                      &s, sizeof(s), "Settings");
 }

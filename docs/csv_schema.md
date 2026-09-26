@@ -31,7 +31,7 @@ Each CSV begins with comment lines (prefixed `#`) before the column header:
 # DeviceName:<flipper_device_name>
 # Band Floors (dBm): 815:<float>,868:<float>,915:<float>
 # GPSChipID:<word1 word2 word3 word4 word5>
-# GSR Calibration: gain:<float>,offset:<float>,r2:<float>,noise_ns:<float>,<float>,<float>
+# GSR Calibration: gain:<float>,offset:<float>,r2:<float>,noise_ns:<float>,<float>,<float>,cal_time:<unix_epoch_seconds>
 ```
 
 Emitted in the order shown above (`biomap_session.c`,
@@ -82,6 +82,11 @@ Poor label the wizard screens show, so a recording's data quality is
 reportable and comparable across tracks straight from the CSV. Both ride on
 the same `cal_active` gate as `gain`/`offset` — an uncalibrated recording has
 no fit or noise data to report, so the whole line is omitted.
+
+`cal_time` is when the calibration was saved (Unix epoch seconds, same units
+as `RecordingStartTime`; `BioMapCalibration.timestamp` in `biomap_format.h`),
+so an old recording can be traced back to the calibration behind it. It is
+`0` if the Flipper's clock was unset when the calibration was saved.
 
 ---
 
@@ -278,6 +283,7 @@ Defined in `modules/gsr_sensor.h` as `GSR_VALID_MIN_NS` and `GSR_VALID_MAX_NS`.
 | 1.8 | 2026-08-28 | Doc sync, no column changes: documented the `# GSR Calibration: gain:…,offset:…` metadata line (emitted since custom GSR calibration shipped) and corrected the metadata-header order to match `biomap_session.c`. Post-processing enrichment columns (`osm_*`, snapped GPS) are appended by the visualiser, not the firmware writer. |
 | 1.9 | 2026-08-30 | Added the **Integrity Bracket** (see section above): a `# Integrity: crc32 v1` marker as the first line of every file and a `# End rows:… bytes:… crc32:… [end_time:…] overflows:… flush_fails:…` trailer written on clean stop. No data-column changes. The visualiser verifies it on import and shows a per-track status tick. |
 | 1.10 | 2026-09-16 | The calibration wizard's 3-step resistor ladder now doubles as a pre-flight noise/resolution check (per-resistor σ via a Welford accumulator over a 20 s dwell, gated against `CAL_NOISE_ACCEPTABLE_NS`); `# GSR Calibration` gained `r2:<float>,noise_ns:<float>,<float>,<float>` so a recording's fit goodness and noise floor are real reportable numbers, not just the wizard's Excellent/Acceptable/Poor label. No data-column changes. |
+| 1.11 | 2026-09-26 | `# GSR Calibration` gained `cal_time:<unix_epoch_seconds>` (when the calibration was saved; `0` if the RTC was unset) for traceability. No data-column changes. |
 
 ---
 
