@@ -843,7 +843,9 @@ export const OSMEnricher = {
         computedMetrics[Math.min(segIdx, computedMetrics.length - 1)];
 
       const span = next.idx - prev.idx;
-      const t = span > 0 ? (i - prev.idx) / span : 0;
+      // Clamped: samples before the first fix hold its value rather than
+      // extrapolating backwards (e.g. to a negative green-space %).
+      const t = span > 0 ? Math.max(0, Math.min(1, (i - prev.idx) / span)) : 0;
       const p = prev.metrics,
         n = next.metrics;
 

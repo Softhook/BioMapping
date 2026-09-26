@@ -232,3 +232,132 @@ test('EDASymp window times come from the real timestamps, not an even-rate assum
     `${tEnd - last.time}`,
   );
 });
+
+// ── 2026-09-26 numerical-hardening pass ────────────────────────────────────
+
+const { StatsMath } = require('../src/signal/stats_math.mjs');
+const { GsrFilter } = require('../src/signal/gsr_filter.mjs');
+const { GeoUtils } = require('../src/gps/geo_utils.mjs');
+
+test('the gait filter on a file sampled below 2 Hz passes the signal through, not NaN', () => {
+  // A 1 Hz low-pass at 1.5 Hz is above Nyquist: the biquad went unstable.
+  const x = Array.from({ length: 400 }, (_, i) => 5 + Math.sin(i / 20));
+  const y = GsrFilter.applyZeroPhaseLinkwitzRiley(x, 1.0, 1.5);
+  assert.deepStrictEqual(y, x);
+  // Below Nyquist it still filters.
+  const z = GsrFilter.applyZeroPhaseLinkwitzRiley(x, 1.0, 10);
+  assert.ok(z.every(Number.isFinite));
+});
+
+test('Pearson r stays accurate on large values with a small spread', () => {
+  // UTM-northing-sized x: the raw-sums formula drifted ~1% here.
+  let seed = 1;
+  const rnd = () => {
+    seed = (seed * 16807) % 2147483647;
+    return seed / 2147483647;
+  };
+  const x = Array.from({ length: 36000 }, () => 5.7e6 + 20 * rnd());
+  const y = x.map((v) => v * 0.01 + rnd());
+  const mx = x.reduce((a, b) => a + b) / x.length;
+  const my = y.reduce((a, b) => a + b) / y.length;
+  let sxy = 0,
+    sxx = 0,
+    syy = 0;
+  for (let i = 0; i < x.length; i++) {
+    sxy += (x[i] - mx) * (y[i] - my);
+    sxx += (x[i] - mx) ** 2;
+    syy += (y[i] - my) ** 2;
+  }
+  const want = sxy / Math.sqrt(sxx * syy);
+  const { r } = StatsMath.calculatePearsonCorrelation(x, y);
+  assert.ok(Math.abs(r - want) < 1e-9, `r ${r} vs ${want}`);
+});
+
+test('Pearson r of a perfect line is exactly within [-1, 1]', () => {
+  const x = Array.from({ length: 1000 }, (_, i) => 1e6 + i * 0.1);
+  assert.ok(Math.abs(StatsMath.calculatePearsonCorrelation(x, x).r) <= 1);
+  const neg = x.map((v) => -3 * v);
+  assert.ok(StatsMath.calculatePearsonCorrelation(x, neg).r >= -1);
+});
+
+test('haversine of antipodal points is half the circumference, not NaN', () => {
+  // This pair rounds the haversine term to 1.0000000000000002.
+  const lat = -82.49999999999991;
+  const d = GeoUtils.haversineMeters(lat, -179.9, -lat, 0.1);
+  assert.ok(Math.abs(d - Math.PI * GeoUtils.EARTH_RADIUS_M) < 1, `${d}`);
+});
+
+test('OSM metrics before the first GPS fix hold its value, not a backwards extrapolation', () => {
+  const metrics = (green, distRoad) => ({
+    roadClass: 'residential',
+    inPark: 0,
+    distMajorRoad: distRoad,
+    greenSpacePct: green,
+    distGreen: 40,
+    canopyPct: 0,
+    buildingDensity: 1,
+    distWater: 200,
+    treeDensity: 0,
+    amenityCount: 0,
+  });
+  // First fix at row 50: rows 0-49 have no position yet.
+  const computed = [
+    { idx: 50, metrics: metrics(20, 100) },
+    { idx: 60, metrics: metrics(40, 50) },
+  ];
+  const raw = Array.from({ length: 61 }, () => ({}));
+  OSMEnricher._projectToTimeline(raw, computed);
+  // Unclamped, row 0 read green -80 % and a -150 m road distance.
+  assert.strictEqual(raw[0].osm_green_pct_50m, 20);
+  assert.strictEqual(raw[0].osm_dist_major_road, 100);
+  assert.strictEqual(raw[55].osm_green_pct_50m, 30); // still interpolates between fixes
+});
+
+test('meta-analysis of walks with identical correlations gives a finite p, not p = 0', () => {
+  const x = Array.from({ length: 40 }, (_, i) => Math.sin(i * 1.7) + i * 0.01);
+  const y = x.map((v, i) => 0.3 * v + Math.cos(i * 2.3));
+  const walk = { x, y };
+  const { p, k } = StatsMath.metaCorrelation([walk, walk, walk]);
+  assert.strictEqual(k, 3);
+  assert.ok(p > 0 && p < 1, `p ${p}`);
+});
+
+test('Pearson r on arrays of different lengths uses the common prefix, not NaN', () => {
+  const x = [1, 2, 3, 4, 5, 6];
+  const y = [2, 4, 5, 8];
+  const { r } = StatsMath.calculatePearsonCorrelation(x, y);
+  assert.strictEqual(
+    r,
+    StatsMath.calculatePearsonCorrelation(x.slice(0, 4), y).r,
+  );
+  assert.ok(Number.isFinite(r));
+});
+
+test('regression R² is never below 0 for an orthogonal fit', () => {
+  // Unclamped, this fit's R² rounds to -4.4e-16.
+  const x = [0.4, 0.8, 0.6, 0.6];
+  const y = [0.2, 0.2, 0.30000000000000004, 0.30000000000000004];
+  assert.ok(StatsMath.calculateLinearRegression(x, y).r2 >= 0);
+});
+
+test('road profile: a zero-arousal road class gives a μS gap, not "Infinity%"', async () => {
+  const { bootApp } = require('./support/boot_app.js');
+  const { window, document } = await bootApp();
+  window.setup();
+  const row = {
+    name: 'primary',
+    timeSpent: 60,
+    effSamples: 10,
+    meanPhasic: 0.045,
+    stdPhasic: 0.01,
+    ciPhasic: 0.01,
+    meanTonic: 5,
+    ciTonic: 0.1,
+    peakRate: 2,
+  };
+  const quiet = { ...row, name: 'path', meanPhasic: 0 };
+  window.GSRUI.renderRoadProfile([row, quiet], null);
+  const text = document.getElementById('roadInterpretationText').textContent;
+  assert.ok(!text.includes('Infinity'), text);
+  assert.ok(text.includes('0.045 μS higher'), text);
+});

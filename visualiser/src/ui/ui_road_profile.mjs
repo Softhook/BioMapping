@@ -147,11 +147,16 @@ export const RoadProfileUI = {
 
       // Main comparison
       if (highest !== lowest) {
-        const diff =
-          ((highest.meanPhasic - lowest.meanPhasic) / lowest.meanPhasic) * 100;
+        // A percentage only means something against a positive baseline: a
+        // zero or negative mean (e.g. unclamped cvxEDA phasic) would give
+        // "Infinity%" or a nonsense figure, so fall back to the gap in μS.
+        const gap =
+          lowest.meanPhasic > 0
+            ? `${(((highest.meanPhasic - lowest.meanPhasic) / lowest.meanPhasic) * 100).toFixed(0)}% higher`
+            : `${(highest.meanPhasic - lowest.meanPhasic).toFixed(3)} μS higher`;
         lines.push(
           `Your strongest arousal was on <strong>${esc(highest.name)}</strong> roads (${highest.meanPhasic.toFixed(3)} μS), ` +
-            `which is <strong>${Math.abs(diff).toFixed(0)}% ${diff > 0 ? 'higher' : 'lower'}</strong> ` +
+            `which is <strong>${gap}</strong> ` +
             `than ${esc(lowest.name)} roads (${lowest.meanPhasic.toFixed(3)} μS).`,
         );
       }

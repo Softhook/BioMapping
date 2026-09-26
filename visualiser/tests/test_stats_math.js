@@ -337,7 +337,7 @@ test('metaCorrelation: a consistent per-group effect is detected; gains power as
   assert.ok(pNull > 0.05, `no real effect -> not significant, got p=${pNull}`);
 });
 
-test('metaCorrelation: identical non-zero r in every group -> t is infinite -> p ~ 0', () => {
+test('metaCorrelation: identical non-zero r in every group -> significant but finite p (random-effects SE)', () => {
   const groups = [];
   for (let g = 0; g < 5; g++) {
     const x = Array.from({ length: 30 }, (_, i) => i);
@@ -346,9 +346,11 @@ test('metaCorrelation: identical non-zero r in every group -> t is infinite -> p
   }
   const res = StatsMath.metaCorrelation(groups);
   assert.strictEqual(res.k, 5);
+  // Zero between-group spread leaves the Knapp–Hartung SE at 0, but each
+  // group's own sampling error still bounds the certainty: small p, not 0.
   assert.ok(
-    res.p < 1e-6,
-    `zero between-group variance in a non-zero effect -> tiny p, got ${res.p}`,
+    res.p > 0 && res.p < 0.001,
+    `zero between-group variance in a non-zero effect -> small finite p, got ${res.p}`,
   );
   assert.ok(
     res.i2 <= 1,
@@ -630,19 +632,20 @@ test('calculateLinearRegression: perfect line with an offset y=3x+1 fits exactly
   assert.strictEqual(r2, 1);
 });
 
-test('calculateLinearRegression: flat/constant y (zero variance in y) reports slope 0 and r2=1 via the ssTot===0 special case', () => {
+test('calculateLinearRegression: flat/constant y (zero variance in y) reports slope 0 and r2=0 via the ssTot===0 special case', () => {
   const { m, c, r2 } = StatsMath.calculateLinearRegression(
     [1, 2, 3],
     [5, 5, 5],
   );
   assert.strictEqual(m, 0);
   assert.strictEqual(c, 5);
-  // Documented behaviour: when ssTot is 0 the code special-cases r2 to 1
-  // (a constant fits its own mean perfectly) rather than producing 0/0=NaN.
-  assert.strictEqual(r2, 1);
+  // When ssTot is 0 there is no variance to explain: r2 is special-cased to
+  // 0 rather than 0/0=NaN, and not 1, which the scatter plot showed as a
+  // perfect fit.
+  assert.strictEqual(r2, 0);
 });
 
-test('calculateLinearRegression: zero variance in x (denM===0, vertical scatter) reports slope 0 with r2 reflecting the mean-only fit', () => {
+test('calculateLinearRegression: zero variance in x (sxx===0, vertical scatter) reports slope 0 with r2 reflecting the mean-only fit', () => {
   const { m, c, r2 } = StatsMath.calculateLinearRegression(
     [3, 3, 3],
     [1, 2, 3],

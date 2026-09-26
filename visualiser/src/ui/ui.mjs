@@ -181,16 +181,6 @@ export const GSRUI = {
     redraw();
   },
 
-  /** Percentile of an already-ascending-sorted array (no copy, no re-sort). */
-  _percentileSorted(s, p) {
-    if (!s || s.length === 0) return 0;
-    if (s.length === 1) return s[0];
-    const idx = (s.length - 1) * p;
-    const lo = Math.floor(idx),
-      hi = Math.ceil(idx);
-    return s[lo] + (s[hi] - s[lo]) * (idx - lo);
-  },
-
   /**
    * Open the Unsaved Labels Warning Dialog via the shared notices layer.
    * @param {string} trackName - Name of the track being closed/deleted.

@@ -63,32 +63,46 @@ export const StatsMath = {
     };
   },
 
+  /**
+   * Means and mean-centred sums of squares and cross-products. Centring
+   * first keeps the sums accurate when the values are large but spread
+   * little, where the raw n·Σxy − Σx·Σy form loses its digits to
+   * cancellation.
+   */
   _computeSums(x, y) {
     const n = x.length;
-    let sumX = 0,
-      sumY = 0,
-      sumXY = 0,
-      sumX2 = 0,
-      sumY2 = 0;
+    let meanX = 0,
+      meanY = 0;
     for (let i = 0; i < n; i++) {
-      sumX += x[i];
-      sumY += y[i];
-      sumXY += x[i] * y[i];
-      sumX2 += x[i] * x[i];
-      sumY2 += y[i] * y[i];
+      meanX += x[i];
+      meanY += y[i];
     }
-    return { sumX, sumY, sumXY, sumX2, sumY2 };
+    meanX /= n;
+    meanY /= n;
+    let sxx = 0,
+      syy = 0,
+      sxy = 0;
+    for (let i = 0; i < n; i++) {
+      const dx = x[i] - meanX;
+      const dy = y[i] - meanY;
+      sxx += dx * dx;
+      syy += dy * dy;
+      sxy += dx * dy;
+    }
+    return { meanX, meanY, sxx, syy, sxy };
   },
 
   calculatePearsonCorrelation(x, y) {
-    const n = x.length;
+    const n = Math.min(x.length, y.length);
     if (n === 0) return { r: 0, p: 1 };
-    const { sumX, sumY, sumXY, sumX2, sumY2 } = this._computeSums(x, y);
-    const num = n * sumXY - sumX * sumY;
-    const den = Math.sqrt(
-      (n * sumX2 - sumX * sumX) * (n * sumY2 - sumY * sumY),
-    );
-    const r = den === 0 ? 0 : num / den;
+    if (x.length !== y.length) {
+      x = x.slice(0, n);
+      y = y.slice(0, n);
+    }
+    const { sxx, syy, sxy } = this._computeSums(x, y);
+    const den = Math.sqrt(sxx * syy);
+    // Clamped: rounding can put a perfect correlation a hair past ±1.
+    const r = den === 0 ? 0 : Math.max(-1, Math.min(1, sxy / den));
     // Two-tailed p-value from t-distribution: t = r * sqrt((n-2)/(1-r²))
     let p = 1;
     if (n > 2 && Math.abs(r) < 1) {
@@ -374,14 +388,11 @@ export const StatsMath = {
     // Weighted residual dispersion for the Knapp–Hartung scale.
     let hk = 0;
     for (const e of entries) hk += (1 / (e.v + tau2)) * (e.z - zRE) ** 2;
-    if (!(hk > 0)) {
-      // Every walk gave the same z — no observable between-walk dispersion.
-      // Keep the "perfectly consistent non-zero effect ⇒ ~0" degenerate case.
-      return { r: Math.tanh(zRE), p: zRE === 0 ? 1 : 0, k, tau2, i2 };
-    }
     // Modified Knapp–Hartung: the KH standard error can only widen, never
     // narrow, the plain random-effects interval (the standard safeguard
-    // against its occasional anti-conservative case).
+    // against its occasional anti-conservative case). When every walk gave
+    // the same z, seHK is 0 and the random-effects SE stands alone — each
+    // walk's own sampling error still bounds the certainty.
     const seRE = Math.sqrt(1 / swr);
     const seHK = Math.sqrt(hk / (df * swr));
     const se = Math.max(seRE, seHK);
@@ -467,13 +478,8 @@ export const StatsMath = {
   calculateLinearRegression(x, y) {
     const n = x.length;
     if (n === 0) return { m: 0, c: 0, r2: 0 };
-    const { sumX, sumY, sumXY, sumX2 } = this._computeSums(x, y);
-    const meanX = sumX / n;
-    const meanY = sumY / n;
-
-    const numM = n * sumXY - sumX * sumY;
-    const denM = n * sumX2 - sumX * sumX;
-    const m = denM === 0 ? 0 : numM / denM;
+    const { meanX, meanY, sxx, sxy } = this._computeSums(x, y);
+    const m = sxx === 0 ? 0 : sxy / sxx;
     const c = meanY - m * meanX;
 
     let ssTot = 0;
@@ -485,7 +491,9 @@ export const StatsMath = {
       ssTot += dev * dev;
       ssRes += res * res;
     }
-    const r2 = ssTot === 0 ? 1 : 1 - ssRes / ssTot;
+    // A constant y has no variance to explain: 0, not a perfect fit.
+    // Clamped: rounding can put an orthogonal fit a hair below 0.
+    const r2 = ssTot === 0 ? 0 : Math.max(0, Math.min(1, 1 - ssRes / ssTot));
 
     return { m, c, r2 };
   },

@@ -266,6 +266,10 @@ export const GsrFilter = {
     const n = arr.length;
     if (n === 0) return [];
     if (!cutoffHz || !sampleRate || n < 5) return [...arr];
+    // At or above Nyquist there is nothing for a low-pass to remove, and the
+    // biquad design below goes unstable (a 1 Hz gait filter on a 1.5 Hz file
+    // turned the whole signal to NaN).
+    if (cutoffHz >= sampleRate / 2) return [...arr];
 
     const w0 = (2 * Math.PI * cutoffHz) / sampleRate;
     const cosw0 = Math.cos(w0),

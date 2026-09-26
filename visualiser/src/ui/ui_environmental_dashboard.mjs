@@ -578,14 +578,17 @@ export const EnvironmentalDashboardUI = {
         const meanPhasic = val.phasicVals.reduce((s, v) => s + v, 0) / n;
         const meanTonic =
           nT > 0 ? val.tonicVals.reduce((s, v) => s + v, 0) / nT : 0;
+        // Sample SD (n − 1): it feeds a standard error, and dividing by n
+        // narrows the interval on thinly-sampled road classes.
         const stdPhasic = Math.sqrt(
-          val.phasicVals.reduce((s, v) => s + (v - meanPhasic) ** 2, 0) / n,
+          val.phasicVals.reduce((s, v) => s + (v - meanPhasic) ** 2, 0) /
+            (n - 1),
         );
         const stdTonic =
-          nT > 0
+          nT > 1
             ? Math.sqrt(
                 val.tonicVals.reduce((s, v) => s + (v - meanTonic) ** 2, 0) /
-                  nT,
+                  (nT - 1),
               )
             : 0;
         // CI uses the effective sample size, not the raw second count:

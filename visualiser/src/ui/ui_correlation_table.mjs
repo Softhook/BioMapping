@@ -12,6 +12,16 @@ import { GSR_CONST } from '../core/constants.mjs';
 import { StatsMath } from '../signal/stats_math.mjs';
 
 export const CorrelationTableUI = {
+  /** Percentile of an already-ascending-sorted array (no copy, no re-sort). */
+  _percentileSorted(s, p) {
+    if (!s || s.length === 0) return 0;
+    if (s.length === 1) return s[0];
+    const idx = (s.length - 1) * p;
+    const lo = Math.floor(idx),
+      hi = Math.ceil(idx);
+    return s[lo] + (s[hi] - s[lo]) * (idx - lo);
+  },
+
   /**
    * Paint a scatter of (x, y) points with an OLS trend line and an R² badge
    * onto `canvas`. Pure drawing — caller supplies the fitted m, c, r2.

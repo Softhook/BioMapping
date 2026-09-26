@@ -277,24 +277,29 @@ test('GeoUtils.projectPointToSegment: closest point on segment matches expected 
   closeTo(dist, proj.distance, 1e-6, 'distance matches');
 });
 
-test('StatsMath._computeSums: returns correct sum terms', () => {
+test('StatsMath._computeSums: returns means and centred sum terms', () => {
   const x = [1, 2, 3];
-  const y = [4, 5, 6];
+  const y = [4, 5, 7];
   const sums = StatsMath._computeSums(x, y);
-  assert.strictEqual(sums.sumX, 6);
-  assert.strictEqual(sums.sumY, 15);
-  assert.strictEqual(sums.sumXY, 32);
-  assert.strictEqual(sums.sumX2, 14);
-  assert.strictEqual(sums.sumY2, 77);
+  assert.strictEqual(sums.meanX, 2);
+  closeTo(sums.meanY, 16 / 3, 1e-12, 'meanY');
+  assert.strictEqual(sums.sxx, 2);
+  closeTo(sums.syy, 14 / 3, 1e-12, 'syy');
+  assert.strictEqual(sums.sxy, 3);
 
   // Pearson correlation check
   const corr = StatsMath.calculatePearsonCorrelation(x, y);
-  closeTo(corr.r, 1.0, 1e-6, 'Pearson correlation coefficient');
+  closeTo(
+    corr.r,
+    3 / Math.sqrt(2 * (14 / 3)),
+    1e-12,
+    'Pearson correlation coefficient',
+  );
 
   // Linear regression check
   const reg = StatsMath.calculateLinearRegression(x, y);
-  closeTo(reg.m, 1.0, 1e-6, 'regression slope');
-  closeTo(reg.c, 3.0, 1e-6, 'regression intercept');
+  closeTo(reg.m, 1.5, 1e-12, 'regression slope');
+  closeTo(reg.c, 16 / 3 - 3, 1e-12, 'regression intercept');
 });
 
 test('GSRMapExporter._parseLatLng: parses array and object coordinates', () => {
