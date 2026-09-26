@@ -608,6 +608,7 @@ export class GSRAnalyzer {
     this.importedGpsFilterParams = result.importedGpsFilterParams;
     this.enrichmentRadius = result.enrichmentRadius;
     this.bandFloors = result.bandFloors;
+    this.deviceHeaderLines = result.deviceHeaderLines;
     this.sampleRate = result.sampleRate;
     this.hasRfData = result.hasRfData;
     this.rfPeakIndices = result.rfPeakIndices;
@@ -2323,6 +2324,7 @@ export class GSRAnalyzer {
         isEnriched: this.isEnriched,
         enrichmentRadius: this.enrichmentRadius,
         recordingStartTime: this.recordingStartTime,
+        deviceHeaderLines: this.deviceHeaderLines,
       },
       params,
       gpsParams,

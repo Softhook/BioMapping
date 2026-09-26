@@ -425,6 +425,7 @@ export const GSRCSVParser = {
    *   importedGpsFilterParams: object|null,
    *   enrichmentRadius: number|null,
    *   bandFloors: object|null,
+   *   deviceHeaderLines: Array<string>,
    *   sampleRate: number,
    *   hasRfData: boolean,
    *   rfPeakIndices: Set<number>,
@@ -443,6 +444,9 @@ export const GSRCSVParser = {
     let enrichmentRadius = null;
     let bandFloors = null;
     let hasIntegrityMarker = false;
+    // Device metadata lines (DeviceName, GSR Calibration, Band Floors,
+    // GPSChipID, …) kept verbatim so the processed export can carry them over.
+    const deviceHeaderLines = [];
 
     // Split into lines
     const lines = csvText.split(/\r?\n/);
@@ -515,6 +519,9 @@ export const GSRCSVParser = {
             }
           });
         }
+        deviceHeaderLines.push(line);
+      } else if (!line.startsWith('# End')) {
+        deviceHeaderLines.push(line);
       }
       dataStartLine++;
     }
@@ -1175,6 +1182,7 @@ export const GSRCSVParser = {
       importedGpsFilterParams: importedGpsFilterParams,
       enrichmentRadius: enrichmentRadius,
       bandFloors: bandFloors,
+      deviceHeaderLines: deviceHeaderLines,
       sampleRate: sampleRate,
       hasRfData: hasRfData,
       rfPeakIndices: rfPeakIndices,

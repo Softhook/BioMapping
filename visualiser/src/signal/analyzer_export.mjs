@@ -22,6 +22,7 @@ export const AnalyzerExport = {
    * @param {boolean} state.isEnriched
    * @param {number} state.enrichmentRadius
    * @param {number} state.recordingStartTime
+   * @param {Array<string>} [state.deviceHeaderLines] - Device metadata lines from the source file.
    * @param {object} [params] - Filter params, echoed into a header comment for re-import.
    * @param {object} [gpsParams] - GPS filter params, echoed into a header comment for re-import.
    * @returns {string}
@@ -39,6 +40,7 @@ export const AnalyzerExport = {
       isEnriched,
       enrichmentRadius,
       recordingStartTime,
+      deviceHeaderLines = [],
     } = state;
 
     if (raw.length === 0) return '';
@@ -90,6 +92,10 @@ export const AnalyzerExport = {
 
     // Preserve recording start time and configurations for re-import
     let csv = `# RecordingStartTime:${recordingStartTime}\n`;
+    // Device metadata (calibration, band floors, device/chip IDs) carried over
+    // verbatim. The integrity bracket is not: this file is no longer the
+    // unmodified recording it vouched for.
+    for (const line of deviceHeaderLines) csv += `${line}\n`;
     if (params) {
       csv += `# FilterParams:${JSON.stringify(params)}\n`;
     }
