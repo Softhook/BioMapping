@@ -840,7 +840,7 @@ static void gps_uart_set_expansion_enabled(bool enabled) {
 // the Expansion Service — on hardware the module was awake again within
 // seconds of every release. Held, the line idles steadily high, so the
 // module stays asleep on the menu and in GSR-only mode. See
-// docs/gps_sleep_investigation.md.
+// research/gps_sleep_investigation.md.
 static FuriHalSerialHandle* g_port = NULL;
 
 // Between GPS sessions the port listens and counts whatever arrives. A
