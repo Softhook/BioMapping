@@ -57,12 +57,50 @@ test('SVG export: a stalled tile server gives up (tile skipped) instead of hangi
         },
       }),
     };
-    const img = { getAttribute: () => 'https://tiles.example/1/2/3.png' };
+    const img = {
+      getAttribute: () => 'https://tiles.example/1/2/3.png',
+      complete: true,
+      naturalWidth: 256,
+      naturalHeight: 256,
+    };
 
     const pending = GSRMapExporter._inlineImg(img);
     await new Promise((r) => setImmediate(r));
     assert.strictEqual(server.seen.fetches, 1);
     assert.strictEqual(server.seen.timeoutMs, 20000);
+
+    server.fire();
+    assert.strictEqual(await pending, null);
+  } finally {
+    server.restore();
+  }
+});
+
+test('SVG export: a tile that failed to load is fetched, not copied as a blank square', async () => {
+  const server = installStalledServer();
+  try {
+    let drawn = 0;
+    global.document = {
+      createElement: () => ({
+        getContext: () => ({
+          drawImage() {
+            drawn++;
+          },
+        }),
+        toDataURL: () => 'data:image/png;base64,BLANK',
+      }),
+    };
+    // complete + naturalWidth 0 = the browser gave up on this tile.
+    const img = {
+      getAttribute: () => 'https://tiles.example/1/2/3.png',
+      complete: true,
+      naturalWidth: 0,
+    };
+
+    const pending = GSRMapExporter._inlineImg(img);
+    await new Promise((r) => setImmediate(r));
+    assert.strictEqual(drawn, 0);
+    assert.strictEqual(server.seen.fetches, 1);
 
     server.fire();
     assert.strictEqual(await pending, null);

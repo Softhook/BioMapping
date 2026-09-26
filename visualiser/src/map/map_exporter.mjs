@@ -4,6 +4,7 @@
  * Illustrator-compatible, resolution-independent layered SVG with zero external references.
  */
 import { AppState } from '../core/app_state.mjs';
+import { BusyOverlay } from '../core/busy_overlay.mjs';
 import { GSR_CONST } from '../core/constants.mjs';
 import { Controllers } from '../core/controllers.mjs';
 import { GSRFileSaver } from '../core/file_saver.mjs';
@@ -27,8 +28,33 @@ export const GSRMapExporter = {
   // ═══════════════════════════════════════════════════════════════════
 
   async exportToSvg(mgr) {
+    const built = await BusyOverlay.run('Exporting map…', () =>
+      GSRMapExporter._build(mgr),
+    );
+    if (!built) return;
+    await GSRMapExporter._download(built.svg, AppState.viewMode || 'single');
+  },
+
+  async exportToPng(mgr) {
+    const blob = await BusyOverlay.run('Exporting map…', async () => {
+      const built = await GSRMapExporter._build(mgr);
+      return built
+        ? GSRMapExporter._rasterisePng(built.svg, built.ctx.w, built.ctx.h)
+        : null;
+    });
+    if (!blob) return;
+    await GSRMapExporter._downloadPng(blob, AppState.viewMode || 'single');
+  },
+
+  /**
+   * The slow part of an export (tile fetches, layer gathering), run under the
+   * busy spinner. Saving happens after, so the spinner isn't left up behind
+   * the save dialog. Returns null if the map isn't ready.
+   * @private
+   */
+  async _build(mgr) {
     let ctx = GSRMapExporter._validate(mgr);
-    if (!ctx) return;
+    if (!ctx) return null;
 
     // Isobands at the map edge are drawn extending past the original frame
     // (see ContourRingGeometry.closeOpenPaths / tangentExtrapolate) rather
@@ -40,27 +66,7 @@ export const GSRMapExporter = {
     await GSRMapExporter._ensureTileCoverage(ctx, mgr);
 
     const layers = await GSRMapExporter._gather(ctx);
-    await GSRMapExporter._download(
-      GSRMapExporter._render(ctx, layers),
-      AppState.viewMode || 'single',
-    );
-  },
-
-  async exportToPng(mgr) {
-    let ctx = GSRMapExporter._validate(mgr);
-    if (!ctx) return;
-
-    ctx = GSRMapExporter._expandCanvasForIsobands(ctx);
-    await GSRMapExporter._ensureTileCoverage(ctx, mgr);
-
-    const layers = await GSRMapExporter._gather(ctx);
-    const svgString = GSRMapExporter._render(ctx, layers);
-    await GSRMapExporter._downloadPng(
-      svgString,
-      ctx.w,
-      ctx.h,
-      AppState.viewMode || 'single',
-    );
+    return { ctx, svg: GSRMapExporter._render(ctx, layers) };
   },
 
   // ═══════════════════════════════════════════════════════════════════
@@ -448,6 +454,7 @@ export const GSRMapExporter = {
       tracks: GSRMapExporter._vectors(ctx, render.paths),
       contours: GSRMapExporter._vectors(ctx, mgr.contourLayers),
       clusters: GSRMapExporter._vectors(ctx, mgr.clusterLayers),
+      placeBadges: GSRMapExporter._placeBadges(ctx, mgr.clusterLayers),
       dotsAndLabels: GSRMapExporter._markers(ctx, render.peakMarkers),
       hotspots: GSRMapExporter._markers(ctx, render.hotspots),
     };
@@ -588,6 +595,7 @@ export const GSRMapExporter = {
       ['Stress_Peak_Dots', 'Stress Peak Dots', L.dotsAndLabels.dots],
       ['Hotspot_Dots', 'Hotspot Dots', L.hotspots.dots],
       ['Stress_Peak_Labels', 'Stress Peak Labels', L.dotsAndLabels.labels],
+      ['Arousal_Place_Badges', 'Arousal Place Badges', L.placeBadges],
     ];
 
     const lines = [
@@ -819,15 +827,16 @@ export const GSRMapExporter = {
     const jobs = tiles.map(async (tile) => {
       const b = tile.getBoundingClientRect();
       const url = await GSRMapExporter._inlineImg(tile);
-      return url
-        ? GSRMapExporter._img(
-            b.left - r.left,
-            b.top - r.top,
-            b.width,
-            b.height,
-            url,
-          )
-        : null;
+      if (!url) return null;
+      // At in-between zoom levels (zoomSnap 0.25) tiles sit on fractional
+      // pixels, and anti-aliasing along each shared edge shows as a faint
+      // grid. Snapping every edge outward to whole pixels makes neighbours
+      // overlap by under 1px instead.
+      const x0 = Math.floor(b.left - r.left);
+      const y0 = Math.floor(b.top - r.top);
+      const x1 = Math.ceil(b.left + b.width - r.left);
+      const y1 = Math.ceil(b.top + b.height - r.top);
+      return GSRMapExporter._img(x0, y0, x1 - x0, y1 - y0, url);
     });
     const results = await Promise.all(jobs);
     return results.filter(Boolean);
@@ -838,18 +847,27 @@ export const GSRMapExporter = {
     if (!src) return null;
     if (src.startsWith('data:')) return src;
 
-    try {
-      const c = Object.assign(document.createElement('canvas'), {
-        width: img.naturalWidth || img.width || 256,
-        height: img.naturalHeight || img.height || 256,
-      });
-      c.getContext('2d').drawImage(img, 0, 0);
-      const u = c.toDataURL('image/png');
-      if (u?.startsWith('data:')) return u;
-    } catch (err) {
-      // Canvas is tainted (cross-origin tiles) — fall through to the fetch path below.
-      if (typeof GSRNotices !== 'undefined')
-        GSRNotices.report(err, 'map_exporter:rasterizeImage(tainted canvas)');
+    // A tile still downloading draws as nothing, so copying it now would
+    // export a transparent square (the dark background shows through as a
+    // black tile). Margin tiles fetched by _ensureTileCoverage load last and
+    // often aren't in yet, so wait for this one; if it never arrives, skip
+    // the canvas copy and fetch the tile directly below.
+    const loaded = await GSRMapExporter._whenImgLoaded(img, 20000);
+
+    if (loaded) {
+      try {
+        const c = Object.assign(document.createElement('canvas'), {
+          width: img.naturalWidth,
+          height: img.naturalHeight,
+        });
+        c.getContext('2d').drawImage(img, 0, 0);
+        const u = c.toDataURL('image/png');
+        if (u?.startsWith('data:')) return u;
+      } catch (err) {
+        // Canvas is tainted (cross-origin tiles) — fall through to the fetch path below.
+        if (typeof GSRNotices !== 'undefined')
+          GSRNotices.report(err, 'map_exporter:rasterizeImage(tainted canvas)');
+      }
     }
 
     try {
@@ -871,6 +889,24 @@ export const GSRMapExporter = {
         GSRNotices.report(err, 'map_exporter:rasterizeImage(fetch)');
       return null;
     }
+  },
+
+  /** Resolves true once `img` has pixel data, false on error or after `timeoutMs`. @private */
+  _whenImgLoaded(img, timeoutMs) {
+    if (img.complete) return Promise.resolve(img.naturalWidth > 0);
+    return new Promise((resolve) => {
+      const finish = (ok) => {
+        clearTimeout(timer);
+        img.removeEventListener('load', onLoad);
+        img.removeEventListener('error', onError);
+        resolve(ok);
+      };
+      const onLoad = () => finish(img.naturalWidth > 0);
+      const onError = () => finish(false);
+      img.addEventListener('load', onLoad);
+      img.addEventListener('error', onError);
+      const timer = setTimeout(() => finish(false), timeoutMs);
+    });
   },
 
   _vectors(ctx, layers, opts) {
@@ -1133,18 +1169,18 @@ export const GSRMapExporter = {
   },
 
   _dotSvg(el, cx, cy, opacity) {
-    // Hotspots render as a red star glyph (.hotspot-star) rather than a dot —
-    // export it as centred text so the marker survives an SVG/PNG export.
+    // Hotspots render as a red star glyph (.hotspot-star) rather than a dot.
+    // Export it as a drawn star outline, not a "★" character: the glyph isn't
+    // in most fonts, so Illustrator showed a missing-glyph box instead.
     const star = el.querySelector('.hotspot-star');
     if (star && window.getComputedStyle(star).display !== 'none') {
       const ss = window.getComputedStyle(star);
+      // The ★ glyph's outer points reach about 0.45 of the font size.
+      const outerR = (parseFloat(ss.fontSize) || 13) * 0.45;
       return (
-        `<text x="${cx}" y="${cy}"` +
-        ` font-size="${GSRMapExporter._esc(ss.fontSize || '18px')}"` +
-        ` font-family="${GSRMapExporter._esc(ss.fontFamily || 'sans-serif')}"` +
-        ` fill="${GSRMapExporter._esc(ss.color || '#ff1744')}"` +
-        ` text-anchor="middle" dominant-baseline="central"` +
-        ` opacity="${opacity}">★</text>`
+        `<path d="${GSRMapExporter._starPathD(cx, cy, outerR)}"` +
+        ` fill="${GSRMapExporter._esc(GSRMapExporter._toHex(ss.color || '#ff1744'))}"` +
+        ` opacity="${opacity}" />`
       );
     }
 
@@ -1191,11 +1227,90 @@ export const GSRMapExporter = {
       `<text x="${x.toFixed(3)}"` +
       ` y="${y.toFixed(3)}"` +
       ` font-size="${GSRMapExporter._esc(ls.fontSize || '11px')}"` +
-      ` font-weight="${GSRMapExporter._esc(ls.fontWeight || '600')}"` +
-      ` font-family="${GSRMapExporter._esc(ls.fontFamily || 'sans-serif')}"` +
+      GSRMapExporter._fontAttrs(ls.fontWeight) +
       ` fill="${LABEL}" text-anchor="middle"` +
       ` opacity="${opacity}">${tx}</text>`
     );
+  },
+
+  /**
+   * Font attributes for exported text. The app's CSS font stack ("Inter",
+   * -apple-system, …) names fonts Illustrator usually doesn't have, so it
+   * raised a missing-typeface warning on import. Arial is installed on every
+   * Mac and Windows machine; the PostScript name comes first because that's
+   * what Illustrator matches on.
+   * @private
+   */
+  _fontAttrs(weight) {
+    const bold = (parseInt(weight, 10) || 400) >= 600;
+    return bold
+      ? ' font-family="Arial-BoldMT, Arial, Helvetica, sans-serif" font-weight="700"'
+      : ' font-family="ArialMT, Arial, Helvetica, sans-serif" font-weight="400"';
+  },
+
+  /** Closed five-pointed star outline centred on (cx, cy), point up. @private */
+  _starPathD(cx, cy, outerR) {
+    const innerR = outerR * 0.382; // regular star's inner/outer ratio
+    const pts = [];
+    for (let i = 0; i < 10; i++) {
+      const r = i % 2 === 0 ? outerR : innerR;
+      const a = -Math.PI / 2 + (i * Math.PI) / 5;
+      pts.push(
+        `${(cx + r * Math.cos(a)).toFixed(3)} ${(cy + r * Math.sin(a)).toFixed(3)}`,
+      );
+    }
+    return `M${pts.join(' L')} Z`;
+  },
+
+  /**
+   * Arousal Place badges (the numbered P1..Pn circles). They're HTML markers
+   * sitting in mgr.clusterLayers next to the place outlines, so _vectors()
+   * skips them. Badges folded into a neighbour at the current zoom are off
+   * the map and skipped too, matching what's on screen.
+   * @private
+   */
+  _placeBadges(ctx, layers) {
+    const out = [];
+    const esc = GSRMapExporter._esc;
+    for (const m of layers || []) {
+      if (m?._gsrKind !== 'arousalPlace' || typeof m.getLatLng !== 'function')
+        continue;
+      if (typeof ctx.map?.hasLayer === 'function' && !ctx.map.hasLayer(m))
+        continue;
+      const badge = m.getElement?.()?.querySelector('.arousal-place-badge');
+      if (!badge) continue;
+      const p = ctx.project(m.getLatLng());
+      if (!p || typeof p.x !== 'number') continue;
+
+      const s = window.getComputedStyle(badge);
+      const r = (parseFloat(s.width) || 22) / 2;
+      const merged = badge.classList.contains('merged');
+      const sup = badge.querySelector('sup');
+      const extra = sup ? sup.textContent.trim() : '';
+      const label = badge.textContent
+        .trim()
+        .slice(0, extra ? -extra.length : undefined);
+      const fontSize = parseFloat(s.fontSize) || 11;
+      const x = p.x.toFixed(3);
+      const y = p.y.toFixed(3);
+
+      out.push(
+        `<g>` +
+          `<circle cx="${x}" cy="${y}" r="${r.toFixed(3)}"` +
+          ` fill="${esc(GSRMapExporter._toHex(s.backgroundColor || '#e59e00'))}"` +
+          ` stroke="#ffffff" stroke-opacity="0.9"` +
+          ` stroke-width="${merged ? 3 : 1.5}" />` +
+          `<text x="${x}" y="${(p.y + fontSize * 0.35).toFixed(3)}"` +
+          ` font-size="${fontSize}px"` +
+          GSRMapExporter._fontAttrs(700) +
+          ` fill="#0b0f17" text-anchor="middle">${esc(label)}` +
+          (extra
+            ? `<tspan font-size="${(fontSize * 0.62).toFixed(2)}px" dy="${(-fontSize * 0.35).toFixed(2)}">${esc(extra)}</tspan>`
+            : '') +
+          `</text></g>`,
+      );
+    }
+    return out;
   },
 
   // ═══════════════════════════════════════════════════════════════════
@@ -1250,13 +1365,16 @@ export const GSRMapExporter = {
     await GSRFileSaver.saveFile(blob, suggestedName);
   },
 
-  async _downloadPng(svg, width, height, mode) {
+  async _downloadPng(pngData, mode) {
     const baseName =
       typeof Controllers.ui?._exportFilenameBase === 'function'
         ? Controllers.ui._exportFilenameBase()
         : 'biomapping';
-    const suggestedName = `${baseName}_map_${mode}_export.png`;
+    await GSRFileSaver.saveFile(pngData, `${baseName}_map_${mode}_export.png`);
+  },
 
+  /** Draw the SVG onto a canvas; resolves to a PNG Blob (or data URL), or null. @private */
+  async _rasterisePng(svg, width, height) {
     const svgBlob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
     const url = URL.createObjectURL(svgBlob);
     try {
@@ -1281,20 +1399,14 @@ export const GSRMapExporter = {
       }
 
       if (typeof canvas.toBlob === 'function') {
-        await new Promise((resolve) => {
-          canvas.toBlob(async (blob) => {
-            if (blob) {
-              await GSRFileSaver.saveFile(blob, suggestedName);
-            }
-            resolve();
-          }, 'image/png');
+        return await new Promise((resolve) => {
+          canvas.toBlob(resolve, 'image/png');
         });
-      } else if (typeof canvas.toDataURL === 'function') {
-        await GSRFileSaver.saveFile(
-          canvas.toDataURL('image/png'),
-          suggestedName,
-        );
       }
+      if (typeof canvas.toDataURL === 'function') {
+        return canvas.toDataURL('image/png');
+      }
+      return null;
     } finally {
       URL.revokeObjectURL(url);
     }
