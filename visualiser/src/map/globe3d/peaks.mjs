@@ -354,9 +354,12 @@ export class GSRGlobePeaks extends GSRGlobeRf {
    * `_pushFromMap` rebuilds `clusterPolygons` (a fresh array, fresh rings) on
    * every 2D `map:rendered`, but the hulls themselves only change when the merge
    * slider or the active-peak set moves — so the fingerprint, not array
-   * identity, decides whether the ground blobs need rebuilding. @private
+   * identity, decides whether the ground blobs need rebuilding. The replay
+   * tour hides them (a place summarises the whole walk, so it can't be drawn
+   * "so far"); its own signature makes leaving the replay redraw them. @private
    */
   _clusterBlobSignature() {
+    if (this._replay) return 'replay';
     const polys = this.currentClusterPolygons || [];
     if (!polys.length) return this.showClusters ? 'empty' : 'off';
     let s = (this.showClusters ? 'on:' : 'off:') + polys.length;
@@ -395,7 +398,7 @@ export class GSRGlobePeaks extends GSRGlobeRf {
     const sig = this._clusterBlobSignature();
     if (sig === this._clusterBlobSig) return;
     this.clearClusterEntities();
-    if (this.showClusters) this._renderClusterBlobs();
+    if (this.showClusters && !this._replay) this._renderClusterBlobs();
     this._clusterBlobSig = sig;
   }
 

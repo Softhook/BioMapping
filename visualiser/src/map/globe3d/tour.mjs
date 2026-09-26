@@ -1,362 +1,185 @@
 /**
- * GSRGlobeManager — automated cinematic Hotspot tour.
- * Class layer for GSRGlobeManager automated cinematic Hotspot tour
- * (`GSRGlobeTour extends GSRGlobeNavigation`).
+ * GSRGlobeManager — the replay tour: a sped-up real-time replay of the walk.
+ * Class layer for GSRGlobeManager's replay tour
+ * (`GSRGlobeTour extends GSRGlobeHotspotTour`).
  *
- * _computeTourWaypoints visits analyzer.memorableEvents (the curated Hotspot
- * subset — same star markers the map/graph show) in walk order, falling back
- * to generic evenly-spaced track sampling when there are no hotspots; reads
- * this.currentAnalyzer/_getMetricSeries/_latencyCoords/_peakWallHeight.
- * _executeTourStep drives the camera the same way flyToPeak does but with its
- * own dwell/timeout bookkeeping (this._tourStepTimeout etc.) and a side-on
- * angled shot per hotspot instead of a fixed offset.
+ * Two tours share one set of controls: this replay (startTour / toggleTour)
+ * and the cinematic hotspot-to-hotspot flight (globe3d/hotspot_tour.mjs,
+ * startHotspotTour / toggleHotspotTour). Only one runs at a time;
+ * `this._tourMode` ('replay' | 'hotspot' | null) says which, and the shared
+ * entry points here — stopTour, pauseTour, resumeTour, toggleTourPause,
+ * tourNext, tourPrevious — dispatch on it.
+ *
+ * A replay clock runs through the walk at REPLAY_BASE_SPEED × real time
+ * (scaled by the shared Up/Down `_autoCameraSpeed` dial). Only the part of the
+ * walk the clock has reached is drawn:
+ *   - the arousal wall is rebuilt with one hidden GeometryInstance per segment
+ *     (see _render3DWallAndPath's `this._replay` branch, which also records
+ *     `this._replaySegs`), and each segment's `show` attribute is switched on
+ *     once the clock passes its end time;
+ *   - the segment the clock is currently inside is drawn by a small dynamic
+ *     "head" wall entity that grows smoothly from the segment start to the
+ *     clock position;
+ *   - peak circles/labels and hotspot stars appear once their (latency-
+ *     shifted) time is reached.
+ * A chase camera follows the head from behind and to one side, easing round
+ * as the walk turns while keeping whatever zoom/tilt the user gives it. Stopping the
+ * tour (or reaching the end) rebuilds the normal full, merged wall.
  */
 import { GeoUtils } from '../../gps/geo_utils.mjs';
-import { HEIGHT_CAPABLE_METRICS, seriesValue } from './globe3d_base.mjs';
-import { GSRGlobeNavigation } from './navigation.mjs';
+import { GSRGlobeHotspotTour } from './hotspot_tour.mjs';
 
-// ── Hotspot shot-side selection tuning ──────────────────────────────────────
-// See _chooseTourShot's doc comment for the cost model these combine into.
-const SIDE_ANGLE_DEG = 122.0; // off the direction of travel — between a flat 90° profile and a straight 180° chase-cam
-const OBSTRUCTION_COST_RAD = 0.5; // per blocking point, in turn-equivalent radians
-const SIDE_STICKINESS_RAD = 0.8; // bias favouring whichever side the previous hotspot used
-const MAX_TURN_RATE_RAD_PER_SEC = (65.0 * Math.PI) / 180.0; // ~65°/s: brisk but legible
+// Walk seconds replayed per real second at the default 1× auto-camera speed.
+// The Up/Down shortcuts scale it 0.25×–4× (5×–80× real time).
+const REPLAY_BASE_SPEED = 20;
+// Matches the wall's own time-gap rule (_render3DWallAndPath): a pause or lost
+// fix longer than this is skipped straight over rather than replayed as dead air.
+const GAP_SKIP_S = 15.0;
+// Chase-camera defaults; the user's own zoom/tilt replaces them once they touch
+// the camera. The camera sits behind and to the right of the walker, looking
+// this far left of the direction of travel: straight behind would see the
+// wall edge-on and hide its height profile.
+const CHASE_SIDE_DEG = -58.0;
+const CHASE_RANGE_M = 260.0;
+const CHASE_PITCH_DEG = -28.0;
+// Travel bearing is taken over ± this many walk seconds, so GPS wobble doesn't
+// swing the camera.
+const BEARING_SPAN_S = 12.0;
+// Exponential ease rate (1/s, real time) of the camera heading towards the
+// direction of travel — ~1 s to cover most of a turn.
+const HEADING_EASE_PER_S = 1.5;
+// Same kind of ease (1/s, real time) for the camera's aim height. The wall's
+// height follows the GSR signal sample-to-sample, so aiming straight at it
+// bobs the camera up and down; this lags it by ~1.5 s instead.
+const AIM_HEIGHT_EASE_PER_S = 0.7;
+// The camera's ground aim point is the route averaged over a window centred on
+// the replay head (triangular weights, AIM_WINDOW_SAMPLES per side), not the
+// head itself: uneven GPS point spacing makes the head speed up and slow down
+// point-to-point, which jerks the camera forwards and backwards. The route
+// ahead is already recorded, so a centred window smooths without any lag. The
+// half-width is AIM_WINDOW_REAL_S of real time at the current replay speed,
+// but never under AIM_WINDOW_MIN_S of walk time.
+const AIM_WINDOW_REAL_S = 0.5;
+const AIM_WINDOW_MIN_S = 4.0;
+const AIM_WINDOW_SAMPLES = 6;
+// Left/Right hotspot jumps land this many walk seconds before the hotspot so
+// its rise is seen being drawn.
+const HOTSPOT_LEAD_S = 4.0;
 
-export class GSRGlobeTour extends GSRGlobeNavigation {
+export class GSRGlobeTour extends GSRGlobeHotspotTour {
   /**
-   * Register a progress callback for the automated tour: (stepIndex, totalSteps, waypoint) => void
+   * Register a progress callback for the replay, fired every tick with
+   * `{ time, lat, lon, origIdx }` for the replay head, and with `null` once
+   * the tour stops.
    */
-  onTourStep(cb) {
-    this._tourCallback = typeof cb === 'function' ? cb : null;
+  onTourProgress(cb) {
+    this._replayCallback = typeof cb === 'function' ? cb : null;
   }
 
-  /**
-   * Toggle automated sequential tour along the track
-   */
+  /** Toggle the replay tour. Returns whether it is now running. */
   toggleTour() {
-    if (this._isTouring) {
-      this.stopTour();
-    } else {
-      this.startTour();
-    }
+    if (this._isTouring && this._tourMode === 'replay') this.stopTour();
+    else this.startTour();
     return this._isTouring;
   }
 
-  /**
-   * Calculate forward azimuth/bearing (in degrees 0-360) from p1 to p2.
-   */
-  _calculateBearing(p1, p2) {
-    if (!p1 || !p2) return 0;
-    return GeoUtils.bearingDeg(p1.lat, p1.lon, p2.lat, p2.lon);
-  }
-
-  /**
-   * Local track bearing at drawn-point index `idx`: looks `lookAheadSteps`
-   * points ahead along the path (or behind, near the very end) so the
-   * heading is smoothed rather than jittering sample-to-sample. Shared by
-   * both waypoint builders so a hotspot's camera framing and the generic
-   * track tour agree on what "facing forward" means at a given point.
-   */
-  _trackBearingAt(pts, idx, lookAheadSteps) {
-    const p = pts[idx];
-    if (idx < pts.length - 1) {
-      const lookAheadIdx = Math.min(pts.length - 1, idx + lookAheadSteps);
-      return this._calculateBearing(p, pts[lookAheadIdx] || pts[idx + 1]);
-    }
-    if (idx > 0) {
-      const lookBehindIdx = Math.max(0, idx - lookAheadSteps);
-      return this._calculateBearing(pts[lookBehindIdx] || pts[idx - 1], p);
-    }
-    return 0;
-  }
-
-  /**
-   * Compute the tour's waypoint sequence. Prefers the real curated Hotspots
-   * (analyzer.memorableEvents — the same red-star markers the map/graph show)
-   * visited in walk order; falls back to generic evenly-spaced track sampling
-   * when there are no hotspots to visit (e.g. a very short or quiet walk).
-   */
-  _computeTourWaypoints() {
-    const hotspotWaypoints = this._computeHotspotTourWaypoints();
-    if (hotspotWaypoints.length > 0) return hotspotWaypoints;
-    return this._computeTrackTourWaypoints();
-  }
-
-  /**
-   * Build tour waypoints from analyzer.memorableEvents (the curated Hotspot
-   * subset), one per hotspot, ordered chronologically (the order they occurred
-   * during the walk) so the tour replays the journey rather than jumping
-   * around by rank. Each waypoint's position/height reuse the exact same
-   * helpers the hotspot star markers themselves are drawn with
-   * (_latencyCoords/_peakWallHeight), so the camera lands exactly where the
-   * star is. Local track bearing (for camera framing) is read from the
-   * nearest drawn track sample.
-   */
-  _computeHotspotTourWaypoints() {
-    const a = this.currentAnalyzer;
-    const events = a?.memorableEvents;
-    const pts = this.currentDrawPoints;
-    if (!a || !events || events.length === 0 || !pts || pts.length < 2)
-      return [];
-
-    const peakIndexOf = this._peakIndexMap(a);
-    const lookAheadSteps = Math.max(
-      3,
-      Math.min(10, Math.floor(pts.length / 30)),
-    );
-
-    // Resolve each hotspot's marker position and its nearest drawn track
-    // sample (to read local bearing from).
-    const resolved = [];
-    for (const peak of events) {
-      // A hotspot IS a peak (memorableEvents references analyzer.peaks), so
-      // an excluded one must stop being treated as a curated tour stop too —
-      // same guard as the hotspot star itself (globe3d/peaks.mjs).
-      if (peak.excluded) continue;
-      const coords = this._latencyCoords(a, peak);
-      if (!coords || isNaN(coords.lat) || isNaN(coords.lon)) continue;
-      let nearestIdx = -1;
-      let nearestDsq = Infinity;
-      for (let i = 0; i < pts.length; i++) {
-        const dLat = pts[i].lat - coords.lat;
-        const dLon = pts[i].lon - coords.lon;
-        const dsq = dLat * dLat + dLon * dLon;
-        if (dsq < nearestDsq) {
-          nearestDsq = dsq;
-          nearestIdx = i;
-        }
-      }
-      if (nearestIdx === -1) continue;
-      resolved.push({ peak, coords, drawIdx: nearestIdx });
-    }
-    if (resolved.length === 0) return [];
-
-    // Walk order: earliest response first.
-    resolved.sort((x, y) => (x.peak.time ?? 0) - (y.peak.time ?? 0));
-
-    return resolved.map((r, i) => {
-      const idx = r.drawIdx;
-      const p = pts[idx];
-      const bearingDeg = this._trackBearingAt(pts, idx, lookAheadSteps);
-
-      const wallHeight = this._peakWallHeight(a, r.peak);
-      // Headroom for the spire tip + star label sitting above the wall
-      // (mirrors _renderHotspots' wallHeight + 11 star height).
-      const effectiveHeight = Math.max(wallHeight + 14.0, 20.0);
-
-      // Time window for the GSR graph to frame while this hotspot is on
-      // camera: from well before onset to well after the response, padded
-      // generously so the graph reads as "zoomed out" context around the
-      // response rather than a tight crop on just the rise.
-      const t = typeof r.peak.time === 'number' ? r.peak.time : p.time || 0;
-      const onset =
-        typeof r.peak.onsetTime === 'number' ? r.peak.onsetTime : t - 3;
-      const graphWinStart = Math.max(0, onset - 6);
-      const graphWinDuration = Math.max(16, Math.min(34, t - onset + 16));
-
-      return {
-        index: i,
-        drawPointIndex: idx,
-        origIdx: r.peak.index,
-        lat: r.coords.lat,
-        lon: r.coords.lon,
-        time: t,
-        bearingDeg,
-        gsrHeight: wallHeight,
-        effectiveHeight,
-        isPeak: true,
-        rank: i,
-        peakIdx: peakIndexOf.has(r.peak) ? peakIndexOf.get(r.peak) : -1,
-        graphWinStart,
-        graphWinDuration,
-      };
-    });
-  }
-
-  /**
-   * Fallback waypoint builder: evenly-spaced samples along the track plus
-   * plain analyzer.peaks (used only when the walk has no curated Hotspots to
-   * tour between).
-   */
-  _computeTrackTourWaypoints() {
-    const pts = this.currentDrawPoints;
-    if (!pts || pts.length < 2) return [];
-
-    const metric = this.activeColoringMetric;
-    const heightMetric = HEIGHT_CAPABLE_METRICS?.has(metric)
-      ? metric
-      : this.heightMetric || 'phasic';
-    const heightSeries = this._getMetricSeries(
-      this.currentAnalyzer,
-      heightMetric,
-    );
-    const extScale = this.extrusionScale || 8.0;
-    const baseH = this.baseHeight || 2.0;
-
-    // Collect candidate indices along the track
-    const candidateIndices = new Set();
-    candidateIndices.add(0);
-    candidateIndices.add(pts.length - 1);
-
-    // Add peak indices (both original sample index and latency-shifted index)
-    if (this.currentPeaks && this.currentPeaks.length > 0) {
-      this.currentPeaks.forEach((pk) => {
-        if (pk && typeof pk.index === 'number') {
-          const matchIdx = pts.findIndex((p) => p.origIdx === pk.index);
-          if (matchIdx !== -1) candidateIndices.add(matchIdx);
-          if (
-            this.peakLatency > 0 &&
-            this.currentAnalyzer &&
-            typeof this.currentAnalyzer.resolveLatencyIndex === 'function'
-          ) {
-            const shiftedOrigIdx = this.currentAnalyzer.resolveLatencyIndex(
-              pk,
-              this.peakLatency,
-            );
-            const shiftedMatchIdx = pts.findIndex(
-              (p) => p.origIdx === shiftedOrigIdx,
-            );
-            if (shiftedMatchIdx !== -1) candidateIndices.add(shiftedMatchIdx);
-          }
-        }
-      });
-    }
-
-    // Add evenly spaced samples (aiming for ~16-24 waypoints total)
-    const targetSteps = Math.min(24, Math.max(12, Math.floor(pts.length / 20)));
-    const stepSize = Math.max(1, Math.floor(pts.length / targetSteps));
-    for (let i = stepSize; i < pts.length - 1; i += stepSize) {
-      candidateIndices.add(i);
-    }
-
-    const sortedIndices = Array.from(candidateIndices).sort((a, b) => a - b);
-    const waypoints = [];
-
-    // Helper to calculate wall height at any draw point
-    const heightAtPoint = (p) => {
-      if (!p || p.origIdx == null || !heightSeries) return baseH;
-      const rawVal = heightSeries[p.origIdx];
-      return baseH + Math.max(0, seriesValue(rawVal)) * extScale;
-    };
-
-    const lookAheadSteps = Math.max(
-      3,
-      Math.min(10, Math.floor(pts.length / 30)),
-    );
-
-    for (let i = 0; i < sortedIndices.length; i++) {
-      const idx = sortedIndices[i];
-      const p = pts[idx];
-      const bearingDeg = this._trackBearingAt(pts, idx, lookAheadSteps);
-
-      // GSR arousal height at this point
-      const gsrHeight = heightAtPoint(p);
-
-      // Check if this waypoint is at or near a peak or hotspot
-      const isPeak = (this.currentPeaks || []).some((pk) => {
-        if (!pk) return false;
-        if (pk.index === p.origIdx) return true;
-        if (
-          this.peakLatency > 0 &&
-          this.currentAnalyzer &&
-          typeof this.currentAnalyzer.resolveLatencyIndex === 'function'
-        ) {
-          return (
-            this.currentAnalyzer.resolveLatencyIndex(pk, this.peakLatency) ===
-            p.origIdx
-          );
-        }
-        return false;
-      });
-
-      // Find local max height in the upcoming track window (+16 points ahead)
-      const windowStart = Math.max(0, idx - 4);
-      const windowEnd = Math.min(pts.length - 1, idx + 16);
-      let localMaxHeight = gsrHeight;
-      for (let w = windowStart; w <= windowEnd; w++) {
-        const hW = heightAtPoint(pts[w]);
-        if (hW > localMaxHeight) localMaxHeight = hW;
-      }
-
-      // Effective height for camera framing:
-      // Includes local track wall height, headroom for upcoming peaks,
-      // and spire/star/label annotation heights (spire: +3m, hotspot: +11m, label: +15m)
-      const annotationHeadroom = isPeak ? 15.0 : 0.0;
-      const effectiveHeight = Math.max(
-        gsrHeight + annotationHeadroom,
-        localMaxHeight * 0.9 + annotationHeadroom * 0.5,
-        16.0,
-      );
-
-      waypoints.push({
-        index: i,
-        drawPointIndex: idx,
-        origIdx: p.origIdx,
-        lat: p.lat,
-        lon: p.lon,
-        time: p.time,
-        bearingDeg,
-        gsrHeight,
-        effectiveHeight,
-        isPeak,
-      });
-    }
-
-    return waypoints;
-  }
-
-  /**
-   * Start the automated sequential tour.
-   */
+  /** Start the replay from the beginning of the walk. */
   startTour() {
-    if (
-      !this.viewer ||
-      !this.currentDrawPoints ||
-      this.currentDrawPoints.length < 2
-    )
-      return;
+    const pts = this.currentDrawPoints;
+    if (!this.viewer || !pts || pts.length < 2) return;
+    if (this._isTouring) this.stopTour();
     if (this._isOrbiting) this.stopOrbit();
     this.releaseFollowScrub();
 
-    this._tourWaypoints = this._computeTourWaypoints();
-    if (this._tourWaypoints.length === 0) return;
-
     this._isTouring = true;
     this._isPaused = false;
-    this._tourStepIndex = 0;
-    this._tourLastSide = null;
-    this._wakeRenderLoop();
+    this._tourMode = 'replay';
+    this._replay = {
+      time: pts[0].time,
+      lastTickMs: null,
+      // Last look-at target, so the user's zoom can be read back as the
+      // camera's distance to it (see _updateReplayCamera).
+      target: null,
+      range: CHASE_RANGE_M,
+      pitch: (CHASE_PITCH_DEG * Math.PI) / 180,
+      heading: null,
+      aimHeight: null,
+      // Segments [0, shown) of _replaySegs currently have show=true on
+      // `wallRef`; reset when a rebuild swaps the wall primitive.
+      shown: 0,
+      wallRef: null,
+      headSeg: null,
+      headFrac: 0,
+    };
 
-    this._executeTourStep(0);
+    // Rebuild in replay mode: per-segment hidden wall, no ground path, and
+    // markers hidden until reached (_rebuildLayers applies the reveal).
+    this._rebuildLayers();
+    this._addReplayHead();
+
+    // Continuous rendering for the whole replay, same as the orbit.
+    if (this._idleRenderTimer) {
+      clearTimeout(this._idleRenderTimer);
+      this._idleRenderTimer = null;
+    }
+    this.viewer.scene.requestRenderMode = false;
+    const now = () =>
+      typeof performance !== 'undefined' ? performance.now() : Date.now();
+    this._replayRemoveTick = this.viewer.clock.onTick.addEventListener(() =>
+      this._replayTick(now()),
+    );
+  }
+
+  /** Stop whichever tour is running. */
+  stopTour() {
+    if (this._tourMode === 'hotspot') this._stopHotspotTour();
+    else this._stopReplay();
+  }
+
+  /** Stop the replay and put the normal full track back. */
+  _stopReplay() {
+    const wasTouring = this._isTouring;
+    this._isTouring = false;
+    this._isPaused = false;
+    this._tourMode = null;
+    if (!this._replay) {
+      if (wasTouring && this._replayCallback) this._replayCallback(null);
+      return;
+    }
+    this._replay = null;
+    this._replaySegs = [];
+    if (this._replayRemoveTick) {
+      this._replayRemoveTick();
+      this._replayRemoveTick = null;
+    }
+    if (this.viewer) {
+      if (this._replayHeadEntity) {
+        this.viewer.entities.remove(this._replayHeadEntity);
+      }
+      this.viewer.camera.lookAtTransform(Cesium.Matrix4.IDENTITY);
+      this.viewer.scene.requestRenderMode = this.requestRenderMode;
+      if (this.currentAnalyzer && this.currentDrawPoints?.length >= 2) {
+        this._rebuildLayers();
+      }
+    }
+    this._replayHeadEntity = null;
+    if (this._replayCallback) this._replayCallback(null);
   }
 
   /**
-   * Pause the running tour: freezes the camera exactly where it is right now
-   * (cancelling any in-flight camera.flyTo, or clearing a pending dwell
-   * timer) without losing tour progress. resumeTour() continues from the
-   * same waypoint. No-op unless a tour is actually running and not already
-   * paused. The Space-bar shortcut's pause half (see toggleTourPause).
+   * Pause the running tour. The replay just freezes its clock (the camera
+   * stays free to look around); the hotspot tour freezes its flight.
    */
   pauseTour() {
     if (!this._isTouring || this._isPaused) return;
-    this._isPaused = true;
-    if (this._tourStepTimeout) {
-      clearTimeout(this._tourStepTimeout);
-      this._tourStepTimeout = null;
-    }
-    this._cancelTourFlight();
+    if (this._tourMode === 'hotspot') this._pauseHotspotTour();
+    else this._isPaused = true;
   }
 
-  /**
-   * Resume a paused tour from the same waypoint it was frozen at — re-flies
-   * from wherever the camera currently sits onto that waypoint's shot and
-   * re-enters the normal dwell/advance chain from there. No-op unless the
-   * tour is actually paused. The Space-bar shortcut's resume half.
-   */
   resumeTour() {
     if (!this._isTouring || !this._isPaused) return;
-    this._isPaused = false;
-    this._executeTourStep(this._tourStepIndex);
+    if (this._tourMode === 'hotspot') this._resumeHotspotTour();
+    else this._isPaused = false;
   }
 
   /** Toggle pause/resume — the Space-bar shortcut's entry point. */
@@ -367,381 +190,338 @@ export class GSRGlobeTour extends GSRGlobeNavigation {
   }
 
   /**
-   * Jump straight to the next/previous tour waypoint (Left/Right-arrow
-   * shortcuts), cancelling whatever the camera is currently doing and
-   * implicitly un-pausing. No wraparound — a step past either end is simply
-   * a no-op, so repeatedly pressing the arrow at the first/last hotspot just
-   * stays put rather than looping.
+   * Left/Right-arrow shortcuts, implicitly un-pausing. The hotspot tour hops
+   * to its next/previous waypoint; the replay jumps its clock to just before
+   * the next/previous hotspot — past the last one Next is a no-op, before the
+   * first Previous goes back to the start of the walk.
    */
   tourNext() {
-    this._jumpToTourStep(this._tourStepIndex + 1);
+    if (this._tourMode === 'hotspot') return this._hotspotTourNext();
+    const r = this._replay;
+    if (!this._isTouring || !r) return;
+    const t = this._replayHotspotTimes().find((h) => h > r.time + 0.5);
+    if (t !== undefined) this._seekReplay(t);
   }
+
   tourPrevious() {
-    this._jumpToTourStep(this._tourStepIndex - 1);
-  }
-
-  _jumpToTourStep(stepIdx) {
-    if (!this._isTouring) return;
-    if (stepIdx < 0 || stepIdx >= this._tourWaypoints.length) return;
-    if (this._tourStepTimeout) {
-      clearTimeout(this._tourStepTimeout);
-      this._tourStepTimeout = null;
-    }
-    this._isPaused = false;
-    this._cancelTourFlight();
-    this._executeTourStep(stepIdx);
-  }
-
-  /**
-   * Cancel whatever camera.flyTo the tour currently has in flight, without
-   * letting that flight's own `cancel` callback (see _executeTourStep) treat
-   * the interruption as an externally-stopped tour — pause/jump navigation
-   * cancels flights on purpose and wants tour state to survive it. A no-op
-   * (nothing in flight, or no flight to cancel) is harmless: Cesium simply
-   * ignores cancelFlight() when idle.
-   */
-  _cancelTourFlight() {
-    if (typeof this.viewer?.camera?.cancelFlight !== 'function') return;
-    this._tourManualInterrupt = true;
-    this.viewer.camera.cancelFlight();
-    this._tourManualInterrupt = false;
-  }
-
-  /**
-   * `targetRad`'s angle, shifted by a multiple of 2π so it's the numerically
-   * closest representation to `fromRad`. Used so a computed camera heading
-   * always turns the short way — clockwise or anticlockwise, whichever is
-   * nearer — from wherever the camera currently is, instead of the raw
-   * degree arithmetic happening to wrap the long way around.
-   *
-   * `fromRad` MUST be the camera's actual live `viewer.camera.heading`, read
-   * fresh each call — never a self-tracked "last heading" carried forward
-   * across steps. Cesium's own flyTo interpolator (CameraFlightPath) adjusts
-   * its *live* current heading by at most one ±2π shift to land within π of
-   * whatever heading we hand it; it does not correct for a target that's
-   * already many turns away from reality. A carried-forward reference is
-   * only ever kept within π of the *previous* step's reference, so over many
-   * tour stops it can drift several full turns from Cesium's live heading —
-   * and once that drifted number is passed to flyTo, Cesium's single-shift
-   * correction can't bring the two close enough, and the camera visibly
-   * spins through multiple full turns to get there. Anchoring on the live
-   * heading every time keeps the number we hand to flyTo always within one
-   * turn of reality, matching what Cesium itself assumes.
-   */
-  _shortestHeadingTo(targetRad, fromRad) {
-    if (typeof fromRad !== 'number' || !isFinite(fromRad)) return targetRad;
-    const twoPi = Math.PI * 2;
-    let delta = (targetRad - fromRad) % twoPi;
-    if (delta > Math.PI) delta -= twoPi;
-    else if (delta < -Math.PI) delta += twoPi;
-    return fromRad + delta;
-  }
-
-  /**
-   * 3D-aware obstruction count for a shot from (camLat, camLon, camAlt) at
-   * (targetLat, targetLon): how many OTHER drawn track samples actually stick
-   * up into that sightline, height included. On a looped or doubled-back
-   * walk, one side of a hotspot often looks straight through another leg of
-   * the same track to reach it — but only if that other leg's own wall is
-   * tall enough to break the line of sight; a low stretch nearby doesn't
-   * block a shot angled down from above it. `camAlt` is the camera's height
-   * above LOCAL ground (this method works in ground-relative heights
-   * throughout, matching how gsrHeight/effectiveHeight are computed, and
-   * ignores absolute terrain elevation — a fair approximation at hotspot
-   * shot range). A point counts as blocking as soon as its own wall height
-   * pokes above the sightline from the camera down to the target's BASE
-   * (ground level) — the most sensitive of the target's height range, so
-   * something tall enough to hide the foot of the hotspot's wall counts even
-   * if its spire would still peek out above it; the aim is to keep the
-   * *whole* wall height clear, not just its top or its base.
-   * @private
-   */
-  _sightlineObstructionCount(
-    pts,
-    targetDrawIdx,
-    camLat,
-    camLon,
-    camAlt,
-    targetLat,
-    targetLon,
-    heightSeries,
-    baseH,
-    extScale,
-  ) {
-    const dLat = targetLat - camLat;
-    const dLon = targetLon - camLon;
-    const lenSq = dLat * dLat + dLon * dLon;
-    if (!(lenSq > 0) || !pts) return 0;
-
-    const EXCLUDE_SAMPLES = 8;
-    const NEAR_M = 12.0;
-    const HEIGHT_MARGIN_M = 1.0;
-    let count = 0;
-    for (let i = 0; i < pts.length; i++) {
-      if (Math.abs(i - targetDrawIdx) <= EXCLUDE_SAMPLES) continue;
-      const p = pts[i];
-      const pLat = p.lat - camLat;
-      const pLon = p.lon - camLon;
-      // Project P onto the camera->target ground line; only points strictly
-      // between the two (short of the target, in front of the camera) can occlude.
-      const t = (pLat * dLat + pLon * dLon) / lenSq;
-      if (t <= 0.05 || t >= 0.95) continue;
-      const offLat = p.lat - (camLat + dLat * t);
-      const offLon = p.lon - (camLon + dLon * t);
-      // Perpendicular distance in metres (small-angle approx — fine at this scale).
-      const distM = Math.sqrt(offLat * offLat + offLon * offLon) * 111320.0;
-      if (distM >= NEAR_M) continue;
-
-      // This point's own wall height, ground-relative (same formula as the
-      // wall/height-metric renderer).
-      const rawVal =
-        heightSeries && p.origIdx != null ? heightSeries[p.origIdx] : null;
-      const pointHeight = baseH + Math.max(0, seriesValue(rawVal)) * extScale;
-
-      // Sightline altitude at this point's position, from the camera down to
-      // the target's ground level (t=0 -> camAlt, t=1 -> 0).
-      const sightAlt = camAlt * (1 - t);
-      if (pointHeight > sightAlt + HEIGHT_MARGIN_M) count++;
-    }
-    return count;
-  }
-
-  /**
-   * Pick which side of the track to shoot a hotspot from — roughly
-   * SIDE_ANGLE_DEG off the direction of travel, between a flat 90° profile
-   * shot and a straight chase-cam behind (180°). Either side is an equally
-   * valid angle in principle, so both are scored and the cheaper one wins:
-   * turn angle from wherever the camera just was (in radians) plus a
-   * per-point penalty for any OTHER leg of the track whose own wall height
-   * actually pokes up into that side's sightline (height-aware — a low
-   * stretch nearby doesn't block a shot angled down from above it; see
-   * _sightlineObstructionCount), minus a stickiness bonus for whichever side
-   * the previous hotspot's shot used. Turning is weighted to dominate: a
-   * couple of borderline obstruction points shouldn't spin the camera
-   * around, but a genuinely blocked view (many points along the whole
-   * sightline, e.g. looking straight through a parallel leg of a loop)
-   * outweighs even a big turn. Without the stickiness bonus a near-tie in
-   * turn/obstruction cost could flip sides on consecutive hotspots for no
-   * real benefit — each flip is itself a ~2×SIDE_ANGLE_DEG turn (roughly the
-   * short way round, ~116°), which reads as the camera swinging/spinning
-   * rather than making the simpler move of just panning within the same
-   * side.
-   *
-   * Records the winning side onto `this._tourLastSide` for the next call's
-   * stickiness bonus, and returns
-   * `{ side, headingRad, camLat, camLon, obstructions, turnCost, cost }`.
-   */
-  _chooseTourShot(wp, backDistMeters, altitudeOffset) {
-    // Always the camera's REAL, live heading (Cesium keeps this canonical,
-    // never drifting) — see _shortestHeadingTo's doc for why this must not
-    // be a self-tracked value carried forward from a previous step.
-    const camHeading = this.viewer.camera?.heading;
-    const prevHeadingRad = typeof camHeading === 'number' ? camHeading : 0;
-    const latRad = (wp.lat * Math.PI) / 180.0;
-    const metric = this.activeColoringMetric;
-    const heightMetric = HEIGHT_CAPABLE_METRICS?.has(metric)
-      ? metric
-      : this.heightMetric || 'phasic';
-    const heightSeries = this._getMetricSeries(
-      this.currentAnalyzer,
-      heightMetric,
+    if (this._tourMode === 'hotspot') return this._hotspotTourPrevious();
+    const r = this._replay;
+    if (!this._isTouring || !r) return;
+    const earlier = this._replayHotspotTimes().filter((h) => h < r.time - 1.0);
+    this._seekReplay(
+      earlier.length
+        ? earlier[earlier.length - 1]
+        : this.currentDrawPoints[0].time,
     );
-    const extScale = this.extrusionScale || 8.0;
-    const baseH = this.baseHeight || 2.0;
+  }
 
-    const candidates = [1, -1].map((side) => {
-      const offsetBearingRad =
-        ((wp.bearingDeg + side * SIDE_ANGLE_DEG) * Math.PI) / 180.0;
-      const headingRad = this._shortestHeadingTo(
-        offsetBearingRad + Math.PI, // look back across the track at the hotspot
-        prevHeadingRad,
-      );
-      const camLat =
-        wp.lat + (backDistMeters * Math.cos(offsetBearingRad)) / 111320.0;
-      const camLon =
-        wp.lon +
-        (backDistMeters * Math.sin(offsetBearingRad)) /
-          (111320.0 * Math.max(0.1, Math.cos(latRad)));
-      const obstructions = this._sightlineObstructionCount(
-        this.currentDrawPoints,
-        wp.drawPointIndex,
-        camLat,
-        camLon,
-        altitudeOffset,
-        wp.lat,
-        wp.lon,
-        heightSeries,
-        baseH,
-        extScale,
-      );
-      // headingRad is already expressed as the closest representation to
-      // prevHeadingRad, so the raw difference IS the turn angle.
-      const turnCost = Math.abs(headingRad - prevHeadingRad);
-      let cost = turnCost + OBSTRUCTION_COST_RAD * obstructions;
-      if (this._tourLastSide === side) cost -= SIDE_STICKINESS_RAD;
-      return { side, headingRad, camLat, camLon, obstructions, turnCost, cost };
-    });
-
-    const chosen =
-      candidates[0].cost <= candidates[1].cost ? candidates[0] : candidates[1];
-    this._tourLastSide = chosen.side;
-    return chosen;
+  _seekReplay(time) {
+    this._replay.time = time;
+    this._isPaused = false;
+    this._applyReplayReveal();
   }
 
   /**
-   * Execute a single tour step and schedule the next.
+   * Hotspot jump targets (walk seconds), ascending: each curated, non-excluded
+   * hotspot's latency-shifted time, less HOTSPOT_LEAD_S. Falls back to plain
+   * peaks when the walk has no hotspots.
    */
-  _executeTourStep(stepIdx) {
-    if (!this._isTouring || !this.viewer) return;
-    if (stepIdx >= this._tourWaypoints.length) {
-      // Tour reached the end - perform a smooth final overview flight and stop
-      this.flyToTrack(false);
+  _replayHotspotTimes() {
+    const a = this.currentAnalyzer;
+    const events = a?.memorableEvents?.length
+      ? a.memorableEvents
+      : this.currentPeaks || [];
+    const start = this.currentDrawPoints[0].time;
+    return events
+      .filter((pk) => pk && !pk.excluded && typeof pk.time === 'number')
+      .map((pk) =>
+        Math.max(start, pk.time + (this.peakLatency || 0) - HOTSPOT_LEAD_S),
+      )
+      .sort((x, y) => x - y);
+  }
+
+  /**
+   * One replay frame: advance the clock (unless paused or the wall is still
+   * compiling), skip time gaps, reveal, move the camera, report progress.
+   */
+  _replayTick(nowMs) {
+    const r = this._replay;
+    const pts = this.currentDrawPoints;
+    if (!r || !this._isTouring || !this.viewer || !pts || pts.length < 2)
+      return;
+    // Clamp so a backgrounded tab doesn't leap the replay forward on return.
+    const dt =
+      r.lastTickMs == null ? 0 : Math.min(0.25, (nowMs - r.lastTickMs) / 1000);
+    r.lastTickMs = nowMs;
+
+    const wallReady = !this.wallPrimitive || this.wallPrimitive.ready;
+    if (!this._isPaused && wallReady) {
+      r.time += dt * REPLAY_BASE_SPEED * (this._autoCameraSpeed || 1.0);
+      r.time = this._skipReplayGap(r.time);
+    }
+
+    const endTime = pts[pts.length - 1].time;
+    if (r.time >= endTime) {
       this.stopTour();
+      this.flyToTrack(false);
       return;
     }
 
-    this._tourStepIndex = stepIdx;
-    const wp = this._tourWaypoints[stepIdx];
+    this._applyReplayReveal();
+    const head = this._replayHeadPoint(r.time);
+    if (!this._isPaused) this._updateReplayCamera(head, dt);
+    if (this._replayCallback) this._replayCallback(head);
+  }
 
-    // Flight duration scales with the great-circle hop from the previous
-    // waypoint — a short jump between nearby hotspots cuts quickly, a long
-    // leg across the walk gets a slower, more sweeping glide.
-    let flightDuration;
-    if (stepIdx === 0) {
-      flightDuration = 2.6;
-    } else {
-      const prev = this._tourWaypoints[stepIdx - 1];
-      const hopMeters = GeoUtils.haversineMeters(
-        prev.lat,
-        prev.lon,
-        wp.lat,
-        wp.lon,
-      );
-      flightDuration = Math.max(2.2, Math.min(6.5, 2.0 + hopMeters / 220));
+  /** Index of the last drawn point at or before `time` (binary search). */
+  _drawIndexAtTime(time) {
+    const pts = this.currentDrawPoints;
+    let lo = 0;
+    let hi = pts.length - 1;
+    if (time <= pts[0].time) return 0;
+    if (time >= pts[hi].time) return hi;
+    while (hi - lo > 1) {
+      const mid = (lo + hi) >> 1;
+      if (pts[mid].time <= time) lo = mid;
+      else hi = mid;
     }
+    return lo;
+  }
 
-    // Explicitly pass gsrHeight so the blue scrub dot is elevated to sit on top of the track
-    this.setScrubPosition(wp.lat, wp.lon, wp.gsrHeight);
-
-    // Pitch: angled down (-30°) to read the ground path and the hotspot together
-    const pitchDeg = -30.0;
-    const pitchRad = (pitchDeg * Math.PI) / 180.0;
-
-    // Altitude & distance: dynamically adapt to the effective track height & annotations
-    const effH = wp.effectiveHeight || wp.gsrHeight || 16.0;
-    const backDistMeters = Math.max(90.0, effH * 2.2 + 70.0);
-
-    // Target look-at height centred on the vertical mid-region of the track/spires
-    const targetLookAtHeight = effH * 0.45;
-    const altitudeOffset =
-      targetLookAtHeight + backDistMeters * Math.tan(Math.abs(pitchRad));
-
-    // Cinematic framing: park the camera to the side of the track (see
-    // _chooseTourShot for the turn/obstruction/stickiness cost model behind
-    // which side gets picked) — angled down onto the hotspot so both the
-    // track's approach/departure and exactly where the hotspot sits on it
-    // read clearly.
-    const chosen = this._chooseTourShot(wp, backDistMeters, altitudeOffset);
-    const { camLat, camLon, headingRad: lookHeadingRad, turnCost } = chosen;
-
-    // Floor the flight duration by how far the camera actually has to turn —
-    // the hop-distance estimate above knows nothing about heading, so two
-    // hotspots that sit close together but need a big turn between them
-    // (e.g. a genuine side-swap) would otherwise get a very short flight and
-    // read as a rapid spin instead of a deliberate pan.
-    flightDuration = Math.max(
-      flightDuration,
-      turnCost / MAX_TURN_RATE_RAD_PER_SEC,
-    );
-    // Up/Down speed shortcuts (globe3d_view.mjs) — applied last so they scale
-    // the whole flight uniformly, turn-duration floor included. Only takes
-    // effect from this hop onward; Cesium can't retarget an in-flight
-    // duration, so a speed change mid-flight lands on the NEXT waypoint.
-    flightDuration = flightDuration / (this._autoCameraSpeed || 1.0);
-
-    // Notify listeners (scrub sync / GSR graph pan, in sync with the flight) —
-    // after flightDuration's final value so the graph tween runs the same
-    // length as the camera flight even when the turn-duration floor above
-    // stretched it.
-    if (this._tourCallback) {
-      this._tourCallback(
-        stepIdx,
-        this._tourWaypoints.length,
-        wp,
-        flightDuration,
-      );
+  /**
+   * Smoothed ground aim point for the chase camera at replay `time`: the
+   * route averaged over a centred, triangular-weighted window (see
+   * AIM_WINDOW_REAL_S).
+   */
+  _replayAimPoint(time) {
+    const speed = REPLAY_BASE_SPEED * (this._autoCameraSpeed || 1.0);
+    const half = Math.max(AIM_WINDOW_MIN_S, AIM_WINDOW_REAL_S * speed);
+    let lat = 0;
+    let lon = 0;
+    let wSum = 0;
+    for (let k = -AIM_WINDOW_SAMPLES; k <= AIM_WINDOW_SAMPLES; k++) {
+      const f = k / (AIM_WINDOW_SAMPLES + 1);
+      const w = 1 - Math.abs(f);
+      const p = this._replayHeadPoint(time + f * half);
+      lat += w * p.lat;
+      lon += w * p.lon;
+      wSum += w;
     }
+    return { lat: lat / wSum, lon: lon / wSum };
+  }
 
-    let terrainAlt = 0;
-    try {
-      if (
-        this.viewer.scene?.globe &&
-        typeof this.viewer.scene.globe.getHeight === 'function'
-      ) {
-        const cartoCam = Cesium.Cartographic.fromDegrees(camLon, camLat);
-        const cartoWp = Cesium.Cartographic.fromDegrees(wp.lon, wp.lat);
-        const hCam = this.viewer.scene.globe.getHeight(cartoCam);
-        const hWp = this.viewer.scene.globe.getHeight(cartoWp);
-        const validHCam =
-          typeof hCam === 'number' && isFinite(hCam) ? Math.max(0, hCam) : 0;
-        const validHWp =
-          typeof hWp === 'number' && isFinite(hWp) ? Math.max(0, hWp) : 0;
-        terrainAlt = Math.max(validHCam, validHWp);
+  /** Jump over a >GAP_SKIP_S pause/lost-fix gap to the next recorded point. */
+  _skipReplayGap(time) {
+    const pts = this.currentDrawPoints;
+    const i = this._drawIndexAtTime(time);
+    const next = pts[i + 1];
+    if (next && next.time - pts[i].time > GAP_SKIP_S) return next.time;
+    return time;
+  }
+
+  /**
+   * Full-resolution replay head at `time`: position interpolated between the
+   * two surrounding drawn points, plus the origIdx of the one at/before it
+   * (for the graph cursor).
+   */
+  _replayHeadPoint(time) {
+    const pts = this.currentDrawPoints;
+    const i = this._drawIndexAtTime(time);
+    const p = pts[i];
+    const q = pts[i + 1];
+    let f = 0;
+    if (q && q.time > p.time && q.time - p.time <= GAP_SKIP_S) {
+      f = Math.min(1, Math.max(0, (time - p.time) / (q.time - p.time)));
+    }
+    return {
+      time,
+      lat: q ? p.lat + (q.lat - p.lat) * f : p.lat,
+      lon: q ? p.lon + (q.lon - p.lon) * f : p.lon,
+      origIdx: p.origIdx,
+      drawIdx: i,
+    };
+  }
+
+  /**
+   * Bring the wall segments' and markers' visibility in line with the replay
+   * clock. Walks `shown` forwards or backwards from where it was, so a normal
+   * frame touches only the segment(s) just passed, and a seek backwards hides
+   * what's now in the future.
+   */
+  _applyReplayReveal() {
+    const r = this._replay;
+    if (!r) return;
+    const t = r.time;
+    const segs = this._replaySegs || [];
+    const prim = this.wallPrimitive;
+    if (prim !== r.wallRef) {
+      r.wallRef = prim;
+      r.shown = 0;
+    }
+    if (
+      prim?.ready &&
+      typeof prim.getGeometryInstanceAttributes === 'function'
+    ) {
+      const setShow = (seg, v) => {
+        const attrs = prim.getGeometryInstanceAttributes(seg.id);
+        if (attrs) attrs.show = Cesium.ShowGeometryInstanceAttribute.toValue(v);
+      };
+      while (r.shown < segs.length && segs[r.shown].t1 <= t) {
+        setShow(segs[r.shown], true);
+        r.shown++;
       }
-    } catch (_e) {}
+      while (r.shown > 0 && segs[r.shown - 1].t1 > t) {
+        r.shown--;
+        setShow(segs[r.shown], false);
+      }
+    }
 
-    const targetAltitude = terrainAlt + altitudeOffset;
-    const destination = Cesium.Cartesian3.fromDegrees(
-      camLon,
-      camLat,
-      targetAltitude,
-    );
+    // The head segment: the first one not yet fully passed, if the clock has
+    // actually entered it (it may be sitting in a gap before it).
+    let lo = 0;
+    let hi = segs.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (segs[mid].t1 <= t) lo = mid + 1;
+      else hi = mid;
+    }
+    const seg = segs[lo];
+    if (seg && seg.t0 <= t && seg.t1 > seg.t0) {
+      r.headSeg = seg;
+      r.headFrac = (t - seg.t0) / (seg.t1 - seg.t0);
+    } else {
+      r.headSeg = null;
+      r.headFrac = 0;
+    }
 
-    this.viewer.camera.flyTo({
-      destination: destination,
-      orientation: {
-        heading: lookHeadingRad,
-        pitch: pitchRad,
-        roll: 0.0,
-      },
-      duration: flightDuration,
-      complete: () => {
-        if (!this._isTouring) return;
-        // Pause at each waypoint (longer pause on hotspots so user can
-        // observe), scaled by the same speed multiplier as the flight.
-        const pauseMs =
-          (wp.isPeak ? 2800 : 1500) / (this._autoCameraSpeed || 1.0);
-        this._tourStepTimeout = setTimeout(() => {
-          if (this._isTouring) {
-            this._executeTourStep(stepIdx + 1);
-          }
-        }, pauseMs);
-      },
-      cancel: () => {
-        // Pause/jump navigation cancels flights on purpose (see
-        // _cancelTourFlight) — only an externally-interrupted flight (e.g.
-        // the user grabs the camera) counts as the tour being stopped.
-        if (this._tourManualInterrupt) return;
-        if (this._isTouring) {
-          this.stopTour();
-        }
+    this._applyReplayMarkers(t);
+  }
+
+  /**
+   * Show a peak circle / label / latency connector / hotspot star only once
+   * the replay reaches its (latency-shifted) time. Every marker carries its
+   * analyzer.peaks index — directly or in its pick `id` — see
+   * globe3d/peaks.mjs.
+   */
+  _applyReplayMarkers(t) {
+    const peaks = this.currentAnalyzer?.peaks || [];
+    const latency = this.peakLatency || 0;
+    const apply = (o) => {
+      if (!o) return;
+      const idx = o._biomapPeakIndex ?? o.id?._biomapPeakIndex;
+      const pk = peaks[idx];
+      if (!pk || typeof pk.time !== 'number') return;
+      const v = pk.time + latency <= t;
+      if (o.show !== v) o.show = v;
+    };
+    (this.peakEntities || []).forEach(apply);
+    (this.hotspotEntities || []).forEach(apply);
+    const labels = this._peakLabels;
+    if (labels && typeof labels.get === 'function') {
+      for (let i = 0; i < labels.length; i++) apply(labels.get(i));
+    }
+  }
+
+  /**
+   * The growing tip of the wall: one dynamic two-point wall entity spanning
+   * the current head segment from its start to the clock position, in that
+   * segment's colour. Kept outside trackEntities so a mid-replay rebuild
+   * doesn't remove it.
+   */
+  _addReplayHead() {
+    if (!this.viewer?.entities) return;
+    const positions = () => {
+      const r = this._replay;
+      const s = r?.headSeg;
+      if (!s || r.headFrac <= 0) return undefined;
+      const lat = s.a.lat + (s.b.lat - s.a.lat) * r.headFrac;
+      const lon = s.a.lon + (s.b.lon - s.a.lon) * r.headFrac;
+      // Too short to form a wall — WallGeometry drops coincident points.
+      if (GeoUtils.haversineMeters(s.a.lat, s.a.lon, lat, lon) < 0.3)
+        return undefined;
+      return Cesium.Cartesian3.fromDegreesArray([s.a.lon, s.a.lat, lon, lat]);
+    };
+    const heights = () => {
+      const r = this._replay;
+      const s = r?.headSeg;
+      if (!s) return [0, 0];
+      return [s.h1, s.h1 + (s.h2 - s.h1) * r.headFrac];
+    };
+    const color = () =>
+      this._replay?.headSeg?.color || Cesium.Color.TRANSPARENT;
+    this._replayHeadEntity = this.viewer.entities.add({
+      name: 'Biomap Replay Head',
+      wall: {
+        positions: new Cesium.CallbackProperty(positions, false),
+        maximumHeights: new Cesium.CallbackProperty(heights, false),
+        minimumHeights: [0, 0],
+        material: new Cesium.ColorMaterialProperty(
+          new Cesium.CallbackProperty(color, false),
+        ),
       },
     });
   }
 
   /**
-   * Stop tour playback and clear timers.
+   * Chase camera: look at the replay head from behind and to one side
+   * (CHASE_SIDE_DEG), heading eased round as the walk turns. The range and pitch are read back from the
+   * camera each frame, so a wheel-zoom or tilt by the user sticks; a heading
+   * drag is gently steered back.
    */
-  stopTour() {
-    if (this._tourStepTimeout) {
-      clearTimeout(this._tourStepTimeout);
-      this._tourStepTimeout = null;
+  _updateReplayCamera(head, dtSec) {
+    const r = this._replay;
+    const camera = this.viewer.camera;
+    const pts = this.currentDrawPoints;
+
+    // Aim at the wall's mid-height so its top and base both stay in frame,
+    // eased (AIM_HEIGHT_EASE_PER_S) so the camera doesn't bounce with it.
+    const aim = this._getPointHeight(head.origIdx) * 0.5;
+    if (r.aimHeight == null) r.aimHeight = aim;
+    else
+      r.aimHeight +=
+        (aim - r.aimHeight) * (1 - Math.exp(-AIM_HEIGHT_EASE_PER_S * dtSec));
+    const ground = this._replayAimPoint(head.time);
+    const target = Cesium.Cartesian3.fromDegrees(
+      ground.lon,
+      ground.lat,
+      r.aimHeight,
+    );
+
+    if (r.target) {
+      const d = Cesium.Cartesian3.distance(camera.positionWC, r.target);
+      if (typeof d === 'number' && isFinite(d) && d > 20) r.range = d;
+      if (typeof camera.pitch === 'number' && isFinite(camera.pitch)) {
+        r.pitch = Math.min(
+          Cesium.Math.toRadians(-10),
+          Math.max(Cesium.Math.toRadians(-89), camera.pitch),
+        );
+      }
+      if (typeof camera.heading === 'number' && isFinite(camera.heading))
+        r.heading = camera.heading;
     }
-    const wasTouring = this._isTouring;
-    this._isTouring = false;
-    this._isPaused = false;
-    if (wasTouring && this._tourCallback) {
-      this._tourCallback(null, 0, null);
+
+    const back = pts[this._drawIndexAtTime(head.time - BEARING_SPAN_S)];
+    const ahead = pts[this._drawIndexAtTime(head.time + BEARING_SPAN_S)];
+    const want =
+      back && ahead && (back.lat !== ahead.lat || back.lon !== ahead.lon)
+        ? ((GeoUtils.bearingDeg(back.lat, back.lon, ahead.lat, ahead.lon) +
+            CHASE_SIDE_DEG) *
+            Math.PI) /
+          180
+        : null;
+    if (r.heading == null) {
+      r.heading = want ?? 0;
+    } else if (want != null) {
+      let delta = (want - r.heading) % (Math.PI * 2);
+      if (delta > Math.PI) delta -= Math.PI * 2;
+      else if (delta < -Math.PI) delta += Math.PI * 2;
+      r.heading += delta * (1 - Math.exp(-HEADING_EASE_PER_S * dtSec));
     }
+
+    camera.lookAt(
+      target,
+      new Cesium.HeadingPitchRange(r.heading, r.pitch, r.range),
+    );
+    r.target = target;
   }
 }

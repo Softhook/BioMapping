@@ -88,6 +88,7 @@ import './map/globe3d/rf.mjs';
 import './map/globe3d/peaks.mjs';
 import './map/globe3d/toggles.mjs';
 import './map/globe3d/navigation.mjs';
+import './map/globe3d/hotspot_tour.mjs';
 import './map/globe3d/tour.mjs';
 import './map/globe3d.mjs';
 import './map/globe3d_view.mjs';

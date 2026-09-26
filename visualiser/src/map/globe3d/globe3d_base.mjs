@@ -150,6 +150,7 @@ export class GSRGlobeBase {
   clearAll() {}
   stopOrbit() {}
   stopTour() {}
+  _applyReplayReveal() {}
 
   /**
    * @param {string} containerId  DOM id of the element to mount the Cesium viewer in.
@@ -308,23 +309,37 @@ export class GSRGlobeBase {
     // followScrub() / releaseFollowScrub()).
     this._followingScrub = false;
 
-    // Automated Track Tour state
+    // Tour state, shared by the replay tour (globe3d/tour.mjs) and the
+    // hotspot tour (globe3d/hotspot_tour.mjs); `_tourMode` says which one is
+    // running ('replay' | 'hotspot' | null).
     this._isTouring = false;
     this._isPaused = false;
+    this._tourMode = null;
+
+    // Replay tour. `_replay` is non-null only while the replay runs — the wall
+    // builder and _rebuildLayers key off it.
+    this._replay = null;
+    this._replaySegs = [];
+    this._replayHeadEntity = null;
+    this._replayRemoveTick = null;
+    this._replayCallback = null;
+
+    // Hotspot tour.
     this._tourStepTimeout = null;
     this._tourStepIndex = 0;
     this._tourWaypoints = [];
-    this._tourCallback = null;
+    this._hotspotTourCallback = null;
     // Set true only for the duration of a deliberate camera.cancelFlight()
-    // call (pause/jump navigation — see tour.mjs's _cancelTourFlight), so
-    // the interrupted flight's own `cancel` handler doesn't mistake it for
+    // call (pause/jump navigation — see hotspot_tour.mjs's _cancelTourFlight),
+    // so the interrupted flight's own `cancel` handler doesn't mistake it for
     // an externally-stopped tour.
     this._tourManualInterrupt = false;
 
-    // Shared speed multiplier for automated camera motion — both the tour's
-    // flight/dwell timing (tour.mjs) and the 360° orbit's rotation rate
+    // Shared speed multiplier for automated camera motion — the replay tour's
+    // clock speed (tour.mjs), the hotspot tour's flight/dwell timing
+    // (hotspot_tour.mjs) and the 360° orbit's rotation rate
     // (navigation.mjs) read this same value, adjusted by the Up/Down arrow
-    // shortcuts (globe3d_view.mjs). See adjustAutoCameraSpeed().
+    // shortcuts (globe3d_view.mjs). See setAutoCameraSpeed().
     this._autoCameraSpeed = 1.0;
 
     this.initViewer();
@@ -736,13 +751,19 @@ export class GSRGlobeBase {
    * (which owns the render loop itself). See constructor notes.
    */
   _wakeRenderLoop() {
-    if (!this.requestRenderMode || this._isOrbiting || !this.viewer) return;
+    if (
+      !this.requestRenderMode ||
+      this._isOrbiting ||
+      this._replay ||
+      !this.viewer
+    )
+      return;
     const scene = this.viewer.scene;
     if (scene.requestRenderMode) scene.requestRenderMode = false;
     if (this._idleRenderTimer) clearTimeout(this._idleRenderTimer);
     this._idleRenderTimer = setTimeout(() => {
       this._idleRenderTimer = null;
-      if (this.viewer && !this._isOrbiting)
+      if (this.viewer && !this._isOrbiting && !this._replay)
         this.viewer.scene.requestRenderMode = true;
     }, this._idleRenderMs);
   }
@@ -1266,13 +1287,20 @@ export class GSRGlobeBase {
   /**
    * Follow-cam: recentre the camera on the scrub cursor, keeping the user's
    * current heading, pitch and distance. Driven from a graph hover (see
-   * globe3d_view.js _onScrub). No-op while orbiting — the orbit owns the
-   * camera. lookAt() installs a reference-frame transform that stays until
+   * globe3d_view.js _onScrub). No-op while orbiting or replaying — those own
+   * the camera. lookAt() installs a reference-frame transform that stays until
    * releaseFollowScrub() clears it, so ordinary mouse-drag rotation is paused
    * for as long as the graph is being scrubbed.
    */
   followScrub(lat, lon) {
-    if (!this.viewer || this._isOrbiting || isNaN(lat) || isNaN(lon)) return;
+    if (
+      !this.viewer ||
+      this._isOrbiting ||
+      this._replay ||
+      isNaN(lat) ||
+      isNaN(lon)
+    )
+      return;
     const camera = this.viewer.camera;
     const target = Cesium.Cartesian3.fromDegrees(lon, lat);
     const range = Math.max(
@@ -1496,9 +1524,17 @@ export class GSRGlobeBase {
    *      matching the appearance, so createGeometry skips normal computation.
    * Colour comes from a bounded Cesium.Color LUT; positions are one
    * fromDegreesArray call.
+   *
+   * During the replay tour (`this._replay` set, see globe3d/tour.mjs) the
+   * merge in (2) is skipped: every segment is its own instance, built hidden,
+   * and recorded in `this._replaySegs` (time span, endpoints, heights, colour)
+   * so the tour can switch each one on as the replay clock passes it. The
+   * ground path is left out — only the walked-so-far wall is shown.
    */
   _render3DWallAndPath(analyzer, drawPoints) {
     if (drawPoints.length < 2) return;
+    const replay = Boolean(this._replay);
+    if (replay) this._replaySegs = [];
 
     const metric = this.activeColoringMetric;
     // Colour follows the (possibly host-driven) metric; height follows a fixed
@@ -1637,6 +1673,7 @@ export class GSRGlobeBase {
     let runPos = null; // Cartesian3[]
     let runMax = null; // number[] (max wall heights, per vertex)
     let runBucket = -1;
+    let runSeg = null; // replay only: the single segment this run holds
     let instanceSeq = 0;
 
     const flushRun = () => {
@@ -1648,6 +1685,14 @@ export class GSRGlobeBase {
         runPos = runMax = null;
         return;
       }
+      const id = `biomap-wall-${instanceSeq++}`;
+      const attributes = {
+        color: Cesium.ColorGeometryInstanceAttribute.fromColor(
+          colorOf(runBucket),
+        ),
+      };
+      if (replay)
+        attributes.show = new Cesium.ShowGeometryInstanceAttribute(false);
       try {
         wallInstances.push(
           new Cesium.GeometryInstance({
@@ -1660,14 +1705,12 @@ export class GSRGlobeBase {
               vertexFormat:
                 Cesium.PerInstanceColorAppearance.FLAT_VERTEX_FORMAT,
             }),
-            attributes: {
-              color: Cesium.ColorGeometryInstanceAttribute.fromColor(
-                colorOf(runBucket),
-              ),
-            },
-            id: `biomap-wall-${instanceSeq++}`,
+            attributes,
+            id,
           }),
         );
+        if (replay && runSeg)
+          this._replaySegs.push({ ...runSeg, id, color: colorOf(runBucket) });
       } catch (_err) {
         // Skip a degenerate run (coincident points) cleanly.
       }
@@ -1697,7 +1740,7 @@ export class GSRGlobeBase {
       groundPositions.push(positions[i]);
       if (i === wallPts.length - 2) groundPositions.push(positions[i + 1]);
 
-      if (runPos && bucket === runBucket) {
+      if (!replay && runPos && bucket === runBucket) {
         // extend the current run — positions[i] is already its last vertex
         runPos.push(positions[i + 1]);
         runMax.push(h2);
@@ -1706,6 +1749,16 @@ export class GSRGlobeBase {
         runPos = [positions[i], positions[i + 1]];
         runMax = [h1, h2];
         runBucket = bucket;
+        if (replay) {
+          runSeg = {
+            t0: p1.time,
+            t1: p2.time,
+            a: { lat: p1.lat, lon: p1.lon },
+            b: { lat: p2.lat, lon: p2.lon },
+            h1,
+            h2,
+          };
+        }
       }
     }
     flushRun();
@@ -1727,7 +1780,7 @@ export class GSRGlobeBase {
     }
 
     // Ground outline track
-    if (this.showGroundPath && groundPositions.length >= 2) {
+    if (this.showGroundPath && !replay && groundPositions.length >= 2) {
       const groundEntity = this.viewer.entities.add({
         name: 'Biomap Ground Path',
         polyline: {
@@ -1880,6 +1933,8 @@ export class GSRGlobeBase {
       // GSR/GPS/extrusion/metric slider push never touches them, and
       // clamp-to-ground primitives blink on remove+add (see _syncClusterBlobs).
       this._syncClusterBlobs();
+      // Replay tour: hide the wall segments / markers the clock hasn't reached.
+      if (this._replay) this._applyReplayReveal();
       // RF volume: its raw Primitive is lost on context restore and stale after
       // a slider-driven metric/extrusion change, so re-upload it here.
       if (this.showRfVolumetric)
@@ -1962,15 +2017,16 @@ export class GSRGlobeBase {
   }
 
   /**
-   * Nudge the shared auto-camera speed multiplier — the tour's flight/dwell
-   * timing (tour.mjs's _executeTourStep) and the 360° orbit's rotation rate
-   * (navigation.mjs's orbitStep) both read `this._autoCameraSpeed` directly,
-   * so one dial covers whichever is running. `factor` multiplies the current
-   * speed (e.g. 1.25 to speed up, 1/1.25 to slow down); the result is
-   * clamped to [0.25x, 4x] and rounded to 2dp to avoid float drift across
-   * repeated presses. A change only takes effect from the next tour hop
-   * onward — Cesium can't retarget an in-flight camera.flyTo's duration —
-   * but applies immediately to a running orbit, which re-reads it every tick.
+   * Nudge the shared auto-camera speed multiplier — the replay tour's clock
+   * speed (tour.mjs's _replayTick), the hotspot tour's flight/dwell timing
+   * (hotspot_tour.mjs's _executeTourStep) and the 360° orbit's rotation rate
+   * (navigation.mjs's orbitStep) all read `this._autoCameraSpeed`, so one dial
+   * covers whichever is running. The replay and orbit re-read it every tick;
+   * the hotspot tour picks it up from its next hop (Cesium can't retarget an
+   * in-flight camera.flyTo's duration).
+   * `factor` multiplies the current speed (e.g. 1.25 to speed up, 1/1.25 to
+   * slow down); the result is clamped to [0.25x, 4x] and rounded to 2dp to
+   * avoid float drift across repeated presses.
    */
   setAutoCameraSpeed(factor) {
     const next = (this._autoCameraSpeed || 1.0) * factor;
@@ -1986,7 +2042,8 @@ export class GSRGlobeBase {
   //   globe3d/peaks.js       — peak spires, hotspots, cluster ground blobs
   //   globe3d/toggles.js     — layer visibility toggles + entity clearing
   //   globe3d/navigation.js  — fly-to/focus + turntable orbit
-  //   globe3d/tour.js        — automated sequential track tour
+  //   globe3d/hotspot_tour.js — cinematic hotspot-to-hotspot tour
+  //   globe3d/tour.js        — replay tour (walk redrawn at sped-up real time)
   // 3D track export (CZML / KML) lives in src/map/globe3d/exporters.js and is
   // driven from the main Export Options panel — it needs no live viewer. The 3D
   // PNG snapshot was dropped: the app's Save Canvas / Bio Map PNG covers it.

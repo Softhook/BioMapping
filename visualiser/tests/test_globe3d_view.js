@@ -779,6 +779,37 @@ test('_cancelGraphTween stops an in-flight pan before it reaches the target', as
   );
 });
 
+test('_onTourProgress moves the graph cursor to the replay head and scrolls the graph to keep it in view', async () => {
+  const { window } = await bootApp();
+  window.setup();
+  const V = window.GSRGlobe3DView;
+  const AppState = window.AppState;
+  V._graphVisible = () => true;
+  AppState.totalDuration = 1000;
+  AppState.viewDuration = 100;
+  AppState.viewStartTime = 0;
+
+  const seen = [];
+  AppState.on('scrub', (p) => seen.push(p));
+
+  V._lastTourSyncMs = 0;
+  V._onTourProgress({ time: 500, lat: 51.5, lon: -0.1, origIdx: 42 });
+  assert.strictEqual(AppState.hoveredIndex, 42);
+  assert.strictEqual(seen.at(-1).index, 42);
+  assert.strictEqual(seen.at(-1).source, 'globe');
+  assert.strictEqual(AppState.viewStartTime, 425, 'head 3/4 across the window');
+  assert.strictEqual(AppState.viewDuration, 100, 'user zoom kept');
+
+  // Throttled: an immediate second tick is dropped.
+  V._onTourProgress({ time: 510, lat: 51.5, lon: -0.1, origIdx: 43 });
+  assert.strictEqual(AppState.hoveredIndex, 42);
+
+  // Near the end, the window stops at the end of the walk.
+  V._lastTourSyncMs = 0;
+  V._onTourProgress({ time: 990, lat: 51.5, lon: -0.1, origIdx: 99 });
+  assert.strictEqual(AppState.viewStartTime, 900);
+});
+
 test('_onScrubHover: takes cursor ownership, sets hoveredIndex, emits on the shared channel', async () => {
   const { window } = await bootApp();
   window.setup();
@@ -1062,11 +1093,7 @@ test('Tour button in 3D camera controls toggles manager tour and updates UI', as
   assert.strictEqual(tourToggled, 1);
   assert.ok(btnTour.classList.contains('active'), 'button marked active');
   assert.match(btnTour.innerHTML, /fa-pause/, 'button icon updated to pause');
-  assert.strictEqual(
-    btnTour.title,
-    'Pause Tour',
-    'button title updated to Pause Tour',
-  );
+  assert.strictEqual(btnTour.title, 'Pause Replay Tour');
 
   // Click 2 -> pause / stop tour
   btnTour.click();
@@ -1081,7 +1108,7 @@ test('Tour button in 3D camera controls toggles manager tour and updates UI', as
     /fa-route/,
     'button icon restored to route/tour',
   );
-  assert.strictEqual(btnTour.title, 'Tour', 'button title restored to Tour');
+  assert.strictEqual(btnTour.title, 'Replay Tour', 'button title restored');
 
   // Activate tour again then deactivate view -> stops tour
   btnTour.click();
@@ -1092,6 +1119,75 @@ test('Tour button in 3D camera controls toggles manager tour and updates UI', as
     false,
     'deactivate resets button state',
   );
+
+  V.manager = null;
+  V.isActive = false;
+});
+
+test('Hotspot Tour button sits next to the Tour button, replaces Top View, and only one tour button is ever active', async () => {
+  const { window } = await bootApp();
+  window.setup();
+  const V = window.GSRGlobe3DView;
+  const doc = window.document;
+
+  const btnTour = doc.getElementById('g3dBtnTour');
+  const btnHotspot = doc.getElementById('g3dBtnHotspotTour');
+  assert.ok(btnHotspot, '#g3dBtnHotspotTour exists');
+  assert.strictEqual(
+    btnTour.nextElementSibling,
+    btnHotspot,
+    'right after Tour',
+  );
+  assert.strictEqual(
+    doc.getElementById('g3dBtnPerspTop'),
+    null,
+    'Top View gone',
+  );
+
+  // Stand-in manager: one running tour at a time, like the real one.
+  const mgr = {
+    _isTouring: false,
+    _tourMode: null,
+    toggleTour() {
+      const on = !(this._isTouring && this._tourMode === 'replay');
+      this._isTouring = on;
+      this._tourMode = on ? 'replay' : null;
+      return on;
+    },
+    toggleHotspotTour() {
+      const on = !(this._isTouring && this._tourMode === 'hotspot');
+      this._isTouring = on;
+      this._tourMode = on ? 'hotspot' : null;
+      return on;
+    },
+    stopTour() {
+      this._isTouring = false;
+      this._tourMode = null;
+    },
+    setScrubPosition: () => {},
+    releaseFollowScrub: () => {},
+  };
+  V.manager = mgr;
+  V.isActive = true;
+  window.AppState.surfaceView = 'globe';
+
+  btnHotspot.click();
+  assert.ok(btnHotspot.classList.contains('active'));
+  assert.match(btnHotspot.innerHTML, /fa-pause/);
+  assert.strictEqual(btnHotspot.title, 'Pause Hotspot Tour');
+  assert.ok(!btnTour.classList.contains('active'));
+
+  // Switch straight to the replay: the hotspot button goes back to idle.
+  btnTour.click();
+  assert.ok(btnTour.classList.contains('active'));
+  assert.ok(!btnHotspot.classList.contains('active'));
+  assert.match(btnHotspot.innerHTML, /fa-star/);
+  assert.strictEqual(btnHotspot.title, 'Hotspot Tour');
+
+  btnHotspot.click();
+  btnHotspot.click(); // stop
+  assert.ok(!btnHotspot.classList.contains('active'));
+  assert.ok(!btnTour.classList.contains('active'));
 
   V.manager = null;
   V.isActive = false;
@@ -1132,14 +1228,14 @@ test('Space toggles tour pause/resume via keyboard, updating the tour button and
   assert.strictEqual(V.manager._isPaused, true);
   assert.strictEqual(tweenCancels, 1, 'pausing cancels the graph tween');
   assert.match(btnTour.innerHTML, /fa-play/, 'paused shows a play/resume icon');
-  assert.strictEqual(btnTour.title, 'Resume Tour (Space)');
+  assert.strictEqual(btnTour.title, 'Resume Replay Tour (Space)');
 
   space();
   assert.strictEqual(toggleCalls, 2);
   assert.strictEqual(V.manager._isPaused, false);
   assert.strictEqual(tweenCancels, 1, 'resuming does not re-cancel the tween');
   assert.match(btnTour.innerHTML, /fa-pause/, 'resumed shows the pause icon');
-  assert.strictEqual(btnTour.title, 'Pause Tour');
+  assert.strictEqual(btnTour.title, 'Pause Replay Tour');
 
   V._cancelGraphTween = realCancel;
   V.manager = null;
@@ -1417,7 +1513,7 @@ test('3D peak click triggers GSRUI.focusOnPeak with source=map and opens popup',
       _registeredClickCb = cb;
     },
     onScrubHover: () => {},
-    onTourStep: () => {},
+    onTourProgress: () => {},
   };
 
   window.AppState.analyzer = {

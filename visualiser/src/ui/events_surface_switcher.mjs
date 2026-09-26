@@ -33,8 +33,8 @@ export const SurfaceSwitcherEvents = {
     const cameraBtns = [
       document.getElementById('g3dBtnOrbit'),
       document.getElementById('g3dBtnTour'),
+      document.getElementById('g3dBtnHotspotTour'),
       document.getElementById('g3dBtnPersp3D'),
-      document.getElementById('g3dBtnPerspTop'),
       document.getElementById('g3dBtnNorth'),
     ];
     const show = (el, on) => {

@@ -57,6 +57,9 @@ export const GSRGlobe3DView = {
   // Last scrub lat/lon pushed into the globe, for dedupe (see _onScrub).
   _lastScrubKey: null,
 
+  // performance.now() of the last replay-tour graph sync (see _onTourProgress).
+  _lastTourSyncMs: 0,
+
   // ── Init & wiring ──────────────────────────────────────────────────────────
 
   init() {
@@ -87,8 +90,8 @@ export const GSRGlobe3DView = {
       rfOpacityVal: $('g3dRfOpacityVal'),
       btnOrbit: $('g3dBtnOrbit'),
       btnTour: $('g3dBtnTour'),
+      btnHotspotTour: $('g3dBtnHotspotTour'),
       btnPersp3D: $('g3dBtnPersp3D'),
-      btnPerspTop: $('g3dBtnPerspTop'),
       btnNorth: $('g3dBtnNorth'),
     };
     GSRGlobe3DView.els = els;
@@ -132,10 +135,11 @@ export const GSRGlobe3DView = {
    * embedded globe, so there's no risk of two handlers fighting over the
    * same arrow key.
    *
-   *   Space        pause / resume the running tour
-   *   ArrowLeft    jump to the previous tour hotspot
-   *   ArrowRight   jump to the next tour hotspot
-   *   ArrowUp      speed up (tour dwell/flight, or a running 360° orbit)
+   *   Space        pause / resume the running tour (either kind)
+   *   ArrowLeft    previous hotspot (hotspot tour: fly back a stop; replay:
+   *                jump the clock back to just before it)
+   *   ArrowRight   next hotspot (same)
+   *   ArrowUp      speed up (either tour, or a running 360° orbit)
    *   ArrowDown    slow down (same)
    *
    * Each binding is a no-op unless the 3D globe is the active surface, the
@@ -288,6 +292,42 @@ export const GSRGlobe3DView = {
     GSRGlobe3DView._graphTweenHandle = null;
   },
 
+  // ── Replay tour -> GSR graph sync ─────────────────────────────────────────
+
+  /**
+   * One replay-tour tick from the manager (see globe3d/tour.mjs): move the
+   * graph cursor / 2D map dot to the replay head and scroll the GSR graph so
+   * the head sits three-quarters of the way across the current zoom window.
+   * Throttled to ~20 Hz — the tour ticks every frame, and a full graph redraw
+   * per frame is wasted work. `null` means the tour stopped.
+   */
+  _onTourProgress(p) {
+    if (!p) {
+      GSRGlobe3DView._updateTourBtn(false);
+      return;
+    }
+    const now =
+      typeof performance !== 'undefined' ? performance.now() : Date.now();
+    if (now - GSRGlobe3DView._lastTourSyncMs < 50) return;
+    GSRGlobe3DView._lastTourSyncMs = now;
+
+    AppState.hoveredIndex = p.origIdx;
+    AppState.emit('scrub', {
+      lat: p.lat,
+      lon: p.lon,
+      index: p.origIdx,
+      source: 'globe',
+    });
+    const dur = AppState.viewDuration;
+    if (GSRGlobe3DView._graphVisible() && dur < AppState.totalDuration) {
+      AppState.viewStartTime = Math.min(
+        p.time - dur * 0.75,
+        AppState.totalDuration - dur,
+      );
+    }
+    if (typeof redraw === 'function') redraw();
+  },
+
   /**
    * True unless the GSR graph is off screen: the map/globe panel is in its
    * own panel-fullscreen overlay (hides the GSR graph and the 2D map;
@@ -424,7 +464,17 @@ export const GSRGlobe3DView = {
       els.btnTour.addEventListener('click', () => {
         if (m()) {
           const isTouring = m().toggleTour();
-          GSRGlobe3DView._updateTourBtn(isTouring);
+          GSRGlobe3DView._updateTourBtn(isTouring, false, 'replay');
+          if (isTouring && els.btnOrbit)
+            els.btnOrbit.classList.remove('active');
+        }
+      });
+    }
+    if (els.btnHotspotTour) {
+      els.btnHotspotTour.addEventListener('click', () => {
+        if (m()) {
+          const isTouring = m().toggleHotspotTour();
+          GSRGlobe3DView._updateTourBtn(isTouring, false, 'hotspot');
           if (isTouring && els.btnOrbit)
             els.btnOrbit.classList.remove('active');
         }
@@ -438,14 +488,6 @@ export const GSRGlobe3DView = {
           if (els.btnOrbit) els.btnOrbit.classList.remove('active');
         }
       });
-    if (els.btnPerspTop)
-      els.btnPerspTop.addEventListener('click', () => {
-        if (m()) {
-          m().setViewPerspective('top');
-          GSRGlobe3DView._updateTourBtn(false);
-          if (els.btnOrbit) els.btnOrbit.classList.remove('active');
-        }
-      });
     if (els.btnNorth)
       els.btnNorth.addEventListener('click', () => {
         if (m()) m().resetNorth();
@@ -453,25 +495,42 @@ export const GSRGlobe3DView = {
   },
 
   /**
-   * `isPaused` only matters while `isTouring` is true — it reflects the
-   * Space-bar pause/resume shortcut, not the button's own click behaviour
-   * (clicking the button always fully stops/restarts the tour via
-   * toggleTour(), regardless of pause state).
+   * Sync both tour buttons (replay = #g3dBtnTour, hotspot =
+   * #g3dBtnHotspotTour). The button for `mode` — by default whichever tour
+   * the manager says is running, falling back to the replay — shows the
+   * running/paused state; the other goes back to idle. `isPaused` only
+   * matters while `isTouring` is true — it reflects the Space-bar
+   * pause/resume shortcut, not the button's own click behaviour (clicking a
+   * tour button always fully stops/restarts that tour).
    */
-  _updateTourBtn(isTouring, isPaused) {
-    const btn = GSRGlobe3DView.els
-      ? GSRGlobe3DView.els.btnTour
-      : document.getElementById('g3dBtnTour');
-    if (!btn) return;
-    btn.classList.toggle('active', !!isTouring);
-    if (isTouring && isPaused) {
-      btn.innerHTML = '<i class="fa-solid fa-play"></i>';
-      btn.title = 'Resume Tour (Space)';
-    } else {
-      btn.innerHTML = isTouring
-        ? '<i class="fa-solid fa-pause"></i>'
-        : '<i class="fa-solid fa-route"></i>';
-      btn.title = isTouring ? 'Pause Tour' : 'Tour';
+  _updateTourBtn(isTouring, isPaused, mode) {
+    const which = mode || GSRGlobe3DView.manager?._tourMode || 'replay';
+    const els = GSRGlobe3DView.els || {};
+    const buttons = [
+      {
+        mode: 'replay',
+        btn: els.btnTour || document.getElementById('g3dBtnTour'),
+        icon: 'fa-route',
+        name: 'Replay Tour',
+      },
+      {
+        mode: 'hotspot',
+        btn: els.btnHotspotTour || document.getElementById('g3dBtnHotspotTour'),
+        icon: 'fa-star',
+        name: 'Hotspot Tour',
+      },
+    ];
+    for (const { mode: m, btn, icon, name } of buttons) {
+      if (!btn) continue;
+      const on = !!isTouring && m === which;
+      btn.classList.toggle('active', on);
+      if (on && isPaused) {
+        btn.innerHTML = '<i class="fa-solid fa-play"></i>';
+        btn.title = `Resume ${name} (Space)`;
+      } else {
+        btn.innerHTML = `<i class="fa-solid ${on ? 'fa-pause' : icon}"></i>`;
+        btn.title = on ? `Pause ${name}` : name;
+      }
     }
   },
 
@@ -967,6 +1026,9 @@ export const GSRGlobe3DView = {
         GSRGlobe3DView._updateAttribution();
       GSRGlobe3DView.manager.onBuildingsChange = () =>
         GSRGlobe3DView._updateAttribution();
+      GSRGlobe3DView.manager.onTourProgress((p) =>
+        GSRGlobe3DView._onTourProgress(p),
+      );
       GSRGlobe3DView.manager.onTourStep(
         (_stepIdx, _totalSteps, wp, flightDurationSec) => {
           if (wp) {

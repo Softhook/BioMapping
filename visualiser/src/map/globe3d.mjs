@@ -25,6 +25,7 @@ export {
   SERIES_FIELD,
   seriesValue,
 } from './globe3d/globe3d_base.mjs';
+export { GSRGlobeHotspotTour } from './globe3d/hotspot_tour.mjs';
 export { GSRGlobeNavigation } from './globe3d/navigation.mjs';
 export { GSRGlobeOsm } from './globe3d/osm.mjs';
 export { GSRGlobePeaks } from './globe3d/peaks.mjs';
