@@ -3,11 +3,11 @@ const assert = require('node:assert');
 const path = require('node:path');
 
 global.window = global;
-global.GSR_CONST = require('./mock_constants.js');
+global.GSR_CONST = require('../src/core/constants.mjs').GSR_CONST;
 
 const { loadModule } = require('./support/load_module.js');
 
-loadModule(path.join(__dirname, '../src/signal/gsr_filter.js'), 'GsrFilter');
+loadModule(path.join(__dirname, '../src/signal/gsr_filter.mjs'));
 const { GsrFilter } = global;
 
 test('applyHampelFilter: edge cases (empty array, null, window <= 1)', () => {

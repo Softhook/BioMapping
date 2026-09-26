@@ -9,7 +9,11 @@
 const assert = require('node:assert');
 const test = require('node:test');
 
-const GSR_CONST_MOCK = require('./mock_constants.js');
+// Pristine copy of the real constants, taken before any test mutates them,
+// so resetGlobals() can restore the defaults between tests.
+const GSR_CONST_DEFAULTS = JSON.parse(
+  JSON.stringify(require('../src/core/constants.mjs').GSR_CONST),
+);
 
 // storage.js calls alert(...) directly in a few places (export/import error
 // paths) and Node has no `alert` global — stub it once here and let
@@ -64,7 +68,7 @@ function resetGlobals() {
   global.AppState = setSingletonShape(RealAppState, {});
   global.GSR_CONST = setSingletonShape(
     RealGSRConst,
-    JSON.parse(JSON.stringify(GSR_CONST_MOCK)),
+    JSON.parse(JSON.stringify(GSR_CONST_DEFAULTS)),
   );
   setSingletonShape(RealGSREvents, {});
   setSingletonShape(RealGSRTrackManager, {});
@@ -115,8 +119,8 @@ test('readGsrSliderValues: parses mandatory sliders and falls back to GSR_DEFAUL
     peakThreshold: el(0.02),
   };
   const result = GSRStorage.readGsrSliderValues();
-  const D = GSR_CONST_MOCK.GSR_DEFAULT;
-  const PS = GSR_CONST_MOCK.PEAK_SHAPE;
+  const D = GSR_CONST_DEFAULTS.GSR_DEFAULT;
+  const PS = GSR_CONST_DEFAULTS.PEAK_SHAPE;
 
   assert.strictEqual(result.medianSize, 3);
   assert.strictEqual(result.lpfWindow, 0.5);
@@ -201,7 +205,7 @@ test('readGpsSliderValues: falls back to GPS_DEFAULT for every field when slider
   resetGlobals();
   global.AppState.sliders = {};
   const result = GSRStorage.readGpsSliderValues();
-  const D = GSR_CONST_MOCK.GPS_DEFAULT;
+  const D = GSR_CONST_DEFAULTS.GPS_DEFAULT;
   assert.strictEqual(result.maxHdop, D.maxHdop);
   assert.strictEqual(result.maxSpeed, D.maxSpeed);
   assert.strictEqual(result.rdpTolerance, D.rdpTolerance);
@@ -286,7 +290,7 @@ test('buildGpsParams: builds the renderer-facing subset and converts downsample 
   assert.strictEqual(params.peakLatency, 3);
   assert.strictEqual(
     params.trackWeight,
-    GSR_CONST_MOCK.GPS_DEFAULT.trackWeight,
+    GSR_CONST_DEFAULTS.GPS_DEFAULT.trackWeight,
   );
 });
 

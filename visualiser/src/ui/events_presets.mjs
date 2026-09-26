@@ -52,10 +52,8 @@ export const PresetEvents = {
         }
 
         // Flush live UI sliders into active track params first
-        if (typeof GSRTrackManager !== 'undefined') {
-          GSRTrackManager.saveActiveTrackParams();
-          GSRTrackManager.saveActiveGpsParams();
-        }
+        GSRTrackManager.saveActiveTrackParams();
+        GSRTrackManager.saveActiveGpsParams();
 
         const activeGsr = GSRStorage.readGsrSliderValues();
         const activeGps = GSRStorage.readGpsSliderValues();
@@ -80,9 +78,7 @@ export const PresetEvents = {
             Controllers.ui.runAnalysis();
           }
 
-          if (typeof GSRTrackManager !== 'undefined') {
-            GSRTrackManager.renderTrackList();
-          }
+          GSRTrackManager.renderTrackList();
         });
       });
     }

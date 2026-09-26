@@ -1,7 +1,7 @@
 const assert = require('node:assert');
 const test = require('node:test');
 
-global.GSR_CONST = require('./mock_constants.js');
+global.GSR_CONST = require('../src/core/constants.mjs').GSR_CONST;
 global.width = 1000;
 global.height = 500;
 

@@ -946,10 +946,7 @@ export const NDVISampler = {
    */
   calculateBBox(rawPoints, bufferMeters = 100) {
     if (!rawPoints || rawPoints.length === 0) return null;
-    if (
-      typeof OSMEnricher !== 'undefined' &&
-      typeof OSMEnricher.calculateBBox === 'function'
-    ) {
+    if (typeof OSMEnricher.calculateBBox === 'function') {
       const osmBbox = OSMEnricher.calculateBBox(rawPoints, bufferMeters);
       if (osmBbox) return osmBbox;
     }

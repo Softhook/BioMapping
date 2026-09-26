@@ -375,18 +375,9 @@ export const RendererInteraction = {
       const dynSeries = AppState.analyzer.responseDynamics || [];
       const dDyn = dynSeries[AppState.hoveredIndex];
       const dynVal = dDyn ? dDyn.val : 0;
-      const RD =
-        typeof ResponseDynamics !== 'undefined' ? ResponseDynamics : null;
-      if (RD) {
-        const tip = RD.formatTooltip(dynVal, textSec);
-        extraValStr = tip.valueStr;
-        extraColor = tip.color;
-      } else if (dynVal <= 0) {
-        extraValStr = 'Resting';
-        extraColor = textSec;
-      } else {
-        extraValStr = `${dynVal.toFixed(2)}x`;
-      }
+      const tip = ResponseDynamics.formatTooltip(dynVal, textSec);
+      extraValStr = tip.valueStr;
+      extraColor = tip.color;
     }
     const extraMetric =
       lowerMode !== 'phasic'

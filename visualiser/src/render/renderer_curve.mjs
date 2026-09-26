@@ -317,7 +317,6 @@ export const RendererCurve = {
     if (!ctx) return;
 
     const basePhasicHex = this.getThemeColor('--color-phasic', '#008f3c');
-    const RD = ResponseDynamics;
 
     // Collect rendered points with speed bucket
     const pts = [];
@@ -327,7 +326,7 @@ export const RendererCurve = {
         const i = drawIndices[k];
         const d = phasicData[i];
         const dynVal = dynData?.[i] ? dynData[i].val : 0;
-        const bucket = RD ? RD.getBucketIndex(dynVal) : dynVal <= 0 ? 0 : 3;
+        const bucket = ResponseDynamics.getBucketIndex(dynVal);
         const x = GSR_CONST.MARGIN.left + (d.time - tMin) * ctx.xScale;
         const y = yBottom + (d.val - yMin) * ctx.yScale;
         pts.push({ x, y, bucket });
@@ -336,7 +335,7 @@ export const RendererCurve = {
       for (let i = ctx.startIdx; i <= ctx.endIdx; i += ctx.step) {
         const d = phasicData[i];
         const dynVal = dynData?.[i] ? dynData[i].val : 0;
-        const bucket = RD ? RD.getBucketIndex(dynVal) : dynVal <= 0 ? 0 : 3;
+        const bucket = ResponseDynamics.getBucketIndex(dynVal);
         const x = GSR_CONST.MARGIN.left + (d.time - tMin) * ctx.xScale;
         const y = yBottom + (d.val - yMin) * ctx.yScale;
         pts.push({ x, y, bucket });
@@ -370,7 +369,7 @@ export const RendererCurve = {
         // Resting baseline area wash (subtle 5% opacity)
         fill(color(`${basePhasicHex}0d`));
       } else {
-        const bandColor = RD ? RD.BANDS[b - 1].color : '#10b981';
+        const bandColor = ResponseDynamics.BANDS[b - 1].color;
         fill(color(`${bandColor}30`)); // translucent speed color wash for active peak
       }
       beginShape();
@@ -390,7 +389,7 @@ export const RendererCurve = {
         stroke(color(`${basePhasicHex}70`));
         strokeWeight(1.5);
       } else {
-        const bandColor = RD ? RD.BANDS[b - 1].color : '#10b981';
+        const bandColor = ResponseDynamics.BANDS[b - 1].color;
         stroke(bandColor);
         strokeWeight(2.5);
       }

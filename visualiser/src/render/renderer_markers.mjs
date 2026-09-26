@@ -216,13 +216,7 @@ export const RendererMarkers = {
           AppState.lowerGraphMode === 'responseDynamics') &&
         p.speedLabel
       ) {
-        const RD =
-          typeof ResponseDynamics !== 'undefined' ? ResponseDynamics : null;
-        peakColor = RD
-          ? RD.getSpeedColor(p.speedLabel)
-          : GSR_CONST.SPARSEDA_SPEED_COLORS
-            ? GSR_CONST.SPARSEDA_SPEED_COLORS[p.speedLabel]
-            : peakColor;
+        peakColor = ResponseDynamics.getSpeedColor(p.speedLabel);
       }
       const lineClr = isExcluded ? EXCLUDED_STYLE.lineColor : peakColor;
       const dashPat = isExcluded ? EXCLUDED_STYLE.dash : NORMAL_DASH;

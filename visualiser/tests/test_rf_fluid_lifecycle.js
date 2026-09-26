@@ -36,13 +36,9 @@ global.window = { devicePixelRatio: 1 };
 // guard either way already.
 const path = require('node:path');
 const { loadModule } = require('./support/load_module.js');
+loadModule(path.join(__dirname, '..', 'src', 'spatial', 'spatial_grid.mjs'));
 loadModule(
-  path.join(__dirname, '..', 'src', 'spatial', 'spatial_grid.js'),
-  'SpatialGrid',
-);
-loadModule(
-  path.join(__dirname, '..', 'src', 'render', 'rf_fluid_renderer.js'),
-  'RFFluidRenderer',
+  path.join(__dirname, '..', 'src', 'render', 'rf_fluid_renderer.mjs'),
 );
 const RFFluidRenderer = global.RFFluidRenderer;
 

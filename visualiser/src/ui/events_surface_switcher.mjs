@@ -24,7 +24,7 @@ export const SurfaceSwitcherEvents = {
     const tabs = Array.from(document.querySelectorAll('.surface-tab'));
     if (!tabs.length) return;
 
-    if (typeof GSRGlobe3DView !== 'undefined') GSRGlobe3DView.init();
+    GSRGlobe3DView.init();
 
     const mapEl = document.getElementById('map');
     const globeEl = document.getElementById('globe3dContainer');
@@ -63,10 +63,8 @@ export const SurfaceSwitcherEvents = {
       if (toGlobe && mapDisplayCard)
         mapDisplayCard.classList.remove('collapsed');
 
-      if (typeof GSRGlobe3DView !== 'undefined') {
-        if (toGlobe) GSRGlobe3DView.activate();
-        else GSRGlobe3DView.deactivate();
-      }
+      if (toGlobe) GSRGlobe3DView.activate();
+      else GSRGlobe3DView.deactivate();
 
       // Re-render the shared OSM overlay on the now-mounted surface. 2D takes
       // effect immediately; the globe re-syncs from GSRGlobe3DView.activate()

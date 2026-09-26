@@ -626,7 +626,6 @@ export class GSRCollectiveManager {
     // Window (in grid rows/cols) that could possibly fall within `meters` of
     // a point at (lat, lon) — delegates to shared SpatialGrid.computeCellWindow.
     const cellWindowFor = (lat, lon, meters) =>
-      typeof SpatialGrid !== 'undefined' &&
       typeof SpatialGrid.computeCellWindow === 'function'
         ? SpatialGrid.computeCellWindow(
             lat,
@@ -957,13 +956,10 @@ export class GSRCollectiveManager {
           let density = 0;
           for (const pk of peaks) {
             const d = getDistanceMeters(gridLat, gridLon, pk.lat, pk.lon);
-            const weight =
-              typeof GSRSpatialClustering !== 'undefined'
-                ? GSRSpatialClustering.relativeAmplitudeWeight(
-                    pk.amplitude,
-                    peaksRefAmplitude,
-                  )
-                : 1;
+            const weight = GSRSpatialClustering.relativeAmplitudeWeight(
+              pk.amplitude,
+              peaksRefAmplitude,
+            );
             density +=
               weight * Math.exp(-(d * d) / (2 * peakSigma * peakSigma));
           }
@@ -1121,7 +1117,6 @@ export class GSRCollectiveManager {
         level = minVal + (k / (contourCount + 1)) * valRange;
         levelKey = level.toFixed(6);
         if (
-          typeof StatsMath !== 'undefined' &&
           typeof StatsMath.percentileRank === 'function' &&
           sortedVals.length > 1
         ) {

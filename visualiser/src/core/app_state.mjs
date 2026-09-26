@@ -78,8 +78,7 @@ export const AppState = {
   },
   set viewDuration(d) {
     if (typeof d !== 'number' || isNaN(d)) return;
-    const minDur =
-      typeof GSR_CONST !== 'undefined' ? GSR_CONST.ZOOM_MIN_DURATION : 2.0;
+    const minDur = GSR_CONST.ZOOM_MIN_DURATION;
     this._viewDuration = Math.max(minDur, Math.min(d, this.totalDuration));
   },
 
@@ -89,8 +88,8 @@ export const AppState = {
   },
   set zoomFactor(z) {
     if (typeof z !== 'number' || isNaN(z)) return;
-    const minZ = typeof GSR_CONST !== 'undefined' ? GSR_CONST.ZOOM_MIN : 1.0;
-    const maxZ = typeof GSR_CONST !== 'undefined' ? GSR_CONST.ZOOM_MAX : 50.0;
+    const minZ = GSR_CONST.ZOOM_MIN;
+    const maxZ = GSR_CONST.ZOOM_MAX;
     this._zoomFactor = Math.max(minZ, Math.min(maxZ, z));
   },
 

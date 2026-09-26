@@ -144,7 +144,7 @@ export const ExportUI = {
           });
           viewer.render(); // trigger the frame that will compile + upload pending geometry
         });
-      } else if (typeof GSRMapExporter !== 'undefined' && AppState.mapManager) {
+      } else if (AppState.mapManager) {
         // 2D Map Mode (Native vector SVG rendered to PNG)
         await GSRMapExporter.exportToPng(AppState.mapManager);
       }

@@ -529,10 +529,7 @@ export class GSRMapPeaks extends GSRMapPath {
   refreshCollectivePeakMarkers(track) {
     if (!this.map) return;
     if (!track?.layerGroup) {
-      if (
-        typeof GSRUI !== 'undefined' &&
-        typeof GSRUI.updateCollectiveMap === 'function'
-      ) {
+      if (typeof GSRUI.updateCollectiveMap === 'function') {
         GSRUI.updateCollectiveMap();
       }
       return;

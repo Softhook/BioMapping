@@ -103,12 +103,7 @@ export class GSRMapPath extends GSRMapRfFluid {
    */
   _refreshPathOnZoom() {
     try {
-      if (
-        !this.map ||
-        typeof AppState === 'undefined' ||
-        typeof AppState.analyzer === 'undefined'
-      )
-        return;
+      if (!this.map || typeof AppState.analyzer === 'undefined') return;
       if (AppState.viewMode === 'collective') return;
       if (this._pathHasRetrace === false) return;
       if (!this._lastDrawPoints || this._lastDrawPoints.length === 0) return;
@@ -142,7 +137,6 @@ export class GSRMapPath extends GSRMapRfFluid {
 
       this._lastPathZoom = z;
       const params =
-        typeof GSRStorage !== 'undefined' &&
         typeof GSRStorage.buildGpsParams === 'function'
           ? GSRStorage.buildGpsParams()
           : {};
@@ -184,11 +178,7 @@ export class GSRMapPath extends GSRMapRfFluid {
     let valAt = getVal;
     let hasRetrace = false;
     let overlapSig = 0;
-    if (
-      !isCategorical &&
-      typeof GSR_CONST !== 'undefined' &&
-      GSR_CONST.PATH_OVERLAP
-    ) {
+    if (!isCategorical && GSR_CONST.PATH_OVERLAP) {
       const OV = GSR_CONST.PATH_OVERLAP;
       const gapS = OV.revisitGapS || 15;
       const maxR = OV.maxRadiusM || 60;

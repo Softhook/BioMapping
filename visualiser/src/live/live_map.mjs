@@ -423,7 +423,7 @@ function _syncLiveMapMarkerSet(markerMap, peaks, iconBuilder) {
 }
 
 export function renderLiveMapMarkers() {
-  if (!liveMap || typeof GSRMapMarkers === 'undefined') return;
+  if (!liveMap) return;
   if (
     !Controllers.liveView.liveAnalyzer?.raw ||
     Controllers.liveView.liveAnalyzer.raw.length === 0

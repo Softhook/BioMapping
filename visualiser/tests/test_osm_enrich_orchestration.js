@@ -22,13 +22,13 @@ const test = require('node:test');
 const path = require('node:path');
 
 global.window = global;
-global.GSR_CONST = require('./mock_constants.js');
+global.GSR_CONST = require('../src/core/constants.mjs').GSR_CONST;
 global.alert = () => {};
 
 const { loadModule } = require('./support/load_module.js');
-loadModule(path.join(__dirname, '../src/gps/geo_utils.js'), 'GeoUtils');
-loadModule(path.join(__dirname, '../src/signal/stats_math.js'), 'StatsMath');
-loadModule(path.join(__dirname, '../src/map/map_colors.js'), 'MapColors');
+loadModule(path.join(__dirname, '../src/gps/geo_utils.mjs'));
+loadModule(path.join(__dirname, '../src/signal/stats_math.mjs'));
+loadModule(path.join(__dirname, '../src/map/map_colors.mjs'));
 
 const { GSRUI } = require('../src/ui/ui.mjs');
 

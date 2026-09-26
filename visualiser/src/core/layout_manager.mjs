@@ -65,7 +65,6 @@ export const GSRLayoutManager = {
       if (switcher) switcher.style.display = collective ? 'none' : '';
       if (mapTitle) mapTitle.style.display = collective ? 'flex' : 'none';
 
-      if (typeof GSRGlobe3DView === 'undefined') return;
       if (GSRGlobe3DView.onResize) GSRGlobe3DView.onResize();
       // Fullscreen hides the GSR graph — stop the globe's reverse-hover scrub.
       if (GSRGlobe3DView.onPanelFullscreenChange)
@@ -163,7 +162,6 @@ export const GSRLayoutManager = {
         else if (r === 'map') this.resizeMap(dims.w, dims.h);
         else if (
           r === 'regression' &&
-          typeof GSRUI !== 'undefined' &&
           typeof GSRUI.drawRegressionScatterPlot === 'function'
         ) {
           GSRUI.drawRegressionScatterPlot();
@@ -251,7 +249,7 @@ export const GSRLayoutManager = {
   /** @private Whether the Live view tab is the one on screen. */
   _isLiveView() {
     return (
-      (typeof AppState !== 'undefined' && AppState.viewMode === 'live') ||
+      AppState.viewMode === 'live' ||
       !!(
         typeof document !== 'undefined' &&
         document.querySelector('.app-container.live-mode')

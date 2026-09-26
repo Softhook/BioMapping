@@ -24,10 +24,10 @@ const { loadModule } = require('./support/load_module.js');
 // HMM-snap path depends on it), then OSMEnricher itself. OverpassClient is
 // deliberately NOT loaded — nothing in this suite calls
 // OSMEnricher.fetchOSMData(), so it's never dereferenced.
-loadModule(`${__dirname}/../src/gps/geo_utils.js`, 'GeoUtils');
-loadModule(`${__dirname}/../src/spatial/spatial_grid.js`, 'SpatialGrid');
-loadModule(`${__dirname}/../src/gps/map_match.js`, 'MapMatcher');
-loadModule(`${__dirname}/../src/osm/osm_enrichment.js`, 'OSMEnricher');
+loadModule(`${__dirname}/../src/gps/geo_utils.mjs`);
+loadModule(`${__dirname}/../src/spatial/spatial_grid.mjs`);
+loadModule(`${__dirname}/../src/gps/map_match.mjs`);
+loadModule(`${__dirname}/../src/osm/osm_enrichment.mjs`);
 
 const GeoUtils = global.GeoUtils;
 const MapMatcher = global.MapMatcher;

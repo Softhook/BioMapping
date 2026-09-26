@@ -196,11 +196,7 @@ export class GSRMapCollective extends GSRMapArousalPlaces {
         this._flyOrFitBounds(bbox, { padding: [40, 40] });
       }
       this._lastFitBoundsTrackSet = trackSetSignature;
-      if (
-        !this._lastFitBoundsTrackId &&
-        typeof AppState !== 'undefined' &&
-        AppState.activeTrackId
-      ) {
+      if (!this._lastFitBoundsTrackId && AppState.activeTrackId) {
         this._lastFitBoundsTrackId = AppState.activeTrackId;
       }
     }
@@ -441,10 +437,7 @@ export class GSRMapCollective extends GSRMapArousalPlaces {
         GSR_CONST?.TOPOGRAPHY_SOURCES?.[contourParams.topographySource] || null;
       const unit = topoCfg && topoCfg.unit !== undefined ? topoCfg.unit : ' μS';
 
-      const stitchedPaths =
-        typeof GSRSpatialClustering !== 'undefined'
-          ? GSRSpatialClustering.stitchSegments(c.segments)
-          : c.segments.map((seg) => [seg[0], seg[1]]);
+      const stitchedPaths = GSRSpatialClustering.stitchSegments(c.segments);
 
       stitchedPaths.forEach((path) => {
         if (!path || path.length < 2) return;

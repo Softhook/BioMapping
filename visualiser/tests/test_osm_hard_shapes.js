@@ -8,29 +8,17 @@ const assert = require('node:assert');
 const path = require('node:path');
 
 global.window = global;
-global.GSR_CONST = require('./mock_constants.js');
+global.GSR_CONST = require('../src/core/constants.mjs').GSR_CONST;
 
 const { loadModule } = require('./support/load_module.js');
 
-loadModule(path.join(__dirname, '../src/signal/stats_math.js'), 'StatsMath');
-loadModule(path.join(__dirname, '../src/map/map_colors.js'), 'MapColors');
-loadModule(path.join(__dirname, '../src/gps/geo_utils.js'), 'GeoUtils');
-loadModule(
-  path.join(__dirname, '../src/render/marching_squares.js'),
-  'MarchingSquares',
-);
-loadModule(
-  path.join(__dirname, '../src/spatial/spatial_clustering.js'),
-  'GSRSpatialClustering',
-);
-loadModule(
-  path.join(__dirname, '../src/render/bezier_spline.js'),
-  'BezierSpline',
-);
-loadModule(
-  path.join(__dirname, '../src/map/map_exporter.js'),
-  'GSRMapExporter',
-);
+loadModule(path.join(__dirname, '../src/signal/stats_math.mjs'));
+loadModule(path.join(__dirname, '../src/map/map_colors.mjs'));
+loadModule(path.join(__dirname, '../src/gps/geo_utils.mjs'));
+loadModule(path.join(__dirname, '../src/render/marching_squares.mjs'));
+loadModule(path.join(__dirname, '../src/spatial/spatial_clustering.mjs'));
+loadModule(path.join(__dirname, '../src/render/bezier_spline.mjs'));
+loadModule(path.join(__dirname, '../src/map/map_exporter.mjs'));
 
 const GSRMapExporter = global.GSRMapExporter;
 

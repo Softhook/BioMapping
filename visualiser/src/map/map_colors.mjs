@@ -135,16 +135,7 @@ export const MapColors = {
     }
 
     if (metric === 'responseDynamics') {
-      const RD = ResponseDynamics;
-      if (RD) return RD.getColor(val);
-      if (val === undefined || val === null || isNaN(val) || val <= 0) {
-        return 'transparent';
-      }
-      if (val >= 1.375) return '#ef4444';
-      if (val >= 1.125) return '#f97316';
-      if (val >= 0.875) return '#10b981';
-      if (val >= 0.625) return '#3b82f6';
-      return '#8b5cf6';
+      return ResponseDynamics.getColor(val);
     }
 
     if (metric === 'roadClass') {

@@ -1080,7 +1080,7 @@ export class GSRAnalyzer {
     // Opt-in cvxEDA convex optimization algorithm (Greco et al., 2016)
     const algorithm =
       params.deconvAlgorithm || scf.deconvAlgorithm || 'matching_pursuit';
-    if (algorithm === 'cvxeda' && typeof CVXEDA !== 'undefined') {
+    if (algorithm === 'cvxeda') {
       this._driverAlgorithm = 'cvxeda';
       // cvxEDA models tonic and phasic jointly, so it is fed the full filtered
       // skin-conductance signal (tonic still present), NOT the EMA
@@ -1637,9 +1637,7 @@ export class GSRAnalyzer {
         : this.times
           ? this.times.length
           : 0;
-    const RD = ResponseDynamics;
-    if (!RD) return [];
-    return RD.computeSeries({
+    return ResponseDynamics.computeSeries({
       n,
       sampleRate: this.sampleRate || 4,
       raw: this.raw,
@@ -1657,9 +1655,7 @@ export class GSRAnalyzer {
    * @private
    */
   _tagSparsedaPeaksAndStats() {
-    const RD = ResponseDynamics;
-    if (!RD) return;
-    this.sparsedaStats = RD.tagPeaks(
+    this.sparsedaStats = ResponseDynamics.tagPeaks(
       this.peaks,
       this.phasicDriverPeaks,
       this.sampleRate,
@@ -2249,15 +2245,11 @@ export class GSRAnalyzer {
    * input (and sample rate), the per-sample series is cached keyed on raw
    * identity + length + which vals array fed it, so slider drags don't
    * re-run the Welch windowing, but toggling disconnect repair does.
-   *
-   * Guarded with `typeof SpectralEDA !== 'undefined'` so vm-based test
-   * loaders that don't load spectral_eda.js still run analyze() (they just
-   * leave edasymp empty) — same convention as GSRNotices.
    * @private
    */
   _computeEDASymp(rawInputVals) {
     const n = this.raw.length;
-    if (n === 0 || typeof SpectralEDA === 'undefined') {
+    if (n === 0) {
       this.edasymp = [];
       return;
     }

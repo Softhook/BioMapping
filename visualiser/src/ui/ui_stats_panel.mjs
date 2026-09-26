@@ -211,8 +211,7 @@ export const StatsPanelUI = {
     if (!mapPanel) return;
 
     let hasSpatial = false;
-    const isCollective =
-      typeof AppState !== 'undefined' && AppState.viewMode === 'collective';
+    const isCollective = AppState.viewMode === 'collective';
     if (isCollective) {
       const activeTracks =
         AppState.collectiveManager &&
@@ -230,11 +229,7 @@ export const StatsPanelUI = {
         (AppState?.collectiveManager && AppState.activeTrackId
           ? AppState.collectiveManager.getTrack(AppState.activeTrackId)
           : null);
-      const analyzer = targetTrack
-        ? targetTrack.analyzer
-        : typeof AppState !== 'undefined'
-          ? AppState.analyzer
-          : null;
+      const analyzer = targetTrack ? targetTrack.analyzer : AppState.analyzer;
       hasSpatial = !!(
         analyzer &&
         (analyzer.hasSpatialData || analyzer.raw?.some((d) => d.hasGps))

@@ -20,7 +20,7 @@ const assert = require('node:assert');
 
 // GSRCSVParser needs these globals (see its file header / test_csv_integrity.js).
 global.window = global;
-global.GSR_CONST = require('./mock_constants.js');
+global.GSR_CONST = require('../src/core/constants.mjs').GSR_CONST;
 global.GSRAnalyzer = { calcEmFog: () => NaN };
 
 const { buildLiveCsv } = require('../src/live/live_csv.mjs');

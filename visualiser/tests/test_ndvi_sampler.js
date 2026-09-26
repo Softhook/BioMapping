@@ -11,7 +11,7 @@ const test = require('node:test');
 const zlib = require('node:zlib');
 
 global.window = global;
-global.GSR_CONST = require('./mock_constants.js');
+global.GSR_CONST = require('../src/core/constants.mjs').GSR_CONST;
 global.GSRAnalyzer = { calcEmFog: () => NaN };
 global.StatsMath = require('../src/signal/stats_math.mjs').StatsMath;
 

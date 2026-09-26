@@ -104,7 +104,7 @@ export const GSRTrackManager = {
       pill.remove();
       this._restorePillEl = null;
       const el = document.querySelector('.app-container');
-      if (el && typeof GSRFullscreen !== 'undefined') GSRFullscreen.request(el);
+      if (el) GSRFullscreen.request(el);
     });
 
     document.body.appendChild(pill);

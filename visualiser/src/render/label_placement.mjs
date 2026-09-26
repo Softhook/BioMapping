@@ -299,7 +299,6 @@ export const GSRLabelManager = {
       labelT = box.top - cTop;
 
     const escapedLabel =
-      typeof GSRNotices !== 'undefined' &&
       typeof GSRNotices.escapeHtml === 'function'
         ? GSRNotices.escapeHtml(labelText)
         : String(labelText)

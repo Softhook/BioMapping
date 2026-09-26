@@ -49,11 +49,7 @@ export class GSRGlobeOsm extends GSRGlobeBase {
     // in flight — that raced two primitives (a leak) and two status flickers.
     if (this._buildingsFetching) return;
 
-    if (
-      this.currentDrawPoints &&
-      this.currentDrawPoints.length > 0 &&
-      typeof OSMEnricher !== 'undefined'
-    ) {
+    if (this.currentDrawPoints && this.currentDrawPoints.length > 0) {
       this._buildingsFetching = true;
       try {
         if (onStatus) onStatus('Fetching OpenStreetMap 3D buildings…');
@@ -119,7 +115,7 @@ export class GSRGlobeOsm extends GSRGlobeBase {
    */
   renderOsm3DBuildings(osmJson, style = 'glass') {
     this.clearOsmBuildingEntities();
-    if (!this.viewer || typeof GSRGlobe3DBuildings === 'undefined') return;
+    if (!this.viewer) return;
     const prim = GSRGlobe3DBuildings.buildPrimitive(osmJson, style);
     if (prim) {
       this.buildingPrimitive = prim;

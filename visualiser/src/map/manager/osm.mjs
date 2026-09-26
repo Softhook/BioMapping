@@ -29,7 +29,6 @@ export class GSRMapOsm extends GSRMapLegend {
     let points = this._lastDrawPoints || [];
     if (
       (!points || points.length === 0) &&
-      typeof AppState !== 'undefined' &&
       AppState.viewMode === 'collective' &&
       AppState.collectiveManager
     ) {
@@ -149,8 +148,7 @@ export class GSRMapOsm extends GSRMapLegend {
     if (!this.map) return;
     this.hideNdviLayer();
 
-    const hasSampler = typeof NDVISampler !== 'undefined';
-    const hasCopernicus = hasSampler && NDVISampler.hasCopernicusConfig();
+    const hasCopernicus = NDVISampler.hasCopernicusConfig();
     const opacity =
       typeof options.opacity === 'number' ? options.opacity : 0.65;
 
@@ -249,14 +247,11 @@ export class GSRMapOsm extends GSRMapLegend {
     // 2. No Copernicus configured (or an explicit urlTemplate override): a
     // plain imagery tile layer (EOX cloudless / NASA GIBS / custom), shown
     // as-is for visual reference only — see file docstring.
-    const activeProvider = hasSampler
-      ? NDVISampler.getActiveProvider(options)
-      : null;
+    const activeProvider = NDVISampler.getActiveProvider(options);
     const url =
       urlTemplate ||
-      (hasSampler
-        ? activeProvider?.urlTemplate || NDVISampler.DEFAULT_TILE_URL
-        : 'https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2021_3857/default/GoogleMapsCompatible/{z}/{y}/{x}.jpg');
+      activeProvider?.urlTemplate ||
+      NDVISampler.DEFAULT_TILE_URL;
     const layerOpts = {
       pane: 'ndviPane',
       opacity: opacity,

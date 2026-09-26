@@ -628,7 +628,7 @@ test('renderData({ colorMetric, colorRange }) drives colour from the host, not a
 
 test('_getMetricSeries resolves OSM/Satellite/hdop metrics to their raw field, not GSR', () => {
   freshEnv();
-  global.GSR_CONST = require('./mock_constants.js');
+  global.GSR_CONST = require('../src/core/constants.mjs').GSR_CONST;
   const { GSRGlobeManager } = loadFresh();
   const mgr = new GSRGlobeManager('c', { keyboardFlight: false });
 
@@ -659,7 +659,7 @@ test('_getMetricSeries resolves OSM/Satellite/hdop metrics to their raw field, n
 
 test('renderData colours the wall by an OSM environmental metric, not raw GSR', () => {
   freshEnv();
-  global.GSR_CONST = require('./mock_constants.js');
+  global.GSR_CONST = require('../src/core/constants.mjs').GSR_CONST;
   const { GSRGlobeManager } = loadFresh();
   const mgr = new GSRGlobeManager('c', { keyboardFlight: false });
   mgr.flyToTrack = () => {};
@@ -712,7 +712,7 @@ test('renderData colours the wall by an OSM environmental metric, not raw GSR', 
 
 test('renderData colours the wall by inPark categories (binary OSM metric)', () => {
   freshEnv();
-  global.GSR_CONST = require('./mock_constants.js');
+  global.GSR_CONST = require('../src/core/constants.mjs').GSR_CONST;
   const { GSRGlobeManager } = loadFresh();
   const mgr = new GSRGlobeManager('c', { keyboardFlight: false });
   mgr.flyToTrack = () => {};

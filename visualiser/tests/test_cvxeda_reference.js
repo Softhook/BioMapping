@@ -19,10 +19,10 @@ const path = require('node:path');
 const fs = require('node:fs');
 
 global.window = global;
-global.GSR_CONST = require('./mock_constants.js');
+global.GSR_CONST = require('../src/core/constants.mjs').GSR_CONST;
 
 const { loadModule } = require('./support/load_module.js');
-loadModule(path.join(__dirname, '../src/signal/cvxeda.js'), 'CVXEDA');
+loadModule(path.join(__dirname, '../src/signal/cvxeda.mjs'));
 const { CVXEDA } = global;
 
 const ref = JSON.parse(

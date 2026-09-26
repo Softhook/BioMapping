@@ -33,20 +33,18 @@ export const MapPanelEvents = {
     // One header, two engines: when the 3D globe is the mounted surface the
     // shared controls dispatch to it instead of / as well as the Leaflet map
     // (see GSRGlobe3DView.applyToggle / applyRfMode / zoom).
-    const g3d = () =>
-      typeof GSRGlobe3DView !== 'undefined' ? GSRGlobe3DView : null;
     const onGlobe = () => AppState.surfaceView === 'globe';
 
     document.getElementById('btnMapZoomIn').addEventListener('click', () => {
       if (onGlobe()) {
-        if (g3d()) g3d().zoom(-1);
+        GSRGlobe3DView.zoom(-1);
         return;
       }
       if (AppState.mapManager) AppState.mapManager.zoomIn();
     });
     document.getElementById('btnMapZoomOut').addEventListener('click', () => {
       if (onGlobe()) {
-        if (g3d()) g3d().zoom(1);
+        GSRGlobe3DView.zoom(1);
         return;
       }
       if (AppState.mapManager) AppState.mapManager.zoomOut();
@@ -55,7 +53,7 @@ export const MapPanelEvents = {
       .getElementById('btnMapZoomExtent')
       .addEventListener('click', () => {
         if (onGlobe()) {
-          if (g3d()) g3d().fitTrack();
+          GSRGlobe3DView.fitTrack();
           return;
         }
         if (AppState.mapManager) AppState.mapManager.fitToTrack();
@@ -67,7 +65,7 @@ export const MapPanelEvents = {
         btnToggleRFFluid.classList.toggle('active');
         const on = btnToggleRFFluid.classList.contains('active');
         if (AppState.mapManager) AppState.mapManager.toggleRFFluid(on);
-        if (g3d()) g3d().applyToggle('rf', on);
+        GSRGlobe3DView.applyToggle('rf', on);
       });
     }
 
@@ -76,7 +74,7 @@ export const MapPanelEvents = {
       rfFluidMode.addEventListener('change', (e) => {
         if (AppState.mapManager)
           AppState.mapManager.setRFFluidMode(e.target.value);
-        if (g3d()) g3d().applyRfMode(e.target.value);
+        GSRGlobe3DView.applyRfMode(e.target.value);
       });
     }
 
@@ -87,7 +85,7 @@ export const MapPanelEvents = {
         btn.classList.toggle('active');
         const on = btn.classList.contains('active');
         if (AppState.mapManager) AppState.mapManager[mmMethod](on);
-        if (g3d()) g3d().applyToggle(g3dName, on);
+        GSRGlobe3DView.applyToggle(g3dName, on);
       });
     };
     bindSharedToggle('btnToggleMapPeaks', 'togglePeaks', 'peaks');
@@ -167,7 +165,7 @@ export const MapPanelEvents = {
         // active surface. Without this the globe only updates after the map emits
         // 'map:rendered' → 250ms debounce → full renderData rebuild. The
         // setColoringMetric() fast path avoids that wall-primitive teardown.
-        if (g3d()) g3d().applyColorMetric(e.target.value);
+        GSRGlobe3DView.applyColorMetric(e.target.value);
       });
 
     // ── Panel Collapse Toggles (DRY via bindCollapseButton) ──────────────────

@@ -259,7 +259,7 @@ test('mapToSamples: edge-holds and interpolates monotonically', () => {
 
 test('analyzer: edasymp series is populated after analyze()', () => {
   global.window = global;
-  global.GSR_CONST = require('./mock_constants.js');
+  global.GSR_CONST = require('../src/core/constants.mjs').GSR_CONST;
 
   const { GsrFilter } = require('../src/signal/gsr_filter.mjs');
   global.GsrFilter = GsrFilter;
@@ -288,7 +288,7 @@ test('analyzer: edasymp series is populated after analyze()', () => {
 
 test('analyzer: edasymp reads the disconnect-repaired signal, not the pristine raw, when the toggle is on', () => {
   global.window = global;
-  global.GSR_CONST = require('./mock_constants.js');
+  global.GSR_CONST = require('../src/core/constants.mjs').GSR_CONST;
 
   const { GsrFilter } = require('../src/signal/gsr_filter.mjs');
   global.GsrFilter = GsrFilter;

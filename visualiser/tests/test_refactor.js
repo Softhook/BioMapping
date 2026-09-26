@@ -13,7 +13,7 @@
 
 // Stub for functions/modules that the tested modules may reference but
 // that we aren't testing directly here.
-global.GSR_CONST = require('./mock_constants.js');
+global.GSR_CONST = require('../src/core/constants.mjs').GSR_CONST;
 
 // ── Load modules under test ─────────────────────────────────────────────────
 // The analyser modules use `const Name = { ... }` at the top level.
@@ -26,10 +26,10 @@ const _vm = require('node:vm');
 const { loadModule } = require('./support/load_module.js');
 
 // Load order must match index.html dependencies.
-loadModule(`${__dirname}/../src/gps/geo_utils.js`, 'GeoUtils');
-loadModule(`${__dirname}/../src/signal/stats_math.js`, 'StatsMath');
-loadModule(`${__dirname}/../src/map/map_colors.js`, 'MapColors');
-loadModule(`${__dirname}/../src/gps/gps_pipeline.js`, 'GpsPipeline');
+loadModule(`${__dirname}/../src/gps/geo_utils.mjs`);
+loadModule(`${__dirname}/../src/signal/stats_math.mjs`);
+loadModule(`${__dirname}/../src/map/map_colors.mjs`);
+loadModule(`${__dirname}/../src/gps/gps_pipeline.mjs`);
 
 const GeoUtils = global.GeoUtils;
 const StatsMath = global.StatsMath;

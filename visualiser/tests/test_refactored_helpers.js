@@ -17,29 +17,29 @@ const { loadModule } = require('./support/load_module.js');
 
 // ── Loader helpers ────────────────────────────────────────────────────────────
 global.window = global;
-global.GSR_CONST = require('./mock_constants.js');
+global.GSR_CONST = require('../src/core/constants.mjs').GSR_CONST;
 
-function loadBrowserModule(relPath, varName) {
-  loadModule(path.join(__dirname, relPath), varName);
+function loadBrowserModule(relPath) {
+  loadModule(path.join(__dirname, relPath));
 }
 
-loadBrowserModule('../src/gps/geo_utils.js', 'GeoUtils');
-loadBrowserModule('../src/signal/stats_math.js', 'StatsMath');
-loadBrowserModule('../src/map/map_colors.js', 'MapColors');
-loadBrowserModule('../src/gps/gps_pipeline.js', 'GpsPipeline');
-loadBrowserModule('../src/signal/dwt_filter.js', 'DWT');
-loadBrowserModule('../src/signal/gsr_filter.js', 'GsrFilter');
-loadBrowserModule('../src/signal/deconvolution.js', 'SCRDeconvolution');
-loadBrowserModule('../src/signal/csv_parser.js', 'GSRCSVParser');
-loadBrowserModule('../src/map/map_exporter.js', 'GSRMapExporter');
-loadBrowserModule('../src/ui/tracks.js', 'GSRTrackManager');
+loadBrowserModule('../src/gps/geo_utils.mjs');
+loadBrowserModule('../src/signal/stats_math.mjs');
+loadBrowserModule('../src/map/map_colors.mjs');
+loadBrowserModule('../src/gps/gps_pipeline.mjs');
+loadBrowserModule('../src/signal/dwt_filter.mjs');
+loadBrowserModule('../src/signal/gsr_filter.mjs');
+loadBrowserModule('../src/signal/deconvolution.mjs');
+loadBrowserModule('../src/signal/csv_parser.mjs');
+loadBrowserModule('../src/map/map_exporter.mjs');
+loadBrowserModule('../src/ui/tracks.mjs');
 // ui.js/ui_stats_panel.js are loaded via require(), not loadBrowserModule:
 // ui_stats_panel.mjs holds a real static import of ui.mjs's GSRUI — loading
 // ui.js a second way here would produce a second, distinct GSRUI object that
 // the two loaders would then fight over.
 global.GSRUI = require('../src/ui/ui.mjs').GSRUI;
 
-loadBrowserModule('../src/signal/analyzer.js', 'GSRAnalyzer');
+loadBrowserModule('../src/signal/analyzer.mjs');
 
 const GSRAnalyzer = global.GSRAnalyzer;
 const GSRCSVParser = global.GSRCSVParser;

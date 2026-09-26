@@ -9,39 +9,16 @@ const path = require('node:path');
 // Bootstrap dependencies
 const { loadModule } = require('./support/load_module.js');
 
-// mock_constants.js is a plain CommonJS module (module.exports = {...}), not
-// a window.X=... browser-style script — require() it directly rather than
-// through the eval-based loadModule() above, which only recovers globals
-// that a script attaches to window. (This was previously silently not
-// loaded at all: GSR_CONST was undefined for this entire file, so
-// _buildVectorMesh's now-removed `typeof GSR_CONST !== 'undefined'` guard
-// was quietly skipping all hillshading here — this test never actually
-// exercised the shaded code path.)
-global.GSR_CONST = require('./mock_constants.js');
-loadModule(path.join(__dirname, '../src/signal/stats_math.js'), 'StatsMath');
-loadModule(path.join(__dirname, '../src/map/map_colors.js'), 'MapColors');
-loadModule(path.join(__dirname, '../src/gps/geo_utils.js'), 'GeoUtils');
-loadModule(
-  path.join(__dirname, '../src/render/marching_squares.js'),
-  'MarchingSquares',
-);
-loadModule(
-  path.join(__dirname, '../src/spatial/spatial_clustering.js'),
-  'GSRSpatialClustering',
-);
-loadModule(path.join(__dirname, '../src/map/hillshade.js'), 'Hillshade');
-loadModule(
-  path.join(__dirname, '../src/render/bezier_spline.js'),
-  'BezierSpline',
-);
-loadModule(
-  path.join(__dirname, '../src/render/contour_ring_geometry.js'),
-  'ContourRingGeometry',
-);
-loadModule(
-  path.join(__dirname, '../src/map/map_exporter.js'),
-  'GSRMapExporter',
-);
+global.GSR_CONST = require('../src/core/constants.mjs').GSR_CONST;
+loadModule(path.join(__dirname, '../src/signal/stats_math.mjs'));
+loadModule(path.join(__dirname, '../src/map/map_colors.mjs'));
+loadModule(path.join(__dirname, '../src/gps/geo_utils.mjs'));
+loadModule(path.join(__dirname, '../src/render/marching_squares.mjs'));
+loadModule(path.join(__dirname, '../src/spatial/spatial_clustering.mjs'));
+loadModule(path.join(__dirname, '../src/map/hillshade.mjs'));
+loadModule(path.join(__dirname, '../src/render/bezier_spline.mjs'));
+loadModule(path.join(__dirname, '../src/render/contour_ring_geometry.mjs'));
+loadModule(path.join(__dirname, '../src/map/map_exporter.mjs'));
 
 const GSRMapExporter = global.GSRMapExporter;
 

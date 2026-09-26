@@ -16,8 +16,8 @@
 
 const { loadModule } = require('./support/load_module.js');
 
-loadModule(`${__dirname}/../src/gps/geo_utils.js`, 'GeoUtils');
-loadModule(`${__dirname}/../src/osm/osm_cache.js`, 'OsmCache');
+loadModule(`${__dirname}/../src/gps/geo_utils.mjs`);
+loadModule(`${__dirname}/../src/osm/osm_cache.mjs`);
 const OsmCache = global.OsmCache;
 const GeoUtils = global.GeoUtils;
 

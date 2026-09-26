@@ -20,17 +20,9 @@
 const assert = require('node:assert');
 const test = require('node:test');
 
-global.GSR_CONST = require('./mock_constants.js');
+global.GSR_CONST = require('../src/core/constants.mjs').GSR_CONST;
 global.MarchingSquares =
   require('../src/render/marching_squares.mjs').MarchingSquares;
-
-// collective_manager.mjs holds a static `import { GSR_CONST } from
-// '../core/constants.mjs'` live binding — the `global.GSR_CONST` mock shadow
-// above no longer reaches it (ES-module migration), so mirror this file's
-// COLLECTIVE overrides (gridResolution/contourCount/peakPreservation, read as
-// defaults below) onto the real imported singleton's own properties instead.
-const { GSR_CONST: RealGSRConst } = require('../src/core/constants.mjs');
-Object.assign(RealGSRConst.COLLECTIVE, global.GSR_CONST.COLLECTIVE);
 
 const {
   GSRCollectiveManager,
@@ -417,6 +409,9 @@ test('generateContourSurface: minVal===maxVal (perfectly flat surface) is nudged
     contourCount: 2,
     isolationRadius: 500,
     normalizeZScore: false,
+    // The peak envelope decays with distance, so it would add variation to
+    // an otherwise constant field; switch it off to get a truly flat grid.
+    peakPreservation: 0,
   });
   assert.ok(Array.isArray(result.grid));
   assert.ok(

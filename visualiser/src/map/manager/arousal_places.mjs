@@ -47,13 +47,7 @@ export class GSRMapArousalPlaces extends GSRMapPeaks {
    * @private
    */
   _renderArousalPlacesFor(peaks, scoreTracks, view) {
-    if (
-      !peaks ||
-      peaks.length === 0 ||
-      typeof GSRSpatialClustering === 'undefined' ||
-      typeof GSRArousalPlaces === 'undefined'
-    )
-      return;
+    if (!peaks || peaks.length === 0) return;
 
     const P = this._arousalPlaceParams();
 
@@ -84,11 +78,7 @@ export class GSRMapArousalPlaces extends GSRMapPeaks {
         P.mergeM,
         P.separationFactor,
       );
-      const placeOpts = Object.assign(
-        {},
-        typeof GSR_CONST !== 'undefined' ? GSR_CONST.AROUSAL_PLACES : {},
-        P,
-      );
+      const placeOpts = Object.assign({}, GSR_CONST.AROUSAL_PLACES, P);
       places = GSRArousalPlaces.buildPlaces(clusters, scoreTracks, placeOpts);
       refAmplitude = this._meanAmplitude(peaks);
       blobRings = places.map((place) =>
@@ -152,11 +142,7 @@ export class GSRMapArousalPlaces extends GSRMapPeaks {
    */
   refreshArousalPlaces() {
     if (!this.map || !this._lastArousalInput) {
-      if (
-        typeof GSRUI !== 'undefined' &&
-        typeof GSRUI.rerenderMap === 'function'
-      )
-        GSRUI.rerenderMap();
+      if (typeof GSRUI.rerenderMap === 'function') GSRUI.rerenderMap();
       return;
     }
     this._clearArousalPlaceLayers();
@@ -485,7 +471,7 @@ export class GSRMapArousalPlaces extends GSRMapPeaks {
    * @private
    */
   _nearestPlaceGap(places, i) {
-    if (places.length < 2 || typeof GeoUtils === 'undefined') return Infinity;
+    if (places.length < 2) return Infinity;
     const scale = GeoUtils.getGeodesicScale(places[i].lat);
     let nnSq = Infinity;
     for (let j = 0; j < places.length; j++) {
@@ -513,8 +499,7 @@ export class GSRMapArousalPlaces extends GSRMapPeaks {
       !(capM > 0) ||
       !isFinite(capM) ||
       !Array.isArray(path) ||
-      path.length === 0 ||
-      typeof GeoUtils === 'undefined'
+      path.length === 0
     )
       return path;
     const scale = GeoUtils.getGeodesicScale(cLat);

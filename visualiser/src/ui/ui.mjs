@@ -188,12 +188,6 @@ export const GSRUI = {
    * @param {Function} onConfirmClose - Callback to execute if the user chooses to proceed with close/deletion.
    */
   async showUnsavedLabelsModal(trackName, trackId, onConfirmClose) {
-    if (typeof GSRNotices === 'undefined') {
-      // No notice layer available — refuse to delete: losing unsaved labels
-      // without an explicit user choice is not acceptable.
-      return;
-    }
-
     const warning =
       trackId === 'ALL'
         ? 'You have unsaved peak labels across loaded tracks.'

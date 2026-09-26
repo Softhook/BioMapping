@@ -243,20 +243,15 @@ export const GSRCollectiveProject = {
     if (!file) return;
 
     if (AppState.collectiveManager.tracks.length > 0) {
-      // Ask via the shared notices layer (decision dialog). If no notice layer
-      // is available (e.g. headless test env), refuse to proceed rather than
-      // silently discarding the current tracks.
-      const choice =
-        typeof GSRNotices !== 'undefined'
-          ? await GSRNotices.dialog({
-              title: 'Replace Loaded Tracks',
-              message:
-                'Importing this project will replace all currently loaded tracks. Continue?',
-              buttons: [{ label: 'Import', value: 'import', style: 'primary' }],
-              dismissLabel: 'Cancel',
-              tone: 'warn',
-            })
-          : null;
+      // Ask via the shared notices layer (decision dialog).
+      const choice = await GSRNotices.dialog({
+        title: 'Replace Loaded Tracks',
+        message:
+          'Importing this project will replace all currently loaded tracks. Continue?',
+        buttons: [{ label: 'Import', value: 'import', style: 'primary' }],
+        dismissLabel: 'Cancel',
+        tone: 'warn',
+      });
       if (choice !== 'import') return;
     }
 

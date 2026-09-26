@@ -101,19 +101,11 @@ export const GSRGlobe3DView = {
       // times a second and each push tears down and rebuilds the whole 3D wall
       // primitive. Rebuild once, ~0.25s after the user stops moving.
       AppState.on('map:rendered', () => {
-        if (
-          !GSRGlobe3DView.isActive ||
-          (typeof AppState !== 'undefined' &&
-            AppState.viewMode === 'collective')
-        )
+        if (!GSRGlobe3DView.isActive || AppState.viewMode === 'collective')
           return;
         clearTimeout(GSRGlobe3DView._pushTimer);
         GSRGlobe3DView._pushTimer = setTimeout(() => {
-          if (
-            GSRGlobe3DView.isActive &&
-            (typeof AppState === 'undefined' ||
-              AppState.viewMode !== 'collective')
-          )
+          if (GSRGlobe3DView.isActive && AppState.viewMode !== 'collective')
             GSRGlobe3DView._pushFromMap();
         }, 250);
       });
@@ -237,13 +229,7 @@ export const GSRGlobe3DView = {
    * (non-hotspot) waypoints, which carry no graph window.
    */
   _tweenGraphToTourStep(wp, flightDurationSec) {
-    if (
-      typeof AppState === 'undefined' ||
-      !wp ||
-      wp.graphWinStart == null ||
-      wp.graphWinDuration == null
-    )
-      return;
+    if (!wp || wp.graphWinStart == null || wp.graphWinDuration == null) return;
     GSRGlobe3DView._cancelGraphTween();
     // The graph is offscreen (collapsed, or the panel is fullscreen) —
     // nothing would be seen panning, so skip the per-frame rAF loop and
@@ -335,7 +321,7 @@ export const GSRGlobe3DView = {
       if (mgr._requestRender) mgr._requestRender();
     }
     GSRGlobe3DView._lastScrubKey = null;
-    if (typeof AppState !== 'undefined' && AppState.scrubSource === 'globe') {
+    if (AppState.scrubSource === 'globe') {
       AppState.scrubSource = null;
       AppState.hoveredIndex = -1;
       AppState.emit('scrub', { clear: true, source: 'globe' });
@@ -352,7 +338,7 @@ export const GSRGlobe3DView = {
    * cursor) isn't on screen, so there's nothing to scrub.
    */
   _onScrubHover(idx, ll) {
-    if (!GSRGlobe3DView.isActive || typeof AppState === 'undefined') return;
+    if (!GSRGlobe3DView.isActive) return;
     if (AppState.viewMode !== 'single') return;
     if (!GSRGlobe3DView._graphVisible()) return;
 
@@ -495,7 +481,7 @@ export const GSRGlobe3DView = {
    */
   focusOnPeak(peakIdx) {
     if (!GSRGlobe3DView.isActive) return;
-    const analyzer = typeof AppState !== 'undefined' ? AppState.analyzer : null;
+    const analyzer = AppState.analyzer;
     if (!analyzer?.peaks?.[peakIdx]) return;
 
     if (
@@ -515,7 +501,7 @@ export const GSRGlobe3DView = {
    */
   focusOnPeakLocation(peakIdx) {
     if (!GSRGlobe3DView.isActive) return;
-    const analyzer = typeof AppState !== 'undefined' ? AppState.analyzer : null;
+    const analyzer = AppState.analyzer;
     if (!analyzer?.peaks?.[peakIdx]) return;
     if (
       GSRGlobe3DView.manager &&
@@ -535,14 +521,9 @@ export const GSRGlobe3DView = {
    * @param {{x:number,y:number}} [windowPos]  click position within the canvas
    */
   _editPeakLabel(peakIdx, windowPos) {
-    const analyzer = typeof AppState !== 'undefined' ? AppState.analyzer : null;
+    const analyzer = AppState.analyzer;
     const peak = analyzer?.peaks?.[peakIdx];
-    if (
-      !peak ||
-      typeof MapPopups === 'undefined' ||
-      typeof MapPopups.buildPeakPopup !== 'function'
-    )
-      return;
+    if (!peak || typeof MapPopups.buildPeakPopup !== 'function') return;
 
     const coords = analyzer.getCoordinates?.(peak.index) || {};
     const trackId =
@@ -817,9 +798,8 @@ export const GSRGlobe3DView = {
    * @returns {Promise<Object|null>}
    */
   async _resolveOsmJson() {
-    const analyzer = typeof AppState !== 'undefined' ? AppState.analyzer : null;
+    const analyzer = AppState.analyzer;
     if (!analyzer?.raw || analyzer.raw.length === 0) return null;
-    if (typeof OSMEnricher === 'undefined') return analyzer.osmJson || null;
 
     const bbox = OSMEnricher.calculateBBox(
       analyzer.raw,
@@ -827,7 +807,7 @@ export const GSRGlobe3DView = {
     );
     // In-memory JSON only while it still covers the current radius.
     let osmJson = bbox ? OSMEnricher.osmJsonFor(analyzer, bbox) : null;
-    if (!osmJson && bbox && typeof OsmCache !== 'undefined') {
+    if (!osmJson && bbox) {
       let coveredBBox = bbox;
       osmJson = await OsmCache.getForBBox(bbox);
       if (!osmJson) {
@@ -884,7 +864,7 @@ export const GSRGlobe3DView = {
    * state. Sets manager flags only; the caller's renderData() does the drawing.
    */
   _mirrorToggleState() {
-    const mm = typeof AppState !== 'undefined' ? AppState.mapManager : null;
+    const mm = AppState.mapManager;
     if (!mm) return;
     const els = GSRGlobe3DView.els;
     const mgr = GSRGlobe3DView.manager;
@@ -943,8 +923,7 @@ export const GSRGlobe3DView = {
   // ── Activate / deactivate ────────────────────────────────────────────────
 
   async activate() {
-    if (typeof AppState !== 'undefined' && AppState.viewMode === 'collective')
-      return;
+    if (AppState.viewMode === 'collective') return;
     GSRGlobe3DView.isActive = true;
 
     try {
@@ -957,7 +936,7 @@ export const GSRGlobe3DView = {
     }
 
     if (!GSRGlobe3DView.manager) {
-      const mm = typeof AppState !== 'undefined' ? AppState.mapManager : null;
+      const mm = AppState.mapManager;
       GSRGlobe3DView.manager = new GSRGlobeManager('globe3dContainer', {
         keyboardFlight: false,
         doubleClickFly: true,
@@ -992,16 +971,14 @@ export const GSRGlobe3DView = {
         (_stepIdx, _totalSteps, wp, flightDurationSec) => {
           if (wp) {
             GSRGlobe3DView._updateTourBtn(true);
-            if (typeof AppState !== 'undefined') {
-              AppState.hoveredIndex = wp.origIdx;
-              AppState.emit('scrub', {
-                lat: wp.lat,
-                lon: wp.lon,
-                index: wp.origIdx,
-                source: 'globe',
-              });
-              if (typeof redraw === 'function') redraw();
-            }
+            AppState.hoveredIndex = wp.origIdx;
+            AppState.emit('scrub', {
+              lat: wp.lat,
+              lon: wp.lon,
+              index: wp.origIdx,
+              source: 'globe',
+            });
+            if (typeof redraw === 'function') redraw();
             GSRGlobe3DView._tweenGraphToTourStep(wp, flightDurationSec);
           } else {
             GSRGlobe3DView._updateTourBtn(false);
@@ -1079,7 +1056,7 @@ export const GSRGlobe3DView = {
       GSRGlobe3DView.els.btnOrbit.classList.remove('active');
     }
     // Hand cursor ownership back to the graph if the 3D track had it.
-    if (typeof AppState !== 'undefined' && AppState.scrubSource === 'globe') {
+    if (AppState.scrubSource === 'globe') {
       AppState.scrubSource = null;
       AppState.hoveredIndex = -1;
       AppState.emit('scrub', { clear: true, source: 'globe' });
@@ -1092,7 +1069,7 @@ export const GSRGlobe3DView = {
 
   _pushFromMap(opts = {}) {
     const mgr = GSRGlobe3DView.manager;
-    if (!mgr || typeof AppState === 'undefined') return;
+    if (!mgr) return;
     if (AppState.viewMode === 'collective') return;
     const mm = AppState.mapManager;
     if (!mm) return;
@@ -1150,7 +1127,7 @@ export const GSRGlobe3DView = {
 
   _updateLegend() {
     const els = GSRGlobe3DView.els;
-    const mm = typeof AppState !== 'undefined' ? AppState.mapManager : null;
+    const mm = AppState.mapManager;
 
     // Render the exact same legend the 2D map shows — title, gradient/swatches,
     // formatted range, RF sub-legend and all (see GSRMapManager.buildLegendHtml).

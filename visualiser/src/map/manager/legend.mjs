@@ -54,8 +54,7 @@ export class GSRMapLegend extends GSRMapViewport {
    * @returns {string}
    */
   buildLegendHtml() {
-    const isCollective =
-      typeof AppState !== 'undefined' && AppState.viewMode === 'collective';
+    const isCollective = AppState.viewMode === 'collective';
     let html = '';
 
     if (isCollective) {
@@ -145,11 +144,7 @@ export class GSRMapLegend extends GSRMapViewport {
             '<div class="legend-swatch-row" style="color:#999">No data</div>';
         html += '</div>';
       } else if (metric === 'responseDynamics') {
-        const RD =
-          typeof ResponseDynamics !== 'undefined' ? ResponseDynamics : null;
-        const gradientCss = RD
-          ? `linear-gradient(90deg, ${RD.BANDS.map((b) => b.color).join(', ')})`
-          : 'linear-gradient(90deg, #8b5cf6, #3b82f6, #10b981, #f97316, #ef4444)';
+        const gradientCss = `linear-gradient(90deg, ${ResponseDynamics.BANDS.map((b) => b.color).join(', ')})`;
         html = `
           <div class="legend-title">${title}</div>
           <div class="legend-scale">

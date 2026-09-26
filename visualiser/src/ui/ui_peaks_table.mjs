@@ -150,11 +150,7 @@ export const PeaksTableUI = {
     if (source === 'table' && hasGps) {
       // SCR Events table: jump straight to the spot with the scrub dot as the
       // locator and no popup — works even when the peak-marker layer is hidden.
-      if (
-        AppState.surfaceView === 'globe' &&
-        typeof GSRGlobe3DView !== 'undefined' &&
-        GSRGlobe3DView.isActive
-      ) {
+      if (AppState.surfaceView === 'globe' && GSRGlobe3DView.isActive) {
         if (typeof GSRGlobe3DView.focusOnPeakLocation === 'function') {
           GSRGlobe3DView.focusOnPeakLocation(idx);
         }
@@ -170,11 +166,7 @@ export const PeaksTableUI = {
       }
     } else if (source !== 'map' && hasGps) {
       // Graph click: fly to the peak and open its popup.
-      if (
-        AppState.surfaceView === 'globe' &&
-        typeof GSRGlobe3DView !== 'undefined' &&
-        GSRGlobe3DView.isActive
-      ) {
+      if (AppState.surfaceView === 'globe' && GSRGlobe3DView.isActive) {
         if (typeof GSRGlobe3DView.focusOnPeak === 'function') {
           GSRGlobe3DView.focusOnPeak(idx);
         }
@@ -343,7 +335,6 @@ export const PeaksTableUI = {
       const { pct: qPct, label: qLabel } = getQualityLabel(qScore);
 
       const escapedLabel =
-        typeof GSRNotices !== 'undefined' &&
         typeof GSRNotices.escapeHtml === 'function'
           ? GSRNotices.escapeHtml(p.label || '')
           : (p.label || '')

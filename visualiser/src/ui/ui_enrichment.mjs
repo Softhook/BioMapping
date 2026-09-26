@@ -65,16 +65,10 @@ export const EnrichmentUI = {
     }
 
     const isValid = (lat, lon) => {
-      if (
-        typeof NDVISampler !== 'undefined' &&
-        typeof NDVISampler._isValidCoord === 'function'
-      ) {
+      if (typeof NDVISampler._isValidCoord === 'function') {
         return NDVISampler._isValidCoord(lat, lon);
       }
-      if (
-        typeof OSMEnricher !== 'undefined' &&
-        typeof OSMEnricher._isValidCoord === 'function'
-      ) {
+      if (typeof OSMEnricher._isValidCoord === 'function') {
         return OSMEnricher._isValidCoord(lat, lon);
       }
       return (
@@ -147,16 +141,6 @@ export const EnrichmentUI = {
    */
   async ensureOsmGeoms(onProgress) {
     const report = typeof onProgress === 'function' ? onProgress : () => {};
-    if (typeof OSMEnricher === 'undefined' || typeof OsmCache === 'undefined') {
-      return {
-        ok: false,
-        reason: 'unavailable',
-        fetched: 0,
-        cached: 0,
-        failed: 0,
-        tooBig: 0,
-      };
-    }
 
     const { validTracks } = this.getSpatialTracks({
       silent: true,

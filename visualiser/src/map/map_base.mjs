@@ -136,9 +136,7 @@ export class GSRMapBase {
     });
 
     // Initialise static RF Fluid background renderer layer
-    if (typeof RFFluidRenderer !== 'undefined') {
-      this.rfFluidRenderer = new RFFluidRenderer(this.map, { visible: false });
-    }
+    this.rfFluidRenderer = new RFFluidRenderer(this.map, { visible: false });
 
     // Overlap-aware path colour depends on the on-screen stroke width, which
     // changes with zoom — re-run the path renderer once the zoom settles (see
@@ -217,11 +215,7 @@ export class GSRMapBase {
   static _buildOverlapCells(drawPoints, getVal, radiusM, revisitGapS) {
     if (!Array.isArray(drawPoints) || drawPoints.length < 4 || !(radiusM > 0))
       return null;
-    if (
-      typeof GeoUtils === 'undefined' ||
-      typeof GeoUtils.getGeodesicScale !== 'function'
-    )
-      return null;
+    if (typeof GeoUtils.getGeodesicScale !== 'function') return null;
 
     const sc = GeoUtils.getGeodesicScale(
       drawPoints[drawPoints.length >> 1].lat,

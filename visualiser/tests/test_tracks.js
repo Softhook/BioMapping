@@ -37,7 +37,7 @@ global.loop = () => {};
 global.windowResized = () => {};
 global.requestAnimationFrame = () => {};
 
-global.GSR_CONST = require('./mock_constants.js');
+global.GSR_CONST = require('../src/core/constants.mjs').GSR_CONST;
 
 // tracks.mjs holds real static imports of GSREvents/GSRUI/GSRRenderer/
 // GSRStorage (from events.mjs/ui.mjs/renderer.mjs/storage.mjs) — a

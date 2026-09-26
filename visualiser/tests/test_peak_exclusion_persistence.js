@@ -9,7 +9,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
 
-global.GSR_CONST = require('./mock_constants.js');
+global.GSR_CONST = require('../src/core/constants.mjs').GSR_CONST;
 const { GSRAnalyzer } = require('../src/signal/analyzer.mjs');
 
 const CSV = fs.readFileSync(

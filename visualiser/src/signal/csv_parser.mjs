@@ -7,8 +7,7 @@
  * plain result object; the dynamic EM-fog fallback uses em_fog.mjs's
  * calcEmFog (also the source GSRAnalyzer.calcEmFog delegates to).
  *
- * Dependencies: GSR_CONST global (constants.js / tests/mock_constants.js) for
- * column-keyword and unit-conversion thresholds; em_fog.mjs's calcEmFog.
+ * Dependencies: GSR_CONST (constants.mjs) for column-keyword and unit-conversion thresholds; em_fog.mjs's calcEmFog.
  *
  * Standalone — no DOM, no Leaflet, no p5.
  */

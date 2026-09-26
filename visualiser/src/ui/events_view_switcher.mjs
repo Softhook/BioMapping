@@ -241,7 +241,7 @@ export const ViewSwitcherEvents = {
         // live and re-measure the Leaflet map, which may have been sized while
         // the panel was hidden. mount() must run after the panel is displayed
         // (live-mode class above) so that measurement is correct on first open.
-        if (livePanel && typeof GSRLiveView !== 'undefined') {
+        if (livePanel) {
           GSRLiveView.mount(livePanel);
           GSRLiveView.activate();
         }
@@ -261,7 +261,6 @@ export const ViewSwitcherEvents = {
       // the Live view's own map-first default. Desktop (AppState.viewMode
       // stays 'single' as today) is completely unaffected.
       if (
-        typeof GSRLiveView !== 'undefined' &&
         typeof GSRLiveView.isCompactLayout === 'function' &&
         GSRLiveView.isCompactLayout()
       ) {

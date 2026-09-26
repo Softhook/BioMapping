@@ -13,20 +13,19 @@ const path = require('node:path');
 
 const { loadModule } = require('./support/load_module.js');
 
-// Mock GSR_CONST (same as mock_constants.js)
-global.GSR_CONST = require('./mock_constants.js');
+global.GSR_CONST = require('../src/core/constants.mjs').GSR_CONST;
 
-loadModule(path.join(__dirname, '../src/gps/geo_utils.js'), 'GeoUtils');
-loadModule(path.join(__dirname, '../src/signal/stats_math.js'), 'StatsMath');
-loadModule(path.join(__dirname, '../src/map/map_colors.js'), 'MapColors');
-loadModule(path.join(__dirname, '../src/gps/gps_cv_kalman.js'), 'GpsCvKalman');
-loadModule(path.join(__dirname, '../src/gps/gps_pipeline.js'), 'GpsPipeline');
-loadModule(path.join(__dirname, '../src/signal/dwt_filter.js'), 'DWT'); // needed by analyzer.js
-loadModule(path.join(__dirname, '../src/signal/gsr_filter.js'), 'GsrFilter'); // needed by analyzer.js
-loadModule(path.join(__dirname, '../src/signal/csv_parser.js'), 'GSRCSVParser'); // needed by analyzer.js
+loadModule(path.join(__dirname, '../src/gps/geo_utils.mjs'));
+loadModule(path.join(__dirname, '../src/signal/stats_math.mjs'));
+loadModule(path.join(__dirname, '../src/map/map_colors.mjs'));
+loadModule(path.join(__dirname, '../src/gps/gps_cv_kalman.mjs'));
+loadModule(path.join(__dirname, '../src/gps/gps_pipeline.mjs'));
+loadModule(path.join(__dirname, '../src/signal/dwt_filter.mjs')); // needed by analyzer.js
+loadModule(path.join(__dirname, '../src/signal/gsr_filter.mjs')); // needed by analyzer.js
+loadModule(path.join(__dirname, '../src/signal/csv_parser.mjs')); // needed by analyzer.js
 
 global.window = global;
-loadModule(path.join(__dirname, '../src/signal/analyzer.js'), 'GSRAnalyzer');
+loadModule(path.join(__dirname, '../src/signal/analyzer.mjs'));
 
 const { GeoUtils, GpsCvKalman, GpsPipeline, GSRAnalyzer } = global;
 

@@ -428,8 +428,7 @@ export const GSRMapExporter = {
         if (typeof timer.unref === 'function') timer.unref();
       });
     } catch (err) {
-      if (typeof GSRNotices !== 'undefined')
-        GSRNotices.report(err, 'map_exporter:_ensureTileCoverage');
+      GSRNotices.report(err, 'map_exporter:_ensureTileCoverage');
     }
   },
 
@@ -865,8 +864,7 @@ export const GSRMapExporter = {
         if (u?.startsWith('data:')) return u;
       } catch (err) {
         // Canvas is tainted (cross-origin tiles) — fall through to the fetch path below.
-        if (typeof GSRNotices !== 'undefined')
-          GSRNotices.report(err, 'map_exporter:rasterizeImage(tainted canvas)');
+        GSRNotices.report(err, 'map_exporter:rasterizeImage(tainted canvas)');
       }
     }
 
@@ -885,8 +883,7 @@ export const GSRMapExporter = {
         fr.readAsDataURL(blob);
       });
     } catch (err) {
-      if (typeof GSRNotices !== 'undefined')
-        GSRNotices.report(err, 'map_exporter:rasterizeImage(fetch)');
+      GSRNotices.report(err, 'map_exporter:rasterizeImage(fetch)');
       return null;
     }
   },
@@ -948,13 +945,7 @@ export const GSRMapExporter = {
     // Apply Chaikin pre-smoothing ONLY to track/contour paths to filter micro-jitter
     // before screen projection.
     let isClosedLoop = false;
-    if (
-      !isPoly &&
-      !exact &&
-      Array.isArray(latlngs) &&
-      latlngs.length >= 3 &&
-      typeof GeoUtils !== 'undefined'
-    ) {
+    if (!isPoly && !exact && Array.isArray(latlngs) && latlngs.length >= 3) {
       try {
         const flat = Array.isArray(latlngs[0]) ? latlngs.flat() : latlngs;
         if (
@@ -992,8 +983,7 @@ export const GSRMapExporter = {
             : GeoUtils.chaikinSmooth(flat, 4, isClosedLoop);
         }
       } catch (err) {
-        if (typeof GSRNotices !== 'undefined')
-          GSRNotices.report(err, 'map_exporter:_vectors(smoothing)');
+        GSRNotices.report(err, 'map_exporter:_vectors(smoothing)');
       }
     }
 
@@ -1106,10 +1096,7 @@ export const GSRMapExporter = {
     }
 
     const mode = !smooth || exact ? 'none' : curveMode;
-    if (
-      typeof BezierSpline !== 'undefined' &&
-      typeof BezierSpline.fitPathD === 'function'
-    ) {
+    if (typeof BezierSpline.fitPathD === 'function') {
       return BezierSpline.fitPathD(pts, {
         curveMode: mode,
         closed: close,
@@ -1219,8 +1206,7 @@ export const GSRMapExporter = {
         y = cy + (lr.top - wr.top) + lr.height * 0.78;
       }
     } catch (err) {
-      if (typeof GSRNotices !== 'undefined')
-        GSRNotices.report(err, 'map_exporter:label placement');
+      GSRNotices.report(err, 'map_exporter:label placement');
     }
 
     return (
@@ -1341,10 +1327,7 @@ export const GSRMapExporter = {
   },
 
   _esc(v) {
-    if (
-      typeof GSRNotices !== 'undefined' &&
-      typeof GSRNotices.escapeHtml === 'function'
-    ) {
+    if (typeof GSRNotices.escapeHtml === 'function') {
       return GSRNotices.escapeHtml(v);
     }
     if (v == null) return '';

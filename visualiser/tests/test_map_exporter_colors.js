@@ -15,15 +15,9 @@ const path = require('node:path');
 // function wrapper, mirroring test_svg_vector_surface.js.
 const { loadModule } = require('./support/load_module.js');
 
-loadModule(path.join(__dirname, '../src/gps/geo_utils.js'), 'GeoUtils');
-loadModule(
-  path.join(__dirname, '../src/render/bezier_spline.js'),
-  'BezierSpline',
-);
-loadModule(
-  path.join(__dirname, '../src/map/map_exporter.js'),
-  'GSRMapExporter',
-);
+loadModule(path.join(__dirname, '../src/gps/geo_utils.mjs'));
+loadModule(path.join(__dirname, '../src/render/bezier_spline.mjs'));
+loadModule(path.join(__dirname, '../src/map/map_exporter.mjs'));
 const GSRMapExporter = global.GSRMapExporter;
 
 const project = (ll) => ({

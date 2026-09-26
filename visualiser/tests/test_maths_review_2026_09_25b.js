@@ -10,7 +10,7 @@
 const assert = require('node:assert');
 const test = require('node:test');
 
-global.GSR_CONST = require('./mock_constants.js');
+global.GSR_CONST = require('../src/core/constants.mjs').GSR_CONST;
 const { GsrFilter } = require('../src/signal/gsr_filter.mjs');
 const { StatsMath } = require('../src/signal/stats_math.mjs');
 const { GSRArousalPlaces } = require('../src/spatial/arousal_places.mjs');

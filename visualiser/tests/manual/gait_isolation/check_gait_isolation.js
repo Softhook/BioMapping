@@ -36,12 +36,12 @@ global.GSR_CONST = require('../../../src/core/constants.mjs').GSR_CONST;
 const { loadModule } = require('../../support/load_module.js');
 
 const SRC = path.join(__dirname, '../../../src/signal');
-loadModule(path.join(SRC, 'dwt_filter.js'), 'DWT');
-loadModule(path.join(SRC, 'gsr_filter.js'), 'GsrFilter');
-loadModule(path.join(SRC, 'cvxeda.js'), 'CVXEDA');
-loadModule(path.join(SRC, 'deconvolution.js'), 'SCRDeconvolution');
-loadModule(path.join(SRC, 'csv_parser.js'), 'GSRCSVParser');
-loadModule(path.join(SRC, 'analyzer.js'), 'GSRAnalyzer');
+loadModule(path.join(SRC, 'dwt_filter.mjs'));
+loadModule(path.join(SRC, 'gsr_filter.mjs'));
+loadModule(path.join(SRC, 'cvxeda.mjs'));
+loadModule(path.join(SRC, 'deconvolution.mjs'));
+loadModule(path.join(SRC, 'csv_parser.mjs'));
+loadModule(path.join(SRC, 'analyzer.mjs'));
 const { GSRAnalyzer, GsrFilter } = global;
 const D = global.GSR_CONST.GSR_DEFAULT;
 const TRACKS_DIR = path.join(__dirname, '../../../../tracks');

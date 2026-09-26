@@ -6,7 +6,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 
-global.GSR_CONST = require('./mock_constants.js');
+global.GSR_CONST = require('../src/core/constants.mjs').GSR_CONST;
 const { GSRMapPeaks } = require('../src/map/manager/peaks.mjs');
 
 test('_buildPeakMarker: unplaceable label reaches the tooltip HTML-escaped', () => {

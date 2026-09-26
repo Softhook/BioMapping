@@ -9,7 +9,7 @@
 const assert = require('node:assert');
 const test = require('node:test');
 
-global.GSR_CONST = require('./mock_constants.js');
+global.GSR_CONST = require('../src/core/constants.mjs').GSR_CONST;
 const { GSRCSVParser } = require('../src/signal/csv_parser.mjs');
 const { MapMatcher } = require('../src/gps/map_match.mjs');
 const { SCRDeconvolution } = require('../src/signal/deconvolution.mjs');

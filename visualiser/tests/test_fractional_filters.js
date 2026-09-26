@@ -9,15 +9,15 @@ const assert = require('node:assert');
 
 // ── Bootstrap scope ─────────────────────────────────────────────────────────
 global.window = global;
-global.GSR_CONST = require('./mock_constants.js');
+global.GSR_CONST = require('../src/core/constants.mjs').GSR_CONST;
 global.GSRAnalyzer = {
   calcEmFog: () => 0.0,
 };
 
 const { loadModule } = require('./support/load_module.js');
 
-loadModule(path.join(__dirname, '../src/signal/stats_math.js'), 'StatsMath');
-loadModule(path.join(__dirname, '../src/signal/gsr_filter.js'), 'GsrFilter');
+loadModule(path.join(__dirname, '../src/signal/stats_math.mjs'));
+loadModule(path.join(__dirname, '../src/signal/gsr_filter.mjs'));
 
 const { GsrFilter } = global;
 

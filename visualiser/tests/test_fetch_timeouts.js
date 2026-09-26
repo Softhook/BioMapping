@@ -7,7 +7,7 @@
 const assert = require('node:assert');
 const test = require('node:test');
 
-global.GSR_CONST = require('./mock_constants.js');
+global.GSR_CONST = require('../src/core/constants.mjs').GSR_CONST;
 const { GSRMapExporter } = require('../src/map/map_exporter.mjs');
 const { GSRMapOsm } = require('../src/map/manager/osm.mjs');
 const { NDVISampler } = require('../src/osm/ndvi_sampler.mjs');

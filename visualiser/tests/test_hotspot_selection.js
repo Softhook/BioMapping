@@ -17,19 +17,16 @@ const path = require('node:path');
 global.window = global;
 
 const { loadModule } = require('./support/load_module.js');
-loadModule(path.join(__dirname, '../src/signal/dwt_filter.js'), 'DWT');
-loadModule(path.join(__dirname, '../src/signal/gsr_filter.js'), 'GsrFilter');
-loadModule(
-  path.join(__dirname, '../src/signal/deconvolution.js'),
-  'SCRDeconvolution',
-);
-loadModule(path.join(__dirname, '../src/signal/csv_parser.js'), 'GSRCSVParser');
-loadModule(path.join(__dirname, '../src/signal/analyzer.js'), 'GSRAnalyzer');
+loadModule(path.join(__dirname, '../src/signal/dwt_filter.mjs'));
+loadModule(path.join(__dirname, '../src/signal/gsr_filter.mjs'));
+loadModule(path.join(__dirname, '../src/signal/deconvolution.mjs'));
+loadModule(path.join(__dirname, '../src/signal/csv_parser.mjs'));
+loadModule(path.join(__dirname, '../src/signal/analyzer.mjs'));
 const { GSRAnalyzer } = global;
 
 // analyzer.mjs holds a real static `import { GSR_CONST } from
 // '../core/constants.mjs'` (ES-module migration) — a disconnected
-// `global.GSR_CONST = require('./mock_constants.js')` no longer reaches it,
+// `global.GSR_CONST = require('../src/core/constants.mjs').GSR_CONST` no longer reaches it,
 // so test 7 below (which mutates MIN_SEPARATION_M at runtime and expects
 // analyzer to see the change) silently ran against the real, unmutated
 // constant. Point `global.GSR_CONST` at the actual imported object instead —

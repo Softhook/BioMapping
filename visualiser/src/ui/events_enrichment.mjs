@@ -40,26 +40,18 @@ export const EnrichmentEvents = {
     document
       .getElementById('btnClearOsmCache')
       .addEventListener('click', async () => {
-        // Ask via the shared notices layer; fall back to a no-op (rather than
-        // silently clearing) if no notice layer is available.
-        const proceed =
-          typeof GSRNotices !== 'undefined'
-            ? await GSRNotices.dialog({
-                title: 'Clear OSM Cache',
-                message:
-                  'Clear locally cached OpenStreetMap data? Future enrichment will re-fetch from the Overpass API.',
-                buttons: [{ label: 'Clear', value: 'clear', style: 'danger' }],
-                dismissLabel: 'Cancel',
-                tone: 'warn',
-              })
-            : null;
+        const proceed = await GSRNotices.dialog({
+          title: 'Clear OSM Cache',
+          message:
+            'Clear locally cached OpenStreetMap data? Future enrichment will re-fetch from the Overpass API.',
+          buttons: [{ label: 'Clear', value: 'clear', style: 'danger' }],
+          dismissLabel: 'Cancel',
+          tone: 'warn',
+        });
         if (proceed !== 'clear') return;
         try {
           await OsmCache.clear();
-          if (
-            typeof NDVISampler !== 'undefined' &&
-            typeof NDVISampler.clearCache === 'function'
-          ) {
+          if (typeof NDVISampler.clearCache === 'function') {
             NDVISampler.clearCache();
           }
           alert('OSM and satellite tile cache cleared.');
@@ -106,10 +98,7 @@ export const EnrichmentEvents = {
     const syncCopernicusBadges = () => {
       const activeBadge = document.getElementById('copernicusActiveBadge');
       const defaultBadge = document.getElementById('copernicusDefaultBadge');
-      const hasId =
-        typeof NDVISampler !== 'undefined'
-          ? NDVISampler.hasCopernicusConfig()
-          : false;
+      const hasId = NDVISampler.hasCopernicusConfig();
       if (activeBadge)
         activeBadge.style.display = hasId ? 'inline-block' : 'none';
       if (defaultBadge)
@@ -117,8 +106,7 @@ export const EnrichmentEvents = {
     };
 
     if (copernicusInstanceInput) {
-      const activeId =
-        typeof NDVISampler !== 'undefined' ? NDVISampler.getInstanceId() : '';
+      const activeId = NDVISampler.getInstanceId();
       if (activeId) copernicusInstanceInput.value = activeId;
       copernicusInstanceInput.addEventListener('change', () => {
         SafeStorage.set(
@@ -132,10 +120,7 @@ export const EnrichmentEvents = {
       });
     }
     if (copernicusRawLayerInput) {
-      const activeRawLayer =
-        typeof NDVISampler !== 'undefined'
-          ? NDVISampler.getRawLayerId()
-          : 'NDVI_RAW';
+      const activeRawLayer = NDVISampler.getRawLayerId();
       if (activeRawLayer) copernicusRawLayerInput.value = activeRawLayer;
       copernicusRawLayerInput.addEventListener('change', () => {
         SafeStorage.set(
@@ -150,10 +135,7 @@ export const EnrichmentEvents = {
       });
     }
     if (copernicusTimeInput) {
-      const activeTime =
-        typeof NDVISampler !== 'undefined'
-          ? NDVISampler.getTimeRange()
-          : '2024-05-01/2024-09-30';
+      const activeTime = NDVISampler.getTimeRange();
       if (activeTime) copernicusTimeInput.value = activeTime;
       copernicusTimeInput.addEventListener('change', () => {
         SafeStorage.set(
@@ -169,7 +151,7 @@ export const EnrichmentEvents = {
     const btnClearCreds = document.getElementById('btnClearCopernicusCreds');
     if (btnClearCreds) {
       btnClearCreds.addEventListener('click', () => {
-        if (typeof NDVISampler !== 'undefined') NDVISampler.clearCredentials();
+        NDVISampler.clearCredentials();
         if (copernicusInstanceInput) copernicusInstanceInput.value = '';
         if (copernicusRawLayerInput) copernicusRawLayerInput.value = 'NDVI_RAW';
         if (copernicusTimeInput)

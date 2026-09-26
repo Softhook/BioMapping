@@ -305,7 +305,6 @@ export let liveMeanScl = null; // null = no tonic samples yet
 // (subject to the wall-clock throttle above) and refresh the map's delayed
 // phasic recolour from the same decomposition.
 export function feedLiveAnalyzer() {
-  if (typeof GSRAnalyzer === 'undefined') return; // analysis deps not on the page
   if (!liveAnalyzer) {
     liveAnalyzer = new GSRAnalyzer();
     liveAnalyzer.raw = [];
@@ -891,7 +890,7 @@ function bindLiveFab() {
     } else if (btn.dataset.action === 'enter-fullscreen') {
       if (isInAppShell() && GSRLayoutManager.enterLiveDisplayMode) {
         GSRLayoutManager.enterLiveDisplayMode();
-      } else if (typeof GSRFullscreen !== 'undefined') {
+      } else {
         // Standalone live.html has no .app-container for GSRLayoutManager
         // to act on — fullscreen the document root directly; GSRFullscreen
         // keeps it sticky across lock/unlock just like the in-app path.
@@ -901,7 +900,7 @@ function bindLiveFab() {
     } else if (btn.dataset.action === 'exit-fullscreen') {
       if (isInAppShell() && GSRLayoutManager.exitLiveDisplayMode) {
         GSRLayoutManager.exitLiveDisplayMode();
-      } else if (typeof GSRFullscreen !== 'undefined') {
+      } else {
         GSRFullscreen.exit();
       }
       closeFabMenu();
@@ -910,8 +909,7 @@ function bindLiveFab() {
 
   // Keep Full Screen / Exit Full Screen chips synced when browser fullscreen changes
   const handleFsChange = () => renderFabMenu();
-  if (typeof GSRFullscreen !== 'undefined')
-    GSRFullscreen.onChange(handleFsChange);
+  GSRFullscreen.onChange(handleFsChange);
 
   // Tapping the map (or anywhere else) with the menu open should close it —
   // an open fan-out sitting over the map otherwise blocks map interaction
@@ -981,7 +979,7 @@ function bindLiveStateListeners() {
   // Bind the shared fullscreen/visibility sticky-restore machinery (also
   // bound by GSRLayoutManager.init() in index.html — idempotent). In the
   // standalone page this is the only caller.
-  if (typeof GSRFullscreen !== 'undefined') GSRFullscreen.init();
+  GSRFullscreen.init();
 
   document.addEventListener('visibilitychange', async () => {
     if (document.visibilityState === 'visible') {

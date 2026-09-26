@@ -294,7 +294,6 @@ export const GSRSpatialClustering = {
       const pkLat = parseFloat(pk.lat);
       const pkLon = parseFloat(pk.lon);
       const { rMin, rMax, cMin, cMax } =
-        typeof SpatialGrid !== 'undefined' &&
         typeof SpatialGrid.computeCellWindow === 'function'
           ? SpatialGrid.computeCellWindow(
               pkLat,

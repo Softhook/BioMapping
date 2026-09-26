@@ -39,7 +39,7 @@ export class GSRGlobeRf extends GSRGlobeOsm {
    */
   render3DRfExpanse(analyzer, drawPoints) {
     this.clearRfEntities();
-    if (!this.viewer || typeof GSRGlobe3DRf === 'undefined') return;
+    if (!this.viewer) return;
     const prim = GSRGlobe3DRf.buildPrimitive(analyzer, drawPoints, {
       mode: this.rfMode,
       height: this.rfHeight,

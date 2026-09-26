@@ -7,19 +7,16 @@ const test = require('node:test');
 const path = require('node:path');
 
 global.window = global;
-global.GSR_CONST = require('./mock_constants.js');
+global.GSR_CONST = require('../src/core/constants.mjs').GSR_CONST;
 
 const { loadModule } = require('./support/load_module.js');
-loadModule(path.join(__dirname, '../src/gps/geo_utils.js'), 'GeoUtils');
-loadModule(path.join(__dirname, '../src/signal/stats_math.js'), 'StatsMath');
-loadModule(path.join(__dirname, '../src/map/map_colors.js'), 'MapColors');
-loadModule(path.join(__dirname, '../src/gps/gps_pipeline.js'), 'GpsPipeline');
-loadModule(path.join(__dirname, '../src/signal/dwt_filter.js'), 'DWT');
-loadModule(path.join(__dirname, '../src/signal/gsr_filter.js'), 'GsrFilter');
-loadModule(
-  path.join(__dirname, '../src/signal/deconvolution.js'),
-  'SCRDeconvolution',
-);
+loadModule(path.join(__dirname, '../src/gps/geo_utils.mjs'));
+loadModule(path.join(__dirname, '../src/signal/stats_math.mjs'));
+loadModule(path.join(__dirname, '../src/map/map_colors.mjs'));
+loadModule(path.join(__dirname, '../src/gps/gps_pipeline.mjs'));
+loadModule(path.join(__dirname, '../src/signal/dwt_filter.mjs'));
+loadModule(path.join(__dirname, '../src/signal/gsr_filter.mjs'));
+loadModule(path.join(__dirname, '../src/signal/deconvolution.mjs'));
 
 const { AppState } = require('../src/core/app_state.mjs');
 const { GSRAnalyzer } = require('../src/signal/analyzer.mjs');

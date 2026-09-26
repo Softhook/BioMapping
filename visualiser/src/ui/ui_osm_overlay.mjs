@@ -95,7 +95,6 @@ export const OsmOverlayUI = {
     try {
       const on = this._osmOverlayOn;
       const mm = AppState.mapManager;
-      const g3d = typeof GSRGlobe3DView !== 'undefined' ? GSRGlobe3DView : null;
 
       const btn = document.getElementById('btnToggleOsmShapes');
       if (btn?.classList) btn.classList[on ? 'add' : 'remove']('active');
@@ -107,7 +106,7 @@ export const OsmOverlayUI = {
         // Also rebuild when the active track's OSM json has been replaced (a 2D
         // re-enrich / radius change while the globe is mounted) so the buildings
         // don't keep an area's stale coverage.
-        const mgr = g3d?.manager;
+        const mgr = GSRGlobe3DView.manager;
         const shown = !!mgr?.show3DBuildings;
         const staleJson = !!(
           on &&
@@ -117,7 +116,7 @@ export const OsmOverlayUI = {
           mgr.cachedOsmJson &&
           mgr.cachedOsmJson !== AppState.analyzer.osmJson
         );
-        if (g3d && (shown !== on || staleJson)) g3d.applyBuildings(on);
+        if (shown !== on || staleJson) GSRGlobe3DView.applyBuildings(on);
         return;
       }
 

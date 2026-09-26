@@ -1,7 +1,7 @@
 const assert = require('node:assert');
 const test = require('node:test');
 
-global.GSR_CONST = require('./mock_constants.js');
+global.GSR_CONST = require('../src/core/constants.mjs').GSR_CONST;
 global.MarchingSquares =
   require('../src/render/marching_squares.mjs').MarchingSquares;
 

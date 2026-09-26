@@ -102,8 +102,7 @@ export const FileExportEvents = {
     if (!analyzer || !drawPoints || drawPoints.length < 2) {
       const msg =
         'Load a single track with GPS data before exporting the 3D track.';
-      if (typeof GSRNotices !== 'undefined') GSRNotices.warn(msg, 'export3d');
-      else console.warn('[export3d]', msg);
+      GSRNotices.warn(msg, 'export3d');
       return;
     }
     const extEl = document.getElementById('g3dExtrusionScale');

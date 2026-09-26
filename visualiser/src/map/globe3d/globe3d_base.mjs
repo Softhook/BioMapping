@@ -125,13 +125,11 @@ export const seriesValue = (d) =>
 const rawMetricField = (metric) => {
   if (metric === 'gsr') return 'gsr';
   if (metric === 'hdopQuality') return 'hdop';
-  if (typeof GSR_CONST !== 'undefined') {
-    const tables = [GSR_CONST.OSM_METRICS, GSR_CONST.SATELLITE_METRICS];
-    for (const table of tables) {
-      if (!Array.isArray(table)) continue;
-      for (const m of table) {
-        if (m && m.key === metric) return m.field;
-      }
+  const tables = [GSR_CONST.OSM_METRICS, GSR_CONST.SATELLITE_METRICS];
+  for (const table of tables) {
+    if (!Array.isArray(table)) continue;
+    for (const m of table) {
+      if (m && m.key === metric) return m.field;
     }
   }
   return null;
@@ -957,14 +955,12 @@ export class GSRGlobeBase {
 
   /** Surface a recoverable problem to the user via GSRNotices, falling back to console. */
   _notifyWarn(message) {
-    if (typeof GSRNotices !== 'undefined') GSRNotices.warn(message, 'globe3d');
-    else console.warn('[globe3d]', message);
+    GSRNotices.warn(message, 'globe3d');
   }
 
   /** Surface an unexpected error to the user via GSRNotices, falling back to console. */
   _notifyError(err) {
-    if (typeof GSRNotices !== 'undefined') GSRNotices.report(err, 'globe3d');
-    else console.error('[globe3d]', err);
+    GSRNotices.report(err, 'globe3d');
   }
 
   /**
@@ -1539,22 +1535,14 @@ export class GSRGlobeBase {
 
     if (discrete) {
       if (metric === 'responseDynamics') {
-        const RD = ResponseDynamics;
-        const bandColors = RD
-          ? RD.BANDS.map((b) => b.color)
-          : ['#8b5cf6', '#3b82f6', '#10b981', '#f97316', '#ef4444'];
+        const bandColors = ResponseDynamics.BANDS.map((b) => b.color);
         const colors = [
           Cesium.Color.TRANSPARENT,
           ...bandColors.map((c) =>
             Cesium.Color.fromCssColorString(c).withAlpha(0.85),
           ),
         ];
-        const indexOf = (v) =>
-          RD
-            ? RD.getBucketIndex(v)
-            : v == null || !isFinite(v) || v <= 0
-              ? 0
-              : 3;
+        const indexOf = (v) => ResponseDynamics.getBucketIndex(v);
         colorSeries = new Array(rawSeries.length);
         for (let i = 0; i < rawSeries.length; i++)
           colorSeries[i] = indexOf(rawSeries[i]);

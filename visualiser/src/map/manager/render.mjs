@@ -62,11 +62,7 @@ export class GSRMapRender extends GSRMapToggles {
       if (options.fitBounds || isNewTrack) {
         this._fitBounds(drawPoints, { animate: true, duration: 0.45 });
         this._lastFitBoundsTrackId = cacheKey;
-        if (
-          !this._lastFitBoundsTrackSet &&
-          typeof AppState !== 'undefined' &&
-          AppState.collectiveManager
-        ) {
+        if (!this._lastFitBoundsTrackSet && AppState.collectiveManager) {
           this._lastFitBoundsTrackSet = this._getTrackSetSignature(
             AppState.collectiveManager,
           );

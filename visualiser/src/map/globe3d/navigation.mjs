@@ -17,8 +17,7 @@ export class GSRGlobeNavigation extends GSRGlobeToggles {
    */
   flyToPeak(peakIdx, analyzer) {
     if (!this.viewer || typeof Cesium === 'undefined') return;
-    const a =
-      analyzer || (typeof AppState !== 'undefined' ? AppState.analyzer : null);
+    const a = analyzer || AppState.analyzer;
     if (!a?.peaks || peakIdx < 0 || peakIdx >= a.peaks.length) return;
 
     const peak = a.peaks[peakIdx];
@@ -60,8 +59,7 @@ export class GSRGlobeNavigation extends GSRGlobeToggles {
    */
   focusOnPeakLocation(peakIdx, analyzer) {
     if (!this.viewer || typeof Cesium === 'undefined') return;
-    const a =
-      analyzer || (typeof AppState !== 'undefined' ? AppState.analyzer : null);
+    const a = analyzer || AppState.analyzer;
     if (!a?.peaks || peakIdx < 0 || peakIdx >= a.peaks.length) return;
 
     const peak = a.peaks[peakIdx];

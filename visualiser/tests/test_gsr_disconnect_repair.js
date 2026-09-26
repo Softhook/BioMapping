@@ -4,10 +4,7 @@ const path = require('node:path');
 
 const { loadModule } = require('./support/load_module.js');
 
-loadModule(
-  path.join(__dirname, '../src/signal/gsr_disconnect_repair.js'),
-  'GsrDisconnectRepair',
-);
+loadModule(path.join(__dirname, '../src/signal/gsr_disconnect_repair.mjs'));
 const { detectAndRepairGsrDisconnects } = global;
 
 function mkRaw(vals) {

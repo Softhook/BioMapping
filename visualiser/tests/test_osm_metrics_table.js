@@ -16,8 +16,6 @@ const test = require('node:test');
 // would cause every assert.deepStrictEqual below.
 const { GSR_CONST } = require('../src/core/constants.mjs');
 
-const MOCK_GSR_CONST = require('./mock_constants.js');
-
 test('OSM_METRICS has exactly 10 entries, matching the 10 osm_* fields written by osm_enrichment.js', () => {
   assert.strictEqual(GSR_CONST.OSM_METRICS.length, 10);
 });
@@ -110,13 +108,4 @@ test('keys are unique', () => {
 test('fields are unique', () => {
   const fields = GSR_CONST.OSM_METRICS.map((m) => m.field);
   assert.strictEqual(new Set(fields).size, fields.length);
-});
-
-// tests/mock_constants.js hand-mirrors constants.js for the Node test
-// environment (constants.js isn't require()-able as-is everywhere it's
-// used — see mock_constants.js's own header). Nothing enforces the two
-// stay in sync, so a change to one without the other is exactly the kind
-// of silent-desync bug this table was extracted to prevent — guard it here.
-test("mock_constants.js's OSM_METRICS stays in sync with the real constants.js", () => {
-  assert.deepStrictEqual(MOCK_GSR_CONST.OSM_METRICS, GSR_CONST.OSM_METRICS);
 });
