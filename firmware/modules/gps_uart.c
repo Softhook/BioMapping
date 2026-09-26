@@ -15,7 +15,6 @@
 #include "eff_short_wordlist.h" // chip-ID mnemonic phrase — see ubx_poll_chip_id()
 
 #define RX_LINE_BUF  1024      // max NMEA line length (~80 in practice)
-#define GSV_MAX_TALKERS 5      // GP/GL/GA/GB/GQ — one slot per constellation per accumulation window
 // Bound main-thread monopolization: drain a chunk, then reschedule if more.
 // This keeps one UART event from consuming an unbounded slice of the app
 // loop when backlog builds.
@@ -35,15 +34,11 @@ struct GpsUart {
     bool                 ready;
     volatile bool        rx_pending;
     uint32_t             last_valid_nmea_tick;  // watchdog: last successful $Gx parse
-    uint32_t             last_gsv_reset_tick;   // tick of last GSV total_sats reset
-    char                 gsv_contributed_talkers[GSV_MAX_TALKERS][2]; // talkers already summed this window
-    int                  gsv_contributed_count;
     struct minmea_time   last_epoch_time;
     bool                 sbas_seen_this_second; // an SBAS satellite was in use since the last whole-second reset
     // Per-session log-once flags. Kept in the struct (not as function-local
     // statics) so they reset correctly on each gps_uart_alloc() call.
     bool                 gsa_talker_logged;
-    bool                 gsv_talker_logged;
 
     // ── Contention diagnostics — see gps_uart.h ─────────────────────────
     // rx_drop_count is written from ISR context (gps_uart_irq_cb) and read
@@ -106,21 +101,15 @@ static inline double minmea_tocoord_double(const struct minmea_float* f) {
     return (double)deg + (double)min / ((double)f->scale * 60);
 }
 
-// ── Satellite identity for the active_prns dedup set ─────────────────
+// ── SBAS detection ───────────────────────────────────────────────────
 // The M10Q runs at its defaults, NMEA 4.11 with strict satellite numbering
 // (gps_uart_configure() leaves CFG-NMEA-PROTVER/SVNUMBERING alone), which
 // reuses the same numbers across constellations: GPS 1-32, SBAS 33-64,
 // GLONASS 65-96, Galileo 1-36, BeiDou 1-63, QZSS 1-10 (u-blox M10 SPG 5.10
 // Interface Description, Table 3). The number alone is therefore ambiguous;
 // the GSA SystemID says which constellation it belongs to (1=GPS/SBAS,
-// 2=GLONASS, 3=Galileo, 4=BeiDou, 5=QZSS, §1.5.4). Strict numbers are all
-// below 100, so SystemID*100 + number is unique. A GSA without a SystemID
-// (0) keeps the bare number.
-static int gps_sat_key(int system_id, int sat) {
-    return system_id * 100 + sat;
-}
-
-// SBAS satellites are listed under SystemID 1 with numbers 33-64 (Table 3).
+// 2=GLONASS, 3=Galileo, 4=BeiDou, 5=QZSS, §1.5.4). SBAS satellites are the
+// SystemID 1 numbers 33-64.
 static bool gps_sat_is_sbas(int system_id, int sat) {
     return system_id == 1 && sat >= 33 && sat <= 64;
 }
@@ -134,33 +123,42 @@ static void gps_store_pdop(GpsUart* g, float pdop) {
     }
 }
 
-// ── Satellite count: never report less than GSA/GSV have seen. ─────────
-// GSV total_sats is the definitive count when available (GGA caps at 12 on
-// u-blox); falls back to the GSA active-satellite count before GSV arrives.
-static void gps_raise_sat_count(GpsUart* g) {
-    if(g->status.active_prn_count > g->status.satellites_tracked) {
-        g->status.satellites_tracked = g->status.active_prn_count;
+// Start of comma-separated field n ("$PUBX" is field 0), or NULL if the
+// line has fewer fields.
+static const char* nmea_field(const char* line, int n) {
+    const char* p = line;
+    for(int field = 0; field < n; field++) {
+        p = strchr(p, ',');
+        if(!p) return NULL;
+        p++;
     }
-    if(g->status.gsv_total_sats > g->status.satellites_tracked) {
-        g->status.satellites_tracked = g->status.gsv_total_sats;
-    }
+    return p;
 }
 
 // NMEA sentence dispatcher
 static void gps_uart_parse_line(GpsUart* g, char* line) {
-    // Parse $PUBX,00 for horizontal accuracy (hAcc in metres)
+    // $PUBX,00 (u-blox M10 SPG 5.10 Interface Description §2.8.2): field 9 is
+    // hAcc in metres, field 18 numSvs, the satellites used in the navigation
+    // solution. numSvs is the satellite count: GGA's is capped at 12, and
+    // GSV counts satellites in view whether or not they're heard.
     if(strncmp(line, "$PUBX,00,", 9) == 0) {
-        const char* p = line;
-        int field = 0;
-        while(*p && field < 9) {
-            if(*p == ',') field++;
-            p++;
+        // minmea doesn't parse PUBX, so check it here. Strict: a line cut off
+        // before its checksum would otherwise pass with a truncated field.
+        if(!minmea_check(line, true)) {
+            g->nmea_fail_count++;
+            return;
         }
-        if(field == 9 && *p) {
-            float hacc = strtof(p, NULL);
+        const char* hacc_field = nmea_field(line, 9);
+        if(hacc_field) {
+            float hacc = strtof(hacc_field, NULL);
             if(hacc > 0.0f) {
                 g->status.hacc = hacc;
             }
+        }
+        // An empty numSvs keeps the last count, as an empty HDOP does.
+        const char* num_svs_field = nmea_field(line, 18);
+        if(num_svs_field && *num_svs_field >= '0' && *num_svs_field <= '9') {
+            g->status.satellites_tracked = atoi(num_svs_field);
         }
         g->last_valid_nmea_tick = furi_get_tick();
         return;
@@ -201,21 +199,15 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
             g->status.date = frame.date;
             g->last_valid_nmea_tick = furi_get_tick();
 
-            // Clear per-epoch accumulators on whole-second boundary.
-            // Sub-second (microsecond) differences are ignored so that
-            // multi-constellation GSA sentences arriving within the same
-            // second all accumulate into the same active_prns set.
+            // Roll the SBAS window over on each whole second. Sub-second
+            // differences are ignored so that all of one second's
+            // per-constellation GSA sentences count towards the same window.
             if(frame.time.hours   != g->last_epoch_time.hours ||
                frame.time.minutes != g->last_epoch_time.minutes ||
                frame.time.seconds != g->last_epoch_time.seconds) {
                 g->last_epoch_time = frame.time;
-                g->status.active_prn_count = 0;
                 g->status.sbas_active = g->sbas_seen_this_second;
                 g->sbas_seen_this_second = false;
-                // NOTE: gsv_total_sats is NOT reset here — it is reset inside
-                // the GSV handler on a tick-based threshold (see GSV case).
-                // RMC-based reset failed at high update rates where sub-second
-                // messages have identical hh:mm:ss fields, or when RMC is lost.
             }
         }
     } break;
@@ -232,10 +224,7 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
                 g->status.latitude  = minmea_tocoord_double(&frame.latitude);
                 g->status.longitude = minmea_tocoord_double(&frame.longitude);
             }
-            // GGA caps at 12 on u-blox, so lift straight back to the GSA/GSV
-            // count; otherwise a row logged before the next GSA reads 12.
-            g->status.satellites_tracked = frame.satellites_tracked;
-            gps_raise_sat_count(g);
+            // The satellite count is left to PUBX 00: GGA's caps at 12.
             g->status.fix_quality        = frame.fix_quality;
             // Only overwrite HDOP when the field is present — minmea_tofloat
             // returns NaN for empty fields, which would clobber a good reading
@@ -244,12 +233,6 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
             if(!isnan(gga_hdop)) g->status.hdop = gga_hdop;
             g->status.time               = frame.time;
             g->last_valid_nmea_tick = furi_get_tick();
-
-            // NOTE: active_prn_count is NOT reset here (unlike RMC).
-            // GGA arrives at 10 Hz with unique sub-second timestamps;
-            // resetting here would clear the multi-constellation PRN
-            // accumulation that GSA sentences build up between GGAs.
-            // RMC handles the epoch-boundary reset on whole seconds.
         }
     } break;
 
@@ -275,91 +258,17 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
             if(!isnan(gsa_hdop)) g->status.hdop = gsa_hdop;
             g->last_valid_nmea_tick = furi_get_tick();
 
+            // Stays set until a whole second passes without an SBAS
+            // satellite in use (cleared in the RMC epoch reset): the M10Q
+            // sends one GSA per constellation, and only the SystemID 1 one
+            // can list SBAS.
             for(int i = 0; i < 12 && frame.sats[i]; i++) {
-                int sat = frame.sats[i];
-                // Stays set until a whole second passes without an SBAS
-                // satellite in use (cleared in the RMC epoch reset): the
-                // M10Q sends one GSA per constellation, and only the
-                // SystemID 1 one can list SBAS.
-                if(gps_sat_is_sbas(frame.system_id, sat)) {
+                if(gps_sat_is_sbas(frame.system_id, frame.sats[i])) {
                     g->status.sbas_active = true;
                     g->sbas_seen_this_second = true;
                 }
-
-                int key = gps_sat_key(frame.system_id, sat);
-                bool found = false;
-                for(int k = 0; k < g->status.active_prn_count; k++) {
-                    if(g->status.active_prns[k] == key) {
-                        found = true;
-                        break;
-                    }
-                }
-                if(!found && g->status.active_prn_count < 32) {
-                    g->status.active_prns[g->status.active_prn_count++] = key;
-                }
             }
             gps_store_pdop(g, minmea_tofloat(&frame.pdop));
-            gps_raise_sat_count(g);
-        }
-    } break;
-
-    case MINMEA_SENTENCE_GSV: {
-        // ── Parse GSV for the per-constellation satellite-in-view count ──
-        struct minmea_sentence_gsv frame;
-        if(minmea_parse_gsv(&frame, line)) {
-            // Log the GSV talker prefix on first sighting so we can
-            // confirm the module emits constellation-specific GSV
-            // ($GPGSV / $GBGSV / $GLGSV) rather than $GNGSV.
-            if(!g->gsv_talker_logged) {
-                g->gsv_talker_logged = true;
-                FURI_LOG_I("GpsUart", "First GSV talker: %c%c",
-                           line[1], line[2]);
-            }
-            g->last_valid_nmea_tick = furi_get_tick();
-
-            char talker_id[2] = {line[1], line[2]};
-
-            // Accumulate per-constellation total_sats on the first message
-            // of each constellation's GSV cycle.  This gives the true
-            // satellite-in-view count across all enabled constellations
-            // (unlike GGA which caps at 12 on u-blox receivers).
-            //
-            // Reset the accumulator at the start of each multi-constellation
-            // GSV cycle (~1 Hz).  A tick-based threshold is used instead of
-            // RMC time-field comparison because at high GPS rates (10 Hz)
-            // RMC hours:minutes:seconds may not change for sub-second messages,
-            // and a lost RMC packet would skip the reset entirely, inflating
-            // the count 2-4x over multiple cycles.
-            if(frame.msg_nr == 1) {
-                uint32_t now = furi_get_tick();
-                if(now - g->last_gsv_reset_tick >
-                   furi_kernel_get_tick_frequency() * 4 / 5) {
-                    g->status.gsv_total_sats = 0;
-                    g->last_gsv_reset_tick = now;
-                    g->gsv_contributed_count = 0;
-                }
-                // Only sum a given constellation once per window. Without
-                // this guard, a talker whose GSV cycle restarts (msg_nr==1
-                // again) before the ~800ms reset threshold elapses gets its
-                // total_sats added a second time, silently doubling the
-                // reported count (observed on real hardware: 23 -> 46).
-                bool already_counted = false;
-                for(int i = 0; i < g->gsv_contributed_count; i++) {
-                    if(g->gsv_contributed_talkers[i][0] == talker_id[0] &&
-                       g->gsv_contributed_talkers[i][1] == talker_id[1]) {
-                        already_counted = true;
-                        break;
-                    }
-                }
-                if(!already_counted) {
-                    g->status.gsv_total_sats += frame.total_sats;
-                    if(g->gsv_contributed_count < GSV_MAX_TALKERS) {
-                        g->gsv_contributed_talkers[g->gsv_contributed_count][0] = talker_id[0];
-                        g->gsv_contributed_talkers[g->gsv_contributed_count][1] = talker_id[1];
-                        g->gsv_contributed_count++;
-                    }
-                }
-            }
         }
     } break;
 
@@ -833,12 +742,11 @@ static void ubx_send_rate(GpsUart* g) {
 }
 
 static void ubx_send_nmea_output_rates(GpsUart* g) {
-    static const uint8_t off_val[]      = {0x00};
-    static const uint8_t gsv_rate_val[] = {0x0A}; // every 10th epoch @ 10Hz = 1Hz
+    static const uint8_t off_val[] = {0x00};
     const UbxValsetPair pairs[] = {
-        {0x209100ca, off_val,      sizeof(off_val)},      // CFG-MSGOUT-NMEA_ID_GLL_UART1
-        {0x209100b1, off_val,      sizeof(off_val)},      // CFG-MSGOUT-NMEA_ID_VTG_UART1
-        {0x209100c5, gsv_rate_val, sizeof(gsv_rate_val)}, // CFG-MSGOUT-NMEA_ID_GSV_UART1
+        {0x209100ca, off_val, sizeof(off_val)}, // CFG-MSGOUT-NMEA_ID_GLL_UART1
+        {0x209100b1, off_val, sizeof(off_val)}, // CFG-MSGOUT-NMEA_ID_VTG_UART1
+        {0x209100c5, off_val, sizeof(off_val)}, // CFG-MSGOUT-NMEA_ID_GSV_UART1
     };
     ubx_send_valset(g, pairs, COUNT_OF(pairs), "CFG-VALSET NMEA output rates");
 }
@@ -1076,21 +984,15 @@ GpsUart* gps_uart_alloc(FuriMessageQueue* event_queue, NotificationApp* notifica
         .fix_valid          = false,
         .sbas_active        = false,
         .pdop               = 99.9f,
-        .active_prn_count   = 0,
-        .gsv_total_sats     = 0,
         .time               = {0},
         .date               = {0},
     };
-    memset(g->status.active_prns, 0, sizeof(g->status.active_prns));
     // Arm watchdog at alloc so a botched initial baud-rate switch
     // triggers a one-shot recovery after 5 s instead of silently
     // leaving the host at 115200 while the module stays at 9600.
     g->last_valid_nmea_tick  = furi_get_tick();
-    g->last_gsv_reset_tick   = furi_get_tick();
-    g->gsv_contributed_count = 0;
     g->sbas_seen_this_second = false;
     g->gsa_talker_logged     = false;
-    g->gsv_talker_logged     = false;
     g->rx_drop_count         = 0;
     g->nmea_fail_count       = 0;
     g->reinit_count          = 0;
@@ -1328,7 +1230,7 @@ static void gps_uart_configure(GpsUart* g) {
     // established the link is working (clean ACKs).
     ubx_poll_chip_id(g);
 
-    FURI_LOG_I("GpsUart", "M10Q running at 115200 baud, 10 Hz, GSV@1Hz");
+    FURI_LOG_I("GpsUart", "M10Q running at 115200 baud, 10 Hz");
 }
 
 // ---------------------------------------------------------------------------

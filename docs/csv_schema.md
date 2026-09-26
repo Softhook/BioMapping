@@ -198,7 +198,7 @@ Debug-only appended columns when enabled:
 | 3 | `lon` | float | decimal degrees | **Empty string** if no valid GPS fix. |
 | 4 | `hdop` | float | dimensionless | `99.9` = no fix or no GSA sentence yet. |
 | 5 | `pdop` | float | dimensionless | `99.9` = no GSA sentence received. Chip-computed across all constellations. |
-| 6 | `sats` | int | count | Visible satellites across all constellations (from GSV). `0` = no GSV received. |
+| 6 | `sats` | int | count | Satellites used in the position fix, all constellations (PUBX 00 `numSvs`; not capped at 12 like GGA). `0` = none used. |
 | 7 | `fix_type` | int | enum | `1` = no fix, `2` = 2D fix, `3` = 3D fix (from GSA sentence). |
 | 8 | `speed_kts` | float | knots | Doppler-derived speed from RMC. More accurate than position-derived. **Empty string** if unavailable. Logged even when `course_deg` is empty. |
 | 9 | `course_deg` | float | degrees (true north) | True course over ground from RMC. **Empty string** if unavailable — including when nearly still, where the receiver stops reporting course but still reports speed. |

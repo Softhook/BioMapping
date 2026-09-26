@@ -27,13 +27,10 @@ typedef struct GpsStatus {
     float hacc;                 // Estimated horizontal accuracy in metres (PUBX 00); 99.9 = unknown
     int   fix_quality;          // GGA quality: 0=none, 1=GPS, 2=DGPS, 3=PPS, 4/5=RTK, 6=estimated
     int   fix_type;             // 1=none, 2=2D, 3=3D (GSA)
-    int   satellites_tracked;
+    int   satellites_tracked;   // satellites used in the navigation solution (PUBX 00 numSvs)
     bool  fix_valid;            // RMC status A and not an estimated (mode E) fix
     bool  sbas_active;          // an SBAS satellite (GSA SystemID 1, number 33-64) was in use this second or the last
     float pdop;                 // Position Dilution of Precision from GSA (chip-computed, all constellations); 99.9 = unknown
-    int   active_prns[32];      // satellites in use this second, from GSA, as SystemID*100 + number
-    int   active_prn_count;     // number of active PRNs
-    int   gsv_total_sats;       // sum of GSV total_sats across all constellations (real sat count)
     struct minmea_time time;
     struct minmea_date date;
 } GpsStatus;

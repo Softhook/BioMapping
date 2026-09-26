@@ -232,8 +232,8 @@ Approximate test counts — the exact numbers drift with each addition; run
 | `modules/sound.h` | Yes (`furi_hal_speaker_*`) | ❌ |
 
 `test_gps_uart.c` covers every NMEA sentence type `gps_uart_parse_line()`
-dispatches on (RMC, GGA, GSA — including SBAS PRN detection, GSV —
-elevation array + `gsv_fresh`, GLL — valid and void status), the
+dispatches on (RMC, GGA, GSA — including SBAS PRN detection, GLL — valid
+and void status, PUBX 00 — hAcc and the satellite count), the
 RX-buffer-full reinit path, the 5 s NMEA watchdog reinit, hot start,
 standby, split-line buffering, and malformed/unrecognised input. Every sentence fixture's checksum was verified
 with a throwaway `minmea_checksum()` probe before use, not hand-computed —

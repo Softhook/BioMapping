@@ -8,7 +8,7 @@
 // the ISR).
 //
 // Coverage: every NMEA sentence type gps_uart_parse_line() dispatches on
-// (RMC, GGA, GSA, GSV, GLL), the RX-buffer-full and NMEA-watchdog reinit
+// (RMC, GGA, GSA, GLL, PUBX 00), the RX-buffer-full and NMEA-watchdog reinit
 // paths, hot start, port open/close + sleep, and malformed input.
 //
 // Build: ./run_tests.sh (or see that script for the raw gcc invocation).
@@ -78,11 +78,9 @@ static const char* GSA_SBAS_LINE =
     "$GNGSA,A,3,33,13,15,20,,,,,,,,,2.5,2.0,1.5,1*34\r\n";
 
 // Other constellations' GSAs reusing the same numbers: BeiDou (SystemID 4)
-// 33 and 10, Galileo (3) 10 and 13, QZSS (5) 10. None of these is SBAS.
+// 33 and 10, QZSS (5) 10. Neither is SBAS.
 static const char* GSA_BEIDOU_LINE =
     "$GNGSA,A,3,33,10,,,,,,,,,,,2.5,2.0,1.5,4*34\r\n";
-static const char* GSA_GALILEO_LINE =
-    "$GNGSA,A,3,10,13,,,,,,,,,,,2.5,2.0,1.5,3*31\r\n";
 static const char* GSA_QZSS_LINE =
     "$GNGSA,A,3,10,,,,,,,,,,,,2.5,2.0,1.5,5*35\r\n";
 
@@ -93,16 +91,6 @@ static const char* RMC_SECOND_41_LINE =
     "$GNRMC,203341.00,A,5133.34438,N,00004.28757,W,0.500,90.0,250926,,,A,V*1E\r\n";
 static const char* RMC_SECOND_42_LINE =
     "$GNRMC,203342.00,A,5133.34438,N,00004.28757,W,0.500,90.0,250926,,,A,V*1D\r\n";
-
-// Single-message GSV (total_msgs=1, msg_nr=1) so it exercises the
-// msg_nr==1 total_sats-accumulation branch. total_sats=4. Talker GP.
-static const char* GSV_LINE =
-    "$GPGSV,1,1,4,03,03,111,00,04,15,270,00,06,01,010,00,13,06,292,00*42\r\n";
-
-// Second, distinct constellation (GLONASS) with a different total_sats (3),
-// for the multi-constellation-in-one-window accumulation test.
-static const char* GSV_LINE_GLONASS =
-    "$GLGSV,1,1,3,65,10,100,00,66,20,200,00,67,30,300,00*64\r\n";
 
 // Documented worked example from minmea.c, status='A' (valid) — GLL only
 // updates position when status is DATA_VALID.
@@ -225,12 +213,11 @@ static void test_gga_updates_status(void) {
     gps_uart_process_rx(g);
 
     GpsStatus s = gps_uart_get_status(g);
-    printf("  lat=%.7f lon=%.7f hdop=%.2f sats=%d fix_quality=%d\n",
-           s.latitude, s.longitude, (double)s.hdop, s.satellites_tracked, s.fix_quality);
+    printf("  lat=%.7f lon=%.7f hdop=%.2f fix_quality=%d\n",
+           s.latitude, s.longitude, (double)s.hdop, s.fix_quality);
     assert(fabs(s.latitude - 51.5557397) < 1e-6);
     assert(fabs(s.longitude - (-0.0714595)) < 1e-6);
     assert(fabs((double)s.hdop - 0.9) < 1e-3);
-    assert(s.satellites_tracked == 16);
     assert(s.fix_quality == 1);
     assert(queue.put_count >= 1); // UART event was posted to the app queue
 
@@ -269,16 +256,12 @@ static void test_gsa_updates_status(void) {
     gps_uart_process_rx(g);
 
     GpsStatus s = gps_uart_get_status(g);
-    printf("  fix_type=%d hdop=%.2f pdop=%.2f sbas=%d prn_count=%d\n",
-           s.fix_type, (double)s.hdop, (double)s.pdop,
-           s.sbas_active, s.active_prn_count);
+    printf("  fix_type=%d hdop=%.2f pdop=%.2f sbas=%d\n",
+           s.fix_type, (double)s.hdop, (double)s.pdop, s.sbas_active);
     assert(s.fix_type == 3);
     assert(fabs((double)s.hdop - 2.0) < 1e-3);
     assert(fabs((double)s.pdop - 2.5) < 1e-3);
     assert(s.sbas_active == false);
-    assert(s.active_prn_count == 4);
-    assert(s.active_prns[0] == 110 && s.active_prns[1] == 113); // SystemID 1 * 100 + number
-    assert(s.satellites_tracked == 4); // active_prn_count, no GGA/GSV yet
 
     gps_uart_free(g);
     printf("  -> Pass\n");
@@ -353,151 +336,6 @@ static void test_sbas_clears_after_a_second_without(void) {
     GpsStatus s = gps_uart_get_status(g);
     printf("  sbas_active=%d after a whole second without SBAS\n", s.sbas_active);
     assert(s.sbas_active == false);
-
-    gps_uart_free(g);
-    printf("  -> Pass\n");
-}
-
-// Constellations reuse satellite numbers (GPS/Galileo/BeiDou/QZSS all have a
-// 10; SBAS and BeiDou both have a 33). Each must be counted separately.
-static void test_gsa_same_number_different_constellations(void) {
-    printf("Running test_gsa_same_number_different_constellations...\n");
-    FuriMessageQueue queue = {0};
-    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian, true);
-    assert(g != NULL);
-
-    furi_hal_mock_feed_string(GSA_LINE);         // GPS 10 13 15 20
-    furi_hal_mock_feed_string(GSA_SBAS_LINE);    // SBAS 33 (+ GPS 13 15 20 again)
-    furi_hal_mock_feed_string(GSA_GALILEO_LINE); // Galileo 10 13
-    furi_hal_mock_feed_string(GSA_BEIDOU_LINE);  // BeiDou 33 10
-    gps_uart_process_rx(g);
-    furi_hal_mock_feed_string(GSA_QZSS_LINE);    // QZSS 10
-    gps_uart_process_rx(g);
-
-    GpsStatus s = gps_uart_get_status(g);
-    printf("  active_prn_count=%d (expect 10 = 4 GPS + 1 SBAS + 2 Galileo + 2 BeiDou + 1 QZSS)\n",
-           s.active_prn_count);
-    assert(s.active_prn_count == 10);
-    assert(s.satellites_tracked == 10);
-
-    gps_uart_free(g);
-    printf("  -> Pass\n");
-}
-
-// GGA reporting fewer satellites than GSA has already counted (the u-blox
-// GGA cap of 12) must not pull the logged count down until the next GSA.
-// Track 032b logged single-row dips to exactly 12 from this.
-static const char* GGA_8_SATS_LINE =
-    "$GNGGA,203337.00,5133.34438,N,00004.28757,W,1,08,0.9,123.4,M,45.6,M,,*63\r\n";
-
-static void test_gga_does_not_lower_sat_count(void) {
-    printf("Running test_gga_does_not_lower_sat_count...\n");
-    FuriMessageQueue queue = {0};
-    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian, true);
-    assert(g != NULL);
-
-    furi_hal_mock_feed_string(GSA_LINE);         // GPS 10 13 15 20
-    furi_hal_mock_feed_string(GSA_SBAS_LINE);    // SBAS 33
-    furi_hal_mock_feed_string(GSA_GALILEO_LINE); // Galileo 10 13
-    furi_hal_mock_feed_string(GSA_BEIDOU_LINE);  // BeiDou 33 10
-    gps_uart_process_rx(g);
-    furi_hal_mock_feed_string(GSA_QZSS_LINE);    // QZSS 10
-    gps_uart_process_rx(g);
-    assert(gps_uart_get_status(g).satellites_tracked == 10);
-
-    furi_hal_mock_feed_string(GGA_8_SATS_LINE);
-    gps_uart_process_rx(g);
-
-    GpsStatus s = gps_uart_get_status(g);
-    printf("  sats=%d (expect 10, not GGA's 8)\n", s.satellites_tracked);
-    assert(s.satellites_tracked == 10);
-
-    gps_uart_free(g);
-    printf("  -> Pass\n");
-}
-
-static void test_gsv_total_sats(void) {
-    printf("Running test_gsv_total_sats...\n");
-    FuriMessageQueue queue = {0};
-    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian, true);
-    assert(g != NULL);
-
-    furi_hal_mock_feed_string(GSV_LINE);
-    gps_uart_process_rx(g);
-
-    GpsStatus s = gps_uart_get_status(g);
-    printf("  gsv_total_sats=%d\n", s.gsv_total_sats);
-    assert(s.gsv_total_sats == 4);       // accumulated on msg_nr==1
-
-    gps_uart_free(g);
-    printf("  -> Pass\n");
-}
-
-// Regression test for the track-111 sats-doubling bug: a talker whose GSV
-// cycle restarts (msg_nr==1 again) inside the ~800ms accumulation window
-// used to have its total_sats summed a second time (23 -> 46 on real
-// hardware). Feeding the same GP cycle twice back-to-back, with the tick
-// unmoved, must now leave gsv_total_sats at 4, not 8.
-static void test_gsv_duplicate_within_window_not_doubled(void) {
-    printf("Running test_gsv_duplicate_within_window_not_doubled...\n");
-    FuriMessageQueue queue = {0};
-    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian, true);
-    assert(g != NULL);
-
-    furi_hal_mock_feed_string(GSV_LINE);
-    gps_uart_process_rx(g);
-    furi_hal_mock_feed_string(GSV_LINE);
-    gps_uart_process_rx(g);
-
-    GpsStatus s = gps_uart_get_status(g);
-    printf("  gsv_total_sats=%d (expect 4, not 8)\n", s.gsv_total_sats);
-    assert(s.gsv_total_sats == 4);
-
-    gps_uart_free(g);
-    printf("  -> Pass\n");
-}
-
-// The dedup fix must not break the feature it's guarding: two DIFFERENT
-// constellations' first-of-cycle GSV sentences arriving in the same window
-// should still both contribute, giving the true combined satellite count.
-static void test_gsv_multi_constellation_within_window_sums(void) {
-    printf("Running test_gsv_multi_constellation_within_window_sums...\n");
-    FuriMessageQueue queue = {0};
-    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian, true);
-    assert(g != NULL);
-
-    furi_hal_mock_feed_string(GSV_LINE);          // GP, total_sats=4
-    gps_uart_process_rx(g);
-    furi_hal_mock_feed_string(GSV_LINE_GLONASS);  // GL, total_sats=3
-    gps_uart_process_rx(g);
-
-    GpsStatus s = gps_uart_get_status(g);
-    printf("  gsv_total_sats=%d (expect 7 = 4 GP + 3 GL)\n", s.gsv_total_sats);
-    assert(s.gsv_total_sats == 7);
-
-    gps_uart_free(g);
-    printf("  -> Pass\n");
-}
-
-// Once the ~800ms window genuinely elapses, the same talker's next cycle
-// is a new epoch and must be counted again (the dedup guard is per-window,
-// not permanent).
-static void test_gsv_recounts_after_window_reset(void) {
-    printf("Running test_gsv_recounts_after_window_reset...\n");
-    FuriMessageQueue queue = {0};
-    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian, true);
-    assert(g != NULL);
-
-    furi_hal_mock_feed_string(GSV_LINE);
-    gps_uart_process_rx(g);
-    furi_test_advance_tick(801); // > 800ms @ 1000 Hz shim frequency
-    furi_hal_mock_feed_string(GSV_LINE);
-    gps_uart_process_rx(g);
-
-    GpsStatus s = gps_uart_get_status(g);
-    printf("  gsv_total_sats=%d (expect 4 — fresh window, not carried over)\n",
-           s.gsv_total_sats);
-    assert(s.gsv_total_sats == 4);
 
     gps_uart_free(g);
     printf("  -> Pass\n");
@@ -1121,13 +959,104 @@ static void test_pubx_hacc_parsing(void) {
     assert(g != NULL);
 
     static const char* pubx_line =
-        "$PUBX,00,081350.00,4717.113210,N,00833.915187,E,546.589,G3,2.4,2.0,0.007,77.52,0.007,,0.92,1.16,1.08,12,0,0*5D\r\n";
+        "$PUBX,00,081350.00,4717.113210,N,00833.915187,E,546.589,G3,2.4,2.0,0.007,77.52,0.007,,0.92,1.16,1.08,12,0,0*66\r\n";
     furi_hal_mock_feed_string(pubx_line);
     gps_uart_process_rx(g);
 
     GpsStatus s = gps_uart_get_status(g);
     printf("  parsed hacc = %.1f m (expect 2.4 m)\n", (double)s.hacc);
     assert(fabs((double)s.hacc - 2.4) < 1e-3);
+
+    gps_uart_free(g);
+    printf("  -> Pass\n");
+}
+
+// hAcc 2.4 m, numSvs 18.
+static const char* PUBX_18_SATS_LINE =
+    "$PUBX,00,081350.00,4717.113210,N,00833.915187,E,546.589,G3,2.4,2.0,0.007,77.52,0.007,,0.92,1.16,1.08,18,0,0*6C\r\n";
+
+// The satellite count comes from PUBX 00 numSvs (field 18): satellites used
+// in the fix, not capped at 12. GSV's total (satellites in view, heard or
+// not) must not raise it, and GGA's capped 12 must not lower it.
+static void test_pubx_numsvs_is_sat_count(void) {
+    printf("Running test_pubx_numsvs_is_sat_count...\n");
+    FuriMessageQueue queue = {0};
+    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian, true);
+    assert(g != NULL);
+
+    static const char* gsv_25_in_view =
+        "$GPGSV,4,1,25,10,63,137,17,07,61,098,15,05,59,290,20,08,54,157,30*70\r\n";
+    static const char* gga_capped_12 =
+        "$GNGGA,081350.00,4717.11321,N,00833.91519,E,1,12,0.9,546.6,M,48.0,M,,*72\r\n";
+
+    furi_hal_mock_feed_string(gsv_25_in_view);
+    furi_hal_mock_feed_string(PUBX_18_SATS_LINE);
+    gps_uart_process_rx(g);
+    GpsStatus s = gps_uart_get_status(g);
+    printf("  after GSV(25 in view) + PUBX(18 used): sats=%d (expect 18)\n",
+           s.satellites_tracked);
+    assert(s.satellites_tracked == 18);
+
+    furi_hal_mock_feed_string(gga_capped_12);
+    gps_uart_process_rx(g);
+    s = gps_uart_get_status(g);
+    printf("  after GGA(12): sats=%d (expect 18)\n", s.satellites_tracked);
+    assert(s.satellites_tracked == 18);
+
+    gps_uart_free(g);
+    printf("  -> Pass\n");
+}
+
+// hAcc feeds the visualiser's Kalman filter as measurement noise, so a PUBX
+// line garbled in transit must be dropped and counted like any other
+// corrupted sentence, not half-read. The first line is PUBX_18_SATS_LINE
+// with hAcc 2.4 -> 0.4 and numSvs 18 -> 13 but the original checksum; the
+// second is cut off before its checksum.
+static void test_pubx_corrupted_line_ignored(void) {
+    printf("Running test_pubx_corrupted_line_ignored...\n");
+    FuriMessageQueue queue = {0};
+    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian, true);
+    assert(g != NULL);
+
+    furi_hal_mock_feed_string(PUBX_18_SATS_LINE);
+    gps_uart_process_rx(g);
+    assert(gps_uart_get_nmea_fail_count(g) == 0);
+
+    furi_hal_mock_feed_string(
+        "$PUBX,00,081350.00,4717.113210,N,00833.915187,E,546.589,G3,0.4,2.0,0.007,77.52,0.007,,0.92,1.16,1.08,13,0,0*6C\r\n");
+    furi_hal_mock_feed_string(
+        "$PUBX,00,081350.00,4717.113210,N,00833.915187,E,546.589,G3,0.4,2.0,0.007,77.52,0.007,,0.92,1.16,1.08,1\r\n");
+    gps_uart_process_rx(g);
+
+    GpsStatus s = gps_uart_get_status(g);
+    printf("  hacc=%.1f sats=%d fails=%u (expect 2.4, 18, 2)\n",
+           (double)s.hacc, s.satellites_tracked,
+           (unsigned)gps_uart_get_nmea_fail_count(g));
+    assert(fabs((double)s.hacc - 2.4) < 1e-3);
+    assert(s.satellites_tracked == 18);
+    assert(gps_uart_get_nmea_fail_count(g) == 2);
+
+    gps_uart_free(g);
+    printf("  -> Pass\n");
+}
+
+// An empty numSvs field leaves the last count in place, as an empty HDOP
+// field does, while the rest of the line is still used.
+static void test_pubx_empty_numsvs_keeps_count(void) {
+    printf("Running test_pubx_empty_numsvs_keeps_count...\n");
+    FuriMessageQueue queue = {0};
+    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian, true);
+    assert(g != NULL);
+
+    furi_hal_mock_feed_string(PUBX_18_SATS_LINE);
+    furi_hal_mock_feed_string(
+        "$PUBX,00,081350.00,4717.113210,N,00833.915187,E,546.589,G3,3.1,2.0,0.007,77.52,0.007,,0.92,1.16,1.08,,0,0*61\r\n");
+    gps_uart_process_rx(g);
+
+    GpsStatus s = gps_uart_get_status(g);
+    printf("  hacc=%.1f sats=%d (expect 3.1, 18)\n", (double)s.hacc, s.satellites_tracked);
+    assert(fabs((double)s.hacc - 3.1) < 1e-3);
+    assert(s.satellites_tracked == 18);
 
     gps_uart_free(g);
     printf("  -> Pass\n");
@@ -1220,12 +1149,11 @@ static void test_rx_stream_survives_sd_flush_ride_out_stall(void) {
     assert(gps_uart_get_rx_drop_count(g) == 0);   // nothing lost while stalled
 
     // Drain resumes once the flush returns.
-    for(int i = 0; i < 60 && gps_uart_get_status(g).satellites_tracked != 16; i++) {
+    for(int i = 0; i < 60 && isnan(gps_uart_get_status(g).latitude); i++) {
         gps_uart_process_rx(g);
     }
     GpsStatus s = gps_uart_get_status(g);
     assert(fabs(s.latitude - 51.5557397) < 1e-6);   // retained bytes parsed fine
-    assert(s.satellites_tracked == 16);
     assert(gps_uart_get_rx_drop_count(g) == 0);      // still zero after catch-up
 
     gps_uart_free(g);
@@ -1361,12 +1289,6 @@ int main(void) {
     test_gsa_sbas_detection();
     test_gsa_beidou_33_is_not_sbas();
     test_sbas_clears_after_a_second_without();
-    test_gsa_same_number_different_constellations();
-    test_gga_does_not_lower_sat_count();
-    test_gsv_total_sats();
-    test_gsv_duplicate_within_window_not_doubled();
-    test_gsv_multi_constellation_within_window_sums();
-    test_gsv_recounts_after_window_reset();
     test_gll_updates_when_valid();
     test_gll_ignored_when_invalid();
     test_estimated_fix_ignored();
@@ -1385,6 +1307,9 @@ int main(void) {
     test_nav_model_allocation();
     test_super_s_setting_sent();
     test_pubx_hacc_parsing();
+    test_pubx_numsvs_is_sat_count();
+    test_pubx_corrupted_line_ignored();
+    test_pubx_empty_numsvs_keeps_count();
     test_nmea_fail_counter();
     test_rx_stream_drop_counter();
     test_rx_stream_survives_sd_flush_ride_out_stall();
