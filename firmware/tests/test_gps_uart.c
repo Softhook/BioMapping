@@ -189,9 +189,8 @@ static void test_idle_count_ignores_settle_window(void) {
 // test's fake clock (tests/shims/furi.h's furi_get_tick() never advances
 // on its own) — the exact risk a wall-clock-deadline design would have
 // hit — and that a fully-unanswered configure() still leaves the module
-// usable rather than failing alloc() outright. The ACK-received path
-// itself isn't reachable from this mock, since nothing here can reply
-// mid-configure().
+// usable rather than failing alloc() outright. The ACK-received path is
+// covered by test_cfg_ack_reply_checked().
 static void test_cfg_ack_timeout_is_bounded(void) {
     printf("Running test_cfg_ack_timeout_is_bounded...\n");
     FuriMessageQueue queue = {0};
@@ -872,8 +871,12 @@ static void test_malformed_line_ignored(void) {
     assert(g != NULL);
 
     furi_hal_mock_feed_string("this is not NMEA at all\r\n");
-    furi_hal_mock_feed_string("$GPXYZ,1,2,3*00\r\n"); // well-formed but unknown sentence id
+    furi_hal_mock_feed_string("$GPXYZ,1,2,3*50\r\n"); // well-formed but unknown sentence id
     gps_uart_process_rx(g);
+
+    // Only the garbage line counts as a failure; a valid sentence of a type
+    // we don't handle is MINMEA_UNKNOWN, which isn't a lost byte.
+    assert(gps_uart_get_nmea_fail_count(g) == 1);
 
     GpsStatus s = gps_uart_get_status(g);
     printf("  fix_quality=%d hdop=%.1f (both should be untouched defaults)\n",
@@ -943,6 +946,58 @@ static void assert_super_s_sent(bool super_s, uint8_t want_mode) {
     // twice; every copy was checked above.
     assert(found == 2);
     gps_uart_free(g);
+}
+
+// The ACK-received path, which test_cfg_ack_timeout_is_bounded() can't
+// reach: the mock replies to the Super-S CFG-VALSET packet itself. How many
+// times that packet goes out shows how ubx_wait_ack() read the reply — once
+// for a clean ACK or a NAK (no retry), twice for an ACK whose checksum is
+// wrong (rejected as corrupt, so it retries). Checksums below were computed
+// independently, not with ubx_calc_checksum().
+static const uint8_t k_super_s_auto_valset[] = {
+    0xB5, 0x62, 0x06, 0x8A, 0x09, 0x00,             // CFG-VALSET, len=9
+    0x00, 0x01, 0x00, 0x00,                          // version, RAM layer, reserved
+    0xD6, 0x00, 0x11, 0x20, 0xFF,                    // CFG-NAVSPG-SIGATTCOMP = 255
+    0xA0, 0xD1,
+};
+
+static int count_super_s_sends_with_reply(const uint8_t* reply, size_t reply_len) {
+    FuriMessageQueue queue = {0};
+    furi_hal_mock_tx_log_reset();
+    furi_hal_mock_arm_response_for_tx(
+        k_super_s_auto_valset, sizeof(k_super_s_auto_valset), reply, reply_len);
+    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian, true);
+    assert(g != NULL);
+    assert(furi_hal_mock_tx_responses_pending() == 0); // reply was delivered
+
+    int sends = 0;
+    for(int i = 0; i < furi_hal_mock_tx_log_count(); i++) {
+        size_t len;
+        const uint8_t* d = furi_hal_mock_tx_log_get(i, &len, NULL);
+        if(len == sizeof(k_super_s_auto_valset) &&
+           memcmp(d, k_super_s_auto_valset, len) == 0) {
+            sends++;
+        }
+    }
+    gps_uart_free(g);
+    return sends;
+}
+
+static void test_cfg_ack_reply_checked(void) {
+    printf("Running test_cfg_ack_reply_checked...\n");
+    static const uint8_t ack[]     = {0xB5, 0x62, 0x05, 0x01, 0x02, 0x00, 0x06, 0x8A, 0x98, 0xC1};
+    static const uint8_t nak[]     = {0xB5, 0x62, 0x05, 0x00, 0x02, 0x00, 0x06, 0x8A, 0x97, 0xBC};
+    static const uint8_t bad_ack[] = {0xB5, 0x62, 0x05, 0x01, 0x02, 0x00, 0x06, 0x8A, 0x98, 0xC2};
+
+    int with_ack = count_super_s_sends_with_reply(ack, sizeof(ack));
+    int with_nak = count_super_s_sends_with_reply(nak, sizeof(nak));
+    int with_bad = count_super_s_sends_with_reply(bad_ack, sizeof(bad_ack));
+    printf("  sends: ACK=%d (expect 1) NAK=%d (expect 1) bad-checksum ACK=%d (expect 2)\n",
+           with_ack, with_nak, with_bad);
+    assert(with_ack == 1);
+    assert(with_nak == 1);
+    assert(with_bad == 2);
+    printf("  -> Pass\n");
 }
 
 static void test_super_s_setting_sent(void) {
@@ -1083,6 +1138,21 @@ static void test_nmea_fail_counter(void) {
     furi_hal_mock_feed_string(GGA_LINE); // well-formed, valid checksum
     gps_uart_process_rx(g);
     assert(gps_uart_get_nmea_fail_count(g) == 1); // unchanged
+
+    // GGA_LINE cut off before its "*6C" checksum: rejected and counted,
+    // and its position never reaches the status.
+    gps_uart_free(g);
+    g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian, true);
+    assert(g != NULL);
+    furi_hal_mock_feed_string(
+        "$GNGGA,203337.00,5133.34438,N,00004.28757,W,1,16,0.9,123.4,M,45.6,M,,\r\n");
+    gps_uart_process_rx(g);
+    GpsStatus s = gps_uart_get_status(g);
+    printf("  fail count after unchecksummed GGA = %u (expect 1), fix_quality=%d\n",
+           (unsigned)gps_uart_get_nmea_fail_count(g), s.fix_quality);
+    assert(gps_uart_get_nmea_fail_count(g) == 1);
+    assert(s.fix_quality == 0);
+    assert(isnan(s.latitude));
 
     gps_uart_free(g);
     printf("  -> Pass\n");
@@ -1306,6 +1376,7 @@ int main(void) {
     test_malformed_line_ignored();
     test_nav_model_allocation();
     test_super_s_setting_sent();
+    test_cfg_ack_reply_checked();
     test_pubx_hacc_parsing();
     test_pubx_numsvs_is_sat_count();
     test_pubx_corrupted_line_ignored();

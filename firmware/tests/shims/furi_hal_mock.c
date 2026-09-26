@@ -58,7 +58,7 @@ static int g_tx_log_count = 0;
 // first attempt, a valid one for the retry, to prove rejection and
 // recovery in one exchange rather than assuming a single canned response
 // covers every match.
-#define TX_RESPONSE_MAX_TRIGGER 16
+#define TX_RESPONSE_MAX_TRIGGER 40 // largest CFG-VALSET gps_uart.c builds
 #define TX_RESPONSE_MAX_BYTES   640
 #define TX_RESPONSE_QUEUE_MAX   4
 static struct {

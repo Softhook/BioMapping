@@ -142,8 +142,7 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
     // solution. numSvs is the satellite count: GGA's is capped at 12, and
     // GSV counts satellites in view whether or not they're heard.
     if(strncmp(line, "$PUBX,00,", 9) == 0) {
-        // minmea doesn't parse PUBX, so check it here. Strict: a line cut off
-        // before its checksum would otherwise pass with a truncated field.
+        // minmea doesn't parse PUBX, so check it here. Strict, as below.
         if(!minmea_check(line, true)) {
             g->nmea_fail_count++;
             return;
@@ -164,7 +163,9 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
         return;
     }
 
-    enum minmea_sentence_id id = minmea_sentence_id(line, false);
+    // Strict: the M10Q always sends a checksum, so a line without one was
+    // cut off in transit and would otherwise pass with a truncated field.
+    enum minmea_sentence_id id = minmea_sentence_id(line, true);
     if(id == MINMEA_INVALID) {
         // Checksum/format failure — our proxy for a corrupted or dropped
         // byte in transit (see gps_uart.h's doc comment). A well-formed
@@ -398,7 +399,8 @@ static bool ubx_wake(FuriHalSerialHandle* handle) {
 }
 
 // ── UBX Fletcher-8 checksum (spec §3.4) — shared by outgoing packet
-// construction (ubx_send_nav5) and incoming ACK/NAK verification below.
+// construction (ubx_send_valset) and incoming ACK/NAK and UNIQID
+// verification below.
 static void ubx_calc_checksum(const uint8_t* buf, size_t len, uint8_t* ck_a, uint8_t* ck_b) {
     uint8_t a = 0, b = 0;
     for(size_t i = 0; i < len; i++) {

@@ -398,7 +398,7 @@ export const GSRTrackQualityPopup = {
     // Integrity badge / icon
     let integrityHtml = '';
     if (s.integrity.status === 'verified') {
-      integrityHtml = `<span class="tq-badge tq-badge-verified" title="${escapeHtml(s.integrity.detail || 'FNV-1a checksum verified')}"><i class="fa-solid fa-circle-check"></i> Verified</span>`;
+      integrityHtml = `<span class="tq-badge tq-badge-verified" title="${escapeHtml(s.integrity.detail || 'CRC32 checksum verified')}"><i class="fa-solid fa-circle-check"></i> Verified</span>`;
     } else if (s.integrity.status === 'incomplete') {
       integrityHtml = `<span class="tq-badge tq-badge-incomplete" title="${escapeHtml(s.integrity.detail || 'Recording did not end cleanly')}"><i class="fa-solid fa-triangle-exclamation"></i> Incomplete</span>`;
     } else if (s.integrity.status === 'corrupt') {
