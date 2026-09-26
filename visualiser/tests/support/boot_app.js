@@ -116,6 +116,7 @@ const SCRIPT_ORDER = [
   'src/map/globe3d/toggles.mjs',
   'src/map/globe3d/navigation.mjs',
   'src/map/globe3d/hotspot_tour.mjs',
+  'src/map/globe3d/replay_tour.mjs',
   'src/map/globe3d/tour.mjs',
   'src/map/globe3d.mjs',
   'src/map/globe3d_view.mjs',

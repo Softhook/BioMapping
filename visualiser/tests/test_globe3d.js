@@ -143,13 +143,13 @@ test('public API the page depends on is present', () => {
     'toggleOrbit',
     'setViewPerspective',
     'resetNorth',
-    'startTour',
+    'startReplayTour',
     'stopTour',
-    'toggleTour',
-    'onTourProgress',
+    'toggleReplayTour',
+    'onReplayTourProgress',
     'startHotspotTour',
     'toggleHotspotTour',
-    'onTourStep',
+    'onHotspotTourStep',
     'setScrubPosition',
     'onPeakClick',
   ]) {
@@ -280,7 +280,7 @@ test('render-on-demand host: _wakeRenderLoop bursts continuous, then retires to 
   mgr.destroy();
 });
 
-test('_wakeRenderLoop is inert for a continuous host and while a 360° orbit owns the loop', () => {
+test('_wakeRenderLoop is inert for a continuous host and while an orbit / replay holds the loop', () => {
   freshEnv();
   const { GSRGlobeManager } = loadFresh();
 
@@ -298,13 +298,13 @@ test('_wakeRenderLoop is inert for a continuous host and while a 360° orbit own
     keyboardFlight: false,
     requestRenderMode: true,
   });
-  emb._isOrbiting = true;
+  emb._renderHeld = true; // as _holdContinuousRender() leaves it
   emb.viewer.scene.requestRenderMode = true;
   emb._wakeRenderLoop();
   assert.strictEqual(
     emb.viewer.scene.requestRenderMode,
     true,
-    'no burst while an orbit is running',
+    'no burst while the render loop is held',
   );
   emb.destroy();
 });
@@ -1720,7 +1720,7 @@ test('startHotspotTour / stopTour / toggleHotspotTour lifecycle and camera fligh
   };
 
   const progress = [];
-  mgr.onTourStep((stepIdx, totalSteps, wp) => {
+  mgr.onHotspotTourStep((stepIdx, totalSteps, wp) => {
     progress.push([stepIdx, totalSteps, wp]);
   });
 
@@ -1894,7 +1894,7 @@ test('hotspot tour camera: side-on angled framing never flips the long way aroun
   const flights = [];
   mgr.viewer.camera.flyTo = (opts) => flights.push(opts);
   const progress = [];
-  mgr.onTourStep((stepIdx, totalSteps, wp, flightDuration) => {
+  mgr.onHotspotTourStep((stepIdx, totalSteps, wp, flightDuration) => {
     progress.push({ stepIdx, totalSteps, wp, flightDuration });
   });
 
@@ -1962,7 +1962,7 @@ test("hotspot tour camera picks whichever side keeps the shortest turn from the 
 
   const flights = [];
   mgr.viewer.camera.flyTo = (opts) => flights.push(opts);
-  mgr.onTourStep(() => {});
+  mgr.onHotspotTourStep(() => {});
 
   // Forward bearing is ~0°, so the two candidate side-on shots sit at
   // roughly 302° (+122° side) and 58° (-122° side). Priming the camera at
@@ -2017,7 +2017,7 @@ test('camera heading for a tour step depends only on the live camera heading, ne
   mgr.baseHeight = 2;
   mgr._tourWaypoints = mgr._computeTourWaypoints();
   mgr._isTouring = true;
-  mgr.onTourStep(() => {});
+  mgr.onHotspotTourStep(() => {});
 
   const primedHeading = (17 * Math.PI) / 180;
 
@@ -2069,7 +2069,7 @@ test('pauseTour freezes the tour during its dwell pause; resumeTour re-flies the
 
   const flights = [];
   mgr.viewer.camera.flyTo = (opts) => flights.push(opts);
-  mgr.onTourStep(() => {});
+  mgr.onHotspotTourStep(() => {});
 
   mgr.startHotspotTour();
   assert.strictEqual(flights.length, 1);
@@ -2130,7 +2130,7 @@ test('toggleTourPause cancels an in-flight camera move without stopping the tour
     const last = flights[flights.length - 1];
     if (last?.cancel) last.cancel();
   };
-  mgr.onTourStep(() => {});
+  mgr.onHotspotTourStep(() => {});
 
   mgr.startHotspotTour();
   assert.strictEqual(flights.length, 1);
@@ -2230,7 +2230,7 @@ test('tourNext/tourPrevious jump directly between tour waypoints, clamp at the e
     const last = flights[flights.length - 1];
     if (last?.cancel) last.cancel();
   };
-  mgr.onTourStep(() => {});
+  mgr.onHotspotTourStep(() => {});
 
   // Not touring yet -> no-op.
   mgr.tourNext();
@@ -2319,7 +2319,7 @@ test('setAutoCameraSpeed clamps to [0.25x, 4x] and scales tour flight duration i
     m._autoCameraSpeed = speed;
     const flights = [];
     m.viewer.camera.flyTo = (opts) => flights.push(opts);
-    m.onTourStep(() => {});
+    m.onHotspotTourStep(() => {});
     m.startHotspotTour();
     m.stopTour();
     m.destroy();
@@ -2412,9 +2412,7 @@ test('_sightlineObstructionCount only counts an obstruction whose own wall heigh
     camAlt,
     targetLat,
     targetLon,
-    [0], // baseH + 0*extScale = baseH, well under the ~20m sightline here
-    2,
-    10,
+    () => 2, // wall height 2 m, well under the ~20m sightline here
   );
   const tallCount = mgr._sightlineObstructionCount(
     pts,
@@ -2424,9 +2422,7 @@ test('_sightlineObstructionCount only counts an obstruction whose own wall heigh
     camAlt,
     targetLat,
     targetLon,
-    [5], // baseH + 5*extScale = 52, well above the ~20m sightline here
-    2,
-    10,
+    () => 52, // wall height 52 m, well above the ~20m sightline here
   );
   assert.strictEqual(
     lowCount,
@@ -2462,7 +2458,7 @@ test('hotspot tour camera avoids a side that is severely obstructed, even agains
 
   const flights = [];
   mgr.viewer.camera.flyTo = (opts) => flights.push(opts);
-  mgr.onTourStep(() => {});
+  mgr.onHotspotTourStep(() => {});
 
   // Prime the camera heading to strongly favour the OBSTRUCTED (+122°) side
   // via turn-continuity alone — proving severe obstruction still overrides it.
@@ -2505,7 +2501,7 @@ test('hotspot tour camera keeps a strongly favoured turn despite a couple of bor
 
   const flights = [];
   mgr.viewer.camera.flyTo = (opts) => flights.push(opts);
-  mgr.onTourStep(() => {});
+  mgr.onHotspotTourStep(() => {});
 
   mgr.viewer.camera.heading = ((wp.bearingDeg + 122 + 180) * Math.PI) / 180;
 
@@ -2627,7 +2623,7 @@ test('startTour rebuilds the wall as one hidden instance per segment, with timin
   });
   replayTrack(mgr, 10);
 
-  mgr.startTour();
+  mgr.startReplayTour();
   assert.strictEqual(mgr._isTouring, true);
   const prim = env.prims.at(-1);
   assert.strictEqual(prim.instances.length, 9, 'one instance per segment');
@@ -2658,9 +2654,9 @@ test('_replayTick advances the clock at 20x real time, reveals passed segments a
   const mgr = new GSRGlobeManager('c', { keyboardFlight: false });
   replayTrack(mgr, 60);
   const progress = [];
-  mgr.onTourProgress((p) => progress.push(p));
+  mgr.onReplayTourProgress((p) => progress.push(p));
 
-  mgr.startTour();
+  mgr.startReplayTour();
   const prim = env.prims.at(-1);
   mgr._replayTick(1000); // first tick only sets the time base
   assert.strictEqual(mgr._replay.time, 0);
@@ -2702,7 +2698,7 @@ test('the replay clock waits for the wall to finish compiling, and skips >15 s g
   const times = Array.from({ length: 20 }, (_, i) => (i < 10 ? i : 100 + i));
   replayTrack(mgr, 20, { times });
 
-  mgr.startTour();
+  mgr.startReplayTour();
   env.prims.at(-1).ready = false;
   mgr._replayTick(0);
   mgr._replayTick(200);
@@ -2726,7 +2722,7 @@ test('peak markers and hotspot stars appear only once the replay reaches their l
   ];
   replayTrack(mgr, 60, { peaks });
   mgr.peakLatency = 2;
-  mgr.startTour();
+  mgr.startReplayTour();
   // Stand-ins for the rendered markers (peaks.mjs tags each with its index).
   const circle5 = { _biomapPeakIndex: 0, show: true };
   const circle30 = { _biomapPeakIndex: 1, show: true };
@@ -2768,7 +2764,7 @@ test('tourNext/tourPrevious seek between hotspots (a few seconds early), hiding 
     peaks,
     memorableEvents: [peaks[1], peaks[0], peaks[2]],
   });
-  mgr.startTour();
+  mgr.startReplayTour();
   const prim = env.prims.at(-1);
 
   mgr.tourNext();
@@ -2813,7 +2809,7 @@ test('chase camera aim height lags the wall height, so the camera does not bob w
   const aims = [];
   env.viewer.camera.lookAt = (target) => aims.push(target.h);
 
-  mgr.startTour();
+  mgr.startReplayTour();
   mgr._replayTick(0);
   assert.strictEqual(aims[0], 1, 'first frame aims at mid-wall (2 m / 2)');
   let now = 0;
@@ -2853,9 +2849,9 @@ test('chase camera aims at the route averaged around the head, so uneven GPS spa
   const aims = [];
   const heads = [];
   env.viewer.camera.lookAt = (target) => aims.push(target.lat);
-  mgr.onTourProgress((p) => p && heads.push(p.lat));
+  mgr.onReplayTourProgress((p) => p && heads.push(p.lat));
 
-  mgr.startTour();
+  mgr.startReplayTour();
   let now = 0;
   // 25 ms frames at 20x = 0.5 walk s per frame, well away from the ends.
   for (let k = 0; k < 200; k++) {
@@ -2882,7 +2878,7 @@ test('chase camera looks along the walk from one side and keeps the user zoom', 
   env.viewer.camera.lookAt = (_target, hpr) => looks.push(hpr);
   env.viewer.camera.heading = Math.PI / 2; // user was looking east
 
-  mgr.startTour();
+  mgr.startReplayTour();
   mgr._replayTick(0);
   // Due north, looking 58° left of travel -> heading -58° (≡ 302°).
   const want = (-58 * Math.PI) / 180;
@@ -2904,13 +2900,13 @@ test('reaching the end stops the replay and restores the normal merged wall', ()
   const mgr = new GSRGlobeManager('c', { keyboardFlight: false });
   replayTrack(mgr, 10);
   const progress = [];
-  mgr.onTourProgress((p) => progress.push(p));
+  mgr.onReplayTourProgress((p) => progress.push(p));
   let flewOut = false;
   mgr.flyToTrack = (stop) => {
     flewOut = stop === false;
   };
 
-  mgr.startTour();
+  mgr.startReplayTour();
   mgr._replayTick(0);
   mgr._replayTick(250); // 5 s
   mgr._replayTick(500); // 10 s >= end (9 s)
@@ -2960,7 +2956,7 @@ test('the two tours replace each other, and the shared controls follow whichever
   const flights = [];
   env.viewer.camera.flyTo = (opts) => flights.push(opts);
   const hotspotStops = [];
-  mgr.onTourStep((_i, _n, wp) => {
+  mgr.onHotspotTourStep((_i, _n, wp) => {
     if (!wp) hotspotStops.push(true);
   });
 
@@ -2971,7 +2967,7 @@ test('the two tours replace each other, and the shared controls follow whichever
   assert.strictEqual(mgr._tourStepIndex, 1, 'arrows hop hotspot waypoints');
 
   // Replay button while the hotspot tour runs: switches over.
-  assert.strictEqual(mgr.toggleTour(), true);
+  assert.strictEqual(mgr.toggleReplayTour(), true);
   assert.strictEqual(mgr._tourMode, 'replay');
   assert.strictEqual(hotspotStops.length, 1, 'hotspot tour stopped');
   assert.strictEqual(mgr._tourStepTimeout, null);
@@ -2990,20 +2986,47 @@ test('the two tours replace each other, and the shared controls follow whichever
   mgr.destroy();
 });
 
+test('orbit and replay tour hold continuous rendering while they run, then hand back to render-on-demand', () => {
+  const env = replayEnv();
+  const { GSRGlobeManager } = loadFresh();
+  const mgr = new GSRGlobeManager('c', {
+    keyboardFlight: false,
+    requestRenderMode: true,
+  });
+  replayTrack(mgr, 10);
+  const scene = env.viewer.scene;
+
+  for (const [start, stop] of [
+    ['startReplayTour', 'stopTour'],
+    ['startOrbit', 'stopOrbit'],
+  ]) {
+    scene.requestRenderMode = true;
+    mgr[start]();
+    assert.strictEqual(scene.requestRenderMode, false, `${start}: continuous`);
+    assert.strictEqual(mgr._renderHeld, true);
+    mgr._wakeRenderLoop();
+    assert.strictEqual(mgr._idleRenderTimer, null, `${start}: no idle-retire`);
+    mgr[stop]();
+    assert.strictEqual(scene.requestRenderMode, true, `${stop}: on-demand`);
+    assert.strictEqual(mgr._renderHeld, false);
+  }
+  mgr.destroy();
+});
+
 test('startOrbit, setViewPerspective, and destroy cancel an active tour', () => {
   replayEnv();
   const { GSRGlobeManager } = loadFresh();
   const mgr = new GSRGlobeManager('c', { keyboardFlight: false });
   replayTrack(mgr, 3);
 
-  mgr.startTour();
+  mgr.startReplayTour();
   assert.strictEqual(mgr._isTouring, true);
 
   // setViewPerspective stops tour
   mgr.setViewPerspective('top');
   assert.strictEqual(mgr._isTouring, false);
 
-  mgr.startTour();
+  mgr.startReplayTour();
   assert.strictEqual(mgr._isTouring, true);
 
   // startOrbit stops tour
@@ -3011,7 +3034,7 @@ test('startOrbit, setViewPerspective, and destroy cancel an active tour', () => 
   assert.strictEqual(mgr._isTouring, false);
   mgr.stopOrbit();
 
-  mgr.startTour();
+  mgr.startReplayTour();
   assert.strictEqual(mgr._isTouring, true);
 
   // destroy stops tour

@@ -1,10 +1,11 @@
 /**
  * GSRGlobeManager — automated cinematic Hotspot tour.
  * Class layer for GSRGlobeManager automated cinematic Hotspot tour
- * (`GSRGlobeHotspotTour extends GSRGlobeNavigation`). The replay tour
- * (globe3d/tour.mjs) sits on top of this layer and owns the shared tour
- * entry points (stopTour / toggleTourPause / tourNext / tourPrevious), which
- * dispatch here while `this._tourMode === 'hotspot'`.
+ * (`GSRGlobeHotspotTour extends GSRGlobeNavigation`). One of two tours; the
+ * shared controls (stopTour, pauseTour, tourNext, …) live in globe3d/tour.mjs
+ * and dispatch to this layer's _stop/_pause/_resume/_stepHotspotTour while
+ * `this._tourMode === 'hotspot'`. Also home to the helpers both tours use:
+ * _tourHotspots and _shortestHeadingTo.
  *
  * _computeTourWaypoints visits analyzer.memorableEvents (the curated Hotspot
  * subset — same star markers the map/graph show) in walk order, falling back
@@ -15,7 +16,6 @@
  * angled shot per hotspot instead of a fixed offset.
  */
 import { GeoUtils } from '../../gps/geo_utils.mjs';
-import { HEIGHT_CAPABLE_METRICS, seriesValue } from './globe3d_base.mjs';
 import { GSRGlobeNavigation } from './navigation.mjs';
 
 // ── Hotspot shot-side selection tuning ──────────────────────────────────────
@@ -27,15 +27,17 @@ const MAX_TURN_RATE_RAD_PER_SEC = (65.0 * Math.PI) / 180.0; // ~65°/s: brisk bu
 
 export class GSRGlobeHotspotTour extends GSRGlobeNavigation {
   /**
-   * Register a progress callback for the automated tour: (stepIndex, totalSteps, waypoint) => void
+   * Register a progress callback for the hotspot tour, fired as
+   * (stepIndex, totalSteps, waypoint, flightDurationSec) at each hop and with
+   * (null, 0, null) once it stops.
    */
-  onTourStep(cb) {
+  onHotspotTourStep(cb) {
     this._hotspotTourCallback = typeof cb === 'function' ? cb : null;
   }
 
   /**
-   * Toggle the hotspot tour. A running replay tour is stopped first, so the
-   * button always ends up starting this one unless it was already running.
+   * Toggle the hotspot tour. Starting it stops a running replay tour first,
+   * so the button always ends up running this one unless it already was.
    */
   toggleHotspotTour() {
     if (this._isTouring && this._tourMode === 'hotspot') {
@@ -75,6 +77,23 @@ export class GSRGlobeHotspotTour extends GSRGlobeNavigation {
   }
 
   /**
+   * The curated, non-excluded Hotspots (analyzer.memorableEvents — the same
+   * red-star markers the map/graph show) in walk order. A hotspot IS a peak,
+   * so an excluded one stops counting as a tour stop too — same guard as the
+   * star itself (globe3d/peaks.mjs). Shared by both tours.
+   */
+  _tourHotspots() {
+    return (this.currentAnalyzer?.memorableEvents || [])
+      .filter((pk) => pk && !pk.excluded)
+      .sort((x, y) => (x.time ?? 0) - (y.time ?? 0));
+  }
+
+  /** Points ahead/behind _trackBearingAt looks, scaled to the track length. */
+  _tourLookAheadSteps(pts) {
+    return Math.max(3, Math.min(10, Math.floor(pts.length / 30)));
+  }
+
+  /**
    * Compute the tour's waypoint sequence. Prefers the real curated Hotspots
    * (analyzer.memorableEvents — the same red-star markers the map/graph show)
    * visited in walk order; falls back to generic evenly-spaced track sampling
@@ -98,25 +117,17 @@ export class GSRGlobeHotspotTour extends GSRGlobeNavigation {
    */
   _computeHotspotTourWaypoints() {
     const a = this.currentAnalyzer;
-    const events = a?.memorableEvents;
+    const events = this._tourHotspots();
     const pts = this.currentDrawPoints;
-    if (!a || !events || events.length === 0 || !pts || pts.length < 2)
-      return [];
+    if (!a || events.length === 0 || !pts || pts.length < 2) return [];
 
     const peakIndexOf = this._peakIndexMap(a);
-    const lookAheadSteps = Math.max(
-      3,
-      Math.min(10, Math.floor(pts.length / 30)),
-    );
+    const lookAheadSteps = this._tourLookAheadSteps(pts);
 
     // Resolve each hotspot's marker position and its nearest drawn track
-    // sample (to read local bearing from).
+    // sample (to read local bearing from). `events` is already in walk order.
     const resolved = [];
     for (const peak of events) {
-      // A hotspot IS a peak (memorableEvents references analyzer.peaks), so
-      // an excluded one must stop being treated as a curated tour stop too —
-      // same guard as the hotspot star itself (globe3d/peaks.mjs).
-      if (peak.excluded) continue;
       const coords = this._latencyCoords(a, peak);
       if (!coords || isNaN(coords.lat) || isNaN(coords.lon)) continue;
       let nearestIdx = -1;
@@ -134,9 +145,6 @@ export class GSRGlobeHotspotTour extends GSRGlobeNavigation {
       resolved.push({ peak, coords, drawIdx: nearestIdx });
     }
     if (resolved.length === 0) return [];
-
-    // Walk order: earliest response first.
-    resolved.sort((x, y) => (x.peak.time ?? 0) - (y.peak.time ?? 0));
 
     return resolved.map((r, i) => {
       const idx = r.drawIdx;
@@ -186,47 +194,28 @@ export class GSRGlobeHotspotTour extends GSRGlobeNavigation {
     const pts = this.currentDrawPoints;
     if (!pts || pts.length < 2) return [];
 
-    const metric = this.activeColoringMetric;
-    const heightMetric = HEIGHT_CAPABLE_METRICS?.has(metric)
-      ? metric
-      : this.heightMetric || 'phasic';
-    const heightSeries = this._getMetricSeries(
-      this.currentAnalyzer,
-      heightMetric,
-    );
-    const extScale = this.extrusionScale || 8.0;
-    const baseH = this.baseHeight || 2.0;
-
-    // Collect candidate indices along the track
-    const candidateIndices = new Set();
-    candidateIndices.add(0);
-    candidateIndices.add(pts.length - 1);
-
-    // Add peak indices (both original sample index and latency-shifted index)
-    if (this.currentPeaks && this.currentPeaks.length > 0) {
-      this.currentPeaks.forEach((pk) => {
-        if (pk && typeof pk.index === 'number') {
-          const matchIdx = pts.findIndex((p) => p.origIdx === pk.index);
-          if (matchIdx !== -1) candidateIndices.add(matchIdx);
-          if (
-            this.peakLatency > 0 &&
-            this.currentAnalyzer &&
-            typeof this.currentAnalyzer.resolveLatencyIndex === 'function'
-          ) {
-            const shiftedOrigIdx = this.currentAnalyzer.resolveLatencyIndex(
-              pk,
-              this.peakLatency,
-            );
-            const shiftedMatchIdx = pts.findIndex(
-              (p) => p.origIdx === shiftedOrigIdx,
-            );
-            if (shiftedMatchIdx !== -1) candidateIndices.add(shiftedMatchIdx);
-          }
-        }
-      });
+    // Sample indices of every peak — both where it was recorded and, with a
+    // Peak-latency shift, where its marker sits.
+    const a = this.currentAnalyzer;
+    const shiftLatency =
+      this.peakLatency > 0 && typeof a?.resolveLatencyIndex === 'function';
+    const peakOrigIdx = new Set();
+    for (const pk of this.currentPeaks || []) {
+      if (!pk) continue;
+      peakOrigIdx.add(pk.index);
+      if (shiftLatency)
+        peakOrigIdx.add(a.resolveLatencyIndex(pk, this.peakLatency));
     }
 
-    // Add evenly spaced samples (aiming for ~16-24 waypoints total)
+    // Candidate draw indices: the track ends, each peak's drawn point…
+    const candidateIndices = new Set([0, pts.length - 1]);
+    for (const origIdx of peakOrigIdx) {
+      if (typeof origIdx !== 'number') continue;
+      const matchIdx = pts.findIndex((p) => p.origIdx === origIdx);
+      if (matchIdx !== -1) candidateIndices.add(matchIdx);
+    }
+
+    // …and evenly spaced samples (aiming for ~16-24 waypoints total).
     const targetSteps = Math.min(24, Math.max(12, Math.floor(pts.length / 20)));
     const stepSize = Math.max(1, Math.floor(pts.length / targetSteps));
     for (let i = stepSize; i < pts.length - 1; i += stepSize) {
@@ -236,17 +225,8 @@ export class GSRGlobeHotspotTour extends GSRGlobeNavigation {
     const sortedIndices = Array.from(candidateIndices).sort((a, b) => a - b);
     const waypoints = [];
 
-    // Helper to calculate wall height at any draw point
-    const heightAtPoint = (p) => {
-      if (!p || p.origIdx == null || !heightSeries) return baseH;
-      const rawVal = heightSeries[p.origIdx];
-      return baseH + Math.max(0, seriesValue(rawVal)) * extScale;
-    };
-
-    const lookAheadSteps = Math.max(
-      3,
-      Math.min(10, Math.floor(pts.length / 30)),
-    );
+    const heightAtPoint = (p) => this._getPointHeight(p?.origIdx);
+    const lookAheadSteps = this._tourLookAheadSteps(pts);
 
     for (let i = 0; i < sortedIndices.length; i++) {
       const idx = sortedIndices[i];
@@ -256,22 +236,7 @@ export class GSRGlobeHotspotTour extends GSRGlobeNavigation {
       // GSR arousal height at this point
       const gsrHeight = heightAtPoint(p);
 
-      // Check if this waypoint is at or near a peak or hotspot
-      const isPeak = (this.currentPeaks || []).some((pk) => {
-        if (!pk) return false;
-        if (pk.index === p.origIdx) return true;
-        if (
-          this.peakLatency > 0 &&
-          this.currentAnalyzer &&
-          typeof this.currentAnalyzer.resolveLatencyIndex === 'function'
-        ) {
-          return (
-            this.currentAnalyzer.resolveLatencyIndex(pk, this.peakLatency) ===
-            p.origIdx
-          );
-        }
-        return false;
-      });
+      const isPeak = peakOrigIdx.has(p.origIdx);
 
       // Find local max height in the upcoming track window (+16 points ahead)
       const windowStart = Math.max(0, idx - 4);
@@ -366,17 +331,14 @@ export class GSRGlobeHotspotTour extends GSRGlobeNavigation {
   }
 
   /**
-   * Jump straight to the next/previous tour waypoint (Left/Right-arrow
-   * shortcuts), cancelling whatever the camera is currently doing and
-   * implicitly un-pausing. No wraparound — a step past either end is simply
-   * a no-op, so repeatedly pressing the arrow at the first/last hotspot just
-   * stays put rather than looping.
+   * Hop `delta` waypoints forwards/backwards (the Left/Right-arrow shortcuts,
+   * via tourNext/tourPrevious), cancelling whatever the camera is currently
+   * doing and implicitly un-pausing. No wraparound — a step past either end
+   * is simply a no-op, so repeatedly pressing the arrow at the first/last
+   * hotspot just stays put rather than looping.
    */
-  _hotspotTourNext() {
-    this._jumpToTourStep(this._tourStepIndex + 1);
-  }
-  _hotspotTourPrevious() {
-    this._jumpToTourStep(this._tourStepIndex - 1);
+  _stepHotspotTour(delta) {
+    this._jumpToTourStep(this._tourStepIndex + delta);
   }
 
   _jumpToTourStep(stepIdx) {
@@ -452,7 +414,8 @@ export class GSRGlobeHotspotTour extends GSRGlobeNavigation {
    * (ground level) — the most sensitive of the target's height range, so
    * something tall enough to hide the foot of the hotspot's wall counts even
    * if its spire would still peek out above it; the aim is to keep the
-   * *whole* wall height clear, not just its top or its base.
+   * *whole* wall height clear, not just its top or its base. `heightAt(p)`
+   * gives a drawn point's own wall height (ground-relative).
    * @private
    */
   _sightlineObstructionCount(
@@ -463,9 +426,7 @@ export class GSRGlobeHotspotTour extends GSRGlobeNavigation {
     camAlt,
     targetLat,
     targetLon,
-    heightSeries,
-    baseH,
-    extScale,
+    heightAt,
   ) {
     const dLat = targetLat - camLat;
     const dLon = targetLon - camLon;
@@ -491,11 +452,8 @@ export class GSRGlobeHotspotTour extends GSRGlobeNavigation {
       const distM = Math.sqrt(offLat * offLat + offLon * offLon) * 111320.0;
       if (distM >= NEAR_M) continue;
 
-      // This point's own wall height, ground-relative (same formula as the
-      // wall/height-metric renderer).
-      const rawVal =
-        heightSeries && p.origIdx != null ? heightSeries[p.origIdx] : null;
-      const pointHeight = baseH + Math.max(0, seriesValue(rawVal)) * extScale;
+      // This point's own wall height, ground-relative.
+      const pointHeight = heightAt(p);
 
       // Sightline altitude at this point's position, from the camera down to
       // the target's ground level (t=0 -> camAlt, t=1 -> 0).
@@ -537,16 +495,6 @@ export class GSRGlobeHotspotTour extends GSRGlobeNavigation {
     const camHeading = this.viewer.camera?.heading;
     const prevHeadingRad = typeof camHeading === 'number' ? camHeading : 0;
     const latRad = (wp.lat * Math.PI) / 180.0;
-    const metric = this.activeColoringMetric;
-    const heightMetric = HEIGHT_CAPABLE_METRICS?.has(metric)
-      ? metric
-      : this.heightMetric || 'phasic';
-    const heightSeries = this._getMetricSeries(
-      this.currentAnalyzer,
-      heightMetric,
-    );
-    const extScale = this.extrusionScale || 8.0;
-    const baseH = this.baseHeight || 2.0;
 
     const candidates = [1, -1].map((side) => {
       const offsetBearingRad =
@@ -569,9 +517,7 @@ export class GSRGlobeHotspotTour extends GSRGlobeNavigation {
         altitudeOffset,
         wp.lat,
         wp.lon,
-        heightSeries,
-        baseH,
-        extScale,
+        (p) => this._getPointHeight(p.origIdx),
       );
       // headingRad is already expressed as the closest representation to
       // prevHeadingRad, so the raw difference IS the turn angle.

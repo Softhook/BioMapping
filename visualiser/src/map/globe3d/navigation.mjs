@@ -194,15 +194,7 @@ export class GSRGlobeNavigation extends GSRGlobeToggles {
       );
     };
 
-    // Continuous rendering for the duration of the orbit — render-on-demand
-    // (requestRenderMode) makes a per-tick camera animation visibly steppy.
-    // Cancel any pending idle-retire so the smoothness bridge can't flip the
-    // scene back to on-demand mid-orbit.
-    if (this._idleRenderTimer) {
-      clearTimeout(this._idleRenderTimer);
-      this._idleRenderTimer = null;
-    }
-    this.viewer.scene.requestRenderMode = false;
+    this._holdContinuousRender();
     this._orbitRemoveCallback =
       this.viewer.clock.onTick.addEventListener(orbitStep);
     this._isOrbiting = true;
@@ -216,11 +208,7 @@ export class GSRGlobeNavigation extends GSRGlobeToggles {
     }
     this.viewer.camera.lookAtTransform(Cesium.Matrix4.IDENTITY);
     this._isOrbiting = false;
-    if (this.viewer) {
-      // Back to render-on-demand (no-op when this host runs continuously anyway)
-      // and back to the normal render resolution.
-      this.viewer.scene.requestRenderMode = this.requestRenderMode;
-      this.viewer.resolutionScale = this._resolutionScale;
-    }
+    this._releaseContinuousRender();
+    if (this.viewer) this.viewer.resolutionScale = this._resolutionScale;
   }
 }

@@ -29,6 +29,7 @@ export { GSRGlobeHotspotTour } from './globe3d/hotspot_tour.mjs';
 export { GSRGlobeNavigation } from './globe3d/navigation.mjs';
 export { GSRGlobeOsm } from './globe3d/osm.mjs';
 export { GSRGlobePeaks } from './globe3d/peaks.mjs';
+export { GSRGlobeReplayTour } from './globe3d/replay_tour.mjs';
 export { GSRGlobeRf } from './globe3d/rf.mjs';
 export { GSRGlobeToggles } from './globe3d/toggles.mjs';
 export { GSRGlobeTour } from './globe3d/tour.mjs';

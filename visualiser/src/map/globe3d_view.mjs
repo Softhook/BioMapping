@@ -57,8 +57,9 @@ export const GSRGlobe3DView = {
   // Last scrub lat/lon pushed into the globe, for dedupe (see _onScrub).
   _lastScrubKey: null,
 
-  // performance.now() of the last replay-tour graph sync (see _onTourProgress).
-  _lastTourSyncMs: 0,
+  // performance.now() of the last replay-tour graph sync (see
+  // _onReplayTourProgress).
+  _lastReplaySyncMs: 0,
 
   // ── Init & wiring ──────────────────────────────────────────────────────────
 
@@ -222,13 +223,40 @@ export const GSRGlobe3DView = {
     mgr._requestRender();
   },
 
-  // ── Hotspot tour -> GSR graph pan/zoom sync ───────────────────────────────
+  // ── Tours -> graph cursor / GSR graph sync ────────────────────────────────
+
+  /**
+   * Put the graph cursor and the 2D map dot on a tour's current position —
+   * shared by both tours' progress callbacks.
+   */
+  _emitTourCursor(lat, lon, origIdx) {
+    AppState.hoveredIndex = origIdx;
+    AppState.emit('scrub', { lat, lon, index: origIdx, source: 'globe' });
+  },
+
+  /**
+   * One hotspot-tour hop from the manager (see globe3d/hotspot_tour.mjs):
+   * cursor to the waypoint and pan/zoom the graph onto its hotspot window
+   * over the same duration as the camera flight. A null waypoint means the
+   * tour stopped.
+   */
+  _onHotspotTourStep(_stepIdx, _totalSteps, wp, flightDurationSec) {
+    if (!wp) {
+      GSRGlobe3DView._updateTourBtn(false);
+      GSRGlobe3DView._cancelGraphTween();
+      return;
+    }
+    GSRGlobe3DView._updateTourBtn(true);
+    GSRGlobe3DView._emitTourCursor(wp.lat, wp.lon, wp.origIdx);
+    if (typeof redraw === 'function') redraw();
+    GSRGlobe3DView._tweenGraphToTourStep(wp, flightDurationSec);
+  },
 
   /**
    * Animate the GSR graph's visible time window (AppState.viewStartTime /
    * viewDuration) from wherever it currently sits onto a tour waypoint's
    * pre-computed hotspot window (wp.graphWinStart/graphWinDuration, set in
-   * tour.js), over the same duration as the camera's flight to that waypoint —
+   * hotspot_tour.mjs), over the same duration as the camera's flight to that waypoint —
    * one continuous cinematic move instead of a jump-cut. No-op for fallback
    * (non-hotspot) waypoints, which carry no graph window.
    */
@@ -292,32 +320,24 @@ export const GSRGlobe3DView = {
     GSRGlobe3DView._graphTweenHandle = null;
   },
 
-  // ── Replay tour -> GSR graph sync ─────────────────────────────────────────
-
   /**
-   * One replay-tour tick from the manager (see globe3d/tour.mjs): move the
+   * One replay-tour tick from the manager (see globe3d/replay_tour.mjs): move the
    * graph cursor / 2D map dot to the replay head and scroll the GSR graph so
    * the head sits three-quarters of the way across the current zoom window.
    * Throttled to ~20 Hz — the tour ticks every frame, and a full graph redraw
    * per frame is wasted work. `null` means the tour stopped.
    */
-  _onTourProgress(p) {
+  _onReplayTourProgress(p) {
     if (!p) {
       GSRGlobe3DView._updateTourBtn(false);
       return;
     }
     const now =
       typeof performance !== 'undefined' ? performance.now() : Date.now();
-    if (now - GSRGlobe3DView._lastTourSyncMs < 50) return;
-    GSRGlobe3DView._lastTourSyncMs = now;
+    if (now - GSRGlobe3DView._lastReplaySyncMs < 50) return;
+    GSRGlobe3DView._lastReplaySyncMs = now;
 
-    AppState.hoveredIndex = p.origIdx;
-    AppState.emit('scrub', {
-      lat: p.lat,
-      lon: p.lon,
-      index: p.origIdx,
-      source: 'globe',
-    });
+    GSRGlobe3DView._emitTourCursor(p.lat, p.lon, p.origIdx);
     const dur = AppState.viewDuration;
     if (GSRGlobe3DView._graphVisible() && dur < AppState.totalDuration) {
       AppState.viewStartTime = Math.min(
@@ -460,24 +480,15 @@ export const GSRGlobe3DView = {
           if (isOrbiting) GSRGlobe3DView._updateTourBtn(false);
         }
       });
-    if (els.btnTour) {
-      els.btnTour.addEventListener('click', () => {
-        if (m()) {
-          const isTouring = m().toggleTour();
-          GSRGlobe3DView._updateTourBtn(isTouring, false, 'replay');
-          if (isTouring && els.btnOrbit)
-            els.btnOrbit.classList.remove('active');
-        }
-      });
-    }
-    if (els.btnHotspotTour) {
-      els.btnHotspotTour.addEventListener('click', () => {
-        if (m()) {
-          const isTouring = m().toggleHotspotTour();
-          GSRGlobe3DView._updateTourBtn(isTouring, false, 'hotspot');
-          if (isTouring && els.btnOrbit)
-            els.btnOrbit.classList.remove('active');
-        }
+    for (const [btn, toggle, mode] of [
+      [els.btnTour, 'toggleReplayTour', 'replay'],
+      [els.btnHotspotTour, 'toggleHotspotTour', 'hotspot'],
+    ]) {
+      btn?.addEventListener('click', () => {
+        if (!m()) return;
+        const isTouring = m()[toggle]();
+        GSRGlobe3DView._updateTourBtn(isTouring, false, mode);
+        if (isTouring && els.btnOrbit) els.btnOrbit.classList.remove('active');
       });
     }
     if (els.btnPersp3D)
@@ -1026,27 +1037,11 @@ export const GSRGlobe3DView = {
         GSRGlobe3DView._updateAttribution();
       GSRGlobe3DView.manager.onBuildingsChange = () =>
         GSRGlobe3DView._updateAttribution();
-      GSRGlobe3DView.manager.onTourProgress((p) =>
-        GSRGlobe3DView._onTourProgress(p),
+      GSRGlobe3DView.manager.onReplayTourProgress((p) =>
+        GSRGlobe3DView._onReplayTourProgress(p),
       );
-      GSRGlobe3DView.manager.onTourStep(
-        (_stepIdx, _totalSteps, wp, flightDurationSec) => {
-          if (wp) {
-            GSRGlobe3DView._updateTourBtn(true);
-            AppState.hoveredIndex = wp.origIdx;
-            AppState.emit('scrub', {
-              lat: wp.lat,
-              lon: wp.lon,
-              index: wp.origIdx,
-              source: 'globe',
-            });
-            if (typeof redraw === 'function') redraw();
-            GSRGlobe3DView._tweenGraphToTourStep(wp, flightDurationSec);
-          } else {
-            GSRGlobe3DView._updateTourBtn(false);
-            GSRGlobe3DView._cancelGraphTween();
-          }
-        },
+      GSRGlobe3DView.manager.onHotspotTourStep((...args) =>
+        GSRGlobe3DView._onHotspotTourStep(...args),
       );
     } else if (GSRGlobe3DView.manager.viewer) {
       GSRGlobe3DView.manager.viewer.useDefaultRenderLoop = true;

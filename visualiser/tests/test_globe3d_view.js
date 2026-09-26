@@ -779,7 +779,7 @@ test('_cancelGraphTween stops an in-flight pan before it reaches the target', as
   );
 });
 
-test('_onTourProgress moves the graph cursor to the replay head and scrolls the graph to keep it in view', async () => {
+test('_onReplayTourProgress moves the graph cursor to the replay head and scrolls the graph to keep it in view', async () => {
   const { window } = await bootApp();
   window.setup();
   const V = window.GSRGlobe3DView;
@@ -792,8 +792,8 @@ test('_onTourProgress moves the graph cursor to the replay head and scrolls the 
   const seen = [];
   AppState.on('scrub', (p) => seen.push(p));
 
-  V._lastTourSyncMs = 0;
-  V._onTourProgress({ time: 500, lat: 51.5, lon: -0.1, origIdx: 42 });
+  V._lastReplaySyncMs = 0;
+  V._onReplayTourProgress({ time: 500, lat: 51.5, lon: -0.1, origIdx: 42 });
   assert.strictEqual(AppState.hoveredIndex, 42);
   assert.strictEqual(seen.at(-1).index, 42);
   assert.strictEqual(seen.at(-1).source, 'globe');
@@ -801,12 +801,12 @@ test('_onTourProgress moves the graph cursor to the replay head and scrolls the 
   assert.strictEqual(AppState.viewDuration, 100, 'user zoom kept');
 
   // Throttled: an immediate second tick is dropped.
-  V._onTourProgress({ time: 510, lat: 51.5, lon: -0.1, origIdx: 43 });
+  V._onReplayTourProgress({ time: 510, lat: 51.5, lon: -0.1, origIdx: 43 });
   assert.strictEqual(AppState.hoveredIndex, 42);
 
   // Near the end, the window stops at the end of the walk.
-  V._lastTourSyncMs = 0;
-  V._onTourProgress({ time: 990, lat: 51.5, lon: -0.1, origIdx: 99 });
+  V._lastReplaySyncMs = 0;
+  V._onReplayTourProgress({ time: 990, lat: 51.5, lon: -0.1, origIdx: 99 });
   assert.strictEqual(AppState.viewStartTime, 900);
 });
 
@@ -1074,7 +1074,7 @@ test('Tour button in 3D camera controls toggles manager tour and updates UI', as
   let tourToggled = 0;
   let isTouring = false;
   V.manager = {
-    toggleTour: () => {
+    toggleReplayTour: () => {
       tourToggled++;
       isTouring = !isTouring;
       return isTouring;
@@ -1148,7 +1148,7 @@ test('Hotspot Tour button sits next to the Tour button, replaces Top View, and o
   const mgr = {
     _isTouring: false,
     _tourMode: null,
-    toggleTour() {
+    toggleReplayTour() {
       const on = !(this._isTouring && this._tourMode === 'replay');
       this._isTouring = on;
       this._tourMode = on ? 'replay' : null;
@@ -1513,7 +1513,8 @@ test('3D peak click triggers GSRUI.focusOnPeak with source=map and opens popup',
       _registeredClickCb = cb;
     },
     onScrubHover: () => {},
-    onTourProgress: () => {},
+    onReplayTourProgress: () => {},
+    onHotspotTourStep: () => {},
   };
 
   window.AppState.analyzer = {

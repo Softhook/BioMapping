@@ -187,6 +187,9 @@ export class GSRGlobeBase {
     // No-op for a continuously rendering host.
     this._idleRenderMs = options.idleRenderMs || 2200;
     this._idleRenderTimer = null;
+    // True while an animation the camera runs every tick (orbit, replay tour)
+    // holds the scene in continuous rendering — see _holdContinuousRender().
+    this._renderHeld = false;
     this._wakeHandlers = null;
     this._postRenderRemover = null;
 
@@ -309,9 +312,9 @@ export class GSRGlobeBase {
     // followScrub() / releaseFollowScrub()).
     this._followingScrub = false;
 
-    // Tour state, shared by the replay tour (globe3d/tour.mjs) and the
+    // Tour state, shared by the replay tour (globe3d/replay_tour.mjs) and the
     // hotspot tour (globe3d/hotspot_tour.mjs); `_tourMode` says which one is
-    // running ('replay' | 'hotspot' | null).
+    // running ('replay' | 'hotspot' | null) — see globe3d/tour.mjs.
     this._isTouring = false;
     this._isPaused = false;
     this._tourMode = null;
@@ -336,7 +339,7 @@ export class GSRGlobeBase {
     this._tourManualInterrupt = false;
 
     // Shared speed multiplier for automated camera motion — the replay tour's
-    // clock speed (tour.mjs), the hotspot tour's flight/dwell timing
+    // clock speed (replay_tour.mjs), the hotspot tour's flight/dwell timing
     // (hotspot_tour.mjs) and the 360° orbit's rotation rate
     // (navigation.mjs) read this same value, adjusted by the Up/Down arrow
     // shortcuts (globe3d_view.mjs). See setAutoCameraSpeed().
@@ -747,25 +750,41 @@ export class GSRGlobeBase {
   /**
    * Drop the scene to continuous rendering and (re)arm the idle timer that hands
    * it back to render-on-demand once camera motion has settled. No-op unless the
-   * host asked for requestRenderMode, and never fights a running 360° orbit
-   * (which owns the render loop itself). See constructor notes.
+   * host asked for requestRenderMode, and never fights a held render loop (a
+   * running orbit or replay tour owns it). See constructor notes.
    */
   _wakeRenderLoop() {
-    if (
-      !this.requestRenderMode ||
-      this._isOrbiting ||
-      this._replay ||
-      !this.viewer
-    )
-      return;
+    if (!this.requestRenderMode || this._renderHeld || !this.viewer) return;
     const scene = this.viewer.scene;
     if (scene.requestRenderMode) scene.requestRenderMode = false;
     if (this._idleRenderTimer) clearTimeout(this._idleRenderTimer);
     this._idleRenderTimer = setTimeout(() => {
       this._idleRenderTimer = null;
-      if (this.viewer && !this._isOrbiting && !this._replay)
+      if (this.viewer && !this._renderHeld)
         this.viewer.scene.requestRenderMode = true;
     }, this._idleRenderMs);
+  }
+
+  /**
+   * Hold continuous rendering for an animation the camera runs every tick (the
+   * 360° orbit, the replay tour) — render-on-demand makes that visibly steppy.
+   * Cancels any pending idle-retire so _wakeRenderLoop's timer can't flip the
+   * scene back to on-demand mid-animation. Undo with _releaseContinuousRender().
+   */
+  _holdContinuousRender() {
+    if (this._idleRenderTimer) {
+      clearTimeout(this._idleRenderTimer);
+      this._idleRenderTimer = null;
+    }
+    this._renderHeld = true;
+    this.viewer.scene.requestRenderMode = false;
+  }
+
+  /** Hand the render loop back to the host's own mode. */
+  _releaseContinuousRender() {
+    this._renderHeld = false;
+    if (this.viewer)
+      this.viewer.scene.requestRenderMode = this.requestRenderMode;
   }
 
   /**
@@ -1525,7 +1544,7 @@ export class GSRGlobeBase {
    * Colour comes from a bounded Cesium.Color LUT; positions are one
    * fromDegreesArray call.
    *
-   * During the replay tour (`this._replay` set, see globe3d/tour.mjs) the
+   * During the replay tour (`this._replay` set, see globe3d/replay_tour.mjs) the
    * merge in (2) is skipped: every segment is its own instance, built hidden,
    * and recorded in `this._replaySegs` (time span, endpoints, heights, colour)
    * so the tour can switch each one on as the replay clock passes it. The
@@ -2018,7 +2037,7 @@ export class GSRGlobeBase {
 
   /**
    * Nudge the shared auto-camera speed multiplier — the replay tour's clock
-   * speed (tour.mjs's _replayTick), the hotspot tour's flight/dwell timing
+   * speed (replay_tour.mjs's _replayTick), the hotspot tour's flight/dwell timing
    * (hotspot_tour.mjs's _executeTourStep) and the 360° orbit's rotation rate
    * (navigation.mjs's orbitStep) all read `this._autoCameraSpeed`, so one dial
    * covers whichever is running. The replay and orbit re-read it every tick;
@@ -2043,7 +2062,8 @@ export class GSRGlobeBase {
   //   globe3d/toggles.js     — layer visibility toggles + entity clearing
   //   globe3d/navigation.js  — fly-to/focus + turntable orbit
   //   globe3d/hotspot_tour.js — cinematic hotspot-to-hotspot tour
-  //   globe3d/tour.js        — replay tour (walk redrawn at sped-up real time)
+  //   globe3d/replay_tour.js — replay tour (walk redrawn at sped-up real time)
+  //   globe3d/tour.js        — shared tour controls (stop/pause/next/previous)
   // 3D track export (CZML / KML) lives in src/map/globe3d/exporters.js and is
   // driven from the main Export Options panel — it needs no live viewer. The 3D
   // PNG snapshot was dropped: the app's Save Canvas / Bio Map PNG covers it.
