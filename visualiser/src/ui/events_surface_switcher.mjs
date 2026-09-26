@@ -37,6 +37,8 @@ export const SurfaceSwitcherEvents = {
       document.getElementById('g3dBtnPersp3D'),
       document.getElementById('g3dBtnNorth'),
     ];
+    // 2D-only: the junction debug rings are a Leaflet overlay with no globe twin.
+    const junctionBtn = document.getElementById('btnToggleJunctionDebug');
     const show = (el, on) => {
       if (el) el.style.display = on ? '' : 'none';
     };
@@ -56,6 +58,7 @@ export const SurfaceSwitcherEvents = {
       cameraBtns.forEach((btn) => {
         show(btn, toGlobe);
       });
+      show(junctionBtn, !toGlobe);
 
       // The Map Display card ships collapsed; switching to the globe reveals the
       // 3D-only settings inside it, so expand it once so they aren't stranded
