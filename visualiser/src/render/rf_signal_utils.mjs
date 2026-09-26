@@ -19,6 +19,20 @@ const NORM_GAMMA = 0.75;
 const DEFAULT_GAIN = 1.15;
 
 /**
+ * The recording's calibrated noise floor for a band (the "# Band Floors"
+ * header, see csv_parser.mjs), or null when the file has none — callers then
+ * fall back to the band's quietest reading on the track.
+ *
+ * @param {object|null} floors - e.g. {815: -91.5, 868: -91.5, 915: -91.5}
+ * @param {number|string} bandKey - 815 | 868 | 915
+ * @returns {number|null}
+ */
+export function recordedBandFloor(floors, bandKey) {
+  const f = floors?.[bandKey];
+  return typeof f === 'number' && Number.isFinite(f) ? f : null;
+}
+
+/**
  * A band only counts as "active" if its peak clears the hard noise floor
  * AND spans at least 3 dB above its own local floor — otherwise 1-2 dB of
  * noise-floor jitter would stretch to full intensity and paint a dead band

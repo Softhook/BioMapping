@@ -209,19 +209,19 @@ export const AnalyzerExport = {
 
       const latStr =
         latVal !== null && latVal !== undefined && !isNaN(latVal)
-          ? latVal.toFixed(6)
+          ? latVal.toFixed(7)
           : '';
       const lonStr =
         lonVal !== null && lonVal !== undefined && !isNaN(lonVal)
-          ? lonVal.toFixed(6)
+          ? lonVal.toFixed(7)
           : '';
       const rawLatStr =
         rawLatVal !== null && rawLatVal !== undefined && !isNaN(rawLatVal)
-          ? rawLatVal.toFixed(6)
+          ? rawLatVal.toFixed(7)
           : '';
       const rawLonStr =
         rawLonVal !== null && rawLonVal !== undefined && !isNaN(rawLonVal)
-          ? rawLonVal.toFixed(6)
+          ? rawLonVal.toFixed(7)
           : '';
 
       csv +=

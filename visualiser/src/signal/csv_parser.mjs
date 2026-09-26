@@ -739,18 +739,20 @@ export const GSRCSVParser = {
         if (rfColIdx.rssi_915 !== -1 && cols[rfColIdx.rssi_915])
           rssi_915 = parseFloat(cols[rfColIdx.rssi_915]);
 
-        if (emFogColIdx !== -1 && cols[emFogColIdx]) {
+        // Recomputed from the bands, against the recording's own calibrated
+        // noise floors, rather than read back from a processed export's
+        // rounded em_fog column, which is only the fallback for a row that
+        // carries no band readings.
+        rfRow.rssi_300 = rssi_300;
+        rfRow.rssi_315 = rssi_315;
+        rfRow.rssi_434 = rssi_434;
+        rfRow.rssi_446 = rssi_446;
+        rfRow.rssi_815 = rssi_815;
+        rfRow.rssi_868 = rssi_868;
+        rfRow.rssi_915 = rssi_915;
+        em_fog = calcEmFog(rfRow, bandFloors);
+        if (isNaN(em_fog) && emFogColIdx !== -1 && cols[emFogColIdx]) {
           em_fog = parseFloat(cols[emFogColIdx]);
-        }
-        if (isNaN(em_fog)) {
-          rfRow.rssi_300 = rssi_300;
-          rfRow.rssi_315 = rssi_315;
-          rfRow.rssi_434 = rssi_434;
-          rfRow.rssi_446 = rssi_446;
-          rfRow.rssi_815 = rssi_815;
-          rfRow.rssi_868 = rssi_868;
-          rfRow.rssi_915 = rssi_915;
-          em_fog = calcEmFog(rfRow);
         }
       }
 
@@ -916,6 +918,9 @@ export const GSRCSVParser = {
         rssi_868: rssi_868,
         rssi_915: rssi_915,
         em_fog: em_fog,
+        // The recording's calibrated per-band noise floors (shared object),
+        // carried on the row so map points built from it keep them.
+        bandFloors: bandFloors,
         osm_road_class: osm_road_class,
         osm_dist_major_road: osm_dist_major_road,
         osm_in_park: osm_in_park,
@@ -1065,9 +1070,12 @@ export const GSRCSVParser = {
 
     // Offset timestamps relative to session start (0.0s)
     if (rawDataList.length > 0) {
+      // Rounded to the microsecond: the subtraction leaves float noise
+      // (6.9 − 6.6 = 0.3000000000000007) that a saved file, written to the
+      // millisecond, doesn't have, and that can tip threshold tests.
       const startTime = rawDataList[0].time;
       rawDataList.forEach((d) => {
-        d.time = d.time - startTime;
+        d.time = Math.round((d.time - startTime) * 1e6) / 1e6;
       });
     }
 
@@ -1125,6 +1133,19 @@ export const GSRCSVParser = {
       rawDataList.forEach((d) => {
         d.val = d.val / 1000.0;
       });
+    }
+
+    // A processed export writes a position on every row, including the ones
+    // filled in between fixes. Clear those so they're rebuilt from the real
+    // fixes as for the device file; left in, they'd count as anchors below
+    // and miss the step-hold of speed, course and DOP.
+    if (isGpsFixColIdx !== -1) {
+      for (const d of rawDataList) {
+        if (!d._isGpsFix) {
+          d.lat = NaN;
+          d.lon = NaN;
+        }
+      }
     }
 
     // ─────────────────────────────────────────────────────────────────────────

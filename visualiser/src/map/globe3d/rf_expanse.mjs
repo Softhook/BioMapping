@@ -14,6 +14,7 @@
 import {
   bandHasActiveSignal as bandHasActiveSignalShared,
   normDbm as normDbmShared,
+  recordedBandFloor,
 } from '../../render/rf_signal_utils.mjs';
 
 export const GSRGlobe3DRf = {
@@ -140,6 +141,12 @@ export const GSRGlobe3DRf = {
       // with no 915 source) — where the 2D overlay correctly draws
       // nothing. Read the real extremes here, before the degenerate-range
       // fallback on the next lines overwrites them.
+      // The recording's calibrated floor, when its file has one, in place of
+      // the quietest reading (same as the 2D overlay).
+      const floors = analyzer.bandFloors;
+      min815 = recordedBandFloor(floors, 815) ?? min815;
+      min868 = recordedBandFloor(floors, 868) ?? min868;
+      min915 = recordedBandFloor(floors, 915) ?? min915;
       active815 = bandHasActiveSignal(min815, max815);
       active868 = bandHasActiveSignal(min868, max868);
       active915 = bandHasActiveSignal(min915, max915);

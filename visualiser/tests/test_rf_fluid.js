@@ -150,8 +150,8 @@ assert.strictEqual(
 );
 assert.strictEqual(
   analyzerReimported.raw[1].em_fog,
-  22.5,
-  'Row 1 em_fog preserved on re-import',
+  analyzerFull.raw[1].em_fog,
+  'Row 1 em_fog preserved on re-import (rebuilt from the bands)',
 );
 console.log(
   '✓ Export & re-import of processed CSV with RF data verified successfully',
@@ -403,6 +403,21 @@ const row0Fog = GSRAnalyzer.calcEmFog(
   calibratedAnalyzer.bandFloors,
 );
 assert.strictEqual(row0Fog, 0, 'Fog at exact noise floor should be 0');
+// …and the parser applies them to the stored per-row EM fog, not just the
+// helper when floors are passed in by hand.
+assert.strictEqual(
+  calibratedAnalyzer.raw[0].em_fog,
+  0,
+  'Parsed em_fog at the recorded noise floor should be 0',
+);
+assert.strictEqual(
+  calibratedAnalyzer.raw[1].em_fog,
+  GSRAnalyzer.calcEmFog(
+    calibratedAnalyzer.raw[1],
+    calibratedAnalyzer.bandFloors,
+  ),
+  'Parsed em_fog should use the recorded band floors',
+);
 
 console.log('✓ # Band Floors (dBm) CSV metadata header parsing verified');
 

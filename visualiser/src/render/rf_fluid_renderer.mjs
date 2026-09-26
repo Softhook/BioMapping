@@ -15,7 +15,11 @@
 
 import { GSRAnalyzer } from '../signal/analyzer.mjs';
 import { SpatialGrid } from '../spatial/spatial_grid.mjs';
-import { bandHasActiveSignal, normDbm } from './rf_signal_utils.mjs';
+import {
+  bandHasActiveSignal,
+  normDbm,
+  recordedBandFloor,
+} from './rf_signal_utils.mjs';
 
 export class RFFluidRenderer {
   constructor(map, options = {}) {
@@ -530,6 +534,7 @@ export class RFFluidRenderer {
         has868,
         has915,
         hasFog,
+        floors: pt.bandFloors || null,
         fanGeo,
       });
     }
@@ -578,24 +583,27 @@ export class RFFluidRenderer {
   }
 
   /**
-   * Thresholded RSSI Normalizer:
-   * Returns 0.0 for ambient noise floor signals (<= -85.0 dBm or <= floor + 5.0 dBm).
-   * Scales smoothly [0.0 -> 1.0] ONLY for active RF signals exceeding noise floor.
+   * Thresholded RSSI Normalizer (rf_signal_utils.normDbm): 0.0 at or below
+   * the greater of -90 dBm and floor + 3 dB, then a 0..1 ramp up to the peak.
    */
-  _normDbm(val, bandKey) {
+  _normDbm(val, bandKey, floors = null) {
     if (val === undefined || isNaN(val)) return 0.0;
     const stats =
       this.options.autoRange && this.rssiStats?.[bandKey]
         ? this.rssiStats[bandKey]
         : { floor: -91.5, peak: -60.0, hasActiveSignal: false };
+    // The point's own track's calibrated floor when its file recorded one
+    // (collective view mixes devices); otherwise the pooled quietest reading.
+    const recorded = this.options.autoRange
+      ? recordedBandFloor(floors, bandKey)
+      : null;
+    const floor = recorded ?? stats.floor;
+    const active =
+      recorded !== null
+        ? bandHasActiveSignal(recorded, stats.peak)
+        : stats.hasActiveSignal;
 
-    return normDbm(
-      val,
-      stats.floor,
-      stats.peak,
-      stats.hasActiveSignal,
-      this.options.gain || 1.15,
-    );
+    return normDbm(val, floor, stats.peak, active, this.options.gain || 1.15);
   }
 
   setMode(mode) {
@@ -752,9 +760,15 @@ export class RFFluidRenderer {
       let alpha = 0.0;
 
       if (mode === 'triband') {
-        const n815 = node.has815 ? this._normDbm(node.r815, 815) : 0;
-        const n868 = node.has868 ? this._normDbm(node.r868, 868) : 0;
-        const n915 = node.has915 ? this._normDbm(node.r915, 915) : 0;
+        const n815 = node.has815
+          ? this._normDbm(node.r815, 815, node.floors)
+          : 0;
+        const n868 = node.has868
+          ? this._normDbm(node.r868, 868, node.floors)
+          : 0;
+        const n915 = node.has915
+          ? this._normDbm(node.r915, 915, node.floors)
+          : 0;
 
         // Pure orthogonal additive multi-spectral RGB synthesis:
         // 815 MHz (LTE Edge)   -> Pure Red   (255, 0, 0)
@@ -771,19 +785,19 @@ export class RFFluidRenderer {
         const maxN = Math.max(n815, n868, n915);
         alpha = Math.min(1.0, maxN * 0.95);
       } else if (mode === '815') {
-        const n = node.has815 ? this._normDbm(node.r815, 815) : 0;
+        const n = node.has815 ? this._normDbm(node.r815, 815, node.floors) : 0;
         rVal = 255;
         gVal = 0;
         bVal = 0;
         alpha = Math.min(1.0, n * 0.95);
       } else if (mode === '868') {
-        const n = node.has868 ? this._normDbm(node.r868, 868) : 0;
+        const n = node.has868 ? this._normDbm(node.r868, 868, node.floors) : 0;
         rVal = 0;
         gVal = 255;
         bVal = 0;
         alpha = Math.min(1.0, n * 0.95);
       } else if (mode === '915') {
-        const n = node.has915 ? this._normDbm(node.r915, 915) : 0;
+        const n = node.has915 ? this._normDbm(node.r915, 915, node.floors) : 0;
         rVal = 0;
         gVal = 0;
         bVal = 255;
@@ -938,7 +952,7 @@ export class RFFluidRenderer {
       const processFog = mode === 'fog';
 
       if (process815 && node.has815) {
-        const n815 = this._normDbm(node.r815, 815);
+        const n815 = this._normDbm(node.r815, 815, node.floors);
         const alpha815 = Math.min(1.0, n815 * 0.95);
         if (alpha815 > 0) {
           addGradientAndPoly(
@@ -956,7 +970,7 @@ export class RFFluidRenderer {
       }
 
       if (process868 && node.has868) {
-        const n868 = this._normDbm(node.r868, 868);
+        const n868 = this._normDbm(node.r868, 868, node.floors);
         const alpha868 = Math.min(1.0, n868 * 0.95);
         if (alpha868 > 0) {
           addGradientAndPoly(
@@ -974,7 +988,7 @@ export class RFFluidRenderer {
       }
 
       if (process915 && node.has915) {
-        const n915 = this._normDbm(node.r915, 915);
+        const n915 = this._normDbm(node.r915, 915, node.floors);
         const alpha915 = Math.min(1.0, n915 * 0.95);
         if (alpha915 > 0) {
           addGradientAndPoly(
