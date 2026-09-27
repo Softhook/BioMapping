@@ -151,3 +151,12 @@ test('OSM enrichment ignores an earlier road snap (no feedback loop)', () => {
   const after = OSMEnricher._enrichmentPositions(a).map((p) => [p.lat, p.lon]);
   assert.deepStrictEqual(after, before, 'enrichment input is unchanged');
 });
+
+test('a caller without GPS settings keeps the path on the settings it was built with', () => {
+  const a = walkAnalyzer();
+  GpsPipeline.ensureFilteredGps(a, { maxHdop: 3, maxSpeed: 1.5 });
+  const path = a.filteredGps;
+  GpsPipeline.ensureFilteredGps(a); // e.g. NDVI given a bare analyzer
+  assert.strictEqual(a.filteredGps, path, 'not rebuilt with the defaults');
+  assert.deepStrictEqual(a._pathParams, { maxHdop: 3, maxSpeed: 1.5 });
+});

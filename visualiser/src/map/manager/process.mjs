@@ -3,8 +3,9 @@
  * loaded immediately after map.js, adds these methods to
  * GSRMapManager.prototype. They turn an analyzer's raw rows + GPS filter params
  * into the `drawPoints` array every renderer works from, and cache the result
- * (this._gpsCache, keyed by track id + a params/snap fingerprint) so nudging a
- * GSR slider doesn't re-run the expensive filter chain.
+ * (this._gpsCache, keyed by track id; valid while the display params and the
+ * smoothed path's key are unchanged) so nudging a GSR slider doesn't re-run
+ * the expensive filter chain.
  *
  * The stages themselves live in GpsPipeline (gps/gps_pipeline.mjs).
  */
@@ -32,25 +33,28 @@ export class GSRMapProcess extends GSRMapLayers {
    */
   _getOrBuildDrawPoints(cacheKey, analyzer, p) {
     const paramsHash = this._hashGpsParams(p);
-    const snapFp = GpsPipeline.snapFingerprint(analyzer.snappedGps);
+    // Build (or confirm) the smoothed path with this map's settings first, so
+    // analyzer.filteredGps — which peaks, the scrub dot and the analyses
+    // read — is always the path being drawn, even if an analysis rebuilt it.
+    const gpsPoints = GpsPipeline.ensureFilteredGps(analyzer, p);
+    const pathKey = analyzer._pathKey;
     const cached = this._gpsCache.get(cacheKey);
 
     if (
       cached &&
       cached.paramsHash === paramsHash &&
-      cached.snapFingerprint === snapFp
+      cached.pathKey === pathKey
     ) {
       // Return cached references — callers MUST NOT mutate
       return { gpsPoints: cached.gpsPoints, drawPoints: cached.drawPoints };
     }
 
-    // ── Expensive GPS pipeline (only runs when params change) ──
+    // ── Display points (only rebuilt when the path or display params change) ──
     const data = analyzer.raw;
-    const gpsPoints = GpsPipeline.ensureFilteredGps(analyzer, p);
     if (gpsPoints.length === 0) {
       this._gpsCache.set(cacheKey, {
         paramsHash,
-        snapFingerprint: snapFp,
+        pathKey,
         gpsPoints: [],
         drawPoints: [],
       });
@@ -74,7 +78,7 @@ export class GSRMapProcess extends GSRMapLayers {
 
     this._gpsCache.set(cacheKey, {
       paramsHash,
-      snapFingerprint: snapFp,
+      pathKey,
       gpsPoints,
       drawPoints,
     });

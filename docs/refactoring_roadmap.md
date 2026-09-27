@@ -111,7 +111,14 @@ Still open:
   Input moved median 0.7 m / p95 12 m at the ~1 Hz evaluation points (6 %
   of points by more than 10 m; search radius 50 m). Because the Max HDOP
   and Max Speed sliders shape that path, releasing either re-runs enrichment
-  from the already-loaded OSM data (as the snap radius slider does).
+  from the already-loaded OSM data (as the snap radius slider does); so does
+  a preset that changes them.
+- Review fixes: single-view enrichment/NDVI now get the walk's GPS settings
+  (they were getting none, so built a default-settings path over the map's);
+  `ensureFilteredGps` without settings keeps the last-used ones; the map's
+  path cache follows the path key, so the drawn line and `filteredGps` can't
+  diverge. Junction classification also matches from the smoothed path now —
+  a behaviour change not measured (needs OSM data).
 
 ### Optional (cosmetic moves, only if touching the file anyway)
 - Move the path-overlap code (`_buildOverlapCells` and friends, ~200 lines of

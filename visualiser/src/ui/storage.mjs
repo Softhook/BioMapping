@@ -381,7 +381,15 @@ export const GSRStorage = {
       S.shapeMinSnr.value = gsr.shapeMinSnr;
 
     // Restore GPS & Spatial Clustering sliders
+    const gpsBefore = this.readGpsSliderValues();
     this.writeGpsSliderValues(gps);
+    const gpsAfter = this.readGpsSliderValues();
+    // OSM enrichment reads the smoothed path, which these two shape.
+    const smoothingChanged =
+      !!gpsBefore &&
+      !!gpsAfter &&
+      (gpsAfter.maxHdop !== gpsBefore.maxHdop ||
+        gpsAfter.maxSpeed !== gpsBefore.maxSpeed);
 
     // Restore Contour surface sliders
     const contour = preset.contour;
@@ -464,9 +472,10 @@ export const GSRStorage = {
         Controllers.ui.runAnalysis();
       }
     }
-    // Radii changed: re-enrich once if the walk already has OSM data (it
-    // re-uses that data or the cache while it still covers the new radius).
-    if (radiiChanged && Controllers.ui?.hasOsmData?.()) {
+    // Radii or GPS smoothing changed: re-enrich once if the walk already has
+    // OSM data (it re-uses that data or the cache while it still covers the
+    // new radius).
+    if ((radiiChanged || smoothingChanged) && Controllers.ui?.hasOsmData?.()) {
       Controllers.ui.enrichTrack(false);
     }
     return true;

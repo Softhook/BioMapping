@@ -501,13 +501,18 @@ export const GpsPipeline = {
    * rows, settings and road-snap data are unchanged.
    *
    * @param {GSRAnalyzer} analyzer
-   * @param {{maxHdop?: number, maxSpeed?: number}} [params] - the track's gpsFilterParams
+   * @param {{maxHdop?: number, maxSpeed?: number}} [params] - the track's
+   *   gpsFilterParams; when omitted, the settings the path was last built
+   *   with (normally the map's), so a caller without them can't replace the
+   *   drawn path with a default-settings one
    * @returns {Array<object>} the filtered fixes ([] when the track has none)
    */
-  ensureFilteredGps(analyzer, params = {}) {
+  ensureFilteredGps(analyzer, params) {
     const data = analyzer?.raw;
     if (!data || data.length === 0) return [];
-    const { maxHdop, maxSpeed } = GpsPipeline._pathParams(params);
+    const { maxHdop, maxSpeed } = GpsPipeline._pathParams(
+      params || analyzer._pathParams,
+    );
     // Remembered so unsnappedPath() can rebuild the same path without snap.
     analyzer._pathParams = { maxHdop, maxSpeed };
     const key = `${maxHdop}|${maxSpeed}|${GpsPipeline.snapFingerprint(analyzer.snappedGps)}|${data.length}`;

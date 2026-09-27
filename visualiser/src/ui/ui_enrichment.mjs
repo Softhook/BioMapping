@@ -57,6 +57,9 @@ export const EnrichmentUI = {
           id: AppState.activeTrackId,
           name: trackObj?.name || 'Walk',
           analyzer: AppState.analyzer,
+          // Enrichment and NDVI build the smoothed path with the walk's own
+          // GPS settings (GpsPipeline.ensureFilteredGps).
+          gpsFilterParams: trackObj?.gpsFilterParams,
         },
       ];
     }

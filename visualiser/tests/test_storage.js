@@ -778,6 +778,40 @@ test('applyPreset: changed OSM/snap radii re-enrich once, after the walk is re-a
   assert.deepStrictEqual(uiCalls, ['runAnalysis', 'enrichTrack:false']);
 });
 
+test('applyPreset: a changed GPS smoothing setting re-enriches once (enrichment reads the smoothed path)', () => {
+  resetGlobals();
+  global.AppState.sliders = {
+    medianSize: el(2),
+    lpfWindow: el(0),
+    tonicMethod: el('lpf'),
+    tonicWindow: el(45),
+    peakThreshold: el(0.02),
+    gpsMaxSpeed: el(3),
+    gpsMaxHdop: el(3),
+  };
+  global.AppState.activeTrackId = 'trk1';
+  global.AppState.viewMode = 'single';
+  const track = { analyzer: { analyze: () => {} } };
+  global.AppState.collectiveManager = { getTrack: () => track };
+  global.GSRTrackManager = setSingletonShape(RealGSRTrackManager, {
+    renderTrackList: () => {},
+  });
+  const uiCalls = [];
+  global.GSRUI = setSingletonShape(RealGSRUI, {
+    runAnalysis: () => uiCalls.push('runAnalysis'),
+    hasOsmData: () => true,
+    enrichTrack: (force) => uiCalls.push(`enrichTrack:${force}`),
+  });
+
+  GSRStorage.applyPreset({ gsr: {}, gps: { maxSpeed: 1.5 } });
+  assert.strictEqual(track.gpsFilterParams.maxSpeed, 1.5);
+  assert.deepStrictEqual(uiCalls, ['runAnalysis', 'enrichTrack:false']);
+
+  uiCalls.length = 0;
+  GSRStorage.applyPreset({ gsr: {}, gps: { maxSpeed: 1.5 } });
+  assert.deepStrictEqual(uiCalls, ['runAnalysis'], 'unchanged: no re-enrich');
+});
+
 test('applyPreset: unchanged radii do not re-enrich', () => {
   resetGlobals();
   global.AppState.sliders = {
