@@ -10,6 +10,7 @@
  */
 import { AppState } from '../core/app_state.mjs';
 import { GSRNotices } from '../core/notices.mjs';
+import { GpsPipeline } from '../gps/gps_pipeline.mjs';
 import { NDVISampler } from '../osm/ndvi_sampler.mjs';
 import { OsmCache } from '../osm/osm_cache.mjs';
 import { OSMEnricher } from '../osm/osm_enrichment.mjs';
@@ -387,6 +388,8 @@ export const EnrichmentUI = {
             }
           }
           OSMEnricher.setAnalyzerOsmJson(t.analyzer, json, coveredBBox);
+          // Enrich from this walk's own smoothed path (its GPS settings).
+          GpsPipeline.ensureFilteredGps(t.analyzer, t.gpsFilterParams);
           OSMEnricher.enrichTrack(t.analyzer, json, radius, snapParams, (msg) =>
             updateProgress(`[${i + 1}/${validTracks.length}] ${msg}`),
           );

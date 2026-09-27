@@ -1,7 +1,8 @@
 /**
  * The smoothed GPS path (analyzer.filteredGps — what the map draws) is built
  * on demand by GpsPipeline.ensureFilteredGps, and the analyses that need
- * positions read it instead of the parser's straight-line fill.
+ * positions read it instead of the parser's straight-line fill. OSM
+ * enrichment reads the same path minus the road-snap pull (which it makes).
  *
  * Run: node --test tests/test_smoothed_path_readers.js
  */
@@ -14,6 +15,7 @@ const { GSRAnalyzer } = require('../src/signal/analyzer.mjs');
 const { GpsPipeline } = require('../src/gps/gps_pipeline.mjs');
 const { NDVISampler } = require('../src/osm/ndvi_sampler.mjs');
 const { GSRArousalPlaces } = require('../src/spatial/arousal_places.mjs');
+const { OSMEnricher } = require('../src/osm/osm_enrichment.mjs');
 
 /**
  * A 10 Hz walk heading north at ~1.1 m/s with a GPS fix every 10 rows. One
@@ -117,4 +119,35 @@ test('Arousal Places scores dwell against the smoothed path, raw rows only as fa
   });
   assert.strictEqual(flat2.lats[5], a.raw[5].lat);
   assert.strictEqual(flat2.flags[5], 1);
+});
+
+test('OSM enrichment matches from the smoothed path, not the straight line', () => {
+  const a = walkAnalyzer();
+  GpsPipeline.ensureFilteredGps(a, { maxHdop: 3, maxSpeed: 3 });
+  const pos = OSMEnricher._enrichmentPositions(a);
+  const at200 = pos.find((p) => p.idx === 200);
+  assert.strictEqual(at200.lat, a.filteredGps[200].lat);
+  assert.strictEqual(at200.lon, a.filteredGps[200].lon);
+  assert.notStrictEqual(at200.lon, a.raw[200].lon);
+});
+
+test('OSM enrichment ignores an earlier road snap (no feedback loop)', () => {
+  const a = walkAnalyzer();
+  GpsPipeline.ensureFilteredGps(a, { maxHdop: 3, maxSpeed: 3 });
+  const before = OSMEnricher._enrichmentPositions(a).map((p) => [p.lat, p.lon]);
+
+  // An earlier enrichment snapped every row 30 m east (fully trusted).
+  a.snappedGps = a.raw.map((r) => ({
+    roadLat: r.lat,
+    roadLon: r.lon + 0.00043,
+    alpha: 1,
+  }));
+  GpsPipeline.ensureFilteredGps(a, { maxHdop: 3, maxSpeed: 3 });
+  assert.notDeepStrictEqual(
+    a.filteredGps.map((p) => [p.lat, p.lon]),
+    before,
+    'the drawn path now carries the snap pull',
+  );
+  const after = OSMEnricher._enrichmentPositions(a).map((p) => [p.lat, p.lon]);
+  assert.deepStrictEqual(after, before, 'enrichment input is unchanged');
 });

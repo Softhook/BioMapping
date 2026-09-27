@@ -481,6 +481,17 @@ export const GpsPipeline = {
     return `${n}|${hash}`;
   },
 
+  /** The GPS settings the smoothed path depends on, with their defaults. */
+  _pathParams(params = {}) {
+    const maxSpeed =
+      typeof params.maxSpeed === 'number' &&
+      !isNaN(params.maxSpeed) &&
+      params.maxSpeed > 0
+        ? params.maxSpeed
+        : 3.0;
+    return { maxHdop: params.maxHdop || 3.0, maxSpeed };
+  },
+
   /**
    * Make sure analyzer.filteredGps holds the smoothed path for these GPS
    * settings — the path the map draws — and return the filtered fixes.
@@ -496,13 +507,9 @@ export const GpsPipeline = {
   ensureFilteredGps(analyzer, params = {}) {
     const data = analyzer?.raw;
     if (!data || data.length === 0) return [];
-    const maxHdop = params.maxHdop || 3.0;
-    const maxSpeed =
-      typeof params.maxSpeed === 'number' &&
-      !isNaN(params.maxSpeed) &&
-      params.maxSpeed > 0
-        ? params.maxSpeed
-        : 3.0;
+    const { maxHdop, maxSpeed } = GpsPipeline._pathParams(params);
+    // Remembered so unsnappedPath() can rebuild the same path without snap.
+    analyzer._pathParams = { maxHdop, maxSpeed };
     const key = `${maxHdop}|${maxSpeed}|${GpsPipeline.snapFingerprint(analyzer.snappedGps)}|${data.length}`;
     if (analyzer._pathKey === key && analyzer._pathRaw === data) {
       return analyzer._pathFixes;
@@ -528,6 +535,46 @@ export const GpsPipeline = {
     analyzer._pathRaw = data;
     analyzer._pathFixes = gpsPoints;
     return gpsPoints;
+  },
+
+  /**
+   * The smoothed path WITHOUT the road-snap pull, one {lat, lon} per row —
+   * the input for OSM map-matching and enrichment. Enrichment produces the
+   * snap itself, so handing it the snapped path would make it re-match its
+   * own earlier snap and entrench any wrong one. Same GPS settings as the
+   * drawn path (the last ensureFilteredGps call, defaults if none); the same
+   * array as filteredGps when there is no snap.
+   *
+   * @param {GSRAnalyzer} analyzer
+   * @returns {Array<{lat: number, lon: number}>} empty when there are no fixes
+   */
+  unsnappedPath(analyzer) {
+    const params = analyzer._pathParams || GpsPipeline._pathParams();
+    if (!analyzer.snappedGps) {
+      GpsPipeline.ensureFilteredGps(analyzer, params);
+      return analyzer.filteredGps || [];
+    }
+    const data = analyzer.raw;
+    const key = `${params.maxHdop}|${params.maxSpeed}|${data.length}`;
+    if (analyzer._unsnappedKey === key && analyzer._unsnappedRaw === data) {
+      return analyzer._unsnappedPath;
+    }
+    let path = [];
+    const fixes = GpsPipeline.collectFixes(data);
+    if (fixes.length > 0) {
+      const scratch = { snappedGps: null };
+      GpsPipeline.reconstructFilteredGps(
+        scratch,
+        data,
+        GpsPipeline.filterFixes(fixes, params, null),
+        params.maxSpeed,
+      );
+      path = scratch.filteredGps;
+    }
+    analyzer._unsnappedKey = key;
+    analyzer._unsnappedRaw = data;
+    analyzer._unsnappedPath = path;
+    return path;
   },
 
   /**

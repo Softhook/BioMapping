@@ -1767,15 +1767,7 @@ console.log('\n── OSMEnricher: enrichTrack (integration, no snapping) ──
   for (let i = 0; i < 5; i++) {
     raw.push({ time: i, lat: 51.5 + i * 0.0001, lon: -0.1 });
   }
-  const analyzer = {
-    raw,
-    getCoordinates(i, preferRaw) {
-      const r = this.raw[i];
-      return preferRaw && !isNaN(r.lat) && !isNaN(r.lon)
-        ? { lat: r.lat, lon: r.lon }
-        : null;
-    },
-  };
+  const analyzer = { raw };
 
   OSMEnricher.enrichTrack(analyzer, osmJson, 50);
 
@@ -1891,15 +1883,7 @@ console.log('\n── OSMEnricher: enrichTrack (integration, no snapping) ──
     const raw = [];
     for (let i = 0; i < 3; i++)
       raw.push({ time: i, lat: 51.5 + i * 0.0001, lon: -0.1 });
-    return {
-      raw,
-      getCoordinates(i, preferRaw) {
-        const r = this.raw[i];
-        return preferRaw && !isNaN(r.lat) && !isNaN(r.lon)
-          ? { lat: r.lat, lon: r.lon }
-          : null;
-      },
-    };
+    return { raw };
   }
   const analyzerA = makeAnalyzer();
   const analyzerB = makeAnalyzer();

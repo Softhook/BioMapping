@@ -104,9 +104,12 @@ Still open:
   credits that time's skin responses to whichever place the pinned point falls
   in — this caused the largest ranking moves (e.g. biomap_016's #2 → #13).
   Probably those rows should count as "no position".
-- **OSM enrichment** still reads the parser path on purpose (`preferRaw`): the
-  drawn path includes the road-snap pull, which comes from enrichment itself.
-  Using the smoothed path *before* the snap would avoid that loop.
+- ~~OSM enrichment~~ done: enrichment now map-matches and evaluates from
+  the smoothed path before any road snap (`GpsPipeline.unsnappedPath`), and
+  computes its metrics at the positions it snaps to. It deliberately does not
+  take the drawn path, whose snap pull came from the previous enrichment.
+  Input moved median 0.7 m / p95 12 m at the ~1 Hz evaluation points (6 %
+  of points by more than 10 m; search radius 50 m).
 
 ### Optional (cosmetic moves, only if touching the file anyway)
 - Move the path-overlap code (`_buildOverlapCells` and friends, ~200 lines of

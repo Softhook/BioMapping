@@ -6,6 +6,7 @@
 
 // -- Numerical constants ---------------------------------------------------
 import { GeoUtils } from '../gps/geo_utils.mjs';
+import { GpsPipeline } from '../gps/gps_pipeline.mjs';
 import { Junctions } from '../gps/junctions.mjs';
 import { MapMatcher } from '../gps/map_match.mjs';
 import { SpatialGrid } from '../spatial/spatial_grid.mjs';
@@ -884,6 +885,34 @@ export const OSMEnricher = {
   },
 
   /**
+   * Positions to map-match and enrich, one per row that has one: the smoothed
+   * GPS path before any road snap (GpsPipeline.unsnappedPath), the raw row
+   * where that path is blank. Not the drawn path: its road-snap pull comes
+   * from an earlier enrichment, and re-matching it would entrench any wrong
+   * snap (e.g. onto a parallel street) on every re-run.
+   * @returns {Array<{idx: number, lat: number, lon: number}>}
+   */
+  _enrichmentPositions(analyzer) {
+    const raw = analyzer.raw;
+    const path = GpsPipeline.unsnappedPath(analyzer);
+    const out = [];
+    for (let i = 0; i < raw.length; i++) {
+      const f = path[i];
+      const p = f && !isNaN(f.lat) && !isNaN(f.lon) ? f : raw[i];
+      if (
+        p &&
+        p.lat != null &&
+        p.lon != null &&
+        !isNaN(p.lat) &&
+        !isNaN(p.lon)
+      ) {
+        out.push({ idx: i, lat: p.lat, lon: p.lon });
+      }
+    }
+    return out;
+  },
+
+  /**
    * Enrich continuous track data series: runs spatial queries on ~1 Hz
    * GPS coordinates and projects results back to the full 10 Hz timeline.
    *
@@ -927,23 +956,7 @@ export const OSMEnricher = {
 
     // 2. Collect GPS positions from the track
     if (onProgress) onProgress('Analyzing GPS positions...');
-    const gpsIndices = [];
-    for (let i = 0; i < raw.length; i++) {
-      // Use raw GPS coordinates for enrichment to avoid feedback loop:
-      // if filteredGps is already populated (from a prior render), using
-      // it here would map-match a snap-biased path, progressively pulling
-      // coordinates toward wrong parallel roads on subsequent runs.
-      const coords = analyzer.getCoordinates(i, true);
-      if (
-        coords &&
-        coords.lat != null &&
-        coords.lon != null &&
-        !isNaN(coords.lat) &&
-        !isNaN(coords.lon)
-      ) {
-        gpsIndices.push({ idx: i, lat: coords.lat, lon: coords.lon });
-      }
-    }
+    const gpsIndices = this._enrichmentPositions(analyzer);
     if (gpsIndices.length === 0) {
       throw new Error('No valid GPS coordinates found in this track.');
     }
@@ -1254,19 +1267,7 @@ export const OSMEnricher = {
     analyzer.osmGeoms = geoms;
     const spatialIndex = this.buildSpatialIndex(geoms);
 
-    const gpsIndices = [];
-    for (let i = 0; i < raw.length; i++) {
-      const coords = analyzer.getCoordinates(i, true);
-      if (
-        coords &&
-        coords.lat != null &&
-        coords.lon != null &&
-        !isNaN(coords.lat) &&
-        !isNaN(coords.lon)
-      ) {
-        gpsIndices.push({ idx: i, lat: coords.lat, lon: coords.lon });
-      }
-    }
+    const gpsIndices = this._enrichmentPositions(analyzer);
     if (gpsIndices.length === 0) return null;
 
     let evalPoints = this._selectEvaluationPoints(raw, gpsIndices);

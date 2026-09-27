@@ -518,14 +518,12 @@ export class GSRAnalyzer {
   }
 
   /**
-   * Helper: gets coordinates at a given index from filtered GPS data if valid,
-   * otherwise falls back to raw GPS data. Returns { lat, lon } or null.
+   * Position at a row: the smoothed path the map draws (filteredGps, see
+   * GpsPipeline.ensureFilteredGps) where it has one, otherwise the raw row's
+   * straight-line fill. Returns { lat, lon } or null.
    */
-  getCoordinates(index, preferRaw = false) {
+  getCoordinates(index) {
     const raw = this.raw[index];
-    if (preferRaw && raw && !isNaN(raw.lat) && !isNaN(raw.lon)) {
-      return { lat: raw.lat, lon: raw.lon };
-    }
     const filtered = this.filteredGps?.[index];
     if (filtered && !isNaN(filtered.lat) && !isNaN(filtered.lon)) {
       return { lat: filtered.lat, lon: filtered.lon };
