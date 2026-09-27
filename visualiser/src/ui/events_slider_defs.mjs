@@ -28,12 +28,14 @@ export const GPS_SLIDER_DEFS = [
     labelId: 'valGpsMaxHdop',
     fmt: (v) => `≤ ${v.toFixed(1)}`,
     bindGps: true,
+    reenrich: true,
   },
   {
     id: 'gpsMaxSpeed',
     labelId: 'valGpsMaxSpeed',
     fmt: (v) => fmtMaxSpeed(v),
     bindGps: true,
+    reenrich: true,
   },
   {
     id: 'gpsRDP',

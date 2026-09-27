@@ -109,7 +109,9 @@ Still open:
   computes its metrics at the positions it snaps to. It deliberately does not
   take the drawn path, whose snap pull came from the previous enrichment.
   Input moved median 0.7 m / p95 12 m at the ~1 Hz evaluation points (6 %
-  of points by more than 10 m; search radius 50 m).
+  of points by more than 10 m; search radius 50 m). Because the Max HDOP
+  and Max Speed sliders shape that path, releasing either re-runs enrichment
+  from the already-loaded OSM data (as the snap radius slider does).
 
 ### Optional (cosmetic moves, only if touching the file anyway)
 - Move the path-overlap code (`_buildOverlapCells` and friends, ~200 lines of

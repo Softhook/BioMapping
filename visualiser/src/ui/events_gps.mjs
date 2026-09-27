@@ -24,6 +24,19 @@ export const GpsEvents = {
       this.bindGpsSlider(d.id, d.labelId, d.fmt);
     });
 
+    // ── Smoothing sliders → re-enrich on release ────────────────────────────
+    // OSM enrichment reads the smoothed path, which these settings shape, so
+    // re-run it (from the already-loaded OSM data) when the slider is let go.
+    GPS_SLIDER_DEFS.filter((d) => d.reenrich).forEach((d) => {
+      document.getElementById(d.id)?.addEventListener('change', () => {
+        if (!Controllers.ui?.hasOsmData?.()) return;
+        // bindGpsSlider saves the new value on the next frame; save it now so
+        // enrichment builds the path with it.
+        Controllers.trackManager?.saveActiveGpsParams();
+        Controllers.ui.enrichTrack(false);
+      });
+    });
+
     // ── Arousal Places slider binding ───────────────────────────────────────
     // Scoped refresh (Arousal Places layer only), not a full rerenderMap().
     ['placeMergeDistance', 'maxArousalPlaces'].forEach((id) => {
