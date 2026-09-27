@@ -1,6 +1,7 @@
 /**
  * Unit tests for ndvi_sampler.js (NDVISampler) — Web Mercator projection
- * math, raw single-band FLOAT32 TIFF decoding, circular buffer-mean raster
+ * math, raw NDVI tile decoding (Copernicus errors; the TIFF format itself is
+ * in test_tiff_decoder.js), circular buffer-mean raster
  * sampling, and the track sampling pipeline for BioMapping.
  *
  * Run: node --test tests/test_ndvi_sampler.js
@@ -8,7 +9,6 @@
 
 const assert = require('node:assert');
 const test = require('node:test');
-const zlib = require('node:zlib');
 
 global.window = global;
 global.GSR_CONST = require('../src/core/constants.mjs').GSR_CONST;
@@ -17,6 +17,7 @@ global.StatsMath = require('../src/signal/stats_math.mjs').StatsMath;
 
 const { NDVISampler } = require('../src/osm/ndvi_sampler.mjs');
 const { GSRCSVParser } = require('../src/signal/csv_parser.mjs');
+const { buildFloat32Tiff } = require('./support/tiff_fixture.js');
 
 const closeTo = (actual, expected, tolerance = 1e-4, msg = '') => {
   assert.ok(
@@ -24,139 +25,6 @@ const closeTo = (actual, expected, tolerance = 1e-4, msg = '') => {
     `${msg} expected ${actual} to be within ${tolerance} of ${expected}`,
   );
 };
-
-/**
- * Build a minimal little-endian baseline TIFF matching what a Sentinel Hub
- * { bands: 1, sampleType: "FLOAT32" } evalscript, requested as
- * image/tiff;depth=32f, produces: one IFD, strip-organised single-band
- * float32 samples, optionally Deflate-compressed, optionally split across
- * several strips.
- */
-function buildFloat32Tiff({
-  width,
-  height,
-  values,
-  stripsCount = 1,
-  compress = false,
-}) {
-  const rowsPerStrip = Math.ceil(height / stripsCount);
-  const actualStrips = Math.ceil(height / rowsPerStrip);
-
-  const stripBuffers = [];
-  for (let s = 0; s < actualStrips; s++) {
-    const rowStart = s * rowsPerStrip;
-    const rowEnd = Math.min(height, rowStart + rowsPerStrip);
-    const nRows = rowEnd - rowStart;
-    const buf = Buffer.alloc(nRows * width * 4);
-    for (let r = 0; r < nRows; r++) {
-      for (let c = 0; c < width; c++) {
-        buf.writeFloatLE(
-          values[(rowStart + r) * width + c],
-          (r * width + c) * 4,
-        );
-      }
-    }
-    stripBuffers.push(compress ? zlib.deflateSync(buf) : buf);
-  }
-
-  const headerSize = 8;
-  let offset = headerSize;
-  const stripOffsets = [];
-  for (const s of stripBuffers) {
-    stripOffsets.push(offset);
-    offset += s.length;
-  }
-  const ifdOffset = offset;
-  const stripByteCounts = stripBuffers.map((b) => b.length);
-
-  const entries = [
-    { tag: 256, type: 3, count: 1, val: width },
-    { tag: 257, type: 3, count: 1, val: height },
-    { tag: 258, type: 3, count: 1, val: 32 },
-    { tag: 259, type: 3, count: 1, val: compress ? 8 : 1 },
-    {
-      tag: 273,
-      type: 4,
-      count: stripOffsets.length,
-      val: stripOffsets.length === 1 ? stripOffsets[0] : stripOffsets,
-    },
-    { tag: 277, type: 3, count: 1, val: 1 },
-    { tag: 278, type: 3, count: 1, val: rowsPerStrip },
-    {
-      tag: 279,
-      type: 4,
-      count: stripByteCounts.length,
-      val: stripByteCounts.length === 1 ? stripByteCounts[0] : stripByteCounts,
-    },
-    { tag: 339, type: 3, count: 1, val: 3 },
-  ].sort((a, b) => a.tag - b.tag);
-
-  const ifdSize = 2 + entries.length * 12 + 4;
-  let extraOffset = ifdOffset + ifdSize;
-  const extraChunks = [];
-  for (const e of entries) {
-    const typeSize = e.type === 3 ? 2 : 4;
-    const totalSize = typeSize * e.count;
-    if (totalSize > 4) {
-      e._extraOffset = extraOffset;
-      const buf = Buffer.alloc(totalSize);
-      const arr = Array.isArray(e.val) ? e.val : [e.val];
-      for (let i = 0; i < arr.length; i++) {
-        if (e.type === 3) buf.writeUInt16LE(arr[i], i * 2);
-        else buf.writeUInt32LE(arr[i], i * 4);
-      }
-      extraChunks.push(buf);
-      extraOffset += totalSize;
-    }
-  }
-
-  const out = Buffer.alloc(extraOffset);
-  out.write('II', 0, 'ascii');
-  out.writeUInt16LE(42, 2);
-  out.writeUInt32LE(ifdOffset, 4);
-
-  let w = headerSize;
-  for (const s of stripBuffers) {
-    s.copy(out, w);
-    w += s.length;
-  }
-
-  let p = ifdOffset;
-  out.writeUInt16LE(entries.length, p);
-  p += 2;
-  for (const e of entries) {
-    out.writeUInt16LE(e.tag, p);
-    out.writeUInt16LE(e.type, p + 2);
-    out.writeUInt32LE(e.count, p + 4);
-    const typeSize = e.type === 3 ? 2 : 4;
-    if (typeSize * e.count <= 4) {
-      const arr = Array.isArray(e.val) ? e.val : [e.val];
-      let vp = p + 8;
-      for (const v of arr) {
-        if (e.type === 3) {
-          out.writeUInt16LE(v, vp);
-          vp += 2;
-        } else {
-          out.writeUInt32LE(v, vp);
-          vp += 4;
-        }
-      }
-    } else {
-      out.writeUInt32LE(e._extraOffset, p + 8);
-    }
-    p += 12;
-  }
-  out.writeUInt32LE(0, p);
-  p += 4;
-
-  let q = p;
-  for (const chunk of extraChunks) {
-    chunk.copy(out, q);
-    q += chunk.length;
-  }
-
-  return out.buffer.slice(out.byteOffset, out.byteOffset + out.byteLength);
-}
 
 /** A uniform-value 256x256 raw NDVI tile, uncompressed. */
 function uniformTileBuffer(value) {
@@ -279,93 +147,46 @@ test('metersToPixels: 50m buffer radius is positive and scales with latitude', (
 // 3. Raw NDVI Raster Decoding (single-band FLOAT32 TIFF)
 // ---------------------------------------------------------------------------
 
-test('parseFloat32Tiff: decodes an uncompressed single-strip raster exactly', async () => {
-  const width = 4,
-    height = 3;
-  const values = [];
-  for (let i = 0; i < width * height; i++) values.push((i - 6) / 10); // -0.6 .. 0.5
+// The TIFF format itself is covered in test_tiff_decoder.js; these check the
+// NDVI-specific layer on top: Copernicus error replies and the layer hint.
 
-  const buf = buildFloat32Tiff({ width, height, values });
+test('parseFloat32Tiff: decodes a valid raw tile', async () => {
+  const values = [-0.2, 0, 0.4, 0.9];
+  const buf = buildFloat32Tiff({ width: 2, height: 2, values });
   const result = await NDVISampler.parseFloat32Tiff(buf);
-
-  assert.strictEqual(result.width, width);
-  assert.strictEqual(result.height, height);
+  assert.strictEqual(result.width, 2);
+  assert.strictEqual(result.height, 2);
   for (let i = 0; i < values.length; i++) {
     closeTo(result.data[i], values[i], 1e-6, `pixel ${i}`);
   }
 });
 
-test('parseFloat32Tiff: decodes a Deflate-compressed, multi-strip raster exactly', async () => {
-  const width = 6,
-    height = 9;
-  const values = [];
-  for (let i = 0; i < width * height; i++) values.push(Math.sin(i) * 0.5);
-
-  const buf = buildFloat32Tiff({
-    width,
-    height,
-    values,
-    stripsCount: 3,
-    compress: true,
-  });
-  const result = await NDVISampler.parseFloat32Tiff(buf);
-
-  assert.strictEqual(result.width, width);
-  assert.strictEqual(result.height, height);
-  for (let i = 0; i < values.length; i++) {
-    closeTo(result.data[i], values[i], 1e-5, `pixel ${i}`);
-  }
+test('parseFloat32Tiff: reports a Copernicus WMS ServiceException', async () => {
+  const xml =
+    '<?xml version="1.0"?><ServiceExceptionReport><ServiceException> Layer NDVI_RAW not found </ServiceException></ServiceExceptionReport>';
+  await assert.rejects(
+    () => NDVISampler.parseFloat32Tiff(new TextEncoder().encode(xml).buffer),
+    /^Error: Copernicus WMS error: Layer NDVI_RAW not found$/,
+  );
 });
 
-test('parseFloat32Tiff: rejects a non-TIFF buffer', async () => {
+test('parseFloat32Tiff: reports a Copernicus JSON error body', async () => {
+  const json = JSON.stringify({ error: { message: 'Invalid instance' } });
+  await assert.rejects(
+    () => NDVISampler.parseFloat32Tiff(new TextEncoder().encode(json).buffer),
+    /^Error: Copernicus error: Invalid instance$/,
+  );
+});
+
+test('parseFloat32Tiff: a decoding failure names the raw layer to check', async () => {
+  setCopernicusConfig('test-instance-1234', 'MY_LAYER');
   await assert.rejects(
     () => NDVISampler.parseFloat32Tiff(new ArrayBuffer(16)),
-    /not a TIFF/,
+    (err) =>
+      /^NDVI raster: Response is not a TIFF/.test(err.message) &&
+      err.message.includes('"MY_LAYER"'),
   );
-});
-
-test('parseFloat32Tiff: rejects an unexpected band/sample format (e.g. an RGBA rendering)', async () => {
-  // BitsPerSample=8, SamplesPerPixel=4, SampleFormat=1 (unsigned int) — an
-  // ordinary RGBA image, exactly what the rendered VEGETATION_INDEX layer
-  // would produce if someone pointed the raw sampler at it by mistake.
-  const width = 2,
-    height = 2;
-  const pixelBuf = Buffer.alloc(width * height * 4, 128);
-  const headerSize = 8;
-  const ifdOffset = headerSize + pixelBuf.length;
-  const entries = [
-    { tag: 256, type: 3, count: 1, val: width },
-    { tag: 257, type: 3, count: 1, val: height },
-    { tag: 258, type: 3, count: 1, val: 8 },
-    { tag: 259, type: 3, count: 1, val: 1 },
-    { tag: 273, type: 4, count: 1, val: headerSize },
-    { tag: 277, type: 3, count: 1, val: 4 },
-    { tag: 278, type: 3, count: 1, val: height },
-    { tag: 279, type: 4, count: 1, val: pixelBuf.length },
-  ];
-  const out = Buffer.alloc(ifdOffset + 2 + entries.length * 12 + 4);
-  out.write('II', 0, 'ascii');
-  out.writeUInt16LE(42, 2);
-  out.writeUInt32LE(ifdOffset, 4);
-  pixelBuf.copy(out, headerSize);
-  let p = ifdOffset;
-  out.writeUInt16LE(entries.length, p);
-  p += 2;
-  for (const e of entries) {
-    out.writeUInt16LE(e.tag, p);
-    out.writeUInt16LE(e.type, p + 2);
-    out.writeUInt32LE(e.count, p + 4);
-    if (e.type === 3) out.writeUInt16LE(e.val, p + 8);
-    else out.writeUInt32LE(e.val, p + 8);
-    p += 12;
-  }
-  out.writeUInt32LE(0, p);
-
-  const buf = out.buffer.slice(out.byteOffset, out.byteOffset + out.byteLength);
-  await assert.rejects(
-    () => NDVISampler.parseFloat32Tiff(buf),
-    /single-band FLOAT32/,
-  );
+  clearCopernicusConfig();
 });
 
 // ---------------------------------------------------------------------------

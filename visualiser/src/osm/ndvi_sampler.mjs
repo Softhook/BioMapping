@@ -46,6 +46,7 @@
 import { SafeStorage } from '../core/safe_storage.mjs';
 import { GeoUtils } from '../gps/geo_utils.mjs';
 import { OSMEnricher } from './osm_enrichment.mjs';
+import { decodeFloat32Tiff, hasTiffByteOrderMarker } from './tiff_decoder.mjs';
 
 export const NDVISampler = {
   // Earth equatorial circumference in meters (EPSG:3857)
@@ -420,193 +421,51 @@ export const NDVISampler = {
   },
 
   /**
-   * Read a single TIFF IFD entry's value(s), following the offset pointer
-   * when the value doesn't fit inline (TIFF 6.0 §2, "Value/Offset").
+   * If a non-TIFF reply is a Copernicus error (WMS ServiceException XML or a
+   * JSON error body), return its message; otherwise null.
    * @private
+   * @param {ArrayBuffer} buffer
+   * @returns {string|null}
    */
-  _readTiffValue(view, entryOffset, little) {
-    const TYPE_SIZES = {
-      1: 1,
-      2: 1,
-      3: 2,
-      4: 4,
-      5: 8,
-      6: 1,
-      7: 1,
-      8: 2,
-      9: 4,
-      10: 8,
-      11: 4,
-      12: 8,
-    };
-    const type = view.getUint16(entryOffset + 2, little);
-    const count = view.getUint32(entryOffset + 4, little);
-    const elemSize = TYPE_SIZES[type] || 1;
-    const totalSize = elemSize * count;
-    const valueFieldOffset = entryOffset + 8;
-    const dataOffset =
-      totalSize <= 4
-        ? valueFieldOffset
-        : view.getUint32(valueFieldOffset, little);
-
-    const readOne = (off) => {
-      switch (type) {
-        case 1:
-        case 6:
-        case 7:
-          return view.getUint8(off);
-        case 3:
-        case 8:
-          return view.getUint16(off, little);
-        case 4:
-        case 9:
-          return view.getUint32(off, little);
-        case 11:
-          return view.getFloat32(off, little);
-        case 12:
-          return view.getFloat64(off, little);
-        default:
-          return view.getUint32(off, little);
-      }
-    };
-
-    const vals = [];
-    for (let i = 0; i < count; i++)
-      vals.push(readOne(dataOffset + i * elemSize));
-    return count === 1 ? vals[0] : vals;
-  },
-
-  /**
-   * Inflate a zlib/Deflate-compressed byte range using the platform's native
-   * Streams API — no vendored decompression library needed.
-   * @private
-   * @param {ArrayBuffer} bytes
-   * @returns {Promise<ArrayBuffer>}
-   */
-  async _inflate(bytes) {
-    if (typeof DecompressionStream === 'undefined') {
-      throw new Error(
-        'This browser has no DecompressionStream support, needed to decode the compressed NDVI raster.',
-      );
+  _copernicusErrorMessage(buffer) {
+    if (!buffer || buffer.byteLength < 4 || hasTiffByteOrderMarker(buffer)) {
+      return null;
     }
-    const stream = new Blob([bytes])
-      .stream()
-      .pipeThrough(new DecompressionStream('deflate'));
-    return await new Response(stream).arrayBuffer();
+    const text = new TextDecoder().decode(buffer.slice(0, 1024));
+    const xmlMatch = text.match(
+      /<ServiceException(?:\s[^>]*)?>([\s\S]*?)<\/ServiceException>/i,
+    );
+    if (xmlMatch) return `Copernicus WMS error: ${xmlMatch[1].trim()}`;
+    if (text.trim().startsWith('{')) {
+      try {
+        const json = JSON.parse(text);
+        const msg = json?.error?.message || json?.message;
+        if (msg) return `Copernicus error: ${msg}`;
+      } catch {
+        // Not valid JSON — fall through to the generic TIFF error.
+      }
+    }
+    return null;
   },
 
   /**
-   * Parse a baseline-TIFF byte buffer into a single-band FLOAT32 pixel grid.
-   * Handles exactly what a Sentinel Hub WMS request with
-   * FORMAT=image/tiff;depth=32f against a { bands: 1, sampleType: "FLOAT32" }
-   * evalscript can produce: one IFD, strip-organised (not tiled) samples,
-   * either uncompressed or Deflate/Adobe-Deflate compressed strips, either
-   * byte order. This is not a general-purpose TIFF/GeoTIFF reader.
+   * Decode a raw NDVI tile response into a single-band FLOAT32 pixel grid.
+   * A Copernicus error reply is reported as such; any other decoding failure
+   * almost always means the raw layer or its evalscript is misconfigured.
    *
    * @param {ArrayBuffer} buffer
    * @returns {Promise<{ width: number, height: number, data: Float32Array }>}
    */
   async parseFloat32Tiff(buffer) {
-    if (!buffer || buffer.byteLength < 4) {
-      throw new Error('NDVI raster response is too short to be a valid TIFF.');
-    }
-    const view = new DataView(buffer);
-    const bom = view.getUint16(0, false);
-    if (bom !== 0x4949 && bom !== 0x4d4d) {
-      try {
-        const text = new TextDecoder().decode(buffer.slice(0, 1024));
-        const xmlMatch = text.match(
-          /<ServiceException[^>]*>([\s\S]*?)<\/ServiceException>/i,
-        );
-        if (xmlMatch) {
-          throw new Error(`Copernicus WMS error: ${xmlMatch[1].trim()}`);
-        }
-        if (text.trim().startsWith('{')) {
-          const json = JSON.parse(text);
-          const msg = json?.error?.message || json?.message;
-          if (msg) throw new Error(`Copernicus error: ${msg}`);
-        }
-      } catch (decodeErr) {
-        if (
-          decodeErr.message &&
-          (decodeErr.message.startsWith('Copernicus WMS error') ||
-            decodeErr.message.startsWith('Copernicus error'))
-        ) {
-          throw decodeErr;
-        }
-      }
+    const serviceError = this._copernicusErrorMessage(buffer);
+    if (serviceError) throw new Error(serviceError);
+    try {
+      return await decodeFloat32Tiff(buffer);
+    } catch (err) {
       throw new Error(
-        'NDVI raster response is not a TIFF (bad byte-order marker) — check the raw layer ID and FORMAT.',
+        `NDVI raster: ${err.message} Check the raw layer ID, FORMAT and the evalscript on layer "${this.getRawLayerId()}".`,
       );
     }
-    const little = bom === 0x4949;
-    if (view.getUint16(2, little) !== 42) {
-      throw new Error('NDVI raster response is not a TIFF (bad magic number).');
-    }
-
-    const ifdOffset = view.getUint32(4, little);
-    const numEntries = view.getUint16(ifdOffset, little);
-    const tags = {};
-    for (let i = 0; i < numEntries; i++) {
-      const entryOffset = ifdOffset + 2 + i * 12;
-      const tagId = view.getUint16(entryOffset, little);
-      tags[tagId] = this._readTiffValue(view, entryOffset, little);
-    }
-
-    const width = tags[256];
-    const height = tags[257];
-    const bitsPerSample = Array.isArray(tags[258]) ? tags[258][0] : tags[258];
-    const compression = tags[259] || 1;
-    const samplesPerPixel = tags[277] || 1;
-    const _rowsPerStrip = tags[278] || height;
-    const stripOffsets = Array.isArray(tags[273]) ? tags[273] : [tags[273]];
-    const stripByteCounts = Array.isArray(tags[279]) ? tags[279] : [tags[279]];
-    const sampleFormat = tags[339]
-      ? Array.isArray(tags[339])
-        ? tags[339][0]
-        : tags[339]
-      : 1;
-
-    if (!width || !height) {
-      throw new Error('NDVI raster response has no usable image dimensions.');
-    }
-    if (samplesPerPixel !== 1 || bitsPerSample !== 32 || sampleFormat !== 3) {
-      throw new Error(
-        `NDVI raw layer returned an unexpected raster format (samples=${samplesPerPixel}, bits=${bitsPerSample}, ` +
-          `sampleFormat=${sampleFormat}) — expected single-band FLOAT32. Check the evalscript on layer "${this.getRawLayerId()}".`,
-      );
-    }
-
-    // Decode each strip (Compression 1 = none, 5 = LZW unsupported here, 8/32946 = Deflate),
-    // then concatenate into one contiguous pixel-data buffer.
-    const pixelBytes = new Uint8Array(width * height * 4);
-    let writeOffset = 0;
-    for (let s = 0; s < stripOffsets.length; s++) {
-      const raw = buffer.slice(
-        stripOffsets[s],
-        stripOffsets[s] + stripByteCounts[s],
-      );
-      let decoded;
-      if (compression === 1) {
-        decoded = raw;
-      } else if (compression === 8 || compression === 32946) {
-        decoded = await this._inflate(raw);
-      } else {
-        throw new Error(
-          `NDVI raster uses unsupported TIFF compression ${compression} (only none/Deflate are handled).`,
-        );
-      }
-      pixelBytes.set(new Uint8Array(decoded), writeOffset);
-      writeOffset += decoded.byteLength;
-    }
-
-    const pixelView = new DataView(pixelBytes.buffer);
-    const data = new Float32Array(width * height);
-    for (let i = 0; i < data.length; i++) {
-      data[i] = pixelView.getFloat32(i * 4, little);
-    }
-
-    return { width, height, data };
   },
 
   // Real-world NDVI over land rarely goes much below -0.2 (water/snow) or
@@ -823,7 +682,7 @@ export const NDVISampler = {
         // Not JSON — fall through to XML/plain-text handling below.
       }
       const xmlMatch = text.match(
-        /<ServiceException[^>]*>([\s\S]*?)<\/ServiceException>/i,
+        /<ServiceException(?:\s[^>]*)?>([\s\S]*?)<\/ServiceException>/i,
       );
       if (xmlMatch) return xmlMatch[1].trim().slice(0, 300);
       return text.trim().slice(0, 300);
