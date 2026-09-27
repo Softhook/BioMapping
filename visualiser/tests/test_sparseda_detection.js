@@ -15,6 +15,7 @@ const test = require('node:test');
 
 global.GSR_CONST = require('../src/core/constants.mjs').GSR_CONST;
 const { SCRDeconvolution: D } = require('../src/signal/deconvolution.mjs');
+const { SparsEDA } = require('../src/signal/sparseda.mjs');
 const { GSRAnalyzer } = require('../src/signal/analyzer.mjs');
 
 const FS = 10;
@@ -131,8 +132,8 @@ test('span-limited dot products give bit-identical SparsEDA output', () => {
     80,
   );
   const fast = sparse(y);
-  const build = D._buildReferenceDictionary;
-  D._buildReferenceDictionary = function (...a) {
+  const build = SparsEDA._buildReferenceDictionary;
+  SparsEDA._buildReferenceDictionary = function (...a) {
     const d = build.apply(this, a);
     for (const c of d.columns) {
       delete c._s;
@@ -145,7 +146,7 @@ test('span-limited dot products give bit-identical SparsEDA output', () => {
     assert.ok(fast.driver.every((v, i) => Object.is(v, full.driver[i])));
     assert.ok(fast.clean.every((v, i) => Object.is(v, full.clean[i])));
   } finally {
-    D._buildReferenceDictionary = build;
+    SparsEDA._buildReferenceDictionary = build;
   }
 });
 
@@ -243,7 +244,7 @@ test('dropping an active atom (Givens delete) gives the same factor as a rebuild
     let RI = null;
     const act = [];
     for (const j of idx) {
-      RI = D._updateChol(RI, cols, act, j, 1e-12).RI;
+      RI = SparsEDA._updateChol(RI, cols, act, j, 1e-12).RI;
       act.push(j);
     }
     return RI;
@@ -256,7 +257,7 @@ test('dropping an active atom (Givens delete) gives the same factor as a rebuild
       );
       const all = cols.map((_, j) => j);
       const kept = all.filter((j) => j !== pos);
-      const got = D._cholDelete(factor(cols, all), pos);
+      const got = SparsEDA._cholDelete(factor(cols, all), pos);
       const want = factor(cols, kept);
       assert.strictEqual(got.length, want.length);
       for (let j = 0; j < want.length; j++) {

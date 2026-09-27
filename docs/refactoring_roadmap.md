@@ -54,6 +54,14 @@ Do one item at a time, one commit each.
   Verified byte-identical parse output on all 73 tracks. The Integrity
   marker only matters when a recording has no end line, which none of the
   73 tracks has, so a test for that case was added (`test_csv_integrity.js`).
+- **Deconvolution split by method**: `signal/sparseda.mjs` (SparsEDA solver,
+  LASSO, dictionary, resampling), `signal/matching_pursuit.mjs`, and
+  `signal/deconvolution.mjs` keeping the shared kernel/convolve/impulse/
+  reconstruct helpers and `deconvolve()` as the single entry point. Matching
+  pursuit returns its impulses and `deconvolve()` rebuilds the clean phasic,
+  so the files don't import each other. Header now says matching pursuit is
+  the default, not legacy. Verified byte-identical on all 73 tracks with both
+  algorithms, and `check_ground_truth.sh` gives an identical report.
 
 ---
 
@@ -62,33 +70,6 @@ Do one item at a time, one commit each.
 ### 1. Merge `refactor-phase1` into `main`
 Before merging, check the "Map area ready offline" popup on the live page in a
 real browser (the only new message not yet seen on screen).
-
-### 5. One file per deconvolution method
-`signal/deconvolution.mjs` (~1440 lines) holds two separate published methods.
-Give each its own file, the way `cvxeda.mjs` already is:
-
-- **`signal/sparseda.mjs`** (~900 lines) — `_deconvolveSparsEDA` plus
-  everything only it uses: `REFERENCE_STRETCHES`, `_buildReferenceDictionary`,
-  `_runReferenceLasso`, the Cholesky/linear-algebra helpers (`_norm2`, `_dot`,
-  `_solveUpperTriangular`, `_updateChol`, `_cholDelete`) and the resampling
-  helpers (`_gcd`, `_resampledLength`, `_polyphaseResample`,
-  `_linearResampleTo`, `_linearResampleBack`, `_resampleSparseDriverBack`).
-  Keep the LASSO solver inside this file: it is a faithful port of the
-  reference SparsEDA solver (sample-rate stopping rule, `strictReference`
-  quirks), not a general-purpose tool, and nothing else uses it.
-- **`signal/matching_pursuit.mjs`** (~90 lines) — `_deconvolveMP`.
-- **`signal/deconvolution.mjs`** keeps what both share: `buildSCRFKernel`,
-  `convolve`, `detectImpulses`, `reconstructPhasic`, and `deconvolve()` as the
-  single entry point that picks the method — so `analyzer.mjs` doesn't change.
-
-Also fix the file header: it calls matching pursuit "retained for backward
-compatibility", but it is the **default** algorithm for the Deconvolution
-detector (`deconvAlgorithm: 'matching_pursuit'` in `constants.mjs`).
-
-Tests that reach into the helpers (`test_sparseda_detection.js` uses
-`_updateChol` / `_cholDelete`) need their imports updated. Verify
-byte-identical output over all 73 tracks with both algorithms, and run
-`check_ground_truth.sh` before and after.
 
 ### 6. Break up `draw()` in `render/sketch.mjs`
 ~590 lines in one function. Split into steps (layout, value ranges, axes,
