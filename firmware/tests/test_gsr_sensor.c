@@ -1197,7 +1197,7 @@ static void test_rf_disable_waits_for_inflight_spi_call_before_deinit(void) {
     furi_hal_subghz_mock_reset();
     em_scan_rf_mock_reset();
     furi_hal_subghz_mock_set_rssi(-95.0f);
-    em_scan_rf_mock_set_fast_sweep_delay_ms(10); // comfortably under the 20ms disable-wait bound
+    em_scan_rf_mock_set_fast_sweep_delay_ms(10); // comfortably under the 100ms disable-wait bound
 
     GsrSensor* gsr = gsr_sensor_alloc();
     assert(gsr != NULL);
@@ -1212,6 +1212,49 @@ static void test_rf_disable_waits_for_inflight_spi_call_before_deinit(void) {
     assert(em_scan_rf_mock_deinit_count() == 1);
 
     gsr_sensor_free(gsr);
+    printf("  -> Pass\n");
+}
+
+// Advances the fake tick past the disable-wait timeout from another thread,
+// since set_rf_enabled(false) blocks the test thread while it polls.
+static void* advance_tick_past_disable_timeout(void* arg) {
+    (void)arg;
+    usleep(20000);
+    furi_test_advance_tick(200); // > RF_DISABLE_SPI_WAIT_TIMEOUT_MS
+    return NULL;
+}
+
+// If the worker is still inside its SPI sweep when the disable-wait times
+// out, the radio deinit must be skipped (not run under the live sweep) and
+// then done by gsr_sensor_free() once the worker has been joined.
+static void test_rf_disable_timeout_defers_deinit_to_free(void) {
+    printf("Running test_rf_disable_timeout_defers_deinit_to_free...\n");
+    furi_hal_i2c_mock_reset();
+    furi_hal_i2c_mock_set_raw16(10000);
+    furi_hal_subghz_mock_reset();
+    em_scan_rf_mock_reset();
+    furi_hal_subghz_mock_set_rssi(-95.0f);
+    em_scan_rf_mock_set_fast_sweep_delay_ms(300); // a sweep that outlasts the timeout
+
+    GsrSensor* gsr = gsr_sensor_alloc();
+    assert(gsr != NULL);
+    gsr_sensor_set_rf_enabled(gsr, true);
+    wait_for_fast_sweep_call_in_progress();
+
+    pthread_t ticker;
+    assert(pthread_create(&ticker, NULL, advance_tick_past_disable_timeout, NULL) == 0);
+    gsr_sensor_set_rf_enabled(gsr, false); // times out with the sweep still running
+    pthread_join(ticker, NULL);
+
+    printf("  sweep_in_progress=%d deinit_count=%d after timed-out disable (expect 1/0)\n",
+           em_scan_rf_mock_fast_sweep_call_in_progress(), em_scan_rf_mock_deinit_count());
+    assert(em_scan_rf_mock_fast_sweep_call_in_progress());
+    assert(em_scan_rf_mock_deinit_count() == 0);
+
+    gsr_sensor_free(gsr); // joins the worker, then does the deferred deinit
+    em_scan_rf_mock_set_fast_sweep_delay_ms(0);
+    printf("  deinit_count=%d after free (expect 1)\n", em_scan_rf_mock_deinit_count());
+    assert(em_scan_rf_mock_deinit_count() == 1);
     printf("  -> Pass\n");
 }
 
@@ -1536,6 +1579,7 @@ int main(void) {
     test_rf_snapshot_read_not_blocked_by_slow_spi_call();
     test_gsr_path_not_blocked_by_slow_rf_spi_call();
     test_rf_disable_waits_for_inflight_spi_call_before_deinit();
+    test_rf_disable_timeout_defers_deinit_to_free();
     test_i2c_peak_ms_detects_slow_i2c_call();
     test_rf_rssi_peak_ms_detects_slow_rssi_call();
     test_rf_retune_peak_ms_detects_slow_retune_step();

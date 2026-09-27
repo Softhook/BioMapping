@@ -327,21 +327,20 @@ static bool batch_csv_row(Session* s, float raw, const float* rf_rssi) {
 // Terminal stop for an UNRECOVERABLE SD write failure — the caller
 // (run_recording_session's flush block) only reaches here after the ride-out
 // has been exhausted (SD_FLUSH_FAIL_STREAK_LIMIT consecutive failed flushes,
-// or the batch buffer filled while still failing). Closes the logger (which
-// attempts one last flush + integrity trailer — those may themselves fail if
-// the card is genuinely gone, in which case the file is left trailer-less,
-// same as a power-loss, and the visualiser flags it incomplete), clears
-// recording state, latches write_stopped so the renderer keeps a persistent
-// banner up, and signals with the solid red LED.
+// or the batch buffer filled while still failing). Clears recording state,
+// latches write_stopped so the renderer keeps a persistent banner up, and
+// signals with the solid red LED.
 // Returns true when the caller should play the warning tone.
 //
-// Must not play sound itself: it runs from the Tick handler with app->mutex
-// held, and biomap_sound_warning() blocks for ~250 ms (modules/sound.h) —
-// long enough to freeze biomap_render_callback(), which needs the same
-// mutex. The caller releases app->mutex first, then plays the tone from
-// this return value.
+// Must not touch the SD card or play sound itself: it runs from the Tick
+// handler with app->mutex held, and both sd_logger_stop() and
+// biomap_sound_warning() block for long enough to freeze
+// biomap_render_callback(), which needs the same mutex. The caller releases
+// app->mutex first, then closes the logger (sd_logger_stop() attempts one
+// last flush + integrity trailer — those may themselves fail if the card is
+// genuinely gone, in which case the file is left trailer-less, same as a
+// power-loss, and the visualiser flags it incomplete), then plays the tone.
 static bool handle_write_failure(Session* s, NotificationApp* notifications) {
-    if(s->logger) sd_logger_stop(s->logger, biomap_rtc_now_epoch());
     s->recording.active = false;
     s->recording.write_stopped = true;    // latched — drives the renderer banner
     s->recording.flush_fail_streak = 0;   // recording's over — keep "not active ⇒ streak 0"
@@ -545,8 +544,11 @@ static bool key_toggle_recording(Session* s, FuriMutex* mutex,
         furi_mutex_acquire(mutex, FuriWaitForever);
         s->recording.active = false;
         s->recording.flush_fail_streak = 0; // "not active ⇒ streak 0" invariant
-        bool flush_ok = flush_before_stop(s->logger);
         furi_mutex_release(mutex);
+        // SD I/O outside app->mutex (see the batch-flush note in the Tick
+        // handler); with recording.active already false nothing else
+        // touches the logger's batch.
+        bool flush_ok = flush_before_stop(s->logger);
         sd_logger_stop(s->logger, biomap_rtc_now_epoch());
         notification_message(notifications, &sequence_blink_stop);
         // Recording is fully stopped (flag cleared, file closed) above —
@@ -615,20 +617,19 @@ static bool handle_recording_key(BioMapEvent* ev, Session* s,
     case InputKeyBack: {
         furi_mutex_acquire(mutex, FuriWaitForever);
         bool was_recording = s->recording.active;
-        bool flush_ok = true;
         if(was_recording) {
-            // Fully stop here — clear the flag and flush — rather than
-            // leaving it for session_deinit() to close later. Same "GSR +
-            // Sound" rule as key_toggle_recording's stop path: the file
-            // must already be closed before the tone plays, not after.
+            // Fully stop here — clear the flag, flush and close — rather
+            // than leaving it for session_deinit() to close later. Same
+            // "GSR + Sound" rule as key_toggle_recording's stop path: the
+            // file must already be closed before the tone plays, not after.
             s->recording.active = false;
             s->recording.flush_fail_streak = 0; // "not active ⇒ streak 0" invariant
-            flush_ok = flush_before_stop(s->logger);
         }
         s->running = false;
         furi_mutex_release(mutex);
 
         if(was_recording) {
+            bool flush_ok = flush_before_stop(s->logger); // SD I/O outside app->mutex
             sd_logger_stop(s->logger, biomap_rtc_now_epoch()); // close the file BEFORE the tone
             // session_deinit()'s own stop-on-active check is now a no-op
             // (recording.active is already false), so this is the only
@@ -1079,6 +1080,9 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
                 } else if(outcome == SdTerminated) {
                     FURI_LOG_E("BioMap", "Batch flush failed (streak %lu) — recording stopped",
                                (unsigned long)streak);
+                    // Close outside app->mutex, before the warning tone —
+                    // see handle_write_failure().
+                    sd_logger_stop(s->logger, biomap_rtc_now_epoch());
                 }
             }
 

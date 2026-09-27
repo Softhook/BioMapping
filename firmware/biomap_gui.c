@@ -11,7 +11,12 @@
 
 void biomap_input_callback(InputEvent* e, void* ctx) {
     BioMapEvent ev = {.type = EventTypeKey, .input = *e};
-    furi_message_queue_put((FuriMessageQueue*)ctx, &ev, FuriWaitForever);
+    // Non-blocking, like the timer callback below: this runs on the GUI
+    // service's thread, which holds the ViewPort lock while dispatching
+    // input. Blocking here on a full queue would stall the whole GUI (and
+    // contend with the app thread's view_port_update()). A dropped key
+    // press is harmless.
+    furi_message_queue_put((FuriMessageQueue*)ctx, &ev, 0);
 }
 
 void biomap_timer_callback(void* ctx) {

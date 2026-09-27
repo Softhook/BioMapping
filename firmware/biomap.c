@@ -159,6 +159,7 @@ static bool write_file_atomic(Storage* storage, const char* tmp_path, const char
         } else {
             FURI_LOG_E("BioMap", "%s temp write truncated (%d/%d)",
                        what, (int)written, (int)size);
+            storage_simply_remove(storage, tmp_path); // partial — useless to keep
         }
     }
     storage_file_free(file);

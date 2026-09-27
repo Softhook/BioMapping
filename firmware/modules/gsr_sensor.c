@@ -189,6 +189,11 @@ struct GsrSensor {
     // same CC1101. Same reasoning as rf_enabled/running — see that
     // field's comment for why _Atomic rather than plain volatile.
     _Atomic bool rf_spi_busy;
+    // Main thread only. Set when a disable timed out with the worker still
+    // inside its SPI region, so em_scan_rf_deinit() was skipped rather than
+    // raced; gsr_sensor_free() does the deferred deinit after joining the
+    // worker, when nothing else can be touching the CC1101.
+    bool rf_deinit_pending;
     uint32_t rf_last_sample_tick;  // furi_get_tick() of the last RSSI read — paces to ~10 Hz
 
     // Published RF snapshot — the ONLY RF state read cross-thread (main
@@ -680,6 +685,7 @@ GsrSensor* gsr_sensor_alloc(void) {
 
     gsr->rf_enabled = false;
     gsr->rf_spi_busy = false;
+    gsr->rf_deinit_pending = false;
     gsr->rf_last_sample_tick = 0;
     for(int i = 0; i < EM_SCAN_NUM_FREQS; i++) {
         gsr->rf_rssi_dbm[i] = -100.0f;
@@ -714,6 +720,7 @@ void gsr_sensor_free(GsrSensor* gsr) {
     gsr->running = false;
     furi_thread_join(gsr->thread);
     furi_thread_free(gsr->thread);
+    if(gsr->rf_deinit_pending) em_scan_rf_deinit(); // worker gone — safe now
 
     // Put ADS1115 into low-power single-shot/power-down mode (MODE bit = 1)
     furi_hal_i2c_acquire(&furi_hal_i2c_handle_external);
@@ -1208,16 +1215,18 @@ void gsr_sensor_set_calibration(GsrSensor* gsr, bool active, float gain, float o
 // deinit. That closes the race outright for every normal disable: deinit
 // only proceeds once the worker has demonstrably left the SPI region,
 // rather than after a fixed delay chosen to probably be long enough.
-// The bounded timeout below is a fallback for the one case no timeout
-// can fix — the worker wedged forever in the unbounded SPI busy-wait bug
-// in furi_hal_spi_bus_end_txrx() (no timeout) — where we proceed
-// anyway rather than hang the caller forever waiting for an ack that will
-// never come; that residual case was already unguarded before this
-// function existed at all, so this is strictly a narrowing, not a
-// regression. RF's ~10 Hz duty cycle (RF_SAMPLE_INTERVAL_MS) already
-// makes the race rare; this makes the ordinary case provably closed
-// instead of just probably closed.
-#define RF_DISABLE_SPI_WAIT_TIMEOUT_MS 20
+// The bounded timeout below covers a worker that is unusually slow: rather
+// than deinit the radio under a sweep still in progress, we skip the
+// deinit and leave it to gsr_sensor_free(), which does it after joining
+// the worker. A skipped deinit only leaves the CC1101 in idle (every sweep
+// ends with furi_hal_subghz_idle()), not RX. A worker wedged for good
+// (e.g. the unbounded SPI busy-wait in furi_hal_spi_bus_end_txrx()) still
+// hangs gsr_sensor_free()'s join — no timeout here can fix that.
+//
+// A normal fast sweep is 3 × (retune + EM_SCAN_WARMUP_MS), ~15 ms, and
+// furi_delay_ms() routinely overshoots — the timeout sits well above that
+// so an ordinary sweep never trips it.
+#define RF_DISABLE_SPI_WAIT_TIMEOUT_MS 100
 #define RF_DISABLE_SPI_WAIT_POLL_MS     1
 
 // Reset the published RF snapshot to the disabled-default floor — shared by
@@ -1238,6 +1247,7 @@ void gsr_sensor_set_rf_enabled(GsrSensor* gsr, bool enabled) {
 
     if(enabled) {
         em_scan_rf_init();
+        gsr->rf_deinit_pending = false; // init reconfigures the radio from scratch
         gsr->rf_last_sample_tick = 0; // force an immediate first sample
         rf_reset_snapshot(gsr);
         gsr->rf_enabled = true; // last — see doc comment above
@@ -1269,7 +1279,13 @@ void gsr_sensor_set_rf_enabled(GsrSensor* gsr, bool enabled) {
         while(gsr->rf_spi_busy && (furi_get_tick() - start_tick) < timeout_ticks) {
             furi_delay_ms(RF_DISABLE_SPI_WAIT_POLL_MS);
         }
-        em_scan_rf_deinit();
+        if(gsr->rf_spi_busy) {
+            FURI_LOG_E("GsrSensor", "RF worker still in SPI after %d ms — deferring radio deinit",
+                       RF_DISABLE_SPI_WAIT_TIMEOUT_MS);
+            gsr->rf_deinit_pending = true;
+        } else {
+            em_scan_rf_deinit();
+        }
 
         // Reset the snapshot so a later get_rf_snapshot() can't report a
         // stale last reading as if it were live (matches what enable does).
