@@ -226,16 +226,6 @@ export const GSREvents = {
   },
 
   /**
-   * Format the Max Speed slider value with a human travel mode.
-   * Thresholds follow the slider's help text: Walk ≈ 3 m/s, Run ≈ 5 m/s,
-   * Bike ≈ 10 m/s.
-   */
-  fmtMaxSpeed(v) {
-    const mode = v <= 3.5 ? 'Walk' : v <= 6.5 ? 'Run' : 'Bike';
-    return `${v.toFixed(1)} m/s (${mode})`;
-  },
-
-  /**
    * Show the Snap Radius slider only while "Snap to Roads & Trails" is checked.
    * Called on setup, from the toggle handler, and after settings restore.
    */

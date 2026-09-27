@@ -9,6 +9,7 @@
  * analyzer's per-point spatial metadata.
  */
 import { AppState } from '../core/app_state.mjs';
+import { GSRNotices } from '../core/notices.mjs';
 import { NDVISampler } from '../osm/ndvi_sampler.mjs';
 import { OsmCache } from '../osm/osm_cache.mjs';
 import { OSMEnricher } from '../osm/osm_enrichment.mjs';
@@ -60,7 +61,8 @@ export const EnrichmentUI = {
     }
 
     if (allTracks.length === 0) {
-      if (!silent) alert('Please load or select active track files first.');
+      if (!silent)
+        GSRNotices.report('Please load or select active track files first.');
       return { allTracks: [], validTracks: [] };
     }
 
@@ -88,7 +90,7 @@ export const EnrichmentUI = {
 
     if (validTracks.length === 0) {
       if (!silent)
-        alert(
+        GSRNotices.report(
           `No valid GPS coordinates found in the selected track(s). ${featureLabel} requires GPS location fixes.`,
         );
       return { allTracks, validTracks: [] };
@@ -424,7 +426,7 @@ export const EnrichmentUI = {
       );
     } catch (err) {
       console.error('OSM Enrichment error:', err);
-      alert(`OSM Enrichment failed: ${err.message}`);
+      GSRNotices.report(`OSM Enrichment failed: ${err.message}`);
       statusMsg.innerText = `Error: ${err.message}`;
       progressBar.style.backgroundColor = 'var(--danger)';
     } finally {
@@ -514,7 +516,7 @@ export const EnrichmentUI = {
       );
     } catch (err) {
       console.error('NDVI Sampling error:', err);
-      if (!silent) alert(`NDVI Sampling failed: ${err.message}`);
+      if (!silent) GSRNotices.report(`NDVI Sampling failed: ${err.message}`);
       this.setSpatialProgress(
         true,
         `Error: ${err.message}`,

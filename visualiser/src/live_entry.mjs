@@ -1,7 +1,7 @@
 /**
  * live.html's real entry point — the browser-side counterpart of
  * tests/support/boot_live.js's LIVE_SCRIPT_ORDER (kept in sync with it by
- * tests/test_html_wiring.js; the two must list the same 20 files, in the
+ * tests/test_html_wiring.js; the two must list the same 21 files, in the
  * same order — see src/app_entry.mjs's own header comment for why order
  * itself isn't load-bearing under real ES modules).
  *
@@ -10,6 +10,7 @@
  * .mount(document.getElementById('liveRoot'))`), so it just imports
  * GSRLiveView directly and calls it itself.
  */
+import './core/notices.mjs';
 import './core/constants.mjs';
 import './signal/gsr_filter.mjs';
 import './signal/deconvolution.mjs';

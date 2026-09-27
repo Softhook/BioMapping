@@ -88,12 +88,12 @@ export const GSRMapExporter = {
 
   _validate(mgr) {
     if (!mgr?.map) {
-      alert('Map not initialized.');
+      GSRNotices.report('Map not initialized.');
       return null;
     }
     const el = document.getElementById(mgr.containerId);
     if (!el) {
-      alert('Map container not found.');
+      GSRNotices.report('Map container not found.');
       return null;
     }
     const r = el.getBoundingClientRect();

@@ -9,7 +9,12 @@
 const DEFAULT_FLOOR_DBM = -100.0;
 const SATURATION_CEILING_DBM = -30.0;
 
-const SUB_GHZ_BANDS = [
+/**
+ * Band descriptors for all monitored Sub-GHz channels.
+ * Exported so csv_parser.mjs and analyzer_export.mjs can import this as the
+ * single source of truth instead of each maintaining their own copy.
+ */
+export const SUB_GHZ_BANDS = [
   { prop: 'rssi_300', key: '300' },
   { prop: 'rssi_315', key: '315' },
   { prop: 'rssi_434', key: '434' },
@@ -23,7 +28,9 @@ const SUB_GHZ_BANDS = [
  * Normalizes an RSSI dBm reading between floor and saturation ceiling into [0.0, 1.0].
  */
 function normalizeBandRssi(rssi, floor = DEFAULT_FLOOR_DBM) {
-  const fraction = (rssi - floor) / (SATURATION_CEILING_DBM - floor);
+  // Guard: if a custom floor equals the ceiling, avoid 0/0 = NaN.
+  const range = Math.max(1e-6, SATURATION_CEILING_DBM - floor);
+  const fraction = (rssi - floor) / range;
   return Math.min(1.0, Math.max(0.0, fraction));
 }
 

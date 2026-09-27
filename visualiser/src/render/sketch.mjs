@@ -15,6 +15,104 @@ let _cachedFilteredForce = [];
 let _cachedMetricForce = [];
 let _cachedDriverForce = []; // Driver spike apex indices — forced into decimation stride so spikes survive zoom-out
 
+/**
+ * Static grid-scale descriptors for every lower-plot view.
+ * Hoisted from draw() so this object is not re-allocated on every 60 fps frame.
+ * The dynamic `phasicDriver` entry (which depends on the current `driverCfg`
+ * obtained from runtime state) is spread in as a shallow extension inside
+ * draw() only when needed — zero allocation on the common path.
+ */
+const _LOWER_GRID_PRESETS = {
+  tonic: {
+    steps: [
+      [0.2, 0.02],
+      [1.0, 0.1],
+      [3.0, 0.5],
+      [10, 1.0],
+    ],
+    defaultStep: 2.0,
+    decimals: 2,
+    unit: ' \u03bcS',
+  },
+  phasic: {
+    steps: [
+      [0.05, 0.005],
+      [0.15, 0.01],
+      [0.5, 0.05],
+      [1.5, 0.1],
+    ],
+    defaultStep: 0.5,
+    decimals: 3,
+    unit: ' \u03bcS',
+  },
+  peakDensity: {
+    steps: [
+      [5, 1],
+      [20, 2],
+      [60, 5],
+      [200, 20],
+    ],
+    defaultStep: 10,
+    decimals: 0,
+    unit: ' /min',
+  },
+  phasicAUC: {
+    steps: [
+      [0.5, 0.05],
+      [2, 0.2],
+      [5, 0.5],
+      [20, 2],
+    ],
+    defaultStep: 5,
+    decimals: 2,
+    unit: ' \u03bcS\u00b7s',
+  },
+  arousalIndex: {
+    steps: [
+      [1, 0.2],
+      [3, 0.5],
+      [6, 1],
+      [12, 2],
+    ],
+    defaultStep: 1,
+    decimals: 1,
+    unit: ' z',
+  },
+  triIndex: {
+    steps: [
+      [1, 0.2],
+      [3, 0.5],
+      [6, 1],
+      [12, 2],
+    ],
+    defaultStep: 1,
+    decimals: 1,
+    unit: ' z',
+  },
+  edasymp: {
+    steps: [
+      [0.002, 0.0002],
+      [0.01, 0.001],
+      [0.05, 0.005],
+      [0.2, 0.02],
+    ],
+    defaultStep: 0.02,
+    decimals: 4,
+    unit: ' \u03bcS\u00b2',
+  },
+  responseDynamics: {
+    steps: [
+      [0.05, 0.005],
+      [0.15, 0.01],
+      [0.5, 0.05],
+      [1.5, 0.1],
+    ],
+    defaultStep: 0.5,
+    decimals: 3,
+    unit: ' \u03bcS',
+  },
+};
+
 // Coalesced redraw functions for high-frequency input events (drag, hover, wheel).
 // GSREvents is reached via the Controllers registry (core/controllers.mjs),
 // which events.mjs only populates once its own module has fully evaluated —
@@ -288,104 +386,20 @@ export function draw() {
   if (lowerCfg.allowNegative) yMinLower = yMinLower - paddingLower;
 
   // ── Render inputs shared by every view ───────────────────────────────────
-  const lowerGridPresets = {
-    tonic: {
-      steps: [
-        [0.2, 0.02],
-        [1.0, 0.1],
-        [3.0, 0.5],
-        [10, 1.0],
-      ],
-      defaultStep: 2.0,
-      decimals: 2,
-      unit: ' \u03bcS',
-    },
-    phasic: {
-      steps: [
-        [0.05, 0.005],
-        [0.15, 0.01],
-        [0.5, 0.05],
-        [1.5, 0.1],
-      ],
-      defaultStep: 0.5,
-      decimals: 3,
-      unit: ' \u03bcS',
-    },
-    peakDensity: {
-      steps: [
-        [5, 1],
-        [20, 2],
-        [60, 5],
-        [200, 20],
-      ],
-      defaultStep: 10,
-      decimals: 0,
-      unit: ' /min',
-    },
-    phasicAUC: {
-      steps: [
-        [0.5, 0.05],
-        [2, 0.2],
-        [5, 0.5],
-        [20, 2],
-      ],
-      defaultStep: 5,
-      decimals: 2,
-      unit: ' \u03bcS\u00b7s',
-    },
-    arousalIndex: {
-      steps: [
-        [1, 0.2],
-        [3, 0.5],
-        [6, 1],
-        [12, 2],
-      ],
-      defaultStep: 1,
-      decimals: 1,
-      unit: ' z',
-    },
-    triIndex: {
-      steps: [
-        [1, 0.2],
-        [3, 0.5],
-        [6, 1],
-        [12, 2],
-      ],
-      defaultStep: 1,
-      decimals: 1,
-      unit: ' z',
-    },
-    edasymp: {
-      steps: [
-        [0.002, 0.0002],
-        [0.01, 0.001],
-        [0.05, 0.005],
-        [0.2, 0.02],
-      ],
-      defaultStep: 0.02,
-      decimals: 4,
-      unit: ' \u03bcS\u00b2',
-    },
-    responseDynamics: {
-      steps: [
-        [0.05, 0.005],
-        [0.15, 0.01],
-        [0.5, 0.05],
-        [1.5, 0.1],
-      ],
-      defaultStep: 0.5,
-      decimals: 3,
-      unit: ' \u03bcS',
-    },
-  };
-  if (driverCfg) {
-    lowerGridPresets.phasicDriver = {
-      steps: driverCfg.gridSteps,
-      defaultStep: driverCfg.gridDefaultStep,
-      decimals: driverCfg.decimals,
-      unit: ` ${driverCfg.unit}`,
-    };
-  }
+  // Use the module-level _LOWER_GRID_PRESETS constant (zero allocation on the
+  // common path). Only when a deconvolution driver is active do we extend it
+  // with the runtime-computed phasicDriver entry via a one-off spread.
+  const lowerGridPresets = driverCfg
+    ? {
+        ..._LOWER_GRID_PRESETS,
+        phasicDriver: {
+          steps: driverCfg.gridSteps,
+          defaultStep: driverCfg.gridDefaultStep,
+          decimals: driverCfg.decimals,
+          unit: ` ${driverCfg.unit}`,
+        },
+      }
+    : _LOWER_GRID_PRESETS;
   const gridPreset = lowerGridPresets[lowerMode] || lowerGridPresets.phasic;
   // The upper (Filtered/Raw/Tonic, µS) plot uses the same grid as the Tonic preset.
   const upperGridPreset = lowerGridPresets.tonic;

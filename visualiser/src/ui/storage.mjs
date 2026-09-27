@@ -8,6 +8,7 @@ import { AppState } from '../core/app_state.mjs';
 import { GSR_CONST } from '../core/constants.mjs';
 import { Controllers } from '../core/controllers.mjs';
 import { GSRFileSaver } from '../core/file_saver.mjs';
+import { GSRNotices } from '../core/notices.mjs';
 
 /**
  * Typed slider value reader with automatic fallback.
@@ -25,6 +26,26 @@ export function sliderVal(el, fallback, fn) {
     : typeof fallback === 'string'
       ? fn(fallback)
       : fallback;
+}
+
+/**
+ * The alternative detectors are mutually exclusive; if restored settings have
+ * several checked, keep the highest-precedence one (prominence > cvxEDA >
+ * sparsEDA > deconvolution, matching analyze()). Setting .checked in code
+ * does not fire 'change', so this cannot loop.
+ * @param {Object<string, HTMLInputElement>} S - AppState.sliders.
+ */
+export function normalizeDetectorCheckboxes(S) {
+  if (S.usePeakProminence?.checked) {
+    if (S.useDeconvolution) S.useDeconvolution.checked = false;
+    if (S.useSparsEDA) S.useSparsEDA.checked = false;
+    if (S.useCvxEDA) S.useCvxEDA.checked = false;
+  } else if (S.useCvxEDA?.checked) {
+    if (S.useDeconvolution) S.useDeconvolution.checked = false;
+    if (S.useSparsEDA) S.useSparsEDA.checked = false;
+  } else if (S.useSparsEDA?.checked) {
+    if (S.useDeconvolution) S.useDeconvolution.checked = false;
+  }
 }
 
 export const GSRStorage = {
@@ -227,7 +248,7 @@ export const GSRStorage = {
     const gsr = this.readGsrSliderValues();
     const gps = this.readGpsSliderValues();
     if (!gsr || !gps) {
-      alert('No active slider settings found to export.');
+      GSRNotices.report('No active slider settings found to export.');
       return;
     }
 
@@ -274,7 +295,7 @@ export const GSRStorage = {
         const success = this.applyPreset(preset);
         if (callback) callback(success, preset);
       } catch (err) {
-        alert(`Invalid preset file format: ${err.message}`);
+        GSRNotices.report(`Invalid preset file format: ${err.message}`);
         if (callback) callback(false, null);
       }
     };
@@ -299,7 +320,7 @@ export const GSRStorage = {
    */
   applyPreset(preset) {
     if (!preset) {
-      alert('Invalid preset file.');
+      GSRNotices.report('Invalid preset file.');
       return false;
     }
 
@@ -354,19 +375,7 @@ export const GSRStorage = {
     if (gsr.useCvxEDA !== undefined && S.useCvxEDA) {
       S.useCvxEDA.checked = !!gsr.useCvxEDA;
     }
-    // The alternative detectors are mutually exclusive; if a stored config
-    // somehow has multiple, keep the higher-precedence one (prominence >
-    // cvxEDA > sparsEDA > deconvolution, matching analyze()).
-    if (S.usePeakProminence?.checked) {
-      if (S.useDeconvolution) S.useDeconvolution.checked = false;
-      if (S.useSparsEDA) S.useSparsEDA.checked = false;
-      if (S.useCvxEDA) S.useCvxEDA.checked = false;
-    } else if (S.useCvxEDA?.checked) {
-      if (S.useDeconvolution) S.useDeconvolution.checked = false;
-      if (S.useSparsEDA) S.useSparsEDA.checked = false;
-    } else if (S.useSparsEDA?.checked) {
-      if (S.useDeconvolution) S.useDeconvolution.checked = false;
-    }
+    normalizeDetectorCheckboxes(S);
 
     if (gsr.shapeMinSnr !== undefined && S.shapeMinSnr)
       S.shapeMinSnr.value = gsr.shapeMinSnr;

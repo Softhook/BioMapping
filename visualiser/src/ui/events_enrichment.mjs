@@ -54,10 +54,10 @@ export const EnrichmentEvents = {
           if (typeof NDVISampler.clearCache === 'function') {
             NDVISampler.clearCache();
           }
-          alert('OSM and satellite tile cache cleared.');
+          GSRNotices.warn('OSM and satellite tile cache cleared.');
         } catch (err) {
           console.error('OsmCache.clear failed:', err);
-          alert(`Could not clear the OSM cache: ${err.message}`);
+          GSRNotices.report(`Could not clear the OSM cache: ${err.message}`);
         }
       });
 

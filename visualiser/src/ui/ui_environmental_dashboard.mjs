@@ -446,8 +446,7 @@ export const EnvironmentalDashboardUI = {
 
         // hasVariance = the factor actually changed. A constant predictor
         // explains no variance in arousal whatever its r. Continuous fields
-        // need a coefficient of variation ≥ 1% (sx.std is floored at 1, so
-        // use the true spread from sx.variance).
+        // need a coefficient of variation ≥ 1%.
         const sx = StatsMath.calculateStats(validX);
         const trueStd = Math.sqrt(sx.variance);
         const cv = trueStd / (Math.abs(sx.mean) + 1e-9);

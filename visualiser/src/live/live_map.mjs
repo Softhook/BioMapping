@@ -23,6 +23,7 @@
 // Gate Design" — 2.0 is the post-processing quality filter, distinct from
 // the firmware's permissive 5.0 logging gate).
 import { Controllers } from '../core/controllers.mjs';
+import { GSRNotices } from '../core/notices.mjs';
 import { GpsPipeline } from '../gps/gps_pipeline.mjs';
 import { GSRBasemap } from '../map/basemap.mjs';
 import { MapColors } from '../map/map_colors.mjs';
@@ -236,7 +237,7 @@ export async function cacheCurrentMapArea() {
   if (totalTiles === 0) {
     cacheMapBtn.disabled = false;
     cacheMapBtn.textContent = originalText;
-    alert('No tiles to cache in the current view.');
+    GSRNotices.warn('No tiles to cache in the current view.');
     return;
   }
 
@@ -290,12 +291,15 @@ export async function cacheCurrentMapArea() {
       cacheMapBtn.textContent = originalText;
     }, 2000);
 
-    alert(
-      `Map area ready offline: ${newlyDownloaded + alreadyCached} of ${totalTiles} tiles (${newlyDownloaded} downloaded, ${alreadyCached} already cached).`,
-    );
+    GSRNotices.dialog({
+      title: 'Map area ready offline',
+      message: `${newlyDownloaded + alreadyCached} of ${totalTiles} tiles (${newlyDownloaded} downloaded, ${alreadyCached} already cached).`,
+      tone: 'info',
+      buttons: [{ label: 'OK', value: true, style: 'primary' }],
+    });
   } catch (err) {
     console.error('Map caching failed:', err);
-    alert(`Failed to cache map area: ${err.message}`);
+    GSRNotices.report(`Failed to cache map area: ${err.message}`);
     cacheMapBtn.disabled = false;
     cacheMapBtn.textContent = originalText;
   }

@@ -1017,14 +1017,14 @@ test('connectBtn is disabled during connecting/reconnecting, and enabled on disc
 test('goToLatLon: rejects out-of-range/non-numeric input without showing or moving the map', async () => {
   const { window, context } = await bootLive();
   let alerted = null;
-  window.alert = (msg) => {
+  window.GSRNotices.warn = (msg) => {
     alerted = msg;
   };
 
   run(context, 'goToLatLon(NaN, 10, 15)');
   assert.ok(
     alerted,
-    'NaN latitude should alert instead of silently doing nothing',
+    'NaN latitude should warn instead of silently doing nothing',
   );
   assert.ok(window.document.getElementById('app').classList.contains('no-map'));
 
@@ -3370,10 +3370,10 @@ test('mount: pre-populates connectErr when Web Bluetooth is not supported', asyn
   assert.match(errEl.textContent, /Bluefy/);
 });
 
-test('My Location: a browser with no geolocation alerts instead of throwing', async () => {
+test('My Location: a browser with no geolocation warns instead of throwing', async () => {
   const { window } = await bootLive();
   let alerted = null;
-  window.alert = (m) => {
+  window.GSRNotices.warn = (m) => {
     alerted = m;
   };
   window.navigator.geolocation = undefined;

@@ -13,7 +13,7 @@
  */
 
 import { GSR_CONST } from '../core/constants.mjs';
-import { calcEmFog } from './em_fog.mjs';
+import { calcEmFog, SUB_GHZ_BANDS } from './em_fog.mjs';
 
 /**
  * Complete a settings object embedded in a CSV (`# FilterParams:` /
@@ -375,15 +375,10 @@ export const GSRCSVParser = {
    * @private
    */
   _detectRfPeakIndices(data, activeBands = null) {
-    const BANDS = activeBands || [
-      'rssi_300',
-      'rssi_315',
-      'rssi_434',
-      'rssi_446',
-      'rssi_815',
-      'rssi_868',
-      'rssi_915',
-    ];
+    // Derive the prop-name list from the shared SUB_GHZ_BANDS descriptor
+    // (single source of truth in em_fog.mjs) unless the caller restricts to a
+    // specific active subset detected from the CSV header.
+    const BANDS = activeBands || SUB_GHZ_BANDS.map((b) => b.prop);
     if (BANDS.length === 0) return new Set();
     const PROMINENCE_DB = 3.5;
     const n = data.length;
@@ -611,15 +606,8 @@ export const GSRCSVParser = {
     // processed CSVs exported before this column existed).
     const isGpsFixColIdx = headers.indexOf('is_gps_fix');
 
-    const RF_BANDS = [
-      'rssi_300',
-      'rssi_315',
-      'rssi_434',
-      'rssi_446',
-      'rssi_815',
-      'rssi_868',
-      'rssi_915',
-    ];
+    // Derive RF column names from the shared band descriptor (em_fog.mjs).
+    const RF_BANDS = SUB_GHZ_BANDS.map((b) => b.prop);
     const rfColIdx = {};
     const activeRfBands = [];
     for (const band of RF_BANDS) {

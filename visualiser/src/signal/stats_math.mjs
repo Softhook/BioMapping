@@ -28,15 +28,15 @@ export const StatsMath = {
 
   /**
    * Mean, standard deviation, variance, min and max of a numeric array.
-   * `std` is floored at 1 (divide-by-zero guard for downstream z-scoring);
-   * use `variance` when you need the true, unclamped spread.
+   * `std` is the true spread and can be 0 (constant or empty input) — callers
+   * that divide by it must guard against zero themselves.
    *
    * @param {number[]} values
    * @returns {{mean: number, std: number, variance: number, min: number, max: number}}
    */
   calculateStats(values) {
     const n = values ? values.length : 0;
-    if (n === 0) return { mean: 0, std: 1, variance: 0, min: 0, max: 0 };
+    if (n === 0) return { mean: 0, std: 0, variance: 0, min: 0, max: 0 };
     let sum = 0;
     let min = Infinity;
     let max = -Infinity;
@@ -56,7 +56,9 @@ export const StatsMath = {
     const std = Math.sqrt(variance);
     return {
       mean,
-      std: std === 0 ? 1 : std,
+      // Return the true standard deviation — callers that z-score must guard
+      // against division by zero (std === 0) at the point of use.
+      std,
       variance,
       min: min === Infinity ? 0 : min,
       max: max === -Infinity ? 0 : max,

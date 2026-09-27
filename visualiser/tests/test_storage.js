@@ -53,6 +53,15 @@ const { GSRUI: RealGSRUI } = require('../src/ui/ui.mjs');
 const {
   GSRFileSaver: RealGSRFileSaver,
 } = require('../src/core/file_saver.mjs');
+const { GSRNotices } = require('../src/core/notices.mjs');
+
+// Patch GSRNotices.report so error-path tests that previously checked
+// alertCalls still work — production code now calls GSRNotices.report()
+// instead of alert(), but the test assertion contract is identical.
+GSRNotices.report = (err) => {
+  const msg = err?.message ? err.message : String(err);
+  alertCalls.push(msg);
+};
 
 function setSingletonShape(target, shape) {
   for (const k of Object.keys(target)) delete target[k];

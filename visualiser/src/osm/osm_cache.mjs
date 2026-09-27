@@ -245,7 +245,13 @@ export const OsmCache = {
           .catch(() => {})
           .then(() => resolve(db));
       };
-      req.onerror = () => reject(req.error);
+      req.onerror = () => {
+        // Clear the cached promise so the next caller can retry the DB open
+        // rather than permanently inheriting this failure (e.g. private
+        // browsing, quota exceeded, or a transient IDB error).
+        this._dbPromise = null;
+        reject(req.error);
+      };
     });
     return this._dbPromise;
   },

@@ -28,6 +28,7 @@ const test = require('node:test');
 // ── Minimal global stubs so tracks.js's top-level/module references resolve
 //    under plain Node (none of these exist outside a browser). ─────────────
 global.window = global;
+// Retain alert() as a no-op fallback for any remaining call-sites.
 global.alert = (msg) => {
   global.__lastAlert = msg;
 };
@@ -201,6 +202,16 @@ const {
   GSRCollectiveManager,
 } = require('../src/spatial/collective_manager.mjs');
 const { AppState: RealAppState } = require('../src/core/app_state.mjs');
+const { GSRNotices } = require('../src/core/notices.mjs');
+
+// Patch GSRNotices.report to write to __lastAlert (the same spy slot that
+// alert() used). This lets the 4 "error alerts" tests keep their existing
+// assertions without change while the production code uses GSRNotices.
+GSRNotices.report = (err) => {
+  const msg = err?.message ? err.message : String(err);
+  global.__lastAlert = msg;
+  // Suppress the real console.error / toast in test output.
+};
 
 // renderTrackList is DOM construction, not state logic — see file header.
 GSRTrackManager.renderTrackList = () => {

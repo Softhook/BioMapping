@@ -135,7 +135,7 @@ export const GSRUI = {
       redraw();
     } catch (err) {
       console.error('Analysis error:', err);
-      alert(`Error running analysis: ${err.message}`);
+      GSRNotices.report(`Error running analysis: ${err.message}`);
     }
   },
 

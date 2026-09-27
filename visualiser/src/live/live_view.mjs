@@ -931,7 +931,9 @@ export function goToLatLon(lat, lon, zoom) {
     lon < -180 ||
     lon > 180
   ) {
-    alert('Enter a valid latitude (-90 to 90) and longitude (-180 to 180).');
+    GSRNotices.warn(
+      'Enter a valid latitude (-90 to 90) and longitude (-180 to 180).',
+    );
     return;
   }
   if (!mapVisible) setMapVisible(true);
@@ -1083,7 +1085,7 @@ function bindLiveMapControls() {
         }
       }
       if (!navigator.geolocation) {
-        alert('Geolocation is not available in this browser.');
+        GSRNotices.warn('Geolocation is not available in this browser.');
         return;
       }
       navigator.geolocation.getCurrentPosition(
@@ -1095,7 +1097,7 @@ function bindLiveMapControls() {
           );
         },
         (err) => {
-          alert(`Could not get your location: ${err.message}`);
+          GSRNotices.report(`Could not get your location: ${err.message}`);
         },
         { enableHighAccuracy: true, timeout: 10000 },
       );

@@ -768,14 +768,14 @@ test('calculatePearsonCorrelation: large autocorrelation-free sample returns a f
 test('calculateStats: returns documented defaults on empty/null input', () => {
   assert.deepStrictEqual(StatsMath.calculateStats([]), {
     mean: 0,
-    std: 1,
+    std: 0,
     variance: 0,
     min: 0,
     max: 0,
   });
   assert.deepStrictEqual(StatsMath.calculateStats(null), {
     mean: 0,
-    std: 1,
+    std: 0,
     variance: 0,
     min: 0,
     max: 0,
@@ -791,10 +791,15 @@ test('calculateStats: calculates mean, std, variance, min, max correctly', () =>
   assert.strictEqual(stats.max, 9);
 });
 
-test('calculateStats: single-value array prevents divide-by-zero by returning std=1', () => {
+test('calculateStats: single-value array returns std=0 (honest zero variance); call-sites guard', () => {
+  // calculateStats() now returns the mathematically correct std=0 for a
+  // constant/single-value signal. Division-by-zero protection has been moved
+  // to the actual call-sites (standardizeSignal, computeCombinedArousalIndex)
+  // via `|| 1` guards, so they can apply the fallback only where semantically
+  // appropriate without hiding the real value from callers that need it.
   const stats = StatsMath.calculateStats([10]);
   assert.strictEqual(stats.mean, 10);
-  assert.strictEqual(stats.std, 1);
+  assert.strictEqual(stats.std, 0);
   assert.strictEqual(stats.variance, 0);
   assert.strictEqual(stats.min, 10);
   assert.strictEqual(stats.max, 10);

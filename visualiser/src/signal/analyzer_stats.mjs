@@ -254,6 +254,7 @@ export const AnalyzerStats = {
       aSumSq += av * av;
     }
     const tMean = tSum / n;
+    // Guard: || 1 prevents division-by-zero if tonic/auc is perfectly constant.
     const tStd = Math.sqrt(Math.max(0, tSumSq / n - tMean * tMean)) || 1;
     const aMean = aSum / n;
     const aStd = Math.sqrt(Math.max(0, aSumSq / n - aMean * aMean)) || 1;

@@ -47,6 +47,7 @@ const APP_DIR = path.join(__dirname, '..', '..');
 // boot_app.js makes for index.html's CDN libs). Kept in sync with it by
 // tests/test_html_wiring.js.
 const LIVE_SCRIPT_ORDER = [
+  'src/core/notices.mjs',
   'src/core/constants.mjs',
   'src/signal/gsr_filter.mjs',
   'src/signal/deconvolution.mjs',

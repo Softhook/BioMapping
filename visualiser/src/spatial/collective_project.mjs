@@ -144,7 +144,7 @@ export const GSRCollectiveProject = {
 
   async exportProject() {
     if (typeof JSZip === 'undefined') {
-      alert(
+      GSRNotices.report(
         'Zip support failed to load (check your internet connection) — cannot export a project bundle right now.',
       );
       return;
@@ -152,7 +152,7 @@ export const GSRCollectiveProject = {
 
     const tracks = AppState.collectiveManager.tracks;
     if (tracks.length === 0) {
-      alert('No tracks loaded to export.');
+      GSRNotices.warn('No tracks loaded to export.');
       return;
     }
 
@@ -224,7 +224,7 @@ export const GSRCollectiveProject = {
       }
     } catch (err) {
       console.error('Project export failed:', err);
-      alert(`Error exporting project: ${err.message}`);
+      GSRNotices.report(`Error exporting project: ${err.message}`);
     } finally {
       if (btn) {
         btn.innerHTML = originalHtml;
@@ -235,7 +235,7 @@ export const GSRCollectiveProject = {
 
   async importProject(file) {
     if (typeof JSZip === 'undefined') {
-      alert(
+      GSRNotices.report(
         'Zip support failed to load (check your internet connection) — cannot import a project bundle right now.',
       );
       return;
@@ -333,7 +333,7 @@ export const GSRCollectiveProject = {
       }
 
       if (failedTracks.length > 0) {
-        alert(
+        GSRNotices.warn(
           `Imported with ${failedTracks.length} track(s) skipped (could not be read):\n` +
             failedTracks.join('\n'),
         );
@@ -419,7 +419,7 @@ export const GSRCollectiveProject = {
       }
     } catch (err) {
       console.error('Project import failed:', err);
-      alert(`Error importing project: ${err.message}`);
+      GSRNotices.report(`Error importing project: ${err.message}`);
 
       if (clearedExisting) {
         // The old track list is already gone from AppState — make sure the

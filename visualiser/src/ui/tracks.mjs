@@ -13,7 +13,7 @@ import { GSRGlobe3DView } from '../map/globe3d_view.mjs';
 import { GSRRenderer } from '../render/renderer.mjs';
 import { windowResized } from '../render/sketch.mjs';
 import { GSRAnalyzer } from '../signal/analyzer.mjs';
-import { GSRStorage } from './storage.mjs';
+import { GSRStorage, normalizeDetectorCheckboxes } from './storage.mjs';
 import { GSRTrackQualityPopup } from './track_quality_popup.mjs';
 
 export const GSRTrackManager = {
@@ -204,13 +204,13 @@ export const GSRTrackManager = {
           index++;
           loadNext();
         } catch (err) {
-          alert(`Error parsing "${file.name}": ${err.message}`);
+          GSRNotices.report(`Error parsing "${file.name}": ${err.message}`);
           index++;
           loadNext();
         }
       };
       reader.onerror = () => {
-        alert(`Could not read "${file.name}".`);
+        GSRNotices.report(`Could not read "${file.name}".`);
         index++;
         loadNext();
       };
@@ -599,17 +599,7 @@ export const GSRTrackManager = {
     if (S.useCvxEDA) {
       S.useCvxEDA.checked = !!params.useCvxEDA;
     }
-    // Mutually exclusive detectors — prominence > cvxEDA > sparsEDA > deconvolution.
-    if (S.usePeakProminence?.checked) {
-      if (S.useDeconvolution) S.useDeconvolution.checked = false;
-      if (S.useSparsEDA) S.useSparsEDA.checked = false;
-      if (S.useCvxEDA) S.useCvxEDA.checked = false;
-    } else if (S.useCvxEDA?.checked) {
-      if (S.useDeconvolution) S.useDeconvolution.checked = false;
-      if (S.useSparsEDA) S.useSparsEDA.checked = false;
-    } else if (S.useSparsEDA?.checked) {
-      if (S.useDeconvolution) S.useDeconvolution.checked = false;
-    }
+    normalizeDetectorCheckboxes(S);
   },
 
   saveActiveTrackParams() {
@@ -752,11 +742,11 @@ export const GSRTrackManager = {
           // isn't 'single' — no separate calls needed here (see loadFilesSequentially above).
           GSRTrackManager.switchActiveTrack(trackId);
         } catch (err) {
-          alert(`Error parsing demo data: ${err.message}`);
+          GSRNotices.report(`Error parsing demo data: ${err.message}`);
         }
       })
       .catch((err) => {
-        alert(`Error loading demo data: ${err.message}`);
+        GSRNotices.report(`Error loading demo data: ${err.message}`);
       });
   },
 };

@@ -40,6 +40,17 @@ const {
 } = require('../src/core/file_saver.mjs');
 const { GSRNotices: RealGSRNotices } = require('../src/core/notices.mjs');
 
+// Patch GSRNotices so calls to .report()/.warn() in the production code
+// reach the per-test global.alert spy. Each test that checks for a notification
+// already overrides global.alert before calling the code under test.
+RealGSRNotices.report = (err) => {
+  const msg = err?.message ? err.message : String(err);
+  if (typeof global.alert === 'function') global.alert(msg);
+};
+RealGSRNotices.warn = (msg) => {
+  if (typeof global.alert === 'function') global.alert(msg);
+};
+
 function setSingletonShape(target, shape) {
   for (const k of Object.keys(target)) delete target[k];
   return Object.assign(target, shape);

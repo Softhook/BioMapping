@@ -11,6 +11,7 @@ import { AppState } from '../core/app_state.mjs';
 import { BusyOverlay } from '../core/busy_overlay.mjs';
 import { GSR_CONST } from '../core/constants.mjs';
 import { Controllers } from '../core/controllers.mjs';
+import { GSRNotices } from '../core/notices.mjs';
 import { GSRStorage } from './storage.mjs';
 import { GSRTrackManager } from './tracks.mjs';
 
@@ -47,7 +48,7 @@ export const PresetEvents = {
       btnApplyActiveToAll.addEventListener('click', () => {
         const tracks = AppState.collectiveManager.tracks;
         if (!tracks || tracks.length === 0) {
-          alert('No tracks loaded to apply preset to.');
+          GSRNotices.report('No tracks loaded to apply preset to.');
           return;
         }
 

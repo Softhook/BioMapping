@@ -8,6 +8,7 @@
  */
 import { AppState } from '../core/app_state.mjs';
 import { GSRFileSaver } from '../core/file_saver.mjs';
+import { GSRNotices } from '../core/notices.mjs';
 import { GSRGlobe3DView } from '../map/globe3d_view.mjs';
 import { GSRMapExporter } from '../map/map_exporter.mjs';
 import { GSRStorage } from './storage.mjs';
@@ -150,7 +151,7 @@ export const ExportUI = {
       }
     } catch (err) {
       console.error('Error generating map PNG:', err);
-      alert('Could not export map PNG.');
+      GSRNotices.report('Could not export map PNG.');
     } finally {
       if (btn) {
         btn.innerHTML = originalText;
