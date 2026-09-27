@@ -136,52 +136,6 @@ test('buildQuery: ends with the standard "out body; >; out skel qt;" recursion i
   assert.ok(q.trim().endsWith('out body;\n>;\nout skel qt;'));
 });
 
-// ── _backoffMs() ─────────────────────────────────────────────────────────
-
-test('_backoffMs: grows exponentially with attempt number (within jitter bounds)', () => {
-  const base = 1000;
-  for (let attempt = 0; attempt < 5; attempt++) {
-    const val = OverpassClient._backoffMs(attempt, base);
-    const nominal = base * 2 ** attempt;
-    assert.ok(
-      val >= nominal * 0.75 - 1 && val <= nominal * 1.25 + 1,
-      `attempt ${attempt}: ${val} should be within +-25% of ${nominal}`,
-    );
-  }
-});
-
-test('_backoffMs: returns an integer (Math.round applied)', () => {
-  const val = OverpassClient._backoffMs(2, 777);
-  assert.strictEqual(val, Math.round(val));
-});
-
-// ── _retryAfterMs() ──────────────────────────────────────────────────────
-
-test('_retryAfterMs: uses the fallback when there is no Retry-After header', () => {
-  const response = { headers: { get: () => null } };
-  assert.strictEqual(OverpassClient._retryAfterMs(response, 12345), 12345);
-});
-
-test('_retryAfterMs: parses a numeric Retry-After header into milliseconds', () => {
-  const response = { headers: { get: () => '30' } };
-  assert.strictEqual(OverpassClient._retryAfterMs(response, 999), 30000);
-});
-
-test('_retryAfterMs: falls back when Retry-After is non-numeric or non-positive', () => {
-  assert.strictEqual(
-    OverpassClient._retryAfterMs({ headers: { get: () => 'never' } }, 5000),
-    5000,
-  );
-  assert.strictEqual(
-    OverpassClient._retryAfterMs({ headers: { get: () => '0' } }, 5000),
-    5000,
-  );
-  assert.strictEqual(
-    OverpassClient._retryAfterMs({ headers: { get: () => '-5' } }, 5000),
-    5000,
-  );
-});
-
 // ── _enforceRateLimit() ──────────────────────────────────────────────────
 
 test('_enforceRateLimit: resolves immediately when there is no cooldown set', async () => {

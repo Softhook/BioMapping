@@ -2,6 +2,9 @@
  * Overpass API Client for Bio Mapping.
  * Handles rate limits, backoffs, retries, mirror fallback, and network queries.
  */
+
+import { backoffMs, retryAfterMs } from './http_retry.mjs';
+
 export const OverpassClient = {
   // Tried in order. Only a connection-level failure (the host itself
   // unreachable — DNS/TCP/CORS, surfaced by fetch() as a thrown TypeError,
@@ -104,20 +107,6 @@ out skel qt;`;
     }
   },
 
-  _backoffMs(attempt, baseMs) {
-    const linear = baseMs * 2 ** attempt;
-    const jitter = 1 + (Math.random() - 0.5) * 0.5; // 0.75 – 1.25
-    return Math.round(linear * jitter);
-  },
-
-  _retryAfterMs(response, fallbackMs) {
-    const val = response.headers.get('Retry-After');
-    if (!val) return fallbackMs;
-    const sec = parseFloat(val);
-    if (!isNaN(sec) && sec > 0) return Math.round(sec * 1000);
-    return fallbackMs;
-  },
-
   /**
    * Determine if an error is a permanent query/client error that should fail fast
    * without trying other mirrors (e.g. malformed query syntax, body too large).
@@ -210,18 +199,18 @@ out skel qt;`;
         }
 
         if (response.status === 429 || response.status === 509) {
-          const retryAfterMs = OverpassClient._retryAfterMs(response, 30000);
+          const cooldownMs = retryAfterMs(response, 30000);
           OverpassClient._endpointCooldowns.set(
             endpoint,
-            Date.now() + retryAfterMs,
+            Date.now() + cooldownMs,
           );
 
           if (attempt < maxRetries) {
             const msg =
               `Overpass API rate-limited (HTTP ${response.status}). ` +
-              `Waiting ${Math.ceil(retryAfterMs / 1000)}s… (attempt ${attempt + 1}/${maxRetries})`;
+              `Waiting ${Math.ceil(cooldownMs / 1000)}s… (attempt ${attempt + 1}/${maxRetries})`;
             if (onProgress) onProgress(msg);
-            await new Promise((r) => setTimeout(r, retryAfterMs));
+            await new Promise((r) => setTimeout(r, cooldownMs));
             continue;
           }
 
@@ -234,7 +223,7 @@ out skel qt;`;
 
         if (response.status === 504) {
           if (attempt < maxRetries) {
-            const waitMs = OverpassClient._backoffMs(attempt, 5000);
+            const waitMs = backoffMs(attempt, 5000);
             if (onProgress) {
               onProgress(
                 `Overpass API timed out (504). Retrying in ${Math.ceil(waitMs / 1000)}s… ` +
@@ -253,7 +242,7 @@ out skel qt;`;
 
         if (response.status === 502 || response.status === 503) {
           if (attempt < maxRetries) {
-            const waitMs = OverpassClient._backoffMs(attempt, 2000);
+            const waitMs = backoffMs(attempt, 2000);
             if (onProgress) {
               onProgress(
                 `Overpass API unavailable (HTTP ${response.status}). Retrying in ${Math.ceil(waitMs / 1000)}s… ` +
@@ -279,7 +268,7 @@ out skel qt;`;
         throw new Error(hint);
       } catch (err) {
         if (err.name === 'AbortError' && attempt < maxRetries) {
-          const waitMs = OverpassClient._backoffMs(attempt, 5000);
+          const waitMs = backoffMs(attempt, 5000);
           if (onProgress) {
             onProgress(
               `Request timed out. Retrying in ${Math.ceil(waitMs / 1000)}s… ` +

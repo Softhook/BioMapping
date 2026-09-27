@@ -824,35 +824,6 @@ test('_stepHoldValues: cleanly propagates values across non-GPS rows', () => {
 // 15. Network Resilience & Exponential Backoff
 // ---------------------------------------------------------------------------
 
-test('_backoffMs: computes exponential backoff with jitter within expected bounds', () => {
-  for (let attempt = 0; attempt < 4; attempt++) {
-    const baseMs = 500;
-    const linear = baseMs * 2 ** attempt;
-    const minBound = Math.floor(linear * 0.75);
-    const maxBound = Math.ceil(linear * 1.25);
-
-    for (let sample = 0; sample < 10; sample++) {
-      const wait = NDVISampler._backoffMs(attempt, baseMs);
-      assert.ok(
-        wait >= minBound && wait <= maxBound,
-        `attempt ${attempt} delay ${wait}ms should be between ${minBound} and ${maxBound}`,
-      );
-    }
-  }
-});
-
-test('_retryAfterMs: parses Retry-After header in seconds or uses fallback', () => {
-  const respWithSec = {
-    headers: { get: (h) => (h === 'Retry-After' ? '12' : null) },
-  };
-  assert.strictEqual(NDVISampler._retryAfterMs(respWithSec, 3000), 12000);
-
-  const respNoHeader = { headers: { get: () => null } };
-  assert.strictEqual(NDVISampler._retryAfterMs(respNoHeader, 4500), 4500);
-
-  assert.strictEqual(NDVISampler._retryAfterMs(null, 5000), 5000);
-});
-
 test('_fetchRawTileWithBackoff: respects 429 rate limit and retries with backoff, then stops on 404', async () => {
   const origFetch = global.fetch;
   let fetchAttempts = 0;

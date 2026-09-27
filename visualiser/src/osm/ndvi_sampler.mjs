@@ -45,6 +45,7 @@
 
 import { SafeStorage } from '../core/safe_storage.mjs';
 import { GeoUtils } from '../gps/geo_utils.mjs';
+import { backoffMs, retryAfterMs } from './http_retry.mjs';
 import { OSMEnricher } from './osm_enrichment.mjs';
 import { decodeFloat32Tiff, hasTiffByteOrderMarker } from './tiff_decoder.mjs';
 
@@ -521,34 +522,6 @@ export const NDVISampler = {
   _providerRateLimits: new Map(),
 
   /**
-   * Compute exponential backoff with random jitter (mirroring OverpassClient._backoffMs).
-   * @param {number} attempt - Zero-based attempt count
-   * @param {number} [baseMs=500] - Base delay in ms
-   * @returns {number} Backoff time in ms
-   */
-  _backoffMs(attempt, baseMs = 500) {
-    const linear = baseMs * 2 ** attempt;
-    const jitter = 0.75 + Math.random() * 0.5; // 0.75 – 1.25 jitter
-    return Math.round(linear * jitter);
-  },
-
-  /**
-   * Parse Retry-After header if present, or return fallback.
-   * @param {Response} response
-   * @param {number} fallbackMs
-   * @returns {number}
-   */
-  _retryAfterMs(response, fallbackMs = 5000) {
-    if (!response?.headers || typeof response.headers.get !== 'function')
-      return fallbackMs;
-    const val = response.headers.get('Retry-After');
-    if (!val) return fallbackMs;
-    const sec = parseFloat(val);
-    if (!isNaN(sec) && sec > 0) return Math.round(sec * 1000);
-    return fallbackMs;
-  },
-
-  /**
    * Enforce rate limit cooldown for a provider before firing requests.
    * @param {string} providerId
    */
@@ -596,7 +569,7 @@ export const NDVISampler = {
         }
       } catch (networkErr) {
         if (attempt < maxRetries) {
-          const waitMs = this._backoffMs(attempt, 400);
+          const waitMs = backoffMs(attempt, 400);
           onRetry(attempt + 1, waitMs, networkErr.message || 'Network error');
           await new Promise((r) => setTimeout(r, waitMs));
           continue;
@@ -612,7 +585,7 @@ export const NDVISampler = {
       }
 
       if (response.status === 429 || response.status === 509) {
-        const retryAfter = this._retryAfterMs(response, 5000 * 2 ** attempt);
+        const retryAfter = retryAfterMs(response, 5000 * 2 ** attempt);
         this._providerRateLimits.set(providerId, Date.now() + retryAfter);
         if (attempt < maxRetries) {
           onRetry(
@@ -628,7 +601,7 @@ export const NDVISampler = {
 
       if (response.status >= 500) {
         if (attempt < maxRetries) {
-          const waitMs = this._backoffMs(attempt, 500);
+          const waitMs = backoffMs(attempt, 500);
           onRetry(
             attempt + 1,
             waitMs,
@@ -797,49 +770,14 @@ export const NDVISampler = {
 
   /**
    * Compute a buffered geographical bounding box for an array of points.
-   * Unifies bounding box calculation across OSM and NDVI pipelines.
+   * Same box as OSMEnricher.calculateBBox, so OSM and NDVI fetch the same area.
    *
    * @param {Array<Object>} rawPoints - Points array ({lat, lon})
    * @param {number} [bufferMeters=100] - Padding in meters
    * @returns {{ minLat: number, maxLat: number, minLon: number, maxLon: number }|null}
    */
   calculateBBox(rawPoints, bufferMeters = 100) {
-    if (!rawPoints || rawPoints.length === 0) return null;
-    if (typeof OSMEnricher.calculateBBox === 'function') {
-      const osmBbox = OSMEnricher.calculateBBox(rawPoints, bufferMeters);
-      if (osmBbox) return osmBbox;
-    }
-    const rawBounds = GeoUtils.computeBounds(rawPoints, 0, (pt) =>
-      this._isValidCoord(pt.lat, pt.lon),
-    );
-    if (rawBounds) {
-      return GeoUtils.expandBounds(rawBounds, bufferMeters);
-    }
-    // Standalone fallback
-    let minLat = 90,
-      maxLat = -90,
-      minLon = 180,
-      maxLon = -180,
-      count = 0;
-    for (let i = 0; i < rawPoints.length; i++) {
-      const p = rawPoints[i];
-      if (p && this._isValidCoord(p.lat, p.lon)) {
-        count++;
-        if (p.lat < minLat) minLat = p.lat;
-        if (p.lat > maxLat) maxLat = p.lat;
-        if (p.lon < minLon) minLon = p.lon;
-        if (p.lon > maxLon) maxLon = p.lon;
-      }
-    }
-    if (count === 0) return null;
-    const latBuf = bufferMeters / 111320;
-    const lonBuf = bufferMeters / (111320 * Math.cos((minLat * Math.PI) / 180));
-    return {
-      minLat: minLat - latBuf,
-      maxLat: maxLat + latBuf,
-      minLon: minLon - lonBuf,
-      maxLon: maxLon + lonBuf,
-    };
+    return OSMEnricher.calculateBBox(rawPoints, bufferMeters);
   },
 
   /**
