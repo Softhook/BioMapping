@@ -1,119 +1,105 @@
-# BioMapping Codebase — Refactoring Roadmap
+# Visualiser Refactoring — To-Do List
 
-> **Scope**: All ~55,000 lines of source code across `visualiser/src/`  
-> **Date**: 2026-09-27  
-> **Method**: Parallel deep static analysis across all 5 subsystems
+Started from an outside audit on 2026-09-27. Every item below was checked
+against the code before being kept; audit items that were wrong, already done,
+or not worth the risk have been removed.
 
----
-
-## Five Root-Cause Anti-Patterns
-
-Every maintainability, performance, and testability issue traces back to one of these:
-
-1. **God Objects** — files of 1,000–2,300 lines doing 5–8 unrelated things
-2. **Trampoline Inheritance** — artificial 10–13-class inheritance chains masquerading as modularity
-3. **Object-Spread Mega-Objects** — `GSRUI`, `GSREvents`, and `GSRRenderer` flatten many modules into one namespace with hidden `this` coupling
-4. **DOM as State Store** — `<input>` elements are the primary database for settings; no clean settings model
-5. **Logic Duplication** — the same math (Haversine, bbox, backoff, detector mutex, hotspot percentile) is re-implemented in 3–6 places
+All work so far is on branch **`refactor-phase1`** (not yet merged to `main`).
 
 ---
 
-## Phase 1 — Zero-Risk Hygiene ✅
+## How to verify each item
 
-> Safe, surgical fixes with near-zero regression risk. No behaviour changes.
+Tests passing is not enough on its own. For anything that touches analysis
+output:
 
-| # | Change | File(s) | Status |
-|---|---|---|---|
-| 1 | Fix `spectral_eda.mjs` FFT buffer overflow — dynamic `nfft = nextPowerOfTwo(nperseg)` | `signal/spectral_eda.mjs` | ✅ Done |
-| 2 | Fix `em_fog.mjs` division-by-zero when `floor === SATURATION_CEILING_DBM` | `signal/em_fog.mjs` | ✅ Done |
-| 3 | Fix `calculateStats` — return honest `std: 0`; guard z-score call-sites | `signal/stats_math.mjs`, `signal/gsr_filter.mjs`, `signal/analyzer_stats.mjs` | ✅ Done |
-| 4 | Consolidate `SUB_GHZ_BANDS` — export from `em_fog.mjs`, import everywhere | `signal/em_fog.mjs`, `signal/csv_parser.mjs`, `signal/analyzer_export.mjs` | ✅ Done |
-| 5 | Remove duplicated `fmtMaxSpeed` from `events.mjs` (canonical version in `events_slider_defs.mjs`) | `ui/events.mjs`, `ui/events_slider_defs.mjs` | ✅ Done |
-| 6 | Centralize detector precedence into `normalizeDetectorCheckboxes()` (UI layer, exported from `storage.mjs`). `events_gsr_analysis.mjs` keeps its own last-clicked-wins rule on purpose | `ui/storage.mjs`, `ui/tracks.mjs` | ✅ Done |
-| 7 | Replace all `alert()` calls with `GSRNotices.report()` / `.warn()` (success messages use an info `dialog()`) | 11 files | ✅ Done |
-| 8 | Fix sticky-failure `OsmCache` DB promise — clear on rejection so retries work | `osm/osm_cache.mjs` | ✅ Done |
-| 9 | Hoist `lowerGridPresets` outside `draw()` in `sketch.mjs` — stop 60fps allocation | `render/sketch.mjs` | ✅ Done |
+1. Run `npm test` in `visualiser/` (1653 tests, 0 failures at last run).
+2. Run the old code (a `git worktree` of the previous commit) and the new code
+   over every recording in `tracks/` (73 files), dump the outputs to JSON and
+   check they are byte-identical.
+3. Break the changed code on purpose and confirm step 2 notices. RSSI values
+   come in 0.5 dB steps, so an RF threshold change smaller than 0.5 dB won't
+   show up.
 
----
+For anything that changes drawing (plots, maps), take before/after screenshots
+in a real browser (Playwright) and compare them.
 
-## Phase 2 — Boundary Enforcement
-
-> Extract domain logic that has leaked into the wrong layer. Medium risk, guided by tests.
-
-| # | Change | File(s) | Status |
-|---|---|---|---|
-| 10 | Move `_haversineMeters` from `analyzer.mjs` → use `GeoUtils.haversineMeters` | `signal/analyzer.mjs` | ✅ Done |
-| 11 | Move `_interpolateGPS` from `csv_parser.mjs` → `gps_pipeline.mjs` | `signal/csv_parser.mjs`, `gps/gps_pipeline.mjs` | Investigate — the parser's linear gap-fill and the pipeline's Hermite rebuild overlap; A/B test before moving |
-| 12 | Move `_detectRfPeakIndices` from `csv_parser.mjs` → separate RF pipeline | `signal/csv_parser.mjs` | ✅ Done — now `signal/rf_peaks.mjs` |
-| 13 | Move `getHeadingAtPeak` from `map_popups.mjs` → `GeoUtils` | `map/map_popups.mjs`, `gps/geo_utils.mjs` | Skipped — already uses `GeoUtils.bearingDeg`; the rest reads analyzer data |
-| 14 | Move `resolveLatencyIndex` from `map_markers.mjs` → `GSRAnalyzer` or `GpsTiming` | `map/map_markers.mjs` | ✅ Done — analyzer method used directly; fallback copies removed |
-| 15 | Move `_buildOverlapCells` from `map_base.mjs` → `path_overlap_pooler.mjs` | `map/map_base.mjs` | Optional — cosmetic move |
-| 16 | Move `_buildDisplayCache` from `analyzer.mjs` → UI view-model adapter | `signal/analyzer.mjs` | Skipped — analyzer computing ranges of its own series |
-| 17 | Move OSM building fetch from `globe3d_view.mjs` → `OSMEnricher` / `OsmBuildingService` | `map/globe3d_view.mjs`, `osm/osm_enrichment.mjs` | Skipped — claim wrong: no HTTP in `globe3d_view.mjs`, it goes through `OsmCache` |
-| 18 | Move `_showRestoreFsPill` from `tracks.mjs` → `core/fullscreen.mjs` | `ui/tracks.mjs`, `core/fullscreen.mjs` | Optional — cosmetic move |
-| 19 | Remove DOM manipulation and `click()` simulation from `collective_project.mjs` | `spatial/collective_project.mjs` | Skipped — clicking the view button reuses the tested mode-switch path |
-| 20 | Eliminate per-point `.bind()` in `osm_enrichment._evaluatePosition` | `osm/osm_enrichment.mjs` | Skipped — no measurable cost |
+Do one item at a time, one commit each.
 
 ---
 
-## Phase 3 — Decompose God Objects
+## Done
 
-> Break up the largest monoliths into single-responsibility units. High impact, requires care.
-
-| # | Change | Files |
-|---|---|---|
-| 21 | Extract `HotspotCurator` from `GSRAnalyzer` — geo math + memorable event selection | `signal/analyzer.mjs` |
-| 22 | Extract `SeriesBufferPool` from `GSRAnalyzer` — all 14 cache/pool fields + invalidation | `signal/analyzer.mjs` |
-| 23 | Extract `AnalysisPipelineOrchestrator` — coordinate the 5-stage pipeline cleanly | `signal/analyzer.mjs` |
-| 24 | Extract `CsvMetadataParser` and `GpsInterpolator` from `csv_parser.mjs` | `signal/csv_parser.mjs` |
-| 25 | Extract `NnLasso` solver from `deconvolution.mjs` into `signal/math/nn_lasso.mjs` | `signal/deconvolution.mjs` |
-| 26 | Extract `TiffDecoder` from `ndvi_sampler.mjs` (116 lines, fully self-contained) | `osm/ndvi_sampler.mjs` |
-| 27 | Extract `NdviTileClient`, merge Mercator math into `GeoUtils`, share `HttpRetryClient` | `osm/ndvi_sampler.mjs`, `osm/overpass_client.mjs` |
-| 28 | Extract `GpsMapMatcher` and `OsmGeometryReconstructor` from `osm_enrichment.mjs` | `osm/osm_enrichment.mjs` |
-| 29 | Extract `LiveBleService`, `LiveSignalProcessor`, `LiveSession` from `live_view.mjs` | `live/live_view.mjs` |
-| 30 | Split `tracks.mjs` → `track_manager.mjs`, `track_loader.mjs`, `ui_track_list.mjs` | `ui/tracks.mjs` |
-| 31 | Decompose `sketch.draw()` into `_computeLayout()`, `_resolveValueRanges()`, `_drawAxes()`, `_drawCurves()`, `_drawMarkers()` | `render/sketch.mjs` |
-| 32 | Split `rf_fluid_renderer.mjs` → `RFRaycastSimulator` + SVG exporter adapter | `render/rf_fluid_renderer.mjs` |
+- **Phase 1 hygiene** (`75f7ba8`, `2503ebf`): FFT size, EM-fog guard, honest
+  `std` in `calculateStats`, shared `SUB_GHZ_BANDS`, shared detector-precedence
+  helper, all `alert()` → `GSRNotices`, OSM cache retry, grid presets out of
+  `draw()`, duplicate `fmtMaxSpeed` removed.
+- **Phase 2** (`19b1b4d`): RF spike detection moved to `signal/rf_peaks.mjs`;
+  analyzer uses `GeoUtils.haversineMeters`; every caller uses
+  `GSRAnalyzer.resolveLatencyIndex` directly (fallback copies removed).
+  Verified byte-identical on all 73 tracks.
 
 ---
 
-## Phase 4 — Structural Modernization
+## To do (in suggested order)
 
-> Hardest changes — requires agreed design patterns before implementation.
+### 1. Merge `refactor-phase1` into `main`
+Before merging, check the "Map area ready offline" popup on the live page in a
+real browser (the only new message not yet seen on screen).
 
-| # | Change | Files |
-|---|---|---|
-| 33 | Dismantle 13-tier 2D map inheritance chain → composite `GSRMapManager` with typed service delegates | `map/map*.mjs`, `map/manager/*.mjs` |
-| 34 | Dismantle 10-tier 3D globe inheritance chain → `CesiumViewportManager`, `WallGeometryBuilder`, `CesiumRenderScheduler`, `CesiumScrubController` | `map/globe3d/*.mjs` |
-| 35 | Replace spread aggregators (`GSRUI`, `GSREvents`, `GSRRenderer`) with explicit namespaced composition — eliminate `window.GSRUI` and inline `onclick=` HTML | `ui/ui.mjs`, `ui/events.mjs`, `render/renderer.mjs` |
-| 36 | Introduce `SettingsState` — clean plain-object model; DOM inputs reflect state rather than being the state | `ui/storage.mjs`, `core/app_state.mjs` |
-| 37 | Consolidate IIR filter infrastructure — unify `gsr_filter.mjs` biquad with `spectral_eda.mjs` SOS engine | `signal/gsr_filter.mjs`, `signal/spectral_eda.mjs` |
-| 38 | Event-driven analysis pipeline — emit `AppState.emit('analysisCompleted')`, retire the 8-call imperative update cascade | `ui/ui.mjs`, `core/app_state.mjs` |
+### 2. Pull the TIFF decoder out of `ndvi_sampler.mjs`
+`osm/ndvi_sampler.mjs` lines ~427–627 (`_readTiffValue`, `_inflate`,
+`parseFloat32Tiff`) are a hand-written FLOAT32 TIFF reader. Move it to its own
+file (e.g. `osm/tiff_decoder.mjs`) with its own tests. Keep the Copernicus
+error-reply detection at the start of `parseFloat32Tiff` in the NDVI sampler —
+that part is service-specific, not TIFF. Self-contained, low risk.
+
+### 3. Small NDVI tidy-up
+- `NDVISampler.calculateBBox` has two fallback paths that can never run
+  (`OSMEnricher.calculateBBox` always exists) — reduce it to a one-line
+  delegate.
+- `_backoffMs` / `_retryAfterMs` are copied in `ndvi_sampler.mjs` and
+  `overpass_client.mjs` — share one copy.
+
+### 4. Split metadata parsing out of `GSRCSVParser.parse()`
+`parse()` in `signal/csv_parser.mjs` is ~760 lines. The `#` header-line
+handling (RecordingStartTime, FilterParams, band floors, device lines…) is
+pure text processing and can become its own function. Verify byte-identical
+parse output over all 73 tracks.
+
+### 5. Pull the NN-LASSO solver out of `deconvolution.mjs`
+The linear-algebra helpers (`_norm2`, `_dot`, `_solveUpperTriangular`,
+`_updateChol`, `_cholDelete`) and `_runReferenceLasso` are a general solver
+inside the deconvolution model. Move them to their own file. Verify
+byte-identical output, and run `check_ground_truth.sh` before and after.
+
+### 6. Break up `draw()` in `render/sketch.mjs`
+~590 lines in one function. Split into steps (layout, value ranges, axes,
+curves, markers). Verify with before/after screenshots of every graph view
+(signal, tonic, phasic, peak density, AUC, arousal index, driver).
+
+### 7. Split `ui/tracks.mjs`
+~755 lines mixing file loading and the sidebar track list. Separate the file
+loading (CSV/zip/demo) from the list rendering. Lower value than items 2–6.
+
+### 8. Investigate: GPS gaps are filled twice
+`GSRCSVParser._interpolateGPS` draws straight lines between fixes for every raw
+row; later `GpsPipeline` rebuilds the filtered path with Hermite curves. Find
+out whether the parser's version is still needed. **A/B test on real tracks
+before changing anything** — this is an investigation, not a move.
+
+### Optional (cosmetic moves, only if touching the file anyway)
+- Move the path-overlap code (`_buildOverlapCells` and friends, ~200 lines of
+  pure maths) out of `map/map_base.mjs` into its own file.
+- Move `_showRestoreFsPill` from `ui/tracks.mjs` into `core/fullscreen.mjs`.
 
 ---
 
-## Quick-Win Cheat Sheet
+## Small follow-ups
 
-| Change | File | Effort | Risk |
-|---|---|---|---|
-| Fix `nfft` overflow | `spectral_eda.mjs` | 1 line | 🟢 None |
-| Fix `em_fog` div/0 | `em_fog.mjs` | 1 line | 🟢 None |
-| Hoist `lowerGridPresets` | `sketch.mjs` | 1 move | 🟢 None |
-| Remove `alert()` → `GSRNotices` | 9 files | ~25 lines | 🟢 None |
-| Delete duplicate `fmtMaxSpeed` | `events.mjs` | 4 lines delete | 🟢 None |
-| Fix `_dbPromise` sticky failure | `osm_cache.mjs` | 2 lines | 🟢 None |
-| Fix `calculateStats std:1` | `stats_math.mjs` | 1 line + guards | 🟡 Low |
-| Centralize `SUB_GHZ_BANDS` | 3 files | ~30 lines | 🟡 Low |
-| Centralize detector mutex | 3 files → 1 fn | ~60 lines | 🟡 Low |
-| Extract `TiffDecoder` | `ndvi_sampler.mjs` | Move 116 lines | 🟡 Low |
-
----
-
-## What's Already Good
-
-- **Algorithm correctness**: DSP implementations (cvxEDA, SparsEDA, Linkwitz-Riley, Posada-Quintero EDASymp, Benedek & Kaernbach deconvolution) are state-of-the-art and well-referenced.
-- **Comment quality**: Most modules document *why*, not just *what*.
-- **Module extraction trend**: `analyzer_stats.mjs`, `analyzer_export.mjs`, `renderer_bands.mjs`, `events_gsr_analysis.mjs` show the right direction. The spread-aggregator is an intermediate step.
-- **`AppState` events stub**: `on()`/`emit()` in `app_state.mjs` is the foundation for Phase 4's event-driven pipeline.
-- **Test coverage**: ~100 test files provide a regression harness for refactoring.
-- **`GSR_CONST`**: Centralised constants file in place — magic numbers just need to migrate into it.
+- **Decide:** error toasts auto-dismiss after 8 s, where `alert()` made you
+  click OK. Should red errors stay until clicked (warnings still fade)?
+- `live/live_map.mjs` still uses a blocking `confirm()` (line ~246); could
+  become a `GSRNotices.dialog()`.
+- `ui/ui_peaks_table.mjs:352` has a pre-existing lint warning
+  (`useTemplate`).
