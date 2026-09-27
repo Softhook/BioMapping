@@ -170,3 +170,8 @@ test('parse() reports none for a pre-integrity CSV', () => {
   const res = GSRCSVParser.parse(plain);
   assert.strictEqual(res.integrity.status, 'none');
 });
+
+test('parse() reports incomplete when the marker is present but the trailer is missing', () => {
+  const res = GSRCSVParser.parse(REGION);
+  assert.strictEqual(res.integrity.status, 'incomplete');
+});

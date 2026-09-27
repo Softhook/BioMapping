@@ -13,7 +13,7 @@ All work so far is on branch **`refactor-phase1`** (not yet merged to `main`).
 Tests passing is not enough on its own. For anything that touches analysis
 output:
 
-1. Run `npm test` in `visualiser/` (1661 tests, 0 failures at last run).
+1. Run `npm test` in `visualiser/` (1668 tests, 0 failures at last run).
 2. Run the old code (a `git worktree` of the previous commit) and the new code
    over every recording in `tracks/` (73 files), dump the outputs to JSON and
    check they are byte-identical.
@@ -49,6 +49,11 @@ Do one item at a time, one commit each.
   so they could never find a point it had rejected). The two backoff /
   Retry-After copies are now one file, `osm/http_retry.mjs`, with its own
   tests (`test_http_retry.js`).
+- **CSV metadata lines** split out of `GSRCSVParser.parse()` into
+  `_parseMetadataLines()` with its own tests (`test_csv_metadata.js`).
+  Verified byte-identical parse output on all 73 tracks. The Integrity
+  marker only matters when a recording has no end line, which none of the
+  73 tracks has, so a test for that case was added (`test_csv_integrity.js`).
 
 ---
 
@@ -57,12 +62,6 @@ Do one item at a time, one commit each.
 ### 1. Merge `refactor-phase1` into `main`
 Before merging, check the "Map area ready offline" popup on the live page in a
 real browser (the only new message not yet seen on screen).
-
-### 4. Split metadata parsing out of `GSRCSVParser.parse()`
-`parse()` in `signal/csv_parser.mjs` is ~760 lines. The `#` header-line
-handling (RecordingStartTime, FilterParams, band floors, device lines…) is
-pure text processing and can become its own function. Verify byte-identical
-parse output over all 73 tracks.
 
 ### 5. One file per deconvolution method
 `signal/deconvolution.mjs` (~1440 lines) holds two separate published methods.

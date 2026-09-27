@@ -363,31 +363,23 @@ export const GSRCSVParser = {
   },
 
   /**
-   * Parse a CSV string into raw time/value objects with GPS/RF/OSM columns.
-   * Pure: does not touch analyzer state; everything is returned in the result.
+   * Read the leading "#" metadata lines (RecordingStartTime, FilterParams,
+   * GpsFilterParams, EnrichmentRadius, the Integrity marker, band floors and
+   * the device lines) that come before the column-name line.
    *
-   * @param {string} csvText - Full CSV file contents.
+   * @param {Array<string>} lines - The file split into lines.
    * @returns {{
-   *   raw: Array<object>,
-   *   isResistance: boolean,
+   *   dataStartLine: number,
    *   recordingStartTime: number,
    *   importedFilterParams: object|null,
    *   importedGpsFilterParams: object|null,
    *   enrichmentRadius: number|null,
    *   bandFloors: object|null,
-   *   deviceHeaderLines: Array<string>,
-   *   sampleRate: number,
-   *   hasRfData: boolean,
-   *   rfPeakIndices: Set<number>,
-   *   isEnriched: boolean,
-   *   warnings: Array<string>|null,
-   *   importedPeakLabels: Map<number,string>,
-   *   importedPeakExcluded: Map<number,boolean>
-   * }}
-   * @throws {Error} If the CSV is empty, has too few lines, or no valid data.
+   *   hasIntegrityMarker: boolean,
+   *   deviceHeaderLines: Array<string>
+   * }} dataStartLine is the index of the column-name line.
    */
-  parse(csvText) {
-    let isResistance = false;
+  _parseMetadataLines(lines) {
     let recordingStartTime = 0;
     let importedFilterParams = null;
     let importedGpsFilterParams = null;
@@ -397,12 +389,6 @@ export const GSRCSVParser = {
     // Device metadata lines (DeviceName, GSR Calibration, Band Floors,
     // GPSChipID, …) kept verbatim so the processed export can carry them over.
     const deviceHeaderLines = [];
-
-    // Split into lines
-    const lines = csvText.split(/\r?\n/);
-    if (lines.length < 2) {
-      throw new Error('CSV file is empty or has too few lines.');
-    }
 
     // Restore recordingStartTime and filter configurations from metadata comment lines
     let dataStartLine = 0;
@@ -475,6 +461,63 @@ export const GSRCSVParser = {
       }
       dataStartLine++;
     }
+
+    return {
+      dataStartLine,
+      recordingStartTime,
+      importedFilterParams,
+      importedGpsFilterParams,
+      enrichmentRadius,
+      bandFloors,
+      hasIntegrityMarker,
+      deviceHeaderLines,
+    };
+  },
+
+  /**
+   * Parse a CSV string into raw time/value objects with GPS/RF/OSM columns.
+   * Pure: does not touch analyzer state; everything is returned in the result.
+   *
+   * @param {string} csvText - Full CSV file contents.
+   * @returns {{
+   *   raw: Array<object>,
+   *   isResistance: boolean,
+   *   recordingStartTime: number,
+   *   importedFilterParams: object|null,
+   *   importedGpsFilterParams: object|null,
+   *   enrichmentRadius: number|null,
+   *   bandFloors: object|null,
+   *   deviceHeaderLines: Array<string>,
+   *   sampleRate: number,
+   *   hasRfData: boolean,
+   *   rfPeakIndices: Set<number>,
+   *   isEnriched: boolean,
+   *   warnings: Array<string>|null,
+   *   importedPeakLabels: Map<number,string>,
+   *   importedPeakExcluded: Map<number,boolean>
+   * }}
+   * @throws {Error} If the CSV is empty, has too few lines, or no valid data.
+   */
+  parse(csvText) {
+    let isResistance = false;
+
+    // Split into lines
+    const lines = csvText.split(/\r?\n/);
+    if (lines.length < 2) {
+      throw new Error('CSV file is empty or has too few lines.');
+    }
+
+    const meta = GSRCSVParser._parseMetadataLines(lines);
+    const {
+      dataStartLine,
+      importedFilterParams,
+      importedGpsFilterParams,
+      bandFloors,
+      hasIntegrityMarker,
+      deviceHeaderLines,
+    } = meta;
+    // Both get fallback values further down when the header lacks them.
+    let { recordingStartTime, enrichmentRadius } = meta;
 
     // Read headers
     const headerLine = lines[dataStartLine];
