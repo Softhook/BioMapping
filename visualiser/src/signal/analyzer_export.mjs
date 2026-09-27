@@ -67,8 +67,6 @@ export const AnalyzerExport = {
         d.sats,
     );
 
-    // Which RF bands are present? Derive from the shared SUB_GHZ_BANDS descriptor
-    // so adding a new band only requires updating em_fog.mjs.
     const activeBands = SUB_GHZ_BANDS.filter((b) =>
       raw.some((d) => !isNaN(d[b.prop])),
     );

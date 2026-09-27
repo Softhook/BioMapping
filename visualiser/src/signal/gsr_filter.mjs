@@ -416,8 +416,7 @@ export const GsrFilter = {
     const vals = signal.map((d) => d.val);
     const stats = this.calculateStats(vals);
     const n = signal.length;
-    // Guard: if the signal is constant (std === 0), avoid division by zero by
-    // falling back to std=1 — a constant signal z-scores to all-zero anyway.
+    // A constant signal has std 0; dividing by 1 instead z-scores it to all zeros.
     const safeStd = stats.std || 1;
     // Reuse the caller's {time,val} array when one of the right length is
     // passed (analyzer.js pools tonicZ/phasicZ across analyze() calls) rather

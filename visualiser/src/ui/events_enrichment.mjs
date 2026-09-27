@@ -54,7 +54,12 @@ export const EnrichmentEvents = {
           if (typeof NDVISampler.clearCache === 'function') {
             NDVISampler.clearCache();
           }
-          GSRNotices.warn('OSM and satellite tile cache cleared.');
+          GSRNotices.dialog({
+            title: 'OSM and satellite tile cache cleared',
+            tone: 'info',
+            dismissLabel: null,
+            buttons: [{ label: 'OK', value: true, style: 'primary' }],
+          });
         } catch (err) {
           console.error('OsmCache.clear failed:', err);
           GSRNotices.report(`Could not clear the OSM cache: ${err.message}`);

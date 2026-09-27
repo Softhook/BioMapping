@@ -16,11 +16,9 @@ let _cachedMetricForce = [];
 let _cachedDriverForce = []; // Driver spike apex indices — forced into decimation stride so spikes survive zoom-out
 
 /**
- * Static grid-scale descriptors for every lower-plot view.
- * Hoisted from draw() so this object is not re-allocated on every 60 fps frame.
- * The dynamic `phasicDriver` entry (which depends on the current `driverCfg`
- * obtained from runtime state) is spread in as a shallow extension inside
- * draw() only when needed — zero allocation on the common path.
+ * Grid-scale descriptors for every lower-plot view. Module-level so draw()
+ * doesn't rebuild them each frame; the `phasicDriver` entry depends on the
+ * active driver config, so draw() adds it only when one is present.
  */
 const _LOWER_GRID_PRESETS = {
   tonic: {
@@ -386,9 +384,6 @@ export function draw() {
   if (lowerCfg.allowNegative) yMinLower = yMinLower - paddingLower;
 
   // ── Render inputs shared by every view ───────────────────────────────────
-  // Use the module-level _LOWER_GRID_PRESETS constant (zero allocation on the
-  // common path). Only when a deconvolution driver is active do we extend it
-  // with the runtime-computed phasicDriver entry via a one-off spread.
   const lowerGridPresets = driverCfg
     ? {
         ..._LOWER_GRID_PRESETS,

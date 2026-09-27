@@ -248,7 +248,7 @@ export const GSRStorage = {
     const gsr = this.readGsrSliderValues();
     const gps = this.readGpsSliderValues();
     if (!gsr || !gps) {
-      GSRNotices.report('No active slider settings found to export.');
+      GSRNotices.warn('No active slider settings found to export.');
       return;
     }
 

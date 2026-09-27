@@ -30,7 +30,7 @@ Every maintainability, performance, and testability issue traces back to one of 
 | 4 | Consolidate `SUB_GHZ_BANDS` — export from `em_fog.mjs`, import everywhere | `signal/em_fog.mjs`, `signal/csv_parser.mjs`, `signal/analyzer_export.mjs` | ✅ Done |
 | 5 | Remove duplicated `fmtMaxSpeed` from `events.mjs` (canonical version in `events_slider_defs.mjs`) | `ui/events.mjs`, `ui/events_slider_defs.mjs` | ✅ Done |
 | 6 | Centralize detector precedence into `normalizeDetectorCheckboxes()` (UI layer, exported from `storage.mjs`). `events_gsr_analysis.mjs` keeps its own last-clicked-wins rule on purpose | `ui/storage.mjs`, `ui/tracks.mjs` | ✅ Done |
-| 7 | Replace all `alert()` calls with `GSRNotices.report()` / `.warn()` (success message uses an info `dialog()`) | 9 files | ✅ Done |
+| 7 | Replace all `alert()` calls with `GSRNotices.report()` / `.warn()` (success messages use an info `dialog()`) | 11 files | ✅ Done |
 | 8 | Fix sticky-failure `OsmCache` DB promise — clear on rejection so retries work | `osm/osm_cache.mjs` | ✅ Done |
 | 9 | Hoist `lowerGridPresets` outside `draw()` in `sketch.mjs` — stop 60fps allocation | `render/sketch.mjs` | ✅ Done |
 

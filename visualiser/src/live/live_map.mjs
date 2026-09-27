@@ -295,6 +295,7 @@ export async function cacheCurrentMapArea() {
       title: 'Map area ready offline',
       message: `${newlyDownloaded + alreadyCached} of ${totalTiles} tiles (${newlyDownloaded} downloaded, ${alreadyCached} already cached).`,
       tone: 'info',
+      dismissLabel: null,
       buttons: [{ label: 'OK', value: true, style: 'primary' }],
     });
   } catch (err) {

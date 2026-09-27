@@ -48,7 +48,7 @@ export const PresetEvents = {
       btnApplyActiveToAll.addEventListener('click', () => {
         const tracks = AppState.collectiveManager.tracks;
         if (!tracks || tracks.length === 0) {
-          GSRNotices.report('No tracks loaded to apply preset to.');
+          GSRNotices.warn('No tracks loaded to apply preset to.');
           return;
         }
 

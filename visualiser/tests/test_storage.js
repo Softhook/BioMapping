@@ -55,12 +55,14 @@ const {
 } = require('../src/core/file_saver.mjs');
 const { GSRNotices } = require('../src/core/notices.mjs');
 
-// Patch GSRNotices.report so error-path tests that previously checked
-// alertCalls still work — production code now calls GSRNotices.report()
-// instead of alert(), but the test assertion contract is identical.
+// Record GSRNotices.report()/.warn() messages in alertCalls for the
+// error-path tests.
 GSRNotices.report = (err) => {
   const msg = err?.message ? err.message : String(err);
   alertCalls.push(msg);
+};
+GSRNotices.warn = (msg) => {
+  alertCalls.push(String(msg));
 };
 
 function setSingletonShape(target, shape) {

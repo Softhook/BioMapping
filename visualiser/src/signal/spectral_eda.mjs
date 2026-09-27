@@ -572,8 +572,8 @@ export const SpectralEDA = {
     // a sub-64 s recording still yields one full-length window rather than a
     // flat all-zero series.
     const nperseg = Math.min(Math.max(8, Math.round(windowSec * 2)), n2);
-    // nfft must be a power-of-two ≥ nperseg. The old hardcoded 256 caused an
-    // out-of-bounds write when windowSec > 128 s at 2 Hz (nperseg > 256).
+    // Power-of-two FFT, at least 256 (0.0078 Hz bins) and never shorter than
+    // the window, so a windowSec over 128 s still fits.
     const nfft = Math.max(256, 1 << Math.ceil(Math.log2(nperseg)));
     const win = SpectralEDA.blackmanPeriodic(nperseg);
     const scale = SpectralEDA._densityScale(2, SpectralEDA._windowSumSq(win));

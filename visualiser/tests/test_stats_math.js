@@ -792,11 +792,8 @@ test('calculateStats: calculates mean, std, variance, min, max correctly', () =>
 });
 
 test('calculateStats: single-value array returns std=0 (honest zero variance); call-sites guard', () => {
-  // calculateStats() now returns the mathematically correct std=0 for a
-  // constant/single-value signal. Division-by-zero protection has been moved
-  // to the actual call-sites (standardizeSignal, computeCombinedArousalIndex)
-  // via `|| 1` guards, so they can apply the fallback only where semantically
-  // appropriate without hiding the real value from callers that need it.
+  // Callers that divide by std (standardizeSignal, computeCombinedArousalIndex)
+  // guard against zero themselves.
   const stats = StatsMath.calculateStats([10]);
   assert.strictEqual(stats.mean, 10);
   assert.strictEqual(stats.std, 0);

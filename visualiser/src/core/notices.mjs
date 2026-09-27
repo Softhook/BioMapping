@@ -258,6 +258,7 @@ export const GSRNotices = {
       font: '12px/1.4 system-ui, sans-serif',
       boxShadow: '0 2px 8px rgba(0,0,0,.35)',
       cursor: 'pointer',
+      whiteSpace: 'pre-line',
     });
     toast.textContent = (context ? `${context}: ` : '') + msg;
     toast.title = 'Click to dismiss';

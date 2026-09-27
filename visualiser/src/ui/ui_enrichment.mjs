@@ -62,7 +62,7 @@ export const EnrichmentUI = {
 
     if (allTracks.length === 0) {
       if (!silent)
-        GSRNotices.report('Please load or select active track files first.');
+        GSRNotices.warn('Please load or select active track files first.');
       return { allTracks: [], validTracks: [] };
     }
 
@@ -90,7 +90,7 @@ export const EnrichmentUI = {
 
     if (validTracks.length === 0) {
       if (!silent)
-        GSRNotices.report(
+        GSRNotices.warn(
           `No valid GPS coordinates found in the selected track(s). ${featureLabel} requires GPS location fixes.`,
         );
       return { allTracks, validTracks: [] };

@@ -9,11 +9,7 @@
 const DEFAULT_FLOOR_DBM = -100.0;
 const SATURATION_CEILING_DBM = -30.0;
 
-/**
- * Band descriptors for all monitored Sub-GHz channels.
- * Exported so csv_parser.mjs and analyzer_export.mjs can import this as the
- * single source of truth instead of each maintaining their own copy.
- */
+/** Every monitored Sub-GHz band: CSV/row property name and short key. */
 export const SUB_GHZ_BANDS = [
   { prop: 'rssi_300', key: '300' },
   { prop: 'rssi_315', key: '315' },

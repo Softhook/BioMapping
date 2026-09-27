@@ -375,9 +375,7 @@ export const GSRCSVParser = {
    * @private
    */
   _detectRfPeakIndices(data, activeBands = null) {
-    // Derive the prop-name list from the shared SUB_GHZ_BANDS descriptor
-    // (single source of truth in em_fog.mjs) unless the caller restricts to a
-    // specific active subset detected from the CSV header.
+    // All Sub-GHz bands unless the caller passes the subset found in the header.
     const BANDS = activeBands || SUB_GHZ_BANDS.map((b) => b.prop);
     if (BANDS.length === 0) return new Set();
     const PROMINENCE_DB = 3.5;
@@ -606,7 +604,6 @@ export const GSRCSVParser = {
     // processed CSVs exported before this column existed).
     const isGpsFixColIdx = headers.indexOf('is_gps_fix');
 
-    // Derive RF column names from the shared band descriptor (em_fog.mjs).
     const RF_BANDS = SUB_GHZ_BANDS.map((b) => b.prop);
     const rfColIdx = {};
     const activeRfBands = [];
