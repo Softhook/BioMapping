@@ -62,6 +62,15 @@ Do one item at a time, one commit each.
   so the files don't import each other. Header now says matching pursuit is
   the default, not legacy. Verified byte-identical on all 73 tracks with both
   algorithms, and `check_ground_truth.sh` gives an identical report.
+- **`draw()` split** in `render/sketch.mjs` into `_layoutFrame`,
+  `_signalRange`, `_metricSeries`/`_metricRange`, `_refreshForceIndices`,
+  `_drawContextBands`, `_drawSignalView` and `_drawMetricView` (`draw()` is
+  now ~15 lines). Verified in headless Chromium: canvas pixels identical
+  before/after for 27 views/states (every graph view, phasic overlay, raw
+  off, matching-pursuit and SparsEDA driver/Rise Speed, zoomed in) at both
+  the normal short height and full screen (timeline bar shown). Capture the
+  canvas with `toDataURL`, not an element screenshot: the CSS hotspot pulse
+  ring overlaps the canvas and makes screenshots differ run to run.
 
 ---
 
@@ -70,11 +79,6 @@ Do one item at a time, one commit each.
 ### 1. Merge `refactor-phase1` into `main`
 Before merging, check the "Map area ready offline" popup on the live page in a
 real browser (the only new message not yet seen on screen).
-
-### 6. Break up `draw()` in `render/sketch.mjs`
-~590 lines in one function. Split into steps (layout, value ranges, axes,
-curves, markers). Verify with before/after screenshots of every graph view
-(signal, tonic, phasic, peak density, AUC, arousal index, driver).
 
 ### 7. Split `ui/tracks.mjs`
 ~755 lines mixing file loading and the sidebar track list. Separate the file

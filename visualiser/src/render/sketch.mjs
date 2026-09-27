@@ -16,9 +16,9 @@ let _cachedMetricForce = [];
 let _cachedDriverForce = []; // Driver spike apex indices — forced into decimation stride so spikes survive zoom-out
 
 /**
- * Grid-scale descriptors for every lower-plot view. Module-level so draw()
+ * Grid-scale descriptors for every metric view. Module-level so draw()
  * doesn't rebuild them each frame; the `phasicDriver` entry depends on the
- * active driver config, so draw() adds it only when one is present.
+ * active driver config, so _drawMetricView() builds it instead.
  */
 const _LOWER_GRID_PRESETS = {
   tonic: {
@@ -219,11 +219,24 @@ export function draw() {
     return;
   }
 
-  const canvasBg = GSRRenderer.getThemeColor('--canvas-bg', '#ffffff');
-  background(canvasBg);
+  background(GSRRenderer.getThemeColor('--canvas-bg', '#ffffff'));
 
-  const innerWidth = width - GSR_CONST.MARGIN.left - GSR_CONST.MARGIN.right;
+  const frame = _layoutFrame();
+  _refreshForceIndices();
+  _drawContextBands(frame);
+  if (frame.view === 'signal') _drawSignalView(frame);
+  else _drawMetricView(frame);
 
+  // Overview timeline bar — pinned to the bottom, unless the panel is too short
+  if (frame.showTimeline)
+    GSRRenderer.drawTimelineOverview(frame.innerWidth, frame.timelineHeight);
+}
+
+/**
+ * Plot geometry and visible sample range for this frame. Also publishes the
+ * timeline/graph edges on AppState for the mouse handlers.
+ */
+function _layoutFrame() {
   // One full-height plot: 'signal' (Raw/Filtered/Tonic, optionally Phasic) or a
   // single derived metric ('phasic' / 'phasicAUC' / 'arousalIndex').
   // X_LABEL_STRIP is the band under the plot that carries the x-axis time
@@ -249,562 +262,519 @@ export function draw() {
   AppState.yTimelineBottom = AppState.yTimelineTop + timelineHeight;
   AppState.yGraphBottom = plotBottom;
 
-  const viewEndTime = AppState.viewStartTime + AppState.viewDuration;
+  const viewStartTime = AppState.viewStartTime;
+  const viewEndTime = viewStartTime + AppState.viewDuration;
 
-  const startIdx = AppState.analyzer.findClosestIndex(AppState.viewStartTime);
-  const endIdx = AppState.analyzer.findClosestIndex(viewEndTime);
+  const analyzer = AppState.analyzer;
+  const startIdx = analyzer.findClosestIndex(viewStartTime);
+  const endIdx = analyzer.findClosestIndex(viewEndTime);
   const idxStart = Math.max(0, startIdx - 1);
-  const idxEnd = Math.min(AppState.analyzer.raw.length - 1, endIdx + 1);
+  const idxEnd = Math.min(analyzer.raw.length - 1, endIdx + 1);
 
-  // ── Y-scaling — use global cache when view is wide to skip full scan ─────
-  const global = AppState.analyzer._globalRange;
+  // Use the global range cache when the view is wide, to skip a full scan.
+  const globalRange = analyzer._globalRange;
   const viewCoversMost =
-    global && idxEnd - idxStart > AppState.analyzer.raw.length * 0.4;
+    !!globalRange && idxEnd - idxStart > analyzer.raw.length * 0.4;
 
-  let yMinUpper, yMaxUpper;
+  return {
+    view,
+    innerWidth: width - GSR_CONST.MARGIN.left - GSR_CONST.MARGIN.right,
+    showTimeline,
+    timelineHeight,
+    plotTop,
+    plotBottom,
+    viewStartTime,
+    viewEndTime,
+    idxStart,
+    idxEnd,
+    globalRange,
+    viewCoversMost,
+  };
+}
 
-  if (viewCoversMost) {
+/** Y range (padded, floored at 0) for the µS signal view. */
+function _signalRange(frame, view) {
+  const { globalRange, idxStart, idxEnd } = frame;
+  const analyzer = AppState.analyzer;
+  let yMin = Infinity;
+  let yMax = -Infinity;
+
+  if (frame.viewCoversMost) {
     // Fast path: estimate from pre-computed global ranges
-    yMinUpper = Infinity;
-    yMaxUpper = -Infinity;
-    if (AppState.showRaw && global.raw) {
-      yMinUpper = Math.min(yMinUpper, global.raw.min);
-      yMaxUpper = Math.max(yMaxUpper, global.raw.max);
+    if (AppState.showRaw && globalRange.raw) {
+      yMin = Math.min(yMin, globalRange.raw.min);
+      yMax = Math.max(yMax, globalRange.raw.max);
     }
-    if (AppState.showFiltered && global.filtered) {
-      yMinUpper = Math.min(yMinUpper, global.filtered.min);
-      yMaxUpper = Math.max(yMaxUpper, global.filtered.max);
+    if (AppState.showFiltered && globalRange.filtered) {
+      yMin = Math.min(yMin, globalRange.filtered.min);
+      yMax = Math.max(yMax, globalRange.filtered.max);
     }
-    if (AppState.showTonic && global.tonic) {
-      yMinUpper = Math.min(yMinUpper, global.tonic.min);
-      yMaxUpper = Math.max(yMaxUpper, global.tonic.max);
+    if (AppState.showTonic && globalRange.tonic) {
+      yMin = Math.min(yMin, globalRange.tonic.min);
+      yMax = Math.max(yMax, globalRange.tonic.max);
     }
     // Phasic overlay rides the same µS axis — pull the floor down so its
     // (much smaller) values stay on-graph instead of clipping below.
-    if (AppState.showPhasic && view === 'signal' && global.phasic) {
-      yMinUpper = Math.min(yMinUpper, global.phasic.min);
-      yMaxUpper = Math.max(yMaxUpper, global.phasic.max);
+    if (AppState.showPhasic && view === 'signal' && globalRange.phasic) {
+      yMin = Math.min(yMin, globalRange.phasic.min);
+      yMax = Math.max(yMax, globalRange.phasic.max);
     }
   } else {
     // Scan the visible window (fewer points when zoomed in)
-    yMinUpper = Infinity;
-    yMaxUpper = -Infinity;
     for (let i = idxStart; i <= idxEnd; i++) {
-      if (AppState.showRaw && AppState.analyzer.raw[i]) {
-        const val = AppState.analyzer.raw[i].val;
-        if (val < yMinUpper) yMinUpper = val;
-        if (val > yMaxUpper) yMaxUpper = val;
+      if (AppState.showRaw && analyzer.raw[i]) {
+        const val = analyzer.raw[i].val;
+        if (val < yMin) yMin = val;
+        if (val > yMax) yMax = val;
       }
-      if (AppState.showFiltered && AppState.analyzer.filtered[i]) {
-        const val = AppState.analyzer.filtered[i].val;
-        if (val < yMinUpper) yMinUpper = val;
-        if (val > yMaxUpper) yMaxUpper = val;
+      if (AppState.showFiltered && analyzer.filtered[i]) {
+        const val = analyzer.filtered[i].val;
+        if (val < yMin) yMin = val;
+        if (val > yMax) yMax = val;
       }
-      if (AppState.showTonic && AppState.analyzer.tonic[i]) {
-        const val = AppState.analyzer.tonic[i].val;
-        if (val < yMinUpper) yMinUpper = val;
-        if (val > yMaxUpper) yMaxUpper = val;
+      if (AppState.showTonic && analyzer.tonic[i]) {
+        const val = analyzer.tonic[i].val;
+        if (val < yMin) yMin = val;
+        if (val > yMax) yMax = val;
       }
-      if (
-        AppState.showPhasic &&
-        view === 'signal' &&
-        AppState.analyzer.phasic[i]
-      ) {
-        const val = AppState.analyzer.phasic[i].val;
-        if (val < yMinUpper) yMinUpper = val;
-        if (val > yMaxUpper) yMaxUpper = val;
+      if (AppState.showPhasic && view === 'signal' && analyzer.phasic[i]) {
+        const val = analyzer.phasic[i].val;
+        if (val < yMin) yMin = val;
+        if (val > yMax) yMax = val;
       }
     }
   }
 
-  if (yMinUpper === Infinity) yMinUpper = 0;
-  if (yMaxUpper === -Infinity) yMaxUpper = 10;
+  if (yMin === Infinity) yMin = 0;
+  if (yMax === -Infinity) yMax = 10;
 
-  let paddingUpper = (yMaxUpper - yMinUpper) * 0.1;
-  if (paddingUpper === 0) paddingUpper = 0.5;
-  yMinUpper = Math.max(0, yMinUpper - paddingUpper);
-  yMaxUpper = yMaxUpper + paddingUpper;
+  let padding = (yMax - yMin) * 0.1;
+  if (padding === 0) padding = 0.5;
+  return { yMin: Math.max(0, yMin - padding), yMax: yMax + padding };
+}
 
-  // Y-scaling for a metric view — phasic (default) / phasicAUC / arousalIndex.
-  // See GSR_CONST.LOWER_GRAPH_MODES.
-  const lowerMode = AppState.lowerGraphMode || 'phasic';
-  const lowerCfg =
-    GSR_CONST.LOWER_GRAPH_MODES[lowerMode] ||
-    GSR_CONST.LOWER_GRAPH_MODES.phasic;
-  const lowerSeries =
-    lowerMode === 'responseDynamics'
+/**
+ * What the single-metric view plots: the series, its display config and
+ * (for the driver) the unit config of whichever detector produced it.
+ * See GSR_CONST.LOWER_GRAPH_MODES.
+ */
+function _metricSeries() {
+  const mode = AppState.lowerGraphMode || 'phasic';
+  const cfg =
+    GSR_CONST.LOWER_GRAPH_MODES[mode] || GSR_CONST.LOWER_GRAPH_MODES.phasic;
+  const series =
+    mode === 'responseDynamics'
       ? AppState.analyzer.phasic
-      : AppState.analyzer[lowerMode] || AppState.analyzer.phasic;
+      : AppState.analyzer[mode] || AppState.analyzer.phasic;
 
   // 'phasicDriver' has no single static display config: matching pursuit's
   // driver and cvxEDA's driver are different physical quantities (µS vs
   // µS/s — see GSR_CONST.DRIVER_UNIT_BY_ALGORITHM's comment), so pick it by
   // whichever detector actually produced the currently-plotted series.
   const driverCfg =
-    lowerMode === 'phasicDriver'
+    mode === 'phasicDriver'
       ? GSR_CONST.DRIVER_UNIT_BY_ALGORITHM?.[
           AppState.analyzer._driverAlgorithm
         ] || GSR_CONST.DRIVER_UNIT_BY_ALGORITHM.matching_pursuit
       : null;
 
+  return { mode, cfg, series, driverCfg };
+}
+
+/** Y range (padded) for the single-metric view. */
+function _metricRange(frame, metric) {
+  const { mode, cfg, series, driverCfg } = metric;
+  const { globalRange, idxStart, idxEnd } = frame;
+
   // Rise Speed plots the phasic (coloured by speed), so it scales to the
   // phasic's range, not the speed-factor series'.
-  const rangeKey = lowerMode === 'responseDynamics' ? 'phasic' : lowerMode;
-  let yMinLower = lowerCfg.allowNegative ? Infinity : 0;
-  let yMaxLower;
-  if (viewCoversMost && global?.[rangeKey]) {
-    yMaxLower = global[rangeKey].max;
-    if (lowerCfg.allowNegative) yMinLower = global[rangeKey].min;
+  const rangeKey = mode === 'responseDynamics' ? 'phasic' : mode;
+  let yMin = cfg.allowNegative ? Infinity : 0;
+  let yMax;
+  if (frame.viewCoversMost && globalRange?.[rangeKey]) {
+    yMax = globalRange[rangeKey].max;
+    if (cfg.allowNegative) yMin = globalRange[rangeKey].min;
   } else {
-    yMaxLower = -Infinity;
+    yMax = -Infinity;
     for (let i = idxStart; i <= idxEnd; i++) {
-      if (lowerSeries[i]) {
-        const val = lowerSeries[i].val;
-        if (val > yMaxLower) yMaxLower = val;
-        if (lowerCfg.allowNegative && val < yMinLower) yMinLower = val;
+      if (series[i]) {
+        const val = series[i].val;
+        if (val > yMax) yMax = val;
+        if (cfg.allowNegative && val < yMin) yMin = val;
       }
     }
   }
-  if (lowerCfg.allowNegative) {
-    if (yMinLower === Infinity) yMinLower = -1;
-    if (yMaxLower === -Infinity) yMaxLower = 1;
+  if (cfg.allowNegative) {
+    if (yMin === Infinity) yMin = -1;
+    if (yMax === -Infinity) yMax = 1;
   } else {
-    if (yMaxLower === -Infinity || yMaxLower <= 0) {
-      if (lowerMode === 'phasic' || lowerMode === 'responseDynamics')
-        yMaxLower = parseFloat(AppState.sliders.peakThreshold.value) * 2;
-      else if (lowerMode === 'phasicDriver')
-        yMaxLower = driverCfg.gridDefaultStep * 2;
-      else yMaxLower = 100;
+    if (yMax === -Infinity || yMax <= 0) {
+      if (mode === 'phasic' || mode === 'responseDynamics')
+        yMax = parseFloat(AppState.sliders.peakThreshold.value) * 2;
+      else if (mode === 'phasicDriver') yMax = driverCfg.gridDefaultStep * 2;
+      else yMax = 100;
     }
   }
-  const lowerSpan = yMaxLower - yMinLower;
-  const paddingLower =
-    (lowerSpan > 0 ? lowerSpan : Math.abs(yMaxLower) || 1) * 0.15;
-  yMaxLower = yMaxLower + paddingLower;
-  if (lowerCfg.allowNegative) yMinLower = yMinLower - paddingLower;
+  const span = yMax - yMin;
+  const padding = (span > 0 ? span : Math.abs(yMax) || 1) * 0.15;
+  yMax = yMax + padding;
+  if (cfg.allowNegative) yMin = yMin - padding;
+  return { yMin, yMax };
+}
 
-  // ── Render inputs shared by every view ───────────────────────────────────
-  const lowerGridPresets = driverCfg
-    ? {
-        ..._LOWER_GRID_PRESETS,
-        phasicDriver: {
+/**
+ * Peak sample indices, forced into curve decimation so drawn lines actually
+ * reach every marker instead of a stride segment cutting the corner past it
+ * (see _buildCurveContext()'s doc comment in renderer.js). Cached across
+ * animation frames (pan/zoom/scrub) and invalidated only on peak revisions.
+ */
+function _refreshForceIndices() {
+  const analyzer = AppState.analyzer;
+  if (
+    _cachedPeakAnalyzer &&
+    _cachedPeakAnalyzer === analyzer &&
+    _cachedPeakList === analyzer.peaks &&
+    _cachedPeakDataVersion === analyzer._dataVersion
+  ) {
+    return;
+  }
+  _cachedPeakAnalyzer = analyzer;
+  _cachedPeakList = analyzer ? analyzer.peaks : null;
+  _cachedPeakDataVersion = analyzer ? analyzer._dataVersion : 0;
+  _cachedActivePeaks = analyzer?.peaks
+    ? analyzer.peaks.filter((p) => !p.excluded)
+    : [];
+  _cachedFilteredForce = [];
+  for (let i = 0; i < _cachedActivePeaks.length; i++) {
+    const p = _cachedActivePeaks[i];
+    _cachedFilteredForce.push(p.onsetIndex, p.index);
+  }
+  _cachedMetricForce = _cachedActivePeaks.map((p) => p.index);
+
+  // Driver spike apex indices — so narrow spikes (often 1–3 samples wide)
+  // are never skipped by the uniform decimation stride when zoomed out.
+  // phasicDriverPeaks stores { index, time, amplitude } for every impulse
+  // the deconvolution / matching-pursuit step detected.
+  // Force apex-1, apex, apex+1 for each driver spike so the rendered line
+  // captures both zero-crossing shoulders, not just the peak tip. Without
+  // the neighbours the stride interpolates a fabricated triangle whose rise
+  // and fall slopes depend on whichever stride samples happen to bracket the
+  // apex — the height is right but the shape is wrong. Clamped to [0, n-1]
+  // so boundary spikes don't produce out-of-range indices.
+  if (analyzer?.phasicDriverPeaks && analyzer.phasicDriverPeaks.length > 0) {
+    const driverLen = analyzer.phasicDriver
+      ? analyzer.phasicDriver.length - 1
+      : Infinity;
+    const df = [];
+    for (const pk of analyzer.phasicDriverPeaks) {
+      const idx = pk.index;
+      if (idx > 0) df.push(idx - 1);
+      df.push(idx);
+      if (idx < driverLen) df.push(idx + 1);
+    }
+    _cachedDriverForce = df;
+  } else {
+    _cachedDriverForce = [];
+  }
+}
+
+// Background context bands, drawn behind whichever graph is showing — each
+// overlay reads its own AppState toggle and no-ops when off.
+function _drawContextBands({
+  viewStartTime,
+  viewEndTime,
+  plotTop,
+  plotBottom,
+}) {
+  if (AppState.showOsmContext)
+    GSRRenderer.drawOsmContextBands(
+      viewStartTime,
+      viewEndTime,
+      plotTop,
+      plotBottom,
+    );
+  if (AppState.showNdviContext)
+    GSRRenderer.drawNdviContextBands(
+      viewStartTime,
+      viewEndTime,
+      plotTop,
+      plotBottom,
+    );
+  if (AppState.showEmFogContext)
+    GSRRenderer.drawEmFogContextBands(
+      viewStartTime,
+      viewEndTime,
+      plotTop,
+      plotBottom,
+    );
+}
+
+/** Peak and hotspot markers always take the same arguments. */
+function _drawPeakAndHotspotMarkers(...args) {
+  GSRRenderer.drawPeakMarkers(...args);
+  GSRRenderer.drawHotspotMarkers(...args);
+}
+
+// 'Signal' - Raw / Filtered / Tonic (+ optional Phasic overlay), full height (uS)
+function _drawSignalView(frame) {
+  const { viewStartTime, viewEndTime, plotTop, plotBottom } = frame;
+  const { yMin, yMax } = _signalRange(frame, frame.view);
+  const grid = _LOWER_GRID_PRESETS.tonic; // the µS signal uses the Tonic grid
+
+  GSRRenderer.drawGridX(
+    viewStartTime,
+    viewEndTime,
+    plotBottom,
+    plotBottom,
+    true,
+  );
+  GSRRenderer.drawGridY(
+    yMin,
+    yMax,
+    plotBottom,
+    plotTop,
+    grid.steps,
+    grid.defaultStep,
+    grid.decimals,
+  );
+
+  const curve = (series, stroke, weight, forceIndices) =>
+    GSRRenderer.drawSignalCurve(
+      series,
+      viewStartTime,
+      viewEndTime,
+      yMin,
+      yMax,
+      plotTop,
+      plotBottom,
+      stroke,
+      weight,
+      forceIndices,
+    );
+
+  if (AppState.showRaw) {
+    const colorRaw = GSRRenderer.getThemeColor('--color-raw', '#7c7c76');
+    curve(AppState.analyzer.raw, color(`${colorRaw}8c`), 1.5);
+  }
+  if (AppState.showTonic) {
+    curve(
+      AppState.analyzer.tonic,
+      GSRRenderer.getThemeColor('--color-tonic', '#a30091'),
+      2,
+    );
+  }
+  // Phasic (SCR) overlaid on the same uS axis - a thin, low-amplitude trace
+  // near the baseline (the axis floor was pulled toward 0 above so it stays
+  // on-graph). Drawn under Filtered so the primary curve stays on top.
+  if (AppState.showPhasic) {
+    const colorPhasic = GSRRenderer.getThemeColor('--color-phasic', '#008f3c');
+    curve(
+      AppState.analyzer.phasic,
+      color(`${colorPhasic}c8`),
+      1.5,
+      _cachedMetricForce,
+    );
+  }
+  if (AppState.showFiltered) {
+    curve(
+      AppState.analyzer.filtered,
+      GSRRenderer.getThemeColor('--color-filtered', '#005bc4'),
+      2.2,
+      _cachedFilteredForce,
+    );
+  }
+
+  // Peaks / hotspots on the Filtered curve only - no phasic-scaled lower half
+  // (showUpperMarker=true, showLowerMarker=false).
+  _drawPeakAndHotspotMarkers(
+    viewStartTime,
+    viewEndTime,
+    yMin,
+    yMax,
+    plotTop,
+    plotBottom,
+    0,
+    1,
+    plotBottom,
+    plotBottom,
+    false,
+    true,
+  );
+  // L-params = the same uS range so handleScrubber can drop a Phasic dot too.
+  GSRRenderer.handleScrubber(
+    viewStartTime,
+    viewEndTime,
+    yMin,
+    yMax,
+    plotBottom,
+    yMin,
+    yMax,
+    plotTop,
+    plotBottom,
+  );
+}
+
+/**
+ * Dashed horizontal reference line + optional right-edge label — the Phasic
+ * threshold line and the Arousal-Index zero line, for the single metric view.
+ */
+function _drawRefLine(y, dash, colorPeak, hexAlpha, label) {
+  stroke(color(colorPeak + hexAlpha));
+  strokeWeight(1);
+  drawingContext.setLineDash(dash);
+  line(GSR_CONST.MARGIN.left, y, width - GSR_CONST.MARGIN.right, y);
+  drawingContext.setLineDash([]);
+  if (label) {
+    fill(color(`${colorPeak}96`));
+    noStroke();
+    textSize(9);
+    textAlign(RIGHT, CENTER);
+    text(label, width - GSR_CONST.MARGIN.right - 5, y - 8);
+  }
+}
+
+// ── Single metric view — one derived series, full height, own Y axis ────
+function _drawMetricView(frame) {
+  const { viewStartTime, viewEndTime, plotTop, plotBottom } = frame;
+  const metric = _metricSeries();
+  const { mode, cfg, series, driverCfg } = metric;
+  const { yMin, yMax } = _metricRange(frame, metric);
+
+  const grid =
+    mode === 'phasicDriver' && driverCfg
+      ? {
           steps: driverCfg.gridSteps,
           defaultStep: driverCfg.gridDefaultStep,
           decimals: driverCfg.decimals,
           unit: ` ${driverCfg.unit}`,
-        },
-      }
-    : _LOWER_GRID_PRESETS;
-  const gridPreset = lowerGridPresets[lowerMode] || lowerGridPresets.phasic;
-  // The upper (Filtered/Raw/Tonic, µS) plot uses the same grid as the Tonic preset.
-  const upperGridPreset = lowerGridPresets.tonic;
-
-  const colorRaw = GSRRenderer.getThemeColor('--color-raw', '#7c7c76');
-  const colorFiltered = GSRRenderer.getThemeColor(
-    '--color-filtered',
-    '#005bc4',
-  );
-  const colorTonic = GSRRenderer.getThemeColor('--color-tonic', '#a30091');
+        }
+      : _LOWER_GRID_PRESETS[mode] || _LOWER_GRID_PRESETS.phasic;
   const colorPeak = GSRRenderer.getThemeColor('--color-peak', '#d10024');
-  const colorLower = GSRRenderer.getThemeColor(
-    lowerCfg.colorVar,
-    lowerCfg.colorDefault,
+  const colorMetric = GSRRenderer.getThemeColor(cfg.colorVar, cfg.colorDefault);
+  const yOf = (val) => map(val, yMin, yMax, plotBottom, plotTop);
+
+  GSRRenderer.drawGridX(
+    viewStartTime,
+    viewEndTime,
+    plotBottom,
+    plotBottom,
+    true,
+  );
+  GSRRenderer.drawGridY(
+    yMin,
+    yMax,
+    plotBottom,
+    plotTop,
+    grid.steps,
+    grid.defaultStep,
+    grid.decimals,
+    grid.unit,
   );
 
-  // Peak sample indices, forced into curve decimation so drawn lines actually
-  // reach every marker instead of a stride segment cutting the corner past it
-  // (see _buildCurveContext()'s doc comment in renderer.js). Cached across
-  // animation frames (pan/zoom/scrub) and invalidated only on peak revisions.
-  if (
-    !_cachedPeakAnalyzer ||
-    _cachedPeakAnalyzer !== AppState.analyzer ||
-    _cachedPeakList !== AppState.analyzer.peaks ||
-    _cachedPeakDataVersion !== AppState.analyzer._dataVersion
-  ) {
-    _cachedPeakAnalyzer = AppState.analyzer;
-    _cachedPeakList = AppState.analyzer ? AppState.analyzer.peaks : null;
-    _cachedPeakDataVersion = AppState.analyzer
-      ? AppState.analyzer._dataVersion
-      : 0;
-    _cachedActivePeaks = AppState.analyzer?.peaks
-      ? AppState.analyzer.peaks.filter((p) => !p.excluded)
-      : [];
-    _cachedFilteredForce = [];
-    for (let i = 0; i < _cachedActivePeaks.length; i++) {
-      const p = _cachedActivePeaks[i];
-      _cachedFilteredForce.push(p.onsetIndex, p.index);
-    }
-    _cachedMetricForce = _cachedActivePeaks.map((p) => p.index);
+  // Driver view: use driver spike apices as forced vertices so narrow impulses
+  // (often 1–3 samples wide) are never swallowed by the uniform decimation
+  // stride when zoomed out. All other metric views use SCR peak positions.
+  const forceIndices =
+    mode === 'phasicDriver' ? _cachedDriverForce : _cachedMetricForce;
 
-    // Driver spike apex indices — so narrow spikes (often 1–3 samples wide)
-    // are never skipped by the uniform decimation stride when zoomed out.
-    // phasicDriverPeaks stores { index, time, amplitude } for every impulse
-    // the deconvolution / matching-pursuit step detected.
-    // Force apex-1, apex, apex+1 for each driver spike so the rendered line
-    // captures both zero-crossing shoulders, not just the peak tip. Without
-    // the neighbours the stride interpolates a fabricated triangle whose rise
-    // and fall slopes depend on whichever stride samples happen to bracket the
-    // apex — the height is right but the shape is wrong. Clamped to [0, n-1]
-    // so boundary spikes don't produce out-of-range indices.
-    if (
-      AppState.analyzer?.phasicDriverPeaks &&
-      AppState.analyzer.phasicDriverPeaks.length > 0
-    ) {
-      const driverLen = AppState.analyzer.phasicDriver
-        ? AppState.analyzer.phasicDriver.length - 1
-        : Infinity;
-      const df = [];
-      for (const pk of AppState.analyzer.phasicDriverPeaks) {
-        const idx = pk.index;
-        if (idx > 0) df.push(idx - 1);
-        df.push(idx);
-        if (idx < driverLen) df.push(idx + 1);
-      }
-      _cachedDriverForce = df;
-    } else {
-      _cachedDriverForce = [];
-    }
-  }
-  const _activePeaks = _cachedActivePeaks;
-  const filteredForceIndices = _cachedFilteredForce;
-  const metricForceIndices = _cachedMetricForce;
-  const driverForceIndices = _cachedDriverForce;
-
-  // Dashed horizontal reference line + optional right-edge label \u2014 the Phasic
-  // threshold line and the Arousal-Index zero line, for the single metric view.
-  const drawRefLine = (val, yTop, yBottom, dash, hexAlpha, label) => {
-    const y = map(val, yMinLower, yMaxLower, yBottom, yTop);
-    stroke(color(colorPeak + hexAlpha));
-    strokeWeight(1);
-    drawingContext.setLineDash(dash);
-    line(GSR_CONST.MARGIN.left, y, width - GSR_CONST.MARGIN.right, y);
-    drawingContext.setLineDash([]);
-    if (label) {
-      fill(color(`${colorPeak}96`));
-      noStroke();
-      textSize(9);
-      textAlign(RIGHT, CENTER);
-      text(label, width - GSR_CONST.MARGIN.right - 5, y - 8);
-    }
-  };
-
-  // Background context bands, drawn behind whichever graph is showing —
-  // each overlay reads its own AppState toggle and no-ops when off. Called
-  // identically from both the 'signal' and single-metric branches below
-  // (same plotTop/plotBottom either way), so a new overlay is one more line
-  // here instead of one more line in each branch.
-  const drawContextBands = () => {
-    if (AppState.showOsmContext)
-      GSRRenderer.drawOsmContextBands(
-        AppState.viewStartTime,
-        viewEndTime,
-        plotTop,
-        plotBottom,
-      );
-    if (AppState.showNdviContext)
-      GSRRenderer.drawNdviContextBands(
-        AppState.viewStartTime,
-        viewEndTime,
-        plotTop,
-        plotBottom,
-      );
-    if (AppState.showEmFogContext)
-      GSRRenderer.drawEmFogContextBands(
-        AppState.viewStartTime,
-        viewEndTime,
-        plotTop,
-        plotBottom,
-      );
-  };
-
-  if (view === 'signal') {
-    drawContextBands();
-
-    // 'Signal' - Raw / Filtered / Tonic (+ optional Phasic overlay), full height (uS)
-    GSRRenderer.drawGridX(
-      AppState.viewStartTime,
+  if (mode === 'responseDynamics') {
+    GSRRenderer.drawResponseDynamicsPhasic(
+      series,
+      AppState.analyzer.responseDynamics,
+      viewStartTime,
       viewEndTime,
-      plotBottom,
-      plotBottom,
-      true,
-    );
-    GSRRenderer.drawGridY(
-      yMinUpper,
-      yMaxUpper,
-      plotBottom,
-      plotTop,
-      upperGridPreset.steps,
-      upperGridPreset.defaultStep,
-      upperGridPreset.decimals,
-    );
-
-    if (AppState.showRaw) {
-      GSRRenderer.drawSignalCurve(
-        AppState.analyzer.raw,
-        AppState.viewStartTime,
-        viewEndTime,
-        yMinUpper,
-        yMaxUpper,
-        plotTop,
-        plotBottom,
-        color(`${colorRaw}8c`),
-        1.5,
-      );
-    }
-    if (AppState.showTonic) {
-      GSRRenderer.drawSignalCurve(
-        AppState.analyzer.tonic,
-        AppState.viewStartTime,
-        viewEndTime,
-        yMinUpper,
-        yMaxUpper,
-        plotTop,
-        plotBottom,
-        colorTonic,
-        2,
-      );
-    }
-    // Phasic (SCR) overlaid on the same uS axis - a thin, low-amplitude trace
-    // near the baseline (the axis floor was pulled toward 0 above so it stays
-    // on-graph). Drawn under Filtered so the primary curve stays on top.
-    if (AppState.showPhasic) {
-      const colorPhasic = GSRRenderer.getThemeColor(
-        '--color-phasic',
-        '#008f3c',
-      );
-      GSRRenderer.drawSignalCurve(
-        AppState.analyzer.phasic,
-        AppState.viewStartTime,
-        viewEndTime,
-        yMinUpper,
-        yMaxUpper,
-        plotTop,
-        plotBottom,
-        color(`${colorPhasic}c8`),
-        1.5,
-        metricForceIndices,
-      );
-    }
-    if (AppState.showFiltered) {
-      GSRRenderer.drawSignalCurve(
-        AppState.analyzer.filtered,
-        AppState.viewStartTime,
-        viewEndTime,
-        yMinUpper,
-        yMaxUpper,
-        plotTop,
-        plotBottom,
-        colorFiltered,
-        2.2,
-        filteredForceIndices,
-      );
-    }
-
-    // Peaks / hotspots on the Filtered curve only - no phasic-scaled lower half
-    // (showUpperMarker=true, showLowerMarker=false).
-    GSRRenderer.drawPeakMarkers(
-      AppState.viewStartTime,
-      viewEndTime,
-      yMinUpper,
-      yMaxUpper,
+      yMin,
+      yMax,
       plotTop,
       plotBottom,
-      0,
-      1,
-      plotBottom,
-      plotBottom,
-      false,
-      true,
-    );
-    GSRRenderer.drawHotspotMarkers(
-      AppState.viewStartTime,
-      viewEndTime,
-      yMinUpper,
-      yMaxUpper,
-      plotTop,
-      plotBottom,
-      0,
-      1,
-      plotBottom,
-      plotBottom,
-      false,
-      true,
-    );
-    // L-params = the same uS range so handleScrubber can drop a Phasic dot too.
-    GSRRenderer.handleScrubber(
-      AppState.viewStartTime,
-      viewEndTime,
-      yMinUpper,
-      yMaxUpper,
-      plotBottom,
-      yMinUpper,
-      yMaxUpper,
-      plotTop,
-      plotBottom,
+      forceIndices,
     );
   } else {
-    // ── Single metric view — one derived series, full height, own Y axis ────
-    drawContextBands();
-
-    GSRRenderer.drawGridX(
-      AppState.viewStartTime,
+    GSRRenderer.drawPhasicArea(
+      series,
+      viewStartTime,
       viewEndTime,
-      plotBottom,
-      plotBottom,
-      true,
-    );
-    GSRRenderer.drawGridY(
-      yMinLower,
-      yMaxLower,
-      plotBottom,
-      plotTop,
-      gridPreset.steps,
-      gridPreset.defaultStep,
-      gridPreset.decimals,
-      gridPreset.unit,
-    );
-
-    // Driver view: use driver spike apices as forced vertices so narrow impulses
-    // (often 1–3 samples wide) are never swallowed by the uniform decimation
-    // stride when zoomed out. All other metric views use SCR peak positions.
-    const lowerForceIndices =
-      lowerMode === 'phasicDriver' ? driverForceIndices : metricForceIndices;
-
-    if (lowerMode === 'responseDynamics') {
-      GSRRenderer.drawResponseDynamicsPhasic(
-        lowerSeries,
-        AppState.analyzer.responseDynamics,
-        AppState.viewStartTime,
-        viewEndTime,
-        yMinLower,
-        yMaxLower,
-        plotTop,
-        plotBottom,
-        lowerForceIndices,
-      );
-    } else {
-      GSRRenderer.drawPhasicArea(
-        lowerSeries,
-        AppState.viewStartTime,
-        viewEndTime,
-        yMinLower,
-        yMaxLower,
-        plotTop,
-        plotBottom,
-        colorLower,
-        lowerForceIndices,
-      );
-      GSRRenderer.drawSignalCurve(
-        lowerSeries,
-        AppState.viewStartTime,
-        viewEndTime,
-        yMinLower,
-        yMaxLower,
-        plotTop,
-        plotBottom,
-        colorLower,
-        2,
-        lowerForceIndices,
-      );
-    }
-
-    if (lowerCfg.showPeakOverlay) {
-      drawRefLine(
-        parseFloat(AppState.sliders.peakThreshold.value),
-        plotTop,
-        plotBottom,
-        [5, 5],
-        '78',
-        'Threshold (' +
-          parseFloat(AppState.sliders.peakThreshold.value).toFixed(3) +
-          ' \u03bcS)',
-      );
-      // Phasic view: peak amplitudes ARE on this axis, so draw the full SCR
-      // treatment (shaded region + onset dot) and skip the missing Filtered
-      // half (showLowerMarker=true, showUpperMarker=false).
-      GSRRenderer.drawPeakMarkers(
-        AppState.viewStartTime,
-        viewEndTime,
-        0,
-        1,
-        plotTop,
-        plotBottom,
-        yMinLower,
-        yMaxLower,
-        plotTop,
-        plotBottom,
-        true,
-        false,
-      );
-      GSRRenderer.drawHotspotMarkers(
-        AppState.viewStartTime,
-        viewEndTime,
-        0,
-        1,
-        plotTop,
-        plotBottom,
-        yMinLower,
-        yMaxLower,
-        plotTop,
-        plotBottom,
-        true,
-        false,
-      );
-    } else {
-      if (lowerCfg.allowNegative)
-        drawRefLine(0, plotTop, plotBottom, [2, 3], '50', null);
-      // Tonic / Peak Density / AUC / Arousal: a peak's \u00b5S amplitude means
-      // nothing on a \u00b5S\u00b7s / /min / z axis, so mark each peak (and hotspot) as a
-      // dot on THIS curve at its own time \u2014 markerSeries = the plotted series,
-      // U-axis = this metric's range, no phasic lower half.
-      GSRRenderer.drawPeakMarkers(
-        AppState.viewStartTime,
-        viewEndTime,
-        yMinLower,
-        yMaxLower,
-        plotTop,
-        plotBottom,
-        0,
-        1,
-        plotBottom,
-        plotBottom,
-        false,
-        true,
-        lowerSeries,
-      );
-      GSRRenderer.drawHotspotMarkers(
-        AppState.viewStartTime,
-        viewEndTime,
-        yMinLower,
-        yMaxLower,
-        plotTop,
-        plotBottom,
-        0,
-        1,
-        plotBottom,
-        plotBottom,
-        false,
-        true,
-        lowerSeries,
-      );
-    }
-
-    GSRRenderer.handleScrubber(
-      AppState.viewStartTime,
-      viewEndTime,
-      0,
-      1,
-      plotBottom,
-      yMinLower,
-      yMaxLower,
+      yMin,
+      yMax,
       plotTop,
       plotBottom,
+      colorMetric,
+      forceIndices,
+    );
+    GSRRenderer.drawSignalCurve(
+      series,
+      viewStartTime,
+      viewEndTime,
+      yMin,
+      yMax,
+      plotTop,
+      plotBottom,
+      colorMetric,
+      2,
+      forceIndices,
     );
   }
 
-  // Overview timeline bar \u2014 pinned to the bottom, unless the panel is too short
-  if (showTimeline)
-    GSRRenderer.drawTimelineOverview(innerWidth, timelineHeight);
+  if (cfg.showPeakOverlay) {
+    const threshold = parseFloat(AppState.sliders.peakThreshold.value);
+    _drawRefLine(
+      yOf(threshold),
+      [5, 5],
+      colorPeak,
+      '78',
+      `Threshold (${threshold.toFixed(3)} μS)`,
+    );
+    // Phasic view: peak amplitudes ARE on this axis, so draw the full SCR
+    // treatment (shaded region + onset dot) and skip the missing Filtered
+    // half (showLowerMarker=true, showUpperMarker=false).
+    _drawPeakAndHotspotMarkers(
+      viewStartTime,
+      viewEndTime,
+      0,
+      1,
+      plotTop,
+      plotBottom,
+      yMin,
+      yMax,
+      plotTop,
+      plotBottom,
+      true,
+      false,
+    );
+  } else {
+    if (cfg.allowNegative) _drawRefLine(yOf(0), [2, 3], colorPeak, '50', null);
+    // Tonic / Peak Density / AUC / Arousal: a peak's µS amplitude means
+    // nothing on a µS·s / /min / z axis, so mark each peak (and hotspot) as a
+    // dot on THIS curve at its own time — markerSeries = the plotted series,
+    // U-axis = this metric's range, no phasic lower half.
+    _drawPeakAndHotspotMarkers(
+      viewStartTime,
+      viewEndTime,
+      yMin,
+      yMax,
+      plotTop,
+      plotBottom,
+      0,
+      1,
+      plotBottom,
+      plotBottom,
+      false,
+      true,
+      series,
+    );
+  }
+
+  GSRRenderer.handleScrubber(
+    viewStartTime,
+    viewEndTime,
+    0,
+    1,
+    plotBottom,
+    yMin,
+    yMax,
+    plotTop,
+    plotBottom,
+  );
 }
 
 function updateCanvasCursor() {
