@@ -17,30 +17,6 @@
  */
 export const GSRMapMarkers = {
   /**
-   * Raw-sample index a peak/hotspot marker should be planted at, applying the
-   * optional GPS-latency shift (find the GPS fix at peak.time - peakLatency,
-   * falling back to peak.index). Mirrors the logic manager/peaks.js used
-   * to own inline; kept here so live + single-track + collective can't drift.
-   */
-  resolveLatencyIndex(analyzer, peak, peakLatency) {
-    if (analyzer && typeof analyzer.resolveLatencyIndex === 'function') {
-      return analyzer.resolveLatencyIndex(peak, peakLatency);
-    }
-    if (!(peakLatency > 0)) return peak.index;
-    const shiftedTime = Math.max(0, peak.time - peakLatency);
-    const si = analyzer.findClosestIndex(shiftedTime);
-    return si >= 0 ? si : peak.index;
-  },
-
-  /** { lat, lon } for a marker, with latency applied. Returns null when the
-   *  analyser has no coordinates at that index (e.g. a GPS-less packet). */
-  hotspotMarkerCoords(analyzer, peak, peakLatency) {
-    return analyzer.getCoordinates(
-      GSRMapMarkers.resolveLatencyIndex(analyzer, peak, peakLatency),
-    );
-  },
-
-  /**
    * Leaflet divIcon for an unlabelled, non-hotspot peak: a small
    * quality-neutral --color-peak red dot, no per-track colour, no animation
    * (hotspots are the visually dominant layer).

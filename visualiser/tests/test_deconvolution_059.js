@@ -28,6 +28,7 @@ global.window = global;
 global.GSR_CONST = require('../src/core/constants.mjs').GSR_CONST;
 
 const { loadModule } = require('./support/load_module.js');
+const { GeoUtils } = require('../src/gps/geo_utils.mjs');
 
 loadModule(path.join(__dirname, '../src/signal/dwt_filter.mjs'));
 loadModule(path.join(__dirname, '../src/signal/gsr_filter.mjs'));
@@ -357,7 +358,7 @@ assertEq(
     for (let j = i + 1; j < coords.length; j++) {
       minPair = Math.min(
         minPair,
-        on._haversineMeters(
+        GeoUtils.haversineMeters(
           coords[i].lat,
           coords[i].lon,
           coords[j].lat,

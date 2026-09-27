@@ -237,8 +237,7 @@ export class GSRGlobeBase {
     // Mirrors of the 2D sidebar sliders, refreshed from the gpsParams the host
     // passes into renderData(): Track Width (gpsTrackWeight, px) for the ground
     // path, and Peak latency (gpsPeakLatency, s) for shifting peak/hotspot
-    // markers to the GPS fix that many seconds earlier — see _latencyCoords()
-    // and map.js:_resolveLatencyIndex.
+    // markers to the GPS fix that many seconds earlier — see _latencyCoords().
     this.trackWidth = options.trackWidth || 5;
     this.peakLatency = 0;
     // Panel-header layer toggles that mirror the 2D map's. Hotspots are

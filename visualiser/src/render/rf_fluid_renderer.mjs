@@ -420,7 +420,7 @@ export class RFFluidRenderer {
       const lat = pt.lat;
       const lon = pt.lon;
 
-      // A momentary RF spike (pt.isRfPeak, see GSRAnalyzer._detectRfPeakIndices())
+      // A momentary RF spike (pt.isRfPeak, see signal/rf_peaks.mjs)
       // always gets its own node — otherwise this spatial dedup silently erases
       // exactly the brief emissions this renderer exists to show, and multi-track
       // collective sessions revisiting the same spot make that far more likely.

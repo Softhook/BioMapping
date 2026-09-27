@@ -17,21 +17,15 @@ export class GSRGlobePeaks extends GSRGlobeRf {
   /**
    * Ground position for a peak/hotspot marker, shifted back by the Peak-latency
    * slider so the spire lands on the GPS fix `peakLatency` seconds before the
-   * arousal peak — the 3D counterpart of map.js:_resolveLatencyIndex. Height and
+   * arousal peak — via GSRAnalyzer.resolveLatencyIndex, as on the 2D map. Height and
    * value still come from `peak.index` (the actual peak sample), matching the 2D
    * map, which keeps the amplitude from the peak while planting the marker at the
    * shifted fix.
    */
   _latencyCoords(analyzer, peak) {
-    const lat = this.peakLatency || 0;
-    if (analyzer && typeof analyzer.resolveLatencyIndex === 'function') {
-      return analyzer.getCoordinates(analyzer.resolveLatencyIndex(peak, lat));
-    }
-    if (!(lat > 0) || typeof analyzer.findClosestIndex !== 'function') {
-      return analyzer.getCoordinates(peak.index);
-    }
-    const si = analyzer.findClosestIndex(Math.max(0, (peak.time || 0) - lat));
-    return analyzer.getCoordinates(si >= 0 ? si : peak.index);
+    return analyzer.getCoordinates(
+      analyzer.resolveLatencyIndex(peak, this.peakLatency || 0),
+    );
   }
 
   /**

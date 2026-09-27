@@ -509,7 +509,7 @@ export const GpsPipeline = {
    *
    * @param {Set<number>} [forceIndexSet] - analyzer.raw row indices (matched
    *   against each point's .origIdx) that must survive the stride even when
-   *   they'd otherwise be skipped — see GSRAnalyzer._detectRfPeakIndices().
+   *   they'd otherwise be skipped — see detectRfPeakIndices() in signal/rf_peaks.mjs.
    */
   downsampleForDisplay(gpsPoints, sampleRate, doDownsample, forceIndexSet) {
     const step = doDownsample ? Math.max(1, Math.round(sampleRate)) : 1;
@@ -582,7 +582,7 @@ export const GpsPipeline = {
    *
    * @param {Set<number>} [forceIndexSet] - analyzer.raw row indices (matched
    *   against each point's .origIdx) that must never be dropped, regardless
-   *   of perpendicular distance — see GSRAnalyzer._detectRfPeakIndices().
+   *   of perpendicular distance — see detectRfPeakIndices() in signal/rf_peaks.mjs.
    *   Plain RDP only reasons about geometric shape, so a momentary RF spike
    *   sitting on an otherwise-straight segment would normally fall below
    *   tolerance and vanish.

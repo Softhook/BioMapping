@@ -19,6 +19,7 @@ loadModule(path.join(__dirname, '../src/signal/analyzer_time_format.mjs'));
 
 const { GSRAnalyzer } = require('../src/signal/analyzer.mjs');
 const { GSRCSVParser } = require('../src/signal/csv_parser.mjs');
+const { detectRfPeakIndices } = require('../src/signal/rf_peaks.mjs');
 // The parser completes embedded settings from the real shipped defaults.
 const { GSR_CONST: REAL_CONST } = require('../src/core/constants.mjs');
 
@@ -509,7 +510,7 @@ test('GSRAnalyzer computeTemporalPeakDensity: Gaussian KDE scaled by spotlight w
   assert.ok(d3[1].val > valBefore, 'active peak at t=30 increases density');
 });
 
-// ── GSRCSVParser statics: _csvEscape / _detectRfPeakIndices ─────────────────
+// ── GSRCSVParser._csvEscape / detectRfPeakIndices ───────────────────────────
 
 test('GSRCSVParser._csvEscape: RFC4180 double-quote escaping', () => {
   assert.strictEqual(GSRCSVParser._csvEscape(null), '');
@@ -522,9 +523,9 @@ test('GSRCSVParser._csvEscape: RFC4180 double-quote escaping', () => {
   assert.strictEqual(GSRCSVParser._csvEscape(123), '"123"');
 });
 
-test('GSRCSVParser._detectRfPeakIndices: momentary spike on any band', () => {
+test('detectRfPeakIndices: momentary spike on any band', () => {
   // Middle sample is 5 dB above both neighbours -> spike
-  const spike = GSRCSVParser._detectRfPeakIndices([
+  const spike = detectRfPeakIndices([
     { rssi_868: -100 },
     { rssi_868: -95 },
     { rssi_868: -100 },
@@ -532,7 +533,7 @@ test('GSRCSVParser._detectRfPeakIndices: momentary spike on any band', () => {
   assert.deepStrictEqual([...spike], [1]);
 
   // Gradual/no prominent peak -> empty set
-  const noSpike = GSRCSVParser._detectRfPeakIndices([
+  const noSpike = detectRfPeakIndices([
     { rssi_868: -100 },
     { rssi_868: -101 },
     { rssi_868: -100 },
@@ -540,7 +541,7 @@ test('GSRCSVParser._detectRfPeakIndices: momentary spike on any band', () => {
   assert.strictEqual(noSpike.size, 0);
 
   // Spike on the first row (no previous neighbour) is still detected
-  const boundary = GSRCSVParser._detectRfPeakIndices([
+  const boundary = detectRfPeakIndices([
     { rssi_868: -95 },
     { rssi_868: -100 },
     { rssi_868: -100 },
@@ -548,7 +549,7 @@ test('GSRCSVParser._detectRfPeakIndices: momentary spike on any band', () => {
   assert.deepStrictEqual([...boundary], [0]);
 
   // Spike on a different band is found too
-  const otherBand = GSRCSVParser._detectRfPeakIndices([
+  const otherBand = detectRfPeakIndices([
     { rssi_915: -90 },
     { rssi_915: -85 },
     { rssi_915: -90 },

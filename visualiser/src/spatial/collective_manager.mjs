@@ -573,9 +573,7 @@ export class GSRCollectiveManager {
       t.analyzer.peaks.forEach((pk) => {
         if (pk.excluded) return;
         const coords = t.analyzer.getCoordinates(
-          typeof t.analyzer.resolveLatencyIndex === 'function'
-            ? t.analyzer.resolveLatencyIndex(pk, lags.phasic)
-            : pk.index,
+          t.analyzer.resolveLatencyIndex(pk, lags.phasic),
         );
         if (coords) {
           const amplitude = useNormalization

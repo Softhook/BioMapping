@@ -17,6 +17,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const path = require('node:path');
+const { GSRAnalyzer } = require('../src/signal/analyzer.mjs');
 
 const APP_DIR = path.join(__dirname, '..');
 const GLOBE3D = path.join(APP_DIR, 'src', 'map', 'globe3d.mjs');
@@ -1004,6 +1005,7 @@ function parityTrack() {
     peaks,
     memorableEvents: [peaks[1]], // a hotspot IS a peak (same object, as in analyzer.js)
     getCoordinates: (i) => ({ lat: i * 0.001, lon: i * 0.001 }),
+    resolveLatencyIndex: (pk) => pk.index,
   };
   const drawPoints = [
     { lat: 0, lon: 0, time: 0, origIdx: 0 },
@@ -1093,6 +1095,8 @@ test('renderData shifts peak/hotspot markers by the Peak-latency slider (gpsPara
       return { lat: i * 0.001, lon: i * 0.001 };
     },
     findClosestIndex: (t) => Math.max(0, Math.round(t)),
+    resolveLatencyIndex: GSRAnalyzer.prototype.resolveLatencyIndex,
+    stimulusIndexAt: GSRAnalyzer.prototype.stimulusIndexAt,
   };
   const drawPoints = [
     { lat: 0, lon: 0, time: 0, origIdx: 0 },
@@ -1198,6 +1202,8 @@ test('focusOnPeakLocation hides the peak circle, not the latency-connector line'
     memorableEvents: [],
     getCoordinates: (i) => ({ lat: i * 0.001, lon: i * 0.001 }),
     findClosestIndex: (t) => Math.max(0, Math.round(t)),
+    resolveLatencyIndex: GSRAnalyzer.prototype.resolveLatencyIndex,
+    stimulusIndexAt: GSRAnalyzer.prototype.stimulusIndexAt,
   };
   const drawPoints = [
     { lat: 0, lon: 0, time: 0, origIdx: 0 },
@@ -1778,6 +1784,7 @@ function hotspotTourFixture(n, peaks, memorableEvents) {
     peaks,
     memorableEvents: memorableEvents || peaks,
     getCoordinates: (i) => ({ lat: 51.5 + i * 0.0005, lon: -0.1 }),
+    resolveLatencyIndex: (pk) => pk.index,
   };
   return { drawPoints, phasic, analyzer };
 }
@@ -2608,6 +2615,7 @@ function replayTrack(mgr, n, extra = {}) {
     peaks: extra.peaks || [],
     memorableEvents: extra.memorableEvents || [],
     getCoordinates: (i) => ({ lat: 51.5 + i * 0.0005, lon: -0.1 }),
+    resolveLatencyIndex: (pk) => pk.index,
   };
   mgr.currentPeaks = mgr.currentAnalyzer.peaks;
   mgr.activeColoringMetric = 'phasic';

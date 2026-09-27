@@ -40,19 +40,19 @@ Every maintainability, performance, and testability issue traces back to one of 
 
 > Extract domain logic that has leaked into the wrong layer. Medium risk, guided by tests.
 
-| # | Change | File(s) |
-|---|---|---|
-| 10 | Move `_haversineMeters` from `analyzer.mjs` → use `GeoUtils.haversineMeters` | `signal/analyzer.mjs` |
-| 11 | Move `_interpolateGPS` from `csv_parser.mjs` → `gps_pipeline.mjs` | `signal/csv_parser.mjs`, `gps/gps_pipeline.mjs` |
-| 12 | Move `_detectRfPeakIndices` from `csv_parser.mjs` → separate RF pipeline | `signal/csv_parser.mjs` |
-| 13 | Move `getHeadingAtPeak` from `map_popups.mjs` → `GeoUtils` | `map/map_popups.mjs`, `gps/geo_utils.mjs` |
-| 14 | Move `resolveLatencyIndex` from `map_markers.mjs` → `GSRAnalyzer` or `GpsTiming` | `map/map_markers.mjs` |
-| 15 | Move `_buildOverlapCells` from `map_base.mjs` → `path_overlap_pooler.mjs` | `map/map_base.mjs` |
-| 16 | Move `_buildDisplayCache` from `analyzer.mjs` → UI view-model adapter | `signal/analyzer.mjs` |
-| 17 | Move OSM building fetch from `globe3d_view.mjs` → `OSMEnricher` / `OsmBuildingService` | `map/globe3d_view.mjs`, `osm/osm_enrichment.mjs` |
-| 18 | Move `_showRestoreFsPill` from `tracks.mjs` → `core/fullscreen.mjs` | `ui/tracks.mjs`, `core/fullscreen.mjs` |
-| 19 | Remove DOM manipulation and `click()` simulation from `collective_project.mjs` | `spatial/collective_project.mjs` |
-| 20 | Eliminate per-point `.bind()` in `osm_enrichment._evaluatePosition` | `osm/osm_enrichment.mjs` |
+| # | Change | File(s) | Status |
+|---|---|---|---|
+| 10 | Move `_haversineMeters` from `analyzer.mjs` → use `GeoUtils.haversineMeters` | `signal/analyzer.mjs` | ✅ Done |
+| 11 | Move `_interpolateGPS` from `csv_parser.mjs` → `gps_pipeline.mjs` | `signal/csv_parser.mjs`, `gps/gps_pipeline.mjs` | Investigate — the parser's linear gap-fill and the pipeline's Hermite rebuild overlap; A/B test before moving |
+| 12 | Move `_detectRfPeakIndices` from `csv_parser.mjs` → separate RF pipeline | `signal/csv_parser.mjs` | ✅ Done — now `signal/rf_peaks.mjs` |
+| 13 | Move `getHeadingAtPeak` from `map_popups.mjs` → `GeoUtils` | `map/map_popups.mjs`, `gps/geo_utils.mjs` | Skipped — already uses `GeoUtils.bearingDeg`; the rest reads analyzer data |
+| 14 | Move `resolveLatencyIndex` from `map_markers.mjs` → `GSRAnalyzer` or `GpsTiming` | `map/map_markers.mjs` | ✅ Done — analyzer method used directly; fallback copies removed |
+| 15 | Move `_buildOverlapCells` from `map_base.mjs` → `path_overlap_pooler.mjs` | `map/map_base.mjs` | Optional — cosmetic move |
+| 16 | Move `_buildDisplayCache` from `analyzer.mjs` → UI view-model adapter | `signal/analyzer.mjs` | Skipped — analyzer computing ranges of its own series |
+| 17 | Move OSM building fetch from `globe3d_view.mjs` → `OSMEnricher` / `OsmBuildingService` | `map/globe3d_view.mjs`, `osm/osm_enrichment.mjs` | Skipped — claim wrong: no HTTP in `globe3d_view.mjs`, it goes through `OsmCache` |
+| 18 | Move `_showRestoreFsPill` from `tracks.mjs` → `core/fullscreen.mjs` | `ui/tracks.mjs`, `core/fullscreen.mjs` | Optional — cosmetic move |
+| 19 | Remove DOM manipulation and `click()` simulation from `collective_project.mjs` | `spatial/collective_project.mjs` | Skipped — clicking the view button reuses the tested mode-switch path |
+| 20 | Eliminate per-point `.bind()` in `osm_enrichment._evaluatePosition` | `osm/osm_enrichment.mjs` | Skipped — no measurable cost |
 
 ---
 

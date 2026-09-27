@@ -38,6 +38,7 @@ function makeAnalyzer(points, opts = {}) {
   return {
     raw: new Array(points.length).fill(0),
     getCoordinates: (i) => points[i] || null,
+    resolveLatencyIndex: (pk) => pk.index,
     sampleRate: opts.sampleRate !== undefined ? opts.sampleRate : 1,
     phasic: opts.phasic || [],
     phasicZ: opts.phasicZ || [],
@@ -714,6 +715,7 @@ test('§C generateContourSurface: contour count and segment structure unchanged 
     return {
       raw: new Array(n).fill(0),
       getCoordinates: (i) => points[i] || null,
+      resolveLatencyIndex: (pk) => pk.index,
       sampleRate: 1,
       phasic: vals.map((v, i) => ({ time: i, val: v })),
       phasicZ: vals.map((v, i) => ({ time: i, val: v })),

@@ -144,7 +144,7 @@ export class GSRMapViewport extends GSRMapProcess {
     if (!peak) return;
     const peakLatency = gpsParams?.peakLatency || 0;
     const coords = analyzer.getCoordinates(
-      this._resolveLatencyIndex(analyzer, peak, peakLatency),
+      analyzer.resolveLatencyIndex(peak, peakLatency),
     );
     if (!coords || isNaN(coords.lat) || isNaN(coords.lon)) return;
 

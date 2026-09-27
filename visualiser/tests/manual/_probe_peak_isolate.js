@@ -403,7 +403,7 @@ const check = () => {
         unresolvable = 0;
       const firstFew = [];
       anal.peaks.forEach((peak, index) => {
-        const si = mm._resolveLatencyIndex(anal, peak, peakLatency);
+        const si = anal.resolveLatencyIndex(peak, peakLatency);
         const coords = anal.getCoordinates(si);
         if (coords && !isNaN(coords.lat) && !isNaN(coords.lon)) {
           resolvable++;

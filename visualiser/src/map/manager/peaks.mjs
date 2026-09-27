@@ -45,7 +45,7 @@ export class GSRMapPeaks extends GSRMapPath {
         : null;
 
       // Apply latency: find GPS position at (peak time - latency)
-      const si = this._resolveLatencyIndex(analyzer, peak, peakLatency);
+      const si = analyzer.resolveLatencyIndex(peak, peakLatency);
       const coords = analyzer.getCoordinates(si);
       if (!coords) return;
       const pt = map.latLngToLayerPoint([coords.lat, coords.lon]);
@@ -268,7 +268,9 @@ export class GSRMapPeaks extends GSRMapPath {
     const index = analyzer.peaks.indexOf(peak);
     if (index < 0) return null;
 
-    const coords = this._hotspotMarkerCoords(analyzer, peak, peakLatency);
+    const coords = analyzer.getCoordinates(
+      analyzer.resolveLatencyIndex(peak, peakLatency),
+    );
     if (!coords) return null;
 
     const layerGroup = track ? track.layerGroup : null;
@@ -332,7 +334,7 @@ export class GSRMapPeaks extends GSRMapPath {
   /**
    * Collective/multi-track counterpart to _renderHotspotMarkers() — same
    * shared icon (GSRMapPeaks._buildHotspotIcon()) and position math
-   * (_hotspotMarkerCoords()), so the two views can't visually drift apart.
+   * (analyzer.resolveLatencyIndex()), so the two views can't visually drift apart.
    * Popup/interaction wiring follows the existing collective peak-marker
    * convention instead of the single-track one: bindPopup only, no
    * click-to-focus — collective view has no single "active track" for a
@@ -394,7 +396,7 @@ export class GSRMapPeaks extends GSRMapPath {
       const origCoords = track.analyzer.getCoordinates(peak.index);
 
       // Shifted position (with latency)
-      const si = this._resolveLatencyIndex(track.analyzer, peak, peakLatency);
+      const si = track.analyzer.resolveLatencyIndex(peak, peakLatency);
       const coords = track.analyzer.getCoordinates(si);
       if (coords) {
         const pt = map.latLngToLayerPoint([coords.lat, coords.lon]);
@@ -560,27 +562,6 @@ export class GSRMapPeaks extends GSRMapPath {
   _trackPeakLatency(track) {
     const v = track?.gpsFilterParams?.peakLatency;
     return Number.isFinite(v) ? v : GSR_CONST.GPS_DEFAULT.peakLatency;
-  }
-
-  /**
-   * Resolve the raw-sample index a marker should be positioned at, applying
-   * the optional GPS-latency shift (find the GPS fix at peak.time -
-   * peakLatency instead of peak.time itself, falling back to peak.index if
-   * nothing is found there). Shared by _renderPeakMarkers(),
-   * _renderHotspotMarkers() and _renderCollectiveTrackHotspots().
-   * @private
-   */
-  _resolveLatencyIndex(analyzer, peak, peakLatency) {
-    return GSRMapMarkers.resolveLatencyIndex(analyzer, peak, peakLatency);
-  }
-
-  /**
-   * Resolve the {lat, lon} position for a hotspot marker. Shared by both
-   * _renderHotspotMarkers() and _renderCollectiveTrackHotspots().
-   * @private
-   */
-  _hotspotMarkerCoords(analyzer, peak, peakLatency) {
-    return GSRMapMarkers.hotspotMarkerCoords(analyzer, peak, peakLatency);
   }
 
   static _buildHotspotIcon() {

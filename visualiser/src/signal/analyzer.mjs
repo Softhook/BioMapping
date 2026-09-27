@@ -8,6 +8,7 @@
 // CSV parsing lives in a dedicated pure module (csv_parser.js) so it can be
 // tested independently; imported directly below.
 import { GSR_CONST } from '../core/constants.mjs';
+import { GeoUtils } from '../gps/geo_utils.mjs';
 import { AnalyzerExport } from './analyzer_export.mjs';
 import { AnalyzerStats } from './analyzer_stats.mjs';
 import { AnalyzerTimeFormat } from './analyzer_time_format.mjs';
@@ -94,7 +95,7 @@ export class GSRAnalyzer {
 
     this.rfPeakIndices = new Set(); // this.raw row indices with a momentary RF
     // spike on any band — must survive map
-    // simplification, see _detectRfPeakIndices()
+    // simplification, see signal/rf_peaks.mjs
 
     // Bumped by analyze()/setPeakLabel()/setPeakExcluded() (and by
     // OSMEnricher.enrichTrack() after it finishes writing osm_* fields onto
@@ -1890,33 +1891,6 @@ export class GSRAnalyzer {
   }
 
   /**
-   * Resolve the raw-sample index a hotspot's position should be evaluated
-   * at, applying the same GPS-latency shift the map actually renders
-   * markers with.
-   */
-  _resolveHotspotIndex(peak, peakLatency) {
-    return this.resolveLatencyIndex(peak, peakLatency);
-  }
-
-  /**
-   * Great-circle distance between two lat/lon points, in metres. Mirrors
-   * GeoUtils.haversineMeters (gps/geo_utils.js) — inlined here so the analyzer
-   * stays loadable on its own, without the GPS-utils bundle (several unit
-   * tests load analyzer.js in isolation). Only used for hotspot spacing.
-   * @private
-   */
-  _haversineMeters(lat1, lon1, lat2, lon2) {
-    const R = 6371000;
-    const toRad = Math.PI / 180;
-    const dLat = (lat2 - lat1) * toRad;
-    const dLon = (lon2 - lon1) * toRad;
-    const a =
-      Math.sin(dLat / 2) ** 2 +
-      Math.cos(lat1 * toRad) * Math.cos(lat2 * toRad) * Math.sin(dLon / 2) ** 2;
-    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  }
-
-  /**
    * Build the "hotspot" subset of this.peaks — the biggest SCRs, spread out
    * on the ground so no two crowd the same spot on the map.
    *
@@ -1990,14 +1964,14 @@ export class GSRAnalyzer {
     for (const p of activeSorted) {
       if (selected.length >= targetCount) break;
       const coords = this.getCoordinates(
-        this._resolveHotspotIndex(p, peakLatency),
+        this.resolveLatencyIndex(p, peakLatency),
       );
       if (!coords) continue;
       if (
         minSepM > 0 &&
         selectedCoords.some(
           (c) =>
-            this._haversineMeters(c.lat, c.lon, coords.lat, coords.lon) <
+            GeoUtils.haversineMeters(c.lat, c.lon, coords.lat, coords.lon) <
             minSepM,
         )
       ) {

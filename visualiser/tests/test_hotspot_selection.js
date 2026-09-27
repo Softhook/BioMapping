@@ -17,6 +17,7 @@ const path = require('node:path');
 global.window = global;
 
 const { loadModule } = require('./support/load_module.js');
+const { GeoUtils } = require('../src/gps/geo_utils.mjs');
 loadModule(path.join(__dirname, '../src/signal/dwt_filter.mjs'));
 loadModule(path.join(__dirname, '../src/signal/gsr_filter.mjs'));
 loadModule(path.join(__dirname, '../src/signal/deconvolution.mjs'));
@@ -124,7 +125,7 @@ const Dp = { lat: 51.49, lon: -0.1 }; // far
     for (let j = i + 1; j < coords.length; j++)
       minPair = Math.min(
         minPair,
-        a._haversineMeters(
+        GeoUtils.haversineMeters(
           coords[i].lat,
           coords[i].lon,
           coords[j].lat,

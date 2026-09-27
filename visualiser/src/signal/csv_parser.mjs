@@ -14,6 +14,7 @@
 
 import { GSR_CONST } from '../core/constants.mjs';
 import { calcEmFog, SUB_GHZ_BANDS } from './em_fog.mjs';
+import { detectRfPeakIndices } from './rf_peaks.mjs';
 
 /**
  * Complete a settings object embedded in a CSV (`# FilterParams:` /
@@ -359,49 +360,6 @@ export const GSRCSVParser = {
       r.course = lastGps.course;
       r.hasGps = true;
     }
-  },
-
-  /**
-   * Row indices where at least one Sub-GHz band shows a momentary spike —
-   * a local maximum at least RF_PEAK_PROMINENCE_DB above an adjacent sample.
-   * The map pipeline (GpsPipeline.buildDrawPoints / GpsPipeline.applyRDP,
-   * see manager/process.mjs:_getOrBuildDrawPoints()) treats these as forced vertices so
-   * brief 868/915MHz-class emissions can't be simplified away before they're
-   * ever drawn — plain geometric RDP/stride decimation has no notion of RF
-   * magnitude and will happily erase a spike that sits on an otherwise
-   * straight/stationary stretch of track.
-   * @param {Array<object>} data - Parsed row objects with rssi_* fields
-   * @returns {Set<number>} Indices of momentary RF spikes
-   * @private
-   */
-  _detectRfPeakIndices(data, activeBands = null) {
-    // All Sub-GHz bands unless the caller passes the subset found in the header.
-    const BANDS = activeBands || SUB_GHZ_BANDS.map((b) => b.prop);
-    if (BANDS.length === 0) return new Set();
-    const PROMINENCE_DB = 3.5;
-    const n = data.length;
-    const peakIndices = new Set();
-
-    for (const band of BANDS) {
-      for (let i = 0; i < n; i++) {
-        const v = data[i][band];
-        if (typeof v !== 'number' || isNaN(v)) continue;
-
-        const prev = i > 0 ? data[i - 1][band] : undefined;
-        const next = i < n - 1 ? data[i + 1][band] : undefined;
-        const prevValid = typeof prev === 'number' && !isNaN(prev);
-        const nextValid = typeof next === 'number' && !isNaN(next);
-
-        if (prevValid && v < prev) continue;
-        if (nextValid && v < next) continue;
-
-        const prominent =
-          (prevValid && v - prev >= PROMINENCE_DB) ||
-          (nextValid && v - next >= PROMINENCE_DB);
-        if (prominent) peakIndices.add(i);
-      }
-    }
-    return peakIndices;
   },
 
   /**
@@ -1140,18 +1098,11 @@ export const GSRCSVParser = {
     const hasRfData = hasAnyRf
       ? rawDataList.some(
           (r) =>
-            !isNaN(r.rssi_300) ||
-            !isNaN(r.rssi_315) ||
-            !isNaN(r.rssi_434) ||
-            !isNaN(r.rssi_446) ||
-            !isNaN(r.rssi_815) ||
-            !isNaN(r.rssi_868) ||
-            !isNaN(r.rssi_915) ||
-            !isNaN(r.em_fog),
+            SUB_GHZ_BANDS.some((b) => !isNaN(r[b.prop])) || !isNaN(r.em_fog),
         )
       : false;
     const rfPeakIndices = hasRfData
-      ? GSRCSVParser._detectRfPeakIndices(rawDataList, activeRfBands)
+      ? detectRfPeakIndices(rawDataList, activeRfBands)
       : new Set();
     const hasGpsData = rawDataList.some((r) => r.hasGps);
 

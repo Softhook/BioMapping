@@ -16,6 +16,7 @@ global.window = global;
 global.GSR_CONST = require('../src/core/constants.mjs').GSR_CONST;
 
 const { loadModule } = require('./support/load_module.js');
+const { GeoUtils } = require('../src/gps/geo_utils.mjs');
 
 loadModule(path.join(__dirname, '../src/gps/geo_utils.mjs'));
 loadModule(path.join(__dirname, '../src/signal/stats_math.mjs'));
@@ -1162,7 +1163,7 @@ assert(
     for (let j = i + 1; j < meCoords.length; j++) {
       meMinPair = Math.min(
         meMinPair,
-        deconvAnalyzer2._haversineMeters(
+        GeoUtils.haversineMeters(
           meCoords[i].lat,
           meCoords[i].lon,
           meCoords[j].lat,

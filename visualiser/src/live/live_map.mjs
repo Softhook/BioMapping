@@ -417,9 +417,7 @@ function _syncLiveMapMarkerSet(markerMap, peaks, iconBuilder) {
   // Add the new ones (skip any without GPS — a live packet can lack a fix).
   for (const [key, peak] of wanted) {
     if (markerMap.has(key)) continue;
-    const coords = A.getCoordinates(
-      GSRMapMarkers.resolveLatencyIndex(A, peak, 0),
-    );
+    const coords = A.getCoordinates(peak.index);
     if (!coords) continue;
     const marker = L.marker([coords.lat, coords.lon], { icon: iconBuilder(L) });
     marker.addTo(liveMap);

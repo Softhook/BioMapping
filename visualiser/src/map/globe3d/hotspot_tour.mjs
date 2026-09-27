@@ -197,8 +197,7 @@ export class GSRGlobeHotspotTour extends GSRGlobeNavigation {
     // Sample indices of every peak — both where it was recorded and, with a
     // Peak-latency shift, where its marker sits.
     const a = this.currentAnalyzer;
-    const shiftLatency =
-      this.peakLatency > 0 && typeof a?.resolveLatencyIndex === 'function';
+    const shiftLatency = this.peakLatency > 0 && !!a;
     const peakOrigIdx = new Set();
     for (const pk of this.currentPeaks || []) {
       if (!pk) continue;

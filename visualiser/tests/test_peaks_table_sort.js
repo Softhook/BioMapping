@@ -7,6 +7,7 @@
 const assert = require('node:assert');
 const test = require('node:test');
 const { bootApp } = require('./support/boot_app.js');
+const { GSRAnalyzer } = require('../src/signal/analyzer.mjs');
 
 function createSampleAnalyzer() {
   return {
@@ -52,6 +53,8 @@ function createSampleAnalyzer() {
     getCoordinates(idx) {
       return { lat: 51.5 + idx * 0.001, lon: -0.1 - idx * 0.001 };
     },
+    resolveLatencyIndex: GSRAnalyzer.prototype.resolveLatencyIndex,
+    stimulusIndexAt: GSRAnalyzer.prototype.stimulusIndexAt,
     findClosestIndex(t) {
       if (!this.raw || this.raw.length === 0) return -1;
       let closest = 0;
