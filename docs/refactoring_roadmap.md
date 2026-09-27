@@ -67,11 +67,32 @@ handling (RecordingStartTime, FilterParams, band floors, device lines…) is
 pure text processing and can become its own function. Verify byte-identical
 parse output over all 73 tracks.
 
-### 5. Pull the NN-LASSO solver out of `deconvolution.mjs`
-The linear-algebra helpers (`_norm2`, `_dot`, `_solveUpperTriangular`,
-`_updateChol`, `_cholDelete`) and `_runReferenceLasso` are a general solver
-inside the deconvolution model. Move them to their own file. Verify
-byte-identical output, and run `check_ground_truth.sh` before and after.
+### 5. One file per deconvolution method
+`signal/deconvolution.mjs` (~1440 lines) holds two separate published methods.
+Give each its own file, the way `cvxeda.mjs` already is:
+
+- **`signal/sparseda.mjs`** (~900 lines) — `_deconvolveSparsEDA` plus
+  everything only it uses: `REFERENCE_STRETCHES`, `_buildReferenceDictionary`,
+  `_runReferenceLasso`, the Cholesky/linear-algebra helpers (`_norm2`, `_dot`,
+  `_solveUpperTriangular`, `_updateChol`, `_cholDelete`) and the resampling
+  helpers (`_gcd`, `_resampledLength`, `_polyphaseResample`,
+  `_linearResampleTo`, `_linearResampleBack`, `_resampleSparseDriverBack`).
+  Keep the LASSO solver inside this file: it is a faithful port of the
+  reference SparsEDA solver (sample-rate stopping rule, `strictReference`
+  quirks), not a general-purpose tool, and nothing else uses it.
+- **`signal/matching_pursuit.mjs`** (~90 lines) — `_deconvolveMP`.
+- **`signal/deconvolution.mjs`** keeps what both share: `buildSCRFKernel`,
+  `convolve`, `detectImpulses`, `reconstructPhasic`, and `deconvolve()` as the
+  single entry point that picks the method — so `analyzer.mjs` doesn't change.
+
+Also fix the file header: it calls matching pursuit "retained for backward
+compatibility", but it is the **default** algorithm for the Deconvolution
+detector (`deconvAlgorithm: 'matching_pursuit'` in `constants.mjs`).
+
+Tests that reach into the helpers (`test_sparseda_detection.js` uses
+`_updateChol` / `_cholDelete`) need their imports updated. Verify
+byte-identical output over all 73 tracks with both algorithms, and run
+`check_ground_truth.sh` before and after.
 
 ### 6. Break up `draw()` in `render/sketch.mjs`
 ~590 lines in one function. Split into steps (layout, value ranges, axes,
