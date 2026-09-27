@@ -10,6 +10,7 @@
  */
 import { AppState } from '../core/app_state.mjs';
 import { GSR_CONST } from '../core/constants.mjs';
+import { GpsPipeline } from '../gps/gps_pipeline.mjs';
 import { JunctionResponse } from '../gps/junction_response.mjs';
 import { OSMEnricher } from '../osm/osm_enrichment.mjs';
 import { PhysioLatency } from '../signal/physio_latency.mjs';
@@ -45,11 +46,21 @@ export const EnvironmentalDashboardUI = {
         : PhysioLatency.fromSlider();
     const latencySig = activeTracks.map(latencyOf).join(',');
     const trackIdsStr = activeTracks.map((t) => t.id).join(',');
+    // Positions come from the smoothed path the map draws — built here too,
+    // since a walk the map hasn't drawn yet has none.
+    for (const t of activeTracks) {
+      GpsPipeline.ensureFilteredGps(
+        t.analyzer,
+        t.gpsFilterParams ||
+          AppState.collectiveManager?.getTrack?.(t.id)?.gpsFilterParams,
+      );
+    }
     // Per-track mutation fingerprint (analyzer._dataVersion is bumped by
-    // analyze(), setPeakLabel(), setPeakExcluded(), enrichTrack()). In the
-    // cache key, so the cache self-invalidates on any of them.
+    // analyze(), setPeakLabel(), setPeakExcluded(), enrichTrack(); _pathKey
+    // changes with the GPS settings). In the cache key, so the cache
+    // self-invalidates on any of them.
     const versionSig = activeTracks
-      .map((t) => t.analyzer?._dataVersion || 0)
+      .map((t) => `${t.analyzer?._dataVersion || 0}/${t.analyzer?._pathKey}`)
       .join(',');
 
     // Cache on the analyzer (single active mode) or the collective manager

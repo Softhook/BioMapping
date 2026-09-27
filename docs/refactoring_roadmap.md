@@ -84,24 +84,29 @@ real browser (the only new message not yet seen on screen).
 ~755 lines mixing file loading and the sidebar track list. Separate the file
 loading (CSV/zip/demo) from the list rendering. Lower value than items 2–6.
 
-### 8. GPS gaps filled twice — investigated, keep both (decision pending)
+### 8. GPS gaps filled twice — done: analyses now use the drawn path
 Measured on the 58 tracks with GPS (default settings), parser position vs
-`filteredGps`: at real fixes median 0.6 m / 95th percentile 9 m (Kalman
-smoothing); on filled-in rows median 1.7 m / p95 32 m; on rows more than
-5 s into a dropout median 13 m / p95 51 m.
+`filteredGps`: at real fixes median 0.6 m / p95 9 m (Kalman smoothing); on
+filled rows between fixes median 1.4 m / p95 16 m; more than 5 s into a
+mid-walk dropout median 10 m / p95 33 m; before the first / after the last
+fix median 13 m / p95 60 m.
 
-The parser's straight-line fill is **still needed**: `filteredGps` only
-exists once the map has processed the track and is deliberately blank across
-impossible jumps, so `analyzer.getCoordinates()` falls back to it; OSM
-enrichment uses it on purpose (`preferRaw`, avoids snap feedback); NDVI
-sampling and `hasGps` flags read it too. Not a duplicate to delete.
+The parser's straight-line fill stays (it is the fallback where the smoothed
+path is blank). `GpsPipeline.ensureFilteredGps()` now builds the smoothed path
+on demand, and the map, the scrub dot, Arousal Places dwell/energy, NDVI
+sampling and the Environmental dashboard all read it (map output identical on
+all 58 tracks; Arousal Places: same places on all 53 tracks with peaks,
+ranking changed on 12).
 
-Open question (behaviour change, not a refactor): three readers use the
-parser's path where the drawn path may be expected — the 2D map scrub dot
-(`renderer_interaction.mjs`, emits raw `lat/lon`), Arousal Places
-(`spatial/arousal_places.mjs`) and NDVI sampling. In dropouts the scrub dot
-can sit ~13–50 m off the drawn line. Switching them to `getCoordinates()`
-needs its own A/B check (the smoothing also hides multipath jumps).
+Still open:
+- **GPS warm-up rows.** Rows before the first fix (up to 4½ min) have no real
+  position; both paths pin them to the first position. Arousal Places then
+  credits that time's skin responses to whichever place the pinned point falls
+  in — this caused the largest ranking moves (e.g. biomap_016's #2 → #13).
+  Probably those rows should count as "no position".
+- **OSM enrichment** still reads the parser path on purpose (`preferRaw`): the
+  drawn path includes the road-snap pull, which comes from enrichment itself.
+  Using the smoothed path *before* the snap would avoid that loop.
 
 ### Optional (cosmetic moves, only if touching the file anyway)
 - Move the path-overlap code (`_buildOverlapCells` and friends, ~200 lines of

@@ -10,8 +10,10 @@
  *                      jump is impossible)
  *   buildDrawPoints + applyRDP → display thinning
  *
- * GSRMapManager (map/manager/process.mjs) runs them in that order and caches
- * the result.
+ * ensureFilteredGps runs the first three and leaves the smoothed path on
+ * the analyzer (analyzer.filteredGps). The map (map/manager/process.mjs) and
+ * every analysis that needs positions call it, so they all use the path the
+ * map draws; the map then adds buildDrawPoints + applyRDP and caches those.
  */
 import { GeoUtils } from './geo_utils.mjs';
 import { GpsCvKalman } from './gps_cv_kalman.mjs';
@@ -456,6 +458,76 @@ export const GpsPipeline = {
 
     GpsPipeline.reconstructFilteredGps(analyzer, data, gpsPoints, maxSpeed);
     analyzer._filteredGpsCacheKey = key;
+  },
+
+  /**
+   * Fingerprint of road-snap data, so cached paths are rebuilt when OSM
+   * enrichment produces different snap results. O(n) rolling hash over every
+   * entry — a first/mid/last sample missed a mid-track re-snap that left
+   * those three positions unchanged.
+   */
+  snapFingerprint(snappedGps) {
+    if (!snappedGps) return 'nosnap';
+    const keys = Object.keys(snappedGps);
+    const n = keys.length;
+    if (n === 0) return 'nosnap';
+    let hash = 0;
+    for (const key of keys) {
+      const sg = snappedGps[key];
+      const alpha = sg && typeof sg.alpha === 'number' ? sg.alpha : -1;
+      hash = (Math.imul(hash, 31) + Number(key)) | 0;
+      hash = (Math.imul(hash, 31) + Math.round(alpha * 1e3)) | 0;
+    }
+    return `${n}|${hash}`;
+  },
+
+  /**
+   * Make sure analyzer.filteredGps holds the smoothed path for these GPS
+   * settings — the path the map draws — and return the filtered fixes.
+   * The map and every analysis that needs positions (via
+   * analyzer.getCoordinates) go through here, so they all use the same path
+   * even when the map has never drawn this track. Skips the work when the
+   * rows, settings and road-snap data are unchanged.
+   *
+   * @param {GSRAnalyzer} analyzer
+   * @param {{maxHdop?: number, maxSpeed?: number}} [params] - the track's gpsFilterParams
+   * @returns {Array<object>} the filtered fixes ([] when the track has none)
+   */
+  ensureFilteredGps(analyzer, params = {}) {
+    const data = analyzer?.raw;
+    if (!data || data.length === 0) return [];
+    const maxHdop = params.maxHdop || 3.0;
+    const maxSpeed =
+      typeof params.maxSpeed === 'number' &&
+      !isNaN(params.maxSpeed) &&
+      params.maxSpeed > 0
+        ? params.maxSpeed
+        : 3.0;
+    const key = `${maxHdop}|${maxSpeed}|${GpsPipeline.snapFingerprint(analyzer.snappedGps)}|${data.length}`;
+    if (analyzer._pathKey === key && analyzer._pathRaw === data) {
+      return analyzer._pathFixes;
+    }
+
+    const fixes = GpsPipeline.collectFixes(data);
+    let gpsPoints = [];
+    if (fixes.length > 0) {
+      gpsPoints = GpsPipeline.filterFixes(
+        fixes,
+        { maxHdop, maxSpeed },
+        analyzer.snappedGps,
+      );
+      // Back onto the 10 Hz grid (analyzer.filteredGps).
+      GpsPipeline.reconstructFilteredGpsCached(
+        analyzer,
+        data,
+        gpsPoints,
+        maxSpeed,
+      );
+    }
+    analyzer._pathKey = key;
+    analyzer._pathRaw = data;
+    analyzer._pathFixes = gpsPoints;
+    return gpsPoints;
   },
 
   /**

@@ -45,6 +45,7 @@
 
 import { SafeStorage } from '../core/safe_storage.mjs';
 import { GeoUtils } from '../gps/geo_utils.mjs';
+import { GpsPipeline } from '../gps/gps_pipeline.mjs';
 import { backoffMs, retryAfterMs } from './http_retry.mjs';
 import { OSMEnricher } from './osm_enrichment.mjs';
 import { decodeFloat32Tiff, hasTiffByteOrderMarker } from './tiff_decoder.mjs';
@@ -901,7 +902,7 @@ export const NDVISampler = {
     let bufferCount = 0;
 
     for (let i = 0; i < validPoints.length; i++) {
-      const pt = validPoints[i].pt || validPoints[i];
+      const { index, pt } = validPoints[i];
       const coords = this.latLonToTile(pt.lat, pt.lon, zoom);
       const gridX = coords.worldX - startTileX * 256;
       const gridY = coords.worldY - startTileY * 256;
@@ -927,8 +928,9 @@ export const NDVISampler = {
         );
       }
 
-      pt.ndvi = pNdvi;
-      pt.ndvi_50m = bNdvi;
+      // pt is the sampled position; the reading belongs on the row.
+      raw[index].ndvi = pNdvi;
+      raw[index].ndvi_50m = bNdvi;
 
       if (!isNaN(pNdvi)) {
         sumNdvi += pNdvi;
@@ -977,6 +979,26 @@ export const NDVISampler = {
   },
 
   /**
+   * The positions to sample, one per row: the smoothed path the map draws
+   * (built here if the map hasn't drawn this walk yet), falling back to the
+   * raw row where the path has none.
+   * @param {Object} track - Track object (with .analyzer and .gpsFilterParams) or an analyzer
+   * @returns {Array<{index: number, pt: {lat: number, lon: number}}>}
+   */
+  _trackPositions(track) {
+    const analyzer = track?.analyzer || track;
+    GpsPipeline.ensureFilteredGps(analyzer, track?.gpsFilterParams);
+    const points = [];
+    for (let i = 0; i < analyzer.raw.length; i++) {
+      const pt = analyzer.getCoordinates(i);
+      if (pt && this._isValidCoord(pt.lat, pt.lon)) {
+        points.push({ index: i, pt });
+      }
+    }
+    return points;
+  },
+
+  /**
    * Sample Point NDVI and 50m Buffer Mean NDVI for all GPS fixes in a track,
    * from the real NDVI raster (see file docstring). Requires a configured
    * Copernicus instance with a working raw layer — throws otherwise rather
@@ -1007,14 +1029,7 @@ export const NDVISampler = {
     const maxTiles = options.maxTiles || 64;
     const adaptiveZoom = options.adaptiveZoom !== false;
 
-    // Filter valid GPS coordinates using unified criteria
-    const validPoints = [];
-    for (let i = 0; i < raw.length; i++) {
-      const pt = raw[i];
-      if (pt && this._isValidCoord(pt.lat, pt.lon)) {
-        validPoints.push({ index: i, pt });
-      }
-    }
+    const validPoints = this._trackPositions(track);
 
     if (validPoints.length === 0) {
       throw new Error('No valid GPS fixes found in track.');
@@ -1024,7 +1039,10 @@ export const NDVISampler = {
 
     // Buffer bounding box to cover the radius around outer fixes
     const bufferDistanceM = radiusM + 50;
-    const bbox = this.calculateBBox(raw, bufferDistanceM);
+    const bbox = this.calculateBBox(
+      validPoints.map((v) => v.pt),
+      bufferDistanceM,
+    );
     if (!bbox) {
       throw new Error('No valid GPS fixes found in track.');
     }
@@ -1157,14 +1175,14 @@ export const NDVISampler = {
     const maxMosaicAreaKm2 = options.maxMosaicAreaKm2 || 16.0;
     const maxMosaicTiles = options.maxMosaicTiles || 64;
 
-    // Filter tracks with valid raw data points
+    // Tracks with at least one position to sample
+    const positionsByTrack = new Map();
     const validTracks = tracks.filter((t) => {
       const a = t?.analyzer || t;
-      return (
-        a &&
-        Array.isArray(a.raw) &&
-        a.raw.some((pt) => pt && this._isValidCoord(pt.lat, pt.lon))
-      );
+      if (!a || !Array.isArray(a.raw)) return false;
+      const points = this._trackPositions(t);
+      positionsByTrack.set(t, points);
+      return points.length > 0;
     });
 
     if (validTracks.length === 0) {
@@ -1178,18 +1196,14 @@ export const NDVISampler = {
       };
     }
 
-    // Combine all raw points across all tracks (using loops to prevent call-stack overflow)
-    const combinedRaw = [];
-    for (let t = 0; t < validTracks.length; t++) {
-      const a = validTracks[t].analyzer || validTracks[t];
-      const r = a.raw;
-      for (let i = 0; i < r.length; i++) {
-        combinedRaw.push(r[i]);
-      }
+    // Combine all positions across all tracks (using loops to prevent call-stack overflow)
+    const combinedPositions = [];
+    for (const t of validTracks) {
+      for (const v of positionsByTrack.get(t)) combinedPositions.push(v.pt);
     }
 
     const bufferDistanceM = radiusM + 50;
-    const unionBBox = this.calculateBBox(combinedRaw, bufferDistanceM);
+    const unionBBox = this.calculateBBox(combinedPositions, bufferDistanceM);
     const unionAreaKm2 = unionBBox
       ? this.calculateBBoxAreaKm2(unionBBox)
       : Infinity;
@@ -1276,13 +1290,7 @@ export const NDVISampler = {
       for (let i = 0; i < validTracks.length; i++) {
         const t = validTracks[i];
         const a = t.analyzer || t;
-        const validPoints = [];
-        for (let p = 0; p < a.raw.length; p++) {
-          const pt = a.raw[p];
-          if (pt && this._isValidCoord(pt.lat, pt.lon)) {
-            validPoints.push({ index: p, pt });
-          }
-        }
+        const validPoints = positionsByTrack.get(t);
 
         if (validPoints.length > 0) {
           this._samplePointsOnGrid(

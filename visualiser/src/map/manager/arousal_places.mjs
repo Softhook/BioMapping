@@ -41,7 +41,7 @@ export class GSRMapArousalPlaces extends GSRMapPeaks {
    * pattern (manager/process.js).
    *
    * @param {Array<{lat,lon,amplitude,trackId,time}>} peaks
-   * @param {Array<{id,sampleRate,raw,phasic}>} scoreTracks - Tracks buildPlaces()
+   * @param {Array<{id,sampleRate,raw,filteredGps,pathKey,phasic}>} scoreTracks - Tracks buildPlaces()
    *   scans for dwell/energy: one entry single-track, N in collective.
    * @param {{collective:boolean, activeTrackCount:number}} view
    * @private
@@ -193,9 +193,10 @@ export class GSRMapArousalPlaces extends GSRMapPeaks {
       else mixS(pk.trackId);
     }
 
-    // Per-track dwell/energy inputs. raw lat/lon are immutable after CSV load
-    // (OSM enrichment only ADDS fields), so raw.length + an osm_road_class
-    // sample is enough for the raw side; phasic is folded in full.
+    // Per-track dwell/energy inputs. Positions come from the smoothed path,
+    // identified by its pathKey (it changes with the GPS settings and road
+    // snap); raw rows only ADD fields after CSV load, so raw.length + an
+    // osm_road_class sample covers them; phasic is folded in full.
     for (let t = 0; t < scoreTracks.length; t++) {
       const trk = scoreTracks[t] || {};
       const raw = Array.isArray(trk.raw) ? trk.raw : [];
@@ -204,6 +205,7 @@ export class GSRMapArousalPlaces extends GSRMapPeaks {
       mixF(trk.sampleRate || 0);
       mixF(trk.latency || 0);
       mixF(raw.length);
+      mixS(trk.pathKey || '-');
       const rn = raw.length;
       for (const k of [0, rn >> 1, rn - 1]) {
         const s = raw[k];

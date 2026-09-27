@@ -21,27 +21,6 @@ export class GSRMapProcess extends GSRMapLayers {
   }
 
   /**
-   * Fingerprint of road-snap data so the cache invalidates when OSM
-   * enrichment produces different snap results. O(n) rolling hash over every
-   * entry — a first/mid/last sample missed a mid-track re-snap that left
-   * those three positions unchanged.
-   */
-  _snapFingerprint(snappedGps) {
-    if (!snappedGps) return 'nosnap';
-    const keys = Object.keys(snappedGps);
-    const n = keys.length;
-    if (n === 0) return 'nosnap';
-    let hash = 0;
-    for (const key of keys) {
-      const sg = snappedGps[key];
-      const alpha = sg && typeof sg.alpha === 'number' ? sg.alpha : -1;
-      hash = (Math.imul(hash, 31) + Number(key)) | 0;
-      hash = (Math.imul(hash, 31) + Math.round(alpha * 1e3)) | 0;
-    }
-    return `${n}|${hash}`;
-  }
-
-  /**
    * Run the full GPS filter pipeline and cache the result.
    * Returns { gpsPoints, drawPoints } — cached when params AND snap data
    * haven't changed.  Callers MUST NOT mutate the returned arrays.
@@ -53,7 +32,7 @@ export class GSRMapProcess extends GSRMapLayers {
    */
   _getOrBuildDrawPoints(cacheKey, analyzer, p) {
     const paramsHash = this._hashGpsParams(p);
-    const snapFp = this._snapFingerprint(analyzer.snappedGps);
+    const snapFp = GpsPipeline.snapFingerprint(analyzer.snappedGps);
     const cached = this._gpsCache.get(cacheKey);
 
     if (
@@ -67,8 +46,8 @@ export class GSRMapProcess extends GSRMapLayers {
 
     // ── Expensive GPS pipeline (only runs when params change) ──
     const data = analyzer.raw;
-    const fixes = GpsPipeline.collectFixes(data);
-    if (fixes.length === 0) {
+    const gpsPoints = GpsPipeline.ensureFilteredGps(analyzer, p);
+    if (gpsPoints.length === 0) {
       this._gpsCache.set(cacheKey, {
         paramsHash,
         snapFingerprint: snapFp,
@@ -77,24 +56,6 @@ export class GSRMapProcess extends GSRMapLayers {
       });
       return { gpsPoints: [], drawPoints: [] };
     }
-
-    const maxSpeed =
-      typeof p?.maxSpeed === 'number' && !isNaN(p.maxSpeed) && p.maxSpeed > 0
-        ? p.maxSpeed
-        : 3.0;
-    const gpsPoints = GpsPipeline.filterFixes(
-      fixes,
-      { maxHdop: p.maxHdop || 3.0, maxSpeed },
-      analyzer.snappedGps,
-    );
-
-    // Back onto the 10 Hz grid (cached on the analyzer as filteredGps).
-    GpsPipeline.reconstructFilteredGpsCached(
-      analyzer,
-      data,
-      gpsPoints,
-      maxSpeed,
-    );
 
     // Downsampled indices are picked before the full-width points are built
     // (saves ~125 ms of allocation per drag frame on a large walk).

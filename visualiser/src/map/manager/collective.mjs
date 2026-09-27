@@ -177,6 +177,8 @@ export class GSRMapCollective extends GSRMapArousalPlaces {
         id: t.id,
         sampleRate: t.analyzer?.sampleRate,
         raw: t.analyzer?.raw,
+        filteredGps: t.analyzer?.filteredGps,
+        pathKey: t.analyzer?._pathKey,
         phasic: t.analyzer?.phasic,
         latency: this._trackPeakLatency(t),
       })),

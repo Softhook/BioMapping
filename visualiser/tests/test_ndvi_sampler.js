@@ -18,6 +18,18 @@ global.StatsMath = require('../src/signal/stats_math.mjs').StatsMath;
 const { NDVISampler } = require('../src/osm/ndvi_sampler.mjs');
 const { GSRCSVParser } = require('../src/signal/csv_parser.mjs');
 const { buildFloat32Tiff } = require('./support/tiff_fixture.js');
+const { GSRAnalyzer: RealAnalyzer } = require('../src/signal/analyzer.mjs');
+
+/**
+ * A real GSRAnalyzer carrying the test's own fields (property definitions
+ * copied, so a getter/setter stays live) — NDVI sampling reads positions
+ * through analyzer.getCoordinates().
+ */
+const realAnalyzer = (fields) =>
+  Object.defineProperties(
+    new RealAnalyzer(),
+    Object.getOwnPropertyDescriptors(fields),
+  );
 
 const closeTo = (actual, expected, tolerance = 1e-4, msg = '') => {
   assert.ok(
@@ -322,13 +334,17 @@ test('sampleBuffer: returns NaN when every pixel in range is nodata', () => {
 
 test('sampleTrack: refuses to run without a configured Copernicus instance', async () => {
   clearCopernicusConfig();
-  const track = { analyzer: { raw: [{ time: 0, lat: 51.5, lon: -0.1 }] } };
+  const track = {
+    analyzer: realAnalyzer({ raw: [{ time: 0, lat: 51.5, lon: -0.1 }] }),
+  };
   await assert.rejects(() => NDVISampler.sampleTrack(track), /Copernicus/);
 });
 
 test('sampleTracks: refuses to run without a configured Copernicus instance', async () => {
   clearCopernicusConfig();
-  const track = { analyzer: { raw: [{ time: 0, lat: 51.5, lon: -0.1 }] } };
+  const track = {
+    analyzer: realAnalyzer({ raw: [{ time: 0, lat: 51.5, lon: -0.1 }] }),
+  };
   await assert.rejects(() => NDVISampler.sampleTracks([track]), /Copernicus/);
 });
 
@@ -346,7 +362,11 @@ test('sampleTrack: decorates data points with real ndvi/ndvi_50m from the raw ra
   const mockTrack = {
     id: 'test_walk_1',
     name: 'Green Park Walk',
-    analyzer: { raw: rawPoints, isEnriched: false, _dataVersion: 1 },
+    analyzer: realAnalyzer({
+      raw: rawPoints,
+      isEnriched: false,
+      _dataVersion: 1,
+    }),
   };
 
   const res = await NDVISampler.sampleTrack(mockTrack, {
@@ -403,7 +423,11 @@ test('sampleTrack: a bad/missing raw layer ID fails fast with a clear error, not
 
   const rawPoints = [{ time: 0.0, lat: 51.501, lon: -0.141 }];
   const track = {
-    analyzer: { raw: rawPoints, isEnriched: false, _dataVersion: 1 },
+    analyzer: realAnalyzer({
+      raw: rawPoints,
+      isEnriched: false,
+      _dataVersion: 1,
+    }),
   };
 
   await assert.rejects(() => NDVISampler.sampleTrack(track), /raw layer/);
@@ -431,7 +455,11 @@ test('sampleTrack: a point whose tile is unreachable (transient failure) is left
     },
   ];
   const track = {
-    analyzer: { raw: rawPoints, isEnriched: false, _dataVersion: 1 },
+    analyzer: realAnalyzer({
+      raw: rawPoints,
+      isEnriched: false,
+      _dataVersion: 1,
+    }),
   };
 
   const res = await NDVISampler.sampleTrack(track, { zoom: 15, radiusM: 50 });
@@ -525,7 +553,7 @@ test('GSRUI.sampleNdviTrack: successfully resolves single-mode track without fal
   Object.assign(RealAppState, {
     viewMode: 'single',
     activeTrackId: 'track_demo_123',
-    analyzer: {
+    analyzer: realAnalyzer({
       raw: rawPoints,
       isEnriched: false,
       _dataVersion: 1,
@@ -533,7 +561,7 @@ test('GSRUI.sampleNdviTrack: successfully resolves single-mode track without fal
       getCoordinates: (i) => ({ lat: rawPoints[i].lat, lon: rawPoints[i].lon }),
       findClosestIndex: (_t) => 0,
       stimulusIndexAt: (_t) => 0,
-    },
+    }),
   });
 
   let alertMessage = null;
@@ -762,7 +790,11 @@ test('sampleTrack: integrates cleanly with GeoUtils bounding box expansion', asy
   const track = {
     id: 'geoutils_test_track',
     name: 'GeoUtils Integration Walk',
-    analyzer: { raw: rawPoints, isEnriched: false, _dataVersion: 1 },
+    analyzer: realAnalyzer({
+      raw: rawPoints,
+      isEnriched: false,
+      _dataVersion: 1,
+    }),
   };
 
   const res = await NDVISampler.sampleTrack(track, { zoom: 15, radiusM: 50 });
@@ -922,25 +954,25 @@ test('sampleTracks: processes co-located walks via Unified Mosaic Mode', async (
   const trackA = {
     id: 'walk_a',
     name: 'Walk A - Park Path',
-    analyzer: {
+    analyzer: realAnalyzer({
       raw: [
         { time: 0, lat: 51.501, lon: -0.141 },
         { time: 1, lat: 51.502, lon: -0.142 },
       ],
       isEnriched: false,
-    },
+    }),
   };
 
   const trackB = {
     id: 'walk_b',
     name: 'Walk B - Nearby Avenue',
-    analyzer: {
+    analyzer: realAnalyzer({
       raw: [
         { time: 0, lat: 51.503, lon: -0.143 },
         { time: 1, lat: 51.504, lon: -0.144 },
       ],
       isEnriched: false,
-    },
+    }),
   };
 
   const res = await NDVISampler.sampleTracks([trackA, trackB], {
@@ -970,16 +1002,16 @@ test('sampleTracks: handles dispersed walks and isolates failures cleanly', asyn
   const normalTrack = {
     id: 'walk_london',
     name: 'London Walk',
-    analyzer: {
+    analyzer: realAnalyzer({
       raw: [{ time: 0, lat: 51.501, lon: -0.141 }],
       isEnriched: false,
-    },
+    }),
   };
 
   const failingTrack = {
     id: 'walk_corrupt',
     name: 'Corrupted Track',
-    analyzer: {
+    analyzer: realAnalyzer({
       raw: [{ time: 0, lat: 48.856, lon: 2.352 }], // Far away (Paris) -> forces per-track mode
       get isEnriched() {
         return false;
@@ -987,7 +1019,7 @@ test('sampleTracks: handles dispersed walks and isolates failures cleanly', asyn
       set isEnriched(_v) {
         throw new Error('Storage write lock failure');
       },
-    },
+    }),
   };
 
   const res = await NDVISampler.sampleTracks([normalTrack, failingTrack], {

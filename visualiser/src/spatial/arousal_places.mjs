@@ -86,8 +86,11 @@ export const GSRArousalPlaces = {
   },
 
   /**
-   * Pre-extract raw coordinates and phasic values into contiguous typed arrays
+   * Pre-extract coordinates and phasic values into contiguous typed arrays
    * cached on the track instance to avoid object allocation in hot loops.
+   * Positions come from the smoothed path the map draws (trk.filteredGps),
+   * falling back to the raw row where it has none — as
+   * GSRAnalyzer.getCoordinates() does.
    *
    * Phasic is filed under the sample the walker was at `trk.latency` seconds
    * earlier (nearest in time) — the same stimulus position the member peaks
@@ -100,8 +103,18 @@ export const GSRArousalPlaces = {
     const raw = trk.raw;
     const n = raw.length;
     const lag = Math.max(0, Number(trk.latency) || 0);
+    const path =
+      Array.isArray(trk.filteredGps) && trk.filteredGps.length === n
+        ? trk.filteredGps
+        : null;
     let flat = trk._fastCoords;
-    if (flat && flat.len === n && flat.rawRef === raw && flat.lag === lag)
+    if (
+      flat &&
+      flat.len === n &&
+      flat.rawRef === raw &&
+      flat.pathRef === path &&
+      flat.lag === lag
+    )
       return flat;
 
     const lats = new Float64Array(n);
@@ -111,6 +124,13 @@ export const GSRArousalPlaces = {
     const phasic = Array.isArray(trk.phasic) ? trk.phasic : null;
 
     for (let i = 0; i < n; i++) {
+      const f = path?.[i];
+      if (f && Number.isFinite(f.lat) && Number.isFinite(f.lon)) {
+        lats[i] = f.lat;
+        lons[i] = f.lon;
+        flags[i] = 1;
+        continue;
+      }
       const s = raw[i];
       if (s && s.hasGps !== false && s.lat != null && s.lon != null) {
         const lat = +s.lat,
@@ -142,7 +162,16 @@ export const GSRArousalPlaces = {
         }
       }
     }
-    flat = { lats, lons, phasicVals, flags, len: n, rawRef: raw, lag };
+    flat = {
+      lats,
+      lons,
+      phasicVals,
+      flags,
+      len: n,
+      rawRef: raw,
+      pathRef: path,
+      lag,
+    };
     trk._fastCoords = flat;
     return flat;
   },

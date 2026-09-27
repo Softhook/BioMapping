@@ -231,10 +231,14 @@ export const RendererInteraction = {
     // event. A globe-owned (external) hover already emitted its own 'scrub',
     // so don't echo it back.
     if (!externalHover) {
-      if (dRaw.hasGps && !isNaN(dRaw.lat) && !isNaN(dRaw.lon)) {
+      // The smoothed path the map draws, so the dot sits on the drawn line.
+      const coords = dRaw.hasGps
+        ? AppState.analyzer.getCoordinates(AppState.hoveredIndex)
+        : null;
+      if (coords) {
         AppState.emit('scrub', {
-          lat: dRaw.lat,
-          lon: dRaw.lon,
+          lat: coords.lat,
+          lon: coords.lon,
           index: AppState.hoveredIndex,
           source: 'graph',
         });
