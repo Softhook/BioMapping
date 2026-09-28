@@ -30,6 +30,28 @@ function rangeFormatter(minV, maxV, fixedDecimals) {
   return (v) => v.toFixed(decimals);
 }
 
+/**
+ * Display unit for a single-walk colouring metric, or '' when it has none
+ * (NDVI, HDOP, counts). Shown once, after the legend's max value.
+ */
+function metricUnit(metric) {
+  if (metric === 'gsr') return 'μS';
+  if (metric === 'greenPct' || metric === 'canopyPct') return '%';
+  const graphUnit = GSR_CONST.LOWER_GRAPH_MODES[metric]?.unit;
+  if (graphUnit) return graphUnit;
+  const envMetric = [
+    ...GSR_CONST.OSM_METRICS,
+    ...(GSR_CONST.SATELLITE_METRICS || []),
+  ].find((m) => m.key === metric);
+  return envMetric?.unit && envMetric.unit !== 'index' ? envMetric.unit : '';
+}
+
+/** Append a unit to a legend end value ('%' hugs the number, others spaced). */
+function withUnit(text, unit) {
+  if (!unit) return text;
+  return unit === '%' ? text + unit : `${text} ${unit}`;
+}
+
 export class GSRMapLegend extends GSRMapViewport {
   /**
    * Initialise the Leaflet legend control in the bottom-right corner.
@@ -78,7 +100,7 @@ export class GSRMapLegend extends GSRMapViewport {
       const topoSource = this._collectiveTopographySource || 'phasic';
       const topoCfg = GSR_CONST?.TOPOGRAPHY_SOURCES?.[topoSource] || null;
       const title = topoCfg?.label || 'Topography';
-      const unit = topoCfg && topoCfg.unit !== undefined ? topoCfg.unit : ' μS';
+      const unit = (topoCfg?.unit ?? 'μS').trim();
 
       const minV = this._legendMinVal;
       const maxV = this._legendMaxVal;
@@ -88,8 +110,8 @@ export class GSRMapLegend extends GSRMapViewport {
 
       const fmt = rangeFormatter(minV, maxV);
 
-      const leftLabel = fmt(minV) + unit;
-      const rightLabel = fmt(maxV) + unit;
+      const leftLabel = fmt(minV);
+      const rightLabel = withUnit(fmt(maxV), unit);
 
       html = `
         <div class="legend-title">${title}</div>
@@ -236,7 +258,9 @@ export class GSRMapLegend extends GSRMapViewport {
         const leftLabel =
           metric === 'hdopQuality' ? `${fmt(minV)} (best)` : fmt(minV);
         const rightLabel =
-          metric === 'hdopQuality' ? `${fmt(maxV)} (worst)` : fmt(maxV);
+          metric === 'hdopQuality'
+            ? `${fmt(maxV)} (worst)`
+            : withUnit(fmt(maxV), metricUnit(metric));
 
         html = `
           <div class="legend-title">${title}</div>

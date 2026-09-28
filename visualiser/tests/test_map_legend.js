@@ -27,9 +27,40 @@ test('Map Legend: single mode - default gsr metric', async () => {
 
   const html = legendDiv.innerHTML;
   assert.ok(html.includes('GSR Signal'), 'Should contain GSR Signal title');
-  assert.ok(html.includes('1.2'), 'Should display min value');
-  assert.ok(html.includes('4.8'), 'Should display max value');
+  // The unit is shown once, after the max value only.
+  assert.ok(html.includes('<span>1.2</span>'), 'Min value has no unit');
+  assert.ok(html.includes('<span>4.8 μS</span>'), 'Max value carries unit');
   assert.ok(html.includes('hsl(120,90%,50%)'), 'Should use correct HSL green');
+});
+
+test('Map Legend: single mode - units per metric, max end only', async () => {
+  const { window, document } = await bootApp();
+  window.setup();
+
+  const legendDiv = document.createElement('div');
+  window.AppState.mapManager._legendControl = {
+    getContainer: () => legendDiv,
+  };
+  window.AppState.viewMode = 'single';
+  window.AppState.mapManager._legendMinVal = 0;
+  window.AppState.mapManager._legendMaxVal = 2;
+
+  const expected = {
+    peakDensity: '2.0 /min',
+    arousalIndex: '2.0 z',
+    phasicAUC: '2.0 μS·s',
+    distWater: '2.0 m',
+    greenPct: '2.0%',
+    ndvi: '2.0<', // NDVI is unitless
+    em_fog: '2.0<',
+  };
+  for (const [metric, maxLabel] of Object.entries(expected)) {
+    window.AppState.mapManager.activeColoringMetric = metric;
+    window.AppState.mapManager.updateLegend();
+    const html = legendDiv.innerHTML;
+    assert.ok(html.includes(`<span>${maxLabel}`), `${metric}: ${maxLabel}`);
+    assert.ok(html.includes('<span>0.0</span>'), `${metric}: min unitless`);
+  }
 });
 
 test('Map Legend: single mode - em_fog metric', async () => {
@@ -113,9 +144,10 @@ test('Map Legend: collective mode - Phasic AUC topography', async () => {
     html.includes('Phasic AUC (ISCR)'),
     'Should contain Phasic AUC title',
   );
-  // Both ends share one precision (from the larger end), so 0.5 not 0.500.
-  assert.ok(html.includes('0.5 μS·s'), 'Should format min value with unit');
-  assert.ok(html.includes('2.5 μS·s'), 'Should format max value with unit');
+  // Both ends share one precision (from the larger end), so 0.5 not 0.500;
+  // the unit is shown once, after the max value only.
+  assert.ok(html.includes('<span>0.5</span>'), 'Min value has no unit');
+  assert.ok(html.includes('<span>2.5 μS·s</span>'), 'Max value carries unit');
 });
 
 test('GSRUI.drawRegressionScatterPlot: data source resolution matches viewMode', async () => {
