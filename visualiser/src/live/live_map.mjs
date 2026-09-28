@@ -28,6 +28,10 @@ import { GpsPipeline } from '../gps/gps_pipeline.mjs';
 import { GSRBasemap } from '../map/basemap.mjs';
 import { MapColors } from '../map/map_colors.mjs';
 import { GSRMapMarkers } from '../map/map_markers.mjs';
+import {
+  enableSmoothWheelZoom,
+  isWheelZooming,
+} from '../map/smooth_wheel_zoom.mjs';
 import { drawGraph } from './live_graph.mjs';
 import { LIVE_SETTLE_TAIL_S, LiveState } from './live_state.mjs';
 import {
@@ -307,12 +311,13 @@ export async function cacheCurrentMapArea() {
 function initLiveMap() {
   liveMap = L.map('liveMap', {
     zoomControl: true,
-    scrollWheelZoom: true,
+    scrollWheelZoom: false, // replaced by enableSmoothWheelZoom below
     preferCanvas: true,
-    zoomSnap: 0.25,
+    zoomSnap: 0, // free zoom levels — see smooth_wheel_zoom.mjs
     zoomDelta: 0.25,
     maxZoom: 22,
   }).setView([0, 0], 2);
+  enableSmoothWheelZoom(liveMap);
   if (liveMap.attributionControl) {
     liveMap.attributionControl.setPrefix(false);
   }
@@ -548,8 +553,13 @@ export function updateLiveMap(pkt) {
       liveMarker.setLatLng(latlng);
     }
 
+    // Hold the recentre while the user is mid-zoom (it would cut the zoom
+    // short); the next packet after the zoom settles catches up.
     const nowMs = Date.now();
-    if (nowMs - lastLivePanAt >= LIVE_PAN_MIN_INTERVAL_MS) {
+    if (
+      nowMs - lastLivePanAt >= LIVE_PAN_MIN_INTERVAL_MS &&
+      !isWheelZooming(liveMap)
+    ) {
       lastLivePanAt = nowMs;
       liveMap.panTo(latlng, { animate: true, duration: 0.3 });
     }

@@ -827,7 +827,7 @@ export const GSRMapExporter = {
       const b = tile.getBoundingClientRect();
       const url = await GSRMapExporter._inlineImg(tile);
       if (!url) return null;
-      // At in-between zoom levels (zoomSnap 0.25) tiles sit on fractional
+      // At in-between (fractional) zoom levels tiles sit on fractional
       // pixels, and anti-aliasing along each shared edge shows as a faint
       // grid. Snapping every edge outward to whole pixels makes neighbours
       // overlap by under 1px instead.

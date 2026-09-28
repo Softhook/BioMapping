@@ -191,6 +191,9 @@ function installRecordingLeaflet(window) {
     getSize() {
       return { x: 800, y: 600 };
     },
+    getContainer() {
+      return { addEventListener() {} };
+    },
     on() {},
     remove() {},
 

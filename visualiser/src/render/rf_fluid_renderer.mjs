@@ -99,6 +99,17 @@ export class RFFluidRenderer {
       L.DomUtil.setTransform(this.canvas, offset, scale);
     });
 
+    // Per-frame zooms (smooth wheel zoom, flyTo, touch pinch) fire 'zoom'
+    // rather than 'zoomanim' — scale the canvas along with them too.
+    this.map.on('zoom', () => {
+      if (!this.map || !this.canvas || !this._currentBounds) return;
+      const scale = this.map.getZoomScale(this.map.getZoom(), this._canvasZoom);
+      const offset = this.map.latLngToLayerPoint(
+        this._currentBounds.getNorthWest(),
+      );
+      L.DomUtil.setTransform(this.canvas, offset, scale);
+    });
+
     // On zoom end or move end, re-anchor canvas and crisp redraw
     this.map.on('moveend zoomend resize viewreset', () => {
       this.resizeCanvas();
@@ -112,6 +123,7 @@ export class RFFluidRenderer {
     // Pad bounds so canvas covers slightly beyond visible map viewport
     const bounds = this.map.getBounds().pad(0.5);
     this._currentBounds = bounds;
+    this._canvasZoom = this.map.getZoom();
 
     const nw = bounds.getNorthWest();
     const se = bounds.getSouthEast();

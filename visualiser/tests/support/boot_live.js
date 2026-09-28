@@ -182,6 +182,9 @@ function makeLeafletMock() {
       });
       return this;
     }
+    getContainer() {
+      return { addEventListener() {} };
+    }
     panTo(latlng, opts) {
       this._center = { lat: latlng[0], lng: latlng[1] };
       this.calls.panTo.push({ latlng, opts });
