@@ -12,8 +12,10 @@ Loose ideas and unscheduled work. Promote anything real to its own doc under `do
   map, pressing a record button over the hotspot. 
 
 - **Airport / acoustic context** — would a microphone make sense there? The
-  old proposal doc (`acoustic_aircraft_detection_proposal.md`) was removed in
-  commit `1a7806a`; get it back from git history if this is picked up.
+  old proposal is `research/acoustic_aircraft_detection_proposal.md` (local
+  only; also in git history before commit `1a7806a`).
+  `research/voice_annotations_proposal.md` covers the sound-annotation idea
+  above.
 
 ## Firmware architecture (structural refactor)
 
@@ -58,9 +60,9 @@ so they don't get re-proposed).
   named streets (*"Kingsland High St"* vs *"Quiet Mews"*), prominent POIs/venues
   (*"Rio Cinema"*, *"Dalston Junction Station"*), and urban functional typologies.
   Automatically assign human-readable names to Arousal Places (`src/spatial/arousal_places.mjs`)
-  via spatial consensus. The full proposal
-  (`spatial_semantics_and_annotation_analysis_plan.md`) was removed in commit
-  `1a7806a` — it's in git history.
+  via spatial consensus. The full proposal is
+  `research/spatial_semantics_and_annotation_analysis_plan.md` (local only;
+  also in git history before commit `1a7806a`).
 - **Textual & Sentiment Analysis on User Annotations:** Run client-side NLP
   lexicon scoring (AFINN/VADER) on user peak labels (`analyzer.setPeakLabel`) to
   extract emotional **Valence** (pleasant vs unpleasant). Project onto the Russell
@@ -71,8 +73,8 @@ so they don't get re-proposed).
 - Correlate GSR against the 868 and 915 MHz RF bands.
 - **Fourth RF band — which frequency?** The sweep is fixed at 815 / 868 /
   915 MHz (`EM_SCAN_NUM_FREQS == 3`).
-  `rf_319_investigation.md` (removed in commit `1a7806a`, still in git
-  history) works through the
+  `research/rf_319_investigation.md` (local only; also in git history)
+  works through the
   mechanical cost of a 4th slot but assumes the band is 319 MHz — a
   North-American security-sensor frequency that would mostly read the noise
   floor on UK/EU walks. That choice was never tested against alternatives.
@@ -99,7 +101,7 @@ so they don't get re-proposed).
     the noise floor (~-76 vs -91 dBm) and forces the relaxed calibration
     ceiling noted in the 319 doc.
   - **Then** bump `EM_SCAN_NUM_FREQS` and follow the change-list in
-    rf_319_investigation.md (from git history) — it is frequency-agnostic apart from that ceiling.
+    `rf_319_investigation.md` — it is frequency-agnostic apart from that ceiling.
 
 ## GPS pipeline architecture
 
@@ -130,8 +132,9 @@ correctness / structure concerns. Promote to its own doc if picked up.
   not yet measured on walks), a better antenna, or a dual-band receiver.
 - **Fixed-stride `downsampleForDisplay`** — time-uniform and geometry-blind
   (drops corners, keeps redundant straightaway points). RDP + a max-vertex
-  cap does the job better. The live path already uses `buildDrawPoints`;
-  this form only survives for globe3d and tests.
+  cap does the job better. The app now only uses `buildDrawPoints`;
+  `GpsPipeline.downsampleForDisplay` has no callers left outside the tests
+  (checked 2026-09-28), so it could simply be removed.
 
 
 
@@ -164,8 +167,8 @@ correctness / structure concerns. Promote to its own doc if picked up.
   binary `UBX-NAV-PVT` (+ `UBX-NAV-SAT` for the per-satellite/SBAS detail
   GSA/GSV currently provide), on the theory that less serial data would
   free main-thread time — e.g. to sample GSR more often. Investigated and
-  the premise doesn't hold: GSR already runs at the ADS1115's hardware
-  ceiling (860 SPS, config byte in `gsr_sensor.c`) on its own dedicated
+  the premise doesn't hold: GSR already runs as fast as it usefully can (ADS1115 converting at its
+  860 SPS ceiling, read at ~500 Hz, `gsr_sensor.c`) on its own dedicated
   `GsrSensorWorker` thread, independent of the GPS main thread; and the
   CSV row rate is a fixed 10 Hz `EventTypeTick` in `biomap_session.c`,
   already rationed against GPS-parsing overrun by
@@ -193,7 +196,7 @@ correctness / structure concerns. Promote to its own doc if picked up.
 - **Typographic long annotations (visualiser)** — peak labels can now hold long,
   sentence-length notes, but the display paths still assume a short tag: the
   graph renderer hard-truncates to 22 chars + "…"
-  (`src/render/renderer_markers.mjs` ~L347), the map label caps text width at
+  (`src/render/renderer_markers.mjs` ~L341), the map label caps text width at
   160 px on a single unwrapped line (`GSRLabelManager.textWidth` in
   `src/render/label_placement.mjs`), and the 3D globe label
   (`src/map/globe3d/`) and map-popup editor (`src/map/map_popups.mjs`) are
@@ -222,8 +225,9 @@ correctness / structure concerns. Promote to its own doc if picked up.
 
 Carried over from closed investigations (`gps_rf_mutex_status.md`,
 `bluetooth_serial_investigation.md`, `visualizer_architecture_refactor_plan.md`,
-`visualizer_rendering_perf_routes.md` — the `docs/archive/` folder was removed
-in commit `1a7806a`, so they're only in git history now). Primary objectives
+`visualizer_rendering_perf_routes.md`). All but the Bluetooth one are kept
+locally in `research/archive/`; all four are in git history (the
+`docs/archive/` folder was removed in commit `1a7806a`). Primary objectives
 are done; these are the optional follow-ups still worth doing.
 
 ### Firmware

@@ -4,7 +4,8 @@ Started from an outside audit on 2026-09-27. Every item below was checked
 against the code before being kept; audit items that were wrong, already done,
 or not worth the risk have been removed.
 
-All work so far is on branch **`refactor-phase1`** (not yet merged to `main`).
+The work was done on branch **`refactor-phase1`**, which is now fully merged into `main`
+(checked 2026-09-28).
 
 ---
 
@@ -76,9 +77,9 @@ Do one item at a time, one commit each.
 
 ## To do (in suggested order)
 
-### 1. Merge `refactor-phase1` into `main`
-Before merging, check the "Map area ready offline" popup on the live page in a
-real browser (the only new message not yet seen on screen).
+### 1. ~~Merge `refactor-phase1` into `main`~~ — done
+Still worth doing once: check the "Map area ready offline" popup on the live
+page in a real browser (the only new message not yet seen on screen).
 
 ### 7. Split `ui/tracks.mjs`
 ~755 lines mixing file loading and the sidebar track list. Separate the file
@@ -133,5 +134,5 @@ Still open:
   click OK. Should red errors stay until clicked (warnings still fade)?
 - `live/live_map.mjs` still uses a blocking `confirm()` (line ~246); could
   become a `GSRNotices.dialog()`.
-- `ui/ui_peaks_table.mjs:352` has a pre-existing lint warning
-  (`useTemplate`).
+- ~~`ui/ui_peaks_table.mjs:352` lint warning (`useTemplate`)~~ — fixed in the
+  working tree (2026-09-28), not yet committed.

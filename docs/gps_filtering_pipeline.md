@@ -1,6 +1,6 @@
 # GPS Pipeline & Filter Architecture
 
-**Written:** 2026-07-15 · **Last checked against code:** 2026-09-25
+**Written:** 2026-07-15 · **Last checked against code:** 2026-09-28
 **Scope:** Complete overview of the GPS processing pipeline, from firmware-level quality gating through to downstream spatial analysis filters.
 **Files:** `firmware/modules/gps_uart.c`, `firmware/biomap_types.h`, `firmware/biomap_session.c`, `visualiser/src/gps/gps_cv_kalman.mjs`, `visualiser/src/gps/gps_pipeline.mjs`, `visualiser/src/gps/map_match.mjs`, `visualiser/src/map/manager/process.mjs`
 
@@ -31,10 +31,10 @@ graph TD
     J --> K[RDP Simplification <br/> Ramer-Douglas-Peucker]
     K --> L[Leaflet Rendering]
 
-    M[HMM-Viterbi Map Matcher <br/> runs on RAW coords, once, during OSM enrichment] -.->|produces snappedGps, consumed by G| G
+    M[HMM-Viterbi Map Matcher <br/> runs on the smoothed path WITHOUT snap, during OSM enrichment] -.->|produces snappedGps, consumed by G| G
 ```
 
-Note the map matcher (`M`) is *not* part of the per-render filter chain above it — it runs once during OSM enrichment, directly on raw GPS coordinates (never on filtered/Kalman output, to avoid a feedback loop where a prior render's snap bias would pull the next enrichment pass toward the wrong road — see `osm_enrichment.js`'s `getCoordinates(i, true)` call). Its output, `analyzer.snappedGps`, is then consumed by step `G` on every render.
+Note the map matcher (`M`) is *not* part of the per-render filter chain above it — it runs during OSM enrichment on the Kalman-smoothed path *before* any road snap (`GpsPipeline.unsnappedPath`, falling back to the raw row where that path is blank; see `_enrichmentPositions` in `osm_enrichment.mjs`). It never sees the drawn (snapped) path, because that path's snap pull came from the previous enrichment, and re-matching it would entrench a wrong snap (e.g. onto a parallel street). Its output, `analyzer.snappedGps`, is then consumed by step `G` on every render. Releasing the Max HDOP or Max Speed slider changes the smoothed path, so it re-runs enrichment from the already-loaded OSM data.
 
 ---
 
@@ -61,7 +61,7 @@ timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw,hacc_m
 
 ## 3. Visualiser Processing Pipeline
 
-Every stage lives in `gps_pipeline.mjs` (the filter itself in `gps_cv_kalman.mjs`); `GSRMapManager._getOrBuildDrawPoints` (`map/manager/process.mjs`) runs them in order and caches the result: `collectFixes` → `filterFixes` (§3.1 gates, §3.2 filter, §3.4 snap) → `reconstructFilteredGps` (10 Hz) → `buildDrawPoints` + `applyRDP` (§3.5). The characterisation test harness calls the same functions, so it cannot drift from the app.
+Every stage lives in `gps_pipeline.mjs` (the filter itself in `gps_cv_kalman.mjs`); `GpsPipeline.ensureFilteredGps` runs `collectFixes` → `filterFixes` (§3.1 gates, §3.2 filter, §3.4 snap) → `reconstructFilteredGps` (10 Hz) and leaves the result on `analyzer.filteredGps`; `GSRMapManager._getOrBuildDrawPoints` (`map/manager/process.mjs`) then adds `buildDrawPoints` + `applyRDP` (§3.5) and caches the result. The scrub dot, Arousal Places, NDVI sampling and the Environmental dashboard all read the same `filteredGps`, so every analysis uses the path the map draws. The characterisation test harness calls the same functions, so it cannot drift from the app.
 
 ### 3.1 Quality Gates (`gps_pipeline.mjs`)
 1. **HDOP Gate (`applyHdopGate`)**: Rejects points with `hdop > maxHdop` (user-adjustable in UI, default `3.0`). Points lacking HDOP are kept.
@@ -82,7 +82,7 @@ The app's only GPS filter. It replaced an earlier chain (stop averaging, speed f
 - **Smoother**: exact RTS backward pass — `tests/test_gps_cv_kalman.js` checks it against a brute-force least-squares solve of the same model.
 - **Evaluation** (2026-09-25, against the earlier chain, scoring the drawn path by its distance to the nearest mapped street): on the 31 u-blox walks median 3.17 m vs 3.32 m, worst 1 % 21.0 m vs 22.9 m, 0 vs 6 spikes. Robust Student-t smoothing, Gauss-Markov error states and velocity-noise inflation were tried and not adopted. Later the same day, against the raw fixes on the 32 u-blox walks with cached street data: median 3.23 m vs 3.47 m, worst 10 % 11.0 m vs 13.1 m; stop pinning did not change these. Individual walks can still come out slightly worse than raw — on biomap_032b the chip's course read 12–23° off the fixes' own direction for 40 s and the filter cut a bend by up to 8 m.
 
-### 3.3 HMM Map Matching — computed once, outside the render pipeline (`map_match.js` & `osm_enrichment.js`)
+### 3.3 HMM Map Matching — computed during enrichment, outside the render pipeline (`map_match.mjs` & `osm_enrichment.mjs`)
 3. **HMM-Viterbi Map Matcher (`MapMatcher.match`)**:
    - **Purpose**: Global sequence map matching to snap trajectories to real road segments.
    - **Emission Probability**: Models a Gaussian distribution based on orthogonal distance $d$ to the candidate road segment:
@@ -91,7 +91,7 @@ The app's only GPS filter. It replaced an earlier chain (stop averaging, speed f
      $$\log p(r_j \mid r_i) = -\frac{|d_{\text{GPS}} - d_{\text{route}}|}{\beta} - \log\beta$$
      Jumping parallel streets or traversing disconnected roads results in huge penalties.
    - **Viterbi Selection**: Computes the globally most likely candidate path.
-   - Runs once, during OSM enrichment, on **raw** GPS coordinates only — deliberately never on filtered/Kalman output, to avoid a feedback loop where a prior render's snap bias would pull the next enrichment pass further toward the wrong road. Its result is cached on `analyzer.snappedGps` and consumed by step 4 on every subsequent render.
+   - Runs during OSM enrichment on the smoothed path **without** the snap pull (`GpsPipeline.unsnappedPath`, built with the walk's own GPS settings) — never on the drawn, snapped path, to avoid a feedback loop where a prior enrichment's snap would pull the next pass further toward the wrong road. Enrichment metrics (distance to green, road class, etc.) are computed at the positions it snaps to. Its result is cached on `analyzer.snappedGps` and consumed by step 4 on every subsequent render.
 
 ### 3.4 Snap Correction — applied AFTER the Kalman filter (`gps_pipeline.mjs`)
 4. **Snap Correction (`applySnapCorrection`)**:

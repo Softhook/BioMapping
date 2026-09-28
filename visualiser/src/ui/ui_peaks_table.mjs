@@ -349,7 +349,7 @@ export const PeaksTableUI = {
           (p.possibleArtefact ? ' speed-check' : '') +
           '" title="Rise speed: ' +
           p.speedLabel +
-          (p.speedRiseTime ? ', rose in ' + p.speedRiseTime + ' s' : '') +
+          (p.speedRiseTime ? `, rose in ${p.speedRiseTime} s` : '') +
           ' (' +
           (p.scaleFactor || 1) +
           'x typical for its size; 1-3 s is normal)' +

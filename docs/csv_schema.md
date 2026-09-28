@@ -1,10 +1,10 @@
 # BioMapping CSV Schema
 
 > **Canonical reference.** Update this file whenever the column list changes.
-> Referenced from: `biomap_session.c`, `sd_logger.h`, `analyzer.js`, `scripts/analyze_track.py`.
+> Referenced from: `biomap_session.c`, `sd_logger.h`, `analyzer.mjs`, `scripts/analyze_track.py`.
 >
-> The live receiver's CSV export (`visualiser/src/live/live_csv.js`) and wire
-> decoder (`visualiser/src/live/live_binary_parser.js`) are locked to the
+> The live receiver's CSV export (`visualiser/src/live/live_csv.mjs`) and wire
+> decoder (`visualiser/src/live/live_binary_parser.mjs`) are locked to the
 > firmware save format by `visualiser/tests/test_firmware_csv_contract.js`,
 > which reads the firmware source directly and fails on any drift — run
 > `npm test` in `visualiser/` after changing the format on either side.
@@ -236,7 +236,7 @@ In **Live Stream** mode (`BioMapModeLiveStream`), data is streamed in real time 
 | 44 | 1 | `valid` | `uint8` | Validity bitmask: `0x01` = GPS fix valid, `0x02` = GSR sensor valid. |
 | 45 | 4 | `hacc_m` | `float` | u-blox horizontal accuracy in metres (`99.9` = unknown), exported as the CSV `hacc_m` column. |
 
-Parsed client-side by `visualiser/src/live/live_binary_parser.js` (`GSRLiveBinaryParser`). The live viewer (`visualiser/live.html`) exports recorded live sessions into canonical CSV matching the 11-column GPS+GSR format above.
+Parsed client-side by `visualiser/src/live/live_binary_parser.mjs` (`GSRLiveBinaryParser`). The live viewer (`visualiser/live.html`) exports recorded live sessions into canonical CSV matching the 11-column GPS+GSR format above.
 
 ---
 
@@ -252,7 +252,7 @@ The firmware applies **no** record-time HDOP threshold — every fix the receive
 
 | Context | Value | Location | Purpose |
 |---|---|---|---|
-| JS visualiser default | `3.0` | `constants.js GPS_DEFAULT.maxHdop` | Post-processing quality filter, user-adjustable, non-destructive |
+| JS visualiser default | `3.0` | `constants.mjs GPS_DEFAULT.maxHdop` | Post-processing quality filter, user-adjustable, non-destructive |
 
 ---
 
@@ -261,7 +261,7 @@ The firmware applies **no** record-time HDOP threshold — every fix the receive
 | Condition | Range | Interpretation |
 |---|---|---|
 | Normal | 1 000 – 20 000 nS | Typical resting range (1–20 µS) |
-| Open circuit | < 0.1 nS | Electrodes not attached (`GSR_VALID_MIN_NS`) |
+| Open circuit | < 100 nS | Electrodes not attached (`GSR_VALID_MIN_NS`) |
 | Rail saturation | > 75 000 nS | Hardware fault or shorts (`GSR_VALID_MAX_NS`)|
 
 Defined in `modules/gsr_sensor.h` as `GSR_VALID_MIN_NS` and `GSR_VALID_MAX_NS`.

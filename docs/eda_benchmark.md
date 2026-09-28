@@ -1,5 +1,19 @@
 # EDA/SCR Detection Benchmark: BioMapping vs. NeuroKit2, Ledalab, and cvxEDA
 
+> **Status (checked 2026-09-28).** The production settings below match the code
+> (`GSR_DEFAULT` in `visualiser/src/core/constants.mjs`). The result tables are from
+> 2026-09-12/18 and have **not** been re-run since:
+>
+> - On 2026-09-24 the harness was found to be silently broken after the ESM migration
+>   (BioMapping rows scored ~0 %) and was repaired. Re-run `check_ground_truth.sh` before
+>   relying on any number below.
+> - **SparsEDA** is now a fifth detector (`useSparsEDA`) and is not in these tables.
+>   Its noise level (epsilon) is set automatically from the walk's own noise after the
+>   gait filter, chosen on this ground-truth suite.
+> - Reference figure after the repair, all tiers, 3 seeds (45 tracks, 812 SCRs):
+>   BioMapping cvxEDA F1 0.668 against 0.664 for the official `cvxEDA.py` with the same
+>   peak picker — any drift from that is a regression.
+
 ## Purpose
 
 BioMapping's skin-conductance-response (SCR) detection is validated against the two

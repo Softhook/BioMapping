@@ -1,6 +1,13 @@
 # Junction turn/straight analysis, and what it means for road snapping
 
-Status as of 2026-09-21. Landed and refactored.
+Status as of 2026-09-21. Landed and refactored. Checked against the code 2026-09-28.
+
+> **Read section 8 first for the current rules.** Sections 2–7 are the history. Since they
+> were written: `MERGE_M` is 20 m (not 3), `VISIT_GAP_M` no longer exists, and passages are
+> merged into one crossroads cluster up to `MAX_CLUSTER_SPAN_M` 25 m. Since 2026-09-27 the
+> map matcher that feeds the classifier runs on the Kalman-smoothed GPS path (before any road
+> snap), not the raw fixes — so the numbers in sections 3 and 7, made on raw fixes, would
+> change if re-run. The live constants are at the top of `visualiser/src/gps/junctions.mjs`.
 
 ## 1. Why this exists
 

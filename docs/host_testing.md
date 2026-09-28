@@ -41,11 +41,12 @@ touches hardware:
 
 ### 1. Pure logic — no shimming needed
 
-`biomap_pipeline.c` (and the types/constants it depends on in
-`biomap_types.h`) has zero Flipper SDK includes — it's just math (IIR
-filter, EMA smoothing, calibration fitting, CSV formatting) operating on
-plain structs. It compiles on a host compiler exactly as it ships to the
-device. `tests/test_firmware.c` links it directly.
+`biomap_pipeline.c` (IIR filter, EMA smoothing, graph buffer, time
+helpers) and `biomap_format.c` (CSV row formatting, cycle selection,
+calibration fitting, saved-file checksums) have no Flipper SDK dependency
+beyond `FURI_LOG_W`, which the shim turns into a no-op. They compile on a
+host compiler exactly as they ship to the device. `tests/test_firmware.c`
+links both directly, so tests exercise the real code rather than copies.
 
 ### 2. Driver code — shim the SDK itself, not the driver
 
@@ -123,7 +124,7 @@ firmware/modules/              — unchanged, no test-only content, no HAL files
   eff_short_wordlist.h / util.h  — small helpers
 
 firmware/tests/
-  test_firmware.c               — pipeline / calibration / CSV host tests
+  test_firmware.c               — pipeline + biomap_format (CSV / calibration) host tests
   test_gps_uart.c                — gps_uart.c host tests, via the shims below
   test_gsr_sensor.c              — gsr_sensor.c host tests, real worker thread + all
   test_sd_logger.c               — sd_logger.c host tests, via an in-memory
@@ -139,7 +140,7 @@ firmware/tests/
     analyze_gsr_filtering.c      — investigative tool, not pass/fail: measures
                                    the real IIR+EMA frequency response and the
                                    boxcar mains-notch's rate sensitivity. See
-                                   docs/gsr_filtering_analysis.md.
+                                   `research/gsr_filtering_analysis.md` (local only, not in git).
     benchmark_graph.c            — canvas_draw_line vs canvas_draw_dot micro-benchmark
   shims/
     furi.h                      — fakes the Furi-core calls these drivers make
@@ -222,10 +223,10 @@ Approximate test counts — the exact numbers drift with each addition; run
 
 | File | Touches hardware | Host-tested |
 |---|---|---|
-| `biomap_pipeline.c` | No | ✅ `tests/test_firmware.c` (~33 tests) |
-| `modules/gps_uart.c` | Yes (`furi_hal_serial_*`) | ✅ `tests/test_gps_uart.c` (~25 tests) |
-| `modules/gsr_sensor.c` | Yes (`furi_hal_i2c_*`, real `FuriThread`) | ✅ `tests/test_gsr_sensor.c` (~32 tests) + a ThreadSanitizer pass |
-| `modules/sd_logger.c` | Yes (`Storage`/`File`) | ✅ `tests/test_sd_logger.c` (~24 tests, includes `BIOMAP_SD_PREALLOC` & CRC32 integrity trailer) |
+| `biomap_pipeline.c` + `biomap_format.c` | No | ✅ `tests/test_firmware.c` (~32 tests) |
+| `modules/gps_uart.c` | Yes (`furi_hal_serial_*`) | ✅ `tests/test_gps_uart.c` (~39 tests) |
+| `modules/gsr_sensor.c` | Yes (`furi_hal_i2c_*`, real `FuriThread`) | ✅ `tests/test_gsr_sensor.c` (~36 tests) + a ThreadSanitizer pass |
+| `modules/sd_logger.c` | Yes (`Storage`/`File`) | ✅ `tests/test_sd_logger.c` (~30 tests, includes `BIOMAP_SD_PREALLOC` & CRC32 integrity trailer) |
 | `modules/em_scan_cal.c` | No (pure calc + Storage for persist) | ✅ `tests/test_em_scan_cal.c` (~5 tests) |
 | `modules/bt_stream.c` | Yes (`Bt`/`ble_profile_serial_*`) | ✅ `tests/test_bt_stream.c` (~13 tests, BLE mock shims) |
 | `modules/em_scan_rf.c` | Yes (CC1101 SPI) | ✅ `tests/test_em_scan_rf.c` (~9 tests, dedicated `furi_hal_subghz_mock.c`) |
