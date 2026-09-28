@@ -15,7 +15,7 @@ It has three parts:
 The first Bio Mapping device (Christian Nold, 2004) was used in workshops with thousands of people across sixteen countries. Participants walked through an area wearing the device and then annotated the recorded data together, producing collective emotion maps. Results from those workshops are published online — the [Greenwich Emotion Map](http://emotionmap.net/), the [San Francisco Emotion Map](http://www.sf.biomapping.net/) and the [Stockport Emotion Map](http://stockport.emotionmap.net/) — and the approach is discussed in the book [*Emotional Cartography*](http://www.emotionalcartography.net/).
 
 ## Bio Mapping 2.0
-Unlike most academic research around Galvanic Skin Response, which bogged down in jargon and caught in cartesian dualism, this project takes a different path. The goal is a system that is technically rigorous while open for everyday community interpretation. While the old Bio Mapping process was great at getting people involved, it didn't provide the insight into what was happening inside the body and the technical rigour and legitimacy to defend the community data. 
+Unlike most academic research around Galvanic Skin Response, which is bogged down in jargon and caught in cartesian dualism, this project takes a different path. The goal is a system that is technically rigorous while open for everyday community interpretation. While the old Bio Mapping process was great at getting people involved, it didn't provide the insight into what was happening inside the body and the technical rigour and legitimacy to defend the community data. 
 
 Bio Mapping 2.0 is a high-fidelity successor that takes you much deeper into the body. It uses more sophisticated hardware and software to track nervous system responses and articulate a new vision of the mind-body. This new version aims to give communities a playful and rigorous tool to explore and tackle real-world issues like local planning, environmental stress, and civic change.
 
@@ -70,7 +70,7 @@ Accuracy zones by the fraction of real-world track data that falls inside them:
 | [ProtoCentral tinyGSR](https://protocentral.com/product/protocentral-tinygsr-gsr-eda-digital-output-sensor-board-qwiic-stemma-qt/) | Maker Breakout (~£16) | 12-bit | Unknown | Unknown |
 | [Grove GSR v1.2](https://wiki.seeedstudio.com/Grove-GSR_Sensor/) | Hobbyist Module (~£12) | Sensor Only | Unknown | Unknown |
 
-> **Note on comparisons:** Most manufacturers do not publish detailed technical specifications. Where figures do appear, they reflect different testing conditions, comparing a bench-measured noise floor against a precision resistor grid. One of the most useful comparisons is ADC resolution as a indication of overall hardware quality and usage intension.
+> **Note on comparisons:** Most manufacturers do not publish detailed technical specifications. Where figures do appear, they reflect different testing conditions, comparing a bench-measured noise floor against a precision resistor grid. One of the most useful comparisons is ADC resolution as an indication of overall hardware quality and intended use.
 
 
 ## Components
@@ -110,10 +110,10 @@ The onboard firmware (written in C in `firmware/`) runs as an external applicati
 
 ## What the Firmware Does
 
-- **Real-Time Dynamic Auto-Ranging:** Human skin conductance spans several orders of magnitude across individuals and resting states (from under 500 nS to tens of thousands of nS). The firmware steps the ADS1115's Programmable Gain Amplifier (PGA) across four voltage ranges (from ±2.048 V down to ±0.256 V). A 4 ms settle-gate discards conversion transients during gain switches, and counts are normalised [calibrated wide-range error curve](#hardware-accuracy--device-comparison).
+- **Real-Time Dynamic Auto-Ranging:** Human skin conductance spans several orders of magnitude across individuals and resting states (from under 500 nS to tens of thousands of nS). The firmware steps the ADS1115's Programmable Gain Amplifier (PGA) across four voltage ranges (from ±2.048 V down to ±0.256 V). A 4 ms settle-gate discards conversion transients during gain switches, and readings from every range are normalised to one common scale, so the output is continuous across gain changes (see the [calibrated wide-range error curve](#hardware-accuracy--device-comparison)).
 Looking at other open-source and maker EDA devices whose firmware is available to inspect, almost none implement auto-ranging in firmware.
 
-- **50/60 Hz Mains Hum Rejection:** Ambulatory electrode pick up AC mains hum from power lines. The ADC uses a background thread to compute a 100 ms boxcar average to null 50 Hz, 60 Hz, and their harmonics (100 Hz, 120 Hz).
+- **50/60 Hz Mains Hum Rejection:** Ambulatory electrodes pick up AC mains hum from power lines. The ADC uses a background thread to compute a 100 ms boxcar average to null 50 Hz, 60 Hz, and their harmonics (100 Hz, 120 Hz).
 - **Multi-Sensor Synchronisation:**  Parses 10 Hz GNSS sentences from the u-blox SAM-M10Q over UART, paces SubGHz RF RSSI snapshots across 815/868/915 MHz without blocking biometric sampling, and streams over Bluetooth or writes to SD.
 
 ## Installing the App
@@ -139,7 +139,7 @@ The visualiser runs client-side in any modern browser with no server, installati
 It provides two entry points:
 
 - **Track Visualiser & Analysis** ([Online App](https://softhook.github.io/BioMapping/visualiser/) | [`visualiser/index.html`](visualiser/index.html)) — Load recorded `.csv` logs from the device to inspect waveforms, clean signals, detect SCR events, map emotional arousal in 2D or 3D, and generate collective emotion maps across participants.
-- **Live Stream Visualiser** ([Online Live View](https://softhook.github.io/BioMapping/visualiser/live.html) | [`visualiser/live.html`](visualiser/live.html)) — Connects to the Flipper Zero in real time via Web Bluetooth to graph live biometric arousal and plot GPS movements as you walk.
+- **Live Stream Visualiser** ([Online Live View](https://softhook.github.io/BioMapping/visualiser/live.html) | [`visualiser/live.html`](visualiser/live.html)) — Connects to the Flipper Zero in real time via Web Bluetooth to graph live biometric arousal and plot GPS movements as you walk. The same view is also built into the main app as the **Live** tab, next to Single and Collective.
 
 ## Available Methods & Pipeline
 
@@ -166,7 +166,7 @@ The visualiser provides a full suite of research-grade methods for ambulatory ED
   - *Arousal Index & Tri-Index* — Normalised multi-parameter arousal intensity metrics.
   - *EDASymp* — Spectral sympathetic tone index derived from low-frequency EDA dynamics.
 - **Spatial & Collective Mapping:**
-  - *Pedestrian GPS Filter Pipeline* — Fix-quality gating, speed clamping, HDOP thresholding, and Zero Velocity Update (ZUPT) velocity smoothing.
+  - *Pedestrian GPS Filter Pipeline* — HDOP and fix-type gating, a constant-velocity Kalman filter with a Rauch-Tung-Striebel smoother (holding position while you stand still), optional road snapping, and smooth 10 Hz path reconstruction between fixes. Details in [`docs/gps_filtering_pipeline.md`](docs/gps_filtering_pipeline.md).
   - *Dual 2D/3D Rendering* — Toggle between interactive 2D maps and 3D globe terrain.
   - *Multi-Metric Path Colouring* — Dynamically colour paths by raw GSR, phasic arousal, tonic level, peak density, or RF field activity.
   - *Spatial Hotspots & "Places"* — Spatial clustering of emotional arousal sites along walking routes.
@@ -214,8 +214,10 @@ Bug reports, hardware build notes, and pull requests are welcome. A few things t
 - The app is plain ES modules with no build step. Run `npm ci` once to install dev tools, then:
   - `npm test` — Node test runner
   - `npm run lint` — [Biome](https://biomejs.dev/) linter (also runs on every PR via CI)
+  - `npm run lint:deps` — checks module dependencies with [dependency-cruiser](https://github.com/sverweij/dependency-cruiser) (e.g. no circular imports)
   - `npm run format` — auto-format with Biome
-- CI runs lint and tests automatically on every pull request against `main`.
+  - `npm run check` — lint, dependency check and tests in one go
+- CI runs lint, the dependency check and tests automatically on every push to `main` and on every pull request.
 - Run `git config core.hooksPath .githooks` once per clone to enable a pre-commit hook that auto-formats/lints staged visualiser files with Biome, so CI's lint step doesn't fail on something that could have been caught locally.
 
 **Docs & CSV Schema**
