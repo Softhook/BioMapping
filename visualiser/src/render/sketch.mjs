@@ -29,7 +29,6 @@ const _LOWER_GRID_PRESETS = {
       [10, 1.0],
     ],
     defaultStep: 2.0,
-    decimals: 2,
     unit: ' \u03bcS',
   },
   phasic: {
@@ -40,7 +39,6 @@ const _LOWER_GRID_PRESETS = {
       [1.5, 0.1],
     ],
     defaultStep: 0.5,
-    decimals: 3,
     unit: ' \u03bcS',
   },
   peakDensity: {
@@ -51,7 +49,6 @@ const _LOWER_GRID_PRESETS = {
       [200, 20],
     ],
     defaultStep: 10,
-    decimals: 0,
     unit: ' /min',
   },
   phasicAUC: {
@@ -62,7 +59,6 @@ const _LOWER_GRID_PRESETS = {
       [20, 2],
     ],
     defaultStep: 5,
-    decimals: 2,
     unit: ' \u03bcS\u00b7s',
   },
   arousalIndex: {
@@ -73,7 +69,6 @@ const _LOWER_GRID_PRESETS = {
       [12, 2],
     ],
     defaultStep: 1,
-    decimals: 1,
     unit: ' z',
   },
   triIndex: {
@@ -84,7 +79,6 @@ const _LOWER_GRID_PRESETS = {
       [12, 2],
     ],
     defaultStep: 1,
-    decimals: 1,
     unit: ' z',
   },
   edasymp: {
@@ -95,7 +89,6 @@ const _LOWER_GRID_PRESETS = {
       [0.2, 0.02],
     ],
     defaultStep: 0.02,
-    decimals: 4,
     unit: ' \u03bcS\u00b2',
   },
   responseDynamics: {
@@ -106,7 +99,6 @@ const _LOWER_GRID_PRESETS = {
       [1.5, 0.1],
     ],
     defaultStep: 0.5,
-    decimals: 3,
     unit: ' \u03bcS',
   },
 };
@@ -535,7 +527,6 @@ function _drawSignalView(frame) {
     plotTop,
     grid.steps,
     grid.defaultStep,
-    grid.decimals,
   );
 
   const curve = (series, stroke, weight, forceIndices) =>
@@ -615,22 +606,34 @@ function _drawSignalView(frame) {
 }
 
 /**
- * Dashed horizontal reference line + optional right-edge label — the Phasic
- * threshold line and the Arousal-Index zero line, for the single metric view.
+ * Dashed horizontal reference line — the Phasic threshold line and the
+ * Arousal-Index zero line, for the single metric view.
  */
-function _drawRefLine(y, dash, colorPeak, hexAlpha, label) {
+function _drawRefLine(y, dash, colorPeak, hexAlpha) {
   stroke(color(colorPeak + hexAlpha));
   strokeWeight(1);
   drawingContext.setLineDash(dash);
   line(GSR_CONST.MARGIN.left, y, width - GSR_CONST.MARGIN.right, y);
   drawingContext.setLineDash([]);
-  if (label) {
-    fill(color(`${colorPeak}96`));
-    noStroke();
-    textSize(9);
-    textAlign(RIGHT, CENTER);
-    text(label, width - GSR_CONST.MARGIN.right - 5, y - 8);
-  }
+}
+
+/**
+ * Right-edge label for a reference line, on a card-coloured backing so it
+ * stays legible over the trace. Drawn after the peak markers, which would
+ * otherwise paint over it.
+ */
+function _drawRefLabel(y, colorPeak, label) {
+  noStroke();
+  textSize(9);
+  textAlign(RIGHT, CENTER);
+  const x = width - GSR_CONST.MARGIN.right - 5;
+  const ty = y - 8;
+  const pad = 3;
+  const w = textWidth(label) + pad * 2;
+  fill(color(`${GSRRenderer.getThemeColor('--bg-card', '#ffffff')}d9`));
+  rect(x - w + pad, ty - 6, w, 12, 2);
+  fill(color(`${colorPeak}96`));
+  text(label, x, ty);
 }
 
 // ── Single metric view — one derived series, full height, own Y axis ────
@@ -645,7 +648,6 @@ function _drawMetricView(frame) {
       ? {
           steps: driverCfg.gridSteps,
           defaultStep: driverCfg.gridDefaultStep,
-          decimals: driverCfg.decimals,
           unit: ` ${driverCfg.unit}`,
         }
       : _LOWER_GRID_PRESETS[mode] || _LOWER_GRID_PRESETS.phasic;
@@ -667,7 +669,6 @@ function _drawMetricView(frame) {
     plotTop,
     grid.steps,
     grid.defaultStep,
-    grid.decimals,
     grid.unit,
   );
 
@@ -717,13 +718,7 @@ function _drawMetricView(frame) {
 
   if (cfg.showPeakOverlay) {
     const threshold = parseFloat(AppState.sliders.peakThreshold.value);
-    _drawRefLine(
-      yOf(threshold),
-      [5, 5],
-      colorPeak,
-      '78',
-      `Threshold (${threshold.toFixed(3)} μS)`,
-    );
+    _drawRefLine(yOf(threshold), [5, 5], colorPeak, '78');
     // Phasic view: peak amplitudes ARE on this axis, so draw the full SCR
     // treatment (shaded region + onset dot) and skip the missing Filtered
     // half (showLowerMarker=true, showUpperMarker=false).
@@ -741,8 +736,13 @@ function _drawMetricView(frame) {
       true,
       false,
     );
+    _drawRefLabel(
+      yOf(threshold),
+      colorPeak,
+      `Threshold (${threshold.toFixed(3)} μS)`,
+    );
   } else {
-    if (cfg.allowNegative) _drawRefLine(yOf(0), [2, 3], colorPeak, '50', null);
+    if (cfg.allowNegative) _drawRefLine(yOf(0), [2, 3], colorPeak, '50');
     // Tonic / Peak Density / AUC / Arousal: a peak's µS amplitude means
     // nothing on a µS·s / /min / z axis, so mark each peak (and hotspot) as a
     // dot on THIS curve at its own time — markerSeries = the plotted series,

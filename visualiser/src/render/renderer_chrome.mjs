@@ -130,18 +130,9 @@ export const RendererChrome = {
    * @param {number} yTop - Top pixel position of the drawing region
    * @param {Array<Array<number>>} stepRanges - [[spanThreshold, stepSize], ...] sorted ascending
    * @param {number} defaultStep - Step to use when span exceeds all thresholds
-   * @param {number} decimals - Number of decimal places in value labels
+   * @param {string} [unitSuffix] - Appended to each label (default ' μS')
    */
-  drawGridY(
-    yMin,
-    yMax,
-    yBottom,
-    yTop,
-    stepRanges,
-    defaultStep,
-    decimals,
-    unitSuffix,
-  ) {
+  drawGridY(yMin, yMax, yBottom, yTop, stepRanges, defaultStep, unitSuffix) {
     const unit = unitSuffix !== undefined ? unitSuffix : ' \u03bcS';
     const span = yMax - yMin;
     let step = defaultStep;
@@ -153,6 +144,10 @@ export const RendererChrome = {
     }
 
     const firstGridVal = Math.floor(yMin / step) * step;
+    // Label precision follows the tick step (steps are 1/2/5 × 10^k), so
+    // every view shows just the digits that change: 2 → "16", 0.5 → "2.5",
+    // 0.005 → "0.015".
+    const decimals = Math.max(0, Math.ceil(-Math.log10(step) - 1e-9));
 
     const gridColor = this.getThemeColor(
       '--canvas-grid',

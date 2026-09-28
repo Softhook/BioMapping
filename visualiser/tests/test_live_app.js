@@ -617,7 +617,7 @@ test('toggleMapBtn: shows the map panel, initializes liveMap, and enables Cache 
   );
   assert.strictEqual(
     window.document.getElementById('toggleMapBtn').textContent,
-    'Hide Map (M)',
+    'Hide Map',
   );
   assert.ok(
     run(context, 'liveMap') !== null,
@@ -633,7 +633,7 @@ test('toggleMapBtn: hides the map again on a second click, without destroying th
   assert.ok(window.document.getElementById('app').classList.contains('no-map'));
   assert.strictEqual(
     window.document.getElementById('toggleMapBtn').textContent,
-    'Show Map (M)',
+    'Show Map',
   );
   assert.ok(
     run(context, 'liveMap') !== null,
@@ -673,7 +673,7 @@ test('mount(): a compact/coarse-pointer boot defaults to the map shown, not the 
   );
   assert.strictEqual(
     window.document.getElementById('toggleMapBtn').textContent,
-    'Hide Map (M)',
+    'Hide Map',
   );
 });
 
@@ -3235,7 +3235,7 @@ test('keyboard: "m" toggles the map exactly like the Show/Hide Map button', asyn
   assert.strictEqual(run(context, 'mapVisible'), true);
   assert.strictEqual(
     window.document.getElementById('toggleMapBtn').textContent,
-    'Hide Map (M)',
+    'Hide Map',
   );
 
   fire('M'); // capital works too
@@ -3300,7 +3300,7 @@ test('setMapVisible: keeps mapVisible, the button label, and the #app.no-map cla
   run(context, 'setMapVisible(true)');
   assert.strictEqual(run(context, 'mapVisible'), true);
   assert.ok(!app.classList.contains('no-map'));
-  assert.strictEqual(btn.textContent, 'Hide Map (M)');
+  assert.strictEqual(btn.textContent, 'Hide Map');
   assert.ok(btn.classList.contains('active'));
 
   run(context, 'setMapVisible(true)'); // idempotent
@@ -3310,7 +3310,7 @@ test('setMapVisible: keeps mapVisible, the button label, and the #app.no-map cla
   run(context, 'setMapVisible(false)');
   assert.strictEqual(run(context, 'mapVisible'), false);
   assert.ok(app.classList.contains('no-map'));
-  assert.strictEqual(btn.textContent, 'Show Map (M)');
+  assert.strictEqual(btn.textContent, 'Show Map');
   assert.ok(!btn.classList.contains('active'));
 });
 
@@ -3388,7 +3388,7 @@ test('on load the toolbar renders its initial state — map hidden, GSR layer to
   const { window, context } = await bootLive();
   assert.strictEqual(
     window.document.getElementById('toggleMapBtn').textContent,
-    'Show Map (M)',
+    'Show Map',
   );
   assert.strictEqual(
     window.document.getElementById('statusBadge').textContent,
@@ -3927,10 +3927,17 @@ test('disconnect(): immediately aborts in-flight retry wait and does not arm pas
   );
 });
 
-test('compact mobile layout: sets Cache Map button label without shortcut suffix', async () => {
-  const { window } = await bootLive({ compact: true });
-  const cacheMapBtn = window.document.getElementById('cacheMapBtn');
-  assert.strictEqual(cacheMapBtn.textContent, 'Cache Map');
+test('map buttons keep their keyboard shortcuts in the tooltip, not the label', async () => {
+  const { window } = await bootLive();
+  const { document } = window;
+  for (const [id, label, key] of [
+    ['cacheMapBtn', 'Cache Map', '(C)'],
+    ['toggleMapBtn', 'Show Map', '(M)'],
+  ]) {
+    const btn = document.getElementById(id);
+    assert.strictEqual(btn.textContent, label);
+    assert.ok(btn.title.includes(key), `${id} tooltip names its shortcut`);
+  }
 });
 
 test('orientation change resets window scroll position to (0, 0)', async () => {

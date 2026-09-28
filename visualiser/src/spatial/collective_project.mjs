@@ -360,7 +360,7 @@ export const GSRCollectiveProject = {
         }
         this._applyValues(AppState.contourControls, manifest.settings.contour);
         // _applyValues() sets el.value directly, which does NOT fire an
-        // 'input' event — so the on-screen text labels (e.g. "40 x 40" next
+        // 'input' event — so the on-screen text labels (e.g. "40 × 40" next
         // to Grid Resolution) and filter-off dim states never got the
         // memo, even though the slider thumb itself (native browser
         // behavior, always reflects the live .value) was already showing

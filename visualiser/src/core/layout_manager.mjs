@@ -19,6 +19,7 @@ export const GSRLayoutManager = {
   _canvasObserver: null,
   _mapObserver: null,
   _regressionObserver: null,
+  _statsObserver: null,
   // Timer for deferring display-mode teardown after a fullscreenchange exit
   // (see _handleFullscreenExit) — long enough for the page's visibility state
   // to settle, so a phone lock isn't mistaken for a deliberate exit.
@@ -117,6 +118,17 @@ export const GSRLayoutManager = {
       this._globeObserver.observe(globeElement);
     }
 
+    // Publish the stats row's height as --stats-row-h so the collective map
+    // can be exactly "the column minus the stats row" (styles.css); the row's
+    // height varies with width and wrapping, so CSS alone can't know it.
+    const statsRow = document.querySelector('.stats-row');
+    if (statsRow) {
+      this._statsObserver = new ResizeObserver(() => {
+        this._scheduleResize('stats', 0, statsRow.offsetHeight);
+      });
+      this._statsObserver.observe(statsRow);
+    }
+
     const regressionContainer = document.querySelector(
       '.regression-chart-container',
     );
@@ -160,6 +172,11 @@ export const GSRLayoutManager = {
       for (const [r, dims] of pending.entries()) {
         if (r === 'canvas') this.resizeCanvas(dims.w, dims.h);
         else if (r === 'map') this.resizeMap(dims.w, dims.h);
+        else if (r === 'stats')
+          document.documentElement.style.setProperty(
+            '--stats-row-h',
+            `${dims.h}px`,
+          );
         else if (
           r === 'regression' &&
           typeof GSRUI.drawRegressionScatterPlot === 'function'

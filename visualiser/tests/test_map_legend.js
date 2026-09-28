@@ -26,10 +26,7 @@ test('Map Legend: single mode - default gsr metric', async () => {
   window.AppState.mapManager.updateLegend();
 
   const html = legendDiv.innerHTML;
-  assert.ok(
-    html.includes('GSR Signal (Raw)'),
-    'Should contain GSR Signal title',
-  );
+  assert.ok(html.includes('GSR Signal'), 'Should contain GSR Signal title');
   assert.ok(html.includes('1.2'), 'Should display min value');
   assert.ok(html.includes('4.8'), 'Should display max value');
   assert.ok(html.includes('hsl(120,90%,50%)'), 'Should use correct HSL green');
@@ -116,7 +113,8 @@ test('Map Legend: collective mode - Phasic AUC topography', async () => {
     html.includes('Phasic AUC (ISCR)'),
     'Should contain Phasic AUC title',
   );
-  assert.ok(html.includes('0.500 μS·s'), 'Should format min value with unit');
+  // Both ends share one precision (from the larger end), so 0.5 not 0.500.
+  assert.ok(html.includes('0.5 μS·s'), 'Should format min value with unit');
   assert.ok(html.includes('2.5 μS·s'), 'Should format max value with unit');
 });
 

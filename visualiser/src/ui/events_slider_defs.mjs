@@ -71,7 +71,7 @@ export const CONTOUR_SLIDER_DEFS = [
   {
     id: 'gridResolution',
     labelId: 'valGridResolution',
-    fmt: (v) => `${v} x ${v}`,
+    fmt: (v) => `${v} × ${v}`,
   },
   { id: 'contourCount', labelId: 'valContourCount', fmt: (v) => `${v} lines` },
   {

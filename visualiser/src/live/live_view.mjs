@@ -129,8 +129,8 @@ const LIVE_VIEW_MARKUP = `
     <div class="btn-group" id="liveSessionActions">
       <button class="btn btn-outline" id="connectionBtn" style="display: none;">Connect</button>
       <button class="btn btn-outline" id="exportBtn" disabled>Export CSV</button>
-      <button class="btn btn-outline" id="toggleMapBtn">Show Map (M)</button>
-      <button class="btn btn-outline" id="cacheMapBtn" disabled>Cache Map (C)</button>
+      <button class="btn btn-outline" id="toggleMapBtn" title="Show or hide the map (M)">Show Map</button>
+      <button class="btn btn-outline" id="cacheMapBtn" title="Save the map around you for offline use (C)" disabled>Cache Map</button>
       <button class="btn btn-outline live-exit-display-btn" id="liveBtnExitDisplay" style="display: none;"><i class="fa-solid fa-compress"></i> Exit</button>
     </div>
   </header>
@@ -767,7 +767,7 @@ export function setLiveGraphMetric(metric) {
 }
 
 function updateToggleMapBtn() {
-  toggleMapBtn.textContent = mapVisible ? 'Hide Map (M)' : 'Show Map (M)';
+  toggleMapBtn.textContent = mapVisible ? 'Hide Map' : 'Show Map';
   toggleMapBtn.classList.toggle('active', mapVisible);
 }
 
@@ -966,9 +966,6 @@ function initLiveViewDom(container) {
   connectErr = document.getElementById('connectErr');
   reconnectErr = document.getElementById('reconnectErr');
   cacheMapBtn = document.getElementById('cacheMapBtn');
-  if (cacheMapBtn && isCompactLiveLayout()) {
-    cacheMapBtn.textContent = 'Cache Map';
-  }
   toggleMapBtn = document.getElementById('toggleMapBtn');
 
   if (typeof navigator !== 'undefined' && !navigator.bluetooth && connectErr) {

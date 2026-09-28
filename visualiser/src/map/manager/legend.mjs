@@ -20,6 +20,16 @@ import { ResponseDynamics } from '../../signal/response_dynamics.mjs';
 import { MapColors } from '../map_colors.mjs';
 import { GSRMapViewport } from './viewport.mjs';
 
+/**
+ * Formatter for a legend's two end values: one precision for both ends,
+ * picked from the larger magnitude, so a scale never reads "0.000 … 4.8".
+ */
+function rangeFormatter(minV, maxV, fixedDecimals) {
+  const mag = Math.max(Math.abs(minV), Math.abs(maxV));
+  const decimals = fixedDecimals ?? (mag >= 100 ? 0 : mag >= 1 ? 1 : 3);
+  return (v) => v.toFixed(decimals);
+}
+
 export class GSRMapLegend extends GSRMapViewport {
   /**
    * Initialise the Leaflet legend control in the bottom-right corner.
@@ -76,11 +86,7 @@ export class GSRMapLegend extends GSRMapViewport {
       const gradient =
         'linear-gradient(90deg, hsl(120,90%,50%), hsl(60,90%,50%), hsl(0,90%,50%))';
 
-      const fmt = (v) => {
-        if (v >= 100) return v.toFixed(0);
-        if (v >= 1) return v.toFixed(1);
-        return v.toFixed(3);
-      };
+      const fmt = rangeFormatter(minV, maxV);
 
       const leftLabel = fmt(minV) + unit;
       const rightLabel = fmt(maxV) + unit;
@@ -99,12 +105,12 @@ export class GSRMapLegend extends GSRMapViewport {
       // for the key<->field<->label mapping, also used by map.js's
       // _getMetricKey() and ui.js's correlation dashboard.
       const metricNames = {
-        gsr: 'GSR Signal (Raw)',
+        gsr: 'GSR Signal',
         phasic: 'Phasic (SCR)',
-        tonic: 'Tonic Baseline (SCL)',
-        peakDensity: 'Peak Density (NS-SCR)',
+        tonic: 'Tonic (SCL)',
+        peakDensity: 'Peak Density',
         phasicAUC: `Phasic AUC${AppState?.analyzer?.phasicAUCIsISCR ? ' (ISCR)' : ''}`,
-        arousalIndex: 'Combined Arousal Index',
+        arousalIndex: 'Arousal Index',
         triIndex: 'Tri Index',
         edasymp: 'EDASymp',
         responseDynamics: 'Rise Speed',
@@ -217,20 +223,20 @@ export class GSRMapLegend extends GSRMapViewport {
             break;
         }
 
-        // Format min/max nicely. EDASymp is µS² (band power ~0.001–0.08), so it
-        // needs more decimals than the shared 3-decimal fallback to not round
-        // the whole range to a couple of coarse steps.
-        const fmt = (v) => {
-          if (metric === 'edasymp') return v.toFixed(4);
-          if (v >= 100) return v.toFixed(0);
-          if (v >= 1) return v.toFixed(1);
-          return v.toFixed(3);
-        };
+        // EDASymp is µS² (band power ~0.001–0.08), so it needs more decimals
+        // than the 3-decimal fallback to not round the whole range to a
+        // couple of coarse steps.
+        const fmt = rangeFormatter(
+          minV,
+          maxV,
+          metric === 'edasymp' ? 4 : undefined,
+        );
 
+        // The title already says HDOP, so the ends only need best/worst.
         const leftLabel =
-          metric === 'hdopQuality' ? `HDOP ${fmt(minV)} (best)` : fmt(minV);
+          metric === 'hdopQuality' ? `${fmt(minV)} (best)` : fmt(minV);
         const rightLabel =
-          metric === 'hdopQuality' ? `HDOP ${fmt(maxV)} (worst)` : fmt(maxV);
+          metric === 'hdopQuality' ? `${fmt(maxV)} (worst)` : fmt(maxV);
 
         html = `
           <div class="legend-title">${title}</div>

@@ -336,14 +336,15 @@ body {
   margin-bottom: 0;
 }
 
-/* Dimmed state when a filter slider is set to 0 (off), or a slider is
-   currently inert because of another control's state (e.g. Surface Opacity
-   while the shaded surface layer is hidden). Separate classes so the two
-   conditions can toggle independently on the same slider-group without
-   clobbering each other — bindCi()'s own input listener re-evaluates
-   filter-off from the slider's own value on every drag, which would wipe
-   out an externally-driven dim if it used the same class. */
-.slider-group.filter-off .slider-label,
+/* Two looks, kept apart so "turned off" never reads as "unavailable":
+   - filter-off: the slider is set to 0 (a real setting you chose). Only the
+     value ("off") and the thumb go grey; the name and help stay readable.
+   - ctrl-inert: the slider has no effect because of another control (e.g.
+     Min SNR under the Prominence Detector). The whole group fades.
+   Separate classes so the two can toggle independently on the same group —
+   bindCi()'s own input listener re-evaluates filter-off from the slider's
+   own value on every drag, which would wipe out an externally-driven dim if
+   it used the same class. */
 .slider-group.ctrl-inert .slider-label {
   opacity: 0.45;
 }
@@ -359,13 +360,10 @@ body {
   box-shadow: none;
 }
 
-.slider-group.filter-off input[type="range"],
 .slider-group.ctrl-inert input[type="range"] {
   background: rgba(17, 17, 17, 0.05);
 }
 
-.slider-group.filter-off .help-text,
-.slider-group.filter-off .slider-rec,
 .slider-group.ctrl-inert .help-text,
 .slider-group.ctrl-inert .slider-rec {
   opacity: 0.35;
@@ -770,15 +768,30 @@ input[type="range"]:focus-visible,
   flex-shrink: 0; /* the actual data value stays intact as long as possible */
 }
 
-/* Narrow cards (laptop widths, where seven cards share the row): stack the
-   label above the value rather than truncating either. Not on phones — there
-   the row already reflows to two wide columns, and stacking would only make
-   the block taller. */
+/* Narrow cards (tablet and laptop widths, where many cards share one line):
+   stack the label above the value rather than truncating either. Not on
+   phones — there the row is fixed at two wide columns (below), and stacking
+   would only make the block taller. */
 .stat-card {
   container-type: inline-size;
 }
 
-@media (min-width: 769px) {
+@media (max-width: 480px) {
+  .stats-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .stat-card {
+    padding: 0 8px;
+  }
+  .stat-info {
+    gap: 4px;
+  }
+  .stat-label {
+    letter-spacing: 0;
+  }
+}
+
+@media (min-width: 481px) {
   @container (max-width: 180px) {
     .stat-info {
       flex-direction: column;
@@ -809,6 +822,13 @@ input[type="range"]:focus-visible,
   transition:
     max-height var(--transition-standard),
     min-height var(--transition-standard);
+}
+
+/* Never shrink below header + graph. A wrapped toolbar (phones, touch-sized
+   buttons) makes the header taller; without this the panel stayed at its
+   190px minimum and the header ate into the graph. */
+#gsrPanel:not(.collapsed) {
+  flex-shrink: 0;
 }
 
 .visualization-panel .canvas-container,
@@ -875,13 +895,18 @@ input[type="range"]:focus-visible,
   border-color: var(--border-focus) !important;
 }
 
+/* A toolbar too wide for its panel (the map's, especially in collective view)
+   wraps between its button groups, right-aligned, rather than pushing the
+   fullscreen button off the edge. */
 .canvas-controls {
   display: flex;
   align-items: center;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 3px;
   white-space: nowrap;
-  flex-shrink: 0;
+  flex-shrink: 1;
+  min-width: 0;
   margin-left: auto;
 }
 
@@ -1112,6 +1137,14 @@ input[type="range"]:focus-visible,
 }
 
 .canvas-container canvas {
+  /* Out of flow so the container's size comes only from the layout. As an
+     inline element the canvas added a few px of line spacing below itself,
+     the resize observer copied that back into the canvas, and wherever the
+     panel's height isn't pinned (stacked tablet layout, phones) the graph
+     grew every frame until it hit the panel's max-height. */
+  position: absolute;
+  top: 0;
+  left: 0;
   user-select: none;
   -webkit-user-select: none;
 }
@@ -1673,8 +1706,15 @@ input[type="range"]:focus-visible,
 
 /* Responsiveness adjustments */
 @media (max-width: 1024px) {
+  /* minmax(0, …) + min-width: 0 so the single column can shrink below its
+     widest content (the map toolbar); plain 1fr kept the page ~970px wide and
+     cut off the right-hand side of narrower windows. */
   .main-layout {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .main-content,
+  .sidebar {
+    min-width: 0;
   }
   .app-container {
     height: auto;
@@ -1682,6 +1722,15 @@ input[type="range"]:focus-visible,
   }
   .main-content {
     overflow-y: visible;
+  }
+}
+
+/* Stacked tablet layout: the page scrolls, so nothing sizes the graph from
+   the screen height — give it a usable fixed height rather than the 150px
+   minimum. Phones (the drawer layout below) keep their compact graph. */
+@media (min-width: 769px) and (max-width: 1024px) and (min-height: 501px) {
+  #gsrPanel .canvas-container {
+    min-height: 300px;
   }
 }
 
@@ -1751,7 +1800,7 @@ input[type="range"]:focus-visible,
     overflow: hidden;
   }
   .main-layout {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
   .main-content {
     overflow-y: auto;
@@ -1828,6 +1877,7 @@ input[type="range"]:focus-visible,
   display: flex;
   flex-direction: row;
   justify-content: space-between;
+  gap: 8px;
   font-size: 10px;
   color: #555555;
 }
@@ -3004,9 +3054,14 @@ input[type="range"]:focus-visible,
   display: flex !important;
 }
 
+/* The map fills the column exactly, less the stats row above it (and the
+   8px gap) — so its bottom edge and legend sit on-screen, and the
+   Environmental Analysis panel, when shown, stays below it to scroll to
+   rather than squeezing it. --stats-row-h is kept up to date by
+   GSRLayoutManager's stats-row ResizeObserver. */
 .main-layout.collective-mode .map-panel:not(.collapsed) {
-  flex-grow: 1 !important;
-  height: 100% !important;
+  flex: 0 0 auto !important;
+  height: calc(100% - var(--stats-row-h, 38px) - 8px) !important;
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -3558,8 +3613,13 @@ body:has(.live-mode) {
 /* Mobile screens: prevent the header toolbar buttons from breaking onto multiple lines */
 @media (max-width: 480px), ((max-height: 500px) and (pointer: coarse)),
   ((max-width: 768px) and (pointer: coarse)) {
+  /* `safe`: right-aligned like the base rule while the buttons fit, but
+     start-aligned once they overflow — overflow on the start side of a
+     scroll container can't be scrolled to, so plain flex-end cut the first
+     buttons off the left edge for good. */
   .live-view header {
     flex-wrap: nowrap;
+    justify-content: safe flex-end;
     overflow-x: auto;
     scrollbar-width: none;
     -webkit-overflow-scrolling: touch;
@@ -4089,16 +4149,21 @@ body:has(.live-mode) {
 }
 
 .junction-stat-chip.turn {
-  background: rgba(220, 53, 69, 0.12);
-  color: #c82333;
+  background: rgba(232, 89, 12, 0.12);
+  color: #d9480f;
 }
 
 .junction-stat-chip.straight {
-  background: rgba(40, 167, 69, 0.12);
-  color: #218838;
+  background: rgba(28, 126, 214, 0.12);
+  color: #1971c2;
 }
 
 .junction-stat-chip.reverse {
+  background: rgba(174, 62, 201, 0.12);
+  color: #9c36b5;
+}
+
+.junction-stat-chip.warning {
   background: rgba(255, 193, 7, 0.2);
   color: #856404;
 }
@@ -4109,8 +4174,8 @@ body:has(.live-mode) {
 }
 
 .junction-stat-chip.control {
-  background: rgba(0, 123, 255, 0.12);
-  color: #0069d9;
+  background: rgba(47, 158, 68, 0.12);
+  color: #2b8a3e;
 }
 
 /* Junction insight headline banner */
@@ -4207,15 +4272,15 @@ body:has(.live-mode) {
 }
 
 .junction-bar-fill.turn {
-  background: #c82333;
+  background: #e8590c;
 }
 
 .junction-bar-fill.straight {
-  background: #218838;
+  background: #1c7ed6;
 }
 
 .junction-bar-fill.control {
-  background: #007bff;
+  background: #2f9e44;
 }
 
 .junction-diff-badge {
@@ -4244,7 +4309,7 @@ body:has(.live-mode) {
 }
 
 .junction-turn-val {
-  color: #c82333;
+  color: #d9480f;
   font-weight: 600;
   display: inline-flex;
   align-items: center;
@@ -4252,7 +4317,7 @@ body:has(.live-mode) {
 }
 
 .junction-straight-val {
-  color: #218838;
+  color: #1971c2;
   font-weight: 600;
   display: inline-flex;
   align-items: center;
@@ -4260,7 +4325,7 @@ body:has(.live-mode) {
 }
 
 .junction-control-val {
-  color: #007bff;
+  color: #2b8a3e;
   font-weight: 600;
   display: inline-flex;
   align-items: center;
@@ -4819,6 +4884,49 @@ body:has(.live-mode) {
 @keyframes busy-overlay-spin {
   to {
     transform: rotate(360deg);
+  }
+}
+
+/* Touch screens: lift the app's compact 20–27px controls to at least 32px
+   so they can be hit with a finger — the same size the Live view already
+   uses for its phone toolbar. Pointer-based, so a narrow desktop window
+   keeps the compact look. Placed late so it wins over the fixed 25px
+   toolbar rules above. */
+@media (pointer: coarse) {
+  .app-header .view-tab,
+  .panel-header .view-tab {
+    min-height: 32px;
+  }
+  /* Sizes only — no display here, or it would override the rules that hide
+     the sidebar toggle on wide screens and in the Live view. */
+  .app-header .icon-btn,
+  .collapse-btn {
+    min-width: 32px;
+    min-height: 32px;
+  }
+  .track-action-btn {
+    width: 32px;
+    height: 32px;
+  }
+  .canvas-controls .btn,
+  .canvas-controls .btn-outline,
+  .canvas-controls .icon-btn,
+  .canvas-controls .select-control {
+    height: 32px !important;
+  }
+  .canvas-controls .icon-btn {
+    min-width: 32px;
+  }
+  .canvas-controls .btn-group .icon-btn {
+    width: 32px !important;
+  }
+  .btn-exclude,
+  .btn-table-action {
+    min-width: 32px;
+    min-height: 32px;
+  }
+  .drag-drop-zone .btn {
+    min-height: 32px;
   }
 }
 

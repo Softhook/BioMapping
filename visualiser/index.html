@@ -136,7 +136,7 @@
                 <span class="slider-value" id="valMedianSize">off</span>
               </div>
               <input type="range" id="medianSize" min="0" max="3" step="0.1" value="0">
-              <p class="help-text">Removes spikes and loose-contact glitches. <strong>Recommended:</strong> Set to 0 = off.</p>
+              <p class="help-text">Removes spikes and loose-contact glitches. <strong>Recommended:</strong> 0 (off).</p>
             </div>
 
             <div class="slider-group">
@@ -145,7 +145,7 @@
                 <span class="slider-value" id="valLpfWindow">off</span>
               </div>
               <input type="range" id="lpfWindow" min="0" max="4" step="0.1" value="0">
-              <p class="help-text">Smooth electrical fuzz and tremor (Butterworth 4th-order). <strong>Recommended:</strong> Set to 0 = off.</p>
+              <p class="help-text">Smooth electrical fuzz and tremor (Butterworth 4th-order). <strong>Recommended:</strong> 0 (off).</p>
             </div>
 
             <div class="toggle-group" style="margin-top:10px;">
@@ -282,7 +282,7 @@
                 <span class="slider-value" id="valHotspotPercentile">2.0%</span>
               </div>
               <input type="range" id="hotspotPercentile" min="0.5" max="10.0" step="0.5" value="2.0">
-              <p class="help-text">Percentage of top peaks marked as Map Hotspots. <strong>Default:</strong> 2.0%.</p>
+              <p class="help-text">Percentage of top peaks marked as Map Hotspots. <strong>Recommended:</strong> 2.0% (default).</p>
             </div>
           </div>
         </section>
@@ -420,7 +420,7 @@
                 <span class="slider-value" id="valGpsSnapRadius">25 m</span>
               </div>
               <input type="range" id="gpsSnapRadius" min="10" max="60" step="5" value="25">
-              <p class="help-text">Max distance to snap toward roads <strong>10–15&thinsp;m</strong> = tight (only near curbs). <strong>25&thinsp;m</strong> = moderate (default). <strong>40–60&thinsp;m</strong> = aggressive (urban canyons).</p>
+              <p class="help-text">Max distance to snap toward roads. <strong>10–15&thinsp;m</strong> = tight (only near curbs). <strong>25&thinsp;m</strong> = moderate (default). <strong>40–60&thinsp;m</strong> = aggressive (urban canyons).</p>
             </div>
 
             <div id="graphOverlayGroup">
@@ -579,7 +579,7 @@
             <div class="slider-group">
               <div class="slider-label">
                 <span>Grid Resolution</span>
-                <span class="slider-value" id="valGridResolution">40 x 40</span>
+                <span class="slider-value" id="valGridResolution">40 × 40</span>
               </div>
               <input type="range" id="gridResolution" min="20" max="400" step="5" value="40">
               <p class="help-text">Higher values make contour lines smoother but require more calculation.</p>
@@ -776,7 +776,7 @@
               </div>
               <span class="control-divider"></span>
               <select id="graphView" class="select-control" title="Graph view">
-                <option value="signal" selected>Signal</option>
+                <option value="signal" selected>GSR Signal</option>
                 <option value="tonic">Tonic (SCL)</option>
                 <option value="phasic">Phasic (SCR)</option>
                 <option value="peakDensity">Peak Density</option>
@@ -864,8 +864,8 @@
                    swaps which of the two is visible. -->
               <select id="mapColoringMetric" class="select-control" title="Select Map Metric">
                 <option value="gsr" selected>GSR Signal</option>
-                <option value="phasic">Phasic</option>
-                <option value="tonic">Tonic</option>
+                <option value="tonic">Tonic (SCL)</option>
+                <option value="phasic">Phasic (SCR)</option>
                 <option value="peakDensity">Peak Density</option>
                 <option value="phasicAUC">Phasic AUC</option>
                 <option value="arousalIndex">Arousal Index</option>
@@ -894,14 +894,14 @@
               <select id="topoSource" class="select-control" title="Topography Source — the metric the collective contour surface is built from" style="display: none;">
                 <!-- Order mirrors #mapColoringMetric (the single-track map dropdown);
                      'peaks' has no single-track equivalent and sits next to Peak Density. -->
-                <option value="gsr">GSR Signal (SCL + SCR)</option>
-                <option value="phasic" selected>Phasic Arousal (Transient)</option>
-                <option value="tonic">Tonic Baseline (SCL)</option>
-                <option value="peak_density">Peak Density (SCR frequency)</option>
+                <option value="gsr">GSR Signal</option>
+                <option value="tonic">Tonic (SCL)</option>
+                <option value="phasic" selected>Phasic (SCR)</option>
+                <option value="peak_density">Peak Density</option>
                 <option value="peaks">Peak Arousal Hotspots</option>
                 <option value="auc">Phasic AUC (ISCR)</option>
-                <option value="arousal_index">Combined Arousal Index</option>
-                <option value="tri_index">Tri Index (Tonic + AUC + Density)</option>
+                <option value="arousal_index">Arousal Index</option>
+                <option value="tri_index">Tri Index</option>
               </select>
               <span class="control-divider"></span>
               <button class="icon-btn fullscreen-btn" id="btnMapFullscreen" title="Full screen" type="button"><i class="fa-solid fa-expand"></i></button>
@@ -1119,9 +1119,9 @@
                   <tr>
                     <th class="sortable" data-sort="phase" title="Sort by Moment">Moment <i class="fa-solid fa-sort sort-icon"></i></th>
                     <th class="sortable" data-sort="metric" title="Sort by Measurement">Measurement <i class="fa-solid fa-sort sort-icon"></i></th>
-                    <th class="sortable" data-sort="meanTurn" title="Sort by Turn Mean"><i class="fa-solid fa-arrow-turn-up" style="color:#c82333; margin-right:4px;"></i> When Turning <i class="fa-solid fa-sort sort-icon"></i></th>
-                    <th class="sortable" data-sort="meanStraight" title="Sort by Straight Mean"><i class="fa-solid fa-arrow-up" style="color:#218838; margin-right:4px;"></i> When Straight <i class="fa-solid fa-sort sort-icon"></i></th>
-                    <th class="sortable" data-sort="meanControl" title="Sort by Open Road Control Mean"><i class="fa-solid fa-road" style="color:#007bff; margin-right:4px;"></i> Open Road <i class="fa-solid fa-sort sort-icon"></i></th>
+                    <th class="sortable" data-sort="meanTurn" title="Sort by Turn Mean"><i class="fa-solid fa-arrow-turn-up" style="color:#e8590c; margin-right:4px;"></i> When Turning <i class="fa-solid fa-sort sort-icon"></i></th>
+                    <th class="sortable" data-sort="meanStraight" title="Sort by Straight Mean"><i class="fa-solid fa-arrow-up" style="color:#1c7ed6; margin-right:4px;"></i> When Straight <i class="fa-solid fa-sort sort-icon"></i></th>
+                    <th class="sortable" data-sort="meanControl" title="Sort by Open Road Control Mean"><i class="fa-solid fa-road" style="color:#2f9e44; margin-right:4px;"></i> Open Road <i class="fa-solid fa-sort sort-icon"></i></th>
                     <th class="sortable" data-sort="diff" title="Sort by Turn vs Straight Difference">Turn vs Straight <i class="fa-solid fa-sort sort-icon"></i></th>
                     <th class="sortable" data-sort="diffJunction" title="Sort by Straight vs Open Road (Junction Effect)">Junction vs Open <i class="fa-solid fa-sort sort-icon"></i></th>
                     <th class="sortable" data-sort="pVal" title="Sort by Statistical Significance">Evidence (<em>q</em> = corrected) <i class="fa-solid fa-sort sort-icon"></i></th>

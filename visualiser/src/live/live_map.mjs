@@ -187,9 +187,7 @@ export async function cacheCurrentMapArea() {
   const maxZoom = Math.min(startZoom + 3, 18);
 
   const cacheMapBtn = document.getElementById('cacheMapBtn');
-  const originalText = Controllers.liveView.isCompactLayout()
-    ? 'Cache Map'
-    : cacheMapBtn.textContent;
+  const originalText = cacheMapBtn.textContent;
   cacheMapBtn.disabled = true;
   cacheMapBtn.textContent = 'Caching...';
 

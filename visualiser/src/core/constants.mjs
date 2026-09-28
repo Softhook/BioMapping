@@ -342,7 +342,7 @@ export const GSR_CONST = {
       allowNegative: false,
     },
     peakDensity: {
-      label: 'Peak Density (NS-SCR)',
+      label: 'Peak Density',
       unit: '/min',
       decimals: 1,
       colorVar: '--color-peak-density',
@@ -388,7 +388,7 @@ export const GSR_CONST = {
       allowNegative: false,
     },
     arousalIndex: {
-      label: 'Combined Arousal Index',
+      label: 'Arousal Index',
       unit: 'z',
       decimals: 2,
       colorVar: '--color-arousal-index',
@@ -519,11 +519,11 @@ export const GSR_CONST = {
 
   // ── Topography source definitions ───────────────────────────────────────
   TOPOGRAPHY_SOURCES: {
-    phasic: { label: 'Phasic Arousal', unit: ' μS' },
-    tonic: { label: 'Tonic Baseline (SCL)', unit: ' μS' },
+    phasic: { label: 'Phasic (SCR)', unit: ' μS' },
+    tonic: { label: 'Tonic (SCL)', unit: ' μS' },
     peaks: { label: 'Peak Arousal Hotspots', unit: '' },
     auc: { label: 'Phasic AUC (ISCR)', unit: ' μS·s' },
-    arousal_index: { label: 'Combined Arousal Index', unit: ' z' },
+    arousal_index: { label: 'Arousal Index', unit: ' z' },
     tri_index: { label: 'Tri Index', unit: ' z' },
     gsr: { label: 'GSR Signal', unit: ' μS' },
     peak_density: { label: 'Peak Density', unit: ' /min' },

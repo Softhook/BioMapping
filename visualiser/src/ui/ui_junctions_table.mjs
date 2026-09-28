@@ -265,7 +265,7 @@ export const JunctionsTableUI = {
         <span class="junction-stat-chip ambiguous" title="Angle 25°–40° or snapped vs raw GPS disagree"><i class="fa-solid fa-circle-question"></i> ${nAmbiguous} Ambiguous</span>
         <span class="junction-stat-chip" style="background: rgba(0,85,204,0.1); color: #0055cc; font-weight: 600;" title="Junctions visited multiple times with both turn and straight choices"><i class="fa-solid fa-code-compare"></i> ${nPaired} Paired Junctions</span>
         <span class="junction-stat-chip ambiguous" title="Windows are trimmed at the midpoint to a neighbouring junction so no sample is counted twice; a passage is left out when that leaves less than 5 s (a junction under ~10 s away), when its traversal takes over 20 s, or when it has too little GSR. Reverse and ambiguous passages are never compared."><i class="fa-solid fa-filter"></i> no clean window: ${nDroppedTurn} of ${nTurn} turns, ${nDroppedStraight} of ${nStraight} straights, ${nDroppedControl} of ${nControl} controls · ${nReverse + nAmbiguous} reverse/ambiguous not compared</span>
-        ${skewedLoss ? '<span class="junction-stat-chip reverse" title="One class lost many more windows than the other (usually turns, which sit in dense areas), so the passages compared may not be representative."><i class="fa-solid fa-triangle-exclamation"></i> Uneven loss of turns vs straights — comparison may be biased</span>' : ''}
+        ${skewedLoss ? '<span class="junction-stat-chip warning" title="One class lost many more windows than the other (usually turns, which sit in dense areas), so the passages compared may not be representative."><i class="fa-solid fa-triangle-exclamation"></i> Uneven loss of turns vs straights — comparison may be biased</span>' : ''}
         ${
           junctionStats?.tracksNeedingGeoms > 0
             ? `<button class="junction-stat-chip btn-fetch-junction-geoms" style="background: rgba(255,123,0,0.12); color: #c45d00; border: 1px solid rgba(255,123,0,0.4); cursor: pointer;" title="Retrieve OpenStreetMap road network geometry to snap and detect junctions on ${junctionStats.tracksNeedingGeoms} walk(s)"><i class="fa-solid fa-wand-magic-sparkles"></i> ${junctionStats.tracksNeedingGeoms} walk(s) need road geometries — click to retrieve</button>`
@@ -437,14 +437,14 @@ export const JunctionsTableUI = {
             <span class="junction-moment-sub">${sub} · ${evidence}</span>
             <div class="junction-moment-values">
               <div class="junction-value-row">
-                <span style="font-weight:600; min-width:65px;"><i class="fa-solid fa-arrow-turn-up" style="color:#c82333;"></i> Turn:</span>
+                <span style="font-weight:600; min-width:65px;"><i class="fa-solid fa-arrow-turn-up" style="color:#e8590c;"></i> Turn:</span>
                 <div class="junction-bar-track">
                   <div class="junction-bar-fill turn" style="width: ${tPct}%;"></div>
                 </div>
                 <span style="font-family:monospace; min-width:55px; text-align:right;">${fmtCardVal(tVal)} μS</span>
               </div>
               <div class="junction-value-row">
-                <span style="font-weight:600; min-width:65px;"><i class="fa-solid fa-arrow-up" style="color:#218838;"></i> Straight:</span>
+                <span style="font-weight:600; min-width:65px;"><i class="fa-solid fa-arrow-up" style="color:#1c7ed6;"></i> Straight:</span>
                 <div class="junction-bar-track">
                   <div class="junction-bar-fill straight" style="width: ${sPct}%;"></div>
                 </div>
@@ -454,7 +454,7 @@ export const JunctionsTableUI = {
                 hasControl
                   ? `
               <div class="junction-value-row">
-                <span style="font-weight:600; min-width:65px;"><i class="fa-solid fa-road" style="color:#007bff;"></i> Control:</span>
+                <span style="font-weight:600; min-width:65px;"><i class="fa-solid fa-road" style="color:#2f9e44;"></i> Control:</span>
                 <div class="junction-bar-track">
                   <div class="junction-bar-fill control" style="width: ${cPct}%;"></div>
                 </div>
