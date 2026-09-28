@@ -33,7 +33,7 @@ export const GsrAnalysisEvents = {
     // Mutually exclusive: analyze() only ever runs one detector, so turning one
     // alternative ON forces the others OFF (setting .checked in code does not
     // re-fire 'change', so no loop). Turning all OFF drops back to the
-    // Full-Scan detector, whose box then re-ticks. Each re-runs the full pipeline.
+    // Trough-to-Peak (full-scan) detector, whose box then re-ticks. Each re-runs the full pipeline.
     const detectorToggles = [
       'usePeakProminence',
       'useDeconvolution',
@@ -53,7 +53,7 @@ export const GsrAnalysisEvents = {
       });
     });
 
-    // Full-Scan is on exactly when every alternative is off. Ticking it turns
+    // Trough-to-Peak (full-scan) is on exactly when every alternative is off. Ticking it turns
     // the alternatives off; unticking it is refused, since some detector must
     // be running — pick another detector to switch away from it.
     if (S.useFullScanDetector) {

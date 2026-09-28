@@ -445,8 +445,8 @@ export const GSREvents = {
    *   the matching-pursuit deconvolution path, which still subtracts this
    *   baseline — leaves them live.
    * - The Prominence detector applies no SNR gate, so Min SNR is inert there.
-   * Also ticks the Full-Scan box exactly when no alternative detector is on —
-   * it is display-only (not a saved param): Full-Scan is what analyze() runs
+   * Also ticks the Trough-to-Peak box exactly when no alternative detector is on —
+   * it is display-only (not a saved param): full-scan is what analyze() runs
    * when every alternative is off.
    */
   syncDetectorDependentControls() {
