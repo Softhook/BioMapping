@@ -40,7 +40,7 @@ The device is a Flipper Zero running the Bio Mapping app, wired to a custom skin
 | Stream | Sensor | Notes |
 |---|---|---|
 | **Galvanic Skin Response (GSR)** | Transimpedance amplifier + 16-bit ADS1115 ADC | Skin conductance in nanosiemens (nS) |
-| **Location** | u-blox SAM-M10Q GNSS | Sub-metre accuracy, up to 10 Hz (GPS + Galileo + GLONASS + BeiDou) |
+| **Location** | u-blox SAM-M10Q GNSS | About 1.5 m in open sky (datasheet); worse in streets with tall buildings. Up to 10 Hz (GPS + Galileo + GLONASS + BeiDou) |
 | **Environmental RF** | Flipper SubGHz radio | Band activity at 815 / 868 / 915 MHz |
 
 Everything is logged to `/ext/biomapping/*.csv` at 10 Hz. A Live Stream mode sends GPS + GSR over Bluetooth instead of recording.
@@ -62,15 +62,15 @@ Accuracy zones by the fraction of real-world track data that falls inside them:
 | :--- | :--- | :--- | :--- | :--- |
 | [BIOPAC EDA100C + MP160](https://www.biopac.com/product/electrodermal-activity-amplifier/) | Lab Benchmark (~£8,000+) | 16-bit *(MP160 DAQ)* | 0.7 nS *(published sensitivity)* | Unknown |
 | **[BioMapping 2.0](https://github.com/Softhook/BioMapping)** | **Custom Portable (~£250)** | **16-bit** *(Onboard ADS1115)* | **2.7 nS** | **±0.1% *(calibrated)* / ±0.4% *(raw)*** |
-| [Empatica E4](https://support.empatica.com/hc/en-us/articles/202581999-E4-wristband-technical-specifications) | Clinical Wearable (~£1,350) *(discontinued)* | 0.9 nS per digit | Unknown | Unknown |
-| [Empatica EmbracePlus](https://www.empatica.com/embraceplus/) | Clinical Research Wearable (~£1,400+) | ~0.055 nS per digit | Unknown | Unknown |
+| [Empatica E4](https://support.empatica.com/hc/en-us/articles/202581999-E4-wristband-technical-specifications) | Clinical Wearable (~£1,350) *(discontinued)* | Not published *(0.9 nS per step)* | Unknown | Unknown |
+| [Empatica EmbracePlus](https://www.empatica.com/embraceplus/) | Clinical Research Wearable (~£1,400+) | Not published *(~0.055 nS per step)* | Unknown | Unknown |
 | [Shimmer3 GSR+](https://shimmersensing.com/product/shimmer3-gsr-unit/) | Research Wearable (~£650) | 12-bit *(Onboard MCU ADC)* | Unknown | ±3% to ±10% |
 | [Movisens EdaMove 4](https://www.movisens.com/en/products/eda-and-activity-sensor/) | Ambulatory Research (~£800+ est.) | 14-bit | Unknown | Unknown |
 | [BITalino EDA](https://www.pluxbiosignals.com/collections/bitalino/products/electrodermal-activity-eda-sensor) | Academic Toolkit (~£200) | 10-bit *(BITalino Core)* | Unknown | Unknown |
 | [ProtoCentral tinyGSR](https://protocentral.com/product/protocentral-tinygsr-gsr-eda-digital-output-sensor-board-qwiic-stemma-qt/) | Maker Breakout (~£16) | 12-bit | Unknown | Unknown |
 | [Grove GSR v1.2](https://wiki.seeedstudio.com/Grove-GSR_Sensor/) | Hobbyist Module (~£12) | Sensor Only | Unknown | Unknown |
 
-> **Note on comparisons:** Most manufacturers do not publish detailed technical specifications. Where figures do appear, they reflect different testing conditions, comparing a bench-measured noise floor against a precision resistor grid. One of the most useful comparisons is ADC resolution as an indication of overall hardware quality and intended use.
+> **Note on comparisons:** Most manufacturers don't publish detailed specifications, and the few that do test in different ways, so the numbers above aren't directly comparable. BioMapping's noise floor and accuracy were measured on the bench against precision resistors. ADC resolution is the figure most often published, and it's a rough guide to how carefully a device was built and what it was built for. Where a maker only gives the size of one measurement step (in nS), that is shown in brackets instead.
 
 
 ## Components
