@@ -204,9 +204,18 @@
 
           <div class="card-content">
             <div class="control-subgroup-title">Peak Detector</div>
-            <p class="help-text" style="margin-top:-2px;margin-bottom:6px;"><strong>Default:</strong> the trough-to-peak criterion — a response rose at least the Min Peak Amplitude from its onset — tested against <em>every</em> local maximum, one per refractory window. Keeps responses that ride the rising edge of a larger one. Gates: Min Peak Amplitude, Min SNR, Min Peak Quality. The alternatives below replace it while enabled.</p>
+            <p class="help-text" style="margin-top:-2px;margin-bottom:6px;">Five different peak detection methods:</p>
 
             <div class="toggle-group">
+              <label class="switch">
+                <input type="checkbox" id="useFullScanDetector" aria-label="Full-Scan Detector" checked>
+                <span class="slider round"></span>
+              </label>
+              <span class="toggle-label">Full-Scan Detector</span>
+            </div>
+            <p class="help-text" style="margin-top:4px;">The trough-to-peak criterion — a response rose at least the Min Peak Amplitude from its onset — tested against <em>every</em> local maximum, one per refractory window. Keeps responses that ride the rising edge of a larger one. Gates: Min Peak Amplitude, Min SNR, Min Peak Quality. On whenever none of the others is.</p>
+
+            <div class="toggle-group" style="margin-top:8px;">
               <label class="switch">
                 <input type="checkbox" id="usePeakProminence" aria-label="Prominence Detector">
                 <span class="slider round"></span>
@@ -273,7 +282,7 @@
               </div>
               <input type="range" id="shapeMinSnr" min="0" max="5.0" step="0.1" value="2.5">
               <div class="slider-rec" style="left:30%; width:40%"></div>
-              <p class="help-text">Peak amplitude / local noise floor. <strong>Recommended:</strong> 1.5–3.5×. Applies to default and deconvolution detectors, not prominence. Set to 0 = off.</p>
+              <p class="help-text">Peak amplitude / local noise floor. <strong>Recommended:</strong> 1.5–3.5×. Applies to Full-Scan and deconvolution detectors, not Prominence. Set to 0 = off.</p>
             </div>
 
             <div class="slider-group">

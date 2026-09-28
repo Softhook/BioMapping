@@ -97,6 +97,7 @@ export const GSREvents = {
       'placeMergeDistance',
       'maxArousalPlaces',
       'graphView',
+      'useFullScanDetector',
       'useDeconvolution',
       'useSparsEDA',
       'usePeakProminence',
@@ -444,10 +445,21 @@ export const GSREvents = {
    *   the matching-pursuit deconvolution path, which still subtracts this
    *   baseline — leaves them live.
    * - The Prominence detector applies no SNR gate, so Min SNR is inert there.
+   * Also ticks the Full-Scan box exactly when no alternative detector is on —
+   * it is display-only (not a saved param): Full-Scan is what analyze() runs
+   * when every alternative is off.
    */
   syncDetectorDependentControls() {
     const S = AppState.sliders;
     if (!S?.tonicMethod) return;
+    if (S.useFullScanDetector) {
+      S.useFullScanDetector.checked = !(
+        S.usePeakProminence?.checked ||
+        S.useDeconvolution?.checked ||
+        S.useSparsEDA?.checked ||
+        S.useCvxEDA?.checked
+      );
+    }
     const jointTonic = !!S.useCvxEDA?.checked;
 
     S.tonicMethod.disabled = jointTonic;

@@ -32,8 +32,8 @@ export const GsrAnalysisEvents = {
     // ── Alternative-detector toggles (Prominence / Deconv / SparsEDA / cvxEDA) ──
     // Mutually exclusive: analyze() only ever runs one detector, so turning one
     // alternative ON forces the others OFF (setting .checked in code does not
-    // re-fire 'change', so no loop). Turning all OFF drops back to the default
-    // full-scan detector. Each re-runs the full pipeline.
+    // re-fire 'change', so no loop). Turning all OFF drops back to the
+    // Full-Scan detector, whose box then re-ticks. Each re-runs the full pipeline.
     const detectorToggles = [
       'usePeakProminence',
       'useDeconvolution',
@@ -52,6 +52,23 @@ export const GsrAnalysisEvents = {
         BusyOverlay.run('Re-analysing…', () => Controllers.ui?.runAnalysis());
       });
     });
+
+    // Full-Scan is on exactly when every alternative is off. Ticking it turns
+    // the alternatives off; unticking it is refused, since some detector must
+    // be running — pick another detector to switch away from it.
+    if (S.useFullScanDetector) {
+      S.useFullScanDetector.addEventListener('change', () => {
+        if (!S.useFullScanDetector.checked) {
+          S.useFullScanDetector.checked = true;
+          return;
+        }
+        detectorToggles.forEach((id) => {
+          if (S[id]) S[id].checked = false;
+        });
+        this.syncDetectorDependentControls();
+        BusyOverlay.run('Re-analysing…', () => Controllers.ui?.runAnalysis());
+      });
+    }
     this.syncDetectorDependentControls(); // initial state
 
     // ── Gait filter toggle (Linkwitz-Riley LR4 gait filter) ──
