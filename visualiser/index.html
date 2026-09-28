@@ -10,8 +10,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="theme-color" content="#121316">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="theme-color" content="#fcfbf9">
   <title>Bio Mapping 2</title>
   <link rel="icon" type="image/png" href="assets/favicon.png">
   <link rel="manifest" href="manifest.json">
@@ -40,7 +40,7 @@
       <div class="header-left">
 
         <!-- Mobile-only: toggles the sidebar drawer. Hidden on desktop via CSS,
-             hidden in the Live view (nothing to open) via events.js. -->
+             hidden in the Live view (nothing to open) via events.mjs. -->
         <button class="icon-btn sidebar-toggle-btn" id="btnSidebarToggle"
                 title="Controls" aria-label="Toggle controls" aria-expanded="false" type="button">
           <i class="fa-solid fa-bars"></i>
@@ -132,11 +132,10 @@
             
             <div class="slider-group">
               <div class="slider-label">
-                <span>1. Artifact Removal (Hampel)</span>
+                <span>1. Artefact Removal (Hampel)</span>
                 <span class="slider-value" id="valMedianSize">off</span>
               </div>
               <input type="range" id="medianSize" min="0" max="3" step="0.1" value="0">
-              <div class="slider-rec" style="left:10%; width:23.3%"></div>
               <p class="help-text">Removes spikes and loose-contact glitches. <strong>Recommended:</strong> Set to 0 = off.</p>
             </div>
 
@@ -146,7 +145,6 @@
                 <span class="slider-value" id="valLpfWindow">off</span>
               </div>
               <input type="range" id="lpfWindow" min="0" max="4" step="0.1" value="0">
-              <div class="slider-rec" style="left:7.5%; width:17.5%"></div>
               <p class="help-text">Smooth electrical fuzz and tremor (Butterworth 4th-order). <strong>Recommended:</strong> Set to 0 = off.</p>
             </div>
 
@@ -215,7 +213,7 @@
               </label>
               <span class="toggle-label">Prominence Detector</span>
             </div>
-            <p class="help-text" style="margin-top:4px;">Marks a response wherever skin conductance rises at least the Min Peak Amplitude above the level it last recovered to (topographic prominence). One pass — sits on the true summit of each rise and separates a response stacked on a larger one by the real dip between them. Min SNR does not apply in this mode; Min Peak Quality does. Takes precedence over Deconvolution when both are on.</p>
+            <p class="help-text" style="margin-top:4px;">Marks a response wherever skin conductance rises at least the Min Peak Amplitude above the level it last recovered to (topographic prominence). One pass — sits on the true summit of each rise and separates a response stacked on a larger one by the real dip between them. Min SNR does not apply in this mode; Min Peak Quality does.</p>
 
             <div class="toggle-group" style="margin-top:8px;">
               <label class="switch">
@@ -240,12 +238,12 @@
 
             <div class="toggle-group" style="margin-top:8px;">
               <label class="switch">
-                <input type="checkbox" id="useCvxEDA" aria-label="cvxEDA (Convex Optimization)">
+                <input type="checkbox" id="useCvxEDA" aria-label="cvxEDA (Convex Optimisation)">
                 <span class="slider round"></span>
               </label>
-              <span class="toggle-label">cvxEDA (Convex Optimization)</span>
+              <span class="toggle-label">cvxEDA (Convex Optimisation)</span>
             </div>
-            <p class="help-text" style="margin-top:4px;">Decomposes EDA via convex optimization (Greco et al., 2016). Jointly models tonic baseline with cubic B-splines and estimates an L1-sparse sudomotor driver, eliminating multi-atom ripple.</p>
+            <p class="help-text" style="margin-top:4px;">Decomposes EDA via convex optimisation (Greco et al., 2016). Jointly models tonic baseline with cubic B-splines and estimates an L1-sparse sudomotor driver, eliminating multi-atom ripple.</p>
 
             <div class="control-subgroup-title" style="margin-top:16px;">Thresholding</div>
 
@@ -262,7 +260,7 @@
             <div class="slider-group">
               <div class="slider-label">
                 <span>Min Peak Quality</span>
-                <span class="slider-value" id="valMinPeakQuality">0.00</span>
+                <span class="slider-value" id="valMinPeakQuality">off</span>
               </div>
               <input type="range" id="minPeakQuality" min="0.00" max="1.00" step="0.05" value="0.00">
               <p class="help-text">Filters out peaks with a lower composite shape-quality score. 0.00 = no quality filtering. Applies in every detector mode.</p>
@@ -281,10 +279,10 @@
             <div class="slider-group">
               <div class="slider-label">
                 <span>Hotspot Ratio</span>
-                <span class="slider-value" id="valHotspotPercentile">2.0 %</span>
+                <span class="slider-value" id="valHotspotPercentile">2.0%</span>
               </div>
               <input type="range" id="hotspotPercentile" min="0.5" max="10.0" step="0.5" value="2.0">
-              <p class="help-text">Percentage of top peaks marked as Map Hotspots. <strong>Default:</strong> 2.0 %.</p>
+              <p class="help-text">Percentage of top peaks marked as Map Hotspots. <strong>Default:</strong> 2.0%.</p>
             </div>
           </div>
         </section>
@@ -343,6 +341,7 @@
           </h2>
 
           <div class="card-content">
+            <p class="help-text" style="margin-top: 0; margin-bottom: 12px;">Enrich GPS points with environmental metadata (roads, parks, buildings, water) fetched from OpenStreetMap.</p>
             <button class="btn btn-primary" id="btnEnrichTrack" style="width: 100%;" type="button">
               <i class="fa-solid fa-wand-magic-sparkles"></i> Retrieve Spatial Data
             </button>
@@ -356,23 +355,23 @@
                 <i class="fa-solid fa-sliders"></i>
                 <span>Satellite &amp; NDVI Settings</span>
                 <span id="copernicusActiveBadge" class="badge" style="margin-left: auto; font-size: 0.65rem; background: #2e7d32; color: #fff; padding: 1px 6px; border-radius: 3px; display: none;">Raw NDVI Active</span>
-                <span id="copernicusDefaultBadge" class="badge" style="margin-left: auto; font-size: 0.65rem; background: rgba(255,255,255,0.1); color: var(--text-muted, #aaa); padding: 1px 6px; border-radius: 3px;">Imagery Fallback</span>
+                <span id="copernicusDefaultBadge" class="badge" style="margin-left: auto; font-size: 0.65rem; background: rgba(0,0,0,0.06); color: var(--text-muted); padding: 1px 6px; border-radius: 3px;">Imagery Fallback</span>
               </summary>
               <div id="copernicusConfigSection" style="margin-top: 8px; padding: 10px; border-radius: 6px; background: rgba(46, 125, 50, 0.08); border: 1px solid rgba(46, 125, 50, 0.25);">
-                <div style="display: flex; align-items: center; justify-content: space-between; font-size: 0.78rem; font-weight: 600; color: #81c784; margin-bottom: 6px;">
+                <div style="display: flex; align-items: center; justify-content: space-between; font-size: 0.78rem; font-weight: 600; color: #2e7d32; margin-bottom: 6px;">
                   <span><i class="fa-solid fa-satellite-dish"></i> Sentinel-2 Band 8 (NIR)</span>
-                  <span style="font-size: 0.68rem; color: #81c784;">Copernicus WMS</span>
+                  <span style="font-size: 0.68rem; color: #2e7d32;">Copernicus WMS</span>
                 </div>
                 <div style="font-size: 0.72rem; color: var(--text-secondary, #aaa); margin-bottom: 2px;">Instance ID:</div>
                 <input type="text" id="copernicusInstanceId" class="text-input" style="width: 100%; font-size: 0.72rem; padding: 4px 6px; font-family: monospace;" value="" placeholder="Paste Copernicus Instance ID..." title="Copernicus Sentinel Hub Instance ID">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 6px; margin-bottom: 2px;">
                   <span style="font-size: 0.72rem; color: var(--text-secondary, #aaa);">Raw Layer ID:</span>
-                  <span style="font-size: 0.68rem; color: #81c784;">FLOAT32 evalscript</span>
+                  <span style="font-size: 0.68rem; color: #2e7d32;">FLOAT32 evalscript</span>
                 </div>
-                <input type="text" id="copernicusRawLayerId" class="text-input" style="width: 100%; font-size: 0.72rem; padding: 4px 6px; font-family: monospace;" value="NDVI_RAW" placeholder="NDVI_RAW" title="Custom evalscript layer outputting single-band FLOAT32 NDVI — used for both &quot;Sample Satellite NDVI&quot; and the on-map NDVI overlay. See docs/environmental_enrichment_plan.md §2E for the evalscript.">
+                <input type="text" id="copernicusRawLayerId" class="text-input" style="width: 100%; font-size: 0.72rem; padding: 4px 6px; font-family: monospace;" value="NDVI_RAW" placeholder="NDVI_RAW" title="Custom evalscript layer outputting single-band FLOAT32 NDVI — used for both &quot;Sample Satellite NDVI&quot; and the on-map NDVI overlay. See research/environmental_enrichment_plan.md §2E for the evalscript.">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 6px; margin-bottom: 2px;">
                   <span style="font-size: 0.72rem; color: var(--text-secondary, #aaa);">Date Range (Cloudless):</span>
-                  <span style="font-size: 0.68rem; color: #81c784;">Summer Window</span>
+                  <span style="font-size: 0.68rem; color: #2e7d32;">Summer Window</span>
                 </div>
                 <input type="text" id="copernicusTimeRange" class="text-input" style="width: 100%; font-size: 0.72rem; padding: 4px 6px; font-family: monospace;" value="2024-05-01/2024-09-30" title="Copernicus Date Range (e.g. 2024-05-01/2024-09-30)">
                 <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 8px; font-size: 0.68rem; color: var(--text-muted, #888);">
@@ -383,23 +382,21 @@
             </details>
 
             <!-- Progress & status -->
-            <div id="osmStatusContainer" style="display: none; margin-top: 12px; font-size: 0.8rem; background: rgba(255,255,255,0.05); padding: 8px; border-radius: 4px; border-left: 3px solid #ff7b00;">
+            <div id="osmStatusContainer" style="display: none; margin-top: 12px; font-size: 0.8rem; background: rgba(0,0,0,0.03); padding: 8px; border-radius: 4px; border-left: 3px solid #ff7b00;">
               <div id="osmStatusMessage" style="font-weight: 500; margin-bottom: 4px;">Connecting to Overpass...</div>
-              <div class="progress-bar-container" style="background: rgba(255,255,255,0.1); height: 6px; border-radius: 3px; overflow: hidden;">
+              <div class="progress-bar-container" style="background: rgba(0,0,0,0.08); height: 6px; border-radius: 3px; overflow: hidden;">
                 <div id="osmProgressBar" style="background: #ff7b00; height: 100%; width: 0%; transition: width 0.2s;"></div>
               </div>
             </div>
 
             <p class="help-text" style="margin-top: 12px; margin-bottom: 4px;">Fetched OpenStreetMap data is cached locally in the browser, so re-enriching tracks in the same area doesn't re-fetch from the network.</p>
-            <button class="btn btn-outline" id="btnClearOsmCache" style="width: 100%; font-size: 0.8rem;" title="Delete all locally cached OpenStreetMap data" type="button">
+            <button class="btn btn-outline" id="btnClearOsmCache" style="width: 100%; font-size: 0.8rem; margin-bottom: 16px;" title="Delete all locally cached OpenStreetMap data" type="button">
               <i class="fa-solid fa-trash"></i> Clear Cached Map Data
             </button>
 
-            <p class="help-text" style="margin-top: 16px; margin-bottom: 12px;">Enrich GPS points with environmental metadata (roads, parks, buildings, water) fetched from OpenStreetMap.</p>
-
             <div class="slider-group">
               <div class="slider-label">
-                <span>Search Radius (m)</span>
+                <span>Search Radius</span>
                 <span class="slider-value" id="valOsmRadius">50 m</span>
               </div>
               <input type="range" id="osmRadius" min="25" max="200" step="5" value="50">
@@ -415,6 +412,7 @@
               </label>
               <span class="toggle-label">Snap to Roads &amp; Trails</span>
             </div>
+            <p class="help-text" style="margin-top:4px;">Pulls the drawn GPS path onto nearby OpenStreetMap roads and footpaths. Applied when spatial data is retrieved; if it already has been, the path updates straight away.</p>
 
             <div class="slider-group" id="snapRadiusGroup" style="display:none;">
               <div class="slider-label">
@@ -425,6 +423,7 @@
               <p class="help-text">Max distance to snap toward roads <strong>10–15&thinsp;m</strong> = tight (only near curbs). <strong>25&thinsp;m</strong> = moderate (default). <strong>40–60&thinsp;m</strong> = aggressive (urban canyons).</p>
             </div>
 
+            <div id="graphOverlayGroup">
             <div class="control-subgroup-title">Graph Overlay</div>
 
             <div class="toggle-group">
@@ -453,6 +452,7 @@
               <span class="toggle-label">Show EM Fog on GSR</span>
             </div>
             <p class="help-text">Renders recorded EM Fog (blue → magenta) as a background gradient behind the signal.</p>
+            </div>
           </div>
         </section>
 
@@ -484,7 +484,7 @@
               <p class="help-text">Spatial offset for each peak due to physiological stimulus delay.</p>
             </div>
 
-            <div class="control-subgroup-title">Arousal Places</div>
+            <div class="control-subgroup-title" id="arousalPlacesTitle">Arousal Places</div>
 
             <div class="slider-group">
               <div class="slider-label">
@@ -506,7 +506,7 @@
 
             <!-- 3D-only parameters — shown only while the 3D Globe surface is
                  active (toggled by GSREvents.setSurface). Colour metric / range /
-                 geometry all come from the 2D view; see src/map/globe3d_view.js. -->
+                 geometry all come from the 2D view; see src/map/globe3d_view.mjs. -->
             <div id="mapDisplay3DGroup" style="display: none;">
               <div class="control-subgroup-title">3D Globe</div>
 
@@ -543,7 +543,7 @@
               <div id="g3dRfControlsRow" style="display: none; flex-direction: column; gap: 8px; margin: 6px 0 10px;">
                 <div class="control-subgroup-title">RF Volumetric Field</div>
                 <div class="slider-group">
-                  <div class="slider-label"><span>Ceiling Height</span><span class="slider-value" id="g3dRfHeightVal">25m</span></div>
+                  <div class="slider-label"><span>Ceiling Height</span><span class="slider-value" id="g3dRfHeightVal">25 m</span></div>
                   <input type="range" id="g3dRfHeight" min="5" max="60" step="5" value="25">
                 </div>
                 <div class="slider-group">
@@ -565,12 +565,15 @@
           </h2>
 
           <div class="card-content">
+            <div class="toggle-group">
+              <label class="switch">
+                <input type="checkbox" id="normalizeZScore" checked aria-label="Normalise Tracks (Z-Score)">
+                <span class="slider round"></span>
+              </label>
+              <span class="toggle-label">Normalise Tracks (Z-Score)</span>
+            </div>
             <div class="slider-group">
-              <div class="slider-label" style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
-                <span>Normalise Tracks (Z-Score)</span>
-                <input type="checkbox" id="normalizeZScore" class="track-checkbox" checked>
-              </div>
-              <p class="help-text">Standardises arousal range per participant to allow fair comparison of relative stress. On by default so one participant's baseline doesn't outweigh another's genuine peak.</p>
+              <p class="help-text" style="margin-top:4px;">Standardises arousal range per participant to allow fair comparison of relative arousal. On by default so one participant's baseline doesn't outweigh another's genuine peak.</p>
             </div>
 
             <div class="slider-group">
@@ -606,7 +609,7 @@
                 <span class="slider-value" id="valIdwExponent">2.0</span>
               </div>
               <input type="range" id="idwExponent" min="1.0" max="4.0" step="0.2" value="2.0">
-              <p class="help-text">Spatial weight drop-off with distance (higher = more localized peaks).</p>
+              <p class="help-text">Spatial weight drop-off with distance (higher = more localised peaks).</p>
             </div>
 
             <div class="slider-group" id="peakPreservationGroup">
@@ -615,7 +618,7 @@
                 <span class="slider-value" id="valPeakPreservation">50%</span>
               </div>
               <input type="range" id="peakPreservation" min="0" max="1" step="0.05" value="0.5">
-              <p class="help-text">Only affects Phasic/Tonic/AUC/Arousal surfaces — hidden while Topography Source is set to Peak Stress Hotspots, since it has no effect there. 0% = plain average — a few high-arousal moments can get buried by many calmer ones nearby. 100% = the most aroused moment recorded near each spot wins outright, even if it's a single outlier.</p>
+              <p class="help-text">Only affects Phasic/Tonic/AUC/Arousal surfaces — hidden while Topography Source is set to Peak Arousal Hotspots, since it has no effect there. 0% = plain average — a few high-arousal moments can get buried by many calmer ones nearby. 100% = the most aroused moment recorded near each spot wins outright, even if it's a single outlier.</p>
             </div>
 
             <div class="slider-group">
@@ -639,10 +642,10 @@
             <div class="slider-group">
               <div class="slider-label">
                 <span>Hillshade Strength</span>
-                <span class="slider-value" id="valHillshadeStrength">0%</span>
+                <span class="slider-value" id="valHillshadeStrength">off</span>
               </div>
               <input type="range" id="hillshadeStrength" min="0" max="1" step="0.05" value="0">
-              <p class="help-text">Relief-shading intensity on the surface layer. 0% = flat color, no shading.</p>
+              <p class="help-text">Relief-shading intensity on the surface layer. 0% = flat colour, no shading.</p>
             </div>
           </div>
         </section>
@@ -662,13 +665,13 @@
                 <i class="fa-solid fa-file-csv"></i> Export Processed CSV
               </button>
               <button class="btn btn-secondary" id="exportImageBtn" disabled type="button">
-                <i class="fa-solid fa-image"></i> Save Canvas PNG
+                <i class="fa-solid fa-image"></i> Export GSR Graph (PNG)
               </button>
               <button class="btn btn-secondary" id="exportMapBtn" disabled type="button">
-                <i class="fa-solid fa-map"></i> Save Bio Map PNG
+                <i class="fa-solid fa-map"></i> Export Bio Map (PNG)
               </button>
               <button class="btn btn-secondary" id="exportSvgBtn" disabled type="button">
-                <i class="fa-solid fa-file-image"></i> Export SVG Map (Vector)
+                <i class="fa-solid fa-file-image"></i> Export Bio Map (SVG)
               </button>
               <button class="btn btn-secondary" id="exportCzmlBtn" disabled title="The 3D extruded arousal track as CesiumJS CZML" type="button">
                 <i class="fa-solid fa-code"></i> Export 3D Track (CZML)
@@ -696,7 +699,6 @@
         <section class="stats-row">
           
           <div class="stat-card">
-            <div class="stat-icon duration"><i class="fa-solid fa-clock"></i></div>
             <div class="stat-info">
               <span class="stat-label">Date</span>
               <span class="stat-value" id="statDate">--</span>
@@ -704,7 +706,6 @@
           </div>
 
           <div class="stat-card">
-            <div class="stat-icon duration"><i class="fa-solid fa-clock"></i></div>
             <div class="stat-info">
               <span class="stat-label">Start Time</span>
               <span class="stat-value" id="statStartTime">--</span>
@@ -712,7 +713,6 @@
           </div>
 
           <div class="stat-card">
-            <div class="stat-icon duration"><i class="fa-solid fa-clock"></i></div>
             <div class="stat-info">
               <span class="stat-label">Duration</span>
               <span class="stat-value" id="statDuration">--</span>
@@ -720,7 +720,6 @@
           </div>
 
           <div class="stat-card">
-            <div class="stat-icon duration"><i class="fa-solid fa-wave-square"></i></div>
             <div class="stat-info">
               <span class="stat-label">Mean SCL</span>
               <span class="stat-value" id="statMeanSCL">--</span>
@@ -728,24 +727,21 @@
           </div>
 
           <div class="stat-card">
-            <div class="stat-icon peaks"><i class="fa-solid fa-circle-nodes"></i></div>
             <div class="stat-info">
-              <span class="stat-label">Peaks Detected</span>
+              <span class="stat-label">Peaks</span>
               <span class="stat-value" id="statPeakCount">--</span>
             </div>
           </div>
 
           <div class="stat-card">
-            <div class="stat-icon frequency"><i class="fa-solid fa-chart-line"></i></div>
             <div class="stat-info">
-              <span class="stat-label">Peak Frequency</span>
+              <span class="stat-label">Peak Rate</span>
               <span class="stat-value" id="statPeakFreq">--</span>
             </div>
           </div>
 
           <!-- Green dot = all active track(s) have spatial data; grey = none or a mix -->
           <div class="stat-card" id="statSpatialDataCard">
-            <div class="stat-icon"><i class="fa-solid fa-earth-americas"></i></div>
             <div class="stat-info">
               <span class="stat-label">Spatial Data</span>
               <span class="stat-value" id="statSpatialData">--</span>
@@ -817,7 +813,7 @@
               </button>
               <!-- Surface switcher — swaps the render engine inside this one panel
                    (Leaflet ⇄ Cesium). The header controls below drive whichever
-                   is mounted; see GSREvents.setSurface / src/map/globe3d_view.js. -->
+                   is mounted; see GSREvents.setSurface / src/map/globe3d_view.mjs. -->
               <div class="view-switcher surface-switcher" id="surfaceSwitcher" title="Swap the map for the 3D globe (same data)">
                 <button class="view-tab surface-tab active" id="btnMapSurface" data-surface="map" type="button">
                   <i class="fa-solid fa-map-location-dot"></i> 2D
@@ -855,7 +851,7 @@
                 <button class="btn btn-outline active" id="btnToggleMapTracks" style="display: none;" title="Toggle Track Paths" type="button">Tracks</button>
               </div>
               <span class="control-divider"></span>
-              <select id="rfFluidMode" class="select-control btn btn-outline" title="Select RF Fluid visualization mode">
+              <select id="rfFluidMode" class="select-control" title="Select RF Fluid visualisation mode">
                 <option value="triband" selected>Tri-Band RGB</option>
                 <option value="815">815 MHz (LTE)</option>
                 <option value="868">868 MHz (Grid)</option>
@@ -866,7 +862,7 @@
                    this control is hidden and #topoSource (below) drives the
                    contour surface's Topography Source instead. GSREvents.bindViewSwitcher
                    swaps which of the two is visible. -->
-              <select id="mapColoringMetric" class="select-control btn btn-outline" title="Select Map Metric">
+              <select id="mapColoringMetric" class="select-control" title="Select Map Metric">
                 <option value="gsr" selected>GSR Signal</option>
                 <option value="phasic">Phasic</option>
                 <option value="tonic">Tonic</option>
@@ -895,14 +891,14 @@
                    from. Shown in place of #mapColoringMetric while in collective
                    view. Kept id/options so contourControls, collective_project
                    persistence and _updateCollectiveMapNow read it unchanged. -->
-              <select id="topoSource" class="select-control btn btn-outline" title="Topography Source — the metric the collective contour surface is built from" style="display: none;">
+              <select id="topoSource" class="select-control" title="Topography Source — the metric the collective contour surface is built from" style="display: none;">
                 <!-- Order mirrors #mapColoringMetric (the single-track map dropdown);
                      'peaks' has no single-track equivalent and sits next to Peak Density. -->
                 <option value="gsr">GSR Signal (SCL + SCR)</option>
                 <option value="phasic" selected>Phasic Arousal (Transient)</option>
                 <option value="tonic">Tonic Baseline (SCL)</option>
                 <option value="peak_density">Peak Density (SCR frequency)</option>
-                <option value="peaks">Peak Stress Hotspots</option>
+                <option value="peaks">Peak Arousal Hotspots</option>
                 <option value="auc">Phasic AUC (ISCR)</option>
                 <option value="arousal_index">Combined Arousal Index</option>
                 <option value="tri_index">Tri Index (Tonic + AUC + Density)</option>
@@ -916,7 +912,7 @@
           <div id="map"></div>
           <div id="globe3dContainer" style="display: none;">
             <div id="globe3dStatus" class="globe3d-status" style="display: none;"></div>
-            <!-- Filled by globe3d_view.js with GSRMapManager.buildLegendHtml() so it
+            <!-- Filled by globe3d_view.mjs with GSRMapManager.buildLegendHtml() so it
                  is identical to the 2D map's legend. -->
             <div class="map-legend globe3d-legend" id="g3dLegend"></div>
             <div class="globe3d-attribution" id="g3dAttribution"></div>
@@ -988,7 +984,7 @@
                     <th class="sortable" data-sort="name" title="Sort by Feature Name">Feature <i class="fa-solid fa-sort sort-icon"></i></th>
                     <th class="sortable" data-sort="rPhasic" title="Sort by Phasic r (momentary arousal correlation)">Phasic <em>r</em> <i class="fa-solid fa-sort sort-icon"></i></th>
                     <th class="sortable" data-sort="rTonic" title="Sort by Tonic r (baseline arousal correlation)">Tonic <em>r</em> <i class="fa-solid fa-sort sort-icon"></i></th>
-                    <th class="sortable" data-sort="rPeaks" title="Sort by Peaks r (stress peak rate correlation)">Peaks <em>r</em> <i class="fa-solid fa-sort sort-icon"></i></th>
+                    <th class="sortable" data-sort="rPeaks" title="Sort by Peaks r (arousal peak rate correlation)">Peaks <em>r</em> <i class="fa-solid fa-sort sort-icon"></i></th>
                     <th class="sortable" data-sort="qPhasic" title="q = significance test p-value, adjusted for multiple comparisons (Benjamini–Hochberg FDR across the environmental factors, computed separately for this arousal channel)"><em>q</em> (Phasic) <i class="fa-solid fa-sort sort-icon"></i></th>
                     <th class="sortable" data-sort="qTonic" title="q = significance test p-value, adjusted for multiple comparisons (Benjamini–Hochberg FDR across the environmental factors, computed separately for this arousal channel)"><em>q</em> (Tonic) <i class="fa-solid fa-sort sort-icon"></i></th>
                     <th class="sortable" data-sort="qPeaks" title="q = significance test p-value, adjusted for multiple comparisons (Benjamini–Hochberg FDR across the environmental factors, computed separately for this arousal channel)"><em>q</em> (Peaks) <i class="fa-solid fa-sort sort-icon"></i></th>
@@ -1128,7 +1124,7 @@
                     <th class="sortable" data-sort="meanControl" title="Sort by Open Road Control Mean"><i class="fa-solid fa-road" style="color:#007bff; margin-right:4px;"></i> Open Road <i class="fa-solid fa-sort sort-icon"></i></th>
                     <th class="sortable" data-sort="diff" title="Sort by Turn vs Straight Difference">Turn vs Straight <i class="fa-solid fa-sort sort-icon"></i></th>
                     <th class="sortable" data-sort="diffJunction" title="Sort by Straight vs Open Road (Junction Effect)">Junction vs Open <i class="fa-solid fa-sort sort-icon"></i></th>
-                    <th class="sortable" data-sort="pVal" title="Sort by Statistical Significance">Evidence (q = corrected) <i class="fa-solid fa-sort sort-icon"></i></th>
+                    <th class="sortable" data-sort="pVal" title="Sort by Statistical Significance">Evidence (<em>q</em> = corrected) <i class="fa-solid fa-sort sort-icon"></i></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1144,7 +1140,7 @@
                 <i class="fa-solid fa-chevron-down details-chevron"></i>
               </summary>
               <div class="env-guidance-content">
-                <p><strong>Open road control baseline</strong>: straight road segments at least 30&nbsp;m from any junction node and at least 25&nbsp;m from any junction passage establish steady-state walking arousal, distinguishing crossing/junction hazards (straight vs open road) from directional maneuvering (turn vs straight).</p>
+                <p><strong>Open road control baseline</strong>: straight road segments at least 30&nbsp;m from any junction node and at least 25&nbsp;m from any junction passage establish steady-state walking arousal, distinguishing crossing/junction hazards (straight vs open road) from directional manoeuvring (turn vs straight).</p>
                 <p><strong>Before vs. after</strong>: the 10&nbsp;s before a junction is the approach; the 10&nbsp;s after is the response plus the tail of whatever happened before it (an SCR takes several seconds to decay), so the two windows are not independent.</p>
                 <p><strong>Verdicts use q, not p</strong>: multiple measures are tested, so every p-value is Benjamini–Hochberg corrected across them. "Supported" needs q&nbsp;&lt;&nbsp;0.05. A raw p&nbsp;&lt;&nbsp;0.05 that doesn't survive is shown only as a weak hint.</p>
                 <p><strong>Paired vs. pooled</strong>: with at least 15 junctions walked both ways, a within-junction permutation test is used, which controls for the junction's own surroundings. Otherwise a pooled permutation test (labels shuffled within each walk, so a few large responses can't fake a difference) runs on values adjusted for each walk's own average level (so bigger-amplitude walks don't look like an effect); only walks that contain multiple conditions count. Passages within a walk are still correlated, so the pooled result is indicative.</p>
@@ -1156,7 +1152,7 @@
         </section>
 
         <!-- Live Stream (BLE) receiver. The whole UI is built into this
-             container by GSRLiveView.mount() (src/live/live_view.js) — the
+             container by GSRLiveView.mount() (src/live/live_view.mjs) — the
              same code path standalone live.html uses — on first activation
              of the "Live" view tab, then left mounted so an active BLE
              session survives switching tabs away and back. -->

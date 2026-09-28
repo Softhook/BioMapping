@@ -329,7 +329,7 @@ export const GSRTrackManager = {
       details.className = 'track-details';
       details.title = collective
         ? 'Click to zoom the map to this walk'
-        : 'Click to analyze and tweak';
+        : 'Click to analyse and tweak';
       details.addEventListener('click', () => {
         if (AppState.viewMode === 'collective') {
           GSRTrackManager.zoomToTrack(track.id);

@@ -11,6 +11,7 @@
  */
 import { AppState } from '../core/app_state.mjs';
 import { Controllers } from '../core/controllers.mjs';
+import { AnalyzerTimeFormat } from '../signal/analyzer_time_format.mjs';
 
 export const StatsPanelUI = {
   /**
@@ -126,25 +127,38 @@ export const StatsPanelUI = {
    * Update the four stat cards with current track metrics.
    */
   updateStatsPanel() {
-    const stats = AppState.analyzer.getStats();
     const a = AppState.analyzer;
     const F = AppState.statFields;
+
+    // No track loaded (e.g. the last one was just deleted): show the same
+    // "--" placeholders as a fresh page, not a row of zeros.
+    if (!a?.raw?.length) {
+      for (const key of [
+        'date',
+        'startTime',
+        'duration',
+        'meanSCL',
+        'peakCount',
+        'peakFreq',
+      ]) {
+        if (F[key]) F[key].innerText = '--';
+      }
+      this.updateSpatialDataIndicator();
+      return;
+    }
+
+    const stats = a.getStats();
 
     const hasClock = a.recordingStartTime && a.recordingStartTime >= 86400;
     if (F.date) F.date.innerText = hasClock ? a.formatDateUK(0) : '--';
     if (F.startTime)
       F.startTime.innerText = hasClock ? a.formatTimeOnly(0) : '--';
-    const dur = stats.duration;
-    const durMins = Math.floor(dur / 60);
-    const durSecs = Math.floor(dur % 60);
-    if (F.duration) {
-      F.duration.innerText =
-        durMins > 0 ? `${durMins} min ${durSecs} sec` : `${durSecs} sec`;
-    }
+    if (F.duration)
+      F.duration.innerText = AnalyzerTimeFormat.durationCompact(stats.duration);
     if (F.meanSCL) F.meanSCL.innerText = `${stats.meanSCL.toFixed(3)} \u03bcS`;
     if (F.peakCount) F.peakCount.innerText = stats.peakCount;
     if (F.peakFreq)
-      F.peakFreq.innerText = `${stats.peakFrequency.toFixed(2)} / min`;
+      F.peakFreq.innerText = `${stats.peakFrequency.toFixed(2)}/min`;
 
     this.updateSpatialDataIndicator();
   },

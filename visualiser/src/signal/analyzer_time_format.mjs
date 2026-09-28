@@ -112,4 +112,20 @@ export const AnalyzerTimeFormat = {
 
     return `${day}.${month}.${year}`;
   },
+
+  /**
+   * Compact elapsed-time label for the stat cards, shared by single-track
+   * and collective views: "49s", "18m 49s", "6h 05m".
+   * @param {number} seconds
+   * @returns {string}
+   */
+  durationCompact(seconds) {
+    const total = Math.max(0, Math.floor(seconds));
+    const h = Math.floor(total / 3600);
+    const m = Math.floor((total % 3600) / 60);
+    const s = total % 60;
+    if (h > 0) return `${h}h ${pad2(m)}m`;
+    if (m > 0) return `${m}m ${pad2(s)}s`;
+    return `${s}s`;
+  },
 };

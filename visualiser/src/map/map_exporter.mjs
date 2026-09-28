@@ -591,9 +591,9 @@ export const GSRMapExporter = {
       ['GPS_Track_Paths', 'GPS Track Paths', L.tracks],
       ['Contour_Lines', 'Contour Lines', L.contours],
       ['Cluster_Metaballs', 'Cluster Metaballs', L.clusters],
-      ['Stress_Peak_Dots', 'Stress Peak Dots', L.dotsAndLabels.dots],
+      ['Arousal_Peak_Dots', 'Arousal Peak Dots', L.dotsAndLabels.dots],
       ['Hotspot_Dots', 'Hotspot Dots', L.hotspots.dots],
-      ['Stress_Peak_Labels', 'Stress Peak Labels', L.dotsAndLabels.labels],
+      ['Arousal_Peak_Labels', 'Arousal Peak Labels', L.dotsAndLabels.labels],
       ['Arousal_Place_Badges', 'Arousal Place Badges', L.placeBadges],
     ];
 

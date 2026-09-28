@@ -180,7 +180,7 @@ export const JunctionsTableUI = {
       <div class="table-container" style="margin-top: 8px;">
         <table class="peaks-table">
           <thead><tr>
-            <th>Measure</th><th>Near a junction</th><th>Plain road</th><th>Difference</th><th>Evidence (q = corrected)</th>
+            <th>Measure</th><th>Near a junction</th><th>Plain road</th><th>Difference</th><th>Evidence (<em>q</em> = corrected)</th>
           </tr></thead>
           <tbody>${body}</tbody>
         </table>

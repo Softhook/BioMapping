@@ -144,7 +144,7 @@ const LIVE_VIEW_MARKUP = `
 
   <div id="liveMap">
     <div class="live-map-controls">
-      <button type="button" class="live-map-btn" id="myLocationBtn" title="Center on My Location" aria-label="My Location">
+      <button type="button" class="live-map-btn" id="myLocationBtn" title="Centre on My Location" aria-label="My Location">
         <i class="fa-solid fa-crosshairs"></i>
       </button>
     </div>

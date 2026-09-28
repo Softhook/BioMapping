@@ -28,7 +28,7 @@ export const GSR_CONST = {
   // See docs/csv_schema.md for the rationale.
   // NOTE: peakLatency default is 2.0s (not 0) — the "Peak Latency Compensation"
   // slider ships with a physiologically-recommended SCR-onset-delay default
-  // (see docs/environmental_enrichment_plan.md §C and the slider's own
+  // (see research/environmental_enrichment_plan.md §C and the slider's own
   // "Recommended: 1-3s" help text in index.html). This used to say 0 here,
   // silently disagreeing with the shipped UI default of 2.0.
   GPS_DEFAULT: {
@@ -521,7 +521,7 @@ export const GSR_CONST = {
   TOPOGRAPHY_SOURCES: {
     phasic: { label: 'Phasic Arousal', unit: ' μS' },
     tonic: { label: 'Tonic Baseline (SCL)', unit: ' μS' },
-    peaks: { label: 'Peak Stress Hotspots', unit: '' },
+    peaks: { label: 'Peak Arousal Hotspots', unit: '' },
     auc: { label: 'Phasic AUC (ISCR)', unit: ' μS·s' },
     arousal_index: { label: 'Combined Arousal Index', unit: ' z' },
     tri_index: { label: 'Tri Index', unit: ' z' },
@@ -544,7 +544,7 @@ export const GSR_CONST = {
   // ── Spatial peak-density KDE ─────────────────────────────────────────────
   // Canonical Gaussian-kernel settings for turning discrete peak *locations*
   // into a spatial density field. Two call sites need this: the cluster-blob
-  // boundaries (spatial_clustering.js getConcaveBlob) and the "Peak Stress
+  // boundaries (spatial_clustering.js getConcaveBlob) and the "Peak Arousal
   // Hotspots" contour surface (collective_manager.js, topographySource ===
   // 'peaks'). These had drifted apart — sigma 15 vs a hardcoded 20, and a
   // clamped relative-to-mean amplitude weight vs raw/unclamped amplitude —

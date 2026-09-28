@@ -84,9 +84,7 @@ export const ExportUI = {
     if (!AppState.myCanvas || AppState.analyzer.raw.length === 0) return;
     const baseName = this._exportFilenameBase();
     const suggestedName = `${baseName}_chart.png`;
-    const canvasEl =
-      document.querySelector('#sketch-container canvas') ||
-      (AppState.myCanvas ? AppState.myCanvas.elt : null);
+    const canvasEl = AppState.myCanvas.elt;
     if (canvasEl && typeof canvasEl.toBlob === 'function') {
       canvasEl.toBlob(async (blob) => {
         if (blob) {

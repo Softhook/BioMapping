@@ -80,8 +80,11 @@ export const SurfaceSwitcherEvents = {
         AppState.mapManager.map &&
         typeof AppState.mapManager.map.invalidateSize === 'function'
       ) {
+        // pan: true keeps the view centred if the window was resized while the
+        // globe was up (the hidden map still holds its last on-screen size —
+        // GSRLayoutManager.resizeMap skips it while hidden).
         AppState.mapManager.map.invalidateSize({
-          pan: false,
+          pan: true,
           debounceMoveend: true,
         });
         // A track loaded while the globe was up left its auto-fit deferred (the

@@ -48,11 +48,11 @@ export const GsrAnalysisEvents = {
             if (other !== id && S[other]) S[other].checked = false;
           });
         }
-        this.syncTonicBaselineControls();
+        this.syncDetectorDependentControls();
         BusyOverlay.run('Re-analysing…', () => Controllers.ui?.runAnalysis());
       });
     });
-    this.syncTonicBaselineControls(); // initial state
+    this.syncDetectorDependentControls(); // initial state
 
     // ── Gait filter toggle (Linkwitz-Riley LR4 gait filter) ──
     if (S.useGaitFilter) {

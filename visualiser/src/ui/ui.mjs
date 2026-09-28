@@ -127,7 +127,7 @@ export const GSRUI = {
       GSRUI.updateStatsPanel();
       GSRUI.updatePeaksTable();
       GSRUI.updateDeconvTruncationWarning();
-      Controllers.events.syncTonicBaselineControls();
+      Controllers.events.syncDetectorDependentControls();
       GSRUI.syncPhasicAUCLabels();
       GSRUI.syncGraphViewDetectorOptions();
       GSRUI.syncResponseDynamicsOptions();

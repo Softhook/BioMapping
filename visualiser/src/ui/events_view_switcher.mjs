@@ -72,6 +72,7 @@ export const ViewSwitcherEvents = {
 
     btnSingleView.addEventListener('click', () => {
       if (AppState.viewMode === 'single') return;
+      const fromLive = AppState.viewMode === 'live';
       AppState.viewMode = 'single';
       exitLiveView();
       btnSingleView.classList.add('active');
@@ -98,13 +99,17 @@ export const ViewSwitcherEvents = {
       document.getElementById('gsrPanel').style.display = '';
       document.getElementById('eventsPanel').style.display = '';
 
-      // Force synchronous measurement of the new container size without panning the map
+      // Force synchronous measurement of the new container size
       if (
         AppState.mapManager?.map &&
         typeof AppState.mapManager.map.invalidateSize === 'function'
       ) {
+        // Coming back from Live the map was hidden, possibly across a window
+        // resize: keep its centre (pan) so the track stays in view. Between
+        // Single and Collective the panel only grows/shrinks in place, so keep
+        // the top-left anchored (no pan).
         AppState.mapManager.map.invalidateSize({
-          pan: false,
+          pan: fromLive,
           debounceMoveend: true,
         });
       }
@@ -137,6 +142,7 @@ export const ViewSwitcherEvents = {
 
     btnCollectiveView.addEventListener('click', () => {
       if (AppState.viewMode === 'collective') return;
+      const fromLive = AppState.viewMode === 'live';
       AppState.viewMode = 'collective';
       exitLiveView();
       btnCollectiveView.classList.add('active');
@@ -178,13 +184,17 @@ export const ViewSwitcherEvents = {
       AppState.scrubSource = null;
       AppState.emit('scrub', { clear: true });
 
-      // Force synchronous measurement of the new expanded container dimensions without panning the map
+      // Force synchronous measurement of the new expanded container dimensions
       if (
         AppState.mapManager?.map &&
         typeof AppState.mapManager.map.invalidateSize === 'function'
       ) {
+        // Coming back from Live the map was hidden, possibly across a window
+        // resize: keep its centre (pan) so the track stays in view. Between
+        // Single and Collective the panel only grows/shrinks in place, so keep
+        // the top-left anchored (no pan).
         AppState.mapManager.map.invalidateSize({
-          pan: false,
+          pan: fromLive,
           debounceMoveend: true,
         });
       }

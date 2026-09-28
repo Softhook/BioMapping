@@ -10,7 +10,7 @@
  * colour-ramp visualisation (regardless of requested format), which cannot
  * be reversed back into a real index value, so sampling requires its own raw
  * layer (see getRawLayerId(), default 'NDVI_RAW'; the evalscript and setup
- * steps are in docs/environmental_enrichment_plan.md §2E). Sampling refuses
+ * steps are in research/environmental_enrichment_plan.md §2E). Sampling refuses
  * to run without a configured Copernicus instance — it does not fall back to
  * guessing a value from someone else's rendered image.
  *
@@ -170,7 +170,7 @@ export const NDVISampler = {
 
   /**
    * Read the active raw-sampling layer ID — a custom evalscript layer that
-   * outputs single-band FLOAT32 NDVI (see docs/environmental_enrichment_plan.md
+   * outputs single-band FLOAT32 NDVI (see research/environmental_enrichment_plan.md
    * §2E for the evalscript). Used for both sampling and the map overlay —
    * see file docstring.
    * @returns {string}
@@ -1012,7 +1012,7 @@ export const NDVISampler = {
     if (!this.hasCopernicusConfig()) {
       throw new Error(
         'Satellite NDVI sampling needs a Copernicus Sentinel Hub instance ID with a raw NDVI layer configured ' +
-          '(Satellite & NDVI Settings) — see docs/environmental_enrichment_plan.md §2E for the evalscript and setup steps.',
+          '(Satellite & NDVI Settings) — see research/environmental_enrichment_plan.md §2E for the evalscript and setup steps.',
       );
     }
 
@@ -1164,7 +1164,7 @@ export const NDVISampler = {
     if (!this.hasCopernicusConfig()) {
       throw new Error(
         'Satellite NDVI sampling needs a Copernicus Sentinel Hub instance ID with a raw NDVI layer configured ' +
-          '(Satellite & NDVI Settings) — see docs/environmental_enrichment_plan.md §2E for the evalscript and setup steps.',
+          '(Satellite & NDVI Settings) — see research/environmental_enrichment_plan.md §2E for the evalscript and setup steps.',
       );
     }
 

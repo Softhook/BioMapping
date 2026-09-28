@@ -17,6 +17,7 @@ test('getNextTrackColor: cycles through the palette in order and wraps around', 
   // `AppState.trackColorIndex` directly rather than `this.*`, so it always
   // operates on the real singleton regardless of what it's called on —
   // can't meaningfully test it against an isolated mock object.
+  const realPalette = AppState.trackColors;
   AppState.trackColors = ['#a', '#b', '#c'];
   AppState.trackColorIndex = 0;
   assert.strictEqual(AppState.getNextTrackColor(), '#a');
@@ -27,29 +28,22 @@ test('getNextTrackColor: cycles through the palette in order and wraps around', 
     '#a',
     'should wrap back to the first color',
   );
-  // restore the real 8-color palette for the next test in this file
-  AppState.trackColors = [
-    '#005bc4',
-    '#d10024',
-    '#008f3c',
-    '#7b00cc',
-    '#e59e00',
-    '#cc0088',
-    '#0099aa',
-    '#e56a00',
-  ];
+  // restore the real palette for the next test in this file
+  AppState.trackColors = realPalette;
   AppState.trackColorIndex = 0;
 });
 
-test('getNextTrackColor: on the real AppState singleton, cycles through all 8 default colors uniquely before repeating', () => {
+test('getNextTrackColor: on the real AppState singleton, cycles through every default colour uniquely before repeating', () => {
   AppState.trackColorIndex = 0;
   const seen = new Set();
-  for (let i = 0; i < 8; i++) seen.add(AppState.getNextTrackColor());
-  assert.strictEqual(seen.size, 8, 'all 8 palette entries should be distinct');
+  const n = AppState.trackColors.length;
+  assert.ok(n >= 12, 'palette should cover a typical multi-walk project');
+  for (let i = 0; i < n; i++) seen.add(AppState.getNextTrackColor());
+  assert.strictEqual(seen.size, n, 'all palette entries should be distinct');
   assert.strictEqual(
     AppState.getNextTrackColor(),
     AppState.trackColors[0],
-    '9th call wraps to the first color again',
+    'the call after a full cycle wraps to the first colour again',
   );
 });
 

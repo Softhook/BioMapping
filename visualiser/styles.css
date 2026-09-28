@@ -533,7 +533,6 @@ input[type="range"]::-webkit-slider-thumb:hover {
 .icon-btn:focus-visible,
 .view-tab:focus-visible,
 .track-action-btn:focus-visible,
-.track-checkbox:focus-visible,
 .select-control:focus-visible,
 input[type="range"]:focus-visible,
 .peak-label-input:focus-visible,
@@ -733,10 +732,6 @@ input[type="range"]:focus-visible,
   background: var(--bg-card-hover);
 }
 
-.stat-icon {
-  display: none !important;
-}
-
 .stat-info {
   display: flex;
   flex-direction: row;
@@ -773,6 +768,31 @@ input[type="range"]:focus-visible,
   overflow: hidden;
   text-overflow: ellipsis;
   flex-shrink: 0; /* the actual data value stays intact as long as possible */
+}
+
+/* Narrow cards (laptop widths, where seven cards share the row): stack the
+   label above the value rather than truncating either. Not on phones — there
+   the row already reflows to two wide columns, and stacking would only make
+   the block taller. */
+.stat-card {
+  container-type: inline-size;
+}
+
+@media (min-width: 769px) {
+  @container (max-width: 180px) {
+    .stat-info {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 0;
+    }
+    .stat-label {
+      font-size: 0.66rem;
+      max-width: 100%;
+    }
+    .stat-value {
+      max-width: 100%;
+    }
+  }
 }
 
 /* Visualization Panel */
@@ -957,6 +977,30 @@ input[type="range"]:focus-visible,
 .canvas-controls .select-control:hover {
   background: #f5f4f0 !important;
   border-color: var(--border-focus) !important;
+}
+
+/* Phones: the GSR and map toolbars are far wider than the screen (the map's
+   is ~800px), so give them their own row under the title and let them swipe
+   sideways instead of running off the edge where their buttons and dropdowns
+   can't be reached. Short toolbars (a lone fullscreen button) keep their size
+   and, if the title pushes them onto a new row, stay right-aligned. */
+@media (max-width: 768px), ((max-height: 500px) and (pointer: coarse)) {
+  .panel-header {
+    flex-wrap: wrap;
+  }
+  #gsrPanel .canvas-controls,
+  #mapPanel .canvas-controls {
+    flex: 1 1 100%;
+    min-width: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 2px;
+  }
+  #gsrPanel .canvas-controls::-webkit-scrollbar,
+  #mapPanel .canvas-controls::-webkit-scrollbar {
+    display: none;
+  }
 }
 
 .rf-fluid-group {
@@ -1252,8 +1296,10 @@ input[type="range"]:focus-visible,
   white-space: nowrap;
 }
 
-/* µ (U+00B5) uppercases to Greek capital Mu, so "µS" would read as "MS". */
-.peaks-table th .unit {
+/* µ (U+00B5) uppercases to Greek capital Mu, so "µS" would read as "MS";
+   and the italic statistics symbols (r, q) change meaning in capitals. */
+.peaks-table th .unit,
+.peaks-table th em {
   text-transform: none;
 }
 
@@ -1379,7 +1425,7 @@ input[type="range"]:focus-visible,
   background: none;
   border: 1px solid transparent;
   border-radius: 3px;
-  color: #d10024;
+  color: var(--text-muted);
   cursor: pointer;
   font-size: 0.85rem;
   padding: 2px 6px;
@@ -1390,6 +1436,7 @@ input[type="range"]:focus-visible,
 }
 
 .btn-exclude:hover {
+  color: var(--danger);
   background: rgba(209, 0, 36, 0.08);
   border-color: rgba(209, 0, 36, 0.25);
 }
@@ -2480,34 +2527,6 @@ input[type="range"]:focus-visible,
   box-shadow: none;
 }
 
-.track-checkbox {
-  appearance: none;
-  background: #ffffff;
-  border: 1.5px solid var(--text-muted);
-  width: 14px;
-  height: 14px;
-  border-radius: 2px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.15s ease;
-  flex-shrink: 0;
-}
-
-.track-checkbox:checked {
-  background: var(--text-primary);
-  border-color: var(--text-primary);
-}
-
-.track-checkbox:checked::after {
-  content: "\f00c";
-  font-family: "Font Awesome 6 Free", sans-serif;
-  font-weight: 900;
-  color: #ffffff;
-  font-size: 0.65rem;
-}
-
 .track-color-badge {
   width: 8px;
   height: 8px;
@@ -2951,8 +2970,15 @@ input[type="range"]:focus-visible,
 .main-layout.collective-mode #exportCzmlBtn,
 .main-layout.collective-mode #exportKmlBtn,
 .main-layout.collective-mode #mapDisplay3DGroup,
+.main-layout.collective-mode #graphOverlayGroup,
 .main-layout.collective-mode .surface-switcher {
   display: none !important;
+}
+
+/* With the per-walk sliders above it hidden, Arousal Places is the first thing
+   in the Map Display card — drop its heading gap like any first heading. */
+.main-layout.collective-mode #arousalPlacesTitle {
+  margin-top: 0;
 }
 
 .main-layout.collective-mode .collective-map-title {
@@ -4506,6 +4532,30 @@ body:has(.live-mode) {
   flex-wrap: nowrap !important;
 }
 
+/* Phones: the four analysis tabs don't fit beside the title, and squeezed they
+   wrap one word per line. Give them their own swipeable row below the title
+   (which keeps its fullscreen button on the right). */
+@media (max-width: 768px), ((max-height: 500px) and (pointer: coarse)) {
+  #environmentalPanel .panel-header {
+    flex-wrap: wrap !important;
+  }
+  #envTabSwitcher {
+    order: 3;
+    flex: 1 1 100%;
+    flex-wrap: nowrap;
+    margin-left: 0 !important; /* overrides the inline desktop spacing */
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  #envTabSwitcher::-webkit-scrollbar {
+    display: none;
+  }
+  #envTabSwitcher .view-tab {
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+}
+
 /* Hide tab content completely when environmental panel is collapsed */
 .peaks-table-panel.collapsed .env-tab-content {
   opacity: 0 !important;
@@ -4513,7 +4563,7 @@ body:has(.live-mode) {
   display: none !important;
 }
 
-/* Stress Peak, Hotspot, and Label Toggling via Map Container Classes */
+/* Peak, Hotspot, and Label Toggling via Map Container Classes */
 #map.hide-map-peaks .peak-dot,
 #map.hide-map-peaks .peak-glow-ring,
 #map.hide-map-peaks .peak-pulse-ring,

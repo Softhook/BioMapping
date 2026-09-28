@@ -171,7 +171,7 @@ export const GSRSpatialClustering = {
    *
    * This is the single source of truth for "how much does one peak count" in a spatial KDE —
    * shared by getConcaveBlob's per-cluster blob boundaries and
-   * collective_manager.js's global "Peak Stress Hotspots" contour surface, so both spatial
+   * collective_manager.js's global "Peak Arousal Hotspots" contour surface, so both spatial
    * views of "actual peaks" agree on the same peak's relative weight instead of each
    * hardcoding their own (previously: clamped-relative here vs raw-unclamped there).
    *

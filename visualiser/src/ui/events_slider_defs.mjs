@@ -18,7 +18,7 @@ export const GSR_SLIDER_DEFS = [
   { id: 'tonicWindow', labelId: 'valTonicWindow', suffix: ' s' },
   { id: 'peakThreshold', labelId: 'valPeakThreshold', suffix: ' μS' },
   { id: 'minPeakQuality', labelId: 'valMinPeakQuality', suffix: '' },
-  { id: 'hotspotPercentile', labelId: 'valHotspotPercentile', suffix: ' %' },
+  { id: 'hotspotPercentile', labelId: 'valHotspotPercentile', suffix: '%' },
   { id: 'shapeMinSnr', labelId: 'valShapeMinSnr', suffix: '×' },
 ];
 
@@ -88,7 +88,7 @@ export const CONTOUR_SLIDER_DEFS = [
   {
     id: 'coverageWeighting',
     labelId: 'valCoverageWeighting',
-    fmt: (v) => `${Math.round(v * 100)}%`,
+    fmt: (v) => (v === 0 ? 'off' : `${Math.round(v * 100)}%`),
   },
   {
     id: 'surfaceOpacity',
@@ -98,7 +98,7 @@ export const CONTOUR_SLIDER_DEFS = [
   {
     id: 'hillshadeStrength',
     labelId: 'valHillshadeStrength',
-    fmt: (v) => `${Math.round(v * 100)}%`,
+    fmt: (v) => (v === 0 ? 'off' : `${Math.round(v * 100)}%`),
   },
 ];
 

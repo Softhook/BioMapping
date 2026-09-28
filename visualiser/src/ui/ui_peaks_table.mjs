@@ -276,8 +276,10 @@ export const PeaksTableUI = {
     if (!tb) return;
 
     if (peaks.length === 0) {
-      tb.innerHTML =
-        '<tr class="empty-row"><td colspan="7">No peaks detected. Try reducing the Peak Amplitude threshold.</td></tr>';
+      // Same wording as index.html's initial row when nothing is loaded at all.
+      tb.innerHTML = AppState.analyzer?.raw?.length
+        ? '<tr class="empty-row"><td colspan="7">No peaks detected. Try reducing the Peak Amplitude threshold.</td></tr>'
+        : '<tr class="empty-row"><td colspan="7">No data loaded yet. Upload a CSV file to view detected peaks.</td></tr>';
       this.updatePeaksTableSortHeaders();
       return;
     }

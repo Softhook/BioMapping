@@ -32,16 +32,24 @@ export const AppState = {
     this.isDisplayMode = !!v;
   },
 
-  // ── Track colour palette (Classic primary-inspired Swiss palette) ───────────
+  // ── Track colour palette ─────────────────────────────────────────────────
+  // 14 colours distinct on the light basemap, so a typical multi-walk project
+  // doesn't repeat. No pure red: that is the peak / hotspot colour on the map.
   trackColors: [
     '#005bc4', // Classic blue
-    '#d10024', // Classic red
     '#008f3c', // Rich green
     '#7b00cc', // Deep purple
     '#e59e00', // Amber yellow
     '#cc0088', // Magenta pink
     '#0099aa', // Teal
     '#e56a00', // Dark orange
+    '#8c510a', // Brown
+    '#1f2f6b', // Navy
+    '#6b7f00', // Olive
+    '#4aa3df', // Sky blue
+    '#5a6570', // Slate grey
+    '#f472b6', // Light pink
+    '#9b8ae0', // Lavender
   ],
   trackColorIndex: 0,
 

@@ -462,7 +462,8 @@ export const GSRGlobe3DView = {
     };
     if (els.rfHeight)
       els.rfHeight.addEventListener('input', (e) => {
-        if (els.rfHeightVal) els.rfHeightVal.textContent = `${e.target.value}m`;
+        if (els.rfHeightVal)
+          els.rfHeightVal.textContent = `${e.target.value} m`;
         applyRfParams();
       });
     if (els.rfOpacity)

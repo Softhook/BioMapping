@@ -882,7 +882,7 @@ export class GSRCollectiveManager {
     if (topographySource !== 'peaks') {
       const idwRadius = isolationRadius * 1.5;
       // Envelope (local-max) contributions are distance-decayed with the same Gaussian
-      // shape as the "Peak Stress Hotspots" KDE, sigma tied to idwRadius so it reaches
+      // shape as the "Peak Arousal Hotspots" KDE, sigma tied to idwRadius so it reaches
       // ~0 near the cutoff. Without this, a raw (non-decayed) max would stay flat right
       // out to idwRadius and then hard-cut off — since the IDW mean term *does* decay
       // continuously with distance, blending a flat plateau against it produces a dip

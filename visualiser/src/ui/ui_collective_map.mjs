@@ -10,6 +10,7 @@
  */
 import { AppState } from '../core/app_state.mjs';
 import { GSR_CONST } from '../core/constants.mjs';
+import { AnalyzerTimeFormat } from '../signal/analyzer_time_format.mjs';
 
 export const CollectiveMapUI = {
   /**
@@ -127,9 +128,9 @@ export const CollectiveMapUI = {
     if (F.date) F.date.innerText = '--';
     if (F.startTime) F.startTime.innerText = '--';
     if (F.duration)
-      F.duration.innerText = `${(totalDur / 60.0).toFixed(1)} min`;
+      F.duration.innerText = AnalyzerTimeFormat.durationCompact(totalDur);
     if (F.meanSCL) F.meanSCL.innerText = `${meanSCL.toFixed(3)} \u03bcS`;
     if (F.peakCount) F.peakCount.innerText = totalPeaks;
-    if (F.peakFreq) F.peakFreq.innerText = `${meanPeakFreq.toFixed(2)} / min`;
+    if (F.peakFreq) F.peakFreq.innerText = `${meanPeakFreq.toFixed(2)}/min`;
   },
 };

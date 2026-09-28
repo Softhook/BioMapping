@@ -251,14 +251,14 @@ export const GSREvents = {
 
   /**
    * Render a GSR slider's value label: "off" at 0, otherwise the value with its
-   * unit suffix. Decimal places follow the slider's own step — a sub-0.1 step
-   * gets 2 dp, a μS slider 3 dp, everything else 1 dp. Shared by bindGsrSlider
-   * (live drag) and initializeLabels (initial / post-preset) so they agree.
+   * unit suffix. Decimal places match the slider's own step ("0.005" → 3 dp,
+   * "0.1" → 1 dp, "1" → 0 dp), so every reachable value shows exactly. Shared
+   * by bindGsrSlider (live drag) and initializeLabels (initial / post-preset)
+   * so they agree.
    */
   _gsrLabelText(slider, suffix) {
     const val = parseFloat(slider.value);
-    const step = parseFloat(slider.step) || 0.1;
-    const decimals = step < 0.1 ? 2 : suffix.includes('μS') ? 3 : 1;
+    const decimals = (String(slider.step).split('.')[1] || '').length;
     return val === 0 ? 'off' : val.toFixed(decimals) + suffix;
   },
 
@@ -424,7 +424,7 @@ export const GSREvents = {
         slider.value = defVal;
       }
       if (label) {
-        label.innerText = `${parseFloat(slider.value).toFixed(1)} s`;
+        label.innerText = GSREvents._gsrLabelText(slider, ' s');
       }
     }
     if (rec) {
@@ -437,18 +437,18 @@ export const GSREvents = {
   },
 
   /**
-   * cvxEDA re-estimates the tonic baseline jointly with the phasic fit and
-   * overwrites whatever the Baseline Method produced, so that dropdown and the
-   * Tonic Baseline Window slider are inert while cvxEDA is the active detector.
-   * Grey them out (and disable interaction) to say so; every other mode —
-   * including the matching-pursuit deconvolution path, which still subtracts
-   * this baseline — leaves them live.
+   * Grey out (and disable) controls the active detector ignores:
+   * - cvxEDA re-estimates the tonic baseline jointly with the phasic fit and
+   *   overwrites whatever the Baseline Method produced, so that dropdown and
+   *   the Tonic Baseline Window slider are inert. Every other mode — including
+   *   the matching-pursuit deconvolution path, which still subtracts this
+   *   baseline — leaves them live.
+   * - The Prominence detector applies no SNR gate, so Min SNR is inert there.
    */
-  syncTonicBaselineControls() {
+  syncDetectorDependentControls() {
     const S = AppState.sliders;
     if (!S?.tonicMethod) return;
-    const cvx = !!S.useCvxEDA?.checked;
-    const jointTonic = cvx;
+    const jointTonic = !!S.useCvxEDA?.checked;
 
     S.tonicMethod.disabled = jointTonic;
     const win = document.getElementById('tonicWindow');
@@ -461,6 +461,13 @@ export const GSREvents = {
 
     const note = document.getElementById('tonicMethodHelp');
     if (note) note.hidden = !jointTonic;
+
+    const noSnrGate = !!S.usePeakProminence?.checked;
+    const snr = document.getElementById('shapeMinSnr');
+    if (snr) {
+      snr.disabled = noSnrGate;
+      snr.closest('.slider-group')?.classList.toggle('ctrl-inert', noSnrGate);
+    }
   },
 
   /**
@@ -510,7 +517,7 @@ export const GSREvents = {
 
   /**
    * Peak Preservation has no effect when the collective surface's topography
-   * source is Peak Stress Hotspots (see generateContourSurface()'s
+   * source is Peak Arousal Hotspots (see generateContourSurface()'s
    * `topographySource !== 'peaks'` gate) — hide it entirely rather than
    * leaving an inert control on screen.
    */

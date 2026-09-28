@@ -186,8 +186,13 @@ export const GSRLayoutManager = {
    */
   resizeMap(w, h) {
     if (w > 0 && h > 0) {
-      if (AppState.mapManager?.map) {
-        AppState.mapManager.map.invalidateSize();
+      // Only re-measure Leaflet while it is on screen. The globe's observer
+      // also lands here; a hidden (display:none) #map measures 0×0, and
+      // invalidateSize() would pan the view by half its size — leaving the
+      // track off-centre when 2D comes back.
+      const map = AppState.mapManager?.map;
+      if (map && map.getContainer?.().clientWidth > 0) {
+        map.invalidateSize();
       }
       if (GSRGlobe3DView?.onResize) {
         GSRGlobe3DView.onResize();

@@ -28,6 +28,7 @@ export class GSRMapLegend extends GSRMapViewport {
     const LegendControl = L.Control.extend({
       onAdd: () => {
         const div = L.DomUtil.create('div', 'map-legend');
+        div.style.display = 'none'; // shown by updateLegend() once there is data
         div.innerHTML =
           '<div class="legend-title">GSR Signal</div><div class="legend-scale"><div class="legend-gradient" style="background: linear-gradient(90deg, hsl(120,90%,50%), hsl(60,90%,50%), hsl(0,90%,50%));"></div><div class="legend-labels"><span>Low</span><span>High</span></div></div>';
         return div;
@@ -45,6 +46,12 @@ export class GSRMapLegend extends GSRMapViewport {
     const el = this._legendControl.getContainer();
     if (!el) return;
     el.innerHTML = this.buildLegendHtml();
+    // Nothing to explain on an empty map (no track loaded / none active).
+    const hasData =
+      AppState.viewMode === 'collective'
+        ? (AppState.collectiveManager?.getActiveTracks?.().length ?? 0) > 0
+        : (AppState.analyzer?.raw?.length ?? 0) > 0;
+    el.style.display = hasData ? '' : 'none';
   }
 
   /**
