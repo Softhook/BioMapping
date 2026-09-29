@@ -9,12 +9,11 @@
 const DEFAULT_FLOOR_DBM = -100.0;
 const SATURATION_CEILING_DBM = -30.0;
 
-/** Every monitored Sub-GHz band: CSV/row property name and short key. */
+/**
+ * The Sub-GHz bands the device records (firmware biomap_config.h):
+ * CSV/row property name and short key.
+ */
 export const SUB_GHZ_BANDS = [
-  { prop: 'rssi_300', key: '300' },
-  { prop: 'rssi_315', key: '315' },
-  { prop: 'rssi_434', key: '434' },
-  { prop: 'rssi_446', key: '446' },
   { prop: 'rssi_815', key: '815' },
   { prop: 'rssi_868', key: '868' },
   { prop: 'rssi_915', key: '915' },

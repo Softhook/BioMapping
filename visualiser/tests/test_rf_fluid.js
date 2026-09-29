@@ -286,9 +286,9 @@ console.log(
 // ── 6. Dynamic EM Fog Calculation & Analyzer Time-Series Test ─────────────
 console.log('Testing dynamic EM Fog calculation & time-series generation...');
 const missingFogCsv = [
-  'timestamp,lat,lon,rssi_300,rssi_315,rssi_434,rssi_446,rssi_815,rssi_868,rssi_915',
-  '0.00,56.3394,-2.7894,-82.0,-78.0,-81.0,-83.0,-90.0,-88.0,-91.5',
-  '0.10,56.3395,-2.7895,-70.0,-65.0,-60.0,-72.0,-85.0,-78.0,-80.0',
+  'timestamp,lat,lon,rssi_815,rssi_868,rssi_915',
+  '0.00,56.3394,-2.7894,-90.0,-88.0,-91.5',
+  '0.10,56.3395,-2.7895,-85.0,-78.0,-80.0',
 ].join('\n');
 
 const dynamicFogAnalyzer = new GSRAnalyzer();
@@ -341,10 +341,6 @@ const zeroFogPoint = {
   lat: 56.3394,
   lon: -2.7894,
   em_fog: 0,
-  rssi_300: -70.0,
-  rssi_315: -65.0,
-  rssi_434: -60.0,
-  rssi_446: -72.0,
   rssi_815: -85.0,
   rssi_868: -78.0,
   rssi_915: -80.0,

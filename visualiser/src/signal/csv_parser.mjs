@@ -41,6 +41,23 @@ function withDefaults(parsed, defaults) {
 
 export const GSRCSVParser = {
   /**
+   * Environment columns an enriched export carries, in file order: the OSM
+   * metrics (GSR_CONST.OSM_METRICS), then point and 50 m NDVI. `digits` is
+   * the decimals written on export; `kind` decides how a cell is read and
+   * written (categorical = text, binary = 0/1 integer, else a number).
+   * parse() and AnalyzerExport.toCSV() both loop over this list.
+   */
+  OSM_COLUMNS: GSR_CONST.OSM_METRICS.map((m) => ({
+    field: m.field,
+    kind: m.kind,
+    digits: m.csvDigits,
+  })),
+  NDVI_COLUMNS: [
+    { field: 'ndvi', kind: 'continuous', digits: 3 },
+    { field: 'ndvi_50m', kind: 'continuous', digits: 3 },
+  ],
+
+  /**
    * Unit stated by a (lower-cased) GSR column header: 'ns' for the
    * firmware's `gsr_raw` (nanosiemens per docs/csv_schema.md) or an explicit
    * nS marker, 'us' for an explicit µS marker (the visualiser's own export
@@ -609,32 +626,12 @@ export const GSRCSVParser = {
         : headers.indexOf('subghz_em_fog');
     const hasAnyRf = activeRfBands.length > 0 || emFogColIdx !== -1;
 
-    // OSM environmental column detection
-    const osmRoadClassColIdx = headers.indexOf('osm_road_class');
-    const osmDistMajorRoadColIdx = headers.indexOf('osm_dist_major_road');
-    const osmInParkColIdx = headers.indexOf('osm_in_park');
-    const osmGreenPctColIdx = headers.indexOf('osm_green_pct_50m');
-    const osmDistGreenColIdx = headers.indexOf('osm_dist_green');
-    const osmCanopyPctColIdx = headers.indexOf('osm_canopy_pct_50m');
-    const osmBldDensityColIdx = headers.indexOf('osm_building_density_50m');
-    const osmDistWaterColIdx = headers.indexOf('osm_dist_water');
-    const osmTreeDensityColIdx = headers.indexOf('osm_tree_density_50m');
-    const osmAmenityCountColIdx = headers.indexOf('osm_amenity_count_50m');
-    const ndviColIdx = headers.indexOf('ndvi');
-    const ndvi50mColIdx = headers.indexOf('ndvi_50m');
-    const hasAnyOsm =
-      osmRoadClassColIdx !== -1 ||
-      osmDistMajorRoadColIdx !== -1 ||
-      osmInParkColIdx !== -1 ||
-      osmGreenPctColIdx !== -1 ||
-      osmDistGreenColIdx !== -1 ||
-      osmCanopyPctColIdx !== -1 ||
-      osmBldDensityColIdx !== -1 ||
-      osmDistWaterColIdx !== -1 ||
-      osmTreeDensityColIdx !== -1 ||
-      osmAmenityCountColIdx !== -1 ||
-      ndviColIdx !== -1 ||
-      ndvi50mColIdx !== -1;
+    // OSM / NDVI environment columns, each with its position in this file
+    // (-1 when absent).
+    const envCols = [
+      ...GSRCSVParser.OSM_COLUMNS,
+      ...GSRCSVParser.NDVI_COLUMNS,
+    ].map((c) => ({ ...c, idx: headers.indexOf(c.field) }));
 
     // Fallbacks for main biometric columns
     if (colIndices.timestamp === -1) colIndices.timestamp = 0;
@@ -644,15 +641,10 @@ export const GSRCSVParser = {
     // Parse data rows
     const rawDataList = [];
     const importedPeakEntries = [];
-    const rfRow = {
-      rssi_300: NaN,
-      rssi_315: NaN,
-      rssi_434: NaN,
-      rssi_446: NaN,
-      rssi_815: NaN,
-      rssi_868: NaN,
-      rssi_915: NaN,
-    };
+    // This row's band readings (dBm), refilled per row; NaN = no reading.
+    const rfRow = {};
+    for (const band of RF_BANDS) rfRow[band] = NaN;
+    const presentEnvCols = envCols.filter((c) => c.idx !== -1);
 
     for (let i = dataStartLine + 1; i < lines.length; i++) {
       const line = lines[i];
@@ -690,42 +682,21 @@ export const GSRCSVParser = {
           : NaN;
 
       // Parse RF fields (dBm)
-      let rssi_300 = NaN;
-      let rssi_315 = NaN;
-      let rssi_434 = NaN;
-      let rssi_446 = NaN;
-      let rssi_815 = NaN;
-      let rssi_868 = NaN;
-      let rssi_915 = NaN;
       let em_fog = NaN;
+      let anyRfReading = false;
 
       if (hasAnyRf) {
-        if (rfColIdx.rssi_300 !== -1 && cols[rfColIdx.rssi_300])
-          rssi_300 = parseFloat(cols[rfColIdx.rssi_300]);
-        if (rfColIdx.rssi_315 !== -1 && cols[rfColIdx.rssi_315])
-          rssi_315 = parseFloat(cols[rfColIdx.rssi_315]);
-        if (rfColIdx.rssi_434 !== -1 && cols[rfColIdx.rssi_434])
-          rssi_434 = parseFloat(cols[rfColIdx.rssi_434]);
-        if (rfColIdx.rssi_446 !== -1 && cols[rfColIdx.rssi_446])
-          rssi_446 = parseFloat(cols[rfColIdx.rssi_446]);
-        if (rfColIdx.rssi_815 !== -1 && cols[rfColIdx.rssi_815])
-          rssi_815 = parseFloat(cols[rfColIdx.rssi_815]);
-        if (rfColIdx.rssi_868 !== -1 && cols[rfColIdx.rssi_868])
-          rssi_868 = parseFloat(cols[rfColIdx.rssi_868]);
-        if (rfColIdx.rssi_915 !== -1 && cols[rfColIdx.rssi_915])
-          rssi_915 = parseFloat(cols[rfColIdx.rssi_915]);
+        for (const band of RF_BANDS) {
+          const idx = rfColIdx[band];
+          const v = idx !== -1 && cols[idx] ? parseFloat(cols[idx]) : NaN;
+          rfRow[band] = v;
+          if (!isNaN(v)) anyRfReading = true;
+        }
 
         // Recomputed from the bands, against the recording's own calibrated
         // noise floors, rather than read back from a processed export's
         // rounded em_fog column, which is only the fallback for a row that
         // carries no band readings.
-        rfRow.rssi_300 = rssi_300;
-        rfRow.rssi_315 = rssi_315;
-        rfRow.rssi_434 = rssi_434;
-        rfRow.rssi_446 = rssi_446;
-        rfRow.rssi_815 = rssi_815;
-        rfRow.rssi_868 = rssi_868;
-        rfRow.rssi_915 = rssi_915;
         em_fog = calcEmFog(rfRow, bandFloors);
         if (isNaN(em_fog) && emFogColIdx !== -1 && cols[emFogColIdx]) {
           em_fog = parseFloat(cols[emFogColIdx]);
@@ -747,13 +718,7 @@ export const GSRCSVParser = {
         if (
           !isNaN(latVal) ||
           !isNaN(lonVal) ||
-          !isNaN(rssi_815) ||
-          !isNaN(rssi_868) ||
-          !isNaN(rssi_915) ||
-          !isNaN(rssi_300) ||
-          !isNaN(rssi_315) ||
-          !isNaN(rssi_434) ||
-          !isNaN(rssi_446) ||
+          anyRfReading ||
           !isNaN(em_fog)
         ) {
           gsrVal = 1.0; // Baseline value so standalone RF/GPS rows are kept
@@ -815,9 +780,9 @@ export const GSRCSVParser = {
         peakLabelColIndex !== -1 &&
         (rowIsPeak || cols[peakLabelColIndex] || excludedCell)
       ) {
-        const importedPeakLabel = (cols[peakLabelColIndex] || '')
-          .replace(/^"|"$/g, '')
-          .trim();
+        // _parseCsvLine has already undone the CSV quoting; any quote left
+        // is part of the label.
+        const importedPeakLabel = (cols[peakLabelColIndex] || '').trim();
         const importedPeakExcluded =
           !!excludedCell && excludedCell.trim() === '1';
         if (importedPeakLabel || importedPeakExcluded) {
@@ -829,50 +794,7 @@ export const GSRCSVParser = {
         }
       }
 
-      // Parse OSM fields
-      let osm_road_class = null;
-      let osm_dist_major_road = NaN;
-      let osm_in_park = NaN;
-      let osm_green_pct_50m = NaN;
-      let osm_dist_green = NaN;
-      let osm_canopy_pct_50m = NaN;
-      let osm_building_density_50m = NaN;
-      let osm_dist_water = NaN;
-      let osm_tree_density_50m = NaN;
-      let osm_amenity_count_50m = NaN;
-      let ndviVal = NaN;
-      let ndvi50mVal = NaN;
-
-      if (hasAnyOsm) {
-        if (osmRoadClassColIdx !== -1 && cols[osmRoadClassColIdx])
-          osm_road_class = cols[osmRoadClassColIdx]
-            .trim()
-            .replace(/^"|"$/g, '');
-        if (osmDistMajorRoadColIdx !== -1 && cols[osmDistMajorRoadColIdx])
-          osm_dist_major_road = parseFloat(cols[osmDistMajorRoadColIdx]);
-        if (osmInParkColIdx !== -1 && cols[osmInParkColIdx])
-          osm_in_park = parseInt(cols[osmInParkColIdx], 10);
-        if (osmGreenPctColIdx !== -1 && cols[osmGreenPctColIdx])
-          osm_green_pct_50m = parseFloat(cols[osmGreenPctColIdx]);
-        if (osmDistGreenColIdx !== -1 && cols[osmDistGreenColIdx])
-          osm_dist_green = parseFloat(cols[osmDistGreenColIdx]);
-        if (osmCanopyPctColIdx !== -1 && cols[osmCanopyPctColIdx])
-          osm_canopy_pct_50m = parseFloat(cols[osmCanopyPctColIdx]);
-        if (osmBldDensityColIdx !== -1 && cols[osmBldDensityColIdx])
-          osm_building_density_50m = parseFloat(cols[osmBldDensityColIdx]);
-        if (osmDistWaterColIdx !== -1 && cols[osmDistWaterColIdx])
-          osm_dist_water = parseFloat(cols[osmDistWaterColIdx]);
-        if (osmTreeDensityColIdx !== -1 && cols[osmTreeDensityColIdx])
-          osm_tree_density_50m = parseFloat(cols[osmTreeDensityColIdx]);
-        if (osmAmenityCountColIdx !== -1 && cols[osmAmenityCountColIdx])
-          osm_amenity_count_50m = parseFloat(cols[osmAmenityCountColIdx]);
-        if (ndviColIdx !== -1 && cols[ndviColIdx])
-          ndviVal = parseFloat(cols[ndviColIdx]);
-        if (ndvi50mColIdx !== -1 && cols[ndvi50mColIdx])
-          ndvi50mVal = parseFloat(cols[ndvi50mColIdx]);
-      }
-
-      rawDataList.push({
+      const row = {
         time: timeVal,
         val: gsrVal,
         lat: latVal,
@@ -886,30 +808,43 @@ export const GSRCSVParser = {
         course: courseVal,
         hasGps: false,
         _isGpsFix: isGpsFixVal,
-        rssi_300: rssi_300,
-        rssi_315: rssi_315,
-        rssi_434: rssi_434,
-        rssi_446: rssi_446,
-        rssi_815: rssi_815,
-        rssi_868: rssi_868,
-        rssi_915: rssi_915,
+        rssi_815: rfRow.rssi_815,
+        rssi_868: rfRow.rssi_868,
+        rssi_915: rfRow.rssi_915,
         em_fog: em_fog,
         // The recording's calibrated per-band noise floors (shared object),
         // carried on the row so map points built from it keep them.
         bandFloors: bandFloors,
-        osm_road_class: osm_road_class,
-        osm_dist_major_road: osm_dist_major_road,
-        osm_in_park: osm_in_park,
-        osm_green_pct_50m: osm_green_pct_50m,
-        osm_dist_green: osm_dist_green,
-        osm_canopy_pct_50m: osm_canopy_pct_50m,
-        osm_building_density_50m: osm_building_density_50m,
-        osm_dist_water: osm_dist_water,
-        osm_tree_density_50m: osm_tree_density_50m,
-        osm_amenity_count_50m: osm_amenity_count_50m,
-        ndvi: ndviVal,
-        ndvi_50m: ndvi50mVal,
-      });
+        // Every OSM_COLUMNS / NDVI_COLUMNS field, empty; filled just below.
+        // Listed here rather than added in that loop: building each row with
+        // all its fields at once keeps one object shape for the whole track,
+        // and adding them afterwards made parsing twice as slow.
+        // test_csv_env_columns.js checks this list matches.
+        osm_road_class: null,
+        osm_dist_major_road: NaN,
+        osm_in_park: NaN,
+        osm_green_pct_50m: NaN,
+        osm_dist_green: NaN,
+        osm_canopy_pct_50m: NaN,
+        osm_building_density_50m: NaN,
+        osm_dist_water: NaN,
+        osm_tree_density_50m: NaN,
+        osm_amenity_count_50m: NaN,
+        ndvi: NaN,
+        ndvi_50m: NaN,
+      };
+      for (const c of presentEnvCols) {
+        const cell = cols[c.idx];
+        if (!cell) continue;
+        if (c.kind === 'categorical') {
+          row[c.field] = cell.trim();
+        } else if (c.kind === 'binary') {
+          row[c.field] = parseInt(cell, 10);
+        } else {
+          row[c.field] = parseFloat(cell);
+        }
+      }
+      rawDataList.push(row);
     }
 
     if (rawDataList.length === 0) {
@@ -1141,11 +1076,12 @@ export const GSRCSVParser = {
     const hasGpsData = rawDataList.some((r) => r.hasGps);
 
     // Check if imported CSV is already enriched
-    const isEnriched =
-      osmRoadClassColIdx !== -1 ||
-      osmGreenPctColIdx !== -1 ||
-      ndviColIdx !== -1 ||
-      ndvi50mColIdx !== -1;
+    const isEnriched = [
+      'osm_road_class',
+      'osm_green_pct_50m',
+      'ndvi',
+      'ndvi_50m',
+    ].some((h) => headers.includes(h));
 
     // Integrity bracket check (docs/csv_schema.md). dataStartLine is the
     // index of the column-name line, so dataStartLine + 1 lines precede the

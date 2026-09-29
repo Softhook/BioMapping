@@ -698,6 +698,7 @@ export const GSR_CONST = {
   //   kind: 'binary'      (inPark)     — 0/1; correlated as point-biserial r.
   //   kind: 'continuous'               — correlated and plottable.
   //   unit                             — appended in parens on scatter axes only.
+  //   csvDigits                        — decimals written to a saved CSV.
   OSM_METRICS: [
     {
       key: 'roadClass',
@@ -710,6 +711,7 @@ export const GSR_CONST = {
       field: 'osm_dist_major_road',
       label: 'Distance to Major Road',
       kind: 'continuous',
+      csvDigits: 2,
       unit: 'm',
     },
     {
@@ -723,12 +725,14 @@ export const GSR_CONST = {
       field: 'osm_green_pct_50m',
       label: 'Green Space %',
       kind: 'continuous',
+      csvDigits: 1,
     },
     {
       key: 'distGreen',
       field: 'osm_dist_green',
       label: 'Distance to Green Space',
       kind: 'continuous',
+      csvDigits: 2,
       unit: 'm',
     },
     {
@@ -736,18 +740,21 @@ export const GSR_CONST = {
       field: 'osm_canopy_pct_50m',
       label: 'Tree Canopy %',
       kind: 'continuous',
+      csvDigits: 1,
     },
     {
       key: 'buildingDensity',
       field: 'osm_building_density_50m',
       label: 'Building Density',
       kind: 'continuous',
+      csvDigits: 1,
     },
     {
       key: 'distWater',
       field: 'osm_dist_water',
       label: 'Distance to Water',
       kind: 'continuous',
+      csvDigits: 2,
       unit: 'm',
     },
     {
@@ -755,12 +762,14 @@ export const GSR_CONST = {
       field: 'osm_tree_density_50m',
       label: 'Tree Density',
       kind: 'continuous',
+      csvDigits: 1,
     },
     {
       key: 'amenityCount',
       field: 'osm_amenity_count_50m',
       label: 'Amenity Count',
       kind: 'continuous',
+      csvDigits: 1,
     },
   ],
 

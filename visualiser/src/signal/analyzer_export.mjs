@@ -105,14 +105,18 @@ export const AnalyzerExport = {
       for (const b of activeBands) csv += `,${b.prop}`;
       if (hasEmFog) csv += ',em_fog';
     }
-    if (isEnriched) {
-      csv +=
-        ',osm_road_class,osm_dist_major_road,osm_in_park,osm_green_pct_50m,osm_dist_green,osm_canopy_pct_50m,osm_building_density_50m,osm_dist_water,osm_tree_density_50m,osm_amenity_count_50m';
-    }
-    if (hasNdvi) {
-      csv += ',ndvi,ndvi_50m';
-    }
+    // Environment columns (see GSRCSVParser.OSM_COLUMNS / NDVI_COLUMNS).
+    const envCols = [
+      ...(isEnriched ? GSRCSVParser.OSM_COLUMNS : []),
+      ...(hasNdvi ? GSRCSVParser.NDVI_COLUMNS : []),
+    ];
+    for (const c of envCols) csv += `,${c.field}`;
     csv += '\n';
+    const envCell = (c, v) => {
+      if (c.kind === 'categorical') return v ? GSRCSVParser._csvEscape(v) : '';
+      if (v === null || isNaN(v)) return '';
+      return c.kind === 'binary' ? v.toString() : v.toFixed(c.digits);
+    };
 
     // Build O(1) peak lookup map (avoid O(n²) .find() inside the loop)
     const peakByIndex = new Map();
@@ -245,65 +249,7 @@ export const AnalyzerExport = {
         if (hasEmFog) csv += `,${!isNaN(r.em_fog) ? r.em_fog.toFixed(1) : ''}`;
       }
 
-      if (isEnriched) {
-        const roadClassStr = raw[i].osm_road_class
-          ? GSRCSVParser._csvEscape(raw[i].osm_road_class)
-          : '';
-        const distMajorStr =
-          raw[i].osm_dist_major_road !== null &&
-          !isNaN(raw[i].osm_dist_major_road)
-            ? raw[i].osm_dist_major_road.toFixed(2)
-            : '';
-        const inParkStr =
-          raw[i].osm_in_park !== null && !isNaN(raw[i].osm_in_park)
-            ? raw[i].osm_in_park.toString()
-            : '';
-        const greenPctStr =
-          raw[i].osm_green_pct_50m !== null && !isNaN(raw[i].osm_green_pct_50m)
-            ? raw[i].osm_green_pct_50m.toFixed(1)
-            : '';
-        const distGreenStr =
-          raw[i].osm_dist_green !== null && !isNaN(raw[i].osm_dist_green)
-            ? raw[i].osm_dist_green.toFixed(2)
-            : '';
-        const canopyPctStr =
-          raw[i].osm_canopy_pct_50m !== null &&
-          !isNaN(raw[i].osm_canopy_pct_50m)
-            ? raw[i].osm_canopy_pct_50m.toFixed(1)
-            : '';
-        const bldDensityStr =
-          raw[i].osm_building_density_50m !== null &&
-          !isNaN(raw[i].osm_building_density_50m)
-            ? raw[i].osm_building_density_50m.toFixed(1)
-            : '';
-        const distWaterStr =
-          raw[i].osm_dist_water !== null && !isNaN(raw[i].osm_dist_water)
-            ? raw[i].osm_dist_water.toFixed(2)
-            : '';
-        const treeDensStr =
-          raw[i].osm_tree_density_50m !== null &&
-          !isNaN(raw[i].osm_tree_density_50m)
-            ? raw[i].osm_tree_density_50m.toFixed(1)
-            : '';
-        const amCountStr =
-          raw[i].osm_amenity_count_50m !== null &&
-          !isNaN(raw[i].osm_amenity_count_50m)
-            ? raw[i].osm_amenity_count_50m.toFixed(1)
-            : '';
-
-        csv += `,${roadClassStr},${distMajorStr},${inParkStr},${greenPctStr},${distGreenStr},${canopyPctStr},${bldDensityStr},${distWaterStr},${treeDensStr},${amCountStr}`;
-      }
-      if (hasNdvi) {
-        const ndviStr =
-          raw[i].ndvi !== null && !isNaN(raw[i].ndvi)
-            ? raw[i].ndvi.toFixed(3)
-            : '';
-        const ndvi50mStr =
-          raw[i].ndvi_50m !== null && !isNaN(raw[i].ndvi_50m)
-            ? raw[i].ndvi_50m.toFixed(3)
-            : '';
-        csv += `,${ndviStr},${ndvi50mStr}`;
-      }
+      for (const c of envCols) csv += `,${envCell(c, raw[i][c.field])}`;
       csv += '\n';
     }
     return csv;

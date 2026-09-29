@@ -115,3 +115,20 @@ test('two same-text labels near one visible peak: the unshown one is still expor
   ]);
   assert.deepStrictEqual(a.hiddenPeakLabels(), [{ time: 10.0, label: 'bus' }]);
 });
+
+test('quotes at the start or end of a label survive save and reload', () => {
+  const a = load();
+  for (const pk of labelled(a)) a.relabelPeak(pk, '');
+  const texts = ['shouted "stop"', '"quoted" start', 'plain, with comma'];
+  texts.forEach((t, k) => {
+    a.relabelPeak(a.peaks[k * 3], t);
+  });
+
+  const b = reload(a, params());
+  assert.deepStrictEqual(
+    labelled(b)
+      .map((pk) => pk.label)
+      .sort(),
+    [...texts].sort(),
+  );
+});

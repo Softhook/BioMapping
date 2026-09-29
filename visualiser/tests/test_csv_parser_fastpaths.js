@@ -105,14 +105,14 @@ test('rows carry no import scratch keys; imported labels/exclusions are captured
 test('RF columns: present -> parsed; absent -> NaN with no RF flag', () => {
   const withRf = GSRCSVParser.parse(
     csv(
-      'timestamp,gsr_raw,rssi_434,rssi_868',
+      'timestamp,gsr_raw,rssi_815,rssi_868',
       series(60, (i) => `${500 + i},-80,-90`),
     ),
   );
   const l1 = withRf.raw;
-  assert.strictEqual(l1[0].rssi_434, -80);
+  assert.strictEqual(l1[0].rssi_815, -80);
   assert.strictEqual(l1[0].rssi_868, -90);
-  assert.ok(Number.isNaN(l1[0].rssi_300));
+  assert.ok(Number.isNaN(l1[0].rssi_915));
 
   const without = GSRCSVParser.parse(
     csv(
@@ -121,7 +121,7 @@ test('RF columns: present -> parsed; absent -> NaN with no RF flag', () => {
     ),
   );
   const l2 = without.raw;
-  assert.ok(Number.isNaN(l2[0].rssi_434));
+  assert.ok(Number.isNaN(l2[0].rssi_815));
   assert.ok(Number.isNaN(l2[0].em_fog));
 });
 

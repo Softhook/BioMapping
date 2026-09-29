@@ -67,10 +67,6 @@ test('calcEmFog: all bands missing → NaN', () => {
 
 test('calcEmFog: all bands at floor (−100 dBm default) → 0', () => {
   const row = {
-    rssi_300: -100,
-    rssi_315: -100,
-    rssi_434: -100,
-    rssi_446: -100,
     rssi_815: -100,
     rssi_868: -100,
     rssi_915: -100,
@@ -80,10 +76,6 @@ test('calcEmFog: all bands at floor (−100 dBm default) → 0', () => {
 
 test('calcEmFog: all bands at ceiling (−30 dBm) → 100', () => {
   const row = {
-    rssi_300: -30,
-    rssi_315: -30,
-    rssi_434: -30,
-    rssi_446: -30,
     rssi_815: -30,
     rssi_868: -30,
     rssi_915: -30,
@@ -135,7 +127,7 @@ test('calcEmFog: custom bandFloors shift the scale', () => {
 
 test('calcEmFog: NaN band values are skipped, valid ones still counted', () => {
   closeTo(
-    GSRAnalyzer.calcEmFog({ rssi_300: NaN, rssi_868: -30 }),
+    GSRAnalyzer.calcEmFog({ rssi_815: NaN, rssi_868: -30 }),
     100,
     0.01,
     'NaN bands skipped',
@@ -145,7 +137,7 @@ test('calcEmFog: NaN band values are skipped, valid ones still counted', () => {
 test('calcEmFog: two bands (norm=0 and norm=1) → RMS = 70.71', () => {
   // sqrt((0²+1²)/2)*100 = 70.71
   closeTo(
-    GSRAnalyzer.calcEmFog({ rssi_300: -100, rssi_868: -30 }),
+    GSRAnalyzer.calcEmFog({ rssi_815: -100, rssi_868: -30 }),
     70.71,
     0.5,
     'RMS of 0 and 1',
