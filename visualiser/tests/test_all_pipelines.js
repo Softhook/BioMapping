@@ -758,15 +758,19 @@ for (const src of ['gsr', 'auc', 'peak_density']) {
       enabled: true,
       analyzer: clone,
     });
+    // priorWalkers 0: shrinkage towards 0 applies only on the normalised
+    // path, and this guard is about the standardisation itself.
     const oldSurf = oldMgr.generateContourSurface({
       ...baseContourParams,
       topographySource: src,
       normalizeZScore: false,
+      priorWalkers: 0,
     });
     const newSurf = collectiveManager.generateContourSurface({
       ...baseContourParams,
       topographySource: src,
       normalizeZScore: true,
+      priorWalkers: 0,
     });
     let maxAbs = 0,
       cmp = 0;

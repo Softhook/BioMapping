@@ -613,7 +613,16 @@ export const GSR_CONST = {
     // continuous surface. 0 = pure average (many overlapping calm samples can bury a
     // rare high-arousal one). 1 = pure "most aroused moment recorded nearby" (no
     // averaging at all). Exposed as the "Peak Preservation" slider in the UI.
-    peakPreservation: 0.5,
+    // Defaults to 0.1: on the Stokey walks a small blend kept the most
+    // repeatable pattern across walks, while larger values made busy streets
+    // look hotter just because they were walked more (the max of more samples
+    // is higher) — see docs/collective_map_comparison.md.
+    peakPreservation: 0.1,
+    // How many extra "typical" walks (value 0 = each walker's usual level) a
+    // cell's per-walker average is shrunk towards, for z-scored sources only:
+    // sum / (walkers + priorWalkers). One startled walker at +2 then reads 0.5;
+    // ten walkers all at +2 read 1.5. See docs/collective_map_comparison.md.
+    priorWalkers: 3,
     // Percentile-rank threshold (see generateContourSurface()'s coverage block) below which
     // a cell gets checkerboarded in map.js's renderContours() — how many distinct
     // participant tracks actually passed near that cell, relative to how well-covered the

@@ -241,6 +241,7 @@ export class GSRCollectiveManager {
     const filled = this._computeValueGrid(
       params,
       points,
+      trackPointRanges,
       peaks,
       peaksRefAmplitude,
       peakSigma,
@@ -355,6 +356,10 @@ export class GSRCollectiveManager {
         : GSR_CONST.COLLECTIVE.peakPreservation !== undefined
           ? GSR_CONST.COLLECTIVE.peakPreservation
           : 0.5;
+    const priorWalkers =
+      contourParams.priorWalkers !== undefined
+        ? contourParams.priorWalkers
+        : GSR_CONST.COLLECTIVE.priorWalkers;
 
     return {
       gridResolution,
@@ -369,6 +374,7 @@ export class GSRCollectiveManager {
       softening,
       temporalSmoothingWindow,
       alpha,
+      priorWalkers,
     };
   }
 
@@ -806,17 +812,44 @@ export class GSRCollectiveManager {
    * into `gridCtx.grid`, tracking the resulting min/max. The IDW splat and the
    * cell-fill loop stay one step: the splat's scratch arrays are read nowhere
    * else.
+   *
+   * One vote per walk: each walk's IDW mean is taken per cell first, then the
+   * walks are averaged, so a walker who lingered (hundreds of samples) counts
+   * the same as one who passed by. For centred sources (z-scored, or the
+   * always-standardised arousal/tri indices) the average is also shrunk
+   * towards 0 — each walker's own usual level — as if `priorWalkers` extra
+   * "typical" walks had passed: sum / (n + priorWalkers). A cell seen by one
+   * walker then can't look as extreme as one where many agree. On the London
+   * walks this kept the split-half agreement (0.55 vs 0.53) while removing the
+   * correlation with foot traffic that scrambled data showed — see
+   * docs/collective_map_comparison.md.
    */
   _computeValueGrid(
     params,
     points,
+    trackPointRanges,
     peaks,
     peaksRefAmplitude,
     peakSigma,
     gridCtx,
   ) {
-    const { topographySource, isolationRadius, idwExponent, softening, alpha } =
-      params;
+    const {
+      topographySource,
+      isolationRadius,
+      idwExponent,
+      softening,
+      alpha,
+      useNormalization,
+      priorWalkers,
+    } = params;
+    // Shrinking towards 0 only means "towards typical" when 0 is each walk's
+    // own mean; raw µS values (Normalise Tracks off) are averaged unshrunk.
+    const isCentred =
+      useNormalization ||
+      topographySource === 'arousal_index' ||
+      topographySource === 'tri_index' ||
+      topographySource === 'triIndex';
+    const prior = isCentred ? priorWalkers : 0;
     const {
       rows,
       cols,
@@ -841,11 +874,15 @@ export class GSRCollectiveManager {
     // this was the dominant cost of generateContourSurface() on a real
     // 5-track collective fixture (up to CONTOUR_MAX_POINTS=20,000 points x
     // gridResolution^2 cells, unindexed).
+    // Per-walk scratch (reset over each walk's touched window, as in the
+    // coverage field above), folded into one vote per walk per cell.
     const sumWeightedVal = new Float64Array(rows * cols);
     const sumWeight = new Float64Array(rows * cols);
-    const localMaxArr = new Float64Array(rows * cols).fill(-Infinity);
     const exactMatchVal = new Float64Array(rows * cols);
     const hasExactMatch = new Uint8Array(rows * cols);
+    const voteSum = new Float64Array(rows * cols);
+    const voteCount = new Float64Array(rows * cols);
+    const localMaxArr = new Float64Array(rows * cols).fill(-Infinity);
     if (topographySource !== 'peaks') {
       const idwRadius = isolationRadius * 1.5;
       // Envelope (local-max) contributions are distance-decayed with the same Gaussian
@@ -868,35 +905,63 @@ export class GSRCollectiveManager {
       for (let i = 0; i < points.length; i++) {
         if (points[i].val < envFloor) envFloor = points[i].val;
       }
-      for (let i = 0; i < points.length; i++) {
-        const p = points[i];
-        // Every point carries the already-resolved active-metric value in .val
-        // (the branch above picks the series for `topographySource` once per
-        // track); this loop is gated out entirely for 'peaks'.
-        const pointVal = p.val;
-        const w = cellWindowFor(p.lat, p.lon, idwRadius);
-        for (let r = w.rMin; r <= w.rMax; r++) {
-          const gridLat = gridLatOf(r);
+      for (const range of trackPointRanges) {
+        let touchedMinR = rows,
+          touchedMaxR = -1,
+          touchedMinC = cols,
+          touchedMaxC = -1;
+        for (let i = range.start; i < range.end; i++) {
+          const p = points[i];
+          // Every point carries the already-resolved active-metric value in .val
+          // (the branch above picks the series for `topographySource` once per
+          // track); this loop is gated out entirely for 'peaks'.
+          const pointVal = p.val;
+          const w = cellWindowFor(p.lat, p.lon, idwRadius);
+          if (w.rMin < touchedMinR) touchedMinR = w.rMin;
+          if (w.rMax > touchedMaxR) touchedMaxR = w.rMax;
+          if (w.cMin < touchedMinC) touchedMinC = w.cMin;
+          if (w.cMax > touchedMaxC) touchedMaxC = w.cMax;
+          for (let r = w.rMin; r <= w.rMax; r++) {
+            const gridLat = gridLatOf(r);
+            const rowOff = r * cols;
+            for (let c = w.cMin; c <= w.cMax; c++) {
+              const idx = rowOff + c;
+              if (!nearTrack[idx] || hasExactMatch[idx]) continue;
+              const d = getDistanceMeters(gridLat, gridLonOf(c), p.lat, p.lon);
+              if (softening === 0 && d < 1e-3) {
+                exactMatchVal[idx] = pointVal;
+                hasExactMatch[idx] = 1;
+                continue;
+              }
+              if (d <= idwRadius) {
+                const wt = 1.0 / (d + softening) ** idwExponent;
+                sumWeightedVal[idx] += wt * pointVal;
+                sumWeight[idx] += wt;
+                const envelopeVal =
+                  envFloor +
+                  (pointVal - envFloor) * Math.exp(-(d * d) / twoEnvSigmaSq);
+                if (envelopeVal > localMaxArr[idx])
+                  localMaxArr[idx] = envelopeVal;
+              }
+            }
+          }
+        }
+        // Fold this walk's own mean into the cell's votes, then clear only
+        // the cells it touched.
+        for (let r = touchedMinR; r <= touchedMaxR; r++) {
           const rowOff = r * cols;
-          for (let c = w.cMin; c <= w.cMax; c++) {
+          for (let c = touchedMinC; c <= touchedMaxC; c++) {
             const idx = rowOff + c;
-            if (!nearTrack[idx] || hasExactMatch[idx]) continue;
-            const d = getDistanceMeters(gridLat, gridLonOf(c), p.lat, p.lon);
-            if (softening === 0 && d < 1e-3) {
-              exactMatchVal[idx] = pointVal;
-              hasExactMatch[idx] = 1;
-              continue;
+            if (hasExactMatch[idx]) {
+              voteSum[idx] += exactMatchVal[idx];
+              voteCount[idx]++;
+            } else if (sumWeight[idx] > 0) {
+              voteSum[idx] += sumWeightedVal[idx] / sumWeight[idx];
+              voteCount[idx]++;
             }
-            if (d <= idwRadius) {
-              const wt = 1.0 / (d + softening) ** idwExponent;
-              sumWeightedVal[idx] += wt * pointVal;
-              sumWeight[idx] += wt;
-              const envelopeVal =
-                envFloor +
-                (pointVal - envFloor) * Math.exp(-(d * d) / twoEnvSigmaSq);
-              if (envelopeVal > localMaxArr[idx])
-                localMaxArr[idx] = envelopeVal;
-            }
+            sumWeightedVal[idx] = 0;
+            sumWeight[idx] = 0;
+            hasExactMatch[idx] = 0;
           }
         }
       }
@@ -929,15 +994,13 @@ export class GSRCollectiveManager {
               weight * Math.exp(-(d * d) / (2 * peakSigma * peakSigma));
           }
           grid[r][c] = density;
-        } else if (hasExactMatch[idx]) {
-          grid[r][c] = exactMatchVal[idx];
-        } else if (sumWeight[idx] > 0) {
-          const weightedMean = sumWeightedVal[idx] / sumWeight[idx];
+        } else if (voteCount[idx] > 0) {
+          const walkerMean = voteSum[idx] / (voteCount[idx] + prior);
           // Blend the smooth IDW mean with the local peak envelope (the highest single
           // value recorded nearby) so a lone transient spike survives the merge instead
           // of being averaged down toward its calmer neighbourhood — pure IDW mean was
           // the main reason isolated peaks disappeared from the surface entirely.
-          grid[r][c] = (1 - alpha) * weightedMean + alpha * localMaxArr[idx];
+          grid[r][c] = (1 - alpha) * walkerMean + alpha * localMaxArr[idx];
         } else {
           grid[r][c] = null;
         }

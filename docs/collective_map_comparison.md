@@ -1,6 +1,15 @@
 # Comparing people on the Collective map: options and evidence
 
-*September 2026. Research only: nothing in the app has been changed.*
+*September 2026. Steps 1 and 2 of the plan (section 6) are now in the app (Peak Preservation default 10%); everything else is still a proposal.*
+
+> **Update: re-checked on clean data.** All the walks were recorded by one person, so "two groups of walkers" below really means two groups of *walks* by the same person. The results show which places consistently affect *this walker*, not people in general. The first round of checks also included the same walk saved twice (`*_processed.csv` copies, and live recordings that overlap) and five London walks where the sensor wasn't touching skin (042–046). With those removed (29 London walks, 45 in total):
+>
+> - **Still true:** the per-walk adjustment is needed; the background level (tonic) mostly follows time into the walk (29 of 45 walks); one vote per walk with few-walk spots pulled towards normal is still the best way of combining walks; the Peak Preservation blend still makes busy streets look hotter by chance.
+> - **No longer true:** the "could this be luck?" test now confirms **no** individual spots. The 57 spots found earlier were inflated by the duplicate walks. There is still more signal than chance overall (19% of spots below p < 0.05, against 6% on shuffled data), but 29 walks aren't enough to point at any single spot with confidence.
+> - **No longer true:** the combined time + place model no longer beats a simple per-walk average for the background level.
+> - **Trade-off:** with the new settings the Arousal Index is less repeatable between the two halves (0.73 → 0.60), though it no longer favours busy streets.
+>
+> Numbers in sections 3–5 are from the first (uncleaned) round. The tables in section 6 are from the clean data.
 
 ## In short
 
@@ -151,9 +160,20 @@ These are the "proper" statistical versions of what's above. They need more work
 In order of value for effort:
 
 1. **One vote per walker, with few-visitor spots pulled towards normal.** This was the clear winner in testing. It's a contained change to how the map combines readings.
-2. **Set Peak Preservation to 0 by default,** or remove it once step 1 is in place. It mostly adds chance hot spots.
+   *Done (setting `priorWalkers: 3` in constants).*
+2. **Set Peak Preservation low by default.**
+   *Done: default is now 10% (the slider is still there).* First set to 0, then re-checked on the 13 walks in `tracks/Stokey.zip`. Each walk was loaded with its own saved settings, and the map used the project's own settings (Tri Index, fine grid). "Gap" means how much more two halves of the walks agree than they do by chance:
+
+   | Map | Old combining, best slider | New combining, slider 0% | New combining, slider 10% | New combining, slider 50% |
+   |---|---|---|---|---|
+   | Tri Index | gap 0.32 at 50% (busy-street bias 0.42) | gap 0.20 | **gap 0.33–0.40** (bias 0.17) | gap 0.31 (bias 0.58) |
+   | Quick reactions | gap 0.27 at 10% | gap 0.24 | **gap 0.33** (bias 0.27) | gap 0.17 |
+   | Arousal Index | gap 0.25 at 50% | gap 0.28 | **gap 0.38** (bias 0.16) | gap 0.27 |
+
+   New combining + 10% beats the old combining at every slider value tested. At 50% the new combining brings no benefit. A saved project keeps its own slider value, so projects saved at 50% need changing by hand.
 3. **Add an optional "only show spots that pass the significance test" layer** for the quick-reaction map. It can replace or complement the current coverage checkerboard.
-4. **Background level (tonic): add a warning,** or use the combined time + place model. With the current data, don't present the tonic map as a map of places.
+   *On hold:* on the clean data no individual spot passes, so the layer would show nothing yet. It needs more walks, a lower false-alarm rate (about 9% instead of 5% in one check) and a speed check in the browser.
+4. **Background level (tonic): add a warning.** With the current data, don't present the tonic map as a map of places. (The combined time + place model showed no clear benefit on the clean data.)
 5. **Peaks: show as a rate per minute spent,** not a count.
 6. **Offline:** a full GAM in R on the exported CSVs, as a gold-standard check on what the app shows.
 
@@ -161,7 +181,8 @@ Each step should be A/B tested on the real walks with the checks in section 2 be
 
 ## 7. Limits of this research
 
-- Only the London walks (36) could be tested. Other areas have 1–9 walks, which is too few.
+- Only the London walks (29 after removing duplicates and flat recordings) could be tested. Other areas have 1–9 walks, which is too few.
+- All walks are by one person, so nothing here shows how *other* people react to these places.
 - Even the best map is a **weak predictor for any one person**: a correlation of about 0.28, which explains roughly 8% of one person's variation. Group maps describe tendencies, not what each individual will feel.
 - The tests used a simplified copy of the map calculation without the latency offset. Numbers will shift a little inside the app. The ranking of methods should not.
 - Walks in London tend to follow similar routes. Where everyone walks the same way in the same direction, *no* method can fully separate "late in the walk" from "this place".

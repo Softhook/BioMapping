@@ -161,6 +161,9 @@ const FLAT_PARAMS = {
   // These tests pin the surface value to the raw series value per sample, so
   // the moving-average anti-alias pass (on by default) must be disabled.
   temporalSmoothingWindow: 0,
+  // Likewise the shrink towards 0 for centred sources (a single walker here
+  // would read at 1/4 of the series value).
+  priorWalkers: 0,
 };
 
 const CONSTS = {
@@ -411,4 +414,72 @@ test('generateContourSurface: peaks mode produces identical surface when continu
       assert.strictEqual(res1.grid[r][c], res2.grid[r][c]);
     }
   }
+});
+
+// One vote per walk + shrink towards 0 (docs/collective_map_comparison.md).
+function makeStillTrack(id, n, zVal) {
+  const series = Array.from({ length: n }, (_, i) => ({ time: i, val: zVal }));
+  return {
+    id,
+    enabled: true,
+    analyzer: {
+      raw: new Array(n).fill(0),
+      sampleRate: 1,
+      getCoordinates: () => ({ lat: 51.5, lon: -0.1 }),
+      resolveLatencyIndex: (pk) => pk.index,
+      phasic: series,
+      phasicZ: series,
+      tonic: series,
+      tonicZ: series,
+      phasicAUC: series,
+      arousalIndex: series,
+      triIndex: series,
+      phasicStd: 1,
+      peaks: [],
+    },
+  };
+}
+
+function surfaceValues(tracks, params) {
+  const mgr = new GSRCollectiveManager();
+  for (const t of tracks) mgr.addTrack(t);
+  const res = mgr.generateContourSurface({
+    ...FLAT_PARAMS,
+    softening: 25,
+    topographySource: 'phasic',
+    normalizeZScore: true,
+    ...params,
+  });
+  const vals = [];
+  for (const row of res.grid) for (const v of row) if (v !== null) vals.push(v);
+  return vals;
+}
+
+test('generateContourSurface: a walker who lingers gets one vote, not one per sample', () => {
+  // Alice stands still for 100 samples at z = -1; Bob passes with 5 at z = +1.
+  // Pooling samples would read about -0.9; one vote each averages to 0.
+  const vals = surfaceValues(
+    [makeStillTrack('alice', 100, -1), makeStillTrack('bob', 5, 1)],
+    { priorWalkers: 0 },
+  );
+  assert.ok(vals.length > 0);
+  for (const v of vals) assert.ok(Math.abs(v) < 1e-9, `expected 0, got ${v}`);
+});
+
+test('generateContourSurface: few-walker cells are shrunk towards 0 by priorWalkers', () => {
+  const one = surfaceValues([makeStillTrack('a', 20, 2)], { priorWalkers: 3 });
+  for (const v of one) assert.ok(Math.abs(v - 0.5) < 1e-9, `1 walker: ${v}`);
+
+  const ten = surfaceValues(
+    Array.from({ length: 10 }, (_, i) => makeStillTrack(`w${i}`, 20, 2)),
+    { priorWalkers: 3 },
+  );
+  for (const v of ten) assert.ok(Math.abs(v - 20 / 13) < 1e-9, `10: ${v}`);
+
+  // Raw (un-normalised) values are not centred on 0, so they are not shrunk.
+  const raw = surfaceValues([makeStillTrack('a', 20, 2)], {
+    priorWalkers: 3,
+    normalizeZScore: false,
+  });
+  for (const v of raw) assert.ok(Math.abs(v - 2) < 1e-9, `raw: ${v}`);
 });
