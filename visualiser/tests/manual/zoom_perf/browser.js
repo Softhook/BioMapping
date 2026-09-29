@@ -180,6 +180,12 @@ async function openView(page, baseUrl, view, tracks) {
         if (i < packets.length) LiveState.addPacket(packets[i++]);
       }, 200);
     }, path.basename(tracks[0]));
+    // Desktop opens Live graph-first with the map hidden; show it.
+    await page.evaluate(() => {
+      if (document.getElementById('app')?.classList.contains('no-map')) {
+        document.getElementById('toggleMapBtn')?.click();
+      }
+    });
     await sleep(4000);
     return '#liveMap';
   }

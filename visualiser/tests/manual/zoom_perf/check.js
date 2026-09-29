@@ -65,6 +65,9 @@ async function main() {
         if (n > bestN) [best, bestN] = [p, n];
       }
       mgr.map.setView(best.getLatLng(), 17, { animate: false });
+      // On a phone the map runs past the bottom of the screen, and the first
+      // press would scroll it up under the tap. Bring it fully into view.
+      mgr.map.getContainer().scrollIntoView({ block: 'center' });
       return { peaks: peaks.length };
     });
     await B.sleep(1500);
@@ -124,6 +127,7 @@ async function main() {
         () => document.querySelector('#map .leaflet-popup textarea') !== null,
       );
       await page.evaluate(() => window.__mgr.map.closePopup());
+      await B.sleep(400); // let it fade out, or it takes the next click
     }
     check('tapping a dot opens its peak popup', popup === true);
 
