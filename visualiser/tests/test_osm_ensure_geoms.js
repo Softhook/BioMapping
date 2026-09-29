@@ -44,7 +44,6 @@ const {
 function installDom(overrides = {}) {
   const mk = (props = {}) => Object.assign({ style: {}, value: '' }, props);
   const els = {
-    osmRadius: mk({ value: '50' }),
     gpsSnapRadius: mk({ value: '25' }),
     ...overrides,
   };

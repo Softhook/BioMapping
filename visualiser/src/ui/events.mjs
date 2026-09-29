@@ -93,7 +93,6 @@ export const GSREvents = {
       'gpsPeakLatency',
       'gpsSnapToRoads',
       'gpsSnapRadius',
-      'osmRadius',
       'placeMergeDistance',
       'maxArousalPlaces',
       'graphView',

@@ -9,6 +9,7 @@
  * analyzer's per-point spatial metadata.
  */
 import { AppState } from '../core/app_state.mjs';
+import { GSR_CONST } from '../core/constants.mjs';
 import { GSRNotices } from '../core/notices.mjs';
 import { GpsPipeline } from '../gps/gps_pipeline.mjs';
 import { NDVISampler } from '../osm/ndvi_sampler.mjs';
@@ -465,7 +466,7 @@ export const EnrichmentUI = {
     if (btn) {
       btn.setAttribute('disabled', 'true');
       btn.innerHTML =
-        '<i class="fa-solid fa-spinner fa-spin"></i> Sampling NDVI...';
+        '<i class="fa-solid fa-spinner fa-spin"></i> Retrieving NDVI...';
     }
 
     this.setSpatialProgress(
@@ -478,7 +479,7 @@ export const EnrichmentUI = {
     try {
       const res = await NDVISampler.sampleTracks(validTracks, {
         zoom: 15,
-        radiusM: 50,
+        radiusM: GSR_CONST.ENRICHMENT_DEFAULT.osmRadius,
         onProgress: (pct, msg) => {
           this.setSpatialProgress(true, msg, pct, '#2d6a4f');
         },

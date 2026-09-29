@@ -63,7 +63,6 @@ function installDom(overrides = {}) {
     osmStatusContainer: makeEl(),
     osmStatusMessage: makeEl(),
     osmProgressBar: makeEl(),
-    osmRadius: makeEl({ value: '50' }),
     gpsSnapRadius: makeEl({ value: '25' }),
     gpsSnapToRoads: makeEl({ checked: false }),
     ...overrides,
@@ -316,13 +315,12 @@ test('enrichTrack: in-memory OSM JSON is reused only while it covers the current
   };
   const narrow = { elements: ['narrow'] };
   const track = fakeTrack('A');
-  // fetched at osmRadius 50 / snap 25 → buffer 100 m
+  // fetched at search radius 50 / snap 25 → buffer 100 m
   track.analyzer.osmJson = narrow;
   track.analyzer.osmJsonBBox = RealOSMEnricher.calculateBBox(null, 100);
   const tracks = [track];
   const prevSliders = RealAppState.sliders;
   const sliders = {
-    osmRadius: makeEl({ value: '50' }),
     gpsSnapRadius: makeEl({ value: '25' }),
   };
   Object.assign(RealAppState, {
@@ -338,14 +336,14 @@ test('enrichTrack: in-memory OSM JSON is reused only while it covers the current
   assert.strictEqual(lookups, 0);
   assert.strictEqual(track.analyzer.osmJson, narrow);
 
-  // Radius raised to 200 m → buffer 250 m: the old JSON no longer covers it.
-  sliders.osmRadius.value = '200';
+  // Snap radius raised to 60 m → buffer 110 m: the old JSON no longer covers it.
+  sliders.gpsSnapRadius.value = '60';
   await GSRUI.enrichTrack(false);
   assert.strictEqual(lookups, 1, 'went back to the cache');
   assert.strictEqual(track.analyzer.osmJson, wider);
   assert.deepStrictEqual(
     track.analyzer.osmJsonBBox,
-    RealOSMEnricher.calculateBBox(null, 250),
+    RealOSMEnricher.calculateBBox(null, 110),
   );
   assert.deepStrictEqual(calls, ['A', 'A']);
   RealAppState.sliders = prevSliders;

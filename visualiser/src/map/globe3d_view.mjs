@@ -847,7 +847,7 @@ export const GSRGlobe3DView = {
 
   /**
    * The bbox buffer (metres) the 2D "Spatial Data" enrichment uses —
-   * max(#osmRadius, #gpsSnapRadius) + 50 (see GSRUI.enrichTrack). Matching it
+   * max(osmRadius, #gpsSnapRadius) + 50 (see GSRUI.enrichTrack). Matching it
    * exactly is what makes OsmCache's contains-match hit both ways: whichever of
    * the 2D enrich / 3D buildings toggle runs first, the other reuses its cache.
    */

@@ -16,23 +16,10 @@ import { OsmCache } from '../osm/osm_cache.mjs';
 
 export const EnrichmentEvents = {
   /**
-   * OSM enrichment radius/retrieve/clear-cache, the shared OSM overlay toggle, and NDVI layer/sample/Copernicus config controls.
+   * OSM enrichment retrieve/clear-cache, the shared OSM overlay toggle, and NDVI layer/sample/Copernicus config controls.
    */
   _bindEnrichmentControls() {
     // ── OSM Enrichment Control Bindings ─────────────────────────────────────
-    {
-      const radiusSlider = document.getElementById('osmRadius');
-      const radiusLabel = document.getElementById('valOsmRadius');
-      radiusSlider.addEventListener('input', () => {
-        radiusLabel.innerText = `${radiusSlider.value} m`;
-      });
-      radiusSlider.addEventListener('change', () => {
-        if (Controllers.ui?.hasOsmData?.()) {
-          Controllers.ui?.enrichTrack(false); // re-uses in-memory/cached OSM data when it still covers the new radius
-        }
-      });
-    }
-
     document
       .getElementById('btnEnrichTrack')
       .addEventListener('click', () => Controllers.ui?.enrichTrack(true));

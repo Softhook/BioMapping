@@ -354,41 +354,6 @@
             <button class="btn btn-primary" id="btnEnrichTrack" style="width: 100%;" type="button">
               <i class="fa-solid fa-wand-magic-sparkles"></i> Retrieve Spatial Data
             </button>
-            <button class="btn btn-outline" id="btnSampleNdvi" style="width: 100%; margin-top: 8px;" title="Sample real Sentinel-2 NDVI ((B08-B04)/(B08+B04)) at each GPS fix from the raw Copernicus layer below — requires Satellite &amp; NDVI Settings to be configured" type="button">
-              <i class="fa-solid fa-satellite"></i> Sample Satellite NDVI
-            </button>
-
-            <!-- Copernicus Sentinel-2 Band 8 (NIR) Configuration (Collapsed by default) -->
-            <details id="copernicusConfigDetails" class="ndvi-settings-details" style="margin-top: 10px; font-size: 0.78rem;">
-              <summary style="cursor: pointer; color: var(--text-muted, #888); font-size: 0.75rem; user-select: none; display: flex; align-items: center; gap: 6px; padding: 4px 0;">
-                <i class="fa-solid fa-sliders"></i>
-                <span>Satellite &amp; NDVI Settings</span>
-                <span id="copernicusActiveBadge" class="badge" style="margin-left: auto; font-size: 0.65rem; background: #2e7d32; color: #fff; padding: 1px 6px; border-radius: 3px; display: none;">Raw NDVI Active</span>
-                <span id="copernicusDefaultBadge" class="badge" style="margin-left: auto; font-size: 0.65rem; background: rgba(0,0,0,0.06); color: var(--text-muted); padding: 1px 6px; border-radius: 3px;">Imagery Fallback</span>
-              </summary>
-              <div id="copernicusConfigSection" style="margin-top: 8px; padding: 10px; border-radius: 6px; background: rgba(46, 125, 50, 0.08); border: 1px solid rgba(46, 125, 50, 0.25);">
-                <div style="display: flex; align-items: center; justify-content: space-between; font-size: 0.78rem; font-weight: 600; color: #2e7d32; margin-bottom: 6px;">
-                  <span><i class="fa-solid fa-satellite-dish"></i> Sentinel-2 Band 8 (NIR)</span>
-                  <span style="font-size: 0.68rem; color: #2e7d32;">Copernicus WMS</span>
-                </div>
-                <div style="font-size: 0.72rem; color: var(--text-secondary, #aaa); margin-bottom: 2px;">Instance ID:</div>
-                <input type="text" id="copernicusInstanceId" class="text-input" style="width: 100%; font-size: 0.72rem; padding: 4px 6px; font-family: monospace;" value="" placeholder="Paste Copernicus Instance ID..." title="Copernicus Sentinel Hub Instance ID">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 6px; margin-bottom: 2px;">
-                  <span style="font-size: 0.72rem; color: var(--text-secondary, #aaa);">Raw Layer ID:</span>
-                  <span style="font-size: 0.68rem; color: #2e7d32;">FLOAT32 evalscript</span>
-                </div>
-                <input type="text" id="copernicusRawLayerId" class="text-input" style="width: 100%; font-size: 0.72rem; padding: 4px 6px; font-family: monospace;" value="NDVI_RAW" placeholder="NDVI_RAW" title="Custom evalscript layer outputting single-band FLOAT32 NDVI — used for both &quot;Sample Satellite NDVI&quot; and the on-map NDVI overlay. See research/environmental_enrichment_plan.md §2E for the evalscript.">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 6px; margin-bottom: 2px;">
-                  <span style="font-size: 0.72rem; color: var(--text-secondary, #aaa);">Date Range (Cloudless):</span>
-                  <span style="font-size: 0.68rem; color: #2e7d32;">Summer Window</span>
-                </div>
-                <input type="text" id="copernicusTimeRange" class="text-input" style="width: 100%; font-size: 0.72rem; padding: 4px 6px; font-family: monospace;" value="2024-05-01/2024-09-30" title="Copernicus Date Range (e.g. 2024-05-01/2024-09-30)">
-                <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 8px; font-size: 0.68rem; color: var(--text-muted, #888);">
-                  <span><i class="fa-solid fa-shield-halved"></i> Stored locally in browser</span>
-                  <button type="button" class="btn btn-outline" id="btnClearCopernicusCreds" style="font-size: 0.68rem; padding: 2px 6px;" title="Remove Copernicus credentials from local storage">Clear</button>
-                </div>
-              </div>
-            </details>
 
             <!-- Progress & status -->
             <div id="osmStatusContainer" style="display: none; margin-top: 12px; font-size: 0.8rem; background: rgba(0,0,0,0.03); padding: 8px; border-radius: 4px; border-left: 3px solid #ff7b00;">
@@ -397,20 +362,9 @@
                 <div id="osmProgressBar" style="background: #ff7b00; height: 100%; width: 0%; transition: width 0.2s;"></div>
               </div>
             </div>
-
-            <p class="help-text" style="margin-top: 12px; margin-bottom: 4px;">Fetched OpenStreetMap data is cached locally in the browser, so re-enriching tracks in the same area doesn't re-fetch from the network.</p>
-            <button class="btn btn-outline" id="btnClearOsmCache" style="width: 100%; font-size: 0.8rem; margin-bottom: 16px;" title="Delete all locally cached OpenStreetMap data" type="button">
+            <button class="btn btn-outline" id="btnClearOsmCache" style="width: 100%; font-size: 0.8rem; margin-top: 8px;" title="Delete all locally cached OpenStreetMap data" type="button">
               <i class="fa-solid fa-trash"></i> Clear Cached Map Data
             </button>
-
-            <div class="slider-group">
-              <div class="slider-label">
-                <span>Search Radius</span>
-                <span class="slider-value" id="valOsmRadius">50 m</span>
-              </div>
-              <input type="range" id="osmRadius" min="25" max="200" step="5" value="50">
-              <p class="help-text">Spatial buffer radius for local density and distance calculations.</p>
-            </div>
 
             <div class="control-subgroup-title">GPS Correction</div>
 
@@ -432,6 +386,45 @@
               <p class="help-text">Max distance to snap toward roads. <strong>10–15&thinsp;m</strong> = tight (only near curbs). <strong>25&thinsp;m</strong> = moderate (default). <strong>40–60&thinsp;m</strong> = aggressive (urban canyons).</p>
             </div>
 
+            <div class="control-subgroup-title">Satellite NDVI</div>
+
+            <p class="help-text" style="margin-top: 0; margin-bottom: 12px;">NDVI is a greenness score (−1 to 1) measured from Sentinel-2 satellite images: bare ground and buildings score near 0, dense healthy vegetation near 1. Each GPS point gets its own value and the average within 50&nbsp;m. Needs a Copernicus account (see settings below).</p>
+            <button class="btn btn-primary" id="btnSampleNdvi" style="width: 100%;" title="Sample real Sentinel-2 NDVI ((B08-B04)/(B08+B04)) at each GPS fix from the raw Copernicus layer below — requires Satellite &amp; NDVI Settings to be configured" type="button">
+              <i class="fa-solid fa-satellite"></i> Retrieve Satellite NDVI
+            </button>
+
+            <!-- Copernicus Sentinel-2 Band 8 (NIR) Configuration (Collapsed by default) -->
+            <details id="copernicusConfigDetails" class="ndvi-settings-details" style="margin-top: 10px; font-size: 0.78rem;">
+              <summary style="cursor: pointer; color: var(--text-muted, #888); font-size: 0.75rem; user-select: none; display: flex; align-items: center; gap: 6px; padding: 4px 0;">
+                <i class="fa-solid fa-sliders"></i>
+                <span>Satellite &amp; NDVI Settings</span>
+                <span id="copernicusActiveBadge" class="badge" style="margin-left: auto; font-size: 0.65rem; background: #2e7d32; color: #fff; padding: 1px 6px; border-radius: 3px; display: none;">Raw NDVI Active</span>
+                <span id="copernicusDefaultBadge" class="badge" style="margin-left: auto; font-size: 0.65rem; background: rgba(0,0,0,0.06); color: var(--text-muted); padding: 1px 6px; border-radius: 3px;">Imagery Fallback</span>
+              </summary>
+              <div id="copernicusConfigSection" style="margin-top: 8px; padding: 10px; border-radius: 6px; background: rgba(46, 125, 50, 0.08); border: 1px solid rgba(46, 125, 50, 0.25);">
+                <div style="display: flex; align-items: center; justify-content: space-between; font-size: 0.78rem; font-weight: 600; color: #2e7d32; margin-bottom: 6px;">
+                  <span><i class="fa-solid fa-satellite-dish"></i> Sentinel-2 Band 8 (NIR)</span>
+                  <span style="font-size: 0.68rem; color: #2e7d32;">Copernicus WMS</span>
+                </div>
+                <div style="font-size: 0.72rem; color: var(--text-secondary, #aaa); margin-bottom: 2px;">Instance ID:</div>
+                <input type="text" id="copernicusInstanceId" class="text-input" style="width: 100%; font-size: 0.72rem; padding: 4px 6px; font-family: monospace;" value="" placeholder="Paste Copernicus Instance ID..." title="Copernicus Sentinel Hub Instance ID">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 6px; margin-bottom: 2px;">
+                  <span style="font-size: 0.72rem; color: var(--text-secondary, #aaa);">Raw Layer ID:</span>
+                  <span style="font-size: 0.68rem; color: #2e7d32;">FLOAT32 evalscript</span>
+                </div>
+                <input type="text" id="copernicusRawLayerId" class="text-input" style="width: 100%; font-size: 0.72rem; padding: 4px 6px; font-family: monospace;" value="NDVI_RAW" placeholder="NDVI_RAW" title="Custom evalscript layer outputting single-band FLOAT32 NDVI — used for both &quot;Retrieve Satellite NDVI&quot; and the on-map NDVI overlay. See research/environmental_enrichment_plan.md §2E for the evalscript.">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 6px; margin-bottom: 2px;">
+                  <span style="font-size: 0.72rem; color: var(--text-secondary, #aaa);">Date Range (Cloudless):</span>
+                  <span style="font-size: 0.68rem; color: #2e7d32;">Summer Window</span>
+                </div>
+                <input type="text" id="copernicusTimeRange" class="text-input" style="width: 100%; font-size: 0.72rem; padding: 4px 6px; font-family: monospace;" value="2024-05-01/2024-09-30" title="Copernicus Date Range (e.g. 2024-05-01/2024-09-30)">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 8px; font-size: 0.68rem; color: var(--text-muted, #888);">
+                  <span><i class="fa-solid fa-shield-halved"></i> Stored locally in browser</span>
+                  <button type="button" class="btn btn-outline" id="btnClearCopernicusCreds" style="font-size: 0.68rem; padding: 2px 6px;" title="Remove Copernicus credentials from local storage">Clear</button>
+                </div>
+              </div>
+            </details>
+
             <div id="graphOverlayGroup">
             <div class="control-subgroup-title">Graph Overlay</div>
 
@@ -451,7 +444,7 @@
               </label>
               <span class="toggle-label">Show NDVI on GSR</span>
             </div>
-            <p class="help-text">Renders sampled NDVI (barren tan → lush green) as a background gradient behind the signal. Requires <strong>Sample Satellite NDVI</strong> above.</p>
+            <p class="help-text">Renders sampled NDVI (barren tan → lush green) as a background gradient behind the signal. Requires <strong>Retrieve Satellite NDVI</strong> above.</p>
 
             <div class="toggle-group">
               <label class="switch">

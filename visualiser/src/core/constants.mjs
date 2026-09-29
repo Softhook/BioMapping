@@ -40,11 +40,11 @@ export const GSR_CONST = {
     peakLatency: 2.0,
   },
 
-  // ── OSM enrichment radii (#osmRadius, #gpsSnapRadius) ────────────────────
+  // ── OSM enrichment radii (fixed search radius, #gpsSnapRadius) ───────────
   // Read via GSRStorage.readEnrichmentRadii(). The Overpass fetch bbox is
   // buffered by max(osmRadius, snapRadius) + 50 m.
   ENRICHMENT_DEFAULT: {
-    osmRadius: 50, // m — feature search radius around each sample
+    osmRadius: 50, // m — fixed feature search radius around each sample; also the NDVI buffer
     snapRadius: 25, // m — road-snapping / junction-passage radius
   },
 

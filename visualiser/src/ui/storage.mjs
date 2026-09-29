@@ -181,8 +181,9 @@ export const GSRStorage = {
   },
 
   /**
-   * Current OSM enrichment radii in metres (#osmRadius, #gpsSnapRadius),
-   * falling back to GSR_CONST.ENRICHMENT_DEFAULT when a slider is absent.
+   * Current OSM enrichment radii in metres: the fixed feature search radius
+   * and #gpsSnapRadius (falling back to GSR_CONST.ENRICHMENT_DEFAULT when
+   * that slider is absent).
    *
    * @returns {{osmRadius: number, snapRadius: number}}
    */
@@ -190,7 +191,7 @@ export const GSRStorage = {
     const S = AppState.sliders || {};
     const D = GSR_CONST.ENRICHMENT_DEFAULT;
     return {
-      osmRadius: sliderVal(S.osmRadius, D.osmRadius, parseInt),
+      osmRadius: D.osmRadius,
       snapRadius: sliderVal(S.gpsSnapRadius, D.snapRadius, parseInt),
     };
   },
@@ -413,16 +414,13 @@ export const GSRStorage = {
         C.hillshadeStrength.value = contour.hillshadeStrength;
     }
 
-    // Restore OSM enrichment radii. Only 'input' is fired here (label update);
-    // the re-enrichment their 'change' handlers would each start runs once,
-    // below, after the walk has taken the preset.
+    // Restore the OSM snap radius. Only 'input' is fired here (label update);
+    // the re-enrichment its 'change' handler would start runs once, below,
+    // after the walk has taken the preset.
     const enrichment = preset.enrichment;
     let radiiChanged = false;
     if (enrichment) {
-      for (const [key, sliderKey] of [
-        ['osmRadius', 'osmRadius'],
-        ['snapRadius', 'gpsSnapRadius'],
-      ]) {
+      for (const [key, sliderKey] of [['snapRadius', 'gpsSnapRadius']]) {
         const el = S[sliderKey];
         if (!el || enrichment[key] === undefined) continue;
         if (String(el.value) === String(enrichment[key])) continue;

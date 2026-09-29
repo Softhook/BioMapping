@@ -251,13 +251,6 @@ export const OsmOverlayUI = {
       });
       envPanel.style.display = 'block';
 
-      const firstEnriched = enriched.find((a) => a.enrichmentRadius);
-      const rad = firstEnriched ? firstEnriched.enrichmentRadius : null;
-      if (rad) {
-        document.getElementById('osmRadius').value = rad;
-        document.getElementById('valOsmRadius').innerText = `${rad} m`;
-      }
-
       this.updateEnvironmentalDashboard();
     } else {
       document.querySelectorAll('.osm-option').forEach((opt) => {

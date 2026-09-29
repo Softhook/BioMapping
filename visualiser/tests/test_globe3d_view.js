@@ -383,10 +383,9 @@ test('_resolveOsmJson requests the SAME bbox buffer as the 2D enrichment (cache 
   const { window } = await bootApp();
   window.setup();
   const doc = window.document;
-  doc.getElementById('osmRadius').value = '80';
-  doc.getElementById('gpsSnapRadius').value = '40';
-  // 2D enrichTrack uses max(osmRadius, gpsSnapRadius) + 50
-  assert.strictEqual(window.GSRGlobe3DView._osmBboxBufferM(), 130);
+  doc.getElementById('gpsSnapRadius').value = '60';
+  // 2D enrichTrack uses max(fixed 50 m search radius, gpsSnapRadius) + 50
+  assert.strictEqual(window.GSRGlobe3DView._osmBboxBufferM(), 110);
 });
 
 test('the OSM/buildings toggle state persists across a 2D↔3D surface switch', async () => {

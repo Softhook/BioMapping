@@ -732,7 +732,7 @@ test('applyPreset (single view): commits only to the active track', () => {
   assert.strictEqual(other.filterParams, undefined, 'other track untouched');
 });
 
-test('applyPreset: changed OSM/snap radii re-enrich once, after the walk is re-analysed', () => {
+test('applyPreset: a changed snap radius re-enriches once, after the walk is re-analysed', () => {
   resetGlobals();
   const fired = [];
   const radiusEl = (value, name) => ({
@@ -745,7 +745,6 @@ test('applyPreset: changed OSM/snap radii re-enrich once, after the walk is re-a
     tonicMethod: el('lpf'),
     tonicWindow: el(45),
     peakThreshold: el(0.02),
-    osmRadius: radiusEl(50, 'osm'),
     gpsSnapRadius: radiusEl(25, 'snap'),
   };
   global.AppState.activeTrackId = 'trk1';
@@ -768,11 +767,10 @@ test('applyPreset: changed OSM/snap radii re-enrich once, after the walk is re-a
     enrichment: { osmRadius: 80, snapRadius: 40 },
   });
 
-  assert.strictEqual(global.AppState.sliders.osmRadius.value, 80);
   assert.strictEqual(global.AppState.sliders.gpsSnapRadius.value, 40);
   assert.deepStrictEqual(
     fired,
-    ['osm:input', 'snap:input'],
+    ['snap:input'],
     "labels update, but no per-slider 'change' (each would start its own enrichment)",
   );
   assert.deepStrictEqual(uiCalls, ['runAnalysis', 'enrichTrack:false']);
@@ -820,7 +818,6 @@ test('applyPreset: unchanged radii do not re-enrich', () => {
     tonicMethod: el('lpf'),
     tonicWindow: el(45),
     peakThreshold: el(0.02),
-    osmRadius: el(50),
     gpsSnapRadius: el(25),
   };
   const uiCalls = [];
