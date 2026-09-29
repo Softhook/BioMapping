@@ -87,7 +87,7 @@ export const EnrichmentEvents = {
       'copernicusRawLayerId',
     );
     const copernicusTimeInput = document.getElementById('copernicusTimeRange');
-    const syncCopernicusBadges = () => {
+    const syncCopernicusBadge = () => {
       const defaultBadge = document.getElementById('copernicusDefaultBadge');
       const hasId = NDVISampler.hasCopernicusConfig();
       if (defaultBadge)
@@ -102,7 +102,7 @@ export const EnrichmentEvents = {
           'copernicus_instance_id',
           copernicusInstanceInput.value.trim(),
         );
-        syncCopernicusBadges();
+        syncCopernicusBadge();
         if (AppState.mapManager?.ndviTileLayer) {
           AppState.mapManager.showNdviLayer();
         }
@@ -145,13 +145,13 @@ export const EnrichmentEvents = {
         if (copernicusRawLayerInput) copernicusRawLayerInput.value = 'NDVI_RAW';
         if (copernicusTimeInput)
           copernicusTimeInput.value = '2024-05-01/2024-09-30';
-        syncCopernicusBadges();
+        syncCopernicusBadge();
         if (AppState.mapManager?.ndviTileLayer) {
           AppState.mapManager.showNdviLayer();
         }
       });
     }
 
-    syncCopernicusBadges();
+    syncCopernicusBadge();
   },
 };

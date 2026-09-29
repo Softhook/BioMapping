@@ -19,8 +19,8 @@ import { GSRStorage } from './storage.mjs';
 
 export const EnrichmentUI = {
   /**
-   * True when the walks in view already carry OSM data — so a radius or
-   * snap change should re-run enrichment. Collective view checks every walk,
+   * True when the walks in view already carry OSM data — so a snap-radius
+   * or snap-toggle change should re-run enrichment. Collective view checks every walk,
    * Single view the open one.
    */
   hasOsmData() {
@@ -179,7 +179,7 @@ export const EnrichmentUI = {
         continue;
       }
       // Geometry is reusable only while its JSON still covers the current
-      // radius (raising a radius widens the bbox past the old fetch).
+      // snap radius (raising it widens the bbox past the old fetch).
       if (analyzer.osmGeoms && OSMEnricher.osmJsonFor(analyzer, bbox)) {
         cached++;
         continue;
@@ -301,7 +301,7 @@ export const EnrichmentUI = {
       let sharedJson = null;
       const singleFetch = unionArea <= AREA_CAP_KM2;
       // Each track's in-memory JSON, if it still covers that track's bbox at
-      // the current radius — after a radius increase it doesn't, and reusing
+      // the current snap radius — after an increase it doesn't, and reusing
       // it would enrich the walk's outermost points against missing features.
       const trackBBox = (t) =>
         OSMEnricher.calculateBBox(t.analyzer.raw, bufferM);

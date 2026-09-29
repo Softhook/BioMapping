@@ -1,11 +1,9 @@
 /**
  * GSRMapMarkers — shared peak / hotspot map-marker geometry and icons.
  *
- * Extracted from manager/peaks.js so the single-track 2D map, the
- * collective map, and the Live view's follow-map all draw peak dots and
- * hotspot stars from ONE definition (the Live view previously had no map
- * markers at all, and had it drawn its own it could never have matched the
- * main map's look after any future tweak). Hotspot stars are CSS-styled
+ * The single-track 2D map, the collective map and the Live view's
+ * follow-map all draw peak dots and hotspot stars from this one definition,
+ * so they can't drift apart. Hotspot stars are CSS-styled
  * (.hotspot-star / .hotspot-glow-ring in styles.css).
  *
  * Plain peaks are drawn on the map's canvas rather than as DOM markers. A
@@ -15,10 +13,8 @@
  * once when the zoom settles and simply stretched with it in between.
  *
  * `L` (Leaflet) is passed in explicitly rather than read from a global, so
- * both entry points (index.html's real Leaflet, live.html's real Leaflet, and
- * the tests' hand-rolled mocks) call the same code with whatever L they have.
- * `analyzer` is a GSRAnalyzer instance whose .raw rows carry { lat, lon } —
- * the same shape feedLiveAnalyzer() builds for the live view.
+ * the app pages and the tests' hand-rolled mocks call the same code with
+ * whatever L they have.
  */
 
 // The plain peak dot, matching the DOM dot it replaced: 6 px across including

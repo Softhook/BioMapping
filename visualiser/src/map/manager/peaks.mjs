@@ -273,7 +273,7 @@ export class GSRMapPeaks extends GSRMapPath {
     const marker = L.marker([coords.lat, coords.lon], {
       icon: GSRMapMarkers.buildHotspotIcon(L),
     });
-    marker.setZIndexOffset(1500); // Above both regular peak dots and labels
+    marker.setZIndexOffset(1500); // Above labelled peaks and Arousal Place badges
     // Phase 1 (slice 1): single-track hotspots render into the track's
     // layerGroup. Collective callers don't pass a group → legacy direct add.
     // The group is tagged ALWAYS (even when currently hidden) so toggling the

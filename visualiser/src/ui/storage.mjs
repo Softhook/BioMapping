@@ -481,9 +481,9 @@ export const GSRStorage = {
         Controllers.ui.runAnalysis();
       }
     }
-    // Radii or GPS smoothing changed: re-enrich once if the walk already has
-    // OSM data (it re-uses that data or the cache while it still covers the
-    // new radius).
+    // Snap radius or GPS smoothing changed: re-enrich once if the walk
+    // already has OSM data (it re-uses that data or the cache while it still
+    // covers the new radius).
     if (
       (snapRadiusChanged || smoothingChanged) &&
       Controllers.ui?.hasOsmData?.()

@@ -216,8 +216,7 @@ out skel qt;`;
 
           throw new Error(
             `Overpass API rejected the request with HTTP ${response.status} (rate-limited). ` +
-              `Try again in a few minutes, or use a smaller search radius / shorter track ` +
-              `to reduce query size.`,
+              `Try again in a few minutes, or use a shorter track to reduce query size.`,
           );
         }
 
@@ -260,7 +259,7 @@ out skel qt;`;
         const hints = {
           400: 'The Overpass query was malformed. This is a bug — please report it.',
           403: 'Access denied by the Overpass API.',
-          413: 'Request entity too large. Try a shorter track or smaller radius.',
+          413: 'Request entity too large. Try a shorter track.',
         };
         const hint =
           hints[response.status] ||
