@@ -13,6 +13,7 @@
  * - Zoom End: Redrawn at crisp resolution.
  */
 
+import { exactLayerPoint } from '../map/smooth_wheel_zoom.mjs';
 import { GSRAnalyzer } from '../signal/analyzer.mjs';
 import { SpatialGrid } from '../spatial/spatial_grid.mjs';
 import {
@@ -100,7 +101,7 @@ export class RFFluidRenderer {
     });
     this.map.on('zoom', () => {
       this._scaleCanvas(this.map.getZoom(), (nw) =>
-        this.map.latLngToLayerPoint(nw),
+        exactLayerPoint(this.map, nw),
       );
     });
 
@@ -131,8 +132,8 @@ export class RFFluidRenderer {
     const nw = bounds.getNorthWest();
     const se = bounds.getSouthEast();
 
-    const topLeft = this.map.latLngToLayerPoint(nw);
-    const bottomRight = this.map.latLngToLayerPoint(se);
+    const topLeft = exactLayerPoint(this.map, nw);
+    const bottomRight = exactLayerPoint(this.map, se);
 
     const w = Math.max(10, Math.round(Math.abs(bottomRight.x - topLeft.x)));
     const h = Math.max(10, Math.round(Math.abs(bottomRight.y - topLeft.y)));
@@ -698,7 +699,7 @@ export class RFFluidRenderer {
       if (!node.hasRf) continue;
       if (!bounds.contains([node.lat, node.lon])) continue;
 
-      const layerPt = this.map.latLngToLayerPoint([node.lat, node.lon]);
+      const layerPt = exactLayerPoint(this.map, [node.lat, node.lon]);
       const canvasPt = {
         x: layerPt.x - originLayerOffset.x,
         y: layerPt.y - originLayerOffset.y,
@@ -727,7 +728,7 @@ export class RFFluidRenderer {
 
       const pts = [];
       for (let i = 0; i < ring.length; i++) {
-        const lpt = this.map.latLngToLayerPoint([ring[i].lat, ring[i].lon]);
+        const lpt = exactLayerPoint(this.map, [ring[i].lat, ring[i].lon]);
         pts.push({
           x: lpt.x - originLayerOffset.x,
           y: lpt.y - originLayerOffset.y,
@@ -753,7 +754,7 @@ export class RFFluidRenderer {
 
       for (let r = 0; r < node.fanGeo.length; r++) {
         const ptGeo = node.fanGeo[r];
-        const lpt = this.map.latLngToLayerPoint([ptGeo.lat, ptGeo.lon]);
+        const lpt = exactLayerPoint(this.map, [ptGeo.lat, ptGeo.lon]);
         const pxPt = {
           x: lpt.x - originLayerOffset.x,
           y: lpt.y - originLayerOffset.y,

@@ -1125,12 +1125,14 @@ input[type="range"]:focus-visible,
 }
 
 /* While a smooth wheel zoom glides (src/map/smooth_wheel_zoom.mjs), give
-   markers and tooltips their own GPU layer so they can sit between pixels.
-   Otherwise the browser snaps their text (hotspot stars, labels) to whole
-   pixels each frame and it shakes in the slow end of the zoom. Only during
-   the zoom: a layer per marker costs memory, and text is crisper without. */
+   markers, tooltips and popups their own GPU layer so they can sit between
+   pixels. Otherwise the browser snaps their text (hotspot stars, labels) to
+   whole pixels each frame and it shakes in the slow end of the zoom. Only
+   during the zoom: a layer per marker costs memory, and text is crisper
+   without. */
 .leaflet-smooth-zooming .leaflet-marker-icon,
-.leaflet-smooth-zooming .leaflet-tooltip {
+.leaflet-smooth-zooming .leaflet-tooltip,
+.leaflet-smooth-zooming .leaflet-popup {
   will-change: transform;
 }
 

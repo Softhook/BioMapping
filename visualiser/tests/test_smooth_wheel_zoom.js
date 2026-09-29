@@ -55,13 +55,15 @@ function flushFrames(max = 1000) {
 
 const {
   enableSmoothWheelZoom,
+  exactLayerPoint,
   isWheelZooming,
   ZOOMING_CLASS,
 } = require('../src/map/smooth_wheel_zoom.mjs');
 
 function makeMap() {
+  frameQueue = []; // drop frames a failed earlier test left running
   const el = window.document.createElement('div');
-  Object.defineProperty(el, 'clientWidth', { value: 1000 });
+  Object.defineProperty(el, 'clientWidth', { value: 1000, configurable: true });
   Object.defineProperty(el, 'clientHeight', { value: 600 });
   window.document.body.appendChild(el);
   const map = L.map(el, {
@@ -176,10 +178,132 @@ test('a pan arriving mid-zoom ends the zoom cleanly and wins', () => {
   assert.ok(map.getCenter().distanceTo(target) < 3, 'pan reached target');
 });
 
+// Container point of `latlng` as drawn on screen (pane offset included).
+function screenPoint(map, latlng) {
+  return map
+    .project(latlng)
+    .subtract(map.getPixelOrigin())
+    .add(L.DomUtil.getPosition(map._mapPane));
+}
+
+test('a panBy mid-zoom (keyboard, popup auto-pan) ends the zoom and is kept', () => {
+  const { map, el } = makeMap();
+  for (let i = 0; i < 5; i++) wheel(el, -40);
+  flushFrames(5);
+  const middle = map.containerPointToLatLng([500, 300]);
+
+  map.panBy([100, 0], { animate: false });
+
+  assert.ok(!isWheelZooming(map), 'zoom ended');
+  assert.strictEqual(frameQueue.length, 0, 'no zoom frames left running');
+  const drift = screenPoint(map, middle).distanceTo(L.point(400, 300));
+  assert.ok(drift <= 0.75, `pan kept, off by ${drift}px`);
+});
+
+test('a resize mid-zoom ends the zoom and keeps the map centred', () => {
+  const { map, el } = makeMap();
+  for (let i = 0; i < 5; i++) wheel(el, -40);
+  flushFrames(5);
+  const middle = map.containerPointToLatLng([500, 300]);
+
+  Object.defineProperty(el, 'clientWidth', { value: 800 });
+  map.invalidateSize(); // moves the pane via _rawPanBy
+
+  assert.ok(!isWheelZooming(map), 'zoom ended');
+  assert.strictEqual(frameQueue.length, 0, 'no zoom frames left running');
+  const drift = screenPoint(map, middle).distanceTo(L.point(400, 300));
+  assert.ok(drift <= 0.75, `centre kept, off by ${drift}px`);
+});
+
+test('pressing on the map mid-zoom ends the zoom before a drag can start', () => {
+  const { map, el } = makeMap();
+  for (let i = 0; i < 5; i++) wheel(el, -40);
+  flushFrames(5);
+
+  el.dispatchEvent(new window.Event('pointerdown', { bubbles: true }));
+
+  assert.ok(!isWheelZooming(map), 'zoom ended');
+  assert.strictEqual(frameQueue.length, 0, 'no zoom frames left running');
+  assert.ok(isWhole(L.DomUtil.getPosition(map._mapPane)), 'pane snapped');
+});
+
+test("wheel is ignored while Leaflet's own zoom animation runs", () => {
+  const { map, el } = makeMap();
+  map._animatingZoom = true;
+  wheel(el, -100);
+  map._animatingZoom = false;
+  assert.ok(!isWheelZooming(map));
+  assert.strictEqual(frameQueue.length, 0);
+});
+
+test('removing the map mid-zoom stops it and unhooks everything', () => {
+  const { map, el } = makeMap();
+  for (let i = 0; i < 5; i++) wheel(el, -40);
+  flushFrames(5);
+
+  map.remove();
+
+  assert.ok(!isWheelZooming(map), 'zoom ended');
+  assert.strictEqual(frameQueue.length, 0, 'no zoom frames left running');
+  for (const name of ['_stop', 'panBy', '_rawPanBy']) {
+    assert.ok(!Object.hasOwn(map, name), `Leaflet's own ${name} is back`);
+  }
+  assert.doesNotThrow(() => wheel(el, -100), 'wheel on the old container');
+  assert.strictEqual(frameQueue.length, 0, 'and it starts nothing');
+});
+
 test('zoom is clamped to the map limits', () => {
   const { map, el } = makeMap();
   map.setMaxZoom(15.5);
   for (let i = 0; i < 20; i++) wheel(el, -100);
   flushFrames();
   assert.ok(Math.abs(map.getZoom() - 15.5) < 0.002, `zoom ${map.getZoom()}`);
+});
+
+test('vector layers are stretched from where they were drawn, so the zoomend redraw does not jump', () => {
+  const { map, el } = makeMap();
+  const renderer = L.svg().addTo(map); // jsdom has no canvas; same transform maths
+  // A fractional pixel position, where Leaflet's rounding would show.
+  const latlng = map.containerPointToLatLng([430.37, 318.71]);
+  const dot = L.circleMarker(latlng, { renderer, radius: 4 }).addTo(map);
+
+  // Where the renderer is showing the dot as drawn: its drawn layer point,
+  // through the container's translate + stretch, plus the pane offset.
+  const drawnAt = () => {
+    const [x, y, scale] =
+      /translate3d\(([-\d.e]+)px, ?([-\d.e]+)px, ?0\) scale\(([-\d.e]+)\)/
+        .exec(renderer._container.style.transform)
+        .slice(1)
+        .map(Number);
+    return dot._point
+      .subtract(renderer._bounds.min)
+      .multiplyBy(scale)
+      .add(L.point(x, y))
+      .add(L.DomUtil.getPosition(map._mapPane));
+  };
+
+  for (let i = 0; i < 9; i++) wheel(el, -100, 400, 300); // three levels in
+  let worst = 0;
+  for (let n = 0; n < 200 && isWheelZooming(map); n++) {
+    flushFrames(1);
+    if (isWheelZooming(map)) {
+      worst = Math.max(worst, drawnAt().distanceTo(screenPoint(map, latlng)));
+    }
+  }
+  assert.ok(worst < 0.01, `stretched drawing off by up to ${worst}px`);
+});
+
+test("exactLayerPoint is unrounded on a smooth-zoom map and Leaflet's own elsewhere", () => {
+  const { map } = makeMap();
+  const latlng = map.containerPointToLatLng([430.37, 318.71]);
+  const exact = exactLayerPoint(map, latlng);
+  assert.ok(!isWhole(exact), 'fractional');
+  assert.ok(exact.distanceTo(map.latLngToLayerPoint(latlng)) <= 0.71);
+
+  const plain = window.document.createElement('div');
+  Object.defineProperty(plain, 'clientWidth', { value: 1000 });
+  Object.defineProperty(plain, 'clientHeight', { value: 600 });
+  window.document.body.appendChild(plain);
+  const other = L.map(plain, { zoomSnap: 0 }).setView([51.5, -0.12], 15);
+  assert.ok(isWhole(exactLayerPoint(other, latlng)), 'rounded as Leaflet does');
 });
