@@ -213,7 +213,7 @@
               </label>
               <span class="toggle-label">Trough-to-Peak Detector</span>
             </div>
-            <p class="help-text" style="margin-top:4px;">The classic method. A peak counts when the signal has risen by at least the Min Peak Amplitude from the low point where the rise began. Every high point is checked, so a small response on the way up to a bigger one is still counted. Peaks are at least 1.3&nbsp;s apart. Uses all three thresholds below. Switches back on whenever the other methods are off.</p>
+            <p class="help-text" style="margin-top:4px;">A peak counts when the signal has risen by at least the Min Peak Amplitude from the low point where the rise began. Peaks are at least 1.3&nbsp;s apart. Uses all three thresholds below.</p>
 
             <div class="toggle-group" style="margin-top:8px;">
               <label class="switch">
@@ -222,7 +222,7 @@
               </label>
               <span class="toggle-label">Prominence Detector</span>
             </div>
-            <p class="help-text" style="margin-top:4px;">Measures how far each high point stands out from the dips around it, the way a hilltop stands out from its valleys. A peak counts when that height is at least the Min Peak Amplitude. Good at separating two responses close together, as long as the signal dips between them. A response with no dip before it (one riding up the side of a bigger one) is missed. Min SNR is not used.</p>
+            <p class="help-text" style="margin-top:4px;">Measures how far each high point stands out from the dips around it, the way a hilltop stands out from its valleys. Good at separating two responses close together, as long as the signal dips between them.</p>
 
             <div class="toggle-group" style="margin-top:8px;">
               <label class="switch">
@@ -231,7 +231,7 @@
               </label>
               <span class="toggle-label">Matching Pursuit</span>
             </div>
-            <p class="help-text" style="margin-top:4px;">Treats the signal as a pile of overlapping responses that all share one standard shape (quick rise, slow fall), and takes them apart one at a time, biggest first. Useful when responses come in quick succession and blur together. Adds the Driver graph view. Uses all three thresholds below. Based on Bach &amp; Staib (2015).</p>
+            <p class="help-text" style="margin-top:4px;">Treats the signal as a pile of overlapping responses that all share one standard shape (quick rise, slow fall) and sperates them. Adds the Driver graph view. Uses all three thresholds below.</p>
 
             <div class="toggle-group" style="margin-top:8px;">
               <label class="switch">
@@ -240,7 +240,7 @@
               </label>
               <span class="toggle-label">SparsEDA</span>
             </div>
-            <p class="help-text" style="margin-top:4px;">Also takes overlapping responses apart, but tries response shapes of several lengths and keeps the fewest responses that explain the signal. Adds the Driver and Rise Speed views. Uses all three thresholds below. Based on Hernando-Gallego et al. (2018).</p>
+            <p class="help-text" style="margin-top:4px;">Takes overlapping responses apart, but tries response shapes of several lengths and keeps the fewest responses that explain the signal. Adds the Driver and Rise Speed views. Uses all three thresholds below.</p>
 
             <div class="toggle-group" style="margin-top:8px;">
               <label class="switch">
@@ -249,7 +249,7 @@
               </label>
               <span class="toggle-label">cvxEDA</span>
             </div>
-            <p class="help-text" style="margin-top:4px;">Works out the slow background level and the individual responses together in one calculation, instead of removing the background first. Because of that, the Baseline Method and Tonic Baseline Window settings have no effect while it is on. Adds the Driver graph view. Uses all three thresholds below. Based on Greco et al. (2016).</p>
+            <p class="help-text" style="margin-top:4px;">Works out the slow background level and the individual responses together. Adds the Driver graph view. Uses all three thresholds below.</p>
             <div class="deconv-truncation-warning" id="deconvTruncationWarning" style="display:none; margin-top:6px; padding:7px 10px; border-radius:6px; background:rgba(229,158,0,0.15); border:1px solid rgba(229,158,0,0.4); color:#e59e00; font-size:0.78rem; line-height:1.4;">
               <i class="fa-solid fa-triangle-exclamation"></i> The calculation hit its step limit before it finished on this walk, so some small responses may be missing and the peak count may be a little low. Larger responses are not affected.
             </div>
