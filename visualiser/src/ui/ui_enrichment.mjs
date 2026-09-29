@@ -139,7 +139,7 @@ export const EnrichmentUI = {
    * committing to a full spatial-data retrieval. It shares every layer of that
    * retrieval's cache (analyzer.osmJson in memory → OsmCache.getForBBox →
    * one Overpass fetch via OsmCache.planFetch, then OsmCache.store), using the
-   * same bbox buffer (max(osmRadius, gpsSnapRadius) + 50) so whichever runs
+   * same bbox buffer (GSRStorage.enrichmentBufferM) so whichever runs
    * first, the other reuses its cache and nothing double-downloads.
    *
    * @param {(msg: string) => void} [onProgress]
@@ -164,8 +164,7 @@ export const EnrichmentUI = {
       };
     }
 
-    const { osmRadius, snapRadius } = GSRStorage.readEnrichmentRadii();
-    const bufferM = Math.max(osmRadius, snapRadius) + 50;
+    const bufferM = GSRStorage.enrichmentBufferM();
     const AREA_CAP_KM2 = 12.0;
 
     let fetched = 0,
@@ -269,9 +268,9 @@ export const EnrichmentUI = {
     };
 
     try {
-      const { osmRadius: radius, snapRadius } =
-        GSRStorage.readEnrichmentRadii();
-      const maxRadius = Math.max(radius, snapRadius);
+      const radius = GSR_CONST.ENRICHMENT_DEFAULT.osmRadius;
+      const snapRadius = GSRStorage.readSnapRadius();
+      const bufferM = GSRStorage.enrichmentBufferM();
 
       // Union bounding box over every valid track's raw coordinates.
       // (Plain loop, not push(...spread) — that overflows the call stack
@@ -287,7 +286,7 @@ export const EnrichmentUI = {
         document.getElementById('gpsSnapToRoads')?.checked ?? false;
       const snapParams = { enabled: snapEnabled, radiusOut: snapRadius };
 
-      const unionBBox = OSMEnricher.calculateBBox(combinedRaw, maxRadius + 50);
+      const unionBBox = OSMEnricher.calculateBBox(combinedRaw, bufferM);
       if (!unionBBox) {
         throw new Error(
           'Could not calculate bounding box. Track coordinates may be invalid.',
@@ -305,7 +304,7 @@ export const EnrichmentUI = {
       // the current radius — after a radius increase it doesn't, and reusing
       // it would enrich the walk's outermost points against missing features.
       const trackBBox = (t) =>
-        OSMEnricher.calculateBBox(t.analyzer.raw, maxRadius + 50);
+        OSMEnricher.calculateBBox(t.analyzer.raw, bufferM);
       const inMemFor = (t) => {
         if (forceFetch) return null;
         const tb = trackBBox(t);

@@ -112,7 +112,7 @@ export const JunctionDebug = {
     }
     if (!this._on) return;
 
-    const { snapRadius } = GSRStorage.readEnrichmentRadii();
+    const snapRadius = GSRStorage.readSnapRadius();
     const group = L.layerGroup();
     const drawnNodes = new Set();
     let total = 0;

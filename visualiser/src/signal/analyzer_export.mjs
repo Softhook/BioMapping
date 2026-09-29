@@ -21,7 +21,6 @@ export const AnalyzerExport = {
    * @param {Array<object>} state.peaks
    * @param {Array<{lat:number,lon:number}>|null} state.filteredGps
    * @param {boolean} state.isEnriched
-   * @param {number} state.enrichmentRadius
    * @param {number} state.recordingStartTime
    * @param {Array<string>} [state.deviceHeaderLines] - Device metadata lines from the source file.
    * @param {object} [params] - Filter params, echoed into a header comment for re-import.
@@ -39,7 +38,6 @@ export const AnalyzerExport = {
       hiddenExclusions = [],
       filteredGps,
       isEnriched,
-      enrichmentRadius,
       recordingStartTime,
       deviceHeaderLines = [],
     } = state;
@@ -89,9 +87,6 @@ export const AnalyzerExport = {
     }
     if (gpsParams) {
       csv += `# GpsFilterParams:${JSON.stringify(gpsParams)}\n`;
-    }
-    if (isEnriched) {
-      csv += `# EnrichmentRadius:${enrichmentRadius}\n`;
     }
     csv +=
       'Time (s),Raw Conductance (uS),Filtered Conductance (uS),Tonic Baseline (uS),Phasic Response (uS),IsPeak,PeakAmplitude,PeakLabel,PeakExcluded,Latitude,Longitude';

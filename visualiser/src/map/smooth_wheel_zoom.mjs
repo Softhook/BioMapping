@@ -92,7 +92,10 @@ const zoomingMaps = new WeakSet(); // …of those, the ones gliding right now
 
 const pressedMaps = new WeakMap(); // map -> Set of pointer ids down on it
 
-/** True while a wheel/trackpad zoom on `map` is still moving. */
+/**
+ * True while a wheel/trackpad zoom on `map` is still moving. App code wants
+ * the broader isUserMovingMap; this narrower check is for the tests.
+ */
 export function isWheelZooming(map) {
   return zoomingMaps.has(map);
 }

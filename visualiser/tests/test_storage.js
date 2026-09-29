@@ -764,7 +764,7 @@ test('applyPreset: a changed snap radius re-enriches once, after the walk is re-
   GSRStorage.applyPreset({
     gsr: {},
     gps: {},
-    enrichment: { osmRadius: 80, snapRadius: 40 },
+    enrichment: { snapRadius: 40 },
   });
 
   assert.strictEqual(global.AppState.sliders.gpsSnapRadius.value, 40);
@@ -829,7 +829,7 @@ test('applyPreset: unchanged radii do not re-enrich', () => {
   GSRStorage.applyPreset({
     gsr: {},
     gps: {},
-    enrichment: { osmRadius: 50, snapRadius: 25 },
+    enrichment: { snapRadius: 25 },
   });
   assert.deepStrictEqual(uiCalls, []);
 });

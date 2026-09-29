@@ -364,7 +364,7 @@ export const GSRCSVParser = {
 
   /**
    * Read the leading "#" metadata lines (RecordingStartTime, FilterParams,
-   * GpsFilterParams, EnrichmentRadius, the Integrity marker, band floors and
+   * GpsFilterParams, the Integrity marker, band floors and
    * the device lines) that come before the column-name line.
    *
    * @param {Array<string>} lines - The file split into lines.
@@ -373,7 +373,6 @@ export const GSRCSVParser = {
    *   recordingStartTime: number,
    *   importedFilterParams: object|null,
    *   importedGpsFilterParams: object|null,
-   *   enrichmentRadius: number|null,
    *   bandFloors: object|null,
    *   hasIntegrityMarker: boolean,
    *   deviceHeaderLines: Array<string>
@@ -383,7 +382,6 @@ export const GSRCSVParser = {
     let recordingStartTime = 0;
     let importedFilterParams = null;
     let importedGpsFilterParams = null;
-    let enrichmentRadius = null;
     let bandFloors = null;
     let hasIntegrityMarker = false;
     // Device metadata lines (DeviceName, GSR Calibration, Band Floors,
@@ -434,11 +432,6 @@ export const GSRCSVParser = {
         } catch (e) {
           console.warn('Failed to parse GpsFilterParams metadata:', e);
         }
-      } else if (line.startsWith('# EnrichmentRadius:')) {
-        const radVal = parseFloat(line.substring('# EnrichmentRadius:'.length));
-        if (!isNaN(radVal)) {
-          enrichmentRadius = radVal;
-        }
       } else if (line.startsWith('# Integrity:')) {
         // Marker announcing the "# End" trailer (docs/csv_schema.md
         // "Integrity Bracket"). Its presence is all we need here — the
@@ -467,7 +460,6 @@ export const GSRCSVParser = {
       recordingStartTime,
       importedFilterParams,
       importedGpsFilterParams,
-      enrichmentRadius,
       bandFloors,
       hasIntegrityMarker,
       deviceHeaderLines,
@@ -485,7 +477,6 @@ export const GSRCSVParser = {
    *   recordingStartTime: number,
    *   importedFilterParams: object|null,
    *   importedGpsFilterParams: object|null,
-   *   enrichmentRadius: number|null,
    *   bandFloors: object|null,
    *   deviceHeaderLines: Array<string>,
    *   sampleRate: number,
@@ -516,8 +507,8 @@ export const GSRCSVParser = {
       hasIntegrityMarker,
       deviceHeaderLines,
     } = meta;
-    // Both get fallback values further down when the header lacks them.
-    let { recordingStartTime, enrichmentRadius } = meta;
+    // Gets a fallback value further down when the header lacks it.
+    let { recordingStartTime } = meta;
 
     // Read headers
     const headerLine = lines[dataStartLine];
@@ -1150,19 +1141,11 @@ export const GSRCSVParser = {
     const hasGpsData = rawDataList.some((r) => r.hasGps);
 
     // Check if imported CSV is already enriched
-    let isEnriched = false;
-    if (
+    const isEnriched =
       osmRoadClassColIdx !== -1 ||
       osmGreenPctColIdx !== -1 ||
       ndviColIdx !== -1 ||
-      ndvi50mColIdx !== -1
-    ) {
-      isEnriched = true;
-      if (!enrichmentRadius) enrichmentRadius = 50; // fallback default
-    } else {
-      isEnriched = false;
-      enrichmentRadius = null;
-    }
+      ndvi50mColIdx !== -1;
 
     // Integrity bracket check (docs/csv_schema.md). dataStartLine is the
     // index of the column-name line, so dataStartLine + 1 lines precede the
@@ -1179,7 +1162,6 @@ export const GSRCSVParser = {
       recordingStartTime: recordingStartTime,
       importedFilterParams: importedFilterParams,
       importedGpsFilterParams: importedGpsFilterParams,
-      enrichmentRadius: enrichmentRadius,
       bandFloors: bandFloors,
       deviceHeaderLines: deviceHeaderLines,
       sampleRate: sampleRate,

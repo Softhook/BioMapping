@@ -774,7 +774,7 @@ export const EnvironmentalDashboardUI = {
     versionSig,
     latencyOf = () => PhysioLatency.fromSlider(),
   ) {
-    const { snapRadius } = GSRStorage.readEnrichmentRadii();
+    const snapRadius = GSRStorage.readSnapRadius();
     const latencySig = activeTracks.map(latencyOf).join(',');
     const key = [scope, trackIdsStr, versionSig, snapRadius, latencySig].join(
       '|',

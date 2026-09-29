@@ -181,19 +181,32 @@ export const GSRStorage = {
   },
 
   /**
-   * Current OSM enrichment radii in metres: the fixed feature search radius
-   * and #gpsSnapRadius (falling back to GSR_CONST.ENRICHMENT_DEFAULT when
-   * that slider is absent).
+   * Current road-snapping radius in metres (#gpsSnapRadius), falling back to
+   * GSR_CONST.ENRICHMENT_DEFAULT when the slider is absent.
    *
-   * @returns {{osmRadius: number, snapRadius: number}}
+   * @returns {number}
    */
-  readEnrichmentRadii() {
-    const S = AppState.sliders || {};
-    const D = GSR_CONST.ENRICHMENT_DEFAULT;
-    return {
-      osmRadius: D.osmRadius,
-      snapRadius: sliderVal(S.gpsSnapRadius, D.snapRadius, parseInt),
-    };
+  readSnapRadius() {
+    return sliderVal(
+      AppState.sliders?.gpsSnapRadius,
+      GSR_CONST.ENRICHMENT_DEFAULT.snapRadius,
+      parseInt,
+    );
+  },
+
+  /**
+   * How far (metres) the OSM fetch bbox reaches past the track:
+   * max(search radius, snap radius) + 50. The 2D enrichment, the OSM shape
+   * overlay and the 3D buildings all use this, so OsmCache's contains-match
+   * lets whichever runs first serve the others.
+   *
+   * @returns {number}
+   */
+  enrichmentBufferM() {
+    return (
+      Math.max(GSR_CONST.ENRICHMENT_DEFAULT.osmRadius, this.readSnapRadius()) +
+      50
+    );
   },
 
   /**
@@ -270,7 +283,7 @@ export const GSRStorage = {
       gsr: gsr,
       gps: gps,
       contour: this.readContourSliderValues(),
-      enrichment: this.readEnrichmentRadii(),
+      enrichment: { snapRadius: this.readSnapRadius() },
     };
 
     // Save via GSRFileSaver save location dialog box
@@ -417,18 +430,16 @@ export const GSRStorage = {
     // Restore the OSM snap radius. Only 'input' is fired here (label update);
     // the re-enrichment its 'change' handler would start runs once, below,
     // after the walk has taken the preset.
-    const enrichment = preset.enrichment;
-    let radiiChanged = false;
-    if (enrichment) {
-      for (const [key, sliderKey] of [['snapRadius', 'gpsSnapRadius']]) {
-        const el = S[sliderKey];
-        if (!el || enrichment[key] === undefined) continue;
-        if (String(el.value) === String(enrichment[key])) continue;
-        el.value = enrichment[key];
-        radiiChanged = true;
-        if (typeof el.dispatchEvent === 'function') {
-          el.dispatchEvent(new Event('input'));
-        }
+    const snapRadius = preset.enrichment?.snapRadius;
+    const snapEl = S.gpsSnapRadius;
+    const snapRadiusChanged =
+      !!snapEl &&
+      snapRadius !== undefined &&
+      String(snapEl.value) !== String(snapRadius);
+    if (snapRadiusChanged) {
+      snapEl.value = snapRadius;
+      if (typeof snapEl.dispatchEvent === 'function') {
+        snapEl.dispatchEvent(new Event('input'));
       }
     }
 
@@ -473,7 +484,10 @@ export const GSRStorage = {
     // Radii or GPS smoothing changed: re-enrich once if the walk already has
     // OSM data (it re-uses that data or the cache while it still covers the
     // new radius).
-    if ((radiiChanged || smoothingChanged) && Controllers.ui?.hasOsmData?.()) {
+    if (
+      (snapRadiusChanged || smoothingChanged) &&
+      Controllers.ui?.hasOsmData?.()
+    ) {
       Controllers.ui.enrichTrack(false);
     }
     return true;

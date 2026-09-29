@@ -101,7 +101,6 @@ function installOsmStubs({ failFor = new Set(), bboxAreaKm2 = 1.0 } = {}) {
       if (failFor.has(analyzer.__name))
         throw new Error('simulated enrichment failure');
       analyzer.isEnriched = true;
-      analyzer.enrichmentRadius = 50;
       analyzer._dataVersion = (analyzer._dataVersion || 0) + 1;
     },
   });

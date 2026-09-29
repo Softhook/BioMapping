@@ -270,8 +270,9 @@ export class GSRMapPeaks extends GSRMapPath {
     if (!coords) return null;
 
     const layerGroup = track ? track.layerGroup : null;
-    const hotspotIcon = GSRMapPeaks._buildHotspotIcon();
-    const marker = L.marker([coords.lat, coords.lon], { icon: hotspotIcon });
+    const marker = L.marker([coords.lat, coords.lon], {
+      icon: GSRMapMarkers.buildHotspotIcon(L),
+    });
     marker.setZIndexOffset(1500); // Above both regular peak dots and labels
     // Phase 1 (slice 1): single-track hotspots render into the track's
     // layerGroup. Collective callers don't pass a group → legacy direct add.
@@ -329,7 +330,7 @@ export class GSRMapPeaks extends GSRMapPath {
 
   /**
    * Collective/multi-track counterpart to _renderHotspotMarkers() — same
-   * shared icon (GSRMapPeaks._buildHotspotIcon()) and position math
+   * shared icon (GSRMapMarkers.buildHotspotIcon()) and position math
    * (analyzer.resolveLatencyIndex()), so the two views can't visually drift apart.
    * Popup/interaction wiring follows the existing collective peak-marker
    * convention instead of the single-track one: bindPopup only, no
@@ -551,13 +552,5 @@ export class GSRMapPeaks extends GSRMapPath {
   _trackPeakLatency(track) {
     const v = track?.gpsFilterParams?.peakLatency;
     return Number.isFinite(v) ? v : GSR_CONST.GPS_DEFAULT.peakLatency;
-  }
-
-  static _buildHotspotIcon() {
-    return GSRMapMarkers.buildHotspotIcon(L);
-  }
-
-  _buildHotspotIcon() {
-    return GSRMapPeaks._buildHotspotIcon();
   }
 }

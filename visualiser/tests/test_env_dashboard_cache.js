@@ -95,7 +95,6 @@ function buildEnrichedAnalyzer() {
     pt.em_fog = 20 + (i % 40); // varying EM Fog Index so the correlation row is meaningful
   });
   a.isEnriched = true;
-  a.enrichmentRadius = 50;
   return a;
 }
 

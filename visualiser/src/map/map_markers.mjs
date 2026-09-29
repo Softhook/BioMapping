@@ -83,6 +83,7 @@ function peakDotClass(L) {
   if (PeakDot) return PeakDot;
   PeakDot = L.CircleMarker.extend({
     options: { ...PEAK_DOT_STYLE, onTop: true },
+    isPeakDot: true,
     _clickTolerance() {
       return (
         L.CircleMarker.prototype._clickTolerance.call(this) +
@@ -131,8 +132,7 @@ export const GSRMapMarkers = {
 
   /** True for a layer made by buildPeakDot. */
   isPeakDot(layer) {
-    const PeakDot = globalThis.L && peakDotClasses.get(globalThis.L);
-    return Boolean(PeakDot) && layer instanceof PeakDot;
+    return layer?.isPeakDot === true;
   },
 
   /** Fade an excluded peak — a canvas dot or a DOM (labelled) marker. */

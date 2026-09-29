@@ -118,7 +118,6 @@ test('GSRAnalyzer parseCSV: metadata comments parsed correctly', () => {
   const csv = `# RecordingStartTime:1798725600
 # FilterParams:{"peakThreshold":0.03}
 # GpsFilterParams:{"maxHdop":2.5}
-# EnrichmentRadius:75
 # Band Floors (dBm): rssi_868:-105, rssi_915:-98
 time,gsr,osm_road_class
 0.0,1.5,"residential"
@@ -136,7 +135,6 @@ time,gsr,osm_road_class
     ...REAL_CONST.GPS_DEFAULT,
     maxHdop: 2.5,
   });
-  assert.strictEqual(a.enrichmentRadius, 75);
   assert.deepStrictEqual(a.bandFloors, { rssi_868: -105, rssi_915: -98 });
 });
 
@@ -281,7 +279,6 @@ test('GSRCSVParser.parse: returns the documented result fields', () => {
   const csv = `# RecordingStartTime:1798725600
 # FilterParams:{"peakThreshold":0.03}
 # GpsFilterParams:{"maxHdop":2.5}
-# EnrichmentRadius:75
 time,gsr,osm_road_class
 0.0,1.5,"residential"
 0.1,1.6,"residential"`;
@@ -300,8 +297,7 @@ time,gsr,osm_road_class
     ...REAL_CONST.GPS_DEFAULT,
     maxHdop: 2.5,
   });
-  // EnrichmentRadius metadata passthrough + enriched flag (OSM column present)
-  assert.strictEqual(res.enrichmentRadius, 75);
+  // Enriched flag (OSM column present)
   assert.strictEqual(res.isEnriched, true);
   assert.strictEqual(res.hasRfData, false);
   assert.ok(res.rfPeakIndices instanceof Set);
@@ -326,7 +322,6 @@ test('OSM enrichment columns survive a CSV export -> re-import round-trip (incl.
   );
   a.analyze(GSR_CONST.GSR_DEFAULT);
   a.isEnriched = true;
-  a.enrichmentRadius = 50;
   // Row 0: standing in green. Row 1: green nearby. Row 2: no green in range.
   Object.assign(a.raw[0], {
     osm_road_class: 'residential',

@@ -24,7 +24,6 @@ test('a file with no "#" lines starts its data at line 0', () => {
   assert.strictEqual(m.recordingStartTime, 0);
   assert.strictEqual(m.importedFilterParams, null);
   assert.strictEqual(m.importedGpsFilterParams, null);
-  assert.strictEqual(m.enrichmentRadius, null);
   assert.strictEqual(m.bandFloors, null);
   assert.strictEqual(m.hasIntegrityMarker, false);
   assert.deepStrictEqual(m.deviceHeaderLines, []);
@@ -36,13 +35,11 @@ test('reads every known line type from a device header', () => {
       '# RecordingStartTime:1789208751\n' +
       '# DeviceName:Walflow\n' +
       '# GSR Calibration: gain:1.0048,offset:104.6042\n' +
-      '# Band Floors (dBm): 815:-91.5,868:-90,915:-89.5\n' +
-      '# EnrichmentRadius: 75\n',
+      '# Band Floors (dBm): 815:-91.5,868:-90,915:-89.5\n',
   );
-  assert.strictEqual(m.dataStartLine, 6);
+  assert.strictEqual(m.dataStartLine, 5);
   assert.strictEqual(m.recordingStartTime, 1789208751);
   assert.strictEqual(m.hasIntegrityMarker, true);
-  assert.strictEqual(m.enrichmentRadius, 75);
   assert.deepStrictEqual(m.bandFloors, { 815: -91.5, 868: -90, 915: -89.5 });
   // Device lines are kept verbatim (band floors included) for the export;
   // the lines parse() consumes itself are not.
@@ -80,14 +77,11 @@ test('unreadable values are ignored, not fatal', () => {
   console.warn = () => {};
   try {
     const m = meta(
-      '# RecordingStartTime:soon\n' +
-        '# FilterParams: {not json\n' +
-        '# EnrichmentRadius: wide\n',
+      '# RecordingStartTime:soon\n' + '# FilterParams: {not json\n',
     );
-    assert.strictEqual(m.dataStartLine, 3);
+    assert.strictEqual(m.dataStartLine, 2);
     assert.strictEqual(m.recordingStartTime, 0);
     assert.strictEqual(m.importedFilterParams, null);
-    assert.strictEqual(m.enrichmentRadius, null);
   } finally {
     console.warn = warn;
   }

@@ -1773,11 +1773,6 @@ console.log('\n── OSMEnricher: enrichTrack (integration, no snapping) ──
 
   assert(analyzer.isEnriched === true, 'enrichTrack sets analyzer.isEnriched');
   assertEq(
-    analyzer.enrichmentRadius,
-    50,
-    'enrichTrack records the search radius used',
-  );
-  assertEq(
     analyzer._dataVersion,
     1,
     'enrichTrack bumps _dataVersion so self-validating caches (e.g. GSRUI env dashboard) recompute',
