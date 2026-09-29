@@ -2042,21 +2042,22 @@ input[type="range"]:focus-visible,
   animation: pulse-glow 2s infinite ease-in-out;
 }
 
+/* transform + opacity only, so the browser runs it on the GPU. Animating
+   box-shadow (as this used to, for the expanding halo — now the ring grows a
+   little further instead) repaints every pulsing ring on every frame, even
+   with the map at rest: a constant cost that slowed zooming on phones. */
 @keyframes pulse-glow {
   0% {
     transform: scale(0.6);
     opacity: 0.9;
-    box-shadow: 0 0 0 0 rgba(244, 63, 94, 0.7);
   }
   70% {
-    transform: scale(1.2);
+    transform: scale(1.4);
     opacity: 0;
-    box-shadow: 0 0 0 8px rgba(244, 63, 94, 0);
   }
   100% {
     transform: scale(0.6);
     opacity: 0;
-    box-shadow: 0 0 0 0 rgba(244, 63, 94, 0);
   }
 }
 

@@ -38,7 +38,7 @@ function feedScr() {
   `);
 }
 
-test('the live map draws peak dots and hotspot stars from the shared GSRMapMarkers icons', async () => {
+test('the live map draws peak dots and hotspot stars from the shared GSRMapMarkers definitions', async () => {
   await bootLive();
   run('showMap()');
   feedScr();
@@ -51,13 +51,11 @@ test('the live map draws peak dots and hotspot stars from the shared GSRMapMarke
   assert.ok(run('liveMapPeakMarkers.size') > 0, 'peak markers rendered');
   assert.ok(run('liveMapHotspotMarkers.size') > 0, 'hotspot markers rendered');
 
-  const peakIcon = run(
-    'liveMapPeakMarkers.values().next().value.options.icon.options.html',
-  );
-  assert.match(
-    peakIcon,
-    /peak-dot/,
-    'peak markers use the shared peak-dot icon',
+  assert.ok(
+    run(
+      'const d = liveMapPeakMarkers.values().next().value; d instanceof L.CircleMarker && d.options.onTop === true',
+    ),
+    'peak markers are the shared canvas peak dot',
   );
   const hotspotIcon = run(
     'liveMapHotspotMarkers.values().next().value.options.icon.options.html',
@@ -70,7 +68,7 @@ test('the live map draws peak dots and hotspot stars from the shared GSRMapMarke
 
   // Every marker is actually on the Leaflet map.
   const onMap = run(
-    `liveMap._layers.filter(l => l.options && l.options.icon).length`,
+    `liveMap._layers.filter(l => l.options && (l.options.icon || l.options.onTop)).length`,
   );
   assert.strictEqual(
     onMap,

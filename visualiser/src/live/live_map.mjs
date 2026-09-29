@@ -30,7 +30,7 @@ import { MapColors } from '../map/map_colors.mjs';
 import { GSRMapMarkers } from '../map/map_markers.mjs';
 import {
   enableSmoothWheelZoom,
-  isWheelZooming,
+  isUserMovingMap,
   SMOOTH_ZOOM_MAP_OPTIONS,
 } from '../map/smooth_wheel_zoom.mjs';
 import { drawGraph } from './live_graph.mjs';
@@ -314,6 +314,8 @@ function initLiveMap() {
     zoomControl: true,
     ...SMOOTH_ZOOM_MAP_OPTIONS,
     preferCanvas: true,
+    // Keeps canvas peak dots above the trail (see map_markers).
+    renderer: GSRMapMarkers.createMapRenderer(L),
     zoomDelta: 0.25,
     maxZoom: 22,
   }).setView([0, 0], 2);
@@ -393,7 +395,8 @@ export function resetLiveMapSession() {
 }
 
 // Reconcile one marker layer (peaks or hotspots) against the wanted set.
-function _syncLiveMapMarkerSet(markerMap, peaks, iconBuilder) {
+// `buildLayer(latlng)` makes the map layer for one peak.
+function _syncLiveMapMarkerSet(markerMap, peaks, buildLayer) {
   const A = Controllers.liveView.liveAnalyzer;
   if (!A || !liveMap) return;
   const lastPkt = LiveState.packets[LiveState.packets.length - 1];
@@ -422,7 +425,7 @@ function _syncLiveMapMarkerSet(markerMap, peaks, iconBuilder) {
     if (markerMap.has(key)) continue;
     const coords = A.getCoordinates(peak.index);
     if (!coords) continue;
-    const marker = L.marker([coords.lat, coords.lon], { icon: iconBuilder(L) });
+    const marker = buildLayer([coords.lat, coords.lon]);
     marker.addTo(liveMap);
     markerMap.set(key, marker);
   }
@@ -442,14 +445,14 @@ export function renderLiveMapMarkers() {
     Controllers.liveView.liveGsrView.showPeaks
       ? Controllers.liveView.liveAnalyzer.peaks
       : null,
-    GSRMapMarkers.buildPeakIcon,
+    (latlng) => GSRMapMarkers.buildPeakDot(L, latlng),
   );
   _syncLiveMapMarkerSet(
     liveMapHotspotMarkers,
     Controllers.liveView.liveGsrView.showHotspots
       ? Controllers.liveView.liveAnalyzer.memorableEvents
       : null,
-    GSRMapMarkers.buildHotspotIcon,
+    (latlng) => L.marker(latlng, { icon: GSRMapMarkers.buildHotspotIcon(L) }),
   );
 }
 
@@ -553,12 +556,13 @@ export function updateLiveMap(pkt) {
       liveMarker.setLatLng(latlng);
     }
 
-    // Hold the recentre while the user is mid-zoom (it would cut the zoom
-    // short); the next packet after the zoom settles catches up.
+    // Hold the recentre while the user is dragging or zooming the map (the
+    // pan animation would fight their fingers); the next packet after they
+    // let go catches up.
     const nowMs = Date.now();
     if (
       nowMs - lastLivePanAt >= LIVE_PAN_MIN_INTERVAL_MS &&
-      !isWheelZooming(liveMap)
+      !isUserMovingMap(liveMap)
     ) {
       lastLivePanAt = nowMs;
       liveMap.panTo(latlng, { animate: true, duration: 0.3 });

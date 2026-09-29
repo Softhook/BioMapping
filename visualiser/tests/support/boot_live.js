@@ -70,7 +70,7 @@ const LIVE_SCRIPT_ORDER = [
   'src/live/live_view.mjs',
 ];
 
-function makeLeafletMock() {
+function makeLeafletMock(window) {
   class Layer {
     addTo(map) {
       map._layers.push(this);
@@ -101,7 +101,16 @@ function makeLeafletMock() {
     constructor(latlng, options) {
       super();
       this.latlng = latlng;
-      this.options = options;
+      // Leaflet merges a subclass's default options with the passed ones.
+      this.options = { ...this.options, ...options };
+    }
+    // Leaflet's class extension, minimally (map_markers.mjs subclasses this
+    // for the canvas peak dots).
+    static extend(members) {
+      // biome-ignore lint/complexity/noThisInStatic: must be the dynamic receiver so extend() works on a subclass.
+      class Extended extends this {}
+      Object.assign(Extended.prototype, members);
+      return Extended;
     }
   }
   class Marker extends Layer {
@@ -183,7 +192,7 @@ function makeLeafletMock() {
       return this;
     }
     getContainer() {
-      return { addEventListener() {} };
+      return window.document.createElement('div');
     }
     panTo(latlng, opts) {
       this._center = { lat: latlng[0], lng: latlng[1] };
@@ -228,6 +237,7 @@ function makeLeafletMock() {
     map: (elementId, options) => new FakeMap(elementId, options),
     tileLayer: tileLayerFn,
     polyline: (latlngs, options) => new Polyline(latlngs, options),
+    CircleMarker,
     circleMarker: (latlng, options) => new CircleMarker(latlng, options),
     // Peak/hotspot map markers (live view + GSRMapMarkers.build*Icon) — a
     // real Leaflet Marker + divIcon stand-in: `marker` tracks enough for the
@@ -334,7 +344,7 @@ async function bootLive({ compact = false } = {}) {
   const window = dom.window;
 
   installMatchMedia(window, { compact });
-  window.L = makeLeafletMock();
+  window.L = makeLeafletMock(window);
   window.confirm = () => true;
   window.alert = () => {};
   installCacheStorage(window);

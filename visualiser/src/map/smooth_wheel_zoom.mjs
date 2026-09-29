@@ -90,9 +90,25 @@ function wheelPixels(e, map) {
 const smoothMaps = new WeakSet(); // maps with this handler
 const zoomingMaps = new WeakSet(); // …of those, the ones gliding right now
 
+const pressedMaps = new WeakMap(); // map -> Set of pointer ids down on it
+
 /** True while a wheel/trackpad zoom on `map` is still moving. */
 export function isWheelZooming(map) {
   return zoomingMaps.has(map);
+}
+
+/**
+ * True while the user is moving `map`: a finger or mouse button is down on
+ * it (dragging, pinching), a wheel zoom is gliding, or Leaflet is animating
+ * the zoom (e.g. finishing a pinch). For code that moves the map on its own,
+ * such as the live view following the walker, so it can wait its turn.
+ */
+export function isUserMovingMap(map) {
+  return (
+    zoomingMaps.has(map) ||
+    pressedMaps.get(map)?.size > 0 ||
+    Boolean(map._animatingZoom)
+  );
 }
 
 // latLngToLayerPoint without Leaflet's rounding.
@@ -211,7 +227,9 @@ export function enableSmoothWheelZoom(map) {
       map._mapPane,
       base.add(rawOrigin.round().subtract(rawOrigin)),
     );
-    map._move(map.unproject(centerPx, zoom), zoom);
+    // Tagged like Leaflet's own flyTo frames: tile layers only load a new
+    // level when the zoom crosses one, rather than re-laying out every frame.
+    map._move(map.unproject(centerPx, zoom), zoom, { flyTo: true });
   }
 
   // Put the pane back on whole pixels, keeping the pixel origin (and so every
@@ -302,16 +320,34 @@ export function enableSmoothWheelZoom(map) {
     };
   }
 
-  // Capture phase, so the zoom has settled before Leaflet's drag handler
-  // records where the map starts from.
+  // Pointers down on the map (see isUserMovingMap). Released anywhere: a
+  // finger can slide off the map before it lifts.
+  const pressed = new Set();
+  pressedMaps.set(map, pressed);
+  // Pressing ends a gliding zoom — in the capture phase, so it has settled
+  // before Leaflet's drag handler records where the map starts from.
+  function onPointerDown(e) {
+    pressed.add(e.pointerId);
+    finish();
+  }
+  function onPointerUp(e) {
+    pressed.delete(e.pointerId);
+  }
+
   const capture = { capture: true };
+  const doc = container.ownerDocument;
   container.addEventListener('wheel', onWheel, { passive: false });
-  container.addEventListener('pointerdown', finish, capture);
+  container.addEventListener('pointerdown', onPointerDown, capture);
+  doc.addEventListener('pointerup', onPointerUp, capture);
+  doc.addEventListener('pointercancel', onPointerUp, capture);
   map.on('unload', () => {
     finish();
     container.removeEventListener('wheel', onWheel);
-    container.removeEventListener('pointerdown', finish, capture);
+    container.removeEventListener('pointerdown', onPointerDown, capture);
+    doc.removeEventListener('pointerup', onPointerUp, capture);
+    doc.removeEventListener('pointercancel', onPointerUp, capture);
     for (const name of INTERRUPTING_METHODS) delete map[name];
     smoothMaps.delete(map);
+    pressedMaps.delete(map);
   });
 }

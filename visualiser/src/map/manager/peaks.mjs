@@ -73,13 +73,6 @@ export class GSRMapPeaks extends GSRMapPath {
     const labelPositions =
       GSRLabelManager.computeLabelPositions(labelCandidates);
 
-    // Compact dot-only icon for peaks without labels. Minor styling to match
-    // the graph's resting-state peak dots: small, no pulse animation — the
-    // full peak census can run into the hundreds/thousands, so a subdued
-    // marker keeps hotspots (see _renderHotspotMarkers) as the visually
-    // dominant layer, mirroring the graph's peaks-vs-hotspots hierarchy.
-    const simpleIcon = GSRMapPeaks._buildPeakIcon();
-
     allPeaks.forEach(({ peak, index, coords, px, py }) => {
       const displayLabel = peak.label || '';
       const marker = this._buildPeakMarker(
@@ -87,7 +80,6 @@ export class GSRMapPeaks extends GSRMapPath {
         coords.lon,
         displayLabel,
         labelPositions.get(index),
-        simpleIcon,
         px,
         py,
       );
@@ -123,7 +115,7 @@ export class GSRMapPeaks extends GSRMapPath {
 
       // Dim excluded peak markers
       if (peak.excluded) {
-        marker.setOpacity(0.35);
+        GSRMapMarkers.dimPeakMarker(marker);
       }
 
       // closeButton: false — the map already closes an open popup on any
@@ -211,17 +203,20 @@ export class GSRMapPeaks extends GSRMapPath {
    * Build a peak dot/label marker: label-collision icon selection (a
    * labelled icon when `dirResult` has room, a plain dot with a hover
    * tooltip when all 8 label positions overlapped, or a plain dot when
-   * there's no label at all). Shared by _renderPeakMarkers() (single-track)
+   * there's no label at all). Plain dots are canvas dots
+   * (GSRMapMarkers.buildPeakDot): small, subdued and no pulse, so hotspots
+   * stay the visually dominant layer, mirroring the graph's peaks-vs-hotspots
+   * hierarchy. Shared by _renderPeakMarkers() (single-track)
    * and _renderCollectiveTrackPeaks() (collective) so the two can't drift
    * apart visually — same pattern as _createHotspotMarker() below. Callers
    * differ on _gsrKind/_gsrPeakIndex tagging, popup binding and how the
    * marker gets added to the map, so this only builds and returns it.
    * @private
    */
-  _buildPeakMarker(lat, lon, displayLabel, dirResult, simpleIcon, px, py) {
+  _buildPeakMarker(lat, lon, displayLabel, dirResult, px, py) {
     const hasLabel = !!displayLabel?.trim();
     if (!hasLabel) {
-      const marker = L.marker([lat, lon], { icon: simpleIcon });
+      const marker = GSRMapMarkers.buildPeakDot(L, [lat, lon]);
       marker.hasLabel = false;
       return marker;
     }
@@ -241,10 +236,9 @@ export class GSRMapPeaks extends GSRMapPath {
     }
     // All 8 positions overlapped — no room for a text label, but the peak
     // still HAS one. Keep hasLabel true (so it survives a showPeaks-off/
-    // showLabels-on filter and outranks plain dots via z-index) and surface
-    // the text on hover instead of dropping it with no trace.
-    const marker = L.marker([lat, lon], { icon: simpleIcon });
-    marker.setZIndexOffset(1000);
+    // showLabels-on filter) and surface the text on hover instead of
+    // dropping it with no trace.
+    const marker = GSRMapMarkers.buildPeakDot(L, [lat, lon]);
     // Leaflet renders a string tooltip as HTML, and labels can come from an
     // imported CSV, so escape it.
     marker.bindTooltip(GSRNotices.escapeHtml(displayLabel), {
@@ -436,12 +430,6 @@ export class GSRMapPeaks extends GSRMapPath {
       collectiveLabelCandidates,
     );
 
-    // Compact dot-only icon for unlabelled peaks — the same shared icon
-    // single-track peaks use (GSRMapPeaks._buildPeakIcon()), not
-    // per-track-coloured, so a peak looks identical regardless of which view
-    // it's shown in.
-    const collectiveSimpleIcon = GSRMapPeaks._buildPeakIcon();
-
     collectiveAllPeaks.forEach(({ peak, index, lat, lon, px, py }) => {
       const displayLabel = peak.label || '';
       const marker = this._buildPeakMarker(
@@ -449,7 +437,6 @@ export class GSRMapPeaks extends GSRMapPath {
         lon,
         displayLabel,
         collectivePositions.get(index),
-        collectiveSimpleIcon,
         px,
         py,
       );
@@ -484,7 +471,7 @@ export class GSRMapPeaks extends GSRMapPath {
       }
       // Dim excluded peak markers
       if (peak.excluded) {
-        marker.setOpacity(0.35);
+        GSRMapMarkers.dimPeakMarker(marker);
       }
       this._registerTrackLayer(track, marker);
     });
@@ -570,15 +557,7 @@ export class GSRMapPeaks extends GSRMapPath {
     return GSRMapMarkers.buildHotspotIcon(L);
   }
 
-  static _buildPeakIcon() {
-    return GSRMapMarkers.buildPeakIcon(L);
-  }
-
   _buildHotspotIcon() {
     return GSRMapPeaks._buildHotspotIcon();
-  }
-
-  _buildPeakIcon() {
-    return GSRMapPeaks._buildPeakIcon();
   }
 }

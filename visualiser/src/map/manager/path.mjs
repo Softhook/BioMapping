@@ -28,6 +28,7 @@ import { GpsPipeline } from '../../gps/gps_pipeline.mjs';
 import { GSRStorage } from '../../ui/storage.mjs';
 import { GSRMapBase } from '../map_base.mjs';
 import { MapColors } from '../map_colors.mjs';
+import { isUserMovingMap } from '../smooth_wheel_zoom.mjs';
 import { GSRMapRfFluid } from './rf_fluid.mjs';
 
 const DERIVED_METRIC_SERIES = {
@@ -56,6 +57,10 @@ const isNoDataValue = (metric, v) => {
   if (DISTANCE_METRICS.has(metric)) return v >= 999;
   return false;
 };
+
+// How long after a zoom settles the overlap recolour waits (see
+// _schedulePathRefreshOnZoom).
+const PATH_REFRESH_DELAY_MS = 250;
 
 export class GSRMapPath extends GSRMapRfFluid {
   /**
@@ -89,6 +94,35 @@ export class GSRMapPath extends GSRMapRfFluid {
   }
 
   /**
+   * zoomend hook: runs _refreshPathOnZoom once the user has stopped zooming.
+   * The check and any redraw block the page for tens of ms (several times
+   * that on a phone), so doing it the moment each zoom ends stalls the start
+   * of the next pinch or scroll. Instead it waits PATH_REFRESH_DELAY_MS,
+   * starts over if another zoom ends first, and waits again while fingers or
+   * a zoom are still on the map. Cancelled by _cancelPathRefreshOnZoom
+   * (zoomstart). The recolour only touches spots where the walk retraces
+   * itself, so landing a moment after the zoom goes unnoticed.
+   * @private
+   */
+  _schedulePathRefreshOnZoom() {
+    this._cancelPathRefreshOnZoom();
+    this._pathRefreshTimer = setTimeout(() => {
+      this._pathRefreshTimer = null;
+      if (this.map && isUserMovingMap(this.map)) {
+        this._schedulePathRefreshOnZoom();
+      } else {
+        this._refreshPathOnZoom();
+      }
+    }, PATH_REFRESH_DELAY_MS);
+  }
+
+  /** @private */
+  _cancelPathRefreshOnZoom() {
+    clearTimeout(this._pathRefreshTimer);
+    this._pathRefreshTimer = null;
+  }
+
+  /**
    * zoomend hook. The overlap-aware path colour keys off the stroke's
    * on-screen width in metres, which changes with zoom — but re-rendering the
    * path on every zoom step visibly jerks. So this only rebuilds when the
@@ -96,9 +130,7 @@ export class GSRMapPath extends GSRMapRfFluid {
    * fingerprint (two linear passes, no Leaflet work) at the new zoom and bails
    * unless it differs from the last render's. Also no-ops in collective view,
    * before the first render, when the path provably never retraces itself, and
-   * when the zoom level is unchanged. Runs synchronously off `zoomend` (which
-   * already fires after the zoom animation) so any recolour lands with the
-   * zoom, not delayed after it.
+   * when the zoom level is unchanged. Called via _schedulePathRefreshOnZoom.
    * @private
    */
   _refreshPathOnZoom() {
@@ -121,15 +153,15 @@ export class GSRMapPath extends GSRMapRfFluid {
         this._lastDrawPoints,
         this._lastPathTrackWeight,
       );
-      let sig = 0;
+      let acc = null;
       if (radiusM > 0) {
-        const acc = GSRMapBase._overlapPooledAccessor(
+        acc = GSRMapBase._overlapPooledAccessor(
           this._lastDrawPoints,
           this._lastPathGetVal,
           { radiusM, revisitGapS: OV.revisitGapS || 15 },
         );
-        sig = acc ? acc.sig | 0 : 0;
       }
+      const sig = acc ? acc.sig | 0 : 0;
       if (sig === this._lastPathOverlapSig) {
         this._lastPathZoom = z; // accept the new zoom, nothing to redraw
         return;
@@ -140,7 +172,19 @@ export class GSRMapPath extends GSRMapRfFluid {
         typeof GSRStorage.buildGpsParams === 'function'
           ? GSRStorage.buildGpsParams()
           : {};
-      this.refreshPath(AppState.analyzer, params);
+      // Hand the overlap pooling just computed to the re-render, which would
+      // otherwise redo it for the same points, metric and radius — the
+      // costliest step of the redraw that ends every zoom.
+      this._zoomOverlapHandoff = {
+        drawPoints: this._lastDrawPoints,
+        radiusM,
+        acc,
+      };
+      try {
+        this.refreshPath(AppState.analyzer, params);
+      } finally {
+        this._zoomOverlapHandoff = null;
+      }
     } catch (_e) {
       /* a zoom must never break — worst case the overlap colour lags a step */
     }
@@ -184,10 +228,14 @@ export class GSRMapPath extends GSRMapRfFluid {
       const maxR = OV.maxRadiusM || 60;
       const radiusM = this._overlapRadiusMetres(drawPoints, trackWeight);
       if (radiusM > 0) {
-        const pooledAt = GSRMapBase._overlapPooledAccessor(drawPoints, getVal, {
-          radiusM,
-          revisitGapS: gapS,
-        });
+        const handoff = this._zoomOverlapHandoff;
+        const pooledAt =
+          handoff?.drawPoints === drawPoints && handoff.radiusM === radiusM
+            ? handoff.acc
+            : GSRMapBase._overlapPooledAccessor(drawPoints, getVal, {
+                radiusM,
+                revisitGapS: gapS,
+              });
         if (pooledAt) {
           valAt = pooledAt;
           hasRetrace = true;

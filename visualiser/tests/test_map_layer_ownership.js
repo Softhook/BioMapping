@@ -192,7 +192,7 @@ function installRecordingLeaflet(window) {
       return { x: 800, y: 600 };
     },
     getContainer() {
-      return { addEventListener() {} };
+      return window.document.createElement('div');
     },
     on() {},
     remove() {},
@@ -356,6 +356,16 @@ function installRecordingLeaflet(window) {
         getSouthEast: () => ({ lat: 0, lon: 0 }),
       });
       return g;
+    },
+    // Plain peak dots are an L.CircleMarker subclass (map_markers.mjs).
+    CircleMarker: {
+      extend: () =>
+        function PeakDot(latlng, opts) {
+          const l = makeLayer('marker');
+          l._latlng = latlng;
+          l._options = opts;
+          return l;
+        },
     },
     divIcon: (opts) => opts || {},
     icon: (opts) => opts || {},

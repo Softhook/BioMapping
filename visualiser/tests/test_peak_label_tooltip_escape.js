@@ -11,13 +11,19 @@ const { GSRMapPeaks } = require('../src/map/manager/peaks.mjs');
 
 test('_buildPeakMarker: unplaceable label reaches the tooltip HTML-escaped', () => {
   let tooltip = null;
+  // The unplaceable-label peak is a canvas dot (an L.CircleMarker subclass).
+  const dot = {
+    bindTooltip(content) {
+      tooltip = content;
+    },
+  };
   global.L = {
-    marker: () => ({
-      setZIndexOffset() {},
-      bindTooltip(content) {
-        tooltip = content;
-      },
-    }),
+    CircleMarker: {
+      extend: () =>
+        function PeakDot() {
+          return dot;
+        },
+    },
   };
   try {
     const label = '<img src=x onerror="alert(1)">';
@@ -27,7 +33,6 @@ test('_buildPeakMarker: unplaceable label reaches the tooltip HTML-escaped', () 
       0,
       label,
       null, // all 8 label positions overlapped
-      {},
       0,
       0,
     );

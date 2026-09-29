@@ -15,6 +15,7 @@ import { ContourRingGeometry } from '../render/contour_ring_geometry.mjs';
 import { StatsMath } from '../signal/stats_math.mjs';
 import { Hillshade } from './hillshade.mjs';
 import { MapColors } from './map_colors.mjs';
+import { GSRMapMarkers } from './map_markers.mjs';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const XLINK_NS = 'http://www.w3.org/1999/xlink';
@@ -1136,6 +1137,13 @@ export const GSRMapExporter = {
         !leafletMap.hasLayer(m)
       )
         continue;
+      if (GSRMapMarkers.isPeakDot(m)) {
+        const p = project(m.getLatLng());
+        if (p && typeof p.x === 'number') {
+          dots.push(GSRMapMarkers.peakDotSvg(m, p.x, p.y));
+        }
+        continue;
+      }
       const el = typeof m.getElement === 'function' ? m.getElement() : null;
       if (!el) continue;
 

@@ -56,6 +56,7 @@ function flushFrames(max = 1000) {
 const {
   enableSmoothWheelZoom,
   exactLayerPoint,
+  isUserMovingMap,
   isWheelZooming,
   ZOOMING_CLASS,
 } = require('../src/map/smooth_wheel_zoom.mjs');
@@ -306,4 +307,35 @@ test("exactLayerPoint is unrounded on a smooth-zoom map and Leaflet's own elsewh
   window.document.body.appendChild(plain);
   const other = L.map(plain, { zoomSnap: 0 }).setView([51.5, -0.12], 15);
   assert.ok(isWhole(exactLayerPoint(other, latlng)), 'rounded as Leaflet does');
+});
+
+test('isUserMovingMap: true while a finger is down, a wheel zoom glides or Leaflet animates a zoom', () => {
+  const { map, el } = makeMap();
+  const pointer = (type, target, pointerId) =>
+    target.dispatchEvent(
+      new window.PointerEvent(type, { pointerId, bubbles: true }),
+    );
+  assert.ok(!isUserMovingMap(map), 'idle');
+
+  // Two fingers down (a pinch), lifted one at a time — the second off the map.
+  pointer('pointerdown', el, 1);
+  pointer('pointerdown', el, 2);
+  assert.ok(isUserMovingMap(map), 'fingers down');
+  pointer('pointerup', el, 1);
+  assert.ok(isUserMovingMap(map), 'one finger still down');
+  pointer('pointerup', window.document.body, 2);
+  assert.ok(!isUserMovingMap(map), 'all lifted');
+
+  pointer('pointerdown', el, 3);
+  pointer('pointercancel', el, 3);
+  assert.ok(!isUserMovingMap(map), 'a cancelled touch counts as lifted');
+
+  map._animatingZoom = true;
+  assert.ok(isUserMovingMap(map), "Leaflet's zoom animation (end of a pinch)");
+  map._animatingZoom = false;
+
+  wheel(el, -100);
+  assert.ok(isUserMovingMap(map), 'wheel zoom gliding');
+  flushFrames();
+  assert.ok(!isUserMovingMap(map), 'settled');
 });

@@ -5,6 +5,7 @@ import { GSR_CONST } from '../core/constants.mjs';
 import { GeoUtils } from '../gps/geo_utils.mjs';
 import { RFFluidRenderer } from '../render/rf_fluid_renderer.mjs';
 import { GSRBasemap } from './basemap.mjs';
+import { GSRMapMarkers } from './map_markers.mjs';
 import {
   enableSmoothWheelZoom,
   SMOOTH_ZOOM_MAP_OPTIONS,
@@ -95,6 +96,8 @@ export class GSRMapBase {
       zoomControl: false,
       ...SMOOTH_ZOOM_MAP_OPTIONS,
       preferCanvas: true,
+      // Keeps canvas peak dots above the path and shapes (see map_markers).
+      renderer: GSRMapMarkers.createMapRenderer(L),
       zoomDelta: 0.25,
       maxZoom: 22,
     }).setView([0, 0], 2);
@@ -143,9 +146,10 @@ export class GSRMapBase {
     this.rfFluidRenderer = new RFFluidRenderer(this.map, { visible: false });
 
     // Overlap-aware path colour depends on the on-screen stroke width, which
-    // changes with zoom — re-run the path renderer once the zoom settles (see
-    // _refreshPathOnZoom, which cheap-outs when the outcome can't have changed).
-    this.map.on('zoomend', () => this._refreshPathOnZoom());
+    // changes with zoom — re-run the path renderer once zooming has stopped
+    // (see _schedulePathRefreshOnZoom / _refreshPathOnZoom).
+    this.map.on('zoomstart', () => this._cancelPathRefreshOnZoom());
+    this.map.on('zoomend', () => this._schedulePathRefreshOnZoom());
 
     // Arousal Place badges are screen-space — re-fold/unfold colliding ones once
     // the new zoom settles (see _declutterArousalPlaceBadges).
