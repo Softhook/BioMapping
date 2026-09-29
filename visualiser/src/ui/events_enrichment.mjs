@@ -88,11 +88,8 @@ export const EnrichmentEvents = {
     );
     const copernicusTimeInput = document.getElementById('copernicusTimeRange');
     const syncCopernicusBadges = () => {
-      const activeBadge = document.getElementById('copernicusActiveBadge');
       const defaultBadge = document.getElementById('copernicusDefaultBadge');
       const hasId = NDVISampler.hasCopernicusConfig();
-      if (activeBadge)
-        activeBadge.style.display = hasId ? 'inline-block' : 'none';
       if (defaultBadge)
         defaultBadge.style.display = hasId ? 'none' : 'inline-block';
     };
