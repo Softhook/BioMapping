@@ -1765,6 +1765,15 @@ input[type="range"]:focus-visible,
     flex-wrap: wrap;
     gap: 6px 10px;
   }
+  /* Browser fullscreen hides the status bar, but the safe-area inset still
+     reports its height — drop it so the header uses the top of the screen.
+     Separate rules: an unknown prefixed pseudo would void a shared list. */
+  .app-container:fullscreen .app-header {
+    padding-top: 8px;
+  }
+  .app-container:-webkit-full-screen .app-header {
+    padding-top: 8px;
+  }
   .header-left {
     width: 100%;
     justify-content: flex-start;
