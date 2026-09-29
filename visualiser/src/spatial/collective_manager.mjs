@@ -594,7 +594,7 @@ export class GSRCollectiveManager {
       for (const pk of peaks) sum += pk.amplitude || 0;
       peaksRefAmplitude = sum / peaks.length;
     }
-    const peakSigma = GSR_CONST?.PEAK_KDE ? GSR_CONST.PEAK_KDE.sigma : 15.0;
+    const peakSigma = GSR_CONST.PEAK_KDE.sigma;
 
     return { points, peaks, trackPointRanges, peaksRefAmplitude, peakSigma };
   }

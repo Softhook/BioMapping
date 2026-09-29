@@ -519,14 +519,14 @@ export const GSR_CONST = {
 
   // ── Topography source definitions ───────────────────────────────────────
   TOPOGRAPHY_SOURCES: {
-    phasic: { label: 'Phasic (SCR)', unit: ' μS' },
-    tonic: { label: 'Tonic (SCL)', unit: ' μS' },
+    phasic: { label: 'Phasic (SCR)', unit: 'μS' },
+    tonic: { label: 'Tonic (SCL)', unit: 'μS' },
     peaks: { label: 'Peak Arousal Hotspots', unit: '' },
-    auc: { label: 'Phasic AUC (ISCR)', unit: ' μS·s' },
-    arousal_index: { label: 'Arousal Index', unit: ' z' },
-    tri_index: { label: 'Tri Index', unit: ' z' },
-    gsr: { label: 'GSR Signal', unit: ' μS' },
-    peak_density: { label: 'Peak Density', unit: ' /min' },
+    auc: { label: 'Phasic AUC (ISCR)', unit: 'μS·s' },
+    arousal_index: { label: 'Arousal Index', unit: 'z' },
+    tri_index: { label: 'Tri Index', unit: 'z' },
+    gsr: { label: 'GSR Signal', unit: 'μS' },
+    peak_density: { label: 'Peak Density', unit: '/min' },
   },
 
   // ── Continuous temporal peak-density Gaussian KDE ────────────────────────

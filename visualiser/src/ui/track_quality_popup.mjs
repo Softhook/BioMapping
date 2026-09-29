@@ -204,10 +204,7 @@ export const GSRTrackQualityPopup = {
     }
     try {
       const filterParams =
-        track.filterParams ||
-        a.importedFilterParams ||
-        GSR_CONST?.GSR_DEFAULT ||
-        {};
+        track.filterParams || a.importedFilterParams || GSR_CONST.GSR_DEFAULT;
       a.analyze(filterParams, track.gpsFilterParams?.peakLatency || 0);
     } catch (_err) {
       // Fall back gracefully if analysis fails

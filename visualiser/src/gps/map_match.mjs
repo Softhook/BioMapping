@@ -499,8 +499,8 @@ export const MapMatcher = {
         // HEADING_W/SPEED_GATE come from GSR_CONST.SNAP (constants.js) — the single
         // source of truth for these two tuning values, so they can't drift out of sync
         // with each other the way they previously did as separately-hardcoded literals here.
-        const speedGate = GSR_CONST?.SNAP ? GSR_CONST.SNAP.SPEED_GATE : 0.3;
-        const headingW = GSR_CONST?.SNAP ? GSR_CONST.SNAP.HEADING_W : 0.7;
+        const speedGate = GSR_CONST.SNAP.SPEED_GATE;
+        const headingW = GSR_CONST.SNAP.HEADING_W;
         if (!isNaN(speedMs) && speedMs >= speedGate && !isNaN(courseDeg)) {
           const courseRad = (courseDeg * Math.PI) / 180;
           const segBearing = this._segmentBearing(a.lat, a.lon, b.lat, b.lon);
@@ -555,10 +555,10 @@ export const MapMatcher = {
    */
   _headingPenalty(bearingDiffRad) {
     if (isNaN(bearingDiffRad)) return 0;
-    const cfg = GSR_CONST?.SNAP;
-    const dead = ((cfg ? cfg.HEADING_DEAD_DEG : 10) * Math.PI) / 180;
-    const sigma = ((cfg ? cfg.HEADING_SIGMA_DEG : 20) * Math.PI) / 180;
-    const cap = cfg ? cfg.HEADING_MAX_PENALTY : 6;
+    const cfg = GSR_CONST.SNAP;
+    const dead = (cfg.HEADING_DEAD_DEG * Math.PI) / 180;
+    const sigma = (cfg.HEADING_SIGMA_DEG * Math.PI) / 180;
+    const cap = cfg.HEADING_MAX_PENALTY;
     const excess = Math.max(0, bearingDiffRad - dead) / sigma;
     return Math.min(cap, 0.5 * excess * excess);
   },

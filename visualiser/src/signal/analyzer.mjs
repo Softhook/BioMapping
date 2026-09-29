@@ -748,12 +748,12 @@ export class GSRAnalyzer {
       // 3. Gait Filter (Zero-phase Linkwitz-Riley LR4 @ 1.0Hz)
       let afterLPF = afterSmooth;
       if (params.useGaitFilter) {
-        const gf = GSR_CONST?.GAIT_FILTER || { cutoffHz: 1.0, type: 'lr4' };
+        const gf = GSR_CONST.GAIT_FILTER;
         if (gf.type === 'butterworth') {
           afterLPF = GsrFilter.applyZeroPhaseButterworth(
             afterLPF,
             gf.cutoffHz,
-            gf.order || 4,
+            gf.order,
             this.sampleRate,
           );
         } else {
@@ -797,7 +797,7 @@ export class GSRAnalyzer {
 
       // Pre-compute continuous metrics that depend only on tonic / phasic:
       const pristineAUC = this.computePhasicAUC();
-      const aiCfg = GSR_CONST?.AROUSAL_INDEX || { wTonic: 0.3, wPhasic: 0.7 };
+      const aiCfg = GSR_CONST.AROUSAL_INDEX;
       const pristineArousal = this.computeCombinedArousalIndex(
         aiCfg.wTonic,
         aiCfg.wPhasic,
@@ -884,12 +884,8 @@ export class GSRAnalyzer {
         : null;
     this.peakDensity = this.computeTemporalPeakDensity(densityWin);
 
-    const aiCfg = GSR_CONST?.AROUSAL_INDEX || { wTonic: 0.3, wPhasic: 0.7 };
-    const triCfg = GSR_CONST?.TRI_INDEX || {
-      wTonic: 0.1,
-      wPhasic: 0.45,
-      wDensity: 0.45,
-    };
+    const aiCfg = GSR_CONST.AROUSAL_INDEX;
+    const triCfg = GSR_CONST.TRI_INDEX;
 
     if (params.useDeconvolution || params.useCvxEDA || params.useSparsEDA) {
       this.phasicAUC = this.computePhasicAUC(); // integrates the driver → sets phasicAUCIsISCR
@@ -963,9 +959,9 @@ export class GSRAnalyzer {
    * @private
    */
   _sparsedaEpsilon(scf) {
-    const floor = scf.sparsedaEpsilon ?? 0.1;
-    const mult = scf.sparsedaEpsilonNoiseMult ?? 8;
-    const cap = scf.sparsedaEpsilonCap ?? 1.0;
+    const floor = scf.sparsedaEpsilon;
+    const mult = scf.sparsedaEpsilonNoiseMult;
+    const cap = scf.sparsedaEpsilonCap;
     if (!(mult > 0)) return floor;
     const WINDOW_SAMPLES = 70 * 8; // SparsEDA window (70 s) at 8 Hz
     const eps = mult * Math.sqrt(WINDOW_SAMPLES) * this._noiseSigma();
@@ -1076,8 +1072,7 @@ export class GSRAnalyzer {
     const phasicArr = new Float64Array(phasicVals);
 
     // Opt-in cvxEDA convex optimization algorithm (Greco et al., 2016)
-    const algorithm =
-      params.deconvAlgorithm || scf.deconvAlgorithm || 'matching_pursuit';
+    const algorithm = params.deconvAlgorithm || scf.deconvAlgorithm;
     if (algorithm === 'cvxeda') {
       this._driverAlgorithm = 'cvxeda';
       // cvxEDA models tonic and phasic jointly, so it is fed the full filtered
@@ -1092,13 +1087,11 @@ export class GSRAnalyzer {
       // Every cvxEDA knob comes from the CVXEDA config block — there are no
       // per-recording sliders for these (as with SCRF's deconvolution
       // constants). Bateman taus default to the reference tau0=2.0 / tau1=0.7,
-      // not SCRF's fixed-kernel pair. decompose() fills any missing key from
-      // its own reference defaults. Resolved to local consts (not inlined
+      // not SCRF's fixed-kernel pair. Resolved to local consts (not inlined
       // below) so the kernel built for apex-resolution further down uses the
       // exact same taus the solve itself used.
-      const cvxCfg = GSR_CONST.CVXEDA || {};
-      const tauSlow = cvxCfg.tauSlow ?? scf.tauSlow;
-      const tauFast = cvxCfg.tauFast ?? scf.tauFast;
+      const cvxCfg = GSR_CONST.CVXEDA;
+      const { tauSlow, tauFast } = cvxCfg;
       const res = CVXEDA.decompose(scVals, this.sampleRate, {
         tauSlow,
         tauFast,
@@ -1132,12 +1125,11 @@ export class GSRAnalyzer {
       // independently of the matching-pursuit path below, which shares the
       // same scf.impulseThreshold/minImpulseGapSec keys for its own (differently-
       // scaled) driver — unset, these fall back to the exact prior behaviour.
-      const thresh = scf.cvxImpulseThreshold ?? scf.impulseThreshold ?? 0.005;
+      const thresh = scf.cvxImpulseThreshold ?? scf.impulseThreshold;
       const minGap = Math.max(
         1,
         Math.round(
-          (scf.cvxMinImpulseGapSec ?? scf.minImpulseGapSec ?? 0.5) *
-            this.sampleRate,
+          (scf.cvxMinImpulseGapSec ?? scf.minImpulseGapSec) * this.sampleRate,
         ),
       );
       let lastPIdx = -minGap;
@@ -2236,7 +2228,7 @@ export class GSRAnalyzer {
       return;
     }
 
-    const cfg = GSR_CONST?.EDASYMP || {};
+    const cfg = GSR_CONST.EDASYMP;
     const times = new Float64Array(n);
     for (let i = 0; i < n; i++) times[i] = this.raw[i].time;
     const series = SpectralEDA.computeSeries(

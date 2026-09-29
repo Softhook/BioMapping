@@ -338,7 +338,7 @@ export const PeakDetectors = {
     const minGap = Math.max(1, Math.round(GSR_CONST.PEAK_MIN_GAP * sr));
     const baselineWin = Math.max(
       1,
-      Math.round((GSR_CONST.PEAK_PROMINENCE_BASELINE_SEC || 8) * sr),
+      Math.round(GSR_CONST.PEAK_PROMINENCE_BASELINE_SEC * sr),
     );
     const noiseHalfWin = Math.max(1, Math.round(sr));
     // Morphology gates are off in this mode, so the onset walk-back uses the

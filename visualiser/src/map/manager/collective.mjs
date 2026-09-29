@@ -435,9 +435,9 @@ export class GSRMapCollective extends GSRMapArousalPlaces {
     contours.forEach((c) => {
       const color = MapColors.getHslColor(c.ratio, 100, 55);
       const formattedVal = c.level.toFixed(3);
-      const topoCfg =
-        GSR_CONST?.TOPOGRAPHY_SOURCES?.[contourParams.topographySource] || null;
-      const unit = topoCfg && topoCfg.unit !== undefined ? topoCfg.unit : ' μS';
+      const unit =
+        GSR_CONST.TOPOGRAPHY_SOURCES[contourParams.topographySource]?.unit ??
+        'μS';
 
       const stitchedPaths = GSRSpatialClustering.stitchSegments(c.segments);
 
@@ -467,7 +467,7 @@ export class GSRMapCollective extends GSRMapArousalPlaces {
           },
         );
 
-        poly.bindTooltip(`Level: ${formattedVal}${unit}`, {
+        poly.bindTooltip(`Level: ${formattedVal}${unit ? ` ${unit}` : ''}`, {
           sticky: true,
           className: 'contour-tooltip-label',
         });

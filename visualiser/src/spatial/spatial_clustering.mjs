@@ -181,8 +181,8 @@ export const GSRSpatialClustering = {
    * @returns {number} Clamped relative weight, in [GSR_CONST.PEAK_KDE.ampWeightMin, ampWeightMax].
    */
   relativeAmplitudeWeight(amplitude, refAmplitude) {
-    const min = GSR_CONST?.PEAK_KDE ? GSR_CONST.PEAK_KDE.ampWeightMin : 0.55;
-    const max = GSR_CONST?.PEAK_KDE ? GSR_CONST.PEAK_KDE.ampWeightMax : 3.0;
+    const min = GSR_CONST.PEAK_KDE.ampWeightMin;
+    const max = GSR_CONST.PEAK_KDE.ampWeightMax;
     if (typeof refAmplitude !== 'number' || refAmplitude <= 0) return 1;
     if (typeof amplitude !== 'number' || isNaN(amplitude)) return 1;
     const rel = amplitude / refAmplitude;

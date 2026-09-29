@@ -65,15 +65,15 @@ export const AnalyzerStats = {
       return emptyDensity;
     }
 
-    const dCfg = GSR_CONST?.TEMPORAL_PEAK_DENSITY || {};
+    const dCfg = GSR_CONST.TEMPORAL_PEAK_DENSITY;
     const winSec =
       windowSizeSec != null && windowSizeSec > 0
         ? windowSizeSec
-        : dCfg.windowSizeSec || 60;
-    const sigmaRatio = dCfg.sigmaRatio || 0.25;
+        : dCfg.windowSizeSec;
+    const sigmaRatio = dCfg.sigmaRatio;
     const sigma = winSec * sigmaRatio;
-    const cutoffMult = dCfg.cutoffMultiplier || 3.5;
-    const scaleFactor = dCfg.scaleToPerMinute || 60.0;
+    const cutoffMult = dCfg.cutoffMultiplier;
+    const scaleFactor = dCfg.scaleToPerMinute;
 
     const invTwoSigmaSq = 1.0 / (2.0 * sigma * sigma);
     const maxDist = cutoffMult * sigma;

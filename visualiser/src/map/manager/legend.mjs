@@ -41,7 +41,7 @@ function metricUnit(metric) {
   if (graphUnit) return graphUnit;
   const envMetric = [
     ...GSR_CONST.OSM_METRICS,
-    ...(GSR_CONST.SATELLITE_METRICS || []),
+    ...GSR_CONST.SATELLITE_METRICS,
   ].find((m) => m.key === metric);
   return envMetric?.unit && envMetric.unit !== 'index' ? envMetric.unit : '';
 }
@@ -98,9 +98,9 @@ export class GSRMapLegend extends GSRMapViewport {
 
     if (isCollective) {
       const topoSource = this._collectiveTopographySource || 'phasic';
-      const topoCfg = GSR_CONST?.TOPOGRAPHY_SOURCES?.[topoSource] || null;
+      const topoCfg = GSR_CONST.TOPOGRAPHY_SOURCES[topoSource];
       const title = topoCfg?.label || 'Topography';
-      const unit = (topoCfg?.unit ?? 'μS').trim();
+      const unit = topoCfg?.unit ?? 'μS';
 
       const minV = this._legendMinVal;
       const maxV = this._legendMaxVal;

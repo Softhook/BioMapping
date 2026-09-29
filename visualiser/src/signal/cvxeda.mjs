@@ -61,15 +61,16 @@ export const CVXEDA = {
    *
    * @param {Float64Array|number[]} yRaw  - Skin conductance (µS), tonic included.
    * @param {number} sampleRate           - Sampling rate in Hz.
-   * @param {object} [options={}]
-   * @param {number} [options.tauSlow=2.0]      - Bateman slow decay τ (s).
-   * @param {number} [options.tauFast=0.7]      - Bateman fast rise τ (s).
-   * @param {number} [options.deltaKnotSec=10]  - Tonic B-spline knot spacing (s).
-   * @param {number} [options.alpha=8e-4]       - L1 weight on the driver.
-   * @param {number} [options.gamma=1e-2]       - L2 weight on tonic smoothness.
-   * @param {number} [options.maxIter=50]       - Newton iteration cap (typical
+   * @param {object} [options={}] - Each numeric option left out takes its
+   *   GSR_CONST.CVXEDA value.
+   * @param {number} [options.tauSlow]          - Bateman slow decay τ (s).
+   * @param {number} [options.tauFast]          - Bateman fast rise τ (s).
+   * @param {number} [options.deltaKnotSec]     - Tonic B-spline knot spacing (s).
+   * @param {number} [options.alpha]            - L1 weight on the driver.
+   * @param {number} [options.gamma]            - L2 weight on tonic smoothness.
+   * @param {number} [options.maxIter]          - Newton iteration cap (typical
    *   solves converge in 10-25; this is headroom, not a tuning knob).
-   * @param {number} [options.tol=1e-10]        - Duality-gap (μ) convergence
+   * @param {number} [options.tol]              - Duality-gap (μ) convergence
    *   threshold, analogous to CVXOPT's reltol.
    * @param {boolean} [options.normalize=true]  - z-score y during the solve
    *   (NeuroKit-compatible; keeps the published α = 8e-4 meaningful).
@@ -112,14 +113,14 @@ export const CVXEDA = {
       };
     }
 
-    const cfg = GSR_CONST?.CVXEDA || {};
-    const tauSlow = options.tauSlow ?? cfg.tauSlow ?? 2.0;
-    const tauFast = options.tauFast ?? cfg.tauFast ?? 0.7;
-    const deltaKnotSec = options.deltaKnotSec ?? cfg.deltaKnotSec ?? 10.0;
-    const alpha = options.alpha ?? cfg.alpha ?? 8e-4;
-    const gamma = options.gamma ?? cfg.gamma ?? 1e-2;
-    const maxIter = options.maxIter ?? cfg.maxIter ?? 50;
-    const tol = options.tol ?? cfg.tol ?? 1e-10;
+    const cfg = GSR_CONST.CVXEDA;
+    const tauSlow = options.tauSlow ?? cfg.tauSlow;
+    const tauFast = options.tauFast ?? cfg.tauFast;
+    const deltaKnotSec = options.deltaKnotSec ?? cfg.deltaKnotSec;
+    const alpha = options.alpha ?? cfg.alpha;
+    const gamma = options.gamma ?? cfg.gamma;
+    const maxIter = options.maxIter ?? cfg.maxIter;
+    const tol = options.tol ?? cfg.tol;
     const normalize = options.normalize !== false;
 
     const delta = 1.0 / sampleRate;

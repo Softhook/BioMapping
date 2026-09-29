@@ -240,16 +240,16 @@ export class GSRMapArousalPlaces extends GSRMapPeaks {
    * @private
    */
   _arousalPlaceParams() {
-    const C = GSR_CONST?.AROUSAL_PLACES ? GSR_CONST.AROUSAL_PLACES : {};
+    const C = GSR_CONST.AROUSAL_PLACES;
     const parse = (el, fallback, fn = parseFloat) => {
       const v = el ? fn(el.value) : fallback;
       return typeof v === 'number' && !isNaN(v) ? v : fallback;
     };
     const S = AppState?.sliders || {};
-    const mergeM = parse(S.placeMergeDistance, C.mergeM || 35);
+    const mergeM = parse(S.placeMergeDistance, C.mergeM);
     const maxPlaces = Math.max(
       1,
-      parse(S.maxArousalPlaces, C.maxPlaces || 20, parseInt),
+      parse(S.maxArousalPlaces, C.maxPlaces, parseInt),
     );
 
     return {
@@ -257,8 +257,8 @@ export class GSRMapArousalPlaces extends GSRMapPeaks {
       maxPlaces,
       sigma: mergeM * 0.35,
       blobRadius: mergeM * 0.5,
-      separationFactor: C.seedSeparationFactor || 1.8,
-      drawGapFactor: C.drawGapFactor || 0.46,
+      separationFactor: C.seedSeparationFactor,
+      drawGapFactor: C.drawGapFactor,
     };
   }
 

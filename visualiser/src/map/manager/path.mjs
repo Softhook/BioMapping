@@ -76,9 +76,9 @@ export class GSRMapPath extends GSRMapRfFluid {
   _overlapRadiusMetres(drawPoints, trackWeight) {
     if (!this.map || !Array.isArray(drawPoints) || drawPoints.length < 4)
       return 0;
-    const OV = GSR_CONST?.PATH_OVERLAP ? GSR_CONST.PATH_OVERLAP : {};
+    const OV = GSR_CONST.PATH_OVERLAP;
     const w = trackWeight > 0 ? trackWeight : 5;
-    const factor = OV.widthFactor > 0 ? OV.widthFactor : 1;
+    const factor = OV.widthFactor;
     const mid = drawPoints[drawPoints.length >> 1];
     try {
       const a = L.latLng(mid.lat, mid.lon);
@@ -86,7 +86,7 @@ export class GSRMapPath extends GSRMapRfFluid {
       const b = this.map.layerPointToLatLng(L.point(ap.x + 1, ap.y));
       const mPerPx = a.distanceTo(b);
       if (!(mPerPx > 0)) return 0;
-      const cap = OV.maxRadiusM > 0 ? OV.maxRadiusM : 60;
+      const cap = OV.maxRadiusM;
       return Math.min(w * mPerPx * factor, cap);
     } catch (_e) {
       return 0;
@@ -148,7 +148,6 @@ export class GSRMapPath extends GSRMapRfFluid {
 
       // Would the overlap colouring actually change at this zoom? Only the
       // visual radius moved — the path points and metric are unchanged.
-      const OV = GSR_CONST?.PATH_OVERLAP ? GSR_CONST.PATH_OVERLAP : {};
       const radiusM = this._overlapRadiusMetres(
         this._lastDrawPoints,
         this._lastPathTrackWeight,
@@ -158,7 +157,7 @@ export class GSRMapPath extends GSRMapRfFluid {
         acc = GSRMapBase._overlapPooledAccessor(
           this._lastDrawPoints,
           this._lastPathGetVal,
-          { radiusM, revisitGapS: OV.revisitGapS || 15 },
+          { radiusM, revisitGapS: GSR_CONST.PATH_OVERLAP.revisitGapS },
         );
       }
       const sig = acc ? acc.sig | 0 : 0;
@@ -222,10 +221,10 @@ export class GSRMapPath extends GSRMapRfFluid {
     let valAt = getVal;
     let hasRetrace = false;
     let overlapSig = 0;
-    if (!isCategorical && GSR_CONST.PATH_OVERLAP) {
+    if (!isCategorical) {
       const OV = GSR_CONST.PATH_OVERLAP;
-      const gapS = OV.revisitGapS || 15;
-      const maxR = OV.maxRadiusM || 60;
+      const gapS = OV.revisitGapS;
+      const maxR = OV.maxRadiusM;
       const radiusM = this._overlapRadiusMetres(drawPoints, trackWeight);
       if (radiusM > 0) {
         const handoff = this._zoomOverlapHandoff;
