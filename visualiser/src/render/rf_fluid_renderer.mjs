@@ -90,24 +90,18 @@ export class RFFluidRenderer {
   _bindEvents() {
     if (!this.map || typeof this.map.on !== 'function') return;
 
-    // Smooth Leaflet GPU Zoom Animation lockstep
+    // Keep the canvas scaled in lockstep with the map: 'zoomanim' for
+    // Leaflet's animated zoom (scaled straight to where it will land), 'zoom'
+    // for per-frame zooms (smooth wheel zoom, flyTo, touch pinch).
     this.map.on('zoomanim', (e) => {
-      if (!this.map || !this.canvas || !this._currentBounds) return;
-      const scale = this.map.getZoomScale(e.zoom, this.map.getZoom());
-      const nw = this._currentBounds.getNorthWest();
-      const offset = this.map._latLngToNewLayerPoint(nw, e.zoom, e.center);
-      L.DomUtil.setTransform(this.canvas, offset, scale);
-    });
-
-    // Per-frame zooms (smooth wheel zoom, flyTo, touch pinch) fire 'zoom'
-    // rather than 'zoomanim' — scale the canvas along with them too.
-    this.map.on('zoom', () => {
-      if (!this.map || !this.canvas || !this._currentBounds) return;
-      const scale = this.map.getZoomScale(this.map.getZoom(), this._canvasZoom);
-      const offset = this.map.latLngToLayerPoint(
-        this._currentBounds.getNorthWest(),
+      this._scaleCanvas(e.zoom, (nw) =>
+        this.map._latLngToNewLayerPoint(nw, e.zoom, e.center),
       );
-      L.DomUtil.setTransform(this.canvas, offset, scale);
+    });
+    this.map.on('zoom', () => {
+      this._scaleCanvas(this.map.getZoom(), (nw) =>
+        this.map.latLngToLayerPoint(nw),
+      );
     });
 
     // On zoom end or move end, re-anchor canvas and crisp redraw
@@ -115,6 +109,15 @@ export class RFFluidRenderer {
       this.resizeCanvas();
       this.redraw();
     });
+  }
+
+  // Stretch the canvas (drawn at _canvasZoom) to `zoom`, with its NW corner at
+  // the layer point `toLayerPoint` gives.
+  _scaleCanvas(zoom, toLayerPoint) {
+    if (!this.map || !this.canvas || !this._currentBounds) return;
+    const offset = toLayerPoint(this._currentBounds.getNorthWest());
+    const scale = this.map.getZoomScale(zoom, this._canvasZoom);
+    L.DomUtil.setTransform(this.canvas, offset, scale);
   }
 
   resizeCanvas() {

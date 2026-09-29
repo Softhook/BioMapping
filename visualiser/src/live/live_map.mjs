@@ -31,6 +31,7 @@ import { GSRMapMarkers } from '../map/map_markers.mjs';
 import {
   enableSmoothWheelZoom,
   isWheelZooming,
+  SMOOTH_ZOOM_MAP_OPTIONS,
 } from '../map/smooth_wheel_zoom.mjs';
 import { drawGraph } from './live_graph.mjs';
 import { LIVE_SETTLE_TAIL_S, LiveState } from './live_state.mjs';
@@ -311,9 +312,8 @@ export async function cacheCurrentMapArea() {
 function initLiveMap() {
   liveMap = L.map('liveMap', {
     zoomControl: true,
-    scrollWheelZoom: false, // replaced by enableSmoothWheelZoom below
+    ...SMOOTH_ZOOM_MAP_OPTIONS,
     preferCanvas: true,
-    zoomSnap: 0, // free zoom levels — see smooth_wheel_zoom.mjs
     zoomDelta: 0.25,
     maxZoom: 22,
   }).setView([0, 0], 2);

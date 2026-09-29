@@ -5,7 +5,10 @@ import { GSR_CONST } from '../core/constants.mjs';
 import { GeoUtils } from '../gps/geo_utils.mjs';
 import { RFFluidRenderer } from '../render/rf_fluid_renderer.mjs';
 import { GSRBasemap } from './basemap.mjs';
-import { enableSmoothWheelZoom } from './smooth_wheel_zoom.mjs';
+import {
+  enableSmoothWheelZoom,
+  SMOOTH_ZOOM_MAP_OPTIONS,
+} from './smooth_wheel_zoom.mjs';
 
 export class GSRMapBase {
   // Lifecycle stubs overridden by subclasses
@@ -90,9 +93,8 @@ export class GSRMapBase {
     // Default view zoomed out
     this.map = L.map(this.containerId, {
       zoomControl: false,
-      scrollWheelZoom: false, // replaced by enableSmoothWheelZoom below
+      ...SMOOTH_ZOOM_MAP_OPTIONS,
       preferCanvas: true,
-      zoomSnap: 0, // free zoom levels — see smooth_wheel_zoom.mjs
       zoomDelta: 0.25,
       maxZoom: 22,
     }).setView([0, 0], 2);

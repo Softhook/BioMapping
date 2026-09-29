@@ -56,6 +56,7 @@ function flushFrames(max = 1000) {
 const {
   enableSmoothWheelZoom,
   isWheelZooming,
+  ZOOMING_CLASS,
 } = require('../src/map/smooth_wheel_zoom.mjs');
 
 function makeMap() {
@@ -135,6 +136,10 @@ test('mid-zoom positions are exact; at rest everything is back on whole pixels',
   for (let i = 0; i < 5; i++) wheel(el, -40);
   flushFrames(6);
   assert.ok(isWheelZooming(map), 'still gliding');
+  assert.ok(
+    el.classList.contains(ZOOMING_CLASS),
+    'container flagged so markers get their own layer',
+  );
   const exact = map.project(marker.getLatLng()).subtract(map.getPixelOrigin());
   assert.deepStrictEqual(
     L.DomUtil.getPosition(marker._icon),
@@ -144,6 +149,7 @@ test('mid-zoom positions are exact; at rest everything is back on whole pixels',
 
   flushFrames();
   assert.ok(!isWheelZooming(map));
+  assert.ok(!el.classList.contains(ZOOMING_CLASS), 'flag cleared at rest');
   assert.ok(isWhole(L.DomUtil.getPosition(map._mapPane)), 'pane snapped');
   assert.ok(isWhole(L.DomUtil.getPosition(marker._icon)), 'marker snapped');
   assert.ok(

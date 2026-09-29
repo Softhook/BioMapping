@@ -22,15 +22,29 @@
  * position (making Leaflet's rounding a no-op), tile levels and markers skip
  * their rounding (see patchLeafletRounding), latLngToLayerPoint returns exact
  * positions for tooltips and overlays, and the pane snaps back to whole pixels
- * once, when the zoom settles.
+ * once, when the zoom settles. Exact positions alone don't stop text jitter:
+ * the browser still snaps a marker's text (hotspot stars, labels) to whole
+ * pixels on each repaint. So the container also carries ZOOMING_CLASS, under
+ * which styles.css gives markers and tooltips their own GPU layer
+ * (will-change: transform), which the browser moves between pixels.
  *
  * Anything else that moves the map (a pan, flyTo, fitBounds, the zoom buttons,
  * a drag) goes through map._stop(), which here also ends a zoom still gliding,
  * so the two never fight over the map's position.
  *
- * Call with the map built using `scrollWheelZoom: false` and `zoomSnap: 0` (with
- * a zoomSnap, the next pan or setView would round the free zoom level and jump).
+ * Build the map with SMOOTH_ZOOM_MAP_OPTIONS spread into its options, then call
+ * enableSmoothWheelZoom(map).
  */
+
+/**
+ * Leaflet map options the handler needs: the built-in wheel zoom off (it would
+ * fight this one), and no zoomSnap — with one, the next pan or setView would
+ * round the free zoom level and jump.
+ */
+export const SMOOTH_ZOOM_MAP_OPTIONS = Object.freeze({
+  scrollWheelZoom: false,
+  zoomSnap: 0,
+});
 
 // Zoom levels per pixel of wheel travel. A trackpad pinch arrives as a wheel
 // event with ctrlKey set and small deltas, so it gets a faster rate.
@@ -45,6 +59,20 @@ const MAX_STEP = 1;
 const EASE = 0.25;
 const FRAME_MS = 1000 / 60;
 const SETTLE_EPSILON = 0.001;
+
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+
+// Wheel travel in pixels. Raw deltas rather than L.DomEvent.getWheelDelta,
+// which divides by a platform/devicePixelRatio fudge factor (3–6x smaller on
+// a Mac).
+function wheelPixels(e, map) {
+  if (e.deltaMode === 1) return e.deltaY * LINE_PX;
+  if (e.deltaMode === 2) return e.deltaY * map.getSize().y;
+  return e.deltaY;
+}
+
+// On the map container while a zoom glides — see the sub-pixel note above.
+export const ZOOMING_CLASS = 'leaflet-smooth-zooming';
 
 const zoomingMaps = new WeakSet();
 
@@ -128,6 +156,7 @@ export function enableSmoothWheelZoom(map) {
     frame = null;
     targetZoom = null;
     zoomingMaps.delete(map);
+    container.classList.remove(ZOOMING_CLASS);
     delete map.latLngToLayerPoint; // back to Leaflet's rounded version
     moveTo(map.getZoom(), true);
     map._moveEnd(true);
@@ -155,44 +184,39 @@ export function enableSmoothWheelZoom(map) {
     frame = requestAnimationFrame(step);
   }
 
+  // Begin a new gesture: cancel any flyTo/pan, announce the zoom, start easing.
+  function start() {
+    map._stop();
+    targetZoom = map.getZoom();
+    zoomingMaps.add(map);
+    container.classList.add(ZOOMING_CLASS);
+    map.latLngToLayerPoint = exactLatLngToLayerPoint;
+    basePanePos = L.DomUtil.getPosition(map._mapPane).round();
+    anchor = null;
+    map._moveStart(true, false);
+    lastTime = performance.now() - FRAME_MS;
+    frame = requestAnimationFrame(step);
+  }
+
   function onWheel(e) {
     e.preventDefault();
-    // Raw pixels rather than L.DomEvent.getWheelDelta, which divides by a
-    // platform/devicePixelRatio fudge factor (3–6x smaller on a Mac).
-    const unit =
-      e.deltaMode === 1 ? LINE_PX : e.deltaMode === 2 ? map.getSize().y : 1;
-    const delta = -e.deltaY * unit;
+    const delta = -wheelPixels(e, map);
     if (!delta) return;
+    if (targetZoom === null) start();
 
-    const rate = e.ctrlKey ? PINCH_RATE : WHEEL_RATE;
-    const change = Math.max(-MAX_STEP, Math.min(MAX_STEP, delta * rate));
-
-    const point = map.mouseEventToContainerPoint(e);
-    if (targetZoom === null) {
-      // Starting a new gesture: cancel any flyTo/pan and announce the zoom.
-      map._stop();
-      targetZoom = map.getZoom();
-      zoomingMaps.add(map);
-      map.latLngToLayerPoint = exactLatLngToLayerPoint;
-      basePanePos = L.DomUtil.getPosition(map._mapPane).round();
-      anchor = null;
-      map._moveStart(true, false);
-    }
     // Re-pin only when the cursor has really moved, so a steady scroll keeps
     // one fixed point rather than re-reading it every event.
+    const point = map.mouseEventToContainerPoint(e);
     if (!anchor || point.distanceTo(anchor) > 1) {
       anchor = point;
       anchorLatLng = map.containerPointToLatLng(anchor);
     }
-    targetZoom = Math.max(
+    const rate = e.ctrlKey ? PINCH_RATE : WHEEL_RATE;
+    targetZoom = clamp(
+      targetZoom + clamp(delta * rate, -MAX_STEP, MAX_STEP),
       map.getMinZoom(),
-      Math.min(map.getMaxZoom(), targetZoom + change),
+      map.getMaxZoom(),
     );
-
-    if (frame === null) {
-      lastTime = performance.now() - FRAME_MS;
-      frame = requestAnimationFrame(step);
-    }
   }
 
   container.addEventListener('wheel', onWheel, { passive: false });
