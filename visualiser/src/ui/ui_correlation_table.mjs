@@ -10,6 +10,7 @@
 import { AppState } from '../core/app_state.mjs';
 import { GSR_CONST } from '../core/constants.mjs';
 import { StatsMath } from '../signal/stats_math.mjs';
+import { updateSortHeaders } from './table_sort.mjs';
 
 export const CorrelationTableUI = {
   /** Percentile of an already-ascending-sorted array (no copy, no re-sort). */
@@ -328,36 +329,11 @@ export const CorrelationTableUI = {
    * Update header icons and classes on correlationTable according to active sort state.
    */
   updateCorrelationTableSortHeaders() {
-    if (
-      typeof document === 'undefined' ||
-      typeof document.getElementById !== 'function'
-    )
-      return;
-    const table = document.getElementById('correlationTable');
-    if (!table || typeof table.querySelectorAll !== 'function') return;
-    const ths = table.querySelectorAll('thead th.sortable');
-    const curCol = AppState.corrSortColumn;
-    const curDir = AppState.corrSortDirection || 'asc';
-
-    ths.forEach((th) => {
-      const col = th.dataset.sort;
-      const icon = th.querySelector('.sort-icon');
-      if (col === curCol) {
-        th.classList.remove('sort-asc', 'sort-desc');
-        th.classList.add(curDir === 'desc' ? 'sort-desc' : 'sort-asc');
-        if (icon) {
-          icon.className =
-            'fa-solid ' +
-            (curDir === 'desc' ? 'fa-sort-down' : 'fa-sort-up') +
-            ' sort-icon';
-        }
-      } else {
-        th.classList.remove('sort-asc', 'sort-desc');
-        if (icon) {
-          icon.className = 'fa-solid fa-sort sort-icon';
-        }
-      }
-    });
+    updateSortHeaders(
+      'correlationTable',
+      AppState.corrSortColumn,
+      AppState.corrSortDirection || 'asc',
+    );
   },
 
   /**

@@ -12,6 +12,7 @@ import { GSRGlobe3DView } from '../map/globe3d_view.mjs';
 import { getQualityColor, getQualityLabel } from '../render/renderer.mjs';
 import { GSRCSVParser } from '../signal/csv_parser.mjs';
 import { GSRStorage } from './storage.mjs';
+import { updateSortHeaders } from './table_sort.mjs';
 
 export const PeaksTableUI = {
   /**
@@ -223,31 +224,11 @@ export const PeaksTableUI = {
    * Update header icons and classes according to the active sort state.
    */
   updatePeaksTableSortHeaders() {
-    const table = document.getElementById('peaksTable');
-    if (!table) return;
-    const ths = table.querySelectorAll('thead th.sortable');
-    const curCol = AppState.peakSortColumn || 'index';
-    const curDir = AppState.peakSortDirection || 'asc';
-
-    ths.forEach((th) => {
-      const col = th.dataset.sort;
-      const icon = th.querySelector('.sort-icon');
-      if (col === curCol) {
-        th.classList.remove('sort-asc', 'sort-desc');
-        th.classList.add(curDir === 'desc' ? 'sort-desc' : 'sort-asc');
-        if (icon) {
-          icon.className =
-            'fa-solid ' +
-            (curDir === 'desc' ? 'fa-sort-down' : 'fa-sort-up') +
-            ' sort-icon';
-        }
-      } else {
-        th.classList.remove('sort-asc', 'sort-desc');
-        if (icon) {
-          icon.className = 'fa-solid fa-sort sort-icon';
-        }
-      }
-    });
+    updateSortHeaders(
+      'peaksTable',
+      AppState.peakSortColumn || 'index',
+      AppState.peakSortDirection || 'asc',
+    );
   },
 
   /**

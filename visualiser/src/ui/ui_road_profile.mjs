@@ -8,6 +8,7 @@
  */
 import { AppState } from '../core/app_state.mjs';
 import { GSRNotices } from '../core/notices.mjs';
+import { updateSortHeaders } from './table_sort.mjs';
 
 // Road classes come from OSM tags or an imported CSV — escape before innerHTML.
 const esc = (s) => GSRNotices.escapeHtml(s);
@@ -39,36 +40,11 @@ export const RoadProfileUI = {
    * Update header icons and classes on roadArousalTable according to active sort state.
    */
   updateRoadArousalTableSortHeaders() {
-    if (
-      typeof document === 'undefined' ||
-      typeof document.getElementById !== 'function'
-    )
-      return;
-    const table = document.getElementById('roadArousalTable');
-    if (!table || typeof table.querySelectorAll !== 'function') return;
-    const ths = table.querySelectorAll('thead th.sortable');
-    const curCol = AppState.roadSortColumn || 'meanPhasic';
-    const curDir = AppState.roadSortDirection || 'desc';
-
-    ths.forEach((th) => {
-      const col = th.dataset.sort;
-      const icon = th.querySelector('.sort-icon');
-      if (col === curCol) {
-        th.classList.remove('sort-asc', 'sort-desc');
-        th.classList.add(curDir === 'desc' ? 'sort-desc' : 'sort-asc');
-        if (icon) {
-          icon.className =
-            'fa-solid ' +
-            (curDir === 'desc' ? 'fa-sort-down' : 'fa-sort-up') +
-            ' sort-icon';
-        }
-      } else {
-        th.classList.remove('sort-asc', 'sort-desc');
-        if (icon) {
-          icon.className = 'fa-solid fa-sort sort-icon';
-        }
-      }
-    });
+    updateSortHeaders(
+      'roadArousalTable',
+      AppState.roadSortColumn || 'meanPhasic',
+      AppState.roadSortDirection || 'desc',
+    );
   },
 
   /**

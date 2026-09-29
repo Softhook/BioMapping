@@ -62,16 +62,6 @@ export const EnvironmentalDashboardEvents = {
     bindEnvTab('btnEnvTabRoads', 'envTabRoads');
     bindEnvTab('btnEnvTabJunctions', 'envTabJunctions');
 
-    // Junctions Table Column Sorting
-    const juncTable = document.getElementById('junctionsTable');
-    if (juncTable) {
-      juncTable.querySelectorAll('thead th.sortable').forEach((th) => {
-        th.addEventListener('click', () => {
-          Controllers.ui?.sortJunctionsTable(th.dataset.sort);
-        });
-      });
-    }
-
     // Delegate click on dynamically added .btn-fetch-junction-geoms
     const envTabJunctions = document.getElementById('envTabJunctions');
     if (envTabJunctions) {

@@ -162,8 +162,9 @@ export const GSREvents = {
 
   /**
    * Bind clickable `<th class="sortable">` headers on a results table to the
-   * matching GSRUI sort handler. Used by the SCR Events, Correlation Matrix and
-   * Road Arousal tables — identical wiring, only the table id and handler differ.
+   * matching GSRUI sort handler. Used by the SCR Events, Correlation Matrix,
+   * Road Arousal and Junctions tables — identical wiring, only the table id
+   * and handler differ.
    */
   bindTableSort(tableId, sortMethod) {
     const table = document.getElementById(tableId);

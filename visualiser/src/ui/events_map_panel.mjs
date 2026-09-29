@@ -229,6 +229,7 @@ export const MapPanelEvents = {
     this.bindTableSort('peaksTable', 'sortPeaksTable');
     this.bindTableSort('correlationTable', 'sortCorrelationTable');
     this.bindTableSort('roadArousalTable', 'sortRoadArousalTable');
+    this.bindTableSort('junctionsTable', 'sortJunctionsTable');
   },
   /**
    * Contour settings sliders.

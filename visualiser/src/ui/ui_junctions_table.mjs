@@ -4,6 +4,7 @@
  */
 import { AppState } from '../core/app_state.mjs';
 import { JunctionResponse } from '../gps/junction_response.mjs';
+import { updateSortHeaders } from './table_sort.mjs';
 
 const WINDOW = `${JunctionResponse.WINDOW_S} s`;
 const neutralBand = (metric) => (metric === 'peakRate' ? 0.5 : 0.02);
@@ -39,36 +40,11 @@ export const JunctionsTableUI = {
    * Update header icons and classes on junctionsTable according to active sort state.
    */
   updateJunctionsTableSortHeaders() {
-    if (
-      typeof document === 'undefined' ||
-      typeof document.getElementById !== 'function'
-    )
-      return;
-    const table = document.getElementById('junctionsTable');
-    if (!table || typeof table.querySelectorAll !== 'function') return;
-    const ths = table.querySelectorAll('thead th.sortable');
-    const curCol = AppState.junctionSortColumn;
-    const curDir = AppState.junctionSortDirection || 'asc';
-
-    ths.forEach((th) => {
-      const col = th.dataset.sort;
-      const icon = th.querySelector('.sort-icon');
-      if (col === curCol) {
-        th.classList.remove('sort-asc', 'sort-desc');
-        th.classList.add(curDir === 'desc' ? 'sort-desc' : 'sort-asc');
-        if (icon) {
-          icon.className =
-            'fa-solid ' +
-            (curDir === 'desc' ? 'fa-sort-down' : 'fa-sort-up') +
-            ' sort-icon';
-        }
-      } else {
-        th.classList.remove('sort-asc', 'sort-desc');
-        if (icon) {
-          icon.className = 'fa-solid fa-sort sort-icon';
-        }
-      }
-    });
+    updateSortHeaders(
+      'junctionsTable',
+      AppState.junctionSortColumn,
+      AppState.junctionSortDirection || 'asc',
+    );
   },
 
   /**
