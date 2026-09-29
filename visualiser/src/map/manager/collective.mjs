@@ -212,7 +212,7 @@ export class GSRMapCollective extends GSRMapArousalPlaces {
     // Update legend for collective view
     this.updateLegend();
 
-    if (AppState?.emit) AppState.emit('map:rendered');
+    AppState.emit('map:rendered');
   }
 
   /**

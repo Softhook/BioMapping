@@ -298,14 +298,7 @@ export const GSRLabelManager = {
     const labelL = box.left - cLeft,
       labelT = box.top - cTop;
 
-    const escapedLabel =
-      typeof GSRNotices.escapeHtml === 'function'
-        ? GSRNotices.escapeHtml(labelText)
-        : String(labelText)
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;');
+    const escapedLabel = GSRNotices.escapeHtml(labelText);
 
     const html = [
       '<div class="',

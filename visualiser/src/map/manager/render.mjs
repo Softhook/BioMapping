@@ -43,7 +43,7 @@ export class GSRMapRender extends GSRMapToggles {
     // (which is on the map), never directly onto the map. When there is no
     // managed track for this analyzer (e.g. cacheKey 'single' fallback), the
     // renderers fall back to the legacy direct-to-map path.
-    const activeTrack = AppState?.collectiveManager
+    const activeTrack = AppState.collectiveManager
       ? AppState.collectiveManager.getTrack(AppState.activeTrackId)
       : null;
     const _layerGroup = this._getTrackLayerGroup(activeTrack);
@@ -122,7 +122,7 @@ export class GSRMapRender extends GSRMapToggles {
 
     // Let the 3D globe (if mounted) pull the fresh drawPoints / metric / legend
     // range. See src/map/globe3d_view.js.
-    if (AppState?.emit) AppState.emit('map:rendered');
+    AppState.emit('map:rendered');
   }
 
   /**
@@ -156,7 +156,7 @@ export class GSRMapRender extends GSRMapToggles {
     this._stripOwnedLayersByKind(track, kindSet);
     renderFn();
     if (updateVisibility) this.updateMarkerVisibility();
-    if (AppState?.emit) AppState.emit('map:rendered');
+    AppState.emit('map:rendered');
   }
 
   /**
@@ -208,7 +208,7 @@ export class GSRMapRender extends GSRMapToggles {
     const p = gpsParams || {};
     const opts = options || {};
 
-    const activeTrack = AppState?.collectiveManager
+    const activeTrack = AppState.collectiveManager
       ? AppState.collectiveManager.getTrack(AppState.activeTrackId)
       : null;
 
@@ -267,7 +267,7 @@ export class GSRMapRender extends GSRMapToggles {
     if (!this.map || !analyzer) return;
     const p = gpsParams || {};
 
-    const activeTrack = AppState?.collectiveManager
+    const activeTrack = AppState.collectiveManager
       ? AppState.collectiveManager.getTrack(AppState.activeTrackId)
       : null;
 

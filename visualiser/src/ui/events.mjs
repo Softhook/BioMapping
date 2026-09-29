@@ -359,7 +359,7 @@ export const GSREvents = {
         Controllers.trackManager.renderTrackList();
       }
       const mm = AppState.mapManager;
-      if (mm && typeof mm.refreshArousalPlaces === 'function') {
+      if (mm) {
         mm.refreshArousalPlaces();
       } else {
         Controllers.ui.rerenderMap();

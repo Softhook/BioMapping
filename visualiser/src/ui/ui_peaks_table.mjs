@@ -24,12 +24,7 @@ export const PeaksTableUI = {
     if (!analyzer?.peaks || idx >= analyzer.peaks.length) return;
     const pk = analyzer.peaks[idx];
     const clean = GSRCSVParser.cleanLabel(label);
-    if (typeof analyzer.relabelPeak === 'function') {
-      analyzer.relabelPeak(pk, clean);
-    } else {
-      pk.label = clean;
-      analyzer.setPeakLabel?.(pk.time, clean);
-    }
+    analyzer.relabelPeak(pk, clean);
     this._markUnsavedLabels(track);
 
     // Refresh displays. A label edit only ever changes this one peak's label
@@ -151,13 +146,8 @@ export const PeaksTableUI = {
       // SCR Events table: jump straight to the spot with the scrub dot as the
       // locator and no popup — works even when the peak-marker layer is hidden.
       if (AppState.surfaceView === 'globe' && GSRGlobe3DView.isActive) {
-        if (typeof GSRGlobe3DView.focusOnPeakLocation === 'function') {
-          GSRGlobe3DView.focusOnPeakLocation(idx);
-        }
-      } else if (
-        AppState.mapManager &&
-        typeof AppState.mapManager.focusOnPeakLocation === 'function'
-      ) {
+        GSRGlobe3DView.focusOnPeakLocation(idx);
+      } else if (AppState.mapManager) {
         AppState.mapManager.focusOnPeakLocation(
           idx,
           AppState.analyzer,
@@ -167,17 +157,11 @@ export const PeaksTableUI = {
     } else if (source !== 'map' && hasGps) {
       // Graph click: fly to the peak and open its popup.
       if (AppState.surfaceView === 'globe' && GSRGlobe3DView.isActive) {
-        if (typeof GSRGlobe3DView.focusOnPeak === 'function') {
-          GSRGlobe3DView.focusOnPeak(idx);
-        }
+        GSRGlobe3DView.focusOnPeak(idx);
       } else {
         // Phase 1 (slice 3): the peakMarkers flat array is gone; resolve the
         // marker for this peak index from the track layerGroups instead.
-        const peakMarker =
-          AppState.mapManager &&
-          typeof AppState.mapManager.getPeakMarkerByIndex === 'function'
-            ? AppState.mapManager.getPeakMarkerByIndex(idx)
-            : null;
+        const peakMarker = AppState.mapManager?.getPeakMarkerByIndex(idx);
         if (peakMarker) {
           setTimeout(() => peakMarker.openPopup(), 100);
         }
@@ -336,14 +320,7 @@ export const PeaksTableUI = {
       const qColor = getQualityColor(qScore, '20');
       const { pct: qPct, label: qLabel } = getQualityLabel(qScore);
 
-      const escapedLabel =
-        typeof GSRNotices.escapeHtml === 'function'
-          ? GSRNotices.escapeHtml(p.label || '')
-          : (p.label || '')
-              .replace(/&/g, '&amp;')
-              .replace(/</g, '&lt;')
-              .replace(/>/g, '&gt;')
-              .replace(/"/g, '&quot;');
+      const escapedLabel = GSRNotices.escapeHtml(p.label || '');
 
       const speedBadge = p.speedLabel
         ? '<span class="badge-speed speed-' +

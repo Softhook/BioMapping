@@ -16,7 +16,7 @@
  * approach, with zero call sites anywhere once the ring+closure approach in
  * _buildVectorIsobands became the real implementation.
  *
- * This file covers what's left on GSRMapExporter: _hslToHex, _ratioToHex,
+ * This file covers what's left on GSRMapExporter: _ratioToHex,
  * _esc, _img.
  *
  * NOT covered here (left for a Tier-D-style DOM/async pass, if/when that's
@@ -32,31 +32,10 @@ const test = require('node:test');
 
 const { GSRMapExporter } = require('../src/map/map_exporter.mjs');
 
-// ── _hslToHex / _ratioToHex ─────────────────────────────────────────────
-test('_hslToHex: pure red/green/blue hues resolve to their expected hex primaries', () => {
-  assert.strictEqual(GSRMapExporter._hslToHex(0, 100, 50), '#ff0000');
-  assert.strictEqual(GSRMapExporter._hslToHex(120, 100, 50), '#00ff00');
-  assert.strictEqual(GSRMapExporter._hslToHex(240, 100, 50), '#0000ff');
-});
-
-test('_hslToHex: 0% lightness is black, 100% lightness is white regardless of hue', () => {
-  assert.strictEqual(GSRMapExporter._hslToHex(200, 100, 0), '#000000');
-  assert.strictEqual(GSRMapExporter._hslToHex(200, 100, 100), '#ffffff');
-});
-
-test('_hslToHex: 0% saturation is a neutral grey', () => {
-  assert.strictEqual(GSRMapExporter._hslToHex(90, 0, 50), '#808080');
-});
-
-test('_ratioToHex: 0 maps to green (hue 120), 1 maps to red (hue 0), matching _hslToHex directly', () => {
-  assert.strictEqual(
-    GSRMapExporter._ratioToHex(0),
-    GSRMapExporter._hslToHex(120, 100, 50),
-  );
-  assert.strictEqual(
-    GSRMapExporter._ratioToHex(1),
-    GSRMapExporter._hslToHex(0, 100, 50),
-  );
+// ── _ratioToHex ─────────────────────────────────────────────────────────
+test('_ratioToHex: 0 maps to green (hue 120), 1 maps to red (hue 0)', () => {
+  assert.strictEqual(GSRMapExporter._ratioToHex(0), '#00ff00');
+  assert.strictEqual(GSRMapExporter._ratioToHex(1), '#ff0000');
 });
 
 test('_ratioToHex: clamps out-of-range ratios into [0, 1] instead of extrapolating hue', () => {

@@ -268,10 +268,7 @@ export const ContourRingGeometry = {
     );
     if (!segs.length) return loops;
 
-    const stitched =
-      typeof GSRSpatialClustering.stitchSegments === 'function'
-        ? GSRSpatialClustering.stitchSegments(segs)
-        : segs.map((s) => [s[0], s[1]]);
+    const stitched = GSRSpatialClustering.stitchSegments(segs);
 
     stitched.forEach((path) => {
       if (!path || path.length < 3) return;
@@ -732,10 +729,7 @@ export const ContourRingGeometry = {
     );
 
     return contours.map((c) => {
-      const stitchedPaths =
-        typeof GSRSpatialClustering.stitchSegments === 'function'
-          ? GSRSpatialClustering.stitchSegments(c.segments)
-          : (c.segments || []).map((seg) => [seg[0], seg[1]]);
+      const stitchedPaths = GSRSpatialClustering.stitchSegments(c.segments);
 
       const isClosedPath = (rawPath) =>
         rawPath.length >= 3 &&

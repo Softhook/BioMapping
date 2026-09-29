@@ -745,18 +745,16 @@ export const EnvironmentalDashboardUI = {
     );
     this.drawRegressionScatterPlot(cachedStats.allData);
     this.renderRoadProfile(cachedStats.roadProfile, cachedStats.roadComparison);
-    if (typeof this.renderJunctionsTable === 'function') {
-      this.renderJunctionsTable(
-        this._junctionStatsFor(
-          cacheTarget,
-          effectiveScope,
-          activeTracks,
-          trackIdsStr,
-          versionSig,
-          latencyOf,
-        ),
-      );
-    }
+    this.renderJunctionsTable(
+      this._junctionStatsFor(
+        cacheTarget,
+        effectiveScope,
+        activeTracks,
+        trackIdsStr,
+        versionSig,
+        latencyOf,
+      ),
+    );
   },
 
   /**

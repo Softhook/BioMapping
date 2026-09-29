@@ -184,6 +184,12 @@ function installRecordingLeaflet(window) {
     _groups: new Map(),
     _viaGroup: new Set(),
     _nextId: 1,
+    // enableSmoothWheelZoom binds its wheel/pointer listeners here (and on
+    // its ownerDocument).
+    _container: window.document.createElement('div'),
+    getContainer() {
+      return map._container;
+    },
     addLayer(layer) {
       if (!layer || typeof layer !== 'object') return map;
       if (layer._gsrId === undefined) layer._gsrId = map._nextId++;
@@ -453,6 +459,16 @@ function installRecordingLeaflet(window) {
       l._latlng = ll;
       l._options = o;
       return l;
+    },
+    // Plain peak dots are an L.CircleMarker subclass (map_markers.mjs).
+    CircleMarker: {
+      extend: () =>
+        function PeakDot(latlng, opts) {
+          const l = makeLayer('marker');
+          l._latlng = latlng;
+          l._options = opts;
+          return l;
+        },
     },
     circleMarker: (ll, o) => {
       const l = makeLayer('circleMarker');

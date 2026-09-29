@@ -142,13 +142,13 @@ export class GSRMapArousalPlaces extends GSRMapPeaks {
    */
   refreshArousalPlaces() {
     if (!this.map || !this._lastArousalInput) {
-      if (typeof GSRUI.rerenderMap === 'function') GSRUI.rerenderMap();
+      GSRUI.rerenderMap();
       return;
     }
     this._clearArousalPlaceLayers();
     const { peaks, scoreTracks, view } = this._lastArousalInput;
     this._renderArousalPlacesFor(peaks, scoreTracks, view);
-    if (AppState?.emit) AppState.emit('map:rendered');
+    AppState.emit('map:rendered');
   }
 
   /**
@@ -245,7 +245,7 @@ export class GSRMapArousalPlaces extends GSRMapPeaks {
       const v = el ? fn(el.value) : fallback;
       return typeof v === 'number' && !isNaN(v) ? v : fallback;
     };
-    const S = AppState?.sliders || {};
+    const S = AppState.sliders;
     const mergeM = parse(S.placeMergeDistance, C.mergeM);
     const maxPlaces = Math.max(
       1,

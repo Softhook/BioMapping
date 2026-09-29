@@ -788,10 +788,8 @@ function updateCanvasCursor() {
     AppState.analyzer.raw.length > 0
   ) {
     if (
-      (typeof GSRRenderer.isOverExclude === 'function' &&
-        GSRRenderer.isOverExclude(mouseX, mouseY)) ||
-      (typeof GSRRenderer.isOverPeak === 'function' &&
-        GSRRenderer.isOverPeak(mouseX, mouseY))
+      GSRRenderer.isOverExclude(mouseX, mouseY) ||
+      GSRRenderer.isOverPeak(mouseX, mouseY)
     ) {
       cur = 'pointer';
     } else if (

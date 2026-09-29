@@ -227,11 +227,7 @@ export const StatsPanelUI = {
     let hasSpatial = false;
     const isCollective = AppState.viewMode === 'collective';
     if (isCollective) {
-      const activeTracks =
-        AppState.collectiveManager &&
-        typeof AppState.collectiveManager.getActiveTracks === 'function'
-          ? AppState.collectiveManager.getActiveTracks()
-          : [];
+      const activeTracks = AppState.collectiveManager?.getActiveTracks() ?? [];
       hasSpatial = activeTracks.some(
         (t) =>
           t.analyzer &&
@@ -240,7 +236,7 @@ export const StatsPanelUI = {
     } else {
       const targetTrack =
         track ||
-        (AppState?.collectiveManager && AppState.activeTrackId
+        (AppState.collectiveManager && AppState.activeTrackId
           ? AppState.collectiveManager.getTrack(AppState.activeTrackId)
           : null);
       const analyzer = targetTrack ? targetTrack.analyzer : AppState.analyzer;
@@ -263,7 +259,7 @@ export const StatsPanelUI = {
       mapPanel.classList.remove('collapsed');
       delete mapPanel.dataset.autoCollapsedNoSpatial;
       if (
-        AppState?.mapManager?.map &&
+        AppState.mapManager?.map &&
         typeof AppState.mapManager.map.invalidateSize === 'function'
       ) {
         AppState.mapManager.map.invalidateSize({

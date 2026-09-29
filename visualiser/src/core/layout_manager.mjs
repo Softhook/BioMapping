@@ -177,10 +177,7 @@ export const GSRLayoutManager = {
             '--stats-row-h',
             `${dims.h}px`,
           );
-        else if (
-          r === 'regression' &&
-          typeof GSRUI.drawRegressionScatterPlot === 'function'
-        ) {
+        else if (r === 'regression') {
           GSRUI.drawRegressionScatterPlot();
         }
       }

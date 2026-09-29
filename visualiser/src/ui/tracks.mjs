@@ -515,9 +515,7 @@ export const GSRTrackManager = {
           AppState.mapManager.map.removeLayer(track.layerGroup);
         }
         track.layerGroup = null;
-        if (typeof AppState.mapManager._forgetTrackGroup === 'function') {
-          AppState.mapManager._forgetTrackGroup(trackId);
-        }
+        AppState.mapManager._forgetTrackGroup(trackId);
       }
 
       AppState.collectiveManager.removeTrack(trackId);

@@ -123,7 +123,7 @@ export class GSRMapToggles extends GSRMapCollective {
     });
     // Re-apply badge de-clutter: the loop above re-added every badge, including
     // ones a previous pass had folded away.
-    if (visible && typeof this._declutterArousalPlaceBadges === 'function') {
+    if (visible) {
       this._declutterArousalPlaceBadges();
     }
   }

@@ -270,10 +270,7 @@ export const ViewSwitcherEvents = {
       // rather than a second detection — one signal decides both this and
       // the Live view's own map-first default. Desktop (AppState.viewMode
       // stays 'single' as today) is completely unaffected.
-      if (
-        typeof GSRLiveView.isCompactLayout === 'function' &&
-        GSRLiveView.isCompactLayout()
-      ) {
+      if (GSRLiveView.isCompactLayout()) {
         enterLiveView();
       }
     }

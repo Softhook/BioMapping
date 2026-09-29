@@ -167,10 +167,7 @@ export class GSRMapPath extends GSRMapRfFluid {
       }
 
       this._lastPathZoom = z;
-      const params =
-        typeof GSRStorage.buildGpsParams === 'function'
-          ? GSRStorage.buildGpsParams()
-          : {};
+      const params = GSRStorage.buildGpsParams();
       // Hand the overlap pooling just computed to the re-render, which would
       // otherwise redo it for the same points, metric and radius — the
       // costliest step of the redraw that ends every zoom.

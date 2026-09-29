@@ -131,7 +131,7 @@ export class GSRMapLegend extends GSRMapViewport {
         phasic: 'Phasic (SCR)',
         tonic: 'Tonic (SCL)',
         peakDensity: 'Peak Density',
-        phasicAUC: `Phasic AUC${AppState?.analyzer?.phasicAUCIsISCR ? ' (ISCR)' : ''}`,
+        phasicAUC: `Phasic AUC${AppState.analyzer?.phasicAUCIsISCR ? ' (ISCR)' : ''}`,
         arousalIndex: 'Arousal Index',
         triIndex: 'Tri Index',
         edasymp: 'EDASymp',

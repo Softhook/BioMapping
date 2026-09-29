@@ -1097,20 +1097,11 @@ export const GSRMapExporter = {
     }
 
     const mode = !smooth || exact ? 'none' : curveMode;
-    if (typeof BezierSpline.fitPathD === 'function') {
-      return BezierSpline.fitPathD(pts, {
-        curveMode: mode,
-        closed: close,
-        precision: 3,
-      });
-    }
-
-    if (pts.length < 2) return `M${pts[0].x.toFixed(3)} ${pts[0].y.toFixed(3)}`;
-    let d = `M${pts[0].x.toFixed(3)} ${pts[0].y.toFixed(3)}`;
-    for (let i = 1; i < pts.length; i++) {
-      d += ` L${pts[i].x.toFixed(3)} ${pts[i].y.toFixed(3)}`;
-    }
-    return close ? `${d} Z` : d;
+    return BezierSpline.fitPathD(pts, {
+      curveMode: mode,
+      closed: close,
+      precision: 3,
+    });
   },
 
   // ═══════════════════════════════════════════════════════════════════
@@ -1311,10 +1302,6 @@ export const GSRMapExporter = {
   //  Color, String & Download Utilities
   // ═══════════════════════════════════════════════════════════════════
 
-  _hslToHex(h, s = 100, l = 50) {
-    return MapColors.hslToHex(h, s, l);
-  },
-
   _ratioToHex(ratio, lightness = 50) {
     return MapColors.ratioToHex(ratio, lightness);
   },
@@ -1335,15 +1322,7 @@ export const GSRMapExporter = {
   },
 
   _esc(v) {
-    if (typeof GSRNotices.escapeHtml === 'function') {
-      return GSRNotices.escapeHtml(v);
-    }
-    if (v == null) return '';
-    return String(v)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;');
+    return GSRNotices.escapeHtml(v);
   },
 
   async _download(svg, mode) {

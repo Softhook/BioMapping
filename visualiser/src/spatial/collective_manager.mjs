@@ -6,7 +6,6 @@
 import { GSR_CONST } from '../core/constants.mjs';
 import { GeoUtils } from '../gps/geo_utils.mjs';
 import { MarchingSquares } from '../render/marching_squares.mjs';
-import { GsrFilter } from '../signal/gsr_filter.mjs';
 import { PhysioLatency } from '../signal/physio_latency.mjs';
 import { StatsMath } from '../signal/stats_math.mjs';
 import { GSRSpatialClustering } from './spatial_clustering.mjs';
@@ -431,12 +430,7 @@ export class GSRCollectiveManager {
     // of the series.
     const perTrackNorm = (raw) => {
       if (!useNormalization || !raw || raw.length === 0) return null;
-      const statsFn = GsrFilter?.calculateStats
-        ? GsrFilter.calculateStats
-        : StatsMath?.calculateStats
-          ? StatsMath.calculateStats
-          : null;
-      const s = statsFn ? statsFn(raw.map((d) => d.val)) : { mean: 0, std: 1 };
+      const s = StatsMath.calculateStats(raw.map((d) => d.val));
       return { mean: s.mean, std: s.std || 1 };
     };
 
@@ -615,8 +609,6 @@ export class GSRCollectiveManager {
     const getDistanceMeters = (lat1, lon1, lat2, lon2) =>
       GeoUtils.distanceMeters(lat1, lon1, lat2, lon2, scale);
 
-    const latStep = rows > 1 ? (bounds.maxLat - bounds.minLat) / (rows - 1) : 0;
-    const lonStep = cols > 1 ? (bounds.maxLon - bounds.minLon) / (cols - 1) : 0;
     const gridLatOf = (r) =>
       bounds.minLat + (r / (rows - 1)) * (bounds.maxLat - bounds.minLat);
     const gridLonOf = (c) =>
@@ -624,39 +616,16 @@ export class GSRCollectiveManager {
     // Window (in grid rows/cols) that could possibly fall within `meters` of
     // a point at (lat, lon) — delegates to shared SpatialGrid.computeCellWindow.
     const cellWindowFor = (lat, lon, meters) =>
-      typeof SpatialGrid.computeCellWindow === 'function'
-        ? SpatialGrid.computeCellWindow(
-            lat,
-            lon,
-            meters,
-            bounds,
-            rows,
-            cols,
-            DEG_TO_M_LAT,
-            DEG_TO_M_LON,
-          )
-        : {
-            rMin: Math.max(
-              0,
-              Math.round((lat - bounds.minLat) / latStep) -
-                Math.max(1, Math.ceil(meters / DEG_TO_M_LAT / latStep)),
-            ),
-            rMax: Math.min(
-              rows - 1,
-              Math.round((lat - bounds.minLat) / latStep) +
-                Math.max(1, Math.ceil(meters / DEG_TO_M_LAT / latStep)),
-            ),
-            cMin: Math.max(
-              0,
-              Math.round((lon - bounds.minLon) / lonStep) -
-                Math.max(1, Math.ceil(meters / DEG_TO_M_LON / lonStep)),
-            ),
-            cMax: Math.min(
-              cols - 1,
-              Math.round((lon - bounds.minLon) / lonStep) +
-                Math.max(1, Math.ceil(meters / DEG_TO_M_LON / lonStep)),
-            ),
-          };
+      SpatialGrid.computeCellWindow(
+        lat,
+        lon,
+        meters,
+        bounds,
+        rows,
+        cols,
+        DEG_TO_M_LAT,
+        DEG_TO_M_LON,
+      );
 
     // Boundary mask — is this cell within isolationRadius of ANY (sampled)
     // walk-track point? Splat each sampled point onto its own small window
@@ -805,9 +774,6 @@ export class GSRCollectiveManager {
       }
       sortedCoverageVals.sort((a, b) => a - b);
 
-      const rankFn = StatsMath?.percentileRank
-        ? StatsMath.percentileRank
-        : null;
       coverageRatioGrid = Array.from({ length: rows }, () =>
         new Array(cols).fill(null),
       );
@@ -816,9 +782,10 @@ export class GSRCollectiveManager {
         for (let c = 0; c < cols; c++) {
           const idx = rowOff + c;
           if (!nearTrack[idx]) continue;
-          coverageRatioGrid[r][c] = rankFn
-            ? rankFn(coverageGrid[idx], sortedCoverageVals)
-            : 1;
+          coverageRatioGrid[r][c] = StatsMath.percentileRank(
+            coverageGrid[idx],
+            sortedCoverageVals,
+          );
         }
       }
       upsampledCoverageRatioGrid =
@@ -1114,10 +1081,7 @@ export class GSRCollectiveManager {
         // Fall back to a linear step across the value range if percentile rank hit a flat baseline plateau
         level = minVal + (k / (contourCount + 1)) * valRange;
         levelKey = level.toFixed(6);
-        if (
-          typeof StatsMath.percentileRank === 'function' &&
-          sortedVals.length > 1
-        ) {
+        if (sortedVals.length > 1) {
           ratio = StatsMath.percentileRank(level, sortedVals);
         }
       }

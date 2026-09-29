@@ -89,9 +89,7 @@ export const SurfaceSwitcherEvents = {
         });
         // A track loaded while the globe was up left its auto-fit deferred (the
         // hidden map can't be flown to) — frame it now that 2D is back.
-        if (typeof AppState.mapManager._applyPendingFit === 'function') {
-          AppState.mapManager._applyPendingFit();
-        }
+        AppState.mapManager._applyPendingFit();
       }
     };
     this.setSurface = setSurface;

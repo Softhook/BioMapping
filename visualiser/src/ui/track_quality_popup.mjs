@@ -7,6 +7,7 @@
  */
 
 import { GSR_CONST } from '../core/constants.mjs';
+import { GSRNotices } from '../core/notices.mjs';
 import { GeoUtils } from '../gps/geo_utils.mjs';
 import { GpsPipeline } from '../gps/gps_pipeline.mjs';
 
@@ -256,8 +257,7 @@ export const GSRTrackQualityPopup = {
     let dateTimeStr = '';
     if (a.recordingStartTime && a.recordingStartTime >= 86400) {
       const dateStr = this.formatDateUK(a.recordingStartTime);
-      const timeStr =
-        typeof a.formatTimeOnly === 'function' ? a.formatTimeOnly(0) : '';
+      const timeStr = a.formatTimeOnly(0);
       dateTimeStr = timeStr ? `${dateStr}, ${timeStr}` : dateStr;
     } else if (n > 0) {
       dateTimeStr = `${durationStr} recording`;
@@ -296,12 +296,10 @@ export const GSRTrackQualityPopup = {
     this._ensureAnalysed(track);
 
     let stats = null;
-    if (typeof a.getStats === 'function') {
-      try {
-        stats = a.getStats();
-      } catch (_err) {
-        // Fall back gracefully
-      }
+    try {
+      stats = a.getStats();
+    } catch (_err) {
+      // Fall back gracefully
     }
 
     const peakList = Array.isArray(a.peaks)
@@ -395,11 +393,11 @@ export const GSRTrackQualityPopup = {
     // Integrity badge / icon
     let integrityHtml = '';
     if (s.integrity.status === 'verified') {
-      integrityHtml = `<span class="tq-badge tq-badge-verified" title="${escapeHtml(s.integrity.detail || 'CRC32 checksum verified')}"><i class="fa-solid fa-circle-check"></i> Verified</span>`;
+      integrityHtml = `<span class="tq-badge tq-badge-verified" title="${GSRNotices.escapeHtml(s.integrity.detail || 'CRC32 checksum verified')}"><i class="fa-solid fa-circle-check"></i> Verified</span>`;
     } else if (s.integrity.status === 'incomplete') {
-      integrityHtml = `<span class="tq-badge tq-badge-incomplete" title="${escapeHtml(s.integrity.detail || 'Recording did not end cleanly')}"><i class="fa-solid fa-triangle-exclamation"></i> Incomplete</span>`;
+      integrityHtml = `<span class="tq-badge tq-badge-incomplete" title="${GSRNotices.escapeHtml(s.integrity.detail || 'Recording did not end cleanly')}"><i class="fa-solid fa-triangle-exclamation"></i> Incomplete</span>`;
     } else if (s.integrity.status === 'corrupt') {
-      integrityHtml = `<span class="tq-badge tq-badge-corrupt" title="${escapeHtml(s.integrity.detail || 'Checksum failure')}"><i class="fa-solid fa-circle-xmark"></i> Corrupt</span>`;
+      integrityHtml = `<span class="tq-badge tq-badge-corrupt" title="${GSRNotices.escapeHtml(s.integrity.detail || 'Checksum failure')}"><i class="fa-solid fa-circle-xmark"></i> Corrupt</span>`;
     }
 
     // Notes pill
@@ -444,7 +442,7 @@ export const GSRTrackQualityPopup = {
         <div class="tq-sensor-row">
           <div class="tq-sensor-label"><i class="fa-solid fa-tower-broadcast"></i> RF:</div>
           <div class="tq-sensor-value">
-            <span class="tq-tag tq-tag-info">${escapeHtml(bandsStr)}</span>
+            <span class="tq-tag tq-tag-info">${GSRNotices.escapeHtml(bandsStr)}</span>
           </div>
         </div>
       `;
@@ -455,7 +453,7 @@ export const GSRTrackQualityPopup = {
     if (s.warnings && s.warnings.length > 0) {
       const cleanWarnings = s.warnings
         .slice(0, 2)
-        .map((w) => `<li>${escapeHtml(w)}</li>`)
+        .map((w) => `<li>${GSRNotices.escapeHtml(w)}</li>`)
         .join('');
       warningsHtml = `
         <div class="tq-warnings">
@@ -469,8 +467,8 @@ export const GSRTrackQualityPopup = {
       <div class="tq-card">
         <div class="tq-header">
           <div class="tq-title-group">
-            <span class="tq-color-dot" style="background-color: ${escapeHtml(s.color)};"></span>
-            <span class="tq-name">${escapeHtml(s.name)}</span>
+            <span class="tq-color-dot" style="background-color: ${GSRNotices.escapeHtml(s.color)};"></span>
+            <span class="tq-name">${GSRNotices.escapeHtml(s.name)}</span>
           </div>
           <div class="tq-status-group">
             <span class="tq-type-badge">${s.trackType}</span>
@@ -482,7 +480,7 @@ export const GSRTrackQualityPopup = {
           <span class="tq-meta-item"><i class="fa-regular fa-clock"></i> ${s.durationStr}</span>
           ${s.gps.hasGps ? `<span class="tq-meta-item"><i class="fa-solid fa-route"></i> ${s.distanceStr}</span>` : ''}
           ${notesHtml}
-          ${s.dateTimeStr ? `<span class="tq-meta-item tq-date"><i class="fa-regular fa-calendar"></i> ${escapeHtml(s.dateTimeStr)}</span>` : ''}
+          ${s.dateTimeStr ? `<span class="tq-meta-item tq-date"><i class="fa-regular fa-calendar"></i> ${GSRNotices.escapeHtml(s.dateTimeStr)}</span>` : ''}
         </div>
 
         <div class="tq-sensors">
@@ -573,14 +571,4 @@ function median(list) {
   if (list.length === 0) return null;
   const sorted = Float64Array.from(list).sort();
   return sorted[sorted.length >> 1];
-}
-
-function escapeHtml(str) {
-  if (!str) return '';
-  return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
 }

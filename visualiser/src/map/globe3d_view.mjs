@@ -100,25 +100,23 @@ export const GSRGlobe3DView = {
     GSRGlobe3DView._bindCard(els);
     GSRGlobe3DView._updateAttribution();
 
-    if (AppState?.on) {
-      // Trailing debounce — a GSR/GPS slider drag fires 'map:rendered' dozens of
-      // times a second and each push tears down and rebuilds the whole 3D wall
-      // primitive. Rebuild once, ~0.25s after the user stops moving.
-      AppState.on('map:rendered', () => {
-        if (!GSRGlobe3DView.isActive || AppState.viewMode === 'collective')
-          return;
-        clearTimeout(GSRGlobe3DView._pushTimer);
-        GSRGlobe3DView._pushTimer = setTimeout(() => {
-          if (GSRGlobe3DView.isActive && AppState.viewMode !== 'collective')
-            GSRGlobe3DView._pushFromMap();
-        }, 250);
-      });
+    // Trailing debounce — a GSR/GPS slider drag fires 'map:rendered' dozens of
+    // times a second and each push tears down and rebuilds the whole 3D wall
+    // primitive. Rebuild once, ~0.25s after the user stops moving.
+    AppState.on('map:rendered', () => {
+      if (!GSRGlobe3DView.isActive || AppState.viewMode === 'collective')
+        return;
+      clearTimeout(GSRGlobe3DView._pushTimer);
+      GSRGlobe3DView._pushTimer = setTimeout(() => {
+        if (GSRGlobe3DView.isActive && AppState.viewMode !== 'collective')
+          GSRGlobe3DView._pushFromMap();
+      }, 250);
+    });
 
-      // Graph/map scrub cursor -> 3D globe. The single 'scrub' channel every
-      // surface shares (renderer.js emits it on graph hover, events.js relays
-      // it to the 2D map). A 'graph'-sourced scrub also drives the follow-cam.
-      AppState.on('scrub', (p) => GSRGlobe3DView._onScrub(p));
-    }
+    // Graph/map scrub cursor -> 3D globe. The single 'scrub' channel every
+    // surface shares (renderer.js emits it on graph hover, events.js relays
+    // it to the 2D map). A 'graph'-sourced scrub also drives the follow-cam.
+    AppState.on('scrub', (p) => GSRGlobe3DView._onScrub(p));
 
     // Document-level, bound once for the page's lifetime — same pattern as
     // layout_manager.mjs's setupKeyboardShortcuts() and live_view.mjs's
@@ -899,11 +897,7 @@ export const GSRGlobe3DView = {
 
     // Reconstruct geometry whenever we have json but no geoms (a cache load or a
     // fresh fetch) — this is all the 2D OSM vector-shapes button needs.
-    if (
-      osmJson &&
-      !analyzer.osmGeoms &&
-      typeof OSMEnricher.reconstructGeometries === 'function'
-    ) {
+    if (osmJson && !analyzer.osmGeoms) {
       analyzer.osmGeoms = OSMEnricher.reconstructGeometries(osmJson);
     }
     return osmJson;
@@ -1138,9 +1132,7 @@ export const GSRGlobe3DView = {
 
     const metric = mm.activeColoringMetric || 'gsr';
     const colorRange = { min: mm._legendMinVal, max: mm._legendMaxVal };
-    const gpsParams = GSRStorage?.buildGpsParams
-      ? GSRStorage.buildGpsParams()
-      : {};
+    const gpsParams = GSRStorage.buildGpsParams();
 
     // Single-track scope: reuse the 2D view's exact drawPoints.
     const drawPoints = mm._lastDrawPoints || [];
@@ -1188,7 +1180,7 @@ export const GSRGlobe3DView = {
 
     // Render the exact same legend the 2D map shows — title, gradient/swatches,
     // formatted range, RF sub-legend and all (see GSRMapManager.buildLegendHtml).
-    if (els.legend && mm && typeof mm.buildLegendHtml === 'function') {
+    if (els.legend && mm) {
       els.legend.innerHTML = mm.buildLegendHtml();
     }
   },

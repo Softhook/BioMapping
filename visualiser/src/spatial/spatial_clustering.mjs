@@ -293,80 +293,16 @@ export const GSRSpatialClustering = {
       const w = weightForPeak(pk);
       const pkLat = parseFloat(pk.lat);
       const pkLon = parseFloat(pk.lon);
-      const { rMin, rMax, cMin, cMax } =
-        typeof SpatialGrid.computeCellWindow === 'function'
-          ? SpatialGrid.computeCellWindow(
-              pkLat,
-              pkLon,
-              cutoffMeters,
-              bounds,
-              rows,
-              cols,
-              scale.degToMeterLat,
-              scale.degToMeterLon,
-            )
-          : {
-              rMin: Math.max(
-                0,
-                Math.round(
-                  (pkLat - bounds.minLat) /
-                    ((bounds.maxLat - bounds.minLat) / (rows - 1)),
-                ) -
-                  Math.max(
-                    1,
-                    Math.ceil(
-                      cutoffMeters /
-                        scale.degToMeterLat /
-                        ((bounds.maxLat - bounds.minLat) / (rows - 1)),
-                    ),
-                  ),
-              ),
-              rMax: Math.min(
-                rows - 1,
-                Math.round(
-                  (pkLat - bounds.minLat) /
-                    ((bounds.maxLat - bounds.minLat) / (rows - 1)),
-                ) +
-                  Math.max(
-                    1,
-                    Math.ceil(
-                      cutoffMeters /
-                        scale.degToMeterLat /
-                        ((bounds.maxLat - bounds.minLat) / (rows - 1)),
-                    ),
-                  ),
-              ),
-              cMin: Math.max(
-                0,
-                Math.round(
-                  (pkLon - bounds.minLon) /
-                    ((bounds.maxLon - bounds.minLon) / (cols - 1)),
-                ) -
-                  Math.max(
-                    1,
-                    Math.ceil(
-                      cutoffMeters /
-                        scale.degToMeterLon /
-                        ((bounds.maxLon - bounds.minLon) / (cols - 1)),
-                    ),
-                  ),
-              ),
-              cMax: Math.min(
-                cols - 1,
-                Math.round(
-                  (pkLon - bounds.minLon) /
-                    ((bounds.maxLon - bounds.minLon) / (cols - 1)),
-                ) +
-                  Math.max(
-                    1,
-                    Math.ceil(
-                      cutoffMeters /
-                        scale.degToMeterLon /
-                        ((bounds.maxLon - bounds.minLon) / (cols - 1)),
-                    ),
-                  ),
-              ),
-            };
+      const { rMin, rMax, cMin, cMax } = SpatialGrid.computeCellWindow(
+        pkLat,
+        pkLon,
+        cutoffMeters,
+        bounds,
+        rows,
+        cols,
+        scale.degToMeterLat,
+        scale.degToMeterLon,
+      );
 
       const degLat = scale.degToMeterLat;
       const degLon = scale.degToMeterLon;

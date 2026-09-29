@@ -352,6 +352,7 @@ test('hslToHex: accurately converts primary and secondary hues', () => {
   assert.strictEqual(MapColors.hslToHex(240, 100, 50), '#0000ff'); // Blue
   assert.strictEqual(MapColors.hslToHex(0, 0, 0), '#000000'); // Black
   assert.strictEqual(MapColors.hslToHex(0, 0, 100), '#ffffff'); // White
+  assert.strictEqual(MapColors.hslToHex(90, 0, 50), '#808080'); // 0% saturation = grey
 });
 
 test('hslStringToHex: parses and converts hsl() strings to hex', () => {

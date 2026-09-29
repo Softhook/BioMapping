@@ -1016,17 +1016,7 @@ export class GSRGlobeBase {
 
     // Runs on every preRender frame — compute the fixed bounds once.
     if (this._minPitchRad === undefined) {
-      const toRad = (deg) => {
-        if (
-          typeof Cesium !== 'undefined' &&
-          Cesium.Math &&
-          typeof Cesium.Math.toRadians === 'function'
-        ) {
-          const val = Cesium.Math.toRadians(deg);
-          if (typeof val === 'number') return val;
-        }
-        return (deg * Math.PI) / 180.0;
-      };
+      const toRad = (deg) => (deg * Math.PI) / 180;
       this._minPitchRad = toRad(-89.9);
       this._maxPitchRad = toRad(-10.0);
     }

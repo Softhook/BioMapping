@@ -71,26 +71,11 @@ export const EnrichmentUI = {
       return { allTracks: [], validTracks: [] };
     }
 
-    const isValid = (lat, lon) => {
-      if (typeof NDVISampler._isValidCoord === 'function') {
-        return NDVISampler._isValidCoord(lat, lon);
-      }
-      if (typeof OSMEnricher._isValidCoord === 'function') {
-        return OSMEnricher._isValidCoord(lat, lon);
-      }
-      return (
-        lat != null &&
-        lon != null &&
-        !isNaN(lat) &&
-        !isNaN(lon) &&
-        Math.abs(lat) > 0.001 &&
-        Math.abs(lon) > 0.001
-      );
-    };
-
     const validTracks = allTracks.filter((t) => {
       if (!t?.analyzer?.raw) return false;
-      return t.analyzer.raw.some((pt) => pt && isValid(pt.lat, pt.lon));
+      return t.analyzer.raw.some(
+        (pt) => pt && OSMEnricher._isValidCoord(pt.lat, pt.lon),
+      );
     });
 
     if (validTracks.length === 0) {
