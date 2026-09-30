@@ -13,7 +13,7 @@
  *    tests/support/boot_live.js, the same role #1 plays for app_entry.mjs.
  * 3. every local href/src in either HTML file (plus every import in both
  *    entry modules) resolves to a real file.
- * 4. the demo CSV that tracks.js fetch()es at runtime actually exists where
+ * 4. the demo CSV that track_loading.mjs fetch()es at runtime actually exists where
  *    the fetch path points.
  *
  * CDN resources (https://…) are ignored throughout. config.js is a committed
@@ -187,19 +187,19 @@ test('the CARTO basemap key resolution lives in one shared module, consumed by m
   }
 });
 
-test('the demo CSV tracks.js fetch()es exists at that path', () => {
-  const src = readApp('src/ui/tracks.mjs');
+test('the demo CSV track_loading.mjs fetch()es exists at that path', () => {
+  const src = readApp('src/ui/track_loading.mjs');
   const fetched = [...src.matchAll(/fetch\(['"]([^'"]+)['"]\)/g)]
     .map((m) => m[1])
     .filter(isLocal);
   assert.ok(
     fetched.length > 0,
-    'tracks.js makes no local fetch() — test is stale',
+    'track_loading.mjs makes no local fetch() — test is stale',
   );
   for (const rel of fetched) {
     assert.ok(
       fs.existsSync(path.join(APP_DIR, rel)),
-      `tracks.js fetch('${rel}') has no file at visualiser/${rel}`,
+      `track_loading.mjs fetch('${rel}') has no file at visualiser/${rel}`,
     );
   }
 });

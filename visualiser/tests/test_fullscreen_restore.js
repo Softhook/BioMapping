@@ -307,7 +307,8 @@ test('standalone FAB Exit Full Screen clears the sticky target', async () => {
 });
 
 // ==========================================================================
-// File-dialog "Restore Fullscreen" pill (src/ui/tracks.js).
+// File-dialog "Restore Fullscreen" pill (GSRFullscreen.showRestorePill,
+// shown by src/ui/track_loading.mjs).
 // ==========================================================================
 
 test('the file-dialog "Restore Fullscreen" pill re-enters fullscreen on click', async () => {
@@ -317,7 +318,17 @@ test('the file-dialog "Restore Fullscreen" pill re-enters fullscreen on click', 
   const appContainer = document.querySelector('.app-container');
   const fs = installFullscreen(window, appContainer);
 
-  window.GSRTrackManager._showRestoreFsPill();
+  // Go through the real <input> change listener: it is bound unbound, so
+  // this catches handleFileSelect reading its state from `this` (the input).
+  const TM = window.GSRTrackManager;
+  TM.handleIncomingFiles = () => {};
+  TM._browserFsSave = true;
+  const input = document.getElementById('fileInput');
+  Object.defineProperty(input, 'files', {
+    value: [new window.File(['x'], 'a.csv')],
+  });
+  input.dispatchEvent(new window.Event('change'));
+  assert.strictEqual(TM._browserFsSave, false, 'flag reset after the dialog');
   const pill = [...document.querySelectorAll('div')].find((d) =>
     /Restore Fullscreen/.test(d.textContent),
   );

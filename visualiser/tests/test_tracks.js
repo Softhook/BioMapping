@@ -49,6 +49,9 @@ const { GSRUI: RealGSRUI } = require('../src/ui/ui.mjs');
 const { GSRRenderer: RealGSRRenderer } = require('../src/render/renderer.mjs');
 const { GSRStorage: RealGSRStorage } = require('../src/ui/storage.mjs');
 const {
+  GSRFullscreen: RealGSRFullscreen,
+} = require('../src/core/fullscreen.mjs');
+const {
   GSRCollectiveProject: RealGSRCollectiveProject,
 } = require('../src/spatial/collective_project.mjs');
 
@@ -1148,11 +1151,11 @@ test('handleFileSelect: shows the restore-fullscreen pill and resets the flag wh
   resetSpies();
   global.AppState = freshAppState();
   let pillShown = false;
-  // _showRestoreFsPill does real DOM + an 8s setTimeout — irrelevant to
+  // showRestorePill does real DOM + an 8s setTimeout — irrelevant to
   // handleFileSelect's own logic (whether it *decides* to call it), so it's
   // stubbed here rather than driven for real.
-  const originalPill = GSRTrackManager._showRestoreFsPill;
-  GSRTrackManager._showRestoreFsPill = () => {
+  const originalPill = RealGSRFullscreen.showRestorePill;
+  RealGSRFullscreen.showRestorePill = () => {
     pillShown = true;
   };
   GSRTrackManager._browserFsSave = true;
@@ -1166,7 +1169,7 @@ test('handleFileSelect: shows the restore-fullscreen pill and resets the flag wh
     false,
     'flag reset before processing',
   );
-  GSRTrackManager._showRestoreFsPill = originalPill;
+  RealGSRFullscreen.showRestorePill = originalPill;
   delete global.AppState;
 });
 
