@@ -54,6 +54,11 @@ export class GSRAnalyzer {
     // bounds which peaks may be hotspots (Live is only ever shown at 0).
     this.responseDelay = 0;
     this.maxResponseDelay = ResponseDelay.MAX_S;
+    // Rows whose time label is off their real time (device hold-ups; set by
+    // parseCSV, 1 = off). They get no place. offTimeRaw is the raw array the
+    // flags belong to, so rows replaced some other way aren't misread.
+    this.offTime = null;
+    this.offTimeRaw = null;
 
     // Continuous, threshold-independent arousal metrics (see
     // docs/environmental_stress_literature_review.md §5-6). These resolve the
@@ -626,6 +631,8 @@ export class GSRAnalyzer {
     this.isEnriched = result.isEnriched;
     this.integrity = result.integrity;
     this._csvWarnings = result.warnings;
+    this.offTime = result.offTime || null;
+    this.offTimeRaw = this.raw;
 
     // Restore imported peak labels/exclusions onto the persistent user-label
     // store (the parser builds the maps; only the analyzer owns setPeakLabel).

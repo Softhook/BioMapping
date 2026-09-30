@@ -6,9 +6,9 @@ Reviewed 2026-09-30, on `main` at 3131167.
 
 **Status on 2026-09-30:**
 
-- **Step 1 is built** on branch `response-delay`. It is not merged into
-  `main` and not pushed.
-- **Steps 2 and 3 are still to do.**
+- **Steps 1 and 3 are built** on branch `response-delay`. It is not merged
+  into `main` and not pushed.
+- **Step 2 (screenshots) is still to do.**
 - The findings below describe the code **before** the build.
 
 **Commits on `response-delay`:**
@@ -20,6 +20,7 @@ Reviewed 2026-09-30, on `main` at 3131167.
 | 0cb6dc5 | Step 1b: the graph on the place-time clock, hover sync |
 | 5ef9535 | Step 1c: the 3D wall, spires and CZML/KML export by place |
 | 88c230f | Doc status line |
+| (step 3) | Timestamp fixes: clock-text rows, device hold-ups, the dashboard's one second |
 
 **Where things live:**
 
@@ -58,8 +59,8 @@ Reviewed 2026-09-30, on `main` at 3131167.
 
 | Command | What it proves | Last result |
 |---|---|---|
-| `npm test` | Unit tests, including the 27 design tests in `tests/test_response_delay.js` and the 0 s record in `tests/test_response_delay_zero_baseline.js` | 1751 pass, 0 fail, 3 "to do" (step 3) |
-| `node tests/manual/response_delay/baseline.js --check` | Every walk in `tracks/` at 0 s is unchanged, except hotspots | 0 other changes on 73 walks; 13 hotspot changes, all explained (below) |
+| `npm test` | Unit tests, including the design tests in `tests/test_response_delay.js` and the 0 s record in `tests/test_response_delay_zero_baseline.js` | 1755 pass, 0 fail, 0 "to do" |
+| `node tests/manual/response_delay/baseline.js --check` | Every walk in `tracks/` at 0 s is unchanged, except hotspots and the walks step 3 fixes | 13 hotspot changes, all explained (below); other changes only in the walks listed under "What step 3 changed" |
 | `node tests/manual/response_delay/sync_check.js [--delay=2] [--break]` | In real Chrome, hovering a peak puts the map dot on its own marker, the path colour there is its reading, the road band matches the dashboard, and the label shows place time | Passes at 2 s and 5 s; `--break` fails all 12 peaks |
 | `npm run smoke -- --compare=main` | Whole app in Chrome | 22/22 |
 
@@ -75,6 +76,29 @@ steps are done.
   The next-biggest peak took its place.
 - **Newhaven and biomap_025:** the 2 % hotspot target rounded down from 5 to 4.
 - **biomap_021:** a 6-second walk, so it has no hotspot.
+
+**What step 3 changed** (checked on all 73 walks):
+
+- **Clock-text walks** (030, 031, 032, 038, 039, and also 040, 042 and 043,
+  which the first pass missed): rows are now spread within their own
+  labelled second (`GSRCSVParser._spreadSharedTimes`). Before, 20–75 % of
+  rows sat outside their second, by up to 0.9 s. Their peaks, paths and
+  group maps change a little, as expected.
+- **Device hold-ups** (`GSRCSVParser._offTimeRows`, `analyzer.offTime`): in
+  files with `tick_dt_ms`, a row labelled more than 0.5 s from its real
+  time gets no place, from either side of the pairing.
+  - biomap_121: 147 rows (the 6.4 s hold-up at about 8 min).
+  - biomap_114, 115, 116, 118, 123: 1–8 rows each, mostly the first row
+    (a slow first tick followed by a burst).
+  - A row missing from the file (the label jumps a tick) counts as one
+    normal tick. Without that, biomap_011, 012 and 015, which drop a row
+    about every 10 s, would have looked up to 5 s off.
+- **Dashboard** "last second" windows (arousal and walking speed) are one
+  second by time (`secondStart` in `environmental_stats.mjs`). At 10 Hz
+  this is the same 10 rows as before, except across a missing row. The
+  live-stream exports (3.3 Hz) now average 1 s, not 3 s.
+- **Re-exported files** keep no `tick_dt_ms`, so the hold-up flags don't
+  survive an export and re-import.
 
 **Gotchas for whoever continues:**
 
@@ -93,14 +117,7 @@ steps are done.
 
 1. **Step 2:** screenshots at 0, 2 and 3 s of single view, 3D and the group
    map, to show the user everything moving together.
-2. **Step 3:** the timestamp fixes (findings 11 and 12, and the 1-second
-   window in finding 4).
-   - Remove the `todo: STEP3` marks in `tests/test_response_delay.js` as
-     each fix lands.
-   - The walking-speed window in `EnvironmentalStats.buildSamples` should
-     also become seconds rather than 10 rows. The design test already
-     expects that at 10 Hz.
-3. **After that:** the user decides whether to merge `response-delay` into
+2. **After that:** the user decides whether to merge `response-delay` into
    `main`. Check with `npm run smoke -- --compare=main` first.
 
 ---

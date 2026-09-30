@@ -2,7 +2,7 @@
  * Response delay: the tests written before the build. Each one states a rule
  * from the Solution design in docs/time_offsets_review.md. Tests for a step
  * not built yet are marked `todo`, so they run and report but don't fail the
- * suite; each step removes the marks for what it delivers.
+ * suite; each step removed the marks for what it delivered.
  *
  * The rule: the slider moves all body data (GSR, tonic, phasic, peaks,
  * hotspots, the indices) by the same amount against all place data
@@ -47,7 +47,6 @@ const {
   isoWalkCsv,
 } = require('./support/response_delay_walks.js');
 
-const STEP3 = 'Timestamp fixes not built yet (step 3)';
 const HZ = 10;
 const rows = (s) => Math.round(s * HZ);
 
@@ -484,9 +483,7 @@ test('reloading an export gives the same places — no double shift', () => {
 
 // ── Timestamps (step 3) ─────────────────────────────────────────────────────
 
-test('old clock-text files: every row stays inside its own labelled second', {
-  todo: STEP3,
-}, () => {
+test('old clock-text files: every row stays inside its own labelled second', () => {
   const { csv, labels } = isoWalkCsv();
   const a = new GSRAnalyzer();
   a.parseCSV(csv);
@@ -499,9 +496,7 @@ test('old clock-text files: every row stays inside its own labelled second', {
   });
 });
 
-test('device hold-up: readings stamped more than 0.5 s from their real time get no place', {
-  todo: STEP3,
-}, () => {
+test('device hold-up: readings stamped more than 0.5 s from their real time get no place', () => {
   // Normal 100 ms ticks, a start-up delay on the first row (as in every real
   // file; it shifts the whole walk equally, so it doesn't count), then a 3 s
   // hold-up at row 600 caught up by a burst of instant ticks.
@@ -522,9 +517,21 @@ test('device hold-up: readings stamped more than 0.5 s from their real time get 
   }
 });
 
-test('dashboard: "the last second" is one second at any sample rate', {
-  todo: STEP3,
-}, () => {
+test('device hold-up: rows missing from the file are not mistaken for a hold-up', () => {
+  // Some files drop one row every ~10 s: the label jumps a tick while
+  // tick_dt_ms stays 100 ms either side. That is a missing row, not lost
+  // time, so nothing may be flagged.
+  const lines = straightWalkCsv({ tickDt: (i) => (i === 0 ? 533 : 100) })
+    .trimEnd()
+    .split('\n');
+  const kept = lines.filter((_, k) => k < 2 || (k - 2) % 100 !== 99);
+  const a = new GSRAnalyzer();
+  a.parseCSV(`${kept.join('\n')}\n`);
+  assert.ok(a.raw.length < lines.length - 2, 'rows were dropped');
+  assert.strictEqual(a.offTime, null);
+});
+
+test('dashboard: "the last second" is one second at any sample rate', () => {
   const a = walk({ hz: 10 / 3 }, 0); // live-stream rate
   a.isEnriched = true;
   const samples = EnvironmentalStats.buildSamples(

@@ -40,6 +40,84 @@ function withDefaults(parsed, defaults) {
 }
 
 export const GSRCSVParser = {
+  // A row labelled further than this from its real time has its time
+  // flagged as unreliable (docs/time_offsets_review.md, finding 12).
+  OFF_TIME_S: 0.5,
+
+  /**
+   * Rows whose time label is more than OFF_TIME_S from when they were really
+   * recorded. The device labels each row one tick (0.1 s) after the last, even
+   * when its main loop was held up and then caught up in a burst; tick_dt_ms
+   * records the real time between ticks, so the real times can be rebuilt.
+   * A row missing from the file (the label jumps a tick) counts as one normal
+   * tick. What stays is measured against the walk's usual offset (the median;
+   * every file starts with one start-up delay that shifts the whole walk
+   * equally, which is harmless).
+   * @param {Array<{time:number}>} rows - in file order
+   * @param {number[]} tickDts - each row's tick_dt_ms (NaN if blank)
+   * @returns {Set<object>} the rows that are off
+   */
+  _offTimeRows(rows, tickDts) {
+    const n = rows.length;
+    const off = new Set();
+    if (n < 2) return off;
+    const steps = [];
+    for (let i = 1; i < n; i++) {
+      const d = rows[i].time - rows[i - 1].time;
+      if (d > 0) steps.push(d);
+    }
+    if (!steps.length) return off;
+    steps.sort((x, y) => x - y);
+    const tick = steps[steps.length >> 1];
+    const err = new Float64Array(n);
+    let real = 0;
+    for (let i = 0; i < n; i++) {
+      const label = rows[i].time - rows[0].time;
+      if (i > 0) {
+        const gap = rows[i].time - rows[i - 1].time;
+        real += Math.max(0, Math.round(gap / tick) - 1) * tick;
+        const dt = tickDts[i];
+        real += Number.isFinite(dt) ? dt / 1000 : Math.min(gap, tick);
+      }
+      err[i] = real - label;
+    }
+    const usual = Float64Array.from(err).sort()[n >> 1];
+    for (let i = 0; i < n; i++) {
+      if (Math.abs(err[i] - usual) > this.OFF_TIME_S + 1e-6) off.add(rows[i]);
+    }
+    return off;
+  },
+
+  /**
+   * Rows that share a timestamp (old clock-text files label about ten rows
+   * with the same whole second) are spread evenly across their own label's
+   * step: up to the next label, but never further than the file's smallest
+   * step (1 s for clock text). So no row leaves its own labelled second,
+   * however many rows that second holds. Rows in time order; edited in place.
+   */
+  _spreadSharedTimes(rows) {
+    const n = rows.length;
+    let step = Infinity;
+    for (let i = 1; i < n; i++) {
+      const d = rows[i].time - rows[i - 1].time;
+      if (d > 0 && d < step) step = d;
+    }
+    if (!Number.isFinite(step)) {
+      // Every row has the same label: fall back to 10 Hz.
+      for (let i = 0; i < n; i++) rows[i].time = i * 0.1;
+      return;
+    }
+    for (let i = 0; i < n; ) {
+      const t = rows[i].time;
+      let end = i + 1;
+      while (end < n && rows[end].time === t) end++;
+      const span = end < n ? Math.min(rows[end].time - t, step) : step;
+      const count = end - i;
+      for (let r = 0; r < count; r++) rows[i + r].time = t + (r * span) / count;
+      i = end;
+    }
+  },
+
   /**
    * Environment columns an enriched export carries, in file order: the OSM
    * metrics (GSR_CONST.OSM_METRICS), then point and 50 m NDVI. `digits` is
@@ -587,6 +665,10 @@ export const GSRCSVParser = {
     // to the lat/lon-presence heuristic below when absent (raw device CSVs, or
     // processed CSVs exported before this column existed).
     const isGpsFixColIdx = headers.indexOf('is_gps_fix');
+    // Measured time between device ticks (debug firmware only), kept apart
+    // from the rows for _offTimeRows().
+    const tickDtColIdx = headers.indexOf('tick_dt_ms');
+    const tickDts = tickDtColIdx !== -1 ? [] : null;
 
     const RF_BANDS = SUB_GHZ_BANDS.map((b) => b.prop);
     const rfColIdx = {};
@@ -820,6 +902,7 @@ export const GSRCSVParser = {
         }
       }
       rawDataList.push(row);
+      if (tickDts) tickDts.push(parseFloat(cols[tickDtColIdx]));
     }
 
     if (rawDataList.length === 0) {
@@ -920,8 +1003,22 @@ export const GSRCSVParser = {
       csvWarnings = warnings;
     }
 
+    // Rows whose label is off their real time (device hold-ups), worked out
+    // in file order, then carried through the sort by row.
+    const offTimeSet = tickDts
+      ? GSRCSVParser._offTimeRows(rawDataList, tickDts)
+      : null;
+
     // Sort chronologically
     rawDataList.sort((a, b) => a.time - b.time);
+
+    let offTime = null;
+    if (offTimeSet?.size) {
+      offTime = new Uint8Array(rawDataList.length);
+      rawDataList.forEach((r, i) => {
+        if (offTimeSet.has(r)) offTime[i] = 1;
+      });
+    }
 
     // Reconstruct sub-second timestamps if multiple rows share identical seconds
     let hasDuplicates = false;
@@ -933,19 +1030,7 @@ export const GSRCSVParser = {
     }
 
     if (hasDuplicates) {
-      const firstTime = rawDataList[0].time;
-      const lastTime = rawDataList[rawDataList.length - 1].time;
-      const totalTimeDiff = lastTime - firstTime;
-      if (totalTimeDiff > 0) {
-        const step = totalTimeDiff / (rawDataList.length - 1);
-        for (let i = 0; i < rawDataList.length; i++) {
-          rawDataList[i].time = firstTime + i * step;
-        }
-      } else {
-        for (let i = 0; i < rawDataList.length; i++) {
-          rawDataList[i].time = i * 0.1;
-        }
-      }
+      GSRCSVParser._spreadSharedTimes(rawDataList);
     }
 
     // Store the recording start clock time (Unix epoch seconds).
@@ -1084,6 +1169,7 @@ export const GSRCSVParser = {
       warnings: csvWarnings,
       importedPeakLabels: importedPeakLabels,
       importedPeakExcluded: importedPeakExcluded,
+      offTime: offTime,
     };
   },
 };

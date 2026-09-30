@@ -22,6 +22,19 @@ const PEAK_BIN_S = 15;
 const META_SOLID = 5;
 
 const isNum = (v) => typeof v === 'number' && !isNaN(v);
+// Row times carry float noise (6.9 − 1 = 5.8999999999999995); a row within
+// this of a window's start is outside it.
+const EPS_S = 1e-6;
+/**
+ * First row of the one second ending at row `end` (rows with time in
+ * (t − 1, t]), so "the last second" is one second at any sample rate.
+ */
+const secondStart = (raw, end) => {
+  const from = raw[end].time - 1 + EPS_S;
+  let s = end;
+  while (s > 0 && raw[s - 1].time > from) s--;
+  return s;
+};
 // Peaks counted by the dashboard: not excluded, and paired with a place that
 // has a position — the same rule buildSamples() applies to its samples, so
 // peak counts and the time they are divided by cover the same stretch of walk.
@@ -125,11 +138,11 @@ export const EnvironmentalStats = {
         if (place < 0) continue;
         const envPt = a.raw[place];
 
-        // Walking speed is place data too: the mean over the trailing
-        // 1 s (10 samples @ 10 Hz) at the place.
+        // Walking speed is place data too: the mean over the last second
+        // at the place.
         let sumSpeed = 0;
         let speedCount = 0;
-        for (let j = Math.max(0, place - 9); j <= place; j++) {
+        for (let j = secondStart(a.raw, place); j <= place; j++) {
           const rawSpd = a.raw[j].speedKts;
           if (isNum(rawSpd)) {
             sumSpeed += rawSpd * KNOTS_TO_MS;
@@ -137,9 +150,9 @@ export const EnvironmentalStats = {
           }
         }
 
-        // Aggregate arousal over the trailing 1 s (10 samples @ 10 Hz):
-        // mean for level, max for the phasic peak.
-        const windowStartIdx = Math.max(0, i - 9);
+        // Aggregate arousal over the last second: mean for level, max for
+        // the phasic peak.
+        const windowStartIdx = secondStart(a.raw, i);
         let sumVal = 0;
         let sumTonic = 0;
         let maxPhasic = 0;
