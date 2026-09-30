@@ -182,7 +182,7 @@ test('_interpolateGPS: all NaN rows → hasGps remains false', () => {
   assert.ok(rows.every((r) => r.hasGps === false));
 });
 
-test('_interpolateGPS: rows before first fix are constant-filled from first fix', () => {
+test('_interpolateGPS: rows before the first fix get no position (not pinned to the first fix)', () => {
   const rows = makeRows([
     { lat: NaN, lon: NaN, time: 0 },
     { lat: NaN, lon: NaN, time: 1 },
@@ -190,11 +190,12 @@ test('_interpolateGPS: rows before first fix are constant-filled from first fix'
     { lat: 51.6, lon: -0.2, time: 3 },
   ]);
   GSRCSVParser._interpolateGPS(rows);
-  assert.strictEqual(rows[0].lat, 51.5, 'row 0 lat filled from first fix');
-  assert.strictEqual(rows[0].lon, -0.1, 'row 0 lon filled from first fix');
-  assert.strictEqual(rows[1].lat, 51.5, 'row 1 lat filled from first fix');
-  assert.ok(rows[0].hasGps === true);
-  assert.ok(rows[1].hasGps === true);
+  for (const i of [0, 1]) {
+    assert.ok(Number.isNaN(rows[i].lat), `row ${i} lat stays NaN`);
+    assert.ok(Number.isNaN(rows[i].lon), `row ${i} lon stays NaN`);
+    assert.strictEqual(rows[i].hasGps, false);
+  }
+  assert.strictEqual(rows[2].lat, 51.5, 'first fix itself untouched');
 });
 
 test('_interpolateGPS: rows after last fix are constant-filled from last fix', () => {
@@ -240,15 +241,15 @@ test('_interpolateGPS: real fix rows get hasGps = true', () => {
   assert.ok(rows[1].hasGps === true);
 });
 
-test('_interpolateGPS: sentinel (0,0) treated as no-fix, filled from real fix', () => {
+test('_interpolateGPS: sentinel (0,0) treated as no-fix', () => {
   // Coordinates (0,0) satisfy abs < 0.0001 — treated as a sentinel, not a real fix
   const rows = makeRows([
     { lat: 0, lon: 0, time: 0 },
     { lat: 51.0, lon: -0.1, time: 1 },
   ]);
   GSRCSVParser._interpolateGPS(rows);
-  assert.strictEqual(rows[0].lat, 51.0, 'sentinel row filled from real fix');
-  assert.strictEqual(rows[0].lon, -0.1);
+  assert.ok(Number.isNaN(rows[0].lat), 'sentinel row cleared, not a position');
+  assert.strictEqual(rows[0].hasGps, false);
 });
 
 // ══════════════════════════════════════════════════════════════════════════════

@@ -326,11 +326,9 @@ export const GpsPipeline = {
       return;
     }
 
-    // Fill before first
-    const firstIdx = validIndices[0];
-    const firstCoord = filteredMap.get(firstIdx);
-    for (let i = 0; i < firstIdx; i++)
-      filteredGps[i] = { lat: firstCoord.lat, lon: firstCoord.lon };
+    // No position before the first fix: those rows are not drawn or used.
+    for (let i = 0; i < validIndices[0]; i++)
+      filteredGps[i] = { lat: NaN, lon: NaN };
 
     // Interpolate between valid points, leaving only physically impossible
     // jumps as NaN (see isImpossibleJump). Anything less — a brisk walk, a

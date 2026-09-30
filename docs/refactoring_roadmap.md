@@ -112,11 +112,13 @@ all 58 tracks; Arousal Places: same places on all 53 tracks with peaks,
 ranking changed on 12).
 
 Still open:
-- **GPS warm-up rows.** Rows before the first fix (up to 4½ min) have no real
-  position; both paths pin them to the first position. Arousal Places then
-  credits that time's skin responses to whichever place the pinned point falls
-  in — this caused the largest ranking moves (e.g. biomap_016's #2 → #13).
-  Probably those rows should count as "no position".
+- ~~**GPS warm-up rows.**~~ Done (2026-09-30, user decision): rows before
+  the first fix get no position in either path (parser and smoothed path),
+  so they are not drawn, not used by Arousal Places, the collective surface,
+  the Environmental dashboard or enrichment, and export as blank lat/lon.
+  They stay on the GSR graph. 12 of 74 tracks affected (24.5 min in total,
+  up to 5⅓ min on one walk); all process without errors. Rows after the
+  last fix are still held at the last position.
 - ~~OSM enrichment~~ done: enrichment now map-matches and evaluates from
   the smoothed path before any road snap (`GpsPipeline.unsnappedPath`), and
   computes its metrics at the positions it snaps to. It deliberately does not
