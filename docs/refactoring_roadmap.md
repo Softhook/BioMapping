@@ -118,7 +118,8 @@ Still open:
   the Environmental dashboard or enrichment, and export as blank lat/lon.
   They stay on the GSR graph. 12 of 74 tracks affected (24.5 min in total,
   up to 5⅓ min on one walk); all process without errors. Rows after the
-  last fix are still held at the last position.
+  last fix are treated the same way (7 tracks, 7.3 min in total, mostly two
+  live exports with ~3½ min each).
 - ~~OSM enrichment~~ done: enrichment now map-matches and evaluates from
   the smoothed path before any road snap (`GpsPipeline.unsnappedPath`), and
   computes its metrics at the positions it snaps to. It deliberately does not

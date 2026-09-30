@@ -420,11 +420,13 @@ export const GpsPipeline = {
       }
     }
 
-    // Fill after last
+    // The last fix itself; no position after it (those rows are not drawn
+    // or used, like the rows before the first fix).
     const lastIdx = validIndices[validIndices.length - 1];
     const lastCoord = filteredMap.get(lastIdx);
-    for (let i = lastIdx; i < data.length; i++)
-      filteredGps[i] = { lat: lastCoord.lat, lon: lastCoord.lon };
+    filteredGps[lastIdx] = { lat: lastCoord.lat, lon: lastCoord.lon };
+    for (let i = lastIdx + 1; i < data.length; i++)
+      filteredGps[i] = { lat: NaN, lon: NaN };
 
     analyzer.filteredGps = filteredGps;
   },

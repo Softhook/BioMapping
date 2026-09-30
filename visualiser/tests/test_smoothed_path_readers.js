@@ -24,7 +24,8 @@ const { OSMEnricher } = require('../src/osm/osm_enrichment.mjs');
  */
 function walkAnalyzer() {
   const rows = [];
-  for (let i = 0; i < 400; i++) {
+  // Ends on a fix (row 400): rows after the last fix have no smoothed position.
+  for (let i = 0; i <= 400; i++) {
     const isFix = i % 10 === 0;
     const lat = 51.5 + i * 1e-6;
     const lon = -0.1 + (i === 200 ? 0.00085 : 0);

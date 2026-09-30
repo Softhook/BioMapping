@@ -198,7 +198,7 @@ test('_interpolateGPS: rows before the first fix get no position (not pinned to 
   assert.strictEqual(rows[2].lat, 51.5, 'first fix itself untouched');
 });
 
-test('_interpolateGPS: rows after last fix are constant-filled from last fix', () => {
+test('_interpolateGPS: rows after the last fix get no position (not held at the last fix)', () => {
   const rows = makeRows([
     { lat: 51.5, lon: -0.1, time: 0 },
     { lat: 51.6, lon: -0.2, time: 1 },
@@ -206,10 +206,12 @@ test('_interpolateGPS: rows after last fix are constant-filled from last fix', (
     { lat: NaN, lon: NaN, time: 3 },
   ]);
   GSRCSVParser._interpolateGPS(rows);
-  assert.strictEqual(rows[2].lat, 51.6, 'row 2 lat filled from last fix');
-  assert.strictEqual(rows[3].lon, -0.2, 'row 3 lon filled from last fix');
-  assert.ok(rows[2].hasGps === true);
-  assert.ok(rows[3].hasGps === true);
+  for (const i of [2, 3]) {
+    assert.ok(Number.isNaN(rows[i].lat), `row ${i} lat stays NaN`);
+    assert.ok(Number.isNaN(rows[i].lon), `row ${i} lon stays NaN`);
+    assert.strictEqual(rows[i].hasGps, false);
+  }
+  assert.strictEqual(rows[1].lat, 51.6, 'last fix itself untouched');
 });
 
 test('_interpolateGPS: gap between two fixes is linearly interpolated', () => {

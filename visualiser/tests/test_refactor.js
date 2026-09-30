@@ -637,6 +637,23 @@ assert(!GpsPipeline.isImpossibleJump(0, 1), 'no movement is kept');
   assertEq(fg[2].lat, 51.5, 'reconstructFilteredGps first fix kept');
 }
 
+// 5d3. reconstructFilteredGps — rows after the last fix get no position
+{
+  const mockAnalyzer = { filteredGps: null };
+  const data = [{ time: 0 }, { time: 1 }, { time: 2 }, { time: 3 }];
+  const gpsPoints = [
+    { lat: 51.5, lon: -0.1, origIdx: 0 },
+    { lat: 51.50001, lon: -0.1, origIdx: 1 },
+  ];
+  GpsPipeline.reconstructFilteredGps(mockAnalyzer, data, gpsPoints);
+  const fg = mockAnalyzer.filteredGps;
+  assertEq(fg[1].lat, 51.50001, 'reconstructFilteredGps last fix kept');
+  assert(
+    Number.isNaN(fg[2].lat) && Number.isNaN(fg[3].lon),
+    'reconstructFilteredGps leaves rows after the last fix without a position',
+  );
+}
+
 // 5e. reconstructFilteredGps — large gap → NaN
 {
   const mockAnalyzer = { filteredGps: null };

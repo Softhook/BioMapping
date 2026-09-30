@@ -288,11 +288,10 @@ export const GSRCSVParser = {
    * Mutates rawDataList in-place:
    *
    * 1. Mark genuine fix rows (hasGps = true) and clear sentinel (0, 0) rows.
-   *    Rows before the first fix stay without a position.
+   *    Rows before the first fix and after the last stay without a position.
    * 2. Linearly interpolate lat/lon between each pair of adjacent anchors;
    *    step-hold DOP, fix_type, speed and course from the prior anchor
    *    (they change too discontinuously to interpolate meaningfully).
-   * 3. Constant-fill rows after the last fix from the last fix's position.
    *
    * @param {Array<object>} rawDataList - Mutable array of parsed row objects.
    * @private
@@ -319,7 +318,8 @@ export const GSRCSVParser = {
 
     // Rows before the first fix keep no position (hasGps false, NaN): the
     // walker's location is unknown, so they are left off the map and out of
-    // every spatial analysis rather than pinned to the first fix.
+    // every spatial analysis rather than pinned to the first fix. The same
+    // holds after the last fix.
 
     // 2. Linearly interpolate between adjacent anchors
     for (let k = 0; k < gpsIndices.length - 1; k++) {
@@ -348,22 +348,6 @@ export const GSRCSVParser = {
         d.course = dA.course;
         d.hasGps = true;
       }
-    }
-
-    // 3. Fill rows after the last fix
-    const lastGpsIdx = gpsIndices[gpsIndices.length - 1];
-    const lastGps = rawDataList[lastGpsIdx];
-    for (let i = lastGpsIdx + 1; i < rawDataList.length; i++) {
-      const r = rawDataList[i];
-      r.lat = lastGps.lat;
-      r.lon = lastGps.lon;
-      r.sats = lastGps.sats;
-      r.hdop = lastGps.hdop;
-      r.pdop = lastGps.pdop;
-      r.fixType = lastGps.fixType;
-      r.speedKts = lastGps.speedKts;
-      r.course = lastGps.course;
-      r.hasGps = true;
     }
   },
 
