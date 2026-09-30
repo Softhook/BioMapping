@@ -550,7 +550,7 @@ test('device hold-up with no catch-up: later times are corrected, not left off',
 });
 
 test('device hold-up with no catch-up: near the ends at most 5 s is left off', () => {
-  for (const at of [30, 1760]) {
+  for (const at of [30, 60, 100, 140, 1760]) {
     const a = walk(
       { tickDt: (i) => (i === 0 ? 533 : i === at ? 3000 : 100) },
       0,
@@ -558,6 +558,33 @@ test('device hold-up with no catch-up: near the ends at most 5 s is left off', (
     const n = a.offTime ? a.offTime.reduce((sum, v) => sum + v, 0) : 0;
     assert.ok(n <= rows(5), `hold-up at row ${at}: ${n} rows left off`);
   }
+});
+
+test('device hold-up: corrected times never go back, whatever the pattern', () => {
+  const patterns = {
+    'catch-up over a minute': (i) =>
+      i === 0 ? 533 : i === 600 ? 6000 : i > 600 && i < 1200 ? 90 : 100,
+    'device runs fast after': (i) =>
+      i === 0 ? 533 : i === 600 ? 3000 : i > 900 && i < 1000 ? 70 : 100,
+    'partial catch-up': (i) =>
+      i === 0 ? 533 : i === 800 ? 5000 : i > 800 && i < 820 ? 0 : 100,
+  };
+  for (const [name, tickDt] of Object.entries(patterns)) {
+    const a = walk({ tickDt }, 0);
+    // The walk heads due east, so file order is rising longitude.
+    for (let i = 1; i < a.raw.length; i++) {
+      assert.ok(a.raw[i].time > a.raw[i - 1].time, `${name}: row ${i} time`);
+      assert.ok(a.raw[i].lon > a.raw[i - 1].lon, `${name}: row ${i} order`);
+    }
+  }
+});
+
+test('device hold-up: the start-up burst every file has is not mentioned', () => {
+  // A slow first tick then a quick burst, as real files start.
+  const tickDt = (i) => (i === 0 ? 700 : i < 7 ? 3 : 100);
+  const a = walk({ tickDt }, 0);
+  assert.ok(a.offTime?.[0], 'the first reading is still left off');
+  assert.ok(!a._csvWarnings?.some((w) => w.includes('catching up')));
 });
 
 test('device hold-up: rows missing from the file are not mistaken for a hold-up', () => {

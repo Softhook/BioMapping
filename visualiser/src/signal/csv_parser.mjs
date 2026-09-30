@@ -51,6 +51,13 @@ export const GSRCSVParser = {
   // Nearer the start there is no correction (the start is the reference);
   // nearer the end the last judged correction carries on.
   SETTLE_MIN_S: 5,
+  // The walk's starting offset is judged over this much (s) of its start.
+  // Kept short so that a hold-up early in the walk can't pass for the start:
+  // at most half of it can come after one.
+  START_S: 10,
+  // Readings this close (s) to the start are the device starting up; they
+  // are left off like any other, but not mentioned in the notice.
+  STARTUP_S: 1,
 
   /**
    * Rebuilds when each row was really recorded, for devices that write
@@ -60,14 +67,15 @@ export const GSRCSVParser = {
    * file (the label jumps a tick) counts as one normal tick.
    *
    * Each row's offset (real time − label) is compared with the walk's
-   * starting offset (the median over the first SETTLE_WINDOW_S; every file
+   * starting offset (the median over the first START_S; every file
    * starts with a start-up delay that shifts the whole walk equally, which is
    * harmless). The start is the reference because a hold-up only ever puts
    * the device behind, so everything before the first one is on time:
    *   - Where the offset has settled at a new level (the median over
    *     SETTLE_WINDOW_S either side has moved by more than OFF_TIME_S), the
    *     device fell behind and never caught up: those rows' times are
-   *     corrected by that amount (only forwards; rows are sorted afterwards).
+   *     corrected by that amount (only forwards). A correction never shrinks
+   *     by a whole tick from one row to the next, so rows stay in order.
    *   - A row still more than OFF_TIME_S off after that is inside a catch-up
    *     burst: its time can't be trusted, so it is returned in `off`.
    * @param {Array<{time:number}>} rows - in file order; times corrected in place
@@ -101,7 +109,10 @@ export const GSRCSVParser = {
       err[i] = real - label;
     }
     const W = Math.max(1, Math.round(this.SETTLE_WINDOW_S / tick));
-    const first = Float64Array.from(err.subarray(0, Math.min(n, W + 1))).sort();
+    const startRows = Math.max(1, Math.round(this.START_S / tick));
+    const first = Float64Array.from(
+      err.subarray(0, Math.min(n, startRows + 1)),
+    ).sort();
     const usual = first[first.length >> 1];
     const limit = this.OFF_TIME_S + 1e-6;
     let anyOff = false;
@@ -138,6 +149,9 @@ export const GSRCSVParser = {
       const settled = win[win.length >> 1] - usual;
       let shift = settled > limit ? settled : 0;
       if (h < hMin) shift = i < n / 2 ? 0 : prevShift;
+      // Never back in time: the label moves on one tick a row, so the
+      // correction may shrink by just under a tick at most.
+      shift = Math.max(shift, prevShift - 0.99 * tick);
       if (Math.abs(err[i] - usual - shift) > limit) off.add(rows[i]);
       if (shift && Math.abs(shift - prevShift) > limit) {
         corrected.push({ row: rows[i], byS: shift });
@@ -1075,11 +1089,17 @@ export const GSRCSVParser = {
             `Times from there on have been corrected by ${c.byS.toFixed(1)} s.`,
         );
       }
-      if (offTimeSet.size) {
+      // The notice leaves out the device starting up (a slow first tick,
+      // then a quick burst), which every file has and which doesn't matter.
+      const shownOff = rawDataList.filter(
+        (r) => offTimeSet.has(r) && r.time - t0 >= GSRCSVParser.STARTUP_S,
+      );
+      if (shownOff.length) {
         // The separate moments (runs of neighbouring rows), in plain words.
+        const shownSet = new Set(shownOff);
         const moments = [];
         rawDataList.forEach((r, i) => {
-          if (offTimeSet.has(r) && !offTimeSet.has(rawDataList[i - 1])) {
+          if (shownSet.has(r) && !shownSet.has(rawDataList[i - 1])) {
             moments.push(at(r));
           }
         });
@@ -1090,9 +1110,10 @@ export const GSRCSVParser = {
             : shown.length > 1
               ? `${shown.slice(0, -1).join(', ')} and ${shown.at(-1)}`
               : shown[0];
-        const one = offTimeSet.size === 1;
+        const count = shownOff.length;
+        const one = count === 1;
         warnings.push(
-          `${offTimeSet.size} reading${one ? ' was' : 's were'} recorded while ` +
+          `${count} reading${one ? ' was' : 's were'} recorded while ` +
             `the device was catching up after a hold-up (at about ${list}), ` +
             `so ${one ? 'its time is' : 'their times are'} wrong. ` +
             `${one ? 'It is' : 'They are'} left off the map (the path is grey there).`,

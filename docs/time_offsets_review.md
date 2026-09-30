@@ -94,9 +94,18 @@ steps are done.
   - A row still more than 0.5 s off is inside a catch-up burst. It gets no
     place, from either side of the pairing, and the graph tooltip, junction
     windows and dashboard averages skip it too.
-  - Within 5 s of either end of a walk a lasting offset can't be judged, so
-    at most 5 s there is left off rather than corrected.
-  - The walk's quality popup says what was corrected or left off, and when.
+  - The walk's start (first 10 s) is the reference, so a hold-up more than
+    5 s in can't pass for the start. Within 5 s of either end a lasting
+    offset can't be judged, so at most 5 s there is left off rather than
+    corrected.
+  - A correction never shrinks by a whole tick from one row to the next, so
+    rows stay in order.
+  - A catch-up spread over more than about 30 s is not recognised as
+    lasting; the stretch is left off (about 25 s for a 60 s catch-up). The
+    device's real catch-ups take a second or two.
+  - The walk's quality popup (which now lists every notice, not just two)
+    says what was corrected or left off, and when. The device starting up
+    (the first second) is left off like any other but not mentioned.
   - biomap_121: 147 rows left off (the 6.4 s hold-up at about 8 min).
   - biomap_114, 115, 116, 118, 123: 1–8 rows each, mostly the first row
     (a slow first tick followed by a burst).

@@ -452,7 +452,6 @@ export const GSRTrackQualityPopup = {
     let warningsHtml = '';
     if (s.warnings && s.warnings.length > 0) {
       const cleanWarnings = s.warnings
-        .slice(0, 2)
         .map((w) => `<li>${GSRNotices.escapeHtml(w)}</li>`)
         .join('');
       warningsHtml = `
