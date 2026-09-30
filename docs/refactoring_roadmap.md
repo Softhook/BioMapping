@@ -14,7 +14,7 @@ The work was done on branch **`refactor-phase1`**, which is now fully merged int
 Tests passing is not enough on its own. For anything that touches analysis
 output:
 
-1. Run `npm test` in `visualiser/` (1668 tests, 0 failures at last run).
+1. Run `npm test` in `visualiser/` (1716 tests, 0 failures at last run).
 2. Run the old code (a `git worktree` of the previous commit) and the new code
    over every recording in `tracks/` (73 files), dump the outputs to JSON and
    check they are byte-identical.
@@ -72,18 +72,30 @@ Do one item at a time, one commit each.
   the normal short height and full screen (timeline bar shown). Capture the
   canvas with `toDataURL`, not an element screenshot: the CSS hotspot pulse
   ring overlaps the canvas and makes screenshots differ run to run.
+- **`ui/tracks.mjs` split** (branch `refactor-phase2`): file loading
+  (picker, drag & drop, project zip, demo track) is in
+  `ui/track_loading.mjs`, the sidebar list and renaming in
+  `ui/track_list.mjs`; both are spread into `GSRTrackManager`, and reach it
+  through `Controllers.trackManager`. The two loaders share one
+  `_addParsedTrack()`. The restore-fullscreen pill moved to
+  `GSRFullscreen.showRestorePill()`. Bug fixed on the way: the file input
+  was given `handleFileSelect` unbound, so the pill never appeared after a
+  file dialog; the jsdom test now goes through the real listener.
+- **Environmental dashboard stats** moved out of
+  `updateEnvironmentalDashboard()` into `spatial/environmental_stats.mjs`
+  (pure, no DOM; the UI file went from 893 to 259 lines). Verified
+  byte-identical on 13 enriched walks and the 11-walk Stokey collective;
+  new `test_environmental_stats.js` covers the walk-count grading.
+- **Last `confirm()`** (live map, large tile download) is now a
+  `GSRNotices.dialog()`. Both it and "Map area ready offline" checked in
+  headless Chromium.
 
 ---
 
 ## To do (in suggested order)
 
 ### 1. ~~Merge `refactor-phase1` into `main`~~ — done
-Still worth doing once: check the "Map area ready offline" popup on the live
-page in a real browser (the only new message not yet seen on screen).
-
-### 7. Split `ui/tracks.mjs`
-~755 lines mixing file loading and the sidebar track list. Separate the file
-loading (CSV/zip/demo) from the list rendering. Lower value than items 2–6.
+### 7. ~~Split `ui/tracks.mjs`~~ — done (see above)
 
 ### 8. GPS gaps filled twice — done: analyses now use the drawn path
 Measured on the 58 tracks with GPS (default settings), parser position vs
@@ -124,7 +136,7 @@ Still open:
 ### Optional (cosmetic moves, only if touching the file anyway)
 - Move the path-overlap code (`_buildOverlapCells` and friends, ~200 lines of
   pure maths) out of `map/map_base.mjs` into its own file.
-- Move `_showRestoreFsPill` from `ui/tracks.mjs` into `core/fullscreen.mjs`.
+- ~~Move `_showRestoreFsPill` into `core/fullscreen.mjs`~~ — done.
 
 ---
 
@@ -132,7 +144,6 @@ Still open:
 
 - **Decide:** error toasts auto-dismiss after 8 s, where `alert()` made you
   click OK. Should red errors stay until clicked (warnings still fade)?
-- `live/live_map.mjs` still uses a blocking `confirm()` (line ~246); could
-  become a `GSRNotices.dialog()`.
+- ~~`live/live_map.mjs` blocking `confirm()`~~ — done.
 - ~~`ui/ui_peaks_table.mjs:352` lint warning (`useTemplate`)~~ — fixed in the
   working tree (2026-09-28), not yet committed.
