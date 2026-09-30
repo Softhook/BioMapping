@@ -287,7 +287,7 @@ test('haversine of antipodal points is half the circumference, not NaN', () => {
   assert.ok(Math.abs(d - Math.PI * GeoUtils.EARTH_RADIUS_M) < 1, `${d}`);
 });
 
-test('OSM metrics before the first GPS fix hold its value, not a backwards extrapolation', () => {
+test('OSM metrics: no values where there is no position; before the first evaluation point they hold, not extrapolate', () => {
   const metrics = (green, distRoad) => ({
     roadClass: 'residential',
     inPark: 0,
@@ -300,16 +300,21 @@ test('OSM metrics before the first GPS fix hold its value, not a backwards extra
     treeDensity: 0,
     amenityCount: 0,
   });
-  // First fix at row 50: rows 0-49 have no position yet.
+  // First GPS fix at row 45 (rows 0-44 have no position); first evaluation
+  // point at row 50.
   const computed = [
     { idx: 50, metrics: metrics(20, 100) },
     { idx: 60, metrics: metrics(40, 50) },
   ];
-  const raw = Array.from({ length: 61 }, () => ({}));
+  const raw = Array.from({ length: 61 }, (_, i) =>
+    i >= 45 ? { lat: 51.5, lon: -0.1 } : { lat: NaN, lon: NaN },
+  );
   OSMEnricher._projectToTimeline(raw, computed);
-  // Unclamped, row 0 read green -80 % and a -150 m road distance.
-  assert.strictEqual(raw[0].osm_green_pct_50m, 20);
-  assert.strictEqual(raw[0].osm_dist_major_road, 100);
+  assert.strictEqual(raw[0].osm_road_class, null);
+  assert.ok(Number.isNaN(raw[44].osm_green_pct_50m));
+  // Unclamped, row 45 would read green 10 % and a 125 m road distance.
+  assert.strictEqual(raw[45].osm_green_pct_50m, 20);
+  assert.strictEqual(raw[45].osm_dist_major_road, 100);
   assert.strictEqual(raw[55].osm_green_pct_50m, 30); // still interpolates between fixes
 });
 

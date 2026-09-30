@@ -803,17 +803,57 @@ export const OSMEnricher = {
   },
 
   /**
+   * First and last row index that has a position: from `positions`
+   * (_enrichmentPositions) when given, else the raw rows with a lat/lon.
+   * Rows outside it (before the first GPS fix, after the last) have no
+   * position, so get no map context or snap. `first > last` when none has.
+   * @private
+   */
+  _positionedRange(raw, positions = null) {
+    if (positions) {
+      return positions.length
+        ? { first: positions[0].idx, last: positions[positions.length - 1].idx }
+        : { first: 0, last: -1 };
+    }
+    const hasPos = (i) => !isNaN(raw[i]?.lat) && !isNaN(raw[i]?.lon);
+    let first = 0;
+    while (first < raw.length && !hasPos(first)) first++;
+    let last = raw.length - 1;
+    while (last >= 0 && !hasPos(last)) last--;
+    return { first, last };
+  },
+
+  /**
    * Project sparse evaluation metrics onto the full 10 Hz raw timeline
    * using linear interpolation for continuous variables and step
-   * interpolation for categorical variables.
+   * interpolation for categorical variables. Only rows with a position
+   * (see _positionedRange) get values; the rest are cleared to the CSV
+   * parser's blanks (null road class, NaN otherwise).
    */
-  _projectToTimeline(raw, computedMetrics) {
+  _projectToTimeline(raw, computedMetrics, positions = null) {
     if (computedMetrics.length === 0) return;
+    const { first: firstPos, last: lastPos } = this._positionedRange(
+      raw,
+      positions,
+    );
+    for (let i = 0; i < raw.length; i++) {
+      if (i >= firstPos && i <= lastPos) continue;
+      raw[i].osm_road_class = null;
+      raw[i].osm_in_park = NaN;
+      raw[i].osm_dist_major_road = NaN;
+      raw[i].osm_green_pct_50m = NaN;
+      raw[i].osm_dist_green = NaN;
+      raw[i].osm_canopy_pct_50m = NaN;
+      raw[i].osm_building_density_50m = NaN;
+      raw[i].osm_dist_water = NaN;
+      raw[i].osm_tree_density_50m = NaN;
+      raw[i].osm_amenity_count_50m = NaN;
+    }
 
-    // Single-evaluation edge case: broadcast to all samples
+    // Single-evaluation edge case: broadcast to every positioned sample
     if (computedMetrics.length === 1) {
       const m = computedMetrics[0].metrics;
-      for (let i = 0; i < raw.length; i++) {
+      for (let i = firstPos; i <= lastPos; i++) {
         raw[i].osm_road_class = m.roadClass;
         raw[i].osm_in_park = m.inPark;
         raw[i].osm_dist_major_road = m.distMajorRoad;
@@ -830,7 +870,7 @@ export const OSMEnricher = {
 
     let segIdx = 1; // current segment: between [segIdx-1] and [segIdx]
 
-    for (let i = 0; i < raw.length; i++) {
+    for (let i = firstPos; i <= lastPos; i++) {
       // Advance segment when we cross the next evaluation index
       while (
         segIdx < computedMetrics.length &&
@@ -844,8 +884,9 @@ export const OSMEnricher = {
         computedMetrics[Math.min(segIdx, computedMetrics.length - 1)];
 
       const span = next.idx - prev.idx;
-      // Clamped: samples before the first fix hold its value rather than
-      // extrapolating backwards (e.g. to a negative green-space %).
+      // Clamped: positioned samples before the first evaluation point hold
+      // its value rather than extrapolating backwards (e.g. to a negative
+      // green-space %).
       const t = span > 0 ? Math.max(0, Math.min(1, (i - prev.idx) / span)) : 0;
       const p = prev.metrics,
         n = next.metrics;
@@ -1055,11 +1096,11 @@ export const OSMEnricher = {
 
     // 4. Project back to full timeline
     if (onProgress) onProgress('Projecting results to full timeline...');
-    this._projectToTimeline(raw, computedMetrics);
+    this._projectToTimeline(raw, computedMetrics, gpsIndices);
 
     // ── Interpolate snappedGps to full timeline ──────────────────────
     if (doSnap && analyzer.snappedGps) {
-      this._interpolateSnappedGps(analyzer, raw);
+      this._interpolateSnappedGps(analyzer, raw, gpsIndices);
     }
 
     analyzer.isEnriched = true;
@@ -1073,8 +1114,12 @@ export const OSMEnricher = {
    * Fill NaN gaps in analyzer.snappedGps by interpolating along the OSM road
    * geometries when consecutive evaluation points match to the same or connected roads.
    * Prevents straight-line paths cutting corners through buildings.
+   *
+   * The ends are held out to the first/last row that has a position (see
+   * _positionedRange) and no further: rows before the first GPS fix or after
+   * the last have no position, so no snap either.
    */
-  _interpolateSnappedGps(analyzer, raw) {
+  _interpolateSnappedGps(analyzer, raw, positions = null) {
     const sg = analyzer.snappedGps;
     const GPS_MAX_GAP_S = 30;
 
@@ -1095,9 +1140,14 @@ export const OSMEnricher = {
       }
     }
 
-    // Fill before first
+    const { first: firstPos, last: lastPos } = this._positionedRange(
+      raw,
+      positions,
+    );
+
+    // Fill before first, back to the first row with a position
     const first = valid[0];
-    for (let i = 0; i < first; i++) {
+    for (let i = firstPos; i < first; i++) {
       sg[i] = { ...sg[first] };
     }
 
@@ -1205,9 +1255,9 @@ export const OSMEnricher = {
       }
     }
 
-    // Fill after last
+    // Fill after last, up to the last row with a position
     const last = valid[valid.length - 1];
-    for (let i = last; i < sg.length; i++) {
+    for (let i = last; i <= lastPos; i++) {
       sg[i] = { ...sg[last] };
     }
   },
@@ -1288,7 +1338,7 @@ export const OSMEnricher = {
     }
     const prev = analyzer.snappedGps;
     analyzer.snappedGps = snappedGps;
-    this._interpolateSnappedGps(analyzer, raw);
+    this._interpolateSnappedGps(analyzer, raw, gpsIndices);
     const result = analyzer.snappedGps;
     if (commit) {
       analyzer._dataVersion = (analyzer._dataVersion || 0) + 1;

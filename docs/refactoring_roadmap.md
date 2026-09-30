@@ -120,6 +120,11 @@ Still open:
   up to 5⅓ min on one walk); all process without errors. Rows after the
   last fix are treated the same way (7 tracks, 7.3 min in total, mostly two
   live exports with ~3½ min each).
+  Enrichment follows the same rule: the road-snapped path and the OSM
+  context values stop at the first/last row with a position (Stokey: 6747
+  pinned snapped rows gone; 2 of 425 junction passages change, both for the
+  better). Recordings exported before this still carry held OSM values on
+  those rows until re-enriched.
 - ~~OSM enrichment~~ done: enrichment now map-matches and evaluates from
   the smoothed path before any road snap (`GpsPipeline.unsnappedPath`), and
   computes its metrics at the positions it snaps to. It deliberately does not

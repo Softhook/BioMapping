@@ -1466,7 +1466,7 @@ console.log('\n── OSMEnricher: _projectToTimeline ──');
       },
     },
   ];
-  const raw = Array.from({ length: 11 }, () => ({}));
+  const raw = Array.from({ length: 11 }, () => ({ lat: 51.5, lon: -0.1 }));
   OSMEnricher._projectToTimeline(raw, computedMetrics);
 
   assertClose(
@@ -1600,7 +1600,7 @@ console.log('\n── OSMEnricher: _projectToTimeline ──');
       },
     },
   ];
-  const raw = Array.from({ length: 11 }, () => ({}));
+  const raw = Array.from({ length: 11 }, () => ({ lat: 51.5, lon: -0.1 }));
   OSMEnricher._projectToTimeline(raw, computedMetrics);
 
   assertClose(
@@ -1681,7 +1681,7 @@ console.log('\n── OSMEnricher: _projectToTimeline ──');
       },
     },
   ];
-  const raw = Array.from({ length: 11 }, () => ({}));
+  const raw = Array.from({ length: 11 }, () => ({ lat: 51.5, lon: -0.1 }));
   OSMEnricher._projectToTimeline(raw, computedMetrics);
   assertClose(
     raw[5].osm_dist_major_road,
@@ -1722,7 +1722,7 @@ console.log('\n── OSMEnricher: _projectToTimeline ──');
       },
     },
   ];
-  const raw = Array.from({ length: 3 }, () => ({}));
+  const raw = Array.from({ length: 3 }, () => ({ lat: 51.5, lon: -0.1 }));
   OSMEnricher._projectToTimeline(raw, computedMetrics);
   for (let i = 0; i < 3; i++) {
     assertEq(
@@ -2087,8 +2087,8 @@ function wayMapFor(...ways) {
   );
 }
 
-// 8d. _interpolateSnappedGps — fills every index before the first valid one with
-// a distinct copy of that first valid entry's values.
+// 8d. _interpolateSnappedGps — fills every positioned index before the first
+// valid one with a distinct copy of that first valid entry's values.
 {
   const anchor = {
     lat: 51.5005,
@@ -2101,7 +2101,11 @@ function wayMapFor(...ways) {
   };
   const sg = [{ lat: NaN, lon: NaN }, { lat: NaN, lon: NaN }, anchor];
   const analyzer = { snappedGps: sg, osmGeoms: { ways: [] } };
-  const raw = [{ time: 0 }, { time: 1 }, { time: 2 }];
+  const raw = [
+    { time: 0, lat: 51.5, lon: -0.1 },
+    { time: 1, lat: 51.5, lon: -0.1 },
+    { time: 2, lat: 51.5, lon: -0.1 },
+  ];
   OSMEnricher._interpolateSnappedGps(analyzer, raw);
   assertEq(
     sg[0].lat,
@@ -2119,8 +2123,8 @@ function wayMapFor(...ways) {
   );
 }
 
-// 8e. _interpolateSnappedGps — fills every index from the last valid one onward
-// (including re-copying the last valid entry itself into a fresh object).
+// 8e. _interpolateSnappedGps — fills every positioned index from the last valid
+// one onward (including re-copying the last valid entry itself into a fresh object).
 {
   const anchor = {
     lat: 51.5001,
@@ -2134,7 +2138,11 @@ function wayMapFor(...ways) {
   const sg = [anchor, { lat: NaN, lon: NaN }, { lat: NaN, lon: NaN }];
   const originalAnchorRef = sg[0];
   const analyzer = { snappedGps: sg, osmGeoms: { ways: [] } };
-  const raw = [{ time: 0 }, { time: 1 }, { time: 2 }];
+  const raw = [
+    { time: 0, lat: 51.5, lon: -0.1 },
+    { time: 1, lat: 51.5, lon: -0.1 },
+    { time: 2, lat: 51.5, lon: -0.1 },
+  ];
   OSMEnricher._interpolateSnappedGps(analyzer, raw);
   assertEq(
     sg[1].lat,
@@ -2154,6 +2162,53 @@ function wayMapFor(...ways) {
   assert(
     sg[0] !== originalAnchorRef,
     '_interpolateSnappedGps — the last valid entry is reassigned to a fresh object, not left as the original reference',
+  );
+}
+
+// 8e2. _interpolateSnappedGps — rows with no position (before the first GPS fix,
+// after the last) get no snap: the end fills stop at the positioned rows.
+{
+  const snap = (lat) => ({
+    lat,
+    lon: -0.1,
+    roadLat: lat,
+    roadLon: -0.1,
+    alpha: 1,
+    dist: 0,
+    wayId: 100,
+  });
+  const nan = () => ({ lat: NaN, lon: NaN });
+  const sg = [nan(), nan(), snap(51.5002), nan(), snap(51.5004), nan(), nan()];
+  const analyzer = { snappedGps: sg, osmGeoms: { ways: [] } };
+  const P = (t) => ({ time: t, lat: 51.5, lon: -0.1 });
+  const X = (t) => ({ time: t, lat: NaN, lon: NaN });
+  const raw = [X(0), P(1), P(2), P(3), P(4), P(5), X(6)];
+  OSMEnricher._interpolateSnappedGps(analyzer, raw);
+  assert(
+    isNaN(sg[0].lat) && isNaN(sg[6].lat),
+    '_interpolateSnappedGps — rows with no position before/after the fixes stay unsnapped',
+  );
+  assertEq(
+    sg[1].lat,
+    51.5002,
+    '_interpolateSnappedGps — a positioned row before the first snap is still filled',
+  );
+  assertEq(
+    sg[5].lat,
+    51.5004,
+    '_interpolateSnappedGps — a positioned row after the last snap is still filled',
+  );
+
+  // Same result when the caller passes the positions explicitly.
+  const sg2 = [nan(), nan(), snap(51.5002), nan(), snap(51.5004), nan(), nan()];
+  OSMEnricher._interpolateSnappedGps(
+    { snappedGps: sg2, osmGeoms: { ways: [] } },
+    raw,
+    [{ idx: 1 }, { idx: 5 }],
+  );
+  assert(
+    isNaN(sg2[0].lat) && isNaN(sg2[6].lat) && sg2[1].lat === 51.5002,
+    '_interpolateSnappedGps — explicit positions bound the end fills the same way',
   );
 }
 
