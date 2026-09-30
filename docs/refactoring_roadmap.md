@@ -25,6 +25,9 @@ output:
 For anything that changes drawing (plots, maps), take before/after screenshots
 in a real browser (Playwright) and compare them.
 
+Before merging a branch, run the whole-app check in real Chrome:
+`npm run smoke -- --compare=main` (see `visualiser/tests/manual/smoke/`).
+
 Do one item at a time, one commit each.
 
 ---

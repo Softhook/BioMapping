@@ -8,6 +8,7 @@
     "bench:stokey": "node tests/manual/bench/bench_stokey.js",
     "zoomperf": "node tests/manual/zoom_perf/run.js",
     "zoomperf:check": "node tests/manual/zoom_perf/check.js",
+    "smoke": "node tests/manual/smoke/smoke.js",
     "lint": "biome check src tests",
     "lint:fix": "biome check --write src tests",
     "lint:deps": "depcruise src/app_entry.mjs src/live_entry.mjs",
