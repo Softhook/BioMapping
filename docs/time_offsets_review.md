@@ -6,9 +6,8 @@ Reviewed 2026-09-30, on `main` at 3131167.
 
 **Status on 2026-09-30:**
 
-- **Steps 1 and 3 are built** on branch `response-delay`. It is not merged
-  into `main` and not pushed.
-- **Step 2 (screenshots) is still to do.**
+- **Steps 1, 2 and 3 are done** on branch `response-delay`. It is not
+  merged into `main` and not pushed.
 - The findings below describe the code **before** the build.
 
 **Commits on `response-delay`:**
@@ -20,7 +19,8 @@ Reviewed 2026-09-30, on `main` at 3131167.
 | 0cb6dc5 | Step 1b: the graph on the place-time clock, hover sync |
 | 5ef9535 | Step 1c: the 3D wall, spires and CZML/KML export by place |
 | 88c230f | Doc status line |
-| (step 3) | Timestamp fixes: clock-text rows, device hold-ups, the dashboard's one second |
+| c22b2d9 | Step 3: timestamp fixes: clock-text rows, device hold-ups, the dashboard's one second |
+| (step 2) | Screenshot script |
 
 **Where things live:**
 
@@ -62,6 +62,7 @@ Reviewed 2026-09-30, on `main` at 3131167.
 | `npm test` | Unit tests, including the design tests in `tests/test_response_delay.js` and the 0 s record in `tests/test_response_delay_zero_baseline.js` | 1755 pass, 0 fail, 0 "to do" |
 | `node tests/manual/response_delay/baseline.js --check` | Every walk in `tracks/` at 0 s is unchanged, except hotspots and the walks step 3 fixes | 13 hotspot changes, all explained (below); other changes only in the walks listed under "What step 3 changed" |
 | `node tests/manual/response_delay/sync_check.js [--delay=2] [--break]` | In real Chrome, hovering a peak puts the map dot on its own marker, the path colour there is its reading, the road band matches the dashboard, and the label shows place time | Passes at 2 s and 5 s; `--break` fails all 12 peaks |
+| `node tests/manual/response_delay/screenshots.js` | Single view, 3D and group map at 0, 2 and 3 s, camera fixed on biomap_016's hotspot that moved most (PNGs in `out/`) | Peak markers, hover dot, path colour, 3D wall and graph trace move together; route, streets and road band stay |
 | `npm run smoke -- --compare=main` | Whole app in Chrome | 22/22 |
 
 The saved all-walks record is in
@@ -99,6 +100,14 @@ steps are done.
   live-stream exports (3.3 Hz) now average 1 s, not 3 s.
 - **Re-exported files** keep no `tick_dt_ms`, so the hold-up flags don't
   survive an export and re-import.
+
+**Seen while taking the screenshots (not caused by the delay):** the
+path's overlap colouring (a spot passed twice is coloured by the mean) uses
+a radius from the zoom. Zoomed out it reaches 22.6 m, and points more than
+15 s apart count as a second pass, so on a slow walk a short peak is
+averaged with the same stretch of path before and after it. The screenshot
+script sets the zoom before moving the slider so the path is drawn at the
+zoom it is shown at.
 
 **Gotchas for whoever continues:**
 
