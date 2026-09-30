@@ -226,10 +226,11 @@ export class GSRMapPath extends GSRMapRfFluid {
     const derivedSeriesKey = DERIVED_METRIC_SERIES[metric];
     const derivedSeries =
       derivedSeriesKey && analyzer ? analyzer[derivedSeriesKey] : null;
+    const isBody = BODY_METRICS.has(metric);
     let getVal = derivedSeries
       ? (p) => (derivedSeries[p.origIdx] ? derivedSeries[p.origIdx].val : 0)
       : (p) => p[key];
-    if (BODY_METRICS.has(metric) && analyzer?.readingAt) {
+    if (isBody && analyzer?.readingAt) {
       // Body data: the reading this place shows (null where the recording
       // ended before its response could arrive). Looked up once per place.
       const readingOf = new Int32Array(analyzer.raw.length).fill(-2);
@@ -355,7 +356,7 @@ export class GSRMapPath extends GSRMapRfFluid {
     // Split off the stretches with no reading (body metrics only, see
     // NO_READING_COLOUR); the point where one ends starts the next, so the
     // line stays joined.
-    if (BODY_METRICS.has(metric)) {
+    if (isBody) {
       const split = [];
       for (const seg of segments) {
         let cur = [];
@@ -381,7 +382,7 @@ export class GSRMapPath extends GSRMapRfFluid {
     for (const seg of segments) {
       if (seg.length < 2) continue;
 
-      if (BODY_METRICS.has(metric) && getVal(seg[seg.length - 1]) == null) {
+      if (isBody && getVal(seg[seg.length - 1]) == null) {
         const poly = L.polyline(
           seg.map((pt) => [pt.lat, pt.lon]),
           { color: NO_READING_COLOUR, weight: trackWeight, opacity: 0.95 },

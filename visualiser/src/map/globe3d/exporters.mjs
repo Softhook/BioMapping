@@ -37,9 +37,9 @@ export const GSRGlobe3DExport = {
   DEFAULT_BASE_HEIGHT: 2.0,
   DEFAULT_EXTRUSION: 8.0,
 
-  /** Per-sample float series for `metric`, indexed like analyzer.raw. */
   /**
-   * The metric's values arranged by place, as the wall is drawn: skin data
+   * Per-sample float series for `metric`, indexed like analyzer.raw and
+   * arranged by place, as the wall is drawn: skin data
    * shows the reading its Response delay later (ResponseDelay.byPlace); EM
    * fog is place data and stays where it was measured.
    */

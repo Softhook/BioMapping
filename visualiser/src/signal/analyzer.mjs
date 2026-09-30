@@ -1934,8 +1934,8 @@ export class GSRAnalyzer {
    * Spatial spacing: walking the magnitude-ranked list, a candidate is skipped
    * if it falls within MEMORABLE_EVENTS.MIN_SEPARATION_M of an already-selected
    * hotspot, measured where the peak was recorded (Response delay 0), so the
-   * choice doesn't change with the slider. The biggest response in any neighbourhood wins its spot. A
-   * spatially compact recording (a short loop walked repeatedly) can therefore
+   * choice doesn't change with the slider. The biggest response in any
+   * neighbourhood wins its spot. A spatially compact recording (a short loop walked repeatedly) can therefore
    * yield fewer than the percentile target — intended: better a handful of
    * distinct places than twenty markers on one corner.
    *

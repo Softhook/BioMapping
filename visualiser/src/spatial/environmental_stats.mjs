@@ -313,8 +313,6 @@ export const EnvironmentalStats = {
         }
         bx.push(xP);
         b.binPk.set(bin, peakCounts[i] || 0);
-      }
-      if (validNum(xP)) {
         b.xTonic.push(xP);
         b.tonic.push(row.tonic);
         b.speedTonic.push(isNum(row.tonicSpeed) ? row.tonicSpeed : row.speed);

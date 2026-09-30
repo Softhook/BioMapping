@@ -71,44 +71,29 @@ export const JunctionResponse = {
    */
   _summarise(series, t0, t1, dt = 0, delayS = 0) {
     const { time, phasic, tonic, isPeak } = series;
-    const lp = delayS || 0;
-    const lt = lp;
+    const delay = delayS || 0;
     let n = 0;
     let sumP = 0;
+    let sumT = 0;
     let peaks = 0;
     for (
-      let i = this._lowerBound(time, t0 + lp);
-      i < time.length && time[i] < t1 + lp;
+      let i = this._lowerBound(time, t0 + delay);
+      i < time.length && time[i] < t1 + delay;
       i++
     ) {
       n++;
       sumP += phasic[i];
+      if (tonic) sumT += tonic[i] ?? 0;
       if (isPeak?.[i]) peaks++;
-    }
-    let nT = n;
-    let sumT = 0;
-    if (tonic) {
-      nT = 0;
-      for (
-        let i = this._lowerBound(time, t0 + lt);
-        i < time.length && time[i] < t1 + lt;
-        i++
-      ) {
-        nT++;
-        sumT += tonic[i] ?? 0;
-      }
     }
     const dur = t1 - t0;
     // Time actually observed: a window running off the recording or across a
     // dropout must not be divided by its nominal length.
     const covered = dt > 0 ? Math.min(dur, n * dt) : dur;
-    const coveredT = dt > 0 ? Math.min(dur, nT * dt) : dur;
     if (
       n < this.MIN_SAMPLES ||
-      nT < this.MIN_SAMPLES ||
       dur < this.MIN_WINDOW_S ||
       covered < this.MIN_COVERAGE * dur ||
-      coveredT < this.MIN_COVERAGE * dur ||
       !Number.isFinite(sumP) ||
       !Number.isFinite(sumT)
     ) {
@@ -117,7 +102,7 @@ export const JunctionResponse = {
     return {
       peakRate: (peaks / covered) * 60,
       meanPhasic: sumP / n,
-      meanTonic: sumT / nT,
+      meanTonic: sumT / n,
     };
   },
 
