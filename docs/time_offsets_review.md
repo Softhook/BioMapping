@@ -20,7 +20,8 @@ Reviewed 2026-09-30, on `main` at 3131167.
 | 5ef9535 | Step 1c: the 3D wall, spires and CZML/KML export by place |
 | 88c230f | Doc status line |
 | c22b2d9 | Step 3: timestamp fixes: clock-text rows, device hold-ups, the dashboard's one second |
-| (step 2) | Screenshot script |
+| 4584061 | Step 2: screenshot script |
+| (review) | Review fixes: hold-ups the device never catches up are corrected; a message on load; hidden readings skipped everywhere |
 
 **Where things live:**
 
@@ -85,10 +86,18 @@ steps are done.
   labelled second (`GSRCSVParser._spreadSharedTimes`). Before, 20–75 % of
   rows sat outside their second, by up to 0.9 s. Their peaks, paths and
   group maps change a little, as expected.
-- **Device hold-ups** (`GSRCSVParser._offTimeRows`, `analyzer.offTime`): in
-  files with `tick_dt_ms`, a row labelled more than 0.5 s from its real
-  time gets no place, from either side of the pairing.
-  - biomap_121: 147 rows (the 6.4 s hold-up at about 8 min).
+- **Device hold-ups** (`GSRCSVParser._fixDeviceTimes`, `analyzer.offTime`,
+  `analyzer.onTime(i)`): in files with `tick_dt_ms`, each row's real time is
+  rebuilt and compared with the walk's start.
+  - If the device fell behind and the offset lasts (judged over 30 s either
+    side), the times from there on are **corrected**. No real walk has this.
+  - A row still more than 0.5 s off is inside a catch-up burst. It gets no
+    place, from either side of the pairing, and the graph tooltip, junction
+    windows and dashboard averages skip it too.
+  - Within 5 s of either end of a walk a lasting offset can't be judged, so
+    at most 5 s there is left off rather than corrected.
+  - The walk's quality popup says what was corrected or left off, and when.
+  - biomap_121: 147 rows left off (the 6.4 s hold-up at about 8 min).
   - biomap_114, 115, 116, 118, 123: 1–8 rows each, mostly the first row
     (a slow first tick followed by a burst).
   - A row missing from the file (the label jumps a tick) counts as one

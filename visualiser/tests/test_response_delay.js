@@ -517,6 +517,49 @@ test('device hold-up: readings stamped more than 0.5 s from their real time get 
   }
 });
 
+test('device hold-up: the readings left off are named in a message', () => {
+  const tickDt = (i) => {
+    if (i === 0) return 533;
+    if (i === 600) return 3000;
+    if (i > 600 && i < 630) return 0;
+    return 100;
+  };
+  const a = walk({ tickDt }, 0);
+  const msg = a._csvWarnings.find((w) => w.includes('catching up'));
+  assert.ok(msg, 'a message');
+  assert.match(msg, /^24 readings were recorded/);
+  assert.match(msg, /at about 1 min 0 s/);
+});
+
+test('device hold-up with no catch-up: later times are corrected, not left off', () => {
+  // A 3 s hold-up at row 800 that the device never makes up: every row
+  // after it is really 2.9 s later than its label.
+  const a = walk(
+    { tickDt: (i) => (i === 0 ? 533 : i === 800 ? 3000 : 100) },
+    0,
+  );
+  assert.strictEqual(a.offTime, null, 'nothing left off');
+  close(a.raw[799].time, 79.9, 1e-6, 'row 799 unchanged');
+  close(a.raw[800].time, 82.9, 1e-6, 'row 800 corrected');
+  close(a.raw.at(-1).time, 182.8, 1e-6, 'last row corrected');
+  assert.ok(a.placeOf(900), 'row 900 has a place');
+  assert.ok(
+    a._csvWarnings.some((w) => w.includes('corrected by 2.9 s')),
+    'a message',
+  );
+});
+
+test('device hold-up with no catch-up: near the ends at most 5 s is left off', () => {
+  for (const at of [30, 1760]) {
+    const a = walk(
+      { tickDt: (i) => (i === 0 ? 533 : i === at ? 3000 : 100) },
+      0,
+    );
+    const n = a.offTime ? a.offTime.reduce((sum, v) => sum + v, 0) : 0;
+    assert.ok(n <= rows(5), `hold-up at row ${at}: ${n} rows left off`);
+  }
+});
+
 test('device hold-up: rows missing from the file are not mistaken for a hold-up', () => {
   // Some files drop one row every ~10 s: the label jumps a tick while
   // tick_dt_ms stays 100 ms either side. That is a missing row, not lost

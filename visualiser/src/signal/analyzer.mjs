@@ -1887,6 +1887,11 @@ export class GSRAnalyzer {
     return ResponseDelay.placeRowOf(this, i);
   }
 
+  /** Whether row i's time can be trusted (not during a device hold-up). */
+  onTime(i) {
+    return ResponseDelay.onTime(this, i);
+  }
+
   /** The reading place row j shows (`responseDelay` s later), or −1. */
   readingAt(j) {
     return ResponseDelay.readingAt(this, j);

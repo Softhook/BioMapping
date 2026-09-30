@@ -213,12 +213,19 @@ export const EnvironmentalDashboardUI = {
         }
       }
 
-      const series = {
-        time: pTimes,
-        phasic: pVals,
-        tonic: tVals,
-        isPeak,
-      };
+      // Readings recorded during a device hold-up have wrong times, so they
+      // can't be placed in a before/after window: left out.
+      let series = { time: pTimes, phasic: pVals, tonic: tVals, isPeak };
+      if (a.offTime) {
+        const keep = [];
+        for (let i = 0; i < pLen; i++) if (a.onTime(i)) keep.push(i);
+        series = {
+          time: keep.map((i) => pTimes[i]),
+          phasic: keep.map((i) => pVals[i]),
+          tonic: keep.map((i) => tVals[i]),
+          isPeak: Uint8Array.from(keep, (i) => isPeak[i]),
+        };
+      }
 
       const resps = JunctionResponse.responses(passages, series, {
         trackId: track.id,

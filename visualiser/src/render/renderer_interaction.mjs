@@ -399,11 +399,15 @@ export const RendererInteraction = {
     // itself doesn't need to know how many there are or what they mean.
     // They are place data, so they come from the row at the cursor's place
     // time (the same row the band under the cursor is drawn from), not from
-    // the hovered reading. Before 0 there is no place.
+    // the hovered reading. Before 0 there is no place, and a reading or place
+    // whose time can't be trusted (a device hold-up) has none either.
     const A = AppState.analyzer;
     const placeTime = dRaw.time - (A.responseDelay || 0);
-    const dPlace =
-      placeTime >= A.raw[0].time ? A.raw[A.findClosestIndex(placeTime)] : null;
+    const placeRow =
+      placeTime >= A.raw[0].time && A.onTime(AppState.hoveredIndex)
+        ? A.findClosestIndex(placeTime)
+        : -1;
+    const dPlace = placeRow >= 0 && A.onTime(placeRow) ? A.raw[placeRow] : null;
     const extraRows = [];
     if (extraMetric) extraRows.push(extraMetric);
     if (AppState.showOsmContext && dPlace) {

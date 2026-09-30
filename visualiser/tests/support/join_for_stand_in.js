@@ -15,6 +15,7 @@ function withJoin(a, delay = 0) {
   a.placeOf = (i) => ResponseDelay.placeOf(a, i);
   a.placeRowOf = (i) => ResponseDelay.placeRowOf(a, i);
   a.readingAt = (j) => ResponseDelay.readingAt(a, j);
+  a.onTime = (i) => ResponseDelay.onTime(a, i);
   return a;
 }
 

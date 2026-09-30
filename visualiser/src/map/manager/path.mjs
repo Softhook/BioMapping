@@ -60,9 +60,10 @@ const BODY_METRICS = new Set([
   'responseDynamics',
 ]);
 
-// Where a place has no reading yet (the last Response-delay seconds of the
-// route: the recording ended before its response could arrive), the path is
-// drawn in this neutral grey rather than a colour from the scale.
+// Where a place has no reading (the last Response-delay seconds of the route,
+// where the recording ended before its response could arrive, or a stretch
+// recorded during a device hold-up, whose times are wrong), the path is drawn
+// in this neutral grey rather than a colour from the scale.
 const NO_READING_COLOUR = '#9ca3af';
 
 // Distance-to-feature OSM metrics use a 999 "none within radius" sentinel
