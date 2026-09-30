@@ -1,8 +1,112 @@
 # Time offsets: where views disagree
 
-Reviewed 2026-09-30, on `main` at 3131167. Nothing has been changed yet.
+Reviewed 2026-09-30, on `main` at 3131167.
 
-The findings (sections 1–13) describe the code **as it is now**. The fix for
+## Progress and handover (read this first)
+
+**Status on 2026-09-30:**
+
+- **Step 1 is built** on branch `response-delay`. It is not merged into
+  `main` and not pushed.
+- **Steps 2 and 3 are still to do.**
+- The findings below describe the code **before** the build.
+
+**Commits on `response-delay`:**
+
+| Commit | What |
+|---|---|
+| c5e14a7 | This document, and the tests written before the build |
+| 5dddfc7 | Step 1a: the join; map, group map, dashboard, Places, junctions, export, slider, Live |
+| 0cb6dc5 | Step 1b: the graph on the place-time clock, hover sync |
+| 5ef9535 | Step 1c: the 3D wall, spires and CZML/KML export by place |
+| 88c230f | Doc status line |
+
+**Where things live:**
+
+- **`visualiser/src/signal/response_delay.mjs`:** the only code that shifts
+  time.
+  - `normalise` keeps the value between 0 and 8 s, default 2.
+  - `placeOf`, `placeRowOf` and `readingAt` pair a reading with a place.
+  - `byPlace` rearranges per-reading values by place.
+  - `placedAtEveryDelay` is used for the hotspot rule.
+- **On the analyzer:**
+  - `setResponseDelay(s)` sets the delay.
+  - `placeOf(i)`, `placeRowOf(i)` and `readingAt(j)` are the lookups.
+  - `responseDelay` holds the delay itself.
+  - `maxResponseDelay` is 8, or 0 for Live.
+  - `memorableEvents` is a getter. Hotspots are re-chosen whenever the peaks
+    or the smoothed path change, never when the delay changes.
+  - `analyze(params)` takes no latency argument any more.
+- **In the app state (`AppState`):**
+  - `responseDelay` is the one value for the project; `setResponseDelay(s)`
+    applies it to every walk.
+  - The graph axis uses `timeAxisStart` (= −delay), `timeAxisSpan` and
+    `clampViewStart(t)`.
+- **The slider** is `#responseDelay` in `index.html`, wired in
+  `ui/events_gps.mjs`.
+- **Saved with the project** in `manifest.settings.responseDelay`.
+- **CSV exports** write `# ResponseDelay:<s>` in the header. The parser skips
+  that line on reload.
+- **Removed:**
+  - `PhysioLatency`, `stimulusIndexAt`, `resolveLatencyIndex`;
+  - `GPS_DEFAULT.peakLatency` and the per-walk latency;
+  - the dashboard's separate tonic pairing (`tonicEnv`; tonic now uses the
+    same pairing, with its own `tonicSpeed`);
+  - the old `#gpsPeakLatency` slider.
+
+**Checks, all run from `visualiser/`:**
+
+| Command | What it proves | Last result |
+|---|---|---|
+| `npm test` | Unit tests, including the 27 design tests in `tests/test_response_delay.js` and the 0 s record in `tests/test_response_delay_zero_baseline.js` | 1751 pass, 0 fail, 3 "to do" (step 3) |
+| `node tests/manual/response_delay/baseline.js --check` | Every walk in `tracks/` at 0 s is unchanged, except hotspots | 0 other changes on 73 walks; 13 hotspot changes, all explained (below) |
+| `node tests/manual/response_delay/sync_check.js [--delay=2] [--break]` | In real Chrome, hovering a peak puts the map dot on its own marker, the path colour there is its reading, the road band matches the dashboard, and the label shows place time | Passes at 2 s and 5 s; `--break` fails all 12 peaks |
+| `npm run smoke -- --compare=main` | Whole app in Chrome | 22/22 |
+
+The saved all-walks record is in
+`tests/manual/response_delay/out/baseline.json`. It is git-ignored and was
+made before the build with `--save`. **Do not re-save it** until all the
+steps are done.
+
+**Why 13 walks' hotspots changed at 0 s** (expected):
+
+- **In most of them,** a hotspot in the first few seconds after GPS started
+  was dropped, because a hotspot needs a place at every delay up to 8 s.
+  The next-biggest peak took its place.
+- **Newhaven and biomap_025:** the 2 % hotspot target rounded down from 5 to 4.
+- **biomap_021:** a 6-second walk, so it has no hotspot.
+
+**Gotchas for whoever continues:**
+
+- **Test stand-ins.** Hand-built stand-in analyzers in tests need the
+  lookups. Wrap them with `withJoin()` from
+  `tests/support/join_for_stand_in.js`.
+- **Short sample walks.** Test sample walks shorter than about 9 s have no
+  hotspots. (The map-layer test's sample walk was padded to 9 s for this.)
+- **Smoothed path in tests.** `analyze()` now builds the smoothed path when
+  the walk has GPS. So a test that blanks raw positions must blank
+  `filteredGps` too.
+- **0 s shortcut.** At a delay of 0 the join returns each reading's own row
+  directly, with no time search. That keeps "0 s = before the build" exact.
+
+**Next:**
+
+1. **Step 2:** screenshots at 0, 2 and 3 s of single view, 3D and the group
+   map, to show the user everything moving together.
+2. **Step 3:** the timestamp fixes (findings 11 and 12, and the 1-second
+   window in finding 4).
+   - Remove the `todo: STEP3` marks in `tests/test_response_delay.js` as
+     each fix lands.
+   - The walking-speed window in `EnvironmentalStats.buildSamples` should
+     also become seconds rather than 10 rows. The design test already
+     expects that at 10 Hz.
+3. **After that:** the user decides whether to merge `response-delay` into
+   `main`. Check with `npm run smoke -- --compare=main` first.
+
+---
+
+The findings (sections 1–13) describe the code **as it was before the
+build**. The fix for
 all of them is the **Solution design** at the end. Where a finding's own
 "Suggested fix" differs from it, the Solution design wins. Those findings are
 marked **Replaced**.
