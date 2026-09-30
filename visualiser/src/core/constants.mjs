@@ -676,7 +676,7 @@ export const GSR_CONST = {
   // selection — see that doc comment for the real-track yield numbers behind
   // the 2% choice).
   MEMORABLE_EVENTS: {
-    HOTSPOT_PERCENTILE: 0.02, // Count target: top X% of active (non-excluded) peaks
+    HOTSPOT_PERCENTILE: 0.02, // Count target: top X% of active (non-excluded) peaks that have a map position
     // Minimum great-circle spacing (m) between two hotspots. Walking the
     // amplitude-ranked peak list, a candidate within this distance of an
     // already-selected hotspot is skipped — the biggest response in any

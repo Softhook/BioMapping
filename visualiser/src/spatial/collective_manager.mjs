@@ -372,10 +372,26 @@ export class GSRCollectiveManager {
     // with the moving-average smooth below — we take {mean, std} once here and
     // apply (v - mean) / std at sample time, avoiding a full standardised copy
     // of the series.
-    const perTrackNorm = (raw) => {
+    //
+    // Each walk's normal level (the mean/std it is measured against) comes
+    // from the part of the walk with a GPS position: rows before the first
+    // fix or after the last can't be placed on the map, so they don't set the
+    // baseline for the rows that can. `range` is that part ({first, last});
+    // null means the whole walk has a position (the precomputed series apply).
+    const perTrackNorm = (raw, range) => {
       if (!useNormalization || !raw || raw.length === 0) return null;
-      const s = StatsMath.calculateStats(raw.map((d) => d.val));
+      const src = range ? raw.slice(range.first, range.last + 1) : raw;
+      const s = StatsMath.calculateStats(src.map((d) => d.val));
       return { mean: s.mean, std: s.std || 1 };
+    };
+    const gpsRange = (a) => {
+      const n = a.raw.length;
+      let first = 0;
+      while (first < n && !a.getCoordinates(first)) first++;
+      let last = n - 1;
+      while (last > first && !a.getCoordinates(last)) last--;
+      if (first >= n || (first === 0 && last === n - 1)) return null;
+      return { first, last };
     };
 
     for (const t of active) {
@@ -425,6 +441,7 @@ export class GSRCollectiveManager {
       }
 
       const trackStartIdx = points.length;
+      const range = gpsRange(t.analyzer);
 
       // Each walk's own stimulus latency, as its map markers and the
       // environmental dashboard use it: a value is placed where the walker
@@ -456,30 +473,55 @@ export class GSRCollectiveManager {
         // need per-track standardisation; it is applied after smoothing below.
         let activeSeries;
         let norm = null;
+        const a = t.analyzer;
         if (topographySource === 'tonic') {
-          activeSeries = useNormalization
-            ? t.analyzer.tonicZ || []
-            : t.analyzer.tonic || [];
+          if (useNormalization && range) {
+            activeSeries = a.tonic || [];
+            norm = perTrackNorm(activeSeries, range);
+          } else {
+            activeSeries = useNormalization ? a.tonicZ || [] : a.tonic || [];
+          }
         } else if (topographySource === 'auc') {
-          activeSeries = t.analyzer.phasicAUC || [];
-          norm = perTrackNorm(activeSeries);
+          activeSeries = a.phasicAUC || [];
+          norm = perTrackNorm(activeSeries, range);
         } else if (topographySource === 'gsr') {
-          activeSeries = t.analyzer.filtered || [];
-          norm = perTrackNorm(activeSeries);
+          activeSeries = a.filtered || [];
+          norm = perTrackNorm(activeSeries, range);
         } else if (topographySource === 'peak_density') {
-          activeSeries = t.analyzer.peakDensity || [];
-          norm = perTrackNorm(activeSeries);
+          activeSeries = a.peakDensity || [];
+          norm = perTrackNorm(activeSeries, range);
         } else if (topographySource === 'arousal_index') {
-          activeSeries = t.analyzer.arousalIndex || [];
+          const cfg = GSR_CONST.AROUSAL_INDEX;
+          activeSeries =
+            range && a.phasicAUC?.length
+              ? a.computeCombinedArousalIndex(
+                  cfg.wTonic,
+                  cfg.wPhasic,
+                  a.phasicAUC,
+                  range,
+                )
+              : a.arousalIndex || [];
         } else if (
           topographySource === 'tri_index' ||
           topographySource === 'triIndex'
         ) {
-          activeSeries = t.analyzer.triIndex || [];
+          const cfg = GSR_CONST.TRI_INDEX;
+          activeSeries =
+            range && a.phasicAUC?.length && a.peakDensity?.length
+              ? a.computeTriIndex(
+                  cfg.wTonic,
+                  cfg.wPhasic,
+                  cfg.wDensity,
+                  a.phasicAUC,
+                  a.peakDensity,
+                  range,
+                )
+              : a.triIndex || [];
+        } else if (useNormalization && range) {
+          activeSeries = a.phasic || [];
+          norm = perTrackNorm(activeSeries, range);
         } else {
-          activeSeries = useNormalization
-            ? t.analyzer.phasicZ || []
-            : t.analyzer.phasic || [];
+          activeSeries = useNormalization ? a.phasicZ || [] : a.phasic || [];
         }
 
         const smoothVals = doSmoothing
@@ -506,7 +548,11 @@ export class GSRCollectiveManager {
 
       // If normalising, scale peak amplitudes by the cached standard deviation of the participant's phasic values.
       // This is a standard psychophysiological normalisation (SCR amplitude in units of background variance).
-      const phasicStd = useNormalization ? t.analyzer.phasicStd || 1 : 1;
+      const phasicStd = !useNormalization
+        ? 1
+        : range
+          ? perTrackNorm(t.analyzer.phasic || [], range)?.std || 1
+          : t.analyzer.phasicStd || 1;
 
       t.analyzer.peaks.forEach((pk) => {
         if (pk.excluded) return;

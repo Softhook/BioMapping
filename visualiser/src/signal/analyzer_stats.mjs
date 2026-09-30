@@ -233,10 +233,22 @@ export const AnalyzerStats = {
    * @param {Array<{time:number,val:number}>} auc - Phasic AUC series (same length as phasic).
    * @param {number} wTonic - Weight for tonic SCL component (default: 0.3)
    * @param {number} wPhasic - Weight for phasic AUC component (default: 0.7)
+   * @param {{first:number,last:number}|null} [range] - rows the mean/std are
+   *   taken from (default: all); every row is still scored.
    */
-  computeCombinedArousalIndex(tonic, phasic, auc, wTonic = 0.3, wPhasic = 0.7) {
+  computeCombinedArousalIndex(
+    tonic,
+    phasic,
+    auc,
+    wTonic = 0.3,
+    wPhasic = 0.7,
+    range = null,
+  ) {
     const n = phasic.length;
     if (n === 0) return [];
+    const r0 = range ? range.first : 0;
+    const r1 = range ? range.last + 1 : n;
+    const m = r1 - r0;
 
     // §B perf fix: compute mean/std in a single pass over tonic and auc
     // directly, eliminating the two O(N) .map(d => d.val) intermediate arrays
@@ -245,7 +257,7 @@ export const AnalyzerStats = {
       tSumSq = 0,
       aSum = 0,
       aSumSq = 0;
-    for (let i = 0; i < n; i++) {
+    for (let i = r0; i < r1; i++) {
       const tv = tonic[i].val;
       const av = auc[i].val;
       tSum += tv;
@@ -253,11 +265,11 @@ export const AnalyzerStats = {
       aSum += av;
       aSumSq += av * av;
     }
-    const tMean = tSum / n;
+    const tMean = tSum / m;
     // `|| 1`: a perfectly constant series would otherwise divide by zero.
-    const tStd = Math.sqrt(Math.max(0, tSumSq / n - tMean * tMean)) || 1;
-    const aMean = aSum / n;
-    const aStd = Math.sqrt(Math.max(0, aSumSq / n - aMean * aMean)) || 1;
+    const tStd = Math.sqrt(Math.max(0, tSumSq / m - tMean * tMean)) || 1;
+    const aMean = aSum / m;
+    const aStd = Math.sqrt(Math.max(0, aSumSq / m - aMean * aMean)) || 1;
 
     const arousalIndex = new Array(n);
     for (let i = 0; i < n; i++) {
@@ -286,6 +298,8 @@ export const AnalyzerStats = {
    * @param {number} wTonic - Weight for tonic SCL component (default: 0.10)
    * @param {number} wPhasic - Weight for phasic AUC component (default: 0.45)
    * @param {number} wDensity - Weight for temporal peak density component (default: 0.45)
+   * @param {{first:number,last:number}|null} [range] - rows the mean/std are
+   *   taken from (default: all); every row is still scored.
    * @returns {Array<{time: number, val: number}>}
    */
   computeTriIndex(
@@ -296,9 +310,13 @@ export const AnalyzerStats = {
     wTonic = 0.1,
     wPhasic = 0.45,
     wDensity = 0.45,
+    range = null,
   ) {
     const n = phasic.length;
     if (n === 0) return [];
+    const r0 = range ? range.first : 0;
+    const r1 = range ? range.last + 1 : n;
+    const m = r1 - r0;
 
     let tSum = 0,
       tSumSq = 0,
@@ -306,7 +324,7 @@ export const AnalyzerStats = {
       aSumSq = 0,
       dSum = 0,
       dSumSq = 0;
-    for (let i = 0; i < n; i++) {
+    for (let i = r0; i < r1; i++) {
       const tv = tonic[i].val;
       const av = auc[i].val;
       const dv = density[i].val;
@@ -317,12 +335,12 @@ export const AnalyzerStats = {
       dSum += dv;
       dSumSq += dv * dv;
     }
-    const tMean = tSum / n;
-    const tStd = Math.sqrt(Math.max(0, tSumSq / n - tMean * tMean)) || 1;
-    const aMean = aSum / n;
-    const aStd = Math.sqrt(Math.max(0, aSumSq / n - aMean * aMean)) || 1;
-    const dMean = dSum / n;
-    const dStd = Math.sqrt(Math.max(0, dSumSq / n - dMean * dMean)) || 1;
+    const tMean = tSum / m;
+    const tStd = Math.sqrt(Math.max(0, tSumSq / m - tMean * tMean)) || 1;
+    const aMean = aSum / m;
+    const aStd = Math.sqrt(Math.max(0, aSumSq / m - aMean * aMean)) || 1;
+    const dMean = dSum / m;
+    const dStd = Math.sqrt(Math.max(0, dSumSq / m - dMean * dMean)) || 1;
 
     const triIndex = new Array(n);
     for (let i = 0; i < n; i++) {

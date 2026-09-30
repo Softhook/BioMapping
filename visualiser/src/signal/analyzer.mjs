@@ -1933,29 +1933,33 @@ export class GSRAnalyzer {
     const magnitude = params?.usePeakProminence
       ? (p) => (p.prominence != null ? p.prominence : p.amplitude)
       : (p) => p.amplitude;
-    const activeSorted = this.peaks
-      .filter((p) => !p.excluded)
-      .sort((a, b) => magnitude(b) - magnitude(a) || a.time - b.time);
-    if (activeSorted.length === 0) return [];
+    // Only peaks that can be placed on the map compete, and the hotspot
+    // count is a percentile of those: a peak with no position (GPS warm-up,
+    // after the last fix) is neither a hotspot nor counted towards how many.
+    const placed = [];
+    for (const p of this.peaks) {
+      if (p.excluded) continue;
+      const coords = this.getCoordinates(
+        this.resolveLatencyIndex(p, peakLatency),
+      );
+      if (coords) placed.push({ p, coords });
+    }
+    placed.sort(
+      (a, b) => magnitude(b.p) - magnitude(a.p) || a.p.time - b.p.time,
+    );
+    if (placed.length === 0) return [];
 
     const percentile =
       params && params.hotspotPercentile != null
         ? params.hotspotPercentile
         : ME.HOTSPOT_PERCENTILE;
-    const targetCount = Math.max(
-      1,
-      Math.round(activeSorted.length * percentile),
-    );
+    const targetCount = Math.max(1, Math.round(placed.length * percentile));
     const minSepM = ME.MIN_SEPARATION_M != null ? ME.MIN_SEPARATION_M : 0;
 
     const selected = [];
     const selectedCoords = [];
-    for (const p of activeSorted) {
+    for (const { p, coords } of placed) {
       if (selected.length >= targetCount) break;
-      const coords = this.getCoordinates(
-        this.resolveLatencyIndex(p, peakLatency),
-      );
-      if (!coords) continue;
       if (
         minSepM > 0 &&
         selectedCoords.some(
@@ -2144,11 +2148,14 @@ export class GSRAnalyzer {
    * @param {Array|null} precomputedAUC - Optional already-computed phasicAUC array
    *   (same 30 s window). When supplied by analyze(), skips the redundant
    *   computePhasicAUC(30) call (§B perf fix 2026-08-07).
+   * @param {{first:number,last:number}|null} [range] - rows the mean/std are
+   *   taken from (default: all).
    */
   computeCombinedArousalIndex(
     wTonic = 0.3,
     wPhasic = 0.7,
     precomputedAUC = null,
+    range = null,
   ) {
     const auc = precomputedAUC || this.computePhasicAUC(30);
     return AnalyzerStats.computeCombinedArousalIndex(
@@ -2157,6 +2164,7 @@ export class GSRAnalyzer {
       auc,
       wTonic,
       wPhasic,
+      range,
     );
   }
 
@@ -2170,6 +2178,8 @@ export class GSRAnalyzer {
    * @param {number} wDensity - Weight for temporal peak density component (default: 0.45)
    * @param {Array|null} precomputedAUC - Optional already-computed phasicAUC array
    * @param {Array|null} precomputedDensity - Optional already-computed peakDensity array
+   * @param {{first:number,last:number}|null} [range] - rows the mean/std are
+   *   taken from (default: all).
    * @returns {Array<{time: number, val: number}>}
    */
   computeTriIndex(
@@ -2178,6 +2188,7 @@ export class GSRAnalyzer {
     wDensity = 0.45,
     precomputedAUC = null,
     precomputedDensity = null,
+    range = null,
   ) {
     const auc = precomputedAUC || this.computePhasicAUC(30);
     const density = precomputedDensity || this.computeTemporalPeakDensity();
@@ -2189,6 +2200,7 @@ export class GSRAnalyzer {
       wTonic,
       wPhasic,
       wDensity,
+      range,
     );
   }
 
