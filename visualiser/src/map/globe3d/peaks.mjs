@@ -31,9 +31,14 @@ export class GSRGlobePeaks extends GSRGlobeRf {
     const heightMetric = HEIGHT_CAPABLE_METRICS.has(metric)
       ? metric
       : this.heightMetric;
+    // The series is arranged by place (_getMetricSeries); the peak's spire
+    // stands at its place.
     const heightSeries = this._getMetricSeries(analyzer, heightMetric);
+    const at = analyzer.responseDelay
+      ? analyzer.placeRowOf(peak.index)
+      : peak.index;
     const val = heightSeries
-      ? (heightSeries[peak.index] ?? peak.amplitude ?? 0)
+      ? (heightSeries[at] ?? peak.amplitude ?? 0)
       : (peak.amplitude ?? 0);
     return this.baseHeight + Math.max(0, val) * this.extrusionScale;
   }

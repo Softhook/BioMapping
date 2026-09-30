@@ -11,6 +11,8 @@
  * matching the on-screen wall in src/map/globe3d.js.
  */
 
+import { ResponseDelay } from '../../signal/response_delay.mjs';
+
 // Mirrors SERIES_FIELD in src/map/globe3d.js (and DERIVED_METRIC_SERIES in map.js) —
 // colouring metric -> analyzer per-sample series field.
 const G3DX_SERIES_FIELD = {
@@ -36,14 +38,23 @@ export const GSRGlobe3DExport = {
   DEFAULT_EXTRUSION: 8.0,
 
   /** Per-sample float series for `metric`, indexed like analyzer.raw. */
+  /**
+   * The metric's values arranged by place, as the wall is drawn: skin data
+   * shows the reading its Response delay later (ResponseDelay.byPlace); EM
+   * fog is place data and stays where it was measured.
+   */
   resolveSeries(analyzer, metric) {
     const field = G3DX_SERIES_FIELD[metric];
     if (field && analyzer[field] && analyzer[field].length > 0) {
-      return analyzer[field].map(g3dxSeriesValue);
+      const vals = analyzer[field].map(g3dxSeriesValue);
+      return field === 'em_fog' ? vals : ResponseDelay.byPlace(analyzer, vals);
     }
     const raw = analyzer.raw || [];
-    return raw.map((d) =>
-      d.gsr !== undefined ? d.gsr : d.val !== undefined ? d.val : 0,
+    return ResponseDelay.byPlace(
+      analyzer,
+      raw.map((d) =>
+        d.gsr !== undefined ? d.gsr : d.val !== undefined ? d.val : 0,
+      ),
     );
   },
 

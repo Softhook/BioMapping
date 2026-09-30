@@ -391,6 +391,27 @@ test('dashboard: each reading meets the place data from 2 s earlier — tonic an
   }
 });
 
+test('3D wall: height and colour at a place come from its reading; EM fog stays put', () => {
+  global.Cesium = global.Cesium || {};
+  const { GSRGlobeBase } = require('../src/map/globe3d/globe3d_base.mjs');
+  const { GSRGlobe3DExport } = require('../src/map/globe3d/exporters.mjs');
+  const a = walk({}, 2);
+  // EM fog series (place data) that names its own row.
+  a.em_fog = a.raw.map((r, i) => ({ time: r.time, val: i % 50 }));
+  const wall = (metric) =>
+    GSRGlobeBase.prototype._getMetricSeries.call({}, a, metric);
+  const phasic = wall('phasic');
+  const exported = GSRGlobe3DExport.resolveSeries(a, 'phasic');
+  const fog = wall('em_fog');
+  for (let j = 0; j < a.raw.length; j++) {
+    const r = a.readingAt(j);
+    const want = r >= 0 ? a.phasic[r].val : null;
+    assert.strictEqual(phasic[j], want, `wall at place ${j}`);
+    assert.strictEqual(exported[j], want, `exported wall at place ${j}`);
+    assert.strictEqual(fog[j], j % 50, `EM fog at place ${j} is not moved`);
+  }
+});
+
 // ── Nothing shifts time on its own ──────────────────────────────────────────
 
 test('no code outside the join shifts time itself', () => {

@@ -24,6 +24,7 @@
 /** basemap id -> factory producing a fresh Cesium imagery provider (no API key required) */
 import { GSR_CONST } from '../../core/constants.mjs';
 import { GSRNotices } from '../../core/notices.mjs';
+import { ResponseDelay } from '../../signal/response_delay.mjs';
 import { ResponseDynamics } from '../../signal/response_dynamics.mjs';
 import { GSRBasemap } from '../basemap.mjs';
 import { MapColors } from '../map_colors.mjs';
@@ -1843,7 +1844,14 @@ export class GSRGlobeBase {
     // (e.g. greenPct vs distWater) read different raw columns, so a single
     // '__raw__' key would collide within one render.
     const rawField = useDerived ? null : rawMetricField(metric);
-    const key = useDerived ? field : `raw:${rawField || 'gsr'}`;
+    // Skin data is drawn along the route by place: each place shows the
+    // reading its Response delay later (ResponseDelay.byPlace). Place data
+    // (EM fog, OSM, HDOP) stays where it was measured.
+    const isBody = useDerived
+      ? field !== 'em_fog'
+      : !rawField || rawField === 'gsr';
+    const delay = isBody ? analyzer.responseDelay || 0 : 0;
+    const key = `${useDerived ? field : `raw:${rawField || 'gsr'}`}|${delay}`;
 
     this._metricSeriesCache ??= new Map();
     const cache = this._metricSeriesCache;
@@ -1878,6 +1886,7 @@ export class GSRGlobeBase {
     } else {
       out = [];
     }
+    if (delay) out = ResponseDelay.byPlace(analyzer, out);
     cache.set(key, { src, out });
     return out;
   }

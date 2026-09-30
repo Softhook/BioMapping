@@ -97,6 +97,22 @@ export const ResponseDelay = {
   },
 
   /**
+   * Body values (one per reading) rearranged by place: out[j] is the value of
+   * the reading place row j shows (readingAt), null where there is none yet.
+   * At 0 s it is the same array. For anything drawn along the route, like
+   * the 3D wall.
+   */
+  byPlace(a, values) {
+    if (!a.responseDelay) return values;
+    const out = new Array(values.length);
+    for (let j = 0; j < values.length; j++) {
+      const r = this.readingAt(a, j);
+      out[j] = r >= 0 ? values[r] : null;
+    }
+    return out;
+  },
+
+  /**
    * Whether reading i has a place at every slider setting this analyzer can
    * be shown at (0 to a.maxResponseDelay): the whole stretch of route from
    * that far back up to the reading itself has a position. Hotspots are
