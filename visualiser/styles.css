@@ -52,6 +52,13 @@
   --canvas-overlay-bg: rgba(255, 255, 255, 0.95);
   --canvas-scrubber: rgba(17, 17, 17, 0.25);
 
+  /* Diagonal hatch behind the sidebar card headings */
+  --heading-hatch: repeating-linear-gradient(
+    135deg,
+    rgba(17, 17, 17, 0.07) 0 1px,
+    transparent 1px 6px
+  );
+
   /* Standardized Transitions */
   --transition-speed: 0.3s;
   --transition-timing: cubic-bezier(0.4, 0, 0.2, 1);
@@ -266,6 +273,8 @@ body {
   align-items: center;
   gap: 8px;
   border-bottom: 1px solid var(--border-glass);
+  background: var(--heading-hatch);
+  border-radius: 3px 3px 0 0;
   padding: 0 12px;
   height: 36px;
   text-transform: uppercase;
@@ -3079,6 +3088,15 @@ input[type="range"]:focus-visible,
 
 .main-layout.collective-mode .collective-map-title {
   display: flex !important;
+}
+
+/* Collective view's map toolbar carries three extra toggles (Iso, Surf,
+   Tracks). Let its two dropdowns narrow (their text ellipsises) before the
+   toolbar wraps: a 70px basis decides the line breaks, then each grows back
+   towards its usual 145px cap when there's room. */
+.main-layout.collective-mode #mapPanel .canvas-controls .select-control {
+  flex: 1 1 70px !important;
+  min-width: 70px;
 }
 
 /* The map fills the column exactly, less the stats row above it (and the
