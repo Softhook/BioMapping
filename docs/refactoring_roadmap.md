@@ -125,6 +125,9 @@ Still open:
   pinned snapped rows gone; 2 of 425 junction passages change, both for the
   better). Recordings exported before this still carry held OSM values on
   those rows until re-enriched.
+  Decided (2026-09-30): readings whose only fixes fail the HDOP / fix-type
+  gates are still valid positions. Analyses keep using the raw position
+  where the smoothed path is blank, even though the map doesn't draw it.
 - ~~OSM enrichment~~ done: enrichment now map-matches and evaluates from
   the smoothed path before any road snap (`GpsPipeline.unsnappedPath`), and
   computes its metrics at the positions it snaps to. It deliberately does not
