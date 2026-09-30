@@ -100,6 +100,50 @@ test('correlationMatrix: speed-adjusted tonic channel follows the same grading',
   assert.ok(Number.isFinite(r.rTonicSpeedAdj));
 });
 
+// A walk whose first `blankRows` rows have no position (GPS warm-up).
+function walkWithWarmup(blankRows) {
+  const w = walk('warm', 0);
+  w.analyzer.raw = w.analyzer.raw.map((pt, i) =>
+    i < blankRows ? { ...pt, lat: NaN, lon: NaN } : pt,
+  );
+  return w;
+}
+
+test('roadProfile: peaks at moments with no position are not counted', () => {
+  const BLANK = 200; // 20 s; the fixture has peaks inside it
+  const w = walkWithWarmup(BLANK);
+  const a = w.analyzer;
+  const live = a.peaks.filter((p) => !p.excluded);
+  const positioned = live.filter((p) => p.index >= BLANK).length;
+  assert.ok(live.length > positioned, 'fixture has warm-up peaks');
+
+  const { roadProfile } = EnvironmentalStats.compute([w], () => 0);
+  const counted = roadProfile.reduce(
+    (s, r) => s + Math.round((r.peakRate * r.timeSpent) / 60),
+    0,
+  );
+  assert.strictEqual(counted, positioned);
+});
+
+test('peakCountsPerSample: a 15 s bin shared with the warm-up counts only positioned peaks', () => {
+  const BLANK = 200; // t = 20 s, inside the 15-30 s bin
+  const w = walkWithWarmup(BLANK);
+  const a = w.analyzer;
+  const allData = EnvironmentalStats.buildSamples([w], () => 0);
+  const counts = EnvironmentalStats.peakCountsPerSample([w], allData);
+  const first = allData[0];
+  const bin = Math.floor(first.time / 15);
+  const inBin = (p) => !p.excluded && Math.floor(p.time / 15) === bin;
+  assert.ok(
+    a.peaks.some((p) => inBin(p) && p.index < BLANK),
+    'fixture has a warm-up peak in the first positioned bin',
+  );
+  assert.strictEqual(
+    counts[0],
+    a.peaks.filter((p) => inBin(p) && p.index >= BLANK).length,
+  );
+});
+
 test('compareRoadExtremes: null with fewer than two road classes', () => {
   assert.strictEqual(EnvironmentalStats.compareRoadExtremes([]), null);
   assert.strictEqual(

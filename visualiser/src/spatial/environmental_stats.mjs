@@ -21,6 +21,11 @@ const PEAK_BIN_S = 15;
 const META_SOLID = 5;
 
 const isNum = (v) => typeof v === 'number' && !isNaN(v);
+// Peaks counted by the dashboard: not excluded, and at a moment the walker's
+// position is known — the same rule buildSamples() applies to its samples, so
+// peak counts and the time they are divided by cover the same stretch of walk.
+const countedPeaks = (a) =>
+  a.peaks.filter((p) => !p.excluded && a.getCoordinates(p.index));
 const numOrNaN = (v) => (typeof v === 'number' ? v : NaN);
 // 999.0 is the "no feature within radius" sentinel — not a distance.
 const validNum = (v) =>
@@ -219,8 +224,8 @@ export const EnvironmentalStats = {
   },
 
   /**
-   * Peak count per sample = number of (non-excluded) peaks in its 15 s bin,
-   * index-aligned with allData. The Peaks channel doesn't correlate this
+   * Peak count per sample = number of counted peaks (see countedPeaks) in
+   * its 15 s bin, index-aligned with allData. The Peaks channel doesn't correlate this
    * per-1-Hz-sample (that duplicates each count ~15×); each walk's Peaks
    * series is re-aggregated to one point per bin in correlationMatrix().
    */
@@ -228,12 +233,10 @@ export const EnvironmentalStats = {
     const peakCounts = [];
     activeTracks.forEach((track) => {
       const peakBinMap = new Map();
-      track.analyzer.peaks
-        .filter((p) => !p.excluded)
-        .forEach((p) => {
-          const bin = Math.floor(p.time / PEAK_BIN_S);
-          peakBinMap.set(bin, (peakBinMap.get(bin) || 0) + 1);
-        });
+      countedPeaks(track.analyzer).forEach((p) => {
+        const bin = Math.floor(p.time / PEAK_BIN_S);
+        peakBinMap.set(bin, (peakBinMap.get(bin) || 0) + 1);
+      });
       allData.forEach((d) => {
         if (d.trackId === track.id) {
           peakCounts.push(peakBinMap.get(Math.floor(d.time / PEAK_BIN_S)) || 0);
@@ -470,18 +473,16 @@ export const EnvironmentalStats = {
     activeTracks.forEach((track) => {
       const a = track.analyzer;
       const { phasic: latency } = PhysioLatency.lags(latencyOf(track));
-      a.peaks
-        .filter((p) => !p.excluded)
-        .forEach((p) => {
-          const idx = a.stimulusIndexAt(p.time, latency);
-          const rc =
-            idx !== -1 && a.raw[idx].osm_road_class
-              ? a.raw[idx].osm_road_class
-              : 'none';
-          if (roadGroups.has(rc)) {
-            roadGroups.get(rc).peaks++;
-          }
-        });
+      countedPeaks(a).forEach((p) => {
+        const idx = a.stimulusIndexAt(p.time, latency);
+        const rc =
+          idx !== -1 && a.raw[idx].osm_road_class
+            ? a.raw[idx].osm_road_class
+            : 'none';
+        if (roadGroups.has(rc)) {
+          roadGroups.get(rc).peaks++;
+        }
+      });
     });
 
     const ROAD_SKIP = new Set(['unclassified']);
