@@ -22,6 +22,7 @@ export const AppState = {
   collectivePlaces: {
     placeMergeDistance: GSR_CONST.AROUSAL_PLACES.mergeM,
     maxArousalPlaces: GSR_CONST.AROUSAL_PLACES.maxPlaces,
+    minPlaceWalks: GSR_CONST.AROUSAL_PLACES.minWalks,
   },
   surfaceView: 'map', // 'map' | 'globe'          (render surface — see globe3d_view.js)
   isDisplayMode: false,

@@ -13,6 +13,7 @@ import {
   GPS_SLIDER_DEFS,
   GRAPH_BAND_TOGGLE_DEFS,
 } from './events_slider_defs.mjs';
+import { GSRStorage } from './storage.mjs';
 
 export const GpsEvents = {
   /**
@@ -39,7 +40,7 @@ export const GpsEvents = {
 
     // ── Arousal Places slider binding ───────────────────────────────────────
     // Scoped refresh (Arousal Places layer only), not a full rerenderMap().
-    ['placeMergeDistance', 'maxArousalPlaces'].forEach((id) => {
+    GSRStorage.PLACE_KEYS.forEach((id) => {
       const d = this._sliderDef(id);
       if (d) this.bindArousalPlacesSlider(d.id, d.labelId, d.fmt);
     });

@@ -65,6 +65,11 @@ export const GPS_SLIDER_DEFS = [
     labelId: 'valMaxArousalPlaces',
     fmt: (v) => `${Math.round(v)}`,
   },
+  {
+    id: 'minPlaceWalks',
+    labelId: 'valMinPlaceWalks',
+    fmt: (v) => (v <= 1 ? 'off' : `${Math.round(v)} walks`),
+  },
 ];
 
 export const CONTOUR_SLIDER_DEFS = [

@@ -505,6 +505,15 @@
               <p class="help-text">Limit the maximum number of top-ranking arousal places shown on the map.</p>
             </div>
 
+            <div class="slider-group" id="minPlaceWalksGroup">
+              <div class="slider-label">
+                <span>Min Walks per Place</span>
+                <span class="slider-value" id="valMinPlaceWalks">2 walks</span>
+              </div>
+              <input type="range" id="minPlaceWalks" min="1" max="10" step="1" value="2">
+              <p class="help-text">A place only appears when at least this many different walks had an arousal peak there, so one walk's reaction can't make a place on its own. 1 = off. If fewer walks are loaded than this, all of them must agree.</p>
+            </div>
+
             <!-- 3D-only parameters — shown only while the 3D Globe surface is
                  active (toggled by GSREvents.setSurface). Colour metric / range /
                  geometry all come from the 2D view; see src/map/globe3d_view.mjs. -->
@@ -625,9 +634,9 @@
             <div class="slider-group">
               <div class="slider-label">
                 <span>Coverage Hatch Threshold</span>
-                <span class="slider-value" id="valCoverageWeighting">50%</span>
+                <span class="slider-value" id="valCoverageWeighting">off</span>
               </div>
-              <input type="range" id="coverageWeighting" min="0" max="1" step="0.05" value="0.5">
+              <input type="range" id="coverageWeighting" min="0" max="1" step="0.05" value="0">
               <p class="help-text">Hatches over areas that few people actually walked through, so a single passerby's reading doesn't look as certain as a place many people visited. Higher = more of the map gets hatched as low-confidence. 0% = nothing hatched, every area shown as-is. 100% = only the single best-covered spot escapes the hatching — most everything else gets flagged. Relative to this dataset — coverage is ranked against the other loaded tracks, not an absolute headcount.</p>
             </div>
 

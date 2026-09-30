@@ -578,9 +578,17 @@ export const GSR_CONST = {
     // but never overlap (belt-and-braces on top of seedSeparationFactor)
     footprintPadM: 10, // per-member-peak dwell footprint radius = mergeM/2 + this
     dwellFloorS: 5, // floor on dwell seconds so a near-zero dwell can't blow up the rate
+    minVisitS: 3, // a walk must spend this long in a place's footprint to count as a visit
+    // (shorter edge-clips are GPS wobble); visits dilute the rate whether they peaked or not
     provisionalMaxTracks: 1, // collective: a place with <= this many contributing walks renders faint/dashed
     minMembers: 3, // drop single-walk clusters smaller than this (kept if >=2 walks agree)
-    maxPlaces: 20, // cap the map to the top-N places by rate
+    maxPlaces: 20, // cap the map to the top-N places by rank score
+    minWalks: 2, // Collective view (#minPlaceWalks): a place needs peaks from at least this
+    // many walks; 1 = off. Capped at the number of loaded walks. Single view ignores it.
+    walkRankExponent: 0.5, // rank score = rate * (walks that reacted ** this): a place 4
+    // walks reacted at needs half the rate of a one-walk place to rank level with it.
+    // Calm passes already lower the rate, so this doesn't favour busy routes. Single
+    // view (always one walk) is unaffected; 0 = rank by rate alone.
   },
 
   // ── Overlap-aware path colour ─────────────────────────────────────────
@@ -631,7 +639,7 @@ export const GSR_CONST = {
     // single best-covered cell escapes the pattern, so a single passerby's reading gets
     // visibly flagged as thin evidence rather than reading as confidently as a place many
     // people corroborated.
-    coverageWeighting: 0.5,
+    coverageWeighting: 0,
     // Sliding window size in seconds for temporal anti-aliasing (smoothing) of biometric
     // data. 0.0 disables smoothing. 20.0 seconds filters out rapid 10 Hz spikes to reveal
     // macro-level arousal trends.

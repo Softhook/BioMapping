@@ -4,10 +4,11 @@
  * concentrate" layer.
  *
  * The headline score is dwell-normalised: total rectified phasic-driver energy
- * accumulated by the contributing walk(s) while inside the place footprint,
- * divided by the time they spent there. This is deliberately NOT a peak count —
- * a walker who dawdles at a junction racks up peaks without the place being
- * especially arousing; dividing by dwell cancels that. See
+ * accumulated by every walk that passed through the place footprint (calm
+ * passes included, so they dilute it), divided by the time they spent there.
+ * This is deliberately NOT a peak count — a walker who dawdles at a junction
+ * racks up peaks without the place being especially arousing; dividing by
+ * dwell cancels that. See
  * docs/peak_density_vs_spatial_clustering.md §2.
  *
  * Pure module: no DOM, no Leaflet. GeoUtils is the only dependency and is
@@ -26,11 +27,15 @@ export const GSRArousalPlaces = {
    *     osm_dist_green?, osm_canopy_pct_50m? }], phasic: [{ time, val }] }.
    *   raw[i] and phasic[i] are assumed sample-aligned.
    * @param {object} [opts] - GSR_CONST.AROUSAL_PLACES shape:
-   *   { mergeM, footprintPadM, dwellFloorS, provisionalMaxTracks }.
-   * @returns {Array<object>} Place records sorted by `rate` descending, each:
+   *   { mergeM, footprintPadM, dwellFloorS, minVisitS, provisionalMaxTracks,
+   *     walkRankExponent, minWalks }.
+   * @returns {Array<object>} Place records sorted by `rankScore` descending
+   *   (rate boosted by how many walks reacted), each:
    *   { label, cluster, lat, lon, memberCount, trackIds, trackCount,
-   *     meanAmp, maxAmp, firstTime, energy, dwellSeconds, rate, provisional,
-   *     osm }.
+   *     visitCount, meanAmp, maxAmp, firstTime, energy, dwellSeconds, rate,
+   *     rankScore, provisional, osm }. `trackIds`/`trackCount` are the walks
+   *   with a peak here; `visitCount` is every walk that passed through,
+   *   reacting or not.
    */
   buildPlaces(clusters, tracks, opts = {}) {
     if (!Array.isArray(clusters) || clusters.length === 0) return [];
@@ -38,9 +43,12 @@ export const GSRArousalPlaces = {
     const mergeM = num(opts.mergeM, 35);
     const footprintPad = num(opts.footprintPadM, 10);
     const dwellFloorS = num(opts.dwellFloorS, 5);
+    const minVisitS = num(opts.minVisitS, 3);
     const provMaxTracks = num(opts.provisionalMaxTracks, 1);
     const minMembers = num(opts.minMembers, 3);
+    const minWalks = num(opts.minWalks, 1);
     const maxPlaces = num(opts.maxPlaces, 20);
+    const walkRankExp = num(opts.walkRankExponent, 0.5);
 
     const footprintRadiusM = mergeM / 2 + footprintPad;
     const footSq = footprintRadiusM * footprintRadiusM;
@@ -49,6 +57,7 @@ export const GSRArousalPlaces = {
     const candidateClusters = GSRArousalPlaces._filterCandidates(
       clusters,
       minMembers,
+      minWalks,
     );
 
     let places = candidateClusters.map((candidate) =>
@@ -56,11 +65,17 @@ export const GSRArousalPlaces = {
         footprintRadiusM,
         footSq,
         dwellFloorS,
+        minVisitS,
         provMaxTracks,
       }),
     );
 
-    places.sort((a, b) => b.rate - a.rate);
+    // Rank by rate boosted by how many walks reacted, so a place several walks
+    // corroborate outranks an equally strong one only a single walk saw. Calm
+    // passes already pull `rate` down, so 2 of 10 walks reacting ranks far
+    // below 2 of 2. `rate` itself stays the honest figure shown to the user.
+    for (const p of places) p.rankScore = p.rate * p.trackCount ** walkRankExp;
+    places.sort((a, b) => b.rankScore - a.rankScore);
     if (places.length > maxPlaces) places = places.slice(0, maxPlaces);
     places.forEach((p, i) => {
       p.label = `P${i + 1}`;
@@ -121,6 +136,10 @@ export const GSRArousalPlaces = {
     const lons = new Float64Array(n);
     const phasicVals = new Float64Array(n);
     const flags = new Uint8Array(n); // 1 = valid GPS sample
+    let minLat = Infinity,
+      maxLat = -Infinity,
+      minLon = Infinity,
+      maxLon = -Infinity;
     const phasic = Array.isArray(trk.phasic) ? trk.phasic : null;
 
     for (let i = 0; i < n; i++) {
@@ -141,6 +160,14 @@ export const GSRArousalPlaces = {
           flags[i] = 1;
         }
       }
+    }
+    // Bounding box, so _scorePlace can skip walks that never came near a place.
+    for (let i = 0; i < n; i++) {
+      if (flags[i] === 0) continue;
+      if (lats[i] < minLat) minLat = lats[i];
+      if (lats[i] > maxLat) maxLat = lats[i];
+      if (lons[i] < minLon) minLon = lons[i];
+      if (lons[i] > maxLon) maxLon = lons[i];
     }
     if (phasic) {
       const m = Math.min(n, phasic.length);
@@ -167,6 +194,10 @@ export const GSRArousalPlaces = {
       lons,
       phasicVals,
       flags,
+      minLat,
+      maxLat,
+      minLon,
+      maxLon,
       len: n,
       rawRef: raw,
       pathRef: path,
@@ -179,10 +210,11 @@ export const GSRArousalPlaces = {
   /**
    * Pre-filter: drop single-walk specks (a 1-2 peak cluster from one track is
    * more likely detector noise than a place), but keep small clusters that >=2
-   * independent walks agree on.
+   * independent walks agree on. Also drop clusters with peaks from fewer than
+   * minWalks different walks.
    * @private
    */
-  _filterCandidates(clusters, minMembers) {
+  _filterCandidates(clusters, minMembers, minWalks = 1) {
     const candidates = [];
     for (let cIdx = 0; cIdx < clusters.length; cIdx++) {
       const cluster = clusters[cIdx];
@@ -193,6 +225,7 @@ export const GSRArousalPlaces = {
         if (!trackIds.includes(tid)) trackIds.push(tid);
       }
       if (members.length < minMembers && trackIds.length < 2) continue;
+      if (trackIds.length < minWalks) continue;
       candidates.push({ cluster, members, trackIds });
     }
     return candidates;
@@ -200,11 +233,16 @@ export const GSRArousalPlaces = {
 
   /**
    * Score a candidate cluster by dwell time, rectified phasic energy, and nearest OSM context.
+   * Every walk that spent at least minVisitS inside the footprint counts as a
+   * visit and adds its dwell and energy, whether it peaked here or not; a walk
+   * with a peak here always counts. A brief edge-clip below minVisitS is
+   * treated as GPS wobble, not a visit.
    * @private
    */
   _scorePlace({ members, trackIds }, trackById, config) {
     const n = members.length || 1;
-    const { footprintRadiusM, footSq, dwellFloorS, provMaxTracks } = config;
+    const { footprintRadiusM, footSq, dwellFloorS, minVisitS, provMaxTracks } =
+      config;
 
     let sumLat = 0,
       sumLon = 0,
@@ -252,19 +290,25 @@ export const GSRArousalPlaces = {
       bMaxLon = maxLon + padLon;
 
     let energy = 0,
-      dwellSeconds = 0;
+      dwellSeconds = 0,
+      visitCount = 0;
     let osm = null,
       osmBestDsq = Infinity;
 
-    for (let tIdx = 0; tIdx < trackIds.length; tIdx++) {
-      const tid = trackIds[tIdx];
-      const entry = trackById.get(tid);
-      if (!entry) continue;
-      const { trk, flat } = entry;
+    for (const [tid, { trk, flat }] of trackById) {
+      if (
+        flat.maxLat < bMinLat ||
+        flat.minLat > bMaxLat ||
+        flat.maxLon < bMinLon ||
+        flat.minLon > bMaxLon
+      )
+        continue;
       const sr = num(trk.sampleRate, 10);
       const dt = sr > 0 ? 1 / sr : 0.1;
       const { lats, lons, phasicVals, flags, len } = flat;
       const raw = trk.raw;
+      let trkDwell = 0,
+        trkEnergy = 0;
 
       for (let i = 0; i < len; i++) {
         if (flags[i] === 0) continue;
@@ -284,9 +328,9 @@ export const GSRArousalPlaces = {
         }
         if (nearDsq > footSq) continue;
 
-        dwellSeconds += dt;
+        trkDwell += dt;
         const pv = phasicVals[i];
-        if (pv > 0) energy += pv * dt;
+        if (pv > 0) trkEnergy += pv * dt;
 
         const s = raw[i];
         if (s && s.osm_road_class != null) {
@@ -303,6 +347,11 @@ export const GSRArousalPlaces = {
           }
         }
       }
+      if (trkDwell <= 0) continue;
+      if (trkDwell < minVisitS && !trackIds.includes(tid)) continue;
+      visitCount++;
+      dwellSeconds += trkDwell;
+      energy += trkEnergy;
     }
 
     const rate = (energy / Math.max(dwellSeconds, dwellFloorS)) * 60;
@@ -315,6 +364,7 @@ export const GSRArousalPlaces = {
       memberCount: members.length,
       trackIds,
       trackCount: trackIds.length,
+      visitCount: Math.max(visitCount, trackIds.length),
       meanAmp: sumAmp / n,
       maxAmp,
       firstTime: isFinite(firstTime) ? firstTime : null,

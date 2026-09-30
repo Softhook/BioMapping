@@ -54,8 +54,10 @@ export const GSRStorage = {
    * shown in Single view) and Collective view has a separate set
    * (AppState.collectivePlaces); the same sliders show whichever applies.
    * Keep in step with GSRCollectiveProject.COLLECTIVE_SLIDER_KEYS.
+   * minPlaceWalks is Collective-only: it is never read into a walk's
+   * gpsFilterParams (see saveCollectivePlaces).
    */
-  PLACE_KEYS: ['placeMergeDistance', 'maxArousalPlaces'],
+  PLACE_KEYS: ['placeMergeDistance', 'maxArousalPlaces', 'minPlaceWalks'],
 
   /**
    * Read current GSR slider values into a clean param object.
@@ -159,8 +161,16 @@ export const GSRStorage = {
 
   /** Store the Places sliders' values as Collective view's own settings. */
   saveCollectivePlaces() {
-    const current = this.readGpsSliderValues();
-    if (!current) return;
+    const gps = this.readGpsSliderValues();
+    if (!gps) return;
+    const current = {
+      ...gps,
+      minPlaceWalks: sliderVal(
+        AppState.sliders.minPlaceWalks,
+        GSR_CONST.AROUSAL_PLACES.minWalks,
+        parseInt,
+      ),
+    };
     for (const key of this.PLACE_KEYS) {
       AppState.collectivePlaces[key] = current[key];
     }
@@ -172,6 +182,7 @@ export const GSRStorage = {
     AppState.collectivePlaces = {
       placeMergeDistance: AP.mergeM,
       maxArousalPlaces: AP.maxPlaces,
+      minPlaceWalks: AP.minWalks,
     };
   },
 

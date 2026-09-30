@@ -124,21 +124,148 @@ test('buildPlaces: negative phasic does not subtract from energy (rectified)', (
 });
 
 test('buildPlaces: places are ranked by rate and relabelled P1..Pn', () => {
-  const dwellSamples = (n) =>
-    Array.from({ length: n }, (_, i) => ({ t: i, lat: NEAR, lon: 0, ph: 1 }));
-  const tHot = track('H', dwellSamples(6)); // energy 6, dwell 6 -> rate 60
-  const tMild = track('M', dwellSamples(20));
+  const OTHER = 1000 / M_PER_DEG; // mild place well away from the hot one
+  const dwellSamples = (n, lat) =>
+    Array.from({ length: n }, (_, i) => ({ t: i, lat, lon: 0, ph: 1 }));
+  const tHot = track('H', dwellSamples(6, NEAR)); // energy 6, dwell 6 -> rate 60
+  const tMild = track('M', dwellSamples(20, OTHER));
   tMild.phasic = tMild.phasic.map((d, i) => ({
     time: d.time,
     val: i < 2 ? 1 : 0,
   })); // energy 2, dwell 20 -> rate 6
 
-  const clusters = [[peak('M', NEAR, 0, 0.1, 0)], [peak('H', NEAR, 0, 0.1, 0)]];
+  const clusters = [
+    [peak('M', OTHER, 0, 0.1, 0)],
+    [peak('H', NEAR, 0, 0.1, 0)],
+  ];
   const places = GSRArousalPlaces.buildPlaces(clusters, [tHot, tMild], OPTS);
   assert.strictEqual(places[0].label, 'P1');
   assert.strictEqual(places[0].trackIds[0], 'H');
   assert.strictEqual(places[1].label, 'P2');
   assert.ok(places[0].rate > places[1].rate);
+});
+
+test('buildPlaces: a place more walks agree on outranks a slightly stronger one-walk place', () => {
+  const dwell = (id, lat, n, ph) =>
+    track(
+      id,
+      Array.from({ length: n }, (_, i) => ({ t: i, lat, lon: 0, ph })),
+    );
+  const SOLO = 1000 / M_PER_DEG; // far from the shared place
+  const tSolo = dwell('S', SOLO, 10, 1); // rate 60
+  const tA = dwell('A', NEAR, 10, 0.8); // shared place: rate 48
+  const tB = dwell('B', NEAR, 10, 0.8);
+  const clusters = [
+    [peak('S', SOLO, 0, 0.1, 0)],
+    [peak('A', NEAR, 0, 0.1, 0), peak('B', NEAR, 0, 0.1, 0)],
+  ];
+  const tracks = [tSolo, tA, tB];
+
+  const boosted = GSRArousalPlaces.buildPlaces(clusters, tracks, OPTS);
+  assert.strictEqual(boosted[0].trackCount, 2); // 48 * sqrt(2) ≈ 68 > 60
+  assert.ok(boosted[0].rate < boosted[1].rate); // rate itself is untouched
+  assert.ok(Math.abs(boosted[0].rankScore - 48 * Math.SQRT2) < 1e-9);
+
+  const plain = GSRArousalPlaces.buildPlaces(clusters, tracks, {
+    ...OPTS,
+    walkRankExponent: 0,
+  });
+  assert.strictEqual(plain[0].trackCount, 1); // exponent 0 = rank by rate alone
+});
+
+test('buildPlaces: a calm walk through a place counts as a visit and dilutes its rate', () => {
+  const dwell = (id, n, ph) =>
+    track(
+      id,
+      Array.from({ length: n }, (_, i) => ({ t: i, lat: NEAR, lon: 0, ph })),
+    );
+  const tA = dwell('A', 10, 1); // reacted: energy 10, dwell 10
+  const tCalm = dwell('C', 10, 0); // passed calmly: energy 0, dwell 10
+  const [p] = GSRArousalPlaces.buildPlaces(
+    [[peak('A', NEAR, 0, 0.1, 0)]],
+    [tA, tCalm],
+    OPTS,
+  );
+  assert.strictEqual(p.trackCount, 1);
+  assert.strictEqual(p.visitCount, 2);
+  assert.ok(Math.abs(p.dwellSeconds - 20) < 1e-9);
+  assert.ok(Math.abs(p.rate - (10 / 20) * 60) < 1e-9, `rate ${p.rate}`);
+});
+
+test('buildPlaces: a brief edge-clip shorter than minVisitS is not a visit', () => {
+  const tA = track(
+    'A',
+    Array.from({ length: 10 }, (_, i) => ({ t: i, lat: NEAR, lon: 0, ph: 1 })),
+  );
+  const tClip = track('C', [
+    { t: 0, lat: NEAR, lon: 0, ph: 0 },
+    { t: 1, lat: NEAR, lon: 0, ph: 0 }, // 2 s inside, under the 3 s bar
+    { t: 2, lat: FAR, lon: 0, ph: 0 },
+  ]);
+  const [p] = GSRArousalPlaces.buildPlaces(
+    [[peak('A', NEAR, 0, 0.1, 0)]],
+    [tA, tClip],
+    { ...OPTS, minVisitS: 3 },
+  );
+  assert.strictEqual(p.visitCount, 1);
+  assert.ok(Math.abs(p.dwellSeconds - 10) < 1e-9);
+});
+
+test('buildPlaces: 2 of 2 walks reacting outranks 2 of 6', () => {
+  const OTHER = 1000 / M_PER_DEG;
+  const dwell = (id, lat, ph) =>
+    track(
+      id,
+      Array.from({ length: 10 }, (_, i) => ({ t: i, lat, lon: 0, ph })),
+    );
+  const tracks = [
+    dwell('A', NEAR, 1), // place X: both walks that went there reacted
+    dwell('B', NEAR, 1),
+    dwell('C', OTHER, 1), // place Y: 2 of 6 walks reacted
+    dwell('D', OTHER, 1),
+    dwell('E', OTHER, 0),
+    dwell('F', OTHER, 0),
+    dwell('G', OTHER, 0),
+    dwell('H', OTHER, 0),
+  ];
+  const clusters = [
+    [peak('C', OTHER, 0, 0.1, 0), peak('D', OTHER, 0, 0.1, 0)],
+    [peak('A', NEAR, 0, 0.1, 0), peak('B', NEAR, 0, 0.1, 0)],
+  ];
+  const places = GSRArousalPlaces.buildPlaces(clusters, tracks, OPTS);
+  assert.deepStrictEqual(places[0].trackIds.slice().sort(), ['A', 'B']);
+  assert.strictEqual(places[0].visitCount, 2);
+  assert.strictEqual(places[1].visitCount, 6);
+  assert.ok(places[0].rankScore > places[1].rankScore);
+});
+
+test('buildPlaces: minWalks drops places fewer walks peaked at', () => {
+  const OTHER = 1000 / M_PER_DEG;
+  const dwell = (id, lat) =>
+    track(
+      id,
+      Array.from({ length: 10 }, (_, i) => ({ t: i, lat, lon: 0, ph: 1 })),
+    );
+  const tracks = [dwell('A', NEAR), dwell('B', NEAR), dwell('C', OTHER)];
+  const clusters = [
+    [peak('A', NEAR, 0, 0.1, 0), peak('B', NEAR, 0, 0.1, 0)],
+    [peak('C', OTHER, 0, 0.1, 0)], // one walk only
+  ];
+  assert.strictEqual(
+    GSRArousalPlaces.buildPlaces(clusters, tracks, OPTS).length,
+    2,
+  );
+  const places = GSRArousalPlaces.buildPlaces(clusters, tracks, {
+    ...OPTS,
+    minWalks: 2,
+  });
+  assert.strictEqual(places.length, 1);
+  assert.strictEqual(places[0].trackCount, 2);
+  assert.strictEqual(
+    GSRArousalPlaces.buildPlaces(clusters, tracks, { ...OPTS, minWalks: 3 })
+      .length,
+    0,
+  );
 });
 
 test('buildPlaces: a cluster spanning two tracks sums dwell + energy and is not provisional', () => {

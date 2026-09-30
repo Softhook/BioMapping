@@ -95,6 +95,7 @@ export const GSREvents = {
       'gpsSnapRadius',
       'placeMergeDistance',
       'maxArousalPlaces',
+      'minPlaceWalks',
       'graphView',
       'useFullScanDetector',
       'useDeconvolution',

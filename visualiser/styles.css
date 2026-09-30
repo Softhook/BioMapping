@@ -3066,6 +3066,11 @@ input[type="range"]:focus-visible,
   display: none !important;
 }
 
+/* Min Walks per Place only means something across several walks. */
+.main-layout:not(.collective-mode) #minPlaceWalksGroup {
+  display: none;
+}
+
 /* With the per-walk sliders above it hidden, Arousal Places is the first thing
    in the Map Display card — drop its heading gap like any first heading. */
 .main-layout.collective-mode #arousalPlacesTitle {

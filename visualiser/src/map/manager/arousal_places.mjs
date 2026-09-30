@@ -49,7 +49,7 @@ export class GSRMapArousalPlaces extends GSRMapPeaks {
   _renderArousalPlacesFor(peaks, scoreTracks, view) {
     if (!peaks || peaks.length === 0) return;
 
-    const P = this._arousalPlaceParams();
+    const P = this._arousalPlaceParams(view);
 
     // Remember the last input so refreshArousalPlaces() (the #placeMergeDistance
     // scoped refresh) can re-run without re-deriving peak coordinates — a merge
@@ -226,20 +226,25 @@ export class GSRMapArousalPlaces extends GSRMapPeaks {
     mixF(P.drawGapFactor);
     mixF(view.collective ? 1 : 0);
     mixF(view.activeTrackCount || 0);
+    mixF(P.minWalks);
 
     return (h >>> 0).toString(36);
   }
 
   /**
-   * Read the "Place Merge Distance" slider (#placeMergeDistance) and
-   * "Max Places" slider (#maxArousalPlaces) plus the fixed AROUSAL_PLACES constants.
+   * Read the "Place Merge Distance" slider (#placeMergeDistance),
+   * "Max Places" slider (#maxArousalPlaces) and "Min Walks per Place" slider
+   * (#minPlaceWalks) plus the fixed AROUSAL_PLACES constants.
    * mergeM is the compactClusters() leader radius;
    * maxPlaces caps the top-ranked places rendered;
+   * minWalks is the walk requirement actually applied: Collective view only
+   * (Single view is always one walk), and never more than the walks loaded, so
+   * loading fewer walks than the slider asks for means "all of them", not "none";
    * sigma / blobRadius only shape the cosmetic getConcaveBlob() outline, not the
    * place score (dwell-normalised energy, computed in arousal_places.js).
    * @private
    */
-  _arousalPlaceParams() {
+  _arousalPlaceParams(view) {
     const C = GSR_CONST.AROUSAL_PLACES;
     const parse = (el, fallback, fn = parseFloat) => {
       const v = el ? fn(el.value) : fallback;
@@ -251,10 +256,20 @@ export class GSRMapArousalPlaces extends GSRMapPeaks {
       1,
       parse(S.maxArousalPlaces, C.maxPlaces, parseInt),
     );
+    const minWalks = view.collective
+      ? Math.max(
+          1,
+          Math.min(
+            parse(S.minPlaceWalks, C.minWalks, parseInt),
+            view.activeTrackCount || 1,
+          ),
+        )
+      : 1;
 
     return {
       mergeM,
       maxPlaces,
+      minWalks,
       sigma: mergeM * 0.35,
       blobRadius: mergeM * 0.5,
       separationFactor: C.seedSeparationFactor,
@@ -431,8 +446,8 @@ export class GSRMapArousalPlaces extends GSRMapPeaks {
   /**
    * Outline style for one Arousal Place (the badge is styled separately by rank).
    * Collective view (2+ active tracks): the amber→red ramp is inter-track
-   * *agreement* (trackCount / activeTrackCount); a one-walker place renders faint
-   * and dashed ("provisional"). Single-track (or a lone collective track): the
+   * *agreement* (walks that reacted / walks that passed through); a one-walker
+   * place renders faint and dashed ("provisional"). Single-track (or a lone collective track): the
    * ramp is the dwell-normalised `rate`, min→max-normalised across this render.
    * @private
    */
@@ -440,7 +455,7 @@ export class GSRMapArousalPlaces extends GSRMapPeaks {
     const multiTrack = ctx.collective && ctx.activeTrackCount > 1;
     let ratio;
     if (multiTrack) {
-      ratio = Math.max(0, Math.min(1, place.trackCount / ctx.activeTrackCount));
+      ratio = Math.max(0, Math.min(1, place.trackCount / place.visitCount));
     } else {
       const span = rateMax - rateMin;
       ratio =
@@ -457,7 +472,7 @@ export class GSRMapArousalPlaces extends GSRMapPeaks {
 
     const peaks = `${place.memberCount} ${place.memberCount === 1 ? 'peak' : 'peaks'}`;
     const walks = multiTrack
-      ? ` · ${place.trackCount}/${ctx.activeTrackCount} walks`
+      ? ` · ${place.trackCount}/${place.visitCount} walks reacted`
       : '';
     const prov = provisional ? ' · provisional' : '';
     const tooltip = `${place.label}${walks} · ${peaks} · ${place.rate.toFixed(2)} µS·s/min${prov}`;

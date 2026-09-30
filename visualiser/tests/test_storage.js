@@ -844,6 +844,7 @@ test('resetCollectivePlaces: restores the shipped Arousal Places defaults', () =
   assert.deepStrictEqual(global.AppState.collectivePlaces, {
     placeMergeDistance: global.GSR_CONST.AROUSAL_PLACES.mergeM,
     maxArousalPlaces: global.GSR_CONST.AROUSAL_PLACES.maxPlaces,
+    minPlaceWalks: global.GSR_CONST.AROUSAL_PLACES.minWalks,
   });
 });
 

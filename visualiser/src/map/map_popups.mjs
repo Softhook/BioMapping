@@ -295,8 +295,8 @@ export const MapPopups = {
 
     if (multiTrack) {
       row(
-        'Walks:',
-        `${place.trackCount} of ${ctx.activeTrackCount}${place.provisional ? ' (provisional)' : ''}`,
+        'Walks reacted:',
+        `${place.trackCount} of ${place.visitCount} that passed${place.provisional ? ' (provisional)' : ''}`,
       );
     }
     row('Arousal rate:', `${place.rate.toFixed(2)} µS·s/min`);
