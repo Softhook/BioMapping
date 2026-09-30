@@ -341,10 +341,11 @@ function initLiveMap() {
 }
 
 // ==========================================================================
-// Peak / hotspot markers on the live follow-map — the SAME Leaflet icons and
-// latency-aware placement the main visualiser's map uses (GSRMapMarkers in
-// src/map/map_markers.js), so the live map and the analysis map can't drift
-// apart visually: peaks are small dots, hotspots (memorableEvents) are stars.
+// Peak / hotspot markers on the live follow-map — the SAME Leaflet icons the
+// main visualiser's map uses (GSRMapMarkers in src/map/map_markers.js), so the
+// live map and the analysis map can't drift apart visually: peaks are small
+// dots, hotspots (memorableEvents) are stars. Live stays on skin time (no
+// Response delay), so each marker sits where its peak was recorded.
 //
 // Unlike the main map (one render per analysed track), the live analyser
 // re-runs on a sliding window, so markers are reconciled incrementally: a Map

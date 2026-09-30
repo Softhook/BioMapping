@@ -49,6 +49,8 @@ export const GSRTrackManager = {
     const gpsFilterParams =
       analyzer.importedGpsFilterParams ||
       JSON.parse(JSON.stringify(GSR_CONST.GPS_DEFAULT));
+    // Every walk is shown at the project's one Response delay.
+    analyzer.setResponseDelay(AppState.responseDelay);
 
     return {
       id: trackId,

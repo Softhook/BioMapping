@@ -17,7 +17,7 @@ import { GSRStorage } from './storage.mjs';
 
 export const GpsEvents = {
   /**
-   * GPS filter sliders, the Arousal Places slider, road-snap radius/toggle, graph background-band overlay toggles, and peak-latency (map-only re-render).
+   * GPS filter sliders, the Arousal Places slider, road-snap radius/toggle, graph background-band overlay toggles, and the Response delay (map-only re-render).
    */
   _bindGpsControls() {
     // ── GPS slider bindings ──────────────────────────────────────────────────
@@ -99,23 +99,23 @@ export const GpsEvents = {
       });
     }
 
-    // Peak latency — the map follows the drag; the environmental dashboard
-    // (junction permutation tests take seconds on a large collective) only
-    // recomputes on release.
+    // Response delay — one value for the whole project (AppState). The map
+    // follows the drag; the environmental dashboard (junction permutation
+    // tests take seconds on a large collective) only recomputes on release.
     {
-      const slider = document.getElementById('gpsPeakLatency');
-      const label = document.getElementById('valGpsPeakLatency');
-      const fmt = this._sliderDef('gpsPeakLatency').fmt;
+      const slider = document.getElementById('responseDelay');
+      const label = document.getElementById('valResponseDelay');
+      const fmt = this._sliderDef('responseDelay').fmt;
       const updateDim = () => {
         this.updateFilterDim(slider);
       };
       updateDim();
       const rerenderMap = this.rafCoalesce(() => {
-        this.commitMapDisplaySetting();
         Controllers.ui?.rerenderMap();
       });
       slider.addEventListener('input', () => {
-        label.innerText = fmt(parseFloat(slider.value));
+        AppState.setResponseDelay(parseFloat(slider.value));
+        label.innerText = fmt(AppState.responseDelay);
         updateDim();
         rerenderMap();
       });

@@ -9,7 +9,6 @@
  */
 import { AppState } from '../core/app_state.mjs';
 import { BusyOverlay } from '../core/busy_overlay.mjs';
-import { GSR_CONST } from '../core/constants.mjs';
 import { Controllers } from '../core/controllers.mjs';
 import { GSRNotices } from '../core/notices.mjs';
 import { GSRStorage } from './storage.mjs';
@@ -64,11 +63,7 @@ export const PresetEvents = {
             track.filterParams = JSON.parse(JSON.stringify(activeGsr));
             track.gpsFilterParams = JSON.parse(JSON.stringify(activeGps));
             try {
-              track.analyzer.analyze(
-                track.filterParams,
-                track.gpsFilterParams.peakLatency ??
-                  GSR_CONST.GPS_DEFAULT.peakLatency,
-              );
+              track.analyzer.analyze(track.filterParams);
             } catch (e) {
               console.warn(`Re-analysing track "${track.name}" failed:`, e);
             }

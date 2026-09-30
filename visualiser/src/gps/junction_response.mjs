@@ -24,11 +24,11 @@
  * junction.  Windows are clipped at the midpoint between neighbouring entries
  * so no GSR sample is counted in two passages.
  *
- * Junction times are GPS (place) times, but GSR lags what evoked it
- * (PhysioLatency).  The windows are laid out in place time and each GSR
- * channel is read `lag` seconds later, so "after" starts once the response to
- * leaving the junction can show, and "before" is not credited with the
- * response to the junction itself.
+ * Junction times are GPS (place) times, but GSR lags what evoked it (the
+ * Response delay, signal/response_delay.mjs).  The windows are laid out in
+ * place time and every GSR channel is read `delayS` seconds later, so "after"
+ * starts once the response to leaving the junction can show, and "before" is
+ * not credited with the response to the junction itself.
  *
  * Records carry a trackId.  For the pooled test each level is centred on its
  * own track's mean (a per-walk fixed effect) so people/walks with a bigger GSR
@@ -65,14 +65,14 @@ export const JunctionResponse = {
   METRICS: ['peakRate', 'meanPhasic', 'meanTonic'],
 
   /**
-   * Summarise series samples for the place-time window [t0, t1).  Phasic and
-   * peaks are read from [t0 + lag.phasic, t1 + lag.phasic), tonic from its own
-   * (longer) lag; both must be adequately covered.
+   * Summarise series samples for the place-time window [t0, t1).  Every
+   * channel is read from [t0 + delayS, t1 + delayS) and must be adequately
+   * covered.
    */
-  _summarise(series, t0, t1, dt = 0, lag = {}) {
+  _summarise(series, t0, t1, dt = 0, delayS = 0) {
     const { time, phasic, tonic, isPeak } = series;
-    const lp = lag.phasic || 0;
-    const lt = lag.tonic || 0;
+    const lp = delayS || 0;
+    const lt = lp;
     let n = 0;
     let sumP = 0;
     let peaks = 0;
@@ -146,8 +146,8 @@ export const JunctionResponse = {
   /**
    * @param {Array} passages from Junctions.classifyPassages (one track)
    * @param {{time:number[],phasic:number[],tonic:number[],isPeak:number[]}} series
-   * @param {{windowS?:number, trackId?:*, lag?:{phasic:number,tonic:number}}} [opts]
-   *   `lag` = PhysioLatency.lags(slider); omitted → no latency shift.
+   * @param {{windowS?:number, trackId?:*, delayS?:number}} [opts]
+   *   `delayS` = the walk's Response delay (s); omitted → no shift.
    * @returns {Array<{key,trackId,decision,kind,time,before,after,delta}>} passages with a
    *   usable window on both sides.
    */
@@ -172,8 +172,8 @@ export const JunctionResponse = {
         enter + W,
         nextEnter != null ? (enter + nextEnter) / 2 : Infinity,
       );
-      const before = this._summarise(series, t0, enter, dt, opts.lag);
-      const after = this._summarise(series, enter, t1, dt, opts.lag);
+      const before = this._summarise(series, t0, enter, dt, opts.delayS);
+      const after = this._summarise(series, enter, t1, dt, opts.delayS);
       if (!before || !after) return;
       const delta = {};
       for (const m of this.METRICS) delta[m] = after[m] - before[m];

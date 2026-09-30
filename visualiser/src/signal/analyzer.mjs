@@ -9,6 +9,7 @@
 // tested independently; imported directly below.
 import { GSR_CONST } from '../core/constants.mjs';
 import { GeoUtils } from '../gps/geo_utils.mjs';
+import { GpsPipeline } from '../gps/gps_pipeline.mjs';
 import { AnalyzerExport } from './analyzer_export.mjs';
 import { AnalyzerStats } from './analyzer_stats.mjs';
 import { AnalyzerTimeFormat } from './analyzer_time_format.mjs';
@@ -20,6 +21,7 @@ import { detectAndRepairGsrDisconnects } from './gsr_disconnect_repair.mjs';
 import { GsrFilter } from './gsr_filter.mjs';
 import { PeakDetectors } from './peak_detectors.mjs';
 import { PeakShape } from './peak_shape.mjs';
+import { ResponseDelay } from './response_delay.mjs';
 import { ResponseDynamics } from './response_dynamics.mjs';
 import { SpectralEDA } from './spectral_eda.mjs';
 
@@ -36,12 +38,19 @@ export class GSRAnalyzer {
     // { time, index, amplitude, onsetIndex, onsetTime, halfRecoveryTime,
     //   riseTime, onsetSlope, decaySlope, skewnessRatio, snr,
     //   qualityScore, salienceScore, prominence, label }
-    this.memorableEvents = []; // Curated hotspot subset of this.peaks: the
-    // highest-amplitude responses, spatially spread
-    // (>= MEMORABLE_EVENTS.MIN_SEPARATION_M apart) so
-    // no two crowd one spot on the map. Built in
-    // analyze() step 5b. A companion view over
-    // this.peaks, not a replacement for it.
+    // memorableEvents (a getter below) is the curated hotspot subset of
+    // this.peaks: the highest-amplitude responses, spatially spread
+    // (>= MEMORABLE_EVENTS.MIN_SEPARATION_M apart) so no two crowd one spot
+    // on the map. A companion view over this.peaks, not a replacement for it.
+    this._hotspotParams = null;
+    this._hotspots = null;
+
+    // Response delay (s): how far back along the route body data is placed.
+    // The project sets it from the slider; see response_delay.mjs.
+    // maxResponseDelay is the largest delay this walk can be shown at, which
+    // bounds which peaks may be hotspots (Live is only ever shown at 0).
+    this.responseDelay = 0;
+    this.maxResponseDelay = ResponseDelay.MAX_S;
 
     // Continuous, threshold-independent arousal metrics (see
     // docs/environmental_stress_literature_review.md §5-6). These resolve the
@@ -632,11 +641,8 @@ export class GSRAnalyzer {
    * Run the analysis pipeline with current parameter adjustments.
    *
    * @param {object} params - GSR filter/detection params (see GSRStorage.readGsrSliderValues()).
-   * @param {number} [peakLatency=0] - GPS peak-latency compensation (seconds),
-   *   from GSRStorage.readGpsSliderValues(). Used when resolving coordinates
-   *   for hotspot selection (memorableEvents). Defaults to 0 (no shift).
    */
-  analyze(params, peakLatency = 0) {
+  analyze(params) {
     if (this.raw.length === 0) return;
 
     const n = this.raw.length;
@@ -874,8 +880,12 @@ export class GSRAnalyzer {
       this._detectPeaksFullScan(params);
     }
 
-    // 5b. Memorable-event ("hotspot") selection — see _selectMemorableEvents().
-    this.memorableEvents = this._selectMemorableEvents(params, peakLatency);
+    // 5b. Hotspots are chosen from the new peaks when first asked for (see
+    // the memorableEvents getter), on the smoothed path the map draws — built
+    // here if nothing has drawn this walk yet.
+    this._hotspotParams = params;
+    this._hotspots = null;
+    if (this.hasGpsData) GpsPipeline.ensureFilteredGps(this);
 
     // 6. Continuous, threshold-independent arousal metrics (ISCR/AUC + combined index + EM Fog)
     const densityWin =
@@ -1852,31 +1862,49 @@ export class GSRAnalyzer {
     return PeakShape.computeSalienceScore(peak);
   }
 
-  /**
-   * Resolve the raw-sample index a peak's position should be evaluated
-   * at, applying the GPS-latency shift.
-   *
-   * @param {object} peak - Peak object with { index, time }.
-   * @param {number} peakLatency - Latency shift in seconds.
-   * @returns {number} Raw data index corresponding to latency-shifted time.
-   */
-  resolveLatencyIndex(peak, peakLatency) {
-    if (!(peakLatency > 0))
-      return peak && peak.index !== undefined ? peak.index : 0;
-    const si = this.stimulusIndexAt(
-      peak && peak.time !== undefined ? peak.time : 0,
-      peakLatency,
-    );
-    return si >= 0 ? si : peak && peak.index !== undefined ? peak.index : 0;
+  /** Set the Response delay (s) this walk is shown at; see response_delay.mjs. */
+  setResponseDelay(s) {
+    this.responseDelay = ResponseDelay.normalise(s);
+  }
+
+  /** Where reading i goes: the position `responseDelay` s earlier, or null. */
+  placeOf(i) {
+    return ResponseDelay.placeOf(this, i);
+  }
+
+  /** The place row reading i is paired with, or −1. */
+  placeRowOf(i) {
+    return ResponseDelay.placeRowOf(this, i);
+  }
+
+  /** The reading place row j shows (`responseDelay` s later), or −1. */
+  readingAt(j) {
+    return ResponseDelay.readingAt(this, j);
   }
 
   /**
-   * Index of the sample the walker was at `lag` seconds before `time` — the
-   * place a GSR reading at `time` actually responds to (see PhysioLatency).
-   * -1 when the track is empty.
+   * The hotspots, chosen from the current peaks on the current smoothed path
+   * the first time they are asked for, and again whenever either changes.
+   * They don't depend on the Response delay, so moving the slider never
+   * changes which peaks are hotspots.
    */
-  stimulusIndexAt(time, lag) {
-    return this.findClosestIndex(Math.max(0, time - (lag || 0)));
+  get memorableEvents() {
+    if (
+      !this._hotspots ||
+      this._hotspotsPeaks !== this.peaks ||
+      this._hotspotsPath !== this._pathKey
+    ) {
+      this._hotspots = this._selectMemorableEvents(this._hotspotParams);
+      this._hotspotsPeaks = this.peaks;
+      this._hotspotsPath = this._pathKey;
+    }
+    return this._hotspots;
+  }
+
+  set memorableEvents(events) {
+    this._hotspots = events;
+    this._hotspotsPeaks = this.peaks;
+    this._hotspotsPath = this._pathKey;
   }
 
   /**
@@ -1905,24 +1933,23 @@ export class GSRAnalyzer {
    *
    * Spatial spacing: walking the magnitude-ranked list, a candidate is skipped
    * if it falls within MEMORABLE_EVENTS.MIN_SEPARATION_M of an already-selected
-   * hotspot, measured at the latency-shifted marker position (the same one the
-   * map renders). The biggest response in any neighbourhood wins its spot. A
+   * hotspot, measured where the peak was recorded (Response delay 0), so the
+   * choice doesn't change with the slider. The biggest response in any neighbourhood wins its spot. A
    * spatially compact recording (a short loop walked repeatedly) can therefore
    * yield fewer than the percentile target — intended: better a handful of
    * distinct places than twenty markers on one corner.
    *
-   * Peaks with no GPS fix (getCoordinates returns null) are skipped entirely,
-   * not auto-included: GSRMapManager._renderHotspotMarkers() /
-   * _renderCollectiveTrackHotspots() (map.js) both bail out with
-   * `if (!coords) return;`, so an unrenderable peak selected here would
-   * silently consume a slot and render nothing.
+   * Only peaks with a place at every Response delay the walk can be shown at
+   * compete (ResponseDelay.placedAtEveryDelay), and the count target is a
+   * percentile of those: a hotspot can't vanish off the route while the
+   * slider is dragged, and a peak with no position (GPS warm-up, after the
+   * last fix) neither is one nor counts towards how many.
    *
    * @param {object} params - Analysis params (may carry hotspotPercentile).
-   * @param {number} peakLatency - GPS peak-latency shift (s) for marker position.
    * @returns {Array<object>} Selected peak objects, biggest-amplitude first.
    * @private
    */
-  _selectMemorableEvents(params, peakLatency = 0) {
+  _selectMemorableEvents(params) {
     const ME = GSR_CONST.MEMORABLE_EVENTS;
     // Rank by the metric the active detector actually selects peaks on:
     // prominence only in prominence mode, trough-to-peak amplitude otherwise
@@ -1933,16 +1960,12 @@ export class GSRAnalyzer {
     const magnitude = params?.usePeakProminence
       ? (p) => (p.prominence != null ? p.prominence : p.amplitude)
       : (p) => p.amplitude;
-    // Only peaks that can be placed on the map compete, and the hotspot
-    // count is a percentile of those: a peak with no position (GPS warm-up,
-    // after the last fix) is neither a hotspot nor counted towards how many.
     const placed = [];
     for (const p of this.peaks) {
-      if (p.excluded) continue;
-      const coords = this.getCoordinates(
-        this.resolveLatencyIndex(p, peakLatency),
-      );
-      if (coords) placed.push({ p, coords });
+      if (p.excluded || !ResponseDelay.placedAtEveryDelay(this, p.index)) {
+        continue;
+      }
+      placed.push({ p, coords: this.getCoordinates(p.index) });
     }
     placed.sort(
       (a, b) => magnitude(b.p) - magnitude(a.p) || a.p.time - b.p.time,
@@ -2291,6 +2314,7 @@ export class GSRAnalyzer {
         isEnriched: this.isEnriched,
         recordingStartTime: this.recordingStartTime,
         deviceHeaderLines: this.deviceHeaderLines,
+        responseDelay: this.responseDelay,
       },
       params,
       gpsParams,

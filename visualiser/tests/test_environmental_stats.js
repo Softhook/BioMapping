@@ -33,7 +33,7 @@ const csvText = fs.readFileSync(
 // a different environment pattern, so per-walk correlations differ.
 const base = new GSRAnalyzer();
 base.parseCSV(csvText);
-base.analyze(GSR_CONST.GSR_DEFAULT, 0);
+base.analyze(GSR_CONST.GSR_DEFAULT);
 
 function walk(id, seed) {
   const a = Object.create(base);
@@ -105,6 +105,10 @@ function walkWithWarmup(blankRows) {
   const w = walk('warm', 0);
   w.analyzer.raw = w.analyzer.raw.map((pt, i) =>
     i < blankRows ? { ...pt, lat: NaN, lon: NaN } : pt,
+  );
+  // analyze() built the smoothed path too; blank it the same way.
+  w.analyzer.filteredGps = base.filteredGps.map((c, i) =>
+    i < blankRows ? { lat: NaN, lon: NaN } : c,
   );
   return w;
 }

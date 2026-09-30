@@ -138,14 +138,11 @@ export class GSRMapViewport extends GSRMapProcess {
    * here" indicator, so it shows even when the peak-marker layer is hidden (the
    * next graph hover repositions it). A bad index / NaN coords is a no-op.
    */
-  focusOnPeakLocation(peakIdx, analyzer, gpsParams) {
+  focusOnPeakLocation(peakIdx, analyzer) {
     if (!this.map || !analyzer?.peaks) return;
     const peak = analyzer.peaks[peakIdx];
     if (!peak) return;
-    const peakLatency = gpsParams?.peakLatency || 0;
-    const coords = analyzer.getCoordinates(
-      analyzer.resolveLatencyIndex(peak, peakLatency),
-    );
+    const coords = analyzer.placeOf(peak.index);
     if (!coords || isNaN(coords.lat) || isNaN(coords.lon)) return;
 
     this.setScrubPosition(coords.lat, coords.lon, false);

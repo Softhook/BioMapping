@@ -94,12 +94,12 @@ export class GSRMapRender extends GSRMapToggles {
       this._updateRfFluidButtonState(false);
     }
 
-    // Peak markers (with latency compensation)
-    this._renderPeakMarkers(analyzer, data, p.peakLatency || 0, activeTrack);
+    // Peak markers, placed through the Response delay
+    this._renderPeakMarkers(analyzer, data, activeTrack);
 
     // Hotspot markers — the small top-2%-by-amplitude "memorable event" subset,
     // rendered as a separate, visually distinct layer (see _renderHotspotMarkers).
-    this._renderHotspotMarkers(analyzer, p.peakLatency || 0, activeTrack);
+    this._renderHotspotMarkers(analyzer, activeTrack);
 
     // Apply the active peak/label/hotspot toggle styles
     this.updateMarkerVisibility();
@@ -205,7 +205,6 @@ export class GSRMapRender extends GSRMapToggles {
    */
   refreshPeakMarkers(analyzer, gpsParams, options) {
     if (!this.map || !analyzer) return;
-    const p = gpsParams || {};
     const opts = options || {};
 
     const activeTrack = AppState.collectiveManager
@@ -237,15 +236,11 @@ export class GSRMapRender extends GSRMapToggles {
       activeTrack,
       kinds,
       () => {
-        this._renderPeakMarkers(
-          analyzer,
-          analyzer.raw,
-          p.peakLatency || 0,
-          activeTrack,
-          { skipClustering: !!opts.skipClustering },
-        );
+        this._renderPeakMarkers(analyzer, analyzer.raw, activeTrack, {
+          skipClustering: !!opts.skipClustering,
+        });
         if (opts.refreshHotspots) {
-          this._renderHotspotMarkers(analyzer, p.peakLatency || 0, activeTrack);
+          this._renderHotspotMarkers(analyzer, activeTrack);
         }
       },
       true,

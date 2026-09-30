@@ -59,7 +59,9 @@ function rampRaw(from, to, steps) {
   return out;
 }
 const SAMPLE_GSR_RAW = [
-  ...Array(8).fill(10000), // baseline
+  // 9 s of baseline: a hotspot needs a place at every Response delay up to
+  // 8 s (signal/response_delay.mjs), so its peak can't be in the first 8 s.
+  ...Array(90).fill(10000), // baseline
   ...rampRaw(10000, 14000, 15), // rise over 1.5s
   14000, // apex
   ...rampRaw(14000, 12000, 10), // drop to half over 1.0s
@@ -437,7 +439,7 @@ function addTrack(window, id, name, csvText) {
     '#ff0000',
     analyzer,
   );
-  analyzer.analyze(track.filterParams, 0);
+  analyzer.analyze(track.filterParams);
   window.AppState.collectiveManager.addTrack(track);
   window.AppState.activeTrackId = id;
   window.AppState.analyzer = analyzer;
@@ -618,7 +620,7 @@ test('orphan-fix: clearMap removes legacy no-track-fallback layers, not just the
     '#ff0000',
     analyzer,
   );
-  analyzer.analyze(track.filterParams, 0);
+  analyzer.analyze(track.filterParams);
 
   // Deliberately do NOT add this track to AppState.collectiveManager or make
   // it active — renderData() then can't resolve an active track and falls

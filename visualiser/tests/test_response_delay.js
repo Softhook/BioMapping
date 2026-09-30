@@ -1,7 +1,7 @@
 /**
  * Response delay: the tests written before the build. Each one states a rule
- * from the Solution design in docs/time_offsets_review.md. Until the build
- * lands they are marked `todo`, so they run and report but don't fail the
+ * from the Solution design in docs/time_offsets_review.md. Tests for a step
+ * not built yet are marked `todo`, so they run and report but don't fail the
  * suite; each step removes the marks for what it delivers.
  *
  * The rule: the slider moves all body data (GSR, tonic, phasic, peaks,
@@ -47,7 +47,6 @@ const {
   isoWalkCsv,
 } = require('./support/response_delay_walks.js');
 
-const STEP1 = 'Response delay not built yet (step 1)';
 const STEP3 = 'Timestamp fixes not built yet (step 3)';
 const HZ = 10;
 const rows = (s) => Math.round(s * HZ);
@@ -72,9 +71,7 @@ const samePlace = (p, q, msg) => {
 
 // ── The slider ──────────────────────────────────────────────────────────────
 
-test('slider: 0 to 8 s, default 2 s; out-of-range values are clamped, junk falls back', {
-  todo: STEP1,
-}, () => {
+test('slider: 0 to 8 s, default 2 s; out-of-range values are clamped, junk falls back', () => {
   const { ResponseDelay } = require('../src/signal/response_delay.mjs');
   assert.strictEqual(ResponseDelay.MIN_S, 0);
   assert.strictEqual(ResponseDelay.MAX_S, 8);
@@ -88,9 +85,7 @@ test('slider: 0 to 8 s, default 2 s; out-of-range values are clamped, junk falls
   assert.strictEqual(ResponseDelay.normalise(undefined), 2);
 });
 
-test('slider in the page: "Response delay", 0–8 s in 0.1 s steps, starting at 2 s', {
-  todo: STEP1,
-}, () => {
+test('slider in the page: "Response delay", 0–8 s in 0.1 s steps, starting at 2 s', () => {
   const html = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
   const input = html.match(/<input[^>]*id="responseDelay"[^>]*>/);
   assert.ok(input, 'a #responseDelay slider');
@@ -112,9 +107,7 @@ test('slider in the page: "Response delay", 0–8 s in 0.1 s steps, starting at 
 
 // ── The join ────────────────────────────────────────────────────────────────
 
-test('join at 0 s: every reading is placed where it was taken', {
-  todo: STEP1,
-}, () => {
+test('join at 0 s: every reading is placed where it was taken', () => {
   const a = walk({}, 0);
   for (let i = 0; i < a.raw.length; i++) {
     samePlace(a.placeOf(i), a.getCoordinates(i), `reading ${i}`);
@@ -123,9 +116,7 @@ test('join at 0 s: every reading is placed where it was taken', {
   }
 });
 
-test('join at 2 s: a reading is placed where the walker was 2 s earlier', {
-  todo: STEP1,
-}, () => {
+test('join at 2 s: a reading is placed where the walker was 2 s earlier', () => {
   const a = walk({}, 2);
   for (let i = rows(2); i < a.raw.length; i++) {
     assert.strictEqual(a.placeRowOf(i), i - rows(2), `reading ${i}`);
@@ -133,9 +124,7 @@ test('join at 2 s: a reading is placed where the walker was 2 s earlier', {
   }
 });
 
-test('join between rows: the place is interpolated, so dragging moves things smoothly', {
-  todo: STEP1,
-}, () => {
+test('join between rows: the place is interpolated, so dragging moves things smoothly', () => {
   const a = walk({}, 2.05);
   for (const i of [100, 500, 1200]) {
     const p = a.getCoordinates(i - 20);
@@ -145,9 +134,7 @@ test('join between rows: the place is interpolated, so dragging moves things smo
   }
 });
 
-test('join the other way: a place shows the reading from 2 s later', {
-  todo: STEP1,
-}, () => {
+test('join the other way: a place shows the reading from 2 s later', () => {
   const a = walk({}, 2);
   const n = a.raw.length;
   for (let j = 0; j < n - rows(2); j++) {
@@ -161,9 +148,7 @@ test('join the other way: a place shows the reading from 2 s later', {
   }
 });
 
-test('edges: readings in the first 2 s have no place (it would be before the recording)', {
-  todo: STEP1,
-}, () => {
+test('edges: readings in the first 2 s have no place (it would be before the recording)', () => {
   const a = walk({}, 2);
   for (let i = 0; i < rows(2); i++) {
     assert.strictEqual(a.placeOf(i), null, `reading ${i}`);
@@ -171,9 +156,7 @@ test('edges: readings in the first 2 s have no place (it would be before the rec
   }
 });
 
-test('edges: a reading whose place had no GPS fix has no place', {
-  todo: STEP1,
-}, () => {
+test('edges: a reading whose place had no GPS fix has no place', () => {
   const a = walk({ warmupS: 15 }, 2);
   const firstFix = rows(15);
   for (let i = 0; i < a.raw.length; i++) {
@@ -190,9 +173,7 @@ const bodyFacts = (a) =>
     hotspots: a.memorableEvents.map((p) => p.index),
   });
 
-test('moving the slider changes nothing about the body data', {
-  todo: STEP1,
-}, () => {
+test('moving the slider changes nothing about the body data', () => {
   const a = walk({}, 0);
   const at0 = bodyFacts(a);
   for (const d of [0.5, 2, 3.7, 8, 0]) {
@@ -202,9 +183,7 @@ test('moving the slider changes nothing about the body data', {
   }
 });
 
-test('hotspots come only from peaks that have a place at every setting (0–8 s)', {
-  todo: STEP1,
-}, () => {
+test('hotspots come only from peaks that have a place at every setting (0–8 s)', () => {
   // A response 3 s in has no place once the slider passes ~4 s, so it must
   // not be a hotspot (it would vanish while dragging).
   const a = walk({ responsesAt: [3, 40, 80, 120, 160] }, 2);
@@ -221,9 +200,7 @@ test('hotspots come only from peaks that have a place at every setting (0–8 s)
   }
 });
 
-test('hotspots are chosen with the smoothed path already built (finding 2)', {
-  todo: STEP1,
-}, () => {
+test('hotspots are chosen with the smoothed path already built (finding 2)', () => {
   const a = new GSRAnalyzer();
   a.parseCSV(straightWalkCsv());
   a.setResponseDelay(2);
@@ -272,9 +249,7 @@ for (const src of [
   'arousal_index',
   'tri_index',
 ]) {
-  test(`group map (${src}): each reading keeps its value; only its place moves 2 s back`, {
-    todo: STEP1,
-  }, () => {
+  test(`group map (${src}): each reading keeps its value; only its place moves 2 s back`, () => {
     const a = walk({}, 0);
     const byRow0 = new Map();
     for (const p of groupPoints(a, src).points) {
@@ -292,9 +267,7 @@ for (const src of [
   });
 }
 
-test('group map peaks: each peak placed the slider amount back, at the same size', {
-  todo: STEP1,
-}, () => {
+test('group map peaks: each peak placed the slider amount back, at the same size', () => {
   const a = walk({}, 0);
   const size0 = groupPoints(a, 'peaks').peaks.map((p) => p.amplitude);
   const active = a.peaks.filter((p) => !p.excluded);
@@ -318,9 +291,7 @@ test('group map peaks: each peak placed the slider amount back, at the same size
 
 // ── Everything in sync ──────────────────────────────────────────────────────
 
-test('path colour: body data colours the place it came from; place data stays put', {
-  todo: STEP1,
-}, () => {
+test('path colour: body data colours the place it came from; place data stays put', () => {
   const { superMock } = require('./support/realm_bridge.js');
   const { GSRMapPath } = require('../src/map/manager/path.mjs');
   const a = walk({}, 2);
@@ -382,9 +353,7 @@ test('path colour: body data colours the place it came from; place data stays pu
   }
 });
 
-test('dashboard: each reading meets the place data from 2 s earlier — tonic and speed too', {
-  todo: STEP1,
-}, () => {
+test('dashboard: each reading meets the place data from 2 s earlier — tonic and speed too', () => {
   const a = walk({}, 2);
   // Place data that names its own row, so the pairing can be read back.
   a.raw.forEach((r, i) => {
@@ -402,11 +371,17 @@ test('dashboard: each reading meets the place data from 2 s earlier — tonic an
     const i = a.findClosestIndex(s.time); // the reading
     const place = a.placeRowOf(i);
     assert.ok(place >= 0, `reading at ${s.time} s has a place`);
-    assert.strictEqual(s.osm_dist_major_road, place + 0.5, 'phasic pairing');
+    assert.strictEqual(s.osm_dist_major_road, place + 0.5, 'the pairing');
     assert.strictEqual(
-      s.tonicEnv.osm_dist_major_road,
-      place + 0.5,
-      'tonic uses the same shift',
+      s.tonicEnv,
+      undefined,
+      'tonic uses the same pairing, not one of its own',
+    );
+    close(
+      s.tonicSpeed,
+      a.raw[place].speedKts * 0.514444,
+      1e-9,
+      "tonic's speed is taken at the place too",
     );
     const t = a.raw[place].time;
     const win = a.raw.filter((r) => r.time > t - 1 && r.time <= t);
@@ -418,7 +393,7 @@ test('dashboard: each reading meets the place data from 2 s earlier — tonic an
 
 // ── Nothing shifts time on its own ──────────────────────────────────────────
 
-test('no code outside the join shifts time itself', { todo: STEP1 }, () => {
+test('no code outside the join shifts time itself', () => {
   const FORBIDDEN = [
     /\bstimulusIndexAt\b/,
     /\bresolveLatencyIndex\b/,
@@ -458,9 +433,7 @@ const withoutDelayLine = (csv) =>
     .filter((l) => !l.startsWith('# ResponseDelay:'))
     .join('\n');
 
-test('export at 2 s is the export at 0 s, plus the delay written in the header', {
-  todo: STEP1,
-}, () => {
+test('export at 2 s is the export at 0 s, plus the delay written in the header', () => {
   const a = walk({}, 0);
   const csv0 = a.exportToCSV(GSR_CONST.GSR_DEFAULT, GSR_CONST.GPS_DEFAULT);
   a.setResponseDelay(2);
@@ -469,9 +442,7 @@ test('export at 2 s is the export at 0 s, plus the delay written in the header',
   assert.strictEqual(withoutDelayLine(csv2), withoutDelayLine(csv0));
 });
 
-test('reloading an export gives the same places — no double shift', {
-  todo: STEP1,
-}, () => {
+test('reloading an export gives the same places — no double shift', () => {
   const a = walk({}, 2);
   const b = new GSRAnalyzer();
   b.parseCSV(a.exportToCSV(GSR_CONST.GSR_DEFAULT, GSR_CONST.GPS_DEFAULT));

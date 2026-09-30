@@ -39,9 +39,6 @@ const { Junctions } = require(path.join(ROOT, 'src/gps/junctions.mjs'));
 const { JunctionResponse } = require(
   path.join(ROOT, 'src/gps/junction_response.mjs'),
 );
-const { PhysioLatency } = require(
-  path.join(ROOT, 'src/signal/physio_latency.mjs'),
-);
 
 const CACHE_DIR = path.resolve(__dirname, '.cache');
 const INPUTS = (
@@ -288,7 +285,7 @@ function report(title, rows, nullRows) {
       rows[L].push(
         ...JunctionResponse.responses(passages, series, {
           trackId: t.id,
-          lag: PhysioLatency.lags(L),
+          delayS: L,
         }),
       );
     }
@@ -343,7 +340,7 @@ function report(title, rows, nullRows) {
       nullRows[L].push(
         ...JunctionResponse.responses(fake, series, {
           trackId: t.id,
-          lag: PhysioLatency.lags(L),
+          delayS: L,
         }),
       );
     }

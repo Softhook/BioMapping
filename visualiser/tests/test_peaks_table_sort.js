@@ -7,10 +7,10 @@
 const assert = require('node:assert');
 const test = require('node:test');
 const { bootApp } = require('./support/boot_app.js');
-const { GSRAnalyzer } = require('../src/signal/analyzer.mjs');
+const { withJoin } = require('./support/join_for_stand_in.js');
 
 function createSampleAnalyzer() {
-  return {
+  return withJoin({
     raw: [
       { time: 0, gsr: 2.0, hasGps: true, lat: 51.5, lon: -0.1 },
       { time: 10, gsr: 3.5, hasGps: true, lat: 51.501, lon: -0.101 },
@@ -53,8 +53,6 @@ function createSampleAnalyzer() {
     getCoordinates(idx) {
       return { lat: 51.5 + idx * 0.001, lon: -0.1 - idx * 0.001 };
     },
-    resolveLatencyIndex: GSRAnalyzer.prototype.resolveLatencyIndex,
-    stimulusIndexAt: GSRAnalyzer.prototype.stimulusIndexAt,
     findClosestIndex(t) {
       if (!this.raw || this.raw.length === 0) return -1;
       let closest = 0;
@@ -71,7 +69,7 @@ function createSampleAnalyzer() {
     setPeakExcluded(idx, excluded) {
       if (this.peaks[idx]) this.peaks[idx].excluded = excluded;
     },
-  };
+  });
 }
 
 test('peaks table renders empty row when no peaks detected', async () => {

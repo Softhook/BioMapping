@@ -654,10 +654,7 @@ export const CorrelationTableUI = {
     const yIsTonic = scatterYMetric !== 'phasic';
     const walkIds = new Set();
     dataSrc.forEach((d) => {
-      // Tonic uses the longer-lag environment, phasic the shorter-lag one —
-      // same split as the correlation table.
-      const src = yIsTonic && d.tonicEnv ? d.tonicEnv : d;
-      let x = src[scatterXMetric];
+      let x = d[scatterXMetric];
       if (isBinaryX)
         x = x === true || x === 1 ? 1 : x === false || x === 0 ? 0 : NaN;
       const y = yIsTonic ? d.tonic : d.phasic;

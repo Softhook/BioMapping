@@ -44,6 +44,27 @@ const DERIVED_METRIC_SERIES = {
   emFog: 'em_fog',
 };
 
+// Colour metrics that are body data (from the skin). A place on the path shows
+// the reading its Response delay later (analyzer.readingAt), so the colour
+// lines up with the peak markers. Everything else — EM fog, HDOP, OSM and
+// satellite metrics — is place data and stays where it was measured.
+const BODY_METRICS = new Set([
+  'gsr',
+  'phasic',
+  'tonic',
+  'peakDensity',
+  'phasicAUC',
+  'arousalIndex',
+  'triIndex',
+  'edasymp',
+  'responseDynamics',
+]);
+
+// Where a place has no reading yet (the last Response-delay seconds of the
+// route: the recording ended before its response could arrive), the path is
+// drawn in this neutral grey rather than a colour from the scale.
+const NO_READING_COLOUR = '#9ca3af';
+
 // Distance-to-feature OSM metrics use a 999 "none within radius" sentinel
 // (osm_enrichment.js SENTINEL_DIST). It must not enter the colour range —
 // otherwise real 0..~100 m distances collapse into the first couple of buckets
@@ -205,9 +226,21 @@ export class GSRMapPath extends GSRMapRfFluid {
     const derivedSeriesKey = DERIVED_METRIC_SERIES[metric];
     const derivedSeries =
       derivedSeriesKey && analyzer ? analyzer[derivedSeriesKey] : null;
-    const getVal = derivedSeries
+    let getVal = derivedSeries
       ? (p) => (derivedSeries[p.origIdx] ? derivedSeries[p.origIdx].val : 0)
       : (p) => p[key];
+    if (BODY_METRICS.has(metric) && analyzer?.readingAt) {
+      // Body data: the reading this place shows (null where the recording
+      // ended before its response could arrive). Looked up once per place.
+      const readingOf = new Int32Array(analyzer.raw.length).fill(-2);
+      const series = derivedSeries || analyzer.raw;
+      getVal = (p) => {
+        let r = readingOf[p.origIdx];
+        if (r === -2) r = readingOf[p.origIdx] = analyzer.readingAt(p.origIdx);
+        if (r < 0) return null;
+        return series[r] ? series[r].val : 0;
+      };
+    }
 
     // Overlap-aware colour: where the walk retraces itself AND the two strokes
     // visually merge at this zoom, colour that spot by the mean of the active
@@ -319,11 +352,50 @@ export class GSRMapPath extends GSRMapRfFluid {
       segments[segments.length - 1].push(drawPoints[i]);
     }
 
+    // Split off the stretches with no reading (body metrics only, see
+    // NO_READING_COLOUR); the point where one ends starts the next, so the
+    // line stays joined.
+    if (BODY_METRICS.has(metric)) {
+      const split = [];
+      for (const seg of segments) {
+        let cur = [];
+        let curNone = null;
+        for (const pt of seg) {
+          const none = getVal(pt) == null;
+          if (curNone !== null && none !== curNone) {
+            split.push(cur);
+            cur = [cur[cur.length - 1]];
+          }
+          curNone = none;
+          cur.push(pt);
+        }
+        split.push(cur);
+      }
+      segments.length = 0;
+      segments.push(...split);
+    }
+
     // Reusable array for latlngs to reduce GC pressure
     const latlngsBuf = [];
 
     for (const seg of segments) {
       if (seg.length < 2) continue;
+
+      if (BODY_METRICS.has(metric) && getVal(seg[seg.length - 1]) == null) {
+        const poly = L.polyline(
+          seg.map((pt) => [pt.lat, pt.lon]),
+          { color: NO_READING_COLOUR, weight: trackWeight, opacity: 0.95 },
+        );
+        if (layerGroup) {
+          poly._gsrLayerGroup = layerGroup;
+          poly._gsrKind = 'path';
+          layerGroup.addLayer(poly);
+        } else {
+          poly.addTo(this.map);
+        }
+        this._registerTrackLayer(track, poly);
+        continue;
+      }
 
       let batchStart = 0;
 

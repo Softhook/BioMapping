@@ -14,6 +14,7 @@ global.GSR_CONST = require('../src/core/constants.mjs').GSR_CONST;
 const { GsrFilter } = require('../src/signal/gsr_filter.mjs');
 const { StatsMath } = require('../src/signal/stats_math.mjs');
 const { GSRArousalPlaces } = require('../src/spatial/arousal_places.mjs');
+const { withJoin } = require('./support/join_for_stand_in.js');
 const {
   GSRCollectiveManager,
 } = require('../src/spatial/collective_manager.mjs');
@@ -107,7 +108,16 @@ test('metaCorrelation: nCovariates costs each walk a degree of freedom', () => {
 
 // ── Stimulus latency on the map surfaces ────────────────────────────────────
 
-test('Arousal Places: phasic energy is filed at the latency-shifted position', () => {
+/** A walk's Arousal Places input, paired through the real Response delay. */
+const placesTrk = (raw, phasic, delay) => {
+  const a = withJoin(
+    { raw, getCoordinates: (i) => ({ lat: raw[i].lat, lon: raw[i].lon }) },
+    delay,
+  );
+  return { raw, phasic, responseDelay: delay, placeRowOf: a.placeRowOf };
+};
+
+test('Arousal Places: phasic energy is filed at the place the Response delay pairs it with', () => {
   // 10 Hz, 20 s; one phasic spike at t = 10 s.
   const raw = [];
   const phasic = [];
@@ -115,23 +125,19 @@ test('Arousal Places: phasic energy is filed at the latency-shifted position', (
     raw.push({ time: i / 10, lat: LAT0 + i * 1e-5, lon: LON0 });
     phasic.push({ time: i / 10, val: i === 100 ? 1 : 0 });
   }
-  const shifted = GSRArousalPlaces._getOrBuildFastCoords({
-    raw,
-    phasic,
-    latency: 2,
-  });
+  const shifted = GSRArousalPlaces._getOrBuildFastCoords(
+    placesTrk(raw, phasic, 2),
+  );
   assert.strictEqual(shifted.phasicVals[80], 1, 'energy at t − 2 s');
   assert.strictEqual(shifted.phasicVals[100], 0);
-  const unshifted = GSRArousalPlaces._getOrBuildFastCoords({
-    raw,
-    phasic,
-    latency: 0,
-  });
-  assert.strictEqual(unshifted.phasicVals[100], 1, 'no latency → in place');
+  const unshifted = GSRArousalPlaces._getOrBuildFastCoords(
+    placesTrk(raw, phasic, 0),
+  );
+  assert.strictEqual(unshifted.phasicVals[100], 1, 'no delay → in place');
 });
 
 test('Arousal Places: phasic whose stimulus came before the recording started is left out', () => {
-  // 10 Hz, 5 s, phasic 1 everywhere, 2 s latency: the first 2 s of phasic
+  // 10 Hz, 5 s, phasic 1 everywhere, 2 s delay: the first 2 s of phasic
   // responds to places before the track began.
   const raw = [];
   const phasic = [];
@@ -139,11 +145,9 @@ test('Arousal Places: phasic whose stimulus came before the recording started is
     raw.push({ time: i / 10, lat: LAT0 + i * 1e-5, lon: LON0 });
     phasic.push({ time: i / 10, val: 1 });
   }
-  const { phasicVals } = GSRArousalPlaces._getOrBuildFastCoords({
-    raw,
-    phasic,
-    latency: 2,
-  });
+  const { phasicVals } = GSRArousalPlaces._getOrBuildFastCoords(
+    placesTrk(raw, phasic, 2),
+  );
   assert.strictEqual(phasicVals[0], 1, 'not piled onto the first sample');
   assert.strictEqual(
     phasicVals.reduce((s, v) => s + v, 0),
@@ -152,7 +156,7 @@ test('Arousal Places: phasic whose stimulus came before the recording started is
   );
 });
 
-test('Collective surface: values and peaks are placed at each walk’s latency-shifted position', () => {
+test('Collective surface: values and peaks are placed the Response delay back, tonic included', () => {
   const n = 300; // 30 s at 10 Hz
   const raw = [];
   const series = [];
@@ -160,19 +164,19 @@ test('Collective surface: values and peaks are placed at each walk’s latency-s
     raw.push({ time: i / 10 });
     series.push({ time: i / 10, val: i });
   }
-  const idxAt = (t) => Math.max(0, Math.min(n - 1, Math.round(t * 10)));
-  const analyzer = {
-    raw,
-    sampleRate: 10,
-    phasic: series,
-    tonic: series,
-    peaks: [{ index: 150, time: 15, amplitude: 1 }],
-    // Latitude == sample index, so a point's lat says which sample it used.
-    getCoordinates: (i) => ({ lat: i, lon: 0 }),
-    stimulusIndexAt: (t, lag) => idxAt(t - lag),
-    resolveLatencyIndex: (pk, lag) => idxAt(pk.time - lag),
-  };
-  const track = { analyzer, gpsFilterParams: { peakLatency: 2 } };
+  const analyzer = withJoin(
+    {
+      raw,
+      sampleRate: 10,
+      phasic: series,
+      tonic: series,
+      peaks: [{ index: 150, time: 15, amplitude: 1 }],
+      // Latitude == sample index, so a point's lat says which sample it used.
+      getCoordinates: (i) => ({ lat: i, lon: 0 }),
+    },
+    2,
+  );
+  const track = { analyzer };
   const mgr = new GSRCollectiveManager();
   const base = { temporalSmoothingWindow: 0, useNormalization: false };
 
@@ -180,18 +184,20 @@ test('Collective surface: values and peaks are placed at each walk’s latency-s
     ...base,
     topographySource: 'phasic',
   });
+  assert.ok(ph.points.length > 0);
   for (const p of ph.points) {
     const i = p.val; // the sample the value came from
-    assert.strictEqual(p.lat, Math.max(0, i - 20), `phasic sample ${i}`);
+    assert.ok(i >= 20, 'the first 2 s have no place (before the recording)');
+    assert.strictEqual(p.lat, i - 20, `phasic sample ${i}`);
   }
   assert.strictEqual(ph.peaks[0].lat, 130, 'peak at t − 2 s');
 
-  // Tonic uses the longer baseline lag (4 × 2 s = 8 s), as the dashboard does.
+  // Tonic moves by the same delay as everything else.
   const to = mgr._collectContourPoints([track], {
     ...base,
     topographySource: 'tonic',
   });
   for (const p of to.points) {
-    assert.strictEqual(p.lat, Math.max(0, p.val - 80), `tonic sample ${p.val}`);
+    assert.strictEqual(p.lat, p.val - 20, `tonic sample ${p.val}`);
   }
 });

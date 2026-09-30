@@ -4,7 +4,7 @@
  * GSRMapManager.prototype (and the two shared icon builders to GSRMapManager
  * itself as statics).
  *
- * Covers the single-track peak dots + labels + latency connectors
+ * Covers the single-track peak dots + labels + Response delay connectors
  * (_renderPeakMarkers), the memorable-event hotspot stars
  * (_renderHotspotMarkers / _createHotspotMarker), and the collective/multi-track
  * counterparts (_renderCollectiveTrackPeaks / _renderCollectiveTrackHotspots /
@@ -20,7 +20,6 @@
  * (resolved at call time).
  */
 
-import { GSR_CONST } from '../../core/constants.mjs';
 import { GSRNotices } from '../../core/notices.mjs';
 import { GSRLabelManager } from '../../render/label_placement.mjs';
 import { GSRUI } from '../../ui/ui.mjs';
@@ -29,7 +28,7 @@ import { MapPopups } from '../map_popups.mjs';
 import { GSRMapPath } from './path.mjs';
 
 export class GSRMapPeaks extends GSRMapPath {
-  _renderPeakMarkers(analyzer, _data, peakLatency, track, options) {
+  _renderPeakMarkers(analyzer, _data, track, options) {
     options = options || {};
     const layerGroup = track ? track.layerGroup : null;
     const map = this.map;
@@ -38,15 +37,14 @@ export class GSRMapPeaks extends GSRMapPath {
 
     // First pass: collect pixel positions
     analyzer.peaks.forEach((peak, index) => {
-      // Original (unshifted) position — used for connector line
+      // Where the peak was recorded — used for the connector line
       const origCoords = analyzer.getCoordinates(peak.index);
       const origPt = origCoords
         ? map.latLngToLayerPoint([origCoords.lat, origCoords.lon])
         : null;
 
-      // Apply latency: find GPS position at (peak time - latency)
-      const si = analyzer.resolveLatencyIndex(peak, peakLatency);
-      const coords = analyzer.getCoordinates(si);
+      // Where it is drawn: the Response delay back along the route
+      const coords = analyzer.placeOf(peak.index);
       if (!coords) return;
       const pt = map.latLngToLayerPoint([coords.lat, coords.lon]);
       const origLatLon = origCoords ? [origCoords.lat, origCoords.lon] : null;
@@ -139,8 +137,8 @@ export class GSRMapPeaks extends GSRMapPath {
       this._registerTrackLayer(track, marker);
     });
 
-    // Draw connector lines from original (unshifted) to shifted position
-    if (peakLatency > 0) {
+    // Draw connector lines from where each peak was recorded to where it is drawn
+    if (analyzer.responseDelay > 0) {
       for (const ap of allPeaks) {
         if (!ap.origLatLon) continue;
         const shiftedLatLon = [ap.coords.lat, ap.coords.lon];
@@ -183,17 +181,7 @@ export class GSRMapPeaks extends GSRMapPath {
         }));
       this._renderArousalPlacesFor(
         activePeaks,
-        [
-          {
-            id: trackId,
-            sampleRate: analyzer.sampleRate,
-            raw: analyzer.raw,
-            filteredGps: analyzer.filteredGps,
-            pathKey: analyzer._pathKey,
-            phasic: analyzer.phasic,
-            latency: peakLatency,
-          },
-        ],
+        [this._placesTrack(trackId, analyzer)],
         { collective: false, activeTrackCount: 1 },
       );
     }
@@ -253,20 +241,11 @@ export class GSRMapPeaks extends GSRMapPath {
    * Internal helper to construct and initialise a Leaflet hotspot marker.
    * @private
    */
-  _createHotspotMarker(
-    analyzer,
-    peak,
-    peakLatency,
-    popupCallback,
-    clickCallback,
-    track,
-  ) {
+  _createHotspotMarker(analyzer, peak, popupCallback, clickCallback, track) {
     const index = analyzer.peaks.indexOf(peak);
     if (index < 0) return null;
 
-    const coords = analyzer.getCoordinates(
-      analyzer.resolveLatencyIndex(peak, peakLatency),
-    );
+    const coords = analyzer.placeOf(peak.index);
     if (!coords) return null;
 
     const layerGroup = track ? track.layerGroup : null;
@@ -311,7 +290,7 @@ export class GSRMapPeaks extends GSRMapPath {
     return marker;
   }
 
-  _renderHotspotMarkers(analyzer, peakLatency, track) {
+  _renderHotspotMarkers(analyzer, track) {
     const events = analyzer.memorableEvents;
     if (!events || events.length === 0) return;
 
@@ -319,7 +298,6 @@ export class GSRMapPeaks extends GSRMapPath {
       const _marker = this._createHotspotMarker(
         analyzer,
         peak,
-        peakLatency,
         (index, coords, m) =>
           MapPopups.buildSinglePeakPopup(analyzer, peak, index, coords, m),
         (index) => GSRUI.focusOnPeak(index, 'map'),
@@ -330,8 +308,8 @@ export class GSRMapPeaks extends GSRMapPath {
 
   /**
    * Collective/multi-track counterpart to _renderHotspotMarkers() — same
-   * shared icon (GSRMapMarkers.buildHotspotIcon()) and position math
-   * (analyzer.resolveLatencyIndex()), so the two views can't visually drift apart.
+   * shared icon (GSRMapMarkers.buildHotspotIcon()) and position
+   * (analyzer.placeOf()), so the two views can't visually drift apart.
    * Popup/interaction wiring follows the existing collective peak-marker
    * convention instead of the single-track one: bindPopup only, no
    * click-to-focus — collective view has no single "active track" for a
@@ -339,7 +317,7 @@ export class GSRMapPeaks extends GSRMapPath {
    * just above this method's call site in renderCollectiveData()).
    * @private
    */
-  _renderCollectiveTrackHotspots(track, peakLatency) {
+  _renderCollectiveTrackHotspots(track) {
     const analyzer = track.analyzer;
     const events = analyzer.memorableEvents;
     if (!events || events.length === 0) return;
@@ -348,7 +326,6 @@ export class GSRMapPeaks extends GSRMapPath {
       const _marker = this._createHotspotMarker(
         analyzer,
         peak,
-        peakLatency,
         (index, coords, m) =>
           MapPopups.buildCollectivePeakPopup(
             track,
@@ -376,25 +353,18 @@ export class GSRMapPeaks extends GSRMapPath {
    * skipping the clustering push is correct there).
    * @private
    */
-  _renderCollectiveTrackPeaks(
-    track,
-    layerGroup,
-    trackColor,
-    peakLatency,
-    activePeaksSink,
-  ) {
+  _renderCollectiveTrackPeaks(track, layerGroup, trackColor, activePeaksSink) {
     const map = this.map;
     const collectiveLabelCandidates = [];
     const collectiveAllPeaks = [];
 
-    // First pass: collect pixel positions (with latency compensation)
+    // First pass: collect pixel positions (placed through the Response delay)
     track.analyzer.peaks.forEach((peak, index) => {
-      // Original (unshifted) GPS position for connector line
+      // Where the peak was recorded, for the connector line
       const origCoords = track.analyzer.getCoordinates(peak.index);
 
-      // Shifted position (with latency)
-      const si = track.analyzer.resolveLatencyIndex(peak, peakLatency);
-      const coords = track.analyzer.getCoordinates(si);
+      // Where it is drawn
+      const coords = track.analyzer.placeOf(peak.index);
       if (coords) {
         const pt = map.latLngToLayerPoint([coords.lat, coords.lon]);
         collectiveAllPeaks.push({
@@ -477,8 +447,8 @@ export class GSRMapPeaks extends GSRMapPath {
       this._registerTrackLayer(track, marker);
     });
 
-    // Draw connector lines from original to shifted position (collective)
-    if (peakLatency > 0) {
+    // Draw connector lines from where each peak was recorded to where it is drawn
+    if (track.analyzer.responseDelay > 0) {
       for (const ap of collectiveAllPeaks) {
         if (!ap.origLatLon) continue;
         const shiftedLatLon = [ap.lat, ap.lon];
@@ -532,23 +502,26 @@ export class GSRMapPeaks extends GSRMapPath {
       track,
       new Set(['collectivePeak', 'collectiveConnector']),
       () =>
-        this._renderCollectiveTrackPeaks(
-          track,
-          layerGroup,
-          trackColor,
-          this._trackPeakLatency(track),
-          null,
-        ),
+        this._renderCollectiveTrackPeaks(track, layerGroup, trackColor, null),
       true,
     );
   }
 
   /**
-   * A walk's own stimulus latency (s) from its gpsFilterParams — the
-   * collective map has no shared latency; each walk is shifted by its own.
+   * One walk as Arousal Places (GSRArousalPlaces.buildPlaces) takes it: its
+   * positions and phasic, and its Response delay pairing (placeRowOf) so a
+   * place's energy is filed where its peaks are drawn.
    */
-  _trackPeakLatency(track) {
-    const v = track?.gpsFilterParams?.peakLatency;
-    return Number.isFinite(v) ? v : GSR_CONST.GPS_DEFAULT.peakLatency;
+  _placesTrack(id, analyzer) {
+    return {
+      id,
+      sampleRate: analyzer?.sampleRate,
+      raw: analyzer?.raw,
+      filteredGps: analyzer?.filteredGps,
+      pathKey: analyzer?._pathKey,
+      phasic: analyzer?.phasic,
+      responseDelay: analyzer?.responseDelay ?? 0,
+      placeRowOf: analyzer ? (i) => analyzer.placeRowOf(i) : null,
+    };
   }
 }

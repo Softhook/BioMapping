@@ -222,7 +222,10 @@ test('readGpsSliderValues: falls back to GPS_DEFAULT for every field when slider
   assert.strictEqual(result.rdpTolerance, D.rdpTolerance);
   assert.strictEqual(result.downsample, D.downsample ? 1 : 0);
   assert.strictEqual(result.trackWeight, D.trackWeight);
-  assert.strictEqual(result.peakLatency, D.peakLatency);
+  assert.ok(
+    !('peakLatency' in result),
+    'the Response delay is a project setting, not a GPS one',
+  );
   assert.strictEqual(result.placeMergeDistance, 35);
   assert.strictEqual(result.maxArousalPlaces, 20);
 });
@@ -235,7 +238,6 @@ test('readGpsSliderValues: reads values from present sliders', () => {
     gpsRDP: el(1.5),
     gpsDownsample: el(1),
     gpsTrackWeight: el(8),
-    gpsPeakLatency: el(3),
     placeMergeDistance: el(50),
     maxArousalPlaces: el(12),
   };
@@ -245,7 +247,6 @@ test('readGpsSliderValues: reads values from present sliders', () => {
   assert.strictEqual(result.rdpTolerance, 1.5);
   assert.strictEqual(result.downsample, 1);
   assert.strictEqual(result.trackWeight, 8);
-  assert.strictEqual(result.peakLatency, 3);
   assert.strictEqual(result.placeMergeDistance, 50);
   assert.strictEqual(result.maxArousalPlaces, 12);
 });
@@ -291,14 +292,13 @@ test('buildGpsParams: builds the renderer-facing subset and converts downsample 
     gpsMaxSpeed: el(4),
     gpsRDP: el(1.5),
     gpsDownsample: el(1),
-    gpsPeakLatency: el(3),
   };
   const params = GSRStorage.buildGpsParams();
   assert.strictEqual(params.downsample, true);
   assert.strictEqual(params.maxHdop, 5);
   assert.strictEqual(params.maxSpeed, 4);
   assert.strictEqual(params.rdpTolerance, 1.5);
-  assert.strictEqual(params.peakLatency, 3);
+  assert.ok(!('peakLatency' in params));
   assert.strictEqual(
     params.trackWeight,
     GSR_CONST_DEFAULTS.GPS_DEFAULT.trackWeight,
@@ -667,7 +667,6 @@ test("applyPreset: commits to the open walk only, never another walk's settings"
     tonicMethod: el('lpf'),
     tonicWindow: el(45),
     peakThreshold: el(0.02),
-    gpsPeakLatency: el(1.5),
   };
   global.AppState.activeTrackId = 'trk1';
   global.AppState.viewMode = 'collective';
@@ -699,7 +698,7 @@ test("applyPreset: commits to the open walk only, never another walk's settings"
   assert.strictEqual(ok, true);
   assert.strictEqual(track.filterParams.medianSize, 2);
   assert.ok(track.gpsFilterParams);
-  assert.strictEqual(analyzeArgs.pl, 1.5);
+  assert.strictEqual(analyzeArgs.params, track.filterParams);
   assert.strictEqual(other.filterParams, undefined, 'other walk untouched');
   assert.strictEqual(other.gpsFilterParams, undefined, 'other walk untouched');
   assert.deepStrictEqual(uiCalls, ['renderTrackList', 'runAnalysis']);
@@ -892,7 +891,6 @@ test('writeGpsSliderValues: sets GPS slider values and handles mapped keys', () 
     gpsRDP: el(0),
     gpsDownsample: el(0),
     gpsTrackWeight: el(0),
-    gpsPeakLatency: el(0),
     placeMergeDistance: el(0),
     maxArousalPlaces: el(0),
   };
@@ -904,7 +902,6 @@ test('writeGpsSliderValues: sets GPS slider values and handles mapped keys', () 
     rdpTolerance: 1.2,
     downsample: 1,
     trackWeight: 3,
-    peakLatency: 2.0,
     placeMergeDistance: 40,
     maxArousalPlaces: 15,
   });
@@ -914,7 +911,6 @@ test('writeGpsSliderValues: sets GPS slider values and handles mapped keys', () 
   assert.strictEqual(S.gpsRDP.value, 1.2);
   assert.strictEqual(S.gpsDownsample.value, 1);
   assert.strictEqual(S.gpsTrackWeight.value, 3);
-  assert.strictEqual(S.gpsPeakLatency.value, 2.0);
   assert.strictEqual(S.placeMergeDistance.value, 40);
   assert.strictEqual(S.maxArousalPlaces.value, 15);
 });

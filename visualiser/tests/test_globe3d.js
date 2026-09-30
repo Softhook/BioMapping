@@ -17,7 +17,6 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const path = require('node:path');
-const { GSRAnalyzer } = require('../src/signal/analyzer.mjs');
 
 const APP_DIR = path.join(__dirname, '..');
 const GLOBE3D = path.join(APP_DIR, 'src', 'map', 'globe3d.mjs');
@@ -172,10 +171,10 @@ test('_getMetricSeries: derived field, then raw-GSR fallback', () => {
   freshEnv();
   const { GSRGlobeManager } = loadFresh();
   const mgr = new GSRGlobeManager('c');
-  const analyzer = {
+  const analyzer = withJoin({
     phasic: [{ val: 1 }, { val: 2 }, { val: 3 }],
     raw: [{ gsr: 10 }, { gsr: 20 }],
-  };
+  });
   assert.deepStrictEqual(mgr._getMetricSeries(analyzer, 'phasic'), [1, 2, 3]);
   assert.deepStrictEqual(mgr._getMetricSeries(analyzer, 'gsr'), [10, 20]);
   assert.deepStrictEqual(mgr._getMetricSeries({ raw: [] }, 'phasic'), []);
@@ -549,6 +548,7 @@ test('renderData({ isPreview: true }) suppresses the fly-to', () => {
 // is a separate arousal series so a non-magnitude colour metric still extrudes.
 
 const { MapColors: REAL_MAP_COLORS } = require('../src/map/map_colors.mjs');
+const { withJoin } = require('./support/join_for_stand_in.js');
 
 /**
  * Install Cesium/MapColors capture around the REAL _render3DWallAndPath.
@@ -600,12 +600,12 @@ test('renderData({ colorMetric, colorRange }) drives colour from the host, not a
   const mgr = new GSRGlobeManager('c', { keyboardFlight: false });
   mgr.flyToTrack = () => {};
 
-  const analyzer = {
+  const analyzer = withJoin({
     raw: [{}, {}],
     peaks: [],
     em_fog: [{ val: 10 }, { val: 90 }],
     phasic: [{ val: 0.2 }, { val: 0.8 }],
-  };
+  });
   const drawPoints = [
     { lat: 0, lon: 0, time: 0, origIdx: 0 },
     { lat: 0.001, lon: 0.001, time: 1, origIdx: 1 },
@@ -636,12 +636,12 @@ test('_getMetricSeries resolves OSM/Satellite/hdop metrics to their raw field, n
   const { GSRGlobeManager } = loadFresh();
   const mgr = new GSRGlobeManager('c', { keyboardFlight: false });
 
-  const analyzer = {
+  const analyzer = withJoin({
     raw: [
       { gsr: 99, osm_green_pct_50m: 10, hdop: 1.2, ndvi: 0.4 },
       { gsr: 99, osm_green_pct_50m: 90, hdop: 3.4, ndvi: 0.8 },
     ],
-  };
+  });
 
   assert.deepStrictEqual(mgr._getMetricSeries(analyzer, 'greenPct'), [10, 90]);
   assert.deepStrictEqual(
@@ -670,14 +670,14 @@ test('renderData colours the wall by an OSM environmental metric, not raw GSR', 
 
   // gsr is constant (99) while greenPct spans 10..90 — if the wall fell back to
   // raw GSR (the old bug) it would land in the top bucket instead of the middle.
-  const analyzer = {
+  const analyzer = withJoin({
     raw: [
       { gsr: 99, osm_green_pct_50m: 10 },
       { gsr: 99, osm_green_pct_50m: 90 },
     ],
     peaks: [],
     phasic: [{ val: 1 }, { val: 5 }],
-  };
+  });
   const drawPoints = [
     { lat: 0, lon: 0, time: 0, origIdx: 0 },
     { lat: 0.001, lon: 0.001, time: 1, origIdx: 1 },
@@ -721,11 +721,11 @@ test('renderData colours the wall by inPark categories (binary OSM metric)', () 
   const mgr = new GSRGlobeManager('c', { keyboardFlight: false });
   mgr.flyToTrack = () => {};
 
-  const analyzer = {
+  const analyzer = withJoin({
     raw: [{ osm_in_park: 0 }, { osm_in_park: 1 }],
     peaks: [],
     phasic: [{ val: 1 }, { val: 5 }],
-  };
+  });
   const drawPoints = [
     { lat: 0, lon: 0, time: 0, origIdx: 0 },
     { lat: 0.001, lon: 0.001, time: 1, origIdx: 1 },
@@ -765,7 +765,7 @@ test('the wall colour LUT is bounded (≤30) and reused across a same-range redr
     phasic.push({ val: Math.sin(i / 25) });
     drawPoints.push({ lat: i * 1e-4, lon: i * 1e-4, time: i, origIdx: i });
   }
-  const analyzer = { raw: new Array(n).fill({}), peaks: [], phasic };
+  const analyzer = withJoin({ raw: new Array(n).fill({}), peaks: [], phasic });
 
   const { seg, cssParses } = installWallCapture();
   mgr.renderData(analyzer, {}, { drawPoints, colorMetric: 'phasic' });
@@ -873,11 +873,11 @@ test('wall height uses the arousal heightMetric even when colour is a non-magnit
     heightMetric: 'phasic',
   });
 
-  const analyzer = {
+  const analyzer = withJoin({
     raw: [{}, {}],
     em_fog: [{ val: 0 }, { val: 0 }], // colour series — flat
     phasic: [{ val: 1 }, { val: 5 }], // height series — varies
-  };
+  });
   const drawPoints = [
     { lat: 0, lon: 0, time: 0, origIdx: 0 },
     { lat: 0.001, lon: 0.001, time: 1, origIdx: 1 },
@@ -903,11 +903,11 @@ test('wall height follows EDASymp itself (smooth spectral series, not the spiky 
     heightMetric: 'phasic',
   });
 
-  const analyzer = {
+  const analyzer = withJoin({
     raw: [{}, {}],
     edasymp: [{ val: 0.02 }, { val: 0.08 }], // colour AND height series
     phasic: [{ val: 1 }, { val: 5 }], // would make a jagged wall if used
-  };
+  });
   const drawPoints = [
     { lat: 0, lon: 0, time: 0, origIdx: 0 },
     { lat: 0.001, lon: 0.001, time: 1, origIdx: 1 },
@@ -999,14 +999,13 @@ function parityTrack() {
     { index: 0, label: 'Church', qualityScore: 0.9, amplitude: 1 },
     { index: 1, label: '', qualityScore: 0.9, amplitude: 2 },
   ];
-  const analyzer = {
+  const analyzer = withJoin({
     raw: [{}, {}],
     phasic: [{ val: 0.2 }, { val: 0.8 }],
     peaks,
     memorableEvents: [peaks[1]], // a hotspot IS a peak (same object, as in analyzer.js)
     getCoordinates: (i) => ({ lat: i * 0.001, lon: i * 0.001 }),
-    resolveLatencyIndex: (pk) => pk.index,
-  };
+  });
   const drawPoints = [
     { lat: 0, lon: 0, time: 0, origIdx: 0 },
     { lat: 0.001, lon: 0.001, time: 1, origIdx: 1 },
@@ -1074,7 +1073,7 @@ test('renderData applies the Track Width slider (gpsParams.trackWeight) to the 3
   mgr.destroy();
 });
 
-test('renderData shifts peak/hotspot markers by the Peak-latency slider (gpsParams.peakLatency)', () => {
+test('renderData places peak/hotspot markers through the Response delay', () => {
   freshEnv();
   installWallCapture();
   const { GSRGlobeManager } = loadFresh();
@@ -1082,35 +1081,31 @@ test('renderData shifts peak/hotspot markers by the Peak-latency slider (gpsPara
   mgr.flyToTrack = () => {};
 
   const peaks = [
-    { index: 5, time: 10, qualityScore: 0.9, amplitude: 1, label: '' },
+    { index: 10, time: 10, qualityScore: 0.9, amplitude: 1, label: '' },
   ];
   const seen = [];
-  const analyzer = {
-    raw: new Array(6).fill({}),
-    phasic: new Array(6).fill({ val: 0.5 }),
-    peaks,
-    memorableEvents: [peaks[0]], // a hotspot IS a peak
-    getCoordinates: (i) => {
-      seen.push(i);
-      return { lat: i * 0.001, lon: i * 0.001 };
+  const analyzer = withJoin(
+    {
+      raw: Array.from({ length: 11 }, (_, i) => ({ time: i })),
+      phasic: new Array(11).fill({ val: 0.5 }),
+      peaks,
+      memorableEvents: [peaks[0]], // a hotspot IS a peak
+      getCoordinates: (i) => {
+        seen.push(i);
+        return { lat: i * 0.001, lon: i * 0.001 };
+      },
     },
-    findClosestIndex: (t) => Math.max(0, Math.round(t)),
-    resolveLatencyIndex: GSRAnalyzer.prototype.resolveLatencyIndex,
-    stimulusIndexAt: GSRAnalyzer.prototype.stimulusIndexAt,
-  };
+    3,
+  );
   const drawPoints = [
     { lat: 0, lon: 0, time: 0, origIdx: 0 },
-    { lat: 0.005, lon: 0.005, time: 10, origIdx: 5 },
+    { lat: 0.01, lon: 0.01, time: 10, origIdx: 10 },
   ];
 
-  mgr.renderData(analyzer, { peakLatency: 3 }, { drawPoints, isPreview: true });
-  assert.strictEqual(mgr.peakLatency, 3);
-  // peak sample at t=10 → marker planted at the GPS fix 3 s earlier:
-  // findClosestIndex(10 - 3) = 7, for the peak spire AND the hotspot star.
-  assert.ok(
-    seen.includes(7),
-    'marker position resolved at the latency-shifted index',
-  );
+  mgr.renderData(analyzer, {}, { drawPoints, isPreview: true });
+  // peak sample at t=10 → marker planted where the walker was 3 s earlier
+  // (row 7), for the peak spire AND the hotspot star.
+  assert.ok(seen.includes(7), 'marker position resolved 3 s back');
   mgr.destroy();
 });
 
@@ -1190,27 +1185,27 @@ test('focusOnPeakLocation hides the peak circle, not the latency-connector line'
   mgr.flyToTrack = () => {};
   mgr.flyToPeak = () => {};
 
-  // Peak latency > 0 with a shifted fix → _renderPeakSpires builds BOTH a rose
-  // connector entity and the circle, each tagged with _biomapPeakIndex 0.
+  // A Response delay > 0 → _renderPeakSpires builds BOTH a rose connector
+  // entity and the circle, each tagged with _biomapPeakIndex 0.
   const peaks = [
-    { index: 5, time: 10, qualityScore: 0.9, amplitude: 1, label: 'Bridge' },
+    { index: 10, time: 10, qualityScore: 0.9, amplitude: 1, label: 'Bridge' },
   ];
-  const analyzer = {
-    raw: new Array(6).fill({}),
-    phasic: new Array(6).fill({ val: 0.5 }),
-    peaks,
-    memorableEvents: [],
-    getCoordinates: (i) => ({ lat: i * 0.001, lon: i * 0.001 }),
-    findClosestIndex: (t) => Math.max(0, Math.round(t)),
-    resolveLatencyIndex: GSRAnalyzer.prototype.resolveLatencyIndex,
-    stimulusIndexAt: GSRAnalyzer.prototype.stimulusIndexAt,
-  };
+  const analyzer = withJoin(
+    {
+      raw: Array.from({ length: 11 }, (_, i) => ({ time: i })),
+      phasic: new Array(11).fill({ val: 0.5 }),
+      peaks,
+      memorableEvents: [],
+      getCoordinates: (i) => ({ lat: i * 0.001, lon: i * 0.001 }),
+    },
+    3,
+  );
   const drawPoints = [
     { lat: 0, lon: 0, time: 0, origIdx: 0 },
-    { lat: 0.005, lon: 0.005, time: 10, origIdx: 5 },
+    { lat: 0.01, lon: 0.01, time: 10, origIdx: 10 },
   ];
 
-  mgr.renderData(analyzer, { peakLatency: 3 }, { drawPoints, isPreview: true });
+  mgr.renderData(analyzer, {}, { drawPoints, isPreview: true });
   assert.ok(
     mgr.peakEntities.length >= 2,
     'connector entity + circle primitive both present',
@@ -1656,11 +1651,11 @@ test('tour mode: _computeTourWaypoints extracts sequential waypoints with bearin
   }
 
   mgr.currentDrawPoints = drawPoints;
-  mgr.currentAnalyzer = {
+  mgr.currentAnalyzer = withJoin({
     raw: new Array(n).fill({}),
     phasic,
     peaks: [{ index: 10 }, { index: 30 }],
-  };
+  });
   mgr.currentPeaks = mgr.currentAnalyzer.peaks;
   mgr.heightMetric = 'phasic';
   mgr.extrusionScale = 10;
@@ -1714,10 +1709,10 @@ test('startHotspotTour / stopTour / toggleHotspotTour lifecycle and camera fligh
     time: i,
     origIdx: i,
   }));
-  mgr.currentAnalyzer = {
+  mgr.currentAnalyzer = withJoin({
     raw: new Array(n).fill({}),
     phasic: new Array(n).fill({ val: 1 }),
-  };
+  });
   mgr.currentPeaks = [];
 
   const flights = [];
@@ -1778,14 +1773,13 @@ function hotspotTourFixture(n, peaks, memorableEvents) {
     drawPoints.push({ lat: 51.5 + i * 0.0005, lon: -0.1, time: i, origIdx: i });
     phasic.push({ val: 0.5 });
   }
-  const analyzer = {
+  const analyzer = withJoin({
     raw: new Array(n).fill({}),
     phasic,
     peaks,
     memorableEvents: memorableEvents || peaks,
     getCoordinates: (i) => ({ lat: 51.5 + i * 0.0005, lon: -0.1 }),
-    resolveLatencyIndex: (pk) => pk.index,
-  };
+  });
   return { drawPoints, phasic, analyzer };
 }
 
@@ -2609,14 +2603,13 @@ function replayTrack(mgr, n, extra = {}) {
     time: extra.times ? extra.times[i] : i,
     origIdx: i,
   }));
-  mgr.currentAnalyzer = {
+  mgr.currentAnalyzer = withJoin({
     raw: new Array(n).fill({}),
     phasic: new Array(n).fill({ val: 1 }),
     peaks: extra.peaks || [],
     memorableEvents: extra.memorableEvents || [],
     getCoordinates: (i) => ({ lat: 51.5 + i * 0.0005, lon: -0.1 }),
-    resolveLatencyIndex: (pk) => pk.index,
-  };
+  });
   mgr.currentPeaks = mgr.currentAnalyzer.peaks;
   mgr.activeColoringMetric = 'phasic';
   mgr.flyToTrack = () => {};
@@ -2720,7 +2713,7 @@ test('the replay clock waits for the wall to finish compiling, and skips >15 s g
   mgr.destroy();
 });
 
-test('peak markers and hotspot stars appear only once the replay reaches their latency-shifted time', () => {
+test('peak markers and hotspot stars appear only once the replay reaches the place they are drawn at', () => {
   replayEnv();
   const { GSRGlobeManager } = loadFresh();
   const mgr = new GSRGlobeManager('c', { keyboardFlight: false });
@@ -2729,7 +2722,8 @@ test('peak markers and hotspot stars appear only once the replay reaches their l
     { index: 30, time: 30 },
   ];
   replayTrack(mgr, 60, { peaks });
-  mgr.peakLatency = 2;
+  // Response delay 2 s: the markers sit where the walker was at 3 s and 28 s.
+  mgr.currentAnalyzer.setResponseDelay(2);
   mgr.startReplayTour();
   // Stand-ins for the rendered markers (peaks.mjs tags each with its index).
   const circle5 = { _biomapPeakIndex: 0, show: true };
@@ -2740,20 +2734,20 @@ test('peak markers and hotspot stars appear only once the replay reaches their l
   mgr.hotspotEntities = [star30];
   mgr._peakLabels = { length: 1, get: () => label5 };
 
-  mgr._replay.time = 6.9;
+  mgr._replay.time = 2.9;
   mgr._applyReplayReveal();
   assert.deepStrictEqual(
     [circle5.show, label5.show, circle30.show, star30.show],
     [false, false, false, false],
-    'peak at 5 s + 2 s latency not reached at 6.9 s',
+    'the place of the peak at 5 s (3 s, with a 2 s delay) not reached at 2.9 s',
   );
-  mgr._replay.time = 7;
+  mgr._replay.time = 3;
   mgr._applyReplayReveal();
   assert.deepStrictEqual(
     [circle5.show, label5.show, circle30.show, star30.show],
     [true, true, false, false],
   );
-  mgr._replay.time = 32;
+  mgr._replay.time = 28;
   mgr._applyReplayReveal();
   assert.deepStrictEqual([circle30.show, star30.show], [true, true]);
   mgr.destroy();
@@ -2941,7 +2935,10 @@ test('setScrubPosition auto-resolves height from drawn track when not explicitly
     { lat: 51.5, lon: -0.1, time: 0, origIdx: 0 },
     { lat: 51.51, lon: -0.11, time: 1, origIdx: 1 },
   ];
-  mgr.currentAnalyzer = { raw: [{}, {}], phasic: [{ val: 5 }, { val: 10 }] };
+  mgr.currentAnalyzer = withJoin({
+    raw: [{}, {}],
+    phasic: [{ val: 5 }, { val: 10 }],
+  });
   mgr.extrusionScale = 5;
   mgr.baseHeight = 2;
 

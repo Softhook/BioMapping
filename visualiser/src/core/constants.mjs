@@ -26,18 +26,14 @@ export const GSR_CONST = {
   // applies no record-time HDOP gate — it logs everything with a plausible fix,
   // and the analyser filters for quality non-destructively.
   // See docs/csv_schema.md for the rationale.
-  // NOTE: peakLatency default is 2.0s (not 0) — the "Peak Latency Compensation"
-  // slider ships with a physiologically-recommended SCR-onset-delay default
-  // (see research/environmental_enrichment_plan.md §C and the slider's own
-  // "Recommended: 1-3s" help text in index.html). This used to say 0 here,
-  // silently disagreeing with the shipped UI default of 2.0.
+  // The Response delay is not a GPS setting: it is one value per project
+  // (AppState.responseDelay, limits in signal/response_delay.mjs).
   GPS_DEFAULT: {
     maxHdop: 3.0,
     maxSpeed: 3.0,
     rdpTolerance: 0,
     downsample: false,
     trackWeight: 5,
-    peakLatency: 2.0,
   },
 
   // ── OSM enrichment radii ─────────────────────────────────────────────────

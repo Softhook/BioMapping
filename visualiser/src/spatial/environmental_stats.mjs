@@ -4,14 +4,15 @@
 
 /**
  * EnvironmentalStats — the maths behind the Environmental Analysis
- * dashboard: ~1 Hz samples pairing arousal with the (latency-shifted)
- * environment, the correlation matrix, and the per-road-class profile.
+ * dashboard: ~1 Hz samples pairing arousal with the environment where it was
+ * caused (each walk's Response delay back along the route, see
+ * signal/response_delay.mjs), the correlation matrix, and the per-road-class
+ * profile.
  *
  * Pure module: no DOM. The dashboard (ui/ui_environmental_dashboard.mjs)
  * decides which walks go in, caches the result and draws it.
  */
 import { GSR_CONST } from '../core/constants.mjs';
-import { PhysioLatency } from '../signal/physio_latency.mjs';
 import { StatsMath } from '../signal/stats_math.mjs';
 
 const KNOTS_TO_MS = 0.514444;
@@ -21,11 +22,11 @@ const PEAK_BIN_S = 15;
 const META_SOLID = 5;
 
 const isNum = (v) => typeof v === 'number' && !isNaN(v);
-// Peaks counted by the dashboard: not excluded, and at a moment the walker's
-// position is known — the same rule buildSamples() applies to its samples, so
+// Peaks counted by the dashboard: not excluded, and paired with a place that
+// has a position — the same rule buildSamples() applies to its samples, so
 // peak counts and the time they are divided by cover the same stretch of walk.
 const countedPeaks = (a) =>
-  a.peaks.filter((p) => !p.excluded && a.getCoordinates(p.index));
+  a.peaks.filter((p) => !p.excluded && a.placeRowOf(p.index) >= 0);
 const numOrNaN = (v) => (typeof v === 'number' ? v : NaN);
 // 999.0 is the "no feature within radius" sentinel — not a distance.
 const validNum = (v) =>
@@ -51,7 +52,7 @@ function envFields(pt) {
     osm_amenity_count_50m: pt.osm_amenity_count_50m,
     ndvi: numOrNaN(pt.ndvi),
     ndvi_50m: numOrNaN(pt.ndvi_50m),
-    // EM Fog Index (0-100), latency-shifted like the OSM fields.
+    // EM Fog Index (0-100): place data, paired like the OSM fields.
     em_fog: numOrNaN(pt.em_fog),
   };
 }
@@ -73,37 +74,34 @@ export const EnvironmentalStats = {
   /**
    * Everything the dashboard shows, for these walks.
    * @param {Array<object>} activeTracks - enriched tracks ({ id, analyzer }).
-   * @param {(track: object) => number} latencyOf - each walk's stimulus latency (s).
    * @returns {{ allData, correlationMatrix, roadProfile, roadComparison }}
    */
-  compute(activeTracks, latencyOf) {
+  compute(activeTracks) {
     const S = EnvironmentalStats;
-    const allData = S.buildSamples(activeTracks, latencyOf);
+    const allData = S.buildSamples(activeTracks);
     const peakCounts = S.peakCountsPerSample(activeTracks, allData);
     const correlationMatrix = S.correlationMatrix(
       allData,
       S.correlationFeatures(allData),
       peakCounts,
     );
-    const roadProfile = S.roadProfile(allData, activeTracks, latencyOf);
+    const roadProfile = S.roadProfile(allData, activeTracks);
     const roadComparison = S.compareRoadExtremes(roadProfile);
     for (const p of roadProfile) delete p._sePhasic; // internal, not cached
     return { allData, correlationMatrix, roadProfile, roadComparison };
   },
 
   /**
-   * One sample per ~1 s of each walk: arousal over the trailing second
-   * paired with the environment read `latency` s earlier (phasic, peaks)
-   * and `tonicLatency` s earlier (tonic, in `tonicEnv`).
+   * One sample per ~1 s of each walk: arousal over the trailing second,
+   * paired with the place data (environment and walking speed) where it was
+   * caused — the walk's Response delay back along the route (placeRowOf).
+   * Tonic, phasic and peaks all use that same pairing.
    */
-  buildSamples(activeTracks, latencyOf) {
+  buildSamples(activeTracks) {
     const allData = [];
     activeTracks.forEach((track) => {
       const a = track.analyzer;
       if (!a?.isEnriched || a.raw.length === 0) return;
-      const { phasic: latency, tonic: tonicLatency } = PhysioLatency.lags(
-        latencyOf(track),
-      );
 
       // GSR sensor disconnects (see gsr_disconnect_repair.mjs) are detected
       // unconditionally regardless of the "Repair Sensor Disconnects"
@@ -122,33 +120,32 @@ export const EnvironmentalStats = {
         // Sample at ~1 Hz (keeps the point set manageable)
         if (!(pt.time - lastTime >= 1.0)) continue;
         lastTime = pt.time; // keep the ~1Hz cadence even if this sample ends up excluded below
-        if (!a.getCoordinates(i)) continue;
+        // Where this reading was caused; no place, no sample.
+        const place = a.placeRowOf(i);
+        if (place < 0) continue;
+        const envPt = a.raw[place];
 
-        // Phasic + peaks: environment read `latency` seconds earlier —
-        // an SCR lags its trigger and the subject has since moved on.
-        // Tonic: read `tonicLatency` (a larger lag) earlier — SCL tracks
-        // its driver over a slower time course.
-        const envIdx = a.stimulusIndexAt(pt.time, latency);
-        const envPt = envIdx !== -1 ? a.raw[envIdx] : pt;
-        const envIdxT = a.stimulusIndexAt(pt.time, tonicLatency);
-        const envPtTonic = envIdxT !== -1 ? a.raw[envIdxT] : pt;
-
-        // Aggregate arousal over the trailing 1 s (10 samples @ 10 Hz):
-        // mean for level, max for the phasic peak, mean for walking speed.
-        const windowStartIdx = Math.max(0, i - 9);
-        let sumVal = 0;
-        let sumTonic = 0;
-        let maxPhasic = 0;
+        // Walking speed is place data too: the mean over the trailing
+        // 1 s (10 samples @ 10 Hz) at the place.
         let sumSpeed = 0;
         let speedCount = 0;
-        let count = 0;
-        for (let j = windowStartIdx; j <= i; j++) {
-          if (!a.raw[j]) continue;
+        for (let j = Math.max(0, place - 9); j <= place; j++) {
           const rawSpd = a.raw[j].speedKts;
           if (isNum(rawSpd)) {
             sumSpeed += rawSpd * KNOTS_TO_MS;
             speedCount++;
           }
+        }
+
+        // Aggregate arousal over the trailing 1 s (10 samples @ 10 Hz):
+        // mean for level, max for the phasic peak.
+        const windowStartIdx = Math.max(0, i - 9);
+        let sumVal = 0;
+        let sumTonic = 0;
+        let maxPhasic = 0;
+        let count = 0;
+        for (let j = windowStartIdx; j <= i; j++) {
+          if (!a.raw[j]) continue;
           if (isDisconnected(j)) continue; // no real GSR reading at this sample
           sumVal += a.raw[j].val || 0;
           if (a.tonic?.[j]) {
@@ -165,17 +162,7 @@ export const EnvironmentalStats = {
         // skip the point entirely rather than fake one.
         if (count === 0) continue;
 
-        const avgSpeed =
-          speedCount > 0
-            ? sumSpeed / speedCount
-            : isNum(pt.speedKts)
-              ? pt.speedKts * KNOTS_TO_MS
-              : 0;
-        const tonicSpeedMs =
-          envPtTonic && isNum(envPtTonic.speedKts)
-            ? envPtTonic.speedKts * KNOTS_TO_MS
-            : avgSpeed;
-
+        const avgSpeed = speedCount > 0 ? sumSpeed / speedCount : 0;
         allData.push({
           trackId: track.id,
           time: pt.time,
@@ -183,9 +170,12 @@ export const EnvironmentalStats = {
           phasic: a.phasic ? maxPhasic : 0,
           tonic: a.tonic ? sumTonic / count : 0,
           speed: avgSpeed,
+          // The tonic channel's speed adjustment uses the speed at the place
+          // itself rather than the 1 s mean.
+          tonicSpeed: isNum(envPt.speedKts)
+            ? envPt.speedKts * KNOTS_TO_MS
+            : avgSpeed,
           ...envFields(envPt),
-          // Environment for the tonic channel, read `tonicLatency` s back.
-          tonicEnv: { speed: tonicSpeedMs, ...envFields(envPtTonic) },
         });
       }
     });
@@ -284,11 +274,11 @@ export const EnvironmentalStats = {
   /**
    * Valid samples for one feature, bucketed per walk (allData is
    * track-contiguous; a track is an independent recording):
-   *  - xPhasic / phasic : short-lag environment vs momentary arousal
-   *  - xTonic  / tonic  : long-lag environment vs baseline arousal
+   *  - xPhasic / phasic : environment vs momentary arousal
+   *  - xTonic  / tonic  : environment vs baseline arousal
    *  - peakBinX / peakBinY : one point per 15 s bin (mean feature vs peak
    *    count) — no per-second duplication of the binned count
-   * validX is every walk's latency-shifted values pooled, for the variance check.
+   * validX is every walk's environment values pooled, for the variance check.
    * @private
    */
   _walkSeries(f, allData, peakCounts) {
@@ -310,8 +300,6 @@ export const EnvironmentalStats = {
         byTrack.set(row.trackId, b);
       }
       const xP = f.binary ? coerceBin(row[f.key]) : row[f.key];
-      const tEnv = row.tonicEnv || row;
-      const xT = f.binary ? coerceBin(tEnv[f.key]) : tEnv[f.key];
 
       if (validNum(xP)) {
         b.xPhasic.push(xP);
@@ -326,12 +314,10 @@ export const EnvironmentalStats = {
         bx.push(xP);
         b.binPk.set(bin, peakCounts[i] || 0);
       }
-      if (validNum(xT)) {
-        b.xTonic.push(xT);
+      if (validNum(xP)) {
+        b.xTonic.push(xP);
         b.tonic.push(row.tonic);
-        b.speedTonic.push(
-          tEnv && isNum(tEnv.speed) ? tEnv.speed : row.speed || 0,
-        );
+        b.speedTonic.push(isNum(row.tonicSpeed) ? row.tonicSpeed : row.speed);
       }
     }
     const walks = [...byTrack.values()];
@@ -467,18 +453,13 @@ export const EnvironmentalStats = {
    * mixed-bag minor-road tag) and any class with under 5 s of data are
    * dropped. Each entry keeps `_sePhasic` for compareRoadExtremes().
    */
-  roadProfile(allData, activeTracks, latencyOf) {
+  roadProfile(allData, activeTracks) {
     const roadGroups = EnvironmentalStats._roadGroups(allData);
 
     activeTracks.forEach((track) => {
       const a = track.analyzer;
-      const { phasic: latency } = PhysioLatency.lags(latencyOf(track));
       countedPeaks(a).forEach((p) => {
-        const idx = a.stimulusIndexAt(p.time, latency);
-        const rc =
-          idx !== -1 && a.raw[idx].osm_road_class
-            ? a.raw[idx].osm_road_class
-            : 'none';
+        const rc = a.raw[a.placeRowOf(p.index)].osm_road_class || 'none';
         if (roadGroups.has(rc)) {
           roadGroups.get(rc).peaks++;
         }
@@ -513,8 +494,8 @@ export const EnvironmentalStats = {
       }
       return w;
     };
-    // Pass 1 — phasic arousal + the group structure, keyed by the
-    // phasic-lagged road class (env read `latency` s back).
+    // Phasic and tonic arousal, keyed by the road class of the place each
+    // sample is paired with.
     allData.forEach((d) => {
       const cls = d.osm_road_class || 'none';
       let g = roadGroups.get(cls);
@@ -522,22 +503,11 @@ export const EnvironmentalStats = {
         g = { phasicVals: [], tonicVals: [], byWalk: new Map(), peaks: 0 };
         roadGroups.set(cls, g);
       }
+      const w = walkOf(g, d.trackId);
       g.phasicVals.push(d.phasic);
-      walkOf(g, d.trackId).phasicVals.push(d.phasic);
-    });
-    // Pass 2 — tonic (SCL) arousal, keyed by the *tonic*-lagged road class
-    // (env read `tonicLatency` s back, a longer lag). This differs from the
-    // phasic class only where a class boundary falls between the two lags —
-    // a few metres of path — but pairing baseline arousal with the wrong-lag
-    // class is still a lag mismatch. Falls back to the phasic-lagged group
-    // when the tonic class has no group of its own, so no sample is dropped.
-    allData.forEach((d) => {
-      const clsT = d.tonicEnv?.osm_road_class || d.osm_road_class || 'none';
-      const g =
-        roadGroups.get(clsT) || roadGroups.get(d.osm_road_class || 'none');
-      if (!g) return;
+      w.phasicVals.push(d.phasic);
       g.tonicVals.push(d.tonic);
-      walkOf(g, d.trackId).tonicVals.push(d.tonic);
+      w.tonicVals.push(d.tonic);
     });
     return roadGroups;
   },
@@ -545,8 +515,6 @@ export const EnvironmentalStats = {
   /** @private */
   _roadClassStats(key, val) {
     const n = val.phasicVals.length;
-    // Tonic count can differ from n by a handful of samples as it's routed
-    // by its own lag — divide each moment by its own count.
     const nT = val.tonicVals.length;
     const meanPhasic = val.phasicVals.reduce((s, v) => s + v, 0) / n;
     const meanTonic =

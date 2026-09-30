@@ -115,7 +115,6 @@ export const GSRStorage = {
       rdpTolerance: sliderVal(S.gpsRDP, D.rdpTolerance),
       downsample: sliderVal(S.gpsDownsample, D.downsample ? 1 : 0, parseInt),
       trackWeight: sliderVal(S.gpsTrackWeight, D.trackWeight, parseInt),
-      peakLatency: sliderVal(S.gpsPeakLatency, D.peakLatency),
       placeMergeDistance: sliderVal(S.placeMergeDistance, AP ? AP.mergeM : 35),
       maxArousalPlaces: sliderVal(
         S.maxArousalPlaces,
@@ -143,7 +142,6 @@ export const GSRStorage = {
       rdpTolerance: 'gpsRDP',
       downsample: 'gpsDownsample',
       trackWeight: 'gpsTrackWeight',
-      peakLatency: 'gpsPeakLatency',
       placeMergeDistance: 'placeMergeDistance',
       maxArousalPlaces: 'maxArousalPlaces',
     };
@@ -184,6 +182,17 @@ export const GSRStorage = {
       maxArousalPlaces: AP.maxPlaces,
       minPlaceWalks: AP.minWalks,
     };
+  },
+
+  /** Show the project's Response delay on its slider. */
+  showResponseDelay() {
+    const slider = AppState.sliders?.responseDelay;
+    if (slider) slider.value = AppState.responseDelay;
+    const label =
+      typeof document !== 'undefined'
+        ? document.getElementById('valResponseDelay')
+        : null;
+    if (label) label.innerText = `${AppState.responseDelay.toFixed(1)} s`;
   },
 
   /** Show Collective view's own Places settings on the sliders. */
@@ -261,7 +270,6 @@ export const GSRStorage = {
       rdpTolerance: raw.rdpTolerance,
       downsample: raw.downsample === 1,
       trackWeight: raw.trackWeight,
-      peakLatency: raw.peakLatency,
     };
   },
 
@@ -474,11 +482,7 @@ export const GSRStorage = {
       track.filterParams = this.readGsrSliderValues();
       track.gpsFilterParams = this.readGpsSliderValues();
       try {
-        track.analyzer.analyze(
-          track.filterParams,
-          track.gpsFilterParams.peakLatency ??
-            GSR_CONST.GPS_DEFAULT.peakLatency,
-        );
+        track.analyzer.analyze(track.filterParams);
       } catch (e) {
         console.warn(
           'Re-analysing active track failed after loading preset:',

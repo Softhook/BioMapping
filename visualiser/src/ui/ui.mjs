@@ -93,14 +93,10 @@ export const GSRUI = {
 
     try {
       const params = GSRStorage.readGsrSliderValues();
-      // Hotspot selection (analyze()'s memorableEvents) resolves GPS
-      // positions using peakLatency so candidate positions match the latency-shifted
-      // locations rendered on the map.
-      const peakLatency = GSRStorage.readGpsSliderValues().peakLatency;
 
       if (AppState.viewMode === 'single') {
         Controllers.trackManager.saveActiveTrackParams();
-        AppState.analyzer.analyze(params, peakLatency);
+        AppState.analyzer.analyze(params);
         if (AppState.mapManager) {
           AppState.mapManager.renderData(
             AppState.analyzer,
@@ -108,17 +104,13 @@ export const GSRUI = {
           );
         }
       } else {
-        // Collective view: every track keeps its own GSR settings and peak
-        // latency — the per-track controls are hidden here, and the sliders
-        // only hold the Single-view walk's values.
+        // Collective view: every track keeps its own GSR settings — the
+        // per-track controls are hidden here, and the sliders only hold the
+        // Single-view walk's values.
         if (AppState.collectiveManager) {
           const activeTracks = AppState.collectiveManager.getActiveTracks();
           activeTracks.forEach((track) => {
-            track.analyzer.analyze(
-              track.filterParams || GSR_CONST.GSR_DEFAULT,
-              track.gpsFilterParams?.peakLatency ??
-                GSR_CONST.GPS_DEFAULT.peakLatency,
-            );
+            track.analyzer.analyze(track.filterParams || GSR_CONST.GSR_DEFAULT);
           });
         }
         GSRUI.updateCollectiveMap();

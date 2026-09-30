@@ -1,5 +1,6 @@
 const assert = require('node:assert');
 const test = require('node:test');
+const { withJoin } = require('./support/join_for_stand_in.js');
 
 global.GSR_CONST = require('../src/core/constants.mjs').GSR_CONST;
 global.MarchingSquares =
@@ -49,11 +50,10 @@ function makeMockTrack(id, n = 36) {
   return {
     id,
     enabled: true,
-    analyzer: {
+    analyzer: withJoin({
       raw: new Array(n).fill(0),
       sampleRate: 1,
       getCoordinates: (i) => points[i] || null,
-      resolveLatencyIndex: (pk) => pk.index,
       phasic,
       phasicZ,
       tonic,
@@ -65,7 +65,7 @@ function makeMockTrack(id, n = 36) {
       peakDensity,
       phasicStd: 0.5,
       peaks,
-    },
+    }),
   };
 }
 
@@ -133,11 +133,10 @@ function makeConstTrack(id, consts, n = 36) {
   return {
     id,
     enabled: true,
-    analyzer: {
+    analyzer: withJoin({
       raw: new Array(n).fill(0),
       sampleRate: 1,
       getCoordinates: (i) => points[i] || null,
-      resolveLatencyIndex: (pk) => pk.index,
       phasic: mk(consts.phasic),
       phasicZ: mk(consts.phasicZ),
       tonic: mk(consts.tonic),
@@ -147,7 +146,7 @@ function makeConstTrack(id, consts, n = 36) {
       triIndex: mk(consts.triIndex),
       phasicStd: 0.5,
       peaks: [],
-    },
+    }),
   };
 }
 
@@ -236,11 +235,10 @@ test('generateContourSurface: AUC source is per-track z-scored only when normali
   const makeTrack = () => ({
     id: 't1',
     enabled: true,
-    analyzer: {
+    analyzer: withJoin({
       raw: new Array(n).fill(0),
       sampleRate: 1,
       getCoordinates: (i) => points[i] || null,
-      resolveLatencyIndex: (pk) => pk.index,
       phasic: [],
       phasicZ: [],
       tonic: [],
@@ -250,7 +248,7 @@ test('generateContourSurface: AUC source is per-track z-scored only when normali
       triIndex: [],
       phasicStd: 1,
       peaks: [],
-    },
+    }),
   });
   const base = { ...FLAT_PARAMS, topographySource: 'auc' };
 
@@ -324,11 +322,10 @@ test('generateContourSurface: temporalSmoothingWindow smooths the active series 
   const makeTrack = () => ({
     id: 't1',
     enabled: true,
-    analyzer: {
+    analyzer: withJoin({
       raw: new Array(n).fill(0),
       sampleRate: 1,
       getCoordinates: (i) => points[i] || null,
-      resolveLatencyIndex: (pk) => pk.index,
       phasic,
       phasicZ: phasic,
       tonic: [],
@@ -338,7 +335,7 @@ test('generateContourSurface: temporalSmoothingWindow smooths the active series 
       triIndex: [],
       phasicStd: 1,
       peaks: [],
-    },
+    }),
   });
   const base = {
     gridResolution: 10,
@@ -422,11 +419,10 @@ function makeStillTrack(id, n, zVal) {
   return {
     id,
     enabled: true,
-    analyzer: {
+    analyzer: withJoin({
       raw: new Array(n).fill(0),
       sampleRate: 1,
       getCoordinates: () => ({ lat: 51.5, lon: -0.1 }),
-      resolveLatencyIndex: (pk) => pk.index,
       phasic: series,
       phasicZ: series,
       tonic: series,
@@ -436,7 +432,7 @@ function makeStillTrack(id, n, zVal) {
       triIndex: series,
       phasicStd: 1,
       peaks: [],
-    },
+    }),
   };
 }
 

@@ -80,7 +80,7 @@ const csvText = fs.readFileSync(csvPath, 'utf8');
 function buildEnrichedAnalyzer() {
   const a = new GSRAnalyzer();
   a.parseCSV(csvText);
-  a.analyze(GSR_CONST.GSR_DEFAULT, 0);
+  a.analyze(GSR_CONST.GSR_DEFAULT);
   a.raw.forEach((pt, i) => {
     pt.osm_road_class = ['residential', 'path', 'primary'][i % 3];
     pt.osm_dist_major_road = 20 + (i % 50);
@@ -140,7 +140,7 @@ test('updateEnvironmentalDashboard (single mode): a GSR sensor disconnect is exc
   a.raw = a.raw.map((r, i) =>
     i >= flatStart && i < flatStart + flatLen ? { ...r, val: 0.01 } : r,
   );
-  a.analyze(GSR_CONST.GSR_DEFAULT, 0);
+  a.analyze(GSR_CONST.GSR_DEFAULT);
   assert.ok(
     a.gsrDisconnectSpans?.some(
       (s) => s.startIdx <= flatStart && s.endIdx >= flatStart + flatLen - 1,
@@ -463,7 +463,7 @@ test('updateEnvironmentalDashboard (collective mode): method scales with walk co
   });
 });
 
-test('updateEnvironmentalDashboard: tonic gets its own longer-lag environment, Peaks is aggregated to 15 s bins, FDR is per channel', () => {
+test('updateEnvironmentalDashboard: tonic shares the one Response delay pairing, Peaks is aggregated to 15 s bins, FDR is per channel', () => {
   const mkTracks = (n) =>
     Array.from({ length: n }, (_, k) => {
       const a = buildEnrichedAnalyzer();
@@ -480,18 +480,18 @@ test('updateEnvironmentalDashboard: tonic gets its own longer-lag environment, P
   GSRUI.updateEnvironmentalDashboard();
   const stats = cm._cachedEnvStats;
 
-  // Every sampled row carries a separate environment snapshot for the tonic
-  // channel (read at a longer lag than the phasic/peaks one).
+  // Every sampled row carries one environment snapshot — the place its
+  // reading is paired with — used by tonic, phasic and peaks alike.
   assert.ok(stats.allData.length > 0);
   stats.allData.forEach((d) => {
-    assert.ok(d.tonicEnv && typeof d.tonicEnv === 'object', 'row has tonicEnv');
+    assert.strictEqual(d.tonicEnv, undefined, 'no separate tonic pairing');
     assert.ok(
-      'osm_green_pct_50m' in d.tonicEnv &&
-        'osm_dist_green' in d.tonicEnv &&
-        'osm_canopy_pct_50m' in d.tonicEnv &&
-        'osm_road_class' in d.tonicEnv &&
-        'em_fog' in d.tonicEnv,
-      'tonicEnv carries the OSM fields (incl. dist_green + canopy_pct) + em_fog',
+      'osm_green_pct_50m' in d &&
+        'osm_dist_green' in d &&
+        'osm_canopy_pct_50m' in d &&
+        'osm_road_class' in d &&
+        'em_fog' in d,
+      'the row carries the OSM fields (incl. dist_green + canopy_pct) + em_fog',
     );
   });
 
@@ -524,22 +524,22 @@ test('updateEnvironmentalDashboard: tonic gets its own longer-lag environment, P
   });
 });
 
-test('updateEnvironmentalDashboard: the road profile groups tonic arousal by the tonic-lagged road class, not the phasic-lagged one', () => {
+test('updateEnvironmentalDashboard: the road profile groups tonic arousal by the road class its reading is paired with (the Response delay back)', () => {
   const a = buildEnrichedAnalyzer();
+  a.setResponseDelay(2);
 
-  // Latency 2 s (phasic) vs 8 s (tonic, ×4). Flip the road class every 6 s so
-  // that for a given sample the class 2 s back and the class 8 s back are one
-  // block apart — i.e. always the *opposite* class.
+  // Flip the road class every 6 s.
   a.raw.forEach((pt) => {
     pt.osm_road_class =
       Math.floor(pt.time / 6) % 2 === 0 ? 'service' : 'primary';
   });
-  // Make the tonic signal a step function keyed to the class 8 s earlier: high
-  // (100) when the tonic-lag class is 'service', low (1) when it is 'primary'.
+  // Make the tonic signal a step function keyed to the class 2 s earlier: high
+  // (100) when that class is 'service', low (1) when it is 'primary'. Read
+  // without the delay, the two would be mixed across the class boundaries.
   a.raw.forEach((pt, i) => {
     if (!a.tonic?.[i]) return;
-    const tonicClassIsService = Math.floor((pt.time - 8) / 6) % 2 === 0;
-    a.tonic[i].val = tonicClassIsService ? 100 : 1;
+    const pairedClassIsService = Math.floor((pt.time - 2) / 6) % 2 === 0;
+    a.tonic[i].val = pairedClassIsService ? 100 : 1;
   });
 
   Object.assign(RealAppState, {
@@ -557,16 +557,16 @@ test('updateEnvironmentalDashboard: the road profile groups tonic arousal by the
     `sanity: the fixture gave each class enough samples to profile (service ${service.timeSpent}s, primary ${primary.timeSpent}s)`,
   );
 
-  // Correct (tonic-lag) routing: 'service' collects the high-tonic samples,
-  // 'primary' the low ones. Phasic-lag routing (the old bug) would swap them,
-  // because a sample whose phasic class is 'service' has tonic class 'primary'.
+  // Paired routing: 'service' collects the high-tonic samples, 'primary' the
+  // low ones (about 85 vs 16; the 1 s averaging window blurs the class
+  // boundaries). Read without the delay they come out about even (≈50 each).
   assert.ok(
     service.meanTonic > 60,
-    `'service' meanTonic (${service.meanTonic.toFixed(1)}) reflects tonic-lag routing (≈100), not phasic-lag (≈1)`,
+    `'service' meanTonic (${service.meanTonic.toFixed(1)}) is mostly high`,
   );
   assert.ok(
     primary.meanTonic < 40,
-    `'primary' meanTonic (${primary.meanTonic.toFixed(1)}) reflects tonic-lag routing (≈1), not phasic-lag (≈100)`,
+    `'primary' meanTonic (${primary.meanTonic.toFixed(1)}) is mostly low`,
   );
 });
 
@@ -580,7 +580,7 @@ test('updateEnvironmentalDashboard (collective mode): only enriched tracks are a
   });
   const bare = new GSRAnalyzer();
   bare.parseCSV(csvText);
-  bare.analyze(GSR_CONST.GSR_DEFAULT, 0); // parsed + analysed but NOT enriched
+  bare.analyze(GSR_CONST.GSR_DEFAULT); // parsed + analysed but NOT enriched
   const all = [...enriched, { id: 'trkBare', analyzer: bare }];
 
   const cm = { getActiveTracks: () => all };

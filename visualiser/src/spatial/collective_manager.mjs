@@ -6,7 +6,6 @@
 import { GSR_CONST } from '../core/constants.mjs';
 import { GeoUtils } from '../gps/geo_utils.mjs';
 import { MarchingSquares } from '../render/marching_squares.mjs';
-import { PhysioLatency } from '../signal/physio_latency.mjs';
 import { StatsMath } from '../signal/stats_math.mjs';
 import { GSRSpatialClustering } from './spatial_clustering.mjs';
 import { SpatialGrid } from './spatial_grid.mjs';
@@ -378,6 +377,8 @@ export class GSRCollectiveManager {
     // fix or after the last can't be placed on the map, so they don't set the
     // baseline for the rows that can. `range` is that part ({first, last});
     // null means the whole walk has a position (the precomputed series apply).
+    // It is a fact about the walk, taken where each reading was recorded, so
+    // it doesn't change with the Response delay.
     const perTrackNorm = (raw, range) => {
       if (!useNormalization || !raw || raw.length === 0) return null;
       const src = range ? raw.slice(range.first, range.last + 1) : raw;
@@ -443,17 +444,9 @@ export class GSRCollectiveManager {
       const trackStartIdx = points.length;
       const range = gpsRange(t.analyzer);
 
-      // Each walk's own stimulus latency, as its map markers and the
-      // environmental dashboard use it: a value is placed where the walker
-      // was `lag` seconds earlier, not where they had moved on to. Tonic
-      // takes the longer baseline lag, everything else the phasic one.
-      const lags = PhysioLatency.lags(t.gpsFilterParams?.peakLatency);
-      const valueLag = topographySource === 'tonic' ? lags.tonic : lags.phasic;
-      const locIdx = (i) =>
-        valueLag > 0 && typeof t.analyzer.stimulusIndexAt === 'function'
-          ? t.analyzer.stimulusIndexAt(rawData[i].time, valueLag)
-          : i;
-
+      // Readings and peaks are placed through the Response delay (placeOf:
+      // where the walker was that many seconds earlier). The coverage points
+      // in peaks mode are the route itself, so they stay where they are.
       if (isPeaks) {
         // Peaks mode only uses lat/lon for corridor masking and coverage calculation.
         // Skipping all continuous series smoothing drops ~90% of prep overhead.
@@ -529,7 +522,7 @@ export class GSRCollectiveManager {
           : null;
 
         for (let i = 0; i < rawData.length; i += step) {
-          const coords = t.analyzer.getCoordinates(locIdx(i));
+          const coords = t.analyzer.placeOf(i);
           if (coords) {
             let v = doSmoothing
               ? smoothVals[i]
@@ -556,9 +549,7 @@ export class GSRCollectiveManager {
 
       t.analyzer.peaks.forEach((pk) => {
         if (pk.excluded) return;
-        const coords = t.analyzer.getCoordinates(
-          t.analyzer.resolveLatencyIndex(pk, lags.phasic),
-        );
+        const coords = t.analyzer.placeOf(pk.index);
         if (coords) {
           const amplitude = useNormalization
             ? pk.amplitude / phasicStd

@@ -195,15 +195,14 @@ export class GSRGlobeHotspotTour extends GSRGlobeNavigation {
     if (!pts || pts.length < 2) return [];
 
     // Sample indices of every peak — both where it was recorded and, with a
-    // Peak-latency shift, where its marker sits.
+    // Response delay, the place its marker sits at.
     const a = this.currentAnalyzer;
-    const shiftLatency = this.peakLatency > 0 && !!a;
+    const shifted = a?.responseDelay > 0;
     const peakOrigIdx = new Set();
     for (const pk of this.currentPeaks || []) {
       if (!pk) continue;
       peakOrigIdx.add(pk.index);
-      if (shiftLatency)
-        peakOrigIdx.add(a.resolveLatencyIndex(pk, this.peakLatency));
+      if (shifted) peakOrigIdx.add(a.placeRowOf(pk.index));
     }
 
     // Candidate draw indices: the track ends, each peak's drawn point…

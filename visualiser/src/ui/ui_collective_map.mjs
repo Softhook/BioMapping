@@ -100,7 +100,7 @@ export const CollectiveMapUI = {
         : 0.0,
     };
 
-    // Peak latency is per walk (each track's gpsFilterParams).
+    // Every walk is shown at the project's one Response delay.
     AppState.mapManager.renderCollectiveData(
       AppState.collectiveManager,
       contourParams,

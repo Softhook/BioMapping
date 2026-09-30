@@ -585,7 +585,7 @@ test('responses: a window running off the start of the recording is dropped, and
   assert.strictEqual(gap.length, 0);
 });
 
-test('responses: lag reads the GSR response that follows the junction, not the walker-time window', () => {
+test('responses: the Response delay reads the GSR response that follows the junction, not the walker-time window', () => {
   // A response evoked at the junction (t=50) shows up 3 s later in the GSR:
   // phasic 1 before t=53, 3 from t=53.  peaks only in [53, 63).
   const s = series(120, (t) => ({
@@ -595,30 +595,27 @@ test('responses: lag reads the GSR response that follows the junction, not the w
   }));
   const p = [P(50)];
 
-  // No lag: the 'after' window [50, 60) is contaminated by pre-response samples.
+  // No delay: the 'after' window [50, 60) is contaminated by pre-response samples.
   const [plain] = JunctionResponse.responses(p, s);
   assert.ok(plain.after.meanPhasic < 3);
 
-  // Lag 3 s: 'before' = GSR in [43, 53) (all baseline), 'after' = [53, 63).
-  const lag = { phasic: 3, tonic: 3 };
-  const [r] = JunctionResponse.responses(p, s, { lag });
+  // Delay 3 s: 'before' = GSR in [43, 53) (all baseline), 'after' = [53, 63).
+  const [r] = JunctionResponse.responses(p, s, { delayS: 3 });
   assert.strictEqual(r.before.meanPhasic, 1);
   assert.strictEqual(r.after.meanPhasic, 3);
   assert.strictEqual(r.before.peakRate, 0);
   assert.strictEqual(r.after.peakRate, 30);
-  // tonic ramps 1/s, so each window's mean shifts by exactly the lag
+  // tonic ramps 1/s, so each window's mean shifts by exactly the delay — tonic
+  // is read with the same delay as phasic and peaks
   assert.strictEqual(plain.before.meanTonic + 3, r.before.meanTonic);
 });
 
-test('responses: tonic uses its own (longer) lag', () => {
-  const s = series(120, (t) => ({ tonic: t }));
-  const [a] = JunctionResponse.responses([P(50)], s, {
-    lag: { phasic: 0, tonic: 0 },
-  });
-  const [b] = JunctionResponse.responses([P(50)], s, {
-    lag: { phasic: 0, tonic: 8 },
-  });
+test('responses: tonic moves by the same Response delay as phasic', () => {
+  const s = series(120, (t) => ({ tonic: t, phasic: t }));
+  const [a] = JunctionResponse.responses([P(50)], s, { delayS: 0 });
+  const [b] = JunctionResponse.responses([P(50)], s, { delayS: 8 });
   assert.strictEqual(b.before.meanTonic - a.before.meanTonic, 8);
+  assert.strictEqual(b.before.meanPhasic - a.before.meanPhasic, 8);
 });
 
 // ── compareJunctionVsRoad: any junction (whatever the walker did) vs plain road ──

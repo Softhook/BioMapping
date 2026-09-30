@@ -293,6 +293,9 @@ export function feedLiveAnalyzer() {
     liveAnalyzer = new GSRAnalyzer();
     liveAnalyzer.raw = [];
     liveAnalyzer.sampleRate = 1 / LiveState.STREAM_INTERVAL_S;
+    // Live stays on skin time: shown at a Response delay of 0 only, so its
+    // hotspots don't need a place further back along the route.
+    liveAnalyzer.maxResponseDelay = 0;
   }
   const A = liveAnalyzer;
   const pkts = LiveState.packets;
@@ -335,7 +338,7 @@ export function feedLiveAnalyzer() {
   }
   A.raw = raw;
 
-  A.analyze(LIVE_ANALYZE_PARAMS, 0);
+  A.analyze(LIVE_ANALYZE_PARAMS);
 
   // Mirror the window's tonic + phasic values back onto their
   // LiveState.packets entries so the live map's delayed track recolour can

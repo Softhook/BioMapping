@@ -6,6 +6,7 @@
  * All files access state through `AppState.xxx` instead of bare globals.
  */
 
+import { ResponseDelay } from '../signal/response_delay.mjs';
 import { GSR_CONST } from './constants.mjs';
 
 export const AppState = {
@@ -24,6 +25,10 @@ export const AppState = {
     maxArousalPlaces: GSR_CONST.AROUSAL_PLACES.maxPlaces,
     minPlaceWalks: GSR_CONST.AROUSAL_PLACES.minWalks,
   },
+  // The project's Response delay (s): how far back along the route every
+  // walk's body data is shown (signal/response_delay.mjs). One value for all
+  // walks; set it with setResponseDelay() so every walk follows.
+  responseDelay: ResponseDelay.DEFAULT_S,
   surfaceView: 'map', // 'map' | 'globe'          (render surface — see globe3d_view.js)
   isDisplayMode: false,
   get isTotalFullscreen() {
@@ -59,6 +64,15 @@ export const AppState = {
     AppState.trackColorIndex =
       (AppState.trackColorIndex + 1) % AppState.trackColors.length;
     return c;
+  },
+
+  /** Set the project's Response delay and show every walk at it. */
+  setResponseDelay(s) {
+    AppState.responseDelay = ResponseDelay.normalise(s);
+    for (const t of AppState.collectiveManager?.tracks || []) {
+      t.analyzer?.setResponseDelay(AppState.responseDelay);
+    }
+    AppState.analyzer?.setResponseDelay?.(AppState.responseDelay);
   },
 
   // ── p5.js canvas ──────────────────────────────────────────────────────────

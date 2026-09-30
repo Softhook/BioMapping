@@ -398,11 +398,11 @@ const csvWith = (gsr, gps) =>
   `# FilterParams:${JSON.stringify(gsr)}\n# GpsFilterParams:${JSON.stringify(gps)}\n${SAMPLE_CSV}`;
 const ANNA = csvWith(
   { peakThreshold: 0.2, shapeMinSnr: 4 },
-  { peakLatency: 1.0, placeMergeDistance: 20, maxSpeed: 2.0 },
+  { placeMergeDistance: 20, maxSpeed: 2.0 },
 );
 const BEN = csvWith(
   { peakThreshold: 0.045, shapeMinSnr: 2.5 },
-  { peakLatency: 3.0, placeMergeDistance: 80, maxSpeed: 6.0 },
+  { placeMergeDistance: 80, maxSpeed: 6.0 },
 );
 
 async function bootWithAnnaAndBen() {
@@ -493,8 +493,8 @@ test('collective view: unrelated actions (map re-render) do not push collective 
   window.GSRTrackManager.switchActiveTrack(anna.id);
   window.GSRUI.rerenderMap();
   window.GSRTrackManager.saveActiveGpsParams();
-  assert.strictEqual(anna.gpsFilterParams.peakLatency, 1.0);
-  assert.strictEqual(ben.gpsFilterParams.peakLatency, 3.0);
+  assert.strictEqual(anna.gpsFilterParams.maxSpeed, 2.0);
+  assert.strictEqual(ben.gpsFilterParams.maxSpeed, 6.0);
 });
 
 test("returning to Single view restores the active track's own settings into the sliders", async () => {
@@ -503,7 +503,6 @@ test("returning to Single view restores the active track's own settings into the
   window.GSRTrackManager.switchActiveTrack(anna.id);
   click('btnSingleView');
   assert.strictEqual(document.getElementById('peakThreshold').value, '0.2');
-  assert.strictEqual(document.getElementById('gpsPeakLatency').value, '1');
   assert.strictEqual(document.getElementById('placeMergeDistance').value, '20');
   assert.strictEqual(anna.filterParams.peakThreshold, 0.2);
 });
@@ -556,21 +555,20 @@ test('collective view: radius/snap re-enrichment checks every walk for OSM data,
   assert.strictEqual(window.GSRUI.hasOsmData(), true);
 });
 
-test('collective view: each walk is analysed and placed with its own peak latency', async () => {
-  const { window, anna, ben, click } = await bootWithAnnaAndBen();
-  const seen = new Map();
-  for (const t of [anna, ben]) {
-    const orig = t.analyzer.analyze.bind(t.analyzer);
-    t.analyzer.analyze = (params, pl) => {
-      seen.set(t, pl);
-      return orig(params, pl);
-    };
-  }
+test('the Response delay is one value for the whole project, the same in both views', async () => {
+  const { window, document, anna, ben, click } = await bootWithAnnaAndBen();
+  const slider = document.getElementById('responseDelay');
+  slider.value = '3.5';
+  slider.dispatchEvent(new window.Event('input'));
+  assert.strictEqual(window.AppState.responseDelay, 3.5);
+  assert.strictEqual(anna.analyzer.responseDelay, 3.5);
+  assert.strictEqual(ben.analyzer.responseDelay, 3.5);
+
   click('btnCollectiveView');
   window.GSRUI.runAnalysis();
-  assert.strictEqual(seen.get(anna), 1.0);
-  assert.strictEqual(seen.get(ben), 3.0);
-  const mm = window.AppState.mapManager;
-  assert.strictEqual(mm._trackPeakLatency(anna), 1.0);
-  assert.strictEqual(mm._trackPeakLatency(ben), 3.0);
+  assert.strictEqual(slider.value, '3.5', 'the same value in collective view');
+  assert.strictEqual(anna.analyzer.responseDelay, 3.5);
+  assert.strictEqual(ben.analyzer.responseDelay, 3.5);
+  window.GSRTrackManager.switchActiveTrack(anna.id);
+  assert.strictEqual(slider.value, '3.5', 'switching walks keeps it');
 });

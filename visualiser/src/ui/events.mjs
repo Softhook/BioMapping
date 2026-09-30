@@ -90,7 +90,7 @@ export const GSREvents = {
       'gpsMaxSpeed',
       'gpsRDP',
       'gpsTrackWeight',
-      'gpsPeakLatency',
+      'responseDelay',
       'gpsSnapToRoads',
       'gpsSnapRadius',
       'placeMergeDistance',
@@ -239,7 +239,7 @@ export const GSREvents = {
 
   /**
    * Look up a slider descriptor by element id across the GSR / GPS / contour
-   * tables. Lets the few bespoke binding blocks (snap radius, peak latency,
+   * tables. Lets the few bespoke binding blocks (snap radius, response delay,
    * arousal-places merge) pull their formatter from the same source as
    * initializeLabels() instead of re-declaring it inline.
    */
@@ -326,10 +326,9 @@ export const GSREvents = {
   },
 
   /**
-   * Persist a moved map-display slider (Latency Offset, Arousal Places). In
-   * Collective view — where only the Arousal Places ones are shown — the
-   * value is Collective view's own setting and no walk's is touched; in
-   * Single view it belongs to the open walk only.
+   * Persist a moved Arousal Places slider. In Collective view the value is
+   * Collective view's own setting and no walk's is touched; in Single view it
+   * belongs to the open walk only.
    */
   commitMapDisplaySetting() {
     if (AppState.viewMode === 'collective') {

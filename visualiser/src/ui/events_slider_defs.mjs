@@ -50,8 +50,8 @@ export const GPS_SLIDER_DEFS = [
     bindGps: true,
   },
   {
-    id: 'gpsPeakLatency',
-    labelId: 'valGpsPeakLatency',
+    id: 'responseDelay',
+    labelId: 'valResponseDelay',
     fmt: (v) => `${v.toFixed(1)} s`,
   },
   { id: 'gpsSnapRadius', labelId: 'valGpsSnapRadius', fmt: (v) => `${v} m` },

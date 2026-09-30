@@ -95,8 +95,6 @@ export class GSRMapCollective extends GSRMapArousalPlaces {
     activeTracks.forEach((track) => {
       const _data = track.analyzer.raw;
       const p = track.gpsFilterParams || {};
-      // Each walk's own stimulus latency (Collective view has no shared one).
-      const peakLatency = this._trackPeakLatency(track);
 
       // Phase 1 (slice 2): each active track owns a layerGroup; all of this
       // track's collective layers (path, peaks, connectors, hotspots) render
@@ -147,7 +145,6 @@ export class GSRMapCollective extends GSRMapArousalPlaces {
         track,
         layerGroup,
         trackColor,
-        peakLatency,
         allActivePeaksAcrossTracks,
       );
 
@@ -157,7 +154,7 @@ export class GSRMapCollective extends GSRMapArousalPlaces {
       // hotspot's whole point is to stand out as "one of the biggest events,
       // in any track," so it keeps the fixed hotspot-red across every track
       // rather than blending into that track's own color scheme.
-      this._renderCollectiveTrackHotspots(track, peakLatency);
+      this._renderCollectiveTrackHotspots(track);
     });
 
     if (collectiveDrawPoints.length > 0) {
@@ -173,15 +170,7 @@ export class GSRMapCollective extends GSRMapArousalPlaces {
     // Collective Arousal Places across every active track (manager/arousal_places.js).
     this._renderArousalPlacesFor(
       allActivePeaksAcrossTracks,
-      activeTracks.map((t) => ({
-        id: t.id,
-        sampleRate: t.analyzer?.sampleRate,
-        raw: t.analyzer?.raw,
-        filteredGps: t.analyzer?.filteredGps,
-        pathKey: t.analyzer?._pathKey,
-        phasic: t.analyzer?.phasic,
-        latency: this._trackPeakLatency(t),
-      })),
+      activeTracks.map((t) => this._placesTrack(t.id, t.analyzer)),
       { collective: true, activeTrackCount: activeTracks.length },
     );
 

@@ -234,12 +234,11 @@ export class GSRGlobeBase {
     // 3D view is the extruded wall; the ground trace duplicates it and adds
     // z-fighting shimmer over terrain. Opt in with `{ showGroundPath: true }`.
     this.showGroundPath = options.showGroundPath === true;
-    // Mirrors of the 2D sidebar sliders, refreshed from the gpsParams the host
-    // passes into renderData(): Track Width (gpsTrackWeight, px) for the ground
-    // path, and Peak latency (gpsPeakLatency, s) for shifting peak/hotspot
-    // markers to the GPS fix that many seconds earlier — see _latencyCoords().
+    // Mirror of the 2D sidebar's Track Width slider (gpsTrackWeight, px) for
+    // the ground path, refreshed from the gpsParams the host passes into
+    // renderData(). Markers follow the analyzer's Response delay
+    // (_latencyCoords).
     this.trackWidth = options.trackWidth || 5;
-    this.peakLatency = 0;
     // Panel-header layer toggles that mirror the 2D map's. Hotspots are
     // analyzer.memorableEvents (same set the flat map dots use); cluster blobs
     // are the 2D map's already-computed concave hulls, handed in via
@@ -1338,11 +1337,9 @@ export class GSRGlobeBase {
    * @param {object} [gpsParams]    The host's GPS params object (from
    *                                GSRStorage.buildGpsParams). This class never
    *                                runs the GPS chain — the host supplies
-   *                                `opts.drawPoints` — but two fields are read so
-   *                                the 3D view tracks the 2D sidebar sliders:
-   *                                `trackWeight` (ground-path width, px) and
-   *                                `peakLatency` (peak/hotspot marker time shift,
-   *                                s).
+   *                                `opts.drawPoints` — but `trackWeight`
+   *                                (ground-path width, px) is read so the 3D
+   *                                view tracks the 2D sidebar slider.
    * @param {object} [opts]
    * @param {string}  [opts.colorMetric]  Colour the wall/path by this metric instead of
    *                                      the manager's own activeColoringMetric — the
@@ -1395,8 +1392,6 @@ export class GSRGlobeBase {
     if (gpsParams) {
       const tw = +gpsParams.trackWeight;
       if (isFinite(tw) && tw > 0) this.trackWidth = tw;
-      const pl = +gpsParams.peakLatency;
-      this.peakLatency = isFinite(pl) && pl > 0 ? pl : 0;
     }
 
     this.currentAnalyzer = analyzer;

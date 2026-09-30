@@ -421,6 +421,9 @@ export const GSRCSVParser = {
         } catch (e) {
           console.warn('Failed to parse GpsFilterParams metadata:', e);
         }
+      } else if (line.startsWith('# ResponseDelay:')) {
+        // Written on export for the record; the project's own Response delay
+        // applies on reload. Not carried over, so a re-export has only one.
       } else if (line.startsWith('# Integrity:')) {
         // Marker announcing the "# End" trailer (docs/csv_schema.md
         // "Integrity Bracket"). Its presence is all we need here — the

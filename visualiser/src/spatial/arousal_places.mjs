@@ -107,17 +107,20 @@ export const GSRArousalPlaces = {
    * falling back to the raw row where it has none — as
    * GSRAnalyzer.getCoordinates() does.
    *
-   * Phasic is filed under the sample the walker was at `trk.latency` seconds
-   * earlier (nearest in time) — the same stimulus position the member peaks
-   * are plotted at — so a place's energy is the response to being there, not
-   * to where they had walked on to. Phasic whose stimulus came before the
-   * recording started has no place on the track and is left out.
+   * Phasic is filed under the place it is paired with by the walk's Response
+   * delay (trk.placeRowOf, GSRAnalyzer.placeRowOf) — the same place the
+   * member peaks are drawn at — so a place's energy is the response to being
+   * there, not to where they had walked on to. Phasic with no place (before
+   * the recording started, or no position there) is left out. Without
+   * trk.placeRowOf each reading stays at its own row.
    * @private
    */
   _getOrBuildFastCoords(trk) {
     const raw = trk.raw;
     const n = raw.length;
-    const lag = Math.max(0, Number(trk.latency) || 0);
+    const delay = Number(trk.responseDelay) || 0;
+    const placeRowOf =
+      typeof trk.placeRowOf === 'function' ? trk.placeRowOf : null;
     const path =
       Array.isArray(trk.filteredGps) && trk.filteredGps.length === n
         ? trk.filteredGps
@@ -128,7 +131,7 @@ export const GSRArousalPlaces = {
       flat.len === n &&
       flat.rawRef === raw &&
       flat.pathRef === path &&
-      flat.lag === lag
+      flat.delay === delay
     )
       return flat;
 
@@ -171,22 +174,11 @@ export const GSRArousalPlaces = {
     }
     if (phasic) {
       const m = Math.min(n, phasic.length);
-      let j = 0;
       for (let i = 0; i < m; i++) {
         const v = +phasic[i].val;
         if (!(v > 0)) continue;
-        const t = +raw[i]?.time - lag;
-        if (lag > 0 && Number.isFinite(t)) {
-          if (t < raw[0].time) continue;
-          while (
-            j + 1 < n &&
-            Math.abs(raw[j + 1].time - t) <= Math.abs(raw[j].time - t)
-          )
-            j++;
-          phasicVals[j] += v;
-        } else {
-          phasicVals[i] += v;
-        }
+        const j = placeRowOf ? placeRowOf(i) : i;
+        if (j >= 0) phasicVals[j] += v;
       }
     }
     flat = {
@@ -201,7 +193,7 @@ export const GSRArousalPlaces = {
       len: n,
       rawRef: raw,
       pathRef: path,
-      lag,
+      delay,
     };
     trk._fastCoords = flat;
     return flat;

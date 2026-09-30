@@ -16,8 +16,8 @@
  *   - the segment the clock is currently inside is drawn by a small dynamic
  *     "head" wall entity that grows smoothly from the segment start to the
  *     clock position;
- *   - peak circles/labels and hotspot stars appear once their (latency-
- *     shifted) time is reached.
+ *   - peak circles/labels and hotspot stars appear once the clock reaches
+ *     the place they are drawn at (the Response delay before the peak).
  * A chase camera follows the head from behind and to one side, easing round
  * as the walk turns while keeping whatever zoom/tilt the user gives it.
  * Stopping the replay (or reaching the end) rebuilds the normal full, merged
@@ -195,18 +195,18 @@ export class GSRGlobeReplayTour extends GSRGlobeHotspotTour {
   }
 
   /**
-   * Hotspot jump targets (walk seconds), ascending: each curated hotspot's
-   * latency-shifted time, less HOTSPOT_LEAD_S. Falls back to plain peaks when
+   * Hotspot jump targets (walk seconds), ascending: the time the walker was
+   * at each curated hotspot's place, less HOTSPOT_LEAD_S. Falls back to plain peaks when
    * the walk has no hotspots.
    */
   _replayHotspotTimes() {
     const hotspots = this._tourHotspots();
     const events = hotspots.length ? hotspots : this.currentPeaks || [];
     const start = this.currentDrawPoints[0].time;
-    const latency = this.peakLatency || 0;
+    const delay = this.currentAnalyzer?.responseDelay || 0;
     return events
       .filter((pk) => pk && !pk.excluded && typeof pk.time === 'number')
-      .map((pk) => Math.max(start, pk.time + latency - HOTSPOT_LEAD_S))
+      .map((pk) => Math.max(start, pk.time - delay - HOTSPOT_LEAD_S))
       .sort((x, y) => x - y);
   }
 
@@ -369,20 +369,22 @@ export class GSRGlobeReplayTour extends GSRGlobeHotspotTour {
   }
 
   /**
-   * Show a peak circle / label / latency connector / hotspot star only once
-   * the replay reaches its (latency-shifted) time. Every marker carries its
+   * Show a peak circle / label / delay connector / hotspot star only once
+   * the replay reaches the place it is drawn at. Every marker carries its
    * analyzer.peaks index — directly or in its pick `id` — see
    * globe3d/peaks.mjs.
    */
   _applyReplayMarkers(t) {
     const peaks = this.currentAnalyzer?.peaks || [];
-    const latency = this.peakLatency || 0;
+    // The replay clock runs along the route (place time); a marker sits where
+    // its peak was caused, the Response delay before the peak.
+    const delay = this.currentAnalyzer?.responseDelay || 0;
     const apply = (o) => {
       if (!o) return;
       const idx = o._biomapPeakIndex ?? o.id?._biomapPeakIndex;
       const pk = peaks[idx];
       if (!pk || typeof pk.time !== 'number') return;
-      const v = pk.time + latency <= t;
+      const v = pk.time - delay <= t;
       if (o.show !== v) o.show = v;
     };
     (this.peakEntities || []).forEach(apply);

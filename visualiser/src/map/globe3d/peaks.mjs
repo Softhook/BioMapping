@@ -15,17 +15,12 @@ import { GSRGlobeRf } from './rf.mjs';
 
 export class GSRGlobePeaks extends GSRGlobeRf {
   /**
-   * Ground position for a peak/hotspot marker, shifted back by the Peak-latency
-   * slider so the spire lands on the GPS fix `peakLatency` seconds before the
-   * arousal peak — via GSRAnalyzer.resolveLatencyIndex, as on the 2D map. Height and
-   * value still come from `peak.index` (the actual peak sample), matching the 2D
-   * map, which keeps the amplitude from the peak while planting the marker at the
-   * shifted fix.
+   * Ground position for a peak/hotspot marker: the Response delay back along
+   * the route (GSRAnalyzer.placeOf), as on the 2D map. Height and value still
+   * come from `peak.index` (the actual peak sample), matching the 2D map.
    */
   _latencyCoords(analyzer, peak) {
-    return analyzer.getCoordinates(
-      analyzer.resolveLatencyIndex(peak, this.peakLatency || 0),
-    );
+    return analyzer.placeOf(peak.index);
   }
 
   /**
@@ -145,7 +140,7 @@ export class GSRGlobePeaks extends GSRGlobeRf {
       // click handler reports via _peakClickCb.
       const peakIdx = peakIndexOf.has(peak) ? peakIndexOf.get(peak) : -1;
 
-      // Peak position — shifted by the Peak-latency slider, like the 2D map.
+      // Peak position — placed through the Response delay, like the 2D map.
       const coords = this._latencyCoords(analyzer, peak);
       if (!coords || isNaN(coords.lat) || isNaN(coords.lon)) return;
       const lat = coords.lat;
@@ -159,9 +154,9 @@ export class GSRGlobePeaks extends GSRGlobeRf {
         wallHeight + 3.0,
       );
 
-      // Faint connector from the unshifted peak sample to the latency-shifted
-      // marker — the 3D counterpart of the 2D dashed rose line (map.js).
-      if (this.peakLatency > 0 && this.viewer && this.viewer.entities) {
+      // Faint connector from where the peak was recorded to where it is drawn
+      // — the 3D counterpart of the 2D dashed rose line (map.js).
+      if (analyzer.responseDelay > 0 && this.viewer && this.viewer.entities) {
         const orig = analyzer.getCoordinates(peak.index);
         if (
           orig &&

@@ -23,6 +23,7 @@ export const AnalyzerExport = {
    * @param {boolean} state.isEnriched
    * @param {number} state.recordingStartTime
    * @param {Array<string>} [state.deviceHeaderLines] - Device metadata lines from the source file.
+   * @param {number} [state.responseDelay] - Response delay (s) the walk was shown at.
    * @param {object} [params] - Filter params, echoed into a header comment for re-import.
    * @param {object} [gpsParams] - GPS filter params, echoed into a header comment for re-import.
    * @returns {string}
@@ -40,6 +41,7 @@ export const AnalyzerExport = {
       isEnriched,
       recordingStartTime,
       deviceHeaderLines = [],
+      responseDelay = 0,
     } = state;
 
     if (raw.length === 0) return '';
@@ -88,6 +90,10 @@ export const AnalyzerExport = {
     if (gpsParams) {
       csv += `# GpsFilterParams:${JSON.stringify(gpsParams)}\n`;
     }
+    // For the record only: the rows below are never shifted (times are when
+    // each reading was taken, positions where it was taken), so a reload
+    // applies the project's own delay once, not twice.
+    csv += `# ResponseDelay:${responseDelay}\n`;
     csv +=
       'Time (s),Raw Conductance (uS),Filtered Conductance (uS),Tonic Baseline (uS),Phasic Response (uS),IsPeak,PeakAmplitude,PeakLabel,PeakExcluded,Latitude,Longitude';
     if (hasFilteredGps) {

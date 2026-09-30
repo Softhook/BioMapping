@@ -49,6 +49,10 @@ const assert = (c, m) => {
 //   { amp, lat, lon, excluded?, noGps? }
 function makeAnalyzer(spec) {
   const a = new GSRAnalyzer();
+  // Ranking and spacing only: shown at a Response delay of 0, so any peak
+  // with a position may be a hotspot. (The rule that a hotspot needs a place
+  // at every delay up to 8 s is tested in test_response_delay.js.)
+  a.maxResponseDelay = 0;
   a.raw = [];
   a.peaks = [];
   a.filteredGps = [];

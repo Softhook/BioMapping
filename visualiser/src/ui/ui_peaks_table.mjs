@@ -149,11 +149,7 @@ export const PeaksTableUI = {
       if (AppState.surfaceView === 'globe' && GSRGlobe3DView.isActive) {
         GSRGlobe3DView.focusOnPeakLocation(idx);
       } else if (AppState.mapManager) {
-        AppState.mapManager.focusOnPeakLocation(
-          idx,
-          AppState.analyzer,
-          GSRStorage.buildGpsParams(),
-        );
+        AppState.mapManager.focusOnPeakLocation(idx, AppState.analyzer);
       }
     } else if (source !== 'map' && hasGps) {
       // Graph click: fly to the peak and open its popup.

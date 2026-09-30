@@ -476,13 +476,13 @@
               <p class="help-text">Thickness of the drawn GPS path on the map.</p>
             </div>
 
-            <div class="slider-group" id="gpsPeakLatencyGroup">
+            <div class="slider-group" id="responseDelayGroup">
               <div class="slider-label">
-                <span>Latency Offset</span>
-                <span class="slider-value" id="valGpsPeakLatency">2.0 s</span>
+                <span>Response delay</span>
+                <span class="slider-value" id="valResponseDelay">2.0 s</span>
               </div>
-              <input type="range" id="gpsPeakLatency" min="0" max="5" step="0.1" value="2.0">
-              <p class="help-text">Spatial offset for each peak due to physiological stimulus delay.</p>
+              <input type="range" id="responseDelay" min="0" max="8" step="0.1" value="2">
+              <p class="help-text">Moves the skin data back along the route by this many seconds, to help find what caused a response. One value for the whole project.</p>
             </div>
 
             <div class="control-subgroup-title" id="arousalPlacesTitle">Arousal Places</div>

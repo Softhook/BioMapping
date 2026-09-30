@@ -181,7 +181,7 @@ test('collective peak-preservation envelope does not lift z-scored troughs towar
   m.addTrack({
     id: 't',
     enabled: true,
-    analyzer: {
+    analyzer: withJoin({
       raw: new Array(n).fill(0),
       sampleRate: 1,
       getCoordinates: (i) => pts[i],
@@ -196,7 +196,7 @@ test('collective peak-preservation envelope does not lift z-scored troughs towar
       peakDensity: z,
       phasicStd: 1,
       peaks: [],
-    },
+    }),
   });
   const res = m.generateContourSurface({
     topographySource: 'phasic',
@@ -238,6 +238,7 @@ test('EDASymp window times come from the real timestamps, not an even-rate assum
 const { StatsMath } = require('../src/signal/stats_math.mjs');
 const { GsrFilter } = require('../src/signal/gsr_filter.mjs');
 const { GeoUtils } = require('../src/gps/geo_utils.mjs');
+const { withJoin } = require('./support/join_for_stand_in.js');
 
 test('the gait filter on a file sampled below 2 Hz passes the signal through, not NaN', () => {
   // A 1 Hz low-pass at 1.5 Hz is above Nyquist: the biquad went unstable.

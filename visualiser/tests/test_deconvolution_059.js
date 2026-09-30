@@ -351,7 +351,7 @@ assertEq(
   assert(sortedOk, 'memorableEvents is sorted by descending amplitude');
   const minSep = global.GSR_CONST.MEMORABLE_EVENTS.MIN_SEPARATION_M;
   const coords = on.memorableEvents
-    .map((p) => on.getCoordinates(on.resolveLatencyIndex(p, 0)))
+    .map((p) => on.getCoordinates(p.index))
     .filter(Boolean);
   let minPair = Infinity;
   for (let i = 0; i < coords.length; i++) {

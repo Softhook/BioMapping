@@ -27,6 +27,7 @@ global.MarchingSquares =
 const {
   GSRCollectiveManager,
 } = require('../src/spatial/collective_manager.mjs');
+const { withJoin } = require('./support/join_for_stand_in.js');
 
 /**
  * Builds a minimal mock "analyzer" exposing exactly the surface
@@ -35,10 +36,9 @@ const {
  * .phasicStd, and .peaks.
  */
 function makeAnalyzer(points, opts = {}) {
-  return {
+  return withJoin({
     raw: new Array(points.length).fill(0),
     getCoordinates: (i) => points[i] || null,
-    resolveLatencyIndex: (pk) => pk.index,
     sampleRate: opts.sampleRate !== undefined ? opts.sampleRate : 1,
     phasic: opts.phasic || [],
     phasicZ: opts.phasicZ || [],
@@ -48,7 +48,7 @@ function makeAnalyzer(points, opts = {}) {
     arousalIndex: opts.arousalIndex || [],
     phasicStd: opts.phasicStd !== undefined ? opts.phasicStd : 1,
     peaks: opts.peaks || [],
-  };
+  });
 }
 
 function makeTrack(id, points, opts = {}) {
@@ -712,10 +712,9 @@ test('§C generateContourSurface: contour count and segment structure unchanged 
   const phasicVals = [0.1, 0.5, 0.9, 0.3];
   function makeA(points, vals) {
     const n = points.length;
-    return {
+    return withJoin({
       raw: new Array(n).fill(0),
       getCoordinates: (i) => points[i] || null,
-      resolveLatencyIndex: (pk) => pk.index,
       sampleRate: 1,
       phasic: vals.map((v, i) => ({ time: i, val: v })),
       phasicZ: vals.map((v, i) => ({ time: i, val: v })),
@@ -725,7 +724,7 @@ test('§C generateContourSurface: contour count and segment structure unchanged 
       arousalIndex: vals.map((v, i) => ({ time: i, val: v })),
       phasicStd: 1,
       peaks: [],
-    };
+    });
   }
   const mgr = new GSRCollectiveManager();
   const t = {

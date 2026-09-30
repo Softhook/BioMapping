@@ -142,7 +142,9 @@ function dashboardRecord(tracks, EnvironmentalStats) {
         d.speed,
         d.osm_road_class ?? null,
         d.osm_dist_major_road,
-        d.tonicEnv?.osm_dist_major_road,
+        // Tonic's pairing. Before the build it had its own (tonicEnv); now it
+        // shares the main one. At 0 s the two were always the same values.
+        (d.tonicEnv ?? d).osm_dist_major_road,
       ]),
     ),
     correlations: part(

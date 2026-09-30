@@ -37,7 +37,7 @@ const WARMUP = 1500; // 150 s with no position
 function warmupWalk(bump) {
   const a = new GSRAnalyzer();
   a.parseCSV(csvText);
-  a.analyze(GSR_CONST.GSR_DEFAULT, 0);
+  a.analyze(GSR_CONST.GSR_DEFAULT);
   a.filteredGps = [];
   a.raw.forEach((r, i) => {
     r.lat = i < WARMUP ? NaN : 51.5 + (i - WARMUP) * 2e-6;
@@ -81,7 +81,7 @@ function surface(a, topographySource) {
     id: 'w',
     enabled: true,
     analyzer: a,
-    gpsFilterParams: { peakLatency: 0 },
+    gpsFilterParams: {},
   });
   const r = cm.generateContourSurface({
     topographySource,
@@ -112,19 +112,20 @@ for (const src of [
 
 test('hotspot count is a percentile of the peaks that can be placed', () => {
   const a = new GSRAnalyzer();
-  // 10 peaks 1 km apart (no spacing rule kicks in); 5 have no position.
-  a.raw = Array.from({ length: 10 }, (_, i) => ({
+  // 30 peaks 1 s and ~1 km apart (no spacing rule kicks in); the first 5
+  // rows have no position. A hotspot needs a place at every Response delay
+  // up to 8 s, so only rows 13–29 (17 peaks) can be one.
+  a.raw = Array.from({ length: 30 }, (_, i) => ({
     time: i,
     lat: i < 5 ? NaN : 51.5 + i * 0.01,
     lon: i < 5 ? NaN : -0.1,
   }));
   a.filteredGps = [];
-  a.peaks = a.raw.map((_r, i) => ({ index: i, time: i, amplitude: 10 - i }));
-  const hot = a._selectMemorableEvents({ hotspotPercentile: 0.4 }, 0);
-  // 40 % of the 5 placeable peaks, not of all 10.
-  assert.strictEqual(hot.length, 2);
+  a.peaks = a.raw.map((_r, i) => ({ index: i, time: i, amplitude: 30 - i }));
+  const hot = a._selectMemorableEvents({ hotspotPercentile: 0.4 });
+  // 40 % of the 17 placeable peaks (7), not of all 30 (12).
   assert.deepStrictEqual(
     hot.map((p) => p.index),
-    [5, 6],
+    [13, 14, 15, 16, 17, 18, 19],
   );
 });

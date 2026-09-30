@@ -12,7 +12,7 @@
  * parseCSV() already knows how to read all of that back out losslessly (see
  * analyzer.js). This module only adds what that per-track format can't carry:
  * a manifest.json listing which CSV belongs to which track (name/color/
- * enabled/order) plus the collective-only view state (peak latency, cluster
+ * enabled/order) plus the project-wide view state (Response delay, cluster
  * and contour sliders, map layer toggles) that isn't part of any one track.
  *
  * Zip format:
@@ -49,7 +49,7 @@ export const GSRCollectiveProject = {
 
   // Collective view's own Arousal Places settings (AppState.collectivePlaces),
   // saved under manifest.settings.sliders. Each walk keeps its own separate
-  // Places settings and peak latency in its gpsFilterParams (its own CSV).
+  // Places settings in its gpsFilterParams (its own CSV).
   COLLECTIVE_SLIDER_KEYS: GSRStorage.PLACE_KEYS,
   CONTOUR_KEYS: [
     'gridResolution',
@@ -104,8 +104,8 @@ export const GSRCollectiveProject = {
 
   /**
    * The saved slider values that are still collective settings
-   * (COLLECTIVE_SLIDER_KEYS). Older projects also saved gpsPeakLatency,
-   * which is now per walk and must not override the open walk's own.
+   * (COLLECTIVE_SLIDER_KEYS); anything else a project saved there is
+   * ignored.
    */
   _collectiveSliderValues(saved) {
     const out = {};
@@ -137,6 +137,8 @@ export const GSRCollectiveProject = {
         // the open walk's in Single view).
         sliders: this._collectiveSliderValues(AppState.collectivePlaces),
         contour: this._pickValues(AppState.contourControls, this.CONTOUR_KEYS),
+        // The project's one Response delay (s).
+        responseDelay: AppState.responseDelay,
       },
       viewToggles,
     };
@@ -183,8 +185,7 @@ export const GSRCollectiveProject = {
         // track round-trips regardless of which one happens to be active.
         if (!track.analyzer.filtered || track.analyzer.filtered.length === 0) {
           try {
-            const pl = track.gpsFilterParams?.peakLatency || 0;
-            track.analyzer.analyze(track.filterParams, pl);
+            track.analyzer.analyze(track.filterParams);
           } catch (e) {
             console.warn(
               `Could not analyze track "${track.name}" for export:`,
@@ -284,6 +285,11 @@ export const GSRCollectiveProject = {
       Controllers.trackManager.clearAllTracks();
       clearedExisting = true;
 
+      // The project's Response delay, before any walk is analysed (a project
+      // saved without one opens at the default).
+      AppState.setResponseDelay(manifest.settings?.responseDelay);
+      GSRStorage.showResponseDelay();
+
       let newActiveId = null;
       const failedTracks = [];
       for (let i = 0; i < manifest.tracks.length; i++) {
@@ -302,7 +308,8 @@ export const GSRCollectiveProject = {
           const gpsFilterParams =
             analyzer.importedGpsFilterParams ||
             JSON.parse(JSON.stringify(GSR_CONST.GPS_DEFAULT));
-          analyzer.analyze(filterParams, gpsFilterParams.peakLatency || 0); // repopulate filtered/tonic/phasic/peaks so the track is ready to render immediately
+          analyzer.setResponseDelay(AppState.responseDelay);
+          analyzer.analyze(filterParams); // repopulate filtered/tonic/phasic/peaks so the track is ready to render immediately
 
           const trackId = `track_${Date.now()}_${Math.floor(Math.random() * 1000)}_${i}`;
           const newTrack = {

@@ -326,6 +326,9 @@ test('GSRTrackManager.createTrackObject: constructs valid track representation',
   const analyzerMock = {
     importedFilterParams: { medianSize: 5 },
     importedGpsFilterParams: { smoothing: 0.1 },
+    setResponseDelay(s) {
+      this.responseDelay = s;
+    },
   };
   const track = GSRTrackManager.createTrackObject(
     'track_123',
@@ -340,6 +343,12 @@ test('GSRTrackManager.createTrackObject: constructs valid track representation',
   assert.strictEqual(track.analyzer, analyzerMock);
   assert.strictEqual(track.filterParams.medianSize, 5);
   assert.strictEqual(track.gpsFilterParams.smoothing, 0.1);
+  const { AppState: RealAppState } = require('../src/core/app_state.mjs');
+  assert.strictEqual(
+    analyzerMock.responseDelay,
+    RealAppState.responseDelay,
+    "a new walk is shown at the project's Response delay",
+  );
 });
 
 test('GSRUI resolution and marking helpers function correctly', () => {

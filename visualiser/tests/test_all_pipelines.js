@@ -1158,9 +1158,7 @@ assert(
 
   const minSepM = GSR_CONST.MEMORABLE_EVENTS.MIN_SEPARATION_M;
   const meCoords = deconvAnalyzer2.memorableEvents
-    .map((p) =>
-      deconvAnalyzer2.getCoordinates(deconvAnalyzer2.resolveLatencyIndex(p, 0)),
-    )
+    .map((p) => deconvAnalyzer2.getCoordinates(p.index))
     .filter(Boolean);
   let meMinPair = Infinity;
   for (let i = 0; i < meCoords.length; i++) {
