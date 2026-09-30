@@ -66,13 +66,24 @@ export const AppState = {
     return c;
   },
 
-  /** Set the project's Response delay and show every walk at it. */
+  /**
+   * Set the project's Response delay and show every walk at it. The graph's
+   * axis starts at −delay, so its view is kept inside the new axis (a view
+   * showing the whole walk keeps showing the whole walk).
+   */
   setResponseDelay(s) {
+    const wasWhole = AppState.viewDuration >= AppState.timeAxisSpan - 1e-9;
     AppState.responseDelay = ResponseDelay.normalise(s);
     for (const t of AppState.collectiveManager?.tracks || []) {
       t.analyzer?.setResponseDelay(AppState.responseDelay);
     }
     AppState.analyzer?.setResponseDelay?.(AppState.responseDelay);
+    if (wasWhole) {
+      AppState.viewDuration = AppState.timeAxisSpan;
+      AppState.viewStartTime = AppState.timeAxisStart;
+    } else {
+      AppState.viewStartTime = AppState.clampViewStart(AppState.viewStartTime);
+    }
   },
 
   // ── p5.js canvas ──────────────────────────────────────────────────────────
@@ -86,13 +97,37 @@ export const AppState = {
 
   totalDuration: 120.0,
 
+  // The graph's time axis is place time (docs/time_offsets_review.md, "One
+  // clock on screen"): the time the walker was at each place. The skin data
+  // is drawn the Response delay earlier, so the axis starts that far before
+  // 0 — the first seconds of readings, which have no place, are shown greyed
+  // there — and ends at the end of the walk.
+  get timeAxisStart() {
+    const delay = this.analyzer?.responseDelay || 0;
+    return delay ? -delay : 0;
+  },
+  get timeAxisSpan() {
+    return this.totalDuration - this.timeAxisStart;
+  },
+  /** A view start kept inside the axis for the current view duration. */
+  clampViewStart(t) {
+    const lo = this.timeAxisStart;
+    return Math.max(
+      lo,
+      Math.min(t, Math.max(lo, this.totalDuration - this.viewDuration)),
+    );
+  },
+
   _viewStartTime: 0.0,
   get viewStartTime() {
     return this._viewStartTime;
   },
   set viewStartTime(t) {
     if (typeof t !== 'number' || isNaN(t)) return;
-    this._viewStartTime = Math.max(0.0, Math.min(t, this.totalDuration));
+    this._viewStartTime = Math.max(
+      this.timeAxisStart,
+      Math.min(t, this.totalDuration),
+    );
   },
 
   _viewDuration: 120.0,
@@ -102,7 +137,7 @@ export const AppState = {
   set viewDuration(d) {
     if (typeof d !== 'number' || isNaN(d)) return;
     const minDur = GSR_CONST.ZOOM_MIN_DURATION;
-    this._viewDuration = Math.max(minDur, Math.min(d, this.totalDuration));
+    this._viewDuration = Math.max(minDur, Math.min(d, this.timeAxisSpan));
   },
 
   _zoomFactor: 1.0,

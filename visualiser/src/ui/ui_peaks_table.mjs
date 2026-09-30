@@ -104,12 +104,17 @@ export const PeaksTableUI = {
       return;
     const peak = AppState.analyzer.peaks[idx];
     AppState.activePeakIndex = idx;
-    AppState.viewStartTime = Math.max(0, peak.onsetTime - 2);
+    // The graph's axis is place time: the peak is drawn the Response delay
+    // earlier than its reading time.
+    const delay = AppState.analyzer.responseDelay || 0;
     AppState.viewDuration = Math.min(
       peak.time - peak.onsetTime + 5,
-      AppState.totalDuration,
+      AppState.timeAxisSpan,
     );
-    AppState.zoomFactor = AppState.totalDuration / AppState.viewDuration;
+    AppState.viewStartTime = AppState.clampViewStart(
+      peak.onsetTime - delay - 2,
+    );
+    AppState.zoomFactor = AppState.timeAxisSpan / AppState.viewDuration;
     document.querySelectorAll('#peaksTable tbody tr').forEach((r) => {
       r.classList.remove('active-row');
     });

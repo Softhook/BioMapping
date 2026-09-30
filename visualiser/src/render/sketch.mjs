@@ -218,6 +218,7 @@ export function draw() {
   _drawContextBands(frame);
   if (frame.view === 'signal') _drawSignalView(frame);
   else _drawMetricView(frame);
+  _drawNoPlaceShade(frame);
 
   // Overview timeline bar — pinned to the bottom, unless the panel is too short
   if (frame.showTimeline)
@@ -254,12 +255,19 @@ function _layoutFrame() {
   AppState.yTimelineBottom = AppState.yTimelineTop + timelineHeight;
   AppState.yGraphBottom = plotBottom;
 
+  // The x axis is place time (AppState.timeAxisStart). Skin data is drawn
+  // the Response delay earlier, so it is read over the same window shifted
+  // forward by the delay; place data (the context bands) and the time labels
+  // use the window as it is.
   const viewStartTime = AppState.viewStartTime;
   const viewEndTime = viewStartTime + AppState.viewDuration;
-
   const analyzer = AppState.analyzer;
-  const startIdx = analyzer.findClosestIndex(viewStartTime);
-  const endIdx = analyzer.findClosestIndex(viewEndTime);
+  const delay = analyzer.responseDelay || 0;
+  const bodyStartTime = viewStartTime + delay;
+  const bodyEndTime = viewEndTime + delay;
+
+  const startIdx = analyzer.findClosestIndex(bodyStartTime);
+  const endIdx = analyzer.findClosestIndex(bodyEndTime);
   const idxStart = Math.max(0, startIdx - 1);
   const idxEnd = Math.min(analyzer.raw.length - 1, endIdx + 1);
 
@@ -277,11 +285,35 @@ function _layoutFrame() {
     plotBottom,
     viewStartTime,
     viewEndTime,
+    bodyStartTime,
+    bodyEndTime,
     idxStart,
     idxEnd,
     globalRange,
     viewCoversMost,
   };
+}
+
+/**
+ * Grey out the start of the axis, before 0: readings there have no place
+ * (it would be before the recording started), so they are shown but not
+ * paired with anything on the map.
+ */
+function _drawNoPlaceShade({
+  viewStartTime,
+  viewEndTime,
+  plotTop,
+  plotBottom,
+}) {
+  if (viewStartTime >= 0) return;
+  const left = GSR_CONST.MARGIN.left;
+  const right = width - GSR_CONST.MARGIN.right;
+  const x0 = map(0, viewStartTime, viewEndTime, left, right);
+  if (x0 <= left) return;
+  const bg = GSRRenderer.getThemeColor('--canvas-bg', '#ffffff');
+  noStroke();
+  fill(color(`${bg}b3`));
+  rect(left, plotTop, Math.min(x0, right) - left, plotBottom - plotTop);
 }
 
 /** Y range (padded, floored at 0) for the µS signal view. */
@@ -509,7 +541,8 @@ function _drawPeakAndHotspotMarkers(...args) {
 
 // 'Signal' - Raw / Filtered / Tonic (+ optional Phasic overlay), full height (uS)
 function _drawSignalView(frame) {
-  const { viewStartTime, viewEndTime, plotTop, plotBottom } = frame;
+  const { viewStartTime, viewEndTime, bodyStartTime, bodyEndTime } = frame;
+  const { plotTop, plotBottom } = frame;
   const { yMin, yMax } = _signalRange(frame, frame.view);
   const grid = _LOWER_GRID_PRESETS.tonic; // the µS signal uses the Tonic grid
 
@@ -532,8 +565,8 @@ function _drawSignalView(frame) {
   const curve = (series, stroke, weight, forceIndices) =>
     GSRRenderer.drawSignalCurve(
       series,
-      viewStartTime,
-      viewEndTime,
+      bodyStartTime,
+      bodyEndTime,
       yMin,
       yMax,
       plotTop,
@@ -578,8 +611,8 @@ function _drawSignalView(frame) {
   // Peaks / hotspots on the Filtered curve only - no phasic-scaled lower half
   // (showUpperMarker=true, showLowerMarker=false).
   _drawPeakAndHotspotMarkers(
-    viewStartTime,
-    viewEndTime,
+    bodyStartTime,
+    bodyEndTime,
     yMin,
     yMax,
     plotTop,
@@ -593,8 +626,8 @@ function _drawSignalView(frame) {
   );
   // L-params = the same uS range so handleScrubber can drop a Phasic dot too.
   GSRRenderer.handleScrubber(
-    viewStartTime,
-    viewEndTime,
+    bodyStartTime,
+    bodyEndTime,
     yMin,
     yMax,
     plotBottom,
@@ -638,7 +671,8 @@ function _drawRefLabel(y, colorPeak, label) {
 
 // ── Single metric view — one derived series, full height, own Y axis ────
 function _drawMetricView(frame) {
-  const { viewStartTime, viewEndTime, plotTop, plotBottom } = frame;
+  const { viewStartTime, viewEndTime, bodyStartTime, bodyEndTime } = frame;
+  const { plotTop, plotBottom } = frame;
   const metric = _metricSeries();
   const { mode, cfg, series, driverCfg } = metric;
   const { yMin, yMax } = _metricRange(frame, metric);
@@ -682,8 +716,8 @@ function _drawMetricView(frame) {
     GSRRenderer.drawResponseDynamicsPhasic(
       series,
       AppState.analyzer.responseDynamics,
-      viewStartTime,
-      viewEndTime,
+      bodyStartTime,
+      bodyEndTime,
       yMin,
       yMax,
       plotTop,
@@ -693,8 +727,8 @@ function _drawMetricView(frame) {
   } else {
     GSRRenderer.drawPhasicArea(
       series,
-      viewStartTime,
-      viewEndTime,
+      bodyStartTime,
+      bodyEndTime,
       yMin,
       yMax,
       plotTop,
@@ -704,8 +738,8 @@ function _drawMetricView(frame) {
     );
     GSRRenderer.drawSignalCurve(
       series,
-      viewStartTime,
-      viewEndTime,
+      bodyStartTime,
+      bodyEndTime,
       yMin,
       yMax,
       plotTop,
@@ -723,8 +757,8 @@ function _drawMetricView(frame) {
     // treatment (shaded region + onset dot) and skip the missing Filtered
     // half (showLowerMarker=true, showUpperMarker=false).
     _drawPeakAndHotspotMarkers(
-      viewStartTime,
-      viewEndTime,
+      bodyStartTime,
+      bodyEndTime,
       0,
       1,
       plotTop,
@@ -748,8 +782,8 @@ function _drawMetricView(frame) {
     // dot on THIS curve at its own time — markerSeries = the plotted series,
     // U-axis = this metric's range, no phasic lower half.
     _drawPeakAndHotspotMarkers(
-      viewStartTime,
-      viewEndTime,
+      bodyStartTime,
+      bodyEndTime,
       yMin,
       yMax,
       plotTop,
@@ -765,8 +799,8 @@ function _drawMetricView(frame) {
   }
 
   GSRRenderer.handleScrubber(
-    viewStartTime,
-    viewEndTime,
+    bodyStartTime,
+    bodyEndTime,
     0,
     1,
     plotBottom,
@@ -839,13 +873,11 @@ export function mousePressed() {
       mouseX,
       GSR_CONST.MARGIN.left,
       width - GSR_CONST.MARGIN.right,
-      0,
+      AppState.timeAxisStart,
       AppState.totalDuration,
     );
-    AppState.viewStartTime = constrain(
+    AppState.viewStartTime = AppState.clampViewStart(
       clickTime - AppState.viewDuration / 2,
-      0,
-      Math.max(0, AppState.totalDuration - AppState.viewDuration),
     );
     redraw();
   } else if (
@@ -868,13 +900,11 @@ export function mouseDragged() {
       mouseX,
       GSR_CONST.MARGIN.left,
       width - GSR_CONST.MARGIN.right,
-      0,
+      AppState.timeAxisStart,
       AppState.totalDuration,
     );
-    AppState.viewStartTime = constrain(
+    AppState.viewStartTime = AppState.clampViewStart(
       dragTime - AppState.viewDuration / 2,
-      0,
-      Math.max(0, AppState.totalDuration - AppState.viewDuration),
     );
     coalescedDragRedraw();
   } else if (AppState.isDragging && AppState.analyzer.raw.length > 0) {
@@ -885,11 +915,8 @@ export function mouseDragged() {
       (width - GSR_CONST.MARGIN.left - GSR_CONST.MARGIN.right);
     const timeShift = mouseDx * timePerPixel;
 
-    AppState.viewStartTime = AppState.dragStartViewStart - timeShift;
-    AppState.viewStartTime = constrain(
-      AppState.viewStartTime,
-      0,
-      Math.max(0, AppState.totalDuration - AppState.viewDuration),
+    AppState.viewStartTime = AppState.clampViewStart(
+      AppState.dragStartViewStart - timeShift,
     );
     coalescedDragRedraw();
   }
@@ -929,19 +956,15 @@ export function mouseWheel(event) {
     AppState.viewDuration = constrain(
       AppState.viewDuration * zoomMultiplier,
       2.0,
-      AppState.totalDuration,
+      AppState.timeAxisSpan,
     );
-    AppState.zoomFactor = AppState.totalDuration / AppState.viewDuration;
+    AppState.zoomFactor = AppState.timeAxisSpan / AppState.viewDuration;
 
-    AppState.viewStartTime =
+    AppState.viewStartTime = AppState.clampViewStart(
       mouseTime -
-      (mouseX - GSR_CONST.MARGIN.left) *
-        (AppState.viewDuration /
-          (width - GSR_CONST.MARGIN.left - GSR_CONST.MARGIN.right));
-    AppState.viewStartTime = constrain(
-      AppState.viewStartTime,
-      0,
-      Math.max(0, AppState.totalDuration - AppState.viewDuration),
+        (mouseX - GSR_CONST.MARGIN.left) *
+          (AppState.viewDuration /
+            (width - GSR_CONST.MARGIN.left - GSR_CONST.MARGIN.right)),
     );
 
     coalescedZoomRedraw();

@@ -784,6 +784,9 @@ test('_onReplayTourProgress moves the graph cursor to the replay head and scroll
   const V = window.GSRGlobe3DView;
   const AppState = window.AppState;
   V._graphVisible = () => true;
+  // A walk with rows, so a route place can be paired with its reading (at a
+  // Response delay of 0, place row i shows reading i).
+  AppState.analyzer.raw = Array.from({ length: 1001 }, (_, i) => ({ time: i }));
   AppState.totalDuration = 1000;
   AppState.viewDuration = 100;
   AppState.viewStartTime = 0;
@@ -816,6 +819,8 @@ test('_onScrubHover: takes cursor ownership, sets hoveredIndex, emits on the sha
   const AppState = window.AppState;
   V.isActive = true;
   AppState.viewMode = 'single';
+  // A walk with rows, so the hovered place can be paired with its reading.
+  AppState.analyzer.raw = Array.from({ length: 100 }, (_, i) => ({ time: i }));
 
   const seen = [];
   AppState.on('scrub', (p) => seen.push(p));

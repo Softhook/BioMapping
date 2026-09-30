@@ -231,10 +231,9 @@ export const RendererInteraction = {
     // event. A globe-owned (external) hover already emitted its own 'scrub',
     // so don't echo it back.
     if (!externalHover) {
-      // The smoothed path the map draws, so the dot sits on the drawn line.
-      const coords = dRaw.hasGps
-        ? AppState.analyzer.getCoordinates(AppState.hoveredIndex)
-        : null;
+      // The reading's place (Response delay back along the smoothed path the
+      // map draws), so the dot sits on the drawn line where its peak marker is.
+      const coords = AppState.analyzer.placeOf(AppState.hoveredIndex);
       if (coords) {
         AppState.emit('scrub', {
           lat: coords.lat,
@@ -316,7 +315,9 @@ export const RendererInteraction = {
     textSize(10);
     textStyle(BOLD);
     textAlign(CENTER, CENTER);
-    text(`${dRaw.time.toFixed(1)}s`, xScrub, gapCenter);
+    // The axis is place time: the reading's time less the Response delay.
+    const labelTime = dRaw.time - (AppState.analyzer.responseDelay || 0);
+    text(`${labelTime.toFixed(1)}s`, xScrub, gapCenter);
     textStyle(NORMAL);
 
     const yU = map(dFilt.val, yMinU, yMaxU, yBottomU, GSR_CONST.MARGIN.top);
@@ -396,10 +397,17 @@ export const RendererInteraction = {
     // one {label, color, valueStr} entry each, in display order. Drawing a
     // new overlay's row is just pushing another entry here; drawTooltip()
     // itself doesn't need to know how many there are or what they mean.
+    // They are place data, so they come from the row at the cursor's place
+    // time (the same row the band under the cursor is drawn from), not from
+    // the hovered reading. Before 0 there is no place.
+    const A = AppState.analyzer;
+    const placeTime = dRaw.time - (A.responseDelay || 0);
+    const dPlace =
+      placeTime >= A.raw[0].time ? A.raw[A.findClosestIndex(placeTime)] : null;
     const extraRows = [];
     if (extraMetric) extraRows.push(extraMetric);
-    if (AppState.showOsmContext && dRaw) {
-      const osmClass = this._classifyOsmContext(dRaw);
+    if (AppState.showOsmContext && dPlace) {
+      const osmClass = this._classifyOsmContext(dPlace);
       if (osmClass)
         extraRows.push({
           label: 'Context:',
@@ -407,8 +415,8 @@ export const RendererInteraction = {
           valueStr: osmClass.label,
         });
     }
-    if (AppState.showNdviContext && dRaw) {
-      const ndvi = this._ndviColorAt(AppState.analyzer, dRaw);
+    if (AppState.showNdviContext && dPlace) {
+      const ndvi = this._ndviColorAt(A, dPlace);
       if (ndvi)
         extraRows.push({
           label: 'NDVI:',
@@ -416,8 +424,8 @@ export const RendererInteraction = {
           valueStr: ndvi.value.toFixed(2),
         });
     }
-    if (AppState.showEmFogContext && dRaw) {
-      const emFog = this._emFogColorAt(AppState.analyzer, dRaw);
+    if (AppState.showEmFogContext && dPlace) {
+      const emFog = this._emFogColorAt(A, dPlace);
       if (emFog)
         extraRows.push({
           label: 'EM Fog:',
@@ -427,7 +435,7 @@ export const RendererInteraction = {
     }
 
     this.drawTooltip(
-      dRaw.time,
+      placeTime,
       dRaw.val,
       dFilt.val,
       dTonic.val,

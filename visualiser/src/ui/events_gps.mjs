@@ -112,6 +112,7 @@ export const GpsEvents = {
       updateDim();
       const rerenderMap = this.rafCoalesce(() => {
         Controllers.ui?.rerenderMap();
+        if (typeof redraw === 'function') redraw(); // the graph moves too
       });
       slider.addEventListener('input', () => {
         AppState.setResponseDelay(parseFloat(slider.value));

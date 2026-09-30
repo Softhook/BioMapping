@@ -163,7 +163,10 @@ export class GSRGlobeHotspotTour extends GSRGlobeNavigation {
       const t = typeof r.peak.time === 'number' ? r.peak.time : p.time || 0;
       const onset =
         typeof r.peak.onsetTime === 'number' ? r.peak.onsetTime : t - 3;
-      const graphWinStart = Math.max(0, onset - 6);
+      // The graph's axis is place time: the peak is drawn the Response delay
+      // earlier than its reading time, and the axis starts at −delay.
+      const delay = a?.responseDelay || 0;
+      const graphWinStart = Math.max(delay ? -delay : 0, onset - delay - 6);
       const graphWinDuration = Math.max(16, Math.min(34, t - onset + 16));
 
       return {

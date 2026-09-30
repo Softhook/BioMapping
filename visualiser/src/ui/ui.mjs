@@ -142,15 +142,12 @@ export const GSRUI = {
     AppState.viewDuration = constrain(
       AppState.viewDuration / multiplier,
       2.0,
-      AppState.totalDuration,
+      AppState.timeAxisSpan,
     );
-    AppState.zoomFactor = AppState.totalDuration / AppState.viewDuration;
+    AppState.zoomFactor = AppState.timeAxisSpan / AppState.viewDuration;
 
-    AppState.viewStartTime = centerTime - AppState.viewDuration / 2;
-    AppState.viewStartTime = constrain(
-      AppState.viewStartTime,
-      0,
-      Math.max(0, AppState.totalDuration - AppState.viewDuration),
+    AppState.viewStartTime = AppState.clampViewStart(
+      centerTime - AppState.viewDuration / 2,
     );
 
     redraw();
@@ -161,8 +158,8 @@ export const GSRUI = {
    */
   resetView() {
     if (AppState.analyzer.raw.length === 0) return;
-    AppState.viewStartTime = 0;
-    AppState.viewDuration = AppState.totalDuration;
+    AppState.viewDuration = AppState.timeAxisSpan;
+    AppState.viewStartTime = AppState.timeAxisStart;
     AppState.zoomFactor = 1.0;
     AppState.activePeakIndex = -1;
 

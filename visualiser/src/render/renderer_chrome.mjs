@@ -474,9 +474,13 @@ export const RendererChrome = {
 
     if (minRaw === maxRaw) maxRaw = minRaw + 0.5;
 
+    // Place-time axis, as on the graph (AppState.timeAxisStart): skin data
+    // at reading time t is drawn at t − delay, which on an axis starting at
+    // −delay puts it t from the left edge.
     const xSpan = width - GSR_CONST.MARGIN.right - GSR_CONST.MARGIN.left;
+    const axisStart = AppState.timeAxisStart;
     const xScale =
-      AppState.totalDuration > 0 ? xSpan / AppState.totalDuration : 0;
+      AppState.timeAxisSpan > 0 ? xSpan / AppState.timeAxisSpan : 0;
     const ySpan = AppState.yTimelineTop + 3 - (AppState.yTimelineBottom - 3);
     const yScale = maxRaw - minRaw > 0 ? ySpan / (maxRaw - minRaw) : 0;
 
@@ -497,15 +501,17 @@ export const RendererChrome = {
       noStroke();
       const pcts = AppState.analyzer._timelinePeakPct;
       for (let j = 0; j < pcts.length; j++) {
-        const xp = GSR_CONST.MARGIN.left + pcts[j] * innerWidth;
+        const xp =
+          GSR_CONST.MARGIN.left + pcts[j] * AppState.totalDuration * xScale;
         rect(xp - 0.5, AppState.yTimelineTop + 2, 1.5, timelineHeight - 4);
       }
     }
 
-    const xViewStart = GSR_CONST.MARGIN.left + AppState.viewStartTime * xScale;
+    const xViewStart =
+      GSR_CONST.MARGIN.left + (AppState.viewStartTime - axisStart) * xScale;
     const xViewEnd =
       GSR_CONST.MARGIN.left +
-      (AppState.viewStartTime + AppState.viewDuration) * xScale;
+      (AppState.viewStartTime + AppState.viewDuration - axisStart) * xScale;
 
     fill(color(`${colorFiltered}20`)); // ~0.12 opacity
     stroke(colorFiltered);

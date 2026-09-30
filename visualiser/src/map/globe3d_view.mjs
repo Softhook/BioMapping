@@ -228,7 +228,9 @@ export const GSRGlobe3DView = {
    * shared by both tours' progress callbacks.
    */
   _emitTourCursor(lat, lon, origIdx) {
-    AppState.hoveredIndex = origIdx;
+    // origIdx is a place on the route; the graph cursor shows the reading that
+    // place is paired with (the Response delay later).
+    AppState.hoveredIndex = AppState.analyzer?.readingAt?.(origIdx) ?? origIdx;
     AppState.emit('scrub', { lat, lon, index: origIdx, source: 'globe' });
   },
 
@@ -337,11 +339,8 @@ export const GSRGlobe3DView = {
 
     GSRGlobe3DView._emitTourCursor(p.lat, p.lon, p.origIdx);
     const dur = AppState.viewDuration;
-    if (GSRGlobe3DView._graphVisible() && dur < AppState.totalDuration) {
-      AppState.viewStartTime = Math.min(
-        p.time - dur * 0.75,
-        AppState.totalDuration - dur,
-      );
+    if (GSRGlobe3DView._graphVisible() && dur < AppState.timeAxisSpan) {
+      AppState.viewStartTime = AppState.clampViewStart(p.time - dur * 0.75);
     }
     if (typeof redraw === 'function') redraw();
   },
@@ -411,7 +410,9 @@ export const GSRGlobe3DView = {
     }
 
     AppState.scrubSource = 'globe';
-    AppState.hoveredIndex = idx;
+    // idx is a place on the route; the graph cursor shows the reading that
+    // place is paired with (the Response delay later), −1 if none yet.
+    AppState.hoveredIndex = AppState.analyzer?.readingAt?.(idx) ?? idx;
     AppState.emit('scrub', {
       lat: ll.lat,
       lon: ll.lon,
