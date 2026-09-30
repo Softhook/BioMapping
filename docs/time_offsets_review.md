@@ -22,7 +22,7 @@ Reviewed 2026-09-30, on `main` at 3131167.
 | c22b2d9 | Step 3: timestamp fixes: clock-text rows, device hold-ups, the dashboard's one second |
 | 4584061 | Step 2: screenshot script |
 | 88af6fb, 3f192b7 | Review fixes: hold-ups the device never catches up are corrected, with a notice |
-| (next) | Catch-up readings are no longer left off |
+| a66ade1 | Catch-up readings are no longer left off |
 
 **Where things live:**
 
