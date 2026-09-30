@@ -415,7 +415,8 @@ differently under the Solution design.
 
 # Solution design
 
-Agreed 2026-09-30. Not built yet. This section replaces the "Suggested fix"
+Agreed 2026-09-30. **Step 1 built** on branch `response-delay` (5dddfc7,
+0cb6dc5, 5ef9535); steps 2 and 3 still to do. This section replaces the "Suggested fix"
 notes in the findings above wherever they differ.
 
 ## What the slider is for
