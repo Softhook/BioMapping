@@ -3053,7 +3053,7 @@ input[type="range"]:focus-visible,
 
 /* View Mode Toggles (Layout switches). Collective view shows only
    collective settings and actions; per-track ones (filtering, peak
-   detection, the single-track path width, per-walk latency, presets taken
+   detection, the single-track path width, presets taken
    from one walk, single-walk exports) are hidden — there is no selected
    walk here. */
 .main-layout.collective-mode #gsrPanel,

@@ -92,7 +92,7 @@ export class GSRGlobeToggles extends GSRGlobePeaks {
     ) {
       this.peakEntities.forEach((ent) => {
         // The batched circle primitives are already gone via removeAll() above;
-        // only the latency-connector entities need an explicit entity remove.
+        // only the delay-connector entities need an explicit entity remove.
         if (ent && !ent._isPeakPointPrimitive) this.viewer.entities.remove(ent);
       });
     }

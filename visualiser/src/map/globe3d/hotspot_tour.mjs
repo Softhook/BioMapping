@@ -10,7 +10,7 @@
  * _computeTourWaypoints visits analyzer.memorableEvents (the curated Hotspot
  * subset — same star markers the map/graph show) in walk order, falling back
  * to generic evenly-spaced track sampling when there are no hotspots; reads
- * this.currentAnalyzer/_getMetricSeries/_latencyCoords/_peakWallHeight.
+ * this.currentAnalyzer/_getMetricSeries/_placeCoords/_peakWallHeight.
  * _executeTourStep drives the camera the same way flyToPeak does but with its
  * own dwell/timeout bookkeeping (this._tourStepTimeout etc.) and a side-on
  * angled shot per hotspot instead of a fixed offset.
@@ -111,7 +111,7 @@ export class GSRGlobeHotspotTour extends GSRGlobeNavigation {
    * during the walk) so the tour replays the journey rather than jumping
    * around by rank. Each waypoint's position/height reuse the exact same
    * helpers the hotspot star markers themselves are drawn with
-   * (_latencyCoords/_peakWallHeight), so the camera lands exactly where the
+   * (_placeCoords/_peakWallHeight), so the camera lands exactly where the
    * star is. Local track bearing (for camera framing) is read from the
    * nearest drawn track sample.
    */
@@ -128,7 +128,7 @@ export class GSRGlobeHotspotTour extends GSRGlobeNavigation {
     // sample (to read local bearing from). `events` is already in walk order.
     const resolved = [];
     for (const peak of events) {
-      const coords = this._latencyCoords(a, peak);
+      const coords = this._placeCoords(a, peak);
       if (!coords || isNaN(coords.lat) || isNaN(coords.lon)) continue;
       let nearestIdx = -1;
       let nearestDsq = Infinity;

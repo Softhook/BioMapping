@@ -238,7 +238,7 @@ export class GSRGlobeBase {
     // Mirror of the 2D sidebar's Track Width slider (gpsTrackWeight, px) for
     // the ground path, refreshed from the gpsParams the host passes into
     // renderData(). Markers follow the analyzer's Response delay
-    // (_latencyCoords).
+    // (_placeCoords).
     this.trackWidth = options.trackWidth || 5;
     // Panel-header layer toggles that mirror the 2D map's. Hotspots are
     // analyzer.memorableEvents (same set the flat map dots use); cluster blobs

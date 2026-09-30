@@ -19,7 +19,7 @@ export class GSRGlobePeaks extends GSRGlobeRf {
    * the route (GSRAnalyzer.placeOf), as on the 2D map. Height and value still
    * come from `peak.index` (the actual peak sample), matching the 2D map.
    */
-  _latencyCoords(analyzer, peak) {
+  _placeCoords(analyzer, peak) {
     return analyzer.placeOf(peak.index);
   }
 
@@ -55,7 +55,7 @@ export class GSRGlobePeaks extends GSRGlobeRf {
     if (!this._mc) {
       this._mc = {
         peakRed: Cesium.Color.fromCssColorString('#d10024'),
-        latencyRose: Cesium.Color.fromCssColorString('#f43f5e').withAlpha(0.35),
+        delayRose: Cesium.Color.fromCssColorString('#f43f5e').withAlpha(0.35),
         labelOutline: Cesium.Color.fromCssColorString('#0b0c10'),
         hotspotRed: Cesium.Color.fromCssColorString('#ff1744'),
         labelOffset: new Cesium.Cartesian2(0, -14),
@@ -146,7 +146,7 @@ export class GSRGlobePeaks extends GSRGlobeRf {
       const peakIdx = peakIndexOf.has(peak) ? peakIndexOf.get(peak) : -1;
 
       // Peak position — placed through the Response delay, like the 2D map.
-      const coords = this._latencyCoords(analyzer, peak);
+      const coords = this._placeCoords(analyzer, peak);
       if (!coords || isNaN(coords.lat) || isNaN(coords.lon)) return;
       const lat = coords.lat;
       const lon = coords.lon;
@@ -170,14 +170,14 @@ export class GSRGlobePeaks extends GSRGlobeRf {
           (orig.lat !== lat || orig.lon !== lon)
         ) {
           const conn = this.viewer.entities.add({
-            name: `Peak ${i + 1} latency`,
+            name: `Peak ${i + 1} delay`,
             polyline: {
               positions: [
                 Cesium.Cartesian3.fromDegrees(orig.lon, orig.lat, 1.0),
                 Cesium.Cartesian3.fromDegrees(lon, lat, 1.0),
               ],
               width: 1.5,
-              material: C.latencyRose,
+              material: C.delayRose,
               clampToGround: true,
             },
           });
@@ -201,7 +201,7 @@ export class GSRGlobePeaks extends GSRGlobeRf {
           id: { _biomapPeakIndex: peakIdx },
         });
         pt._biomapPeakIndex = peakIdx;
-        // Marks this entry as the batched circle primitive (not a latency
+        // Marks this entry as the batched circle primitive (not a delay
         // connector entity) for clearPeakEntities() and focusOnPeakLocation().
         pt._isPeakPointPrimitive = true;
         this.peakEntities.push(pt);
@@ -287,7 +287,7 @@ export class GSRGlobePeaks extends GSRGlobeRf {
       // memorableEvents itself may not have been recomputed since the toggle.
       if (peak.excluded) return;
 
-      const coords = this._latencyCoords(analyzer, peak);
+      const coords = this._placeCoords(analyzer, peak);
       if (!coords || isNaN(coords.lat) || isNaN(coords.lon)) return;
 
       const peakIdx = peakIndexOf.has(peak) ? peakIndexOf.get(peak) : -1;

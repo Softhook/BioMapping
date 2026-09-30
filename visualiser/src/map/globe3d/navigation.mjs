@@ -3,7 +3,7 @@
  * Class layer for GSRGlobeManager camera fly-to/focus and turntable orbit
  * (`GSRGlobeNavigation extends GSRGlobeToggles`).
  *
- * flyToPeak/focusOnPeakLocation read _latencyCoords/_peakWallHeight inherited
+ * flyToPeak/focusOnPeakLocation read _placeCoords/_peakWallHeight inherited
  * from GSRGlobePeaks.
  */
 import { AppState } from '../../core/app_state.mjs';
@@ -21,7 +21,7 @@ export class GSRGlobeNavigation extends GSRGlobeToggles {
     if (!a?.peaks || peakIdx < 0 || peakIdx >= a.peaks.length) return;
 
     const peak = a.peaks[peakIdx];
-    const coords = this._latencyCoords(a, peak);
+    const coords = this._placeCoords(a, peak);
     if (!coords || isNaN(coords.lat) || isNaN(coords.lon)) return;
 
     this.releaseFollowScrub();
@@ -63,7 +63,7 @@ export class GSRGlobeNavigation extends GSRGlobeToggles {
     if (!a?.peaks || peakIdx < 0 || peakIdx >= a.peaks.length) return;
 
     const peak = a.peaks[peakIdx];
-    const coords = this._latencyCoords(a, peak);
+    const coords = this._placeCoords(a, peak);
     if (!coords || isNaN(coords.lat) || isNaN(coords.lon)) return;
 
     // Restore a peak circle hidden by a previous focus call.
@@ -82,7 +82,7 @@ export class GSRGlobeNavigation extends GSRGlobeToggles {
       for (const ent of this.peakEntities) {
         if (!ent || ent._biomapPeakIndex !== peakIdx) continue;
         // The circle is either the batched PointPrimitive itself or, in the
-        // entity fallback, the beacon entity's point graphic. A latency-
+        // entity fallback, the beacon entity's point graphic. A delay-
         // connector entity shares the same _biomapPeakIndex but is the rose
         // line, not the circle (no point graphic) — skip it.
         const pt = ent._isPeakPointPrimitive

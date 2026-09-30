@@ -42,8 +42,11 @@ export class GSRAnalyzer {
     // this.peaks: the highest-amplitude responses, spatially spread
     // (>= MEMORABLE_EVENTS.MIN_SEPARATION_M apart) so no two crowd one spot
     // on the map. A companion view over this.peaks, not a replacement for it.
+    // Rebuilt when the peaks or the smoothed path change.
     this._hotspotParams = null;
     this._hotspots = null;
+    this._hotspotsPeaks = null;
+    this._hotspotsPath = null;
 
     // Response delay (s): how far back along the route body data is placed.
     // The project sets it from the slider; see response_delay.mjs.

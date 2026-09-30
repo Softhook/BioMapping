@@ -9,6 +9,7 @@ import { GSR_CONST } from '../core/constants.mjs';
 import { Controllers } from '../core/controllers.mjs';
 import { GSRFileSaver } from '../core/file_saver.mjs';
 import { GSRNotices } from '../core/notices.mjs';
+import { GPS_SLIDER_DEFS } from './events_slider_defs.mjs';
 
 /**
  * Typed slider value reader with automatic fallback.
@@ -192,7 +193,8 @@ export const GSRStorage = {
       typeof document !== 'undefined'
         ? document.getElementById('valResponseDelay')
         : null;
-    if (label) label.innerText = `${AppState.responseDelay.toFixed(1)} s`;
+    const fmt = GPS_SLIDER_DEFS.find((d) => d.id === 'responseDelay').fmt;
+    if (label) label.innerText = fmt(AppState.responseDelay);
   },
 
   /** Show Collective view's own Places settings on the sliders. */
