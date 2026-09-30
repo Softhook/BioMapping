@@ -1069,6 +1069,42 @@ test('goToLatLon: reused on an already-visible map just re-pans it, without re-i
 // every click used to re-download the whole view from the network again).
 // ==========================================================================
 
+// Runs cacheCurrentMapArea(), clicking the dialog's `answer` button if the
+// "Cache this map area?" question comes up (views over 300 tiles ask first).
+async function cacheArea(window, context, answer = 'Download') {
+  let finished = false;
+  const done = run(context, 'cacheCurrentMapArea()').then(() => {
+    finished = true;
+  });
+  const find = () =>
+    [...window.document.querySelectorAll('button')].find(
+      (b) => b.textContent === answer,
+    );
+  await settle(() => finished || !!find());
+  if (!finished) find()?.click();
+  await done;
+}
+
+test('cacheCurrentMapArea: cancelling the "Cache this map area?" question downloads nothing', async () => {
+  const { window, context } = await bootLive();
+  run(context, 'goToLatLon(51.5074, -0.1278, 15)');
+
+  let fetchCalls = 0;
+  window.fetch = async () => {
+    fetchCalls++;
+    return new window.Response('tile-bytes', { status: 200 });
+  };
+
+  await cacheArea(window, context, 'Cancel');
+
+  assert.strictEqual(fetchCalls, 0, 'Cancel must not download any tiles');
+  assert.strictEqual(
+    window.document.getElementById('cacheMapBtn').disabled,
+    false,
+    'button re-enabled after Cancel',
+  );
+});
+
 test('cacheCurrentMapArea: downloads tiles for a never-before-cached view', async () => {
   const { window, context } = await bootLive();
   run(context, 'goToLatLon(51.5074, -0.1278, 15)');
@@ -1079,7 +1115,7 @@ test('cacheCurrentMapArea: downloads tiles for a never-before-cached view', asyn
     return new window.Response('tile-bytes', { status: 200 });
   };
 
-  await run(context, 'cacheCurrentMapArea()');
+  await cacheArea(window, context);
 
   assert.ok(fetchCalls > 0, 'a first-time cache pass should hit the network');
 });
@@ -1094,9 +1130,9 @@ test('cacheCurrentMapArea: regression — re-caching the identical view makes ze
     return new window.Response('tile-bytes', { status: 200 });
   };
 
-  await run(context, 'cacheCurrentMapArea()'); // populates the cache
+  await cacheArea(window, context); // populates the cache
   fetchCalls = 0;
-  await run(context, 'cacheCurrentMapArea()'); // same view again
+  await cacheArea(window, context); // same view again
 
   assert.strictEqual(
     fetchCalls,
@@ -1110,7 +1146,7 @@ test('cacheCurrentMapArea: a genuinely new area still hits the network even afte
   window.fetch = async () => new window.Response('tile-bytes', { status: 200 });
 
   run(context, 'goToLatLon(51.5074, -0.1278, 15)'); // London
-  await run(context, 'cacheCurrentMapArea()');
+  await cacheArea(window, context);
 
   run(context, 'goToLatLon(-33.8688, 151.2093, 15)'); // Sydney — far enough to be disjoint tiles
   let fetchCalls = 0;
@@ -1118,7 +1154,7 @@ test('cacheCurrentMapArea: a genuinely new area still hits the network even afte
     fetchCalls++;
     return new window.Response('tile-bytes', { status: 200 });
   };
-  await run(context, 'cacheCurrentMapArea()');
+  await cacheArea(window, context);
 
   assert.ok(
     fetchCalls > 0,
@@ -1146,7 +1182,7 @@ test('cacheCurrentMapArea: regression — every zoom level in the pre-fetch rang
     return new window.Response('tile-bytes', { status: 200 });
   };
 
-  await run(context, 'cacheCurrentMapArea()');
+  await cacheArea(window, context);
 
   assert.ok(requestedUrls.length > 0);
   const zoomsRequested = new Set(

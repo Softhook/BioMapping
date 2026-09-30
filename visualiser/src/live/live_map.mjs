@@ -245,11 +245,14 @@ export async function cacheCurrentMapArea() {
   }
 
   if (totalTiles > 300) {
-    if (
-      !confirm(
-        `Caching the current view at zoom levels ${currentZoom} to ${maxZoom} will download ${totalTiles} tiles. Proceed?`,
-      )
-    ) {
+    const proceed = await GSRNotices.dialog({
+      title: 'Cache this map area?',
+      message: `Caching the current view at zoom levels ${currentZoom} to ${maxZoom} will download ${totalTiles} tiles.`,
+      buttons: [{ label: 'Download', value: 'download', style: 'primary' }],
+      dismissLabel: 'Cancel',
+      tone: 'info',
+    });
+    if (proceed !== 'download') {
       cacheMapBtn.disabled = false;
       cacheMapBtn.textContent = originalText;
       return;
