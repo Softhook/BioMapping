@@ -40,12 +40,12 @@ function withDefaults(parsed, defaults) {
 }
 
 export const GSRCSVParser = {
-  // A row labelled further than this from its real time has its time
-  // flagged as unreliable (docs/time_offsets_review.md, finding 12).
+  // A lasting offset (docs/time_offsets_review.md, finding 12) smaller than
+  // this is left alone.
   OFF_TIME_S: 0.5,
   // How far either side of a row (s) its "settled" clock offset is judged
-  // over: a catch-up burst shorter than this is a burst; an offset that lasts
-  // longer is a lasting one and is corrected.
+  // over: a catch-up burst shorter than this is left as it is; an offset that
+  // lasts longer is a lasting one and is corrected.
   SETTLE_WINDOW_S: 30,
   // A lasting offset is only judged with at least this much (s) on each side.
   // Nearer the start there is no correction (the start is the reference);
@@ -55,9 +55,6 @@ export const GSRCSVParser = {
   // Kept short so that a hold-up early in the walk can't pass for the start:
   // at most half of it can come after one.
   START_S: 10,
-  // Readings this close (s) to the start are the device starting up; they
-  // are left off like any other, but not mentioned in the notice.
-  STARTUP_S: 1,
 
   /**
    * Rebuilds when each row was really recorded, for devices that write
@@ -70,30 +67,31 @@ export const GSRCSVParser = {
    * starting offset (the median over the first START_S; every file
    * starts with a start-up delay that shifts the whole walk equally, which is
    * harmless). The start is the reference because a hold-up only ever puts
-   * the device behind, so everything before the first one is on time:
-   *   - Where the offset has settled at a new level (the median over
-   *     SETTLE_WINDOW_S either side has moved by more than OFF_TIME_S), the
-   *     device fell behind and never caught up: those rows' times are
-   *     corrected by that amount (only forwards). A correction never shrinks
-   *     by a whole tick from one row to the next, so rows stay in order.
-   *   - A row still more than OFF_TIME_S off after that is inside a catch-up
-   *     burst: its time can't be trusted, so it is returned in `off`.
+   * the device behind, so everything before the first one is on time.
+   *
+   * Where the offset has settled at a new level (the median over
+   * SETTLE_WINDOW_S either side has moved by more than OFF_TIME_S), the device
+   * fell behind and never caught up: those rows' times are corrected by that
+   * amount (only forwards). A correction never shrinks by a whole tick from
+   * one row to the next, so rows stay in order.
+   *
+   * The rows of a quick catch-up burst after a hold-up keep their labels:
+   * a second or two slightly off, which doesn't matter.
    * @param {Array<{time:number}>} rows - in file order; times corrected in place
    * @param {number[]} tickDts - each row's tick_dt_ms (NaN if blank)
-   * @returns {{off: Set<object>, corrected: Array<{row:object, byS:number}>}}
-   *   `corrected` lists where each lasting correction starts, for the warning.
+   * @returns {Array<{row:object, byS:number}>} where each lasting correction
+   *   starts, for the notice.
    */
   _fixDeviceTimes(rows, tickDts) {
     const n = rows.length;
-    const off = new Set();
     const corrected = [];
-    if (n < 2) return { off, corrected };
+    if (n < 2) return corrected;
     const steps = [];
     for (let i = 1; i < n; i++) {
       const d = rows[i].time - rows[i - 1].time;
       if (d > 0) steps.push(d);
     }
-    if (!steps.length) return { off, corrected };
+    if (!steps.length) return corrected;
     steps.sort((x, y) => x - y);
     const tick = steps[steps.length >> 1];
     const err = new Float64Array(n);
@@ -119,7 +117,7 @@ export const GSRCSVParser = {
     for (let i = 0; i < n && !anyOff; i++) {
       anyOff = Math.abs(err[i] - usual) > limit;
     }
-    if (!anyOff) return { off, corrected };
+    if (!anyOff) return corrected;
 
     // Settled offset: the median over the window either side, kept in a
     // sorted array as the window slides. The window is the same size on both
@@ -152,14 +150,13 @@ export const GSRCSVParser = {
       // Never back in time: the label moves on one tick a row, so the
       // correction may shrink by just under a tick at most.
       shift = Math.max(shift, prevShift - 0.99 * tick);
-      if (Math.abs(err[i] - usual - shift) > limit) off.add(rows[i]);
       if (shift && Math.abs(shift - prevShift) > limit) {
         corrected.push({ row: rows[i], byS: shift });
       }
       prevShift = shift;
       if (shift) rows[i].time += shift;
     }
-    return { off, corrected };
+    return corrected;
   },
 
   /**
@@ -1072,51 +1069,15 @@ export const GSRCSVParser = {
     }
 
     // Device hold-ups (debug firmware only), worked out in file order: rows
-    // whose time is corrected, and rows whose time can't be trusted, carried
-    // through the sort by row.
-    let offTimeSet = null;
+    // after one the device never caught up on get their times corrected.
     if (tickDts) {
-      const fixed = GSRCSVParser._fixDeviceTimes(rawDataList, tickDts);
-      offTimeSet = fixed.off;
       const t0 = rawDataList[0].time;
-      const at = (row) => {
-        const s = Math.round(row.time - t0);
-        return `${Math.floor(s / 60)} min ${s % 60} s`;
-      };
-      for (const c of fixed.corrected) {
+      for (const c of GSRCSVParser._fixDeviceTimes(rawDataList, tickDts)) {
+        const sec = Math.round(c.row.time - t0);
         warnings.push(
-          `The device fell behind at about ${at(c.row)} and didn't catch up. ` +
-            `Times from there on have been corrected by ${c.byS.toFixed(1)} s.`,
-        );
-      }
-      // The notice leaves out the device starting up (a slow first tick,
-      // then a quick burst), which every file has and which doesn't matter.
-      const shownOff = rawDataList.filter(
-        (r) => offTimeSet.has(r) && r.time - t0 >= GSRCSVParser.STARTUP_S,
-      );
-      if (shownOff.length) {
-        // The separate moments (runs of neighbouring rows), in plain words.
-        const shownSet = new Set(shownOff);
-        const moments = [];
-        rawDataList.forEach((r, i) => {
-          if (shownSet.has(r) && !shownSet.has(rawDataList[i - 1])) {
-            moments.push(at(r));
-          }
-        });
-        const shown = [...new Set(moments)];
-        const list =
-          shown.length > 4
-            ? `${shown.slice(0, 3).join(', ')} and ${shown.length - 3} other times`
-            : shown.length > 1
-              ? `${shown.slice(0, -1).join(', ')} and ${shown.at(-1)}`
-              : shown[0];
-        const count = shownOff.length;
-        const one = count === 1;
-        warnings.push(
-          `${count} reading${one ? ' was' : 's were'} recorded while ` +
-            `the device was catching up after a hold-up (at about ${list}), ` +
-            `so ${one ? 'its time is' : 'their times are'} wrong. ` +
-            `${one ? 'It is' : 'They are'} left off the map (the path is grey there).`,
+          `The device fell behind at about ${Math.floor(sec / 60)} min ${sec % 60} s ` +
+            `and didn't catch up. Times from there on have been corrected by ` +
+            `${c.byS.toFixed(1)} s.`,
         );
       }
     }
@@ -1129,14 +1090,6 @@ export const GSRCSVParser = {
 
     // Sort chronologically
     rawDataList.sort((a, b) => a.time - b.time);
-
-    let offTime = null;
-    if (offTimeSet?.size) {
-      offTime = new Uint8Array(rawDataList.length);
-      rawDataList.forEach((r, i) => {
-        if (offTimeSet.has(r)) offTime[i] = 1;
-      });
-    }
 
     // Reconstruct sub-second timestamps if multiple rows share identical seconds
     let hasDuplicates = false;
@@ -1287,7 +1240,6 @@ export const GSRCSVParser = {
       warnings: csvWarnings,
       importedPeakLabels: importedPeakLabels,
       importedPeakExcluded: importedPeakExcluded,
-      offTime: offTime,
     };
   },
 };

@@ -143,7 +143,6 @@ export const EnvironmentalStats = {
         let sumSpeed = 0;
         let speedCount = 0;
         for (let j = secondStart(a.raw, place); j <= place; j++) {
-          if (!a.onTime(j)) continue; // a device hold-up: its time is wrong
           const rawSpd = a.raw[j].speedKts;
           if (isNum(rawSpd)) {
             sumSpeed += rawSpd * KNOTS_TO_MS;
@@ -161,7 +160,6 @@ export const EnvironmentalStats = {
         for (let j = windowStartIdx; j <= i; j++) {
           if (!a.raw[j]) continue;
           if (isDisconnected(j)) continue; // no real GSR reading at this sample
-          if (!a.onTime(j)) continue; // a device hold-up: its time is wrong
           sumVal += a.raw[j].val || 0;
           if (a.tonic?.[j]) {
             sumTonic += a.tonic[j].val || 0;

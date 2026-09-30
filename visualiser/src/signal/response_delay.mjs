@@ -17,9 +17,7 @@
  *   readingAt(a, j)   place row j → the reading at (its time + delay)
  * A reading has no place (null / −1) when that moment is before the
  * recording started or had no position; a place has no reading (−1) when that
- * moment is after the recording ended. A row whose time label is off its real
- * time (a device hold-up, analyzer.offTime) is paired with nothing either way,
- * since neither "that many seconds earlier" nor "later" can be trusted there.
+ * moment is after the recording ended.
  */
 
 // Row times carry float noise (6.9 − 6.6 = 0.30000000000000004); a moment
@@ -37,11 +35,6 @@ export const ResponseDelay = {
     const v = Number(s);
     if (s == null || !Number.isFinite(v)) return this.DEFAULT_S;
     return Math.min(this.MAX_S, Math.max(this.MIN_S, v));
-  },
-
-  /** Whether row i's time can be trusted (see analyzer.offTime). */
-  onTime(a, i) {
-    return !(a.offTime && a.offTimeRaw === a.raw && a.offTime[i]);
   },
 
   /** Last row at or before time t (−1 if t is before the first row). */
@@ -66,30 +59,30 @@ export const ResponseDelay = {
   },
 
   placeRowOf(a, i) {
-    if (!(i >= 0 && i < a.raw.length) || !this.onTime(a, i)) return -1;
+    if (!(i >= 0 && i < a.raw.length)) return -1;
     // At 0 s every reading is paired with its own row: no search needed, and
     // exactly the pairing the app had before the Response delay existed.
     if (!a.responseDelay) return a.getCoordinates(i) ? i : -1;
     const j = this._rowNearest(a.raw, a.raw[i].time - a.responseDelay);
-    return j >= 0 && this.onTime(a, j) && a.getCoordinates(j) ? j : -1;
+    return j >= 0 && a.getCoordinates(j) ? j : -1;
   },
 
   placeOf(a, i) {
     const raw = a.raw;
-    if (!(i >= 0 && i < raw.length) || !this.onTime(a, i)) return null;
+    if (!(i >= 0 && i < raw.length)) return null;
     if (!a.responseDelay) {
       const p = a.getCoordinates(i);
       return p ? { lat: p.lat, lon: p.lon } : null;
     }
     const t = raw[i].time - a.responseDelay;
     const k = this._rowAtOrBefore(raw, t);
-    if (k < 0 || !this.onTime(a, k)) return null;
+    if (k < 0) return null;
     const p = a.getCoordinates(k);
     if (!p) return null;
     const span = k + 1 < raw.length ? raw[k + 1].time - raw[k].time : 0;
     const f = span > 0 ? (t - raw[k].time) / span : 0;
     if (f <= EPS_S) return { lat: p.lat, lon: p.lon };
-    const q = this.onTime(a, k + 1) ? a.getCoordinates(k + 1) : null;
+    const q = a.getCoordinates(k + 1);
     if (!q) return null;
     return {
       lat: p.lat + f * (q.lat - p.lat),
@@ -98,10 +91,9 @@ export const ResponseDelay = {
   },
 
   readingAt(a, j) {
-    if (!(j >= 0 && j < a.raw.length) || !this.onTime(a, j)) return -1;
+    if (!(j >= 0 && j < a.raw.length)) return -1;
     if (!a.responseDelay) return j;
-    const r = this._rowNearest(a.raw, a.raw[j].time + a.responseDelay);
-    return r >= 0 && this.onTime(a, r) ? r : -1;
+    return this._rowNearest(a.raw, a.raw[j].time + a.responseDelay);
   },
 
   /**
@@ -131,9 +123,7 @@ export const ResponseDelay = {
     if (!(i >= 0 && i < raw.length)) return false;
     const k = this._rowAtOrBefore(raw, raw[i].time - a.maxResponseDelay);
     if (k < 0) return false;
-    for (let j = k; j <= i; j++) {
-      if (!this.onTime(a, j) || !a.getCoordinates(j)) return false;
-    }
+    for (let j = k; j <= i; j++) if (!a.getCoordinates(j)) return false;
     return true;
   },
 };

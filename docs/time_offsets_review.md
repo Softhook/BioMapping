@@ -21,7 +21,8 @@ Reviewed 2026-09-30, on `main` at 3131167.
 | 88c230f | Doc status line |
 | c22b2d9 | Step 3: timestamp fixes: clock-text rows, device hold-ups, the dashboard's one second |
 | 4584061 | Step 2: screenshot script |
-| 88af6fb | Review fixes: hold-ups the device never catches up are corrected; a message on load; hidden readings skipped everywhere |
+| 88af6fb, 3f192b7 | Review fixes: hold-ups the device never catches up are corrected, with a notice |
+| (next) | Catch-up readings are no longer left off |
 
 **Where things live:**
 
@@ -60,7 +61,7 @@ Reviewed 2026-09-30, on `main` at 3131167.
 
 | Command | What it proves | Last result |
 |---|---|---|
-| `npm test` | Unit tests, including the design tests in `tests/test_response_delay.js` and the 0 s record in `tests/test_response_delay_zero_baseline.js` | 1755 pass, 0 fail, 0 "to do" |
+| `npm test` | Unit tests, including the design tests in `tests/test_response_delay.js` and the 0 s record in `tests/test_response_delay_zero_baseline.js` | 1758 pass, 0 fail, 0 "to do" |
 | `node tests/manual/response_delay/baseline.js --check` | Every walk in `tracks/` at 0 s is unchanged, except hotspots and the walks step 3 fixes | 13 hotspot changes, all explained (below); other changes only in the walks listed under "What step 3 changed" |
 | `node tests/manual/response_delay/sync_check.js [--delay=2] [--break]` | In real Chrome, hovering a peak puts the map dot on its own marker, the path colour there is its reading, the road band matches the dashboard, and the label shows place time | Passes at 2 s and 5 s; `--break` fails all 12 peaks |
 | `node tests/manual/response_delay/screenshots.js` | Single view, 3D and group map at 0, 2 and 3 s, camera fixed on biomap_016's hotspot that moved most (PNGs in `out/`) | Peak markers, hover dot, path colour, 3D wall and graph trace move together; route, streets and road band stay |
@@ -86,38 +87,22 @@ steps are done.
   labelled second (`GSRCSVParser._spreadSharedTimes`). Before, 20–75 % of
   rows sat outside their second, by up to 0.9 s. Their peaks, paths and
   group maps change a little, as expected.
-- **Device hold-ups** (`GSRCSVParser._fixDeviceTimes`, `analyzer.offTime`,
-  `analyzer.onTime(i)`): in files with `tick_dt_ms`, each row's real time is
-  rebuilt and compared with the walk's start.
-  - If the device fell behind and the offset lasts (judged over 30 s either
-    side), the times from there on are **corrected**. No real walk has this.
-  - A row still more than 0.5 s off is inside a catch-up burst. It gets no
-    place, from either side of the pairing, and the graph tooltip, junction
-    windows and dashboard averages skip it too.
-  - The walk's start (first 10 s) is the reference, so a hold-up more than
-    5 s in can't pass for the start. Within 5 s of either end a lasting
-    offset can't be judged, so at most 5 s there is left off rather than
-    corrected.
-  - A correction never shrinks by a whole tick from one row to the next, so
-    rows stay in order.
-  - A catch-up spread over more than about 30 s is not recognised as
-    lasting; the stretch is left off (about 25 s for a 60 s catch-up). The
-    device's real catch-ups take a second or two.
-  - The walk's quality popup (which now lists every notice, not just two)
-    says what was corrected or left off, and when. The device starting up
-    (the first second) is left off like any other but not mentioned.
-  - biomap_121: 147 rows left off (the 6.4 s hold-up at about 8 min).
-  - biomap_114, 115, 116, 118, 123: 1–8 rows each, mostly the first row
-    (a slow first tick followed by a burst).
-  - A row missing from the file (the label jumps a tick) counts as one
-    normal tick. Without that, biomap_011, 012 and 015, which drop a row
-    about every 10 s, would have looked up to 5 s off.
+- **Device hold-ups** (`GSRCSVParser._fixDeviceTimes`): in files with
+  `tick_dt_ms`, each row's real time is rebuilt and compared with the walk's
+  start (first 10 s).
+  - If the device fell behind and never caught up (judged over 30 s either
+    side), the times from there on are **corrected**, and the walk's
+    quality popup says so. No real walk has this. A correction never
+    shrinks by a whole tick from one row to the next, so rows stay in order.
+  - **Nothing is left off.** A quick catch-up after a hold-up (as in
+    biomap_121 at about 8 min) keeps its readings on the map with their
+    labels, a second or two slightly off. You decided this doesn't matter
+    (2026-09-30); an earlier version left those readings off.
 - **Dashboard** "last second" windows (arousal and walking speed) are one
   second by time (`secondStart` in `environmental_stats.mjs`). At 10 Hz
   this is the same 10 rows as before, except across a missing row. The
   live-stream exports (3.3 Hz) now average 1 s, not 3 s.
-- **Re-exported files** keep no `tick_dt_ms`, so the hold-up flags don't
-  survive an export and re-import.
+- **Re-exported files** keep the corrected times.
 
 **Seen while taking the screenshots (not caused by the delay):** the
 path's overlap colouring (a spot passed twice is coloured by the mean) uses
@@ -476,7 +461,7 @@ instead of across the whole walk. Then no row can leave its own second.
 
 ## 12. The device can stamp rows late during a hold-up (real, 1 walk)
 
-**Still stands** (step 3): rows in the late-stamped stretch are left out.
+**Decided** (step 3): a quick catch-up is left as it is (it doesn't matter); a hold-up the device never catches up on has its later times corrected.
 
 **What happens:** the device's `timestamp` column counts ticks (0.1 s each).
 It is not a clock reading (`pipeline_rel_seconds` in the firmware). If the

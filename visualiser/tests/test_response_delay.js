@@ -496,10 +496,11 @@ test('old clock-text files: every row stays inside its own labelled second', () 
   });
 });
 
-test('device hold-up: readings stamped more than 0.5 s from their real time get no place', () => {
+test('device hold-up: a quick catch-up keeps every reading, times untouched', () => {
   // Normal 100 ms ticks, a start-up delay on the first row (as in every real
-  // file; it shifts the whole walk equally, so it doesn't count), then a 3 s
-  // hold-up at row 600 caught up by a burst of instant ticks.
+  // file), then a 3 s hold-up at row 600 caught up by a burst of instant
+  // ticks. The burst's readings are a little off for a second or two, which
+  // doesn't matter: they stay on the map as labelled.
   const tickDt = (i) => {
     if (i === 0) return 533;
     if (i === 600) return 3000;
@@ -507,38 +508,20 @@ test('device hold-up: readings stamped more than 0.5 s from their real time get 
     return 100;
   };
   const a = walk({ tickDt }, 0);
-  // Real time runs ahead of the label from row 600 by 2.9 s, catching up by
-  // 0.1 s a row: more than 0.5 s off for rows 600–623.
-  for (let i = 600; i <= 623; i++) {
-    assert.strictEqual(a.placeOf(i), null, `row ${i}`);
+  for (let i = 590; i <= 640; i++) {
+    assert.ok(a.placeOf(i), `row ${i} has a place`);
+    close(a.raw[i].time, i / HZ, 1e-6, `row ${i} time`);
   }
-  for (const i of [100, 590, 624, 640, 1500]) {
-    assert.ok(a.placeOf(i), `row ${i} is on time`);
-  }
+  assert.ok(!a._csvWarnings?.some((w) => w.includes('device')), 'no notice');
 });
 
-test('device hold-up: the readings left off are named in a message', () => {
-  const tickDt = (i) => {
-    if (i === 0) return 533;
-    if (i === 600) return 3000;
-    if (i > 600 && i < 630) return 0;
-    return 100;
-  };
-  const a = walk({ tickDt }, 0);
-  const msg = a._csvWarnings.find((w) => w.includes('catching up'));
-  assert.ok(msg, 'a message');
-  assert.match(msg, /^24 readings were recorded/);
-  assert.match(msg, /at about 1 min 0 s/);
-});
-
-test('device hold-up with no catch-up: later times are corrected, not left off', () => {
+test('device hold-up with no catch-up: later times are corrected', () => {
   // A 3 s hold-up at row 800 that the device never makes up: every row
   // after it is really 2.9 s later than its label.
   const a = walk(
     { tickDt: (i) => (i === 0 ? 533 : i === 800 ? 3000 : 100) },
     0,
   );
-  assert.strictEqual(a.offTime, null, 'nothing left off');
   close(a.raw[799].time, 79.9, 1e-6, 'row 799 unchanged');
   close(a.raw[800].time, 82.9, 1e-6, 'row 800 corrected');
   close(a.raw.at(-1).time, 182.8, 1e-6, 'last row corrected');
@@ -549,14 +532,15 @@ test('device hold-up with no catch-up: later times are corrected, not left off',
   );
 });
 
-test('device hold-up with no catch-up: near the ends at most 5 s is left off', () => {
-  for (const at of [30, 60, 100, 140, 1760]) {
+test('device hold-up: no reading is ever left off, wherever it happens', () => {
+  for (const at of [30, 60, 100, 140, 800, 1760]) {
     const a = walk(
       { tickDt: (i) => (i === 0 ? 533 : i === at ? 3000 : 100) },
       0,
     );
-    const n = a.offTime ? a.offTime.reduce((sum, v) => sum + v, 0) : 0;
-    assert.ok(n <= rows(5), `hold-up at row ${at}: ${n} rows left off`);
+    a.raw.forEach((_, i) => {
+      assert.ok(a.placeOf(i), `hold-up at row ${at}: row ${i} has a place`);
+    });
   }
 });
 
@@ -579,18 +563,10 @@ test('device hold-up: corrected times never go back, whatever the pattern', () =
   }
 });
 
-test('device hold-up: the start-up burst every file has is not mentioned', () => {
-  // A slow first tick then a quick burst, as real files start.
-  const tickDt = (i) => (i === 0 ? 700 : i < 7 ? 3 : 100);
-  const a = walk({ tickDt }, 0);
-  assert.ok(a.offTime?.[0], 'the first reading is still left off');
-  assert.ok(!a._csvWarnings?.some((w) => w.includes('catching up')));
-});
-
 test('device hold-up: rows missing from the file are not mistaken for a hold-up', () => {
   // Some files drop one row every ~10 s: the label jumps a tick while
   // tick_dt_ms stays 100 ms either side. That is a missing row, not lost
-  // time, so nothing may be flagged.
+  // time, so nothing may be corrected.
   const lines = straightWalkCsv({ tickDt: (i) => (i === 0 ? 533 : 100) })
     .trimEnd()
     .split('\n');
@@ -598,7 +574,11 @@ test('device hold-up: rows missing from the file are not mistaken for a hold-up'
   const a = new GSRAnalyzer();
   a.parseCSV(`${kept.join('\n')}\n`);
   assert.ok(a.raw.length < lines.length - 2, 'rows were dropped');
-  assert.strictEqual(a.offTime, null);
+  assert.ok(!a._csvWarnings?.some((w) => w.includes('device')), 'no notice');
+  const labels = kept.slice(2).map((l) => Number(l.split(',')[0]));
+  a.raw.forEach((r, i) => {
+    close(r.time, labels[i], 1e-6, `row ${i}`);
+  });
 });
 
 test('dashboard: "the last second" is one second at any sample rate', () => {
