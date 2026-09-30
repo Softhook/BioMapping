@@ -288,93 +288,31 @@ export class GSRCollectiveManager {
    * comment for why the rest is staged this way.
    */
   _resolveContourParams(contourParams) {
-    if (!contourParams) contourParams = {};
-
-    // Use explicit !== undefined checks so falsy values (0, false, '') are not silently overridden
-    const gridResolution =
-      contourParams.gridResolution !== undefined
-        ? contourParams.gridResolution
-        : GSR_CONST.COLLECTIVE.gridResolution;
-    const isolationRadius =
-      contourParams.isolationRadius !== undefined
-        ? contourParams.isolationRadius
-        : GSR_CONST.COLLECTIVE.isolationRadius;
-    const topographySource =
-      contourParams.topographySource !== undefined
-        ? contourParams.topographySource
-        : 'phasic';
-    const contourCount =
-      contourParams.contourCount !== undefined
-        ? contourParams.contourCount
-        : GSR_CONST.COLLECTIVE.contourCount;
-    const idwExponent =
-      contourParams.idwExponent !== undefined
-        ? contourParams.idwExponent
-        : GSR_CONST.COLLECTIVE.idwExponent;
-    const coverageWeighting =
-      contourParams.coverageWeighting !== undefined
-        ? contourParams.coverageWeighting
-        : GSR_CONST.COLLECTIVE.coverageWeighting;
-    // Defaults to true — the "Standardize arousal range" checkbox ships checked (see
-    // index.html), so a caller that omits this entirely should get the same on-by-default
-    // behaviour as the UI, not silently fall back to unnormalized.
-    const useNormalization =
-      contourParams.normalizeZScore !== undefined
-        ? contourParams.normalizeZScore
-        : true;
-
-    const blurIterations =
-      contourParams.blurIterations !== undefined
-        ? contourParams.blurIterations
-        : GSR_CONST.COLLECTIVE.blurIterations !== undefined
-          ? GSR_CONST.COLLECTIVE.blurIterations
-          : 3;
-    const upsampledResolution =
-      contourParams.upsampledResolution !== undefined
-        ? contourParams.upsampledResolution
-        : GSR_CONST.COLLECTIVE.upsampledResolution !== undefined
-          ? GSR_CONST.COLLECTIVE.upsampledResolution
-          : 160;
-    const softening =
-      contourParams && contourParams.softening !== undefined
-        ? contourParams.softening
-        : GSR_CONST.COLLECTIVE.softening !== undefined
-          ? GSR_CONST.COLLECTIVE.softening
-          : 0.0;
-    const temporalSmoothingWindow =
-      contourParams && contourParams.temporalSmoothingWindow !== undefined
-        ? contourParams.temporalSmoothingWindow
-        : GSR_CONST.COLLECTIVE.temporalSmoothingWindow !== undefined
-          ? GSR_CONST.COLLECTIVE.temporalSmoothingWindow
-          : 0.0;
-    // Moved up from its original spot just before the value-grid fill loop — same
-    // "resolve one param with a default" shape as the rest of this method, with no
-    // dependency on anything computed in between.
-    const alpha =
-      contourParams && contourParams.peakPreservation !== undefined
-        ? contourParams.peakPreservation
-        : GSR_CONST.COLLECTIVE.peakPreservation !== undefined
-          ? GSR_CONST.COLLECTIVE.peakPreservation
-          : 0.5;
-    const priorWalkers =
-      contourParams.priorWalkers !== undefined
-        ? contourParams.priorWalkers
-        : GSR_CONST.COLLECTIVE.priorWalkers;
+    const p = contourParams || {};
+    const C = GSR_CONST.COLLECTIVE;
+    // Only a missing key falls back, so 0 / false / '' are kept as given.
+    const pick = (key, fallback) => (p[key] !== undefined ? p[key] : fallback);
 
     return {
-      gridResolution,
-      isolationRadius,
-      topographySource,
-      contourCount,
-      idwExponent,
-      coverageWeighting,
-      useNormalization,
-      blurIterations,
-      upsampledResolution,
-      softening,
-      temporalSmoothingWindow,
-      alpha,
-      priorWalkers,
+      gridResolution: pick('gridResolution', C.gridResolution),
+      isolationRadius: pick('isolationRadius', C.isolationRadius),
+      topographySource: pick('topographySource', 'phasic'),
+      contourCount: pick('contourCount', C.contourCount),
+      idwExponent: pick('idwExponent', C.idwExponent),
+      coverageWeighting: pick('coverageWeighting', C.coverageWeighting),
+      // Defaults to true — the "Standardise arousal range" checkbox ships
+      // checked (see index.html), so a caller that omits it gets the same
+      // behaviour as the UI.
+      useNormalization: pick('normalizeZScore', true),
+      blurIterations: pick('blurIterations', C.blurIterations),
+      upsampledResolution: pick('upsampledResolution', C.upsampledResolution),
+      softening: pick('softening', C.softening),
+      temporalSmoothingWindow: pick(
+        'temporalSmoothingWindow',
+        C.temporalSmoothingWindow,
+      ),
+      alpha: pick('peakPreservation', C.peakPreservation),
+      priorWalkers: pick('priorWalkers', C.priorWalkers),
     };
   }
 
