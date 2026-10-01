@@ -177,7 +177,9 @@ export class GSRMapPeaks extends GSRMapPath {
           lon: ap.coords.lon,
           amplitude: ap.peak.amplitude,
           trackId,
-          time: ap.peak.time,
+          // Place time (when the walker was where the peak is drawn), the
+          // clock the graph shows.
+          time: ap.peak.time - (analyzer.responseDelay || 0),
         }));
       this._renderArousalPlacesFor(
         activePeaks,
@@ -390,7 +392,8 @@ export class GSRMapPeaks extends GSRMapPath {
             lon: coords.lon,
             amplitude: peak.amplitude,
             trackId: track.id,
-            time: peak.time,
+            // Place time, the clock the graph shows.
+            time: peak.time - (track.analyzer.responseDelay || 0),
           });
         }
       }

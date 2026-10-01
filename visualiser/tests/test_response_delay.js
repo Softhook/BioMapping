@@ -420,6 +420,62 @@ test('3D wall: height and colour at a place come from its reading; EM fog stays 
   }
 });
 
+test('peak Street View: faces the way the walker was going at the place the peak is drawn', () => {
+  const { MapPopups } = require('../src/map/map_popups.mjs');
+  const a = walk({}, 0);
+  // A different heading on every row, so the row it is read from shows.
+  a.raw.forEach((r, i) => {
+    r.course = i % 360;
+  });
+  const pk = a.peaks[0];
+  for (const d of [0, 2, 5]) {
+    a.setResponseDelay(d);
+    assert.strictEqual(
+      MapPopups.getHeadingAtPeak(a, pk),
+      a.placeRowOf(pk.index) % 360,
+      `heading at ${d} s`,
+    );
+  }
+});
+
+test('Arousal Places "first visit": the time the walker was at the place, as on the graph', () => {
+  const { GSRMapPeaks } = require('../src/map/manager/peaks.mjs');
+  const proto = GSRMapPeaks.prototype;
+  const stub = () => ({ addTo() {}, bindPopup() {}, on() {} });
+  global.L = { polyline: stub };
+  const a = walk({}, 2);
+  const active = a.peaks.filter((p) => !p.excluded);
+  let single = null;
+  const mgr = {
+    map: { latLngToLayerPoint: () => ({ x: 0, y: 0 }) },
+    _buildPeakMarker: stub,
+    _registerTrackLayer() {},
+    _placesTrack: () => ({}),
+    _renderArousalPlacesFor: (peaks) => {
+      single = peaks;
+    },
+  };
+  proto._renderPeakMarkers.call(mgr, a, a.raw, null, {});
+  const group = [];
+  proto._renderCollectiveTrackPeaks.call(
+    mgr,
+    { id: 'w', analyzer: a },
+    { addLayer() {} },
+    '#f00',
+    group,
+  );
+  for (const [name, peaks] of [
+    ['single view', single],
+    ['group view', group],
+  ]) {
+    assert.deepStrictEqual(
+      peaks.map((p) => p.time),
+      active.map((p) => p.time - 2),
+      name,
+    );
+  }
+});
+
 // ── Nothing shifts time on its own ──────────────────────────────────────────
 
 test('no code outside the join shifts time itself', () => {

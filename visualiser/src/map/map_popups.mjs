@@ -35,10 +35,16 @@ export const MapPopups = {
     if (typeof popup._updatePosition === 'function') popup._updatePosition();
   },
 
+  /**
+   * The way the walker was facing at the place the peak is drawn (the
+   * Response delay back along the route), so Street View looks at what was
+   * in front of them when the response was caused.
+   */
   getHeadingAtPeak(analyzer, peak) {
     if (!analyzer || !peak) return 0;
 
-    const idx = peak.index;
+    const placeRow = analyzer.placeRowOf ? analyzer.placeRowOf(peak.index) : -1;
+    const idx = placeRow >= 0 ? placeRow : peak.index;
     const rawPoint = analyzer.raw[idx];
     if (rawPoint && !isNaN(rawPoint.course) && rawPoint.course !== null) {
       return rawPoint.course;
