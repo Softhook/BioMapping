@@ -1111,186 +1111,103 @@ export const OSMEnricher = {
   },
 
   /**
-   * Fill NaN gaps in analyzer.snappedGps by interpolating along the OSM road
-   * geometries when consecutive evaluation points match to the same or connected roads.
-   * Prevents straight-line paths cutting corners through buildings.
+   * Fill analyzer.snappedGps between the matched rows.
    *
-   * The ends are held out to the first/last row that has a position (see
-   * _positionedRange) and no further: rows before the first GPS fix or after
-   * the last have no position, so no snap either.
+   * Each matched row carries a shift: how far, and which way, the snap moves
+   * it (its road point minus the position the matcher was given). The rows in
+   * between take the shift and the snap weight linearly from the matched rows
+   * either side, applied to their own position. The snapped path is then the
+   * smoothed path plus a gradually changing shift, so it cannot jump at a row
+   * the matcher never looked at. Placing each in-between row on a road by
+   * itself let neighbouring rows land on different points, bends or roads
+   * from the matched rows beside them, and the drawn path zig-zagged.
+   *
+   * `positions` are the positions the matcher was given (the smoothed path);
+   * a row missing from it falls back to its raw fix. The ends are held out to
+   * the first/last row that has a position (see _positionedRange) and no
+   * further: rows before the first GPS fix or after the last have no
+   * position, so no snap either.
    */
   _interpolateSnappedGps(analyzer, raw, positions = null) {
     const sg = analyzer.snappedGps;
-    const GPS_MAX_GAP_S = 30;
-
-    // Collect valid indices
     const valid = [];
     for (let i = 0; i < sg.length; i++) {
-      if (!isNaN(sg[i].lat) && !isNaN(sg[i].lon)) {
-        valid.push(i);
-      }
+      if (!isNaN(sg[i].lat) && !isNaN(sg[i].lon)) valid.push(i);
     }
     if (valid.length === 0) return;
 
-    // Build way lookup map for geometry tracing
-    const wayMap = new Map();
-    if (analyzer.osmGeoms?.ways) {
-      for (const geom of analyzer.osmGeoms.ways) {
-        wayMap.set(geom.id, geom.coordinates);
+    const posAt = new Array(raw.length);
+    if (positions) {
+      for (const p of positions) {
+        if (Number.isFinite(p.lat) && Number.isFinite(p.lon)) posAt[p.idx] = p;
       }
     }
+    const pos = (i) => {
+      const p = posAt[i] || raw[i];
+      return p && Number.isFinite(p.lat) && Number.isFinite(p.lon) ? p : null;
+    };
+
+    const shifts = valid.map((k) => {
+      const e = sg[k];
+      const p = pos(k) || { lat: e.roadLat, lon: e.roadLon };
+      return {
+        dLat: e.roadLat - p.lat,
+        dLon: e.roadLon - p.lon,
+        alpha: e.alpha,
+        dist: e.dist,
+        wayId: e.wayId,
+      };
+    });
+
+    const place = (i, s) => {
+      const p = pos(i);
+      if (!p) {
+        sg[i] = { lat: NaN, lon: NaN };
+        return;
+      }
+      sg[i] = {
+        lat: p.lat + s.alpha * s.dLat,
+        lon: p.lon + s.alpha * s.dLon,
+        roadLat: p.lat + s.dLat,
+        roadLon: p.lon + s.dLon,
+        alpha: s.alpha,
+        dist: s.dist,
+        wayId: s.wayId,
+      };
+    };
 
     const { first: firstPos, last: lastPos } = this._positionedRange(
       raw,
       positions,
     );
+    for (let i = firstPos; i < valid[0]; i++) place(i, shifts[0]);
 
-    // Fill before first, back to the first row with a position
-    const first = valid[0];
-    for (let i = firstPos; i < first; i++) {
-      sg[i] = { ...sg[first] };
-    }
-
-    // Interpolate between valid points
     for (let k = 0; k < valid.length - 1; k++) {
-      const a = valid[k],
-        b = valid[k + 1];
-      const timeGap = raw[b].time - raw[a].time;
-      if (timeGap > GPS_MAX_GAP_S) {
-        for (let i = a + 1; i < b; i++) {
-          sg[i] = { lat: NaN, lon: NaN };
-        }
-      } else {
-        const wayIdA = sg[a].wayId;
-        const wayIdB = sg[b].wayId;
-        const coordsA = wayIdA ? wayMap.get(wayIdA) : null;
-        const coordsB = wayIdB ? wayMap.get(wayIdB) : null;
-
-        for (let i = a + 1; i < b; i++) {
-          const t = (i - a) / (b - a);
-          const rawPt = raw[i];
-          const rawLat = rawPt.lat;
-          const rawLon = rawPt.lon;
-          const hasGps = !isNaN(rawLat) && !isNaN(rawLon);
-
-          if (
-            wayIdA &&
-            wayIdB &&
-            wayIdA !== wayIdB &&
-            coordsA &&
-            coordsB &&
-            hasGps
-          ) {
-            // Project onto both ways and interpolate the results to prevent sudden jumps
-            const projA = this._projectToWay(rawLat, rawLon, coordsA);
-            const projB = this._projectToWay(rawLat, rawLon, coordsB);
-
-            const snapLat = (1 - t) * projA.snapLat + t * projB.snapLat;
-            const snapLon = (1 - t) * projA.snapLon + t * projB.snapLon;
-            const dist = (1 - t) * projA.dist + t * projB.dist;
-
-            const alphaA = sg[a].alpha;
-            const alphaB = sg[b].alpha;
-            const alpha = alphaA + t * (alphaB - alphaA);
-
-            sg[i] = {
-              lat: alpha * snapLat + (1 - alpha) * rawLat,
-              lon: alpha * snapLon + (1 - alpha) * rawLon,
-              roadLat: snapLat,
-              roadLon: snapLon,
-              alpha,
-              dist,
-              wayId: t < 0.5 ? wayIdA : wayIdB,
-            };
-          } else {
-            // Single way projection or fallback
-            let chosenWayId = null;
-            let chosenCoords = null;
-
-            if (wayIdA && wayIdB) {
-              if (wayIdA === wayIdB) {
-                chosenWayId = wayIdA;
-                chosenCoords = coordsA;
-              } else {
-                chosenWayId = t < 0.5 ? wayIdA : wayIdB;
-                chosenCoords = t < 0.5 ? coordsA : coordsB;
-              }
-            } else if (wayIdA) {
-              chosenWayId = wayIdA;
-              chosenCoords = coordsA;
-            } else if (wayIdB) {
-              chosenWayId = wayIdB;
-              chosenCoords = coordsB;
-            }
-
-            if (chosenCoords && hasGps) {
-              const proj = this._projectToWay(rawLat, rawLon, chosenCoords);
-              const alphaA = sg[a].alpha;
-              const alphaB = sg[b].alpha;
-              const alpha = alphaA + t * (alphaB - alphaA);
-
-              sg[i] = {
-                lat: alpha * proj.snapLat + (1 - alpha) * rawLat,
-                lon: alpha * proj.snapLon + (1 - alpha) * rawLon,
-                roadLat: proj.snapLat,
-                roadLon: proj.snapLon,
-                alpha,
-                dist: proj.dist,
-                wayId: chosenWayId,
-              };
-            } else {
-              // Fallback: simple linear interpolation of coordinates
-              sg[i] = {
-                lat: sg[a].lat + t * (sg[b].lat - sg[a].lat),
-                lon: sg[a].lon + t * (sg[b].lon - sg[a].lon),
-                roadLat: sg[a].roadLat + t * (sg[b].roadLat - sg[a].roadLat),
-                roadLon: sg[a].roadLon + t * (sg[b].roadLon - sg[a].roadLon),
-                alpha: sg[a].alpha + t * (sg[b].alpha - sg[a].alpha),
-                dist: sg[a].dist + t * (sg[b].dist - sg[a].dist),
-                wayId: t < 0.5 ? wayIdA : wayIdB,
-              };
-            }
-          }
-        }
+      const a = valid[k];
+      const b = valid[k + 1];
+      const A = shifts[k];
+      const B = shifts[k + 1];
+      for (let i = a + 1; i < b; i++) {
+        const t = (i - a) / (b - a);
+        const near = t < 0.5 ? A : B;
+        place(i, {
+          dLat: A.dLat + t * (B.dLat - A.dLat),
+          dLon: A.dLon + t * (B.dLon - A.dLon),
+          alpha: A.alpha + t * (B.alpha - A.alpha),
+          // A row matched to no road has no distance (Infinity) to blend.
+          dist:
+            Number.isFinite(A.dist) && Number.isFinite(B.dist)
+              ? A.dist + t * (B.dist - A.dist)
+              : near.dist,
+          wayId: near.wayId,
+        });
       }
     }
 
-    // Fill after last, up to the last row with a position
     const last = valid[valid.length - 1];
-    for (let i = last; i <= lastPos; i++) {
-      sg[i] = { ...sg[last] };
+    for (let i = last + 1; i <= lastPos; i++) {
+      place(i, shifts[shifts.length - 1]);
     }
-  },
-
-  /**
-   * Project a point onto the nearest segment of a way, returning the snapped
-   * lat/lon and distance to that segment.
-   */
-  _projectToWay(lat, lon, coords) {
-    let minDist = Infinity;
-    let bestSnapLat = lat;
-    let bestSnapLon = lon;
-
-    for (let i = 0; i < coords.length - 1; i++) {
-      const a = coords[i],
-        b = coords[i + 1];
-      const proj = GeoUtils.projectPointToSegment(
-        lat,
-        lon,
-        a.lat,
-        a.lon,
-        b.lat,
-        b.lon,
-      );
-
-      if (proj.distance < minDist) {
-        minDist = proj.distance;
-        bestSnapLat = proj.lat;
-        bestSnapLon = proj.lon;
-      }
-    }
-
-    return { snapLat: bestSnapLat, snapLon: bestSnapLon, dist: minDist };
   },
 
   /**

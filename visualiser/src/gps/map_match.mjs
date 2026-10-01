@@ -17,11 +17,15 @@
  *
  * Transition probability:
  *   Exponential penalty on the discrepancy between the straight-line GPS
- *   distance and the approximate route distance between two candidate
- *   positions.  Staying on the same road = tiny discrepancy = high
- *   probability.  Jumping to a parallel street = large discrepancy
- *   (the route would need to go around the block) = low probability.
- *   log p(rⱼ | rᵢ) = −|d_GPS − d_route| / β − log β
+ *   distance and the route distance between two candidate positions.
+ *   Staying on the same road = tiny discrepancy = high probability.
+ *   Jumping to a parallel street = large discrepancy (the route would need
+ *   to go around the block) = low probability.  Added to it: how far the
+ *   step between the two snap points differs, as a vector, from the GPS
+ *   step (_stepMismatchM).  Distance alone can't tell a snap point that
+ *   stands still, or steps back as far as the walker stepped forward, from
+ *   one that follows the walker; the step's direction can.
+ *   log p(rⱼ | rᵢ) = −(|d_GPS − d_route| + |Δgps − Δsnap|) / β − log β
  *
  * The combination of these two probabilities across the full sequence means:
  *   • One noisy GPS fix near a side street won't pull the path off the
@@ -30,16 +34,14 @@
  *     emission probabilities shifts to the new road after the turn.
  *
  * Design notes (pedestrian use):
- *   • Same-way d_route uses polygon tracing (_wayDistance); cross-way
- *     transit uses endpoint-junction routing (_routeDistViaJunction).
- *   • Cross-way routing only considers way endpoints — mid-segment
- *     T-junctions are not detected.  Ways that meet in the middle of
- *     another way will be treated as disconnected (1000 m penalty).
- *   • No explicit OSM-node connectivity check — endpoint proximity
- *     (≤ 5 m) serves as a proxy for a shared junction.  This is
- *     reliable for OSM data where junction nodes are snapped to the
- *     same coordinate.  Acceptable for pedestrian tracks where
- *     disconnected roads typically have large discrepancies.
+ *   • d_route is the shortest walk through the path network built from the
+ *     candidate ways (_buildGraph): ways join wherever they share a node,
+ *     at their ends or part-way along, as OSM junctions do.  Shared nodes
+ *     are found by coordinate (Junctions.nodeKey), since OSM puts a
+ *     junction's ways on the same node.  A way end left dangling within
+ *     JOIN_GAP_M of another way's node is joined to it too.
+ *   • Routes longer than the GPS step plus a margin aren't searched for
+ *     (see _routeLimitM): they count as no route (DISCONNECTED_PENALTY_M).
  *   • MAX_GAP_S expects raw[i].time in seconds (not milliseconds or ISO
  *     strings).  If timestamps are in a different unit the chain-breaking
  *     threshold will be wrong.
@@ -57,11 +59,18 @@ export const MapMatcher = {
    *  3–5 m works well for walking-speed tracks. */
   BETA_M: 3.0,
 
-  /** Route-distance penalty (metres) applied when two ways have no
-   *  shared junction (disconnected).  With β = 3.0 this adds ≈ −334
-   *  log-units, making cross-way transitions effectively impossible
-   *  without a valid junction. */
+  /** Route-distance penalty (metres) applied when no route joins two
+   *  candidates within the search limit.  With β = 3.0 this adds ≈ −334
+   *  log-units, making such transitions effectively impossible. */
   DISCONNECTED_PENALTY_M: 1000,
+
+  /** A way end this close (m) to another way's node is treated as joined to
+   *  it: paths are sometimes drawn up to a road without sharing its node. */
+  JOIN_GAP_M: 5,
+
+  /** Extra distance (m) searched beyond the GPS step and both candidates'
+   *  distance from their fixes (see _routeLimitM). */
+  ROUTE_SLACK_M: 20,
 
   /** Maximum candidate segments per GPS fix. */
   MAX_CANDS: 10,
@@ -70,22 +79,19 @@ export const MapMatcher = {
   MATCH_RADIUS: 50,
 
   /** Time gap (seconds) between consecutive eval points above which the
-   *  Viterbi transition is broken (sequence restarts from emission only). */
+   *  Viterbi transition is broken (sequence restarts from emission only),
+   *  provided the walker also moved more than MAX_GAP_MOVE_M across it. */
   MAX_GAP_S: 30,
+
+  /** A long gap only breaks the chain when the walker moved this far (m)
+   *  across it.  Eval points are thinned to one per 3 m, so a walker
+   *  standing still for 30 s leaves a long gap with no movement; restarting
+   *  there let the match flip to another road at every pause.  (GPS dropouts
+   *  are bridged in the smoothed path, so they don't leave gaps here.) */
+  MAX_GAP_MOVE_M: 30,
 
   /** Minimum fix separation (m) for a bearing to be trusted. */
   MIN_CHORD_M: 6,
-
-  /** Excursion run must depart from the travel direction by more than this.
-   *  Deliberately well under 90°: side roads meet at acute Y-junction angles too. */
-  EXCURSION_ANGLE_DEG: 25,
-
-  /** A run bridging two unconnected ways is kept unless its fixes sit this much
-   *  further (m, mean) from it than from the best alternative. */
-  BRIDGE_FIT_MARGIN_M: 2,
-
-  /** Longest run (m of raw travel) still treated as a passing glitch rather than a real detour. */
-  EXCURSION_MAX_M: 60,
 
   /**
    * Run HMM-Viterbi map matching over a sequence of GPS evaluation points.
@@ -103,9 +109,9 @@ export const MapMatcher = {
     if (n === 0) return new Map();
 
     const allCands = this._collectAllCandidates(evalPoints, raw, radius);
-    const { V, B } = this._viterbiForward(evalPoints, raw, allCands);
+    const graph = this._buildGraph(allCands);
+    const { V, B } = this._viterbiForward(evalPoints, raw, allCands, graph);
     const path = this._viterbiBacktrace(V, B, allCands);
-    this._removeSideRoadExcursions(evalPoints, path, allCands, radius);
     return this._buildResultsMap(evalPoints, path, allCands, radius);
   },
 
@@ -149,7 +155,7 @@ export const MapMatcher = {
    * V[t] = Float64Array of log-probs for each candidate at time t.
    * B[t] = Int32Array of backpointers into allCands[t-1].
    */
-  _viterbiForward(evalPoints, raw, allCands) {
+  _viterbiForward(evalPoints, raw, allCands, graph) {
     const n = evalPoints.length;
     const V = new Array(n);
     const B = new Array(n);
@@ -173,19 +179,25 @@ export const MapMatcher = {
         continue;
       }
 
-      // If the GPS sequence has a large time gap, break the Markov chain —
-      // the transition probability should not carry across a 30 s gap.
-      const tPrev = raw[evalPoints[t - 1].idx]?.time || 0;
-      const tCurr = raw[evalPoints[t].idx]?.time || 0;
-      const broken = tCurr - tPrev > this.MAX_GAP_S || prevCands.length === 0;
-
       const gLat1 = evalPoints[t - 1].lat;
       const gLon1 = evalPoints[t - 1].lon;
       const gLat2 = evalPoints[t].lat;
       const gLon2 = evalPoints[t].lon;
+      const dGPS = this._haversineM(gLat1, gLon1, gLat2, gLon2);
+
+      // A long time gap across which the walker also moved far breaks the
+      // Markov chain: the transition can't be judged across it.
+      const tPrev = raw[evalPoints[t - 1].idx]?.time || 0;
+      const tCurr = raw[evalPoints[t].idx]?.time || 0;
+      const broken =
+        (tCurr - tPrev > this.MAX_GAP_S && dGPS > this.MAX_GAP_MOVE_M) ||
+        prevCands.length === 0;
 
       const vCurr = new Float64Array(currCands.length);
       const bCurr = new Int32Array(currCands.length).fill(-1);
+      // Network distances from each previous candidate, searched on first use.
+      const limit = this._routeLimitM(dGPS, prevCands, currCands);
+      const routes = new Array(prevCands.length);
 
       for (let j = 0; j < currCands.length; j++) {
         const logE = this._logEmit(
@@ -205,13 +217,19 @@ export const MapMatcher = {
 
         for (let i = 0; i < prevCands.length; i++) {
           if (!isFinite(vPrev[i])) continue;
+          if (!routes[i])
+            routes[i] = this._routesFrom(graph, prevCands[i], limit);
           const logT = this._logTrans(
-            prevCands[i],
-            currCands[j],
-            gLat1,
-            gLon1,
-            gLat2,
-            gLon2,
+            dGPS,
+            this._routeDist(prevCands[i], currCands[j], routes[i]),
+            this._stepMismatchM(
+              prevCands[i],
+              currCands[j],
+              gLat1,
+              gLon1,
+              gLat2,
+              gLon2,
+            ),
           );
           const score = vPrev[i] + logT;
           if (score > bestScore) {
@@ -360,108 +378,6 @@ export const MapMatcher = {
   },
 
   /**
-   * Post-pass safety net: a run of fixes matched to a side way S, bracketed by
-   * two other ways, while the walker's overall travel across that run ran
-   * AWAY from S's direction (by more than EXCURSION_ANGLE_DEG, not
-   * necessarily 90°), is a glitch (a walker passing a junction, not turning
-   * into it).  Those fixes are re-assigned to their best
-   * non-S candidate.  Runs where no alternative road exists for every fix,
-   * or where travel is too short to give a direction (a genuine U-turn),
-   * are left alone.  Mutates `path`.
-   */
-  _removeSideRoadExcursions(pts, path, allCands, radius) {
-    const n = path.length;
-    const wayAt = (t) =>
-      path[t] >= 0 && allCands[t][path[t]] ? allCands[t][path[t]].wayId : null;
-    const limit = (this.EXCURSION_ANGLE_DEG * Math.PI) / 180;
-
-    let s = 1;
-    while (s < n - 1) {
-      const w = wayAt(s);
-      if (w == null || w === wayAt(s - 1)) {
-        s++;
-        continue;
-      }
-      let e = s;
-      while (e + 1 < n && wayAt(e + 1) === w) e++;
-      const before = wayAt(s - 1);
-      const after = e + 1 < n ? wayAt(e + 1) : null;
-      if (before != null && after != null && after !== w) {
-        const repl = this._bestAlternatives(allCands, s, e, w, radius);
-        // If the roads either side of the run don't meet directly, the run is
-        // the only route between them: the walker genuinely turned onto it,
-        // provided the fixes actually sit on it (topology alone can be wrong
-        // where footway networks are poorly connected).
-        const bridged =
-          before !== after &&
-          !Junctions.waysShareNode(
-            allCands[s - 1][path[s - 1]].coords,
-            allCands[e + 1][path[e + 1]].coords,
-          );
-        if (bridged && this._runFitsAsWell(allCands, path, s, e, repl)) {
-          s = e + 1;
-          continue;
-        }
-        const a = pts[s - 1];
-        const b = pts[e + 1];
-        const travel = this._haversineM(a.lat, a.lon, b.lat, b.lon);
-        if (travel >= this.MIN_CHORD_M && travel <= this.EXCURSION_MAX_M) {
-          const dir = this._segmentBearing(a.lat, a.lon, b.lat, b.lon);
-          const mid = (s + e) >> 1;
-          const seg = allCands[mid][path[mid]];
-          const sb = this._segmentBearing(
-            seg.coords[seg.segIdx].lat,
-            seg.coords[seg.segIdx].lon,
-            seg.coords[seg.segIdx + 1].lat,
-            seg.coords[seg.segIdx + 1].lon,
-          );
-          const diff = Math.min(
-            this._angularDiff(dir, sb),
-            this._angularDiff(dir, sb + Math.PI),
-          );
-          if (diff > limit && repl.every((j) => j >= 0)) {
-            repl.forEach((j, k) => {
-              path[s + k] = j;
-            });
-          }
-        }
-      }
-      s = e + 1;
-    }
-  },
-
-  /** Best non-`w` candidate index for each fix in [s, e] (-1 where none in range). */
-  _bestAlternatives(allCands, s, e, w, radius) {
-    const repl = [];
-    for (let t = s; t <= e; t++) {
-      let bi = -1;
-      let bs = -Infinity;
-      allCands[t].forEach((c, j) => {
-        if (c.wayId === w || c.dist > radius) return;
-        const sc = this._logEmit(c.dist, c.bearingDiffRad);
-        if (sc > bs) {
-          bs = sc;
-          bi = j;
-        }
-      });
-      repl.push(bi);
-    }
-    return repl;
-  },
-
-  /** True when the matched run [s, e] sits no materially further from the fixes than `repl`. */
-  _runFitsAsWell(allCands, path, s, e, repl) {
-    if (!repl.every((j) => j >= 0)) return true;
-    let own = 0;
-    let alt = 0;
-    for (let t = s; t <= e; t++) {
-      own += allCands[t][path[t]].dist;
-      alt += allCands[t][repl[t - s]].dist;
-    }
-    return (own - alt) / (e - s + 1) <= this.BRIDGE_FIT_MARGIN_M;
-  },
-
-  /**
    * Find and rank candidate road segments for a GPS fix.
    * Projects the fix onto every segment of every highway way within
    * radiusM metres and returns up to MAX_CANDS, sorted by effective
@@ -519,7 +435,6 @@ export const MapMatcher = {
           snapLon: proj.lon,
           dist,
           effDist,
-          endpoints: [coords[0], coords[coords.length - 1]],
           coords: coords,
           bearingDiffRad,
         });
@@ -564,153 +479,184 @@ export const MapMatcher = {
   },
 
   /**
-   * Log transition probability (Newson & Krumm 2009).
-   * Calculates route distance using topological road-network distance.
+   * Log transition probability (Newson & Krumm 2009): exponential in the
+   * mismatch between the GPS step and the walk through the path network,
+   * plus the step mismatch (see _stepMismatchM).  dRoute = Infinity (no
+   * route found) takes DISCONNECTED_PENALTY_M.
    */
-  _logTrans(c1, c2, gLat1, gLon1, gLat2, gLon2) {
-    const dGPS = this._haversineM(gLat1, gLon1, gLat2, gLon2);
-
-    let dRoute;
-    if (c1.wayId === c2.wayId) {
-      dRoute = this._wayDistance(c1, c2);
-    } else {
-      dRoute = this._routeDistViaJunction(c1, c2);
-    }
-
-    let dt;
-    if (dRoute === Infinity) {
-      // Disconnected ways — apply a heavy topological penalty.
-      dt = this.DISCONNECTED_PENALTY_M;
-    } else {
-      dt = Math.abs(dGPS - dRoute);
-    }
-
+  _logTrans(dGPS, dRoute, stepM = 0) {
+    const dt =
+      dRoute === Infinity
+        ? this.DISCONNECTED_PENALTY_M
+        : Math.abs(dGPS - dRoute);
     const beta = this.BETA_M;
-    return -(dt / beta) - Math.log(beta);
+    return -((dt + stepM) / beta) - Math.log(beta);
   },
 
   /**
-   * Trace exact path distance along a way's segments between two candidate snaps.
+   * How far (m) the step from c1's snap point to c2's differs, as a vector,
+   * from the GPS step between the two fixes.  0 when the snap moves exactly
+   * as the walker did (e.g. a road parallel to the walk at a constant
+   * offset).  A snap point held at a corner while the walker carries on, or
+   * stepping sideways onto another road, costs the distance it falls out of
+   * step.  Flat-earth metres: steps are a few metres long.
    */
-  _wayDistance(c1, c2) {
-    if (c1.wayId !== c2.wayId) return Infinity;
-    const coords = c1.coords;
-    const i = c1.segIdx;
-    const j = c2.segIdx;
-
-    if (i === j) {
-      return this._haversineM(c1.snapLat, c1.snapLon, c2.snapLat, c2.snapLon);
-    }
-
-    let dist = 0;
-    if (i < j) {
-      dist += this._haversineM(
-        c1.snapLat,
-        c1.snapLon,
-        coords[i + 1].lat,
-        coords[i + 1].lon,
-      );
-      for (let k = i + 1; k < j; k++) {
-        dist += this._haversineM(
-          coords[k].lat,
-          coords[k].lon,
-          coords[k + 1].lat,
-          coords[k + 1].lon,
-        );
-      }
-      dist += this._haversineM(
-        coords[j].lat,
-        coords[j].lon,
-        c2.snapLat,
-        c2.snapLon,
-      );
-    } else {
-      dist += this._haversineM(
-        c1.snapLat,
-        c1.snapLon,
-        coords[i].lat,
-        coords[i].lon,
-      );
-      for (let k = i - 1; k > j; k--) {
-        dist += this._haversineM(
-          coords[k + 1].lat,
-          coords[k + 1].lon,
-          coords[k].lat,
-          coords[k].lon,
-        );
-      }
-      dist += this._haversineM(
-        coords[j + 1].lat,
-        coords[j + 1].lon,
-        c2.snapLat,
-        c2.snapLon,
-      );
-    }
-    return dist;
+  _stepMismatchM(c1, c2, gLat1, gLon1, gLat2, gLon2) {
+    const my = GeoUtils.METERS_PER_DEG_LAT;
+    const mx = my * Math.cos((gLat1 * Math.PI) / 180);
+    const dx = (gLon2 - gLon1 - (c2.snapLon - c1.snapLon)) * mx;
+    const dy = (gLat2 - gLat1 - (c2.snapLat - c1.snapLat)) * my;
+    return Math.hypot(dx, dy);
   },
 
   /**
-   * Approximate route distance from a point on c1 to a point on c2,
-   * travelling through their nearest shared junction.
-   *
-   * LIMITATION: Only considers way endpoints.  Mid-segment junctions
-   * (e.g. a T-junction where one way ends in the middle of another)
-   * are not detected and will return Infinity.
+   * Path network of every way that appears as a candidate: one graph node
+   * per distinct coordinate (Junctions.nodeKey), so ways that share a node —
+   * at their ends or part-way along — are joined there.  A dangling way end
+   * is also joined to the nearest node of another way within JOIN_GAP_M.
+   * @returns {Map<string, {lat:number, lon:number, edges:Array<{key:string, m:number}>, ways:Set}>}
    */
-  _routeDistViaJunction(c1, c2) {
-    const ends1 = c1.endpoints;
-    const ends2 = c2.endpoints;
+  _buildGraph(allCands) {
+    const ways = new Map();
+    for (const cands of allCands) {
+      for (const c of cands)
+        if (!ways.has(c.wayId)) ways.set(c.wayId, c.coords);
+    }
+    const nodes = new Map();
+    const nodeAt = (p) => {
+      const key = Junctions.nodeKey(p.lat, p.lon);
+      let n = nodes.get(key);
+      if (!n) {
+        n = { lat: p.lat, lon: p.lon, edges: [], ways: new Set() };
+        nodes.set(key, n);
+      }
+      return key;
+    };
+    const link = (ka, kb, m) => {
+      nodes.get(ka).edges.push({ key: kb, m });
+      nodes.get(kb).edges.push({ key: ka, m });
+    };
+    for (const [id, coords] of ways) {
+      let prev = nodeAt(coords[0]);
+      nodes.get(prev).ways.add(id);
+      for (let i = 1; i < coords.length; i++) {
+        const key = nodeAt(coords[i]);
+        nodes.get(key).ways.add(id);
+        if (key !== prev) {
+          const a = coords[i - 1];
+          const b = coords[i];
+          link(prev, key, this._haversineM(a.lat, a.lon, b.lat, b.lon));
+        }
+        prev = key;
+      }
+    }
 
-    let minD = Infinity;
-    let bestE1 = null;
-    let bestE2 = null;
+    // Grid of nodes (cells ≈ 11 m tall, ≥ JOIN_GAP_M wide at UK latitudes)
+    // so each dangling end only checks its neighbourhood.
+    const CELL = 0.0001;
+    const cellKey = (lat, lon) =>
+      `${Math.floor(lat / CELL)},${Math.floor(lon / CELL)}`;
+    const grid = new Map();
+    for (const [key, n] of nodes) {
+      const ck = cellKey(n.lat, n.lon);
+      if (!grid.has(ck)) grid.set(ck, []);
+      grid.get(ck).push(key);
+    }
+    for (const [id, coords] of ways) {
+      for (const p of [coords[0], coords[coords.length - 1]]) {
+        const key = Junctions.nodeKey(p.lat, p.lon);
+        const n = nodes.get(key);
+        if (n.ways.size > 1) continue;
+        let best = null;
+        let bestM = this.JOIN_GAP_M;
+        const ci = Math.floor(p.lat / CELL);
+        const cj = Math.floor(p.lon / CELL);
+        for (let di = -1; di <= 1; di++) {
+          for (let dj = -1; dj <= 1; dj++) {
+            for (const k2 of grid.get(`${ci + di},${cj + dj}`) || []) {
+              const n2 = nodes.get(k2);
+              if (n2.ways.has(id)) continue;
+              const m = this._haversineM(p.lat, p.lon, n2.lat, n2.lon);
+              if (m <= bestM) {
+                bestM = m;
+                best = k2;
+              }
+            }
+          }
+        }
+        if (best) link(key, best, bestM);
+      }
+    }
+    return nodes;
+  },
 
-    for (const e1 of ends1) {
-      for (const e2 of ends2) {
-        const d = this._haversineM(e1.lat, e1.lon, e2.lat, e2.lon);
-        if (d < minD) {
-          minD = d;
-          bestE1 = e1;
-          bestE2 = e2;
+  /**
+   * How far to search the network for routes between two steps' candidates:
+   * the GPS step, plus the furthest either step's candidates sit from their
+   * fix (the route runs between snap points, not fixes), plus ROUTE_SLACK_M.
+   */
+  _routeLimitM(dGPS, prevCands, currCands) {
+    let far = 0;
+    for (const c of prevCands) far = Math.max(far, c.dist);
+    let far2 = 0;
+    for (const c of currCands) far2 = Math.max(far2, c.dist);
+    return dGPS + far + far2 + this.ROUTE_SLACK_M;
+  },
+
+  /**
+   * Network distance (m) from candidate c's snap point to every node within
+   * limitM (Dijkstra).  The search starts at both ends of c's segment.
+   * @returns {Map<string, number>}
+   */
+  _routesFrom(graph, c, limitM) {
+    const done = new Map();
+    const open = new Map();
+    for (const p of [c.coords[c.segIdx], c.coords[c.segIdx + 1]]) {
+      const key = Junctions.nodeKey(p.lat, p.lon);
+      const m = this._haversineM(c.snapLat, c.snapLon, p.lat, p.lon);
+      if (!(open.get(key) <= m)) open.set(key, m);
+    }
+    while (open.size > 0) {
+      let key = null;
+      let m = Infinity;
+      for (const [k, v] of open) {
+        if (v < m) {
+          m = v;
+          key = k;
         }
       }
+      open.delete(key);
+      if (m > limitM) break;
+      done.set(key, m);
+      for (const e of graph.get(key)?.edges || []) {
+        if (done.has(e.key)) continue;
+        const next = m + e.m;
+        if (!(open.get(e.key) <= next)) open.set(e.key, next);
+      }
     }
+    return done;
+  },
 
-    // Ways are considered connected if their nearest endpoints are
-    // within 5 m — tight enough that only genuine OSM junction nodes
-    // (snapped to the same coordinate) pass.  Larger values risk
-    // false connections between nearby but unconnected parallel roads.
-    if (minD > 5) {
-      return Infinity;
+  /**
+   * Walking distance (m) from c1's snap point to c2's, given c1's network
+   * distances (_routesFrom).  Two snaps on the same segment are a straight
+   * step.  Infinity when no route was found within the search limit.
+   */
+  _routeDist(c1, c2, routes) {
+    if (c1.wayId === c2.wayId && c1.segIdx === c2.segIdx) {
+      return this._haversineM(c1.snapLat, c1.snapLon, c2.snapLat, c2.snapLon);
     }
-
-    // Determine which endpoint of each way is the junction and compute
-    // the distance from the candidate snap to that endpoint along the way.
-    // Use value equality (lat + lon) rather than reference equality so
-    // the comparison survives coordinate cloning.
-    const isStart1 =
-      bestE1.lat === c1.coords[0].lat && bestE1.lon === c1.coords[0].lon;
-    const junctionCand1 = {
-      wayId: c1.wayId,
-      coords: c1.coords,
-      segIdx: isStart1 ? 0 : c1.coords.length - 2,
-      snapLat: bestE1.lat,
-      snapLon: bestE1.lon,
-    };
-    const d1 = this._wayDistance(c1, junctionCand1);
-
-    const isStart2 =
-      bestE2.lat === c2.coords[0].lat && bestE2.lon === c2.coords[0].lon;
-    const junctionCand2 = {
-      wayId: c2.wayId,
-      coords: c2.coords,
-      segIdx: isStart2 ? 0 : c2.coords.length - 2,
-      snapLat: bestE2.lat,
-      snapLon: bestE2.lon,
-    };
-    const d2 = this._wayDistance(junctionCand2, c2);
-
-    return d1 + minD + d2;
+    let best = Infinity;
+    for (const p of [c2.coords[c2.segIdx], c2.coords[c2.segIdx + 1]]) {
+      const m = routes.get(Junctions.nodeKey(p.lat, p.lon));
+      if (m !== undefined) {
+        best = Math.min(
+          best,
+          m + this._haversineM(p.lat, p.lon, c2.snapLat, c2.snapLon),
+        );
+      }
+    }
+    return best;
   },
 
   /**

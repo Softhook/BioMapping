@@ -1965,111 +1965,30 @@ console.log('\n── OSMEnricher: enrichTrack (integration, no snapping) ──
 }
 
 // ════════════════════════════════════════════════════════════════════════
-//  8. OSMEnricher — _projectToWay / _interpolateSnappedGps (road-snap gap fill)
+//  8. OSMEnricher — _interpolateSnappedGps (road-snap gap fill)
 // ════════════════════════════════════════════════════════════════════════
-console.log('\n── OSMEnricher: _projectToWay / _interpolateSnappedGps ──');
+console.log('\n── OSMEnricher: _interpolateSnappedGps ──');
 
-// A two-point way (straight N-S segment) and an L-shaped 3-point way, shared
-// across the cases below.
-const STRAIGHT_WAY = [
-  { lat: 51.5, lon: -0.1 },
-  { lat: 51.501, lon: -0.1 },
-];
-const L_SHAPED_WAY = [
-  { lat: 51.5, lon: -0.1 },
-  { lat: 51.501, lon: -0.1 },
-  { lat: 51.501, lon: -0.098 },
-];
-// A second straight N-S way, parallel to STRAIGHT_WAY but 0.0020° further west
-// — used for the dual-way-blend cases below.
-const PARALLEL_WAY = [
-  { lat: 51.5, lon: -0.102 },
-  { lat: 51.501, lon: -0.102 },
-];
-
-// 8a. _projectToWay — single-segment way matches GeoUtils.projectPointToSegment directly
-{
-  const expected = GeoUtils.projectPointToSegment(
-    51.5005,
-    -0.0995,
-    51.5,
-    -0.1,
-    51.501,
-    -0.1,
-  );
-  const got = OSMEnricher._projectToWay(51.5005, -0.0995, STRAIGHT_WAY);
-  assertClose(
-    got.dist,
-    expected.distance,
-    1e-9,
-    '_projectToWay — single segment, distance matches GeoUtils directly',
-  );
-  assertClose(
-    got.snapLat,
-    expected.lat,
-    1e-9,
-    '_projectToWay — single segment, snapLat matches GeoUtils directly',
-  );
-  assertClose(
-    got.snapLon,
-    expected.lon,
-    1e-9,
-    '_projectToWay — single segment, snapLon matches GeoUtils directly',
-  );
-}
-
-// 8b. _projectToWay — multi-segment way picks the minimum-distance segment, not just segment 0
-{
-  const testLat = 51.501,
-    testLon = -0.099; // sits on the L's second (E-W) leg
-  const proj0 = GeoUtils.projectPointToSegment(
-    testLat,
-    testLon,
-    L_SHAPED_WAY[0].lat,
-    L_SHAPED_WAY[0].lon,
-    L_SHAPED_WAY[1].lat,
-    L_SHAPED_WAY[1].lon,
-  );
-  const proj1 = GeoUtils.projectPointToSegment(
-    testLat,
-    testLon,
-    L_SHAPED_WAY[1].lat,
-    L_SHAPED_WAY[1].lon,
-    L_SHAPED_WAY[2].lat,
-    L_SHAPED_WAY[2].lon,
-  );
-  assert(
-    proj1.distance < proj0.distance,
-    'Sanity: fixture point is genuinely closer to the second leg than the first',
-  );
-
-  const got = OSMEnricher._projectToWay(testLat, testLon, L_SHAPED_WAY);
-  assertClose(
-    got.dist,
-    proj1.distance,
-    1e-9,
-    '_projectToWay — multi-segment way picks the closer (second) segment, not segment 0',
-  );
-  assertClose(
-    got.snapLat,
-    proj1.lat,
-    1e-9,
-    "_projectToWay — multi-segment way returns the closer segment's snapLat",
-  );
-  assertClose(
-    got.snapLon,
-    proj1.lon,
-    1e-9,
-    "_projectToWay — multi-segment way returns the closer segment's snapLon",
-  );
-}
-
-function wayMapFor(...ways) {
-  const idsAndCoords = ways; // [{id, coordinates}, ...]
+// A matched row: `pos` is the position the matcher was given, the road point
+// sits `shiftLat` north of it, and the snapped position is `alpha` of the way there.
+function matched(
+  pos,
+  shiftLat,
+  alpha,
+  wayId,
+  dist = Math.abs(shiftLat) * 111320,
+) {
   return {
-    ways: idsAndCoords.map((w) => ({ id: w.id, coordinates: w.coordinates })),
+    lat: pos.lat + alpha * shiftLat,
+    lon: pos.lon,
+    roadLat: pos.lat + shiftLat,
+    roadLon: pos.lon,
+    alpha,
+    dist,
+    wayId,
   };
 }
+const NAN_ROW = () => ({ lat: NaN, lon: NaN });
 
 // 8c. _interpolateSnappedGps — no valid entries at all is a no-op
 {
@@ -2087,11 +2006,12 @@ function wayMapFor(...ways) {
   );
 }
 
-// 8d. _interpolateSnappedGps — fills every positioned index before the first
-// valid one with a distinct copy of that first valid entry's values.
+// 8d. _interpolateSnappedGps — every positioned row before the first matched
+// one takes that row's shift and weight: rows at the same position snap to
+// the same place, each in its own object.
 {
   const anchor = {
-    lat: 51.5005,
+    lat: 51.5004, // 0.8 of the way from its position (51.5) to the road
     lon: -0.1,
     roadLat: 51.5005,
     roadLon: -0.1,
@@ -2110,12 +2030,12 @@ function wayMapFor(...ways) {
   assertEq(
     sg[0].lat,
     anchor.lat,
-    "_interpolateSnappedGps — fill-before-first copies the first valid entry's lat",
+    '_interpolateSnappedGps — fill-before-first: a row at the same position snaps to the same place',
   );
   assertEq(
     sg[1].wayId,
     anchor.wayId,
-    "_interpolateSnappedGps — fill-before-first copies the first valid entry's wayId",
+    "_interpolateSnappedGps — fill-before-first takes the first matched row's wayId",
   );
   assert(
     sg[0] !== anchor && sg[1] !== anchor && sg[0] !== sg[1],
@@ -2123,11 +2043,11 @@ function wayMapFor(...ways) {
   );
 }
 
-// 8e. _interpolateSnappedGps — fills every positioned index from the last valid
-// one onward (including re-copying the last valid entry itself into a fresh object).
+// 8e. _interpolateSnappedGps — every positioned row after the last matched one
+// takes its shift and weight; the matched row itself is left as it was.
 {
   const anchor = {
-    lat: 51.5001,
+    lat: 51.50005, // halfway from its position (51.5) to the road
     lon: -0.1,
     roadLat: 51.5001,
     roadLon: -0.1,
@@ -2147,21 +2067,16 @@ function wayMapFor(...ways) {
   assertEq(
     sg[1].lat,
     anchor.lat,
-    "_interpolateSnappedGps — fill-after-last copies the last valid entry's lat forward",
+    '_interpolateSnappedGps — fill-after-last: a row at the same position snaps to the same place',
   );
   assertEq(
     sg[2].wayId,
     anchor.wayId,
-    "_interpolateSnappedGps — fill-after-last copies the last valid entry's wayId forward",
-  );
-  assertEq(
-    sg[0].lat,
-    anchor.lat,
-    '_interpolateSnappedGps — the last valid entry itself keeps its own values after the fill-forward pass',
+    "_interpolateSnappedGps — fill-after-last takes the last matched row's wayId",
   );
   assert(
-    sg[0] !== originalAnchorRef,
-    '_interpolateSnappedGps — the last valid entry is reassigned to a fresh object, not left as the original reference',
+    sg[0] === originalAnchorRef,
+    '_interpolateSnappedGps — the matched row itself is left untouched',
   );
 }
 
@@ -2212,411 +2127,166 @@ function wayMapFor(...ways) {
   );
 }
 
-// 8f. _interpolateSnappedGps — a >30s time gap between two valid anchors fills
-// the gap with bare {lat: NaN, lon: NaN}, not the full snap-result shape.
+// 8f. _interpolateSnappedGps — an in-between row is its own position plus the
+// shift and weight blended from the matched rows either side.
 {
-  const a = {
-    lat: 51.5,
-    lon: -0.1,
-    roadLat: 51.5,
-    roadLon: -0.1,
-    alpha: 0.5,
-    dist: 1,
-    wayId: 100,
-  };
-  const b = {
-    lat: 51.501,
-    lon: -0.1,
-    roadLat: 51.501,
-    roadLon: -0.1,
-    alpha: 0.5,
-    dist: 1,
-    wayId: 100,
-  };
-  const sg = [a, { lat: NaN, lon: NaN }, b];
-  const analyzer = {
-    snappedGps: sg,
-    osmGeoms: { ways: [{ id: 100, coordinates: STRAIGHT_WAY }] },
-  };
-  const raw = [{ time: 0 }, { time: 15 }, { time: 40 }]; // 40s gap > GPS_MAX_GAP_S (30s)
-  OSMEnricher._interpolateSnappedGps(analyzer, raw);
-  assert(
-    isNaN(sg[1].lat) && isNaN(sg[1].lon),
-    '_interpolateSnappedGps — gap point stays NaN across a >30s time gap',
-  );
-  assertEq(
+  const raw = [
+    { time: 0, lat: 51.5, lon: -0.1 },
+    { time: 1, lat: 51.5005, lon: -0.1002 },
+    { time: 2, lat: 51.501, lon: -0.1 },
+  ];
+  const sg = [
+    matched(raw[0], 0.00002, 0.6, 100),
+    NAN_ROW(),
+    matched(raw[2], 0.00006, 1.0, 100),
+  ];
+  OSMEnricher._interpolateSnappedGps({ snappedGps: sg }, raw);
+  // Halfway: shift 0.00004, weight 0.8.
+  assertClose(
     sg[1].roadLat,
-    undefined,
-    '_interpolateSnappedGps — >30s gap fill is the bare {lat,lon} shape, not the full 6-key snap-result shape',
+    51.5005 + 0.00004,
+    1e-12,
+    '_interpolateSnappedGps — road point is the row position plus the blended shift',
   );
-}
-
-// 8g. _interpolateSnappedGps — different way IDs on both ends, with real GPS at
-// the gap point, blends both ways' projections and switches wayId at t=0.5.
-{
-  const sg = [
-    {
-      lat: 51.5,
-      lon: -0.1,
-      roadLat: 51.5,
-      roadLon: -0.1,
-      alpha: 0.6,
-      dist: 0,
-      wayId: 100,
-    },
-    { lat: NaN, lon: NaN },
-    { lat: NaN, lon: NaN },
-    {
-      lat: 51.501,
-      lon: -0.102,
-      roadLat: 51.501,
-      roadLon: -0.102,
-      alpha: 1.0,
-      dist: 0,
-      wayId: 200,
-    },
-  ];
-  const analyzer = {
-    snappedGps: sg,
-    osmGeoms: wayMapFor(
-      { id: 100, coordinates: STRAIGHT_WAY },
-      { id: 200, coordinates: PARALLEL_WAY },
-    ),
-  };
-  const raw = [
-    { time: 0, lat: 51.5, lon: -0.101 },
-    { time: 1, lat: 51.5003, lon: -0.101 },
-    { time: 2, lat: 51.5007, lon: -0.101 },
-    { time: 3, lat: 51.501, lon: -0.101 },
-  ];
-  OSMEnricher._interpolateSnappedGps(analyzer, raw);
-
-  // i=1: t=1/3 < 0.5 → expect wayId to still read the near (A) side
-  {
-    const t = 1 / 3;
-    const projA = GeoUtils.projectPointToSegment(
-      raw[1].lat,
-      raw[1].lon,
-      STRAIGHT_WAY[0].lat,
-      STRAIGHT_WAY[0].lon,
-      STRAIGHT_WAY[1].lat,
-      STRAIGHT_WAY[1].lon,
-    );
-    const projB = GeoUtils.projectPointToSegment(
-      raw[1].lat,
-      raw[1].lon,
-      PARALLEL_WAY[0].lat,
-      PARALLEL_WAY[0].lon,
-      PARALLEL_WAY[1].lat,
-      PARALLEL_WAY[1].lon,
-    );
-    const snapLat = (1 - t) * projA.lat + t * projB.lat;
-    const snapLon = (1 - t) * projA.lon + t * projB.lon;
-    const alpha = 0.6 + t * (1.0 - 0.6);
-    const expLat = alpha * snapLat + (1 - alpha) * raw[1].lat;
-    const expLon = alpha * snapLon + (1 - alpha) * raw[1].lon;
-    assertClose(
-      sg[1].lat,
-      expLat,
-      1e-9,
-      '_interpolateSnappedGps — dual-way blend (t<0.5) matches hand-computed blended lat',
-    );
-    assertClose(
-      sg[1].lon,
-      expLon,
-      1e-9,
-      '_interpolateSnappedGps — dual-way blend (t<0.5) matches hand-computed blended lon',
-    );
-    assertEq(
-      sg[1].wayId,
-      100,
-      '_interpolateSnappedGps — dual-way blend reports the near-side wayId while t<0.5',
-    );
-  }
-  // i=2: t=2/3 >= 0.5 → expect wayId to switch to the far (B) side
-  {
-    const t = 2 / 3;
-    const projA = GeoUtils.projectPointToSegment(
-      raw[2].lat,
-      raw[2].lon,
-      STRAIGHT_WAY[0].lat,
-      STRAIGHT_WAY[0].lon,
-      STRAIGHT_WAY[1].lat,
-      STRAIGHT_WAY[1].lon,
-    );
-    const projB = GeoUtils.projectPointToSegment(
-      raw[2].lat,
-      raw[2].lon,
-      PARALLEL_WAY[0].lat,
-      PARALLEL_WAY[0].lon,
-      PARALLEL_WAY[1].lat,
-      PARALLEL_WAY[1].lon,
-    );
-    const snapLat = (1 - t) * projA.lat + t * projB.lat;
-    const snapLon = (1 - t) * projA.lon + t * projB.lon;
-    const alpha = 0.6 + t * (1.0 - 0.6);
-    const expLat = alpha * snapLat + (1 - alpha) * raw[2].lat;
-    const expLon = alpha * snapLon + (1 - alpha) * raw[2].lon;
-    assertClose(
-      sg[2].lat,
-      expLat,
-      1e-9,
-      '_interpolateSnappedGps — dual-way blend (t>=0.5) matches hand-computed blended lat',
-    );
-    assertClose(
-      sg[2].lon,
-      expLon,
-      1e-9,
-      '_interpolateSnappedGps — dual-way blend (t>=0.5) matches hand-computed blended lon',
-    );
-    assertEq(
-      sg[2].wayId,
-      200,
-      '_interpolateSnappedGps — dual-way blend switches to the far-side wayId once t>=0.5',
-    );
-  }
-}
-
-// 8h. _interpolateSnappedGps — same way ID on both ends projects onto that one
-// way and lerps alpha between the two endpoints.
-{
-  const sg = [
-    {
-      lat: 51.5,
-      lon: -0.1005,
-      roadLat: 51.5,
-      roadLon: -0.1005,
-      alpha: 0.4,
-      dist: 0,
-      wayId: 100,
-    },
-    { lat: NaN, lon: NaN },
-    {
-      lat: 51.501,
-      lon: -0.1005,
-      roadLat: 51.501,
-      roadLon: -0.1005,
-      alpha: 0.9,
-      dist: 0,
-      wayId: 100,
-    },
-  ];
-  const analyzer = {
-    snappedGps: sg,
-    osmGeoms: wayMapFor({ id: 100, coordinates: STRAIGHT_WAY }),
-  };
-  const raw = [
-    { time: 0, lat: 51.5, lon: -0.1005 },
-    { time: 1, lat: 51.5005, lon: -0.1005 },
-    { time: 2, lat: 51.501, lon: -0.1005 },
-  ];
-  OSMEnricher._interpolateSnappedGps(analyzer, raw);
-
-  const proj = GeoUtils.projectPointToSegment(
-    raw[1].lat,
-    raw[1].lon,
-    STRAIGHT_WAY[0].lat,
-    STRAIGHT_WAY[0].lon,
-    STRAIGHT_WAY[1].lat,
-    STRAIGHT_WAY[1].lon,
-  );
-  const alpha = 0.4 + 0.5 * (0.9 - 0.4);
-  const expLat = alpha * proj.lat + (1 - alpha) * raw[1].lat;
-  const expLon = alpha * proj.lon + (1 - alpha) * raw[1].lon;
   assertClose(
     sg[1].lat,
-    expLat,
-    1e-9,
-    '_interpolateSnappedGps — single-way projection matches hand-computed blended lat',
+    51.5005 + 0.8 * 0.00004,
+    1e-12,
+    '_interpolateSnappedGps — snapped position applies the blended weight to the blended shift',
   );
   assertClose(
     sg[1].lon,
-    expLon,
-    1e-9,
-    '_interpolateSnappedGps — single-way projection matches hand-computed blended lon',
+    -0.1002,
+    1e-12,
+    "_interpolateSnappedGps — a row off the matched rows' line keeps its own shape (no re-projection)",
   );
   assertClose(
     sg[1].alpha,
-    alpha,
-    1e-9,
-    '_interpolateSnappedGps — single-way projection lerps alpha between the two endpoints',
+    0.8,
+    1e-12,
+    '_interpolateSnappedGps — weight is blended',
+  );
+}
+
+// 8g. _interpolateSnappedGps — rows use the positions the matcher was given,
+// not the raw fixes. A raw fix metres off the smoothed path would otherwise
+// carry its offset into the snapped path, which then runs ahead and snaps
+// back at every matched row.
+{
+  const raw = [
+    { time: 0, lat: 51.5, lon: -0.1 },
+    { time: 1, lat: 51.5008, lon: -0.1001 },
+    { time: 2, lat: 51.501, lon: -0.1 },
+  ];
+  const positions = [
+    { idx: 0, lat: 51.5, lon: -0.1 },
+    { idx: 1, lat: 51.5005, lon: -0.1 },
+    { idx: 2, lat: 51.501, lon: -0.1 },
+  ];
+  const sg = [
+    matched(positions[0], 0.00001, 1, 100),
+    NAN_ROW(),
+    matched(positions[2], 0.00001, 1, 100),
+  ];
+  OSMEnricher._interpolateSnappedGps({ snappedGps: sg }, raw, positions);
+  assertClose(
+    sg[1].lat,
+    51.50051,
+    1e-12,
+    '_interpolateSnappedGps — in-between row follows the smoothed position, not the raw fix',
+  );
+}
+
+// 8h. _interpolateSnappedGps — a long time gap between matched rows (a walker
+// standing still, so the 3 m thinning keeps no rows) is filled like any other:
+// leaving those rows unsnapped made the one matched row in the middle a spike.
+{
+  const raw = [
+    { time: 0, lat: 51.5, lon: -0.1 },
+    { time: 60, lat: 51.5, lon: -0.1 },
+    { time: 120, lat: 51.5, lon: -0.1 },
+  ];
+  const sg = [
+    matched(raw[0], 0.00005, 0.7, 100),
+    NAN_ROW(),
+    matched(raw[2], 0.00005, 0.7, 100),
+  ];
+  OSMEnricher._interpolateSnappedGps({ snappedGps: sg }, raw);
+  assertClose(
+    sg[1].lat,
+    sg[0].lat,
+    1e-12,
+    '_interpolateSnappedGps — a standing walker stays snapped through a long gap',
+  );
+}
+
+// 8i. _interpolateSnappedGps — matched rows on different ways: the shift blends
+// across, and each row takes the way of the nearer matched row.
+{
+  const raw = [0, 1, 2, 3, 4].map((t) => ({ time: t, lat: 51.5, lon: -0.1 }));
+  const sg = [
+    matched(raw[0], 0.00002, 1, 100),
+    NAN_ROW(),
+    NAN_ROW(),
+    NAN_ROW(),
+    matched(raw[4], -0.00002, 1, 200),
+  ];
+  OSMEnricher._interpolateSnappedGps({ snappedGps: sg }, raw);
+  assertClose(
+    sg[2].lat,
+    51.5,
+    1e-12,
+    '_interpolateSnappedGps — shift blends evenly between two ways',
   );
   assertEq(
     sg[1].wayId,
     100,
-    '_interpolateSnappedGps — single-way projection keeps the shared wayId',
-  );
-}
-
-// 8i. _interpolateSnappedGps — different way IDs but no raw GPS at the gap point
-// (hasGps false) falls through to a plain linear interpolation of the existing
-// snap values, ignoring way geometry entirely.
-{
-  const sg = [
-    {
-      lat: 51.5,
-      lon: -0.1,
-      roadLat: 51.5,
-      roadLon: -0.1,
-      alpha: 0.3,
-      dist: 0,
-      wayId: 100,
-    },
-    { lat: NaN, lon: NaN },
-    {
-      lat: 51.501,
-      lon: -0.102,
-      roadLat: 51.501,
-      roadLon: -0.102,
-      alpha: 0.7,
-      dist: 0,
-      wayId: 200,
-    },
-  ];
-  const analyzer = {
-    snappedGps: sg,
-    osmGeoms: wayMapFor(
-      { id: 100, coordinates: STRAIGHT_WAY },
-      { id: 200, coordinates: PARALLEL_WAY },
-    ),
-  };
-  const raw = [
-    { time: 0, lat: 51.5, lon: -0.1 },
-    { time: 1, lat: NaN, lon: NaN }, // no GPS fix at the gap point
-    { time: 2, lat: 51.501, lon: -0.102 },
-  ];
-  OSMEnricher._interpolateSnappedGps(analyzer, raw);
-  assertClose(
-    sg[1].lat,
-    51.5005,
-    1e-9,
-    "_interpolateSnappedGps — hasGps=false falls back to linear lat interpolation of the anchors' own values",
-  );
-  assertClose(
-    sg[1].lon,
-    -0.101,
-    1e-9,
-    "_interpolateSnappedGps — hasGps=false falls back to linear lon interpolation of the anchors' own values",
-  );
-  assertClose(
-    sg[1].alpha,
-    0.5,
-    1e-9,
-    '_interpolateSnappedGps — hasGps=false fallback also lerps alpha directly from the anchors',
+    '_interpolateSnappedGps — row nearer the first way takes its wayId',
   );
   assertEq(
-    sg[1].wayId,
+    sg[3].wayId,
     200,
-    '_interpolateSnappedGps — hasGps=false fallback still picks a wayId by t<0.5 (far side here)',
+    '_interpolateSnappedGps — row nearer the second way takes its wayId',
   );
 }
 
-// 8j. _interpolateSnappedGps — neither end has a way ID (even with real GPS at
-// the gap point) also falls back to plain linear interpolation.
+// 8j. _interpolateSnappedGps — a matched row with no road in range (alpha 0,
+// dist Infinity) fades the snap out; dist comes from the nearer matched row
+// rather than blending with Infinity.
 {
+  const raw = [0, 1, 2, 3].map((t) => ({ time: t, lat: 51.5, lon: -0.1 }));
   const sg = [
+    matched(raw[0], 0.00003, 0.9, 100, 3.3),
+    NAN_ROW(),
+    NAN_ROW(),
     {
       lat: 51.5,
       lon: -0.1,
       roadLat: 51.5,
       roadLon: -0.1,
-      alpha: 0.2,
-      dist: 5,
+      alpha: 0,
       wayId: null,
-    },
-    { lat: NaN, lon: NaN },
-    {
-      lat: 51.501,
-      lon: -0.101,
-      roadLat: 51.501,
-      roadLon: -0.101,
-      alpha: 0.8,
-      dist: 5,
-      wayId: null,
+      dist: Infinity,
     },
   ];
-  const analyzer = { snappedGps: sg, osmGeoms: { ways: [] } };
-  const raw = [
-    { time: 0, lat: 51.5, lon: -0.1 },
-    { time: 1, lat: 51.5005, lon: -0.1005 }, // real GPS fix — proves it's the missing wayId, not hasGps, causing the fallback
-    { time: 2, lat: 51.501, lon: -0.101 },
-  ];
-  OSMEnricher._interpolateSnappedGps(analyzer, raw);
+  OSMEnricher._interpolateSnappedGps({ snappedGps: sg }, raw);
   assertClose(
-    sg[1].lat,
-    51.5005,
-    1e-9,
-    '_interpolateSnappedGps — no wayId on either end falls back to linear lat interpolation even with a real GPS fix present',
+    sg[1].alpha,
+    0.6,
+    1e-12,
+    '_interpolateSnappedGps — weight fades towards the unmatched row',
   );
-  assertClose(
+  assertEq(
     sg[1].dist,
-    5,
-    1e-9,
-    '_interpolateSnappedGps — no-wayId fallback also lerps dist directly from the anchors',
+    3.3,
+    '_interpolateSnappedGps — dist from the nearer row when one end has none',
   );
   assertEq(
-    sg[1].wayId,
+    sg[2].wayId,
     null,
-    '_interpolateSnappedGps — no-wayId fallback keeps wayId null (t<0.5 side, still null either way)',
+    '_interpolateSnappedGps — row nearer the unmatched row has no way',
   );
-}
-
-// 8k. _interpolateSnappedGps — only one end has a way ID; that way is used for
-// the whole gap.
-{
-  const sg = [
-    {
-      lat: 51.5,
-      lon: -0.1003,
-      roadLat: 51.5,
-      roadLon: -0.1003,
-      alpha: 0.5,
-      dist: 0,
-      wayId: 100,
-    },
-    { lat: NaN, lon: NaN },
-    {
-      lat: 51.501,
-      lon: -0.1003,
-      roadLat: 51.501,
-      roadLon: -0.1003,
-      alpha: 0.9,
-      dist: 0,
-      wayId: null,
-    },
-  ];
-  const analyzer = {
-    snappedGps: sg,
-    osmGeoms: wayMapFor({ id: 100, coordinates: STRAIGHT_WAY }),
-  };
-  const raw = [
-    { time: 0, lat: 51.5, lon: -0.1003 },
-    { time: 1, lat: 51.5005, lon: -0.1003 },
-    { time: 2, lat: 51.501, lon: -0.1003 },
-  ];
-  OSMEnricher._interpolateSnappedGps(analyzer, raw);
-
-  const proj = GeoUtils.projectPointToSegment(
-    raw[1].lat,
-    raw[1].lon,
-    STRAIGHT_WAY[0].lat,
-    STRAIGHT_WAY[0].lon,
-    STRAIGHT_WAY[1].lat,
-    STRAIGHT_WAY[1].lon,
-  );
-  const alpha = 0.5 + 0.5 * (0.9 - 0.5);
-  const expLat = alpha * proj.lat + (1 - alpha) * raw[1].lat;
-  assertClose(
-    sg[1].lat,
-    expLat,
-    1e-9,
-    "_interpolateSnappedGps — only-A-has-a-wayId case projects onto A's way for the whole gap",
-  );
-  assertEq(
-    sg[1].wayId,
-    100,
-    "_interpolateSnappedGps — only-A-has-a-wayId case reports A's wayId, not t-based",
-  );
+  assertEq(sg[2].dist, Infinity, '_interpolateSnappedGps — and no distance');
 }
 
 // ════════════════════════════════════════════════════════════════════════
@@ -2686,104 +2356,6 @@ assert(
   Math.abs(Math.abs(MapMatcher._segmentBearing(0, 0, -1, 0)) - Math.PI) < 0.01,
   '_segmentBearing due south ≈ ±π rad',
 );
-
-// 8d. _wayDistance — forward, backward, and same-segment tracing
-{
-  const coords = [
-    { lat: 0, lon: 0 },
-    { lat: 0, lon: 0.001 },
-    { lat: 0, lon: 0.002 },
-    { lat: 0, lon: 0.003 },
-  ];
-  const c1 = { wayId: 'W', coords, segIdx: 0, snapLat: 0, snapLon: 0.0005 };
-  const c2 = { wayId: 'W', coords, segIdx: 2, snapLat: 0, snapLon: 0.0025 };
-
-  const expectedForward =
-    GeoUtils.haversineMeters(0, 0.0005, 0, coords[1].lon) +
-    GeoUtils.haversineMeters(0, coords[1].lon, 0, coords[2].lon) +
-    GeoUtils.haversineMeters(0, coords[2].lon, 0, 0.0025);
-
-  assertClose(
-    MapMatcher._wayDistance(c1, c2),
-    expectedForward,
-    0.5,
-    '_wayDistance — forward trace matches manual sum',
-  );
-  assertClose(
-    MapMatcher._wayDistance(c2, c1),
-    expectedForward,
-    0.5,
-    '_wayDistance — reverse trace is symmetric',
-  );
-
-  // Same segment: direct haversine between the two snap points.
-  const c3 = { wayId: 'W', coords, segIdx: 1, snapLat: 0, snapLon: 0.0011 };
-  const c4 = { wayId: 'W', coords, segIdx: 1, snapLat: 0, snapLon: 0.0019 };
-  const expectedSame = GeoUtils.haversineMeters(0, 0.0011, 0, 0.0019);
-  assertClose(
-    MapMatcher._wayDistance(c3, c4),
-    expectedSame,
-    0.5,
-    '_wayDistance — same segment = direct haversine',
-  );
-}
-
-// 8e. _routeDistViaJunction — connected ways route through the shared endpoint;
-//     disconnected ways (endpoints >5 m apart) return Infinity.
-{
-  const wayA = [
-    { lat: 0, lon: 0 },
-    { lat: 0, lon: 0.001 },
-  ];
-  const wayB = [
-    { lat: 0, lon: 0.001 },
-    { lat: 0, lon: 0.002 },
-  ]; // shares wayA's endpoint exactly
-  const wayC = [
-    { lat: 1, lon: 1 },
-    { lat: 1, lon: 1.001 },
-  ]; // far away, disconnected
-
-  const c1 = {
-    wayId: 'A',
-    coords: wayA,
-    segIdx: 0,
-    snapLat: 0,
-    snapLon: 0.0005,
-    endpoints: [wayA[0], wayA[1]],
-  };
-  const c2 = {
-    wayId: 'B',
-    coords: wayB,
-    segIdx: 0,
-    snapLat: 0,
-    snapLon: 0.0015,
-    endpoints: [wayB[0], wayB[1]],
-  };
-  const c3 = {
-    wayId: 'C',
-    coords: wayC,
-    segIdx: 0,
-    snapLat: 1,
-    snapLon: 1.0005,
-    endpoints: [wayC[0], wayC[1]],
-  };
-
-  const expected =
-    GeoUtils.haversineMeters(0, 0.0005, 0, 0.001) +
-    GeoUtils.haversineMeters(0, 0.001, 0, 0.0015);
-  assertClose(
-    MapMatcher._routeDistViaJunction(c1, c2),
-    expected,
-    0.5,
-    '_routeDistViaJunction — connected ways route through shared endpoint',
-  );
-  assertEq(
-    MapMatcher._routeDistViaJunction(c1, c3),
-    Infinity,
-    '_routeDistViaJunction — disconnected ways (no shared endpoint) → Infinity',
-  );
-}
 
 // ════════════════════════════════════════════════════════════════════════
 //  10. MapMatcher — candidate generation & full Viterbi match

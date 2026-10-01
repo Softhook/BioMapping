@@ -412,46 +412,222 @@ test('_logEmit: probability strictly decreases as distance from the road increas
   assert.ok(close > mid && mid > far);
 });
 
-test('_wayDistance: same way, forward and reverse traces agree (symmetry)', () => {
-  const coords = [
+// ─── Path network (route distance between candidates) ─────────────────────
+
+// A candidate on segment `segIdx` of `w`, snapped at (lat, lon).
+function cand(w, segIdx, lat, lon) {
+  return {
+    wayId: w.id,
+    coords: w.coordinates,
+    segIdx,
+    snapLat: lat,
+    snapLon: lon,
+    dist: 0,
+  };
+}
+function routeDist(ways, c1, c2) {
+  const graph = MapMatcher._buildGraph([ways.map((w) => cand(w, 0, 0, 0))]);
+  return MapMatcher._routeDist(c1, c2, MapMatcher._routesFrom(graph, c1, 500));
+}
+const M = metersToLatDeg;
+
+test('route: same way, forward and reverse distances agree', () => {
+  const w = way('W', [
     { lat: 0, lon: 0 },
-    { lat: 0, lon: 0.001 },
-    { lat: 0, lon: 0.002 },
-  ];
-  const c1 = { wayId: 'W', coords, segIdx: 0, snapLat: 0, snapLon: 0.0005 };
-  const c2 = { wayId: 'W', coords, segIdx: 1, snapLat: 0, snapLon: 0.0015 };
-  const fwd = MapMatcher._wayDistance(c1, c2);
-  const rev = MapMatcher._wayDistance(c2, c1);
-  assert.ok(Math.abs(fwd - rev) < 1e-6);
-  assert.ok(fwd > 0);
+    { lat: M(10), lon: 0 },
+    { lat: M(20), lon: 0 },
+  ]);
+  const c1 = cand(w, 0, M(5), 0);
+  const c2 = cand(w, 1, M(15), 0);
+  const fwd = routeDist([w], c1, c2);
+  assert.ok(Math.abs(fwd - 10) < 0.05, `expected 10 m, got ${fwd}`);
+  assert.ok(Math.abs(routeDist([w], c2, c1) - fwd) < 1e-6);
 });
 
-test('_routeDistViaJunction: returns Infinity for ways with no shared endpoint within 5 m', () => {
-  const wayA = [
+test('route: a path joining part-way along another way is connected there', () => {
+  // SIDE starts at MAIN's middle node — a T-junction, not an end-to-end join.
+  const main = way('MAIN', [
+    { lat: 0, lon: 0 },
+    { lat: M(20), lon: 0 },
+    { lat: M(40), lon: 0 },
+  ]);
+  const side = way('SIDE', [
+    { lat: M(20), lon: 0 },
+    { lat: M(20), lon: M(30) },
+  ]);
+  const d = routeDist(
+    [main, side],
+    cand(main, 0, M(15), 0),
+    cand(side, 0, M(20), M(5)),
+  );
+  assert.ok(
+    Math.abs(d - 10) < 0.05,
+    `expected 5 m to the junction + 5 m along, got ${d}`,
+  );
+});
+
+test('route: on a closed way, crossing the shared end node is a short step, not a lap', () => {
+  // A square loop about 111 m a side; first and last points are the same node.
+  const loop = way('L', [
     { lat: 0, lon: 0 },
     { lat: 0, lon: 0.001 },
+    { lat: 0.001, lon: 0.001 },
+    { lat: 0.001, lon: 0 },
+    { lat: 0, lon: 0 },
+  ]);
+  // 1 m before the end node on the last side, 1 m after it on the first.
+  const d = routeDist([loop], cand(loop, 3, M(1), 0), cand(loop, 0, 0, M(1)));
+  assert.ok(d < 3, `expected ~2 m across the end node, got ${d.toFixed(1)} m`);
+});
+
+test('route: unconnected ways have no route; a dangling end within JOIN_GAP_M is joined', () => {
+  const a = way('A', [
+    { lat: 0, lon: 0 },
+    { lat: M(20), lon: 0 },
+  ]);
+  const far = way('FAR', [
+    { lat: M(10), lon: M(30) },
+    { lat: M(30), lon: M(30) },
+  ]);
+  assert.strictEqual(
+    routeDist([a, far], cand(a, 0, M(10), 0), cand(far, 0, M(20), M(30))),
+    Infinity,
+  );
+  const near = way('NEAR', [
+    { lat: M(20), lon: M(3) }, // ends 3 m from A's end node, not on it
+    { lat: M(20), lon: M(20) },
+  ]);
+  const d = routeDist(
+    [a, near],
+    cand(a, 0, M(10), 0),
+    cand(near, 0, M(20), M(10)),
+  );
+  assert.ok(Math.abs(d - 20) < 0.1, `expected 10 + 3 + 7 m, got ${d}`);
+});
+
+test('step mismatch: zero when the snap moves with the walker, the GPS step when it stands still', () => {
+  const w = way('W', [
+    { lat: 0, lon: 0 },
+    { lat: M(100), lon: 0 },
+  ]);
+  // Walker 5 m east of the road, walking north 4 m.
+  const g1 = [M(10), M(5)];
+  const g2 = [M(14), M(5)];
+  const along = MapMatcher._stepMismatchM(
+    cand(w, 0, M(10), 0),
+    cand(w, 0, M(14), 0),
+    ...g1,
+    ...g2,
+  );
+  assert.ok(along < 0.01, `parallel step should cost nothing, got ${along}`);
+  const stuck = MapMatcher._stepMismatchM(
+    cand(w, 0, M(10), 0),
+    cand(w, 0, M(10), 0),
+    ...g1,
+    ...g2,
+  );
+  assert.ok(
+    Math.abs(stuck - 4) < 0.01,
+    `a snap left behind should cost the 4 m step, got ${stuck}`,
+  );
+  const back = MapMatcher._stepMismatchM(
+    cand(w, 0, M(10), 0),
+    cand(w, 0, M(6), 0),
+    ...g1,
+    ...g2,
+  );
+  assert.ok(
+    Math.abs(back - 8) < 0.01,
+    `a snap stepping back should cost 8 m, got ${back}`,
+  );
+});
+
+test('match: a walker crossing a street on a crossing that joins the pavements part-way along follows the crossing', () => {
+  // Two pavements running north, 12 m apart; a crossing joins them at a
+  // middle node of each.  The walker comes north up the west pavement,
+  // crosses on the crossing, and carries on up the east pavement.
+  const west = way(
+    'WEST',
+    [
+      { lat: 0, lon: 0 },
+      { lat: M(30), lon: 0 },
+      { lat: M(60), lon: 0 },
+    ],
+    'footway',
+  );
+  const east = way(
+    'EAST',
+    [
+      { lat: 0, lon: M(12) },
+      { lat: M(30), lon: M(12) },
+      { lat: M(60), lon: M(12) },
+    ],
+    'footway',
+  );
+  const crossing = way(
+    'X',
+    [
+      { lat: M(30), lon: 0 },
+      { lat: M(30), lon: M(12) },
+    ],
+    'footway',
+  );
+  const nearby = [west, east, crossing];
+  const track = [
+    [10, 0.5],
+    [16, 0.5],
+    [22, 0.5],
+    [28, 0.5],
+    [30.5, 3],
+    [30.5, 6],
+    [30.5, 9],
+    [32, 11.5],
+    [38, 11.5],
+    [44, 11.5],
+    [50, 11.5],
   ];
-  const wayC = [
-    { lat: 5, lon: 5 },
-    { lat: 5, lon: 5.001 },
-  ];
-  const c1 = {
-    wayId: 'A',
-    coords: wayA,
-    segIdx: 0,
-    snapLat: 0,
-    snapLon: 0.0005,
-    endpoints: [wayA[0], wayA[1]],
+  const evalPoints = track.map(([n, e], idx) => ({
+    idx,
+    lat: M(n),
+    lon: M(e),
+    nearby,
+  }));
+  const raw = evalPoints.map((_, i) => ({ time: i * 3 }));
+  const result = MapMatcher.match(evalPoints, raw, 25);
+  assert.deepStrictEqual(
+    [4, 5, 6].map((i) => result.get(i).wayId),
+    ['X', 'X', 'X'],
+    'the fixes on the crossing should snap to the crossing',
+  );
+  assert.strictEqual(result.get(0).wayId, 'WEST');
+  assert.strictEqual(result.get(10).wayId, 'EAST');
+});
+
+test('viterbi: a long gap breaks the chain only when the walker also moved far across it', () => {
+  const w = way('W', [
+    { lat: 0, lon: 0 },
+    { lat: metersToLatDeg(200), lon: 0 },
+  ]);
+  const run = (northAfterGap) => {
+    const pts = [10, 13, 16, northAfterGap];
+    const evalPoints = pts.map((n, idx) => ({
+      idx,
+      lat: metersToLatDeg(n),
+      lon: metersToLatDeg(1),
+      nearby: [w],
+    }));
+    const raw = [0, 2, 4, 64].map((time) => ({ time })); // 60 s gap before the last
+    const cands = MapMatcher._collectAllCandidates(evalPoints, raw, 25);
+    const { B } = MapMatcher._viterbiForward(
+      evalPoints,
+      raw,
+      cands,
+      MapMatcher._buildGraph(cands),
+    );
+    return Array.from(B[3]).some((b) => b >= 0);
   };
-  const c3 = {
-    wayId: 'C',
-    coords: wayC,
-    segIdx: 0,
-    snapLat: 5,
-    snapLon: 5.0005,
-    endpoints: [wayC[0], wayC[1]],
-  };
-  assert.strictEqual(MapMatcher._routeDistViaJunction(c1, c3), Infinity);
+  assert.ok(run(17), 'standing still for 60 s should keep the chain');
+  assert.ok(!run(70), 'moving 54 m across a 60 s gap should break it');
 });
 
 test('match: passing a connected side-road junction on a steady heading does not detour onto the side road', () => {
