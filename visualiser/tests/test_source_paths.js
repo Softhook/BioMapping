@@ -71,11 +71,14 @@ test('every relative source path used by tests/ resolves inside visualiser/', ()
       const resolved = path.resolve(path.dirname(file), ref);
       if (path.relative(VIS_DIR, resolved).startsWith('..')) continue; // outside visualiser/
 
-      // Ignore runtime cache, build, or hidden directories (e.g. .cache, dist, build)
+      // Ignore runtime cache, output, or hidden directories (e.g. .cache, dist, build, out)
       const rel = path.relative(VIS_DIR, resolved);
       const segments = rel.split(path.sep);
       if (
-        segments.some((s) => s.startsWith('.') || s === 'build' || s === 'dist')
+        segments.some(
+          (s) =>
+            s.startsWith('.') || s === 'build' || s === 'dist' || s === 'out',
+        )
       ) {
         continue;
       }
