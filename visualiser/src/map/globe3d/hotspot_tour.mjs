@@ -168,11 +168,14 @@ export class GSRGlobeHotspotTour extends GSRGlobeNavigation {
       const delay = a?.responseDelay || 0;
       const graphWinStart = Math.max(delay ? -delay : 0, onset - delay - 6);
       const graphWinDuration = Math.max(16, Math.min(34, t - onset + 16));
+      // origIdx is a place on the route, like every other waypoint's: the
+      // place the hotspot is drawn at, whose reading is the peak itself.
+      const placeRow = a.placeRowOf(r.peak.index);
 
       return {
         index: i,
         drawPointIndex: idx,
-        origIdx: r.peak.index,
+        origIdx: placeRow >= 0 ? placeRow : r.peak.index,
         lat: r.coords.lat,
         lon: r.coords.lon,
         time: t,

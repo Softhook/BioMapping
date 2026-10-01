@@ -14,6 +14,25 @@ import { ResponseDynamics } from '../signal/response_dynamics.mjs';
 
 export const RendererCurve = {
   /**
+   * Run `draw` with drawing cut off at the plot's left and right edges. Every
+   * curve takes one sample beyond each edge of the view so it reaches the
+   * edge without a gap, and a peak's shading can start before the view; this
+   * keeps those from spilling into the axis margins.
+   */
+  _clipToPlot(draw) {
+    push();
+    const left = GSR_CONST.MARGIN.left;
+    drawingContext.beginPath();
+    drawingContext.rect(left, 0, width - GSR_CONST.MARGIN.right - left, height);
+    drawingContext.clip();
+    try {
+      return draw();
+    } finally {
+      pop();
+    }
+  },
+
+  /**
    * Compute common context for curve drawing: clamped indices, step, spline decision, and scale factors.
    *
    * @param {Array<number>} [forceIndices] - Indices that must always be drawn
@@ -147,20 +166,22 @@ export const RendererCurve = {
     xOnset,
     xPeak,
   ) {
-    fill(fillColor);
-    noStroke();
-    beginShape();
-    vertex(xOnset, yBottomL);
-    for (let i = p.onsetIndex; i <= p.index; i++) {
-      const xVal =
-        GSR_CONST.MARGIN.left +
-        (AppState.analyzer.phasic[i].time - tMin) * scales.xScale;
-      const yVal =
-        yBottomL + (AppState.analyzer.phasic[i].val - yMinL) * scales.yScaleL;
-      vertex(xVal, yVal);
-    }
-    vertex(xPeak, yBottomL);
-    endShape(CLOSE);
+    this._clipToPlot(() => {
+      fill(fillColor);
+      noStroke();
+      beginShape();
+      vertex(xOnset, yBottomL);
+      for (let i = p.onsetIndex; i <= p.index; i++) {
+        const xVal =
+          GSR_CONST.MARGIN.left +
+          (AppState.analyzer.phasic[i].time - tMin) * scales.xScale;
+        const yVal =
+          yBottomL + (AppState.analyzer.phasic[i].val - yMinL) * scales.yScaleL;
+        vertex(xVal, yVal);
+      }
+      vertex(xPeak, yBottomL);
+      endShape(CLOSE);
+    });
   },
 
   /**
@@ -193,25 +214,28 @@ export const RendererCurve = {
     if (!ctx) return;
     const _drawIndices = ctx.indices || null;
 
-    noFill();
-    stroke(lineColor);
-    strokeWeight(lineWt);
+    this._clipToPlot(() => {
+      noFill();
+      stroke(lineColor);
+      strokeWeight(lineWt);
 
-    beginShape();
-    if (ctx.useSpline) {
-      const dFirst = data[ctx.startIdx];
-      const xFirst = GSR_CONST.MARGIN.left + (dFirst.time - tMin) * ctx.xScale;
-      const yFirst = yBottom + (dFirst.val - yMin) * ctx.yScale;
-      curveVertex(xFirst, yFirst);
-      this._drawVertices(ctx, data, tMin, yMin, yBottom, true);
-      const dLast = data[ctx.endIdx];
-      const xLast = GSR_CONST.MARGIN.left + (dLast.time - tMin) * ctx.xScale;
-      const yLast = yBottom + (dLast.val - yMin) * ctx.yScale;
-      curveVertex(xLast, yLast);
-    } else {
-      this._drawVertices(ctx, data, tMin, yMin, yBottom, false);
-    }
-    endShape();
+      beginShape();
+      if (ctx.useSpline) {
+        const dFirst = data[ctx.startIdx];
+        const xFirst =
+          GSR_CONST.MARGIN.left + (dFirst.time - tMin) * ctx.xScale;
+        const yFirst = yBottom + (dFirst.val - yMin) * ctx.yScale;
+        curveVertex(xFirst, yFirst);
+        this._drawVertices(ctx, data, tMin, yMin, yBottom, true);
+        const dLast = data[ctx.endIdx];
+        const xLast = GSR_CONST.MARGIN.left + (dLast.time - tMin) * ctx.xScale;
+        const yLast = yBottom + (dLast.val - yMin) * ctx.yScale;
+        curveVertex(xLast, yLast);
+      } else {
+        this._drawVertices(ctx, data, tMin, yMin, yBottom, false);
+      }
+      endShape();
+    });
   },
 
   /**
@@ -248,32 +272,35 @@ export const RendererCurve = {
     if (!ctx) return;
     const _drawIndices = ctx.indices || null;
 
-    noStroke();
     const fillHex =
       fillColorHex || this.getThemeColor('--color-phasic', '#008f3c');
-    fill(color(`${fillHex}19`));
 
-    const dFirst = data[ctx.startIdx];
-    const xStart = GSR_CONST.MARGIN.left + (dFirst.time - tMin) * ctx.xScale;
+    this._clipToPlot(() => {
+      noStroke();
+      fill(color(`${fillHex}19`));
 
-    beginShape();
-    vertex(xStart, yBottom);
+      const dFirst = data[ctx.startIdx];
+      const xStart = GSR_CONST.MARGIN.left + (dFirst.time - tMin) * ctx.xScale;
 
-    if (ctx.useSpline) {
-      curveVertex(xStart, yBottom);
-      this._drawVertices(ctx, data, tMin, yMin, yBottom, true);
-      const xEnd =
-        GSR_CONST.MARGIN.left + (data[ctx.endIdx].time - tMin) * ctx.xScale;
-      curveVertex(xEnd, yBottom);
-      vertex(xEnd, yBottom);
-    } else {
-      this._drawVertices(ctx, data, tMin, yMin, yBottom, false);
-      const xEnd =
-        GSR_CONST.MARGIN.left + (data[ctx.endIdx].time - tMin) * ctx.xScale;
-      vertex(xEnd, yBottom);
-    }
+      beginShape();
+      vertex(xStart, yBottom);
 
-    endShape(CLOSE);
+      if (ctx.useSpline) {
+        curveVertex(xStart, yBottom);
+        this._drawVertices(ctx, data, tMin, yMin, yBottom, true);
+        const xEnd =
+          GSR_CONST.MARGIN.left + (data[ctx.endIdx].time - tMin) * ctx.xScale;
+        curveVertex(xEnd, yBottom);
+        vertex(xEnd, yBottom);
+      } else {
+        this._drawVertices(ctx, data, tMin, yMin, yBottom, false);
+        const xEnd =
+          GSR_CONST.MARGIN.left + (data[ctx.endIdx].time - tMin) * ctx.xScale;
+        vertex(xEnd, yBottom);
+      }
+
+      endShape(CLOSE);
+    });
   },
 
   /**
@@ -359,6 +386,13 @@ export const RendererCurve = {
     }
     if (currentRun.length > 0) runs.push(currentRun);
 
+    this._clipToPlot(() =>
+      this._drawDynamicsRuns(runs, basePhasicHex, yBottom),
+    );
+  },
+
+  /** The two passes of drawResponseDynamicsPhasic: filled areas, then strokes. */
+  _drawDynamicsRuns(runs, basePhasicHex, yBottom) {
     // Pass 1: Draw filled areas
     noStroke();
     for (let r = 0; r < runs.length; r++) {

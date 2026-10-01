@@ -409,6 +409,25 @@ export const RendererMarkers = {
     el.style.left = `${x - d / 2}px`;
     el.style.top = `${y - d / 2}px`;
     el.style.backgroundColor = hotspotColor;
+    // Shown again on every draw; hidePulseRingsUnder() hides it if this
+    // draw's tooltip covers it.
+    el.style.visibility = '';
+    el._box = { x: x - d / 2, y: y - d / 2, d };
+  },
+
+  /**
+   * Hide the pulse rings that overlap a box drawn on the canvas (the hover
+   * tooltip). The rings are DOM elements above the canvas, so they would
+   * otherwise show through anything the canvas draws over them.
+   */
+  hidePulseRingsUnder(x, y, w, h) {
+    if (!this._pulseRingEls) return;
+    for (const el of this._pulseRingEls.values()) {
+      const b = el._box;
+      if (b && b.x < x + w && b.x + b.d > x && b.y < y + h && b.y + b.d > y) {
+        el.style.visibility = 'hidden';
+      }
+    }
   },
 
   /**

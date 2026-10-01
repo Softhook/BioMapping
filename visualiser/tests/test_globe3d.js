@@ -1783,6 +1783,34 @@ function hotspotTourFixture(n, peaks, memorableEvents) {
   return { drawPoints, phasic, analyzer };
 }
 
+test('hotspot tour at a 2 s Response delay: each stop is a place on the route whose reading is the hotspot peak', () => {
+  freshEnv();
+  const { GSRGlobeManager } = loadFresh();
+  const mgr = new GSRGlobeManager('c', { keyboardFlight: false });
+
+  const peak = { index: 20, time: 20, onsetTime: 17, amplitude: 1.0 };
+  const { drawPoints, analyzer } = hotspotTourFixture(30, [peak]);
+  // One row a second, so 2 s is two rows back along the route.
+  analyzer.raw = Array.from({ length: 30 }, (_, i) => ({ time: i }));
+  analyzer.setResponseDelay(2);
+
+  mgr.currentDrawPoints = drawPoints;
+  mgr.currentAnalyzer = analyzer;
+  mgr.currentPeaks = analyzer.peaks;
+
+  const [wp] = mgr._computeHotspotTourWaypoints();
+  assert.strictEqual(
+    wp.origIdx,
+    18,
+    'the stop is the place the peak is drawn at',
+  );
+  // The graph cursor (GSRGlobe3DView._emitTourCursor) shows readingAt(origIdx):
+  // that must be the hotspot peak itself, not a reading 2 s after it.
+  assert.strictEqual(analyzer.readingAt(wp.origIdx), peak.index);
+
+  mgr.destroy();
+});
+
 /** Angular distance between two headings (radians), shortest way round. */
 const circularDist = (a, b) => {
   const twoPi = Math.PI * 2;

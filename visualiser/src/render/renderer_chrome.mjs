@@ -265,6 +265,7 @@ export const RendererChrome = {
     stroke(axisColor);
     strokeWeight(1);
     rect(boxX, boxY, boxW, boxH, 4);
+    this.hidePulseRingsUnder(boxX, boxY, boxW, boxH);
 
     noStroke();
     textAlign(LEFT, TOP);
