@@ -17,6 +17,9 @@ const CELL_SIZE_DEG = 0.001; // spatial-hash cell (~111 m)
 const SENTINEL_DIST = 999; // sentinel for "no feature nearby"
 const DEFAULT_RADIUS_M = 50; // enrichment search radius
 const DEFAULT_BBOX_BUFFER_M = 100; // bounding-box padding
+// Snapping spaces evaluation points at least this far apart (m), so the
+// snap weight ramps over a few metres of walking, not a few rows.
+const SNAP_THIN_M = 3;
 
 // Collective-mode enrichment fetches one shared osmJson (by reference) for
 // every track covering the same bbox (ui.js's union-bbox fetch), but each
@@ -985,11 +988,10 @@ export const OSMEnricher = {
    * Enrich continuous track data series: runs spatial queries on ~1 Hz
    * GPS coordinates and projects results back to the full 10 Hz timeline.
    *
-   * When snapParams.enabled is true, road snapping runs in the same loop:
-   * each evaluation point is projected onto the nearest highway segment
-   * before enrichment metrics are computed, so enrichment sees the
-   * corrected (snapped) position — never misattributes a building because
-   * of GPS multipath drift.
+   * When snapParams.enabled is true, the track is snapped to the roads
+   * (_snapTrack) before enrichment metrics are computed, so enrichment sees
+   * the corrected (snapped) position — never misattributes a building
+   * because of GPS multipath drift.
    *
    * @param {Object} analyzer     - GSRAnalyzer instance (has .raw, .getCoordinates())
    * @param {Object} osmJson      - parsed Overpass API JSON
@@ -1030,106 +1032,51 @@ export const OSMEnricher = {
       throw new Error('No valid GPS coordinates found in this track.');
     }
 
-    // 3. Downsample to ~1 Hz evaluation points.
+    // 3. Downsample to ~1 Hz evaluation points, each with the features
+    //    near it (MapMatcher reuses them for its road candidates).
     let evalPoints = this._selectEvaluationPoints(raw, gpsIndices);
+    if (doSnap) evalPoints = this._thinPoints(evalPoints, SNAP_THIN_M);
+    const points = this._withNearby(evalPoints, spatialIndex);
+
+    // Snapping matches the whole sequence at once (HMM-Viterbi), so the
+    // metrics below see each point's snapped position.
+    let matched = null;
     if (doSnap) {
-      // Spatially thin so the ramp spans a meaningful distance (~20 m
-      // over 4 steps) instead of just 5.6 m at walking speed.
-      evalPoints = this._thinPoints(evalPoints, 3); // min 3 m spacing
-    }
-    const computedMetrics = [];
-
-    // ── Snapped GPS output array (if snapping, for Kalman to consume) ─
-    if (doSnap) {
-      analyzer.snappedGps = new Array(raw.length);
-      for (let i = 0; i < raw.length; i++) {
-        analyzer.snappedGps[i] = { lat: NaN, lon: NaN };
-      }
-    }
-
-    // ════════════════════════════════════════════════════════════════
-    //  HMM-VITERBI PATH
-    //  Collect candidates for all eval points, run Viterbi globally,
-    //  then use the matched positions for enrichment.
-    // ════════════════════════════════════════════════════════════════
-    if (doSnap) {
-      if (onProgress) onProgress('HMM map-matching: collecting candidates...');
-
-      // Attach the spatial-index nearby result to each eval point so
-      // MapMatcher._getCandidates can reuse it without a second query.
-      const matchRadius = snapParams.radiusOut || MapMatcher.MATCH_RADIUS;
-      const hmmPoints = evalPoints.map((node) => ({
-        ...node,
-        nearby: spatialIndex.getNearby(node.lat, node.lon),
-      }));
-
       if (onProgress) onProgress('HMM map-matching: running Viterbi...');
-      const hmmResults = MapMatcher.match(hmmPoints, raw, matchRadius);
+      const snap = this._snapTrack(
+        raw,
+        points,
+        gpsIndices,
+        snapParams.radiusOut,
+      );
+      analyzer.snappedGps = snap.snappedGps;
+      matched = snap.matched;
+    }
 
-      // Store Viterbi-snapped positions.
-      for (const [idx, r] of hmmResults) {
-        analyzer.snappedGps[idx] = r;
+    const computedMetrics = [];
+    for (let s = 0; s < points.length; s++) {
+      if (s % 50 === 0 && onProgress) {
+        onProgress(
+          `Computing spatial metrics: ${s}/${points.length} positions...`,
+        );
       }
-
-      // Enrichment pass using the matched (snapped) positions.
-      if (onProgress)
-        onProgress('HMM map-matching: computing spatial metrics...');
-      for (let s = 0; s < hmmPoints.length; s++) {
-        if (s % 50 === 0 && onProgress) {
-          onProgress(
-            `Computing spatial metrics: ${s}/${hmmPoints.length} positions...`,
-          );
-        }
-        const node = hmmPoints[s];
-        const matched = hmmResults.get(node.idx);
-        const evalLat = matched ? matched.lat : node.lat;
-        const evalLon = matched ? matched.lon : node.lon;
-
-        const metrics = this._evaluatePosition(
-          evalLat,
-          evalLon,
+      const node = points[s];
+      const at = matched?.get(node.idx) || node;
+      computedMetrics.push({
+        idx: node.idx,
+        time: raw[node.idx].time,
+        metrics: this._evaluatePosition(
+          at.lat,
+          at.lon,
           node.nearby,
           radiusMeters,
-        );
-        computedMetrics.push({
-          idx: node.idx,
-          time: raw[node.idx].time,
-          metrics,
-        });
-      }
-    } else {
-      // Non-snapped evaluation loop
-      for (let s = 0; s < evalPoints.length; s++) {
-        if (s % 50 === 0 && onProgress) {
-          onProgress(
-            `Computing spatial metrics: ${s}/${evalPoints.length} positions...`,
-          );
-        }
-        const node = evalPoints[s];
-        const nearby = spatialIndex.getNearby(node.lat, node.lon);
-
-        const metrics = this._evaluatePosition(
-          node.lat,
-          node.lon,
-          nearby,
-          radiusMeters,
-        );
-        computedMetrics.push({
-          idx: node.idx,
-          time: raw[node.idx].time,
-          metrics,
-        });
-      }
+        ),
+      });
     }
 
     // 4. Project back to full timeline
     if (onProgress) onProgress('Projecting results to full timeline...');
     this._projectToTimeline(raw, computedMetrics, gpsIndices);
-
-    // ── Interpolate snappedGps to full timeline ──────────────────────
-    if (doSnap && analyzer.snappedGps) {
-      this._interpolateSnappedGps(analyzer, raw, gpsIndices);
-    }
 
     analyzer.isEnriched = true;
     // Wrote osm_* fields onto every raw sample above — bump so callers
@@ -1139,7 +1086,40 @@ export const OSMEnricher = {
   },
 
   /**
-   * Fill analyzer.snappedGps between the matched rows.
+   * Evaluation points with the spatial-index features near each attached
+   * as `nearby`.
+   */
+  _withNearby(evalPoints, spatialIndex) {
+    return evalPoints.map((node) => ({
+      ...node,
+      nearby: spatialIndex.getNearby(node.lat, node.lon),
+    }));
+  },
+
+  /**
+   * Snap a track to the roads: match the evaluation points (_withNearby) as
+   * one sequence (MapMatcher), then fill the rows between them
+   * (_interpolateSnappedGps).
+   * @returns {{snappedGps: Array<object>, matched: Map<number, object>}}
+   *   snappedGps has one entry per raw row; matched holds the points' own.
+   */
+  _snapTrack(raw, points, positions, radius) {
+    const matched = MapMatcher.match(
+      points,
+      raw,
+      radius || MapMatcher.MATCH_RADIUS,
+    );
+    const snappedGps = Array.from({ length: raw.length }, () => ({
+      lat: NaN,
+      lon: NaN,
+    }));
+    for (const [idx, r] of matched) snappedGps[idx] = r;
+    this._interpolateSnappedGps(snappedGps, raw, positions);
+    return { snappedGps, matched };
+  },
+
+  /**
+   * Fill the snapped track `sg` (one entry per raw row) between the matched rows.
    *
    * Each matched row carries a shift: how far, and which way, the snap moves
    * it (its road point minus the position the matcher was given). The rows in
@@ -1156,8 +1136,7 @@ export const OSMEnricher = {
    * further: rows before the first GPS fix or after the last have no
    * position, so no snap either.
    */
-  _interpolateSnappedGps(analyzer, raw, positions = null) {
-    const sg = analyzer.snappedGps;
+  _interpolateSnappedGps(sg, raw, positions = null) {
     const valid = [];
     for (let i = 0; i < sg.length; i++) {
       if (!isNaN(sg[i].lat) && !isNaN(sg[i].lon)) valid.push(i);
@@ -1259,38 +1238,24 @@ export const OSMEnricher = {
     }
 
     analyzer.osmGeoms = geoms;
-    const spatialIndex = this.buildSpatialIndex(geoms);
-
     const gpsIndices = this._enrichmentPositions(analyzer);
     if (gpsIndices.length === 0) return null;
 
-    let evalPoints = this._selectEvaluationPoints(raw, gpsIndices);
-    evalPoints = this._thinPoints(evalPoints, 3);
-
-    const matchRadius = snapRadius || MapMatcher.MATCH_RADIUS;
-    const hmmPoints = evalPoints.map((node) => ({
-      ...node,
-      nearby: spatialIndex.getNearby(node.lat, node.lon),
-    }));
-
-    const hmmResults = MapMatcher.match(hmmPoints, raw, matchRadius);
-    const snappedGps = new Array(raw.length);
-    for (let i = 0; i < raw.length; i++) {
-      snappedGps[i] = { lat: NaN, lon: NaN };
-    }
-    for (const [idx, r] of hmmResults) {
-      snappedGps[idx] = r;
-    }
-    const prev = analyzer.snappedGps;
-    analyzer.snappedGps = snappedGps;
-    this._interpolateSnappedGps(analyzer, raw, gpsIndices);
-    const result = analyzer.snappedGps;
+    const evalPoints = this._thinPoints(
+      this._selectEvaluationPoints(raw, gpsIndices),
+      SNAP_THIN_M,
+    );
+    const { snappedGps } = this._snapTrack(
+      raw,
+      this._withNearby(evalPoints, this.buildSpatialIndex(geoms)),
+      gpsIndices,
+      snapRadius,
+    );
     if (commit) {
+      analyzer.snappedGps = snappedGps;
       analyzer._dataVersion = (analyzer._dataVersion || 0) + 1;
-    } else {
-      analyzer.snappedGps = prev;
     }
-    return result;
+    return snappedGps;
   },
 
   /**

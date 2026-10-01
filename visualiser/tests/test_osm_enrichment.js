@@ -2050,9 +2050,8 @@ const NAN_ROW = () => ({ lat: NaN, lon: NaN });
     { lat: NaN, lon: NaN },
     { lat: NaN, lon: NaN },
   ];
-  const analyzer = { snappedGps: sg, osmGeoms: { ways: [] } };
   const raw = [{ time: 0 }, { time: 1 }, { time: 2 }];
-  OSMEnricher._interpolateSnappedGps(analyzer, raw);
+  OSMEnricher._interpolateSnappedGps(sg, raw);
   assert(
     sg.every((s) => isNaN(s.lat) && isNaN(s.lon)),
     '_interpolateSnappedGps — all-NaN snappedGps stays untouched (no valid anchor to fill from)',
@@ -2073,13 +2072,12 @@ const NAN_ROW = () => ({ lat: NaN, lon: NaN });
     wayId: 100,
   };
   const sg = [{ lat: NaN, lon: NaN }, { lat: NaN, lon: NaN }, anchor];
-  const analyzer = { snappedGps: sg, osmGeoms: { ways: [] } };
   const raw = [
     { time: 0, lat: 51.5, lon: -0.1 },
     { time: 1, lat: 51.5, lon: -0.1 },
     { time: 2, lat: 51.5, lon: -0.1 },
   ];
-  OSMEnricher._interpolateSnappedGps(analyzer, raw);
+  OSMEnricher._interpolateSnappedGps(sg, raw);
   assertEq(
     sg[0].lat,
     anchor.lat,
@@ -2110,13 +2108,12 @@ const NAN_ROW = () => ({ lat: NaN, lon: NaN });
   };
   const sg = [anchor, { lat: NaN, lon: NaN }, { lat: NaN, lon: NaN }];
   const originalAnchorRef = sg[0];
-  const analyzer = { snappedGps: sg, osmGeoms: { ways: [] } };
   const raw = [
     { time: 0, lat: 51.5, lon: -0.1 },
     { time: 1, lat: 51.5, lon: -0.1 },
     { time: 2, lat: 51.5, lon: -0.1 },
   ];
-  OSMEnricher._interpolateSnappedGps(analyzer, raw);
+  OSMEnricher._interpolateSnappedGps(sg, raw);
   assertEq(
     sg[1].lat,
     anchor.lat,
@@ -2147,11 +2144,10 @@ const NAN_ROW = () => ({ lat: NaN, lon: NaN });
   });
   const nan = () => ({ lat: NaN, lon: NaN });
   const sg = [nan(), nan(), snap(51.5002), nan(), snap(51.5004), nan(), nan()];
-  const analyzer = { snappedGps: sg, osmGeoms: { ways: [] } };
   const P = (t) => ({ time: t, lat: 51.5, lon: -0.1 });
   const X = (t) => ({ time: t, lat: NaN, lon: NaN });
   const raw = [X(0), P(1), P(2), P(3), P(4), P(5), X(6)];
-  OSMEnricher._interpolateSnappedGps(analyzer, raw);
+  OSMEnricher._interpolateSnappedGps(sg, raw);
   assert(
     isNaN(sg[0].lat) && isNaN(sg[6].lat),
     '_interpolateSnappedGps — rows with no position before/after the fixes stay unsnapped',
@@ -2169,11 +2165,7 @@ const NAN_ROW = () => ({ lat: NaN, lon: NaN });
 
   // Same result when the caller passes the positions explicitly.
   const sg2 = [nan(), nan(), snap(51.5002), nan(), snap(51.5004), nan(), nan()];
-  OSMEnricher._interpolateSnappedGps(
-    { snappedGps: sg2, osmGeoms: { ways: [] } },
-    raw,
-    [{ idx: 1 }, { idx: 5 }],
-  );
+  OSMEnricher._interpolateSnappedGps(sg2, raw, [{ idx: 1 }, { idx: 5 }]);
   assert(
     isNaN(sg2[0].lat) && isNaN(sg2[6].lat) && sg2[1].lat === 51.5002,
     '_interpolateSnappedGps — explicit positions bound the end fills the same way',
@@ -2193,7 +2185,7 @@ const NAN_ROW = () => ({ lat: NaN, lon: NaN });
     NAN_ROW(),
     matched(raw[2], 0.00006, 1.0, 100),
   ];
-  OSMEnricher._interpolateSnappedGps({ snappedGps: sg }, raw);
+  OSMEnricher._interpolateSnappedGps(sg, raw);
   // Halfway: shift 0.00004, weight 0.8.
   assertClose(
     sg[1].roadLat,
@@ -2241,7 +2233,7 @@ const NAN_ROW = () => ({ lat: NaN, lon: NaN });
     NAN_ROW(),
     matched(positions[2], 0.00001, 1, 100),
   ];
-  OSMEnricher._interpolateSnappedGps({ snappedGps: sg }, raw, positions);
+  OSMEnricher._interpolateSnappedGps(sg, raw, positions);
   assertClose(
     sg[1].lat,
     51.50051,
@@ -2264,7 +2256,7 @@ const NAN_ROW = () => ({ lat: NaN, lon: NaN });
     NAN_ROW(),
     matched(raw[2], 0.00005, 0.7, 100),
   ];
-  OSMEnricher._interpolateSnappedGps({ snappedGps: sg }, raw);
+  OSMEnricher._interpolateSnappedGps(sg, raw);
   assertClose(
     sg[1].lat,
     sg[0].lat,
@@ -2284,7 +2276,7 @@ const NAN_ROW = () => ({ lat: NaN, lon: NaN });
     NAN_ROW(),
     matched(raw[4], -0.00002, 1, 200),
   ];
-  OSMEnricher._interpolateSnappedGps({ snappedGps: sg }, raw);
+  OSMEnricher._interpolateSnappedGps(sg, raw);
   assertClose(
     sg[2].lat,
     51.5,
@@ -2322,7 +2314,7 @@ const NAN_ROW = () => ({ lat: NaN, lon: NaN });
       dist: Infinity,
     },
   ];
-  OSMEnricher._interpolateSnappedGps({ snappedGps: sg }, raw);
+  OSMEnricher._interpolateSnappedGps(sg, raw);
   assertClose(
     sg[1].alpha,
     0.6,
@@ -2386,28 +2378,28 @@ assertClose(
   '_angularDiff wraps around 2π correctly',
 );
 
-// 8c. _segmentBearing — cardinal directions
+// 8c. bearingRad — cardinal directions
 assertClose(
-  MapMatcher._segmentBearing(0, 0, 1, 0),
+  GeoUtils.bearingRad(0, 0, 1, 0),
   0,
   0.01,
-  '_segmentBearing due north ≈ 0 rad',
+  'bearingRad due north ≈ 0 rad',
 );
 assertClose(
-  MapMatcher._segmentBearing(0, 0, 0, 1),
+  GeoUtils.bearingRad(0, 0, 0, 1),
   Math.PI / 2,
   0.01,
-  '_segmentBearing due east ≈ π/2 rad',
+  'bearingRad due east ≈ π/2 rad',
 );
 assertClose(
-  MapMatcher._segmentBearing(0, 0, 0, -1),
+  GeoUtils.bearingRad(0, 0, 0, -1),
   -Math.PI / 2,
   0.01,
-  '_segmentBearing due west ≈ -π/2 rad',
+  'bearingRad due west ≈ -π/2 rad',
 );
 assert(
-  Math.abs(Math.abs(MapMatcher._segmentBearing(0, 0, -1, 0)) - Math.PI) < 0.01,
-  '_segmentBearing due south ≈ ±π rad',
+  Math.abs(Math.abs(GeoUtils.bearingRad(0, 0, -1, 0)) - Math.PI) < 0.01,
+  'bearingRad due south ≈ ±π rad',
 );
 
 // ════════════════════════════════════════════════════════════════════════

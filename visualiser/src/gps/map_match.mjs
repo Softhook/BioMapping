@@ -35,7 +35,7 @@
  *
  * Design notes (pedestrian use):
  *   • d_route is the shortest walk through the path network built from the
- *     candidate ways (_buildGraph): ways join wherever they share a node,
+ *     ways near the track (_buildGraph): ways join wherever they share a node,
  *     at their ends or part-way along, as OSM junctions do.  Shared nodes
  *     are found by coordinate (Junctions.nodeKey), since OSM puts a
  *     junction's ways on the same node.  A way end left dangling within
@@ -131,7 +131,9 @@ export const MapMatcher = {
     for (let i = 0; i < n; i++) {
       const pt = evalPoints[i];
       const rawPt = raw[pt.idx] || {};
-      let speedMs = !isNaN(rawPt.speedKts) ? rawPt.speedKts * 0.514444 : NaN;
+      let speedMs = !isNaN(rawPt.speedKts)
+        ? rawPt.speedKts * GeoUtils.KNOTS_TO_MS
+        : NaN;
       // Prefer the heading implied by the fixes either side over the
       // reported course: it's available wherever there is movement and isn't
       // hostage to a stale or missing RMC course field.
@@ -190,7 +192,7 @@ export const MapMatcher = {
       const gLon1 = evalPoints[t - 1].lon;
       const gLat2 = evalPoints[t].lat;
       const gLon2 = evalPoints[t].lon;
-      const dGPS = this._haversineM(gLat1, gLon1, gLat2, gLon2);
+      const dGPS = GeoUtils.haversineMeters(gLat1, gLon1, gLat2, gLon2);
 
       // A long time gap across which the walker also moved far breaks the
       // Markov chain: the transition can't be judged across it.
@@ -272,17 +274,7 @@ export const MapMatcher = {
     const n = V.length;
     const path = new Int32Array(n).fill(-1);
 
-    // Best candidate at the last time step.
-    const vLast = V[n - 1];
-    let best = -1;
-    let bestV = -Infinity;
-    for (let j = 0; j < vLast.length; j++) {
-      if (vLast[j] > bestV) {
-        bestV = vLast[j];
-        best = j;
-      }
-    }
-    path[n - 1] = best;
+    path[n - 1] = this._argmax(V[n - 1]);
 
     for (let t = n - 2; t >= 0; t--) {
       const nextIdx = path[t + 1];
@@ -296,16 +288,7 @@ export const MapMatcher = {
         bArr[nextIdx] < 0 ||
         allCands[t + 1].length === 0
       ) {
-        let bestCandidate = -1;
-        let bestCandidateScore = -Infinity;
-        const vt = V[t];
-        for (let j = 0; j < vt.length; j++) {
-          if (vt[j] > bestCandidateScore) {
-            bestCandidateScore = vt[j];
-            bestCandidate = j;
-          }
-        }
-        path[t] = bestCandidate;
+        path[t] = this._argmax(V[t]);
       } else {
         path[t] = bArr[nextIdx];
       }
@@ -359,6 +342,19 @@ export const MapMatcher = {
 
   // ─── Internal helpers ────────────────────────────────────────────────────
 
+  /** Index of the largest value in v (first on ties); −1 if none beats −∞. */
+  _argmax(v) {
+    let best = -1;
+    let bestV = -Infinity;
+    for (let j = 0; j < v.length; j++) {
+      if (v[j] > bestV) {
+        bestV = v[j];
+        best = j;
+      }
+    }
+    return best;
+  },
+
   /**
    * Bearing (deg) of travel around eval point i, from the nearest fix at
    * least MIN_CHORD_M behind to the nearest at least MIN_CHORD_M ahead
@@ -370,8 +366,12 @@ export const MapMatcher = {
         const j = i + dir * k;
         if (j < 0 || j >= pts.length) break;
         if (
-          this._haversineM(pts[i].lat, pts[i].lon, pts[j].lat, pts[j].lon) >=
-          this.MIN_CHORD_M
+          GeoUtils.haversineMeters(
+            pts[i].lat,
+            pts[i].lon,
+            pts[j].lat,
+            pts[j].lon,
+          ) >= this.MIN_CHORD_M
         ) {
           return pts[j];
         }
@@ -382,11 +382,11 @@ export const MapMatcher = {
     const b = far(1) || pts[i];
     if (
       a === b ||
-      this._haversineM(a.lat, a.lon, b.lat, b.lon) < this.MIN_CHORD_M
+      GeoUtils.haversineMeters(a.lat, a.lon, b.lat, b.lon) < this.MIN_CHORD_M
     ) {
       return NaN;
     }
-    const br = this._segmentBearing(a.lat, a.lon, b.lat, b.lon);
+    const br = GeoUtils.bearingRad(a.lat, a.lon, b.lat, b.lon);
     return ((br * 180) / Math.PI + 360) % 360;
   },
 
@@ -422,6 +422,11 @@ export const MapMatcher = {
    */
   _getCandidates(lat, lon, nearby, radiusM, speedMs, courseDeg) {
     const candidates = [];
+    const { SPEED_GATE, HEADING_W } = GSR_CONST.SNAP;
+    const courseRad =
+      !isNaN(speedMs) && speedMs >= SPEED_GATE && !isNaN(courseDeg)
+        ? (courseDeg * Math.PI) / 180
+        : NaN;
 
     for (const geom of nearby) {
       if (geom.type !== 'way' || !geom.tags || !geom.tags.highway) continue;
@@ -451,21 +456,15 @@ export const MapMatcher = {
         let effDist = dist + classPenalty;
         let bearingDiffRad = NaN;
 
-        // Apply bearing penalty if user is moving to rank candidates better.
-        // HEADING_W/SPEED_GATE come from GSR_CONST.SNAP (constants.js) — the single
-        // source of truth for these two tuning values, so they can't drift out of sync
-        // with each other the way they previously did as separately-hardcoded literals here.
-        const speedGate = GSR_CONST.SNAP.SPEED_GATE;
-        const headingW = GSR_CONST.SNAP.HEADING_W;
-        if (!isNaN(speedMs) && speedMs >= speedGate && !isNaN(courseDeg)) {
-          const courseRad = (courseDeg * Math.PI) / 180;
-          const segBearing = this._segmentBearing(a.lat, a.lon, b.lat, b.lon);
+        // While moving, rank segments running across the walker's course lower.
+        if (!isNaN(courseRad)) {
+          const segBearing = GeoUtils.bearingRad(a.lat, a.lon, b.lat, b.lon);
           bearingDiffRad = Math.min(
             this._angularDiff(courseRad, segBearing),
             this._angularDiff(courseRad, segBearing + Math.PI),
           );
-          // Scale bearing penalty (headingW weight * normalised difference * 25m radius)
-          effDist += headingW * (bearingDiffRad / Math.PI) * 25;
+          // Up to HEADING_W × 25 m for a segment at right angles.
+          effDist += HEADING_W * (bearingDiffRad / Math.PI) * 25;
         }
 
         candidates.push({
@@ -552,7 +551,7 @@ export const MapMatcher = {
     for (let i = i0; i <= i1; i++) {
       const kts = raw[i]?.speedKts;
       if (Number.isFinite(kts) && kts >= 0) {
-        sum += kts * 0.514444;
+        sum += kts * GeoUtils.KNOTS_TO_MS;
         n++;
       }
     }
@@ -603,13 +602,15 @@ export const MapMatcher = {
       }
     }
     const nodes = new Map();
-    const nodeAt = (p) => {
+    // Graph node for point p (created on first use), noted as on way id.
+    const nodeOn = (p, id) => {
       const key = Junctions.nodeKey(p.lat, p.lon);
       let n = nodes.get(key);
       if (!n) {
         n = { lat: p.lat, lon: p.lon, edges: [], ways: new Set() };
         nodes.set(key, n);
       }
+      n.ways.add(id);
       return key;
     };
     const link = (ka, kb, m) => {
@@ -617,15 +618,13 @@ export const MapMatcher = {
       nodes.get(kb).edges.push({ key: ka, m });
     };
     for (const [id, coords] of ways) {
-      let prev = nodeAt(coords[0]);
-      nodes.get(prev).ways.add(id);
+      let prev = nodeOn(coords[0], id);
       for (let i = 1; i < coords.length; i++) {
-        const key = nodeAt(coords[i]);
-        nodes.get(key).ways.add(id);
+        const key = nodeOn(coords[i], id);
         if (key !== prev) {
           const a = coords[i - 1];
           const b = coords[i];
-          link(prev, key, this._haversineM(a.lat, a.lon, b.lat, b.lon));
+          link(prev, key, GeoUtils.haversineMeters(a.lat, a.lon, b.lat, b.lon));
         }
         prev = key;
       }
@@ -656,7 +655,7 @@ export const MapMatcher = {
             for (const k2 of grid.get(`${ci + di},${cj + dj}`) || []) {
               const n2 = nodes.get(k2);
               if (n2.ways.has(id)) continue;
-              const m = this._haversineM(p.lat, p.lon, n2.lat, n2.lon);
+              const m = GeoUtils.haversineMeters(p.lat, p.lon, n2.lat, n2.lon);
               if (m <= bestM) {
                 bestM = m;
                 best = k2;
@@ -691,9 +690,9 @@ export const MapMatcher = {
   _routesFrom(graph, c, limitM) {
     const done = new Map();
     const open = new Map();
-    for (const p of [c.coords[c.segIdx], c.coords[c.segIdx + 1]]) {
+    for (const p of this._segEnds(c)) {
       const key = Junctions.nodeKey(p.lat, p.lon);
-      const m = this._haversineM(c.snapLat, c.snapLon, p.lat, p.lon);
+      const m = GeoUtils.haversineMeters(c.snapLat, c.snapLon, p.lat, p.lon);
       if (!(open.get(key) <= m)) open.set(key, m);
     }
     while (open.size > 0) {
@@ -717,6 +716,11 @@ export const MapMatcher = {
     return done;
   },
 
+  /** The two end points of candidate c's segment. */
+  _segEnds(c) {
+    return [c.coords[c.segIdx], c.coords[c.segIdx + 1]];
+  },
+
   /**
    * Walking distance (m) from c1's snap point to c2's, given c1's network
    * distances (_routesFrom).  Two snaps on the same segment are a straight
@@ -724,15 +728,20 @@ export const MapMatcher = {
    */
   _routeDist(c1, c2, routes) {
     if (c1.wayId === c2.wayId && c1.segIdx === c2.segIdx) {
-      return this._haversineM(c1.snapLat, c1.snapLon, c2.snapLat, c2.snapLon);
+      return GeoUtils.haversineMeters(
+        c1.snapLat,
+        c1.snapLon,
+        c2.snapLat,
+        c2.snapLon,
+      );
     }
     let best = Infinity;
-    for (const p of [c2.coords[c2.segIdx], c2.coords[c2.segIdx + 1]]) {
+    for (const p of this._segEnds(c2)) {
       const m = routes.get(Junctions.nodeKey(p.lat, p.lon));
       if (m !== undefined) {
         best = Math.min(
           best,
-          m + this._haversineM(p.lat, p.lon, c2.snapLat, c2.snapLon),
+          m + GeoUtils.haversineMeters(p.lat, p.lon, c2.snapLat, c2.snapLon),
         );
       }
     }
@@ -749,14 +758,6 @@ export const MapMatcher = {
     if (dist <= 0) return 1.0;
     if (dist >= radiusM) return 0.0;
     return 0.5 * (1 + Math.cos((Math.PI * dist) / radiusM));
-  },
-
-  _haversineM(lat1, lon1, lat2, lon2) {
-    return GeoUtils.haversineMeters(lat1, lon1, lat2, lon2);
-  },
-
-  _segmentBearing(lat1, lon1, lat2, lon2) {
-    return GeoUtils.bearingRad(lat1, lon1, lat2, lon2);
   },
 
   _angularDiff(a, b) {
