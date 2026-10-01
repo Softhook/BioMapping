@@ -90,10 +90,11 @@ The app's only GPS filter. It replaced an earlier chain (stop averaging, speed f
    - **Emission Probability**: a Gaussian on the distance $d$ to the segment, minus a heading penalty when the segment runs across the direction of travel (10° dead zone, then Gaussian with σ 20°, capped at 6 log units — a road at right angles must be ~14 m nearer to win):
      $$\log p(z \mid r) = -0.5 \cdot \left(\frac{d}{\sigma}\right)^2 - \log(\sigma \sqrt{2\pi}) - \text{headingPenalty}$$
      Heading is the "chord": the bearing from the eval point ≥ 6 m behind to the one ≥ 6 m ahead (`_chordBearingDeg`), with the chip's reported course only as a fallback when the walker has barely moved. Below 0.3 m/s reported speed heading is ignored.
-   - **Transition Probability**: exponential in two mismatches between consecutive candidates:
-     $$\log p(r_j \mid r_i) = -\frac{|d_{\text{GPS}} - d_{\text{route}}| + |\vec{\Delta}_{\text{GPS}} - \vec{\Delta}_{\text{snap}}|}{\beta} - \log\beta$$
+   - **Transition Probability**: exponential in three mismatches between consecutive candidates:
+     $$\log p(r_j \mid r_i) = -\frac{|d_{\text{GPS}} - d_{\text{route}}| + |\vec{\Delta}_{\text{GPS}} - \vec{\Delta}_{\text{snap}}| + \max(0,\ d_{\text{route}} - d_{\text{allowed}})}{\beta} - \log\beta$$
      - $d_{\text{route}}$ is the shortest walk through the **path network** (`_buildGraph`, `_routesFrom`, `_routeDist`): every highway way near the track, joined wherever ways share a node — at their ends *or part-way along* (crossings, footpaths joining a pavement, T-junctions) — plus dangling way ends joined to another way's node within 5 m. Routes longer than the GPS step + both candidates' offsets + 20 m count as no route (1000 m penalty).
      - $|\vec{\Delta}_{\text{GPS}} - \vec{\Delta}_{\text{snap}}|$ (`_stepMismatchM`) is how far the snapped step differs, as a vector, from the GPS step. Distance alone can't tell a snap point that stands still, or steps back as far as the walker stepped forward, from one that follows the walker; the step's direction can. Zero when the snap moves with the walker (e.g. a road parallel to the walk at a constant offset).
+     - $d_{\text{allowed}}$ (`_allowedStepM`) is a walking-speed limit: the chip's mean Doppler speed between the two eval points, plus 1 m/s, times the time between them, plus 5 m (`SPEED_MARGIN_MS`, `SPEED_SLACK_M`; Max Speed 3 m/s where the chip gave no speed). Doppler speed comes from the signal's frequency, not the position, so it stays sound where buildings throw the positions out. A walk through the network beyond it — the snap swapping to a path tens of metres away while the walker strolled — costs the overrun.
    - **Chain breaks**: the Viterbi chain restarts (emission only) after a gap of more than 30 s **and** more than 30 m of movement (`MAX_GAP_S`, `MAX_GAP_MOVE_M`). GPS dropouts are bridged in the smoothed path, so in practice only a jump leaves such a gap; a walker standing still does not restart it.
    - **Viterbi Selection**: Computes the globally most likely candidate path. There is no post-pass: the side-road "excursion" filter was removed on 2026-10-01 (§6.3).
    - Runs during OSM enrichment on the smoothed path **without** the snap pull (`GpsPipeline.unsnappedPath`, built with the walk's own GPS settings) — never on the drawn, snapped path, to avoid a feedback loop where a prior enrichment's snap would pull the next pass further toward the wrong road. Enrichment metrics (distance to green, road class, etc.) are computed at the positions it snaps to. Its result is cached on `analyzer.snappedGps` and consumed by step 4 on every subsequent render.
@@ -156,6 +157,7 @@ A side effect for the analysis: the old zig-zag made the snapped track (which th
 | Fill in by **shift**, not by re-projecting each row | `_interpolateSnappedGps` | One rule; the snapped path is the smoothed path plus a smoothly varying shift, so it can't jump. Long gaps (standing still) are filled like any other. |
 | **Path network** routing over shared OSM nodes | `_buildGraph`, `_routesFrom`, `_routeDist` | Ways join wherever they share a node, not just at their ends; closed loops route the short way round. Built from all highway ways near the track, so roads that aren't candidates still link the paths around them. |
 | **Step-direction** term in the transition | `_stepMismatchM` | Uses the direction of travel the GPS already gives: a snapped step that doesn't go the way the walker went is penalised. Routing alone was mixed (§6.3); routing + this term beat every other variant. |
+| **Walking-speed limit** on snapped steps | `_allowedStepM` | In 77 places the drawn path moved faster than a run (median 9 m in one step, up to 40 m on the road point) while the chip said ~1.3 m/s — the matcher swapping between paths. Now 58; sideways out-and-back jumps 95 → 72. Most of the rest are corner catch-ups the slack is meant to allow, or walks off the mapped network (§6.6). |
 | **No restart while standing still** | `MAX_GAP_MOVE_M` | The 30 s chain break only ever fired at pauses (91 times across 31 walks) and flipped the road at 14 of them. Now also needs > 30 m of movement. |
 | **Never snap to a road whose pavements are mapped separately** | `_pavementsMappedSeparately` | OSM `sidewalk=separate`: the walker is on the mapped pavement, not in the carriageway (~130 points moved onto pavements, Edinburgh and Stoke Newington). |
 | **Distance to major road measured to the kerb** | `_halfCarriagewayM` in `osm_enrichment.mjs`; label "Distance to Major Road (kerb)" | Beside a main road, a walker snapped to the centre line read 0.1 m and one on a mapped pavement 6.8 m — the same experience, two mapping styles. Half the carriageway (from `width`, else `lanes` × 3.25 m, else 2 lanes two-way / 1 lane one-way, 2 for one-way motorway/trunk) is now taken off; a point inside the carriageway reads 0. Now 0 vs 2.5 m — the remainder is real (pavement width), since a centre-line walker's side is unknown. |
@@ -167,6 +169,9 @@ A side effect for the analysis: the old zig-zag made the snapped track (which th
 - **Network routing without the step term**: fixed real mismatches (biomap_024) but added about as many (10 m turn-backs 5 → 10) and fought the excursion post-pass at crossings.
 - **Heading from the GPS chip's course or the Kalman velocity instead of the chord**: on straight roads (walker < 3 m from a ≥ 30 m segment, moving > 0.8 m/s) the chord is the most accurate — median error 3.4° (90th percentile 22°) vs course 5.1° (27°) and Kalman velocity 4.6° (25°).
 - **Separate behind/ahead headings at corners** (accept a road matching either half-chord): about 7 % of matched points pay a small heading penalty near corners because the chord points diagonally across them. The split halved those but was mixed on the walks (3 m turn-backs 40 → 48, 10 m 5 → 4), so not adopted.
+- **A tighter speed limit** (margin 0.3–0.5 m/s, slack 2–3 m): more drawn-path jumps, not fewer (60–64 vs 58) — at a corner the snap genuinely has to catch up.
+- **Snap strength from GPS quality ("Kalman gain")**: the chip's hAcc, the Kalman filter's own covariance, local fix scatter, HDOP and satellite count all barely predict how far a fix is from the mapped pavement it was on (rank correlation 0.09–0.17; the Kalman covariance lowest), and the 8–10 m errors occur as often when they all look good — multipath leaves the receiver confidently wrong. Today the snap strength depends only on distance, so poor fixes (further off) are pulled *less*. Walks do differ (median 1.4–7.2 m off mapped pavements), so a per-walk σ is the workable version (§6.6).
+- **The chip's course in bad stretches**: no better than the chord where positions are > 6 m off a mapped pavement (90th percentile 40° vs 39°).
 - **Checked and left alone**: the step term against 5–9 m of sideways GPS drift next to a parallel path 10 m away (it stays on the right path); the candidate pre-ranking that drops the nearest way in 165 eval points (118 are trunk carriageways with separately mapped pavements — the right call).
 
 ### 6.4 Pavements in OSM
@@ -181,11 +186,11 @@ Measured on 31 u-blox walks with cached Overpass data (`visualiser/tests/manual/
 
 | | Before (2026-10-01 morning) | After |
 |---|---|---|
-| Snap-made hairpins, L ≥ 3 / 6 / 10 m | 655 / 336 / 181 | 42 / 20 / 5 |
+| Snap-made hairpins, L ≥ 3 / 6 / 10 m | 655 / 336 / 181 | 46 / 20 / 5 |
 | Demo track hairpins (L ≥ 3 m) | 12 | 0 |
 | Drawn path to nearest road, median / 90th pct | 0.93 / 11.7 m | 0.67 / 8.8 m |
 | Snapped-track length ÷ walk length (Junction Turns input) | 2.07 | 1.04 |
-| Junction passages (turn / straight / ambiguous / reverse / control) | 99 / 270 / 146 / 7 / 401 | 112 / 244 / 82 / 12 / 144 |
+| Junction passages (turn / straight / ambiguous / reverse / control) | 99 / 270 / 146 / 7 / 401 | 112 / 247 / 80 / 12 / 144 |
 
 The remaining hairpins are mostly real turn-backs or wander while standing, folded onto a road. **Junction Turns results made before this change will differ** — the old counts were inflated by the zig-zag.
 
@@ -194,6 +199,7 @@ The harness scripts (hairpin counter, offset-spike classifier, before/after rend
 ### 6.6 Open ideas
 
 - Virtual pavements (§6.4).
+- Per-walk calibration: estimate the walk's GPS σ from its points on mapped pavements (Newson & Krumm's 1.4826 × median), then set the snap strength Kalman-style (σ_gps² against the corridor width) and fade the snap when a point is further off than that σ allows, instead of the fixed 25 m roll-off. Must not calibrate on walks that are off the network.
 - An explicit "off-network" state for walks 12–17 m from any mapped way (biomap_040, 039, 032, 044 — also listed in `junction_turn_analysis.md` §4).
 - Corner heading (§6.3) if corner mis-snaps show up on the map.
 - Move the harness into `visualiser/tests/manual/` so changes can be re-checked from a clean checkout.

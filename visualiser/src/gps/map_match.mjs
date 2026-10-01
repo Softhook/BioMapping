@@ -68,6 +68,13 @@ export const MapMatcher = {
    *  it: paths are sometimes drawn up to a road without sharing its node. */
   JOIN_GAP_M: 5,
 
+  /** Walking-speed limit on a snapped step (see _allowedStepM): the chip's
+   *  own Doppler speed plus this margin (m/s)... */
+  SPEED_MARGIN_MS: 1.0,
+
+  /** ...plus this much distance (m), for corners and the 3 m thinning. */
+  SPEED_SLACK_M: 5,
+
   /** Extra distance (m) searched beyond the GPS step and both candidates'
    *  distance from their fixes (see _routeLimitM). */
   ROUTE_SLACK_M: 20,
@@ -198,6 +205,11 @@ export const MapMatcher = {
       // Network distances from each previous candidate, searched on first use.
       const limit = this._routeLimitM(dGPS, prevCands, currCands);
       const routes = new Array(prevCands.length);
+      const allowedM = this._allowedStepM(
+        raw,
+        evalPoints[t - 1].idx,
+        evalPoints[t].idx,
+      );
 
       for (let j = 0; j < currCands.length; j++) {
         const logE = this._logEmit(
@@ -230,6 +242,7 @@ export const MapMatcher = {
               gLat2,
               gLon2,
             ),
+            allowedM,
           );
           const score = vPrev[i] + logT;
           if (score > bestScore) {
@@ -508,16 +521,43 @@ export const MapMatcher = {
   /**
    * Log transition probability (Newson & Krumm 2009): exponential in the
    * mismatch between the GPS step and the walk through the path network,
-   * plus the step mismatch (see _stepMismatchM).  dRoute = Infinity (no
-   * route found) takes DISCONNECTED_PENALTY_M.
+   * plus the step mismatch (see _stepMismatchM), plus how far the walk
+   * through the network goes beyond what walking speed allows (allowedM,
+   * see _allowedStepM).  dRoute = Infinity (no route found) takes
+   * DISCONNECTED_PENALTY_M.
    */
-  _logTrans(dGPS, dRoute, stepM = 0) {
+  _logTrans(dGPS, dRoute, stepM = 0, allowedM = Infinity) {
     const dt =
       dRoute === Infinity
         ? this.DISCONNECTED_PENALTY_M
-        : Math.abs(dGPS - dRoute);
+        : Math.abs(dGPS - dRoute) + Math.max(0, dRoute - allowedM);
     const beta = this.BETA_M;
     return -((dt + stepM) / beta) - Math.log(beta);
+  },
+
+  /**
+   * Furthest (m) a walker plausibly went between raw rows i0 and i1: the
+   * chip's mean Doppler speed over those rows, plus SPEED_MARGIN_MS, times
+   * the time between them, plus SPEED_SLACK_M.  Doppler speed comes from the
+   * signal's frequency, not the position, so it stays sound where buildings
+   * throw the positions out; a snapped step that runs far ahead of it is the
+   * matcher swapping paths, not the walker moving.  Rows without a speed
+   * fall back to the default Max Speed.
+   */
+  _allowedStepM(raw, i0, i1) {
+    const dt = (raw[i1]?.time ?? 0) - (raw[i0]?.time ?? 0);
+    if (!(dt > 0)) return Infinity;
+    let sum = 0;
+    let n = 0;
+    for (let i = i0; i <= i1; i++) {
+      const kts = raw[i]?.speedKts;
+      if (Number.isFinite(kts) && kts >= 0) {
+        sum += kts * 0.514444;
+        n++;
+      }
+    }
+    const speed = n > 0 ? sum / n : GSR_CONST.GPS_DEFAULT.maxSpeed;
+    return (speed + this.SPEED_MARGIN_MS) * dt + this.SPEED_SLACK_M;
   },
 
   /**

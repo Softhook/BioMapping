@@ -673,6 +673,38 @@ test('match: a walker beside a road whose pavements are mapped separately snaps 
   for (const r of result.values()) assert.strictEqual(r.wayId, 'PAVE');
 });
 
+test('speed limit: allowed step follows the chip speed, falls back to Max Speed', () => {
+  // 1 kt ≈ 0.514 m/s.  Rows 0..2 over 2 s at 2.917 kt ≈ 1.5 m/s.
+  const raw = [0, 1, 2].map((time) => ({ time, speedKts: 2.916 }));
+  const allowed = MapMatcher._allowedStepM(raw, 0, 2);
+  const want =
+    (1.5 + MapMatcher.SPEED_MARGIN_MS) * 2 + MapMatcher.SPEED_SLACK_M;
+  assert.ok(
+    Math.abs(allowed - want) < 0.01,
+    `expected ${want}, got ${allowed}`,
+  );
+  const noSpeed = [0, 1, 2].map((time) => ({ time }));
+  const fallback =
+    (3 + MapMatcher.SPEED_MARGIN_MS) * 2 + MapMatcher.SPEED_SLACK_M;
+  assert.ok(
+    Math.abs(MapMatcher._allowedStepM(noSpeed, 0, 2) - fallback) < 0.01,
+  );
+});
+
+test('speed limit: a route longer than the allowed step costs the excess', () => {
+  const within = MapMatcher._logTrans(10, 10, 0, 12);
+  const beyond = MapMatcher._logTrans(10, 10, 0, 4);
+  assert.ok(
+    Math.abs(within - beyond - 6 / MapMatcher.BETA_M) < 1e-9,
+    'a 6 m overrun should cost 6/β log units',
+  );
+  assert.strictEqual(
+    MapMatcher._logTrans(10, Infinity, 0, 4),
+    MapMatcher._logTrans(10, Infinity),
+    'no route keeps the disconnected penalty only',
+  );
+});
+
 test('match: passing a connected side-road junction on a steady heading does not detour onto the side road', () => {
   // Main road runs east, split at the junction (lon 0.0006); a side road
   // leaves the junction due north.  The walker keeps course 90° but one fix
