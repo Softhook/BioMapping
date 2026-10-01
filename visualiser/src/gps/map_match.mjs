@@ -109,7 +109,7 @@ export const MapMatcher = {
     if (n === 0) return new Map();
 
     const allCands = this._collectAllCandidates(evalPoints, raw, radius);
-    const graph = this._buildGraph(allCands);
+    const graph = this._buildGraph(allCands, evalPoints);
     const { V, B } = this._viterbiForward(evalPoints, raw, allCands, graph);
     const path = this._viterbiBacktrace(V, B, allCands);
     return this._buildResultsMap(evalPoints, path, allCands, radius);
@@ -378,6 +378,30 @@ export const MapMatcher = {
   },
 
   /**
+   * True when OSM says this road's pavements are mapped as their own ways
+   * (sidewalk=separate, or sidewalk:left/right/both=separate) and it has no
+   * other pavement — so a walker is never in its carriageway except to cross,
+   * and crossings are mapped as ways too.
+   */
+  _pavementsMappedSeparately(tags) {
+    const side = (k) => {
+      const v = tags[`sidewalk:${k}`] ?? tags['sidewalk:both'];
+      if (v != null) return v;
+      const s = tags.sidewalk;
+      if (s === 'separate') return 'separate';
+      if (s === 'both' || s === 'yes' || s === k) return 'yes';
+      return 'no';
+    };
+    const left = side('left');
+    const right = side('right');
+    return (
+      (left === 'separate' || right === 'separate') &&
+      left !== 'yes' &&
+      right !== 'yes'
+    );
+  },
+
+  /**
    * Find and rank candidate road segments for a GPS fix.
    * Projects the fix onto every segment of every highway way within
    * radiusM metres and returns up to MAX_CANDS, sorted by effective
@@ -389,6 +413,9 @@ export const MapMatcher = {
     for (const geom of nearby) {
       if (geom.type !== 'way' || !geom.tags || !geom.tags.highway) continue;
       if (!geom.coordinates || geom.coordinates.length < 2) continue;
+      // A walker beside this road is on one of its mapped pavements, not in
+      // the carriageway.  It stays in the path network (_buildGraph) for routing.
+      if (this._pavementsMappedSeparately(geom.tags)) continue;
 
       const classPenalty = this._ROAD_CLASS_PENALTY[geom.tags.highway] || 0;
       const coords = geom.coordinates;
@@ -510,17 +537,30 @@ export const MapMatcher = {
   },
 
   /**
-   * Path network of every way that appears as a candidate: one graph node
+   * Path network of every way that appears as a candidate or near an eval
+   * point (a road skipped as a candidate still links the paths around it): one graph node
    * per distinct coordinate (Junctions.nodeKey), so ways that share a node —
    * at their ends or part-way along — are joined there.  A dangling way end
    * is also joined to the nearest node of another way within JOIN_GAP_M.
    * @returns {Map<string, {lat:number, lon:number, edges:Array<{key:string, m:number}>, ways:Set}>}
    */
-  _buildGraph(allCands) {
+  _buildGraph(allCands, evalPoints = []) {
     const ways = new Map();
     for (const cands of allCands) {
       for (const c of cands)
         if (!ways.has(c.wayId)) ways.set(c.wayId, c.coords);
+    }
+    for (const pt of evalPoints) {
+      for (const geom of pt.nearby || []) {
+        if (
+          geom.type === 'way' &&
+          geom.tags?.highway &&
+          geom.coordinates?.length >= 2 &&
+          !ways.has(geom.id)
+        ) {
+          ways.set(geom.id, geom.coordinates);
+        }
+      }
     }
     const nodes = new Map();
     const nodeAt = (p) => {

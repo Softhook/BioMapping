@@ -722,7 +722,7 @@ export const GSR_CONST = {
     {
       key: 'distMajorRoad',
       field: 'osm_dist_major_road',
-      label: 'Distance to Major Road',
+      label: 'Distance to Major Road (kerb)',
       kind: 'continuous',
       csvDigits: 2,
       unit: 'm',

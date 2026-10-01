@@ -638,11 +638,13 @@ const allGeoms = [
     roadGeom.coordinates[1].lat,
     roadGeom.coordinates[1].lon,
   );
+  // Measured to the kerb: a two-way motorway with no lanes tag is taken as
+  // 2 lanes × 3.25 m, so its kerb sits 3.25 m from the centre line.
   assertClose(
     m.distMajorRoad,
-    expectedRoadDist,
+    expectedRoadDist - 3.25,
     0.5,
-    '_evaluatePosition — distMajorRoad matches distanceToSegment',
+    '_evaluatePosition — distMajorRoad is the centre-line distance less half the carriageway',
   );
 
   const expectedWaterDist = GeoUtils.distanceToSegmentMeters(
@@ -1961,6 +1963,57 @@ console.log('\n── OSMEnricher: enrichTrack (integration, no snapping) ──
     analyzer.snappedGps,
     null,
     'enrichTrack (no snap) — clears any stale snappedGps to null',
+  );
+}
+
+// 7k. _evaluatePosition — distance to a major road runs to the estimated kerb:
+// half the carriageway (from width, else lanes, else a default) is taken off
+// the centre-line distance, and a point inside the carriageway reads 0.
+{
+  const road = (tags) => ({
+    type: 'way',
+    id: 'r',
+    tags: { highway: 'primary', ...tags },
+    coordinates: [
+      { lat: 51.5, lon: -0.1 },
+      { lat: 51.501, lon: -0.1 },
+    ],
+  });
+  const at = (eastM, tags) =>
+    OSMEnricher._evaluatePosition(
+      51.5005,
+      -0.1 + eastM / (111320 * Math.cos((51.5005 * Math.PI) / 180)),
+      [road(tags)],
+      50,
+    ).distMajorRoad;
+  assertClose(
+    at(10, {}),
+    10 - 3.25,
+    0.05,
+    'kerb distance — two-way default of 2 lanes',
+  );
+  assertClose(
+    at(10, { oneway: 'yes' }),
+    10 - 1.625,
+    0.05,
+    'kerb distance — one-way primary defaults to 1 lane',
+  );
+  assertClose(
+    at(10, { lanes: '4' }),
+    10 - 6.5,
+    0.05,
+    'kerb distance — from the lanes tag',
+  );
+  assertClose(
+    at(10, { width: '9 m', lanes: '4' }),
+    10 - 4.5,
+    0.05,
+    'kerb distance — width tag wins over lanes',
+  );
+  assertEq(
+    at(1, {}),
+    0,
+    'kerb distance — a point inside the carriageway reads 0',
   );
 }
 

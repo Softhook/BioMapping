@@ -197,6 +197,30 @@ function _classifyRoad(way) {
   return way.tags?.highway ? way.tags.highway : null;
 }
 
+// Carriageway width is rarely tagged in OSM, so it's estimated from lanes.
+const LANE_WIDTH_M = 3.25;
+
+/**
+ * Estimated half-width (m) of a road's carriageway: half its `width` tag
+ * when present, otherwise from `lanes` (or a default: 2 for a two-way road;
+ * 2 for a one-way motorway/trunk, 1 for other one-way roads — a dual
+ * carriageway is mapped as two one-way ways).
+ */
+function _halfCarriagewayM(tags) {
+  const width = parseFloat(tags.width);
+  if (Number.isFinite(width) && width > 0) return width / 2;
+  let lanes = parseInt(tags.lanes, 10);
+  if (!(lanes > 0)) {
+    const oneway =
+      tags.oneway === 'yes' ||
+      tags.oneway === '1' ||
+      tags.junction === 'roundabout';
+    const big = /^(motorway|trunk)/.test(tags.highway);
+    lanes = oneway && !big ? 1 : 2;
+  }
+  return (lanes * LANE_WIDTH_M) / 2;
+}
+
 /** Compute lat/lon centroid of a coordinate array. */
 function _centroidOf(coords) {
   let sumLat = 0,
@@ -628,8 +652,12 @@ export const OSMEnricher = {
           minVehRoadDist = d;
           nearestVehRoadClass = tags.highway;
         }
-        if (MAJOR_ROAD_CLASSES.has(tags.highway) && d < minMajorRoadDist) {
-          minMajorRoadDist = d;
+        if (MAJOR_ROAD_CLASSES.has(tags.highway)) {
+          // To the kerb, not the centre line: a walker snapped onto the centre
+          // line (pavement only noted as a tag) and one on a separately
+          // mapped pavement beside the same road should read about the same.
+          const kerb = Math.max(0, d - _halfCarriagewayM(tags));
+          if (kerb < minMajorRoadDist) minMajorRoadDist = kerb;
         }
       }
 

@@ -8,6 +8,16 @@ Status as of 2026-09-21. Landed and refactored. Checked against the code 2026-09
 > map matcher that feeds the classifier runs on the Kalman-smoothed GPS path (before any road
 > snap), not the raw fixes — so the numbers in sections 3 and 7, made on raw fixes, would
 > change if re-run. The live constants are at the top of `visualiser/src/gps/junctions.mjs`.
+>
+> **2026-10-01 road-snapping review** (details in
+> [`gps_filtering_pipeline.md`](gps_filtering_pipeline.md) §6): the map matcher's side-road
+> excursion filter described in sections 1–2 is **removed** — path-network routing over
+> shared nodes (which also covers weakness 3 in section 4) and a step-direction term replaced
+> it. The snapped track this analysis measures along used to zig-zag to about 2× the real
+> walk length, inflating along-track distances, control passages and duplicate visits; on
+> the 31 u-blox walks passages went from 923 to 594 (controls 401 → 144). **All counts in
+> this document predate that fix.** The matcher's chain break (weakness 4) now also needs
+> more than 30 m of movement, so pauses no longer restart it.
 
 ## 1. Why this exists
 

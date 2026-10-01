@@ -630,6 +630,49 @@ test('viterbi: a long gap breaks the chain only when the walker also moved far a
   assert.ok(!run(70), 'moving 54 m across a 60 s gap should break it');
 });
 
+test('pavements mapped separately: such roads are not snap candidates, other roads are', () => {
+  const sep = MapMatcher._pavementsMappedSeparately.bind(MapMatcher);
+  assert.ok(sep({ sidewalk: 'separate' }));
+  assert.ok(sep({ 'sidewalk:both': 'separate' }));
+  assert.ok(sep({ 'sidewalk:left': 'separate', 'sidewalk:right': 'no' }));
+  assert.ok(
+    !sep({ 'sidewalk:left': 'separate', 'sidewalk:right': 'yes' }),
+    'an unmapped pavement remains',
+  );
+  assert.ok(!sep({ sidewalk: 'both' }));
+  assert.ok(!sep({}));
+});
+
+test('match: a walker beside a road whose pavements are mapped separately snaps to the pavement, not the centre line', () => {
+  const road = {
+    type: 'way',
+    id: 'ROAD',
+    tags: { highway: 'primary', sidewalk: 'separate' },
+    coordinates: [
+      { lat: 0, lon: 0 },
+      { lat: metersToLatDeg(100), lon: 0 },
+    ],
+  };
+  const pavement = way(
+    'PAVE',
+    [
+      { lat: 0, lon: metersToLatDeg(7) },
+      { lat: metersToLatDeg(100), lon: metersToLatDeg(7) },
+    ],
+    'footway',
+  );
+  // GPS runs nearer the centre line (2 m) than the pavement (5 m).
+  const evalPoints = [10, 13, 16, 19, 22].map((n, idx) => ({
+    idx,
+    lat: metersToLatDeg(n),
+    lon: metersToLatDeg(2),
+    nearby: [road, pavement],
+  }));
+  const raw = evalPoints.map((_, i) => ({ time: i * 2 }));
+  const result = MapMatcher.match(evalPoints, raw, 25);
+  for (const r of result.values()) assert.strictEqual(r.wayId, 'PAVE');
+});
+
 test('match: passing a connected side-road junction on a steady heading does not detour onto the side road', () => {
   // Main road runs east, split at the junction (lon 0.0006); a side road
   // leaves the junction due north.  The walker keeps course 90° but one fix
