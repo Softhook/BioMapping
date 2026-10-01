@@ -218,7 +218,6 @@ export function draw() {
   _drawContextBands(frame);
   if (frame.view === 'signal') _drawSignalView(frame);
   else _drawMetricView(frame);
-  _drawNoPlaceShade(frame);
 
   // Overview timeline bar — pinned to the bottom, unless the panel is too short
   if (frame.showTimeline)
@@ -314,6 +313,15 @@ function _drawNoPlaceShade({
   noStroke();
   fill(color(`${bg}b3`));
   rect(left, plotTop, Math.min(x0, right) - left, plotBottom - plotTop);
+}
+
+/**
+ * The greyed start goes over the curves and peak markers but under the
+ * exclude buttons and the hover cursor and tooltip, which must stay readable.
+ */
+function _drawNoPlaceShadeAndButtons(frame) {
+  _drawNoPlaceShade(frame);
+  GSRRenderer.drawExcludeButtons();
 }
 
 /** Y range (padded, floored at 0) for the µS signal view. */
@@ -624,6 +632,7 @@ function _drawSignalView(frame) {
     false,
     true,
   );
+  _drawNoPlaceShadeAndButtons(frame);
   // L-params = the same uS range so handleScrubber can drop a Phasic dot too.
   GSRRenderer.handleScrubber(
     bodyStartTime,
@@ -798,6 +807,7 @@ function _drawMetricView(frame) {
     );
   }
 
+  _drawNoPlaceShadeAndButtons(frame);
   GSRRenderer.handleScrubber(
     bodyStartTime,
     bodyEndTime,

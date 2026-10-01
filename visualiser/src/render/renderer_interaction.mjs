@@ -13,39 +13,47 @@ import { EXCLUDE_BTN } from './renderer_constants.mjs';
 
 export const RendererInteraction = {
   /**
-   * Draw a small exclude ✕ or re-include ＋ circle on the canvas.
+   * Queue a small exclude ✕ or re-include ＋ button for drawExcludeButtons().
    * Called per-peak from drawPeakMarkers when the scrub line is near.
    */
-  _drawExcludeButton(xPeak, yBottomU, peakIdx, isExcluded) {
-    const btnX = xPeak;
-    const btnY = yBottomU + EXCLUDE_BTN.offsetY;
-    const btnR = EXCLUDE_BTN.r;
-    const btnColor = isExcluded ? '#008f3c' : '#d10024';
-
-    noStroke();
-    fill(color(`${btnColor}1a`));
-    circle(btnX, btnY, btnR * 2 + 3);
-
-    stroke(btnColor);
-    strokeWeight(1);
-    noFill();
-    circle(btnX, btnY, btnR * 2 + 1);
-    noStroke();
-
-    fill(btnColor);
-    textSize(8);
-    textStyle(BOLD);
-    textAlign(CENTER, CENTER);
-    text(isExcluded ? '+' : EXCLUDE_BTN.symbol, btnX, btnY);
-    textStyle(NORMAL);
-
-    // Store for hit-testing in mousePressed and hover cursor
+  _addExcludeButton(xPeak, yBottomU, peakIdx, isExcluded) {
+    // Stored for hit-testing in mousePressed and hover cursor
     AppState._peakExcludeButtons.push({
       idx: peakIdx,
-      x: btnX,
-      y: btnY,
-      r: btnR + 4,
+      x: xPeak,
+      y: yBottomU + EXCLUDE_BTN.offsetY,
+      r: EXCLUDE_BTN.r + 4,
+      isExcluded,
     });
+  },
+
+  /**
+   * Draw the queued exclude buttons. Separate from the peak markers so they
+   * go on top of the greyed start of the graph, which is drawn over the
+   * markers.
+   */
+  drawExcludeButtons() {
+    const btnR = EXCLUDE_BTN.r;
+    for (const btn of AppState._peakExcludeButtons || []) {
+      const btnColor = btn.isExcluded ? '#008f3c' : '#d10024';
+
+      noStroke();
+      fill(color(`${btnColor}1a`));
+      circle(btn.x, btn.y, btnR * 2 + 3);
+
+      stroke(btnColor);
+      strokeWeight(1);
+      noFill();
+      circle(btn.x, btn.y, btnR * 2 + 1);
+      noStroke();
+
+      fill(btnColor);
+      textSize(8);
+      textStyle(BOLD);
+      textAlign(CENTER, CENTER);
+      text(btn.isExcluded ? '+' : EXCLUDE_BTN.symbol, btn.x, btn.y);
+      textStyle(NORMAL);
+    }
   },
 
   /**

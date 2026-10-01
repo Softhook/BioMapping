@@ -82,8 +82,9 @@ export const ResponseDelay = {
     const span = k + 1 < raw.length ? raw[k + 1].time - raw[k].time : 0;
     const f = span > 0 ? (t - raw[k].time) / span : 0;
     if (f <= EPS_S) return { lat: p.lat, lon: p.lon };
+    // The next row has no position (a GPS gap starts there): stay at this one.
     const q = a.getCoordinates(k + 1);
-    if (!q) return null;
+    if (!q) return { lat: p.lat, lon: p.lon };
     return {
       lat: p.lat + f * (q.lat - p.lat),
       lon: p.lon + f * (q.lon - p.lon),

@@ -347,12 +347,13 @@ export const RendererMarkers = {
       }
 
       // ── On-canvas exclude ✕ / ＋ button (only when scrubbing near) ──
+      // Drawn later by drawExcludeButtons(), above the greyed start.
       if (
         isHovered &&
         xPeak >= GSR_CONST.MARGIN.left &&
         xPeak <= width - GSR_CONST.MARGIN.right
       ) {
-        this._drawExcludeButton(xPeak, yBottomU, pIdx, isExcluded);
+        this._addExcludeButton(xPeak, yBottomU, pIdx, isExcluded);
       }
     }
   },

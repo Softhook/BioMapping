@@ -164,6 +164,15 @@ test('edges: a reading whose place had no GPS fix has no place', () => {
   }
 });
 
+test('edges: a reading placed just before a GPS gap stays at the last fix', () => {
+  const a = walk({}, 2.05);
+  const i = 500; // placed halfway between rows 479 and 480
+  const last = a.getCoordinates(i - 21);
+  const getCoordinates = a.getCoordinates.bind(a);
+  a.getCoordinates = (j) => (j === i - 20 ? null : getCoordinates(j));
+  samePlace(a.placeOf(i), last, `reading ${i}`);
+});
+
 // ── Where, never what ───────────────────────────────────────────────────────
 
 const bodyFacts = (a) =>
