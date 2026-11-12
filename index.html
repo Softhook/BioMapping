@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Bio Mapping 2.0</title>
+    <meta
+      name="description"
+      content="Bio Mapping 2.0 by Christian Nold — a wearable that records the body's skin response as you walk and maps it to place."
+    />
+    <link rel="icon" href="visualiser/assets/favicon.png" />
+    <link rel="stylesheet" href="visualiser/vendor/fonts/fonts.css" />
+    <link rel="stylesheet" href="visualiser/vendor/cesium/Widgets/widgets.css" />
+    <link rel="stylesheet" href="demo/demo.css" />
+    <script>
+      window.CESIUM_BASE_URL = 'visualiser/vendor/cesium/';
+    </script>
+    <script src="visualiser/vendor/cesium/Cesium.js"></script>
+  </head>
+  <body>
+    <div id="globe" aria-hidden="true"></div>
+    <div class="vignette" aria-hidden="true"></div>
+
+    <!-- Loop progress, top edge -->
+    <div class="progress" aria-hidden="true"><span id="progressBar"></span></div>
+
+    <!-- 1. Title -->
+    <section class="card card-title" data-card="title">
+      <span class="title-logo" aria-hidden="true"></span>
+      <h1>Bio Mapping <span>2.0</span></h1>
+      <p class="byline">Christian Nold, 2026</p>
+    </section>
+
+    <!-- 2. Hardware -->
+    <section class="card card-hardware" data-card="hardware">
+      <img src="demo/hardware.jpg" alt="The Bio Mapping 2.0 device: a Flipper Zero with a skin-response circuit and a GPS board on top, and a finger electrode on a coiled cable." />
+      <div class="hw-text">
+        <p class="kicker">The hardware</p>
+        <h2>A sensor you can build yourself</h2>
+        <ul>
+          <li><b>Skin sensor</b> — a finger strap and a precise measuring circuit read tiny changes in skin conductivity.</li>
+          <li><b>GPS</b> — sub-meter GPS precision.</li>
+          <li><b>Flipper Zero</b> — runs the Bio Mapping app and saves every walk to its memory card.</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- 3. What it does -->
+    <section class="card card-what" data-card="what">
+      <p class="kicker">What it does</p>
+      <h2>Where does your body react?</h2>
+      <p>
+        When something startles you your skin sweat level changes very
+        slightly — often wihtout you noticing. Bio Mapping measures
+        this as you walk and pins each moment to the map.
+      </p>
+      <p class="small">
+        Since 2004, thousands of people in sixteen countries have made emotion
+        maps with Bio Mapping.
+      </p>
+    </section>
+
+    <!-- 4. Fly-through: heads-up display and captions -->
+    <div class="hud" data-card="fly">
+      <div class="hud-top">
+        <span class="live-dot"></span>
+        <span>Replay of a real walk · Edinburgh</span>
+      </div>
+      <dl class="hud-stats">
+        <div><dt>Walk time</dt><dd id="statTime">00:00</dd></div>
+        <div><dt>Distance</dt><dd id="statDist">0 m</dd></div>
+        <div><dt>Reactions</dt><dd id="statPeaks">0</dd></div>
+      </dl>
+    </div>
+    <div class="caption" id="caption" aria-live="polite">
+      <h3 id="captionTitle"></h3>
+      <p id="captionText"></p>
+    </div>
+    <div class="signal" data-card="fly" aria-hidden="true">
+      <span class="signal-label">Skin response</span>
+      <canvas id="signal"></canvas>
+      <div class="legend"><span>calm</span><i></i><span>strong</span></div>
+    </div>
+
+    <!-- 5. Closing -->
+    <section class="card card-end" data-card="end">
+      <p class="stats" id="endStats"></p>
+      <h2>Make your own emotion map.</h2>
+      <p>
+        An open, playful tool for communities, planners and artists to explore
+        how places feel.
+      </p>
+      <p class="cta">Click anywhere to find out more →</p>
+    </section>
+
+    <a class="readme-link" id="readmeLink" href="https://github.com/Softhook/BioMapping#readme">
+      Read about the project →
+    </a>
+    <button class="fs-btn" id="fsBtn" type="button" title="Full screen" aria-label="Full screen">
+      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" /></svg>
+    </button>
+    <p class="credits">
+      Imagery © Esri, Maxar, Earthstar Geographics · Buildings © OpenStreetMap contributors · CesiumJS
+    </p>
+    <div class="blackout" id="blackout" aria-hidden="true"></div>
+
+    <script type="module" src="demo/demo.mjs"></script>
+  </body>
+</html>

@@ -1,0 +1,486 @@
+/* Bio Mapping 2.0 — front-page demo. Always dark: it is a full-screen film. */
+:root {
+  --bg: #05060a;
+  --ink: #f4f1ea;
+  --ink-soft: rgba(244, 241, 234, 0.72);
+  --ink-faint: rgba(244, 241, 234, 0.45);
+  --accent: #ff5a3c;
+  --calm: #2bd96b;
+  --panel: rgba(6, 8, 14, 0.62);
+  --line: rgba(255, 255, 255, 0.14);
+  --display: 'Outfit', system-ui, sans-serif;
+  --sans: 'Inter', system-ui, sans-serif;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--sans);
+  cursor: pointer;
+  -webkit-font-smoothing: antialiased;
+}
+
+#globe {
+  position: fixed;
+  inset: 0;
+}
+#globe .cesium-viewer-bottom,
+#globe .cesium-widget-credits {
+  display: none !important;
+}
+
+.vignette {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse at center, transparent 45%, rgba(0, 0, 0, 0.55) 100%),
+    linear-gradient(to top, rgba(0, 0, 0, 0.55), transparent 28%);
+}
+
+.blackout {
+  position: fixed;
+  inset: 0;
+  background: #000;
+  opacity: 1;
+  pointer-events: none;
+  transition: opacity 1.4s ease;
+}
+
+/* ── Cards: shown by the timeline via .on ─────────────────────────────── */
+.card,
+.hud,
+.signal,
+.caption {
+  position: fixed;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity 1.1s ease,
+    transform 1.4s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+.card {
+  transform: translateY(18px);
+}
+.on {
+  opacity: 1 !important;
+  transform: none !important;
+}
+
+.kicker {
+  margin: 0 0 0.9rem;
+  font: 600 0.78rem/1 var(--sans);
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--display);
+  font-weight: 600;
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+
+/* Title */
+.card-title {
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 0 16px;
+  background: radial-gradient(ellipse 60% 40% at 50% 46%, rgba(0, 0, 0, 0.55), transparent);
+}
+/* The visualiser's 10×10 pixel logo, scaled up with crisp pixels. The PNG
+   is white on solid black, so it is used as a brightness stencil: only the
+   white shape is painted and the black drops out against the stars. */
+.card-title .title-logo {
+  display: block;
+  width: clamp(100px, 12vw, 170px);
+  aspect-ratio: 1;
+  margin-bottom: 0.6rem;
+  background: var(--ink);
+  -webkit-mask: url('../visualiser/assets/biomap_icon.png') center / 100% 100% no-repeat;
+  mask: url('../visualiser/assets/biomap_icon.png') center / 100% 100% no-repeat luminance;
+  image-rendering: pixelated;
+}
+.card-title h1 {
+  font-size: clamp(3rem, 11vw, 8.5rem);
+  line-height: 0.95;
+  font-weight: 700;
+  text-shadow: 0 6px 40px rgba(0, 0, 0, 0.6);
+}
+.card-title h1 span {
+  background: linear-gradient(100deg, var(--calm), #ffd23f 50%, var(--accent));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.card-title .byline {
+  margin: 1.6rem 0 0;
+  font: 400 clamp(1.1rem, 2.4vw, 1.6rem) / 1 var(--display);
+  letter-spacing: 0.08em;
+  color: var(--ink-soft);
+}
+
+/* Hardware */
+.card-hardware {
+  inset: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  align-items: center;
+  gap: clamp(1rem, 4vw, 4rem);
+  padding: 6vh clamp(16px, 6vw, 7rem);
+  background: radial-gradient(ellipse at 30% 50%, rgba(0, 0, 0, 0.85) 30%, rgba(0, 0, 0, 0.6));
+}
+.card-hardware img {
+  width: 100%;
+  /* fade the photo's black backdrop into the page */
+  mix-blend-mode: lighten;
+  -webkit-mask-image: radial-gradient(ellipse 56% 56% at 50% 50%, #000 72%, transparent 100%);
+  mask-image: radial-gradient(ellipse 56% 56% at 50% 50%, #000 72%, transparent 100%);
+  max-height: 80vh;
+  object-fit: contain;
+  transform: scale(0.96);
+  transition: transform 9s ease-out;
+}
+.card-hardware.on img {
+  transform: scale(1.03);
+}
+.card-hardware h2 {
+  font-size: clamp(1.7rem, 3.4vw, 3rem);
+  line-height: 1.08;
+  margin-bottom: 1.6rem;
+}
+.card-hardware ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 1.1rem;
+}
+.card-hardware li {
+  padding-left: 1rem;
+  border-left: 2px solid var(--line);
+  font-size: clamp(0.92rem, 1.25vw, 1.1rem);
+  line-height: 1.5;
+  color: var(--ink-soft);
+}
+.card-hardware li b {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+/* What it does */
+.card-what {
+  left: clamp(16px, 6vw, 7rem);
+  top: 50%;
+  translate: 0 -50%;
+  max-width: 36rem;
+  padding: 2.2rem 2.4rem;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+.card-what h2 {
+  font-size: clamp(1.8rem, 3.6vw, 3.1rem);
+  line-height: 1.05;
+  margin-bottom: 1.2rem;
+}
+.card-what p:not(.kicker) {
+  margin: 0 0 1rem;
+  font-size: clamp(1rem, 1.4vw, 1.2rem);
+  line-height: 1.6;
+  color: var(--ink-soft);
+}
+.card-what .small {
+  margin: 1.4rem 0 0;
+  padding-top: 1.2rem;
+  border-top: 1px solid var(--line);
+  font-size: 0.92rem;
+  color: var(--ink-faint);
+}
+
+/* Fly-through HUD */
+.hud {
+  top: 24px;
+  left: clamp(16px, 3vw, 2.5rem);
+  right: clamp(16px, 3vw, 2.5rem);
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+.hud-top {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font: 600 0.78rem/1 var(--sans);
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  padding: 0.65rem 0.9rem;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+.live-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 0 rgba(255, 90, 60, 0.7);
+  animation: pulse 1.6s infinite;
+}
+@keyframes pulse {
+  70% {
+    box-shadow: 0 0 0 10px rgba(255, 90, 60, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(255, 90, 60, 0);
+  }
+}
+.hud-stats {
+  display: flex;
+  gap: 0.5rem;
+  margin: 0;
+}
+.hud-stats div {
+  min-width: 6.4rem;
+  padding: 0.6rem 0.9rem;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+.hud-stats dt {
+  font-size: 0.66rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+.hud-stats dd {
+  margin: 0.25rem 0 0;
+  font: 600 1.35rem/1 var(--display);
+  font-variant-numeric: tabular-nums;
+}
+
+.caption {
+  left: clamp(16px, 3vw, 2.5rem);
+  bottom: 150px;
+  max-width: 34rem;
+  transform: translateY(10px);
+}
+.caption h3 {
+  font-size: clamp(1.4rem, 2.8vw, 2.3rem);
+  line-height: 1.1;
+  text-shadow: 0 2px 24px rgba(0, 0, 0, 0.8);
+}
+.caption p {
+  margin: 0.6rem 0 0;
+  font-size: clamp(0.95rem, 1.3vw, 1.1rem);
+  line-height: 1.5;
+  color: var(--ink-soft);
+  text-shadow: 0 1px 12px rgba(0, 0, 0, 0.9);
+}
+
+.signal {
+  left: clamp(16px, 3vw, 2.5rem);
+  right: clamp(16px, 3vw, 2.5rem);
+  bottom: 40px;
+  height: 90px;
+  padding: 10px 14px 8px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+.signal canvas {
+  width: 100%;
+  height: 46px;
+  margin-top: 12px;
+  display: block;
+}
+.signal-label {
+  position: absolute;
+  top: 8px;
+  left: 14px;
+  font-size: 0.64rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  z-index: 1;
+}
+.legend {
+  position: absolute;
+  top: 7px;
+  right: 14px;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.64rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+.legend i {
+  width: 70px;
+  height: 6px;
+  border-radius: 3px;
+  background: linear-gradient(90deg, hsl(120 100% 50%), hsl(60 100% 50%), hsl(0 100% 50%));
+}
+
+/* Closing */
+.card-end {
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  text-align: center;
+  padding: 0 16px 9vh;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.88) 0%, rgba(0, 0, 0, 0.55) 34%, transparent 62%);
+}
+.card-end .stats {
+  margin: 0 0 1.2rem;
+  font: 600 0.82rem/1.4 var(--sans);
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+.card-end h2 {
+  font-size: clamp(2.2rem, 6vw, 5rem);
+  line-height: 1;
+  text-shadow: 0 4px 40px rgba(0, 0, 0, 0.7);
+}
+.card-end p {
+  max-width: 34rem;
+  margin: 1.2rem 0 0;
+  font-size: clamp(1rem, 1.5vw, 1.25rem);
+  line-height: 1.55;
+  color: var(--ink-soft);
+}
+.card-end .cta {
+  margin-top: 2.2rem;
+  padding: 0.85rem 1.4rem;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 999px;
+  color: var(--ink);
+  font-weight: 600;
+}
+
+/* Always-on chrome */
+.progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: rgba(255, 255, 255, 0.08);
+  z-index: 5;
+}
+.progress span {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: linear-gradient(90deg, var(--calm), #ffd23f, var(--accent));
+}
+.readme-link {
+  position: fixed;
+  right: clamp(16px, 3vw, 2.5rem);
+  bottom: 12px;
+  font-size: 0.8rem;
+  color: var(--ink-soft);
+  text-decoration: none;
+  z-index: 5;
+}
+.readme-link:hover,
+.readme-link:focus-visible {
+  color: var(--ink);
+}
+.fs-btn {
+  position: fixed;
+  left: clamp(16px, 3vw, 2.5rem);
+  bottom: 8px;
+  z-index: 5;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink-faint);
+  cursor: pointer;
+}
+.fs-btn:hover {
+  color: var(--ink);
+}
+.credits {
+  position: fixed;
+  left: 50%;
+  bottom: 12px;
+  translate: -50% 0;
+  margin: 0;
+  font-size: 0.62rem;
+  color: var(--ink-faint);
+  white-space: nowrap;
+  z-index: 5;
+}
+
+/* Phone and narrow windows */
+@media (max-width: 760px) {
+  .card-hardware {
+    grid-template-columns: 1fr;
+    align-content: center;
+    gap: 1rem;
+  }
+  .card-hardware img {
+    max-height: 34vh;
+  }
+  .card-hardware h2 {
+    margin-bottom: 1rem;
+  }
+  .card-what {
+    left: 16px;
+    right: 16px;
+    padding: 1.4rem 1.3rem;
+  }
+  .hud-stats div {
+    min-width: 0;
+    padding: 0.5rem 0.65rem;
+  }
+  .hud-stats dd {
+    font-size: 1.05rem;
+  }
+  .caption {
+    right: 16px;
+    bottom: 140px;
+  }
+  .credits {
+    display: none;
+  }
+  .legend {
+    display: none;
+  }
+}
