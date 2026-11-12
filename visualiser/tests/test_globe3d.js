@@ -328,18 +328,48 @@ test('destroy() cancels a pending idle-retire timer', () => {
 
 // ── HiDPI render resolution ─────────────────────────────────────────────────
 
-test('viewer renders at devicePixelRatio x a constant resolutionScale (default 1.2)', () => {
-  const { viewer } = freshEnv();
-  const { GSRGlobeManager } = loadFresh();
-  const mgr = new GSRGlobeManager('c', { keyboardFlight: false });
+test('viewer renders at devicePixelRatio x a constant resolutionScale (1.0 on 1x, 1.2 on HiDPI)', () => {
+  // 1x LCD display: 1.0 avoids fractional browser downsampling of WebGL text.
+  {
+    const { viewer } = freshEnv();
+    global.window.devicePixelRatio = 1;
+    const { GSRGlobeManager } = loadFresh();
+    const mgr = new GSRGlobeManager('c', { keyboardFlight: false });
 
-  assert.strictEqual(
-    viewer.useBrowserRecommendedResolution,
-    false,
-    'honours devicePixelRatio',
-  );
-  assert.strictEqual(viewer.resolutionScale, 1.2, 'default supersample factor');
-  mgr.destroy();
+    assert.strictEqual(
+      viewer.useBrowserRecommendedResolution,
+      false,
+      'honours devicePixelRatio',
+    );
+    assert.strictEqual(
+      viewer.resolutionScale,
+      1.0,
+      '1:1 pixel alignment on 1x',
+    );
+    assert.strictEqual(mgr._orbitResolutionScale, 1.0, '1:1 orbit scale on 1x');
+    mgr.destroy();
+  }
+
+  // HiDPI / Retina display: keeps 1.2 default supersampling and 0.85 orbit scale.
+  {
+    const { viewer } = freshEnv();
+    global.window.devicePixelRatio = 2;
+    const { GSRGlobeManager } = loadFresh();
+    const mgr = new GSRGlobeManager('c', { keyboardFlight: false });
+
+    assert.strictEqual(
+      viewer.useBrowserRecommendedResolution,
+      false,
+      'honours devicePixelRatio',
+    );
+    assert.strictEqual(
+      viewer.resolutionScale,
+      1.2,
+      'default supersample factor on HiDPI',
+    );
+    assert.strictEqual(mgr._orbitResolutionScale, 0.85, 'orbit scale on HiDPI');
+    mgr.destroy();
+  }
 });
 
 test('globe.tileCacheSize defaults to 500 with preloadSiblings enabled, and accepts custom option', () => {
@@ -1175,6 +1205,47 @@ test('toggleLabels(true) with peaks off keeps only the labelled peaks on screen'
     'peaks off + labels off → nothing',
   );
   mgr.destroy();
+});
+
+test('peak labels use 15px / 2px outline on 1x displays and 14px / 3px outline on HiDPI', () => {
+  for (const { dpr, fontPrefix, outlineWidth } of [
+    { dpr: 1, fontPrefix: '600 15px ', outlineWidth: 2 },
+    { dpr: 2, fontPrefix: '600 14px ', outlineWidth: 3 },
+  ]) {
+    const { viewer } = freshEnv();
+    global.window.devicePixelRatio = dpr;
+    installWallCapture();
+    const addedLabels = [];
+    const origEntitiesAdd = viewer.entities.add.bind(viewer.entities);
+    viewer.entities.add = (obj) => {
+      if (obj?.label) addedLabels.push(obj.label);
+      return origEntitiesAdd(obj);
+    };
+    const { GSRGlobeManager } = loadFresh();
+    const mgr = new GSRGlobeManager('c', { keyboardFlight: false });
+    mgr.flyToTrack = () => {};
+    mgr._ensureMarkerCollections();
+    if (mgr._peakLabels) {
+      mgr._peakLabels.add = (obj) => {
+        addedLabels.push(obj);
+        return obj;
+      };
+    }
+    const { analyzer, drawPoints } = parityTrack();
+
+    mgr.renderData(analyzer, {}, { drawPoints, isPreview: true });
+    assert.ok(addedLabels.length > 0, `expected peak label at dpr=${dpr}`);
+    assert.ok(
+      addedLabels[0].font.startsWith(fontPrefix),
+      `expected ${fontPrefix} at dpr=${dpr}, got ${addedLabels[0].font}`,
+    );
+    assert.strictEqual(
+      addedLabels[0].outlineWidth,
+      outlineWidth,
+      `expected outlineWidth ${outlineWidth} at dpr=${dpr}`,
+    );
+    mgr.destroy();
+  }
 });
 
 test('focusOnPeakLocation hides the peak circle, not the latency-connector line', () => {

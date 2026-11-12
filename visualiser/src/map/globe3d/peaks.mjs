@@ -53,12 +53,18 @@ export class GSRGlobePeaks extends GSRGlobeRf {
    */
   _markerConst() {
     if (!this._mc) {
+      const isHiDpi =
+        ((typeof window !== 'undefined' && window.devicePixelRatio) || 1) > 1;
       this._mc = {
         peakRed: Cesium.Color.fromCssColorString('#d10024'),
         delayRose: Cesium.Color.fromCssColorString('#f43f5e').withAlpha(0.35),
         labelOutline: Cesium.Color.fromCssColorString('#0b0c10'),
         hotspotRed: Cesium.Color.fromCssColorString('#ff1744'),
         labelOffset: new Cesium.Cartesian2(0, -14),
+        labelFont: isHiDpi
+          ? '600 14px Inter, "Helvetica Neue", Arial, sans-serif'
+          : '600 15px Inter, "Helvetica Neue", Arial, sans-serif',
+        labelOutlineWidth: isHiDpi ? 3 : 2,
         labelDDC: new Cesium.DistanceDisplayCondition(0.0, 6000.0),
         // Pull every label ~10 m toward the camera in eye space. Labels keep
         // disableDepthTestDistance (never occluded by geometry), but Cesium
@@ -225,11 +231,11 @@ export class GSRGlobePeaks extends GSRGlobeRf {
           this._peakLabels.add({
             position: markerPos,
             text: labelText,
-            font: '600 14px Inter, "Helvetica Neue", Arial, sans-serif',
+            font: C.labelFont,
             style: Cesium.LabelStyle.FILL_AND_OUTLINE,
             fillColor: Cesium.Color.WHITE,
             outlineColor: C.labelOutline,
-            outlineWidth: 3,
+            outlineWidth: C.labelOutlineWidth,
             verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
             pixelOffset: C.labelOffset,
             eyeOffset: C.labelEyeOffset,
@@ -243,11 +249,11 @@ export class GSRGlobePeaks extends GSRGlobeRf {
             position: markerPos,
             label: {
               text: labelText,
-              font: '600 14px Inter, "Helvetica Neue", Arial, sans-serif',
+              font: C.labelFont,
               style: Cesium.LabelStyle.FILL_AND_OUTLINE,
               fillColor: Cesium.Color.WHITE,
               outlineColor: C.labelOutline,
-              outlineWidth: 3,
+              outlineWidth: C.labelOutlineWidth,
               verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
               pixelOffset: C.labelOffset,
               eyeOffset: C.labelEyeOffset,

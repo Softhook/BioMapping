@@ -163,10 +163,13 @@ export class GSRGlobeBase {
    * @param {boolean} [options.requestRenderMode=false]  render only on scene change /
    *   explicit requestRender() instead of every frame — big idle-cost win for an
    *   embedded panel.
-   * @param {number}  [options.resolutionScale=1.2]     canvas render-resolution
-   *   multiplier on top of devicePixelRatio (see initViewer).
-   * @param {number}  [options.orbitResolutionScale=0.85]  render-resolution
+   * @param {number}  [options.resolutionScale]         canvas render-resolution
+   *   multiplier on top of devicePixelRatio (see initViewer). Defaults to 1.2
+   *   on HiDPI displays (devicePixelRatio > 1) and 1.0 on 1x displays so the
+   *   WebGL buffer stays 1:1 with physical pixels without fractional downsampling.
+   * @param {number}  [options.orbitResolutionScale]    render-resolution
    *   multiplier while the 360° turntable orbit runs (restored on stop).
+   *   Defaults to 0.85 on HiDPI displays and 1.0 on 1x displays.
    */
   constructor(containerId, options = {}) {
     this.containerId = containerId;
@@ -198,13 +201,26 @@ export class GSRGlobeBase {
     // varying it per-interaction reallocates Cesium's drawing buffer on every
     // change, and that one-frame stall at the start/end of a gesture read as
     // clunkier than just holding a fixed resolution.
+    // On 1x displays (devicePixelRatio <= 1), 1.2x forces a fractional 5:6
+    // compositor downsample that blurs thin 14px SDF text; hold 1.0 so the
+    // canvas stays 1:1 with physical LCD pixels.
+    const dpr = (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
+    const isHiDpi = dpr > 1;
     this._resolutionScale =
-      options.resolutionScale > 0 ? options.resolutionScale : 1.2;
+      options.resolutionScale > 0
+        ? options.resolutionScale
+        : isHiDpi
+          ? 1.2
+          : 1.0;
     // The 360° turntable is continuous motion for its whole duration — render it
-    // softer while it runs (restored in stopOrbit). One resolutionScale write
-    // per orbit session, not per frame, so no drawing-buffer thrash.
+    // softer while it runs on HiDPI (restored in stopOrbit). On 1x displays
+    // keep 1.0 so orbit does not upscale a 0.85x buffer.
     this._orbitResolutionScale =
-      options.orbitResolutionScale > 0 ? options.orbitResolutionScale : 0.85;
+      options.orbitResolutionScale > 0
+        ? options.orbitResolutionScale
+        : isHiDpi
+          ? 0.85
+          : 1.0;
 
     // Retain cached tiles in memory across pan/orbit gestures to prevent thrashing
     // and eliminate satellite tile reload pop-in when rotating the view.
