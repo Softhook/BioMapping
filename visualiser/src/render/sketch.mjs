@@ -968,7 +968,21 @@ function updateCanvasCursor() {
   AppState.myCanvas.elt.style.cursor = cur;
 }
 
-export function mousePressed() {
+/**
+ * True when a mouse/wheel event was aimed at the graph canvas itself. p5
+ * listens on the whole page and measures mouseX/mouseY from the canvas
+ * wherever the pointer is, so a press or wheel on whatever covers the canvas
+ * (the map's full-screen overlay) would otherwise land on the hidden graph.
+ * Calls without an event (tests, synthetic calls) count as on the canvas.
+ */
+function _eventOnCanvas(event) {
+  const el = AppState.myCanvas?.elt;
+  if (!el) return false;
+  return !event?.target || event.target === el;
+}
+
+export function mousePressed(event) {
+  if (!_eventOnCanvas(event)) return;
   if (AppState.analyzer.raw.length === 0) return;
 
   // Check for click on an on-canvas exclude ✕ / ＋ button — abort drag if hit
@@ -1058,7 +1072,45 @@ export function mouseMoved() {
   }
 }
 
+// Graph wheel zoom, in doublings of the view's length per pixel scrolled: a
+// 100 px mouse-wheel notch is about ×1.15, and a trackpad's stream of small
+// events adds up to the same for the same finger travel. A pinch (which the
+// browser sends as a wheel with ctrlKey) is three times as fast, the same
+// ratio as the map's wheel zoom (smooth_wheel_zoom.mjs). One event never
+// zooms more than one doubling.
+const GRAPH_WHEEL_RATE = 1 / 500;
+const GRAPH_PINCH_RATE = 3 / 500;
+const GRAPH_MAX_WHEEL_STEP = 1;
+// deltaMode 1 = lines, 2 = pages (e.g. Firefox with some mice); 0 = pixels.
+const WHEEL_LINE_PX = 16;
+
+/**
+ * What one wheel event over the graph does: { pan } (pixels to scroll the
+ * view along the walk; positive = later) for a mostly-sideways scroll, or
+ * { zoom } (factor to multiply the view's length by; below 1 = zoom in) for
+ * a mostly-up/down one, or null when it doesn't move at all. `pagePx` is the
+ * size of one "page" for page-mode wheels.
+ */
+function graphWheelStep(event, pagePx) {
+  const unit =
+    event.deltaMode === 1 ? WHEEL_LINE_PX : event.deltaMode === 2 ? pagePx : 1;
+  const dx = (event.deltaX || 0) * unit;
+  const dy = (event.deltaY || 0) * unit;
+  if (Math.abs(dx) > Math.abs(dy)) return { pan: dx };
+  if (!dy) return null;
+  const rate = event.ctrlKey ? GRAPH_PINCH_RATE : GRAPH_WHEEL_RATE;
+  const doublings = Math.max(
+    -GRAPH_MAX_WHEEL_STEP,
+    Math.min(GRAPH_MAX_WHEEL_STEP, dy * rate),
+  );
+  return { zoom: 2 ** doublings };
+}
+
 export function mouseWheel(event) {
+  // p5 hears wheels anywhere on the page, with mouseX/mouseY measured from
+  // the canvas even where something else covers it (the map's full-screen
+  // overlay), so act only on wheels aimed at the canvas itself.
+  if (!_eventOnCanvas(event)) return;
   if (
     mouseX >= GSR_CONST.MARGIN.left &&
     mouseX <= width - GSR_CONST.MARGIN.right &&
@@ -1067,6 +1119,17 @@ export function mouseWheel(event) {
   ) {
     if (AppState.analyzer.raw.length === 0) return false;
 
+    const plotWidth = width - GSR_CONST.MARGIN.left - GSR_CONST.MARGIN.right;
+    const step = graphWheelStep(event, height);
+    if (!step) return false;
+    if (step.pan !== undefined) {
+      AppState.viewStartTime = AppState.clampViewStart(
+        AppState.viewStartTime + step.pan * (AppState.viewDuration / plotWidth),
+      );
+      coalescedZoomRedraw();
+      return false;
+    }
+
     const mouseTime = map(
       mouseX,
       GSR_CONST.MARGIN.left,
@@ -1074,10 +1137,9 @@ export function mouseWheel(event) {
       AppState.viewStartTime,
       AppState.viewStartTime + AppState.viewDuration,
     );
-    const zoomMultiplier = event.delta < 0 ? 0.85 : 1.15;
 
     AppState.viewDuration = constrain(
-      AppState.viewDuration * zoomMultiplier,
+      AppState.viewDuration * step.zoom,
       2.0,
       AppState.timeAxisSpan,
     );

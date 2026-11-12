@@ -750,6 +750,30 @@ test('_tweenGraphToTourStep animates the GSR graph view window onto a hotspot wa
   );
 });
 
+test('_tweenGraphToTourStep keeps a hotspot window near the end of the walk inside the walk', async () => {
+  const { window } = await bootApp();
+  window.setup();
+  const V = window.GSRGlobe3DView;
+  const AppState = window.AppState;
+  V._graphVisible = () => true;
+  AppState.totalDuration = 120;
+  AppState.viewDuration = 100;
+  AppState.viewStartTime = 0;
+
+  // A stop 10 s from the end with a 30 s window would show 20 s past it.
+  V._tweenGraphToTourStep({ graphWinStart: 110, graphWinDuration: 30 }, 0.25);
+  await new Promise((resolve) => setTimeout(resolve, 500));
+
+  assert.ok(
+    Math.abs(AppState.viewDuration - 30) < 0.5,
+    `window length kept (${AppState.viewDuration})`,
+  );
+  assert.ok(
+    Math.abs(AppState.viewStartTime - 90) < 0.5,
+    `window ends at the end of the walk (start ${AppState.viewStartTime})`,
+  );
+});
+
 test('_cancelGraphTween stops an in-flight pan before it reaches the target', async () => {
   const { window } = await bootApp();
   window.setup();

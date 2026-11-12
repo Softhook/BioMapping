@@ -169,8 +169,13 @@ export const RendererInteraction = {
     // draw the scrubber from AppState.hoveredIndex directly and skip the mouse
     // hit-testing below — otherwise this per-frame pass would immediately wipe
     // the hover the globe just set (the mouse isn't over this canvas).
-    const externalHover =
+    // A running 3D tour ('tour') owns it too, but only while the pointer is
+    // off the graph: pointing at the graph shows that moment instead, and
+    // the tour takes the cursor back on its next step.
+    let externalHover =
       AppState.scrubSource === 'globe' && AppState.hoveredIndex >= 0;
+    const tourHover =
+      AppState.scrubSource === 'tour' && AppState.hoveredIndex >= 0;
 
     if (!externalHover) {
       // Whatever the reason the canvas isn't reachable — collapsed panel
@@ -182,26 +187,25 @@ export const RendererInteraction = {
       // flag are computed from the canvas' own layout box, which can go stale
       // or keep overlapping whatever took its place once the canvas is hidden
       // by CSS rather than actually moved/removed.
-      if (
-        !AppState.myCanvas ||
-        (typeof document.elementFromPoint === 'function' &&
-          document.elementFromPoint(winMouseX, winMouseY) !==
-            AppState.myCanvas.elt)
-      ) {
-        this._clearScrub();
-        return;
-      }
-
+      const onCanvas =
+        AppState.myCanvas &&
+        (typeof document.elementFromPoint !== 'function' ||
+          document.elementFromPoint(winMouseX, winMouseY) ===
+            AppState.myCanvas.elt);
       // Only show scrubber when the mouse is inside the graph's plot area
-      if (
-        mouseX < GSR_CONST.MARGIN.left ||
-        mouseX > width - GSR_CONST.MARGIN.right ||
-        mouseY < GSR_CONST.MARGIN.top ||
-        mouseY > yBottomL ||
-        AppState.isDragging
-      ) {
-        this._clearScrub();
-        return;
+      const onPlot =
+        onCanvas &&
+        mouseX >= GSR_CONST.MARGIN.left &&
+        mouseX <= width - GSR_CONST.MARGIN.right &&
+        mouseY >= GSR_CONST.MARGIN.top &&
+        mouseY <= yBottomL &&
+        !AppState.isDragging;
+      if (!onPlot) {
+        if (!tourHover) {
+          this._clearScrub();
+          return;
+        }
+        externalHover = true;
       }
     }
 

@@ -1340,8 +1340,9 @@ export class GSRGlobeBase {
   /**
    * Follow-cam: recentre the camera on the scrub cursor, keeping the user's
    * current heading, pitch and distance. Driven from a graph hover (see
-   * globe3d_view.js _onScrub). No-op while orbiting or replaying — those own
-   * the camera. lookAt() installs a reference-frame transform that stays until
+   * globe3d_view.js _onScrub). No-op while orbiting or during either tour
+   * (replay or hotspot), running or paused — those own the camera.
+   * lookAt() installs a reference-frame transform that stays until
    * releaseFollowScrub() clears it, so ordinary mouse-drag rotation is paused
    * for as long as the graph is being scrubbed.
    */
@@ -1349,6 +1350,7 @@ export class GSRGlobeBase {
     if (
       !this.viewer ||
       this._isOrbiting ||
+      this._isTouring ||
       this._replay ||
       isNaN(lat) ||
       isNaN(lon)

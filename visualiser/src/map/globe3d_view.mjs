@@ -229,9 +229,20 @@ export const GSRGlobe3DView = {
    */
   _emitTourCursor(lat, lon, origIdx) {
     // origIdx is a place on the route; the graph cursor shows the reading that
-    // place is paired with (the Response delay later).
+    // place is paired with (the Response delay later). 'tour' ownership keeps
+    // the graph's own per-frame hover check from wiping it while the pointer
+    // is off the graph (see renderer_interaction.mjs handleScrubber).
+    AppState.scrubSource = 'tour';
     AppState.hoveredIndex = AppState.analyzer?.readingAt?.(origIdx) ?? origIdx;
     AppState.emit('scrub', { lat, lon, index: origIdx, source: 'globe' });
+  },
+
+  /** A tour stopped: take its cursor off the graph and maps. */
+  _releaseTourCursor() {
+    if (AppState.scrubSource !== 'tour') return;
+    AppState.scrubSource = null;
+    AppState.hoveredIndex = -1;
+    AppState.emit('scrub', { clear: true, source: 'globe' });
   },
 
   /**
@@ -244,6 +255,7 @@ export const GSRGlobe3DView = {
     if (!wp) {
       AppState.tourRunning = false;
       AppState.tourHeadTime = null;
+      GSRGlobe3DView._releaseTourCursor();
       GSRGlobe3DView._updateTourBtn(false);
       GSRGlobe3DView._cancelGraphTween();
       if (typeof redraw === 'function') redraw();
@@ -296,8 +308,13 @@ export const GSRGlobe3DView = {
 
     const fromStart = AppState.viewStartTime;
     const fromDuration = AppState.viewDuration;
-    const toStart = wp.graphWinStart;
-    const toDuration = wp.graphWinDuration;
+    // Kept inside the walk: a stop near the end would otherwise frame empty
+    // graph past the last reading (and a very short walk is shown whole).
+    const toDuration = Math.min(wp.graphWinDuration, AppState.timeAxisSpan);
+    const toStart = Math.max(
+      AppState.timeAxisStart,
+      Math.min(wp.graphWinStart, AppState.totalDuration - toDuration),
+    );
     // The playhead glides with the graph so it never leaves the screen: from
     // the previous stop (or, if that isn't on screen, the graph edge nearest
     // the new stop) to the new stop.
@@ -374,6 +391,7 @@ export const GSRGlobe3DView = {
       GSRGlobe3DView._lastReplayTime = null;
       AppState.tourHeadTime = null;
       AppState.tourRunning = false;
+      GSRGlobe3DView._releaseTourCursor();
       GSRGlobe3DView._updateTourBtn(false);
       if (typeof redraw === 'function') redraw();
       return;

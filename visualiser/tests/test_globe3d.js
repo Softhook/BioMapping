@@ -1492,6 +1492,19 @@ test('followScrub locks onto the point; releaseFollowScrub clears the transform;
   assert.strictEqual(mgr.viewer.camera._lookAt, false);
   mgr._isOrbiting = false;
 
+  // no-op during a hotspot tour (running or paused) — the tour owns the camera
+  mgr._isTouring = true;
+  mgr._tourMode = 'hotspot';
+  mgr.followScrub(51.5, -0.1);
+  assert.strictEqual(
+    mgr._followingScrub,
+    false,
+    'hotspot tour owns the camera',
+  );
+  assert.strictEqual(mgr.viewer.camera._lookAt, false);
+  mgr._isTouring = false;
+  mgr._tourMode = null;
+
   // no-op on NaN
   mgr.followScrub(NaN, NaN);
   assert.strictEqual(mgr._followingScrub, false);
