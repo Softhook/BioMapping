@@ -1,5 +1,5 @@
 /**
- * Bio Mapping 2.0 — front-page demo.
+ * Bio Mapping 2 — front-page demo.
  *
  * A looping, full-screen film: title over a turning Earth, the hardware, what
  * it does, a dive down to Edinburgh, a fly-through of a real walk whose
@@ -31,7 +31,7 @@ const BLEND_SECS = 5; // chase-cam → orbit blend
 
 // Fly-through captions: [fraction of walk where it appears, title, text]
 const CAPTIONS = [
-  [0.0, 'A real walk through central Edinburgh.', 'Recorded with Bio Mapping 2.0, replayed about twenty times faster.'],
+  [0.0, 'A real walk through central Edinburgh.', 'Recorded with Bio Mapping 2, replayed about twenty times faster.'],
   [0.24, 'The wall shows the body’s response.', 'Taller and redder means the skin reacted more strongly. Green is calm.'],
   [0.5, 'Each spike is one moment of arousal.', 'The software finds every quick rise in the skin signal and marks where it happened.'],
   [0.75, 'Ten readings every second, each tied to a place.', 'Walk the same streets with others and shared hotspots start to appear.'],
