@@ -1363,8 +1363,13 @@ function scrubEnv() {
     },
   };
   // Nothing reads viewer.camera at construction, so a plain spy is safe.
+  global.Cesium.Cartesian2 = function (x, y) {
+    return { x, y };
+  };
   base.viewer.camera = {
     pickEllipsoid: () => ({ lon: 0, lat: 0 }), // overridden per test
+    getPickRay: () => ({}),
+    frustum: { fovy: 0.6 },
     positionCartographic: { height: 1000 },
     positionWC: {},
     heading: 0,
@@ -1490,6 +1495,27 @@ test('followScrub locks onto the point; releaseFollowScrub clears the transform;
   // no-op on NaN
   mgr.followScrub(NaN, NaN);
   assert.strictEqual(mgr._followingScrub, false);
+  mgr.destroy();
+});
+
+test('followScrub backs the camera off only as far as needed to fit the wall at the cursor', () => {
+  scrubEnv();
+  const { GSRGlobeManager } = loadFresh();
+  const mgr = new GSRGlobeManager('c', { keyboardFlight: false });
+  const pitch = -0.26; // ~15° down: a low, close view clips a tall wall's top
+  const half = 0.6 * 0.4; // the margin-limited half view angle (fovy 0.6)
+  const offAngle = (r, v) =>
+    Math.abs(Math.atan2(v + r * Math.sin(pitch), r * Math.cos(pitch)) - pitch);
+
+  // A short wall already fits: the user's distance is kept.
+  assert.strictEqual(mgr._scrubFitRange(300, pitch, 5), 300);
+
+  // A tall wall close up doesn't: the range grows until both ends fit, and
+  // not much past that (one 10% step).
+  const r = mgr._scrubFitRange(150, pitch, 45);
+  assert.ok(r > 150);
+  assert.ok(offAngle(r, 45) <= half && offAngle(r, -45) <= half);
+  assert.ok(offAngle(r / 1.1, 45) > half || offAngle(r / 1.1, -45) > half);
   mgr.destroy();
 });
 

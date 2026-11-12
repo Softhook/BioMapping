@@ -142,6 +142,11 @@ const rawMetricField = (metric) => {
 // instance with options.wallMaxSegments (Infinity disables thinning).
 const WALL_MAX_SEGMENTS = 2500;
 
+// Share of the view's half-height the follow-cam lets the wall at the cursor
+// fill (see _scrubFitRange): the rest is room for the scrub dot on top and
+// a little air below the base.
+const SCRUB_FIT_MARGIN = 0.8;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // GSRGlobeManager
 // ─────────────────────────────────────────────────────────────────────────────
@@ -326,6 +331,11 @@ export class GSRGlobeBase {
     // Cesium lookAt transform is active and must be released — see
     // followScrub() / releaseFollowScrub()).
     this._followingScrub = false;
+    // Its aim point and range as last set, and the user's own range (see
+    // followScrub()).
+    this._scrubTarget = null;
+    this._scrubRange = null;
+    this._scrubUserRange = null;
 
     // Tour state, shared by the replay tour (globe3d/replay_tour.mjs) and the
     // hotspot tour (globe3d/hotspot_tour.mjs); `_tourMode` says which one is
@@ -1268,6 +1278,25 @@ export class GSRGlobeBase {
   }
 
   /**
+   * The ground point in the middle of the view (terrain if loaded, else the
+   * ellipsoid), or null when the view centre is sky.
+   * @private
+   */
+  _viewCentrePoint() {
+    const scene = this.viewer.scene;
+    const centre = new Cesium.Cartesian2(
+      scene.canvas.clientWidth / 2,
+      scene.canvas.clientHeight / 2,
+    );
+    const ray = this.viewer.camera.getPickRay(centre);
+    return (
+      (ray && scene.globe.pick(ray, scene)) ||
+      this.viewer.camera.pickEllipsoid(centre, scene.globe.ellipsoid) ||
+      null
+    );
+  }
+
+  /**
    * Ellipsoid-pick at a canvas position, then return the nearest drawn track
    * point ({origIdx, lat, lon}) when the pointer is within a camera-height
    * scaled radius of the line, else null.
@@ -1326,18 +1355,70 @@ export class GSRGlobeBase {
     )
       return;
     const camera = this.viewer.camera;
-    const target = Cesium.Cartesian3.fromDegrees(lon, lat);
-    const range = Math.max(
-      50,
-      Cesium.Cartesian3.distance(camera.positionWC, target),
+    // The wall at the cursor runs from the ground up to the scrub dot, which
+    // sits on its top (same heights as setScrubPosition). Aim at the middle
+    // of that, so both ends are framed alike.
+    const ground = Math.max(0, this._groundHeightAt(lat, lon));
+    const top = ground + Math.max(0, this._getTrackHeightAt(lat, lon)) + 2.5;
+    const mid = (ground + top) / 2;
+    const target = Cesium.Cartesian3.fromDegrees(lon, lat, mid);
+
+    // The user's own distance: adopted when following starts (to what's in
+    // the middle of the view — the hovered place may be well off to one
+    // side), and again whenever the camera is no longer where this last put
+    // it (they zoomed).
+    if (!this._followingScrub || this._scrubRange == null) {
+      this._scrubUserRange = Cesium.Cartesian3.distance(
+        camera.positionWC,
+        this._viewCentrePoint() || target,
+      );
+    } else {
+      const dist = Cesium.Cartesian3.distance(
+        camera.positionWC,
+        this._scrubTarget,
+      );
+      if (Math.abs(dist - this._scrubRange) > Math.max(1, dist * 0.01)) {
+        this._scrubUserRange = dist;
+      }
+    }
+    const range = this._scrubFitRange(
+      Math.max(50, this._scrubUserRange),
+      camera.pitch,
+      (top - ground) / 2,
     );
     camera.lookAt(
       target,
       new Cesium.HeadingPitchRange(camera.heading, camera.pitch, range),
     );
+    this._scrubTarget = target;
+    this._scrubRange = range;
     this._followingScrub = true;
     this._wakeRenderLoop();
     this._requestRender();
+  }
+
+  /**
+   * The follow-cam range: `range`, or further out if that's needed to keep
+   * a wall running `halfHeight` metres above and below the aim point inside
+   * the view's height (with SCRUB_FIT_MARGIN to spare, so the dot isn't
+   * clipped either), seen at `pitch` (radians, negative = looking down).
+   * @private
+   */
+  _scrubFitRange(range, pitch, halfHeight) {
+    const fovy = this.viewer.camera.frustum?.fovy || 0.6;
+    const limit = (fovy / 2) * SCRUB_FIT_MARGIN;
+    const fits = (r) => {
+      for (const v of [halfHeight, -halfHeight]) {
+        // Angle between the view axis and the wall end, in the vertical plane.
+        const off =
+          Math.atan2(v + r * Math.sin(pitch), r * Math.cos(pitch)) - pitch;
+        if (Math.abs(off) > limit) return false;
+      }
+      return true;
+    };
+    let r = range;
+    for (let i = 0; i < 60 && !fits(r); i++) r *= 1.1;
+    return r;
   }
 
   /** Release the follow-cam lookAt transform installed by followScrub(). */
@@ -1345,6 +1426,8 @@ export class GSRGlobeBase {
     if (!this.viewer || !this._followingScrub) return;
     this.viewer.camera.lookAtTransform(Cesium.Matrix4.IDENTITY);
     this._followingScrub = false;
+    this._scrubTarget = null;
+    this._scrubRange = null;
     this._requestRender();
   }
 
