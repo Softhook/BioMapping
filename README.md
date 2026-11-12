@@ -1,8 +1,8 @@
-# BioMapping 2.0
+# BioMapping 2
 
 *Christian Nold, 2026*
 
-BioMapping 2.0 records your Galvanic Skin Response — a measure of emotional arousal — mapped to your geographical location as you walk through an environment. 
+BioMapping 2 records your Galvanic Skin Response — a measure of emotional arousal — mapped to your geographical location as you walk through an environment. 
 
 It has three parts:
 
@@ -14,10 +14,10 @@ It has three parts:
 
 The first Bio Mapping device (Christian Nold, 2004) was used in workshops with thousands of people across sixteen countries. Participants walked through an area wearing the device and then annotated the recorded data together, producing collective emotion maps. Results from those workshops are published online — the [Greenwich Emotion Map](http://emotionmap.net/), the [San Francisco Emotion Map](http://www.sf.biomapping.net/) and the [Stockport Emotion Map](http://stockport.emotionmap.net/) — and the approach is discussed in the book [*Emotional Cartography*](http://www.emotionalcartography.net/).
 
-## Bio Mapping 2.0
+## Bio Mapping 2
 Unlike most academic research around Galvanic Skin Response, which is bogged down in jargon and caught in cartesian dualism, this project takes a different path. The goal is a system that is technically rigorous while open for everyday community interpretation. While the old Bio Mapping process was great at getting people involved, it didn't provide the insight into what was happening inside the body and the technical rigour and legitimacy to defend the community data. 
 
-Bio Mapping 2.0 is a high-fidelity successor that takes you much deeper into the body. It uses more sophisticated hardware and software to track nervous system responses and articulate a new vision of the mind-body. This new version aims to give communities a playful and rigorous tool to explore and tackle real-world issues like local planning, environmental stress, and civic change.
+Bio Mapping 2 is a high-fidelity successor that takes you much deeper into the body. It uses more sophisticated hardware and software to track nervous system responses and articulate a new vision of the mind-body. This new version aims to give communities a playful and rigorous tool to explore and tackle real-world issues like local planning, environmental stress, and civic change.
 
 ## Quick Start
 
@@ -49,7 +49,7 @@ Everything is logged to `/ext/biomapping/*.csv` at 10 Hz. A Live Stream mode sen
 
 The GSR front-end is built to research-grade specification and measured against a precision metal-film resistor grid (10 kΩ – 9 MΩ), full sweep in [`docs/reference_test_results.csv`](docs/reference_test_results.csv).
 
-![BioMapping 2.0 GSR Error Curve](docs/error.svg)
+![BioMapping 2 GSR Error Curve](docs/error.svg)
 
 Accuracy zones by the fraction of real-world track data that falls inside them:
 
@@ -61,7 +61,7 @@ Accuracy zones by the fraction of real-world track data that falls inside them:
 | Device | Type / Price | ADC Resolution | Noise Floor | Accuracy / Error |
 | :--- | :--- | :--- | :--- | :--- |
 | [BIOPAC EDA100C + MP160](https://www.biopac.com/product/electrodermal-activity-amplifier/) | Lab Benchmark (~£8,000+) | 16-bit *(MP160 DAQ)* | 0.7 nS *(published sensitivity)* | Unknown |
-| **[BioMapping 2.0](https://github.com/Softhook/BioMapping)** | **Custom Portable (~£250)** | **16-bit** *(Onboard ADS1115)* | **2.7 nS** | **±0.1% *(calibrated)* / ±0.4% *(raw)*** |
+| **[BioMapping 2](https://github.com/Softhook/BioMapping)** | **Custom Portable (~£250)** | **16-bit** *(Onboard ADS1115)* | **2.7 nS** | **±0.1% *(calibrated)* / ±0.4% *(raw)*** |
 | [Empatica E4](https://support.empatica.com/hc/en-us/articles/202581999-E4-wristband-technical-specifications) | Clinical Wearable (~£1,350) *(discontinued)* | Not published *(0.9 nS per step)* | Unknown | Unknown |
 | [Empatica EmbracePlus](https://www.empatica.com/embraceplus/) | Clinical Research Wearable (~£1,400+) | Not published *(~0.055 nS per step)* | Unknown | Unknown |
 | [Shimmer3 GSR+](https://shimmersensing.com/product/shimmer3-gsr-unit/) | Research Wearable (~£650) | 12-bit *(Onboard MCU ADC)* | Unknown | ±3% to ±10% |
