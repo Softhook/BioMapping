@@ -147,6 +147,14 @@ const WALL_MAX_SEGMENTS = 2500;
 // a little air below the base.
 const SCRUB_FIT_MARGIN = 0.8;
 
+/**
+ * True on a high-resolution (HiDPI / Retina) screen, where the 3D canvas
+ * renders a little above 1x and labels use the thinner font (see
+ * peaks.mjs _markerConst).
+ */
+export const isHiDpi = () =>
+  ((typeof window !== 'undefined' && window.devicePixelRatio) || 1) > 1;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // GSRGlobeManager
 // ─────────────────────────────────────────────────────────────────────────────
@@ -209,21 +217,16 @@ export class GSRGlobeBase {
     // On 1x displays (devicePixelRatio <= 1), 1.2x forces a fractional 5:6
     // compositor downsample that blurs thin 14px SDF text; hold 1.0 so the
     // canvas stays 1:1 with physical LCD pixels.
-    const dpr = (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
-    const isHiDpi = dpr > 1;
+    const hiDpi = isHiDpi();
     this._resolutionScale =
-      options.resolutionScale > 0
-        ? options.resolutionScale
-        : isHiDpi
-          ? 1.2
-          : 1.0;
+      options.resolutionScale > 0 ? options.resolutionScale : hiDpi ? 1.2 : 1.0;
     // The 360° turntable is continuous motion for its whole duration — render it
     // softer while it runs on HiDPI (restored in stopOrbit). On 1x displays
     // keep 1.0 so orbit does not upscale a 0.85x buffer.
     this._orbitResolutionScale =
       options.orbitResolutionScale > 0
         ? options.orbitResolutionScale
-        : isHiDpi
+        : hiDpi
           ? 0.85
           : 1.0;
 
@@ -1183,21 +1186,19 @@ export class GSRGlobeBase {
   }
 
   /**
-   * Update scrub cursor position in 3D
+   * Put the 3D scrub dot on top of the wall at lat/lon (NaN hides it).
+   * `height` is the wall height there; left out, it is the nearest drawn
+   * point's.
    */
-  setScrubPosition(lat, lon, height = 0) {
+  setScrubPosition(lat, lon, height) {
     if (!this.scrubEntity) return;
     if (isNaN(lat) || isNaN(lon)) {
       this.scrubEntity.show = false;
       return;
     }
 
-    let resolvedHeight = height;
-    if (
-      (resolvedHeight == null || resolvedHeight === 0) &&
-      this.currentDrawPoints &&
-      this.currentDrawPoints.length > 0
-    ) {
+    let resolvedHeight = height ?? 0;
+    if (height == null && this.currentDrawPoints?.length > 0) {
       resolvedHeight = this._getTrackHeightAt(lat, lon);
     }
 

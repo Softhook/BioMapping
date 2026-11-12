@@ -211,6 +211,14 @@ export const GSRGlobe3DView = {
       return;
     }
 
+    // The replay tour's own cursor: the replay puts the dot on the wall's
+    // growing tip itself (see replay_tour.mjs _replayTick), so leave it. The
+    // key only marks the dot as showing, so the tour's closing clear hides it.
+    if (mgr._replay && p.source !== 'graph') {
+      GSRGlobe3DView._lastScrubKey = 'replay';
+      return;
+    }
+
     const key = `${p.lat.toFixed(6)},${p.lon.toFixed(6)}`;
     if (key === GSRGlobe3DView._lastScrubKey && p.source !== 'graph') return;
     GSRGlobe3DView._lastScrubKey = key;
@@ -237,6 +245,18 @@ export const GSRGlobe3DView = {
     AppState.emit('scrub', { lat, lon, index: origIdx, source: 'globe' });
   },
 
+  /**
+   * Either tour (replay or hotspot) stopped: drop the playhead and the
+   * tour's cursor, reset the tour button and redraw the graph.
+   */
+  _endTour() {
+    AppState.tourRunning = false;
+    AppState.tourHeadTime = null;
+    GSRGlobe3DView._releaseTourCursor();
+    GSRGlobe3DView._updateTourBtn(false);
+    if (typeof redraw === 'function') redraw();
+  },
+
   /** A tour stopped: take its cursor off the graph and maps. */
   _releaseTourCursor() {
     if (AppState.scrubSource !== 'tour') return;
@@ -253,12 +273,8 @@ export const GSRGlobe3DView = {
    */
   _onHotspotTourStep(_stepIdx, _totalSteps, wp, flightDurationSec) {
     if (!wp) {
-      AppState.tourRunning = false;
-      AppState.tourHeadTime = null;
-      GSRGlobe3DView._releaseTourCursor();
-      GSRGlobe3DView._updateTourBtn(false);
       GSRGlobe3DView._cancelGraphTween();
-      if (typeof redraw === 'function') redraw();
+      GSRGlobe3DView._endTour();
       return;
     }
     AppState.tourRunning = true;
@@ -389,11 +405,7 @@ export const GSRGlobe3DView = {
   _onReplayTourProgress(p) {
     if (!p) {
       GSRGlobe3DView._lastReplayTime = null;
-      AppState.tourHeadTime = null;
-      AppState.tourRunning = false;
-      GSRGlobe3DView._releaseTourCursor();
-      GSRGlobe3DView._updateTourBtn(false);
-      if (typeof redraw === 'function') redraw();
+      GSRGlobe3DView._endTour();
       return;
     }
     // Every frame the replay head moves, so the graph scrolls in even steps

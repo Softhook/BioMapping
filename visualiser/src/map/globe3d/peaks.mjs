@@ -10,7 +10,7 @@
  * stay in globe3d_base.mjs since the wall renderer and the tour waypoint builder
  * read it too.
  */
-import { HEIGHT_CAPABLE_METRICS } from './globe3d_base.mjs';
+import { HEIGHT_CAPABLE_METRICS, isHiDpi } from './globe3d_base.mjs';
 import { GSRGlobeRf } from './rf.mjs';
 
 export class GSRGlobePeaks extends GSRGlobeRf {
@@ -53,18 +53,15 @@ export class GSRGlobePeaks extends GSRGlobeRf {
    */
   _markerConst() {
     if (!this._mc) {
-      const isHiDpi =
-        ((typeof window !== 'undefined' && window.devicePixelRatio) || 1) > 1;
+      const hiDpi = isHiDpi();
       this._mc = {
         peakRed: Cesium.Color.fromCssColorString('#d10024'),
         delayRose: Cesium.Color.fromCssColorString('#f43f5e').withAlpha(0.35),
         labelOutline: Cesium.Color.fromCssColorString('#0b0c10'),
         hotspotRed: Cesium.Color.fromCssColorString('#ff1744'),
         labelOffset: new Cesium.Cartesian2(0, -14),
-        labelFont: isHiDpi
-          ? '600 14px Inter, "Helvetica Neue", Arial, sans-serif'
-          : '600 15px Inter, "Helvetica Neue", Arial, sans-serif',
-        labelOutlineWidth: isHiDpi ? 3 : 2,
+        labelFont: `600 ${hiDpi ? 14 : 15}px Inter, "Helvetica Neue", Arial, sans-serif`,
+        labelOutlineWidth: hiDpi ? 3 : 2,
         labelDDC: new Cesium.DistanceDisplayCondition(0.0, 6000.0),
         // Pull every label ~10 m toward the camera in eye space. Labels keep
         // disableDepthTestDistance (never occluded by geometry), but Cesium

@@ -239,6 +239,12 @@ export class GSRGlobeReplayTour extends GSRGlobeHotspotTour {
     this._applyReplayReveal();
     const head = this._replayHeadPoint(r.time);
     if (!this._isPaused) this._updateReplayCamera(head, dt);
+    // The scrub dot rides the wall's growing tip, so it glides with it
+    // rather than snapping to the nearest recorded point; in a skipped gap
+    // (no head segment) it sits at the head.
+    const tip = r.tip;
+    if (tip) this.setScrubPosition(tip.lat, tip.lon, tip.height);
+    else this.setScrubPosition(head.lat, head.lon);
     if (this._replayCallback) this._replayCallback(head);
   }
 
@@ -347,7 +353,8 @@ export class GSRGlobeReplayTour extends GSRGlobeHotspotTour {
   /**
    * The head segment: the first one not yet fully passed, if the clock has
    * actually entered it (it may be sitting in a gap before it). Sets
-   * `r.headSeg` / `r.headFrac` for the head wall entity.
+   * `r.headSeg` / `r.headFrac`, and `r.tip` ({lat, lon, height} of the
+   * wall's growing end, or null) for the head wall entity and scrub dot.
    */
   _locateReplayHeadSegment(r) {
     const segs = this._replaySegs || [];
@@ -360,11 +367,18 @@ export class GSRGlobeReplayTour extends GSRGlobeHotspotTour {
     }
     const seg = segs[lo];
     if (seg && seg.t0 <= r.time && seg.t1 > seg.t0) {
+      const f = (r.time - seg.t0) / (seg.t1 - seg.t0);
       r.headSeg = seg;
-      r.headFrac = (r.time - seg.t0) / (seg.t1 - seg.t0);
+      r.headFrac = f;
+      r.tip = {
+        lat: seg.a.lat + (seg.b.lat - seg.a.lat) * f,
+        lon: seg.a.lon + (seg.b.lon - seg.a.lon) * f,
+        height: seg.h1 + (seg.h2 - seg.h1) * f,
+      };
     } else {
       r.headSeg = null;
       r.headFrac = 0;
+      r.tip = null;
     }
   }
 
@@ -406,19 +420,23 @@ export class GSRGlobeReplayTour extends GSRGlobeHotspotTour {
     const positions = () => {
       const r = this._replay;
       const s = r?.headSeg;
-      if (!s || r.headFrac <= 0) return undefined;
-      const lat = s.a.lat + (s.b.lat - s.a.lat) * r.headFrac;
-      const lon = s.a.lon + (s.b.lon - s.a.lon) * r.headFrac;
+      const tip = r?.tip;
+      if (!s || !tip || r.headFrac <= 0) return undefined;
       // Too short to form a wall — WallGeometry drops coincident points.
-      if (GeoUtils.haversineMeters(s.a.lat, s.a.lon, lat, lon) < 0.3)
+      if (GeoUtils.haversineMeters(s.a.lat, s.a.lon, tip.lat, tip.lon) < 0.3)
         return undefined;
-      return Cesium.Cartesian3.fromDegreesArray([s.a.lon, s.a.lat, lon, lat]);
+      return Cesium.Cartesian3.fromDegreesArray([
+        s.a.lon,
+        s.a.lat,
+        tip.lon,
+        tip.lat,
+      ]);
     };
     const heights = () => {
       const r = this._replay;
       const s = r?.headSeg;
-      if (!s) return [0, 0];
-      return [s.h1, s.h1 + (s.h2 - s.h1) * r.headFrac];
+      if (!s || !r.tip) return [0, 0];
+      return [s.h1, r.tip.height];
     };
     const color = () =>
       this._replay?.headSeg?.color || Cesium.Color.TRANSPARENT;
