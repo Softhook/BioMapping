@@ -48,7 +48,11 @@ import { GeoUtils } from '../gps/geo_utils.mjs';
 import { GpsPipeline } from '../gps/gps_pipeline.mjs';
 import { backoffMs, retryAfterMs } from './http_retry.mjs';
 import { OSMEnricher } from './osm_enrichment.mjs';
-import { decodeFloat32Tiff, hasTiffByteOrderMarker } from './tiff_decoder.mjs';
+import {
+  decodeFloat32Tiff,
+  hasTiffByteOrderMarker,
+  TiffDamagedError,
+} from './tiff_decoder.mjs';
 
 export const NDVISampler = {
   // Earth equatorial circumference in meters (EPSG:3857)
@@ -452,8 +456,10 @@ export const NDVISampler = {
 
   /**
    * Decode a raw NDVI tile response into a single-band FLOAT32 pixel grid.
-   * A Copernicus error reply is reported as such; any other decoding failure
-   * almost always means the raw layer or its evalscript is misconfigured.
+   * A Copernicus error reply is reported as such, and a damaged download
+   * stays a TiffDamagedError so callers can fetch it again; any other
+   * decoding failure almost always means the raw layer or its evalscript is
+   * misconfigured.
    *
    * @param {ArrayBuffer} buffer
    * @returns {Promise<{ width: number, height: number, data: Float32Array }>}
@@ -464,6 +470,14 @@ export const NDVISampler = {
     try {
       return await decodeFloat32Tiff(buffer);
     } catch (err) {
+      if (err instanceof TiffDamagedError) {
+        throw new TiffDamagedError(
+          `NDVI tile arrived damaged: ${err.message}`,
+          {
+            cause: err,
+          },
+        );
+      }
       throw new Error(
         `NDVI raster: ${err.message} Check the raw layer ID, FORMAT and the evalscript on layer "${this.getRawLayerId()}".`,
       );
@@ -536,9 +550,10 @@ export const NDVISampler = {
 
   /**
    * Fetch and decode one raw NDVI raster tile, with rate-limit enforcement,
-   * exponential backoff, and status-code-aware retry. A malformed/unexpected
-   * raster (wrong band count, bad TIFF, etc.) is a configuration problem, not
-   * a transient failure, so it throws immediately rather than retrying.
+   * exponential backoff, and status-code-aware retry. A tile that arrives
+   * damaged (cut short or corrupt) is retried like a network error. A raster
+   * in the wrong format (wrong band count, not a TIFF, etc.) is a
+   * configuration problem, not a transient failure, so it throws immediately.
    *
    * @param {string} url
    * @param {Object} [options={}] - { providerId, maxRetries, timeoutMs, signal, onRetry }
@@ -579,10 +594,25 @@ export const NDVISampler = {
       }
 
       if (response.ok) {
-        const buf = await response.arrayBuffer();
-        // Format/config errors propagate straight to the caller — retrying
-        // won't fix a missing or misconfigured evalscript layer.
-        return await this.parseFloat32Tiff(buf);
+        let buf;
+        try {
+          buf = await response.arrayBuffer();
+          return await this.parseFloat32Tiff(buf);
+        } catch (err) {
+          // Format/config errors propagate straight to the caller — retrying
+          // won't fix a missing or misconfigured evalscript layer. A body cut
+          // off mid-download, or a damaged TIFF, is worth fetching again; if it
+          // never comes through whole, the tile is left empty (NaN), never 0.
+          const damaged = buf === undefined || err instanceof TiffDamagedError;
+          if (!damaged) throw err;
+          if (attempt < maxRetries) {
+            const waitMs = backoffMs(attempt, 400);
+            onRetry(attempt + 1, waitMs, err.message || 'Tile arrived damaged');
+            await new Promise((r) => setTimeout(r, waitMs));
+            continue;
+          }
+          return null;
+        }
       }
 
       if (response.status === 429 || response.status === 509) {

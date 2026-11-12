@@ -17,7 +17,10 @@ global.StatsMath = require('../src/signal/stats_math.mjs').StatsMath;
 
 const { NDVISampler } = require('../src/osm/ndvi_sampler.mjs');
 const { GSRCSVParser } = require('../src/signal/csv_parser.mjs');
-const { buildFloat32Tiff } = require('./support/tiff_fixture.js');
+const {
+  buildFloat32Tiff,
+  buildTiledFloat32Tiff,
+} = require('./support/tiff_fixture.js');
 const { GSRAnalyzer: RealAnalyzer } = require('../src/signal/analyzer.mjs');
 
 /**
@@ -916,6 +919,130 @@ test('_fetchRawTileWithBackoff: exhausts retries on repeated server errors and r
     );
     assert.strictEqual(result, null);
     assert.strictEqual(fetchAttempts, 3); // initial + 2 retries
+  } finally {
+    global.fetch = origFetch;
+  }
+});
+
+const okTiffResponse = (buf) => ({
+  ok: true,
+  status: 200,
+  headers: { get: () => null },
+  arrayBuffer: async () => buf,
+});
+
+const realisticTile = (value) =>
+  buildTiledFloat32Tiff({
+    width: 256,
+    height: 256,
+    tileWidth: 256,
+    tileLength: 256,
+    values: new Array(256 * 256).fill(value),
+    compression: 32946,
+  });
+
+test('_fetchRawTileWithBackoff: retries a damaged tile, then succeeds', async () => {
+  const origFetch = global.fetch;
+  const good = realisticTile(0.42);
+  const cutShort = good.slice(0, good.byteLength - 500);
+  let fetchAttempts = 0;
+  const reasons = [];
+  global.fetch = async () =>
+    okTiffResponse(++fetchAttempts === 1 ? cutShort : good);
+  try {
+    const tile = await NDVISampler._fetchRawTileWithBackoff(
+      'https://test-tiles.com/damaged-then-ok.tiff',
+      {
+        providerId: 'test_damaged_retry',
+        maxRetries: 2,
+        timeoutMs: 100,
+        onRetry: (_att, _ms, reason) => reasons.push(reason),
+      },
+    );
+    assert.strictEqual(fetchAttempts, 2);
+    assert.strictEqual(reasons.length, 1);
+    assert.match(reasons[0], /arrived damaged/);
+    assert.strictEqual(tile.width, 256);
+    closeTo(tile.data[0], 0.42, 1e-6, 'pixel 0');
+  } finally {
+    global.fetch = origFetch;
+  }
+});
+
+test('_fetchRawTileWithBackoff: retries a download cut off mid-body', async () => {
+  const origFetch = global.fetch;
+  const good = realisticTile(0.3);
+  let fetchAttempts = 0;
+  global.fetch = async () => {
+    fetchAttempts++;
+    if (fetchAttempts === 1) {
+      return {
+        ok: true,
+        status: 200,
+        headers: { get: () => null },
+        arrayBuffer: async () => {
+          throw new TypeError('network error');
+        },
+      };
+    }
+    return okTiffResponse(good);
+  };
+  try {
+    const tile = await NDVISampler._fetchRawTileWithBackoff(
+      'https://test-tiles.com/body-cut.tiff',
+      { providerId: 'test_body_cut', maxRetries: 2, timeoutMs: 100 },
+    );
+    assert.strictEqual(fetchAttempts, 2);
+    closeTo(tile.data[0], 0.3, 1e-6, 'pixel 0');
+  } finally {
+    global.fetch = origFetch;
+  }
+});
+
+test('_fetchRawTileWithBackoff: a tile that is always damaged returns null, not zeros', async () => {
+  const origFetch = global.fetch;
+  const good = realisticTile(0.5);
+  const cutShort = good.slice(0, good.byteLength - 500);
+  let fetchAttempts = 0;
+  global.fetch = async () => {
+    fetchAttempts++;
+    return okTiffResponse(cutShort);
+  };
+  try {
+    const tile = await NDVISampler._fetchRawTileWithBackoff(
+      'https://test-tiles.com/always-damaged.tiff',
+      { providerId: 'test_always_damaged', maxRetries: 1, timeoutMs: 100 },
+    );
+    assert.strictEqual(tile, null);
+    assert.strictEqual(fetchAttempts, 2);
+  } finally {
+    global.fetch = origFetch;
+  }
+});
+
+test('_fetchRawTileWithBackoff: a wrong-format TIFF still fails at once, without retrying', async () => {
+  const origFetch = global.fetch;
+  let fetchAttempts = 0;
+  const lzw = buildFloat32Tiff({
+    width: 2,
+    height: 2,
+    values: [0, 0, 0, 0],
+    compression: 5,
+  });
+  global.fetch = async () => {
+    fetchAttempts++;
+    return okTiffResponse(lzw);
+  };
+  try {
+    await assert.rejects(
+      () =>
+        NDVISampler._fetchRawTileWithBackoff(
+          'https://test-tiles.com/wrong-format.tiff',
+          { providerId: 'test_wrong_format', maxRetries: 3, timeoutMs: 100 },
+        ),
+      /Check the raw layer ID/,
+    );
+    assert.strictEqual(fetchAttempts, 1);
   } finally {
     global.fetch = origFetch;
   }
