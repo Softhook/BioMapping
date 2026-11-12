@@ -56,15 +56,27 @@ export const RendererCurve = {
     yBottom,
     forceIndices,
   ) {
-    const startIdx = Math.max(0, AppState.analyzer.findClosestIndex(tMin) - 1);
-    const endIdx = Math.min(
+    let startIdx = Math.max(0, AppState.analyzer.findClosestIndex(tMin) - 1);
+    let endIdx = Math.min(
       data.length - 1,
       AppState.analyzer.findClosestIndex(tMax) + 1,
     );
     const count = endIdx - startIdx + 1;
     if (count <= 0) return null;
 
-    const step = Math.max(1, Math.ceil(count / GSR_CONST.DRAW_MAX_VERTICES));
+    // The decimation stride is a power of two, and the drawn samples sit on
+    // multiples of it counted from the start of the recording, not from the
+    // left edge of the view. Scrolling then keeps drawing the same samples
+    // (a stride counted from the view edge picks a different subset every
+    // frame, which makes narrow spikes such as the driver twitch), and the
+    // stride only changes when the visible count crosses a doubling rather
+    // than flipping between neighbouring values as the count wobbles by one.
+    const minStep = Math.ceil(count / GSR_CONST.DRAW_MAX_VERTICES);
+    const step = minStep <= 1 ? 1 : 2 ** Math.ceil(Math.log2(minStep));
+    if (step > 1) {
+      startIdx -= startIdx % step;
+      endIdx = Math.min(data.length - 1, Math.ceil(endIdx / step) * step);
+    }
     const useSpline = count < GSR_CONST.SPLINE_THRESHOLD;
 
     const tSpan = tMax - tMin;

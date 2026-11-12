@@ -190,6 +190,14 @@ export const AppState = {
   // scrub driven from the 3D globe, and vice versa. See renderer.js
   // handleScrubber(), globe3d_view.js _onScrubHover(), and the 'scrub' event.
   scrubSource: null,
+  // Place time (s) of a running 3D tour's position — the replay head, or the
+  // hotspot tour's current stop — else null; the GSR graph draws its
+  // playhead there (see sketch.mjs).
+  tourHeadTime: null,
+  // True while either 3D tour (replay or hotspot) runs: the tour moves the
+  // graph hover along the walk, so the graph hides the hover-only peak
+  // labels and exclude buttons (see renderer_markers.mjs).
+  tourRunning: false,
 
   // ── SCR Peaks table sort state ─────────────────────────────────────────────
   peakSortColumn: 'index', // 'index' | 'label' | 'amplitude' | 'riseTime' | 'quality' | 'excluded'

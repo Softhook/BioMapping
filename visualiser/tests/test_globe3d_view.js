@@ -794,7 +794,7 @@ test('_onReplayTourProgress moves the graph cursor to the replay head and scroll
   const seen = [];
   AppState.on('scrub', (p) => seen.push(p));
 
-  V._lastReplaySyncMs = 0;
+  V._lastReplayTime = null;
   V._onReplayTourProgress({ time: 500, lat: 51.5, lon: -0.1, origIdx: 42 });
   assert.strictEqual(AppState.hoveredIndex, 42);
   assert.strictEqual(seen.at(-1).index, 42);
@@ -802,14 +802,60 @@ test('_onReplayTourProgress moves the graph cursor to the replay head and scroll
   assert.strictEqual(AppState.viewStartTime, 425, 'head 3/4 across the window');
   assert.strictEqual(AppState.viewDuration, 100, 'user zoom kept');
 
-  // Throttled: an immediate second tick is dropped.
+  // Every tick that moves the head moves the graph (no time throttle).
   V._onReplayTourProgress({ time: 510, lat: 51.5, lon: -0.1, origIdx: 43 });
-  assert.strictEqual(AppState.hoveredIndex, 42);
+  assert.strictEqual(AppState.hoveredIndex, 43);
+  assert.strictEqual(AppState.viewStartTime, 435);
+
+  // A paused replay re-sends the same head each frame; that's skipped.
+  AppState.hoveredIndex = -1;
+  V._onReplayTourProgress({ time: 510, lat: 51.5, lon: -0.1, origIdx: 43 });
+  assert.strictEqual(AppState.hoveredIndex, -1);
 
   // Near the end, the window stops at the end of the walk.
-  V._lastReplaySyncMs = 0;
   V._onReplayTourProgress({ time: 990, lat: 51.5, lon: -0.1, origIdx: 99 });
   assert.strictEqual(AppState.viewStartTime, 900);
+
+  // The graph's playhead follows the replay clock and stays in view.
+  assert.strictEqual(AppState.tourHeadTime, 990);
+  assert.ok(
+    AppState.tourHeadTime >= AppState.viewStartTime &&
+      AppState.tourHeadTime <= AppState.viewStartTime + AppState.viewDuration,
+  );
+
+  assert.strictEqual(AppState.tourRunning, true);
+
+  // Stopping the tour removes it.
+  V._onReplayTourProgress(null);
+  assert.strictEqual(AppState.tourHeadTime, null);
+  assert.strictEqual(AppState.tourRunning, false);
+});
+
+test('_onHotspotTourStep flags a running tour and sets the playhead, and clears both when the tour stops', async () => {
+  const { window } = await bootApp();
+  window.setup();
+  const V = window.GSRGlobe3DView;
+  const AppState = window.AppState;
+  V._graphVisible = () => false; // no graph pan tween needed here
+  AppState.analyzer.raw = Array.from({ length: 101 }, (_, i) => ({ time: i }));
+
+  AppState.timeAxisStart = 0;
+  AppState.totalDuration = 100;
+  AppState.viewDuration = 20;
+  AppState.viewStartTime = 0;
+  V._onHotspotTourStep(0, 3, { lat: 51.5, lon: -0.1, origIdx: 10 }, 2);
+  assert.strictEqual(AppState.tourRunning, true);
+  assert.strictEqual(AppState.tourHeadTime, 10, 'playhead at the stop');
+
+  // A stop with no hotspot window off screen: the graph centres on it.
+  V._graphVisible = () => true;
+  V._onHotspotTourStep(1, 3, { lat: 51.5, lon: -0.1, origIdx: 60 }, 2);
+  assert.strictEqual(AppState.tourHeadTime, 60);
+  assert.strictEqual(AppState.viewStartTime, 50);
+
+  V._onHotspotTourStep(null, 0, null);
+  assert.strictEqual(AppState.tourRunning, false);
+  assert.strictEqual(AppState.tourHeadTime, null);
 });
 
 test('_onScrubHover: takes cursor ownership, sets hoveredIndex, emits on the shared channel', async () => {

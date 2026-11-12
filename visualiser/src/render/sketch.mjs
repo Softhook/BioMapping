@@ -15,6 +15,111 @@ let _cachedFilteredForce = [];
 let _cachedMetricForce = [];
 let _cachedDriverForce = []; // Driver spike apex indices — forced into decimation stride so spikes survive zoom-out
 
+// The y axis fits whatever is on screen, so a tall spike scrolling in or out
+// would rescale the whole graph in one frame. Instead the drawn range glides
+// to the fitted one over this long, starting again from wherever it is when
+// the fitted range changes mid-glide.
+const Y_GLIDE_MS = 400;
+// { key, analyzer, from, to, cur, startMs } — `cur` is the range being drawn.
+let _yGlide = null;
+let _yGlideFramePending = false;
+// Graph draws so far (one _easedYRange call per draw), so the glide's own
+// frame can tell whether something else has already drawn.
+let _graphDraws = 0;
+
+/**
+ * Keep a glide moving when nothing else is redrawing the graph: once per
+ * screen frame, after that frame's other animation callbacks (a tour's own
+ * per-frame redraw, say) have run, redraw only if none of them did. The
+ * check waits for a timeout because animation-frame callbacks run in the
+ * order they were requested, so from inside one it can't know whether
+ * another will still draw this frame.
+ */
+function _requestGlideFrame() {
+  if (_yGlideFramePending || typeof requestAnimationFrame !== 'function')
+    return;
+  _yGlideFramePending = true;
+  const drawsAtRequest = _graphDraws;
+  requestAnimationFrame(() =>
+    setTimeout(() => {
+      _yGlideFramePending = false;
+      if (_graphDraws === drawsAtRequest) {
+        if (typeof redraw === 'function') redraw();
+      } else if (_yGlide && _yGlide.cur !== _yGlide.to) {
+        _requestGlideFrame();
+      }
+    }, 0),
+  );
+}
+
+/**
+ * The y range to draw this frame: gliding from the range drawn last frame to
+ * `target` (the range that fits the view). Snaps straight to `target` when
+ * what is plotted changes (another track, view, metric or analysis run),
+ * since there is nothing on screen to glide from. While still moving it asks
+ * for another frame (_requestGlideFrame), so the glide finishes even when
+ * nothing else is redrawing the graph.
+ */
+function _easedYRange(key, target) {
+  _graphDraws++;
+  const analyzer = AppState.analyzer;
+  const now = performance.now();
+  const g = _yGlide;
+  if (!g || g.key !== key || g.analyzer !== analyzer) {
+    _yGlide = { key, analyzer, from: target, to: target, cur: target };
+    return target;
+  }
+  if (target.yMin !== g.to.yMin || target.yMax !== g.to.yMax) {
+    g.from = g.cur;
+    g.to = target;
+    g.startMs = now;
+  }
+  if (g.cur === g.to) return g.cur;
+  const t = Math.min(1, (now - g.startMs) / Y_GLIDE_MS);
+  const e = 1 - (1 - t) ** 3; // ease-out cubic
+  g.cur =
+    t >= 1
+      ? g.to
+      : {
+          yMin: g.from.yMin + (g.to.yMin - g.from.yMin) * e,
+          yMax: g.from.yMax + (g.to.yMax - g.from.yMax) * e,
+        };
+  if (g.cur !== g.to) _requestGlideFrame();
+  return g.cur;
+}
+
+/**
+ * The 3D tours' playhead: a line at AppState.tourHeadTime (place time, set
+ * by globe3d_view.mjs) while a tour runs — the replay clock, or the hotspot
+ * tour's current stop. It sits at that time itself rather than the nearest
+ * sample, so it glides with the scrolling graph.
+ */
+function _drawTourPlayhead({
+  viewStartTime,
+  viewEndTime,
+  plotTop,
+  plotBottom,
+}) {
+  const t = AppState.tourHeadTime;
+  if (t == null || t < viewStartTime || t > viewEndTime) return;
+  const x = map(
+    t,
+    viewStartTime,
+    viewEndTime,
+    GSR_CONST.MARGIN.left,
+    width - GSR_CONST.MARGIN.right,
+  );
+  const c = GSRRenderer.getThemeColor('--text-primary', '#111111');
+  push();
+  stroke(c);
+  strokeWeight(1.5);
+  line(x, plotTop, x, plotBottom);
+  noStroke();
+  fill(c);
+  triangle(x - 5, plotTop - 6, x + 5, plotTop - 6, x, plotTop);
+  pop();
+}
+
 /**
  * Grid-scale descriptors for every metric view. Module-level so draw()
  * doesn't rebuild them each frame; the `phasicDriver` entry depends on the
@@ -551,7 +656,10 @@ function _drawPeakAndHotspotMarkers(...args) {
 function _drawSignalView(frame) {
   const { viewStartTime, viewEndTime, bodyStartTime, bodyEndTime } = frame;
   const { plotTop, plotBottom } = frame;
-  const { yMin, yMax } = _signalRange(frame, frame.view);
+  const { yMin, yMax } = _easedYRange(
+    `signal|${AppState.analyzer._dataVersion}`,
+    _signalRange(frame, frame.view),
+  );
   const grid = _LOWER_GRID_PRESETS.tonic; // the µS signal uses the Tonic grid
 
   GSRRenderer.drawGridX(
@@ -633,6 +741,7 @@ function _drawSignalView(frame) {
     true,
   );
   _drawNoPlaceShadeAndButtons(frame);
+  _drawTourPlayhead(frame);
   // L-params = the same uS range so handleScrubber can drop a Phasic dot too.
   GSRRenderer.handleScrubber(
     bodyStartTime,
@@ -684,7 +793,10 @@ function _drawMetricView(frame) {
   const { plotTop, plotBottom } = frame;
   const metric = _metricSeries();
   const { mode, cfg, series, driverCfg } = metric;
-  const { yMin, yMax } = _metricRange(frame, metric);
+  const { yMin, yMax } = _easedYRange(
+    `${mode}|${AppState.analyzer._dataVersion}`,
+    _metricRange(frame, metric),
+  );
 
   const grid =
     mode === 'phasicDriver' && driverCfg
@@ -808,6 +920,7 @@ function _drawMetricView(frame) {
   }
 
   _drawNoPlaceShadeAndButtons(frame);
+  _drawTourPlayhead(frame);
   GSRRenderer.handleScrubber(
     bodyStartTime,
     bodyEndTime,

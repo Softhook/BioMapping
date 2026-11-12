@@ -11,6 +11,7 @@ import { AppState } from '../core/app_state.mjs';
 import { Controllers } from '../core/controllers.mjs';
 import { GSRLayoutManager } from '../core/layout_manager.mjs';
 import { GSRLiveView } from '../live/live_view.mjs';
+import { GSRGlobe3DView } from '../map/globe3d_view.mjs';
 import { GSRRenderer } from '../render/renderer.mjs';
 import { windowResized } from '../render/sketch.mjs';
 import { GSRStorage } from './storage.mjs';
@@ -258,6 +259,10 @@ export const ViewSwitcherEvents = {
 
         // Nothing on the main canvas to draw while the live view owns the area.
         noLoop();
+
+        // A 3D tour can't be seen from here, and the replay's clock would
+        // carry on through the walk, redrawing the hidden graph every frame.
+        GSRGlobe3DView.manager?.stopTour?.();
       };
 
       btnLiveView.addEventListener('click', enterLiveView);

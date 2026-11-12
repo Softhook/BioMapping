@@ -563,3 +563,11 @@ test('GSRLiveView.deactivate(false) fully disconnects BLE and sets status to dis
     'viewActive is false',
   );
 });
+
+test('opening Live stops a running 3D tour (the replay clock would otherwise run on unseen)', async () => {
+  const { window, click, btnLive } = await boot();
+  let stops = 0;
+  window.GSRGlobe3DView.manager = { stopTour: () => stops++ };
+  click(btnLive);
+  assert.strictEqual(stops, 1);
+});

@@ -331,7 +331,12 @@ export const RendererMarkers = {
           yFiltered: yFilteredPeak,
           r: 10,
         });
-        if (AppState.viewDuration < 300 || isActive || isHovered) {
+        // No labels during a 3D tour (the tour moves the hover along the
+        // walk, so they would flash up on every peak passed).
+        if (
+          !AppState.tourRunning &&
+          (AppState.viewDuration < 300 || isActive || isHovered)
+        ) {
           noStroke();
           fill(isExcluded ? color(EXCLUDED_STYLE.color) : peakColor);
           textSize(10);
@@ -347,9 +352,12 @@ export const RendererMarkers = {
       }
 
       // ── On-canvas exclude ✕ / ＋ button (only when scrubbing near) ──
-      // Drawn later by drawExcludeButtons(), above the greyed start.
+      // Drawn later by drawExcludeButtons(), above the greyed start. Not
+      // during a 3D tour: the tour moves the hover along the walk, so it
+      // would pop up on every peak passed.
       if (
         isHovered &&
+        !AppState.tourRunning &&
         xPeak >= GSR_CONST.MARGIN.left &&
         xPeak <= width - GSR_CONST.MARGIN.right
       ) {

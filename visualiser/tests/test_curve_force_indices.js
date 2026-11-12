@@ -120,3 +120,42 @@ test('when step === 1 (fully zoomed in), indices is null to avoid redundant arra
     'step 1 does not need forced index merge since all samples are drawn',
   );
 });
+
+test('decimated samples stay fixed while the view scrolls (no shimmer)', () => {
+  const data = [];
+  for (let i = 0; i < 20000; i++) data.push({ time: i * 0.1, val: 1.0 });
+  const drawn = (ctx) => {
+    const out = new Set();
+    for (let i = ctx.startIdx; i <= ctx.endIdx; i += ctx.step) out.add(i);
+    return out;
+  };
+  // ~5000 visible samples → stride above 1; scroll one sample at a time.
+  let prev = null;
+  for (let s = 1000; s < 1040; s++) {
+    const ctx = GSRRenderer._buildCurveContext(
+      data,
+      s * 0.1,
+      (s + 5000) * 0.1,
+      0,
+      10,
+      0,
+      100,
+    );
+    assert.ok(ctx.step > 1);
+    assert.strictEqual(
+      ctx.step & (ctx.step - 1),
+      0,
+      'stride is a power of two',
+    );
+    assert.strictEqual(ctx.startIdx % ctx.step, 0, 'anchored to the stride');
+    const cur = drawn(ctx);
+    if (prev) {
+      for (const i of cur) {
+        if (i > s + 5 && i < s + 4995) {
+          assert.ok(prev.has(i), `sample ${i} was not drawn one frame earlier`);
+        }
+      }
+    }
+    prev = cur;
+  }
+});

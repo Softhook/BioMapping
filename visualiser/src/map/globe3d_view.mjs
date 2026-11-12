@@ -57,9 +57,9 @@ export const GSRGlobe3DView = {
   // Last scrub lat/lon pushed into the globe, for dedupe (see _onScrub).
   _lastScrubKey: null,
 
-  // performance.now() of the last replay-tour graph sync (see
+  // Replay-head time of the last replay-tour graph sync (see
   // _onReplayTourProgress).
-  _lastReplaySyncMs: 0,
+  _lastReplayTime: null,
 
   // ── Init & wiring ──────────────────────────────────────────────────────────
 
@@ -242,14 +242,39 @@ export const GSRGlobe3DView = {
    */
   _onHotspotTourStep(_stepIdx, _totalSteps, wp, flightDurationSec) {
     if (!wp) {
+      AppState.tourRunning = false;
+      AppState.tourHeadTime = null;
       GSRGlobe3DView._updateTourBtn(false);
       GSRGlobe3DView._cancelGraphTween();
+      if (typeof redraw === 'function') redraw();
       return;
     }
+    AppState.tourRunning = true;
+    // Playhead at the stop's place on the graph's (place) time axis.
+    const prevHead = AppState.tourHeadTime;
+    const head = AppState.analyzer?.raw?.[wp.origIdx]?.time;
+    AppState.tourHeadTime = typeof head === 'number' ? head : null;
     GSRGlobe3DView._updateTourBtn(true);
     GSRGlobe3DView._emitTourCursor(wp.lat, wp.lon, wp.origIdx);
+    GSRGlobe3DView._keepTourHeadInView(wp);
+    GSRGlobe3DView._tweenGraphToTourStep(wp, flightDurationSec, prevHead);
     if (typeof redraw === 'function') redraw();
-    GSRGlobe3DView._tweenGraphToTourStep(wp, flightDurationSec);
+  },
+
+  /**
+   * A stop with no hotspot window of its own (the fallback stops along a
+   * walk without hotspots) leaves the graph where it is; if the playhead
+   * would then be off screen, centre the graph on it. Hotspot stops are
+   * framed by _tweenGraphToTourStep instead.
+   */
+  _keepTourHeadInView(wp) {
+    const t = AppState.tourHeadTime;
+    if (t == null || wp.graphWinStart != null) return;
+    if (!GSRGlobe3DView._graphVisible()) return;
+    const start = AppState.viewStartTime;
+    const dur = AppState.viewDuration;
+    if (t >= start && t <= start + dur) return;
+    AppState.viewStartTime = AppState.clampViewStart(t - dur * 0.5);
   },
 
   /**
@@ -257,10 +282,11 @@ export const GSRGlobe3DView = {
    * viewDuration) from wherever it currently sits onto a tour waypoint's
    * pre-computed hotspot window (wp.graphWinStart/graphWinDuration, set in
    * hotspot_tour.mjs), over the same duration as the camera's flight to that waypoint —
-   * one continuous cinematic move instead of a jump-cut. No-op for fallback
+   * one continuous cinematic move instead of a jump-cut. The playhead
+   * (AppState.tourHeadTime) glides along with it. No-op for fallback
    * (non-hotspot) waypoints, which carry no graph window.
    */
-  _tweenGraphToTourStep(wp, flightDurationSec) {
+  _tweenGraphToTourStep(wp, flightDurationSec, prevHead = null) {
     if (!wp || wp.graphWinStart == null || wp.graphWinDuration == null) return;
     GSRGlobe3DView._cancelGraphTween();
     // The graph is offscreen (collapsed, or the panel is fullscreen) —
@@ -272,6 +298,19 @@ export const GSRGlobe3DView = {
     const fromDuration = AppState.viewDuration;
     const toStart = wp.graphWinStart;
     const toDuration = wp.graphWinDuration;
+    // The playhead glides with the graph so it never leaves the screen: from
+    // the previous stop (or, if that isn't on screen, the graph edge nearest
+    // the new stop) to the new stop.
+    const toHead = AppState.tourHeadTime;
+    let fromHead = toHead;
+    if (toHead != null) {
+      const lo = fromStart;
+      const hi = fromStart + fromDuration;
+      fromHead =
+        prevHead != null && prevHead >= lo && prevHead <= hi
+          ? prevHead
+          : Math.min(hi, Math.max(lo, toHead));
+    }
     const durationMs = Math.max(300, (flightDurationSec || 2) * 1000);
     const raf =
       typeof window !== 'undefined' && window.requestAnimationFrame
@@ -302,9 +341,13 @@ export const GSRGlobe3DView = {
       const e = t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2;
       AppState.viewStartTime = fromStart + (toStart - fromStart) * e;
       AppState.viewDuration = fromDuration + (toDuration - fromDuration) * e;
+      if (toHead != null) {
+        AppState.tourHeadTime = fromHead + (toHead - fromHead) * e;
+      }
       if (typeof redraw === 'function') redraw();
       GSRGlobe3DView._graphTweenHandle = t < 1 ? raf(step) : null;
     };
+    AppState.tourHeadTime = fromHead;
     GSRGlobe3DView._graphTweenHandle = raf(step);
   },
 
@@ -324,18 +367,25 @@ export const GSRGlobe3DView = {
    * One replay-tour tick from the manager (see globe3d/replay_tour.mjs): move the
    * graph cursor / 2D map dot to the replay head and scroll the GSR graph so
    * the head sits three-quarters of the way across the current zoom window.
-   * Throttled to ~20 Hz — the tour ticks every frame, and a full graph redraw
-   * per frame is wasted work. `null` means the tour stopped.
+   * `null` means the tour stopped.
    */
   _onReplayTourProgress(p) {
     if (!p) {
+      GSRGlobe3DView._lastReplayTime = null;
+      AppState.tourHeadTime = null;
+      AppState.tourRunning = false;
       GSRGlobe3DView._updateTourBtn(false);
+      if (typeof redraw === 'function') redraw();
       return;
     }
-    const now =
-      typeof performance !== 'undefined' ? performance.now() : Date.now();
-    if (now - GSRGlobe3DView._lastReplaySyncMs < 50) return;
-    GSRGlobe3DView._lastReplaySyncMs = now;
+    // Every frame the replay head moves, so the graph scrolls in even steps
+    // in time with the screen; a fixed-interval throttle lands on 3 frames,
+    // then 4, at 60 Hz, which stutters. A paused replay still ticks every
+    // frame with the head standing still, so skip those.
+    if (p.time === GSRGlobe3DView._lastReplayTime) return;
+    GSRGlobe3DView._lastReplayTime = p.time;
+    AppState.tourHeadTime = p.time;
+    AppState.tourRunning = true;
 
     GSRGlobe3DView._emitTourCursor(p.lat, p.lon, p.origIdx);
     const dur = AppState.viewDuration;
