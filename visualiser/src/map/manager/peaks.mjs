@@ -22,6 +22,7 @@
 
 import { GSRNotices } from '../../core/notices.mjs';
 import { GSRLabelManager } from '../../render/label_placement.mjs';
+import { ResponseDelay } from '../../signal/response_delay.mjs';
 import { GSRUI } from '../../ui/ui.mjs';
 import { GSRMapMarkers } from '../map_markers.mjs';
 import { MapPopups } from '../map_popups.mjs';
@@ -39,9 +40,6 @@ export class GSRMapPeaks extends GSRMapPath {
     analyzer.peaks.forEach((peak, index) => {
       // Where the peak was recorded — used for the connector line
       const origCoords = analyzer.getCoordinates(peak.index);
-      const origPt = origCoords
-        ? map.latLngToLayerPoint([origCoords.lat, origCoords.lon])
-        : null;
 
       // Where it is drawn: the Response delay back along the route
       const coords = analyzer.placeOf(peak.index);
@@ -54,7 +52,6 @@ export class GSRMapPeaks extends GSRMapPath {
         coords,
         px: pt.x,
         py: pt.y,
-        origPt,
         origLatLon,
       });
       if (peak.label?.trim()) {
@@ -524,7 +521,7 @@ export class GSRMapPeaks extends GSRMapPath {
       pathKey: analyzer?._pathKey,
       phasic: analyzer?.phasic,
       responseDelay: analyzer?.responseDelay ?? 0,
-      placeRowOf: analyzer ? (i) => analyzer.placeRowOf(i) : null,
+      placeRowOf: analyzer ? ResponseDelay.placeRowLookup(analyzer) : null,
     };
   }
 }

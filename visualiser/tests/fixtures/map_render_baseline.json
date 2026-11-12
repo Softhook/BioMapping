@@ -1,0 +1,221 @@
+{
+  "savedFrom": "e226426",
+  "parts": {
+    "line_0s_w5_gsr": {
+      "count": 1,
+      "hash": "a22209cd492dcaa1"
+    },
+    "peaks_0s": {
+      "count": 304,
+      "hash": "d5ae0f5ae1fbc160"
+    },
+    "hotspots_0s": {
+      "count": 6,
+      "hash": "f52ea8a1d290da72"
+    },
+    "places_0s": {
+      "count": 26,
+      "hash": "3660824007613671"
+    },
+    "line_0s_w5_phasic": {
+      "count": 1,
+      "hash": "73d4b7718ffd896c"
+    },
+    "line_0s_w5_tonic": {
+      "count": 1,
+      "hash": "4ed020fe5899e4e3"
+    },
+    "line_0s_w5_arousalIndex": {
+      "count": 1,
+      "hash": "f84c1955fe33d110"
+    },
+    "line_0s_w5_hdopQuality": {
+      "count": 1,
+      "hash": "1c03baa9c9731959"
+    },
+    "line_0s_w5_responseDynamics": {
+      "count": 1,
+      "hash": "cb3b2988f9266566"
+    },
+    "line_0s_w5_roadClass": {
+      "count": 1,
+      "hash": "2cfbc71ab25da86a"
+    },
+    "line_0s_w40_gsr": {
+      "count": 1,
+      "hash": "2f63a3a39e7f0627"
+    },
+    "line_0s_w40_phasic": {
+      "count": 1,
+      "hash": "d48f2b988dd3a3b8"
+    },
+    "line_0s_w40_tonic": {
+      "count": 1,
+      "hash": "e4c934c1564ab820"
+    },
+    "line_0s_w40_arousalIndex": {
+      "count": 1,
+      "hash": "271af4e94412c23b"
+    },
+    "line_0s_w40_hdopQuality": {
+      "count": 1,
+      "hash": "94f38ecd81e7a428"
+    },
+    "line_0s_w40_responseDynamics": {
+      "count": 1,
+      "hash": "cb3b2988f9266566"
+    },
+    "line_0s_w40_roadClass": {
+      "count": 1,
+      "hash": "cc86b82cf25bffaa"
+    },
+    "collective_0s": {
+      "count": 1,
+      "hash": "c4218036cbb569b1"
+    },
+    "line_2s_w5_gsr": {
+      "count": 1,
+      "hash": "0d57bfdc97181e19"
+    },
+    "peaks_2s": {
+      "count": 608,
+      "hash": "204c2ee4c7d56b14"
+    },
+    "hotspots_2s": {
+      "count": 6,
+      "hash": "916bbfe719e36277"
+    },
+    "places_2s": {
+      "count": 26,
+      "hash": "be3e3e97c6e02dac"
+    },
+    "line_2s_w5_phasic": {
+      "count": 1,
+      "hash": "bb49b569025799b4"
+    },
+    "line_2s_w5_tonic": {
+      "count": 1,
+      "hash": "76ac09e0bffa8d07"
+    },
+    "line_2s_w5_arousalIndex": {
+      "count": 1,
+      "hash": "2cbb8eff593d7fa2"
+    },
+    "line_2s_w5_hdopQuality": {
+      "count": 1,
+      "hash": "1c03baa9c9731959"
+    },
+    "line_2s_w5_responseDynamics": {
+      "count": 1,
+      "hash": "d8f614e2b58663b7"
+    },
+    "line_2s_w5_roadClass": {
+      "count": 1,
+      "hash": "2cfbc71ab25da86a"
+    },
+    "line_2s_w40_gsr": {
+      "count": 1,
+      "hash": "68622861ee120444"
+    },
+    "line_2s_w40_phasic": {
+      "count": 1,
+      "hash": "58cb445253acc985"
+    },
+    "line_2s_w40_tonic": {
+      "count": 1,
+      "hash": "e16aa0d75234a7c2"
+    },
+    "line_2s_w40_arousalIndex": {
+      "count": 1,
+      "hash": "0f18c6a9c8ce309a"
+    },
+    "line_2s_w40_hdopQuality": {
+      "count": 1,
+      "hash": "94f38ecd81e7a428"
+    },
+    "line_2s_w40_responseDynamics": {
+      "count": 1,
+      "hash": "80655ac30581ed9c"
+    },
+    "line_2s_w40_roadClass": {
+      "count": 1,
+      "hash": "cc86b82cf25bffaa"
+    },
+    "collective_2s": {
+      "count": 1,
+      "hash": "afffd608272e9e3a"
+    },
+    "line_5.3s_w5_gsr": {
+      "count": 1,
+      "hash": "726d98c69f4f7d68"
+    },
+    "peaks_5.3s": {
+      "count": 604,
+      "hash": "ecbe9f361417da52"
+    },
+    "hotspots_5.3s": {
+      "count": 6,
+      "hash": "465a049978f86235"
+    },
+    "places_5.3s": {
+      "count": 26,
+      "hash": "2f11411e6ec2f913"
+    },
+    "line_5.3s_w5_phasic": {
+      "count": 1,
+      "hash": "db33e20803bb479d"
+    },
+    "line_5.3s_w5_tonic": {
+      "count": 1,
+      "hash": "e2d533824337fe3b"
+    },
+    "line_5.3s_w5_arousalIndex": {
+      "count": 1,
+      "hash": "dcd5227d78a880b2"
+    },
+    "line_5.3s_w5_hdopQuality": {
+      "count": 1,
+      "hash": "1c03baa9c9731959"
+    },
+    "line_5.3s_w5_responseDynamics": {
+      "count": 1,
+      "hash": "256b56eadc48f8e9"
+    },
+    "line_5.3s_w5_roadClass": {
+      "count": 1,
+      "hash": "2cfbc71ab25da86a"
+    },
+    "line_5.3s_w40_gsr": {
+      "count": 1,
+      "hash": "8bc342b9fc51ed65"
+    },
+    "line_5.3s_w40_phasic": {
+      "count": 1,
+      "hash": "3e12867f82f00830"
+    },
+    "line_5.3s_w40_tonic": {
+      "count": 1,
+      "hash": "bca8c1ee7d45136e"
+    },
+    "line_5.3s_w40_arousalIndex": {
+      "count": 1,
+      "hash": "ac4d87151b4070e0"
+    },
+    "line_5.3s_w40_hdopQuality": {
+      "count": 1,
+      "hash": "94f38ecd81e7a428"
+    },
+    "line_5.3s_w40_responseDynamics": {
+      "count": 1,
+      "hash": "e37a4e142b6024c0"
+    },
+    "line_5.3s_w40_roadClass": {
+      "count": 1,
+      "hash": "cc86b82cf25bffaa"
+    },
+    "collective_5.3s": {
+      "count": 1,
+      "hash": "9bab7eed671e3352"
+    }
+  }
+}

@@ -215,12 +215,14 @@ export class GSRMapBase {
    * @param {(p:object) => number} getVal
    * @param {number} radiusM  cell edge in metres
    * @param {number} revisitGapS
+   * @param {Array} [vals]  getVal of every draw point, when the caller has
+   *   them already (vals[i] is used in place of getVal(drawPoints[i]))
    * @returns {{ cells: Map<number,{cr,cc,sum,count,lastT,revisited}>,
    *            rLat:number, rLon:number, keyAt:(lat:number,lon:number)=>number,
    *            anyRevisited:boolean } | null}
    * @private
    */
-  static _buildOverlapCells(drawPoints, getVal, radiusM, revisitGapS) {
+  static _buildOverlapCells(drawPoints, getVal, radiusM, revisitGapS, vals) {
     if (!Array.isArray(drawPoints) || drawPoints.length < 4 || !(radiusM > 0))
       return null;
     if (typeof GeoUtils.getGeodesicScale !== 'function') return null;
@@ -268,34 +270,49 @@ export class GSRMapBase {
 
     const cells = new Map();
     let anyRevisited = false;
+    // The 3×3 block around the current cell. A walk stays in one cell for
+    // many points in a row, and while it does the block holds the same cells
+    // (only the cell being walked in can appear, and it is filled in below),
+    // so the 9 lookups are redone only when the walk moves to another cell.
+    const block = new Array(9).fill(undefined);
+    let blockCr = NaN;
+    let blockCc = NaN;
     for (let i = 0; i < drawPoints.length; i++) {
       const p = drawPoints[i];
-      const v = getVal(p);
+      const v = vals ? vals[i] : getVal(p);
       if (v === undefined || v === null || (typeof v === 'number' && isNaN(v)))
         continue;
       const t = p.time;
       const cr = Math.floor(p.lat / rLat);
       const cc = Math.floor(p.lon / rLon);
-      const k = keyOf(cr, cc);
-
-      // Re-entry? Scan the 3×3 block (including this cell) for a stale touch.
-      let reentry = false;
-      if (isFinite(t)) {
+      if (cr !== blockCr || cc !== blockCc) {
+        blockCr = cr;
+        blockCc = cc;
+        let b = 0;
         for (let dr = -1; dr <= 1; dr++) {
           for (let dc = -1; dc <= 1; dc++) {
-            const nb = cells.get(keyOf(cr + dr, cc + dc));
-            if (nb && isFinite(nb.lastT) && t - nb.lastT > revisitGapS) {
-              nb.revisited = true;
-              reentry = true;
-            }
+            block[b++] = cells.get(keyOf(cr + dr, cc + dc));
           }
         }
       }
 
-      let c = cells.get(k);
+      // Re-entry? Scan the 3×3 block (including this cell) for a stale touch.
+      let reentry = false;
+      if (isFinite(t)) {
+        for (let b = 0; b < 9; b++) {
+          const nb = block[b];
+          if (nb && isFinite(nb.lastT) && t - nb.lastT > revisitGapS) {
+            nb.revisited = true;
+            reentry = true;
+          }
+        }
+      }
+
+      let c = block[4];
       if (!c) {
         c = { cr, cc, sum: 0, count: 0, lastT: t, revisited: false };
-        cells.set(k, c);
+        cells.set(keyOf(cr, cc), c);
+        block[4] = c;
       }
       if (reentry) {
         c.revisited = true;
@@ -329,8 +346,10 @@ export class GSRMapBase {
    *
    * @param {Array<{lat:number, lon:number, time:number}>} drawPoints
    * @param {(p:object) => number} getVal
-   * @param {{radiusM?:number, revisitGapS?:number}|null} [opts]
-   * @returns {((p:object) => number) | null}
+   * @param {{radiusM?:number, revisitGapS?:number, vals?:Array}|null} [opts]
+   *   vals: getVal of every draw point, when the caller has them already
+   * @returns {((p:object) => number) | null}  also carries `sig` and
+   *   `valuesFor(points, base)` (the accessor over a whole array)
    * @private
    */
   static _overlapPooledAccessor(drawPoints, getVal, opts) {
@@ -342,6 +361,7 @@ export class GSRMapBase {
       getVal,
       radiusM,
       revisitGapS,
+      opts?.vals,
     );
     if (!built?.anyRevisited) return null;
 
@@ -385,6 +405,24 @@ export class GSRMapBase {
       return m !== undefined ? m : getVal(p);
     };
     fn.sig = sig;
+    // fn for every point of `points` at once, given their getVal values
+    // (`base`). Neighbouring points share a cell, so the pooled lookup is
+    // only redone when the cell changes.
+    fn.valuesFor = (points, base) => {
+      const out = new Array(points.length);
+      let lastKey;
+      let lastM;
+      for (let i = 0; i < points.length; i++) {
+        const p = points[i];
+        const k = keyAt(p.lat, p.lon);
+        if (k !== lastKey) {
+          lastKey = k;
+          lastM = pooled.get(k);
+        }
+        out[i] = lastM !== undefined ? lastM : base[i];
+      }
+      return out;
+    };
     return fn;
   }
 

@@ -434,7 +434,7 @@ test('damaged data throws TiffDamagedError; a wrong format does not', async () =
     tileLength: 2,
     values: [0.1, 0.2, 0.3, 0.4],
     compression: 8,
-    editChunks: (chunks) => [Buffer.from('not zlib data at all')],
+    editChunks: (_chunks) => [Buffer.from('not zlib data at all')],
   });
   await assert.rejects(() => decodeFloat32Tiff(corrupt), TiffDamagedError);
 

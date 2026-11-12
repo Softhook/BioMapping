@@ -565,6 +565,9 @@ async function boot() {
   for (const n of p5names) if (window[n] === undefined) window[n] = () => {};
   window.drawingContext = {
     setLineDash() {},
+    beginPath() {},
+    rect() {},
+    clip() {},
     canvas: { width: 1200, height: 600 },
     measureText: () => ({ width: 10 }),
   };

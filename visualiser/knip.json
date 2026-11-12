@@ -7,7 +7,7 @@
     "tests/manual/**/*.js"
   ],
   "project": ["src/**/*.{js,mjs}", "tests/**/*.js"],
-  "ignore": ["tests/support/gen_gps_characterization_baseline.js"],
+  "ignore": ["tests/support/gen_*.js"],
   "ignoreDependencies": ["cesium"],
   "rules": {
     "exports": "off"

@@ -136,32 +136,33 @@ const arousalPlaces = {
       time: p.time,
       trackId: track.id,
     }));
-    const scoreTracks = [
-      { id: track.id, sampleRate: a.sampleRate, raw: a.raw, phasic: a.phasic },
-    ];
-    const meanAmp =
-      pts.reduce((s, p) => s + (p.amplitude || 0), 0) / Math.max(1, pts.length);
+    // The same inputs _renderArousalPlacesFor builds: the map's place
+    // settings (merge distance, blob size…) and the walk as Arousal Places
+    // takes it (smoothed path, Response delay pairing).
+    const P = mapManager._arousalPlaceParams({
+      collective: false,
+      activeTrackCount: 1,
+    });
+    const placeOpts = { ...GSR_CONST.AROUSAL_PLACES, ...P };
+    const scoreTracks = [mapManager._placesTrack(track.id, a)];
+    const meanAmp = mapManager._meanAmplitude(pts);
 
     let clusters;
     const bc = h.bench(
       () => {
-        clusters = SC.compactClusters(pts, 35, 1.8);
+        clusters = SC.compactClusters(pts, P.mergeM, P.separationFactor);
       },
       B(opts, { iters: 12 }),
     );
     const bb = h.bench(
-      () => AP.buildPlaces(clusters, scoreTracks, GSR_CONST.AROUSAL_PLACES),
+      () => AP.buildPlaces(clusters, scoreTracks, placeOpts),
       B(opts, { iters: 8 }),
     );
-    const places = AP.buildPlaces(
-      clusters,
-      scoreTracks,
-      GSR_CONST.AROUSAL_PLACES,
-    );
+    const places = AP.buildPlaces(clusters, scoreTracks, placeOpts);
     const bl = h.bench(
       () => {
         for (const pl of places)
-          SC.getConcaveBlob(pl.cluster, 12.25, 17.5, meanAmp);
+          SC.getConcaveBlob(pl.cluster, P.sigma, P.blobRadius, meanAmp);
       },
       B(opts, { iters: 6 }),
     );

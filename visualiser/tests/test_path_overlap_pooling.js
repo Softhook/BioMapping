@@ -235,3 +235,131 @@ test('_buildOverlapCells: same cell re-entered after a real gap IS a revisit', (
   const built = GSRMapManager._buildOverlapCells(dp, getVal, 7, 15);
   assert.strictEqual(built.anyRevisited, true);
 });
+
+// ─── the 3×3 lookup shortcut vs looking every point up ─────────────────
+
+// _buildOverlapCells as plainly as possible: the 3×3 block is looked up
+// afresh for every point. The real one reuses the block while the walk
+// stays in one cell; the two must agree on everything.
+function plainOverlapCells(drawPoints, getVal, radiusM, revisitGapS) {
+  const built = GSRMapManager._buildOverlapCells(
+    drawPoints,
+    getVal,
+    radiusM,
+    revisitGapS,
+  );
+  if (!built) return null;
+  const { rLat, rLon, keyOf } = built;
+  const cells = new Map();
+  let anyRevisited = false;
+  for (const p of drawPoints) {
+    const v = getVal(p);
+    if (v === undefined || v === null || (typeof v === 'number' && isNaN(v)))
+      continue;
+    const t = p.time;
+    const cr = Math.floor(p.lat / rLat);
+    const cc = Math.floor(p.lon / rLon);
+    let reentry = false;
+    if (isFinite(t)) {
+      for (let dr = -1; dr <= 1; dr++) {
+        for (let dc = -1; dc <= 1; dc++) {
+          const nb = cells.get(keyOf(cr + dr, cc + dc));
+          if (nb && isFinite(nb.lastT) && t - nb.lastT > revisitGapS) {
+            nb.revisited = true;
+            reentry = true;
+          }
+        }
+      }
+    }
+    let c = cells.get(keyOf(cr, cc));
+    if (!c) {
+      c = { cr, cc, sum: 0, count: 0, lastT: t, revisited: false };
+      cells.set(keyOf(cr, cc), c);
+    }
+    if (reentry) {
+      c.revisited = true;
+      anyRevisited = true;
+    }
+    if (isFinite(t)) c.lastT = t;
+    c.sum += v;
+    c.count++;
+  }
+  return { cells, anyRevisited };
+}
+
+// A wandering walk: lingers (many points in one cell), turns back on itself,
+// has readings missing (null / NaN) and times missing (NaN), and pauses.
+function wanderingWalk(seed, n) {
+  let s = seed;
+  const rand = () => {
+    s = (Math.imul(s, 1103515245) + 12345) >>> 0;
+    return s / 2 ** 32;
+  };
+  const dp = [];
+  let x = 0;
+  let y = 0;
+  let heading = 0;
+  let t = 0;
+  for (let i = 0; i < n; i++) {
+    if (rand() < 0.03) heading += Math.PI * (0.5 + rand()); // turn back
+    const step = rand() < 0.2 ? 0 : 0.3 + rand() * 1.5; // sometimes linger
+    x += Math.cos(heading) * step;
+    y += Math.sin(heading) * step;
+    t += rand() < 0.01 ? 30 + rand() * 60 : 0.1 + rand() * 0.4; // pauses
+    const r = rand();
+    dp.push({
+      lat: LAT0 + y / SC.degToMeterLat,
+      lon: LON0 + x / SC.degToMeterLon,
+      time: r < 0.01 ? Number.NaN : t,
+      v: r < 0.03 ? null : r < 0.04 ? Number.NaN : rand() * 10,
+    });
+  }
+  return dp;
+}
+
+test('_buildOverlapCells: reusing the 3×3 lookups gives the same cells as looking every point up', () => {
+  let revisitedSomewhere = 0;
+  for (let seed = 1; seed <= 12; seed++) {
+    const dp = wanderingWalk(seed, 3000);
+    for (const radiusM of [0.5, 3, 7, 25]) {
+      const label = `walk ${seed}, radius ${radiusM} m`;
+      const real = GSRMapManager._buildOverlapCells(dp, getVal, radiusM, 15);
+      const plain = plainOverlapCells(dp, getVal, radiusM, 15);
+      assert.strictEqual(real.anyRevisited, plain.anyRevisited, label);
+      assert.deepStrictEqual(
+        [...real.cells.entries()],
+        [...plain.cells.entries()],
+        label,
+      );
+      // Precomputed values must count exactly like getVal.
+      const withVals = GSRMapManager._buildOverlapCells(
+        dp,
+        () => assert.fail('getVal must not be called when vals are given'),
+        radiusM,
+        15,
+        dp.map(getVal),
+      );
+      assert.deepStrictEqual(
+        [...withVals.cells.entries()],
+        [...real.cells.entries()],
+        `${label}, given vals`,
+      );
+      if (real.anyRevisited) revisitedSomewhere++;
+    }
+  }
+  assert.ok(revisitedSomewhere > 10, 'the walks do retrace themselves');
+});
+
+test('_overlapPooledAccessor: valuesFor gives the accessor for every point', () => {
+  for (let seed = 1; seed <= 6; seed++) {
+    const dp = wanderingWalk(seed, 3000);
+    const acc = GSRMapManager._overlapPooledAccessor(dp, getVal, OPTS);
+    assert.ok(acc, `walk ${seed} retraces`);
+    const base = dp.map(getVal);
+    assert.deepStrictEqual(
+      acc.valuesFor(dp, base),
+      dp.map((p) => acc(p)),
+      `walk ${seed}`,
+    );
+  }
+});

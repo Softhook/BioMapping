@@ -25,6 +25,7 @@ import { AppState } from '../../core/app_state.mjs';
 import { GSR_CONST } from '../../core/constants.mjs';
 import { GeoUtils } from '../../gps/geo_utils.mjs';
 import { GpsPipeline } from '../../gps/gps_pipeline.mjs';
+import { ResponseDelay } from '../../signal/response_delay.mjs';
 import { GSRStorage } from '../../ui/storage.mjs';
 import { GSRMapBase } from '../map_base.mjs';
 import { MapColors } from '../map_colors.mjs';
@@ -82,6 +83,26 @@ const isNoDataValue = (metric, v) => {
 // How long after a zoom settles the overlap recolour waits (see
 // _schedulePathRefreshOnZoom).
 const PATH_REFRESH_DELAY_MS = 250;
+
+// Where each drawPoints array breaks for a physically impossible jump (see
+// GpsPipeline.isImpossibleJump): out[i] is 1 when point i must not be joined
+// to point i - 1. drawPoints arrays are cached and never changed once built
+// (see _getOrBuildDrawPoints), so this is worked out once per array rather
+// than on every redraw.
+const jumpBreaks = new WeakMap();
+function jumpBreaksOf(drawPoints) {
+  let out = jumpBreaks.get(drawPoints);
+  if (out && out.length === drawPoints.length) return out;
+  out = new Uint8Array(drawPoints.length);
+  for (let i = 1; i < drawPoints.length; i++) {
+    const a = drawPoints[i - 1];
+    const b = drawPoints[i];
+    const distM = GeoUtils.haversineMeters(a.lat, a.lon, b.lat, b.lon);
+    if (GpsPipeline.isImpossibleJump(distM, b.time - a.time)) out[i] = 1;
+  }
+  jumpBreaks.set(drawPoints, out);
+  return out;
+}
 
 export class GSRMapPath extends GSRMapRfFluid {
   /**
@@ -232,16 +253,20 @@ export class GSRMapPath extends GSRMapRfFluid {
       : (p) => p[key];
     if (isBody && analyzer?.readingAt) {
       // Body data: the reading this place shows (null where the recording
-      // ended before its response could arrive). Looked up once per place.
-      const readingOf = new Int32Array(analyzer.raw.length).fill(-2);
+      // ended before its response could arrive).
+      const readingAt = ResponseDelay.readingLookup(analyzer);
       const series = derivedSeries || analyzer.raw;
       getVal = (p) => {
-        let r = readingOf[p.origIdx];
-        if (r === -2) r = readingOf[p.origIdx] = analyzer.readingAt(p.origIdx);
+        const r = readingAt(p.origIdx);
         if (r < 0) return null;
         return series[r] ? series[r].val : 0;
       };
     }
+
+    // Every point's value, looked up once: the passes below all read it.
+    const n = drawPoints.length;
+    const vals = new Array(n);
+    for (let i = 0; i < n; i++) vals[i] = getVal(drawPoints[i]);
 
     // Overlap-aware colour: where the walk retraces itself AND the two strokes
     // visually merge at this zoom, colour that spot by the mean of the active
@@ -249,7 +274,7 @@ export class GSRMapPath extends GSRMapRfFluid {
     // radius is the stroke's on-screen width in metres, so it tracks both the
     // width slider and the zoom (see _refreshPathOnZoom). Skipped for
     // categorical metrics — averaging category codes is meaningless.
-    let valAt = getVal;
+    let pooledVals = vals;
     let hasRetrace = false;
     let overlapSig = 0;
     if (!isCategorical) {
@@ -265,9 +290,10 @@ export class GSRMapPath extends GSRMapRfFluid {
             : GSRMapBase._overlapPooledAccessor(drawPoints, getVal, {
                 radiusM,
                 revisitGapS: gapS,
+                vals,
               });
         if (pooledAt) {
-          valAt = pooledAt;
+          pooledVals = pooledAt.valuesFor(drawPoints, vals);
           hasRetrace = true;
           overlapSig = pooledAt.sig | 0;
         }
@@ -303,8 +329,8 @@ export class GSRMapPath extends GSRMapRfFluid {
       maxVal = -Infinity;
     const seen = needsUnique ? new Set() : null;
 
-    for (let i = 0; i < drawPoints.length; i++) {
-      const v = getVal(drawPoints[i]);
+    for (let i = 0; i < n; i++) {
+      const v = vals[i];
       if (v === undefined || v === null) continue;
 
       if (!isCategorical && !isNoDataValue(metric, v)) {
@@ -334,110 +360,102 @@ export class GSRMapPath extends GSRMapRfFluid {
     const colorLut = isCategorical
       ? null
       : MapColors.getColorLut(metric, minVal, maxVal);
+    // Colour bucket of the stretch from point i to point i + 1.
+    const bucketOf = (i) => {
+      const b =
+        ((pooledVals[i] + pooledVals[i + 1]) / 2 - minVal) *
+        (COLOR_BUCKETS / range);
+      return b < 0 ? 0 : b >= COLOR_BUCKETS ? COLOR_BUCKETS - 1 : b | 0;
+    };
 
+    // Segments are runs of drawPoints, as inclusive [start, end] index pairs.
     // Break the polyline only at physically impossible jumps (see
-    // GpsPipeline.isImpossibleJump). Blanked gaps and adjacent far-apart
-    // anchors both reach here as neighbouring points, so this is the one
-    // place that stops a straight line being drawn across them. Merely
-    // noisy or snap-offset fixes are deliberately kept connected.
-    const segments = [[]];
-    for (let i = 0; i < drawPoints.length; i++) {
-      if (i > 0) {
-        const a = drawPoints[i - 1];
-        const b = drawPoints[i];
-        const distM = GeoUtils.haversineMeters(a.lat, a.lon, b.lat, b.lon);
-        if (GpsPipeline.isImpossibleJump(distM, b.time - a.time)) {
-          segments.push([]);
-        }
+    // jumpBreaksOf). Blanked gaps and adjacent far-apart anchors both reach
+    // here as neighbouring points, so this is the one place that stops a
+    // straight line being drawn across them. Merely noisy or snap-offset
+    // fixes are deliberately kept connected.
+    const breaks = jumpBreaksOf(drawPoints);
+    const segments = [];
+    let segStart = 0;
+    for (let i = 1; i < n; i++) {
+      if (breaks[i]) {
+        segments.push(segStart, i - 1);
+        segStart = i;
       }
-      segments[segments.length - 1].push(drawPoints[i]);
     }
+    if (n > 0) segments.push(segStart, n - 1);
 
     // Split off the stretches with no reading (body metrics only, see
     // NO_READING_COLOUR); the point where one ends starts the next, so the
     // line stays joined.
     if (isBody) {
       const split = [];
-      for (const seg of segments) {
-        let cur = [];
-        let curNone = null;
-        for (const pt of seg) {
-          const none = getVal(pt) == null;
-          if (curNone !== null && none !== curNone) {
-            split.push(cur);
-            cur = [cur[cur.length - 1]];
+      for (let s = 0; s < segments.length; s += 2) {
+        const e = segments[s + 1];
+        let cur = segments[s];
+        for (let i = cur + 1; i <= e; i++) {
+          if ((vals[i] == null) !== (vals[i - 1] == null)) {
+            split.push(cur, i - 1);
+            cur = i - 1;
           }
-          curNone = none;
-          cur.push(pt);
         }
-        split.push(cur);
+        split.push(cur, e);
       }
       segments.length = 0;
       segments.push(...split);
     }
 
-    // Reusable array for latlngs to reduce GC pressure
-    const latlngsBuf = [];
+    const latlngsOf = (from, to) => {
+      const out = new Array(to - from + 1);
+      for (let i = from; i <= to; i++) {
+        out[i - from] = [drawPoints[i].lat, drawPoints[i].lon];
+      }
+      return out;
+    };
+    const addPoly = (poly) => {
+      // Phase 1 (slice 1): path segments render into the track's layerGroup
+      // (on the map), never directly onto the map. `layerGroup` is null when
+      // there is no managed track — fall back to the legacy direct add.
+      if (layerGroup) {
+        poly._gsrLayerGroup = layerGroup;
+        poly._gsrKind = 'path';
+        layerGroup.addLayer(poly);
+      } else {
+        poly.addTo(this.map);
+      }
+      this._registerTrackLayer(track, poly);
+    };
 
-    for (const seg of segments) {
-      if (seg.length < 2) continue;
+    for (let s = 0; s < segments.length; s += 2) {
+      const segFirst = segments[s];
+      const segLast = segments[s + 1];
+      if (segLast - segFirst < 1) continue;
 
-      if (isBody && getVal(seg[seg.length - 1]) == null) {
-        const poly = L.polyline(
-          seg.map((pt) => [pt.lat, pt.lon]),
-          { color: NO_READING_COLOUR, weight: trackWeight, opacity: 0.95 },
+      if (isBody && vals[segLast] == null) {
+        addPoly(
+          L.polyline(latlngsOf(segFirst, segLast), {
+            color: NO_READING_COLOUR,
+            weight: trackWeight,
+            opacity: 0.95,
+          }),
         );
-        if (layerGroup) {
-          poly._gsrLayerGroup = layerGroup;
-          poly._gsrKind = 'path';
-          layerGroup.addLayer(poly);
-        } else {
-          poly.addTo(this.map);
-        }
-        this._registerTrackLayer(track, poly);
         continue;
       }
 
-      let batchStart = 0;
+      let batchStart = segFirst;
 
-      while (batchStart < seg.length - 1) {
-        const startVal = valAt(seg[batchStart]);
-
-        let startBucket = 0;
-        if (!isCategorical) {
-          const avgVal =
-            (valAt(seg[batchStart]) + valAt(seg[batchStart + 1])) / 2;
-          startBucket = (avgVal - minVal) * (COLOR_BUCKETS / range);
-          startBucket =
-            startBucket < 0
-              ? 0
-              : startBucket >= COLOR_BUCKETS
-                ? COLOR_BUCKETS - 1
-                : startBucket | 0;
-        }
+      while (batchStart < segLast) {
+        const startVal = pooledVals[batchStart];
+        const startBucket = isCategorical ? 0 : bucketOf(batchStart);
 
         let batchEnd = batchStart + 1;
-        while (batchEnd < seg.length - 1) {
+        while (batchEnd < segLast) {
           if (isCategorical) {
-            if (valAt(seg[batchEnd]) !== startVal) break;
-          } else {
-            const val = (valAt(seg[batchEnd]) + valAt(seg[batchEnd + 1])) / 2;
-            const bucket = (val - minVal) * (COLOR_BUCKETS / range);
-            const b =
-              bucket < 0
-                ? 0
-                : bucket >= COLOR_BUCKETS
-                  ? COLOR_BUCKETS - 1
-                  : bucket | 0;
-            if (b !== startBucket) break;
+            if (pooledVals[batchEnd] !== startVal) break;
+          } else if (bucketOf(batchEnd) !== startBucket) {
+            break;
           }
           batchEnd++;
-        }
-
-        // Build latlngs directly into reusable buffer
-        latlngsBuf.length = 0;
-        for (let i = batchStart; i <= batchEnd; i++) {
-          latlngsBuf.push([seg[i].lat, seg[i].lon]);
         }
 
         if (metric === 'responseDynamics' && (!startVal || startVal <= 0)) {
@@ -445,39 +463,17 @@ export class GSRMapPath extends GSRMapRfFluid {
           continue;
         }
 
-        let color;
-        if (isCategorical) {
-          color = MapColors.getColorForMetric(metric, startVal, minVal, maxVal);
-        } else {
-          const midIdx = (batchStart + batchEnd) >> 1;
-          const midBucket =
-            ((valAt(seg[midIdx]) + valAt(seg[midIdx + 1])) / 2 - minVal) *
-            (COLOR_BUCKETS / range);
-          const b =
-            midBucket < 0
-              ? 0
-              : midBucket >= COLOR_BUCKETS
-                ? COLOR_BUCKETS - 1
-                : midBucket | 0;
-          color = colorLut[b];
-        }
+        const color = isCategorical
+          ? MapColors.getColorForMetric(metric, startVal, minVal, maxVal)
+          : colorLut[bucketOf((batchStart + batchEnd) >> 1)];
 
-        // Phase 1 (slice 1): path segments render into the track's layerGroup
-        // (on the map), never directly onto the map. `layerGroup` is null when
-        // there is no managed track — fall back to the legacy direct add.
-        const poly = L.polyline(latlngsBuf.slice(), {
-          color,
-          weight: trackWeight,
-          opacity: 0.95,
-        });
-        if (layerGroup) {
-          poly._gsrLayerGroup = layerGroup;
-          poly._gsrKind = 'path';
-          layerGroup.addLayer(poly);
-        } else {
-          poly.addTo(this.map);
-        }
-        this._registerTrackLayer(track, poly);
+        addPoly(
+          L.polyline(latlngsOf(batchStart, batchEnd), {
+            color,
+            weight: trackWeight,
+            opacity: 0.95,
+          }),
+        );
 
         batchStart = batchEnd;
       }

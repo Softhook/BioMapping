@@ -660,3 +660,52 @@ test('dashboard: "the last second" is one second at any sample rate', () => {
     close(s.val, mean, 1e-9, `sample at ${s.time} s`);
   }
 });
+
+test('row tables give the same pairing as a search, both ways', () => {
+  const { ResponseDelay } = require('../src/signal/response_delay.mjs');
+  const a = walk();
+  // Uneven gaps and repeated times, so "nearest" and its ties are exercised.
+  let t = 0;
+  a.raw.forEach((r, i) => {
+    r.time = t;
+    t += i % 7 === 3 ? 0 : i % 5 === 0 ? 0.37 : 0.1;
+  });
+  // The pairings as searched for one row at a time.
+  const readingBySearch = (j) =>
+    !(j >= 0 && j < a.raw.length)
+      ? -1
+      : a.responseDelay
+        ? ResponseDelay._rowNearest(a.raw, a.raw[j].time + a.responseDelay)
+        : j;
+  const placeBySearch = (i) => {
+    const j = a.responseDelay
+      ? ResponseDelay._rowNearest(a.raw, a.raw[i].time - a.responseDelay)
+      : i;
+    return j >= 0 && a.getCoordinates(j) ? j : -1;
+  };
+  const check = (label) => {
+    const readingAt = ResponseDelay.readingLookup(a);
+    const placeRowOf = ResponseDelay.placeRowLookup(a);
+    for (let j = -1; j <= a.raw.length; j++) {
+      const reading = readingBySearch(j);
+      const place = j >= 0 && j < a.raw.length ? placeBySearch(j) : -1;
+      assert.strictEqual(readingAt(j), reading, `${label}, place ${j}`);
+      assert.strictEqual(placeRowOf(j), place, `${label}, row ${j}`);
+      assert.strictEqual(a.placeRowOf(j), place, `${label}, one row ${j}`);
+    }
+  };
+  for (const delay of [0, 0.05, 0.1, 2, 2.35, 8, 0.05, 2]) {
+    a.setResponseDelay(delay);
+    check(`delay ${delay}`);
+  }
+  // Every time moved on in place, same number of rows: the old tables must
+  // not be reused.
+  a.setResponseDelay(2);
+  check('before retiming');
+  for (const r of a.raw) r.time *= 1.07;
+  check('after retiming');
+  // Times out of order: still the same answers.
+  a.setResponseDelay(2);
+  a.raw.push({ ...a.raw[5] });
+  check('out of order');
+});
