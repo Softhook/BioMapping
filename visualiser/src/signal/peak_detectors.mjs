@@ -14,8 +14,6 @@
  * `ctx` shape used throughout this module:
  *   {
  *     filtered: Array<{val}>,               // for noise-floor estimation
- *     getMatchingLabel(time): string,
- *     importedPeakLabels: Map|null,
  *     topographicProminence?(vals): Float64Array,
  *       // injected so GSRAnalyzer's own _topographicProminence (stubbed by
  *       // tests to count sweeps) is what actually runs, not this module's
@@ -268,7 +266,6 @@ export const PeakDetectors = {
       { ...metrics, onsetIdx, recoveryIdx },
       oldLabels,
       oldExcluded,
-      ctx,
     );
     peak.prominence = prom[idx];
     peak.qualityScore = PeakShape.computePeakQuality(peak);
@@ -583,7 +580,6 @@ export const PeakDetectors = {
         { ...metrics, onsetIdx, recoveryIdx },
         oldLabels,
         oldExcluded,
-        ctx,
       );
       // Uses the deconvolution-specific quality formula, not
       // computePeakQuality() — see computeDeconPeakQuality()'s doc

@@ -409,8 +409,13 @@ export const GpsPipeline = {
             filteredGps[i] = hermitePts[i - idxA - 1];
           }
         } else {
+          // By time, like the Hermite fill-in above and the parser's own
+          // fill-in (rows are not always evenly spaced).
           for (let i = idxA + 1; i < idxB; i++) {
-            const ratio = (i - idxA) / (idxB - idxA);
+            const ratio =
+              timeGap > 0
+                ? (data[i].time - data[idxA].time) / timeGap
+                : (i - idxA) / (idxB - idxA);
             filteredGps[i] = {
               lat: cA.lat + ratio * (cB.lat - cA.lat),
               lon: cA.lon + ratio * (cB.lon - cA.lon),
@@ -437,7 +442,9 @@ export const GpsPipeline = {
   reconstructFilteredGpsCached(analyzer, data, gpsPoints, maxSpeed = 3.0) {
     const n = gpsPoints.length;
     if (n === 0) {
-      if (!analyzer._filteredGpsCacheKey) {
+      // Also when a path was built before (every fix now fails the gates):
+      // the old path must not stay behind as if it were still the current one.
+      if (analyzer._filteredGpsCacheKey !== 'empty') {
         GpsPipeline.reconstructFilteredGps(analyzer, data, gpsPoints, maxSpeed);
         analyzer._filteredGpsCacheKey = 'empty';
       }

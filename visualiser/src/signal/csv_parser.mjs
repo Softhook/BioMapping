@@ -774,7 +774,23 @@ export const GSRCSVParser = {
     for (const band of RF_BANDS) rfRow[band] = NaN;
     const presentEnvCols = envCols.filter((c) => c.idx !== -1);
 
-    for (let i = dataStartLine + 1; i < lines.length; i++) {
+    // The device ends every row with a newline. A recording that lost power
+    // or its card mid-write can end part-way through a row: a cut-off number
+    // still reads as a number (4948.3 cut to "49"), and a row cut before its
+    // GSR value would be given the stand-in below. That row is left out.
+    let rowsEnd = lines.length;
+    let cutOffLastRow = false;
+    if (hasIntegrityMarker && rowsEnd - 1 > dataStartLine) {
+      const last = lines[rowsEnd - 1];
+      if (last.trim() && !last.startsWith('#')) {
+        rowsEnd--;
+        cutOffLastRow = true;
+      }
+    }
+    // Rows that had no GSR value and were given the stand-in below.
+    let gsrMissing = 0;
+
+    for (let i = dataStartLine + 1; i < rowsEnd; i++) {
       const line = lines[i];
       if (!line?.trim()) continue;
 
@@ -850,6 +866,7 @@ export const GSRCSVParser = {
           !isNaN(em_fog)
         ) {
           gsrVal = 1.0; // Baseline value so standalone RF/GPS rows are kept
+          gsrMissing++;
         } else {
           continue;
         }
@@ -980,8 +997,50 @@ export const GSRCSVParser = {
       throw new Error('No valid numeric data found in CSV.');
     }
 
+    // Peak labels / exclusions are tied to their row here, while the rows are
+    // still in file order: the sort further down can move them.
+    for (const entry of importedPeakEntries) {
+      entry.row = rawDataList[entry.index];
+    }
+
+    // Auto-detect Units and convert to MicroSiemens (uS). Done before the
+    // checks below so they judge every file in the same unit.
+    const avgVal =
+      rawDataList.reduce((sum, d) => sum + d.val, 0) / rawDataList.length;
+    const gsrHeader = headers[colIndices.gsr_raw] || '';
+    const gsrUnit = GSRCSVParser._gsrUnitFromHeader(gsrHeader);
+
+    // A header that states its unit wins over the magnitude guess: the
+    // firmware's `gsr_raw` is nS by schema (docs/csv_schema.md), and a
+    // mostly-disconnected nS recording averages under MICROSIEMENS_MIN_AVG,
+    // which the guess would leave 1000x too large.
+    if (gsrUnit === 'ns') {
+      rawDataList.forEach((d) => {
+        d.val = d.val / 1000.0;
+      });
+    } else if (gsrUnit === 'us') {
+      // already µS
+    } else if (gsrUnit === 'ohm' || avgVal > GSR_CONST.RESISTANCE_MIN_AVG) {
+      isResistance = true;
+      rawDataList.forEach((d) => {
+        d.val = d.val > 0 ? 1000000.0 / d.val : 0;
+      });
+    } else if (
+      avgVal > GSR_CONST.MICROSIEMENS_MIN_AVG &&
+      avgVal <= GSR_CONST.MICROSIEMENS_MAX_AVG
+    ) {
+      rawDataList.forEach((d) => {
+        d.val = d.val / 1000.0;
+      });
+    }
+
     // ── Input validation ──────────────────────────────────────────────────
     const warnings = [];
+    if (cutOffLastRow) {
+      warnings.push(
+        'The recording was cut off part-way through its last row. That row has been left out.',
+      );
+    }
 
     // Check timestamp monotonicity
     let timeReversals = 0;
@@ -994,7 +1053,8 @@ export const GSRCSVParser = {
       );
     }
 
-    // Check GSR value range (physiological: 0.1–50 000 nS) in a single pass
+    // Check GSR value range (physiological: 0.0001–50 µS, i.e. 0.1–50 000 nS)
+    // in a single pass
     let gsrMin = Infinity;
     let gsrMax = -Infinity;
     let gsrSum = 0;
@@ -1005,14 +1065,14 @@ export const GSRCSVParser = {
       if (v > gsrMax) gsrMax = v;
       gsrSum += v;
     }
-    if (gsrMin < 0.1) {
+    if (gsrMin < 0.0001) {
       warnings.push(
-        `GSR contains near-zero values (min ${gsrMin.toFixed(1)} nS). Sensor may have been disconnected.`,
+        `GSR contains near-zero values (min ${(gsrMin * 1000).toFixed(1)} nS). Sensor may have been disconnected.`,
       );
     }
-    if (gsrMax > 50000) {
+    if (gsrMax > 50) {
       warnings.push(
-        `GSR contains rail-saturation values (max ${gsrMax.toFixed(0)} nS). Sensor may have been disconnected.`,
+        `GSR contains rail-saturation values (max ${(gsrMax * 1000).toFixed(0)} nS). Sensor may have been disconnected.`,
       );
     }
 
@@ -1043,9 +1103,11 @@ export const GSRCSVParser = {
       }
       const distinctGsr = distinctSet.size;
       if (distinctGsr <= 3 || isRelStdLow) {
+        // One value has no spread; the sum above leaves float noise.
+        const shownStd = distinctGsr === 1 ? 0 : gsrStd;
         warnings.push(
           `GSR signal is flat (${distinctGsr} distinct value${distinctGsr === 1 ? '' : 's'}, ` +
-            `std ${gsrStd.toPrecision(2)}). Electrode was likely not in skin contact — no SCR peaks can be detected.`,
+            `std ${shownStd.toPrecision(2)} µS). Electrode was likely not in skin contact — no SCR peaks can be detected.`,
         );
       }
     }
@@ -1060,8 +1122,8 @@ export const GSRCSVParser = {
       );
     }
 
-    // Check GSR coverage
-    const gsrPresent = rawDataList.filter((d) => !isNaN(d.val)).length;
+    // Check GSR coverage (rows given the stand-in value don't count)
+    const gsrPresent = rawDataList.length - gsrMissing;
     if (gsrPresent < rawDataList.length * 0.5) {
       warnings.push(
         `Only ${gsrPresent}/${rawDataList.length} rows have GSR data. Check CSV format.`,
@@ -1128,7 +1190,7 @@ export const GSRCSVParser = {
     const importedPeakExcluded = new Map();
     for (let k = 0; k < importedPeakEntries.length; k++) {
       const entry = importedPeakEntries[k];
-      const row = rawDataList[entry.index];
+      const row = entry.row;
       if (entry.label) importedPeakLabels.set(row.time, entry.label);
       if (entry.excluded) importedPeakExcluded.set(row.time, true);
     }
@@ -1145,36 +1207,6 @@ export const GSRCSVParser = {
     if (timeDiffs.length > 0) {
       timeDiffs.sort((a, b) => a - b);
       sampleRate = 1.0 / timeDiffs[timeDiffs.length >> 1];
-    }
-
-    // Auto-detect Units and convert to MicroSiemens (uS)
-    const avgVal =
-      rawDataList.reduce((sum, d) => sum + d.val, 0) / rawDataList.length;
-    const gsrHeader = headers[colIndices.gsr_raw] || '';
-    const gsrUnit = GSRCSVParser._gsrUnitFromHeader(gsrHeader);
-
-    // A header that states its unit wins over the magnitude guess: the
-    // firmware's `gsr_raw` is nS by schema (docs/csv_schema.md), and a
-    // mostly-disconnected nS recording averages under MICROSIEMENS_MIN_AVG,
-    // which the guess would leave 1000x too large.
-    if (gsrUnit === 'ns') {
-      rawDataList.forEach((d) => {
-        d.val = d.val / 1000.0;
-      });
-    } else if (gsrUnit === 'us') {
-      // already µS
-    } else if (gsrUnit === 'ohm' || avgVal > GSR_CONST.RESISTANCE_MIN_AVG) {
-      isResistance = true;
-      rawDataList.forEach((d) => {
-        d.val = d.val > 0 ? 1000000.0 / d.val : 0;
-      });
-    } else if (
-      avgVal > GSR_CONST.MICROSIEMENS_MIN_AVG &&
-      avgVal <= GSR_CONST.MICROSIEMENS_MAX_AVG
-    ) {
-      rawDataList.forEach((d) => {
-        d.val = d.val / 1000.0;
-      });
     }
 
     // A processed export writes a position on every row, including the ones

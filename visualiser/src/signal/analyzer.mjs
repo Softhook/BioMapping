@@ -627,10 +627,10 @@ export class GSRAnalyzer {
     this.integrity = result.integrity;
     this._csvWarnings = result.warnings;
 
-    // Restore imported peak labels/exclusions onto the persistent user-label
-    // store (the parser builds the maps; only the analyzer owns setPeakLabel).
-    this._importedPeakLabels = result.importedPeakLabels || new Map();
-    for (const [t, label] of this._importedPeakLabels.entries()) {
+    // Imported peak labels/exclusions go into the time-keyed stores, which
+    // are the only record from here on: a second copy of the imported labels
+    // brought back any the user later cleared.
+    for (const [t, label] of result.importedPeakLabels || new Map()) {
       this.setPeakLabel(t, label);
     }
     for (const t of (result.importedPeakExcluded || new Map()).keys()) {
@@ -1694,8 +1694,8 @@ export class GSRAnalyzer {
   }
 
   /**
-   * Construct a peak object from shape metrics, resolving labels and exclusion
-   * flags from both the in-memory store and (optionally) imported CSV data.
+   * Construct a peak object from shape metrics, carrying over the label and
+   * exclusion flag of the peak that sat on the same sample before.
    * Delegates to PeakShape.buildPeakObject.
    * @private
    */
@@ -1708,24 +1708,21 @@ export class GSRAnalyzer {
       shape,
       oldLabels,
       oldExcluded,
-      this._peakDetectionCtx(),
     );
   }
 
   /**
    * Bundles the analyzer state the peak_shape.js / peak_detectors.js pure
    * modules need but don't own themselves: the filtered series (noise-floor
-   * estimation), user/imported label lookups, and a bound reference to
-   * this._topographicProminence (not the module's own implementation
-   * directly) so tests that stub _topographicProminence to count sweeps
-   * still see every call made from inside the detectors.
+   * estimation) and a bound reference to this._topographicProminence (not
+   * the module's own implementation directly) so tests that stub
+   * _topographicProminence to count sweeps still see every call made from
+   * inside the detectors.
    * @private
    */
   _peakDetectionCtx() {
     return {
       filtered: this.filtered,
-      getMatchingLabel: (t) => this.getMatchingLabel(t),
-      importedPeakLabels: this._importedPeakLabels,
       topographicProminence: (v) => this._topographicProminence(v),
     };
   }
@@ -2003,12 +2000,17 @@ export class GSRAnalyzer {
   }
 
   /**
-   * Snapshot any user-set labels and exclusion flags from the current peak list
-   * so they survive re-analysis. Also merges labels imported from a re-loaded
-   * processed CSV (matched by time); exclusions are re-applied by time from
-   * _userPeakExclusions once detection finishes. Called at the top of every
-   * detector (_detectPeaksFullScan / _detectPeaksByProminence /
+   * Snapshot the labels and exclusion flags of the current peaks, by sample,
+   * so a peak that is found on the same sample again keeps them. The
+   * time-keyed stores (_userPeakLabels, _userPeakExclusions) are then applied
+   * once detection finishes and cover peaks that moved. Called at the top of
+   * every detector (_detectPeaksFullScan / _detectPeaksByProminence /
    * _runDeconvolutionPipeline) before this.peaks is cleared.
+   *
+   * Each labelled peak's store entry is moved to the peak's current time, so
+   * a label follows its peak as settings change. It is moved, not copied: a
+   * copy left the old entry behind as a second, hidden label that was saved
+   * with the file and could attach to a neighbouring peak.
    *
    * @returns {{ oldLabels: Map<number,string>, oldExcluded: Set<number> }}
    * @private
@@ -2016,21 +2018,18 @@ export class GSRAnalyzer {
   _preserveLabelsAndExclusions() {
     const oldLabels = new Map();
     const oldExcluded = new Set();
+    const storeKeyOf = new Map();
+    for (const [t, pk] of this._matchLabelEntriesToPeaks()) {
+      storeKeyOf.set(pk, t);
+    }
     for (const pk of this.peaks) {
       if (pk.label?.trim()) {
+        const oldKey = storeKeyOf.get(pk);
+        if (oldKey !== undefined) this._userPeakLabels.delete(oldKey);
         this.setPeakLabel(pk.time, pk.label);
         oldLabels.set(pk.index, pk.label);
       }
       if (pk.excluded) oldExcluded.add(pk.index);
-    }
-    // Merge labels/exclusions imported from a re-loaded processed CSV (time-matched)
-    if (this._importedPeakLabels && this._importedPeakLabels.size > 0) {
-      for (const pk of this.peaks) {
-        if (!pk.label?.trim()) {
-          const imported = this._importedPeakLabels.get(pk.time);
-          if (imported) oldLabels.set(pk.index, imported);
-        }
-      }
     }
     return { oldLabels, oldExcluded };
   }

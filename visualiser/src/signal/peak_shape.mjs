@@ -345,10 +345,12 @@ export const PeakShape = {
   },
 
   /**
-   * Construct a peak object from shape metrics, resolving labels from the
-   * in-memory store and imported CSV data. The exclusion flag here is only the
-   * index-matched carry-over; the analyzer then applies its time-keyed
-   * exclusion store (GSRAnalyzer._assignExclusionsToPeaks).
+   * Construct a peak object from shape metrics. The label and exclusion flag
+   * here are only the carry-over from the peak that sat on the same sample
+   * before; the analyzer then applies its time-keyed stores, one stored
+   * label / decision to one peak (GSRAnalyzer._assignLabelsToPeaks,
+   * _assignExclusionsToPeaks). Looking a label up by nearest time here gave
+   * the same label to every peak within a second of it.
    *
    * @param {number}  i                     - Sample index of the peak apex.
    * @param {number}  currVal               - Signal value at the apex.
@@ -359,21 +361,9 @@ export const PeakShape = {
    *     onsetSlope, decaySlope, skewnessRatio, snr }
    * @param {Map}     oldLabels             - Index→label map from pre-analysis peaks.
    * @param {Set}     oldExcluded           - Index set of excluded pre-analysis peaks.
-   * @param {object}  labelCtx
-   *   { getMatchingLabel(time): string, importedPeakLabels: Map|null }
-   *   — the analyzer's label-lookup state.
    * @returns {object} Peak object (qualityScore and salienceScore NOT yet set).
    */
-  buildPeakObject(
-    i,
-    currVal,
-    vals,
-    times,
-    shape,
-    oldLabels,
-    oldExcluded,
-    labelCtx,
-  ) {
+  buildPeakObject(i, currVal, vals, times, shape, oldLabels, oldExcluded) {
     const {
       amplitude,
       onsetIdx,
@@ -400,13 +390,7 @@ export const PeakShape = {
       decaySlope,
       skewnessRatio,
       snr,
-      label:
-        oldLabels.get(i) ||
-        labelCtx.getMatchingLabel(times[i]) ||
-        (labelCtx.importedPeakLabels
-          ? labelCtx.importedPeakLabels.get(times[i])
-          : '') ||
-        '',
+      label: oldLabels.get(i) || '',
       excluded: oldExcluded.has(i),
     };
   },
