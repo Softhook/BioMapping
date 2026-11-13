@@ -87,8 +87,17 @@ function toggleFullscreen() {
 $('fsBtn').addEventListener('click', toggleFullscreen);
 
 // ── Walk data ─────────────────────────────────────────────────────────────
-const walk = await fetch('demo/walk.json').then((r) => r.json());
-const S = walk.samples; // [lat, lon, phasic]
+// If the walk can't be loaded the page still runs, showing the text cards only.
+const walk = await fetch('demo/walk.json')
+  .then((r) => {
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return r.json();
+  })
+  .catch((err) => {
+    console.warn('Demo walk unavailable, showing the text cards only:', err);
+    return null;
+  });
+const S = walk?.samples ?? []; // [lat, lon, phasic]
 const N = S.length;
 const vals = S.map((s) => s[2]);
 const heights = vals.map(wallHeight);
@@ -141,14 +150,16 @@ const at = (arr, u) => {
   return lerp(arr[i], arr[i + 1], clamp01(u - i));
 };
 
-const peaks = walk.peaks.filter((p) => p[1] >= 0.5); // [sampleIndex, amplitude]
+const peaks = (walk?.peaks ?? []).filter((p) => p[1] >= 0.5); // [sampleIndex, amplitude]
 const centre = {
   lat: (Math.min(...S.map((s) => s[0])) + Math.max(...S.map((s) => s[0]))) / 2,
   lon: (Math.min(...S.map((s) => s[1])) + Math.max(...S.map((s) => s[1]))) / 2,
 };
 
-$('endStats').textContent =
-  `${fmtDist(walk.distanceMetres)} · ${Math.round(walk.durationSeconds / 60)} minutes · ${walk.peaks.length} reactions`;
+if (walk) {
+  $('endStats').textContent =
+    `${fmtDist(walk.distanceMetres)} · ${Math.round(walk.durationSeconds / 60)} minutes · ${walk.peaks.length} reactions`;
+}
 
 // ── Signal strip (bottom) ─────────────────────────────────────────────────
 const signalCanvas = $('signal');
@@ -182,6 +193,8 @@ function drawSignal(u) {
 // ── Cesium scene ──────────────────────────────────────────────────────────
 let viewer = null;
 try {
+  if (!walk) throw new Error('no walk data');
+  if (typeof Cesium === 'undefined') throw new Error('Cesium did not load');
   Cesium.Ion.defaultAccessToken = '';
   viewer = new Cesium.Viewer('globe', {
     baseLayer: new Cesium.ImageryLayer(
@@ -378,7 +391,7 @@ if (viewer) {
 }
 
 // ── Camera choreography ───────────────────────────────────────────────────
-const D = Cesium.Math.toRadians;
+const D = (deg) => (deg * Math.PI) / 180;
 
 function spacePose(t) {
   // Looking north across the Earth's curve, which sits low in the frame like
@@ -501,10 +514,11 @@ function tick() {
   show('title', inside(T.title));
   show('hardware', inside(T.hardware));
   show('what', inside(T.what));
-  show('fly', t >= T.fly + 0.8 && t < T_OVERVIEW + 1);
+  show('fly', !!walk && t >= T.fly + 0.8 && t < T_OVERVIEW + 1);
   show('end', inside(T.end));
   $('blackout').style.opacity = t < 0.4 || t >= T.fadeOut ? '1' : '0';
   $('progressBar').style.width = `${(100 * t) / T.loop}%`;
+  if (!walk) return;
 
   // Walk progress
   const flyT = clamp01((t - T.fly) / T.flySecs);

@@ -1,8 +1,8 @@
 /**
- * Unit tests for the overlap-aware path colour helpers on GSRMapManager:
- *   _buildOverlapCells   — pass 1: grid binning + straddle-safe revisit flag
- *   _overlapPooledAccessor — pass 2: 3×3-block mean where the walk retraces
- *   _pathRetraces        — cheap "could this ever overlap?" gate
+ * Unit tests for the overlap-aware path colour helpers (src/map/path_overlap.mjs):
+ *   buildCells   — pass 1: grid binning + straddle-safe revisit flag
+ *   pooledAccessor — pass 2: 3×3-block mean where the walk retraces
+ *   retraces        — cheap "could this ever overlap?" gate
  *
  * Pure (no DOM/Leaflet) apart from the GeoUtils global.
  * Run: node --test tests/test_path_overlap_pooling.js
@@ -12,7 +12,7 @@ const assert = require('node:assert');
 const test = require('node:test');
 
 global.GeoUtils = require('../src/gps/geo_utils.mjs').GeoUtils;
-const { GSRMapManager } = require('../src/map/map.mjs');
+const { PathOverlap } = require('../src/map/path_overlap.mjs');
 
 const LAT0 = 51.5;
 const LON0 = -0.12;
@@ -38,34 +38,24 @@ function thereAndBack(outV, retV) {
   return dp;
 }
 
-// ─── _overlapPooledAccessor ─────────────────────────────────────────────
+// ─── pooledAccessor ─────────────────────────────────────────────
 
 test('straight walk with no retrace → null', () => {
   const dp = [];
   for (let i = 0; i < 40; i++) dp.push(pt(i * 2, i, 1 + i));
-  assert.strictEqual(
-    GSRMapManager._overlapPooledAccessor(dp, getVal, OPTS),
-    null,
-  );
+  assert.strictEqual(PathOverlap.pooledAccessor(dp, getVal, OPTS), null);
 });
 
 test('too-short / bad input → null', () => {
   assert.strictEqual(
-    GSRMapManager._overlapPooledAccessor([pt(0, 0, 1)], getVal, OPTS),
+    PathOverlap.pooledAccessor([pt(0, 0, 1)], getVal, OPTS),
     null,
   );
-  assert.strictEqual(
-    GSRMapManager._overlapPooledAccessor(null, getVal, OPTS),
-    null,
-  );
+  assert.strictEqual(PathOverlap.pooledAccessor(null, getVal, OPTS), null);
 });
 
 test('a genuine retrace pools the retraced stretch to the combined mean', () => {
-  const valAt = GSRMapManager._overlapPooledAccessor(
-    thereAndBack(10, 20),
-    getVal,
-    OPTS,
-  );
+  const valAt = PathOverlap.pooledAccessor(thereAndBack(10, 20), getVal, OPTS);
   assert.strictEqual(typeof valAt, 'function');
   // Equal points from each visit over the retraced span → mean 15.
   const mid = pt(14, 0, 999);
@@ -74,28 +64,20 @@ test('a genuine retrace pools the retraced stretch to the combined mean', () => 
 
 test('the non-retraced detour leg is left untouched', () => {
   const dp = thereAndBack(10, 20);
-  const valAt = GSRMapManager._overlapPooledAccessor(dp, getVal, OPTS);
+  const valAt = PathOverlap.pooledAccessor(dp, getVal, OPTS);
   const detour = dp[20]; // out in the far detour, visited once
   assert.strictEqual(valAt(detour), getVal(detour));
 });
 
 test('pooled colour is location-based, so two points in the same spot read alike', () => {
-  const valAt = GSRMapManager._overlapPooledAccessor(
-    thereAndBack(10, 20),
-    getVal,
-    OPTS,
-  );
+  const valAt = PathOverlap.pooledAccessor(thereAndBack(10, 20), getVal, OPTS);
   // Whatever object you ask with, a given location gets one combined value —
   // this is what keeps the re-walked street visually seamless.
   assert.strictEqual(valAt(pt(12, 5, 111)), valAt(pt(12, 130, 222)));
 });
 
 test('a point at a location the path never overlapped falls through to getVal', () => {
-  const valAt = GSRMapManager._overlapPooledAccessor(
-    thereAndBack(10, 20),
-    getVal,
-    OPTS,
-  );
+  const valAt = PathOverlap.pooledAccessor(thereAndBack(10, 20), getVal, OPTS);
   const faraway = pt(5000, 42, 7);
   assert.strictEqual(valAt(faraway), 7);
 });
@@ -104,10 +86,7 @@ test('one slow dense pass over a spot is NOT pooled (no revisit gap)', () => {
   const dp = [];
   for (let i = 0; i < 30; i++) dp.push(pt(i % 3, i * 0.5, 5)); // 2 m jitter, 0.5 s apart
   for (let i = 0; i < 20; i++) dp.push(pt(20 + i * 3, 20 + i, 5));
-  assert.strictEqual(
-    GSRMapManager._overlapPooledAccessor(dp, getVal, OPTS),
-    null,
-  );
+  assert.strictEqual(PathOverlap.pooledAccessor(dp, getVal, OPTS), null);
 });
 
 test('a wider radius pools where a tighter one does not (visual-width scaling)', () => {
@@ -137,7 +116,7 @@ test('a wider radius pools where a tighter one does not (visual-width scaling)',
     });
 
   assert.strictEqual(
-    GSRMapManager._overlapPooledAccessor(dp, getVal, {
+    PathOverlap.pooledAccessor(dp, getVal, {
       radiusM: 4,
       revisitGapS: 15,
     }),
@@ -145,7 +124,7 @@ test('a wider radius pools where a tighter one does not (visual-width scaling)',
     'strokes 10 m apart do not merge at radius 4',
   );
   assert.strictEqual(
-    typeof GSRMapManager._overlapPooledAccessor(dp, getVal, {
+    typeof PathOverlap.pooledAccessor(dp, getVal, {
       radiusM: 14,
       revisitGapS: 15,
     }),
@@ -155,16 +134,8 @@ test('a wider radius pools where a tighter one does not (visual-width scaling)',
 });
 
 test('accessor carries a stable .sig — same inputs match, changed outcome differs', () => {
-  const a = GSRMapManager._overlapPooledAccessor(
-    thereAndBack(10, 20),
-    getVal,
-    OPTS,
-  );
-  const b = GSRMapManager._overlapPooledAccessor(
-    thereAndBack(10, 20),
-    getVal,
-    OPTS,
-  );
+  const a = PathOverlap.pooledAccessor(thereAndBack(10, 20), getVal, OPTS);
+  const b = PathOverlap.pooledAccessor(thereAndBack(10, 20), getVal, OPTS);
   assert.strictEqual(typeof a.sig, 'number');
   assert.strictEqual(
     a.sig,
@@ -172,11 +143,7 @@ test('accessor carries a stable .sig — same inputs match, changed outcome diff
     'identical inputs → identical fingerprint (zoom hook skips the rebuild)',
   );
 
-  const c = GSRMapManager._overlapPooledAccessor(
-    thereAndBack(10, 50),
-    getVal,
-    OPTS,
-  );
+  const c = PathOverlap.pooledAccessor(thereAndBack(10, 50), getVal, OPTS);
   assert.notStrictEqual(
     a.sig,
     c.sig,
@@ -184,11 +151,11 @@ test('accessor carries a stable .sig — same inputs match, changed outcome diff
   );
 });
 
-// ─── _pathRetraces (the zoom gate) ─────────────────────────────────────
+// ─── retraces (the zoom gate) ─────────────────────────────────────
 
-test('_pathRetraces: true for a there-and-back, false for a straight walk', () => {
+test('retraces: true for a there-and-back, false for a straight walk', () => {
   assert.strictEqual(
-    GSRMapManager._pathRetraces(thereAndBack(1, 2), {
+    PathOverlap.retraces(thereAndBack(1, 2), {
       radiusM: 60,
       revisitGapS: 15,
     }),
@@ -197,14 +164,14 @@ test('_pathRetraces: true for a there-and-back, false for a straight walk', () =
   const straight = [];
   for (let i = 0; i < 40; i++) straight.push(pt(i * 5, i, 1));
   assert.strictEqual(
-    GSRMapManager._pathRetraces(straight, { radiusM: 60, revisitGapS: 15 }),
+    PathOverlap.retraces(straight, { radiusM: 60, revisitGapS: 15 }),
     false,
   );
 });
 
-// ─── _buildOverlapCells (straddle safety) ──────────────────────────────
+// ─── buildCells (straddle safety) ──────────────────────────────
 
-test('_buildOverlapCells: boundary wiggle is not a revisit (time-based test)', () => {
+test('buildCells: boundary wiggle is not a revisit (time-based test)', () => {
   // Path oscillates across a cell edge every 0.1 s — many re-touches, but all
   // milliseconds apart, so nothing should be flagged as revisited.
   const rLon = 7 / SC.degToMeterLon;
@@ -218,11 +185,11 @@ test('_buildOverlapCells: boundary wiggle is not a revisit (time-based test)', (
       v: 3,
     });
   }
-  const built = GSRMapManager._buildOverlapCells(dp, getVal, 7, 15);
+  const built = PathOverlap.buildCells(dp, getVal, 7, 15);
   assert.strictEqual(built.anyRevisited, false);
 });
 
-test('_buildOverlapCells: same cell re-entered after a real gap IS a revisit', () => {
+test('buildCells: same cell re-entered after a real gap IS a revisit', () => {
   const dp = [
     pt(1, 0, 1),
     pt(2, 1, 1),
@@ -232,17 +199,17 @@ test('_buildOverlapCells: same cell re-entered after a real gap IS a revisit', (
     pt(1.2, 200, 1),
     pt(2.1, 201, 1), // visit B, same cell
   ];
-  const built = GSRMapManager._buildOverlapCells(dp, getVal, 7, 15);
+  const built = PathOverlap.buildCells(dp, getVal, 7, 15);
   assert.strictEqual(built.anyRevisited, true);
 });
 
 // ─── the 3×3 lookup shortcut vs looking every point up ─────────────────
 
-// _buildOverlapCells as plainly as possible: the 3×3 block is looked up
+// buildCells as plainly as possible: the 3×3 block is looked up
 // afresh for every point. The real one reuses the block while the walk
 // stays in one cell; the two must agree on everything.
 function plainOverlapCells(drawPoints, getVal, radiusM, revisitGapS) {
-  const built = GSRMapManager._buildOverlapCells(
+  const built = PathOverlap.buildCells(
     drawPoints,
     getVal,
     radiusM,
@@ -317,13 +284,13 @@ function wanderingWalk(seed, n) {
   return dp;
 }
 
-test('_buildOverlapCells: reusing the 3×3 lookups gives the same cells as looking every point up', () => {
+test('buildCells: reusing the 3×3 lookups gives the same cells as looking every point up', () => {
   let revisitedSomewhere = 0;
   for (let seed = 1; seed <= 12; seed++) {
     const dp = wanderingWalk(seed, 3000);
     for (const radiusM of [0.5, 3, 7, 25]) {
       const label = `walk ${seed}, radius ${radiusM} m`;
-      const real = GSRMapManager._buildOverlapCells(dp, getVal, radiusM, 15);
+      const real = PathOverlap.buildCells(dp, getVal, radiusM, 15);
       const plain = plainOverlapCells(dp, getVal, radiusM, 15);
       assert.strictEqual(real.anyRevisited, plain.anyRevisited, label);
       assert.deepStrictEqual(
@@ -332,7 +299,7 @@ test('_buildOverlapCells: reusing the 3×3 lookups gives the same cells as looki
         label,
       );
       // Precomputed values must count exactly like getVal.
-      const withVals = GSRMapManager._buildOverlapCells(
+      const withVals = PathOverlap.buildCells(
         dp,
         () => assert.fail('getVal must not be called when vals are given'),
         radiusM,
@@ -350,10 +317,10 @@ test('_buildOverlapCells: reusing the 3×3 lookups gives the same cells as looki
   assert.ok(revisitedSomewhere > 10, 'the walks do retrace themselves');
 });
 
-test('_overlapPooledAccessor: valuesFor gives the accessor for every point', () => {
+test('pooledAccessor: valuesFor gives the accessor for every point', () => {
   for (let seed = 1; seed <= 6; seed++) {
     const dp = wanderingWalk(seed, 3000);
-    const acc = GSRMapManager._overlapPooledAccessor(dp, getVal, OPTS);
+    const acc = PathOverlap.pooledAccessor(dp, getVal, OPTS);
     assert.ok(acc, `walk ${seed} retraces`);
     const base = dp.map(getVal);
     assert.deepStrictEqual(

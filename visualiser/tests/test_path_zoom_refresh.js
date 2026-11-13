@@ -30,7 +30,7 @@ L.Browser.any3d = true; // see test_smooth_wheel_zoom.js
 global.GeoUtils = require('../src/gps/geo_utils.mjs').GeoUtils;
 
 const { GSRMapManager } = require('../src/map/map.mjs');
-const { GSRMapBase } = require('../src/map/map_base.mjs');
+const { PathOverlap } = require('../src/map/path_overlap.mjs');
 const { AppState } = require('../src/core/app_state.mjs');
 const {
   enableSmoothWheelZoom,
@@ -105,9 +105,9 @@ test('the zoom refresh pools the overlap once and draws the same path as a fresh
   mm.refreshPath(); // first render at zoom 19
   mm.map.setZoom(16.3, { animate: false });
 
-  const pooled = GSRMapBase._overlapPooledAccessor;
+  const pooled = PathOverlap.pooledAccessor;
   let calls = 0;
-  GSRMapBase._overlapPooledAccessor = (...args) => {
+  PathOverlap.pooledAccessor = (...args) => {
     calls++;
     return pooled(...args);
   };
@@ -126,7 +126,7 @@ test('the zoom refresh pools the overlap once and draws the same path as a fresh
     assert.deepStrictEqual(refreshed, picture(mm.map), 'identical result');
     assert.strictEqual(mm._zoomOverlapHandoff, null, 'hand-off cleared');
   } finally {
-    GSRMapBase._overlapPooledAccessor = pooled;
+    PathOverlap.pooledAccessor = pooled;
   }
 });
 

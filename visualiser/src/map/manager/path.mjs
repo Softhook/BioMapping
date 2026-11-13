@@ -7,9 +7,7 @@
  * metric bucket, breaking at GPS gaps) and draws each as an L.polyline;
  * _overlapRadiusMetres() / _refreshPathOnZoom() drive the overlap-aware
  * recolour where the walk retraces itself and the strokes visually merge. The
- * pooling primitives it calls (_buildOverlapCells / _overlapPooledAccessor /
- * _pathRetraces) stay as statics on GSRMapManager in map.js — they are pure
- * functions covered directly by tests/test_path_overlap_pooling.js.
+ * pooling maths it calls lives in ../path_overlap.mjs (PathOverlap).
  *
  * Depends on the globals L, GSR_CONST, AppState, GSRStorage and MapColors
  * (resolved at call time).
@@ -27,8 +25,8 @@ import { GeoUtils } from '../../gps/geo_utils.mjs';
 import { GpsPipeline } from '../../gps/gps_pipeline.mjs';
 import { ResponseDelay } from '../../signal/response_delay.mjs';
 import { GSRStorage } from '../../ui/storage.mjs';
-import { GSRMapBase } from '../map_base.mjs';
 import { MapColors } from '../map_colors.mjs';
+import { PathOverlap } from '../path_overlap.mjs';
 import { isUserMovingMap } from '../smooth_wheel_zoom.mjs';
 import { GSRMapRfFluid } from './rf_fluid.mjs';
 
@@ -196,7 +194,7 @@ export class GSRMapPath extends GSRMapRfFluid {
       );
       let acc = null;
       if (radiusM > 0) {
-        acc = GSRMapBase._overlapPooledAccessor(
+        acc = PathOverlap.pooledAccessor(
           this._lastDrawPoints,
           this._lastPathGetVal,
           { radiusM, revisitGapS: GSR_CONST.PATH_OVERLAP.revisitGapS },
@@ -287,7 +285,7 @@ export class GSRMapPath extends GSRMapRfFluid {
         const pooledAt =
           handoff?.drawPoints === drawPoints && handoff.radiusM === radiusM
             ? handoff.acc
-            : GSRMapBase._overlapPooledAccessor(drawPoints, getVal, {
+            : PathOverlap.pooledAccessor(drawPoints, getVal, {
                 radiusM,
                 revisitGapS: gapS,
                 vals,
@@ -305,7 +303,7 @@ export class GSRMapPath extends GSRMapRfFluid {
       if (!hasRetrace) {
         hasRetrace =
           !(radiusM > 0 && radiusM >= maxR) &&
-          GSRMapBase._pathRetraces(drawPoints, {
+          PathOverlap.retraces(drawPoints, {
             radiusM: maxR,
             revisitGapS: gapS,
           });

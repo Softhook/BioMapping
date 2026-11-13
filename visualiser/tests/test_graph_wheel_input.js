@@ -1,5 +1,5 @@
 /**
- * GSR graph wheel and press input (sketch.mjs mouseWheel / mousePressed) and
+ * GSR graph wheel and press input (sketch_input.mjs mouseWheel / mousePressed) and
  * the 3D tours' hold on the graph cursor (globe3d_view.mjs _emitTourCursor,
  * renderer_interaction.mjs handleScrubber).
  *

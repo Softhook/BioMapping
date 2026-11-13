@@ -152,6 +152,7 @@ const SCRIPT_ORDER = [
   'src/render/renderer_markers.mjs',
   'src/render/renderer_interaction.mjs',
   'src/render/renderer_chrome.mjs',
+  'src/render/sketch_input.mjs',
   'src/render/sketch.mjs',
 ];
 

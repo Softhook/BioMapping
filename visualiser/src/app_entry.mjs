@@ -15,7 +15,7 @@
  * One set of names needs to escape this module's scope, because their consumers
  * are NOT other ES modules:
  *  - p5.js's "global mode" auto-detects `window.setup`/`window.draw`/etc. as
- *    bare properties of `window` — sketch.mjs exports these as ordinary
+ *    bare properties of `window` — sketch.mjs and sketch_input.mjs export these as ordinary
  *    named exports (module-scoped, not on `window`, under real ESM), so
  *    they're re-exposed explicitly below.
  */
@@ -125,18 +125,17 @@ import './render/renderer_curve.mjs';
 import './render/renderer_markers.mjs';
 import './render/renderer_interaction.mjs';
 import './render/renderer_chrome.mjs';
+import './render/sketch_input.mjs';
 import './render/sketch.mjs';
 
+import { draw, setup, windowResized } from './render/sketch.mjs';
 import {
-  draw,
   mouseDragged,
   mouseMoved,
   mousePressed,
   mouseReleased,
   mouseWheel,
-  setup,
-  windowResized,
-} from './render/sketch.mjs';
+} from './render/sketch_input.mjs';
 
 Object.assign(window, {
   setup,
