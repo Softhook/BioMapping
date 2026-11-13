@@ -28,13 +28,13 @@ typedef struct {
 // Holds the last row produced by the format_gps_csv_row() adapter or by
 // sd_logger_batch_printf(), both below. Sized with margin over
 // biomap_format_gps_row()'s 300-byte production cap; the adapter copies at
-// most that many bytes, and vsprintf() below is fed only short GSR-only rows.
+// most that many bytes, and vsnprintf() below is fed only short GSR-only rows.
 char mock_logger_buf[320];
 int sd_logger_batch_printf(void* logger, const char* format, ...) {
     (void)logger;
     va_list args;
     va_start(args, format);
-    int ret = vsprintf(mock_logger_buf, format, args);
+    int ret = vsnprintf(mock_logger_buf, sizeof(mock_logger_buf), format, args);
     va_end(args);
     return ret;
 }

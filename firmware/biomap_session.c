@@ -877,10 +877,13 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
         // start/stop — reaching this mode's session_init() at all is
         // already the one deliberate "start streaming" act (§6) — so OK
         // is a no-op here rather than calling key_toggle_recording, which
-        // assumes a real s->logger to open/close.
+        // assumes a real s->logger to open/close. Diagnostics is a
+        // read-only instrument screen, not a recording mode: OK must not
+        // start a CSV there (it would write a GPS+GSR+RF-schema file with
+        // no GPS attached), so it gets the same click-only response.
         if(ev.type == EventTypeKey && ev.input.type == InputTypeShort
             && ev.input.key == InputKeyOk) {
-            if(s->mode != BioMapModeLiveStream) {
+            if(s->mode != BioMapModeLiveStream && s->mode != BioMapModeDiagnostics) {
                 if(key_toggle_recording(s, app->mutex, app->notifications, app->sound_enabled,
                                          app->rf_calibrated, app->rf_cal_data.noise_floor_dbm,
                                          app->cal_active, app->cal_gain, app->cal_offset,
@@ -888,9 +891,10 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
                                          app->cal_timestamp))
                     view_port_update(s->vp);
             } else {
-                // No CSV to toggle, but every other screen in this app
-                // gives SOME audible response to every key press — a
-                // silent OK here reads as a frozen screen/dead button.
+                // No CSV to toggle (Live Stream / Diagnostics), but every
+                // other screen in this app gives SOME audible response to
+                // every key press — a silent OK here reads as a frozen
+                // screen/dead button.
                 biomap_sound_click(app->sound_enabled);
             }
             continue;
