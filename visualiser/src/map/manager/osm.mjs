@@ -4,8 +4,8 @@
  * these methods to GSRMapManager.prototype.
  *
  * `drawOsmShapes(geoms)` groups same-style features into at most three
- * multi-ring L.polygon layers (park / water / building) and tracks them in
- * this.osmLayers; `clearOsmShapes()` removes them. It also feeds the current
+ * multi-ring L.polygon layers (park / water / building), plus one L.polyline
+ * layer for waterways mapped as lines, and tracks them in this.osmLayers; `clearOsmShapes()` removes them. It also feeds the current
  * draw points + geoms to this.rfFluidRenderer.
  *
  * Depends on the globals L and AppState (resolved at call time) and on
@@ -62,6 +62,9 @@ export class GSRMapOsm extends GSRMapLegend {
     // disjoint ring independently regardless of winding — while cutting the
     // layer count from N features down to at most 3 (park/water/building).
     const ringsByCategory = { park: [], water: [], building: [] };
+    // Streams, canals and rivers mapped as a centre line rather than an
+    // outline. dist_water measures to them, so they are drawn too — as lines.
+    const waterLines = [];
     const STYLES = {
       park: {
         color: '#2d6a4f',
@@ -105,12 +108,23 @@ export class GSRMapOsm extends GSRMapLegend {
       if (!category) return;
 
       const rings = ringsByCategory[category];
-      if (geom.type === 'way' && geom.coordinates.length > 2) {
-        rings.push(geom.coordinates.map((pt) => [pt.lat, pt.lon]));
+      // An outline that does not close encloses nothing: never filled. Open
+      // water is still a line on the ground; an open park or building piece
+      // is just an incomplete outline and is left out.
+      const addWay = (way) => {
+        const n = way.nodes;
+        const isOpen = n?.length && n[0] !== n[n.length - 1];
+        const latLngs = way.coordinates.map((pt) => [pt.lat, pt.lon]);
+        if (!isOpen) {
+          if (latLngs.length > 2) rings.push(latLngs);
+        } else if (category === 'water' && latLngs.length > 1) {
+          waterLines.push(latLngs);
+        }
+      };
+      if (geom.type === 'way') {
+        addWay(geom);
       } else if (geom.type === 'relation' && geom.outerWays) {
-        geom.outerWays.forEach((way) => {
-          rings.push(way.coordinates.map((pt) => [pt.lat, pt.lon]));
-        });
+        geom.outerWays.forEach(addWay);
       }
     });
 
@@ -119,6 +133,13 @@ export class GSRMapOsm extends GSRMapLegend {
       if (rings.length === 0) continue;
       const poly = L.polygon(rings, STYLES[category]).addTo(this.map);
       this.osmLayers.push(poly);
+    }
+    if (waterLines.length > 0) {
+      const lines = L.polyline(waterLines, {
+        color: STYLES.water.color,
+        weight: 2,
+      }).addTo(this.map);
+      this.osmLayers.push(lines);
     }
   }
 

@@ -148,11 +148,15 @@ export const RoadProfileUI = {
           comparison.nGroups > 2
             ? ` (widest gap among ${comparison.nGroups} road classes, so corrected for that choice; raw ${fmtP(comparison.p)})`
             : '';
+        const walksNote =
+          comparison.nWalks > 1
+            ? `these are ${comparison.nWalks} walks in the places they happened to cover`
+            : 'this is one walk in one set of places';
         if (comparison.pAdj < 0.05) {
           lines.push(
             `A Welch <em>t</em>-test says this gap is <strong>statistically reliable</strong> ` +
               `(${fmtP(comparison.pAdj)}, t = ${comparison.t.toFixed(2)}, df ≈ ${comparison.df.toFixed(0)})${selNote} — ` +
-              `unlikely to be sampling noise, though this is one walk in one set of places, not a controlled comparison.`,
+              `unlikely to be sampling noise, though ${walksNote}, not a controlled comparison.`,
           );
         } else {
           lines.push(

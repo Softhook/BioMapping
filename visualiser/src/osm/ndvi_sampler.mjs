@@ -792,12 +792,30 @@ export const NDVISampler = {
     }
 
     await Promise.all(workers);
+    if (signal?.aborted) {
+      throw new DOMException('NDVI sampling cancelled', 'AbortError');
+    }
     return { loaded, cached, failed, total };
   },
 
   // ---------------------------------------------------------------------------
   // 7. Track Sampling Pipeline
   // ---------------------------------------------------------------------------
+
+  /**
+   * Refuse to go on when not one tile arrived: there is nothing to sample,
+   * and carrying on would blank any NDVI the walk already has and report
+   * the run as a success.
+   * @private
+   * @param {{loaded:number, failed:number, total:number}} pool
+   */
+  _requireSomeTiles(pool) {
+    if (pool.total > 0 && pool.loaded === 0) {
+      throw new Error(
+        `No NDVI tiles could be downloaded (${pool.failed} of ${pool.total} failed) — check the connection and try again.`,
+      );
+    }
+  },
 
   /**
    * Compute a buffered geographical bounding box for an array of points.
@@ -880,8 +898,10 @@ export const NDVISampler = {
   sampleBuffer(data, width, height, cx, cy, radiusPx) {
     const r = Math.max(1, Math.round(radiusPx));
     const offsets = this._getCircularPixelOffsets(r);
-    const intCx = Math.round(cx);
-    const intCy = Math.round(cy);
+    // Pixel k covers [k, k + 1), so the pixel a position falls in is the
+    // floor — rounding reads the next pixel over for the upper half.
+    const intCx = Math.floor(cx);
+    const intCy = Math.floor(cy);
 
     let sum = 0;
     let count = 0;
@@ -910,9 +930,8 @@ export const NDVISampler = {
 
   /**
    * Core sampling loop: extracts Point NDVI and radial buffer NDVI from a
-   * decoded float grid. A point whose pixel is nodata/missing is left as NaN
-   * — never fabricated from an unrelated column — and picked up later by
-   * step-hold from the previous genuine reading.
+   * decoded float grid. A missing pixel stays blank, including on following
+   * rows without a position, until a fresh reading is available.
    * @private
    */
   _samplePointsOnGrid(
@@ -926,6 +945,10 @@ export const NDVISampler = {
     zoom,
     radiusM,
   ) {
+    const sampled = raw.map((row) =>
+      row ? { ndvi: NaN, ndvi_50m: NaN } : null,
+    );
+    const positioned = new Set(validPoints.map(({ index }) => index));
     let sumNdvi = 0;
     let sumNdvi50m = 0;
     let pointCount = 0;
@@ -942,8 +965,8 @@ export const NDVISampler = {
       let bNdvi = NaN;
 
       if (grid) {
-        const cX = Math.max(0, Math.min(gridWidth - 1, Math.round(gridX)));
-        const cY = Math.max(0, Math.min(gridHeight - 1, Math.round(gridY)));
+        const cX = Math.max(0, Math.min(gridWidth - 1, Math.floor(gridX)));
+        const cY = Math.max(0, Math.min(gridHeight - 1, Math.floor(gridY)));
         const pointVal = grid[cY * gridWidth + cX];
         pNdvi = this._isValidNdvi(pointVal)
           ? Math.round(pointVal * 1000) / 1000
@@ -959,8 +982,8 @@ export const NDVISampler = {
       }
 
       // pt is the sampled position; the reading belongs on the row.
-      raw[index].ndvi = pNdvi;
-      raw[index].ndvi_50m = bNdvi;
+      sampled[index].ndvi = pNdvi;
+      sampled[index].ndvi_50m = bNdvi;
 
       if (!isNaN(pNdvi)) {
         sumNdvi += pNdvi;
@@ -972,23 +995,31 @@ export const NDVISampler = {
       }
     }
 
-    // Propagate to non-GPS rows via forward step-hold
-    this._stepHoldValues(raw, ['ndvi', 'ndvi_50m']);
+    if (pointCount || bufferCount) {
+      this._stepHoldValues(sampled, ['ndvi', 'ndvi_50m'], positioned);
+      for (let i = 0; i < raw.length; i++) {
+        if (!raw[i]) continue;
+        raw[i].ndvi = sampled[i].ndvi;
+        raw[i].ndvi_50m = sampled[i].ndvi_50m;
+      }
+    }
 
     return {
       sampleCount: validPoints.length,
       enrichedCount: pointCount,
+      bufferCount,
       meanNdvi: pointCount > 0 ? sumNdvi / pointCount : 0,
       meanNdvi50m: bufferCount > 0 ? sumNdvi50m / bufferCount : 0,
     };
   },
 
   /**
-   * Propagate scalar values to non-GPS or null rows via forward step-hold.
+   * Propagate readings only across rows without a position. A missing
+   * positioned reading ends the previous hold for that field.
    * @param {Array<Object>} raw - Array of track row objects
    * @param {Array<string>} fields - Field names to step-hold
    */
-  _stepHoldValues(raw, fields) {
+  _stepHoldValues(raw, fields, positioned = new Set()) {
     if (!raw || !fields || fields.length === 0) return;
     const lastVals = {};
     for (let f = 0; f < fields.length; f++) {
@@ -1001,6 +1032,8 @@ export const NDVISampler = {
         const field = fields[f];
         if (typeof row[field] === 'number' && !isNaN(row[field])) {
           lastVals[field] = row[field];
+        } else if (positioned.has(i)) {
+          lastVals[field] = NaN;
         } else if (!isNaN(lastVals[field])) {
           row[field] = lastVals[field];
         }
@@ -1036,7 +1069,8 @@ export const NDVISampler = {
    *
    * @param {Object} track - Track object with track.analyzer
    * @param {Object} [options={}] - Options { zoom, radiusM, onProgress, signal, maxTiles, adaptiveZoom, rawLayerId }
-   * @returns {Promise<{ sampleCount: number, enrichedCount: number, meanNdvi: number, meanNdvi50m: number }>}
+   * @returns {Promise<{ sampleCount: number, enrichedCount: number, meanNdvi: number, meanNdvi50m: number, tilesFailed: number, tilesTotal: number }>}
+   *   Throws when no tile at all could be downloaded.
    */
   async sampleTrack(track, options = {}) {
     if (!this.hasCopernicusConfig()) {
@@ -1122,7 +1156,7 @@ export const NDVISampler = {
     }
 
     // Execute through concurrency pool (concurrency: 6) with exponential backoff & rate limiting
-    await this._fetchRawTilePool(tileTasks, grid, gridWidth, {
+    const pool = await this._fetchRawTilePool(tileTasks, grid, gridWidth, {
       concurrency: 6,
       timeoutMs: 8000,
       providerId: 'copernicus_raw',
@@ -1142,7 +1176,12 @@ export const NDVISampler = {
       },
     });
 
+    this._requireSomeTiles(pool);
+
     onProgress(60, 'Extracting Point NDVI and 50m buffer values...');
+    if (signal?.aborted) {
+      throw new DOMException('NDVI sampling cancelled', 'AbortError');
+    }
 
     const results = this._samplePointsOnGrid(
       raw,
@@ -1155,6 +1194,9 @@ export const NDVISampler = {
       zoom,
       radiusM,
     );
+    if (!results.enrichedCount && !results.bufferCount) {
+      throw new Error('No usable NDVI readings were found for this walk.');
+    }
 
     analyzer.isEnriched = true;
     analyzer.hasNdvi = true;
@@ -1166,7 +1208,8 @@ export const NDVISampler = {
       `Successfully sampled NDVI across ${results.enrichedCount} GPS fixes.`,
     );
 
-    return results;
+    // Tiles that never arrived: the stretches under them have no reading.
+    return { ...results, tilesFailed: pool.failed, tilesTotal: pool.total };
   },
 
   /**
@@ -1177,7 +1220,9 @@ export const NDVISampler = {
    *
    * @param {Array<Object>} tracks - Array of track objects ({ analyzer, name, id })
    * @param {Object} [options={}] - Options { zoom, radiusM, onProgress, signal, maxMosaicAreaKm2, maxMosaicTiles }
-   * @returns {Promise<{ mode: string, totalCount: number, enrichedCount: number, failedCount: number, tooBigCount: number, failedTracks: Array }>}
+   * @returns {Promise<{ mode: string, totalCount: number, enrichedCount: number, failedCount: number, tooBigCount: number, failedTracks: Array, tilesFailed?: number }>}
+   *   tilesFailed = satellite tiles that never arrived; the stretches under
+   *   them have no reading.
    */
   async sampleTracks(tracks, options = {}) {
     if (!tracks || tracks.length === 0) {
@@ -1291,7 +1336,7 @@ export const NDVISampler = {
         }
       }
 
-      await this._fetchRawTilePool(tileTasks, grid, gridWidth, {
+      const pool = await this._fetchRawTilePool(tileTasks, grid, gridWidth, {
         concurrency: 6,
         timeoutMs: 8000,
         providerId: 'copernicus_raw',
@@ -1311,19 +1356,25 @@ export const NDVISampler = {
         },
       });
 
+      this._requireSomeTiles(pool);
+
       onProgress(
         75,
         `Extracting NDVI across ${validTracks.length} walks in-memory...`,
       );
+      if (signal?.aborted) {
+        throw new DOMException('NDVI sampling cancelled', 'AbortError');
+      }
 
       let enrichedCount = 0;
+      const failedTracks = [];
       for (let i = 0; i < validTracks.length; i++) {
         const t = validTracks[i];
         const a = t.analyzer || t;
         const validPoints = positionsByTrack.get(t);
 
         if (validPoints.length > 0) {
-          this._samplePointsOnGrid(
+          const results = this._samplePointsOnGrid(
             a.raw,
             validPoints,
             grid,
@@ -1334,6 +1385,13 @@ export const NDVISampler = {
             zoom,
             radiusM,
           );
+          if (!results.enrichedCount && !results.bufferCount) {
+            failedTracks.push({
+              name: t.name || t.id || `Walk ${i + 1}`,
+              error: 'No usable NDVI readings were found for this walk.',
+            });
+            continue;
+          }
           a.isEnriched = true;
           a.hasNdvi = true;
           a.hasNdvi50m = true;
@@ -1351,10 +1409,11 @@ export const NDVISampler = {
         mode: 'unified_mosaic',
         totalCount: validTracks.length,
         enrichedCount,
-        failedCount: 0,
+        failedCount: failedTracks.length,
         tooBigCount: 0,
-        failedTracks: [],
+        failedTracks,
         tilesFetched: totalTiles,
+        tilesFailed: pool.failed,
       };
     }
 
@@ -1365,9 +1424,12 @@ export const NDVISampler = {
     let failedCount = 0;
     const tooBigCount = 0;
     const failedTracks = [];
+    let tilesFailed = 0;
 
     for (let i = 0; i < validTracks.length; i++) {
-      if (signal?.aborted) break;
+      if (signal?.aborted) {
+        throw new DOMException('NDVI sampling cancelled', 'AbortError');
+      }
       const t = validTracks[i];
       const label = t.name || t.id || `Walk ${i + 1}`;
       const basePct = Math.round((i / validTracks.length) * 100);
@@ -1378,7 +1440,7 @@ export const NDVISampler = {
       );
 
       try {
-        await this.sampleTrack(t, {
+        const res = await this.sampleTrack(t, {
           ...options,
           zoom: requestedZoom,
           radiusM,
@@ -1388,8 +1450,10 @@ export const NDVISampler = {
             onProgress(overallPct, `[${i + 1}/${validTracks.length}] ${msg}`);
           },
         });
+        tilesFailed += res.tilesFailed || 0;
         enrichedCount++;
       } catch (err) {
+        if (signal?.aborted || err.name === 'AbortError') throw err;
         console.warn(`NDVI sampling failed for track ${label}:`, err);
         failedCount++;
         failedTracks.push({ name: label, error: err.message });
@@ -1403,6 +1467,7 @@ export const NDVISampler = {
       failedCount,
       tooBigCount,
       failedTracks,
+      tilesFailed,
     };
   },
 };

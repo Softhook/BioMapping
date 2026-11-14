@@ -157,3 +157,122 @@ test('compareRoadExtremes: null with fewer than two road classes', () => {
     null,
   );
 });
+
+// A copy of the fixture walk with its own speed column and road classes.
+function walkWith(id, perRow) {
+  const a = Object.create(base);
+  a.raw = base.raw.map((pt, i) => ({ ...pt, ...perRow(pt, i) }));
+  a.isEnriched = true;
+  return { id, analyzer: a };
+}
+
+test('buildSamples: a second with no speed reading has no speed, not 0 m/s', () => {
+  const half = base.raw[Math.floor(base.raw.length / 2)].time;
+  const w = walkWith('w', (pt) => ({
+    osm_road_class: 'residential',
+    speedKts: pt.time < half ? NaN : 2,
+  }));
+  w.analyzer.setResponseDelay?.(0);
+  const samples = EnvironmentalStats.buildSamples([w]);
+  const early = samples.filter((d) => d.time < half - 2);
+  const late = samples.filter((d) => d.time > half + 2);
+  assert.ok(early.length > 100 && late.length > 100);
+  assert.ok(
+    early.every((d) => Number.isNaN(d.speed) && Number.isNaN(d.tonicSpeed)),
+    'no reading → blank',
+  );
+  assert.ok(late.every((d) => Math.abs(d.speed - 2 * 0.514444) < 1e-9));
+});
+
+test('speed adjustment uses only the seconds that have a speed reading', () => {
+  const w = {
+    xTonic: Array.from({ length: 30 }, (_, i) => i),
+    tonic: Array.from({ length: 30 }, (_, i) => i * 2),
+    speedTonic: Array.from({ length: 30 }, (_, i) =>
+      i % 2 ? NaN : 1 + (i % 7),
+    ),
+  };
+  const s = EnvironmentalStats._speedSeries(w);
+  assert.strictEqual(s.z.length, 15);
+  assert.ok(s.z.every(Number.isFinite));
+  assert.deepStrictEqual(
+    s.x,
+    w.xTonic.filter((_, i) => i % 2 === 0),
+  );
+  // Too few readings cannot support an adjustment.
+  const sparse = {
+    ...w,
+    speedTonic: w.speedTonic.map((v, i) => (i < 6 ? v : NaN)),
+  };
+  assert.strictEqual(EnvironmentalStats._speedSeries(sparse), null);
+  const res = EnvironmentalStats._speedResiduals(s);
+  assert.strictEqual(res.x.length, 15);
+  assert.strictEqual(res.nCovariates, 1);
+});
+
+test('one walk with no speed at all: no speed-adjusted figure is reported', () => {
+  const w = walkWith('w', (_pt, i) => ({
+    osm_road_class: 'residential',
+    osm_dist_major_road: 20 + ((i * 3) % 53),
+    speedKts: NaN,
+  }));
+  const r = row(EnvironmentalStats.compute([w]), 'osm_dist_major_road');
+  assert.ok(Number.isNaN(r.rTonicSpeedAdj));
+});
+
+test('collective speed adjustment excludes walks without usable speed', () => {
+  const feature = { name: 'feature', key: 'feature', binary: false };
+  const samples = (trackId, hasSpeed) =>
+    Array.from({ length: 100 }, (_, i) => ({
+      trackId,
+      time: i,
+      feature: (i * 13) % 17,
+      tonic: ((i * 7) % 19) + ((i * 13) % 17),
+      phasic: (i * 3) % 11,
+      speed: hasSpeed ? (i * 5) % 13 : NaN,
+      tonicSpeed: hasSpeed ? (i * 5) % 13 : NaN,
+    }));
+  const usable = samples('usable', true);
+  const missing = samples('missing', false);
+  const single = EnvironmentalStats._featureRow(feature, usable, []);
+  const combined = EnvironmentalStats._featureRow(
+    feature,
+    usable.concat(missing),
+    [],
+  );
+  assert.ok(Math.abs(combined.rTonicSpeedAdj - single.rTonicSpeedAdj) < 1e-9);
+  assert.ok(Math.abs(combined.rTonicSpeedBase - single.rTonicSpeedBase) < 1e-9);
+});
+
+test('roadProfile: a walk with no road data (NDVI only) adds no "none" row', () => {
+  const ndviOnly = walkWith('ndvi', () => ({
+    osm_road_class: undefined,
+    ndvi: 0.4,
+    ndvi_50m: 0.4,
+  }));
+  const alone = EnvironmentalStats.compute([ndviOnly]);
+  assert.deepStrictEqual(alone.roadProfile, []);
+  assert.strictEqual(alone.roadComparison, null);
+
+  const roads = walk('roads', 0);
+  const justRoads = EnvironmentalStats.compute([roads]);
+  const mixed = EnvironmentalStats.compute([roads, ndviOnly]);
+  const brief = (p) => [p.name, p.timeSpent, p.peakRate];
+  assert.deepStrictEqual(
+    mixed.roadProfile.map(brief),
+    justRoads.roadProfile.map(brief),
+    'the NDVI-only walk changes nothing in the road profile',
+  );
+  assert.strictEqual(mixed.roadComparison.nWalks, 1);
+});
+
+test('roadComparison says how many walks it covers', () => {
+  assert.strictEqual(
+    EnvironmentalStats.compute(walks(1)).roadComparison.nWalks,
+    1,
+  );
+  assert.strictEqual(
+    EnvironmentalStats.compute(walks(3)).roadComparison.nWalks,
+    3,
+  );
+});

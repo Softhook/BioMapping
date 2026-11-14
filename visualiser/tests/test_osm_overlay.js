@@ -24,8 +24,17 @@ async function capturePolys(fn) {
   const mgr = window.AppState.mapManager;
   mgr.map = mgr.map || {};
   const calls = [];
+  const polylines = [];
   window.L.polygon = (rings, style) => {
     calls.push({ rings, style });
+    return {
+      addTo() {
+        return this;
+      },
+    };
+  };
+  window.L.polyline = (lines, style) => {
+    polylines.push({ lines, style });
     return {
       addTo() {
         return this;
@@ -41,6 +50,8 @@ async function capturePolys(fn) {
     );
     if (cat) byCat[cat] += c.rings.length;
   }
+  // Not enumerable, so the existing deepStrictEqual checks stay as they are.
+  Object.defineProperty(byCat, 'lines', { value: polylines });
   return byCat;
 }
 
@@ -102,4 +113,32 @@ test('drawOsmShapes: park / lake / building each land in their own layer', async
     }),
   );
   assert.deepStrictEqual(byCat, { park: 1, water: 1, building: 1 });
+});
+
+test('drawOsmShapes: an open waterway is drawn as a line, never as a filled shape', async () => {
+  const openWay = (id, tags) => ({
+    type: 'way',
+    id,
+    tags,
+    nodes: [1, 2, 3],
+    coordinates: [
+      { lat: 0, lon: 0 },
+      { lat: 0, lon: 1 },
+      { lat: 1, lon: 1 },
+    ],
+  });
+  const byCat = await capturePolys((mgr) =>
+    mgr.drawOsmShapes({
+      ways: [
+        openWay('st', { waterway: 'stream' }),
+        openWay('pk', { leisure: 'park' }), // incomplete outline: left out
+      ],
+      relations: [],
+    }),
+  );
+  assert.deepStrictEqual(byCat, { park: 0, water: 0, building: 0 });
+  assert.strictEqual(byCat.lines.length, 1, 'one line layer');
+  assert.strictEqual(byCat.lines[0].lines.length, 1, 'only the stream');
+  assert.strictEqual(byCat.lines[0].lines[0].length, 3);
+  assert.strictEqual(byCat.lines[0].style.fillColor, undefined);
 });

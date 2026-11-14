@@ -272,3 +272,42 @@ test('EnvironmentalDashboardUI._junctionStatsFor: no work while the Junction tab
     global.document = originalDoc;
   }
 });
+
+test('junction windows that touch a sensor disconnect are dropped', () => {
+  // 100 s at 1 Hz; two junction passages, at 30 s and 70 s.
+  const a = new GSRAnalyzer();
+  a.raw = [];
+  a.phasic = [];
+  a.tonic = [];
+  a.peaks = [];
+  a.isEnriched = true;
+  a.responseDelay = 0;
+  for (let i = 0; i < 100; i++) {
+    a.raw.push({ time: i, val: 5 });
+    a.phasic.push({ time: i, val: 0.1 });
+    a.tonic.push({ time: i, val: 5 });
+  }
+  const passages = [30, 70].map((time, k) => ({
+    key: `J${k}`,
+    decision: 'turn',
+    kind: 'choice',
+    time,
+  }));
+  const original = OSMEnricher.junctionPassages;
+  OSMEnricher.junctionPassages = () => ({ passages });
+  try {
+    const tracks = [{ id: 't', analyzer: a }];
+    const whole = GSRUI._computeJunctionStats(tracks, 25);
+    assert.strictEqual(whole.responses.length, 2, 'both usable when connected');
+
+    // Sensor off from 72 s to 75 s: inside the second passage's "after".
+    a.gsrDisconnectSpans = [{ startIdx: 72, endIdx: 75 }];
+    const gapped = GSRUI._computeJunctionStats(tracks, 25);
+    assert.deepStrictEqual(
+      gapped.responses.map((r) => r.key),
+      ['J0'],
+    );
+  } finally {
+    OSMEnricher.junctionPassages = original;
+  }
+});

@@ -437,11 +437,11 @@ test('sampleTrack: a bad/missing raw layer ID fails fast with a clear error, not
   clearCopernicusConfig();
 });
 
-test('sampleTrack: a point whose tile is unreachable (transient failure) is left as NaN, never fabricated from OSM columns', async () => {
+test('sampleTrack: when no tile can be downloaded it fails, marks nothing, and leaves earlier NDVI alone', async () => {
   setCopernicusConfig();
   NDVISampler.clearCache();
   // Persistent 5xx exhausts retries -> _fetchRawTileWithBackoff returns null
-  // (not a throw) -> that tile's region of the grid stays NaN.
+  // (not a throw) for every tile.
   global.fetch = async () => ({
     ok: false,
     status: 503,
@@ -455,6 +455,8 @@ test('sampleTrack: a point whose tile is unreachable (transient failure) is left
       lon: -0.141,
       osm_green_pct_50m: 90,
       osm_canopy_pct_50m: 90,
+      ndvi: 0.41, // from an earlier, successful run
+      ndvi_50m: 0.38,
     },
   ];
   const track = {
@@ -465,17 +467,16 @@ test('sampleTrack: a point whose tile is unreachable (transient failure) is left
     }),
   };
 
-  const res = await NDVISampler.sampleTrack(track, { zoom: 15, radiusM: 50 });
+  await assert.rejects(
+    () => NDVISampler.sampleTrack(track, { zoom: 15, radiusM: 50 }),
+    /No NDVI tiles could be downloaded/,
+  );
 
-  assert.strictEqual(res.enrichedCount, 0, 'no genuine reading was obtained');
-  assert.ok(
-    isNaN(rawPoints[0].ndvi),
-    'ndvi left as NaN, not fabricated from osm_green_pct_50m',
-  );
-  assert.ok(
-    isNaN(rawPoints[0].ndvi_50m),
-    'ndvi_50m left as NaN, not fabricated from osm_canopy_pct_50m',
-  );
+  assert.strictEqual(track.analyzer.isEnriched, false, 'not marked enriched');
+  assert.ok(!track.analyzer.hasNdvi, 'not marked as having NDVI');
+  assert.strictEqual(track.analyzer._dataVersion, 1, 'nothing changed');
+  assert.strictEqual(rawPoints[0].ndvi, 0.41, 'earlier reading kept');
+  assert.strictEqual(rawPoints[0].ndvi_50m, 0.38, 'earlier reading kept');
 
   clearCopernicusConfig();
 });
@@ -766,12 +767,115 @@ test('_fetchRawTilePool: honors abort signal', async () => {
   ];
 
   controller.abort(); // pre-aborted
-  const res = await NDVISampler._fetchRawTilePool(tasks, mosaic, 2, {
-    concurrency: 1,
-    signal: controller.signal,
-  });
+  await assert.rejects(
+    () =>
+      NDVISampler._fetchRawTilePool(tasks, mosaic, 2, {
+        concurrency: 1,
+        signal: controller.signal,
+      }),
+    { name: 'AbortError' },
+  );
+});
 
-  assert.strictEqual(res.total, 2);
+test('_fetchRawTilePool: cancellation after a cached tile does not return partial success', async () => {
+  NDVISampler.clearCache();
+  NDVISampler._putTileCache('cached', {
+    width: 1,
+    height: 1,
+    data: new Float32Array([0.5]),
+  });
+  const controller = new AbortController();
+  try {
+    await assert.rejects(
+      () =>
+        NDVISampler._fetchRawTilePool(
+          [
+            { url: 'cached', destX: 0, destY: 0 },
+            { url: 'unattempted', destX: 1, destY: 0 },
+          ],
+          new Float32Array(2),
+          2,
+          {
+            concurrency: 1,
+            signal: controller.signal,
+            onTileProgress: () => controller.abort(),
+          },
+        ),
+      { name: 'AbortError' },
+    );
+  } finally {
+    NDVISampler.clearCache();
+  }
+});
+
+test('sampleTrack: tiles that never arrive are counted, and the walk under them stays blank', async () => {
+  setCopernicusConfig();
+  NDVISampler.clearCache();
+  // The first tile asked for always fails; every other tile is fine.
+  let badUrl = null;
+  global.fetch = async (url) => {
+    if (badUrl === null) badUrl = url;
+    if (url === badUrl) {
+      return { ok: false, status: 503, headers: { get: () => null } };
+    }
+    return {
+      ok: true,
+      status: 200,
+      arrayBuffer: async () => uniformTileBuffer(0.55),
+    };
+  };
+
+  // About 2.8 km apart east-west: several zoom-15 tiles.
+  const track = {
+    analyzer: realAnalyzer({
+      raw: [
+        { time: 0, lat: 51.501, lon: -0.16 },
+        { time: 1, lat: 51.501, lon: -0.12 },
+      ],
+      isEnriched: false,
+      _dataVersion: 1,
+    }),
+  };
+
+  // No retries, so the failing tile doesn't cost seconds of back-off.
+  const fetchTile = NDVISampler._fetchRawTileWithBackoff;
+  NDVISampler._fetchRawTileWithBackoff = (url, o) =>
+    fetchTile.call(NDVISampler, url, { ...o, maxRetries: 0 });
+  let res;
+  try {
+    res = await NDVISampler.sampleTrack(track, { zoom: 15, radiusM: 50 });
+  } finally {
+    NDVISampler._fetchRawTileWithBackoff = fetchTile;
+  }
+
+  assert.strictEqual(res.tilesFailed, 1, 'one tile reported as failed');
+  assert.ok(res.tilesTotal > 1);
+  assert.strictEqual(track.analyzer.hasNdvi, true, 'the rest was sampled');
+
+  clearCopernicusConfig();
+});
+
+test('point NDVI reads the pixel the position falls in, not the next one over', () => {
+  // A 2×2 grid: left column 0.1, right column 0.9.
+  const grid = new Float32Array([0.1, 0.9, 0.1, 0.9]);
+  const pt = { lat: 51.5, lon: -0.1 };
+  const world = NDVISampler.latLonToTile(pt.lat, pt.lon, 15);
+  // Put the position 0.7 of the way across the left pixel, 0.7 down the top.
+  const startTileX = (world.worldX - 0.7) / 256;
+  const startTileY = (world.worldY - 0.7) / 256;
+  const raw = [{ time: 0, ...pt }];
+  NDVISampler._samplePointsOnGrid(
+    raw,
+    [{ index: 0, pt }],
+    grid,
+    2,
+    2,
+    startTileX,
+    startTileY,
+    15,
+    1,
+  );
+  closeTo(raw[0].ndvi, 0.1, 1e-6, 'left pixel');
 });
 
 // ---------------------------------------------------------------------------
@@ -853,6 +957,75 @@ test('_stepHoldValues: cleanly propagates values across non-GPS rows', () => {
   assert.strictEqual(rows[3].ndvi_50m, 0.85);
   assert.strictEqual(rows[4].ndvi, 0.8);
   assert.strictEqual(rows[4].ndvi_50m, 0.85);
+});
+
+test('missing NDVI at a position ends the hold until a fresh reading', () => {
+  const rows = [
+    { ndvi: 0.5, ndvi_50m: 0.6 },
+    { ndvi: NaN, ndvi_50m: NaN },
+    { ndvi: NaN, ndvi_50m: NaN },
+    { ndvi: NaN, ndvi_50m: NaN },
+    { ndvi: 0.8, ndvi_50m: 0.9 },
+  ];
+  NDVISampler._stepHoldValues(rows, ['ndvi', 'ndvi_50m'], new Set([0, 2, 4]));
+  assert.strictEqual(rows[1].ndvi, 0.5);
+  assert.ok(Number.isNaN(rows[2].ndvi));
+  assert.ok(Number.isNaN(rows[3].ndvi));
+  assert.strictEqual(rows[4].ndvi, 0.8);
+});
+
+test('grid sampling keeps missing positioned pixels and following gaps blank', () => {
+  const raw = Array.from({ length: 5 }, () => ({ ndvi: 0.1, ndvi_50m: 0.1 }));
+  const points = [0, 2, 4].map((index, i) => ({
+    index,
+    pt: { lat: 51.5, lon: i },
+  }));
+  const original = NDVISampler.latLonToTile;
+  try {
+    NDVISampler.latLonToTile = (_lat, lon) => ({
+      worldX: lon + 0.1,
+      worldY: 0.1,
+    });
+    NDVISampler._samplePointsOnGrid(
+      raw,
+      points,
+      new Float32Array([0.6, NaN, 0.8]),
+      3,
+      1,
+      0,
+      0,
+      15,
+      1,
+    );
+    assert.strictEqual(raw[0].ndvi, 0.6);
+    assert.strictEqual(raw[1].ndvi, 0.6);
+    assert.ok(Number.isNaN(raw[2].ndvi));
+    assert.ok(Number.isNaN(raw[3].ndvi));
+    assert.strictEqual(raw[4].ndvi, 0.8);
+  } finally {
+    NDVISampler.latLonToTile = original;
+  }
+});
+
+test('sampling an all-nodata grid preserves earlier values', () => {
+  const pt = { lat: 51.5, lon: -0.1 };
+  const world = NDVISampler.latLonToTile(pt.lat, pt.lon, 15);
+  const raw = [{ ...pt, ndvi: 0.4, ndvi_50m: 0.5 }];
+  const res = NDVISampler._samplePointsOnGrid(
+    raw,
+    [{ index: 0, pt }],
+    new Float32Array(4).fill(NaN),
+    2,
+    2,
+    (world.worldX - 0.5) / 256,
+    (world.worldY - 0.5) / 256,
+    15,
+    1,
+  );
+  assert.strictEqual(res.enrichedCount, 0);
+  assert.strictEqual(res.bufferCount, 0);
+  assert.strictEqual(raw[0].ndvi, 0.4);
+  assert.strictEqual(raw[0].ndvi_50m, 0.5);
 });
 
 // ---------------------------------------------------------------------------
@@ -1120,6 +1293,68 @@ test('sampleTracks: processes co-located walks via Unified Mosaic Mode', async (
   closeTo(trackB.analyzer.raw[0].ndvi, 0.5, 0.01);
 
   clearCopernicusConfig();
+});
+
+test('sampleTracks: shared mosaic preserves and reports a walk with no usable readings', async () => {
+  setCopernicusConfig();
+  const methods = [
+    '_trackPositions',
+    'calculateBBox',
+    'calculateBBoxAreaKm2',
+    '_calculateTileBounds',
+    'latLonToTile',
+    'buildRawTileUrl',
+    '_fetchRawTilePool',
+  ];
+  const originals = Object.fromEntries(methods.map((k) => [k, NDVISampler[k]]));
+  const tracks = [
+    { name: 'covered', analyzer: { raw: [{ lat: 51.5, lon: -0.1 }] } },
+    {
+      name: 'missing',
+      analyzer: { raw: [{ lat: 51.5, lon: 0.1, ndvi: 0.9, ndvi_50m: 0.8 }] },
+    },
+  ];
+  try {
+    NDVISampler._trackPositions = (t) =>
+      t.analyzer.raw.map((pt, index) => ({ index, pt }));
+    NDVISampler.calculateBBox = () => ({
+      minLat: 51.5,
+      maxLat: 51.501,
+      minLon: -0.1,
+      maxLon: 0.1,
+    });
+    NDVISampler.calculateBBoxAreaKm2 = () => 1;
+    NDVISampler._calculateTileBounds = () => ({
+      zoom: 15,
+      startTileX: 0,
+      endTileX: 1,
+      startTileY: 0,
+      endTileY: 0,
+      tilesAcross: 2,
+      tilesDown: 1,
+      totalTiles: 2,
+    });
+    NDVISampler.latLonToTile = (_lat, lon) => ({
+      worldX: lon < 0 ? 10 : 300,
+      worldY: 10,
+    });
+    NDVISampler.buildRawTileUrl = (x) => String(x);
+    NDVISampler._fetchRawTilePool = async (_tasks, grid) => {
+      for (let y = 0; y < 256; y++) grid.fill(0.6, y * 512, y * 512 + 256);
+      return { total: 2, loaded: 1, cached: 0, failed: 1 };
+    };
+
+    const res = await NDVISampler.sampleTracks(tracks, { radiusM: 1 });
+    assert.strictEqual(res.enrichedCount, 1);
+    assert.strictEqual(res.failedCount, 1);
+    assert.strictEqual(res.failedTracks[0].name, 'missing');
+    assert.strictEqual(tracks[1].analyzer.raw[0].ndvi, 0.9);
+    assert.strictEqual(tracks[1].analyzer.raw[0].ndvi_50m, 0.8);
+    assert.ok(!tracks[1].analyzer.hasNdvi);
+  } finally {
+    Object.assign(NDVISampler, originals);
+    clearCopernicusConfig();
+  }
 });
 
 test('sampleTracks: handles dispersed walks and isolates failures cleanly', async () => {

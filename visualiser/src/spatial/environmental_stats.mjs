@@ -20,6 +20,9 @@ const PEAK_BIN_S = 15;
 // Graded verdicts for 2+ walks: >= META_SOLID walks where the factor varies
 // → 'meta'; 3..META_SOLID-1 → 'metaProvisional'; fewer → 'fewWalks'.
 const META_SOLID = 5;
+// A walk needs this many samples with a speed reading before walking speed
+// is adjusted for (the same floor metaCorrelation puts on a walk).
+const MIN_SPEED_SAMPLES = 10;
 
 const isNum = (v) => typeof v === 'number' && !isNaN(v);
 // Row times carry float noise (6.9 − 1 = 5.8999999999999995); a row within
@@ -88,6 +91,7 @@ export const EnvironmentalStats = {
    * Everything the dashboard shows, for these walks.
    * @param {Array<object>} activeTracks - enriched tracks ({ id, analyzer }).
    * @returns {{ allData, correlationMatrix, roadProfile, roadComparison }}
+   *   roadComparison also carries nWalks, the number of walks with samples.
    */
   compute(activeTracks) {
     const S = EnvironmentalStats;
@@ -100,6 +104,17 @@ export const EnvironmentalStats = {
     );
     const roadProfile = S.roadProfile(allData, activeTracks);
     const roadComparison = S.compareRoadExtremes(roadProfile);
+    if (roadComparison) {
+      roadComparison.nWalks = new Set(
+        allData
+          .filter(
+            (d) =>
+              d.osm_road_class === roadComparison.highName ||
+              d.osm_road_class === roadComparison.lowName,
+          )
+          .map((d) => d.trackId),
+      ).size;
+    }
     for (const p of roadProfile) delete p._sePhasic; // internal, not cached
     return { allData, correlationMatrix, roadProfile, roadComparison };
   },
@@ -175,7 +190,10 @@ export const EnvironmentalStats = {
         // skip the point entirely rather than fake one.
         if (count === 0) continue;
 
-        const avgSpeed = speedCount > 0 ? sumSpeed / speedCount : 0;
+        // No speed reading in that second is "not available", not "standing
+        // still": NaN, so the sample drops out of the speed plot and the
+        // speed adjustment instead of adding a false zero.
+        const avgSpeed = speedCount > 0 ? sumSpeed / speedCount : NaN;
         allData.push({
           trackId: track.id,
           time: pt.time,
@@ -390,16 +408,40 @@ export const EnvironmentalStats = {
 
     // Speed-adjusted partial correlation for the tonic channel
     let chTonicSpeed;
+    let speedBase = NaN;
     if (walks.length === 1) {
-      const w = walks[0];
-      const pc = StatsMath.partialCorrelation(w.xTonic, w.tonic, w.speedTonic);
+      const s = EnvironmentalStats._speedSeries(walks[0]);
+      const pc = s
+        ? StatsMath.partialCorrelation(s.x, s.y, s.z)
+        : { r: NaN, p: NaN };
+      if (s) speedBase = StatsMath.calculatePearsonCorrelation(s.x, s.y).r;
       chTonicSpeed = { r: pc.r, p: pc.p, method: 'single' };
     } else {
-      chTonicSpeed = gradeMeta(
-        StatsMath.metaCorrelation(
-          walks.map(EnvironmentalStats._speedResiduals),
-        ),
-      );
+      const usable = walks
+        .map(EnvironmentalStats._speedSeries)
+        .filter((s) => s !== null);
+      if (usable.length) {
+        const paired = usable
+          .map((s) => ({
+            raw: s,
+            residual: EnvironmentalStats._speedResiduals(s),
+          }))
+          .filter(
+            ({ raw, residual }) =>
+              StatsMath.metaCorrelation([raw]).k > 0 &&
+              StatsMath.metaCorrelation([residual]).k > 0,
+          );
+        if (paired.length) {
+          speedBase = StatsMath.metaCorrelation(paired.map((p) => p.raw)).r;
+          chTonicSpeed = gradeMeta(
+            StatsMath.metaCorrelation(paired.map((p) => p.residual)),
+          );
+        } else {
+          chTonicSpeed = { r: NaN, p: NaN, method: 'fewWalks' };
+        }
+      } else {
+        chTonicSpeed = { r: NaN, p: NaN, method: 'fewWalks' };
+      }
     }
 
     // hasVariance = the factor actually changed. A constant predictor
@@ -422,6 +464,7 @@ export const EnvironmentalStats = {
       rTonic: chTonic.r,
       rPeaks: chPeaks.r,
       rTonicSpeedAdj: chTonicSpeed.r,
+      rTonicSpeedBase: speedBase,
       pTonicSpeedAdj: chTonicSpeed.p,
       mTonicSpeedAdj: chTonicSpeed.method,
       pPhasic: chPhasic.p,
@@ -440,20 +483,35 @@ export const EnvironmentalStats = {
   },
 
   /**
-   * One walk's tonic series with walking speed regressed out of both the
-   * feature and the arousal (for the meta-analysed partial correlation).
-   * A walk whose speed never changed is passed through unadjusted.
+   * One walk's tonic samples that have a walking-speed reading, or null when
+   * the walk has too few of them, or its speed never changed, to adjust for.
    * @private
    */
-  _speedResiduals(w) {
-    if (!(StatsMath.calculateStats(w.speedTonic).variance > 1e-12)) {
-      return { x: w.xTonic, y: w.tonic };
+  _speedSeries(w) {
+    const x = [];
+    const y = [];
+    const z = [];
+    for (let i = 0; i < w.speedTonic.length; i++) {
+      if (!isNum(w.speedTonic[i])) continue;
+      x.push(w.xTonic[i]);
+      y.push(w.tonic[i]);
+      z.push(w.speedTonic[i]);
     }
-    const regX = StatsMath.calculateLinearRegression(w.speedTonic, w.xTonic);
-    const regY = StatsMath.calculateLinearRegression(w.speedTonic, w.tonic);
+    if (z.length < MIN_SPEED_SAMPLES) return null;
+    if (!(StatsMath.calculateStats(z).variance > 1e-12)) return null;
+    return { x, y, z };
+  },
+
+  /**
+   * Regress speed out of both variables of an already filtered series.
+   * @private
+   */
+  _speedResiduals(s) {
+    const regX = StatsMath.calculateLinearRegression(s.z, s.x);
+    const regY = StatsMath.calculateLinearRegression(s.z, s.y);
     return {
-      x: w.xTonic.map((v, i) => v - (regX.m * w.speedTonic[i] + regX.c)),
-      y: w.tonic.map((v, i) => v - (regY.m * w.speedTonic[i] + regY.c)),
+      x: s.x.map((v, i) => v - (regX.m * s.z[i] + regX.c)),
+      y: s.y.map((v, i) => v - (regY.m * s.z[i] + regY.c)),
       nCovariates: 1,
     };
   },
@@ -470,8 +528,8 @@ export const EnvironmentalStats = {
     activeTracks.forEach((track) => {
       const a = track.analyzer;
       countedPeaks(a).forEach((p) => {
-        const rc = a.raw[a.placeRowOf(p.index)].osm_road_class || 'none';
-        if (roadGroups.has(rc)) {
+        const rc = a.raw[a.placeRowOf(p.index)].osm_road_class;
+        if (rc && roadGroups.has(rc)) {
           roadGroups.get(rc).peaks++;
         }
       });
@@ -506,9 +564,12 @@ export const EnvironmentalStats = {
       return w;
     };
     // Phasic and tonic arousal, keyed by the road class of the place each
-    // sample is paired with.
+    // sample is paired with. A sample with no road class has no road data at
+    // all (a walk with NDVI only) and is left out: 'none' is the enrichment's
+    // own answer for "no road nearby", not a stand-in for "never looked".
     allData.forEach((d) => {
-      const cls = d.osm_road_class || 'none';
+      const cls = d.osm_road_class;
+      if (!cls) return;
       let g = roadGroups.get(cls);
       if (!g) {
         g = { phasicVals: [], tonicVals: [], byWalk: new Map(), peaks: 0 };

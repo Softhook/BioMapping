@@ -218,7 +218,8 @@ export const GSRStorage = {
 
   /**
    * How far (metres) the OSM fetch bbox reaches past the track:
-   * max(search radius, snap radius) + 50. The 2D enrichment, the OSM shape
+   * Distance reach plus possible road-snap displacement, with 50 m padding.
+   * The 2D enrichment, the OSM shape
    * overlay and the 3D buildings all use this, so OsmCache's contains-match
    * lets whichever runs first serve the others.
    *
@@ -226,8 +227,10 @@ export const GSRStorage = {
    */
   enrichmentBufferM() {
     return (
-      Math.max(GSR_CONST.ENRICHMENT_DEFAULT.osmRadius, this.readSnapRadius()) +
-      50
+      Math.max(
+        GSR_CONST.ENRICHMENT_DEFAULT.osmRadius,
+        GSR_CONST.ENRICHMENT_DEFAULT.distCap + this.readSnapRadius(),
+      ) + 50
     );
   },
 

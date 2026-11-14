@@ -41,6 +41,7 @@ export const GSR_CONST = {
   // (GSRStorage.enrichmentBufferM).
   ENRICHMENT_DEFAULT: {
     osmRadius: 50, // m — fixed feature search radius around each sample; also the NDVI buffer
+    distCap: 150, // m — "distance to…" metrics are measured out to here; further is "none nearby"
     snapRadius: 25, // m — default for #gpsSnapRadius (road-snapping / junction-passage radius)
   },
 

@@ -5,6 +5,7 @@
  */
 
 // -- Numerical constants ---------------------------------------------------
+import { GSR_CONST } from '../core/constants.mjs';
 import { GeoUtils } from '../gps/geo_utils.mjs';
 import { GpsPipeline } from '../gps/gps_pipeline.mjs';
 import { Junctions } from '../gps/junctions.mjs';
@@ -13,8 +14,15 @@ import { SpatialGrid } from '../spatial/spatial_grid.mjs';
 import { OverpassClient } from './overpass_client.mjs';
 
 const METERS_PER_DEG_LAT = GeoUtils.METERS_PER_DEG_LAT; // m per degree of latitude
-const CELL_SIZE_DEG = 0.001; // spatial-hash cell (~111 m)
+const CELL_SIZE_DEG = 0.001; // spatial-hash cell (~111 m of latitude)
 const SENTINEL_DIST = 999; // sentinel for "no feature nearby"
+// "Distance to…" metrics (major road, water, green) are measured out to this
+// far; anything further is SENTINEL_DIST. The spatial index only guarantees
+// finding a feature within two cells (~222 m), and beyond that whether one
+// turns up depends on the direction and on how large its bounding box is —
+// so without a cap a 300 m distance was kept for one second and dropped as
+// "none nearby" for the next.
+const DIST_CAP_M = GSR_CONST.ENRICHMENT_DEFAULT.distCap;
 const DEFAULT_RADIUS_M = 50; // enrichment search radius
 const DEFAULT_BBOX_BUFFER_M = 100; // bounding-box padding
 // Snapping spaces evaluation points at least this far apart (m), so the
@@ -259,15 +267,27 @@ function _minDistanceToWay(lat, lon, way, distFn) {
  */
 function _isPointInGreenSpace(geom, lat, lon, pipFn) {
   if (geom.type === 'way' && geom.coordinates && geom.coordinates.length > 2) {
+    if (
+      geom.nodes?.length &&
+      geom.nodes[0] !== geom.nodes[geom.nodes.length - 1]
+    )
+      return false;
     return pipFn(lat, lon, geom.coordinates);
   }
   if (geom.type === 'relation' && geom.outerWays) {
     for (const way of geom.outerWays) {
+      if (way.nodes?.length && way.nodes[0] !== way.nodes[way.nodes.length - 1])
+        continue;
       if (pipFn(lat, lon, way.coordinates)) {
         // verify not inside an inner island ring
         if (geom.innerWays) {
           let inIsland = false;
           for (const iway of geom.innerWays) {
+            if (
+              iway.nodes?.length &&
+              iway.nodes[0] !== iway.nodes[iway.nodes.length - 1]
+            )
+              continue;
             if (pipFn(lat, lon, iway.coordinates)) {
               inIsland = true;
               break;
@@ -316,6 +336,81 @@ function _buildSamplingGrid(lat, lon, radiusMeters) {
     }
   }
   return points;
+}
+
+/**
+ * Join a multipolygon relation's member ways into complete rings.
+ *
+ * OSM draws a large park, wood or lake as several ways that meet end to end;
+ * only together do they enclose the area. Tested one at a time, a piece that
+ * is one side of the park encloses nothing (or, closed across its own ends,
+ * the wrong sliver). Pieces that share an end node are chained here until the
+ * chain closes or runs out.
+ *
+ * A way that is already closed, or that joins to nothing, is returned as the
+ * same object. A joined ring is a new way-like object ({type, id, nodes,
+ * coordinates}) carrying the id of its first piece.
+ */
+function _assembleRings(ways) {
+  const out = [];
+  const open = [];
+  for (const w of ways) {
+    const n = w.nodes;
+    const joinable =
+      n &&
+      n.length > 1 &&
+      n[0] !== n[n.length - 1] &&
+      w.coordinates.length === n.length; // every node resolved
+    if (joinable) open.push(w);
+    else out.push(w);
+  }
+  if (open.length < 2) return out.concat(open);
+
+  const byEnd = new Map(); // end node id -> open ways ending there
+  const addEnd = (id, w) => {
+    const list = byEnd.get(id);
+    if (list) list.push(w);
+    else byEnd.set(id, [w]);
+  };
+  for (const w of open) {
+    addEnd(w.nodes[0], w);
+    addEnd(w.nodes[w.nodes.length - 1], w);
+  }
+  const used = new Set();
+  const nextAt = (id) => (byEnd.get(id) || []).find((w) => !used.has(w));
+
+  for (const start of open) {
+    if (used.has(start)) continue;
+    used.add(start);
+    let nodes = start.nodes.slice();
+    let coords = start.coordinates.slice();
+    let pieces = 1;
+    // Grow from the tail, then (after flipping the chain) from the head.
+    for (let pass = 0; pass < 2; pass++) {
+      for (;;) {
+        if (nodes[0] === nodes[nodes.length - 1]) break; // ring closed
+        const w = nextAt(nodes[nodes.length - 1]);
+        if (!w) break;
+        used.add(w);
+        pieces++;
+        const forward = w.nodes[0] === nodes[nodes.length - 1];
+        const wn = forward ? w.nodes : w.nodes.slice().reverse();
+        const wc = forward ? w.coordinates : w.coordinates.slice().reverse();
+        // The shared end node is already in the chain.
+        nodes = nodes.concat(wn.slice(1));
+        coords = coords.concat(wc.slice(1));
+      }
+      if (nodes[0] === nodes[nodes.length - 1]) break;
+      nodes.reverse();
+      coords.reverse();
+    }
+    out.push(
+      pieces === 1
+        ? start
+        : { type: 'way', id: start.id, nodes, coordinates: coords },
+    );
+  }
+  return out;
 }
 
 // -- Main OSMEnricher namespace ---------------------------------------------
@@ -467,7 +562,8 @@ export const OSMEnricher = {
       }
     }
 
-    // 3. Resolve relations (multipolygons) — O(1) way lookup
+    // 3. Resolve relations (multipolygons) — O(1) way lookup — and join
+    //    member ways that only enclose an area together (_assembleRings).
     for (const el of osmJson.elements) {
       if (el.type === 'relation' && el.members) {
         const outerWays = [],
@@ -480,8 +576,8 @@ export const OSMEnricher = {
             }
           }
         }
-        el.outerWays = outerWays;
-        el.innerWays = innerWays;
+        el.outerWays = _assembleRings(outerWays);
+        el.innerWays = _assembleRings(innerWays);
         relations.push(el);
       }
     }
@@ -499,10 +595,11 @@ export const OSMEnricher = {
    * Thin wrapper over the shared SpatialGrid (spatial_grid.js): computes each
    * geom's own lat/lon bbox, then inserts it padded by one extra cell in
    * every direction. Combined with getNearby()'s own 3x3-neighbourhood query
-   * below, a geom is reachable from up to ~2 cells away (~222m at
-   * CELL_SIZE_DEG=0.001) — deliberately wider than the single-cell reach
-   * either padding alone would give, since enrichment search radii can
-   * exceed one cell width. _evaluatePosition still does the real distance/
+   * below, every geom within 2 cells (~222 m) of a point is returned for it —
+   * comfortably past DIST_CAP_M and the search radius. Cells are widened in
+   * longitude by 1/cos(latitude) so they are ~111 m both ways; a plain
+   * 0.001° cell is only ~69 m wide at 51°N, which left the east–west reach
+   * short of DIST_CAP_M. _evaluatePosition still does the real distance/
    * containment check on every candidate this returns, so over-inclusion
    * here only costs a bit of extra evaluation work, never a wrong result.
    */
@@ -510,7 +607,16 @@ export const OSMEnricher = {
     const cached = _spatialIndexCache.get(geoms);
     if (cached) return cached;
 
-    const spatialGrid = new SpatialGrid(CELL_SIZE_DEG);
+    // Mid-latitude of the fetched area, for the longitude cell width.
+    let minNodeLat = Infinity,
+      maxNodeLat = -Infinity;
+    for (const n of geoms.nodeMap?.values() || []) {
+      if (n.lat < minNodeLat) minNodeLat = n.lat;
+      if (n.lat > maxNodeLat) maxNodeLat = n.lat;
+    }
+    const midLat = minNodeLat === Infinity ? 0 : (minNodeLat + maxNodeLat) / 2;
+    const cosLat = Math.max(0.2, Math.cos((midLat * Math.PI) / 180));
+    const spatialGrid = new SpatialGrid(CELL_SIZE_DEG, CELL_SIZE_DEG / cosLat);
 
     const insert = (geom) => {
       let minLat = Infinity,
@@ -536,7 +642,11 @@ export const OSMEnricher = {
       }
 
       if (minLat === Infinity) return;
-      spatialGrid.insert({ minLat, maxLat, minLon, maxLon }, geom, 1);
+      const bbox = { minLat, maxLat, minLon, maxLon };
+      // Kept on the geom so _evaluatePosition can discard far-off candidates
+      // with four comparisons instead of walking their vertices.
+      geom._bbox = bbox;
+      spatialGrid.insert(bbox, geom, 1);
     };
 
     for (const p of geoms.points) insert(p);
@@ -636,9 +746,27 @@ export const OSMEnricher = {
     let greenHits = 0,
       canopyHits = 0;
 
+    // Nothing here looks further than DIST_CAP_M (or the search radius), so
+    // a candidate whose bounding box is further off than that is skipped.
+    const reachM = Math.max(DIST_CAP_M, radiusMeters);
+    const reachLat = reachM / METERS_PER_DEG_LAT;
+    const reachLon =
+      reachM / (METERS_PER_DEG_LAT * Math.cos((lat * Math.PI) / 180));
+
     for (const geom of nearby) {
       const tags = geom.tags;
       if (!tags) continue;
+      const bb = geom._bbox;
+      if (
+        bb &&
+        !tags.highway &&
+        (lat < bb.minLat - reachLat ||
+          lat > bb.maxLat + reachLat ||
+          lon < bb.minLon - reachLon ||
+          lon > bb.maxLon + reachLon)
+      ) {
+        continue;
+      }
 
       // -- Roads --
       if (
@@ -808,11 +936,10 @@ export const OSMEnricher = {
       nearestRoadClass = nearestVehRoadClass;
     }
 
-    // Sanitize distances
-    if (minRoadDist === Infinity) minRoadDist = SENTINEL_DIST;
-    if (minMajorRoadDist === Infinity) minMajorRoadDist = SENTINEL_DIST;
-    if (minWaterDist === Infinity) minWaterDist = SENTINEL_DIST;
-    if (minGreenDist === Infinity) minGreenDist = SENTINEL_DIST;
+    // Nothing within DIST_CAP_M → "none nearby".
+    if (!(minMajorRoadDist <= DIST_CAP_M)) minMajorRoadDist = SENTINEL_DIST;
+    if (!(minWaterDist <= DIST_CAP_M)) minWaterDist = SENTINEL_DIST;
+    if (!(minGreenDist <= DIST_CAP_M)) minGreenDist = SENTINEL_DIST;
 
     // Green-space and tree-canopy coverage (float — rounding deferred to display)
     // Area-weighted (the point weights sum to 1).
@@ -1068,7 +1195,7 @@ export const OSMEnricher = {
         metrics: this._evaluatePosition(
           at.lat,
           at.lon,
-          node.nearby,
+          at === node ? node.nearby : spatialIndex.getNearby(at.lat, at.lon),
           radiusMeters,
         ),
       });

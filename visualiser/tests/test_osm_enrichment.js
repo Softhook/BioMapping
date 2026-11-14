@@ -630,9 +630,24 @@ const allGeoms = [
     '_evaluatePosition — nearest (only) road classified correctly',
   );
 
+  // The road (~214 m) and the water (~393 m) are beyond the 150 m limit the
+  // distance metrics are measured to, so from here both read "none nearby".
+  assertEq(
+    m.distMajorRoad,
+    999,
+    '_evaluatePosition — a major road beyond 150 m reads as none nearby',
+  );
+  assertEq(
+    m.distWater,
+    999,
+    '_evaluatePosition — water beyond 150 m reads as none nearby',
+  );
+
+  // From a point ~100 m from each, the real distance is reported.
+  const nearRoad = [51.5005, -0.1015];
+  const mRoad = OSMEnricher._evaluatePosition(...nearRoad, allGeoms, 50);
   const expectedRoadDist = GeoUtils.distanceToSegmentMeters(
-    51.5025,
-    -0.102,
+    ...nearRoad,
     roadGeom.coordinates[0].lat,
     roadGeom.coordinates[0].lon,
     roadGeom.coordinates[1].lat,
@@ -641,26 +656,30 @@ const allGeoms = [
   // Measured to the kerb: a two-way motorway with no lanes tag is taken as
   // 2 lanes × 3.25 m, so its kerb sits 3.25 m from the centre line.
   assertClose(
-    m.distMajorRoad,
+    mRoad.distMajorRoad,
     expectedRoadDist - 3.25,
     0.5,
     '_evaluatePosition — distMajorRoad is the centre-line distance less half the carriageway',
   );
 
+  const nearWater = [51.4992, -0.1038];
+  const mWater = OSMEnricher._evaluatePosition(...nearWater, allGeoms, 50);
   const expectedWaterDist = GeoUtils.distanceToSegmentMeters(
-    51.5025,
-    -0.102,
+    ...nearWater,
     waterGeom.coordinates[0].lat,
     waterGeom.coordinates[0].lon,
     waterGeom.coordinates[1].lat,
     waterGeom.coordinates[1].lon,
   );
   assertClose(
-    m.distWater,
+    mWater.distWater,
     expectedWaterDist,
     0.5,
     '_evaluatePosition — distWater matches distanceToSegment',
   );
+  if (!(expectedRoadDist < 150 && expectedWaterDist < 150)) {
+    throw new Error('test points must sit inside the 150 m limit');
+  }
 
   // Building/tree/amenity are all >250 m away — well outside the 50 m radius.
   assertEq(

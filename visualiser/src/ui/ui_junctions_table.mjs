@@ -514,7 +514,7 @@ export const JunctionsTableUI = {
       // otherwise the pooled permutation test on per-walk-adjusted values.
       const testNote =
         r.test === 'paired'
-          ? `Turn vs Straight: Within-junction paired permutation test (k=${r.pairedN} junctions)`
+          ? `Turn vs Straight: Paired permutation test within each junction and walk (k=${r.pairedN} junctions)`
           : `Turn vs Straight: Pooled permutation test (n=${r.nTurnUsed ?? r.nTurn} vs ${r.nStraightUsed ?? r.nStraight}, ${r.nTracks || 1} walk(s), levels adjusted per walk). Passages within a walk are correlated, so treat as indicative`;
       const testNoteJunc = `Pooled permutation test vs open road (n=${r.nStraightJuncUsed ?? r.nStraightUsed ?? r.nStraight} straight vs ${r.nControlUsed ?? r.nControl ?? 0} control, levels adjusted per walk)`;
       const juncEvidenceTitle = `Junction vs Open Road: ${testNoteJunc}; p=${fmtP(r.pJunction)}, q=${fmtP(r.qJunction)}`;

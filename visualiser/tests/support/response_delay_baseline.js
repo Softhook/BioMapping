@@ -139,7 +139,9 @@ function dashboardRecord(tracks, EnvironmentalStats) {
         d.val,
         d.phasic,
         d.tonic,
-        d.speed,
+        // The record was saved when a second with no speed reading was
+        // stored as 0; it is now blank (NaN).
+        Number.isFinite(d.speed) ? d.speed : 0,
         d.osm_road_class ?? null,
         d.osm_dist_major_road,
         // Tonic's pairing. Before the build it had its own (tonicEnv); now it

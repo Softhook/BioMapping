@@ -190,6 +190,15 @@ export const EnvironmentalDashboardUI = {
         pVals[i] = a.phasic[i].val;
         tVals[i] = a.tonic?.[i] ? a.tonic[i].val : 0;
       }
+      // A reading taken while the sensor was disconnected is not a real
+      // measurement (the same rule EnvironmentalStats.buildSamples applies).
+      // NaN makes JunctionResponse drop any window that touches one.
+      for (const span of a.gsrDisconnectSpans || []) {
+        const end = Math.min(span.endIdx, pLen - 1);
+        for (let i = Math.max(0, span.startIdx); i <= end; i++) {
+          pVals[i] = NaN;
+        }
+      }
 
       if (a.peaks && a.peaks.length > 0) {
         const fallbackTimes = [];

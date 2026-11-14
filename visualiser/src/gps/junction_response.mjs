@@ -10,10 +10,9 @@
  *   • pooled   — label-permutation test over all passages (treats passages as
  *                independent; passages within one walk are not, so read it as
  *                indicative).
- *   • paired   — within each junction that has both a turn and a straight
- *                visit, mean(turn) − mean(straight); labels permuted within
- *                junction for the p-value.  Controls for the junction's own
- *                surroundings and needs no distributional assumptions.
+ *   • paired   — within each junction and walk that has both a turn and a
+ *                straight visit, mean(turn) − mean(straight); labels are
+ *                permuted within each junction and walk.
  *
  * "Before" is the window ending at the junction's entry; "after" starts AT the
  * entry, so the traversal itself is inside it — that is where the response to
@@ -393,20 +392,31 @@ export const JunctionResponse = {
         const svc = this._contrast(recs, val, 'straight', 'control');
         const tvc = this._contrast(recs, val, 'turn', 'control');
 
-        // Paired contrast uses the raw values: the junction itself is the control.
+        // Pair only passages from the same junction and walk, so a walk's
+        // baseline cannot be mistaken for a turn effect.
         const byKey = new Map();
         for (const r of tvsRecs) {
-          if (!byKey.has(r.key)) byKey.set(r.key, { turn: [], straight: [] });
-          byKey.get(r.key)[r.decision].push(val(r));
+          if (!byKey.has(r.key)) byKey.set(r.key, new Map());
+          const byTrack = byKey.get(r.key);
+          const track = r.trackId ?? null;
+          if (!byTrack.has(track))
+            byTrack.set(track, { turn: [], straight: [] });
+          byTrack.get(track)[r.decision].push(val(r));
         }
-        const groups = [...byKey.values()].filter(
-          (g) => g.turn.length && g.straight.length,
-        );
+        const groups = [];
+        let pairedJunctions = 0;
+        for (const byTrack of byKey.values()) {
+          const matched = [...byTrack.values()].filter(
+            (g) => g.turn.length && g.straight.length,
+          );
+          if (matched.length) pairedJunctions++;
+          groups.push(...matched);
+        }
         // Below MIN_PAIRED the paired test isn't reported, so skip its permutations.
-        const usePaired = groups.length >= this.MIN_PAIRED;
+        const usePaired = pairedJunctions >= this.MIN_PAIRED;
         const paired = usePaired
           ? this.pairedPermutation(groups)
-          : { n: groups.length, meanDiff: NaN, p: NaN };
+          : { meanDiff: NaN, p: NaN };
 
         // Report the means, counts and difference from the SAME sample the
         // p-value is about, so the numbers shown always agree with each other.
@@ -464,7 +474,7 @@ export const JunctionResponse = {
               ? meanTurn - meanControl
               : NaN,
           pooledP: tvs.p,
-          pairedN: paired.n,
+          pairedN: pairedJunctions,
           pairedMeanDiff: paired.meanDiff,
           pairedP: paired.p,
           test: usePaired ? 'paired' : 'pooled',

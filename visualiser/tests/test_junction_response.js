@@ -233,6 +233,30 @@ test('pooled permutation: labels shuffle within track only (a track-level offset
   assert.ok(r.pooledP > 0.9, `pooledP ${r.pooledP}`);
 });
 
+test('paired comparison does not confuse walk baselines with turn effects', () => {
+  const recs = [];
+  for (let i = 0; i < 16; i++) {
+    for (const [decision, trackId, value] of [
+      ['turn', 'high', 10],
+      ['straight', 'low', 1],
+    ]) {
+      const m = { peakRate: value, meanPhasic: value, meanTonic: value };
+      recs.push({
+        key: `J${i}`,
+        decision,
+        trackId,
+        before: m,
+        after: m,
+        delta: m,
+      });
+    }
+  }
+  const r = row(JunctionResponse.compare(recs), 'after', 'meanPhasic');
+  assert.strictEqual(r.pairedN, 0);
+  assert.strictEqual(r.test, 'pooled');
+  assert.strictEqual(r.p, 1);
+});
+
 test('compare: the means shown always agree with the difference tested (paired and pooled)', () => {
   // Paired junctions where turns > straights by exactly 4 within each junction,
   // but junctions differ hugely in level, and there are extra straight-only passages

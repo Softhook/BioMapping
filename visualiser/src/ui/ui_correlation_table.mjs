@@ -367,7 +367,7 @@ export const CorrelationTableUI = {
 
       const notEnriched =
         loaded > used
-          ? `<strong>${used} of your ${loaded} walks are OSM-enriched</strong> — the analysis uses those ${used}; enrich the rest from the OSM panel to include them. `
+          ? `<strong>${used} of your ${loaded} walks have spatial data</strong> — the analysis uses those ${used}; retrieve spatial data for the rest to include them. `
           : '';
 
       if (used === 1) {
@@ -484,13 +484,14 @@ export const CorrelationTableUI = {
       if (
         row.hasVariance &&
         typeof row.rTonicSpeedAdj === 'number' &&
-        isFinite(row.rTonicSpeedAdj)
+        isFinite(row.rTonicSpeedAdj) &&
+        Number.isFinite(row.rTonicSpeedBase)
       ) {
-        const rawBand = this.correlationBand(row.rTonic);
+        const rawBand = this.correlationBand(row.rTonicSpeedBase);
         const adjBand = this.correlationBand(row.rTonicSpeedAdj);
         if (rawBand.key !== 'negligible' && adjBand.key === 'negligible') {
           speedNote =
-            ' (tonic link becomes negligible after controlling for walking speed)';
+            ' (among samples with speed readings, the tonic link becomes negligible after controlling for walking speed)';
         }
       }
 
@@ -584,14 +585,16 @@ export const CorrelationTableUI = {
           row.hasVariance &&
           typeof speedAdjR === 'number' &&
           isFinite(speedAdjR) &&
-          Math.abs(speedAdjR - r) >= 0.02
+          Number.isFinite(row.rTonicSpeedBase) &&
+          Math.abs(speedAdjR - row.rTonicSpeedBase) >= 0.02
         ) {
           const adjBand = this.correlationBand(speedAdjR);
-          const moved = adjBand.key !== this.correlationBand(r).key;
+          const moved =
+            adjBand.key !== this.correlationBand(row.rTonicSpeedBase).key;
           const style = moved
             ? 'color: #e67e22; font-weight: 500;'
             : 'color: var(--text-muted);';
-          speedInfo = `<div class="corr-speed-adj" style="font-size: 0.72rem; ${style} margin-top: 2px;" title="Partial correlation controlling for walking speed (m/s)">spd-adj: ${speedAdjR.toFixed(2)} (${adjBand.label})</div>`;
+          speedInfo = `<div class="corr-speed-adj" style="font-size: 0.72rem; ${style} margin-top: 2px;" title="Partial correlation controlling for walking speed (m/s), using only samples with usable speed readings">spd-adj: ${speedAdjR.toFixed(2)} (${adjBand.label}; speed-only r = ${row.rTonicSpeedBase.toFixed(2)})</div>`;
         }
         return `<td class="corr-cell"><div class="corr-val-stack"><span class="corr-num ${dir}">${r.toFixed(3)}</span>${chip}${speedInfo}</div></td>`;
       };

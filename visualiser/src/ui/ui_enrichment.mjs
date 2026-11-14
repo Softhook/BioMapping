@@ -482,6 +482,10 @@ export const EnrichmentUI = {
       if (res.mode === 'unified_mosaic') parts[0] += ' (shared mosaic)';
       if (res.tooBigCount > 0) parts.push(`${res.tooBigCount} too spread out`);
       if (res.failedCount > 0) parts.push(`${res.failedCount} failed`);
+      if (res.tilesFailed > 0)
+        parts.push(
+          `${res.tilesFailed} satellite tile${res.tilesFailed === 1 ? '' : 's'} could not be downloaded — NDVI coverage may be incomplete; try again`,
+        );
 
       // When every walk failed the same way (near-certain given they all hit
       // the same Copernicus instance/layer), show the actual reason instead
@@ -503,7 +507,7 @@ export const EnrichmentUI = {
         () => {
           this.setSpatialProgress(false);
         },
-        res.failedCount || res.tooBigCount ? 12000 : 3000,
+        res.failedCount || res.tooBigCount || res.tilesFailed ? 12000 : 3000,
       );
     } catch (err) {
       console.error('NDVI Sampling error:', err);

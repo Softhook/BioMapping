@@ -314,7 +314,7 @@ test('enrichTrack: in-memory OSM JSON is reused only while it covers the current
   };
   const narrow = { elements: ['narrow'] };
   const track = fakeTrack('A');
-  // fetched at search radius 50 / snap 25 → buffer 100 m
+  // Old coverage predates the 150 m distance cap.
   track.analyzer.osmJson = narrow;
   track.analyzer.osmJsonBBox = RealOSMEnricher.calculateBBox(null, 100);
   const tracks = [track];
@@ -330,19 +330,19 @@ test('enrichTrack: in-memory OSM JSON is reused only while it covers the current
   GSRUI.refreshOsmControls = () => {};
   GSRUI.rerenderMap = () => {};
 
-  // Same radius: the in-memory JSON covers it — no cache lookup.
+  // Old coverage is too narrow and must be fetched again.
   await GSRUI.enrichTrack(false);
-  assert.strictEqual(lookups, 0);
-  assert.strictEqual(track.analyzer.osmJson, narrow);
+  assert.strictEqual(lookups, 1);
+  assert.strictEqual(track.analyzer.osmJson, wider);
 
-  // Snap radius raised to 60 m → buffer 110 m: the old JSON no longer covers it.
+  // Raising the snap radius widens the required coverage again.
   sliders.gpsSnapRadius.value = '60';
   await GSRUI.enrichTrack(false);
-  assert.strictEqual(lookups, 1, 'went back to the cache');
+  assert.strictEqual(lookups, 2, 'went back to the cache for wider coverage');
   assert.strictEqual(track.analyzer.osmJson, wider);
   assert.deepStrictEqual(
     track.analyzer.osmJsonBBox,
-    RealOSMEnricher.calculateBBox(null, 110),
+    RealOSMEnricher.calculateBBox(null, 260),
   );
   assert.deepStrictEqual(calls, ['A', 'A']);
   RealAppState.sliders = prevSliders;
