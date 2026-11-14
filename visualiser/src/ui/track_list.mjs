@@ -142,6 +142,7 @@ export const TrackList = {
 
       const nameInput = document.createElement('input');
       nameInput.type = 'text';
+      nameInput.name = 'trackName';
       nameInput.className = 'track-name-input';
       nameInput.value = track.name;
       nameInput.style.display = 'none';
