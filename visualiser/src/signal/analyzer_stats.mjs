@@ -357,15 +357,32 @@ export const AnalyzerStats = {
 
   /**
    * Track-level summary statistics.
+   *
+   * Leaves out the stretches where the sensor was disconnected (`offSpans`,
+   * from gsr_disconnect_repair.mjs, row indices into `raw`): their readings
+   * sit at the open-circuit floor, or on a straight-line repair, and are not
+   * skin conductance. So the means use only connected rows, peaks inside a
+   * stretch are not counted, and the peak rate is per connected minute.
+   * Example: a 68 min walk whose first 36 min were disconnected reports its
+   * peak rate over the remaining 32 min. If nothing is connected, the whole
+   * track is used, so a flat file still reports its (floor) values.
+   *
+   * `duration` stays the full recording length; `connectedDuration` is the
+   * part the rates are taken over.
+   *
    * @param {Array<{time:number,val:number}>} raw
    * @param {Array<{time:number,val:number}>} tonic
    * @param {Array<object>} peaks
    * @param {Array<{time:number,val:number}>} phasicAUC
+   * @param {Array<{startIdx:number,endIdx:number}>} [offSpans]
    */
-  getStats(raw, tonic, peaks, phasicAUC) {
-    if (raw.length === 0) {
+  getStats(raw, tonic, peaks, phasicAUC, offSpans = []) {
+    const n = raw.length;
+    if (n === 0) {
       return {
         duration: 0,
+        connectedDuration: 0,
+        connectedSamples: 0,
         meanSCL: 0,
         peakCount: 0,
         peakFrequency: 0,
@@ -374,27 +391,66 @@ export const AnalyzerStats = {
       };
     }
 
-    const duration = raw[raw.length - 1].time - raw[0].time;
-    const sumTonic = tonic.reduce((sum, d) => sum + d.val, 0);
-    const meanSCL = sumTonic / tonic.length;
+    const duration = raw[n - 1].time - raw[0].time;
 
-    const durationMinutes = duration / 60.0;
-    const activePeaks = peaks.filter((p) => !p.excluded);
+    let off = null;
+    let offSec = 0;
+    let offRows = 0;
+    for (const sp of offSpans || []) {
+      const s = Math.max(0, sp.startIdx);
+      const e = Math.min(n - 1, sp.endIdx);
+      if (e < s) continue;
+      if (!off) off = new Uint8Array(n);
+      for (let i = s; i <= e; i++) {
+        if (!off[i]) {
+          off[i] = 1;
+          offRows++;
+        }
+      }
+      offSec += raw[e].time - raw[s].time;
+    }
+    // Nothing connected: fall back to the whole track.
+    if (off && offRows >= n) {
+      off = null;
+      offSec = 0;
+      offRows = 0;
+    }
+    const isOn = (i) => !off?.[i];
+    const connectedDuration = Math.max(0, duration - offSec);
+    const connectedSamples = n - offRows;
+
+    const meanOver = (series) => {
+      let sum = 0;
+      let count = 0;
+      const len = Math.min(series.length, n);
+      for (let i = 0; i < len; i++) {
+        if (isOn(i)) {
+          sum += series[i].val;
+          count++;
+        }
+      }
+      return count > 0 ? sum / count : 0;
+    };
+
+    const meanSCL = meanOver(tonic);
+
+    const connectedMinutes = connectedDuration / 60.0;
+    const activePeaks = peaks.filter((p) => !p.excluded && !off?.[p.index]);
     const peakCount = activePeaks.length;
-    const peakFrequency = durationMinutes > 0 ? peakCount / durationMinutes : 0;
+    const peakFrequency =
+      connectedMinutes > 0 ? peakCount / connectedMinutes : 0;
 
     const sumAmp = activePeaks.reduce((sum, p) => sum + p.amplitude, 0);
     const meanPeakAmplitude = peakCount > 0 ? sumAmp / peakCount : 0;
 
     // Mean of the sliding-window Phasic AUC series — a threshold-independent
     // companion to peakFrequency/meanPeakAmplitude (µS·s, 30s window).
-    const meanPhasicAUC =
-      phasicAUC.length > 0
-        ? phasicAUC.reduce((sum, d) => sum + d.val, 0) / phasicAUC.length
-        : 0;
+    const meanPhasicAUC = meanOver(phasicAUC);
 
     return {
       duration: duration,
+      connectedDuration: connectedDuration,
+      connectedSamples: connectedSamples,
       meanSCL: meanSCL,
       peakCount: peakCount,
       peakFrequency: peakFrequency,

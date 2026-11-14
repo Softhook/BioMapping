@@ -188,7 +188,7 @@ Debug-only appended columns when enabled:
 | `log_fill_peak_bytes` | uint32 | bytes | Peak high-water mark of SD logger batch buffer memory usage this session. |
 | `log_overflow_count` | uint32 | rows | Cumulative data rows dropped due to batch buffer overflow during SD stalls. |
 | `log_flush_fail_count` | uint32 | count | Cumulative count of failed SD write/sync flush attempts (batch retained for retry). |
-| `pga_change_count` | uint32 | count | Cumulative ADC programmable gain amplifier (PGA) auto-ranging range switch count. |
+| `pga_change_count` | uint32 | count | ADC programmable gain amplifier (PGA) auto-ranging range switches in the most recent ~1 s window (`gsr_sensor_get_pga_change_count()`). Not cumulative: a single switch shows as `1` for about ten rows, starting up to 1 s after it happened. |
 | `i2c_consec_fail` | uint32 | count | Current run length of consecutive I2C read failures (0 = healthy; 50 = disconnect trip). |
 | `prealloc_ms` | uint32 | ms | Duration of one-shot SD log file pre-allocation seek/extend at recording start. |
 
@@ -233,7 +233,7 @@ In **Live Stream** mode (`BioMapModeLiveStream`), data is streamed in real time 
 | 38 | 4 | `course_deg` | `float` | Course over ground in degrees true. |
 | 42 | 1 | `sats` | `uint8` | Satellites used in the position fix (PUBX 00 `numSvs`), as the CSV `sats` column. |
 | 43 | 1 | `fix_type` | `uint8` | GPS fix type: `1` = None, `2` = 2D, `3` = 3D. |
-| 44 | 1 | `valid` | `uint8` | Validity bitmask: `0x01` = GPS fix valid, `0x02` = GSR sensor valid. |
+| 44 | 1 | `valid` | `uint8` | `1` = GPS fix valid, `0` = no fix. There is no GSR validity flag: `gsr_raw` is sent as read (`0.0` when the ADC is unreachable, the open-circuit floor when the cuffs are off). |
 | 45 | 4 | `hacc_m` | `float` | u-blox horizontal accuracy in metres (`99.9` = unknown), exported as the CSV `hacc_m` column. |
 
 Parsed client-side by `visualiser/src/live/live_binary_parser.mjs` (`GSRLiveBinaryParser`). The live viewer (`visualiser/live.html`) exports recorded live sessions into canonical CSV matching the 11-column GPS+GSR format above.

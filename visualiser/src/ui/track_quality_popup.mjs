@@ -288,12 +288,32 @@ export const GSRTrackQualityPopup = {
         isFlatline = true;
         isDisconnected = true;
       }
-      if (w.includes('near-zero values') || w.includes('disconnected')) {
+      // The near-zero and rail-saturation warnings. Not the stretch warning
+      // ("The sensor looks disconnected for …"): that one can cover a few
+      // seconds of a long walk, so it is judged by length below.
+      if (
+        w.includes('near-zero values') ||
+        w.includes('Sensor may have been disconnected')
+      ) {
         isDisconnected = true;
       }
     }
 
     this._ensureAnalysed(track);
+
+    // Share of the recording the cuffs were off (the analyser's disconnect
+    // stretches). Over half: the track is shown as disconnected. Less: it
+    // still has usable data, so it is shown as partly disconnected, with its
+    // peak rate.
+    let offSec = 0;
+    for (const sp of a.gsrDisconnectSpans || []) {
+      if (raw[sp.startIdx] && raw[sp.endIdx]) {
+        offSec += raw[sp.endIdx].time - raw[sp.startIdx].time;
+      }
+    }
+    const offFraction = durationSec > 0 ? Math.min(1, offSec / durationSec) : 0;
+    if (offFraction > 0.5) isDisconnected = true;
+    const isPartlyDisconnected = !isDisconnected && offFraction > 0;
 
     let stats = null;
     try {
@@ -307,8 +327,14 @@ export const GSRTrackQualityPopup = {
       : Array.isArray(a._peaks)
         ? a._peaks
         : [];
+    // getStats' count leaves out peaks inside disconnected stretches; the
+    // fallback (no getStats) counts every active peak.
     let peaksCount = 0;
-    for (const p of peakList) if (!p.excluded) peaksCount++;
+    if (stats && typeof stats.peakCount === 'number') {
+      peaksCount = stats.peakCount;
+    } else {
+      for (const p of peakList) if (!p.excluded) peaksCount++;
+    }
 
     const durationMinutes = durationSec / 60.0;
     const peaksPerMin =
@@ -361,6 +387,8 @@ export const GSRTrackQualityPopup = {
         valid: validGsrCount > 0,
         isFlatline,
         isDisconnected,
+        isPartlyDisconnected,
+        offPct: Math.round(offFraction * 100),
         min: isFinite(gsrMin) ? +gsrMin.toFixed(2) : 0,
         max: isFinite(gsrMax) ? +gsrMax.toFixed(2) : 0,
         mean: +gsrMean.toFixed(2),
@@ -412,6 +440,8 @@ export const GSRTrackQualityPopup = {
       gsrStatsHtml = `<span class="tq-tag tq-tag-muted">No Data</span>`;
     } else if (s.gsr.isDisconnected || s.gsr.isFlatline) {
       gsrStatsHtml = `<span class="tq-tag tq-tag-bad"><i class="fa-solid fa-triangle-exclamation"></i> Disconnected</span> <span class="tq-sensor-detail">${s.gsr.mean} µS</span>`;
+    } else if (s.gsr.isPartlyDisconnected) {
+      gsrStatsHtml = `<span class="tq-tag tq-tag-warn" title="Cuffs off for about ${s.gsr.offPct}% of the recording"><i class="fa-solid fa-triangle-exclamation"></i> Partly disconnected</span> <span class="tq-sensor-detail">${s.gsr.mean} µS · <b>${s.gsr.peaksPerMin}</b> peaks/m</span>`;
     } else {
       gsrStatsHtml = `<span class="tq-tag tq-tag-good"><i class="fa-solid fa-check"></i> Good</span> <span class="tq-sensor-detail">${s.gsr.mean} µS · <b>${s.gsr.peaksPerMin}</b> peaks/m</span>`;
     }

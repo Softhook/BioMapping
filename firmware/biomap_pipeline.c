@@ -52,7 +52,7 @@ double pipeline_rel_seconds(uint32_t total_ticks) {
 // First-order IIR, nominal fc ≈ 3 Hz via α = 1 - e^{-2π·3/10} ≈ 0.848 —
 // that continuous-RC approximation assumes fc << Fs, which is optimistic
 // at Fs=10 Hz: measured attenuation at 3 Hz is only ~-1.9 dB, not -3 dB
-// (see docs/gsr_filtering_analysis.md, Finding 3).
+// (see research/gsr_filtering_analysis.md, Finding 3).
 //
 // IMPORTANT: called from biomap_session.c with the RAW SINGLE-SAMPLE
 // value (gsr_sensor_get_raw_sample_ns()), NOT the boxcar-decimated one
@@ -84,7 +84,7 @@ float pipeline_smooth_iir(DisplayState* d, float raw) {
 // comment might suggest — the EMA stage (α=0.2) has a lower corner than
 // the IIR and dominates the cascade almost entirely. Net ~0.45 s
 // effective time constant. Still comfortably fast against 1-3 s phasic
-// GSR rise times — see docs/gsr_filtering_analysis.md, Finding 3.
+// GSR rise times — see research/gsr_filtering_analysis.md, Finding 3.
 void pipeline_update_display(Pipeline* p, float raw) {
     float filtered = pipeline_smooth_iir(&p->display, raw);
 

@@ -2294,6 +2294,7 @@ export class GSRAnalyzer {
       this.tonic,
       this.peaks,
       this.phasicAUC,
+      this.gsrDisconnectSpans || [],
     );
   }
 

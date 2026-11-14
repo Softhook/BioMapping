@@ -105,7 +105,7 @@
 #define PGA_SETTLE_MS  4
 
 // Target duration of gsr_sensor_tick()'s averaging window. Time-based (see
-// docs/gsr_filtering_analysis.md, Recommendation 1b) rather than a fixed
+// research/gsr_filtering_analysis.md, Recommendation 1b) rather than a fixed
 // sample count: the worker's real rate is neither the ~1000 Hz a fixed
 // N=100 assumed nor stable — it measures ~400-500 Hz and varies run to
 // run. A time window keeps its duration (and therefore its 50/60 Hz null)
@@ -147,11 +147,11 @@ _Static_assert((SENSOR_BUFFER_SIZE & (SENSOR_BUFFER_SIZE - 1)) == 0,
 
 struct GsrSensor {
     float   raw;        // skin conductance in nanosiemens (nS)
-    bool    connected;  // false after 20+ ticks of zero readings (cuffs disconnected)
+    bool    connected;  // false after 20+ ticks outside GSR_VALID_MIN_NS..GSR_VALID_MAX_NS (cuffs disconnected)
     bool    i2c_working; // false when consecutive I2C reads fail
     uint8_t pga_index;  // active PGA setting (0 … ADS_PGA_MAX)
     uint8_t low_count;  // consecutive ticks below ADS_LOW_THRESH
-    uint8_t zero_count; // consecutive ticks with raw == 0.0f
+    uint8_t zero_count; // consecutive ticks outside the valid nS range
     bool    cal_active; // true when custom calibration is active
     float   cal_gain;   // linear calibration gain factor (default 1.0)
     float   cal_offset; // linear calibration offset in nS (default 0.0)
@@ -218,10 +218,10 @@ struct GsrSensor {
     uint32_t sample_tick[SENSOR_BUFFER_SIZE]; // tick timestamp of buffer[i], for
                                                // time-based (not count-based) averaging
                                                // in gsr_sensor_tick() — see Recommendation
-                                               // 1b in docs/gsr_filtering_analysis.md
+                                               // 1b in research/gsr_filtering_analysis.md
     volatile uint32_t write_idx;
 
-    // Worker throughput diagnostics (see docs/gsr_filtering_analysis.md,
+    // Worker throughput diagnostics (see research/gsr_filtering_analysis.md,
     // Recommendation 1) — iter_count counts successful buffer writes only
     // (not PGA-change passes, which don't write), so iter_count / elapsed
     // time is the true sample rate the CSV boxcar average in
@@ -242,7 +242,7 @@ struct GsrSensor {
     // successful read's raw ADC code exactly matches the immediately
     // preceding successful read's code (same PGA setting). This is the
     // direct, measured version of the skip-vs-duplicate question in
-    // docs/gsr_filtering_analysis.md.
+    // research/gsr_filtering_analysis.md.
     //
     // Measured on real hardware: ~7-11% with a live skin conductance signal
     // connected, ~12-16% with the sensor disconnected (open circuit) — not
@@ -441,7 +441,7 @@ static int32_t gsr_sensor_worker(void* context) {
         // attempt_count normally counts every read, success or failure — it
         // distinguishes "the loop genuinely only runs this fast" from "the
         // loop runs fast but half the reads silently fail" (iter_count alone
-        // can't; see docs/gsr_filtering_analysis.md). The settle window is
+        // can't; see research/gsr_filtering_analysis.md). The settle window is
         // excluded from attempt_count (and therefore worker_hz / success
         // rate): we're deliberately not sampling then, exactly as during the
         // old furi_delay_ms() gap. i2c_peak_ms still updates — an I2C stall
@@ -830,7 +830,7 @@ uint8_t gsr_sensor_get_pga_index(const GsrSensor* gsr) {
 // rate at which gsr_sensor_tick()'s ~100 ms boxcar average is actually
 // filling with samples. Updated by gsr_sensor_tick() (main thread only);
 // reads 0.0f until the first ~1 s window has elapsed. See
-// docs/gsr_filtering_analysis.md, Recommendation 1.
+// research/gsr_filtering_analysis.md, Recommendation 1.
 float gsr_sensor_get_worker_hz(const GsrSensor* gsr) {
     furi_check(gsr, "GsrSensor: NULL in get_worker_hz()");
     // Cross-thread — see gsr_sensor_get_mean_count()'s comment.
@@ -862,7 +862,7 @@ float gsr_sensor_get_success_rate(const GsrSensor* gsr) {
 // fresh conversions of a signal that hasn't moved between them — the counter
 // can't tell them apart. Measured ~12-16% with the sensor disconnected
 // (near-DC) vs. ~7-11% with a live signal connected; see
-// docs/gsr_filtering_analysis.md and duplicate_count's doc comment. Resets
+// research/gsr_filtering_analysis.md and duplicate_count's doc comment. Resets
 // across PGA changes (a gain change isn't a stale read). Reads 0.0f until
 // the first window has elapsed (optimistic default, not a claim).
 float gsr_sensor_get_duplicate_rate(const GsrSensor* gsr) {
@@ -985,7 +985,7 @@ uint32_t gsr_sensor_get_rf_retune_peak_ms(const GsrSensor* gsr) {
 // entry, accumulating samples whose timestamp falls within the last
 // BOXCAR_WINDOW_MS (100 ms) of real elapsed time, and averages exactly
 // those. Time-based, not a fixed sample count — see
-// docs/gsr_filtering_analysis.md, Recommendation 1b. A fixed N=100 was
+// research/gsr_filtering_analysis.md, Recommendation 1b. A fixed N=100 was
 // only actually a 100 ms window when the worker's true rate happened to
 // be ~1000 Hz; measurement on real hardware found it was actually
 // ~500 Hz, silently doubling the window to ~200 ms and (worse) making
@@ -1120,7 +1120,7 @@ void gsr_sensor_tick(GsrSensor* gsr) {
     // reduction scales with √samples, so this is a real, if modest,
     // trade against the original documented ~8.7× — and it now varies
     // tick to tick along with however many samples actually land in the
-    // window — see docs/gsr_filtering_analysis.md for the actual
+    // window — see research/gsr_filtering_analysis.md for the actual
     // numbers.
     float avg_norm = (float)sum / (float)samples;
 

@@ -9,10 +9,10 @@
 //     measured through the host test harness because tests/shims/furi.h's
 //     furi_delay_ms() is a no-op, so the simulated worker never reproduces
 //     real hardware timing. Measuring the actual on-device rate needs a
-//     debug build (see docs/gsr_filtering_analysis.md, Recommendation 1).
+//     debug build (see research/gsr_filtering_analysis.md, Recommendation 1).
 //
 // Findings and recommendations are written up in
-// docs/gsr_filtering_analysis.md. Rerun this after any change to
+// research/gsr_filtering_analysis.md. Rerun this after any change to
 // gsr_sensor.c's averaging or biomap_pipeline.c's smoothing to see the
 // effect on the numbers there.
 //

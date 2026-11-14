@@ -452,7 +452,7 @@ static void render_diagnostics(Canvas* c, BioMapApp* a) {
         int32_t window_n = gsr_sensor_get_window_samples(a->session.gsr);
         int y = 8;
 
-        // Raw single-sample and filtered (100-sample mean) in nS and kΩ.
+        // Raw single-sample and filtered (~100 ms window mean) in nS and kΩ.
         // kΩ = 1e6 / nS  (since G_nS = 1e9/R_Ω → R_kΩ = 1e6/G_nS).
         // Displayed here so a calibration resistor can be verified directly
         // against a multimeter reading without mental arithmetic.

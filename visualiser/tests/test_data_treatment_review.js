@@ -244,6 +244,125 @@ test('GSR range warnings judge a µS file and an nS file the same way', () => {
   assert.ok(has(zeroUs, 'near-zero'));
 });
 
+test('a stretch with the cuffs off is reported, with or without a device calibration', () => {
+  const has = (r, text) => (r.warnings || []).some((w) => w.includes(text));
+  // 60 s walk; rows 200-399 (20 s) read the flat open-circuit value.
+  const file = (floor) =>
+    `timestamp,gsr_raw\n${Array.from({ length: 600 }, (_, i) => {
+      const v = i >= 200 && i < 400 ? floor : 5000 + 300 * Math.sin(i / 9);
+      return `${(i / 10).toFixed(2)},${v.toFixed(1)}`;
+    }).join('\n')}\n`;
+
+  // Uncalibrated floor (16.9 nS) and a calibrated one (the offset, 107 nS,
+  // which is above the firmware's 100 nS line).
+  for (const floor of [16.9, 107.0]) {
+    const r = parseQuiet(file(floor));
+    assert.ok(has(r, 'looks disconnected for about 2'), `floor ${floor}`);
+    assert.ok(has(r, 'in the middle (1 stretch)'));
+    assert.ok(has(r, 'bridges it.'));
+  }
+
+  // Cuffs put on after pressing record (first 15 s flat) and taken off
+  // before stopping (last 10 s flat): said by position, with no repair
+  // advice, since neither can be bridged.
+  const edges = parseQuiet(
+    `timestamp,gsr_raw\n${Array.from({ length: 600 }, (_, i) => {
+      const v = i < 150 || i >= 500 ? 16.9 : 5000 + 300 * Math.sin(i / 9);
+      return `${(i / 10).toFixed(2)},${v.toFixed(1)}`;
+    }).join('\n')}\n`,
+  );
+  const edgeMsg = (edges.warnings || []).find((w) =>
+    w.includes('looks disconnected'),
+  );
+  assert.ok(edgeMsg, 'start/end stretches reported');
+  assert.match(
+    edgeMsg,
+    /about the first 1\d s and the last \d+ s of this recording\.$/,
+  );
+  assert.ok(!edgeMsg.includes('Repair'), edgeMsg);
+  // The same walk with no flat stretch has nothing to report.
+  const clean = parseQuiet(
+    `timestamp,gsr_raw\n${Array.from({ length: 600 }, (_, i) => `${(i / 10).toFixed(2)},${(5000 + 300 * Math.sin(i / 9)).toFixed(1)}`).join('\n')}\n`,
+  );
+  assert.strictEqual(clean.warnings, null);
+});
+
+test('track averages and peak rate leave out the disconnected stretch', () => {
+  const { AnalyzerStats } = require('../src/signal/analyzer_stats.mjs');
+  // 100 s at 1 Hz. Rows 0-49 are a disconnected stretch at the floor
+  // (0.017 µS); rows 50-100 read 4 µS. Two peaks: one inside the stretch
+  // (the reconnect jump), one in the connected part.
+  const series = (on, off) =>
+    Array.from({ length: 101 }, (_, i) => ({
+      time: i,
+      val: i < 50 ? off : on,
+    }));
+  const raw = series(4, 0.017);
+  const peaks = [
+    { index: 49, amplitude: 3, excluded: false },
+    { index: 80, amplitude: 0.5, excluded: false },
+  ];
+  const auc = series(10, 0);
+  const off = [{ startIdx: 0, endIdx: 49 }];
+
+  const s = AnalyzerStats.getStats(raw, raw, peaks, auc, off);
+  assert.strictEqual(s.duration, 100, 'duration is still the whole recording');
+  assert.strictEqual(s.connectedDuration, 51);
+  assert.strictEqual(s.meanSCL, 4, 'floor rows are not averaged in');
+  assert.strictEqual(
+    s.peakCount,
+    1,
+    'the peak inside the stretch is not counted',
+  );
+  assert.strictEqual(s.meanPeakAmplitude, 0.5);
+  assert.ok(
+    Math.abs(s.peakFrequency - 60 / 51) < 1e-9,
+    'peaks per connected minute',
+  );
+  assert.strictEqual(s.meanPhasicAUC, 10);
+
+  // No stretches: same as before (whole-track means).
+  const all = AnalyzerStats.getStats(raw, raw, peaks, auc, []);
+  assert.strictEqual(all.peakCount, 2);
+  assert.ok(Math.abs(all.meanSCL - (50 * 0.017 + 51 * 4) / 101) < 1e-9);
+
+  // Everything disconnected: falls back to the whole track, not zeros.
+  const flat = AnalyzerStats.getStats(raw, raw, peaks, auc, [
+    { startIdx: 0, endIdx: 100 },
+  ]);
+  assert.strictEqual(flat.peakCount, 2);
+  assert.strictEqual(flat.connectedDuration, 100);
+
+  // End to end: a walk whose first 30 s are the open-circuit floor. The
+  // analyser's average skin conductance must come from the connected part.
+  const lines = ['timestamp,gsr_raw'];
+  for (let i = 0; i < 1200; i++) {
+    const nS = i < 300 ? 16.9 : 5000 + 300 * Math.sin(i / 9);
+    lines.push(`${(i / 10).toFixed(2)},${nS.toFixed(1)}`);
+  }
+  const a = new GSRAnalyzer();
+  const warn = console.warn;
+  console.warn = () => {};
+  try {
+    a.parseCSV(lines.join('\n'));
+    a.analyze(JSON.parse(JSON.stringify(GSR_CONST.GSR_DEFAULT)));
+  } finally {
+    console.warn = warn;
+  }
+  assert.ok(a.gsrDisconnectSpans.length >= 1, 'the floor stretch is found');
+  const st = a.getStats();
+  // Tonic sits a little under the raw ~5 µS (peaks ride on top of it), and
+  // its 45 s smoothing drags the floor into the first ~10 s after the
+  // reconnect, so ~4.4 µS. Averaging the floor rows in as well would give
+  // ~3.3 µS.
+  const allTonic = a.tonic.reduce((acc, d) => acc + d.val, 0) / a.tonic.length;
+  assert.ok(
+    st.meanSCL > 4 && st.meanSCL > allTonic * 1.2,
+    `mean SCL ${st.meanSCL} µS (whole track ${allTonic}) should not be pulled down by the floor`,
+  );
+  assert.ok(st.connectedDuration < st.duration);
+});
+
 test('rows without a GSR value are counted as missing, not as readings', () => {
   // GPS on every row, GSR on one row in four.
   const lines = ['timestamp,lat,lon,gsr_raw'];

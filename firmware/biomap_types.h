@@ -65,7 +65,7 @@ typedef struct {
     bool     primed;
     float    last_displayed;     // IIR-filtered value (drives graph, auto-zoom)
     float    raw_sample_ns;      // true raw single-sample nS (no filtering)
-    float    filtered_ns;        // 100-sample decimated nS (no IIR/EMA)
+    float    filtered_ns;        // ~100 ms window mean nS (no IIR/EMA)
     int32_t  raw_sample_count;   // raw normalized ADC count (pre-TIA, for diag)
     int      refresh_counter;
 } DisplayState;
@@ -170,7 +170,7 @@ typedef struct {
     uint32_t log_fill_peak_bytes;  // lifetime high-water occupancy in bytes
     uint32_t log_overflow_count;   // rows rejected due to batch-capacity pressure
     uint32_t log_flush_fail_count; // flush write/sync failures (batch preserved for retry)
-    uint32_t pga_change_count;   // cumulative GSR auto-ranging PGA gain switches (gain-change artifact marker)
+    uint32_t pga_change_count;   // GSR auto-ranging PGA gain switches in the last ~1 s window, not cumulative (gain-change artefact marker)
     uint32_t i2c_consec_fail;    // current run length of consecutive GSR I2C failures (0 = healthy)
     uint32_t prealloc_ms;        // one-shot file pre-allocation duration at recording start
 } RowDiag;

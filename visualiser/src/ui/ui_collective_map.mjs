@@ -106,7 +106,11 @@ export const CollectiveMapUI = {
       contourParams,
     );
 
+    // Pooled over the walks' connected rows only (getStats leaves out the
+    // stretches where the sensor was disconnected). Duration shown is the
+    // full recording time; the peak rate is per connected minute.
     let totalDur = 0,
+      totalOnDur = 0,
       totalPeaks = 0,
       sumSCL = 0,
       sclCount = 0;
@@ -114,15 +118,14 @@ export const CollectiveMapUI = {
     (AppState.collectiveManager?.getActiveTracks() || []).forEach((track) => {
       const stats = track.analyzer.getStats();
       totalDur += stats.duration;
+      totalOnDur += stats.connectedDuration;
       totalPeaks += stats.peakCount;
-      track.analyzer.tonic.forEach((d) => {
-        sumSCL += d.val;
-        sclCount++;
-      });
+      sumSCL += stats.meanSCL * stats.connectedSamples;
+      sclCount += stats.connectedSamples;
     });
 
     const meanSCL = sclCount > 0 ? sumSCL / sclCount : 0;
-    const meanPeakFreq = totalDur > 0 ? totalPeaks / (totalDur / 60.0) : 0;
+    const meanPeakFreq = totalOnDur > 0 ? totalPeaks / (totalOnDur / 60.0) : 0;
 
     const F = AppState.statFields;
     if (F.date) F.date.innerText = '--';

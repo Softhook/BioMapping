@@ -14,6 +14,7 @@
 
 import { GSR_CONST } from '../core/constants.mjs';
 import { calcEmFog, SUB_GHZ_BANDS } from './em_fog.mjs';
+import { detectAndRepairGsrDisconnects } from './gsr_disconnect_repair.mjs';
 import { detectRfPeakIndices } from './rf_peaks.mjs';
 
 /**
@@ -1142,6 +1143,58 @@ export const GSRCSVParser = {
             `${c.byS.toFixed(1)} s.`,
         );
       }
+    }
+
+    // Stretches where the sensor read its flat open-circuit value (cuffs off
+    // or a lead unplugged). Found by shape, not by a level: with a device
+    // calibration the open-circuit reading sits at the calibration offset,
+    // above the firmware's own 100 nS line. A track that is flat from end to
+    // end already has the "flat" warning above.
+    //
+    // Says where the stretches are: most come from putting the cuffs on after
+    // pressing record, or taking them off before stopping, and those can't be
+    // bridged. Only stretches in the middle get the peaks / repair advice.
+    // Durations include the settling after the cuffs go back on, hence "about".
+    const offSpans = detectAndRepairGsrDisconnects(rawDataList).spans.filter(
+      (sp) => !(sp.startIdx === 0 && sp.endIdx >= nRows - 1),
+    );
+    if (offSpans.length > 0) {
+      const spanS = (sp) =>
+        rawDataList[sp.endIdx].time - rawDataList[sp.startIdx].time;
+      const fmt = (s) => {
+        const sec = Math.max(1, Math.round(s));
+        if (sec < 60) return `${sec} s`;
+        return sec % 60 === 0
+          ? `${sec / 60} min`
+          : `${Math.floor(sec / 60)} min ${sec % 60} s`;
+      };
+      const head = offSpans.find((sp) => sp.startIdx === 0);
+      const tail = offSpans.find((sp) => sp !== head && sp.endIdx >= nRows - 1);
+      const middle = offSpans.filter((sp) => sp !== head && sp !== tail);
+
+      const parts = [];
+      if (head) parts.push(`the first ${fmt(spanS(head))}`);
+      if (middle.length > 0) {
+        const midS = middle.reduce((acc, sp) => acc + spanS(sp), 0);
+        const n = middle.length;
+        parts.push(
+          `${fmt(midS)} in the middle (${n} stretch${n === 1 ? '' : 'es'})`,
+        );
+      }
+      if (tail) parts.push(`the last ${fmt(spanS(tail))}`);
+      const list =
+        parts.length === 1
+          ? parts[0]
+          : `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`;
+
+      let msg = `The sensor looks disconnected for about ${list} of this recording.`;
+      if (middle.length > 0) {
+        const one = middle.length === 1;
+        msg +=
+          ` Peaks next to the middle ${one ? 'stretch' : 'stretches'} may not be real;` +
+          ` "Repair Sensor Disconnects" bridges ${one ? 'it' : 'them'}.`;
+      }
+      warnings.push(msg);
     }
 
     let csvWarnings = null;

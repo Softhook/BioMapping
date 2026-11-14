@@ -314,6 +314,72 @@ test('GSRTrackQualityPopup.computeSummary: detects RF telemetry and bands', () =
   assert.strictEqual(s.rf.hotspots, 3);
 });
 
+test('GSRTrackQualityPopup.computeSummary: a short disconnect is "partly", a long one is "disconnected"', () => {
+  // 100 s walk at 1 Hz; `spans` are the analyser's disconnect stretches and
+  // `warnings` what the CSV parser said.
+  const track = (spans, warnings) => ({
+    name: 'Walk.csv',
+    color: '#3498db',
+    analyzer: {
+      _dataVersion: 1,
+      hasGpsData: false,
+      hasRfData: false,
+      recordingStartTime: 0,
+      formatTimeOnly: () => '',
+      _userPeakLabels: new Map(),
+      _peaks: [],
+      _csvWarnings: warnings,
+      gsrDisconnectSpans: spans,
+      raw: Array.from({ length: 101 }, (_, i) => ({
+        time: i,
+        val: 5 + Math.sin(i / 5),
+      })),
+    },
+  });
+  const stretchWarning = [
+    'The sensor looks disconnected for about 20 s in the middle (1 stretch) of this recording.',
+  ];
+
+  // 20 s of 100 s off: the warning alone must not mark the track red.
+  const part = GSRTrackQualityPopup.computeSummary(
+    track([{ startIdx: 40, endIdx: 60 }], stretchWarning),
+  );
+  assert.strictEqual(part.gsr.isDisconnected, false);
+  assert.strictEqual(part.gsr.isPartlyDisconnected, true);
+  assert.strictEqual(part.gsr.offPct, 20);
+
+  // First 70 s off: mostly disconnected.
+  const most = GSRTrackQualityPopup.computeSummary(
+    track([{ startIdx: 0, endIdx: 70 }], stretchWarning),
+  );
+  assert.strictEqual(most.gsr.isDisconnected, true);
+  assert.strictEqual(most.gsr.isPartlyDisconnected, false);
+
+  // No stretches: good. The near-zero and rail-saturation warnings still
+  // mark the track disconnected, as before.
+  const clean = GSRTrackQualityPopup.computeSummary(track([], []));
+  assert.strictEqual(clean.gsr.isDisconnected, false);
+  assert.strictEqual(clean.gsr.isPartlyDisconnected, false);
+  for (const w of [
+    'GSR contains near-zero values (min 0.0 nS). Sensor may have been disconnected.',
+    'GSR contains rail-saturation values (max 99999 nS). Sensor may have been disconnected.',
+  ]) {
+    assert.strictEqual(
+      GSRTrackQualityPopup.computeSummary(track([], [w])).gsr.isDisconnected,
+      true,
+      w,
+    );
+  }
+
+  const html = GSRTrackQualityPopup.renderCardHtml(part);
+  assert.ok(html.includes('tq-tag-warn'));
+  assert.ok(html.includes('Partly disconnected</span>'));
+  assert.ok(
+    html.includes('peaks/m'),
+    'a partly disconnected track keeps its peak rate',
+  );
+});
+
 test('GSRTrackQualityPopup.renderCardHtml: renders HTML with integrity, metadata, and sensors', () => {
   const summary = {
     name: 'Test <Track> & "Special"',

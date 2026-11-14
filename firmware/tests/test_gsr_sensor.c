@@ -377,7 +377,7 @@ static void test_config_rewritten_after_i2c_recovery(void) {
 // accessor doesn't crash or divide by zero — NOT a check of the real
 // throughput number, which is meaningless on host since
 // tests/shims/furi.h's furi_delay_ms() is a no-op there (see
-// docs/gsr_filtering_analysis.md, Recommendation 1). Only a real device
+// research/gsr_filtering_analysis.md, Recommendation 1). Only a real device
 // build can answer "is it near 1000 Hz". worker_hz_cached is written by
 // gsr_sensor_tick() only once a ~1s window has elapsed, so this test must
 // push the fake clock past that threshold and call tick() before reading
@@ -408,7 +408,7 @@ static void test_worker_hz_accessor(void) {
 // ratio — not just "does it run without crashing". This is the
 // diagnostic that distinguishes "the worker loop genuinely only runs
 // this fast" from "the loop runs faster but half the reads silently
-// fail" (see docs/gsr_filtering_analysis.md) — worth verifying the
+// fail" (see research/gsr_filtering_analysis.md) — worth verifying the
 // arithmetic is actually right, not just present.
 static void test_success_rate_reflects_real_failure_ratio(void) {
     printf("Running test_success_rate_reflects_real_failure_ratio...\n");
@@ -439,7 +439,7 @@ static void test_success_rate_reflects_real_failure_ratio(void) {
 // predecessor, and gsr_sensor_get_duplicate_rate() should read close to
 // 100% (not exactly 100%, since one read per session is never a
 // "duplicate" of anything). This is the direct, measured check for the
-// skip-vs-duplicate question in docs/gsr_filtering_analysis.md — worth
+// skip-vs-duplicate question in research/gsr_filtering_analysis.md — worth
 // verifying the arithmetic is actually right, not just present, the same
 // way test_success_rate_reflects_real_failure_ratio does for that ratio.
 static void test_duplicate_rate_reflects_stale_reads(void) {

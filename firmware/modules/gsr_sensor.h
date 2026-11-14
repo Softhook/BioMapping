@@ -99,7 +99,7 @@ bool gsr_sensor_is_connected(const GsrSensor* gsr);
 
 // Call at 10 Hz.  Reads the ring buffer, applies ~100 ms time-windowed
 // boxcar decimation (sample count varies with the worker's true rate —
-// see docs/gsr_filtering_analysis.md), autoranging, and TIA circuit
+// see research/gsr_filtering_analysis.md), autoranging, and TIA circuit
 // equation.  Well under 1 ms even at the ADS1115's 860 SPS ceiling
 // (~86 integer adds + float ops); safe at 10 Hz on Cortex-M4 @ 64 MHz.
 void gsr_sensor_tick(GsrSensor* gsr);
@@ -154,7 +154,7 @@ float gsr_sensor_get_success_rate(const GsrSensor* gsr);
 // fresh conversions of a signal that just hasn't moved between them — it
 // can't tell those apart. Measured ~7-11% with a live signal connected,
 // ~12-16% disconnected (open circuit, near-DC). See
-// docs/gsr_filtering_analysis.md and gsr_sensor.c's duplicate_count doc
+// research/gsr_filtering_analysis.md and gsr_sensor.c's duplicate_count doc
 // comment.  For diagnostics.
 float gsr_sensor_get_duplicate_rate(const GsrSensor* gsr);
 

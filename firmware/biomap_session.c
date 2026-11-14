@@ -743,7 +743,7 @@ static bool handle_recording_tick(Session* s, const float* rf_rssi) {
     if(s->gsr) {
         gsr_sensor_tick(s->gsr);                    // autoranging only
         float raw_sample = gsr_sensor_get_raw_sample_ns(s->gsr);  // pure single-sample nS
-        raw = gsr_sensor_get_raw(s->gsr);           // filtered 100-sample nS (CSV)
+        raw = gsr_sensor_get_raw(s->gsr);           // ~100 ms window mean, nS (CSV)
         s->pipeline.display.raw_sample_ns = raw_sample;      // store BEFORE IIR touches it
         s->pipeline.display.filtered_ns   = raw;             // store BEFORE IIR touches it
         s->pipeline.display.raw_sample_count = gsr_sensor_get_raw_sample_count(s->gsr);
