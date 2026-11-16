@@ -1,17 +1,22 @@
 #!/bin/zsh
-# Regenerate both boards from scratch: schematic -> netlist -> placed PCB -> routed PCB -> DRC
+# Regenerate both boards from scratch:
+#   schematic -> netlist check -> ERC -> placed + routed PCB -> DRC.
+# Overwrites the KiCad files in ../biomap_flipper and ../biomap_cardputer.
 set -e
 cd "$(dirname "$0")"
 P=/Applications/KiCad/KiCad.app/Contents/Frameworks/Python.framework/Versions/Current/bin/python3
-JAVA=/opt/homebrew/opt/openjdk/bin/java
 K=/Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli
-python3 gen_kicad.py .. expected.json && python3 check_sch.py .. expected.json | grep -v "^  "
+OUT=$(mktemp -d)
+python3 gen_kicad.py .. $OUT/expected.json
+python3 check_sch.py .. $OUT/expected.json | grep -v "^  "     # check without KiCad
 for b in biomap_flipper biomap_cardputer; do
-  $K sch erc -o $b.erc.rpt ../$b/$b.kicad_sch 2>/dev/null | grep -i violation
+  echo "== $b"
   $K sch export netlist --format kicadsexpr -o ../$b/$b.net ../$b/$b.kicad_sch >/dev/null 2>&1
-  $P build_pcb.py $b ../$b 2>/dev/null | grep -v "^  "
-  $P route_pcb.py export ../$b/$b.kicad_pcb $b.dsn 2>/dev/null
-  $JAVA -jar freerouting.jar -de $b.dsn -do $b.ses -mp 40 --gui.enabled=false > $b.fr.log 2>&1
-  $P route_pcb.py finish ../$b/$b.kicad_pcb $b.ses 2>/dev/null
-  echo "== $b DRC"; $K pcb drc --schematic-parity -o $b.drc.rpt ../$b/$b.kicad_pcb 2>&1 | grep -i "found"
+  python3 check_netlist.py $OUT/expected.json $b ../$b/$b.net
+  $K sch erc -o $OUT/$b.erc.rpt ../$b/$b.kicad_sch 2>/dev/null | grep -i violation || true
+  grep "ERC messages" $OUT/$b.erc.rpt
+  $P build_pcb.py $b ../$b 2>/dev/null | grep -v "^ "
+  $K pcb drc --schematic-parity -o $OUT/$b.drc.rpt ../$b/$b.kicad_pcb 2>&1 | grep -i "found"
+  rm -f ../$b/$b.net
 done
+rm -rf $OUT
