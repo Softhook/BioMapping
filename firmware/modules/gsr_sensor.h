@@ -1,16 +1,13 @@
 #pragma once
 
-// GSR Sensor & RF Scanner — ADS1115 I2C differential reader with PGA autoranging
-// and integrated SubGHz RF spectrum scanning.
+// GSR Sensor — ADS1115 I2C differential reader with PGA autoranging.
 //
-// Owns the single background FuriThread ("GsrSensorWorker") that handles both:
-//   1. Biometric GSR ADC sampling at 860 SPS with simple-mean oversampling and
-//      real-time TIA autoranging.
-//   2. SubGHz RF spectrum scanning (when enabled via gsr_sensor_set_rf_enabled),
-//      a single-pass RSSI snapshot across the configured frequency bands
-//      (815/868/915 MHz) via em_scan_rf_fast_sweep_snapshot() — paced to
-//      ~10 Hz rather than every ADC iteration, using this thread's spare
-//      capacity without spawning a second thread.
+// Owns one background FuriThread ("GsrSensorWorker") that samples the ADC
+// at up to 860 SPS into a ring buffer. The thread can also host one other
+// job through an optional worker hook (GsrWorkerHook below). On the
+// Flipper that job is the radio scan (em_scan_sampler.h), which shares
+// this thread rather than spawning a second one. Without a hook the loop
+// is GSR only.
 //
 // Auto-ranging keeps the ADC reading in [12.5 %, 91.5 %] of full scale by
 // stepping the PGA gain in real time. The tick() normalises the reading
@@ -21,16 +18,12 @@
 // Always probed at alloc(); gsr_sensor_available() reports success.
 // Readings return 0 and tick() is a no-op if the probe fails.
 //
-// Thread safety / lock ordering: two internal mutexes, both private to
-// GsrSensor in gsr_sensor.c. `mutex` guards the ADC ring buffer, PGA/
-// calibration state, and diagnostics counters. `rf_mutex` guards only the
-// published rf_rssi_dbm[] snapshot (gsr_sensor_get_rf_snapshot()) —
-// deliberately separate from `mutex` so an RF SPI stall can never block
-// ADC sampling or vice versa (a single shared mutex here caused a
-// GPS-quality regression, traced to RF's SPI retune running inside the lock
-// the main thread needed every tick). NEITHER mutex is ever held across a
-// furi_hal_i2c_*/furi_hal_subghz_* hardware call — both only ever guard the
-// in-memory fields, copied in/out.
+// Thread safety / lock ordering: one internal mutex, private to GsrSensor
+// in gsr_sensor.c, guards the ADC ring buffer, PGA/calibration state, and
+// diagnostics counters. It is never held across a furi_hal_i2c_* call or
+// across the worker hook — it only ever guards in-memory fields, copied
+// in/out. The hook's own state has its own lock (see em_scan_sampler.h),
+// so a slow radio call can never block ADC readers.
 //
 // Safe to call any accessor below from a caller that is ALREADY holding
 // BioMapApp's app->mutex (biomap_render_callback and the tick handler in
@@ -40,7 +33,8 @@
 // GsrSensor's-internal-mutex, never the reverse. Do not add any call from
 // inside this module (or gsr_sensor_worker's background thread) back into
 // app->mutex; that would create the opposite ordering and open up a
-// deadlock between the two. (Contrast with gps_uart.h's rule, which is the
+// deadlock between the two. The same rule applies to the worker hook.
+// (Contrast with gps_uart.h's rule, which is the
 // opposite kind of caution for a different reason — bounding how long
 // app->mutex stays held during NMEA parsing, not lock ordering.)
 
@@ -84,8 +78,19 @@ static inline float gsr_tia_counts_to_ns(float counts) {
 
 typedef struct GsrSensor GsrSensor;
 
-// Lifecycle
-GsrSensor* gsr_sensor_alloc(void);
+// Called on the worker thread once per normal loop pass, right after the
+// ADC read (not on PGA-change passes). Lets another job share this thread.
+// Rules for the hook:
+//   - keep it short: time spent here is time the ADC isn't being read
+//     (em_scan_sampler_poll() returns at once except every ~100 ms);
+//   - never take app->mutex, or anything that waits on this sensor;
+//   - `ctx` must stay valid until gsr_sensor_free() returns.
+typedef void (*GsrWorkerHook)(void* ctx);
+
+// Lifecycle. `hook` may be NULL (GSR only). It is fixed for the sensor's
+// lifetime. The worker thread starts inside alloc(), so the hook can be
+// called before alloc() returns: `ctx` must be fully set up beforehand.
+GsrSensor* gsr_sensor_alloc(GsrWorkerHook hook, void* hook_ctx);
 void       gsr_sensor_free(GsrSensor* gsr);
 
 // Returns false when ADS1115 probe failed at init
@@ -198,26 +203,12 @@ uint32_t gsr_sensor_get_pga_change_count(const GsrSensor* gsr);
 // nS = gain * nS + offset.
 void gsr_sensor_set_calibration(GsrSensor* gsr, bool active, float gain, float offset);
 
-// Enable/disable SubGHz RF RSSI sampling on the background worker thread
-// (paced to ~10 Hz — see gsr_sensor.c's RF_SAMPLE_INTERVAL_MS). Not
-// reentrant-safe with itself (only ever called from session setup/teardown
-// on the main thread in practice); safe with respect to the worker thread
-// by construction — see gsr_sensor.c's doc comment on this function for
-// the enable/disable ordering that makes that true.
-void gsr_sensor_set_rf_enabled(GsrSensor* gsr, bool enabled);
-
-// Thread-safe retrieval of 3-band RSSI values. Guarded by rf_mutex, not
-// the ADC path's `mutex` — never blocks on, or is blocked by, GSR sampling.
-void gsr_sensor_get_rf_snapshot(const GsrSensor* gsr, float* out_rssi_dbm);
-
-// Worst single blocking-call duration ever observed on the worker thread,
-// in ms — a lifetime max (never reset), timed immediately around each
-// hardware call with furi_get_tick(). Answers "which specific call caused a
-// given main-loop stall" directly — see biomap_types.h's RowDiag doc
-// comment and docs/archive/gps_rf_mutex_status.md. i2c_peak_ms covers both the
-// config-write and conversion-read I2C calls (mutually exclusive per loop
-// iteration). Returns 0 if unavailable. For diagnostics.
+// Worst single I2C call duration ever observed on the worker thread, in ms
+// — a lifetime max (never reset), timed immediately around each I2C call
+// with furi_get_tick(). Covers both the config-write and conversion-read
+// calls (mutually exclusive per loop iteration). Answers "did an I2C call
+// cause a given main-loop stall" directly — see biomap_types.h's RowDiag
+// doc comment and docs/archive/gps_rf_mutex_status.md. The radio's
+// matching figures are in em_scan_sampler.h. Returns 0 if unavailable.
+// For diagnostics.
 uint32_t gsr_sensor_get_i2c_peak_ms(const GsrSensor* gsr);
-uint32_t gsr_sensor_get_rf_rssi_peak_ms(const GsrSensor* gsr);
-uint32_t gsr_sensor_get_rf_retune_peak_ms(const GsrSensor* gsr);
-

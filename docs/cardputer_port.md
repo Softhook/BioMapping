@@ -296,3 +296,31 @@ Each step can be tested on its own, and the device is useful from step 3.
 - Screen: quick route first, or go straight to a redesign?
 - Clock: block recording until GPS time is known, or fix the time afterwards?
 - Electronics: buy a ready-made proto board, or build a home-made Cap?
+
+---
+
+## 9. Preparing the Flipper code (work done so far)
+
+Before starting the port itself, the Flipper firmware is being reshaped so that more of it can be shared. Each step keeps the Flipper working exactly as before.
+
+### Step 1: radio scan out of the GSR code (done, not yet tried on a real Flipper)
+
+The radio (EM) scan used to be written into the middle of the GSR sensor code ([gsr_sensor.c](../firmware/modules/gsr_sensor.c)). It now lives in its own file, [em_scan_sampler.c](../firmware/modules/em_scan_sampler.c). It still runs on the GSR thread, at the same moments as before. No new thread was added. The GSR loop has one line that says "if there is another job, give it a turn". On the Flipper the session hands it the radio scan. On the Cardputer nothing is handed over, so the GSR code contains no radio code at all.
+
+**To check on a real Flipper:** run an EM mode for a minute, check that the radio bars move, then leave the mode and check that the app exits cleanly.
+
+**Known weak points, left as they are for now:**
+
+- **The order things are freed in matters, and only a comment says so.** The GSR sensor must be freed before the radio sampler, because the GSR thread calls into the sampler. Today there is one place that does this, and it does it in the right order. If someone gets it the wrong way round, the device could crash at random.
+- **An older gap came across unchanged.** If turning the radio off takes too long (more than 100 ms) and the radio is turned straight back on, the start-up could overlap the radio's last reading. The app never does this today: the radio is only turned off once, at the end of a session. The fix would be a short wait before turning it back on. This is noted in the code.
+- **The screen can read the module pointers while a session is starting.** The session sets the GSR and radio pointers without holding the main lock while the screen may already be drawing. This is safe on the Flipper's chip, but it is a pattern to avoid copying into new code.
+- **The radio sampler's tests sit inside the GSR tests** (`test_gsr_sensor.c`), not in a file of their own.
+- **This step alone does not make the code run on the Cardputer.** The GSR code still uses the Flipper's own I2C calls, and the session and screen code still include the radio modes. Those are later steps (see below).
+
+### Next steps (proposed, not yet agreed)
+
+2. Split the GPS code into plain C (setup commands, reading replies, standby) and a small serial-port part.
+3. The same split for the ADS1115 logic in the GSR code.
+4. Notifications by meaning ("recording started", "GPS fix", "write error") instead of Flipper LED patterns.
+5. Move the direct SD card, Bluetooth and screen calls out of the session code.
+6. Folders for shared code and for each device's own code.

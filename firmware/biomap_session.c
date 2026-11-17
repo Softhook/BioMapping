@@ -90,10 +90,12 @@ void session_deinit(Session* s, BioMapApp* app) {
     furi_mutex_acquire(app->mutex, FuriWaitForever);
     SdLogger* logger = s->logger;
     GsrSensor* gsr = s->gsr;
+    EmScanSampler* em = s->em;
     GpsUart* gps = s->gps;
     BtStream* bt_stream = s->bt_stream;
     s->logger = NULL;
     s->gsr = NULL;
+    s->em = NULL;
     s->gps = NULL;
     s->bt_stream = NULL;
     bool active_recording = s->recording.active;
@@ -124,6 +126,11 @@ void session_deinit(Session* s, BioMapApp* app) {
     }
     if(gsr) {
         gsr_sensor_free(gsr);
+    }
+    // After gsr: em's poll runs on gsr's worker thread, which
+    // gsr_sensor_free() has now joined. Powers the radio down.
+    if(em) {
+        em_scan_sampler_free(em);
     }
     if(gps) {
         gps_uart_free(gps);
@@ -200,8 +207,8 @@ static inline RowDiag get_row_diag(const Session* s) {
     d.gps_reinit_count = s->gps ? gps_uart_get_reinit_count(s->gps) : 0;
     d.gsr_hz       = s->gsr ? gsr_sensor_get_worker_hz(s->gsr) : 0.0f;
     d.i2c_peak_ms       = s->gsr ? gsr_sensor_get_i2c_peak_ms(s->gsr) : 0;
-    d.rf_rssi_peak_ms   = s->gsr ? gsr_sensor_get_rf_rssi_peak_ms(s->gsr) : 0;
-    d.rf_retune_peak_ms = s->gsr ? gsr_sensor_get_rf_retune_peak_ms(s->gsr) : 0;
+    d.rf_rssi_peak_ms   = s->em ? em_scan_sampler_get_rssi_peak_ms(s->em) : 0;
+    d.rf_retune_peak_ms = s->em ? em_scan_sampler_get_retune_peak_ms(s->em) : 0;
     d.flush_peak_ms     = s->logger ? sd_logger_get_flush_peak_ms(s->logger) : 0;
     d.log_fill_bytes      = s->logger ? sd_logger_get_batch_fill_bytes(s->logger) : 0;
     d.log_fill_peak_bytes = s->logger ? sd_logger_get_batch_fill_peak_bytes(s->logger) : 0;
@@ -294,8 +301,8 @@ static bool append_gps_csv_row(Session* s, const GpsPosition* pos,
 // by handle_second_boundary().
 //
 // rf_rssi is fetched by the caller (see the Tick handler below), which
-// already holds app->mutex when it does — safe, see gsr_sensor_get_rf_snapshot()'s
-// doc comment.
+// already holds app->mutex when it does — safe, see em_scan_sampler.h's
+// thread-safety comment.
 // Returns true on success, false on buffer overflow.
 static bool batch_csv_row(Session* s, float raw, const float* rf_rssi) {
     if(!s->recording.active || !has_gsr(s->mode)) return true;
@@ -812,7 +819,12 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
     } else {
         s->gps = NULL; // the module is already asleep — see gps_uart_port_open()
     }
-    s->gsr    = (has_gsr(mode) || has_rf(mode) || is_live_stream) ? gsr_sensor_alloc() : NULL;
+    // The radio sampler borrows the GSR worker thread (see
+    // em_scan_sampler.h), so radio modes need a GsrSensor even without GSR.
+    s->em     = has_rf(mode) ? em_scan_sampler_alloc() : NULL;
+    s->gsr    = (has_gsr(mode) || has_rf(mode) || is_live_stream)
+                ? gsr_sensor_alloc(s->em ? em_scan_sampler_poll : NULL, s->em)
+                : NULL;
     if(s->gsr) {
         furi_mutex_acquire(app->mutex, FuriWaitForever);
         bool active = app->cal_active;
@@ -820,11 +832,10 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
         float offset = app->cal_offset;
         furi_mutex_release(app->mutex);
         gsr_sensor_set_calibration(s->gsr, active, gain, offset);
-        // has_rf(LiveStream) is false — this mode never scans RF (§2's
-        // architecture diagram: GSR+GPS only, no RF fields in the wire
-        // packet).
-        gsr_sensor_set_rf_enabled(s->gsr, has_rf(mode));
     }
+    // has_rf(LiveStream) is false — this mode never scans RF (§2's
+    // architecture diagram: GSR+GPS only, no RF fields in the wire packet).
+    if(s->em) em_scan_sampler_set_enabled(s->em, true);
     // No SdLogger at all for Live Stream (§3) — bt_stream replaces it.
     s->logger = is_live_stream ? NULL : sd_logger_alloc(app->storage);
     if(is_live_stream) {
@@ -917,15 +928,15 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
                 ? (now_tick - s->recording.last_tick_wall_ms) : 0;
             s->recording.last_tick_wall_ms = now_tick;
 
-            // Safe to call while holding app->mutex: gsr_sensor_get_rf_snapshot()
-            // is guarded by GsrSensor's own dedicated rf_mutex, held only for a
-            // 3-float memcpy and never across an RF hardware call — see
-            // gsr_sensor.h's thread-safety comment. biomap_render_callback()
-            // reads the same snapshot the same way.
+            // Safe to call while holding app->mutex: the snapshot is
+            // guarded by EmScanSampler's own mutex, held only for a 3-float
+            // memcpy and never across a radio hardware call — see
+            // em_scan_sampler.h's thread-safety comment.
+            // biomap_render_callback() reads the same snapshot the same way.
             float rf_rssi[EM_SCAN_NUM_FREQS];
-            bool rf_active = has_rf(mode) && s->gsr && s->recording.active;
+            bool rf_active = has_rf(mode) && s->em && s->recording.active;
             if(rf_active) {
-                gsr_sensor_get_rf_snapshot(s->gsr, rf_rssi);
+                em_scan_sampler_get_snapshot(s->em, rf_rssi);
             }
 
             // Live Stream is dispatched separately (not through

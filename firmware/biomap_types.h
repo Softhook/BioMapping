@@ -146,8 +146,9 @@ typedef struct {
 // The *_peak_ms columns go one level deeper: given a stall in tick_dt_ms,
 // which of the worker's candidate blocking calls caused it? Each is a
 // lifetime-max furi_get_tick() delta measured immediately around one
-// specific hardware call — see the matching gsr_sensor_get_*_peak_ms()
-// (gsr_sensor.h) and sd_logger_get_flush_peak_ms() (sd_logger.h) accessors
+// specific hardware call — see gsr_sensor_get_i2c_peak_ms() (gsr_sensor.h),
+// em_scan_sampler_get_*_peak_ms() (em_scan_sampler.h) and
+// sd_logger_get_flush_peak_ms() (sd_logger.h)
 // for exactly what each one times. Like gps_rx_drops/nmea_fail they are
 // never reset, so a track's later rows show which one first jumped and when.
 //

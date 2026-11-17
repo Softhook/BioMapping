@@ -28,6 +28,7 @@
 
 #include "modules/gsr_sensor.h"
 #include "modules/em_scan_rf.h"
+#include "modules/em_scan_sampler.h"
 #include "furi.h"
 #include "furi_hal.h"
 
@@ -206,6 +207,20 @@ static void wait_for_peak_ms_at_least(
     }
 }
 
+// Same as wait_for_peak_ms_at_least, for the radio sampler's figures.
+static void wait_for_em_peak_ms_at_least(
+    uint32_t (*getter)(const EmScanSampler*), const EmScanSampler* em, uint32_t target) {
+    int waited_us = 0;
+    while(getter(em) < target) {
+        usleep(200);
+        waited_us += 200;
+        if(waited_us > 5000000) {
+            fprintf(stderr, "TIMEOUT: peak_ms accessor never reached %u\n", (unsigned)target);
+            assert(false);
+        }
+    }
+}
+
 // Mirrors gsr_sensor.h's gsr_tia_counts_to_ns() (documented, stable hardware
 // formula) — used to compute an independently-derived expected value,
 // not to duplicate the driver's control flow.
@@ -222,7 +237,7 @@ static void test_alloc_probe_success(void) {
     furi_hal_i2c_mock_reset();
     furi_hal_i2c_mock_set_raw16(10000);
 
-    GsrSensor* gsr = gsr_sensor_alloc();
+    GsrSensor* gsr = gsr_sensor_alloc(NULL, NULL);
     assert(gsr != NULL);
     assert(gsr_sensor_available(gsr) == true);
 
@@ -235,7 +250,7 @@ static void test_alloc_probe_failure(void) {
     furi_hal_i2c_mock_reset();
     furi_hal_i2c_mock_set_read_fail(true); // probe read fails
 
-    GsrSensor* gsr = gsr_sensor_alloc();
+    GsrSensor* gsr = gsr_sensor_alloc(NULL, NULL);
     assert(gsr != NULL);
     assert(gsr_sensor_available(gsr) == false);
     assert(gsr_sensor_get_raw(gsr) == 0.0f);
@@ -298,7 +313,7 @@ static void test_recovery_read_not_used(void) {
     printf("Running test_recovery_read_not_used...\n");
     furi_hal_i2c_mock_reset();
     furi_hal_i2c_mock_set_raw16(10000);
-    GsrSensor* gsr = gsr_sensor_alloc();
+    GsrSensor* gsr = gsr_sensor_alloc(NULL, NULL);
     wait_for_more_reads(50);
 
     furi_hal_i2c_mock_set_read_fail(true);
@@ -326,7 +341,7 @@ static void test_failing_config_write_marks_sensor_lost(void) {
     printf("Running test_failing_config_write_marks_sensor_lost...\n");
     furi_hal_i2c_mock_reset();
     furi_hal_i2c_mock_set_raw16(1000); // low signal -> autorange up after 5 ticks
-    GsrSensor* gsr = gsr_sensor_alloc();
+    GsrSensor* gsr = gsr_sensor_alloc(NULL, NULL);
     assert(gsr_sensor_available(gsr));
 
     furi_hal_i2c_mock_set_write_fail(true);
@@ -354,7 +369,7 @@ static void test_config_rewritten_after_i2c_recovery(void) {
     // Mid-session loss: working sensor, then sustained I2C failure.
     furi_hal_i2c_mock_reset();
     furi_hal_i2c_mock_set_raw16(10000);
-    GsrSensor* gsr = gsr_sensor_alloc();
+    GsrSensor* gsr = gsr_sensor_alloc(NULL, NULL);
     assert(gsr_sensor_available(gsr));
     furi_hal_i2c_mock_set_read_fail(true);
     wait_until_available(gsr, false);
@@ -365,7 +380,7 @@ static void test_config_rewritten_after_i2c_recovery(void) {
     furi_hal_i2c_mock_reset();
     furi_hal_i2c_mock_set_raw16(10000);
     furi_hal_i2c_mock_set_read_fail(true);
-    gsr = gsr_sensor_alloc();
+    gsr = gsr_sensor_alloc(NULL, NULL);
     assert(!gsr_sensor_available(gsr));
     assert(furi_hal_i2c_mock_write_count() == 0);
     assert_config_rewritten_on_recovery(gsr);
@@ -387,7 +402,7 @@ static void test_worker_hz_accessor(void) {
     furi_hal_i2c_mock_reset();
     furi_hal_i2c_mock_set_raw16(10000);
 
-    GsrSensor* gsr = gsr_sensor_alloc();
+    GsrSensor* gsr = gsr_sensor_alloc(NULL, NULL);
     assert(gsr != NULL);
     assert(gsr_sensor_get_worker_hz(gsr) == 0.0f); // no window has elapsed yet
 
@@ -416,7 +431,7 @@ static void test_success_rate_reflects_real_failure_ratio(void) {
     furi_hal_i2c_mock_set_raw16(10000);
     furi_hal_i2c_mock_set_fail_every_nth(2); // exactly 50% of reads fail
 
-    GsrSensor* gsr = gsr_sensor_alloc();
+    GsrSensor* gsr = gsr_sensor_alloc(NULL, NULL);
     assert(gsr != NULL);
 
     wait_for_more_reads(400); // plenty of attempts on both sides of the 50%
@@ -447,7 +462,7 @@ static void test_duplicate_rate_reflects_stale_reads(void) {
     furi_hal_i2c_mock_reset();
     furi_hal_i2c_mock_set_raw16(10000); // held constant — every read after the first repeats it
 
-    GsrSensor* gsr = gsr_sensor_alloc();
+    GsrSensor* gsr = gsr_sensor_alloc(NULL, NULL);
     assert(gsr != NULL);
     assert(gsr_sensor_get_duplicate_rate(gsr) == 0.0f); // no window has elapsed yet
     // No duplicates have happened yet either — must read the UINT32_MAX
@@ -482,7 +497,7 @@ static void test_new_diagnostics_accessors(void) {
     furi_hal_i2c_mock_reset();
     furi_hal_i2c_mock_set_raw16(10000); // mid-range, constant: no autorange, no variation
 
-    GsrSensor* gsr = gsr_sensor_alloc();
+    GsrSensor* gsr = gsr_sensor_alloc(NULL, NULL);
     assert(gsr != NULL);
     assert(gsr_sensor_get_consecutive_failures(gsr) == 0);
 
@@ -509,7 +524,7 @@ static void test_tia_conversion(void) {
     furi_hal_i2c_mock_reset();
     furi_hal_i2c_mock_set_raw16(10000); // mid-range: no autorange trigger
 
-    GsrSensor* gsr = gsr_sensor_alloc();
+    GsrSensor* gsr = gsr_sensor_alloc(NULL, NULL);
     assert(gsr != NULL && gsr_sensor_available(gsr));
 
     wait_for_more_reads(200); // let the 128-slot ring buffer fully turn over
@@ -529,7 +544,7 @@ static void test_calibration_applies_gain_offset(void) {
     furi_hal_i2c_mock_reset();
     furi_hal_i2c_mock_set_raw16(10000);
 
-    GsrSensor* gsr = gsr_sensor_alloc();
+    GsrSensor* gsr = gsr_sensor_alloc(NULL, NULL);
     assert(gsr != NULL);
     gsr_sensor_set_calibration(gsr, true, 2.0f, 500.0f);
 
@@ -553,7 +568,7 @@ static void test_autorange_up_on_low_signal(void) {
     furi_hal_i2c_mock_reset();
     furi_hal_i2c_mock_set_raw16(1000); // well below ADS_LOW_THRESH
 
-    GsrSensor* gsr = gsr_sensor_alloc();
+    GsrSensor* gsr = gsr_sensor_alloc(NULL, NULL);
     assert(gsr != NULL);
     assert(gsr_sensor_get_pga_index(gsr) == 2);
     // Baseline captured BEFORE the tick loop below, which is what actually
@@ -587,7 +602,7 @@ static void test_autorange_down_on_saturation(void) {
     furi_hal_i2c_mock_reset();
     furi_hal_i2c_mock_set_raw16(31000); // above ADS_SATURATE_THRESH
 
-    GsrSensor* gsr = gsr_sensor_alloc();
+    GsrSensor* gsr = gsr_sensor_alloc(NULL, NULL);
     assert(gsr != NULL);
     wait_for_more_reads(200);
 
@@ -621,7 +636,7 @@ static void test_autorange_settle_discards_stale_conversion(void) {
     em_scan_rf_mock_reset();
     furi_hal_i2c_mock_set_raw16(3000);
 
-    GsrSensor* gsr = gsr_sensor_alloc();
+    GsrSensor* gsr = gsr_sensor_alloc(NULL, NULL);
     assert(gsr != NULL);
     assert(gsr_sensor_get_pga_index(gsr) == 2);
 
@@ -689,7 +704,7 @@ static void test_disconnect_debounce_low_signal(void) {
     furi_hal_i2c_mock_reset();
     furi_hal_i2c_mock_set_raw16(0); // -> 0 nS, below GSR_VALID_MIN_NS
 
-    GsrSensor* gsr = gsr_sensor_alloc();
+    GsrSensor* gsr = gsr_sensor_alloc(NULL, NULL);
     assert(gsr != NULL);
     wait_for_more_reads(200);
 
@@ -716,7 +731,7 @@ static void test_disconnect_debounce_realistic_open_circuit_noise(void) {
     furi_hal_i2c_mock_reset();
     furi_hal_i2c_mock_set_raw16(7); // ~18.6 nS raw TIA — realistic open-circuit noise, not exactly 0
 
-    GsrSensor* gsr = gsr_sensor_alloc();
+    GsrSensor* gsr = gsr_sensor_alloc(NULL, NULL);
     assert(gsr != NULL);
     wait_for_more_reads(200);
 
@@ -743,7 +758,7 @@ static void test_disconnect_debounce_ignores_calibration_offset(void) {
     furi_hal_i2c_mock_reset();
     furi_hal_i2c_mock_set_raw16(0); // open circuit -> ~0 nS raw TIA
 
-    GsrSensor* gsr = gsr_sensor_alloc();
+    GsrSensor* gsr = gsr_sensor_alloc(NULL, NULL);
     assert(gsr != NULL);
     gsr_sensor_set_calibration(gsr, true, 2.0f, 500.0f); // offset alone sits well inside the valid window
     wait_for_more_reads(200);
@@ -769,7 +784,7 @@ static void test_disconnect_on_i2c_failure(void) {
     furi_hal_i2c_mock_reset();
     furi_hal_i2c_mock_set_raw16(10000);
 
-    GsrSensor* gsr = gsr_sensor_alloc();
+    GsrSensor* gsr = gsr_sensor_alloc(NULL, NULL);
     assert(gsr != NULL);
     wait_for_more_reads(200);
     assert(gsr_sensor_is_connected(gsr) == true);
@@ -790,7 +805,7 @@ static void test_adc_power_down_and_reenable(void) {
     furi_hal_i2c_mock_set_raw16(10000);
 
     // Step 1: Alloc sensor -> config MSB must have MODE bit = 0 (continuous mode)
-    GsrSensor* gsr = gsr_sensor_alloc();
+    GsrSensor* gsr = gsr_sensor_alloc(NULL, NULL);
     assert(gsr != NULL);
     uint8_t alloc_msb = furi_hal_i2c_mock_last_config_msb();
     printf("  alloc config MSB = 0x%02X (MODE bit = %d, expect 0 for continuous)\n",
@@ -805,7 +820,7 @@ static void test_adc_power_down_and_reenable(void) {
     assert((free_msb & 0x01) == 1);
 
     // Step 3: Re-alloc sensor -> must write continuous mode config with MODE bit = 0 again
-    GsrSensor* gsr2 = gsr_sensor_alloc();
+    GsrSensor* gsr2 = gsr_sensor_alloc(NULL, NULL);
     assert(gsr2 != NULL);
     uint8_t realloc_msb = furi_hal_i2c_mock_last_config_msb();
     printf("  re-alloc config MSB = 0x%02X (MODE bit = %d, expect 0 for continuous)\n",
@@ -817,11 +832,32 @@ static void test_adc_power_down_and_reenable(void) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// RF (SubGHz) tests — the interleaved band-scan block the "only 2 threads"
-// merge (069e505) added into this same worker loop. Covers the
-// enable/disable lifecycle, dwell peak-capture, and band rotation, none of
-// which had any coverage before this file.
+// RF (SubGHz) tests — the radio sampler (em_scan_sampler.c) running on the
+// GSR worker thread through its worker hook. Covers the enable/disable
+// lifecycle, pacing, snapshot publishing and band rotation.
 // ─────────────────────────────────────────────────────────────────────────
+
+// The GSR-only build (no radio, e.g. the Cardputer): with no worker hook,
+// the GSR worker must never touch the radio at all.
+static void test_no_hook_never_touches_radio(void) {
+    printf("Running test_no_hook_never_touches_radio...\n");
+    furi_hal_i2c_mock_reset();
+    furi_hal_i2c_mock_set_raw16(10000);
+    furi_hal_subghz_mock_reset();
+    em_scan_rf_mock_reset();
+
+    GsrSensor* gsr = gsr_sensor_alloc(NULL, NULL);
+    furi_test_advance_tick(500); // well past any radio pacing interval
+    wait_for_more_reads(200);
+    assert(gsr_sensor_is_connected(gsr) == true);
+    assert(em_scan_rf_mock_init_count() == 0);
+    assert(em_scan_rf_mock_fast_sweep_count() == 0);
+    assert(furi_hal_subghz_mock_get_rssi_call_count() == 0);
+
+    gsr_sensor_free(gsr);
+    assert(em_scan_rf_mock_deinit_count() == 0);
+    printf("  -> Pass\n");
+}
 
 static void test_rf_disabled_snapshot_reads_default_floor(void) {
     printf("Running test_rf_disabled_snapshot_reads_default_floor...\n");
@@ -830,12 +866,13 @@ static void test_rf_disabled_snapshot_reads_default_floor(void) {
     furi_hal_subghz_mock_reset();
     em_scan_rf_mock_reset();
 
-    GsrSensor* gsr = gsr_sensor_alloc();
+    EmScanSampler* em = em_scan_sampler_alloc();
+    GsrSensor* gsr = gsr_sensor_alloc(em_scan_sampler_poll, em);
     assert(gsr != NULL);
     wait_for_more_reads(50); // let the worker run a bit; RF stays off throughout
 
     float rssi[EM_SCAN_NUM_FREQS];
-    gsr_sensor_get_rf_snapshot(gsr, rssi);
+    em_scan_sampler_get_snapshot(em, rssi);
 
     printf("  rssi[0]=%.1f (expect -100.0, RF never enabled)\n", (double)rssi[0]);
     for(int i = 0; i < EM_SCAN_NUM_FREQS; i++) {
@@ -846,6 +883,7 @@ static void test_rf_disabled_snapshot_reads_default_floor(void) {
     assert(furi_hal_subghz_mock_get_rssi_call_count() == 0); // RF block never ran
 
     gsr_sensor_free(gsr);
+    em_scan_sampler_free(em);
     printf("  -> Pass\n");
 }
 
@@ -856,10 +894,11 @@ static void test_rf_enable_calls_init_and_arms_band_zero(void) {
     furi_hal_subghz_mock_reset();
     em_scan_rf_mock_reset();
 
-    GsrSensor* gsr = gsr_sensor_alloc();
+    EmScanSampler* em = em_scan_sampler_alloc();
+    GsrSensor* gsr = gsr_sensor_alloc(em_scan_sampler_poll, em);
     assert(gsr != NULL);
 
-    gsr_sensor_set_rf_enabled(gsr, true);
+    em_scan_sampler_set_enabled(em, true);
     printf("  init_count=%d (expect 1)\n", em_scan_rf_mock_init_count());
     assert(em_scan_rf_mock_init_count() == 1);
     assert(em_scan_rf_mock_deinit_count() == 0);
@@ -868,6 +907,7 @@ static void test_rf_enable_calls_init_and_arms_band_zero(void) {
     assert(em_scan_rf_mock_fast_sweep_count() >= 7);
 
     gsr_sensor_free(gsr);
+    em_scan_sampler_free(em);
     printf("  -> Pass\n");
 }
 
@@ -878,12 +918,13 @@ static void test_rf_disable_calls_deinit_and_stops_reads(void) {
     furi_hal_subghz_mock_reset();
     em_scan_rf_mock_reset();
 
-    GsrSensor* gsr = gsr_sensor_alloc();
+    EmScanSampler* em = em_scan_sampler_alloc();
+    GsrSensor* gsr = gsr_sensor_alloc(em_scan_sampler_poll, em);
     assert(gsr != NULL);
-    gsr_sensor_set_rf_enabled(gsr, true);
+    em_scan_sampler_set_enabled(em, true);
     wait_for_more_fast_sweeps(7);
 
-    gsr_sensor_set_rf_enabled(gsr, false);
+    em_scan_sampler_set_enabled(em, false);
     assert(em_scan_rf_mock_deinit_count() == 1);
 
     // Snapshot must reset to the disabled-default floor, not linger at
@@ -891,7 +932,7 @@ static void test_rf_disable_calls_deinit_and_stops_reads(void) {
     // (e.g. a mode switch) shouldn't see a stale live-looking value.
     // Regression coverage for the 2026-07-30 mutex review's fix #3.
     float rssi[EM_SCAN_NUM_FREQS];
-    gsr_sensor_get_rf_snapshot(gsr, rssi);
+    em_scan_sampler_get_snapshot(em, rssi);
     for(int i = 0; i < EM_SCAN_NUM_FREQS; i++) {
         printf("  rssi[%d]=%.1f after disable (expect -100.0)\n", i, (double)rssi[i]);
         assert(fabs((double)rssi[i] - (-100.0)) < 1e-6);
@@ -904,6 +945,7 @@ static void test_rf_disable_calls_deinit_and_stops_reads(void) {
     assert(em_scan_rf_mock_fast_sweep_count() == count_at_disable);
 
     gsr_sensor_free(gsr);
+    em_scan_sampler_free(em);
     printf("  -> Pass\n");
 }
 
@@ -915,11 +957,12 @@ static void test_rf_band_rotates_through_all_three_bands(void) {
     em_scan_rf_mock_reset();
     furi_hal_subghz_mock_set_rssi(-95.0f);
 
-    GsrSensor* gsr = gsr_sensor_alloc();
+    EmScanSampler* em = em_scan_sampler_alloc();
+    GsrSensor* gsr = gsr_sensor_alloc(em_scan_sampler_poll, em);
     assert(gsr != NULL);
     assert(em_scan_rf_mock_visit_count(0) == 0);
     
-    gsr_sensor_set_rf_enabled(gsr, true); // enables RF, triggers immediate fast sweep
+    em_scan_sampler_set_enabled(em, true); // enables RF, triggers immediate fast sweep
     
     wait_for_all_bands_visited(EM_SCAN_NUM_FREQS);
     printf("  visit counts: band0=%d band1=%d band2=%d (all >= 1)\n",
@@ -930,6 +973,7 @@ static void test_rf_band_rotates_through_all_three_bands(void) {
     }
 
     gsr_sensor_free(gsr);
+    em_scan_sampler_free(em);
     printf("  -> Pass\n");
 }
 
@@ -941,9 +985,10 @@ static void test_rf_fast_sweep_pacing_on_elapsed_time(void) {
     em_scan_rf_mock_reset();
     furi_hal_subghz_mock_set_rssi(-95.0f);
 
-    GsrSensor* gsr = gsr_sensor_alloc();
+    EmScanSampler* em = em_scan_sampler_alloc();
+    GsrSensor* gsr = gsr_sensor_alloc(em_scan_sampler_poll, em);
     assert(gsr != NULL);
-    gsr_sensor_set_rf_enabled(gsr, true); // forces immediate first fast sweep
+    em_scan_sampler_set_enabled(em, true); // forces immediate first fast sweep
 
     // Wait for the worker to take that forced first fast sweep
     int waited_us = 0;
@@ -980,6 +1025,7 @@ static void test_rf_fast_sweep_pacing_on_elapsed_time(void) {
     assert(em_scan_rf_mock_fast_sweep_count() >= count_after_first + 1);
 
     gsr_sensor_free(gsr);
+    em_scan_sampler_free(em);
     printf("  -> Pass\n");
 }
 
@@ -995,20 +1041,22 @@ static void test_rf_fast_sweep_captures_rssi(void) {
     furi_hal_subghz_mock_set_rssi_for_band_visit(1, 1, -80.0f);
     furi_hal_subghz_mock_set_rssi_for_band_visit(2, 1, -90.0f);
 
-    GsrSensor* gsr = gsr_sensor_alloc();
+    EmScanSampler* em = em_scan_sampler_alloc();
+    GsrSensor* gsr = gsr_sensor_alloc(em_scan_sampler_poll, em);
     assert(gsr != NULL);
-    gsr_sensor_set_rf_enabled(gsr, true); // forces immediate first fast sweep
+    em_scan_sampler_set_enabled(em, true); // forces immediate first fast sweep
 
     wait_for_more_fast_sweeps(1);
 
     float rssi[EM_SCAN_NUM_FREQS];
-    gsr_sensor_get_rf_snapshot(gsr, rssi);
+    em_scan_sampler_get_snapshot(em, rssi);
     printf("  rssi[0]=%.1f rssi[1]=%.1f rssi[2]=%.1f\n", (double)rssi[0], (double)rssi[1], (double)rssi[2]);
     assert(fabs((double)rssi[0] - (-70.0)) < 1e-6);
     assert(fabs((double)rssi[1] - (-80.0)) < 1e-6);
     assert(fabs((double)rssi[2] - (-90.0)) < 1e-6);
 
     gsr_sensor_free(gsr);
+    em_scan_sampler_free(em);
     printf("  -> Pass\n");
 }
 
@@ -1024,24 +1072,26 @@ static void test_rf_rssi_fast_sweep_updates(void) {
     // Visit 2 values
     furi_hal_subghz_mock_set_rssi_for_band_visit(0, 2, -65.0f);
 
-    GsrSensor* gsr = gsr_sensor_alloc();
+    EmScanSampler* em = em_scan_sampler_alloc();
+    GsrSensor* gsr = gsr_sensor_alloc(em_scan_sampler_poll, em);
     assert(gsr != NULL);
-    gsr_sensor_set_rf_enabled(gsr, true); // sweep 1 (visit 1)
+    em_scan_sampler_set_enabled(em, true); // sweep 1 (visit 1)
     
     wait_for_more_fast_sweeps(1);
     float rssi[EM_SCAN_NUM_FREQS];
-    gsr_sensor_get_rf_snapshot(gsr, rssi);
+    em_scan_sampler_get_snapshot(em, rssi);
     assert(fabs((double)rssi[0] - (-70.0)) < 1e-6);
 
     // Advance clock to trigger sweep 2 (visit 2)
     furi_test_advance_tick(100);
     wait_for_more_fast_sweeps(1);
     
-    gsr_sensor_get_rf_snapshot(gsr, rssi);
+    em_scan_sampler_get_snapshot(em, rssi);
     printf("  rssi[0]=%.1f (expect -65.0)\n", (double)rssi[0]);
     assert(fabs((double)rssi[0] - (-65.0)) < 1e-6);
 
     gsr_sensor_free(gsr);
+    em_scan_sampler_free(em);
     printf("  -> Pass\n");
 }
 
@@ -1062,14 +1112,15 @@ static void test_gsr_and_rf_worker_independence(void) {
     em_scan_rf_mock_reset();
     furi_hal_subghz_mock_set_rssi(-91.5f);
 
-    GsrSensor* gsr = gsr_sensor_alloc();
+    EmScanSampler* em = em_scan_sampler_alloc();
+    GsrSensor* gsr = gsr_sensor_alloc(em_scan_sampler_poll, em);
     assert(gsr != NULL);
-    gsr_sensor_set_rf_enabled(gsr, true);
+    em_scan_sampler_set_enabled(em, true);
     wait_for_more_reads(200);
     assert(gsr_sensor_is_connected(gsr) == true);
 
     float rssi[EM_SCAN_NUM_FREQS];
-    gsr_sensor_get_rf_snapshot(gsr, rssi);
+    em_scan_sampler_get_snapshot(em, rssi);
     for(int i = 0; i < EM_SCAN_NUM_FREQS; i++) {
         assert(rssi[i] >= -127.0f && rssi[i] <= 0.0f);
     }
@@ -1083,7 +1134,7 @@ static void test_gsr_and_rf_worker_independence(void) {
     assert(gsr_sensor_is_connected(gsr) == false);
 
     // RF must have kept running throughout, unaffected by the I2C failure.
-    gsr_sensor_get_rf_snapshot(gsr, rssi);
+    em_scan_sampler_get_snapshot(em, rssi);
     printf("  rssi[0]=%.1f after I2C failure (still sane range)\n", (double)rssi[0]);
     for(int i = 0; i < EM_SCAN_NUM_FREQS; i++) {
         assert(rssi[i] >= -127.0f && rssi[i] <= 0.0f);
@@ -1092,18 +1143,17 @@ static void test_gsr_and_rf_worker_independence(void) {
     assert(furi_hal_subghz_mock_get_rssi_call_count() > 0);
 
     gsr_sensor_free(gsr);
+    em_scan_sampler_free(em);
     printf("  -> Pass\n");
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// Mutex-behavior regression tests (2026-07-30) — directly exercise the
-// property the rf_mutex / gsr->mutex split exists for, using an
-// artificially slow mocked SPI call (furi_hal_subghz_mock_set_rssi_delay_ms)
-// standing in for the real, unbounded furi_hal_spi_bus_end_txrx() busy-wait
-// documented in em_scan_rf_crash_investigation.md. Before that split (when
-// RF's SPI section ran under the same gsr->mutex the ADC path and
-// gsr_sensor_get_rf_snapshot() both needed), the first test below would
-// have failed outright — it would have measured ~150ms, not <20ms.
+// Mutex-behaviour tests — directly exercise the property that the radio
+// sampler's own mutex and the GSR sensor's mutex being separate exists for,
+// using an artificially slow mocked sweep standing in for the real,
+// unbounded furi_hal_spi_bus_end_txrx() busy-wait documented in
+// em_scan_rf_crash_investigation.md. If the radio's SPI section ran under
+// the GSR mutex, the first test below would measure ~150 ms, not <20 ms.
 // ─────────────────────────────────────────────────────────────────────────
 
 static void test_rf_snapshot_read_not_blocked_by_slow_spi_call(void) {
@@ -1115,15 +1165,16 @@ static void test_rf_snapshot_read_not_blocked_by_slow_spi_call(void) {
     furi_hal_subghz_mock_set_rssi(-95.0f);
     em_scan_rf_mock_set_fast_sweep_delay_ms(150); // stand-in for a stuck SPI transaction
 
-    GsrSensor* gsr = gsr_sensor_alloc();
+    EmScanSampler* em = em_scan_sampler_alloc();
+    GsrSensor* gsr = gsr_sensor_alloc(em_scan_sampler_poll, em);
     assert(gsr != NULL);
-    gsr_sensor_set_rf_enabled(gsr, true); // forces an immediate first (slow) sample
+    em_scan_sampler_set_enabled(em, true); // forces an immediate first (slow) sample
     wait_for_fast_sweep_call_in_progress();
 
     float rssi[EM_SCAN_NUM_FREQS];
     struct timespec t0, t1;
     clock_gettime(CLOCK_MONOTONIC, &t0);
-    gsr_sensor_get_rf_snapshot(gsr, rssi);
+    em_scan_sampler_get_snapshot(em, rssi);
     clock_gettime(CLOCK_MONOTONIC, &t1);
     double ms = elapsed_ms(t0, t1);
     printf("  get_rf_snapshot() took %.2fms while a 150ms SPI call was in flight (must be fast)\n", ms);
@@ -1140,6 +1191,7 @@ static void test_rf_snapshot_read_not_blocked_by_slow_spi_call(void) {
     em_scan_rf_mock_set_fast_sweep_delay_ms(0);
 
     gsr_sensor_free(gsr);
+    em_scan_sampler_free(em);
     printf("  -> Pass\n");
 }
 
@@ -1152,9 +1204,10 @@ static void test_gsr_path_not_blocked_by_slow_rf_spi_call(void) {
     furi_hal_subghz_mock_set_rssi(-95.0f);
     em_scan_rf_mock_set_fast_sweep_delay_ms(150);
 
-    GsrSensor* gsr = gsr_sensor_alloc();
+    EmScanSampler* em = em_scan_sampler_alloc();
+    GsrSensor* gsr = gsr_sensor_alloc(em_scan_sampler_poll, em);
     assert(gsr != NULL);
-    gsr_sensor_set_rf_enabled(gsr, true);
+    em_scan_sampler_set_enabled(em, true);
     wait_for_fast_sweep_call_in_progress();
 
     // gsr->mutex (ADC path) is a completely separate mutex from rf_mutex —
@@ -1179,6 +1232,7 @@ static void test_gsr_path_not_blocked_by_slow_rf_spi_call(void) {
     em_scan_rf_mock_set_fast_sweep_delay_ms(0);
 
     gsr_sensor_free(gsr);
+    em_scan_sampler_free(em);
     printf("  -> Pass\n");
 }
 
@@ -1188,7 +1242,7 @@ static void test_gsr_path_not_blocked_by_slow_rf_spi_call(void) {
 // rf_spi_busy==false and proceed in exactly that window). The fix makes
 // the worker's decide-and-mark step share rf_mutex with disable's
 // rendezvous. This test proves the actual observable guarantee: by the
-// time gsr_sensor_set_rf_enabled(gsr, false) returns, the in-flight SPI
+// time em_scan_sampler_set_enabled(em, false) returns, the in-flight SPI
 // call it raced against has already finished — deinit() never overlaps it.
 static void test_rf_disable_waits_for_inflight_spi_call_before_deinit(void) {
     printf("Running test_rf_disable_waits_for_inflight_spi_call_before_deinit...\n");
@@ -1199,12 +1253,13 @@ static void test_rf_disable_waits_for_inflight_spi_call_before_deinit(void) {
     furi_hal_subghz_mock_set_rssi(-95.0f);
     em_scan_rf_mock_set_fast_sweep_delay_ms(10); // comfortably under the 100ms disable-wait bound
 
-    GsrSensor* gsr = gsr_sensor_alloc();
+    EmScanSampler* em = em_scan_sampler_alloc();
+    GsrSensor* gsr = gsr_sensor_alloc(em_scan_sampler_poll, em);
     assert(gsr != NULL);
-    gsr_sensor_set_rf_enabled(gsr, true); // forces an immediate first (10ms) sample
+    em_scan_sampler_set_enabled(em, true); // forces an immediate first (10ms) sample
     wait_for_fast_sweep_call_in_progress();
 
-    gsr_sensor_set_rf_enabled(gsr, false); // races the in-flight call on purpose
+    em_scan_sampler_set_enabled(em, false); // races the in-flight call on purpose
 
     printf("  rssi_call_in_progress=%d immediately after set_rf_enabled(false) returns (expect 0)\n",
            furi_hal_subghz_mock_rssi_call_in_progress());
@@ -1212,6 +1267,7 @@ static void test_rf_disable_waits_for_inflight_spi_call_before_deinit(void) {
     assert(em_scan_rf_mock_deinit_count() == 1);
 
     gsr_sensor_free(gsr);
+    em_scan_sampler_free(em);
     printf("  -> Pass\n");
 }
 
@@ -1226,7 +1282,7 @@ static void* advance_tick_past_disable_timeout(void* arg) {
 
 // If the worker is still inside its SPI sweep when the disable-wait times
 // out, the radio deinit must be skipped (not run under the live sweep) and
-// then done by gsr_sensor_free() once the worker has been joined.
+// then done by em_scan_sampler_free() once the GSR worker has been joined.
 static void test_rf_disable_timeout_defers_deinit_to_free(void) {
     printf("Running test_rf_disable_timeout_defers_deinit_to_free...\n");
     furi_hal_i2c_mock_reset();
@@ -1236,14 +1292,15 @@ static void test_rf_disable_timeout_defers_deinit_to_free(void) {
     furi_hal_subghz_mock_set_rssi(-95.0f);
     em_scan_rf_mock_set_fast_sweep_delay_ms(300); // a sweep that outlasts the timeout
 
-    GsrSensor* gsr = gsr_sensor_alloc();
+    EmScanSampler* em = em_scan_sampler_alloc();
+    GsrSensor* gsr = gsr_sensor_alloc(em_scan_sampler_poll, em);
     assert(gsr != NULL);
-    gsr_sensor_set_rf_enabled(gsr, true);
+    em_scan_sampler_set_enabled(em, true);
     wait_for_fast_sweep_call_in_progress();
 
     pthread_t ticker;
     assert(pthread_create(&ticker, NULL, advance_tick_past_disable_timeout, NULL) == 0);
-    gsr_sensor_set_rf_enabled(gsr, false); // times out with the sweep still running
+    em_scan_sampler_set_enabled(em, false); // times out with the sweep still running
     pthread_join(ticker, NULL);
 
     printf("  sweep_in_progress=%d deinit_count=%d after timed-out disable (expect 1/0)\n",
@@ -1251,7 +1308,9 @@ static void test_rf_disable_timeout_defers_deinit_to_free(void) {
     assert(em_scan_rf_mock_fast_sweep_call_in_progress());
     assert(em_scan_rf_mock_deinit_count() == 0);
 
-    gsr_sensor_free(gsr); // joins the worker, then does the deferred deinit
+    gsr_sensor_free(gsr); // joins the worker; the sweep has finished by now
+    assert(em_scan_rf_mock_deinit_count() == 0); // still deferred
+    em_scan_sampler_free(em); // does the deferred deinit
     em_scan_rf_mock_set_fast_sweep_delay_ms(0);
     printf("  deinit_count=%d after free (expect 1)\n", em_scan_rf_mock_deinit_count());
     assert(em_scan_rf_mock_deinit_count() == 1);
@@ -1287,9 +1346,10 @@ static void test_i2c_peak_ms_detects_slow_i2c_call(void) {
     em_scan_rf_mock_reset();
     furi_hal_subghz_mock_set_rssi(-95.0f);
 
-    GsrSensor* gsr = gsr_sensor_alloc();
+    EmScanSampler* em = em_scan_sampler_alloc();
+    GsrSensor* gsr = gsr_sensor_alloc(em_scan_sampler_poll, em);
     assert(gsr != NULL);
-    gsr_sensor_set_rf_enabled(gsr, true); // real, undelayed RF traffic alongside the I2C stall
+    em_scan_sampler_set_enabled(em, true); // real, undelayed RF traffic alongside the I2C stall
 
     // Only NOW arm the I2C delay — gsr_sensor_alloc()'s own probe read (not
     // measured by i2c_peak_ms; that's worker-thread-only instrumentation)
@@ -1327,13 +1387,14 @@ static void test_i2c_peak_ms_detects_slow_i2c_call(void) {
 
     printf("  i2c_peak_ms=%u rf_rssi_peak_ms=%u rf_retune_peak_ms=%u (expect 150/0/0)\n",
            (unsigned)gsr_sensor_get_i2c_peak_ms(gsr),
-           (unsigned)gsr_sensor_get_rf_rssi_peak_ms(gsr),
-           (unsigned)gsr_sensor_get_rf_retune_peak_ms(gsr));
+           (unsigned)em_scan_sampler_get_rssi_peak_ms(em),
+           (unsigned)em_scan_sampler_get_retune_peak_ms(em));
     assert(gsr_sensor_get_i2c_peak_ms(gsr) == 150);
-    assert(gsr_sensor_get_rf_rssi_peak_ms(gsr) == 0);
-    assert(gsr_sensor_get_rf_retune_peak_ms(gsr) == 0);
+    assert(em_scan_sampler_get_rssi_peak_ms(em) == 0);
+    assert(em_scan_sampler_get_retune_peak_ms(em) == 0);
 
     gsr_sensor_free(gsr);
+    em_scan_sampler_free(em);
     printf("  -> Pass\n");
 }
 
@@ -1346,9 +1407,10 @@ static void test_rf_rssi_peak_ms_detects_slow_rssi_call(void) {
     furi_hal_subghz_mock_set_rssi(-95.0f);
     em_scan_rf_mock_set_fast_sweep_delay_ms(150); // stand-in for a stuck SPI fast sweep
 
-    GsrSensor* gsr = gsr_sensor_alloc();
+    EmScanSampler* em = em_scan_sampler_alloc();
+    GsrSensor* gsr = gsr_sensor_alloc(em_scan_sampler_poll, em);
     assert(gsr != NULL);
-    gsr_sensor_set_rf_enabled(gsr, true); // forces an immediate first (slow) sweep
+    em_scan_sampler_set_enabled(em, true); // forces an immediate first (slow) sweep
     wait_for_fast_sweep_call_in_progress();
     furi_test_advance_tick(150); // simulate 150ms of device time elapsing during the sweep
 
@@ -1359,17 +1421,18 @@ static void test_rf_rssi_peak_ms_detects_slow_rssi_call(void) {
         if(waited_us > 5000000) { fprintf(stderr, "TIMEOUT\n"); assert(false); }
     }
     em_scan_rf_mock_set_fast_sweep_delay_ms(0);
-    wait_for_peak_ms_at_least(gsr_sensor_get_rf_rssi_peak_ms, gsr, 150);
+    wait_for_em_peak_ms_at_least(em_scan_sampler_get_rssi_peak_ms, em, 150);
 
     printf("  rf_rssi_peak_ms=%u i2c_peak_ms=%u rf_retune_peak_ms=%u (expect 150/0/0)\n",
-           (unsigned)gsr_sensor_get_rf_rssi_peak_ms(gsr),
+           (unsigned)em_scan_sampler_get_rssi_peak_ms(em),
            (unsigned)gsr_sensor_get_i2c_peak_ms(gsr),
-           (unsigned)gsr_sensor_get_rf_retune_peak_ms(gsr));
-    assert(gsr_sensor_get_rf_rssi_peak_ms(gsr) == 150);
+           (unsigned)em_scan_sampler_get_retune_peak_ms(em));
+    assert(em_scan_sampler_get_rssi_peak_ms(em) == 150);
     assert(gsr_sensor_get_i2c_peak_ms(gsr) == 0);
-    assert(gsr_sensor_get_rf_retune_peak_ms(gsr) == 0);
+    assert(em_scan_sampler_get_retune_peak_ms(em) == 0);
 
     gsr_sensor_free(gsr);
+    em_scan_sampler_free(em);
     printf("  -> Pass\n");
 }
 
@@ -1390,9 +1453,10 @@ static void test_rf_retune_peak_ms_detects_slow_retune_step(void) {
     furi_hal_subghz_mock_set_rssi(-95.0f);
     em_scan_rf_mock_set_retune_delay_ms(150); // stand-in for a stuck per-band retune
 
-    GsrSensor* gsr = gsr_sensor_alloc();
+    EmScanSampler* em = em_scan_sampler_alloc();
+    GsrSensor* gsr = gsr_sensor_alloc(em_scan_sampler_poll, em);
     assert(gsr != NULL);
-    gsr_sensor_set_rf_enabled(gsr, true); // forces an immediate first (slow-retune) sweep
+    em_scan_sampler_set_enabled(em, true); // forces an immediate first (slow-retune) sweep
     wait_for_retune_call_in_progress();
     furi_test_advance_tick(150); // simulate 150ms of device time elapsing during the retune
 
@@ -1403,23 +1467,24 @@ static void test_rf_retune_peak_ms_detects_slow_retune_step(void) {
         if(waited_us > 5000000) { fprintf(stderr, "TIMEOUT\n"); assert(false); }
     }
     em_scan_rf_mock_set_retune_delay_ms(0);
-    wait_for_peak_ms_at_least(gsr_sensor_get_rf_retune_peak_ms, gsr, 150);
+    wait_for_em_peak_ms_at_least(em_scan_sampler_get_retune_peak_ms, em, 150);
 
     printf("  rf_retune_peak_ms=%u rf_rssi_peak_ms=%u i2c_peak_ms=%u (expect 150/>=150/0)\n",
-           (unsigned)gsr_sensor_get_rf_retune_peak_ms(gsr),
-           (unsigned)gsr_sensor_get_rf_rssi_peak_ms(gsr),
+           (unsigned)em_scan_sampler_get_retune_peak_ms(em),
+           (unsigned)em_scan_sampler_get_rssi_peak_ms(em),
            (unsigned)gsr_sensor_get_i2c_peak_ms(gsr));
-    assert(gsr_sensor_get_rf_retune_peak_ms(gsr) == 150);
+    assert(em_scan_sampler_get_retune_peak_ms(em) == 150);
     // Unlike i2c_peak_ms (still a fully separate call, unaffected here), a
     // slow retune now also shows up in rf_rssi_peak_ms — that column is
     // timed around the WHOLE fast-sweep call (retune + settle + RSSI read,
     // fused into one since the no-teardown change), which necessarily
     // includes the slow retune. See gsr_sensor.c's rf_rssi_peak_ms/
     // rf_retune_peak_ms struct comment.
-    assert(gsr_sensor_get_rf_rssi_peak_ms(gsr) >= 150);
+    assert(em_scan_sampler_get_rssi_peak_ms(em) >= 150);
     assert(gsr_sensor_get_i2c_peak_ms(gsr) == 0);
 
     gsr_sensor_free(gsr);
+    em_scan_sampler_free(em);
     printf("  -> Pass\n");
 }
 
@@ -1450,7 +1515,8 @@ static void test_rf_enable_disable_stress_no_race(void) {
     em_scan_rf_mock_reset();
     furi_hal_subghz_mock_set_rssi(-95.0f);
 
-    GsrSensor* gsr = gsr_sensor_alloc();
+    EmScanSampler* em = em_scan_sampler_alloc();
+    GsrSensor* gsr = gsr_sensor_alloc(em_scan_sampler_poll, em);
     assert(gsr != NULL);
 
     // Deliberately no delay between enable and disable: a sleep here would
@@ -1461,8 +1527,8 @@ static void test_rf_enable_disable_stress_no_race(void) {
     // phase of the worker's loop each time.
     const int cycles = 200;
     for(int i = 0; i < cycles; i++) {
-        gsr_sensor_set_rf_enabled(gsr, true);
-        gsr_sensor_set_rf_enabled(gsr, false);
+        em_scan_sampler_set_enabled(em, true);
+        em_scan_sampler_set_enabled(em, false);
     }
 
     printf("  completed %d enable/disable cycles: init=%d deinit=%d (expect both == %d)\n",
@@ -1471,12 +1537,14 @@ static void test_rf_enable_disable_stress_no_race(void) {
     assert(em_scan_rf_mock_deinit_count() == cycles);
 
     gsr_sensor_free(gsr);
+    em_scan_sampler_free(em);
     printf("  -> Pass\n");
 }
 
 struct TeardownTestContext {
     pthread_mutex_t mock_app_mutex;
     GsrSensor* volatile shared_gsr;
+    EmScanSampler* volatile shared_em;
     _Atomic bool gui_thread_running;
 };
 
@@ -1487,10 +1555,11 @@ static void* mock_gui_thread_fn(void* arg) {
     while(ctx->gui_thread_running) {
         pthread_mutex_lock(&ctx->mock_app_mutex);
         GsrSensor* g = ctx->shared_gsr;
+        EmScanSampler* e = ctx->shared_em;
         if(g) {
             // Simulate render callback accesses
+            if(e) em_scan_sampler_get_snapshot(e, rf_rssi);
             if(gsr_sensor_available(g)) {
-                gsr_sensor_get_rf_snapshot(g, rf_rssi);
                 volatile uint8_t pga = gsr_sensor_get_pga_index(g);
                 volatile int32_t mean = gsr_sensor_get_mean_count(g);
                 (void)pga; (void)mean;
@@ -1517,9 +1586,10 @@ static void test_session_deinit_early_release_gui_safety(void) {
 
     struct TeardownTestContext ctx;
     pthread_mutex_init(&ctx.mock_app_mutex, NULL);
-    ctx.shared_gsr = gsr_sensor_alloc();
+    ctx.shared_em = em_scan_sampler_alloc();
+    ctx.shared_gsr = gsr_sensor_alloc(em_scan_sampler_poll, ctx.shared_em);
     assert(ctx.shared_gsr != NULL);
-    gsr_sensor_set_rf_enabled(ctx.shared_gsr, true);
+    em_scan_sampler_set_enabled(ctx.shared_em, true);
 
     ctx.gui_thread_running = true;
     pthread_t gui_thread;
@@ -1532,12 +1602,18 @@ static void test_session_deinit_early_release_gui_safety(void) {
     // Simulate session_deinit early-release pattern:
     pthread_mutex_lock(&ctx.mock_app_mutex);
     GsrSensor* local_gsr = ctx.shared_gsr;
+    EmScanSampler* local_em = ctx.shared_em;
     ctx.shared_gsr = NULL;
+    ctx.shared_em = NULL;
     pthread_mutex_unlock(&ctx.mock_app_mutex);
 
-    // Free the sensor outside the lock (the slow join/deinit happens here)
+    // Free outside the lock (the slow join/deinit happens here), GSR first —
+    // same order as session_deinit().
     if(local_gsr) {
         gsr_sensor_free(local_gsr);
+    }
+    if(local_em) {
+        em_scan_sampler_free(local_em);
     }
 
     // Stop the mock GUI thread
@@ -1568,6 +1644,7 @@ int main(void) {
     test_disconnect_debounce_ignores_calibration_offset();
     test_disconnect_on_i2c_failure();
     test_adc_power_down_and_reenable();
+    test_no_hook_never_touches_radio();
     test_rf_disabled_snapshot_reads_default_floor();
     test_rf_enable_calls_init_and_arms_band_zero();
     test_rf_disable_calls_deinit_and_stops_reads();

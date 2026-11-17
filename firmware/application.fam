@@ -24,6 +24,7 @@ App(
         "modules/gsr_sensor.c",
         "modules/sd_logger.c",
         "modules/em_scan_rf.c",
+        "modules/em_scan_sampler.c",
         "modules/em_scan_cal.c",
         "modules/bt_stream.c",
     ],

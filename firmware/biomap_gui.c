@@ -503,7 +503,7 @@ void run_calibration_wizard(BioMapApp* app) {
     BioMapEvent ev;
     
     // Allocate the GSR sensor once for all measurements.
-    GsrSensor* gsr = gsr_sensor_alloc();
+    GsrSensor* gsr = gsr_sensor_alloc(NULL, NULL);
     bool sensor_ok = gsr && gsr_sensor_available(gsr);
     if(!sensor_ok) {
         if(gsr) gsr_sensor_free(gsr);

@@ -37,6 +37,7 @@
 #include "modules/sound.h"
 #include "modules/util.h"
 #include "modules/em_scan_rf.h"
+#include "modules/em_scan_sampler.h"
 #include "modules/em_scan_cal.h"
 #include "modules/bt_stream.h"
 
@@ -51,6 +52,9 @@ typedef struct Session {
     BioMapMode     mode;
     GpsUart*       gps;
     GsrSensor*     gsr;
+    // Radio-scan modes only (has_rf()) — NULL otherwise. Runs on gsr's
+    // worker thread via its worker hook, so it is freed after gsr.
+    EmScanSampler* em;
     SdLogger*      logger;
     // BioMapModeLiveStream only — NULL for every other mode. No SdLogger
     // for this mode at all (docs/archive/bluetooth_serial_investigation.md §3).

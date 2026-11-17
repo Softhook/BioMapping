@@ -77,7 +77,7 @@ uint32_t bt_stream_get_drop_count(const BtStream* bs);
 
 // Worst single ble_profile_serial_tx() call ever seen (real furi_get_tick()
 // delta, ms) — lifetime max, same pattern as sd_logger.h's flush_peak_ms
-// and gsr_sensor.h's i2c_peak_ms/rf_rssi_peak_ms/rf_retune_peak_ms.
+// gsr_sensor.h's i2c_peak_ms and em_scan_sampler.h's rssi/retune peaks.
 uint32_t bt_stream_get_tx_peak_ms(const BtStream* bs);
 
 // Packs one wire packet at the exact offsets in §5's table.
