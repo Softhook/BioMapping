@@ -17,6 +17,7 @@ const DEVICE_LINES = [
   '# Band Floors (dBm): 815:-91.5,868:-91.5,915:-91.5',
   '# GPSChipID:axis slang boast putt chunk',
   '# GSR Calibration: gain:1.0037,offset:103.0993,r2:1.0000,noise_ns:0.87,1.12,2.68',
+  '# GSR Bias: measured_mv:497.5,used_mv:497.5',
 ];
 const body = fs
   .readFileSync(

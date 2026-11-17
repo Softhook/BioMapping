@@ -65,15 +65,54 @@
 #define GSR_VALID_MIN_NS    100.0f    // nS — below this: open circuit
 #define GSR_VALID_MAX_NS    75000.0f  // nS — above this: rail saturation
 
-// TIA conversion: normalised ADC counts (pga_index 5 scale, see
-// gsr_sensor.c) → nanosiemens, from the transimpedance amplifier circuit
-// equation. Clamped at 319000 counts (≈ rail saturation). Inline here
-// rather than private to gsr_sensor.c so the host tests check this exact
-// formula instead of a copy of it.
-static inline float gsr_tia_counts_to_ns(float counts) {
+// 0.5 V bias measurement. The bias (op-amp B output, REF_0V5) is already on
+// the ADS1115's AIN1, as the reference for the skin reading; it can also be
+// read on its own, AIN1 against ground. No extra wiring. The skin reading is
+// directly proportional to the bias, and the bias follows the 3.3 V supply
+// through the 56k/10k divider, so the TIA equation uses the measured value
+// instead of assuming exactly 0.5 V. Both readings come from the same ADC,
+// so its internal reference cancels too. What is left is the resistors and,
+// on the MCP6002 prototype, the op-amp's input offset — the calibration
+// wizard's job.
+//
+// When it is measured: once in alloc(), and on request — at the start of
+// each recording (biomap_session.c), before the first row, so one value
+// holds for the whole file and is written to its header. Never in the
+// middle of a recording: a mid-recording update would put a step in the
+// data, and a repeating check would leave a regular gap in the 100 ms
+// averaging.
+//
+// A reading outside GSR_BIAS_MIN_V..GSR_BIAS_MAX_V is not used: the last
+// good value (or the nominal 0.5 V if there is none) stays in use. It is
+// still reported (gsr_sensor_get_bias_measured_volts()), as a health check.
+// The window is wide enough for a 3.3 V supply anywhere from 2.97 V to
+// 3.63 V.
+#define GSR_BIAS_NOMINAL_V        0.5f
+#define GSR_BIAS_MIN_V            0.45f
+#define GSR_BIAS_MAX_V            0.55f
+
+// TIA conversion: normalised ADC counts (pga_index 5 scale, 7.8125 µV per
+// unit, see gsr_sensor.c) → nanosiemens, from the transimpedance amplifier
+// circuit equation, for a bias of bias_scale × 0.5 V:
+//
+//   V_diff = V_bias × 47 kΩ / (R_skin + 9.4 kΩ)
+//   G_skin = V_diff / (V_bias × 47 kΩ − 9.4 kΩ × V_diff)
+//
+// which at 0.5 V and in these units is counts × 5e6 / (15 040 000 − 47 × counts).
+// Clamped just below the rail-saturation count (a dead short reads
+// V_diff = 5 × V_bias = 320 000 × bias_scale units). Inline here rather than
+// private to gsr_sensor.c so the host tests check this exact formula
+// instead of a copy of it.
+static inline float gsr_tia_counts_to_ns_at_bias(float counts, float bias_scale) {
     if(counts <= 0.0f) return 0.0f;
-    if(counts > 319000.0f) counts = 319000.0f;
-    return (counts * 5000000.0f) / (15040000.0f - counts * 47.0f);
+    float max_counts = 319000.0f * bias_scale;
+    if(counts > max_counts) counts = max_counts;
+    return (counts * 5000000.0f) / (15040000.0f * bias_scale - counts * 47.0f);
+}
+
+// The same at exactly the nominal 0.5 V bias.
+static inline float gsr_tia_counts_to_ns(float counts) {
+    return gsr_tia_counts_to_ns_at_bias(counts, 1.0f);
 }
 
 typedef struct GsrSensor GsrSensor;
@@ -138,6 +177,28 @@ int32_t gsr_sensor_get_window_samples(const GsrSensor* gsr);
 
 // Current PGA index (0–5).  For diagnostics.
 uint8_t gsr_sensor_get_pga_index(const GsrSensor* gsr);
+
+// Most recent accepted measurement of the 0.5 V bias (AIN1 against ground),
+// in volts — the value the TIA equation is using. 0.0f if no reading has
+// been inside GSR_BIAS_MIN_V..GSR_BIAS_MAX_V yet, in which case the nominal
+// 0.5 V is used.
+float gsr_sensor_get_bias_volts(const GsrSensor* gsr);
+
+// What the most recent bias check actually read, in volts, accepted or not
+// — so an out-of-range bias is visible rather than silently replaced. NAN
+// if that check failed (I2C error).
+float gsr_sensor_get_bias_measured_volts(const GsrSensor* gsr);
+
+// Bias check on request (see "When it is measured" above). The worker
+// switches to the bias, reads it, and switches back — a few ms.
+//   request() asks for one and returns a ticket;
+//   done(ticket) is true once a check has finished after that request;
+//   cancel() withdraws a request that is still pending or in progress: a
+//   check that finishes after it changes nothing. Call it if done() doesn't
+//   come true in time, so a late check can't change the bias mid-recording.
+uint32_t gsr_sensor_request_bias_check(GsrSensor* gsr);
+bool     gsr_sensor_bias_check_done(const GsrSensor* gsr, uint32_t ticket);
+void     gsr_sensor_cancel_bias_check(GsrSensor* gsr);
 
 // Measured worker-thread throughput in Hz — the real rate the background
 // I2C-polling loop fills gsr_sensor_tick()'s ~100 ms averaging window

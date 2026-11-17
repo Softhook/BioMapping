@@ -1624,6 +1624,242 @@ static void test_session_deinit_early_release_gui_safety(void) {
     printf("  -> Pass\n");
 }
 
+// ── 0.5 V bias check (AIN1 against ground) ──────────────────────────────────────────
+// Independent of gsr_tia_counts_to_ns_at_bias(): straight from the circuit,
+//   V_diff = V_bias × 47k / (R_skin + 9.4k)  →  G = V_diff / (V_bias × 47k − 9.4k × V_diff)
+// with normalised counts at 7.8125 µV each.
+static float expected_ns_for_bias(float counts, float v_bias) {
+    float v_diff = counts * 7.8125e-6f;
+    return v_diff * 1e9f / (v_bias * 47000.0f - 9400.0f * v_diff);
+}
+
+// Bias counts on the bias check's ±1.024 V range (31.25 µV each).
+#define BIAS_COUNTS(v) ((int16_t)((v) / 31.25e-6f + 0.5f))
+
+// alloc() measures the bias before the worker starts, and tick() uses it:
+// a 2 % low bias (0.49 V) must not be read as 2 % lower skin conductance.
+static void test_bias_measured_at_alloc_is_applied(void) {
+    printf("Running test_bias_measured_at_alloc_is_applied...\n");
+    furi_hal_i2c_mock_reset();
+    furi_hal_i2c_mock_set_raw16(10000);
+    furi_hal_i2c_mock_set_bias_raw16(BIAS_COUNTS(0.49f));
+
+    GsrSensor* gsr = gsr_sensor_alloc(NULL, NULL);
+    assert(gsr != NULL && gsr_sensor_available(gsr));
+    float vb = gsr_sensor_get_bias_volts(gsr);
+    printf("  bias = %.4f V (expect 0.4900)\n", (double)vb);
+    assert(fabsf(vb - 0.49f) < 0.0001f);
+    // alloc() must leave the multiplexer on the skin input (MUX bits 000)
+    assert(((furi_hal_i2c_mock_last_config_msb() >> 4) & 0x7u) == 0);
+
+    wait_for_more_reads(200);
+    gsr_sensor_tick(gsr);
+
+    float norm = 10000.0f * ADS_PGA_DEFAULT_NORM;
+    float expected = expected_ns_for_bias(norm, 0.49f);
+    float nominal  = expected_ns_for_bias(norm, 0.50f);
+    float actual = gsr_sensor_get_raw(gsr);
+    float sample = gsr_sensor_get_raw_sample_ns(gsr);
+    printf("  expected=%.1f actual=%.1f sample=%.1f (nominal-bias answer would be %.1f)\n",
+           (double)expected, (double)actual, (double)sample, (double)nominal);
+    assert(fabsf(actual - expected) < 1.0f);
+    assert(fabsf(sample - expected) < 1.0f);
+    assert(fabsf(actual - nominal) > 0.015f * nominal); // the correction really moved it
+
+    gsr_sensor_free(gsr);
+    printf("  -> Pass\n");
+}
+
+// An implausible bias (0 V, negative, or anything outside 0.45–0.55 V) is
+// not used: the nominal 0.5 V is, and the accessor says 0. What was read is
+// still reported, as the health check.
+static void test_bias_out_of_range_is_ignored(void) {
+    printf("Running test_bias_out_of_range_is_ignored...\n");
+    const int16_t bad[] = { 0, BIAS_COUNTS(0.40f), BIAS_COUNTS(0.60f), -16000 };
+    for(size_t i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {
+        furi_hal_i2c_mock_reset();
+        furi_hal_i2c_mock_set_raw16(10000);
+        furi_hal_i2c_mock_set_bias_raw16(bad[i]);
+
+        GsrSensor* gsr = gsr_sensor_alloc(NULL, NULL);
+        assert(gsr != NULL);
+        assert(gsr_sensor_get_bias_volts(gsr) == 0.0f);
+        assert(fabsf(gsr_sensor_get_bias_measured_volts(gsr) - bad[i] * 31.25e-6f) < 0.0001f);
+
+        wait_for_more_reads(200);
+        gsr_sensor_tick(gsr);
+        float expected = expected_ns_for_bias(10000.0f * ADS_PGA_DEFAULT_NORM, 0.5f);
+        float actual = gsr_sensor_get_raw(gsr);
+        printf("  bias raw=%d: actual=%.1f expected(0.5 V)=%.1f\n", bad[i], (double)actual, (double)expected);
+        assert(fabsf(actual - expected) < 1.0f);
+        gsr_sensor_free(gsr);
+    }
+    printf("  -> Pass\n");
+}
+
+// Waits (advancing the fake clock) until the requested check has finished.
+static void wait_for_bias_check(GsrSensor* gsr, uint32_t ticket) {
+    int waited_us = 0;
+    while(!gsr_sensor_bias_check_done(gsr, ticket)) {
+        usleep(200);
+        waited_us += 200;
+        furi_test_advance_tick(1);
+        if(waited_us > 5000000) {
+            fprintf(stderr, "TIMEOUT: bias check never finished\n");
+            assert(false);
+        }
+    }
+}
+
+// Without a request the worker never leaves the skin input, however long it
+// runs: the bias must not change in the middle of a recording.
+static void test_bias_not_checked_without_request(void) {
+    printf("Running test_bias_not_checked_without_request...\n");
+    furi_hal_i2c_mock_reset();
+    furi_hal_i2c_mock_set_raw16(10000);
+    furi_hal_i2c_mock_set_bias_raw16(BIAS_COUNTS(0.50f));
+
+    GsrSensor* gsr = gsr_sensor_alloc(NULL, NULL);
+    assert(gsr != NULL);
+    wait_for_more_reads(200);
+
+    furi_hal_i2c_mock_set_bias_raw16(BIAS_COUNTS(0.49f)); // the supply sags
+    int writes_before = furi_hal_i2c_mock_write_count();
+    for(int i = 0; i < 10; i++) {
+        furi_test_advance_tick(30000); // 5 minutes in all
+        wait_for_more_reads(100);
+    }
+    printf("  config writes in 5 min: %d (expect 0), bias %.4f V (expect 0.5000)\n",
+           furi_hal_i2c_mock_write_count() - writes_before,
+           (double)gsr_sensor_get_bias_volts(gsr));
+    assert(furi_hal_i2c_mock_write_count() == writes_before);
+    assert(fabsf(gsr_sensor_get_bias_volts(gsr) - 0.50f) < 0.0001f);
+
+    gsr_sensor_free(gsr);
+    printf("  -> Pass\n");
+}
+
+// A requested check (as at recording start) picks up a drifted bias, reports
+// it, puts the skin input back — and no bias conversion lands in the skin
+// ring buffer: with the skin input fixed at 10000 counts every buffered
+// sample is 80000, so the mean of the window holding the check must be
+// exactly that (a leaked bias conversion would pull it towards 16000 × 8).
+static void test_bias_check_on_request(void) {
+    printf("Running test_bias_check_on_request...\n");
+    furi_hal_i2c_mock_reset();
+    furi_hal_i2c_mock_set_raw16(10000);
+    furi_hal_i2c_mock_set_bias_raw16(BIAS_COUNTS(0.50f));
+
+    GsrSensor* gsr = gsr_sensor_alloc(NULL, NULL);
+    assert(gsr != NULL);
+    wait_for_more_reads(200);
+
+    furi_hal_i2c_mock_set_bias_raw16(BIAS_COUNTS(0.49f));
+    uint32_t ticket = gsr_sensor_request_bias_check(gsr);
+    wait_for_bias_check(gsr, ticket);
+    assert(fabsf(gsr_sensor_get_bias_measured_volts(gsr) - 0.49f) < 0.0001f);
+    assert(fabsf(gsr_sensor_get_bias_volts(gsr) - 0.49f) < 0.0001f);
+
+    // Straight away, while anything read during the check is still among
+    // the ring buffer's newest entries (it holds only 128, and the worker
+    // refills it fast): no bias conversion may be there.
+    gsr_sensor_tick(gsr);
+    int32_t mean_at_check = gsr_sensor_get_mean_count(gsr);
+    printf("  mean count over the check = %d (expect exactly 80000)\n", mean_at_check);
+    assert(mean_at_check == 80000);
+
+    // Then the skin input is back and reads with the new bias.
+    int waited_us = 0;
+    while(((furi_hal_i2c_mock_last_config_msb() >> 4) & 0x7u) != 0) {
+        usleep(200);
+        waited_us += 200;
+        furi_test_advance_tick(1);
+        assert(waited_us < 5000000);
+    }
+    furi_test_advance_tick(10); // past the skin settle gate
+    wait_for_more_reads_ex(300, false);
+    gsr_sensor_tick(gsr);
+    int32_t mean = gsr_sensor_get_mean_count(gsr);
+    float expected = expected_ns_for_bias(80000.0f, 0.49f);
+    float actual = gsr_sensor_get_raw(gsr);
+    printf("  bias=%.4f V mean count=%d (expect exactly 80000) nS=%.1f (expect %.1f)\n",
+           (double)gsr_sensor_get_bias_volts(gsr), mean, (double)actual, (double)expected);
+    assert(mean == 80000);
+    assert(fabsf(actual - expected) < 1.0f);
+
+    gsr_sensor_free(gsr);
+    printf("  -> Pass\n");
+}
+
+// A requested check that reads out of range reports what it read, but keeps
+// using the last good value.
+static void test_bias_check_out_of_range_keeps_last_good(void) {
+    printf("Running test_bias_check_out_of_range_keeps_last_good...\n");
+    furi_hal_i2c_mock_reset();
+    furi_hal_i2c_mock_set_raw16(10000);
+    furi_hal_i2c_mock_set_bias_raw16(BIAS_COUNTS(0.49f));
+
+    GsrSensor* gsr = gsr_sensor_alloc(NULL, NULL);
+    assert(gsr != NULL);
+    wait_for_more_reads(200);
+
+    furi_hal_i2c_mock_set_bias_raw16(BIAS_COUNTS(0.40f)); // a loose wire, say
+    uint32_t ticket = gsr_sensor_request_bias_check(gsr);
+    wait_for_bias_check(gsr, ticket);
+    printf("  measured %.4f V (expect 0.4000), used %.4f V (expect 0.4900)\n",
+           (double)gsr_sensor_get_bias_measured_volts(gsr), (double)gsr_sensor_get_bias_volts(gsr));
+    assert(fabsf(gsr_sensor_get_bias_measured_volts(gsr) - 0.40f) < 0.0001f);
+    assert(fabsf(gsr_sensor_get_bias_volts(gsr) - 0.49f) < 0.0001f);
+
+    gsr_sensor_free(gsr);
+    printf("  -> Pass\n");
+}
+
+// A check cancelled while in progress (recording start gave up waiting)
+// still puts the skin input back, but changes nothing else: it can't change
+// the bias after the recording has begun.
+static void test_bias_check_cancelled_changes_nothing(void) {
+    printf("Running test_bias_check_cancelled_changes_nothing...\n");
+    furi_hal_i2c_mock_reset();
+    furi_hal_i2c_mock_set_raw16(10000);
+    furi_hal_i2c_mock_set_bias_raw16(BIAS_COUNTS(0.50f));
+
+    GsrSensor* gsr = gsr_sensor_alloc(NULL, NULL);
+    assert(gsr != NULL);
+    wait_for_more_reads(200);
+    furi_test_advance_tick(10); // clear of any settle window
+
+    furi_hal_i2c_mock_set_bias_raw16(BIAS_COUNTS(0.49f));
+    uint32_t ticket = gsr_sensor_request_bias_check(gsr);
+    // Clock held: the worker switches to the bias input and then sits in
+    // its settle window. Cancel there.
+    int waited_us = 0;
+    while(((furi_hal_i2c_mock_last_config_msb() >> 4) & 0x7u) != 0x5u) {
+        usleep(200);
+        waited_us += 200;
+        assert(waited_us < 5000000);
+    }
+    gsr_sensor_cancel_bias_check(gsr);
+
+    // Let it finish: skin input back, nothing recorded.
+    waited_us = 0;
+    while(((furi_hal_i2c_mock_last_config_msb() >> 4) & 0x7u) != 0) {
+        usleep(200);
+        waited_us += 200;
+        furi_test_advance_tick(1);
+        assert(waited_us < 5000000);
+    }
+    printf("  used %.4f V measured %.4f V (expect both 0.5000), done=%d (expect 0)\n",
+           (double)gsr_sensor_get_bias_volts(gsr), (double)gsr_sensor_get_bias_measured_volts(gsr),
+           gsr_sensor_bias_check_done(gsr, ticket));
+    assert(fabsf(gsr_sensor_get_bias_volts(gsr) - 0.50f) < 0.0001f);
+    assert(fabsf(gsr_sensor_get_bias_measured_volts(gsr) - 0.50f) < 0.0001f);
+    assert(!gsr_sensor_bias_check_done(gsr, ticket));
+
+    gsr_sensor_free(gsr);
+    printf("  -> Pass\n");
+}
+
 int main(void) {
     test_alloc_probe_success();
     test_alloc_probe_failure();
@@ -1636,6 +1872,12 @@ int main(void) {
     test_new_diagnostics_accessors();
     test_tia_conversion();
     test_calibration_applies_gain_offset();
+    test_bias_measured_at_alloc_is_applied();
+    test_bias_out_of_range_is_ignored();
+    test_bias_not_checked_without_request();
+    test_bias_check_on_request();
+    test_bias_check_out_of_range_keeps_last_good();
+    test_bias_check_cancelled_changes_nothing();
     test_autorange_up_on_low_signal();
     test_autorange_down_on_saturation();
     test_autorange_settle_discards_stale_conversion();

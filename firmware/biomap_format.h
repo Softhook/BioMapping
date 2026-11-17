@@ -58,6 +58,14 @@ int biomap_format_gps_row(char* out, size_t cap, bool debug_fields,
 int biomap_format_gsr_row(char* out, size_t cap, bool debug_fields,
                           double rel, float raw, const RowDiag* diag);
 
+// "# GSR Bias: measured_mv:<x>,used_mv:<y>\n" — the CSV header line for the
+// bias check made at recording start (gsr_sensor.h, "When it is measured").
+// measured_v is what the check read (NAN if it failed or timed out:
+// written "none"); used_v is the bias the TIA equation applies for the
+// whole recording. They differ only when the reading was out of range.
+// Returns the length written, or -1 if it didn't fit.
+int biomap_format_gsr_bias_line(char* out, size_t cap, float measured_v, float used_v);
+
 // Move a list selection by one step with wraparound: Up on the first item
 // jumps to the last, Down on the last item jumps back to the first — used
 // by the main menu, Options screen, and GSR/RF calibration submenus so all
@@ -101,11 +109,13 @@ CalNoiseGrade calibration_noise_grade(float std_dev_ns);
 #define BIOMAP_CAL_MAGIC   0x424D4341
 // v3 added the `timestamp` (Unix epoch at save) and `r_squared` (wizard fit
 // goodness) fields. v4 added `noise_std_dev` (per-resistor σ, nS, from the
-// wizard's pre-flight noise/resolution check — see CalNoiseGrade above). A
-// file at an older version fails the version check and is ignored — GSR
-// falls back to the default 1.0/0.0 transform until the wizard is re-run,
-// same as any other format change.
-#define BIOMAP_CAL_VERSION 4
+// wizard's pre-flight noise/resolution check — see CalNoiseGrade above). v5
+// has the same layout, but the wizard's measurements now include the
+// measured 0.5 V bias (gsr_sensor.h, GSR_BIAS_*), so a v4 fit would correct
+// for the bias a second time. A file at an older version fails the version
+// check and is ignored — GSR falls back to the default 1.0/0.0 transform
+// until the wizard is re-run, same as any other format change.
+#define BIOMAP_CAL_VERSION 5
 
 typedef struct {
     uint32_t magic;

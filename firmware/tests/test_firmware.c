@@ -587,6 +587,90 @@ void test_gsr_csv_formatting() {
     printf("  -> Pass\n");
 }
 
+// "# GSR Bias" header line (biomap_format_gsr_bias_line): golden strings
+// for an accepted reading, an out-of-range one (measured and used differ),
+// a failed check ("none"), and a buffer too small.
+void test_gsr_bias_line_formatting() {
+    printf("Running test_gsr_bias_line_formatting...\n");
+    char buf[64];
+    assert(biomap_format_gsr_bias_line(buf, sizeof(buf), 0.4975f, 0.4975f) > 0);
+    assert(strcmp(buf, "# GSR Bias: measured_mv:497.5,used_mv:497.5\n") == 0);
+    assert(biomap_format_gsr_bias_line(buf, sizeof(buf), 0.438f, 0.5f) > 0);
+    assert(strcmp(buf, "# GSR Bias: measured_mv:438.0,used_mv:500.0\n") == 0);
+    assert(biomap_format_gsr_bias_line(buf, sizeof(buf), NAN, 0.4975f) > 0);
+    assert(strcmp(buf, "# GSR Bias: measured_mv:none,used_mv:497.5\n") == 0);
+    char tiny[16];
+    assert(biomap_format_gsr_bias_line(tiny, sizeof(tiny), 0.5f, 0.5f) == -1);
+    printf("  -> Pass\n");
+}
+
+// The calibration wizard and the 0.5 V bias correction stack: the wizard
+// fits gain/offset on bias-corrected readings (cal off, gsr_sensor_get_raw()),
+// recordings apply bias correction then the fit. So a calibration made at
+// one bias stays right at another. Simulated board: what the ADC reports for
+// skin resistance rs at true bias vb, with the given op-amp input offset,
+// gain/safety resistor errors and ADC gain error; the bias reading goes
+// through the same ADC. Real formula (gsr_tia_counts_to_ns_at_bias) and real
+// fit (calibration_wizard_compute_fit) throughout.
+typedef struct { float rf, rser, vos, gadc; } SimBoard;
+
+static float sim_counts(const SimBoard* b, float rs, float vb) {
+    float i = (vb + b->vos) / (rs + b->rser);           // skin sees the TIA input, bias + offset
+    return b->gadc * (b->vos + i * b->rf) / 7.8125e-6f;  // ADC: V_out − V_bias, in normalised units
+}
+
+// % error of a reading of resistance rs at bias vb after calibrating at vb_cal.
+// correct = false is the old firmware: no bias correction anywhere.
+static float sim_cal_error_pct(const SimBoard* b, bool correct, float vb_cal, float vb, float rs) {
+    const float r[CAL_POINTS] = { 470000.0f, 100000.0f, 47000.0f };
+    const float t[CAL_POINTS] = { 1e9f / 470000.0f, 1e9f / 100000.0f, 1e9f / 47000.0f };
+    float m[CAL_POINTS], gain, offset, r2;
+    for(int i = 0; i < CAL_POINTS; i++) {
+        float scale = correct ? b->gadc * vb_cal / GSR_BIAS_NOMINAL_V : 1.0f;
+        m[i] = gsr_tia_counts_to_ns_at_bias(sim_counts(b, r[i], vb_cal), scale);
+    }
+    calibration_wizard_compute_fit(m, t, &gain, &offset, &r2);
+    float scale = correct ? b->gadc * vb / GSR_BIAS_NOMINAL_V : 1.0f;
+    float ns = gain * gsr_tia_counts_to_ns_at_bias(sim_counts(b, rs, vb), scale) + offset;
+    float truth = 1e9f / rs;
+    return (ns - truth) / truth * 100.0f;
+}
+
+void test_bias_correction_stacks_with_calibration() {
+    printf("Running test_bias_correction_stacks_with_calibration...\n");
+    const float vb_cal = 0.4975f, vb_rec = 0.5075f;  // calibrated at one bias, recorded 2 % higher
+    const float rs_list[] = { 470000.0f, 220000.0f, 100000.0f, 47000.0f };
+
+    // New boards (OPA2333, offset ~10 µV ≈ 0): 0.2 % gain resistor, 1 % safety
+    // resistors, 0.1 % ADC gain. The calibrated result must not depend on
+    // the bias at all — and the old firmware's is off by ~2 %.
+    SimBoard board = { 47000.0f * 1.002f, 9400.0f * 1.01f, 0.0f, 1.001f };
+    for(size_t i = 0; i < sizeof(rs_list) / sizeof(rs_list[0]); i++) {
+        float at_cal = sim_cal_error_pct(&board, true, vb_cal, vb_cal, rs_list[i]);
+        float at_rec = sim_cal_error_pct(&board, true, vb_cal, vb_rec, rs_list[i]);
+        float old    = sim_cal_error_pct(&board, false, vb_cal, vb_rec, rs_list[i]);
+        printf("  %4.0fk: new %+.3f%% at cal bias, %+.3f%% at +2%% bias; old %+.2f%%\n",
+               (double)(rs_list[i] / 1000.0f), (double)at_cal, (double)at_rec, (double)old);
+        assert(fabsf(at_rec - at_cal) < 0.01f);
+        assert(fabsf(at_rec) < 0.2f);
+        assert(fabsf(old) > 1.5f);
+    }
+
+    // Prototype (MCP6002, offset up to a few mV): the skin sees bias + offset
+    // but only the bias is measured, so a little dependence remains — still
+    // far under the old firmware's.
+    board.vos = 0.002f;
+    for(size_t i = 0; i < sizeof(rs_list) / sizeof(rs_list[0]); i++) {
+        float at_rec = sim_cal_error_pct(&board, true, vb_cal, vb_rec, rs_list[i]);
+        float old    = sim_cal_error_pct(&board, false, vb_cal, vb_rec, rs_list[i]);
+        printf("  %4.0fk with 2 mV offset: new %+.3f%%, old %+.2f%%\n",
+               (double)(rs_list[i] / 1000.0f), (double)at_rec, (double)old);
+        assert(fabsf(at_rec) < 0.2f);
+        assert(fabsf(old) > 1.5f);
+    }
+    printf("  -> Pass\n");
+}
+
 // Counts comma-separated fields in a CSV header or row string — works for
 // either since both end in a trailing '\n' this simply doesn't count as a
 // field separator. `n` fields means `n-1` commas, so this returns
@@ -1100,6 +1184,8 @@ int main() {
     printf("========================================\n");
     test_csv_formatting();
     test_gsr_csv_formatting();
+    test_gsr_bias_line_formatting();
+    test_bias_correction_stacks_with_calibration();
     test_csv_header_matches_row_column_count();
     test_csv_row_overflow_returns_negative();
     test_nmea_parsing();

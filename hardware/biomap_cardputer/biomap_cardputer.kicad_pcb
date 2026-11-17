@@ -932,7 +932,7 @@
 				(justify mirror)
 			)
 		)
-		(property "Value" "4.7k"
+		(property "Value" "4.7k 0.1%"
 			(at 0 -1.65 180)
 			(layer "B.Fab")
 			(uuid "6ca828b4-49ca-40e6-a919-39e73fb09e5b")
@@ -981,7 +981,7 @@
 				(justify mirror)
 			)
 		)
-		(property "Manufacturer" "UNI-ROYAL"
+		(property "Manufacturer" "RESI"
 			(at 0 0 0)
 			(layer "B.Fab")
 			(hide yes)
@@ -992,7 +992,7 @@
 				)
 			)
 		)
-		(property "MPN" "0805W8F4701T5E"
+		(property "MPN" "PTFR0805B4K70P9"
 			(at 0 0 0)
 			(layer "B.Fab")
 			(hide yes)
@@ -1003,7 +1003,7 @@
 				)
 			)
 		)
-		(property "LCSC" "C17673"
+		(property "LCSC" "C2849257"
 			(at 0 0 0)
 			(layer "B.Fab")
 			(hide yes)
@@ -1014,7 +1014,7 @@
 				)
 			)
 		)
-		(property "Note" "Skin current limit"
+		(property "Note" "Skin current limit. The firmware subtracts R3 + R4 = 9.4k: use 0.1% parts"
 			(at 0 0 0)
 			(layer "B.Fab")
 			(hide yes)
@@ -8070,7 +8070,7 @@
 				(justify mirror)
 			)
 		)
-		(property "Value" "4.7k"
+		(property "Value" "4.7k 0.1%"
 			(at 0 -1.65 180)
 			(layer "B.Fab")
 			(uuid "edc1893b-655a-4e00-83ac-0c7cbe586327")
@@ -8119,7 +8119,7 @@
 				(justify mirror)
 			)
 		)
-		(property "Manufacturer" "UNI-ROYAL"
+		(property "Manufacturer" "RESI"
 			(at 0 0 0)
 			(layer "B.Fab")
 			(hide yes)
@@ -8130,7 +8130,7 @@
 				)
 			)
 		)
-		(property "MPN" "0805W8F4701T5E"
+		(property "MPN" "PTFR0805B4K70P9"
 			(at 0 0 0)
 			(layer "B.Fab")
 			(hide yes)
@@ -8141,7 +8141,7 @@
 				)
 			)
 		)
-		(property "LCSC" "C17673"
+		(property "LCSC" "C2849257"
 			(at 0 0 0)
 			(layer "B.Fab")
 			(hide yes)
@@ -8152,7 +8152,7 @@
 				)
 			)
 		)
-		(property "Note" "Skin current limit"
+		(property "Note" "Skin current limit. The firmware subtracts R3 + R4 = 9.4k: use 0.1% parts"
 			(at 0 0 0)
 			(layer "B.Fab")
 			(hide yes)

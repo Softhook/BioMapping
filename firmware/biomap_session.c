@@ -459,6 +459,34 @@ static bool key_toggle_recording(Session* s, FuriMutex* mutex,
         // line (GPS+GSR+RF with continuity columns). Keep this headroom so
         // schema expansions do not block recording start with "Header too
         // long".
+        // 0.5 V bias check for this recording (gsr_sensor.h, "When it is
+        // measured"): done now, before the first row, so one value holds
+        // for the whole file and goes in its header. Takes a few ms; if it
+        // hasn't finished in 100 ms (I2C trouble) it is cancelled, so it
+        // can't land mid-recording, and the previous value is used.
+        bool  bias_line = false;
+        float bias_measured = NAN;
+        float bias_used = GSR_BIAS_NOMINAL_V;
+        if(has_gsr(s->mode) && s->gsr && gsr_sensor_available(s->gsr)) {
+            uint32_t ticket = gsr_sensor_request_bias_check(s->gsr);
+            uint32_t wait_ticks = (100 * furi_kernel_get_tick_frequency()) / 1000;
+            uint32_t wait_start = furi_get_tick();
+            bool done;
+            while(!(done = gsr_sensor_bias_check_done(s->gsr, ticket)) &&
+                  furi_get_tick() - wait_start < wait_ticks) {
+                furi_delay_ms(1);
+            }
+            if(done) {
+                bias_measured = gsr_sensor_get_bias_measured_volts(s->gsr);
+            } else {
+                gsr_sensor_cancel_bias_check(s->gsr);
+                FURI_LOG_W("BioMap", "GSR bias check timed out");
+            }
+            float accepted = gsr_sensor_get_bias_volts(s->gsr);
+            if(accepted > 0.0f) bias_used = accepted;
+            bias_line = true;
+        }
+
         char header[768];
         int n = snprintf(header, sizeof(header),
                          "# RecordingStartTime:%lu\n", (unsigned long)epoch);
@@ -511,6 +539,11 @@ static bool key_toggle_recording(Session* s, FuriMutex* mutex,
                          (double)gsr_cal_gain, (double)gsr_cal_offset, (double)gsr_cal_r_squared,
                          (double)gsr_cal_noise_std_dev[0], (double)gsr_cal_noise_std_dev[1],
                          (double)gsr_cal_noise_std_dev[2], (unsigned long)gsr_cal_timestamp);
+        }
+        if(bias_line && n > 0 && (size_t)n < sizeof(header)) {
+            int m = biomap_format_gsr_bias_line(header + n, sizeof(header) - (size_t)n,
+                                                bias_measured, bias_used);
+            n = (m < 0) ? -1 : n + m;
         }
         if(n > 0 && (size_t)n < sizeof(header)) {
             n += snprintf(header + n, sizeof(header) - (size_t)n, "%s", cols);

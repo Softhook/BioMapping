@@ -79,6 +79,16 @@ int biomap_format_gsr_row(char* out, size_t cap, bool debug_fields,
     return n;
 }
 
+int biomap_format_gsr_bias_line(char* out, size_t cap, float measured_v, float used_v) {
+    int n = isfinite(measured_v)
+        ? snprintf(out, cap, "# GSR Bias: measured_mv:%.1f,used_mv:%.1f\n",
+                   (double)(measured_v * 1000.0f), (double)(used_v * 1000.0f))
+        : snprintf(out, cap, "# GSR Bias: measured_mv:none,used_mv:%.1f\n",
+                   (double)(used_v * 1000.0f));
+    if(n <= 0 || (size_t)n >= cap) return -1;
+    return n;
+}
+
 int32_t cycle_selection(int32_t sel, int32_t count, bool down) {
     if(down) {
         return (sel + 1 >= count) ? 0 : sel + 1;

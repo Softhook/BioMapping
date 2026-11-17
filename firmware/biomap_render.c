@@ -463,16 +463,24 @@ static void render_diagnostics(Canvas* c, BioMapApp* a) {
         y = draw_fmt(c, 0, y, "Raw: %.0fnS / %.1fk", (double)raw_ns,  (double)raw_kohm);
         y = draw_fmt(c, 0, y, "Filt:%.0fnS / %.1fk", (double)filt_ns, (double)filt_kohm);
 
-        y = draw_fmt(c, 0, y, "PGA:%u Cal:%s Chg:%lu",
-                     (unsigned)pga, a->cal_active ? "yes" : "no",
-                     (unsigned long)gsr_sensor_get_pga_change_count(a->session.gsr));
+        // Vb: the 0.5 V bias as measured (AIN1 against ground), in mV —
+        // "--" when no reading has been plausible, so 500.0 is assumed.
+        float vb = gsr_sensor_get_bias_volts(a->session.gsr);
+        if(vb > 0.0f) {
+            y = draw_fmt(c, 0, y, "PGA:%u Cal:%s Vb:%.1fmV",
+                         (unsigned)pga, a->cal_active ? "yes" : "no", (double)(vb * 1000.0f));
+        } else {
+            y = draw_fmt(c, 0, y, "PGA:%u Cal:%s Vb:--",
+                         (unsigned)pga, a->cal_active ? "yes" : "no");
+        }
         y = draw_fmt(c, 0, y, "Sngl:%ld Mean:%ld(N=%ld)",
                      (long)a->session.pipeline.display.raw_sample_count,
                      (long)mean_cnt, (long)window_n);
-        y = draw_fmt(c, 0, y, "Hz:%.0f OK:%.0f%% F:%lu",
+        y = draw_fmt(c, 0, y, "Hz:%.0f OK:%.0f%% F:%lu Chg:%lu",
                      (double)gsr_sensor_get_worker_hz(a->session.gsr),
                      (double)gsr_sensor_get_success_rate(a->session.gsr),
-                     (unsigned long)gsr_sensor_get_consecutive_failures(a->session.gsr));
+                     (unsigned long)gsr_sensor_get_consecutive_failures(a->session.gsr),
+                     (unsigned long)gsr_sensor_get_pga_change_count(a->session.gsr));
 
         uint32_t dup_gap = gsr_sensor_get_duplicate_gap_min_ticks(a->session.gsr);
         char dg[12];

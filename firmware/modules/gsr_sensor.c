@@ -88,6 +88,19 @@
 //   steps and stays within the ±0.1 / ±0.5 % spec, confirming this end to end.
 // ─────────────────────────────────────────────────────────────────────────────
 
+// 0.5 V BIAS MEASUREMENT (see GSR_BIAS_* in gsr_sensor.h)
+//   AIN1 carries the bias (it is the skin reading's reference). alloc()
+//   reads it directly before the worker starts. After that the worker only
+//   reads it when asked (gsr_sensor_request_bias_check(), at the start of
+//   each recording): it switches the input multiplexer to AIN1-vs-GND on
+//   ±1.024 V (0.5 V reads ~16 000 counts), waits out the same PGA_SETTLE_MS
+//   window a gain change needs, takes one conversion, then queues a normal
+//   config write (pga_changed) to put the skin input back, which arms the
+//   usual settle gate. Conversions taken while the bias is on the
+//   multiplexer are never written to the ring buffer.
+//   One conversion is enough: the ADS1115's noise at ±1.024 V is tens of
+//   µV, under 0.01 % of 0.5 V.
+
 #define ADS_PGA_DEFAULT       2
 #define ADS_PGA_MIN           0
 #define ADS_PGA_MAX           5
@@ -126,6 +139,15 @@ static inline uint8_t pga_msb(uint8_t idx) {
     return (uint8_t)(0x80u | ((uint32_t)idx << 1u));
 }
 
+// Bias check: MUX=101 (AIN1 against GND), PGA ±1.024 V (index 3, 31.25 µV
+// per count), continuous. Same LSB (0xE3) as the skin config.
+#define BIAS_CFG_MSB       (0x80u | (5u << 4u) | (3u << 1u))
+#define BIAS_VOLTS_PER_LSB 31.25e-6f
+
+static bool bias_in_range(float v) {
+    return v >= GSR_BIAS_MIN_V && v <= GSR_BIAS_MAX_V;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Struct & Constants
 // ─────────────────────────────────────────────────────────────────────────────
@@ -145,6 +167,11 @@ struct GsrSensor {
     bool    cal_active; // true when custom calibration is active
     float   cal_gain;   // linear calibration gain factor (default 1.0)
     float   cal_offset; // linear calibration offset in nS (default 0.0)
+    float   bias_volts; // last accepted bias reading (AIN1 alone), V; 0 = none yet
+    float   bias_scale; // bias_volts / GSR_BIAS_NOMINAL_V, or 1.0 if none — used by the TIA equation
+    float   bias_measured_volts; // what the last check read, accepted or not; NAN = check failed
+    bool    bias_check_requested; // set by request(), cleared by the worker on finishing or by cancel()
+    uint32_t bias_check_seq;      // +1 each time the worker finishes a requested check
     int32_t tick_last_norm; // raw normalised count at tick's last-summed index
                              // (snapshotted during tick, used by get_raw_sample_ns)
     int32_t tick_mean_norm; // ~100 ms window mean normalised count (pre-TIA)
@@ -301,11 +328,18 @@ static int32_t gsr_sensor_worker(void* context) {
     // post-PGA-change settle gate. Initialised to "now" (open) so no wrap
     // corner at startup; re-armed on each successful config write.
     uint32_t pga_settle_until_tick = furi_get_tick();
+    // Bias check state (see "0.5 V BIAS MEASUREMENT" above). While
+    // bias_active the multiplexer is on AIN1 alone, so conversions are the
+    // bias, not skin.
+    bool     bias_active = false;
+    uint32_t bias_settle_until_tick = 0;
 
     while(gsr->running) {
         furi_mutex_acquire(gsr->mutex, FuriWaitForever);
         uint8_t active_pga = gsr->pga_index;
         bool pga_changed = gsr->pga_changed;
+        bool i2c_working = gsr->i2c_working;
+        bool bias_requested = gsr->bias_check_requested;
         furi_mutex_release(gsr->mutex);
 
         // ── PGA change path: acquire I2C, write config, release, always ──
@@ -347,6 +381,7 @@ static int32_t gsr_sensor_worker(void* context) {
                 pga_settle_until_tick = furi_get_tick() + settle_ticks;
                 current_adc_pga = active_pga;
                 have_last_hw = false; // new gain scale — not comparable to the pre-change code
+                bias_active = false;  // skin input is back; an unfinished bias check is dropped
                 furi_delay_ms(1);     // brief yield before re-looping
             } else {
                 // Config write failed — retry next iteration, counting it
@@ -354,6 +389,50 @@ static int32_t gsr_sensor_worker(void* context) {
                 gsr_note_i2c_failure(gsr, &consecutive_failures);
                 furi_delay_ms(1);
             }
+            continue;
+        }
+
+        // ── Bias check start (requested): multiplexer to AIN1 alone. ────
+        // Not while a gain change is still settling (that would waste it),
+        // and not while I2C is down (recovery rewrites the config itself).
+        // A request stays pending through either, so it runs afterwards.
+        if(!bias_active && bias_requested && i2c_working &&
+           (int32_t)(furi_get_tick() - pga_settle_until_tick) >= 0) {
+            furi_hal_i2c_acquire(&furi_hal_i2c_handle_external);
+            uint8_t cfg[2] = { (uint8_t)BIAS_CFG_MSB, 0xE3 };
+            uint32_t i2c_write_start = furi_get_tick();
+            bool cfg_ok = furi_hal_i2c_write_mem(
+                &furi_hal_i2c_handle_external,
+                ADS1115_I2C_ADDR, ADS1115_CONFIG_REG,
+                cfg, 2, 50);
+            uint32_t i2c_write_dur = furi_get_tick() - i2c_write_start;
+            furi_hal_i2c_release(&furi_hal_i2c_handle_external);
+
+            furi_mutex_acquire(gsr->mutex, FuriWaitForever);
+            if(i2c_write_dur > gsr->i2c_peak_ms) gsr->i2c_peak_ms = i2c_write_dur;
+            furi_mutex_release(gsr->mutex);
+
+            if(cfg_ok) {
+                gsr_note_i2c_success(gsr, &consecutive_failures);
+                bias_active = true;
+                bias_settle_until_tick = furi_get_tick() +
+                    (PGA_SETTLE_MS * furi_kernel_get_tick_frequency()) / 1000;
+                have_last_hw = false; // next skin read follows a different input
+            } else {
+                // The multiplexer may or may not have switched: put the skin
+                // config back through the normal path, which retries. The
+                // check is finished, as a failure (measured = NAN).
+                gsr_note_i2c_failure(gsr, &consecutive_failures);
+                furi_mutex_acquire(gsr->mutex, FuriWaitForever);
+                gsr->pga_changed = true;
+                if(gsr->bias_check_requested) {
+                    gsr->bias_measured_volts = NAN;
+                    gsr->bias_check_requested = false;
+                    gsr->bias_check_seq++;
+                }
+                furi_mutex_release(gsr->mutex);
+            }
+            furi_delay_ms(1);
             continue;
         }
 
@@ -374,6 +453,8 @@ static int32_t gsr_sensor_worker(void* context) {
         // time clears that window — I2C is still exercised so a disconnect
         // mid-settle trips the failure path below, but the sample isn't used.
         bool in_pga_settle = (int32_t)(furi_get_tick() - pga_settle_until_tick) < 0;
+        bool in_bias_settle = bias_active &&
+            (int32_t)(furi_get_tick() - bias_settle_until_tick) < 0;
 
         // attempt_count normally counts every read, success or failure — it
         // distinguishes "the loop genuinely only runs this fast" from "the
@@ -384,7 +465,7 @@ static int32_t gsr_sensor_worker(void* context) {
         // old furi_delay_ms() gap. i2c_peak_ms still updates — an I2C stall
         // matters whenever it lands.
         furi_mutex_acquire(gsr->mutex, FuriWaitForever);
-        if(!in_pga_settle) gsr->attempt_count++;
+        if(!in_pga_settle && !bias_active) gsr->attempt_count++;
         if(i2c_read_dur > gsr->i2c_peak_ms) gsr->i2c_peak_ms = i2c_read_dur;
         furi_mutex_release(gsr->mutex);
 
@@ -417,7 +498,29 @@ static int32_t gsr_sensor_worker(void* context) {
         // the read that just ended a "sensor lost" spell (see above).
         // have_last_hw stays false through the window, so the first sample
         // after it is not duplicate-compared against a discarded one.
-        if(ok && !in_pga_settle && !recovering) {
+        if(ok && bias_active && !recovering) {
+            // Bias check in progress: this conversion is the bias, never skin.
+            // Once settled, record it, use it if in range, and queue the skin
+            // config back; the PGA-change path then clears bias_active and
+            // arms the settle gate for the skin input. A check cancelled
+            // meanwhile (request cleared) still restores the skin input but
+            // changes nothing else.
+            if(!in_bias_settle) {
+                float v = (float)(int16_t)((data[0] << 8) | data[1]) * BIAS_VOLTS_PER_LSB;
+                furi_mutex_acquire(gsr->mutex, FuriWaitForever);
+                if(gsr->bias_check_requested) {
+                    gsr->bias_measured_volts = v;
+                    if(bias_in_range(v)) {
+                        gsr->bias_volts = v;
+                        gsr->bias_scale = v / GSR_BIAS_NOMINAL_V;
+                    }
+                    gsr->bias_check_requested = false;
+                    gsr->bias_check_seq++;
+                }
+                gsr->pga_changed = true;
+                furi_mutex_release(gsr->mutex);
+            }
+        } else if(ok && !in_pga_settle && !recovering) {
             int16_t hw = (int16_t)((data[0] << 8) | data[1]);
 
             // Normalise using current_adc_pga (the gain that was active
@@ -491,6 +594,11 @@ GsrSensor* gsr_sensor_alloc(GsrWorkerHook hook, void* hook_ctx) {
     gsr->cal_active = false;
     gsr->cal_gain = 1.0f;
     gsr->cal_offset = 0.0f;
+    gsr->bias_volts = 0.0f;
+    gsr->bias_scale = 1.0f;
+    gsr->bias_measured_volts = NAN;
+    gsr->bias_check_requested = false;
+    gsr->bias_check_seq = 0;
 
     furi_hal_i2c_acquire(&furi_hal_i2c_handle_external);
     uint8_t probe = 0;
@@ -500,6 +608,34 @@ GsrSensor* gsr_sensor_alloc(GsrWorkerHook hook, void* hook_ctx) {
         &probe, 1, 20);
 
     if(probed) {
+        // First bias check, so the very first readings already use it:
+        // AIN1 alone on ±1.024 V, wait two conversions plus margin, read.
+        uint8_t bias_cfg[2] = { (uint8_t)BIAS_CFG_MSB, 0xE3 };
+        bool bias_cfg_ok = furi_hal_i2c_write_mem(
+            &furi_hal_i2c_handle_external,
+            ADS1115_I2C_ADDR, ADS1115_CONFIG_REG,
+            bias_cfg, 2, 50);
+        furi_hal_i2c_release(&furi_hal_i2c_handle_external);
+        if(bias_cfg_ok) {
+            furi_delay_ms(5);
+            furi_hal_i2c_acquire(&furi_hal_i2c_handle_external);
+            uint8_t data[2];
+            bool ok = furi_hal_i2c_read_mem(
+                &furi_hal_i2c_handle_external,
+                ADS1115_I2C_ADDR, ADS1115_CONV_REG,
+                data, 2, 50);
+            furi_hal_i2c_release(&furi_hal_i2c_handle_external);
+            float v = ok ? (float)(int16_t)((data[0] << 8) | data[1]) * BIAS_VOLTS_PER_LSB : NAN;
+            gsr->bias_measured_volts = v;
+            if(ok && bias_in_range(v)) {
+                gsr->bias_volts = v;
+                gsr->bias_scale = v / GSR_BIAS_NOMINAL_V;
+            }
+            FURI_LOG_I("GsrSensor", "Bias read %.4f V, using %.4f V", (double)v,
+                       (double)(gsr->bias_scale * GSR_BIAS_NOMINAL_V));
+        }
+        furi_hal_i2c_acquire(&furi_hal_i2c_handle_external);
+
         uint8_t cfg[2] = { pga_msb(ADS_PGA_DEFAULT), 0xE3 }; // Config: default PGA, continuous 860 SPS
         bool cfg_ok = furi_hal_i2c_write_mem(
             &furi_hal_i2c_handle_external,
@@ -632,10 +768,11 @@ float gsr_sensor_get_raw_sample_ns(const GsrSensor* gsr) {
 
     furi_mutex_acquire(gsr->mutex, FuriWaitForever);
     int32_t norm = gsr->tick_last_norm;
+    float bias_scale = gsr->bias_scale;
     furi_mutex_release(gsr->mutex);
 
     if(norm <= 0) return 0.0f;
-    return gsr_tia_counts_to_ns((float)norm);
+    return gsr_tia_counts_to_ns_at_bias((float)norm, bias_scale);
 }
 
 int32_t gsr_sensor_get_raw_sample_count(const GsrSensor* gsr) {
@@ -680,6 +817,46 @@ uint8_t gsr_sensor_get_pga_index(const GsrSensor* gsr) {
     uint8_t val = gsr->pga_index;
     furi_mutex_release(gsr->mutex);
     return val;
+}
+
+float gsr_sensor_get_bias_volts(const GsrSensor* gsr) {
+    furi_check(gsr, "GsrSensor: NULL in get_bias_volts()");
+    furi_mutex_acquire(gsr->mutex, FuriWaitForever);
+    float val = gsr->bias_volts;
+    furi_mutex_release(gsr->mutex);
+    return val;
+}
+
+float gsr_sensor_get_bias_measured_volts(const GsrSensor* gsr) {
+    furi_check(gsr, "GsrSensor: NULL in get_bias_measured_volts()");
+    furi_mutex_acquire(gsr->mutex, FuriWaitForever);
+    float val = gsr->bias_measured_volts;
+    furi_mutex_release(gsr->mutex);
+    return val;
+}
+
+uint32_t gsr_sensor_request_bias_check(GsrSensor* gsr) {
+    furi_check(gsr, "GsrSensor: NULL in request_bias_check()");
+    furi_mutex_acquire(gsr->mutex, FuriWaitForever);
+    gsr->bias_check_requested = true;
+    uint32_t ticket = gsr->bias_check_seq;
+    furi_mutex_release(gsr->mutex);
+    return ticket;
+}
+
+bool gsr_sensor_bias_check_done(const GsrSensor* gsr, uint32_t ticket) {
+    furi_check(gsr, "GsrSensor: NULL in bias_check_done()");
+    furi_mutex_acquire(gsr->mutex, FuriWaitForever);
+    bool done = gsr->bias_check_seq != ticket;
+    furi_mutex_release(gsr->mutex);
+    return done;
+}
+
+void gsr_sensor_cancel_bias_check(GsrSensor* gsr) {
+    furi_check(gsr, "GsrSensor: NULL in cancel_bias_check()");
+    furi_mutex_acquire(gsr->mutex, FuriWaitForever);
+    gsr->bias_check_requested = false;
+    furi_mutex_release(gsr->mutex);
 }
 
 // Measured worker throughput in Hz, over a rolling ~1 s window — the true
@@ -943,6 +1120,7 @@ void gsr_sensor_tick(GsrSensor* gsr) {
     bool active = gsr->cal_active;
     float gain = gsr->cal_gain;
     float offset = gsr->cal_offset;
+    float bias_scale = gsr->bias_scale;
     furi_mutex_release(gsr->mutex);
 
     // ── Step 2: simple mean over however many samples landed in the
@@ -989,7 +1167,7 @@ void gsr_sensor_tick(GsrSensor* gsr) {
     // Calibration (if active) is applied AFTER the TIA, in the nS domain
     // where gain and offset were computed.
     float raw_ns;
-    raw_ns = gsr_tia_counts_to_ns(avg_norm);
+    raw_ns = gsr_tia_counts_to_ns_at_bias(avg_norm, bias_scale);
     // Disconnect detection (Step 5 below) always checks this pre-calibration
     // value: a nonzero calibration offset can shift a true open-circuit
     // reading (raw TIA ~0 nS) into the "valid" window, masking a real

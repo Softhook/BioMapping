@@ -32,11 +32,12 @@ Each CSV begins with comment lines (prefixed `#`) before the column header:
 # Band Floors (dBm): 815:<float>,868:<float>,915:<float>
 # GPSChipID:<word1 word2 word3 word4 word5>
 # GSR Calibration: gain:<float>,offset:<float>,r2:<float>,noise_ns:<float>,<float>,<float>,cal_time:<unix_epoch_seconds>
+# GSR Bias: measured_mv:<float|none>,used_mv:<float>
 ```
 
 Emitted in the order shown above (`biomap_session.c`,
 `key_toggle_recording()`). `RecordingStartTime` and `DeviceName` are always
-present; the other three are conditional (see below).
+present; the other four are conditional (see below).
 
 `RecordingStartTime` is `0` if the Flipper RTC has never been set.
 
@@ -82,6 +83,26 @@ Poor label the wizard screens show, so a recording's data quality is
 reportable and comparable across tracks straight from the CSV. Both ride on
 the same `cal_active` gate as `gain`/`offset` — an uncalibrated recording has
 no fit or noise data to report, so the whole line is omitted.
+
+`GSR Bias` records the 0.5 V bias that drives the skin current, measured
+when the recording started (AIN1 against ground, `gsr_sensor.h`). The skin
+reading is directly proportional to this bias, and the bias follows the
+3.3 V supply, so `gsr_raw` is computed with the measured value rather than
+an assumed 500 mV. It is measured once, before the first row, and the same
+value is used for the whole file — never updated mid-recording, so it can't
+put a step in the data.
+
+- `measured_mv` is what the check read, or `none` if it failed (I2C error,
+  or no answer within 100 ms).
+- `used_mv` is the bias applied to every row. It equals `measured_mv` when
+  the reading was in range (450–550 mV). Otherwise it is the last good value
+  from earlier in the session, or 500.0 if there has been none — so a
+  difference between the two flags a wiring or supply problem.
+
+The line appears in every recording with GSR (GSR-only, GPS + GSR, GPS + GSR
++ RF). The bias correction is applied before the calibration fit in
+`GSR Calibration`; calibrations saved before it existed (version 4) are
+rejected, and the wizard must be run again.
 
 `cal_time` is when the calibration was saved (Unix epoch seconds, same units
 as `RecordingStartTime`; `BioMapCalibration.timestamp` in `biomap_format.h`),
@@ -284,6 +305,7 @@ Defined in `modules/gsr_sensor.h` as `GSR_VALID_MIN_NS` and `GSR_VALID_MAX_NS`.
 | 1.9 | 2026-08-30 | Added the **Integrity Bracket** (see section above): a `# Integrity: crc32 v1` marker as the first line of every file and a `# End rows:… bytes:… crc32:… [end_time:…] overflows:… flush_fails:…` trailer written on clean stop. No data-column changes. The visualiser verifies it on import and shows a per-track status tick. |
 | 1.10 | 2026-09-16 | The calibration wizard's 3-step resistor ladder now doubles as a pre-flight noise/resolution check (per-resistor σ via a Welford accumulator over a 20 s dwell, gated against `CAL_NOISE_ACCEPTABLE_NS`); `# GSR Calibration` gained `r2:<float>,noise_ns:<float>,<float>,<float>` so a recording's fit goodness and noise floor are real reportable numbers, not just the wizard's Excellent/Acceptable/Poor label. No data-column changes. |
 | 1.11 | 2026-09-26 | `# GSR Calibration` gained `cal_time:<unix_epoch_seconds>` (when the calibration was saved; `0` if the RTC was unset) for traceability. No data-column changes. |
+| 1.12 | 2026-11-17 | Added `# GSR Bias: measured_mv:…,used_mv:…`: the 0.5 V bias measured at recording start and applied to `gsr_raw` for the whole file. GSR calibration file version 4 → 5 (old fits rejected). No data-column changes. |
 
 ---
 
