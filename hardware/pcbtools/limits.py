@@ -16,10 +16,10 @@ from .measure import numbers
 
 RULES = [
     # ── decoupling: each 100 nF capacitor close to its chip's supply AND ground pins ──
-    ("C1-U1 supply", "max", 3.5, None, "op-amp supply decoupling; no worse than today"),
-    ("C1-U1 ground", "max", 3.5, None, "op-amp decoupling return path; no worse than today"),
-    ("C3-U2 supply", "max", 3.5, None, "ADC supply decoupling; no worse than today"),
-    ("C3-U2 ground", "max", 4.5, None, "ADC decoupling return path; no worse than today"),
+    ("C1-U1 supply", "max", 2.0, None, "op-amp supply decoupling; no worse than today"),
+    ("C1-U1 ground", "max", 2.5, None, "op-amp decoupling return path; no worse than today"),
+    ("C3-U2 supply", "max", 2.2, None, "ADC supply decoupling; no worse than today"),
+    ("C3-U2 ground", "max", 3.0, None, "ADC decoupling return path; no worse than today"),
     ("C7-U4 supply", "max", 4.0, None, "GPS decoupling, bridging VCC and the GND pad beside it"),
     ("C7-U4 ground", "max", 4.0, None, "GPS decoupling, bridging VCC and the GND pad beside it"),
     ("C5-U3 supply", "max", 3.0, None, "regulator output capacitor (Cardputer); no worse than today"),
@@ -31,8 +31,9 @@ RULES = [
                                      "no worse than today"),
     ("bias divider", "max", 8.0, None, "R1/R2 and smoothing capacitor C9 to the reference buffer; "
                                        "no worse than today"),
-    ("0.5 V guard copper", "min", 40, None, "the guard round the amplifier input must stay one solid "
-                                            "piece (about 46 mm2): a layout change that breaks it up shrinks it"),
+    ("0.5 V guard copper", "min", {"biomap_flipper": 45, "biomap_cardputer": 55}, None,
+     "the guard round the amplifier input must stay one solid piece (about 49 mm2 on the Flipper, "
+     "60 mm2 on the Cardputer): a layout change that breaks it up shrinks it"),
     # ── GPS ground plane (u-blox SAM-M10Q integration manual) ──
     ("GPS plane ground vias", "min", 100, None, "ground stitched across the 50 x 50 mm plane; "
                                                 "SparkFun's 40 mm board has about 100"),

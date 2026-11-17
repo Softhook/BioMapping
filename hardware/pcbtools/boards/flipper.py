@@ -31,13 +31,15 @@ PLACE = {
     "C8": (21.6, 5.3, 180, "F"), "BT1": (15.0, 5.3, 0, "F"),
     "R10": (25.0, 31.0, -90, "F"), "R9": (27.5, 31.0, -90, "F"),
     # GSR circuit: cuffs (right edge) -> R3/R4 -> U1 -> U2 below it
-    "J2": (74.6, 18.0, 90, "F"),
+    # cuff socket: its opening is 0.75 mm inside the right edge, so nothing sticks out
+    # and the plug can be pulled straight off; its tabs keep the 0.5 mm copper-edge gap
+    "J2": (74.85, 18.0, 90, "F"),
     "R4": (67.6, 14.0, 180, "F"), "R3": (67.6, 23.0, 180, "F"),
     "R5": (65.6, 19.3, -90, "F"), "C2": (67.9, 19.3, -90, "F"),
     "U1": (60.0, 18.0, 180, "F"),
-    "R1": (53.6, 13.6, 0, "F"), "R2": (53.6, 16.1, 180, "F"), "C1": (55.0, 22.1, -90, "F"),
+    "R1": (53.6, 13.6, 0, "F"), "R2": (53.6, 16.1, 180, "F"), "C1": (56.0, 21.6, 180, "F"),
     "C9": (53.6, 18.4, 180, "F"),                  # right under R2, across it
-    "U2": (60.0, 27.0, -90, "F"), "C3": (57.0, 30.6, -90, "F"),
+    "U2": (60.0, 27.0, -90, "F"), "C3": (59.3, 31.9, -90, "F"),   # right under ADC supply pin 8
     # test pads: GSR output and ground side by side, 0.5 V beside the ADC
     "TP3": (64.2, 23.0, 0, "F"), "TP5": (64.2, 25.4, 0, "F"), "TP4": (57.0, 26.0, 0, "F"),
     "R6": (64.5, 33.0, 90, "F"), "R7": (67.0, 33.0, 90, "F"),
@@ -62,10 +64,12 @@ TRACKS = [
     # ── 3V3 to the GSR side: back layer along the bottom, then up the left of the circuit ──
     ("B", PWR, ["J4.1", (33.65, 45.6), (50.5, 45.6)]),
     ("F", PWR, ["net:+3V3", (50.5, 45.6), (50.5, 13.6), "R1.1"]),
-    ("F", PWR, ["net:+3V3", (50.5, 19.91), (55.0, 19.91), "C1.1"]),
-    ("F", PWR, ["U1.8", (55.0, 19.91)]),
-    ("F", PWR, ["net:+3V3", (50.5, 30.3), (57.0, 30.3), "C3.1"]),
-    ("F", SIG, ["U2.8", (60.0, 30.3), (57.0, 30.3)]),
+    ("F", PWR, ["net:+3V3", (50.5, 19.91), "U1.8"]),
+    ("F", PWR, ["U1.8", (56.95, 19.91), "C1.1"]),          # C1 right under the op-amp supply pin
+    ("F", PWR, ["C1.2", (53.85, 21.6)]),
+    ("F", PWR, ["net:+3V3", (50.5, 30.95), "C3.1"]),
+    ("F", SIG, ["U2.8", (60.0, 30.95), "C3.1"]),
+    ("F", PWR, ["C3.2", (59.3, 33.95)]),
     ("F", SIG, ["net:+3V3", (50.5, 35.5), (67.0, 35.5), "R7.1"]),
     ("F", SIG, ["R6.1", (64.5, 35.5)]),
     # ── GSR signal path ──
@@ -82,7 +86,7 @@ TRACKS = [
     ("F", SIG, ["R2.1", "C9.1"]),
     ("F", PWR, ["R2.2", "C9.2"]),
     ("F", PWR, ["net:GND", (51.5, 17.25), (52.67, 17.25)]),
-    ("F", PWR, ["U1.4", (64.4, 16.09)]),                   # ground pin to its via (the guard surrounds it)
+    ("F", PWR, ["U1.4", (62.48, 15.0)]),                   # ground pin to its via, just outside the guard
     ("F", SIG, [(64.2, 21.5), "TP3.1"]),
     ("F", SIG, [(59.0, 23.2), (57.0, 23.2), "TP4.1"]),
     # ── ADC and I2C ──
@@ -95,15 +99,15 @@ TRACKS = [
 ]
 VIAS = [
     ("+3V3", 50.5, 45.6), ("I2C_SCL", 62.2, 30.4), ("I2C_SDA", 63.2, 31.2),
-    ("GND", 62.3, 23.4), ("GND", 64.4, 16.09), ("GND", 51.5, 17.25), ("GND", 55.0, 24.3),
-    ("GND", 57.0, 32.8), ("GND", 66.69, 25.0), ("GND", 36.6, 24.4), ("GND", 40.9, 27.2),
+    ("GND", 62.3, 23.4), ("GND", 60.5, 23.4), ("GND", 62.48, 15.0), ("GND", 51.5, 17.25), ("GND", 53.85, 21.6),
+    ("GND", 59.3, 33.95), ("GND", 66.69, 25.0), ("GND", 36.6, 24.4), ("GND", 40.9, 27.2),
 ]
 # GPS keep-clear: no tracks on the back layer near the module, none under it on the front
 KEEPOUT = [("B", (0.5, 0.5, 45.0, 40.0)), ("F", (19.7, 14.7, 30.3, 25.3))]
 
 # 0.5 V guard: around R4, C2, R5, the input pin U1.2 and the cuff-2 wire to J2.
 # It joins the reference at U1 pin 3, right beside the input pin.
-GUARD = ("F", [(63.0, 11.2), (73.8, 11.2), (73.8, 18.0), (69.0, 18.0), (69.0, 19.4), (63.0, 19.4)])
+GUARD = ("F", [(63.0, 11.2), (74.05, 11.2), (74.05, 18.0), (69.0, 18.0), (69.0, 19.4), (63.0, 19.4)])
 
 STITCH = [((1.5, 1.5, 46.0, 50.5), 3.0), ((47.5, 1.5, 78.5, 50.5), 5.0)]
 
