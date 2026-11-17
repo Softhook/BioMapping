@@ -125,7 +125,7 @@ SYMS = {
               + poly((1.27, -1.27), (0.762, -1.27), (0.762, -1.016))
               + poly((-1.27, 1.27), (1.27, 0), (-1.27, -1.27), (-1.27, 1.27)) + poly((-2.54, 0), (2.54, 0), width=0)))},
         show_numbers=False),
-    "MCP6002": sym("MCP6002", "U", {
+    "OPA2333": sym("OPA2333", "U", {
         1: opamp_unit("2", "3", "1"),
         2: opamp_unit("6", "5", "7"),
         3: dict(pins=[pin("8", "V+", 0, 5.08, 270), pin("4", "V-", 0, -5.08, 90)],
@@ -184,6 +184,7 @@ def lib_symbol(key, prefix="BioMap:"):
 
 FP_R = "Resistor_SMD:R_0805_2012Metric"
 FP_C = "Capacitor_SMD:C_0805_2012Metric"
+FP_TP = "TestPoint:TestPoint_Pad_D1.0mm"
 PREC = "Sets the GSR scale. Use 0.1% parts"
 
 # What to buy for each value: (manufacturer, manufacturer part number, LCSC
@@ -202,7 +203,7 @@ BUY = {
     "100nF C0G":     ("FH (Guangdong Fenghua)", "1206CG104J500NT", "C46348"),
     "10uF":          ("Samsung", "CL21A106KAYNNNE", "C15850"),
     "600R@100MHz":   ("Sunlord", "GZ2012D601TF", "C1017"),
-    "MCP6002T-I/SN": ("Microchip", "MCP6002T-I/SN", "C7377"),
+    "OPA2333AIDR":   ("Texas Instruments", "OPA2333AIDR", "C38732"),
     "ADS1115IDGSR":  ("Texas Instruments", "ADS1115IDGSR", "C37593"),
     "TLV75533PDBVR": ("Texas Instruments", "TLV75533PDBVR", "C404027"),
     "PMEG4005EJ":    ("Nexperia", "PMEG4005EJ,115", "C426868"),
@@ -226,18 +227,25 @@ def gsr_core():
              "JST PH 2.0 mm side-entry socket for the Grove GSR finger-cuff plug. Surface-mount; the two side tabs only hold it down"),
         part("R3", "R", "4.7k", FP_R, {"1": "ELECTRODE_1", "2": "GND"}, "Skin current limit"),
         part("R4", "R", "4.7k", FP_R, {"1": "ELECTRODE_2", "2": "TIA_IN"}, "Skin current limit"),
-        part("U1", "MCP6002", "MCP6002T-I/SN", "Package_SO:SOIC-8_3.9x4.9mm_P1.27mm",
+        part("U1", "OPA2333", "OPA2333AIDR", "Package_SO:SOIC-8_3.9x4.9mm_P1.27mm",
              {"1": "GSR_SIGNAL", "2": "TIA_IN", "3": "REF_0V5", "4": "GND",
-              "5": "BIAS_DIV", "6": "REF_0V5", "7": "REF_0V5", "8": "+3V3"}),
+              "5": "BIAS_DIV", "6": "REF_0V5", "7": "REF_0V5", "8": "+3V3"},
+             "Zero-drift op-amp: offset under 10 uV, so the 0.5 V across the skin stays exact. "
+             "Same pins as the MCP6002 on the prototype"),
         part("R5", "R", "47k 0.1%", FP_R, {"1": "TIA_IN", "2": "GSR_SIGNAL"}, "TIA gain. " + PREC),
         part("C2", "C", "100nF C0G", "Capacitor_SMD:C_1206_3216Metric", {"1": "TIA_IN", "2": "GSR_SIGNAL"}, "TIA filter (~34 Hz). C0G/NP0 only. 1206 size: 100 nF C0G is hard to find in 0805"),
         part("R1", "R", "56k 0.1%", FP_R, {"1": "+3V3", "2": "BIAS_DIV"}, "0.5 V bias. " + PREC),
         part("R2", "R", "10k 0.1%", FP_R, {"1": "BIAS_DIV", "2": "GND"}, "0.5 V bias. " + PREC),
+        part("C9", "C", "10uF", FP_C, {"1": "BIAS_DIV", "2": "GND"},
+             "Smooths the 0.5 V bias: noise on 3.3 V would otherwise change the GSR gain"),
         part("C1", "C", "100nF", FP_C, {"1": "+3V3", "2": "GND"}, "Op-amp decoupling: against U1 pins 8 and 4"),
         part("U2", "ADS1115", "ADS1115IDGSR", "Package_SO:MSOP-10_3x3mm_P0.5mm",
              {"4": "GSR_SIGNAL", "5": "REF_0V5", "6": None, "7": None, "3": "GND",
               "8": "+3V3", "9": "I2C_SDA", "10": "I2C_SCL", "1": "GND", "2": None}, "I2C address 0x48 (ADDR to GND)"),
         part("C3", "C", "100nF", FP_C, {"1": "+3V3", "2": "GND"}, "ADC decoupling: against U2 pins 8 and 3"),
+        part("TP3", "TP", "GSR", FP_TP, {"1": "GSR_SIGNAL"}, "Test pad: amplifier output"),
+        part("TP4", "TP", "0.5V", FP_TP, {"1": "REF_0V5"}, "Test pad: 0.5 V reference"),
+        part("TP5", "TP", "GND", FP_TP, {"1": "GND"}, "Test pad: ground, for the meter or scope"),
     ]
 
 def gps_block():
@@ -521,7 +529,7 @@ class Sheet:
             return x, y - 2.8, "", 5.6
         if key == "TP":
             return x, y - 6.4, "", -2.0
-        if key == "MCP6002":
+        if key == "OPA2333":
             if it["unit"] < 3:
                 return x + 1.27, y - 7.6, "left", 2.0
             return x + 2.54, y - 1.27, "left", 2.54
@@ -575,7 +583,7 @@ def draw_tia(s, x0, y0):
 
 def draw_ref(s, x0, y0):
     s.frame(x0, y0, g(40), H2, "2  0.5 V reference and op-amp supply",
-            "56k / 10k from 3.3 V = 0.50 V. C1 sits against U1 pins 8 and 4.")
+            "56k / 10k from 3.3 V = 0.50 V, smoothed by C9. C1 sits against U1 pins 8 and 4.")
     ux, uy = x0 + g(26), y0 + g(15)
     s.put("U1", ux, uy, unit=2)
     plus, minus, out = s.pins["U1.5"], s.pins["U1.6"], s.pins["U1.7"]
@@ -586,6 +594,11 @@ def draw_ref(s, x0, y0):
     s.power("R2.2", "GND")
     s.wire("R1.2", "R2.1")
     s.wire((rx, plus[1]), "U1.5")
+    # C9 across R2 smooths the bias
+    cx = rx - g(5)
+    s.put("C9", cx, plus[1] + g(4) + 1.27)
+    s.wire((rx, plus[1]), (cx, plus[1]), "C9.1")
+    s.power("C9.2", "GND")
     # follower: output straight back to the "-" input
     top = minus[1] - g(3)
     oc = (out[0] + g(2), out[1])
@@ -618,6 +631,14 @@ def draw_adc(s, x0, y0):
     s.wire("U2.8", rail, (cx, rail[1]), "C3.1")
     s.power(rail, "+3V3")
     s.power("C3.2", "GND")
+    # test pads for a meter or scope
+    ty = y0 + g(31)
+    for i, (ref, net) in enumerate((("TP3", "GSR_SIGNAL"), ("TP4", "REF_0V5"), ("TP5", None))):
+        s.put(ref, x0 + g(4 + 6 * i), ty)
+        if net:
+            s.label(f"{ref}.1", net, n=2)
+        else:
+            s.power(f"{ref}.1", "GND")
 
 def draw_gps(s, x0, y0):
     s.frame(x0, y0, g(66), H1, "5  GPS: u-blox SAM-M10Q with built-in antenna",

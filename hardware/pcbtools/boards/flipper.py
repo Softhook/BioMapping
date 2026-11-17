@@ -8,6 +8,7 @@ TRACKS    (face, width, points). A point is "REF.pad" or (x, y); a leading
           "net:NAME" names the net when the track starts at a bare point.
 VIAS      (net, x, y)
 KEEPOUT   (face, (x1, y1, x2, y2)): "GPS keep clear" areas that refuse tracks
+GUARD     (face, [(x, y), ...]): 0.5 V guard copper around the amplifier input
 STITCH    ((x1, y1, x2, y2), pitch): ground-via grids
 LABELS    face -> [(text, x, y, size)] printed on the board
 outline() draws the board edge"""
@@ -35,7 +36,10 @@ PLACE = {
     "R5": (65.6, 19.3, -90, "F"), "C2": (67.9, 19.3, -90, "F"),
     "U1": (60.0, 18.0, 180, "F"),
     "R1": (53.6, 13.6, 0, "F"), "R2": (53.6, 16.1, 180, "F"), "C1": (55.0, 22.1, -90, "F"),
+    "C9": (53.6, 18.4, 180, "F"),                  # right under R2, across it
     "U2": (60.0, 27.0, -90, "F"), "C3": (57.0, 30.6, -90, "F"),
+    # test pads: GSR output and ground side by side, 0.5 V beside the ADC
+    "TP3": (64.2, 23.0, 0, "F"), "TP5": (64.2, 25.4, 0, "F"), "TP4": (57.0, 26.0, 0, "F"),
     "R6": (64.5, 33.0, 90, "F"), "R7": (67.0, 33.0, 90, "F"),
 }
 TRACKS = [
@@ -75,6 +79,12 @@ TRACKS = [
     ("F", SIG, ["U1.6", "U1.7"]),
     ("F", SIG, [(59.0, 17.36), "U2.5"]),
     ("F", SIG, ["R1.2", "R2.1", "U1.5"]),
+    ("F", SIG, ["R2.1", "C9.1"]),
+    ("F", PWR, ["R2.2", "C9.2"]),
+    ("F", PWR, ["net:GND", (51.5, 17.25), (52.67, 17.25)]),
+    ("F", PWR, ["U1.4", (64.4, 16.09)]),                   # ground pin to its via (the guard surrounds it)
+    ("F", SIG, [(64.2, 21.5), "TP3.1"]),
+    ("F", SIG, [(59.0, 23.2), (57.0, 23.2), "TP4.1"]),
     # ── ADC and I2C ──
     ("F", SIG, ["U2.3", (60.0, 23.4), (62.3, 23.4)]),
     ("F", SIG, ["U2.1", (61.0, 23.4)]),
@@ -85,15 +95,19 @@ TRACKS = [
 ]
 VIAS = [
     ("+3V3", 50.5, 45.6), ("I2C_SCL", 62.2, 30.4), ("I2C_SDA", 63.2, 31.2),
-    ("GND", 62.3, 23.4), ("GND", 64.4, 16.09), ("GND", 52.0, 17.6), ("GND", 55.0, 24.3),
+    ("GND", 62.3, 23.4), ("GND", 64.4, 16.09), ("GND", 51.5, 17.25), ("GND", 55.0, 24.3),
     ("GND", 57.0, 32.8), ("GND", 66.69, 25.0), ("GND", 36.6, 24.4), ("GND", 40.9, 27.2),
 ]
 # GPS keep-clear: no tracks on the back layer near the module, none under it on the front
 KEEPOUT = [("B", (0.5, 0.5, 45.0, 40.0)), ("F", (19.7, 14.7, 30.3, 25.3))]
 
+# 0.5 V guard: around R4, C2, R5, the input pin U1.2 and the cuff-2 wire to J2.
+# It joins the reference at U1 pin 3, right beside the input pin.
+GUARD = ("F", [(63.0, 11.2), (73.8, 11.2), (73.8, 18.0), (69.0, 18.0), (69.0, 19.4), (63.0, 19.4)])
+
 STITCH = [((1.5, 1.5, 46.0, 50.5), 3.0), ((47.5, 1.5, 78.5, 50.5), 5.0)]
 
-LABELS = {"F": [("BioMapping 2 - Flipper GSR + GPS", 65.2, 41.0, 0.9),
+LABELS = {"F": [("BioMapping 2 - Flipper GSR + GPS", 65.2, 41.0, 0.9), ("rev A  2026-11", 65.2, 42.6, 0.8), ("GSR", 62.2, 22.3, 0.8),
                 ("GPS: keep this side clear of metal", 23.0, 37.5, 0.8),
                 ("CUFFS", 76.0, 23.6, 0.8), ("SAFEBOOT", 12.4, 22.6, 0.8), ("RESET", 38.0, 17.2, 0.8)]}
 

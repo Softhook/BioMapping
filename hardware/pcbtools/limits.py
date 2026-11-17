@@ -17,20 +17,22 @@ from .measure import numbers
 RULES = [
     # ── decoupling: each 100 nF capacitor close to its chip's supply AND ground pins ──
     ("C1-U1 supply", "max", 3.5, None, "op-amp supply decoupling; no worse than today"),
-    ("C1-U1 ground", "max", 10.5, 3.0, "op-amp decoupling return path; no worse than today, "
-                                       "target from the planned GSR clean-up"),
+    ("C1-U1 ground", "max", 3.5, None, "op-amp decoupling return path; no worse than today"),
     ("C3-U2 supply", "max", 3.5, None, "ADC supply decoupling; no worse than today"),
-    ("C3-U2 ground", "max", 7.5, 3.0, "ADC decoupling return path; no worse than today, "
-                                      "target from the planned GSR clean-up"),
+    ("C3-U2 ground", "max", 4.5, None, "ADC decoupling return path; no worse than today"),
     ("C7-U4 supply", "max", 4.0, None, "GPS decoupling, bridging VCC and the GND pad beside it"),
     ("C7-U4 ground", "max", 4.0, None, "GPS decoupling, bridging VCC and the GND pad beside it"),
     ("C5-U3 supply", "max", 3.0, None, "regulator output capacitor (Cardputer); no worse than today"),
-    ("C5-U3 ground", "max", 5.5, None, "regulator output capacitor (Cardputer); no worse than today"),
+    ("C5-U3 ground", "max", 3.0, None, "regulator output capacitor (Cardputer); no worse than today"),
     # ── GSR signal path: short copper picks up less noise ──
     ("amplifier input", "max", 10.0, None, "carries the tiny skin current; the most noise-sensitive wire"),
-    ("GSR_SIGNAL", "max", 16.0, None, "amplifier output to the ADC; no worse than today"),
-    ("0.5 V ref", "max", 14.5, None, "reference shared by amplifier and ADC; no worse than today"),
-    ("bias divider", "max", 6.0, None, "R1/R2 to the reference buffer; no worse than today"),
+    ("GSR_SIGNAL", "max", 17.0, None, "amplifier output to the ADC and test pad TP3; no worse than today"),
+    ("0.5 V ref", "max", 19.0, None, "reference shared by amplifier and ADC, and test pad TP4; "
+                                     "no worse than today"),
+    ("bias divider", "max", 8.0, None, "R1/R2 and smoothing capacitor C9 to the reference buffer; "
+                                       "no worse than today"),
+    ("0.5 V guard copper", "min", 40, None, "the guard round the amplifier input must stay one solid "
+                                            "piece (about 46 mm2): a layout change that breaks it up shrinks it"),
     # ── GPS ground plane (u-blox SAM-M10Q integration manual) ──
     ("GPS plane ground vias", "min", 100, None, "ground stitched across the 50 x 50 mm plane; "
                                                 "SparkFun's 40 mm board has about 100"),
@@ -55,7 +57,7 @@ def check(name, pcb_path):
         v = n[key]
         worse = (lambda a, b: a > b) if kind == "max" else (lambda a, b: a < b)
         sign, unit = (">", "<=") if kind == "max" else ("<", ">=")
-        mm = "" if "vias" in key else " mm"
+        mm = "" if "vias" in key else " mm2" if "copper" in key else " mm"
         if worse(v, limit):
             fails.append(f"    FAIL {key}: {v}{mm} {sign} limit {limit}{mm}  ({why})")
         elif target is not None and worse(v, target):

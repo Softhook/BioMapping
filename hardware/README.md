@@ -26,7 +26,9 @@ Inside a block, parts are joined by drawn wires. Between blocks, a signal is car
 
 Each board has two halves.
 
-- **GSR half.** The parts follow the signal: cuffs, then R3/R4, then the op-amp, then the ADC. The cuff socket is on the board edge. The amplifier's input wire, which carries the tiny skin current and is the most sensitive to noise, is 10 mm long. Each 100 nF supply capacitor sits close to the power pin of its chip: C1 and C3 about 3 mm, C7 about 3.7 mm.
+- **GSR half.** The parts follow the signal: cuffs, then R3/R4, then the op-amp, then the ADC. The cuff socket is on the board edge. The amplifier's input wire, which carries the tiny skin current and is the most sensitive to noise, is 10 mm long. Each 100 nF supply capacitor sits close to the power pin of its chip: C1 and C3 about 3 mm, C7 about 3.7 mm. Their ground ends reach ground through a via each, about 3–4 mm in all (see `./pcb measure`).
+- **0.5 V guard.** A patch of copper held at 0.5 V surrounds the amplifier's input wire, R4, C2, R5 and the cuff-2 wire. That wiring also sits at about 0.5 V, so no current can leak between it and the guard. Without the guard, ground copper 0.3 mm away could leak a little current through flux left on the board, and that current would be added to the skin reading. The flux can't simply be washed off, because the GPS module mustn't be washed. The guard joins the reference at U1 pin 3, right beside the input pin 2. Ground copper is kept out of the guard's area.
+- **Test pads.** TP3 (GSR output, printed "GSR"), TP5 (ground) beside it, and TP4 (0.5 V reference), for a meter or scope when checking a new board.
 - **GPS half.** The module sits in the middle of an unbroken ground area of about 50 × 52 mm (Flipper) or 52 × 54 mm (Cardputer). Small parts sit right beside the pins they serve. C7 bridges the module's supply pin and the ground pin next to it.
 
 Long runs (I2C and the 3.3 V feed) go along the board edge on the other copper layer, outside the GPS area. Ground fills both copper layers, joined by a grid of vias: 3 mm apart around the GPS, 5 mm elsewhere. KiCad has a "GPS keep clear" zone that refuses new traces under and around the module, so hand edits can't break this by accident.
@@ -52,6 +54,8 @@ Two test pads, SAFEBOOT and RESET, take the place of SparkFun's header pins. The
 
 - **ADS1115 as a bare chip** (MSOP-10). The Flipper board has its own I2C pull-up resistors (R6, R7). On the Cardputer these are marked "do not fit", because its bus already has pull-ups.
 - **Precision resistors suggested** for R1, R2 and R5 (0.1%), and a **C0G capacitor** for C2. These set the GSR scale directly.
+- **Op-amp: TI OPA2333AIDR** (U1), a "zero-drift" op-amp. Its input error is under 10 µV, against up to 4.5 mV for the MCP6002 on the hand-built prototype, so the 0.5 V across the skin stays exact and doesn't drift with temperature. It has the same pins as the MCP6002. Buy TI's own part: LCSC also lists cheaper copies from other makers with different specs.
+- **C9 (10 µF) across R2** smooths the 0.5 V bias. The bias is taken from 3.3 V, and the GSR reading scales with it, so without C9 any wobble on 3.3 V would show up in the reading.
 Each board's `bom.csv` lists every part with its maker, maker's part number and LCSC number (LCSC is the parts store JLCPCB assembles from). Identical parts share one row. The everyday resistors and capacitors are JLCPCB "basic" parts, which have no extra fitting fee.
 
 Everything is surface-mount and suits machine assembly, except the angled pin headers.
@@ -146,7 +150,7 @@ DRC only checks that copper doesn't touch where it shouldn't. It doesn't notice 
 
 Some limits come from a source: u-blox asks for ground vias filling the plane under the GPS, and SparkFun's 40 mm board has about 100. The rest are set just past today's values, so any change that makes things worse is caught. When a layout improves, tighten the limit to match, so the improvement can't be lost later.
 
-At the moment the C1 and C3 ground ends (10.2 and 7.3 mm) pass their limits but show as short of the 3 mm target set for the planned GSR clean-up.
+One rule is about copper area rather than distance: the 0.5 V guard must stay one solid piece of about 46 mm². If a layout change splits it up, KiCad drops the pieces that aren't joined to the reference, and the area falls below the limit.
 
 Rebuilding an unchanged design gives identical files, so `git diff` shows only what really changed.
 

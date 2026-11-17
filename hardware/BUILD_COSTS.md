@@ -9,7 +9,7 @@ Almost every part is surface-mount (soldered onto the face of the board):
 | Parts | Package | Notes |
 |---|---|---|
 | Resistors and capacitors | 0805 (2.0 × 1.25 mm) | Standard pads |
-| U1 op-amp (MCP6002) | SOIC-8 | Easy with an iron |
+| U1 op-amp (OPA2333) | SOIC-8 | Easy with an iron |
 | U2 ADC (ADS1115) | MSOP-10 | Pins 0.5 mm apart: fiddly by hand, fine with flux and a fine tip |
 | U3 regulator (Cardputer only) | SOT-23-5 | |
 | BT1 backup cell (MS421R) | Reflow-solderable, 4.8 mm | Goes through the oven like any other part |

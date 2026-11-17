@@ -1,7 +1,15 @@
 """Print the layout numbers that matter for noise, for both boards:
 how far each decoupling capacitor sits from its chip's supply pin and its
 ground pin, and how long the copper is on the sensitive and the long nets.
-Needs KiCad's Python (pcbnew)."""
+Needs KiCad's Python (pcbnew).
+
+The ground number follows the way the current really flows. A capacitor's
+ground pad and its chip's ground pin are usually joined through the solid
+ground layer: down a via near the capacitor, across the layer, and up a via
+near the chip. The layer itself adds almost nothing, so what counts is the
+two surface stretches to those vias. The ground number is the shorter of
+that and the straight distance between the two pads (for a capacitor wired
+straight to its pin, like C7 on the GPS)."""
 import os
 import subprocess
 import tempfile
@@ -10,7 +18,8 @@ import pcbnew
 from .kicad import BOARDS, HARDWARE, REPO, board_file
 
 # capacitor -> (chip supply pin, chip ground pin). Distances are pad centre
-# to pad centre: cap pad 1 to the supply pin, cap pad 2 to the ground pin.
+# to pad centre: cap pad 1 to the supply pin; cap pad 2 to the ground pin
+# either directly or through the ground layer (see above).
 DECOUPLING = {
     "C1": (("U1", "8"), ("U1", "4")),      # op-amp
     "C3": (("U2", "8"), ("U2", "3")),      # ADC
@@ -27,12 +36,16 @@ def numbers(pcb_path):
     b = pcbnew.LoadBoard(pcb_path)
     pads = {(fp.GetReference(), p.GetNumber()): p.GetPosition()
             for fp in b.GetFootprints() for p in fp.Pads()}
-    dist = lambda a, c: round(pcbnew.ToMM((pads[a] - pads[c]).EuclideanNorm()), 1)
+    mm = lambda a, c: pcbnew.ToMM((a - c).EuclideanNorm())
+    gnd_vias = [t.GetPosition() for t in b.GetTracks()
+                if t.GetClass() == "PCB_VIA" and t.GetNetname().lstrip("/") == "GND"]
+    to_via = lambda pad: min(mm(pads[pad], v) for v in gnd_vias)
     n = {}
     for c, (sup, gnd) in DECOUPLING.items():
         if (c, "1") in pads:
-            n[f"{c}-{sup[0]} supply"] = dist((c, "1"), sup)
-            n[f"{c}-{gnd[0]} ground"] = dist((c, "2"), gnd)
+            n[f"{c}-{sup[0]} supply"] = round(mm(pads[(c, "1")], pads[sup]), 1)
+            n[f"{c}-{gnd[0]} ground"] = round(min(mm(pads[(c, "2")], pads[gnd]),
+                                                  to_via((c, "2")) + to_via(gnd)), 1)
     length, vias, gnd_vias = {}, 0, []
     for t in b.GetTracks():
         if t.GetClass() == "PCB_TRACK":
@@ -54,6 +67,9 @@ def numbers(pcb_path):
     within = lambda half: sum(abs(x - gx) <= half and abs(y - gy) <= half for x, y in gnd_vias)
     n["GPS plane ground vias"] = within(25)
     n["under-GPS ground vias"] = within(8)
+    # filled copper of the 0.5 V guard round the amplifier input (mm^2)
+    n["0.5 V guard copper"] = round(sum(z.GetFilledPolysList(z.GetLayer()).Area() for z in b.Zones()
+                                        if z.GetZoneName() == "0.5 V guard") / 1e12, 1)
     return n
 
 
@@ -68,7 +84,7 @@ def measure(root=HARDWARE, names=BOARDS):
         print("  GSR copper: " + ", ".join(f"{label} {n[label]:.1f} mm" for label, _ in GSR_NETS))
         print("  long nets: " + ", ".join(f"{label} {n[label]}" for label, _ in LONG_NETS) + f" mm; vias {n['vias']}")
         print(f"  GPS ground vias: {n['GPS plane ground vias']} in the 50 x 50 mm plane, "
-              f"{n['under-GPS ground vias']} under the module")
+              f"{n['under-GPS ground vias']} under the module; 0.5 V guard copper {n['0.5 V guard copper']} mm2")
 
 def compare(ref):
     """The numbers for a committed version (git ref) above those for the working copy.

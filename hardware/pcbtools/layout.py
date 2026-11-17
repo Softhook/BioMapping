@@ -4,7 +4,9 @@ Python (pcbnew).
 
 Every part position and every track is written out by hand in the layout
 file, so the layout follows the signal path. No autorouter is involved.
-Ground is two copper pours (one per side) joined by stitching vias."""
+Ground is two copper pours (one per side) joined by stitching vias. A small
+0.5 V "guard" pour surrounds the amplifier input, so no surface leakage
+current can reach it (see add_guard)."""
 import math, os
 import pcbnew
 
@@ -103,8 +105,10 @@ def add_keepouts(board, keepouts):
             ol.Append(MM(px), MM(py))
         board.Add(z)
 
-def add_ground(board, gnd):
-    """A ground pour over the whole board on each copper layer."""
+def add_ground(board, gnd, guard=None):
+    """A ground pour over the whole board on each copper layer, with the
+    guard's area cut out, so ground can't fill the gaps the guard leaves
+    between wires there."""
     bb = board.GetBoardEdgesBoundingBox()
     for layer in (pcbnew.F_Cu, pcbnew.B_Cu):
         z = pcbnew.ZONE(board)
@@ -116,7 +120,39 @@ def add_ground(board, gnd):
         for x, y in ((bb.GetLeft(), bb.GetTop()), (bb.GetRight(), bb.GetTop()),
                      (bb.GetRight(), bb.GetBottom()), (bb.GetLeft(), bb.GetBottom())):
             ol.Append(x, y)
+        if guard and layer == (pcbnew.F_Cu if guard[0] == "F" else pcbnew.B_Cu):
+            ol.NewHole()
+            for x, y in guard[1]:
+                ol.Append(MM(x), MM(y), -1, 0)
         board.Add(z)
+
+def add_guard(board, nets, guard):
+    """Copper at the 0.5 V reference around the amplifier input and the cuff
+    wire that feeds it. Those wires sit at 0.5 V too, so nothing leaks between
+    them and the guard; without it, ground copper 0.3 mm away could leak
+    current through flux left on the board (the GPS forbids washing it off),
+    and that current would add to the skin reading. Beats the ground pour."""
+    if not guard:
+        return
+    side, pts = guard
+    z = pcbnew.ZONE(board)
+    z.SetLayer(pcbnew.F_Cu if side == "F" else pcbnew.B_Cu); z.SetNet(nets["REF_0V5"])
+    z.SetAssignedPriority(1); z.SetZoneName("0.5 V guard")
+    z.SetIslandRemovalMode(pcbnew.ISLAND_REMOVAL_MODE_ALWAYS)   # drop pieces walled off by wires
+    z.SetLocalClearance(MM(0.3)); z.SetMinThickness(MM(0.25))
+    z.SetPadConnection(pcbnew.ZONE_CONNECTION_FULL)
+    ol = z.Outline(); ol.NewOutline()
+    for x, y in pts:
+        ol.Append(MM(x), MM(y))
+    board.Add(z)
+
+def guard_outline(guard):
+    poly = pcbnew.SHAPE_POLY_SET()
+    if guard:
+        poly.NewOutline()
+        for x, y in guard[1]:
+            poly.Append(MM(x), MM(y))
+    return poly
 
 def seg_dist(px, py, ax, ay, bx, by):
     dx, dy = bx - ax, by - ay
@@ -124,9 +160,9 @@ def seg_dist(px, py, ax, ay, bx, by):
     t = 0 if L == 0 else max(0, min(1, ((px - ax) * dx + (py - ay) * dy) / L))
     return math.hypot(px - (ax + t * dx), py - (ay + t * dy))
 
-def add_stitching(board, nets, fps, pitch_regions):
+def add_stitching(board, nets, fps, pitch_regions, guard=None):
     """GND vias on a grid, skipping anywhere near copper of another net,
-    near any part, or near the board edge."""
+    near any part, near the board edge, or inside the 0.5 V guard."""
     gnd = nets["GND"]
     obst = []      # (kind, geometry, margin)
     for t in board.GetTracks():
@@ -154,13 +190,14 @@ def add_stitching(board, nets, fps, pitch_regions):
             edges.append(tuple(pcbnew.ToMM(v) for v in (s.x, s.y, e.x, e.y)))
     outline = pcbnew.SHAPE_POLY_SET()
     board.GetBoardPolygonOutlines(outline, True)
+    guarded = guard_outline(guard)
     placed = 0
     for (x1, y1, x2, y2), pitch in pitch_regions:
         y = y1
         while y <= y2 + 1e-6:
             x = x1
             while x <= x2 + 1e-6:
-                ok = outline.Contains(V(x, y))
+                ok = outline.Contains(V(x, y)) and not (guard and guarded.Contains(V(x, y), -1, MM(1.0)))
                 r = VIA_D / 2
                 ok = ok and all(seg_dist(x, y, *e) > r + 0.8 for e in edges)
                 for kind, g, m in obst if ok else []:
@@ -281,9 +318,12 @@ def add_outline(board, outline):
     outline(add_seg, add_arc)
 
 def solid_ground_pads(board):
-    """The ADS1115's 0.5 mm pitch leaves no room for thermal spokes: join its GND pads solid."""
+    """Join these GND pads to the pour with solid copper, not thin spokes:
+    the ADS1115 (U2), whose 0.5 mm pitch leaves no room for spokes, and the
+    GPS (U4), whose antenna uses the board's ground, so every ground pad
+    should join it as fully as possible."""
     for fp in board.GetFootprints():
-        if fp.GetReference() == "U2":
+        if fp.GetReference() in ("U2", "U4"):
             for p in fp.Pads():
                 if p.GetNetname().lstrip("/") == "GND":
                     p.SetLocalZoneConnection(pcbnew.ZONE_CONNECTION_FULL)
@@ -298,10 +338,13 @@ def build(name, net_path, pcb_path):
     add_outline(board, lay.outline)
     add_tracks(board, fps, nets, lay.TRACKS, lay.VIAS)
     add_keepouts(board, lay.KEEPOUT)
-    n = add_stitching(board, nets, fps, lay.STITCH)
+    guard = getattr(lay, "GUARD", None)
+    n = add_stitching(board, nets, fps, lay.STITCH, guard)
     place_labels(board, fps, lay.LABELS)
-    add_ground(board, nets["GND"])
+    add_ground(board, nets["GND"], guard)
+    add_guard(board, nets, guard)
     solid_ground_pads(board)
+    board.BuildConnectivity()       # the fill needs it to tell connected guard copper from loose pieces
     pcbnew.ZONE_FILLER(board).Fill(board.Zones())
     pcbnew.SaveBoard(pcb_path, board)
     print(f"saved {os.path.relpath(pcb_path)}: {n} stitching vias")
