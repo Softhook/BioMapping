@@ -1697,6 +1697,29 @@ static void test_bias_out_of_range_is_ignored(void) {
     printf("  -> Pass\n");
 }
 
+// The bias is the mean of 16 reads, so one read caught in a supply dip only
+// nudges it. Here the first of alloc()'s reads is 0.34 V, the rest 0.50 V:
+// the mean, 0.49 V, is used. Taken from one read the 0.34 V would have been
+// rejected outright (or, for a milder dip, frozen into the whole file).
+static void test_bias_is_averaged_over_reads(void) {
+    printf("Running test_bias_is_averaged_over_reads...\n");
+    furi_hal_i2c_mock_reset();
+    furi_hal_i2c_mock_set_raw16(10000);
+    furi_hal_i2c_mock_set_bias_raw16(BIAS_COUNTS(0.50f));
+    furi_hal_i2c_mock_set_bias_dip(BIAS_COUNTS(0.34f), 1);
+
+    GsrSensor* gsr = gsr_sensor_alloc(NULL, NULL);
+    assert(gsr != NULL);
+    float expected = (BIAS_COUNTS(0.34f) + 15.0f * BIAS_COUNTS(0.50f)) / 16.0f * 31.25e-6f;
+    printf("  bias = %.5f V (expect %.5f, the mean of 16)\n",
+           (double)gsr_sensor_get_bias_volts(gsr), (double)expected);
+    assert(fabsf(gsr_sensor_get_bias_volts(gsr) - expected) < 0.00001f);
+    assert(fabsf(gsr_sensor_get_bias_measured_volts(gsr) - expected) < 0.00001f);
+
+    gsr_sensor_free(gsr);
+    printf("  -> Pass\n");
+}
+
 // Waits (advancing the fake clock) until the requested check has finished.
 static void wait_for_bias_check(GsrSensor* gsr, uint32_t ticket) {
     int waited_us = 0;
@@ -1874,6 +1897,7 @@ int main(void) {
     test_calibration_applies_gain_offset();
     test_bias_measured_at_alloc_is_applied();
     test_bias_out_of_range_is_ignored();
+    test_bias_is_averaged_over_reads();
     test_bias_not_checked_without_request();
     test_bias_check_on_request();
     test_bias_check_out_of_range_keeps_last_good();

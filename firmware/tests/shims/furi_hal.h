@@ -125,6 +125,7 @@ bool furi_hal_i2c_write_mem(
 // returns.
 void furi_hal_i2c_mock_set_raw16(int16_t value);
 void furi_hal_i2c_mock_set_bias_raw16(int16_t value); // conversion value while the MUX is on AIN1 alone (bias check)
+void furi_hal_i2c_mock_set_bias_dip(int16_t value, int reads); // the next `reads` bias reads return `value` instead
 
 // Number of read_mem calls made so far. Poll this (relative to a
 // snapshot) to know the worker has picked up a newly-injected value,

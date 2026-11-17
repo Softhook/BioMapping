@@ -190,7 +190,8 @@ float gsr_sensor_get_bias_volts(const GsrSensor* gsr);
 float gsr_sensor_get_bias_measured_volts(const GsrSensor* gsr);
 
 // Bias check on request (see "When it is measured" above). The worker
-// switches to the bias, reads it, and switches back — a few ms.
+// switches to the bias, averages 16 reads of it, and switches back — about
+// 20 ms.
 //   request() asks for one and returns a ticket;
 //   done(ticket) is true once a check has finished after that request;
 //   cancel() withdraws a request that is still pending or in progress: a

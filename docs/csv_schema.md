@@ -88,7 +88,9 @@ no fit or noise data to report, so the whole line is omitted.
 when the recording started (AIN1 against ground, `gsr_sensor.h`). The skin
 reading is directly proportional to this bias, and the bias follows the
 3.3 V supply, so `gsr_raw` is computed with the measured value rather than
-an assumed 500 mV. It is measured once, before the first row, and the same
+an assumed 500 mV. It is measured once, before the first row (the mean of
+16 readings over about 16 ms, so a brief supply dip at that moment doesn't
+skew the whole file), and the same
 value is used for the whole file — never updated mid-recording, so it can't
 put a step in the data.
 

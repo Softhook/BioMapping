@@ -454,15 +454,10 @@ static bool key_toggle_recording(Session* s, FuriMutex* mutex,
         } else {
             cols = s->debug_fields_enabled ? BIOMAP_CSV_COLS_GPS_GSR_DEBUG : BIOMAP_CSV_COLS_GPS_GSR_PROD;
         }
-        // 768 bytes to comfortably fit recording metadata + optional Band
-        // Floors/DeviceName/GPSChipID/GSR Calibration + widest CSV schema
-        // line (GPS+GSR+RF with continuity columns). Keep this headroom so
-        // schema expansions do not block recording start with "Header too
-        // long".
         // 0.5 V bias check for this recording (gsr_sensor.h, "When it is
         // measured"): done now, before the first row, so one value holds
-        // for the whole file and goes in its header. Takes a few ms; if it
-        // hasn't finished in 100 ms (I2C trouble) it is cancelled, so it
+        // for the whole file and goes in its header. Takes about 20 ms; if
+        // it hasn't finished in 100 ms (I2C trouble) it is cancelled, so it
         // can't land mid-recording, and the previous value is used.
         bool  bias_line = false;
         float bias_measured = NAN;
@@ -476,17 +471,24 @@ static bool key_toggle_recording(Session* s, FuriMutex* mutex,
                   furi_get_tick() - wait_start < wait_ticks) {
                 furi_delay_ms(1);
             }
-            if(done) {
-                bias_measured = gsr_sensor_get_bias_measured_volts(s->gsr);
-            } else {
+            if(!done) {
                 gsr_sensor_cancel_bias_check(s->gsr);
-                FURI_LOG_W("BioMap", "GSR bias check timed out");
+                // It may have finished between the last poll and the cancel;
+                // then its reading is real (and already in use), so report it.
+                done = gsr_sensor_bias_check_done(s->gsr, ticket);
+                if(!done) FURI_LOG_W("BioMap", "GSR bias check timed out");
             }
+            if(done) bias_measured = gsr_sensor_get_bias_measured_volts(s->gsr);
             float accepted = gsr_sensor_get_bias_volts(s->gsr);
             if(accepted > 0.0f) bias_used = accepted;
             bias_line = true;
         }
 
+        // 768 bytes to comfortably fit recording metadata + optional Band
+        // Floors/DeviceName/GPSChipID/GSR Calibration/GSR Bias + widest CSV
+        // schema line (GPS+GSR+RF with continuity columns). Keep this
+        // headroom so schema expansions do not block recording start with
+        // "Header too long".
         char header[768];
         int n = snprintf(header, sizeof(header),
                          "# RecordingStartTime:%lu\n", (unsigned long)epoch);

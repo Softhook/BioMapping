@@ -225,6 +225,10 @@ static _Atomic uint8_t  g_last_config_msb = 0;
 // on the real chip: the skin value (g_raw16) only comes back on AIN0-AIN1.
 // 0 by default — the bias reads 0 V, which the driver rejects.
 static _Atomic int16_t  g_bias_raw16  = 0;
+// A brief dip: the next g_bias_dip_reads bias reads return g_bias_dip_raw16
+// instead (furi_hal_i2c_mock_set_bias_dip()).
+static _Atomic int16_t  g_bias_dip_raw16 = 0;
+static _Atomic int      g_bias_dip_reads = 0;
 // Simulates a slow/stuck I2C transaction — same real-usleep stand-in as
 // furi_hal_subghz_mock_set_rssi_delay_ms(), for a stuck ADS1115 transfer
 // instead of a stuck CC1101 one. Applied to BOTH read_mem and write_mem
@@ -271,7 +275,10 @@ bool furi_hal_i2c_read_mem(
     }
 
     bool on_bias = ((atomic_load(&g_last_config_msb) >> 4) & 0x7u) == 0x5u;
-    int16_t v = on_bias ? atomic_load(&g_bias_raw16)
+    bool in_dip = on_bias && atomic_load(&g_bias_dip_reads) > 0;
+    if(in_dip) atomic_fetch_sub(&g_bias_dip_reads, 1);
+    int16_t v = in_dip ? atomic_load(&g_bias_dip_raw16)
+        : on_bias ? atomic_load(&g_bias_raw16)
         : atomic_exchange(&g_next_read_armed, false)
         ? atomic_load(&g_next_read_value) : atomic_load(&g_raw16);
     if(len >= 1) data[0] = (uint8_t)((uint16_t)v >> 8);
@@ -323,6 +330,11 @@ void furi_hal_i2c_mock_set_bias_raw16(int16_t value) {
     atomic_store(&g_bias_raw16, value);
 }
 
+void furi_hal_i2c_mock_set_bias_dip(int16_t value, int reads) {
+    atomic_store(&g_bias_dip_raw16, value);
+    atomic_store(&g_bias_dip_reads, reads);
+}
+
 void furi_hal_i2c_mock_set_read_fail(bool fail) {
     atomic_store(&g_read_fail, fail);
 }
@@ -358,6 +370,7 @@ void furi_hal_i2c_mock_reset(void) {
     atomic_store(&g_next_read_armed, false);
     atomic_store(&g_last_config_msb, 0);
     atomic_store(&g_bias_raw16, 0);
+    atomic_store(&g_bias_dip_reads, 0);
     atomic_store(&g_i2c_delay_ms, 0);
     atomic_store(&g_i2c_call_in_progress, false);
 }

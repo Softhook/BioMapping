@@ -94,12 +94,18 @@
 //   reads it when asked (gsr_sensor_request_bias_check(), at the start of
 //   each recording): it switches the input multiplexer to AIN1-vs-GND on
 //   ±1.024 V (0.5 V reads ~16 000 counts), waits out the same PGA_SETTLE_MS
-//   window a gain change needs, takes one conversion, then queues a normal
-//   config write (pga_changed) to put the skin input back, which arms the
-//   usual settle gate. Conversions taken while the bias is on the
+//   window a gain change needs, averages BIAS_AVG_READS reads, then queues a
+//   normal config write (pga_changed) to put the skin input back, which
+//   arms the usual settle gate. Conversions taken while the bias is on the
 //   multiplexer are never written to the ring buffer.
-//   One conversion is enough: the ADS1115's noise at ±1.024 V is tens of
-//   µV, under 0.01 % of 0.5 V.
+//   The ADS1115's own noise at ±1.024 V is tens of µV, under 0.01 % of
+//   0.5 V, so one conversion would do for that. The average is there for
+//   the supply: the bias follows 3.3 V, and the value is kept for a whole
+//   recording, so a brief dip at the moment of the check (a GPS or radio
+//   current burst) must not be frozen into the file. 16 reads at the
+//   worker's ~1 kHz pace span about 16 ms.
+
+#define BIAS_AVG_READS 16
 
 #define ADS_PGA_DEFAULT       2
 #define ADS_PGA_MIN           0
@@ -333,6 +339,8 @@ static int32_t gsr_sensor_worker(void* context) {
     // bias, not skin.
     bool     bias_active = false;
     uint32_t bias_settle_until_tick = 0;
+    int32_t  bias_sum = 0; // sum of settled bias reads so far (counts)
+    int32_t  bias_reads = 0;
 
     while(gsr->running) {
         furi_mutex_acquire(gsr->mutex, FuriWaitForever);
@@ -417,6 +425,8 @@ static int32_t gsr_sensor_worker(void* context) {
                 bias_active = true;
                 bias_settle_until_tick = furi_get_tick() +
                     (PGA_SETTLE_MS * furi_kernel_get_tick_frequency()) / 1000;
+                bias_sum = 0;
+                bias_reads = 0;
                 have_last_hw = false; // next skin read follows a different input
             } else {
                 // The multiplexer may or may not have switched: put the skin
@@ -500,13 +510,27 @@ static int32_t gsr_sensor_worker(void* context) {
         // after it is not duplicate-compared against a discarded one.
         if(ok && bias_active && !recovering) {
             // Bias check in progress: this conversion is the bias, never skin.
-            // Once settled, record it, use it if in range, and queue the skin
-            // config back; the PGA-change path then clears bias_active and
-            // arms the settle gate for the skin input. A check cancelled
-            // meanwhile (request cleared) still restores the skin input but
-            // changes nothing else.
+            // Once settled, add up BIAS_AVG_READS reads (a failed read is
+            // just skipped), then record the mean, use it if in range, and
+            // queue the skin config back; the PGA-change path then clears
+            // bias_active and arms the settle gate for the skin input. A
+            // check cancelled meanwhile (request cleared) restores the skin
+            // input straight away and changes nothing else.
+            // The reads are paced by the loop's own 1 ms pause, and the
+            // hook below keeps running through the check.
             if(!in_bias_settle) {
-                float v = (float)(int16_t)((data[0] << 8) | data[1]) * BIAS_VOLTS_PER_LSB;
+                bias_sum += (int16_t)((data[0] << 8) | data[1]);
+                bias_reads++;
+            }
+            furi_mutex_acquire(gsr->mutex, FuriWaitForever);
+            bool cancelled = !gsr->bias_check_requested;
+            furi_mutex_release(gsr->mutex);
+            if(cancelled) {
+                furi_mutex_acquire(gsr->mutex, FuriWaitForever);
+                gsr->pga_changed = true;
+                furi_mutex_release(gsr->mutex);
+            } else if(bias_reads >= BIAS_AVG_READS) {
+                float v = ((float)bias_sum / (float)bias_reads) * BIAS_VOLTS_PER_LSB;
                 furi_mutex_acquire(gsr->mutex, FuriWaitForever);
                 if(gsr->bias_check_requested) {
                     gsr->bias_measured_volts = v;
@@ -609,7 +633,9 @@ GsrSensor* gsr_sensor_alloc(GsrWorkerHook hook, void* hook_ctx) {
 
     if(probed) {
         // First bias check, so the very first readings already use it:
-        // AIN1 alone on ±1.024 V, wait two conversions plus margin, read.
+        // AIN1 alone on ±1.024 V, wait two conversions plus margin, then
+        // average BIAS_AVG_READS reads 1 ms apart (failed reads skipped;
+        // NAN if none succeeded).
         uint8_t bias_cfg[2] = { (uint8_t)BIAS_CFG_MSB, 0xE3 };
         bool bias_cfg_ok = furi_hal_i2c_write_mem(
             &furi_hal_i2c_handle_external,
@@ -618,16 +644,25 @@ GsrSensor* gsr_sensor_alloc(GsrWorkerHook hook, void* hook_ctx) {
         furi_hal_i2c_release(&furi_hal_i2c_handle_external);
         if(bias_cfg_ok) {
             furi_delay_ms(5);
-            furi_hal_i2c_acquire(&furi_hal_i2c_handle_external);
-            uint8_t data[2];
-            bool ok = furi_hal_i2c_read_mem(
-                &furi_hal_i2c_handle_external,
-                ADS1115_I2C_ADDR, ADS1115_CONV_REG,
-                data, 2, 50);
-            furi_hal_i2c_release(&furi_hal_i2c_handle_external);
-            float v = ok ? (float)(int16_t)((data[0] << 8) | data[1]) * BIAS_VOLTS_PER_LSB : NAN;
+            int32_t sum = 0;
+            int32_t good = 0;
+            for(int i = 0; i < BIAS_AVG_READS; i++) {
+                if(i > 0) furi_delay_ms(1);
+                furi_hal_i2c_acquire(&furi_hal_i2c_handle_external);
+                uint8_t data[2];
+                bool ok = furi_hal_i2c_read_mem(
+                    &furi_hal_i2c_handle_external,
+                    ADS1115_I2C_ADDR, ADS1115_CONV_REG,
+                    data, 2, 50);
+                furi_hal_i2c_release(&furi_hal_i2c_handle_external);
+                if(ok) {
+                    sum += (int16_t)((data[0] << 8) | data[1]);
+                    good++;
+                }
+            }
+            float v = good > 0 ? ((float)sum / (float)good) * BIAS_VOLTS_PER_LSB : NAN;
             gsr->bias_measured_volts = v;
-            if(ok && bias_in_range(v)) {
+            if(good > 0 && bias_in_range(v)) {
                 gsr->bias_volts = v;
                 gsr->bias_scale = v / GSR_BIAS_NOMINAL_V;
             }
