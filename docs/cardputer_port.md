@@ -62,6 +62,28 @@ The printed board (`hardware/biomap_cardputer/`) is exactly the size of the Card
 
 Full details are in [hardware/README.md](../hardware/README.md), under "How the Cardputer connects".
 
+### How other people attach boards to the back
+
+- **M5Stack's own Caps** (LoRa-1262, CC1101 & NFC) are not full-size boards. Each is an L-shaped plastic block, 84 × 24 mm, that sits at one end of the device. Its pins push into the EXT socket from the edge, and two tabs wrap under the back and take two M2 × 4 mm screws. [M5Stack's drawing of the LoRa Cap](https://m5stack-doc.oss-cn-shenzhen.aliyuncs.com/1208/U214-00-cap1262-model-size.pdf) puts these screws 14 mm in from each side and 56 mm apart, the same as our H1 and H2.
+- **PALPack** (Valleytech, [GitHub](https://github.com/valleytechsolutions/PALPack)) is a 65.5 × 36.5 mm board joined by ordinary pin headers through a small adapter board that swaps the pin order. It needs its own 3.3 V regulator too, and puts its GPS on G13/G15 like ours.
+- **Which edge?** In [M5Stack's drawing of the Cardputer ADV](https://m5stack-doc.oss-cn-shenzhen.aliyuncs.com/1178/K132-Adv-cardputer-ADV.pdf), the two M2 holes (and so the EXT socket) are at the **screen end** of the device. That is the edge this document and `cardputer.py` call the "bottom edge", because it is at the bottom when you look at the back. The positions in our layout match the drawing; only the name could confuse someone holding the device the normal way up.
+
+### A case over the board
+
+Someone has made a 3D-printed case for a Cardputer backpack: a box with the same outline as the Cardputer, so its sides sit flush with the device. Two screws go into the Cardputer's M2 holes and four more hold the lid on. We could do something similar in one of two ways.
+
+**Option A: board inside a box.** The walls sit outside the board, so the board must shrink by the wall thickness plus a little play on every side. With 1.6–2 mm printed walls and about 0.3 mm play, that is roughly 79.5 × 49.5 mm. The layout would need redoing, the cuff socket would end up about 2 mm behind the outer wall (the plug may not go fully in unless the wall has a deep cut-out), and the box needs its own way to hold the board.
+
+**Option B: the board is the floor of the case (preferred).** The board stays 84 × 54 mm, and the printed part is just a cover whose walls stand on the board's outer edge. The edges are still flush, with the board showing as a thin stripe between the Cardputer and the cover. This needs:
+
+- a strip about 2 mm wide round the edge kept clear of parts, for the walls to stand on;
+- a cut-out in the wall for the cuff socket, and a gap where the flex tail folds round the edge;
+- longer screws through the cover and board into the Cardputer. The part that goes into the Cardputer must stay about 4 mm, as longer screws can damage the board inside, so screw length = cover + board + 4 mm, with the heads sunk into the cover.
+
+Our tallest parts are only a few mm high, so the cover could be about 5–6 mm deep. Plastic does not block the GPS signal, but keep metal (screws, labels, paint with metal in it) away from the area over the GPS.
+
+**Still to do:** check which parts are within 2 mm of the board edge, to see how much Option B would actually need to move.
+
 ### Power and connections
 
 Our board (op-amp, ADS1115, M10Q) runs on 3.3 V. On the Flipper it takes 3.3 V from GPIO pin 9.
