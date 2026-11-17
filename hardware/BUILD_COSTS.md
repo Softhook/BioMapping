@@ -12,16 +12,18 @@ Almost every part is surface-mount (soldered onto the face of the board):
 | U1 op-amp (MCP6002) | SOIC-8 | Easy with an iron |
 | U2 ADC (ADS1115) | MSOP-10 | Pins 0.5 mm apart: fiddly by hand, fine with flux and a fine tip |
 | U3 regulator (Cardputer only) | SOT-23-5 | |
-| BT1 backup cell (MS621FE) | Solder tabs on the surface | |
-| D1 diode | SOD-323, **hand-soldering pads** | Longer pads |
-| U4 GPS (SAM-M10Q) | **Hand-soldering pads** | Pads sit underneath; the longer pads reach about 1 mm past the edge |
+| BT1 backup cell (MS421R) | Reflow-solderable, 4.8 mm | Goes through the oven like any other part |
+| D1 diode | SOD-323 | |
+| U4 GPS (SAM-M10Q) | Pads underneath | Needs an oven, hotplate or hot air |
+| J2 cuff socket | Surface-mount JST PH | |
 
-Three connectors are through-hole (pins go through the board): the GPIO or EXT header (J1, plus J4 on the Flipper) and the finger-cuff socket (J2).
+Only the angled pin headers are through-hole (J1, plus J4 on the Flipper). They hold the board in place, so they stay through-hole for strength. Assemblers fit them for a small extra fee.
+
+Each board's `bom.csv` gives the maker's part number and the LCSC number for every part.
 
 ## Choosing pads to suit the build
 
-- **Building by hand:** switch the 0805 parts to KiCad's hand-soldering pads too (`R_0805_2012Metric_Pad1.20x1.40mm_HandSolder` and `C_0805_2012Metric_Pad1.18x1.45mm_HandSolder`). The change is in `tools/build_pcb.py` and `tools/gen_kicad.py`, and both boards have room for it.
-- **Having a board maker fit the parts:** keep the standard 0805 pads, and switch D1 and U4 back to their standard footprints (`D_SOD-323` and `ublox_SAM-M8Q`). Machines and their solder stencils are set up for standard pads.
+The boards use standard pads throughout, set up for machine assembly. To build by hand instead, switch to KiCad's hand-soldering pads (`..._HandSolder` versions of the 0805, SOD-323 and SAM-M8Q footprints) in `tools/gen_kicad.py` and rerun `tools/run_all.sh`.
 
 ## Option 1: UK assembler
 
@@ -32,7 +34,7 @@ For a first batch of **5 boards**, expect roughly **£350–£700 in total, or �
 | One-off setup (solder stencil, machine programming, first-board inspection) | £150–£350 |
 | Bare 2-layer boards, 5 off | £30–£130 |
 | Parts, per board | £20–£30 |
-| Fitting the through-hole connectors by hand | £10–£40 |
+| Fitting the through-hole headers | £10–£40 |
 
 The setup charge is the same whether you order 5 boards or 100, so it dominates a small batch. At 50 boards the price might drop to around £30–£40 per board.
 
@@ -60,9 +62,9 @@ The GPS chip is the main cost, and stock is patchy: several suppliers show none,
 
 ## Things to raise with an assembler
 
-- **Backup cell (BT1).** Some assemblers won't put a rechargeable cell through the soldering oven, and will fit it by hand at extra cost. You can also leave it off and fit it yourself. Without it the GPS still works, but takes longer to find its position after power-up.
+- **Backup cell (BT1).** The MS421R is made to go through the soldering oven, but LCSC doesn't stock it, so for JLCPCB buy it yourself (Farnell 3534555) and send it with the GPS modules. Without it the GPS still works, but takes longer to find its position after power-up.
 - **GPS module soldering.** u-blox gives a soldering profile and warns against washing the board with water, alcohol or an ultrasonic cleaner afterwards. Pass this on (see `docs/datasheets/sam-m10q_integrationmanual.pdf`).
-- **Through-hole connectors.** These are soldered by hand and charged by the minute.
+- **Through-hole headers.** Usually soldered by hand and charged by the minute.
 
 ## Suggested order
 

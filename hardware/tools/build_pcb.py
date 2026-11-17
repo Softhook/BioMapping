@@ -10,6 +10,7 @@ import pcbnew
 from check_netlist import parse, find
 
 FPDIR = "/Applications/KiCad/KiCad.app/Contents/SharedSupport/footprints"
+LOCAL_LIBS = {"BioMap": os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "BioMap.pretty")}
 MM = pcbnew.FromMM
 
 def V(x, y):
@@ -34,12 +35,12 @@ FLIPPER = {
     "C6": (38.95, 26.0, 0, "F"),
     "TP2": (35.9, 19.2, 0, "F"), "TP1": (14.4, 20.0, 0, "F"),
     "D1": (30.6, 6.0, 0, "F"), "R8": (25.6, 6.0, 180, "F"),
-    "C8": (21.6, 5.3, 180, "F"), "BT1": (17.4, 5.3, 0, "F"),
+    "C8": (21.6, 5.3, 180, "F"), "BT1": (15.0, 5.3, 0, "F"),
     "R10": (25.0, 31.0, -90, "F"), "R9": (27.5, 31.0, -90, "F"),
     # GSR circuit: cuffs (right edge) -> R3/R4 -> U1 -> U2 below it
-    "J2": (FW - 6.3, 18.0, 90, "F"),
-    "R4": (69.9, 16.0, 180, "F"), "R3": (69.9, 22.0, 180, "F"),
-    "R5": (65.6, 19.3, -90, "F"), "C2": (67.6, 19.3, -90, "F"),
+    "J2": (74.6, 18.0, 90, "F"),
+    "R4": (67.6, 14.0, 180, "F"), "R3": (67.6, 23.0, 180, "F"),
+    "R5": (65.6, 19.3, -90, "F"), "C2": (67.9, 19.3, -90, "F"),
     "U1": (60.0, 18.0, 180, "F"),
     "R1": (53.6, 13.6, 0, "F"), "R2": (53.6, 16.1, 180, "F"), "C1": (55.0, 22.1, -90, "F"),
     "U2": (60.0, 27.0, -90, "F"), "C3": (57.0, 30.6, -90, "F"),
@@ -57,7 +58,7 @@ FLIPPER_TRACKS = [
     ("F", SIG, ["D1.1", "R8.1"]),
     ("F", SIG, ["R8.2", (24.69, 7.6), (25.0, 7.9), "U4.3"]),
     ("F", SIG, ["R8.2", "C8.1"]),
-    ("F", SIG, ["C8.1", (22.55, 3.3), (17.4, 3.3), "BT1.1"]),
+    ("F", SIG, ["C8.1", (22.55, 3.27), "BT1.1"]),
     ("F", SIG, ["U4.18", "TP2.1"]),
     ("F", SIG, ["U4.8", "TP1.1"]),
     ("F", SIG, ["U4.13", "R10.1"]),
@@ -74,9 +75,9 @@ FLIPPER_TRACKS = [
     ("F", SIG, ["net:+3V3", (50.5, 35.5), (67.0, 35.5), "R7.1"]),
     ("F", SIG, ["R6.1", (64.5, 35.5)]),
     # ── GSR signal path ──
-    ("F", SIG, ["J2.2", "R4.1"]),
-    ("F", SIG, ["J2.1", (72.6, 18.0), (70.81, 19.79), "R3.1"]),
-    ("F", SIG, ["R4.2", (67.6, 16.0), "C2.1"]),             # TIA input node: R4, C2, R5, U1 pin 2
+    ("F", SIG, ["J2.2", (69.6, 17.0), (69.6, 15.4), "R4.1"]),
+    ("F", SIG, ["J2.1", (69.6, 19.0), (69.6, 21.6), "R3.1"]),
+    ("F", SIG, ["R4.2", (66.69, 16.0), "C2.1"]),             # TIA input node: R4, C2, R5, U1 pin 2
     ("F", SIG, ["C2.1", "R5.1", (63.5, 18.39), "U1.2"]),
     ("F", SIG, ["U1.1", (64.2, 19.91), (64.5, 20.21), "R5.2", "C2.2"]),
     ("F", SIG, [(64.2, 19.91), (64.2, 21.5), (59.5, 21.5), "U2.4"]),
@@ -95,7 +96,7 @@ FLIPPER_TRACKS = [
 FLIPPER_VIAS = [
     ("+3V3", 50.5, 45.6), ("I2C_SCL", 62.2, 30.4), ("I2C_SDA", 63.2, 31.2),
     ("GND", 62.3, 23.4), ("GND", 64.4, 16.09), ("GND", 52.0, 17.6), ("GND", 55.0, 24.3),
-    ("GND", 57.0, 32.8), ("GND", 68.99, 23.6), ("GND", 36.6, 24.4), ("GND", 40.9, 27.2),
+    ("GND", 57.0, 32.8), ("GND", 66.69, 25.0), ("GND", 36.6, 24.4), ("GND", 40.9, 27.2),
 ]
 # GPS keep-clear: no tracks on the back layer near the module, none under it on the front
 FLIPPER_KEEPOUT = [("B", (0.5, 0.5, 45.0, 40.0)), ("F", (19.7, 14.7, 30.3, 25.3))]
@@ -117,11 +118,11 @@ CARDPUTER = {
     "TP2": (68.4, 30.3, 0, "B"), "TP1": (47.4, 30.0, 0, "B"),
     "R10": (58.0, 19.0, 90, "B"), "R9": (60.5, 19.0, 90, "B"),
     "D1": (64.4, 44.5, 0, "B"), "R8": (60.4, 44.5, 180, "B"),
-    "C8": (56.2, 45.2, 180, "B"), "BT1": (52.0, 45.2, 0, "B"),
+    "C8": (56.2, 45.2, 180, "B"), "BT1": (49.8, 45.2, 0, "B"),
     # GSR circuit: the Flipper layout mirrored (x -> 82 - x, y -> y + 12), cuffs on the left edge
-    "J2": (8.3, 30.0, 90, "B"),
-    "R4": (12.1, 28.0, 0, "B"), "R3": (12.1, 34.0, 0, "B"),
-    "R5": (16.4, 31.3, -90, "B"), "C2": (14.4, 31.3, -90, "B"),
+    "J2": (7.4, 30.0, 90, "B"),
+    "R4": (14.4, 26.0, 0, "B"), "R3": (14.4, 35.0, 0, "B"),
+    "R5": (16.4, 31.3, -90, "B"), "C2": (14.1, 31.3, -90, "B"),
     "U1": (22.0, 30.0, 0, "B"),
     "R1": (28.4, 25.6, 180, "B"), "R2": (28.4, 28.1, 0, "B"), "C1": (27.0, 34.1, -90, "B"),
     "U2": (22.0, 39.0, -90, "B"), "C3": (25.0, 42.6, -90, "B"),
@@ -144,7 +145,7 @@ CARDPUTER_TRACKS = [
     ("B", SIG, ["D1.1", "R8.1"]),
     ("B", SIG, ["R8.2", (58.0, 43.0), "U4.3"]),
     ("B", SIG, ["R8.2", "C8.1"]),
-    ("B", SIG, ["C8.1", (57.15, 47.4), (52.0, 47.4), "BT1.1"]),
+    ("B", SIG, ["C8.1", (57.15, 47.23), "BT1.1"]),
     ("B", SIG, ["U4.18", "TP2.1"]),
     ("B", SIG, ["U4.8", "TP1.1"]),
     ("B", SIG, ["U4.13", "R10.1"]),
@@ -162,9 +163,9 @@ CARDPUTER_TRACKS = [
     ("B", SIG, ["U2.8", (22.0, 42.3), (25.0, 42.3)]),
     ("B", SIG, ["R6.1", (17.5, 47.5)]),
     # ── GSR signal path ──
-    ("B", SIG, ["J2.2", "R4.1"]),
-    ("B", SIG, ["J2.1", (9.4, 30.0), (11.19, 31.79), "R3.1"]),
-    ("B", SIG, ["R4.2", (14.4, 28.0), "C2.1"]),
+    ("B", SIG, ["J2.2", (12.4, 29.0), (12.4, 27.4), "R4.1"]),
+    ("B", SIG, ["J2.1", (12.4, 31.0), (12.4, 33.6), "R3.1"]),
+    ("B", SIG, ["R4.2", (15.31, 28.0), "C2.1"]),
     ("B", SIG, ["C2.1", "R5.1", (18.5, 30.39), "U1.2"]),
     ("B", SIG, ["U1.1", (17.8, 31.91), (17.5, 32.21), "R5.2", "C2.2"]),
     ("B", SIG, [(17.8, 31.91), (17.8, 33.5), (22.5, 33.5), "U2.4"]),
@@ -184,7 +185,7 @@ CARDPUTER_VIAS = [
     ("+3V3", 53.14, 4.4), ("+3V3", 33.0, 4.4), ("I2C_SCL", 19.8, 42.4), ("I2C_SDA", 18.8, 43.2),
     ("GND", 49.6, 1.5), ("GND", 44.9, 2.45), ("GND", 55.2, 5.5), ("GND", 74.8, 24.0),
     ("GND", 19.7, 35.4), ("GND", 17.6, 28.09), ("GND", 29.31, 29.4), ("GND", 27.0, 36.3),
-    ("GND", 25.0, 44.8), ("GND", 13.01, 35.6),
+    ("GND", 25.0, 44.8), ("GND", 15.31, 37.0),
 ]
 # GPS keep-clear: no tracks on the inner layer near the module, none under it on the outer face
 CARDPUTER_KEEPOUT = [("F", (40.5, 12.5, 75.5, 47.5)), ("B", (52.7, 24.7, 63.3, 35.3))]
@@ -223,7 +224,7 @@ def load_parts(board, net_path, place):
     for c in find(find(net, "components")[0], "comp"):
         ref = find(c, "ref")[0][1]; val = find(c, "value")[0][1]
         lib, fpname = find(c, "footprint")[0][1].split(":")
-        fp = pcbnew.FootprintLoad(f"{FPDIR}/{lib}.pretty", fpname)
+        fp = pcbnew.FootprintLoad(LOCAL_LIBS.get(lib, f"{FPDIR}/{lib}.pretty"), fpname)
         fp.SetReference(ref); fp.SetValue(val)
         fp.SetFPID(pcbnew.LIB_ID(lib, fpname))
         fp.SetPath(pcbnew.KIID_PATH("/" + find(c, "tstamps")[0][1]))
@@ -234,8 +235,8 @@ def load_parts(board, net_path, place):
         fp.SetOrientationDegrees(rot)
         fp.SetPosition(V(x, y))
         for fl in (find(find(c, "fields")[0], "field") if find(c, "fields") else []):
-            if find(fl, "name")[0][1] == "Note":
-                f = pcbnew.PCB_FIELD(fp, pcbnew.FIELD_T_USER, "Note")
+            if find(fl, "name")[0][1] in ("Note", "Manufacturer", "MPN", "LCSC"):
+                f = pcbnew.PCB_FIELD(fp, pcbnew.FIELD_T_USER, find(fl, "name")[0][1])
                 f.SetText(fl[2] if len(fl) > 2 else ""); f.SetVisible(False)
                 f.SetLayer(pcbnew.B_Fab if fp.IsFlipped() else pcbnew.F_Fab)
                 fp.Add(f)

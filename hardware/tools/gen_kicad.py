@@ -176,21 +176,51 @@ FP_R = "Resistor_SMD:R_0805_2012Metric"
 FP_C = "Capacitor_SMD:C_0805_2012Metric"
 PREC = "Sets the GSR scale. Use 0.1% parts"
 
+# What to buy for each value: (manufacturer, manufacturer part number, LCSC
+# number). LCSC is the parts store JLCPCB assembles from; "" = LCSC has none.
+# The everyday resistors and capacitors are JLCPCB "basic" parts (no extra
+# fitting fee).
+BUY = {
+    "4.7k":          ("UNI-ROYAL", "0805W8F4701T5E", "C17673"),
+    "4.7k DNP":      ("UNI-ROYAL", "0805W8F4701T5E", "C17673"),
+    "3.3k":          ("UNI-ROYAL", "0805W8F3301T5E", "C26010"),
+    "470":           ("UNI-ROYAL", "0805W8F4700T5E", "C17710"),
+    "47k 0.1%":      ("RESI", "PTFR0805B47K0P9", "C479101"),
+    "56k 0.1%":      ("RESI", "PTFR0805B56K0P9", "C2849276"),
+    "10k 0.1%":      ("RESI", "PTFR0805B10K0P9", "C478887"),
+    "100nF":         ("YAGEO", "CC0805KRX7R9BB104", "C49678"),
+    "100nF C0G":     ("FH (Guangdong Fenghua)", "1206CG104J500NT", "C46348"),
+    "10uF":          ("Samsung", "CL21A106KAYNNNE", "C15850"),
+    "600R@100MHz":   ("Sunlord", "GZ2012D601TF", "C1017"),
+    "MCP6002T-I/SN": ("Microchip", "MCP6002T-I/SN", "C7377"),
+    "ADS1115IDGSR":  ("Texas Instruments", "ADS1115IDGSR", "C37593"),
+    "TLV75533PDBVR": ("Texas Instruments", "TLV75533PDBVR", "C404027"),
+    "PMEG4005EJ":    ("Nexperia", "PMEG4005EJ,115", "C426868"),
+    "SAM-M10Q-00B":  ("u-blox", "SAM-M10Q-00B", ""),
+    "MS421R":        ("Seiko Instruments", "MS421R-IV03E", ""),
+    "Grove GSR finger cuffs": ("JST", "S2B-PH-SM4-TB(LF)(SN)", "C295747"),
+    "Flipper GPIO 9-18": ("XKB Connection", "X2530WR-10-PTSN", "C400348"),
+    "Flipper GPIO 1-8":  ("", "", ""),
+    "Cardputer ADV EXT": ("", "", ""),
+}
+
 def part(ref, key, value, fp, pins, note=""):
-    return dict(ref=ref, key=key, value=value, fp=fp, pins=pins, note=note)
+    mfr, mpn, lcsc = BUY.get(value, ("", "", ""))
+    return dict(ref=ref, key=key, value=value, fp=fp, pins=pins, note=note, mfr=mfr, mpn=mpn, lcsc=lcsc)
 
 def gsr_core():
     """The validated GSR circuit (docs/wiring_guide.md), shared by both boards."""
     return [
-        part("J2", "Conn_1x02", "Grove GSR finger cuffs", "Connector_JST:JST_PH_S2B-PH-K_1x02_P2.00mm_Horizontal",
-             {"1": "ELECTRODE_1", "2": "ELECTRODE_2"}, "JST PH 2.0 mm side-entry socket for the Grove GSR finger-cuff plug"),
+        part("J2", "Conn_1x02", "Grove GSR finger cuffs", "Connector_JST:JST_PH_S2B-PH-SM4-TB_1x02-1MP_P2.00mm_Horizontal",
+             {"1": "ELECTRODE_1", "2": "ELECTRODE_2"},
+             "JST PH 2.0 mm side-entry socket for the Grove GSR finger-cuff plug. Surface-mount; the two side tabs only hold it down"),
         part("R3", "R", "4.7k", FP_R, {"1": "ELECTRODE_1", "2": "GND"}, "Skin current limit"),
         part("R4", "R", "4.7k", FP_R, {"1": "ELECTRODE_2", "2": "TIA_IN"}, "Skin current limit"),
-        part("U1", "MCP6002", "MCP6002-I/SN", "Package_SO:SOIC-8_3.9x4.9mm_P1.27mm",
+        part("U1", "MCP6002", "MCP6002T-I/SN", "Package_SO:SOIC-8_3.9x4.9mm_P1.27mm",
              {"1": "GSR_SIGNAL", "2": "TIA_IN", "3": "REF_0V5", "4": "GND",
               "5": "BIAS_DIV", "6": "REF_0V5", "7": "REF_0V5", "8": "+3V3"}),
         part("R5", "R", "47k 0.1%", FP_R, {"1": "TIA_IN", "2": "GSR_SIGNAL"}, "TIA gain. " + PREC),
-        part("C2", "C", "100nF C0G", FP_C, {"1": "TIA_IN", "2": "GSR_SIGNAL"}, "TIA filter (~34 Hz). C0G/NP0 only"),
+        part("C2", "C", "100nF C0G", "Capacitor_SMD:C_1206_3216Metric", {"1": "TIA_IN", "2": "GSR_SIGNAL"}, "TIA filter (~34 Hz). C0G/NP0 only. 1206 size: 100 nF C0G is hard to find in 0805"),
         part("R1", "R", "56k 0.1%", FP_R, {"1": "+3V3", "2": "BIAS_DIV"}, "0.5 V bias. " + PREC),
         part("R2", "R", "10k 0.1%", FP_R, {"1": "BIAS_DIV", "2": "GND"}, "0.5 V bias. " + PREC),
         part("C1", "C", "100nF", FP_C, {"1": "+3V3", "2": "GND"}, "Op-amp decoupling: against U1 pins 8 and 4"),
@@ -203,18 +233,19 @@ def gsr_core():
 def gps_block():
     """u-blox SAM-M10Q on the board, wired like the SparkFun GPS-21834 breakout."""
     return [
-        part("U4", "SAM-M10Q", "SAM-M10Q-00B", "RF_GPS:ublox_SAM-M8Q_HandSolder",
+        part("U4", "SAM-M10Q", "SAM-M10Q-00B", "RF_GPS:ublox_SAM-M8Q",
              {"17": "+3V3", "2": "+3V3", "3": "GPS_BCKP", "13": "GPS_TXD", "14": "GPS_RXD",
               "18": "GPS_RESET_N", "8": "GPS_SAFEBOOT_N", "19": None, "7": None, "9": None, "12": None,
               **{n: "GND" for n in ["1", "4", "5", "6", "10", "11", "15", "16", "20"]}},
-             "GPS with built-in patch antenna. Pin-compatible with the SAM-M8Q footprint. Needs the ground plane around it"),
+             "GPS with built-in patch antenna. Pin-compatible with the SAM-M8Q footprint. Needs the ground plane around it. LCSC has none: buy from Mouser or Digi-Key and send to the assembler"),
         part("C6", "C", "10uF", FP_C, {"1": "+3V3", "2": "GND"}, "GPS supply reservoir"),
         part("C7", "C", "100nF", FP_C, {"1": "+3V3", "2": "GND"}, "GPS decoupling: against U4 VCC"),
-        part("D1", "D", "PMEG4005EJ", "Diode_SMD:D_SOD-323_HandSoldering", {"2": "+3V3", "1": "BCKP_CHG"},
+        part("D1", "D", "PMEG4005EJ", "Diode_SMD:D_SOD-323", {"2": "+3V3", "1": "BCKP_CHG"},
              "Stops the backup cell feeding the 3.3 V rail"),
         part("R8", "R", "3.3k", FP_R, {"1": "BCKP_CHG", "2": "GPS_BCKP"}, "Backup cell charge current limit"),
-        part("BT1", "BT", "MS621FE", "Battery:BatteryHolder_Seiko_MS621F", {"1": "GPS_BCKP", "2": "GND"},
-             "Rechargeable 3 V backup cell (Seiko MS621FE-FL11E). Keeps satellite data for fast starts"),
+        part("BT1", "BT", "MS421R", "BioMap:Seiko_MS421R_IV03E", {"1": "GPS_BCKP", "2": "GND"},
+             "Rechargeable 3 V 1.5 mAh backup cell, reflow-solderable (as on SparkFun GPS-21834). Keeps satellite data "
+             "for about 2 days. Farnell 3534555"),
         part("C8", "C", "100nF", FP_C, {"1": "GPS_BCKP", "2": "GND"}, "Backup supply decoupling"),
         part("R9", "R", "470", FP_R, {"1": "GPS_RXD", "2": "HOST_TX_TO_GPS"}, "Series resistor on GPS RX"),
         part("R10", "R", "470", FP_R, {"1": "GPS_TXD", "2": "GPS_TX_TO_HOST"}, "Series resistor on GPS TX"),
@@ -228,9 +259,9 @@ FLIPPER = gsr_core() + gps_block() + [
     part("J4", "Conn_1x10", "Flipper GPIO 9-18", "Connector_PinHeader_2.54mm:PinHeader_1x10_P2.54mm_Horizontal",
          {"1": "+3V3", "2": None, "3": "GND", "4": None, "5": "HOST_TX_TO_GPS", "6": "GPS_TX_TO_HOST",
           "7": "I2C_SDA", "8": "I2C_SCL", "9": None, "10": "GND"},
-         "Flipper pins 9-18: 9 3V3, 11 GND, 13 USART TX, 14 USART RX, 15 PC1 SDA, 16 PC0 SCL, 18 GND"),
+         "Flipper pins 9-18: 9 3V3, 11 GND, 13 USART TX, 14 USART RX, 15 PC1 SDA, 16 PC0 SCL, 18 GND. Through-hole"),
     part("J1", "Conn_1x08", "Flipper GPIO 1-8", "Connector_PinHeader_2.54mm:PinHeader_1x08_P2.54mm_Horizontal",
-         {**{str(i): None for i in range(1, 8)}, "8": "GND"}, "Flipper pins 1-8 (1 = 5V, 8 = GND). Holds the board"),
+         {**{str(i): None for i in range(1, 8)}, "8": "GND"}, "Flipper pins 1-8 (1 = 5V, 8 = GND). Holds the board. Through-hole. Any 2.54 mm right-angle 1x8 male header (e.g. X2530WR-08-PTSN)"),
     part("R6", "R", "4.7k", FP_R, {"1": "+3V3", "2": "I2C_SDA"}, "I2C pull-up"),
     part("R7", "R", "4.7k", FP_R, {"1": "+3V3", "2": "I2C_SCL"}, "I2C pull-up"),
 ]
@@ -241,7 +272,7 @@ CARDPUTER = gsr_core() + gps_block() + [
           "8": "I2C_SDA", "9": None, "10": "I2C_SCL", "11": None, "12": "HOST_TX_TO_GPS",
           "13": None, "14": "GPS_TX_TO_HOST"},
          "M5 pin table numbering: 4 GND, 6 5V OUT, 8 G8 SDA, 10 G9 SCL, 12 G13, 14 G15. "
-         "Pin 2 is 5V IN - never connect. CHECK numbering and mirroring before ordering"),
+         "Pin 2 is 5V IN - never connect. CHECK numbering and mirroring before ordering. Through-hole. Any 2.54 mm right-angle 2x7 male header; pick the pin length after measuring the socket height"),
     part("FB1", "FB", "600R@100MHz", "Inductor_SMD:L_0805_2012Metric", {"1": "+5V_EXT", "2": "+5V_F"},
          "Blocks the Cardputer's boost-converter switching noise"),
     part("C4", "C", "10uF", FP_C, {"1": "+5V_F", "2": "GND"}, "Regulator input capacitor"),
@@ -287,7 +318,7 @@ class Sheet:
         p = self.parts[ref]
         self._place(ref, p["key"], x, y, rot, unit, p["value"], p["fp"], p["note"], "DNP" in p["value"],
                     p["key"] not in ("MH", "TP"))
-        self.items[-1]["txt"] = txt
+        self.items[-1].update(txt=txt, mfr=p["mfr"], mpn=p["mpn"], lcsc=p["lcsc"])
         self.placed_units.add((ref, unit))
 
     def _place(self, ref, key, x, y, rot, unit, value, fp, note, dnp, in_bom):
@@ -456,6 +487,9 @@ class Sheet:
         prop("Footprint", it["fp"], x, y, shown=False)
         prop("Datasheet", "", x, y, shown=False)
         prop("Description", "", x, y, shown=False)
+        for k, field in (("mfr", "Manufacturer"), ("mpn", "MPN"), ("lcsc", "LCSC")):
+            if it.get(k):
+                prop(field, it[k], x, y, shown=False)
         if it["note"]:
             prop("Note", it["note"], x, y, shown=False)
         for n in it["pins"]:
@@ -724,10 +758,27 @@ def write_project(out, name, title, parts):
                         "via_diameter": 0.7, "via_drill": 0.35, "wire_width": 6, "bus_width": 12,
                         "line_style": 0, "priority": 2147483647}]},
                    "sheets": [[root, "Root"]]}, f, indent=2)
+    with open(os.path.join(d, "fp-lib-table"), "w") as f:
+        f.write('(fp_lib_table (version 7)\n  (lib (name "BioMap") (type "KiCad") (uri "${KIPRJMOD}/../BioMap.pretty") (options "") (descr "BioMapping project footprints")))\n')
+    # One row per distinct part, references grouped: the layout UK assemblers
+    # and JLCPCB both take (JLCPCB reads the "LCSC" column).
+    rows = {}
+    for p in parts:
+        if p["key"] == "MH":
+            continue
+        k = (p["value"], p["fp"], p["mpn"])
+        rows.setdefault(k, []).append(p)
+    def refkey(r):
+        return (r.rstrip("0123456789"), int(r[len(r.rstrip("0123456789")):]))
     with open(os.path.join(d, "bom.csv"), "w") as f:
-        f.write("Reference,Value,Footprint,Note\n")
-        for p in parts:
-            f.write(f'{p["ref"]},"{p["value"]}",{p["fp"]},"{p["note"]}"\n')
+        f.write("Designator,Qty,Value,Footprint,Manufacturer,MPN,LCSC,Fit,Note\n")
+        for (value, fp, mpn), ps in sorted(rows.items(), key=lambda kv: refkey(min((p["ref"] for p in kv[1]), key=refkey))):
+            refs = " ".join(sorted((p["ref"] for p in ps), key=refkey))
+            fit = ("do not fit" if "DNP" in value else "bare pad" if ps[0]["key"] == "TP"
+                   else "through-hole" if "PinHeader" in fp else "SMD")
+            notes = {p["note"] for p in ps}
+            note = notes.pop() if len(notes) == 1 else ""      # mixed roles: see the schematic
+            f.write(f'"{refs}",{len(ps)},"{value}",{fp.split(":")[1]},"{ps[0]["mfr"]}","{mpn}",{ps[0]["lcsc"]},{fit},"{note}"\n')
     return {f'{p["ref"]}.{n}': net for p in parts for n, net in p["pins"].items()}
 
 if __name__ == "__main__":

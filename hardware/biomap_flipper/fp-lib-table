@@ -1,0 +1,2 @@
+(fp_lib_table (version 7)
+  (lib (name "BioMap") (type "KiCad") (uri "${KIPRJMOD}/../BioMap.pretty") (options "") (descr "BioMapping project footprints")))
