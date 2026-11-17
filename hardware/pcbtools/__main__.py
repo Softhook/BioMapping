@@ -10,7 +10,7 @@ import tempfile
 from .kicad import BOARDS, board_file, board_name, export_netlist, hide_kicad_noise
 
 
-def boards_arg(p, help_text="flipper or cardputer (default: both)"):
+def boards_arg(p, help_text="flipper, cardputer or tail (default: all three)"):
     p.add_argument("boards", nargs="*", metavar="board", help=help_text)
 
 
@@ -101,7 +101,7 @@ def main(argv=None):
         return p
 
     boards_arg(add("build", cmd_build,
-                   "Rebuild everything from the Python descriptions: redraw both schematics, check them, "
+                   "Rebuild everything from the Python descriptions: redraw the schematics, check them, "
                    "lay out the boards, check the boards. Overwrites the KiCad files (keeps your .kicad_pro settings)."))
     boards_arg(add("layout", cmd_layout,
                    "Quick loop while editing boards/<board>.py: lay out the board again from the saved "
@@ -118,7 +118,7 @@ def main(argv=None):
                    help="also show the numbers for a committed version (default: the last commit)")
     p = add("parts", cmd_parts, "Pad positions, nets and keep-out boxes of the named parts (all if none), "
                                 "as the layout places them. Use before moving a part. Changes nothing.")
-    p.add_argument("board", help="flipper or cardputer")
+    p.add_argument("board", help="flipper, cardputer or tail")
     p.add_argument("refs", nargs="*", metavar="REF", help="e.g. U1 C1")
     p = add("render", cmd_render, "Pictures of each schematic and both faces of each board (needs ImageMagick).")
     boards_arg(p)

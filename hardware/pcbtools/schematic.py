@@ -1,8 +1,10 @@
 """Generate the KiCad schematics, project files and BOMs for the BioMapping
-Flipper and Cardputer boards.
+boards: the Flipper board, the Cardputer board and the Cardputer's flex tail
+(a flexible strip soldered to the Cardputer board, with the EXT header on its
+other end).
 
 Two separate descriptions of each board live here:
-  * FLIPPER / CARDPUTER parts tables - which pin connects to which net.
+  * FLIPPER / CARDPUTER / CARDPUTER_TAIL parts tables - which pin connects to which net.
     This is the intent.
   * draw_* functions - where each symbol sits on the sheet and how the wires
     run. This is the drawing.
@@ -212,7 +214,7 @@ BUY = {
     "Grove GSR finger cuffs": ("JST", "S2B-PH-SM4-TB(LF)(SN)", "C295747"),
     "Flipper GPIO 9-18": ("XKB Connection", "X2530WR-10-PTSN", "C400348"),
     "Flipper GPIO 1-8":  ("", "", ""),
-    "Cardputer ADV EXT": ("", "", ""),
+    "Cardputer ADV EXT header": ("", "", ""),
 }
 
 def part(ref, key, value, fp, pins, note=""):
@@ -284,13 +286,16 @@ FLIPPER = gsr_core() + gps_block() + [
     part("R7", "R", "4.7k", FP_R, {"1": "+3V3", "2": "I2C_SCL"}, "I2C pull-up"),
 ]
 
+# The Cardputer board and the EXT header are joined by the flex tail: a
+# flexible strip whose solder end lies on 8 landing pads near the board's top
+# edge, soldered through its plated holes. Tail pad k sits on board pad k
+# (same number, same net). A ground wire sits between the signals.
+TAIL_NETS = {"1": "+5V_EXT", "2": "GND", "3": "I2C_SDA", "4": "GND", "5": "I2C_SCL", "6": "GND",
+             "7": "HOST_TX_TO_GPS", "8": "GPS_TX_TO_HOST"}
+
 CARDPUTER = gsr_core() + gps_block() + [
-    part("J1", "Conn_2x07", "Cardputer ADV EXT", "Connector_PinHeader_2.54mm:PinHeader_2x07_P2.54mm_Horizontal",
-         {"1": None, "2": None, "3": None, "4": "GND", "5": None, "6": "+5V_EXT", "7": None,
-          "8": "I2C_SDA", "9": None, "10": "I2C_SCL", "11": None, "12": "HOST_TX_TO_GPS",
-          "13": None, "14": "GPS_TX_TO_HOST"},
-         "M5 pin table numbering: 4 GND, 6 5V OUT, 8 G8 SDA, 10 G9 SCL, 12 G13, 14 G15. "
-         "Pin 2 is 5V IN - never connect. CHECK numbering and mirroring before ordering. Through-hole. Any 2.54 mm right-angle 2x7 male header; pick the pin length after measuring the socket height"),
+    part("J1", "Conn_1x08", "Flex tail landing pads", "BioMap:FlexTail_Land_1x08_P1.50mm", TAIL_NETS,
+         "Bare pads: the flex tail's solder end lies here, soldered through its holes. Pad k = tail pad k"),
     part("FB1", "FB", "600R@100MHz", "Inductor_SMD:L_0805_2012Metric", {"1": "+5V_EXT", "2": "+5V_F"},
          "Blocks the Cardputer's boost-converter switching noise"),
     part("C4", "C", "10uF", FP_C, {"1": "+5V_F", "2": "GND"}, "Regulator input capacitor"),
@@ -302,6 +307,18 @@ CARDPUTER = gsr_core() + gps_block() + [
     part("H2", "MH", "M2", "MountingHole:MountingHole_2.2mm_M2", {}, "M2 x 4 mm screw into Cardputer back"),
     part("R6", "R", "4.7k DNP", FP_R, {"1": "+3V3", "2": "I2C_SDA"}, "Leave unfitted: the Cardputer bus already has pull-ups"),
     part("R7", "R", "4.7k DNP", FP_R, {"1": "+3V3", "2": "I2C_SCL"}, "Leave unfitted: the Cardputer bus already has pull-ups"),
+]
+
+CARDPUTER_TAIL = [
+    part("J1", "Conn_2x07", "Cardputer ADV EXT header", "Connector_PinHeader_2.54mm:PinHeader_2x07_P2.54mm_Vertical",
+         {"1": None, "2": None, "3": None, "4": "GND", "5": None, "6": "+5V_EXT", "7": None,
+          "8": "I2C_SDA", "9": None, "10": "I2C_SCL", "11": None, "12": "HOST_TX_TO_GPS",
+          "13": None, "14": "GPS_TX_TO_HOST"},
+         "M5 pin table numbering: 4 GND, 6 5V OUT, 8 G8 SDA, 10 G9 SCL, 12 G13, 14 G15. "
+         "Pin 2 is 5V IN - never connect. CHECK numbering and mirroring before ordering. Through-hole, "
+         "through the tail's stiffened end. Any 2.54 mm straight 2x7 male header"),
+    part("J2", "Conn_1x08", "Flex tail solder pads", "BioMap:FlexTail_Solder_1x08_P1.50mm", TAIL_NETS,
+         "Plated pads with 0.5 mm holes, soldered onto the Cardputer board's landing pads. Pad k = board pad k"),
 ]
 
 # ── Drawing helpers ───────────────────────────────────────────────────────
@@ -710,17 +727,20 @@ def draw_flipper_conn(s, x0, y0):
     s.power("J1.8", "GND", n=2)
     draw_pullups(s, x0 + g(26), y0 + g(29))
 
+def tail_pads(s, ref, x, y):
+    """The flex tail's 8 pads: ground pins to GND symbols, the rest to labels."""
+    s.put(ref, x, y)
+    for pn, net in TAIL_NETS.items():
+        if net == "GND":
+            s.power(f"{ref}.{pn}", "GND", n=2)
+        else:
+            s.label(f"{ref}.{pn}", net, n=4)
+
 def draw_cardputer_conn(s, x0, y0):
-    s.frame(x0, y0, g(38), H1, "4  Cardputer ADV EXT header",
-            "Pin 2 (5 V in) stays open. R6/R7 not fitted: the Cardputer has pull-ups.")
-    jx = x0 + g(10)
-    s.put("J1", jx, y0 + g(19))
-    s.nc(*[f"J1.{i}" for i in (1, 3, 5, 7, 9, 11, 13, 2)])
-    s.power("J1.4", "GND", n=2)
-    s.flag((s.pins["J1.4"][0] + G, s.pins["J1.4"][1]))
-    for pn, net in (("6", "+5V_EXT"), ("8", "I2C_SDA"), ("10", "I2C_SCL"),
-                    ("12", "HOST_TX_TO_GPS"), ("14", "GPS_TX_TO_HOST")):
-        s.label(f"J1.{pn}", net, n=4)
+    s.frame(x0, y0, g(38), H1, "4  Flex tail to the EXT header",
+            "Pad k = tail pad k. R6/R7 not fitted: the Cardputer has pull-ups.")
+    tail_pads(s, "J1", x0 + g(6), y0 + g(14))
+    s.flag((s.pins["J1.2"][0] + G, s.pins["J1.2"][1]))
     draw_pullups(s, x0 + g(26), y0 + g(29))
     s.put("H1", x0 + g(6), y0 + g(33))
     s.put("H2", x0 + g(6), y0 + g(37))
@@ -750,8 +770,25 @@ def draw_regulator(s, x0, y0):
     s.power((c5x + g(4), line), "+3V3")
     s.flag((c5x + g(2), line))
 
+def draw_tail(s):
+    s.frame(g(8), ROW1, g(40), H1, "1  Cardputer ADV EXT header",
+            "Pin 2 (5 V in) stays open. Straight header through the tail's stiffened end.")
+    s.put("J1", g(18), ROW1 + g(19))
+    s.nc(*[f"J1.{i}" for i in (1, 3, 5, 7, 9, 11, 13, 2)])
+    s.power("J1.4", "GND", n=2)
+    s.flag((s.pins["J1.4"][0] + G, s.pins["J1.4"][1]))
+    for pn, net in (("6", "+5V_EXT"), ("8", "I2C_SDA"), ("10", "I2C_SCL"),
+                    ("12", "HOST_TX_TO_GPS"), ("14", "GPS_TX_TO_HOST")):
+        s.label(f"J1.{pn}", net, n=4)
+    s.frame(g(52), ROW1, g(40), H1, "2  Solder pads onto the Cardputer board",
+            "Pad k lies on the Cardputer board's landing pad k.")
+    tail_pads(s, "J2", g(60), ROW1 + g(14))
+
 def draw_sheet(name, parts):
     s = Sheet(parts)
+    if name == "biomap_cardputer_tail":
+        draw_tail(s)
+        return s
     draw_tia(s, g(8), ROW2)
     draw_ref(s, g(69), ROW2)
     draw_adc(s, g(112), ROW2)
@@ -798,7 +835,7 @@ def write_project(out, name, title, parts):
         f.write("Designator,Qty,Value,Footprint,Manufacturer,MPN,LCSC,Fit,Note\n")
         for (value, fp, mpn), ps in sorted(rows.items(), key=lambda kv: refkey(min((p["ref"] for p in kv[1]), key=refkey))):
             refs = " ".join(sorted((p["ref"] for p in ps), key=refkey))
-            fit = ("do not fit" if "DNP" in value else "bare pad" if ps[0]["key"] == "TP"
+            fit = ("do not fit" if "DNP" in value else "bare pad" if ps[0]["key"] == "TP" or "FlexTail" in fp
                    else "through-hole" if "PinHeader" in fp else "SMD")
             notes = {p["note"] for p in ps}
             note = notes.pop() if len(notes) == 1 else ""      # mixed roles: see the schematic
@@ -829,7 +866,8 @@ def write_project_file(path, name, root):
 
 
 TITLES = {"biomap_flipper": ("BioMapping 2 - Flipper Zero board", FLIPPER),
-          "biomap_cardputer": ("BioMapping 2 - Cardputer ADV Cap", CARDPUTER)}
+          "biomap_cardputer": ("BioMapping 2 - Cardputer ADV Cap", CARDPUTER),
+          "biomap_cardputer_tail": ("BioMapping 2 - Cardputer ADV flex tail", CARDPUTER_TAIL)}
 
 
 def expected_nets(name):
@@ -838,6 +876,6 @@ def expected_nets(name):
 
 
 def generate(root):
-    """Write both boards' schematics, symbol libraries, project files and BOMs under root."""
+    """Write every board's schematics, symbol libraries, project files and BOMs under root."""
     for name, (title, parts) in TITLES.items():
         write_project(root, name, title, parts)

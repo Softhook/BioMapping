@@ -5,7 +5,7 @@ Designator,Qty,Value,Footprint,Manufacturer,MPN,LCSC,Fit,Note
 "C4 C5 C6 C9",4,"10uF",C_0805_2012Metric,"Samsung","CL21A106KAYNNNE",C15850,SMD,""
 "D1",1,"PMEG4005EJ",D_SOD-323,"Nexperia","PMEG4005EJ,115",C426868,SMD,"Stops the backup cell feeding the 3.3 V rail"
 "FB1",1,"600R@100MHz",L_0805_2012Metric,"Sunlord","GZ2012D601TF",C1017,SMD,"Blocks the Cardputer's boost-converter switching noise"
-"J1",1,"Cardputer ADV EXT",PinHeader_2x07_P2.54mm_Horizontal,"","",,through-hole,"M5 pin table numbering: 4 GND, 6 5V OUT, 8 G8 SDA, 10 G9 SCL, 12 G13, 14 G15. Pin 2 is 5V IN - never connect. CHECK numbering and mirroring before ordering. Through-hole. Any 2.54 mm right-angle 2x7 male header; pick the pin length after measuring the socket height"
+"J1",1,"Flex tail landing pads",FlexTail_Land_1x08_P1.50mm,"","",,bare pad,"Bare pads: the flex tail's solder end lies here, soldered through its holes. Pad k = tail pad k"
 "J2",1,"Grove GSR finger cuffs",JST_PH_S2B-PH-SM4-TB_1x02-1MP_P2.00mm_Horizontal,"JST","S2B-PH-SM4-TB(LF)(SN)",C295747,SMD,"JST PH 2.0 mm side-entry socket for the Grove GSR finger-cuff plug. Surface-mount; the two side tabs only hold it down"
 "R1",1,"56k 0.1%",R_0805_2012Metric,"RESI","PTFR0805B56K0P9",C2849276,SMD,"0.5 V bias. Sets the GSR scale. Use 0.1% parts"
 "R2",1,"10k 0.1%",R_0805_2012Metric,"RESI","PTFR0805B10K0P9",C478887,SMD,"0.5 V bias. Sets the GSR scale. Use 0.1% parts"

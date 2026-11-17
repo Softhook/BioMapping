@@ -14,15 +14,17 @@ LABELS    face -> [(text, x, y, size)] printed on the board
 outline() draws the board edge"""
 from ..rules import SIG, PWR
 
-# y = 0 is the Cardputer's bottom edge (EXT socket edge). The board covers
-# the back (y 0..54) plus a tab (y < 0) holding the angled header. F = face
-# against the Cardputer (only the header), B = outer face with everything else.
+# y = 0 is the Cardputer's bottom edge (the EXT socket edge). The board is
+# exactly the Cardputer's back, 84 x 54 mm. F = face against the Cardputer
+# (bare), B = outer face with everything on it. J1 is the row of landing pads
+# for the flex tail (cardputer_tail.py), centred on the EXT header (x 42); the
+# tail's solder end lies over them from the edge to y 7 (the printed outline).
 PLACE = {
-    "J1": (42 + 7.62, -6.58, -90, "F"),   # pins point +y into the EXT socket
+    "J1": (42.0, 4.5, 180, "B"),       # pad 1 (5 V) at x 47.25 ... pad 8 (GPS TX) at x 36.75
     "H1": (14, 4, 0, "F"), "H2": (70, 4, 0, "F"),
-    # 5 V -> 3.3 V, right under the header's 5 V pin
-    "FB1": (46.4, -1.6, 0, "B"), "C4": (47.0, 2.45, 180, "B"),
-    "U3": (52.0, 1.5, 0, "B"), "C5": (55.2, 3.36, -90, "B"),
+    # 5 V -> 3.3 V, just right of the tail
+    "FB1": (55.9, 2.4, 0, "B"), "C4": (56.5, 6.45, 180, "B"),
+    "U3": (61.5, 5.5, 0, "B"), "C5": (64.7, 7.36, -90, "B"),
     # GPS on the right half; serial pads face the header tab
     "U4": (58.0, 30.0, 90, "B"),
     "C7": (68.4, 27.15, 90, "B"),                  # bridges VCC pad 17 and GND pad 16
@@ -46,15 +48,15 @@ PLACE = {
     "R6": (17.5, 45.0, 90, "B"), "R7": (15.0, 45.0, 90, "B"),
 }
 TRACKS = [
-    # ── 5 V -> 3.3 V ──
-    ("B", PWR, ["J1.6", (44.54, -1.6), "FB1.1"]),
-    ("B", PWR, ["FB1.2", (48.5, -1.6), (50.86, -1.6), "U3.3"]),       # EN, from above
-    ("B", PWR, [(48.5, -1.6), (48.5, 2.45), "U3.1"]),                  # IN, from the left
-    ("B", PWR, [(48.5, 2.45), "C4.1"]),
-    ("B", SIG, ["U3.2", (49.6, 1.5)]),
+    # ── 5 V -> 3.3 V: from the tail's 5 V pad straight across to the regulator ──
+    ("B", PWR, ["J1.1", (52.5, 4.5), (52.5, 2.4), "FB1.1"]),
+    ("B", PWR, ["FB1.2", (58.0, 2.4), (60.36, 2.4), "U3.3"]),          # EN, from above
+    ("B", PWR, [(58.0, 2.4), (58.0, 6.45), "U3.1"]),                   # IN, from the left
+    ("B", PWR, [(58.0, 6.45), "C4.1"]),
+    ("B", SIG, ["U3.2", (59.1, 5.5)]),
     ("B", PWR, ["U3.5", "C5.1"]),
     # ── GPS ──
-    ("B", PWR, ["C5.1", (57.5, 2.45), (61.5, 6.45), (71.5, 6.45), (71.5, 41.0), (59.9, 41.0), "U4.2"]),
+    ("B", PWR, ["C5.1", (71.5, 6.41), (71.5, 41.0), (59.9, 41.0), "U4.2"]),
     ("B", PWR, [(71.5, 28.1), "C7.1", "U4.17"]),
     ("B", PWR, ["C7.2", "U4.16"]),
     ("B", PWR, [(71.5, 24.0), "C6.1"]),
@@ -67,12 +69,12 @@ TRACKS = [
     ("B", SIG, ["U4.8", "TP1.1"]),
     ("B", SIG, ["U4.13", "R10.1"]),
     ("B", SIG, ["U4.14", (59.9, 21.0), (60.5, 20.4), "R9.1"]),
-    ("B", SIG, ["R10.2", (58.0, 14.0), (34.38, 14.0), "J1.14"]),
-    ("B", SIG, ["R9.2", (60.5, 12.5), (36.92, 12.5), "J1.12"]),
-    # ── 3V3 to the GSR side: inner layer under the tab, then down the right of the circuit ──
-    ("B", PWR, ["U3.5", (53.14, 4.4)]),
-    ("F", PWR, ["net:+3V3", (53.14, 4.4), (33.0, 4.4)]),
-    ("B", PWR, ["net:+3V3", (33.0, 4.4), (33.0, 47.5), (15.0, 47.5), "R7.1"]),
+    ("B", SIG, ["R10.2", (58.0, 14.0), (36.75, 14.0), "J1.8"]),
+    ("B", SIG, ["R9.2", (60.5, 12.5), (38.25, 12.5), "J1.7"]),
+    # ── 3V3 to the GSR side: inner face under the tail, then down the right of the circuit ──
+    ("B", PWR, ["U3.5", (62.64, 8.4)]),
+    ("F", PWR, ["net:+3V3", (62.64, 8.4), (33.0, 8.4)]),
+    ("B", PWR, ["net:+3V3", (33.0, 8.4), (33.0, 47.5), (15.0, 47.5), "R7.1"]),
     ("B", PWR, ["net:+3V3", (33.0, 25.6), "R1.1"]),
     ("B", PWR, ["net:+3V3", (33.0, 31.91), "U1.8"]),
     ("B", PWR, ["U1.8", (25.05, 31.91), "C1.1"]),          # C1 right under the op-amp supply pin
@@ -102,12 +104,15 @@ TRACKS = [
     ("B", SIG, ["U2.1", (21.0, 35.4)]),
     ("B", SIG, ["U2.9", (21.5, 43.2), (17.5, 43.2), "R6.2"]),
     ("B", SIG, ["U2.10", (21.0, 42.4), (15.0, 42.4), "R7.2"]),
-    ("F", SIG, ["net:I2C_SCL", (19.8, 42.4), (30.6, 42.4), (30.6, 1.0), (39.46, 1.0), "J1.10"]),
-    ("F", SIG, ["net:I2C_SDA", (18.8, 43.2), (31.6, 43.2), (31.6, 2.0), (42.0, 2.0), "J1.8"]),
+    ("F", SIG, ["net:I2C_SCL", (19.8, 42.4), (30.6, 42.4), (30.6, 10.6), (41.25, 10.6)]),
+    ("F", SIG, ["net:I2C_SDA", (18.8, 43.2), (31.6, 43.2), (31.6, 11.6), (44.25, 11.6)]),
+    ("B", SIG, ["J1.5", (41.25, 10.6)]),
+    ("B", SIG, ["J1.3", (44.25, 11.6)]),
 ]
 VIAS = [
-    ("+3V3", 53.14, 4.4), ("+3V3", 33.0, 4.4), ("I2C_SCL", 19.8, 42.4), ("I2C_SDA", 18.8, 43.2),
-    ("GND", 49.6, 1.5), ("GND", 44.9, 2.45), ("GND", 55.2, 5.5), ("GND", 74.8, 24.0),
+    ("+3V3", 62.64, 8.4), ("+3V3", 33.0, 8.4), ("I2C_SCL", 19.8, 42.4), ("I2C_SDA", 18.8, 43.2),
+    ("I2C_SCL", 41.25, 10.6), ("I2C_SDA", 44.25, 11.6),
+    ("GND", 59.1, 5.5), ("GND", 54.4, 6.45), ("GND", 64.7, 9.5), ("GND", 74.8, 24.0),
     ("GND", 19.7, 35.4), ("GND", 21.5, 35.4), ("GND", 19.52, 27.0), ("GND", 29.32, 29.2), ("GND", 28.15, 33.6),
     ("GND", 22.7, 45.95), ("GND", 15.31, 37.0),
 ]
@@ -120,16 +125,17 @@ GUARD = ("B", [(19.0, 23.2), (5.95, 23.2), (5.95, 30.0), (13.0, 30.0), (13.0, 31
 
 STITCH = [((34.5, 1.5, 82.5, 52.5), 3.0), ((1.5, 1.5, 33.0, 52.5), 5.0)]
 
-LABELS = {"B": [("BioMapping 2 - Cardputer GSR + GPS", 17.0, 51.5, 0.9), ("rev A  2026-11", 17.0, 50.1, 0.8), ("GSR", 19.8, 34.3, 0.8),
+LABELS = {"B": [("BioMapping 2 - Cardputer GSR + GPS", 17.0, 51.5, 0.9), ("rev B  2026-11", 17.0, 50.1, 0.8), ("GSR", 19.8, 34.3, 0.8),
                 ("GPS: keep this side clear of metal", 58.0, 51.6, 0.8),
                 ("CUFFS", 4.8, 35.6, 0.8), ("SAFEBOOT", 45.0, 32.6, 0.8),
-                ("RESET", 71.0, 32.2, 0.8), ("5V to 3.3V", 51.0, 6.6, 0.8)]}
+                ("RESET", 71.0, 32.2, 0.8), ("5V to 3.3V", 60.5, 11.3, 0.8),
+                ("FLEX TAIL: SOLDER HERE", 42.0, 9.0, 0.8)]}
 
 
 def outline(add_seg, add_arc):
+    """The Cardputer's back: 84 x 54 mm, corners rounded so nothing overhangs."""
     r = 3.0
-    add_seg((0, 0), (28, 0)); add_seg((28, 0), (28, -9)); add_seg((28, -9), (56, -9))
-    add_seg((56, -9), (56, 0)); add_seg((56, 0), (84, 0))
-    add_seg((84, 0), (84, 54 - r)); add_arc((84 - r, 54 - r), (84, 54 - r), 90)
+    add_seg((r, 0), (84 - r, 0)); add_arc((84 - r, r), (84 - r, 0), 90)
+    add_seg((84, r), (84, 54 - r)); add_arc((84 - r, 54 - r), (84, 54 - r), 90)
     add_seg((84 - r, 54), (r, 54)); add_arc((r, 54 - r), (r, 54), 90)
-    add_seg((0, 54 - r), (0, 0))
+    add_seg((0, 54 - r), (0, r)); add_arc((r, r), (0, r), 90)

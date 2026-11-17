@@ -1,0 +1,2 @@
+(sym_lib_table (version 7)
+  (lib (name "BioMap") (type "KiCad") (uri "${KIPRJMOD}/BioMap.kicad_sym") (options "") (descr "BioMapping project symbols")))

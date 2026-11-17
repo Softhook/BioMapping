@@ -60,10 +60,12 @@ def numbers(pcb_path):
     for label, key in LONG_NETS:
         n[label] = round(length.get(key, 0))
     n["vias"] = vias
+    gps = next((fp for fp in b.GetFootprints() if fp.GetReference() == "U4"), None)
+    if gps is None:                     # the Cardputer's flex tail: connectors only
+        return n
     # ground vias around the GPS module: in the 50 x 50 mm plane u-blox asks
     # for, and in the 16 x 16 mm square under the module itself
-    gps = next(fp for fp in b.GetFootprints() if fp.GetReference() == "U4").GetPosition()
-    gx, gy = pcbnew.ToMM(gps.x), pcbnew.ToMM(gps.y)
+    gx, gy = pcbnew.ToMM(gps.GetPosition().x), pcbnew.ToMM(gps.GetPosition().y)
     within = lambda half: sum(abs(x - gx) <= half and abs(y - gy) <= half for x, y in gnd_vias)
     n["GPS plane ground vias"] = within(25)
     n["under-GPS ground vias"] = within(8)
@@ -74,10 +76,17 @@ def numbers(pcb_path):
 
 
 def measure(root=HARDWARE, names=BOARDS):
-    """root: a folder holding biomap_flipper/ and biomap_cardputer/ (default: this checkout)."""
+    """root: a folder holding the board folders (default: this checkout)."""
     for name in names:
-        n = numbers(board_file(name, ".kicad_pcb", root))
+        path = board_file(name, ".kicad_pcb", root)
+        if not os.path.exists(path):
+            print(f"{name}: not in this version")
+            continue
+        n = numbers(path)
         print(name)
+        if "GPS plane ground vias" not in n:        # the flex tail: nothing noise-sensitive on it
+            print(f"  connectors only; vias {n['vias']}")
+            continue
         print("  decoupling: " + ", ".join(
             f"{c}-{sup[0]} supply {n[f'{c}-{sup[0]} supply']} / ground {n[f'{c}-{gnd[0]} ground']} mm"
             for c, (sup, gnd) in DECOUPLING.items() if f"{c}-{sup[0]} supply" in n))
@@ -94,9 +103,10 @@ def compare(ref):
         for name in BOARDS:
             os.makedirs(os.path.join(old, name))
             rel = os.path.relpath(board_file(name, ".kicad_pcb"), REPO)
-            with open(board_file(name, ".kicad_pcb", old), "w") as f:
-                f.write(subprocess.run(["git", "show", f"{ref}:{rel}"], cwd=REPO, check=True,
-                                       capture_output=True, text=True).stdout)
+            r = subprocess.run(["git", "show", f"{ref}:{rel}"], cwd=REPO, capture_output=True, text=True)
+            if r.returncode == 0:                   # a board added since ref is left out
+                with open(board_file(name, ".kicad_pcb", old), "w") as f:
+                    f.write(r.stdout)
         print(f"=== {ref}")
         measure(old)
     print("=== working copy")

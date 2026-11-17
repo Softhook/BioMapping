@@ -5,9 +5,10 @@ Two KiCad 10 projects. Both carry the same GSR circuit as [docs/wiring_guide.md]
 | Folder | Plugs into | Board | Power |
 |---|---|---|---|
 | `biomap_flipper/` | Flipper Zero GPIO | 72 × 52 mm, stands up from the Flipper's top edge | Flipper's 3.3 V (pin 9) |
-| `biomap_cardputer/` | Cardputer ADV EXT socket | 84 × 54 mm (the device's back) plus a 9 mm tab; two M2 × 4 mm screws | Own 3.3 V regulator (TLV75533), fed from EXT 5 V out |
+| `biomap_cardputer/` | Flex tail, soldered on | 84 × 54 mm, exactly the device's back; two M2 × 4 mm screws | Own 3.3 V regulator (TLV75533), fed from EXT 5 V out |
+| `biomap_cardputer_tail/` | Cardputer ADV EXT socket | Flexible strip, 24 mm long; stiff 20 × 8 mm plug end | Carries EXT's 5 V, ground, I2C and serial lines to the Cardputer board |
 
-Both boards are placed and routed. KiCad's checks pass on both: the wiring check (ERC) and the design rules check (DRC) show 0 errors and 0 warnings, nothing is unconnected, and each board matches its schematic.
+All three boards are placed and routed. KiCad's checks pass on all of them: the wiring check (ERC) and the design rules check (DRC) show 0 errors and 0 warnings, nothing is unconnected, and each board matches its schematic.
 
 ## How the schematic is drawn
 
@@ -16,7 +17,7 @@ Each schematic is one A3 sheet split into labelled blocks:
 1. Skin sensor (current-to-voltage amplifier)
 2. 0.5 V reference and op-amp supply
 3. Analogue-to-digital converter
-4. Header (Flipper or Cardputer)
+4. Header (Flipper) or flex tail pads (Cardputer)
 5. GPS
 6. 5 V to 3.3 V regulator (Cardputer only)
 
@@ -65,7 +66,26 @@ Everything is surface-mount and suits machine assembly, except the angled pin he
 - **Backup cell:** Seiko MS421R-IV03E (rechargeable, 3 V, 1.5 mAh, 4.8 mm). It can go through the soldering oven, so a machine fits it like any other part. It is the cell on SparkFun's SAM-M10Q board, and its footprint (`BioMap.pretty/Seiko_MS421R_IV03E`) copies SparkFun's pads. With the GPS switched off it draws 28 µA, so the cell keeps satellite data for about two days. Not stocked by LCSC; Farnell 3534555.
 - **C2** is 1206 size, because 100 nF C0G capacitors are hard to find in 0805.
 - **Flipper header:** two angled through-hole pieces, pins 1–8 and 9–18, 17.78 mm apart, to match the gap in the Flipper's GPIO. Through-hole is kept on purpose: these joints hold the board in place.
-- **Cardputer header:** one angled through-hole 2 × 7 header on the tab, pointing into the EXT socket.
+- **Cardputer connection:** a flex tail (see below).
+
+## How the Cardputer connects
+
+The Cardputer board screws flat onto the back and has no header or socket. A **flex tail** (`biomap_cardputer_tail/`) joins it to the EXT socket. This is a flexible circuit: a strip of thin polyimide plastic with the copper wires inside, made to our own shape.
+
+- **Plug end** (20 × 8 mm): a 1 mm FR4 stiffener is glued on the side facing the Cardputer, and a straight 2 × 7 header is soldered through it. It stands against the Cardputer's bottom edge with the header in the EXT socket.
+- **Bendy strip** (13 mm wide, 9 mm long): folds round the bottom edge. It has copper on one side only, and no copper fill, so it bends easily. About 1 mm of slack is built in.
+- **Solder end** (13 × 7 mm): 8 plated pads, 1.5 mm apart, each with a 0.5 mm hole. It lies flat on the Cardputer board's landing pads (J1) inside the printed outline, and is soldered there for good.
+
+Why a soldered tail: a header fixed to the main board would have to line up with the socket in three directions at once, and sockets for a separate cable stand about 2.5 mm tall. The tail takes up any mismatch, and nothing on the Cardputer board stands taller than the flex, about 0.2 mm. The only thing you unplug is the header from EXT; the board and its tail come off together.
+
+- **Wire order:** tail pad *k* lies on board pad *k*, the same signal. A ground wire runs between the signals: 5 V, GND, SDA, GND, SCL, GND, G13, G15. On the tail the three ground wires join the header's GND pin on the outer face, inside the stiffened end, where nothing bends.
+- **Ordering the tail:** order it as a 2-layer flex board (JLCPCB, PCBWay), with coverlay on both sides and a 1.0 mm FR4 stiffener on the F side over the plug end. The stiffener outline and notes are on the drawings layer (`Dwgs.User`). Choose ENIG (gold) pads: they solder well and don't tarnish. A first batch of 5 seems to be roughly $15–25, but check the instant quote.
+- **Soldering it on:**
+  1. Solder the header into the plug end first.
+  2. Tin the landing pads on the Cardputer board lightly (if the assembler applied paste there, they already are).
+  3. Lay the tail's solder end over them, F side down ("THIS SIDE DOWN" is printed there), inside the printed outline, and hold it with heat-resistant tape.
+  4. Touch each pad with the iron and a little solder: it runs through the hole onto the pad below, and you can see every joint has taken.
+  5. Put a strip of Kapton tape over the joint, so bending the tail never pulls on the solder.
 
 ## Check before ordering (both boards)
 
@@ -77,8 +97,10 @@ Everything is surface-mount and suits machine assembly, except the angled pin he
 
 These come from M5Stack's dimension drawing and 3D models, not from a real device.
 
-- **Header height.** The angled header holds its pins about 1.3 mm and 3.8 mm above the board. The socket rows look to be about 4.5 mm and 7 mm above the Cardputer's back, so the header needs lifting by about 3 mm (for example with a plastic spacer).
-- **Which row is which.** The board assumes the even-numbered row (GND, 5 V out, SDA, SCL, G13, G15) is the one nearest the back. Check with a multimeter before plugging in. Pin 2 is 5 V *in* and must stay unconnected.
+- **Which way the EXT socket faces.** The tail assumes the socket opens out of the bottom edge, with its rows about 4.5 mm and 7 mm in from the back, as M5Stack's 3D model suggests. M5Stack's written docs only say it is "on the underside". Small errors in these numbers don't matter much, because the flex takes them up. But if the socket actually opens into the back face, the tail's shape has to change and the main board needs a cut-out over it.
+- **Which row is which.** The tail assumes the even-numbered row (GND, 5 V out, SDA, SCL, G13, G15) is the one nearest the back. Check with a multimeter before plugging in. Pin 2 is 5 V *in* and must stay unconnected. If it turns out wrong, only the tail needs remaking.
+- **Room along the bottom edge.** Check that nothing else on that edge (a port or button) is in the way of the tail's plug end. It is 20 mm wide, centred on the EXT socket.
+- **The tail's length.** It is drawn with about 1 mm of slack round the edge. Check the fold on a real Cardputer before ordering many; a longer strip is a one-line change in `cardputer_tail.py`.
 - **Screws.** Use M2 × 4 mm only. M5Stack warns that longer screws can damage the board inside.
 
 ## Tools
@@ -94,7 +116,7 @@ Everything is done with one command, `./pcb`, run from this folder. It needs KiC
 
 | Path | What it holds |
 |---|---|
-| `pcbtools/boards/flipper.py`, `cardputer.py` | **The layouts.** Every part's position and every trace, written out by hand. This is what you edit to change a layout. |
+| `pcbtools/boards/flipper.py`, `cardputer.py`, `cardputer_tail.py` | **The layouts.** Every part's position and every trace, written out by hand. This is what you edit to change a layout. |
 | `pcbtools/schematic.py` | The parts lists (which pin joins which net, what to buy) and the schematic drawings. Edit this to change the circuit or the BOM. |
 | `pcbtools/rules.py` | Track widths, via size and the 0.15 mm clearance. |
 | `pcbtools/limits.py` | Layout limits: how far each decoupling capacitor may be from its chip, how long the GSR wires may be, how many ground vias the GPS needs. |

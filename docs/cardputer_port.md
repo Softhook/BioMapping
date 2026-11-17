@@ -46,6 +46,22 @@ Options:
 
 The Grove port is not enough on its own. It has two signal pins, so it can carry the GPS *or* the I2C bus, not both. Using EXT for everything keeps the Grove port free.
 
+### How the printed board reaches the EXT socket: a flex tail
+
+The printed board (`hardware/biomap_cardputer/`) is exactly the size of the Cardputer's back, 84 × 54 mm, and is held by two M2 screws. It has no header or socket. Instead, a **flex tail** (`hardware/biomap_cardputer_tail/`) joins it to the EXT socket. This is a flexible circuit: a strip of thin plastic with the copper wires inside, like the ribbons inside a phone or camera, but made to our own shape.
+
+- **The plug end** has a thin stiff plate glued to it, with a straight 2 × 7 pin header soldered through. It stands against the Cardputer's bottom edge, with the header pushed into EXT.
+- **The bendy strip** in the middle folds round the bottom edge.
+- **The solder end** lies flat on the main board, just inside the edge, and is soldered there for good through 8 small plated holes.
+
+**Why this way?** It's the lowest and cleanest connection: nothing on the main board stands taller than the flex itself, about 0.2 mm, and there are no sockets to buy. A header fixed to the main board would have to line up with the socket in three directions at once, and a small mistake in M5Stack's drawings would bend the pins. The flex takes up any mismatch, so the main board only has to fit its screws. If the tail turns out wrong on a real device (for example, the socket rows are the other way round), only the tail needs remaking, not the GPS board.
+
+**How it's made:** circuit board makers such as JLCPCB and PCBWay make flexible circuits from the same kind of drawing files as normal boards. They add the stiff plate behind the plug end. A first batch of 5 seems to cost roughly $15–25, a few days slower than normal boards. You then solder the header into the plug end, lay the solder end on the main board's pads, and touch each pad with the iron: the solder runs through each hole onto the pad below. A strip of Kapton tape over the joint stops bending from pulling on the solder.
+
+**Still to check on a real Cardputer:** that the EXT socket opens out of the bottom edge (M5Stack's 3D model suggests it does; their docs only say "underside"), which row of the socket is which, that no port or button on that edge gets in the way, and that the tail's fold round the edge is comfortable.
+
+Full details are in [hardware/README.md](../hardware/README.md), under "How the Cardputer connects".
+
 ### Power and connections
 
 Our board (op-amp, ADS1115, M10Q) runs on 3.3 V. On the Flipper it takes 3.3 V from GPIO pin 9.

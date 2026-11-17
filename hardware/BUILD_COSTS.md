@@ -17,7 +17,7 @@ Almost every part is surface-mount (soldered onto the face of the board):
 | U4 GPS (SAM-M10Q) | Pads underneath | Needs an oven, hotplate or hot air |
 | J2 cuff socket | Surface-mount JST PH | |
 
-Only the angled pin headers are through-hole (J1, plus J4 on the Flipper). They hold the board in place, so they stay through-hole for strength. Assemblers fit them for a small extra fee.
+Only the pin headers are through-hole: J1 and J4 on the Flipper, and J1 on the Cardputer's flex tail. They take the strain of plugging in, so they stay through-hole for strength. Assemblers fit them for a small extra fee. The Cardputer board itself is all surface-mount. Its flex tail is a separate flex-board order (roughly $15–25 for 5 at JLCPCB; check the instant quote) and is soldered on by hand.
 
 Each board's `bom.csv` gives the maker's part number and the LCSC number for every part.
 
@@ -70,7 +70,7 @@ The GPS chip is the main cost, and stock is patchy: several suppliers show none,
 
 1. Order the **Flipper board** first. It is closest to the working hand-soldered prototype.
 2. Build one and compare it with the prototype on a walk.
-3. Before ordering the **Cardputer board**, measure a real Cardputer: header height, which socket row is which, and the screw hole positions (see "Check before ordering (Cardputer)" in [README.md](README.md)).
+3. Before ordering the **Cardputer board**, check a real Cardputer: which way the EXT socket faces, which socket row is which, and the screw hole positions (see "Check before ordering (Cardputer)" in [README.md](README.md)).
 
 ## Sources
 
