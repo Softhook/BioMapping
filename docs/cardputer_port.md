@@ -120,12 +120,27 @@ This is also a chance to improve on the Flipper. A dedicated, quiet regulator on
 
 #### The I2C bus is shared with the Cardputer's own parts
 
-Unofficial sources say EXT pins 8 and 9 (G8, G9) are the same I2C bus the Cardputer uses internally for its keyboard controller (TCA8418), audio chip (ES8311) and motion sensor (BMI270) **(check)**. Their addresses do not clash with the ADS1115 at 0x48, so sharing should work. But:
+M5Stack's own pin table ([Cardputer-Adv docs](https://docs.m5stack.com/en/core/Cardputer-Adv)) confirms that the EXT header's I2C pins (pin 8 = G8 = SDA, pin 10 = G9 = SCL) are the same bus the Cardputer uses for its own parts:
 
-- the bus speed and any extra pull-up resistors must suit all of these parts
-- one user reported that I2C on EXT pins 8 and 9 did not work as expected in one particular app (Bus Pirate). The cause is unknown, so test this early.
+| Part | Address | Source |
+|---|---|---|
+| Keyboard controller (TCA8418) | 0x34 | several community sources; it also has its own "key pressed" signal on G11 |
+| Audio chip (ES8311) | usually 0x18 | chip datasheet default, not stated by M5Stack |
+| Motion sensor (BMI270) | usually 0x68 or 0x69 | chip datasheet default, not stated by M5Stack |
+| GSR converter (ADS1115) | 0x48 | our board (ADDR tied to GND) |
 
-If the shared bus causes trouble, the ADS1115 can go on the Grove port instead (G2 and G1 as a separate I2C bus). The M10Q stays on the EXT serial pins.
+None of the addresses clash, so sharing works electrically.
+
+**What went wrong for other people.** In the Bruce firmware, an RFID reader on G8/G9 failed while the same reader worked on the Grove port ([issue #2143](https://github.com/BruceDevices/firmware/issues/2143)). The firmware's author explained why: the keyboard was driven by one I2C driver (`Wire1`) and the reader by a second one (`Wire`), both on the same two pins. Two drivers fighting over one bus can stop the keyboard working. This is a software mistake, not a hardware fault. A Cardputer ADV test project shares the keyboard's driver with its add-on deliberately for the same reason ([cardputer-adv-tests](https://github.com/AndyAiCardputer/cardputer-adv-tests)).
+
+**Rules for our code:**
+
+- **One driver and one lock for the whole bus.** Our own code should control the bus, with both the keyboard and the ADS1115 going through it, instead of relying on how M5Stack's keyboard library works inside. The keyboard chip is simple to drive, and small community drivers for it exist.
+- **Bus speed.** All four parts support 400 kHz. At 860 readings a second, the GSR reads keep the bus busy roughly 40% of the time at 100 kHz and about 10% at 400 kHz (an estimate). The keyboard only uses the bus when a key is pressed, so there is room either way, but 400 kHz leaves more.
+- **Pull-up resistors.** M5Stack does not publish a full schematic, so the value of the Cardputer's own pull-ups is unknown. Our board already leaves its pull-ups (R6, R7) unfitted for this reason. To be sure, measure the resistance from G8 and G9 to 3.3 V with the power off.
+- **Test early.** In the first Cardputer step, read the ADS1115 and the keyboard together before building anything else. Also leave it running for an hour and check that the keys still respond: one Cardputer app reported the keyboard stopping after 10–20 minutes, cause unknown ([issue #12](https://github.com/Mr-PauI/Gameboy-Enhanced-Firmware-m5stack-cardputer-/issues/12)).
+
+If the shared bus still causes trouble, the ADS1115 can go on the Grove port instead (G2 and G1 as a separate I2C bus). The Bruce report shows that port working when G8/G9 did not. The M10Q stays on the EXT serial pins.
 
 #### What the official schematic shows
 
@@ -235,7 +250,7 @@ With a shared core, each device has its own small, natural code, and the shared 
 Yes, easily. The Flipper runs the main thread, the GSR thread and its own Bluetooth on a single 64 MHz core with 256 KB of RAM. The Cardputer ADV's ESP32-S3 has two 240 MHz cores and 512 KB of RAM. It probably has no extra PSRAM memory chip **(check)**, but it doesn't need one. Points to get right:
 
 - **The 1 ms pause** described under "Build tools".
-- **The shared I2C bus.** If the GSR converter shares a bus with the keyboard (see section 2), the two threads take turns on it. The GSR code already takes and releases the bus around each read and write, so a lock fits in the same places.
+- **The shared I2C bus.** The GSR converter shares a bus with the keyboard (see section 2), so the two threads take turns on it. The GSR code already takes and releases the bus around each read and write, so a lock fits in the same places.
 - **GPS can stay on the main thread.** The ESP32's serial driver stores incoming bytes by itself, so the main loop can collect them each pass. A separate GPS thread would also be fine.
 - **Stack sizes.** ESP32 library calls need more stack than the Flipper's. Give each thread about 4 KB instead of 2 KB.
 
@@ -300,6 +315,19 @@ The firmware reads the clock in one place ([biomap.c](../firmware/biomap.c)), so
 - the file name and the session start time may need to be set, or corrected, once GPS time arrives
 
 The M10Q gives accurate time with its first fix, so in practice this is a short delay at the start of a walk. It still needs a clear rule, for example: "don't start recording until GPS time is known", or "start anyway and fix the timestamps later".
+
+### GSR reading speed (later, not part of the first port)
+
+The ADS1115's top speed is 860 readings a second, and it already runs at that speed on the Flipper. But the Flipper only collects some of them: often about 300 a second, at best 400–500 (the `gsr_hz` column). Its loop can only pause in whole milliseconds, and the rest of the app takes its share of the single slow core.
+
+The Cardputer could collect nearly all of them, in one of two ways:
+
+- **A precise timer.** The ESP32's hardware timers are precise to a microsecond, so the GSR thread can read about every 1.2 ms instead of every "1 ms" step. That gives roughly 800 readings a second, almost all of them new. It is not perfect: the ADS1115's own clock can run up to 10% slow, so now and then a reading is missed or read twice. The existing duplicate counter already detects this. No hardware change is needed.
+- **The ADC's "ready" pin.** The ADS1115 pulses its ALERT/RDY pin each time a new reading is ready. Waiting for that pulse gives exactly 860 a second, none missed, none read twice. On the current Cardputer board this pin is not connected: all 8 flex-tail pads are already used, and the free EXT pin (G4) is on the other row of the header. So this would need a new board version.
+
+**What it would gain.** Each CSV row averages 100 ms of readings. More readings in that window reduce the ADC's own random noise: going from about 300 to about 800 a second cuts it by roughly 40% (√(800/300) ≈ 1.6). The gain on noise from the skin and the amplifier is smaller, because the amplifier's filter (about 34 Hz) already smooths out quick changes, so readings taken close together are mostly the same reading. The skin signal itself changes over seconds, so nothing in it is missed at the slower rate.
+
+**Why it waits.** The side-by-side walks (section 5) are meant to show that the two devices give the same results. If the Cardputer reads at a different rate from the start, any difference is harder to explain. So the first port uses the same reading code as the Flipper, with its 1 ms pause. Its rate may still differ from the Flipper's, but `gsr_hz` records it in every file, so the difference can be seen. Once the two devices agree, try the precise timer as a separate test, and compare noise on the resistor-grid test before and after. If it is worth having, the ready pin can go on a later board version.
 
 ### CSV format
 
@@ -372,7 +400,7 @@ Steps 1–6 prepare the shared core on the Flipper. They also tidy the Flipper c
 | 10 | Cardputer: screen (quick route) and keys. | |
 | 11 | Cardputer: Bluetooth live stream. Test the visualiser's Live tab. | |
 | 12 | The resistor-grid test and side-by-side walks (section 5). | Trusted results |
-| 13 | Later, optional: redesign the screen, add a printed Cap, add field notes. | |
+| 13 | Later, optional: faster GSR reading (section 4), redesign the screen, add a printed Cap, add field notes. | |
 
 ---
 
