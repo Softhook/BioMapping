@@ -15,10 +15,12 @@ outline() draws the board edge"""
 from ..rules import SIG, PWR
 
 # The board stands up from the Flipper's top edge. y = 52 is the edge that
-# meets the Flipper; all parts sit on the front (F). Left half: GPS on a
-# 50 x 52 mm ground plane. Right half: the GSR circuit, cuffs on the right edge.
-FH, FW = 52.0, 80.0
-F1X = FW / 2 + 29.21                      # Flipper pin 1 x (pins run right to left)
+# meets the Flipper; all parts sit on the front (F). Left: GPS on a 50 x 52 mm
+# ground plane. Right: the GSR circuit, cuff socket in the top right corner. The
+# right edge sits just past the header, so the board is only as wide as the GPS
+# plane plus the GSR circuit.
+FH, FW = 52.0, 72.0
+F1X = 69.21                               # Flipper pin 1 x (pins run right to left)
 PLACE = {
     "J1": (F1X, FH - 4.04, -90, "F"),              # Flipper pins 1-8
     "J4": (F1X - 2 * 17.78, FH - 4.04, -90, "F"),  # Flipper pins 9-18
@@ -30,11 +32,12 @@ PLACE = {
     "D1": (30.6, 6.0, 0, "F"), "R8": (25.6, 6.0, 180, "F"),
     "C8": (21.6, 5.3, 180, "F"), "BT1": (15.0, 5.3, 0, "F"),
     "R10": (25.0, 31.0, -90, "F"), "R9": (27.5, 31.0, -90, "F"),
-    # GSR circuit: cuffs (right edge) -> R3/R4 -> U1 -> U2 below it
+    # GSR circuit: cuffs (top right) -> R4 below them -> U1 -> U2 below it
     # cuff socket: its opening is 0.75 mm inside the right edge, so nothing sticks out
     # and the plug can be pulled straight off; its tabs keep the 0.5 mm copper-edge gap
-    "J2": (74.85, 18.0, 90, "F"),
-    "R4": (67.6, 14.0, 180, "F"), "R3": (67.6, 23.0, 180, "F"),
+    "J2": (FW - 5.15, 8.0, 90, "F"),
+    "R4": (67.6, 14.0, 0, "F"),
+    "R3": (59.9, 9.0, 180, "F"),                   # cuff 1 to ground, right beside its pin
     "R5": (65.6, 19.3, -90, "F"), "C2": (67.9, 19.3, -90, "F"),
     "U1": (60.0, 18.0, 180, "F"),
     "R1": (53.6, 13.6, 0, "F"), "R2": (53.6, 16.1, 180, "F"), "C1": (56.0, 21.6, 180, "F"),
@@ -73,9 +76,10 @@ TRACKS = [
     ("F", SIG, ["net:+3V3", (50.5, 35.5), (67.0, 35.5), "R7.1"]),
     ("F", SIG, ["R6.1", (64.5, 35.5)]),
     # ── GSR signal path ──
-    ("F", SIG, ["J2.2", (69.6, 17.0), (69.6, 15.4), "R4.1"]),
-    ("F", SIG, ["J2.1", (69.6, 19.0), (69.6, 21.6), "R3.1"]),
-    ("F", SIG, ["R4.2", (66.69, 16.0), "C2.1"]),             # TIA input node: R4, C2, R5, U1 pin 2
+    ("F", SIG, ["J2.2", (67.0, 7.0), (67.0, 13.0), "R4.1"]),   # cuff 2 passes cuff 1's pin on the socket side
+    ("F", SIG, ["J2.1", "R3.1"]),
+    ("F", PWR, ["R3.2", (57.6, 9.0)]),
+    ("F", SIG, ["R4.2", (68.51, 17.21), "C2.1"]),            # TIA input node: R4, C2, R5, U1 pin 2
     ("F", SIG, ["C2.1", "R5.1", (63.5, 18.39), "U1.2"]),
     ("F", SIG, ["U1.1", (64.2, 19.91), (64.5, 20.21), "R5.2", "C2.2"]),
     ("F", SIG, [(64.2, 19.91), (64.2, 21.5), (59.5, 21.5), "U2.4"]),
@@ -100,20 +104,24 @@ TRACKS = [
 VIAS = [
     ("+3V3", 50.5, 45.6), ("I2C_SCL", 62.2, 30.4), ("I2C_SDA", 63.2, 31.2),
     ("GND", 62.3, 23.4), ("GND", 60.5, 23.4), ("GND", 62.48, 15.0), ("GND", 51.5, 17.25), ("GND", 53.85, 21.6),
-    ("GND", 59.3, 33.95), ("GND", 66.69, 25.0), ("GND", 36.6, 24.4), ("GND", 40.9, 27.2),
+    ("GND", 59.3, 33.95), ("GND", 57.6, 9.0), ("GND", 36.6, 24.4), ("GND", 40.9, 27.2),
 ]
 # GPS keep-clear: no tracks on the back layer near the module, none under it on the front
 KEEPOUT = [("B", (0.5, 0.5, 45.0, 40.0)), ("F", (19.7, 14.7, 30.3, 25.3))]
 
-# 0.5 V guard: around R4, C2, R5, the input pin U1.2 and the cuff-2 wire to J2.
-# It joins the reference at U1 pin 3, right beside the input pin.
-GUARD = ("F", [(63.0, 11.2), (74.05, 11.2), (74.05, 18.0), (69.0, 18.0), (69.0, 19.4), (63.0, 19.4)])
+# 0.5 V guard: around R4, C2, R5, the input pin U1.2 and the cuff-2 wire and pin,
+# including the strip between the two cuff pins. It joins the reference at U1
+# pin 3, right beside the input pin. It reaches round the far end of the cuff-2
+# pin, so that wire starts inside the guard rather than cutting it in two.
+GUARD = ("F", [(61.2, 5.6), (FW - 0.5, 5.6), (FW - 0.5, 19.4),
+               (63.0, 19.4), (63.0, 10.3), (61.2, 10.3)])
 
-STITCH = [((1.5, 1.5, 46.0, 50.5), 3.0), ((47.5, 1.5, 78.5, 50.5), 5.0)]
+STITCH = [((1.5, 1.5, 46.0, 50.5), 3.0), ((47.5, 1.5, FW - 1.5, 50.5), 5.0)]
 
-LABELS = {"F": [("BioMapping 2 - Flipper GSR + GPS", 65.2, 41.0, 0.9), ("rev A  2026-11", 65.2, 42.6, 0.8), ("GSR", 62.2, 22.3, 0.8),
+LABELS = {"F": [("BioMapping 2", 60.5, 38.4, 0.9), ("Flipper GSR + GPS", 60.5, 40.0, 0.9),
+                ("rev A  2026-11", 60.5, 41.6, 0.8), ("GSR", 62.2, 22.3, 0.8),
                 ("GPS: keep this side clear of metal", 23.0, 37.5, 0.8),
-                ("CUFFS", 76.0, 23.6, 0.8), ("SAFEBOOT", 12.4, 22.6, 0.8), ("RESET", 38.0, 17.2, 0.8)]}
+                ("CUFFS", 66.0, 2.4, 0.8), ("SAFEBOOT", 12.4, 22.6, 0.8), ("RESET", 38.0, 17.2, 0.8)]}
 
 
 def outline(add_seg, add_arc):

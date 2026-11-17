@@ -4,7 +4,7 @@ Two KiCad 10 projects. Both carry the same GSR circuit as [docs/wiring_guide.md]
 
 | Folder | Plugs into | Board | Power |
 |---|---|---|---|
-| `biomap_flipper/` | Flipper Zero GPIO | 80 × 52 mm, stands up from the Flipper's top edge | Flipper's 3.3 V (pin 9) |
+| `biomap_flipper/` | Flipper Zero GPIO | 72 × 52 mm, stands up from the Flipper's top edge | Flipper's 3.3 V (pin 9) |
 | `biomap_cardputer/` | Cardputer ADV EXT socket | 84 × 54 mm (the device's back) plus a 9 mm tab; two M2 × 4 mm screws | Own 3.3 V regulator (TLV75533), fed from EXT 5 V out |
 
 Both boards are placed and routed. KiCad's checks pass on both: the wiring check (ERC) and the design rules check (DRC) show 0 errors and 0 warnings, nothing is unconnected, and each board matches its schematic.
@@ -150,7 +150,7 @@ DRC only checks that copper doesn't touch where it shouldn't. It doesn't notice 
 
 Some limits come from a source: u-blox asks for ground vias filling the plane under the GPS, and SparkFun's 40 mm board has about 100. The rest are set just past today's values, so any change that makes things worse is caught. When a layout improves, tighten the limit to match, so the improvement can't be lost later.
 
-One rule is about copper area rather than distance: the 0.5 V guard must stay one solid piece of about 49 mm² (Flipper) or 60 mm² (Cardputer, whose cuff socket is further from the op-amp). If a layout change splits it up, KiCad drops the pieces that aren't joined to the reference, and the area falls below the limit.
+One rule is about copper area rather than distance: the 0.5 V guard must stay one solid piece of about 80 mm² (Flipper) or 60 mm² (Cardputer, whose cuff socket is further from the op-amp). If a layout change splits it up, KiCad drops the pieces that aren't joined to the reference, and the area falls below the limit.
 
 Rebuilding an unchanged design gives identical files, so `git diff` shows only what really changed.
 
