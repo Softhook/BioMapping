@@ -175,42 +175,116 @@ The schematic and the online pin table number the EXT header differently. The sc
 
 The Flipper app is about 7,400 lines of C written against the Flipper's own system library. That library does not exist on the Cardputer, so the code cannot run as it is.
 
-But the port is smaller than that number suggests, for three reasons:
+But much of it is not really about the Flipper. The signal processing, the CSV format, the GPS setup commands, the GSR gain rules and most of the session logic are plain calculations. Only the parts that touch hardware (threads, the serial port, I2C, files, Bluetooth, the screen, the LED) are Flipper-specific.
 
-1. **Both devices run FreeRTOS.** The Flipper's system library is a thin wrapper around FreeRTOS, a small operating system for chips like these. The ESP32 runs FreeRTOS too, so most Flipper calls (threads, locks, queues, timers, delays) have a direct one-line equivalent.
-2. **The app uses only about 40 different Flipper calls**, apart from screen drawing.
-3. **The host tests already fake those calls.** The folder [firmware/tests/shims/](../firmware/tests/shims/) contains stand-in versions so the firmware can be tested on a computer.
+### The approach: one shared core, one folder per device
 
-So the plan is to write an ESP32 version of those ~40 calls (a "translation layer") and leave most of the app untouched. The signal processing, CSV format and GPS parsing would be the same code on both devices.
+Everything stays in this repo, inside `firmware/`, split into three folders:
+
+```
+firmware/
+  application.fam      ← stays here; the Flipper build still runs from firmware/
+  core/                ← shared plain C, no device code at all
+  flipper/             ← Flipper-only code
+  cardputer/           ← Cardputer project (PlatformIO)
+  vendor/minmea/
+  tests/
+```
+
+- **`core/`** holds code that works things out but never touches hardware:
+  - signal processing and the CSV format (already free of Flipper code today)
+  - GPS logic: building the M10Q setup commands, reading its replies, the standby rules
+  - GSR logic: gain switching, settling, converting to nanosiemens
+  - session logic: start and stop, what each second does, building rows, which events happen
+  - the screen layout, drawn through a small drawing interface
+- **`flipper/`** holds what only the Flipper has: the app entry point, threads, the serial port, I2C, the SD card, Bluetooth, the LED and sounds, and all of the radio (EM) scan code.
+- **`cardputer/`** holds the same kinds of parts, written for the ESP32.
+
+### How the shared code talks to each device
+
+- **The shared code never runs threads, and normally never waits.** It works step by step: "here is a new reading, update yourself", "here are the GPS bytes that arrived", "one second has passed".
+- **One exception: the GPS start-up and sleep sequences.** These are timed by nature. For example: send at 9600 baud, wait 200 ms, switch to 115200, wait 50 ms, send the sleep command ([gps_uart.c](../firmware/modules/gps_uart.c)). This sequence is confirmed on real hardware, and rewriting it as a step-by-step machine would risk breaking it. So the shared code may ask the device for "the time now" and "wait N ms", but only in these sequences. They already run on the main thread.
+- **Each device runs its own loop and threads** and feeds the shared code. Both devices keep the same two-thread design: a main thread and a GSR thread.
+- **Each device supplies a few small functions:**
+  - I2C: read or write a register
+  - serial port: send bytes, change speed
+  - file: open, write, close
+  - screen drawing: about 6–8 basic drawing calls (lines, boxes, text and so on)
+  - a clock, and a wait (for the GPS sequences above only)
+  - responding to a named event such as "recording started" or "write error"
+
+### Why not the other ways
+
+- **A separate copy of the firmware for the ESP32.** The two copies would drift apart. Every fix would need making twice, and sooner or later one would be forgotten.
+- **A fake Flipper library on the ESP32** (rewriting the Flipper's own calls for the ESP32 and compiling the Flipper app unchanged). This is tempting, because the host tests already fake the Flipper this way ([firmware/tests/shims/](../firmware/tests/shims/)). But the screen, keys and notifications don't map well, and the Cardputer code would be shaped around Flipper ideas forever.
+
+With a shared core, each device has its own small, natural code, and the shared part is written and tested once. The shared code can be tested on a computer without the fake Flipper headers, because it contains no device code.
+
+### Build tools
+
+- **Flipper.** `application.fam` stays in `firmware/` and lists the files it needs from `core/` and `flipper/`. It already lists its files one by one, so the Flipper build ignores the Cardputer files. `ufbt` is still run from `firmware/`.
+- **Cardputer.** PlatformIO with the Arduino setup:
+  - M5Stack's own libraries for the screen, keyboard and SD card work there directly.
+  - Its clock counts in 1 ms steps. The GSR thread pauses for 1 ms between readings. With the default 10 ms steps in Espressif's own toolkit (ESP-IDF), that pause would round down to nothing, the thread would never really rest, and the watchdog would restart the device.
+  - The shared C code builds unchanged.
+
+  The alternative is ESP-IDF itself. It is cleaner but more work to set up the screen and keyboard.
+
+### Can the Cardputer run the threads?
+
+Yes, easily. The Flipper runs the main thread, the GSR thread and its own Bluetooth on a single 64 MHz core with 256 KB of RAM. The Cardputer ADV's ESP32-S3 has two 240 MHz cores and 512 KB of RAM. It probably has no extra PSRAM memory chip **(check)**, but it doesn't need one. Points to get right:
+
+- **The 1 ms pause** described under "Build tools".
+- **The shared I2C bus.** If the GSR converter shares a bus with the keyboard (see section 2), the two threads take turns on it. The GSR code already takes and releases the bus around each read and write, so a lock fits in the same places.
+- **GPS can stay on the main thread.** The ESP32's serial driver stores incoming bytes by itself, so the main loop can collect them each pass. A separate GPS thread would also be fine.
+- **Stack sizes.** ESP32 library calls need more stack than the Flipper's. Give each thread about 4 KB instead of 2 KB.
+
+### Gotchas for the Cardputer code
+
+None of these stops the port, but each would cause a confusing fault if missed.
+
+- **Bluetooth message size.** Each live packet is 49 bytes ([bt_stream.h](../firmware/modules/bt_stream.h)). By default, ESP32 Bluetooth sends only 20 bytes per message. The Cardputer must ask for bigger messages when a connection opens. Otherwise packets arrive cut short and the Live tab shows nothing. It must also use the same service and characteristic IDs that the visualiser looks for (see "Bluetooth" in section 4).
+- **One I2C driver, not two.** M5Stack's own library already uses the I2C bus for the keyboard and audio chip. If the GSR code opens the same pins through a second, separate driver (such as Arduino's `Wire`), the two fight over the bus and readings go wrong at random. The GSR code must go through the same driver as M5Stack's library.
+- **Keep the GPS serial port open all the time.** A sleeping M10Q wakes on any signal on its receive wire. On the Flipper, letting go of the port left that wire floating, and the module woke within seconds ([gps_uart.c](../firmware/modules/gps_uart.c), [gps_sleep_investigation.md](../research/archive/gps_sleep_investigation.md)). The Cardputer must do what the Flipper does: open the port when the app starts and hold it until the app exits.
+- **C-only features in shared headers.** The Arduino setup compiles its own code as C++. [bt_stream.h](../firmware/modules/bt_stream.h) uses `_Atomic`, a C-only feature that C++ cannot read. Keep such details inside `.c` files, so every shared header can be read by both. Shared headers also need the usual `extern "C"` wrapper.
+- **The 1 ms pause.** See "Build tools" above.
 
 ---
 
 ## 4. Software: piece by piece
 
-| Part | Current files | What changes | Size |
-|---|---|---|---|
-| Remove EM scan | `em_scan_rf.c`, `em_scan_cal.c`, `biomap_rf_cal.c` (~530 lines) | Delete them, plus their hooks in the session and screen code. | Small |
-| Threads, locks, queues, timers | all files | Each Flipper call becomes its FreeRTOS equivalent. | Small |
-| SD card | `sd_logger.c` | Flipper file calls become standard C file functions. | Small |
-| GSR sensor | `gsr_sensor.c` | Only the I2C read and write calls change. The ADS1115 logic, gain switching and settling rules stay the same. | Small |
-| GPS | `gps_uart.c` | On the Flipper, a function runs each time a byte arrives. On the ESP32, a small task reads from the serial port instead. The M10Q setup commands and parsing (minmea) stay the same. | Medium |
-| Bluetooth live stream | `bt_stream.c` (~180 lines) | Rewrite using the ESP32's Bluetooth library (NimBLE). | Medium |
-| Screen and keys | `biomap_render.c`, `biomap_gui.c` (~1,650 lines) | See below. | Medium to large |
-| Clock | `biomap.c` | See below. | Small code change, but it changes how the device behaves |
-| Notifications | various | LED and vibration on the Flipper become speaker beeps. The Cardputer has no vibration motor. | Small |
-| Flipper-only extras | `biomap.c` | The "expansion" calls are deleted. | Small |
-| Build setup | new | A PlatformIO project for the Cardputer. Host tests keep working as they do now. | Small |
+| Part | Current files | Shared in `core/` | Written for each device | Size |
+|---|---|---|---|---|
+| Signal processing, CSV format, settings | `biomap_pipeline.c`, `biomap_format.c`, `biomap_config.h`, minmea | All of it. Already free of Flipper code. | Nothing | Small (a move) |
+| GSR sensor | `gsr_sensor.c` | ADS1115 gain switching, settling rules, conversion to nanosiemens | The GSR thread and the I2C read/write | Small |
+| GPS | `gps_uart.c` | M10Q setup commands, reading its replies, speed change and standby/wake rules, parsing (minmea) | Sending bytes and collecting the bytes that arrive. The Flipper gets them one at a time from an interrupt; the ESP32's serial driver stores them for the main loop. | Medium |
+| Session | `biomap_session.c` | Start and stop, what each second does, building CSV rows, which events happen | The main loop, locks and screen refresh | Medium |
+| Notifications | `biomap_session.c`, `biomap.c` | Named events ("recording started", "GPS fix", "write error"), including the rules about when sounds may play | The response: LED and sounds on the Flipper, beeps on the Cardputer (no vibration motor) | Small |
+| Screen | `biomap_render.c` (~1,000 lines) | The current screen layout, drawn through 6–8 basic drawing calls | Those drawing calls, stretched to fit the screen, using the same fonts. See below. | Medium |
+| Keys and menus | `biomap_gui.c` | Possibly the menu logic | Reading keys | Small to medium |
+| SD card | `sd_logger.c` | Batching rows | Opening, writing and closing files | Small |
+| Bluetooth live stream | `bt_stream.c` (~180 lines) | Packet format (already shared) | The Bluetooth code. On the ESP32 it uses NimBLE. | Medium |
+| Clock | `biomap.c` | | Reading the time. See below. | Small code change, but it changes how the device behaves |
+| EM scan | `em_scan_rf.c`, `em_scan_cal.c`, `em_scan_sampler.c`, `biomap_rf_cal.c` | Nothing | Stays in `flipper/` only | None |
+| Flipper-only extras | `biomap.c` | | The "expansion" calls stay in `flipper/` | None |
+| Build setup | `application.fam`, `run_tests.sh` | | `application.fam` lists files from `core/` and `flipper/`. A new PlatformIO project in `cardputer/`. | Small |
 
 ### Bluetooth: no visualiser change needed
 
-The visualiser's Live tab finds the Flipper by the Flipper's Bluetooth serial service IDs ([live_bluetooth.mjs](../visualiser/src/live/live_bluetooth.mjs)). It already lists every nearby device rather than filtering by the name "Flipper". If the Cardputer advertises the same service and characteristic IDs and sends the same packet format, the Live tab will connect to it without changes.
+The visualiser's Live tab finds the Flipper by the Flipper's Bluetooth serial service IDs ([live_bluetooth.mjs](../visualiser/src/live/live_bluetooth.mjs)). It already lists every nearby device rather than filtering by the name "Flipper". If the Cardputer advertises the same service and characteristic IDs and sends the same packet format, the Live tab will connect to it without changes. It must also allow messages of at least 49 bytes (see "Gotchas" in section 3).
+
+Those IDs have not yet been checked against a real Flipper either (see the note in [live_bluetooth.mjs](../visualiser/src/live/live_bluetooth.mjs)). Whatever IDs the Flipper turns out to use, the Cardputer should copy them.
 
 ### Screen and keys
 
 The screen code uses only about 10 drawing calls (text, lines, boxes, dots, fonts, invert). There are two routes:
 
-- **Quick route.** Recreate those 10 calls on the Cardputer. Draw the existing 128×64 screen into an off-screen image and scale it up to fill the display. It looks blocky but works almost straight away.
-- **Redesign.** Lay out the screens again for a colour 240×135 display. It looks much better, but it is the largest single task in the port.
+- **Quick route.** The screen layout moves into `core/` and draws through a small drawing interface. The Cardputer supplies those calls and stretches every position to fill its screen. It comes almost for free once the layout is shared.
+
+  Simple doubling does not fit: 128×2 is 256 pixels, but the Cardputer screen is only 240 wide. Because the layout draws with calls such as "line from here to there" and "text at this spot", not ready-made pixels, the Cardputer can instead stretch each position by 240/128 (about 1.9) and draw lines and boxes with its own pen.
+
+  Text needs care. The layout measures text widths in 11 places to position things, using the Flipper's two fonts. Those fonts come from u8g2, a common font collection, and M5Stack's screen library can use u8g2 fonts too. Using the same font files keeps every width identical, so nothing moves or overlaps. Text drawn this way stays at its Flipper size unless the font is drawn larger.
+- **Redesign.** Lay out the screens again for a colour 240×135 display, in `cardputer/` only. It looks much better, but it is the largest single task in the port.
 
 Recommendation: do the quick route first and redesign once everything else works.
 
@@ -240,8 +314,10 @@ The firmware has been through a lot of real-hardware fixes. The logic carries ov
 - **GSR accuracy.** The published accuracy figures in the README come from a resistor-grid test on the Flipper. That test should be repeated on the Cardputer before the same accuracy is claimed.
 - **ADS1115 gain-switch settling.** Check that readings taken just after a gain change are still being held back correctly.
 - **M10Q standby and startup.** Check that the M10Q still powers down and wakes correctly.
+- **Noise from sound and Bluetooth.** The Flipper code already waits after a tone before trusting GSR readings again (`GSR_TONE_SETTLE_MS`), so the speaker affects the reading even there. On the Cardputer, sound goes through an audio chip and amplifier, and Bluetooth comes from a different radio. Measure both, and check whether that wait is still long enough. Live Stream mode, with Bluetooth sending all the time, matters most.
+- **SD card pauses.** On the Flipper, writes to the card pause the main thread for 20–60 ms. The ESP32 will have its own pauses. No data is lost, because the GSR thread is separate, but measure the timings again. The ESP32 can also reserve file space in one quick step, which the Flipper cannot ([sd_logger.c](../firmware/modules/sd_logger.c)).
 - **Side-by-side walks.** Record the same walk with both devices worn together. Load both files into the visualiser and compare the GSR traces and GPS tracks.
-- **Host tests.** These run unchanged, because the shared code is the same.
+- **Host tests.** The shared code in `core/` is tested on a computer once, for both devices, without fake Flipper headers. The existing tests of the Flipper-only parts keep using `tests/shims/`.
 
 ---
 
@@ -270,23 +346,33 @@ The firmware has been through a lot of real-hardware fixes. The logic carries ov
 This is the biggest long-term decision:
 
 - **Replace the Flipper.** One firmware to maintain. EM scanning is lost.
-- **Keep both.** Two firmwares that share one core of plain C (the pipeline, the format and the GPS parsing), each with its own translation layer. Any fix to the shared core reaches both devices. Device-specific fixes (GPS serial handling, screen, Bluetooth) are made twice.
+- **Keep both.** Two firmwares that share `core/` (section 3), each with its own device folder. Any fix to the shared core reaches both devices. Device-specific fixes (serial port, screen, Bluetooth) are made twice.
 
-If both are kept, the shared code should live in one folder that both builds use, never in two copies. Otherwise the two versions will drift apart.
+The folder layout works either way. If the Flipper is retired later, `flipper/` is simply deleted.
 
 ---
 
 ## 7. Suggested order of work
 
-Each step can be tested on its own, and the device is useful from step 3.
+The Flipper keeps working after every step. The host tests run after each step, and the steps marked "Flipper check" need a test on a real Flipper.
 
-1. **Set up the project.** Create a separate `firmware_esp32/` folder so the Flipper version stays untouched. Add the build setup and the translation layer.
-2. **GSR to SD card.** Get GSR readings logging to the SD card. Compare a recording with the Flipper.
-3. **GPS.** Add the M10Q, including the clock rule from section 4. This gives a working GPS+GSR logger.
-4. **Screen (quick route) and keys.**
-5. **Bluetooth.** Add the live stream and test the visualiser's Live tab.
-6. **Validation.** Run the resistor-grid test and the side-by-side walks.
-7. **Later, optional.** Redesign the screen, add a printed Cap, add field notes.
+Steps 1–6 prepare the shared core on the Flipper. They also tidy the Flipper code, so they are worth doing even if the port stops there. Section 9 tracks their progress.
+
+| # | Step | Result |
+|---|---|---|
+| 1 | Create the folders. Move the files that are already plain C (signal processing, CSV format, settings, minmea). Fix `application.fam`, `run_tests.sh` and the test paths. | Same Flipper app, new layout |
+| 2 | Move the GSR logic into `core/`. The smallest real step. | Flipper check |
+| 3 | Move the GPS logic into `core/`. The risky part is the standby/wake sequence, which has been confirmed on real hardware. | Flipper check |
+| 4 | Named events instead of LED patterns, with sounds included. | |
+| 5 | Split the session into shared logic plus the Flipper loop. | Flipper check |
+| 6 | Make the screen layout shared, drawn through the small drawing interface. | Flipper check |
+| 7 | Start the Cardputer project: it builds `core/`, shows something on screen and reads keys. | First Cardputer code |
+| 8 | Cardputer: GSR to SD card. Compare a recording with the Flipper. | A useful device |
+| 9 | Cardputer: GPS, plus the clock rule from section 4. | A GPS+GSR logger |
+| 10 | Cardputer: screen (quick route) and keys. | |
+| 11 | Cardputer: Bluetooth live stream. Test the visualiser's Live tab. | |
+| 12 | The resistor-grid test and side-by-side walks (section 5). | Trusted results |
+| 13 | Later, optional: redesign the screen, add a printed Cap, add field notes. | |
 
 ---
 
@@ -303,7 +389,7 @@ Each step can be tested on its own, and the device is useful from step 3.
 
 Before starting the port itself, the Flipper firmware is being reshaped so that more of it can be shared. Each step keeps the Flipper working exactly as before.
 
-### Step 1: radio scan out of the GSR code (done, not yet tried on a real Flipper)
+### Already done: radio scan out of the GSR code (not yet tried on a real Flipper)
 
 The radio (EM) scan used to be written into the middle of the GSR sensor code ([gsr_sensor.c](../firmware/modules/gsr_sensor.c)). It now lives in its own file, [em_scan_sampler.c](../firmware/modules/em_scan_sampler.c). It still runs on the GSR thread, at the same moments as before. No new thread was added. The GSR loop has one line that says "if there is another job, give it a turn". On the Flipper the session hands it the radio scan. On the Cardputer nothing is handed over, so the GSR code contains no radio code at all.
 
@@ -315,12 +401,15 @@ The radio (EM) scan used to be written into the middle of the GSR sensor code ([
 - **An older gap came across unchanged.** If turning the radio off takes too long (more than 100 ms) and the radio is turned straight back on, the start-up could overlap the radio's last reading. The app never does this today: the radio is only turned off once, at the end of a session. The fix would be a short wait before turning it back on. This is noted in the code.
 - **The screen can read the module pointers while a session is starting.** The session sets the GSR and radio pointers without holding the main lock while the screen may already be drawing. This is safe on the Flipper's chip, but it is a pattern to avoid copying into new code.
 - **The radio sampler's tests sit inside the GSR tests** (`test_gsr_sensor.c`), not in a file of their own.
-- **This step alone does not make the code run on the Cardputer.** The GSR code still uses the Flipper's own I2C calls, and the session and screen code still include the radio modes. Those are later steps (see below).
+- **This step alone does not make the code run on the Cardputer.** The GSR code still uses the Flipper's own I2C calls, and the session and screen code still include the radio modes. Those are the next steps below.
 
-### Next steps (proposed, not yet agreed)
+### Next steps
 
-2. Split the GPS code into plain C (setup commands, reading replies, standby) and a small serial-port part.
-3. The same split for the ADS1115 logic in the GSR code.
-4. Notifications by meaning ("recording started", "GPS fix", "write error") instead of Flipper LED patterns.
-5. Move the direct SD card, Bluetooth and screen calls out of the session code.
-6. Folders for shared code and for each device's own code.
+The remaining preparation follows steps 1–6 of the order of work in section 7:
+
+1. Create `core/` and `flipper/`, and move the files that are already plain C.
+2. Move the GSR logic into `core/`.
+3. Move the GPS logic into `core/`.
+4. Named events instead of LED patterns, with sounds included.
+5. Split the session into shared logic plus the Flipper loop.
+6. Make the screen layout shared.
