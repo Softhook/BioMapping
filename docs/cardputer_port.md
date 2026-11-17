@@ -4,6 +4,8 @@ This document describes what it would take to run BioMapping 2 on an M5Stack Car
 
 It assumes **the EM (radio) scan is dropped**. The device would record GSR and GPS only, which is the existing `GPS+GSR` mode.
 
+The same backpack board should also work on the **CardputerZero**, a Linux version of the Cardputer with the same shape. Section 10 covers what that changes.
+
 Some hardware details below come from M5Stack's documentation and retailer pages, not from a device on the bench. They are marked **(check)**.
 
 ---
@@ -410,6 +412,7 @@ Steps 1–6 prepare the shared core on the Flipper. They also tidy the Flipper c
 - Screen: quick route first, or go straight to a redesign?
 - Clock: block recording until GPS time is known, or fix the time afterwards?
 - Electronics: buy a ready-made proto board, or build a home-made Cap?
+- Which device to bring up first at step 7: the Cardputer ADV or the CardputerZero (see section 10)?
 
 ---
 
@@ -441,3 +444,91 @@ The remaining preparation follows steps 1–6 of the order of work in section 7:
 4. Named events instead of LED patterns, with sounds included.
 5. Split the session into shared logic plus the Flipper loop.
 6. Make the screen layout shared.
+
+---
+
+## 10. The CardputerZero
+
+M5Stack also makes the **CardputerZero**. It is the same size and shape as the Cardputer ADV (84 × 54 mm), but inside it is a Raspberry Pi CM0 (a small Raspberry Pi) running Linux, not an ESP32. The aim is for the same backpack board to work on both.
+
+Most details below come from [M5Stack's CardputerZero docs](https://docs.m5stack.com/en/CardputerZero) and [usage guide](https://docs.m5stack.com/en/compute/cardputerzero/usage), and from [someone who ran M5Stack's LoRa/GPS Cap on a Zero](https://github.com/oumike/camillia-mt/issues/155). The docs are still being written. Points not yet seen on a real device are marked **(check)**.
+
+### Hardware: the backpack should fit
+
+**The same Caps work on both.** M5Stack lists its LoRa-1262 Cap (which has a GPS on it) and its CC1101 Cap for both devices. The LoRa Cap's GPS uses the same two serial pins as ours. So the EXT pins we use carry the same signals in the same places:
+
+| EXT pin | Signal | Cardputer ADV | CardputerZero (Linux name) |
+|---|---|---|---|
+| 4 | GND | — | — |
+| 6 | 5V out | always on | **off by default** |
+| 8 | I2C SDA | G8 | GPIO2, `/dev/i2c-1` |
+| 10 | I2C SCL | G9 | GPIO3, `/dev/i2c-1` |
+| 12 | Serial, to M10Q RX | G13 | GPIO15, `/dev/serial0` |
+| 14 | Serial, from M10Q TX | G15 | GPIO14, `/dev/serial0` |
+
+What this means for the board:
+
+- **Still no 3.3 V on EXT.** The board's own 3.3 V regulator is needed on the Zero too.
+- **5V out starts switched off.** The board gets no power until it is switched on, either by the user (Settings > ExtPort) or by our app. The app should switch it on at start-up and check that the ADS1115 answers.
+- **The serial pin labels look swapped.** M5Stack's Zero docs label pin 12 "UART_RXD" and pin 14 "UART_TXD". The ADV docs label pin 12 as the ESP32's TX. They seem to be labelling the same wires from opposite ends, because the same GPS Cap works on both. Wire by the table above, and check with a multimeter before connecting anything **(check)**.
+- **No plugging in or out with the power on.** M5Stack says the Zero does not support it.
+- **The signals use 3.3 V logic**, like the ESP32 and the Flipper, so no level shifting is needed.
+
+**Still to check on a real Zero:**
+
+- that the two M2 screw holes and the EXT socket are in the same places as on the ADV (no mechanical drawing has been published yet)
+- where the 8 MP camera is; if it is on the back, our board would cover it (the "Lite" version has no camera)
+- whether the Zero's greater thickness (23.1 mm) changes the cover design in section 2
+- that the flex tail folds round the edge in the same way
+
+### Software: a third device folder
+
+The ESP32 code planned for the ADV will not run on the Zero. The Zero needs its own folder next to the others:
+
+```
+firmware/
+  core/
+  flipper/
+  cardputer/        ← Cardputer ADV (ESP32)
+  cardputerzero/    ← CardputerZero (Linux)
+```
+
+**The shared core suits Linux well.** Each device supplies a few basic actions (section 3), and Linux has a standard way to do each of them:
+
+| Action | On the Zero |
+|---|---|
+| I2C read/write | `/dev/i2c-1` |
+| Serial port | `/dev/serial0` |
+| Files | ordinary C file calls |
+| Threads | pthreads |
+| Clock and wait | `clock_gettime`, `nanosleep` |
+
+The host tests already build the plain-C code on a normal computer, so `core/` should build on the Zero unchanged. This is a further reason to finish steps 1–6 first. It also means **nothing ESP32- or Arduino-specific may go into `core/`**: the 1 ms tick, M5Stack's libraries and `Wire` belong in `cardputer/` only.
+
+**Points to get right on the Zero:**
+
+- **The shared I2C bus.** The Zero's I2C1 also carries the keyboard controller (0x34), the clock chip (0x32), the audio chip (0x10) and an I/O expander (0x4F). The ADS1115 at 0x48 does not clash. Linux itself makes everyone take turns on the bus, so the ADV's "two drivers fighting" problem does not arise. The bus probably runs at the Raspberry Pi's usual 100 kHz and may need setting to 400 kHz **(check)**.
+- **The serial port.** Make sure Linux is not using `/dev/serial0` for a login console **(check)**. The rule from section 3 still applies: keep the port open for the whole time the app runs, so the sleeping M10Q is not woken by a floating wire.
+- **Timing is less steady.** Linux can pause the GSR thread now and then to run something else. No rows are lost, and `gsr_hz` records the real reading rate, but this makes the side-by-side walks (section 5) even more important.
+- **Bluetooth is the hardest part.** It goes through Linux's Bluetooth system (BlueZ), which is quite different from the Flipper's and the ESP32's. It must still use the same service IDs and allow 49-byte messages (section 4).
+- **The screen is an unknown.** It is 320 × 170, larger than the ADV's 240 × 135. We do not yet know what M5Stack's own apps use to draw, so the "quick route" drawing calls (section 4) still need a home on the Zero **(check)**.
+
+### What gets easier
+
+- **The clock.** The Zero has a battery-backed clock chip (RX8130CE), so the ADV's "no time until the GPS has a fix" problem (section 4) does not apply.
+- **Saving to the SD card.** Linux handles files well. The power switch shuts Linux down before cutting the power, so a recording can be closed properly.
+- **Installing.** Apps can come from M5Stack's Store or be copied onto the device, with no flashing from a computer.
+
+### What gets worse for users
+
+- **Battery life.** One comparison puts the Zero at about 2.5 W while doing nothing, roughly five times what the ADV draws. That could cut a long walk short. Measure it with GPS and GSR running before relying on it.
+- **Start-up time.** Linux has to boot before recording can start.
+
+### Effect on the order of work
+
+Steps 1–6 (section 7) do not change. At step 7, choose which device to bring up first:
+
+- **The Zero first.** Linux is close to how the host tests already run, so I2C, serial, files and threads should be quick. Bluetooth and the screen are the risky parts.
+- **The ADV first.** This is better understood, and its Bluetooth and screen libraries are already known to work.
+
+Steps 7–12 are then repeated for the second device. The core is shared, so this mostly means writing the device's own small set of functions and repeating the checks in section 5.
