@@ -1,0 +1,10 @@
+# pictures and check reports from ./pcb render / build / check
+out/
+__pycache__/
+# KiCad's per-user files: window layout, backups, caches, locks
+*.kicad_prl
+*-backups/
+fp-info-cache
+*.lck
+\#auto_saved_files#
+_autosave-*

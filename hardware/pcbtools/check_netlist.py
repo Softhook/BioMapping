@@ -1,28 +1,12 @@
-#!/usr/bin/env python3
-"""Prove that a drawn schematic connects exactly what gen_kicad.py intended.
+"""Prove that a drawn schematic connects exactly what schematic.py intended.
 
 Reads the netlist KiCad itself exports from the schematic (so it sees the
-drawing the way KiCad does) and compares it with expected.json, pin by pin.
-usage: check_netlist.py <expected.json> <board-name> <netlist.net>"""
-import json, re, sys
+drawing the way KiCad does) and compares it with the intended nets, pin by
+pin. check_sch.py does the same job without KiCad; the two should agree."""
+from .sexpr import parse, find
 
-def parse(text):
-    toks = re.findall(r'\(|\)|"(?:[^"\\]|\\.)*"|[^\s()]+', text)
-    stack, cur = [], []
-    for t in toks:
-        if t == "(":
-            stack.append(cur); cur = []
-        elif t == ")":
-            done = cur; cur = stack.pop(); cur.append(done)
-        else:
-            cur.append(t[1:-1] if t.startswith('"') else t)
-    assert not stack, "unbalanced parentheses"
-    return cur[0]
-
-def find(node, key):
-    return [c for c in node if isinstance(c, list) and c and c[0] == key]
-
-def main(expected, net_path):
+def check(expected, net_path, label=None):
+    """expected: {"REF.pin": net name or None}. Returns the number of mismatches."""
     tree = parse(open(net_path).read())
     got = {}                                  # "REF.pin" -> net name
     for n in find(find(tree, "nets")[0], "net"):
@@ -62,9 +46,5 @@ def main(expected, net_path):
     if missing:
         errors += 1
         print(f"pins missing from the netlist: {sorted(missing)}")
-    print(f"{net_path}: {len(expected)} pins, {len(want_groups)} nets, {errors} mismatches")
+    print(f"{label or net_path}: {len(expected)} pins, {len(want_groups)} nets, {errors} mismatches")
     return errors
-
-if __name__ == "__main__":
-    exp = json.load(open(sys.argv[1]))[sys.argv[2]]
-    sys.exit(1 if main(exp, sys.argv[3]) else 0)

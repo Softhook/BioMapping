@@ -1,0 +1,14 @@
+#!/bin/zsh
+# BioMapping circuit-board tools. Runs the pcbtools package with KiCad's own
+# Python, which has KiCad's pcbnew module built in.
+#   ./pcb --help              list the commands
+#   ./pcb <command> --help    details of one command
+# KiCad somewhere other than /Applications? Set KICAD_APP to its .app folder.
+HERE=${0:A:h}
+export KICAD_APP=${KICAD_APP:-/Applications/KiCad/KiCad.app}
+PY=$KICAD_APP/Contents/Frameworks/Python.framework/Versions/Current/bin/python3
+if [[ ! -x $PY ]]; then
+  echo "KiCad not found at $KICAD_APP (set KICAD_APP to your KiCad.app)" >&2
+  exit 1
+fi
+PYTHONPATH=$HERE${PYTHONPATH:+:$PYTHONPATH} exec $PY -B -m pcbtools "$@"

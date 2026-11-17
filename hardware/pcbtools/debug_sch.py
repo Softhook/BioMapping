@@ -1,11 +1,9 @@
-#!/usr/bin/env python3
 """When KiCad says "Failed to load schematic" with no reason, find which
 items in the file it rejects. Tries each top-level item on its own (with the
-header and symbol library) and lists the ones that fail to load.
-usage: find_bad_sch_items.py <file.kicad_sch>"""
-import os, subprocess, sys, tempfile
+header and symbol library) and lists the ones that fail to load."""
+import os, tempfile
 
-K = "/Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli"
+from .kicad import cli
 
 def top_level_items(text):
     body = text[text.index("(", 1):text.rindex(")")]
@@ -27,8 +25,8 @@ def loads(items, tmp):
     path = os.path.join(tmp, "t.kicad_sch")
     with open(path, "w") as f:
         f.write("(kicad_sch " + "\n".join(items) + ")\n")
-    r = subprocess.run([K, "sch", "export", "netlist", "-o", os.path.join(tmp, "t.net"), path], capture_output=True)
-    return r.returncode == 0
+    code, _ = cli("sch", "export", "netlist", "-o", os.path.join(tmp, "t.net"), path)
+    return code == 0
 
 def main(path):
     items = top_level_items(open(path).read())
@@ -45,6 +43,3 @@ def main(path):
         print(f"{len(bad)} of {len(items)} items fail on their own:")
         for x in bad:
             print("  " + x[:160].replace("\n", " "))
-
-if __name__ == "__main__":
-    main(sys.argv[1])

@@ -1,33 +1,17 @@
-#!/usr/bin/env python3
 """Independent check that does not use KiCad: parse a generated .kicad_sch,
 rebuild the nets from the drawing itself (pin ends, wires, junctions, labels,
-power symbols) and compare them with the intended nets in expected.json.
-check_netlist.py does the same job through KiCad's own netlist; the two agree.
-usage: check_sch.py <hardware-dir> <expected.json>"""
-import json, math, re, sys
-
-def parse(text):
-    toks = re.findall(r'\(|\)|"(?:[^"\\]|\\.)*"|[^\s()]+', text)
-    stack, cur = [], []
-    for t in toks:
-        if t == "(":
-            stack.append(cur); cur = []
-        elif t == ")":
-            done = cur; cur = stack.pop(); cur.append(done)
-        else:
-            cur.append(t.strip('"'))
-    assert not stack, "unbalanced parentheses"
-    assert len(cur) == 1
-    return cur[0]
-
-def find(node, key):
-    return [c for c in node if isinstance(c, list) and c and c[0] == key]
+power symbols) and compare them with the intended nets.
+check_netlist.py does the same job through KiCad's own netlist; the two agree."""
+import math
+from .sexpr import parse, find
 
 def rotate(x, y, rot):
     c, s = round(math.cos(math.radians(rot))), round(math.sin(math.radians(rot)))
     return x * c - y * s, x * s + y * c
 
-def main(sch_path, expected):
+def check(sch_path, expected, label=None, verbose=False):
+    """expected: {"REF.pin": net name or None}. Returns the number of mismatches.
+    verbose also lists every net with its pins."""
     tree = parse(open(sch_path).read())
     libs = {}                              # lib name -> {unit: {pin: (x, y)}}, plus power flag
     power = set()
@@ -110,13 +94,8 @@ def main(sch_path, expected):
         if want is None and p not in ncs:
             errors += 1
             print(f"MISMATCH {key}: should carry a no-connect flag")
-    for net, keys in sorted(groups.items()):
+    for net, keys in sorted(groups.items()) if verbose else []:
         flag = "  <-- only one pin!" if len(keys) < 2 else ""
         print(f"  {net:16s} {' '.join(sorted(keys))}{flag}")
-    print(f"{sch_path}: {len(expected)} pins checked, {errors} mismatches")
+    print(f"{label or sch_path}: {len(expected)} pins checked, {errors} mismatches")
     return errors
-
-if __name__ == "__main__":
-    out = sys.argv[1]
-    exp = json.load(open(sys.argv[2]))
-    sys.exit(1 if sum(main(f"{out}/{k}/{k}.kicad_sch", v) for k, v in exp.items()) else 0)

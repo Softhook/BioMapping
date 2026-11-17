@@ -23,7 +23,7 @@ Each board's `bom.csv` gives the maker's part number and the LCSC number for eve
 
 ## Choosing pads to suit the build
 
-The boards use standard pads throughout, set up for machine assembly. To build by hand instead, switch to KiCad's hand-soldering pads (`..._HandSolder` versions of the 0805, SOD-323 and SAM-M8Q footprints) in `tools/gen_kicad.py` and rerun `tools/run_all.sh`.
+The boards use standard pads throughout, set up for machine assembly. To build by hand instead, switch to KiCad's hand-soldering pads (`..._HandSolder` versions of the 0805, SOD-323 and SAM-M8Q footprints) in `pcbtools/schematic.py` and rerun `./pcb build`.
 
 ## Option 1: UK assembler
 

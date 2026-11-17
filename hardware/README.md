@@ -77,34 +77,77 @@ These come from M5Stack's dimension drawing and 3D models, not from a real devic
 - **Which row is which.** The board assumes the even-numbered row (GND, 5 V out, SDA, SCL, G13, G15) is the one nearest the back. Check with a multimeter before plugging in. Pin 2 is 5 V *in* and must stay unconnected.
 - **Screws.** Use M2 × 4 mm only. M5Stack warns that longer screws can damage the board inside.
 
-## Regenerating
+## Tools
 
-`tools/run_all.sh` rebuilds both boards from scratch. It needs KiCad 10 and nothing else. The steps:
+Everything is done with one command, `./pcb`, run from this folder. It needs KiCad 10 and nothing else (pictures also need ImageMagick). It runs KiCad's own Python for you. If KiCad isn't in `/Applications`, set `KICAD_APP` to your `KiCad.app`.
 
-1. `gen_kicad.py` draws the schematics.
-2. `check_sch.py` reads the drawing itself (without KiCad) and checks every pin against the intended connections.
-3. `check_netlist.py` does the same check again on KiCad's own netlist of the drawing. The two checks work differently, so a fault one misses the other should catch.
-4. ERC (KiCad's wiring check).
-5. `build_pcb.py` places every part, draws every trace and adds the ground fills.
-6. DRC (KiCad's design rules check).
+```
+./pcb --help              list the commands
+./pcb <command> --help    details of one command
+```
 
-Part positions and traces are written out in `build_pcb.py`; no autorouter is involved. **Running the scripts overwrites the boards**, so don't run them once you have edited the boards by hand in KiCad.
+### Where things live
 
-They also overwrite each `.kicad_pro` with a bare one. If you have opened the projects in KiCad, put your saved settings back afterwards with `git checkout -- biomap_*/*.kicad_pro` (the design rules are the same in both).
-
-Other tools in `tools/`, used while making the layout:
-
-| Tool | What it does |
+| Path | What it holds |
 |---|---|
-| `build_one.sh <board>` | Rebuilds one board and lists DRC problems by kind. The quick loop while moving parts or traces in `build_pcb.py`. Add `--dump` to print every pad's position and net. |
-| `render.sh [folder]` | Draws pictures of both schematics and both faces of each board (default folder `tools/out`, which git ignores). Needs ImageMagick. |
-| `measure_pcb.py [folder]` | Prints the numbers that matter for noise: each decoupling capacitor's distance to its chip's supply pin *and* ground pin, and copper lengths on the GSR wires and the long wires. Run with KiCad's Python. |
-| `compare_measure.sh [git-ref]` | The `measure_pcb.py` numbers for a committed version (default: the last commit) next to the working copy, so you can see whether a layout change helped. Leaves your files alone. |
-| `dump_parts.sh <board> [REF ...]` | Pad positions, nets and keep-out boxes for just the parts you name, e.g. `dump_parts.sh biomap_flipper U1 C1`. Use before moving a part. |
-| `drc_details.sh <board>` | Every design-rules problem on the saved board, with the parts and positions involved (`build_one.sh` only counts them). |
-| `eagle_parts.py <file>` | Reads Eagle files such as SparkFun's open designs, without Eagle: the parts list, `--nets REF` for what a part connects to, `--package NAME` for footprint pad shapes. This is how the MS421R cell and its pads were found. |
-| `probe_footprint.py` | Shows where a footprint's pads land at each rotation, on either face. Back-face parts come out mirrored, so this is how to choose a rotation. Also reads our own footprints (`BioMap` library). Run with KiCad's Python. |
-| `find_bad_sch_items.py <file>` | When KiCad only says "Failed to load schematic", lists which items in the file it rejects. |
-| `route_pcb.py` | The earlier Freerouting autorouter step (DSN export, SES import, ground fills). Not used now; kept in case autorouting is wanted again. Needs Java and `freerouting.jar`. |
+| `pcbtools/boards/flipper.py`, `cardputer.py` | **The layouts.** Every part's position and every trace, written out by hand. This is what you edit to change a layout. |
+| `pcbtools/schematic.py` | The parts lists (which pin joins which net, what to buy) and the schematic drawings. Edit this to change the circuit or the BOM. |
+| `pcbtools/rules.py` | Track widths, via size and the 0.15 mm clearance. |
+| `pcbtools/limits.py` | Layout limits: how far each decoupling capacitor may be from its chip, how long the GSR wires may be, how many ground vias the GPS needs. |
+| `pcbtools/` (the rest) | The machinery: building the board, the checks, measuring, pictures. |
+| `biomap_*/` | The KiCad files the tools write. |
+| `out/` | Pictures and full check reports. Git ignores it. |
 
-KiCad's Python is at `/Applications/KiCad/KiCad.app/Contents/Frameworks/Python.framework/Versions/Current/bin/python3`.
+### Changing a layout
+
+1. Look at the parts you want to move: `./pcb parts flipper U1 C1` prints their pad positions, nets and keep-out boxes.
+2. Edit their positions or traces in `pcbtools/boards/flipper.py`.
+3. Run `./pcb layout flipper`. It rebuilds the board, runs KiCad's design rules check (DRC), tests the layout limits and prints the layout numbers.
+4. If DRC finds problems, `./pcb drc flipper` lists each one with the parts and positions involved.
+5. `./pcb measure --compare` shows the numbers for the last commit next to yours, so you can see whether the change helped.
+6. `./pcb render` draws pictures into `out/` to check by eye.
+
+Units are mm and y points down, as in KiCad. For a part on the back face, `./pcb footprint RF_GPS ublox_SAM-M8Q B 13 17` shows where its pads land at each rotation (back-face parts come out mirrored).
+
+### Commands
+
+| Command | What it does | Changes files? |
+|---|---|---|
+| `build [board]` | Rebuilds everything: draws the schematics, checks them, lays out the boards, checks the boards. | Yes, all KiCad files |
+| `layout [board]` | The quick loop: lays the board out again from the saved schematic, runs DRC, prints the layout numbers. | Yes, the `.kicad_pcb` |
+| `check [board]` | Checks the saved files: schematic against the intended connections (two independent ways), KiCad's wiring check (ERC), DRC and the layout limits. | No |
+| `drc [board]` | Every DRC problem, with parts and positions. | No |
+| `measure [--compare [git-ref]]` | Each decoupling capacitor's distance to its chip's supply *and* ground pin; copper length on the GSR wires and the long wires. | No |
+| `parts <board> [REF ...]` | Pad positions, nets and keep-out boxes, as the layout places them. | No |
+| `render [board] [--out folder]` | Pictures of the schematic and both faces of each board. | Only `out/` |
+| `footprint <library> <name> [F\|B] [pad ...]` | Where a footprint's pads land at each rotation. Also reads our own footprints (`BioMap`). | No |
+| `eagle <file> [--nets REF ...\|--package NAME]` | Reads Eagle files, such as SparkFun's open designs, without Eagle. This is how the MS421R cell and its pads were found. | No |
+| `debug-sch <file>` | When KiCad only says "Failed to load schematic", lists which items it rejects. | No |
+| `autoroute export\|finish <pcb> <file>` | The earlier Freerouting step, not used now. Kept in case autorouting is wanted again. Needs Java and `freerouting.jar`. | `finish` does |
+
+`build`, `layout`, `check` and `drc` end with "N problem(s) found" and a failure exit code when anything is wrong, so they can be used as a test.
+
+### What `build` does
+
+1. Draws the schematics, symbol libraries and BOMs from `schematic.py`.
+2. Reads the drawing itself (without KiCad) and checks every pin against the intended connections.
+3. Does the same check again on KiCad's own netlist of the drawing. The two checks work differently, so a fault one misses the other should catch.
+4. ERC (KiCad's wiring check).
+5. Places every part, draws every trace and adds the ground fills, from `boards/<board>.py`. If any schematic check failed, this step is skipped.
+6. DRC (KiCad's design rules check), including whether the board still matches the schematic.
+7. The layout limits (below).
+
+### Layout limits
+
+DRC only checks that copper doesn't touch where it shouldn't. It doesn't notice a layout getting worse for noise: a capacitor moved 2 mm further from its chip still passes. `pcbtools/limits.py` catches that. Each rule has:
+
+- a **limit**. Going past it fails the check.
+- optionally a **target**. Falling short of it only prints a reminder.
+
+Some limits come from a source: u-blox asks for ground vias filling the plane under the GPS, and SparkFun's 40 mm board has about 100. The rest are set just past today's values, so any change that makes things worse is caught. When a layout improves, tighten the limit to match, so the improvement can't be lost later.
+
+At the moment the C1 and C3 ground ends (10.2 and 7.3 mm) pass their limits but show as short of the 3 mm target set for the planned GSR clean-up.
+
+Rebuilding an unchanged design gives identical files, so `git diff` shows only what really changed.
+
+**Rebuilding overwrites the boards and schematics**, so don't run `build` or `layout` after editing the boards by hand in KiCad: those edits would be lost. Your KiCad project settings (`.kicad_pro`) are kept; only the design rules in them are updated.

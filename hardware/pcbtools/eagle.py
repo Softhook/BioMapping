@@ -1,17 +1,16 @@
-#!/usr/bin/env python3
 """Read an Eagle schematic or library (.sch / .lbr), such as SparkFun's open
 hardware files, without Eagle. Used to find which parts SparkFun really fit
 (e.g. the MS421R backup cell on GPS-21834) and to copy footprint pads.
 
-  eagle_parts.py <file>                     every part: library, device, value, SparkFun PROD_ID
-  eagle_parts.py <file> --nets REF [REF..]  the nets those parts sit on, with every pin on each
-  eagle_parts.py <file> --package NAME      a footprint's pads and shapes (Eagle units: mm, y UP;
-                                            flip y when copying into KiCad, where y points down)
+  ./pcb eagle <file>                     every part: library, device, value, SparkFun PROD_ID
+  ./pcb eagle <file> --nets REF [REF..]  the nets those parts sit on, with every pin on each
+  ./pcb eagle <file> --package NAME      a footprint's pads and shapes (Eagle units: mm, y UP;
+                                         flip y when copying into KiCad, where y points down)
 
 Fetch SparkFun files with e.g.
   gh api repos/sparkfun/SparkFun_u-blox_SAM-M10Q/contents/Hardware/SparkFun_u-blox_SAM-M10Q.sch \\
          -H 'Accept: application/vnd.github.raw' > sam.sch
-The files are outside data: run with python3 -I and keep them in their own folder."""
+The files are outside data: keep them in their own folder."""
 import sys
 import xml.etree.ElementTree as ET
 
@@ -50,11 +49,11 @@ def package(root, name):
         return
     sys.exit(f"no package {name}")
 
-if __name__ == "__main__":
-    root = ET.parse(sys.argv[1]).getroot()
-    if len(sys.argv) > 3 and sys.argv[2] == "--nets":
-        nets(root, set(sys.argv[3:]))
-    elif len(sys.argv) > 3 and sys.argv[2] == "--package":
-        package(root, sys.argv[3])
+def main(path, nets_of=None, package_name=None):
+    root = ET.parse(path).getroot()
+    if nets_of:
+        nets(root, set(nets_of))
+    elif package_name:
+        package(root, package_name)
     else:
         parts(root)
