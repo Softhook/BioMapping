@@ -21,6 +21,8 @@
 // Build: ./run_tests.sh (or see that script for the raw gcc invocation).
 
 #include <assert.h>
+#include <pthread.h>
+#include <stdatomic.h>
 #include <math.h>
 #include <stdio.h>
 #include <time.h>
@@ -1883,6 +1885,97 @@ static void test_bias_check_cancelled_changes_nothing(void) {
     printf("  -> Pass\n");
 }
 
+// Moves the fake clock on in the background, 1 ms every 100 µs, so
+// gsr_sensor_run_bias_check()'s blocking wait (and the worker's settle
+// window) see time pass, as on the device.
+static _Atomic bool g_ticker_running = false;
+static void* ticker_thread(void* arg) {
+    (void)arg;
+    while(atomic_load(&g_ticker_running)) {
+        usleep(100);
+        furi_test_advance_tick(1);
+    }
+    return NULL;
+}
+static pthread_t start_ticker(void) {
+    pthread_t t;
+    atomic_store(&g_ticker_running, true);
+    pthread_create(&t, NULL, ticker_thread, NULL);
+    return t;
+}
+static void stop_ticker(pthread_t t) {
+    atomic_store(&g_ticker_running, false);
+    pthread_join(t, NULL);
+}
+
+// The blocking form used at recording start, by the calibration wizard and
+// on a Live Stream connect: it finishes well inside the timeout and the new
+// reading is in use when it returns.
+static void test_run_bias_check_finishes(void) {
+    printf("Running test_run_bias_check_finishes...\n");
+    furi_hal_i2c_mock_reset();
+    furi_hal_i2c_mock_set_raw16(10000);
+    furi_hal_i2c_mock_set_bias_raw16(BIAS_COUNTS(0.50f));
+
+    GsrSensor* gsr = gsr_sensor_alloc(NULL, NULL);
+    assert(gsr != NULL);
+    wait_for_more_reads(200);
+
+    furi_hal_i2c_mock_set_bias_raw16(BIAS_COUNTS(0.49f));
+    pthread_t t = start_ticker();
+    bool done = gsr_sensor_run_bias_check(gsr, GSR_BIAS_CHECK_TIMEOUT_MS);
+    stop_ticker(t);
+    printf("  done=%d measured %.4f V used %.4f V (expect 1, 0.4900, 0.4900)\n", done,
+           (double)gsr_sensor_get_bias_measured_volts(gsr), (double)gsr_sensor_get_bias_volts(gsr));
+    assert(done);
+    assert(fabsf(gsr_sensor_get_bias_measured_volts(gsr) - 0.49f) < 0.0001f);
+    assert(fabsf(gsr_sensor_get_bias_volts(gsr) - 0.49f) < 0.0001f);
+
+    gsr_sensor_free(gsr);
+    printf("  -> Pass\n");
+}
+
+// With the sensor lost the check can't start: the call gives up after the
+// timeout, reports "not done", and leaves the bias alone. When the sensor
+// comes back the withdrawn request must not run late (that would change the
+// bias mid-recording).
+static void test_run_bias_check_times_out(void) {
+    printf("Running test_run_bias_check_times_out...\n");
+    furi_hal_i2c_mock_reset();
+    furi_hal_i2c_mock_set_raw16(10000);
+    furi_hal_i2c_mock_set_bias_raw16(BIAS_COUNTS(0.50f));
+
+    GsrSensor* gsr = gsr_sensor_alloc(NULL, NULL);
+    assert(gsr != NULL);
+    wait_for_more_reads(200);
+
+    furi_hal_i2c_mock_set_read_fail(true);
+    wait_until_available(gsr, false);
+    furi_hal_i2c_mock_set_bias_raw16(BIAS_COUNTS(0.49f));
+
+    pthread_t t = start_ticker();
+    uint32_t start = furi_get_tick();
+    bool done = gsr_sensor_run_bias_check(gsr, GSR_BIAS_CHECK_TIMEOUT_MS);
+    uint32_t waited = furi_get_tick() - start;
+    printf("  done=%d after %lu ms (expect 0, ~100)\n", done, (unsigned long)waited);
+    assert(!done);
+    assert(waited >= GSR_BIAS_CHECK_TIMEOUT_MS);
+
+    furi_hal_i2c_mock_set_read_fail(false);
+    wait_until_available(gsr, true);
+    wait_for_more_reads(300);
+    stop_ticker(t);
+    printf("  after recovery: used %.4f V (expect 0.5000), MUX %u (expect 0)\n",
+           (double)gsr_sensor_get_bias_volts(gsr),
+           (unsigned)((furi_hal_i2c_mock_last_config_msb() >> 4) & 0x7u));
+    assert(fabsf(gsr_sensor_get_bias_volts(gsr) - 0.50f) < 0.0001f);
+    assert(fabsf(gsr_sensor_get_bias_measured_volts(gsr) - 0.50f) < 0.0001f);
+    assert(((furi_hal_i2c_mock_last_config_msb() >> 4) & 0x7u) == 0);
+
+    gsr_sensor_free(gsr);
+    printf("  -> Pass\n");
+}
+
 int main(void) {
     test_alloc_probe_success();
     test_alloc_probe_failure();
@@ -1902,6 +1995,8 @@ int main(void) {
     test_bias_check_on_request();
     test_bias_check_out_of_range_keeps_last_good();
     test_bias_check_cancelled_changes_nothing();
+    test_run_bias_check_finishes();
+    test_run_bias_check_times_out();
     test_autorange_up_on_low_signal();
     test_autorange_down_on_saturation();
     test_autorange_settle_discards_stale_conversion();

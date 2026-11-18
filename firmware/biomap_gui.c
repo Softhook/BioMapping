@@ -351,6 +351,7 @@ typedef enum {
     CalMeasureOk,
     CalMeasureFailed,     // fewer than CAL_MIN_VALID in-gate samples over the dwell
     CalMeasureCancelled,  // Back pressed mid-dwell
+    CalMeasureBiasFailed, // the 0.5 V bias check failed or read out of range
 } CalMeasureResult;
 
 // Runs one resistor's calibration dwell (CAL_DWELL_SECONDS at TICK_HZ),
@@ -380,6 +381,30 @@ static CalMeasureResult calibration_wizard_measure(BioMapApp* app, ViewPort* vp,
     // window for the caller's pre-measurement click — see this function's
     // header comment. Every reading here is intentionally discarded.
     for(int i = 0; i < 10; i++) {
+        furi_delay_ms(100);
+        gsr_sensor_tick(gsr);
+    }
+
+    // Fresh 0.5 V bias check for this resistor (gsr_sensor.h, GSR_BIAS_*).
+    // The fit is made on bias-corrected readings, so a missing or wrong
+    // bias would be built into the saved gain and carried into every later
+    // recording. Without a good reading the wizard stops here instead of
+    // falling back to the nominal 0.5 V.
+    // After the flush, not before: the caller's click has only just ended,
+    // and C9 smooths the bias over ~85 ms, so any dip the speaker put on
+    // 3.3 V would still be partly there — the same reason recording start
+    // checks before its chirp. The two ticks after it clear the ~25 ms gap
+    // the check leaves in the samples before the dwell starts.
+    bool bias_done = gsr_sensor_run_bias_check(gsr, GSR_BIAS_CHECK_TIMEOUT_MS);
+    float bias_v = bias_done ? gsr_sensor_get_bias_measured_volts(gsr) : NAN;
+    furi_mutex_acquire(w->mutex, FuriWaitForever);
+    w->bias_measured_v = bias_v;
+    furi_mutex_release(w->mutex);
+    if(!gsr_bias_in_range(bias_v)) {
+        FURI_LOG_W("BioMap", "Cal bias check failed: %.4f V", (double)bias_v);
+        return CalMeasureBiasFailed;
+    }
+    for(int i = 0; i < 2; i++) {
         furi_delay_ms(100);
         gsr_sensor_tick(gsr);
     }
@@ -452,6 +477,7 @@ enum {
     WizardStepMeasureFailed = 9,
     WizardStepFitFailed     = 10,
     WizardStepNoiseFailed   = 11,
+    WizardStepBiasFailed    = 12,
 };
 
 // Mutex-guarded WizardState field writers — collapse the repeated
@@ -536,7 +562,7 @@ void run_calibration_wizard(BioMapApp* app) {
             bool cancelable = w.step == WizardStepPrompt470k || w.step == WizardStepPrompt100k ||
                               w.step == WizardStepPrompt47k || w.step == WizardStepSuccess ||
                               w.step == WizardStepMeasureFailed || w.step == WizardStepFitFailed ||
-                              w.step == WizardStepNoiseFailed;
+                              w.step == WizardStepNoiseFailed || w.step == WizardStepBiasFailed;
             if(cancelable) {
                 biomap_sound_back(app->sound_enabled);
                 break;
@@ -555,7 +581,7 @@ void run_calibration_wizard(BioMapApp* app) {
         }
 
         if(w.step == WizardStepMeasureFailed || w.step == WizardStepFitFailed ||
-           w.step == WizardStepNoiseFailed) {
+           w.step == WizardStepNoiseFailed || w.step == WizardStepBiasFailed) {
             biomap_sound_click(app->sound_enabled);
             wizard_set_step(&w, WizardStepPrompt470k);
             view_port_update(vp);
@@ -596,6 +622,11 @@ void run_calibration_wizard(BioMapApp* app) {
             if(result == CalMeasureCancelled) {
                 biomap_sound_back(app->sound_enabled);
                 break;
+            } else if(result == CalMeasureBiasFailed) {
+                wizard_set_fail(&w, idx, WizardStepBiasFailed);
+                biomap_sound_error(app->sound_enabled);
+                view_port_update(vp);
+                continue;
             } else if(result == CalMeasureFailed) {
                 wizard_set_fail(&w, idx, WizardStepMeasureFailed);
                 biomap_sound_error(app->sound_enabled);

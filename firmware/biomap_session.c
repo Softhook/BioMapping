@@ -463,21 +463,7 @@ static bool key_toggle_recording(Session* s, FuriMutex* mutex,
         float bias_measured = NAN;
         float bias_used = GSR_BIAS_NOMINAL_V;
         if(has_gsr(s->mode) && s->gsr && gsr_sensor_available(s->gsr)) {
-            uint32_t ticket = gsr_sensor_request_bias_check(s->gsr);
-            uint32_t wait_ticks = (100 * furi_kernel_get_tick_frequency()) / 1000;
-            uint32_t wait_start = furi_get_tick();
-            bool done;
-            while(!(done = gsr_sensor_bias_check_done(s->gsr, ticket)) &&
-                  furi_get_tick() - wait_start < wait_ticks) {
-                furi_delay_ms(1);
-            }
-            if(!done) {
-                gsr_sensor_cancel_bias_check(s->gsr);
-                // It may have finished between the last poll and the cancel;
-                // then its reading is real (and already in use), so report it.
-                done = gsr_sensor_bias_check_done(s->gsr, ticket);
-                if(!done) FURI_LOG_W("BioMap", "GSR bias check timed out");
-            }
+            bool done = gsr_sensor_run_bias_check(s->gsr, GSR_BIAS_CHECK_TIMEOUT_MS);
             if(done) bias_measured = gsr_sensor_get_bias_measured_volts(s->gsr);
             float accepted = gsr_sensor_get_bias_volts(s->gsr);
             if(accepted > 0.0f) bias_used = accepted;
@@ -761,6 +747,30 @@ static void handle_live_stream_tick_locked(
     *out_should_send = true;
 }
 
+// Live Stream's equivalent of the bias check at recording start
+// (key_toggle_recording()): a fresh 0.5 V bias check when a phone first
+// connects. Without it Live Stream would only have the reading from
+// gsr_sensor_alloc(), taken just after the GPS module was switched on, when
+// its start-up current can pull the 3.3 V supply down. Only the first
+// connect of the session: the visualiser reconnects by itself after a
+// dropout and carries on the same track, and a new check then would put a
+// step (and a ~25 ms gap) in the middle of it. The value isn't in the BLE
+// packet, so it is logged. Blocks for about 20 ms (100 ms at most), so it
+// runs before the Tick handler takes app->mutex.
+static void live_stream_bias_check_on_first_connect(Session* s) {
+    if(s->live_bias_checked) return;
+    if(!s->bt_stream || !bt_stream_is_connected(s->bt_stream)) return;
+    s->live_bias_checked = true;
+    if(!s->gsr || !gsr_sensor_available(s->gsr)) return;
+
+    bool done = gsr_sensor_run_bias_check(s->gsr, GSR_BIAS_CHECK_TIMEOUT_MS);
+    float measured = done ? gsr_sensor_get_bias_measured_volts(s->gsr) : NAN;
+    float used = gsr_sensor_get_bias_volts(s->gsr);
+    if(used <= 0.0f) used = GSR_BIAS_NOMINAL_V;
+    FURI_LOG_I("BioMap", "Live Stream bias: measured %.1f mV, using %.1f mV",
+               (double)(measured * 1000.0f), (double)(used * 1000.0f));
+}
+
 // ── Handle one GSR tick (10 Hz) during a recording session ────────────────
 // rf_rssi: see batch_csv_row's comment — fetched by the caller before
 // app->mutex is held, not in here. NULL when RF is not active.
@@ -950,6 +960,8 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
             continue;
 
         if(ev.type == EventTypeTick) {
+            if(s->mode == BioMapModeLiveStream) live_stream_bias_check_on_first_connect(s);
+
             // Real wall-clock capture, taken before anything else (mutex
             // acquire, UART draining that preceded this Tick in the queue,
             // etc. all show up in the diff below). See RecordingState's

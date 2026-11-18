@@ -77,7 +77,11 @@
 //
 // When it is measured: once in alloc(), and on request — at the start of
 // each recording (biomap_session.c), before the first row, so one value
-// holds for the whole file and is written to its header. Never in the
+// holds for the whole file and is written to its header; when a phone
+// first connects in Live Stream (logged, as the BLE packet has no room for
+// it; not again on a reconnect, which continues the same track);
+// and before each resistor in the calibration wizard (biomap_gui.c), which
+// refuses to go on without a good reading. Never in the
 // middle of a recording: a mid-recording update would put a step in the
 // data, and a repeating check would leave a regular gap in the 100 ms
 // averaging.
@@ -90,6 +94,17 @@
 #define GSR_BIAS_NOMINAL_V        0.5f
 #define GSR_BIAS_MIN_V            0.45f
 #define GSR_BIAS_MAX_V            0.55f
+
+// True for a bias reading the TIA equation may use. NAN fails both
+// comparisons, so a failed check is never in range.
+static inline bool gsr_bias_in_range(float v) {
+    return v >= GSR_BIAS_MIN_V && v <= GSR_BIAS_MAX_V;
+}
+
+// How long gsr_sensor_run_bias_check() waits. A check takes about 20 ms
+// (25 ms with a radio sweep in the middle); this much longer means I2C
+// trouble.
+#define GSR_BIAS_CHECK_TIMEOUT_MS 100
 
 // TIA conversion: normalised ADC counts (pga_index 5 scale, 7.8125 µV per
 // unit, see gsr_sensor.c) → nanosiemens, from the transimpedance amplifier
@@ -200,6 +215,14 @@ float gsr_sensor_get_bias_measured_volts(const GsrSensor* gsr);
 uint32_t gsr_sensor_request_bias_check(GsrSensor* gsr);
 bool     gsr_sensor_bias_check_done(const GsrSensor* gsr, uint32_t ticket);
 void     gsr_sensor_cancel_bias_check(GsrSensor* gsr);
+
+// All three in one, for callers that can wait: asks for a check, waits up
+// to timeout_ms, and cancels it if it hasn't finished by then (so a late
+// one can't change the bias afterwards). Returns true if a check finished;
+// gsr_sensor_get_bias_measured_volts() is then what it read (NAN on an I2C
+// error). Returns false on a timeout; nothing has changed then. Blocks the
+// calling thread, so don't hold a lock the GUI needs.
+bool     gsr_sensor_run_bias_check(GsrSensor* gsr, uint32_t timeout_ms);
 
 // Measured worker-thread throughput in Hz — the real rate the background
 // I2C-polling loop fills gsr_sensor_tick()'s ~100 ms averaging window

@@ -762,7 +762,8 @@ void calibration_wizard_render(Canvas* c, void* ctx) {
 
     // Guards against run_calibration_wizard()'s measurement loop (main
     // thread), which rewrites step/measured[]/noise_std_dev[]/fail_idx/
-    // seconds_left/gain/offset/r_squared as each resistor is measured —
+    // bias_measured_v/seconds_left/gain/offset/r_squared as each resistor
+    // is measured —
     // see WizardState's doc comment in biomap.h.
     furi_mutex_acquire(w->mutex, FuriWaitForever);
     int step = w->step;
@@ -770,6 +771,7 @@ void calibration_wizard_render(Canvas* c, void* ctx) {
     float offset = w->offset;
     float r_squared = w->r_squared;
     int fail_idx = w->fail_idx;
+    float bias_v = w->bias_measured_v;
     uint32_t seconds_left = w->seconds_left;
     float noise_std_dev[CAL_POINTS];
     memcpy(noise_std_dev, w->noise_std_dev, sizeof(noise_std_dev));
@@ -821,6 +823,16 @@ void calibration_wizard_render(Canvas* c, void* ctx) {
         draw_fmt(c, 0, 37, "%s too noisy/unstable.", cal_steps[fail_idx].resistor);
         draw_fmt(c, 0, 49, "Sigma: %.2f nS (max %.0f)",
                  (double)noise_std_dev[fail_idx], (double)CAL_NOISE_ACCEPTABLE_NS);
+        break;
+    case 12: // 0.5 V bias check failed or out of range (gsr_sensor.h, GSR_BIAS_*)
+        canvas_draw_str(c, 0, 25, "Bias Check Failed!");
+        if(isnan(bias_v)) {
+            canvas_draw_str(c, 0, 37, "No reading. Check wiring.");
+        } else {
+            draw_fmt(c, 0, 37, "Bias %.1fmV (need %.0f-%.0f)", (double)(bias_v * 1000.0f),
+                     (double)(GSR_BIAS_MIN_V * 1000.0f), (double)(GSR_BIAS_MAX_V * 1000.0f));
+        }
+        canvas_draw_str(c, 0, 49, "Check 3.3V supply.");
         break;
     default:
         break;

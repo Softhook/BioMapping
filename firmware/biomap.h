@@ -59,6 +59,9 @@ typedef struct Session {
     // BioMapModeLiveStream only — NULL for every other mode. No SdLogger
     // for this mode at all (docs/archive/bluetooth_serial_investigation.md §3).
     BtStream*      bt_stream;
+    // Live Stream: set once the bias check on the first phone connect has
+    // run, so a reconnect doesn't repeat it (biomap_session.c).
+    bool           live_bias_checked;
     ViewPort*      vp;          // == app->screen_vp while a session is active; not owned/freed here
     FuriTimer*     timer;
 
@@ -267,7 +270,8 @@ typedef struct {
     int   step;
     float measured[CAL_POINTS];        // [470k, 100k, 47k], nS
     float noise_std_dev[CAL_POINTS];   // per-resistor σ from the dwell, nS
-    int   fail_idx;                     // resistor index behind step 9/11's fail screen
+    int   fail_idx;                     // resistor index behind step 9/11/12's fail screen
+    float bias_measured_v;              // last bias check, V (NAN = failed) — step 12's fail screen
     uint32_t seconds_left;              // live dwell countdown during Measuring steps
     float gain;
     float offset;

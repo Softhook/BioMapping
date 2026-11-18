@@ -150,10 +150,6 @@ static inline uint8_t pga_msb(uint8_t idx) {
 #define BIAS_CFG_MSB       (0x80u | (5u << 4u) | (3u << 1u))
 #define BIAS_VOLTS_PER_LSB 31.25e-6f
 
-static bool bias_in_range(float v) {
-    return v >= GSR_BIAS_MIN_V && v <= GSR_BIAS_MAX_V;
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Struct & Constants
 // ─────────────────────────────────────────────────────────────────────────────
@@ -534,7 +530,7 @@ static int32_t gsr_sensor_worker(void* context) {
                 furi_mutex_acquire(gsr->mutex, FuriWaitForever);
                 if(gsr->bias_check_requested) {
                     gsr->bias_measured_volts = v;
-                    if(bias_in_range(v)) {
+                    if(gsr_bias_in_range(v)) {
                         gsr->bias_volts = v;
                         gsr->bias_scale = v / GSR_BIAS_NOMINAL_V;
                     }
@@ -662,7 +658,7 @@ GsrSensor* gsr_sensor_alloc(GsrWorkerHook hook, void* hook_ctx) {
             }
             float v = good > 0 ? ((float)sum / (float)good) * BIAS_VOLTS_PER_LSB : NAN;
             gsr->bias_measured_volts = v;
-            if(good > 0 && bias_in_range(v)) {
+            if(good > 0 && gsr_bias_in_range(v)) {
                 gsr->bias_volts = v;
                 gsr->bias_scale = v / GSR_BIAS_NOMINAL_V;
             }
@@ -892,6 +888,26 @@ void gsr_sensor_cancel_bias_check(GsrSensor* gsr) {
     furi_mutex_acquire(gsr->mutex, FuriWaitForever);
     gsr->bias_check_requested = false;
     furi_mutex_release(gsr->mutex);
+}
+
+bool gsr_sensor_run_bias_check(GsrSensor* gsr, uint32_t timeout_ms) {
+    furi_check(gsr, "GsrSensor: NULL in run_bias_check()");
+    uint32_t ticket = gsr_sensor_request_bias_check(gsr);
+    uint32_t wait_ticks = (timeout_ms * furi_kernel_get_tick_frequency()) / 1000;
+    uint32_t wait_start = furi_get_tick();
+    bool done;
+    while(!(done = gsr_sensor_bias_check_done(gsr, ticket)) &&
+          furi_get_tick() - wait_start < wait_ticks) {
+        furi_delay_ms(1);
+    }
+    if(!done) {
+        gsr_sensor_cancel_bias_check(gsr);
+        // It may have finished between the last poll and the cancel; then
+        // its reading is real (and already in use), so report it.
+        done = gsr_sensor_bias_check_done(gsr, ticket);
+        if(!done) FURI_LOG_W("GsrSensor", "Bias check timed out");
+    }
+    return done;
 }
 
 // Measured worker throughput in Hz, over a rolling ~1 s window — the true
