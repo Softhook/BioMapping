@@ -13,6 +13,7 @@ tables pin for pin."""
 import json, math, os, uuid
 
 from . import rules
+from .boards import LAYOUTS
 
 G = 2.54                                   # schematic grid (100 mil)
 
@@ -822,6 +823,8 @@ def write_project(out, name, title, parts):
     with open(os.path.join(d, "sym-lib-table"), "w") as f:
         f.write('(sym_lib_table (version 7)\n  (lib (name "BioMap") (type "KiCad") (uri "${KIPRJMOD}/BioMap.kicad_sym") (options "") (descr "BioMapping project symbols")))\n')
     write_project_file(os.path.join(d, f"{name}.kicad_pro"), name, root)
+    with open(os.path.join(d, f"{name}.kicad_dru"), "w") as f:
+        f.write(rules.custom_rules(hasattr(LAYOUTS[name], "GUARD")))
     with open(os.path.join(d, "fp-lib-table"), "w") as f:
         f.write('(fp_lib_table (version 7)\n  (lib (name "BioMap") (type "KiCad") (uri "${KIPRJMOD}/../BioMap.pretty") (options "") (descr "BioMapping project footprints")))\n')
     # One row per distinct part, references grouped: the layout UK assemblers

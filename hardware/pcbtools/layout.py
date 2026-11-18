@@ -12,7 +12,7 @@ import pcbnew
 
 from .boards import LAYOUTS
 from .kicad import load_footprint
-from .rules import CLEARANCE, SIG, VIA_D, VIA_DRILL
+from .rules import CLEARANCE, SIG, TEXT, TEXT_LINE, VIA_D, VIA_DRILL
 from .sexpr import parse, find
 
 MM = pcbnew.FromMM
@@ -219,7 +219,8 @@ def add_stitching(board, nets, fps, pitch_regions, guard=None):
 
 def place_labels(board, fps, texts):
     """Put each part's printed reference beside its part where it covers no
-    pad, no other part and no other label. Adds the free board texts too."""
+    pad, no other part and no other label, turned on its side if it fits no
+    other way. Adds the free board texts too."""
     def box_of(item, grow=0.0):
         bb = item.GetBoundingBox()
         return (pcbnew.ToMM(bb.GetLeft()) - grow, pcbnew.ToMM(bb.GetTop()) - grow,
@@ -243,21 +244,23 @@ def place_labels(board, fps, texts):
         for txt, x, y, size in texts.get(side, []):
             tx = pcbnew.PCB_TEXT(board)
             tx.SetText(txt); tx.SetLayer(pcbnew.B_SilkS if flipped else pcbnew.F_SilkS)
-            tx.SetTextSize(V(size, size)); tx.SetTextThickness(MM(size * 0.15)); tx.SetMirrored(flipped)
+            tx.SetTextSize(V(size, size)); tx.SetTextThickness(MM(max(size * 0.15, TEXT_LINE))); tx.SetMirrored(flipped)
             tx.SetPosition(V(x, y)); board.Add(tx)
             taken.append(box_of(tx, 0.2))
         # big parts first: they have the fewest free spots
         for ref in sorted(cy, key=lambda r: -(cy[r][2] - cy[r][0]) * (cy[r][3] - cy[r][1])):
             fp = fps[ref]
             rt = fp.Reference()
-            rt.SetTextSize(V(0.8, 0.8)); rt.SetTextThickness(MM(0.12)); rt.SetKeepUpright(True)
+            rt.SetTextSize(V(TEXT, TEXT)); rt.SetTextThickness(MM(TEXT_LINE)); rt.SetKeepUpright(True)
             rt.SetTextAngleDegrees(0)
             c = cy[ref]
             cx, cyy = (c[0] + c[2]) / 2, (c[1] + c[3]) / 2
             spots = [(cx, c[1] - 0.6), (cx, c[3] + 0.6), (c[0] - 0.4, cyy), (c[2] + 0.4, cyy),
                      (c[0], c[1] - 0.6), (c[2], c[1] - 0.6), (c[0], c[3] + 0.6), (c[2], c[3] + 0.6)]
             best = None
-            for strict in (True, False):
+            # flat first; turned on its side only where flat finds no room
+            for angle, strict in ((0, True), (0, False), (90, True), (90, False)):
+                rt.SetTextAngleDegrees(angle)
                 for sx, sy in spots:
                     rt.SetPosition(V(sx, sy))
                     bb = rt.GetBoundingBox()
@@ -273,12 +276,12 @@ def place_labels(board, fps, texts):
                         continue
                     if strict and any(hit(b, o) for r2, o in cy.items() if r2 != ref):
                         continue
-                    best = (sx, sy)
+                    best = (sx, sy, angle)
                     break
                 if best:
                     break
             if best:
-                rt.SetPosition(V(*best)); rt.SetVisible(True)
+                rt.SetTextAngleDegrees(best[2]); rt.SetPosition(V(best[0], best[1])); rt.SetVisible(True)
                 taken.append(box_of(rt, 0.1))
             else:
                 rt.SetVisible(False)

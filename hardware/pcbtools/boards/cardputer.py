@@ -12,7 +12,7 @@ GUARD     (face, [(x, y), ...]): 0.5 V guard copper around the amplifier input
 STITCH    ((x1, y1, x2, y2), pitch): ground-via grids
 LABELS    face -> [(text, x, y, size)] printed on the board
 outline() draws the board edge"""
-from ..rules import SIG, PWR
+from ..rules import SIG, PWR, TEXT
 
 # y = 0 is the Cardputer's bottom edge (the EXT socket edge). The board is
 # exactly the Cardputer's back, 84 x 54 mm. F = face against the Cardputer
@@ -125,11 +125,14 @@ GUARD = ("B", [(19.0, 23.2), (5.95, 23.2), (5.95, 30.0), (13.0, 30.0), (13.0, 31
 
 STITCH = [((34.5, 1.5, 82.5, 52.5), 3.0), ((1.5, 1.5, 33.0, 52.5), 5.0)]
 
-LABELS = {"B": [("BioMapping 2 - Cardputer GSR + GPS", 17.0, 51.5, 0.9), ("rev B  2026-11", 17.0, 50.1, 0.8), ("GSR", 19.8, 34.3, 0.8),
-                ("GPS: keep this side clear of metal", 58.0, 51.6, 0.8),
-                ("CUFFS", 4.8, 35.6, 0.8), ("SAFEBOOT", 45.0, 32.6, 0.8),
-                ("RESET", 71.0, 32.2, 0.8), ("5V to 3.3V", 60.5, 11.3, 0.8),
-                ("FLEX TAIL: SOLDER HERE", 42.0, 9.0, 0.8)]}
+# The title block sits in the free corner above the GSR circuit, below screw
+# hole H1, its lines between the rows of ground vias (y 6.5, 11.5, 16.5, 21.5).
+LABELS = {"B": [("Bio Mapping 2", 16.5, 9.0, 1.8), ("Christian Nold, 2004 - 2026", 16.5, 14.0, 1.2),
+                ("rev B  2026-11", 16.5, 19.0, TEXT),
+                ("GPS: keep this side clear of metal", 58.0, 51.6, TEXT),
+                ("CUFFS", 4.8, 35.6, TEXT), ("SAFEBOOT", 45.0, 32.6, TEXT),
+                ("RESET", 71.0, 32.2, TEXT), ("5V to 3.3V", 60.5, 11.3, TEXT),
+                ("FLEX TAIL: SOLDER HERE", 42.0, 9.0, TEXT)]}
 
 
 def outline(add_seg, add_arc):

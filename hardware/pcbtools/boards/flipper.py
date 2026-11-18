@@ -12,7 +12,7 @@ GUARD     (face, [(x, y), ...]): 0.5 V guard copper around the amplifier input
 STITCH    ((x1, y1, x2, y2), pitch): ground-via grids
 LABELS    face -> [(text, x, y, size)] printed on the board
 outline() draws the board edge"""
-from ..rules import SIG, PWR
+from ..rules import SIG, PWR, TEXT
 
 # The board stands up from the Flipper's top edge. y = 52 is the edge that
 # meets the Flipper; all parts sit on the front (F). Left: GPS on a 50 x 52 mm
@@ -118,10 +118,10 @@ GUARD = ("F", [(61.2, 5.6), (FW - 0.5, 5.6), (FW - 0.5, 19.4),
 
 STITCH = [((1.5, 1.5, 46.0, 50.5), 3.0), ((47.5, 1.5, FW - 1.5, 50.5), 5.0)]
 
-LABELS = {"F": [("BioMapping 2", 60.5, 38.4, 0.9), ("Flipper GSR + GPS", 60.5, 40.0, 0.9),
-                ("rev A  2026-11", 60.5, 41.6, 0.8), ("GSR", 62.2, 22.3, 0.8),
-                ("GPS: keep this side clear of metal", 23.0, 37.5, 0.8),
-                ("CUFFS", 66.0, 2.4, 0.8), ("SAFEBOOT", 12.4, 22.6, 0.8), ("RESET", 38.0, 17.2, 0.8)]}
+LABELS = {"F": [("BioMapping 2", 60.5, 38.4, TEXT), ("Flipper GSR + GPS", 60.5, 40.0, TEXT),
+                ("rev A  2026-11", 60.5, 41.6, TEXT),
+                ("GPS: keep this side clear of metal", 23.0, 37.5, TEXT),
+                ("CUFFS", 66.0, 2.4, TEXT), ("SAFEBOOT", 12.4, 22.6, TEXT), ("RESET", 38.0, 17.2, TEXT)]}
 
 
 def outline(add_seg, add_arc):

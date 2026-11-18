@@ -29,7 +29,7 @@ Each board has two halves.
 
 - **GSR half.** The parts follow the signal: cuffs, then R3/R4, then the op-amp, then the ADC. The cuff socket sits at the board edge with its opening 0.75 mm inside it, so nothing sticks out past the edge and the plug can be pushed in and pulled out straight, with fingers free to grip it. The amplifier's input wire, which carries the tiny skin current and is the most sensitive to noise, is 10 mm long. Each 100 nF supply capacitor sits close to the power pin of its chip: C1 1.8 mm, C3 2.0 mm (each right beside the pin), C7 about 3.7 mm (bridging the GPS supply pad and the ground pad next to it). The ground ends of C1 and C3 reach ground through a via right beside the capacitor, and the chips' ground pins have their own via within 1.6 mm, so each loop is about 2.3–2.7 mm in all (see `./pcb measure`).
 - **0.5 V guard.** A patch of copper held at 0.5 V surrounds the amplifier's input wire, R4, C2, R5 and the cuff-2 wire. That wiring also sits at about 0.5 V, so no current can leak between it and the guard. Without the guard, ground copper 0.3 mm away could leak a little current through flux left on the board, and that current would be added to the skin reading. The flux can't simply be washed off, because the GPS module mustn't be washed. The guard joins the reference at U1 pin 3, right beside the input pin 2. Ground copper is kept out of the guard's area: even U1's own ground pin takes its via just outside it.
-- **Test pads.** TP3 (GSR output, printed "GSR"), TP5 (ground) beside it, and TP4 (0.5 V reference), for a meter or scope when checking a new board.
+- **Test pads.** TP3 (GSR output), TP5 (ground) beside it, and TP4 (0.5 V reference), for a meter or scope when checking a new board.
 - **GPS half.** The module sits in the middle of an unbroken ground area of about 50 × 52 mm (Flipper) or 52 × 54 mm (Cardputer). Small parts sit right beside the pins they serve. C7 bridges the module's supply pin and the ground pin next to it.
 
 Long runs (I2C and the 3.3 V feed) go along the board edge on the other copper layer, outside the GPS area. Ground fills both copper layers, joined by a grid of vias: 3 mm apart around the GPS, 5 mm elsewhere. KiCad has a "GPS keep clear" zone that refuses new traces under and around the module, so hand edits can't break this by accident.
@@ -118,7 +118,7 @@ Everything is done with one command, `./pcb`, run from this folder. It needs KiC
 |---|---|
 | `pcbtools/boards/flipper.py`, `cardputer.py`, `cardputer_tail.py` | **The layouts.** Every part's position and every trace, written out by hand. This is what you edit to change a layout. |
 | `pcbtools/schematic.py` | The parts lists (which pin joins which net, what to buy) and the schematic drawings. Edit this to change the circuit or the BOM. |
-| `pcbtools/rules.py` | Track widths, via size and the 0.15 mm clearance. |
+| `pcbtools/rules.py` | Track widths, via size and the 0.15 mm clearance, plus the extra DRC rules written to each board's `.kicad_dru` (below). |
 | `pcbtools/limits.py` | Layout limits: how far each decoupling capacitor may be from its chip, how long the GSR wires may be, how many ground vias the GPS needs. |
 | `pcbtools/` (the rest) | The machinery: building the board, the checks, measuring, pictures. |
 | `biomap_*/` | The KiCad files the tools write. |
@@ -162,6 +162,16 @@ Units are mm and y points down, as in KiCad. For a part on the back face, `./pcb
 5. Places every part, draws every trace and adds the ground fills, from `boards/<board>.py`. If any schematic check failed, this step is skipped.
 6. DRC (KiCad's design rules check), including whether the board still matches the schematic.
 7. The layout limits (below).
+
+### Extra DRC rules
+
+`build` writes a `.kicad_dru` file next to each board. KiCad's DRC reads it, both in `./pcb check` and in the PCB editor while you work. It adds:
+
+- **JLCPCB's limits** that are stricter than KiCad's own: drilled holes at least 0.45 mm apart (vias 0.2 mm), at least 0.18 mm of copper round each plated pad hole, and printed text at least 1.0 mm tall with 0.15 mm lines (the sizes are set in `rules.py` as `TEXT` and `TEXT_LINE`). All three boards get these.
+- **No ground track or via inside the 0.5 V guard.**
+- **The skin-current wires** (amplifier input and cuff 2) kept 0.3 mm from all copper except the 0.5 V reference.
+
+The last two apply to the Flipper and Cardputer boards only. They find those wires by the names KiCad gives them (`Net-(U1A--)`, `Net-(J2-Pin_2)`). If the schematic changes those names, change them in `rules.py` too, or the rule quietly tests nothing. Edit the rules in `rules.py`, not the `.kicad_dru` files, which `build` overwrites.
 
 ### Layout limits
 

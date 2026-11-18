@@ -94,13 +94,13 @@
 		(descr "Through hole straight pin header, 2x07, 2.54mm pitch, double rows")
 		(tags "Through hole pin header THT 2x07 2.54mm double row")
 		(property "Reference" "J1"
-			(at 5.1936 7.62 0)
+			(at 5.36325 7.62 0)
 			(layer "F.SilkS")
 			(uuid "c1ba887b-df8f-4a1f-9783-76d2f07492f6")
 			(effects
 				(font
-					(size 0.8 0.8)
-					(thickness 0.12)
+					(size 1 1)
+					(thickness 0.15)
 				)
 			)
 		)
@@ -461,13 +461,13 @@
 		(descr "Solder end of the BioMapping flex tail: 8 plated pads, 1.5 mm pitch, each with a 0.5 mm hole. Lay the tail on the landing pads (FlexTail_Land) and solder from above: the solder runs through each hole onto the pad below.")
 		(tags "flex tail solder-through pads")
 		(property "Reference" "J2"
-			(at 0 2.3736 0)
+			(at 0 2.54325 0)
 			(layer "F.SilkS")
 			(uuid "46b0bb50-9588-4770-8487-721b76bf24b1")
 			(effects
 				(font
-					(size 0.8 0.8)
-					(thickness 0.12)
+					(size 1 1)
+					(thickness 0.15)
 				)
 			)
 		)
@@ -799,8 +799,8 @@
 		(uuid "b1e31884-f3cb-4f7f-8584-474d0bef667b")
 		(effects
 			(font
-				(size 0.8 0.8)
-				(thickness 0.12)
+				(size 1 1)
+				(thickness 0.15)
 			)
 		)
 	)
@@ -810,8 +810,8 @@
 		(uuid "1815fa36-269c-455a-b934-a3ca67172da5")
 		(effects
 			(font
-				(size 0.8 0.8)
-				(thickness 0.12)
+				(size 1 1)
+				(thickness 0.15)
 			)
 			(justify mirror)
 		)

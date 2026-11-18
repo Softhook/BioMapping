@@ -1,0 +1,25 @@
+(version 1)
+
+(rule "JLCPCB: drilled holes at least 0.45 mm apart"
+  (constraint hole_to_hole (min 0.45mm)))
+
+(rule "JLCPCB: vias at least 0.2 mm apart"
+  (condition "A.Type == 'Via' && B.Type == 'Via'")
+  (constraint hole_to_hole (min 0.2mm)))
+
+(rule "JLCPCB: copper ring round a plated pad hole at least 0.18 mm"
+  (condition "A.Type == 'Pad' && A.Pad_Type == 'Through-hole'")
+  (constraint annular_width (min 0.18mm)))
+
+(rule "JLCPCB: printed text at least 1.0 mm tall, with 0.15 mm lines"
+  (condition "A.Layer == '*.Silkscreen'")
+  (constraint text_height (min 1.0mm))
+  (constraint text_thickness (min 0.15mm)))
+
+(rule "Guard: no ground track or via inside the 0.5 V guard"
+  (condition "A.NetName == 'GND' && A.intersectsArea('0.5 V guard')")
+  (constraint disallow track via))
+
+(rule "Skin-current wires: 0.3 mm from all copper except the 0.5 V reference"
+  (condition "(A.NetName == 'Net-(U1A--)' || A.NetName == 'Net-(J2-Pin_2)') && B.NetName != '/REF_0V5'")
+  (constraint clearance (min 0.3mm)))

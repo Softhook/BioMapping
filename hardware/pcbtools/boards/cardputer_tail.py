@@ -22,7 +22,7 @@ the edge.
 The signals run down F in the same order as the header pins, so nothing
 crosses. The three ground wires between them drop through vias at the top of
 the stiffened end and join the header's GND pin on B, where nothing bends."""
-from ..rules import SIG, PWR
+from ..rules import SIG, PWR, TEXT
 
 PLACE = {
     "J1": (4.38, 22.04, 90, "F"),    # even row (pin 2 ... 14) at y 19.5, odd row at y 22.04
@@ -45,8 +45,8 @@ VIAS = [("GND", 8.25, 17.0), ("GND", 11.25, 17.0), ("GND", 14.25, 17.0)]
 KEEPOUT = []
 STITCH = []
 GROUND_POUR = False        # solid copper would make the strip stiff and crack where it bends
-LABELS = {"F": [("THIS SIDE DOWN", 12.0, 10.0, 0.8)],
-          "B": [("EXT TAIL rev B", 12.0, 11.5, 0.8)]}
+LABELS = {"F": [("THIS SIDE DOWN", 12.0, 10.0, TEXT)],
+          "B": [("EXT TAIL rev B", 12.0, 11.5, TEXT)]}
 # notes for the flex factory, on the drawings layer
 MARKINGS = [
     ((2.0, 16.0, 22.0, 24.0), "STIFFENER: FR4 1.0 mm, on F (header side), drilled for the header"),
