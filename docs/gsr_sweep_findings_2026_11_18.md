@@ -18,6 +18,9 @@
   −313 counts, a true zero error of about 104 nS. The saved calibration
   assumed 116 nS. That 12 nS difference accounts for the high end almost
   exactly (see "Still to explore", item 2).
+- **Fixed the same evening:** the wizard now measures the zero directly.
+  A new sweep (`reference_test_results3.csv`) has every point from 10 kΩ to
+  9 MΩ within ±0.7 %. See "Result with the new calibration" below.
 
 ## Why the bias correction doesn't help the high end
 
@@ -89,53 +92,100 @@ about 68 kΩ reads 5 to 11 nS high.
 
 ## Also found and changed
 
-- The "cuffs disconnected" check now uses gain × uncalibrated reading. It
-  still leaves out the offset, because a 116 nS offset would make an open
-  circuit look connected. On this prototype, anything above about 5 MΩ
-  still reads as disconnected. That comes from the board, not the check.
-- `reference_test_results2.csv` now has its minus signs back and a date
-  line.
+- The "cuffs disconnected" check first used gain × uncalibrated reading,
+  leaving out the offset, because a 116 nS offset would have made an open
+  circuit look connected. With the new calibration there is no offset any
+  more (the zero is removed before the conversion), so the check now uses
+  the fully calibrated value, and high resistances on this prototype no
+  longer read as disconnected.
+- `reference_test_results2.csv` and `reference_test_results3.csv` have
+  their minus signs back and a date line. The spreadsheet that makes them
+  drops the sign of the error, so most of the readings were actually low.
+
+## Result with the new calibration
+
+The wizard now measures the board's zero with nothing connected, removes
+it before converting to nS, and fits a gain only (no offset). Sweep in
+`reference_test_results3.csv`, signed errors:
+
+| Range | August | 18 Nov (old method) | New |
+|---|---|---|---|
+| 10k–33k | −0.14 to −0.53 % | −0.17 to 0 % | −0.04 to −0.14 % |
+| 47k–470k | about 0 % | +0.02 to +0.26 % | 0 to −0.28 % |
+| 1–9 MΩ, average error | 0.98 % | 3.94 % | 0.45 % |
+| 1–9 MΩ, worst point | +2.70 % | +9.91 % | −0.68 % |
+
+**What improved**
+
+- **The high end is fixed.** 9 MΩ went from +11 nS to 0 nS, and nothing
+  from 1 MΩ up is more than 4 nS out. The 104 nS zero error is now being
+  removed correctly.
+- **The low end is the best of the three sweeps.** 10 kΩ reads −0.10 %
+  (−0.53 % in August).
+
+**What got slightly worse**
+
+- **The middle (100k–470k) reads 0.1–0.3 % low.** In August it read about
+  0 % there, because the old offset term let the line pass through all
+  three calibration points. The gain-only fit can't do that, and it is
+  mostly decided by the 47k point (the largest number).
+- **It is a percentage error, not a leftover zero.** In nS it shrinks
+  towards high resistance: about −11 nS at 100k, −6 nS at 470k, −4 nS at
+  1 MΩ and 0 at 9 MΩ. A wrong zero would be the same number of nS
+  everywhere.
+- **Best guess: the converter's gain ranges (PGA) don't quite match each
+  other.** The ADS1115 switches range as the reading changes; 47k is read
+  on a different range from 470k and above, and one gain can't correct
+  all of them. The errors fall into rough groups (47k–68k about 0 %,
+  100k–270k about −0.1 %, 330k up about −0.2 to −0.7 %), which fits, but
+  it is not yet checked.
+
+**A limit on the high-end numbers:** the diagnostic screen shows whole nS,
+which is itself ±0.5 nS. At 9 MΩ (111 nS) that is ±0.45 %, so the 1–9 MΩ
+percentages are at the edge of what the screen can show, and "0.00 % at
+9 MΩ" is partly luck.
+
+**Not changed:** the README's "±0.1 % (calibrated)" accuracy claim. The
+middle range is now −0.1 to −0.3 %, so it is a little optimistic for this
+board.
 
 ## Still to explore
 
-1. **Repeatability.** Run the wizard three times in a row without touching
-   the leads during measurement, and write down Gain and Offset each time.
-   This tells us how much the offset really moves between runs. It is the
-   single most useful next number.
-2. ~~Check the model directly.~~ **Done, and it confirms the model.** With
-   nothing connected, `Mean:` reads **−313 counts**, so the board's real
-   zero error is about **104 nS**, not the 116 nS the saved calibration
-   used. Putting −313 counts into the model reproduces the measured high
-   end to within 1–4 nS (9 MΩ: model 123, measured 122; 4.7 MΩ: model 224,
-   measured 222). Both of today's wizard runs overshot the true offset
-   (109 and 116 against ~104), so extending the line to zero tends to land
-   too high, not just wobble. With the correct offset, 9 MΩ would read
-   about 110 nS (−1 %) on this same board.
-3. **Measure the zero point instead of extending a line to it.** This is
-   now the leading fix. An open circuit is exactly 0 nS, with no resistor
-   tolerance. A wizard step with the cuffs open could measure the zero
-   counts, then remove them *before* the nS conversion, which is where the
-   error actually happens. The fit would then only have to find the gain.
-   One snag: the conversion clamps negative counts to 0, so this needs the
-   raw counts. **Built (uncommitted, not yet tried on the device):** the
-   wizard now starts with a "disconnect everything" step, removes the zero
-   in counts before the conversion, and fits a gain only. The saved
-   calibration and the CSV header carry `zero_counts` instead of `offset`
-   (calibration file v6, so the wizard must be re-run once). In simulation,
-   the prototype with a 2 mV offset and a 47k resistor 0.1 % off reads
-   9 MΩ within 0.15 %; the old method was off by about 5 % on the same
-   input. Still to do: re-run the wizard, then re-sweep.
-4. **Weighting the fit.** The current fit treats a 6 nS miss at 47 kΩ the
-   same as a 6 nS miss at 470 kΩ, so the 470 kΩ point barely steers the
-   offset. A fit that weights by percentage error would pin the
-   low-conductance end better. Try it on the numbers first, before changing
-   anything.
-5. **Did the bias correction actually help the low end?** One sweep each
-   isn't enough. What the bias correction really protects against is drift
-   (battery level, temperature, speaker load), so a fair test is the same
-   resistor read over time or at different battery levels, not another
-   sweep.
-6. **The new PCB.** The OPA2333 should cut the 116 nS offset to almost
-   nothing, and the 0.5 V guard blocks board leakage. Most of the
-   high-end problem should go away there. Repeat the sweep on it before
-   spending effort on items 3 and 4.
+1. **Check the PGA idea (no code needed).** Repeat a few points (47k,
+   100k, 470k, 1 MΩ) and note `PGA:` on the diagnostic screen for each. If
+   the error steps where the PGA changes, the gain ranges are the cause.
+   If it is, one fix is a separate gain per range, measured by the wizard;
+   that needs a calibration point on each range, so think it through
+   before building anything.
+2. **Weighting the fit.** The gain-only fit is dominated by the 47k point.
+   Weighting each point by its percentage error would share the error
+   more evenly across 47k–470k (roughly −0.1 % everywhere instead of
+   0 % at 47k and −0.28 % at 470k). Try it on these numbers first, before
+   changing anything.
+3. **Repeatability.** Run the wizard two or three times and note Gain and
+   Zero each time. The zero should agree within a few counts (1 count is
+   about 0.3 nS). If it does, the 18 Nov run-to-run problem has gone with
+   the old method.
+4. **Did the bias correction help the low end?** One sweep each still isn't
+   enough. What it really protects against is drift (battery level,
+   temperature, speaker load), so the fair test is the same resistor read
+   over time or at different battery levels.
+5. **The new PCB.** The OPA2333 should make the zero almost nothing, and
+   the 0.5 V guard blocks board leakage. Repeat the sweep on it; the zero
+   step should then read close to 0.
+
+## Earlier investigation notes
+
+- **Model check (done):** with nothing connected, `Mean:` read −313
+  counts, a zero error of about 104 nS against the 116 nS the old
+  calibration assumed. Putting −313 counts into the model reproduced the
+  18 Nov high end to within 1–4 nS (9 MΩ: model 123, measured 122). Both
+  of that day's wizard runs overshot the true offset (109 and 116 against
+  ~104).
+- **Measuring the zero directly (built):** the wizard starts with a
+  "disconnect everything" step, removes the zero in counts before the
+  conversion, and fits a gain only. The saved calibration and the CSV
+  header carry `zero_counts` instead of `offset` (calibration file v6). In
+  simulation, the prototype with a 2 mV offset and a 47k resistor 0.1 %
+  off reads 9 MΩ within 0.15 %, against about 5 % for the old method.
+  Confirmed on the device by the sweep above.
