@@ -24,12 +24,15 @@ DECOUPLING = {
     "C1": (("U1", "8"), ("U1", "4")),      # op-amp
     "C3": (("U2", "8"), ("U2", "3")),      # ADC
     "C7": (("U4", "17"), ("U4", "16")),    # GPS
+    "C6": (("U4", "2"), ("U4", "1")),      # GPS V_IO (Cardputer: beside the pin)
     "C5": (("U3", "5"), ("U3", "2")),      # regulator output (Cardputer only)
 }
 # sensitive GSR nets: the amplifier input has no label, so it is found by part name
 GSR_NETS = [("amplifier input", "U1A"), ("GSR_SIGNAL", "GSR_SIGNAL"), ("0.5 V ref", "REF_0V5"),
             ("bias divider", "U1B")]
-LONG_NETS = [("SDA", "I2C_SDA"), ("SCL", "I2C_SCL"), ("GPS TX", "GPS_TX_TO_HOST"), ("GPS RX", "HOST_TX_TO_GPS")]
+# each GPS serial wire is two nets, one each side of its 470 ohm resistor
+LONG_NETS = [("SDA", ("I2C_SDA",)), ("SCL", ("I2C_SCL",)), ("GPS TX", ("GPS_TX_TO_HOST", "Net-(U4-TXD)")),
+             ("GPS RX", ("HOST_TX_TO_GPS", "Net-(U4-RXD)"))]
 
 def numbers(pcb_path):
     """The layout numbers for one saved board, by name (mm, or counts for vias)."""
@@ -57,8 +60,8 @@ def numbers(pcb_path):
                 gnd_vias.append((pcbnew.ToMM(t.GetPosition().x), pcbnew.ToMM(t.GetPosition().y)))
     for label, key in GSR_NETS:
         n[label] = round(sum(v for k, v in length.items() if key in k), 1)
-    for label, key in LONG_NETS:
-        n[label] = round(length.get(key, 0))
+    for label, keys in LONG_NETS:
+        n[label] = round(sum(length.get(k, 0) for k in keys))
     n["vias"] = vias
     # copper tracks on the ground-plane face (the face without parts): each one
     # is a cut in the ground the other face's wires use as their return path

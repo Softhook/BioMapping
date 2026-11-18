@@ -20,8 +20,10 @@ RULES = [
     ("C1-U1 ground", "max", 2.5, None, "op-amp decoupling return path; no worse than today"),
     ("C3-U2 supply", "max", 2.2, None, "ADC supply decoupling; no worse than today"),
     ("C3-U2 ground", "max", 3.0, None, "ADC decoupling return path; no worse than today"),
-    ("C7-U4 supply", "max", 4.0, None, "GPS decoupling, bridging VCC and the GND pad beside it"),
-    ("C7-U4 ground", "max", 4.0, None, "GPS decoupling, bridging VCC and the GND pad beside it"),
+    ("C7-U4 supply", "max", {"biomap_flipper": 4.0, "biomap_cardputer": 3.0}, None, "GPS decoupling, bridging VCC and the GND pad beside it"),
+    ("C7-U4 ground", "max", {"biomap_flipper": 4.0, "biomap_cardputer": 3.0}, None, "GPS decoupling, bridging VCC and the GND pad beside it"),
+    ("C6-U4 supply", "max", {"biomap_cardputer": 3.0}, None, "GPS V_IO decoupling (Cardputer), bridging V_IO and the GND pad beside it"),
+    ("C6-U4 ground", "max", {"biomap_cardputer": 3.0}, None, "GPS V_IO decoupling (Cardputer), bridging V_IO and the GND pad beside it"),
     ("C5-U3 supply", "max", 3.0, None, "regulator output capacitor (Cardputer); no worse than today"),
     ("C5-U3 ground", "max", 3.0, None, "regulator output capacitor (Cardputer); no worse than today"),
     # ── GSR signal path: short copper picks up less noise ──

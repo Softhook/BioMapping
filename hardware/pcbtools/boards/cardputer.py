@@ -27,14 +27,19 @@ PLACE = {
     "FB1": (50.7, 4.5, 0, "B"),
     "U3": (57.5, 5.45, 0, "B"), "C4": (55.0, 8.3, 0, "B"),
     "C5": (60.7, 7.35, -90, "B"),
-    # GPS on the right half; serial pads face the header tab
-    "U4": (58.0, 30.0, 90, "B"),
-    "C7": (68.4, 27.15, 90, "B"),                  # bridges VCC pad 17 and GND pad 16
-    "C6": (72.45, 24.0, 0, "B"),
-    "TP2": (68.4, 30.3, 0, "B"), "TP1": (47.4, 30.0, 0, "B"),
-    "R10": (58.0, 19.0, 90, "B"), "R9": (60.5, 19.0, 90, "B"),
-    "D1": (64.4, 44.5, 0, "B"), "R8": (60.4, 44.5, 180, "B"),
-    "C8": (56.2, 45.2, 180, "B"), "BT1": (49.8, 45.2, 0, "B"),
+    # GPS on the right half, turned so its VCC pin (17) faces the regulator above it,
+    # its serial pins (13, 14) face the tail and its V_IO and backup pins (2, 3) face
+    # the free right-hand side. Each capacitor bridges its pin and the GND pad beside it
+    "U4": (58.0, 30.0, 180, "B"),
+    "C7": (55.15, 20.9, 180, "B"),                 # over VCC pad 17 and GND pad 16
+    "C6": (67.1, 27.15, 90, "B"),                  # beside V_IO pad 2 and GND pad 1
+    "C8": (67.1, 30.95, -90, "B"),                 # beside V_BCKP pad 3 and GND pad 4
+    "TP2": (58.4, 20.6, 0, "B"), "TP1": (58.0, 39.4, 0, "B"),   # over RESET pad 18, under SAFEBOOT pad 8
+    # each serial resistor sits at the end that drives its wire: TX at the GPS, RX at the tail
+    "R10": (47.6, 30.0, 180, "B"), "R9": (38.25, 10.0, 90, "B"),
+    # backup cell charger in a row to the right, the cell itself about 8 mm from the module
+    "D1": (71.2, 21.0, 180, "B"), "R8": (74.9, 21.0, 0, "B"),
+    "BT1": (77.8, 32.0, 180, "B"),
     # GSR circuit, left to right along the signal: cuffs (left edge) -> R4 -> C2/R5 -> op-amp U1
     # -> ADC U2 below it. The cuff socket's opening is 0.75 mm inside the left edge, so nothing
     # sticks out and the plug can be pulled straight off; its tabs keep the 0.5 mm copper-edge gap
@@ -61,22 +66,25 @@ TRACKS = [
     ("B", PWR, ["C4.2", (55.95, 9.5)]),
     ("B", PWR, ["U3.5", "C5.1"]),
     ("B", PWR, ["C5.2", (60.7, 9.45)]),
-    # ── GPS ──
-    ("B", PWR, ["C5.1", (71.5, 6.4), (71.5, 41.0), (59.9, 41.0), "U4.2"]),
-    ("B", PWR, [(71.5, 28.1), "C7.1", "U4.17"]),
+    # ── GPS: 3.3 V straight down from the regulator to VCC (pin 17) through C7 ──
+    ("B", PWR, ["C5.1", (62.8, 6.4), (62.8, 18.0), (56.1, 18.0), "C7.1", "U4.17"]),
     ("B", PWR, ["C7.2", "U4.16"]),
-    ("B", PWR, [(71.5, 24.0), "C6.1"]),
-    ("B", SIG, ["D1.2", (65.65, 41.0)]),
+    # V_IO (pin 2): round the module's top-right corner, through C6
+    ("B", PWR, [(62.8, 18.0), (69.2, 18.0), (69.2, 28.1), "C6.1", "U4.2"]),
+    ("B", PWR, ["C6.2", "U4.1"]),
+    # backup cell: charged from the V_IO wire through D1 and R8
+    ("B", SIG, [(69.2, 21.0), "D1.2"]),
     ("B", SIG, ["D1.1", "R8.1"]),
-    ("B", SIG, ["R8.2", (58.0, 43.0), "U4.3"]),
-    ("B", SIG, ["R8.2", "C8.1"]),
-    ("B", SIG, ["C8.1", (57.15, 47.23), "BT1.1"]),
+    ("B", SIG, ["R8.2", "BT1.1"]),
+    ("B", SIG, ["U4.3", "C8.1", "BT1.1"]),
+    ("B", PWR, ["C8.2", "U4.4"]),
     ("B", SIG, ["U4.18", "TP2.1"]),
     ("B", SIG, ["U4.8", "TP1.1"]),
+    # serial: down the left of the module, inside the wires that leave the tail
     ("B", SIG, ["U4.13", "R10.1"]),
-    ("B", SIG, ["U4.14", (59.9, 21.0), (60.5, 20.4), "R9.1"]),
-    ("B", SIG, ["R10.2", (58.0, 14.0), (36.75, 14.0), "J1.8"]),
-    ("B", SIG, ["R9.2", (60.5, 12.5), (38.25, 12.5), "J1.7"]),
+    ("B", SIG, ["R10.2", (44.7, 30.0), (44.7, 14.0), (36.75, 14.0), "J1.8"]),
+    ("B", SIG, ["J1.7", "R9.2"]),
+    ("B", SIG, ["R9.1", (38.25, 12.5), (46.0, 12.5), (46.0, 28.1), "U4.14"]),
     # ── 3V3 to the GSR side: its own branch from the regulator's output pin, down
     # between U3/C4 and C5, then west. It must cross the serial and I2C wires that
     # come down from the tail, so it hops to the inner face for 13 mm just below
@@ -122,7 +130,7 @@ TRACKS = [
 VIAS = [
     ("+3V3", 46.5, 8.4), ("+3V3", 33.6, 8.4),
     ("I2C_SDA", 34.7, 9.4), ("I2C_SDA", 44.25, 9.4), ("I2C_SCL", 35.5, 10.6), ("I2C_SCL", 41.25, 10.6),
-    ("GND", 55.0, 5.45), ("GND", 55.95, 9.5), ("GND", 60.7, 9.45), ("GND", 74.8, 24.0),
+    ("GND", 55.0, 5.45), ("GND", 55.95, 9.5), ("GND", 60.7, 9.45),
     ("GND", 19.72, 27.0), ("GND", 26.65, 34.95), ("GND", 29.5, 29.3), ("GND", 22.8, 40.0),
     ("GND", 33.3, 38.9), ("GND", 11.4, 35.8), ("GND", 17.2, 36.6),
 ]
@@ -133,15 +141,16 @@ KEEPOUT = [("F", (40.5, 12.5, 75.5, 47.5)), ("B", (52.7, 24.7, 63.3, 35.3))]
 # It joins the reference at U1 pin 3, right beside the input pin.
 GUARD = ("B", [(6.0, 23.5), (19.3, 23.5), (19.3, 31.2), (12.0, 31.2), (12.0, 30.0), (6.0, 30.0)])
 
-STITCH = [((34.5, 1.5, 82.5, 52.5), 3.0), ((1.5, 1.5, 33.0, 52.5), 5.0)]
+# a closer grid under the GPS module (u-blox: fill the ground under it with vias)
+STITCH = [((54.0, 26.0, 62.0, 34.0), 2.0), ((34.5, 1.5, 82.5, 52.5), 3.0), ((1.5, 1.5, 33.0, 52.5), 5.0)]
 
 # The title block sits in the free corner above the GSR circuit, below screw
 # hole H1, its lines between the rows of ground vias (y 6.5, 11.5, 16.5, 21.5).
 LABELS = {"B": [("Bio Mapping 2", 16.5, 9.0, 1.8), ("Christian Nold, 2004 - 2026", 16.5, 14.0, 1.2),
                 ("rev B  2026-11", 16.5, 19.0, TEXT),
                 ("GPS: keep this side clear of metal", 58.0, 51.6, TEXT),
-                ("CUFFS", 4.8, 35.6, TEXT), ("SAFEBOOT", 45.0, 32.6, TEXT),
-                ("RESET", 71.0, 32.2, TEXT), ("5V to 3.3V", 65.0, 10.0, TEXT),
+                ("CUFFS", 4.8, 35.6, TEXT), ("BODY <> WORLD", 16.5, 46.5, 1.2), ("SAFEBOOT", 58.0, 42.0, TEXT),
+                ("RESET", 62.3, 20.6, TEXT), ("5V to 3.3V", 65.0, 10.0, TEXT),
                 ("FLEX TAIL: SOLDER HERE", 42.0, 15.8, TEXT)]}
 
 
