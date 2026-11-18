@@ -14,7 +14,9 @@ Power the prototyping board from a separate 3.3 V supply (for example the Flippe
 | G13 | GPS RX |
 | G15 | GPS TX |
 
-Match the wires by signal name, not pin number, and check with a multimeter before switching on. Switch the two sides on and off at about the same time.
+Match the wires by signal name, not pin number, and check with a multimeter before switching on.
+
+**Switch the 3.3 V supply on first and off last.** Once the program is running, the Cardputer holds G13 at 3.3 V whenever it is not sending. If the prototyping board has no power at that moment, G13 feeds current into the GPS's RX pin and partly powers the module through it. u-blox warns this can damage the module for good. If you can't control the order, unplug the G13 wire before switching the 3.3 V supply off.
 
 ## Build and flash
 

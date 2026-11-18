@@ -209,7 +209,7 @@ BUY = {
     "OPA2333AIDR":   ("Texas Instruments", "OPA2333AIDR", "C38732"),
     "ADS1115IDGSR":  ("Texas Instruments", "ADS1115IDGSR", "C37593"),
     "TLV75533PDBVR": ("Texas Instruments", "TLV75533PDBVR", "C404027"),
-    "PMEG4005EJ":    ("Nexperia", "PMEG4005EJ,115", "C426868"),
+    "RB751V-40":     ("Jiangsu Changjing", "RB751V-40", "C77353"),
     "SAM-M10Q-00B":  ("u-blox", "SAM-M10Q-00B", ""),
     "MS421R":        ("Seiko Instruments", "MS421R-IV03E", ""),
     "Grove GSR finger cuffs": ("JST", "S2B-PH-SM4-TB(LF)(SN)", "C295747"),
@@ -263,8 +263,9 @@ def gps_block():
              "GPS with built-in patch antenna. Pin-compatible with the SAM-M8Q footprint. Needs the ground plane around it. LCSC has none: buy from Mouser or Digi-Key and send to the assembler"),
         part("C6", "C", "10uF", FP_C, {"1": "+3V3", "2": "GND"}, "GPS supply reservoir"),
         part("C7", "C", "100nF", FP_C, {"1": "+3V3", "2": "GND"}, "GPS decoupling: against U4 VCC"),
-        part("D1", "D", "PMEG4005EJ", "Diode_SMD:D_SOD-323", {"2": "+3V3", "1": "BCKP_CHG"},
-             "Stops the backup cell feeding the 3.3 V rail"),
+        part("D1", "D", "RB751V-40", "Diode_SMD:D_SOD-323", {"2": "+3V3", "1": "BCKP_CHG"},
+             "Stops the backup cell feeding the 3.3 V rail. Low-leakage type (0.5 uA max): a power "
+             "Schottky leaks several uA back from the cell, on top of the GPS's own 28 uA"),
         part("R8", "R", "3.3k", FP_R, {"1": "BCKP_CHG", "2": "GPS_BCKP"}, "Backup cell charge current limit"),
         part("BT1", "BT", "MS421R", "BioMap:Seiko_MS421R_IV03E", {"1": "GPS_BCKP", "2": "GND"},
              "Rechargeable 3 V 1.5 mAh backup cell, reflow-solderable (as on SparkFun GPS-21834). Keeps satellite data "

@@ -470,6 +470,12 @@ What this means for the board:
 
 - **Still no 3.3 V on EXT.** The board's own 3.3 V regulator is needed on the Zero too.
 - **5V out starts switched off.** The board gets no power until it is switched on, either by the user (Settings > ExtPort) or by our app. The app should switch it on at start-up and check that the ADS1115 answers.
+- **Never drive the GPS while the board has no power.** The Pi's serial transmit pin (GPIO14) sits at 3.3 V whenever it is not sending. If 5V out is off at that moment, the pin pushes up to about 6 mA through R9 (470 Ω) into the unpowered GPS's RX pin and partly powers the module through it. u-blox says this can damage the module for good ([SAM-M10Q integration manual](datasheets/sam-m10q_integrationmanual.pdf), Table 23). The board has no buffer to stop this, so the app must:
+  - leave the serial port off at boot: no Linux serial console on `serial0`, and GPIO14 left as an input until the app has switched 5V out on;
+  - only then set GPIO14 to its serial function and open `/dev/serial0`;
+  - before switching 5V out off (including on exit), close the port and set GPIO14 back to an input.
+
+  This doesn't cover someone turning ExtPort off in Settings while the app has the port open, so the app should check the ExtPort state and close the port as soon as it goes off. The ADV doesn't need any of this: its 5V out comes on with the device.
 - **The serial pin labels look swapped.** M5Stack's Zero docs label pin 12 "UART_RXD" and pin 14 "UART_TXD". The ADV docs label pin 12 as the ESP32's TX. They seem to be labelling the same wires from opposite ends, because the same GPS Cap works on both. Wire by the table above, and check with a multimeter before connecting anything **(check)**.
 - **No plugging in or out with the power on.** M5Stack says the Zero does not support it.
 - **The signals use 3.3 V logic**, like the ESP32 and the Flipper, so no level shifting is needed.

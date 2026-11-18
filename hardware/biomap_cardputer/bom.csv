@@ -3,7 +3,7 @@ Designator,Qty,Value,Footprint,Manufacturer,MPN,LCSC,Fit,Note
 "C1 C3 C7 C8",4,"100nF",C_0805_2012Metric,"YAGEO","CC0805KRX7R9BB104",C49678,SMD,""
 "C2",1,"100nF C0G",C_1206_3216Metric,"FH (Guangdong Fenghua)","1206CG104J500NT",C46348,SMD,"TIA filter (~34 Hz). C0G/NP0 only. 1206 size: 100 nF C0G is hard to find in 0805"
 "C4 C5 C6 C9",4,"10uF",C_0805_2012Metric,"Samsung","CL21A106KAYNNNE",C15850,SMD,""
-"D1",1,"PMEG4005EJ",D_SOD-323,"Nexperia","PMEG4005EJ,115",C426868,SMD,"Stops the backup cell feeding the 3.3 V rail"
+"D1",1,"RB751V-40",D_SOD-323,"Jiangsu Changjing","RB751V-40",C77353,SMD,"Stops the backup cell feeding the 3.3 V rail. Low-leakage type (0.5 uA max): a power Schottky leaks several uA back from the cell, on top of the GPS's own 28 uA"
 "FB1",1,"600R@100MHz",L_0805_2012Metric,"Sunlord","GZ2012D601TF",C1017,SMD,"Blocks the Cardputer's boost-converter switching noise"
 "J1",1,"Flex tail landing pads",FlexTail_Land_1x08_P1.50mm,"","",,bare pad,"Bare pads: the flex tail's solder end lies here, soldered through its holes. Pad k = tail pad k"
 "J2",1,"Grove GSR finger cuffs",JST_PH_S2B-PH-SM4-TB_1x02-1MP_P2.00mm_Horizontal,"JST","S2B-PH-SM4-TB(LF)(SN)",C295747,SMD,"JST PH 2.0 mm side-entry socket for the Grove GSR finger-cuff plug. Surface-mount; the two side tabs only hold it down"

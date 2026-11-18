@@ -7374,7 +7374,7 @@
 				)
 			)
 		)
-		(property "Value" "PMEG4005EJ"
+		(property "Value" "RB751V-40"
 			(at 0.1 1.9 0)
 			(layer "F.Fab")
 			(uuid "12b4b32a-14b3-4b6c-ae54-f1772e4f3234")
@@ -7411,7 +7411,7 @@
 				)
 			)
 		)
-		(property "Manufacturer" "Nexperia"
+		(property "Manufacturer" "Jiangsu Changjing"
 			(at 0 0 0)
 			(layer "F.Fab")
 			(hide yes)
@@ -7422,7 +7422,7 @@
 				)
 			)
 		)
-		(property "MPN" "PMEG4005EJ,115"
+		(property "MPN" "RB751V-40"
 			(at 0 0 0)
 			(layer "F.Fab")
 			(hide yes)
@@ -7433,7 +7433,7 @@
 				)
 			)
 		)
-		(property "LCSC" "C426868"
+		(property "LCSC" "C77353"
 			(at 0 0 0)
 			(layer "F.Fab")
 			(hide yes)
@@ -7444,7 +7444,7 @@
 				)
 			)
 		)
-		(property "Note" "Stops the backup cell feeding the 3.3 V rail"
+		(property "Note" "Stops the backup cell feeding the 3.3 V rail. Low-leakage type (0.5 uA max): a power Schottky leaks several uA back from the cell, on top of the GPS's own 28 uA"
 			(at 0 0 0)
 			(layer "F.Fab")
 			(hide yes)
