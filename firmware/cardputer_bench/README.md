@@ -37,10 +37,13 @@ If flashing fails, hold the Cardputer's G0 button while plugging in USB, then tr
 | GSR | `open circuit` with nothing connected; a value in nS with a finger or resistor across the electrodes |
 | reads/s, I2C errors | Several hundred reads a second; errors stay at 0 |
 | Bias | About 500 mV. The supply figure next to it is worked out from this and should be about 3.30 V |
-| GPS | Green, with good messages each second and few or no bad ones. Satellites appear after a minute or so outdoors or by a window |
+| GPS | Green, with good messages each second and few or no bad ones. Satellites appear after a minute or so outdoors or by a window; indoors, green with no fix is fine |
+| PSRAM / Clock | Answers two open questions in the plan. If a clock is shown, note the time, switch off for a minute, switch on again: if it kept counting, the Cardputer keeps time when off |
 | Keys | The count goes up and the last key changes every time you press one |
 
-Keys: **S** scans the I2C bus again, **R** resets the counters.
+Keys: **G** shows the GSR graph (press again to go back), **S** scans the I2C bus again, **R** resets the counters.
+
+The graph shows the last 22 seconds, one point every 100 ms (the same window as one row of a real recording). The scale fits itself to what's on screen, and the numbers at the bottom give the range shown. Gaps mean open circuit.
 
 ## What to try
 

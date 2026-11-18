@@ -9,14 +9,15 @@
 //   - GSR readings look sensible (same maths as firmware/modules/gsr_sensor.c);
 //   - the 0.5 V bias, which shows whether the board's 3.3 V supply is right;
 //   - the GPS sends valid NMEA on G15 (RX) and listens on G13 (TX);
-//   - the keyboard keeps responding over a long run.
+//   - the keyboard keeps responding over a long run;
+//   - whether the Cardputer has PSRAM and a clock chip (see docs/cardputer_port.md).
 //
 // Everything runs in loop() on one thread, so no bus lock is needed. The
 // ADS1115 goes through M5's In_I2C, the same driver the keyboard uses:
 // opening the same pins with Arduino's Wire would make two drivers fight.
 //
 // A once-a-second CSV line goes to the USB serial port (115200 baud).
-// Keys: S = rescan the I2C bus, R = reset the counters.
+// Keys: G = GSR graph on/off, S = rescan the I2C bus, R = reset the counters.
 
 #include <M5Cardputer.h>
 
@@ -70,6 +71,9 @@ struct {
     int64_t  sum_norm = 0;
     uint32_t n = 0;
     uint32_t reads = 0;
+    // 100 ms accumulators for the graph (the same window as one CSV row)
+    int64_t  sum_norm_100 = 0;
+    uint32_t n_100 = 0;
     // results of the last full second
     float    ns = 0.0f;
     float    mean_norm = 0.0f;
@@ -171,8 +175,11 @@ static void ads_poll(void) {
         ads.low_run = 0;
     }
 
-    ads.sum_norm += (int32_t)raw * NORM_FACTOR[ads.pga];
+    int32_t norm = (int32_t)raw * NORM_FACTOR[ads.pga];
+    ads.sum_norm += norm;
     ads.n++;
+    ads.sum_norm_100 += norm;
+    ads.n_100++;
 }
 
 static void ads_second(void) {
@@ -187,6 +194,34 @@ static void ads_second(void) {
     }
     ads.sum_norm = 0;
     ads.n = 0;
+}
+
+// ── GSR graph ───────────────────────────────────────────────────────────────
+// One point every 100 ms, so the 220 points across the screen cover 22 s.
+// Open circuit (below VALID_MIN_NS) is stored as NAN and drawn as a gap.
+static const int      GRAPH_POINTS = 220;
+static const uint32_t GRAPH_STEP_MS = 100;
+static const float    GRAPH_MIN_SPAN_NS = 2.0f;  // stop pure noise filling the screen
+
+static struct {
+    float    v[GRAPH_POINTS];
+    int      head = 0;   // next slot to write
+    int      count = 0;
+} graph;
+
+static bool show_graph = false;
+
+static void graph_tick(void) {
+    float ns = NAN;
+    if(ads.n_100 > 0) {
+        float c = counts_to_ns((float)ads.sum_norm_100 / (float)ads.n_100, ads.bias_scale);
+        if(c >= VALID_MIN_NS) ns = c;
+    }
+    ads.sum_norm_100 = 0;
+    ads.n_100 = 0;
+    graph.v[graph.head] = ns;
+    graph.head = (graph.head + 1) % GRAPH_POINTS;
+    if(graph.count < GRAPH_POINTS) graph.count++;
 }
 
 // ── GPS ─────────────────────────────────────────────────────────────────────
@@ -323,6 +358,22 @@ static void i2c_scan(void) {
     if(len == 0) strcpy(i2c_found, "none");
 }
 
+// ── Start-up checks ─────────────────────────────────────────────────────────
+// PSRAM: the plan expects none. Clock chip: M5Unified looks for one on the
+// internal bus at start-up; 0x51 (BM8563) and 0x32 (RX8130) are the ones M5
+// devices use. If one is found, its time is shown so you can switch off for a
+// minute and see whether it kept counting.
+static uint32_t psram_bytes = 0;
+static bool     rtc_chip = false;
+static uint8_t  rtc_addr = 0;
+
+static void startup_checks(void) {
+    psram_bytes = ESP.getPsramSize();
+    if(M5.In_I2C.scanID(0x51, 100000)) rtc_addr = 0x51;
+    else if(M5.In_I2C.scanID(0x32, 100000)) rtc_addr = 0x32;
+    rtc_chip = M5.Rtc.isEnabled() || rtc_addr != 0;
+}
+
 // ── Keyboard ────────────────────────────────────────────────────────────────
 struct {
     uint32_t presses = 0;
@@ -351,6 +402,7 @@ static void keys_poll(void) {
         snprintf(keys.last, sizeof(keys.last), "'%c'", c);
         if(c == 's' || c == 'S') i2c_scan();
         if(c == 'r' || c == 'R') reset_counters();
+        if(c == 'g' || c == 'G') show_graph = !show_graph;
     } else strcpy(keys.last, "mod");
 }
 
@@ -410,21 +462,32 @@ static void draw_screen(void) {
     canvas.setCursor(2, y);
     if(gps.locked) {
         canvas.setTextColor(TFT_GREEN, TFT_BLACK);
-        canvas.printf("GPS: %lu baud  %lu good/s  %lu bad/s",
-            (unsigned long)GPS_BAUDS[gps.baud_idx],
-            (unsigned long)gps.good_per_s, (unsigned long)gps.bad_per_s);
+        if(gps.fix < 0) {
+            canvas.printf("GPS: %lu  %lu good/s  %lu bad/s",
+                (unsigned long)GPS_BAUDS[gps.baud_idx],
+                (unsigned long)gps.good_per_s, (unsigned long)gps.bad_per_s);
+        } else {
+            canvas.printf("GPS: %lu/s bad %lu fix %d sats %d",
+                (unsigned long)gps.good_per_s, (unsigned long)gps.bad_per_s,
+                gps.fix, gps.sats);
+        }
     } else {
         canvas.setTextColor(TFT_YELLOW, TFT_BLACK);
         canvas.printf("GPS: trying %lu baud  %lu bytes/s",
             (unsigned long)GPS_BAUDS[gps.baud_idx], (unsigned long)gps.bytes_per_s);
     }
-    y += LH;
+    y += LH + 2;
+
     canvas.setTextColor(TFT_WHITE, TFT_BLACK);
     canvas.setCursor(2, y);
-    if(gps.fix < 0) {
-        canvas.print("     no position message yet");
+    canvas.printf("PSRAM: %s  ", psram_bytes ? "yes" : "none");
+    if(!rtc_chip) {
+        canvas.print("Clock chip: none");
+    } else if(M5.Rtc.isEnabled()) {
+        auto dt = M5.Rtc.getDateTime();
+        canvas.printf("Clock %02d:%02d:%02d", dt.time.hours, dt.time.minutes, dt.time.seconds);
     } else {
-        canvas.printf("     fix %d  sats %d  UTC %s", gps.fix, gps.sats, gps.utc);
+        canvas.printf("Clock chip at %02X", rtc_addr);
     }
     y += LH + 2;
 
@@ -438,12 +501,87 @@ static void draw_screen(void) {
     y += LH;
     canvas.setTextColor(TFT_DARKGREY, TFT_BLACK);
     canvas.setCursor(2, y);
-    canvas.print("S = rescan I2C   R = reset counts");
+    canvas.print("G = graph  S = rescan I2C  R = reset");
+
+    canvas.pushSprite(0, 0);
+}
+
+static void draw_graph(void) {
+    const int W = M5Cardputer.Display.width();
+    const int H = M5Cardputer.Display.height();
+    const int TOP = 16, BOTTOM = H - 14;          // plot area rows
+    const int LEFT = W - GRAPH_POINTS;            // plot area starts here
+
+    canvas.fillSprite(TFT_BLACK);
+
+    // Visible range, with a minimum span so a flat signal isn't blown up.
+    float lo = INFINITY, hi = -INFINITY;
+    for(int i = 0; i < graph.count; i++) {
+        float v = graph.v[i];
+        if(isnan(v)) continue;
+        if(v < lo) lo = v;
+        if(v > hi) hi = v;
+    }
+    bool any = lo <= hi;
+    if(any && hi - lo < GRAPH_MIN_SPAN_NS) {
+        float mid = (hi + lo) * 0.5f;
+        lo = mid - GRAPH_MIN_SPAN_NS * 0.5f;
+        hi = mid + GRAPH_MIN_SPAN_NS * 0.5f;
+    }
+
+    // Title line: the latest second's value.
+    canvas.setCursor(2, 2);
+    if(!ads.present) {
+        canvas.setTextColor(TFT_RED, TFT_BLACK);
+        canvas.print("GSR: ADS1115 not found");
+    } else if(ads.ns < VALID_MIN_NS) {
+        canvas.setTextColor(TFT_YELLOW, TFT_BLACK);
+        canvas.printf("GSR: open circuit  pga %u", ads.pga);
+    } else {
+        canvas.setTextColor(TFT_GREEN, TFT_BLACK);
+        canvas.printf("GSR: %.1f nS  pga %u", ads.ns, ads.pga);
+    }
+
+    canvas.drawRect(LEFT - 1, TOP - 1, GRAPH_POINTS + 1, BOTTOM - TOP + 2, TFT_DARKGREY);
+
+    if(any) {
+        float span = hi - lo;
+        float pad = span * 0.05f;
+        lo -= pad; hi += pad; span = hi - lo;
+        int prev_x = -1, prev_y = 0;
+        // Oldest point on the left, newest on the right.
+        int start = (graph.head - graph.count + GRAPH_POINTS) % GRAPH_POINTS;
+        int x0 = LEFT + GRAPH_POINTS - graph.count;
+        for(int i = 0; i < graph.count; i++) {
+            float v = graph.v[(start + i) % GRAPH_POINTS];
+            if(isnan(v)) { prev_x = -1; continue; }
+            int x = x0 + i;
+            int y = BOTTOM - (int)((v - lo) / span * (BOTTOM - TOP) + 0.5f);
+            if(prev_x >= 0) canvas.drawLine(prev_x, prev_y, x, y, TFT_CYAN);
+            else canvas.drawPixel(x, y, TFT_CYAN);
+            prev_x = x; prev_y = y;
+        }
+        canvas.setTextColor(TFT_DARKGREY, TFT_BLACK);
+        canvas.setCursor(2, BOTTOM + 4);
+        canvas.printf("%.1f..%.1f nS", lo, hi);
+    } else {
+        canvas.setTextColor(TFT_DARKGREY, TFT_BLACK);
+        canvas.setCursor(LEFT + 20, (TOP + BOTTOM) / 2);
+        canvas.print("no reading yet");
+        canvas.setCursor(2, BOTTOM + 4);
+        canvas.print("last 22 s");
+    }
+    canvas.setCursor(W - 6 * 8, BOTTOM + 4);
+    canvas.print("G = back");
 
     canvas.pushSprite(0, 0);
 }
 
 static void log_header(void) {
+    Serial.printf("# psram_bytes=%lu clock_chip=%s",
+        (unsigned long)psram_bytes, rtc_chip ? "yes" : "none");
+    if(rtc_addr) Serial.printf(" clock_addr=%02X", rtc_addr);
+    Serial.println();
     Serial.println("ms,ads_present,gsr_ns,mean_counts,pga,reads_per_s,ads_i2c_errors,"
                    "pga_changes,bias_mv,gps_baud,gps_locked,gps_bytes_per_s,gps_good_per_s,"
                    "gps_bad_per_s,gps_fix,gps_sats,gps_hdop,gps_utc,key_presses,i2c_devices");
@@ -463,6 +601,7 @@ static void log_line(void) {
 // ── Arduino entry points ────────────────────────────────────────────────────
 static uint32_t last_second_ms = 0;
 static uint32_t last_draw_ms = 0;
+static uint32_t last_graph_ms = 0;
 
 void setup() {
     auto cfg = M5.config();
@@ -482,8 +621,10 @@ void setup() {
 
     i2c_scan();
     ads_init();
+    startup_checks();
     log_header();
     last_second_ms = millis();
+    last_graph_ms = last_second_ms;
 }
 
 void loop() {
@@ -493,6 +634,10 @@ void loop() {
     gps_poll();
 
     uint32_t now = millis();
+    if(now - last_graph_ms >= GRAPH_STEP_MS) {
+        last_graph_ms += GRAPH_STEP_MS;
+        graph_tick();
+    }
     if(now - last_second_ms >= 1000) {
         last_second_ms += 1000;
         ads_second();
@@ -501,7 +646,8 @@ void loop() {
     }
     if(now - last_draw_ms >= 250) {
         last_draw_ms = now;
-        draw_screen();
+        if(show_graph) draw_graph();
+        else draw_screen();
     }
     delay(1);  // let lower-priority tasks run; the ADS makes a new reading every ~1.2 ms
 }
