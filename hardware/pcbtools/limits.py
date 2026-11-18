@@ -36,7 +36,7 @@ RULES = [
      "60 mm2 on the Cardputer): a layout change that breaks it up shrinks it"),
     # ── the ground-plane face: every track on it cuts the ground the other face's wires return through ──
     ("ground-face tracks", "max", {"biomap_flipper": 146, "biomap_cardputer": 30}, None,
-     "tracks on the face without parts (Cardputer: only the two short hops below the tail); "
+     "tracks on the face without parts (Cardputer: only the 3.3 V, SDA and SCL hops below the tail); "
      "no worse than today"),
     # ── GPS ground plane (u-blox SAM-M10Q integration manual) ──
     ("GPS plane ground vias", "min", 100, None, "ground stitched across the 50 x 50 mm plane; "

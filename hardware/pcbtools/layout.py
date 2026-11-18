@@ -55,8 +55,6 @@ def load_parts(board, net_path, place):
             k = (ref, p.GetNumber())
             if k in padnet:
                 p.SetNet(nets[padnet[k]])
-        if "DNP" in val:
-            fp.SetDNP(True)
         fps[ref] = fp
     return fps, nets
 

@@ -196,7 +196,6 @@ PREC = "Sets the GSR scale. Use 0.1% parts"
 # fitting fee).
 BUY = {
     "4.7k":          ("UNI-ROYAL", "0805W8F4701T5E", "C17673"),
-    "4.7k DNP":      ("UNI-ROYAL", "0805W8F4701T5E", "C17673"),
     "3.3k":          ("UNI-ROYAL", "0805W8F3301T5E", "C26010"),
     "470":           ("UNI-ROYAL", "0805W8F4700T5E", "C17710"),
     "47k 0.1%":      ("RESI", "PTFR0805B47K0P9", "C479101"),
@@ -354,12 +353,12 @@ class Sheet:
         """Place a part. Two-pin parts: rot 0 = pin 1 on top, rot 90 = pin 1 on the left.
         txt = (dx, dy, justify) moves the reference/value text off the wires."""
         p = self.parts[ref]
-        self._place(ref, p["key"], x, y, rot, unit, p["value"], p["fp"], p["note"], "DNP" in p["value"],
+        self._place(ref, p["key"], x, y, rot, unit, p["value"], p["fp"], p["note"],
                     p["key"] not in ("MH", "TP"))
         self.items[-1].update(txt=txt, mfr=p["mfr"], mpn=p["mpn"], lcsc=p["lcsc"])
         self.placed_units.add((ref, unit))
 
-    def _place(self, ref, key, x, y, rot, unit, value, fp, note, dnp, in_bom):
+    def _place(self, ref, key, x, y, rot, unit, value, fp, note, in_bom):
         pins = SYMS[key]["units"][unit]["pins"]
         for p in pins:
             lx, ly = rotate((p["x"], p["y"]), rot)
@@ -371,7 +370,7 @@ class Sheet:
                 self.pins[f"{ref}.{p['num']}"] = pos
                 self.outs[f"{ref}.{p['num']}"] = (-bx, by)
         self.items.append(dict(ref=ref, key=key, x=r3(x), y=r3(y), rot=rot, unit=unit, value=value, fp=fp,
-                               note=note, dnp=dnp, in_bom=in_bom, pins=[p["num"] for p in pins]))
+                               note=note, in_bom=in_bom, pins=[p["num"] for p in pins]))
 
     def P(self, a):
         return self.pins[a] if isinstance(a, str) else (r3(a[0]), r3(a[1]))
@@ -423,13 +422,13 @@ class Sheet:
         else:
             end = self.P(at)
         self.npwr += 1
-        self._place(f"#PWR0{self.npwr:02d}", kind, end[0], end[1], rot, 1, kind, "", "", False, False)
+        self._place(f"#PWR0{self.npwr:02d}", kind, end[0], end[1], rot, 1, kind, "", "", False)
         return end
 
     def flag(self, at):
         self.npwr += 1
         p = self.P(at)
-        self._place(f"#FLG0{self.npwr:02d}", "PWR_FLAG", p[0], p[1], 0, 1, "PWR_FLAG", "", "", False, False)
+        self._place(f"#FLG0{self.npwr:02d}", "PWR_FLAG", p[0], p[1], 0, 1, "PWR_FLAG", "", "", False)
 
     def nc(self, *pinrefs):
         for p in pinrefs:
@@ -504,7 +503,7 @@ class Sheet:
         pw = it["ref"].startswith("#")
         o = [f'(symbol (lib_id "BioMap:{s["name"]}") (at {x} {y} {rot}) (unit {it["unit"]}) '
              f'(exclude_from_sim no) (in_bom {"yes" if it["in_bom"] else "no"}) (on_board {"no" if pw else "yes"}) '
-             f'(dnp {"yes" if it["dnp"] else "no"}) (uuid "{U()}")']
+             f'(dnp no) (uuid "{U()}")']
         fa = (-rot) % 360          # field angles are relative to the symbol: undo its rotation
         def prop(k, v, px, py, shown=True, just=""):
             eff = (f'(effects (font (size 1.27 1.27)){f" (justify {just})" if just else ""})' if shown else FONT_HIDE)
@@ -839,7 +838,7 @@ def write_project(out, name, title, parts):
         f.write("Designator,Qty,Value,Footprint,Manufacturer,MPN,LCSC,Fit,Note\n")
         for (value, fp, mpn), ps in sorted(rows.items(), key=lambda kv: refkey(min((p["ref"] for p in kv[1]), key=refkey))):
             refs = " ".join(sorted((p["ref"] for p in ps), key=refkey))
-            fit = ("do not fit" if "DNP" in value else "bare pad" if ps[0]["key"] == "TP" or "FlexTail" in fp
+            fit = ("bare pad" if ps[0]["key"] == "TP" or "FlexTail" in fp
                    else "through-hole" if "PinHeader" in fp else "SMD")
             notes = {p["note"] for p in ps}
             note = notes.pop() if len(notes) == 1 else ""      # mixed roles: see the schematic

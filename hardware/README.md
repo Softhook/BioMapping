@@ -184,7 +184,7 @@ Some limits come from a source: u-blox asks for ground vias filling the plane un
 
 One rule is about copper area rather than distance: the 0.5 V guard must stay one solid piece of about 80 mm² (Flipper) or 60 mm² (Cardputer, whose cuff socket is further from the op-amp). If a layout change splits it up, KiCad drops the pieces that aren't joined to the reference, and the area falls below the limit.
 
-Another counts the track length on the ground-plane face (the face with no parts). Every track there cuts the ground that the wires on the other face send their return current through. On the Cardputer only two short hops just below the flex tail are left, about 28 mm in all: there the 3.3 V line and the I2C pair have to cross the serial wires, because of the order of the EXT pins.
+Another counts the track length on the ground-plane face (the face with no parts). Every track there cuts the ground that the wires on the other face send their return current through. On the Cardputer only three short hops just below the flex tail are left (3.3 V, SDA and SCL), about 28 mm in all: there they have to cross the serial wires, because of the order of the EXT pins.
 
 Rebuilding an unchanged design gives identical files, so `git diff` shows only what really changed.
 
