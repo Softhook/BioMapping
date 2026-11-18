@@ -65,6 +65,7 @@ The GPS chip is the main cost, and stock is patchy: several suppliers show none,
 - **Backup cell (BT1).** The MS421R is made to go through the soldering oven, but LCSC doesn't stock it, so for JLCPCB buy it yourself (Farnell 3534555) and send it with the GPS modules. Without it the GPS still works, but takes longer to find its position after power-up.
 - **GPS module soldering.** u-blox gives a soldering profile and warns against washing the board with water, alcohol or an ultrasonic cleaner afterwards. Pass this on (see `docs/datasheets/sam-m10q_integrationmanual.pdf`).
 - **Through-hole headers.** Usually soldered by hand and charged by the minute.
+- **Cardputer board: every part is on the bottom face.** The top face lies against the Cardputer and is kept bare as the GPS's ground plane, so in KiCad all parts sit on the bottom (B) face. The board still has parts on one face only and goes through the oven once, parts facing up, so the GPS is soldered upright as u-blox asks. When ordering, choose **bottom** as the assembly side. At JLCPCB, check whether the cheaper Economic service accepts a bottom-only board; if not, it needs Standard, which has a higher setup fee. Check every part's rotation in the placement preview before paying: turned parts on the bottom face are a common source of mistakes.
 
 ## Suggested order
 
