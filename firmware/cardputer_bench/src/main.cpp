@@ -46,11 +46,13 @@ static const uint32_t BIAS_EVERY_MS   = 2000;
 
 static const float VALID_MIN_NS = 100.0f;
 
-// Same formula as gsr_tia_counts_to_ns() in firmware/modules/gsr_sensor.h.
-static float counts_to_ns(float counts) {
+// Same formula as gsr_tia_counts_to_ns_at_bias() in firmware/modules/gsr_sensor.h:
+// bias_scale is the measured bias over 0.5 V.
+static float counts_to_ns(float counts, float bias_scale) {
     if(counts <= 0.0f) return 0.0f;
-    if(counts > 319000.0f) counts = 319000.0f;
-    return (counts * 5000000.0f) / (15040000.0f - counts * 47.0f);
+    float max_counts = 319000.0f * bias_scale;
+    if(counts > max_counts) counts = max_counts;
+    return (counts * 5000000.0f) / (15040000.0f * bias_scale - counts * 47.0f);
 }
 
 static uint8_t cfg_msb(uint8_t mux, uint8_t pga) {
@@ -73,6 +75,7 @@ struct {
     float    mean_norm = 0.0f;
     uint32_t reads_per_s = 0;
     float    bias_mv = NAN;
+    float    bias_scale = 1.0f;   // last in-range bias / 500 mV, as the firmware uses
     uint32_t errors = 0;
     uint32_t pga_changes = 0;
 } ads;
@@ -114,6 +117,8 @@ static void ads_measure_bias(void) {
     int16_t raw;
     if(ads_read_conv(&raw)) {
         ads.bias_mv = raw * (PGA_FSR_V[pga] / 32768.0f) * 1000.0f;
+        // Same window as GSR_BIAS_MIN_V..GSR_BIAS_MAX_V: outside it, keep the last good value.
+        if(ads.bias_mv >= 450.0f && ads.bias_mv <= 550.0f) ads.bias_scale = ads.bias_mv / 500.0f;
     } else {
         ads.errors++;
     }
@@ -175,7 +180,7 @@ static void ads_second(void) {
     ads.reads = 0;
     if(ads.n > 0) {
         ads.mean_norm = (float)ads.sum_norm / (float)ads.n;
-        ads.ns = counts_to_ns(ads.mean_norm);
+        ads.ns = counts_to_ns(ads.mean_norm, ads.bias_scale);
     } else {
         ads.mean_norm = 0.0f;
         ads.ns = 0.0f;

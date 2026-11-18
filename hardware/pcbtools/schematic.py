@@ -313,7 +313,7 @@ CARDPUTER = gsr_core() + gps_block() + [
 # No I2C pull-ups on the Cardputer board: the Cardputer's bus already has them.
 
 CARDPUTER_TAIL = [
-    part("J1", "Conn_2x07", "Cardputer ADV EXT header", "Connector_PinHeader_2.54mm:PinHeader_2x07_P2.54mm_Vertical",
+    part("J1", "Conn_2x07", "Cardputer ADV EXT header", "BioMap:PinHeader_2x07_P2.54mm_Vertical_Stiffener",
          {"1": None, "2": None, "3": None, "4": "GND", "5": None, "6": "+5V_EXT", "7": None,
           "8": "I2C_SDA", "9": None, "10": "I2C_SCL", "11": None, "12": "HOST_TX_TO_GPS",
           "13": None, "14": "GPS_TX_TO_HOST"},
@@ -321,7 +321,7 @@ CARDPUTER_TAIL = [
          "Pin 2 is 5V IN - never connect. CHECK numbering and mirroring before ordering. Through-hole, "
          "through the tail's stiffened end. Any 2.54 mm straight 2x7 male header"),
     part("J2", "Conn_1x08", "Flex tail solder pads", "BioMap:FlexTail_Solder_1x08_P1.50mm", TAIL_NETS,
-         "Plated pads with 0.5 mm holes, soldered onto the Cardputer board's landing pads. Pad k = board pad k"),
+         "Plated pads with 0.7 mm holes, soldered onto the Cardputer board's landing pads. Pad k = board pad k"),
 ]
 
 # ── Drawing helpers ───────────────────────────────────────────────────────

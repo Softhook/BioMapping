@@ -18,7 +18,8 @@ from ..rules import SIG, PWR, TEXT
 # exactly the Cardputer's back, 84 x 54 mm. F = face against the Cardputer
 # (bare), B = outer face with everything on it. J1 is the row of landing pads
 # for the flex tail (cardputer_tail.py), centred on the EXT header (x 42); the
-# tail's solder end lies over them from the edge to y 7 (the printed outline).
+# tail's solder end lies over them from the edge to y 6.2 (the printed lines),
+# and each pad runs on past the tail's tip to y 7.2, where the iron can reach it.
 PLACE = {
     "J1": (42.0, 4.5, 180, "B"),       # pad 1 (5 V) at x 47.25 ... pad 8 (GPS TX) at x 36.75
     "H1": (14, 4, 0, "F"), "H2": (70, 4, 0, "F"),
@@ -58,7 +59,7 @@ PLACE = {
 }
 TRACKS = [
     # ── 5 V -> 3.3 V: from the tail's 5 V pad straight across to the regulator ──
-    ("B", PWR, ["J1.1", "FB1.1"]),
+    ("B", PWR, ["J1.1", (47.25, 4.5), "FB1.1"]),
     ("B", PWR, ["FB1.2", (54.05, 4.5), "U3.3"]),                      # EN, tied to IN
     ("B", PWR, [(54.05, 4.5), (54.05, 6.4), "U3.1"]),                 # IN
     ("B", PWR, [(54.05, 6.4), "C4.1"]),
@@ -151,7 +152,7 @@ STITCH = [((54.0, 26.0, 62.0, 34.0), 2.0), ((34.5, 1.5, 82.5, 52.5), 3.0), ((1.5
 # hole H1, its lines between the rows of ground vias (y 6.5, 11.5, 16.5, 21.5).
 LABELS = {"B": [("Bio Mapping 2", 16.5, 9.0, 1.8), ("Christian Nold, 2004 - 2026", 16.5, 14.0, 1.2),
                 ("rev B  2026-11", 16.5, 19.0, TEXT),
-                ("GPS: keep this side clear of metal", 58.0, 51.6, TEXT),
+                ("GPS: keep this side clear of metal", 58.0, 51.0, TEXT),
                 ("CUFFS", 4.8, 35.6, TEXT), ("BODY <> WORLD", 16.5, 46.5, 1.2), ("SAFEBOOT", 58.0, 42.0, TEXT),
                 ("RESET", 62.3, 20.6, TEXT), ("5V to 3.3V", 65.0, 10.0, TEXT),
                 ("FLEX TAIL: SOLDER HERE", 42.0, 15.8, TEXT)]}

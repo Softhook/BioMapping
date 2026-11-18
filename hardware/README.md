@@ -72,9 +72,9 @@ Everything is surface-mount and suits machine assembly, except the angled pin he
 
 The Cardputer board screws flat onto the back and has no header or socket. A **flex tail** (`biomap_cardputer_tail/`) joins it to the EXT socket. This is a flexible circuit: a strip of thin polyimide plastic with the copper wires inside, made to our own shape.
 
-- **Plug end** (20 × 8 mm): a 1 mm FR4 stiffener is glued on the side facing the Cardputer, and a straight 2 × 7 header is soldered through it. It stands against the Cardputer's bottom edge with the header in the EXT socket.
-- **Bendy strip** (13 mm wide, 9 mm long): folds round the bottom edge. It has copper on one side only, and no copper fill, so it bends easily. About 1 mm of slack is built in.
-- **Solder end** (13 × 7 mm): 8 plated pads, 1.5 mm apart, each with a 0.5 mm hole. It lies flat on the Cardputer board's landing pads (J1) inside the printed outline, and is soldered there for good.
+- **Plug end** (20 × 8 mm): a 1 mm FR4 stiffener is glued on the side facing the Cardputer, and a straight 2 × 7 header is soldered through it from the outer side (the pads under the stiffener are covered). It stands against the Cardputer's bottom edge with the header in the EXT socket, about 5.5 mm out from the edge with the pin ends; trim the pin ends after soldering to bring that down to about 3.6 mm. A cover has to leave room for it.
+- **Bendy strip** (9 mm long, 13 mm wide, widening to 20 mm just before the stiffener): folds round the bottom edge. It has copper on one side only, and no copper fill, so it bends easily. The widening ends 1 mm before the stiffener, so the fold at the stiffener's edge crosses straight flex, with no corner to start a tear. The header's body and the stiffener hold the flex about 3.6 mm out from the Cardputer's edge; the fold round to the board uses about 6.3 mm of the strip, leaving 2–3 mm of slack.
+- **Solder end** (13 × 6.2 mm): 8 plated pads, 1.5 mm apart, each with a 0.7 mm hole. It lies flat on the Cardputer board's landing pads (J1) between the printed lines, and is soldered there for good. The tail ends 0.5 mm past its pads, and each landing pad runs on 1.0 mm past the tail's tip, so the iron can heat both pads at once and you can see the solder fillet form at the end of every pad.
 
 Why a soldered tail: a header fixed to the main board would have to line up with the socket in three directions at once, and sockets for a separate cable stand about 2.5 mm tall. The tail takes up any mismatch, and nothing on the Cardputer board stands taller than the flex, about 0.2 mm. The only thing you unplug is the header from EXT; the board and its tail come off together.
 
@@ -83,8 +83,8 @@ Why a soldered tail: a header fixed to the main board would have to line up with
 - **Soldering it on:**
   1. Solder the header into the plug end first.
   2. Tin the landing pads on the Cardputer board lightly (if the assembler applied paste there, they already are).
-  3. Lay the tail's solder end over them, F side down ("THIS SIDE DOWN" is printed there), inside the printed outline, and hold it with heat-resistant tape.
-  4. Touch each pad with the iron and a little solder: it runs through the hole onto the pad below, and you can see every joint has taken.
+  3. Lay the tail's solder end over them, F side down ("THIS SIDE DOWN" is printed there), between the printed lines, with the landing pads' ends showing past the tail's tip. Hold it with heat-resistant tape.
+  4. Put the iron where the tail's tip meets the landing pad, so it heats both, and feed a little solder: it runs through the hole onto the pad below and forms a fillet at the pad's end. A smooth fillet there shows the joint has taken.
   5. Put a strip of Kapton tape over the joint, so bending the tail never pulls on the solder.
 
 ## Check before ordering (both boards)
@@ -100,7 +100,7 @@ These come from M5Stack's dimension drawing and 3D models, not from a real devic
 - **Which way the EXT socket faces.** The tail assumes the socket opens out of the bottom edge, with its rows about 4.5 mm and 7 mm in from the back, as M5Stack's 3D model suggests. M5Stack's written docs only say it is "on the underside". Small errors in these numbers don't matter much, because the flex takes them up. But if the socket actually opens into the back face, the tail's shape has to change and the main board needs a cut-out over it.
 - **Which row is which.** The tail assumes the even-numbered row (GND, 5 V out, SDA, SCL, G13, G15) is the one nearest the back. Check with a multimeter before plugging in. Pin 2 is 5 V *in* and must stay unconnected. If it turns out wrong, only the tail needs remaking.
 - **Room along the bottom edge.** Check that nothing else on that edge (a port or button) is in the way of the tail's plug end. It is 20 mm wide, centred on the EXT socket.
-- **The tail's length.** It is drawn with about 1 mm of slack round the edge. Check the fold on a real Cardputer before ordering many; a longer strip is a one-line change in `cardputer_tail.py`.
+- **The tail's length.** It is drawn with 2–3 mm of slack round the edge, if the socket's face is flush with the edge (more if it is set in). Check the fold on a real Cardputer before ordering many; a longer strip is a one-line change in `cardputer_tail.py`.
 - **Screws.** Use M2 × 4 mm only. M5Stack warns that longer screws can damage the board inside.
 
 ## Tools

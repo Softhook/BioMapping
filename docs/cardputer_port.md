@@ -58,7 +58,7 @@ The printed board (`hardware/biomap_cardputer/`) is exactly the size of the Card
 
 **Why this way?** It's the lowest and cleanest connection: nothing on the main board stands taller than the flex itself, about 0.2 mm, and there are no sockets to buy. A header fixed to the main board would have to line up with the socket in three directions at once, and a small mistake in M5Stack's drawings would bend the pins. The flex takes up any mismatch, so the main board only has to fit its screws. If the tail turns out wrong on a real device (for example, the socket rows are the other way round), only the tail needs remaking, not the GPS board.
 
-**How it's made:** circuit board makers such as JLCPCB and PCBWay make flexible circuits from the same kind of drawing files as normal boards. They add the stiff plate behind the plug end. A first batch of 5 seems to cost roughly $15–25, a few days slower than normal boards. You then solder the header into the plug end, lay the solder end on the main board's pads, and touch each pad with the iron: the solder runs through each hole onto the pad below. A strip of Kapton tape over the joint stops bending from pulling on the solder.
+**How it's made:** circuit board makers such as JLCPCB and PCBWay make flexible circuits from the same kind of drawing files as normal boards. They add the stiff plate behind the plug end. A first batch of 5 seems to cost roughly $15–25, a few days slower than normal boards. You then solder the header into the plug end, lay the solder end on the main board's pads, whose ends stick out past the tail's tip, and touch the iron where each pad meets the tip: the solder runs through each hole onto the pad below and forms a fillet you can see. A strip of Kapton tape over the joint stops bending from pulling on the solder.
 
 **Still to check on a real Cardputer:** that the EXT socket opens out of the bottom edge (M5Stack's 3D model suggests it does; their docs only say "underside"), which row of the socket is which, that no port or button on that edge gets in the way, and that the tail's fold round the edge is comfortable.
 
@@ -84,7 +84,10 @@ Someone has made a 3D-printed case for a Cardputer backpack: a box with the same
 
 Our tallest parts are only a few mm high, so the cover could be about 5–6 mm deep. Plastic does not block the GPS signal, but keep metal (screws, labels, paint with metal in it) away from the area over the GPS.
 
-**Still to do:** check which parts are within 2 mm of the board edge, to see how much Option B would actually need to move.
+**Edge strip checked:** no parts sit in the 2 mm edge strip, so Option B needs no parts moved. The closest are FB1 and U3, about 3.6 mm from the EXT edge. Two things for whoever designs the cover:
+
+- **Screw recesses.** The screw holes are 4 mm from the EXT edge, and they can't move because they must match the Cardputer's. A recess for a typical M2 head (3.8–4 mm across) is about 4.2–4.4 mm wide, so it reaches 0.1–0.2 mm into a 2 mm wall. Either let the wall be that bit thinner at the two screws, or use button-head screws (about 3.5 mm across), whose recess just clears the wall.
+- **Printed text.** The "GPS: keep this side clear of metal" line has been moved inwards so it no longer runs under the bottom wall. The cover hides all the text on the outer face anyway.
 
 ### Power and connections
 
@@ -111,12 +114,14 @@ Pin 2 ("5V in") is for powering the Cardputer *from* a Cap. It should not be use
 
 #### Why the regulator matters more than usual: the 0.5 V bias
 
-The GSR circuit makes its 0.5 V bias from the 3.3 V supply with a resistor divider (56 kΩ and 10 kΩ, see [wiring_guide.md](wiring_guide.md)). The firmware assumes this bias is exactly 0.5 V when it converts readings into nanosiemens ([gsr_sensor.c](../firmware/modules/gsr_sensor.c)). So **any error in the 3.3 V supply becomes the same percentage error in every GSR reading.** For example, a supply 2% low gives readings 2% low.
+The GSR circuit makes its 0.5 V bias from the 3.3 V supply with a resistor divider (56 kΩ and 10 kΩ, see [wiring_guide.md](wiring_guide.md)). Every GSR reading is in proportion to this bias, so a supply 2% low would give readings 2% low if the firmware assumed exactly 0.5 V.
 
-The published accuracy (±0.1% over most of the range) was measured on the Flipper's 3.3 V supply. With a new regulator:
+It doesn't assume it. The firmware already measures the bias on the ADS1115 (AIN1 against ground) and uses the measured value when it converts readings into nanosiemens ([gsr_sensor.h](../firmware/modules/gsr_sensor.h), "0.5 V bias measurement"). It measures at start-up, at the start of each recording (the value goes in the file's header), when a phone first connects for Live Stream, and before each resistor in the calibration wizard. It never measures in the middle of a recording, because a new value would put a step in the data. So a supply that is simply a little off is already corrected.
 
-- choose a **low-noise, accurate** regulator (±1% or better), not the cheapest one
-- run the resistor-grid test again on the new device, and if needed correct for the measured bias in the firmware
+What the regulator still decides is how steady the supply stays **during** a recording, since the bias is measured only at the start. The published accuracy (±0.1% over most of the range) was measured on the Flipper's 3.3 V supply. With a new regulator:
+
+- choose a **low-noise, stable** regulator, not the cheapest one
+- run the resistor-grid test again on the new device
 
 This is also a chance to improve on the Flipper. A dedicated, quiet regulator on the Cap keeps the GSR circuit away from the noise of the Cardputer's own 3.3 V supply, which powers the ESP32 and its radio.
 
@@ -137,7 +142,11 @@ None of the addresses clash, so sharing works electrically.
 
 **Rules for our code:**
 
-- **One driver and one lock for the whole bus.** Our own code should control the bus, with both the keyboard and the ADS1115 going through it, instead of relying on how M5Stack's keyboard library works inside. The keyboard chip is simple to drive, and small community drivers for it exist.
+- **One driver for the whole bus: M5Stack's.** M5Stack's keyboard code, its audio set-up and our ADS1115 code all use the same I2C driver (`M5.In_I2C`). That driver already has its own lock: each read or write holds the bus from start to finish, and another thread waits until it is done. This holds whichever thread the call comes from. We checked this in the M5GFX source for the version we use (0.3.0) and in older versions. So the GSR thread can call it directly, with no extra lock of ours. Two things to keep to:
+  - Only the GSR thread talks to the ADS1115. Its steps (set the input, wait, read) can then have keyboard reads between them without harm, because the ADS1115 keeps its own settings.
+  - Never open a second driver on the same pins (see "Gotchas for the Cardputer code").
+
+  The keyboard only reads the bus after a key press (the keyboard chip signals it on G11), so it rarely makes the GSR thread wait, and then only for a fraction of a millisecond.
 - **Bus speed.** All four parts support 400 kHz. At 860 readings a second, the GSR reads keep the bus busy roughly 40% of the time at 100 kHz and about 10% at 400 kHz (an estimate). The keyboard only uses the bus when a key is pressed, so there is room either way, but 400 kHz leaves more.
 - **Pull-up resistors.** The Cardputer already has them: the [official schematic](https://m5stack-doc.oss-cn-shenzhen.aliyuncs.com/1178/Sch_M5CardputerAdv_v1.0_2025_06_20_17_19_58.pdf) (page 2, beside the keyboard chip) shows 3.3 kΩ from G8 (R35) and G9 (R36) to the Cardputer's 3.3 V. That value suits 400 kHz with our short flex tail added, so our board has no pull-ups of its own. They run from the Cardputer's 3.3 V, not our regulator's, which is fine: the ADS1115's I2C pins accept up to 5.5 V whatever its own supply. To check a real unit, switch the Cardputer on with nothing plugged into the EXT header and measure the voltage from SDA and from SCL to GND. Each should read about 3.3 V, which shows the pull-ups are there. Measuring resistance with the power off is less reliable: the protection diodes in the chips on the bus can let the meter's current through and give a low reading.
 - **Test early.** In the first Cardputer step, read the ADS1115 and the keyboard together before building anything else. Also leave it running for an hour and check that the keys still respond: one Cardputer app reported the keyboard stopping after 10–20 minutes, cause unknown ([issue #12](https://github.com/Mr-PauI/Gameboy-Enhanced-Firmware-m5stack-cardputer-/issues/12)).
@@ -169,12 +178,10 @@ I did not find anyone online who has tapped 3.3 V out of the ADV for an add-on.
 
 #### Making the bias voltage stop mattering
 
-There are two ways to remove the dependence on the exact supply voltage, so that the GSR accuracy no longer rests on the regulator:
+- **Measure the bias instead of assuming it (firmware, already done).** See "Why the regulator matters more than usual" above. This corrects a supply that is off by a fixed amount, on the Flipper as well. It does not follow drift during a recording, as it is measured only at the start.
+- **Feed the bias divider from a voltage reference chip (hardware, not done).** A small precision reference IC (for example a 2.5 V or 3.0 V shunt reference) powers only the 56 kΩ / 10 kΩ divider. The bias then stays fixed whatever the supply does, during a recording too. One extra part, and the divider values change to keep 0.5 V. Only worth it if the resistor-grid test shows drift on a real device.
 
-- **Measure the bias instead of assuming it (firmware only).** The 0.5 V bias is already wired to the ADS1115 (input AIN1). Every so often, the firmware could switch the ADS1115 to measure AIN1 against ground and use the measured bias in the conversion instead of the fixed 0.5 V. The ADS1115 has its own internal reference, so this measurement does not depend on the supply. No hardware change is needed. The cost is an occasional extra conversion and a little more code in [gsr_sensor.c](../firmware/modules/gsr_sensor.c). This would also help on the Flipper.
-- **Feed the bias divider from a voltage reference chip (hardware).** A small precision reference IC (for example a 2.5 V or 3.0 V shunt reference) powers only the 56 kΩ / 10 kΩ divider. The bias then stays fixed whatever the supply does. One extra part, and the divider values change to keep 0.5 V.
-
-High-frequency switching ripple matters less than slow drift. The amplifier's 47 kΩ / 100 nF feedback forms a roughly 34 Hz low-pass filter, and the ADS1115's own digital filter rejects fast noise as well. What really affects accuracy is the DC level of the bias and any slow drift, which is exactly what the two fixes above deal with.
+High-frequency switching ripple matters less than slow drift. The amplifier's 47 kΩ / 100 nF feedback forms a roughly 34 Hz low-pass filter, and the ADS1115's own digital filter rejects fast noise as well. What really affects accuracy is the DC level of the bias, which the measurement corrects, and slow drift during a recording, which a steady regulator keeps small.
 
 #### Header pin numbers
 
@@ -252,7 +259,7 @@ With a shared core, each device has its own small, natural code, and the shared 
 Yes, easily. The Flipper runs the main thread, the GSR thread and its own Bluetooth on a single 64 MHz core with 256 KB of RAM. The Cardputer ADV's ESP32-S3 has two 240 MHz cores and 512 KB of RAM. It probably has no extra PSRAM memory chip **(check)**, but it doesn't need one. Points to get right:
 
 - **The 1 ms pause** described under "Build tools".
-- **The shared I2C bus.** The GSR converter shares a bus with the keyboard (see section 2), so the two threads take turns on it. The GSR code already takes and releases the bus around each read and write, so a lock fits in the same places.
+- **The shared I2C bus.** The GSR converter shares a bus with the keyboard and audio chip (see section 2), so the two threads take turns on it. M5Stack's I2C driver already makes them take turns, one read or write at a time, so we add no lock of our own. The GSR code already takes and releases the bus around each read and write; on the Cardputer that step just calls M5Stack's driver.
 - **GPS can stay on the main thread.** The ESP32's serial driver stores incoming bytes by itself, so the main loop can collect them each pass. A separate GPS thread would also be fine.
 - **Stack sizes.** ESP32 library calls need more stack than the Flipper's. Give each thread about 4 KB instead of 2 KB.
 
@@ -329,7 +336,7 @@ The Cardputer could collect nearly all of them, in one of two ways:
 
 **What it would gain.** Each CSV row averages 100 ms of readings. More readings in that window reduce the ADC's own random noise: going from about 300 to about 800 a second cuts it by roughly 40% (√(800/300) ≈ 1.6). The gain on noise from the skin and the amplifier is smaller, because the amplifier's filter (about 34 Hz) already smooths out quick changes, so readings taken close together are mostly the same reading. The skin signal itself changes over seconds, so nothing in it is missed at the slower rate.
 
-**Why it waits.** The side-by-side walks (section 5) are meant to show that the two devices give the same results. If the Cardputer reads at a different rate from the start, any difference is harder to explain. So the first port uses the same reading code as the Flipper, with its 1 ms pause. Its rate may still differ from the Flipper's, but `gsr_hz` records it in every file, so the difference can be seen. Once the two devices agree, try the precise timer as a separate test, and compare noise on the resistor-grid test before and after. If it is worth having, the ready pin can go on a later board version.
+**Why it waits.** The side-by-side walks (section 5) are meant to show that the two devices give the same results. If the Cardputer reads at a different rate from the start, any difference is harder to explain. So the first port uses the same reading code as the Flipper, with its 1 ms pause. Its rate may still differ from the Flipper's, but `gsr_hz` records it in every file, so the difference can be seen. Expect more repeated readings than on the Flipper. The faster ESP32 may get round the loop close to 1,000 times a second, but the ADS1115 only makes 860 new readings a second, so at least 1 in 7 reads (about 14%) will fetch a reading already taken. That is harmless: a repeat counts that reading twice in the 100 ms average, which wastes a little of the averaging but doesn't push the result up or down. The duplicate counter in [gsr_sensor.c](../firmware/modules/gsr_sensor.c) shows the rate (7–11% on the Flipper). Once the two devices agree, try the precise timer as a separate test, and compare noise on the resistor-grid test before and after. If it is worth having, the ready pin can go on a later board version.
 
 ### CSV format
 
