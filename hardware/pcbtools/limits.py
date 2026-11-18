@@ -33,9 +33,9 @@ RULES = [
                                      "no worse than today"),
     ("bias divider", "max", 8.0, None, "R1/R2 and smoothing capacitor C9 to the reference buffer; "
                                        "no worse than today"),
-    ("0.5 V guard copper", "min", {"biomap_flipper": 75, "biomap_cardputer": 55}, None,
+    ("0.5 V guard copper", "min", {"biomap_flipper": 75, "biomap_cardputer": 80}, None,
      "the guard round the amplifier input must stay one solid piece (about 80 mm2 on the Flipper, "
-     "60 mm2 on the Cardputer): a layout change that breaks it up shrinks it"),
+     "86 mm2 on the Cardputer): a layout change that breaks it up shrinks it"),
     # ── the ground-plane face: every track on it cuts the ground the other face's wires return through ──
     ("ground-face tracks", "max", {"biomap_flipper": 146, "biomap_cardputer": 30}, None,
      "tracks on the face without parts (Cardputer: only the 3.3 V, SDA and SCL hops below the tail); "

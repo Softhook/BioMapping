@@ -137,9 +137,12 @@ VIAS = [
 # GPS keep-clear: no tracks on the inner layer near the module, none under it on the outer face
 KEEPOUT = [("F", (40.5, 12.5, 75.5, 47.5)), ("B", (52.7, 24.7, 63.3, 35.3))]
 
-# 0.5 V guard: around R4, C2, R5, the input pin U1.2 and the cuff-2 wire to J2.
-# It joins the reference at U1 pin 3, right beside the input pin.
-GUARD = ("B", [(6.0, 23.5), (19.3, 23.5), (19.3, 31.2), (12.0, 31.2), (12.0, 30.0), (6.0, 30.0)])
+# 0.5 V guard: around R4, C2, R5, the input pin U1.2 and the cuff-2 wire and pin,
+# including the strip between the two cuff pins. It joins the reference at U1
+# pin 3, right beside the input pin. It reaches round the far end of the cuff-2
+# pin (between the socket's tabs), so the copper under the input wire joins the
+# copper above it; cut off, that lower part would be dropped as a loose piece.
+GUARD = ("B", [(4.5, 23.5), (19.3, 23.5), (19.3, 31.2), (12.0, 31.2), (12.0, 30.6), (4.5, 30.6)])
 
 # a closer grid under the GPS module (u-blox: fill the ground under it with vias)
 STITCH = [((54.0, 26.0, 62.0, 34.0), 2.0), ((34.5, 1.5, 82.5, 52.5), 3.0), ((1.5, 1.5, 33.0, 52.5), 5.0)]
