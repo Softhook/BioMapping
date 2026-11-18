@@ -33,19 +33,22 @@ PLACE = {
     "R10": (58.0, 19.0, 90, "B"), "R9": (60.5, 19.0, 90, "B"),
     "D1": (64.4, 44.5, 0, "B"), "R8": (60.4, 44.5, 180, "B"),
     "C8": (56.2, 45.2, 180, "B"), "BT1": (49.8, 45.2, 0, "B"),
-    # GSR circuit: the Flipper layout mirrored (x -> 82 - x, y -> y + 12), cuffs on the left edge.
-    # The cuff socket is the exception: its opening is 0.75 mm inside the left edge, so nothing
+    # GSR circuit, left to right along the signal: cuffs (left edge) -> R4 -> C2/R5 -> op-amp U1
+    # -> ADC U2 below it. The cuff socket's opening is 0.75 mm inside the left edge, so nothing
     # sticks out and the plug can be pulled straight off; its tabs keep the 0.5 mm copper-edge gap
     "J2": (5.15, 30.0, 90, "B"),
-    "R4": (14.4, 26.0, 0, "B"), "R3": (14.4, 35.0, 0, "B"),
-    "R5": (16.4, 31.3, -90, "B"), "C2": (14.1, 31.3, -90, "B"),
-    "U1": (22.0, 30.0, 0, "B"),
-    "R1": (28.4, 25.6, 180, "B"), "R2": (28.4, 28.1, 0, "B"), "C1": (26.0, 33.6, 0, "B"),
-    "C9": (28.4, 30.4, 0, "B"),                    # right under R2, across it
-    "U2": (22.0, 39.0, -90, "B"), "C3": (22.7, 43.9, -90, "B"),    # right under ADC supply pin 8
-    # test pads: GSR output and ground side by side, 0.5 V beside the ADC
-    "TP3": (17.8, 35.0, 0, "B"), "TP5": (17.8, 37.4, 0, "B"), "TP4": (25.0, 38.0, 0, "B"),
-    "R6": (17.5, 45.0, 90, "B"), "R7": (15.0, 45.0, 90, "B"),
+    "R4": (12.1, 29.0, 0, "B"),                    # in line with the cuff-2 pin
+    "R3": (11.4, 33.6, -90, "B"),                  # cuff 1 to ground, just below its pin
+    "C2": (15.2, 30.5, -90, "B"), "R5": (17.4, 31.55, -90, "B"),   # feedback, input pads level with U1 pin 2
+    "U1": (22.2, 30.0, 0, "B"),
+    # 0.5 V bias divider in a column beside the op-amp's bias input (pin 5)
+    "R1": (28.6, 25.6, 180, "B"), "R2": (28.6, 28.1, 0, "B"), "C9": (28.6, 30.5, 0, "B"),
+    "C1": (25.7, 33.8, 0, "B"),                    # right under the op-amp supply pin 8
+    # ADC turned so its inputs face the op-amp and its I2C pins face away, towards the tail
+    "U2": (26.4, 39.5, 0, "B"), "C3": (31.3, 38.9, 0, "B"),       # C3 beside ADC supply pin 8
+    # test pads in one row: ground, GSR output, 0.5 V; the last two sit on their wires
+    "TP5": (17.2, 35.0, 0, "B"), "TP3": (19.72, 35.0, 0, "B"), "TP4": (22.2, 35.0, 0, "B"),
+    "R7": (29.6, 44.4, 90, "B"), "R6": (32.1, 44.4, 90, "B"),     # I2C pull-ups, not fitted here
 }
 TRACKS = [
     # ── 5 V -> 3.3 V: from the tail's 5 V pad straight across to the regulator ──
@@ -73,55 +76,53 @@ TRACKS = [
     ("B", SIG, ["R9.2", (60.5, 12.5), (38.25, 12.5), "J1.7"]),
     # ── 3V3 to the GSR side: inner face under the tail, then down the right of the circuit ──
     ("B", PWR, ["U3.5", (62.64, 8.4)]),
-    ("F", PWR, ["net:+3V3", (62.64, 8.4), (33.0, 8.4)]),
-    ("B", PWR, ["net:+3V3", (33.0, 8.4), (33.0, 47.5), (15.0, 47.5), "R7.1"]),
-    ("B", PWR, ["net:+3V3", (33.0, 25.6), "R1.1"]),
-    ("B", PWR, ["net:+3V3", (33.0, 31.91), "U1.8"]),
-    ("B", PWR, ["U1.8", (25.05, 31.91), "C1.1"]),          # C1 right under the op-amp supply pin
-    ("B", PWR, ["C1.2", (28.15, 33.6)]),
-    ("B", PWR, ["net:+3V3", (33.0, 42.95), "C3.1"]),
-    ("B", SIG, ["U2.8", (22.0, 42.95), "C3.1"]),
-    ("B", PWR, ["C3.2", (22.7, 45.95)]),
-    ("B", SIG, ["R6.1", (17.5, 47.5)]),
+    ("F", PWR, ["net:+3V3", (62.64, 8.4), (33.6, 8.4)]),
+    ("B", PWR, ["net:+3V3", (33.6, 8.4), (33.6, 45.31), "R6.1", "R7.1"]),
+    ("B", PWR, ["net:+3V3", (33.6, 25.6), "R1.1"]),
+    ("B", PWR, ["net:+3V3", (33.6, 31.91), "U1.8"]),
+    ("B", PWR, ["U1.8", "C1.1"]),                          # C1 right under the op-amp supply pin
+    ("B", PWR, ["C1.2", (26.65, 34.95)]),
+    ("B", PWR, ["net:+3V3", (33.6, 37.4), (30.35, 37.4), "C3.1"]),
+    ("B", SIG, ["U2.8", (30.35, 39.5), "C3.1"]),                    # ADC supply pin into C3
+    ("B", PWR, ["C3.2", (32.4, 40.15)]),
     # ── GSR signal path ──
-    ("B", SIG, ["J2.2", (12.4, 29.0), (12.4, 27.4), "R4.1"]),
-    ("B", SIG, ["J2.1", (12.4, 31.0), (12.4, 33.6), "R3.1"]),
-    ("B", SIG, ["R4.2", (15.31, 28.0), "C2.1"]),
-    ("B", SIG, ["C2.1", "R5.1", (18.5, 30.39), "U1.2"]),
-    ("B", SIG, ["U1.1", (17.8, 31.91), (17.5, 32.21), "R5.2", "C2.2"]),
-    ("B", SIG, [(17.8, 31.91), (17.8, 33.5), (22.5, 33.5), "U2.4"]),
-    ("B", SIG, ["U1.3", "U1.6"]),
+    ("B", SIG, ["J2.2", "R4.1"]),                          # cuff 2: straight in
+    ("B", SIG, ["J2.1", (11.4, 31.0), "R3.1"]),
+    ("B", SIG, ["R3.2", (11.4, 35.8)]),
+    ("B", SIG, ["R4.2", "C2.1", "R5.1", "U1.2"]),          # amplifier input: R4, C2, R5, U1 pin 2
+    ("B", SIG, ["C2.2", "R5.2", "U1.1"]),                  # amplifier output back through C2 and R5
+    ("B", SIG, ["U1.1", "TP3.1", (19.72, 39.0), "U2.4"]),           # GSR to the ADC
+    ("B", SIG, ["U1.3", (22.2, 29.36), "U1.6"]),           # 0.5 V reference under the chip
     ("B", SIG, ["U1.6", "U1.7"]),
-    ("B", SIG, [(23.0, 29.36), "U2.5"]),
-    ("B", SIG, ["R1.2", "R2.1", "U1.5"]),
-    ("B", SIG, ["R2.1", "C9.1"]),
+    ("B", SIG, [(22.2, 29.36), "TP4.1", (22.2, 38.5), "U2.5"]),
+    ("B", SIG, ["R1.2", "R2.1", "C9.1"]),                  # bias divider
+    ("B", SIG, ["U1.5", "R2.1"]),
     ("B", PWR, ["R2.2", "C9.2"]),
-    ("B", PWR, ["U1.4", (19.52, 27.0)]),                   # ground pin to its via, just outside the guard
-    ("B", SIG, [(17.8, 33.5), "TP3.1"]),
-    ("B", SIG, [(23.0, 35.2), (25.0, 35.2), "TP4.1"]),
+    ("B", PWR, ["U1.4", (19.72, 27.0)]),                   # ground pin to its via, just outside the guard
+    ("B", SIG, ["TP5.1", (17.2, 36.6)]),
     # ── ADC and I2C ──
-    ("B", SIG, ["U2.3", (22.0, 35.4), (19.7, 35.4)]),
-    ("B", SIG, ["U2.1", (21.0, 35.4)]),
-    ("B", SIG, ["U2.9", (21.5, 43.2), (17.5, 43.2), "R6.2"]),
-    ("B", SIG, ["U2.10", (21.0, 42.4), (15.0, 42.4), "R7.2"]),
-    ("F", SIG, ["net:I2C_SCL", (19.8, 42.4), (30.6, 42.4), (30.6, 10.6), (41.25, 10.6)]),
-    ("F", SIG, ["net:I2C_SDA", (18.8, 43.2), (31.6, 43.2), (31.6, 11.6), (44.25, 11.6)]),
+    ("B", SIG, ["U2.3", (23.3, 39.5), (22.8, 40.0)]),
+    ("B", SIG, ["U2.1", (23.3, 40.5), (22.8, 40.0)]),
+    ("B", SIG, ["U2.10", (29.6, 40.5), (29.6, 41.9), "R7.2"]),
+    ("B", SIG, ["U2.9", (30.6, 40.0), (30.6, 41.9), "R6.2"]),
+    ("F", SIG, ["net:I2C_SCL", (29.6, 41.9), (29.6, 40.5), (30.6, 39.5), (30.6, 10.6), (41.25, 10.6)]),
+    ("F", SIG, ["net:I2C_SDA", (30.6, 41.9), (31.6, 40.9), (31.6, 11.6), (44.25, 11.6)]),
     ("B", SIG, ["J1.5", (41.25, 10.6)]),
     ("B", SIG, ["J1.3", (44.25, 11.6)]),
 ]
 VIAS = [
-    ("+3V3", 62.64, 8.4), ("+3V3", 33.0, 8.4), ("I2C_SCL", 19.8, 42.4), ("I2C_SDA", 18.8, 43.2),
+    ("+3V3", 62.64, 8.4), ("+3V3", 33.6, 8.4), ("I2C_SCL", 29.6, 41.9), ("I2C_SDA", 30.6, 41.9),
     ("I2C_SCL", 41.25, 10.6), ("I2C_SDA", 44.25, 11.6),
     ("GND", 59.1, 5.5), ("GND", 54.4, 6.45), ("GND", 64.7, 9.5), ("GND", 74.8, 24.0),
-    ("GND", 19.7, 35.4), ("GND", 21.5, 35.4), ("GND", 19.52, 27.0), ("GND", 29.32, 29.2), ("GND", 28.15, 33.6),
-    ("GND", 22.7, 45.95), ("GND", 15.31, 37.0),
+    ("GND", 19.72, 27.0), ("GND", 26.65, 34.95), ("GND", 29.5, 29.3), ("GND", 22.8, 40.0),
+    ("GND", 32.4, 40.15), ("GND", 11.4, 35.8), ("GND", 17.2, 36.6),
 ]
 # GPS keep-clear: no tracks on the inner layer near the module, none under it on the outer face
 KEEPOUT = [("F", (40.5, 12.5, 75.5, 47.5)), ("B", (52.7, 24.7, 63.3, 35.3))]
 
 # 0.5 V guard: around R4, C2, R5, the input pin U1.2 and the cuff-2 wire to J2.
 # It joins the reference at U1 pin 3, right beside the input pin.
-GUARD = ("B", [(19.0, 23.2), (5.95, 23.2), (5.95, 30.0), (13.0, 30.0), (13.0, 31.4), (19.0, 31.4)])
+GUARD = ("B", [(6.0, 23.5), (19.3, 23.5), (19.3, 31.2), (12.0, 31.2), (12.0, 30.0), (6.0, 30.0)])
 
 STITCH = [((34.5, 1.5, 82.5, 52.5), 3.0), ((1.5, 1.5, 33.0, 52.5), 5.0)]
 
