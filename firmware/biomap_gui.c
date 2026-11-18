@@ -393,7 +393,7 @@ static CalMeasureResult calibration_wizard_measure(BioMapApp* app, ViewPort* vp,
     // After the flush, not before: the caller's click has only just ended,
     // and C9 smooths the bias over ~85 ms, so any dip the speaker put on
     // 3.3 V would still be partly there — the same reason recording start
-    // checks before its chirp. The two ticks after it clear the ~25 ms gap
+    // checks before its chirp. The two ticks after it clear the ~50 ms gap
     // the check leaves in the samples before the dwell starts.
     bool bias_done = gsr_sensor_run_bias_check(gsr, GSR_BIAS_CHECK_TIMEOUT_MS);
     float bias_v = bias_done ? gsr_sensor_get_bias_measured_volts(gsr) : NAN;

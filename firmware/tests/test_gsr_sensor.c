@@ -1957,7 +1957,8 @@ static void test_run_bias_check_times_out(void) {
     uint32_t start = furi_get_tick();
     bool done = gsr_sensor_run_bias_check(gsr, GSR_BIAS_CHECK_TIMEOUT_MS);
     uint32_t waited = furi_get_tick() - start;
-    printf("  done=%d after %lu ms (expect 0, ~100)\n", done, (unsigned long)waited);
+    printf("  done=%d after %lu ms (expect 0, ~%d)\n", done, (unsigned long)waited,
+           GSR_BIAS_CHECK_TIMEOUT_MS);
     assert(!done);
     assert(waited >= GSR_BIAS_CHECK_TIMEOUT_MS);
 

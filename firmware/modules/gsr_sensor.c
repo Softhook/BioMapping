@@ -100,12 +100,14 @@
 //   multiplexer are never written to the ring buffer.
 //   The ADS1115's own noise at ±1.024 V is tens of µV, under 0.01 % of
 //   0.5 V, so one conversion would do for that. 16 reads at the worker's
-//   ~1 kHz pace span about 16 ms (the ADC makes ~860 conversions a second,
-//   so 2 or 3 of them are repeats; harmless for a mean). The average adds
+//   real ~500 Hz pace (see the pacing notes further down) span about
+//   30 ms; the whole check, switch-over and settle included, takes about
+//   40–50 ms, and a radio sweep landing in the middle adds ~15 ms. That
+//   is also the gap it leaves in the skin samples. The average adds
 //   little on the PCBs: C9 already smooths the bias over ~85 ms, so a
-//   supply dip that gets through C9 lasts longer than 16 ms and the average
-//   can't remove it either. It only helps on a board without C9, against
-//   a dip shorter than the 16 ms.
+//   supply dip that gets through C9 lasts longer than the 30 ms and the
+//   average can't remove it either. It only helps on a board without C9,
+//   against a shorter dip.
 
 #define BIAS_AVG_READS 16
 

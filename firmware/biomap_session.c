@@ -456,8 +456,8 @@ static bool key_toggle_recording(Session* s, FuriMutex* mutex,
         }
         // 0.5 V bias check for this recording (gsr_sensor.h, "When it is
         // measured"): done now, before the first row, so one value holds
-        // for the whole file and goes in its header. Takes about 20 ms; if
-        // it hasn't finished in 100 ms (I2C trouble) it is cancelled, so it
+        // for the whole file and goes in its header. Takes about 50 ms; if
+        // it hasn't finished in 200 ms (I2C trouble) it is cancelled, so it
         // can't land mid-recording, and the previous value is used.
         bool  bias_line = false;
         float bias_measured = NAN;
@@ -754,16 +754,22 @@ static void handle_live_stream_tick_locked(
 // its start-up current can pull the 3.3 V supply down. Only the first
 // connect of the session: the visualiser reconnects by itself after a
 // dropout and carries on the same track, and a new check then would put a
-// step (and a ~25 ms gap) in the middle of it. The value isn't in the BLE
-// packet, so it is logged. Blocks for about 20 ms (100 ms at most), so it
+// step (and a ~50 ms gap) in the middle of it. The value isn't in the BLE
+// packet, so it is logged. Blocks for about 50 ms (200 ms at most), so it
 // runs before the Tick handler takes app->mutex.
+// A check that times out, or a sensor that isn't answering at that moment,
+// is tried again on the next tick, up to LIVE_BIAS_MAX_TRIES ticks after
+// the connect. The cap keeps any retry within the first few hundred ms of
+// the stream, and stops I2C trouble from blocking every tick for 200 ms.
+#define LIVE_BIAS_MAX_TRIES 3
 static void live_stream_bias_check_on_first_connect(Session* s) {
     if(s->live_bias_checked) return;
     if(!s->bt_stream || !bt_stream_is_connected(s->bt_stream)) return;
-    s->live_bias_checked = true;
+    if(++s->live_bias_tries >= LIVE_BIAS_MAX_TRIES) s->live_bias_checked = true;
     if(!s->gsr || !gsr_sensor_available(s->gsr)) return;
 
     bool done = gsr_sensor_run_bias_check(s->gsr, GSR_BIAS_CHECK_TIMEOUT_MS);
+    if(done) s->live_bias_checked = true;
     float measured = done ? gsr_sensor_get_bias_measured_volts(s->gsr) : NAN;
     float used = gsr_sensor_get_bias_volts(s->gsr);
     if(used <= 0.0f) used = GSR_BIAS_NOMINAL_V;
@@ -964,7 +970,9 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
 
             // Real wall-clock capture, taken before anything else (mutex
             // acquire, UART draining that preceded this Tick in the queue,
-            // etc. all show up in the diff below). See RecordingState's
+            // etc. all show up in the diff below). The one exception is
+            // Live Stream's bias check just above, on the first connect
+            // only: its ~50 ms shows up in that one tick's diff. See RecordingState's
             // tick_dt_ms doc comment (biomap_types.h) for why total_ticks/
             // `rel` can't be used for this instead.
             uint32_t now_tick = furi_get_tick();

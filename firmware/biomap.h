@@ -60,8 +60,10 @@ typedef struct Session {
     // for this mode at all (docs/archive/bluetooth_serial_investigation.md §3).
     BtStream*      bt_stream;
     // Live Stream: set once the bias check on the first phone connect has
-    // run, so a reconnect doesn't repeat it (biomap_session.c).
+    // finished (or been given up on), so a reconnect doesn't repeat it;
+    // live_bias_tries counts the ticks spent trying (biomap_session.c).
     bool           live_bias_checked;
+    uint8_t        live_bias_tries;
     ViewPort*      vp;          // == app->screen_vp while a session is active; not owned/freed here
     FuriTimer*     timer;
 

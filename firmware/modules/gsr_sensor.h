@@ -101,10 +101,10 @@ static inline bool gsr_bias_in_range(float v) {
     return v >= GSR_BIAS_MIN_V && v <= GSR_BIAS_MAX_V;
 }
 
-// How long gsr_sensor_run_bias_check() waits. A check takes about 20 ms
-// (25 ms with a radio sweep in the middle); this much longer means I2C
-// trouble.
-#define GSR_BIAS_CHECK_TIMEOUT_MS 100
+// How long gsr_sensor_run_bias_check() waits. A check takes about 40–50 ms
+// at the worker's real ~500 Hz (~65 ms with a radio sweep in the middle);
+// this much longer means I2C trouble.
+#define GSR_BIAS_CHECK_TIMEOUT_MS 200
 
 // TIA conversion: normalised ADC counts (pga_index 5 scale, 7.8125 µV per
 // unit, see gsr_sensor.c) → nanosiemens, from the transimpedance amplifier
@@ -206,7 +206,7 @@ float gsr_sensor_get_bias_measured_volts(const GsrSensor* gsr);
 
 // Bias check on request (see "When it is measured" above). The worker
 // switches to the bias, averages 16 reads of it, and switches back — about
-// 20 ms.
+// 40–50 ms.
 //   request() asks for one and returns a ticket;
 //   done(ticket) is true once a check has finished after that request;
 //   cancel() withdraws a request that is still pending or in progress: a
