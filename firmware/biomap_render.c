@@ -43,8 +43,9 @@ static float gps_hacc_display(const GpsStatus* g) {
 // Format + draw at (x, y) in one call, returning y + 10 for the next line.
 // Replaces the repetitive snprintf + canvas_draw_str + y += 10 triplet
 // that appears ~30 times across diagnostics, GPS, and calibration renders.
-// buf is intentionally capped at 48 bytes — FontSecondary fits ≤ ~21 glyphs
-// per line on the 128 px display, so 48 chars is a safe ceiling per line.
+// buf is intentionally capped at 48 bytes — FontSecondary (haxrcorp 4089)
+// glyphs are 3–6 px wide, about 25–30 per line on the 128 px display, so
+// 48 chars is a safe ceiling per line.
 static int draw_fmt(Canvas* c, int x, int y, const char* fmt, ...) {
     char buf[48];
     va_list args;
@@ -463,24 +464,29 @@ static void render_diagnostics(Canvas* c, BioMapApp* a) {
         y = draw_fmt(c, 0, y, "Raw: %.0fnS / %.1fk", (double)raw_ns,  (double)raw_kohm);
         y = draw_fmt(c, 0, y, "Filt:%.0fnS / %.1fk", (double)filt_ns, (double)filt_kohm);
 
-        // Vb: the 0.5 V bias as measured (AIN1 against ground), in mV —
-        // "--" when no reading has been plausible, so 500.0 is assumed.
-        float vb = gsr_sensor_get_bias_volts(a->session.gsr);
-        if(vb > 0.0f) {
-            y = draw_fmt(c, 0, y, "PGA:%u Cal:%s Vb:%.1fmV",
-                         (unsigned)pga, a->cal_active ? "yes" : "no", (double)(vb * 1000.0f));
-        } else {
-            y = draw_fmt(c, 0, y, "PGA:%u Cal:%s Vb:--",
-                         (unsigned)pga, a->cal_active ? "yes" : "no");
-        }
+        y = draw_fmt(c, 0, y, "PGA:%u Cal:%s Chg:%lu",
+                     (unsigned)pga, a->cal_active ? "yes" : "no",
+                     (unsigned long)gsr_sensor_get_pga_change_count(a->session.gsr));
         y = draw_fmt(c, 0, y, "Sngl:%ld Mean:%ld(N=%ld)",
                      (long)a->session.pipeline.display.raw_sample_count,
                      (long)mean_cnt, (long)window_n);
-        y = draw_fmt(c, 0, y, "Hz:%.0f OK:%.0f%% F:%lu Chg:%lu",
+        // Vb: the 0.5 V bias in use (AIN1 against ground), whole mV — "--"
+        // when no reading has been plausible, so 500 is assumed. The CSV
+        // header has it to 0.1 mV. Vb sits after F, which is 0 while the
+        // sensor is working, rather than after Chg, which only grows: the
+        // line fits the 128 px screen while F stays under 100.
+        float vb = gsr_sensor_get_bias_volts(a->session.gsr);
+        char vb_str[8];
+        if(vb > 0.0f) {
+            snprintf(vb_str, sizeof(vb_str), "%.0f", (double)(vb * 1000.0f));
+        } else {
+            strcpy(vb_str, "--");
+        }
+        y = draw_fmt(c, 0, y, "Hz:%.0f OK:%.0f%% F:%lu Vb:%s",
                      (double)gsr_sensor_get_worker_hz(a->session.gsr),
                      (double)gsr_sensor_get_success_rate(a->session.gsr),
                      (unsigned long)gsr_sensor_get_consecutive_failures(a->session.gsr),
-                     (unsigned long)gsr_sensor_get_pga_change_count(a->session.gsr));
+                     vb_str);
 
         uint32_t dup_gap = gsr_sensor_get_duplicate_gap_min_ticks(a->session.gsr);
         char dg[12];
@@ -829,7 +835,7 @@ void calibration_wizard_render(Canvas* c, void* ctx) {
         if(isnan(bias_v)) {
             canvas_draw_str(c, 0, 37, "No reading. Check wiring.");
         } else {
-            draw_fmt(c, 0, 37, "Bias %.1fmV (need %.0f-%.0f)", (double)(bias_v * 1000.0f),
+            draw_fmt(c, 0, 37, "Bias %.0fmV, need %.0f-%.0f", (double)(bias_v * 1000.0f),
                      (double)(GSR_BIAS_MIN_V * 1000.0f), (double)(GSR_BIAS_MAX_V * 1000.0f));
         }
         canvas_draw_str(c, 0, 49, "Check 3.3V supply.");
