@@ -900,7 +900,7 @@ void show_current_calibration_render(Canvas* c, void* ctx) {
     draw_fmt(c, 0, 23, "Active %s Cal:", active ? "Custom" : "Default");
     // Fit R² rides on the Gain line for a custom cal (same pairing as the
     // wizard's fit-fail screen); the default transform has no fit or
-    // noise data, so the Offset line stays plain for it.
+    // noise data, so the Zero line stays plain for it.
     if(active) {
         draw_fmt(c, 0, 35, "Gain: %.3fx  R\xb2: %.3f", (double)gain, (double)r_squared);
         draw_fmt(c, 0, 47, "Zero:%.0f  N:%.2fnS",

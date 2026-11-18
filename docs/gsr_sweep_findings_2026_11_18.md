@@ -21,6 +21,15 @@
 - **Fixed the same evening:** the wizard now measures the zero directly.
   A new sweep (`reference_test_results3.csv`) has every point from 10 kΩ to
   9 MΩ within ±0.7 %. See "Result with the new calibration" below.
+- **Tested and dropped the same night:** the idea that the converter's
+  ranges (PGA) caused the middle to read 0.1–0.3 % low. Measured on the
+  device, PGA 4 and PGA 5 agree to 0.001 %, so they can't be the cause. A
+  per-range correction was built, tried
+  (`reference_test_results4.csv`) and removed. See "Tested: the ranges
+  are not the cause" below. The middle error is most likely the resistor
+  board's own 47k setting.
+
+![All four sweeps: error in % (top) and in nS (bottom) against resistor](gsr_sweeps_2026_11_18.png)
 
 ## Why the bias correction doesn't help the high end
 
@@ -86,6 +95,11 @@ about 68 kΩ reads 5 to 11 nS high.
   fair test.
 - The beep theory was announced too confidently, before there was any
   evidence for it.
+- The per-range correction was built into the wizard before the range idea
+  had been checked on the device. A one-off check would have answered the
+  question with less code. It did no lasting harm (it was never committed),
+  but it is the same mistake as the beep theory: the pattern in the sweep
+  looked convincing and wasn't proof.
 - "Calibration should be accurate to 1 nS everywhere" came from an
   idealised model that ignored resistor tolerance and run-to-run changes.
   It was too optimistic.
@@ -98,8 +112,9 @@ about 68 kΩ reads 5 to 11 nS high.
   more (the zero is removed before the conversion), so the check now uses
   the fully calibrated value, and high resistances on this prototype no
   longer read as disconnected.
-- `reference_test_results2.csv` and `reference_test_results3.csv` have
-  their minus signs back and a date line. The spreadsheet that makes them
+- `reference_test_results2.csv`, `reference_test_results3.csv` and
+  `reference_test_results4.csv` have their minus signs back and a date
+  line. The spreadsheet that makes them
   drops the sign of the error, so most of the readings were actually low.
 
 ## Result with the new calibration
@@ -126,19 +141,118 @@ it before converting to nS, and fits a gain only (no offset). Sweep in
 **What got slightly worse**
 
 - **The middle (100k–470k) reads 0.1–0.3 % low.** In August it read about
-  0 % there, because the old offset term let the line pass through all
-  three calibration points. The gain-only fit can't do that, and it is
-  mostly decided by the 47k point (the largest number).
+  0 % there. The gain-only fit is mostly decided by the 47k point (the
+  largest number), so whatever is different about 100k and up shows.
 - **It is a percentage error, not a leftover zero.** In nS it shrinks
   towards high resistance: about −11 nS at 100k, −6 nS at 470k, −4 nS at
   1 MΩ and 0 at 9 MΩ. A wrong zero would be the same number of nS
   everywhere.
-- **Best guess: the converter's gain ranges (PGA) don't quite match each
-  other.** The ADS1115 switches range as the reading changes; 47k is read
-  on a different range from 470k and above, and one gain can't correct
-  all of them. The errors fall into rough groups (47k–68k about 0 %,
-  100k–270k about −0.1 %, 330k up about −0.2 to −0.7 %), which fits, but
-  it is not yet checked.
+
+### Why the middle reads low: first idea, since ruled out
+
+This was the reasoning at the time. The device test in the next section
+showed PGA 4 and 5 read the same, so the idea below is wrong. It is kept
+so the same idea isn't tried again.
+
+**First idea: the converter's ranges (PGA) don't read quite the
+same.** The ADS1115 switches range depending on how big the signal is.
+Working out which range each resistor lands on (connected after a gap with
+nothing attached, as when swapping clip leads):
+
+| Range | Resistors | New sweep error |
+|---|---|---|
+| PGA 2 | 10k, 15k | −0.10, −0.14 % |
+| PGA 3 | 22k, 33k | −0.05, −0.04 % |
+| PGA 4 | 47k, 68k | 0.00, −0.02 % |
+| PGA 5 | 100k and up | −0.10 to −0.18 % (100k–330k) |
+
+Each pair agrees with itself, and the jump sits exactly between 68k and
+100k, where the range changes from 4 to 5. The gain is set mostly by 47k
+(range 4), so range 5, where most real skin readings land, ends up about
+0.1 % low. The datasheet allows ranges to differ by roughly this much.
+
+**The old offset term was hiding this, not curing it.** Two numbers (gain
+and offset) can only pass exactly through three points if the three errors
+happen to lie on a straight line. A range step between 47k and 100k nearly
+does over 2 000–21 000 nS, so the old fit tilted the line and added a few
+nS of offset to cover it. A simulated −0.1 % step on range 5, put through
+the old fit, gives 100k at −0.06 % (August's exact figure), the middle
+near 0 %, and about +6 nS too much at the high end. August's high end did
+read +2 to +3 nS high. That creep was the price.
+
+**Putting the offset back would undo the high-end fix.** Applying the old
+gain + offset fit on top of the new readings (using the 47k, 100k and
+470k points) brings 150k–330k to about 0 to +0.1 %, but 470k goes to
++0.14 % and the fit adds +9.5 nS, so 9 MΩ would read about +8 %.
+
+**Above 470k the rest is small.** Taking out a −0.12 % range-5 error leaves
+1–9 MΩ about −1.4 nS on average: a few counts of zero drift plus the
+±0.5 nS display rounding.
+
+**Caveats.** A single point within 0.1 % can't be told apart from its own
+0.1 % resistor (100k's −11 nS is right at its tolerance). The case rests on
+five resistors in a row (150k–470k) reading low together and the jump
+matching the range change. It also assumes there was a gap between
+resistors; swapped without a gap, the ranges move and the grouping fits
+much worse. Not yet checked on the device.
+
+### Tested: the ranges are not the cause
+
+To test the idea, the wizard's 100k step was changed to read the
+resistor on PGA 5, 4, 3, 2 and 5 again, holding each range for 3 s, and
+to save one correction per range. Using the same resistor on every range
+means its tolerance doesn't matter. The success screen showed the largest
+difference as 0.1 %. The saved corrections (`biomap.cal` and the header
+of `biomap_036.csv`) were:
+
+| Range | Correction | Meaning |
+|---|---|---|
+| PGA 2 | 0.99948 | read 0.05 % high against PGA 5 |
+| PGA 3 | 0.99905 | read 0.10 % high against PGA 5 |
+| PGA 4 | 1.00001 | same as PGA 5 |
+| PGA 5 | 1 | reference |
+
+Same calibration run: gain 0.9992, zero −326.7 counts, noise
+0.11 / 0.18 / 0.54 nS.
+
+The sweep with these corrections (`reference_test_results4.csv`, with the
+range of each reading noted):
+
+| Resistors | Range | Before (results3) | With corrections (results4) |
+|---|---|---|---|
+| 10k, 15k | PGA 2 | −0.10, −0.14 % | −0.18, −0.19 % |
+| 22k | PGA 2 (PGA 3 before) | −0.05 % | −0.16 % |
+| 33k | PGA 3 | −0.04 % | −0.13 % |
+| 47k, 68k | PGA 4 | 0.00, −0.02 % | 0.00, −0.03 % |
+| 100k–470k | PGA 5 | −0.11 to −0.28 % | −0.13 to −0.33 % |
+| 1–9 MΩ | PGA 5 | 0 to −4 nS | −2 to −5 nS |
+
+**What this shows**
+
+- **PGA 4 and PGA 5 agree**, so the jump between 68k and 100k is not a
+  range effect. The middle didn't move, as expected once that's known.
+- **PGA 2 and 3 do differ from PGA 5 when read at the 100k level**, and
+  the firmware applied that correctly: 33k moved by −0.09 %, matching its
+  −0.095 % correction. But the low end then agreed *less* with the
+  resistor board, not more. Either the difference measured at 100k's
+  small signal (10–20 % of those ranges) doesn't hold at the larger
+  10k–33k signals, or the board's own 0.1 % tolerance hides it. These
+  references can't tell which.
+- **The high end shifted by about 2 nS.** That comes from the zero:
+  −327 counts this run against about −313 earlier. 14 counts is about 4 nS at
+  the bottom of the range, so two wizard runs' zeros differ by a few nS.
+
+**Decision:** the per-range correction was removed (firmware back to the
+committed version: calibration file v6, zero + gain only). The device
+needs the wizard run again, because a v7 file is ignored.
+
+**Most likely cause of the middle now: the reference values themselves.**
+The wizard's gain is set mostly by the 47k, and the sweep uses the same
+resistor board. If the board's 47k setting is about 0.1 % off (its
+tolerance allows this), the calibration builds that in, 47k reads exactly
+0 % in every sweep, and the rest read about 0.1 % low. That is the
+pattern in both the results3 and results4 sweeps. No firmware change can
+fix it; it can only be checked against a more accurate reference.
 
 **A limit on the high-end numbers:** the diagnostic screen shows whole nS,
 which is itself ±0.5 nS. At 9 MΩ (111 nS) that is ±0.45 %, so the 1–9 MΩ
@@ -151,21 +265,21 @@ board.
 
 ## Still to explore
 
-1. **Check the PGA idea (no code needed).** Repeat a few points (47k,
-   100k, 470k, 1 MΩ) and note `PGA:` on the diagnostic screen for each. If
-   the error steps where the PGA changes, the gain ranges are the cause.
-   If it is, one fix is a separate gain per range, measured by the wizard;
-   that needs a calibration point on each range, so think it through
-   before building anything.
-2. **Weighting the fit.** The gain-only fit is dominated by the 47k point.
-   Weighting each point by its percentage error would share the error
-   more evenly across 47k–470k (roughly −0.1 % everywhere instead of
-   0 % at 47k and −0.28 % at 470k). Try it on these numbers first, before
-   changing anything.
+1. **Check the resistor board's 47k, 100k and 470k settings** with a
+   meter better than 0.1 %, or swap in a separate 0.01 % 47k for the
+   wizard. If the board's 47k is about 0.1 % low, that explains the
+   middle. The PGA idea is done: see "Tested: the ranges are not the
+   cause".
+2. **Weighting the fit (tried on the numbers, not worth it).** Weighting
+   each point by its percentage error gives gain 1.00125. That moves
+   everything about +0.1 %: the middle becomes about 0 %, but 47k and 68k
+   go to about +0.12 %. It moves the error around rather than fixing it.
 3. **Repeatability.** Run the wizard two or three times and note Gain and
    Zero each time. The zero should agree within a few counts (1 count is
    about 0.3 nS). If it does, the 18 Nov run-to-run problem has gone with
-   the old method.
+   the old method. So far: −313 counts on the diagnostic screen earlier
+   and −327 from the results4 wizard run, 14 counts (about 4 nS at 9 MΩ)
+   apart. Not yet two wizard runs back to back.
 4. **Did the bias correction help the low end?** One sweep each still isn't
    enough. What it really protects against is drift (battery level,
    temperature, speaker load), so the fair test is the same resistor read

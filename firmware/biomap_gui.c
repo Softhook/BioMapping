@@ -478,9 +478,10 @@ static CalMeasureResult calibration_wizard_measure_zero(BioMapApp* app, ViewPort
                                                          float* out_zero, float* out_std_ns) {
     gsr_sensor_set_calibration(gsr, false, 1.0f, 0.0f);
 
-    // Flush (1 s): also lets autoranging climb from the default PGA towards
-    // the most sensitive one, as an open circuit reads near zero.
-    for(int i = 0; i < 10; i++) {
+    // Flush (2 s): also lets autoranging climb from the default PGA 2 to the
+    // most sensitive PGA 5, as an open circuit reads near zero. Each step up
+    // needs 5 low ticks, so the climb takes at least 1.5 s.
+    for(int i = 0; i < 20; i++) {
         furi_delay_ms(100);
         gsr_sensor_tick(gsr);
     }

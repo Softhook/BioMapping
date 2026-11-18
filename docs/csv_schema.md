@@ -99,7 +99,7 @@ Short wobbles on the 3.3 V supply are smoothed out by C9 on the board
 than that at the moment of the check would still be captured.
 
 - `measured_mv` is what the check read, or `none` if it failed (I2C error,
-  or no answer within 100 ms).
+  or no answer within 200 ms).
 - `used_mv` is the bias applied to every row. It equals `measured_mv` when
   the reading was in range (450–550 mV). Otherwise it is the last good value
   from earlier in the session, or 500.0 if there has been none — so a

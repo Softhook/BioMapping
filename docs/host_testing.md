@@ -251,7 +251,7 @@ Y2K pivot helper — previously declared and shipped but with zero test coverage
 `test_gsr_sensor.c` (added 2026-07-22, reversing the earlier decision to
 skip it) covers: ADS1115 probe success/failure at `alloc()`, TIA
 conversion against an independently-computed expected value, calibration
-gain/offset application, PGA autoranging in both directions (5-tick
+zero and gain application, PGA autoranging in both directions (5-tick
 hysteresis ranging up, immediate ranging down on saturation), PGA lock
 suppressing autoranging, and both disconnect paths — the `tick()`-level
 20-consecutive-out-of-range debounce, and the worker-level
