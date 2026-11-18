@@ -60,6 +60,12 @@ def numbers(pcb_path):
     for label, key in LONG_NETS:
         n[label] = round(length.get(key, 0))
     n["vias"] = vias
+    # copper tracks on the ground-plane face (the face without parts): each one
+    # is a cut in the ground the other face's wires use as their return path
+    on_f = sum(not fp.IsFlipped() for fp in b.GetFootprints())
+    plane = pcbnew.B_Cu if on_f > len(b.GetFootprints()) / 2 else pcbnew.F_Cu
+    n["ground-face tracks"] = round(sum(pcbnew.ToMM(t.GetLength()) for t in b.GetTracks()
+                                        if t.GetClass() == "PCB_TRACK" and t.GetLayer() == plane), 1)
     gps = next((fp for fp in b.GetFootprints() if fp.GetReference() == "U4"), None)
     if gps is None:                     # the Cardputer's flex tail: connectors only
         return n
@@ -92,6 +98,7 @@ def measure(root=HARDWARE, names=BOARDS):
             for c, (sup, gnd) in DECOUPLING.items() if f"{c}-{sup[0]} supply" in n))
         print("  GSR copper: " + ", ".join(f"{label} {n[label]:.1f} mm" for label, _ in GSR_NETS))
         print("  long nets: " + ", ".join(f"{label} {n[label]}" for label, _ in LONG_NETS) + f" mm; vias {n['vias']}")
+        print(f"  tracks on the ground-plane face: {n['ground-face tracks']} mm")
         print(f"  GPS ground vias: {n['GPS plane ground vias']} in the 50 x 50 mm plane, "
               f"{n['under-GPS ground vias']} under the module; 0.5 V guard copper {n['0.5 V guard copper']} mm2")
 

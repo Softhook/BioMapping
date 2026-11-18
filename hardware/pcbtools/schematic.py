@@ -309,9 +309,8 @@ CARDPUTER = gsr_core() + gps_block() + [
     part("C5", "C", "10uF", FP_C, {"1": "+3V3", "2": "GND"}, "Regulator output capacitor"),
     part("H1", "MH", "M2", "MountingHole:MountingHole_2.2mm_M2", {}, "M2 x 4 mm screw into Cardputer back"),
     part("H2", "MH", "M2", "MountingHole:MountingHole_2.2mm_M2", {}, "M2 x 4 mm screw into Cardputer back"),
-    part("R6", "R", "4.7k DNP", FP_R, {"1": "+3V3", "2": "I2C_SDA"}, "Leave unfitted: the Cardputer bus already has pull-ups"),
-    part("R7", "R", "4.7k DNP", FP_R, {"1": "+3V3", "2": "I2C_SCL"}, "Leave unfitted: the Cardputer bus already has pull-ups"),
 ]
+# No I2C pull-ups on the Cardputer board: the Cardputer's bus already has them.
 
 CARDPUTER_TAIL = [
     part("J1", "Conn_2x07", "Cardputer ADV EXT header", "Connector_PinHeader_2.54mm:PinHeader_2x07_P2.54mm_Vertical",
@@ -742,10 +741,9 @@ def tail_pads(s, ref, x, y):
 
 def draw_cardputer_conn(s, x0, y0):
     s.frame(x0, y0, g(38), H1, "4  Flex tail to the EXT header",
-            "Pad k = tail pad k. R6/R7 not fitted: the Cardputer has pull-ups.")
+            "Pad k = tail pad k. No I2C pull-ups here: the Cardputer has them.")
     tail_pads(s, "J1", x0 + g(6), y0 + g(14))
     s.flag((s.pins["J1.2"][0] + G, s.pins["J1.2"][1]))
-    draw_pullups(s, x0 + g(26), y0 + g(29))
     s.put("H1", x0 + g(6), y0 + g(33))
     s.put("H2", x0 + g(6), y0 + g(37))
 

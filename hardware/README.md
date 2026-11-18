@@ -53,7 +53,7 @@ Two test pads, SAFEBOOT and RESET, take the place of SparkFun's header pins. The
 
 ## Parts
 
-- **ADS1115 as a bare chip** (MSOP-10). The Flipper board has its own I2C pull-up resistors (R6, R7). On the Cardputer these are marked "do not fit", because its bus already has pull-ups.
+- **ADS1115 as a bare chip** (MSOP-10). The Flipper board has its own I2C pull-up resistors (R6, R7). The Cardputer board has none, because the Cardputer's bus already has pull-ups.
 - **Precision resistors suggested** for R1, R2 and R5 (0.1%), and a **C0G capacitor** for C2. These set the GSR scale directly. R3 and R4, the two 4.7k skin current limiters, are 0.1% too: the firmware subtracts exactly 9.4k for them, and with 1% parts that sum could be up to 94 Ω out, enough to read very sweaty skin (around 10k) up to about 1% low.
 - **Op-amp: TI OPA2333AIDR** (U1), a "zero-drift" op-amp. Its input error is under 10 µV, against up to 4.5 mV for the MCP6002 on the hand-built prototype, so the 0.5 V across the skin stays exact and doesn't drift with temperature. It has the same pins as the MCP6002. Buy TI's own part: LCSC also lists cheaper copies from other makers with different specs.
 - **C9 (10 µF) across R2** smooths the 0.5 V bias. The bias is taken from 3.3 V, and the GSR reading scales with it, so without C9 any wobble on 3.3 V would show up in the reading.
@@ -119,7 +119,7 @@ Everything is done with one command, `./pcb`, run from this folder. It needs KiC
 | `pcbtools/boards/flipper.py`, `cardputer.py`, `cardputer_tail.py` | **The layouts.** Every part's position and every trace, written out by hand. This is what you edit to change a layout. |
 | `pcbtools/schematic.py` | The parts lists (which pin joins which net, what to buy) and the schematic drawings. Edit this to change the circuit or the BOM. |
 | `pcbtools/rules.py` | Track widths, via size and the 0.15 mm clearance, plus the extra DRC rules written to each board's `.kicad_dru` (below). |
-| `pcbtools/limits.py` | Layout limits: how far each decoupling capacitor may be from its chip, how long the GSR wires may be, how many ground vias the GPS needs. |
+| `pcbtools/limits.py` | Layout limits: how far each decoupling capacitor may be from its chip, how long the GSR wires may be, how many ground vias the GPS needs, how much track may cut the ground plane. |
 | `pcbtools/` (the rest) | The machinery: building the board, the checks, measuring, pictures. |
 | `biomap_*/` | The KiCad files the tools write. |
 | `out/` | Pictures and full check reports. Git ignores it. |
@@ -183,6 +183,8 @@ DRC only checks that copper doesn't touch where it shouldn't. It doesn't notice 
 Some limits come from a source: u-blox asks for ground vias filling the plane under the GPS, and SparkFun's 40 mm board has about 100. The rest are set just past today's values, so any change that makes things worse is caught. When a layout improves, tighten the limit to match, so the improvement can't be lost later.
 
 One rule is about copper area rather than distance: the 0.5 V guard must stay one solid piece of about 80 mm² (Flipper) or 60 mm² (Cardputer, whose cuff socket is further from the op-amp). If a layout change splits it up, KiCad drops the pieces that aren't joined to the reference, and the area falls below the limit.
+
+Another counts the track length on the ground-plane face (the face with no parts). Every track there cuts the ground that the wires on the other face send their return current through. On the Cardputer only two short hops just below the flex tail are left, about 28 mm in all: there the 3.3 V line and the I2C pair have to cross the serial wires, because of the order of the EXT pins.
 
 Rebuilding an unchanged design gives identical files, so `git diff` shows only what really changed.
 

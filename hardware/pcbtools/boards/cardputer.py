@@ -50,7 +50,6 @@ PLACE = {
     "U2": (26.4, 39.5, 0, "B"), "C3": (31.3, 38.9, 0, "B"),       # C3 beside ADC supply pin 8
     # test pads in one row: ground, GSR output, 0.5 V; the last two sit on their wires
     "TP5": (17.2, 35.0, 0, "B"), "TP3": (19.72, 35.0, 0, "B"), "TP4": (22.2, 35.0, 0, "B"),
-    "R7": (29.6, 44.4, 90, "B"), "R6": (32.1, 44.4, 90, "B"),     # I2C pull-ups, not fitted here
 }
 TRACKS = [
     # ── 5 V -> 3.3 V: from the tail's 5 V pad straight across to the regulator ──
@@ -78,17 +77,20 @@ TRACKS = [
     ("B", SIG, ["U4.14", (59.9, 21.0), (60.5, 20.4), "R9.1"]),
     ("B", SIG, ["R10.2", (58.0, 14.0), (36.75, 14.0), "J1.8"]),
     ("B", SIG, ["R9.2", (60.5, 12.5), (38.25, 12.5), "J1.7"]),
-    # ── 3V3 to the GSR side: inner face under the tail, then down the right of the circuit ──
-    ("B", PWR, ["net:+3V3", (64.6, 6.4), (64.6, 8.4)]),
-    ("F", PWR, ["net:+3V3", (64.6, 8.4), (33.6, 8.4)]),
-    ("B", PWR, ["net:+3V3", (33.6, 8.4), (33.6, 45.31), "R6.1", "R7.1"]),
+    # ── 3V3 to the GSR side: its own branch from the regulator's output pin, down
+    # between U3/C4 and C5, then west. It must cross the serial and I2C wires that
+    # come down from the tail, so it hops to the inner face for 13 mm just below
+    # the tail, then runs down the right of the GSR circuit, inside the I2C pair ──
+    ("B", PWR, ["U3.5", (58.64, 10.9), (46.5, 10.9), (46.5, 8.4)]),
+    ("F", PWR, ["net:+3V3", (46.5, 8.4), (33.6, 8.4)]),
+    ("B", PWR, ["net:+3V3", (33.6, 8.4), (33.6, 37.4)]),
     ("B", PWR, ["net:+3V3", (33.6, 25.6), "R1.1"]),
     ("B", PWR, ["net:+3V3", (33.6, 31.91), "U1.8"]),
     ("B", PWR, ["U1.8", "C1.1"]),                          # C1 right under the op-amp supply pin
     ("B", PWR, ["C1.2", (26.65, 34.95)]),
     ("B", PWR, ["net:+3V3", (33.6, 37.4), (30.35, 37.4), "C3.1"]),
     ("B", SIG, ["U2.8", (30.35, 39.5), "C3.1"]),                    # ADC supply pin into C3
-    ("B", PWR, ["C3.2", (32.4, 40.15)]),
+    ("B", PWR, ["C3.2", (33.3, 38.9)]),
     # ── GSR signal path ──
     ("B", SIG, ["J2.2", "R4.1"]),                          # cuff 2: straight in
     ("B", SIG, ["J2.1", (11.4, 31.0), "R3.1"]),
@@ -107,19 +109,22 @@ TRACKS = [
     # ── ADC and I2C ──
     ("B", SIG, ["U2.3", (23.3, 39.5), (22.8, 40.0)]),
     ("B", SIG, ["U2.1", (23.3, 40.5), (22.8, 40.0)]),
-    ("B", SIG, ["U2.10", (29.6, 40.5), (29.6, 41.9), "R7.2"]),
-    ("B", SIG, ["U2.9", (30.6, 40.0), (30.6, 41.9), "R6.2"]),
-    ("F", SIG, ["net:I2C_SCL", (29.6, 41.9), (29.6, 40.5), (30.6, 39.5), (30.6, 10.6), (41.25, 10.6)]),
-    ("F", SIG, ["net:I2C_SDA", (30.6, 41.9), (31.6, 40.9), (31.6, 11.6), (44.25, 11.6)]),
+    # I2C on the outer face: out of the ADC under C3, then north beside the 3V3 line.
+    # Just below the tail it hops to the inner face to pass under the serial wires,
+    # and swaps order there (SDA is the inner wire here but the outer pad at the tail)
+    ("B", SIG, ["U2.9", (34.7, 40.0), (34.7, 9.4)]),
+    ("B", SIG, ["U2.10", (35.5, 40.5), (35.5, 10.6)]),
+    ("F", SIG, ["net:I2C_SDA", (34.7, 9.4), (44.25, 9.4)]),
+    ("F", SIG, ["net:I2C_SCL", (35.5, 10.6), (41.25, 10.6)]),
+    ("B", SIG, ["J1.3", (44.25, 9.4)]),
     ("B", SIG, ["J1.5", (41.25, 10.6)]),
-    ("B", SIG, ["J1.3", (44.25, 11.6)]),
 ]
 VIAS = [
-    ("+3V3", 64.6, 8.4), ("+3V3", 33.6, 8.4), ("I2C_SCL", 29.6, 41.9), ("I2C_SDA", 30.6, 41.9),
-    ("I2C_SCL", 41.25, 10.6), ("I2C_SDA", 44.25, 11.6),
+    ("+3V3", 46.5, 8.4), ("+3V3", 33.6, 8.4),
+    ("I2C_SDA", 34.7, 9.4), ("I2C_SDA", 44.25, 9.4), ("I2C_SCL", 35.5, 10.6), ("I2C_SCL", 41.25, 10.6),
     ("GND", 55.0, 5.45), ("GND", 55.95, 9.5), ("GND", 60.7, 9.45), ("GND", 74.8, 24.0),
     ("GND", 19.72, 27.0), ("GND", 26.65, 34.95), ("GND", 29.5, 29.3), ("GND", 22.8, 40.0),
-    ("GND", 32.4, 40.15), ("GND", 11.4, 35.8), ("GND", 17.2, 36.6),
+    ("GND", 33.3, 38.9), ("GND", 11.4, 35.8), ("GND", 17.2, 36.6),
 ]
 # GPS keep-clear: no tracks on the inner layer near the module, none under it on the outer face
 KEEPOUT = [("F", (40.5, 12.5, 75.5, 47.5)), ("B", (52.7, 24.7, 63.3, 35.3))]
@@ -136,8 +141,8 @@ LABELS = {"B": [("Bio Mapping 2", 16.5, 9.0, 1.8), ("Christian Nold, 2004 - 2026
                 ("rev B  2026-11", 16.5, 19.0, TEXT),
                 ("GPS: keep this side clear of metal", 58.0, 51.6, TEXT),
                 ("CUFFS", 4.8, 35.6, TEXT), ("SAFEBOOT", 45.0, 32.6, TEXT),
-                ("RESET", 71.0, 32.2, TEXT), ("5V to 3.3V", 57.5, 11.0, TEXT),
-                ("FLEX TAIL: SOLDER HERE", 42.0, 9.0, TEXT)]}
+                ("RESET", 71.0, 32.2, TEXT), ("5V to 3.3V", 65.0, 10.0, TEXT),
+                ("FLEX TAIL: SOLDER HERE", 42.0, 15.8, TEXT)]}
 
 
 def outline(add_seg, add_arc):
