@@ -918,9 +918,24 @@ void test_calibration_fit_has_no_offset() {
     cal_fit(measured, targets, &gain, &r2);
 
     assert(gain < 1.0f);
-    assert(gain * measured[0] - targets[0] > 300.0f);  // 470k still reads far high
-    printf("  gain=%.4f, 470k reads %+.0f nS -> Pass\n",
-           (double)gain, (double)(gain * measured[0] - targets[0]));
+    assert(gain * measured[0] - targets[0] > 200.0f);  // 470k still reads far high
+    assert(targets[2] - gain * measured[2] > 1000.0f); // and 47k reads far low
+    printf("  gain=%.4f, 470k reads %+.0f nS, 47k reads %+.0f nS -> Pass\n",
+           (double)gain, (double)(gain * measured[0] - targets[0]),
+           (double)(gain * measured[2] - targets[2]));
+}
+
+void test_calibration_equal_weight() {
+    printf("Running test_calibration_equal_weight...\n");
+    const float targets[3] = { CAL_TARGET_470K, CAL_TARGET_100K, CAL_TARGET_47K };
+    // 470k reads 1% low, 100k exact, 47k 1% high (ratios: 0.99, 1.00, 1.01).
+    // Equal relative weighting gives gain ~1.000 (unweighted OLS would give
+    // ~0.992, dominated 81% by 47k).
+    float measured[3] = { targets[0] * 0.99f, targets[1] * 1.00f, targets[2] * 1.01f };
+    float gain, r2;
+    assert(calibration_wizard_compute_fit(measured, targets, &gain, &r2));
+    assert(fabsf(gain - 1.0f) < 0.001f);
+    printf("  gain=%.5f R²=%.6f -> Pass\n", (double)gain, (double)r2);
 }
 
 void test_calibration_nonlinear_reject() {
@@ -1136,6 +1151,7 @@ int main() {
     test_calibration_identity();
     test_calibration_scaled_device();
     test_calibration_fit_has_no_offset();
+    test_calibration_equal_weight();
     test_calibration_nonlinear_reject();
     test_calibration_degenerate_input();
     test_calibration_fit_gates();

@@ -72,12 +72,13 @@ int biomap_format_gsr_bias_line(char* out, size_t cap, float measured_v, float u
 // the list screens navigate the same way.
 int32_t cycle_selection(int32_t sel, int32_t count, bool down);
 
-// Three-point least-squares fit through the origin,  y = gain * x  (x =
-// measured nS with the open-circuit zero already removed, y = target nS),
-// plus an R² goodness-of-fit. No offset term: the zero is measured
-// directly, so the fit does not have to guess it by extending a line from
-// 2 000–21 000 nS down to 0, which magnified small errors at the
-// calibration points into several nS at high resistances.
+// Three-point relative least-squares fit through the origin,  y = gain * x
+// (x = measured nS with the open-circuit zero already removed, y = target nS),
+// minimizing percentage error equally across all three points, plus an R²
+// goodness-of-fit. No offset term: the zero is measured directly, so the fit
+// does not have to guess it by extending a line from 2 000–21 000 nS down to
+// 0, which magnified small errors at the calibration points into several nS
+// at high resistances.
 //
 // ALWAYS writes *out_gain / *out_r_squared — even on a degenerate or
 // out-of-bounds fit — so the fit-fail screen (calibration_wizard_render

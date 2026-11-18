@@ -100,18 +100,29 @@ int32_t cycle_selection(int32_t sel, int32_t count, bool down) {
 bool calibration_wizard_compute_fit(const float measured[CAL_POINTS],
                                     const float targets[CAL_POINTS],
                                     float* out_gain, float* out_r_squared) {
-    // Least squares through the origin:  y = gain * x,  gain = Σxy / Σxx
-    // where x = measured, y = target.
-    float sy = 0, sxx = 0, sxy = 0;
+    // Equal-weight (relative) least squares through the origin:
+    // minimizes Σ ((gain * x_i - y_i) / y_i)² = Σ (gain * r_i - 1)²
+    // where r_i = x_i / y_i, so gain = Σ r_i / Σ r_i².
+    // Unweighted OLS (Σxy / Σxx) weighted 47k (~21k nS) at ~81% and 470k
+    // (~2k nS) at <1%; relative weighting gives all three 0.1% resistors
+    // equal say across the usable GSR range.
+    float sy = 0, sr = 0, srr = 0;
     for(int i = 0; i < CAL_POINTS; i++) {
         float xi = measured[i];
         float yi = targets[i];
+        if(yi <= 1e-9f) {
+            *out_gain = 1.0f;
+            *out_r_squared = 0.0f;
+            FURI_LOG_W("BioMap", "Calibration fit degenerate (non-positive target)");
+            return false;
+        }
+        float ri = xi / yi;
         sy  += yi;
-        sxx += xi * xi;
-        sxy += xi * yi;
+        sr  += ri;
+        srr += ri * ri;
     }
     float n = (float)CAL_POINTS;
-    if(sxx <= 1e-9f) {
+    if(srr <= 1e-9f) {
         // Every measurement ~0 nS: no meaningful gain/R² exist. Report
         // neutral defaults rather than leaving the caller's variables
         // untouched.
@@ -121,7 +132,7 @@ bool calibration_wizard_compute_fit(const float measured[CAL_POINTS],
         return false;
     }
 
-    float gain = sxy / sxx;
+    float gain = sr / srr;
 
     // R² goodness-of-fit, against the targets' own mean (same scale as the
     // earlier gain+offset fit, so the 0.95 gate means the same thing).
