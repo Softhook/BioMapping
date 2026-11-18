@@ -16,8 +16,8 @@
  * One honest, unavoidable deviation from a firmware-written file — the BLE
  * wire packet (docs/csv_schema.md §"Live Stream BLE Binary Packet Format")
  * simply doesn't carry the data:
- *   • no `# GSR Calibration: gain:…,offset:…` line — the gain/offset are
- *     applied firmware-side before gsr_raw is packed (so gsr_raw IS already
+ *   • no `# GSR Calibration: gain:…,zero_counts:…` line — the zero and gain
+ *     are applied firmware-side before gsr_raw is packed (so gsr_raw IS already
  *     calibrated, same as a recorded track), but the coefficients aren't
  *     transmitted, so we can't reproduce that metadata line.
  * lat/lon are the empty string (never "NaN") on a no-fix sample, and every

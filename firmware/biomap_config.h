@@ -58,12 +58,16 @@ typedef enum {
 // (full SDK) reads those.
 #define CAL_POINTS       3        // resistors measured: 470k, 100k, 47k
 
-// Valid-range bounds for a computed or loaded gain/offset — a wizard fit or
-// a loaded calibration file failing either of these is rejected.
+// Valid-range bounds for a computed or loaded gain — a wizard fit or a
+// loaded calibration file outside them is rejected.
 #define CAL_GAIN_MIN     0.2f
 #define CAL_GAIN_MAX     5.0f
-#define CAL_OFFSET_MIN  -20000.0f
-#define CAL_OFFSET_MAX   20000.0f
+
+// Largest zero reading (normalised counts, 7.8125 µV each, either sign) the
+// wizard's open-circuit step accepts, and a loaded file may hold. 2000
+// counts is ~15.6 mV at the ADC, several times the worst MCP6002 input
+// offset (4.5 mV); a reading beyond it means something is still connected.
+#define CAL_ZERO_MAX_COUNTS  2000.0f
 
 // ── GSR pre-flight noise/resolution gate ───────────────────────────────
 // Grades the σ (standard deviation, nS) of the raw readings collected

@@ -172,7 +172,7 @@ struct GsrSensor {
     uint8_t zero_count; // consecutive ticks outside the valid nS range
     bool    cal_active; // true when custom calibration is active
     float   cal_gain;   // linear calibration gain factor (default 1.0)
-    float   cal_offset; // linear calibration offset in nS (default 0.0)
+    float   cal_zero_counts; // open-circuit zero, normalised counts, removed before the TIA (default 0)
     float   bias_volts; // last accepted bias reading (AIN1 alone), V; 0 = none yet
     float   bias_scale; // bias_volts / GSR_BIAS_NOMINAL_V, or 1.0 if none — used by the TIA equation
     float   bias_measured_volts; // what the last check read, accepted or not; NAN = check failed
@@ -617,7 +617,7 @@ GsrSensor* gsr_sensor_alloc(GsrWorkerHook hook, void* hook_ctx) {
     gsr->zero_count = 0;
     gsr->cal_active = false;
     gsr->cal_gain = 1.0f;
-    gsr->cal_offset = 0.0f;
+    gsr->cal_zero_counts = 0.0f;
     gsr->bias_volts = 0.0f;
     gsr->bias_scale = 1.0f;
     gsr->bias_measured_volts = NAN;
@@ -794,7 +794,7 @@ float gsr_sensor_get_raw(const GsrSensor* gsr) {
     return val;
 }
 
-// ── Single-sample raw → nS (no decimation, no autoranging, no calibration) ──
+// ── Single-sample raw → nS (no decimation, no autoranging, no calibration gain) ──
 // Uses the normalised count snapshotted by tick() from the same buffer
 // position as the ~100 ms window's most recent entry.  This guarantees
 // the raw sample and the filtered mean use the exact same underlying data.
@@ -802,12 +802,12 @@ float gsr_sensor_get_raw_sample_ns(const GsrSensor* gsr) {
     furi_check(gsr, "GsrSensor: NULL in get_raw_sample_ns()");
 
     furi_mutex_acquire(gsr->mutex, FuriWaitForever);
-    int32_t norm = gsr->tick_last_norm;
+    float counts = (float)gsr->tick_last_norm;
+    if(gsr->cal_active) counts -= gsr->cal_zero_counts;
     float bias_scale = gsr->bias_scale;
     furi_mutex_release(gsr->mutex);
 
-    if(norm <= 0) return 0.0f;
-    return gsr_tia_counts_to_ns_at_bias((float)norm, bias_scale);
+    return gsr_tia_counts_to_ns_at_bias(counts, bias_scale);
 }
 
 int32_t gsr_sensor_get_raw_sample_count(const GsrSensor* gsr) {
@@ -1174,7 +1174,7 @@ void gsr_sensor_tick(GsrSensor* gsr) {
     uint8_t old_pga = gsr->pga_index;
     bool active = gsr->cal_active;
     float gain = gsr->cal_gain;
-    float offset = gsr->cal_offset;
+    float zero_counts = gsr->cal_zero_counts;
     float bias_scale = gsr->bias_scale;
     furi_mutex_release(gsr->mutex);
 
@@ -1193,7 +1193,7 @@ void gsr_sensor_tick(GsrSensor* gsr) {
     // by the Diagnostics screen's accessors from the GUI render thread, same
     // as the hz-window block above.
     furi_mutex_acquire(gsr->mutex, FuriWaitForever);
-    gsr->tick_mean_norm = (int32_t)avg_norm;  // snapshot for diagnostics
+    gsr->tick_mean_norm = (int32_t)lroundf(avg_norm);  // diagnostics + the wizard's zero step (rounded: truncation would bias a negative zero by ~0.5 count)
     gsr->tick_window_samples = samples;       // snapshot for diagnostics
     furi_mutex_release(gsr->mutex);
 
@@ -1219,18 +1219,16 @@ void gsr_sensor_tick(GsrSensor* gsr) {
     bool pga_update = (new_pga != old_pga);
 
     // ── Step 4: TIA conversion — raw normalised counts → nanosiemens.
-    // Calibration (if active) is applied AFTER the TIA, in the nS domain
-    // where gain and offset were computed.
-    float raw_ns;
-    raw_ns = gsr_tia_counts_to_ns_at_bias(avg_norm, bias_scale);
-    // Disconnect detection (Step 5 below) always checks this pre-calibration
-    // value: a nonzero calibration offset can shift a true open-circuit
-    // reading (raw TIA ~0 nS) into the "valid" window, masking a real
-    // finger-cuff disconnect for anyone who's run the calibration wizard.
-    float uncal_raw_ns = raw_ns;
-    if(active) {
-        raw_ns = gain * raw_ns + offset;
-    }
+    // Calibration (if active): the open-circuit zero is removed in counts,
+    // BEFORE the TIA conversion — the board's zero error is a fixed voltage
+    // at the ADC, and the TIA equation is not linear in counts, so removing
+    // it afterwards in nS would be wrong. The gain is applied after.
+    // The whole calibrated value is also what disconnect detection (Step 5
+    // below) checks: with the zero removed, an open circuit reads ~0 nS
+    // whatever the board's zero error.
+    float counts = active ? avg_norm - zero_counts : avg_norm;
+    float raw_ns = gsr_tia_counts_to_ns_at_bias(counts, bias_scale);
+    if(active) raw_ns *= gain;
 
     // ── Step 5: publish pga_index, pga_changed, and calibrated raw under
     // a single mutex acquisition to minimise contention with the worker.
@@ -1245,7 +1243,7 @@ void gsr_sensor_tick(GsrSensor* gsr) {
     gsr->raw = raw_ns;
 
     // ── Finger-cuff disconnect detection (20-tick debounce).
-    if(uncal_raw_ns < GSR_VALID_MIN_NS || uncal_raw_ns > GSR_VALID_MAX_NS) {
+    if(raw_ns < GSR_VALID_MIN_NS || raw_ns > GSR_VALID_MAX_NS) {
         if(++gsr->zero_count >= 20) {
             gsr->connected = false;
         }
@@ -1256,11 +1254,11 @@ void gsr_sensor_tick(GsrSensor* gsr) {
     furi_mutex_release(gsr->mutex);
 }
 
-void gsr_sensor_set_calibration(GsrSensor* gsr, bool active, float gain, float offset) {
+void gsr_sensor_set_calibration(GsrSensor* gsr, bool active, float gain, float zero_counts) {
     furi_check(gsr, "GsrSensor: NULL in set_calibration()");
     furi_mutex_acquire(gsr->mutex, FuriWaitForever);
     gsr->cal_active = active;
     gsr->cal_gain = gain;
-    gsr->cal_offset = offset;
+    gsr->cal_zero_counts = zero_counts;
     furi_mutex_release(gsr->mutex);
 }

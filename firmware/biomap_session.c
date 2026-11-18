@@ -431,7 +431,7 @@ static void handle_second_boundary(Session* s, NotificationApp* notifications) {
 static bool key_toggle_recording(Session* s, FuriMutex* mutex,
                                   NotificationApp* notifications, bool sound_enabled,
                                   bool rf_calibrated, const float* rf_cal_floors,
-                                  bool gsr_cal_active, float gsr_cal_gain, float gsr_cal_offset,
+                                  bool gsr_cal_active, float gsr_cal_gain, float gsr_cal_zero_counts,
                                   float gsr_cal_r_squared,
                                   const float gsr_cal_noise_std_dev[CAL_POINTS],
                                   uint32_t gsr_cal_timestamp) {
@@ -508,7 +508,7 @@ static bool key_toggle_recording(Session* s, FuriMutex* mutex,
                              "# GPSChipID:%s\n", chip_id);
             }
         }
-        // GSR Calibration line: gain/offset are applied inside GsrSensor
+        // GSR Calibration line: zero_counts/gain are applied inside GsrSensor
         // before gsr_raw is ever computed (see gsr_sensor_set_calibration),
         // so this is the only record of what transform produced the
         // logged values — only emitted when a calibration is actually
@@ -523,8 +523,8 @@ static bool key_toggle_recording(Session* s, FuriMutex* mutex,
         // old recording can be traced to the calibration that produced it.
         if(gsr_cal_active && n > 0 && (size_t)n < sizeof(header)) {
             n += snprintf(header + n, sizeof(header) - (size_t)n,
-                         "# GSR Calibration: gain:%.4f,offset:%.4f,r2:%.4f,noise_ns:%.2f,%.2f,%.2f,cal_time:%lu\n",
-                         (double)gsr_cal_gain, (double)gsr_cal_offset, (double)gsr_cal_r_squared,
+                         "# GSR Calibration: gain:%.4f,zero_counts:%.1f,r2:%.4f,noise_ns:%.2f,%.2f,%.2f,cal_time:%lu\n",
+                         (double)gsr_cal_gain, (double)gsr_cal_zero_counts, (double)gsr_cal_r_squared,
                          (double)gsr_cal_noise_std_dev[0], (double)gsr_cal_noise_std_dev[1],
                          (double)gsr_cal_noise_std_dev[2], (unsigned long)gsr_cal_timestamp);
         }
@@ -880,9 +880,9 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
         furi_mutex_acquire(app->mutex, FuriWaitForever);
         bool active = app->cal_active;
         float gain = app->cal_gain;
-        float offset = app->cal_offset;
+        float zero_counts = app->cal_zero_counts;
         furi_mutex_release(app->mutex);
-        gsr_sensor_set_calibration(s->gsr, active, gain, offset);
+        gsr_sensor_set_calibration(s->gsr, active, gain, zero_counts);
     }
     // has_rf(LiveStream) is false — this mode never scans RF (§2's
     // architecture diagram: GSR+GPS only, no RF fields in the wire packet).
@@ -948,7 +948,7 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
             if(s->mode != BioMapModeLiveStream && s->mode != BioMapModeDiagnostics) {
                 if(key_toggle_recording(s, app->mutex, app->notifications, app->sound_enabled,
                                          app->rf_calibrated, app->rf_cal_data.noise_floor_dbm,
-                                         app->cal_active, app->cal_gain, app->cal_offset,
+                                         app->cal_active, app->cal_gain, app->cal_zero_counts,
                                          app->cal_r_squared, app->cal_noise_std_dev,
                                          app->cal_timestamp))
                     view_port_update(s->vp);

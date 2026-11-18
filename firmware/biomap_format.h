@@ -72,19 +72,22 @@ int biomap_format_gsr_bias_line(char* out, size_t cap, float measured_v, float u
 // the list screens navigate the same way.
 int32_t cycle_selection(int32_t sel, int32_t count, bool down);
 
-// Three-point linear least-squares fit  y = gain * x + offset  (x = measured
-// nS, y = target nS) plus an R² goodness-of-fit.
+// Three-point least-squares fit through the origin,  y = gain * x  (x =
+// measured nS with the open-circuit zero already removed, y = target nS),
+// plus an R² goodness-of-fit. No offset term: the zero is measured
+// directly, so the fit does not have to guess it by extending a line from
+// 2 000–21 000 nS down to 0, which magnified small errors at the
+// calibration points into several nS at high resistances.
 //
-// ALWAYS writes *out_gain / *out_offset / *out_r_squared — even on a
-// degenerate (collinear) or out-of-bounds fit — so the fit-fail screen
-// (calibration_wizard_render step 10) can show the user how far out of
-// range their device is rather than a fixed placeholder. The bool return
-// is the sole validity signal (bounds in the nS domain plus R² ≥ 0.95); a
-// false return does NOT mean the outputs are undefined.
+// ALWAYS writes *out_gain / *out_r_squared — even on a degenerate or
+// out-of-bounds fit — so the fit-fail screen (calibration_wizard_render
+// step 10) can show the user how far out of range their device is rather
+// than a fixed placeholder. The bool return is the sole validity signal
+// (gain bounds plus R² ≥ 0.95); a false return does NOT mean the outputs
+// are undefined.
 bool calibration_wizard_compute_fit(const float measured[CAL_POINTS],
                                     const float targets[CAL_POINTS],
-                                    float* out_gain, float* out_offset,
-                                    float* out_r_squared);
+                                    float* out_gain, float* out_r_squared);
 
 // Pre-flight noise/resolution grade for one calibration resistor's measured
 // σ (nS) — see the CAL_NOISE_*_NS thresholds (biomap_config.h) and
@@ -114,14 +117,17 @@ CalNoiseGrade calibration_noise_grade(float std_dev_ns);
 // measured 0.5 V bias (gsr_sensor.h, GSR_BIAS_*), so a v4 fit would correct
 // for the bias a second time. A file at an older version fails the version
 // check and is ignored — GSR falls back to the default 1.0/0.0 transform
-// until the wizard is re-run, same as any other format change.
-#define BIOMAP_CAL_VERSION 5
+// until the wizard is re-run, same as any other format change. v6 replaces
+// the nS `offset` with `zero_counts`: the wizard now measures the board's
+// zero with nothing connected and removes it before the nS conversion, and
+// the fit finds a gain only.
+#define BIOMAP_CAL_VERSION 6
 
 typedef struct {
     uint32_t magic;
     uint32_t version;
     float    gain;
-    float    offset;
+    float    zero_counts;  // open-circuit reading, normalised counts; subtracted before the TIA conversion
     uint32_t timestamp;  // Unix epoch (RTC) when saved; 0 if the RTC was unset
     float    r_squared;  // wizard least-squares fit goodness (0..1); 0 if unknown
     float    noise_std_dev[CAL_POINTS];  // per-resistor σ (nS) from the wizard's noise check
@@ -133,7 +139,8 @@ typedef enum {
     CalRecordBadMagic,
     CalRecordBadVersion,
     CalRecordBadChecksum,
-    // gain/offset outside CAL_GAIN_*/CAL_OFFSET_* (biomap_config.h), or a
+    // gain outside CAL_GAIN_*, |zero_counts| above CAL_ZERO_MAX_COUNTS
+    // (biomap_config.h), or a
     // noise σ that is NaN, negative, or would grade CalNoisePoor — a Poor
     // σ never reaches a save, so on disk it can only mean corruption.
     CalRecordOutOfBounds,

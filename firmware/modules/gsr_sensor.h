@@ -168,7 +168,9 @@ void gsr_sensor_tick(GsrSensor* gsr);
 float gsr_sensor_get_raw(const GsrSensor* gsr);
 
 // Single raw ADC sample converted directly to nanosiemens via the TIA
-// equation — no decimation, no averaging, no autoranging, no calibration.
+// equation — no decimation, no averaging, no autoranging, no calibration
+// gain. When a calibration is active its open-circuit zero is removed
+// first, so this matches what the wizard measured, before the gain.
 // Reads the most recent ring-buffer entry (updated at whatever rate the
 // background worker is actually achieving — see gsr_sensor_get_worker_hz,
 // bounded above by the ADS1115's 860 SPS conversion rate).  This is the
@@ -180,8 +182,10 @@ float gsr_sensor_get_raw_sample_ns(const GsrSensor* gsr);
 // position as get_raw_sample_ns.  For hardware diagnostics.
 int32_t gsr_sensor_get_raw_sample_count(const GsrSensor* gsr);
 
-// ~100 ms window mean normalised count (pre-TIA).  Compare with
-// get_raw_sample_count to see single-sample vs averaged difference.
+// ~100 ms window mean normalised count (pre-TIA, before the calibration
+// zero is removed), rounded to the nearest count.  Compare with
+// get_raw_sample_count to see single-sample vs averaged difference. The
+// calibration wizard's open-circuit step averages this.
 int32_t gsr_sensor_get_mean_count(const GsrSensor* gsr);
 
 // How many ring-buffer entries were actually averaged into the most
@@ -283,10 +287,11 @@ uint32_t gsr_sensor_get_duplicate_gap_min_ticks(const GsrSensor* gsr);
 // ranges.  For diagnostics.
 uint32_t gsr_sensor_get_pga_change_count(const GsrSensor* gsr);
 
-// Update calibration parameters (thread-safe).  When active is true, the
-// conductance is corrected after the TIA conversion, in the nS domain:
-// nS = gain * nS + offset.
-void gsr_sensor_set_calibration(GsrSensor* gsr, bool active, float gain, float offset);
+// Update calibration parameters (thread-safe).  When active is true,
+// zero_counts (the open-circuit reading, normalised counts) is subtracted
+// from the window mean before the TIA conversion, and the result is
+// multiplied by gain:  nS = gain * TIA(counts - zero_counts).
+void gsr_sensor_set_calibration(GsrSensor* gsr, bool active, float gain, float zero_counts);
 
 // Worst single I2C call duration ever observed on the worker thread, in ms
 // — a lifetime max (never reset), timed immediately around each I2C call

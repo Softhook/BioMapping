@@ -99,41 +99,37 @@ int32_t cycle_selection(int32_t sel, int32_t count, bool down) {
 
 bool calibration_wizard_compute_fit(const float measured[CAL_POINTS],
                                     const float targets[CAL_POINTS],
-                                    float* out_gain, float* out_offset,
-                                    float* out_r_squared) {
-    // Three-point linear least-squares:  y = gain * x + offset
-    // Σx, Σy, Σxx, Σxy  where x = measured, y = target
-    float sx = 0, sy = 0, sxx = 0, sxy = 0;
+                                    float* out_gain, float* out_r_squared) {
+    // Least squares through the origin:  y = gain * x,  gain = Σxy / Σxx
+    // where x = measured, y = target.
+    float sy = 0, sxx = 0, sxy = 0;
     for(int i = 0; i < CAL_POINTS; i++) {
         float xi = measured[i];
         float yi = targets[i];
-        sx  += xi;
         sy  += yi;
         sxx += xi * xi;
         sxy += xi * yi;
     }
-    float n     = (float)CAL_POINTS;
-    float denom = n * sxx - sx * sx;
-    if(denom <= 1e-9f) {
-        // Degenerate fit (measurements collinear/identical) — no meaningful
-        // gain/offset/R² exist. Report neutral defaults rather than leaving
-        // the caller's variables untouched.
+    float n = (float)CAL_POINTS;
+    if(sxx <= 1e-9f) {
+        // Every measurement ~0 nS: no meaningful gain/R² exist. Report
+        // neutral defaults rather than leaving the caller's variables
+        // untouched.
         *out_gain = 1.0f;
-        *out_offset = 0.0f;
         *out_r_squared = 0.0f;
-        FURI_LOG_W("BioMap", "Calibration fit degenerate (measurements not distinct)");
+        FURI_LOG_W("BioMap", "Calibration fit degenerate (all measurements ~0)");
         return false;
     }
 
-    float gain   = (n * sxy - sx * sy) / denom;
-    float offset = (sy - gain * sx) / n;
+    float gain = sxy / sxx;
 
-    // R² goodness-of-fit
+    // R² goodness-of-fit, against the targets' own mean (same scale as the
+    // earlier gain+offset fit, so the 0.95 gate means the same thing).
     float y_mean = sy / n;
     float ss_res = 0, ss_tot = 0;
     for(int i = 0; i < CAL_POINTS; i++) {
         float yi     = targets[i];
-        float y_pred = gain * measured[i] + offset;
+        float y_pred = gain * measured[i];
         float res    = yi - y_pred;
         ss_res += res * res;
         float dev    = yi - y_mean;
@@ -144,16 +140,13 @@ bool calibration_wizard_compute_fit(const float measured[CAL_POINTS],
     // Always publish the computed fit so the caller (and the fit-fail
     // screen) can show the user what was actually measured.
     *out_gain = gain;
-    *out_offset = offset;
     *out_r_squared = r_squared;
 
-    // Validate bounds (nS domain) and linearity (R² ≥ 0.95)
-    bool ok = gain >= CAL_GAIN_MIN && gain <= CAL_GAIN_MAX &&
-              offset >= CAL_OFFSET_MIN && offset <= CAL_OFFSET_MAX &&
-              r_squared >= 0.95f;
+    // Validate gain bounds and linearity (R² ≥ 0.95)
+    bool ok = gain >= CAL_GAIN_MIN && gain <= CAL_GAIN_MAX && r_squared >= 0.95f;
     if(!ok) {
-        FURI_LOG_W("BioMap", "Calibration out of bounds: gain=%.4f off=%.1f R²=%.4f",
-                   (double)gain, (double)offset, (double)r_squared);
+        FURI_LOG_W("BioMap", "Calibration out of bounds: gain=%.4f R²=%.4f",
+                   (double)gain, (double)r_squared);
     }
     return ok;
 }
@@ -184,9 +177,9 @@ CalRecordStatus biomap_calibration_check(const BioMapCalibration* cal) {
     if(cal->version != BIOMAP_CAL_VERSION) return CalRecordBadVersion;
     if(cal->checksum != biomap_calibration_checksum(cal)) return CalRecordBadChecksum;
 
-    // Written as "inside the range" so a NaN gain or offset fails too.
+    // Written as "inside the range" so a NaN gain or zero fails too.
     if(!(cal->gain >= CAL_GAIN_MIN && cal->gain <= CAL_GAIN_MAX)) return CalRecordOutOfBounds;
-    if(!(cal->offset >= CAL_OFFSET_MIN && cal->offset <= CAL_OFFSET_MAX)) return CalRecordOutOfBounds;
+    if(!(fabsf(cal->zero_counts) <= CAL_ZERO_MAX_COUNTS)) return CalRecordOutOfBounds;
     for(int i = 0; i < CAL_POINTS; i++) {
         float sd = cal->noise_std_dev[i];
         if(isnan(sd) || sd < 0.0f || sd >= CAL_NOISE_ACCEPTABLE_NS) return CalRecordOutOfBounds;

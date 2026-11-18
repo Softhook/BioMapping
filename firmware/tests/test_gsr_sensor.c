@@ -541,23 +541,34 @@ static void test_tia_conversion(void) {
     printf("  -> Pass\n");
 }
 
-static void test_calibration_applies_gain_offset(void) {
-    printf("Running test_calibration_applies_gain_offset...\n");
+// The zero is removed in counts BEFORE the TIA conversion, then the gain
+// is applied: nS = gain × TIA(counts − zero_counts). The single-sample Raw
+// value removes the zero too, but takes no gain.
+static void test_calibration_applies_zero_and_gain(void) {
+    printf("Running test_calibration_applies_zero_and_gain...\n");
     furi_hal_i2c_mock_reset();
     furi_hal_i2c_mock_set_raw16(10000);
 
     GsrSensor* gsr = gsr_sensor_alloc(NULL, NULL);
     assert(gsr != NULL);
-    gsr_sensor_set_calibration(gsr, true, 2.0f, 500.0f);
+    gsr_sensor_set_calibration(gsr, true, 2.0f, -313.0f);
 
     wait_for_more_reads(200);
     gsr_sensor_tick(gsr);
 
-    float raw_tia = expected_tia_ns(10000.0f * ADS_PGA_DEFAULT_NORM);
-    float expected = 2.0f * raw_tia + 500.0f;
+    float zeroed_tia = expected_tia_ns(10000.0f * ADS_PGA_DEFAULT_NORM + 313.0f);
+    float expected = 2.0f * zeroed_tia;
     float actual = gsr_sensor_get_raw(gsr);
     printf("  expected=%.2f actual=%.2f\n", (double)expected, (double)actual);
     assert(fabsf(actual - expected) < 1.0f);
+    // Removing the zero after the conversion (in nS) would differ: the TIA
+    // equation isn't linear in counts.
+    assert(fabsf(expected - 2.0f * (expected_tia_ns(10000.0f * ADS_PGA_DEFAULT_NORM) +
+                                    expected_tia_ns(313.0f))) > 1.0f);
+    float raw_sample = gsr_sensor_get_raw_sample_ns(gsr);
+    printf("  raw sample=%.2f (expect %.2f, zero removed, no gain)\n",
+           (double)raw_sample, (double)zeroed_tia);
+    assert(fabsf(raw_sample - zeroed_tia) < 1.0f);
 
     gsr_sensor_free(gsr);
     printf("  -> Pass\n");
@@ -750,19 +761,20 @@ static void test_disconnect_debounce_realistic_open_circuit_noise(void) {
     printf("  -> Pass\n");
 }
 
-// A nonzero calibration offset must not mask a true open circuit: the
-// disconnect check has to run on the pre-calibration TIA value, otherwise
-// `gain*0 + offset` can land back inside [GSR_VALID_MIN_NS, GSR_VALID_MAX_NS]
-// and the finger-cuff-disconnected message never fires for anyone who's run
-// the calibration wizard.
-static void test_disconnect_debounce_ignores_calibration_offset(void) {
-    printf("Running test_disconnect_debounce_ignores_calibration_offset...\n");
+// An active calibration must not mask a true open circuit. There is no nS
+// offset any more (the zero is removed in counts), so a reading at the
+// board's zero stays ~0 nS whatever the gain — the
+// finger-cuff-disconnected message still fires for anyone who's run the
+// calibration wizard. Here the board's zero is +150 counts and the input
+// reads 0, i.e. at or below the zero.
+static void test_disconnect_debounce_with_calibration_active(void) {
+    printf("Running test_disconnect_debounce_with_calibration_active...\n");
     furi_hal_i2c_mock_reset();
     furi_hal_i2c_mock_set_raw16(0); // open circuit -> ~0 nS raw TIA
 
     GsrSensor* gsr = gsr_sensor_alloc(NULL, NULL);
     assert(gsr != NULL);
-    gsr_sensor_set_calibration(gsr, true, 2.0f, 500.0f); // offset alone sits well inside the valid window
+    gsr_sensor_set_calibration(gsr, true, 2.0f, 150.0f);
     wait_for_more_reads(200);
 
     for(int i = 0; i < 19; i++) {
@@ -770,8 +782,39 @@ static void test_disconnect_debounce_ignores_calibration_offset(void) {
         assert(gsr_sensor_is_connected(gsr) == true);
     }
     gsr_sensor_tick(gsr); // 20th consecutive out-of-range tick
-    printf("  connected=%d after 20 ticks with offset=500 masking calibrated raw=%.2f\n",
+    printf("  connected=%d after 20 ticks, calibrated raw=%.2f\n",
            gsr_sensor_is_connected(gsr), (double)gsr_sensor_get_raw(gsr));
+    assert(gsr_sensor_is_connected(gsr) == false);
+
+    gsr_sensor_free(gsr);
+    printf("  -> Pass\n");
+}
+
+// The disconnect check does apply the calibration gain. Uses the upper
+// limit, because the mock returns one fixed code on every PGA and a reading
+// near GSR_VALID_MIN_NS would autorange away. raw16 = 15875 on PGA 2 is
+// ~71 000 nS uncalibrated (inside the window, so connected without the
+// gain) and ~85 000 nS after gain 1.2 (above GSR_VALID_MAX_NS); no
+// autoranging at that code.
+static void test_disconnect_check_applies_calibration_gain(void) {
+    printf("Running test_disconnect_check_applies_calibration_gain...\n");
+    furi_hal_i2c_mock_reset();
+    furi_hal_i2c_mock_set_raw16(15875);
+
+    GsrSensor* gsr = gsr_sensor_alloc(NULL, NULL);
+    assert(gsr != NULL);
+    gsr_sensor_set_calibration(gsr, true, 1.2f, 0.0f); // gain only, no zero
+    wait_for_more_reads(200);
+
+    for(int i = 0; i < 19; i++) {
+        gsr_sensor_tick(gsr);
+        assert(gsr_sensor_is_connected(gsr) == true);
+    }
+    gsr_sensor_tick(gsr); // 20th consecutive out-of-range tick
+    printf("  connected=%d after 20 ticks at calibrated raw=%.0f nS\n",
+           gsr_sensor_is_connected(gsr), (double)gsr_sensor_get_raw(gsr));
+    assert(gsr_sensor_get_raw(gsr) > GSR_VALID_MAX_NS);
+    assert(gsr_sensor_get_raw(gsr) / 1.2f < GSR_VALID_MAX_NS);
     assert(gsr_sensor_is_connected(gsr) == false);
 
     gsr_sensor_free(gsr);
@@ -1988,7 +2031,7 @@ int main(void) {
     test_duplicate_rate_reflects_stale_reads();
     test_new_diagnostics_accessors();
     test_tia_conversion();
-    test_calibration_applies_gain_offset();
+    test_calibration_applies_zero_and_gain();
     test_bias_measured_at_alloc_is_applied();
     test_bias_out_of_range_is_ignored();
     test_bias_is_averaged_over_reads();
@@ -2003,7 +2046,8 @@ int main(void) {
     test_autorange_settle_discards_stale_conversion();
     test_disconnect_debounce_low_signal();
     test_disconnect_debounce_realistic_open_circuit_noise();
-    test_disconnect_debounce_ignores_calibration_offset();
+    test_disconnect_debounce_with_calibration_active();
+    test_disconnect_check_applies_calibration_gain();
     test_disconnect_on_i2c_failure();
     test_adc_power_down_and_reenable();
     test_no_hook_never_touches_radio();

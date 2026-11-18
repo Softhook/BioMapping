@@ -63,7 +63,7 @@ int32_t biomap_app(void* p) {
         .super_s = true,
         .cal_active = false,
         .cal_gain = 1.0f,
-        .cal_offset = 0.0f,
+        .cal_zero_counts = 0.0f,
         .cal_timestamp = 0,
         .cal_r_squared = 0.0f,
         .debug_fields_enabled = false,
@@ -181,7 +181,7 @@ bool biomap_load_calibration(BioMapApp* app) {
                 furi_mutex_acquire(app->mutex, FuriWaitForever);
                 app->cal_active = true;
                 app->cal_gain = cal.gain;
-                app->cal_offset = cal.offset;
+                app->cal_zero_counts = cal.zero_counts;
                 app->cal_timestamp = cal.timestamp;
                 app->cal_r_squared = cal.r_squared;
                 memcpy(app->cal_noise_std_dev, cal.noise_std_dev,
@@ -189,8 +189,8 @@ bool biomap_load_calibration(BioMapApp* app) {
                 furi_mutex_release(app->mutex);
                 success = true;
                 FURI_LOG_I("BioMap",
-                           "Loaded calibration v%lu: gain=%.4f offset=%.1f timestamp=%lu r2=%.4f",
-                           (unsigned long)cal.version, (double)cal.gain, (double)cal.offset,
+                           "Loaded calibration v%lu: gain=%.4f zero=%.1f timestamp=%lu r2=%.4f",
+                           (unsigned long)cal.version, (double)cal.gain, (double)cal.zero_counts,
                            (unsigned long)cal.timestamp, (double)cal.r_squared);
                 break;
             case CalRecordBadMagic:
@@ -218,7 +218,7 @@ bool biomap_load_calibration(BioMapApp* app) {
     return success;
 }
 
-void biomap_save_calibration(BioMapApp* app, float gain, float offset, float r_squared,
+void biomap_save_calibration(BioMapApp* app, float gain, float zero_counts, float r_squared,
                              const float noise_std_dev[CAL_POINTS]) {
     furi_check(app, "BioMapApp: NULL app pointer");
 
@@ -230,7 +230,7 @@ void biomap_save_calibration(BioMapApp* app, float gain, float offset, float r_s
     furi_mutex_acquire(app->mutex, FuriWaitForever);
     app->cal_active = true;
     app->cal_gain = gain;
-    app->cal_offset = offset;
+    app->cal_zero_counts = zero_counts;
     app->cal_timestamp = timestamp;
     app->cal_r_squared = r_squared;
     memcpy(app->cal_noise_std_dev, noise_std_dev, sizeof(app->cal_noise_std_dev));
@@ -240,7 +240,7 @@ void biomap_save_calibration(BioMapApp* app, float gain, float offset, float r_s
     cal.magic   = BIOMAP_CAL_MAGIC;
     cal.version = BIOMAP_CAL_VERSION;
     cal.gain    = gain;
-    cal.offset  = offset;
+    cal.zero_counts = zero_counts;
     cal.timestamp = timestamp;
     cal.r_squared = r_squared;
     memcpy(cal.noise_std_dev, noise_std_dev, sizeof(cal.noise_std_dev));
@@ -249,8 +249,8 @@ void biomap_save_calibration(BioMapApp* app, float gain, float offset, float r_s
     if(write_file_atomic(app->storage, BIOMAP_CAL_PATH_TMP, BIOMAP_CAL_PATH,
                          &cal, sizeof(cal), "Calibration")) {
         FURI_LOG_I("BioMap",
-                   "Saved calibration v%d: gain=%.4f offset=%.1f timestamp=%lu r2=%.4f",
-                   BIOMAP_CAL_VERSION, (double)gain, (double)offset,
+                   "Saved calibration v%d: gain=%.4f zero=%.1f timestamp=%lu r2=%.4f",
+                   BIOMAP_CAL_VERSION, (double)gain, (double)zero_counts,
                    (unsigned long)timestamp, (double)r_squared);
     }
 }
@@ -271,7 +271,7 @@ void biomap_reset_calibration(BioMapApp* app) {
     furi_mutex_acquire(app->mutex, FuriWaitForever);
     app->cal_active = false;
     app->cal_gain = 1.0f;
-    app->cal_offset = 0.0f;
+    app->cal_zero_counts = 0.0f;
     app->cal_timestamp = 0;
     app->cal_r_squared = 0.0f;
     memset(app->cal_noise_std_dev, 0, sizeof(app->cal_noise_std_dev));

@@ -347,6 +347,11 @@ void run_calibration_menu(BioMapApp* app) {
 // The caller's post-measurement tones (confirm/error/success) are safe by
 // construction: they only ever play after this function has already
 // returned with its result, i.e. after the whole dwell's samples were taken.
+// Every dwell (the open-circuit zero and each resistor): CAL_DWELL_SECONDS
+// at TICK_HZ, of which CAL_MIN_VALID (60 %) must land in-gate — same ratio
+// the original 20-sample/12-valid window used.
+enum { CAL_DWELL_SECONDS = 20, CAL_MIN_VALID = 120 };
+
 typedef enum {
     CalMeasureOk,
     CalMeasureFailed,     // fewer than CAL_MIN_VALID in-gate samples over the dwell
@@ -355,7 +360,7 @@ typedef enum {
 } CalMeasureResult;
 
 // Runs one resistor's calibration dwell (CAL_DWELL_SECONDS at TICK_HZ),
-// computing the mean (for the gain/offset fit) and σ (for the pre-flight
+// computing the mean (for the gain fit) and σ (for the pre-flight
 // noise/resolution gate — see calibration_noise_grade(), biomap_format.c)
 // in a single Welford pass over the in-gate samples: N/mean/M2 are updated
 // as each sample arrives rather than stored and revisited, same running-
@@ -374,8 +379,9 @@ static CalMeasureResult calibration_wizard_measure(BioMapApp* app, ViewPort* vp,
                                                     GsrSensor* gsr, int resistor_idx,
                                                     const float gates[CAL_POINTS][2],
                                                     float* out_avg_g, float* out_std_dev) {
-    // Ensure calibration is disabled on this wizard-local sensor so measurements are raw nS
-    gsr_sensor_set_calibration(gsr, false, 1.0f, 0.0f);
+    // The open-circuit zero (step 14) removed, gain 1: the readings the
+    // gain is fitted to, the same as a recording's before its gain.
+    gsr_sensor_set_calibration(gsr, true, 1.0f, w->zero_counts);
 
     // Flush the ring buffer (1 s, 10 ticks). Also the GSR+Sound settle
     // window for the caller's pre-measurement click — see this function's
@@ -409,9 +415,6 @@ static CalMeasureResult calibration_wizard_measure(BioMapApp* app, ViewPort* vp,
         gsr_sensor_tick(gsr);
     }
 
-    // 60 % of the dwell must land in-gate — same ratio the original 20-
-    // sample/12-valid window used.
-    enum { CAL_DWELL_SECONDS = 20, CAL_MIN_VALID = 120 };
     int total = 0, below = 0, above = 0;
     float first_raw = 0;
     float mean = 0.0f, m2 = 0.0f;
@@ -457,6 +460,71 @@ static CalMeasureResult calibration_wizard_measure(BioMapApp* app, ViewPort* vp,
     }
 }
 
+// Runs the open-circuit dwell (step 14): nothing connected, so the window
+// mean count is the board's zero error alone — op-amp and ADC offset plus
+// any leakage across the board. Averages gsr_sensor_get_mean_count(), the
+// raw count before any zero is removed, over the same dwell as a resistor,
+// with calibration off. A tick whose count is beyond ±CAL_ZERO_MAX_COUNTS
+// counts as out of gate (something is still connected).
+//
+// *out_zero is always written — the in-gate mean on success, otherwise the
+// mean of every tick — so the fail screen can show what was read. *out_std_ns
+// is the in-gate σ converted to nS at the bottom of the range (counts ×
+// gsr_tia_counts_to_ns(1)), so the same CAL_NOISE_* grades as a resistor
+// apply. No bias check: the zero is a voltage in counts, which the bias
+// doesn't scale. Same sound rules as calibration_wizard_measure().
+static CalMeasureResult calibration_wizard_measure_zero(BioMapApp* app, ViewPort* vp,
+                                                         WizardState* w, GsrSensor* gsr,
+                                                         float* out_zero, float* out_std_ns) {
+    gsr_sensor_set_calibration(gsr, false, 1.0f, 0.0f);
+
+    // Flush (1 s): also lets autoranging climb from the default PGA towards
+    // the most sensitive one, as an open circuit reads near zero.
+    for(int i = 0; i < 10; i++) {
+        furi_delay_ms(100);
+        gsr_sensor_tick(gsr);
+    }
+
+    int total = 0, all = 0;
+    float mean = 0.0f, m2 = 0.0f, sum_all = 0.0f;
+    for(uint32_t elapsed = 0; elapsed < CAL_DWELL_SECONDS * TICK_HZ; elapsed++) {
+        BioMapEvent ev;
+        if(furi_message_queue_get(app->event_queue, &ev, 0) == FuriStatusOk) {
+            if(ev.type == EventTypeKey && ev.input.type == InputTypeShort &&
+               ev.input.key == InputKeyBack) {
+                return CalMeasureCancelled;
+            }
+        }
+        furi_delay_ms(1000 / TICK_HZ);
+        gsr_sensor_tick(gsr);
+        float c = (float)gsr_sensor_get_mean_count(gsr);
+        sum_all += c;
+        all++;
+        if(fabsf(c) <= CAL_ZERO_MAX_COUNTS) {
+            total++;
+            float delta = c - mean;
+            mean += delta / (float)total;
+            m2 += delta * (c - mean);
+        }
+
+        furi_mutex_acquire(w->mutex, FuriWaitForever);
+        w->seconds_left = CAL_DWELL_SECONDS - elapsed / TICK_HZ;
+        furi_mutex_release(w->mutex);
+        view_port_update(vp);
+    }
+
+    if(total >= CAL_MIN_VALID) {
+        *out_zero = mean;
+        *out_std_ns = sqrtf(m2 / (float)(total - 1)) * gsr_tia_counts_to_ns(1.0f);
+        return CalMeasureOk;
+    }
+    *out_zero = sum_all / (float)all;
+    *out_std_ns = 0.0f;
+    FURI_LOG_W("BioMap", "Cal zero failed: mean=%.1f in=%d of %d (limit ±%.0f)",
+               (double)*out_zero, total, all, (double)CAL_ZERO_MAX_COUNTS);
+    return CalMeasureFailed;
+}
+
 // calibration_wizard_compute_fit() moved to biomap_format.c (SDK-free,
 // linked by tests/test_firmware.c instead of mirrored). Declared in
 // biomap_format.h.
@@ -478,6 +546,9 @@ enum {
     WizardStepFitFailed     = 10,
     WizardStepNoiseFailed   = 11,
     WizardStepBiasFailed    = 12,
+    WizardStepPromptZero    = 13,
+    WizardStepMeasuringZero = 14,
+    WizardStepZeroFailed    = 15,
 };
 
 // Mutex-guarded WizardState field writers — collapse the repeated
@@ -506,18 +577,24 @@ static void wizard_set_fail(WizardState* w, int idx, int step) {
     furi_mutex_release(w->mutex);
 }
 
-static void wizard_set_fit_result(WizardState* w, float gain, float offset,
-                                   float r_squared, int step) {
+static void wizard_set_zero(WizardState* w, float zero_counts, float noise_ns, int step) {
+    furi_mutex_acquire(w->mutex, FuriWaitForever);
+    w->zero_counts = zero_counts;
+    w->zero_noise_ns = noise_ns;
+    w->step = step;
+    furi_mutex_release(w->mutex);
+}
+
+static void wizard_set_fit_result(WizardState* w, float gain, float r_squared, int step) {
     furi_mutex_acquire(w->mutex, FuriWaitForever);
     w->gain = gain;
-    w->offset = offset;
     w->r_squared = r_squared;
     w->step = step;
     furi_mutex_release(w->mutex);
 }
 
 void run_calibration_wizard(BioMapApp* app) {
-    WizardState w = {.step = WizardStepPrompt470k};
+    WizardState w = {.step = WizardStepPromptZero};
     // Guards every field above against calibration_wizard_render() running
     // on the GUI thread — see WizardState's doc comment in biomap.h.
     // Allocated before vp_push() so the callback is never live with
@@ -559,10 +636,11 @@ void run_calibration_wizard(BioMapApp* app) {
             // calibration_wizard_measure() itself (CalMeasureCancelled),
             // not here — by the time this loop reads its next event the
             // step has already moved past Measuring.
-            bool cancelable = w.step == WizardStepPrompt470k || w.step == WizardStepPrompt100k ||
-                              w.step == WizardStepPrompt47k || w.step == WizardStepSuccess ||
-                              w.step == WizardStepMeasureFailed || w.step == WizardStepFitFailed ||
-                              w.step == WizardStepNoiseFailed || w.step == WizardStepBiasFailed;
+            bool cancelable = w.step == WizardStepPromptZero || w.step == WizardStepPrompt470k ||
+                              w.step == WizardStepPrompt100k || w.step == WizardStepPrompt47k ||
+                              w.step == WizardStepSuccess || w.step == WizardStepMeasureFailed ||
+                              w.step == WizardStepFitFailed || w.step == WizardStepNoiseFailed ||
+                              w.step == WizardStepBiasFailed || w.step == WizardStepZeroFailed;
             if(cancelable) {
                 biomap_sound_back(app->sound_enabled);
                 break;
@@ -576,14 +654,52 @@ void run_calibration_wizard(BioMapApp* app) {
 
         if(w.step == WizardStepSuccess) {
             biomap_sound_confirm(app->sound_enabled);
-            biomap_save_calibration(app, w.gain, w.offset, w.r_squared, w.noise_std_dev);
+            biomap_save_calibration(app, w.gain, w.zero_counts, w.r_squared, w.noise_std_dev);
             break;
         }
 
+        // Any failure restarts from the zero step: the resistor readings
+        // depend on the zero, so a fresh run measures both together.
         if(w.step == WizardStepMeasureFailed || w.step == WizardStepFitFailed ||
-           w.step == WizardStepNoiseFailed || w.step == WizardStepBiasFailed) {
+           w.step == WizardStepNoiseFailed || w.step == WizardStepBiasFailed ||
+           w.step == WizardStepZeroFailed) {
             biomap_sound_click(app->sound_enabled);
-            wizard_set_step(&w, WizardStepPrompt470k);
+            wizard_set_step(&w, WizardStepPromptZero);
+            view_port_update(vp);
+            continue;
+        }
+
+        // ── Open-circuit zero step ────────────────────────────────
+        // Same click-then-measure order as the resistor steps below (see
+        // the GSR+Sound note there).
+        if(w.step == WizardStepPromptZero) {
+            biomap_sound_click(app->sound_enabled);
+            wizard_set_step(&w, WizardStepMeasuringZero);
+            view_port_update(vp);
+
+            if(!sensor_ok) {
+                wizard_set_fail(&w, 0, WizardStepMeasureFailed);
+                biomap_sound_error(app->sound_enabled);
+                view_port_update(vp);
+                continue;
+            }
+
+            float zero = 0.0f, zero_noise_ns = 0.0f;
+            CalMeasureResult result = calibration_wizard_measure_zero(app, vp, &w, gsr,
+                                                                       &zero, &zero_noise_ns);
+            if(result == CalMeasureCancelled) {
+                biomap_sound_back(app->sound_enabled);
+                break;
+            }
+            bool zero_ok = result == CalMeasureOk &&
+                           calibration_noise_grade(zero_noise_ns) != CalNoisePoor;
+            wizard_set_zero(&w, zero, zero_noise_ns,
+                            zero_ok ? WizardStepPrompt470k : WizardStepZeroFailed);
+            if(zero_ok) {
+                biomap_sound_confirm(app->sound_enabled);
+            } else {
+                biomap_sound_error(app->sound_enabled);
+            }
             view_port_update(vp);
             continue;
         }
@@ -657,9 +773,9 @@ void run_calibration_wizard(BioMapApp* app) {
             // last write, so it needs no lock; only the fields published
             // below (read cross-thread by the render callback) do.
             if(w.step == WizardStepFitPending) {
-                float gain, offset, r_squared;
-                bool fit_ok = calibration_wizard_compute_fit(w.measured, targets, &gain, &offset, &r_squared);
-                wizard_set_fit_result(&w, gain, offset, r_squared,
+                float gain, r_squared;
+                bool fit_ok = calibration_wizard_compute_fit(w.measured, targets, &gain, &r_squared);
+                wizard_set_fit_result(&w, gain, r_squared,
                                       fit_ok ? WizardStepSuccess : WizardStepFitFailed);
                 if(fit_ok) {
                     biomap_sound_success(app->sound_enabled);

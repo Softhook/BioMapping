@@ -127,7 +127,7 @@ typedef struct BioMapApp {
     bool               super_s;        // Options > Super-S: true = AUTO (module default), false = OFF
     bool               cal_active;
     float              cal_gain;
-    float              cal_offset;
+    float              cal_zero_counts; // open-circuit zero, normalised counts (BioMapCalibration::zero_counts)
     // Unix epoch (RTC) at which the active GSR calibration was saved; 0 when
     // none is active, or when the RTC was unset at save time. Loaded from
     // BioMapCalibration::timestamp, surfaced by show_current_calibration_render().
@@ -212,7 +212,7 @@ typedef struct {
 #define BIOMAP_CAL_PATH    "/ext/biomapping/biomap.cal"
 #define BIOMAP_CAL_PATH_TMP "/ext/biomapping/biomap.cal.tmp"
 
-// CAL_POINTS and the CAL_GAIN_*/CAL_OFFSET_* fit bounds live in
+// CAL_POINTS, the CAL_GAIN_* fit bounds and CAL_ZERO_MAX_COUNTS live in
 // biomap_config.h — biomap_format.c's calibration_wizard_compute_fit()
 // needs them and is SDK-free.
 
@@ -230,8 +230,8 @@ typedef struct {
 // needing gain g reads target / g: CAL_GAIN_MIN (0.2) means the device
 // reads 5× high, CAL_GAIN_MAX (5.0) means it reads 5× low.
 //
-// These gates admit a narrower range than the fit bounds. Ignoring
-// offset, each resistor's gate [lo, hi] admits gain in [target/hi,
+// These gates admit a narrower range than the fit bounds. With the
+// zero removed, each resistor's gate [lo, hi] admits gain in [target/hi,
 // target/lo]:
 //   470k: [0.71, 10.6]   100k: [0.40, 3.33]   47k: [0.47, 4.26]
 // so only a device needing gain ≈ 0.71–3.33 can complete the wizard.
@@ -252,11 +252,13 @@ typedef struct {
 #define BIOMAP_SETTINGS_PATH     "/ext/biomapping/biomap.settings"
 #define BIOMAP_SETTINGS_PATH_TMP "/ext/biomapping/biomap.settings.tmp"
 
-// Calibration wizard state machine.  Steps:
+// Calibration wizard state machine.  Steps (the wizard starts at 13):
+//   13 = prompt zero (nothing connected)   14 = measure zero
 //   0 = prompt 470k    4 = prompt 47k      8  = success
 //   1 = measure 470k   5 = measure 47k     9  = measurement fail
 //   2 = prompt 100k    6 = compute fit     10 = fit fail (bounds / R²)
 //   3 = measure 100k   7 = (unused)        11 = noise/resolution fail (σ too high)
+//   12 = bias check fail                   15 = zero fail (out of range / noisy)
 //
 // Lives as a stack-local in run_calibration_wizard() (biomap_gui.c), but
 // its draw callback (biomap_render.c's calibration_wizard_render()) runs
@@ -275,8 +277,9 @@ typedef struct {
     int   fail_idx;                     // resistor index behind step 9/11/12's fail screen
     float bias_measured_v;              // last bias check, V (NAN = failed) — step 12's fail screen
     uint32_t seconds_left;              // live dwell countdown during Measuring steps
+    float zero_counts;            // open-circuit reading, normalised counts (step 14)
+    float zero_noise_ns;          // σ of the zero dwell, as nS near zero — step 15's fail screen
     float gain;
-    float offset;
     float r_squared;              // goodness-of-fit
 } WizardState;
 
@@ -327,7 +330,7 @@ void run_options_screen(BioMapApp* app);
 void run_calibration_menu(BioMapApp* app);
 void run_calibration_wizard(BioMapApp* app);
 bool biomap_load_calibration(BioMapApp* app);
-void biomap_save_calibration(BioMapApp* app, float gain, float offset, float r_squared,
+void biomap_save_calibration(BioMapApp* app, float gain, float zero_counts, float r_squared,
                              const float noise_std_dev[CAL_POINTS]);
 void biomap_reset_calibration(BioMapApp* app);
 

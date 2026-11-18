@@ -768,13 +768,14 @@ void calibration_wizard_render(Canvas* c, void* ctx) {
 
     // Guards against run_calibration_wizard()'s measurement loop (main
     // thread), which rewrites step/measured[]/noise_std_dev[]/fail_idx/
-    // bias_measured_v/seconds_left/gain/offset/r_squared as each resistor
+    // bias_measured_v/seconds_left/zero_counts/zero_noise_ns/gain/r_squared as each step
     // is measured —
     // see WizardState's doc comment in biomap.h.
     furi_mutex_acquire(w->mutex, FuriWaitForever);
     int step = w->step;
     float gain = w->gain;
-    float offset = w->offset;
+    float zero_counts = w->zero_counts;
+    float zero_noise_ns = w->zero_noise_ns;
     float r_squared = w->r_squared;
     int fail_idx = w->fail_idx;
     float bias_v = w->bias_measured_v;
@@ -796,8 +797,8 @@ void calibration_wizard_render(Canvas* c, void* ctx) {
     case 0: case 1: case 2: case 3: case 4: case 5: {
         int idx = step / 2;
         if(step % 2 == 0) { // Prompt
-            draw_fmt(c, 0, 25, "Step %d/3: %s (%s)",
-                     idx + 1, cal_steps[idx].level, cal_steps[idx].resistor);
+            draw_fmt(c, 0, 25, "Step %d/4: %s (%s)",
+                     idx + 2, cal_steps[idx].level, cal_steps[idx].resistor);
             draw_fmt(c, 0, 37, "Connect %s 0.1%% resistor", cal_steps[idx].resistor);
             canvas_draw_str(c, 0, 49, "OK to measure");
         } else { // Measuring — live dwell countdown (CAL_DWELL_SECONDS, biomap_gui.c)
@@ -807,11 +808,32 @@ void calibration_wizard_render(Canvas* c, void* ctx) {
         }
         break;
     }
+    case 13: // Prompt: open-circuit zero
+        canvas_draw_str(c, 0, 25, "Step 1/4: Zero");
+        canvas_draw_str(c, 0, 37, "Disconnect everything");
+        canvas_draw_str(c, 0, 49, "OK to measure");
+        break;
+    case 14: // Measuring the zero — live dwell countdown
+        canvas_draw_str(c, 0, 25, "Measuring zero...");
+        canvas_draw_str(c, 0, 37, "Keep nothing connected");
+        draw_fmt(c, 0, 49, "%lus remaining (Back=cancel)", (unsigned long)seconds_left);
+        break;
+    case 15: // Zero failed — out of range (something connected) or too noisy
+        canvas_draw_str(c, 0, 25, "Zero Check Failed!");
+        if(zero_noise_ns >= CAL_NOISE_ACCEPTABLE_NS) {
+            draw_fmt(c, 0, 37, "Too noisy: %.1f nS", (double)zero_noise_ns);
+            canvas_draw_str(c, 0, 49, "Keep cables still.");
+        } else {
+            draw_fmt(c, 0, 37, "Read %.0f, max %.0f", (double)zero_counts,
+                     (double)CAL_ZERO_MAX_COUNTS);
+            canvas_draw_str(c, 0, 49, "Disconnect everything.");
+        }
+        break;
     case 8: { // Success
         float worst_std = worst_noise_std_dev(noise_std_dev);
         canvas_draw_str(c, 0, 23, "Calibration Success!");
         draw_fmt(c, 0, 35, "Gain: %.3fx  R\xb2: %.4f", (double)gain, (double)r_squared);
-        draw_fmt(c, 0, 47, "Off:%.0fnS  N:%.2fnS", (double)offset, (double)worst_std);
+        draw_fmt(c, 0, 47, "Zero:%.0f  N:%.2fnS", (double)zero_counts, (double)worst_std);
         canvas_draw_str(c, 0, 60, "OK=Save  Back=Discard");
         break;
     }
@@ -868,7 +890,7 @@ void show_current_calibration_render(Canvas* c, void* ctx) {
     if(furi_mutex_acquire(app->mutex, 10) != FuriStatusOk) return;
     bool active = app->cal_active;
     float gain = app->cal_gain;
-    float offset = app->cal_offset;
+    float zero_counts = app->cal_zero_counts;
     uint32_t timestamp = app->cal_timestamp;
     float r_squared = app->cal_r_squared;
     float noise_std_dev[CAL_POINTS];
@@ -881,11 +903,11 @@ void show_current_calibration_render(Canvas* c, void* ctx) {
     // noise data, so the Offset line stays plain for it.
     if(active) {
         draw_fmt(c, 0, 35, "Gain: %.3fx  R\xb2: %.3f", (double)gain, (double)r_squared);
-        draw_fmt(c, 0, 47, "Off:%.0fnS  N:%.2fnS",
-                 (double)offset, (double)worst_noise_std_dev(noise_std_dev));
+        draw_fmt(c, 0, 47, "Zero:%.0f  N:%.2fnS",
+                 (double)zero_counts, (double)worst_noise_std_dev(noise_std_dev));
     } else {
         draw_fmt(c, 0, 35, "Gain: %.3fx", (double)gain);
-        draw_fmt(c, 0, 47, "Offset: %.0f nS", (double)offset);
+        draw_fmt(c, 0, 47, "Zero: %.0f", (double)zero_counts);
     }
 
     // Calibration age — custom cal only (the default transform has no save).

@@ -402,56 +402,20 @@ void test_conductance_conversion() {
 
 void test_calibration_calculations() {
     printf("Running test_calibration_calculations...\n");
-    // Three-point least-squares calibration — pure nS domain.
-    // A device that reads ~4 % low across all three resistors.
+    // Gain-only fit on the real calibration_wizard_compute_fit(): a device
+    // (zero already removed) that reads ~4 % low across all three resistors.
     // Targets are true physical conductance: 1e9 / R_ohms.
     float measured[3]  = { 2050.0f, 9600.0f, 20500.0f };  // 470k, 100k, 47k
     float targets[3]   = { 2127.66f, 10000.0f, 21276.6f };
 
-    // Three-point least-squares:  y = gain * x + offset  (all in float)
-    float sx = 0, sy = 0, sxx = 0, sxy = 0;
+    float gain, r2;
+    assert(calibration_wizard_compute_fit(measured, targets, &gain, &r2));
+    assert(gain >= 1.03f && gain <= 1.05f);
     for(int i = 0; i < 3; i++) {
-        float xi = measured[i];
-        float yi = targets[i];
-        sx  += xi;
-        sy  += yi;
-        sxx += xi * xi;
-        sxy += xi * yi;
+        assert(fabsf(gain * measured[i] - targets[i]) < 100.0f);
     }
-    float denom = 3.0f * sxx - sx * sx;
-    assert(denom > 1e-9f);
-    float gain   = (3.0f * sxy - sx * sy) / denom;
-    float offset = (sy - gain * sx) / 3.0f;
-
-    // Gain near 1.0, offset small (device is close to reference).
-    assert(gain >= 0.9f && gain <= 1.1f);
-    assert(fabsf(offset) < 1000.0f);
-
-    // Apply calibration — all three points should land near targets.
-    for(int i = 0; i < 3; i++) {
-        float cal = gain * measured[i] + offset;
-        assert(fabsf(cal - targets[i]) < 100.0f);
-    }
-
-    // R² goodness-of-fit should be near 1.0 (linear device assumption holds).
-    float y_mean = sy / 3.0f;
-    float ss_res = 0, ss_tot = 0;
-    for(int i = 0; i < 3; i++) {
-        float yi     = targets[i];
-        float y_pred = gain * measured[i] + offset;
-        float res    = yi - y_pred;
-        ss_res += res * res;
-        float dev    = yi - y_mean;
-        ss_tot += dev * dev;
-    }
-    float r2 = (ss_tot > 1e-9f) ? (1.0f - ss_res / ss_tot) : 1.0f;
     assert(r2 > 0.999f);
-
-    // Verify a mid-range reading: calibrated nS must be sane.
-    float mid_cal = gain * 9600.0f + offset;
-    assert(mid_cal > 9800.0f && mid_cal < 10200.0f);
-
-    printf("  gain=%.4f offset=%.1f R²=%.6f -> Pass\n", (double)gain, (double)offset, (double)r2);
+    printf("  gain=%.4f R²=%.6f -> Pass\n", (double)gain, (double)r2);
 }
 
 void test_csv_formatting() {
@@ -605,18 +569,26 @@ void test_gsr_bias_line_formatting() {
 }
 
 // The calibration wizard and the 0.5 V bias correction stack: the wizard
-// fits gain/offset on bias-corrected readings (cal off, gsr_sensor_get_raw()),
-// recordings apply bias correction then the fit. So a calibration made at
-// one bias stays right at another. Simulated board: what the ADC reports for
-// skin resistance rs at true bias vb, with the given op-amp input offset,
+// measures the open-circuit zero, then fits a gain on bias-corrected,
+// zero-removed readings (gsr_sensor_get_raw() with gain 1); recordings do
+// the same, then apply the gain. So a calibration made at one bias stays
+// right at another. Simulated board: what the ADC reports for skin
+// resistance rs at true bias vb, with the given op-amp input offset,
 // gain/safety resistor errors and ADC gain error; the bias reading goes
 // through the same ADC. Real formula (gsr_tia_counts_to_ns_at_bias) and real
 // fit (calibration_wizard_compute_fit) throughout.
-typedef struct { float rf, rser, vos, gadc; } SimBoard;
+// cal47_tol: how far the wizard's "47k" resistor is from 47 kΩ (0.001 = +0.1 %,
+// the part tolerance); the fit still assumes exactly 47k.
+typedef struct { float rf, rser, vos, gadc, cal47_tol; } SimBoard;
 
 static float sim_counts(const SimBoard* b, float rs, float vb) {
     float i = (vb + b->vos) / (rs + b->rser);           // skin sees the TIA input, bias + offset
     return b->gadc * (b->vos + i * b->rf) / 7.8125e-6f;  // ADC: V_out − V_bias, in normalised units
+}
+
+// Open circuit: no skin current, so the ADC sees only the op-amp offset.
+static float sim_zero_counts(const SimBoard* b) {
+    return b->gadc * b->vos / 7.8125e-6f;
 }
 
 // % error of a reading of resistance rs at bias vb after calibrating at vb_cal.
@@ -624,14 +596,16 @@ static float sim_counts(const SimBoard* b, float rs, float vb) {
 static float sim_cal_error_pct(const SimBoard* b, bool correct, float vb_cal, float vb, float rs) {
     const float r[CAL_POINTS] = { 470000.0f, 100000.0f, 47000.0f };
     const float t[CAL_POINTS] = { 1e9f / 470000.0f, 1e9f / 100000.0f, 1e9f / 47000.0f };
-    float m[CAL_POINTS], gain, offset, r2;
+    const float r_real[CAL_POINTS] = { r[0], r[1], r[2] * (1.0f + b->cal47_tol) };
+    float zero = sim_zero_counts(b);
+    float m[CAL_POINTS], gain, r2;
     for(int i = 0; i < CAL_POINTS; i++) {
         float scale = correct ? b->gadc * vb_cal / GSR_BIAS_NOMINAL_V : 1.0f;
-        m[i] = gsr_tia_counts_to_ns_at_bias(sim_counts(b, r[i], vb_cal), scale);
+        m[i] = gsr_tia_counts_to_ns_at_bias(sim_counts(b, r_real[i], vb_cal) - zero, scale);
     }
-    calibration_wizard_compute_fit(m, t, &gain, &offset, &r2);
+    calibration_wizard_compute_fit(m, t, &gain, &r2);
     float scale = correct ? b->gadc * vb / GSR_BIAS_NOMINAL_V : 1.0f;
-    float ns = gain * gsr_tia_counts_to_ns_at_bias(sim_counts(b, rs, vb), scale) + offset;
+    float ns = gain * gsr_tia_counts_to_ns_at_bias(sim_counts(b, rs, vb) - zero, scale);
     float truth = 1e9f / rs;
     return (ns - truth) / truth * 100.0f;
 }
@@ -644,7 +618,7 @@ void test_bias_correction_stacks_with_calibration() {
     // New boards (OPA2333, offset ~10 µV ≈ 0): 0.2 % gain resistor, 1 % safety
     // resistors, 0.1 % ADC gain. The calibrated result must not depend on
     // the bias at all — and the old firmware's is off by ~2 %.
-    SimBoard board = { 47000.0f * 1.002f, 9400.0f * 1.01f, 0.0f, 1.001f };
+    SimBoard board = { 47000.0f * 1.002f, 9400.0f * 1.01f, 0.0f, 1.001f, 0.0f };
     for(size_t i = 0; i < sizeof(rs_list) / sizeof(rs_list[0]); i++) {
         float at_cal = sim_cal_error_pct(&board, true, vb_cal, vb_cal, rs_list[i]);
         float at_rec = sim_cal_error_pct(&board, true, vb_cal, vb_rec, rs_list[i]);
@@ -667,6 +641,21 @@ void test_bias_correction_stacks_with_calibration() {
                (double)(rs_list[i] / 1000.0f), (double)at_rec, (double)old);
         assert(fabsf(at_rec) < 0.2f);
         assert(fabsf(old) > 1.5f);
+    }
+
+    // The same prototype at high resistances, far beyond the calibration
+    // points, with the 47k calibration resistor 0.1 % off (its tolerance).
+    // A 2 mV offset is ~256 counts (~85 nS), most of a 9 MΩ reading
+    // (111 nS). The earlier gain+offset fit guessed that offset by extending
+    // a line from the calibration points to 0, and this 0.1 % alone moved
+    // 9 MΩ by ~6 nS (~5 %). With the open-circuit zero removed before the
+    // conversion and a gain-only fit, it must stay within 1 %.
+    board.cal47_tol = 0.001f;
+    const float rs_high[] = { 1e6f, 4.7e6f, 9e6f };
+    for(size_t i = 0; i < sizeof(rs_high) / sizeof(rs_high[0]); i++) {
+        float err = sim_cal_error_pct(&board, true, vb_cal, vb_cal, rs_high[i]);
+        printf("  %4.1fM with 2 mV offset: %+.3f%%\n", (double)(rs_high[i] / 1e6f), (double)err);
+        assert(fabsf(err) < 1.0f);
     }
     printf("  -> Pass\n");
 }
@@ -848,52 +837,50 @@ void test_nmea_parsing() {
 #define CAL_TARGET_47K   21276.6f
 
 // Void-returning wrapper over the REAL fit (biomap_format.c) for the
-// correctness tests below that only care about gain/offset/r², not the
-// validity gate. Routes through shipping code instead of a copy.
+// correctness tests below that only care about gain/r², not the validity
+// gate. Routes through shipping code instead of a copy.
 static void cal_fit(const float measured[CAL_POINTS],
                     const float targets[CAL_POINTS],
-                    float* gain, float* offset, float* r2) {
-    (void)calibration_wizard_compute_fit(measured, targets, gain, offset, r2);
+                    float* gain, float* r2) {
+    (void)calibration_wizard_compute_fit(measured, targets, gain, r2);
 }
 
 void test_calibration_fit_reports_values_on_bounds_failure() {
     printf("Running test_calibration_fit_reports_values_on_bounds_failure...\n");
     // Device reads ~6x high on every point -> gain far above the 5.0x
     // ceiling -> compute_fit must return false, but must still report the
-    // actual (out-of-range) gain/offset/R^2 rather than leaving them unset.
+    // actual (out-of-range) gain/R^2 rather than leaving them unset.
     float targets[3]  = { CAL_TARGET_470K, CAL_TARGET_100K, CAL_TARGET_47K };
     float measured[3] = { targets[0] / 6.0f, targets[1] / 6.0f, targets[2] / 6.0f };
 
     // Poison the outputs first, like uninitialised/stale WizardState fields.
-    float gain = -999.0f, offset = -999.0f, r2 = -999.0f;
-    bool ok = calibration_wizard_compute_fit(measured, targets, &gain, &offset, &r2);
+    float gain = -999.0f, r2 = -999.0f;
+    bool ok = calibration_wizard_compute_fit(measured, targets, &gain, &r2);
 
     assert(ok == false);               // correctly rejected (gain ~6.0x > 5.0x)
     assert(gain > 5.0f);               // real computed gain, not left at -999
-    assert(fabsf(offset) < 1000.0f);   // real computed offset, not left at -999
     assert(r2 > 0.95f);                // fit is actually linear (R^2 near 1) —
                                         // it's the gain bound that fails it, and
                                         // that distinction is only visible if
                                         // the outputs were actually populated.
-    printf("  gain=%.4f offset=%.1f R²=%.6f (rejected, values reported) -> Pass\n",
-           (double)gain, (double)offset, (double)r2);
+    printf("  gain=%.4f R²=%.6f (rejected, values reported) -> Pass\n",
+           (double)gain, (double)r2);
 }
 
 // ── Calibration correctness tests ─────────────────────────────────────
 
 void test_calibration_identity() {
     printf("Running test_calibration_identity...\n");
-    // Perfect device: measured == target → gain=1, offset=0, R²=1
+    // Perfect device: measured == target → gain=1, R²=1
     float measured[3] = { CAL_TARGET_470K, CAL_TARGET_100K, CAL_TARGET_47K };
     float targets[3]  = { CAL_TARGET_470K, CAL_TARGET_100K, CAL_TARGET_47K };
 
-    float gain, offset, r2;
-    cal_fit(measured, targets, &gain, &offset, &r2);
+    float gain, r2;
+    cal_fit(measured, targets, &gain, &r2);
 
     assert(fabsf(gain - 1.0f) < 1e-4f);
-    assert(fabsf(offset) < 1e-4f);
     assert(r2 > 0.9999f);
-    printf("  gain=%.4f offset=%.1f R²=%.6f -> Pass\n", (double)gain, (double)offset, (double)r2);
+    printf("  gain=%.4f R²=%.6f -> Pass\n", (double)gain, (double)r2);
 }
 
 void test_calibration_scaled_device() {
@@ -903,43 +890,37 @@ void test_calibration_scaled_device() {
     float measured[3];
     for(int i = 0; i < 3; i++) measured[i] = targets[i] * 0.9f;
 
-    float gain, offset, r2;
-    cal_fit(measured, targets, &gain, &offset, &r2);
+    float gain, r2;
+    cal_fit(measured, targets, &gain, &r2);
 
-    // gain ≈ 1/0.9 ≈ 1.111, offset ≈ 0
+    // gain = 1/0.9 ≈ 1.111
     assert(gain > 1.10f && gain < 1.12f);
-    assert(fabsf(offset) < 100.0f);
     assert(r2 > 0.999f);
 
     // Calibrated values should recover the targets
     for(int i = 0; i < 3; i++) {
-        float cal = gain * measured[i] + offset;
-        assert(fabsf(cal - targets[i]) < 50.0f);
+        assert(fabsf(gain * measured[i] - targets[i]) < 1.0f);
     }
-    printf("  gain=%.4f offset=%.1f R²=%.6f -> Pass\n", (double)gain, (double)offset, (double)r2);
+    printf("  gain=%.4f R²=%.6f -> Pass\n", (double)gain, (double)r2);
 }
 
-void test_calibration_offset_device() {
-    printf("Running test_calibration_offset_device...\n");
-    // Device has a constant +500 nS offset on all readings
+// The fit has no offset term: a constant nS offset left in the readings is
+// NOT absorbed (that is the open-circuit zero step's job, before the fit).
+// A +500 nS offset on readings is fitted as a slightly low gain, leaving the
+// 470k point badly out — proof the fit isn't silently extending a line to 0.
+void test_calibration_fit_has_no_offset() {
+    printf("Running test_calibration_fit_has_no_offset...\n");
     const float targets[3] = { CAL_TARGET_470K, CAL_TARGET_100K, CAL_TARGET_47K };
     float measured[3];
     for(int i = 0; i < 3; i++) measured[i] = targets[i] + 500.0f;
 
-    float gain, offset, r2;
-    cal_fit(measured, targets, &gain, &offset, &r2);
+    float gain, r2;
+    cal_fit(measured, targets, &gain, &r2);
 
-    // gain ≈ 1.0, offset ≈ -500
-    assert(fabsf(gain - 1.0f) < 0.01f);
-    assert(fabsf(offset + 500.0f) < 50.0f);
-    assert(r2 > 0.999f);
-
-    // Calibrated values should recover the targets
-    for(int i = 0; i < 3; i++) {
-        float cal = gain * measured[i] + offset;
-        assert(fabsf(cal - targets[i]) < 50.0f);
-    }
-    printf("  gain=%.4f offset=%.1f R²=%.6f -> Pass\n", (double)gain, (double)offset, (double)r2);
+    assert(gain < 1.0f);
+    assert(gain * measured[0] - targets[0] > 300.0f);  // 470k still reads far high
+    printf("  gain=%.4f, 470k reads %+.0f nS -> Pass\n",
+           (double)gain, (double)(gain * measured[0] - targets[0]));
 }
 
 void test_calibration_nonlinear_reject() {
@@ -947,14 +928,11 @@ void test_calibration_nonlinear_reject() {
     // Non-monotonic device: the "high" (47k) resistor reads BELOW the
     // "mid" (100k) resistor, which no linear device can reproduce — poor R².
     // The production gate (calibration_wizard_compute_fit) requires R^2 >= 0.95.
-    // (A merely noisy-but-still-monotonic set like {3000,10000,15000} actually
-    // scores R^2 ~ 0.96, which would PASS the real 0.95 gate — not a useful
-    // rejection example — so this uses a genuinely non-monotonic set instead.)
     float measured[3] = { 2000.0f, 10000.0f, 9000.0f };   // non-monotonic
     float targets[3]  = { CAL_TARGET_470K, CAL_TARGET_100K, CAL_TARGET_47K };
 
-    float gain, offset, r2;
-    cal_fit(measured, targets, &gain, &offset, &r2);
+    float gain, r2;
+    cal_fit(measured, targets, &gain, &r2);
 
     // R² must be < 0.95 (fails the production linearity gate)
     assert(r2 < 0.95f);
@@ -963,53 +941,45 @@ void test_calibration_nonlinear_reject() {
 
 void test_calibration_degenerate_input() {
     printf("Running test_calibration_degenerate_input...\n");
-    // All three measurements identical → denominator ≈ 0 → fit rejected
-    float measured[3] = { 5000.0f, 5000.0f, 5000.0f };
+    // Every measurement 0 nS → no gain exists → fit rejected with defaults
+    float measured[3] = { 0.0f, 0.0f, 0.0f };
     float targets[3]  = { CAL_TARGET_470K, CAL_TARGET_100K, CAL_TARGET_47K };
 
-    float gain, offset, r2;
-    cal_fit(measured, targets, &gain, &offset, &r2);
+    float gain, r2;
+    bool ok = calibration_wizard_compute_fit(measured, targets, &gain, &r2);
 
-    // Denominator check kicks in: should return defaults (gain=1, offset=0, r2=0)
+    assert(!ok);
     assert(gain == 1.0f);
-    assert(offset == 0.0f);
     assert(r2 == 0.0f);
-    printf("  gain=%.4f offset=%.1f R²=%.6f -> Pass\n", (double)gain, (double)offset, (double)r2);
+    printf("  gain=%.4f R²=%.6f -> Pass\n", (double)gain, (double)r2);
 }
 
 // The fit's validity gates, on the real calibration_wizard_compute_fit():
-// gain in [CAL_GAIN_MIN, CAL_GAIN_MAX], offset in [CAL_OFFSET_MIN,
-// CAL_OFFSET_MAX], R² >= 0.95. Gain too high is covered by
+// gain in [CAL_GAIN_MIN, CAL_GAIN_MAX], R² >= 0.95. Gain too high is covered by
 // test_calibration_fit_reports_values_on_bounds_failure.
 void test_calibration_fit_gates() {
     printf("Running test_calibration_fit_gates...\n");
     const float targets[3] = { CAL_TARGET_470K, CAL_TARGET_100K, CAL_TARGET_47K };
     float measured[3];
-    float gain, offset, r2;
+    float gain, r2;
 
     // Reads 10 % low: well inside every gate -> accepted.
     for(int i = 0; i < 3; i++) measured[i] = targets[i] * 0.9f;
-    assert(calibration_wizard_compute_fit(measured, targets, &gain, &offset, &r2));
+    assert(calibration_wizard_compute_fit(measured, targets, &gain, &r2));
 
     // Reads 6x low -> gain ~6 > CAL_GAIN_MAX, perfectly linear -> rejected.
     for(int i = 0; i < 3; i++) measured[i] = targets[i] / 6.0f;
-    assert(!calibration_wizard_compute_fit(measured, targets, &gain, &offset, &r2));
+    assert(!calibration_wizard_compute_fit(measured, targets, &gain, &r2));
     assert(gain > CAL_GAIN_MAX && r2 > 0.95f);
 
     // Reads 4x high -> gain 0.25, just inside CAL_GAIN_MIN -> accepted.
     for(int i = 0; i < 3; i++) measured[i] = targets[i] * 4.0f;
-    assert(calibration_wizard_compute_fit(measured, targets, &gain, &offset, &r2));
+    assert(calibration_wizard_compute_fit(measured, targets, &gain, &r2));
     assert(gain > CAL_GAIN_MIN);
-
-    // Reads 25 000 nS low: gain 1, offset +25 000 > CAL_OFFSET_MAX -> rejected
-    // even though the fit is perfectly linear.
-    for(int i = 0; i < 3; i++) measured[i] = targets[i] - 25000.0f;
-    assert(!calibration_wizard_compute_fit(measured, targets, &gain, &offset, &r2));
-    assert(fabsf(gain - 1.0f) < 0.01f && offset > CAL_OFFSET_MAX && r2 > 0.99f);
 
     // Non-monotonic -> R² < 0.95 -> rejected.
     measured[0] = 2000.0f; measured[1] = 10000.0f; measured[2] = 9000.0f;
-    assert(!calibration_wizard_compute_fit(measured, targets, &gain, &offset, &r2));
+    assert(!calibration_wizard_compute_fit(measured, targets, &gain, &r2));
     assert(r2 < 0.95f);
     printf("  -> Pass\n");
 }
@@ -1043,7 +1013,7 @@ static BioMapCalibration valid_cal_record(void) {
     cal.magic     = BIOMAP_CAL_MAGIC;
     cal.version   = BIOMAP_CAL_VERSION;
     cal.gain      = 0.98f;
-    cal.offset    = 200.0f;
+    cal.zero_counts = -313.0f;
     cal.timestamp = 1700000000u;
     cal.r_squared = 0.991f;
     cal.noise_std_dev[0] = 0.5f;
@@ -1069,7 +1039,7 @@ void test_cal_checksum_covers_every_field() {
     bad = cal; bad.magic = 0xDEADBEEFu;       assert(biomap_calibration_checksum(&bad) != good);
     bad = cal; bad.version = 99;              assert(biomap_calibration_checksum(&bad) != good);
     bad = cal; bad.gain = 2.0f;               assert(biomap_calibration_checksum(&bad) != good);
-    bad = cal; bad.offset = 500.0f;           assert(biomap_calibration_checksum(&bad) != good);
+    bad = cal; bad.zero_counts = -300.0f;     assert(biomap_calibration_checksum(&bad) != good);
     bad = cal; bad.timestamp = 1234567890u;   assert(biomap_calibration_checksum(&bad) != good);
     bad = cal; bad.r_squared = 0.5f;          assert(biomap_calibration_checksum(&bad) != good);
     bad = cal; bad.noise_std_dev[1] = 7.5f;   assert(biomap_calibration_checksum(&bad) != good);
@@ -1088,7 +1058,8 @@ void test_cal_check_each_gate() {
     bad = cal; bad.gain = 1.5f;               assert(biomap_calibration_check(&bad) == CalRecordBadChecksum);
     bad = cal; bad.checksum ^= 1u;            assert(biomap_calibration_check(&bad) == CalRecordBadChecksum);
     bad = cal; bad.gain = 5.1f;               assert(check_resealed(bad) == CalRecordOutOfBounds);
-    bad = cal; bad.offset = -25000.0f;        assert(check_resealed(bad) == CalRecordOutOfBounds);
+    bad = cal; bad.zero_counts = -2500.0f;    assert(check_resealed(bad) == CalRecordOutOfBounds);
+    bad = cal; bad.zero_counts = NAN;         assert(check_resealed(bad) == CalRecordOutOfBounds);
     bad = cal; bad.gain = NAN;                assert(check_resealed(bad) == CalRecordOutOfBounds);
     bad = cal; bad.noise_std_dev[2] = NAN;    assert(check_resealed(bad) == CalRecordOutOfBounds);
     bad = cal; bad.noise_std_dev[0] = -0.1f;  assert(check_resealed(bad) == CalRecordOutOfBounds);
@@ -1106,10 +1077,10 @@ void test_cal_check_bounds_edges() {
     c = cal; c.gain = CAL_GAIN_MAX;             assert(check_resealed(c) == CalRecordOk);
     c = cal; c.gain = 0.19f;                    assert(check_resealed(c) == CalRecordOutOfBounds);
     c = cal; c.gain = 5.01f;                    assert(check_resealed(c) == CalRecordOutOfBounds);
-    c = cal; c.offset = CAL_OFFSET_MIN;         assert(check_resealed(c) == CalRecordOk);
-    c = cal; c.offset = CAL_OFFSET_MAX;         assert(check_resealed(c) == CalRecordOk);
-    c = cal; c.offset = -20000.1f;              assert(check_resealed(c) == CalRecordOutOfBounds);
-    c = cal; c.offset = 20000.1f;               assert(check_resealed(c) == CalRecordOutOfBounds);
+    c = cal; c.zero_counts = -CAL_ZERO_MAX_COUNTS; assert(check_resealed(c) == CalRecordOk);
+    c = cal; c.zero_counts = CAL_ZERO_MAX_COUNTS;  assert(check_resealed(c) == CalRecordOk);
+    c = cal; c.zero_counts = -2000.1f;             assert(check_resealed(c) == CalRecordOutOfBounds);
+    c = cal; c.zero_counts = 2000.1f;              assert(check_resealed(c) == CalRecordOutOfBounds);
     c = cal; c.noise_std_dev[1] = 9.99f;        assert(check_resealed(c) == CalRecordOk);
     c = cal; c.noise_std_dev[1] = CAL_NOISE_ACCEPTABLE_NS;
                                                 assert(check_resealed(c) == CalRecordOutOfBounds);
@@ -1164,7 +1135,7 @@ int main() {
     test_calibration_calculations();
     test_calibration_identity();
     test_calibration_scaled_device();
-    test_calibration_offset_device();
+    test_calibration_fit_has_no_offset();
     test_calibration_nonlinear_reject();
     test_calibration_degenerate_input();
     test_calibration_fit_gates();
