@@ -50,9 +50,10 @@ o.append('    <g fill="#64748b" font-size="11" text-anchor="end">')
 for e in [3.0,2.0,1.0,0.5,0.2,0.0,-0.5]: o.append(f'      <text x="-12" y="{y(e)+4:g}">{e:.1f}%</text>')
 o.append('    </g>')
 # primary zone: 10k to 1M
-x0,x1=X[0],X[13]  # zone edges sit on the 10 kΩ and 1 MΩ points
-o.append(f'    <rect x="{x0}" y="-10" width="{x1-x0}" height="335" fill="#16a34a" fill-opacity="0.12" stroke="#15803d" stroke-dasharray="4" stroke-width="1" stroke-opacity="0.4" />')
-o.append(f'    <text x="{(x0+x1)/2:g}" y="10" fill="#14532d" font-size="11" font-weight="700" text-anchor="middle">Primary Zone: 10 kΩ – 1 MΩ (≤ ±0.2% Error)</text>')
+# zone: 10 kΩ to 1 MΩ across, ±0.2 % high
+x0,x1=X[0],X[13]
+o.append(f'    <rect x="{x0}" y="{y(0.2):g}" width="{x1-x0}" height="{y(-0.2)-y(0.2):g}" fill="#16a34a" fill-opacity="0.12" stroke="#15803d" stroke-dasharray="4" stroke-width="1" stroke-opacity="0.4" />')
+o.append(f'    <text x="{(x0+x1)/2:g}" y="318" fill="#14532d" font-size="11" font-weight="700" text-anchor="middle">Primary Zone: 10 kΩ – 1 MΩ (≤ ±0.2% Error)</text>')
 d=" ".join(("M" if i==0 else "L")+f" {X[i]},{y(e):.1f}" for i,(_,e) in enumerate(pts))
 o.append(f'    <path d="{d}" fill="none" stroke="#2563eb" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />')
 o.append('    <g font-size="10" font-weight="500" fill="#1e293b">')
@@ -65,6 +66,8 @@ for i,(name,e) in enumerate(pts):
     above = (i%2==0) if i<14 else True
     if name=="4.7M": above=False
     ty = cy-10 if above else cy+20
+    if i<14:  # inside the green zone: keep labels clear of the box edges
+        ty = y(0.2)-6 if above else y(-0.2)+13
     bold=' font-weight="700"' if name in ("47k","9M") else ""
     o.append(f'      <!-- {name} ({e:+.2f}%) -->')
     o.append(f'      <circle cx="{X[i]}" cy="{cy:.1f}" r="4.5" fill="{fill}" /><text x="{X[i]}" y="{ty:.1f}" text-anchor="middle" fill="{txt}"{bold}>{label}</text>')
