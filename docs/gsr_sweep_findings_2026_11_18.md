@@ -29,6 +29,12 @@
   are not the cause" below. The middle error is most likely the resistor
   board's own 47k setting.
 
+- **19 November: equal-weight fit.** The wizard's gain fit now gives
+  47k, 100k and 470k an equal say. Sweep 5
+  (`reference_test_results5.csv`): every point from 10 kΩ to 1 MΩ is
+  within ±0.16 %, and the middle (100k–470k) is +0.04 to +0.08 %. See
+  "Sweep 5: equal-weight fit (19 November)" below.
+
 ![All four sweeps: error in % (top) and in nS (bottom) against resistor](gsr_sweeps_2026_11_18.png)
 
 ## Why the bias correction doesn't help the high end
@@ -263,6 +269,63 @@ percentages are at the edge of what the screen can show, and "0.00 % at
 middle range is now −0.1 to −0.3 %, so it is a little optimistic for this
 board.
 
+## Sweep 5: equal-weight fit (19 November)
+
+**Headline: from 10 kΩ to 1 MΩ (the whole skin range) every reading is
+within ±0.16 % (worst 0.16 %, average 0.08 %). Above 1 MΩ readings are
+within 3 nS, which is +2.7 % at 9 MΩ.**
+
+The wizard's gain-only fit used to be ordinary least squares, which gave
+the 47k point (about 21,000 nS) about 81 % of the say and 470k under
+1 %. It now minimises the *percentage* error, so all three calibration
+resistors count equally. Firmware: calibration file v6 (zero + gain),
+commit `594dbf7`. Sweep in `reference_test_results5.csv`.
+
+![All five sweeps: whole range (top) and the middle zoomed in (bottom)](gsr_sweeps_2026_11_19.png)
+
+| Range | August | Sweep 3 (fit led by 47k) | Sweep 5 (equal weight) |
+|---|---|---|---|
+| 10k–33k | −0.14 to −0.54 % | −0.04 to −0.14 % | +0.03 to +0.14 % |
+| 47k–68k | 0 to +0.02 % | 0 to −0.02 % | +0.14 to +0.16 % |
+| 100k–470k | 0 to −0.06 % | −0.10 to −0.28 % | +0.04 to +0.08 % |
+| Worst point, 10k–1M | 0.54 % | 0.40 % | **0.16 %** |
+| Average error, 10k–1M | 0.12 % | 0.13 % | **0.08 %** |
+| 9 MΩ | +2.70 % (+3 nS) | 0.00 % | +2.70 % (+3 nS) |
+
+**What improved:** the middle no longer slides downwards with
+resistance. 100k–470k now sit inside the ±0.1 % band of the resistors'
+own tolerance.
+
+**What it cost:** 47k and 68k now read about +0.15 % instead of 0 %. A
+single gain can't put 47k and 470k both at exactly zero when they
+disagree by about 0.1 %, so it splits the difference.
+
+**The 68k→100k step is still there** (about 0.09 %, the same size as in
+sweep 3). The fit moved the line but didn't remove the step. The step is
+also in the August data (68k +0.02 %, 100k −0.06 %), so it comes from the
+hardware or the resistor board, not the firmware.
+
+**The high end moved up by about 3 nS** compared with sweep 3 (9 MΩ: 114
+against 111 nS). The gain change only accounts for about 0.2 nS of that,
+so the rest most likely comes from this wizard run's zero reading. That
+fits "Repeatability" below: zeros from different runs have differed by a
+few nS. The 680k–9M readings happen to match August's exactly.
+
+### Why August's middle looked better
+
+August's calibration fitted two settings: a gain and an offset. The gain
+mostly sets the low-resistance end, so it put 47k at exactly 0 %; the
+offset mostly sets the high end, so it put 470k at exactly 0 %. With both
+ends pinned, the points between came out near zero too. The price was a
+tilted line: 10k–15k read 0.4–0.5 % low.
+
+The new method measures the zero directly and fits one setting, so it
+can't pin both ends. Putting an offset back on top of the measured zero
+was checked on the sweep 3 numbers: it would push 9 MΩ about 8 % high. So
+August's middle was bought at the low end's expense. Sweep 5 is the more
+even compromise, and its remaining 0.1–0.16 % is about the tolerance of
+the resistors it is measured against.
+
 ## Still to explore
 
 1. **Check the resistor board's 47k, 100k and 470k settings** with a
@@ -270,10 +333,10 @@ board.
    wizard. If the board's 47k is about 0.1 % low, that explains the
    middle. The PGA idea is done: see "Tested: the ranges are not the
    cause".
-2. **Weighting the fit (tried on the numbers, not worth it).** Weighting
-   each point by its percentage error gives gain 1.00125. That moves
-   everything about +0.1 %: the middle becomes about 0 %, but 47k and 68k
-   go to about +0.12 %. It moves the error around rather than fixing it.
+2. **Weighting the fit (built).** Equal-weight fitting is now in the
+   firmware; see "Sweep 5: equal-weight fit (19 November)". It moves the
+   error around rather than removing it: the middle is better and 47k/68k
+   read about +0.15 %.
 3. **Repeatability.** Run the wizard two or three times and note Gain and
    Zero each time. The zero should agree within a few counts (1 count is
    about 0.3 nS). If it does, the 18 Nov run-to-run problem has gone with
