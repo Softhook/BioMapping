@@ -47,21 +47,21 @@ Everything is logged to `/ext/biomapping/*.csv` at 10 Hz. A Live Stream mode sen
 
 ## Hardware Accuracy & Device Comparison
 
-The GSR front-end is built to research-grade specification and measured against a precision metal-film resistor grid (10 kΩ – 9 MΩ), full sweep in [`docs/reference_test_results.csv`](docs/reference_test_results.csv).
+The GSR front-end is built to research-grade specification and measured against a precision metal-film resistor grid (10 kΩ – 9 MΩ), full sweep in [`docs/reference_test_results5.csv`](docs/reference_test_results5.csv).
 
 ![BioMapping 2 GSR Error Curve](docs/error.svg)
 
 Accuracy zones by the fraction of real-world track data that falls inside them:
 
-- **≤ ±0.1%** — 47 kΩ – 1 MΩ (1,000 – 21,277 nS): 99.05% of data
-- **≤ ±0.5%** — 22 kΩ – 2.2 MΩ (455 – 45,455 nS): 99.75%
-- **≤ ±1.0%** — 15 kΩ – 4.7 MΩ (213 – 66,667 nS): 99.89%
+- **≤ ±0.2%** — 10 kΩ – 1 MΩ (1,000 – 100,000 nS): 99.23% of data
+- **≤ ±0.5%** — 10 kΩ – 2.2 MΩ (455 – 100,000 nS): 99.74%
+- **≤ ±1.0%** — 10 kΩ – 4.7 MΩ (213 – 100,000 nS): 99.84%
 - Below 100 nS (over 10 MΩ) the device reports an open circuit (electrodes disconnected / air).
 
 | Device | Type / Price | ADC Resolution | Noise Floor | Accuracy / Error |
 | :--- | :--- | :--- | :--- | :--- |
 | [BIOPAC EDA100C + MP160](https://www.biopac.com/product/electrodermal-activity-amplifier/) | Lab Benchmark (~£8,000+) | 16-bit *(MP160 DAQ)* | 0.7 nS *(published sensitivity)* | Unknown |
-| **[BioMapping 2](https://github.com/Softhook/BioMapping)** | **Custom Portable (~£250)** | **16-bit** *(Onboard ADS1115)* | **2.7 nS** | **±0.1% *(calibrated)* / ±0.4% *(raw)*** |
+| **[BioMapping 2](https://github.com/Softhook/BioMapping)** | **Custom Portable (~£250)** | **16-bit** *(Onboard ADS1115)* | **2.7 nS** | **±0.2% *(calibrated)* / ±0.4% *(raw)*** |
 | [Empatica E4](https://support.empatica.com/hc/en-us/articles/202581999-E4-wristband-technical-specifications) | Clinical Wearable (~£1,350) *(discontinued)* | Not published *(0.9 nS per step)* | Unknown | Unknown |
 | [Empatica EmbracePlus](https://www.empatica.com/embraceplus/) | Clinical Research Wearable (~£1,400+) | Not published *(~0.055 nS per step)* | Unknown | Unknown |
 | [Shimmer3 GSR+](https://shimmersensing.com/product/shimmer3-gsr-unit/) | Research Wearable (~£650) | 12-bit *(Onboard MCU ADC)* | Unknown | ±3% to ±10% |
