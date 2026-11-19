@@ -187,8 +187,14 @@ static void render_gps_compact(Canvas* c, BioMapApp* a) {
 
     // Recording filename at top of the right pane
     if(a->session.recording.active) {
+        // The full name ("biomap_2026-11-19_14-32-05.csv") is too wide for
+        // this pane, so show only the start time part ("14-32-05", plus any
+        // "_2" suffix), which is what tells recordings from one day apart.
         const char* fn = sd_logger_get_filename(a->session.logger);
-        canvas_draw_str(c, x, y, (strlen(fn) > 7) ? fn + 7 : fn);
+        const char* t = (strlen(fn) > 18) ? fn + 18 : fn;
+        const char* ext = strstr(t, ".csv");
+        int tlen = ext ? (int)(ext - t) : (int)strlen(t);
+        draw_fmt(c, x, y, "%.*s", tlen, t);
         y += 10;
     }
 

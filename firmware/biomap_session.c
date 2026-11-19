@@ -442,7 +442,15 @@ static bool key_toggle_recording(Session* s, FuriMutex* mutex,
 
     if(start) {
         // Build header: recording-start metadata line + column names.
-        uint32_t epoch = biomap_rtc_now_epoch();
+        // One clock reading feeds both the header's start time and the
+        // file name, so the two always agree.
+        DateTime dt;
+        furi_hal_rtc_get_datetime(&dt);
+        uint32_t epoch = pipeline_unix_epoch(dt.year, dt.month, dt.day,
+                                             dt.hour, dt.minute, dt.second);
+        char stamp[24];
+        biomap_format_file_stamp(stamp, sizeof(stamp), dt.year, dt.month, dt.day,
+                                 dt.hour, dt.minute, dt.second);
         if(epoch == 0) {
             FURI_LOG_W("BioMap", "RTC not set — recording epoch will be 0 in CSV header");
         }
@@ -541,7 +549,7 @@ static bool key_toggle_recording(Session* s, FuriMutex* mutex,
             biomap_sound_error(sound_enabled);
             return false;
         }
-        bool ok = sd_logger_start(s->logger, header);
+        bool ok = sd_logger_start(s->logger, header, stamp);
         if(ok) {
             // Chirp + settle BEFORE recording.active goes true (see the
             // "GSR + Sound" note above) — this is pure air time for the

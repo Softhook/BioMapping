@@ -178,3 +178,11 @@ uint32_t biomap_settings_checksum(const BioMapSettings* s);
 
 // Magic, version, checksum, and nav_model a real GpsNavModel.
 bool biomap_settings_valid(const BioMapSettings* s);
+
+// Start-time part of a recording's file name: "YYYY-MM-DD_HH-MM-SS", e.g.
+// "2026-11-19_14-32-05". ISO 8601 order (largest unit first) so files sort
+// by time, with "-" in place of ":" because ":" is not allowed in FAT file
+// names. The time is the Flipper clock's local time. Returns the length
+// written, or -1 if it would not fit in `cap` (needs 20 bytes).
+int biomap_format_file_stamp(char* out, size_t cap, uint16_t year, uint8_t month, uint8_t day,
+                             uint8_t hour, uint8_t minute, uint8_t second);

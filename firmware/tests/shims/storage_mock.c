@@ -3,7 +3,7 @@
 // Just enough of a real filesystem for modules/sd_logger.c to run
 // unmodified against: storage_file_open/write/close persist real bytes
 // keyed by full path, and storage_dir_open/read enumerates them by
-// prefix, so find_next_index()'s directory scan is exercised for real
+// prefix, so the logger's name-clash check is exercised for real
 // rather than stubbed out.
 
 #include "storage/storage.h"
@@ -103,6 +103,10 @@ bool storage_mock_file_exists(Storage* storage, const char* path) {
     return find_file(storage, path) != NULL;
 }
 
+bool storage_file_exists(Storage* storage, const char* path) {
+    return find_file(storage, path) != NULL;
+}
+
 void storage_mock_fail_next_dir_open(Storage* storage, bool fail) { storage->fail_next_dir_open = fail; }
 void storage_mock_fail_next_open(Storage* storage, bool fail) { storage->fail_next_open = fail; }
 void storage_mock_fail_writes(Storage* storage, bool fail) { storage->fail_writes = fail; }
@@ -163,6 +167,18 @@ bool storage_file_open(File* file, const char* path, FS_AccessMode access_mode, 
         }
         existing->pos = 0;
         file->vfile = existing;
+        file->is_dir = false;
+        file->open = true;
+        return true;
+    }
+
+    // Like FatFs FA_CREATE_NEW: refuses (FR_EXIST) if the name is taken.
+    if(open_mode == FSOM_CREATE_NEW && (access_mode & FSAM_WRITE)) {
+        if(find_file(s, path)) return false;
+        MockFile* created = alloc_file_slot(s, path);
+        if(!created) return false;   // out of mock file slots
+        created->pos = 0;
+        file->vfile = created;
         file->is_dir = false;
         file->open = true;
         return true;

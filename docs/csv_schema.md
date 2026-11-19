@@ -14,11 +14,17 @@
 ## File Naming
 
 ```
-/ext/biomapping/biomap_001.csv
-/ext/biomapping/biomap_002.csv
-...
-/ext/biomapping/biomap_999.csv  (wraps back to 001)
+/ext/biomapping/biomap_2026-11-19_14-32-05.csv
+/ext/biomapping/biomap_2026-11-19_14-32-05_2.csv  (same start second as an existing file)
 ```
+
+Each file is named after the time the recording started, read from the
+Flipper's clock (local time, no time zone). The order follows ISO 8601
+(year, month, day, hour, minute, second), so files sort by time. "-" stands
+in for ":" because ":" is not allowed in file names on the SD card. If a file
+with the same name already exists, `_2`, `_3` and so on is added before `.csv`,
+so an older recording is never overwritten. The same clock reading is written
+to the `# RecordingStartTime` header line.
 
 ---
 

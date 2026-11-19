@@ -40,6 +40,9 @@ _Atomic uint32_t furi_test_tick = 1;
 // just the bytes between the two.
 #define INTEGRITY_LINE "# Integrity: crc32 v1\n"
 
+// Start-time part of the file name passed to sd_logger_start().
+#define STAMP "2026-11-19_14-32-05"
+
 // Reference CRC32 (reflected, poly 0xEDB88320) — an independent copy of the
 // algorithm in sd_logger.c / em_scan_cal.c, so the trailer tests verify the
 // logger's checksum against a separate implementation rather than itself.
@@ -106,13 +109,13 @@ static void test_sd_logger_start_creates_file_with_header(void) {
     Storage* storage = storage_mock_alloc();
     SdLogger* l = sd_logger_alloc(storage);
 
-    bool ok = sd_logger_start(l, "timestamp,lat,lon\n");
+    bool ok = sd_logger_start(l, "timestamp,lat,lon\n", STAMP);
     assert(ok);
-    assert(strcmp(sd_logger_get_filename(l), "biomap_001.csv") == 0);
+    assert(strcmp(sd_logger_get_filename(l), "biomap_" STAMP ".csv") == 0);
 
     size_t len;
     const uint8_t* contents = storage_mock_get_file_contents(
-        storage, "/ext/biomapping/biomap_001.csv", &len);
+        storage, "/ext/biomapping/biomap_" STAMP ".csv", &len);
     assert(contents != NULL);
     // The header is still exactly the real-data prefix -- pre-allocation
     // only grows the file AFTER it, never touches already-written bytes.
@@ -128,52 +131,45 @@ static void test_sd_logger_start_creates_file_with_header(void) {
     printf("  -> Pass\n");
 }
 
-static void test_sd_logger_start_finds_next_free_index(void) {
-    printf("Running test_sd_logger_start_finds_next_free_index...\n");
+static void test_sd_logger_start_adds_suffix_when_name_taken(void) {
+    printf("Running test_sd_logger_start_adds_suffix_when_name_taken...\n");
     Storage* storage = storage_mock_alloc();
-    storage_mock_touch_file(storage, "/ext/biomapping/biomap_001.csv");
-    storage_mock_touch_file(storage, "/ext/biomapping/biomap_002.csv");
-    storage_mock_touch_file(storage, "/ext/biomapping/biomap_005.csv");
+    // Two earlier recordings started in the same second (or the clock was
+    // unset and kept reporting the same time).
+    storage_mock_touch_file(storage, "/ext/biomapping/biomap_" STAMP ".csv");
+    storage_mock_touch_file(storage, "/ext/biomapping/biomap_" STAMP "_2.csv");
 
     SdLogger* l = sd_logger_alloc(storage);
-    bool ok = sd_logger_start(l, "H\n");
+    bool ok = sd_logger_start(l, "H\n", STAMP);
     assert(ok);
-    // Picks max existing index + 1 (006), ignoring the 003/004 gap.
-    assert(strcmp(sd_logger_get_filename(l), "biomap_006.csv") == 0);
+    assert(strcmp(sd_logger_get_filename(l), "biomap_" STAMP "_3.csv") == 0);
+    // The older files are left untouched (still zero-length).
+    size_t len;
+    storage_mock_get_file_contents(storage, "/ext/biomapping/biomap_" STAMP ".csv", &len);
+    assert(len == 0);
 
     sd_logger_free(l);
     storage_mock_free(storage);
     printf("  -> Pass\n");
 }
 
-static void test_sd_logger_start_missing_directory_falls_back_to_index_1(void) {
-    printf("Running test_sd_logger_start_missing_directory_falls_back_to_index_1...\n");
+static void test_sd_logger_start_uses_first_free_suffix(void) {
+    printf("Running test_sd_logger_start_uses_first_free_suffix...\n");
     Storage* storage = storage_mock_alloc();
-    // Simulates the very first recording: the "biomapping" directory
-    // doesn't exist yet, so storage_dir_open() itself fails (distinct
-    // from the "directory exists but is empty" case).
-    storage_mock_fail_next_dir_open(storage, true);
+    // A reset clock could hand out the same start time over and over; the
+    // suffix keeps going rather than giving up or reusing a name.
+    storage_mock_touch_file(storage, "/ext/biomapping/biomap_" STAMP ".csv");
+    for(int n = 2; n <= 50; n++) {
+        char path[96];
+        snprintf(path, sizeof(path), "/ext/biomapping/biomap_" STAMP "_%d.csv", n);
+        storage_mock_touch_file(storage, path);
+    }
+    // Leave _51 free but also take _52, so the first free gap is used.
+    storage_mock_touch_file(storage, "/ext/biomapping/biomap_" STAMP "_52.csv");
 
     SdLogger* l = sd_logger_alloc(storage);
-    bool ok = sd_logger_start(l, "H\n");
-    assert(ok);
-    assert(strcmp(sd_logger_get_filename(l), "biomap_001.csv") == 0);
-
-    sd_logger_free(l);
-    storage_mock_free(storage);
-    printf("  -> Pass\n");
-}
-
-static void test_sd_logger_start_wraps_at_max_index(void) {
-    printf("Running test_sd_logger_start_wraps_at_max_index...\n");
-    Storage* storage = storage_mock_alloc();
-    storage_mock_touch_file(storage, "/ext/biomapping/biomap_999.csv");
-
-    SdLogger* l = sd_logger_alloc(storage);
-    bool ok = sd_logger_start(l, "H\n");
-    assert(ok);
-    // next_idx (1000) exceeds LOGGER_MAX_INDEX (999) -> wraps to 001.
-    assert(strcmp(sd_logger_get_filename(l), "biomap_001.csv") == 0);
+    assert(sd_logger_start(l, "H\n", STAMP));
+    assert(strcmp(sd_logger_get_filename(l), "biomap_" STAMP "_51.csv") == 0);
 
     sd_logger_free(l);
     storage_mock_free(storage);
@@ -186,10 +182,10 @@ static void test_sd_logger_start_fails_when_open_fails(void) {
     storage_mock_fail_next_open(storage, true);   // simulates unmounted/full SD card
 
     SdLogger* l = sd_logger_alloc(storage);
-    bool ok = sd_logger_start(l, "H\n");
+    bool ok = sd_logger_start(l, "H\n", STAMP);
     assert(!ok);
     assert(strcmp(sd_logger_get_filename(l), "") == 0);
-    assert(!storage_mock_file_exists(storage, "/ext/biomapping/biomap_001.csv"));
+    assert(!storage_mock_file_exists(storage, "/ext/biomapping/biomap_" STAMP ".csv"));
 
     sd_logger_free(l);
     storage_mock_free(storage);
@@ -202,7 +198,7 @@ static void test_sd_logger_start_fails_when_header_write_fails(void) {
     storage_mock_fail_writes(storage, true);
 
     SdLogger* l = sd_logger_alloc(storage);
-    bool ok = sd_logger_start(l, "H\n");
+    bool ok = sd_logger_start(l, "H\n", STAMP);
     assert(!ok);
     // open_log_file() must clean up (close+free the file, clear filename)
     // on a failed header write rather than leaving a half-open logger.
@@ -217,15 +213,15 @@ static void test_sd_logger_stop_closes_file(void) {
     printf("Running test_sd_logger_stop_closes_file...\n");
     Storage* storage = storage_mock_alloc();
     SdLogger* l = sd_logger_alloc(storage);
-    assert(sd_logger_start(l, "H\n"));
+    assert(sd_logger_start(l, "H\n", STAMP));
 
     sd_logger_stop(l, 0);
-    // A second start after stop must succeed and pick the next free index
-    // (001 is already on "disk"), proving the logger returned to a clean
-    // inactive state rather than staying wedged.
-    bool ok = sd_logger_start(l, "H\n");
+    // A second start after stop must succeed and pick the next free name
+    // (the first file is already on "disk"), proving the logger returned to
+    // a clean inactive state rather than staying wedged.
+    bool ok = sd_logger_start(l, "H\n", STAMP);
     assert(ok);
-    assert(strcmp(sd_logger_get_filename(l), "biomap_002.csv") == 0);
+    assert(strcmp(sd_logger_get_filename(l), "biomap_" STAMP "_2.csv") == 0);
 
     sd_logger_free(l);
     storage_mock_free(storage);
@@ -236,7 +232,7 @@ static void test_sd_logger_batch_flush_failure_preserves_buffer_for_retry(void) 
     printf("Running test_sd_logger_batch_flush_failure_preserves_buffer_for_retry...\n");
     Storage* storage = storage_mock_alloc();
     SdLogger* l = sd_logger_alloc(storage);
-    assert(sd_logger_start(l, "H\n"));
+    assert(sd_logger_start(l, "H\n", STAMP));
 
     assert(sd_logger_batch_append(l, "row1\n", 5));
 
@@ -265,7 +261,7 @@ static void test_sd_logger_batch_flush_failure_preserves_buffer_for_retry(void) 
     sd_logger_stop(l, 0);
     size_t len;
     const uint8_t* contents = storage_mock_get_file_contents(
-        storage, "/ext/biomapping/biomap_001.csv", &len);
+        storage, "/ext/biomapping/biomap_" STAMP ".csv", &len);
     size_t dlen;
     const uint8_t* d = data_region(contents, len, &dlen);
     assert(dlen == strlen("H\nrow1\nrow2\n"));
@@ -280,7 +276,7 @@ static void test_sd_logger_batch_append_and_flush_writes_to_disk(void) {
     printf("Running test_sd_logger_batch_append_and_flush_writes_to_disk...\n");
     Storage* storage = storage_mock_alloc();
     SdLogger* l = sd_logger_alloc(storage);
-    assert(sd_logger_start(l, "H\n"));
+    assert(sd_logger_start(l, "H\n", STAMP));
 
     assert(sd_logger_batch_append(l, "row1\n", 5));
     assert(sd_logger_batch_append(l, "row2\n", 5));
@@ -297,7 +293,7 @@ static void test_sd_logger_batch_append_and_flush_writes_to_disk(void) {
     sd_logger_stop(l, 0);
     size_t len;
     const uint8_t* contents = storage_mock_get_file_contents(
-        storage, "/ext/biomapping/biomap_001.csv", &len);
+        storage, "/ext/biomapping/biomap_" STAMP ".csv", &len);
     size_t dlen;
     const uint8_t* d = data_region(contents, len, &dlen);
     assert(dlen == strlen("H\nrow1\nrow2\n"));
@@ -312,7 +308,7 @@ static void test_sd_logger_batch_printf_writes_formatted_row(void) {
     printf("Running test_sd_logger_batch_printf_writes_formatted_row...\n");
     Storage* storage = storage_mock_alloc();
     SdLogger* l = sd_logger_alloc(storage);
-    assert(sd_logger_start(l, "H\n"));
+    assert(sd_logger_start(l, "H\n", STAMP));
 
     int n = sd_logger_batch_printf(l, "%.2f,%d\n", 1.5, 42);
     assert(n == (int)strlen("1.50,42\n"));
@@ -324,7 +320,7 @@ static void test_sd_logger_batch_printf_writes_formatted_row(void) {
     sd_logger_stop(l, 0);
     size_t len;
     const uint8_t* contents = storage_mock_get_file_contents(
-        storage, "/ext/biomapping/biomap_001.csv", &len);
+        storage, "/ext/biomapping/biomap_" STAMP ".csv", &len);
     size_t dlen;
     const uint8_t* d = data_region(contents, len, &dlen);
     assert(dlen == strlen("H\n1.50,42\n"));
@@ -339,7 +335,7 @@ static void test_sd_logger_batch_printf_truncation_rolls_back(void) {
     printf("Running test_sd_logger_batch_printf_truncation_rolls_back...\n");
     Storage* storage = storage_mock_alloc();
     SdLogger* l = sd_logger_alloc(storage);
-    assert(sd_logger_start(l, "H\n"));
+    assert(sd_logger_start(l, "H\n", STAMP));
 
     // Fill the batch buffer to within 6 bytes of full. Newline-terminate
     // the filler so the file's last data byte is a '\n' and sd_logger_stop()
@@ -367,7 +363,7 @@ static void test_sd_logger_batch_printf_truncation_rolls_back(void) {
     sd_logger_stop(l, 0);
     size_t len;
     const uint8_t* contents = storage_mock_get_file_contents(
-        storage, "/ext/biomapping/biomap_001.csv", &len);
+        storage, "/ext/biomapping/biomap_" STAMP ".csv", &len);
     size_t dlen;
     const uint8_t* d = data_region(contents, len, &dlen);
     assert(dlen == strlen("H\n") + sizeof(filler));
@@ -382,7 +378,7 @@ static void test_sd_logger_batch_append_overflow_rejected(void) {
     printf("Running test_sd_logger_batch_append_overflow_rejected...\n");
     Storage* storage = storage_mock_alloc();
     SdLogger* l = sd_logger_alloc(storage);
-    assert(sd_logger_start(l, "H\n"));
+    assert(sd_logger_start(l, "H\n", STAMP));
 
     char filler[SD_LOGGER_BATCH_CAP - 6];
     memset(filler, 'x', sizeof(filler));
@@ -410,7 +406,7 @@ static void test_sd_logger_flush_peak_ms_detects_slow_flush(void) {
     printf("Running test_sd_logger_flush_peak_ms_detects_slow_flush...\n");
     Storage* storage = storage_mock_alloc();
     SdLogger* l = sd_logger_alloc(storage);
-    assert(sd_logger_start(l, "H\n"));
+    assert(sd_logger_start(l, "H\n", STAMP));
     assert(sd_logger_get_flush_peak_ms(l) == 0);
 
     assert(sd_logger_batch_append(l, "row1\n", 5));
@@ -435,7 +431,7 @@ static void test_sd_logger_continuity_counters_track_pressure(void) {
     printf("Running test_sd_logger_continuity_counters_track_pressure...\n");
     Storage* storage = storage_mock_alloc();
     SdLogger* l = sd_logger_alloc(storage);
-    assert(sd_logger_start(l, "H\n"));
+    assert(sd_logger_start(l, "H\n", STAMP));
 
     assert(sd_logger_get_batch_fill_bytes(l) == 0);
     assert(sd_logger_get_batch_fill_peak_bytes(l) == 0);
@@ -473,13 +469,13 @@ static void test_sd_logger_start_preallocates_file(void) {
     printf("Running test_sd_logger_start_preallocates_file...\n");
     Storage* storage = storage_mock_alloc();
     SdLogger* l = sd_logger_alloc(storage);
-    assert(sd_logger_start(l, "H\n"));
+    assert(sd_logger_start(l, "H\n", STAMP));
 
     // Pre-allocation happens immediately in sd_logger_start(), not lazily
     // on first flush -- the whole point is paying the allocation cost once,
     // up front, before any time-critical batch write.
     size_t len;
-    storage_mock_get_file_contents(storage, "/ext/biomapping/biomap_001.csv", &len);
+    storage_mock_get_file_contents(storage, "/ext/biomapping/biomap_" STAMP ".csv", &len);
     assert(len == strlen(INTEGRITY_LINE "H\n") + SD_LOGGER_PREALLOC_BYTES);
 
     sd_logger_free(l);
@@ -491,7 +487,7 @@ static void test_sd_logger_stop_trims_preallocated_tail(void) {
     printf("Running test_sd_logger_stop_trims_preallocated_tail...\n");
     Storage* storage = storage_mock_alloc();
     SdLogger* l = sd_logger_alloc(storage);
-    assert(sd_logger_start(l, "H\n"));
+    assert(sd_logger_start(l, "H\n", STAMP));
     assert(sd_logger_batch_append(l, "row1\n", 5));
     assert(sd_logger_batch_flush(l) == 5);
 
@@ -504,7 +500,7 @@ static void test_sd_logger_stop_trims_preallocated_tail(void) {
     // step silently pads every recording out to SD_LOGGER_PREALLOC_BYTES.
     size_t len;
     const uint8_t* contents = storage_mock_get_file_contents(
-        storage, "/ext/biomapping/biomap_001.csv", &len);
+        storage, "/ext/biomapping/biomap_" STAMP ".csv", &len);
     size_t dlen;
     const uint8_t* d = data_region(contents, len, &dlen);
     assert(dlen == strlen("H\nrow1\n"));
@@ -519,7 +515,7 @@ static void test_sd_logger_preallocation_does_not_corrupt_subsequent_writes(void
     printf("Running test_sd_logger_preallocation_does_not_corrupt_subsequent_writes...\n");
     Storage* storage = storage_mock_alloc();
     SdLogger* l = sd_logger_alloc(storage);
-    assert(sd_logger_start(l, "H\n"));
+    assert(sd_logger_start(l, "H\n", STAMP));
 
     // Several flush cycles after the one-shot pre-allocation -- each must
     // land immediately after the previous one's real data, never inside or
@@ -534,7 +530,7 @@ static void test_sd_logger_preallocation_does_not_corrupt_subsequent_writes(void
 
     size_t len;
     const uint8_t* contents = storage_mock_get_file_contents(
-        storage, "/ext/biomapping/biomap_001.csv", &len);
+        storage, "/ext/biomapping/biomap_" STAMP ".csv", &len);
     size_t dlen;
     const uint8_t* d = data_region(contents, len, &dlen);
     assert(dlen == strlen("H\nrow\nrow\nrow\nrow\nrow\n"));
@@ -554,14 +550,14 @@ static void test_sd_logger_prealloc_ms_measures_seek_extend_cost(void) {
     // Stand-in for real f_lseek()'s cluster-allocation cost on a real SD
     // card, same hook this project already uses for flush_peak_ms.
     storage_mock_set_next_seek_extend_delay_ticks(storage, 220);
-    assert(sd_logger_start(l, "H\n"));
+    assert(sd_logger_start(l, "H\n", STAMP));
     assert(sd_logger_get_prealloc_ms(l) == 220);
 
     // A second session must re-measure, not keep the first session's value
     // around stale -- prealloc_ms is session-constant, not a lifetime max
     // like flush_peak_ms.
     sd_logger_stop(l, 0);
-    assert(sd_logger_start(l, "H\n"));
+    assert(sd_logger_start(l, "H\n", STAMP));
     assert(sd_logger_get_prealloc_ms(l) == 0); // no delay queued this time
 
     sd_logger_free(l);
@@ -583,11 +579,11 @@ static void test_sd_logger_preallocate_survives_disk_full(void) {
     storage_mock_set_capacity_limit(storage, 4096);
     SdLogger* l = sd_logger_alloc(storage);
 
-    assert(sd_logger_start(l, "H\n"));
+    assert(sd_logger_start(l, "H\n", STAMP));
     // The file must NOT have grown to the full pre-allocation size --
     // proof the fallback actually ran rather than silently ignoring the cap.
     size_t len_after_start;
-    storage_mock_get_file_contents(storage, "/ext/biomapping/biomap_001.csv", &len_after_start);
+    storage_mock_get_file_contents(storage, "/ext/biomapping/biomap_" STAMP ".csv", &len_after_start);
     assert(len_after_start < SD_LOGGER_PREALLOC_BYTES);
 
     // Recording must still be fully functional: writes land contiguously
@@ -598,7 +594,7 @@ static void test_sd_logger_preallocate_survives_disk_full(void) {
 
     size_t len;
     const uint8_t* contents = storage_mock_get_file_contents(
-        storage, "/ext/biomapping/biomap_001.csv", &len);
+        storage, "/ext/biomapping/biomap_" STAMP ".csv", &len);
     size_t dlen;
     const uint8_t* d = data_region(contents, len, &dlen);
     assert(dlen == strlen("H\nrow1\n"));
@@ -617,7 +613,7 @@ static void test_sd_logger_trailer_matches_data(void) {
     printf("Running test_sd_logger_trailer_matches_data...\n");
     Storage* storage = storage_mock_alloc();
     SdLogger* l = sd_logger_alloc(storage);
-    assert(sd_logger_start(l, "timestamp,gsr_raw\n"));
+    assert(sd_logger_start(l, "timestamp,gsr_raw\n", STAMP));
 
     assert(sd_logger_batch_printf(l, "%lu,%d\n", 0UL, 100) > 0);
     assert(sd_logger_batch_printf(l, "%lu,%d\n", 1UL, 101) > 0);
@@ -628,7 +624,7 @@ static void test_sd_logger_trailer_matches_data(void) {
 
     size_t len;
     const uint8_t* contents = storage_mock_get_file_contents(
-        storage, "/ext/biomapping/biomap_001.csv", &len);
+        storage, "/ext/biomapping/biomap_" STAMP ".csv", &len);
     size_t rlen = crc_region_len(contents, len);
 
     char trailer[192];
@@ -657,7 +653,7 @@ static void test_sd_logger_trailer_omits_end_time_when_epoch_zero(void) {
     printf("Running test_sd_logger_trailer_omits_end_time_when_epoch_zero...\n");
     Storage* storage = storage_mock_alloc();
     SdLogger* l = sd_logger_alloc(storage);
-    assert(sd_logger_start(l, "H\n"));
+    assert(sd_logger_start(l, "H\n", STAMP));
     assert(sd_logger_batch_append(l, "row1\n", 5));
     assert(sd_logger_batch_flush(l) == 5);
 
@@ -665,7 +661,7 @@ static void test_sd_logger_trailer_omits_end_time_when_epoch_zero(void) {
 
     size_t len;
     const uint8_t* contents = storage_mock_get_file_contents(
-        storage, "/ext/biomapping/biomap_001.csv", &len);
+        storage, "/ext/biomapping/biomap_" STAMP ".csv", &len);
     char trailer[192];
     get_trailer(contents, len, trailer, sizeof(trailer));
 
@@ -690,7 +686,7 @@ static void test_sd_logger_trailer_reports_flush_fails(void) {
     printf("Running test_sd_logger_trailer_reports_flush_fails...\n");
     Storage* storage = storage_mock_alloc();
     SdLogger* l = sd_logger_alloc(storage);
-    assert(sd_logger_start(l, "H\n"));
+    assert(sd_logger_start(l, "H\n", STAMP));
 
     assert(sd_logger_batch_append(l, "row1\n", 5));
     storage_mock_fail_writes(storage, true);
@@ -702,7 +698,7 @@ static void test_sd_logger_trailer_reports_flush_fails(void) {
 
     size_t len;
     const uint8_t* contents = storage_mock_get_file_contents(
-        storage, "/ext/biomapping/biomap_001.csv", &len);
+        storage, "/ext/biomapping/biomap_" STAMP ".csv", &len);
     char trailer[192];
     get_trailer(contents, len, trailer, sizeof(trailer));
 
@@ -734,7 +730,7 @@ static void test_sd_logger_partial_write_keeps_only_unwritten_tail(void) {
     printf("Running test_sd_logger_partial_write_keeps_only_unwritten_tail...\n");
     Storage* storage = storage_mock_alloc();
     SdLogger* l = sd_logger_alloc(storage);
-    assert(sd_logger_start(l, "H\n"));
+    assert(sd_logger_start(l, "H\n", STAMP));
 
     assert(sd_logger_batch_append(l, "row1\n", 5));
     assert(sd_logger_batch_append(l, "row2\n", 5));
@@ -754,7 +750,7 @@ static void test_sd_logger_partial_write_keeps_only_unwritten_tail(void) {
 
     size_t len;
     const uint8_t* contents = storage_mock_get_file_contents(
-        storage, "/ext/biomapping/biomap_001.csv", &len);
+        storage, "/ext/biomapping/biomap_" STAMP ".csv", &len);
 
     // Every row appears exactly once — no duplicated "row1\n".
     size_t dlen;
@@ -789,7 +785,7 @@ static void test_sd_logger_partial_write_ride_out_trailer_verifies(void) {
     printf("Running test_sd_logger_partial_write_ride_out_trailer_verifies...\n");
     Storage* storage = storage_mock_alloc();
     SdLogger* l = sd_logger_alloc(storage);
-    assert(sd_logger_start(l, "timestamp,gsr_raw\n"));
+    assert(sd_logger_start(l, "timestamp,gsr_raw\n", STAMP));
 
     char expected[256];
     size_t exp_len = (size_t)snprintf(expected, sizeof(expected), "timestamp,gsr_raw\n");
@@ -816,7 +812,7 @@ static void test_sd_logger_partial_write_ride_out_trailer_verifies(void) {
 
     size_t len;
     const uint8_t* contents = storage_mock_get_file_contents(
-        storage, "/ext/biomapping/biomap_001.csv", &len);
+        storage, "/ext/biomapping/biomap_" STAMP ".csv", &len);
 
     size_t dlen;
     const uint8_t* d = data_region(contents, len, &dlen);
@@ -849,7 +845,7 @@ static void test_sd_logger_partial_write_on_row_boundary(void) {
     printf("Running test_sd_logger_partial_write_on_row_boundary...\n");
     Storage* storage = storage_mock_alloc();
     SdLogger* l = sd_logger_alloc(storage);
-    assert(sd_logger_start(l, "H\n"));
+    assert(sd_logger_start(l, "H\n", STAMP));
 
     assert(sd_logger_batch_append(l, "aa\n", 3));
     assert(sd_logger_batch_append(l, "bb\n", 3));
@@ -866,7 +862,7 @@ static void test_sd_logger_partial_write_on_row_boundary(void) {
 
     size_t len;
     const uint8_t* contents = storage_mock_get_file_contents(
-        storage, "/ext/biomapping/biomap_001.csv", &len);
+        storage, "/ext/biomapping/biomap_" STAMP ".csv", &len);
 
     size_t dlen;
     const uint8_t* d = data_region(contents, len, &dlen);
@@ -909,7 +905,7 @@ static void assert_file_verifies(Storage* storage, const char* expected, size_t 
                                  unsigned long want_rows, unsigned long want_fails) {
     size_t len;
     const uint8_t* contents = storage_mock_get_file_contents(
-        storage, "/ext/biomapping/biomap_001.csv", &len);
+        storage, "/ext/biomapping/biomap_" STAMP ".csv", &len);
     assert(contents != NULL);
 
     size_t dlen;
@@ -948,7 +944,7 @@ static void stress_run(uint32_t seed) {
     g_rng = seed ? seed : 1u;
     Storage* storage = storage_mock_alloc();
     SdLogger* l = sd_logger_alloc(storage);
-    assert(sd_logger_start(l, "timestamp,gsr_raw\n"));
+    assert(sd_logger_start(l, "timestamp,gsr_raw\n", STAMP));
 
     static char expected[16384];
     size_t exp_len = (size_t)snprintf(expected, sizeof(expected), "timestamp,gsr_raw\n");
@@ -1035,7 +1031,7 @@ static void test_sd_logger_partial_write_every_offset(void) {
     for(size_t cut = 0; cut <= rlen; cut++) {
         Storage* storage = storage_mock_alloc();
         SdLogger* l = sd_logger_alloc(storage);
-        assert(sd_logger_start(l, "H\n"));
+        assert(sd_logger_start(l, "H\n", STAMP));
 
         assert(sd_logger_batch_append(l, rows, rlen));
 
@@ -1077,7 +1073,7 @@ static void test_sd_logger_permanent_write_failure_leaves_clean_prefix(void) {
     printf("Running test_sd_logger_permanent_write_failure_leaves_clean_prefix...\n");
     Storage* storage = storage_mock_alloc();
     SdLogger* l = sd_logger_alloc(storage);
-    assert(sd_logger_start(l, "H\n"));
+    assert(sd_logger_start(l, "H\n", STAMP));
 
     // 10 rows land cleanly.
     for(int i = 0; i < 10; i++) {
@@ -1103,7 +1099,7 @@ static void test_sd_logger_permanent_write_failure_leaves_clean_prefix(void) {
 
     size_t len;
     const uint8_t* contents = storage_mock_get_file_contents(
-        storage, "/ext/biomapping/biomap_001.csv", &len);
+        storage, "/ext/biomapping/biomap_" STAMP ".csv", &len);
 
     // Whatever is on the card is exactly the integrity line + a prefix of
     // the rows, and there is no trailer.
@@ -1133,7 +1129,7 @@ static void test_sd_logger_ride_out_stall_is_measured(void) {
     printf("Running test_sd_logger_ride_out_stall_is_measured...\n");
     Storage* storage = storage_mock_alloc();
     SdLogger* l = sd_logger_alloc(storage);
-    assert(sd_logger_start(l, "timestamp,gsr_raw\n"));
+    assert(sd_logger_start(l, "timestamp,gsr_raw\n", STAMP));
     assert(sd_logger_get_flush_peak_ms(l) == 0);
 
     char expected[8192];
@@ -1183,7 +1179,7 @@ static void test_sd_logger_free_while_active_stops_cleanly(void) {
     printf("Running test_sd_logger_free_while_active_stops_cleanly...\n");
     Storage* storage = storage_mock_alloc();
     SdLogger* l = sd_logger_alloc(storage);
-    assert(sd_logger_start(l, "H\n"));
+    assert(sd_logger_start(l, "H\n", STAMP));
     assert(sd_logger_batch_append(l, "row\n", 4));
 
     // sd_logger_free() on a still-active logger must call sd_logger_stop()
@@ -1199,9 +1195,8 @@ int main(void) {
     printf("SD LOGGER (auto-index / header / batch write)\n");
     printf("========================================\n");
     test_sd_logger_start_creates_file_with_header();
-    test_sd_logger_start_finds_next_free_index();
-    test_sd_logger_start_missing_directory_falls_back_to_index_1();
-    test_sd_logger_start_wraps_at_max_index();
+    test_sd_logger_start_adds_suffix_when_name_taken();
+    test_sd_logger_start_uses_first_free_suffix();
     test_sd_logger_start_fails_when_open_fails();
     test_sd_logger_start_fails_when_header_write_fails();
     test_sd_logger_stop_closes_file();

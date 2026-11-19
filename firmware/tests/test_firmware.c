@@ -568,6 +568,21 @@ void test_gsr_bias_line_formatting() {
     printf("  -> Pass\n");
 }
 
+// Recording file name start-time part (biomap_format_file_stamp): zero-
+// padded, largest unit first, no ":" (not allowed in FAT names), and a
+// buffer one byte too small is refused rather than cut short.
+void test_file_stamp_formatting() {
+    printf("Running test_file_stamp_formatting...\n");
+    char buf[24];
+    assert(biomap_format_file_stamp(buf, sizeof(buf), 2026, 11, 19, 14, 32, 5) == 19);
+    assert(strcmp(buf, "2026-11-19_14-32-05") == 0);
+    assert(biomap_format_file_stamp(buf, sizeof(buf), 2027, 1, 2, 3, 4, 5) == 19);
+    assert(strcmp(buf, "2027-01-02_03-04-05") == 0);
+    char tiny[19];
+    assert(biomap_format_file_stamp(tiny, sizeof(tiny), 2026, 11, 19, 14, 32, 5) == -1);
+    printf("  -> Pass\n");
+}
+
 // The calibration wizard and the 0.5 V bias correction stack: the wizard
 // measures the open-circuit zero, then fits a gain on bias-corrected,
 // zero-removed readings (gsr_sensor_get_raw() with gain 1); recordings do
@@ -1172,6 +1187,7 @@ int main() {
     test_csv_formatting();
     test_gsr_csv_formatting();
     test_gsr_bias_line_formatting();
+    test_file_stamp_formatting();
     test_bias_correction_stacks_with_calibration();
     test_csv_header_matches_row_column_count();
     test_csv_row_overflow_returns_negative();

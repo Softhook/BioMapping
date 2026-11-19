@@ -208,3 +208,11 @@ bool biomap_settings_valid(const BioMapSettings* s) {
            s->checksum == biomap_settings_checksum(s) &&
            s->nav_model < GpsNavModelCount;
 }
+
+int biomap_format_file_stamp(char* out, size_t cap, uint16_t year, uint8_t month, uint8_t day,
+                             uint8_t hour, uint8_t minute, uint8_t second) {
+    int n = snprintf(out, cap, "%04u-%02u-%02u_%02u-%02u-%02u",
+                     (unsigned)year, (unsigned)month, (unsigned)day,
+                     (unsigned)hour, (unsigned)minute, (unsigned)second);
+    return (n < 0 || (size_t)n >= cap) ? -1 : n;
+}

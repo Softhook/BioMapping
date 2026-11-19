@@ -1,7 +1,11 @@
 #pragma once
 
-// SD Logger — auto-incrementing CSV writer.
-// Files: /ext/biomapping/biomap_001.csv … biomap_999.csv (wraps at 999).
+// SD Logger — CSV writer, one file per recording, named by start time.
+// Files: /ext/biomapping/biomap_2026-11-19_14-32-05.csv (the caller passes
+// the "2026-11-19_14-32-05" part; see biomap_format_file_stamp()). If that
+// name is already taken, "_2", "_3" … is added before ".csv". Files are
+// only ever created new, never opened over an existing one, so an older
+// recording is never overwritten.
 // Column layout varies by mode (GSR-only / GPS+GSR / GPS+GSR+RF) — see the
 // BIOMAP_CSV_COLS_* headers in biomap_config.h for the authoritative,
 // currently-in-force column lists, and docs/csv_schema.md for the
@@ -16,7 +20,9 @@ typedef struct SdLogger SdLogger;
 SdLogger* sd_logger_alloc(Storage* storage);
 void      sd_logger_free(SdLogger* logger);
 
-bool        sd_logger_start(SdLogger* logger, const char* header);
+// `stamp` is the start-time part of the file name, e.g.
+// "2026-11-19_14-32-05".
+bool        sd_logger_start(SdLogger* logger, const char* header, const char* stamp);
 
 // Flush any buffered rows, append the "# Integrity: crc32 v1" file's
 // matching "# End …" trailer (row count, CRC32 over marker+header+rows,

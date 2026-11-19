@@ -1,8 +1,7 @@
-// SD Logger — auto-incrementing CSV writer.
+// SD Logger — date-time-named CSV writer.
 
 #include "sd_logger.h"
 #include "biomap_config.h"
-#include "util.h"
 #include <furi.h>
 #include <storage/storage.h>
 #include <string.h>
@@ -12,7 +11,11 @@
 #define LOGGER_DIR      "biomapping"
 #define LOGGER_BASENAME "biomap_"
 #define LOGGER_EXT       ".csv"
-#define LOGGER_MAX_INDEX 999
+// Highest "_N" suffix tried when a file with the same start time already
+// exists (two recordings started within the same second, or a clock that
+// was reset and is reading the same times again). Only a guard against an
+// endless loop: reaching it fails the recording, it never overwrites.
+#define LOGGER_MAX_SUFFIX 9999
 
 // One-shot pre-allocation size (BIOMAP_SD_PREALLOC, biomap_config.h) — see
 // preallocate_log_file() below and docs/archive/gps_rf_mutex_status.md's "option E"
@@ -141,7 +144,6 @@ struct SdLogger {
     File*    file;
     bool     active;
     char     filename[64];
-    int      last_index;
 
     // GPS+GSR+RF batch buffer: accumulate formatted rows each tick,
     // flush to SD in one storage_file_write every FLUSH_INTERVAL seconds.
@@ -198,39 +200,13 @@ void sd_logger_free(SdLogger* l) {
     free(l);
 }
 
-// Single-pass scan for the next unused index
-static int find_next_index(SdLogger* l) {
-    File* dir = storage_file_alloc(l->storage);
-    if(!storage_dir_open(dir, EXT_PATH(LOGGER_DIR))) {
-        storage_file_free(dir);
-        l->last_index = 1;
-        return 1;
+// "biomap_<stamp>.csv" for n == 1, otherwise "biomap_<stamp>_<n>.csv".
+static void make_filename(SdLogger* l, const char* stamp, int n) {
+    if(n == 1) {
+        snprintf(l->filename, sizeof(l->filename), LOGGER_BASENAME "%s" LOGGER_EXT, stamp);
+    } else {
+        snprintf(l->filename, sizeof(l->filename), LOGGER_BASENAME "%s_%d" LOGGER_EXT, stamp, n);
     }
-
-    int max_idx = 0;
-    FileInfo info;
-    char name[64];
-    while(storage_dir_read(dir, &info, name, sizeof(name))) {
-        if(info.flags & FSF_DIRECTORY) continue;
-        // biomap_parse_file_index() already validates the "biomap_" prefix,
-        // ".csv" suffix, and numeric body in one place — no need to
-        // re-check the prefix/suffix here too (util.h is the single
-        // source of truth for the filename format).
-        int idx = biomap_parse_file_index(name);
-        if(idx > max_idx && idx <= LOGGER_MAX_INDEX) {
-            max_idx = idx;
-        }
-    }
-    storage_dir_close(dir);
-    storage_file_free(dir);
-
-    int next_idx = max_idx + 1;
-    if(next_idx > LOGGER_MAX_INDEX) {
-        SD_LOG_W("SdLogger", "All %d slots used — wrapping to 001", LOGGER_MAX_INDEX);
-        next_idx = 1;
-    }
-    l->last_index = next_idx;
-    return next_idx;
 }
 
 #if BIOMAP_SD_PREALLOC
@@ -269,28 +245,41 @@ static void preallocate_log_file(SdLogger* l) {
 }
 #endif
 
-// Open (or create) the next auto-indexed CSV file and write a header row.
+// Create a new CSV file named from `stamp` and write a header row.
 // Returns true on success; on failure the logger is left inactive with no
 // open file handle.
-static bool open_log_file(SdLogger* l, const char* header) {
-    int idx = find_next_index(l);
-    snprintf(l->filename, sizeof(l->filename), LOGGER_BASENAME "%03d" LOGGER_EXT, idx);
+static bool open_log_file(SdLogger* l, const char* header, const char* stamp) {
     l->prealloc_ms = 0;
 
 #if BIOMAP_SD_DRY_RUN
     UNUSED(header);
+    make_filename(l, stamp, 1);
     l->active = true;
     l->file = NULL;
     SD_LOG_W("SdLogger", "SD dry-run active: bypassing file I/O for %s", l->filename);
     return true;
 #else
+    // FSOM_CREATE_NEW: the card itself refuses to open a name that already
+    // exists, so an older recording can never be overwritten — not even if
+    // the clock was reset and is giving out times already used. When the
+    // open fails because the name is taken, move on to the next suffix
+    // ("_2", "_3" …); any other failure (card missing, full, faulty) stops.
     char full_path[96];
-    snprintf(full_path, sizeof(full_path), EXT_PATH(LOGGER_DIR "/%s"), l->filename);
-
-    l->file = storage_file_alloc(l->storage);
-    if(!l->file || !storage_file_open(l->file, full_path, FSAM_WRITE, FSOM_CREATE_ALWAYS)) {
-        SD_LOG_E("SdLogger", "Failed to open %s", full_path);
-        if(l->file) { storage_file_free(l->file); l->file = NULL; }
+    bool opened = false;
+    for(int n = 1; n <= LOGGER_MAX_SUFFIX && !opened; n++) {
+        make_filename(l, stamp, n);
+        snprintf(full_path, sizeof(full_path), EXT_PATH(LOGGER_DIR "/%s"), l->filename);
+        l->file = storage_file_alloc(l->storage);
+        if(!l->file) break;
+        opened = storage_file_open(l->file, full_path, FSAM_WRITE, FSOM_CREATE_NEW);
+        if(!opened) {
+            storage_file_free(l->file);
+            l->file = NULL;
+            if(!storage_file_exists(l->storage, full_path)) break; // not a name clash
+        }
+    }
+    if(!opened) {
+        SD_LOG_E("SdLogger", "Failed to create a new file for %s", stamp);
         l->filename[0] = '\0';
         return false;
     }
@@ -335,10 +324,11 @@ static bool open_log_file(SdLogger* l, const char* header) {
 #endif
 }
 
-bool sd_logger_start(SdLogger* l, const char* header) {
+bool sd_logger_start(SdLogger* l, const char* header, const char* stamp) {
     furi_check(l, "SdLogger: NULL in start()");
+    furi_check(stamp, "SdLogger: NULL stamp in start()");
     furi_check(!l->active, "SdLogger: already active in start()");
-    bool ok = open_log_file(l, header);
+    bool ok = open_log_file(l, header, stamp);
     if(ok) {
         l->gsr_batch_len = 0;
         l->flush_peak_ms = 0;

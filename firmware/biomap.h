@@ -35,7 +35,6 @@
 #include "modules/gsr_sensor.h"
 #include "modules/sd_logger.h"
 #include "modules/sound.h"
-#include "modules/util.h"
 #include "modules/em_scan_rf.h"
 #include "modules/em_scan_sampler.h"
 #include "modules/em_scan_cal.h"

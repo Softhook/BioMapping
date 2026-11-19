@@ -88,6 +88,7 @@ uint64_t storage_file_tell(File* file);
 bool     storage_file_truncate(File* file);
 uint64_t storage_file_size(File* file);
 
+bool storage_file_exists(Storage* storage, const char* path);
 bool storage_simply_remove(Storage* storage, const char* path);
 bool storage_common_remove(Storage* storage, const char* path);
 bool storage_common_mkdir(Storage* storage, const char* path);
@@ -104,8 +105,8 @@ Storage* storage_mock_alloc(void);
 void     storage_mock_free(Storage* storage);
 
 // Pre-seed an existing zero-length file at `path`, as if a previous
-// session had already created it — lets tests exercise find_next_index()'s
-// directory scan without a full write.
+// session had already created it — lets tests exercise the logger's
+// name-clash handling without a full write.
 void storage_mock_touch_file(Storage* storage, const char* path);
 
 // Full accumulated contents written to `path` so far. Returns NULL (and
