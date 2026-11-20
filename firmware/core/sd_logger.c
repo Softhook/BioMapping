@@ -438,7 +438,9 @@ static int flush_batch(SdLogger* l, bool whole_blocks_only);
 void sd_logger_stop(SdLogger* l, uint32_t end_epoch) {
     CORE_CHECK(l, "SdLogger: NULL in stop()");
     if(!l->active && !l->file_open) return;
-    // Everything left, whole blocks or not.
+    // Everything left, whole blocks or not. The session has normally done
+    // this already with sd_logger_batch_flush_all(), which it can retry
+    // and warn about; this one is for the other ways a recording ends.
     if(l->gsr_batch_len > 0) {
         flush_batch(l, false);
     }
@@ -556,6 +558,11 @@ static int flush_batch(SdLogger* l, bool whole_blocks_only) {
 int sd_logger_batch_flush(SdLogger* l) {
     CORE_CHECK(l, "SdLogger: NULL in batch_flush()");
     return flush_batch(l, true);
+}
+
+int sd_logger_batch_flush_all(SdLogger* l) {
+    CORE_CHECK(l, "SdLogger: NULL in batch_flush_all()");
+    return flush_batch(l, false);
 }
 
 // Append a pre-formatted row to the internal batch buffer.

@@ -210,6 +210,28 @@ static size_t flush_wants(SdLogger* l) {
     return end - pos;
 }
 
+// The final write before a stop (sd_logger_batch_flush_all()) writes the
+// part-block too, and a failure is reported, so the session can retry it
+// and warn instead of losing the last rows quietly.
+static void test_flush_all_writes_the_part_block_and_reports_failure(void) {
+    printf("Running test_flush_all_writes_the_part_block_and_reports_failure...\n");
+    SdLogger* a = make(&card_a, BLOCK);
+    assert(sd_logger_start(a, HEADER, "x"));
+    assert(sd_logger_batch_append(a, "1,2\n", 4));
+    assert(sd_logger_batch_flush(a) == 0);  // under a block: kept back
+    card_a.fail_writes = true;
+    assert(sd_logger_batch_flush_all(a) < 0);
+    assert(sd_logger_get_batch_fill_bytes(a) == 4);  // kept for the retry
+    card_a.fail_writes = false;
+    assert(sd_logger_batch_flush_all(a) == 4);
+    assert(sd_logger_get_batch_fill_bytes(a) == 0);
+    sd_logger_stop(a, 0);
+    size_t pos = strlen("# Integrity: crc32 v1\n") + strlen(HEADER);
+    assert(memcmp(card_a.data + pos, "1,2\n# End rows:1 ", 17) == 0);
+    sd_logger_destroy(a);
+    printf("  -> Pass\n");
+}
+
 // A card that takes only part of a whole-block write: the part it took is
 // kept, the rest retried, and the finished file still matches.
 static void test_partial_write_in_block_mode(void) {
@@ -250,6 +272,7 @@ int main(void) {
     test_less_than_a_block_writes_nothing_until_stop();
     test_after_a_failure_the_retry_writes_everything();
     test_partial_write_in_block_mode();
+    test_flush_all_writes_the_part_block_and_reports_failure();
     printf("\nAll sd_blocks host tests passed!\n");
     return 0;
 }

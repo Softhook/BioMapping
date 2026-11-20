@@ -22,10 +22,13 @@ static const bool DEBUG_FIELDS_ENABLED = false;
 static const char* const DEVICE_NAME = "Cardputer";
 
 // After a stall (a slow SD write) the missed ticks are run straight away,
-// as the Flipper's queued timer events are, but at most this many: after a
-// longer stall the schedule starts again from now. tick_dt_ms in the debug
+// as the Flipper's queued timer events are. Each tick is one row and 0.1 s
+// on the file's time column, so a dropped tick would put every later row
+// early. Up to this many are caught up: the Flipper's event queue holds 64
+// events (EVENT_QUEUE_DEPTH), about 6 s of ticks. Only after a longer
+// stall does the schedule start again from now. tick_dt_ms in the debug
 // columns records the real gap either way.
-static const uint32_t MAX_CATCH_UP_TICKS = 5;
+static const uint32_t MAX_CATCH_UP_TICKS = EVENT_QUEUE_DEPTH;
 
 // ── Device functions for the shared session (SessionPlatform) ──────────
 // Every one runs on the main loop.
@@ -101,9 +104,10 @@ static bool plat_file_append(void* ctx, const char* row, size_t len) {
     return sd_logger_batch_append(g_session.logger, row, len);
 }
 
-static int plat_file_flush(void* ctx) {
+static int plat_file_flush(void* ctx, bool all) {
     (void)ctx;
-    return sd_logger_batch_flush(g_session.logger);
+    return all ? sd_logger_batch_flush_all(g_session.logger)
+               : sd_logger_batch_flush(g_session.logger);
 }
 
 // Lock held: only reads the logger's counters.

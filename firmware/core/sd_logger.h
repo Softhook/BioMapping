@@ -111,6 +111,10 @@ void        sd_logger_stop(SdLogger* logger, uint32_t end_epoch);
 //                             empty buffer, or with block_bytes less than a
 //                             whole block), <0 on error.
 int         sd_logger_batch_flush(SdLogger* logger);
+// The same, but writes the whole buffer even with block_bytes set: the
+// final write before a stop, so the caller can retry it and warn if it
+// fails. On the Flipper (block_bytes 0) the two are the same.
+int         sd_logger_batch_flush_all(SdLogger* logger);
 bool        sd_logger_batch_append(SdLogger* logger, const char* data, size_t len);
 int         sd_logger_batch_printf(SdLogger* logger, const char* fmt, ...)
     __attribute__((format(printf, 2, 3)));

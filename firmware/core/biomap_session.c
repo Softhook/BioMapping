@@ -346,9 +346,9 @@ static void start_recording(SessionCore* s) {
 // seconds, and the caller warns instead of playing the ordinary stop sound.
 // Returns true if nothing was lost.
 static bool flush_before_stop(SessionCore* s) {
-    if(s->platform.file_flush(s->platform.ctx) >= 0) return true;
+    if(s->platform.file_flush(s->platform.ctx, true) >= 0) return true;
     session_log(s, SessionLogError, "Final batch flush failed, retrying once");
-    if(s->platform.file_flush(s->platform.ctx) >= 0) return true;
+    if(s->platform.file_flush(s->platform.ctx, true) >= 0) return true;
     session_log(s, SessionLogError, "Final batch flush failed after retry — recording is incomplete");
     return false;
 }
@@ -589,7 +589,7 @@ static void second_boundary_locked(SessionCore* s) {
 // half-seated rather than removed.
 static void flush_file(SessionCore* s, bool batch_ok) {
     if(!batch_ok) session_log(s, SessionLogWarning, "Batch overflow — emergency flush");
-    int flushed = s->platform.file_flush(s->platform.ctx);
+    int flushed = s->platform.file_flush(s->platform.ctx, false);
 
     enum { SdOk, SdRecovered, SdRidingOut, SdTerminated } outcome = SdOk;
     uint32_t streak = 0;

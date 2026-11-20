@@ -67,6 +67,7 @@ typedef struct {
     char  written[256 * 1024];
     size_t written_len;
     int   flush_calls;
+    int   flush_all_calls;  // flushes asked to write everything (the stop's)
     int   fail_flushes;      // the next N flushes fail
     int   append_calls;
 
@@ -140,10 +141,11 @@ static bool f_file_append(void* ctx, const char* row, size_t len) {
     F.rows_len += len;
     return true;
 }
-static int f_file_flush(void* ctx) {
+static int f_file_flush(void* ctx, bool all) {
     (void)ctx;
     assert(!F.locked);
     F.flush_calls++;
+    if(all) F.flush_all_calls++;
     if(F.fail_flushes > 0) {
         F.fail_flushes--;
         return -1;
@@ -527,6 +529,7 @@ static void test_rows_flush_and_heartbeat(void) {
     // One row a tick, written to the card once at FLUSH_INTERVAL seconds.
     assert(F.append_calls == 10 * FLUSH_INTERVAL);
     assert(F.flush_calls == 1);
+    assert(F.flush_all_calls == 0);  // the periodic flush may keep part of a block back
     assert(count_lines(F.written, F.written_len) == 10 * FLUSH_INTERVAL);
     assert(strncmp(F.written, "0.00,", 5) == 0);
     // A heartbeat a second. No GSR sensor here, so never "fingers off".
@@ -599,6 +602,7 @@ static void test_stop_keys(void) {
     session_core_key(&S, SessionKeyOk);
     assert(!S.recording.active && S.running);
     assert(F.file_stops == 1 && F.flush_calls == 1);  // only the final write: under 10 s
+    assert(F.flush_all_calls == 1);  // ... and it asks for everything
     assert(F.cue_count == 1 && F.cues[0] == BioMapCueRecordingStopped);
     assert(count_lines(F.written, F.written_len) == 15);
 
@@ -677,7 +681,7 @@ static void test_sd_ride_out_and_stop(void) {
     session_core_key(&S, SessionKeyOk);
     F.rows_cap = 40;  // four 9-byte rows ("0.00,0.0\n")
     tick(5);          // the fifth doesn't fit: flush at once
-    assert(F.flush_calls == 1);
+    assert(F.flush_calls == 1 && F.flush_all_calls == 0);
     assert(S.recording.active);
     F.fail_flushes = 1000;
     tick(6);

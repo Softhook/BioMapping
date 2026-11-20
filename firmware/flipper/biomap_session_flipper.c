@@ -76,8 +76,9 @@ static bool plat_file_append(void* ctx, const char* row, size_t len) {
     return sd_logger_batch_append(((BioMapApp*)ctx)->session.logger, row, len);
 }
 
-static int plat_file_flush(void* ctx) {
-    return sd_logger_batch_flush(((BioMapApp*)ctx)->session.logger);
+static int plat_file_flush(void* ctx, bool all) {
+    SdLogger* l = ((BioMapApp*)ctx)->session.logger;
+    return all ? sd_logger_batch_flush_all(l) : sd_logger_batch_flush(l);
 }
 
 // Lock held: the snapshot is guarded by EmScanSampler's own lock, held only

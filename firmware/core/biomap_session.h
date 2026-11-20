@@ -99,11 +99,15 @@ typedef struct {
     // Live Stream and Diagnostics). file_append() adds one whole row to the
     // device's write buffer, or adds nothing and returns false when the
     // buffer is full. file_flush() writes the buffer to the card: < 0 on
-    // failure, and then the buffer is kept for the next try.
+    // failure, and then the buffer is kept for the next try. With `all`
+    // false (the flush every FLUSH_INTERVAL seconds) a device that writes
+    // whole blocks may keep back less than one block for next time; with
+    // `all` true (the final write before a stop) it writes everything, so
+    // a result >= 0 means nothing is left in the buffer.
     bool (*file_start)(void* ctx, const char* header, const char* stamp);
     void (*file_stop)(void* ctx, uint32_t end_epoch);
     bool (*file_append)(void* ctx, const char* row, size_t len);
-    int  (*file_flush)(void* ctx);
+    int  (*file_flush)(void* ctx, bool all);
 
     // The latest radio reading, one per band (RF_BAND_COUNT). Called with
     // the lock held, so it must be quick. Required in the radio modes that
