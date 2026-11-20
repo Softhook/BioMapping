@@ -150,7 +150,7 @@ function runContractTests() {
 
   // ── CSV: column header ─────────────────────────────────────────────────
   test('CSV: the GPS+GSR column header equals firmware BIOMAP_CSV_COLS_GPS_GSR_PROD', () => {
-    const cfg = readFw('biomap_config.h');
+    const cfg = readFw('core/biomap_config.h');
     const line = logicalLine(cfg, /#define\s+BIOMAP_CSV_COLS_GPS_GSR_PROD\b/);
     if (!line) {
       assert.fail(
@@ -169,7 +169,7 @@ function runContractTests() {
 
   // ── CSV: per-row number formatting ────────────────────────────────────
   test("CSV: a valid-fix row matches biomap_format_gps_row()'s printf layout", () => {
-    const fmt = readFw('biomap_format.c');
+    const fmt = readFw('core/biomap_format.c');
     const fn = locate(
       fmt,
       /int\s+biomap_format_gps_row\s*\([\s\S]*?\n\}/,
@@ -234,7 +234,7 @@ function runContractTests() {
   });
 
   test("CSV: a no-fix row matches biomap_format_gps_row()'s empty-GPS-columns branch", () => {
-    const fmt = readFw('biomap_format.c');
+    const fmt = readFw('core/biomap_format.c');
     const fn = locate(
       fmt,
       /int\s+biomap_format_gps_row\s*\([\s\S]*?\n\}/,
