@@ -1,3 +1,3 @@
 Designator,Qty,Value,Footprint,Manufacturer,MPN,LCSC,Fit,Note
-"J1",1,"Cardputer ADV EXT header",PinHeader_2x07_P2.54mm_Vertical_Stiffener,"","",,through-hole,"M5 pin table numbering: 4 GND, 6 5V OUT, 8 G8 SDA, 10 G9 SCL, 12 G13, 14 G15. Pin 2 is 5V IN - never connect. CHECK numbering and mirroring before ordering. Through-hole, through the tail's stiffened end. Any 2.54 mm straight 2x7 male header"
+"J1",1,"Cardputer ADV EXT header",PinHeader_2x07_P2.54mm_Vertical_Stiffener,"","",,through-hole,"M5 pin table numbering: 3 G4 (ADC ready), 4 GND, 6 5V OUT, 8 G8 SDA, 10 G9 SCL, 12 G13, 14 G15. Pin 2 is 5V IN - never connect. CHECK numbering and mirroring before ordering. Through-hole, through the tail's stiffened end. Any 2.54 mm straight 2x7 male header"
 "J2",1,"Flex tail solder pads",FlexTail_Solder_1x08_P1.50mm,"","",,bare pad,"Plated pads with 0.7 mm holes, soldered onto the Cardputer board's landing pads. Pad k = board pad k"

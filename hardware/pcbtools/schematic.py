@@ -222,8 +222,9 @@ def part(ref, key, value, fp, pins, note=""):
     mfr, mpn, lcsc = BUY.get(value, ("", "", ""))
     return dict(ref=ref, key=key, value=value, fp=fp, pins=pins, note=note, mfr=mfr, mpn=mpn, lcsc=lcsc)
 
-def gsr_core():
-    """The validated GSR circuit (docs/wiring_guide.md), shared by both boards."""
+def gsr_core(adc_ready=None):
+    """The validated GSR circuit (docs/wiring_guide.md), shared by both boards.
+    adc_ready names the net on the ADC's ALERT/RDY pin (None: not connected)."""
     return [
         part("J2", "Conn_1x02", "Grove GSR finger cuffs", "Connector_JST:JST_PH_S2B-PH-SM4-TB_1x02-1MP_P2.00mm_Horizontal",
              {"1": "ELECTRODE_1", "2": "ELECTRODE_2"},
@@ -246,7 +247,7 @@ def gsr_core():
         part("C1", "C", "100nF", FP_C, {"1": "+3V3", "2": "GND"}, "Op-amp decoupling: against U1 pins 8 and 4"),
         part("U2", "ADS1115", "ADS1115IDGSR", "Package_SO:MSOP-10_3x3mm_P0.5mm",
              {"4": "GSR_SIGNAL", "5": "REF_0V5", "6": None, "7": None, "3": "GND",
-              "8": "+3V3", "9": "I2C_SDA", "10": "I2C_SCL", "1": "GND", "2": None}, "I2C address 0x48 (ADDR to GND)"),
+              "8": "+3V3", "9": "I2C_SDA", "10": "I2C_SCL", "1": "GND", "2": adc_ready}, "I2C address 0x48 (ADDR to GND)"),
         part("C3", "C", "100nF", FP_C, {"1": "+3V3", "2": "GND"}, "ADC decoupling: against U2 pins 8 and 3"),
         part("TP3", "TP", "GSR", FP_TP, {"1": "GSR_SIGNAL"}, "Test pad: amplifier output"),
         part("TP4", "TP", "0.5V", FP_TP, {"1": "REF_0V5"}, "Test pad: 0.5 V reference"),
@@ -293,11 +294,16 @@ FLIPPER = gsr_core() + gps_block() + [
 # The Cardputer board and the EXT header are joined by the flex tail: a
 # flexible strip whose solder end lies on 8 landing pads near the board's top
 # edge, soldered through its plated holes. Tail pad k sits on board pad k
-# (same number, same net). A ground wire sits between the signals.
-TAIL_NETS = {"1": "+5V_EXT", "2": "GND", "3": "I2C_SDA", "4": "GND", "5": "I2C_SCL", "6": "GND",
+# (same number, same net). The order puts each wire on the side of the board
+# that uses it, so nothing crosses on the board: GPS serial at the GPS end,
+# then 5 V for the regulator in the middle, then I2C and the ADC's ready line
+# at the GSR end, in the same order as the ADC's pins. The tail does the
+# reordering. One ground wire keeps the ready line's edges off SCL, the
+# other sits between SDA and 5 V.
+TAIL_NETS = {"1": "ADC_READY", "2": "GND", "3": "I2C_SCL", "4": "I2C_SDA", "5": "GND", "6": "+5V_EXT",
              "7": "HOST_TX_TO_GPS", "8": "GPS_TX_TO_HOST"}
 
-CARDPUTER = gsr_core() + gps_block() + [
+CARDPUTER = gsr_core(adc_ready="ADC_READY") + gps_block() + [
     part("J1", "Conn_1x08", "Flex tail landing pads", "BioMap:FlexTail_Land_1x08_P1.50mm", TAIL_NETS,
          "Bare pads: the flex tail's solder end lies here, soldered through its holes. Pad k = tail pad k"),
     part("FB1", "FB", "600R@100MHz", "Inductor_SMD:L_0805_2012Metric", {"1": "+5V_EXT", "2": "+5V_F"},
@@ -311,13 +317,16 @@ CARDPUTER = gsr_core() + gps_block() + [
     part("H2", "MH", "M2", "MountingHole:MountingHole_2.2mm_M2", {}, "M2 x 4 mm screw into Cardputer back"),
 ]
 # No I2C pull-ups on the Cardputer board: the Cardputer's bus already has them.
+# No pull-up on ADC_READY either (the ADS1115's ALERT/RDY pin is open-drain):
+# the firmware turns on the ESP32's own pull-up on G4. A resistor here would
+# need 3.3 V on the far side of the I2C wires, which would mean a crossing.
 
 CARDPUTER_TAIL = [
     part("J1", "Conn_2x07", "Cardputer ADV EXT header", "BioMap:PinHeader_2x07_P2.54mm_Vertical_Stiffener",
-         {"1": None, "2": None, "3": None, "4": "GND", "5": None, "6": "+5V_EXT", "7": None,
+         {"1": None, "2": None, "3": "ADC_READY", "4": "GND", "5": None, "6": "+5V_EXT", "7": None,
           "8": "I2C_SDA", "9": None, "10": "I2C_SCL", "11": None, "12": "HOST_TX_TO_GPS",
           "13": None, "14": "GPS_TX_TO_HOST"},
-         "M5 pin table numbering: 4 GND, 6 5V OUT, 8 G8 SDA, 10 G9 SCL, 12 G13, 14 G15. "
+         "M5 pin table numbering: 3 G4 (ADC ready), 4 GND, 6 5V OUT, 8 G8 SDA, 10 G9 SCL, 12 G13, 14 G15. "
          "Pin 2 is 5V IN - never connect. CHECK numbering and mirroring before ordering. Through-hole, "
          "through the tail's stiffened end. Any 2.54 mm straight 2x7 male header"),
     part("J2", "Conn_1x08", "Flex tail solder pads", "BioMap:FlexTail_Solder_1x08_P1.50mm", TAIL_NETS,
@@ -632,14 +641,19 @@ def draw_ref(s, x0, y0):
     s.power("U1.8", "+3V3"); s.power("U1.4", "GND")
     s.power("C1.1", "+3V3"); s.power("C1.2", "GND")
 
-def draw_adc(s, x0, y0):
+def draw_adc(s, x0, y0, ready=False):
     s.frame(x0, y0, g(48), H2, "3  Analogue-to-digital converter",
-            "Measures GSR_SIGNAL against REF_0V5 (AIN0 - AIN1). ADDR to GND = I2C address 0x48.")
+            "AIN0 - AIN1. ADDR to GND = address 0x48. ALERT/RDY: reading ready (Cardputer pull-up on G4)."
+            if ready else "Measures GSR_SIGNAL against REF_0V5 (AIN0 - AIN1). ADDR to GND = I2C address 0x48.")
     ux, uy = x0 + g(24), y0 + g(23)
     s.put("U2", ux, uy, txt=(2.54, -14.5, "left"))
     s.label("U2.4", "GSR_SIGNAL", n=4)
     s.label("U2.5", "REF_0V5", n=4)
-    s.nc("U2.6", "U2.7", "U2.2")
+    s.nc("U2.6", "U2.7")
+    if ready:
+        s.label("U2.2", "ADC_READY", n=4)
+    else:
+        s.nc("U2.2")
     s.label("U2.9", "I2C_SDA", n=4)
     s.label("U2.10", "I2C_SCL", n=4)
     s.power("U2.1", "GND", n=2)
@@ -776,7 +790,8 @@ def draw_tail(s):
     s.frame(g(8), ROW1, g(40), H1, "1  Cardputer ADV EXT header",
             "Pin 2 (5 V in) stays open. Straight header through the tail's stiffened end.")
     s.put("J1", g(18), ROW1 + g(19))
-    s.nc(*[f"J1.{i}" for i in (1, 3, 5, 7, 9, 11, 13, 2)])
+    s.nc(*[f"J1.{i}" for i in (1, 5, 7, 9, 11, 13, 2)])
+    s.label("J1.3", "ADC_READY", n=4)
     s.power("J1.4", "GND", n=2)
     s.flag((s.pins["J1.4"][0] + G, s.pins["J1.4"][1]))
     for pn, net in (("6", "+5V_EXT"), ("8", "I2C_SDA"), ("10", "I2C_SCL"),
@@ -793,7 +808,7 @@ def draw_sheet(name, parts):
         return s
     draw_tia(s, g(8), ROW2)
     draw_ref(s, g(69), ROW2)
-    draw_adc(s, g(112), ROW2)
+    draw_adc(s, g(112), ROW2, ready=(name == "biomap_cardputer"))
     if name == "biomap_flipper":
         draw_flipper_conn(s, g(8), ROW1)
         draw_gps(s, g(49), ROW1)
