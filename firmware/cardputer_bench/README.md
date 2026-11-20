@@ -27,36 +27,53 @@ pio run -t upload        # flash over USB-C
 pio device monitor       # watch the once-a-second log
 ```
 
+PlatformIO came with the VS Code extension, so if `pio` isn't found, use `~/.platformio/penv/bin/pio`.
+
 If flashing fails, hold the Cardputer's G0 button while plugging in USB, then try again.
 
 ## What the screen shows
 
-| Line | Good result |
-|---|---|
-| I2C | Lists `48` (ADS1115) and `34` (keyboard), plus the Cardputer's own chips |
-| GSR | `open circuit` with nothing connected; a value in nS with a finger or resistor across the electrodes |
-| reads/s, I2C errors | Several hundred reads a second; errors stay at 0 |
-| Bias | About 500 mV. The supply figure next to it is worked out from this and should be about 3.30 V |
-| GPS | Green, with good messages each second and few or no bad ones. Satellites appear after a minute or so outdoors or by a window; indoors, green with no fix is fine |
-| PSRAM / Clock | Answers two open questions in the plan. If a clock is shown, note the time, switch off for a minute, switch on again: if it kept counting, the Cardputer keeps time when off |
-| Keys | The count goes up and the last key changes every time you press one |
+The I2C address list, PSRAM and clock lines are gone: those questions are answered (the ADC at `48` doesn't clash; no PSRAM; no clock chip).
 
-Keys: **G** shows the GSR graph (press again to go back), **S** scans the I2C bus again, **R** resets the counters.
+| Line | What it means | Good result |
+|---|---|---|
+| Bias, supply | The board's 0.5 V reference, and the 3.3 V supply worked out from it | About 500 mV and 3.30 V (green) |
+| GSR | Skin conductance with the board's zero removed, and the resistance that means | `open circuit` with nothing connected; 1 MΩ reads about 1,000 nS / 1.00 Mohm. Yellow until a zero is set |
+| Zero / Noise | Before a zero: the raw open-circuit reading. After: how much the 100 ms values jump about within a second (nS, peak to peak), and the saved zero | With a fixed resistor, noise well under 1 nS |
+| reads/s, err, gap, pga | Reads a second, failed I2C reads, the longest gap between two reads, and the ADC's range | About 900/s; errors stay at 0; gap stays in the tens of ms |
+| Sats | Satellites used in the fix / heard (with a signal) / in view | Outdoors: used climbs to 8+ |
+| Fix / signal | Time from start-up to the first fix, HDOP, and the strongest signal (dB-Hz) | Strongest signal 35+ in open sky; below about 25 is weak |
+| Batt, boot | Battery voltage, how many times the Cardputer has started, and why it last started | `power on`, `USB` or `software` are fine. `BROWNOUT` (red) means the power dipped and reset it |
+
+The bottom line shows the keys and the time since start-up.
+
+Keys: **Z** sets the zero (see below), **G** shows the GSR graph (press again to go back), **R** resets the error count, the longest gap and the key count.
 
 The graph shows the last 22 seconds, one point every 100 ms (the same window as one row of a real recording). The scale fits itself to what's on screen, and the numbers at the bottom give the range shown. Gaps mean open circuit.
 
+### Setting the zero
+
+The board reads slightly negative with nothing connected (about 100 nS low on this prototype). The Flipper firmware removes this with the calibration wizard's Zero step; this does the same.
+
+1. Disconnect everything from the electrodes.
+2. Press **Z**. It averages for 3 seconds.
+3. "Zero saved" appears. The zero is kept in flash, so it survives power-off. If something was still connected, it says "Zero refused" and keeps the old one.
+
+There is no gain step, so readings can still be off by the tolerance of the 47k resistor (about 1%).
+
 ## What to try
 
-1. **Keyboard and GSR together.** Type while a finger is on the electrodes. The GSR value should stay steady and I2C errors should stay at 0.
-2. **Long run.** Leave it for an hour, then press a few keys. They should still register.
-3. **Known resistors.** A resistor across the electrodes should read roughly 1/R (for example, 1 MΩ ≈ 1,000 nS). This is a sanity check, not an accuracy test.
-4. **GPS power.** Watch for the Cardputer restarting while the GPS searches for satellites.
+1. **Zero, then a known resistor.** 1 MΩ across the electrodes should now read close to 1,000 nS.
+2. **Keyboard and GSR together.** With a resistor across the electrodes, type for a while. Noise and errors shouldn't change.
+3. **Long run.** Press R, leave it for an hour, then check: errors 0, gap still small, boot count unchanged, keys still respond.
+4. **GPS by a window or outdoors.** Note the first-fix time and the best signal. For the antenna test (doc section 6), compare the best signal and "used" count with the GPS facing up and facing down.
+5. **GPS power.** If the boot line ever shows `BROWNOUT`, the GPS's current draw reset the Cardputer.
 
 ## If something is wrong
 
-- **ADS1115 not found:** check SDA/SCL aren't swapped, the board has 3.3 V, and the grounds are joined.
-- **GPS "trying… 0 bytes/s":** nothing is arriving. Check that G15 goes to the GPS **TX**.
-- **GPS "trying…" with bytes arriving but never going green:** the speed is wrong or the line is noisy. It switches between 9600 and 115200 every 3 seconds by itself.
+- **"ADC not found":** check SDA/SCL aren't swapped, the board has 3.3 V, and the grounds are joined.
+- **"GPS no data … 0 B/s":** nothing is arriving. Check that G15 goes to the GPS **TX**.
+- **"GPS no data" with bytes arriving:** the speed is wrong or the line is noisy. It switches between 9600 and 115200 every 3 seconds by itself.
 - **Bias far from 500 mV:** the 3.3 V supply is off, or the bias resistors are wrong.
 
 The log on the USB serial port is a CSV line every second, so you can save it and look at a long run afterwards.

@@ -4,22 +4,29 @@
 // (ADS1115 GSR front end + SAM-M10Q GPS) works when wired to the Cardputer's
 // EXT header with jumper leads. It is not the real firmware.
 //
-// It checks:
-//   - the ADS1115 and the keyboard can share the internal I2C bus (G8/G9);
-//   - GSR readings look sensible (same maths as firmware/modules/gsr_sensor.c);
+// Already confirmed on the device, so no longer shown: the I2C address list
+// (the ADS1115 at 0x48 does not clash), PSRAM (none) and the clock chip (none).
+//
+// What it shows now:
+//   - GSR with the board's open-circuit zero removed (press Z with nothing
+//     connected), as nS and as the resistance across the electrodes;
+//   - how noisy the 100 ms readings are, and the longest gap between reads;
 //   - the 0.5 V bias, which shows whether the board's 3.3 V supply is right;
-//   - the GPS sends valid NMEA on G15 (RX) and listens on G13 (TX);
-//   - the keyboard keeps responding over a long run;
-//   - whether the Cardputer has PSRAM and a clock chip (see docs/cardputer_port.md).
+//   - GPS satellites used / heard / in view, their signal strength, and the
+//     time to the first fix;
+//   - battery voltage, the boot count and why the Cardputer last restarted
+//     (a brownout here means the GPS's power draw reset it).
 //
 // Everything runs in loop() on one thread, so no bus lock is needed. The
 // ADS1115 goes through M5's In_I2C, the same driver the keyboard uses:
 // opening the same pins with Arduino's Wire would make two drivers fight.
 //
 // A once-a-second CSV line goes to the USB serial port (115200 baud).
-// Keys: G = GSR graph on/off, S = rescan the I2C bus, R = reset the counters.
+// Keys: Z = set the zero, G = GSR graph on/off, R = reset the counters.
 
 #include <M5Cardputer.h>
+#include <Preferences.h>
+#include <esp_system.h>
 
 // ── Pins and addresses ──────────────────────────────────────────────────────
 static const int      GPS_RX_PIN = 15;  // ESP32 receives here ← M10Q TX
@@ -47,6 +54,13 @@ static const uint32_t BIAS_EVERY_MS   = 2000;
 
 static const float VALID_MIN_NS = 100.0f;
 
+// Zero step, as in the Flipper calibration wizard: the open-circuit reading
+// (normalised counts) is subtracted before the TIA formula. A reading further
+// from 0 than CAL_ZERO_MAX_COUNTS (firmware/biomap_config.h) means something
+// is still connected, so it is refused.
+static const float ZERO_MAX_COUNTS = 2000.0f;
+static const int   ZERO_SECONDS    = 3;
+
 // Same formula as gsr_tia_counts_to_ns_at_bias() in firmware/modules/gsr_sensor.h:
 // bias_scale is the measured bias over 0.5 V.
 static float counts_to_ns(float counts, float bias_scale) {
@@ -60,6 +74,8 @@ static uint8_t cfg_msb(uint8_t mux, uint8_t pga) {
     return (uint8_t)(0x80u | (mux << 4) | (pga << 1));
 }
 
+static Preferences prefs;
+
 struct {
     bool     present = false;
     uint8_t  pga = PGA_DEFAULT;
@@ -67,6 +83,7 @@ struct {
     uint32_t settle_until_us = 0;
     uint32_t last_bias_ms = 0;
     uint32_t last_retry_ms = 0;
+    uint32_t last_read_us = 0;    // 0 = don't count the next gap (config just changed)
     // per-second accumulators
     int64_t  sum_norm = 0;
     uint32_t n = 0;
@@ -74,15 +91,34 @@ struct {
     // 100 ms accumulators for the graph (the same window as one CSV row)
     int64_t  sum_norm_100 = 0;
     uint32_t n_100 = 0;
+    // spread of the 100 ms values within the current second
+    float    sec_lo = INFINITY, sec_hi = -INFINITY;
+    int      sec_valid = 0, sec_ticks = 0;
     // results of the last full second
-    float    ns = 0.0f;
-    float    mean_norm = 0.0f;
+    float    ns = 0.0f;           // with the zero removed
+    float    raw_mean = 0.0f;     // normalised counts, zero NOT removed
+    float    noise_pp = NAN;      // max − min of the 100 ms values, nS
     uint32_t reads_per_s = 0;
     float    bias_mv = NAN;
     float    bias_scale = 1.0f;   // last in-range bias / 500 mV, as the firmware uses
+    // since the last R
     uint32_t errors = 0;
     uint32_t pga_changes = 0;
+    uint32_t max_gap_us = 0;
 } ads;
+
+struct {
+    bool  set = false;
+    float counts = 0.0f;
+    int   pending = 0;            // seconds still to average after Z
+    float sum = 0.0f;
+    char  msg[32] = "";
+    uint32_t msg_until_ms = 0;
+} zero;
+
+static float corrected_ns(float raw_counts) {
+    return counts_to_ns(raw_counts - (zero.set ? zero.counts : 0.0f), ads.bias_scale);
+}
 
 static bool ads_write_cfg(uint8_t mux, uint8_t pga) {
     uint8_t cfg[2] = {cfg_msb(mux, pga), CFG_LSB};
@@ -102,6 +138,7 @@ static void ads_start_gsr(void) {
     } else {
         ads.errors++;
     }
+    ads.last_read_us = 0;
 }
 
 static void ads_init(void) {
@@ -145,7 +182,8 @@ static void ads_poll(void) {
         return;
     }
 
-    if((int32_t)(micros() - ads.settle_until_us) < 0) return;
+    uint32_t now_us = micros();
+    if((int32_t)(now_us - ads.settle_until_us) < 0) return;
 
     int16_t raw;
     if(!ads_read_conv(&raw)) {
@@ -153,6 +191,10 @@ static void ads_poll(void) {
         return;
     }
     ads.reads++;
+    if(ads.last_read_us && now_us - ads.last_read_us > ads.max_gap_us) {
+        ads.max_gap_us = now_us - ads.last_read_us;
+    }
+    ads.last_read_us = now_us;
 
     // Autoranging, same rules as the firmware.
     int16_t mag = raw < 0 ? -raw : raw;
@@ -182,16 +224,54 @@ static void ads_poll(void) {
     ads.n_100++;
 }
 
+static void set_zero_msg(const char* m) {
+    strncpy(zero.msg, m, sizeof(zero.msg) - 1);
+    zero.msg[sizeof(zero.msg) - 1] = 0;
+    zero.msg_until_ms = millis() + 4000;
+}
+
+static void zero_start(void) {
+    zero.pending = ZERO_SECONDS;
+    zero.sum = 0.0f;
+}
+
+static void zero_second(void) {
+    if(zero.pending <= 0) return;
+    if(ads.n == 0) {  // no readings this second: give up rather than average nothing
+        zero.pending = 0;
+        set_zero_msg("Zero failed: no readings");
+        return;
+    }
+    zero.sum += ads.raw_mean;
+    if(--zero.pending > 0) return;
+    float z = zero.sum / ZERO_SECONDS;
+    if(fabsf(z) > ZERO_MAX_COUNTS) {
+        set_zero_msg("Zero refused: disconnect");
+        return;
+    }
+    zero.counts = z;
+    zero.set = true;
+    prefs.putFloat("zero", z);
+    set_zero_msg("Zero saved");
+}
+
 static void ads_second(void) {
     ads.reads_per_s = ads.reads;
     ads.reads = 0;
     if(ads.n > 0) {
-        ads.mean_norm = (float)ads.sum_norm / (float)ads.n;
-        ads.ns = counts_to_ns(ads.mean_norm, ads.bias_scale);
+        ads.raw_mean = (float)ads.sum_norm / (float)ads.n;
+        ads.ns = corrected_ns(ads.raw_mean);
     } else {
-        ads.mean_norm = 0.0f;
+        ads.raw_mean = 0.0f;
         ads.ns = 0.0f;
     }
+    // Noise only when every 100 ms value in the second was a valid reading.
+    ads.noise_pp = (ads.sec_ticks > 0 && ads.sec_valid == ads.sec_ticks)
+        ? ads.sec_hi - ads.sec_lo : NAN;
+    ads.sec_lo = INFINITY;
+    ads.sec_hi = -INFINITY;
+    ads.sec_valid = ads.sec_ticks = 0;
+    zero_second();
     ads.sum_norm = 0;
     ads.n = 0;
 }
@@ -214,11 +294,17 @@ static bool show_graph = false;
 static void graph_tick(void) {
     float ns = NAN;
     if(ads.n_100 > 0) {
-        float c = counts_to_ns((float)ads.sum_norm_100 / (float)ads.n_100, ads.bias_scale);
+        float c = corrected_ns((float)ads.sum_norm_100 / (float)ads.n_100);
         if(c >= VALID_MIN_NS) ns = c;
     }
     ads.sum_norm_100 = 0;
     ads.n_100 = 0;
+    ads.sec_ticks++;
+    if(!isnan(ns)) {
+        ads.sec_valid++;
+        if(ns < ads.sec_lo) ads.sec_lo = ns;
+        if(ns > ads.sec_hi) ads.sec_hi = ns;
+    }
     graph.v[graph.head] = ns;
     graph.head = (graph.head + 1) % GRAPH_POINTS;
     if(graph.count < GRAPH_POINTS) graph.count++;
@@ -231,6 +317,25 @@ static void graph_tick(void) {
 static const uint32_t GPS_BAUDS[2] = {9600, 115200};
 static const uint32_t GPS_HUNT_MS  = 3000;
 static const uint32_t GPS_LOST_MS  = 5000;
+static const uint32_t GSV_STALE_MS = 3000;
+
+// Satellites in view, from the GSV sentences. The M10Q sends a separate set
+// of GSV messages per constellation AND per signal: signal 1 lists the
+// satellites it hears (with their strength), signal 0 the ones it knows are
+// up but can't hear. So each (constellation, signal) pair keeps its own slot.
+// A set is committed when its last message arrives, so a half-received set
+// is never counted.
+static const int TALKERS = 6;
+static const int SIGNALS = 16;  // NMEA 4.11 signal id, one hex digit
+static const char* const TALKER_IDS[TALKERS] = {"GP", "GL", "GA", "GB", "GQ", "GN"};
+static const int MAX_SV = 32;
+
+struct Gsv {
+    uint8_t  in_view = 0;
+    uint8_t  n = 0, cno[MAX_SV];          // committed signal strengths (dB-Hz, > 0 only)
+    uint8_t  tmp_n = 0, tmp_cno[MAX_SV];  // set being received
+    uint32_t ms = 0;                      // when the set was committed
+};
 
 struct {
     int      baud_idx = 0;
@@ -243,11 +348,15 @@ struct {
     uint32_t bytes = 0, good = 0, bad = 0;
     // results of the last full second
     uint32_t bytes_per_s = 0, good_per_s = 0, bad_per_s = 0;
-    uint32_t total_good = 0;
     int      fix = -1;        // GGA fix quality, -1 = no GGA yet
-    int      sats = -1;
+    int      used = -1;       // satellites used in the fix (GGA)
     float    hdop = NAN;
     char     utc[9] = "--:--:--";
+    Gsv      gsv[TALKERS][SIGNALS];
+    bool     gsv_seen = false;
+    int      in_view = 0, heard = 0, best_cno = 0;
+    float    top4_cno = NAN;  // mean of the four strongest: the usual u-blox quality figure
+    uint32_t ttff_s = 0;      // seconds from start-up to the first fix, 0 = none yet
 } gps;
 
 static void gps_set_baud(int idx) {
@@ -275,30 +384,89 @@ static bool nmea_checksum_ok(const char* s) {
     return hi >= 0 && lo >= 0 && ((hi << 4) | lo) == sum;
 }
 
-// $xxGGA,time,lat,N,lon,E,fix,sats,hdop,...
-static void gps_parse_gga(const char* s) {
-    char buf[100];
-    strncpy(buf, s, sizeof(buf) - 1);
-    buf[sizeof(buf) - 1] = 0;
-    const char* field[10] = {0};
+// Split a sentence into fields at ',' and '*' (the checksum becomes the last
+// field). Returns the number of fields.
+static int nmea_split(const char* s, char* buf, size_t buf_size, const char** field, int max_fields) {
+    strncpy(buf, s, buf_size - 1);
+    buf[buf_size - 1] = 0;
     int n = 0;
     char* p = buf;
     field[n++] = p;
-    while(*p && n < 10) {
+    while(*p && n < max_fields) {
         if(*p == ',' || *p == '*') {
             *p = 0;
             field[n++] = p + 1;
         }
         p++;
     }
+    return n;
+}
+
+// $xxGGA,time,lat,N,lon,E,fix,sats,hdop,...
+static void gps_parse_gga(const char* s) {
+    char buf[100];
+    const char* field[10];
+    int n = nmea_split(s, buf, sizeof(buf), field, 10);
     if(n < 9) return;
     const char* t = field[1];
     if(strlen(t) >= 6) {
         snprintf(gps.utc, sizeof(gps.utc), "%.2s:%.2s:%.2s", t, t + 2, t + 4);
     }
     gps.fix  = *field[6] ? atoi(field[6]) : 0;
-    gps.sats = *field[7] ? atoi(field[7]) : 0;
+    gps.used = *field[7] ? atoi(field[7]) : 0;
     gps.hdop = *field[8] ? atof(field[8]) : NAN;
+    if(gps.fix > 0 && gps.ttff_s == 0) gps.ttff_s = millis() / 1000 + 1;
+}
+
+// $xxGSV,numMsg,msgNum,numSV,{svid,elev,az,cno}×(up to 4)[,signalId]*cs
+static void gps_parse_gsv(const char* s) {
+    int t = -1;
+    for(int i = 0; i < TALKERS; i++) {
+        if(strncmp(s + 1, TALKER_IDS[i], 2) == 0) { t = i; break; }
+    }
+    if(t < 0) return;
+    char buf[100];
+    const char* field[24];
+    int n = nmea_split(s, buf, sizeof(buf), field, 24);
+    if(n < 5) return;
+    int num_msg = atoi(field[1]), msg_num = atoi(field[2]);
+    // With a signal id, the fields after the satellites are signal + checksum.
+    int sig = 0;
+    if((n - 5) % 4 == 1) {
+        sig = hexval(field[n - 2][0]);
+        if(sig < 0) return;
+    }
+    Gsv& g = gps.gsv[t][sig];
+    if(msg_num == 1) g.tmp_n = 0;
+    int groups = (n - 5) / 4;  // works with or without the trailing signalId
+    for(int i = 0; i < groups && i < 4; i++) {
+        const char* cno = field[4 + 4 * i + 3];
+        if(*cno && atoi(cno) > 0 && g.tmp_n < MAX_SV) g.tmp_cno[g.tmp_n++] = (uint8_t)atoi(cno);
+    }
+    if(msg_num == num_msg) {
+        g.in_view = (uint8_t)atoi(field[3]);
+        g.n = g.tmp_n;
+        memcpy(g.cno, g.tmp_cno, g.tmp_n);
+        g.ms = millis();
+        gps.gsv_seen = true;
+    }
+}
+
+// The Flipper app turns GSV off (gps_uart.c, ubx_send_nmea_output_rates), and
+// the M10Q keeps that until it loses power. Turn it back on in RAM only
+// (CFG-VALSET, layer RAM, CFG-MSGOUT-NMEA_ID_GSV_UART1 = 1), so the next
+// power cycle undoes it.
+static void gps_enable_gsv(void) {
+    uint8_t msg[] = {
+        0xB5, 0x62, 0x06, 0x8A, 0x09, 0x00,   // UBX CFG-VALSET, 9-byte payload
+        0x00, 0x01, 0x00, 0x00,               // version 0, layer RAM, reserved
+        0xC5, 0x00, 0x91, 0x20, 0x01,         // key 0x209100C5 = 1
+        0x00, 0x00};                          // checksum, filled in below
+    uint8_t a = 0, b = 0;
+    for(size_t i = 2; i < sizeof(msg) - 2; i++) { a += msg[i]; b += a; }
+    msg[sizeof(msg) - 2] = a;
+    msg[sizeof(msg) - 1] = b;
+    Serial1.write(msg, sizeof(msg));
 }
 
 static void gps_line(void) {
@@ -309,10 +477,11 @@ static void gps_line(void) {
         return;
     }
     gps.good++;
-    gps.total_good++;
     gps.last_good_ms = millis();
+    if(!gps.locked) gps_enable_gsv();  // each time the right baud rate is found
     gps.locked = true;
     if(strncmp(gps.line + 3, "GGA", 3) == 0) gps_parse_gga(gps.line);
+    else if(strncmp(gps.line + 3, "GSV", 3) == 0) gps_parse_gsv(gps.line);
 }
 
 static void gps_poll(void) {
@@ -341,69 +510,84 @@ static void gps_second(void) {
     gps.good_per_s  = gps.good;
     gps.bad_per_s   = gps.bad;
     gps.bytes = gps.good = gps.bad = 0;
-}
 
-// ── I2C scan ────────────────────────────────────────────────────────────────
-static char i2c_found[64] = "";
-
-static void i2c_scan(void) {
-    i2c_found[0] = 0;
-    size_t len = 0;
-    for(uint8_t a = 0x08; a <= 0x77; a++) {
-        if(M5.In_I2C.scanID(a, 100000)) {
-            len += snprintf(i2c_found + len, sizeof(i2c_found) - len, "%02X ", a);
-            if(len >= sizeof(i2c_found) - 4) break;
+    // Sum the satellite picture over the constellations heard recently.
+    uint8_t all[TALKERS * MAX_SV];
+    int heard = 0, in_view = 0;
+    uint32_t now = millis();
+    for(int t = 0; t < TALKERS; t++) {
+        for(int sg = 0; sg < SIGNALS; sg++) {
+            const Gsv& g = gps.gsv[t][sg];
+            if(g.ms == 0 || now - g.ms > GSV_STALE_MS) continue;
+            in_view += g.in_view;
+            int room = (int)sizeof(all) - heard;
+            int k = g.n < room ? g.n : room;
+            memcpy(all + heard, g.cno, k);
+            heard += k;
         }
     }
-    if(len == 0) strcpy(i2c_found, "none");
+    gps.in_view = in_view;
+    gps.heard = heard;
+    // Best four by partial selection sort.
+    int top = heard < 4 ? heard : 4;
+    for(int i = 0; i < top; i++) {
+        int m = i;
+        for(int j = i + 1; j < heard; j++) if(all[j] > all[m]) m = j;
+        uint8_t tmp = all[i]; all[i] = all[m]; all[m] = tmp;
+    }
+    gps.best_cno = heard ? all[0] : 0;
+    if(top == 4) {
+        gps.top4_cno = (all[0] + all[1] + all[2] + all[3]) / 4.0f;
+    } else {
+        gps.top4_cno = NAN;
+    }
 }
 
-// ── Start-up checks ─────────────────────────────────────────────────────────
-// PSRAM: the plan expects none. Clock chip: M5Unified looks for one on the
-// internal bus at start-up; 0x51 (BM8563) and 0x32 (RX8130) are the ones M5
-// devices use. If one is found, its time is shown so you can switch off for a
-// minute and see whether it kept counting.
-static uint32_t psram_bytes = 0;
-static bool     rtc_chip = false;
-static uint8_t  rtc_addr = 0;
+// ── Power and restarts ──────────────────────────────────────────────────────
+static uint32_t boot_count = 0;
+static esp_reset_reason_t reset_reason = ESP_RST_UNKNOWN;
+static int batt_mv = 0;
 
-static void startup_checks(void) {
-    psram_bytes = ESP.getPsramSize();
-    if(M5.In_I2C.scanID(0x51, 100000)) rtc_addr = 0x51;
-    else if(M5.In_I2C.scanID(0x32, 100000)) rtc_addr = 0x32;
-    rtc_chip = M5.Rtc.isEnabled() || rtc_addr != 0;
+static const char* reset_text(esp_reset_reason_t r) {
+    switch(r) {
+    case ESP_RST_POWERON:   return "power on";
+    case ESP_RST_SW:        return "software";
+    case ESP_RST_PANIC:     return "CRASH";
+    case ESP_RST_INT_WDT:
+    case ESP_RST_TASK_WDT:
+    case ESP_RST_WDT:       return "WATCHDOG";
+    case ESP_RST_BROWNOUT:  return "BROWNOUT";
+    case ESP_RST_EXT:       return "reset pin";
+    case ESP_RST_DEEPSLEEP: return "sleep";
+    case ESP_RST_USB:       return "USB";
+    default:                return "other";
+    }
+}
+
+static bool reset_is_bad(esp_reset_reason_t r) {
+    return r == ESP_RST_PANIC || r == ESP_RST_INT_WDT || r == ESP_RST_TASK_WDT ||
+           r == ESP_RST_WDT || r == ESP_RST_BROWNOUT;
 }
 
 // ── Keyboard ────────────────────────────────────────────────────────────────
-struct {
-    uint32_t presses = 0;
-    uint32_t last_ms = 0;
-    char     last[8] = "-";
-} keys;
+static uint32_t key_presses = 0;
 
 static void reset_counters(void) {
     ads.errors = 0;
     ads.pga_changes = 0;
-    gps.total_good = 0;
-    keys.presses = 0;
+    ads.max_gap_us = 0;
+    key_presses = 0;
 }
 
 static void keys_poll(void) {
     if(!M5Cardputer.Keyboard.isChange() || !M5Cardputer.Keyboard.isPressed()) return;
     auto& st = M5Cardputer.Keyboard.keysState();
-    keys.presses++;
-    keys.last_ms = millis();
-    if(st.enter)      strcpy(keys.last, "ENT");
-    else if(st.del)   strcpy(keys.last, "DEL");
-    else if(st.space) strcpy(keys.last, "SPC");
-    else if(st.tab)   strcpy(keys.last, "TAB");
-    else if(!st.word.empty()) {
-        char c = st.word.back();
-        snprintf(keys.last, sizeof(keys.last), "'%c'", c);
-        if(c == 's' || c == 'S') i2c_scan();
-        if(c == 'r' || c == 'R') reset_counters();
-        if(c == 'g' || c == 'G') show_graph = !show_graph;
-    } else strcpy(keys.last, "mod");
+    key_presses++;
+    if(st.word.empty()) return;
+    char c = st.word.back();
+    if(c == 'z' || c == 'Z') zero_start();
+    if(c == 'r' || c == 'R') reset_counters();
+    if(c == 'g' || c == 'G') show_graph = !show_graph;
 }
 
 // ── Screen and serial log ───────────────────────────────────────────────────
@@ -414,98 +598,113 @@ static M5Canvas canvas(&M5Cardputer.Display);
 static const lgfx::IFont* const SCREEN_FONT = &fonts::Font2;
 static const int LH = 16;  // line height in pixels
 
+static void line_at(int& y, uint16_t colour) {
+    canvas.setTextColor(colour, TFT_BLACK);
+    canvas.setCursor(2, y);
+    y += LH;
+}
+
+static void print_resistance(float ns) {
+    float ohm = 1e9f / ns;
+    if(ohm >= 1e6f) canvas.printf("%.2f Mohm", ohm / 1e6f);
+    else canvas.printf("%.0f kohm", ohm / 1e3f);
+}
+
 static void draw_screen(void) {
     const int W = M5Cardputer.Display.width();
+    const int H = M5Cardputer.Display.height();
     int y = 0;
-    uint32_t up = millis() / 1000;
     canvas.fillSprite(TFT_BLACK);
 
-    canvas.setTextColor(strstr(i2c_found, "48") ? TFT_GREEN : TFT_RED, TFT_BLACK);
-    canvas.setCursor(2, y);
-    canvas.printf("I2C %s", i2c_found);
-    char upbuf[12];
-    snprintf(upbuf, sizeof(upbuf), "%02lu:%02lu:%02lu",
-        (unsigned long)(up / 3600), (unsigned long)(up / 60 % 60), (unsigned long)(up % 60));
-    canvas.setTextColor(TFT_DARKGREY, TFT_BLACK);
-    canvas.drawString(upbuf, W - 2 - canvas.textWidth(upbuf), y);
-    y += LH + 1;
-
+    // 1. Board: ADC found, bias and the supply worked out from it.
     if(!ads.present) {
-        canvas.setTextColor(TFT_RED, TFT_BLACK);
-        canvas.setCursor(2, y);
-        canvas.print("GSR: ADS1115 not found");
-        y += 2 * LH;
-    } else {
-        canvas.setCursor(2, y);
-        if(ads.ns < VALID_MIN_NS) {
-            canvas.setTextColor(TFT_YELLOW, TFT_BLACK);
-            canvas.printf("GSR open circuit  pga %u", ads.pga);
-        } else {
-            canvas.setTextColor(TFT_GREEN, TFT_BLACK);
-            canvas.printf("GSR %.1f nS  pga %u", ads.ns, ads.pga);
-        }
-        y += LH;
-        canvas.setTextColor(ads.errors ? TFT_RED : TFT_WHITE, TFT_BLACK);
-        canvas.setCursor(2, y);
-        canvas.printf("    %lu reads/s  errors %lu",
-            (unsigned long)ads.reads_per_s, (unsigned long)ads.errors);
-        y += LH;
-    }
-
-    canvas.setCursor(2, y);
-    if(isnan(ads.bias_mv)) {
-        canvas.setTextColor(TFT_DARKGREY, TFT_BLACK);
+        line_at(y, TFT_RED);
+        canvas.print("ADC not found: check SDA/SCL");
+    } else if(isnan(ads.bias_mv)) {
+        line_at(y, TFT_DARKGREY);
         canvas.print("Bias -");
     } else {
         bool ok = fabsf(ads.bias_mv - 500.0f) < 15.0f;
-        canvas.setTextColor(ok ? TFT_GREEN : TFT_RED, TFT_BLACK);
+        line_at(y, ok ? TFT_GREEN : TFT_RED);
         canvas.printf("Bias %.1f mV  supply %.2f V", ads.bias_mv, ads.bias_mv * 6.6f / 1000.0f);
     }
-    y += LH;
 
-    canvas.setCursor(2, y);
-    if(gps.locked) {
-        canvas.setTextColor(TFT_GREEN, TFT_BLACK);
-        if(gps.fix < 0) {
-            canvas.printf("GPS %lu  ok %lu/s  bad %lu/s",
-                (unsigned long)GPS_BAUDS[gps.baud_idx],
-                (unsigned long)gps.good_per_s, (unsigned long)gps.bad_per_s);
+    // 2. GSR value and the resistance it means.
+    if(ads.present) {
+        if(zero.pending > 0) {
+            line_at(y, TFT_YELLOW);
+            canvas.printf("Zeroing... %d s (no contact)", zero.pending);
+        } else if(ads.ns < VALID_MIN_NS) {
+            line_at(y, TFT_YELLOW);
+            canvas.print("GSR open circuit");
         } else {
-            canvas.printf("GPS ok %lu bad %lu fix %d sats %d",
-                (unsigned long)gps.good_per_s, (unsigned long)gps.bad_per_s,
-                gps.fix, gps.sats);
+            line_at(y, zero.set ? TFT_GREEN : TFT_YELLOW);
+            canvas.printf("GSR %.1f nS  ", ads.ns);
+            print_resistance(ads.ns);
         }
+
+        // 3. Zero status, or noise.
+        if(millis() < zero.msg_until_ms) {
+            line_at(y, TFT_CYAN);
+            canvas.print(zero.msg);
+        } else if(!zero.set) {
+            line_at(y, TFT_YELLOW);
+            canvas.printf("No zero: open, press Z (%.0f)", ads.raw_mean);
+        } else {
+            line_at(y, TFT_WHITE);
+            if(isnan(ads.noise_pp)) canvas.printf("Noise -   zero %.0f", zero.counts);
+            else canvas.printf("Noise %.2f nS  zero %.0f", ads.noise_pp, zero.counts);
+        }
+
+        // 4. Bus health.
+        line_at(y, ads.errors ? TFT_RED : TFT_WHITE);
+        canvas.printf("%lu/s err %lu gap %lu ms pga %u", (unsigned long)ads.reads_per_s,
+            (unsigned long)ads.errors, (unsigned long)(ads.max_gap_us / 1000), ads.pga);
     } else {
-        canvas.setTextColor(TFT_YELLOW, TFT_BLACK);
-        canvas.printf("GPS trying %lu  %lu bytes/s",
+        y += 3 * LH;
+    }
+
+    // 5–6. GPS.
+    if(!gps.locked) {
+        line_at(y, TFT_YELLOW);
+        canvas.printf("GPS no data  %lu baud  %lu B/s",
             (unsigned long)GPS_BAUDS[gps.baud_idx], (unsigned long)gps.bytes_per_s);
-    }
-    y += LH;
-
-    canvas.setTextColor(TFT_WHITE, TFT_BLACK);
-    canvas.setCursor(2, y);
-    canvas.printf("PSRAM %s  ", psram_bytes ? "yes" : "none");
-    if(!rtc_chip) {
-        canvas.print("Clock none");
-    } else if(M5.Rtc.isEnabled()) {
-        auto dt = M5.Rtc.getDateTime();
-        canvas.printf("Clock %02d:%02d:%02d", dt.time.hours, dt.time.minutes, dt.time.seconds);
+        y += LH;
     } else {
-        canvas.printf("Clock chip at %02X", rtc_addr);
+        line_at(y, gps.fix > 0 ? TFT_GREEN : TFT_WHITE);
+        if(!gps.gsv_seen) {
+            canvas.printf("Sats used %d  (no GSV)", gps.used < 0 ? 0 : gps.used);
+        } else {
+            canvas.printf("Sats used %d heard %d seen %d",
+                gps.used < 0 ? 0 : gps.used, gps.heard, gps.in_view);
+        }
+        if(gps.bad_per_s) line_at(y, TFT_RED);
+        else line_at(y, gps.fix > 0 ? TFT_GREEN : TFT_WHITE);
+        if(gps.fix > 0) {
+            canvas.printf("Fix (%lu s) hdop %.1f", (unsigned long)gps.ttff_s, gps.hdop);
+            if(gps.heard) canvas.printf(" sig %d", gps.best_cno);
+        } else {
+            canvas.print("No fix");
+            if(gps.heard) canvas.printf("  best signal %d dB", gps.best_cno);
+        }
+        if(gps.bad_per_s) canvas.printf(" bad %lu", (unsigned long)gps.bad_per_s);
     }
-    y += LH;
 
-    canvas.setCursor(2, y);
-    if(keys.presses == 0) {
-        canvas.print("Keys: none yet");
-    } else {
-        canvas.printf("Keys %lu  last %s  %lus ago", (unsigned long)keys.presses, keys.last,
-            (unsigned long)((millis() - keys.last_ms) / 1000));
-    }
+    // 7. Power and restarts.
+    line_at(y, reset_is_bad(reset_reason) ? TFT_RED : TFT_WHITE);
+    if(batt_mv > 0) canvas.printf("Batt %.2f V  ", batt_mv / 1000.0f);
+    else canvas.print("Batt -  ");
+    canvas.printf("boot %lu %s", (unsigned long)boot_count, reset_text(reset_reason));
 
+    // Footer: keys and uptime.
+    uint32_t up = millis() / 1000;
+    char upbuf[12];
+    snprintf(upbuf, sizeof(upbuf), "%lu:%02lu:%02lu",
+        (unsigned long)(up / 3600), (unsigned long)(up / 60 % 60), (unsigned long)(up % 60));
     canvas.setTextColor(TFT_DARKGREY, TFT_BLACK);
-    canvas.setCursor(2, M5Cardputer.Display.height() - LH);
-    canvas.print("G graph   S rescan   R reset");
+    canvas.setCursor(2, H - LH);
+    canvas.print("Z zero G graph R reset");
+    canvas.drawString(upbuf, W - 2 - canvas.textWidth(upbuf), H - LH);
 
     canvas.pushSprite(0, 0);
 }
@@ -537,13 +736,14 @@ static void draw_graph(void) {
     canvas.setCursor(2, 0);
     if(!ads.present) {
         canvas.setTextColor(TFT_RED, TFT_BLACK);
-        canvas.print("GSR: ADS1115 not found");
+        canvas.print("GSR: ADC not found");
     } else if(ads.ns < VALID_MIN_NS) {
         canvas.setTextColor(TFT_YELLOW, TFT_BLACK);
-        canvas.printf("GSR: open circuit  pga %u", ads.pga);
+        canvas.print("GSR: open circuit");
     } else {
-        canvas.setTextColor(TFT_GREEN, TFT_BLACK);
-        canvas.printf("GSR: %.1f nS  pga %u", ads.ns, ads.pga);
+        canvas.setTextColor(zero.set ? TFT_GREEN : TFT_YELLOW, TFT_BLACK);
+        canvas.printf("GSR: %.1f nS  ", ads.ns);
+        print_resistance(ads.ns);
     }
 
     canvas.drawRect(LEFT - 1, TOP - 1, GRAPH_POINTS + 1, BOTTOM - TOP + 2, TFT_DARKGREY);
@@ -581,25 +781,25 @@ static void draw_graph(void) {
 }
 
 static void log_header(void) {
-    Serial.printf("# psram_bytes=%lu clock_chip=%s",
-        (unsigned long)psram_bytes, rtc_chip ? "yes" : "none");
-    if(rtc_addr) Serial.printf(" clock_addr=%02X", rtc_addr);
-    Serial.printf(" board=%d screen=%dx%d", (int)M5.getBoard(), (int)M5Cardputer.Display.width(), (int)M5Cardputer.Display.height());
+    Serial.printf("# boot=%lu reset=%s zero=%s",
+        (unsigned long)boot_count, reset_text(reset_reason), zero.set ? "set" : "none");
+    if(zero.set) Serial.printf(" zero_counts=%.1f", zero.counts);
     Serial.println();
-    Serial.println("ms,ads_present,gsr_ns,mean_counts,pga,reads_per_s,ads_i2c_errors,"
-                   "pga_changes,bias_mv,gps_baud,gps_locked,gps_bytes_per_s,gps_good_per_s,"
-                   "gps_bad_per_s,gps_fix,gps_sats,gps_hdop,gps_utc,key_presses,i2c_devices");
+    Serial.println("ms,ads_present,gsr_ns,raw_counts,zero_counts,pga,reads_per_s,ads_i2c_errors,"
+                   "pga_changes,max_gap_ms,noise_pp_ns,bias_mv,gps_locked,gps_good_per_s,"
+                   "gps_bad_per_s,gps_fix,gps_used,gps_heard,gps_in_view,gps_best_cno,"
+                   "gps_top4_cno,gps_hdop,gps_utc,gps_ttff_s,batt_mv,key_presses");
 }
 
 static void log_line(void) {
-    Serial.printf("%lu,%d,%.2f,%.1f,%u,%lu,%lu,%lu,%.2f,%lu,%d,%lu,%lu,%lu,%d,%d,%.2f,%s,%lu,%s\n",
-        (unsigned long)millis(), ads.present, ads.ns, ads.mean_norm, ads.pga,
+    Serial.printf("%lu,%d,%.2f,%.1f,%.1f,%u,%lu,%lu,%lu,%.1f,%.2f,%.2f,%d,%lu,%lu,%d,%d,%d,%d,%d,%.1f,%.2f,%s,%lu,%d,%lu\n",
+        (unsigned long)millis(), ads.present, ads.ns, ads.raw_mean,
+        zero.set ? zero.counts : 0.0f, ads.pga,
         (unsigned long)ads.reads_per_s, (unsigned long)ads.errors,
-        (unsigned long)ads.pga_changes, ads.bias_mv,
-        (unsigned long)GPS_BAUDS[gps.baud_idx], gps.locked,
-        (unsigned long)gps.bytes_per_s, (unsigned long)gps.good_per_s,
-        (unsigned long)gps.bad_per_s, gps.fix, gps.sats, gps.hdop, gps.utc,
-        (unsigned long)keys.presses, i2c_found);
+        (unsigned long)ads.pga_changes, ads.max_gap_us / 1000.0f, ads.noise_pp, ads.bias_mv,
+        gps.locked, (unsigned long)gps.good_per_s, (unsigned long)gps.bad_per_s,
+        gps.fix, gps.used, gps.heard, gps.in_view, gps.best_cno, gps.top4_cno, gps.hdop,
+        gps.utc, (unsigned long)gps.ttff_s, batt_mv, (unsigned long)key_presses);
 }
 
 // ── Arduino entry points ────────────────────────────────────────────────────
@@ -608,6 +808,8 @@ static uint32_t last_draw_ms = 0;
 static uint32_t last_graph_ms = 0;
 
 void setup() {
+    reset_reason = esp_reset_reason();
+
     auto cfg = M5.config();
     M5Cardputer.begin(cfg, true);
     // M5GFX already turns the ADV's panel to landscape; rotation 0 keeps it there.
@@ -618,15 +820,22 @@ void setup() {
     Serial.begin(115200);
     Serial.setTxTimeoutMs(0);  // don't stall the loop when no computer is listening
 
+    // Boot count and the saved zero survive power-off (flash).
+    prefs.begin("bench", false);
+    boot_count = prefs.getUInt("boots", 0) + 1;
+    prefs.putUInt("boots", boot_count);
+    if(prefs.isKey("zero")) {
+        zero.counts = prefs.getFloat("zero", 0.0f);
+        zero.set = true;
+    }
+
     // Hold the GPS port open for the whole run: a floating RX wire would wake
     // a sleeping M10Q (see docs/cardputer_port.md, "Gotchas").
     Serial1.setRxBufferSize(2048);
     Serial1.begin(GPS_BAUDS[0], SERIAL_8N1, GPS_RX_PIN, GPS_TX_PIN);
     gps_set_baud(0);
 
-    i2c_scan();
     ads_init();
-    startup_checks();
     log_header();
     last_second_ms = millis();
     last_graph_ms = last_second_ms;
@@ -647,6 +856,7 @@ void loop() {
         last_second_ms += 1000;
         ads_second();
         gps_second();
+        batt_mv = M5.Power.getBatteryVoltage();
         log_line();
     }
     if(now - last_draw_ms >= 250) {
