@@ -92,7 +92,7 @@ Why a soldered tail: a header fixed to the main board would have to line up with
   1. Solder the header into the plug end first.
   2. Tin the landing pads on the Cardputer board lightly (if the assembler applied paste there, they already are).
   3. Lay the tail's solder end over them, F side down ("THIS SIDE DOWN" is printed there), between the printed lines, with the landing pads' ends showing past the tail's tip. Hold it with heat-resistant tape.
-  4. Put the iron where the tail's tip meets the landing pad, so it heats both, and feed a little solder: it runs through the hole onto the pad below and forms a fillet at the pad's end. A smooth fillet there shows the joint has taken.
+  4. Put the iron where the tail's tip meets the landing pad, so it heats both, and feed a little solder: it runs through the hole onto the pad below and forms a fillet at the pad's end. A smooth fillet there shows the joint has taken. The two ground pads (2 and 6) join the ground copper through two thin spokes each, not solid copper, so they heat up nearly as fast as the others.
   5. Put a strip of Kapton tape over the joint, so bending the tail never pulls on the solder.
 
 ## Check before ordering (both boards)

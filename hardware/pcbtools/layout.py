@@ -327,15 +327,22 @@ def add_outline(board, outline):
 
 def solid_ground_pads(board):
     """Join these GND pads to the pour with solid copper, not thin spokes:
-    the ADS1115 (U2) and the flex tail's landing pads, whose tight pitch
-    leaves no room for spokes at the sides, and the GPS (U4), whose antenna
-    uses the board's ground, so every ground pad should join it as fully as
-    possible."""
+    the ADS1115 (U2), whose tight pitch leaves no room for spokes at the
+    sides, and the GPS (U4), whose antenna uses the board's ground, so every
+    ground pad should join it as fully as possible.
+
+    The flex tail's landing pads get spokes on purpose: they are soldered by
+    hand through the tail's holes, and a pad joined solidly to both ground
+    planes soaks up the iron's heat and gives a cold joint. Their pitch leaves
+    no pour beside them, so the spokes reach each pad from its two short
+    ends."""
     for fp in board.GetFootprints():
-        if fp.GetReference() in ("U2", "U4") or str(fp.GetFPID().GetLibItemName()).startswith("FlexTail_Land"):
+        land = str(fp.GetFPID().GetLibItemName()).startswith("FlexTail_Land")
+        if fp.GetReference() in ("U2", "U4") or land:
             for p in fp.Pads():
                 if p.GetNetname().lstrip("/") == "GND":
-                    p.SetLocalZoneConnection(pcbnew.ZONE_CONNECTION_FULL)
+                    p.SetLocalZoneConnection(pcbnew.ZONE_CONNECTION_THERMAL if land
+                                             else pcbnew.ZONE_CONNECTION_FULL)
 
 def add_markings(board, markings):
     """Outlines and notes for the factory on the drawings layer, e.g. where
