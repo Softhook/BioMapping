@@ -7,7 +7,7 @@
 #include "sd_logger.h"
 
 // Mounts the card if it isn't mounted yet, and makes /biomapping/. True
-// once the card is ready. Safe to call again (after a card is put in).
+// once the card is ready. Safe to call again.
 bool sd_card_mount(void);
 
 // Whether the last mount worked. Quick: doesn't touch the card.

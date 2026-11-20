@@ -176,7 +176,7 @@ void session_cardputer_begin(BioMapMode mode) {
     session_core_init(&g_session.core, mode, &platform, &cfg);
     session_cardputer_unlock();
 
-    // The card is mounted again here, so one put in since start-up is found.
+    // Mounted at the first session; does nothing once it is.
     sd_card_mount();
     GsrSensor* gsr = session_mode_needs_gsr(mode) ? gsr_cardputer_start() : nullptr;
     if(gsr) gsr_sensor_set_calibration(gsr, cfg.cal_active, cfg.cal_gain, cfg.cal_zero_counts);

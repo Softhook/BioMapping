@@ -24,21 +24,11 @@ static const uint32_t BLOCK_BYTES = 512;
 
 static bool mounted = false;
 
-// Checks the card is still there: SD.cardType() only says what was found
-// at mount time, so it can't tell a card that has been taken out.
-static bool card_present(void) {
-    struct stat st;
-    return stat(DIR_PATH, &st) == 0;
-}
-
-static void unmount(void) {
-    if(mounted) SD.end();
-    mounted = false;
-}
-
+// The card sits inside the Cardputer and can't come out while it runs, so
+// once mounted it stays mounted. A failed mount (no card at start-up) is
+// tried again at the next session.
 bool sd_card_mount(void) {
-    if(mounted && card_present()) return true;
-    unmount();
+    if(mounted) return true;
     int cs = M5.getPin(m5::pin_name_t::sd_spi_ss);
     SPI.begin(M5.getPin(m5::pin_name_t::sd_spi_sclk), M5.getPin(m5::pin_name_t::sd_spi_miso),
               M5.getPin(m5::pin_name_t::sd_spi_mosi), cs);
@@ -62,13 +52,6 @@ static SdOpenResult plat_open_new(void* ctx, const char* name) {
     char path[96];
     snprintf(path, sizeof(path), "%s/%s", DIR_PATH, name);
     // O_EXCL: the card refuses a name that already exists.
-    c->fd = open(path, O_WRONLY | O_CREAT | O_EXCL, 0666);
-    if(c->fd >= 0) return SdOpenOk;
-    if(errno == EEXIST) return SdOpenNameTaken;
-    // Any other failure may be a card swapped since it was mounted (the
-    // file system still describes the old one): mount again and retry once.
-    unmount();
-    if(!sd_card_mount()) return SdOpenFailed;
     c->fd = open(path, O_WRONLY | O_CREAT | O_EXCL, 0666);
     if(c->fd >= 0) return SdOpenOk;
     return errno == EEXIST ? SdOpenNameTaken : SdOpenFailed;
