@@ -86,7 +86,7 @@ uncalibrated recording (gain 1.0, no zero removed) omits the line.
 `r2` is the wizard's least-squares fit goodness (0..1) and `noise_ns` is the
 per-resistor σ (nanosiemens, 470k/100k/47k order) from its pre-flight
 noise/resolution check — see `CalNoiseGrade` (`biomap_format.h`) and
-`calibration_wizard_measure()`'s Welford accumulator (`biomap_gui.c`). These
+the `CalDwell` accumulator (`core/biomap_format.h`). These
 are written as the actual measured numbers, not the Excellent/Acceptable/
 Poor label the wizard screens show, so a recording's data quality is
 reportable and comparable across tracks straight from the CSV. Both ride on
@@ -297,7 +297,7 @@ The firmware applies **no** record-time HDOP threshold — every fix the receive
 | Open circuit | < 100 nS | Electrodes not attached (`GSR_VALID_MIN_NS`) |
 | Rail saturation | > 75 000 nS | Hardware fault or shorts (`GSR_VALID_MAX_NS`)|
 
-Defined in `modules/gsr_sensor.h` as `GSR_VALID_MIN_NS` and `GSR_VALID_MAX_NS`.
+Defined in `core/gsr_sensor.h` as `GSR_VALID_MIN_NS` and `GSR_VALID_MAX_NS`.
 
 ---
 

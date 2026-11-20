@@ -13,6 +13,10 @@
 
 #include "biomap_types.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // Format one GPS+GSR CSV row into `out` (NUL-terminated, trailing '\n'
 // included). Returns the byte count written (excluding the NUL), or -1 if
 // the row would not fit in `cap`.
@@ -90,9 +94,9 @@ bool calibration_wizard_compute_fit(const float measured[CAL_POINTS],
                                     float* out_gain, float* out_r_squared);
 
 // Pre-flight noise/resolution grade for one calibration resistor's measured
-// σ (nS) — see the CAL_NOISE_*_NS thresholds (biomap_config.h) and
-// calibration_wizard_measure()'s Welford accumulator (biomap_gui.c), which
-// computes σ across the full resistor dwell in a single pass. CalNoisePoor
+// σ (nS) — see the CAL_NOISE_*_NS thresholds (biomap_config.h) and the
+// CalDwell accumulator below, which computes σ across the full resistor
+// dwell in a single pass. CalNoisePoor
 // fails the wizard outright (WizardStepNoiseFailed in biomap_gui.c) —
 // Excellent/Acceptable both pass and are shown on the success screen.
 typedef enum {
@@ -102,6 +106,43 @@ typedef enum {
 } CalNoiseGrade;
 
 CalNoiseGrade calibration_noise_grade(float std_dev_ns);
+
+// ── Calibration dwell: averaging one wizard step ─────────────────────
+// The calibration wizard takes one reading per tick for CAL_DWELL_SECONDS
+// at each step: the open-circuit zero (window mean counts, gate
+// ±CAL_ZERO_MAX_COUNTS) and each resistor (nS, that resistor's gate).
+// Readings inside [lo, hi] go into the mean and σ, in a single Welford
+// pass: the count, mean and M2 are updated as each reading arrives rather
+// than stored and revisited, same running-accumulator shape as
+// em_scan_cal_compute_stats() (modules/em_scan_cal.c) uses for the RF
+// noise floor. At this sample count the mean needs no min/max trim — one
+// outlier among CAL_DWELL_SECONDS*TICK_HZ readings has negligible
+// leverage. Readings outside the gate are counted as below or above
+// (anything that is not >= lo, such as NAN, counts as above), and every
+// reading goes into sum_all, so a failed step can still show what was read.
+typedef struct {
+    int   in_gate;    // readings inside [lo, hi]
+    int   below;      // readings < lo
+    int   above;      // readings > hi
+    float mean;       // running mean of the in-gate readings
+    float m2;         // running sum of squared deviations from it
+    int   all;        // every reading
+    float sum_all;    // sum of every reading
+} CalDwell;
+
+void cal_dwell_init(CalDwell* d);
+void cal_dwell_add(CalDwell* d, float v, float lo, float hi);
+
+// True once at least CAL_MIN_VALID readings landed in the gate: the step
+// passed, and mean / cal_dwell_std() are its result.
+bool cal_dwell_ok(const CalDwell* d);
+
+// Sample standard deviation of the in-gate readings (n − 1). 0 with fewer
+// than two in-gate readings.
+float cal_dwell_std(const CalDwell* d);
+
+// Mean of every reading, in gate or not. 0 if there were none.
+float cal_dwell_mean_all(const CalDwell* d);
 
 // ── Calibration and settings records (on-disk formats) ────────────────
 // The records biomap.c reads from and writes to the SD card, and the checks
@@ -185,3 +226,7 @@ bool biomap_settings_valid(const BioMapSettings* s);
 // written, or -1 if it would not fit in `cap` (needs 20 bytes).
 int biomap_format_file_stamp(char* out, size_t cap, uint16_t year, uint8_t month, uint8_t day,
                              uint8_t hour, uint8_t minute, uint8_t second);
+
+#ifdef __cplusplus
+}
+#endif

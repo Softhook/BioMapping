@@ -49,6 +49,9 @@
     FURI_CHECK_GET_MACRO(__VA_ARGS__, furi_check2, furi_check1)(__VA_ARGS__)
 #define furi_check1(cond)      assert(cond)
 #define furi_check2(cond, msg) assert(cond)
+// furi_crash(msg): unconditional stop with a message (flipper/core_fatal.c).
+#define furi_crash(msg) \
+    do { fprintf(stderr, "furi_crash: %s\n", (msg)); abort(); } while(0)
 
 // Never print, but still compile the call: `if(0) printf(...)` makes the
 // compiler type-check each format string against its arguments and counts

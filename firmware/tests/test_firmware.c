@@ -9,7 +9,7 @@
 
 #include "core/biomap_pipeline.h"
 #include "core/biomap_format.h"
-#include "modules/gsr_sensor.h" // gsr_tia_counts_to_ns() — header-only, SDK-free
+#include "core/gsr_sensor.h" // gsr_tia_counts_to_ns()
 
 #include "minmea.h"
 #define timegm mock_timegm
@@ -1140,6 +1140,124 @@ void test_settings_record_valid() {
     printf("  -> Pass\n");
 }
 
+// ── CalDwell: the wizard's dwell averaging (core/biomap_format.c) ──────
+// Small repeatable pseudo-random readings: a plain LCG, so every run and
+// every machine sees the same sequence.
+static float dwell_rand(uint32_t* state, float lo, float hi) {
+    *state = *state * 1664525u + 1013904223u;
+    return lo + (hi - lo) * (float)(*state >> 8) / (float)(1u << 24);
+}
+
+// The shared accumulator gives exactly (bit for bit) what the wizard's
+// own inline loops used to compute, for both kinds of step: a resistor
+// (gate [lo, hi], counts below/above) and the open-circuit zero (gate
+// |c| <= CAL_ZERO_MAX_COUNTS, mean of everything on failure). The two
+// reference loops below are the wizard's previous code, copied as it was.
+void test_cal_dwell_matches_previous_wizard_code() {
+    printf("Running test_cal_dwell_matches_previous_wizard_code...\n");
+    const float lo = 9000.0f, hi = 11000.0f;
+    uint32_t seed = 12345u;
+    for(int run = 0; run < 50; run++) {
+        // Resistor step: readings straddle the gate.
+        int total = 0, below = 0, above = 0;
+        float mean = 0.0f, m2 = 0.0f;
+        CalDwell d;
+        cal_dwell_init(&d);
+        for(int i = 0; i < CAL_DWELL_SECONDS * TICK_HZ; i++) {
+            float g = dwell_rand(&seed, 8000.0f, 12500.0f);
+            if(g >= lo && g <= hi) {
+                total++;
+                float delta = g - mean;
+                mean += delta / (float)total;
+                m2 += delta * (g - mean);
+            } else if(g < lo) {
+                below++;
+            } else {
+                above++;
+            }
+            cal_dwell_add(&d, g, lo, hi);
+        }
+        assert(d.in_gate == total && d.below == below && d.above == above);
+        assert(cal_dwell_ok(&d) == (total >= CAL_MIN_VALID));
+        assert(d.mean == mean);
+        assert(cal_dwell_std(&d) == sqrtf(m2 / (float)(total - 1)));
+
+        // Zero step: whole counts, as gsr_sensor_get_mean_count() returns.
+        int ztotal = 0, zall = 0;
+        float zmean = 0.0f, zm2 = 0.0f, zsum_all = 0.0f;
+        CalDwell z;
+        cal_dwell_init(&z);
+        for(int i = 0; i < CAL_DWELL_SECONDS * TICK_HZ; i++) {
+            float c = roundf(dwell_rand(&seed, -2600.0f, 2600.0f));
+            zsum_all += c;
+            zall++;
+            if(fabsf(c) <= CAL_ZERO_MAX_COUNTS) {
+                ztotal++;
+                float delta = c - zmean;
+                zmean += delta / (float)ztotal;
+                zm2 += delta * (c - zmean);
+            }
+            cal_dwell_add(&z, c, -CAL_ZERO_MAX_COUNTS, CAL_ZERO_MAX_COUNTS);
+        }
+        assert(z.in_gate == ztotal && z.all == zall);
+        assert(z.mean == zmean);
+        assert(cal_dwell_std(&z) == sqrtf(zm2 / (float)(ztotal - 1)));
+        assert(cal_dwell_mean_all(&z) == zsum_all / (float)zall);
+    }
+    printf("  -> Pass\n");
+}
+
+// Mean and σ agree with the plain two-pass textbook formulas, and the
+// gate edges are inclusive.
+void test_cal_dwell_stats_and_gate_edges() {
+    printf("Running test_cal_dwell_stats_and_gate_edges...\n");
+    CalDwell d;
+    cal_dwell_init(&d);
+    const float vals[] = { 100.0f, 102.0f, 98.0f, 101.0f, 99.0f, 50.0f, 150.0f, 90.0f, 110.0f };
+    const int n = (int)(sizeof(vals) / sizeof(vals[0]));
+    for(int i = 0; i < n; i++) cal_dwell_add(&d, vals[i], 90.0f, 110.0f);
+    // 90 and 110 sit exactly on the gate: in.
+    assert(d.in_gate == 7 && d.below == 1 && d.above == 1 && d.all == 9);
+    double sum = 0, sq = 0;
+    int k = 0;
+    for(int i = 0; i < n; i++) {
+        if(vals[i] < 90.0f || vals[i] > 110.0f) continue;
+        sum += vals[i];
+        k++;
+    }
+    double m = sum / k;
+    for(int i = 0; i < n; i++) {
+        if(vals[i] < 90.0f || vals[i] > 110.0f) continue;
+        sq += (vals[i] - m) * (vals[i] - m);
+    }
+    assert(fabs(d.mean - m) < 1e-4);
+    assert(fabs(cal_dwell_std(&d) - sqrt(sq / (k - 1))) < 1e-4);
+    assert(fabs(cal_dwell_mean_all(&d) - 900.0 / 9.0) < 1e-4);
+    // NAN fails both comparisons: counted as above, never in the mean.
+    cal_dwell_add(&d, NAN, 90.0f, 110.0f);
+    assert(d.in_gate == 7 && d.above == 2);
+    printf("  -> Pass\n");
+}
+
+// Pass needs CAL_MIN_VALID in-gate readings exactly; σ is 0 below two.
+void test_cal_dwell_min_valid_and_empty() {
+    printf("Running test_cal_dwell_min_valid_and_empty...\n");
+    CalDwell d;
+    cal_dwell_init(&d);
+    assert(!cal_dwell_ok(&d));
+    assert(cal_dwell_std(&d) == 0.0f);
+    assert(cal_dwell_mean_all(&d) == 0.0f);
+    cal_dwell_add(&d, 5.0f, 0.0f, 10.0f);
+    assert(cal_dwell_std(&d) == 0.0f);
+    for(int i = 1; i < CAL_MIN_VALID - 1; i++) cal_dwell_add(&d, 5.0f, 0.0f, 10.0f);
+    cal_dwell_add(&d, 50.0f, 0.0f, 10.0f); // out of gate: doesn't count
+    assert(d.in_gate == CAL_MIN_VALID - 1 && !cal_dwell_ok(&d));
+    cal_dwell_add(&d, 5.0f, 0.0f, 10.0f);
+    assert(d.in_gate == CAL_MIN_VALID && cal_dwell_ok(&d));
+    assert(d.mean == 5.0f && cal_dwell_std(&d) == 0.0f);
+    printf("  -> Pass\n");
+}
+
 int main() {
     printf("========================================\n");
     printf("FIRMWARE PIPELINE STAGE 1 & 2 VERIFICATION\n");
@@ -1172,6 +1290,9 @@ int main() {
     test_calibration_fit_gates();
     test_calibration_fit_reports_values_on_bounds_failure();
     test_calibration_noise_grade();
+    test_cal_dwell_matches_previous_wizard_code();
+    test_cal_dwell_stats_and_gate_edges();
+    test_cal_dwell_min_valid_and_empty();
 
     printf("\n========================================\n");
     printf("CALIBRATION PERSISTENCE\n");
@@ -1193,6 +1314,6 @@ int main() {
     test_csv_row_overflow_returns_negative();
     test_nmea_parsing();
 
-    printf("\nAll 32 firmware unit tests passed successfully!\n");
+    printf("\nAll 35 firmware unit tests passed successfully!\n");
     return 0;
 }

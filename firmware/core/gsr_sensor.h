@@ -1,13 +1,13 @@
 #pragma once
 
 // GSR Sensor — ADS1115 I2C differential reader with PGA autoranging.
+// Shared by every device; plain C with no device code.
 //
-// Owns one background FuriThread ("GsrSensorWorker") that samples the ADC
-// at up to 860 SPS into a ring buffer. The thread can also host one other
-// job through an optional worker hook (GsrWorkerHook below). On the
-// Flipper that job is the radio scan (em_scan_sampler.h), which shares
-// this thread rather than spawning a second one. Without a hook the loop
-// is GSR only.
+// The device runs one background thread that calls gsr_sensor_worker_pass()
+// in a loop, which samples the ADC at up to 860 SPS into a ring buffer.
+// Everything that touches hardware (I2C, the clock, waits, the lock) goes
+// through the GsrPlatform functions the device hands to gsr_sensor_create().
+// The Flipper's thread and functions are in flipper/gsr_sensor_flipper.c.
 //
 // Auto-ranging keeps the ADC reading in [12.5 %, 91.5 %] of full scale by
 // stepping the PGA gain in real time. The tick() normalises the reading
@@ -15,35 +15,34 @@
 // gsr_sensor_get_raw() returns skin conductance in nS regardless of PGA.
 // Returns 0 when the sensor is unavailable.
 //
-// Always probed at alloc(); gsr_sensor_available() reports success.
+// Always probed at create(); gsr_sensor_available() reports success.
 // Readings return 0 and tick() is a no-op if the probe fails.
 //
-// Thread safety / lock ordering: one internal mutex, private to GsrSensor
-// in gsr_sensor.c, guards the ADC ring buffer, PGA/calibration state, and
-// diagnostics counters. It is never held across a furi_hal_i2c_* call or
-// across the worker hook — it only ever guards in-memory fields, copied
-// in/out. The hook's own state has its own lock (see em_scan_sampler.h),
-// so a slow radio call can never block ADC readers.
+// Thread safety / lock ordering: one lock, supplied by the device
+// (GsrPlatform.lock/unlock) and used only by GsrSensor, guards the ADC ring
+// buffer, PGA/calibration state, and diagnostics counters. It is never
+// held across an I2C call or across the device's other job on the GSR
+// thread (the Flipper's worker hook) — it only ever guards in-memory
+// fields, copied in/out. The hook's own state has its own lock (see
+// em_scan_sampler.h), so a slow radio call can never block ADC readers.
 //
 // Safe to call any accessor below from a caller that is ALREADY holding
-// BioMapApp's app->mutex (biomap_render_callback and the tick handler in
-// biomap_session.c both do exactly this). That's safe specifically because
-// this module never acquires app->mutex itself — it doesn't even hold a
-// reference to BioMapApp — so the lock order is always app->mutex-then-
-// GsrSensor's-internal-mutex, never the reverse. Do not add any call from
-// inside this module (or gsr_sensor_worker's background thread) back into
-// app->mutex; that would create the opposite ordering and open up a
-// deadlock between the two. The same rule applies to the worker hook.
-// (Contrast with gps_uart.h's rule, which is the
-// opposite kind of caution for a different reason — bounding how long
-// app->mutex stays held during NMEA parsing, not lock ordering.)
+// the app's own main lock (on the Flipper, BioMapApp's app->mutex: the
+// render callback and the session's tick handler both do exactly this).
+// That's safe specifically because this module never takes the app's
+// lock — it doesn't know the app exists — so the lock order is always
+// app-lock-then-GsrSensor's-lock, never the reverse. Do not add any call
+// from inside this module (or the device's GSR thread, or any other job
+// sharing it) back into the app's lock; that would create the opposite
+// ordering and open up a deadlock between the two.
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
-// ADS1115 I2C address (ADDR pin → GND → 0x48)
-#define ADS1115_I2C_ADDR    (0x48 << 1)
-#define ADS1115_CONV_REG    0x00
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 // Ring buffer size for background sampling (MUST be a power of two —
 // the worker uses & (SENSOR_BUFFER_SIZE - 1) for fast wraparound).
@@ -75,7 +74,7 @@
 // on the MCP6002 prototype, the op-amp's input offset — the calibration
 // wizard's job.
 //
-// When it is measured: once in alloc(), and on request — at the start of
+// When it is measured: once in create(), and on request — at the start of
 // each recording (biomap_session.c), before the first row, so one value
 // holds for the whole file and is written to its header; when a phone
 // first connects in Live Stream (logged, as the BLE packet has no room for
@@ -132,22 +131,64 @@ static inline float gsr_tia_counts_to_ns(float counts) {
 
 typedef struct GsrSensor GsrSensor;
 
-// Called on the worker thread once per normal loop pass, right after the
-// ADC read (not on PGA-change passes). Lets another job share this thread.
-// Rules for the hook:
-//   - keep it short: time spent here is time the ADC isn't being read
-//     (em_scan_sampler_poll() returns at once except every ~100 ms);
-//   - never take app->mutex, or anything that waits on this sensor;
-//   - `ctx` must stay valid until gsr_sensor_free() returns.
-typedef void (*GsrWorkerHook)(void* ctx);
+// ── What each device supplies ───────────────────────────────────────────
+// Every function gets `ctx` back as its first argument. All are required
+// except `log`.
+typedef struct {
+    void* ctx;
+    // The lock described under "Thread safety" above. Not recursive.
+    void (*lock)(void* ctx);
+    void (*unlock)(void* ctx);
+    // A clock in milliseconds that counts up and wraps at 2^32. The settle
+    // gates, the averaging window, the worker rate and the ms read-outs
+    // (I2C peak, duplicate gap) are all timed on it, so it must count in
+    // real milliseconds.
+    uint32_t (*now_ms)(void* ctx);
+    // Wait at least `ms`. Used only by create() (the start-up bias check
+    // and warm-up read) and gsr_sensor_run_bias_check(), never by the
+    // worker pass.
+    void (*delay_ms)(void* ctx, uint32_t ms);
+    // Read or write `len` bytes of register `reg` on the chip at 7-bit
+    // address `addr`, taking and releasing the shared bus around the call.
+    // True on success.
+    bool (*i2c_read)(void* ctx, uint8_t addr, uint8_t reg, uint8_t* data, size_t len,
+                     uint32_t timeout_ms);
+    bool (*i2c_write)(void* ctx, uint8_t addr, uint8_t reg, const uint8_t* data, size_t len,
+                      uint32_t timeout_ms);
+    // Optional (may be NULL): one log line. `warning` false is information.
+    // Never called with the lock held, and never from the worker pass, so
+    // a slow log (a serial link) can't hold up sampling.
+    void (*log)(void* ctx, bool warning, const char* line);
+} GsrPlatform;
 
-// Lifecycle. `hook` may be NULL (GSR only). It is fixed for the sensor's
-// lifetime. The worker thread starts inside alloc(), so the hook can be
-// called before alloc() returns: `ctx` must be fully set up beforehand.
-GsrSensor* gsr_sensor_alloc(GsrWorkerHook hook, void* hook_ctx);
-void       gsr_sensor_free(GsrSensor* gsr);
+// Probes the ADS1115, measures the bias once and sets the starting gain,
+// then returns. `platform` is copied. Starts no thread: the device starts
+// its GSR thread afterwards. Stops (core_fatal) if `platform` lacks a
+// required function or memory runs out.
+GsrSensor* gsr_sensor_create(const GsrPlatform* platform);
 
-// Returns false when ADS1115 probe failed at init
+// Puts the ADS1115 into power-down and frees the sensor. The device must
+// have stopped its GSR thread first.
+void gsr_sensor_destroy(GsrSensor* gsr);
+
+// The `ctx` given in the platform, for the device's own wrappers.
+void* gsr_sensor_platform_ctx(const GsrSensor* gsr);
+
+// One pass of the worker: a config write (gain change, bias switch-over) or
+// one conversion read. The device's GSR thread calls it in a loop with a
+// 1 ms pause after every pass:
+//
+//     while(running) {
+//         if(gsr_sensor_worker_pass(gsr)) { /* other job's turn, if any */ }
+//         pause 1 ms;
+//     }
+//
+// Returns true after a normal read pass — the moment another job may share
+// the thread (on the Flipper, the radio scan). Returns false after a config
+// write, which skips that turn.
+bool gsr_sensor_worker_pass(GsrSensor* gsr);
+
+// Returns false when ADS1115 probe failed at create()
 bool gsr_sensor_available(const GsrSensor* gsr);
 
 // Returns false when the sensor has been returning invalid readings
@@ -231,7 +272,7 @@ bool     gsr_sensor_run_bias_check(GsrSensor* gsr, uint32_t timeout_ms);
 // Measured worker-thread throughput in Hz — the real rate the background
 // I2C-polling loop fills gsr_sensor_tick()'s ~100 ms averaging window
 // with samples. Returns 0.0f if unavailable or if called immediately
-// after alloc() (before any real time has elapsed).  For diagnostics.
+// after create() (before any real time has elapsed).  For diagnostics.
 float gsr_sensor_get_worker_hz(const GsrSensor* gsr);
 
 // Percentage of I2C read attempts that succeeded (0-100), over the same
@@ -253,15 +294,10 @@ float gsr_sensor_get_success_rate(const GsrSensor* gsr);
 float gsr_sensor_get_duplicate_rate(const GsrSensor* gsr);
 
 // Percentage of successful reads (0-100), over the same window as
-// gsr_sensor_get_worker_hz(), whose inter-read gap was under 2 ticks
+// gsr_sensor_get_worker_hz(), whose inter-read gap was under 2 ms
 // (< 1.16 ms conversion cycle) and resulted in a stale re-read of the
 // ADS1115 register before a new conversion completed.  For diagnostics.
 float gsr_sensor_get_stale_rate(const GsrSensor* gsr);
-
-// Remaining free stack space (bytes) on the worker's own thread, via
-// furi_thread_get_stack_space(). Returns 0 when the sensor is unavailable
-// (no thread was ever started).
-uint32_t gsr_sensor_get_stack_space(const GsrSensor* gsr);
 
 // Live count of consecutive failed I2C reads happening right now — not a
 // rolling average like get_success_rate(), so it shows a fresh failure
@@ -270,16 +306,16 @@ uint32_t gsr_sensor_get_stack_space(const GsrSensor* gsr);
 // fires.  For diagnostics.
 uint32_t gsr_sensor_get_consecutive_failures(const GsrSensor* gsr);
 
-// Smallest inter-read tick gap seen SPECIFICALLY at a sample that turned
+// Smallest inter-read gap in ms seen SPECIFICALLY at a sample that turned
 // out to be a duplicate (get_duplicate_rate()), over the same rolling
 // ~1 s window as get_worker_hz().  Directly correlates timing with the
 // reads that were actually stale.  Each timestamp is a floor() of the
-// real time taken, so a reading of N ticks is consistent with a true
+// real time taken, so a reading of N ms is consistent with a true
 // minimum anywhere from ~(N-1) ms to ~(N+1) ms.  Returns UINT32_MAX if
 // no duplicates occurred in the most recent window (a real value of 0 is
 // itself meaningful and must stay distinguishable from "no data"), or if
 // unavailable.  For diagnostics.
-uint32_t gsr_sensor_get_duplicate_gap_min_ticks(const GsrSensor* gsr);
+uint32_t gsr_sensor_get_duplicate_gap_min_ms(const GsrSensor* gsr);
 
 // Number of PGA (autorange) changes applied in the most recent rolling
 // ~1 s window — same cadence as get_worker_hz().  A nonzero value signals
@@ -295,10 +331,14 @@ void gsr_sensor_set_calibration(GsrSensor* gsr, bool active, float gain, float z
 
 // Worst single I2C call duration ever observed on the worker thread, in ms
 // — a lifetime max (never reset), timed immediately around each I2C call
-// with furi_get_tick(). Covers both the config-write and conversion-read
+// on the platform clock, including any wait for the bus. Covers both the config-write and conversion-read
 // calls (mutually exclusive per loop iteration). Answers "did an I2C call
 // cause a given main-loop stall" directly — see biomap_types.h's RowDiag
 // doc comment and docs/archive/gps_rf_mutex_status.md. The radio's
 // matching figures are in em_scan_sampler.h. Returns 0 if unavailable.
 // For diagnostics.
 uint32_t gsr_sensor_get_i2c_peak_ms(const GsrSensor* gsr);
+
+#ifdef __cplusplus
+}
+#endif

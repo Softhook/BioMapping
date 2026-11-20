@@ -347,11 +347,6 @@ void run_calibration_menu(BioMapApp* app) {
 // The caller's post-measurement tones (confirm/error/success) are safe by
 // construction: they only ever play after this function has already
 // returned with its result, i.e. after the whole dwell's samples were taken.
-// Every dwell (the open-circuit zero and each resistor): CAL_DWELL_SECONDS
-// at TICK_HZ, of which CAL_MIN_VALID (60 %) must land in-gate — same ratio
-// the original 20-sample/12-valid window used.
-enum { CAL_DWELL_SECONDS = 20, CAL_MIN_VALID = 120 };
-
 typedef enum {
     CalMeasureOk,
     CalMeasureFailed,     // fewer than CAL_MIN_VALID in-gate samples over the dwell
@@ -359,22 +354,46 @@ typedef enum {
     CalMeasureBiasFailed, // the 0.5 V bias check failed or read out of range
 } CalMeasureResult;
 
+// One dwell: CAL_DWELL_SECONDS of readings at TICK_HZ, added to *dwell
+// (cleared first) against the gate [lo, hi]. The reading is the window mean
+// count when zero_step (the open-circuit step), otherwise the conductance in
+// nS. Keeps w->seconds_left current for the Measuring screen's countdown,
+// and polls the event queue every tick so Back can cancel early rather
+// than blocking the whole wizard for CAL_DWELL_SECONDS (same non-blocking-
+// peek + fixed-delay shape as run_rf_calibration_wizard()'s sampling loop,
+// biomap_rf_cal.c): returns false then. *first (if not NULL) gets the first reading, for a failure
+// log.
+static bool calibration_wizard_dwell(BioMapApp* app, ViewPort* vp, WizardState* w,
+                                     GsrSensor* gsr, bool zero_step, float lo, float hi,
+                                     CalDwell* dwell, float* first) {
+    cal_dwell_init(dwell);
+    for(uint32_t elapsed = 0; elapsed < CAL_DWELL_SECONDS * TICK_HZ; elapsed++) {
+        BioMapEvent ev;
+        if(furi_message_queue_get(app->event_queue, &ev, 0) == FuriStatusOk) {
+            if(ev.type == EventTypeKey && ev.input.type == InputTypeShort &&
+               ev.input.key == InputKeyBack) {
+                return false;
+            }
+        }
+        furi_delay_ms(1000 / TICK_HZ);
+        gsr_sensor_tick(gsr);
+        float v = zero_step ? (float)gsr_sensor_get_mean_count(gsr) : gsr_sensor_get_raw(gsr);
+        if(elapsed == 0 && first) *first = v;
+        cal_dwell_add(dwell, v, lo, hi);
+
+        furi_mutex_acquire(w->mutex, FuriWaitForever);
+        w->seconds_left = CAL_DWELL_SECONDS - elapsed / TICK_HZ;
+        furi_mutex_release(w->mutex);
+        view_port_update(vp);
+    }
+    return true;
+}
+
 // Runs one resistor's calibration dwell (CAL_DWELL_SECONDS at TICK_HZ),
 // computing the mean (for the gain fit) and σ (for the pre-flight
 // noise/resolution gate — see calibration_noise_grade(), biomap_format.c)
-// in a single Welford pass over the in-gate samples: N/mean/M2 are updated
-// as each sample arrives rather than stored and revisited, same running-
-// accumulator shape as em_scan_cal_compute_stats() (modules/em_scan_cal.c)
-// uses for the RF noise floor. At this sample count the mean needs no
-// min/max trim — one outlier among CAL_DWELL_SECONDS*TICK_HZ samples has
-// negligible leverage.
-//
-// Polls the event queue every tick so Back can cancel the dwell early
-// (CalMeasureCancelled) rather than blocking the whole wizard for
-// CAL_DWELL_SECONDS — same non-blocking-peek + fixed-delay shape as
-// run_rf_calibration_wizard()'s sampling loop (biomap_rf_cal.c). Also
-// rewrites w->seconds_left every tick for calibration_wizard_render()'s
-// live countdown on the Measuring screen.
+// over the in-gate samples with the shared CalDwell accumulator
+// (core/biomap_format.h). Back cancels the dwell (CalMeasureCancelled).
 static CalMeasureResult calibration_wizard_measure(BioMapApp* app, ViewPort* vp, WizardState* w,
                                                     GsrSensor* gsr, int resistor_idx,
                                                     const float gates[CAL_POINTS][2],
@@ -415,46 +434,20 @@ static CalMeasureResult calibration_wizard_measure(BioMapApp* app, ViewPort* vp,
         gsr_sensor_tick(gsr);
     }
 
-    int total = 0, below = 0, above = 0;
+    CalDwell dwell;
     float first_raw = 0;
-    float mean = 0.0f, m2 = 0.0f;
-
-    for(uint32_t elapsed = 0; elapsed < CAL_DWELL_SECONDS * TICK_HZ; elapsed++) {
-        BioMapEvent ev;
-        if(furi_message_queue_get(app->event_queue, &ev, 0) == FuriStatusOk) {
-            if(ev.type == EventTypeKey && ev.input.type == InputTypeShort &&
-               ev.input.key == InputKeyBack) {
-                return CalMeasureCancelled;
-            }
-        }
-        furi_delay_ms(1000 / TICK_HZ);
-        gsr_sensor_tick(gsr);
-        float g = gsr_sensor_get_raw(gsr);
-        if(elapsed == 0) first_raw = g;
-        if(g >= gates[resistor_idx][0] && g <= gates[resistor_idx][1]) {
-            total++;
-            float delta = g - mean;
-            mean += delta / (float)total;
-            m2 += delta * (g - mean);
-        } else if(g < gates[resistor_idx][0]) {
-            below++;
-        } else {
-            above++;
-        }
-
-        furi_mutex_acquire(w->mutex, FuriWaitForever);
-        w->seconds_left = CAL_DWELL_SECONDS - elapsed / TICK_HZ;
-        furi_mutex_release(w->mutex);
-        view_port_update(vp);
+    if(!calibration_wizard_dwell(app, vp, w, gsr, false, gates[resistor_idx][0],
+                                 gates[resistor_idx][1], &dwell, &first_raw)) {
+        return CalMeasureCancelled;
     }
 
-    if(total >= CAL_MIN_VALID) {
-        *out_avg_g = mean;
-        *out_std_dev = sqrtf(m2 / (float)(total - 1));
+    if(cal_dwell_ok(&dwell)) {
+        *out_avg_g = dwell.mean;
+        *out_std_dev = cal_dwell_std(&dwell);
         return CalMeasureOk;
     } else {
         FURI_LOG_W("BioMap", "Cal measure %d failed: first_raw=%.1f in=%d below=%d above=%d gate=[%.0f, %.0f]",
-                   resistor_idx, (double)first_raw, total, below, above,
+                   resistor_idx, (double)first_raw, dwell.in_gate, dwell.below, dwell.above,
                    (double)gates[resistor_idx][0], (double)gates[resistor_idx][1]);
         return CalMeasureFailed;
     }
@@ -486,43 +479,21 @@ static CalMeasureResult calibration_wizard_measure_zero(BioMapApp* app, ViewPort
         gsr_sensor_tick(gsr);
     }
 
-    int total = 0, all = 0;
-    float mean = 0.0f, m2 = 0.0f, sum_all = 0.0f;
-    for(uint32_t elapsed = 0; elapsed < CAL_DWELL_SECONDS * TICK_HZ; elapsed++) {
-        BioMapEvent ev;
-        if(furi_message_queue_get(app->event_queue, &ev, 0) == FuriStatusOk) {
-            if(ev.type == EventTypeKey && ev.input.type == InputTypeShort &&
-               ev.input.key == InputKeyBack) {
-                return CalMeasureCancelled;
-            }
-        }
-        furi_delay_ms(1000 / TICK_HZ);
-        gsr_sensor_tick(gsr);
-        float c = (float)gsr_sensor_get_mean_count(gsr);
-        sum_all += c;
-        all++;
-        if(fabsf(c) <= CAL_ZERO_MAX_COUNTS) {
-            total++;
-            float delta = c - mean;
-            mean += delta / (float)total;
-            m2 += delta * (c - mean);
-        }
-
-        furi_mutex_acquire(w->mutex, FuriWaitForever);
-        w->seconds_left = CAL_DWELL_SECONDS - elapsed / TICK_HZ;
-        furi_mutex_release(w->mutex);
-        view_port_update(vp);
+    CalDwell dwell;
+    if(!calibration_wizard_dwell(app, vp, w, gsr, true, -CAL_ZERO_MAX_COUNTS,
+                                 CAL_ZERO_MAX_COUNTS, &dwell, NULL)) {
+        return CalMeasureCancelled;
     }
 
-    if(total >= CAL_MIN_VALID) {
-        *out_zero = mean;
-        *out_std_ns = sqrtf(m2 / (float)(total - 1)) * gsr_tia_counts_to_ns(1.0f);
+    if(cal_dwell_ok(&dwell)) {
+        *out_zero = dwell.mean;
+        *out_std_ns = cal_dwell_std(&dwell) * gsr_tia_counts_to_ns(1.0f);
         return CalMeasureOk;
     }
-    *out_zero = sum_all / (float)all;
+    *out_zero = cal_dwell_mean_all(&dwell);
     *out_std_ns = 0.0f;
     FURI_LOG_W("BioMap", "Cal zero failed: mean=%.1f in=%d of %d (limit ±%.0f)",
-               (double)*out_zero, total, all, (double)CAL_ZERO_MAX_COUNTS);
+               (double)*out_zero, dwell.in_gate, dwell.all, (double)CAL_ZERO_MAX_COUNTS);
     return CalMeasureFailed;
 }
 

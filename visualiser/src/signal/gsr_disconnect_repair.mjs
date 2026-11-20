@@ -2,7 +2,7 @@
  * GSR sensor disconnect detection + straight-line repair.
  *
  * A finger-cuff disconnect reads as gsr_sensor.c's real open-circuit TIA
- * conversion — see GSR_VALID_MIN_NS in firmware/modules/gsr_sensor.h. With no
+ * conversion — see GSR_VALID_MIN_NS in firmware/core/gsr_sensor.h. With no
  * physiological signal driving the input, that reading floats to the same
  * value on every tick and comes out of the ADC bit-exact across many
  * consecutive samples (safe to compare with ===: it's the same decimal

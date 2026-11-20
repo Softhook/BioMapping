@@ -76,7 +76,7 @@ static const float VALID_MIN_NS = 100.0f;
 static const float ZERO_MAX_COUNTS = 2000.0f;
 static const int   ZERO_SECONDS    = 3;
 
-// Same formula as gsr_tia_counts_to_ns_at_bias() in firmware/modules/gsr_sensor.h:
+// Same formula as gsr_tia_counts_to_ns_at_bias() in firmware/core/gsr_sensor.h:
 // bias_scale is the measured bias over 0.5 V.
 static float counts_to_ns(float counts, float bias_scale) {
     if(counts <= 0.0f) return 0.0f;

@@ -94,6 +94,44 @@ int32_t cycle_selection(int32_t sel, int32_t count, bool down) {
     }
 }
 
+void cal_dwell_init(CalDwell* d) {
+    d->in_gate = 0;
+    d->below = 0;
+    d->above = 0;
+    d->mean = 0.0f;
+    d->m2 = 0.0f;
+    d->all = 0;
+    d->sum_all = 0.0f;
+}
+
+void cal_dwell_add(CalDwell* d, float v, float lo, float hi) {
+    d->sum_all += v;
+    d->all++;
+    if(v >= lo && v <= hi) {
+        d->in_gate++;
+        float delta = v - d->mean;
+        d->mean += delta / (float)d->in_gate;
+        d->m2 += delta * (v - d->mean);
+    } else if(v < lo) {
+        d->below++;
+    } else {
+        d->above++;
+    }
+}
+
+bool cal_dwell_ok(const CalDwell* d) {
+    return d->in_gate >= CAL_MIN_VALID;
+}
+
+float cal_dwell_std(const CalDwell* d) {
+    if(d->in_gate < 2) return 0.0f;
+    return sqrtf(d->m2 / (float)(d->in_gate - 1));
+}
+
+float cal_dwell_mean_all(const CalDwell* d) {
+    return d->all > 0 ? d->sum_all / (float)d->all : 0.0f;
+}
+
 bool calibration_wizard_compute_fit(const float measured[CAL_POINTS],
                                     const float targets[CAL_POINTS],
                                     float* out_gain, float* out_r_squared) {

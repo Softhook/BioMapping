@@ -65,9 +65,11 @@ enough that a test can inject bytes as if they'd arrived from the ISR
 (`furi_hal_mock_feed_byte`/`_string`), and the real, unmodified
 `gps_uart_process_rx()` drains and parses them for real.
 
-`modules/gsr_sensor.c` needs one more piece: it owns a real background
-`FuriThread` that polls I2C continuously and writes into a ring buffer the
-main thread's `gsr_sensor_tick()` reads from. A single-threaded fake
+The GSR sensor needs one more piece: `flipper/gsr_sensor_flipper.c` owns a
+real background `FuriThread` that runs the shared worker pass
+(`core/gsr_sensor.c`) continuously, polling I2C and writing into a ring
+buffer the main thread's `gsr_sensor_tick()` reads from. The tests link both
+files, so they test the shared logic through the real Flipper side. A single-threaded fake
 wouldn't exercise any of that — `FuriMutex` and `FuriThread` in
 `tests/shims/furi.h` are backed by real `pthread`s, and the I2C mock in
 `furi_hal_mock.c` is fully atomic, so the real worker thread runs
@@ -97,14 +99,22 @@ has.
 **Be clear about the trade-off this makes:** this does *not* give you
 "swap one file to target a different MCU." A future port to different
 hardware means rewriting `gps_uart.c`'s `furi_hal_serial_*` calls directly,
-same as any file that's never been touched (`gsr_sensor.c`, `sd_logger.c`,
-`sound.h`). What it *does* give you is confidence that the parsing/protocol
+same as any file that's never been touched (`sd_logger.c`, `sound.h`). What it *does* give you is confidence that the parsing/protocol
 logic is correct — verified by tests that exercise the real driver code —
 independent of whether the firmware ever targets a different MCU. If actual
 MCU portability becomes a goal again, that's a separate, larger effort with
 its own design questions (probably closer to what the reverted approach was
-trying to do) — this document doesn't claim to deliver it, and no file here
-should be read as a step toward it.
+trying to do) — this document doesn't claim to deliver it.
+
+**Update: the Cardputer port.** That larger effort has now started
+([cardputer_port.md](cardputer_port.md)). It takes a narrower route than the
+reverted one: the shared logic moves into `firmware/core/` and asks the
+device for a handful of functions, one file per device, rather than a HAL
+per peripheral. The GSR sensor went first: `core/gsr_sensor.c` works through
+a `GsrPlatform` (I2C read/write, ms clock, wait, lock, log), and
+`flipper/gsr_sensor_flipper.c` supplies it with the real `furi_hal_i2c_*` and
+`FuriThread` calls. The Flipper side is still tested by faking the SDK as
+above.
 
 ---
 
@@ -113,9 +123,19 @@ should be read as a step toward it.
 ```
 firmware/                      — ufbt project root (run `ufbt` and run_tests.sh from here)
 
-firmware/modules/              — unchanged, no test-only content, no HAL files
+firmware/core/                 — shared plain C, no Flipper code (run_tests.sh compiles each file without the shims)
+  biomap_pipeline.h / .c        — signal processing
+  biomap_format.h / .c          — CSV rows, calibration fit, CalDwell (wizard averaging)
+  gsr_sensor.h / .c             — ADS1115 PGA autoranging, bias check, TIA; works through GsrPlatform
+  core_check.h                  — CORE_CHECK / core_fatal(), supplied by each device
+  (run_tests.sh also links tests/core_cpp_link.cpp against these, to prove the headers work from C++)
+
+firmware/flipper/              — Flipper side of the shared code
+  gsr_sensor_flipper.h / .c     — GSR thread + GsrPlatform via furi_hal_i2c_* / FuriMutex
+  core_fatal.c                  — core_fatal() via furi_crash()
+
+firmware/modules/              — no test-only content, no HAL files
   gps_uart.h / .c               — NMEA parsing + framing, calls furi_hal_serial_* directly
-  gsr_sensor.h / .c             — ADS1115 I2C + PGA autoranging, calls furi_hal_i2c_*/FuriThread directly
   sd_logger.h / .c              — auto-indexing CSV writer, calls Storage/File directly
   em_scan_rf.h / .c             — SubGHz RF sweep/RSSI, calls furi_hal_subghz_* directly
   em_scan_cal.h / .c            — RF noise-floor calibration + on-disk persistence
@@ -223,9 +243,9 @@ Approximate test counts — the exact numbers drift with each addition; run
 
 | File | Touches hardware | Host-tested |
 |---|---|---|
-| `core/biomap_pipeline.c` + `core/biomap_format.c` | No | ✅ `tests/test_firmware.c` (~32 tests) |
+| `core/biomap_pipeline.c` + `core/biomap_format.c` | No | ✅ `tests/test_firmware.c` (~35 tests) |
 | `modules/gps_uart.c` | Yes (`furi_hal_serial_*`) | ✅ `tests/test_gps_uart.c` (~39 tests) |
-| `modules/gsr_sensor.c` | Yes (`furi_hal_i2c_*`, real `FuriThread`) | ✅ `tests/test_gsr_sensor.c` (~36 tests) + a ThreadSanitizer pass |
+| `core/gsr_sensor.c` + `flipper/gsr_sensor_flipper.c` | Flipper side only (`furi_hal_i2c_*`, real `FuriThread`) | ✅ `tests/test_gsr_sensor.c` (~47 tests) + a ThreadSanitizer pass |
 | `modules/sd_logger.c` | Yes (`Storage`/`File`) | ✅ `tests/test_sd_logger.c` (~30 tests, includes `BIOMAP_SD_PREALLOC` & CRC32 integrity trailer) |
 | `modules/em_scan_cal.c` | No (pure calc + Storage for persist) | ✅ `tests/test_em_scan_cal.c` (~5 tests) |
 | `modules/bt_stream.c` | Yes (`Bt`/`ble_profile_serial_*`) | ✅ `tests/test_bt_stream.c` (~13 tests, BLE mock shims) |

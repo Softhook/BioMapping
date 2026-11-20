@@ -81,6 +81,22 @@ gcc -Wall -Wextra -Werror -I . -I vendor/minmea -o build/test_firmware \
 ./build/test_firmware
 
 echo
+echo "== core/ builds with no Flipper headers =="
+# Compile only: core/gsr_sensor.c is linked and tested through the Flipper
+# side below. Without tests/shims on the include path, any Flipper call that
+# crept into core/ fails here.
+for f in core/*.c; do
+    gcc -Wall -Wextra -Werror -c -o "build/core_$(basename "$f" .c).o" "$f"
+done
+echo "ok"
+
+echo
+echo "== core/ headers usable from C++ (the Cardputer's Arduino code) =="
+g++ -std=c++17 -Wall -Wextra -Werror -I . -c -o build/cpp_link_check.o tests/core_cpp_link.cpp
+g++ -o build/cpp_link_check build/cpp_link_check.o build/core_*.o -lm
+./build/cpp_link_check
+
+echo
 echo "== test_gps_uart (NMEA dispatch / RX framing) =="
 gcc -Wall -Wextra -Werror -I . -I modules -I vendor/minmea -I tests/shims -o build/test_gps_uart \
     tests/test_gps_uart.c modules/gps_uart.c \
@@ -90,7 +106,8 @@ gcc -Wall -Wextra -Werror -I . -I modules -I vendor/minmea -I tests/shims -o bui
 echo
 echo "== test_gsr_sensor (autoranging / TIA / disconnect debounce) =="
 gcc -Wall -Wextra -Werror -I . -I modules -I tests/shims -o build/test_gsr_sensor \
-    tests/test_gsr_sensor.c modules/gsr_sensor.c modules/em_scan_sampler.c \
+    tests/test_gsr_sensor.c core/gsr_sensor.c flipper/gsr_sensor_flipper.c \
+    flipper/core_fatal.c modules/em_scan_sampler.c \
     tests/shims/furi_hal_mock.c -lm -lpthread
 ./build/test_gsr_sensor
 
@@ -105,12 +122,13 @@ if [ "$RUN_TSAN" = "yes" ]; then
     # check VALUES are correct, only that no two threads touch the same memory
     # without a synchronization edge between them — exactly the property a
     # passing functional test can satisfy while still hiding a race (as
-    # gsr_sensor.c's `running`/`rf_enabled`/`rf_spi_busy` flags did, and as
+    # the GSR worker's `running`/`rf_enabled`/`rf_spi_busy` flags did, and as
     # this file's own `furi_test_tick` global did, both found by this exact
     # pass during the 2026-07-30 mutex review and fixed by making them
-    # _Atomic). Keep this passing whenever gsr_sensor.c's threading changes.
+    # _Atomic). Keep this passing whenever the GSR threading changes.
     gcc -Wall -Wextra -Werror -fsanitize=thread -g -O1 -I . -I modules -I tests/shims -o build/test_gsr_sensor_tsan \
-        tests/test_gsr_sensor.c modules/gsr_sensor.c modules/em_scan_sampler.c \
+        tests/test_gsr_sensor.c core/gsr_sensor.c flipper/gsr_sensor_flipper.c \
+        flipper/core_fatal.c modules/em_scan_sampler.c \
         tests/shims/furi_hal_mock.c -lm -lpthread
     ./build/test_gsr_sensor_tsan
 else

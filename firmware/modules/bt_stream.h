@@ -21,7 +21,7 @@
 // bt_stream_is_connected()/bt_stream_get_status() read an _Atomic cache
 // rather than trusting single-threaded access, the same pattern this
 // codebase already uses for GsrSensor's cross-thread flags
-// (modules/gsr_sensor.c's running/rf_enabled/rf_spi_busy).
+// (the GSR worker's running/rf_enabled/rf_spi_busy).
 
 #include <bt/bt_service/bt.h>
 #include <stdbool.h>

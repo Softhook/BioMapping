@@ -392,7 +392,7 @@ static void handle_second_boundary(Session* s, NotificationApp* notifications) {
 
 // GSR ring buffer settle time after a tone.
 //
-// modules/gsr_sensor.h's SENSOR_BUFFER_SIZE (128) buffer holds roughly the
+// core/gsr_sensor.h's SENSOR_BUFFER_SIZE (128) buffer holds roughly the
 // last 128 ms of worker-loop writes (the background worker does one
 // ADS1115 read + buffer write per ~1 ms furi_delay_ms(1) iteration). The
 // recording_start chirp itself already runs ~168 ms (see modules/sound.h),

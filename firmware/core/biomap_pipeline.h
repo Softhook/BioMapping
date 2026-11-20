@@ -13,6 +13,10 @@
 
 #include "biomap_types.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // ── Pipeline — bundled signal-processing state ────────────────────────
 //
 // Owns display, graph, and zoom sub-structs.  All pure-math functions
@@ -58,3 +62,7 @@ void pipeline_update_graph(Pipeline* p);
 // zoom_out=false → interpolate, doubling resolution.
 // O(N) one-time pass called on Left/Right key during GSR sessions.
 void pipeline_rescale_graph(Pipeline* p, bool zoom_out);
+
+#ifdef __cplusplus
+}
+#endif

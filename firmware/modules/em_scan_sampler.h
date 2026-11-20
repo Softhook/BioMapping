@@ -39,7 +39,7 @@ void em_scan_sampler_free(EmScanSampler* s);
 // doc comment on the definition in em_scan_sampler.c for the ordering.
 void em_scan_sampler_set_enabled(EmScanSampler* s, bool enabled);
 
-// The GSR worker hook (GsrWorkerHook, gsr_sensor.h). `ctx` is the
+// The GSR worker hook (GsrWorkerHook, flipper/gsr_sensor_flipper.h). `ctx` is the
 // EmScanSampler*. Does nothing while disabled or between samples (paced to
 // ~10 Hz); otherwise runs one 3-band sweep and publishes the result.
 void em_scan_sampler_poll(void* ctx);

@@ -19,7 +19,7 @@ import random
 import json
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Hardware Constants (from firmware/modules/gsr_sensor.c and BioMapping schematic)
+# Hardware Constants (from firmware/core/gsr_sensor.c and BioMapping schematic)
 # ─────────────────────────────────────────────────────────────────────────────
 R_FEEDBACK = 47000.0    # 47 kΩ TIA feedback resistor
 R_SAFETY   = 9400.0     # 2 × 4.7 kΩ electrode safety resistors

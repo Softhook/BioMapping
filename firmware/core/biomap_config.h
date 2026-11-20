@@ -69,11 +69,17 @@ typedef enum {
 // offset (4.5 mV); a reading beyond it means something is still connected.
 #define CAL_ZERO_MAX_COUNTS  2000.0f
 
+// Every calibration dwell (the open-circuit zero and each resistor):
+// CAL_DWELL_SECONDS of readings at TICK_HZ, of which CAL_MIN_VALID (60 %)
+// must land in-gate — same ratio the original 20-sample/12-valid window
+// used. See CalDwell in biomap_format.h.
+#define CAL_DWELL_SECONDS    20
+#define CAL_MIN_VALID        120
+
 // ── GSR pre-flight noise/resolution gate ───────────────────────────────
 // Grades the σ (standard deviation, nS) of the raw readings collected
 // during each resistor's calibration dwell — see calibration_noise_grade()
-// in biomap_format.c and calibration_wizard_measure()'s Welford
-// accumulator in biomap_gui.c. Units are nS, same scale as CAL_TARGET_*/
+// in biomap_format.c and the CalDwell accumulator (biomap_format.h). Units are nS, same scale as CAL_TARGET_*/
 // CAL_*_GATE in biomap.h; the µS figures a human reads off a datasheet
 // are these ÷ 1000 (1 µS = 1000 nS).
 //   σ < CAL_NOISE_EXCELLENT_NS   -> Excellent (3σ resolution < 6 nS / 0.006 µS)

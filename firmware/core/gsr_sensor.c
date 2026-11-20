@@ -1,17 +1,22 @@
 // GSR Sensor — ADS1115 I2C differential reader with PGA autoranging.
 // Signal processing (EMA, derivative) is deferred to the main app.
+//
+// Shared by every device. It never touches hardware, threads or the clock
+// itself: everything goes through the GsrPlatform functions the device
+// passed to gsr_sensor_create() (see gsr_sensor.h).
 
 #include "gsr_sensor.h"
-#include <furi.h>
-#include <furi_hal.h>
+#include "core_check.h"
+#include <stdarg.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
-#include <string.h>
-#include <stdatomic.h>
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ADS1115 register addresses
+// ADS1115 address and registers
 // ─────────────────────────────────────────────────────────────────────────────
+#define ADS1115_I2C_ADDR     0x48   // 7-bit address (ADDR pin → GND)
+#define ADS1115_CONV_REG     0x00
 #define ADS1115_CONFIG_REG   0x01
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -47,8 +52,8 @@
 //   valid new-gain result is up to 2 × t_CONV away.  Reading before that
 //   returns an old-gain count scaled by the new NORM_FACTOR — one sample at
 //   exactly 2× or 0.5× the true value.  The worker's read path discards
-//   conversions until PGA_SETTLE_MS of real elapsed time (furi_get_tick(),
-//   not a furi_delay_ms() count) has passed since the write.  See
+//   conversions until PGA_SETTLE_MS of real elapsed time (on the clock,
+//   not a count of delays) has passed since the write.  See
 //   PGA_SETTLE_MS and the worker's settle-gate comment.
 //
 // SATURATION DETECTION
@@ -131,14 +136,15 @@
 // sample count: the worker's real rate is neither the ~1000 Hz a fixed
 // N=100 assumed nor stable — it measures ~400-500 Hz and varies run to
 // run. A time window keeps its duration (and therefore its 50/60 Hz null)
-// regardless of that rate; see the pacing comment in gsr_sensor_worker().
+// regardless of that rate; see the Oversampling & Filtering notes above
+// gsr_sensor_tick().
 #define BOXCAR_WINDOW_MS  100
 
 // Normalisation multiplier factors to pga_index=5 (±0.256 V) reference.
 static const int32_t NORM_FACTOR[6] = { 24, 16, 8, 4, 2, 1 };
 
 // Human-readable FSR label for each pga_index (log messages only).
-static const char* const PGA_LABEL[6] __attribute__((unused)) = {
+static const char* const PGA_LABEL[6] = {
     "6.144V", "4.096V", "2.048V", "1.024V", "0.512V", "0.256V",
 };
 
@@ -186,19 +192,33 @@ struct GsrSensor {
     uint32_t hz_window_start_pga_changes; // pga_change_count snapshot — tick() only
     uint32_t pga_change_rate_cached;      // tick() only — PGA changes in the last ~1 s window
 
-    FuriThread* thread;
-    FuriMutex*  mutex;     // ADC ring buffer, PGA/calibration state, diagnostics counters
-    // Optional per-pass hook (see GsrWorkerHook, gsr_sensor.h). Set once at
-    // alloc, before the worker starts; never changed after.
-    GsrWorkerHook hook;
-    void*         hook_ctx;
-    // Worker reads this every loop iteration (while(gsr->running)),
-    // gsr_sensor_free() writes it once to stop the thread. _Atomic rather
-    // than volatile so ThreadSanitizer sees a synchronised access; it
-    // compiles to the same instruction on both host and ARM, and the worker
-    // seeing it one pass late is harmless.
-    _Atomic bool running;
-    volatile bool pga_changed; // guarded by gsr->mutex: written in tick(), read at the worker loop top
+    // The device's functions (copied at create, never changed). Its lock
+    // guards the ADC ring buffer, PGA/calibration state and diagnostics
+    // counters — gsr_lock()/gsr_unlock() below.
+    GsrPlatform platform;
+    volatile bool pga_changed; // guarded by the lock: written in tick(), read at the top of each worker pass
+
+    // Worker-pass state: touched only by gsr_sensor_worker_pass(), on the
+    // device's GSR thread, so it needs no lock. Survives from one pass to
+    // the next.
+    struct {
+        uint8_t  current_adc_pga; // gain the conversion now in the ADC was started under
+        uint32_t consecutive_failures;
+        int16_t  last_hw;
+        bool     have_last_hw;    // no prior read to compare the next one against
+        uint32_t last_read_tick;  // paired with have_last_hw — valid whenever it's true
+        // Reads are discarded until the clock reaches this — the
+        // post-PGA-change settle gate. Starts at "now" (open) so there is
+        // no wrap corner at startup; re-armed on each successful config write.
+        uint32_t pga_settle_until_tick;
+        // Bias check state (see "0.5 V BIAS MEASUREMENT" above). While
+        // bias_active the multiplexer is on AIN1 alone, so conversions are
+        // the bias, not skin.
+        bool     bias_active;
+        uint32_t bias_settle_until_tick;
+        int32_t  bias_sum;        // sum of settled bias reads so far (counts)
+        int32_t  bias_reads;
+    } w;
 
     int32_t  buffer[SENSOR_BUFFER_SIZE];
     uint32_t sample_tick[SENSOR_BUFFER_SIZE]; // tick timestamp of buffer[i], for
@@ -242,9 +262,9 @@ struct GsrSensor {
     // on every PGA change — a gain change makes the previous reading's raw
     // code incomparable, which is a scale change, not a stale read.
     uint32_t duplicate_count;
-    uint32_t stale_count;               // mutex-protected — worker increments on duplicates with gap_ticks < 2 (stale hardware re-read)
+    uint32_t stale_count;               // mutex-protected — worker increments on duplicates with gap_ms < 2 (stale hardware re-read)
     // duplicate_gap_running_min — mutex-protected. Worker tracks the
-    // smallest inter-read tick gap seen specifically AT a duplicate
+    // smallest inter-read gap (ms) seen specifically AT a duplicate
     // event (not the general per-window minimum gsr_sensor_tick()
     // computes over the whole window in Step 1) since the last ~1 s
     // window reset. UINT32_MAX means no duplicates have occurred yet in
@@ -274,21 +294,97 @@ struct GsrSensor {
     // average can't: success_rate can still read e.g. 80% while a fresh
     // failure streak is actively building toward disconnect. Only
     // written on failure, and once on recovery (not every successful
-    // iteration) — see gsr_sensor_worker() — to avoid taking the mutex
+    // iteration) — see gsr_sensor_worker_pass() — to avoid taking the lock
     // on every single normal-operation read just to publish a 0.
     uint32_t consecutive_failures;
 
     // Worst-case I2C call duration ever observed, in ms — a real
-    // furi_get_tick() delta measured immediately around each I2C call in
+    // clock delta measured immediately around each I2C call in
     // the worker, never reset (same "only grows" spirit as gps_uart's
     // gps_rx_drops/nmea_fail — see RowDiag's doc comment, biomap_types.h).
     // It answers "did an I2C call cause a given main-loop stall" directly.
     // Covers both I2C call sites in the worker (PGA-change config write and
     // routine conversion read) — mutually exclusive within a loop
-    // iteration, so one figure covers both. Guarded by `mutex`, but only
-    // updated in the brief window after the call, never across it.
+    // iteration, so one figure covers both. Includes any wait for the bus,
+    // which the device's I2C functions take and release around each call.
+    // Guarded by the lock, but only updated in the brief window after the
+    // call, never across it.
     uint32_t i2c_peak_ms;
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The device's functions
+// ─────────────────────────────────────────────────────────────────────────────
+static inline void gsr_lock(const GsrSensor* gsr) {
+    gsr->platform.lock(gsr->platform.ctx);
+}
+
+static inline void gsr_unlock(const GsrSensor* gsr) {
+    gsr->platform.unlock(gsr->platform.ctx);
+}
+
+// The device's millisecond clock.
+static inline uint32_t gsr_now(const GsrSensor* gsr) {
+    return gsr->platform.now_ms(gsr->platform.ctx);
+}
+
+static inline void gsr_delay_ms(const GsrSensor* gsr, uint32_t ms) {
+    gsr->platform.delay_ms(gsr->platform.ctx, ms);
+}
+
+// Read the conversion register: one signed ADC code. *code is only
+// written on success.
+static bool ads_read_code(const GsrSensor* gsr, int16_t* code) {
+    uint8_t data[2];
+    bool ok = gsr->platform.i2c_read(gsr->platform.ctx, ADS1115_I2C_ADDR, ADS1115_CONV_REG,
+                                     data, 2, 50);
+    if(ok) *code = (int16_t)((data[0] << 8) | data[1]);
+    return ok;
+}
+
+// Write the config register: `msb` (input, gain, mode) with the fixed
+// 0xE3 LSB (860 SPS, comparator off).
+static bool ads_write_config(const GsrSensor* gsr, uint8_t msb) {
+    uint8_t cfg[2] = { msb, 0xE3 };
+    return gsr->platform.i2c_write(gsr->platform.ctx, ADS1115_I2C_ADDR, ADS1115_CONFIG_REG,
+                                   cfg, 2, 50);
+}
+
+// One log line, if the device takes them. printf-style; lines longer than
+// the buffer are cut short.
+static void gsr_log(const GsrSensor* gsr, bool warning, const char* fmt, ...) {
+    if(!gsr->platform.log) return;
+    char line[80];
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(line, sizeof(line), fmt, args);
+    va_end(args);
+    gsr->platform.log(gsr->platform.ctx, warning, line);
+}
+
+// Worker only: a config write, timed for i2c_peak_ms. Timed regardless of
+// the result — a stall is worth recording whether or not the write it
+// stalled on happened to succeed.
+static bool ads_write_config_timed(GsrSensor* gsr, uint8_t msb) {
+    uint32_t start = gsr_now(gsr);
+    bool ok = ads_write_config(gsr, msb);
+    uint32_t dur = gsr_now(gsr) - start;
+    gsr_lock(gsr);
+    if(dur > gsr->i2c_peak_ms) gsr->i2c_peak_ms = dur;
+    gsr_unlock(gsr);
+    return ok;
+}
+
+// Record a finished bias check's reading, and use it if it is in range
+// (otherwise the last good value stays in use). The caller holds the lock
+// whenever the worker may be running.
+static void gsr_store_bias(GsrSensor* gsr, float v) {
+    gsr->bias_measured_volts = v;
+    if(gsr_bias_in_range(v)) {
+        gsr->bias_volts = v;
+        gsr->bias_scale = v / GSR_BIAS_NOMINAL_V;
+    }
+}
 
 // ~50 ms of consecutive I2C failures at the worker's ~1 kHz pace.
 #define I2C_FAIL_LOST_THRESHOLD 50
@@ -298,317 +394,242 @@ struct GsrSensor {
 // still claims to be working with a frozen value. After
 // I2C_FAIL_LOST_THRESHOLD in a row, treat the sensor as disconnected so
 // the UI doesn't show a stale reading; the next successful read then runs
-// the recovery path in gsr_sensor_worker(). Worker thread only.
-static void gsr_note_i2c_failure(GsrSensor* gsr, uint32_t* consecutive_failures) {
-    (*consecutive_failures)++;
-    furi_mutex_acquire(gsr->mutex, FuriWaitForever);
-    gsr->consecutive_failures = *consecutive_failures;
-    if(*consecutive_failures >= I2C_FAIL_LOST_THRESHOLD) {
+// the recovery path in gsr_sensor_worker_pass(). Worker only.
+static void gsr_note_i2c_failure(GsrSensor* gsr) {
+    gsr->w.consecutive_failures++;
+    gsr_lock(gsr);
+    gsr->consecutive_failures = gsr->w.consecutive_failures;
+    if(gsr->w.consecutive_failures >= I2C_FAIL_LOST_THRESHOLD) {
         gsr->connected = false;
         gsr->i2c_working = false;
         gsr->raw = 0.0f;
     }
-    furi_mutex_release(gsr->mutex);
+    gsr_unlock(gsr);
 }
 
 // One successful I2C transaction: clear any failure streak. Worker only.
-static void gsr_note_i2c_success(GsrSensor* gsr, uint32_t* consecutive_failures) {
-    if(*consecutive_failures == 0) return;
-    *consecutive_failures = 0;
-    furi_mutex_acquire(gsr->mutex, FuriWaitForever);
+static void gsr_note_i2c_success(GsrSensor* gsr) {
+    if(gsr->w.consecutive_failures == 0) return;
+    gsr->w.consecutive_failures = 0;
+    gsr_lock(gsr);
     gsr->consecutive_failures = 0;
-    furi_mutex_release(gsr->mutex);
+    gsr_unlock(gsr);
 }
 
-// Background worker thread for 860 SPS ADC reading.  Writes normalised
-// samples to the ring buffer; the main thread's gsr_sensor_tick() handles
-// decimation, autoranging, and TIA computation at exact 10 Hz boundaries.
-static int32_t gsr_sensor_worker(void* context) {
-    GsrSensor* gsr = context;
-    uint8_t current_adc_pga = ADS_PGA_DEFAULT;
-    uint32_t consecutive_failures = 0;
-    int16_t  last_hw = 0;
-    bool     have_last_hw = false; // no prior read to compare the first one against
-    uint32_t last_read_tick = 0;   // paired with have_last_hw — valid whenever it's true
-    // Reads are discarded until furi_get_tick() reaches this — the
-    // post-PGA-change settle gate. Initialised to "now" (open) so no wrap
-    // corner at startup; re-armed on each successful config write.
-    uint32_t pga_settle_until_tick = furi_get_tick();
-    // Bias check state (see "0.5 V BIAS MEASUREMENT" above). While
-    // bias_active the multiplexer is on AIN1 alone, so conversions are the
-    // bias, not skin.
-    bool     bias_active = false;
-    uint32_t bias_settle_until_tick = 0;
-    int32_t  bias_sum = 0; // sum of settled bias reads so far (counts)
-    int32_t  bias_reads = 0;
+// One pass of the background worker (860 SPS ADC reading).  Writes
+// normalised samples to the ring buffer; the main thread's
+// gsr_sensor_tick() handles decimation, autoranging, and TIA computation
+// at exact 10 Hz boundaries. The device's GSR thread calls this in a loop
+// with a 1 ms pause after each pass (see gsr_sensor.h).
+bool gsr_sensor_worker_pass(GsrSensor* gsr) {
+    gsr_lock(gsr);
+    uint8_t active_pga = gsr->pga_index;
+    bool pga_changed = gsr->pga_changed;
+    bool i2c_working = gsr->i2c_working;
+    bool bias_requested = gsr->bias_check_requested;
+    gsr_unlock(gsr);
 
-    while(gsr->running) {
-        furi_mutex_acquire(gsr->mutex, FuriWaitForever);
-        uint8_t active_pga = gsr->pga_index;
-        bool pga_changed = gsr->pga_changed;
-        bool i2c_working = gsr->i2c_working;
-        bool bias_requested = gsr->bias_check_requested;
-        furi_mutex_release(gsr->mutex);
+    // ── PGA change path: write the config, then end the pass — never fall
+    // through to the read path.
+    if(pga_changed) {
+        if(ads_write_config_timed(gsr, pga_msb(active_pga))) {
+            gsr_note_i2c_success(gsr);
+            gsr_lock(gsr);
+            gsr->pga_changed = false;
+            gsr_unlock(gsr);
 
-        // ── PGA change path: acquire I2C, write config, release, always ──
-        // continue back to the top — never fall through to the read path
-        // or the I2C handle will be released twice.
-        if(pga_changed) {
-            furi_hal_i2c_acquire(&furi_hal_i2c_handle_external);
-            uint8_t cfg[2] = { pga_msb(active_pga), 0xE3 };
-            uint32_t i2c_write_start = furi_get_tick();
-            bool cfg_ok = furi_hal_i2c_write_mem(
-                &furi_hal_i2c_handle_external,
-                ADS1115_I2C_ADDR, ADS1115_CONFIG_REG,
-                cfg, 2, 50);
-            uint32_t i2c_write_dur = furi_get_tick() - i2c_write_start;
-            furi_hal_i2c_release(&furi_hal_i2c_handle_external);
-
-            // Timed regardless of cfg_ok — a stall is worth recording
-            // whether or not the write it stalled on happened to succeed.
-            furi_mutex_acquire(gsr->mutex, FuriWaitForever);
-            if(i2c_write_dur > gsr->i2c_peak_ms) gsr->i2c_peak_ms = i2c_write_dur;
-            furi_mutex_release(gsr->mutex);
-
-            if(cfg_ok) {
-                gsr_note_i2c_success(gsr, &consecutive_failures);
-                furi_mutex_acquire(gsr->mutex, FuriWaitForever);
-                gsr->pga_changed = false;
-                furi_mutex_release(gsr->mutex);
-
-                // Arm the settle gate: the read path discards conversions
-                // until PGA_SETTLE_MS of real elapsed time has passed (see
-                // that #define). Measured from furi_get_tick() rather than
-                // slept through with furi_delay_ms(), for the same reason
-                // em_scan_rf.c's dwell loop and em_scan_sampler.c's disable
-                // timeout are: furi_delay_ms(N) is only loosely >= N ms
-                // here. The worker keeps looping through the window, so I2C
-                // failure detection and the worker hook stay live.
-                uint32_t settle_ticks =
-                    (PGA_SETTLE_MS * furi_kernel_get_tick_frequency()) / 1000;
-                pga_settle_until_tick = furi_get_tick() + settle_ticks;
-                current_adc_pga = active_pga;
-                have_last_hw = false; // new gain scale — not comparable to the pre-change code
-                bias_active = false;  // skin input is back; an unfinished bias check is dropped
-                furi_delay_ms(1);     // brief yield before re-looping
-            } else {
-                // Config write failed — retry next iteration, counting it
-                // toward "sensor lost" like a failed read.
-                gsr_note_i2c_failure(gsr, &consecutive_failures);
-                furi_delay_ms(1);
-            }
-            continue;
+            // Arm the settle gate: the read path discards conversions
+            // until PGA_SETTLE_MS of real elapsed time has passed (see
+            // that #define). Measured on the clock rather than slept
+            // through with a delay, for the same reason em_scan_rf.c's
+            // dwell loop and em_scan_sampler.c's disable timeout are: the
+            // Flipper's furi_delay_ms(N) is only loosely >= N ms. The
+            // worker keeps looping through the window, so I2C failure
+            // detection and the worker hook stay live.
+            gsr->w.pga_settle_until_tick = gsr_now(gsr) + PGA_SETTLE_MS;
+            gsr->w.current_adc_pga = active_pga;
+            gsr->w.have_last_hw = false; // new gain scale — not comparable to the pre-change code
+            gsr->w.bias_active = false;  // skin input is back; an unfinished bias check is dropped
+        } else {
+            // Config write failed — retry next pass, counting it toward
+            // "sensor lost" like a failed read.
+            gsr_note_i2c_failure(gsr);
         }
-
-        // ── Bias check start (requested): multiplexer to AIN1 alone. ────
-        // Not while a gain change is still settling (that would waste it),
-        // and not while I2C is down (recovery rewrites the config itself).
-        // A request stays pending through either, so it runs afterwards.
-        if(!bias_active && bias_requested && i2c_working &&
-           (int32_t)(furi_get_tick() - pga_settle_until_tick) >= 0) {
-            furi_hal_i2c_acquire(&furi_hal_i2c_handle_external);
-            uint8_t cfg[2] = { (uint8_t)BIAS_CFG_MSB, 0xE3 };
-            uint32_t i2c_write_start = furi_get_tick();
-            bool cfg_ok = furi_hal_i2c_write_mem(
-                &furi_hal_i2c_handle_external,
-                ADS1115_I2C_ADDR, ADS1115_CONFIG_REG,
-                cfg, 2, 50);
-            uint32_t i2c_write_dur = furi_get_tick() - i2c_write_start;
-            furi_hal_i2c_release(&furi_hal_i2c_handle_external);
-
-            furi_mutex_acquire(gsr->mutex, FuriWaitForever);
-            if(i2c_write_dur > gsr->i2c_peak_ms) gsr->i2c_peak_ms = i2c_write_dur;
-            furi_mutex_release(gsr->mutex);
-
-            if(cfg_ok) {
-                gsr_note_i2c_success(gsr, &consecutive_failures);
-                bias_active = true;
-                bias_settle_until_tick = furi_get_tick() +
-                    (PGA_SETTLE_MS * furi_kernel_get_tick_frequency()) / 1000;
-                bias_sum = 0;
-                bias_reads = 0;
-                have_last_hw = false; // next skin read follows a different input
-            } else {
-                // The multiplexer may or may not have switched: put the skin
-                // config back through the normal path, which retries. The
-                // check is finished, as a failure (measured = NAN).
-                gsr_note_i2c_failure(gsr, &consecutive_failures);
-                furi_mutex_acquire(gsr->mutex, FuriWaitForever);
-                gsr->pga_changed = true;
-                if(gsr->bias_check_requested) {
-                    gsr->bias_measured_volts = NAN;
-                    gsr->bias_check_requested = false;
-                    gsr->bias_check_seq++;
-                }
-                furi_mutex_release(gsr->mutex);
-            }
-            furi_delay_ms(1);
-            continue;
-        }
-
-        // ── Normal read path: acquire I2C, read conversion, release. ────
-        furi_hal_i2c_acquire(&furi_hal_i2c_handle_external);
-        uint8_t data[2];
-        uint32_t i2c_read_start = furi_get_tick();
-        bool ok = furi_hal_i2c_read_mem(
-            &furi_hal_i2c_handle_external,
-            ADS1115_I2C_ADDR, ADS1115_CONV_REG,
-            data, 2, 50);
-        uint32_t i2c_read_dur = furi_get_tick() - i2c_read_start;
-        furi_hal_i2c_release(&furi_hal_i2c_handle_external);
-
-        // Post-PGA-change settle gate: after a config write the conversion
-        // register can still hold a sample started under the old gain (see
-        // PGA_SETTLE_MS). Successful reads are discarded until real elapsed
-        // time clears that window — I2C is still exercised so a disconnect
-        // mid-settle trips the failure path below, but the sample isn't used.
-        bool in_pga_settle = (int32_t)(furi_get_tick() - pga_settle_until_tick) < 0;
-        bool in_bias_settle = bias_active &&
-            (int32_t)(furi_get_tick() - bias_settle_until_tick) < 0;
-
-        // attempt_count normally counts every read, success or failure — it
-        // distinguishes "the loop genuinely only runs this fast" from "the
-        // loop runs fast but half the reads silently fail" (iter_count alone
-        // can't; see research/gsr_filtering_analysis.md). The settle window is
-        // excluded from attempt_count (and therefore worker_hz / success
-        // rate): we're deliberately not sampling then, exactly as during the
-        // old furi_delay_ms() gap. i2c_peak_ms still updates — an I2C stall
-        // matters whenever it lands.
-        furi_mutex_acquire(gsr->mutex, FuriWaitForever);
-        if(!in_pga_settle && !bias_active) gsr->attempt_count++;
-        if(i2c_read_dur > gsr->i2c_peak_ms) gsr->i2c_peak_ms = i2c_read_dur;
-        furi_mutex_release(gsr->mutex);
-
-        // A successful read means I2C is alive whether or not the sample is
-        // used (the settle gate below may discard it) — clear any failure
-        // streak on every success.
-        bool recovering = false;
-        if(ok) {
-            gsr_note_i2c_success(gsr, &consecutive_failures);
-            if(!gsr->i2c_working) {
-                // Coming back from "sensor lost" (or a failed probe at
-                // alloc): the ADS1115 may have lost power meanwhile, and it
-                // powers up in single-shot mode (config reset 8583h), where
-                // the conversion register never updates. Nothing else
-                // rewrites the config at the highest gain (autoranging
-                // only writes on a gain change), so the sensor would read
-                // 0 for the rest of the session. Queue a config write for
-                // the current gain, and drop this read — it came from a
-                // chip that may still be in that power-up state.
-                furi_mutex_acquire(gsr->mutex, FuriWaitForever);
-                gsr->i2c_working = true;
-                gsr->pga_changed = true;
-                furi_mutex_release(gsr->mutex);
-                recovering = true;
-            }
-        }
-
-        // Sample processing proper — skipped during the settle window even on
-        // a good read (the conversion may pre-date the gain change), and for
-        // the read that just ended a "sensor lost" spell (see above).
-        // have_last_hw stays false through the window, so the first sample
-        // after it is not duplicate-compared against a discarded one.
-        if(ok && bias_active && !recovering) {
-            // Bias check in progress: this conversion is the bias, never skin.
-            // Once settled, add up BIAS_AVG_READS reads (a failed read is
-            // just skipped), then record the mean, use it if in range, and
-            // queue the skin config back; the PGA-change path then clears
-            // bias_active and arms the settle gate for the skin input. A
-            // check cancelled meanwhile (request cleared) restores the skin
-            // input straight away and changes nothing else.
-            // The reads are paced by the loop's own 1 ms pause, and the
-            // hook below keeps running through the check.
-            if(!in_bias_settle) {
-                bias_sum += (int16_t)((data[0] << 8) | data[1]);
-                bias_reads++;
-            }
-            furi_mutex_acquire(gsr->mutex, FuriWaitForever);
-            bool cancelled = !gsr->bias_check_requested;
-            furi_mutex_release(gsr->mutex);
-            if(cancelled) {
-                furi_mutex_acquire(gsr->mutex, FuriWaitForever);
-                gsr->pga_changed = true;
-                furi_mutex_release(gsr->mutex);
-            } else if(bias_reads >= BIAS_AVG_READS) {
-                float v = ((float)bias_sum / (float)bias_reads) * BIAS_VOLTS_PER_LSB;
-                furi_mutex_acquire(gsr->mutex, FuriWaitForever);
-                if(gsr->bias_check_requested) {
-                    gsr->bias_measured_volts = v;
-                    if(gsr_bias_in_range(v)) {
-                        gsr->bias_volts = v;
-                        gsr->bias_scale = v / GSR_BIAS_NOMINAL_V;
-                    }
-                    gsr->bias_check_requested = false;
-                    gsr->bias_check_seq++;
-                }
-                gsr->pga_changed = true;
-                furi_mutex_release(gsr->mutex);
-            }
-        } else if(ok && !in_pga_settle && !recovering) {
-            int16_t hw = (int16_t)((data[0] << 8) | data[1]);
-
-            // Normalise using current_adc_pga (the gain that was active
-            // when the conversion currently in the register was started).
-            int32_t norm = (int32_t)hw * NORM_FACTOR[current_adc_pga];
-
-            // Same raw code as the immediately preceding (same-PGA) read
-            // means the ADS1115 hadn't completed a new conversion between
-            // the two I2C transactions — a stale re-read, not a fresh
-            // sample. See duplicate_count's doc comment above.
-            uint32_t this_tick = furi_get_tick();
-            bool is_duplicate = have_last_hw && (hw == last_hw);
-            // Only meaningful (and only ever read) when is_duplicate is
-            // true, which requires have_last_hw — so last_read_tick is
-            // always valid by the time it's actually used below.
-            uint32_t gap_ticks = this_tick - last_read_tick;
-            last_hw = hw;
-            last_read_tick = this_tick;
-            have_last_hw = true;
-
-            furi_mutex_acquire(gsr->mutex, FuriWaitForever);
-            gsr->buffer[gsr->write_idx] = norm;
-            gsr->sample_tick[gsr->write_idx] = this_tick;
-            gsr->write_idx = (gsr->write_idx + 1) & (SENSOR_BUFFER_SIZE - 1);
-            gsr->iter_count++;
-            if(is_duplicate) {
-                gsr->duplicate_count++;
-                if(gap_ticks < 2) {
-                    gsr->stale_count++;
-                }
-                if(gap_ticks < gsr->duplicate_gap_running_min) {
-                    gsr->duplicate_gap_running_min = gap_ticks;
-                }
-            }
-            furi_mutex_release(gsr->mutex);
-        } else if(!ok) {
-            gsr_note_i2c_failure(gsr, &consecutive_failures);
-        }
-
-        if(!pga_changed) {
-            current_adc_pga = active_pga;
-        }
-
-        // ── Optional hook: lets another job share this thread ──────────
-        // On the Flipper this is em_scan_sampler_poll(), the radio scan.
-        // Not called on PGA-change passes (they `continue` above).
-        if(gsr->hook) gsr->hook(gsr->hook_ctx);
-
-        furi_delay_ms(1);
+        return false;
     }
-    return 0;
+
+    // ── Bias check start (requested): multiplexer to AIN1 alone. ────
+    // Not while a gain change is still settling (that would waste it),
+    // and not while I2C is down (recovery rewrites the config itself).
+    // A request stays pending through either, so it runs afterwards.
+    if(!gsr->w.bias_active && bias_requested && i2c_working &&
+       (int32_t)(gsr_now(gsr) - gsr->w.pga_settle_until_tick) >= 0) {
+        if(ads_write_config_timed(gsr, (uint8_t)BIAS_CFG_MSB)) {
+            gsr_note_i2c_success(gsr);
+            gsr->w.bias_active = true;
+            gsr->w.bias_settle_until_tick = gsr_now(gsr) + PGA_SETTLE_MS;
+            gsr->w.bias_sum = 0;
+            gsr->w.bias_reads = 0;
+            gsr->w.have_last_hw = false; // next skin read follows a different input
+        } else {
+            // The multiplexer may or may not have switched: put the skin
+            // config back through the normal path, which retries. The
+            // check is finished, as a failure (measured = NAN).
+            gsr_note_i2c_failure(gsr);
+            gsr_lock(gsr);
+            gsr->pga_changed = true;
+            if(gsr->bias_check_requested) {
+                gsr->bias_measured_volts = NAN;
+                gsr->bias_check_requested = false;
+                gsr->bias_check_seq++;
+            }
+            gsr_unlock(gsr);
+        }
+        return false;
+    }
+
+    // ── Normal read path: read the conversion. ──────────────────────────
+    int16_t hw = 0;
+    uint32_t i2c_read_start = gsr_now(gsr);
+    bool ok = ads_read_code(gsr, &hw);
+    uint32_t i2c_read_dur = gsr_now(gsr) - i2c_read_start;
+
+    // Post-PGA-change settle gate: after a config write the conversion
+    // register can still hold a sample started under the old gain (see
+    // PGA_SETTLE_MS). Successful reads are discarded until real elapsed
+    // time clears that window — I2C is still exercised so a disconnect
+    // mid-settle trips the failure path below, but the sample isn't used.
+    bool in_pga_settle = (int32_t)(gsr_now(gsr) - gsr->w.pga_settle_until_tick) < 0;
+    bool in_bias_settle = gsr->w.bias_active &&
+        (int32_t)(gsr_now(gsr) - gsr->w.bias_settle_until_tick) < 0;
+
+    // attempt_count normally counts every read, success or failure — it
+    // distinguishes "the loop genuinely only runs this fast" from "the
+    // loop runs fast but half the reads silently fail" (iter_count alone
+    // can't; see research/gsr_filtering_analysis.md). The settle window is
+    // excluded from attempt_count (and therefore worker_hz / success
+    // rate): we're deliberately not sampling then, exactly as during the
+    // old furi_delay_ms() gap. i2c_peak_ms still updates — an I2C stall
+    // matters whenever it lands.
+    gsr_lock(gsr);
+    if(!in_pga_settle && !gsr->w.bias_active) gsr->attempt_count++;
+    if(i2c_read_dur > gsr->i2c_peak_ms) gsr->i2c_peak_ms = i2c_read_dur;
+    gsr_unlock(gsr);
+
+    // A successful read means I2C is alive whether or not the sample is
+    // used (the settle gate below may discard it) — clear any failure
+    // streak on every success.
+    bool recovering = false;
+    if(ok) {
+        gsr_note_i2c_success(gsr);
+        if(!gsr->i2c_working) {
+            // Coming back from "sensor lost" (or a failed probe at
+            // create): the ADS1115 may have lost power meanwhile, and it
+            // powers up in single-shot mode (config reset 8583h), where
+            // the conversion register never updates. Nothing else
+            // rewrites the config at the highest gain (autoranging
+            // only writes on a gain change), so the sensor would read
+            // 0 for the rest of the session. Queue a config write for
+            // the current gain, and drop this read — it came from a
+            // chip that may still be in that power-up state.
+            gsr_lock(gsr);
+            gsr->i2c_working = true;
+            gsr->pga_changed = true;
+            gsr_unlock(gsr);
+            recovering = true;
+        }
+    }
+
+    // Sample processing proper — skipped during the settle window even on
+    // a good read (the conversion may pre-date the gain change), and for
+    // the read that just ended a "sensor lost" spell (see above).
+    // have_last_hw stays false through the window, so the first sample
+    // after it is not duplicate-compared against a discarded one.
+    if(ok && gsr->w.bias_active && !recovering) {
+        // Bias check in progress: this conversion is the bias, never skin.
+        // Once settled, add up BIAS_AVG_READS reads (a failed read is
+        // just skipped), then record the mean, use it if in range, and
+        // queue the skin config back; the PGA-change path then clears
+        // bias_active and arms the settle gate for the skin input. A
+        // check cancelled meanwhile (request cleared) restores the skin
+        // input straight away and changes nothing else.
+        // The reads are paced by the loop's own 1 ms pause, and the
+        // hook keeps running through the check.
+        if(!in_bias_settle) {
+            gsr->w.bias_sum += hw;
+            gsr->w.bias_reads++;
+        }
+        gsr_lock(gsr);
+        bool cancelled = !gsr->bias_check_requested;
+        if(cancelled) gsr->pga_changed = true;
+        gsr_unlock(gsr);
+        if(!cancelled && gsr->w.bias_reads >= BIAS_AVG_READS) {
+            float v = ((float)gsr->w.bias_sum / (float)gsr->w.bias_reads) * BIAS_VOLTS_PER_LSB;
+            gsr_lock(gsr);
+            if(gsr->bias_check_requested) {
+                gsr_store_bias(gsr, v);
+                gsr->bias_check_requested = false;
+                gsr->bias_check_seq++;
+            }
+            gsr->pga_changed = true;
+            gsr_unlock(gsr);
+        }
+    } else if(ok && !in_pga_settle && !recovering) {
+        // Normalise using current_adc_pga (the gain that was active
+        // when the conversion currently in the register was started).
+        int32_t norm = (int32_t)hw * NORM_FACTOR[gsr->w.current_adc_pga];
+
+        // Same raw code as the immediately preceding (same-PGA) read
+        // means the ADS1115 hadn't completed a new conversion between
+        // the two I2C transactions — a stale re-read, not a fresh
+        // sample. See duplicate_count's doc comment above.
+        uint32_t this_tick = gsr_now(gsr);
+        bool is_duplicate = gsr->w.have_last_hw && (hw == gsr->w.last_hw);
+        // Only meaningful (and only ever read) when is_duplicate is
+        // true, which requires have_last_hw — so last_read_tick is
+        // always valid by the time it's actually used below.
+        uint32_t gap_ms = this_tick - gsr->w.last_read_tick;
+        gsr->w.last_hw = hw;
+        gsr->w.last_read_tick = this_tick;
+        gsr->w.have_last_hw = true;
+
+        gsr_lock(gsr);
+        gsr->buffer[gsr->write_idx] = norm;
+        gsr->sample_tick[gsr->write_idx] = this_tick;
+        gsr->write_idx = (gsr->write_idx + 1) & (SENSOR_BUFFER_SIZE - 1);
+        gsr->iter_count++;
+        if(is_duplicate) {
+            gsr->duplicate_count++;
+            if(gap_ms < 2) {
+                gsr->stale_count++;
+            }
+            if(gap_ms < gsr->duplicate_gap_running_min) {
+                gsr->duplicate_gap_running_min = gap_ms;
+            }
+        }
+        gsr_unlock(gsr);
+    } else if(!ok) {
+        gsr_note_i2c_failure(gsr);
+    }
+
+    if(!pga_changed) {
+        gsr->w.current_adc_pga = active_pga;
+    }
+
+    // A normal pass: the device may now give its other job a turn.
+    return true;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Lifecycle
 // ─────────────────────────────────────────────────────────────────────────────
-GsrSensor* gsr_sensor_alloc(GsrWorkerHook hook, void* hook_ctx) {
+GsrSensor* gsr_sensor_create(const GsrPlatform* platform) {
+    CORE_CHECK(platform && platform->lock && platform->unlock && platform->now_ms &&
+                   platform->delay_ms && platform->i2c_read && platform->i2c_write,
+               "GsrSensor: incomplete platform");
     GsrSensor* gsr = malloc(sizeof(GsrSensor));
-    // furi_check, not furi_assert: this app's build defines FURI_NDEBUG, so
-    // furi_assert() compiles to a no-op and would never check anything on a
-    // real device. Used throughout the functions the normal (non-Diagnostics)
-    // walk path calls; Diagnostics-only accessors (worker_hz, success_rate,
-    // etc.) keep plain asserts since a normal walk never exercises them.
-    furi_check(gsr, "GsrSensor: alloc failed");
+    CORE_CHECK(gsr, "GsrSensor: alloc failed");
+    gsr->platform = *platform;
     gsr->raw       = 0.0f;
     gsr->pga_index = ADS_PGA_DEFAULT;
     gsr->low_count = 0;
@@ -624,89 +645,55 @@ GsrSensor* gsr_sensor_alloc(GsrWorkerHook hook, void* hook_ctx) {
     gsr->bias_check_requested = false;
     gsr->bias_check_seq = 0;
 
-    furi_hal_i2c_acquire(&furi_hal_i2c_handle_external);
+    // Probe: a short 1-byte read, just to see if the chip answers.
     uint8_t probe = 0;
-    bool probed = furi_hal_i2c_read_mem(
-        &furi_hal_i2c_handle_external,
-        ADS1115_I2C_ADDR, ADS1115_CONV_REG,
-        &probe, 1, 20);
+    bool probed = gsr->platform.i2c_read(gsr->platform.ctx, ADS1115_I2C_ADDR, ADS1115_CONV_REG,
+                                         &probe, 1, 20);
 
     if(probed) {
         // First bias check, so the very first readings already use it:
         // AIN1 alone on ±1.024 V, wait two conversions plus margin, then
         // average BIAS_AVG_READS reads 1 ms apart (failed reads skipped;
         // NAN if none succeeded).
-        uint8_t bias_cfg[2] = { (uint8_t)BIAS_CFG_MSB, 0xE3 };
-        bool bias_cfg_ok = furi_hal_i2c_write_mem(
-            &furi_hal_i2c_handle_external,
-            ADS1115_I2C_ADDR, ADS1115_CONFIG_REG,
-            bias_cfg, 2, 50);
-        furi_hal_i2c_release(&furi_hal_i2c_handle_external);
-        if(bias_cfg_ok) {
-            furi_delay_ms(5);
+        if(ads_write_config(gsr, (uint8_t)BIAS_CFG_MSB)) {
+            gsr_delay_ms(gsr, 5);
             int32_t sum = 0;
             int32_t good = 0;
             for(int i = 0; i < BIAS_AVG_READS; i++) {
-                if(i > 0) furi_delay_ms(1);
-                furi_hal_i2c_acquire(&furi_hal_i2c_handle_external);
-                uint8_t data[2];
-                bool ok = furi_hal_i2c_read_mem(
-                    &furi_hal_i2c_handle_external,
-                    ADS1115_I2C_ADDR, ADS1115_CONV_REG,
-                    data, 2, 50);
-                furi_hal_i2c_release(&furi_hal_i2c_handle_external);
-                if(ok) {
-                    sum += (int16_t)((data[0] << 8) | data[1]);
+                if(i > 0) gsr_delay_ms(gsr, 1);
+                int16_t code;
+                if(ads_read_code(gsr, &code)) {
+                    sum += code;
                     good++;
                 }
             }
             float v = good > 0 ? ((float)sum / (float)good) * BIAS_VOLTS_PER_LSB : NAN;
-            gsr->bias_measured_volts = v;
-            if(good > 0 && gsr_bias_in_range(v)) {
-                gsr->bias_volts = v;
-                gsr->bias_scale = v / GSR_BIAS_NOMINAL_V;
-            }
-            FURI_LOG_I("GsrSensor", "Bias read %.4f V, using %.4f V", (double)v,
-                       (double)(gsr->bias_scale * GSR_BIAS_NOMINAL_V));
+            gsr_store_bias(gsr, v); // no lock: the worker hasn't started
+            gsr_log(gsr, false, "Bias read %.4f V, using %.4f V", (double)v,
+                    (double)(gsr->bias_scale * GSR_BIAS_NOMINAL_V));
         }
-        furi_hal_i2c_acquire(&furi_hal_i2c_handle_external);
 
-        uint8_t cfg[2] = { pga_msb(ADS_PGA_DEFAULT), 0xE3 }; // Config: default PGA, continuous 860 SPS
-        bool cfg_ok = furi_hal_i2c_write_mem(
-            &furi_hal_i2c_handle_external,
-            ADS1115_I2C_ADDR, ADS1115_CONFIG_REG,
-            cfg, 2, 50);
-        if(!cfg_ok) FURI_LOG_W("GsrSensor", "Config write failed — using defaults");
+        // Config: default PGA, continuous 860 SPS
+        if(!ads_write_config(gsr, pga_msb(ADS_PGA_DEFAULT))) gsr_log(gsr, true, "Config write failed — using defaults");
     }
-    furi_hal_i2c_release(&furi_hal_i2c_handle_external);
 
     gsr->i2c_working = probed;
-    FURI_LOG_I("GsrSensor", "I2C Probe %s", probed ? "OK" : "not found");
+    gsr_log(gsr, false, "I2C Probe %s", probed ? "OK" : "not found");
 
     int32_t initial_norm = 0;
     if(probed) {
         // Warm up buffer with initial value
-        furi_delay_ms(5);
-        furi_hal_i2c_acquire(&furi_hal_i2c_handle_external);
-        uint8_t data[2];
-        bool ok = furi_hal_i2c_read_mem(
-            &furi_hal_i2c_handle_external,
-            ADS1115_I2C_ADDR, ADS1115_CONV_REG,
-            data, 2, 50);
-        furi_hal_i2c_release(&furi_hal_i2c_handle_external);
-
-        int16_t initial_hw = ok ? (int16_t)((data[0] << 8) | data[1]) : 0;
+        gsr_delay_ms(gsr, 5);
+        int16_t initial_hw = 0;
+        ads_read_code(gsr, &initial_hw);
         initial_norm = (int32_t)initial_hw * NORM_FACTOR[ADS_PGA_DEFAULT];
     }
-    uint32_t alloc_tick = furi_get_tick();
+    uint32_t alloc_tick = gsr_now(gsr);
     for(int i = 0; i < SENSOR_BUFFER_SIZE; i++) {
         gsr->buffer[i] = initial_norm;
         gsr->sample_tick[i] = alloc_tick;
     }
     gsr->write_idx = 0;
-
-    gsr->mutex = furi_mutex_alloc(FuriMutexTypeNormal);
-    furi_check(gsr->mutex, "GsrSensor: mutex alloc failed");
 
     gsr->iter_count = 0;
     gsr->attempt_count = 0;
@@ -715,7 +702,7 @@ GsrSensor* gsr_sensor_alloc(GsrWorkerHook hook, void* hook_ctx) {
     gsr->duplicate_gap_running_min = UINT32_MAX;
     gsr->duplicate_gap_min_cached = UINT32_MAX;
     gsr->consecutive_failures = 0;
-    gsr->hz_window_start_tick = furi_get_tick(); // set before the worker starts — no lock needed
+    gsr->hz_window_start_tick = gsr_now(gsr); // set before the worker starts — no lock needed
     gsr->hz_window_start_count = 0;
     gsr->hz_window_start_attempts = 0;
     gsr->hz_window_start_duplicates = 0;
@@ -728,39 +715,38 @@ GsrSensor* gsr_sensor_alloc(GsrWorkerHook hook, void* hook_ctx) {
     gsr->hz_window_start_pga_changes = 0;
     gsr->pga_change_rate_cached = 0;
     gsr->i2c_peak_ms = 0;
+    gsr->tick_last_norm = 0;
+    gsr->tick_mean_norm = 0;
+    gsr->tick_window_samples = 0;
 
-    gsr->hook = hook;
-    gsr->hook_ctx = hook_ctx;
-
-    gsr->running = true;
     gsr->pga_changed = false;
-    gsr->thread = furi_thread_alloc();
-    furi_thread_set_name(gsr->thread, "GsrSensorWorker");
-    furi_thread_set_stack_size(gsr->thread, 2048);
-    furi_thread_set_context(gsr->thread, gsr);
-    furi_thread_set_callback(gsr->thread, gsr_sensor_worker);
-    furi_thread_start(gsr->thread);
+
+    gsr->w.current_adc_pga = ADS_PGA_DEFAULT;
+    gsr->w.consecutive_failures = 0;
+    gsr->w.last_hw = 0;
+    gsr->w.have_last_hw = false;
+    gsr->w.last_read_tick = 0;
+    gsr->w.pga_settle_until_tick = gsr_now(gsr);
+    gsr->w.bias_active = false;
+    gsr->w.bias_settle_until_tick = 0;
+    gsr->w.bias_sum = 0;
+    gsr->w.bias_reads = 0;
 
     return gsr;
 }
 
-void gsr_sensor_free(GsrSensor* gsr) {
-    furi_check(gsr, "GsrSensor: NULL in free()");
-    gsr->running = false;
-    furi_thread_join(gsr->thread);
-    furi_thread_free(gsr->thread);
+void gsr_sensor_destroy(GsrSensor* gsr) {
+    CORE_CHECK(gsr, "GsrSensor: NULL in destroy()");
 
     // Put ADS1115 into low-power single-shot/power-down mode (MODE bit = 1)
-    furi_hal_i2c_acquire(&furi_hal_i2c_handle_external);
-    uint8_t cfg[2] = {(uint8_t)(pga_msb(gsr->pga_index) | 0x01), 0xE3};
-    furi_hal_i2c_write_mem(
-        &furi_hal_i2c_handle_external,
-        ADS1115_I2C_ADDR, ADS1115_CONFIG_REG,
-        cfg, 2, 50);
-    furi_hal_i2c_release(&furi_hal_i2c_handle_external);
+    ads_write_config(gsr, (uint8_t)(pga_msb(gsr->pga_index) | 0x01));
 
-    furi_mutex_free(gsr->mutex);
     free(gsr);
+}
+
+void* gsr_sensor_platform_ctx(const GsrSensor* gsr) {
+    CORE_CHECK(gsr, "GsrSensor: NULL in platform_ctx()");
+    return gsr->platform.ctx;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -770,27 +756,27 @@ bool gsr_sensor_available(const GsrSensor* gsr) {
     if(!gsr) return false;
     // Under the mutex like every other accessor: the worker writes
     // i2c_working on a failure streak or recovery.
-    furi_mutex_acquire(gsr->mutex, FuriWaitForever);
+    gsr_lock(gsr);
     bool working = gsr->i2c_working;
-    furi_mutex_release(gsr->mutex);
+    gsr_unlock(gsr);
     return working;
 }
 
 bool gsr_sensor_is_connected(const GsrSensor* gsr) {
-    furi_check(gsr, "GsrSensor: NULL in is_connected()");
-    furi_mutex_acquire(gsr->mutex, FuriWaitForever);
+    CORE_CHECK(gsr, "GsrSensor: NULL in is_connected()");
+    gsr_lock(gsr);
     bool connected = gsr->connected;
-    furi_mutex_release(gsr->mutex);
+    gsr_unlock(gsr);
     return connected;
 }
 
 float gsr_sensor_get_raw(const GsrSensor* gsr) {
     // Called every tick (10Hz) during recording — the highest-frequency
     // call site among the promoted checks in this file.
-    furi_check(gsr, "GsrSensor: NULL in get_raw()");
-    furi_mutex_acquire(gsr->mutex, FuriWaitForever);
+    CORE_CHECK(gsr, "GsrSensor: NULL in get_raw()");
+    gsr_lock(gsr);
     float val = gsr->raw;
-    furi_mutex_release(gsr->mutex);
+    gsr_unlock(gsr);
     return val;
 }
 
@@ -799,34 +785,34 @@ float gsr_sensor_get_raw(const GsrSensor* gsr) {
 // position as the ~100 ms window's most recent entry.  This guarantees
 // the raw sample and the filtered mean use the exact same underlying data.
 float gsr_sensor_get_raw_sample_ns(const GsrSensor* gsr) {
-    furi_check(gsr, "GsrSensor: NULL in get_raw_sample_ns()");
+    CORE_CHECK(gsr, "GsrSensor: NULL in get_raw_sample_ns()");
 
-    furi_mutex_acquire(gsr->mutex, FuriWaitForever);
+    gsr_lock(gsr);
     float counts = (float)gsr->tick_last_norm;
     if(gsr->cal_active) counts -= gsr->cal_zero_counts;
     float bias_scale = gsr->bias_scale;
-    furi_mutex_release(gsr->mutex);
+    gsr_unlock(gsr);
 
     return gsr_tia_counts_to_ns_at_bias(counts, bias_scale);
 }
 
 int32_t gsr_sensor_get_raw_sample_count(const GsrSensor* gsr) {
-    furi_check(gsr, "GsrSensor: NULL in get_raw_sample_count()");
-    furi_mutex_acquire(gsr->mutex, FuriWaitForever);
+    CORE_CHECK(gsr, "GsrSensor: NULL in get_raw_sample_count()");
+    gsr_lock(gsr);
     int32_t val = gsr->tick_last_norm;
-    furi_mutex_release(gsr->mutex);
+    gsr_unlock(gsr);
     return val;
 }
 
 int32_t gsr_sensor_get_mean_count(const GsrSensor* gsr) {
-    furi_check(gsr, "GsrSensor: NULL in get_mean_count()");
+    CORE_CHECK(gsr, "GsrSensor: NULL in get_mean_count()");
     // tick_mean_norm is written by tick() on the main thread but read here
     // from whatever thread calls this accessor (the GUI render thread, in
     // production) — genuinely cross-thread, so it needs gsr->mutex like
     // every other field below.
-    furi_mutex_acquire(gsr->mutex, FuriWaitForever);
+    gsr_lock(gsr);
     int32_t val = gsr->tick_mean_norm;
-    furi_mutex_release(gsr->mutex);
+    gsr_unlock(gsr);
     return val;
 }
 
@@ -837,79 +823,78 @@ int32_t gsr_sensor_get_mean_count(const GsrSensor* gsr) {
 // how many independent samples back the Mean value on screen right now.
 // Always ≥ 1 (see the i==0-unconditional note in gsr_sensor_tick()).
 int32_t gsr_sensor_get_window_samples(const GsrSensor* gsr) {
-    furi_check(gsr, "GsrSensor: NULL in get_window_samples()");
+    CORE_CHECK(gsr, "GsrSensor: NULL in get_window_samples()");
     // Cross-thread (GUI render thread reads what tick() writes on the main
     // thread) — see gsr_sensor_get_mean_count()'s comment.
-    furi_mutex_acquire(gsr->mutex, FuriWaitForever);
+    gsr_lock(gsr);
     int32_t val = gsr->tick_window_samples;
-    furi_mutex_release(gsr->mutex);
+    gsr_unlock(gsr);
     return val;
 }
 
 uint8_t gsr_sensor_get_pga_index(const GsrSensor* gsr) {
-    furi_check(gsr, "GsrSensor: NULL in get_pga_index()");
-    furi_mutex_acquire(gsr->mutex, FuriWaitForever);
+    CORE_CHECK(gsr, "GsrSensor: NULL in get_pga_index()");
+    gsr_lock(gsr);
     uint8_t val = gsr->pga_index;
-    furi_mutex_release(gsr->mutex);
+    gsr_unlock(gsr);
     return val;
 }
 
 float gsr_sensor_get_bias_volts(const GsrSensor* gsr) {
-    furi_check(gsr, "GsrSensor: NULL in get_bias_volts()");
-    furi_mutex_acquire(gsr->mutex, FuriWaitForever);
+    CORE_CHECK(gsr, "GsrSensor: NULL in get_bias_volts()");
+    gsr_lock(gsr);
     float val = gsr->bias_volts;
-    furi_mutex_release(gsr->mutex);
+    gsr_unlock(gsr);
     return val;
 }
 
 float gsr_sensor_get_bias_measured_volts(const GsrSensor* gsr) {
-    furi_check(gsr, "GsrSensor: NULL in get_bias_measured_volts()");
-    furi_mutex_acquire(gsr->mutex, FuriWaitForever);
+    CORE_CHECK(gsr, "GsrSensor: NULL in get_bias_measured_volts()");
+    gsr_lock(gsr);
     float val = gsr->bias_measured_volts;
-    furi_mutex_release(gsr->mutex);
+    gsr_unlock(gsr);
     return val;
 }
 
 uint32_t gsr_sensor_request_bias_check(GsrSensor* gsr) {
-    furi_check(gsr, "GsrSensor: NULL in request_bias_check()");
-    furi_mutex_acquire(gsr->mutex, FuriWaitForever);
+    CORE_CHECK(gsr, "GsrSensor: NULL in request_bias_check()");
+    gsr_lock(gsr);
     gsr->bias_check_requested = true;
     uint32_t ticket = gsr->bias_check_seq;
-    furi_mutex_release(gsr->mutex);
+    gsr_unlock(gsr);
     return ticket;
 }
 
 bool gsr_sensor_bias_check_done(const GsrSensor* gsr, uint32_t ticket) {
-    furi_check(gsr, "GsrSensor: NULL in bias_check_done()");
-    furi_mutex_acquire(gsr->mutex, FuriWaitForever);
+    CORE_CHECK(gsr, "GsrSensor: NULL in bias_check_done()");
+    gsr_lock(gsr);
     bool done = gsr->bias_check_seq != ticket;
-    furi_mutex_release(gsr->mutex);
+    gsr_unlock(gsr);
     return done;
 }
 
 void gsr_sensor_cancel_bias_check(GsrSensor* gsr) {
-    furi_check(gsr, "GsrSensor: NULL in cancel_bias_check()");
-    furi_mutex_acquire(gsr->mutex, FuriWaitForever);
+    CORE_CHECK(gsr, "GsrSensor: NULL in cancel_bias_check()");
+    gsr_lock(gsr);
     gsr->bias_check_requested = false;
-    furi_mutex_release(gsr->mutex);
+    gsr_unlock(gsr);
 }
 
 bool gsr_sensor_run_bias_check(GsrSensor* gsr, uint32_t timeout_ms) {
-    furi_check(gsr, "GsrSensor: NULL in run_bias_check()");
+    CORE_CHECK(gsr, "GsrSensor: NULL in run_bias_check()");
     uint32_t ticket = gsr_sensor_request_bias_check(gsr);
-    uint32_t wait_ticks = (timeout_ms * furi_kernel_get_tick_frequency()) / 1000;
-    uint32_t wait_start = furi_get_tick();
+    uint32_t wait_start = gsr_now(gsr);
     bool done;
     while(!(done = gsr_sensor_bias_check_done(gsr, ticket)) &&
-          furi_get_tick() - wait_start < wait_ticks) {
-        furi_delay_ms(1);
+          gsr_now(gsr) - wait_start < timeout_ms) {
+        gsr_delay_ms(gsr, 1);
     }
     if(!done) {
         gsr_sensor_cancel_bias_check(gsr);
         // It may have finished between the last poll and the cancel; then
         // its reading is real (and already in use), so report it.
         done = gsr_sensor_bias_check_done(gsr, ticket);
-        if(!done) FURI_LOG_W("GsrSensor", "Bias check timed out");
+        if(!done) gsr_log(gsr, true, "Bias check timed out");
     }
     return done;
 }
@@ -920,11 +905,11 @@ bool gsr_sensor_run_bias_check(GsrSensor* gsr, uint32_t timeout_ms) {
 // reads 0.0f until the first ~1 s window has elapsed. See
 // research/gsr_filtering_analysis.md, Recommendation 1.
 float gsr_sensor_get_worker_hz(const GsrSensor* gsr) {
-    furi_check(gsr, "GsrSensor: NULL in get_worker_hz()");
+    CORE_CHECK(gsr, "GsrSensor: NULL in get_worker_hz()");
     // Cross-thread — see gsr_sensor_get_mean_count()'s comment.
-    furi_mutex_acquire(gsr->mutex, FuriWaitForever);
+    gsr_lock(gsr);
     float val = gsr->worker_hz_cached;
-    furi_mutex_release(gsr->mutex);
+    gsr_unlock(gsr);
     return val;
 }
 
@@ -935,11 +920,11 @@ float gsr_sensor_get_worker_hz(const GsrSensor* gsr) {
 // 100% — a real transport/wiring problem, not a rate limit). Reads 100.0f
 // until the first window has elapsed (optimistic default, not a claim).
 float gsr_sensor_get_success_rate(const GsrSensor* gsr) {
-    furi_check(gsr, "GsrSensor: NULL in get_success_rate()");
+    CORE_CHECK(gsr, "GsrSensor: NULL in get_success_rate()");
     // Cross-thread — see gsr_sensor_get_mean_count()'s comment.
-    furi_mutex_acquire(gsr->mutex, FuriWaitForever);
+    gsr_lock(gsr);
     float val = gsr->success_rate_cached;
-    furi_mutex_release(gsr->mutex);
+    gsr_unlock(gsr);
     return val;
 }
 
@@ -954,65 +939,56 @@ float gsr_sensor_get_success_rate(const GsrSensor* gsr) {
 // across PGA changes (a gain change isn't a stale read). Reads 0.0f until
 // the first window has elapsed (optimistic default, not a claim).
 float gsr_sensor_get_duplicate_rate(const GsrSensor* gsr) {
-    furi_check(gsr, "GsrSensor: NULL in get_duplicate_rate()");
+    CORE_CHECK(gsr, "GsrSensor: NULL in get_duplicate_rate()");
     // Cross-thread — see gsr_sensor_get_mean_count()'s comment.
-    furi_mutex_acquire(gsr->mutex, FuriWaitForever);
+    gsr_lock(gsr);
     float val = gsr->duplicate_rate_cached;
-    furi_mutex_release(gsr->mutex);
+    gsr_unlock(gsr);
     return val;
 }
 
 // Percentage of successful reads over the rolling ~1 s window whose
-// inter-read gap was under 2 ticks (< 1.16 ms conversion period) and resulted
+// inter-read gap was under 2 ms (< 1.16 ms conversion period) and resulted
 // in a stale re-read of the ADS1115 register.
 float gsr_sensor_get_stale_rate(const GsrSensor* gsr) {
-    furi_check(gsr, "GsrSensor: NULL in get_stale_rate()");
+    CORE_CHECK(gsr, "GsrSensor: NULL in get_stale_rate()");
     // Cross-thread — see gsr_sensor_get_mean_count()'s comment.
-    furi_mutex_acquire(gsr->mutex, FuriWaitForever);
+    gsr_lock(gsr);
     float val = gsr->stale_rate_cached;
-    furi_mutex_release(gsr->mutex);
+    gsr_unlock(gsr);
     return val;
-}
-
-uint32_t gsr_sensor_get_stack_space(const GsrSensor* gsr) {
-    furi_check(gsr, "GsrSensor: NULL in get_stack_space()");
-    // furi_thread_get_stack_space() takes a FuriThreadId (the RTOS handle
-    // from furi_thread_get_id()), not the FuriThread* wrapper itself.
-    FuriThreadId id = furi_thread_get_id(gsr->thread);
-    if(!id) return 0;
-    return furi_thread_get_stack_space(id);
 }
 
 // Live count of consecutive failed I2C reads happening right now — not a
 // rolling average like gsr_sensor_get_success_rate(), so it can show a
 // fresh failure streak building in real time, before either the 1 s
 // success-rate average visibly drops or the 50-failure disconnect
-// threshold (gsr_sensor_worker()) actually fires. For diagnostics.
+// threshold (gsr_sensor_worker_pass()) actually fires. For diagnostics.
 uint32_t gsr_sensor_get_consecutive_failures(const GsrSensor* gsr) {
-    furi_check(gsr, "GsrSensor: NULL in get_consecutive_failures()");
-    furi_mutex_acquire(gsr->mutex, FuriWaitForever);
+    CORE_CHECK(gsr, "GsrSensor: NULL in get_consecutive_failures()");
+    gsr_lock(gsr);
     uint32_t val = gsr->consecutive_failures;
-    furi_mutex_release(gsr->mutex);
+    gsr_unlock(gsr);
     return val;
 }
 
-// Smallest inter-read tick gap seen SPECIFICALLY at a sample that turned
+// Smallest inter-read gap in ms seen SPECIFICALLY at a sample that turned
 // out to be a duplicate (see gsr_sensor_get_duplicate_rate()), over the
 // same rolling ~1 s window as gsr_sensor_get_worker_hz(). Directly
 // correlates timing with the specific reads that were actually stale —
 // the real test of the "occasional sub-ADC-conversion-time loop period"
 // theory. Each timestamp is a floor() of the real time it was taken, so a
-// recorded gap of N ticks corresponds to a true elapsed time anywhere
+// recorded gap of N ms corresponds to a true elapsed time anywhere
 // from just over (N-1) ms to just under (N+1) ms. Returns UINT32_MAX if
 // no duplicates occurred in the most recent window (not 0 — a real value
 // of 0 is itself meaningful and must stay distinguishable from "no
 // data"), or if unavailable.  For diagnostics.
-uint32_t gsr_sensor_get_duplicate_gap_min_ticks(const GsrSensor* gsr) {
-    furi_check(gsr, "GsrSensor: NULL in get_duplicate_gap_min_ticks()");
+uint32_t gsr_sensor_get_duplicate_gap_min_ms(const GsrSensor* gsr) {
+    CORE_CHECK(gsr, "GsrSensor: NULL in get_duplicate_gap_min_ms()");
     // Cross-thread — see gsr_sensor_get_mean_count()'s comment.
-    furi_mutex_acquire(gsr->mutex, FuriWaitForever);
+    gsr_lock(gsr);
     uint32_t val = gsr->duplicate_gap_min_cached;
-    furi_mutex_release(gsr->mutex);
+    gsr_unlock(gsr);
     return val;
 }
 
@@ -1021,23 +997,23 @@ uint32_t gsr_sensor_get_duplicate_gap_min_ticks(const GsrSensor* gsr) {
 // input is sitting near an autorange threshold and flapping between
 // ranges". For diagnostics.
 uint32_t gsr_sensor_get_pga_change_count(const GsrSensor* gsr) {
-    furi_check(gsr, "GsrSensor: NULL in get_pga_change_count()");
+    CORE_CHECK(gsr, "GsrSensor: NULL in get_pga_change_count()");
     // Cross-thread — see gsr_sensor_get_mean_count()'s comment.
-    furi_mutex_acquire(gsr->mutex, FuriWaitForever);
+    gsr_lock(gsr);
     uint32_t val = gsr->pga_change_rate_cached;
-    furi_mutex_release(gsr->mutex);
+    gsr_unlock(gsr);
     return val;
 }
 
 // Worst single I2C call duration (config write OR conversion read, real
-// furi_get_tick() delta) ever observed on the worker thread — lifetime
+// clock delta) ever observed on the worker thread — lifetime
 // max, never reset. See i2c_peak_ms's struct comment for why one column
 // covers both call sites. For diagnostics.
 uint32_t gsr_sensor_get_i2c_peak_ms(const GsrSensor* gsr) {
-    furi_check(gsr, "GsrSensor: NULL in get_i2c_peak_ms()");
-    furi_mutex_acquire(gsr->mutex, FuriWaitForever);
+    CORE_CHECK(gsr, "GsrSensor: NULL in get_i2c_peak_ms()");
+    gsr_lock(gsr);
     uint32_t val = gsr->i2c_peak_ms;
-    furi_mutex_release(gsr->mutex);
+    gsr_unlock(gsr);
     return val;
 }
 
@@ -1058,10 +1034,9 @@ uint32_t gsr_sensor_get_i2c_peak_ms(const GsrSensor* gsr) {
 // regardless of whatever the worker's true rate turns out to be, on any
 // device, without needing to measure or hand-tune against it.
 //
-// The background worker's nominal pacing is furi_delay_ms(1), measured on
-// real hardware at ~500 Hz true rate (see the pacing comment in
-// gsr_sensor_worker() for why it's not exactly 1 kHz, and why that's left
-// as-is) — below the ADS1115's 860 SPS conversion rate, so buffer entries
+// The background worker's nominal pacing is the device's 1 ms pause
+// between passes (furi_delay_ms(1) on the Flipper), measured on real
+// hardware at ~500 Hz true rate — below the ADS1115's 860 SPS conversion rate, so buffer entries
 // are each (almost always) a distinct conversion rather than a duplicate
 // of the previous one; the loop just never reads roughly 42% of the
 // conversions the ADC produces in between. That's fine here: every
@@ -1077,16 +1052,15 @@ uint32_t gsr_sensor_get_i2c_peak_ms(const GsrSensor* gsr) {
 void gsr_sensor_tick(GsrSensor* gsr) {
     // Called every tick (10Hz) from the main thread during recording — the
     // single highest-frequency call site in this file.
-    furi_check(gsr, "GsrSensor: NULL in tick()");
+    CORE_CHECK(gsr, "GsrSensor: NULL in tick()");
 
     // ── Roll the worker-Hz measurement window (~1 s) ────────────────────
     // Deliberately independent of the i2c_ok early-return below — if the
     // sensor is disconnected, the rate should visibly drop toward zero on
     // the Diagnostics screen rather than freezing at its last good value.
-    uint32_t now = furi_get_tick();
-    uint32_t one_second_ticks = furi_kernel_get_tick_frequency();
-    if(now - gsr->hz_window_start_tick >= one_second_ticks) {
-        furi_mutex_acquire(gsr->mutex, FuriWaitForever);
+    uint32_t now = gsr_now(gsr);
+    if(now - gsr->hz_window_start_tick >= 1000) {
+        gsr_lock(gsr);
         uint32_t count = gsr->iter_count;
         uint32_t attempts = gsr->attempt_count;
         uint32_t duplicates = gsr->duplicate_count;
@@ -1097,14 +1071,14 @@ void gsr_sensor_tick(GsrSensor* gsr) {
         // just-recorded minimum that belonged to THIS window.
         uint32_t dup_gap_min = gsr->duplicate_gap_running_min;
         gsr->duplicate_gap_running_min = UINT32_MAX;
-        furi_mutex_release(gsr->mutex);
+        gsr_unlock(gsr);
 
         uint32_t window_ticks = now - gsr->hz_window_start_tick;
         uint32_t delta = count - gsr->hz_window_start_count;
         uint32_t delta_attempts = attempts - gsr->hz_window_start_attempts;
         uint32_t delta_duplicates = duplicates - gsr->hz_window_start_duplicates;
         uint32_t delta_stale = stale - gsr->hz_window_start_stale;
-        float worker_hz = (float)delta * (float)one_second_ticks / (float)window_ticks;
+        float worker_hz = (float)delta * 1000.0f / (float)window_ticks;
         float success_rate =
             (delta_attempts > 0) ? (100.0f * (float)delta / (float)delta_attempts) : 100.0f;
         float duplicate_rate =
@@ -1117,14 +1091,14 @@ void gsr_sensor_tick(GsrSensor* gsr) {
         // (gsr_sensor_get_worker_hz() etc.) from the GUI render thread
         // (biomap_render.c is their only caller). hz_window_start_* stay
         // outside the lock: tick()-only, never read by any accessor.
-        furi_mutex_acquire(gsr->mutex, FuriWaitForever);
+        gsr_lock(gsr);
         gsr->worker_hz_cached = worker_hz;
         gsr->success_rate_cached = success_rate;
         gsr->duplicate_rate_cached = duplicate_rate;
         gsr->stale_rate_cached = stale_rate;
         gsr->duplicate_gap_min_cached = dup_gap_min; // UINT32_MAX = no duplicates this window
         gsr->pga_change_rate_cached = gsr->pga_change_count - gsr->hz_window_start_pga_changes;
-        furi_mutex_release(gsr->mutex);
+        gsr_unlock(gsr);
 
         gsr->hz_window_start_tick = now;
         gsr->hz_window_start_count = count;
@@ -1134,9 +1108,9 @@ void gsr_sensor_tick(GsrSensor* gsr) {
         gsr->hz_window_start_pga_changes = gsr->pga_change_count;
     }
 
-    furi_mutex_acquire(gsr->mutex, FuriWaitForever);
+    gsr_lock(gsr);
     bool i2c_ok = gsr->i2c_working;
-    furi_mutex_release(gsr->mutex);
+    gsr_unlock(gsr);
 
     if(!i2c_ok) return;
 
@@ -1155,10 +1129,10 @@ void gsr_sensor_tick(GsrSensor* gsr) {
     // Capped at SENSOR_BUFFER_SIZE iterations so a pathological timestamp
     // can't spin forever — at the ADS1115's 860 SPS ceiling, a 100 ms
     // window holds at most ~86 samples, well under the buffer's 128.
-    furi_mutex_acquire(gsr->mutex, FuriWaitForever);
+    gsr_lock(gsr);
     uint32_t r_idx = gsr->write_idx;
-    uint32_t now_tick = furi_get_tick();
-    uint32_t window_ticks = (BOXCAR_WINDOW_MS * furi_kernel_get_tick_frequency()) / 1000;
+    uint32_t now_tick = gsr_now(gsr);
+    uint32_t window_ticks = BOXCAR_WINDOW_MS;
     int64_t sum = 0;
     int samples = 0;
     for(int i = 0; i < SENSOR_BUFFER_SIZE; i++) {
@@ -1176,7 +1150,7 @@ void gsr_sensor_tick(GsrSensor* gsr) {
     float gain = gsr->cal_gain;
     float zero_counts = gsr->cal_zero_counts;
     float bias_scale = gsr->bias_scale;
-    furi_mutex_release(gsr->mutex);
+    gsr_unlock(gsr);
 
     // ── Step 2: simple mean over however many samples landed in the
     // window (typically ~40-50, since the worker's measured real-world
@@ -1192,10 +1166,10 @@ void gsr_sensor_tick(GsrSensor* gsr) {
     // Published under gsr->mutex — these tick_* fields are read cross-thread
     // by the Diagnostics screen's accessors from the GUI render thread, same
     // as the hz-window block above.
-    furi_mutex_acquire(gsr->mutex, FuriWaitForever);
+    gsr_lock(gsr);
     gsr->tick_mean_norm = (int32_t)lroundf(avg_norm);  // diagnostics + the wizard's zero step (rounded: truncation would bias a negative zero by ~0.5 count)
     gsr->tick_window_samples = samples;       // snapshot for diagnostics
-    furi_mutex_release(gsr->mutex);
+    gsr_unlock(gsr);
 
     // ── Step 3: autoranging decision on the RAW (uncalibrated) value.
     // Calibration is applied in the nS domain after TIA conversion —
@@ -1232,10 +1206,8 @@ void gsr_sensor_tick(GsrSensor* gsr) {
 
     // ── Step 5: publish pga_index, pga_changed, and calibrated raw under
     // a single mutex acquisition to minimise contention with the worker.
-    furi_mutex_acquire(gsr->mutex, FuriWaitForever);
+    gsr_lock(gsr);
     if(pga_update) {
-        FURI_LOG_I("GsrSensor", "PGA %u→%u (±%s)",
-            (unsigned)old_pga, (unsigned)new_pga, PGA_LABEL[new_pga]);
         gsr->pga_index = new_pga;
         gsr->pga_changed = true;
         gsr->pga_change_count++; // tick()-only field, safe to touch under this mutex acquisition
@@ -1251,14 +1223,21 @@ void gsr_sensor_tick(GsrSensor* gsr) {
         gsr->zero_count = 0;
         gsr->connected = true;
     }
-    furi_mutex_release(gsr->mutex);
+    gsr_unlock(gsr);
+
+    // Logged after the unlock: a slow log (a serial link) must not hold up
+    // the worker, which needs the lock for every sample.
+    if(pga_update) {
+        gsr_log(gsr, false, "PGA %u→%u (±%s)",
+            (unsigned)old_pga, (unsigned)new_pga, PGA_LABEL[new_pga]);
+    }
 }
 
 void gsr_sensor_set_calibration(GsrSensor* gsr, bool active, float gain, float zero_counts) {
-    furi_check(gsr, "GsrSensor: NULL in set_calibration()");
-    furi_mutex_acquire(gsr->mutex, FuriWaitForever);
+    CORE_CHECK(gsr, "GsrSensor: NULL in set_calibration()");
+    gsr_lock(gsr);
     gsr->cal_active = active;
     gsr->cal_gain = gain;
     gsr->cal_zero_counts = zero_counts;
-    furi_mutex_release(gsr->mutex);
+    gsr_unlock(gsr);
 }

@@ -117,7 +117,7 @@ Pin 2 ("5V in") is for powering the Cardputer *from* a Cap. It should not be use
 
 The GSR circuit makes its 0.5 V bias from the 3.3 V supply with a resistor divider (56 kΩ and 10 kΩ, see [wiring_guide.md](wiring_guide.md)). Every GSR reading is in proportion to this bias, so a supply 2% low would give readings 2% low if the firmware assumed exactly 0.5 V.
 
-It doesn't assume it. The firmware already measures the bias on the ADS1115 (AIN1 against ground) and uses the measured value when it converts readings into nanosiemens ([gsr_sensor.h](../firmware/modules/gsr_sensor.h), "0.5 V bias measurement"). It measures at start-up, at the start of each recording (the value goes in the file's header), when a phone first connects for Live Stream, and before each resistor in the calibration wizard. It never measures in the middle of a recording, because a new value would put a step in the data. So a supply that is simply a little off is already corrected.
+It doesn't assume it. The firmware already measures the bias on the ADS1115 (AIN1 against ground) and uses the measured value when it converts readings into nanosiemens ([gsr_sensor.h](../firmware/core/gsr_sensor.h), "0.5 V bias measurement"). It measures at start-up, at the start of each recording (the value goes in the file's header), when a phone first connects for Live Stream, and before each resistor in the calibration wizard. It never measures in the middle of a recording, because a new value would put a step in the data. So a supply that is simply a little off is already corrected.
 
 What the regulator still decides is how steady the supply stays **during** a recording, since the bias is measured only at the start. The published accuracy (±0.1% over most of the range) was measured on the Flipper's 3.3 V supply. With a new regulator:
 
@@ -230,13 +230,17 @@ firmware/
 
 - **The shared code never runs threads, and normally never waits.** It works step by step: "here is a new reading, update yourself", "here are the GPS bytes that arrived", "one second has passed".
 - **One exception: the GPS start-up and sleep sequences.** These are timed by nature. For example: send at 9600 baud, wait 200 ms, switch to 115200, wait 50 ms, send the sleep command ([gps_uart.c](../firmware/modules/gps_uart.c)). This sequence is confirmed on real hardware, and rewriting it as a step-by-step machine would risk breaking it. So the shared code may ask the device for "the time now" and "wait N ms", but only in these sequences. They already run on the main thread.
-- **Each device runs its own loop and threads** and feeds the shared code. Both devices keep the same two-thread design: a main thread and a GSR thread.
+- **Two smaller waits in the GSR code.** When the GSR sensor starts, it checks the chip is there and reads the 0.5 V bias (about 25 ms). And the bias check at the start of a recording waits up to 200 ms for the GSR thread to finish it. Both waits were already there on the Flipper; they now ask the device to wait.
+- **Each device runs its own loop and threads** and feeds the shared code. Both devices keep the same two-thread design: a main thread and a GSR thread. The GSR thread just calls the shared "one pass" function in a loop, with a 1 ms pause after each pass.
 - **Each device supplies a few small functions:**
   - I2C: read or write a register
   - serial port: send bytes, change speed
   - file: open, write, close
   - screen drawing: about 6–8 basic drawing calls (lines, boxes, text and so on)
-  - a clock, and a wait (for the GPS sequences above only)
+  - a clock, and a wait (for the GPS sequences and the GSR waits above only)
+  - a lock, so the main thread and the GSR thread take turns on the GSR readings. The shared code never runs a thread itself, but its data is shared between two of them.
+  - optionally, writing a log line
+  - stopping with a message when a rule is broken, such as a missing pointer (the Flipper crashes with the message)
   - responding to a named event such as "recording started" or "write error"
 
 ### Why not the other ways
@@ -338,7 +342,7 @@ The Cardputer could collect nearly all of them, in one of two ways:
 
 **What it would gain.** Each CSV row averages 100 ms of readings. More readings in that window reduce the ADC's own random noise: going from about 300 to about 800 a second cuts it by roughly 40% (√(800/300) ≈ 1.6). The gain on noise from the skin and the amplifier is smaller, because the amplifier's filter (about 34 Hz) already smooths out quick changes, so readings taken close together are mostly the same reading. The skin signal itself changes over seconds, so nothing in it is missed at the slower rate.
 
-**Why it waits.** The side-by-side walks (section 5) are meant to show that the two devices give the same results. If the Cardputer reads at a different rate from the start, any difference is harder to explain. So the first port uses the same reading code as the Flipper, with its 1 ms pause. Its rate may still differ from the Flipper's, but `gsr_hz` records it in every file, so the difference can be seen. Expect more repeated readings than on the Flipper. The faster ESP32 may get round the loop close to 1,000 times a second, but the ADS1115 only makes 860 new readings a second, so at least 1 in 7 reads (about 14%) will fetch a reading already taken. That is harmless: a repeat counts that reading twice in the 100 ms average, which wastes a little of the averaging but doesn't push the result up or down. The duplicate counter in [gsr_sensor.c](../firmware/modules/gsr_sensor.c) shows the rate (7–11% on the Flipper). Once the two devices agree, try the precise timer as a separate test, and compare noise on the resistor-grid test before and after. If it is worth having, switch to the ready pin, which the board already wires to G4.
+**Why it waits.** The side-by-side walks (section 5) are meant to show that the two devices give the same results. If the Cardputer reads at a different rate from the start, any difference is harder to explain. So the first port uses the same reading code as the Flipper, with its 1 ms pause. Its rate may still differ from the Flipper's, but `gsr_hz` records it in every file, so the difference can be seen. Expect more repeated readings than on the Flipper. The faster ESP32 may get round the loop close to 1,000 times a second, but the ADS1115 only makes 860 new readings a second, so at least 1 in 7 reads (about 14%) will fetch a reading already taken. That is harmless: a repeat counts that reading twice in the 100 ms average, which wastes a little of the averaging but doesn't push the result up or down. The duplicate counter in [gsr_sensor.c](../firmware/core/gsr_sensor.c) shows the rate (7–11% on the Flipper). Once the two devices agree, try the precise timer as a separate test, and compare noise on the resistor-grid test before and after. If it is worth having, switch to the ready pin, which the board already wires to G4.
 
 ### CSV format
 
@@ -442,13 +446,13 @@ The plain C files moved to [firmware/core/](../firmware/core/): `biomap_pipeline
 
 - **One small code change.** `biomap_format.c` still used the Flipper's warning-log call when a calibration fit failed. That log line now lives in the Flipper code that calls the fit ([biomap_gui.c](../firmware/biomap_gui.c)), so `core/` has no Flipper code at all. Its test build no longer needs the fake Flipper headers.
 - **minmea stays in `vendor/minmea/`**, as in the folder plan above. It is already plain C, and third-party code is easier to update where it is.
-- **No `flipper/` folder yet.** Git cannot store an empty folder. The Flipper files move into it as steps 2–6 split each one.
+- **No `flipper/` folder yet.** Git cannot store an empty folder. The Flipper files move into it as steps 2–6 split each one. (Step 2 created it.)
 
 Checked: all host tests pass, the Flipper app builds, and each `core/` file builds on its own with no other folders on the include path. Nothing changed in how the app behaves, so no Flipper check is needed.
 
 ### Already done: radio scan out of the GSR code (not yet tried on a real Flipper)
 
-The radio (EM) scan used to be written into the middle of the GSR sensor code ([gsr_sensor.c](../firmware/modules/gsr_sensor.c)). It now lives in its own file, [em_scan_sampler.c](../firmware/modules/em_scan_sampler.c). It still runs on the GSR thread, at the same moments as before. No new thread was added. The GSR loop has one line that says "if there is another job, give it a turn". On the Flipper the session hands it the radio scan. On the Cardputer nothing is handed over, so the GSR code contains no radio code at all.
+The radio (EM) scan used to be written into the middle of the GSR sensor code ([gsr_sensor.c](../firmware/core/gsr_sensor.c)). It now lives in its own file, [em_scan_sampler.c](../firmware/modules/em_scan_sampler.c). It still runs on the GSR thread, at the same moments as before. No new thread was added. The GSR loop has one line that says "if there is another job, give it a turn". On the Flipper the session hands it the radio scan. On the Cardputer nothing is handed over, so the GSR code contains no radio code at all.
 
 **To check on a real Flipper:** run an EM mode for a minute, check that the radio bars move, then leave the mode and check that the app exits cleanly.
 
@@ -458,14 +462,46 @@ The radio (EM) scan used to be written into the middle of the GSR sensor code ([
 - **An older gap came across unchanged.** If turning the radio off takes too long (more than 100 ms) and the radio is turned straight back on, the start-up could overlap the radio's last reading. The app never does this today: the radio is only turned off once, at the end of a session. The fix would be a short wait before turning it back on. This is noted in the code.
 - **The screen can read the module pointers while a session is starting.** The session sets the GSR and radio pointers without holding the main lock while the screen may already be drawing. This is safe on the Flipper's chip, but it is a pattern to avoid copying into new code.
 - **The radio sampler's tests sit inside the GSR tests** (`test_gsr_sensor.c`), not in a file of their own.
-- **This step alone does not make the code run on the Cardputer.** The GSR code still uses the Flipper's own I2C calls, and the session and screen code still include the radio modes. Those are the next steps below.
+- **This step alone does not make the code run on the Cardputer.** The GSR code still used the Flipper's own I2C calls (fixed by step 2 below), and the session and screen code still include the radio modes (steps 5 and 6).
+
+### Step 2 done: GSR logic in `core/` (not yet tried on a real Flipper)
+
+All of the GSR logic now lives in [core/gsr_sensor.c](../firmware/core/gsr_sensor.c): gain switching, the settling waits, the bias check, the 100 ms averaging, the conversion to nanosiemens, the calibration zero and gain, disconnect detection, and every diagnostic figure. It has no Flipper code. It reaches the hardware only through a short list of functions the device hands it ([core/gsr_sensor.h](../firmware/core/gsr_sensor.h), `GsrPlatform`): read or write an I2C register, the time in milliseconds, a wait, a lock, and an optional log line.
+
+The calibration wizard's averaging is shared too: `CalDwell` in [core/biomap_format.c](../firmware/core/biomap_format.c). It takes each tick's reading over the 20 s dwell, keeps the ones inside the gate, and gives the mean, the spread (σ) and whether enough readings passed. The Zero step and each resistor step use it. What stays in the Flipper's wizard ([biomap_gui.c](../firmware/biomap_gui.c)) is the screens, the keys, the countdown and the 100 ms waits between readings. Those were two near-identical loops, one per kind of step; they are now one (`calibration_wizard_dwell()`). That loop is Flipper code, so the host tests don't run it; the wizard run in the Flipper check below covers it.
+
+Not moved in this step: the few lines that choose which bias value goes in a recording's `# GSR Bias` header line. The bias check itself is shared, but that choice sits in the middle of building the file header in [biomap_session.c](../firmware/biomap_session.c), so it moves with the session in step 5.
+
+The Flipper side, [flipper/gsr_sensor_flipper.c](../firmware/flipper/gsr_sensor_flipper.c), is about 150 lines: those functions written with the Flipper's own calls, and the GSR thread. The thread calls the shared "one pass" function, gives the radio scan its turn after each normal read, and pauses 1 ms, exactly as before. The rest of the app calls the same `gsr_sensor_*` functions as before: one `#include` changed, and one diagnostic read-out was renamed (below).
+
+A new [core/core_check.h](../firmware/core/core_check.h) gives the shared code a way to stop on a broken rule (a missing pointer). Each device supplies the stop; the Flipper's is [flipper/core_fatal.c](../firmware/flipper/core_fatal.c), which crashes with the message as `furi_check` did.
+
+Checked:
+
+- All host tests pass, including the 47 GSR tests and their ThreadSanitizer run. The GSR tests were not changed (apart from one `#include` and one renamed read-out, below), and they now run the shared code through the real Flipper side, so they show the behaviour is the same.
+- Raising one gain-switching number in the shared file makes a GSR test fail, so the tests really reach the moved code.
+- Three new tests cover the wizard's averaging. One replays the wizard's previous averaging code on 50 runs of made-up readings and checks the shared version gives exactly the same numbers, to the last bit. Moving one gate edge by a hair makes a test fail.
+- `run_tests.sh` now compiles every `core/` file with no fake Flipper headers available, so Flipper code can't creep back in.
+- `run_tests.sh` also builds a small C++ program against every `core/` header and links it to the C-compiled `core/` files, as the Cardputer's Arduino code will. This found that the step 1 headers (`biomap_format.h`, `biomap_pipeline.h`) lacked the `extern "C"` wrapper; they have it now. Taking the wrapper out again makes the check fail.
+- The Flipper app builds with no warnings.
+
+Small differences, none expected to show:
+
+- **The I2C bus is taken and released around each single read or write.** Before, the start-up code held it across the first read and the bias set-up write. Nothing else uses that bus on the Flipper.
+- **The I2C peak time now includes any wait for the bus**, because taking the bus is inside the timed call. On the Flipper nothing else waits for that bus, so the figure should be the same.
+- **The last-sample read-outs start at 0** instead of whatever was in memory, for the moment before the first 10 Hz tick.
+- **Stack use on the GSR thread is about the same.** Measured with the Flipper's own compiler: the GSR read path uses 8 bytes more than before; the radio scan path, the deepest, about 80 bytes less.
+- **The clock is in milliseconds.** The shared code asks the device for the time in ms, because several figures assume it (the stale-read count, the I2C peak column, the duplicate gap). The Flipper's clock already counts in ms; its GSR start-up now checks this. One read-out was renamed to match: `gsr_sensor_get_duplicate_gap_min_ms()`.
+- **The gain-change log line is written after the lock is released**, so on the Cardputer a slow serial log can't hold up the GSR thread.
+
+**To check on a real Flipper:** record for a few minutes with fingers on, and check the GSR value, the gain changes and the `# GSR Bias` line look as before. Run the whole calibration wizard (Zero step and the three resistors) and check the result screen looks as before. Open Diagnostics and check the GSR thread's free stack, worker Hz (~500) and I2C peak. Then run an EM mode for a minute (radio bars move, app exits cleanly), which also covers the radio scan check above.
 
 ### Next steps
 
 The remaining preparation follows steps 1–6 of the order of work in section 7:
 
 1. ~~Create `core/` and `flipper/`, and move the files that are already plain C.~~ Done (see above).
-2. Move the GSR logic into `core/`, including the Zero step's reading and the bias check.
+2. ~~Move the GSR logic into `core/`, including the Zero step's reading and the bias check.~~ Done (see above); needs the Flipper check.
 3. Move the GPS logic into `core/`.
 4. Named events instead of LED patterns, with sounds included.
 5. Split the session into shared logic plus the Flipper loop.

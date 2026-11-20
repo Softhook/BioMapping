@@ -494,7 +494,7 @@ static void render_diagnostics(Canvas* c, BioMapApp* a) {
                      (unsigned long)gsr_sensor_get_consecutive_failures(a->session.gsr),
                      vb_str);
 
-        uint32_t dup_gap = gsr_sensor_get_duplicate_gap_min_ticks(a->session.gsr);
+        uint32_t dup_gap = gsr_sensor_get_duplicate_gap_min_ms(a->session.gsr);
         char dg[12];
         if(dup_gap == UINT32_MAX) {
             strcpy(dg, "-");
