@@ -43,7 +43,7 @@ BENCH_COLUMNS = (
     "pga_changes,max_gap_ms,noise_pp_ns,bias_mv,gps_locked,gps_good_per_s,"
     "gps_bad_per_s,gps_fix,gps_used,gps_heard,gps_in_view,gps_best_cno,"
     "gps_top4_cno,gps_hdop,gps_utc,gps_ttff_s,batt_mv,key_presses,"
-    "bt,backlight,sd_mode,sd_write_ms,sd_sync_ms,tone_jump_ns,tone_settle_ms").split(",")
+    "bt,backlight,sd_mode,sd_write_ms,sd_sync_ms,tone_jump_ns,tone_settle_ms,tone_silent").split(",")
 BL_TEXT = {"0": "screen off", "255": "backlight full"}
 SD_TEXT = {"1": "plain", "2": "8 MB reserved", "3": "reserved, whole sectors", "4": "reserved, sectors, 40 MHz"}
 BT_TEXT = {"0": "", "1": "Bluetooth advertising", "2": "Bluetooth sending"}
@@ -127,7 +127,7 @@ def read_bench(path, lines, args):
             pass
         tone = None
         if r.get("tone_jump_ns"):
-            tone = (t, float(r["tone_jump_ns"]), int(r["tone_settle_ms"]))
+            tone = (t, float(r["tone_jump_ns"]), int(r["tone_settle_ms"]), r.get("tone_silent") == "1")
         ok = not math.isnan(noise) and gsr >= VALID_MIN_NS and in_window(t, args)
         seconds.append((t, setting_label(r), noise if ok else None, gsr, tone))
 
@@ -205,14 +205,21 @@ def main():
                   f" (saving {statistics.median(sav):.0f} ms of it), longest {max(tot)} ms")
 
     if all_tones:
-        print("\nTone tests (the Flipper waits 200 ms after its chirp before trusting the GSR):")
-        for name, t, jump, settle in all_tones:
+        print("\nTone tests (the Flipper waits 200 ms after its chirp before trusting the GSR).")
+        print("A chirp only counts as a problem if it looks worse than the silent runs:")
+        for name, t, jump, settle, silent in all_tones:
             when = f"at {int(t // 60)}:{int(t % 60):02d}"
+            kind = "silent" if silent else "chirp "
             if settle < 0:
-                print(f"  {name} {when}: jumped {jump:.2f} nS, still not settled after 3 s")
+                print(f"  {name} {when} {kind}: moved {jump:.2f} nS, still not settled after 3 s")
             else:
-                verdict = "within the 200 ms wait" if settle <= 200 else "LONGER than the 200 ms wait"
-                print(f"  {name} {when}: jumped {jump:.2f} nS, settled {settle} ms after the chirp ({verdict})")
+                print(f"  {name} {when} {kind}: moved {jump:.2f} nS, settled {settle} ms")
+        for silent in (False, True):
+            js = [x[2] for x in all_tones if x[4] == silent]
+            ss = [x[3] if x[3] >= 0 else 3000 for x in all_tones if x[4] == silent]
+            if js:
+                print(f"  {'silent' if silent else 'chirp'} typical ({len(js)} runs): moved "
+                      f"{statistics.median(js):.2f} nS, settled {statistics.median(ss):.0f} ms")
 
 
 if __name__ == "__main__":

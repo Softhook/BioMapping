@@ -338,16 +338,20 @@ static void graph_tick(void) {
 // watching the 100 ms values. The firmware waits GSR_TONE_SETTLE_MS (200 ms,
 // biomap_session.c) after the chirp before it trusts the GSR again, so the
 // question is whether the jump has died away within that.
+// S: the same measurement with no sound. Ordinary jitter and slow wander also
+// count as "disturbed", so a chirp result only means something next to the
+// silent one: if both look alike, the speaker isn't the cause.
 static const float    TONE_HZ[2] = {659.25f, 987.77f};
 static const uint32_t TONE_MS[2] = {70, 90};
 static const uint32_t TONE_TOTAL_MS = 160;
 static const uint8_t  TONE_VOLUME = 128;
-static const int      TONE_BASE_TICKS  = 10;  // 1 s of quiet before the tone
+static const int      TONE_BASE_TICKS  = 20;  // 2 s of quiet before the tone
 static const int      TONE_WATCH_TICKS = 30;  // 3 s from the start of the tone
 static const float    TONE_MIN_BAND_NS = 0.1f;
 
 static struct {
     bool     active = false;
+    bool     silent = false;      // S: measure without playing anything
     bool     second_note_due = false;
     uint32_t start_ms = 0;
     int      ticks = 0;
@@ -358,12 +362,15 @@ static struct {
     bool     result_new = false;  // a result for this second's log line
     float    result_jump = NAN;
     int      result_settle_ms = -1;
+    bool     result_silent = false;
 } chirp;
 
-static void tone_start(void) {
+static void tone_start(bool silent) {
     if(chirp.active) return;
-    // Baseline: the last second of 100 ms values, all of them valid.
-    if(graph.count < TONE_BASE_TICKS) { set_msg("Tone: wait a second"); return; }
+    // Baseline: the last 2 s of 100 ms values, all of them valid. Their full
+    // spread (high minus low) is the band; 2 s rather than 1 s so ordinary
+    // jitter in the next 3 s rarely pokes outside it by chance.
+    if(graph.count < TONE_BASE_TICKS) { set_msg("Tone: wait 2 seconds"); return; }
     float sum = 0.0f, lo = INFINITY, hi = -INFINITY;
     for(int i = 1; i <= TONE_BASE_TICKS; i++) {
         float v = graph.v[(graph.head - i + GRAPH_POINTS) % GRAPH_POINTS];
@@ -378,10 +385,11 @@ static void tone_start(void) {
     chirp.last_out = -1;
     chirp.ticks = 0;
     chirp.active = true;
-    chirp.second_note_due = true;
+    chirp.silent = silent;
+    chirp.second_note_due = !silent;
     chirp.start_ms = millis();
-    M5Cardputer.Speaker.tone(TONE_HZ[0], TONE_MS[0]);
-    set_msg("Tone: measuring...", 3500);
+    if(!silent) M5Cardputer.Speaker.tone(TONE_HZ[0], TONE_MS[0]);
+    set_msg(silent ? "Silent: measuring..." : "Tone: measuring...", 3500);
 }
 
 static void tone_poll(void) {
@@ -404,17 +412,21 @@ static void tone_tick(float ns) {
     if(chirp.ticks < TONE_WATCH_TICKS) return;
 
     chirp.active = false;
+    // Kept short: about 30 characters fit across the screen.
+    const char* name = chirp.silent ? "Silent" : "Tone";
     char buf[40];
     if(chirp.last_out == TONE_WATCH_TICKS - 1) {
         chirp.result_settle_ms = -1;
-        snprintf(buf, sizeof(buf), "Tone %.2f nS, not settled 3 s", chirp.jump);
+        snprintf(buf, sizeof(buf), "%s %.2fnS >3s", name, chirp.jump);
     } else {
-        // Ticks are 100 ms; the time counts from the end of the chirp.
+        // Ticks are 100 ms; the time counts from the end of the chirp (or
+        // where it would have ended, for a silent run, so the two compare).
         int ms = (chirp.last_out + 1) * (int)GRAPH_STEP_MS - (int)TONE_TOTAL_MS;
         chirp.result_settle_ms = ms < 0 ? 0 : ms;
-        snprintf(buf, sizeof(buf), "Tone %.2f nS, settled %d ms", chirp.jump, chirp.result_settle_ms);
+        snprintf(buf, sizeof(buf), "%s %.2fnS %dms", name, chirp.jump, chirp.result_settle_ms);
     }
     chirp.result_jump = chirp.jump;
+    chirp.result_silent = chirp.silent;
     chirp.result_new = true;
     set_msg(buf, 15000);
 }
@@ -895,7 +907,8 @@ static void keys_poll(void) {
     if(c == 'r' || c == 'R') reset_counters();
     if(c == 'g' || c == 'G') show_graph = !show_graph;
     if(c == 'b' || c == 'B') ble_toggle();
-    if(c == 't' || c == 'T') tone_start();
+    if(c == 't' || c == 'T') tone_start(false);
+    if(c == 's' || c == 'S') tone_start(true);
     if(c == 'l' || c == 'L') backlight_next();
     if(c == 'w' || c == 'W') sd_toggle();
 }
@@ -1108,19 +1121,20 @@ static void log_header(void) {
                    "pga_changes,max_gap_ms,noise_pp_ns,bias_mv,gps_locked,gps_good_per_s,"
                    "gps_bad_per_s,gps_fix,gps_used,gps_heard,gps_in_view,gps_best_cno,"
                    "gps_top4_cno,gps_hdop,gps_utc,gps_ttff_s,batt_mv,key_presses,"
-                   "bt,backlight,sd_mode,sd_write_ms,sd_sync_ms,tone_jump_ns,tone_settle_ms");
+                   "bt,backlight,sd_mode,sd_write_ms,sd_sync_ms,tone_jump_ns,tone_settle_ms,tone_silent");
 }
 
 static void log_line(void) {
     // Tone result only on the second it arrives; empty otherwise.
-    char tone_jump[12] = "", tone_settle[12] = "";
+    char tone_jump[12] = "", tone_settle[12] = "", tone_silent[4] = "";
     if(chirp.result_new) {
         chirp.result_new = false;
         snprintf(tone_jump, sizeof(tone_jump), "%.2f", chirp.result_jump);
         snprintf(tone_settle, sizeof(tone_settle), "%d", chirp.result_settle_ms);
+        snprintf(tone_silent, sizeof(tone_silent), "%d", chirp.result_silent ? 1 : 0);
     }
     Serial.printf("%lu,%d,%.2f,%.1f,%.1f,%u,%lu,%lu,%lu,%.1f,%.2f,%.2f,%d,%lu,%lu,%d,%d,%d,%d,%d,%.1f,%.2f,%s,%lu,%d,%lu,"
-                  "%d,%u,%d,%lu,%lu,%s,%s\n",
+                  "%d,%u,%d,%lu,%lu,%s,%s,%s\n",
         (unsigned long)millis(), ads.present, ads.ns, ads.raw_mean,
         zero.set ? zero.counts : 0.0f, ads.pga,
         (unsigned long)ads.reads_per_s, (unsigned long)ads.errors,
@@ -1129,7 +1143,7 @@ static void log_line(void) {
         gps.fix, gps.used, gps.heard, gps.in_view, gps.best_cno, gps.top4_cno, gps.hdop,
         gps.utc, (unsigned long)gps.ttff_s, batt_mv, (unsigned long)key_presses,
         ble_state(), BACKLIGHT_LEVELS[backlight_idx], sd.mode, (unsigned long)sd.write_ms_this_s,
-        (unsigned long)sd.sync_ms_this_s, tone_jump, tone_settle);
+        (unsigned long)sd.sync_ms_this_s, tone_jump, tone_settle, tone_silent);
     sd.write_ms_this_s = 0;
     sd.sync_ms_this_s = 0;
 }

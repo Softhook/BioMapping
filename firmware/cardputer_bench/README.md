@@ -58,6 +58,7 @@ Keys:
 | **R** | Resets the error count, the longest gap, the longest SD write and the key count |
 | **B** | Bluetooth on/off (see "Noise tests") |
 | **T** | Plays the Flipper's recording-start chirp and measures the jump |
+| **S** | The same measurement as T, with no sound, to compare against |
 | **L** | Steps the backlight: 128, 255, 64, 16, off, then back to 128 |
 | **W** | SD card writing: each press tries the next way of writing (1–4), then off |
 
@@ -86,7 +87,7 @@ There is no gain step, so readings can still be off by the tolerance of the 47k 
 These check whether the Cardputer's own parts disturb the GSR reading. Each key switches on one thing the real firmware does. Leave each setting for 2–3 minutes with a fixed resistor across the electrodes (1 MΩ, then 10 MΩ), and save the USB log.
 
 - **B, Bluetooth.** The footer shows `BT adv` while it waits for a phone. To copy Live Stream, connect with a phone app such as nRF Connect, find "BioMap bench", and turn on notifications for its one characteristic. The footer then shows `BT conn`, and the Cardputer sends a 49-byte packet every 300 ms, as Live Stream does. Pressing B again stops all sending, but the radio stays switched on. For a "Bluetooth never started" comparison, restart the Cardputer.
-- **T, tone.** Plays the two-note chirp the Flipper plays when a recording starts. It needs a valid reading for the second before. For 3 seconds it watches the 100 ms values, then shows how far the reading jumped and how long after the chirp it settled. The Flipper waits 200 ms after its chirp before it trusts the GSR again, so "settled" should be 200 ms or less. The timing is only as fine as the 100 ms values, so it can be out by up to 100 ms. Repeat it a few times.
+- **T and S, tone.** T plays the two-note chirp the Flipper plays when a recording starts. It needs a resistor across the electrodes and 2 seconds of valid readings first. The spread of those 2 seconds (highest minus lowest) counts as normal. For the next 3 seconds it watches the 100 ms values, then shows the biggest move and when the reading last went outside the normal spread, counted from the end of the chirp: `Tone 3.78nS 100ms`, or `>3s` if it never stayed inside. The Flipper waits 200 ms after its chirp before it trusts the GSR again. S does exactly the same without playing anything. Ordinary jitter and slow wander also show up as a "move", so a T result only means something next to S results. Press T and S in turn, four or five times each, a few seconds apart. If T looks like S, the speaker has no real effect. If T moves clearly more, or takes longer than 200 ms to settle while S doesn't, the Cardputer needs a longer wait than the Flipper. The timing is only as fine as the 100 ms values.
 - **L, backlight.** The levels between off and full dim the screen by switching it on and off very fast, which can disturb the supply. At "off" the screen is dark but the log still runs. Press L again to bring it back.
 - **W, SD card.** Needs a microSD card in the Cardputer's slot. Every 10 seconds it writes about 12 KB to `/bench_sd_test.csv` in one go, about what a recording writes, then saves the file. Each press of W tries the next way of writing, starting the file again from empty:
   1. **plain:** add to the end of the file.
@@ -104,7 +105,7 @@ Record 2–3 minutes on the Flipper with the same resistor, then run:
 python3 scripts/bench_noise.py FLIPPER_FILE.csv cardputer_log.txt
 ```
 
-(from the repo's top folder). It works out the same noise number from the Flipper file and splits the Cardputer log into one row per setting. It leaves out the second either side of each change, and tone tests. It warns if the readings differ by more than 5%, which usually means a different resistor. `--from` and `--to` (seconds) keep only part of a file.
+(from the repo's top folder). It works out the same noise number from the Flipper file and splits the Cardputer log into one row per setting. It leaves out the second either side of each change, and tone tests, and lists the tone tests separately, chirp and silent side by side. It warns if the readings differ by more than 5%, which usually means a different resistor. `--from` and `--to` (seconds) keep only part of a file.
 
 To save the log: `pio device monitor | tee cardputer_log.txt`.
 
