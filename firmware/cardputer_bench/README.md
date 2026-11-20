@@ -16,6 +16,8 @@ Power the prototyping board from a separate 3.3 V supply (for example the Flippe
 
 Match the wires by signal name, not pin number, and check with a multimeter before switching on.
 
+**Run the laptop on battery while testing.** A laptop charger has no earth pin and leaks a little mains hum onto the laptop's ground. Anything plugged into the laptop's USB shares that ground, and the GSR input picks the hum up. With a MacBook on its charger, a 1 MΩ resistor jittered by about 18 nS where it should be under 1 nS. Unplugging the charger cured it. For the same reason, plug only one device into the laptop: the Flipper on its battery while the Cardputer is on USB, or the other way round.
+
 **Switch the 3.3 V supply on first and off last.** Once the program is running, the Cardputer holds G13 at 3.3 V whenever it is not sending. If the prototyping board has no power at that moment, G13 feeds current into the GPS's RX pin and partly powers the module through it. u-blox warns this can damage the module for good. If you can't control the order, unplug the G13 wire before switching the 3.3 V supply off.
 
 ## Build and flash
@@ -45,9 +47,19 @@ The I2C address list, PSRAM and clock lines are gone: those questions are answer
 | Fix / signal | Time from start-up to the first fix, HDOP, and the strongest signal (dB-Hz) | Strongest signal 35+ in open sky; below about 25 is weak |
 | Batt, boot | Battery voltage, how many times the Cardputer has started, and why it last started | `power on`, `USB` or `software` are fine. `BROWNOUT` (red) means the power dipped and reset it |
 
-The bottom line shows the keys and the time since start-up.
+The bottom line shows which noise tests are on (yellow when on) and the time since start-up.
 
-Keys: **Z** sets the zero (see below), **G** shows the GSR graph (press again to go back), **R** resets the error count, the longest gap and the key count.
+Keys:
+
+| Key | What it does |
+|---|---|
+| **Z** | Sets the zero (see below) |
+| **G** | Shows the GSR graph (press again to go back) |
+| **R** | Resets the error count, the longest gap, the longest SD write and the key count |
+| **B** | Bluetooth on/off (see "Noise tests") |
+| **T** | Plays the Flipper's recording-start chirp and measures the jump |
+| **L** | Steps the backlight: 128, 255, 64, 16, off, then back to 128 |
+| **W** | SD card writing: each press tries the next way of writing (1–4), then off |
 
 The graph shows the last 22 seconds, one point every 100 ms (the same window as one row of a real recording). The scale fits itself to what's on screen, and the numbers at the bottom give the range shown. Gaps mean open circuit.
 
@@ -64,10 +76,39 @@ There is no gain step, so readings can still be off by the tolerance of the 47k 
 ## What to try
 
 1. **Zero, then a known resistor.** 1 MΩ across the electrodes should now read close to 1,000 nS.
-2. **Keyboard and GSR together.** With a resistor across the electrodes, type for a while. Noise and errors shouldn't change.
+2. **Keyboard and GSR together.** With a resistor across the electrodes, type for a while, using number keys so none of the test keys fires. Noise and errors shouldn't change.
 3. **Long run.** Press R, leave it for an hour, then check: errors 0, gap still small, boot count unchanged, keys still respond.
 4. **GPS by a window or outdoors.** Note the first-fix time and the best signal. For the antenna test (doc section 6), compare the best signal and "used" count with the GPS facing up and facing down.
 5. **GPS power.** If the boot line ever shows `BROWNOUT`, the GPS's current draw reset the Cardputer.
+
+## Noise tests
+
+These check whether the Cardputer's own parts disturb the GSR reading. Each key switches on one thing the real firmware does. Leave each setting for 2–3 minutes with a fixed resistor across the electrodes (1 MΩ, then 10 MΩ), and save the USB log.
+
+- **B, Bluetooth.** The footer shows `BT adv` while it waits for a phone. To copy Live Stream, connect with a phone app such as nRF Connect, find "BioMap bench", and turn on notifications for its one characteristic. The footer then shows `BT conn`, and the Cardputer sends a 49-byte packet every 300 ms, as Live Stream does. Pressing B again stops all sending, but the radio stays switched on. For a "Bluetooth never started" comparison, restart the Cardputer.
+- **T, tone.** Plays the two-note chirp the Flipper plays when a recording starts. It needs a valid reading for the second before. For 3 seconds it watches the 100 ms values, then shows how far the reading jumped and how long after the chirp it settled. The Flipper waits 200 ms after its chirp before it trusts the GSR again, so "settled" should be 200 ms or less. The timing is only as fine as the 100 ms values, so it can be out by up to 100 ms. Repeat it a few times.
+- **L, backlight.** The levels between off and full dim the screen by switching it on and off very fast, which can disturb the supply. At "off" the screen is dark but the log still runs. Press L again to bring it back.
+- **W, SD card.** Needs a microSD card in the Cardputer's slot. Every 10 seconds it writes about 12 KB to `/bench_sd_test.csv` in one go, about what a recording writes, then saves the file. Each press of W tries the next way of writing, starting the file again from empty:
+  1. **plain:** add to the end of the file.
+  2. **reserved:** first reserve 8 MB of space, as the Flipper does when a recording starts. The card's file table then doesn't need changing on every write.
+  3. **sectors:** as 2, but each write is exactly 24 whole 512-byte blocks.
+  4. **40 MHz:** as 3, with the card running faster (25 MHz in 1–3).
+
+  The footer shows the mode and its longest write (`SD2 45ms`), and after each write the third line shows its time and how much of it went on saving. The Flipper pauses for 20–60 ms. While a write runs the reading pauses, so the gap and reads/s get worse. That is a side effect of this test program running everything on one thread; the real firmware reads the GSR on its own thread. Give each mode at least a minute (6 writes).
+
+### Comparing with the Flipper
+
+Record 2–3 minutes on the Flipper with the same resistor, then run:
+
+```
+python3 scripts/bench_noise.py FLIPPER_FILE.csv cardputer_log.txt
+```
+
+(from the repo's top folder). It works out the same noise number from the Flipper file and splits the Cardputer log into one row per setting. It leaves out the second either side of each change, and tone tests. It warns if the readings differ by more than 5%, which usually means a different resistor. `--from` and `--to` (seconds) keep only part of a file.
+
+To save the log: `pio device monitor | tee cardputer_log.txt`.
+
+**Power for these tests.** With the board powered from the Flipper, these tests only show what the Cardputer's radio, speaker, screen and SD card put onto the shared ground and I2C wires. They say nothing about the Cardputer's own power supply. For that, power the board from a low-noise 3.3 V regulator fed from the Cardputer's 5V OUT, as in the real design, and run them again. Never connect 5V OUT to the board directly.
 
 ## If something is wrong
 

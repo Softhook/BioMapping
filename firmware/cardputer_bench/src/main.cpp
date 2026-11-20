@@ -23,9 +23,24 @@
 //
 // A once-a-second CSV line goes to the USB serial port (115200 baud).
 // Keys: Z = set the zero, G = GSR graph on/off, R = reset the counters.
+//
+// Noise tests: each key switches on one thing the real firmware does, so
+// its effect on the GSR noise can be seen (scripts/bench_noise.py groups the
+// log by these settings):
+//   B = Bluetooth: advertise, and send a Live Stream sized packet every
+//       300 ms once a phone connects;
+//   T = play the Flipper's recording-start chirp and measure how far the
+//       GSR jumps and how long it takes to settle;
+//   L = step the screen backlight through 128, 255, 64, 16 and off;
+//   W = write a 10 s batch of rows to the SD card every 10 s; each press
+//       tries a different way of writing (see the SD section).
 
+#include <BLEDevice.h>
+#include <BLEServer.h>
 #include <M5Cardputer.h>
 #include <Preferences.h>
+#include <SD.h>
+#include <SPI.h>
 #include <esp_system.h>
 
 // ── Pins and addresses ──────────────────────────────────────────────────────
@@ -112,9 +127,19 @@ struct {
     float counts = 0.0f;
     int   pending = 0;            // seconds still to average after Z
     float sum = 0.0f;
-    char  msg[32] = "";
-    uint32_t msg_until_ms = 0;
 } zero;
+
+// A short message on the third screen line (zero result, tone result...).
+static struct {
+    char     text[40] = "";
+    uint32_t until_ms = 0;
+} msg;
+
+static void set_msg(const char* m, uint32_t show_ms = 4000) {
+    strncpy(msg.text, m, sizeof(msg.text) - 1);
+    msg.text[sizeof(msg.text) - 1] = 0;
+    msg.until_ms = millis() + show_ms;
+}
 
 static float corrected_ns(float raw_counts) {
     return counts_to_ns(raw_counts - (zero.set ? zero.counts : 0.0f), ads.bias_scale);
@@ -224,12 +249,6 @@ static void ads_poll(void) {
     ads.n_100++;
 }
 
-static void set_zero_msg(const char* m) {
-    strncpy(zero.msg, m, sizeof(zero.msg) - 1);
-    zero.msg[sizeof(zero.msg) - 1] = 0;
-    zero.msg_until_ms = millis() + 4000;
-}
-
 static void zero_start(void) {
     zero.pending = ZERO_SECONDS;
     zero.sum = 0.0f;
@@ -239,20 +258,20 @@ static void zero_second(void) {
     if(zero.pending <= 0) return;
     if(ads.n == 0) {  // no readings this second: give up rather than average nothing
         zero.pending = 0;
-        set_zero_msg("Zero failed: no readings");
+        set_msg("Zero failed: no readings");
         return;
     }
     zero.sum += ads.raw_mean;
     if(--zero.pending > 0) return;
     float z = zero.sum / ZERO_SECONDS;
     if(fabsf(z) > ZERO_MAX_COUNTS) {
-        set_zero_msg("Zero refused: disconnect");
+        set_msg("Zero refused: disconnect");
         return;
     }
     zero.counts = z;
     zero.set = true;
     prefs.putFloat("zero", z);
-    set_zero_msg("Zero saved");
+    set_msg("Zero saved");
 }
 
 static void ads_second(void) {
@@ -291,6 +310,8 @@ static struct {
 
 static bool show_graph = false;
 
+static void tone_tick(float ns);
+
 static void graph_tick(void) {
     float ns = NAN;
     if(ads.n_100 > 0) {
@@ -308,6 +329,290 @@ static void graph_tick(void) {
     graph.v[graph.head] = ns;
     graph.head = (graph.head + 1) % GRAPH_POINTS;
     if(graph.count < GRAPH_POINTS) graph.count++;
+    tone_tick(ns);
+}
+
+// ── Noise tests ─────────────────────────────────────────────────────────────
+
+// T: the Flipper's recording-start chirp (modules/sound.h), then 3 s of
+// watching the 100 ms values. The firmware waits GSR_TONE_SETTLE_MS (200 ms,
+// biomap_session.c) after the chirp before it trusts the GSR again, so the
+// question is whether the jump has died away within that.
+static const float    TONE_HZ[2] = {659.25f, 987.77f};
+static const uint32_t TONE_MS[2] = {70, 90};
+static const uint32_t TONE_TOTAL_MS = 160;
+static const uint8_t  TONE_VOLUME = 128;
+static const int      TONE_BASE_TICKS  = 10;  // 1 s of quiet before the tone
+static const int      TONE_WATCH_TICKS = 30;  // 3 s from the start of the tone
+static const float    TONE_MIN_BAND_NS = 0.1f;
+
+static struct {
+    bool     active = false;
+    bool     second_note_due = false;
+    uint32_t start_ms = 0;
+    int      ticks = 0;
+    float    base = 0.0f;         // mean of the second before the tone
+    float    band = 0.0f;         // how far from it counts as "still disturbed"
+    float    jump = 0.0f;         // largest distance from base seen
+    int      last_out = -1;       // last tick outside the band
+    bool     result_new = false;  // a result for this second's log line
+    float    result_jump = NAN;
+    int      result_settle_ms = -1;
+} chirp;
+
+static void tone_start(void) {
+    if(chirp.active) return;
+    // Baseline: the last second of 100 ms values, all of them valid.
+    if(graph.count < TONE_BASE_TICKS) { set_msg("Tone: wait a second"); return; }
+    float sum = 0.0f, lo = INFINITY, hi = -INFINITY;
+    for(int i = 1; i <= TONE_BASE_TICKS; i++) {
+        float v = graph.v[(graph.head - i + GRAPH_POINTS) % GRAPH_POINTS];
+        if(isnan(v)) { set_msg("Tone: fit a resistor first"); return; }
+        sum += v;
+        if(v < lo) lo = v;
+        if(v > hi) hi = v;
+    }
+    chirp.base = sum / TONE_BASE_TICKS;
+    chirp.band = fmaxf(hi - lo, TONE_MIN_BAND_NS);
+    chirp.jump = 0.0f;
+    chirp.last_out = -1;
+    chirp.ticks = 0;
+    chirp.active = true;
+    chirp.second_note_due = true;
+    chirp.start_ms = millis();
+    M5Cardputer.Speaker.tone(TONE_HZ[0], TONE_MS[0]);
+    set_msg("Tone: measuring...", 3500);
+}
+
+static void tone_poll(void) {
+    if(chirp.second_note_due && millis() - chirp.start_ms >= TONE_MS[0]) {
+        chirp.second_note_due = false;
+        M5Cardputer.Speaker.tone(TONE_HZ[1], TONE_MS[1]);
+    }
+}
+
+static void tone_tick(float ns) {
+    if(!chirp.active) return;
+    int i = chirp.ticks++;
+    if(isnan(ns)) {
+        chirp.last_out = i;  // a reading thrown out as open circuit is disturbed too
+    } else {
+        float d = fabsf(ns - chirp.base);
+        if(d > chirp.jump) chirp.jump = d;
+        if(d > chirp.band) chirp.last_out = i;
+    }
+    if(chirp.ticks < TONE_WATCH_TICKS) return;
+
+    chirp.active = false;
+    char buf[40];
+    if(chirp.last_out == TONE_WATCH_TICKS - 1) {
+        chirp.result_settle_ms = -1;
+        snprintf(buf, sizeof(buf), "Tone %.2f nS, not settled 3 s", chirp.jump);
+    } else {
+        // Ticks are 100 ms; the time counts from the end of the chirp.
+        int ms = (chirp.last_out + 1) * (int)GRAPH_STEP_MS - (int)TONE_TOTAL_MS;
+        chirp.result_settle_ms = ms < 0 ? 0 : ms;
+        snprintf(buf, sizeof(buf), "Tone %.2f nS, settled %d ms", chirp.jump, chirp.result_settle_ms);
+    }
+    chirp.result_jump = chirp.jump;
+    chirp.result_new = true;
+    set_msg(buf, 15000);
+}
+
+// L: backlight steps. 255 is fully on; the levels in between dim it by
+// switching the light on and off quickly, which can put noise on the supply.
+static const uint8_t BACKLIGHT_LEVELS[] = {128, 255, 64, 16, 0};
+static const int     BACKLIGHT_COUNT = sizeof(BACKLIGHT_LEVELS);
+static int backlight_idx = 0;
+
+static void backlight_next(void) {
+    backlight_idx = (backlight_idx + 1) % BACKLIGHT_COUNT;
+    M5Cardputer.Display.setBrightness(BACKLIGHT_LEVELS[backlight_idx]);
+}
+
+// B: Bluetooth. Live Stream sends a 49-byte packet every 300 ms
+// (BT_STREAM_INTERVAL_MS, BT_STREAM_PACKET_SIZE). Without a phone connected
+// the radio only advertises. Pressing B again stops all sending; the radio
+// stays switched on but silent, so restart the Cardputer for a "never on"
+// comparison.
+static const char*    BLE_NAME = "BioMap bench";
+static const char*    BLE_SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
+static const char*    BLE_CHAR_UUID    = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
+static const uint32_t BLE_SEND_MS = 300;
+static const size_t   BLE_PACKET_SIZE = 49;
+
+static struct {
+    bool              started = false;
+    volatile bool     on = false;         // read by the Bluetooth task
+    volatile bool     connected = false;  // written by the Bluetooth task
+    BLEServer*        server = nullptr;
+    BLECharacteristic* ch = nullptr;
+    uint32_t          last_send_ms = 0;
+    uint32_t          sent = 0;
+} ble;
+
+class BleCallbacks : public BLEServerCallbacks {
+    void onConnect(BLEServer*) override { ble.connected = true; }
+    void onDisconnect(BLEServer*) override {
+        ble.connected = false;
+        if(ble.on) BLEDevice::startAdvertising();
+    }
+};
+
+static void ble_toggle(void) {
+    if(ble.on) {
+        ble.on = false;
+        BLEDevice::stopAdvertising();
+        if(ble.connected) ble.server->disconnect(ble.server->getConnId());
+        return;
+    }
+    if(!ble.started) {
+        BLEDevice::init(BLE_NAME);
+        BLEDevice::setMTU(BLE_PACKET_SIZE + 3);
+        ble.server = BLEDevice::createServer();
+        ble.server->setCallbacks(new BleCallbacks());
+        BLEService* svc = ble.server->createService(BLE_SERVICE_UUID);
+        ble.ch = svc->createCharacteristic(BLE_CHAR_UUID,
+            BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY);
+        svc->start();
+        BLEDevice::getAdvertising()->addServiceUUID(BLE_SERVICE_UUID);
+        ble.started = true;
+    }
+    ble.on = true;
+    BLEDevice::startAdvertising();
+}
+
+static void ble_poll(void) {
+    if(!ble.on || !ble.connected) return;
+    uint32_t now = millis();
+    if(now - ble.last_send_ms < BLE_SEND_MS) return;
+    ble.last_send_ms = now;
+    uint8_t pkt[BLE_PACKET_SIZE];
+    for(size_t i = 0; i < sizeof(pkt); i++) pkt[i] = (uint8_t)(ble.sent + i);
+    ble.ch->setValue(pkt, sizeof(pkt));
+    ble.ch->notify();
+    ble.sent++;
+}
+
+static int ble_state(void) {  // for the log: 0 off, 1 advertising, 2 connected
+    if(!ble.on) return 0;
+    return ble.connected ? 2 : 1;
+}
+
+// W: SD card. A recording collects rows in memory and writes them in one go
+// every FLUSH_INTERVAL (10 s, biomap_types.h): about 100 rows of a GPS + GSR
+// file, then saves (syncs) the file. The write runs on this loop's thread, so
+// the gap and reads/s suffer while it runs; the real firmware reads the GSR
+// on its own thread.
+//
+// W steps through four ways of writing, to find what makes the write quick:
+//   1 plain:    add to the end of the file, card at 25 MHz;
+//   2 reserved: first reserve 8 MB, as the Flipper does at the start of a
+//               recording (SD_LOGGER_PREALLOC_BYTES, modules/sd_logger.c),
+//               so the card's file table isn't changed on every write;
+//   3 sectors:  as 2, but each write is a whole number of 512-byte sectors;
+//   4 40 MHz:   as 3, with the card at 40 MHz.
+// Each starts the test file again from empty.
+static const uint32_t SD_EVERY_MS = 10000;
+static const size_t   SD_CHUNK_PLAIN   = 12000;
+static const size_t   SD_CHUNK_SECTORS = 24 * 512;  // 12,288
+static const uint32_t SD_RESERVE_BYTES = 8u * 1024u * 1024u;
+static const char*    SD_PATH = "/bench_sd_test.csv";
+static const int      SD_MODES = 4;
+static const char* const SD_MODE_TEXT[SD_MODES + 1] = {"off", "plain", "reserved", "sectors", "40 MHz"};
+
+static uint8_t sd_buf[SD_CHUNK_SECTORS];
+
+static struct {
+    uint32_t mounted_hz = 0;       // 0 = not mounted
+    int      mode = 0;             // 0 = off, 1..SD_MODES as above
+    File     f;
+    uint32_t last_ms = 0;
+    uint32_t write_ms_this_s = 0;  // for the log, 0 = no write this second
+    uint32_t sync_ms_this_s = 0;   // the part of it spent saving the file
+    uint32_t max_write_ms = 0;     // since the last R or the last W
+} sd;
+
+static void sd_fill_buffer(void) {
+    static const char row[] =
+        "1234.50,51.5012345,-0.1234567,0.9,1.6,12,3,1.20,123.4,4567.8,2.1\n";
+    for(size_t i = 0; i < sizeof(sd_buf); i++) sd_buf[i] = row[i % (sizeof(row) - 1)];
+}
+
+static bool sd_mount(uint32_t hz) {
+    if(sd.mounted_hz == hz) return true;
+    if(sd.mounted_hz) SD.end();
+    sd.mounted_hz = 0;
+    int cs = M5.getPin(m5::pin_name_t::sd_spi_ss);
+    SPI.begin(M5.getPin(m5::pin_name_t::sd_spi_sclk), M5.getPin(m5::pin_name_t::sd_spi_miso),
+              M5.getPin(m5::pin_name_t::sd_spi_mosi), cs);
+    if(!SD.begin(cs, SPI, hz)) return false;
+    sd.mounted_hz = hz;
+    return true;
+}
+
+static void sd_stop(const char* why) {
+    sd.mode = 0;
+    sd.f.close();
+    if(why) set_msg(why);
+}
+
+static void sd_toggle(void) {
+    int next = (sd.mode + 1) % (SD_MODES + 1);
+    if(sd.mode) sd.f.close();
+    sd.mode = 0;
+    sd.max_write_ms = 0;
+    if(next == 0) return;
+
+    if(!sd_mount(next == 4 ? 40000000 : 25000000)) {
+        set_msg(next == 4 ? "SD won't run at 40 MHz" : "SD card not found");
+        return;
+    }
+    sd.f = SD.open(SD_PATH, FILE_WRITE);  // starts the file again from empty
+    if(!sd.f) { set_msg("SD: can't open file"); return; }
+
+    char buf[40];
+    if(next >= 2) {
+        // Reserve: jump to the far end, write one byte, save, come back.
+        uint32_t t0 = millis();
+        bool ok = sd.f.seek(SD_RESERVE_BYTES - 1) && sd.f.write((uint8_t)0) == 1;
+        sd.f.flush();
+        ok = ok && sd.f.seek(0);
+        if(!ok) { sd_stop("SD: couldn't reserve 8 MB"); return; }
+        snprintf(buf, sizeof(buf), "SD %d %s: 8 MB in %lu ms", next, SD_MODE_TEXT[next],
+                 (unsigned long)(millis() - t0));
+    } else {
+        snprintf(buf, sizeof(buf), "SD %d %s", next, SD_MODE_TEXT[next]);
+    }
+    set_msg(buf);
+    sd.mode = next;
+    sd.last_ms = millis() - SD_EVERY_MS;  // first write straight away
+}
+
+static void sd_poll(void) {
+    if(!sd.mode) return;
+    uint32_t now = millis();
+    if(now - sd.last_ms < SD_EVERY_MS) return;
+    sd.last_ms = now;
+    size_t len = sd.mode >= 3 ? SD_CHUNK_SECTORS : SD_CHUNK_PLAIN;
+    uint32_t t0 = micros();
+    size_t n = sd.f.write(sd_buf, len);
+    uint32_t t1 = micros();
+    sd.f.flush();  // pushes out what's left and saves the file (fsync)
+    uint32_t t2 = micros();
+    if(n != len) { sd_stop("SD write failed"); return; }
+    if(sd.mode >= 2 && sd.f.position() + len > SD_RESERVE_BYTES) {
+        // Past the reserved space (about 3 hours): start the file again.
+        sd.f.seek(0);
+    }
+    uint32_t ms = (t2 - t0 + 999) / 1000;
+    uint32_t sync_ms = (t2 - t1 + 999) / 1000;
+    if(ms > sd.write_ms_this_s) { sd.write_ms_this_s = ms; sd.sync_ms_this_s = sync_ms; }
+    if(ms > sd.max_write_ms) sd.max_write_ms = ms;
+    char buf[40];
+    snprintf(buf, sizeof(buf), "SD %d: %lu ms (save %lu)", sd.mode, (unsigned long)ms,
+             (unsigned long)sync_ms);
+    set_msg(buf, 3000);
 }
 
 // ── GPS ─────────────────────────────────────────────────────────────────────
@@ -576,6 +881,7 @@ static void reset_counters(void) {
     ads.errors = 0;
     ads.pga_changes = 0;
     ads.max_gap_us = 0;
+    sd.max_write_ms = 0;
     key_presses = 0;
 }
 
@@ -588,6 +894,10 @@ static void keys_poll(void) {
     if(c == 'z' || c == 'Z') zero_start();
     if(c == 'r' || c == 'R') reset_counters();
     if(c == 'g' || c == 'G') show_graph = !show_graph;
+    if(c == 'b' || c == 'B') ble_toggle();
+    if(c == 't' || c == 'T') tone_start();
+    if(c == 'l' || c == 'L') backlight_next();
+    if(c == 'w' || c == 'W') sd_toggle();
 }
 
 // ── Screen and serial log ───────────────────────────────────────────────────
@@ -644,9 +954,9 @@ static void draw_screen(void) {
         }
 
         // 3. Zero status, or noise.
-        if(millis() < zero.msg_until_ms) {
+        if(millis() < msg.until_ms) {
             line_at(y, TFT_CYAN);
-            canvas.print(zero.msg);
+            canvas.print(msg.text);
         } else if(!zero.set) {
             line_at(y, TFT_YELLOW);
             canvas.printf("No zero: open, press Z (%.0f)", ads.raw_mean);
@@ -696,14 +1006,23 @@ static void draw_screen(void) {
     else canvas.print("Batt -  ");
     canvas.printf("boot %lu %s", (unsigned long)boot_count, reset_text(reset_reason));
 
-    // Footer: keys and uptime.
+    // Footer: which noise tests are on, and uptime. Anything switched on
+    // from its usual state is yellow.
     uint32_t up = millis() / 1000;
     char upbuf[12];
     snprintf(upbuf, sizeof(upbuf), "%lu:%02lu:%02lu",
         (unsigned long)(up / 3600), (unsigned long)(up / 60 % 60), (unsigned long)(up % 60));
-    canvas.setTextColor(TFT_DARKGREY, TFT_BLACK);
     canvas.setCursor(2, H - LH);
-    canvas.print("Z zero G graph R reset");
+    static const char* const BT_TEXT[3] = {"BT off ", "BT adv ", "BT conn "};
+    int bt = ble_state();
+    canvas.setTextColor(bt ? TFT_YELLOW : TFT_DARKGREY, TFT_BLACK);
+    canvas.print(BT_TEXT[bt]);
+    canvas.setTextColor(backlight_idx ? TFT_YELLOW : TFT_DARKGREY, TFT_BLACK);
+    canvas.printf("L%u ", BACKLIGHT_LEVELS[backlight_idx]);
+    canvas.setTextColor(sd.mode ? TFT_YELLOW : TFT_DARKGREY, TFT_BLACK);
+    if(sd.mode) canvas.printf("SD%d %lums", sd.mode, (unsigned long)sd.max_write_ms);
+    else canvas.print("SD off");
+    canvas.setTextColor(TFT_DARKGREY, TFT_BLACK);
     canvas.drawString(upbuf, W - 2 - canvas.textWidth(upbuf), H - LH);
 
     canvas.pushSprite(0, 0);
@@ -788,18 +1107,31 @@ static void log_header(void) {
     Serial.println("ms,ads_present,gsr_ns,raw_counts,zero_counts,pga,reads_per_s,ads_i2c_errors,"
                    "pga_changes,max_gap_ms,noise_pp_ns,bias_mv,gps_locked,gps_good_per_s,"
                    "gps_bad_per_s,gps_fix,gps_used,gps_heard,gps_in_view,gps_best_cno,"
-                   "gps_top4_cno,gps_hdop,gps_utc,gps_ttff_s,batt_mv,key_presses");
+                   "gps_top4_cno,gps_hdop,gps_utc,gps_ttff_s,batt_mv,key_presses,"
+                   "bt,backlight,sd_mode,sd_write_ms,sd_sync_ms,tone_jump_ns,tone_settle_ms");
 }
 
 static void log_line(void) {
-    Serial.printf("%lu,%d,%.2f,%.1f,%.1f,%u,%lu,%lu,%lu,%.1f,%.2f,%.2f,%d,%lu,%lu,%d,%d,%d,%d,%d,%.1f,%.2f,%s,%lu,%d,%lu\n",
+    // Tone result only on the second it arrives; empty otherwise.
+    char tone_jump[12] = "", tone_settle[12] = "";
+    if(chirp.result_new) {
+        chirp.result_new = false;
+        snprintf(tone_jump, sizeof(tone_jump), "%.2f", chirp.result_jump);
+        snprintf(tone_settle, sizeof(tone_settle), "%d", chirp.result_settle_ms);
+    }
+    Serial.printf("%lu,%d,%.2f,%.1f,%.1f,%u,%lu,%lu,%lu,%.1f,%.2f,%.2f,%d,%lu,%lu,%d,%d,%d,%d,%d,%.1f,%.2f,%s,%lu,%d,%lu,"
+                  "%d,%u,%d,%lu,%lu,%s,%s\n",
         (unsigned long)millis(), ads.present, ads.ns, ads.raw_mean,
         zero.set ? zero.counts : 0.0f, ads.pga,
         (unsigned long)ads.reads_per_s, (unsigned long)ads.errors,
         (unsigned long)ads.pga_changes, ads.max_gap_us / 1000.0f, ads.noise_pp, ads.bias_mv,
         gps.locked, (unsigned long)gps.good_per_s, (unsigned long)gps.bad_per_s,
         gps.fix, gps.used, gps.heard, gps.in_view, gps.best_cno, gps.top4_cno, gps.hdop,
-        gps.utc, (unsigned long)gps.ttff_s, batt_mv, (unsigned long)key_presses);
+        gps.utc, (unsigned long)gps.ttff_s, batt_mv, (unsigned long)key_presses,
+        ble_state(), BACKLIGHT_LEVELS[backlight_idx], sd.mode, (unsigned long)sd.write_ms_this_s,
+        (unsigned long)sd.sync_ms_this_s, tone_jump, tone_settle);
+    sd.write_ms_this_s = 0;
+    sd.sync_ms_this_s = 0;
 }
 
 // ── Arduino entry points ────────────────────────────────────────────────────
@@ -816,6 +1148,9 @@ void setup() {
     M5Cardputer.Display.setRotation(0);
     canvas.createSprite(M5Cardputer.Display.width(), M5Cardputer.Display.height());
     canvas.setFont(SCREEN_FONT);
+    M5Cardputer.Display.setBrightness(BACKLIGHT_LEVELS[0]);
+    M5Cardputer.Speaker.setVolume(TONE_VOLUME);
+    sd_fill_buffer();
 
     Serial.begin(115200);
     Serial.setTxTimeoutMs(0);  // don't stall the loop when no computer is listening
@@ -846,6 +1181,9 @@ void loop() {
     keys_poll();
     ads_poll();
     gps_poll();
+    tone_poll();
+    ble_poll();
+    sd_poll();
 
     uint32_t now = millis();
     if(now - last_graph_ms >= GRAPH_STEP_MS) {
