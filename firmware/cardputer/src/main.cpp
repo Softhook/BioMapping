@@ -48,7 +48,10 @@ static View read_view(void) {
     v.write_stopped = s.recording.write_stopped;
     v.retrying = s.recording.flush_fail_streak > 0;
     v.elapsed_s = s.recording.total_ticks / TICK_HZ;
-    v.ns = s.pipeline.display.last_displayed;
+    // The same value and rounding as the Flipper's recording screen
+    // (core/biomap_screen.c, draw_ns_top_right), so the two can be
+    // compared by eye: the ~100 ms average, in whole nS.
+    v.ns = s.pipeline.display.filtered_ns;
     if(s.gsr) {
         v.sensor_ok = gsr_sensor_available(s.gsr);
         v.connected = gsr_sensor_is_connected(s.gsr);
@@ -113,7 +116,7 @@ static void draw_screen(void) {
         canvas.setTextColor(TFT_YELLOW, TFT_BLACK);
         canvas.print("Cuffs off");
     } else {
-        canvas.printf("%.1f nS", v.ns);
+        canvas.printf("%.0f nS", v.ns);
     }
     canvas.setFont(&fonts::Font2);
 
