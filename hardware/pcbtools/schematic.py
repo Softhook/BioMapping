@@ -294,13 +294,12 @@ FLIPPER = gsr_core() + gps_block() + [
 # The Cardputer board and the EXT header are joined by the flex tail: a
 # flexible strip whose solder end lies on 8 landing pads near the board's top
 # edge, soldered through its plated holes. Tail pad k sits on board pad k
-# (same number, same net). The order puts each wire on the side of the board
-# that uses it, so nothing crosses on the board: GPS serial at the GPS end,
-# then 5 V for the regulator in the middle, then I2C and the ADC's ready line
-# at the GSR end, in the same order as the ADC's pins. The tail does the
-# reordering. One ground wire keeps the ready line's edges off SCL, the
-# other sits between SDA and 5 V.
-TAIL_NETS = {"1": "ADC_READY", "2": "GND", "3": "I2C_SCL", "4": "I2C_SDA", "5": "GND", "6": "+5V_EXT",
+# (same number, same net). The order is the header's own, except that SCL and
+# SDA change places in the tail's stiffened end (one via), because the ADC's
+# pins want them that way round. On the board, the I2C wires pass between
+# FB1's pads to reach the GSR side, so nothing runs on the ground face.
+# Pad 6 carries nothing; it is soldered down to help hold the tail.
+TAIL_NETS = {"1": "ADC_READY", "2": "GND", "3": "+5V_EXT", "4": "I2C_SCL", "5": "I2C_SDA", "6": None,
              "7": "HOST_TX_TO_GPS", "8": "GPS_TX_TO_HOST"}
 
 CARDPUTER = gsr_core(adc_ready="ADC_READY") + gps_block() + [
@@ -318,8 +317,7 @@ CARDPUTER = gsr_core(adc_ready="ADC_READY") + gps_block() + [
 ]
 # No I2C pull-ups on the Cardputer board: the Cardputer's bus already has them.
 # No pull-up on ADC_READY either (the ADS1115's ALERT/RDY pin is open-drain):
-# the firmware turns on the ESP32's own pull-up on G4. A resistor here would
-# need 3.3 V on the far side of the I2C wires, which would mean a crossing.
+# the firmware turns on the ESP32's own pull-up on G4.
 
 CARDPUTER_TAIL = [
     part("J1", "Conn_2x07", "Cardputer ADV EXT header", "BioMap:PinHeader_2x07_P2.54mm_Vertical_Stiffener",
@@ -748,7 +746,9 @@ def tail_pads(s, ref, x, y):
     """The flex tail's 8 pads: ground pins to GND symbols, the rest to labels."""
     s.put(ref, x, y)
     for pn, net in TAIL_NETS.items():
-        if net == "GND":
+        if net is None:
+            s.nc(f"{ref}.{pn}")
+        elif net == "GND":
             s.power(f"{ref}.{pn}", "GND", n=2)
         else:
             s.label(f"{ref}.{pn}", net, n=4)

@@ -28,17 +28,18 @@ and 3.6 mm across: about 6.3 mm of the 9 mm strip, leaving 2-3 mm of slack.
 With the pin ends on B, the plug end stands about 5.5 mm out from the edge
 (less if the pins are trimmed after soldering).
 
-The wires run down F in the order the Cardputer board uses them (seen from
-F, left to right): ADC ready, GND, SCL, SDA, GND, 5 V, G13, G15. That is not
-the header's order (GND, 5 V, SDA, SCL, G13, G15), so the tail reorders them
-inside the stiffened end, where nothing bends, in the strip above the header
-pins: SCL and SDA drop through vias to B and pass over the ground and 5 V
-wires there, SCL above SDA. No track runs between the header's two rows on B,
-the face where the pins are soldered by hand. The ADC ready line comes from
-the odd row (pin 3, G4), passing between pins 2 and 4 on F, under the
-stiffener. Pin 2 (5 V in) stays unconnected. The two ground wires join on F
-and go to the header's GND pin. In the stiffened end the ground and 5 V wires
-are 0.25 mm wide, to fit under the vias; they carry about 40 mA."""
+The wires run down F in the header's own order (seen from F, left to
+right): ADC ready, GND, 5 V, SCL, SDA, a spare pad, G13, G15. Only SCL and
+SDA change places (the ADC's pins want them that way round), and they do it
+in the stiffened end: SCL drops through one via to B and passes over SDA to
+its pin. Every track crosses the stiffener's edge (y 16) straight, and
+nothing turns, and no via sits, within 1 mm of it: that edge is where the
+flex bends hardest, and the factory glues the stiffener on a few tenths of a
+mm either way. No track runs between the header's two rows on B, the face
+where the pins are soldered by hand. The ADC ready line comes from the odd
+row (pin 3, G4), passing between pins 2 and 4 on F, under the stiffener.
+Pin 2 (5 V in) stays unconnected. Pad 6 carries nothing; it is soldered
+down like the others to help hold the tail."""
 from ..rules import SIG, PWR, TEXT
 
 PLACE = {
@@ -46,25 +47,23 @@ PLACE = {
     "J2": (12.0, 2.5, 0, "F"),       # pad k at x 5.25 + 1.5 k: READY, GND, SCL, SDA, GND, 5V, G13, G15
 }
 TRACKS = [
-    # ── on F: straight down the strip, then across to their header pins ──
-    ("F", SIG, ["J2.1", (6.75, 16.6), (5.65, 17.7), (5.65, 20.77), "J1.3"]),   # ADC ready, between pins 2 and 4
-    ("F", SIG, ["J2.6", (14.25, 18.35), (9.46, 18.35), "J1.6"]),     # 5 V, under SDA and SCL
-    ("F", SIG, ["J2.7", (15.75, 17.6), "J1.12"]),                     # G13, to the GPS
-    ("F", SIG, ["J2.8", (17.25, 17.6), "J1.14"]),                     # G15, from the GPS
-    ("F", SIG, ["J2.2", (8.25, 17.85)]),                              # the two ground wires ...
-    ("F", SIG, ["J2.5", (12.75, 17.85), (7.4, 17.85), "J1.4"]),       # ... joined, to the GND pin
-    # ── SCL and SDA: down F to vias at the top of the stiffened end, then over on B ──
-    ("F", SIG, ["J2.3", (9.75, 16.45)]),
-    ("B", SIG, ["net:I2C_SCL", (9.75, 16.45), (13.9, 16.45), (14.54, 17.1), "J1.10"]),
-    ("F", SIG, ["J2.4", (11.25, 17.2)]),
-    ("B", SIG, ["net:I2C_SDA", (11.25, 17.2), (12.0, 17.95), "J1.8"]),
+    # ── on F: straight down the strip, turning only once 1 mm inside the stiffener ──
+    ("F", SIG, ["J2.1", (6.75, 17.0), (5.65, 18.1), (5.65, 20.77), "J1.3"]),   # ADC ready, between pins 2 and 4
+    ("F", SIG, ["J2.2", (8.25, 17.0), "J1.4"]),                       # GND
+    ("F", SIG, ["J2.3", (9.75, 17.0), "J1.6"]),                       # 5 V
+    ("F", SIG, ["J2.5", (12.75, 17.0), "J1.8"]),                      # SDA
+    ("F", SIG, ["J2.7", (15.75, 17.0), "J1.12"]),                     # G13, to the GPS
+    ("F", SIG, ["J2.8", (17.25, 17.0), "J1.14"]),                     # G15, from the GPS
+    # ── SCL: down F to a via 1.5 mm inside the stiffener, then over SDA on B ──
+    ("F", SIG, ["J2.4", (11.25, 17.5)]),
+    ("B", SIG, ["net:I2C_SCL", (11.25, 17.5), "J1.10"]),
 ]
-VIAS = [("I2C_SCL", 9.75, 16.45), ("I2C_SDA", 11.25, 17.2)]
+VIAS = [("I2C_SCL", 11.25, 17.5)]
 KEEPOUT = []
 STITCH = []
 GROUND_POUR = False        # solid copper would make the strip stiff and crack where it bends
 LABELS = {"F": [("THIS SIDE DOWN", 12.0, 10.0, TEXT)],
-          "B": [("EXT TAIL rev C", 12.0, 11.5, TEXT)]}
+          "B": [("EXT TAIL rev D", 12.0, 11.5, TEXT)]}
 # notes for the flex factory, on the drawings layer
 MARKINGS = [
     ((2.0, 16.0, 22.0, 24.0), "STIFFENER: FR4 1.0 mm, on F (header side), drilled for the header"),

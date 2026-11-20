@@ -21,20 +21,22 @@ from ..rules import SIG, PWR, TEXT
 # tail's solder end lies over them from the edge to y 6.2 (the printed lines),
 # and each pad runs on past the tail's tip to y 7.2, where the iron can reach it.
 #
-# Nothing crosses: every track is on the outer face. The tail delivers the wires
-# in the order the board uses them (left to right): GPS serial for the GPS on
-# the left, 5 V for the regulator straight below the tail, then SDA, SCL and the
-# ADC's ready line for the GSR circuit on the right (the ADC's own pin order). The regulator's 3.3 V
-# leaves it in two branches, left under the serial wires to the GPS and right
-# under the I2C wires to the GSR circuit.
+# The tail delivers the wires in the EXT header's own order (it swaps only SCL
+# and SDA, in its stiffened end). Left to right: GPS serial for the GPS on the
+# left, a spare pad, then SDA, SCL, 5 V, ground and the ADC's ready line. The
+# regulator sits straight below the 5 V pad, and the two I2C wires cross the
+# 5 V wire by passing between the pads of the ferrite bead FB1, so nothing
+# runs on the inner face. The regulator's 3.3 V leaves it in two branches:
+# down and left to the GPS, and right, under the I2C wires, to the GSR circuit.
 PLACE = {
     "J1": (42.0, 4.5, 180, "B"),       # pad 8 (GPS TX) at x 36.75 ... pad 1 (ADC ready) at x 47.25
     "H1": (14, 4, 0, "F"), "H2": (70, 4, 0, "F"),
-    # 5 V -> 3.3 V in a column straight below the 5 V pad: filter FB1, regulator U3 with its
-    # input capacitor C4 below it, output capacitor C5 beside its output pin
-    "FB1": (39.75, 9.3, -90, "B"),
-    "U3": (40.5, 13.0, 0, "B"), "C4": (38.0, 15.85, 0, "B"),
-    "C5": (43.8, 14.9, -90, "B"),
+    # 5 V -> 3.3 V in a column straight below the 5 V pad: filter FB1 (the I2C wires pass
+    # between its pads), regulator U3 with its input capacitor C4 below it, output
+    # capacitor C5 beside its output pin
+    "FB1": (44.25, 9.3, -90, "B"),
+    "U3": (45.0, 13.0, 0, "B"), "C4": (42.5, 15.85, 0, "B"),
+    "C5": (48.3, 14.9, -90, "B"),
     # GPS on the left half, turned so its serial pins (13, 14) face the tail above, its VCC
     # pin (17) faces the regulator on the right, and its V_IO and backup pins (2, 3) face
     # the free space below. Each capacitor bridges its pin and the GND pad beside it
@@ -49,7 +51,7 @@ PLACE = {
     "D1": (31.5, 44.0, 0, "B"), "R8": (27.9, 44.0, 180, "B"),
     "BT1": (22.0, 44.0, 0, "B"),
     # GSR circuit, right to left along the signal: cuffs (right edge) -> R4 -> C2/R5 -> op-amp
-    # U1 -> ADC U2 above it, nearest the tail. The cuff socket's opening is 0.75 mm inside the
+    # U1 -> ADC U2 just above it. The cuff socket's opening is 0.75 mm inside the
     # right edge, so nothing sticks out and the plug can be pulled straight off; its tabs keep
     # the 0.5 mm copper-edge gap
     "J2": (78.85, 28.0, 270, "B"),
@@ -60,23 +62,26 @@ PLACE = {
     # 0.5 V bias divider in a column beside the op-amp's bias input (pin 5)
     "R1": (55.4, 32.4, 0, "B"), "R2": (55.4, 29.9, 180, "B"), "C9": (55.4, 27.5, 180, "B"),
     "C1": (58.3, 24.2, 180, "B"),                  # right over the op-amp supply pin 8
-    # ADC turned so its inputs face the op-amp below and its I2C pins face the tail
-    "U2": (57.6, 18.5, 180, "B"), "C3": (52.7, 19.1, 180, "B"),   # C3 beside ADC supply pin 8
-    # test pads in one row: ground, GSR output, 0.5 V; the last two sit on their wires
-    "TP5": (66.8, 23.0, 0, "B"), "TP3": (64.28, 23.0, 0, "B"), "TP4": (61.8, 23.0, 0, "B"),
+    # ADC just above the op-amp: its inputs (pins 4, 5) face right, straight above the
+    # op-amp's output and reference; its I2C and supply pins face left, towards the wires
+    # coming from the tail. C3 sits under its supply pin 8
+    "U2": (59.7, 20.3, 180, "B"), "C3": (54.8, 21.4, 180, "B"),
+    # test pads in one row between the ADC and the op-amp: 0.5 V, GSR output, ground;
+    # the first two sit on their wires
+    "TP4": (61.8, 23.2, 0, "B"), "TP3": (64.28, 23.2, 0, "B"), "TP5": (66.8, 23.2, 0, "B"),
 }
 TRACKS = [
     # ── 5 V -> 3.3 V: from the tail's 5 V pad straight down to the regulator ──
-    ("B", PWR, ["J1.6", "FB1.1"]),
-    ("B", PWR, ["FB1.2", (37.05, 10.36), (37.05, 15.85), "C4.1"]),      # down the left of U3
-    ("B", PWR, [(37.05, 12.05), "U3.3"]),                              # EN, tied to IN
-    ("B", PWR, [(37.05, 13.95), "U3.1"]),                              # IN
-    ("B", SIG, ["U3.2", (38.0, 13.0)]),                                # ground pin to its via
-    ("B", PWR, ["C4.2", (39.9, 16.95)]),
+    ("B", PWR, ["J1.3", "FB1.1"]),
+    ("B", PWR, ["FB1.2", (41.55, 10.36), (41.55, 15.85), "C4.1"]),     # down the left of U3
+    ("B", PWR, [(41.55, 12.05), "U3.3"]),                              # EN, tied to IN
+    ("B", PWR, [(41.55, 13.95), "U3.1"]),                              # IN
+    ("B", SIG, ["U3.2", (42.5, 13.0)]),                                # ground pin to its via
+    ("B", PWR, ["C4.2", (44.4, 16.95)]),
     ("B", PWR, ["U3.5", "C5.1"]),
-    ("B", PWR, ["C5.2", (43.8, 17.0)]),
+    ("B", PWR, ["C5.2", (48.3, 17.0)]),
     # ── GPS: 3.3 V down from the regulator's output pin and across to VCC (pin 17) through C7 ──
-    ("B", PWR, ["U3.5", (41.64, 19.5), (37.0, 19.5), (37.0, 28.1), "C7.1", "U4.17"]),
+    ("B", PWR, ["U3.5", (46.14, 19.5), (37.0, 19.5), (37.0, 28.1), "C7.1", "U4.17"]),
     ("B", PWR, ["C7.2", "U4.16"]),
     # V_IO (pin 2): on down round the module's bottom-right corner, through C6
     ("B", PWR, [(37.0, 28.1), (37.0, 41.0), (27.9, 41.0), "C6.1", "U4.2"]),
@@ -94,49 +99,50 @@ TRACKS = [
     ("B", SIG, ["R10.2", (26.0, 6.6), (36.75, 6.6), "J1.8"]),
     ("B", SIG, ["J1.7", (38.25, 8.6), "R9.2"]),
     ("B", SIG, ["R9.1", (27.9, 8.6), "U4.14"]),
+    # ── I2C: down from the tail, right between FB1's pads, then down to the ADC's left side.
+    # SCL above SDA across the top, SDA inside SCL on the way down, so they reach the
+    # ADC's pins 10 and 9 without crossing ──
+    ("B", SIG, ["J1.4", (42.75, 9.03), (54.6, 9.03), (54.6, 19.3), "U2.10"]),
+    ("B", SIG, ["J1.5", (41.25, 9.57), (54.0, 9.57), (54.0, 19.8), "U2.9"]),
     # ── 3V3 to the GSR side: its own branch from C5, right under the I2C wires, then a
     # spine down the left of the GSR circuit ──
-    ("B", PWR, ["C5.1", (45.8, 13.95), (45.8, 20.6), (50.4, 20.6), (50.4, 32.4), "R1.1"]),
-    ("B", PWR, ["net:+3V3", (50.4, 26.09), "U1.8"]),
+    ("B", PWR, ["C5.1", (52.8, 13.95), (52.8, 32.4), "R1.1"]),
+    ("B", SIG, ["net:+3V3", (52.8, 20.3), "U2.8"]),                  # ADC supply pin, under SDA
+    ("B", SIG, [(55.75, 20.3), "C3.1"]),                              # C3 right under it
+    ("B", PWR, ["C3.2", (53.85, 22.75)]),
+    ("B", PWR, ["net:+3V3", (52.8, 26.09), "U1.8"]),
     ("B", PWR, ["U1.8", "C1.1"]),                          # C1 right over the op-amp supply pin
     ("B", PWR, ["C1.2", (57.35, 23.05)]),
-    ("B", PWR, ["net:+3V3", (50.4, 20.6), (53.65, 20.6), "C3.1"]),
-    ("B", SIG, ["U2.8", (53.65, 18.5), "C3.1"]),                    # ADC supply pin into C3
-    ("B", PWR, ["C3.2", (50.7, 19.1)]),
     # ── GSR signal path ──
     ("B", SIG, ["J2.2", "R4.1"]),                          # cuff 2: straight in
     ("B", SIG, ["J2.1", (72.6, 27.0), "R3.1"]),
     ("B", SIG, ["R3.2", (72.6, 22.2)]),
     ("B", SIG, ["R4.2", "C2.1", "R5.1", "U1.2"]),          # amplifier input: R4, C2, R5, U1 pin 2
     ("B", SIG, ["C2.2", "R5.2", "U1.1"]),                  # amplifier output back through C2 and R5
-    ("B", SIG, ["U1.1", "TP3.1", (64.28, 19.0), "U2.4"]),           # GSR to the ADC
+    ("B", SIG, ["U1.1", "TP3.1", (64.28, 20.8), "U2.4"]),           # GSR straight up to the ADC
     ("B", SIG, ["U1.3", (61.8, 28.64), "U1.6"]),           # 0.5 V reference under the chip
     ("B", SIG, ["U1.6", "U1.7"]),
-    ("B", SIG, [(61.8, 28.64), "TP4.1", (61.8, 19.5), "U2.5"]),
+    ("B", SIG, [(61.8, 28.64), "TP4.1", "U2.5"]),          # ... and straight up to the ADC
     ("B", SIG, ["R1.2", "R2.1", "C9.1"]),                  # bias divider
     ("B", SIG, ["U1.5", "R2.1"]),
     ("B", PWR, ["R2.2", "C9.2"]),
     ("B", PWR, ["U1.4", (64.28, 31.0)]),                   # ground pin to its via, just outside the guard
-    ("B", SIG, ["TP5.1", (66.8, 21.4)]),
-    # ── ADC, I2C and the ready line ──
+    ("B", SIG, ["TP5.1", (66.8, 21.6)]),
+    # ── ADC ground and the ready line ──
     # ADDR (pin 1) and GND (pin 3) share a via under the chip, leaving the ready pin
     # (pin 2, between them) free to leave sideways
-    ("B", SIG, ["U2.1", (58.1, 17.5), (58.1, 18.5)]),
-    ("B", SIG, ["U2.3", (58.1, 18.5)]),
-    # the three wires from the tail's right-hand pads, nested: SDA innermost, then SCL,
-    # then the ready line round the top of the ADC to its pin on the far side
-    ("B", SIG, ["J1.4", (42.75, 10.5), (47.0, 10.5), (47.0, 18.0), "U2.9"]),
-    ("B", SIG, ["J1.3", (44.25, 9.0), (47.8, 9.0), (47.8, 17.5), "U2.10"]),
-    ("B", SIG, ["J1.1", (47.25, 7.6), (61.0, 7.6), (61.0, 18.0), "U2.2"]),
-    # the tail's two ground pads straight down to vias
-    ("B", SIG, ["J1.5", (41.25, 8.4)]),
+    ("B", SIG, ["U2.1", (60.6, 19.3), (60.6, 20.3)]),
+    ("B", SIG, ["U2.3", (60.6, 20.3)]),
+    # the ready line along the top, outside the I2C wires, and down the right of the ADC
+    ("B", SIG, ["J1.1", (47.25, 7.6), (63.4, 7.6), (63.4, 19.8), "U2.2"]),
+    # the tail's ground pad straight down to a via
     ("B", SIG, ["J1.2", (45.75, 8.0)]),
 ]
 VIAS = [
-    ("GND", 41.25, 8.4), ("GND", 45.75, 8.0),
-    ("GND", 38.0, 13.0), ("GND", 39.9, 16.95), ("GND", 43.8, 17.0),
-    ("GND", 58.1, 18.5), ("GND", 50.7, 19.1), ("GND", 57.35, 23.05), ("GND", 54.5, 28.7),
-    ("GND", 64.28, 31.0), ("GND", 72.6, 22.2), ("GND", 66.8, 21.4),
+    ("GND", 45.75, 8.0),
+    ("GND", 42.5, 13.0), ("GND", 44.4, 16.95), ("GND", 48.3, 17.0),
+    ("GND", 60.6, 20.3), ("GND", 53.85, 22.75), ("GND", 57.35, 23.05), ("GND", 54.5, 28.7),
+    ("GND", 64.28, 31.0), ("GND", 72.6, 22.2), ("GND", 66.8, 21.6),
 ]
 # GPS keep-clear: no tracks on the inner layer near the module, none under it on the outer face
 KEEPOUT = [("F", (8.5, 12.5, 43.5, 47.5)), ("B", (20.7, 24.7, 31.3, 35.3))]
@@ -154,10 +160,10 @@ STITCH = [((22.0, 26.0, 30.0, 34.0), 2.0), ((1.5, 1.5, 49.5, 52.5), 3.0), ((52.5
 # The title block sits in the free space under the GSR circuit, its lines
 # between the rows of ground vias (y 36.5, 41.5, 46.5, 51.5).
 LABELS = {"B": [("Bio Mapping 2", 66.0, 39.0, 1.8), ("Christian Nold, 2004 - 2026", 66.0, 44.0, 1.2),
-                ("rev C  2026-11", 66.0, 49.0, TEXT),
+                ("rev D  2026-11", 66.0, 49.0, TEXT),
                 ("GPS: keep this side clear of metal", 26.0, 51.0, TEXT),
                 ("CUFFS", 79.2, 22.4, TEXT), ("BODY <> WORLD", 71.5, 14.0, 1.2), ("SAFEBOOT", 14.0, 33.0, TEXT),
-                ("RESET", 37.0, 32.6, TEXT), ("5V to 3.3V", 32.5, 15.0, TEXT),
+                ("RESET", 37.0, 32.6, TEXT), ("5V to 3.3V", 37.0, 15.0, TEXT),
                 ("FLEX TAIL", 55.0, 3.0, TEXT), ("SOLDER HERE", 55.0, 5.0, TEXT)]}
 
 

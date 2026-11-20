@@ -238,6 +238,11 @@ def place_labels(board, fps, texts):
             if fp.IsFlipped() == flipped:
                 bb = fp.GetCourtyard(pcbnew.B_CrtYd if flipped else pcbnew.F_CrtYd).BBox()
                 cy[ref] = tuple(pcbnew.ToMM(v) for v in (bb.GetLeft(), bb.GetTop(), bb.GetRight(), bb.GetBottom()))
+        # each part's printed outline: a label may overlap another part's courtyard
+        # when nothing else fits, but never its printed lines
+        silk_layer = pcbnew.B_SilkS if flipped else pcbnew.F_SilkS
+        silk = [(ref, box_of(g, 0.1)) for ref, fp in fps.items() for g in fp.GraphicalItems()
+                if g.GetLayer() == silk_layer]
         taken = []
         for txt, x, y, size in texts.get(side, []):
             tx = pcbnew.PCB_TEXT(board)
@@ -271,6 +276,8 @@ def place_labels(board, fps, texts):
                     rt.SetPosition(V(sx, sy))
                     b = box_of(rt, 0.1)
                     if not inside(b) or any(hit(b, p) for p in pads) or any(hit(b, o) for o in taken):
+                        continue
+                    if any(hit(b, o) for r2, o in silk if r2 != ref):
                         continue
                     if strict and any(hit(b, o) for r2, o in cy.items() if r2 != ref):
                         continue

@@ -28,8 +28,8 @@ RULES = [
     ("C5-U3 ground", "max", 3.0, None, "regulator output capacitor (Cardputer); no worse than today"),
     # ── GSR signal path: short copper picks up less noise ──
     ("amplifier input", "max", 10.0, None, "carries the tiny skin current; the most noise-sensitive wire"),
-    ("GSR_SIGNAL", "max", 17.0, None, "amplifier output to the ADC and test pad TP3; no worse than today"),
-    ("0.5 V ref", "max", 19.0, None, "reference shared by amplifier and ADC, and test pad TP4; "
+    ("GSR_SIGNAL", "max", {"biomap_flipper": 17.0, "biomap_cardputer": 13.0}, None, "amplifier output to the ADC and test pad TP3; no worse than today"),
+    ("0.5 V ref", "max", {"biomap_flipper": 19.0, "biomap_cardputer": 14.0}, None, "reference shared by amplifier and ADC, and test pad TP4; "
                                      "no worse than today"),
     ("bias divider", "max", 8.0, None, "R1/R2 and smoothing capacitor C9 to the reference buffer; "
                                        "no worse than today"),
