@@ -55,9 +55,9 @@ for tracing which physical unit recorded a given file. Empty
 `GPSChipID` is a 5-word mnemonic phrase (e.g. `axis slang boast putt
 chunk`) derived from the u-blox SAM-M10Q module's unique chip identifier,
 retrieved via a binary UBX-SEC-UNIQID poll during GPS init and rendered
-using the EFF short wordlist (`modules/eff_short_wordlist.h`) instead of
+using the EFF short wordlist (`core/eff_short_wordlist.h`) instead of
 the raw 12-hex-digit value — see `gps_uart_get_chip_id()`'s doc comment in
-`modules/gps_uart.h` for the exact derivation. `1296^5 == 6^20 >= 2^48`,
+`core/gps_uart.h` for the exact derivation. `1296^5 == 6^20 >= 2^48`,
 so this is a lossless, collision-free encoding of the full 48-bit chip
 ID, not just a recognisable approximation. It only
 appears when GPS is active for the session **and** the poll actually got a

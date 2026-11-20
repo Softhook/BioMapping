@@ -13,7 +13,7 @@
 // ── Host-testable CSV row formatter + pure numeric helpers ────────────
 #include "core/biomap_format.h"
 
-// ── Event types shared between biomap.c and modules/gps_uart.c ─────────
+// ── Event types shared between biomap.c and flipper/gps_uart_flipper.c ─────────
 #include "biomap_events.h"
 
 // ── Flipper Zero SDK ───────────────────────────────────────────────────
@@ -31,7 +31,7 @@
 // ── Module headers ─────────────────────────────────────────────────────
 #include "biomap_session.h"
 #include "biomap_render.h"
-#include "modules/gps_uart.h"
+#include "flipper/gps_uart_flipper.h"
 #include "flipper/gsr_sensor_flipper.h"
 #include "modules/sd_logger.h"
 #include "modules/sound.h"

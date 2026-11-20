@@ -2,7 +2,7 @@
 
 **Written:** 2026-07-15 · **Last checked against code:** 2026-10-01 (§3.3–3.4 and §6 rewritten for the road-snapping review)
 **Scope:** Complete overview of the GPS processing pipeline, from firmware-level quality gating through to downstream spatial analysis filters.
-**Files:** `firmware/modules/gps_uart.c`, `firmware/core/biomap_types.h`, `firmware/biomap_session.c`, `visualiser/src/gps/gps_cv_kalman.mjs`, `visualiser/src/gps/gps_pipeline.mjs`, `visualiser/src/gps/map_match.mjs`, `visualiser/src/map/manager/process.mjs`
+**Files:** `firmware/core/gps_uart.c`, `firmware/core/biomap_types.h`, `firmware/biomap_session.c`, `visualiser/src/gps/gps_cv_kalman.mjs`, `visualiser/src/gps/gps_pipeline.mjs`, `visualiser/src/gps/map_match.mjs`, `visualiser/src/map/manager/process.mjs`
 
 > The filter stages and their order still match the code as of the
 > last-checked date. For the authoritative, versioned CSV column list see
@@ -40,7 +40,7 @@ Note the map matcher (`M`) is *not* part of the per-render filter chain above it
 
 ## 2. Firmware-Level Gating & Parsing
 
-### 2.1 NaN Guarding & Validity Checks (`modules/gps_uart.c`)
+### 2.1 NaN Guarding & Validity Checks (`core/gps_uart.c`)
 - **DOP Safety**: `minmea_tofloat` returns `NaN` for missing fields. During fix acquisition, GSA/GGA sentences may omit DOP. The firmware uses temporary floats and only overwrites coordinates/DOPs if the values are valid (non-NaN) real numbers.
 - **GLL Validity Flag**: The firmware verifies `gll_frame.status == MINMEA_GLL_STATUS_DATA_VALID` before updating coordinates from GLL, preventing void coordinates from overwriting good ones.
 - **Satellite fixes only**: After losing the satellites the receiver keeps reporting its own estimate from its motion model — GGA quality `6`, RMC/GLL mode `E` — including estimates it flags as invalid (M10 interface description §2.5.5; the integration manual says fixes not marked valid should not be used). RMC, GGA and GLL all ignore these, so they never move the stored position (`gps_quality_is_gnss_fix()` in `gps_uart.h`).
@@ -127,7 +127,7 @@ Measurement noise variance $R$ in the Kalman filter ([`gps_cv_kalman.mjs`](../vi
 $$R_{\text{effective}} = \begin{cases} (\text{hacc\_m})^2 & \text{if hacc\_m valid} \\ R_{\text{base}} \times \text{DOP}^2 & \text{otherwise (before the first \$PUBX,00)} \end{cases}$$
 
 ### The `hAcc` Spatial Error Advantage
-The u-blox SAM-M10Q calculates **`hAcc`**—the actual physical horizontal position error in meters—via its internal extended Kalman filter covariance matrix, transmitted in the `$PUBX,00` NMEA sentence. The Flipper firmware (`modules/gps_uart.c`) extracts `hAcc` for live OLED display and, as of CSV schema v1.2, logs it as `hacc_m`.
+The u-blox SAM-M10Q calculates **`hAcc`**—the actual physical horizontal position error in meters—via its internal extended Kalman filter covariance matrix, transmitted in the `$PUBX,00` NMEA sentence. The Flipper firmware (`core/gps_uart.c`) extracts `hAcc` for live OLED display and, as of CSV schema v1.2, logs it as `hacc_m`.
 
 1. **Direct Kalman Variance Assignment:** When `hacc_m` is valid (not the `99.9` sentinel), the visualiser's Kalman filter (via `GpsCvKalman.measurementVarianceM2()` — the canonical hacc/DOP² noise model) assigns physical measurement variance directly instead of scaling by DOP².
 2. **Urban Canyon Multipath Rejection:** In urban canyons or under wet tree canopies, satellite geometry often remains acceptable ($\text{HDOP } 1.2$), causing DOP-based estimation to under-estimate measurement noise. However, physical multipath reflections cause true `hAcc` to spike from $1.5\text{ m} \longrightarrow 15.0\text{ m}$. With $R = 15^2 = 225$, the Kalman filter immediately de-weights the multipath outlier and dead-reckons smoothly past the anomaly.

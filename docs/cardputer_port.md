@@ -244,7 +244,7 @@ firmware/
 ### How the shared code talks to each device
 
 - **The shared code never runs threads, and normally never waits.** It works step by step: "here is a new reading, update yourself", "here are the GPS bytes that arrived", "one second has passed".
-- **One exception: the GPS start-up and sleep sequences.** These are timed by nature. For example: send at 9600 baud, wait 200 ms, switch to 115200, wait 50 ms, send the sleep command ([gps_uart.c](../firmware/modules/gps_uart.c)). This sequence is confirmed on real hardware, and rewriting it as a step-by-step machine would risk breaking it. So the shared code may ask the device for "the time now" and "wait N ms", but only in these sequences. They already run on the main thread.
+- **One exception: the GPS start-up and sleep sequences.** These are timed by nature. For example: send at 9600 baud, wait 200 ms, switch to 115200, wait 50 ms, send the sleep command ([gps_uart.c](../firmware/core/gps_uart.c)). This sequence is confirmed on real hardware, and rewriting it as a step-by-step machine would risk breaking it. So the shared code may ask the device for "the time now" and "wait N ms", but only in these sequences. They already run on the main thread.
 - **Two smaller waits in the GSR code.** When the GSR sensor starts, it checks the chip is there and reads the 0.5 V bias (about 25 ms). And the bias check at the start of a recording waits up to 200 ms for the GSR thread to finish it. Both waits were already there on the Flipper; they now ask the device to wait.
 - **Each device runs its own loop and threads** and feeds the shared code. Both devices keep the same two-thread design: a main thread and a GSR thread. The GSR thread just calls the shared "one pass" function in a loop, with a 1 ms pause after each pass.
 - **Each device supplies a few small functions:**
@@ -290,7 +290,7 @@ None of these stops the port, but each would cause a confusing fault if missed.
 
 - **Bluetooth message size.** Each live packet is 49 bytes ([bt_stream.h](../firmware/modules/bt_stream.h)). By default, ESP32 Bluetooth sends only 20 bytes per message. The Cardputer must ask for bigger messages when a connection opens. Otherwise packets arrive cut short and the Live tab shows nothing. It must also use the same service and characteristic IDs that the visualiser looks for (see "Bluetooth" in section 4).
 - **One I2C driver, not two.** M5Stack's own library already uses the I2C bus for the keyboard and audio chip. If the GSR code opens the same pins through a second, separate driver (such as Arduino's `Wire`), the two fight over the bus and readings go wrong at random. The GSR code must go through the same driver as M5Stack's library.
-- **Keep the GPS serial port open all the time.** A sleeping M10Q wakes on any signal on its receive wire. On the Flipper, letting go of the port left that wire floating, and the module woke within seconds ([gps_uart.c](../firmware/modules/gps_uart.c), [gps_sleep_investigation.md](../research/archive/gps_sleep_investigation.md)). The Cardputer must do what the Flipper does: open the port when the app starts and hold it until the app exits.
+- **Keep the GPS serial port open all the time.** A sleeping M10Q wakes on any signal on its receive wire. On the Flipper, letting go of the port left that wire floating, and the module woke within seconds ([gps_uart_flipper.c](../firmware/flipper/gps_uart_flipper.c), [gps_sleep_investigation.md](../research/archive/gps_sleep_investigation.md)). The Cardputer must do what the Flipper does: open the port when the app starts and hold it until the app exits.
 - **C-only features in shared headers.** The Arduino setup compiles its own code as C++. [bt_stream.h](../firmware/modules/bt_stream.h) uses `_Atomic`, a C-only feature that C++ cannot read. Keep such details inside `.c` files, so every shared header can be read by both. Shared headers also need the usual `extern "C"` wrapper.
 - **The 1 ms pause.** See "Build tools" above.
 
@@ -511,13 +511,48 @@ Small differences, none expected to show:
 
 **To check on a real Flipper:** record for a few minutes with fingers on, and check the GSR value, the gain changes and the `# GSR Bias` line look as before. Run the whole calibration wizard (Zero step and the three resistors) and check the result screen looks as before. Open Diagnostics and check the GSR thread's free stack, worker Hz (~500) and I2C peak. Then run an EM mode for a minute (radio bars move, app exits cleanly), which also covers the radio scan check above.
 
+### Step 3 done: GPS logic in `core/` (not yet tried on a real Flipper)
+
+All of the GPS logic now lives in [core/gps_uart.c](../firmware/core/gps_uart.c): the M10Q set-up commands and checking each reply, the wake-up wait, the sleep sequence at app start and at the end of each session, the speed change to 115200, the chip ID, reading NMEA lines and every sentence's rules, the 5 s watchdog and the reconfigure after it. It has no Flipper code. It reaches the hardware only through the functions the device hands it ([core/gps_uart.h](../firmware/core/gps_uart.h), `GpsPlatform`): set the serial speed, send bytes, start or stop receiving, take the bytes received so far, throw them away, "has the module answered yet?", "please call me again soon", the time in milliseconds, a wait, a lock, and an optional log line.
+
+The timed sequences (wake, speed change, sleep) are kept as waits, in the same order with the same pauses, as section 3 planned. They were confirmed on real hardware, so they were moved, not rewritten.
+
+The Flipper side, [flipper/gps_uart_flipper.c](../firmware/flipper/gps_uart_flipper.c), is about 330 lines: those functions written with the Flipper's own serial calls, the receive interrupt that puts each byte into a buffer and tells the main loop, holding USART1 for the app's whole life (and switching the Expansion Service off meanwhile), and the "idle" byte count that shows whether the module stayed asleep between sessions. The rest of the app calls the same `gps_uart_*` functions as before; only one `#include` changed.
+
+The rule "open the serial port once at app start and hold it until exit" now sits in the shared header too, next to the sleep sequence, so the Cardputer code is told about it where it will look.
+
+Checked:
+
+- All host tests pass. The 39 GPS tests were not changed (apart from one `#include`), and they now run the shared code through the real Flipper side.
+- **Old and new side by side.** A throwaway program ran the old and the new GPS code through the same script: app start with a module that answers, a session start with replies to the wake byte and the chip ID poll, NMEA lines, a burst of junk lines, a buffer overflow and its reconfigure, a cold start, the end of the session, the idle count, closing the port, and a session with no port. A second session covered the module accepting one setup command and rejecting another, and the watchdog firing. It printed every byte sent, the speed it was sent at, every status figure and counter after each stage, and every log line (45 of them). The two printouts were identical.
+- Two deliberate breaks each made a test fail: moving the watchdog from 5 s to 6 s, and changing one flag bit in the sleep command.
+- `run_tests.sh` compiles `core/gps_uart.c` with no fake Flipper headers, and the C++ check now includes the GPS header (minmea is built for it too, as [tests/minmea_host.c](../firmware/tests/minmea_host.c)).
+- The Flipper app builds with no warnings.
+- **The shared code also builds for the ESP32.** All `core/` files and minmea compile with the Cardputer's own compiler (the one PlatformIO installed for the bench program), with warnings on. minmea's own `timegm()` doesn't clash there: the ESP32's system headers don't declare one. The compiler warned that one counter in the NMEA reader might be used before it is set. That can't happen (the first pass always sets it), but it now starts at 0 so the warning is gone.
+
+Small differences, none expected to show:
+
+- **Log lines go through the shared code's log function.** The text is the same. The "First GSA talker" line is now written just after the lock is released instead of while it is held, so on the Cardputer a slow serial log can't hold up `gps_uart_get_status()`.
+- **Main-thread stack, about 120 bytes more at the deepest point** (a reconfigure that logs a missing reply), measured with the Flipper's own compiler. That is the shared code formatting its log line before handing it over. The main thread has 4 KB.
+- **The serial port is only shut down if it was started.** Before, the code knew from the order of calls that it always had been; now the Flipper side keeps a flag. Same calls on the Flipper.
+- **The watchdog's 5 s is in milliseconds**, as with the GSR clock. The Flipper's clock already counts in ms; the GPS start-up now checks this.
+- **The dropped-bytes count is read through the shared code.** It is counted where the bytes arrive (on the Flipper, the receive interrupt), and the shared `gps_uart_get_rx_drop_count()` asks the device for it, so the session can keep writing it to the CSV once it is shared in step 5. It reads 0 when there is no port, as before.
+
+Known weak points, left for later steps:
+
+- **The wake-up wait may not carry over to the Cardputer as it is (step 9).** At app start and each session start, the shared code waits for the first *clean* byte from the module: one with no error flag. A garbled byte can come from a module still starting up, so it doesn't count. The Flipper's serial driver reports an error flag with each byte; the ESP32's Arduino serial driver reports errors through a separate callback, not per byte. If the Cardputer counted every byte, a garbled one could end the wait too early. The speed-change command would then go out before the module listens, the module would stay at 9600, miss the sleep command sent at 115200, and stay awake. To decide at step 9: use the ESP32's error callback to throw away the bytes around an error, or have the shared code judge the byte itself (for example, wait for an NMEA `$`). The second would change the Flipper too, so it would need its own Flipper check.
+- **The watchdog only retries once.** After any reconfigure, the watchdog is off until a valid NMEA sentence arrives, so a reconfigure that fails is never tried again. This was already so before step 3, and the code comments say the single recovery is deliberate.
+- **The shared GPS code is only tested through the Flipper side.** No test drives it with a plain fake device, so the rules the header sets for each device (for example "never change the serial speed while receiving") are not checked anywhere. Worth adding before step 9.
+
+**To check on a real Flipper:** start the app and check in the log that the module answers the wake byte and that "Idle: GPS silent (stayed asleep)" appears when a session starts. Record GPS+GSR outside for a few minutes: the fix arrives, the position, satellites, hAcc and SBAS look as before, and the `# GPSChipID` header line is filled in. End the session and check the module goes back to sleep (idle count 0 at the next session). Also try Options > Cold Reset GPS once.
+
 ### Next steps
 
 The remaining preparation follows steps 1–6 of the order of work in section 7:
 
 1. ~~Create `core/` and `flipper/`, and move the files that are already plain C.~~ Done (see above).
 2. ~~Move the GSR logic into `core/`, including the Zero step's reading and the bias check.~~ Done (see above); needs the Flipper check.
-3. Move the GPS logic into `core/`.
+3. ~~Move the GPS logic into `core/`.~~ Done (see above); needs the Flipper check.
 4. Named events instead of LED patterns, with sounds included.
 5. Split the session into shared logic plus the Flipper loop.
 6. Make the screen layout shared.

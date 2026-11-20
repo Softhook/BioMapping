@@ -2,7 +2,8 @@
 # run_tests.sh — build and run the host-side unit test binaries.
 # These compile firmware source files against a host C compiler (not the
 # Flipper Zero ARM toolchain). test_gps_uart.c and test_sd_logger.c compile
-# the real, unmodified modules/gps_uart.c and modules/sd_logger.c against
+# the real, unmodified core/gps_uart.c (with flipper/gps_uart_flipper.c) and
+# modules/sd_logger.c against
 # tests/shims/ — a set of headers that fake just enough of the Flipper SDK
 # (furi.h, furi_hal.h, expansion/expansion.h, storage/storage.h) for them to
 # run on a host compiler, plus the _mock.c files that simulate USART1, I2C,
@@ -82,25 +83,27 @@ gcc -Wall -Wextra -Werror -I . -I vendor/minmea -o build/test_firmware \
 
 echo
 echo "== core/ builds with no Flipper headers =="
-# Compile only: core/gsr_sensor.c is linked and tested through the Flipper
-# side below. Without tests/shims on the include path, any Flipper call that
-# crept into core/ fails here.
+# Compile only: core/gsr_sensor.c and core/gps_uart.c are linked and tested
+# through the Flipper side below. Without tests/shims on the include path,
+# any Flipper call that crept into core/ fails here.
 for f in core/*.c; do
     gcc -Wall -Wextra -Werror -c -o "build/core_$(basename "$f" .c).o" "$f"
 done
+# minmea, which core/gps_uart.c uses (see tests/minmea_host.c).
+gcc -Wall -Wextra -Werror -I vendor/minmea -c -o build/minmea.o tests/minmea_host.c
 echo "ok"
 
 echo
 echo "== core/ headers usable from C++ (the Cardputer's Arduino code) =="
 g++ -std=c++17 -Wall -Wextra -Werror -I . -c -o build/cpp_link_check.o tests/core_cpp_link.cpp
-g++ -o build/cpp_link_check build/cpp_link_check.o build/core_*.o -lm
+g++ -o build/cpp_link_check build/cpp_link_check.o build/core_*.o build/minmea.o -lm
 ./build/cpp_link_check
 
 echo
 echo "== test_gps_uart (NMEA dispatch / RX framing) =="
 gcc -Wall -Wextra -Werror -I . -I modules -I vendor/minmea -I tests/shims -o build/test_gps_uart \
-    tests/test_gps_uart.c modules/gps_uart.c \
-    tests/shims/furi_hal_mock.c -lm
+    tests/test_gps_uart.c core/gps_uart.c flipper/gps_uart_flipper.c \
+    flipper/core_fatal.c tests/shims/furi_hal_mock.c -lm
 ./build/test_gps_uart
 
 echo

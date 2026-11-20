@@ -8,6 +8,7 @@
 #include "core/biomap_pipeline.h"
 #include "core/biomap_format.h"
 #include "core/gsr_sensor.h"
+#include "core/gps_uart.h"
 #include "core/core_check.h"
 
 #include <cstdio>
@@ -29,6 +30,8 @@ int main() {
     Pipeline p = {};
     pipeline_rescale_graph(&p, true);
     volatile bool keep = gsr_sensor_available(nullptr);
+    void (*sleep_fn)(const GpsPlatform*) = gps_uart_sleep_from_unknown_state;
+    keep = keep || sleep_fn == nullptr;
     std::printf("C++ link ok (%d, %d, %d)\n", n, d.in_gate, (int)keep);
     return 0;
 }

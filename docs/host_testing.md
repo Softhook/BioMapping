@@ -50,20 +50,22 @@ links both directly, so tests exercise the real code rather than copies.
 
 ### 2. Driver code — shim the SDK itself, not the driver
 
-`modules/gps_uart.c` calls the real Flipper SDK directly —
+`flipper/gps_uart_flipper.c` (the Flipper side of the shared GPS code in
+`core/gps_uart.c`) calls the real Flipper SDK directly —
 `furi_hal_serial_*`, `furi_mutex_*`, `furi_stream_buffer_*`,
 `furi_message_queue_put`, `furi_get_tick`, `FURI_LOG_*`, `expansion_*` —
 same as what ships in the Flipper build. **The driver file is not written
 against any custom interface.** For host tests, `tests/shims/` provides
 fake headers with the same names and signatures as the real SDK
 (`furi.h`, `furi_hal.h`, `expansion/expansion.h`) so that when
-`gps_uart.c`'s `#include <furi_hal.h>` resolves during a host compile, it
+`gps_uart_flipper.c`'s `#include <furi_hal.h>` resolves during a host compile, it
 picks up the fake instead of the real thing (via `-I tests/shims` placed
 ahead of everything else on the include path — see `run_tests.sh`).
 `tests/shims/furi_hal_mock.c` simulates a single USART1 peripheral well
 enough that a test can inject bytes as if they'd arrived from the ISR
 (`furi_hal_mock_feed_byte`/`_string`), and the real, unmodified
-`gps_uart_process_rx()` drains and parses them for real.
+`gps_uart_process_rx()` drains and parses them for real. The tests link
+both GPS files, so they test the shared logic through the real Flipper side.
 
 The GSR sensor needs one more piece: `flipper/gsr_sensor_flipper.c` owns a
 real background `FuriThread` that runs the shared worker pass
@@ -113,8 +115,11 @@ device for a handful of functions, one file per device, rather than a HAL
 per peripheral. The GSR sensor went first: `core/gsr_sensor.c` works through
 a `GsrPlatform` (I2C read/write, ms clock, wait, lock, log), and
 `flipper/gsr_sensor_flipper.c` supplies it with the real `furi_hal_i2c_*` and
-`FuriThread` calls. The Flipper side is still tested by faking the SDK as
-above.
+`FuriThread` calls. The GPS followed the same way: `core/gps_uart.c` works
+through a `GpsPlatform` (set the baud, send, start/stop receiving, read
+received bytes, ms clock, wait, lock, log), and `flipper/gps_uart_flipper.c`
+supplies it with `furi_hal_serial_*`, the receive interrupt and the held
+USART1 port. The Flipper side is still tested by faking the SDK as above.
 
 ---
 
@@ -127,21 +132,22 @@ firmware/core/                 — shared plain C, no Flipper code (run_tests.sh
   biomap_pipeline.h / .c        — signal processing
   biomap_format.h / .c          — CSV rows, calibration fit, CalDwell (wizard averaging)
   gsr_sensor.h / .c             — ADS1115 PGA autoranging, bias check, TIA; works through GsrPlatform
+  gps_uart.h / .c               — M10Q set-up, wake/sleep sequences, NMEA parsing + framing; works through GpsPlatform
+  eff_short_wordlist.h          — word list for the GPS chip-ID phrase
   core_check.h                  — CORE_CHECK / core_fatal(), supplied by each device
   (run_tests.sh also links tests/core_cpp_link.cpp against these, to prove the headers work from C++)
 
 firmware/flipper/              — Flipper side of the shared code
   gsr_sensor_flipper.h / .c     — GSR thread + GsrPlatform via furi_hal_i2c_* / FuriMutex
+  gps_uart_flipper.h / .c       — USART1, RX interrupt, held port + GpsPlatform via furi_hal_serial_*
   core_fatal.c                  — core_fatal() via furi_crash()
 
 firmware/modules/              — no test-only content, no HAL files
-  gps_uart.h / .c               — NMEA parsing + framing, calls furi_hal_serial_* directly
   sd_logger.h / .c              — auto-indexing CSV writer, calls Storage/File directly
   em_scan_rf.h / .c             — SubGHz RF sweep/RSSI, calls furi_hal_subghz_* directly
   em_scan_cal.h / .c            — RF noise-floor calibration + on-disk persistence
   bt_stream.h / .c              — BLE serial-profile lifecycle + send-or-drop (Live Stream)
   sound.h                       — untested
-  eff_short_wordlist.h / util.h  — small helpers
 
 firmware/tests/
   test_firmware.c               — pipeline + biomap_format (CSV / calibration) host tests
@@ -244,7 +250,7 @@ Approximate test counts — the exact numbers drift with each addition; run
 | File | Touches hardware | Host-tested |
 |---|---|---|
 | `core/biomap_pipeline.c` + `core/biomap_format.c` | No | ✅ `tests/test_firmware.c` (~35 tests) |
-| `modules/gps_uart.c` | Yes (`furi_hal_serial_*`) | ✅ `tests/test_gps_uart.c` (~39 tests) |
+| `core/gps_uart.c` + `flipper/gps_uart_flipper.c` | Flipper side only (`furi_hal_serial_*`) | ✅ `tests/test_gps_uart.c` (~39 tests) |
 | `core/gsr_sensor.c` + `flipper/gsr_sensor_flipper.c` | Flipper side only (`furi_hal_i2c_*`, real `FuriThread`) | ✅ `tests/test_gsr_sensor.c` (~47 tests) + a ThreadSanitizer pass |
 | `modules/sd_logger.c` | Yes (`Storage`/`File`) | ✅ `tests/test_sd_logger.c` (~30 tests, includes `BIOMAP_SD_PREALLOC` & CRC32 integrity trailer) |
 | `modules/em_scan_cal.c` | No (pure calc + Storage for persist) | ✅ `tests/test_em_scan_cal.c` (~5 tests) |

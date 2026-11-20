@@ -1,11 +1,12 @@
-// test_gps_uart.c — Host-side test for gps_uart.c's NMEA parsing and RX
-// framing, run against the REAL production gps_uart.c (not a copy of its
-// logic) — unmodified from what ships in the Flipper build. gps_uart.c
-// calls the real Flipper SDK directly (furi_hal_serial_*, furi_mutex_*,
-// furi_stream_buffer_*, ...); this test compiles it against tests/shims/
-// (a minimal Furi-core + furi_hal shim, plus a fake USART1 peripheral in
-// furi_hal_mock.c that lets us inject bytes as if they'd arrived from
-// the ISR).
+// test_gps_uart.c — Host-side test for the GPS code's NMEA parsing and RX
+// framing, run against the REAL production files (not a copy of their
+// logic) — unmodified from what ships in the Flipper build: the shared
+// logic in core/gps_uart.c, through its Flipper side,
+// flipper/gps_uart_flipper.c. The Flipper side calls the real Flipper SDK
+// directly (furi_hal_serial_*, furi_mutex_*, furi_stream_buffer_*, ...);
+// this test compiles it against tests/shims/ (a minimal Furi-core +
+// furi_hal shim, plus a fake USART1 peripheral in furi_hal_mock.c that
+// lets us inject bytes as if they'd arrived from the ISR).
 //
 // Coverage: every NMEA sentence type gps_uart_parse_line() dispatches on
 // (RMC, GGA, GSA, GLL, PUBX 00), the RX-buffer-full and NMEA-watchdog reinit
@@ -18,13 +19,13 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "modules/gps_uart.h"
+#include "flipper/gps_uart_flipper.h"
 #include "furi_hal.h"
 
 // minmea.c defines its own static timegm(), which clashes with the
 // libc-declared one when compiled standalone on a host toolchain — same
 // workaround test_firmware.c uses: rename it away before pulling the
-// implementation in textually (so gps_uart.c can link against real
+// implementation in textually (so core/gps_uart.c can link against real
 // minmea_parse_* without a separate, conflicting minmea.c translation unit).
 #include "minmea.h"
 #define timegm mock_timegm

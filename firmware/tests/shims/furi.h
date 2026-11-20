@@ -2,7 +2,8 @@
 
 // furi.h — host-test shim.
 //
-// gps_uart.c and gsr_sensor.c call the real Flipper SDK directly
+// flipper/gps_uart_flipper.c and flipper/gsr_sensor_flipper.c (the Flipper
+// sides of the shared GPS and GSR code in core/) call the real Flipper SDK directly
 // (furi_hal_serial_*, furi_hal_i2c_*, furi_mutex_*, furi_thread_*,
 // furi_stream_buffer_*, furi_message_queue_put, furi_get_tick, FURI_LOG_*,
 // ...) — unmodified from what ships in the Flipper build. This shim (plus
@@ -67,7 +68,7 @@
 #define FuriWaitForever 0xFFFFFFFFu
 
 // Real values from furi/core/base.h — several furi_* calls below return
-// this and gps_uart.c always discards it, but keep the type real rather
+// this and gps_uart_flipper.c always discards it, but keep the type real rather
 // than substituting int/void, in case future code ever does check it.
 typedef enum {
     FuriStatusOk = 0,
@@ -94,7 +95,7 @@ typedef enum {
 // yields via the RTOS, so this only brings the shim in line with it.
 static inline void furi_delay_ms(uint32_t ms) { (void)ms; sched_yield(); }
 
-// ── Record registry — gps_uart.c opens/closes RECORD_EXPANSION around
+// ── Record registry — gps_uart_flipper.c opens/closes RECORD_EXPANSION around
 // USART1 ownership. The mechanism has no effect on NMEA parsing.
 #define RECORD_EXPANSION "expansion"
 static inline void* furi_record_open(const char* name) { (void)name; return (void*)1; }
@@ -103,7 +104,7 @@ static inline void furi_record_close(const char* name) { (void)name; }
 // ── Tick ─────────────────────────────────────────────────────────────
 // Test-controllable so watchdog/timeout logic can be exercised without
 // wall-clock sleeps. Starts at 1 (0 has watchdog-disarmed meaning in
-// gps_uart.c) and advances only via furi_test_advance_tick().
+// core/gps_uart.c) and advances only via furi_test_advance_tick().
 //
 // _Atomic, not plain uint32_t: gsr_sensor.c's worker thread calls
 // furi_get_tick() (reading this) concurrently with the test's own thread
@@ -118,7 +119,7 @@ static inline uint32_t furi_get_tick(void) { return furi_test_tick; }
 static inline uint32_t furi_kernel_get_tick_frequency(void) { return 1000; }
 static inline void furi_test_advance_tick(uint32_t delta) { furi_test_tick += delta; }
 
-// ── Mutex — real pthread mutex. gps_uart.c's tests are single-threaded so
+// ── Mutex — real pthread mutex. The GPS tests are single-threaded so
 // this is just uncontended overhead there; gsr_sensor.c's worker thread
 // makes it load-bearing. Timeout is ignored — every real caller passes
 // FuriWaitForever, and a real pthread mutex can't deadlock a host test
@@ -200,7 +201,7 @@ static inline FuriThreadId furi_thread_get_id(FuriThread* t) { return (FuriThrea
 // (real, unmodified) stack-space getter still links on the host.
 static inline size_t furi_thread_get_stack_space(FuriThreadId id) { (void)id; return 0; }
 
-// ── Stream buffer — real ring buffer; gps_uart.c's RX drain logic       ──
+// ── Stream buffer — real ring buffer; the GPS RX drain logic             ──
 // depends on genuine partial-read/write semantics, not just a stub.
 typedef struct FuriStreamBuffer {
     uint8_t* buf;
@@ -255,7 +256,7 @@ static inline size_t furi_stream_buffer_receive(
     return read;
 }
 
-// ── Message queue — gps_uart.c only ever posts and discards the result ─
+// ── Message queue — the GPS code only ever posts and discards the result ─
 typedef struct FuriMessageQueue { int put_count; } FuriMessageQueue;
 
 static inline FuriStatus furi_message_queue_put(FuriMessageQueue* q, const void* msg, uint32_t timeout) {

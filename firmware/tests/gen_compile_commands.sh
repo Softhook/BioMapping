@@ -21,6 +21,8 @@ core/biomap_format.c|
 tests/test_gps_uart.c|-Imodules -Ivendor/minmea -Itests/shims
 tests/test_gsr_sensor.c|-pthread -Imodules -Itests/shims
 core/gsr_sensor.c|
+core/gps_uart.c|
+flipper/gps_uart_flipper.c|-Itests/shims
 flipper/gsr_sensor_flipper.c|-pthread -Itests/shims
 tests/test_sd_logger.c|-Imodules -Itests/shims
 tests/test_em_scan_cal.c|-Imodules -Itests/shims

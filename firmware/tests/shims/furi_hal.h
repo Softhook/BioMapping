@@ -2,8 +2,8 @@
 
 // furi_hal.h — host-test shim.
 //
-// Fakes the exact furi_hal_serial_* (gps_uart.c) and furi_hal_i2c_*
-// (gsr_sensor.c) surface these drivers call directly — a single simulated
+// Fakes the exact furi_hal_serial_* (flipper/gps_uart_flipper.c) and
+// furi_hal_i2c_* (flipper/gsr_sensor_flipper.c) surface these drivers call directly — a single simulated
 // USART1 and a single simulated I2C bus. Declarations only — see
 // furi_hal_mock.c for the implementations and the test-injection APIs
 // (furi_hal_mock_feed_byte/_string for UART, furi_hal_i2c_mock_* for I2C).

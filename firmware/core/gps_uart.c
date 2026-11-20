@@ -1,17 +1,15 @@
-// GPS UART — NMEA parser for Bio Mapping.
-// Single-byte-per-IRQ RX pattern, adapted from ezod/flipperzero-gps.
+// GPS — NMEA parser and M10Q set-up for Bio Mapping. Shared by every
+// device: the hardware is reached only through GpsPlatform (gps_uart.h).
 
 #include "gps_uart.h"
-#include "../core/biomap_config.h"
-#include "../biomap_events.h"
+#include "core_check.h"
 
-#include <furi.h>
-#include <furi_hal.h>
-#include <notification/notification_messages.h>
-#include <expansion/expansion.h>
+#include <limits.h>
 #include <math.h>
+#include <stdarg.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
-#include <stdatomic.h>
 #include "eff_short_wordlist.h" // chip-ID mnemonic phrase — see ubx_poll_chip_id()
 
 #define RX_LINE_BUF  1024      // max NMEA line length (~80 in practice)
@@ -21,67 +19,46 @@
 #define GPS_RX_MAX_DRAIN_BYTES_PER_CALL 384
 #define GPS_RX_MAX_LINES_PER_CALL 8
 
+#define GPS_COUNT_OF(a) (sizeof(a) / sizeof((a)[0]))
+
 struct GpsUart {
-    GpsStatus            status;
+    GpsPlatform          platform;
+    GpsStatus            status;        // guarded by platform.lock
     GpsNavModel          nav_model;
     bool                 super_s;
-    FuriMutex*           status_mutex;  // protects status field
-    FuriHalSerialHandle* serial_handle;
-    FuriStreamBuffer*    rx_stream;
     uint8_t              rx_buf[RX_LINE_BUF];
     size_t               rx_offset;
-    FuriMessageQueue*    event_queue;
     bool                 ready;
-    volatile bool        rx_pending;
-    uint32_t             last_valid_nmea_tick;  // watchdog: last successful $Gx parse
+    uint32_t             last_valid_nmea_ms;  // watchdog: last successful $Gx parse; 0 = disarmed
     struct minmea_time   last_epoch_time;
     bool                 sbas_seen_this_second; // an SBAS satellite was in use since the last whole-second reset
-    // Per-session log-once flags. Kept in the struct (not as function-local
-    // statics) so they reset correctly on each gps_uart_alloc() call.
+    // Per-session log-once flag. Kept in the struct (not as a function-local
+    // static) so it resets correctly on each gps_uart_create() call. The
+    // parser runs under the lock, so it only notes the line here; it is
+    // logged once the lock is released.
     bool                 gsa_talker_logged;
+    bool                 gsa_talker_log_pending;
+    char                 gsa_talker[2];
+    int                  gsa_system_id;
 
     // ── Contention diagnostics — see gps_uart.h ─────────────────────────
-    // rx_drop_count is written from ISR context (gps_uart_irq_cb) and read
-    // from the main thread (gps_uart_get_rx_drop_count) — genuinely
-    // cross-context, so _Atomic, same reasoning as gsr_sensor.c's
-    // rf_enabled/rf_spi_busy/running flags after their ThreadSanitizer
-    // review. nmea_fail_count is written only from gps_uart_parse_line(),
-    // itself only ever called from the main thread inside
-    // gps_uart_process_rx() — no ISR involvement — so a plain uint32_t is
-    // sufficient, no atomics needed.
-    _Atomic uint32_t     rx_drop_count;
+    // Both written only on the main thread, inside gps_uart_handle_rx()
+    // (the parser and both gps_uart_reinit() call sites), so plain
+    // uint32_t is enough.
     uint32_t             nmea_fail_count;
-    // reinit_count: same "main thread only" reasoning as nmea_fail_count —
-    // both gps_uart_reinit() call sites (RX-buffer-full, NMEA watchdog) run
-    // from gps_uart_process_rx() on the main thread, no ISR involvement.
     uint32_t             reinit_count;
 };
 
-// UART IRQ — fires per received byte (ISR context).
-// Posts a single EventTypeUart to the main queue; subsequent bytes are
-// drained in gps_uart_process_rx() so the queue doesn't overflow.
-// `event` is a bitmask: a byte can arrive flagged Data together with an
-// error bit (e.g. FrameError at a mismatched baud), so test the Data bit
-// rather than comparing for equality.
-static void gps_uart_irq_cb(
-    FuriHalSerialHandle* handle,
-    FuriHalSerialRxEvent event,
-    void* context) {
-    UNUSED(handle);
-    GpsUart* g = (GpsUart*)context;
-    if(event & FuriHalSerialRxEventData) {
-        uint8_t data = furi_hal_serial_async_rx(handle);
-        if(furi_stream_buffer_send(g->rx_stream, &data, 1, 0) == 0) {
-            // rx_stream was full — the byte is lost. See gps_uart.h's doc
-            // comment on gps_uart_get_rx_drop_count().
-            g->rx_drop_count++;
-        }
-        if(!g->rx_pending) {
-            g->rx_pending = true;
-            BioMapEvent ev = {.type = EventTypeUart};
-            furi_message_queue_put(g->event_queue, &ev, 0);
-        }
-    }
+// One log line, if the device takes them. printf-style; lines longer than
+// the buffer are cut short.
+static void gps_log(const GpsPlatform* p, bool warning, const char* fmt, ...) {
+    if(!p->log) return;
+    char line[80];
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(line, sizeof(line), fmt, args);
+    va_end(args);
+    p->log(p->ctx, warning, line);
 }
 
 // ── Double-precision coordinate converter ───────────────────────────────
@@ -135,7 +112,7 @@ static const char* nmea_field(const char* line, int n) {
     return p;
 }
 
-// NMEA sentence dispatcher
+// NMEA sentence dispatcher. Called with the lock held.
 static void gps_uart_parse_line(GpsUart* g, char* line) {
     // $PUBX,00 (u-blox M10 SPG 5.10 Interface Description §2.8.2): field 9 is
     // hAcc in metres, field 18 numSvs, the satellites used in the navigation
@@ -159,7 +136,7 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
         if(num_svs_field && *num_svs_field >= '0' && *num_svs_field <= '9') {
             g->status.satellites_tracked = atoi(num_svs_field);
         }
-        g->last_valid_nmea_tick = furi_get_tick();
+        g->last_valid_nmea_ms = g->platform.now_ms(g->platform.ctx);
         return;
     }
 
@@ -198,7 +175,7 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
             }
             g->status.time = frame.time;
             g->status.date = frame.date;
-            g->last_valid_nmea_tick = furi_get_tick();
+            g->last_valid_nmea_ms = g->platform.now_ms(g->platform.ctx);
 
             // Roll the SBAS window over on each whole second. Sub-second
             // differences are ignored so that all of one second's
@@ -233,7 +210,7 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
             float gga_hdop = minmea_tofloat(&frame.hdop);
             if(!isnan(gga_hdop)) g->status.hdop = gga_hdop;
             g->status.time               = frame.time;
-            g->last_valid_nmea_tick = furi_get_tick();
+            g->last_valid_nmea_ms = g->platform.now_ms(g->platform.ctx);
         }
     } break;
 
@@ -243,11 +220,13 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
             // Log SystemID on first sighting — the u-blox M10Q emits
             // one $GNGSA per constellation per epoch, distinguished by the trailing
             // SystemID field (1=GPS, 2=GLONASS, 3=Galileo, 4=BeiDou, 5=QZSS)
-            // rather than by TalkerID.
+            // rather than by TalkerID. Logged after the lock is released.
             if(!g->gsa_talker_logged) {
                 g->gsa_talker_logged = true;
-                FURI_LOG_I("GpsUart", "First GSA talker: %c%c SystemID=%d",
-                           line[1], line[2], frame.system_id);
+                g->gsa_talker_log_pending = true;
+                g->gsa_talker[0] = line[1];
+                g->gsa_talker[1] = line[2];
+                g->gsa_system_id = frame.system_id;
             }
             // GSA gives the authoritative HDOP/PDOP values and distinguishes
             // 2D (fix_type=2) from 3D (fix_type=3).  GGA HDOP is kept
@@ -257,7 +236,7 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
             g->status.fix_type = frame.fix_type;
             float gsa_hdop = minmea_tofloat(&frame.hdop);
             if(!isnan(gsa_hdop)) g->status.hdop = gsa_hdop;
-            g->last_valid_nmea_tick = furi_get_tick();
+            g->last_valid_nmea_ms = g->platform.now_ms(g->platform.ctx);
 
             // Stays set until a whole second passes without an SBAS
             // satellite in use (cleared in the RMC epoch reset): the M10Q
@@ -291,10 +270,10 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
 }
 
 // ── GPS chip ID cache ────────────────────────────────────────────────────
-// File-scope, not a GpsStatus/GpsUart field: this app frees and reallocs
-// GpsUart across mode switches (every GPS session is its own alloc), and a
-// capture from an earlier alloc should survive into a later one within the
-// same app session rather than being lost with the struct that held it.
+// File-scope, not a GpsStatus/GpsUart field: the app destroys and recreates
+// GpsUart across mode switches (every GPS session is its own create), and a
+// capture from an earlier session should survive into a later one within the
+// same app run rather than being lost with the struct that held it.
 // Empty ("") until ubx_poll_chip_id() (see below) polls and
 // validates one. Never cleared — once found, kept for the life of the
 // process.
@@ -317,14 +296,11 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
 static char g_gps_chip_id[32] = {0};
 
 // ---------------------------------------------------------------------------
-// Alloc — acquire USART1, init serial, configure GPS
-// ---------------------------------------------------------------------------
-// ---------------------------------------------------------------------------
 // Helpers — send binary UBX packets over the GPS UART
 // ---------------------------------------------------------------------------
 static void ubx_tx(GpsUart* g, const uint8_t* data, size_t len) {
-    furi_hal_serial_tx(g->serial_handle, data, len);
-    furi_delay_ms(100);
+    g->platform.tx(g->platform.ctx, data, len);
+    g->platform.delay_ms(g->platform.ctx, 100);
 }
 
 // ── Wake from software standby and wait until the module is listening ──
@@ -333,67 +309,45 @@ static void ubx_tx(GpsUart* g, const uint8_t* data, size_t len) {
 // configuration (SAM-M10Q integration manual §3.5.3.3), so waking is a
 // restart: the module comes back at its 9600 baud default and is deaf until
 // it has booted. u-blox publish no boot time, so rather than a fixed delay
-// this waits for the first byte the module sends — its first output means
-// its UART is up. A module that was already awake answers within one NMEA
-// epoch. GPS_WAKE_TIMEOUT_MS covers boot plus one 1 Hz epoch at the
+// this waits for the first clean byte the module sends — its first output
+// means its UART is up. A module that was already awake answers within one
+// NMEA epoch. GPS_WAKE_TIMEOUT_MS covers boot plus one 1 Hz epoch at the
 // module's default output rate; it only runs out when no module answers.
 //
-// Bounded by iteration count AND elapsed ticks: the host test shim's tick
-// never advances on its own (see ubx_find_sync()), and on hardware
-// furi_delay_ms(1) can take 2+ ms, so the tick bound is the real one there.
+// Bounded by iteration count AND elapsed ms: the host test shim's clock
+// never advances on its own (see ubx_find_sync()), and on hardware a 1 ms
+// wait can take 2+ ms, so the clock bound is the real one there.
 //
-// Takes a raw handle (not GpsUart*) — also called at app start
-// (gps_uart_sleep_from_unknown_state()), which has no GpsUart. Caller must have initialised the serial port at
-// GPS_BAUD_RATE and must NOT have async RX running: this installs its own
-// RX callback for the wait and stops it before returning. Returns true if
+// Takes the platform (not GpsUart*) — also called at app start
+// (gps_uart_sleep_from_unknown_state()), which has no GpsUart. The port must
+// be set to GPS_BAUD_RATE and not receiving: this receives in
+// GpsRxWakeWatch for the wait and stops before returning. Returns true if
 // the module answered.
 #define GPS_WAKE_TIMEOUT_MS 1500
 
-// Written from the RX ISR, read by ubx_wake() on the main thread.
-static _Atomic bool     g_wake_rx_seen;
-static _Atomic uint32_t g_wake_first_byte_tick;
+static bool ubx_wake(const GpsPlatform* p) {
+    p->rx_start(p->ctx, GpsRxWakeWatch);
 
-static void ubx_wake_rx_cb(FuriHalSerialHandle* handle, FuriHalSerialRxEvent event, void* context) {
-    UNUSED(context);
-    if(!(event & FuriHalSerialRxEventData)) return; // bitmask — see gps_uart_irq_cb()
-    furi_hal_serial_async_rx(handle); // read to clear the byte; its value doesn't matter
-    // Only a clean byte counts as the module answering: a garbled one can
-    // be a glitch from a module still booting, or output at another baud —
-    // neither means it is listening at 9600 yet.
-    const FuriHalSerialRxEvent errors =
-        FuriHalSerialRxEventFrameError | FuriHalSerialRxEventNoiseError |
-        FuriHalSerialRxEventOverrunError | FuriHalSerialRxEventParityError;
-    if(event & errors) return;
-    if(!g_wake_rx_seen) {
-        g_wake_first_byte_tick = furi_get_tick();
-        g_wake_rx_seen = true;
-    }
-}
-
-static bool ubx_wake(FuriHalSerialHandle* handle) {
-    g_wake_rx_seen = false;
-    furi_hal_serial_async_rx_start(handle, ubx_wake_rx_cb, NULL, false);
-
-    uint32_t start = furi_get_tick();
+    uint32_t start = p->now_ms(p->ctx);
     uint8_t dummy = 0xFF;
-    furi_hal_serial_tx(handle, &dummy, 1);
+    p->tx(p->ctx, &dummy, 1);
 
-    uint32_t timeout_ticks = (GPS_WAKE_TIMEOUT_MS * furi_kernel_get_tick_frequency()) / 1000;
-    for(uint32_t i = 0; i < GPS_WAKE_TIMEOUT_MS && !g_wake_rx_seen &&
-                        (furi_get_tick() - start) < timeout_ticks;
+    uint32_t first_ms = 0;
+    for(uint32_t i = 0; i < GPS_WAKE_TIMEOUT_MS && !p->rx_wake_seen(p->ctx, &first_ms) &&
+                        (p->now_ms(p->ctx) - start) < GPS_WAKE_TIMEOUT_MS;
         i++) {
-        furi_delay_ms(1);
+        p->delay_ms(p->ctx, 1);
     }
-    furi_hal_serial_async_rx_stop(handle);
+    p->rx_stop(p->ctx);
 
     // Hardware diagnostic: when the module was asleep, this is its restart
-    // time (near 0 when it was already awake).
-    bool answered = g_wake_rx_seen;
+    // time (near 0 when it was already awake). Asked again after rx_stop(),
+    // so a byte that came in during the last wait still counts.
+    bool answered = p->rx_wake_seen(p->ctx, &first_ms);
     if(answered) {
-        FURI_LOG_I("GpsUart", "Wake: first byte after %lu ms",
-                   (unsigned long)(g_wake_first_byte_tick - start));
+        gps_log(p, false, "Wake: first byte after %lu ms", (unsigned long)(first_ms - start));
     } else {
-        FURI_LOG_W("GpsUart", "Wake: no reply within %d ms", GPS_WAKE_TIMEOUT_MS);
+        gps_log(p, true, "Wake: no reply within %d ms", GPS_WAKE_TIMEOUT_MS);
     }
     return answered;
 }
@@ -421,14 +375,14 @@ static void ubx_calc_checksum(const uint8_t* buf, size_t len, uint8_t* ck_a, uin
 // legacy messages absent from the SPG 5.10 message reference entirely, so
 // nothing guarantees a given firmware revision still accepts them.
 //
-// This reads straight from rx_stream, ahead of gps_uart_process_rx()'s
-// '\n'-based NMEA line splitter — required, not just tidier. ACK/NAK
-// frames never contain a literal 0x0A byte for any packet we send below
-// (checked), so left alone they'd silently glue onto the front of
-// whichever real NMEA sentence follows, corrupting it into one line that
-// fails minmea_check()'s leading-'$' test and gets dropped. Safe to
-// consume here because gps_uart_configure() runs synchronously on the
-// same thread as gps_uart_process_rx() — the two never interleave.
+// This reads straight from the received bytes (rx_read), ahead of
+// gps_uart_handle_rx()'s '\n'-based NMEA line splitter — required, not just
+// tidier. ACK/NAK frames never contain a literal 0x0A byte for any packet
+// we send below (checked), so left alone they'd silently glue onto the
+// front of whichever real NMEA sentence follows, corrupting it into one
+// line that fails minmea_check()'s leading-'$' test and gets dropped. Safe
+// to consume here because gps_uart_configure() runs synchronously on the
+// same thread as gps_uart_handle_rx() — the two never interleave.
 //
 // Sized for the one call pattern this app actually has: gps_uart_configure()
 // sends one CFG packet, then waits for exactly that packet's reply before
@@ -453,16 +407,16 @@ static void ubx_calc_checksum(const uint8_t* buf, size_t len, uint8_t* ck_a, uin
 // happy-path latency.
 #define UBX_ACK_MAX_SYNC_BYTES  8192
 
-// Bounded by iteration count, not furi_get_tick(): the host test harness
-// (tests/shims/furi.h) makes the tick a caller-controlled fake clock that
-// never advances on its own, so a wall-clock deadline would spin forever
-// there. furi_delay_ms(1) paces real-hardware polling between empty
-// polls; under test furi_delay_ms() is a no-op, so this still terminates
-// promptly when no data is available.
+// Bounded by iteration count, not the clock: the host test harness
+// (tests/shims/furi.h) makes the clock a caller-controlled fake that never
+// advances on its own, so a wall-clock deadline would spin forever there.
+// The 1 ms wait paces real-hardware polling between empty polls; under
+// test the wait is a no-op, so this still terminates promptly when no data
+// is available.
 static bool ubx_read_byte(GpsUart* g, uint8_t* out) {
     for(int i = 0; i < UBX_ACK_BYTE_POLLS; i++) {
-        if(furi_stream_buffer_receive(g->rx_stream, out, 1, 0) == 1) return true;
-        furi_delay_ms(1);
+        if(g->platform.rx_read(g->platform.ctx, out, 1) == 1) return true;
+        g->platform.delay_ms(g->platform.ctx, 1);
     }
     return false;
 }
@@ -496,7 +450,7 @@ typedef enum {
 // ACK/NAK for (want_cls, want_id) — the packet gps_uart_configure() just
 // sent. Anything else (wrong class/length, bad checksum, ACK/NAK for a
 // different message) is reported as a failure rather than scanned past:
-// per the file banner above, no other binary UBX traffic legitimately
+// per the comment above, no other binary UBX traffic legitimately
 // appears on this link, so a mismatch here is itself the problem being
 // reported, not noise to search past.
 static UbxAckOutcome ubx_wait_ack(GpsUart* g, uint8_t want_cls, uint8_t want_id) {
@@ -533,15 +487,15 @@ static UbxAckOutcome ubx_wait_ack(GpsUart* g, uint8_t want_cls, uint8_t want_id)
 // (bytes[2],[3]) — every call site already has one, no need to pass them
 // separately.
 //
-// Drains any bytes already sitting in rx_stream immediately before
+// Drops any bytes already received but unread immediately before
 // transmitting. Every M10Q packet sent by gps_uart_configure() is
 // UBX-CFG-VALSET (class 0x06, id 0x8A) regardless of which keys it
 // carries, so ubx_wait_ack()'s (class, id) check can't tell two VALSET
 // replies apart by content — only by timing. If a previous packet's ACK
 // arrived late (after that wait had already given up) it would otherwise
-// still be sitting here and get misread as this packet's reply. Draining
+// still be waiting and get misread as this packet's reply. Dropping
 // right before the send — not just before the wait — shrinks that race
-// to the gap between the drain and the transmit instead of the whole gap
+// to the gap between the drop and the transmit instead of the whole gap
 // since the last timeout; the protocol doesn't expose enough information
 // (no per-message sequence number) to close it further than that.
 //
@@ -557,18 +511,18 @@ static UbxAckOutcome ubx_wait_ack(GpsUart* g, uint8_t want_cls, uint8_t want_id)
 // that same settling period has already elapsed, same as packets 2+ do.
 static void ubx_send_and_confirm(GpsUart* g, const uint8_t* data, size_t len, const char* label) {
     for(int attempt = 0; attempt < 2; attempt++) {
-        furi_stream_buffer_reset(g->rx_stream);
-        furi_hal_serial_tx(g->serial_handle, data, len);
+        g->platform.rx_clear(g->platform.ctx);
+        g->platform.tx(g->platform.ctx, data, len);
         UbxAckOutcome outcome = ubx_wait_ack(g, data[2], data[3]);
         if(outcome == UbxAckAck) return;
         if(outcome == UbxAckNak) {
-            FURI_LOG_W("GpsUart", "%s: rejected (UBX-ACK-NAK)", label);
+            gps_log(&g->platform, true, "%s: rejected (UBX-ACK-NAK)", label);
             return;
         }
         // UbxAckTimeout: loop around for the one retry, or fall through
         // to the log below once attempts are exhausted.
     }
-    FURI_LOG_W("GpsUart", "%s: no ACK/NAK received", label);
+    gps_log(&g->platform, true, "%s: no ACK/NAK received", label);
 }
 
 // ── UBX-SEC-UNIQID (class 0x27, id 0x03) — unique chip ID poll ──────────
@@ -587,8 +541,8 @@ static const uint8_t ubx_poll_uniqid[] = {0xB5, 0x62, 0x27, 0x03, 0x00, 0x00, 0x
 // "don't guess, don't trust partial data" stance the old boot-banner
 // attempt used its checksum check for.
 static bool ubx_poll_chip_id_once(GpsUart* g) {
-    furi_stream_buffer_reset(g->rx_stream); // drop stale bytes first — see ubx_send_and_confirm()'s doc comment
-    furi_hal_serial_tx(g->serial_handle, ubx_poll_uniqid, sizeof(ubx_poll_uniqid));
+    g->platform.rx_clear(g->platform.ctx); // drop stale bytes first — see ubx_send_and_confirm()'s doc comment
+    g->platform.tx(g->platform.ctx, ubx_poll_uniqid, sizeof(ubx_poll_uniqid));
 
     if(!ubx_find_sync(g)) return false;
 
@@ -649,7 +603,7 @@ static bool ubx_poll_chip_id_once(GpsUart* g) {
 // Attempted at most ONCE per process lifetime, success or failure — not
 // just "stop once found" (that alone only bounds the success case).
 // gps_uart_configure() runs on every RX-buffer-full and NMEA-watchdog
-// reinit, not just the initial alloc, and has no way to tell "first ever
+// reinit, not just the initial create, and has no way to tell "first ever
 // call" apart from "mid-recovery retry". Without this gate, a module that
 // never answers this poll cleanly would pay up to ~3.6s of main-thread
 // blocking (2 attempts x ubx_find_sync() hunting its full
@@ -669,11 +623,11 @@ static void ubx_poll_chip_id(GpsUart* g) {
     g_chip_id_poll_attempted = true;
     for(int attempt = 0; attempt < 2; attempt++) {
         if(ubx_poll_chip_id_once(g)) {
-            FURI_LOG_I("GpsUart", "GPS chip ID: %s", g_gps_chip_id);
+            gps_log(&g->platform, false, "GPS chip ID: %s", g_gps_chip_id);
             return;
         }
     }
-    FURI_LOG_W("GpsUart", "UBX-SEC-UNIQID poll: no valid response");
+    gps_log(&g->platform, true, "UBX-SEC-UNIQID poll: no valid response");
 }
 
 // ── CFG-VALSET packet builder ───────────────────────────────────────────
@@ -708,7 +662,7 @@ static void ubx_send_valset(GpsUart* g, const UbxValsetPair* pairs, size_t count
     pkt[n++] = 0x01; // layers: RAM only
     pkt[n++] = 0x00; pkt[n++] = 0x00; // reserved
     for(size_t i = 0; i < count; i++) {
-        furi_check(n + 4 + pairs[i].value_len + 2 <= sizeof(pkt), "GpsUart: VALSET packet too large");
+        CORE_CHECK(n + 4 + pairs[i].value_len + 2 <= sizeof(pkt), "GpsUart: VALSET packet too large");
         pkt[n++] = (uint8_t)(pairs[i].key);
         pkt[n++] = (uint8_t)(pairs[i].key >> 8);
         pkt[n++] = (uint8_t)(pairs[i].key >> 16);
@@ -740,7 +694,7 @@ static void ubx_send_rate(GpsUart* g) {
         {0x30210001, meas_val, sizeof(meas_val)}, // CFG-RATE-MEAS
         {0x30210002, nav_val,  sizeof(nav_val)},  // CFG-RATE-NAV
     };
-    ubx_send_valset(g, pairs, COUNT_OF(pairs), "CFG-VALSET rate 10Hz");
+    ubx_send_valset(g, pairs, GPS_COUNT_OF(pairs), "CFG-VALSET rate 10Hz");
 }
 
 static void ubx_send_nmea_output_rates(GpsUart* g) {
@@ -750,7 +704,7 @@ static void ubx_send_nmea_output_rates(GpsUart* g) {
         {0x209100b1, off_val, sizeof(off_val)}, // CFG-MSGOUT-NMEA_ID_VTG_UART1
         {0x209100c5, off_val, sizeof(off_val)}, // CFG-MSGOUT-NMEA_ID_GSV_UART1
     };
-    ubx_send_valset(g, pairs, COUNT_OF(pairs), "CFG-VALSET NMEA output rates");
+    ubx_send_valset(g, pairs, GPS_COUNT_OF(pairs), "CFG-VALSET NMEA output rates");
 }
 
 static void ubx_send_nav5(GpsUart* g, GpsNavModel nav_model) {
@@ -820,130 +774,40 @@ static const char pubx_baud_115200[] = "$PUBX,41,1,0007,0002,115200,0*19\r\n";
 
 static void gps_uart_configure(GpsUart* g);
 
-// Disable/enable the Expansion Service around USART1 use — this app claims
-// the pin for GPS, which Expansion also wants.
-static void gps_uart_set_expansion_enabled(bool enabled) {
-    Expansion* expansion = furi_record_open(RECORD_EXPANSION);
-    if(enabled) {
-        expansion_enable(expansion);
-    } else {
-        expansion_disable(expansion);
-    }
-    furi_record_close(RECORD_EXPANSION);
-}
-
-// ── USART1, held for the app's whole life ───────────────────────────────
-// Opened at app start (gps_uart_port_open()) and closed at app exit, not per
-// GPS session. A sleeping M10Q wakes on any edge on its RX pin (see
-// ubx_rxm_pmreq_standby), and a released port leaves that line floating
-// (furi_hal_serial_deinit() sets the pin to analog, no pull) and hands it to
-// the Expansion Service — on hardware the module was awake again within
-// seconds of every release. Held, the line idles steadily high, so the
-// module stays asleep on the menu and in GSR-only mode. See
-// research/gps_sleep_investigation.md.
-static FuriHalSerialHandle* g_port = NULL;
-
-// Between GPS sessions the port listens and counts whatever arrives. A
-// sleeping module sends nothing, so a non-zero count means it woke — the
-// on-hardware check that the sleep held, logged when the idle stretch ends.
-//
-// Bytes in the first GPS_IDLE_SETTLE_MS aren't counted: after the app-start
-// sleep, hardware showed exactly 9 stray bytes every time from a module that
-// then needed a full restart to wake (so it was asleep) — leftovers from
-// going to sleep, not a wake-up.
-#define GPS_IDLE_SETTLE_MS 1000
-
-static _Atomic uint32_t g_idle_rx_bytes;
-static uint32_t g_idle_start_tick;
-static uint32_t g_idle_settle_ticks;
-static bool g_idle_watching = false;
-
-static void gps_uart_idle_rx_cb(FuriHalSerialHandle* handle, FuriHalSerialRxEvent event, void* context) {
-    UNUSED(context);
-    if(!(event & FuriHalSerialRxEventData)) return; // bitmask — see gps_uart_irq_cb()
-    furi_hal_serial_async_rx(handle); // read to clear the byte; only the count matters
-    if(furi_get_tick() - g_idle_start_tick < g_idle_settle_ticks) return;
-    g_idle_rx_bytes++;
-}
-
-static void gps_uart_idle_watch_start(void) {
-    g_idle_rx_bytes = 0;
-    g_idle_settle_ticks = (GPS_IDLE_SETTLE_MS * furi_kernel_get_tick_frequency()) / 1000;
-    g_idle_start_tick = furi_get_tick();
-    furi_hal_serial_async_rx_start(g_port, gps_uart_idle_rx_cb, NULL, false);
-    g_idle_watching = true;
-}
-
-static void gps_uart_idle_watch_stop(void) {
-    if(!g_idle_watching) return;
-    furi_hal_serial_async_rx_stop(g_port);
-    g_idle_watching = false;
-    uint32_t n = g_idle_rx_bytes;
-    if(n == 0) {
-        FURI_LOG_I("GpsUart", "Idle: GPS silent (stayed asleep)");
-    } else {
-        FURI_LOG_W("GpsUart", "Idle: %lu bytes from GPS (it was awake)", (unsigned long)n);
-    }
-}
-
-uint32_t gps_uart_get_idle_rx_count(void) {
-    return g_idle_rx_bytes;
-}
-
 // Put the module to sleep from whatever state it is in at app start: asleep,
 // awake at its 9600 default, or awake at 115200 (left configured). Always
 // sleeps it from 115200 — the path that held on hardware — never from 9600
 // straight after a restart, which failed every time.
-static void gps_uart_sleep_from_unknown_state(void) {
-    furi_hal_serial_init(g_port, GPS_BAUD_RATE);
+void gps_uart_sleep_from_unknown_state(const GpsPlatform* p) {
+    CORE_CHECK(p && p->set_baud && p->tx && p->rx_start && p->rx_stop && p->rx_wake_seen &&
+                   p->now_ms && p->delay_ms,
+               "GpsUart: incomplete platform");
+    p->set_baud(p->ctx, GPS_BAUD_RATE);
     // Wake it (a no-op if already awake), move it to 115200 and follow it
     // there. A module already at 115200 ignores the 9600 command and
     // simply stays there.
-    ubx_wake(g_port);
-    furi_hal_serial_tx(g_port, (const uint8_t*)pubx_baud_115200, strlen(pubx_baud_115200));
-    furi_delay_ms(200);
-    furi_hal_serial_deinit(g_port);
-    furi_hal_serial_init(g_port, GPS_BAUD_RATE_FAST);
-    furi_delay_ms(50);
-    furi_hal_serial_tx(g_port, ubx_rxm_pmreq_standby, sizeof(ubx_rxm_pmreq_standby));
-    furi_delay_ms(100); // let it finish shifting out, and any NMEA already in flight
+    ubx_wake(p);
+    p->tx(p->ctx, (const uint8_t*)pubx_baud_115200, strlen(pubx_baud_115200));
+    p->delay_ms(p->ctx, 200);
+    p->set_baud(p->ctx, GPS_BAUD_RATE_FAST);
+    p->delay_ms(p->ctx, 50);
+    p->tx(p->ctx, ubx_rxm_pmreq_standby, sizeof(ubx_rxm_pmreq_standby));
+    p->delay_ms(p->ctx, 100); // let it finish shifting out, and any NMEA already in flight
 }
 
-void gps_uart_port_open(void) {
-    if(g_port) return;
-    gps_uart_set_expansion_enabled(false);
-    g_port = furi_hal_serial_control_acquire(GPS_UART_CH);
-    if(!g_port) {
-        FURI_LOG_E("GpsUart", "Failed to acquire USART1");
-        gps_uart_set_expansion_enabled(true);
-        return;
-    }
-    gps_uart_sleep_from_unknown_state();
-    gps_uart_idle_watch_start();
-}
-
-void gps_uart_port_close(void) {
-    if(!g_port) return;
-    gps_uart_idle_watch_stop();
-    furi_hal_serial_deinit(g_port);
-    furi_hal_serial_control_release(g_port);
-    g_port = NULL;
-    gps_uart_set_expansion_enabled(true);
-}
-
-// ── Serial baud-switch helper — stop/deinit/reinit/restart at a new baud,
-// resetting the RX line-framing state (rx_offset, rx_stream) since bytes
-// framed under the old baud are meaningless at the new one. Shared by
-// gps_uart_configure() right after the module is told to switch to 115200.
-// The delay that follows differs by call site (50 ms there vs. 100 ms
-// below), so that stays at each call site.
+// ── Serial baud-switch helper — stop/re-set/restart at a new baud,
+// resetting the RX line-framing state (rx_offset, received bytes) since
+// bytes framed under the old baud are meaningless at the new one. Used by
+// gps_uart_configure() right after the module is told to switch to 115200,
+// and by gps_uart_reinit(). The delay that follows differs by call site
+// (50 ms there vs. 100 ms below), so that stays at each call site.
 static void gps_uart_switch_baud(GpsUart* g, uint32_t baud) {
-    furi_hal_serial_async_rx_stop(g->serial_handle);
-    furi_hal_serial_deinit(g->serial_handle);
-    furi_hal_serial_init(g->serial_handle, baud);
+    const GpsPlatform* p = &g->platform;
+    p->rx_stop(p->ctx);
+    p->set_baud(p->ctx, baud);
     g->rx_offset = 0;
-    furi_stream_buffer_reset(g->rx_stream);
-    furi_hal_serial_async_rx_start(g->serial_handle, gps_uart_irq_cb, g, false);
+    p->rx_clear(p->ctx);
+    p->rx_start(p->ctx, GpsRxStream);
 }
 
 // ── Serial reinit helper — switch baud, then re-run the full module
@@ -952,26 +816,29 @@ static void gps_uart_switch_baud(GpsUart* g, uint32_t baud) {
 // be made in one place.
 static void gps_uart_reinit(GpsUart* g, uint32_t baud) {
     gps_uart_switch_baud(g, baud);
-    furi_delay_ms(100);
+    g->platform.delay_ms(g->platform.ctx, 100);
     gps_uart_configure(g);
-    g->last_valid_nmea_tick = 0;
+    g->last_valid_nmea_ms = 0;
     g->reinit_count++;
 }
 
-GpsUart* gps_uart_alloc(FuriMessageQueue* event_queue, NotificationApp* notifications,
-                        GpsNavModel nav_model, bool super_s) {
-    UNUSED(notifications); // not currently used by this module — see gps_uart.h's doc comment
+GpsUart* gps_uart_create(const GpsPlatform* platform, bool have_port,
+                         GpsNavModel nav_model, bool super_s) {
+    CORE_CHECK(platform, "GpsUart: NULL platform");
+    CORE_CHECK(platform->set_baud && platform->tx && platform->rx_start && platform->rx_stop &&
+                   platform->rx_read && platform->rx_clear && platform->rx_wake_seen &&
+                   platform->rx_drop_count && platform->rx_again && platform->now_ms && platform->delay_ms &&
+                   platform->lock && platform->unlock,
+               "GpsUart: incomplete platform");
     GpsUart* g = malloc(sizeof(GpsUart));
-    furi_check(g, "GpsUart: NULL struct alloc");
+    CORE_CHECK(g, "GpsUart: NULL struct alloc");
+    memset(g, 0, sizeof(*g));
 
-    g->event_queue   = event_queue;
-    g->nav_model     = nav_model;
-    g->super_s       = super_s;
-    g->rx_offset     = 0;
-    g->ready         = false;
-    g->rx_pending    = false;
-    g->status_mutex  = furi_mutex_alloc(FuriMutexTypeNormal);
-    furi_check(g->status_mutex, "GpsUart: status_mutex alloc failed");
+    g->platform  = *platform;
+    g->nav_model = nav_model;
+    g->super_s   = super_s;
+    g->rx_offset = 0;
+    g->ready     = false;
 
     g->status = (GpsStatus){
         .latitude           = NAN,
@@ -989,104 +856,94 @@ GpsUart* gps_uart_alloc(FuriMessageQueue* event_queue, NotificationApp* notifica
         .time               = {0},
         .date               = {0},
     };
-    // Arm watchdog at alloc so a botched initial baud-rate switch
+    // Arm watchdog at create so a botched initial baud-rate switch
     // triggers a one-shot recovery after 5 s instead of silently
     // leaving the host at 115200 while the module stays at 9600.
-    g->last_valid_nmea_tick  = furi_get_tick();
+    g->last_valid_nmea_ms    = g->platform.now_ms(g->platform.ctx);
     g->sbas_seen_this_second = false;
     g->gsa_talker_logged     = false;
-    g->rx_drop_count         = 0;
     g->nmea_fail_count       = 0;
     g->reinit_count          = 0;
 
-    g->rx_stream = furi_stream_buffer_alloc(GPS_RX_BUF_SIZE, 1);
-
-    g->serial_handle = g_port;
-    if(g->serial_handle) {
-        gps_uart_idle_watch_stop();
+    if(have_port) {
+        const GpsPlatform* p = &g->platform;
         // The port idles at 115200 after a sleep; a woken module talks at 9600.
-        furi_hal_serial_deinit(g->serial_handle);
-        furi_hal_serial_init(g->serial_handle, GPS_BAUD_RATE);
+        p->set_baud(p->ctx, GPS_BAUD_RATE);
         // Wake the module from software standby and wait until it is
         // listening before gps_uart_configure() sends $PUBX,41 at 9600.
-        ubx_wake(g->serial_handle);
-        furi_hal_serial_async_rx_start(g->serial_handle, gps_uart_irq_cb, g, false);
+        ubx_wake(p);
+        p->rx_start(p->ctx, GpsRxStream);
         g->ready = true;
         gps_uart_configure(g);
-    } else {
-        FURI_LOG_E("GpsUart", "USART1 not open (see gps_uart_port_open())");
     }
 
     return g;
 }
 
 // ---------------------------------------------------------------------------
-// Free — sleep the module; the port stays open (see g_port)
+// Destroy — sleep the module; the device keeps its port open
 // ---------------------------------------------------------------------------
-void gps_uart_free(GpsUart* g) {
-    furi_check(g, "GpsUart: NULL in free()");
-    if(g->serial_handle) {
+void gps_uart_destroy(GpsUart* g) {
+    CORE_CHECK(g, "GpsUart: NULL in destroy()");
+    if(g->ready) {
         // Sent at the session's 115200, the last byte before the line idles.
         ubx_tx(g, ubx_rxm_pmreq_standby, sizeof(ubx_rxm_pmreq_standby));
-        furi_hal_serial_async_rx_stop(g->serial_handle);
-        gps_uart_idle_watch_start();
+        g->platform.rx_stop(g->platform.ctx);
     }
-    furi_stream_buffer_free(g->rx_stream);
-    furi_mutex_free(g->status_mutex);
     free(g);
+}
+
+void* gps_uart_platform_ctx(const GpsUart* g) {
+    CORE_CHECK(g, "GpsUart: NULL in platform_ctx()");
+    return g->platform.ctx;
 }
 
 // ---------------------------------------------------------------------------
 // Status accessors
 // ---------------------------------------------------------------------------
 GpsStatus gps_uart_get_status(const GpsUart* g) {
-    furi_check(g, "GpsUart: NULL in get_status()");
-    furi_mutex_acquire(g->status_mutex, FuriWaitForever);
+    CORE_CHECK(g, "GpsUart: NULL in get_status()");
+    g->platform.lock(g->platform.ctx);
     GpsStatus s = g->status;
-    furi_mutex_release(g->status_mutex);
+    g->platform.unlock(g->platform.ctx);
     return s;
 }
 
 bool gps_uart_is_ready(const GpsUart* g) {
-    furi_check(g, "GpsUart: NULL in is_ready()");
+    CORE_CHECK(g, "GpsUart: NULL in is_ready()");
     return g->ready;
 }
 
 uint32_t gps_uart_get_rx_drop_count(const GpsUart* g) {
-    furi_check(g, "GpsUart: NULL in get_rx_drop_count()");
-    return g->rx_drop_count;
+    CORE_CHECK(g, "GpsUart: NULL in get_rx_drop_count()");
+    if(!g->ready) return 0;
+    return g->platform.rx_drop_count(g->platform.ctx);
 }
 
 uint32_t gps_uart_get_nmea_fail_count(const GpsUart* g) {
-    furi_check(g, "GpsUart: NULL in get_nmea_fail_count()");
+    CORE_CHECK(g, "GpsUart: NULL in get_nmea_fail_count()");
     return g->nmea_fail_count;
 }
 
 uint32_t gps_uart_get_reinit_count(const GpsUart* g) {
-    furi_check(g, "GpsUart: NULL in get_reinit_count()");
+    CORE_CHECK(g, "GpsUart: NULL in get_reinit_count()");
     return g->reinit_count;
 }
 
 const char* gps_uart_get_chip_id(const GpsUart* g) {
-    furi_check(g, "GpsUart: NULL in get_chip_id()");
+    CORE_CHECK(g, "GpsUart: NULL in get_chip_id()");
     return g_gps_chip_id;
 }
 
-
 // ---------------------------------------------------------------------------
-// Drain RX stream, parse complete NMEA lines; run NMEA watchdog
+// Drain received bytes, parse complete NMEA lines; run NMEA watchdog
 // ---------------------------------------------------------------------------
-void gps_uart_process_rx(GpsUart* g) {
-    furi_check(g, "GpsUart: NULL in process_rx()");
+void gps_uart_handle_rx(GpsUart* g) {
+    CORE_CHECK(g, "GpsUart: NULL in handle_rx()");
     if(!g->ready) return;
-    // Clear rx_pending BEFORE draining so that any new byte arriving from the
-    // ISR mid-drain sets it true again and posts a fresh UART event to the queue.
-    // If cleared AFTER the drain, an ISR byte arriving mid-drain would see
-    // rx_pending=true (suppressing a new queue event) and then be left with no
-    // event to trigger a follow-up drain — silently deferring until the next IRQ.
-    g->rx_pending = false;
+    const GpsPlatform* p = &g->platform;
 
-    size_t len;
+    size_t len = 0;
     size_t drained_bytes = 0;
     size_t parsed_lines = 0;
     bool budget_hit = false;
@@ -1094,7 +951,7 @@ void gps_uart_process_rx(GpsUart* g) {
     bool has_more_complete_lines = false;
     do {
         if(sizeof(g->rx_buf) - 1 - g->rx_offset == 0) {
-            FURI_LOG_W("GpsUart", "RX buffer full — reconfiguring");
+            gps_log(p, true, "RX buffer full — reconfiguring");
             // Full reconfiguration (same as watchdog): switch host back to
             // 9600, then re-run the module init sequence.  A plain hot-start
             // would leave the module at default baud while the host is at
@@ -1111,11 +968,7 @@ void gps_uart_process_rx(GpsUart* g) {
         size_t recv_cap = sizeof(g->rx_buf) - 1 - g->rx_offset;
         if(recv_cap > remaining_budget) recv_cap = remaining_budget;
 
-        len = furi_stream_buffer_receive(
-            g->rx_stream,
-            g->rx_buf + g->rx_offset,
-            recv_cap,
-            0);
+        len = p->rx_read(p->ctx, g->rx_buf + g->rx_offset, recv_cap);
 
         if(len > 0) {
             g->rx_offset += len;
@@ -1127,9 +980,9 @@ void gps_uart_process_rx(GpsUart* g) {
             char* line = (char*)g->rx_buf;
             char* end  = (char*)g->rx_buf + g->rx_offset;
 
-            // Parse each complete line, holding status_mutex only for the
+            // Parse each complete line, holding the lock only for the
             // brief status update — not for the entire drain.
-            furi_mutex_acquire(g->status_mutex, FuriWaitForever);
+            p->lock(p->ctx);
             while(line < end) {
                 if(parsed_lines >= GPS_RX_MAX_LINES_PER_CALL) {
                     budget_hit = true;
@@ -1145,7 +998,13 @@ void gps_uart_process_rx(GpsUart* g) {
                     break;
                 }
             }
-            furi_mutex_release(g->status_mutex);
+            p->unlock(p->ctx);
+
+            if(g->gsa_talker_log_pending) {
+                g->gsa_talker_log_pending = false;
+                gps_log(p, false, "First GSA talker: %c%c SystemID=%d",
+                        g->gsa_talker[0], g->gsa_talker[1], g->gsa_system_id);
+            }
 
             if(budget_hit && line < end) {
                 // Another complete line already sits in the current buffer.
@@ -1164,10 +1023,7 @@ void gps_uart_process_rx(GpsUart* g) {
     } while(len > 0);
 
     if(budget_hit && (len > 0 || may_have_more_stream || has_more_complete_lines)) {
-        BioMapEvent ev = {.type = EventTypeUart};
-        if(furi_message_queue_put(g->event_queue, &ev, 0) == FuriStatusOk) {
-            g->rx_pending = true;
-        }
+        p->rx_again(p->ctx);
     }
 
     // ── NMEA watchdog: bytes are arriving but no valid sentence has ────
@@ -1179,10 +1035,10 @@ void gps_uart_process_rx(GpsUart* g) {
     // completely silent (unplugged) never triggers it. Deliberate — a
     // reconfigure can't revive a missing module, and each attempt blocks
     // the main thread for seconds waiting on ACKs that never come.
-    if(g->last_valid_nmea_tick > 0) {
-        uint32_t elapsed = furi_get_tick() - g->last_valid_nmea_tick;
-        if(elapsed > furi_kernel_get_tick_frequency() * 5) {
-            FURI_LOG_W("GpsUart", "NMEA watchdog: no valid sentence in 5 s — reconfiguring");
+    if(g->last_valid_nmea_ms > 0) {
+        uint32_t elapsed = p->now_ms(p->ctx) - g->last_valid_nmea_ms;
+        if(elapsed > 5000) {
+            gps_log(p, true, "NMEA watchdog: no valid sentence in 5 s — reconfiguring");
             gps_uart_reinit(g, GPS_BAUD_RATE);
         }
     }
@@ -1192,8 +1048,9 @@ void gps_uart_process_rx(GpsUart* g) {
 // Send init sequence: switch to 115200 baud and apply the M10Q config.
 // ---------------------------------------------------------------------------
 static void gps_uart_configure(GpsUart* g) {
-    furi_check(g, "GpsUart: NULL in configure()");
-    if(!g->ready || !g->serial_handle) return;
+    CORE_CHECK(g, "GpsUart: NULL in configure()");
+    if(!g->ready) return;
+    const GpsPlatform* p = &g->platform;
 
     // ── u-blox SAM-M10Q ───────────────────────────────────────────────
     // Each binary UBX packet below is sent and then confirmed via
@@ -1201,15 +1058,15 @@ static void gps_uart_configure(GpsUart* g) {
     // than fired blind behind a fixed delay — ACK typically arrives within
     // a few ms at 115200 baud, so this is usually faster than the old
     // batch-then-wait approach in addition to catching rejected packets.
-    FURI_LOG_I("GpsUart", "Configuring u-blox SAM-M10Q");
+    gps_log(p, false, "Configuring u-blox SAM-M10Q");
 
-    FURI_LOG_I("GpsUart", "Switching GPS to 115200 baud");
-    furi_hal_serial_tx(g->serial_handle, (const uint8_t*)pubx_baud_115200, strlen(pubx_baud_115200));
-    furi_delay_ms(200);
+    gps_log(p, false, "Switching GPS to 115200 baud");
+    p->tx(p->ctx, (const uint8_t*)pubx_baud_115200, strlen(pubx_baud_115200));
+    p->delay_ms(p->ctx, 200);
 
     // Switch host UART to match
     gps_uart_switch_baud(g, GPS_BAUD_RATE_FAST);
-    furi_delay_ms(50);
+    p->delay_ms(p->ctx, 50);
 
     // Send configuration via CFG-VALSET, confirming each packet's ACK/NAK.
     ubx_send_rate(g);
@@ -1232,15 +1089,15 @@ static void gps_uart_configure(GpsUart* g) {
     // established the link is working (clean ACKs).
     ubx_poll_chip_id(g);
 
-    FURI_LOG_I("GpsUart", "M10Q running at 115200 baud, 10 Hz");
+    gps_log(p, false, "M10Q running at 115200 baud, 10 Hz");
 }
 
 // ---------------------------------------------------------------------------
 // Cold Start reset.
 // ---------------------------------------------------------------------------
 void gps_uart_send_cold_start(GpsUart* g) {
-    furi_check(g, "GpsUart: NULL in send_cold_start()");
-    if(!g->ready || !g->serial_handle) return;
-    FURI_LOG_I("GpsUart", "Cold Start reset");
+    CORE_CHECK(g, "GpsUart: NULL in send_cold_start()");
+    if(!g->ready) return;
+    gps_log(&g->platform, false, "Cold Start reset");
     ubx_tx(g, ubx_cfg_rst_cold, sizeof(ubx_cfg_rst_cold));
 }

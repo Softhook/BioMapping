@@ -152,9 +152,9 @@ correctness / structure concerns. Promote to its own doc if picked up.
   own per-fix noise instead of the constants. Two real costs: (1) enabling it
   needs `CFG-MSGOUT-UBX_NAV_PVT_UART1` (key `0x20910007`) turned on *and*
   the UART1 output protocol mask flipped from NMEA-only (currently `0002`
-  at [gps_uart.c](../firmware/modules/gps_uart.c) — see the "outProto"
+  at [gps_uart.c](../firmware/core/gps_uart.c) — see the "outProto"
   comment) to mixed NMEA+UBX; (2) the live RX path
-  ([gps_uart.c](../firmware/modules/gps_uart.c)) is a single-byte-per-IRQ
+  ([gps_uart_flipper.c](../firmware/flipper/gps_uart_flipper.c)) is a single-byte-per-IRQ
   NMEA line accumulator with no binary-frame awareness outside the
   one-shot startup ACK/UNIQID reads — continuous NAV-PVT would need a real
   second state machine in that interrupt path to detect `0xB5 0x62` sync

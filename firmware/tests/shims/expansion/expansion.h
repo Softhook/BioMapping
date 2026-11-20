@@ -1,7 +1,7 @@
 #pragma once
 
 // expansion/expansion.h — host-test shim.
-// gps_uart.c disables/re-enables the Expansion Service around USART1
+// gps_uart_flipper.c disables/re-enables the Expansion Service around USART1
 // ownership; the mechanism itself has no effect on NMEA parsing, so this
 // is a pure no-op stub.
 

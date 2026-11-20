@@ -1,6 +1,6 @@
 // furi_hal_mock.c — test-only backend for the furi_hal.h shim.
-// Simulates a single USART1 peripheral (gps_uart.c) and a single I2C bus
-// with one ADS1115-shaped device (gsr_sensor.c). See furi_hal.h for the
+// Simulates a single USART1 peripheral (flipper/gps_uart_flipper.c) and a
+// single I2C bus with one ADS1115-shaped device (flipper/gsr_sensor_flipper.c). See furi_hal.h for the
 // test-facing APIs.
 
 #include "furi_hal.h"
@@ -58,7 +58,7 @@ static int g_tx_log_count = 0;
 // first attempt, a valid one for the retry, to prove rejection and
 // recovery in one exchange rather than assuming a single canned response
 // covers every match.
-#define TX_RESPONSE_MAX_TRIGGER 40 // largest CFG-VALSET gps_uart.c builds
+#define TX_RESPONSE_MAX_TRIGGER 40 // largest CFG-VALSET core/gps_uart.c builds
 #define TX_RESPONSE_MAX_BYTES   640
 #define TX_RESPONSE_QUEUE_MAX   4
 static struct {
