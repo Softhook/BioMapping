@@ -246,6 +246,7 @@ firmware/
 - **The shared code never runs threads, and normally never waits.** It works step by step: "here is a new reading, update yourself", "here are the GPS bytes that arrived", "one second has passed".
 - **One exception: the GPS start-up and sleep sequences.** These are timed by nature. For example: send at 9600 baud, wait 200 ms, switch to 115200, wait 50 ms, send the sleep command ([gps_uart.c](../firmware/core/gps_uart.c)). This sequence is confirmed on real hardware, and rewriting it as a step-by-step machine would risk breaking it. So the shared code may ask the device for "the time now" and "wait N ms", but only in these sequences. They already run on the main thread.
 - **Two smaller waits in the GSR code.** When the GSR sensor starts, it checks the chip is there and reads the 0.5 V bias (about 25 ms). And the bias check at the start of a recording waits up to 200 ms for the GSR thread to finish it. Both waits were already there on the Flipper; they now ask the device to wait.
+- **One wait in the session code.** After the recording-start sound, the session waits 200 ms so the GSR readings taken during the sound have left the buffer before the first row. Also already there on the Flipper.
 - **Each device runs its own loop and threads** and feeds the shared code. Both devices keep the same two-thread design: a main thread and a GSR thread. The GSR thread just calls the shared "one pass" function in a loop, with a 1 ms pause after each pass.
 - **Each device supplies a few small functions:**
   - I2C: read or write a register
@@ -475,7 +476,7 @@ The radio (EM) scan used to be written into the middle of the GSR sensor code ([
 
 - **The order things are freed in matters, and only a comment says so.** The GSR sensor must be freed before the radio sampler, because the GSR thread calls into the sampler. Today there is one place that does this, and it does it in the right order. If someone gets it the wrong way round, the device could crash at random.
 - **An older gap came across unchanged.** If turning the radio off takes too long (more than 100 ms) and the radio is turned straight back on, the start-up could overlap the radio's last reading. The app never does this today: the radio is only turned off once, at the end of a session. The fix would be a short wait before turning it back on. This is noted in the code.
-- **The screen can read the module pointers while a session is starting.** The session sets the GSR and radio pointers without holding the main lock while the screen may already be drawing. This is safe on the Flipper's chip, but it is a pattern to avoid copying into new code.
+- ~~**The screen can read the module pointers while a session is starting.**~~ Fixed in step 5: the session now sets all the module pointers together, with the main lock held.
 - **The radio sampler's tests sit inside the GSR tests** (`test_gsr_sensor.c`), not in a file of their own.
 - **This step alone does not make the code run on the Cardputer.** The GSR code still used the Flipper's own I2C calls (fixed by step 2 below), and the session and screen code still include the radio modes (steps 5 and 6).
 
@@ -485,7 +486,7 @@ All of the GSR logic now lives in [core/gsr_sensor.c](../firmware/core/gsr_senso
 
 The calibration wizard's averaging is shared too: `CalDwell` in [core/biomap_format.c](../firmware/core/biomap_format.c). It takes each tick's reading over the 20 s dwell, keeps the ones inside the gate, and gives the mean, the spread (σ) and whether enough readings passed. The Zero step and each resistor step use it. What stays in the Flipper's wizard ([biomap_gui.c](../firmware/biomap_gui.c)) is the screens, the keys, the countdown and the 100 ms waits between readings. Those were two near-identical loops, one per kind of step; they are now one (`calibration_wizard_dwell()`). That loop is Flipper code, so the host tests don't run it; the wizard run in the Flipper check below covers it.
 
-Not moved in this step: the few lines that choose which bias value goes in a recording's `# GSR Bias` header line. The bias check itself is shared, but that choice sits in the middle of building the file header in [biomap_session.c](../firmware/biomap_session.c), so it moves with the session in step 5.
+Not moved in this step: the few lines that choose which bias value goes in a recording's `# GSR Bias` header line. The bias check itself is shared, but that choice sits in the middle of building the file header in [biomap_session.c](../firmware/biomap_session.c), so it moves with the session in step 5. (Done in step 5.)
 
 The Flipper side, [flipper/gsr_sensor_flipper.c](../firmware/flipper/gsr_sensor_flipper.c), is about 150 lines: those functions written with the Flipper's own calls, and the GSR thread. The thread calls the shared "one pass" function, gives the radio scan its turn after each normal read, and pauses 1 ms, exactly as before. The rest of the app calls the same `gsr_sensor_*` functions as before: one `#include` changed, and one diagnostic read-out was renamed (below).
 
@@ -573,7 +574,7 @@ One small difference, not expected to show:
 
 Known weak points, left for later steps:
 
-- **The sound rules are written down, not checked.** Nothing in the code stops a cue with a sound being sent with the main lock held (rule 2) or during a recording (rule 3). A scan of every cue call found none that breaks either rule today. When the session becomes shared code in step 5, it could refuse a cue with a sound itself while a recording is active, so the rule is checked rather than only followed.
+- **The sound rules are written down, not checked.** Nothing in the code stops a cue with a sound being sent with the main lock held (rule 2) or during a recording (rule 3). A scan of every cue call found none that breaks either rule today. *Step 5 now checks both for every cue the session sends (see below). Cues sent from the menus and calibration screens are still unchecked, but none of those run during a recording or with the lock held.*
 - **Live Stream keeps its clicks (decided).** Rule 3 covers recordings to the SD card only. In Live Stream the GSR goes live to the phone while the OK and zoom clicks still play, which could put a small blip in the live trace. Kept as it is, at the user's choice (2026-11-20).
 
 No Flipper check is needed beyond the ones for steps 2 and 3: the recording and GPS checks there hear the start and stop sounds and see the heartbeat. To be thorough, listen once for the key clicks in the menu and watch for the blue blink before GPS has a fix.
@@ -599,6 +600,52 @@ Not yet seen:
 - **Sounds.** Sound was off in Options during the check, so the cues were seen (heartbeat, cold reset blink) but not heard.
 - **Diagnostics.** The GSR thread's free stack, worker rate and I2C peak were not read. The Raw and Filt lines seemed to update faster than before; the screen redraw (twice a second) and the GSR worker loop are unchanged in the code, and the question was set aside for now.
 
+### Step 5 done: session logic in `core/`
+
+What a recording screen does is now shared, in [core/biomap_session.c](../firmware/core/biomap_session.c):
+
+- what each key does: OK starts or stops a recording, Back stops it and leaves, the arrows zoom the graph;
+- starting a recording: the bias check, building the file header (with the `# GSR Bias` line that step 2 left behind), opening the file, the start sound and the 200 ms settle wait;
+- stopping one: closing the file first, then the stop sound, or the warning sound if the last write failed;
+- what each 10 Hz tick does: updating the GSR display and graph, building the CSV row, the Live Stream packet;
+- what each second does: the heartbeat light, the "no GPS fix" blip, the SD write every 10 s, and the rules for riding out a failing SD card or stopping for good;
+- the debug-field figures and the once-a-second telemetry log line.
+
+It has no Flipper code. The device hands it a list of functions ([core/biomap_session.h](../firmware/core/biomap_session.h), `SessionPlatform`): the main lock, the clock, a wait, show a cue, a log line, the date and time, the recording file (start, add a row, write to the card, close), and the optional extras (the radio reading, extra debug figures, and for Live Stream "is a phone connected?" and "send this packet"). The settings it needs (sound, debug fields, the calibration) are read once when the session starts.
+
+The Flipper side, [flipper/biomap_session_flipper.c](../firmware/flipper/biomap_session_flipper.c), is about 350 lines: those functions written with the Flipper's calls, starting and freeing the modules (GPS, GSR, radio, SD file, Bluetooth), and the event loop. The loop is now short: GPS bytes go to the GPS code, key presses to `session_core_key()`, ticks to `session_core_tick()`, and the screen is redrawn when either says so. The screen code reads the shared part as `a->session.core`.
+
+The Live Stream packet layout (`bt_stream_pack_packet()`) moved from the Flipper's Bluetooth file into [core/biomap_format.c](../firmware/core/biomap_format.c), since the Cardputer must send exactly the same bytes. The visualiser's contract test now reads it there, and the session header lines from the new session file.
+
+**The sound rules are now checked** for every cue the session sends (they were only followed before):
+
+- Rule 2: a cue with a sound sent while the session holds the main lock stops the app with a message. This would be a programming mistake, never a user action. Log lines are checked the same way.
+- Rule 3: a cue with a sound during a recording is left out. This is now how the zoom click is muted while recording; before, the zoom code did it by hand.
+
+Checked:
+
+- All host tests pass, and the Flipper app builds with no warnings.
+- **Old and new side by side.** A throwaway program ran the old session file and the new split through the same scripted key presses and ticks, with the same pretend GPS, GSR, radio, Bluetooth and clock, and the real SD file code on a pretend card. 14 scenarios: every mode; zoom keys before and during a recording; two recordings in one session; a GPS fix that comes and goes; fingers off and back on; debug fields on and off; sound on and off; the SD card failing then recovering after 5 failed writes; failing for 6 writes in a row (recording stopped); the buffer filling while the card fails; a failed restart and a clean one afterwards; Back and OK while the last write fails; the clock not set; no GSR sensor; and Live Stream with the bias check failing once, a phone reconnecting, and the bias check giving up after 3 tries. It printed every cue (and whether the lock was held), every log line, every wait, every redraw, every Bluetooth packet byte, the final session state and every file written, byte for byte. The two printouts were identical (6,897 lines).
+- Two deliberate breaks each changed that printout: stopping one SD failure later, and letting key clicks play during a recording.
+- **A new test, [tests/test_session.c](../firmware/tests/test_session.c),** runs the shared session with a pretend device and no Flipper headers: the file header, the settle wait, start failures, rows and the 10 s write, the radio columns, the muted clicks, both sound-rule checks, every way of stopping, the SD ride-out and stop rules, debug fields, Live Stream and Diagnostics. Each pretend device function checks whether the lock is held, so moving a slow call (an SD write, a sound, a Bluetooth send) under the lock fails the test. Four deliberate breaks each make it fail: clicks during a recording, stopping one SD failure late, an SD write under the lock, and dropping the settle wait.
+- The shared session builds for the ESP32-S3 with the Cardputer's own compiler, and the C++ check now includes its header.
+
+Small differences, none expected to show:
+
+- **Light-only cues now pass the real Sound setting** instead of "off". They never touch the speaker, so nothing changes (the step 4 cue test checks this).
+- **Back while recording takes the main lock twice instead of once** (once to mark the screen as closing, once to stop the recording). The screen could draw one frame in between; it would look the same.
+- **The last-resort stop when leaving the screen** (which normal use never reaches, because Back already stops the recording) now plays its warning after the file is closed, not before, like every other stop.
+- **OK always asks for a redraw**, including when the header didn't fit (which can't happen with today's settings).
+- **The calibration is read without the main lock** when the GSR sensor starts. Only the main thread ever changes it.
+- **Main-thread stack:** the recording-start path is about 32 bytes deeper than before, and the tick path about 240 bytes lighter, measured with the Flipper's own compiler. The main thread has 4 KB.
+
+Known weak points:
+
+- **The Flipper's event loop and module start-up are not host-tested.** The old-vs-new program covered them once, but it is not kept. The Flipper check below covers them on the device.
+- **Radio modes on a device without a radio.** If a device gives no radio reading function, a radio mode would write the radio column names but no radio values. The Cardputer won't offer the radio modes, so this can't happen, but nothing stops it.
+
+**To check on a real Flipper:** record GPS+GSR for a minute with sound on: the start sound, the heartbeat, the stop sound, and a file with the usual header lines (including `# GSR Bias` and `# GPSChipID`). Press the zoom keys before recording (clicks) and during it (no clicks, graph still zooms). Start and stop a second recording in the same session. Try GSR only and GPS + RF once each, Diagnostics (OK only clicks), and Live Stream with the visualiser's Live tab (packets arrive; the log shows the "Live Stream bias" line once). Leave each screen with Back and check the app returns to the menu cleanly.
+
 ### Next steps
 
 The remaining preparation follows steps 1–6 of the order of work in section 7:
@@ -607,7 +654,7 @@ The remaining preparation follows steps 1–6 of the order of work in section 7:
 2. ~~Move the GSR logic into `core/`, including the Zero step's reading and the bias check.~~ Done and checked on a Flipper (see above).
 3. ~~Move the GPS logic into `core/`.~~ Done and checked on a Flipper (see above); a recording with a GPS fix is still to be seen.
 4. ~~Named events instead of LED patterns, with sounds included.~~ Done (see above).
-5. Split the session into shared logic plus the Flipper loop.
+5. ~~Split the session into shared logic plus the Flipper loop.~~ Done (see above); needs its Flipper check.
 6. Make the screen layout shared.
 
 ---

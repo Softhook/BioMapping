@@ -49,7 +49,7 @@ extern "C" {
 #define SENSOR_BUFFER_SIZE  128
 
 // Physiological skin conductance validity range (nanosiemens).
-// Used by gsr_sensor.c (disconnect debounce) and biomap_session.c
+// Used by gsr_sensor.c (disconnect debounce) and core/biomap_session.c
 // (per-tick validity gate).  Define here so both users stay in sync.
 //
 //   Below GSR_VALID_MIN_NS → open circuit  (finger cuffs not attached)
@@ -75,7 +75,7 @@ extern "C" {
 // wizard's job.
 //
 // When it is measured: once in create(), and on request — at the start of
-// each recording (biomap_session.c), before the first row, so one value
+// each recording (core/biomap_session.c), before the first row, so one value
 // holds for the whole file and is written to its header; when a phone
 // first connects in Live Stream (logged, as the BLE packet has no room for
 // it; not again on a reconnect, which continues the same track);

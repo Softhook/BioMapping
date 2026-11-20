@@ -29,7 +29,8 @@
 #include <math.h>
 
 // ── Module headers ─────────────────────────────────────────────────────
-#include "biomap_session.h"
+#include "core/biomap_session.h"
+#include "flipper/biomap_session_flipper.h"
 #include "biomap_render.h"
 #include "flipper/gps_uart_flipper.h"
 #include "flipper/gsr_sensor_flipper.h"
@@ -40,43 +41,25 @@
 #include "modules/em_scan_cal.h"
 #include "modules/bt_stream.h"
 
-// ── Session — per-recording-session state ──────────────────────────────
+// ── Session — the recording screen's state ─────────────────────────────
 //
-// Owns all module pointers (GPS, GSR, logger), pipeline state, ViewPort,
-// timer, and render cache.  Initialised by session_init() and torn down
-// by session_deinit() — these are the ONLY places fields are reset.
-// Lives inside BioMapApp; valid only while a recording session is active.
+// `core` is the shared session (core/biomap_session.h): mode, the GPS and
+// GSR modules, the display pipeline and the recording state. The rest is
+// the Flipper's own: the radio, file and Bluetooth modules, the screen and
+// timer, and the screen's text cache. Reset at the start of each session
+// by flipper/biomap_session_flipper.c; valid only while a session runs.
 
 typedef struct Session {
-    BioMapMode     mode;
-    GpsUart*       gps;
-    GsrSensor*     gsr;
-    // Radio-scan modes only (has_rf()) — NULL otherwise. Runs on gsr's
-    // worker thread via its worker hook, so it is freed after gsr.
+    SessionCore    core;
+    // Radio-scan modes only (has_rf()) — NULL otherwise. Runs on the GSR
+    // sensor's worker thread via its worker hook, so it is freed after it.
     EmScanSampler* em;
+    // NULL in Live Stream, which has no file.
     SdLogger*      logger;
-    // BioMapModeLiveStream only — NULL for every other mode. No SdLogger
-    // for this mode at all (docs/archive/bluetooth_serial_investigation.md §3).
+    // Live Stream only — NULL in every other mode.
     BtStream*      bt_stream;
-    // Live Stream: set once the bias check on the first phone connect has
-    // finished (or been given up on), so a reconnect doesn't repeat it;
-    // live_bias_tries counts the ticks spent trying (biomap_session.c).
-    bool           live_bias_checked;
-    uint8_t        live_bias_tries;
     ViewPort*      vp;          // == app->screen_vp while a session is active; not owned/freed here
     FuriTimer*     timer;
-
-    Pipeline      pipeline;     // display + graph + zoom (pure math, platform-independent)
-    RecordingState recording;
-
-    bool           running;
-
-    // Snapshotted from app->debug_fields_enabled at session_init() — same
-    // "fixed for the session, changed only via Options" lifecycle as
-    // zoom_enabled above. Read directly wherever CSV column selection has a
-    // Session* in scope (biomap_session.c) rather than threading a new
-    // parameter through every call site.
-    bool           debug_fields_enabled;
 
     // Render cache — avoids snprintf + canvas_string_width every frame
     char           zoom_label[16];
@@ -147,7 +130,7 @@ typedef struct BioMapApp {
     // CSV columns and RowDiag instrumentation (always compiled in; this only
     // decides whether a given session's CSV includes them). Off by default
     // (see biomap_app()'s defaults). Snapshotted into
-    // Session::debug_fields_enabled at session_init(), same lifecycle as
+    // SessionSettings::debug_fields_enabled when a session starts, same lifecycle as
     // zoom_enabled.
     bool               debug_fields_enabled;
 } BioMapApp;

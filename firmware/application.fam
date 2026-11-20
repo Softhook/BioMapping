@@ -14,7 +14,8 @@ App(
     sources=[
         "biomap.c",
         "biomap_gui.c",
-        "biomap_session.c",
+        "core/biomap_session.c",
+        "flipper/biomap_session_flipper.c",
         "biomap_render.c",
         "core/biomap_pipeline.c",
         "core/biomap_format.c",

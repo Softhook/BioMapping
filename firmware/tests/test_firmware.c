@@ -53,7 +53,7 @@ static void rescale_graph_buf(Session* s, bool zoom_out) {
 // Thin adapter over the REAL formatter (biomap_format.c) so the existing
 // golden-string assertions below exercise shipping code. Writes the row
 // into mock_logger_buf exactly as the production caller
-// (append_gps_csv_row in biomap_session.c) would hand it to the SD batch.
+// (append_gps_csv_row in core/biomap_session.c) would hand it to the SD batch.
 static bool format_gps_csv_row(Session* s, const GpsPosition* pos,
                                double rel, float raw,
                                const float* rf_rssi, const RowDiag* diag) {
@@ -66,7 +66,7 @@ static bool format_gps_csv_row(Session* s, const GpsPosition* pos,
 }
 
 // Same adapter over the REAL GSR-only formatter (biomap_format.c), matching
-// how batch_csv_row() in biomap_session.c hands the row to the SD batch.
+// how batch_csv_row() in core/biomap_session.c hands the row to the SD batch.
 static bool format_gsr_csv_row(Session* s, double rel, float raw,
                                const RowDiag* diag) {
     char row[128];  // same cap as batch_csv_row()'s GSR-only buffer in production
@@ -767,7 +767,7 @@ static void test_csv_header_matches_row_column_count(void) {
 
 // biomap_format_gps_row() must return -1 (never a truncated row) when the
 // output buffer is too small, and never write past `cap`. append_gps_csv_row()
-// in biomap_session.c turns that -1 into a false return so the caller can
+// in core/biomap_session.c turns that -1 into a false return so the caller can
 // count it as a batch overflow instead of committing a half-built row. The
 // three overflow guards (base row / RF suffix / debug columns) are checked
 // by shrinking `cap` to just below the length each stage needs.

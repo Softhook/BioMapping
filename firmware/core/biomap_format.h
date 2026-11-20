@@ -6,7 +6,7 @@
 // calibration fit shows up in the existing golden-output assertions instead
 // of silently diverging.
 //
-// Callers in biomap_session.c / biomap_gui.c own the SDK glue around them
+// Callers in core/biomap_session.c / biomap_gui.c own the glue around them
 // (SD batch append, app->mutex, notification sounds).
 
 #pragma once
@@ -37,7 +37,7 @@ extern "C" {
 //
 // Pure formatter: the caller writes `out` to the SD batch with ONE
 // sd_logger_batch_append() so a partially-built row can never be committed
-// (see append_gps_csv_row() in biomap_session.c).
+// (see append_gps_csv_row() in core/biomap_session.c).
 int biomap_format_gps_row(char* out, size_t cap, bool debug_fields,
                           const GpsPosition* pos, double rel, float raw,
                           const float* rf_rssi, const RowDiag* diag);
@@ -57,7 +57,7 @@ int biomap_format_gps_row(char* out, size_t cap, bool debug_fields,
 //   diag          RowDiag contention columns; only read when debug_fields
 //
 // Pure formatter: the caller writes `out` with ONE sd_logger_batch_append()
-// (see batch_csv_row() in biomap_session.c).
+// (see batch_csv_row() in core/biomap_session.c).
 int biomap_format_gsr_row(char* out, size_t cap, bool debug_fields,
                           double rel, float raw, const RowDiag* diag);
 
@@ -226,6 +226,21 @@ bool biomap_settings_valid(const BioMapSettings* s);
 // written, or -1 if it would not fit in `cap` (needs 20 bytes).
 int biomap_format_file_stamp(char* out, size_t cap, uint16_t year, uint8_t month, uint8_t day,
                              uint8_t hour, uint8_t minute, uint8_t second);
+
+// ── Live Stream packet ──────────────────────────────────────────────────
+// One 49-byte update sent to the visualiser's Live tab over Bluetooth
+// (visualiser/src/live/live_binary_parser.mjs reads it), little-endian:
+//   0  'B','N'          6  lat (double)    14 lon (double)
+//   2  timestamp_ms     22 gsr_raw (nS)    26 hdop   30 pdop
+//   34 speed_kts        38 course_deg      42 sats (u8)  43 fix_type (u8)
+//   44 position valid (u8)                 45 hacc_m (float)
+// lat/lon are 0 without a fix; an unknown speed or course is sent as 0.
+#define BT_STREAM_PACKET_SIZE 49
+
+void bt_stream_pack_packet(uint8_t out[BT_STREAM_PACKET_SIZE],
+                           uint32_t timestamp_ms,
+                           const GpsPosition* pos,
+                           float gsr_raw);
 
 #ifdef __cplusplus
 }

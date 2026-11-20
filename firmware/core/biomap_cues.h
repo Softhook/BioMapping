@@ -23,11 +23,13 @@
 // 3. No sound while a recording is active. The speaker puts noise on the
 //    GSR reading. So the recording-start sound plays before the recording
 //    becomes active, followed by a short settle wait (GSR_TONE_SETTLE_MS in
-//    biomap_session.c); the stop sounds play once the file is closed; key
+//    core/biomap_session.h); the stop sounds play once the file is closed; key
 //    clicks during a recording are left out; and problems that happen
 //    mid-recording (fingers off, an SD card retry) are light-only.
 // 4. Every sound obeys the Options > Sound setting. The only exception is
 //    the Sound toggle itself, which always sounds so muting is audible.
+
+#include <stdbool.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -76,6 +78,23 @@ typedef enum {
 
     BioMapCueCount,
 } BioMapCue;
+
+// Whether a cue makes a sound (the "(sound)" and "(light + sound)" marks
+// above), for checking rules 2 and 3. Keep in step with those marks.
+static inline bool biomap_cue_has_sound(BioMapCue cue) {
+    switch(cue) {
+    case BioMapCueHeartbeat:
+    case BioMapCueHeartbeatFingersOff:
+    case BioMapCueNoGpsFix:
+    case BioMapCueSdRetrying:
+    case BioMapCueSdWriteStopped:
+    case BioMapCueStatusLightOff:
+    case BioMapCueCount:
+        return false;
+    default:
+        return true;
+    }
+}
 
 #ifdef __cplusplus
 }

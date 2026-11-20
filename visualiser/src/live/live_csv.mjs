@@ -26,7 +26,7 @@
  *
  * KEPT IN SYNC by tests/test_firmware_csv_contract.js — it reads the firmware
  * source (biomap_config.h, biomap_format.c, modules/sd_logger.c,
- * biomap_session.c) and fails if the marker, column list, per-row number
+ * core/biomap_session.c) and fails if the marker, column list, per-row number
  * formatting or the `# End` trailer here drift from it. Change the firmware
  * save format and that test goes red until this file is reconciled.
  *

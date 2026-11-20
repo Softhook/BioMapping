@@ -1117,7 +1117,7 @@ static void test_sd_logger_permanent_write_failure_leaves_clean_prefix(void) {
 }
 
 // The write-failure ride-out runs on the same single event-loop thread that
-// also drains the GPS UART and emits GSR/RF rows (biomap_session.c's Tick
+// also drains the GPS UART and emits GSR/RF rows (core/biomap_session.c's tick
 // handler). So the only cost it imposes on the rest of the firmware is the
 // tick-thread time each sd_logger_batch_flush() holds — and flush_peak_ms,
 // which lands in the once-a-second telemetry row on hardware, must capture

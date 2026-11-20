@@ -6,7 +6,6 @@
 #include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
-#include <math.h>
 
 struct BtStream {
     Bt* bt;
@@ -26,7 +25,7 @@ static void bt_stream_status_cb(BtStatus status, void* context) {
 // Deliberate static singleton, NOT a per-call malloc/free like every other
 // module (GpsUart, GsrSensor, SdLogger) — see bt_stream_free()'s comment
 // below for why. bt_stream_alloc()/_free() keep the same alloc-shaped API
-// those modules use so call sites (biomap_session.c) don't need to know
+// those modules use so call sites (flipper/biomap_session_flipper.c) don't need to know
 // the difference; only one Live Stream session can ever be active at a
 // time anyway (BioMapMode is exclusive), so the "one instance" constraint
 // this enforces isn't a new restriction, just a now-checked one.
@@ -143,40 +142,4 @@ uint32_t bt_stream_get_drop_count(const BtStream* bs) {
 uint32_t bt_stream_get_tx_peak_ms(const BtStream* bs) {
     furi_check(bs, "BtStream: NULL in get_tx_peak_ms()");
     return bs->tx_peak_ms;
-}
-
-void bt_stream_pack_packet(uint8_t out[BT_STREAM_PACKET_SIZE],
-                           uint32_t timestamp_ms,
-                           const GpsPosition* pos,
-                           float gsr_raw) {
-    out[0] = 0x42; // 'B'
-    out[1] = 0x4e; // 'N'
-    memcpy(out + 2, &timestamp_ms, sizeof(timestamp_ms));
-    // Not a `pos->valid ? pos->lat : 0.0` ternary — this project's build
-    // treats -Wdouble-promotion as an error, and GCC's conditional-operator
-    // type unification flags that form even though both branches are
-    // already double.
-    double lat = 0.0, lon = 0.0;
-    if(pos->valid) {
-        lat = pos->lat;
-        lon = pos->lon;
-    }
-    memcpy(out + 6,  &lat, sizeof(lat));
-    memcpy(out + 14, &lon, sizeof(lon));
-    memcpy(out + 22, &gsr_raw, sizeof(gsr_raw));
-    memcpy(out + 26, &pos->hdop, sizeof(pos->hdop));
-    memcpy(out + 30, &pos->pdop, sizeof(pos->pdop));
-    // speed_kts/course_deg are NaN when GPS has no velocity fix (see
-    // get_gps_position) — the wire format has no separate "no velocity"
-    // flag, so send 0 rather than propagating a NaN the frontend would
-    // have to special-case.
-    float speed = isnan(pos->speed_kts) ? 0.0f : pos->speed_kts;
-    float course = isnan(pos->course_deg) ? 0.0f : pos->course_deg;
-    memcpy(out + 34, &speed, sizeof(speed));
-    memcpy(out + 38, &course, sizeof(course));
-    out[42] = (uint8_t)pos->sats;
-    out[43] = (uint8_t)pos->fix_type;
-    out[44] = pos->valid ? 1 : 0;
-    // u-blox hAcc (m), 99.9 when unknown — as in the SD log's hacc_m column.
-    memcpy(out + 45, &pos->hacc, sizeof(pos->hacc));
 }

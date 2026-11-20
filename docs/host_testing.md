@@ -355,9 +355,11 @@ meant a failed final flush was indistinguishable from a clean stop: same
 shared `flush_before_stop()` helper that retries once (covers a transient
 SD-busy blip) and, if still failing, plays `biomap_sound_warning()` instead
 of the ordinary stop chirp so a failed final flush is audibly distinct
-from a clean stop. No host test exists for `biomap_session.c` itself (it's Flipper-SDK-heavy,
-not pipeline-pure), so this path was verified by a full `ufbt build` rather
-than a host test.
+from a clean stop. At the time no host test existed for the session code
+(it was Flipper-SDK-heavy), so this path was verified by a full `ufbt build`.
+The session logic now lives in `core/biomap_session.c`, and
+`tests/test_session.c` covers the final-flush retry and warning
+(`test_stop_keys`) along with the ride-out rules (`test_sd_ride_out_and_stop`).
 
 `test_em_scan_rf.c` (added 2026-09-16) drives the real, unmodified
 `modules/em_scan_rf.c` against a dedicated `furi_hal_subghz_mock.c` — not

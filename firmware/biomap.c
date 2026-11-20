@@ -109,7 +109,7 @@ int32_t biomap_app(void* p) {
     }
 
     // Defensive: every run_recording_session() call already releases its
-    // own claim via session_deinit() before returning, so this should
+    // own claim when the session ends (flipper/biomap_session_flipper.c) before returning, so this should
     // normally be a no-op by the time we get here.
     biomap_backlight_release(app, true);
 

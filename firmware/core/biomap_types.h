@@ -97,7 +97,7 @@ typedef struct {
     // stalls, so it can't prove contention is or isn't happening (see
     // docs/archive/gps_rf_mutex_status.md). last_tick_wall_ms/tick_dt_ms are the
     // real furi_get_tick() measurement instead: updated every Tick event in
-    // run_recording_session(), regardless of recording.active.
+    // session_core_tick(), regardless of recording.active.
     uint32_t last_tick_wall_ms; // bookkeeping only — previous furi_get_tick() reading
     uint32_t tick_dt_ms;        // real elapsed ms since the previous Tick event; 0 on the first tick
 
@@ -115,8 +115,8 @@ typedef struct {
     //     unrecoverable SD failure (streak reached SD_FLUSH_FAIL_STREAK_LIMIT,
     //     or the batch buffer filled while still failing) rather than a normal
     //     user stop. Kept set after `active` clears so the renderer holds the
-    //     "REC STOPPED - SD ERROR" banner up. session_init() zeroes both per
-    //     session; key_toggle_recording()'s start path clears both on restart.
+    //     "REC STOPPED - SD ERROR" banner up. session_core_init() zeroes both per
+    //     session; start_recording() clears both on restart.
     uint32_t flush_fail_streak;
     bool     write_stopped;
 } RecordingState;
@@ -137,7 +137,7 @@ typedef struct {
 } GpsPosition;
 
 // Per-row contention diagnostics (GPS/RF mutex investigation — see
-// docs/archive/gps_rf_mutex_status.md). Built by the caller (biomap_session.c) from
+// docs/archive/gps_rf_mutex_status.md). Built by the caller (core/biomap_session.c) from
 // real, measured sources — never inferred — and threaded into
 // biomap_format_gps_row() alongside GpsPosition so a track can answer "was the
 // main loop or the GPS UART actually stalled" directly rather than by

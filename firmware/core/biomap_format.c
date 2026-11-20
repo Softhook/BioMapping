@@ -7,6 +7,7 @@
 
 #include <math.h>
 #include <stdio.h>
+#include <string.h>
 
 int biomap_format_gps_row(char* out, size_t cap, bool debug_fields,
                           const GpsPosition* pos, double rel, float raw,
@@ -243,4 +244,40 @@ int biomap_format_file_stamp(char* out, size_t cap, uint16_t year, uint8_t month
                      (unsigned)year, (unsigned)month, (unsigned)day,
                      (unsigned)hour, (unsigned)minute, (unsigned)second);
     return (n < 0 || (size_t)n >= cap) ? -1 : n;
+}
+
+void bt_stream_pack_packet(uint8_t out[BT_STREAM_PACKET_SIZE],
+                           uint32_t timestamp_ms,
+                           const GpsPosition* pos,
+                           float gsr_raw) {
+    out[0] = 0x42; // 'B'
+    out[1] = 0x4e; // 'N'
+    memcpy(out + 2, &timestamp_ms, sizeof(timestamp_ms));
+    // Not a `pos->valid ? pos->lat : 0.0` ternary — this project's build
+    // treats -Wdouble-promotion as an error, and GCC's conditional-operator
+    // type unification flags that form even though both branches are
+    // already double.
+    double lat = 0.0, lon = 0.0;
+    if(pos->valid) {
+        lat = pos->lat;
+        lon = pos->lon;
+    }
+    memcpy(out + 6,  &lat, sizeof(lat));
+    memcpy(out + 14, &lon, sizeof(lon));
+    memcpy(out + 22, &gsr_raw, sizeof(gsr_raw));
+    memcpy(out + 26, &pos->hdop, sizeof(pos->hdop));
+    memcpy(out + 30, &pos->pdop, sizeof(pos->pdop));
+    // speed_kts/course_deg are NaN when GPS has no velocity fix (see
+    // get_gps_position) — the wire format has no separate "no velocity"
+    // flag, so send 0 rather than propagating a NaN the frontend would
+    // have to special-case.
+    float speed = isnan(pos->speed_kts) ? 0.0f : pos->speed_kts;
+    float course = isnan(pos->course_deg) ? 0.0f : pos->course_deg;
+    memcpy(out + 34, &speed, sizeof(speed));
+    memcpy(out + 38, &course, sizeof(course));
+    out[42] = (uint8_t)pos->sats;
+    out[43] = (uint8_t)pos->fix_type;
+    out[44] = pos->valid ? 1 : 0;
+    // u-blox hAcc (m), 99.9 when unknown — as in the SD log's hacc_m column.
+    memcpy(out + 45, &pos->hacc, sizeof(pos->hacc));
 }

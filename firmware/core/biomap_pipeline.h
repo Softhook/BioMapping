@@ -7,7 +7,7 @@
 //
 // This file declares the Pipeline struct (bundle of DisplayState +
 // GraphState + ZoomState) and the pure-math functions extracted from
-// biomap_session.c.
+// core/biomap_session.c.
 
 #pragma once
 

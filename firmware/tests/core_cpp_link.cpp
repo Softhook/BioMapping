@@ -11,6 +11,7 @@
 #include "core/gps_uart.h"
 #include "core/biomap_cues.h"
 #include "core/core_check.h"
+#include "core/biomap_session.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -34,6 +35,8 @@ int main() {
     void (*sleep_fn)(const GpsPlatform*) = gps_uart_sleep_from_unknown_state;
     keep = keep || sleep_fn == nullptr;
     keep = keep || BioMapCueCount == 0;
+    bool (*tick_fn)(SessionCore*) = session_core_tick;
+    keep = keep || tick_fn == nullptr || session_mode_records(BioMapModeLiveStream);
     std::printf("C++ link ok (%d, %d, %d)\n", n, d.in_gate, (int)keep);
     return 0;
 }

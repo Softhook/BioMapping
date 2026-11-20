@@ -110,7 +110,7 @@ static void test_stop_always_restores_default_profile(void) {
     bt_stream_stop(bs);
     assert(bt_mock_profile_restore_count() == 1);
 
-    // Idempotent: calling stop() again (e.g. a defensive session_deinit()
+    // Idempotent: calling stop() again (e.g. a defensive session teardown
     // call after an already-clean exit) must not call restore_default()
     // a second time — bs->bt is already NULL.
     bt_stream_stop(bs);

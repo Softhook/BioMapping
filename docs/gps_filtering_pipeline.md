@@ -2,7 +2,7 @@
 
 **Written:** 2026-07-15 · **Last checked against code:** 2026-10-01 (§3.3–3.4 and §6 rewritten for the road-snapping review)
 **Scope:** Complete overview of the GPS processing pipeline, from firmware-level quality gating through to downstream spatial analysis filters.
-**Files:** `firmware/core/gps_uart.c`, `firmware/core/biomap_types.h`, `firmware/biomap_session.c`, `visualiser/src/gps/gps_cv_kalman.mjs`, `visualiser/src/gps/gps_pipeline.mjs`, `visualiser/src/gps/map_match.mjs`, `visualiser/src/map/manager/process.mjs`
+**Files:** `firmware/core/gps_uart.c`, `firmware/core/biomap_types.h`, `firmware/core/biomap_session.c`, `visualiser/src/gps/gps_cv_kalman.mjs`, `visualiser/src/gps/gps_pipeline.mjs`, `visualiser/src/gps/map_match.mjs`, `visualiser/src/map/manager/process.mjs`
 
 > The filter stages and their order still match the code as of the
 > last-checked date. For the authoritative, versioned CSV column list see
@@ -45,7 +45,7 @@ Note the map matcher (`M`) is *not* part of the per-render filter chain above it
 - **GLL Validity Flag**: The firmware verifies `gll_frame.status == MINMEA_GLL_STATUS_DATA_VALID` before updating coordinates from GLL, preventing void coordinates from overwriting good ones.
 - **Satellite fixes only**: After losing the satellites the receiver keeps reporting its own estimate from its motion model — GGA quality `6`, RMC/GLL mode `E` — including estimates it flags as invalid (M10 interface description §2.5.5; the integration manual says fixes not marked valid should not be used). RMC, GGA and GLL all ignore these, so they never move the stored position (`gps_quality_is_gnss_fix()` in `gps_uart.h`).
 
-### 2.2 Quality Gating (`biomap_session.c`)
+### 2.2 Quality Gating (`core/biomap_session.c`)
 - **No HDOP gate**: The firmware applies no record-time HDOP threshold. `get_gps_position()` marks a row's coordinates valid on `gps_status_has_fix()` (RMC valid and not estimated, or GGA quality 1–5) plus non-NaN lat/lon, and every satellite fix the receiver reports is logged — all quality filtering is left to the visualiser, so urban-canyon data is never permanently discarded.
 - **Speed and course logged independently**: The receiver leaves course empty when nearly still (integration manual §2.2.6) but still reports speed. Recordings before 2026-09-25 dropped the speed too whenever course was empty — about a third of u-blox fixes, mostly at stops.
 - **Empty Rows**: Ticks with no fix write empty coordinates (`timestamp,,,,,,,,,gsr_raw,`) to maintain column counts and temporal continuity.

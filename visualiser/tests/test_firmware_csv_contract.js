@@ -13,8 +13,8 @@
  *   • the GPS+GSR column header                     (biomap_config.h)
  *   • per-row number formatting, fix + no-fix       (biomap_format.c)
  *   • the `# End …` trailer's token layout          (modules/sd_logger.c)
- *   • the metadata header prefixes                  (biomap_session.c)
- *   • the 49-byte wire packet's field offsets       (modules/bt_stream.{c,h})
+ *   • the metadata header prefixes                  (core/biomap_session.c)
+ *   • the 49-byte wire packet's field offsets       (core/biomap_format.{c,h})
  *
  * When the firmware changes any of these, this test goes red with an
  * actionable message — reconcile visualiser/src/live/ (and
@@ -277,17 +277,17 @@ function runContractTests() {
   });
 
   // ── CSV: metadata header prefixes ────────────────────────────────────
-  test('CSV: the metadata header lines match firmware biomap_session.c', () => {
-    const sess = readFw('biomap_session.c');
+  test('CSV: the metadata header lines match firmware core/biomap_session.c', () => {
+    const sess = readFw('core/biomap_session.c');
     locate(
       sess,
       /"# RecordingStartTime:%lu\\n"/,
-      '"# RecordingStartTime:" line in biomap_session.c',
+      '"# RecordingStartTime:" line in core/biomap_session.c',
     );
     locate(
       sess,
       /"# DeviceName:%s\\n"/,
-      '"# DeviceName:" line in biomap_session.c',
+      '"# DeviceName:" line in core/biomap_session.c',
     );
     const lines = emptyExport();
     assert.match(lines[1], /^# RecordingStartTime:\d+$/);
@@ -391,9 +391,9 @@ function runContractTests() {
   });
 
   // ── WIRE: the 49-byte BLE packet ────────────────────────────────────
-  test('WIRE: live_binary_parser.js field offsets + size match firmware bt_stream.{c,h}', () => {
-    const btc = readFw('modules/bt_stream.c');
-    const bth = readFw('modules/bt_stream.h');
+  test('WIRE: live_binary_parser.js field offsets + size match firmware bt_stream_pack_packet() (core/biomap_format.{c,h})', () => {
+    const btc = readFw('core/biomap_format.c');
+    const bth = readFw('core/biomap_format.h');
     const parser = readLive('live_binary_parser.js');
 
     // Packet size.
@@ -401,7 +401,7 @@ function runContractTests() {
       locate(
         bth,
         /#define\s+BT_STREAM_PACKET_SIZE\s+(\d+)/,
-        'BT_STREAM_PACKET_SIZE in modules/bt_stream.h',
+        'BT_STREAM_PACKET_SIZE in core/biomap_format.h',
       )[1],
     );
     const jsSize = Number(

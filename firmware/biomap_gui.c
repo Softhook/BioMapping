@@ -343,7 +343,7 @@ void run_calibration_menu(BioMapApp* app) {
 // this function is entered) is made safe by the very next thing this
 // function does: a full 1 s / 10-tick buffer flush, whose discarded
 // readings absorb any tone-era ADC samples ~30x over (the GSR ring buffer
-// is only ~128 ms deep — see GSR_TONE_SETTLE_MS in biomap_session.c for
+// is only ~128 ms deep — see GSR_TONE_SETTLE_MS in core/biomap_session.h for
 // the equivalent, tighter-margin calculation used for recording start).
 // The caller's post-measurement tones (confirm/error/success) are safe by
 // construction: they only ever play after this function has already

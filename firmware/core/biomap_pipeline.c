@@ -54,11 +54,11 @@ double pipeline_rel_seconds(uint32_t total_ticks) {
 // at Fs=10 Hz: measured attenuation at 3 Hz is only ~-1.9 dB, not -3 dB
 // (see research/gsr_filtering_analysis.md, Finding 3).
 //
-// IMPORTANT: called from biomap_session.c with the RAW SINGLE-SAMPLE
+// IMPORTANT: called from core/biomap_session.c with the RAW SINGLE-SAMPLE
 // value (gsr_sensor_get_raw_sample_ns()), NOT the boxcar-decimated one
 // (gsr_sensor_get_raw()) — this is the display/graph path only; the
 // boxcar-filtered value goes straight to CSV without ever passing
-// through this filter (see handle_recording_tick() in biomap_session.c).
+// through this filter (see recording_tick_locked() in core/biomap_session.c).
 // That means there is NO anti-aliasing before this filter on the display
 // path: it subsamples an ~860 Hz-bandwidth source at 10 Hz with no
 // pre-filter, so aliasing (including 50/60 Hz mains hum) folds into the

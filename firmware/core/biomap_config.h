@@ -24,6 +24,12 @@
 // 1 = on: pre-grow once at start, trim the unused tail at stop.
 #define BIOMAP_SD_PREALLOC 1
 
+// Radio (EM) scan bands: 815, 868 and 915 MHz, in that order — the
+// rssi_815,rssi_868,rssi_915 CSV columns and the "# Band Floors" header
+// line. The Flipper's radio code (modules/em_scan_rf.h, EM_SCAN_NUM_FREQS)
+// must agree; flipper/biomap_session_flipper.c checks that it does.
+#define RF_BAND_COUNT 3
+
 typedef enum {
     BioMapModeGpsGsrRf = 0, // GPS, GSR, and RF all enabled
     BioMapModeGpsGsr,       // GPS and GSR, no RF
@@ -109,8 +115,8 @@ typedef enum {
 //
 // Debug fields are a runtime Options toggle (BioMapApp::debug_fields_enabled,
 // off by default), not a compile-time switch: both the _PROD and _DEBUG
-// variant of each schema is always compiled in, and key_toggle_recording()
-// (biomap_session.c) picks between them per session.
+// variant of each schema is always compiled in, and build_header()
+// (core/biomap_session.c) picks between them per session.
 #define BIOMAP_CSV_COLS_GPS_GSR_PROD \
     "timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw,hacc_m\n"
 #define BIOMAP_CSV_COLS_GPS_GSR_DEBUG \

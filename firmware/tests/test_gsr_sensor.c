@@ -1653,7 +1653,7 @@ static void test_session_deinit_early_release_gui_safety(void) {
     pthread_mutex_unlock(&ctx.mock_app_mutex);
 
     // Free outside the lock (the slow join/deinit happens here), GSR first —
-    // same order as session_deinit().
+    // same order as the session teardown (flipper/biomap_session_flipper.c).
     if(local_gsr) {
         gsr_sensor_free(local_gsr);
     }

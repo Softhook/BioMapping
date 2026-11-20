@@ -91,10 +91,10 @@ static void draw_graph(Canvas* c, BioMapApp* a, int gx, int gy, int gw, int gh) 
 
     // Fold zoom and scale into one constant so the inner loop only needs
     // one multiply per sample instead of two.
-    const float combined_scale = a->session.pipeline.zoom.level * ((float)(gh / 2 - 2) / 100.0f);
+    const float combined_scale = a->session.core.pipeline.zoom.level * ((float)(gh / 2 - 2) / 100.0f);
 
     // 10-second notches above the graph — integer arithmetic only.
-    int px_per_notch = (10 * TICK_HZ) / a->session.pipeline.graph.scroll_divider;
+    int px_per_notch = (10 * TICK_HZ) / a->session.core.pipeline.graph.scroll_divider;
     if(px_per_notch > 2) {
         int right_edge = gx + gw - 2;
         int notch_top = gy > 3 ? gy - 3 : 0;
@@ -106,8 +106,8 @@ static void draw_graph(Canvas* c, BioMapApp* a, int gx, int gy, int gw, int gh) 
     // Walk the ring buffer linearly — no modulo divisions per pixel. Start
     // n samples back from the newest so a narrower graph (GPS+GSR+RF mode)
     // shows the most recent n samples, not the oldest n.
-    int idx = (a->session.pipeline.graph.head + GRAPH_N - n) % GRAPH_N;
-    float v0 = a->session.pipeline.graph.buf[idx] * combined_scale;
+    int idx = (a->session.core.pipeline.graph.head + GRAPH_N - n) % GRAPH_N;
+    float v0 = a->session.core.pipeline.graph.buf[idx] * combined_scale;
     int y_prev = cy - (int)v0;
 
     // First column: plot the initial sample, clamped to graph interior.
@@ -116,7 +116,7 @@ static void draw_graph(Canvas* c, BioMapApp* a, int gx, int gy, int gw, int gh) 
     for(int i = 1; i < n; i++) {
         if(++idx >= GRAPH_N) idx = 0;
 
-        float v1 = a->session.pipeline.graph.buf[idx] * combined_scale;
+        float v1 = a->session.core.pipeline.graph.buf[idx] * combined_scale;
         int y_cur = cy - (int)v1;
 
         // Dot at current sample column — cheap (u8g2_DrawPixel, no Bresenham).
@@ -147,12 +147,12 @@ static void draw_graph(Canvas* c, BioMapApp* a, int gx, int gy, int gw, int gh) 
 // avoid snprintf + canvas_string_width on every frame.  Mutex held by caller.
 static void render_zoom_label(Canvas* c, BioMapApp* a, int x) {
     // Use |delta| so the cache also updates when zoom decreases (e.g. zoom-out).
-    if(fabsf(a->session.pipeline.zoom.level - a->session.zoom_label_last) > 0.05f) {
+    if(fabsf(a->session.core.pipeline.zoom.level - a->session.zoom_label_last) > 0.05f) {
         snprintf(a->session.zoom_label, sizeof(a->session.zoom_label), "%.1fx",
-                 (double)a->session.pipeline.zoom.level);
+                 (double)a->session.core.pipeline.zoom.level);
         canvas_set_font(c, FontSecondary);
         a->session.zoom_label_width = canvas_string_width(c, a->session.zoom_label);
-        a->session.zoom_label_last = a->session.pipeline.zoom.level;
+        a->session.zoom_label_last = a->session.core.pipeline.zoom.level;
     }
     canvas_set_font(c, FontSecondary);
     canvas_draw_str(c, x, 62, a->session.zoom_label);
@@ -181,12 +181,12 @@ static void render_zoom_label(Canvas* c, BioMapApp* a, int x) {
 // date), lat, lon, and fix quality — fits comfortably in the 85px-wide
 // right pane at FontSecondary.
 static void render_gps_compact(Canvas* c, BioMapApp* a) {
-    GpsStatus g = gps_uart_get_status(a->session.gps);
+    GpsStatus g = gps_uart_get_status(a->session.core.gps);
     const int x = RF_PANEL_W + 2;  // 2px clearance from frame left border
     int y = 25;                    // baseline — 2px clearance from frame top
 
     // Recording filename at top of the right pane
-    if(a->session.recording.active) {
+    if(a->session.core.recording.active) {
         // The full name ("biomap_2026-11-19_14-32-05.csv") is too wide for
         // this pane, so show only the start time part ("14-32-05", plus any
         // "_2" suffix), which is what tells recordings from one day apart.
@@ -198,7 +198,7 @@ static void render_gps_compact(Canvas* c, BioMapApp* a) {
         y += 10;
     }
 
-    if(gps_uart_is_ready(a->session.gps) && g.date.year) {
+    if(gps_uart_is_ready(a->session.core.gps) && g.date.year) {
         // UTC time only — no date line
         y = draw_fmt(c, x, y, "%02d:%02d:%02d UTC",
             g.time.hours, g.time.minutes, g.time.seconds);
@@ -300,13 +300,13 @@ static int draw_ns_top_right(Canvas* c, BioMapApp* a) {
     // with "%.0f" — two frames with the same integer nS produce the
     // identical string and width, so we skip both snprintf and
     // canvas_string_width (an expensive glyph-measurement call).
-    float ns = a->session.pipeline.display.filtered_ns;
+    float ns = a->session.core.pipeline.display.filtered_ns;
     if(ns != a->session.ns_label_last) {
         snprintf(a->session.ns_label, sizeof(a->session.ns_label), "%.0f nS", (double)ns);
         a->session.ns_label_width = canvas_string_width(c, a->session.ns_label);
         a->session.ns_label_last = ns;
     }
-    int right_margin = a->session.recording.active ? 12 : 2;
+    int right_margin = a->session.core.recording.active ? 12 : 2;
     int x = 128 - a->session.ns_label_width - right_margin;
     canvas_draw_str(c, x, 10, a->session.ns_label);
     return 128 - worst_case_w - right_margin;
@@ -338,7 +338,7 @@ static void draw_inline_graph_status(
 // would shift the centred elapsed-time label sideways on every hacc
 // digit-count change, producing visible jitter each frame.
 static int render_gps_badge(Canvas* c, BioMapApp* a) {
-    GpsStatus g = gps_uart_get_status(a->session.gps);
+    GpsStatus g = gps_uart_get_status(a->session.core.gps);
     bool has_fix = gps_has_fix(&g);
     char badge[16];
     float hacc_disp = gps_hacc_display(&g);
@@ -360,7 +360,7 @@ static int render_gps_badge(Canvas* c, BioMapApp* a) {
 // Returns the fixed worst-case right edge for elapsed-time centring.
 static int render_time_span(Canvas* c, BioMapApp* a) {
     char buf[32];
-    int t_span = (GRAPH_N * a->session.pipeline.graph.scroll_divider) / TICK_HZ;
+    int t_span = (GRAPH_N * a->session.core.pipeline.graph.scroll_divider) / TICK_HZ;
     if(t_span >= 60) {
         snprintf(buf, sizeof(buf), "%dm%ds", t_span / 60, t_span % 60);
     } else {
@@ -380,9 +380,9 @@ static int render_time_span(Canvas* c, BioMapApp* a) {
 // elapsed-time label stationary even as the GPS hacc value changes digit
 // count frame-to-frame — using live widths would make it visibly jitter.
 static void render_elapsed(Canvas* c, BioMapApp* a, int left_edge, int right_edge) {
-    if(!a->session.recording.active) return;
+    if(!a->session.core.recording.active) return;
     char buf[16];
-    int elapsed_s = (int)(a->session.recording.total_ticks / TICK_HZ);
+    int elapsed_s = (int)(a->session.core.recording.total_ticks / TICK_HZ);
     if(elapsed_s < 60) {
         snprintf(buf, sizeof(buf), "%ds", elapsed_s);
     } else if(elapsed_s < 3600) {
@@ -403,7 +403,7 @@ static void render_elapsed(Canvas* c, BioMapApp* a, int left_edge, int right_edg
 static void render_gsr_session(Canvas* c, BioMapApp* a,
                                 bool gsr_visible, bool rf_viz,
                                 const float* rf_rssi) {
-    BioMapMode mode = a->session.mode;
+    BioMapMode mode = a->session.core.mode;
     bool gps_gsr_top_bar = (mode == BioMapModeGpsGsr || mode == BioMapModeGpsGsrRf);
 
     // Graph frame — always drawn (even when cuffs disconnected)
@@ -428,7 +428,7 @@ static void render_gsr_session(Canvas* c, BioMapApp* a,
     int top_left  = 0;
     int top_right = 128;
 
-    if(a->session.gsr && gsr_sensor_available(a->session.gsr)) {
+    if(a->session.core.gsr && gsr_sensor_available(a->session.core.gsr)) {
         if(gsr_visible) {
             if(mode == BioMapModeGsrOnly) {
                 top_left  = render_time_span(c, a);
@@ -453,18 +453,18 @@ static void render_gsr_session(Canvas* c, BioMapApp* a,
 
 // ── Diagnostics screen ────────────────────────────────────────────────
 static void render_diagnostics(Canvas* c, BioMapApp* a) {
-    if(a->session.gsr && gsr_sensor_available(a->session.gsr)) {
-        uint8_t pga = gsr_sensor_get_pga_index(a->session.gsr);
-        int32_t mean_cnt = gsr_sensor_get_mean_count(a->session.gsr);
-        int32_t window_n = gsr_sensor_get_window_samples(a->session.gsr);
+    if(a->session.core.gsr && gsr_sensor_available(a->session.core.gsr)) {
+        uint8_t pga = gsr_sensor_get_pga_index(a->session.core.gsr);
+        int32_t mean_cnt = gsr_sensor_get_mean_count(a->session.core.gsr);
+        int32_t window_n = gsr_sensor_get_window_samples(a->session.core.gsr);
         int y = 8;
 
         // Raw single-sample and filtered (~100 ms window mean) in nS and kΩ.
         // kΩ = 1e6 / nS  (since G_nS = 1e9/R_Ω → R_kΩ = 1e6/G_nS).
         // Displayed here so a calibration resistor can be verified directly
         // against a multimeter reading without mental arithmetic.
-        float raw_ns  = a->session.pipeline.display.raw_sample_ns;
-        float filt_ns = a->session.pipeline.display.filtered_ns;
+        float raw_ns  = a->session.core.pipeline.display.raw_sample_ns;
+        float filt_ns = a->session.core.pipeline.display.filtered_ns;
         float raw_kohm  = (raw_ns  > 0.0f) ? 1000000.0f / raw_ns  : 0.0f;
         float filt_kohm = (filt_ns > 0.0f) ? 1000000.0f / filt_ns : 0.0f;
         y = draw_fmt(c, 0, y, "Raw: %.0fnS / %.1fk", (double)raw_ns,  (double)raw_kohm);
@@ -472,16 +472,16 @@ static void render_diagnostics(Canvas* c, BioMapApp* a) {
 
         y = draw_fmt(c, 0, y, "PGA:%u Cal:%s Chg:%lu",
                      (unsigned)pga, a->cal_active ? "yes" : "no",
-                     (unsigned long)gsr_sensor_get_pga_change_count(a->session.gsr));
+                     (unsigned long)gsr_sensor_get_pga_change_count(a->session.core.gsr));
         y = draw_fmt(c, 0, y, "Sngl:%ld Mean:%ld(N=%ld)",
-                     (long)a->session.pipeline.display.raw_sample_count,
+                     (long)a->session.core.pipeline.display.raw_sample_count,
                      (long)mean_cnt, (long)window_n);
         // Vb: the 0.5 V bias in use (AIN1 against ground), whole mV — "--"
         // when no reading has been plausible, so 500 is assumed. The CSV
         // header has it to 0.1 mV. Vb sits after F, which is 0 while the
         // sensor is working, rather than after Chg, which only grows: the
         // line fits the 128 px screen while F stays under 100.
-        float vb = gsr_sensor_get_bias_volts(a->session.gsr);
+        float vb = gsr_sensor_get_bias_volts(a->session.core.gsr);
         char vb_str[8];
         if(vb > 0.0f) {
             snprintf(vb_str, sizeof(vb_str), "%.0f", (double)(vb * 1000.0f));
@@ -489,12 +489,12 @@ static void render_diagnostics(Canvas* c, BioMapApp* a) {
             strcpy(vb_str, "--");
         }
         y = draw_fmt(c, 0, y, "Hz:%.0f OK:%.0f%% F:%lu Vb:%s",
-                     (double)gsr_sensor_get_worker_hz(a->session.gsr),
-                     (double)gsr_sensor_get_success_rate(a->session.gsr),
-                     (unsigned long)gsr_sensor_get_consecutive_failures(a->session.gsr),
+                     (double)gsr_sensor_get_worker_hz(a->session.core.gsr),
+                     (double)gsr_sensor_get_success_rate(a->session.core.gsr),
+                     (unsigned long)gsr_sensor_get_consecutive_failures(a->session.core.gsr),
                      vb_str);
 
-        uint32_t dup_gap = gsr_sensor_get_duplicate_gap_min_ms(a->session.gsr);
+        uint32_t dup_gap = gsr_sensor_get_duplicate_gap_min_ms(a->session.core.gsr);
         char dg[12];
         if(dup_gap == UINT32_MAX) {
             strcpy(dg, "-");
@@ -502,8 +502,8 @@ static void render_diagnostics(Canvas* c, BioMapApp* a) {
             snprintf(dg, sizeof(dg), "%lu", (unsigned long)dup_gap);
         }
         draw_fmt(c, 0, y, "Dup:%.0f%% Stl:%.0f%% DG:%s",
-                 (double)gsr_sensor_get_duplicate_rate(a->session.gsr),
-                 (double)gsr_sensor_get_stale_rate(a->session.gsr), dg);
+                 (double)gsr_sensor_get_duplicate_rate(a->session.core.gsr),
+                 (double)gsr_sensor_get_stale_rate(a->session.core.gsr), dg);
     } else {
         canvas_draw_str(c, 0, 8, "GSR: --");
     }
@@ -529,8 +529,8 @@ static const char* bt_status_label(BtStatus status) {
 }
 
 // Reads GSR/GPS directly (gsr_sensor_get_raw() / gps_uart_get_status())
-// rather than a->session.pipeline.display — handle_live_stream_tick()
-// (biomap_session.c) never calls pipeline_update_display()/_graph() for
+// rather than a->session.core.pipeline.display — live_stream_tick_locked()
+// (core/biomap_session.c) never calls pipeline_update_display()/_graph() for
 // this mode, so those fields would stay stale/zero the whole session.
 static void render_live_stream(Canvas* c, BioMapApp* a) {
     canvas_set_font(c, FontPrimary);
@@ -544,7 +544,7 @@ static void render_live_stream(Canvas* c, BioMapApp* a) {
     draw_fmt(c, 0, 23, "BLE: %s", bt_status_label(status));
     draw_fmt(c, 0, 35, "Dropped: %lu", (unsigned long)dropped);
 
-    if(a->session.gsr && gsr_sensor_available(a->session.gsr)) {
+    if(a->session.core.gsr && gsr_sensor_available(a->session.core.gsr)) {
         // gsr_sensor_is_connected(), not just available() — matches
         // render_gsr_session()'s gating (every other GSR-displaying mode
         // shows "disconnected" rather than a frozen last-good reading).
@@ -552,8 +552,8 @@ static void render_live_stream(Canvas* c, BioMapApp* a) {
         // gsr_sensor_get_raw() returns regardless of connection state,
         // same as every mode's CSV row — this only fixes the on-screen
         // cue, not what gets sent.
-        if(gsr_sensor_is_connected(a->session.gsr)) {
-            draw_fmt(c, 0, 47, "GSR: %.0f nS", (double)gsr_sensor_get_raw(a->session.gsr));
+        if(gsr_sensor_is_connected(a->session.core.gsr)) {
+            draw_fmt(c, 0, 47, "GSR: %.0f nS", (double)gsr_sensor_get_raw(a->session.core.gsr));
         } else {
             canvas_draw_str(c, 0, 47, "GSR: cuffs disconnected");
         }
@@ -561,8 +561,8 @@ static void render_live_stream(Canvas* c, BioMapApp* a) {
         canvas_draw_str(c, 0, 47, "GSR: --");
     }
 
-    if(a->session.gps) {
-        GpsStatus g = gps_uart_get_status(a->session.gps);
+    if(a->session.core.gps) {
+        GpsStatus g = gps_uart_get_status(a->session.core.gps);
         draw_fmt(c, 0, 59, "GPS: %s  Sats:%d",
                  gps_has_fix(&g) ? gps_fix_label(g.fix_type) : "No fix",
                  g.satellites_tracked);
@@ -581,26 +581,26 @@ void biomap_render_callback(Canvas* c, void* ctx) {
     canvas_clear(c);
     canvas_set_font(c, FontSecondary);
 
-    bool is_diag   = (a->session.mode == BioMapModeDiagnostics);
-    bool has_graph = has_gsr(a->session.mode) && !is_diag;
+    bool is_diag   = (a->session.core.mode == BioMapModeDiagnostics);
+    bool has_graph = has_gsr(a->session.core.mode) && !is_diag;
 
     // RF snapshot — needed by both GSR session and GPS+RF modes. Derived
     // from has_rf() so a new RF mode can't be scanned but not drawn;
     // Diagnostics runs RF (see has_rf()) but its screen has no RF panel.
     float rf_rssi[EM_SCAN_NUM_FREQS];
-    bool rf_viz = has_rf(a->session.mode) && !is_diag && a->session.em;
+    bool rf_viz = has_rf(a->session.core.mode) && !is_diag && a->session.em;
     if(rf_viz) em_scan_sampler_get_snapshot(a->session.em, rf_rssi);
 
-    if(a->session.mode == BioMapModeLiveStream) {
+    if(a->session.core.mode == BioMapModeLiveStream) {
         render_live_stream(c, a);
     } else if(is_diag) {
         render_diagnostics(c, a);
     } else if(has_graph) {
-        bool gsr_visible = a->session.gsr
-                        && gsr_sensor_available(a->session.gsr)
-                        && gsr_sensor_is_connected(a->session.gsr);
+        bool gsr_visible = a->session.core.gsr
+                        && gsr_sensor_available(a->session.core.gsr)
+                        && gsr_sensor_is_connected(a->session.core.gsr);
         render_gsr_session(c, a, gsr_visible, rf_viz, rf_rssi);
-    } else if(a->session.gps) {
+    } else if(a->session.core.gps) {
         render_gps_rf(c, a, rf_viz, rf_rssi);
     } else {
         canvas_draw_str(c, 0, 20, "GPS unavailable");
@@ -610,9 +610,9 @@ void biomap_render_callback(Canvas* c, void* ctx) {
     // blinks at ~1 Hz while riding out an SD write failure (flush_fail_streak
     // > 0), so a degraded recording reads as different from a healthy one
     // without disturbing the per-mode live-data layout.
-    if(a->session.recording.active) {
-        bool blink_gap = a->session.recording.flush_fail_streak > 0 &&
-                         ((a->session.recording.total_ticks / 5) % 2);
+    if(a->session.core.recording.active) {
+        bool blink_gap = a->session.core.recording.flush_fail_streak > 0 &&
+                         ((a->session.core.recording.total_ticks / 5) % 2);
         if(!blink_gap) canvas_draw_box(c, 118, 1, 8, 8);
     }
 
@@ -622,7 +622,7 @@ void biomap_render_callback(Canvas* c, void* ctx) {
     // the recording is over, so covering the top strip of the now-stale live
     // view is the right trade. Same filled-box + inverted-text idiom as
     // draw_selection_list().
-    if(a->session.recording.write_stopped) {
+    if(a->session.core.recording.write_stopped) {
         canvas_set_font(c, FontSecondary);
         canvas_draw_box(c, 0, 0, 128, 11);
         canvas_invert_color(c);

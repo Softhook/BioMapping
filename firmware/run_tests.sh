@@ -82,6 +82,13 @@ gcc -Wall -Wextra -Werror -I . -I vendor/minmea -o build/test_firmware \
 ./build/test_firmware
 
 echo
+echo "== test_session (shared session logic, fake device) =="
+gcc -Wall -Wextra -Werror -I . -I vendor/minmea -o build/test_session \
+    tests/test_session.c core/biomap_session.c core/biomap_format.c core/biomap_pipeline.c \
+    core/gsr_sensor.c core/gps_uart.c tests/minmea_host.c -lm
+./build/test_session
+
+echo
 echo "== core/ builds with no Flipper headers =="
 # Compile only: core/gsr_sensor.c and core/gps_uart.c are linked and tested
 # through the Flipper side below. Without tests/shims on the include path,
@@ -170,7 +177,7 @@ gcc -Wall -Wextra -Werror -I . -I tests/shims -o build/test_cues \
 echo
 echo "== test_bt_stream (BLE serial profile lifecycle / send-or-drop logic) =="
 gcc -Wall -Wextra -Werror -I . -I modules -I tests/shims -o build/test_bt_stream \
-    tests/test_bt_stream.c modules/bt_stream.c \
+    tests/test_bt_stream.c modules/bt_stream.c core/biomap_format.c \
     tests/shims/bt_ble_mock.c -lm
 ./build/test_bt_stream
 

@@ -464,7 +464,7 @@ void sd_logger_stop(SdLogger* l, uint32_t end_epoch) {
 // flush never re-writes the already-stored prefix. That keeps the "# End"
 // trailer's crc32/bytes/rows an exact description of the file even across a
 // flush failure a later flush recovers from — the write-failure ride-out in
-// biomap_session.c relies on it, so such a file re-imports as "hit SD
+// core/biomap_session.c relies on it, so such a file re-imports as "hit SD
 // pressure" (flagged by flush_fails>0), not as corrupt.
 int sd_logger_batch_flush(SdLogger* l) {
     furi_check(l, "SdLogger: NULL in batch_flush()");
@@ -479,7 +479,7 @@ int sd_logger_batch_flush(SdLogger* l) {
     if(!l->file) return 0;
 
     // Timed as one unit (write+sync) since they always run back to back
-    // here and the caller (biomap_session.c's Tick handler) only cares
+    // here and the caller (core/biomap_session.c's tick) only cares
     // about the total real time this call held the main thread — see
     // sd_logger_get_flush_peak_ms()'s doc comment (sd_logger.h).
     uint32_t flush_start = furi_get_tick();

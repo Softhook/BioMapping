@@ -7,7 +7,7 @@
  * byte pair if the underlying transport ever splits or garbles a packet.
  *
  * The 49-byte layout below (PACKET_SIZE, MAGIC_0/1, every field offset) is
- * KEPT IN SYNC with firmware/modules/bt_stream.{c,h} by
+ * KEPT IN SYNC with firmware/core/biomap_format.{c,h} by
  * tests/test_firmware_csv_contract.js — change bt_stream_pack_packet() and
  * that test goes red until this decoder is reconciled.
  */

@@ -1,7 +1,7 @@
 # BioMapping CSV Schema
 
 > **Canonical reference.** Update this file whenever the column list changes.
-> Referenced from: `biomap_session.c`, `sd_logger.h`, `analyzer.mjs`, `scripts/analyze_track.py`.
+> Referenced from: `core/biomap_session.c`, `sd_logger.h`, `analyzer.mjs`, `scripts/analyze_track.py`.
 >
 > The live receiver's CSV export (`visualiser/src/live/live_csv.mjs`) and wire
 > decoder (`visualiser/src/live/live_binary_parser.mjs`) are locked to the
@@ -41,8 +41,8 @@ Each CSV begins with comment lines (prefixed `#`) before the column header:
 # GSR Bias: measured_mv:<float|none>,used_mv:<float>
 ```
 
-Emitted in the order shown above (`biomap_session.c`,
-`key_toggle_recording()`). `RecordingStartTime` and `DeviceName` are always
+Emitted in the order shown above (`core/biomap_session.c`,
+`build_header()`). `RecordingStartTime` and `DeviceName` are always
 present; the other four are conditional (see below).
 
 `RecordingStartTime` is `0` if the Flipper RTC has never been set.
@@ -69,8 +69,8 @@ on one recording it should be present on every recording after that until
 the app is closed.
 
 The `# Band Floors` line only appears when RF is active for the session (GPS +
-GSR + RF or GPS + RF) **and** an RF calibration exists (`key_toggle_recording()`,
-`biomap_session.c`).
+GSR + RF or GPS + RF) **and** an RF calibration exists (`build_header()`,
+`core/biomap_session.c`).
 
 `GSR Calibration` records the calibration applied inside `GsrSensor` before
 `gsr_raw` is ever computed (`gsr_sensor_set_calibration()`) — the only
@@ -183,7 +183,7 @@ runtime toggle, **off by default**. This replaced the old
 both the production and debug column sets (`BIOMAP_CSV_COLS_*_PROD` /
 `_DEBUG`) are always compiled into the firmware now, so switching this no
 longer requires a rebuild — just an Options-menu toggle before starting a
-recording. Since it's read once at `session_init()` (mirroring
+recording. Since it's read once at `session_core_init()` (mirroring
 `zoom_enabled`'s lifecycle), a change only takes effect for the *next*
 recording session, not one already in progress.
 

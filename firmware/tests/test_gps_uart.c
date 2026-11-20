@@ -1186,7 +1186,7 @@ static void test_rx_stream_drop_counter(void) {
     printf("  -> Pass\n");
 }
 
-// The SD write-failure ride-out (biomap_session.c / modules/sd_logger.c)
+// The SD write-failure ride-out (core/biomap_session.c / modules/sd_logger.c)
 // blocks the single event-loop thread inside sd_logger_batch_flush() while
 // it retries a failing card, and that same thread is what drains this UART.
 // A realistic worst case is a few hundred ms of stall (a normal flush is
