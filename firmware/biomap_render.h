@@ -1,4 +1,5 @@
-// biomap_render.h — Canvas rendering callbacks for Bio Mapping ViewPorts.
+// biomap_render.h — the menu, Options and calibration screens' draw
+// callbacks. The recording screen's is in flipper/biomap_screen_flipper.h.
 //
 // All shared types (MenuContext, OptionsContext) and screen constants
 // (MENU_COUNT, OPTIONS_COUNT) live in biomap.h — this header declares only
@@ -10,8 +11,6 @@
 
 // ── Render callbacks ───────────────────────────────────────────────────────
 
-// Recording view — live display during data logging (GPS+GSR / GPS-only / GSR-only)
-void biomap_render_callback(Canvas* c, void* ctx);
 // Main launch menu renderer
 void menu_render(Canvas* c, void* ctx);
 

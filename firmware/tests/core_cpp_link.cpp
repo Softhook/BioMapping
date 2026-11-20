@@ -12,6 +12,7 @@
 #include "core/biomap_cues.h"
 #include "core/core_check.h"
 #include "core/biomap_session.h"
+#include "core/biomap_screen.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -37,6 +38,9 @@ int main() {
     keep = keep || BioMapCueCount == 0;
     bool (*tick_fn)(SessionCore*) = session_core_tick;
     keep = keep || tick_fn == nullptr || session_mode_records(BioMapModeLiveStream);
+    ScreenCache cache;
+    screen_cache_init(&cache);
+    keep = keep || cache.ns_label_last == 0.0f;
     std::printf("C++ link ok (%d, %d, %d)\n", n, d.in_gate, (int)keep);
     return 0;
 }

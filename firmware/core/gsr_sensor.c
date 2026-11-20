@@ -1089,7 +1089,7 @@ void gsr_sensor_tick(GsrSensor* gsr) {
         // Published under gsr->mutex — these *_cached fields are read
         // cross-thread by the Diagnostics screen's accessors
         // (gsr_sensor_get_worker_hz() etc.) from the GUI render thread
-        // (biomap_render.c is their only caller). hz_window_start_* stay
+        // (core/biomap_screen.c is their only caller). hz_window_start_* stay
         // outside the lock: tick()-only, never read by any accessor.
         gsr_lock(gsr);
         gsr->worker_hz_cached = worker_hz;

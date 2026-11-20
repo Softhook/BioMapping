@@ -30,6 +30,14 @@
 // must agree; flipper/biomap_session_flipper.c checks that it does.
 #define RF_BAND_COUNT 3
 
+// The bands' names, in MHz and in the same order: the one list the screen's
+// labels, the "# Band Floors" line and the Flipper's radio code are built
+// from. The CSV column names above spell them out (they are the file
+// format); tests/test_session.c checks they agree with this list.
+#define RF_BAND_0_MHZ "815"
+#define RF_BAND_1_MHZ "868"
+#define RF_BAND_2_MHZ "915"
+
 typedef enum {
     BioMapModeGpsGsrRf = 0, // GPS, GSR, and RF all enabled
     BioMapModeGpsGsr,       // GPS and GSR, no RF

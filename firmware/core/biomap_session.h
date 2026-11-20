@@ -145,8 +145,10 @@ typedef struct {
     uint32_t cal_timestamp;
 } SessionSettings;
 
-// The session. The device's screen reads `mode`, `gps`, `gsr`, `pipeline`
-// and `recording` (under the lock); only this file's functions change them.
+// The session. The screen (core/biomap_screen.c) reads `mode`, `gps`,
+// `gsr`, `pipeline` and `recording` (under the lock), and `settings` (the
+// radio floors, the calibration flag), which are fixed for the session.
+// Only this file's functions change them.
 struct SessionCore {
     BioMapMode mode;
     // Set by the device after session_core_init(), NULL when the mode

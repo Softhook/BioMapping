@@ -1,4 +1,5 @@
-// test_session.c — the shared session (core/biomap_session.c) against a
+// test_session.c — the shared session (core/biomap_session.c) and its
+// screen (core/biomap_screen.c) against a
 // fake device: no Flipper headers. Checks what the session does with keys
 // and ticks (rows, the header, cues, the SD failure rules, the Live Stream
 // packets) and which device calls happen with the lock held.
@@ -7,6 +8,7 @@
 // slow call (file write, sound, Bluetooth send) under the lock fails here.
 
 #include "core/biomap_session.h"
+#include "core/biomap_screen.h"
 #include "core/biomap_format.h"
 #include "core/core_check.h"
 
@@ -469,6 +471,11 @@ static void test_start_header_and_settle(void) {
         fprintf(stderr, "header:\n%s\nwant:\n%s\n", F.header, want);
         assert(0);
     }
+    // The CSV's radio columns spell out the shared band names.
+    assert(strstr(BIOMAP_CSV_COLS_GPS_GSR_RF_PROD,
+                  "rssi_" RF_BAND_0_MHZ ",rssi_" RF_BAND_1_MHZ ",rssi_" RF_BAND_2_MHZ "\n") != NULL);
+    assert(strstr(BIOMAP_CSV_COLS_GPS_GSR_RF_DEBUG,
+                  "rssi_" RF_BAND_0_MHZ ",rssi_" RF_BAND_1_MHZ ",rssi_" RF_BAND_2_MHZ ",") != NULL);
     // Start sound, then the settle wait, both before the recording starts.
     assert(F.cue_count == 1 && F.cues[0] == BioMapCueRecordingStarted);
     assert(F.delay_count == 1 && F.delays[0] == GSR_TONE_SETTLE_MS);
@@ -912,6 +919,273 @@ static void test_live_stream_bias_with_sensor(void) {
     assert(F.log_count == tries_logs);
 }
 
+// ── The recording screen (core/biomap_screen.c) ────────────────────────
+// A pretend screen that keeps every text and box drawn, with a made-up
+// font (4 px a character, 6 in the title font). Every call is checked:
+// on the 128 × 64 screen, and colour swaps in pairs.
+
+typedef struct { int x, y; char text[48]; } DrawnText;
+typedef struct { int x, y, w, h; } DrawnBox;
+
+typedef struct {
+    DrawnText texts[64];
+    int       text_count;
+    DrawnBox  boxes[16];
+    int       box_count;
+    int       dots, lines, frames;
+    int       font;      // ScreenFont
+    bool      inverted;
+} FakeScreen;
+
+static FakeScreen D;
+
+static void on_screen(int x, int y) {
+    assert(x >= 0 && x < SCREEN_W);
+    assert(y >= 0 && y < SCREEN_H);
+}
+static void d_clear(void* ctx) { (void)ctx; assert(!D.inverted); }
+static void d_font(void* ctx, ScreenFont f) { (void)ctx; D.font = f; }
+static void d_str(void* ctx, int x, int y, const char* t) {
+    (void)ctx;
+    on_screen(x, y);
+    assert(D.text_count < 64);
+    DrawnText* dt = &D.texts[D.text_count++];
+    dt->x = x;
+    dt->y = y;
+    snprintf(dt->text, sizeof(dt->text), "%s", t);
+}
+static int d_width(void* ctx, const char* t) {
+    (void)ctx;
+    return (int)strlen(t) * (D.font == ScreenFontPrimary ? 6 : 4);
+}
+static void d_dot(void* ctx, int x, int y) { (void)ctx; on_screen(x, y); D.dots++; }
+static void d_line(void* ctx, int x1, int y1, int x2, int y2) {
+    (void)ctx;
+    on_screen(x1, y1);
+    on_screen(x2, y2);
+    D.lines++;
+}
+static void d_box(void* ctx, int x, int y, int w, int h) {
+    (void)ctx;
+    on_screen(x, y);
+    on_screen(x + w - 1, y + h - 1);
+    assert(D.box_count < 16);
+    D.boxes[D.box_count++] = (DrawnBox){x, y, w, h};
+}
+static void d_frame(void* ctx, int x, int y, int w, int h) {
+    (void)ctx;
+    on_screen(x, y);
+    on_screen(x + w - 1, y + h - 1);
+    D.frames++;
+}
+static void d_invert(void* ctx) { (void)ctx; D.inverted = !D.inverted; }
+
+static ScreenCache SC;
+static ScreenExtras X;
+
+static void draw(void) {
+    memset(&D, 0, sizeof(D));
+    D.font = -1;
+    ScreenDraw d = {
+        .clear = d_clear, .set_font = d_font, .draw_str = d_str, .str_width = d_width,
+        .draw_dot = d_dot, .draw_line = d_line, .draw_box = d_box, .draw_frame = d_frame,
+        .invert = d_invert,
+    };
+    screen_draw_session(&d, &S, &X, &SC);
+    assert(!D.inverted);  // every swap undone
+}
+
+static const DrawnText* text_starting(const char* prefix) {
+    for(int i = 0; i < D.text_count; i++) {
+        if(strncmp(D.texts[i].text, prefix, strlen(prefix)) == 0) return &D.texts[i];
+    }
+    return NULL;
+}
+
+static bool has_box(int x, int y, int w, int h) {
+    for(int i = 0; i < D.box_count; i++) {
+        const DrawnBox* b = &D.boxes[i];
+        if(b->x == x && b->y == y && b->w == w && b->h == h) return true;
+    }
+    return false;
+}
+
+static void screen_start(BioMapMode mode, SessionSettings cfg) {
+    start_with_modules(mode, cfg, 0.5f);
+    screen_cache_init(&SC);
+    X = (ScreenExtras){0};
+}
+
+// GPS + GSR: the top bar (GPS badge, elapsed time, nS value), the graph,
+// and the recording mark.
+static void test_screen_gps_gsr(void) {
+    printf("Running test_screen_gps_gsr...\n");
+    screen_start(BioMapModeGpsGsr, settings());
+    draw();
+    const DrawnText* badge = text_starting("No fix");
+    assert(badge && badge->x == 1 && badge->y == 10);
+    gps_fix();
+    tick(20);
+    draw();
+    // HDOP 0.9 and no u-blox accuracy figure: about 2.2 m (HDOP × 2.5).
+    badge = text_starting("2.");
+    assert(badge && badge->x == 1 && strstr(badge->text, "m") != NULL);
+    // The nS value at the top right, 2 px from the edge; no recording mark.
+    const DrawnText* ns = text_starting("49");
+    assert(ns && ns->y == 10 && strstr(ns->text, " nS") != NULL);
+    assert(ns->x + (int)strlen(ns->text) * 4 == SCREEN_W - 2);
+    assert(!has_box(118, 1, 8, 8));
+    assert(D.dots == SCREEN_W - 2);  // one per graph column
+    // The zoom label, bottom left ("1.0x"; auto-zoom moves it).
+    bool zoom_label = false;
+    for(int i = 0; i < D.text_count; i++) {
+        const DrawnText* z = &D.texts[i];
+        if(z->x == 2 && z->y == 62 && z->text[strlen(z->text) - 1] == 'x') zoom_label = true;
+    }
+    assert(zoom_label);
+
+    // Recording: the mark, the nS value moved left for it, and the time.
+    session_core_key(&S, SessionKeyOk);
+    tick(25);
+    draw();
+    assert(has_box(118, 1, 8, 8));
+    ns = text_starting("49");
+    assert(ns->x + (int)strlen(ns->text) * 4 == SCREEN_W - 12);
+    const DrawnText* t = text_starting("2s");
+    assert(t && t->y == 10 && t->x > badge->x);
+    S.recording.total_ticks = 10 * 3725;
+    draw();
+    assert(text_starting("1h02m") != NULL);
+    S.recording.total_ticks = 10 * 125;
+    draw();
+    assert(text_starting("2m") != NULL);
+
+    // An SD write being retried: the mark blinks (on, off, on...).
+    S.recording.flush_fail_streak = 1;
+    S.recording.total_ticks = 10;
+    draw();
+    assert(has_box(118, 1, 8, 8));
+    S.recording.total_ticks = 15;
+    draw();
+    assert(!has_box(118, 1, 8, 8));
+
+    // Recording stopped by the SD card: the banner over the top.
+    S.recording.active = false;
+    S.recording.write_stopped = true;
+    draw();
+    assert(has_box(0, 0, SCREEN_W, 11));
+    assert(text_starting("REC STOPPED - SD ERROR") != NULL);
+    S.recording.write_stopped = false;
+
+    // Fingers off: the message centred on the graph, no graph, no nS.
+    G.skin_v = 0.0f;
+    tick(40);
+    draw();
+    const DrawnText* l1 = text_starting("Finger cuffs");
+    const DrawnText* l2 = text_starting("disconnected");
+    assert(l1 && l2 && l1->y == 36 && l2->y == 45);
+    assert(l1->x == SCREEN_W / 2 - (int)strlen("Finger cuffs") * 4 / 2);
+    assert(D.dots == 0);
+    assert(text_starting("49") == NULL);
+
+    // No GPS module (not set up yet, or failed): "No fix", and the app
+    // carries on.
+    G.skin_v = SKIN_V_5US;
+    tick(5);
+    GpsUart* gps = S.gps;
+    S.gps = NULL;
+    draw();
+    assert(text_starting("No fix") != NULL);
+    S.gps = gps;
+}
+
+// GPS + GSR + RF: the radio panel on the left, one bar per band above its
+// label, measured from that band's calibrated floor.
+static void test_screen_radio_panel(void) {
+    printf("Running test_screen_radio_panel...\n");
+    screen_start(BioMapModeGpsGsrRf, settings());  // floors -101.5, -99.25, -97.0
+    float rf[RF_BAND_COUNT] = {-90.0f, -120.0f, -50.0f};
+    X.rf_dbm = rf;
+    draw();
+    assert(text_starting("815 MHz")->y == 30);
+    assert(text_starting("868 MHz")->y == 46);
+    assert(text_starting("915 MHz")->y == 62);
+    // 815: 11.5 dB above its floor, of an 18 dB scale, on a 40 px bar: 26 px.
+    assert(has_box(1, 16, 26, 6));
+    // 868: below its floor, so no bar. 915: off the scale, so full length.
+    for(int i = 0; i < D.box_count; i++) assert(D.boxes[i].y != 32);
+    assert(has_box(1, 48, 40, 6));
+    // The graph is narrowed to the right of the panel.
+    assert(D.dots == SCREEN_W - 43 - 2);
+
+    // Without a radio calibration the floor is -90 dBm for every band.
+    SessionSettings cfg = settings();
+    cfg.rf_calibrated = false;
+    screen_start(BioMapModeGpsGsrRf, cfg);
+    X.rf_dbm = rf;
+    draw();
+    assert(!has_box(1, 16, 26, 6));  // -90 dBm is now exactly the floor: no bar
+    // No reading to show: no panel at all.
+    X.rf_dbm = NULL;
+    draw();
+    assert(text_starting("815 MHz") == NULL);
+}
+
+// GPS + RF: the recording's start time from its file name, then the GPS.
+static void test_screen_gps_rf(void) {
+    printf("Running test_screen_gps_rf...\n");
+    screen_start(BioMapModeGpsOnly, settings());
+    float rf[RF_BAND_COUNT] = {-95.0f, -95.0f, -95.0f};
+    X.rf_dbm = rf;
+    X.file_name = "biomap_2026-11-20_09-08-07_2.csv";
+    gps_fix();
+    draw();
+    assert(text_starting("09:08:07 UTC")->y == 25);
+    assert(text_starting("09-08-07") == NULL);  // not recording: no name
+    session_core_key(&S, SessionKeyOk);
+    tick(2);
+    // Recording: the start time from the file name goes top left, in the
+    // top bar, so the four GPS lines stay where they were and the last one
+    // (accuracy and fix type) stays on the screen.
+    draw();
+    const DrawnText* name = text_starting("09-08-07_2");
+    assert(name && name->x == 1 && name->y == 10);
+    assert(strcmp(name->text, "09-08-07_2") == 0);
+    assert(text_starting("09:08:07 UTC")->y == 25);
+    assert(text_starting("51.50000")->y == 35);
+    assert(text_starting("-0.12500")->y == 45);
+    assert(text_starting("2.")->y == 55);  // "2.2m  --"
+
+    // No GPS module at all.
+    S.gps = NULL;
+    draw();
+    assert(text_starting("GPS unavailable") != NULL);
+}
+
+// Live Stream: the Bluetooth state, dropped packets, GSR and GPS.
+static void test_screen_live_stream(void) {
+    printf("Running test_screen_live_stream...\n");
+    screen_start(BioMapModeLiveStream, settings());
+    X.link = ScreenLinkAdvertising;
+    draw();
+    assert(text_starting("Live Stream")->y == 10);
+    assert(text_starting("BLE: Advertising") != NULL);
+    assert(text_starting("GPS: No fix") != NULL);
+    X.link = ScreenLinkConnected;
+    X.link_dropped = 3;
+    gps_fix();
+    tick(5);
+    draw();
+    assert(text_starting("BLE: Connected") != NULL);
+    assert(text_starting("Dropped: 3") != NULL);
+    assert(text_starting("GSR: 49") != NULL);
+    assert(text_starting("GPS: --  Sats:") != NULL);  // a fix, but no 2D/3D report yet
+    G.skin_v = 0.0f;
+    tick(40);
+    draw();
+    assert(text_starting("GSR: cuffs disconnected") != NULL);
+}
+
 int main(void) {
     test_init_checks_platform();
     test_start_header_and_settle();
@@ -930,6 +1204,10 @@ int main(void) {
     test_heartbeat_fingers_and_fix();
     test_gsr_display_and_rows();
     test_live_stream_bias_with_sensor();
+    test_screen_gps_gsr();
+    test_screen_radio_panel();
+    test_screen_gps_rf();
+    test_screen_live_stream();
     free_modules();
     printf("All session tests passed!\n");
     return 0;

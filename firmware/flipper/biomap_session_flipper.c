@@ -188,9 +188,8 @@ static void session_init(BioMapApp* app, BioMapMode mode) {
     // The screen may be drawing the previous screen's state while this
     // runs: take the lock around the reset.
     furi_mutex_acquire(app->mutex, FuriWaitForever);
-    *s = (Session){
-        .ns_label_last = -1.0f,  // forces the first frame to format it (nS ≥ 0 always)
-    };
+    *s = (Session){0};
+    screen_cache_init(&s->screen);
     session_core_init(&s->core, mode, &platform, &cfg);
     furi_mutex_release(app->mutex);
 }

@@ -9,6 +9,7 @@
 // with the arrays themselves declared in cc1101_configs.h.
 
 #include "em_scan_rf.h"
+#include "../core/biomap_config.h"  // RF_BAND_*_MHZ, the band names
 
 #include <furi.h>
 #include <furi_hal.h>
@@ -18,8 +19,10 @@
 const uint32_t em_scan_freq_hz[EM_SCAN_NUM_FREQS] = {
     815000000, 868350000, 915000000,
 };
+// The shared band names (core/biomap_config.h); they must match the
+// frequencies just above.
 const char* const em_scan_freq_label[EM_SCAN_NUM_FREQS] = {
-    "815", "868", "915",
+    RF_BAND_0_MHZ, RF_BAND_1_MHZ, RF_BAND_2_MHZ,
 };
 
 // Warm-up after idle->tune->rx, discarded before peak-hold sampling

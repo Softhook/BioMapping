@@ -255,10 +255,11 @@ static int build_header(SessionCore* s, char* header, size_t cap, uint32_t epoch
                       cfg->device_name ? cfg->device_name : "");
     }
     // Band Floors: only once the radio is on in this mode and a real
-    // radio calibration exists. Order 815, 868, 915 (RF_BAND_COUNT).
+    // radio calibration exists. Bands in RF_BAND_COUNT order.
     if(has_rf(s->mode) && cfg->rf_calibrated && n > 0 && (size_t)n < cap) {
         n += snprintf(header + n, cap - (size_t)n,
-                      "# Band Floors (dBm): 815:%.1f,868:%.1f,915:%.1f\n",
+                      "# Band Floors (dBm): " RF_BAND_0_MHZ ":%.1f," RF_BAND_1_MHZ ":%.1f,"
+                      RF_BAND_2_MHZ ":%.1f\n",
                       (double)cfg->rf_floors_dbm[0], (double)cfg->rf_floors_dbm[1],
                       (double)cfg->rf_floors_dbm[2]);
     }

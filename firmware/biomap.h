@@ -31,6 +31,8 @@
 // ── Module headers ─────────────────────────────────────────────────────
 #include "core/biomap_session.h"
 #include "flipper/biomap_session_flipper.h"
+#include "core/biomap_screen.h"
+#include "flipper/biomap_screen_flipper.h"
 #include "biomap_render.h"
 #include "flipper/gps_uart_flipper.h"
 #include "flipper/gsr_sensor_flipper.h"
@@ -61,15 +63,8 @@ typedef struct Session {
     ViewPort*      vp;          // == app->screen_vp while a session is active; not owned/freed here
     FuriTimer*     timer;
 
-    // Render cache — avoids snprintf + canvas_string_width every frame
-    char           zoom_label[16];
-    float          zoom_label_last;
-    int            zoom_label_width;
-
-    // Render cache — nS value (top-right corner)
-    char           ns_label[16];
-    float          ns_label_last;
-    int            ns_label_width;
+    // The recording screen's text kept between frames (core/biomap_screen.h)
+    ScreenCache    screen;
 } Session;
 
 // ── BioMapApp — shared application state (fully typed) ─────────────────

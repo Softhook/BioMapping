@@ -82,9 +82,9 @@ gcc -Wall -Wextra -Werror -I . -I vendor/minmea -o build/test_firmware \
 ./build/test_firmware
 
 echo
-echo "== test_session (shared session logic, fake device) =="
+echo "== test_session (shared session logic and screen, fake device) =="
 gcc -Wall -Wextra -Werror -I . -I vendor/minmea -o build/test_session \
-    tests/test_session.c core/biomap_session.c core/biomap_format.c core/biomap_pipeline.c \
+    tests/test_session.c core/biomap_session.c core/biomap_screen.c core/biomap_format.c core/biomap_pipeline.c \
     core/gsr_sensor.c core/gps_uart.c tests/minmea_host.c -lm
 ./build/test_session
 

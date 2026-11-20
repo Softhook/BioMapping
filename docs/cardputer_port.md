@@ -306,7 +306,7 @@ None of these stops the port, but each would cause a confusing fault if missed.
 | GPS | `gps_uart.c` | M10Q setup commands, reading its replies, speed change and standby/wake rules, parsing (minmea) | Sending bytes and collecting the bytes that arrive. The Flipper gets them one at a time from an interrupt; the ESP32's serial driver stores them for the main loop. | Medium |
 | Session | `biomap_session.c` | Start and stop, what each second does, building CSV rows, which events happen | The main loop, locks and screen refresh | Medium |
 | Notifications | `biomap_session.c`, `biomap.c` | Named events ("recording started", "GPS fix", "write error"), including the rules about when sounds may play | The response: LED and sounds on the Flipper, beeps on the Cardputer (no vibration motor) | Small |
-| Screen | `biomap_render.c` (~1,000 lines) | The current screen layout, drawn through 6–8 basic drawing calls | Those drawing calls, stretched to fit the screen, using the same fonts. See below. | Medium |
+| Screen | `biomap_render.c` (~1,000 lines) | The current screen layout, drawn through 10 basic drawing calls. The recording screen is done (step 6, `core/biomap_screen.c`); the menus wait for step 10. | Those drawing calls, stretched to fit the screen, using the same fonts. See below. | Medium |
 | Keys and menus | `biomap_gui.c` | Possibly the menu logic | Reading keys | Small to medium |
 | SD card | `sd_logger.c` | Batching rows | Opening, writing and closing files. The Cardputer writes in whole 512-byte blocks (see "SD card pauses" in section 5). | Small |
 | Bluetooth live stream | `bt_stream.c` (~180 lines) | Packet format (already shared) | The Bluetooth code. The bench used Arduino's standard Bluetooth library with the message size raised to 52 bytes, which is enough; NimBLE would also work. | Medium |
@@ -647,6 +647,34 @@ Known weak points:
 
 **To check on a real Flipper:** record GPS+GSR for a minute with sound on: the start sound, the heartbeat, the stop sound, and a file with the usual header lines (including `# GSR Bias` and `# GPSChipID`). Press the zoom keys before recording (clicks) and during it (no clicks, graph still zooms). Start and stop a second recording in the same session. Try GSR only and GPS + RF once each, Diagnostics (OK only clicks), and Live Stream with the visualiser's Live tab (packets arrive; the log shows the "Live Stream bias" line once). Leave each screen with Back and check the app returns to the menu cleanly.
 
+### Step 6 done: the recording screen in `core/`
+
+The recording screen is now shared, in [core/biomap_screen.c](../firmware/core/biomap_screen.c): the graph, the top bar (GPS badge, elapsed time, nS value), the radio panel, the GPS + RF details, Diagnostics, Live Stream, the recording mark and the "REC STOPPED" banner. It is still laid out in the Flipper's 128 × 64 coordinates, and it draws through ten calls ([core/biomap_screen.h](../firmware/core/biomap_screen.h), `ScreenDraw`): clear, set font, text, text width, dot, line, filled box, outline box and swap colours. The Cardputer will supply those ten and stretch each position to its screen (the quick route in section 4).
+
+**The rule for a stretched screen** (written in the header): every number going in or out of those calls is in the 128 × 64 layout's units, never the device's own pixels. That includes the text width the device reports, because the layout right-aligns and centres text by it. So the Cardputer, stretching by about 1.9, multiplies each position by 1.9 when drawing and divides each text width by 1.9 before reporting it. If it reported its real width, the nS value would end about 30 pixels short of the right edge and the elapsed time would sit off-centre. A dot is one layout pixel, drawn as a small block: the graph is one dot per column, and single device pixels would leave gaps.
+
+It reads the shared session for everything it shows, plus a few things the session doesn't hold, which the device hands over each frame (`ScreenExtras`): the recording's file name, the latest radio reading, and Live Stream's Bluetooth state and dropped-packet count. The radio panel's floors now come from the settings the session read at its start, not from the app. They are the same values, because radio calibration can't run during a session.
+
+The Flipper side, [flipper/biomap_screen_flipper.c](../firmware/flipper/biomap_screen_flipper.c), is about 100 lines: the ten calls written with the Flipper's canvas, and the screen callback, which takes the main lock and gathers the extras.
+
+**Only the recording screen moved.** The main menu, Options and the calibration screens stay in [biomap_render.c](../firmware/biomap_render.c). The Cardputer's interface may end up quite different from the Flipper's (it has a full keyboard), and the menus are the part most likely to change, so they wait until the Cardputer's screens are decided (step 10). The radio calibration screens stay Flipper-only either way.
+
+Checked:
+
+- All host tests pass, the Flipper app builds with no warnings, and the shared screen builds for the ESP32-S3 with the Cardputer's own compiler and from C++.
+- **Old and new side by side.** A throwaway program drew every frame twice, with the old screen code (from git) and the new shared one, and recorded every drawing call each made: every text with its position, every dot, line and box. It used the real shared session with the pretend GSR sensor and GPS from the session test, in all 7 screen kinds: GPS + GSR + RF with and without a radio calibration, GPS + GSR, GPS + RF, GSR Only, Live Stream and Diagnostics. Each was taken through no fix and a fix, zooming, recording, losing the fix, fingers off and back on at a much higher reading, a moving signal, a made-up graph with every step size and points far off the scale, elapsed times in seconds, minutes and hours, the SD retry blink, the radio at both ends of its scale, three file names, every Bluetooth state, the "REC STOPPED" banner, and the modules missing. The two records were identical: 268 frames, 19,582 drawing calls. Five deliberate breaks each showed up as a difference: the recording mark moved 1 px, minutes written differently, the graph's gap-filling a pixel late, the graph clipped a pixel off, and the radio bars 1 px shorter. (The gap-filling break was missed at first, because no frame had neighbouring graph points exactly 2 px apart; the made-up graph was added for it.)
+- **New tests in [tests/test_session.c](../firmware/tests/test_session.c)** draw the screen on a pretend screen that checks every call stays on the 128 × 64 screen and that colour swaps come in pairs. They check the top bar's positions, the recording mark and its blink, the banner, the cuffs-off message, the radio bars against calibrated and default floors, the file name in GPS + RF mode, and Live Stream's lines. Five deliberate breaks each make them fail.
+- **Stack**, measured with the Flipper's compiler, on the GUI thread: the Flipper wrapper uses 88 bytes, the shared drawing function 176 and the text formatting under it 76, so about 340 bytes at the deepest. The old code's deepest point was about 268 bytes (192 + 76): 72 bytes more now.
+
+Deliberate differences:
+
+- **GPS + RF: the recording's start time is now in the top bar.** While recording, this screen used to show five lines in the GPS pane: the start time from the file name, the UTC time, latitude, longitude, and accuracy with fix type. The pane only holds four, so the last line ("2.2m 3D") was drawn at y 65, below the 64-pixel screen, and never seen. The start time now sits top left in the top bar (empty in this mode apart from the recording box), where the GSR modes show their GPS badge or time span. The four GPS lines stay where they are whether or not a recording is running. The old-vs-new comparison, run again, differs only in this mode's recording frames, by exactly this.
+- **A missing GPS module no longer stops the app.** In the GPS + GSR modes, with the GSR sensor there but no GPS module, the old top bar asked the missing module for its status, which stops the app. It now shows "No fix". On the Flipper this can't happen (since step 5 the session gets both modules at the same moment), but the Cardputer's start-up code is new.
+
+**One list of radio band names.** The names "815", "868" and "915" were written out separately in the screen's labels, the file's `# Band Floors` line and the Flipper's radio code. They now come from one list beside `RF_BAND_COUNT` in [core/biomap_config.h](../firmware/core/biomap_config.h). The CSV column names (`rssi_815`…) stay spelled out, because they are the file format, and the session test checks they agree with the list. The `# Band Floors` line is byte-for-byte unchanged (the header test checks it).
+
+**To check on a real Flipper** (together with step 5's check above): each recording screen looks as before. GPS + GSR: the badge, the elapsed time and the nS value along the top, the graph, the zoom label, and the recording box while recording. GPS + GSR + RF: the three radio bars and their labels on the left. GPS + RF: while recording, the start time (e.g. "14-32-05") top left, and the four GPS lines in the pane, the last (accuracy and fix type) now visible at the bottom. GSR Only: the time span top left. Take the finger cuffs off once ("Finger cuffs disconnected"). Diagnostics and Live Stream as before. The menus and calibration screens haven't changed.
+
 ### Next steps
 
 The remaining preparation follows steps 1–6 of the order of work in section 7:
@@ -656,7 +684,7 @@ The remaining preparation follows steps 1–6 of the order of work in section 7:
 3. ~~Move the GPS logic into `core/`.~~ Done and checked on a Flipper (see above); a recording with a GPS fix is still to be seen.
 4. ~~Named events instead of LED patterns, with sounds included.~~ Done (see above).
 5. ~~Split the session into shared logic plus the Flipper loop.~~ Done (see above); needs its Flipper check.
-6. Make the screen layout shared.
+6. ~~Make the screen layout shared.~~ The recording screen is done (see above); the menus wait for step 10. Needs its Flipper check, together with step 5's.
 
 ---
 
