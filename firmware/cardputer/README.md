@@ -35,6 +35,13 @@ It starts in GSR Only mode. Put a microSD card in first.
 
 Until GPS time arrives (step 9) the Cardputer doesn't know the date, so file names count from `biomap_1970-01-01_00-00-00.csv` after each power-up, and the header's start time is 0. A name already on the card gets "_2", "_3" and so on, so nothing is overwritten. There is no calibration yet either, so readings carry the board's zero offset (about 100 nS low on the prototype).
 
+## Getting the files off
+
+The card is built in, so the recordings are read over the USB link. With the Cardputer plugged in and not recording, send a line over its serial port (115200 baud):
+
+- `ls` lists `biomapping/` with each file's size.
+- `cat NAME` sends one file: a `BEGIN NAME SIZE` line, the file's bytes, then `END`.
+
 ## What the screen shows
 
 | Line | What it means |
@@ -59,5 +66,6 @@ If the shared code ever stops on a broken rule, the screen turns red and shows t
 | `src/gsr_cardputer.cpp` | The GSR thread, reading the ADS1115 through M5's I2C driver |
 | `src/sd_cardputer.cpp` | The SD card, written in whole 512-byte blocks |
 | `src/cues_cardputer.cpp` | The Flipper's sounds |
+| `src/serial_files.cpp` | The `ls` and `cat` commands for reading recordings over USB |
 | `src/keys.cpp` | The Cardputer's keys as the Flipper's six buttons |
 | `src/core_fatal.cpp` | What happens when the shared code stops on a broken rule |

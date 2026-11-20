@@ -15,6 +15,7 @@
 #include "gsr_cardputer.h"
 #include "keys.h"
 #include "sd_cardputer.h"
+#include "serial_files.h"
 #include "session_cardputer.h"
 
 static M5Canvas canvas(&M5Cardputer.Display);
@@ -197,6 +198,7 @@ void loop() {
         redraw = true;
     }
     if(redraw) draw_screen();
+    serial_files_poll(g_session.open && g_session.core.recording.active);
     if(millis() - last_log_ms >= 1000) {
         last_log_ms += 1000;
         log_second();
