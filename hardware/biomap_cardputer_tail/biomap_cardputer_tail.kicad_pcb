@@ -580,7 +580,7 @@
 			(drill 0.7)
 			(layers "*.Cu" "*.Mask")
 			(remove_unused_layers no)
-			(net "unconnected-(J2-Pin_6-Pad6)")
+			(net "GND")
 			(uuid "216adda4-0365-4b57-9ca1-3c9af9f1b9ac")
 		)
 		(pad "7" thru_hole rect
@@ -612,7 +612,7 @@
 		)
 		(fill no)
 		(layer "Dwgs.User")
-		(uuid "c482c815-c4a7-4461-af0e-20f0ed3b77ff")
+		(uuid "93f754e1-3f41-4fa4-ad86-1247034d6605")
 	)
 	(gr_rect
 		(start 5.5 7)
@@ -623,7 +623,7 @@
 		)
 		(fill no)
 		(layer "Dwgs.User")
-		(uuid "0ad008ba-e851-40d1-96c4-821946f8d436")
+		(uuid "c755bd73-7784-40da-8c1b-a2d53382487e")
 	)
 	(gr_arc
 		(start 2 16)
@@ -796,7 +796,7 @@
 	(gr_text "THIS SIDE DOWN"
 		(at 12 10 0)
 		(layer "F.SilkS")
-		(uuid "fa211cf8-b8d3-4b46-a57d-dd753ae3223a")
+		(uuid "b0cec53e-c2c1-4dd3-bbbd-e8032c5488f0")
 		(effects
 			(font
 				(size 1 1)
@@ -804,10 +804,10 @@
 			)
 		)
 	)
-	(gr_text "EXT TAIL rev D"
+	(gr_text "EXT TAIL rev E"
 		(at 12 11.5 0)
 		(layer "B.SilkS")
-		(uuid "d6d829a6-9738-4288-bc92-b067428271ad")
+		(uuid "9d633c9f-3b27-4c04-8dd6-182d2a4b19b4")
 		(effects
 			(font
 				(size 1 1)
@@ -819,7 +819,7 @@
 	(gr_text "BEND AREA: copper on F only"
 		(at 12 17 0)
 		(layer "Dwgs.User")
-		(uuid "b0cec53e-c2c1-4dd3-bbbd-e8032c5488f0")
+		(uuid "d5b5c262-88b2-432a-8de1-f313ebaa1ff7")
 		(effects
 			(font
 				(size 0.6 0.6)
@@ -830,7 +830,7 @@
 	(gr_text "STIFFENER: FR4 1.0 mm, on F (header side), drilled for the header"
 		(at 12 25 0)
 		(layer "Dwgs.User")
-		(uuid "cf8eabea-5030-4d1b-81b9-c9bf2330080f")
+		(uuid "28642cff-7cd4-4ace-aa12-4498eff2f94a")
 		(effects
 			(font
 				(size 0.6 0.6)
@@ -841,7 +841,7 @@
 	(segment
 		(start 9.75 17)
 		(end 9.46 19.5)
-		(width 0.25)
+		(width 0.5)
 		(layer "F.Cu")
 		(net "/+5V_EXT")
 		(uuid "47ae1f7a-df28-419e-8f59-13e05c8f1a30")
@@ -849,7 +849,7 @@
 	(segment
 		(start 9.75 2.5)
 		(end 9.75 17)
-		(width 0.25)
+		(width 0.5)
 		(layer "F.Cu")
 		(net "/+5V_EXT")
 		(uuid "ff06c949-171e-4e8d-8609-313bccb1d2e4")
@@ -920,23 +920,31 @@
 	)
 	(segment
 		(start 11.25 2.5)
-		(end 11.25 17.5)
+		(end 11.25 18.2)
 		(width 0.25)
 		(layer "F.Cu")
 		(net "/I2C_SCL")
 		(uuid "b66e5cad-08fa-4a3b-9bfc-24d61dd9e6c1")
 	)
 	(via
-		(at 11.25 17.5)
+		(at 11.25 18.2)
 		(size 0.7)
 		(drill 0.35)
 		(layers "F.Cu" "B.Cu")
 		(net "/I2C_SCL")
+		(uuid "cf8eabea-5030-4d1b-81b9-c9bf2330080f")
+	)
+	(segment
+		(start 13.35 18.2)
+		(end 14.54 19.5)
+		(width 0.25)
+		(layer "B.Cu")
+		(net "/I2C_SCL")
 		(uuid "3ae0e7bf-7b97-41ba-a212-eb1666308276")
 	)
 	(segment
-		(start 11.25 17.5)
-		(end 14.54 19.5)
+		(start 11.25 18.2)
+		(end 13.35 18.2)
 		(width 0.25)
 		(layer "B.Cu")
 		(net "/I2C_SCL")
@@ -961,7 +969,7 @@
 	(segment
 		(start 8.25 17)
 		(end 6.92 19.5)
-		(width 0.25)
+		(width 0.5)
 		(layer "F.Cu")
 		(net "GND")
 		(uuid "16bae45c-abe7-4bcb-9d92-71b8042cf07e")
@@ -969,10 +977,42 @@
 	(segment
 		(start 8.25 2.5)
 		(end 8.25 17)
-		(width 0.25)
+		(width 0.5)
 		(layer "F.Cu")
 		(net "GND")
 		(uuid "cab1b73c-0e2a-40d1-8e14-f0c93b626dd8")
+	)
+	(segment
+		(start 14.25 2.5)
+		(end 14.25 17.4)
+		(width 0.5)
+		(layer "F.Cu")
+		(net "GND")
+		(uuid "fa211cf8-b8d3-4b46-a57d-dd753ae3223a")
+	)
+	(via
+		(at 14.25 17.4)
+		(size 0.7)
+		(drill 0.35)
+		(layers "F.Cu" "B.Cu")
+		(net "GND")
+		(uuid "0ad008ba-e851-40d1-96c4-821946f8d436")
+	)
+	(segment
+		(start 6.92 17.4)
+		(end 6.92 19.5)
+		(width 0.5)
+		(layer "B.Cu")
+		(net "GND")
+		(uuid "c482c815-c4a7-4461-af0e-20f0ed3b77ff")
+	)
+	(segment
+		(start 14.25 17.4)
+		(end 6.92 17.4)
+		(width 0.5)
+		(layer "B.Cu")
+		(net "GND")
+		(uuid "d6d829a6-9738-4288-bc92-b067428271ad")
 	)
 	(embedded_fonts no)
 )

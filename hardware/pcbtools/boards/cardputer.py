@@ -23,7 +23,7 @@ from ..rules import SIG, PWR, TEXT
 #
 # The tail delivers the wires in the EXT header's own order (it swaps only SCL
 # and SDA, in its stiffened end). Left to right: GPS serial for the GPS on the
-# left, a spare pad, then SDA, SCL, 5 V, ground and the ADC's ready line. The
+# left, a second ground, then SDA, SCL, 5 V, ground and the ADC's ready line. The
 # regulator sits straight below the 5 V pad, and the two I2C wires cross the
 # 5 V wire by passing between the pads of the ferrite bead FB1, so nothing
 # runs on the inner face. The regulator's 3.3 V leaves it in two branches:
@@ -135,11 +135,12 @@ TRACKS = [
     ("B", SIG, ["U2.3", (60.6, 20.3)]),
     # the ready line along the top, outside the I2C wires, and down the right of the ADC
     ("B", SIG, ["J1.1", (47.25, 7.6), (63.4, 7.6), (63.4, 19.8), "U2.2"]),
-    # the tail's ground pad straight down to a via
+    # the tail's two ground pads straight down to a via each
     ("B", SIG, ["J1.2", (45.75, 8.0)]),
+    ("B", SIG, ["J1.6", (39.75, 8.0)]),
 ]
 VIAS = [
-    ("GND", 45.75, 8.0),
+    ("GND", 45.75, 8.0), ("GND", 39.75, 8.0),
     ("GND", 42.5, 13.0), ("GND", 44.4, 16.95), ("GND", 48.3, 17.0),
     ("GND", 60.6, 20.3), ("GND", 53.85, 22.75), ("GND", 57.35, 23.05), ("GND", 54.5, 28.7),
     ("GND", 64.28, 31.0), ("GND", 72.6, 22.2), ("GND", 66.8, 21.6),
@@ -160,7 +161,7 @@ STITCH = [((22.0, 26.0, 30.0, 34.0), 2.0), ((1.5, 1.5, 49.5, 52.5), 3.0), ((52.5
 # The title block sits in the free space under the GSR circuit, its lines
 # between the rows of ground vias (y 36.5, 41.5, 46.5, 51.5).
 LABELS = {"B": [("Bio Mapping 2", 66.0, 39.0, 1.8), ("Christian Nold, 2004 - 2026", 66.0, 44.0, 1.2),
-                ("rev D  2026-11", 66.0, 49.0, TEXT),
+                ("rev E  2026-11", 66.0, 49.0, TEXT),
                 ("GPS: keep this side clear of metal", 26.0, 51.0, TEXT),
                 ("CUFFS", 79.2, 22.4, TEXT), ("BODY <> WORLD", 71.5, 14.0, 1.2), ("SAFEBOOT", 14.0, 33.0, TEXT),
                 ("RESET", 37.0, 32.6, TEXT), ("5V to 3.3V", 37.0, 15.0, TEXT),

@@ -298,8 +298,8 @@ FLIPPER = gsr_core() + gps_block() + [
 # SDA change places in the tail's stiffened end (one via), because the ADC's
 # pins want them that way round. On the board, the I2C wires pass between
 # FB1's pads to reach the GSR side, so nothing runs on the ground face.
-# Pad 6 carries nothing; it is soldered down to help hold the tail.
-TAIL_NETS = {"1": "ADC_READY", "2": "GND", "3": "+5V_EXT", "4": "I2C_SCL", "5": "I2C_SDA", "6": None,
+# Pad 6 is a second ground, beside the GPS serial wires.
+TAIL_NETS = {"1": "ADC_READY", "2": "GND", "3": "+5V_EXT", "4": "I2C_SCL", "5": "I2C_SDA", "6": "GND",
              "7": "HOST_TX_TO_GPS", "8": "GPS_TX_TO_HOST"}
 
 CARDPUTER = gsr_core(adc_ready="ADC_READY") + gps_block() + [
