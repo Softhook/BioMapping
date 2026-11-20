@@ -36,7 +36,7 @@
 #include "biomap_render.h"
 #include "flipper/gps_uart_flipper.h"
 #include "flipper/gsr_sensor_flipper.h"
-#include "modules/sd_logger.h"
+#include "flipper/sd_logger_flipper.h"
 #include "flipper/biomap_cues_flipper.h"
 #include "modules/em_scan_rf.h"
 #include "modules/em_scan_sampler.h"

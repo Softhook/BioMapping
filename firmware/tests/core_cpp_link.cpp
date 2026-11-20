@@ -13,6 +13,7 @@
 #include "core/core_check.h"
 #include "core/biomap_session.h"
 #include "core/biomap_screen.h"
+#include "core/sd_logger.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -41,6 +42,8 @@ int main() {
     ScreenCache cache;
     screen_cache_init(&cache);
     keep = keep || cache.ns_label_last == 0.0f;
+    int (*flush_fn)(SdLogger*) = sd_logger_batch_flush;
+    keep = keep || flush_fn == nullptr;
     std::printf("C++ link ok (%d, %d, %d)\n", n, d.in_gate, (int)keep);
     return 0;
 }

@@ -133,6 +133,7 @@ firmware/core/                 — shared plain C, no Flipper code (run_tests.sh
   biomap_format.h / .c          — CSV rows, calibration fit, CalDwell (wizard averaging)
   gsr_sensor.h / .c             — ADS1115 PGA autoranging, bias check, TIA; works through GsrPlatform
   gps_uart.h / .c               — M10Q set-up, wake/sleep sequences, NMEA parsing + framing; works through GpsPlatform
+  sd_logger.h / .c              — the recording file: row buffer, CRC trailer, file names; works through SdPlatform
   eff_short_wordlist.h          — word list for the GPS chip-ID phrase
   biomap_cues.h                 — the named cues (recording started, write error, key click, ...) and the rules for when a cue may sound
   core_check.h                  — CORE_CHECK / core_fatal(), supplied by each device
@@ -141,12 +142,12 @@ firmware/core/                 — shared plain C, no Flipper code (run_tests.sh
 firmware/flipper/              — Flipper side of the shared code
   gsr_sensor_flipper.h / .c     — GSR thread + GsrPlatform via furi_hal_i2c_* / FuriMutex
   gps_uart_flipper.h / .c       — USART1, RX interrupt, held port + GpsPlatform via furi_hal_serial_*
+  sd_logger_flipper.h / .c      — SdPlatform via Storage/File, in /ext/biomapping/
   biomap_cues_flipper.h / .c    — each cue as an LED pattern and/or tone
   sound.h                       — the tones, via furi_hal_speaker_* (only biomap_cues_flipper.c calls it)
   core_fatal.c                  — core_fatal() via furi_crash()
 
 firmware/modules/              — no test-only content, no HAL files
-  sd_logger.h / .c              — auto-indexing CSV writer, calls Storage/File directly
   em_scan_rf.h / .c             — SubGHz RF sweep/RSSI, calls furi_hal_subghz_* directly
   em_scan_cal.h / .c            — RF noise-floor calibration + on-disk persistence
   bt_stream.h / .c              — BLE serial-profile lifecycle + send-or-drop (Live Stream)
@@ -259,7 +260,7 @@ Approximate test counts — the exact numbers drift with each addition; run
 | `core/biomap_pipeline.c` + `core/biomap_format.c` | No | ✅ `tests/test_firmware.c` (~35 tests) |
 | `core/gps_uart.c` + `flipper/gps_uart_flipper.c` | Flipper side only (`furi_hal_serial_*`) | ✅ `tests/test_gps_uart.c` (~39 tests) |
 | `core/gsr_sensor.c` + `flipper/gsr_sensor_flipper.c` | Flipper side only (`furi_hal_i2c_*`, real `FuriThread`) | ✅ `tests/test_gsr_sensor.c` (~47 tests) + a ThreadSanitizer pass |
-| `modules/sd_logger.c` | Yes (`Storage`/`File`) | ✅ `tests/test_sd_logger.c` (~30 tests, includes `BIOMAP_SD_PREALLOC` & CRC32 integrity trailer) |
+| `core/sd_logger.c` + `flipper/sd_logger_flipper.c` | Flipper side only (`Storage`/`File`) | ✅ `tests/test_sd_logger.c` (~30 tests, includes `BIOMAP_SD_PREALLOC` & CRC32 integrity trailer) + `tests/test_sd_blocks.c` (whole-block writes, as on the Cardputer) |
 | `modules/em_scan_cal.c` | No (pure calc + Storage for persist) | ✅ `tests/test_em_scan_cal.c` (~5 tests) |
 | `modules/bt_stream.c` | Yes (`Bt`/`ble_profile_serial_*`) | ✅ `tests/test_bt_stream.c` (~13 tests, BLE mock shims) |
 | `modules/em_scan_rf.c` | Yes (CC1101 SPI) | ✅ `tests/test_em_scan_rf.c` (~9 tests, dedicated `furi_hal_subghz_mock.c`) |
@@ -339,7 +340,7 @@ used to zero `gsr_batch_len` right after the `storage_file_write()` call
 regardless of whether the write actually succeeded, so a failed flush (e.g.
 a full SD card) silently discarded the batch instead of leaving it for a
 retry. It now only clears the buffer on confirmed success — see the
-comment above `sd_logger_batch_flush()` in `modules/sd_logger.c`.
+comment above `sd_logger_batch_flush()` in `core/sd_logger.c`.
 `test_sd_logger.c`'s `test_sd_logger_batch_flush_failure_preserves_buffer_for_retry`
 asserts on this directly: fail a write, append more data on top, recover,
 and confirm both the pre- and post-failure rows land on disk.

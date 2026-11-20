@@ -3,7 +3,7 @@
 # These compile firmware source files against a host C compiler (not the
 # Flipper Zero ARM toolchain). test_gps_uart.c and test_sd_logger.c compile
 # the real, unmodified core/gps_uart.c (with flipper/gps_uart_flipper.c) and
-# modules/sd_logger.c against
+# core/sd_logger.c (with flipper/sd_logger_flipper.c) against
 # tests/shims/ — a set of headers that fake just enough of the Flipper SDK
 # (furi.h, furi_hal.h, expansion/expansion.h, storage/storage.h) for them to
 # run on a host compiler, plus the _mock.c files that simulate USART1, I2C,
@@ -148,9 +148,15 @@ fi
 echo
 echo "== test_sd_logger (auto-index / header / batch write) =="
 gcc -Wall -Wextra -Werror -I . -I modules -I tests/shims -o build/test_sd_logger \
-    tests/test_sd_logger.c modules/sd_logger.c \
+    tests/test_sd_logger.c core/sd_logger.c flipper/sd_logger_flipper.c flipper/core_fatal.c \
     tests/shims/storage_mock.c -lm
 ./build/test_sd_logger
+
+echo
+echo "== test_sd_blocks (shared SD logger, whole-block writes as on the Cardputer) =="
+gcc -Wall -Wextra -Werror -I . -I tests/shims -o build/test_sd_blocks \
+    tests/test_sd_blocks.c core/sd_logger.c flipper/core_fatal.c -lm
+./build/test_sd_blocks
 
 echo
 echo "== test_em_scan_cal (EM Scanner RF noise calibration & persistence) =="

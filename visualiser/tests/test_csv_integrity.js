@@ -1,7 +1,7 @@
 /**
  * CSV integrity-bracket verification (GSRCSVParser._verifyIntegrity / _crc32).
  *
- * Mirrors the device side in firmware/modules/sd_logger.c: a
+ * Mirrors the device side in firmware/core/sd_logger.c: a
  * "# Integrity: crc32 v1" marker line plus a "# End rows:… bytes:… crc32:…"
  * trailer. See docs/csv_schema.md "Integrity Bracket".
  *

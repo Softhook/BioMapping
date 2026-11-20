@@ -520,7 +520,7 @@ static int ble_state(void) {  // for the log: 0 off, 1 advertising, 2 connected
 // W steps through four ways of writing, to find what makes the write quick:
 //   1 plain:    add to the end of the file, card at 25 MHz;
 //   2 reserved: first reserve 8 MB, as the Flipper does at the start of a
-//               recording (SD_LOGGER_PREALLOC_BYTES, modules/sd_logger.c),
+//               recording (SD_LOGGER_PREALLOC_BYTES, core/sd_logger.c),
 //               so the card's file table isn't changed on every write;
 //   3 sectors:  as 2, but each write is a whole number of 512-byte sectors;
 //   4 40 MHz:   as 3, with the card at 40 MHz.

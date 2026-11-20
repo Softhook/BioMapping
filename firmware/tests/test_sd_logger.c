@@ -1,4 +1,4 @@
-// test_sd_logger.c — host tests for modules/sd_logger.c against the
+// test_sd_logger.c — host tests for core/sd_logger.c against the
 // in-memory virtual filesystem in tests/shims/storage/storage.h +
 // storage_mock.c. Drives the real, unmodified sd_logger_* functions —
 // auto-incrementing file index, header write, and the GSR batch
@@ -8,7 +8,7 @@
 #include <string.h>
 #include <assert.h>
 
-#include "sd_logger.h"
+#include "flipper/sd_logger_flipper.h"
 
 // Mirrors the internal gsr_batch[] size in sd_logger.c — used only to
 // size this test's fill buffer, not linked against the struct itself
@@ -566,7 +566,7 @@ static void test_sd_logger_prealloc_ms_measures_seek_extend_cost(void) {
 }
 
 // Exercises preallocate_log_file()'s disk-full fallback branch
-// (modules/sd_logger.c) -- a card too full to satisfy the full
+// (core/sd_logger.c) -- a card too full to satisfy the full
 // SD_LOGGER_PREALLOC_BYTES extension must not block recording from
 // starting, or corrupt where subsequent writes land. Degrading to today's
 // plain-append behavior is the correct fallback, not a hard failure.

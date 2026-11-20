@@ -127,7 +127,7 @@ so an old recording can be traced back to the calibration behind it. It is
 
 Every recording is wrapped by two lines so the visualiser (or any external
 tool) can tell a complete, unaltered file from a truncated or corrupted one
-(`modules/sd_logger.c`, `SD_LOGGER_INTEGRITY_LINE` / `sd_logger_write_trailer()`).
+(`core/sd_logger.c`, `SD_LOGGER_INTEGRITY_LINE` / `sd_logger_write_trailer()`).
 
 **First line of the file** — the marker, always present:
 

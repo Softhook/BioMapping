@@ -308,7 +308,7 @@ None of these stops the port, but each would cause a confusing fault if missed.
 | Notifications | `biomap_session.c`, `biomap.c` | Named events ("recording started", "GPS fix", "write error"), including the rules about when sounds may play | The response: LED and sounds on the Flipper, beeps on the Cardputer (no vibration motor) | Small |
 | Screen | `biomap_render.c` (~1,000 lines) | The current screen layout, drawn through 10 basic drawing calls. The recording screen is done (step 6, `core/biomap_screen.c`); the menus wait for step 10. | Those drawing calls, stretched to fit the screen, using the same fonts. See below. | Medium |
 | Keys and menus | `biomap_gui.c` | Possibly the menu logic | Reading keys | Small to medium |
-| SD card | `sd_logger.c` | Batching rows | Opening, writing and closing files. The Cardputer writes in whole 512-byte blocks (see "SD card pauses" in section 5). | Small |
+| SD card | `sd_logger.c` | Batching rows, the `# End` check line, file names, whole-block writes (done, step 8: `core/sd_logger.c`) | Opening, writing and closing files. The Cardputer writes in whole 512-byte blocks (see "SD card pauses" in section 5). | Small |
 | Bluetooth live stream | `bt_stream.c` (~180 lines) | Packet format (already shared) | The Bluetooth code. The bench used Arduino's standard Bluetooth library with the message size raised to 52 bytes, which is enough; NimBLE would also work. | Medium |
 | Clock | `biomap.c` | | Reading the time. See below. | Small code change, but it changes how the device behaves |
 | EM scan | `em_scan_rf.c`, `em_scan_cal.c`, `em_scan_sampler.c`, `biomap_rf_cal.c` | Nothing | Stays in `flipper/` only | None |
@@ -377,7 +377,7 @@ The firmware has been through a lot of real-hardware fixes. The logic carries ov
 - **Noise from sound and Bluetooth.** The Flipper code already waits after a tone before trusting GSR readings again (`GSR_TONE_SETTLE_MS`), so the speaker affects the reading even there. On the Cardputer, sound goes through an audio chip and amplifier, and Bluetooth comes from a different radio. Measure both, and check whether that wait is still long enough. Live Stream mode, with Bluetooth sending all the time, matters most.
   - **Done on the bench (prototype board):** Bluetooth sending a Live Stream packet every 300 ms, every backlight level, and the recording-start chirp had no effect on the GSR reading. The chirp test was compared against the same measurement with no sound; both settled within the same time (about 2.9 nS of normal wander), so the 200 ms wait is long enough on the Cardputer.
   - **Still to do:** the keyboard and the GSR thread sharing the I2C bus (needs the real firmware, step 8), and the Cardputer's own 5 V supply feeding the board's regulator (needs the first printed board; the bench board ran from the Flipper's 3.3 V).
-- **SD card pauses.** On the Flipper, writes to the card pause the main thread for 20–60 ms. The ESP32 will have its own pauses. No data is lost, because the GSR thread is separate, but measure the timings again. Both devices reserve 8 MB of file space at the start of a recording ([sd_logger.c](../firmware/modules/sd_logger.c)).
+- **SD card pauses.** On the Flipper, writes to the card pause the main thread for 20–60 ms. The ESP32 will have its own pauses. No data is lost, because the GSR thread is separate, but measure the timings again. Both devices reserve 8 MB of file space at the start of a recording ([sd_logger.c](../firmware/core/sd_logger.c)).
   - **Measured on the bench** (about 12 KB every 10 s, the size of one batch): plain writes 34 ms typical / 87 ms worst; with 8 MB reserved 24 / 40 ms; reserved plus writes of exactly 24 whole 512-byte blocks 15 / 57 ms; the same at 40 MHz instead of 25 MHz 14 / 16 ms. The first write after the card is mounted can take about 300 ms once.
   - **For the Cardputer firmware:** reserve the space and write whole 512-byte blocks, carrying any leftover bytes into the next batch. This stays in `cardputer/`, so the Flipper is unchanged. The faster 40 MHz card speed only helps the worst case and is optional. SD writing did not change the GSR noise.
 - **Side-by-side walks.** Record the same walk with both devices worn together. Load both files into the visualiser and compare the GSR traces and GPS tracks.
@@ -686,6 +686,42 @@ The Cardputer now has its own project, [firmware/cardputer/](../firmware/cardput
 Checked: it builds with no warnings from our code or `core/`. The only things the shared code needs from outside are the ordinary C library, the compiler's own maths helpers and `core_fatal()`: nothing Flipper-specific is left. The host tests pass and the Flipper app still builds.
 
 **To check on a real Cardputer:** flash it, see the start screen ("Core: 2026-11-20_14-32-05" in green), press each of the six buttons and see its name appear, and press a letter key to see "other keys" count up.
+
+### Step 8 done: GSR to the SD card
+
+The Cardputer now records in GSR Only mode, through the same shared session code as the Flipper. It writes the same CSV files, in a `biomapping` folder on its SD card.
+
+**The SD logger is now shared.** The recording file's code (the row buffer, the `# Integrity` and `# End` lines with their CRC check, the "_2", "_3" file names, the 8 MB space reserved at the start) moved from `modules/sd_logger.c` to [core/sd_logger.c](../firmware/core/sd_logger.c). Each device supplies seven file calls (`SdPlatform`): create a new file, write, save, move, cut off, close, and the clock. The Flipper's are in [flipper/sd_logger_flipper.c](../firmware/flipper/sd_logger_flipper.c), using its storage service as before.
+
+**Whole 512-byte blocks.** The shared logger has one option, the block size. The Flipper passes 0 and writes every row at each flush (every 10 seconds), as before. The Cardputer passes 512: each flush writes up to the last whole block of the file and keeps the rest (less than 512 bytes) for the next flush. The stop writes everything. Blocks are counted from the start of the file, header included, so every write ends exactly on a block of the card. After a failed write, the next try writes everything that is waiting, so a success really means the card took it all. The finished file is byte for byte what the Flipper's way would write.
+
+**The Cardputer side**, in [firmware/cardputer/src/](../firmware/cardputer/src/):
+
+- **GSR thread** ([gsr_cardputer.cpp](../firmware/cardputer/src/gsr_cardputer.cpp)): the shared worker pass and a 1 ms pause, as on the Flipper, on the same processor core as the main loop and above it in priority. The ADS1115 is read through M5's own I2C driver (`M5.In_I2C`), the one the keyboard uses. That driver locks the bus around every transfer, so the keyboard and the GSR thread take turns.
+- **SD card** ([sd_cardputer.cpp](../firmware/cardputer/src/sd_cardputer.cpp)): Arduino's SD library mounts the card at 25 MHz. The file is written with the plain file calls underneath it, because Arduino's own file type can't cut a file off (needed to remove the unused reserved space) and its buffering would split the whole blocks up again.
+- **Sounds** ([cues_cardputer.cpp](../firmware/cardputer/src/cues_cardputer.cpp)): the Flipper's tones, note for note. There is no status light yet, so the light-only cues do nothing; the screen shows the same states.
+- **Session** ([session_cardputer.cpp](../firmware/cardputer/src/session_cardputer.cpp)): the device functions for the shared session and the 10 Hz tick. Settings are the Flipper's defaults (sound on, auto zoom on, debug fields off). The `# DeviceName` header line says `Cardputer`.
+- **Screen** ([main.cpp](../firmware/cardputer/src/main.cpp)): a plain status page, not the recording screen (that is step 10). It shows the state and elapsed time, the reading, the file name, the SD card's slowest write, the GSR reads per second with the share of repeats and failures, and a key count. The same figures go to the USB log once a second.
+
+Not there yet, by design: no calibration (the wizard needs the Cardputer's screens, step 10), so readings carry the board's zero offset, about 100 nS low on the prototype; no clock, so files are named from 1970-01-01_00-00-00 and the header's start time is 0 until GPS time arrives in step 9; and only GSR Only mode.
+
+Checked:
+
+- **Old and new SD logger side by side.** A throwaway program ran 400 random recordings through the old Flipper logger (from git) and the new shared one, on the pretend SD card the tests use: name clashes, a card that won't open, a full card, failed writes, writes that stop part-way, slow writes, rows too big for the buffer, and stopping with and without an end time. It recorded every file call with its result, every result the logger returned, and every finished file. The two records were identical: 370,207 lines. Three deliberate breaks each showed up (reserved space 1 byte longer, a part-done write keeping 1 byte too many, carrying on to the next file name after a real failure).
+- **The existing 31 SD logger tests** pass against the new code unchanged, through the Flipper side.
+- **New tests in [tests/test_sd_blocks.c](../firmware/tests/test_sd_blocks.c)** check the whole-block option on a pretend card that records where each write starts and ends: every periodic write ends on a block and follows on from the last; less than a block waits for the stop; after a failure the retry writes everything; writes that stop part-way at 27 different points. Each time the finished file matches the Flipper's way byte for byte. Four deliberate breaks each make them fail.
+- The Cardputer program builds with no warnings (our code and `core/` treat warnings as errors). All host tests pass, the visualiser's firmware tests pass, and the Flipper app builds with no warnings.
+
+**To check on a real Cardputer** (with the board connected, the laptop on battery and a microSD card in):
+
+1. The start screen says "GSR Only" and "ready", shows a reading, and "SD card ready". With nothing connected it says "Cuffs off".
+2. Press Enter. The recording chirp plays and the top right shows `REC 00:00:01` counting up. Record for a few minutes with a fixed resistor (1 MΩ), then press Enter again (the stop chirp).
+3. On a computer, open the file in `biomapping/` on the card and drop it into the visualiser: it should load with no warning about the `# End` line.
+4. **Typing test.** Record again with the resistor, and type steadily for a minute (letters only: Enter would stop the recording). The reading and the "GSR …/s" and "ok" figures shouldn't change. Save the USB log (`pio device monitor | tee typing.txt`) for a closer look.
+5. **Flipper comparison.** Record 2–3 minutes with the same resistor on the Flipper (GSR Only), and compare the two files' readings. Expect the Cardputer to read about 100 nS lower until it has a calibration.
+6. Esc ends the session; Enter starts a new one.
+
+**The Flipper needs a check too**, because its SD logger moved (together with steps 5 and 6): make a short recording and check the file loads in the visualiser with no `# End` warning.
 
 ### Next steps
 

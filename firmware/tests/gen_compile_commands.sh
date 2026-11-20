@@ -27,6 +27,9 @@ tests/test_session.c|-Ivendor/minmea
 flipper/gps_uart_flipper.c|-Itests/shims
 flipper/gsr_sensor_flipper.c|-pthread -Itests/shims
 tests/test_sd_logger.c|-Imodules -Itests/shims
+core/sd_logger.c|
+tests/test_sd_blocks.c|-Itests/shims
+flipper/sd_logger_flipper.c|-Itests/shims
 tests/test_em_scan_cal.c|-Imodules -Itests/shims
 tests/test_em_scan_rf.c|-Imodules -Itests/shims
 tests/test_bt_stream.c|-Imodules -Itests/shims

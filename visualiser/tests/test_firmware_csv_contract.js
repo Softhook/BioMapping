@@ -9,10 +9,10 @@
  *
  * This test reads the firmware source directly and asserts the visualiser
  * still matches it:
- *   • the `# Integrity: crc32 v1` marker            (modules/sd_logger.c)
+ *   • the `# Integrity: crc32 v1` marker            (core/sd_logger.c)
  *   • the GPS+GSR column header                     (biomap_config.h)
  *   • per-row number formatting, fix + no-fix       (biomap_format.c)
- *   • the `# End …` trailer's token layout          (modules/sd_logger.c)
+ *   • the `# End …` trailer's token layout          (core/sd_logger.c)
  *   • the metadata header prefixes                  (core/biomap_session.c)
  *   • the 49-byte wire packet's field offsets       (core/biomap_format.{c,h})
  *
@@ -132,12 +132,12 @@ function runContractTests() {
 
   // ── CSV: integrity marker ───────────────────────────────────────────────
   test('CSV: the integrity marker is verbatim firmware SD_LOGGER_INTEGRITY_LINE', () => {
-    const sd = readFw('modules/sd_logger.c');
+    const sd = readFw('core/sd_logger.c');
     const fwMarker = cStr(
       locate(
         sd,
         /#define\s+SD_LOGGER_INTEGRITY_LINE\s+("(?:[^"\\]|\\.)*")/,
-        'SD_LOGGER_INTEGRITY_LINE in modules/sd_logger.c',
+        'SD_LOGGER_INTEGRITY_LINE in core/sd_logger.c',
       )[1],
     );
     const liveMarker = `${emptyExport()[0]}\n`;
@@ -296,12 +296,12 @@ function runContractTests() {
 
   // ── CSV: the "# End" trailer token layout ────────────────────────────
   test('CSV: the "# End" trailer token order matches sd_logger_write_trailer()', () => {
-    const sd = readFw('modules/sd_logger.c');
+    const sd = readFw('core/sd_logger.c');
     const endFmt = cStr(
       locate(
         sd,
         /("# End rows:[^"]*\\n")/,
-        'the "# End" trailer format in modules/sd_logger.c',
+        'the "# End" trailer format in core/sd_logger.c',
       )[1],
     ).trimEnd();
     // "# End rows:%lu bytes:%lu crc32:%08lx %soverflows:%lu flush_fails:%lu"

@@ -1,6 +1,7 @@
 // storage_mock.c — in-memory virtual filesystem backing tests/shims/storage/storage.h.
 //
-// Just enough of a real filesystem for modules/sd_logger.c to run
+// Just enough of a real filesystem for core/sd_logger.c (through
+// flipper/sd_logger_flipper.c) to run
 // unmodified against: storage_file_open/write/close persist real bytes
 // keyed by full path, and storage_dir_open/read enumerates them by
 // prefix, so the logger's name-clash check is exercised for real

@@ -25,7 +25,7 @@
  * biomap_format_gps_row()'s `"%.2f,,,,,,,,,%.1f,"` no-fix branch.
  *
  * KEPT IN SYNC by tests/test_firmware_csv_contract.js — it reads the firmware
- * source (biomap_config.h, biomap_format.c, modules/sd_logger.c,
+ * source (biomap_config.h, biomap_format.c, core/sd_logger.c,
  * core/biomap_session.c) and fails if the marker, column list, per-row number
  * formatting or the `# End` trailer here drift from it. Change the firmware
  * save format and that test goes red until this file is reconciled.
@@ -36,7 +36,7 @@
  */
 
 // CRC32 (reflected, polynomial 0xEDB88320 — the zlib/PNG variant). Produces
-// bytes identical to firmware/modules/sd_logger.c's crc32_feed() and the
+// bytes identical to firmware/core/sd_logger.c's crc32_feed() and the
 // visualiser's own GSRCSVParser._crc32 (src/signal/csv_parser.js). Inlined
 // here rather than reused from csv_parser.js so the standalone live.html
 // doesn't have to pull that whole module in (it drags GSR_CONST + GSRAnalyzer)
@@ -58,7 +58,7 @@ function _liveCrc32(bytes) {
   return (crc ^ 0xffffffff) >>> 0;
 }
 
-// firmware/modules/sd_logger.c SD_LOGGER_INTEGRITY_LINE — the file's first
+// firmware/core/sd_logger.c SD_LOGGER_INTEGRITY_LINE — the file's first
 // line, folded into the CRC the trailer carries.
 const LIVE_INTEGRITY_MARKER = '# Integrity: crc32 v1\n';
 // firmware/core/biomap_config.h BIOMAP_CSV_COLS_GPS_GSR_PROD, verbatim.
@@ -105,7 +105,7 @@ export function buildLiveCsv(packets, nowMs) {
   const bodyBytes = new TextEncoder().encode(body);
   const crcHex = _liveCrc32(bodyBytes).toString(16).padStart(8, '0');
 
-  // firmware/modules/sd_logger.c sd_logger_write_trailer():
+  // firmware/core/sd_logger.c sd_logger_write_trailer():
   // "# End rows:%lu bytes:%lu crc32:%08lx %soverflows:%lu flush_fails:%lu\n".
   // A live session has no SD card, so overflows/flush_fails are a truthful 0.
   const trailer =

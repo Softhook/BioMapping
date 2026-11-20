@@ -2,7 +2,7 @@
 
 // storage/storage.h — host-test shim.
 //
-// modules/sd_logger.c calls the real Flipper Storage API directly
+// flipper/sd_logger_flipper.c calls the real Flipper Storage API directly
 // (storage_file_alloc/open/close/write/free, storage_dir_open/read/close)
 // — unmodified from what ships in the Flipper build. This shim fakes the
 // subset of that surface sd_logger.c actually calls, backed by a genuine

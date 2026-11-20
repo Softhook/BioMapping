@@ -1,14 +1,14 @@
-// SD Logger — date-time-named CSV writer.
+// SD Logger — date-time-named CSV writer. Shared by every device: see
+// sd_logger.h. The card itself is reached only through SdPlatform.
 
 #include "sd_logger.h"
-#include "../core/biomap_config.h"
-#include <furi.h>
-#include <storage/storage.h>
-#include <string.h>
-#include <stdio.h>
+#include "biomap_config.h"
+#include "core_check.h"
 #include <stdarg.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
-#define LOGGER_DIR      "biomapping"
 #define LOGGER_BASENAME "biomap_"
 #define LOGGER_EXT       ".csv"
 // Highest "_N" suffix tried when a file with the same start time already
@@ -26,16 +26,6 @@
 // since sd_logger_stop() always trims the unused tail back to the real
 // data length.
 #define SD_LOGGER_PREALLOC_BYTES (8u * 1024u * 1024u)
-
-// Always real FURI_LOG_* calls — debug CSV *fields* are a runtime
-// Options-menu toggle (BioMapApp::debug_fields_enabled), unrelated to
-// whether these serial logs exist. SdLogger has no app-level context to
-// gate on anyway, and Flipper's own runtime log level already controls
-// what's visible on a given build/session.
-#define SD_LOG_I(tag, fmt, ...) FURI_LOG_I(tag, fmt, ##__VA_ARGS__)
-#define SD_LOG_W(tag, fmt, ...) FURI_LOG_W(tag, fmt, ##__VA_ARGS__)
-#define SD_LOG_E(tag, fmt, ...) FURI_LOG_E(tag, fmt, ##__VA_ARGS__)
-
 // ── Integrity bracket ─────────────────────────────────────────────────────
 // Every recording is wrapped by two lines so the visualiser (or any
 // external tool) can confirm the file is complete and unmodified:
@@ -48,7 +38,7 @@
 // byte from the marker line up to — but not including — the trailer. A
 // missing trailer means the recording never stopped cleanly (flat battery,
 // crash, card pulled); a trailer whose CRC / row count disagrees with the
-// data means the file was truncated or altered after the Flipper wrote it.
+// data means the file was truncated or altered after the device wrote it.
 // This is corruption detection, not tamper protection — a plain CRC can
 // always be recomputed by whoever edited the file.
 #define SD_LOGGER_INTEGRITY_LINE "# Integrity: crc32 v1\n"
@@ -140,13 +130,15 @@ static uint32_t crc32_feed(uint32_t crc, const void* data, size_t len) {
 }
 
 struct SdLogger {
-    Storage* storage;
-    File*    file;
+    SdPlatform platform;
+    // Whole-block writes (sd_logger_create()); 0 = write everything.
+    uint32_t block_bytes;
+    bool     file_open;
     bool     active;
     char     filename[64];
 
     // GPS+GSR+RF batch buffer: accumulate formatted rows each tick,
-    // flush to SD in one storage_file_write every FLUSH_INTERVAL seconds.
+    // flush to SD in one write every FLUSH_INTERVAL seconds.
     //
     // Sized against a worst-case row, not the ~110-125 byte typical case.
     // With debug fields on, several of the debug columns are lifetime
@@ -158,6 +150,10 @@ struct SdLogger {
     // ≈ 16900 bytes; 24576 clears that with margin for future columns.
     char gsr_batch[24576];
     int  gsr_batch_len;
+
+    // The last flush failed. The next one then writes the whole buffer,
+    // whole blocks or not, so a success really means the card is back.
+    bool last_flush_failed;
 
     // Worst single batch_flush() (write+sync) real duration ever seen —
     // see sd_logger_get_flush_peak_ms()'s doc comment (sd_logger.h).
@@ -177,27 +173,47 @@ struct SdLogger {
     // (pre-final-inversion, seeded 0xFFFFFFFF in open_log_file), the byte
     // count that CRC covers (marker + header + every flushed row batch),
     // and the data-row count — all emitted in the "# End" trailer by
-    // sd_logger_stop().
+    // sd_logger_stop(). Every byte written goes through the CRC, so
+    // crc_bytes is also the file's current length and write position.
     uint32_t crc;
     uint32_t crc_bytes;
     uint32_t row_count;
     bool     last_byte_newline; // was the last data byte a '\n'? (trailer needs its own line)
 };
 
-SdLogger* sd_logger_alloc(Storage* storage) {
-    furi_check(storage, "SdLogger: NULL storage in alloc()");
+__attribute__((format(printf, 3, 4)))
+static void sd_log(const SdLogger* l, SdLogLevel level, const char* fmt, ...) {
+    if(!l->platform.log) return;
+    char line[160];
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(line, sizeof(line), fmt, args);
+    va_end(args);
+    l->platform.log(l->platform.ctx, level, line);
+}
+
+SdLogger* sd_logger_create(const SdPlatform* platform, uint32_t block_bytes) {
+    CORE_CHECK(platform, "SdLogger: NULL platform in create()");
+    CORE_CHECK(platform->open_new && platform->write && platform->sync && platform->seek
+                   && platform->truncate && platform->close && platform->now_ms,
+               "SdLogger: platform is missing a function");
     SdLogger* l = malloc(sizeof(SdLogger));
-    furi_check(l, "SdLogger: NULL logger alloc");
-    *l = (SdLogger){.storage = storage};
+    CORE_CHECK(l, "SdLogger: NULL logger alloc");
+    *l = (SdLogger){.platform = *platform, .block_bytes = block_bytes};
     return l;
 }
 
-void sd_logger_free(SdLogger* l) {
-    furi_check(l, "SdLogger: NULL in free()");
-    // 0 = no RTC reading available on this teardown path; the trailer's
+void sd_logger_destroy(SdLogger* l) {
+    CORE_CHECK(l, "SdLogger: NULL in destroy()");
+    // 0 = no clock reading available on this teardown path; the trailer's
     // end_time token is simply omitted (see sd_logger_write_trailer).
     if(l->active) sd_logger_stop(l, 0);
     free(l);
+}
+
+void* sd_logger_platform_ctx(const SdLogger* l) {
+    CORE_CHECK(l, "SdLogger: NULL in platform_ctx()");
+    return l->platform.ctx;
 }
 
 // "biomap_<stamp>.csv" for n == 1, otherwise "biomap_<stamp>_<n>.csv".
@@ -209,26 +225,32 @@ static void make_filename(SdLogger* l, const char* stamp, int n) {
     }
 }
 
-#if BIOMAP_SD_PREALLOC
-// Grows the just-opened file to SD_LOGGER_PREALLOC_BYTES once, up front, via
-// storage_file_seek() past the current end -- the only pre-allocation
-// primitive the app SDK exposes (no f_expand binding exists; File is an
-// opaque struct with no accessor to a raw FatFs handle either -- confirmed
-// by grepping the full SDK headers, see docs/archive/gps_rf_mutex_status.md). Real
-// FatFs's f_lseek() performs the size-extend (and pays its cluster-
-// allocation cost) immediately, inside that call, with undefined -- NOT
-// zero-filled -- content in the gap. Always leaves the file positioned back
-// at the real data boundary (right after the header) so the first batch
-// flush lands contiguously, never inside the pre-allocated tail.
-// sd_logger_stop() trims the unused tail back to the real data length.
-static void preallocate_log_file(SdLogger* l) {
-    uint64_t real_pos = storage_file_tell(l->file); // right after header write+sync
-    uint64_t target = real_pos + SD_LOGGER_PREALLOC_BYTES;
+static void close_file(SdLogger* l) {
+    l->platform.close(l->platform.ctx);
+    l->file_open = false;
+}
 
-    uint32_t start_tick = furi_get_tick();
-    if(storage_file_seek(l->file, (uint32_t)(target - 1), true)) {
+#if BIOMAP_SD_PREALLOC
+// Grows the just-opened file to SD_LOGGER_PREALLOC_BYTES once, up front, by
+// seeking past the current end and writing one byte there. On the Flipper
+// this is the only pre-allocation the app SDK offers (no f_expand binding
+// exists; File is an opaque struct with no accessor to a raw FatFs handle
+// either -- confirmed by grepping the full SDK headers, see
+// docs/archive/gps_rf_mutex_status.md). Real FatFs's f_lseek() performs the
+// size-extend (and pays its cluster-allocation cost) immediately, inside
+// that call, with undefined -- NOT zero-filled -- content in the gap. Always
+// leaves the file positioned back at the real data boundary (right after
+// the header) so the first batch flush lands contiguously, never inside the
+// pre-allocated tail. sd_logger_stop() trims the unused tail back to the
+// real data length.
+static void preallocate_log_file(SdLogger* l) {
+    uint32_t real_pos = l->crc_bytes; // right after header write+sync
+    uint32_t target = real_pos + SD_LOGGER_PREALLOC_BYTES;
+
+    uint32_t start_ms = l->platform.now_ms(l->platform.ctx);
+    if(l->platform.seek(l->platform.ctx, target - 1)) {
         uint8_t dummy = 0;
-        storage_file_write(l->file, &dummy, 1);
+        l->platform.write(l->platform.ctx, &dummy, 1);
     } else {
         // Real FatFs still expands as far as it can on disk-full rather than
         // failing outright (elm-chan.org/fsw/ff/doc/lseek.html) -- this
@@ -236,67 +258,58 @@ static void preallocate_log_file(SdLogger* l) {
         // the expected path. Either way, skip the dummy write and fall
         // through to the rewind below: a partial or missing pre-allocation
         // degrades to a plain append, it doesn't corrupt anything.
-        SD_LOG_W("SdLogger", "Pre-allocation seek failed (SD full/near-full?) — continuing without it");
+        sd_log(l, SdLogWarning, "Pre-allocation seek failed (SD full/near-full?) — continuing without it");
     }
     // Always rewind to the real data boundary, whatever happened above, so
     // the next batch flush resumes exactly where the header left off.
-    storage_file_seek(l->file, (uint32_t)real_pos, true);
-    l->prealloc_ms = furi_get_tick() - start_tick;
+    l->platform.seek(l->platform.ctx, real_pos);
+    l->prealloc_ms = l->platform.now_ms(l->platform.ctx) - start_ms;
 }
 #endif
 
 // Create a new CSV file named from `stamp` and write a header row.
 // Returns true on success; on failure the logger is left inactive with no
-// open file handle.
+// open file.
 static bool open_log_file(SdLogger* l, const char* header, const char* stamp) {
     l->prealloc_ms = 0;
 
 #if BIOMAP_SD_DRY_RUN
-    UNUSED(header);
+    (void)header;
     make_filename(l, stamp, 1);
     l->active = true;
-    l->file = NULL;
-    SD_LOG_W("SdLogger", "SD dry-run active: bypassing file I/O for %s", l->filename);
+    l->file_open = false;
+    sd_log(l, SdLogWarning, "SD dry-run active: bypassing file I/O for %s", l->filename);
     return true;
 #else
-    // FSOM_CREATE_NEW: the card itself refuses to open a name that already
+    // Created new only: the card itself refuses to open a name that already
     // exists, so an older recording can never be overwritten — not even if
     // the clock was reset and is giving out times already used. When the
     // open fails because the name is taken, move on to the next suffix
     // ("_2", "_3" …); any other failure (card missing, full, faulty) stops.
-    char full_path[96];
-    bool opened = false;
-    for(int n = 1; n <= LOGGER_MAX_SUFFIX && !opened; n++) {
+    SdOpenResult r = SdOpenFailed;
+    for(int n = 1; n <= LOGGER_MAX_SUFFIX; n++) {
         make_filename(l, stamp, n);
-        snprintf(full_path, sizeof(full_path), EXT_PATH(LOGGER_DIR "/%s"), l->filename);
-        l->file = storage_file_alloc(l->storage);
-        if(!l->file) break;
-        opened = storage_file_open(l->file, full_path, FSAM_WRITE, FSOM_CREATE_NEW);
-        if(!opened) {
-            storage_file_free(l->file);
-            l->file = NULL;
-            if(!storage_file_exists(l->storage, full_path)) break; // not a name clash
-        }
+        r = l->platform.open_new(l->platform.ctx, l->filename);
+        if(r != SdOpenNameTaken) break;
     }
-    if(!opened) {
-        SD_LOG_E("SdLogger", "Failed to create a new file for %s", stamp);
+    if(r != SdOpenOk) {
+        sd_log(l, SdLogError, "Failed to create a new file for %s", stamp);
         l->filename[0] = '\0';
         return false;
     }
+    l->file_open = true;
 
     // Integrity marker first (SD_LOGGER_INTEGRITY_LINE) so it is the file's
     // very first line, then the caller's header. Both are folded into the
     // CRC that the "# End" trailer will carry.
     size_t ilen = strlen(SD_LOGGER_INTEGRITY_LINE);
     size_t hlen = strlen(header);
-    uint16_t iwritten = storage_file_write(l->file, SD_LOGGER_INTEGRITY_LINE, ilen);
-    uint16_t written = (iwritten == ilen) ? storage_file_write(l->file, header, hlen) : 0;
+    size_t iwritten = l->platform.write(l->platform.ctx, SD_LOGGER_INTEGRITY_LINE, ilen);
+    size_t written = (iwritten == ilen) ? l->platform.write(l->platform.ctx, header, hlen) : 0;
     if(iwritten != ilen || written != hlen) {
-        SD_LOG_E("SdLogger", "Header write failed (%d/%d + %d/%d)",
-                 iwritten, (int)ilen, written, (int)hlen);
-        storage_file_close(l->file);
-        storage_file_free(l->file);
-        l->file = NULL;
+        sd_log(l, SdLogError, "Header write failed (%d/%d + %d/%d)",
+               (int)iwritten, (int)ilen, (int)written, (int)hlen);
+        close_file(l);
         l->filename[0] = '\0';
         return false;
     }
@@ -307,11 +320,10 @@ static bool open_log_file(SdLogger* l, const char* header, const char* stamp) {
     l->row_count = 0;
     l->last_byte_newline = (hlen > 0) ? (header[hlen - 1] == '\n') : true;
     // Sync immediately, same reasoning as sd_logger_batch_flush(): a
-    // "successful" storage_file_write() only means FatFs accepted the
-    // bytes into its cache, not that they reached physical media.
-    bool header_synced = storage_file_sync(l->file);
-    if(!header_synced) {
-        SD_LOG_W("SdLogger", "Header sync failed (written, not yet confirmed durable)");
+    // "successful" write only means FatFs accepted the bytes into its
+    // cache, not that they reached physical media.
+    if(!l->platform.sync(l->platform.ctx)) {
+        sd_log(l, SdLogWarning, "Header sync failed (written, not yet confirmed durable)");
     }
 
 #if BIOMAP_SD_PREALLOC
@@ -319,18 +331,19 @@ static bool open_log_file(SdLogger* l, const char* header, const char* stamp) {
 #endif
 
     l->active = true;
-    SD_LOG_I("SdLogger", "Recording to %s", full_path);
+    sd_log(l, SdLogInfo, "Recording to %s", l->filename);
     return true;
 #endif
 }
 
 bool sd_logger_start(SdLogger* l, const char* header, const char* stamp) {
-    furi_check(l, "SdLogger: NULL in start()");
-    furi_check(stamp, "SdLogger: NULL stamp in start()");
-    furi_check(!l->active, "SdLogger: already active in start()");
+    CORE_CHECK(l, "SdLogger: NULL in start()");
+    CORE_CHECK(stamp, "SdLogger: NULL stamp in start()");
+    CORE_CHECK(!l->active, "SdLogger: already active in start()");
     bool ok = open_log_file(l, header, stamp);
     if(ok) {
         l->gsr_batch_len = 0;
+        l->last_flush_failed = false;
         l->flush_peak_ms = 0;
         l->batch_fill_peak_bytes = 0;
         l->overflow_count = 0;
@@ -354,6 +367,12 @@ static void fold_committed(SdLogger* l, const char* data, size_t n) {
     l->last_byte_newline = (data[n - 1] == '\n');
 }
 
+// Drop the first `n` bytes of the batch buffer (they are on the card now).
+static void drop_front(SdLogger* l, size_t n) {
+    memmove(l->gsr_batch, l->gsr_batch + n, (size_t)l->gsr_batch_len - n);
+    l->gsr_batch_len -= (int)n;
+}
+
 // Raise the lifetime high-water mark after the batch buffer has grown.
 static void note_batch_fill(SdLogger* l) {
     if((uint32_t)l->gsr_batch_len > l->batch_fill_peak_bytes) {
@@ -362,16 +381,16 @@ static void note_batch_fill(SdLogger* l) {
 }
 
 // Fold one completed flush (write+sync) into the worst-case duration peak.
-static void note_flush_duration(SdLogger* l, uint32_t start_tick) {
-    uint32_t dur = furi_get_tick() - start_tick;
+static void note_flush_duration(SdLogger* l, uint32_t start_ms) {
+    uint32_t dur = l->platform.now_ms(l->platform.ctx) - start_ms;
     if(dur > l->flush_peak_ms) l->flush_peak_ms = dur;
 }
 
 // Append the "# End" integrity trailer (SD_LOGGER_INTEGRITY_LINE) — the
 // last line of a cleanly-stopped recording. Called from sd_logger_stop()
 // after the final batch flush and before any pre-allocation trim, so it
-// sits immediately after the last data row. end_epoch is the RTC time at
-// stop; 0 means unknown (RTC unset), and the end_time token is omitted
+// sits immediately after the last data row. end_epoch is the clock time at
+// stop; 0 means unknown (clock unset), and the end_time token is omitted
 // rather than written as a misleading 0. A failed trailer write/sync is
 // logged, not fatal: the recording's data is already safely on the card,
 // it just won't carry a verifiable trailer.
@@ -382,13 +401,13 @@ static void sd_logger_write_trailer(SdLogger* l, uint32_t end_epoch) {
     // content, so fold it into the CRC / byte / row counters the trailer
     // is about to report.
     if(!l->last_byte_newline) {
-        if(storage_file_write(l->file, "\n", 1) == 1) {
+        if(l->platform.write(l->platform.ctx, "\n", 1) == 1) {
             fold_committed(l, "\n", 1);
         }
     }
 
-    // end_time token only when the RTC gave a real epoch; otherwise it drops
-    // out entirely rather than being written as a misleading 0.
+    // end_time token only when the clock gave a real epoch; otherwise it
+    // drops out entirely rather than being written as a misleading 0.
     char end_time_tok[32] = "";
     if(end_epoch != 0) {
         snprintf(end_time_tok, sizeof(end_time_tok), "end_time:%lu ", (unsigned long)end_epoch);
@@ -401,28 +420,31 @@ static void sd_logger_write_trailer(SdLogger* l, uint32_t end_epoch) {
                      (unsigned long)l->overflow_count,
                      (unsigned long)l->flush_fail_count);
     if(n <= 0 || (size_t)n >= sizeof(trailer)) {
-        SD_LOG_W("SdLogger", "Trailer format failed — file left without integrity trailer");
+        sd_log(l, SdLogWarning, "Trailer format failed — file left without integrity trailer");
         return;
     }
-    uint16_t w = storage_file_write(l->file, trailer, (size_t)n);
-    if(w != (uint16_t)n) {
-        SD_LOG_W("SdLogger", "Trailer write failed (%d/%d)", w, n);
+    size_t w = l->platform.write(l->platform.ctx, trailer, (size_t)n);
+    if(w != (size_t)n) {
+        sd_log(l, SdLogWarning, "Trailer write failed (%d/%d)", (int)w, n);
         return;
     }
-    if(!storage_file_sync(l->file)) {
-        SD_LOG_W("SdLogger", "Trailer sync failed (written, not yet confirmed durable)");
+    if(!l->platform.sync(l->platform.ctx)) {
+        sd_log(l, SdLogWarning, "Trailer sync failed (written, not yet confirmed durable)");
     }
 }
 
+static int flush_batch(SdLogger* l, bool whole_blocks_only);
+
 void sd_logger_stop(SdLogger* l, uint32_t end_epoch) {
-    furi_check(l, "SdLogger: NULL in stop()");
-    if(!l->active && !l->file) return;
+    CORE_CHECK(l, "SdLogger: NULL in stop()");
+    if(!l->active && !l->file_open) return;
+    // Everything left, whole blocks or not.
     if(l->gsr_batch_len > 0) {
-        sd_logger_batch_flush(l);
+        flush_batch(l, false);
     }
-    if(l->file) {
-        // Trailer before the pre-allocation trim below: storage_file_truncate()
-        // cuts to the current position, so the trailer write must advance it
+    if(l->file_open) {
+        // Trailer before the pre-allocation trim below: the truncate cuts
+        // to the current position, so the trailer write must advance it
         // past the last data row first.
         sd_logger_write_trailer(l, end_epoch);
 #if BIOMAP_SD_PREALLOC
@@ -431,34 +453,39 @@ void sd_logger_stop(SdLogger* l, uint32_t end_epoch) {
         // pre-allocated region's content is undefined, not zero-filled
         // (real FatFs f_lseek() semantics), so leaving it in place would pad
         // every recording out to the full SD_LOGGER_PREALLOC_BYTES with
-        // garbage bytes. storage_file_truncate() truncates to the CURRENT
-        // position, which sd_logger_batch_flush()'s writes always leave
-        // sitting at the real end of data -- safe even when pre-allocation
-        // never actually grew the file (the seek-full fallback above):
-        // truncating to the current position when nothing grew past it is a
-        // no-op.
-        if(!storage_file_truncate(l->file)) {
-            SD_LOG_W("SdLogger", "Final truncate failed — file may retain pre-allocated padding");
+        // garbage bytes. The truncate cuts at the CURRENT position, which
+        // the flush writes always leave sitting at the real end of data --
+        // safe even when pre-allocation never actually grew the file (the
+        // seek-full fallback above): truncating to the current position
+        // when nothing grew past it is a no-op.
+        if(!l->platform.truncate(l->platform.ctx)) {
+            sd_log(l, SdLogWarning, "Final truncate failed — file may retain pre-allocated padding");
         }
 #endif
-        storage_file_close(l->file);
-        storage_file_free(l->file);
-        l->file = NULL;
+        close_file(l);
     }
     l->active = false;
-    SD_LOG_I("SdLogger", "Stopped %s", l->filename);
+    sd_log(l, SdLogInfo, "Stopped %s", l->filename);
 }
 
+// How many bytes from the front of the buffer this flush writes: all of
+// them, or with block_bytes set, up to the last whole block of the file.
+static size_t flush_length(const SdLogger* l, bool whole_blocks_only) {
+    size_t len = (size_t)l->gsr_batch_len;
+    if(!whole_blocks_only || l->block_bytes == 0 || l->last_flush_failed) return len;
+    uint32_t end = ((l->crc_bytes + (uint32_t)len) / l->block_bytes) * l->block_bytes;
+    return end > l->crc_bytes ? (size_t)(end - l->crc_bytes) : 0;
+}
 
-// Flush the internal batch buffer to SD in one write.
-// Returns: >0 bytes flushed, 0 if buffer was empty, -1 on error.
+// Flush the front of the internal batch buffer to SD in one write.
+// Returns: >0 bytes flushed, 0 if there was nothing to write, -1 on error.
 //
 // On a total failure (written == 0) the buffer is left untouched (NOT
 // cleared) so a subsequent call retries the exact same bytes rather than
 // silently discarding data the SD card never received — the caller decides
 // whether to retry or give up.
 //
-// On a partial write (0 < written < flushed — a card that dies mid-transfer)
+// On a partial write (0 < written < wanted — a card that dies mid-transfer)
 // the bytes the card DID take are folded into the integrity counters and
 // only the unwritten tail is kept for the retry, so a later successful
 // flush never re-writes the already-stored prefix. That keeps the "# End"
@@ -466,45 +493,42 @@ void sd_logger_stop(SdLogger* l, uint32_t end_epoch) {
 // flush failure a later flush recovers from — the write-failure ride-out in
 // core/biomap_session.c relies on it, so such a file re-imports as "hit SD
 // pressure" (flagged by flush_fails>0), not as corrupt.
-int sd_logger_batch_flush(SdLogger* l) {
-    furi_check(l, "SdLogger: NULL in batch_flush()");
+static int flush_batch(SdLogger* l, bool whole_blocks_only) {
     if(!l->active) return 0;
     if(l->gsr_batch_len == 0) return 0;
 
 #if BIOMAP_SD_DRY_RUN
+    (void)whole_blocks_only;
     int flushed = l->gsr_batch_len;
     l->gsr_batch_len = 0;
     return flushed;
 #else
-    if(!l->file) return 0;
+    if(!l->file_open) return 0;
+    size_t want = flush_length(l, whole_blocks_only);
+    if(want == 0) return 0;
 
     // Timed as one unit (write+sync) since they always run back to back
     // here and the caller (core/biomap_session.c's tick) only cares
     // about the total real time this call held the main thread — see
     // sd_logger_get_flush_peak_ms()'s doc comment (sd_logger.h).
-    uint32_t flush_start = furi_get_tick();
+    uint32_t flush_start = l->platform.now_ms(l->platform.ctx);
 
-    uint16_t written = storage_file_write(l->file, l->gsr_batch,
-                                          (size_t)l->gsr_batch_len);
-    int flushed = l->gsr_batch_len;
+    size_t written = l->platform.write(l->platform.ctx, l->gsr_batch, want);
 
-    if(written != (uint16_t)flushed) {
-        SD_LOG_E("SdLogger", "Batch flush error: %d/%d",
-                 written, flushed);
+    if(written != want) {
+        sd_log(l, SdLogError, "Batch flush error: %d/%d", (int)written, (int)want);
         note_flush_duration(l, flush_start);
         l->flush_fail_count++;
+        l->last_flush_failed = true;
 
         // Partial write: `written` bytes reached the card before it failed.
         // Commit exactly those to the CRC / byte / row counters and drop
         // them from the buffer, leaving only the unwritten tail for the
-        // retry — the enclosing `!=` guarantees 0 < written < flushed here.
-        // (written == 0 is the common total-failure case: nothing committed,
-        // the whole batch is retried unchanged.)
+        // retry. (written == 0 is the common total-failure case: nothing
+        // committed, the whole batch is retried unchanged.)
         if(written > 0) {
             fold_committed(l, l->gsr_batch, written);
-            memmove(l->gsr_batch, l->gsr_batch + written,
-                    (size_t)flushed - written);
-            l->gsr_batch_len = flushed - (int)written;
+            drop_front(l, written);
         }
         return -1;
     }
@@ -515,29 +539,33 @@ int sd_logger_batch_flush(SdLogger* l) {
     // a partial write, the failure branch above already committed the
     // prefix and kept only the unwritten tail, so a successful retry lands
     // here with just that tail — nothing is counted twice.
-    fold_committed(l, l->gsr_batch, (size_t)flushed);
+    fold_committed(l, l->gsr_batch, want);
+    drop_front(l, want);
+    l->last_flush_failed = false;
 
-    l->gsr_batch_len = 0;
-
-    bool batch_synced = storage_file_sync(l->file);
-    if(!batch_synced) {
-        SD_LOG_W("SdLogger", "Batch sync failed");
+    if(!l->platform.sync(l->platform.ctx)) {
+        sd_log(l, SdLogWarning, "Batch sync failed");
         l->flush_fail_count++;
     }
 
     note_flush_duration(l, flush_start);
-    return flushed;
+    return (int)want;
 #endif
+}
+
+int sd_logger_batch_flush(SdLogger* l) {
+    CORE_CHECK(l, "SdLogger: NULL in batch_flush()");
+    return flush_batch(l, true);
 }
 
 // Append a pre-formatted row to the internal batch buffer.
 // Returns false on overflow (data not appended, caller should log/drop).
 bool sd_logger_batch_append(SdLogger* l, const char* data, size_t len) {
-    furi_check(l, "SdLogger: NULL in batch_append()");
+    CORE_CHECK(l, "SdLogger: NULL in batch_append()");
     if(len == 0) return true;
     if(l->gsr_batch_len + (int)len > (int)sizeof(l->gsr_batch)) {
-        SD_LOG_W("SdLogger", "Batch overflow (%d + %d > %d)",
-                 l->gsr_batch_len, (int)len, (int)sizeof(l->gsr_batch));
+        sd_log(l, SdLogWarning, "Batch overflow (%d + %d > %d)",
+               l->gsr_batch_len, (int)len, (int)sizeof(l->gsr_batch));
         l->overflow_count++;
         return false;
     }
@@ -551,12 +579,12 @@ bool sd_logger_batch_append(SdLogger* l, const char* data, size_t len) {
 // stack buffer and the memcpy that sd_logger_batch_append would require.
 // Returns bytes written to the buffer, or 0 on overflow/error.
 int sd_logger_batch_printf(SdLogger* l, const char* fmt, ...) {
-    furi_check(l, "SdLogger: NULL in batch_printf()");
+    CORE_CHECK(l, "SdLogger: NULL in batch_printf()");
     if(!l->active) return 0;
 
     int remaining = (int)sizeof(l->gsr_batch) - l->gsr_batch_len;
     if(remaining <= 0) {
-        SD_LOG_W("SdLogger", "Batch printf overflow (buffer full)");
+        sd_log(l, SdLogWarning, "Batch printf overflow (buffer full)");
         l->overflow_count++;
         return 0;
     }
@@ -576,8 +604,8 @@ int sd_logger_batch_printf(SdLogger* l, const char* fmt, ...) {
         // sd_logger_batch_flush() would write straight to the SD card,
         // corrupting the CSV. Roll back and let the caller's overflow
         // path (emergency flush) start the row fresh in a cleared buffer.
-        SD_LOG_W("SdLogger", "Batch printf truncated (%d >= %d) — row discarded",
-                 n, remaining);
+        sd_log(l, SdLogWarning, "Batch printf truncated (%d >= %d) — row discarded",
+               n, remaining);
         l->overflow_count++;
         return 0;
     }

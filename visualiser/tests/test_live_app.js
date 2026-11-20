@@ -2556,7 +2556,7 @@ test('exportCsv: hands GSRFileSaver a .csv name and the full buildLiveCsv text (
   const lines = csv.text.split('\n');
 
   assert.match(csv.name, /^biomap_live_.*\.csv$/, 'saved with a .csv filename');
-  // firmware/modules/sd_logger.c SD_LOGGER_INTEGRITY_LINE is the file's first line.
+  // firmware/core/sd_logger.c SD_LOGGER_INTEGRITY_LINE is the file's first line.
   assert.strictEqual(lines[0], '# Integrity: crc32 v1');
   assert.strictEqual(lines[1], '# RecordingStartTime:1700000111'); // 1700000123 - floor(12.60)
   assert.strictEqual(lines[2], '# DeviceName:LiveStream');
