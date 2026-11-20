@@ -409,41 +409,45 @@ static void keys_poll(void) {
 // ── Screen and serial log ───────────────────────────────────────────────────
 static M5Canvas canvas(&M5Cardputer.Display);
 
+// Font 2 is 16 px tall: twice the size of the default font, and narrow enough
+// for about 30 characters across the 240 px screen.
+static const lgfx::IFont* const SCREEN_FONT = &fonts::Font2;
+static const int LH = 16;  // line height in pixels
+
 static void draw_screen(void) {
-    const int LH = 13;
-    int y = 2;
+    const int W = M5Cardputer.Display.width();
+    int y = 0;
     uint32_t up = millis() / 1000;
     canvas.fillSprite(TFT_BLACK);
-    canvas.setTextColor(TFT_WHITE, TFT_BLACK);
-
-    canvas.setCursor(2, y);
-    canvas.printf("BioMap bench   up %02lu:%02lu:%02lu",
-        (unsigned long)(up / 3600), (unsigned long)(up / 60 % 60), (unsigned long)(up % 60));
-    y += LH + 2;
 
     canvas.setTextColor(strstr(i2c_found, "48") ? TFT_GREEN : TFT_RED, TFT_BLACK);
     canvas.setCursor(2, y);
-    canvas.printf("I2C: %s", i2c_found);
-    y += LH;
+    canvas.printf("I2C %s", i2c_found);
+    char upbuf[12];
+    snprintf(upbuf, sizeof(upbuf), "%02lu:%02lu:%02lu",
+        (unsigned long)(up / 3600), (unsigned long)(up / 60 % 60), (unsigned long)(up % 60));
+    canvas.setTextColor(TFT_DARKGREY, TFT_BLACK);
+    canvas.drawString(upbuf, W - 2 - canvas.textWidth(upbuf), y);
+    y += LH + 1;
 
     if(!ads.present) {
         canvas.setTextColor(TFT_RED, TFT_BLACK);
         canvas.setCursor(2, y);
-        canvas.print("GSR: ADS1115 not found at 0x48");
+        canvas.print("GSR: ADS1115 not found");
         y += 2 * LH;
     } else {
         canvas.setCursor(2, y);
         if(ads.ns < VALID_MIN_NS) {
             canvas.setTextColor(TFT_YELLOW, TFT_BLACK);
-            canvas.printf("GSR: open circuit  pga %u", ads.pga);
+            canvas.printf("GSR open circuit  pga %u", ads.pga);
         } else {
             canvas.setTextColor(TFT_GREEN, TFT_BLACK);
-            canvas.printf("GSR: %.1f nS  pga %u", ads.ns, ads.pga);
+            canvas.printf("GSR %.1f nS  pga %u", ads.ns, ads.pga);
         }
         y += LH;
         canvas.setTextColor(ads.errors ? TFT_RED : TFT_WHITE, TFT_BLACK);
         canvas.setCursor(2, y);
-        canvas.printf("     %lu reads/s  I2C errors %lu",
+        canvas.printf("    %lu reads/s  errors %lu",
             (unsigned long)ads.reads_per_s, (unsigned long)ads.errors);
         y += LH;
     }
@@ -451,57 +455,57 @@ static void draw_screen(void) {
     canvas.setCursor(2, y);
     if(isnan(ads.bias_mv)) {
         canvas.setTextColor(TFT_DARKGREY, TFT_BLACK);
-        canvas.print("Bias: -");
+        canvas.print("Bias -");
     } else {
         bool ok = fabsf(ads.bias_mv - 500.0f) < 15.0f;
         canvas.setTextColor(ok ? TFT_GREEN : TFT_RED, TFT_BLACK);
-        canvas.printf("Bias: %.1f mV  (supply ~%.2f V)", ads.bias_mv, ads.bias_mv * 6.6f / 1000.0f);
+        canvas.printf("Bias %.1f mV  supply %.2f V", ads.bias_mv, ads.bias_mv * 6.6f / 1000.0f);
     }
-    y += LH + 2;
+    y += LH;
 
     canvas.setCursor(2, y);
     if(gps.locked) {
         canvas.setTextColor(TFT_GREEN, TFT_BLACK);
         if(gps.fix < 0) {
-            canvas.printf("GPS: %lu  %lu good/s  %lu bad/s",
+            canvas.printf("GPS %lu  ok %lu/s  bad %lu/s",
                 (unsigned long)GPS_BAUDS[gps.baud_idx],
                 (unsigned long)gps.good_per_s, (unsigned long)gps.bad_per_s);
         } else {
-            canvas.printf("GPS: %lu/s bad %lu fix %d sats %d",
+            canvas.printf("GPS ok %lu bad %lu fix %d sats %d",
                 (unsigned long)gps.good_per_s, (unsigned long)gps.bad_per_s,
                 gps.fix, gps.sats);
         }
     } else {
         canvas.setTextColor(TFT_YELLOW, TFT_BLACK);
-        canvas.printf("GPS: trying %lu baud  %lu bytes/s",
+        canvas.printf("GPS trying %lu  %lu bytes/s",
             (unsigned long)GPS_BAUDS[gps.baud_idx], (unsigned long)gps.bytes_per_s);
     }
-    y += LH + 2;
+    y += LH;
 
     canvas.setTextColor(TFT_WHITE, TFT_BLACK);
     canvas.setCursor(2, y);
-    canvas.printf("PSRAM: %s  ", psram_bytes ? "yes" : "none");
+    canvas.printf("PSRAM %s  ", psram_bytes ? "yes" : "none");
     if(!rtc_chip) {
-        canvas.print("Clock chip: none");
+        canvas.print("Clock none");
     } else if(M5.Rtc.isEnabled()) {
         auto dt = M5.Rtc.getDateTime();
         canvas.printf("Clock %02d:%02d:%02d", dt.time.hours, dt.time.minutes, dt.time.seconds);
     } else {
         canvas.printf("Clock chip at %02X", rtc_addr);
     }
-    y += LH + 2;
+    y += LH;
 
     canvas.setCursor(2, y);
     if(keys.presses == 0) {
         canvas.print("Keys: none yet");
     } else {
-        canvas.printf("Keys: %lu  last %s  %lus ago", (unsigned long)keys.presses, keys.last,
+        canvas.printf("Keys %lu  last %s  %lus ago", (unsigned long)keys.presses, keys.last,
             (unsigned long)((millis() - keys.last_ms) / 1000));
     }
-    y += LH;
+
     canvas.setTextColor(TFT_DARKGREY, TFT_BLACK);
-    canvas.setCursor(2, y);
-    canvas.print("G = graph  S = rescan I2C  R = reset");
+    canvas.setCursor(2, M5Cardputer.Display.height() - LH);
+    canvas.print("G graph   S rescan   R reset");
 
     canvas.pushSprite(0, 0);
 }
@@ -509,7 +513,7 @@ static void draw_screen(void) {
 static void draw_graph(void) {
     const int W = M5Cardputer.Display.width();
     const int H = M5Cardputer.Display.height();
-    const int TOP = 16, BOTTOM = H - 14;          // plot area rows
+    const int TOP = LH + 2, BOTTOM = H - LH - 2;          // plot area rows
     const int LEFT = W - GRAPH_POINTS;            // plot area starts here
 
     canvas.fillSprite(TFT_BLACK);
@@ -530,7 +534,7 @@ static void draw_graph(void) {
     }
 
     // Title line: the latest second's value.
-    canvas.setCursor(2, 2);
+    canvas.setCursor(2, 0);
     if(!ads.present) {
         canvas.setTextColor(TFT_RED, TFT_BLACK);
         canvas.print("GSR: ADS1115 not found");
@@ -562,17 +566,16 @@ static void draw_graph(void) {
             prev_x = x; prev_y = y;
         }
         canvas.setTextColor(TFT_DARKGREY, TFT_BLACK);
-        canvas.setCursor(2, BOTTOM + 4);
+        canvas.setCursor(2, BOTTOM + 2);
         canvas.printf("%.1f..%.1f nS", lo, hi);
     } else {
         canvas.setTextColor(TFT_DARKGREY, TFT_BLACK);
-        canvas.setCursor(LEFT + 20, (TOP + BOTTOM) / 2);
+        canvas.setCursor(LEFT + 20, (TOP + BOTTOM - LH) / 2);
         canvas.print("no reading yet");
-        canvas.setCursor(2, BOTTOM + 4);
+        canvas.setCursor(2, BOTTOM + 2);
         canvas.print("last 22 s");
     }
-    canvas.setCursor(W - 6 * 8, BOTTOM + 4);
-    canvas.print("G = back");
+    canvas.drawString("G back", W - 2 - canvas.textWidth("G back"), BOTTOM + 2);
 
     canvas.pushSprite(0, 0);
 }
@@ -581,6 +584,7 @@ static void log_header(void) {
     Serial.printf("# psram_bytes=%lu clock_chip=%s",
         (unsigned long)psram_bytes, rtc_chip ? "yes" : "none");
     if(rtc_addr) Serial.printf(" clock_addr=%02X", rtc_addr);
+    Serial.printf(" board=%d screen=%dx%d", (int)M5.getBoard(), (int)M5Cardputer.Display.width(), (int)M5Cardputer.Display.height());
     Serial.println();
     Serial.println("ms,ads_present,gsr_ns,mean_counts,pga,reads_per_s,ads_i2c_errors,"
                    "pga_changes,bias_mv,gps_baud,gps_locked,gps_bytes_per_s,gps_good_per_s,"
@@ -606,9 +610,10 @@ static uint32_t last_graph_ms = 0;
 void setup() {
     auto cfg = M5.config();
     M5Cardputer.begin(cfg, true);
-    M5Cardputer.Display.setRotation(1);
+    // M5GFX already turns the ADV's panel to landscape; rotation 0 keeps it there.
+    M5Cardputer.Display.setRotation(0);
     canvas.createSprite(M5Cardputer.Display.width(), M5Cardputer.Display.height());
-    canvas.setTextSize(1);
+    canvas.setFont(SCREEN_FONT);
 
     Serial.begin(115200);
     Serial.setTxTimeoutMs(0);  // don't stall the loop when no computer is listening
