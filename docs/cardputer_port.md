@@ -184,6 +184,21 @@ I did not find anyone online who has tapped 3.3 V out of the ADV for an add-on.
 
 High-frequency switching ripple matters less than slow drift. The amplifier's 47 kΩ / 100 nF feedback forms a roughly 34 Hz low-pass filter, and the ADS1115's own digital filter rejects fast noise as well. What really affects accuracy is the DC level of the bias, which the measurement corrects, and slow drift during a recording, which a steady regulator keeps small.
 
+#### Current draw and battery life
+
+These are estimates from the datasheets, not measurements.
+
+| Part | Normal | Short peaks |
+|---|---|---|
+| SAM-M10Q, finding satellites | about 15–20 mA | up to about 40–50 mA |
+| SAM-M10Q, with a fix | about 10–12 mA | — |
+| ADS1115, op-amp and bias divider | about 1–2 mA | — |
+| **Our board in total** | **about 15–25 mA** | **about 50 mA** |
+
+The regulator is a linear type, so it draws the same current from 5V out as it gives at 3.3 V. M5Stack is said to advise keeping the whole device under about 1 A (this comes from a Reddit post, not an official spec). The Cardputer itself uses about 120–155 mA, so our board takes only a few percent of what is left. Unlike LoRa or nRF24 radios, which pull about 490 mA when they transmit, a GPS only listens, so it has no big current spikes.
+
+**Battery life.** The boost converter turns the battery's 3.7 V or so into 5 V and loses some power doing it, so our 25 mA costs about 35–40 mA from the battery. Added to the Cardputer's own 120–155 mA, that is about 160–195 mA in all. On the 1,750 mAh battery this gives very roughly **8–10 hours** of recording, probably a little less with the screen on and Bluetooth streaming. To check it on a real device, put a USB power meter in the charge port and compare with and without the board fitted.
+
 #### Header pin numbers
 
 The schematic and the online pin table number the EXT header differently. The schematic counts 1–7 down one side and 8–14 down the other; the online table alternates sides. The schematic also labels G13 "GPS-RX" and G15 "GPS-TX" (meaning they connect to the GPS module's RX and TX), which suggests the header was designed with a GPS in mind. **Wire by signal name (5VOUT, GND, SDA, SCL, G13, G15), not by pin number,** and confirm with a multimeter before connecting anything.
