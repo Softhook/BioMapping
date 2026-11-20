@@ -721,6 +721,15 @@ Checked:
 5. **Flipper comparison.** Record 2–3 minutes with the same resistor on the Flipper (GSR Only), and compare the two files' readings. Expect the Cardputer to read about 100 nS lower until it has a calibration.
 6. Esc ends the session; Enter starts a new one.
 
+**Checked on a real Cardputer (20 November 2026)**, three GSR Only recordings of a 47k resistor (19–50 s each), fetched over USB with the `ls` and `cat` commands (the card is built in):
+
+- Every file's `# End` line matches its contents (rows, bytes, CRC), and no row is missing. The header has `DeviceName:Cardputer` and a bias of 497.3–497.4 mV.
+- The reading averaged 21,135–21,138 nS in all three. From one second to the next it moved by 3.6, 3.8 and 1.4 nS (spread of the 1-second averages); the whole of the last recording stayed within 16 nS, about 0.08 %. The Flipper's calibration wizard measured 2.68 nS on 47k in one saved calibration. The user judged the screen numbers fine once the status page showed the same value as the Flipper (the 100 ms average in whole nS; it had shown a smoothed value with one decimal place, whose last digit changed on nearly every update).
+- The GSR thread reads about 1,000 times a second, with about 17 % repeats, as expected (section 4, "GSR reading speed").
+- One SD write in the last recording took 433 ms (the bench's worst was 57 ms). No row was lost. Still to see: whether it happens on later writes in a long recording, or only on the first after start-up, as on the bench.
+
+Still to check: the typing test, a side-by-side Flipper file of the same resistor, and a long recording.
+
 **The Flipper needs a check too**, because its SD logger moved (together with steps 5 and 6): make a short recording and check the file loads in the visualiser with no `# End` warning.
 
 ### Next steps
