@@ -448,7 +448,7 @@ Steps 1–6 prepare the shared core on the Flipper. They also tidy the Flipper c
 - Clock: the time comes from the GPS (decided). Still open: block recording until GPS time is known, or fix the time afterwards?
 - Carrying: how to see the screen while the GPS antenna faces the sky (see section 6)?
 - Electronics: buy a ready-made proto board, or build a home-made Cap?
-- Which device to bring up first at step 7: the Cardputer ADV or the CardputerZero (see section 10)?
+- ~~Which device to bring up first at step 7: the Cardputer ADV or the CardputerZero (see section 10)?~~ Decided: the Cardputer ADV only, for now.
 
 ---
 
@@ -674,6 +674,18 @@ Deliberate differences:
 **One list of radio band names.** The names "815", "868" and "915" were written out separately in the screen's labels, the file's `# Band Floors` line and the Flipper's radio code. They now come from one list beside `RF_BAND_COUNT` in [core/biomap_config.h](../firmware/core/biomap_config.h). The CSV column names (`rssi_815`…) stay spelled out, because they are the file format, and the session test checks they agree with the list. The `# Band Floors` line is byte-for-byte unchanged (the header test checks it).
 
 **To check on a real Flipper** (together with step 5's check above): each recording screen looks as before. GPS + GSR: the badge, the elapsed time and the nS value along the top, the graph, the zoom label, and the recording box while recording. GPS + GSR + RF: the three radio bars and their labels on the left. GPS + RF: while recording, the start time (e.g. "14-32-05") top left, and the four GPS lines in the pane, the last (accuracy and fix type) now visible at the bottom. GSR Only: the time span top left. Take the finger cuffs off once ("Finger cuffs disconnected"). Diagnostics and Live Stream as before. The menus and calibration screens haven't changed.
+
+### Step 7 done: the Cardputer project
+
+The Cardputer now has its own project, [firmware/cardputer/](../firmware/cardputer/) (PlatformIO, with the same library versions as the bench program). It builds every file in `core/` and minmea straight from where they are, with warnings treated as errors, and shows a start screen. See its [README](../firmware/cardputer/README.md).
+
+- **Keys.** The Flipper's six buttons are `;` `.` `,` `/` for Up, Down, Left and Right (the keys with arrows printed on them, with or without Fn), Enter for OK, and Esc (the `` ` `` key) or Del for Back ([keys.cpp](../firmware/cardputer/src/keys.cpp)). The start screen shows the last button pressed.
+- **The shared code runs.** The start screen shows a file name stamp made by the shared code.
+- **When the shared code stops on a broken rule**, the Cardputer's `core_fatal()` turns the screen red and shows the message, as the Flipper's crash screen does ([core_fatal.cpp](../firmware/cardputer/src/core_fatal.cpp)).
+
+Checked: it builds with no warnings from our code or `core/`. The only things the shared code needs from outside are the ordinary C library, the compiler's own maths helpers and `core_fatal()`: nothing Flipper-specific is left. The host tests pass and the Flipper app still builds.
+
+**To check on a real Cardputer:** flash it, see the start screen ("Core: 2026-11-20_14-32-05" in green), press each of the six buttons and see its name appear, and press a letter key to see "other keys" count up.
 
 ### Next steps
 
