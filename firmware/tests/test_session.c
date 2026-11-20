@@ -11,6 +11,7 @@
 #include "core/core_check.h"
 
 #include <assert.h>
+#include <math.h>
 #include <setjmp.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -82,10 +83,12 @@ static Fake F;
 static void f_lock(void* ctx) { (void)ctx; assert(!F.locked); F.locked = true; }
 static void f_unlock(void* ctx) { (void)ctx; assert(F.locked); F.locked = false; }
 static uint32_t f_now(void* ctx) { (void)ctx; return F.now; }
+static void gsr_run(uint32_t ms);
 static void f_delay(void* ctx, uint32_t ms) {
     (void)ctx;
     assert(!F.locked);
     if(F.delay_count < 8) F.delays[F.delay_count++] = ms;
+    gsr_run(ms);  // the GSR worker keeps running during the wait
 }
 static void f_cue(void* ctx, BioMapCue cue) {
     (void)ctx;
@@ -196,18 +199,212 @@ static SessionSettings settings(void) {
     return c;
 }
 
+// ── A pretend GSR chip (ADS1115) behind the real shared GSR code ────────
+// Single-threaded: the GSR worker, which runs on its own thread on a real
+// device, is run here by hand — between ticks (gsr_run()) and during any
+// wait (the bias check, the settle wait after the start sound). The chip
+// answers like the real one: the reading depends on which input the last
+// config write chose (bit 6:4 = 101 is the bias input, AIN1) and on its
+// gain (bits 3:1), so the code's gain switching sees real numbers.
+typedef struct {
+    GsrSensor* gsr;      // set once created, so waits inside create don't run the worker
+    bool   locked;
+    bool   in_worker;
+    uint8_t cfg_msb;     // the last config write's first byte
+    float  skin_v;       // the skin input's voltage; 0 = fingers off
+    float  bias_v;       // the bias input's voltage (about 0.5 V)
+    bool   bias_fails;   // reads on the bias input fail (I2C trouble)
+    int    dither;       // ±1 count, so no two reads are identical
+} FakeGsr;
+
+static FakeGsr G;
+
+// About 5 µS (5,000 nS): a normal skin reading.
+#define SKIN_V_5US 0.112f
+
+static void g_lock(void* ctx) { (void)ctx; assert(!G.locked); G.locked = true; }
+static void g_unlock(void* ctx) { (void)ctx; assert(G.locked); G.locked = false; }
+static uint32_t g_now(void* ctx) { (void)ctx; return F.now; }
+
+// One worker pass every 2 ms, as on the Flipper (about 500 a second).
+static void gsr_run(uint32_t ms) {
+    for(uint32_t t = 0; t < ms; t += 2) {
+        if(G.gsr && !G.in_worker) {
+            G.in_worker = true;
+            gsr_sensor_worker_pass(G.gsr);
+            G.in_worker = false;
+        }
+        F.now += 2;
+    }
+}
+
+static void g_delay(void* ctx, uint32_t ms) {
+    (void)ctx;
+    gsr_run(ms < 2 ? 2 : ms);
+}
+
+static bool g_i2c_read(void* ctx, uint8_t addr, uint8_t reg, uint8_t* data, size_t len,
+                       uint32_t timeout_ms) {
+    (void)ctx; (void)addr; (void)reg; (void)timeout_ms;
+    static const float fsr[8] = {6.144f, 4.096f, 2.048f, 1.024f, 0.512f, 0.256f, 0.256f, 0.256f};
+    bool on_bias = ((G.cfg_msb >> 4) & 7u) == 5u;
+    if(on_bias && G.bias_fails) return false;
+    float v = on_bias ? G.bias_v : G.skin_v;
+    float code = v / fsr[(G.cfg_msb >> 1) & 7u] * 32768.0f;
+    if(code > 32767.0f) code = 32767.0f;
+    G.dither = !G.dither;
+    int16_t c = (int16_t)(code + (G.dither ? 0.5f : -0.5f));
+    if(v <= 0.0f) c = 0;
+    if(len >= 1) data[0] = (uint8_t)((uint16_t)c >> 8);
+    if(len >= 2) data[1] = (uint8_t)((uint16_t)c & 0xFF);
+    return true;
+}
+
+static bool g_i2c_write(void* ctx, uint8_t addr, uint8_t reg, const uint8_t* data, size_t len,
+                        uint32_t timeout_ms) {
+    (void)ctx; (void)addr; (void)timeout_ms;
+    if(reg == 0x01 && len >= 1) G.cfg_msb = data[0];
+    return true;
+}
+
+// ── A pretend GPS module behind the real shared GPS code ────────────────
+// Answers every set-up packet with an ACK and the chip ID poll with a
+// fixed ID, so create() runs its normal path. NMEA sentences are fed with
+// gps_send().
+typedef struct {
+    GpsUart* gps;
+    bool     locked;
+    uint8_t  rx[4096];
+    size_t   rx_head, rx_len;
+} FakeGps;
+
+static FakeGps P;
+
+// The chip ID AA BB CC DD EE FF, which reads as this phrase.
+#define CHIP_PHRASE "baker mute aloha fable poet"
+
+static void p_push(const uint8_t* b, size_t n) {
+    assert(P.rx_len + n <= sizeof(P.rx));
+    for(size_t i = 0; i < n; i++) P.rx[(P.rx_head + P.rx_len + i) % sizeof(P.rx)] = b[i];
+    P.rx_len += n;
+}
+
+static void p_tx(void* ctx, const uint8_t* d, size_t len) {
+    (void)ctx;
+    static const uint8_t uniqid_poll[] = {0xB5, 0x62, 0x27, 0x03, 0x00, 0x00, 0x2A, 0xA5};
+    static const uint8_t uniqid_reply[] = {
+        0xB5, 0x62, 0x27, 0x03, 0x0A, 0x00, 0x02, 0x00, 0x00, 0x00,
+        0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x31, 0x1A,
+    };
+    if(len == sizeof(uniqid_poll) && memcmp(d, uniqid_poll, len) == 0) {
+        p_push(uniqid_reply, sizeof(uniqid_reply));
+    } else if(len >= 4 && d[0] == 0xB5 && d[1] == 0x62 && d[2] == 0x06) {
+        // UBX-ACK-ACK for this configuration packet.
+        uint8_t ack[10] = {0xB5, 0x62, 0x05, 0x01, 0x02, 0x00, d[2], d[3], 0, 0};
+        uint8_t a = 0, b = 0;
+        for(int i = 2; i < 8; i++) { a = (uint8_t)(a + ack[i]); b = (uint8_t)(b + a); }
+        ack[8] = a;
+        ack[9] = b;
+        p_push(ack, sizeof(ack));
+    }
+}
+
+static void p_set_baud(void* ctx, uint32_t baud) { (void)ctx; (void)baud; }
+static void p_rx_start(void* ctx, GpsRxMode mode) { (void)ctx; (void)mode; }
+static void p_rx_stop(void* ctx) { (void)ctx; }
+static size_t p_rx_read(void* ctx, uint8_t* buf, size_t len) {
+    (void)ctx;
+    size_t n = 0;
+    while(n < len && P.rx_len > 0) {
+        buf[n++] = P.rx[P.rx_head];
+        P.rx_head = (P.rx_head + 1) % sizeof(P.rx);
+        P.rx_len--;
+    }
+    return n;
+}
+static void p_rx_clear(void* ctx) { (void)ctx; P.rx_len = 0; }
+static bool p_wake_seen(void* ctx, uint32_t* first_ms) { (void)ctx; *first_ms = F.now; return true; }
+static uint32_t p_drops(void* ctx) { (void)ctx; return 0; }
+static void p_again(void* ctx) { (void)ctx; }
+static void p_delay(void* ctx, uint32_t ms) { (void)ctx; F.now += ms; }
+static void p_lock(void* ctx) { (void)ctx; assert(!P.locked); P.locked = true; }
+static void p_unlock(void* ctx) { (void)ctx; assert(P.locked); P.locked = false; }
+
+// One NMEA sentence (without '$' and checksum), then parse it.
+static void gps_send(const char* body) {
+    uint8_t sum = 0;
+    for(const char* c = body; *c; c++) sum ^= (uint8_t)*c;
+    char line[160];
+    int n = snprintf(line, sizeof(line), "$%s*%02X\r\n", body, sum);
+    p_push((const uint8_t*)line, (size_t)n);
+    gps_uart_handle_rx(P.gps);
+}
+
+static void gps_fix(void) {
+    gps_send("GNRMC,090807.00,A,5130.0000,N,00007.5000,W,0.5,90.0,201126,,,A");
+    gps_send("GNGGA,090807.00,5130.0000,N,00007.5000,W,1,08,0.9,45.0,M,47.0,M,,");
+}
+
+static void gps_no_fix(void) {
+    gps_send("GNRMC,090808.00,V,,,,,,,201126,,,N");
+    gps_send("GNGGA,090808.00,,,,,0,00,99.9,,,,,,");
+}
+
 static SessionCore S;
 
+static void free_modules(void) {
+    if(G.gsr) gsr_sensor_destroy(G.gsr);
+    if(P.gps) gps_uart_destroy(P.gps);
+    G.gsr = NULL;
+    P.gps = NULL;
+}
+
 static void start(BioMapMode mode, SessionSettings cfg) {
+    free_modules();
     memset(&F, 0, sizeof(F));
     F.now = 5000;
     SessionPlatform p = platform();
     session_core_init(&S, mode, &p, &cfg);
 }
 
+// start(), then the real GSR and GPS code on the pretend chips, set up
+// the way the Flipper's loop does it (the session gets them after init).
+// The GSR sensor measures bias_v once as it starts.
+static void start_with_modules(BioMapMode mode, SessionSettings cfg, float bias_v) {
+    start(mode, cfg);
+    memset(&G, 0, sizeof(G));
+    memset(&P, 0, sizeof(P));
+    G.skin_v = SKIN_V_5US;
+    G.bias_v = bias_v;
+    GsrPlatform gp = {
+        .lock = g_lock, .unlock = g_unlock, .now_ms = g_now, .delay_ms = g_delay,
+        .i2c_read = g_i2c_read, .i2c_write = g_i2c_write,
+    };
+    if(session_mode_needs_gsr(mode)) {
+        G.gsr = gsr_sensor_create(&gp);
+        assert(gsr_sensor_available(G.gsr));
+    }
+    GpsPlatform pp = {
+        .set_baud = p_set_baud, .tx = p_tx, .rx_start = p_rx_start, .rx_stop = p_rx_stop,
+        .rx_read = p_rx_read, .rx_clear = p_rx_clear, .rx_wake_seen = p_wake_seen,
+        .rx_drop_count = p_drops, .rx_again = p_again, .now_ms = g_now, .delay_ms = p_delay,
+        .lock = p_lock, .unlock = p_unlock,
+    };
+    if(session_mode_needs_gps(mode)) {
+        P.gps = gps_uart_create(&pp, true, GpsNavModelPedestrian, true);
+        assert(gps_uart_is_ready(P.gps));
+    }
+    S.gsr = G.gsr;
+    S.gps = P.gps;
+    gsr_run(500);  // let the GSR settle on its starting gain
+}
+
+// Each tick: 100 ms of GSR worker passes (when there is a sensor), then
+// the session's tick.
 static void tick(int n) {
     for(int i = 0; i < n; i++) {
-        F.now += 100;
+        if(G.gsr) gsr_run(100);
+        else F.now += 100;
         session_core_tick(&S);
         assert(!F.locked);
     }
@@ -244,6 +441,15 @@ static void test_init_checks_platform(void) {
     p = platform();
     p.cue = NULL;
     EXPECT_FATAL(session_core_init(&S, BioMapModeDiagnostics, &p, &cfg));
+    // A radio mode that records needs the radio reading: its header lists
+    // the radio columns. GPS Only is one of them.
+    p = platform();
+    p.rf_snapshot = NULL;
+    EXPECT_FATAL(session_core_init(&S, BioMapModeGpsOnly, &p, &cfg));
+    EXPECT_FATAL(session_core_init(&S, BioMapModeGpsGsrRf, &p, &cfg));
+    // Diagnostics and the modes without radio don't.
+    session_core_init(&S, BioMapModeDiagnostics, &p, &cfg);
+    session_core_init(&S, BioMapModeGpsGsr, &p, &cfg);
 }
 
 static void test_start_header_and_settle(void) {
@@ -535,6 +741,177 @@ static void test_redraw_cadence(void) {
     assert(redraws == 4);
 }
 
+// ── With the real GSR and GPS code on pretend chips ────────────────────
+
+// The header's "# GSR Bias" line: a fresh check at each recording start.
+// An out-of-range reading is written down but not used; a check that
+// times out writes "none"; either way the last good value is used.
+static void test_bias_header_line(void) {
+    printf("Running test_bias_header_line...\n");
+    start_with_modules(BioMapModeGpsGsr, settings(), 0.4980f);
+    // Measured at start-up (498.0 mV); now it reads 503.1 mV.
+    G.bias_v = 0.5031f;
+    session_core_key(&S, SessionKeyOk);
+    assert(S.recording.active);
+    assert(strstr(F.header, "# GSR Bias: measured_mv:503.1,used_mv:503.1\n") != NULL);
+    // The GPS module's ID, as its phrase.
+    assert(strstr(F.header, "# GPSChipID:" CHIP_PHRASE "\n") != NULL);
+    session_core_key(&S, SessionKeyOk);
+
+    // Out of range (0.40 V): written down, but 503.1 mV stays in use.
+    G.bias_v = 0.40f;
+    session_core_key(&S, SessionKeyOk);
+    assert(strstr(F.header, "# GSR Bias: measured_mv:400.0,used_mv:503.1\n") != NULL);
+    session_core_key(&S, SessionKeyOk);
+
+    // The bias input stops answering: the check times out, and the
+    // recording still starts.
+    G.bias_v = 0.5031f;
+    G.bias_fails = true;
+    uint32_t before = F.now;
+    session_core_key(&S, SessionKeyOk);
+    assert(S.recording.active);
+    assert(F.now - before >= GSR_BIAS_CHECK_TIMEOUT_MS);
+    assert(strstr(F.header, "# GSR Bias: measured_mv:none,used_mv:503.1\n") != NULL);
+    session_core_key(&S, SessionKeyOk);
+    G.bias_fails = false;
+
+    // GSR only has the line too; GPS + RF (no GSR) doesn't.
+    start_with_modules(BioMapModeGsrOnly, settings(), 0.5f);
+    session_core_key(&S, SessionKeyOk);
+    assert(strstr(F.header, "# GSR Bias: measured_mv:500.0,used_mv:500.0\n") != NULL);
+    assert(strstr(F.header, "GPSChipID") == NULL);
+    start_with_modules(BioMapModeGpsOnly, settings(), 0.5f);
+    session_core_key(&S, SessionKeyOk);
+    assert(strstr(F.header, "GSR Bias") == NULL);
+    assert(strstr(F.header, "# GPSChipID:" CHIP_PHRASE "\n") != NULL);
+}
+
+// The once-a-second light: green with fingers on, red with them off,
+// and the blue blip whenever GPS has no fix.
+static void test_heartbeat_fingers_and_fix(void) {
+    printf("Running test_heartbeat_fingers_and_fix...\n");
+    start_with_modules(BioMapModeGpsGsr, settings(), 0.5f);
+    gps_fix();
+    session_core_key(&S, SessionKeyOk);
+    F.cue_count = 0;
+    tick(10 * 3);
+    assert(count_cue(BioMapCueHeartbeat) == 3);
+    assert(count_cue(BioMapCueHeartbeatFingersOff) == 0);
+    assert(count_cue(BioMapCueNoGpsFix) == 0);
+
+    // GPS loses its fix: the blip after each heartbeat.
+    gps_no_fix();
+    F.cue_count = 0;
+    tick(10 * 2);
+    assert(count_cue(BioMapCueHeartbeat) == 2);
+    assert(count_cue(BioMapCueNoGpsFix) == 2);
+    assert(F.cues[0] == BioMapCueHeartbeat && F.cues[1] == BioMapCueNoGpsFix);
+
+    // Fingers off: red after the 2 s it takes to be sure.
+    gps_fix();
+    G.skin_v = 0.0f;
+    F.cue_count = 0;
+    tick(10 * 4);
+    assert(!gsr_sensor_is_connected(G.gsr));
+    assert(count_cue(BioMapCueHeartbeatFingersOff) >= 1);
+    assert(F.cues[F.cue_count - 1] == BioMapCueHeartbeatFingersOff);
+
+    // Back on: green again.
+    G.skin_v = SKIN_V_5US;
+    F.cue_count = 0;
+    tick(10 * 2);
+    assert(gsr_sensor_is_connected(G.gsr));
+    assert(F.cues[F.cue_count - 1] == BioMapCueHeartbeat);
+    // No sound at any point in the recording.
+    for(int i = 0; i < F.cue_count; i++) assert(!biomap_cue_has_sound(F.cues[i]));
+}
+
+// The GSR display and graph follow the reading; rows carry it and, on the
+// GPS row boundary, the fix.
+static void test_gsr_display_and_rows(void) {
+    printf("Running test_gsr_display_and_rows...\n");
+    start_with_modules(BioMapModeGpsGsr, settings(), 0.5f);
+    gps_fix();
+    tick(20);
+    float ns = S.pipeline.display.filtered_ns;
+    printf("  reading %.0f nS (expect about 5000)\n", (double)ns);
+    assert(ns > 4500.0f && ns < 5500.0f);
+    assert(S.pipeline.display.primed);
+    assert(fabsf(S.pipeline.display.smoothed - ns) < 250.0f);
+    int head = S.pipeline.graph.head;
+
+    session_core_key(&S, SessionKeyOk);
+    tick(10);
+    assert(S.pipeline.graph.head != head);  // the graph moved on
+    // Every row has the reading; GPS_CSV_HZ is 10, so every row has the fix.
+    assert(count_lines(F.rows, F.rows_len) == 10);
+    assert(strstr(F.rows, "51.5000000") != NULL);
+    assert(strstr(F.rows, "-0.1250000") != NULL);
+    // gsr_raw is the 10th column: about 5,000 nS in every row.
+    for(const char* row = F.rows; row < F.rows + F.rows_len; row = strchr(row, '\n') + 1) {
+        const char* col = row;
+        for(int c = 0; c < 9; c++) col = strchr(col, ',') + 1;
+        float gsr = strtof(col, NULL);
+        assert(gsr > 4500.0f && gsr < 5500.0f);
+    }
+
+    // Fingers off: the display holds its last good value (an out-of-range
+    // reading is not shown), while the row records what was read.
+    float shown = S.pipeline.display.smoothed;
+    G.skin_v = 0.0f;
+    tick(5);
+    assert(S.pipeline.display.smoothed == shown);
+    assert(S.pipeline.display.filtered_ns < GSR_VALID_MIN_NS);
+
+    // Back on at a much higher reading (about 15 µS). The graph shows the
+    // rate of change, so a jump would draw one tall spike; instead the
+    // line restarts from the new value: the newest graph point is flat.
+    G.skin_v = 0.30f;
+    tick(1);
+    assert(S.pipeline.display.raw_sample_ns > 12000.0f);
+    int newest = (S.pipeline.graph.head + GRAPH_N - 1) % GRAPH_N;
+    assert(S.pipeline.graph.buf[newest] == 0.0f);
+}
+
+// Live Stream's bias check on the first phone connect, with a real sensor:
+// done once, logged, not repeated on a reconnect; given up after
+// LIVE_BIAS_MAX_TRIES ticks if the sensor won't answer.
+static void test_live_stream_bias_with_sensor(void) {
+    printf("Running test_live_stream_bias_with_sensor...\n");
+    start_with_modules(BioMapModeLiveStream, settings(), 0.4980f);
+    tick(3);
+    assert(!S.live_bias_checked);  // no phone yet
+    G.bias_v = 0.5031f;
+    F.connected = true;
+    tick(1);
+    assert(S.live_bias_checked);
+    assert(strcmp(F.last_log, "Live Stream bias: measured 503.1 mV, using 503.1 mV") == 0);
+    int logs = F.log_count;
+    F.connected = false;
+    tick(3);
+    F.connected = true;
+    tick(3);
+    assert(F.log_count == logs);  // a reconnect doesn't check again
+    // The packets carry the reading.
+    float gsr_raw;
+    memcpy(&gsr_raw, F.last_packet + 22, sizeof(gsr_raw));
+    assert(gsr_raw > 4500.0f && gsr_raw < 5500.0f);
+
+    // The bias input won't answer: three tries, then it gives up.
+    start_with_modules(BioMapModeLiveStream, settings(), 0.5f);
+    G.bias_fails = true;
+    F.connected = true;
+    tick(LIVE_BIAS_MAX_TRIES - 1);
+    assert(!S.live_bias_checked);
+    tick(1);
+    assert(S.live_bias_checked);
+    assert(strstr(F.last_log, "measured nan mV, using 500.0 mV") != NULL);
+    int tries_logs = F.log_count;
+    tick(5);
+    assert(F.log_count == tries_logs);
+}
+
 int main(void) {
     test_init_checks_platform();
     test_start_header_and_settle();
@@ -549,6 +926,11 @@ int main(void) {
     test_live_stream();
     test_diagnostics_records_nothing();
     test_redraw_cadence();
+    test_bias_header_line();
+    test_heartbeat_fingers_and_fix();
+    test_gsr_display_and_rows();
+    test_live_stream_bias_with_sensor();
+    free_modules();
     printf("All session tests passed!\n");
     return 0;
 }

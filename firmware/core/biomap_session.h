@@ -105,10 +105,11 @@ typedef struct {
     bool (*file_append)(void* ctx, const char* row, size_t len);
     int  (*file_flush)(void* ctx);
 
-    // Optional: the latest radio reading, one per band (RF_BAND_COUNT).
-    // Called with the lock held, so it must be quick. NULL on a device with
-    // no radio; the radio columns are then left out of the file (the radio
-    // modes are not offered there).
+    // The latest radio reading, one per band (RF_BAND_COUNT). Called with
+    // the lock held, so it must be quick. Required in the radio modes that
+    // record (has_rf(): GPS + GSR + RF and GPS Only), because their file
+    // header always lists the radio columns. NULL is allowed only on a
+    // device that doesn't offer those modes.
     void (*rf_snapshot)(void* ctx, float out_dbm[RF_BAND_COUNT]);
 
     // Optional, only used with debug fields on. fill_diag() adds the

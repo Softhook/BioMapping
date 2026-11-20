@@ -166,6 +166,9 @@ firmware/tests/
                                    callback, send-or-drop, packet packing (BLE mock shims)
   test_cues.c                   — biomap_cues_flipper.c: each cue's light and tones, light-only
                                    cues never touch the speaker, Sound off (cue_mock.c shims)
+  test_session.c                — core/biomap_session.c against a pretend device (no Flipper
+                                   headers), plus the real GSR and GPS code on a pretend
+                                   ADS1115 and a pretend GPS module
   benchmarks/
     analyze_gsr_filtering.c      — investigative tool, not pass/fail: measures
                                    the real IIR+EMA frequency response and the
@@ -261,6 +264,7 @@ Approximate test counts — the exact numbers drift with each addition; run
 | `modules/bt_stream.c` | Yes (`Bt`/`ble_profile_serial_*`) | ✅ `tests/test_bt_stream.c` (~13 tests, BLE mock shims) |
 | `modules/em_scan_rf.c` | Yes (CC1101 SPI) | ✅ `tests/test_em_scan_rf.c` (~9 tests, dedicated `furi_hal_subghz_mock.c`) |
 | `flipper/biomap_cues_flipper.c` + `flipper/sound.h` | Yes (`notification_message`, `furi_hal_speaker_*`) | ✅ `tests/test_cues.c` (4 tests over all 20 cues, `cue_mock.c` shims) |
+| `core/biomap_session.c` | No (everything through `SessionPlatform`) | ✅ `tests/test_session.c` (17 tests; the Flipper loop in `flipper/biomap_session_flipper.c` is not host-tested) |
 
 `test_gps_uart.c` covers every NMEA sentence type `gps_uart_parse_line()`
 dispatches on (RMC, GGA, GSA — including SBAS PRN detection, GLL — valid

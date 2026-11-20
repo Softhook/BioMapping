@@ -67,6 +67,12 @@ void session_core_init(SessionCore* s, BioMapMode mode, const SessionPlatform* p
                        && platform->file_flush,
                    "session_core_init: a recording mode needs the file functions");
     }
+    // The header lists the radio columns in every radio mode that records
+    // (GPS Only included), so the rows must have them too.
+    if(session_mode_records(mode) && has_rf(mode)) {
+        CORE_CHECK(platform->rf_snapshot,
+                   "session_core_init: a radio mode that records needs rf_snapshot");
+    }
     if(mode == BioMapModeLiveStream) {
         CORE_CHECK(platform->live_connected && platform->live_send,
                    "session_core_init: Live Stream needs the live functions");
