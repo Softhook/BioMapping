@@ -465,7 +465,7 @@ The plain C files moved to [firmware/core/](../firmware/core/): `biomap_pipeline
 
 Checked: all host tests pass, the Flipper app builds, and each `core/` file builds on its own with no other folders on the include path. Nothing changed in how the app behaves, so no Flipper check is needed.
 
-### Already done: radio scan out of the GSR code (not yet tried on a real Flipper)
+### Already done: radio scan out of the GSR code (checked on a real Flipper, see below)
 
 The radio (EM) scan used to be written into the middle of the GSR sensor code ([gsr_sensor.c](../firmware/core/gsr_sensor.c)). It now lives in its own file, [em_scan_sampler.c](../firmware/modules/em_scan_sampler.c). It still runs on the GSR thread, at the same moments as before. No new thread was added. The GSR loop has one line that says "if there is another job, give it a turn". On the Flipper the session hands it the radio scan. On the Cardputer nothing is handed over, so the GSR code contains no radio code at all.
 
@@ -479,7 +479,7 @@ The radio (EM) scan used to be written into the middle of the GSR sensor code ([
 - **The radio sampler's tests sit inside the GSR tests** (`test_gsr_sensor.c`), not in a file of their own.
 - **This step alone does not make the code run on the Cardputer.** The GSR code still used the Flipper's own I2C calls (fixed by step 2 below), and the session and screen code still include the radio modes (steps 5 and 6).
 
-### Step 2 done: GSR logic in `core/` (not yet tried on a real Flipper)
+### Step 2 done: GSR logic in `core/` (checked on a real Flipper, see below)
 
 All of the GSR logic now lives in [core/gsr_sensor.c](../firmware/core/gsr_sensor.c): gain switching, the settling waits, the bias check, the 100 ms averaging, the conversion to nanosiemens, the calibration zero and gain, disconnect detection, and every diagnostic figure. It has no Flipper code. It reaches the hardware only through a short list of functions the device hands it ([core/gsr_sensor.h](../firmware/core/gsr_sensor.h), `GsrPlatform`): read or write an I2C register, the time in milliseconds, a wait, a lock, and an optional log line.
 
@@ -511,7 +511,7 @@ Small differences, none expected to show:
 
 **To check on a real Flipper:** record for a few minutes with fingers on, and check the GSR value, the gain changes and the `# GSR Bias` line look as before. Run the whole calibration wizard (Zero step and the three resistors) and check the result screen looks as before. Open Diagnostics and check the GSR thread's free stack, worker Hz (~500) and I2C peak. Then run an EM mode for a minute (radio bars move, app exits cleanly), which also covers the radio scan check above.
 
-### Step 3 done: GPS logic in `core/` (not yet tried on a real Flipper)
+### Step 3 done: GPS logic in `core/` (checked on a real Flipper, see below)
 
 All of the GPS logic now lives in [core/gps_uart.c](../firmware/core/gps_uart.c): the M10Q set-up commands and checking each reply, the wake-up wait, the sleep sequence at app start and at the end of each session, the speed change to 115200, the chip ID, reading NMEA lines and every sentence's rules, the 5 s watchdog and the reconfigure after it. It has no Flipper code. It reaches the hardware only through the functions the device hands it ([core/gps_uart.h](../firmware/core/gps_uart.h), `GpsPlatform`): set the serial speed, send bytes, start or stop receiving, take the bytes received so far, throw them away, "has the module answered yet?", "please call me again soon", the time in milliseconds, a wait, a lock, and an optional log line.
 
@@ -578,13 +578,34 @@ Known weak points, left for later steps:
 
 No Flipper check is needed beyond the ones for steps 2 and 3: the recording and GPS checks there hear the start and stop sounds and see the heartbeat. To be thorough, listen once for the key clicks in the menu and watch for the blue blink before GPS has a fix.
 
+### Flipper check of steps 2–4 (20 November 2026)
+
+Run on a real Flipper with the build from step 4 (commit `5ade1be`), with the log open (`ufbt cli`, then `log info`).
+
+Passed:
+
+- **App start.** No crash. The GPS answered the wake byte (after 2 ms, because it was already awake: the previous run had let go of the port) and was put to sleep.
+- **GPS sleep and wake.** At each session start the log showed `Idle: GPS silent (stayed asleep)`, both after app start (74 s asleep) and between two sessions. The GPS woke from real sleep in 236 ms.
+- **GPS setup.** Every setup command was accepted at the first try (no warnings in the log), in about 0.4 s. The chip ID was read once per app run, as intended.
+- **GSR start-up.** The ADS1115 was found, the 0.5 V bias read 497.3–497.4 mV, and the gain search stepped up normally.
+- **A GPS+GSR recording** (`tracks/biomap_2026-11-20_20-22-26.csv`, 12.5 s). The header has the `# GPSChipID` and `# GSR Bias` lines and the calibration line. 126 rows, exactly one every 0.1 s, GSR 5,300–6,100 nS. The end line shows no overflows and no write failures, and the visualiser's integrity check reports it complete and unmodified.
+- **EM mode.** The radio bars moved and the app exited cleanly, so the radio scan running on the GSR thread, and freeing the two in the right order, work on the device.
+- **Options > Cold Reset GPS.** Green blink (the success cue); the GPS board's own light went off for a second as the module restarted.
+- **Calibration wizard,** all four steps. Gain 1.00, R² 1.00, zero −321 (previously −335.4, about 0.1 mV apart). The worst noise was 2.39 nS, against 0.40 nS for the previous calibration. Still well inside the 10 nS limit. The Flipper was on USB to the MacBook while it was charging, which put hum on the GSR reading on the Cardputer bench too, so that is the likely cause; the wizard's averaging gives bit-identical results to the old code in the host tests. To confirm: repeat the wizard on battery.
+
+Not yet seen:
+
+- **A recording with a GPS fix.** The test recording was indoors, so the position columns were empty. Reading positions was moved unchanged and the old-vs-new comparison ran it with real NMEA sentences; a recording on the next walk will confirm it on the device.
+- **Sounds.** Sound was off in Options during the check, so the cues were seen (heartbeat, cold reset blink) but not heard.
+- **Diagnostics.** The GSR thread's free stack, worker rate and I2C peak were not read. The Raw and Filt lines seemed to update faster than before; the screen redraw (twice a second) and the GSR worker loop are unchanged in the code, and the question was set aside for now.
+
 ### Next steps
 
 The remaining preparation follows steps 1–6 of the order of work in section 7:
 
 1. ~~Create `core/` and `flipper/`, and move the files that are already plain C.~~ Done (see above).
-2. ~~Move the GSR logic into `core/`, including the Zero step's reading and the bias check.~~ Done (see above); needs the Flipper check.
-3. ~~Move the GPS logic into `core/`.~~ Done (see above); needs the Flipper check.
+2. ~~Move the GSR logic into `core/`, including the Zero step's reading and the bias check.~~ Done and checked on a Flipper (see above).
+3. ~~Move the GPS logic into `core/`.~~ Done and checked on a Flipper (see above); a recording with a GPS fix is still to be seen.
 4. ~~Named events instead of LED patterns, with sounds included.~~ Done (see above).
 5. Split the session into shared logic plus the Flipper loop.
 6. Make the screen layout shared.
