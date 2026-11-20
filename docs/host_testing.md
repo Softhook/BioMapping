@@ -41,10 +41,10 @@ touches hardware:
 
 ### 1. Pure logic — no shimming needed
 
-`biomap_pipeline.c` (IIR filter, EMA smoothing, graph buffer, time
-helpers) and `biomap_format.c` (CSV row formatting, cycle selection,
+`core/biomap_pipeline.c` (IIR filter, EMA smoothing, graph buffer, time
+helpers) and `core/biomap_format.c` (CSV row formatting, cycle selection,
 calibration fitting, saved-file checksums) have no Flipper SDK dependency
-beyond `FURI_LOG_W`, which the shim turns into a no-op. They compile on a
+at all, so their test build needs no shims. They compile on a
 host compiler exactly as they ship to the device. `tests/test_firmware.c`
 links both directly, so tests exercise the real code rather than copies.
 
@@ -223,7 +223,7 @@ Approximate test counts — the exact numbers drift with each addition; run
 
 | File | Touches hardware | Host-tested |
 |---|---|---|
-| `biomap_pipeline.c` + `biomap_format.c` | No | ✅ `tests/test_firmware.c` (~32 tests) |
+| `core/biomap_pipeline.c` + `core/biomap_format.c` | No | ✅ `tests/test_firmware.c` (~32 tests) |
 | `modules/gps_uart.c` | Yes (`furi_hal_serial_*`) | ✅ `tests/test_gps_uart.c` (~39 tests) |
 | `modules/gsr_sensor.c` | Yes (`furi_hal_i2c_*`, real `FuriThread`) | ✅ `tests/test_gsr_sensor.c` (~36 tests) + a ThreadSanitizer pass |
 | `modules/sd_logger.c` | Yes (`Storage`/`File`) | ✅ `tests/test_sd_logger.c` (~30 tests, includes `BIOMAP_SD_PREALLOC` & CRC32 integrity trailer) |

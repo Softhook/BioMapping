@@ -1,13 +1,10 @@
 // biomap_format.c — see biomap_format.h.
 //
-// The only SDK surface used here is FURI_LOG_W (calibration-fit diagnostics).
-// The host test build resolves <furi.h> to tests/shims/furi.h, which stubs
-// the FURI_LOG_* macros to no-ops — same mechanism the other module tests
-// use, so this file needs no build-time conditionals.
+// Plain C with no device code: shared by every device build. Failures are
+// reported through return values; the caller decides whether to log them.
 
 #include "biomap_format.h"
 
-#include <furi.h>
 #include <math.h>
 #include <stdio.h>
 
@@ -113,7 +110,6 @@ bool calibration_wizard_compute_fit(const float measured[CAL_POINTS],
         if(yi <= 1e-9f) {
             *out_gain = 1.0f;
             *out_r_squared = 0.0f;
-            FURI_LOG_W("BioMap", "Calibration fit degenerate (non-positive target)");
             return false;
         }
         float ri = xi / yi;
@@ -128,7 +124,6 @@ bool calibration_wizard_compute_fit(const float measured[CAL_POINTS],
         // untouched.
         *out_gain = 1.0f;
         *out_r_squared = 0.0f;
-        FURI_LOG_W("BioMap", "Calibration fit degenerate (all measurements ~0)");
         return false;
     }
 
@@ -154,12 +149,7 @@ bool calibration_wizard_compute_fit(const float measured[CAL_POINTS],
     *out_r_squared = r_squared;
 
     // Validate gain bounds and linearity (R² ≥ 0.95)
-    bool ok = gain >= CAL_GAIN_MIN && gain <= CAL_GAIN_MAX && r_squared >= 0.95f;
-    if(!ok) {
-        FURI_LOG_W("BioMap", "Calibration out of bounds: gain=%.4f R²=%.4f",
-                   (double)gain, (double)r_squared);
-    }
-    return ok;
+    return gain >= CAL_GAIN_MIN && gain <= CAL_GAIN_MAX && r_squared >= 0.95f;
 }
 
 CalNoiseGrade calibration_noise_grade(float std_dev_ns) {

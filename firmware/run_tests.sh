@@ -75,10 +75,9 @@ if [ "$RUN_TSAN" != "yes" ] && [ "$RUN_TSAN" != "no" ]; then
 fi
 
 echo "== test_firmware (pipeline / CSV / calibration) =="
-# biomap_format.c's only SDK dependency is FURI_LOG_W; -I tests/shims resolves
-# <furi.h> to the no-op shim, same as the other module tests below.
-gcc -Wall -Wextra -Werror -I . -I vendor/minmea -I tests/shims -o build/test_firmware \
-    biomap_pipeline.c biomap_format.c tests/test_firmware.c -lm
+# core/ is plain C, so this build needs no Flipper shims.
+gcc -Wall -Wextra -Werror -I . -I vendor/minmea -o build/test_firmware \
+    core/biomap_pipeline.c core/biomap_format.c tests/test_firmware.c -lm
 ./build/test_firmware
 
 echo

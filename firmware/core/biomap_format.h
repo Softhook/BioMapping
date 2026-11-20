@@ -1,7 +1,6 @@
 // biomap_format.h — CSV row formatting and pure numeric helpers.
 //
-// Host-testable: the .c uses only FURI_LOG_W from the SDK (the host test
-// build resolves it to the tests/shims/ no-op). No module headers, no I/O.
+// Plain C with no device code, no module headers and no I/O.
 // These functions are linked directly by tests/test_firmware.c
 // rather than mirrored, so a change to the CSV column layout or the
 // calibration fit shows up in the existing golden-output assertions instead

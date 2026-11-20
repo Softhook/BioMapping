@@ -71,7 +71,7 @@ static const float VALID_MIN_NS = 100.0f;
 
 // Zero step, as in the Flipper calibration wizard: the open-circuit reading
 // (normalised counts) is subtracted before the TIA formula. A reading further
-// from 0 than CAL_ZERO_MAX_COUNTS (firmware/biomap_config.h) means something
+// from 0 than CAL_ZERO_MAX_COUNTS (firmware/core/biomap_config.h) means something
 // is still connected, so it is refused.
 static const float ZERO_MAX_COUNTS = 2000.0f;
 static const int   ZERO_SECONDS    = 3;

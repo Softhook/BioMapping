@@ -428,6 +428,16 @@ Steps 1–6 prepare the shared core on the Flipper. They also tidy the Flipper c
 
 Before starting the port itself, the Flipper firmware is being reshaped so that more of it can be shared. Each step keeps the Flipper working exactly as before.
 
+### Step 1 done: `core/` folder created
+
+The plain C files moved to [firmware/core/](../firmware/core/): `biomap_pipeline.c/.h` (signal processing), `biomap_format.c/.h` (CSV format and the calibration fit), `biomap_config.h` (settings) and `biomap_types.h` (the shared data types, which the others need). `application.fam`, `run_tests.sh`, the test files and the links in the docs point to the new places.
+
+- **One small code change.** `biomap_format.c` still used the Flipper's warning-log call when a calibration fit failed. That log line now lives in the Flipper code that calls the fit ([biomap_gui.c](../firmware/biomap_gui.c)), so `core/` has no Flipper code at all. Its test build no longer needs the fake Flipper headers.
+- **minmea stays in `vendor/minmea/`**, as in the folder plan above. It is already plain C, and third-party code is easier to update where it is.
+- **No `flipper/` folder yet.** Git cannot store an empty folder. The Flipper files move into it as steps 2–6 split each one.
+
+Checked: all host tests pass, the Flipper app builds, and each `core/` file builds on its own with no other folders on the include path. Nothing changed in how the app behaves, so no Flipper check is needed.
+
 ### Already done: radio scan out of the GSR code (not yet tried on a real Flipper)
 
 The radio (EM) scan used to be written into the middle of the GSR sensor code ([gsr_sensor.c](../firmware/modules/gsr_sensor.c)). It now lives in its own file, [em_scan_sampler.c](../firmware/modules/em_scan_sampler.c). It still runs on the GSR thread, at the same moments as before. No new thread was added. The GSR loop has one line that says "if there is another job, give it a turn". On the Flipper the session hands it the radio scan. On the Cardputer nothing is handed over, so the GSR code contains no radio code at all.
@@ -446,7 +456,7 @@ The radio (EM) scan used to be written into the middle of the GSR sensor code ([
 
 The remaining preparation follows steps 1–6 of the order of work in section 7:
 
-1. Create `core/` and `flipper/`, and move the files that are already plain C.
+1. ~~Create `core/` and `flipper/`, and move the files that are already plain C.~~ Done (see above).
 2. Move the GSR logic into `core/`.
 3. Move the GPS logic into `core/`.
 4. Named events instead of LED patterns, with sounds included.

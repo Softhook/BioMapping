@@ -3,7 +3,7 @@
  * docs/csv_schema.md's canonical GPS+GSR schema (11 columns), byte-compatible
  * with a track the firmware's SD logger writes: the same
  * `# Integrity: crc32 v1` marker line, the same per-row number formatting as
- * firmware/biomap_format.c's biomap_format_gps_row(), and the same
+ * firmware/core/biomap_format.c's biomap_format_gps_row(), and the same
  * `# End rows:… bytes:… crc32:… end_time:… overflows:… flush_fails:…`
  * trailer with a real CRC32 over the file body. The visualiser verifies that
  * bracket on import (GSRCSVParser._verifyIntegrity) — a live export now
@@ -61,7 +61,7 @@ function _liveCrc32(bytes) {
 // firmware/modules/sd_logger.c SD_LOGGER_INTEGRITY_LINE — the file's first
 // line, folded into the CRC the trailer carries.
 const LIVE_INTEGRITY_MARKER = '# Integrity: crc32 v1\n';
-// firmware/biomap_config.h BIOMAP_CSV_COLS_GPS_GSR_PROD, verbatim.
+// firmware/core/biomap_config.h BIOMAP_CSV_COLS_GPS_GSR_PROD, verbatim.
 const LIVE_CSV_COLUMNS =
   'timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw,hacc_m\n';
 

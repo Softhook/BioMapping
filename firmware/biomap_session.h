@@ -5,7 +5,7 @@
 
 #pragma once
 
-#include "biomap_config.h"
+#include "core/biomap_config.h"
 
 typedef struct BioMapApp BioMapApp;
 typedef struct Session   Session;

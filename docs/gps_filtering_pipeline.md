@@ -2,7 +2,7 @@
 
 **Written:** 2026-07-15 · **Last checked against code:** 2026-10-01 (§3.3–3.4 and §6 rewritten for the road-snapping review)
 **Scope:** Complete overview of the GPS processing pipeline, from firmware-level quality gating through to downstream spatial analysis filters.
-**Files:** `firmware/modules/gps_uart.c`, `firmware/biomap_types.h`, `firmware/biomap_session.c`, `visualiser/src/gps/gps_cv_kalman.mjs`, `visualiser/src/gps/gps_pipeline.mjs`, `visualiser/src/gps/map_match.mjs`, `visualiser/src/map/manager/process.mjs`
+**Files:** `firmware/modules/gps_uart.c`, `firmware/core/biomap_types.h`, `firmware/biomap_session.c`, `visualiser/src/gps/gps_cv_kalman.mjs`, `visualiser/src/gps/gps_pipeline.mjs`, `visualiser/src/gps/map_match.mjs`, `visualiser/src/map/manager/process.mjs`
 
 > The filter stages and their order still match the code as of the
 > last-checked date. For the authoritative, versioned CSV column list see

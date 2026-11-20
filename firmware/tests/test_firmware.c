@@ -7,8 +7,8 @@
 #include <assert.h>
 #include <stdarg.h>
 
-#include "biomap_pipeline.h"
-#include "biomap_format.h"
+#include "core/biomap_pipeline.h"
+#include "core/biomap_format.h"
 #include "modules/gsr_sensor.h" // gsr_tia_counts_to_ns() — header-only, SDK-free
 
 #include "minmea.h"

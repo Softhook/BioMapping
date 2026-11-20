@@ -1,7 +1,7 @@
 // SD Logger — date-time-named CSV writer.
 
 #include "sd_logger.h"
-#include "biomap_config.h"
+#include "../core/biomap_config.h"
 #include <furi.h>
 #include <storage/storage.h>
 #include <string.h>

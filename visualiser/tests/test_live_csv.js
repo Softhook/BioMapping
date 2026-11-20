@@ -5,7 +5,7 @@
  * track the firmware's SD logger writes, so the visualiser imports and
  * integrity-verifies it exactly like a recorded file. These tests pin:
  *   • the `# Integrity: crc32 v1` marker as the first line,
- *   • per-row number formatting matching firmware/biomap_format.c
+ *   • per-row number formatting matching firmware/core/biomap_format.c
  *     biomap_format_gps_row() (valid-fix vs no-fix branches),
  *   • the `# End rows:… bytes:… crc32:… end_time:… overflows:… flush_fails:…`
  *     trailer with a CRC32 that actually covers the file body, and
@@ -75,7 +75,7 @@ test('RecordingStartTime is wall-clock-now minus the last packet uptime, floored
   );
 });
 
-// ── Row formatting vs firmware/biomap_format.c ─────────────────────────────
+// ── Row formatting vs firmware/core/biomap_format.c ─────────────────────────────
 
 test('a valid fix row matches biomap_format_gps_row() "%.2f,%.7f,%.7f,%.1f,%.1f,%d,%d,%s,%s,%.1f,%.1f"', () => {
   const csv = buildLiveCsv(

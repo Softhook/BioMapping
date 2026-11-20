@@ -2,7 +2,7 @@
 // Single-byte-per-IRQ RX pattern, adapted from ezod/flipperzero-gps.
 
 #include "gps_uart.h"
-#include "../biomap_config.h"
+#include "../core/biomap_config.h"
 #include "../biomap_events.h"
 
 #include <furi.h>

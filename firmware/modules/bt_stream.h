@@ -28,7 +28,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "biomap_types.h"
+#include "../core/biomap_types.h"
 
 #define BT_STREAM_PACKET_SIZE 49
 

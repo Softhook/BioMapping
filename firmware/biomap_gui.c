@@ -781,6 +781,10 @@ void run_calibration_wizard(BioMapApp* app) {
                 if(fit_ok) {
                     biomap_sound_success(app->sound_enabled);
                 } else {
+                    // gain 1.0 with R² 0 means the fit had nothing to work
+                    // with (a zero target or all readings near 0).
+                    FURI_LOG_W("BioMap", "Calibration fit failed: gain=%.4f R²=%.4f",
+                               (double)gain, (double)r_squared);
                     biomap_sound_error(app->sound_enabled);
                 }
             }

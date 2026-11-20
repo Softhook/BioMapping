@@ -7,11 +7,11 @@
 #pragma once
 
 // ── Core types (DisplayState, GraphState, etc., constants, helpers) ────
-#include "biomap_types.h"
+#include "core/biomap_types.h"
 // ── Pure math pipeline (platform-independent GSR signal processing) ────
-#include "biomap_pipeline.h"
+#include "core/biomap_pipeline.h"
 // ── Host-testable CSV row formatter + pure numeric helpers ────────────
-#include "biomap_format.h"
+#include "core/biomap_format.h"
 
 // ── Event types shared between biomap.c and modules/gps_uart.c ─────────
 #include "biomap_events.h"
