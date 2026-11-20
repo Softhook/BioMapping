@@ -10,27 +10,9 @@
 // extraction live here, alongside the Flipper-specific state they read.
 //
 // This file owns the Flipper-specific event loop: timer ticks, UART
-// events, key dispatch, LED notifications, and module (de)init.
+// events, key dispatch, cues (light and sound, core/biomap_cues.h), and
+// module (de)init.
 #include "biomap.h"
-
-// ── Custom notification sequences ─────────────────────────────────────────
-
-// 500 ms blink — much more visible than the standard 100 ms flash.
-// Green for normal recording, red when cuffs are disconnected.
-static const NotificationSequence sequence_blink_green_500 = {
-    &message_green_255,
-    &message_delay_500,
-    &message_green_0,
-    NULL,
-};
-static const NotificationSequence sequence_blink_red_500 = {
-    &message_red_255,
-    &message_delay_500,
-    &message_red_0,
-    NULL,
-};
-// (sequence_blink_blue_100 is a standard SDK sequence — no
-// need to redefine it.)
 
 // ── Final flush before a normal (user-initiated) stop ──────────────────────
 // sd_logger_batch_flush() keeps the batch on a failed write (see
@@ -118,7 +100,7 @@ void session_deinit(Session* s, BioMapApp* app) {
         // a no-op. Kept in sync with those call sites' failure handling
         // in case a future exit path ever reaches here with recording
         // still active.
-        if(!flush_before_stop(logger)) biomap_sound_warning(app->sound_enabled);
+        if(!flush_before_stop(logger)) biomap_app_cue(app, BioMapCueRecordingIncomplete);
         sd_logger_stop(logger, biomap_rtc_now_epoch());
     }
     if(logger) {
@@ -139,14 +121,13 @@ void session_deinit(Session* s, BioMapApp* app) {
     // Restore auto backlight when leaving recording view.
     biomap_backlight_release(app, false);
 
-    // Clear the LED. handle_write_failure() latches a solid red via
-    // sequence_set_only_red_255 (paired with the renderer's "REC STOPPED"
+    // Clear the LED. handle_write_failure() latches a solid red
+    // (BioMapCueSdWriteStopped, paired with the renderer's "REC STOPPED"
     // banner) and nothing else turns it off — without this, leaving the
     // view after an SD-error stop strands a red LED on into the menu and
-    // every screen after it. Every other sequence this view uses
-    // (blink_green/red/stop) already self-clears, so this is a no-op on
-    // the normal exit path.
-    notification_message(app->notifications, &sequence_reset_red);
+    // every screen after it. Every other light this view uses already
+    // self-clears, so this is a no-op on the normal exit path.
+    biomap_app_cue(app, BioMapCueStatusLightOff);
     if(s->vp) {
         // s->vp is app->screen_vp — the single persistent fullscreen
         // ViewPort shared by every screen. Disable it and clear its draw
@@ -340,8 +321,8 @@ static bool batch_csv_row(Session* s, float raw, const float* rf_rssi) {
 // Returns true when the caller should play the warning tone.
 //
 // Must not touch the SD card or play sound itself: it runs from the Tick
-// handler with app->mutex held, and both sd_logger_stop() and
-// biomap_sound_warning() block for long enough to freeze
+// handler with app->mutex held, and both sd_logger_stop() and the
+// BioMapCueSdWriteStoppedAlarm sound block for long enough to freeze
 // biomap_render_callback(), which needs the same mutex. The caller releases
 // app->mutex first, then closes the logger (sd_logger_stop() attempts one
 // last flush + integrity trailer — those may themselves fail if the card is
@@ -351,7 +332,7 @@ static bool handle_write_failure(Session* s, NotificationApp* notifications) {
     s->recording.active = false;
     s->recording.write_stopped = true;    // latched — drives the renderer banner
     s->recording.flush_fail_streak = 0;   // recording's over — keep "not active ⇒ streak 0"
-    notification_message(notifications, &sequence_set_only_red_255);
+    biomap_cue(notifications, false, BioMapCueSdWriteStopped); // light only
     return true;
 }
 
@@ -360,8 +341,8 @@ static bool handle_write_failure(Session* s, NotificationApp* notifications) {
 // GSR sensor is OK, red when the finger cuffs are disconnected — and adds a
 // brief blue blip when GPS has no fix.
 //
-// Must not play sound: it runs with app->mutex held, and biomap_sound_*()
-// blocks for ~250 ms (modules/sound.h), long enough to freeze the render
+// Must not play sound: it runs with app->mutex held, and a cue with a sound
+// blocks for ~250 ms (core/biomap_cues.h), long enough to freeze the render
 // callback that needs the same mutex. A mid-recording disconnect is a
 // visual-only alert for the same reason — and a tone would contaminate the
 // GSR signal.
@@ -371,15 +352,15 @@ static void handle_second_boundary(Session* s, NotificationApp* notifications) {
     if(!s->recording.active) return;
 
     if(has_gsr(s->mode) && s->gsr && !gsr_sensor_is_connected(s->gsr)) {
-        notification_message(notifications, &sequence_blink_red_500);
+        biomap_cue(notifications, false, BioMapCueHeartbeatFingersOff);
     } else {
-        notification_message(notifications, &sequence_blink_green_500);
+        biomap_cue(notifications, false, BioMapCueHeartbeat);
     }
     // Brief blue blip after the main blink when GPS has no fix.
     if(has_gps(s->mode) && s->gps) {
         GpsPosition pos = get_gps_position(s);
         if(!pos.valid) {
-            notification_message(notifications, &sequence_blink_blue_100);
+            biomap_cue(notifications, false, BioMapCueNoGpsFix);
         }
     }
 }
@@ -395,7 +376,7 @@ static void handle_second_boundary(Session* s, NotificationApp* notifications) {
 // core/gsr_sensor.h's SENSOR_BUFFER_SIZE (128) buffer holds roughly the
 // last 128 ms of worker-loop writes (the background worker does one
 // ADS1115 read + buffer write per ~1 ms furi_delay_ms(1) iteration). The
-// recording_start chirp itself already runs ~168 ms (see modules/sound.h),
+// recording_start chirp itself already runs ~168 ms (see flipper/sound.h),
 // which is longer than the buffer — so by the moment the chirp finishes,
 // the buffer's OLDEST entry is already ~(168-128)=40 ms into the tone, i.e.
 // every single entry in the ring buffer was captured while the speaker was
@@ -546,7 +527,7 @@ static bool key_toggle_recording(Session* s, FuriMutex* mutex,
         }
         if(n < 0 || (size_t)n >= sizeof(header)) {
             FURI_LOG_E("BioMap", "Header too long");
-            biomap_sound_error(sound_enabled);
+            biomap_cue(notifications, sound_enabled, BioMapCueError);
             return false;
         }
         bool ok = sd_logger_start(s->logger, header, stamp);
@@ -554,7 +535,7 @@ static bool key_toggle_recording(Session* s, FuriMutex* mutex,
             // Chirp + settle BEFORE recording.active goes true (see the
             // "GSR + Sound" note above) — this is pure air time for the
             // speaker, no file or GSR state has changed yet at this point.
-            biomap_sound_recording_start(sound_enabled);
+            biomap_cue(notifications, sound_enabled, BioMapCueRecordingStarted);
             if(sound_enabled) furi_delay_ms(GSR_TONE_SETTLE_MS);
 
             furi_mutex_acquire(mutex, FuriWaitForever);
@@ -574,7 +555,7 @@ static bool key_toggle_recording(Session* s, FuriMutex* mutex,
             // This avoids a notification-layer conflict where the green
             // blink sequence clears the red LED state.
         } else {
-            biomap_sound_error(sound_enabled);
+            biomap_cue(notifications, sound_enabled, BioMapCueError);
         }
     } else {
         furi_mutex_acquire(mutex, FuriWaitForever);
@@ -586,17 +567,13 @@ static bool key_toggle_recording(Session* s, FuriMutex* mutex,
         // touches the logger's batch.
         bool flush_ok = flush_before_stop(s->logger);
         sd_logger_stop(s->logger, biomap_rtc_now_epoch());
-        notification_message(notifications, &sequence_blink_stop);
         // Recording is fully stopped (flag cleared, file closed) above —
         // only now is it safe to play the tone. A failed final flush means
         // the file is missing its last few seconds of data — the ordinary
         // stop chirp would sound identical to a clean stop, so use the
         // warning tone instead to make the failure audible.
-        if(flush_ok) {
-            biomap_sound_recording_stop(sound_enabled);
-        } else {
-            biomap_sound_warning(sound_enabled);
-        }
+        biomap_cue(notifications, sound_enabled,
+                   flush_ok ? BioMapCueRecordingStopped : BioMapCueRecordingIncomplete);
     }
     return true;  // caller should view_port_update
 }
@@ -644,8 +621,8 @@ static bool key_zoom_horizontal(Session* s, FuriMutex* mutex, bool zoom_out) {
 // ── Handle one key press during a recording session ────────────────────────
 // Returns true if the event was consumed (the caller should continue its
 // event loop without further processing for this iteration).
-static bool handle_recording_key(BioMapEvent* ev, Session* s,
-                                  FuriMutex* mutex, ViewPort* vp, bool sound_enabled) {
+static bool handle_recording_key(BioMapEvent* ev, Session* s, FuriMutex* mutex, ViewPort* vp,
+                                  NotificationApp* notifications, bool sound_enabled) {
     if(ev->type != EventTypeKey || ev->input.type != InputTypeShort)
         return false;
 
@@ -673,20 +650,18 @@ static bool handle_recording_key(BioMapEvent* ev, Session* s,
             // A failed final flush leaves the file short of its last few
             // seconds — use the warning tone rather than the ordinary stop
             // chirp so that's audible instead of indistinguishable.
-            if(flush_ok) {
-                biomap_sound_recording_stop(sound_enabled);
-            } else {
-                biomap_sound_warning(sound_enabled);
-            }
+            biomap_cue(notifications, sound_enabled,
+                       flush_ok ? BioMapCueRecordingStopped : BioMapCueRecordingIncomplete);
         } else {
-            biomap_sound_back(sound_enabled);
+            biomap_cue(notifications, sound_enabled, BioMapCueBack);
         }
         return true;
     }
 
     // InputKeyOk is never seen here: run_recording_session()'s event loop
-    // intercepts it (needs NotificationApp* for key_toggle_recording, which
-    // this helper doesn't have) before ever calling this function.
+    // intercepts it (key_toggle_recording needs the app's calibration and
+    // RF settings, which this helper doesn't have) before ever calling
+    // this function.
 
     case InputKeyUp:
     case InputKeyDown:
@@ -695,7 +670,7 @@ static bool handle_recording_key(BioMapEvent* ev, Session* s,
             // comment. Zoom itself still works either way; only the tone
             // is suppressed.
             bool zoom_in = (ev->input.key == InputKeyUp);
-            if(!key_zoom_vertical(s, mutex, zoom_in)) biomap_sound_click(sound_enabled);
+            if(!key_zoom_vertical(s, mutex, zoom_in)) biomap_cue(notifications, sound_enabled, BioMapCueClick);
             view_port_update(vp);
         }
         return true;
@@ -707,7 +682,7 @@ static bool handle_recording_key(BioMapEvent* ev, Session* s,
             // comment) — named zoom_out here (not zoom_in) since that's
             // what it actually means, matching the callee's parameter name.
             bool zoom_out = (ev->input.key == InputKeyLeft);
-            if(!key_zoom_horizontal(s, mutex, zoom_out)) biomap_sound_click(sound_enabled);
+            if(!key_zoom_horizontal(s, mutex, zoom_out)) biomap_cue(notifications, sound_enabled, BioMapCueClick);
             view_port_update(vp);
         }
         return true;
@@ -965,12 +940,12 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
                 // other screen in this app gives SOME audible response to
                 // every key press — a silent OK here reads as a frozen
                 // screen/dead button.
-                biomap_sound_click(app->sound_enabled);
+                biomap_app_cue(app, BioMapCueClick);
             }
             continue;
         }
 
-        if(handle_recording_key(&ev, s, app->mutex, s->vp, app->sound_enabled))
+        if(handle_recording_key(&ev, s, app->mutex, s->vp, app->notifications, app->sound_enabled))
             continue;
 
         if(ev.type == EventTypeTick) {
@@ -1154,7 +1129,7 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
                                (unsigned long)streak);
                     // LED-only — a tone here would contaminate the still-live
                     // GSR signal (see the "GSR + Sound" note on key_toggle_recording).
-                    notification_message(app->notifications, &sequence_blink_red_100);
+                    biomap_app_cue(app, BioMapCueSdRetrying);
                 } else if(outcome == SdTerminated) {
                     FURI_LOG_E("BioMap", "Batch flush failed (streak %lu) — recording stopped",
                                (unsigned long)streak);
@@ -1164,7 +1139,7 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
                 }
             }
 
-            if(play_warning) biomap_sound_warning(app->sound_enabled);
+            if(play_warning) biomap_app_cue(app, BioMapCueSdWriteStoppedAlarm);
 
             // Pace ViewPort redraw to 2 Hz (every 5 ticks at 10 Hz) to eliminate
             // GUI message queue lockups during background BLE/System service activity.

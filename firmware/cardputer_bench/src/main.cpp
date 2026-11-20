@@ -334,7 +334,7 @@ static void graph_tick(void) {
 
 // ── Noise tests ─────────────────────────────────────────────────────────────
 
-// T: the Flipper's recording-start chirp (modules/sound.h), then 3 s of
+// T: the Flipper's recording-start chirp (flipper/sound.h), then 3 s of
 // watching the 100 ms values. The firmware waits GSR_TONE_SETTLE_MS (200 ms,
 // biomap_session.c) after the chirp before it trusts the GSR again, so the
 // question is whether the jump has died away within that.

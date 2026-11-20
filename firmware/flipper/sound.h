@@ -21,12 +21,10 @@
 // quarter-second catch-up burst is an acceptable trade for the tone
 // actually being audible on the Flipper's quiet piezo.
 //
-// All functions take `enabled` explicitly (rather than reaching into
-// BioMapApp) so the pipeline functions in biomap_session.c — which are
-// deliberately kept Session*-only and Flipper-SDK-light for host
-// testability — can accept a plain bool without pulling in app state.
-// `enabled` is intended to be app->sound_enabled (the Options > Sound
-// toggle); callers pass `false` to silence every call unconditionally.
+// Only flipper/biomap_cues_flipper.c calls these: the rest of the app sends
+// a cue (core/biomap_cues.h), and that file picks the tone. All functions
+// take `enabled` explicitly — the Options > Sound setting, or true to force
+// the tone (the Sound toggle itself).
 
 #include <furi.h>
 #include <furi_hal_speaker.h>
@@ -75,7 +73,8 @@ static inline void biomap_sound_tone(bool enabled, float freq_hz, uint32_t dur_m
 #define BIOMAP_SOUND_VOL_NORMAL 0.9f
 #define BIOMAP_SOUND_VOL_ALERT  1.0f
 
-// ── Named events — call sites express intent, not Hz/ms ────────────────
+// ── One tone per kind of moment — see biomap_cues_flipper.c for which ──
+// cue uses which
 //
 // Palette is deliberately small and non-melodic (this is a field
 // instrument used while walking around in public, not a game): short

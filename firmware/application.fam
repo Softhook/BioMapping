@@ -23,6 +23,7 @@ App(
         "flipper/gsr_sensor_flipper.c",
         "core/gps_uart.c",
         "flipper/gps_uart_flipper.c",
+        "flipper/biomap_cues_flipper.c",
         "biomap_rf_cal.c",
         "vendor/minmea/minmea.c",
         "modules/sd_logger.c",

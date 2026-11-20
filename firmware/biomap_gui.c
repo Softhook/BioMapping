@@ -74,7 +74,7 @@ static void nav_cycle(BioMapApp* app, int32_t* selection, int32_t count, bool do
     furi_mutex_acquire(app->mutex, FuriWaitForever);
     *selection = cycle_selection(*selection, count, down);
     furi_mutex_release(app->mutex);
-    biomap_sound_click(app->sound_enabled);
+    biomap_app_cue(app, BioMapCueClick);
 }
 
 // ==========================================================================
@@ -116,12 +116,12 @@ int32_t biomap_gui_show_menu(BioMapApp* app) {
             furi_mutex_acquire(app->mutex, FuriWaitForever);
             result = ctx.selection;
             furi_mutex_release(app->mutex);
-            biomap_sound_confirm(app->sound_enabled);
+            biomap_app_cue(app, BioMapCueConfirm);
             running = false;
             break;
         case InputKeyBack:
             result = -1;
-            biomap_sound_back(app->sound_enabled);
+            biomap_app_cue(app, BioMapCueBack);
             running = false;
             break;
         default: break;
@@ -158,7 +158,8 @@ static void toggle_app_setting(BioMapApp* app, bool* field, bool force_tone) {
     bool new_val = *field;
     furi_mutex_release(app->mutex);
     biomap_save_settings(app);
-    biomap_sound_toggle(force_tone ? true : app->sound_enabled, new_val);
+    biomap_cue(app->notifications, force_tone ? true : app->sound_enabled,
+               new_val ? BioMapCueToggleOn : BioMapCueToggleOff);
 }
 
 void run_options_screen(BioMapApp* app) {
@@ -170,7 +171,7 @@ void run_options_screen(BioMapApp* app) {
     while(furi_message_queue_get(app->event_queue, &ev, FuriWaitForever) == FuriStatusOk) {
         if(ev.type == EventTypeKey && ev.input.type == InputTypeShort) {
             if(ev.input.key == InputKeyBack) {
-                biomap_sound_back(app->sound_enabled);
+                biomap_app_cue(app, BioMapCueBack);
                 break;
             }
 
@@ -191,7 +192,7 @@ void run_options_screen(BioMapApp* app) {
                     app->nav_model = (GpsNavModel)cycle_selection((int32_t)app->nav_model, GpsNavModelCount, true);
                     furi_mutex_release(app->mutex);
                     biomap_save_settings(app);
-                    biomap_sound_click(app->sound_enabled);
+                    biomap_app_cue(app, BioMapCueClick);
                     break;
                 case OptSuperS:
                     // Applied at the next GPS start (session or Cold Reset GPS),
@@ -209,13 +210,13 @@ void run_options_screen(BioMapApp* app) {
                     toggle_app_setting(app, &app->zoom_enabled, false);
                     break;
                 case OptGsrCalibration:
-                    biomap_sound_confirm(app->sound_enabled);
+                    biomap_app_cue(app, BioMapCueConfirm);
                     run_calibration_menu(app);
                     vp_push(app, options_render, &ctx);
                     continue;
                 case OptRfCalibration:
                     // Re-arm-after-return pattern, same as GSR Calibration
-                    biomap_sound_confirm(app->sound_enabled);
+                    biomap_app_cue(app, BioMapCueConfirm);
                     run_rf_calibration_menu(app);
                     vp_push(app, options_render, &ctx);
                     continue;
@@ -228,7 +229,7 @@ void run_options_screen(BioMapApp* app) {
                     toggle_app_setting(app, &app->sound_enabled, true);
                     break;
                 case OptDiagnostics:
-                    biomap_sound_confirm(app->sound_enabled);
+                    biomap_app_cue(app, BioMapCueConfirm);
                     run_recording_session(app, BioMapModeDiagnostics);
                     vp_push(app, options_render, &ctx);
                     continue;
@@ -258,7 +259,7 @@ void run_simple_viewer(BioMapApp* app, ViewPortDrawCallback render, void* ctx) {
     while(furi_message_queue_get(app->event_queue, &ev, FuriWaitForever) == FuriStatusOk) {
         if(ev.type == EventTypeKey && ev.input.type == InputTypeShort) {
             if(ev.input.key == InputKeyBack || ev.input.key == InputKeyOk) {
-                biomap_sound_back(app->sound_enabled);
+                biomap_app_cue(app, BioMapCueBack);
                 break;
             }
         }
@@ -297,7 +298,7 @@ void run_cal_submenu(BioMapApp* app, ViewPortDrawCallback render,
     while(furi_message_queue_get(app->event_queue, &ev, FuriWaitForever) == FuriStatusOk) {
         if(ev.type == EventTypeKey && ev.input.type == InputTypeShort) {
             if(ev.input.key == InputKeyBack) {
-                biomap_sound_back(app->sound_enabled);
+                biomap_app_cue(app, BioMapCueBack);
                 break;
             }
             if(ev.input.key == InputKeyUp) {
@@ -309,15 +310,15 @@ void run_cal_submenu(BioMapApp* app, ViewPortDrawCallback render,
                 // back (see WizardState's identical reasoning in
                 // biomap_gui.c's run_calibration_wizard()).
                 if(ctx.selection == CalSubmenuStartWizard) {
-                    biomap_sound_confirm(app->sound_enabled);
+                    biomap_app_cue(app, BioMapCueConfirm);
                     start_wizard(app);
                     break;
                 } else if(ctx.selection == CalSubmenuReset) {
-                    biomap_sound_reset(app->sound_enabled);
+                    biomap_app_cue(app, BioMapCueReset);
                     reset(app);
                     break;
                 } else {
-                    biomap_sound_confirm(app->sound_enabled);
+                    biomap_app_cue(app, BioMapCueConfirm);
                     show_current(app);
                     vp_push(app, render, &ctx);
                     continue;
@@ -336,7 +337,7 @@ void run_calibration_menu(BioMapApp* app) {
 }
 
 // GSR + Sound safety invariant for the calibration wizard: this function
-// must never call into modules/sound.h, and the caller (run_calibration_
+// must never send a cue with a sound (core/biomap_cues.h), and the caller (run_calibration_
 // wizard) must never call it either during the dwell loop below. The
 // caller's one pre-measurement tone (a ~35 ms click, played right before
 // this function is entered) is made safe by the very next thing this
@@ -614,7 +615,7 @@ void run_calibration_wizard(BioMapApp* app) {
                               w.step == WizardStepFitFailed || w.step == WizardStepNoiseFailed ||
                               w.step == WizardStepBiasFailed || w.step == WizardStepZeroFailed;
             if(cancelable) {
-                biomap_sound_back(app->sound_enabled);
+                biomap_app_cue(app, BioMapCueBack);
                 break;
             }
             continue;
@@ -625,7 +626,7 @@ void run_calibration_wizard(BioMapApp* app) {
             continue;
 
         if(w.step == WizardStepSuccess) {
-            biomap_sound_confirm(app->sound_enabled);
+            biomap_app_cue(app, BioMapCueConfirm);
             biomap_save_calibration(app, w.gain, w.zero_counts, w.r_squared, w.noise_std_dev);
             break;
         }
@@ -635,7 +636,7 @@ void run_calibration_wizard(BioMapApp* app) {
         if(w.step == WizardStepMeasureFailed || w.step == WizardStepFitFailed ||
            w.step == WizardStepNoiseFailed || w.step == WizardStepBiasFailed ||
            w.step == WizardStepZeroFailed) {
-            biomap_sound_click(app->sound_enabled);
+            biomap_app_cue(app, BioMapCueClick);
             wizard_set_step(&w, WizardStepPromptZero);
             view_port_update(vp);
             continue;
@@ -645,13 +646,13 @@ void run_calibration_wizard(BioMapApp* app) {
         // Same click-then-measure order as the resistor steps below (see
         // the GSR+Sound note there).
         if(w.step == WizardStepPromptZero) {
-            biomap_sound_click(app->sound_enabled);
+            biomap_app_cue(app, BioMapCueClick);
             wizard_set_step(&w, WizardStepMeasuringZero);
             view_port_update(vp);
 
             if(!sensor_ok) {
                 wizard_set_fail(&w, 0, WizardStepMeasureFailed);
-                biomap_sound_error(app->sound_enabled);
+                biomap_app_cue(app, BioMapCueError);
                 view_port_update(vp);
                 continue;
             }
@@ -660,7 +661,7 @@ void run_calibration_wizard(BioMapApp* app) {
             CalMeasureResult result = calibration_wizard_measure_zero(app, vp, &w, gsr,
                                                                        &zero, &zero_noise_ns);
             if(result == CalMeasureCancelled) {
-                biomap_sound_back(app->sound_enabled);
+                biomap_app_cue(app, BioMapCueBack);
                 break;
             }
             bool zero_ok = result == CalMeasureOk &&
@@ -668,9 +669,9 @@ void run_calibration_wizard(BioMapApp* app) {
             wizard_set_zero(&w, zero, zero_noise_ns,
                             zero_ok ? WizardStepPrompt470k : WizardStepZeroFailed);
             if(zero_ok) {
-                biomap_sound_confirm(app->sound_enabled);
+                biomap_app_cue(app, BioMapCueConfirm);
             } else {
-                biomap_sound_error(app->sound_enabled);
+                biomap_app_cue(app, BioMapCueError);
             }
             view_port_update(vp);
             continue;
@@ -690,13 +691,13 @@ void run_calibration_wizard(BioMapApp* app) {
             // measure). Do not move this click, or add any other sound
             // call, to inside calibration_wizard_measure() or its dwell
             // loop — that would remove the flush's settle margin.
-            biomap_sound_click(app->sound_enabled);
+            biomap_app_cue(app, BioMapCueClick);
             wizard_set_step(&w, idx * 2 + 1);  // Prompt → Measuring
             view_port_update(vp);
 
             if(!sensor_ok) {
                 wizard_set_fail(&w, idx, WizardStepMeasureFailed);
-                biomap_sound_error(app->sound_enabled);
+                biomap_app_cue(app, BioMapCueError);
                 view_port_update(vp);
                 continue;
             }
@@ -708,16 +709,16 @@ void run_calibration_wizard(BioMapApp* app) {
             CalMeasureResult result = calibration_wizard_measure(app, vp, &w, gsr, idx, gates,
                                                                   &avg_g, &std_dev);
             if(result == CalMeasureCancelled) {
-                biomap_sound_back(app->sound_enabled);
+                biomap_app_cue(app, BioMapCueBack);
                 break;
             } else if(result == CalMeasureBiasFailed) {
                 wizard_set_fail(&w, idx, WizardStepBiasFailed);
-                biomap_sound_error(app->sound_enabled);
+                biomap_app_cue(app, BioMapCueError);
                 view_port_update(vp);
                 continue;
             } else if(result == CalMeasureFailed) {
                 wizard_set_fail(&w, idx, WizardStepMeasureFailed);
-                biomap_sound_error(app->sound_enabled);
+                biomap_app_cue(app, BioMapCueError);
                 view_port_update(vp);
                 continue;
             }
@@ -729,13 +730,13 @@ void run_calibration_wizard(BioMapApp* app) {
             if(calibration_noise_grade(std_dev) == CalNoisePoor) {
                 wizard_set_measurement(&w, idx, avg_g, std_dev, idx * 2 + 2);
                 wizard_set_fail(&w, idx, WizardStepNoiseFailed);
-                biomap_sound_error(app->sound_enabled);
+                biomap_app_cue(app, BioMapCueError);
                 view_port_update(vp);
                 continue;
             }
 
             wizard_set_measurement(&w, idx, avg_g, std_dev, idx * 2 + 2);  // Measuring → next Prompt (or FitPending)
-            biomap_sound_confirm(app->sound_enabled); // this resistor's reading passed its gate and noise check
+            biomap_app_cue(app, BioMapCueConfirm); // this resistor's reading passed its gate and noise check
 
             // After the last measurement, compute the least-squares fit.
             // calibration_wizard_compute_fit() is pure arithmetic on the
@@ -750,13 +751,13 @@ void run_calibration_wizard(BioMapApp* app) {
                 wizard_set_fit_result(&w, gain, r_squared,
                                       fit_ok ? WizardStepSuccess : WizardStepFitFailed);
                 if(fit_ok) {
-                    biomap_sound_success(app->sound_enabled);
+                    biomap_app_cue(app, BioMapCueSuccess);
                 } else {
                     // gain 1.0 with R² 0 means the fit had nothing to work
                     // with (a zero target or all readings near 0).
                     FURI_LOG_W("BioMap", "Calibration fit failed: gain=%.4f R²=%.4f",
                                (double)gain, (double)r_squared);
-                    biomap_sound_error(app->sound_enabled);
+                    biomap_app_cue(app, BioMapCueError);
                 }
             }
             view_port_update(vp);

@@ -34,7 +34,7 @@
 #include "flipper/gps_uart_flipper.h"
 #include "flipper/gsr_sensor_flipper.h"
 #include "modules/sd_logger.h"
-#include "modules/sound.h"
+#include "flipper/biomap_cues_flipper.h"
 #include "modules/em_scan_rf.h"
 #include "modules/em_scan_sampler.h"
 #include "modules/em_scan_cal.h"
@@ -341,6 +341,11 @@ void run_rf_calibration_wizard(BioMapApp* app);
 bool biomap_load_rf_calibration(BioMapApp* app);
 void biomap_save_rf_calibration(BioMapApp* app, const EmScanCal* cal);
 void biomap_reset_rf_calibration(BioMapApp* app);
+
+// A cue (core/biomap_cues.h) with the app's own Options > Sound setting.
+static inline void biomap_app_cue(BioMapApp* app, BioMapCue cue) {
+    biomap_cue(app->notifications, app->sound_enabled, cue);
+}
 
 void biomap_input_callback(InputEvent* e, void* ctx);
 void biomap_timer_callback(void* ctx);

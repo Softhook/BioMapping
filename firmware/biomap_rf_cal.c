@@ -25,7 +25,7 @@ void run_rf_calibration_menu(BioMapApp* app) {
 // out with the identical "back tone, power down radio, pop screen, free
 // mutex" sequence, differing only in which loop's cancel flag triggered it.
 static void rf_cal_wizard_abort(BioMapApp* app, ViewPort* vp, FuriMutex* mutex) {
-    biomap_sound_back(app->sound_enabled);
+    biomap_app_cue(app, BioMapCueBack);
     em_scan_rf_deinit();
     vp_pop(app, vp);
     furi_mutex_free(mutex);
@@ -86,7 +86,7 @@ void run_rf_calibration_wizard(BioMapApp* app) {
         rf_cal_wizard_abort(app, vp, w.mutex);
         return;
     }
-    biomap_sound_confirm(app->sound_enabled);
+    biomap_app_cue(app, BioMapCueConfirm);
 
     // ── Active sampling (20s / up to EM_SCAN_CAL_MAX_SAMPLES sweeps) ───
     // One em_scan_rf_dwell_band() call per ~100 ms iteration, round-robin
@@ -168,9 +168,9 @@ void run_rf_calibration_wizard(BioMapApp* app) {
     w.step = 2;
     vp_push(app, rf_calibration_wizard_stats_render, &w);
     if(w.passed) {
-        biomap_sound_success(app->sound_enabled);
+        biomap_app_cue(app, BioMapCueSuccess);
     } else {
-        biomap_sound_error(app->sound_enabled);
+        biomap_app_cue(app, BioMapCueError);
     }
     view_port_update(vp);
 
@@ -190,10 +190,10 @@ void run_rf_calibration_wizard(BioMapApp* app) {
             cal.sample_count = w.sweep_count;
 
             biomap_save_rf_calibration(app, &cal);
-            biomap_sound_confirm(app->sound_enabled);
+            biomap_app_cue(app, BioMapCueConfirm);
             break;
         } else if(ev.input.key == InputKeyBack || (ev.input.key == InputKeyOk && !w.passed)) {
-            biomap_sound_back(app->sound_enabled);
+            biomap_app_cue(app, BioMapCueBack);
             break;
         }
     }

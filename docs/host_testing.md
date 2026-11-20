@@ -101,7 +101,7 @@ has.
 **Be clear about the trade-off this makes:** this does *not* give you
 "swap one file to target a different MCU." A future port to different
 hardware means rewriting `gps_uart.c`'s `furi_hal_serial_*` calls directly,
-same as any file that's never been touched (`sd_logger.c`, `sound.h`). What it *does* give you is confidence that the parsing/protocol
+same as any file that's never been touched (`sd_logger.c`). What it *does* give you is confidence that the parsing/protocol
 logic is correct — verified by tests that exercise the real driver code —
 independent of whether the firmware ever targets a different MCU. If actual
 MCU portability becomes a goal again, that's a separate, larger effort with
@@ -134,12 +134,15 @@ firmware/core/                 — shared plain C, no Flipper code (run_tests.sh
   gsr_sensor.h / .c             — ADS1115 PGA autoranging, bias check, TIA; works through GsrPlatform
   gps_uart.h / .c               — M10Q set-up, wake/sleep sequences, NMEA parsing + framing; works through GpsPlatform
   eff_short_wordlist.h          — word list for the GPS chip-ID phrase
+  biomap_cues.h                 — the named cues (recording started, write error, key click, ...) and the rules for when a cue may sound
   core_check.h                  — CORE_CHECK / core_fatal(), supplied by each device
   (run_tests.sh also links tests/core_cpp_link.cpp against these, to prove the headers work from C++)
 
 firmware/flipper/              — Flipper side of the shared code
   gsr_sensor_flipper.h / .c     — GSR thread + GsrPlatform via furi_hal_i2c_* / FuriMutex
   gps_uart_flipper.h / .c       — USART1, RX interrupt, held port + GpsPlatform via furi_hal_serial_*
+  biomap_cues_flipper.h / .c    — each cue as an LED pattern and/or tone
+  sound.h                       — the tones, via furi_hal_speaker_* (only biomap_cues_flipper.c calls it)
   core_fatal.c                  — core_fatal() via furi_crash()
 
 firmware/modules/              — no test-only content, no HAL files
@@ -147,7 +150,6 @@ firmware/modules/              — no test-only content, no HAL files
   em_scan_rf.h / .c             — SubGHz RF sweep/RSSI, calls furi_hal_subghz_* directly
   em_scan_cal.h / .c            — RF noise-floor calibration + on-disk persistence
   bt_stream.h / .c              — BLE serial-profile lifecycle + send-or-drop (Live Stream)
-  sound.h                       — untested
 
 firmware/tests/
   test_firmware.c               — pipeline + biomap_format (CSV / calibration) host tests
@@ -162,6 +164,8 @@ firmware/tests/
                                    fast-sweep one-read-per-band + retune timing
   test_bt_stream.c              — bt_stream.c: profile start/stop, connect-status
                                    callback, send-or-drop, packet packing (BLE mock shims)
+  test_cues.c                   — biomap_cues_flipper.c: each cue's light and tones, light-only
+                                   cues never touch the speaker, Sound off (cue_mock.c shims)
   benchmarks/
     analyze_gsr_filtering.c      — investigative tool, not pass/fail: measures
                                    the real IIR+EMA frequency response and the
@@ -256,7 +260,7 @@ Approximate test counts — the exact numbers drift with each addition; run
 | `modules/em_scan_cal.c` | No (pure calc + Storage for persist) | ✅ `tests/test_em_scan_cal.c` (~5 tests) |
 | `modules/bt_stream.c` | Yes (`Bt`/`ble_profile_serial_*`) | ✅ `tests/test_bt_stream.c` (~13 tests, BLE mock shims) |
 | `modules/em_scan_rf.c` | Yes (CC1101 SPI) | ✅ `tests/test_em_scan_rf.c` (~9 tests, dedicated `furi_hal_subghz_mock.c`) |
-| `modules/sound.h` | Yes (`furi_hal_speaker_*`) | ❌ |
+| `flipper/biomap_cues_flipper.c` + `flipper/sound.h` | Yes (`notification_message`, `furi_hal_speaker_*`) | ✅ `tests/test_cues.c` (4 tests over all 20 cues, `cue_mock.c` shims) |
 
 `test_gps_uart.c` covers every NMEA sentence type `gps_uart_parse_line()`
 dispatches on (RMC, GGA, GSA — including SBAS PRN detection, GLL — valid
@@ -372,6 +376,8 @@ The mock is single-threaded by design, unlike `gsr_sensor.c`'s worker-backed
 tests — `em_scan_rf.c`'s functions are plain synchronous calls with no
 thread of their own.
 
-`modules/sound.h` (`furi_hal_speaker_*`) remains the one hardware-touching
-file with no host test — it's a thin beep/tone wrapper with little logic
-of its own to verify beyond "did it call the right SDK function."
+`flipper/sound.h` (`furi_hal_speaker_*`) is tested through the cues:
+`tests/test_cues.c` checks every cue's tones (pitch, count, order relative
+to the light) against the values the app used before cues existed, that
+the six light-only cues never acquire the speaker, and that Sound off
+silences every tone but keeps every light.

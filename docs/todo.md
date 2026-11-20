@@ -49,7 +49,7 @@ so they don't get re-proposed).
   the move.
 - **P4, rest — move `WizardState` / `RfCalWizardState` to their own header.**
   ~50 lines, no payoff.
-- **P6, rest — move `sound.h` melodies into `sound.c`.** Header-only
+- **P6, rest — move `flipper/sound.h` melodies into `sound.c`.** Header-only
   `static inline` is harmless.
 
 ## Analysis ideas

@@ -162,6 +162,12 @@ gcc -Wall -Wextra -Werror -I . -I modules -I tests/shims -o build/test_em_scan_r
 ./build/test_em_scan_rf
 
 echo
+echo "== test_cues (each cue's light and tones on the Flipper) =="
+gcc -Wall -Wextra -Werror -I . -I tests/shims -o build/test_cues \
+    tests/test_cues.c flipper/biomap_cues_flipper.c tests/shims/cue_mock.c -lm
+./build/test_cues
+
+echo
 echo "== test_bt_stream (BLE serial profile lifecycle / send-or-drop logic) =="
 gcc -Wall -Wextra -Werror -I . -I modules -I tests/shims -o build/test_bt_stream \
     tests/test_bt_stream.c modules/bt_stream.c \

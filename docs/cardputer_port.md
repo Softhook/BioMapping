@@ -546,6 +546,38 @@ Known weak points, left for later steps:
 
 **To check on a real Flipper:** start the app and check in the log that the module answers the wake byte and that "Idle: GPS silent (stayed asleep)" appears when a session starts. Record GPS+GSR outside for a few minutes: the fix arrives, the position, satellites, hAcc and SBAS look as before, and the `# GPSChipID` header line is filled in. End the session and check the module goes back to sleep (idle count 0 at the next session). Also try Options > Cold Reset GPS once.
 
+### Step 4 done: named events ("cues")
+
+Every moment the device tells the user about, with its LED or its speaker, now has a name in [core/biomap_cues.h](../firmware/core/biomap_cues.h): 20 of them, such as "recording started", "recording stopped but its last seconds are missing", "SD write stopped", "heartbeat", "no GPS fix", and the key clicks. In the code they are called *cues*, so they aren't confused with the main loop's key and timer events. The app's code now says which cue happened; it no longer picks LED patterns or tone pitches itself.
+
+The same header holds the rules about sound, which every device must follow:
+
+1. Light-only cues return at once, so they may be sent anywhere, even with the app's main lock held.
+2. A cue with a sound waits until the sound ends (up to about 300 ms), so it must never be sent with the main lock held, or the screen freezes.
+3. No sound while a recording is active, because the speaker puts noise on the GSR reading. (So the start sound plays before the recording starts, with a short settle wait after it; stop sounds play once the file is closed; key clicks during a recording are left out; and problems mid-recording, such as fingers off or an SD retry, are light-only.)
+4. Every sound obeys Options > Sound, except the Sound toggle itself.
+
+These rules were already followed on the Flipper, but only explained in comments scattered across the session code. They are now in one place for the Cardputer code to read. The code that enforces rule 3 (for example, leaving out the zoom click) is still in the session, and moves with it in step 5.
+
+The Flipper's response to each cue is in one file, [flipper/biomap_cues_flipper.c](../firmware/flipper/biomap_cues_flipper.c): a table of LED patterns and tones. The tones themselves are unchanged in [flipper/sound.h](../firmware/flipper/sound.h) (moved from `modules/`). The Cardputer will write its own version of this one file (beeps, its own light).
+
+Checked:
+
+- All host tests pass, and the Flipper app builds with no warnings.
+- **A new test, [tests/test_cues.c](../firmware/tests/test_cues.c),** runs every cue through the Flipper file and records what reaches the LED and the speaker. It checks each one against a table written from the code the cues replaced, not from the new file: the same LED pattern, the same tones in the same order, and the light before the sound where there are both. It checks pitch and volume, but not how long each tone lasts (the test fakes don't record waits). It also checks that the six light-only cues never touch the speaker, with Sound on or off, and that Sound off silences every tone but keeps every light. Three deliberate breaks each make it fail: giving "no GPS fix" a click, giving "SD retrying" the wrong colour, and lowering the key-click volume.
+- Every call was replaced one for one. The 36 key-feedback calls in the menus and calibration screens were replaced by a script that matched each old call to its cue, and the session's calls were checked by reading the full before-and-after.
+
+One small difference, not expected to show:
+
+- **Stopping a recording with the Back key now also turns the status light off**, as stopping with OK always did. (Before, only OK sent the Flipper's "stop blinking" message. The firmware source, `notification_app.c` in version 1.4.3, shows that message switches off every LED colour the app has set, after any blink already showing.) Leaving the recording screen turns the light off a moment later anyway, so nothing visible changes. The same goes for the last-resort stop when the screen closes with a recording still running.
+
+Known weak points, left for later steps:
+
+- **The sound rules are written down, not checked.** Nothing in the code stops a cue with a sound being sent with the main lock held (rule 2) or during a recording (rule 3). A scan of every cue call found none that breaks either rule today. When the session becomes shared code in step 5, it could refuse a cue with a sound itself while a recording is active, so the rule is checked rather than only followed.
+- **Live Stream keeps its clicks (decided).** Rule 3 covers recordings to the SD card only. In Live Stream the GSR goes live to the phone while the OK and zoom clicks still play, which could put a small blip in the live trace. Kept as it is, at the user's choice (2026-11-20).
+
+No Flipper check is needed beyond the ones for steps 2 and 3: the recording and GPS checks there hear the start and stop sounds and see the heartbeat. To be thorough, listen once for the key clicks in the menu and watch for the blue blink before GPS has a fix.
+
 ### Next steps
 
 The remaining preparation follows steps 1–6 of the order of work in section 7:
@@ -553,7 +585,7 @@ The remaining preparation follows steps 1–6 of the order of work in section 7:
 1. ~~Create `core/` and `flipper/`, and move the files that are already plain C.~~ Done (see above).
 2. ~~Move the GSR logic into `core/`, including the Zero step's reading and the bias check.~~ Done (see above); needs the Flipper check.
 3. ~~Move the GPS logic into `core/`.~~ Done (see above); needs the Flipper check.
-4. Named events instead of LED patterns, with sounds included.
+4. ~~Named events instead of LED patterns, with sounds included.~~ Done (see above).
 5. Split the session into shared logic plus the Flipper loop.
 6. Make the screen layout shared.
 
