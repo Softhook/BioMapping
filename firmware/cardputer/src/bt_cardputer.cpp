@@ -52,7 +52,8 @@ static CardputerBleCallbacks g_ble_callbacks;
 // can't be deleted from here (its destructor is private). Both are left
 // alone rather than deleting the characteristic out from under a service
 // definition the stack might still point to, which leaves a small leak per
-// Live Stream session; the "[BLE] on/off" lines log free heap so it can be
+// Live Stream session (about 1 KB; tools/hw_test.py's live_stream_cycles
+// fails if it grows); the "[BLE] on/off" lines log free heap so it can be
 // watched. Our callbacks object is static and is never deleted.
 static void switch_off(void) {
     if(!g_bt.on) return;

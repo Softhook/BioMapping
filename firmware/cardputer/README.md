@@ -13,7 +13,19 @@ pio run -t upload        # flash over USB-C
 pio device monitor       # watch the log
 ```
 
-If `pio` isn't found, use `~/.platformio/penv/bin/pio`. If flashing fails, hold the Cardputer's G0 button while plugging in USB, then try again.
+If `pio` isn't found, use `~/.platformio/penv/bin/pio`. If flashing fails with `No serial data received`, the running app hasn't let the computer reset it. Either hold the Cardputer's G0 button while plugging in USB, or put it in its bootloader from the computer (a 1200-baud "touch": open the port at 1200 baud and close it; a new `/dev/cu.usbmodem…` port appears), then flash to that port with `pio run -t upload --upload-port <new port>`.
+
+## Testing on the device
+
+[`tools/hw_test.py`](tools/hw_test.py) tests the Cardputer automatically over the USB cable. It restarts the Cardputer before each test, presses keys over the serial port and checks what it prints. With the GSR board fitted, from this folder:
+
+```
+~/.platformio/penv/bin/python tools/hw_test.py            # all automatic tests, about 8 minutes
+~/.platformio/penv/bin/python tools/hw_test.py gsr_only   # one test (--list shows them all)
+~/.platformio/penv/bin/python tools/hw_test.py csv_check  # check the last 60 s recording on the card
+```
+
+Add `-v` to see every line the Cardputer prints. `csv_check` (or `--usb` with the others) needs one press of **U** on the Cardputer, because only its own keyboard can lend the card: press U on the main menu, either before running it or when it asks. It checks the file's checksum, row count and timing, then ejects the card so the Cardputer takes it back. The tests put back any settings they change (Auto-zoom, Debug Fields), and leave their short test recordings on the card. Don't run `pio device monitor` at the same time: only one program can use the port.
 
 ## Keys
 
@@ -91,3 +103,4 @@ For getting files onto a phone or tablet without a cable (the planned **Wi-Fi Fi
 | `src/cues_cardputer.cpp` | The Flipper's sounds |
 | `src/keys.cpp` | The Cardputer's keys as the Flipper's six buttons, plus the TCA8418 keyboard unstick check |
 | `src/core_fatal.cpp` | What happens when the shared code stops on a broken rule |
+| `tools/hw_test.py` | Automated tests on the real Cardputer over USB (see "Testing on the device") |
