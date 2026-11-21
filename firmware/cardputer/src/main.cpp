@@ -7,7 +7,8 @@
 //
 // Keys: Enter starts and stops a recording, Esc (or Del) ends the session,
 // and U (when not recording) lends the SD card to a plugged-in computer as
-// a USB thumb drive. With no session open, Tab switches between GPS+GSR and
+// a USB thumb drive (taking it back with U needs a second press: eject on
+// the computer first). With no session open, Tab switches between GPS+GSR and
 // GSR Only, and Enter starts a session in that mode. Any other key is only
 // counted, for the typing test (typing must not disturb the GSR reading).
 
@@ -28,9 +29,16 @@ static BioMapMode g_mode = BioMapModeGpsGsr;
 
 static uint32_t key_count = 0;     // every key press, for the typing test
 static uint32_t last_log_ms = 0;
+// Why U couldn't lend the card, shown for a few seconds (nullptr: none).
 static const uint32_t USB_NOTICE_MS = 3000;
-static bool     g_usb_notice = false;
-static uint32_t g_usb_notice_since_ms = 0;
+static const char* g_usb_notice = nullptr;
+static uint32_t    g_usb_notice_since_ms = 0;
+// Taking the card back with U while the computer still has the drive open
+// can lose changes the computer hasn't written yet, so U asks for a second
+// press within this time. Ejecting on the computer needs no confirming.
+static const uint32_t USB_CONFIRM_MS = 3000;
+static bool     g_usb_confirm = false;
+static uint32_t g_usb_confirm_since_ms = 0;
 
 // What the screen shows, copied out under the session lock so the slow
 // part (pushing the picture to the display) happens without it.
@@ -44,7 +52,8 @@ struct View {
     uint32_t i2c_peak_ms;
     char     file[48];
     uint32_t flush_peak_ms, fill_bytes, flush_fails;
-    bool     card_ok, usb_drive, usb_notice;
+    bool     card_ok, usb_drive, usb_confirm;
+    const char* usb_notice;
     bool     gps_on, gps_ready, gps_fix;
     int      gps_fix_type, gps_sats;
     float    gps_hacc;
@@ -104,6 +113,7 @@ static View read_view(void) {
     v.card_ok = sd_card_ready();
     v.usb_drive = sd_usb_drive_active();
     v.usb_notice = g_usb_notice;
+    v.usb_confirm = g_usb_confirm;
     v.clock_set = clock_cardputer_is_set();
     v.no_time_notice = session_cardputer_no_time_notice();
     clock_cardputer_now(&v.now);
@@ -168,12 +178,15 @@ static void draw_screen(void) {
     canvas.setFont(&fonts::Font2);
 
     // 3. The file, USB drive state, or why a recording didn't start.
-    if(v.usb_drive) {
+    if(v.usb_drive && v.usb_confirm) {
+        line(Y_FILE, TFT_YELLOW);
+        canvas.print("Eject on computer first!");
+    } else if(v.usb_drive) {
         line(Y_FILE, TFT_CYAN);
         canvas.print("USB drive on computer");
     } else if(v.usb_notice) {
         line(Y_FILE, TFT_YELLOW);
-        canvas.print("Plug USB into a computer");
+        canvas.print(v.usb_notice);
     } else if(v.no_time_notice) {
         line(Y_FILE, TFT_YELLOW);
         canvas.print("Waiting for GPS time");
@@ -228,7 +241,7 @@ static void draw_screen(void) {
     // 7. What the keys do.
     line(Y_KEYS, TFT_LIGHTGREY);
     if(v.usb_drive) {
-        canvas.print("Eject on computer, or press U");
+        canvas.print(v.usb_confirm ? "Press U again to take card" : "Eject on computer to finish");
     } else if(v.open) {
         canvas.print(v.recording ? "Enter stop   Esc end" : "Enter record   U USB   Esc end");
     } else {
@@ -278,14 +291,29 @@ static bool keys_poll(void) {
     const auto& st = M5Cardputer.Keyboard.keysState();
     bool recording = g_session.open && g_session.core.recording.active;
     if(!recording && !st.word.empty() && (st.word.back() == 'u' || st.word.back() == 'U')) {
-        bool want = !sd_usb_drive_active();
-        if(sd_usb_drive_set(want)) {
-            g_usb_notice = false;
-            cues_cardputer_play(true, want ? BioMapCueToggleOn : BioMapCueToggleOff);
-        } else {
-            g_usb_notice = true;
+        if(sd_usb_drive_active()) {
+            if(!g_usb_confirm) {
+                g_usb_confirm = true;
+                g_usb_confirm_since_ms = millis();
+                cues_cardputer_play(true, BioMapCueError);
+                return true;
+            }
+            g_usb_confirm = false;
+            sd_usb_drive_set(false);
+            cues_cardputer_play(true, BioMapCueToggleOff);
+            return true;
+        }
+        switch(sd_usb_drive_set(true)) {
+        case SdUsbOk:         g_usb_notice = nullptr; break;
+        case SdUsbNoComputer: g_usb_notice = "Plug USB into a computer"; break;
+        case SdUsbNoCard:     g_usb_notice = "No SD card to lend"; break;
+        case SdUsbFileOpen:   g_usb_notice = "Stop recording first"; break;
+        }
+        if(g_usb_notice) {
             g_usb_notice_since_ms = millis();
             cues_cardputer_play(true, BioMapCueError);
+        } else {
+            cues_cardputer_play(true, BioMapCueToggleOn);
         }
         return true;
     }
@@ -335,9 +363,16 @@ void loop() {
     M5Cardputer.update();
     keys_unstick_poll();
     bool redraw = keys_poll();
-    if(sd_usb_drive_poll()) redraw = true;
+    if(sd_usb_drive_poll()) {
+        g_usb_confirm = false;  // ejected or unplugged: nothing to confirm
+        redraw = true;
+    }
     if(g_usb_notice && millis() - g_usb_notice_since_ms >= USB_NOTICE_MS) {
-        g_usb_notice = false;
+        g_usb_notice = nullptr;
+        redraw = true;
+    }
+    if(g_usb_confirm && millis() - g_usb_confirm_since_ms >= USB_CONFIRM_MS) {
+        g_usb_confirm = false;
         redraw = true;
     }
     if(session_cardputer_poll()) redraw = true;

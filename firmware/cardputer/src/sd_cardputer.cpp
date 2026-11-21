@@ -187,13 +187,13 @@ bool sd_usb_drive_active(void) {
     return g_lent;
 }
 
-bool sd_usb_drive_set(bool on) {
-    if(on == g_lent) return true;
+SdUsbResult sd_usb_drive_set(bool on) {
+    if(on == g_lent) return SdUsbOk;
     if(on) {
-        if(g_open_files > 0) return false;
-        if(!sd_card_mount()) return false;
-        if(!tud_ready()) return false;
-        if(SD.sectorSize() != BLOCK_BYTES || SD.numSectors() == 0) return false;
+        if(g_open_files > 0) return SdUsbFileOpen;
+        if(!sd_card_mount()) return SdUsbNoCard;
+        if(SD.sectorSize() != BLOCK_BYTES || SD.numSectors() == 0) return SdUsbNoCard;
+        if(!tud_ready()) return SdUsbNoComputer;
         sd_lock();
         g_ejected = false;
         g_unplugged_since_ms = 0;
@@ -201,7 +201,7 @@ bool sd_usb_drive_set(bool on) {
         g_msc.mediaPresent(true);
         sd_unlock();
         Serial.println("[SD] USB drive on: card lent to computer");
-        return true;
+        return SdUsbOk;
     }
 
     // Hide the medium first, then wait under the lock for any in-flight USB
@@ -217,7 +217,7 @@ bool sd_usb_drive_set(bool on) {
     mounted = false;
     sd_card_mount();
     Serial.println("[SD] USB drive off: card back with Cardputer");
-    return true;
+    return SdUsbOk;
 }
 
 bool sd_usb_drive_poll(void) {

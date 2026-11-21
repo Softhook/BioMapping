@@ -32,7 +32,7 @@ It starts a GPS+GSR session at power-up. At start-up it first puts the GPS to sl
 - **Enter** starts a recording, and stops it. Files go in `biomapping/` on the card, with the same columns and check lines as the Flipper's.
 - **Esc** (or Del) ends the session (the GPS goes back to sleep).
 - With no session open, **Tab** switches between GPS+GSR and GSR Only, and **Enter** starts a session in that mode.
-- **U** (when not recording) lends the SD card to a plugged-in computer as a USB thumb drive; press **U** again (or eject the drive on the computer) to take the card back.
+- **U** (when not recording) lends the SD card to a plugged-in computer as a USB thumb drive; eject the drive on the computer to take the card back. (**U** twice also takes it back, but can lose changes the computer hasn't saved yet.)
 - Any other key is only counted ("keys" on the screen), for the typing test.
 
 **The clock.** The Cardputer has no clock chip, so it doesn't know the time after power-up until the GPS has a fix. It then sets its clock from GPS time, in UK time (GMT in winter, BST in summer, switching automatically). In GPS+GSR mode, Enter won't start a recording before that: it gives the error sound and shows "Waiting for GPS time". GSR Only records anyway, using GPS time if it was found since power-up; otherwise the file is named from `biomap_1970-01-01_00-00-00.csv` and the header's start time is 0. A name already on the card gets "_2", "_3" and so on, so nothing is overwritten.
@@ -41,12 +41,13 @@ There is no calibration yet, so readings carry the board's zero offset (about 10
 
 ## Getting the files off
 
-The SD card stays inside the Cardputer, so press **U** (when not recording) while plugged into a computer over USB-C:
+The SD card stays inside the Cardputer, so press **U** (when not recording) while plugged into a computer over USB-C. If the card can't be lent, the screen says why for 3 seconds: `Plug USB into a computer`, `No SD card to lend` or `Stop recording first`.
 
 - The SD card mounts on the computer as a normal USB thumb drive, with all your `.csv` files inside the `biomapping/` folder.
 - Drag the files directly into the visualiser or onto your computer.
-- When you are done, **Eject** the drive on the computer (or press **U** on the Cardputer). The Cardputer takes the card back and remounts it so it sees any files you deleted or moved.
-- While the computer has the card, the screen says `USB drive on computer` and **Enter** will not start a new recording until the drive is ejected or **U** is pressed.
+- When you are done, **Eject** the drive on the computer. The Cardputer takes the card back and remounts it so it sees any files you deleted or moved.
+- Only if ejecting isn't possible, press **U** twice within 3 seconds. The first press shows `Eject on computer first!` as a warning; the second takes the card back. Doing this while the computer still has the drive open can lose changes it hasn't written yet, or damage the card's file list.
+- While the computer has the card, the screen says `USB drive on computer` and **Enter** will not start a new recording until the drive is ejected (or **U** is pressed twice).
 
 For getting files onto a phone or tablet without a cable (the planned **Wi-Fi Files** screen, or running `PocketWUI` alongside BioMapping through M5Launcher), see section 4 of [docs/cardputer_port.md](../../docs/cardputer_port.md).
 
