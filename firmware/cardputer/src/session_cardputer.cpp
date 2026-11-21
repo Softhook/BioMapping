@@ -7,11 +7,12 @@
 #include "gps_cardputer.h"
 #include "gsr_cardputer.h"
 #include "sd_cardputer.h"
+#include "tick_schedule.h"
 
 CardputerSession g_session;
 
 static SemaphoreHandle_t g_mutex = nullptr;
-static uint32_t          g_next_tick_ms = 0;
+static TickSchedule      g_ticks = {};
 
 // Settings, as the Flipper's defaults (biomap.c) until the Cardputer has an
 // Options screen. No calibration yet: the calibration wizard comes with the
@@ -29,14 +30,9 @@ static const uint32_t NO_TIME_NOTICE_MS = 3000;
 static uint32_t g_no_time_since_ms = 0;
 static bool     g_no_time_notice = false;
 
-// After a stall (a slow SD write) the missed ticks are run straight away,
-// as the Flipper's queued timer events are. Each tick is one row and 0.1 s
-// on the file's time column, so a dropped tick would put every later row
-// early. Up to this many are caught up: the Flipper's event queue holds 64
-// events (EVENT_QUEUE_DEPTH), about 6 s of ticks. Only after a longer
-// stall does the schedule start again from now. tick_dt_ms in the debug
-// columns records the real gap either way.
-static const uint32_t MAX_CATCH_UP_TICKS = EVENT_QUEUE_DEPTH;
+// The tick schedule, with its catch-up after a stall, is in
+// tick_schedule.c. tick_dt_ms in the debug columns records the real gap
+// between ticks either way.
 
 // ── Device functions for the shared session (SessionPlatform) ──────────
 // Every one runs on the main loop.
@@ -78,13 +74,8 @@ static void plat_log(void* ctx, SessionLogLevel level, const char* line) {
 // 1970-01-01_00-00-00. In GPS+GSR mode a recording can't start until then
 // (session_cardputer_key()).
 //
-// The session asks for the date and time once, at the start of a
-// recording, and for the epoch at its end. The epoch is in local time, as
-// on the Flipper. The UTC offset at the start is kept for the end, so a
-// recording across a clock change (01:00 GMT on the last Sunday of March
-// or October) doesn't get an end time an hour off: in October it would
-// otherwise end before it started. The Flipper's clock doesn't change by
-// itself, so this matches it.
+// The UTC offset at a recording's start is kept for its end time
+// (clock_local.h says why).
 static int32_t g_recording_utc_offset_s = 0;
 
 static void plat_datetime_now(void* ctx, SessionDateTime* out) {
@@ -198,7 +189,7 @@ void session_cardputer_begin(BioMapMode mode) {
     g_session.logger = logger;
     g_session.open = true;
     session_cardputer_unlock();
-    g_next_tick_ms = millis() + 1000 / TICK_HZ;
+    tick_schedule_restart(&g_ticks, millis());
 }
 
 bool session_cardputer_poll(void) {
@@ -216,30 +207,19 @@ bool session_cardputer_poll(void) {
         return redraw;
     }
 
-    uint32_t now = millis();
-    uint32_t due = 0;  // ticks due now, up to the catch-up limit
-    if((int32_t)(now - g_next_tick_ms) >= 0) {
-        due = (now - g_next_tick_ms) / (1000 / TICK_HZ) + 1;
-        if(due > MAX_CATCH_UP_TICKS) due = MAX_CATCH_UP_TICKS;
-    }
+    uint32_t due = tick_schedule_due(&g_ticks, millis());
     if(due <= 1) {
         gps_cardputer_poll(gps);
     }
     // After a pause, the GPS bytes that came in during it are parsed a
-    // slice at a time between the caught-up ticks, so each row gets about
-    // the position of its own moment rather than all getting the same one.
-    // The waiting bytes run up to now, so before tick k of n, all but
-    // (n - k) / n of them are parsed.
+    // slice at a time between the caught-up ticks (tick_schedule.h).
     int waiting = due > 1 ? gps_cardputer_waiting_bytes() : 0;
     for(uint32_t k = 1; k <= due; k++) {
-        if(due > 1) gps_cardputer_parse_down_to(gps, (int)((int64_t)waiting * (due - k) / due));
+        if(due > 1) gps_cardputer_parse_down_to(gps, tick_schedule_gps_bytes_left(waiting, due, k));
         if(session_core_tick(&g_session.core)) redraw = true;
-        g_next_tick_ms += 1000 / TICK_HZ;
+        tick_schedule_ran(&g_ticks);
     }
-    if(due >= MAX_CATCH_UP_TICKS && (int32_t)(millis() - g_next_tick_ms) >= 0) {
-        // Longer behind than the catch-up covers: start again from now.
-        g_next_tick_ms = millis() + 1000 / TICK_HZ;
-    }
+    tick_schedule_after_run(&g_ticks, due, millis());
     clock_cardputer_poll(gps);
     return redraw;
 }
@@ -263,7 +243,7 @@ bool session_cardputer_key(SessionKey key) {
         // sound, settle). That wait isn't a stall: row 0 comes one tick
         // from now, not a catch-up burst of rows all reading the same GSR
         // window.
-        g_next_tick_ms = millis() + 1000 / TICK_HZ;
+        tick_schedule_restart(&g_ticks, millis());
     }
     return redraw;
 }

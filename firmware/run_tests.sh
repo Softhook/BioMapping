@@ -181,9 +181,10 @@ gcc -Wall -Wextra -Werror -I . -I tests/shims -o build/test_cues \
 ./build/test_cues
 
 echo
-echo "== test_cardputer_rules (Cardputer: clock from GPS time, wake-up clean byte) =="
-gcc -Wall -Wextra -Werror -I . -o build/test_cardputer_rules \
-    tests/test_cardputer_rules.c cardputer/src/clock_rule.c cardputer/src/wake_watch.c
+echo "== test_cardputer_rules (Cardputer: clock, wake-up byte, tick schedule, local time) =="
+gcc -Wall -Wextra -Werror -I . -I core -I vendor/minmea -o build/test_cardputer_rules \
+    tests/test_cardputer_rules.c cardputer/src/clock_rule.c cardputer/src/wake_watch.c \
+    cardputer/src/tick_schedule.c cardputer/src/clock_local.c core/biomap_pipeline.c -lm
 ./build/test_cardputer_rules
 
 echo

@@ -41,6 +41,11 @@ tests/shims/furi_hal_mock.c|-pthread -Imodules -Itests/shims
 tests/shims/furi_hal_subghz_mock.c|-Imodules -Itests/shims
 tests/shims/storage_mock.c|-Imodules -Itests/shims
 tests/shims/bt_ble_mock.c|-Imodules -Itests/shims
+tests/test_cardputer_rules.c|-Icore -Ivendor/minmea
+cardputer/src/clock_rule.c|
+cardputer/src/wake_watch.c|
+cardputer/src/tick_schedule.c|-Icore
+cardputer/src/clock_local.c|-Icore -Ivendor/minmea
 "
 
 {

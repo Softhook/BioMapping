@@ -6,12 +6,9 @@
 #include <time.h>
 
 #include "biomap_pipeline.h"
+#include "clock_local.h"
 #include "clock_rule.h"
 #include "gps_cardputer.h"
-
-// UK time: GMT, and BST (GMT+1) from 01:00 GMT on the last Sunday of March
-// to 01:00 GMT (02:00 BST) on the last Sunday of October.
-static const char* const UK_TZ = "GMT0BST,M3.5.0/1,M10.5.0/2";
 
 // The ESP32's own clock drifts by seconds a day, so once set it is rarely
 // reset within a walk. When it is set is decided in clock_rule.c.
@@ -20,7 +17,7 @@ static bool      g_looked = false;
 static uint32_t  g_last_look_ms = 0;
 
 void clock_cardputer_begin(void) {
-    setenv("TZ", UK_TZ, 1);
+    setenv("TZ", CLOCK_UK_TZ, 1);
     tzset();
 }
 
@@ -79,28 +76,9 @@ bool clock_cardputer_is_set(void) {
 }
 
 void clock_cardputer_now(SessionDateTime* out, int32_t* utc_offset_s) {
-    time_t now = time(nullptr);
-    struct tm tm;
-    localtime_r(&now, &tm);
-    *out = SessionDateTime{};
-    out->year = (uint16_t)(tm.tm_year + 1900);
-    out->month = (uint8_t)(tm.tm_mon + 1);
-    out->day = (uint8_t)tm.tm_mday;
-    out->hour = (uint8_t)tm.tm_hour;
-    out->minute = (uint8_t)tm.tm_min;
-    out->second = (uint8_t)tm.tm_sec;
-    if(utc_offset_s) {
-        uint32_t local = pipeline_unix_epoch(out->year, out->month, out->day, out->hour,
-                                             out->minute, out->second);
-        *utc_offset_s = local ? (int32_t)((int64_t)local - (int64_t)now) : 0;
-    }
+    clock_local_from_utc((int64_t)time(nullptr), out, utc_offset_s);
 }
 
 uint32_t clock_cardputer_epoch(int32_t utc_offset_s) {
-    time_t now = time(nullptr);
-    struct tm tm;
-    gmtime_r(&now, &tm);
-    // Same "not set" rule as pipeline_unix_epoch() (before 2020).
-    if(tm.tm_year + 1900 < 2020) return 0;
-    return (uint32_t)((int64_t)now + utc_offset_s);
+    return clock_local_epoch((int64_t)time(nullptr), utc_offset_s);
 }
