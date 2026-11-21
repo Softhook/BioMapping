@@ -401,6 +401,23 @@ The firmware has been through a lot of real-hardware fixes. The logic carries ov
 - **ADS1115 gain-switch settling.** Check that readings taken just after a gain change are still being held back correctly.
 - **M10Q standby and startup.** Check that the M10Q still powers down and wakes correctly.
 - **Bench noise tests: laptop on battery, one device on USB.** A laptop on its charger leaks mains hum onto its USB ground. With a MacBook on its charger, a 1 MΩ resistor jittered by about 18 nS instead of under 1 nS; unplugging the charger cured it. Plug only one device into the laptop at a time. Still to check: whether charging the Cardputer from a wall charger during a recording does the same.
+  - **Same 600k resistor on both devices (21 Nov).** Bench set-up: the board runs from the Flipper's 3.3 V, with a ground jumper and about 20 cm of jumper wires to the Cardputer.
+
+    | Recording | Average | Noise |
+    |---|---|---|
+    | Flipper, on battery | 1655.4 nS | 0.33 nS |
+    | Cardputer, all devices on battery (`biomap_1970-01-01_00-00-48.csv`, 53 s) | 1656.9 nS | 0.81 nS |
+    | Cardputer, earlier recording (`biomap_1970-01-01_00-03-37.csv`) | 1666.2 nS | 1.81 nS |
+    | Cardputer, live on USB to the Mac (status line, about 65 s per run) | 1674–1675 nS | 1.0–1.45 nS |
+
+    With everything on battery, the Cardputer agrees with the Flipper to 0.09%, and its noise is less than half that of the other Cardputer runs. In the noisier runs the reading was also 10–20 nS too high, so the extra noise and the error came together. The firmware is not the cause: the 09:07 build (`5fe076f`) measured the same as the current one. The calibration is not the cause either, because all three Cardputer recordings used the same one (gain 1.0000, zero −325.7).
+
+    **Likely cause: the bench wiring.** The board has two ground paths, one to the Flipper that powers it and one through the 20 cm jumper to the Cardputer. Plugging the Cardputer into USB adds a third ground, the Mac's. Any current flowing between the devices passes through the jumper wires, and their small resistance turns it into a tiny voltage on the board's ground: about 0.5 mV accounts for a 20 nS error, and tens of µV for the noise. The ADC reads this voltage as part of the signal. The Flipper doesn't have this problem, because it powers the board and reads it over the same short wires. Even on battery the Cardputer is still about 2.5 times the Flipper's noise, probably from the same effect on a smaller scale. Not yet proven. To check:
+    1. Plug only the Cardputer into the Mac, with the Mac on battery, and see whether the noise and the reading jump.
+    2. Make the ground wire as short as possible and twist it together with SDA and SCL.
+    3. Power the board from the Cardputer alone, with the Flipper disconnected.
+
+    If test 3 is clean, the printed board, powered by the Cardputer over short tracks, should not have this problem.
 - **Noise from sound and Bluetooth.** The Flipper code already waits after a tone before trusting GSR readings again (`GSR_TONE_SETTLE_MS`), so the speaker affects the reading even there. On the Cardputer, sound goes through an audio chip and amplifier, and Bluetooth comes from a different radio. Measure both, and check whether that wait is still long enough. Live Stream mode, with Bluetooth sending all the time, matters most.
   - **Done on the bench (prototype board):** Bluetooth sending a Live Stream packet every 300 ms, every backlight level, and the recording-start chirp had no effect on the GSR reading. The chirp test was compared against the same measurement with no sound; both settled within the same time (about 2.9 nS of normal wander), so the 200 ms wait is long enough on the Cardputer.
   - **Still to do:** the 1-minute typing test during a recording (the keyboard and GSR thread already share `M5.In_I2C` in the real firmware since step 8, but the sustained typing check is still to run), and the Cardputer's own 5 V supply feeding the board's regulator (needs the first printed board; the prototype ran from the Flipper's 3.3 V).
