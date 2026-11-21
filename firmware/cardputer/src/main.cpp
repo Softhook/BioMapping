@@ -45,6 +45,7 @@ struct View {
     bool     gps_on, gps_ready, gps_fix;
     int      gps_fix_type, gps_sats;
     float    gps_hacc;
+    uint32_t gps_lost, gps_near_miss;  // overflows that lost bytes; buffer full, nothing lost
     double   lat, lon;
     bool     clock_set, no_time_notice;
     SessionDateTime now;
@@ -94,6 +95,8 @@ static View read_view(void) {
         v.gps_hacc = st.hacc;
         v.lat = st.latitude;
         v.lon = st.longitude;
+        v.gps_lost = gps_uart_get_rx_drop_count(gps);
+        v.gps_near_miss = gps_cardputer_buffer_full_count(gps);
     }
     v.card_ok = sd_card_ready();
     v.clock_set = clock_cardputer_is_set();
@@ -228,8 +231,9 @@ static void log_second(void) {
                   (unsigned long)v.i2c_peak_ms, (unsigned long)v.flush_peak_ms,
                   (unsigned long)v.flush_fails, (unsigned long)key_count);
     if(v.gps_on) {
-        Serial.printf(" gps_fix=%d sats=%d hacc=%.1f lat=%.6f lon=%.6f", v.gps_fix, v.gps_sats,
-                      v.gps_hacc, v.lat, v.lon);
+        Serial.printf(" gps_fix=%d sats=%d hacc=%.1f lat=%.6f lon=%.6f gps_lost=%lu gps_full=%lu",
+                      v.gps_fix, v.gps_sats, v.gps_hacc, v.lat, v.lon,
+                      (unsigned long)v.gps_lost, (unsigned long)v.gps_near_miss);
     }
     if(v.clock_set) {
         Serial.printf(" time=%04u-%02u-%02u_%02u:%02u:%02u", v.now.year, v.now.month, v.now.day,

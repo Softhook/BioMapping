@@ -30,3 +30,19 @@ void gps_cardputer_stop(GpsUart* gps);
 // session lock must NOT be held (a reconfigure inside waits for seconds).
 // Without one it counts stray bytes, to check the module stayed asleep.
 void gps_cardputer_poll(GpsUart* gps);
+
+// True when the main loop is behind with the GPS bytes (a backlog waits to
+// be parsed), so the GPS time just read is old. False with no session.
+bool gps_cardputer_behind(const GpsUart* gps);
+
+// Times the driver's buffer was full this session: a near miss, nothing
+// lost yet (lost bytes count in gps_uart_get_rx_drop_count()).
+uint32_t gps_cardputer_buffer_full_count(const GpsUart* gps);
+
+// GPS bytes received but not yet parsed (0 before the port is open).
+int gps_cardputer_waiting_bytes(void);
+
+// Parses waiting GPS bytes until no more than `bytes_left` wait (or a pass
+// limit is reached). For catching up after a pause, a slice at a time
+// (session_cardputer_poll()). Same rules as gps_cardputer_poll().
+void gps_cardputer_parse_down_to(GpsUart* gps, int bytes_left);

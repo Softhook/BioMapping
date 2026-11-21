@@ -70,6 +70,8 @@ If the shared code ever stops on a broken rule, the screen turns red and shows t
 | `src/gsr_cardputer.cpp` | The GSR thread, reading the ADS1115 through M5's I2C driver |
 | `src/gps_cardputer.cpp` | The serial port to the M10Q, held from start-up to power-off, and the wake-up check |
 | `src/clock_cardputer.cpp` | The clock, set from GPS time, in UK time |
+| `src/clock_rule.c` | When the clock is set from GPS time (plain C, tested on the computer) |
+| `src/wake_watch.c` | The wake-up wait's "first clean byte" check (plain C, tested on the computer) |
 | `src/sd_cardputer.cpp` | The SD card, written in whole 512-byte blocks |
 | `src/cues_cardputer.cpp` | The Flipper's sounds |
 | `src/serial_files.cpp` | The `ls` and `cat` commands for reading recordings over USB |

@@ -181,6 +181,12 @@ gcc -Wall -Wextra -Werror -I . -I tests/shims -o build/test_cues \
 ./build/test_cues
 
 echo
+echo "== test_cardputer_rules (Cardputer: clock from GPS time, wake-up clean byte) =="
+gcc -Wall -Wextra -Werror -I . -o build/test_cardputer_rules \
+    tests/test_cardputer_rules.c cardputer/src/clock_rule.c cardputer/src/wake_watch.c
+./build/test_cardputer_rules
+
+echo
 echo "== test_bt_stream (BLE serial profile lifecycle / send-or-drop logic) =="
 gcc -Wall -Wextra -Werror -I . -I modules -I tests/shims -o build/test_bt_stream \
     tests/test_bt_stream.c modules/bt_stream.c core/biomap_format.c \

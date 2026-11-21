@@ -2,14 +2,18 @@
 
 #include <Arduino.h>
 #include <atomic>
+#include <driver/uart.h>
+#include <hal/uart_ll.h>  // UART_INTR_FRAM_ERR
 
 #include "core_check.h"
+#include "wake_watch.h"
 
 // The EXT header's serial pins (docs/cardputer_port.md, "Power and
 // connections"). Serial is the USB link, so the GPS uses UART 1.
 static const int GPS_TX_PIN = 13;  // to the M10Q's RX
 static const int GPS_RX_PIN = 15;  // from the M10Q's TX
 static HardwareSerial& port = Serial1;
+static const uart_port_t GPS_UART_NUM = UART_NUM_1;  // Serial1
 
 // Bytes the serial driver keeps until the main loop reads them. The
 // module sends a few KB a second at 10 Hz; this covers a pause of about
@@ -17,28 +21,61 @@ static HardwareSerial& port = Serial1;
 // buffer is 5 KB.
 static const size_t RX_BUFFER_BYTES = 8192;
 
+// The serial chip hands bytes to the driver once it holds this many, or
+// once the line has been quiet for one byte's time. 120 is Arduino's
+// default, used while streaming (fewer interrupts). During the wake watch
+// it is 4, so a byte can be read within about 4 ms of arriving at 9600:
+// the first byte's time is then close to the Flipper's, and the guard
+// after a garbled-byte report (wake_watch.h) is short.
+static const uint8_t RX_FIFO_FULL_BYTES = 120;
+static const uint8_t WAKE_FIFO_FULL_BYTES = 4;
+static uint8_t       g_fifo_full = RX_FIFO_FULL_BYTES;
+
+// More than this many bytes waiting means the main loop is behind, so the
+// GPS time read now is old (clock_cardputer.cpp). In normal running the
+// loop leaves less than one sentence.
+static const int BACKLOG_BYTES = 512;
+
+static uint32_t g_baud = GPS_BAUD_RATE;
+
 // ── Errors from the serial driver ───────────────────────────────────────
 // The ESP32's driver reports receive errors through a callback, on its own
-// task, not with each byte as the Flipper's does. Both counters are
-// written there and read on the main loop.
+// task, not with each byte as the Flipper's does. The counters are written
+// there and read on the main loop.
+//
+// The driver doesn't switch on the framing-error report itself (its
+// interrupt mask is 0x80195, without UART_INTR_FRAM_ERR = 0x8), and a byte
+// at the wrong speed is mostly a framing error, so
+// gps_cardputer_port_open() switches it on.
 //
 // g_rx_error: a garbled byte (framing, parity, break) since the main loop
-// last looked. Only the wake watch uses it.
+// last looked. It comes as soon as the byte reaches the chip, usually
+// before the byte can be read (wake_watch.h). Only the wake watch uses it.
 static std::atomic<bool> g_rx_error{false};
-// g_overflows: times the driver's buffer or the chip's receive queue was
-// full and bytes were lost. The driver doesn't say how many bytes, so this
-// counts the times, not the bytes as on the Flipper.
+// g_garbled: every garbled-byte report, for the log.
+static std::atomic<uint32_t> g_garbled{0};
+// g_overflows: times the chip's receive queue overflowed and bytes were
+// lost. The driver doesn't say how many bytes, so this counts the times,
+// not the bytes as on the Flipper.
 static std::atomic<uint32_t> g_overflows{0};
+// g_buffer_full: times the driver's 8 KB buffer was full. Nothing is lost
+// yet then: the driver keeps the bytes and stops taking more off the chip
+// until the main loop reads some. Only if the chip's own queue then fills
+// are bytes lost, which counts in g_overflows. So this is a near miss.
+static std::atomic<uint32_t> g_buffer_full{0};
 
 static void on_rx_error(hardwareSerial_error_t err) {
     switch(err) {
     case UART_BUFFER_FULL_ERROR:
+        g_buffer_full++;
+        break;
     case UART_FIFO_OVF_ERROR:
         g_overflows++;
         break;
     case UART_FRAME_ERROR:
     case UART_PARITY_ERROR:
     case UART_BREAK_ERROR:
+        g_garbled++;
         g_rx_error = true;
         break;
     default:
@@ -58,43 +95,32 @@ enum class RxMode { Off, Stream, WakeWatch };
 struct GpsCardputer {
     SemaphoreHandle_t mutex = nullptr;  // the shared code's lock
     uint32_t overflows_at_start = 0;
+    uint32_t buffer_full_at_start = 0;
     bool     rx_again = false;          // handle_rx() stopped with bytes waiting
 };
 
 static RxMode g_rx_mode = RxMode::Off;
 
 // Wake watch (GpsRxWakeWatch). The shared code asks rx_wake_seen() between
-// 1 ms waits. A byte only counts as clean if no error arrives with it or
-// in the next look: the error callback runs on the driver's own task, so it
-// may come a moment after the byte can be read. Bytes that come with an
-// error are thrown away and the wait goes on, as on the Flipper.
-static bool     g_wake_seen = false;
-static uint32_t g_wake_ms = 0;
-static bool     g_wake_candidate = false;  // clean bytes seen once, not yet confirmed
-static uint32_t g_wake_candidate_ms = 0;
+// 1 ms waits; each ask is one look (wake_watch.c has the rule).
+static WakeWatch g_wake;
+static uint32_t  g_garbled_at_wake_start = 0;
 
 static void drain_rx(void) {
     while(port.available() > 0) port.read();
 }
 
-static void wake_watch_look(void) {
-    if(g_wake_seen) return;
+static void wake_watch_poll(void) {
+    if(g_wake.seen) return;
+    // The report first, then the bytes: a report that comes in between is
+    // caught by the next look.
+    bool error = g_rx_error.exchange(false);
     bool got = false;
     while(port.available() > 0) {
         port.read();
         got = true;
     }
-    if(g_rx_error.exchange(false)) {
-        g_wake_candidate = false;  // garbled: start again
-        return;
-    }
-    if(g_wake_candidate) {
-        g_wake_seen = true;
-        g_wake_ms = g_wake_candidate_ms;
-    } else if(got) {
-        g_wake_candidate = true;
-        g_wake_candidate_ms = millis();
-    }
+    wake_watch_look(&g_wake, millis(), error, got, wake_watch_guard_ms(g_baud, g_fifo_full));
 }
 
 // ── Platform functions for core/gps_uart.c ──────────────────────────────
@@ -102,6 +128,7 @@ static void wake_watch_look(void) {
 static void plat_set_baud(void* ctx, uint32_t baud) {
     (void)ctx;
     port.updateBaudRate(baud);
+    g_baud = baud;
 }
 
 static void plat_tx(void* ctx, const uint8_t* data, size_t len) {
@@ -109,13 +136,22 @@ static void plat_tx(void* ctx, const uint8_t* data, size_t len) {
     port.write(data, len);
 }
 
+static void set_fifo_full(uint8_t bytes) {
+    if(g_fifo_full == bytes) return;
+    port.setRxFIFOFull(bytes);
+    g_fifo_full = bytes;
+}
+
 static void plat_rx_start(void* ctx, GpsRxMode mode) {
     (void)ctx;
     drain_rx();
-    g_rx_error = false;
+    // A report is left for the first look, not cleared: its garbled byte
+    // may still be on the chip, so the wake watch must guard against it.
+    // (A report from long before only delays the wait by the guard time.)
     if(mode == GpsRxWakeWatch) {
-        g_wake_seen = false;
-        g_wake_candidate = false;
+        set_fifo_full(WAKE_FIFO_FULL_BYTES);
+        wake_watch_reset(&g_wake);
+        g_garbled_at_wake_start = g_garbled;
         g_rx_mode = RxMode::WakeWatch;
     } else {
         g_rx_mode = RxMode::Stream;
@@ -127,10 +163,16 @@ static void plat_rx_stop(void* ctx) {
     if(g_rx_mode == RxMode::WakeWatch) {
         // Give a byte that arrived in the last wait its confirming look,
         // so it still counts (the shared code asks again after stopping).
-        wake_watch_look();
-        if(g_wake_candidate && !g_wake_seen) {
+        wake_watch_poll();
+        if(g_wake.candidate && !g_wake.seen) {
             delay(2);
-            wake_watch_look();
+            wake_watch_poll();
+        }
+        set_fifo_full(RX_FIFO_FULL_BYTES);
+        uint32_t garbled = g_garbled - g_garbled_at_wake_start;
+        if(garbled > 0) {
+            Serial.printf("[GPS] Wake: %lu garbled-byte reports during the wait\n",
+                          (unsigned long)garbled);
         }
     }
     g_rx_mode = RxMode::Off;
@@ -152,9 +194,9 @@ static void plat_rx_clear(void* ctx) {
 
 static bool plat_rx_wake_seen(void* ctx, uint32_t* first_ms) {
     (void)ctx;
-    if(g_rx_mode == RxMode::WakeWatch) wake_watch_look();
-    if(!g_wake_seen) return false;
-    *first_ms = g_wake_ms;
+    if(g_rx_mode == RxMode::WakeWatch) wake_watch_poll();
+    if(!g_wake.seen) return false;
+    *first_ms = g_wake.seen_ms;
     return true;
 }
 
@@ -241,7 +283,12 @@ static void idle_watch_stop(void) {
     if(!g_idle_watching) return;
     idle_watch_poll();
     g_idle_watching = false;
-    if(g_idle_bytes == 0) {
+    uint32_t watched_ms = millis() - g_idle_start_ms;
+    if(watched_ms < IDLE_SETTLE_MS + 1000) {
+        // At power-up the first session starts straight after the sleep
+        // command, before anything is counted: nothing to say.
+        Serial.printf("[GPS] Idle: not checked (asleep only %lu ms)\n", (unsigned long)watched_ms);
+    } else if(g_idle_bytes == 0) {
         Serial.println("[GPS] Idle: GPS silent (stayed asleep)");
     } else {
         Serial.printf("[GPS] warning: Idle: %lu bytes from GPS (it was awake)\n",
@@ -254,8 +301,14 @@ static void idle_watch_stop(void) {
 void gps_cardputer_port_open(void) {
     if(g_port_open) return;
     port.setRxBufferSize(RX_BUFFER_BYTES);
-    port.begin(GPS_BAUD_RATE, SERIAL_8N1, GPS_RX_PIN, GPS_TX_PIN);
+    port.begin(GPS_BAUD_RATE, SERIAL_8N1, GPS_RX_PIN, GPS_TX_PIN, false, 20000,
+               RX_FIFO_FULL_BYTES);
+    g_baud = GPS_BAUD_RATE;
     port.onReceiveError(on_rx_error);
+    // See "Errors from the serial driver" above.
+    if(uart_enable_intr_mask(GPS_UART_NUM, UART_INTR_FRAM_ERR) != ESP_OK) {
+        Serial.println("[GPS] warning: framing-error report not switched on");
+    }
     g_port_open = true;
 
     // The sleep sequence doesn't use the lock or rx_read; a bare context
@@ -271,6 +324,7 @@ GpsUart* gps_cardputer_start(GpsNavModel nav_model, bool super_s) {
     g->mutex = xSemaphoreCreateMutex();
     CORE_CHECK(g->mutex, "GpsUart: mutex alloc failed");
     g->overflows_at_start = g_overflows;
+    g->buffer_full_at_start = g_buffer_full;
     if(g_port_open) {
         idle_watch_stop();
     } else {
@@ -298,4 +352,29 @@ void gps_cardputer_poll(GpsUart* gps) {
     if(!g->rx_again && port.available() <= 0) return;
     g->rx_again = false;
     gps_uart_handle_rx(gps);
+}
+
+bool gps_cardputer_behind(const GpsUart* gps) {
+    if(!gps || !gps_uart_is_ready(gps)) return false;
+    const auto* g = static_cast<const GpsCardputer*>(gps_uart_platform_ctx(gps));
+    return g->rx_again || port.available() > BACKLOG_BYTES;
+}
+
+uint32_t gps_cardputer_buffer_full_count(const GpsUart* gps) {
+    if(!gps) return 0;
+    const auto* g = static_cast<const GpsCardputer*>(gps_uart_platform_ctx(gps));
+    return g_buffer_full - g->buffer_full_at_start;
+}
+
+int gps_cardputer_waiting_bytes(void) {
+    return g_port_open ? port.available() : 0;
+}
+
+void gps_cardputer_parse_down_to(GpsUart* gps, int bytes_left) {
+    if(!gps || !gps_uart_is_ready(gps)) return;
+    // Each pass parses up to 384 bytes; the cap stops a stream that keeps
+    // arriving from holding the loop.
+    for(int i = 0; i < 32 && port.available() > bytes_left; i++) {
+        gps_cardputer_poll(gps);
+    }
 }

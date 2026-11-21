@@ -77,15 +77,24 @@ static void plat_log(void* ctx, SessionLogLevel level, const char* line) {
 // header's start time is 0 and the file name counts from
 // 1970-01-01_00-00-00. In GPS+GSR mode a recording can't start until then
 // (session_cardputer_key()).
+//
+// The session asks for the date and time once, at the start of a
+// recording, and for the epoch at its end. The epoch is in local time, as
+// on the Flipper. The UTC offset at the start is kept for the end, so a
+// recording across a clock change (01:00 GMT on the last Sunday of March
+// or October) doesn't get an end time an hour off: in October it would
+// otherwise end before it started. The Flipper's clock doesn't change by
+// itself, so this matches it.
+static int32_t g_recording_utc_offset_s = 0;
+
 static void plat_datetime_now(void* ctx, SessionDateTime* out) {
     (void)ctx;
-    clock_cardputer_now(out);
+    clock_cardputer_now(out, &g_recording_utc_offset_s);
 }
 
 static uint32_t plat_epoch_now(void* ctx) {
-    SessionDateTime dt;
-    plat_datetime_now(ctx, &dt);
-    return pipeline_unix_epoch(dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second);
+    (void)ctx;
+    return clock_cardputer_epoch(g_recording_utc_offset_s);
 }
 
 static bool plat_file_start(void* ctx, const char* header, const char* stamp) {
@@ -193,26 +202,45 @@ void session_cardputer_begin(BioMapMode mode) {
 }
 
 bool session_cardputer_poll(void) {
-    // Without the session lock: a GPS reconfigure waits for seconds.
+    // GPS parsing happens without the session lock: a GPS reconfigure
+    // waits for seconds.
     GpsUart* gps = g_session.open ? g_session.core.gps : nullptr;
-    gps_cardputer_poll(gps);
-    clock_cardputer_poll(gps);
     bool redraw = false;
     if(g_no_time_notice && millis() - g_no_time_since_ms >= NO_TIME_NOTICE_MS) {
         g_no_time_notice = false;
         redraw = true;
     }
-    if(!g_session.open || !g_session.core.running) return redraw;
+    if(!g_session.open || !g_session.core.running) {
+        gps_cardputer_poll(gps);
+        clock_cardputer_poll(gps);
+        return redraw;
+    }
+
     uint32_t now = millis();
-    uint32_t ticks = 0;
-    while((int32_t)(now - g_next_tick_ms) >= 0) {
+    uint32_t due = 0;  // ticks due now, up to the catch-up limit
+    if((int32_t)(now - g_next_tick_ms) >= 0) {
+        due = (now - g_next_tick_ms) / (1000 / TICK_HZ) + 1;
+        if(due > MAX_CATCH_UP_TICKS) due = MAX_CATCH_UP_TICKS;
+    }
+    if(due <= 1) {
+        gps_cardputer_poll(gps);
+    }
+    // After a pause, the GPS bytes that came in during it are parsed a
+    // slice at a time between the caught-up ticks, so each row gets about
+    // the position of its own moment rather than all getting the same one.
+    // The waiting bytes run up to now, so before tick k of n, all but
+    // (n - k) / n of them are parsed.
+    int waiting = due > 1 ? gps_cardputer_waiting_bytes() : 0;
+    for(uint32_t k = 1; k <= due; k++) {
+        if(due > 1) gps_cardputer_parse_down_to(gps, (int)((int64_t)waiting * (due - k) / due));
         if(session_core_tick(&g_session.core)) redraw = true;
         g_next_tick_ms += 1000 / TICK_HZ;
-        if(++ticks >= MAX_CATCH_UP_TICKS) {
-            g_next_tick_ms = millis() + 1000 / TICK_HZ;
-            break;
-        }
     }
+    if(due >= MAX_CATCH_UP_TICKS && (int32_t)(millis() - g_next_tick_ms) >= 0) {
+        // Longer behind than the catch-up covers: start again from now.
+        g_next_tick_ms = millis() + 1000 / TICK_HZ;
+    }
+    clock_cardputer_poll(gps);
     return redraw;
 }
 

@@ -6,22 +6,43 @@
 #include <time.h>
 
 #include "biomap_pipeline.h"
+#include "clock_rule.h"
+#include "gps_cardputer.h"
 
 // UK time: GMT, and BST (GMT+1) from 01:00 GMT on the last Sunday of March
 // to 01:00 GMT (02:00 BST) on the last Sunday of October.
 static const char* const UK_TZ = "GMT0BST,M3.5.0/1,M10.5.0/2";
 
-// Set again whenever the clock is this far from GPS time. The ESP32's own
-// clock drifts by seconds a day, so this rarely happens within a walk.
-static const int32_t RESYNC_S = 2;
-
-static bool     g_set = false;
-static bool     g_looked = false;
-static uint32_t g_last_look_ms = 0;
+// The ESP32's own clock drifts by seconds a day, so once set it is rarely
+// reset within a walk. When it is set is decided in clock_rule.c.
+static ClockRule g_rule = {};
+static bool      g_looked = false;
+static uint32_t  g_last_look_ms = 0;
 
 void clock_cardputer_begin(void) {
     setenv("TZ", UK_TZ, 1);
     tzset();
+}
+
+// The GPS time in ms since 1970 UTC, or false when there is no real
+// satellite fix (status A, not estimated: before that, the module's time
+// can be its own guess) or the date or time isn't sensible.
+static bool gps_time_ms(const GpsStatus& s, int64_t* out) {
+    if(!s.fix_valid) return false;
+    const struct minmea_date& d = s.date;
+    const struct minmea_time& t = s.time;
+    if(d.month < 1 || d.month > 12 || d.day < 1 || d.day > 31 || t.hours < 0 || t.hours > 23 ||
+       t.minutes < 0 || t.minutes > 59 || t.seconds < 0 || t.seconds > 60) {
+        return false;
+    }
+    // RMC gives a two-digit year; 2000 + it holds until 2099.
+    uint32_t utc = pipeline_unix_epoch((uint16_t)(2000 + d.year), (uint8_t)d.month,
+                                       (uint8_t)d.day, (uint8_t)t.hours, (uint8_t)t.minutes,
+                                       (uint8_t)t.seconds);
+    if(utc == 0) return false;
+    int32_t us = (t.microseconds >= 0 && t.microseconds < 1000000) ? t.microseconds : 0;
+    *out = (int64_t)utc * 1000 + us / 1000;
+    return true;
 }
 
 void clock_cardputer_poll(const GpsUart* gps) {
@@ -32,43 +53,32 @@ void clock_cardputer_poll(const GpsUart* gps) {
     g_last_look_ms = now_ms;
 
     GpsStatus s = gps_uart_get_status(gps);
-    // Only an RMC with a real satellite fix (status A, not estimated) is
-    // trusted: before that, the module's time can be its own guess.
-    if(!s.fix_valid) return;
-    const struct minmea_date& d = s.date;
-    const struct minmea_time& t = s.time;
-    if(d.month < 1 || d.month > 12 || d.day < 1 || d.day > 31 || t.hours < 0 || t.hours > 23 ||
-       t.minutes < 0 || t.minutes > 59 || t.seconds < 0 || t.seconds > 60) {
-        return;
-    }
-    // RMC gives a two-digit year; 2000 + it holds until 2099.
-    uint32_t gps_utc = pipeline_unix_epoch((uint16_t)(2000 + d.year), (uint8_t)d.month,
-                                           (uint8_t)d.day, (uint8_t)t.hours, (uint8_t)t.minutes,
-                                           (uint8_t)t.seconds);
-    if(gps_utc == 0) return;
+    int64_t gps_ms = 0;
+    bool gps_ok = gps_time_ms(s, &gps_ms) && !gps_cardputer_behind(gps);
+    struct timeval now;
+    gettimeofday(&now, nullptr);
+    int64_t clock_ms = (int64_t)now.tv_sec * 1000 + now.tv_usec / 1000;
 
-    time_t sys = time(nullptr);
-    int32_t diff = (int32_t)((int64_t)sys - (int64_t)gps_utc);
-    if(g_set && diff > -RESYNC_S && diff < RESYNC_S) return;
+    bool was_set = g_rule.clock_set;
+    if(!clock_rule_look(&g_rule, gps_ok, gps_ms, clock_ms)) return;
 
     struct timeval tv;
-    tv.tv_sec = (time_t)gps_utc;
-    tv.tv_usec = (t.microseconds >= 0 && t.microseconds < 1000000) ? t.microseconds : 0;
+    tv.tv_sec = (time_t)(gps_ms / 1000);
+    tv.tv_usec = (suseconds_t)(gps_ms % 1000) * 1000;
     settimeofday(&tv, nullptr);
-    if(g_set) {
-        Serial.printf("[Clock] reset from GPS (was %ld s out)\n", (long)diff);
+    if(was_set) {
+        Serial.printf("[Clock] reset from GPS (was %ld ms out)\n", (long)(clock_ms - gps_ms));
     } else {
-        Serial.printf("[Clock] set from GPS: 20%02d-%02d-%02d %02d:%02d:%02d UTC\n", d.year,
-                      d.month, d.day, t.hours, t.minutes, t.seconds);
+        Serial.printf("[Clock] set from GPS: 20%02d-%02d-%02d %02d:%02d:%02d UTC\n", s.date.year,
+                      s.date.month, s.date.day, s.time.hours, s.time.minutes, s.time.seconds);
     }
-    g_set = true;
 }
 
 bool clock_cardputer_is_set(void) {
-    return g_set;
+    return g_rule.clock_set;
 }
 
-void clock_cardputer_now(SessionDateTime* out) {
+void clock_cardputer_now(SessionDateTime* out, int32_t* utc_offset_s) {
     time_t now = time(nullptr);
     struct tm tm;
     localtime_r(&now, &tm);
@@ -79,4 +89,18 @@ void clock_cardputer_now(SessionDateTime* out) {
     out->hour = (uint8_t)tm.tm_hour;
     out->minute = (uint8_t)tm.tm_min;
     out->second = (uint8_t)tm.tm_sec;
+    if(utc_offset_s) {
+        uint32_t local = pipeline_unix_epoch(out->year, out->month, out->day, out->hour,
+                                             out->minute, out->second);
+        *utc_offset_s = local ? (int32_t)((int64_t)local - (int64_t)now) : 0;
+    }
+}
+
+uint32_t clock_cardputer_epoch(int32_t utc_offset_s) {
+    time_t now = time(nullptr);
+    struct tm tm;
+    gmtime_r(&now, &tm);
+    // Same "not set" rule as pipeline_unix_epoch() (before 2020).
+    if(tm.tm_year + 1900 < 2020) return 0;
+    return (uint32_t)((int64_t)now + utc_offset_s);
 }
