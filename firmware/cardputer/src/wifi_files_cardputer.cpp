@@ -7,7 +7,6 @@
 #include <dirent.h>
 #include <errno.h>
 #include <esp_mac.h>
-#include <esp_random.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -62,7 +61,6 @@ static struct {
     M5Canvas*  canvas = nullptr;
     uint8_t*   io_buf = nullptr;
     char       ssid[32] = "";
-    char       password[WIFI_FILES_PASS_LEN + 1] = "";
     char       qr_wifi[80] = "";
     char       qr_url[48] = "";
     char       status_line[48] = "";
@@ -790,15 +788,10 @@ bool wifi_files_start(M5Canvas& canvas) {
         wifi_files_stop();
         return false;
     }
-    // New random password every time the screen opens, made after the radio
-    // is on so esp_fill_random() draws on true RF noise. Phones that scan the
-    // QR code join without typing it.
-    uint8_t rnd[WIFI_FILES_PASS_LEN];
-    esp_fill_random(rnd, sizeof(rnd));
-    wifi_files_format_password(rnd, g_wf.password, sizeof(g_wf.password));
-    wifi_files_format_wifi_qr(g_wf.ssid, g_wf.password, g_wf.qr_wifi, sizeof(g_wf.qr_wifi));
+    // Open hotspot: no password, so anyone in range can join and use the page.
+    wifi_files_format_wifi_qr(g_wf.ssid, NULL, g_wf.qr_wifi, sizeof(g_wf.qr_wifi));
 
-    if(!WiFi.softAP(g_wf.ssid, g_wf.password)) {
+    if(!WiFi.softAP(g_wf.ssid)) {
         Serial.println("[WiFi] warning: failed to start hotspot");
         wifi_files_stop();
         return false;
@@ -878,7 +871,6 @@ void wifi_files_stop(void) {
     g_wf.status_timed = false;
     g_wf.canvas = nullptr;
     g_wf.client_count = 0;
-    g_wf.password[0] = '\0';
     g_wf.qr_wifi[0] = '\0';
 
     if(was_active) {
@@ -976,8 +968,7 @@ void wifi_files_draw(M5Canvas& canvas) {
     if(!g_wf.show_url_qr) {
         draw_fit(canvas, "1. Join Wi-Fi", 2, TFT_CYAN);
         draw_fit(canvas, g_wf.ssid, 20, TFT_WHITE);
-        draw_fit(canvas, "Password", 40, COL_MUTED);
-        draw_fit(canvas, g_wf.password, 56, TFT_GREEN);
+        draw_fit(canvas, "No password", 40, COL_MUTED);
     } else {
         draw_fit(canvas, "2. Open page", 2, TFT_CYAN);
         const char* host = strncmp(g_wf.qr_url, "http://", 7) == 0 ? g_wf.qr_url + 7 : g_wf.qr_url;

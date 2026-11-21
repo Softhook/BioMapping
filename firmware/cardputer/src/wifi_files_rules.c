@@ -35,20 +35,6 @@ void wifi_files_format_ssid(const uint8_t mac[6], char* out, size_t out_sz) {
     snprintf(out, out_sz, "BioMapping-%02X%02X", (unsigned)mac[4], (unsigned)mac[5]);
 }
 
-void wifi_files_format_password(const uint8_t rand_bytes[WIFI_FILES_PASS_LEN],
-                                char* out, size_t out_sz) {
-    static const char ALPHABET[] = "abcdefghijkmnpqrstuvwxyz23456789";
-    _Static_assert(sizeof(ALPHABET) - 1 == 32, "alphabet must have 32 characters");
-    if(!out || out_sz == 0) return;
-    size_t n = 0;
-    if(rand_bytes) {
-        for(; n < WIFI_FILES_PASS_LEN && n + 1 < out_sz; n++) {
-            out[n] = ALPHABET[rand_bytes[n] & 0x1Fu];
-        }
-    }
-    out[n] = '\0';
-}
-
 // Appends `src` to out[*pos], escaping Wi-Fi QR special characters. Stops
 // early rather than splitting an escape pair, always leaving `reserve` bytes.
 static void qr_append(char* out, size_t out_sz, size_t* pos, const char* src,

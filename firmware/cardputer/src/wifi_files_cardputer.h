@@ -2,10 +2,8 @@
 
 // Wi-Fi Files screen on the Cardputer ADV.
 //
-// Starts a password-protected Wi-Fi hotspot ("BioMapping-XXXX", new random
-// password each time, shown on screen and in the join QR code) and a small
-// HTTP file server
-// serving /sd/biomapping/*.csv so walks can be downloaded onto a phone, tablet,
+// Starts an open Wi-Fi hotspot ("BioMapping-XXXX", no password; a join QR code
+// is shown on screen) and a small HTTP file server serving /sd/biomapping/*.csv so walks can be downloaded onto a phone, tablet,
 // or laptop without removing the SD card or plugging in a USB cable.
 //
 // Radio rule: Wi-Fi is switched on only while this screen is open and is torn

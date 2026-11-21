@@ -509,25 +509,6 @@ static void test_wifi_ssid_qr_size_json(void) {
     wifi_files_format_wifi_qr(buf, "k7mp2xqa9d", tiny, sizeof(tiny));
     assert(strlen(tiny) < sizeof(tiny));
 
-    // Password: right length, only easy characters, every byte value maps.
-    uint8_t rnd[WIFI_FILES_PASS_LEN];
-    char pass[WIFI_FILES_PASS_LEN + 1];
-    for(unsigned start = 0; start < 256; start += WIFI_FILES_PASS_LEN) {
-        for(size_t i = 0; i < WIFI_FILES_PASS_LEN; i++) rnd[i] = (uint8_t)(start + i);
-        wifi_files_format_password(rnd, pass, sizeof(pass));
-        assert(strlen(pass) == WIFI_FILES_PASS_LEN);
-        for(size_t i = 0; i < WIFI_FILES_PASS_LEN; i++) {
-            assert(strchr("abcdefghijkmnpqrstuvwxyz23456789", pass[i]) != NULL);
-            assert(pass[i] != 'l' && pass[i] != 'o' && pass[i] != '0' && pass[i] != '1');
-        }
-    }
-    memset(rnd, 0, sizeof(rnd));
-    wifi_files_format_password(rnd, pass, sizeof(pass));
-    assert(strcmp(pass, "aaaaaaaaaa") == 0);
-    memset(rnd, 0xFF, sizeof(rnd));
-    wifi_files_format_password(rnd, pass, sizeof(pass));
-    assert(strcmp(pass, "9999999999") == 0);
-
     wifi_files_format_size(0, buf, sizeof(buf));
     assert(strcmp(buf, "0 B") == 0);
     wifi_files_format_size(512, buf, sizeof(buf));
@@ -552,7 +533,7 @@ static void test_wifi_ssid_qr_size_json(void) {
     assert(d == ((1u << 5) | 1u) && t == 0u);
     wifi_files_dos_datetime_from_name("biomap_2024-02-29_12-00-00.csv", &d, &t);
     assert(d == (((2024u - 1980u) << 9) | (2u << 5) | 29u));
-    printf("  SSID, password, QR, size, JSON escape, DOS datetime: ok\n");
+    printf("  SSID, QR, size, JSON escape, DOS datetime: ok\n");
 }
 
 typedef struct {

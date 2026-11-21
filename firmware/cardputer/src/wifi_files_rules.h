@@ -4,7 +4,7 @@
 // firmware/tests/test_cardputer_rules.c):
 //   - strict .csv filename validation (blocks path traversal and non-CSV files
 //     such as biomap.settings, biomap.cal, and macOS ._ AppleDouble files)
-//   - hotspot SSID, password, and Wi-Fi QR code formatting
+//   - hotspot SSID and Wi-Fi QR code formatting
 //   - human-readable byte sizes and JSON string escaping
 //   - parsing MS-DOS date/time from biomap_YYYY-MM-DD_HH-MM-SS.csv filenames
 
@@ -29,16 +29,6 @@ bool wifi_files_name_valid(const char* name);
 // Formats the open hotspot name "BioMapping-XXXX" from the last two bytes of
 // the 6-byte hardware MAC address.
 void wifi_files_format_ssid(const uint8_t mac[6], char* out, size_t out_sz);
-
-// Length of the hotspot password (WPA2 needs at least 8 characters).
-#define WIFI_FILES_PASS_LEN 10
-
-// Turns WIFI_FILES_PASS_LEN random bytes into an easy-to-type password made of
-// lowercase letters and digits 2-9, leaving out look-alikes (0/o, 1/l). The
-// alphabet has exactly 32 characters so every byte maps without bias.
-// `out_sz` must be at least WIFI_FILES_PASS_LEN + 1.
-void wifi_files_format_password(const uint8_t rand_bytes[WIFI_FILES_PASS_LEN],
-                                char* out, size_t out_sz);
 
 // Formats a Wi-Fi QR payload. With a non-empty `password` this is
 // "WIFI:T:WPA;S:<ssid>;P:<password>;;"; with NULL or "" it is an open network
