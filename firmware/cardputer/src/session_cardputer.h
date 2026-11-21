@@ -8,6 +8,7 @@
 // (gsr_cardputer.cpp); GPS bytes are parsed on the main loop
 // (gps_cardputer.cpp).
 
+#include "biomap_screen.h"
 #include "biomap_session.h"
 #include "sd_logger.h"
 
@@ -15,7 +16,9 @@
 struct CardputerSession {
     SessionCore core;
     SdLogger*   logger = nullptr;
+    ScreenCache screen;
     bool        open = false;  // between session_cardputer_begin() and _end()
+    uint32_t    last_step_ms = 0;  // when the graph ring buffer last stepped forward
 };
 
 extern CardputerSession g_session;

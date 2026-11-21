@@ -363,6 +363,17 @@ void gps_cardputer_stop(GpsUart* gps) {
     delete g;
 }
 
+bool gps_cardputer_cold_reset(GpsNavModel nav_model, bool super_s) {
+    GpsUart* gps = gps_cardputer_start(nav_model, super_s);
+    bool ok = gps && gps_uart_is_ready(gps);
+    if(ok) {
+        gps_uart_send_cold_start(gps);
+        delay(300);
+    }
+    if(gps) gps_cardputer_stop(gps);
+    return ok;
+}
+
 void gps_cardputer_poll(GpsUart* gps) {
     if(!gps) {
         idle_watch_poll();

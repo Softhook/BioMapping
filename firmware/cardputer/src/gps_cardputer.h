@@ -25,6 +25,11 @@ GpsUart* gps_cardputer_start(GpsNavModel nav_model, bool super_s);
 // freed.
 void gps_cardputer_stop(GpsUart* gps);
 
+// Options > Cold Reset GPS: wakes the module, sends a cold-start reset to
+// wipe what its backup RAM remembers, waits 300 ms, and puts it back to
+// sleep. Returns true if the module was reached.
+bool gps_cardputer_cold_reset(GpsNavModel nav_model, bool super_s);
+
 // Call every pass of the main loop, with or without a session (`gps` may
 // be NULL). With a session it parses the bytes that have arrived; the
 // session lock must NOT be held (a reconfigure inside waits for seconds).

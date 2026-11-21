@@ -7,6 +7,7 @@
 #include "gps_cardputer.h"
 #include "gsr_cardputer.h"
 #include "sd_cardputer.h"
+#include "settings_cardputer.h"
 #include "tick_schedule.h"
 
 CardputerSession g_session;
@@ -14,15 +15,7 @@ CardputerSession g_session;
 static SemaphoreHandle_t g_mutex = nullptr;
 static TickSchedule      g_ticks = {};
 
-// Settings, as the Flipper's defaults (biomap.c) until the Cardputer has an
-// Options screen. No calibration yet: the calibration wizard comes with the
-// Cardputer's own screens (step 10).
-static const bool SOUND_ENABLED = true;
-static const bool ZOOM_ENABLED = true;
-static const bool DEBUG_FIELDS_ENABLED = false;
 static const char* const DEVICE_NAME = "Cardputer";
-static const GpsNavModel NAV_MODEL = GpsNavModelPedestrian;
-static const bool SUPER_S = true;
 
 // How long the screen says "Waiting for GPS time" after Enter was pressed
 // too early.
@@ -39,6 +32,7 @@ static bool     g_no_time_notice = false;
 
 static void plat_lock(void* ctx) {
     (void)ctx;
+    if(!g_mutex) g_mutex = xSemaphoreCreateMutex();
     xSemaphoreTake(g_mutex, portMAX_DELAY);
 }
 
@@ -59,7 +53,7 @@ static void plat_delay_ms(void* ctx, uint32_t ms) {
 
 static void plat_cue(void* ctx, BioMapCue cue) {
     (void)ctx;
-    cues_cardputer_play(SOUND_ENABLED, cue);
+    cues_cardputer_play(g_session.core.settings.sound_enabled, cue);
 }
 
 static void plat_log(void* ctx, SessionLogLevel level, const char* line) {
@@ -153,12 +147,16 @@ static SessionPlatform session_platform(void) {
 
 static SessionSettings session_settings(void) {
     SessionSettings cfg = {};
-    cfg.sound_enabled = SOUND_ENABLED;
-    cfg.zoom_enabled = ZOOM_ENABLED;
-    cfg.debug_fields_enabled = DEBUG_FIELDS_ENABLED;
+    cfg.sound_enabled = g_settings.sound_enabled;
+    cfg.zoom_enabled = g_settings.zoom_enabled;
+    cfg.debug_fields_enabled = g_settings.debug_fields_enabled;
     cfg.device_name = DEVICE_NAME;
-    cfg.cal_active = false;
-    cfg.cal_gain = 1.0f;
+    cfg.cal_active = g_settings.cal_active;
+    cfg.cal_gain = g_settings.cal_gain;
+    cfg.cal_zero_counts = g_settings.cal_zero_counts;
+    cfg.cal_r_squared = g_settings.cal_r_squared;
+    memcpy(cfg.cal_noise_std_dev, g_settings.cal_noise_std_dev, sizeof(cfg.cal_noise_std_dev));
+    cfg.cal_timestamp = g_settings.cal_timestamp;
     return cfg;
 }
 
@@ -173,12 +171,14 @@ void session_cardputer_begin(BioMapMode mode) {
     SessionSettings cfg = session_settings();
     session_cardputer_lock();
     session_core_init(&g_session.core, mode, &platform, &cfg);
+    screen_cache_init(&g_session.screen);
     session_cardputer_unlock();
 
     // Mounted at the first session; does nothing once it is.
     sd_card_mount();
     // Takes a few hundred ms while the module wakes and is set up.
-    GpsUart* gps = session_mode_needs_gps(mode) ? gps_cardputer_start(NAV_MODEL, SUPER_S) : nullptr;
+    GpsUart* gps = session_mode_needs_gps(mode)
+        ? gps_cardputer_start(g_settings.nav_model, g_settings.super_s) : nullptr;
     GsrSensor* gsr = session_mode_needs_gsr(mode) ? gsr_cardputer_start() : nullptr;
     if(gsr) gsr_sensor_set_calibration(gsr, cfg.cal_active, cfg.cal_gain, cfg.cal_zero_counts);
     SdLogger* logger = session_mode_records(mode) ? sd_cardputer_alloc() : nullptr;
@@ -188,6 +188,7 @@ void session_cardputer_begin(BioMapMode mode) {
     g_session.core.gsr = gsr;
     g_session.logger = logger;
     g_session.open = true;
+    g_session.last_step_ms = millis();
     session_cardputer_unlock();
     tick_schedule_restart(&g_ticks, millis());
 }
@@ -216,7 +217,11 @@ bool session_cardputer_poll(void) {
     int waiting = due > 1 ? gps_cardputer_waiting_bytes() : 0;
     for(uint32_t k = 1; k <= due; k++) {
         if(due > 1) gps_cardputer_parse_down_to(gps, tick_schedule_gps_bytes_left(waiting, due, k));
+        int prev_head = g_session.core.pipeline.graph.head;
         if(session_core_tick(&g_session.core)) redraw = true;
+        if(g_session.core.pipeline.graph.head != prev_head) {
+            g_session.last_step_ms = millis();
+        }
         tick_schedule_ran(&g_ticks);
     }
     tick_schedule_after_run(&g_ticks, due, millis());

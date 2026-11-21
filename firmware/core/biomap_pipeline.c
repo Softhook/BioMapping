@@ -129,7 +129,7 @@ void pipeline_update_graph(Pipeline* p) {
     p->graph.tick_counter++;
     if(p->graph.tick_counter >= p->graph.scroll_divider) {
         float rate = p->display.smoothed - p->graph.last_smoothed;
-        p->graph.buf[p->graph.head] = -(rate / (float)p->graph.scroll_divider) * GRAPH_RATE_SCALE;
+        p->graph.buf[p->graph.head] = (rate / (float)p->graph.scroll_divider) * GRAPH_RATE_SCALE;
         if(++p->graph.head >= GRAPH_N) p->graph.head = 0;
         p->graph.last_smoothed = p->display.smoothed;
         p->graph.tick_counter = 0;

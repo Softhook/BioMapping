@@ -226,11 +226,11 @@ void test_update_graph_scroll_divider_gating() {
     assert(p.graph.head == 0);
 
     // Third tick reaches the divider: rate = 6.0 - 0 (last_smoothed still
-    // primed at 0) over 3 ticks -> buf = -(6.0/3)*GRAPH_RATE_SCALE = -0.4.
+    // primed at 0) over 3 ticks -> buf = (6.0/3)*GRAPH_RATE_SCALE = 0.4.
     pipeline_update_graph(&p);
     assert(p.graph.tick_counter == 0);
     assert(p.graph.head == 1);
-    assert(fabsf(p.graph.buf[0] - (-0.4f)) < 1e-5f);
+    assert(fabsf(p.graph.buf[0] - 0.4f) < 1e-5f);
     assert(p.graph.last_smoothed == 6.0f);
     printf("  -> Pass\n");
 }
@@ -325,7 +325,7 @@ void test_update_graph_peak_tracks_rising_signal() {
     p.zoom.manual_timeout = 0;
     p.zoom.level = 1.0f;
     p.zoom.peak = 1.0f;
-    p.display.smoothed = -5.0f;   // rate = -5 - 0 = -5 -> buf = 1.0 (positive)
+    p.display.smoothed = 5.0f;   // rate = 5 - 0 = 5 -> buf = 1.0 (positive)
 
     pipeline_update_graph(&p);
 
