@@ -1,12 +1,36 @@
 # Moving BioMapping 2 to the M5Stack Cardputer ADV
 
-This document describes what it would take to run BioMapping 2 on an M5Stack Cardputer ADV instead of a Flipper Zero, and what that change would mean for the project.
+This document covers moving BioMapping 2 onto an M5Stack Cardputer ADV alongside the Flipper Zero: the hardware, the shared software architecture, what has been built so far, and what is still to test.
 
-It assumes **the EM (radio) scan is dropped**. The device would record GSR and GPS only, which is the existing `GPS+GSR` mode.
+It assumes **the EM (radio) scan is dropped**. The Cardputer records GSR and GPS only, which is the existing `GPS+GSR` mode (plus `GSR Only` and `Live Stream`).
 
 The same backpack board should also work on the **CardputerZero**, a Linux version of the Cardputer with the same shape. Section 10 covers what that changes.
 
 Some hardware details below come from M5Stack's documentation and retailer pages, not from a device on the bench. They are marked **(check)**.
+
+---
+
+## Where we are right now (21 November 2026)
+
+**Software — steps 1–11 of the plan are done; step 12 (validation) is next.**
+
+The Flipper firmware has been split into a shared plain-C core ([firmware/core/](../firmware/core/)) and a Flipper layer ([firmware/flipper/](../firmware/flipper/)), and the Cardputer ADV firmware ([firmware/cardputer/](../firmware/cardputer/)) is built, host-tested, and running on a real Cardputer ADV with the prototype GSR + GPS board.
+
+**Working on the Cardputer ADV right now:**
+
+- **Menus, Options and calibration:** colour main menu (`GPS + GSR`, `GSR Only`, `Live Stream`, `Options`), full Options menu, and the non-blocking 4-step GSR Calibration Wizard (using the shared `CalWizardCore` state machine). Settings (`biomap.settings`) and calibration (`biomap.cal`) are saved atomically to `/sd/biomapping/` on the built-in SD card.
+- **Recording (`GPS + GSR` and `GSR Only`):** writes the same CSV format, headers (`# GSR Bias`, `# GPSChipID`), and CRC `# End` integrity trailers as the Flipper, using 8 MB pre-allocation and whole 512-byte block writes. Clock is set automatically from GPS in UK local time (GMT/BST); `GPS + GSR` waits for GPS time before starting.
+- **Recording screen and Diagnostics:** uses the shared screen layout (`core/biomap_screen.c`) for the top bar and Diagnostics, plus a native 240 × 135 smooth 30 FPS GSR spline graph via `ScreenDraw.draw_graph`. Sound cues share the Flipper's tone palette (`biomap_cue_notes()`).
+- **Bluetooth Live Stream:** advertises as `Cardputer` with the visualiser's Live service and notify UUIDs (52-byte MTU for 49-byte packets every 300 ms), verified against a Mac BLE client. Leaving Live Stream disconnects and switches Bluetooth off completely (`BLEDevice::deinit(false)`).
+- **USB thumb drive mode:** pressing `U` outside a recording lends the built-in microSD card to a computer over USB-C (`USBMSC` alongside `USBCDC` logging) so `.csv` files can be dragged off without removing the card.
+
+**What is still to do (step 12 and pending checks):**
+
+- **Cardputer checks:** run the calibration wizard and repeat the 47k / resistor-grid accuracy test; 1-minute typing test during a recording; step 9 review checks (row 0 `tick_dt_ms` = 0, first SD write under 100 ms, GPS unplug not resetting clock, garbled-byte wake check, outdoor cold start); multi-visit Live Stream reconnect and free-heap check; and a long recording.
+- **Flipper checks:** confirm steps 5–6, 8, and the recent shared-core updates on a real Flipper (recording start and `# End` check, all screens, rising-GSR upward graph direction, and the shared calibration wizard).
+- **Side-by-side walks:** record walks wearing both the Flipper and Cardputer together and compare GSR traces and GPS tracks in the visualiser.
+- **Hardware:** the backpack PCB ([hardware/biomap_cardputer/](../hardware/biomap_cardputer/)) and flex tail ([hardware/biomap_cardputer_tail/](../hardware/biomap_cardputer_tail/)) are laid out in KiCad and pass ERC/DRC, still to verify against a real Cardputer EXT socket and order. Current tests run off the prototype board.
+- **Later / optional (step 13):** Wi-Fi Files screen with streaming ZIP download, faster GSR reading (hardware timer or G4 `ALERT/RDY` pin), 3D-printed cover, keyboard field notes, and the CardputerZero port.
 
 ---
 
@@ -20,8 +44,6 @@ The Flipper Zero works well, but it was not designed for this job. The Cardputer
 - a microSD card slot
 - Bluetooth and Wi-Fi
 - a Grove port and a 14-pin expansion header (called "EXT") on the back
-
-The questions are whether the move is worth the work, and what changes for the people using the device.
 
 ---
 
@@ -38,13 +60,7 @@ Because the sensors are the same, the readings should match the Flipper's, as lo
 
 ### Where the electronics go
 
-The Cardputer ADV's 14-pin EXT header sits on the back of the device **(check)**. It carries I2C, UART, SPI, 5 V and ground, but **no 3.3 V** (see "Power and connections" below). M5Stack's own add-on boards (they call them "Caps") lie flat against the back, so the electronics can sit underneath and the device keeps its shape.
-
-Options:
-
-1. **A ready-made proto board.** The [Cardputer Prototyping Bread Board Expansion](https://lectronz.com/products/cardputer-prototyping-bread-board-expansion) on Lectronz plugs into the EXT header. It is not clear whether it lies flat under the device or sticks out past the edge, or whether it was made for the ADV. The listing says it ships to the US only. Ask the seller before buying.
-2. **A home-made Cap.** Standard perfboard (2.54 mm hole spacing), cut to the size of the back, with a 2×7 female header. Use M5Stack's official mechanical drawings for the header position, not photos.
-3. **Later, a printed circuit board.** Once the perfboard layout works, it can become a small custom PCB. This matters for workshops (see section 6).
+The Cardputer ADV's 14-pin EXT header sits on the back of the device **(check)**. It carries I2C, UART, SPI, 5 V and ground, but **no 3.3 V** (see "Power and connections" below). M5Stack's own add-on boards (they call them "Caps") lie flat against the back, so our custom backpack PCB (`hardware/biomap_cardputer/`) sits underneath and the device keeps its shape.
 
 The Grove port is not enough on its own. It has two signal pins, so it can carry the GPS *or* the I2C bus, not both. Using EXT for everything keeps the Grove port free.
 
@@ -99,7 +115,7 @@ So the Cap needs **its own 3.3 V regulator**, a small chip that turns the 5 V in
 
 The signal pins are fine as they are. The ESP32 uses 3.3 V logic, the same as the Flipper, so the I2C and serial lines connect directly with no level shifting.
 
-EXT pins we would use:
+EXT pins used:
 
 | EXT pin | Signal | ESP32 pin | Connects to |
 |---|---|---|---|
@@ -150,7 +166,7 @@ None of the addresses clash, so sharing works electrically.
   The keyboard only reads the bus after a key press (the keyboard chip signals it on G11), so it rarely makes the GSR thread wait, and then only for a fraction of a millisecond.
 - **Bus speed.** All four parts support 400 kHz. At 860 readings a second, the GSR reads keep the bus busy roughly 40% of the time at 100 kHz and about 10% at 400 kHz (an estimate). The keyboard only uses the bus when a key is pressed, so there is room either way, but 400 kHz leaves more.
 - **Pull-up resistors.** The Cardputer already has them: the [official schematic](https://m5stack-doc.oss-cn-shenzhen.aliyuncs.com/1178/Sch_M5CardputerAdv_v1.0_2025_06_20_17_19_58.pdf) (page 2, beside the keyboard chip) shows 3.3 kΩ from G8 (R35) and G9 (R36) to the Cardputer's 3.3 V. That value suits 400 kHz with our short flex tail added, so our board has no pull-ups of its own. They run from the Cardputer's 3.3 V, not our regulator's, which is fine: the ADS1115's I2C pins accept up to 5.5 V whatever its own supply. To check a real unit, switch the Cardputer on with nothing plugged into the EXT header and measure the voltage from SDA and from SCL to GND. Each should read about 3.3 V, which shows the pull-ups are there. Measuring resistance with the power off is less reliable: the protection diodes in the chips on the bus can let the meter's current through and give a low reading.
-- **Test early.** In the first Cardputer step, read the ADS1115 and the keyboard together before building anything else. Also leave it running for an hour and check that the keys still respond: one Cardputer app reported the keyboard stopping after 10–20 minutes ([issue #12](https://github.com/Mr-PauI/Gameboy-Enhanced-Firmware-m5stack-cardputer-/issues/12)). Found since: a race in M5Cardputer 1.1.1's keyboard reader, now worked round (section 9, "Second review").
+- **Keyboard lock-up workaround.** M5Cardputer 1.1.1 has a race in its keyboard reader that can leave G11 stuck low after 10–20 minutes ([issue #12](https://github.com/Mr-PauI/Gameboy-Enhanced-Firmware-m5stack-cardputer-/issues/12)). `keys.cpp` detects G11 held low and restarts the keyboard controller (section 9, "Second review").
 
 If the shared bus still causes trouble, the ADS1115 can go on the Grove port instead (G2 and G1 as a separate I2C bus). The Bruce report shows that port working when G8/G9 did not. The M10Q stays on the EXT serial pins.
 
@@ -214,9 +230,9 @@ The schematic and the online pin table number the EXT header differently. The sc
 
 ## 3. Software: the overall approach
 
-The Flipper app is about 7,400 lines of C written against the Flipper's own system library. That library does not exist on the Cardputer, so the code cannot run as it is.
+The Flipper app was originally about 7,400 lines of C written against the Flipper's own system library. That library does not exist on the Cardputer, so the code could not run as it was.
 
-But much of it is not really about the Flipper. The signal processing, the CSV format, the GPS setup commands, the GSR gain rules and most of the session logic are plain calculations. Only the parts that touch hardware (threads, the serial port, I2C, files, Bluetooth, the screen, the LED) are Flipper-specific.
+Much of it is not really about the Flipper: the signal processing, CSV format, GPS setup commands, GSR gain rules, SD logging, calibration wizard, and session logic are plain calculations. Only the parts that touch hardware (threads, the serial port, I2C, files, Bluetooth, the screen, the LED) are device-specific.
 
 ### The approach: one shared core, one folder per device
 
@@ -233,11 +249,12 @@ firmware/
 ```
 
 - **`core/`** holds code that works things out but never touches hardware:
-  - signal processing and the CSV format (already free of Flipper code today)
+  - signal processing, the CSV format, and the calibration fit
   - GPS logic: building the M10Q setup commands, reading its replies, the standby rules
   - GSR logic: gain switching, settling, converting to nanosiemens
-  - session logic: start and stop, what each second does, building rows, which events happen
-  - the screen layout, drawn through a small drawing interface
+  - session logic and the 4-step calibration wizard (`CalWizardCore`): start and stop, what each second does, building rows, named cues and shared tone palette
+  - SD logging: row batching, 8 MB pre-allocation, `# End` CRC trailers, optional whole-block writes
+  - the recording screen layout, drawn through a small drawing interface (`ScreenDraw`, plus an optional native `draw_graph` hook)
 - **`flipper/`** holds what only the Flipper has: the app entry point, threads, the serial port, I2C, the SD card, Bluetooth, the LED and sounds, and all of the radio (EM) scan code.
 - **`cardputer/`** holds the same kinds of parts, written for the ESP32.
 
@@ -289,7 +306,7 @@ Yes, easily. The Flipper runs the main thread, the GSR thread and its own Blueto
 
 None of these stops the port, but each would cause a confusing fault if missed.
 
-- **Bluetooth message size.** Each live packet is 49 bytes ([bt_stream.h](../firmware/modules/bt_stream.h)). By default, ESP32 Bluetooth sends only 20 bytes per message. The Cardputer must ask for bigger messages when a connection opens. Otherwise packets arrive cut short and the Live tab shows nothing. It must also use the same service and characteristic IDs that the visualiser looks for (see "Bluetooth" in section 4).
+- **Bluetooth message size.** Each live packet is 49 bytes (`BT_STREAM_PACKET_SIZE` in [core/biomap_format.h](../firmware/core/biomap_format.h)). By default, ESP32 Bluetooth sends only 20 bytes per message, so [bt_cardputer.cpp](../firmware/cardputer/src/bt_cardputer.cpp) raises the MTU to 52 bytes and uses the same service and characteristic IDs as the visualiser.
 - **One I2C driver, not two.** M5Stack's own library already uses the I2C bus for the keyboard and audio chip. If the GSR code opens the same pins through a second, separate driver (such as Arduino's `Wire`), the two fight over the bus and readings go wrong at random. The GSR code must go through the same driver as M5Stack's library.
 - **Keep the GPS serial port open all the time.** A sleeping M10Q wakes on any signal on its receive wire. On the Flipper, letting go of the port left that wire floating, and the module woke within seconds ([gps_uart_flipper.c](../firmware/flipper/gps_uart_flipper.c), [gps_sleep_investigation.md](../research/archive/gps_sleep_investigation.md)). The Cardputer must do what the Flipper does: open the port when the app starts and hold it until the app exits.
 - **C-only features in shared headers.** The Arduino setup compiles its own code as C++. [bt_stream.h](../firmware/modules/bt_stream.h) uses `_Atomic`, a C-only feature that C++ cannot read. Keep such details inside `.c` files, so every shared header can be read by both. Shared headers also need the usual `extern "C"` wrapper.
@@ -299,53 +316,39 @@ None of these stops the port, but each would cause a confusing fault if missed.
 
 ## 4. Software: piece by piece
 
-| Part | Current files | Shared in `core/` | Written for each device | Size |
+| Part | Shared in `core/` | Flipper (`flipper/` + `firmware/`) | Cardputer (`cardputer/src/`) | Status |
 |---|---|---|---|---|
-| Signal processing, CSV format, settings | `biomap_pipeline.c`, `biomap_format.c`, `biomap_config.h`, minmea | All of it. Already free of Flipper code. | Nothing | Small (a move) |
-| GSR sensor | `gsr_sensor.c` | ADS1115 gain switching, settling rules, conversion to nanosiemens, the zero reading from the calibration wizard's Zero step, and the 0.5 V bias check at the start of each recording (written to the `# GSR Bias` header line) | The GSR thread and the I2C read/write | Small |
-| GPS | `gps_uart.c` | M10Q setup commands, reading its replies, speed change and standby/wake rules, parsing (minmea) | Sending bytes and collecting the bytes that arrive. The Flipper gets them one at a time from an interrupt; the ESP32's serial driver stores them for the main loop. | Medium |
-| Session | `biomap_session.c` | Start and stop, what each second does, building CSV rows, which events happen | The main loop, locks and screen refresh | Medium |
-| Notifications | `biomap_session.c`, `biomap.c` | Named events ("recording started", "GPS fix", "write error"), including the rules about when sounds may play | The response: LED and sounds on the Flipper, beeps on the Cardputer (no vibration motor) | Small |
-| Screen | `biomap_render.c` (~1,000 lines) | The current screen layout, drawn through 10 basic drawing calls. The recording screen is done (step 6, `core/biomap_screen.c`); the menus wait for step 10. | Those drawing calls, stretched to fit the screen, using the same fonts. See below. | Medium |
-| Keys and menus | `biomap_gui.c` | Possibly the menu logic | Reading keys | Small to medium |
-| SD card | `sd_logger.c` | Batching rows, the `# End` check line, file names, whole-block writes (done, step 8: `core/sd_logger.c`) | Opening, writing and closing files. The Cardputer writes in whole 512-byte blocks (see "SD card pauses" in section 5). | Small |
-| Bluetooth live stream | `bt_stream.c` (~180 lines) | Packet format (already shared) | The Bluetooth code. The bench used Arduino's standard Bluetooth library with the message size raised to 52 bytes, which is enough; NimBLE would also work. | Medium |
-| Clock | `biomap.c` | | Reading the time. See below. | Small code change, but it changes how the device behaves |
-| EM scan | `em_scan_rf.c`, `em_scan_cal.c`, `em_scan_sampler.c`, `biomap_rf_cal.c` | Nothing | Stays in `flipper/` only | None |
-| Flipper-only extras | `biomap.c` | | The "expansion" calls stay in `flipper/` | None |
-| Build setup | `application.fam`, `run_tests.sh` | | `application.fam` lists files from `core/` and `flipper/`. A new PlatformIO project in `cardputer/`. | Small |
+| Signal processing, CSV format, settings | `biomap_pipeline.c`, `biomap_format.c`, `biomap_config.h`, `biomap_types.h`, minmea | `biomap_gui.c` / `biomap.c` | `settings_cardputer.cpp` (atomic SD persistence) | Done (steps 1, 10) |
+| GSR sensor | `gsr_sensor.c` (ADS1115 gain switching, settling, nS conversion, zero & 0.5 V bias check) | `gsr_sensor_flipper.c` | `gsr_cardputer.cpp` (GSR thread via `M5.In_I2C`) | Done (steps 2, 8) |
+| GPS | `gps_uart.c` (M10Q setup, replies, speed change, standby/wake, minmea parsing) | `gps_uart_flipper.c` | `gps_cardputer.cpp`, `wake_watch.c` (UART 1, wake check, Cold Reset) | Done (steps 3, 9) |
+| Session & calibration wizard | `biomap_session.c` (start/stop, 10 Hz tick, CSV rows, `CalWizardCore` 4-step state machine) | `biomap_session_flipper.c`, `biomap_gui.c` | `session_cardputer.cpp`, `tick_schedule.c` | Done (steps 5, 8, 10) |
+| Notifications & tones | `biomap_cues.h` (20 named cues, sound rules, shared `biomap_cue_notes()` tone palette) | `biomap_cues_flipper.c`, `sound.h` | `cues_cardputer.cpp` | Done (steps 4, 8) |
+| Recording screen | `biomap_screen.c` (128 × 64 layout via `ScreenDraw` + optional `draw_graph` hook) | `biomap_screen_flipper.c` | `screen_cardputer.cpp` (stretched top bar/Diagnostics + native 240 × 135 30 FPS spline graph) | Done (steps 6, 10) |
+| Keys and menus | `CalWizardCore` (in `biomap_session.c`) | `biomap_gui.c`, `biomap_render.c` | `menu_cardputer.cpp` (colour main menu, Options, wizard), `keys.cpp` (plus TCA8418 unstick) | Done (steps 7, 10) |
+| SD card & file transfer | `sd_logger.c` (row batching, 8 MB reserve, `# End` CRC, whole-block writes) | `sd_logger_flipper.c` | `sd_cardputer.cpp` (512-byte blocks + `U` key USB thumb drive mode) | Done (steps 8, 9) |
+| Bluetooth live stream | `bt_stream_pack_packet()` (in `biomap_format.c`) | `modules/bt_stream.c` | `bt_cardputer.cpp` (BLE 52-byte MTU, 49-byte packets, full `deinit` on exit) | Done (step 11) |
+| Clock | — | RTC via `biomap.c` | `clock_cardputer.cpp`, `clock_rule.c`, `clock_local.c` (GPS time in UK GMT/BST) | Done (step 9) |
+| EM scan | Nothing | `modules/em_scan_*.c`, `biomap_rf_cal.c` | None (dropped) | Flipper-only |
+| Build & host tests | Plain C, C++-checked, compiled with no Flipper shims | `application.fam` (`ufbt`), `tests/shims/` | `cardputer/platformio.ini`, `tests/test_cardputer_rules.c` | Done (steps 1–11) |
 
 ### Bluetooth: no visualiser change needed
 
-The visualiser's Live tab finds the Flipper by the Flipper's Bluetooth serial service IDs ([live_bluetooth.mjs](../visualiser/src/live/live_bluetooth.mjs)). It already lists every nearby device rather than filtering by the name "Flipper". If the Cardputer advertises the same service and characteristic IDs and sends the same packet format, the Live tab will connect to it without changes. It must also allow messages of at least 49 bytes (see "Gotchas" in section 3).
-
-Those IDs have not yet been checked against a real Flipper either (see the note in [live_bluetooth.mjs](../visualiser/src/live/live_bluetooth.mjs)). Whatever IDs the Flipper turns out to use, the Cardputer should copy them.
+The visualiser's Live tab finds devices by Bluetooth serial service IDs ([live_bluetooth.mjs](../visualiser/src/live/live_bluetooth.mjs)) rather than filtering by the name "Flipper". [bt_cardputer.cpp](../firmware/cardputer/src/bt_cardputer.cpp) advertises those same service and characteristic IDs with a 52-byte MTU and sends the shared 49-byte packet format, so the Live tab connects without changes. Verified with a Mac BLE client; still to check directly in the browser's Live tab and against a real Flipper.
 
 ### Screen and keys
 
-The screen code uses only about 10 drawing calls (text, lines, boxes, dots, fonts, invert). There are two routes:
+The Cardputer uses a hybrid approach on its 240 × 135 colour display:
 
-- **Quick route.** The screen layout moves into `core/` and draws through a small drawing interface. The Cardputer supplies those calls and stretches every position to fill its screen. It comes almost for free once the layout is shared.
+- **Native colour menus and wizard** ([menu_cardputer.cpp](../firmware/cardputer/src/menu_cardputer.cpp)): the main menu, Options, and 4-step GSR Calibration Wizard (driven by shared `CalWizardCore`) are laid out directly for 240 × 135.
+- **Shared recording screen + native spline graph** ([screen_cardputer.cpp](../firmware/cardputer/src/screen_cardputer.cpp)): the top bar and Diagnostics come from [core/biomap_screen.c](../firmware/core/biomap_screen.c) stretched from 128 × 64 to 240 × 135, while the live GSR graph renders natively at 240 × 135 as a smooth 30 FPS Catmull-Rom spline via the optional `ScreenDraw.draw_graph` hook.
 
-  Simple doubling does not fit: 128×2 is 256 pixels, but the Cardputer screen is only 240 wide. Because the layout draws with calls such as "line from here to there" and "text at this spot", not ready-made pixels, the Cardputer can instead stretch each position by 240/128 (about 1.9) and draw lines and boxes with its own pen.
-
-  Text needs care. The layout measures text widths in 11 places to position things, using the Flipper's two fonts. Those fonts come from u8g2, a common font collection, and M5Stack's screen library can use u8g2 fonts too. Using the same font files keeps every width identical, so nothing moves or overlaps. Text drawn this way stays at its Flipper size unless the font is drawn larger.
-- **Redesign.** Lay out the screens again for a colour 240×135 display, in `cardputer/` only. It looks much better, but it is the largest single task in the port.
-
-Recommendation: do the quick route first and redesign once everything else works.
-
-The app uses the Flipper's six buttons: Up, Down, Left, Right, OK and Back. They map naturally onto the Cardputer's arrow keys, Enter and Esc.
+The Flipper's six buttons map onto the Cardputer's arrow keys (`;` `.` `,` `/`, with or without Fn), Enter, and Esc / Del.
 
 ### The clock
 
 The Flipper keeps the time when switched off. The Cardputer ADV has no battery-backed clock chip (confirmed on the bench), so it loses the time when powered down.
 
-The firmware reads the clock in one place ([biomap.c](../firmware/biomap.c)), so the code change is small. The real effect is on behaviour: the time has to come from the GPS. That means:
-
-- a recording started before the first GPS fix has no correct wall-clock time
-- the file name and the session start time may need to be set, or corrected, once GPS time arrives
-
-The M10Q gives accurate time with its first fix, so in practice this is a short delay at the start of a walk. **Decided: the time and date come from the GPS.** Still to choose: "don't start recording until GPS time is known", or "start anyway and fix the timestamps later".
+Time and date come from the GPS in UK local time (GMT/BST, switching automatically; [clock_cardputer.cpp](../firmware/cardputer/src/clock_cardputer.cpp), [clock_rule.c](../firmware/cardputer/src/clock_rule.c), [clock_local.c](../firmware/cardputer/src/clock_local.c)). `GPS + GSR` blocks recording until GPS time is known, while `GSR Only` records anyway (using GPS time if already found since power-up, otherwise `1970-01-01`).
 
 ### GSR reading speed (later, not part of the first port)
 
@@ -374,7 +377,7 @@ Popping the microSD card out of the Cardputer ADV after every walk is fiddly, an
 2. **Wi-Fi Files plan (for phones, tablets, or workshops without a USB cable).**
    - **Rule: Wi-Fi must never run during a recording or session.** The ESP32's Wi-Fi transmitter draws sharp current bursts (hundreds of mA) right next to the GSR front-end and drains the battery quickly. Wi-Fi must stay completely off (`WiFi.mode(WIFI_OFF)`) at boot and throughout every recording session.
    - **Option A — Separate app via M5Launcher (zero firmware work):** install [M5Launcher](https://github.com/bmorcelli/M5Stick-Launcher) on the Cardputer and keep both `BioMapping.bin` and a pre-built `PocketWUI.bin` from [pocket-wui Releases](https://github.com/AFetisa/pocket-wui/releases) on the SD card. Reboot into PocketWUI whenever full browser file management, WebDAV, or USB drive mode is wanted.
-   - **Option B — Built-in "Wi-Fi Files" screen (step 13 / after step 10's menu):**
+   - **Option B — Built-in "Wi-Fi Files" screen (step 13):**
      - Add a **Wi-Fi Files** item on the main menu (only reachable when no recording session is open).
      - Entering **Wi-Fi Files** turns Wi-Fi on as its own hotspot (for example `BioMapping-XXXX`, or joins a saved workshop Wi-Fi network from a small config file on the SD card) and shows the web address (`http://192.168.4.1`) and a QR code on the Cardputer screen.
      - A small built-in web page lists the `.csv` files in `/sd/biomapping/` with:
@@ -399,10 +402,10 @@ The firmware has been through a lot of real-hardware fixes. The logic carries ov
 - **Bench noise tests: laptop on battery, one device on USB.** A laptop on its charger leaks mains hum onto its USB ground. With a MacBook on its charger, a 1 MΩ resistor jittered by about 18 nS instead of under 1 nS; unplugging the charger cured it. Plug only one device into the laptop at a time. Still to check: whether charging the Cardputer from a wall charger during a recording does the same.
 - **Noise from sound and Bluetooth.** The Flipper code already waits after a tone before trusting GSR readings again (`GSR_TONE_SETTLE_MS`), so the speaker affects the reading even there. On the Cardputer, sound goes through an audio chip and amplifier, and Bluetooth comes from a different radio. Measure both, and check whether that wait is still long enough. Live Stream mode, with Bluetooth sending all the time, matters most.
   - **Done on the bench (prototype board):** Bluetooth sending a Live Stream packet every 300 ms, every backlight level, and the recording-start chirp had no effect on the GSR reading. The chirp test was compared against the same measurement with no sound; both settled within the same time (about 2.9 nS of normal wander), so the 200 ms wait is long enough on the Cardputer.
-  - **Still to do:** the keyboard and the GSR thread sharing the I2C bus (needs the real firmware, step 8), and the Cardputer's own 5 V supply feeding the board's regulator (needs the first printed board; the bench board ran from the Flipper's 3.3 V).
+  - **Still to do:** the 1-minute typing test during a recording (the keyboard and GSR thread already share `M5.In_I2C` in the real firmware since step 8, but the sustained typing check is still to run), and the Cardputer's own 5 V supply feeding the board's regulator (needs the first printed board; the prototype ran from the Flipper's 3.3 V).
 - **SD card pauses.** On the Flipper, writes to the card pause the main thread for 20–60 ms. The ESP32 will have its own pauses. No data is lost, because the GSR thread is separate, but measure the timings again. Both devices reserve 8 MB of file space at the start of a recording ([sd_logger.c](../firmware/core/sd_logger.c)).
   - **Measured on the bench** (about 12 KB every 10 s, the size of one batch): plain writes 34 ms typical / 87 ms worst; with 8 MB reserved 24 / 40 ms; reserved plus writes of exactly 24 whole 512-byte blocks 15 / 57 ms; the same at 40 MHz instead of 25 MHz 14 / 16 ms. The first write after the card is mounted can take about 300 ms once.
-  - **For the Cardputer firmware:** reserve the space and write whole 512-byte blocks, carrying any leftover bytes into the next batch. This stays in `cardputer/`, so the Flipper is unchanged. The faster 40 MHz card speed only helps the worst case and is optional. SD writing did not change the GSR noise.
+  - **In the Cardputer firmware (done, step 8):** reserves 8 MB and writes whole 512-byte blocks, carrying any leftover bytes into the next batch, while leaving the Flipper's writes unchanged. SD writing did not change the GSR noise.
 - **Side-by-side walks.** Record the same walk with both devices worn together. Load both files into the visualiser and compare the GSR traces and GPS tracks.
 - **Host tests.** The shared code in `core/` is tested on a computer once, for both devices, without fake Flipper headers. The existing tests of the Flipper-only parts keep using `tests/shims/`.
 
@@ -444,40 +447,35 @@ The folder layout works either way. If the Flipper is retired later, `flipper/` 
 
 The Flipper keeps working after every step. The host tests run after each step, and the steps marked "Flipper check" need a test on a real Flipper.
 
-Steps 1–6 prepare the shared core on the Flipper. They also tidy the Flipper code, so they are worth doing even if the port stops there. Section 9 tracks their progress.
+Steps 1–6 prepared the shared core on the Flipper, and steps 7–11 built the Cardputer ADV firmware on top of it. Section 9 tracks the details of each step.
 
-| # | Step | Result |
-|---|---|---|
-| 1 | Create the folders. Move the files that are already plain C (signal processing, CSV format, settings, minmea). Fix `application.fam`, `run_tests.sh` and the test paths. | Same Flipper app, new layout |
-| 2 | Move the GSR logic into `core/`, including the Zero step's reading and the bias check at recording start. The smallest real step. | Flipper check |
-| 3 | Move the GPS logic into `core/`. The risky part is the standby/wake sequence, which has been confirmed on real hardware. | Flipper check |
-| 4 | Named events instead of LED patterns, with sounds included. | |
-| 5 | Split the session into shared logic plus the Flipper loop. | Flipper check |
-| 6 | Make the screen layout shared, drawn through the small drawing interface. | Flipper check |
-| 7 | Start the Cardputer project: it builds `core/`, shows something on screen and reads keys. | First Cardputer code |
-| 8 | Cardputer: GSR to SD card, written in whole 512-byte blocks. Compare a recording with the Flipper, and check typing doesn't disturb the GSR. | A useful device |
-| 9 | Cardputer: GPS, plus the clock rule from section 4. | A GPS+GSR logger |
-| 10 | Cardputer: screen (quick route) and keys. | |
-| 11 | Cardputer: Bluetooth live stream. Test the visualiser's Live tab. | Done (see section 9) |
-| 12 | The resistor-grid test and side-by-side walks (section 5). | Trusted results |
-| 13 | Later, optional: faster GSR reading (section 4), Wi-Fi Files screen with streaming ZIP download (section 4), redesign the screen, add a printed Cap, add field notes. | |
+| # | Step | Result | Status |
+|---|---|---|---|
+| 1 | Create the folders. Move the files that are already plain C (signal processing, CSV format, settings, minmea). Fix `application.fam`, `run_tests.sh` and the test paths. | Same Flipper app, new layout | Done |
+| 2 | Move the GSR logic into `core/`, including the Zero step's reading and the bias check at recording start. The smallest real step. | Flipper check | Done (Flipper checked) |
+| 3 | Move the GPS logic into `core/`. The risky part is the standby/wake sequence, which has been confirmed on real hardware. | Flipper check | Done (Flipper checked; outdoor fix pending) |
+| 4 | Named events instead of LED patterns, with sounds included. | | Done (Flipper checked; sounds off during check) |
+| 5 | Split the session into shared logic plus the Flipper loop. | Flipper check | Done (Flipper check pending) |
+| 6 | Make the screen layout shared, drawn through the small drawing interface. | Flipper check | Done (Flipper check pending) |
+| 7 | Start the Cardputer project: it builds `core/`, shows something on screen and reads keys. | First Cardputer code | Done |
+| 8 | Cardputer: GSR to SD card, written in whole 512-byte blocks. Compare a recording with the Flipper, and check typing doesn't disturb the GSR. | A useful device | Done (Cardputer checked; typing test & Flipper check pending) |
+| 9 | Cardputer: GPS, plus the clock rule from section 4. | A GPS+GSR logger | Done (Cardputer checked; review fixes to re-check) |
+| 10 | Cardputer: screen, menus, Options, calibration wizard, and SD persistence. | Full standalone UI | Done (calibrated 47k check pending) |
+| 11 | Cardputer: Bluetooth live stream. Test the visualiser's Live tab. | Live Stream working | Done (Cardputer BLE checked; multi-visit reconnect/heap check pending) |
+| 12 | The resistor-grid test and side-by-side walks (section 5). | Trusted results | **Next** |
+| 13 | Later, optional: faster GSR reading (section 4), Wi-Fi Files screen with streaming ZIP download (section 4), 3D-printed cover, printed Cap, field notes, CardputerZero. | | Later |
 
 ---
 
 ## 8. Open decisions
 
 - Replace the Flipper, or keep both devices?
-- Screen: quick route first, or go straight to a redesign?
-- Clock: the time comes from the GPS (decided). Still open: block recording until GPS time is known, or fix the time afterwards?
 - Carrying: how to see the screen while the GPS antenna faces the sky (see section 6)?
-- Electronics: buy a ready-made proto board, or build a home-made Cap?
-- ~~Which device to bring up first at step 7: the Cardputer ADV or the CardputerZero (see section 10)?~~ Decided: the Cardputer ADV only, for now.
+- Electronics: finish checking the KiCad backpack board and flex tail against a real Cardputer EXT socket, then order PCBs (or build a home-made Cap first)?
 
 ---
 
-## 9. Preparing the Flipper code (work done so far)
-
-Before starting the port itself, the Flipper firmware is being reshaped so that more of it can be shared. Each step keeps the Flipper working exactly as before.
+## 9. Work done so far (steps 1–11)
 
 ### Step 1 done: `core/` folder created
 
@@ -485,31 +483,24 @@ The plain C files moved to [firmware/core/](../firmware/core/): `biomap_pipeline
 
 - **One small code change.** `biomap_format.c` still used the Flipper's warning-log call when a calibration fit failed. That log line now lives in the Flipper code that calls the fit ([biomap_gui.c](../firmware/biomap_gui.c)), so `core/` has no Flipper code at all. Its test build no longer needs the fake Flipper headers.
 - **minmea stays in `vendor/minmea/`**, as in the folder plan above. It is already plain C, and third-party code is easier to update where it is.
-- **No `flipper/` folder yet.** Git cannot store an empty folder. The Flipper files move into it as steps 2–6 split each one. (Step 2 created it.)
 
 Checked: all host tests pass, the Flipper app builds, and each `core/` file builds on its own with no other folders on the include path. Nothing changed in how the app behaves, so no Flipper check is needed.
 
-### Already done: radio scan out of the GSR code (checked on a real Flipper, see below)
+### Already done: radio scan out of the GSR code (checked on a real Flipper, 20 Nov)
 
 The radio (EM) scan used to be written into the middle of the GSR sensor code ([gsr_sensor.c](../firmware/core/gsr_sensor.c)). It now lives in its own file, [em_scan_sampler.c](../firmware/modules/em_scan_sampler.c). It still runs on the GSR thread, at the same moments as before. No new thread was added. The GSR loop has one line that says "if there is another job, give it a turn". On the Flipper the session hands it the radio scan. On the Cardputer nothing is handed over, so the GSR code contains no radio code at all.
-
-**To check on a real Flipper:** run an EM mode for a minute, check that the radio bars move, then leave the mode and check that the app exits cleanly.
 
 **Known weak points, left as they are for now:**
 
 - **The order things are freed in matters, and only a comment says so.** The GSR sensor must be freed before the radio sampler, because the GSR thread calls into the sampler. Today there is one place that does this, and it does it in the right order. If someone gets it the wrong way round, the device could crash at random.
 - **An older gap came across unchanged.** If turning the radio off takes too long (more than 100 ms) and the radio is turned straight back on, the start-up could overlap the radio's last reading. The app never does this today: the radio is only turned off once, at the end of a session. The fix would be a short wait before turning it back on. This is noted in the code.
-- ~~**The screen can read the module pointers while a session is starting.**~~ Fixed in step 5: the session now sets all the module pointers together, with the main lock held.
 - **The radio sampler's tests sit inside the GSR tests** (`test_gsr_sensor.c`), not in a file of their own.
-- **This step alone does not make the code run on the Cardputer.** The GSR code still used the Flipper's own I2C calls (fixed by step 2 below), and the session and screen code still include the radio modes (steps 5 and 6).
 
 ### Step 2 done: GSR logic in `core/` (checked on a real Flipper, see below)
 
 All of the GSR logic now lives in [core/gsr_sensor.c](../firmware/core/gsr_sensor.c): gain switching, the settling waits, the bias check, the 100 ms averaging, the conversion to nanosiemens, the calibration zero and gain, disconnect detection, and every diagnostic figure. It has no Flipper code. It reaches the hardware only through a short list of functions the device hands it ([core/gsr_sensor.h](../firmware/core/gsr_sensor.h), `GsrPlatform`): read or write an I2C register, the time in milliseconds, a wait, a lock, and an optional log line.
 
 The calibration wizard's averaging is shared too: `CalDwell` in [core/biomap_format.c](../firmware/core/biomap_format.c). It takes each tick's reading over the 20 s dwell, keeps the ones inside the gate, and gives the mean, the spread (σ) and whether enough readings passed. The Zero step and each resistor step use it. What stays in the Flipper's wizard ([biomap_gui.c](../firmware/biomap_gui.c)) is the screens, the keys, the countdown and the 100 ms waits between readings. Those were two near-identical loops, one per kind of step; they are now one (`calibration_wizard_dwell()`). That loop is Flipper code, so the host tests don't run it; the wizard run in the Flipper check below covers it.
-
-Not moved in this step: the few lines that choose which bias value goes in a recording's `# GSR Bias` header line. The bias check itself is shared, but that choice sits in the middle of building the file header in [biomap_session.c](../firmware/core/biomap_session.c), so it moves with the session in step 5. (Done in step 5.)
 
 The Flipper side, [flipper/gsr_sensor_flipper.c](../firmware/flipper/gsr_sensor_flipper.c), is about 150 lines: those functions written with the Flipper's own calls, and the GSR thread. The thread calls the shared "one pass" function, gives the radio scan its turn after each normal read, and pauses 1 ms, exactly as before. The rest of the app calls the same `gsr_sensor_*` functions as before: one `#include` changed, and one diagnostic read-out was renamed (below).
 
@@ -533,9 +524,7 @@ Small differences, none expected to show:
 - **The clock is in milliseconds.** The shared code asks the device for the time in ms, because several figures assume it (the stale-read count, the I2C peak column, the duplicate gap). The Flipper's clock already counts in ms; its GSR start-up now checks this. One read-out was renamed to match: `gsr_sensor_get_duplicate_gap_min_ms()`.
 - **The gain-change log line is written after the lock is released**, so on the Cardputer a slow serial log can't hold up the GSR thread.
 
-**To check on a real Flipper:** record for a few minutes with fingers on, and check the GSR value, the gain changes and the `# GSR Bias` line look as before. Run the whole calibration wizard (Zero step and the three resistors) and check the result screen looks as before. Open Diagnostics and check the GSR thread's free stack, worker Hz (~500) and I2C peak. Then run an EM mode for a minute (radio bars move, app exits cleanly), which also covers the radio scan check above.
-
-### Step 3 done: GPS logic in `core/` (checked on a real Flipper, see below)
+### Step 3 done: GPS logic in `core/` (checked on a real Flipper, 20 Nov)
 
 All of the GPS logic now lives in [core/gps_uart.c](../firmware/core/gps_uart.c): the M10Q set-up commands and checking each reply, the wake-up wait, the sleep sequence at app start and at the end of each session, the speed change to 115200, the chip ID, reading NMEA lines and every sentence's rules, the 5 s watchdog and the reconfigure after it. It has no Flipper code. It reaches the hardware only through the functions the device hands it ([core/gps_uart.h](../firmware/core/gps_uart.h), `GpsPlatform`): set the serial speed, send bytes, start or stop receiving, take the bytes received so far, throw them away, "has the module answered yet?", "please call me again soon", the time in milliseconds, a wait, a lock, and an optional log line.
 
@@ -562,13 +551,10 @@ Small differences, none expected to show:
 - **The watchdog's 5 s is in milliseconds**, as with the GSR clock. The Flipper's clock already counts in ms; the GPS start-up now checks this.
 - **The dropped-bytes count is read through the shared code.** It is counted where the bytes arrive (on the Flipper, the receive interrupt), and the shared `gps_uart_get_rx_drop_count()` asks the device for it, so the session can keep writing it to the CSV once it is shared in step 5. It reads 0 when there is no port, as before.
 
-Known weak points, left for later steps:
+Known weak points:
 
-- **The wake-up wait may not carry over to the Cardputer as it is (step 9).** At app start and each session start, the shared code waits for the first *clean* byte from the module: one with no error flag. A garbled byte can come from a module still starting up, so it doesn't count. The Flipper's serial driver reports an error flag with each byte; the ESP32's Arduino serial driver reports errors through a separate callback, not per byte. If the Cardputer counted every byte, a garbled one could end the wait too early. The speed-change command would then go out before the module listens, the module would stay at 9600, miss the sleep command sent at 115200, and stay awake. To decide at step 9: use the ESP32's error callback to throw away the bytes around an error, or have the shared code judge the byte itself (for example, wait for an NMEA `$`). The second would change the Flipper too, so it would need its own Flipper check.
 - **The watchdog only retries once.** After any reconfigure, the watchdog is off until a valid NMEA sentence arrives, so a reconfigure that fails is never tried again. This was already so before step 3, and the code comments say the single recovery is deliberate.
-- **The shared GPS code is only tested through the Flipper side.** No test drives it with a plain fake device, so the rules the header sets for each device (for example "never change the serial speed while receiving") are not checked anywhere. Worth adding before step 9.
-
-**To check on a real Flipper:** start the app and check in the log that the module answers the wake byte and that "Idle: GPS silent (stayed asleep)" appears when a session starts. Record GPS+GSR outside for a few minutes: the fix arrives, the position, satellites, hAcc and SBAS look as before, and the `# GPSChipID` header line is filled in. End the session and check the module goes back to sleep (idle count 0 at the next session). Also try Options > Cold Reset GPS once.
+- **The shared GPS code is only tested through the Flipper side.** No test drives it with a plain fake device, so the rules the header sets for each device (for example "never change the serial speed while receiving") are not checked anywhere.
 
 ### Step 4 done: named events ("cues")
 
@@ -583,7 +569,7 @@ The same header holds the rules about sound, which every device must follow:
 
 These rules were already followed on the Flipper, but only explained in comments scattered across the session code. They are now in one place for the Cardputer code to read. The code that enforces rule 3 (for example, leaving out the zoom click) is still in the session, and moves with it in step 5.
 
-The Flipper's response to each cue is in one file, [flipper/biomap_cues_flipper.c](../firmware/flipper/biomap_cues_flipper.c): a table of LED patterns and tones. The tones themselves are unchanged in [flipper/sound.h](../firmware/flipper/sound.h) (moved from `modules/`). The Cardputer will write its own version of this one file (beeps, its own light).
+The Flipper's response to each cue is in [flipper/biomap_cues_flipper.c](../firmware/flipper/biomap_cues_flipper.c), and the Cardputer's is in [cardputer/src/cues_cardputer.cpp](../firmware/cardputer/src/cues_cardputer.cpp), both sharing the tone palette in `biomap_cue_notes()` ([core/biomap_cues.h](../firmware/core/biomap_cues.h)).
 
 Checked:
 
@@ -599,8 +585,6 @@ Known weak points, left for later steps:
 
 - **The sound rules are written down, not checked.** Nothing in the code stops a cue with a sound being sent with the main lock held (rule 2) or during a recording (rule 3). A scan of every cue call found none that breaks either rule today. *Step 5 now checks both for every cue the session sends (see below). Cues sent from the menus and calibration screens are still unchecked, but none of those run during a recording or with the lock held.*
 - **Live Stream keeps its clicks (decided).** Rule 3 covers recordings to the SD card only. In Live Stream the GSR goes live to the phone while the OK and zoom clicks still play, which could put a small blip in the live trace. Kept as it is, at the user's choice (2026-11-20).
-
-No Flipper check is needed beyond the ones for steps 2 and 3: the recording and GPS checks there hear the start and stop sounds and see the heartbeat. To be thorough, listen once for the key clicks in the menu and watch for the blue blink before GPS has a fix.
 
 ### Flipper check of steps 2–4 (20 November 2026)
 
@@ -708,8 +692,6 @@ The Cardputer now has its own project, [firmware/cardputer/](../firmware/cardput
 
 Checked: it builds with no warnings from our code or `core/`. The only things the shared code needs from outside are the ordinary C library, the compiler's own maths helpers and `core_fatal()`: nothing Flipper-specific is left. The host tests pass and the Flipper app still builds.
 
-**To check on a real Cardputer:** flash it, see the start screen ("Core: 2026-11-20_14-32-05" in green), press each of the six buttons and see its name appear, and press a letter key to see "other keys" count up.
-
 ### Step 8 done: GSR to the SD card
 
 The Cardputer now records in GSR Only mode, through the same shared session code as the Flipper. It writes the same CSV files, in a `biomapping` folder on its SD card.
@@ -724,9 +706,7 @@ The Cardputer now records in GSR Only mode, through the same shared session code
 - **SD card** ([sd_cardputer.cpp](../firmware/cardputer/src/sd_cardputer.cpp)): Arduino's SD library mounts the card at 25 MHz. The card is built in and can't be taken out while the Cardputer runs, so it is mounted once. The file is written with the plain file calls underneath it, because Arduino's own file type can't cut a file off (needed to remove the unused reserved space) and its buffering would split the whole blocks up again.
 - **Sounds** ([cues_cardputer.cpp](../firmware/cardputer/src/cues_cardputer.cpp)): the Flipper's tones, note for note. There is no status light yet, so the light-only cues do nothing; the screen shows the same states.
 - **Session** ([session_cardputer.cpp](../firmware/cardputer/src/session_cardputer.cpp)): the device functions for the shared session and the 10 Hz tick. After a pause (a slow SD write) the missed ticks are run at once, up to 64 (about 6 s), as the Flipper's event queue does, so no row goes missing and the time column stays right. Settings are the Flipper's defaults (sound on, auto zoom on, debug fields off). The `# DeviceName` header line says `Cardputer`.
-- **Screen** ([main.cpp](../firmware/cardputer/src/main.cpp)): a plain status page, not the recording screen (that is step 10). It shows the state and elapsed time, the reading, the file name, the SD card's slowest write, the GSR reads per second with the share of repeats and failures, and a key count. The same figures go to the USB log once a second.
-
-Not there yet, by design: no calibration (the wizard needs the Cardputer's screens, step 10), so readings carry the board's zero offset, about 100 nS low on the prototype; no clock, so files are named from 1970-01-01_00-00-00 and the header's start time is 0 until GPS time arrives in step 9 (now done, see below); and only GSR Only mode.
+- **Screen** ([main.cpp](../firmware/cardputer/src/main.cpp)): in step 8 this was a plain status page (replaced by the colour menu and shared recording screen in step 10).
 
 Checked:
 
@@ -735,25 +715,12 @@ Checked:
 - **New tests in [tests/test_sd_blocks.c](../firmware/tests/test_sd_blocks.c)** check the whole-block option on a pretend card that records where each write starts and ends: every periodic write ends on a block and follows on from the last; less than a block waits for the stop; after a failure the retry writes everything; writes that stop part-way at 27 different points. Each time the finished file matches the Flipper's way byte for byte. Four deliberate breaks each make them fail.
 - The Cardputer program builds with no warnings (our code and `core/` treat warnings as errors). All host tests pass, the visualiser's firmware tests pass, and the Flipper app builds with no warnings.
 
-**To check on a real Cardputer** (with the board connected, the laptop on battery and a microSD card in):
-
-1. The start screen says "GSR Only" and "ready", shows a reading, and "SD card ready". With nothing connected it says "Cuffs off".
-2. Press Enter. The recording chirp plays and the top right shows `REC 00:00:01` counting up. Record for a few minutes with a fixed resistor (1 MΩ), then press Enter again (the stop chirp).
-3. On a computer, open the file in `biomapping/` on the card and drop it into the visualiser: it should load with no warning about the `# End` line.
-4. **Typing test.** Record again with the resistor, and type steadily for a minute (letters only: Enter would stop the recording). The reading and the "GSR …/s" and "ok" figures shouldn't change. Save the USB log (`pio device monitor | tee typing.txt`) for a closer look.
-5. **Flipper comparison.** Record 2–3 minutes with the same resistor on the Flipper (GSR Only), and compare the two files' readings. Expect the Cardputer to read about 100 nS lower until it has a calibration.
-6. Esc ends the session; Enter starts a new one.
-
-**Checked on a real Cardputer (20 November 2026)**, three GSR Only recordings of a 47k resistor (19–50 s each), fetched over USB with the `ls` and `cat` commands (the card is built in):
+**Checked on a real Cardputer (20 November 2026)**, three GSR Only recordings of a 47k resistor (19–50 s each), fetched over USB:
 
 - Every file's `# End` line matches its contents (rows, bytes, CRC), and no row is missing. The header has `DeviceName:Cardputer` and a bias of 497.3–497.4 mV.
 - The reading averaged 21,135–21,138 nS in all three. From one second to the next it moved by 3.6, 3.8 and 1.4 nS (spread of the 1-second averages); the whole of the last recording stayed within 16 nS, about 0.08 %. The Flipper's calibration wizard measured 2.68 nS on 47k in one saved calibration. The user judged the screen numbers fine once the status page showed the same value as the Flipper (the 100 ms average in whole nS; it had shown a smoothed value with one decimal place, whose last digit changed on nearly every update).
 - The GSR thread reads about 1,000 times a second, with about 17 % repeats, as expected (section 4, "GSR reading speed").
 - One SD write in the last recording took 433 ms (the bench's worst was 57 ms). No row was lost. Likely cause found since: the reserved space was not saved before the recording started (section 9, "Second review").
-
-Still to check: the typing test, a side-by-side Flipper file of the same resistor, and a long recording.
-
-**The Flipper needs a check too**, because its SD logger moved (together with steps 5 and 6): make a short recording and check the file loads in the visualiser with no `# End` warning.
 
 ### Step 9 done: GPS and the clock
 
@@ -763,7 +730,6 @@ The Cardputer now records in GPS+GSR mode too, through the same shared GPS code 
 
 - **Wait for GPS time.** In GPS+GSR mode, Enter won't start a recording until the clock has been set from the GPS: it gives the error sound and the screen says "Waiting for GPS time". GSR Only still records; it uses GPS time if it was found since power-up, otherwise the file is named from 1970 and the start time is 0, as before.
 - **UK time.** File names and start times are UK time: GMT in winter, BST from the last Sunday of March to the last Sunday of October, switching on its own. This matches a Flipper set to UK time. As on the Flipper, the header's start time is worked out from the local time.
-- **Tab switches the mode** (GPS+GSR or GSR Only) when no session is open, until the menus come in step 10. It starts in GPS+GSR.
 
 **The Cardputer side**, in [firmware/cardputer/src/](../firmware/cardputer/src/):
 
@@ -805,8 +771,6 @@ Still to check: a GPS+GSR recording loaded in the visualiser (two recordings wer
 - **The keyboard that stops after 10–20 minutes** (section 2) is a race in M5Cardputer 1.1.1's keyboard reader: a key event at the wrong moment, or one failed status read, leaves G11 held low with the reader waiting for a change that never comes. The main loop now restarts the keyboard if G11 stays low for 20 loop passes and 100 ms, and logs "[Keys] warning: keyboard had stopped".
 - **USB thumb drive mode (replacing the serial `ls` and `cat` commands).** Pressing **`U`** outside a recording now lends the SD card to a plugged-in computer as a normal USB thumb drive (`USBMSC` over native TinyUSB alongside `USBCDC` serial logging, modeled on [`pocket-wui`'s `src/usb.cpp`](https://github.com/AFetisa/pocket-wui/blob/main/src/usb.cpp)). Ejecting on the computer (or pressing **`U`** twice, as a warned fallback) takes the card back and remounts `/sd` so the Cardputer sees any deleted or changed files. Recording is refused while the computer has the card.
 
-Not changed: the GPS sleeping at power-up only to wake at once for the first session (about 1 s; step 10's menu ends it), the UK time zone, and the Cardputer calibration (both step 10 decisions). To check on the Cardputer: a recording with debug fields on should start at `0.00` with `tick_dt_ms` 0, then about 100 for every row after it; the first SD write should be well under 100 ms; wake still reports a first byte after a few hundred ms. On the Flipper: the same recording start check, since the Flipper loop changed.
-
 **GPS+GSR recordings on a real Cardputer (20–21 November 2026)**, a fixed 47k resistor, the Cardputer on USB to the MacBook with the MacBook on battery: `tracks/biomap_2026-11-20_23-04-31.csv` (129 s) and `tracks/biomap_2026-11-21_08-30-13.csv` (98 s).
 
 - **The files are complete.** Exactly one row every 0.1 s, no gaps, and the `# End` line shows no overflows and no write failures. File names and `# RecordingStartTime` agree (UK time, which is GMT in November).
@@ -843,16 +807,33 @@ The Cardputer now supports **Live Stream** mode from the main menu (`GPS + GSR`,
   - Every notification arrived as a full 49-byte packet (`magic=BN`, `len=49`) at 300 ms intervals (`113.7 s`, `114.0 s`, `114.3 s`, `114.6 s`, `114.9 s`) with live GSR (`7,602–7,749 nS`) and a live GPS fix (`51.555918, -0.071124`, 5 satellites, HDOP 2.6, PDOP 2.8, speed 0.3–0.6 kt).
   - Disconnecting returned the Cardputer to `Advertising` (`ble=2`), and pressing Esc closed the session, stopped BLE advertising, and put the GPS back to sleep (with the Cardputer's clock now set from the GPS fix to `2026-11-21_09:26:51`).
 
-### Next steps
+### Post-step 11 cleanup and review (21 November 2026)
 
-The remaining preparation follows steps 1–6 of the order of work in section 7:
+After step 11 landed, a review pass tightened the separation between `core/`, `flipper/`, and `cardputer/` and closed a set of review findings:
 
-1. ~~Create `core/` and `flipper/`, and move the files that are already plain C.~~ Done (see above).
-2. ~~Move the GSR logic into `core/`, including the Zero step's reading and the bias check.~~ Done and checked on a Flipper (see above).
-3. ~~Move the GPS logic into `core/`.~~ Done and checked on a Flipper (see above); a recording with a GPS fix is still to be seen.
-4. ~~Named events instead of LED patterns, with sounds included.~~ Done (see above).
-5. ~~Split the session into shared logic plus the Flipper loop.~~ Done (see above); needs its Flipper check.
-6. ~~Make the screen layout shared.~~ The recording screen is done (see above); the menus wait for step 10. Needs its Flipper check, together with step 5's.
+- **Shared calibration wizard state machine (`CalWizardCore`).** Both the Flipper ([biomap_gui.c](../firmware/biomap_gui.c)) and the Cardputer ([menu_cardputer.cpp](../firmware/cardputer/src/menu_cardputer.cpp)) now drive the same 4-step state machine, targets and gates in [core/biomap_session.c](../firmware/core/biomap_session.c). On the Flipper, the wizard ticks a local copy outside the render mutex so the GUI thread never blocks on GSR reads or the bias check. Host tests in [tests/test_session.c](../firmware/tests/test_session.c) cover the zero, measurement, bias, noise and fit failure screens.
+- **Native graph hook (`ScreenDraw.draw_graph`).** Added an optional graph callback to [core/biomap_screen.h](../firmware/core/biomap_screen.h) so the Cardputer draws its native 240 × 135 spline graph cleanly without coordinate-sniffing in `draw_str` / `draw_frame`.
+- **Shared cue tone palette.** The cue note frequencies and durations now live once in `biomap_cue_notes()` in [core/biomap_cues.h](../firmware/core/biomap_cues.h), used by both [flipper/biomap_cues_flipper.c](../firmware/flipper/biomap_cues_flipper.c) and [cardputer/src/cues_cardputer.cpp](../firmware/cardputer/src/cues_cardputer.cpp).
+- **GPS core fixes.** [core/gps_uart.c](../firmware/core/gps_uart.c) now clears paired RMC/GGA fix flags on a lost or estimated fix (host-tested in [tests/test_gps_uart.c](../firmware/tests/test_gps_uart.c)), and scopes the chip-ID poll gate per `GpsUart` session while still skipping once the chip ID is cached.
+- **Cardputer review fixes.** Fixed SD error banner colour, UART flush, USB drive menu gating and TCA8418 key unstick; serial monitor Enter now maps to a single OK regardless of CRLF/LF line endings; and Bluetooth is switched off completely (`BLEDevice::deinit(false)`) whenever Live Stream closes or fails mid-setup, logging free heap at `[BLE] on` and `[BLE] off`.
+
+### What's left (step 12 and pending checks)
+
+Steps 1–11 are complete in code and pass all host tests, Flipper `ufbt` build, and Cardputer PlatformIO build. What remains before trusting the Cardputer for real walks:
+
+1. **Cardputer real-device checks:**
+   - Run the 4-step GSR Calibration Wizard on the Cardputer, then repeat the 47k recording and full resistor-grid accuracy test (section 5) to confirm accuracy matches the Flipper.
+   - Run the 1-minute typing test during a recording (step 8).
+   - Verify the step 9 review fixes on the device: recording with debug fields on starts at `0.00` with `tick_dt_ms` = 0 and ~100 ms thereafter; first SD write well under 100 ms; unplugging GPS mid-session does not print `[Clock] reset from GPS`; garbled-byte wake check; outdoor cold start; and a long recording watching `gps_rx_drops`.
+   - Open and leave `Live Stream` several times, connecting the visualiser's Live tab each time, and check the free heap at `[BLE] off`.
+2. **Flipper real-device checks (after steps 5–6, 8, and the shared-core updates):**
+   - Record `GPS + GSR` with sound on and debug fields on: confirm row 0 `tick_dt_ms`, `# GSR Bias`, `# GPSChipID`, `# End` integrity check in the visualiser, and muted zoom clicks while recording.
+   - Check every recording screen (`GPS + GSR`, `GPS + GSR + RF`, `GPS + RF` with the start time in the top bar and 4th GPS line visible, `GSR Only`, `Diagnostics`, `Live Stream`).
+   - Confirm the graph direction fix: rising GSR (sharp breath or touching cuffs) now draws upward.
+   - Run the calibration wizard (now driven by shared `CalWizardCore`) on battery.
+3. **Side-by-side walks (step 12):** wear the Flipper and Cardputer together on real walks and compare GSR traces and GPS tracks in the visualiser.
+4. **Hardware:** verify the KiCad backpack board ([hardware/biomap_cardputer/](../hardware/biomap_cardputer/)) and flex tail ([hardware/biomap_cardputer_tail/](../hardware/biomap_cardputer_tail/)) against a real Cardputer EXT socket, order PCBs, and re-test GSR noise and battery life on the Cardputer's own 5 V supply + LDO.
+5. **Step 13 (later, optional):** Wi-Fi Files screen with streaming ZIP download, faster GSR reading (hardware timer or G4 `ALERT/RDY` pin), 3D-printed cover, keyboard field notes, and the CardputerZero port.
 
 ---
 
@@ -898,7 +879,7 @@ What this means for the board:
 
 ### Software: a third device folder
 
-The ESP32 code planned for the ADV will not run on the Zero. The Zero needs its own folder next to the others:
+The ESP32 code for the ADV will not run on the Zero. The Zero needs its own folder next to the others:
 
 ```
 firmware/
@@ -918,7 +899,7 @@ firmware/
 | Threads | pthreads |
 | Clock and wait | `clock_gettime`, `nanosleep` |
 
-The host tests already build the plain-C code on a normal computer, so `core/` should build on the Zero unchanged. This is a further reason to finish steps 1–6 first. It also means **nothing ESP32- or Arduino-specific may go into `core/`**: the 1 ms tick, M5Stack's libraries and `Wire` belong in `cardputer/` only.
+The host tests already build the plain-C code on a normal computer, so `core/` should build on the Zero unchanged. Nothing ESP32- or Arduino-specific may go into `core/`: the 1 ms tick, M5Stack's libraries and `Wire` belong in `cardputer/` only.
 
 **Points to get right on the Zero:**
 
@@ -941,9 +922,4 @@ The host tests already build the plain-C code on a normal computer, so `core/` s
 
 ### Effect on the order of work
 
-Steps 1–6 (section 7) do not change. At step 7, choose which device to bring up first:
-
-- **The Zero first.** Linux is close to how the host tests already run, so I2C, serial, files and threads should be quick. Bluetooth and the screen are the risky parts.
-- **The ADV first.** This is better understood, and its Bluetooth and screen libraries are already known to work.
-
-Steps 7–12 are then repeated for the second device. The core is shared, so this mostly means writing the device's own small set of functions and repeating the checks in section 5.
+With the shared core (`core/`) and the Cardputer ADV port done, a future CardputerZero port only needs its own Linux device layer in `firmware/cardputerzero/` and the validation checks in section 5.
