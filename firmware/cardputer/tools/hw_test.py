@@ -39,7 +39,7 @@ LAST_RECORDING = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", 
                               "hw_test_last_recording.json")
 
 UP, DOWN, LEFT, RIGHT, OK, BACK = ";", ".", ",", "/", "\r", "\x1b"
-MAIN_MENU = ["GPS + GSR", "GSR Only", "Live Stream", "Options"]
+MAIN_MENU = ["GPS + GSR", "GSR Only", "Live Stream", "Wi-Fi Files", "Options"]
 OPTIONS = ["GPS Profile", "Super-S", "Cold Reset GPS", "Auto-zoom GSR", "GSR Calibration",
            "Backlight", "Sound", "Diagnostics", "Debug Fields"]
 
@@ -462,6 +462,52 @@ def test_gps_gsr(dev):
 KNOWN_BLE_LEAK_BYTES = 1100
 
 
+def test_wifi_files_cycles(dev, cycles=5):
+    """Wi-Fi Files hotspot on/off repeatedly: Wi-Fi turns on and fully off each
+    time without crashing or leaking memory, and GSR Only still works after."""
+    dev.restart()
+    open_main(dev, "Wi-Fi Files")
+    heaps_off = []
+    for i in range(cycles):
+        if i:
+            dev.press(OK)               # main menu still has Wi-Fi Files selected
+        dev.wait_for(r"\[WiFi\] on: ap=BioMapping-[0-9A-F]{4} ip=192\.168\.4\.1", 5)
+        dev.pump(1.5)
+        last = dev.statuses(0)[-1]
+        check(last.get("wifi") == 1, "no wifi=1 status field while Wi-Fi Files is open")
+        dev.press(BACK)
+        off = dev.wait_for(r"\[WiFi\] off \(free heap \d+\)", 5)
+        heaps_off.append(int(re.search(r"free heap (\d+)", off).group(1)))
+        dev.pump(0.8)
+    per = (heaps_off[1] - heaps_off[-1]) / max(1, cycles - 2)
+    print(f"      free memory after each stop: {heaps_off} ({per:.0f} bytes lost per visit)")
+    check(per <= 2048, f"losing {per:.0f} bytes per Wi-Fi Files visit")
+    # Confirm Bluetooth (Live Stream) -> Wi-Fi Files -> GSR Only all work cleanly
+    # in the same boot without rebooting.
+    dev.press(UP + OK)                  # Wi-Fi Files -> Live Stream
+    dev.wait_for(r"\[BLE\] on: advertising", 5)
+    dev.pump(1.5)
+    dev.press(BACK)
+    dev.wait_for(r"\[BLE\] off \(free heap \d+\)", 5)
+    dev.pump(0.8)
+
+    dev.press(DOWN + OK)                # Live Stream -> Wi-Fi Files
+    dev.wait_for(r"\[WiFi\] on: ap=BioMapping-[0-9A-F]{4} ip=192\.168\.4\.1", 5)
+    dev.pump(1.0)
+    dev.press(BACK)
+    dev.wait_for(r"\[WiFi\] off \(free heap \d+\)", 5)
+    dev.pump(0.8)
+
+    dev.press(UP * 2 + OK)              # Wi-Fi Files -> Live Stream -> GSR Only
+    dev.wait_for(r"\[GSR\] I2C Probe OK", 3)
+    dev.pump(1.5)
+    last = dev.statuses(0)[-1]
+    check("wifi" not in last, "wifi field still present inside GSR Only")
+    dev.press(BACK)
+    dev.pump(0.5)
+    dev.no_faults()
+
+
 def test_live_stream_cycles(dev, cycles=8):
     """Live Stream on/off repeatedly: Bluetooth turns on and fully off each time
     and memory loss stays at the known ~1 KB per session."""
@@ -595,6 +641,7 @@ TESTS = [
     ("key_flood", test_key_flood),
     ("settings_persist", test_settings_persist),
     ("live_stream_cycles", test_live_stream_cycles),
+    ("wifi_files_cycles", test_wifi_files_cycles),
     ("session_cycles", test_session_cycles),
     ("record_60s", test_record_60s),
     ("csv_check", test_csv_check),     # needs a U key press: only with --usb or by name

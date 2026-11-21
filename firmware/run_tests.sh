@@ -181,11 +181,23 @@ gcc -Wall -Wextra -Werror -I . -I tests/shims -o build/test_cues \
 ./build/test_cues
 
 echo
-echo "== test_cardputer_rules (Cardputer: clock, wake-up byte, tick schedule, local time) =="
+echo "== test_cardputer_rules (Cardputer: clock, wake-up byte, tick schedule, local time, Wi-Fi/ZIP) =="
 gcc -Wall -Wextra -Werror -I . -I core -I vendor/minmea -o build/test_cardputer_rules \
     tests/test_cardputer_rules.c cardputer/src/clock_rule.c cardputer/src/wake_watch.c \
-    cardputer/src/tick_schedule.c cardputer/src/clock_local.c core/biomap_pipeline.c -lm
+    cardputer/src/tick_schedule.c cardputer/src/clock_local.c \
+    cardputer/src/wifi_files_rules.c cardputer/src/zip_stream.c core/biomap_pipeline.c -lm
 ./build/test_cardputer_rules
+python3 -c '
+import zipfile
+with zipfile.ZipFile("build/test_zip_stream.zip", "r") as zf:
+    assert zf.testzip() is None
+    assert zf.namelist() == ["biomap_2026-11-21_14-32-06.csv", "empty.csv"]
+    assert zf.read("biomap_2026-11-21_14-32-06.csv") == b"123456789"
+    assert zf.read("empty.csv") == b""
+    info = zf.getinfo("biomap_2026-11-21_14-32-06.csv")
+    assert info.date_time == (2026, 11, 21, 14, 32, 6)
+print("  Python zipfile verification: ok")
+'
 
 echo
 echo "== test_bt_stream (BLE serial profile lifecycle / send-or-drop logic) =="

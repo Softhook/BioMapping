@@ -46,6 +46,7 @@ At power-up it puts the GPS to sleep (up to about 2 s), loads saved settings and
 - **`GPS + GSR`** — wakes and configures the GPS module, opens the live GSR waveform screen, and records 11-column `GPS+GSR` CSV files.
 - **`GSR Only`** — opens the live GSR waveform screen with the GPS left asleep, and records 2-column `GSR Only` CSV files.
 - **`Live Stream`** — wakes the GPS and GSR sensors and advertises over Bluetooth Low Energy (`Cardputer`) with the visualiser's Live service and notify characteristic UUIDs (52-byte MTU for 49-byte packets every 300 ms). Bluetooth is switched on only while Live Stream is open. Leaving with **Esc** disconnects any phone or browser and switches Bluetooth off completely.
+- **`Wi-Fi Files`** — turns on a Wi-Fi hotspot (`BioMapping-XXXX`, with a new random password each time) and starts a small web server at `http://192.168.4.1` for downloading or deleting `.csv` recordings (one by one or all at once as a streamed `.zip`) from a phone, tablet, or laptop. Shows a **Join Wi-Fi** QR code first and automatically switches to the **Open page** QR code as soon as a device connects (use Left / Right to switch manually). Wi-Fi is switched off completely when you press **Esc**, or by itself after 10 minutes with no device connected (the screen counts down, e.g. `Off in 9 min`).
 - **`Options`** — configures and saves:
   - **GPS Profile** (`PED`, `WRIST`, `VEHICLE`, `STATION`, `SEA`, `BIKE`, `FLIGHT`)
   - **Super-S** (`AUTO` / `OFF`)
@@ -80,7 +81,13 @@ The SD card stays inside the Cardputer, so press **U** on the main menu (or in O
 - Only if ejecting isn't possible, press **U** twice within 3 seconds. The first press shows `Eject on computer first!` as a warning; the second takes the card back. Doing this while the computer still has the drive open can lose changes it hasn't written yet, or damage the card's file list.
 - While the computer has the card, the main menu shows `USB drive mounted on computer` and **Enter** will not start a new recording until the drive is ejected (or **U** is pressed twice).
 
-For getting files onto a phone or tablet without a cable (the planned **Wi-Fi Files** screen, or running `PocketWUI` alongside BioMapping through M5Launcher), see section 4 of [docs/cardputer_port.md](../../docs/cardputer_port.md).
+To get files onto a phone, tablet, or laptop without a cable, choose **Wi-Fi Files** on the main menu:
+
+- Scan the first QR code to join the `BioMapping-XXXX` Wi-Fi network. To join by hand instead, type the password shown next to `Pass` on the screen. The password changes every time you open Wi-Fi Files, so a phone that joined before needs to scan again.
+- Once connected, most phones pop up the file page by themselves, like a café Wi-Fi sign-in page. If a download doesn't start in that pop-up (iPhones can't download there), close it and open the address in your browser.
+- The screen also switches to a second QR code for `http://192.168.4.1` (you can also switch between the two QR codes with Left / Right).
+- Open that address in your browser to download individual `.csv` files, tap **Download All as ZIP** for a single archive of every recording, or delete old files. (With more than 256 recordings the page lists only the newest 256, but the ZIP still has all of them.)
+- Press **Esc** when done to stop the server and turn Wi-Fi completely off before recording. If you forget, it turns itself off after 10 minutes with no device connected.
 
 ## Files
 
@@ -90,6 +97,9 @@ For getting files onto a phone or tablet without a cable (the planned **Wi-Fi Fi
 | `src/menu_cardputer.cpp` | The colour main menu, Options screen, and non-blocking 4-step GSR Calibration wizard |
 | `src/screen_cardputer.cpp` | The shared recording screen (`core/biomap_screen.c`) stretched to 240 × 135 with colour accents and a native 30 FPS smooth GSR spline graph |
 | `src/bt_cardputer.cpp` | Bluetooth Low Energy Live Stream server and 49-byte packet notifications for the visualiser's Live tab |
+| `src/wifi_files_cardputer.cpp` | Password-protected Wi-Fi hotspot, web server, QR code screen, and single/ZIP CSV downloads |
+| `src/wifi_files_rules.c` | CSV filename checks, hotspot password/QR formatting, JSON escaping, and DOS timestamps (plain C, host-tested) |
+| `src/zip_stream.c` | Single-pass uncompressed ZIP streamer with exact upfront size and CRC-32 (plain C, host-tested) |
 | `src/settings_cardputer.cpp` | Loading and atomic saving of `biomap.settings` and `biomap.cal` in `/sd/biomapping/` |
 | `src/session_cardputer.cpp` | The device functions for the shared session, and its 10 Hz tick |
 | `src/gsr_cardputer.cpp` | The GSR thread, reading the ADS1115 through M5's I2C driver |

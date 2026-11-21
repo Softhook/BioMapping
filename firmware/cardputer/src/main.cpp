@@ -30,6 +30,7 @@
 #include "sd_cardputer.h"
 #include "session_cardputer.h"
 #include "settings_cardputer.h"
+#include "wifi_files_cardputer.h"
 
 static M5Canvas canvas(&M5Cardputer.Display);
 
@@ -104,6 +105,9 @@ static void log_second(void) {
                       (int)bt_cardputer_get_link(),
                       (unsigned long)bt_cardputer_get_drop_count(),
                       (unsigned long)bt_cardputer_get_tx_peak_ms());
+    }
+    if(wifi_files_active()) {
+        Serial.printf(" wifi=1 wifi_clients=%d", wifi_files_client_count());
     }
     if(clock_cardputer_is_set()) {
         SessionDateTime now;
@@ -248,7 +252,7 @@ void loop() {
         g_usb_confirm = false;
         redraw = true;
     }
-    if(menu_cardputer_poll()) redraw = true;
+    if(menu_cardputer_poll(canvas)) redraw = true;
     if(session_cardputer_poll()) redraw = true;
     // Back pressed: the session has stopped any recording and finished.
     if(g_session.open && !g_session.core.running) {

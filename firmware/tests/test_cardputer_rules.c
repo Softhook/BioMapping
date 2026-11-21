@@ -15,6 +15,8 @@
 #include "cardputer/src/wake_watch.h"
 #include "cardputer/src/tick_schedule.h"
 #include "cardputer/src/clock_local.h"
+#include "cardputer/src/wifi_files_rules.h"
+#include "cardputer/src/zip_stream.h"
 #include "core/biomap_pipeline.h"
 
 // ── Clock ───────────────────────────────────────────────────────────────
@@ -450,6 +452,234 @@ static void test_clock_not_set(void) {
     printf("  clock not set (before 2020): epoch 0: ok\n");
 }
 
+// ── Wi-Fi Files rules & streaming ZIP ───────────────────────────────────
+
+static void test_wifi_filename_validation(void) {
+    assert(wifi_files_name_valid("biomap_2026-11-21_14-32-05.csv"));
+    assert(wifi_files_name_valid("biomap_2026-11-21_14-32-05_2.CSV"));
+    assert(wifi_files_name_valid("a.csv"));
+
+    // Rejected: settings, calibration, hidden/macOS AppleDouble, traversal, non-CSV.
+    assert(!wifi_files_name_valid(NULL));
+    assert(!wifi_files_name_valid(""));
+    assert(!wifi_files_name_valid(".csv"));
+    assert(!wifi_files_name_valid("._biomap_2026-11-21_14-32-05.csv"));
+    assert(!wifi_files_name_valid("biomap.settings"));
+    assert(!wifi_files_name_valid("biomap.cal"));
+    assert(!wifi_files_name_valid("wifi.txt"));
+    assert(!wifi_files_name_valid("../biomap.csv"));
+    assert(!wifi_files_name_valid("sub/biomap.csv"));
+    assert(!wifi_files_name_valid("sub\\biomap.csv"));
+    assert(!wifi_files_name_valid("foo..bar.csv"));
+    assert(!wifi_files_name_valid("bad\"name.csv"));
+    assert(!wifi_files_name_valid("bad<name>.csv"));
+    assert(!wifi_files_name_valid("line\nbreak.csv"));
+    // Name >= WIFI_FILES_MAX_NAME must be rejected.
+    char long_name[WIFI_FILES_MAX_NAME + 8];
+    memset(long_name, 'a', sizeof(long_name));
+    memcpy(long_name + WIFI_FILES_MAX_NAME - 4, ".csv", 5);
+    assert(!wifi_files_name_valid(long_name));
+    printf("  CSV filename validation: ok\n");
+}
+
+static void test_wifi_ssid_qr_size_json(void) {
+    uint8_t mac[6] = {0xAA, 0xBB, 0xCC, 0xDD, 0x0A, 0xF3};
+    char buf[96];
+    wifi_files_format_ssid(mac, buf, sizeof(buf));
+    assert(strcmp(buf, "BioMapping-0AF3") == 0);
+
+    char qr[96];
+    wifi_files_format_wifi_qr(buf, NULL, qr, sizeof(qr));
+    assert(strcmp(qr, "WIFI:T:nopass;S:BioMapping-0AF3;;") == 0);
+    wifi_files_format_wifi_qr(buf, "", qr, sizeof(qr));
+    assert(strcmp(qr, "WIFI:T:nopass;S:BioMapping-0AF3;;") == 0);
+
+    // With a password the QR code asks for a WPA network.
+    wifi_files_format_wifi_qr(buf, "k7mp2xqa9d", qr, sizeof(qr));
+    assert(strcmp(qr, "WIFI:T:WPA;S:BioMapping-0AF3;P:k7mp2xqa9d;;") == 0);
+
+    // Special characters in SSID and password are escaped per Wi-Fi QR spec.
+    wifi_files_format_wifi_qr("A;B:C,D\\E", NULL, qr, sizeof(qr));
+    assert(strcmp(qr, "WIFI:T:nopass;S:A\\;B\\:C\\,D\\\\E;;") == 0);
+    wifi_files_format_wifi_qr("S", "p;w", qr, sizeof(qr));
+    assert(strcmp(qr, "WIFI:T:WPA;S:S;P:p\\;w;;") == 0);
+
+    // A buffer that is too small is cut short but always NUL-terminated.
+    char tiny[12];
+    wifi_files_format_wifi_qr(buf, "k7mp2xqa9d", tiny, sizeof(tiny));
+    assert(strlen(tiny) < sizeof(tiny));
+
+    // Password: right length, only easy characters, every byte value maps.
+    uint8_t rnd[WIFI_FILES_PASS_LEN];
+    char pass[WIFI_FILES_PASS_LEN + 1];
+    for(unsigned start = 0; start < 256; start += WIFI_FILES_PASS_LEN) {
+        for(size_t i = 0; i < WIFI_FILES_PASS_LEN; i++) rnd[i] = (uint8_t)(start + i);
+        wifi_files_format_password(rnd, pass, sizeof(pass));
+        assert(strlen(pass) == WIFI_FILES_PASS_LEN);
+        for(size_t i = 0; i < WIFI_FILES_PASS_LEN; i++) {
+            assert(strchr("abcdefghijkmnpqrstuvwxyz23456789", pass[i]) != NULL);
+            assert(pass[i] != 'l' && pass[i] != 'o' && pass[i] != '0' && pass[i] != '1');
+        }
+    }
+    memset(rnd, 0, sizeof(rnd));
+    wifi_files_format_password(rnd, pass, sizeof(pass));
+    assert(strcmp(pass, "aaaaaaaaaa") == 0);
+    memset(rnd, 0xFF, sizeof(rnd));
+    wifi_files_format_password(rnd, pass, sizeof(pass));
+    assert(strcmp(pass, "9999999999") == 0);
+
+    wifi_files_format_size(0, buf, sizeof(buf));
+    assert(strcmp(buf, "0 B") == 0);
+    wifi_files_format_size(512, buf, sizeof(buf));
+    assert(strcmp(buf, "512 B") == 0);
+    wifi_files_format_size(1536, buf, sizeof(buf));
+    assert(strcmp(buf, "1.5 KB") == 0);
+    wifi_files_format_size(2 * 1024 * 1024 + 512 * 1024, buf, sizeof(buf));
+    assert(strcmp(buf, "2.5 MB") == 0);
+
+    wifi_files_json_escape("a\"b\\c\n", buf, sizeof(buf));
+    assert(strcmp(buf, "a\\\"b\\\\c\\u000a") == 0);
+
+    uint16_t d = 0, t = 0;
+    wifi_files_dos_datetime_from_name("biomap_2026-11-21_14-32-06.csv", &d, &t);
+    assert(d == (((2026u - 1980u) << 9) | (11u << 5) | 21u));
+    assert(t == ((14u << 11) | (32u << 5) | (6u >> 1)));
+
+    // 1970 (GPS clock not set) and impossible dates fall back to 1980-01-01 00:00:00.
+    wifi_files_dos_datetime_from_name("biomap_1970-01-01_00-00-00.csv", &d, &t);
+    assert(d == ((1u << 5) | 1u) && t == 0u);
+    wifi_files_dos_datetime_from_name("biomap_2026-02-30_12-00-00.csv", &d, &t);
+    assert(d == ((1u << 5) | 1u) && t == 0u);
+    wifi_files_dos_datetime_from_name("biomap_2024-02-29_12-00-00.csv", &d, &t);
+    assert(d == (((2024u - 1980u) << 9) | (2u << 5) | 29u));
+    printf("  SSID, password, QR, size, JSON escape, DOS datetime: ok\n");
+}
+
+typedef struct {
+    uint8_t* data;
+    size_t   len;
+    size_t   cap;
+} MemSink;
+
+static bool mem_sink_write(void* ctx, const uint8_t* data, size_t len) {
+    MemSink* s = (MemSink*)ctx;
+    if(s->len + len > s->cap) return false;
+    memcpy(s->data + s->len, data, len);
+    s->len += len;
+    return true;
+}
+
+static uint16_t rd_le16(const uint8_t* p) {
+    return (uint16_t)p[0] | ((uint16_t)p[1] << 8);
+}
+
+static uint32_t rd_le32(const uint8_t* p) {
+    return (uint32_t)p[0] | ((uint32_t)p[1] << 8) |
+           ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
+}
+
+static void test_zip_stream_empty_and_multi(void) {
+    uint8_t out[4096];
+    MemSink sink = {out, 0, sizeof(out)};
+    ZipStreamEntry entries[4];
+    ZipStream zs;
+
+    // 1. Empty archive = 22-byte EOCD.
+    assert(zip_stream_calc_total_size(NULL, 0) == 22);
+    zip_stream_init(&zs, mem_sink_write, &sink, entries, 4);
+    assert(zip_stream_finish(&zs));
+    assert(sink.len == 22 && zs.bytes_written == 22);
+    assert(rd_le32(out) == 0x06054B50u);
+    assert(rd_le16(out + 8) == 0 && rd_le16(out + 10) == 0);
+
+    // 2. Two files with known payloads ("123456789" has standard CRC-32 0xCBF43926).
+    const char* f1_name = "biomap_2026-11-21_14-32-06.csv";
+    const char* f1_data = "123456789";
+    const char* f2_name = "empty.csv";
+    memset(entries, 0, sizeof(entries));
+    strcpy(entries[0].name, f1_name);
+    entries[0].size = 9;
+    strcpy(entries[1].name, f2_name);
+    entries[1].size = 0;
+
+    uint64_t expected_total = zip_stream_calc_total_size(entries, 2);
+    assert(zip_stream_fits_zip32(expected_total, 2));
+    // Guard against WebServer's 32-bit CONTENT_LENGTH_UNKNOWN / _NOT_SET sentinels.
+    assert(zip_stream_fits_zip32(0x7FFFFFFFULL, 1));
+    assert(!zip_stream_fits_zip32(0x80000000ULL, 1));
+    assert(!zip_stream_fits_zip32(0xFFFFFFFEULL, 1));
+    assert(!zip_stream_fits_zip32(0xFFFFFFFFULL, 1));
+
+    sink.len = 0;
+    zip_stream_init(&zs, mem_sink_write, &sink, entries, 4);
+    uint16_t d = 0, t = 0;
+    wifi_files_dos_datetime_from_name(f1_name, &d, &t);
+
+    // Stream file 1 in two chunks to test incremental CRC-32.
+    assert(zip_stream_begin_file(&zs, f1_name, 9, d, t));
+    assert(zip_stream_write_data(&zs, (const uint8_t*)f1_data, 4));
+    assert(zip_stream_write_data(&zs, (const uint8_t*)f1_data + 4, 5));
+    // Reject extra bytes past expected_size.
+    assert(!zip_stream_write_data(&zs, (const uint8_t*)"X", 1));
+    assert(zip_stream_end_file(&zs));
+
+    // Stream empty file 2.
+    assert(zip_stream_begin_file(&zs, f2_name, 0, 0x0021u, 0x0000u));
+    assert(zip_stream_end_file(&zs));
+
+    assert(zip_stream_finish(&zs));
+    assert(sink.len == (size_t)expected_total);
+    assert(zs.bytes_written == (uint32_t)expected_total);
+
+    // Check Local File Header 1 + payload + Data Descriptor 1.
+    size_t n1 = strlen(f1_name);
+    assert(rd_le32(out + 0) == 0x04034B50u);
+    assert(rd_le16(out + 6) == 0x0808u);  // bit 3 + UTF-8
+    assert(rd_le16(out + 26) == n1);
+    assert(memcmp(out + 30, f1_name, n1) == 0);
+    assert(memcmp(out + 30 + n1, f1_data, 9) == 0);
+    size_t dd1 = 30 + n1 + 9;
+    assert(rd_le32(out + dd1) == 0x08074B50u);
+    assert(rd_le32(out + dd1 + 4) == 0xCBF43926u);  // standard CRC-32("123456789")
+    assert(rd_le32(out + dd1 + 8) == 9u);
+    assert(rd_le32(out + dd1 + 12) == 9u);
+
+    // Check EOCD points cleanly to Central Directory with 2 entries.
+    size_t eocd = sink.len - 22;
+    assert(rd_le32(out + eocd) == 0x06054B50u);
+    assert(rd_le16(out + eocd + 8) == 2 && rd_le16(out + eocd + 10) == 2);
+    uint32_t cd_size = rd_le32(out + eocd + 12);
+    uint32_t cd_off = rd_le32(out + eocd + 16);
+    assert(cd_off + cd_size == eocd);
+    assert(rd_le32(out + cd_off) == 0x02014B50u);
+    assert(rd_le32(out + cd_off + 16) == 0xCBF43926u);
+    assert(rd_le32(out + cd_off + 42) == 0u);  // local_header_offset of file 1
+
+    // Short-write guard: ending a file before expected_size bytes fails.
+    sink.len = 0;
+    zip_stream_init(&zs, mem_sink_write, &sink, entries, 4);
+    assert(zip_stream_begin_file(&zs, "short.csv", 10, 0x0021u, 0));
+    assert(zip_stream_write_data(&zs, (const uint8_t*)"1234", 4));
+    assert(!zip_stream_end_file(&zs));
+
+    // Write the 2-file ZIP to build/test_zip_stream.zip so run_tests.sh can
+    // also cross-check it with Python's standard zipfile module if desired.
+    sink.len = 0;
+    zip_stream_init(&zs, mem_sink_write, &sink, entries, 4);
+    assert(zip_stream_begin_file(&zs, f1_name, 9, d, t));
+    assert(zip_stream_write_data(&zs, (const uint8_t*)f1_data, 9));
+    assert(zip_stream_end_file(&zs));
+    assert(zip_stream_begin_file(&zs, f2_name, 0, 0x0021u, 0));
+    assert(zip_stream_end_file(&zs));
+    assert(zip_stream_finish(&zs));
+    FILE* fp = fopen("build/test_zip_stream.zip", "wb");
+    if(fp) {
+        assert(fwrite(out, 1, sink.len, fp) == sink.len);
+        fclose(fp);
+    }
+    printf("  Store-mode streaming ZIP (exact length, CRC-32, EOCD): ok\n");
+}
+
 int main(void) {
     setenv("TZ", CLOCK_UK_TZ, 1);
     tzset();
@@ -481,6 +711,10 @@ int main(void) {
     test_local_time_and_offset();
     test_offset_kept_across_clock_change();
     test_clock_not_set();
+    printf("Wi-Fi Files & ZIP stream:\n");
+    test_wifi_filename_validation();
+    test_wifi_ssid_qr_size_json();
+    test_zip_stream_empty_and_multi();
     printf("All Cardputer rule tests passed.\n");
     return 0;
 }

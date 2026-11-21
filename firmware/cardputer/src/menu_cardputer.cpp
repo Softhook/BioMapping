@@ -13,6 +13,7 @@
 #include "sd_cardputer.h"
 #include "session_cardputer.h"
 #include "settings_cardputer.h"
+#include "wifi_files_cardputer.h"
 
 // Custom RGB565 theme colours for the 240 × 135 colour UI.
 static const uint16_t COL_HEADER_BG = 0x10A4;  // deep navy
@@ -27,6 +28,7 @@ enum class ScreenId {
     CalSubmenu,
     CalShowCurrent,
     CalWizard,
+    WifiFiles,
 };
 
 // Main menu items (Cardputer has no CC1101 radio).
@@ -34,6 +36,7 @@ enum {
     MainGpsGsr = 0,
     MainGsrOnly,
     MainLiveStream,
+    MainWifiFiles,
     MainOptions,
     MAIN_MENU_COUNT,
 };
@@ -42,6 +45,7 @@ static const char* const MAIN_LABELS[MAIN_MENU_COUNT] = {
     "GPS + GSR",
     "GSR Only",
     "Live Stream",
+    "Wi-Fi Files",
     "Options",
 };
 
@@ -218,13 +222,23 @@ bool menu_cardputer_active(void) {
 }
 
 bool menu_cardputer_can_lend_sd(void) {
-    return !g_session.open && g_screen != ScreenId::CalWizard;
+    return !g_session.open && g_screen != ScreenId::CalWizard && g_screen != ScreenId::WifiFiles;
 }
 
-bool menu_cardputer_poll(void) {
+bool menu_cardputer_poll(M5Canvas& canvas) {
     if(!menu_cardputer_active()) return false;
     if(g_screen == ScreenId::CalWizard) {
         return wizard_poll();
+    }
+    if(g_screen == ScreenId::WifiFiles) {
+        bool redraw = wifi_files_poll(canvas);
+        if(wifi_files_wants_exit()) {
+            wifi_files_stop();
+            play_cue(BioMapCueBack);
+            g_screen = ScreenId::MainMenu;
+            return true;
+        }
+        return redraw;
     }
     return false;
 }
@@ -253,6 +267,18 @@ bool menu_cardputer_key(SessionKey key, M5Canvas& canvas) {
             } else if(g_main_sel == MainLiveStream) {
                 play_cue(BioMapCueConfirm);
                 launch_session(BioMapModeLiveStream, canvas);
+            } else if(g_main_sel == MainWifiFiles) {
+                if(sd_usb_drive_active() || !sd_card_mount()) {
+                    play_cue(BioMapCueError);
+                    return true;
+                }
+                show_splash_banner(canvas, "Wi-Fi Files", "Starting hotspot...", TFT_YELLOW);
+                if(wifi_files_start(canvas)) {
+                    play_cue(BioMapCueConfirm);
+                    g_screen = ScreenId::WifiFiles;
+                } else {
+                    play_cue(BioMapCueError);
+                }
             } else if(g_main_sel == MainOptions) {
                 play_cue(BioMapCueConfirm);
                 g_screen = ScreenId::Options;
@@ -404,6 +430,15 @@ bool menu_cardputer_key(SessionKey key, M5Canvas& canvas) {
         }
         return true;
     }
+
+    case ScreenId::WifiFiles:
+        if(key == SessionKeyBack) {
+            wifi_files_stop();
+            play_cue(BioMapCueBack);
+            g_screen = ScreenId::MainMenu;
+            return true;
+        }
+        return wifi_files_key(key);
     }
     return false;
 }
@@ -471,7 +506,9 @@ static void draw_main_menu(M5Canvas& canvas, bool usb_drive, bool usb_confirm,
     }
     draw_header(canvas, "Bio Mapping", right, TFT_CYAN);
 
-    for(int i = 0; i < MAIN_MENU_COUNT; i++) {
+    const int max_vis = 4;
+    int top = scroll_window_top((int)g_main_sel, MAIN_MENU_COUNT, max_vis);
+    for(int i = top; i < MAIN_MENU_COUNT && (i - top) < max_vis; i++) {
         const char* badge = nullptr;
         uint16_t badge_col = COL_MUTED;
         if(i == MainGpsGsr || i == MainGsrOnly) {
@@ -480,11 +517,14 @@ static void draw_main_menu(M5Canvas& canvas, bool usb_drive, bool usb_confirm,
         } else if(i == MainLiveStream) {
             badge = "BLE";
             badge_col = TFT_CYAN;
+        } else if(i == MainWifiFiles) {
+            badge = "WiFi";
+            badge_col = TFT_CYAN;
         } else if(i == MainOptions) {
             badge = ">";
             badge_col = TFT_CYAN;
         }
-        draw_list_row(canvas, i, i == g_main_sel, MAIN_LABELS[i], badge, badge_col);
+        draw_list_row(canvas, i - top, i == g_main_sel, MAIN_LABELS[i], badge, badge_col);
     }
 
     // Status card above the footer: SD card / USB thumb drive state.
@@ -838,6 +878,9 @@ void menu_cardputer_draw(M5Canvas& canvas, bool usb_drive, bool usb_confirm,
         break;
     case ScreenId::CalWizard:
         draw_cal_wizard(canvas);
+        break;
+    case ScreenId::WifiFiles:
+        wifi_files_draw(canvas);
         break;
     }
 }
