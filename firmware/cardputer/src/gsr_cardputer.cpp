@@ -5,11 +5,19 @@
 
 #include "core_check.h"
 
-// The ADS1115 shares the Cardputer's internal I2C bus (G8/G9) with the
-// keyboard chip and the audio chip. It must go through M5's In_I2C, the
-// same driver M5's own code uses, which locks the bus around every
-// transfer: opening the same pins with Arduino's Wire would make two
-// drivers fight (docs/cardputer_port.md, "Gotchas").
+// Which I2C bus the ADS1115 is on. true: a bus of its own on EXT pins
+// G5 (SDA, EXT 13) and G6 (SCL, EXT 5), using the ESP32's second I2C
+// controller through M5's Ex_I2C (which M5 only points at the Grove port and
+// never starts). This keeps the ADS1115 off the keyboard / audio / motion
+// sensor bus and its pull-ups, which run from the Cardputer's own 3.3 V.
+// G5 and G6 have no pull-ups on the Cardputer, so the board must fit them.
+// false: the shared internal bus (G8/G9, EXT 8 and 10) through M5's In_I2C,
+// the same driver M5's own code uses, which locks the bus around every
+// transfer: opening those pins with Arduino's Wire would make two drivers
+// fight (docs/cardputer_port.md, "Gotchas").
+static const bool GSR_OWN_BUS = true;
+static const int  GSR_SDA_PIN = 5;
+static const int  GSR_SCL_PIN = 6;
 static const uint32_t I2C_FREQ = 400000;
 
 // Same priority as the Flipper's GSR thread relative to its main loop:
@@ -44,20 +52,24 @@ static void plat_delay_ms(void* ctx, uint32_t ms) {
     delay(ms);
 }
 
+static m5::I2C_Class& gsr_bus(void) {
+    return GSR_OWN_BUS ? M5.Ex_I2C : M5.In_I2C;
+}
+
 // M5's driver has no per-call timeout; it gives up on its own when the
 // chip doesn't answer.
 static bool plat_i2c_read(void* ctx, uint8_t addr, uint8_t reg, uint8_t* data, size_t len,
                           uint32_t timeout_ms) {
     (void)ctx;
     (void)timeout_ms;
-    return M5.In_I2C.readRegister(addr, reg, data, len, I2C_FREQ);
+    return gsr_bus().readRegister(addr, reg, data, len, I2C_FREQ);
 }
 
 static bool plat_i2c_write(void* ctx, uint8_t addr, uint8_t reg, const uint8_t* data, size_t len,
                            uint32_t timeout_ms) {
     (void)ctx;
     (void)timeout_ms;
-    return M5.In_I2C.writeRegister(addr, reg, data, len, I2C_FREQ);
+    return gsr_bus().writeRegister(addr, reg, data, len, I2C_FREQ);
 }
 
 static void plat_log(void* ctx, bool warning, const char* line) {
@@ -81,6 +93,13 @@ static void gsr_task(void* arg) {
 GsrSensor* gsr_cardputer_start(void) {
     // vTaskDelay(1) is the 1 ms pause only with a 1 kHz tick.
     CORE_CHECK(configTICK_RATE_HZ == 1000, "GsrSensor: tick is not 1 ms");
+    // Opened once and left open: the GSR is started again for each session
+    // and for the calibration wizard.
+    static bool bus_open = false;
+    if(GSR_OWN_BUS && !bus_open) {
+        bus_open = M5.Ex_I2C.begin(I2C_NUM_0, GSR_SDA_PIN, GSR_SCL_PIN);
+        if(!bus_open) Serial.println("[GSR] warning: could not open I2C on G5/G6");
+    }
     auto* g = new GsrCardputer();
     g->mutex = xSemaphoreCreateMutex();
     CORE_CHECK(g->mutex, "GsrSensor: mutex alloc failed");
