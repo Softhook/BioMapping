@@ -80,6 +80,14 @@ typedef struct {
     // Swap the drawing colour (white on black after a filled box). Always
     // called in pairs.
     void (*invert)(void* ctx);
+    // Optional (may be NULL): draw the GSR graph in the rectangle
+    // (gx, gy, gw, gh) in layout units. When NULL, screen_draw_session()
+    // draws the 128 × 64 frame, 10-second notches, dot-and-line curve (when
+    // `visible` is true) and bottom-left zoom label through the basic calls
+    // above. A device with a higher-resolution screen (the Cardputer: 240 ×
+    // 135) can supply this to render its own smooth curve instead.
+    void (*draw_graph)(void* ctx, const SessionCore* s, int gx, int gy, int gw, int gh,
+                       bool visible);
 } ScreenDraw;
 
 // Live Stream's Bluetooth state, as the screen names it.

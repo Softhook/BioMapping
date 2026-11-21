@@ -47,6 +47,10 @@ struct GpsUart {
     // uint32_t is enough.
     uint32_t             nmea_fail_count;
     uint32_t             reinit_count;
+    // Set once ubx_poll_chip_id() has tried in this session, so a mid-session
+    // gps_uart_reinit() (RX-buffer-full or NMEA watchdog) never retries the
+    // poll if the module didn't answer at create().
+    bool                 chip_id_poll_attempted;
 };
 
 // One log line, if the device takes them. printf-style; lines longer than
@@ -609,27 +613,23 @@ static bool ubx_poll_chip_id_once(GpsUart* g) {
 // convention (see its doc comment) — a poll going unanswered on the very
 // first attempt right after the baud switch is the same known settling
 // behaviour that motivated that retry, not speculative.
-// Attempted at most ONCE per process lifetime, success or failure — not
-// just "stop once found" (that alone only bounds the success case).
+// Attempted at most ONCE per GpsUart session (g->chip_id_poll_attempted),
+// and skipped altogether once g_gps_chip_id has been captured by an earlier
+// session in the same app run.
 // gps_uart_configure() runs on every RX-buffer-full and NMEA-watchdog
-// reinit, not just the initial create, and has no way to tell "first ever
-// call" apart from "mid-recovery retry". Without this gate, a module that
-// never answers this poll cleanly would pay up to ~3.6s of main-thread
-// blocking (2 attempts x ubx_find_sync() hunting its full
-// UBX_ACK_MAX_SYNC_BYTES budget through live NMEA — see that function's
-// doc comment for the measured ~4-5KB/s real-hardware rate this implies)
-// on every single reinit for the rest of the session, discarding real GPS
-// fixes the whole time it's scanning — on exactly the recovery path
-// that's supposed to be restoring good reception, not degrading it
-// further. One bounded attempt, right after gps_uart_configure() has
-// already proven the link works (clean CFG-VALSET ACKs), is the one shot
-// most likely to succeed anyway; a module that doesn't answer then is
-// unlikely to start answering on a later, degraded-link retry.
-static bool g_chip_id_poll_attempted = false;
-
+// reinit, not just the initial create, and has no way to tell "first call
+// in this session" apart from "mid-recovery retry". Without the per-session
+// gate, a module that never answers this poll cleanly would pay up to ~3.6s
+// of main-thread blocking (2 attempts x ubx_find_sync() hunting its full
+// UBX_ACK_MAX_SYNC_BYTES budget through live NMEA) on every single reinit
+// for the rest of the session, discarding real GPS fixes the whole time
+// it's scanning. Keeping the gate on the GpsUart session rather than a
+// process-lifetime global ensures that if the first session was opened while
+// the GPS was unpowered, a later session opened after powering it on still
+// gets its one shot at create().
 static void ubx_poll_chip_id(GpsUart* g) {
-    if(g_chip_id_poll_attempted) return;
-    g_chip_id_poll_attempted = true;
+    if(g_gps_chip_id[0] != '\0' || g->chip_id_poll_attempted) return;
+    g->chip_id_poll_attempted = true;
     for(int attempt = 0; attempt < 2; attempt++) {
         if(ubx_poll_chip_id_once(g)) {
             gps_log(&g->platform, false, "GPS chip ID: %s", g_gps_chip_id);

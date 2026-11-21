@@ -217,18 +217,12 @@ typedef struct {
 // loop (biomap_gui.c) rewrites roughly once per second while a Measuring
 // step is showing — same live-countdown pattern as RfCalWizardState's
 // sampling loop.
+// Calibration wizard state (core/biomap_format.h's CalWizardCore, plus
+// the Flipper mutex guarding cross-thread reads from the GUI service's
+// calibration_wizard_render() callback).
 typedef struct {
-    FuriMutex* mutex;
-    int   step;
-    float measured[CAL_POINTS];        // [470k, 100k, 47k], nS
-    float noise_std_dev[CAL_POINTS];   // per-resistor σ from the dwell, nS
-    int   fail_idx;                     // resistor index behind step 9/11/12's fail screen
-    float bias_measured_v;              // last bias check, V (NAN = failed) — step 12's fail screen
-    uint32_t seconds_left;              // live dwell countdown during Measuring steps
-    float zero_counts;            // open-circuit reading, normalised counts (step 14)
-    float zero_noise_ns;          // σ of the zero dwell, as nS near zero — step 15's fail screen
-    float gain;
-    float r_squared;              // goodness-of-fit
+    FuriMutex*    mutex;
+    CalWizardCore core;
 } WizardState;
 
 // RF Faraday calibration wizard state. Steps:

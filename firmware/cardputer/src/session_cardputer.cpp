@@ -71,16 +71,14 @@ static void plat_log(void* ctx, SessionLogLevel level, const char* line) {
 //
 // The UTC offset at a recording's start is kept for its end time
 // (clock_local.h says why).
-static int32_t g_recording_utc_offset_s = 0;
-
 static void plat_datetime_now(void* ctx, SessionDateTime* out) {
     (void)ctx;
-    clock_cardputer_now(out, &g_recording_utc_offset_s);
+    clock_cardputer_now(out, &g_session.recording_utc_offset_s);
 }
 
 static uint32_t plat_epoch_now(void* ctx) {
     (void)ctx;
-    return clock_cardputer_epoch(g_recording_utc_offset_s);
+    return clock_cardputer_epoch(g_session.recording_utc_offset_s);
 }
 
 static bool plat_file_start(void* ctx, const char* header, const char* stamp) {
@@ -191,6 +189,7 @@ void session_cardputer_begin(BioMapMode mode) {
     session_cardputer_lock();
     session_core_init(&g_session.core, mode, &platform, &cfg);
     screen_cache_init(&g_session.screen);
+    g_session.recording_utc_offset_s = 0;
     session_cardputer_unlock();
 
     // Mounted at the first recording session; does nothing once it is.

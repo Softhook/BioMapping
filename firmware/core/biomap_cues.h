@@ -30,6 +30,8 @@
 //    the Sound toggle itself, which always sounds so muting is audible.
 
 #include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -94,6 +96,91 @@ static inline bool biomap_cue_has_sound(BioMapCue cue) {
     default:
         return true;
     }
+}
+
+// ── Shared tone palette ────────────────────────────────────────────────
+// Each device plays the same pitches and note durations so key feedback,
+// recording start/stop chirps, and alerts sound identical across devices.
+typedef struct {
+    float    freq_hz;
+    uint32_t dur_ms;
+} BioMapCueNote;
+
+// Gap between multi-note tones for articulation (ms).
+#define BIOMAP_CUE_NOTE_GAP_MS 8
+
+// Look up the notes for `cue`. Returns the note count (0 for light-only
+// cues), sets `*out_notes` to the static note array, and sets `*out_alert`
+// (true for alerts/recording chirps, false for normal navigation clicks)
+// for devices that vary volume between the two.
+static inline size_t biomap_cue_notes(BioMapCue cue, const BioMapCueNote** out_notes,
+                                      bool* out_alert) {
+    static const BioMapCueNote k_click[]     = {{1800.0f, 35}};
+    static const BioMapCueNote k_back[]      = {{1100.0f, 35}};
+    static const BioMapCueNote k_confirm[]   = {{2200.0f, 45}};
+    static const BioMapCueNote k_tog_on[]    = {{2400.0f, 45}};
+    static const BioMapCueNote k_tog_off[]   = {{900.0f, 45}};
+    static const BioMapCueNote k_reset[]     = {{1400.0f, 45}, {1000.0f, 45}, {600.0f, 70}};
+    static const BioMapCueNote k_rec_start[] = {{659.25f, 70}, {987.77f, 90}};
+    static const BioMapCueNote k_rec_stop[]  = {{987.77f, 70}, {659.25f, 90}};
+    static const BioMapCueNote k_success[]   = {{880.0f, 60}, {1174.66f, 60}, {1567.98f, 130}};
+    static const BioMapCueNote k_error[]     = {{600.0f, 90}, {450.0f, 130}};
+    static const BioMapCueNote k_warning[]   = {{550.0f, 110}, {550.0f, 110}};
+
+    *out_notes = NULL;
+    if(out_alert) *out_alert = true;
+    switch(cue) {
+    case BioMapCueClick:
+        *out_notes = k_click;
+        if(out_alert) *out_alert = false;
+        return 1;
+    case BioMapCueBack:
+        *out_notes = k_back;
+        if(out_alert) *out_alert = false;
+        return 1;
+    case BioMapCueConfirm:
+        *out_notes = k_confirm;
+        if(out_alert) *out_alert = false;
+        return 1;
+    case BioMapCueToggleOn:
+        *out_notes = k_tog_on;
+        if(out_alert) *out_alert = false;
+        return 1;
+    case BioMapCueToggleOff:
+        *out_notes = k_tog_off;
+        if(out_alert) *out_alert = false;
+        return 1;
+    case BioMapCueReset:
+        *out_notes = k_reset;
+        return 3;
+    case BioMapCueSuccess:
+    case BioMapCueGpsColdStartDone:
+        *out_notes = k_success;
+        return 3;
+    case BioMapCueError:
+    case BioMapCueGpsColdStartFailed:
+        *out_notes = k_error;
+        return 2;
+    case BioMapCueRecordingStarted:
+        *out_notes = k_rec_start;
+        return 2;
+    case BioMapCueRecordingStopped:
+        *out_notes = k_rec_stop;
+        return 2;
+    case BioMapCueRecordingIncomplete:
+    case BioMapCueSdWriteStoppedAlarm:
+        *out_notes = k_warning;
+        return 2;
+    case BioMapCueHeartbeat:
+    case BioMapCueHeartbeatFingersOff:
+    case BioMapCueNoGpsFix:
+    case BioMapCueSdRetrying:
+    case BioMapCueSdWriteStopped:
+    case BioMapCueStatusLightOff:
+    case BioMapCueCount:
+        return 0;
+    }
+    return 0;
 }
 
 #ifdef __cplusplus

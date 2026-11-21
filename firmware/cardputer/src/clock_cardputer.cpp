@@ -82,3 +82,10 @@ void clock_cardputer_now(SessionDateTime* out, int32_t* utc_offset_s) {
 uint32_t clock_cardputer_epoch(int32_t utc_offset_s) {
     return clock_local_epoch((int64_t)time(nullptr), utc_offset_s);
 }
+
+uint32_t clock_cardputer_epoch_now(void) {
+    SessionDateTime dt;
+    int32_t off = 0;
+    clock_cardputer_now(&dt, &off);
+    return clock_cardputer_epoch(off);
+}

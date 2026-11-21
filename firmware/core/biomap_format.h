@@ -144,6 +144,14 @@ float cal_dwell_std(const CalDwell* d);
 // Mean of every reading, in gate or not. 0 if there were none.
 float cal_dwell_mean_all(const CalDwell* d);
 
+// Canonical calibration targets (nS) and valid-range gates [lo, hi] (nS)
+// for the three calibration resistors (470k, 100k, 47k).
+extern const float biomap_cal_targets[CAL_POINTS];
+extern const float biomap_cal_gates[CAL_POINTS][2];
+
+// Worst-case (highest) noise σ across the three calibration resistors (nS).
+float biomap_cal_worst_noise_std_dev(const float noise_std_dev[CAL_POINTS]);
+
 // ── Calibration and settings records (on-disk formats) ────────────────
 // The records biomap.c reads from and writes to the SD card, and the checks
 // a loaded record must pass before it is applied. Kept here, SDK-free, so

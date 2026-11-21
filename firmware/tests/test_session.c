@@ -1219,6 +1219,123 @@ static void test_screen_live_stream(void) {
     assert(text_starting("GSR: cuffs disconnected") != NULL);
 }
 
+// Custom draw_graph callback (used by the Cardputer's 240 × 135 smooth spline
+// renderer): replaces the default 128 × 64 frame, dots, lines and zoom label
+// without coordinate sniffing, while keeping the top bar and cuffs-off status.
+static struct {
+    int  calls;
+    int  gx, gy, gw, gh;
+    bool visible;
+} DG;
+
+static void d_custom_graph(void* ctx, const SessionCore* s, int gx, int gy, int gw, int gh,
+                           bool visible) {
+    (void)ctx;
+    assert(s == &S);
+    DG.calls++;
+    DG.gx = gx;
+    DG.gy = gy;
+    DG.gw = gw;
+    DG.gh = gh;
+    DG.visible = visible;
+}
+
+static void test_screen_custom_graph_callback(void) {
+    printf("Running test_screen_custom_graph_callback...\n");
+    screen_start(BioMapModeGpsGsr, settings());
+    gps_fix();
+    tick(20);
+    memset(&D, 0, sizeof(D));
+    memset(&DG, 0, sizeof(DG));
+    D.font = -1;
+    ScreenDraw d = {
+        .clear = d_clear, .set_font = d_font, .draw_str = d_str, .str_width = d_width,
+        .draw_dot = d_dot, .draw_line = d_line, .draw_box = d_box, .draw_frame = d_frame,
+        .invert = d_invert, .draw_graph = d_custom_graph,
+    };
+    screen_draw_session(&d, &S, &X, &SC);
+    assert(DG.calls == 1 && DG.gx == 0 && DG.gy == 16 && DG.gw == 128 && DG.gh == 48);
+    assert(DG.visible);
+    // Core did not draw the 128 × 64 dots, lines or frame itself.
+    assert(D.dots == 0 && D.lines == 0 && D.frames == 0);
+    // Top bar (badge and nS reading) is still drawn by core.
+    assert(text_starting("2.") != NULL);
+    assert(text_starting("49") != NULL);
+}
+
+// Shared 4-step calibration wizard state machine (CalWizardCore in
+// core/biomap_format.c): Zero step + 470k, 100k, 47k resistor steps, bias
+// check, cancel, and save.
+static void run_wiz_dwell_to_end(CalWizardCore* w, BioMapCue* done_cue) {
+    int guard = 0;
+    while(cal_wizard_measuring(w)) {
+        gsr_run(100);
+        if(cal_wizard_tick(w, done_cue)) break;
+        assert(++guard < 500);
+    }
+    assert(!cal_wizard_measuring(w));
+}
+
+static void test_cal_wizard_state_machine(void) {
+    printf("Running test_cal_wizard_state_machine...\n");
+    start_with_modules(BioMapModeGsrOnly, settings(), 0.5f);
+
+    // 1. No sensor available: OK on Zero prompt plays BioMapCueClick, enters
+    // MeasuringZero, and cal_wizard_check_sensor() transitions to
+    // MeasureFailed with BioMapCueError; OK on failure resets to PromptZero.
+    CalWizardCore w;
+    cal_wizard_init(&w, NULL);
+    assert(w.step == WizardStepPromptZero && !w.sensor_ok);
+    BioMapCue cue = BioMapCueCount;
+    assert(cal_wizard_key(&w, true, &cue) == CalKeyOutcomeStepChanged);
+    assert(w.step == WizardStepMeasuringZero && cue == BioMapCueClick);
+    assert(cal_wizard_check_sensor(&w, &cue));
+    assert(w.step == WizardStepMeasureFailed && cue == BioMapCueError);
+    assert(cal_wizard_key(&w, true, &cue) == CalKeyOutcomeStepChanged);
+    assert(w.step == WizardStepPromptZero && cue == BioMapCueClick);
+
+    // 2. Full 4-step happy path with the pretend ADS1115.
+    cal_wizard_init(&w, G.gsr);
+    assert(w.sensor_ok);
+
+    // Step 1/4: Open-circuit zero (0 V on skin input).
+    G.skin_v = 0.0f;
+    assert(cal_wizard_key(&w, true, &cue) == CalKeyOutcomeStepChanged);
+    assert(w.step == WizardStepMeasuringZero && cue == BioMapCueClick);
+    run_wiz_dwell_to_end(&w, &cue);
+    assert(w.step == WizardStepPrompt470k && cue == BioMapCueConfirm);
+    assert(fabsf(w.zero_counts) < 10.0f);
+
+    // Steps 2..4/4: 470k, 100k, 47k resistors.
+    // V_diff = 0.5 V * 47 / (R_kohm + 9.4)
+    const float r_kohm[CAL_POINTS] = {470.0f, 100.0f, 47.0f};
+    const int want_next[CAL_POINTS] = {
+        WizardStepPrompt100k, WizardStepPrompt47k, WizardStepSuccess,
+    };
+    for(int i = 0; i < CAL_POINTS; i++) {
+        G.skin_v = 0.5f * 47.0f / (r_kohm[i] + 9.4f);
+        assert(cal_wizard_key(&w, true, &cue) == CalKeyOutcomeStepChanged);
+        assert(w.step == i * 2 + 1 && cue == BioMapCueClick);
+        run_wiz_dwell_to_end(&w, &cue);
+        assert(w.step == want_next[i]);
+        assert(cue == BioMapCueConfirm);
+        assert(w.fit_cue == (i + 1 < CAL_POINTS ? BioMapCueCount : BioMapCueSuccess));
+    }
+    assert(fabsf(w.gain - 1.0f) < 0.02f && w.r_squared > 0.999f);
+
+    // OK on WizardStepSuccess requests save & exit.
+    assert(cal_wizard_key(&w, true, &cue) == CalKeyOutcomeSaveAndExit);
+    assert(cue == BioMapCueConfirm);
+
+    // 3. Back mid-dwell cancels immediately with BioMapCueBack.
+    cal_wizard_init(&w, G.gsr);
+    G.skin_v = 0.0f;
+    cal_wizard_key(&w, true, &cue);
+    assert(cal_wizard_measuring(&w));
+    assert(cal_wizard_key(&w, false, &cue) == CalKeyOutcomeCancelAndExit);
+    assert(!cal_wizard_measuring(&w) && cue == BioMapCueBack);
+}
+
 int main(void) {
     test_init_checks_platform();
     test_start_header_and_settle();
@@ -1242,6 +1359,8 @@ int main(void) {
     test_screen_radio_panel();
     test_screen_gps_rf();
     test_screen_live_stream();
+    test_screen_custom_graph_callback();
+    test_cal_wizard_state_machine();
     free_modules();
     printf("All session tests passed!\n");
     return 0;

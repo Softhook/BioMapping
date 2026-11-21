@@ -147,10 +147,7 @@ bool settings_cardputer_save(void) {
 
 bool settings_cardputer_save_cal(float gain, float zero_counts, float r_squared,
                                  const float noise_std_dev[CAL_POINTS]) {
-    int32_t off = 0;
-    SessionDateTime dt;
-    clock_cardputer_now(&dt, &off);
-    uint32_t timestamp = clock_cardputer_epoch(off);
+    uint32_t timestamp = clock_cardputer_epoch_now();
 
     g_settings.cal_active = true;
     g_settings.cal_gain = gain;

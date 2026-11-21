@@ -31,3 +31,7 @@ void clock_cardputer_now(SessionDateTime* out, int32_t* utc_offset_s = nullptr);
 // The clock as an epoch in local time with a given UTC offset (the scale
 // the header's start time uses), or 0 before GPS time.
 uint32_t clock_cardputer_epoch(int32_t utc_offset_s);
+
+// The clock as an epoch in local time using the current UTC offset now,
+// or 0 before GPS time.
+uint32_t clock_cardputer_epoch_now(void);

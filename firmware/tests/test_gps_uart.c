@@ -572,6 +572,18 @@ static void test_chipid_capture(void) {
     // by this phase, and the corrupted-then-valid-succeeds parse path is
     // unchanged from before this fix and was verified separately, both by
     // an earlier version of this test and on real hardware.)
+    // Phase 2: Within the SAME session, a mid-session reinit (e.g.
+    // RX-buffer-full or the 5 s NMEA watchdog) must NOT retry the poll just
+    // because phase 1's attempt failed. A valid response is queued for the
+    // same trigger; if the old "stop once found" guard were still in place,
+    // this reinit WOULD poll again and succeed. It must not: chip_id staying
+    // empty across a mid-session reinit is only possible if the poll never
+    // fired on reinit.
+    //
+    // Phase 3: A NEW session (gps_uart_alloc() after the user backed out to
+    // the menu and powered the GPS on) DOES get a fresh shot if no previous
+    // session captured the chip ID yet, and once captured it is cached for
+    // the rest of the app run without re-polling.
     GpsUart* g;
     {
         static const uint8_t corrupted_response[] = {
@@ -579,6 +591,12 @@ static void test_chipid_capture(void) {
             0x02, 0x00, 0x00, 0x00,                          // version, reserved
             0x11, 0x22, 0x33, 0x44, 0x55, 0x66,              // uniqueId
             0x9B, 0x8E,                                      // checksum: should be 9B 8D
+        };
+        static const uint8_t valid_response[] = {
+            0xB5, 0x62, 0x27, 0x03, 0x0A, 0x00,             // header, len=10
+            0x02, 0x00, 0x00, 0x00,                          // version, reserved
+            0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF,              // uniqueId
+            0x31, 0x1A,                                      // valid checksum
         };
         FuriMessageQueue queue = {0};
         furi_hal_mock_arm_response_for_tx(
@@ -591,35 +609,28 @@ static void test_chipid_capture(void) {
                gps_uart_get_chip_id(g));
         assert(gps_uart_get_chip_id(g)[0] == '\0');
 
-        gps_uart_free(g);
-    }
-
-    // Phase 2: THE fix under test. A later gps_uart_alloc() (e.g. a mode
-    // switch, or exactly what an RX-buffer-full/NMEA-watchdog reinit
-    // does) must NOT retry the poll just because phase 1's attempt
-    // failed. A valid response is queued for the same trigger; if the old
-    // "stop once found" guard were still in place, this alloc WOULD poll
-    // again (chip_id is still empty from phase 1) and it WOULD succeed,
-    // setting chip_id to this phrase. It must not: chip_id staying empty
-    // here is only possible if the poll never fired at all this time.
-    {
-        static const uint8_t valid_response[] = {
-            0xB5, 0x62, 0x27, 0x03, 0x0A, 0x00,             // header, len=10
-            0x02, 0x00, 0x00, 0x00,                          // version, reserved
-            0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF,              // uniqueId
-            0x31, 0x1A,                                      // valid checksum
-        };
-        FuriMessageQueue queue = {0};
+        // Phase 2: trigger a mid-session NMEA-watchdog reinit on `g` with a
+        // valid response armed — must NOT re-poll mid-session.
         furi_hal_mock_arm_response_for_tx(
             k_uniqid_poll, sizeof(k_uniqid_poll),
             valid_response, sizeof(valid_response));
-        g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian, true);
-        assert(g != NULL);
-
-        printf("  phase 2: chip_id after a later alloc = \"%s\" (expect still empty, NOT \"baker mute aloha fable poet\")\n",
+        furi_test_advance_tick(5001);
+        gps_uart_process_rx(g);
+        assert(gps_uart_get_reinit_count(g) == 1);
+        printf("  phase 2: chip_id after mid-session reinit = \"%s\" (expect still empty)\n",
                gps_uart_get_chip_id(g));
         assert(gps_uart_get_chip_id(g)[0] == '\0');
+        assert(furi_hal_mock_tx_responses_pending() == 1); // poll was never sent on reinit
+        gps_uart_free(g);
 
+        // Phase 3: a fresh session DOES try again and captures the chip ID;
+        // once captured, subsequent sessions keep it without polling again.
+        g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian, true);
+        assert(g != NULL);
+        printf("  phase 3: chip_id on fresh session = \"%s\" (expect \"baker mute aloha fable poet\")\n",
+               gps_uart_get_chip_id(g));
+        assert(strcmp(gps_uart_get_chip_id(g), "baker mute aloha fable poet") == 0);
+        assert(furi_hal_mock_tx_responses_pending() == 0);
         gps_uart_free(g);
     }
 

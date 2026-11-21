@@ -20,6 +20,7 @@ struct CardputerSession {
     bool        bt_active = false;
     bool        open = false;  // between session_cardputer_begin() and _end()
     uint32_t    last_step_ms = 0;  // when the graph ring buffer last stepped forward
+    int32_t     recording_utc_offset_s = 0;  // UTC offset at recording start, kept for stop
 };
 
 extern CardputerSession g_session;

@@ -133,6 +133,24 @@ float cal_dwell_mean_all(const CalDwell* d) {
     return d->all > 0 ? d->sum_all / (float)d->all : 0.0f;
 }
 
+const float biomap_cal_targets[CAL_POINTS] = {
+    CAL_TARGET_470K, CAL_TARGET_100K, CAL_TARGET_47K,
+};
+
+const float biomap_cal_gates[CAL_POINTS][2] = {
+    {CAL_LO_GATE,     CAL_MID_GATE_LO},
+    {CAL_MID_GATE_LO, CAL_MID_GATE_HI},
+    {CAL_LO_GATE_47K, CAL_HI_GATE},
+};
+
+float biomap_cal_worst_noise_std_dev(const float noise_std_dev[CAL_POINTS]) {
+    float worst = noise_std_dev[0];
+    for(int i = 1; i < CAL_POINTS; i++) {
+        if(noise_std_dev[i] > worst) worst = noise_std_dev[i];
+    }
+    return worst;
+}
+
 bool calibration_wizard_compute_fit(const float measured[CAL_POINTS],
                                     const float targets[CAL_POINTS],
                                     float* out_gain, float* out_r_squared) {

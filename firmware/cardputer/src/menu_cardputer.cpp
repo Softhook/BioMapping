@@ -14,16 +14,6 @@
 #include "session_cardputer.h"
 #include "settings_cardputer.h"
 
-// Calibration targets and gates (CAL_TARGET_*, CAL_*_GATE in core/biomap_config.h).
-static const float CAL_TARGETS[CAL_POINTS] = {
-    CAL_TARGET_470K, CAL_TARGET_100K, CAL_TARGET_47K,
-};
-static const float CAL_GATES[CAL_POINTS][2] = {
-    {CAL_LO_GATE,     CAL_MID_GATE_LO},
-    {CAL_MID_GATE_LO, CAL_MID_GATE_HI},
-    {CAL_LO_GATE_47K, CAL_HI_GATE},
-};
-
 // Custom RGB565 theme colors for the 240 × 135 colour UI.
 static const uint16_t COL_HEADER_BG = 0x10A4;  // deep navy
 static const uint16_t COL_SEL_BG    = 0x02B3;  // rich blue highlight
@@ -95,57 +85,15 @@ static const char* const CAL_SUB_LABELS[CAL_SUB_COUNT] = {
     "Show Current",
 };
 
-// WizardStep* enum lives in core/biomap_config.h.
-enum class DwellPhase {
-    Idle,
-    FlushBefore,
-    BiasCheck,
-    FlushAfterBias,
-    Sampling,
-};
-
-struct CalWizard {
-    GsrSensor* gsr = nullptr;
-    bool       sensor_ok = false;
-    int        step = WizardStepPromptZero;
-    float      measured[CAL_POINTS] = {};
-    float      noise_std_dev[CAL_POINTS] = {};
-    int        fail_idx = 0;
-    float      bias_measured_v = NAN;
-    uint32_t   seconds_left = CAL_DWELL_SECONDS;
-    float      zero_counts = 0.0f;
-    float      zero_noise_ns = 0.0f;
-    float      gain = 1.0f;
-    float      r_squared = 0.0f;
-
-    // Non-blocking 10 Hz measurement state.
-    DwellPhase phase = DwellPhase::Idle;
-    bool       zero_step = true;
-    int        resistor_idx = 0;
-    uint32_t   phase_ticks = 0;
-    uint32_t   phase_target = 0;
-    uint32_t   last_tick_ms = 0;
-    CalDwell   dwell = {};
-    float      first_raw = 0.0f;
-    float      live_reading = 0.0f;
-};
-
-static ScreenId  g_screen = ScreenId::MainMenu;
-static int32_t   g_main_sel = 0;
-static int32_t   g_opt_sel = 0;
-static int32_t   g_cal_sel = 0;
-static CalWizard g_wiz;
+static ScreenId      g_screen = ScreenId::MainMenu;
+static int32_t       g_main_sel = 0;
+static int32_t       g_opt_sel = 0;
+static int32_t       g_cal_sel = 0;
+static CalWizardCore g_wiz = {};
+static uint32_t      g_wiz_last_tick_ms = 0;
 
 static void play_cue(BioMapCue cue, bool force = false) {
     cues_cardputer_play(force ? true : g_settings.sound_enabled, cue);
-}
-
-static float worst_noise_std_dev(const float noise[CAL_POINTS]) {
-    float worst = noise[0];
-    for(int i = 1; i < CAL_POINTS; i++) {
-        if(noise[i] > worst) worst = noise[i];
-    }
-    return worst;
 }
 
 static int scroll_window_top(int sel, int count, int max_visible) {
@@ -153,17 +101,19 @@ static int scroll_window_top(int sel, int count, int max_visible) {
     return 0;
 }
 
-// ── Calibration wizard lifecycle & non-blocking tick state machine ───────
+// ── Calibration wizard lifecycle & non-blocking 10 Hz driver ────────────
+// The 4-step wizard state machine lives in core/biomap_format.c
+// (CalWizardCore); this file only starts/stops the GSR thread and ticks it
+// every 100 ms on the main loop.
 
 static void wizard_open(void) {
-    g_wiz = CalWizard{};
-    g_wiz.step = WizardStepPromptZero;
-    g_wiz.gsr = gsr_cardputer_start();
-    g_wiz.sensor_ok = g_wiz.gsr && gsr_sensor_available(g_wiz.gsr);
-    if(!g_wiz.sensor_ok && g_wiz.gsr) {
-        gsr_cardputer_stop(g_wiz.gsr);
-        g_wiz.gsr = nullptr;
+    GsrSensor* gsr = gsr_cardputer_start();
+    if(gsr && !gsr_sensor_available(gsr)) {
+        gsr_cardputer_stop(gsr);
+        gsr = nullptr;
     }
+    cal_wizard_init(&g_wiz, gsr);
+    g_wiz_last_tick_ms = millis();
 }
 
 static void wizard_close(void) {
@@ -171,181 +121,47 @@ static void wizard_close(void) {
         gsr_cardputer_stop(g_wiz.gsr);
         g_wiz.gsr = nullptr;
     }
-    g_wiz.phase = DwellPhase::Idle;
-}
-
-static void wizard_start_zero_dwell(void) {
-    if(!g_wiz.sensor_ok) {
-        g_wiz.fail_idx = 0;
-        g_wiz.step = WizardStepMeasureFailed;
-        play_cue(BioMapCueError);
-        return;
-    }
-    gsr_sensor_set_calibration(g_wiz.gsr, false, 1.0f, 0.0f);
-    g_wiz.zero_step = true;
-    g_wiz.phase = DwellPhase::FlushBefore;
-    g_wiz.phase_ticks = 0;
-    g_wiz.phase_target = CAL_ZERO_FLUSH_TICKS;  // 2 s flush so autoranging climbs to PGA 5
-    g_wiz.seconds_left = CAL_DWELL_SECONDS;
-    g_wiz.last_tick_ms = millis();
-    cal_dwell_init(&g_wiz.dwell);
-}
-
-static void wizard_start_resistor_dwell(int idx) {
-    if(!g_wiz.sensor_ok) {
-        g_wiz.fail_idx = idx;
-        g_wiz.step = WizardStepMeasureFailed;
-        play_cue(BioMapCueError);
-        return;
-    }
-    gsr_sensor_set_calibration(g_wiz.gsr, true, 1.0f, g_wiz.zero_counts);
-    g_wiz.zero_step = false;
-    g_wiz.resistor_idx = idx;
-    g_wiz.phase = DwellPhase::FlushBefore;
-    g_wiz.phase_ticks = 0;
-    g_wiz.phase_target = CAL_RESISTOR_FLUSH_TICKS;  // 1 s flush (also settles pre-measurement click)
-    g_wiz.seconds_left = CAL_DWELL_SECONDS;
-    g_wiz.last_tick_ms = millis();
-    cal_dwell_init(&g_wiz.dwell);
-}
-
-static void wizard_finish_dwell(void) {
-    g_wiz.phase = DwellPhase::Idle;
-    if(g_wiz.zero_step) {
-        if(cal_dwell_ok(&g_wiz.dwell)) {
-            g_wiz.zero_counts = g_wiz.dwell.mean;
-            g_wiz.zero_noise_ns = cal_dwell_std(&g_wiz.dwell) * gsr_tia_counts_to_ns(1.0f);
-            bool zero_ok = calibration_noise_grade(g_wiz.zero_noise_ns) != CalNoisePoor;
-            g_wiz.step = zero_ok ? WizardStepPrompt470k : WizardStepZeroFailed;
-            play_cue(zero_ok ? BioMapCueConfirm : BioMapCueError);
-        } else {
-            g_wiz.zero_counts = cal_dwell_mean_all(&g_wiz.dwell);
-            g_wiz.zero_noise_ns = 0.0f;
-            g_wiz.step = WizardStepZeroFailed;
-            Serial.printf("[Cal] Zero failed: mean=%.1f in=%d/%d (limit ±%.0f)\n",
-                          (double)g_wiz.zero_counts, g_wiz.dwell.in_gate, g_wiz.dwell.all,
-                          (double)CAL_ZERO_MAX_COUNTS);
-            play_cue(BioMapCueError);
-        }
-        return;
-    }
-
-    int idx = g_wiz.resistor_idx;
-    if(!cal_dwell_ok(&g_wiz.dwell)) {
-        Serial.printf("[Cal] Resistor %d failed: first=%.1f in=%d below=%d above=%d gate=[%.0f, %.0f]\n",
-                      idx, (double)g_wiz.first_raw, g_wiz.dwell.in_gate,
-                      g_wiz.dwell.below, g_wiz.dwell.above,
-                      (double)CAL_GATES[idx][0], (double)CAL_GATES[idx][1]);
-        g_wiz.fail_idx = idx;
-        g_wiz.step = WizardStepMeasureFailed;
-        play_cue(BioMapCueError);
-        return;
-    }
-
-    float avg_g = g_wiz.dwell.mean;
-    float std_dev = cal_dwell_std(&g_wiz.dwell);
-    g_wiz.measured[idx] = avg_g;
-    g_wiz.noise_std_dev[idx] = std_dev;
-
-    if(calibration_noise_grade(std_dev) == CalNoisePoor) {
-        g_wiz.fail_idx = idx;
-        g_wiz.step = WizardStepNoiseFailed;
-        play_cue(BioMapCueError);
-        return;
-    }
-
-    int next_step = idx * 2 + 2;
-    g_wiz.step = next_step;
-    play_cue(BioMapCueConfirm);
-
-    if(g_wiz.step == WizardStepFitPending) {
-        float gain = 1.0f, r2 = 0.0f;
-        bool fit_ok = calibration_wizard_compute_fit(g_wiz.measured, CAL_TARGETS, &gain, &r2);
-        g_wiz.gain = gain;
-        g_wiz.r_squared = r2;
-        g_wiz.step = fit_ok ? WizardStepSuccess : WizardStepFitFailed;
-        if(fit_ok) {
-            play_cue(BioMapCueSuccess);
-        } else {
-            Serial.printf("[Cal] Fit failed: gain=%.4f R2=%.4f\n", (double)gain, (double)r2);
-            play_cue(BioMapCueError);
-        }
-    }
+    g_wiz.phase = CalDwellPhaseIdle;
 }
 
 static bool wizard_poll(void) {
-    if(g_wiz.phase == DwellPhase::Idle) return false;
+    if(!cal_wizard_measuring(&g_wiz)) return false;
     uint32_t now = millis();
-    if(now - g_wiz.last_tick_ms < (1000 / TICK_HZ)) return false;
-    g_wiz.last_tick_ms += (1000 / TICK_HZ);
-    if(now - g_wiz.last_tick_ms >= (1000 / TICK_HZ)) g_wiz.last_tick_ms = now;
+    if(now - g_wiz_last_tick_ms < (1000 / TICK_HZ)) return false;
+    g_wiz_last_tick_ms += (1000 / TICK_HZ);
+    if(now - g_wiz_last_tick_ms >= (1000 / TICK_HZ)) g_wiz_last_tick_ms = now;
 
-    switch(g_wiz.phase) {
-    case DwellPhase::FlushBefore:
-        gsr_sensor_tick(g_wiz.gsr);
-        g_wiz.live_reading = g_wiz.zero_step
-            ? (float)gsr_sensor_get_mean_count(g_wiz.gsr)
-            : gsr_sensor_get_raw(g_wiz.gsr);
-        if(++g_wiz.phase_ticks >= g_wiz.phase_target) {
-            if(g_wiz.zero_step) {
-                g_wiz.phase = DwellPhase::Sampling;
-                g_wiz.phase_ticks = 0;
-                g_wiz.phase_target = CAL_DWELL_SECONDS * TICK_HZ;
-            } else {
-                g_wiz.phase = DwellPhase::BiasCheck;
-            }
-        }
-        return true;
-
-    case DwellPhase::BiasCheck: {
-        bool bias_done = gsr_sensor_run_bias_check(g_wiz.gsr, GSR_BIAS_CHECK_TIMEOUT_MS);
-        float bias_v = bias_done ? gsr_sensor_get_bias_measured_volts(g_wiz.gsr) : NAN;
-        g_wiz.bias_measured_v = bias_v;
-        if(!gsr_bias_in_range(bias_v)) {
-            Serial.printf("[Cal] Bias check failed: %.4f V\n", (double)bias_v);
-            g_wiz.phase = DwellPhase::Idle;
-            g_wiz.fail_idx = g_wiz.resistor_idx;
-            g_wiz.step = WizardStepBiasFailed;
-            play_cue(BioMapCueError);
-            return true;
-        }
-        g_wiz.phase = DwellPhase::FlushAfterBias;
-        g_wiz.phase_ticks = 0;
-        g_wiz.phase_target = CAL_POST_BIAS_FLUSH_TICKS;
-        g_wiz.last_tick_ms = millis();
-        return true;
+    BioMapCue done_cue = BioMapCueCount;
+    bool was_bias_check = (g_wiz.phase == CalDwellPhaseBiasCheck);
+    bool finished = cal_wizard_tick(&g_wiz, &done_cue);
+    if(was_bias_check) {
+        // The blocking ~50 ms bias check just ran: reset the 100 ms tick
+        // anchor so the two post-bias flush ticks are spaced by 100 ms.
+        g_wiz_last_tick_ms = millis();
     }
-
-    case DwellPhase::FlushAfterBias:
-        gsr_sensor_tick(g_wiz.gsr);
-        if(++g_wiz.phase_ticks >= g_wiz.phase_target) {
-            g_wiz.phase = DwellPhase::Sampling;
-            g_wiz.phase_ticks = 0;
-            g_wiz.phase_target = CAL_DWELL_SECONDS * TICK_HZ;
+    if(finished) {
+        if(g_wiz.step == WizardStepBiasFailed) {
+            Serial.printf("[Cal] Bias check failed: %.4f V\n", (double)g_wiz.bias_measured_v);
+        } else if(g_wiz.step == WizardStepZeroFailed && !cal_dwell_ok(&g_wiz.dwell)) {
+            Serial.printf("[Cal] Zero failed: mean=%.1f in=%d/%d (limit ±%.0f)\n",
+                          (double)g_wiz.zero_counts, g_wiz.dwell.in_gate, g_wiz.dwell.all,
+                          (double)CAL_ZERO_MAX_COUNTS);
+        } else if(g_wiz.step == WizardStepMeasureFailed) {
+            int idx = g_wiz.fail_idx;
+            Serial.printf("[Cal] Resistor %d failed: first=%.1f in=%d below=%d above=%d gate=[%.0f, %.0f]\n",
+                          idx, (double)g_wiz.first_raw, g_wiz.dwell.in_gate,
+                          g_wiz.dwell.below, g_wiz.dwell.above,
+                          (double)biomap_cal_gates[idx][0], (double)biomap_cal_gates[idx][1]);
+        } else if(g_wiz.step == WizardStepFitFailed) {
+            Serial.printf("[Cal] Fit failed: gain=%.4f R2=%.4f\n",
+                          (double)g_wiz.gain, (double)g_wiz.r_squared);
         }
-        return true;
-
-    case DwellPhase::Sampling: {
-        gsr_sensor_tick(g_wiz.gsr);
-        float v = g_wiz.zero_step
-            ? (float)gsr_sensor_get_mean_count(g_wiz.gsr)
-            : gsr_sensor_get_raw(g_wiz.gsr);
-        g_wiz.live_reading = v;
-        if(g_wiz.phase_ticks == 0) g_wiz.first_raw = v;
-        float lo = g_wiz.zero_step ? -CAL_ZERO_MAX_COUNTS : CAL_GATES[g_wiz.resistor_idx][0];
-        float hi = g_wiz.zero_step ?  CAL_ZERO_MAX_COUNTS : CAL_GATES[g_wiz.resistor_idx][1];
-        cal_dwell_add(&g_wiz.dwell, v, lo, hi);
-        g_wiz.seconds_left = CAL_DWELL_SECONDS - g_wiz.phase_ticks / TICK_HZ;
-        if(++g_wiz.phase_ticks >= g_wiz.phase_target) {
-            wizard_finish_dwell();
+        play_cue(done_cue);
+        if(g_wiz.fit_cue != BioMapCueCount) {
+            play_cue(g_wiz.fit_cue);
         }
-        return true;
     }
-
-    case DwellPhase::Idle:
-        break;
-    }
-    return false;
+    return true;
 }
 
 // ── Screen transitions & actions ─────────────────────────────────────────
@@ -565,47 +381,29 @@ bool menu_cardputer_key(SessionKey key, M5Canvas& canvas) {
         }
         return false;
 
-    case ScreenId::CalWizard:
-        if(key == SessionKeyBack) {
-            // Cancel at any time (during a prompt, a dwell, or a result screen).
-            wizard_close();
-            play_cue(BioMapCueBack);
-            g_screen = ScreenId::CalSubmenu;
-            return true;
-        }
-        if(key != SessionKeyOk || g_wiz.phase != DwellPhase::Idle) {
-            return false;
-        }
-        if(g_wiz.step == WizardStepSuccess) {
-            play_cue(BioMapCueConfirm);
+    case ScreenId::CalWizard: {
+        if(key != SessionKeyOk && key != SessionKeyBack) return false;
+        BioMapCue cue = BioMapCueCount;
+        CalKeyOutcome out = cal_wizard_key(&g_wiz, key == SessionKeyOk, &cue);
+        if(out == CalKeyOutcomeNone) return false;
+        play_cue(cue);
+        g_wiz_last_tick_ms = millis();
+        if(out == CalKeyOutcomeSaveAndExit) {
             settings_cardputer_save_cal(g_wiz.gain, g_wiz.zero_counts,
                                         g_wiz.r_squared, g_wiz.noise_std_dev);
             wizard_close();
             g_screen = ScreenId::Options;
-            return true;
+        } else if(out == CalKeyOutcomeCancelAndExit) {
+            wizard_close();
+            g_screen = ScreenId::CalSubmenu;
+        } else {
+            BioMapCue err_cue = BioMapCueCount;
+            if(cal_wizard_check_sensor(&g_wiz, &err_cue)) {
+                play_cue(err_cue);
+            }
         }
-        if(g_wiz.step == WizardStepMeasureFailed || g_wiz.step == WizardStepFitFailed ||
-           g_wiz.step == WizardStepNoiseFailed || g_wiz.step == WizardStepBiasFailed ||
-           g_wiz.step == WizardStepZeroFailed) {
-            play_cue(BioMapCueClick);
-            g_wiz.step = WizardStepPromptZero;
-            return true;
-        }
-        if(g_wiz.step == WizardStepPromptZero) {
-            play_cue(BioMapCueClick);
-            g_wiz.step = WizardStepMeasuringZero;
-            wizard_start_zero_dwell();
-            return true;
-        }
-        if(g_wiz.step == WizardStepPrompt470k || g_wiz.step == WizardStepPrompt100k ||
-           g_wiz.step == WizardStepPrompt47k) {
-            int idx = g_wiz.step / 2;
-            play_cue(BioMapCueClick);
-            g_wiz.step = idx * 2 + 1;
-            wizard_start_resistor_dwell(idx);
-            return true;
-        }
-        return false;
+        return true;
+    }
     }
     return false;
 }
@@ -804,7 +602,7 @@ static void draw_cal_show_current(M5Canvas& canvas) {
         canvas.drawString(line, 8, y);
         y += 20;
 
-        float worst = worst_noise_std_dev(g_settings.cal_noise_std_dev);
+        float worst = biomap_cal_worst_noise_std_dev(g_settings.cal_noise_std_dev);
         snprintf(line, sizeof(line), "Zero: %.1f cts   Max sigma: %.2f nS",
                  (double)g_settings.cal_zero_counts, (double)worst);
         canvas.drawString(line, 8, y);
@@ -818,10 +616,7 @@ static void draw_cal_show_current(M5Canvas& canvas) {
         canvas.drawString(line, 8, y);
         y += 20;
 
-        int32_t off = 0;
-        SessionDateTime dt;
-        clock_cardputer_now(&dt, &off);
-        uint32_t now = clock_cardputer_epoch(off);
+        uint32_t now = clock_cardputer_epoch_now();
         uint32_t saved = g_settings.cal_timestamp;
         canvas.setTextColor(COL_MUTED);
         if(saved == 0 || now == 0 || now < saved) {
@@ -924,7 +719,7 @@ static void draw_cal_wizard(M5Canvas& canvas) {
 
     case WizardStepSuccess: {
         draw_header(canvas, "GSR Calibration", "Passed", TFT_GREEN);
-        float worst_std = worst_noise_std_dev(g_wiz.noise_std_dev);
+        float worst_std = biomap_cal_worst_noise_std_dev(g_wiz.noise_std_dev);
         canvas.setTextColor(TFT_GREEN);
         canvas.drawString("Calibration Success!", 8, 28);
         canvas.setTextColor(TFT_WHITE);

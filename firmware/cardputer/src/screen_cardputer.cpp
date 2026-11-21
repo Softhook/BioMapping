@@ -33,7 +33,7 @@ struct DrawCtx {
     bool        recording = false;
     bool        retrying = false;
     bool        write_stopped = false;
-    bool        custom_graph = false;  // suppress core's blocky 128x64 graph dots/lines
+    uint32_t    last_step_ms = 0;
 };
 
 static uint16_t fg_color(const DrawCtx* c) {
@@ -63,14 +63,7 @@ static void cp_draw_str(void* ctx, int x, int y, const char* text) {
     if(py < 0) py = 0;
     if(py > DISP_H - 16) py = DISP_H - 16;
     int px = sx(x);
-    uint16_t col = fg_color(c);
-    if(c->inverted && c->write_stopped && y <= 10) {
-        col = TFT_WHITE;
-    } else if(!c->inverted && c->custom_graph && x <= 4 && y >= 58) {
-        // Zoom label in bottom-left of graph: drawn by draw_smooth_graph()
-        // over the shaded curve so it's never covered by the fill.
-        return;
-    }
+    uint16_t col = (c->inverted && c->write_stopped) ? TFT_WHITE : fg_color(c);
     c->canvas->setTextColor(col);
     c->canvas->drawString(text, px, py);
     if(c->font == ScreenFontPrimary) {
@@ -89,30 +82,22 @@ static int cp_str_width(void* ctx, const char* text) {
 
 static void cp_draw_dot(void* ctx, int x, int y) {
     auto* c = static_cast<DrawCtx*>(ctx);
-    if(c->custom_graph) return;
     c->canvas->fillRect(sx(x), sy(y), sw(x, 1), sh(y, 1), TFT_CYAN);
 }
 
 static void cp_draw_line(void* ctx, int x1, int y1, int x2, int y2) {
     auto* c = static_cast<DrawCtx*>(ctx);
-    if(c->custom_graph) return;
-    bool in_graph = (x1 == x2 && y1 >= 16 && y2 >= 16);
-    uint16_t col = in_graph ? TFT_CYAN : TFT_LIGHTGREY;
     int px1 = sx(x1), py1 = sy(y1), px2 = sx(x2), py2 = sy(y2);
-    c->canvas->drawLine(px1, py1, px2, py2, col);
-    if(in_graph) {
-        c->canvas->drawLine(px1 + 1, py1, px2 + 1, py2, col);
-    }
+    c->canvas->drawLine(px1, py1, px2, py2, TFT_LIGHTGREY);
 }
 
 static void cp_draw_box(void* ctx, int x, int y, int w, int h) {
     auto* c = static_cast<DrawCtx*>(ctx);
     uint16_t col = fg_color(c);
-    // The recording mark (top right, 118, 1, 8, 8): red when healthy, orange
-    // while riding out an SD retry. The SD-error banner (0, 0, 128, 11): red.
+    // Recording indicator (top right) and SD-error banner (full width at top).
     if(x == 118 && y == 1 && w == 8 && h == 8) {
         col = c->retrying ? TFT_ORANGE : TFT_RED;
-    } else if(x == 0 && y == 0 && w == SCREEN_W && h == 11 && c->write_stopped) {
+    } else if(x == 0 && y == 0 && w == SCREEN_W && c->write_stopped) {
         col = TFT_RED;
     }
     c->canvas->fillRect(sx(x), sy(y), sw(x, w), sh(y, h), col);
@@ -120,7 +105,6 @@ static void cp_draw_box(void* ctx, int x, int y, int w, int h) {
 
 static void cp_draw_frame(void* ctx, int x, int y, int w, int h) {
     auto* c = static_cast<DrawCtx*>(ctx);
-    if(c->custom_graph && y == 16 && h == 48) return;  // drawn by draw_smooth_graph()
     c->canvas->drawRect(sx(x), sy(y), sw(x, w), sh(y, h), TFT_DARKGREY);
 }
 
@@ -135,15 +119,6 @@ static void cp_invert(void* ctx) {
 // full 240 px horizontal resolution, with sub-tick fractional time scrolling
 // (30 FPS) so the curve glides continuously from right to left instead of
 // jumping in 2 Hz steps.
-
-struct GraphSnapshot {
-    float    buf[GRAPH_N];
-    int      head;
-    int      scroll_divider;
-    float    zoom_level;
-    uint32_t last_step_ms;
-    bool     visible;
-};
 
 // Zero-phase 3-tap binomial smoothing ([0.25, 0.5, 0.25]) over the linearised
 // sample array `s` of length `N` to remove single-sample ADC aliasing spikes
@@ -169,14 +144,17 @@ static inline int clamp_int(int v, int lo, int hi) {
     return v < lo ? lo : (v > hi ? hi : v);
 }
 
-static void draw_smooth_graph(M5Canvas& canvas, const GraphSnapshot& g) {
-    const int gx = 0;
-    const int gy = sy(16);          // 34
-    const int gw = DISP_W;          // 240
-    const int gh = DISP_H - gy;     // 101
+static void cp_draw_graph(void* ctx, const SessionCore* s, int layout_gx, int layout_gy,
+                          int layout_gw, int layout_gh, bool visible) {
+    auto* c = static_cast<DrawCtx*>(ctx);
+    M5Canvas& canvas = *c->canvas;
+    const int gx = sx(layout_gx);
+    const int gy = sy(layout_gy);
+    const int gw = sw(layout_gx, layout_gw);
+    const int gh = sh(layout_gy, layout_gh);
     const int y0 = gy + 2;
     const int y1 = gy + gh - 3;
-    const int cy = (y0 + y1) / 2;   // 84
+    const int cy = (y0 + y1) / 2;
 
     // Subtle background grid: centre zero-rate baseline + quarter lines.
     static const uint16_t COL_FRAME     = 0x2965;  // slate border
@@ -195,14 +173,15 @@ static void draw_smooth_graph(M5Canvas& canvas, const GraphSnapshot& g) {
 
     // 10-second time notches along the top of the graph frame, scrolling
     // smoothly with the sub-tick fractional phase.
-    const int n = SCREEN_W - 2;  // 126 samples across the full width
-    uint32_t step_period_ms = (uint32_t)(g.scroll_divider * (1000 / TICK_HZ));
-    uint32_t elapsed_ms = millis() - g.last_step_ms;
+    const int n = layout_gw - 2;
+    int scroll_div = s->pipeline.graph.scroll_divider > 0 ? s->pipeline.graph.scroll_divider : 1;
+    uint32_t step_period_ms = (uint32_t)(scroll_div * (1000 / TICK_HZ));
+    uint32_t elapsed_ms = millis() - c->last_step_ms;
     float phase = step_period_ms > 0 ? (float)elapsed_ms / (float)step_period_ms : 0.0f;
     if(phase < 0.0f) phase = 0.0f;
     if(phase > 1.0f) phase = 1.0f;
 
-    float samples_per_notch = (float)(10 * TICK_HZ) / (float)g.scroll_divider;
+    float samples_per_notch = (float)(10 * TICK_HZ) / (float)scroll_div;
     if(samples_per_notch > 2.0f) {
         float px_per_sample = (float)(gw - 3) / (float)(n - 2);
         float px_per_notch = samples_per_notch * px_per_sample;
@@ -214,21 +193,21 @@ static void draw_smooth_graph(M5Canvas& canvas, const GraphSnapshot& g) {
         }
     }
 
-    if(g.visible) {
+    if(visible) {
         // Linearise the newest `n` samples from the circular buffer:
         // raw_s[0] is oldest (left), raw_s[n-1] is newest (right).
         float raw_s[GRAPH_N];
-        int start = (g.head + GRAPH_N - n) % GRAPH_N;
+        int start = (s->pipeline.graph.head + GRAPH_N - n) % GRAPH_N;
         for(int i = 0; i < n; i++) {
-            raw_s[i] = g.buf[(start + i) % GRAPH_N];
+            raw_s[i] = s->pipeline.graph.buf[(start + i) % GRAPH_N];
         }
-        float s[GRAPH_N];
+        float filt[GRAPH_N];
         for(int i = 0; i < n; i++) {
-            s[i] = filtered_sample(raw_s, n, i);
+            filt[i] = filtered_sample(raw_s, n, i);
         }
 
         // Scale to vertical pixels (48 layout units → gh device pixels).
-        const float scale = g.zoom_level * ((float)((y1 - y0) / 2 - 2) / 100.0f);
+        const float scale = s->pipeline.zoom.level * ((float)((y1 - y0) / 2 - 2) / 100.0f);
         const int plot_w = gw - 2;  // pixels gx+1 .. gx+gw-2
 
         int prev_y = cy;
@@ -242,10 +221,10 @@ static void draw_smooth_graph(M5Canvas& canvas, const GraphSnapshot& g) {
             if(idx < 0) { idx = 0; t = 0.0f; }
             if(idx > n - 2) { idx = n - 2; t = 1.0f; }
 
-            float p0 = s[idx > 0 ? idx - 1 : 0];
-            float p1 = s[idx];
-            float p2 = s[idx + 1];
-            float p3 = s[idx + 2 < n ? idx + 2 : n - 1];
+            float p0 = filt[idx > 0 ? idx - 1 : 0];
+            float p1 = filt[idx];
+            float p2 = filt[idx + 1];
+            float p3 = filt[idx + 2 < n ? idx + 2 : n - 1];
 
             float val = catmull_rom(p0, p1, p2, p3, t) * scale;
             int y_cur = clamp_int((int)lroundf((float)cy - val), y0, y1);
@@ -272,40 +251,25 @@ static void draw_smooth_graph(M5Canvas& canvas, const GraphSnapshot& g) {
     canvas.drawRect(gx, gy, gw, gh, COL_FRAME);
 
     // Zoom label in the bottom-left corner of the graph.
-    if(g.visible) {
+    if(visible) {
         char zbuf[16];
-        snprintf(zbuf, sizeof(zbuf), "%.1fx", (double)g.zoom_level);
+        snprintf(zbuf, sizeof(zbuf), "%.1fx", (double)s->pipeline.zoom.level);
         canvas.setFont(&fonts::Font2);
         canvas.setTextColor(TFT_LIGHTGREY);
-        canvas.drawString(zbuf, gx + 5, DISP_H - 18);
+        canvas.drawString(zbuf, gx + 5, gy + gh - 18);
     }
 }
 
 void screen_cardputer_draw_session(M5Canvas& canvas) {
     session_cardputer_lock();
     const SessionCore& s = g_session.core;
-    bool is_diag = (s.mode == BioMapModeDiagnostics);
-    bool has_graph = has_gsr(s.mode) && !is_diag;
-    bool gsr_visible = has_graph && s.gsr && gsr_sensor_available(s.gsr) &&
-                       gsr_sensor_is_connected(s.gsr);
-
-    GraphSnapshot gsnap = {};
-    if(has_graph) {
-        memcpy(gsnap.buf, s.pipeline.graph.buf, sizeof(gsnap.buf));
-        gsnap.head = s.pipeline.graph.head;
-        gsnap.scroll_divider = s.pipeline.graph.scroll_divider > 0
-            ? s.pipeline.graph.scroll_divider : 1;
-        gsnap.zoom_level = s.pipeline.zoom.level;
-        gsnap.last_step_ms = g_session.last_step_ms;
-        gsnap.visible = gsr_visible;
-    }
 
     DrawCtx dctx;
     dctx.canvas = &canvas;
     dctx.recording = s.recording.active;
     dctx.retrying = s.recording.flush_fail_streak > 0;
     dctx.write_stopped = s.recording.write_stopped;
-    dctx.custom_graph = has_graph;
+    dctx.last_step_ms = g_session.last_step_ms;
 
     ScreenExtras extras = {};
     extras.file_name = g_session.logger ? sd_logger_get_filename(g_session.logger) : nullptr;
@@ -324,13 +288,10 @@ void screen_cardputer_draw_session(M5Canvas& canvas) {
     draw.draw_box = cp_draw_box;
     draw.draw_frame = cp_draw_frame;
     draw.invert = cp_invert;
+    draw.draw_graph = cp_draw_graph;
 
     screen_draw_session(&draw, &s, &extras, &g_session.screen);
     session_cardputer_unlock();
-
-    if(has_graph) {
-        draw_smooth_graph(canvas, gsnap);
-    }
 
     // Cardputer-specific overlay: if Enter was pressed in GPS+GSR mode before
     // the GPS clock was set, show a brief banner at the top.

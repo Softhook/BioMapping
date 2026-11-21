@@ -165,37 +165,23 @@ void calibration_menu_render(Canvas* c, void* ctx) {
     draw_cal_submenu(c, ctx, "GSR Calibration");
 }
 
-// Worst-case (highest-σ) reading across the three calibration points, in
-// nS — the figure a one-line summary should report as a real, comparable
-// number rather than an Excellent/Acceptable/Poor label, same "worst wins"
-// reasoning as rf_calibration_wizard_stats_render()'s max_std.
-static float worst_noise_std_dev(const float noise_std_dev[CAL_POINTS]) {
-    float worst = noise_std_dev[0];
-    for(int i = 1; i < CAL_POINTS; i++) {
-        if(noise_std_dev[i] > worst) worst = noise_std_dev[i];
-    }
-    return worst;
-}
-
 void calibration_wizard_render(Canvas* c, void* ctx) {
     WizardState* w = (WizardState*)ctx;
 
     // Guards against run_calibration_wizard()'s measurement loop (main
-    // thread), which rewrites step/measured[]/noise_std_dev[]/fail_idx/
-    // bias_measured_v/seconds_left/zero_counts/zero_noise_ns/gain/r_squared as each step
-    // is measured —
+    // thread), which updates w->core as each step is measured —
     // see WizardState's doc comment in biomap.h.
     furi_mutex_acquire(w->mutex, FuriWaitForever);
-    int step = w->step;
-    float gain = w->gain;
-    float zero_counts = w->zero_counts;
-    float zero_noise_ns = w->zero_noise_ns;
-    float r_squared = w->r_squared;
-    int fail_idx = w->fail_idx;
-    float bias_v = w->bias_measured_v;
-    uint32_t seconds_left = w->seconds_left;
+    int step = w->core.step;
+    float gain = w->core.gain;
+    float zero_counts = w->core.zero_counts;
+    float zero_noise_ns = w->core.zero_noise_ns;
+    float r_squared = w->core.r_squared;
+    int fail_idx = w->core.fail_idx;
+    float bias_v = w->core.bias_measured_v;
+    uint32_t seconds_left = w->core.seconds_left;
     float noise_std_dev[CAL_POINTS];
-    memcpy(noise_std_dev, w->noise_std_dev, sizeof(noise_std_dev));
+    memcpy(noise_std_dev, w->core.noise_std_dev, sizeof(noise_std_dev));
     furi_mutex_release(w->mutex);
 
     canvas_clear(c);
@@ -244,7 +230,7 @@ void calibration_wizard_render(Canvas* c, void* ctx) {
         }
         break;
     case 8: { // Success
-        float worst_std = worst_noise_std_dev(noise_std_dev);
+        float worst_std = biomap_cal_worst_noise_std_dev(noise_std_dev);
         canvas_draw_str(c, 0, 23, "Calibration Success!");
         draw_fmt(c, 0, 35, "Gain: %.3fx  R\xb2: %.4f", (double)gain, (double)r_squared);
         draw_fmt(c, 0, 47, "Zero:%.0f  N:%.2fnS", (double)zero_counts, (double)worst_std);
@@ -318,7 +304,7 @@ void show_current_calibration_render(Canvas* c, void* ctx) {
     if(active) {
         draw_fmt(c, 0, 35, "Gain: %.3fx  R\xb2: %.3f", (double)gain, (double)r_squared);
         draw_fmt(c, 0, 47, "Zero:%.0f  N:%.2fnS",
-                 (double)zero_counts, (double)worst_noise_std_dev(noise_std_dev));
+                 (double)zero_counts, (double)biomap_cal_worst_noise_std_dev(noise_std_dev));
     } else {
         draw_fmt(c, 0, 35, "Gain: %.3fx", (double)gain);
         draw_fmt(c, 0, 47, "Zero: %.0f", (double)zero_counts);

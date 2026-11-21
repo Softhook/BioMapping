@@ -347,16 +347,16 @@ static void render_gsr_session(const ScreenDraw* d, const SessionCore* s, Screen
 
     // Graph frame — always drawn, even with the cuffs off
     int gx = (mode == BioMapModeGpsGsrRf) ? RF_PANEL_W : 0;
-    d->draw_frame(d->ctx, gx, 16, SCREEN_W - gx, 48);
+    int gw = SCREEN_W - gx;
+    if(d->draw_graph) {
+        d->draw_graph(d->ctx, s, gx, 16, gw, 48, gsr_visible);
+    } else {
+        d->draw_frame(d->ctx, gx, 16, gw, 48);
 
-    // Graph and zoom label, only while there is a signal to show
-    if(gsr_visible) {
-        if(mode == BioMapModeGpsGsrRf) {
-            draw_graph(d, s, RF_PANEL_W, 16, SCREEN_W - RF_PANEL_W, 48);
-            render_zoom_label(d, s, cache, RF_PANEL_W + 2);
-        } else {
-            draw_graph(d, s, 0, 16, SCREEN_W, 48);
-            render_zoom_label(d, s, cache, 2);
+        // Graph and zoom label, only while there is a signal to show
+        if(gsr_visible) {
+            draw_graph(d, s, gx, 16, gw, 48);
+            render_zoom_label(d, s, cache, gx + 2);
         }
     }
 
