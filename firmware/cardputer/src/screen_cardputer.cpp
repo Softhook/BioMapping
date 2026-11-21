@@ -64,7 +64,7 @@ static void cp_draw_str(void* ctx, int x, int y, const char* text) {
     if(py > DISP_H - 16) py = DISP_H - 16;
     int px = sx(x);
     uint16_t col = fg_color(c);
-    if(!c->inverted && c->write_stopped && y <= 10) {
+    if(c->inverted && c->write_stopped && y <= 10) {
         col = TFT_WHITE;
     } else if(!c->inverted && c->custom_graph && x <= 4 && y >= 58) {
         // Zoom label in bottom-left of graph: drawn by draw_smooth_graph()

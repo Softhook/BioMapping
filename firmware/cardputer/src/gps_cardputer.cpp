@@ -107,6 +107,7 @@ static WakeWatch g_wake;
 static uint32_t  g_garbled_at_wake_start = 0;
 
 static void drain_rx(void) {
+    uart_flush_input(GPS_UART_NUM);
     while(port.available() > 0) port.read();
 }
 

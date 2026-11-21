@@ -272,6 +272,9 @@ bool session_cardputer_key(SessionKey key) {
     }
     bool was_recording = g_session.core.recording.active;
     bool redraw = session_core_key(&g_session.core, key);
+    if(key == SessionKeyLeft || key == SessionKeyRight) {
+        g_session.last_step_ms = millis();
+    }
     if(!was_recording && g_session.core.recording.active) {
         // Starting took about half a second or more (bias check, file,
         // sound, settle). That wait isn't a stall: row 0 comes one tick

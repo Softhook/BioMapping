@@ -32,6 +32,8 @@ void keys_unstick_poll(void) {
     low_passes = 0;
     detachInterrupt(digitalPinToInterrupt(KEY_INT_PIN));
     M5Cardputer.Keyboard.begin();
+    M5Cardputer.Keyboard.updateKeyList();
+    M5Cardputer.Keyboard.updateKeysState();
     Serial.println("[Keys] warning: keyboard had stopped (G11 held low); restarted it");
 }
 

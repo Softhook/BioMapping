@@ -426,12 +426,14 @@ bool menu_cardputer_key(SessionKey key, M5Canvas& canvas) {
             play_cue(BioMapCueClick);
             return true;
         case SessionKeyOk:
-            if(g_main_sel == MainGpsGsr) {
+            if(g_main_sel == MainGpsGsr || g_main_sel == MainGsrOnly) {
+                if(sd_usb_drive_active()) {
+                    play_cue(BioMapCueError);
+                    return true;
+                }
                 play_cue(BioMapCueConfirm);
-                launch_session(BioMapModeGpsGsr, canvas);
-            } else if(g_main_sel == MainGsrOnly) {
-                play_cue(BioMapCueConfirm);
-                launch_session(BioMapModeGsrOnly, canvas);
+                launch_session(
+                    g_main_sel == MainGpsGsr ? BioMapModeGpsGsr : BioMapModeGsrOnly, canvas);
             } else if(g_main_sel == MainLiveStream) {
                 play_cue(BioMapCueConfirm);
                 launch_session(BioMapModeLiveStream, canvas);
