@@ -226,6 +226,11 @@ bool session_cardputer_poll(void) {
 
 bool session_cardputer_key(SessionKey key) {
     if(!g_session.open || !g_session.core.running) return false;
+    // Refuse to start a recording while the computer owns the SD card over USB.
+    if(key == SessionKeyOk && !g_session.core.recording.active && sd_usb_drive_active()) {
+        session_core_cue(&g_session.core, BioMapCueError);
+        return true;
+    }
     // The decided clock rule: in a GPS mode, wait for GPS time before
     // recording, so the file name and start time are always right. The
     // core reads `recording` only on this thread, so no lock is needed.

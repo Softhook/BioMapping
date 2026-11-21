@@ -360,6 +360,29 @@ The Cardputer could collect nearly all of them, in one of two ways:
 
 **Why it waits.** The side-by-side walks (section 5) are meant to show that the two devices give the same results. If the Cardputer reads at a different rate from the start, any difference is harder to explain. So the first port uses the same reading code as the Flipper, with its 1 ms pause. Its rate may still differ from the Flipper's, but `gsr_hz` records it in every file, so the difference can be seen. Expect more repeated readings than on the Flipper. The faster ESP32 may get round the loop close to 1,000 times a second, but the ADS1115 only makes 860 new readings a second, so at least 1 in 7 reads (about 14%) will fetch a reading already taken. That is harmless: a repeat counts that reading twice in the 100 ms average, which wastes a little of the averaging but doesn't push the result up or down. The duplicate counter in [gsr_sensor.c](../firmware/core/gsr_sensor.c) shows the rate (7–11% on the Flipper). Once the two devices agree, try the precise timer as a separate test, and compare noise on the resistor-grid test before and after. If it is worth having, switch to the ready pin, which the board already wires to G4.
 
+### Getting recordings off the SD card: USB drive and Wi-Fi Files
+
+Popping the microSD card out of the Cardputer ADV after every walk is fiddly, and the old serial `ls`/`cat` commands needed a terminal script. Two ideas from [pocket-wui](https://github.com/AFetisa/pocket-wui) (MIT licence, built for the Cardputer / ESP32-S3) solve this cleanly:
+
+1. **Built-in USB thumb drive mode (done in [`sd_cardputer.cpp`](../firmware/cardputer/src/sd_cardputer.cpp)).**
+   - The ESP32-S3's native USB port (`ARDUINO_USB_MODE=0` with `ARDUINO_USB_CDC_ON_BOOT=1`) presents both the serial log (`USBCDC`) and a USB Mass Storage drive (`USBMSC`) over the same USB-C cable.
+   - While BioMapping owns the card, `mediaPresent(false)` tells the computer the drive slot is empty.
+   - Pressing **`U`** (whenever not recording) lends the card to the computer (`mediaPresent(true)`), forwarding raw 512-byte sector reads and writes through `SD.readRAW()` and `SD.writeRAW()`. The card appears in Finder / Explorer as a normal USB drive with all `.csv` files in `biomapping/`.
+   - **Why lending is triggered by `U` rather than automatic whenever a session ends (`Esc`):** if the drive mounted on the computer every time `Esc` was pressed, starting a new session on the Cardputer without ejecting on the computer first would yank the mounted disk away and trigger a macOS *"Disk Not Ejected Properly"* warning (or risk FAT corruption if the computer was writing spotlight/trash metadata). With `U`, lending only happens when asked for, and **Enter** refuses to start a recording while the computer has the card.
+   - When the user clicks **Eject** on the computer (detected via `onStartStop` with `!start && load_eject`), unplugs the USB cable for 3 seconds, or presses **`U`** again on the Cardputer, the firmware sets `mediaPresent(false)`, waits under a mutex for any in-flight USB sector read or write to finish, and calls `SD.end()` + `SD.begin()` so FatFs drops its cached directory sectors and sees any files deleted or changed on the computer.
+
+2. **Wi-Fi Files plan (for phones, tablets, or workshops without a USB cable).**
+   - **Rule: Wi-Fi must never run during a recording or session.** The ESP32's Wi-Fi transmitter draws sharp current bursts (hundreds of mA) right next to the GSR front-end and drains the battery quickly. Wi-Fi must stay completely off (`WiFi.mode(WIFI_OFF)`) at boot and throughout every recording session.
+   - **Option A — Separate app via M5Launcher (zero firmware work):** install [M5Launcher](https://github.com/bmorcelli/M5Stick-Launcher) on the Cardputer and keep both `BioMapping.bin` and a pre-built `PocketWUI.bin` from [pocket-wui Releases](https://github.com/AFetisa/pocket-wui/releases) on the SD card. Reboot into PocketWUI whenever full browser file management, WebDAV, or USB drive mode is wanted.
+   - **Option B — Built-in "Wi-Fi Files" screen (step 13 / after step 10's menu):**
+     - Add a **Wi-Fi Files** item on the main menu (only reachable when no recording session is open).
+     - Entering **Wi-Fi Files** turns Wi-Fi on as its own hotspot (for example `BioMapping-XXXX`, or joins a saved workshop Wi-Fi network from a small config file on the SD card) and shows the web address (`http://192.168.4.1`) and a QR code on the Cardputer screen.
+     - A small built-in web page lists the `.csv` files in `/sd/biomapping/` with:
+       - One-tap download for any single `.csv` file.
+       - **"Download all as ZIP"**, borrowing [`pocket-wui`'s `src/zipstream.h` and `src/zipstream.cpp`](https://github.com/AFetisa/pocket-wui/blob/main/src/zipstream.cpp) (~220 lines of standalone C++ that stream an uncompressed Store-mode `.zip` archive straight from the SD card over HTTP with CRC-32 data descriptors, using zero extra RAM or temporary SD space).
+       - Optional delete button for clearing old walks after downloading.
+     - Pressing **Esc** to leave the **Wi-Fi Files** screen stops the web server and calls `WiFi.softAPdisconnect(true)` and `WiFi.mode(WIFI_OFF)` before returning to the main menu, so the radio is guaranteed off before any GSR session can start.
+
 ### CSV format
 
 Nothing needs to change. The `GPS+GSR` format (11 columns) already exists and is documented in [csv_schema.md](csv_schema.md). The visualiser already handles files without the RF columns, because the EM features only switch on when those columns are present.
@@ -437,7 +460,7 @@ Steps 1–6 prepare the shared core on the Flipper. They also tidy the Flipper c
 | 10 | Cardputer: screen (quick route) and keys. | |
 | 11 | Cardputer: Bluetooth live stream. Test the visualiser's Live tab. | |
 | 12 | The resistor-grid test and side-by-side walks (section 5). | Trusted results |
-| 13 | Later, optional: faster GSR reading (section 4), redesign the screen, add a printed Cap, add field notes. | |
+| 13 | Later, optional: faster GSR reading (section 4), Wi-Fi Files screen with streaming ZIP download (section 4), redesign the screen, add a printed Cap, add field notes. | |
 
 ---
 
@@ -780,7 +803,7 @@ Still to check: a GPS+GSR recording (the file should load in the visualiser with
 - **GSR gain and disconnect counts after a pause.** Each caught-up tick reads the same latest window, and each one added to the 5-window count before the gain goes up and the 20-window disconnect count. A tick less than 50 ms after the last counted one no longer counts. Both devices.
 - **Wake check:** a byte that isn't NMEA text now counts as garbled, since output at 115200 read at 9600 doesn't always raise a framing-error report. A garbled-byte report left over from before a silent sleep is cleared, so it no longer makes the next wake ignore its first 30 ms.
 - **The keyboard that stops after 10–20 minutes** (section 2) is a race in M5Cardputer 1.1.1's keyboard reader: a key event at the wrong moment, or one failed status read, leaves G11 held low with the reader waiting for a change that never comes. The main loop now restarts the keyboard if G11 stays low for 20 loop passes and 100 ms, and logs "[Keys] warning: keyboard had stopped".
-- **USB file commands:** no extra blank line before `END`, `ERR line too long` for a line over 95 characters, and one status line (not a burst) after a long `cat`.
+- **USB thumb drive mode (replacing the serial `ls` and `cat` commands).** Pressing **`U`** outside a recording now lends the SD card to a plugged-in computer as a normal USB thumb drive (`USBMSC` over native TinyUSB alongside `USBCDC` serial logging, modeled on [`pocket-wui`'s `src/usb.cpp`](https://github.com/AFetisa/pocket-wui/blob/main/src/usb.cpp)). Ejecting on the computer (or pressing **`U`** again) takes the card back and remounts `/sd` so the Cardputer sees any deleted or changed files. Recording is refused while the computer has the card.
 
 Not changed: the GPS sleeping at power-up only to wake at once for the first session (about 1 s; step 10's menu ends it), the UK time zone, and the Cardputer calibration (both step 10 decisions). To check on the Cardputer: a recording with debug fields on should start at `0.00` with `tick_dt_ms` 0, then about 100 for every row after it; the first SD write should be well under 100 ms; wake still reports a first byte after a few hundred ms. On the Flipper: the same recording start check, since the Flipper loop changed.
 

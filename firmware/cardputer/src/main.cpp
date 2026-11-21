@@ -5,10 +5,11 @@
 // with the clock set from GPS time. The screen is a plain status page for
 // now; the real recording screen comes in step 10.
 //
-// Keys: Enter starts and stops a recording, Esc (or Del) ends the session.
-// With no session open, Tab switches between GPS+GSR and GSR Only, and
-// Enter starts a session in that mode. Any other key is only counted, for
-// the typing test (typing must not disturb the GSR reading).
+// Keys: Enter starts and stops a recording, Esc (or Del) ends the session,
+// and U (when not recording) lends the SD card to a plugged-in computer as
+// a USB thumb drive. With no session open, Tab switches between GPS+GSR and
+// GSR Only, and Enter starts a session in that mode. Any other key is only
+// counted, for the typing test (typing must not disturb the GSR reading).
 
 #include <M5Cardputer.h>
 
@@ -18,7 +19,6 @@
 #include "gsr_cardputer.h"
 #include "keys.h"
 #include "sd_cardputer.h"
-#include "serial_files.h"
 #include "session_cardputer.h"
 
 static M5Canvas canvas(&M5Cardputer.Display);
@@ -28,6 +28,9 @@ static BioMapMode g_mode = BioMapModeGpsGsr;
 
 static uint32_t key_count = 0;     // every key press, for the typing test
 static uint32_t last_log_ms = 0;
+static const uint32_t USB_NOTICE_MS = 3000;
+static bool     g_usb_notice = false;
+static uint32_t g_usb_notice_since_ms = 0;
 
 // What the screen shows, copied out under the session lock so the slow
 // part (pushing the picture to the display) happens without it.
@@ -41,7 +44,7 @@ struct View {
     uint32_t i2c_peak_ms;
     char     file[48];
     uint32_t flush_peak_ms, fill_bytes, flush_fails;
-    bool     card_ok;
+    bool     card_ok, usb_drive, usb_notice;
     bool     gps_on, gps_ready, gps_fix;
     int      gps_fix_type, gps_sats;
     float    gps_hacc;
@@ -99,6 +102,8 @@ static View read_view(void) {
         v.gps_near_miss = gps_cardputer_buffer_full_count(gps);
     }
     v.card_ok = sd_card_ready();
+    v.usb_drive = sd_usb_drive_active();
+    v.usb_notice = g_usb_notice;
     v.clock_set = clock_cardputer_is_set();
     v.no_time_notice = session_cardputer_no_time_notice();
     clock_cardputer_now(&v.now);
@@ -162,8 +167,14 @@ static void draw_screen(void) {
     }
     canvas.setFont(&fonts::Font2);
 
-    // 3. The file, or why a recording didn't start.
-    if(v.no_time_notice) {
+    // 3. The file, USB drive state, or why a recording didn't start.
+    if(v.usb_drive) {
+        line(Y_FILE, TFT_CYAN);
+        canvas.print("USB drive on computer");
+    } else if(v.usb_notice) {
+        line(Y_FILE, TFT_YELLOW);
+        canvas.print("Plug USB into a computer");
+    } else if(v.no_time_notice) {
         line(Y_FILE, TFT_YELLOW);
         canvas.print("Waiting for GPS time");
     } else if(!v.card_ok) {
@@ -216,8 +227,13 @@ static void draw_screen(void) {
 
     // 7. What the keys do.
     line(Y_KEYS, TFT_LIGHTGREY);
-    if(v.open) canvas.print(v.recording ? "Enter stop   Esc end" : "Enter record   Esc end");
-    else canvas.print("Enter new session   Tab mode");
+    if(v.usb_drive) {
+        canvas.print("Eject on computer, or press U");
+    } else if(v.open) {
+        canvas.print(v.recording ? "Enter stop   Esc end" : "Enter record   U USB   Esc end");
+    } else {
+        canvas.print("Enter session   Tab mode   U USB");
+    }
 
     canvas.pushSprite(0, 0);
 }
@@ -260,6 +276,19 @@ static bool keys_poll(void) {
     if(!M5Cardputer.Keyboard.isChange() || !M5Cardputer.Keyboard.isPressed()) return false;
     key_count++;
     const auto& st = M5Cardputer.Keyboard.keysState();
+    bool recording = g_session.open && g_session.core.recording.active;
+    if(!recording && !st.word.empty() && (st.word.back() == 'u' || st.word.back() == 'U')) {
+        bool want = !sd_usb_drive_active();
+        if(sd_usb_drive_set(want)) {
+            g_usb_notice = false;
+            cues_cardputer_play(true, want ? BioMapCueToggleOn : BioMapCueToggleOff);
+        } else {
+            g_usb_notice = true;
+            g_usb_notice_since_ms = millis();
+            cues_cardputer_play(true, BioMapCueError);
+        }
+        return true;
+    }
     if(st.tab && !g_session.open) {
         g_mode = g_mode == BioMapModeGpsGsr ? BioMapModeGsrOnly : BioMapModeGpsGsr;
         return true;
@@ -306,6 +335,11 @@ void loop() {
     M5Cardputer.update();
     keys_unstick_poll();
     bool redraw = keys_poll();
+    if(sd_usb_drive_poll()) redraw = true;
+    if(g_usb_notice && millis() - g_usb_notice_since_ms >= USB_NOTICE_MS) {
+        g_usb_notice = false;
+        redraw = true;
+    }
     if(session_cardputer_poll()) redraw = true;
     // Back pressed: the session has stopped any recording and finished.
     if(g_session.open && !g_session.core.running) {
@@ -313,11 +347,8 @@ void loop() {
         redraw = true;
     }
     if(redraw) draw_screen();
-    serial_files_poll(g_session.open && g_session.core.recording.active);
     if(millis() - last_log_ms >= 1000) {
         last_log_ms += 1000;
-        // After a long pause (a file sent over USB, say) one line, not one
-        // for every second missed.
         if(millis() - last_log_ms >= 1000) last_log_ms = millis();
         log_second();
     }
