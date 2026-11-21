@@ -37,10 +37,6 @@ char mock_logger_buf[320];
 // calibration_wizard_compute_fit() from biomap_format.c. Only host-only
 // glue (mock logger, the Session shim) lives here.
 
-static void rescale_graph_buf(Session* s, bool zoom_out) {
-    pipeline_rescale_graph(&s->pipeline, zoom_out);
-}
-
 // Thin adapter over the REAL formatter (biomap_format.c) so the existing
 // golden-string assertions below exercise shipping code. Writes the row
 // into mock_logger_buf exactly as the production caller
@@ -99,7 +95,7 @@ void test_update_display_pipeline() {
     pipeline_update_display(&s.pipeline, 10.0f);
     assert(s.pipeline.display.primed == true);
     assert(s.pipeline.display.smoothed == 10.0f);
-    assert(s.pipeline.graph.last_smoothed == 10.0f);
+    assert(s.pipeline.graph.ring[0].last_smoothed == 10.0f);
     assert(s.pipeline.display.refresh_counter == 1);
 
     // Tick 2 to 5 to trigger display refresh
@@ -201,48 +197,64 @@ void test_gps_year_expand_pivot() {
     printf("  -> Pass\n");
 }
 
-void test_update_graph_scroll_divider_gating() {
-    printf("Running test_update_graph_scroll_divider_gating...\n");
+void test_update_graph_rings_step_at_their_own_rate() {
+    printf("Running test_update_graph_rings_step_at_their_own_rate...\n");
     Pipeline p = {0};
-    p.graph.scroll_divider = 3;
     p.display.smoothed = 6.0f;   // constant signal; rate only depends on last write
 
-    // First two ticks: divider not reached yet, buffer/head untouched.
-    pipeline_update_graph(&p);
-    assert(p.graph.tick_counter == 1);
-    assert(p.graph.head == 0);
+    // Ring k takes a sample every 2^k ticks.
+    for(int t = 1; t <= 16; t++) {
+        pipeline_update_graph(&p);
+        for(int k = 0; k < GRAPH_LEVELS; k++) {
+            assert(p.graph.ring[k].head == t >> k);
+        }
+    }
 
-    pipeline_update_graph(&p);
-    assert(p.graph.tick_counter == 2);
-    assert(p.graph.head == 0);
+    // Each ring's first sample: rate = 6.0 - 0 (last_smoothed primed at 0)
+    // over 2^k ticks -> (6.0 / 2^k) * GRAPH_RATE_SCALE.
+    for(int k = 0; k < GRAPH_LEVELS; k++) {
+        float expected = (6.0f / (float)(1 << k)) * GRAPH_RATE_SCALE;
+        assert(fabsf(p.graph.ring[k].buf[0] - expected) < 1e-5f);
+        assert(p.graph.ring[k].last_smoothed == 6.0f);
+    }
+    printf("  -> Pass\n");
+}
 
-    // Third tick reaches the divider: rate = 6.0 - 0 (last_smoothed still
-    // primed at 0) over 3 ticks -> buf = (6.0/3)*GRAPH_RATE_SCALE = 0.4.
-    pipeline_update_graph(&p);
-    assert(p.graph.tick_counter == 0);
-    assert(p.graph.head == 1);
-    assert(fabsf(p.graph.buf[0] - 0.4f) < 1e-5f);
-    assert(p.graph.last_smoothed == 6.0f);
+void test_update_graph_zoomed_out_ring_has_history() {
+    printf("Running test_update_graph_zoomed_out_ring_has_history...\n");
+    // A steady rise for longer than the 1-tick ring can hold: switching
+    // to a slower ring must show real data across the whole width, not a
+    // half-empty graph.
+    Pipeline p = {0};
+    for(int t = 0; t < GRAPH_N * 16; t++) {
+        p.display.smoothed += 1.0f;
+        pipeline_update_graph(&p);
+    }
+    for(int k = 0; k < GRAPH_LEVELS; k++) {
+        const GraphRing* r = &p.graph.ring[k];
+        for(int i = 1; i < GRAPH_N; i++) {   // [0] of ring 0 has the step from 0 to 1
+            int idx = (r->head + i) % GRAPH_N;
+            assert(fabsf(r->buf[idx] - 1.0f * GRAPH_RATE_SCALE) < 1e-4f);
+        }
+    }
     printf("  -> Pass\n");
 }
 
 void test_update_graph_buffer_wraparound() {
     printf("Running test_update_graph_buffer_wraparound...\n");
     Pipeline p = {0};
-    p.graph.scroll_divider = 1;
-    p.graph.head = GRAPH_N - 1;
+    p.graph.ring[0].head = GRAPH_N - 1;
 
     pipeline_update_graph(&p);
-    assert(p.graph.head == 0);   // wrapped past the end of the ring buffer
+    assert(p.graph.ring[0].head == 0);   // wrapped past the end of the ring buffer
     printf("  -> Pass\n");
 }
 
 void test_update_graph_manual_zoom_suppresses_auto_tracking() {
     printf("Running test_update_graph_manual_zoom_suppresses_auto_tracking...\n");
     Pipeline p = {0};
-    p.graph.scroll_divider = 1;
     p.display.smoothed = 5.0f;
-    p.graph.last_smoothed = 5.0f;   // rate = 0, isolates the zoom logic
+    p.graph.ring[0].last_smoothed = 5.0f;   // rate = 0, isolates the zoom logic
     p.zoom.enabled = true;
     p.zoom.manual_timeout = 5;      // still counting down after this tick (->4)
     p.zoom.level = 3.0f;
@@ -261,9 +273,8 @@ void test_update_graph_manual_zoom_suppresses_auto_tracking() {
 void test_update_graph_manual_timeout_expiry_resets_peak() {
     printf("Running test_update_graph_manual_timeout_expiry_resets_peak...\n");
     Pipeline p = {0};
-    p.graph.scroll_divider = 1;
     p.display.smoothed = 0.0f;
-    p.graph.last_smoothed = 0.0f;   // rate = 0 -> isolates the zoom math
+    p.graph.ring[0].last_smoothed = 0.0f;   // rate = 0 -> isolates the zoom math
     p.zoom.enabled = true;
     p.zoom.manual_timeout = 1;      // expires on this very tick
     p.zoom.level = 2.0f;
@@ -287,9 +298,8 @@ void test_update_graph_manual_timeout_expiry_resets_peak() {
 void test_update_graph_peak_floor_clamp_and_lerp() {
     printf("Running test_update_graph_peak_floor_clamp_and_lerp...\n");
     Pipeline p = {0};
-    p.graph.scroll_divider = 1;
     p.display.smoothed = 0.0f;
-    p.graph.last_smoothed = 0.0f;   // rate = 0 -> newest sample is 0
+    p.graph.ring[0].last_smoothed = 0.0f;   // rate = 0 -> newest sample is 0
     p.zoom.enabled = true;
     p.zoom.manual_timeout = 0;      // auto-zoom already active
     p.zoom.level = 2.0f;
@@ -311,7 +321,6 @@ void test_update_graph_peak_floor_clamp_and_lerp() {
 void test_update_graph_peak_tracks_rising_signal() {
     printf("Running test_update_graph_peak_tracks_rising_signal...\n");
     Pipeline p = {0};
-    p.graph.scroll_divider = 1;
     p.zoom.enabled = true;
     p.zoom.manual_timeout = 0;
     p.zoom.level = 1.0f;
@@ -323,54 +332,13 @@ void test_update_graph_peak_tracks_rising_signal() {
     // Decay first: 1.0 * 0.997 = 0.997. The fresh sample's magnitude (1.0)
     // exceeds that decayed value, so it replaces peak rather than the
     // decay value winning.
-    assert(fabsf(p.graph.buf[0] - 1.0f) < 1e-5f);
+    assert(fabsf(p.graph.ring[0].buf[0] - 1.0f) < 1e-5f);
     assert(fabsf(p.zoom.peak - 1.0f) < 1e-5f);
-    assert(p.graph.head == 1);
+    assert(p.graph.ring[0].head == 1);
 
     // Lerp target = 80/1.0 = 80, clamped to ZOOM_MAX (16).
     float expected_level = 1.0f + (ZOOM_MAX - 1.0f) * ZOOM_LERP_RATE;
     assert(fabsf(p.zoom.level - expected_level) < 1e-4f);
-    printf("  -> Pass\n");
-}
-
-void test_rescale_graph_buf() {
-    printf("Running test_rescale_graph_buf...\n");
-    Session s = {0};
-    s.pipeline.graph.head = 0;
-
-    // Fill buffer with mock rate data (0 to GRAPH_N-1)
-    for (int i = 0; i < GRAPH_N; i++) {
-        s.pipeline.graph.buf[i] = (float)i;
-    }
-
-    // Zoom out (average adjacent pairs)
-    rescale_graph_buf(&s, true);
-    assert(s.pipeline.graph.head == 0);
-    // Positions [0..62] should be 0
-    for (int i = 0; i < GRAPH_HALF; i++) {
-        assert(s.pipeline.graph.buf[i] == 0.0f);
-    }
-    // Positions [63..125] should be averaged pairs: (i*2 + i*2+1)*0.5 = i*2 + 0.5
-    for (int i = 0; i < GRAPH_HALF; i++) {
-        float expected = (float)(i * 2) + 0.5f;
-        assert(fabsf(s.pipeline.graph.buf[GRAPH_HALF + i] - expected) < 1e-4f);
-    }
-
-    // Reset buffer and test Zoom in (double resolution of latest GRAPH_HALF)
-    s.pipeline.graph.head = 0;
-    for (int i = 0; i < GRAPH_N; i++) {
-        s.pipeline.graph.buf[i] = (float)i;
-    }
-    rescale_graph_buf(&s, false);
-    assert(s.pipeline.graph.head == 0);
-    // Zoom in processes the newer half [63..125], interpolating:
-    // even positions get the original value, odd get the average of current and next.
-    for (int i = 0; i < GRAPH_HALF; i++) {
-        float curr = (float)(GRAPH_HALF + i);
-        float next = (i + 1 < GRAPH_HALF) ? (float)(GRAPH_HALF + i + 1) : curr;
-        assert(fabsf(s.pipeline.graph.buf[i * 2] - curr) < 1e-4f);
-        assert(fabsf(s.pipeline.graph.buf[i * 2 + 1] - (curr + next) * 0.5f) < 1e-4f);
-    }
     printf("  -> Pass\n");
 }
 
@@ -1249,12 +1217,12 @@ int main() {
     test_smooth_iir_filter();
     test_update_display_pipeline();
     test_cycle_selection_wraparound();
-    test_rescale_graph_buf();
     test_conductance_conversion();
     test_unix_epoch_conversion();
     test_rel_seconds_conversion();
     test_gps_year_expand_pivot();
-    test_update_graph_scroll_divider_gating();
+    test_update_graph_rings_step_at_their_own_rate();
+    test_update_graph_zoomed_out_ring_has_history();
     test_update_graph_buffer_wraparound();
     test_update_graph_manual_zoom_suppresses_auto_tracking();
     test_update_graph_manual_timeout_expiry_resets_peak();

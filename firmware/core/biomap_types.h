@@ -15,7 +15,7 @@
 // ── Constants ──────────────────────────────────────────────────────────
 
 #define GRAPH_N          126
-#define GRAPH_HALF       (GRAPH_N / 2)
+#define GRAPH_LEVELS     5   // time scales of 1, 2, 4, 8 and 16 ticks per sample
 #define TICK_HZ          10
 #define EVENT_QUEUE_DEPTH 64   // FuriMessageQueue capacity
 #define ZOOM_FACTOR      1.5f    // multiplicative step for manual Up/Down zoom
@@ -70,13 +70,30 @@ typedef struct {
     int      refresh_counter;
 } DisplayState;
 
+// One ring of graph samples at one time scale.
 typedef struct {
     float    buf[GRAPH_N];
     int      head;
-    int      tick_counter;
     float    last_smoothed;
-    int      scroll_divider;
+} GraphRing;
+
+// The graph keeps a ring at every time scale all the time, so Left/Right
+// shows real history at the new scale straight away instead of a half
+// empty graph. ring[k] takes one sample every 2^k ticks.
+typedef struct {
+    GraphRing ring[GRAPH_LEVELS];
+    uint32_t  ticks;   // graph ticks so far; ring k steps when ticks is a multiple of 2^k
+    int       level;   // the ring on screen
 } GraphState;
+
+// Ticks per sample of the ring on screen.
+static inline int graph_divider(const GraphState* g) {
+    return 1 << g->level;
+}
+
+static inline const GraphRing* graph_shown(const GraphState* g) {
+    return &g->ring[g->level];
+}
 
 typedef struct {
     float    level;

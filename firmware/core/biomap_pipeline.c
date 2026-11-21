@@ -90,7 +90,7 @@ void pipeline_update_display(Pipeline* p, float raw) {
 
     if(!p->display.primed) {
         p->display.smoothed = filtered;
-        p->graph.last_smoothed = filtered;
+        pipeline_graph_restart_line(p);
         p->display.last_displayed = filtered;
         p->display.primed = true;
     }
@@ -126,18 +126,20 @@ void pipeline_update_graph(Pipeline* p) {
         p->zoom.peak *= ZOOM_PEAK_DECAY;
     }
 
-    p->graph.tick_counter++;
-    if(p->graph.tick_counter >= p->graph.scroll_divider) {
-        float rate = p->display.smoothed - p->graph.last_smoothed;
-        p->graph.buf[p->graph.head] = (rate / (float)p->graph.scroll_divider) * GRAPH_RATE_SCALE;
-        if(++p->graph.head >= GRAPH_N) p->graph.head = 0;
-        p->graph.last_smoothed = p->display.smoothed;
-        p->graph.tick_counter = 0;
+    p->graph.ticks++;
+    for(int k = 0; k < GRAPH_LEVELS; k++) {
+        int div = 1 << k;
+        if(p->graph.ticks % (uint32_t)div != 0) continue;
+        GraphRing* r = &p->graph.ring[k];
+        float rate = p->display.smoothed - r->last_smoothed;
+        float sample = (rate / (float)div) * GRAPH_RATE_SCALE;
+        r->buf[r->head] = sample;
+        if(++r->head >= GRAPH_N) r->head = 0;
+        r->last_smoothed = p->display.smoothed;
 
-        if(auto_active) {
-            int just_written = p->graph.head - 1;
-            if(just_written < 0) just_written = GRAPH_N - 1;
-            float newest = fabsf(p->graph.buf[just_written]);
+        // Auto-zoom follows the ring on screen.
+        if(auto_active && k == p->graph.level) {
+            float newest = fabsf(sample);
             if(newest > p->zoom.peak) p->zoom.peak = newest;
             if(p->zoom.peak < ZOOM_PEAK_FLOOR) p->zoom.peak = ZOOM_PEAK_FLOOR;
         }
@@ -151,38 +153,11 @@ void pipeline_update_graph(Pipeline* p) {
 }
 
 // ==========================================================================
-// Graph rescaling (time-axis zoom)
+// Graph line restart
 // ==========================================================================
 
-void pipeline_rescale_graph(Pipeline* p, bool zoom_out) {
-    float temp[GRAPH_N];
-
-    // Linearise ring buffer: temp[0] = oldest sample, temp[N-1] = newest.
-    for(int i = 0; i < GRAPH_N; i++) {
-        temp[i] = p->graph.buf[(p->graph.head + i) % GRAPH_N];
-    }
-    memset(p->graph.buf, 0, sizeof(p->graph.buf));
-    p->graph.head = 0;
-
-    if(zoom_out) {
-        // Average adjacent pairs (both are rate-per-tick; average preserves that).
-        // 126 old samples → 63 averaged samples at positions [63..125].
-        // Positions [0..62] remain zero (no data at this resolution yet).
-        for(int i = 0; i < GRAPH_HALF; i++) {
-            p->graph.buf[GRAPH_HALF + i] = (temp[i * 2] + temp[i * 2 + 1]) * 0.5f;
-        }
-    } else {
-        // Zoom in (÷2): split newest 63 old samples using linear interpolation.
-        // Samples are already rate-per-tick — no amplitude scaling needed.
-        // Even positions: keep the original rate value.
-        // Odd positions: interpolate midpoint toward the next sample, avoiding
-        // the staircase a simple duplicate would produce.
-        for(int i = 0; i < GRAPH_HALF; i++) {
-            float curr = temp[GRAPH_HALF + i];
-            // For the last sample there is no following neighbour — hold value.
-            float next = (i + 1 < GRAPH_HALF) ? temp[GRAPH_HALF + i + 1] : curr;
-            p->graph.buf[i * 2]     = curr;
-            p->graph.buf[i * 2 + 1] = (curr + next) * 0.5f;
-        }
+void pipeline_graph_restart_line(Pipeline* p) {
+    for(int k = 0; k < GRAPH_LEVELS; k++) {
+        p->graph.ring[k].last_smoothed = p->display.smoothed;
     }
 }

@@ -599,7 +599,7 @@ static void test_clicks_muted_while_recording(void) {
     assert(session_core_key(&S, SessionKeyLeft));
     // The zoom still changes, but rule 3: no click during a recording.
     assert(S.pipeline.zoom.level < z1);
-    assert(S.pipeline.graph.scroll_divider == 2);
+    assert(graph_divider(&S.pipeline.graph) == 2);
     assert(F.cue_count == 0);
 
     // GPS + RF mode has no graph: the zoom keys do nothing.
@@ -883,11 +883,11 @@ static void test_gsr_display_and_rows(void) {
     assert(ns > 4500.0f && ns < 5500.0f);
     assert(S.pipeline.display.primed);
     assert(fabsf(S.pipeline.display.smoothed - ns) < 250.0f);
-    int head = S.pipeline.graph.head;
+    int head = graph_shown(&S.pipeline.graph)->head;
 
     session_core_key(&S, SessionKeyOk);
     tick(10);
-    assert(S.pipeline.graph.head != head);  // the graph moved on
+    assert(graph_shown(&S.pipeline.graph)->head != head);  // the graph moved on
     // Every row has the reading; GPS_CSV_HZ is 10, so every row has the fix.
     assert(count_lines(F.rows, F.rows_len) == 10);
     assert(strstr(F.rows, "51.5000000") != NULL);
@@ -914,8 +914,9 @@ static void test_gsr_display_and_rows(void) {
     G.skin_v = 0.30f;
     tick(1);
     assert(S.pipeline.display.raw_sample_ns > 12000.0f);
-    int newest = (S.pipeline.graph.head + GRAPH_N - 1) % GRAPH_N;
-    assert(S.pipeline.graph.buf[newest] == 0.0f);
+    const GraphRing* ring = graph_shown(&S.pipeline.graph);
+    int newest = (ring->head + GRAPH_N - 1) % GRAPH_N;
+    assert(ring->buf[newest] == 0.0f);
 }
 
 // Live Stream's bias check on the first phone connect, with a real sensor:

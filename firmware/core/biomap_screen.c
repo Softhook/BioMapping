@@ -78,7 +78,8 @@ static void draw_graph(const ScreenDraw* d, const SessionCore* s, int gx, int gy
     const float combined_scale = s->pipeline.zoom.level * ((float)(gh / 2 - 2) / 100.0f);
 
     // 10-second notches above the graph — integer arithmetic only.
-    int px_per_notch = (10 * TICK_HZ) / s->pipeline.graph.scroll_divider;
+    const GraphRing* ring = graph_shown(&s->pipeline.graph);
+    int px_per_notch = (10 * TICK_HZ) / graph_divider(&s->pipeline.graph);
     if(px_per_notch > 2) {
         int right_edge = gx + gw - 2;
         int notch_top = gy > 3 ? gy - 3 : 0;
@@ -90,8 +91,8 @@ static void draw_graph(const ScreenDraw* d, const SessionCore* s, int gx, int gy
     // Walk the ring buffer linearly, starting n samples back from the
     // newest, so a narrower graph (GPS+GSR+RF mode) shows the most recent
     // n samples, not the oldest n.
-    int idx = (s->pipeline.graph.head + GRAPH_N - n) % GRAPH_N;
-    float v0 = s->pipeline.graph.buf[idx] * combined_scale;
+    int idx = (ring->head + GRAPH_N - n) % GRAPH_N;
+    float v0 = ring->buf[idx] * combined_scale;
     int y_prev = cy - (int)v0;
 
     // First column: the first sample, clipped to the inside.
@@ -100,7 +101,7 @@ static void draw_graph(const ScreenDraw* d, const SessionCore* s, int gx, int gy
     for(int i = 1; i < n; i++) {
         if(++idx >= GRAPH_N) idx = 0;
 
-        float v1 = s->pipeline.graph.buf[idx] * combined_scale;
+        float v1 = ring->buf[idx] * combined_scale;
         int y_cur = cy - (int)v1;
 
         d->draw_dot(d->ctx, gx + 1 + i, clamp_y(y_cur, y0, y1));
@@ -300,7 +301,7 @@ static int render_gps_badge(const ScreenDraw* d, const SessionCore* s, ScreenCac
 // Returns the right edge of the widest label, as above.
 static int render_time_span(const ScreenDraw* d, const SessionCore* s, ScreenCache* cache) {
     char buf[32];
-    int t_span = (GRAPH_N * s->pipeline.graph.scroll_divider) / TICK_HZ;
+    int t_span = (GRAPH_N * graph_divider(&s->pipeline.graph)) / TICK_HZ;
     if(t_span >= 60) {
         snprintf(buf, sizeof(buf), "%dm%ds", t_span / 60, t_span % 60);
     } else {

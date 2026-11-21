@@ -33,7 +33,7 @@ struct DrawCtx {
     bool        recording = false;
     bool        retrying = false;
     bool        write_stopped = false;
-    uint32_t    last_step_ms = 0;
+    uint32_t    last_graph_tick_ms = 0;
 };
 
 static uint16_t fg_color(const DrawCtx* c) {
@@ -171,23 +171,39 @@ static void cp_draw_graph(void* ctx, const SessionCore* s, int layout_gx, int la
         canvas.drawPixel(x + 1, cy, COL_ZERO_LINE);
     }
 
-    // 10-second time notches along the top of the graph frame, scrolling
-    // smoothly with the sub-tick fractional phase.
+    // 10-second time marks along the top of the graph frame. Each mark is
+    // tied to a sample, so it scrolls left with the curve (including the
+    // sub-step glide) and drops off the left edge.
     const int n = layout_gw - 2;
-    int scroll_div = s->pipeline.graph.scroll_divider > 0 ? s->pipeline.graph.scroll_divider : 1;
-    uint32_t step_period_ms = (uint32_t)(scroll_div * (1000 / TICK_HZ));
-    uint32_t elapsed_ms = millis() - c->last_step_ms;
-    float phase = step_period_ms > 0 ? (float)elapsed_ms / (float)step_period_ms : 0.0f;
-    if(phase < 0.0f) phase = 0.0f;
+    const GraphRing* ring = graph_shown(&s->pipeline.graph);
+    const uint32_t div = (uint32_t)graph_divider(&s->pipeline.graph);
+    const uint32_t ticks = s->pipeline.graph.ticks;
+
+    // How far the curve has moved toward its next sample, 0 .. 1: the
+    // whole ticks since the ring last stepped, plus how far into the
+    // current tick we are.
+    float tick_frac = (float)(millis() - c->last_graph_tick_ms) / (1000.0f / TICK_HZ);
+    if(tick_frac > 1.0f) tick_frac = 1.0f;
+    float phase = ((float)(ticks % div) + tick_frac) / (float)div;
     if(phase > 1.0f) phase = 1.0f;
 
-    float samples_per_notch = (float)(10 * TICK_HZ) / (float)scroll_div;
+    const uint32_t ticks_per_notch = 10 * TICK_HZ;
+    float samples_per_notch = (float)ticks_per_notch / (float)div;
     if(samples_per_notch > 2.0f) {
         float px_per_sample = (float)(gw - 3) / (float)(n - 2);
         float px_per_notch = samples_per_notch * px_per_sample;
-        float right_edge = (float)(gx + gw - 2) - phase * px_per_sample;
+        // How many samples ago the newest mark was. The ring's newest
+        // sample was taken at tick (ticks - ticks % div); marks sit on
+        // every 10 s of graph ticks.
+        uint32_t newest_tick = ticks - ticks % div;
+        float age_samples = (float)(newest_tick % ticks_per_notch) / (float)div;
+        // Sample index i sits at x = right + (i - (n - 2) - phase) * px_per_sample,
+        // the same mapping the curve uses below; the newest sample is n - 1.
+        float right = (float)(gx + gw - 2);
+        float xf = right + (1.0f - age_samples - phase) * px_per_sample;
         int notch_top = gy >= 5 ? gy - 5 : 0;
-        for(float xf = right_edge - px_per_notch; xf > (float)(gx + 2); xf -= px_per_notch) {
+        for(; xf > (float)(gx + 2); xf -= px_per_notch) {
+            if(xf > right) continue;  // not scrolled into view yet
             int x = (int)(xf + 0.5f);
             canvas.drawFastVLine(x, notch_top, gy - notch_top, TFT_DARKGREY);
         }
@@ -197,9 +213,9 @@ static void cp_draw_graph(void* ctx, const SessionCore* s, int layout_gx, int la
         // Linearise the newest `n` samples from the circular buffer:
         // raw_s[0] is oldest (left), raw_s[n-1] is newest (right).
         float raw_s[GRAPH_N];
-        int start = (s->pipeline.graph.head + GRAPH_N - n) % GRAPH_N;
+        int start = (ring->head + GRAPH_N - n) % GRAPH_N;
         for(int i = 0; i < n; i++) {
-            raw_s[i] = s->pipeline.graph.buf[(start + i) % GRAPH_N];
+            raw_s[i] = ring->buf[(start + i) % GRAPH_N];
         }
         float filt[GRAPH_N];
         for(int i = 0; i < n; i++) {
@@ -269,7 +285,7 @@ void screen_cardputer_draw_session(M5Canvas& canvas) {
     dctx.recording = s.recording.active;
     dctx.retrying = s.recording.flush_fail_streak > 0;
     dctx.write_stopped = s.recording.write_stopped;
-    dctx.last_step_ms = g_session.last_step_ms;
+    dctx.last_graph_tick_ms = g_session.last_graph_tick_ms;
 
     ScreenExtras extras = {};
     extras.file_name = g_session.logger ? sd_logger_get_filename(g_session.logger) : nullptr;

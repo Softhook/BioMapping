@@ -83,7 +83,6 @@ void session_core_init(SessionCore* s, BioMapMode mode, const SessionPlatform* p
     *s = (SessionCore){
         .mode              = mode,
         .pipeline.zoom     = {.level = 1.0f, .peak = 1.0f, .enabled = settings->zoom_enabled},
-        .pipeline.graph    = {.scroll_divider = 1},
         .running           = true,
         .settings          = *settings,
         .platform          = *platform,
@@ -406,16 +405,10 @@ static void zoom_vertical(SessionCore* s, bool zoom_in) {
 static void zoom_horizontal(SessionCore* s, bool zoom_out) {
     session_lock(s);
     bool in_range = zoom_out
-        ? s->pipeline.graph.scroll_divider < 16
-        : s->pipeline.graph.scroll_divider > 1;
-    if(in_range) {
-        s->pipeline.graph.scroll_divider = zoom_out
-            ? s->pipeline.graph.scroll_divider * 2
-            : s->pipeline.graph.scroll_divider / 2;
-        s->pipeline.graph.tick_counter = 0;
-        s->pipeline.graph.last_smoothed = s->pipeline.display.smoothed;
-        pipeline_rescale_graph(&s->pipeline, zoom_out);
-    }
+        ? s->pipeline.graph.level < GRAPH_LEVELS - 1
+        : s->pipeline.graph.level > 0;
+    // Every ring is always filled, so this just picks which one is shown.
+    if(in_range) s->pipeline.graph.level += zoom_out ? 1 : -1;
     session_unlock(s);
 }
 
@@ -558,7 +551,7 @@ static bool recording_tick_locked(SessionCore* s, const float* rf_rssi) {
             bool recovering = s->pipeline.display.primed && (delta > 500.0f);
 
             pipeline_update_display(&s->pipeline, raw_sample);
-            if(recovering) s->pipeline.graph.last_smoothed = s->pipeline.display.smoothed;
+            if(recovering) pipeline_graph_restart_line(&s->pipeline);
             pipeline_update_graph(&s->pipeline);
         }
     }

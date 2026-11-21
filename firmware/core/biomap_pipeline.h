@@ -49,19 +49,18 @@ float pipeline_smooth_iir(DisplayState* d, float raw);
 
 // Display pipeline: IIR → EMA smoothing → refresh-counter gating.
 // Updates d->smoothed, d->last_displayed, d->refresh_counter, and
-// p->graph.last_smoothed on prime.
+// every graph ring's last_smoothed on prime.
 void pipeline_update_display(Pipeline* p, float raw);
 
 // Graph pipeline: derivative rate → ring buffer → auto-zoom peak
 // tracking + zoom-level lerp.  Handles manual zoom timeout.
 void pipeline_update_graph(Pipeline* p);
 
-// ── Graph rescaling (time-axis zoom) ──────────────────────────────────
+// ── Graph line restart ────────────────────────────────────────────────
 //
-// zoom_out=true  → average adjacent pairs, halving resolution.
-// zoom_out=false → interpolate, doubling resolution.
-// O(N) one-time pass called on Left/Right key during GSR sessions.
-void pipeline_rescale_graph(Pipeline* p, bool zoom_out);
+// Starts every ring's next sample from display.smoothed, so a jump in the
+// reading (prime, fingers back on) isn't drawn as one tall spike.
+void pipeline_graph_restart_line(Pipeline* p);
 
 #ifdef __cplusplus
 }

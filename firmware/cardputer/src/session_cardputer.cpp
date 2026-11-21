@@ -211,7 +211,7 @@ void session_cardputer_begin(BioMapMode mode) {
     g_session.logger = logger;
     g_session.bt_active = bt_active;
     g_session.open = true;
-    g_session.last_step_ms = millis();
+    g_session.last_graph_tick_ms = millis();
     session_cardputer_unlock();
     tick_schedule_restart(&g_ticks, millis());
 }
@@ -240,10 +240,10 @@ bool session_cardputer_poll(void) {
     int waiting = due > 1 ? gps_cardputer_waiting_bytes() : 0;
     for(uint32_t k = 1; k <= due; k++) {
         if(due > 1) gps_cardputer_parse_down_to(gps, tick_schedule_gps_bytes_left(waiting, due, k));
-        int prev_head = g_session.core.pipeline.graph.head;
+        uint32_t prev_ticks = g_session.core.pipeline.graph.ticks;
         if(session_core_tick(&g_session.core)) redraw = true;
-        if(g_session.core.pipeline.graph.head != prev_head) {
-            g_session.last_step_ms = millis();
+        if(g_session.core.pipeline.graph.ticks != prev_ticks) {
+            g_session.last_graph_tick_ms = millis();
         }
         tick_schedule_ran(&g_ticks);
     }
@@ -271,9 +271,6 @@ bool session_cardputer_key(SessionKey key) {
     }
     bool was_recording = g_session.core.recording.active;
     bool redraw = session_core_key(&g_session.core, key);
-    if(key == SessionKeyLeft || key == SessionKeyRight) {
-        g_session.last_step_ms = millis();
-    }
     if(!was_recording && g_session.core.recording.active) {
         // Starting took about half a second or more (bias check, file,
         // sound, settle). That wait isn't a stall: row 0 comes one tick

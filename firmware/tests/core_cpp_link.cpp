@@ -32,7 +32,7 @@ int main() {
     cal_dwell_init(&d);
     cal_dwell_add(&d, 1.0f, 0.0f, 2.0f);
     Pipeline p = {};
-    pipeline_rescale_graph(&p, true);
+    pipeline_graph_restart_line(&p);
     volatile bool keep = gsr_sensor_available(nullptr);
     void (*sleep_fn)(const GpsPlatform*) = gps_uart_sleep_from_unknown_state;
     keep = keep || sleep_fn == nullptr;

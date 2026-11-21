@@ -19,7 +19,7 @@ struct CardputerSession {
     ScreenCache screen;
     bool        bt_active = false;
     bool        open = false;  // between session_cardputer_begin() and _end()
-    uint32_t    last_step_ms = 0;  // when the graph ring buffer last stepped forward
+    uint32_t    last_graph_tick_ms = 0;  // when the graph last took a tick; drives the smooth scroll
     int32_t     recording_utc_offset_s = 0;  // UTC offset at recording start, kept for stop
 };
 
