@@ -46,11 +46,16 @@ bool keys_to_session(const Keyboard_Class::KeysState& st, SessionKey* out) {
     }
     if(st.word.empty()) return false;
     switch(st.word.back()) {
-    case ';': *out = SessionKeyUp; return true;
-    case '.': *out = SessionKeyDown; return true;
-    case ',': *out = SessionKeyLeft; return true;
-    case '/': *out = SessionKeyRight; return true;
-    case '`': *out = SessionKeyBack; return true;
+    case ';':
+    case ':': *out = SessionKeyUp; return true;
+    case '.':
+    case '>': *out = SessionKeyDown; return true;
+    case ',':
+    case '<': *out = SessionKeyLeft; return true;
+    case '/':
+    case '?': *out = SessionKeyRight; return true;
+    case '`':
+    case '~': *out = SessionKeyBack; return true;
     default: return false;
     }
 }

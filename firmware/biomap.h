@@ -189,39 +189,10 @@ typedef struct {
 #define BIOMAP_CAL_PATH    "/ext/biomapping/biomap.cal"
 #define BIOMAP_CAL_PATH_TMP "/ext/biomapping/biomap.cal.tmp"
 
-// CAL_POINTS, the CAL_GAIN_* fit bounds and CAL_ZERO_MAX_COUNTS live in
-// biomap_config.h — biomap_format.c's calibration_wizard_compute_fit()
-// needs them and is SDK-free.
-
-// Calibration targets — true physical skin conductance (nanosiemens).
-// These are 1/R for each calibration resistor: 1e9 / R_ohms.
-// Derived from the TIA circuit equation (see gsr_sensor.c):
-//   nS = norm × 5 000 000 / (15 040 000 − 47 × norm)
-// where norm is the ideal normalised ADC count for resistor R.
-#define CAL_TARGET_470K  2127.66f   // 1e9 / 470000
-#define CAL_TARGET_100K  10000.0f   // 1e9 / 100000
-#define CAL_TARGET_47K   21276.6f   // 1e9 / 47000
-
-// Valid-range gates for each resistor during calibration (nS).
-// The fit's gain is a CORRECTION (target = gain × measured), so a device
-// needing gain g reads target / g: CAL_GAIN_MIN (0.2) means the device
-// reads 5× high, CAL_GAIN_MAX (5.0) means it reads 5× low.
-//
-// These gates admit a narrower range than the fit bounds. With the
-// zero removed, each resistor's gate [lo, hi] admits gain in [target/hi,
-// target/lo]:
-//   470k: [0.71, 10.6]   100k: [0.40, 3.33]   47k: [0.47, 4.26]
-// so only a device needing gain ≈ 0.71–3.33 can complete the wizard.
-// Both binding limits come from CAL_MID_GATE_LO, which is the 470k upper
-// bound (a device reading more than ~41 % high fails) AND the 100k lower
-// bound (a device reading more than ~3.3× low fails) — so moving it
-// widens one side only by narrowing the other. Left as-is pending a
-// hardware-informed re-tune.
-#define CAL_LO_GATE        200.0f
-#define CAL_MID_GATE_LO   3000.0f
-#define CAL_MID_GATE_HI  25000.0f
-#define CAL_LO_GATE_47K   5000.0f
-#define CAL_HI_GATE      45000.0f
+// CAL_POINTS, CAL_TARGET_*, CAL_*_GATE, CAL_GAIN_*, CAL_ZERO_MAX_COUNTS,
+// CAL_DWELL_SECONDS, CAL_MIN_VALID, CAL_*_FLUSH_TICKS, CAL_NOISE_*_NS and
+// the WizardStep* enum live in core/biomap_config.h so both the Flipper
+// and Cardputer wizards share one source of truth.
 
 // ── Options persistence ─────────────────────────────────────────────────
 // BioMapSettings (the record format) and its validity check live in

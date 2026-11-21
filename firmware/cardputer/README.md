@@ -48,14 +48,17 @@ Inside a session:
 - **Enter** starts a recording, and stops it. Files go in `biomapping/` on the card, with the same columns and check lines as the Flipper's.
 - **Up / Down** (`;` / `.`) zoom the GSR graph vertically; **Left / Right** (`,` / `/`) change the time span.
 - **Esc** (or Del) stops any active recording and returns to the main menu (putting the GPS back to sleep).
-- **U** (when not recording) lends the SD card to a plugged-in computer as a USB thumb drive; eject the drive on the computer to take the card back. (**U** twice also takes it back, but can lose changes the computer hasn't saved yet.)
 - Any other key is counted (`keys` in the USB log), for the typing test.
+
+On the main menu or in Options:
+
+- **U** lends the SD card to a plugged-in computer as a USB thumb drive; eject the drive on the computer to take the card back. (**U** twice also takes it back, but can lose changes the computer hasn't saved yet.)
 
 **The clock.** The Cardputer has no clock chip, so it doesn't know the time after power-up until the GPS has a fix. It then sets its clock from GPS time, in UK time (GMT in winter, BST in summer, switching automatically). In GPS+GSR mode, Enter won't start a recording before that: it gives the error sound and shows a `Waiting for GPS time...` banner. GSR Only records anyway, using GPS time if it was found since power-up; otherwise the file is named from `biomap_1970-01-01_00-00-00.csv` and the header's start time is 0. A name already on the card gets "_2", "_3" and so on, so nothing is overwritten.
 
 ## Getting the files off
 
-The SD card stays inside the Cardputer, so press **U** (when not recording) while plugged into a computer over USB-C. If the card can't be lent, the screen says why for 3 seconds: `Plug USB into a computer`, `No SD card to lend` or `Stop recording first`.
+The SD card stays inside the Cardputer, so press **U** on the main menu (or in Options) while plugged into a computer over USB-C. If the card can't be lent, the screen says why for 3 seconds: `Plug USB into a computer`, `No SD card to lend` or `Stop recording first`.
 
 - The SD card mounts on the computer as a normal USB thumb drive, with all your `.csv` files (plus `biomap.settings` and `biomap.cal`) inside the `biomapping/` folder.
 - Drag the `.csv` files directly into the visualiser or onto your computer.

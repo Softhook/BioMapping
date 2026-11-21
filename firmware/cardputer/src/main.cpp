@@ -1,16 +1,17 @@
 // BioMapping on the M5Stack Cardputer ADV.
 //
-// Step 10 of the port (docs/cardputer_port.md, section 7): colour menus,
-// Options and GSR Calibration wizard on the 240 × 135 screen, settings and
-// calibration persisted on the SD card (/sd/biomapping/), and the shared
-// recording screen (core/biomap_screen.c) stretched to fit the display.
+// Steps 10–11 of the port (docs/cardputer_port.md, section 7): colour menus,
+// Options and 4-step GSR Calibration wizard on the 240 × 135 screen, settings
+// and calibration persisted on the SD card (/sd/biomapping/), BLE Live Stream,
+// and the shared recording screen (core/biomap_screen.c) stretched to fit the
+// display with a smooth 30 FPS spline waveform.
 //
 // Keys:
 //   ; . , /  → Up, Down, Left, Right
 //   Enter    → OK (select menu item, toggle option, start/stop recording)
 //   Esc/Del  → Back (leave submenu or end recording session)
 //   U        → Lend SD card to a plugged-in computer as a USB thumb drive
-//              (when not recording; taking it back with U needs a second
+//              (from the menus; taking it back with U needs a second
 //              press within 3 s: eject on the computer first).
 
 #include <M5Cardputer.h>
@@ -62,6 +63,9 @@ static void log_second(void) {
     bool open = g_session.open && s.running;
     bool recording = s.recording.active;
     float ns = s.pipeline.display.filtered_ns;
+    if(s.mode == BioMapModeLiveStream && s.gsr) {
+        ns = gsr_sensor_get_raw(s.gsr);
+    }
     float hz = 0.0f, dup_pct = 0.0f, ok_pct = 0.0f;
     uint32_t i2c_peak_ms = 0;
     if(s.gsr) {
@@ -111,8 +115,8 @@ static bool keys_poll(void) {
     if(!M5Cardputer.Keyboard.isChange() || !M5Cardputer.Keyboard.isPressed()) return false;
     key_count++;
     const auto& st = M5Cardputer.Keyboard.keysState();
-    bool recording = g_session.open && g_session.core.recording.active;
-    if(!recording && !st.word.empty() && (st.word.back() == 'u' || st.word.back() == 'U')) {
+    bool in_session = g_session.open || !menu_cardputer_can_lend_sd();
+    if(!in_session && !st.word.empty() && (st.word.back() == 'u' || st.word.back() == 'U')) {
         if(sd_usb_drive_active()) {
             if(!g_usb_confirm) {
                 g_usb_confirm = true;
@@ -156,11 +160,16 @@ static bool serial_keys_poll(void) {
         SessionKey key;
         bool valid = false;
         switch(ch) {
-        case ';':  key = SessionKeyUp;    valid = true; break;
-        case '.':  key = SessionKeyDown;  valid = true; break;
-        case ',':  key = SessionKeyLeft;  valid = true; break;
-        case '/':  key = SessionKeyRight; valid = true; break;
+        case ';':
+        case ':':  key = SessionKeyUp;    valid = true; break;
+        case '.':
+        case '>':  key = SessionKeyDown;  valid = true; break;
+        case ',':
+        case '<':  key = SessionKeyLeft;  valid = true; break;
+        case '/':
+        case '?':  key = SessionKeyRight; valid = true; break;
         case '`':
+        case '~':
         case 0x1B:
         case 0x7F: key = SessionKeyBack;  valid = true; break;
         case '\r':

@@ -145,7 +145,7 @@ struct GraphSnapshot {
     bool     visible;
 };
 
-// Zero-phase 3-tap binomial smoothing ([0.25, 0.5, 0.25]) over the circular
+// Zero-phase 3-tap binomial smoothing ([0.25, 0.5, 0.25]) over the linearised
 // sample array `s` of length `N` to remove single-sample ADC aliasing spikes
 // (see research/gsr_filtering_analysis.md, Finding 2) while preserving every
 // real phasic GSR wave.

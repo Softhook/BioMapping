@@ -13,6 +13,10 @@ void menu_cardputer_begin(void);
 // True while we are in a menu or calibration screen (no recording session open).
 bool menu_cardputer_active(void);
 
+// True when the SD card may be lent over USB (on the menus, not inside the
+// GSR Calibration Wizard).
+bool menu_cardputer_can_lend_sd(void);
+
 // Handles one of the six buttons while the menu is active. Returns true when
 // the screen should be redrawn.
 bool menu_cardputer_key(SessionKey key, M5Canvas& canvas);

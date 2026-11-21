@@ -66,11 +66,40 @@ typedef enum {
 } GpsNavModel;
 
 // ── GSR calibration fit ──────────────────────────────────────────────
-// Used by biomap_format.c's calibration_wizard_compute_fit() (SDK-free, so
-// these can't live in biomap.h) and by biomap_load_calibration() in
-// biomap.c. CAL_TARGET_*/gate constants stay in biomap.h — only the wizard
-// (full SDK) reads those.
+// Used by biomap_format.c's calibration_wizard_compute_fit(), by the
+// Flipper and Cardputer calibration wizards, and by calibration file
+// loading on both devices.
 #define CAL_POINTS       3        // resistors measured: 470k, 100k, 47k
+
+// Calibration targets — true physical skin conductance (nanosiemens).
+// These are 1/R for each calibration resistor: 1e9 / R_ohms.
+// Derived from the TIA circuit equation (see gsr_sensor.h):
+//   nS = norm × 5 000 000 / (15 040 000 − 47 × norm)
+// where norm is the ideal normalised ADC count for resistor R.
+#define CAL_TARGET_470K  2127.66f   // 1e9 / 470000
+#define CAL_TARGET_100K  10000.0f   // 1e9 / 100000
+#define CAL_TARGET_47K   21276.6f   // 1e9 / 47000
+
+// Valid-range gates for each resistor during calibration (nS).
+// The fit's gain is a CORRECTION (target = gain × measured), so a device
+// needing gain g reads target / g: CAL_GAIN_MIN (0.2) means the device
+// reads 5× high, CAL_GAIN_MAX (5.0) means it reads 5× low.
+//
+// These gates admit a narrower range than the fit bounds. With the
+// zero removed, each resistor's gate [lo, hi] admits gain in [target/hi,
+// target/lo]:
+//   470k: [0.71, 10.6]   100k: [0.40, 3.33]   47k: [0.47, 4.26]
+// so only a device needing gain ≈ 0.71–3.33 can complete the wizard.
+// Both binding limits come from CAL_MID_GATE_LO, which is the 470k upper
+// bound (a device reading more than ~41 % high fails) AND the 100k lower
+// bound (a device reading more than ~3.3× low fails) — so moving it
+// widens one side only by narrowing the other. Left as-is pending a
+// hardware-informed re-tune.
+#define CAL_LO_GATE        200.0f
+#define CAL_MID_GATE_LO   3000.0f
+#define CAL_MID_GATE_HI  25000.0f
+#define CAL_LO_GATE_47K   5000.0f
+#define CAL_HI_GATE      45000.0f
 
 // Valid-range bounds for a computed or loaded gain — a wizard fit or a
 // loaded calibration file outside them is rejected.
@@ -90,17 +119,55 @@ typedef enum {
 #define CAL_DWELL_SECONDS    20
 #define CAL_MIN_VALID        120
 
+// Pre-dwell ring-buffer flush ticks (at TICK_HZ = 10 Hz) before sampling:
+//   CAL_ZERO_FLUSH_TICKS (20 ticks = 2 s): lets autoranging climb from the
+//     default PGA 2 to the most sensitive PGA 5 (each step up takes 5 low
+//     ticks = 1.5 s total) when nothing is connected.
+//   CAL_RESISTOR_FLUSH_TICKS (10 ticks = 1 s): clears pre-measurement click
+//     noise and lets the ring buffer fill with the new resistor's reading.
+//   CAL_POST_BIAS_FLUSH_TICKS (2 ticks = 200 ms): clears the ~50 ms gap
+//     left by the 0.5 V bias check before the resistor dwell begins.
+#define CAL_ZERO_FLUSH_TICKS       20
+#define CAL_RESISTOR_FLUSH_TICKS   10
+#define CAL_POST_BIAS_FLUSH_TICKS   2
+
 // ── GSR pre-flight noise/resolution gate ───────────────────────────────
 // Grades the σ (standard deviation, nS) of the raw readings collected
 // during each resistor's calibration dwell — see calibration_noise_grade()
 // in biomap_format.c and the CalDwell accumulator (biomap_format.h). Units are nS, same scale as CAL_TARGET_*/
-// CAL_*_GATE in biomap.h; the µS figures a human reads off a datasheet
+// CAL_*_GATE above; the µS figures a human reads off a datasheet
 // are these ÷ 1000 (1 µS = 1000 nS).
 //   σ < CAL_NOISE_EXCELLENT_NS   -> Excellent (3σ resolution < 6 nS / 0.006 µS)
 //   σ < CAL_NOISE_ACCEPTABLE_NS  -> Acceptable (3σ resolution < 30 nS / 0.030 µS)
 //   σ >= CAL_NOISE_ACCEPTABLE_NS -> Poor — fails the wizard outright, cannot save.
 #define CAL_NOISE_EXCELLENT_NS    2.0f
 #define CAL_NOISE_ACCEPTABLE_NS  10.0f
+
+// Calibration wizard step numbers — shared by the Flipper and Cardputer
+// wizards (starts at WizardStepPromptZero):
+//   13 = prompt zero (nothing connected)   14 = measure zero
+//   0 = prompt 470k    4 = prompt 47k      8  = success
+//   1 = measure 470k   5 = measure 47k     9  = measurement fail
+//   2 = prompt 100k    6 = compute fit     10 = fit fail (bounds / R²)
+//   3 = measure 100k   7 = (unused)        11 = noise/resolution fail (σ too high)
+//   12 = bias check fail                   15 = zero fail (out of range / noisy)
+enum {
+    WizardStepPrompt470k    = 0,
+    WizardStepMeasuring470k = 1,
+    WizardStepPrompt100k    = 2,
+    WizardStepMeasuring100k = 3,
+    WizardStepPrompt47k     = 4,
+    WizardStepMeasuring47k  = 5,
+    WizardStepFitPending    = 6,
+    WizardStepSuccess       = 8,
+    WizardStepMeasureFailed = 9,
+    WizardStepFitFailed     = 10,
+    WizardStepNoiseFailed   = 11,
+    WizardStepBiasFailed    = 12,
+    WizardStepPromptZero    = 13,
+    WizardStepMeasuringZero = 14,
+    WizardStepZeroFailed    = 15,
+};
 
 // ── CSV column headers ────────────────────────────────────────────────
 // Must stay in sync with the printf format strings in biomap_format_gps_row()

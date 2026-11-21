@@ -14,18 +14,7 @@
 #include "session_cardputer.h"
 #include "settings_cardputer.h"
 
-// Calibration targets and gates (same physical 1/R values and bounds as the
-// Flipper's biomap.h).
-static const float CAL_TARGET_470K = 2127.66f;
-static const float CAL_TARGET_100K = 10000.0f;
-static const float CAL_TARGET_47K  = 21276.6f;
-
-static const float CAL_LO_GATE      = 200.0f;
-static const float CAL_MID_GATE_LO  = 3000.0f;
-static const float CAL_MID_GATE_HI  = 25000.0f;
-static const float CAL_LO_GATE_47K  = 5000.0f;
-static const float CAL_HI_GATE      = 45000.0f;
-
+// Calibration targets and gates (CAL_TARGET_*, CAL_*_GATE in core/biomap_config.h).
 static const float CAL_TARGETS[CAL_POINTS] = {
     CAL_TARGET_470K, CAL_TARGET_100K, CAL_TARGET_47K,
 };
@@ -106,25 +95,7 @@ static const char* const CAL_SUB_LABELS[CAL_SUB_COUNT] = {
     "Show Current",
 };
 
-// Wizard step numbers (matching biomap_gui.c / biomap_render.c).
-enum {
-    WizardStepPrompt470k    = 0,
-    WizardStepMeasuring470k = 1,
-    WizardStepPrompt100k    = 2,
-    WizardStepMeasuring100k = 3,
-    WizardStepPrompt47k     = 4,
-    WizardStepMeasuring47k  = 5,
-    WizardStepFitPending    = 6,
-    WizardStepSuccess       = 8,
-    WizardStepMeasureFailed = 9,
-    WizardStepFitFailed     = 10,
-    WizardStepNoiseFailed   = 11,
-    WizardStepBiasFailed    = 12,
-    WizardStepPromptZero    = 13,
-    WizardStepMeasuringZero = 14,
-    WizardStepZeroFailed    = 15,
-};
-
+// WizardStep* enum lives in core/biomap_config.h.
 enum class DwellPhase {
     Idle,
     FlushBefore,
@@ -214,7 +185,7 @@ static void wizard_start_zero_dwell(void) {
     g_wiz.zero_step = true;
     g_wiz.phase = DwellPhase::FlushBefore;
     g_wiz.phase_ticks = 0;
-    g_wiz.phase_target = 20;  // 2 s flush so autoranging climbs to PGA 5
+    g_wiz.phase_target = CAL_ZERO_FLUSH_TICKS;  // 2 s flush so autoranging climbs to PGA 5
     g_wiz.seconds_left = CAL_DWELL_SECONDS;
     g_wiz.last_tick_ms = millis();
     cal_dwell_init(&g_wiz.dwell);
@@ -232,7 +203,7 @@ static void wizard_start_resistor_dwell(int idx) {
     g_wiz.resistor_idx = idx;
     g_wiz.phase = DwellPhase::FlushBefore;
     g_wiz.phase_ticks = 0;
-    g_wiz.phase_target = 10;  // 1 s flush (also settles pre-measurement click)
+    g_wiz.phase_target = CAL_RESISTOR_FLUSH_TICKS;  // 1 s flush (also settles pre-measurement click)
     g_wiz.seconds_left = CAL_DWELL_SECONDS;
     g_wiz.last_tick_ms = millis();
     cal_dwell_init(&g_wiz.dwell);
@@ -340,7 +311,7 @@ static bool wizard_poll(void) {
         }
         g_wiz.phase = DwellPhase::FlushAfterBias;
         g_wiz.phase_ticks = 0;
-        g_wiz.phase_target = 2;
+        g_wiz.phase_target = CAL_POST_BIAS_FLUSH_TICKS;
         g_wiz.last_tick_ms = millis();
         return true;
     }
@@ -408,6 +379,10 @@ static void run_cold_reset_gps(M5Canvas& canvas) {
 }
 
 static void toggle_option_bool(bool* field, bool force_tone = false) {
+    if(sd_usb_drive_active()) {
+        play_cue(BioMapCueError, force_tone);
+        return;
+    }
     *field = !*field;
     settings_cardputer_save();
     play_cue(*field ? BioMapCueToggleOn : BioMapCueToggleOff, force_tone);
@@ -424,6 +399,10 @@ void menu_cardputer_begin(void) {
 
 bool menu_cardputer_active(void) {
     return !g_session.open;
+}
+
+bool menu_cardputer_can_lend_sd(void) {
+    return !g_session.open && g_screen != ScreenId::CalWizard;
 }
 
 bool menu_cardputer_poll(void) {
@@ -483,14 +462,17 @@ bool menu_cardputer_key(SessionKey key, M5Canvas& canvas) {
         case SessionKeyLeft:
         case SessionKeyRight:
             switch(g_opt_sel) {
-            case OptGpsProfile: {
-                bool down = (key != SessionKeyLeft);
-                g_settings.nav_model = (GpsNavModel)cycle_selection(
-                    (int32_t)g_settings.nav_model, GpsNavModelCount, down);
-                settings_cardputer_save();
-                play_cue(BioMapCueClick);
+            case OptGpsProfile:
+                if(!sd_usb_drive_active()) {
+                    bool down = (key != SessionKeyLeft);
+                    g_settings.nav_model = (GpsNavModel)cycle_selection(
+                        (int32_t)g_settings.nav_model, GpsNavModelCount, down);
+                    settings_cardputer_save();
+                    play_cue(BioMapCueClick);
+                } else {
+                    play_cue(BioMapCueError);
+                }
                 return true;
-            }
             case OptSuperS:
                 toggle_option_bool(&g_settings.super_s);
                 return true;
@@ -549,10 +531,18 @@ bool menu_cardputer_key(SessionKey key, M5Canvas& canvas) {
             return true;
         case SessionKeyOk:
             if(g_cal_sel == CalSubStartWizard) {
+                if(sd_usb_drive_active()) {
+                    play_cue(BioMapCueError);
+                    return true;
+                }
                 play_cue(BioMapCueConfirm);
                 wizard_open();
                 g_screen = ScreenId::CalWizard;
             } else if(g_cal_sel == CalSubReset) {
+                if(sd_usb_drive_active()) {
+                    play_cue(BioMapCueError);
+                    return true;
+                }
                 play_cue(BioMapCueReset);
                 settings_cardputer_reset_cal();
                 g_screen = ScreenId::Options;

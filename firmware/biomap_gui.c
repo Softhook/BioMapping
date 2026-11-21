@@ -403,10 +403,10 @@ static CalMeasureResult calibration_wizard_measure(BioMapApp* app, ViewPort* vp,
     // gain is fitted to, the same as a recording's before its gain.
     gsr_sensor_set_calibration(gsr, true, 1.0f, w->zero_counts);
 
-    // Flush the ring buffer (1 s, 10 ticks). Also the GSR+Sound settle
+    // Flush the ring buffer (1 s, CAL_RESISTOR_FLUSH_TICKS). Also the GSR+Sound settle
     // window for the caller's pre-measurement click — see this function's
     // header comment. Every reading here is intentionally discarded.
-    for(int i = 0; i < 10; i++) {
+    for(int i = 0; i < CAL_RESISTOR_FLUSH_TICKS; i++) {
         furi_delay_ms(100);
         gsr_sensor_tick(gsr);
     }
@@ -430,7 +430,7 @@ static CalMeasureResult calibration_wizard_measure(BioMapApp* app, ViewPort* vp,
         FURI_LOG_W("BioMap", "Cal bias check failed: %.4f V", (double)bias_v);
         return CalMeasureBiasFailed;
     }
-    for(int i = 0; i < 2; i++) {
+    for(int i = 0; i < CAL_POST_BIAS_FLUSH_TICKS; i++) {
         furi_delay_ms(100);
         gsr_sensor_tick(gsr);
     }
@@ -472,10 +472,11 @@ static CalMeasureResult calibration_wizard_measure_zero(BioMapApp* app, ViewPort
                                                          float* out_zero, float* out_std_ns) {
     gsr_sensor_set_calibration(gsr, false, 1.0f, 0.0f);
 
-    // Flush (2 s): also lets autoranging climb from the default PGA 2 to the
-    // most sensitive PGA 5, as an open circuit reads near zero. Each step up
-    // needs 5 low ticks, so the climb takes at least 1.5 s.
-    for(int i = 0; i < 20; i++) {
+    // Flush (2 s, CAL_ZERO_FLUSH_TICKS): also lets autoranging climb from
+    // the default PGA 2 to the most sensitive PGA 5, as an open circuit
+    // reads near zero. Each step up needs 5 low ticks, so the climb takes
+    // at least 1.5 s.
+    for(int i = 0; i < CAL_ZERO_FLUSH_TICKS; i++) {
         furi_delay_ms(100);
         gsr_sensor_tick(gsr);
     }
@@ -500,29 +501,7 @@ static CalMeasureResult calibration_wizard_measure_zero(BioMapApp* app, ViewPort
 
 // calibration_wizard_compute_fit() moved to biomap_format.c (SDK-free,
 // linked by tests/test_firmware.c instead of mirrored). Declared in
-// biomap_format.h.
-
-// Wizard step values — mirrors the numeric cases calibration_wizard_render()
-// (biomap_render.c) switches on; keep both in sync if steps change. 6 and 7
-// are transient/unused as UI-visible states (6 is decided-but-not-yet-drawn
-// fit-pending, checked only internally below).
-enum {
-    WizardStepPrompt470k    = 0,
-    WizardStepMeasuring470k = 1,
-    WizardStepPrompt100k    = 2,
-    WizardStepMeasuring100k = 3,
-    WizardStepPrompt47k     = 4,
-    WizardStepMeasuring47k  = 5,
-    WizardStepFitPending    = 6,
-    WizardStepSuccess       = 8,
-    WizardStepMeasureFailed = 9,
-    WizardStepFitFailed     = 10,
-    WizardStepNoiseFailed   = 11,
-    WizardStepBiasFailed    = 12,
-    WizardStepPromptZero    = 13,
-    WizardStepMeasuringZero = 14,
-    WizardStepZeroFailed    = 15,
-};
+// biomap_format.h. WizardStep* enum lives in core/biomap_config.h.
 
 // Mutex-guarded WizardState field writers — collapse the repeated
 // acquire/write/release blocks below (w.mutex guards every field, see
