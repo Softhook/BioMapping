@@ -336,7 +336,7 @@ void run_calibration_menu(BioMapApp* app) {
                     run_show_current_calibration);
 }
 
-// Drives the shared 4-step calibration wizard (core/biomap_format.h's
+// Drives the shared 4-step calibration wizard (core/biomap_session.h's
 // CalWizardCore) on the Flipper: forwards OK and Back to cal_wizard_key(),
 // and while cal_wizard_measuring() is true, steps cal_wizard_tick() at
 // 10 Hz while polling the event queue for Back cancellation.
@@ -385,12 +385,18 @@ void run_calibration_wizard(BioMapApp* app) {
                 furi_delay_ms(1000 / TICK_HZ);
             }
 
+            // Tick a copy without the lock, so the GUI thread's render never
+            // waits on the I2C reads or the bias check (up to
+            // GSR_BIAS_CHECK_TIMEOUT_MS). This thread is the only writer, so
+            // the copy is current; the lock is held only to publish it.
             BioMapCue done_cue = BioMapCueCount;
+            CalWizardCore next = w.core;
+            bool finished = cal_wizard_tick(&next, &done_cue);
             furi_mutex_acquire(w.mutex, FuriWaitForever);
-            bool finished = cal_wizard_tick(&w.core, &done_cue);
-            int step = w.core.step;
-            BioMapCue fit_cue = w.core.fit_cue;
+            w.core = next;
             furi_mutex_release(w.mutex);
+            int step = next.step;
+            BioMapCue fit_cue = next.fit_cue;
             view_port_update(vp);
 
             if(finished) {

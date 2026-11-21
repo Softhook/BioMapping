@@ -200,26 +200,19 @@ typedef struct {
 #define BIOMAP_SETTINGS_PATH     "/ext/biomapping/biomap.settings"
 #define BIOMAP_SETTINGS_PATH_TMP "/ext/biomapping/biomap.settings.tmp"
 
-// Calibration wizard state machine.  Steps (the wizard starts at 13):
-//   13 = prompt zero (nothing connected)   14 = measure zero
-//   0 = prompt 470k    4 = prompt 47k      8  = success
-//   1 = measure 470k   5 = measure 47k     9  = measurement fail
-//   2 = prompt 100k    6 = compute fit     10 = fit fail (bounds / R²)
-//   3 = measure 100k   7 = (unused)        11 = noise/resolution fail (σ too high)
-//   12 = bias check fail                   15 = zero fail (out of range / noisy)
+// Calibration wizard state: the shared state machine (CalWizardCore,
+// core/biomap_session.h; step numbers in core/biomap_config.h) plus the
+// mutex below.
 //
 // Lives as a stack-local in run_calibration_wizard() (biomap_gui.c), but
 // its draw callback (biomap_render.c's calibration_wizard_render()) runs
 // on the GUI service's own thread, triggered asynchronously by
 // view_port_update() — genuinely cross-thread shared for as long as the
-// wizard's ViewPort points at it. `mutex` guards every field below,
-// including seconds_left, which calibration_wizard_measure()'s 20 s dwell
-// loop (biomap_gui.c) rewrites roughly once per second while a Measuring
-// step is showing — same live-countdown pattern as RfCalWizardState's
-// sampling loop.
-// Calibration wizard state (core/biomap_format.h's CalWizardCore, plus
-// the Flipper mutex guarding cross-thread reads from the GUI service's
-// calibration_wizard_render() callback).
+// wizard's ViewPort points at it. `mutex` guards `core`, including
+// seconds_left, which the 20 s dwell rewrites roughly once per second while
+// a Measuring step is showing. run_calibration_wizard() ticks a copy and
+// takes the lock only to publish it, so the render never waits on a GSR
+// read or the bias check.
 typedef struct {
     FuriMutex*    mutex;
     CalWizardCore core;

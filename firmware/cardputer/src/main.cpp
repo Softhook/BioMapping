@@ -13,6 +13,9 @@
 //   U        → Lend SD card to a plugged-in computer as a USB thumb drive
 //              (from the menus; taking it back with U needs a second
 //              press within 3 s: eject on the computer first).
+//
+// The same keys also work when typed into a serial monitor over USB
+// (`pio device monitor`), with Enter as OK and Esc or ` as Back.
 
 #include <M5Cardputer.h>
 
@@ -153,10 +156,17 @@ static bool keys_poll(void) {
     return menu_cardputer_key(key, canvas);
 }
 
+// Keys typed into a serial monitor. A terminal's Enter can send "\r\n"
+// (pio device monitor does by default), "\r" or "\n": each is one OK, so
+// a "\n" straight after a "\r" is skipped.
 static bool serial_keys_poll(void) {
+    static int prev_ch = -1;
     bool redraw = false;
     while(Serial.available() > 0) {
         int ch = Serial.read();
+        bool crlf_tail = (ch == '\n' && prev_ch == '\r');
+        prev_ch = ch;
+        if(crlf_tail) continue;
         SessionKey key;
         bool valid = false;
         switch(ch) {

@@ -219,6 +219,7 @@ typedef struct {
     float  bias_v;       // the bias input's voltage (about 0.5 V)
     bool   bias_fails;   // reads on the bias input fail (I2C trouble)
     int    dither;       // ±1 count, so no two reads are identical
+    float  skin_wobble_v; // the skin input steps ± this every 0.5 s (a noisy reading)
 } FakeGsr;
 
 static FakeGsr G;
@@ -254,6 +255,9 @@ static bool g_i2c_read(void* ctx, uint8_t addr, uint8_t reg, uint8_t* data, size
     bool on_bias = ((G.cfg_msb >> 4) & 7u) == 5u;
     if(on_bias && G.bias_fails) return false;
     float v = on_bias ? G.bias_v : G.skin_v;
+    if(!on_bias && G.skin_wobble_v != 0.0f) {
+        v += ((F.now / 500u) % 2u) ? G.skin_wobble_v : -G.skin_wobble_v;
+    }
     float code = v / fsr[(G.cfg_msb >> 1) & 7u] * 32768.0f;
     if(code > 32767.0f) code = 32767.0f;
     G.dither = !G.dither;
@@ -1264,7 +1268,7 @@ static void test_screen_custom_graph_callback(void) {
 }
 
 // Shared 4-step calibration wizard state machine (CalWizardCore in
-// core/biomap_format.c): Zero step + 470k, 100k, 47k resistor steps, bias
+// core/biomap_session.c): Zero step + 470k, 100k, 47k resistor steps, bias
 // check, cancel, and save.
 static void run_wiz_dwell_to_end(CalWizardCore* w, BioMapCue* done_cue) {
     int guard = 0;
@@ -1336,6 +1340,105 @@ static void test_cal_wizard_state_machine(void) {
     assert(!cal_wizard_measuring(&w) && cue == BioMapCueBack);
 }
 
+// Skin voltage that reads `ns` nanosiemens through the pretend board:
+// V_diff = 0.5 V * 47 / (R_kohm + 9.4), with R_kohm = 1e6 / ns.
+static float skin_v_for_ns(float ns) {
+    return 0.5f * 47.0f / (1e6f / ns + 9.4f);
+}
+
+// Open-circuit zero step, passing: leaves the wizard at the 470k prompt.
+static void wiz_pass_zero(CalWizardCore* w) {
+    BioMapCue cue = BioMapCueCount;
+    G.skin_v = 0.0f;
+    assert(cal_wizard_key(w, true, &cue) == CalKeyOutcomeStepChanged);
+    run_wiz_dwell_to_end(w, &cue);
+    assert(w->step == WizardStepPrompt470k && cue == BioMapCueConfirm);
+}
+
+// One resistor step at a reading of `ns`, from its prompt.
+static void wiz_measure(CalWizardCore* w, float ns, BioMapCue* cue) {
+    G.skin_v = skin_v_for_ns(ns);
+    assert(cal_wizard_key(w, true, cue) == CalKeyOutcomeStepChanged);
+    run_wiz_dwell_to_end(w, cue);
+}
+
+// The wizard's four fail screens, and that OK on each starts again from
+// the zero step.
+static void test_cal_wizard_fail_paths(void) {
+    printf("Running test_cal_wizard_fail_paths...\n");
+    start_with_modules(BioMapModeGsrOnly, settings(), 0.5f);
+    CalWizardCore w;
+    BioMapCue cue = BioMapCueCount;
+
+    // Zero fail: something still connected during the open-circuit step.
+    cal_wizard_init(&w, G.gsr);
+    G.skin_v = SKIN_V_5US;
+    assert(cal_wizard_key(&w, true, &cue) == CalKeyOutcomeStepChanged);
+    run_wiz_dwell_to_end(&w, &cue);
+    printf("  zero fail: step=%d zero=%.0f cue=%d\n", w.step, (double)w.zero_counts, (int)cue);
+    assert(w.step == WizardStepZeroFailed && cue == BioMapCueError);
+    assert(fabsf(w.zero_counts) > CAL_ZERO_MAX_COUNTS);  // the fail screen shows what was read
+    assert(cal_wizard_key(&w, true, &cue) == CalKeyOutcomeStepChanged);
+    assert(w.step == WizardStepPromptZero && cue == BioMapCueClick);
+
+    // Measurement fail: nothing connected at the 470k step (below its gate).
+    cal_wizard_init(&w, G.gsr);
+    wiz_pass_zero(&w);
+    G.skin_v = 0.0f;
+    assert(cal_wizard_key(&w, true, &cue) == CalKeyOutcomeStepChanged);
+    run_wiz_dwell_to_end(&w, &cue);
+    assert(w.step == WizardStepMeasureFailed && w.fail_idx == 0 && cue == BioMapCueError);
+    assert(w.dwell.below > 0 && w.dwell.in_gate == 0);
+    assert(cal_wizard_key(&w, true, &cue) == CalKeyOutcomeStepChanged);
+    assert(w.step == WizardStepPromptZero);
+
+    // Bias fail: the bias reads 0.40 V (out of range) at the 100k step.
+    cal_wizard_init(&w, G.gsr);
+    wiz_pass_zero(&w);
+    wiz_measure(&w, CAL_TARGET_470K, &cue);
+    assert(w.step == WizardStepPrompt100k);
+    G.bias_v = 0.40f;
+    wiz_measure(&w, CAL_TARGET_100K, &cue);
+    G.bias_v = 0.5f;
+    printf("  bias fail: step=%d bias=%.3f V\n", w.step, (double)w.bias_measured_v);
+    assert(w.step == WizardStepBiasFailed && w.fail_idx == 1 && cue == BioMapCueError);
+    assert(fabsf(w.bias_measured_v - 0.40f) < 0.01f);  // the fail screen shows what was read
+    assert(!cal_wizard_measuring(&w));
+    assert(cal_wizard_key(&w, true, &cue) == CalKeyOutcomeStepChanged);
+    assert(w.step == WizardStepPromptZero);
+
+    // Noise fail: the 470k reading steps up and down while in its gate.
+    cal_wizard_init(&w, G.gsr);
+    wiz_pass_zero(&w);
+    G.skin_wobble_v = skin_v_for_ns(CAL_TARGET_470K) * 0.15f;
+    wiz_measure(&w, CAL_TARGET_470K, &cue);
+    G.skin_wobble_v = 0.0f;
+    printf("  noise fail: step=%d sigma=%.1f nS\n", w.step, (double)w.noise_std_dev[0]);
+    assert(w.step == WizardStepNoiseFailed && w.fail_idx == 0 && cue == BioMapCueError);
+    assert(w.noise_std_dev[0] >= CAL_NOISE_ACCEPTABLE_NS);  // kept for the fail screen
+    assert(cal_wizard_key(&w, true, &cue) == CalKeyOutcomeStepChanged);
+    assert(w.step == WizardStepPromptZero);
+
+    // Fit fail: each reading inside its own gate, but not in proportion to
+    // the resistors (100k reads high, 47k reads low), so R² is far below 0.95.
+    cal_wizard_init(&w, G.gsr);
+    wiz_pass_zero(&w);
+    const float bad_ns[CAL_POINTS] = {2900.0f, 24000.0f, 6000.0f};
+    for(int i = 0; i < CAL_POINTS; i++) {
+        wiz_measure(&w, bad_ns[i], &cue);
+        assert(cue == BioMapCueConfirm);  // each reading passed its own checks
+    }
+    printf("  fit fail: step=%d gain=%.3f r2=%.3f\n", w.step, (double)w.gain, (double)w.r_squared);
+    assert(w.step == WizardStepFitFailed && w.fit_cue == BioMapCueError);
+    assert(w.r_squared < 0.95f);
+    assert(cal_wizard_key(&w, true, &cue) == CalKeyOutcomeStepChanged);
+    assert(w.step == WizardStepPromptZero);
+    // A fresh run clears the last run's fit cue.
+    G.skin_v = 0.0f;
+    cal_wizard_key(&w, true, &cue);
+    assert(w.fit_cue == BioMapCueCount);
+}
+
 int main(void) {
     test_init_checks_platform();
     test_start_header_and_settle();
@@ -1361,6 +1464,7 @@ int main(void) {
     test_screen_live_stream();
     test_screen_custom_graph_callback();
     test_cal_wizard_state_machine();
+    test_cal_wizard_fail_paths();
     free_modules();
     printf("All session tests passed!\n");
     return 0;

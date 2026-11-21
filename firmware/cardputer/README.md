@@ -25,13 +25,15 @@ The Flipper's six buttons are:
 | OK | Enter |
 | Back | Esc (the `` ` `` key) or Del |
 
+The same keys also work typed into a serial monitor on the computer (`pio device monitor`): `;` `.` `,` `/` for the arrows, Enter for OK, and Esc or `` ` `` for Back. One Enter is one OK, whichever line ending the monitor sends.
+
 ## Using it
 
 At power-up it puts the GPS to sleep (up to about 2 s), loads saved settings and calibration from the SD card, and shows the **Bio Mapping** main menu:
 
 - **`GPS + GSR`** — wakes and configures the GPS module, opens the live GSR waveform screen, and records 11-column `GPS+GSR` CSV files.
 - **`GSR Only`** — opens the live GSR waveform screen with the GPS left asleep, and records 2-column `GSR Only` CSV files.
-- **`Live Stream`** — wakes the GPS and GSR sensors and advertises over Bluetooth Low Energy (`Cardputer`) with the visualiser's Live service and notify characteristic UUIDs (52-byte MTU for 49-byte packets every 300 ms). Leaving Live Stream with **Esc** disconnects and turns BLE advertising off.
+- **`Live Stream`** — wakes the GPS and GSR sensors and advertises over Bluetooth Low Energy (`Cardputer`) with the visualiser's Live service and notify characteristic UUIDs (52-byte MTU for 49-byte packets every 300 ms). Bluetooth is switched on only while Live Stream is open. Leaving with **Esc** disconnects any phone or browser and switches Bluetooth off completely.
 - **`Options`** — configures and saves:
   - **GPS Profile** (`PED`, `WRIST`, `VEHICLE`, `STATION`, `SEA`, `BIKE`, `FLIGHT`)
   - **Super-S** (`AUTO` / `OFF`)

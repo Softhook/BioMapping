@@ -7,10 +7,12 @@
 // with MTU raised so the 49-byte Live Stream packets (BT_STREAM_PACKET_SIZE)
 // are sent whole rather than cut to the 20-byte BLE default.
 //
-// The radio stays completely off until a Live Stream session opens. On
-// disconnect while a session is still open, advertising restarts so the
-// visualiser's auto-reconnect can pick the link back up; on session exit,
-// any connected client is disconnected and advertising is stopped.
+// Bluetooth is switched off completely (radio, controller and stack) except
+// while a Live Stream session is open: bt_cardputer_start() switches it on
+// and bt_cardputer_stop() switches it off again. On disconnect while a
+// session is still open, advertising restarts so the visualiser's
+// auto-reconnect can pick the link back up; on session exit, any connected
+// client is disconnected first.
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -18,11 +20,13 @@
 
 #include "biomap_screen.h"  // ScreenLink
 
-// Starts advertising for a Live Stream session (initialising the BLE stack
-// on first call). Returns false if the BLE server or service failed to start.
+// Switches Bluetooth on and starts advertising for a Live Stream session.
+// Returns false (with Bluetooth switched back off) if any set-up step failed;
+// the next session tries again from scratch.
 bool bt_cardputer_start(void);
 
-// Stops advertising and disconnects any client. Safe to call even if
+// Stops advertising, disconnects any client (waiting up to 0.5 s for it to
+// finish), and switches Bluetooth off. Safe to call even if
 // bt_cardputer_start() was not called or failed.
 void bt_cardputer_stop(void);
 

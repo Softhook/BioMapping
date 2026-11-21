@@ -239,7 +239,7 @@ void session_core_cue(SessionCore* s, BioMapCue cue);
 // Runs at 10 Hz (TICK_HZ): each device calls cal_wizard_tick() once every
 // 100 ms while cal_wizard_measuring() is true (either from a blocking loop
 // on the Flipper or from the non-blocking main loop on the Cardputer), and
-// Calls cal_wizard_key() on OK or Back.
+// calls cal_wizard_key() on OK or Back.
 
 typedef enum {
     CalDwellPhaseIdle = 0,

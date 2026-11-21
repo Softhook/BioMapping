@@ -14,7 +14,7 @@
 #include "session_cardputer.h"
 #include "settings_cardputer.h"
 
-// Custom RGB565 theme colors for the 240 × 135 colour UI.
+// Custom RGB565 theme colours for the 240 × 135 colour UI.
 static const uint16_t COL_HEADER_BG = 0x10A4;  // deep navy
 static const uint16_t COL_SEL_BG    = 0x02B3;  // rich blue highlight
 static const uint16_t COL_SEL_EDGE  = 0x07FF;  // cyan accent bar
@@ -102,7 +102,7 @@ static int scroll_window_top(int sel, int count, int max_visible) {
 }
 
 // ── Calibration wizard lifecycle & non-blocking 10 Hz driver ────────────
-// The 4-step wizard state machine lives in core/biomap_format.c
+// The 4-step wizard state machine lives in core/biomap_session.c
 // (CalWizardCore); this file only starts/stops the GSR thread and ticks it
 // every 100 ms on the main loop.
 
