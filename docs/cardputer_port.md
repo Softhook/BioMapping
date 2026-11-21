@@ -793,7 +793,7 @@ After review (21 November 2026) the wake-up check, the clock rule, the lost-byte
 3. Unplugging the GPS mid-session must not print "[Clock] reset from GPS".
 4. **The garbled-byte check, on purpose:** start a GPS+GSR session (the module is then awake at 115200), and press the Cardputer's reset button (if the module stays powered through it; otherwise this check can't be done this way). At start-up the sleep sequence first listens at 9600, so every byte is at the wrong speed. The log should say "Wake: N garbled-byte reports" and "Wake: no reply within 1500 ms", and then "Idle: GPS silent" after the next Esc, a wait and Enter (the sequence still puts the module to sleep). Before this change the wait would have ended at once.
 
-Still to check: a GPS+GSR recording (the file should load in the visualiser with a track, the right UK-time name, and no `# End` warning); Enter before a fix (error sound and "Waiting for GPS time"); a cold start outdoors (time to first fix); a long recording, watching `gps_rx_drops` and the slow SD writes.
+Still to check: a GPS+GSR recording loaded in the visualiser (two recordings were made, with the right UK-time names and complete `# End` lines; see "GPS+GSR recordings" below); Enter before a fix (error sound and "Waiting for GPS time"); a cold start outdoors (time to first fix); a long recording, watching `gps_rx_drops` and the slow SD writes.
 
 **Second review (21 November 2026).** Fixed, with host tests where the code is plain C:
 
@@ -806,6 +806,16 @@ Still to check: a GPS+GSR recording (the file should load in the visualiser with
 - **USB thumb drive mode (replacing the serial `ls` and `cat` commands).** Pressing **`U`** outside a recording now lends the SD card to a plugged-in computer as a normal USB thumb drive (`USBMSC` over native TinyUSB alongside `USBCDC` serial logging, modeled on [`pocket-wui`'s `src/usb.cpp`](https://github.com/AFetisa/pocket-wui/blob/main/src/usb.cpp)). Ejecting on the computer (or pressing **`U`** twice, as a warned fallback) takes the card back and remounts `/sd` so the Cardputer sees any deleted or changed files. Recording is refused while the computer has the card.
 
 Not changed: the GPS sleeping at power-up only to wake at once for the first session (about 1 s; step 10's menu ends it), the UK time zone, and the Cardputer calibration (both step 10 decisions). To check on the Cardputer: a recording with debug fields on should start at `0.00` with `tick_dt_ms` 0, then about 100 for every row after it; the first SD write should be well under 100 ms; wake still reports a first byte after a few hundred ms. On the Flipper: the same recording start check, since the Flipper loop changed.
+
+**GPS+GSR recordings on a real Cardputer (20–21 November 2026)**, a fixed 47k resistor, the Cardputer on USB to the MacBook with the MacBook on battery: `tracks/biomap_2026-11-20_23-04-31.csv` (129 s) and `tracks/biomap_2026-11-21_08-30-13.csv` (98 s).
+
+- **The files are complete.** Exactly one row every 0.1 s, no gaps, and the `# End` line shows no overflows and no write failures. File names and `# RecordingStartTime` agree (UK time, which is GMT in November).
+- **GPS.** A 3D fix on every row, 7–9 satellites, hAcc 0.4–1.2 m. Sitting still, the position wandered about 7 m (21 Nov) and 14 m (20 Nov).
+- **The reading is steady.** It averaged 21,138 nS (20 Nov) and 21,134 nS (21 Nov), so the two days agree within 4 nS. Each 10-second stretch on 21 Nov averaged between 21,132 and 21,136 nS, so there is no drift. Row-to-row spread was about ±2.4 nS (about 0.01 %), and about 5 nS from top to bottom within a second. The 21 Nov file has no spikes. The 20 Nov file has one short blip at 105.4 s: up to +50 nS for 0.3 s, cause unknown.
+- **It reads 0.67 % low, as expected without a calibration.** A perfect 47k is 21,277 nS (1 ÷ 47,000), so the Cardputer reads about 143 nS low. About 104 nS of that is the prototype board's zero offset (measured on the Flipper as −313 counts with the cuffs open), which the wizard's Zero step will remove. The other ~40 nS (about 0.2 %) is the size of normal gain and resistor error before the gain is calibrated. The bias was 497.3 and 497.0 mV.
+- **The 21 Nov header has no `# GPSChipID` line**, though the 20 Nov one does. Not looked into yet.
+
+Still to check: the same 47k once the Cardputer has its calibration wizard (step 10), to see how close it reads after calibration.
 
 ### Next steps
 
