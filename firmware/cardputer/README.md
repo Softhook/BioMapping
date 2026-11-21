@@ -1,6 +1,6 @@
 # BioMapping on the Cardputer ADV
 
-The BioMapping firmware for the M5Stack Cardputer ADV. It is being built up step by step (see section 7 of [docs/cardputer_port.md](../../docs/cardputer_port.md)). It boots into a colour main menu (`GPS + GSR`, `GSR Only`, `Options`), includes the full **Options** menu and 4-step **GSR Calibration Wizard**, persists settings and calibration to `/sd/biomapping/` on the built-in SD card, and draws the live GSR graph and Diagnostics screens through the shared code in [`../core/`](../core/).
+The BioMapping firmware for the M5Stack Cardputer ADV. It is being built up step by step (see section 7 of [docs/cardputer_port.md](../../docs/cardputer_port.md)). It boots into a colour main menu (`GPS + GSR`, `GSR Only`, `Live Stream`, `Options`), includes the full **Options** menu and 4-step **GSR Calibration Wizard**, persists settings and calibration to `/sd/biomapping/` on the built-in SD card, streams live BLE packets to the visualiser's **Live** tab, and draws the live GSR graph and Diagnostics screens through the shared code in [`../core/`](../core/).
 
 The shared code is built straight from `../core/` and `../vendor/minmea/`; nothing is copied into this folder. Our own code and `core/` are built with warnings treated as errors.
 
@@ -31,6 +31,7 @@ At power-up it puts the GPS to sleep (up to about 2 s), loads saved settings and
 
 - **`GPS + GSR`** — wakes and configures the GPS module, opens the live GSR waveform screen, and records 11-column `GPS+GSR` CSV files.
 - **`GSR Only`** — opens the live GSR waveform screen with the GPS left asleep, and records 2-column `GSR Only` CSV files.
+- **`Live Stream`** — wakes the GPS and GSR sensors and advertises over Bluetooth Low Energy (`Cardputer`) with the visualiser's Live service and notify characteristic UUIDs (52-byte MTU for 49-byte packets every 300 ms). Leaving Live Stream with **Esc** disconnects and turns BLE advertising off.
 - **`Options`** — configures and saves:
   - **GPS Profile** (`PED`, `WRIST`, `VEHICLE`, `STATION`, `SEA`, `BIKE`, `FLIGHT`)
   - **Super-S** (`AUTO` / `OFF`)
@@ -71,6 +72,7 @@ For getting files onto a phone or tablet without a cable (the planned **Wi-Fi Fi
 | `src/main.cpp` | Start-up, the main loop, USB thumb drive key handling, and the once-a-second USB log |
 | `src/menu_cardputer.cpp` | The colour main menu, Options screen, and non-blocking 4-step GSR Calibration wizard |
 | `src/screen_cardputer.cpp` | The shared recording screen (`core/biomap_screen.c`) stretched to 240 × 135 with colour accents |
+| `src/bt_cardputer.cpp` | Bluetooth Low Energy Live Stream server and 49-byte packet notifications for the visualiser's Live tab |
 | `src/settings_cardputer.cpp` | Loading and atomic saving of `biomap.settings` and `biomap.cal` in `/sd/biomapping/` |
 | `src/session_cardputer.cpp` | The device functions for the shared session, and its 10 Hz tick |
 | `src/gsr_cardputer.cpp` | The GSR thread, reading the ADS1115 through M5's I2C driver |

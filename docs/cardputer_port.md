@@ -458,7 +458,7 @@ Steps 1–6 prepare the shared core on the Flipper. They also tidy the Flipper c
 | 8 | Cardputer: GSR to SD card, written in whole 512-byte blocks. Compare a recording with the Flipper, and check typing doesn't disturb the GSR. | A useful device |
 | 9 | Cardputer: GPS, plus the clock rule from section 4. | A GPS+GSR logger |
 | 10 | Cardputer: screen (quick route) and keys. | |
-| 11 | Cardputer: Bluetooth live stream. Test the visualiser's Live tab. | |
+| 11 | Cardputer: Bluetooth live stream. Test the visualiser's Live tab. | Done (see section 9) |
 | 12 | The resistor-grid test and side-by-side walks (section 5). | Trusted results |
 | 13 | Later, optional: faster GSR reading (section 4), Wi-Fi Files screen with streaming ZIP download (section 4), redesign the screen, add a printed Cap, add field notes. | |
 
@@ -825,6 +825,23 @@ The Cardputer now boots into its own colour menu system on the 240 × 135 screen
 - **Options and persistence on the SD card.** All Flipper options (except `RF Calibration`, since the Cardputer has no radio scan) are present: `GPS Profile`, `Super-S`, `Cold Reset GPS`, `Auto-zoom GSR`, `GSR Calibration`, `Backlight` (`ON` / `DIM`), `Sound`, `Diagnostics`, and `Debug Fields`. `biomap.settings` and `biomap.cal` are stored in `/sd/biomapping/` using the shared record formats, magic numbers, versions, checksums, and atomic `.tmp` + rename writes (`core/biomap_format.h`). They are also reloaded when the SD card returns from USB thumb drive mode.
 - **Non-blocking 4-step GSR Calibration Wizard.** Runs on the main loop at 10 Hz using the shared `CalDwell`, `calibration_wizard_compute_fit()`, and `calibration_noise_grade()` in [core/biomap_format.c](../firmware/core/biomap_format.c): open-circuit Zero step (2 s flush so autoranging reaches PGA 5, then 20 s dwell), followed by 470k, 100k, and 47k resistor steps (1 s flush, fresh 0.5 V bias check, 2-tick settle, then 20 s dwell with live progress bar and live reading). Pressing Esc cancels immediately at any point.
 - **The recording screen.** [screen_cardputer.cpp](../firmware/cardputer/src/screen_cardputer.cpp) supplies the ten `ScreenDraw` functions ([core/biomap_screen.h](../firmware/core/biomap_screen.h)) for the top bar and Diagnostics, and renders the live GSR graph natively at 240 × 135 as a smooth 30 FPS Catmull-Rom cubic spline with zero-phase 3-tap binomial denoising and sub-tick fractional scrolling. Also fixed a double-negation in [core/biomap_pipeline.c](../firmware/core/biomap_pipeline.c) where `pipeline_update_graph()` stored `-rate` and the screen subtracted it from `cy` a second time, which had drawn rising GSR downward instead of upward.
+
+### Step 11 done: Bluetooth Live Stream
+
+The Cardputer now supports **Live Stream** mode from the main menu (`GPS + GSR`, `GSR Only`, `Live Stream`, `Options`), streaming the shared 49-byte binary packets (`bt_stream_pack_packet()`, [core/biomap_format.c](../firmware/core/biomap_format.c)) over Bluetooth Low Energy every 300 ms ([bt_cardputer.cpp](../firmware/cardputer/src/bt_cardputer.cpp)).
+
+- **BLE service, characteristic, and MTU.** Advertises under the name `Cardputer` with the exact service UUID (`8fe5b3d5-2e7f-4a98-2a48-7acc60fe0000`) and notify/read characteristic UUID (`19ed82ae-ed21-4c9d-4145-228e61fe0000`) that the visualiser's Live tab looks for ([live_bluetooth.mjs](../visualiser/src/live/live_bluetooth.mjs)), and sets `BLEDevice::setMTU(BT_STREAM_PACKET_SIZE + 3)` (52 bytes) so 49-byte packets are never cut to the 20-byte BLE default.
+- **Radio lifecycle.** The BLE stack stays off until `Live Stream` is opened. If the phone or browser disconnects while the session is open, advertising resumes automatically so the visualiser's auto-reconnect picks the stream back up. Pressing Esc to leave `Live Stream` stops advertising and disconnects any connected client.
+- **Session and screen wiring.** [session_cardputer.cpp](../firmware/cardputer/src/session_cardputer.cpp) supplies `live_connected` and `live_send` to `SessionPlatform` (so the shared session runs its first-connect 0.5 V bias check and packs a 49-byte update every 3 ticks), and logs `bt_telemetry tick_dt=... bt_tx_peak_ms=... bt_drop=...` once a second when debug fields are enabled. [screen_cardputer.cpp](../firmware/cardputer/src/screen_cardputer.cpp) passes the live BLE link state (`Advertising` / `Connected`) and drop count to `screen_draw_session()`.
+
+**Checked on a real Cardputer (21 November 2026):**
+
+- Entered `Live Stream` from the main menu: the GPS woke after 239 ms (`Idle: GPS silent (stayed asleep)`, chip ID `axis slang boast putt chunk`), the GSR probe succeeded (`0.4970 V` bias, ~995–1,000 Hz worker rate, 14–15 % duplicates, 100 % ok), and BLE started advertising (`ble=2`).
+- Connected over Bluetooth Low Energy from the Mac (`CoreBluetooth` client scanning for `8fe5b3d5-2e7f-4a98-2a48-7acc60fe0000` and subscribing to `19ed82ae-ed21-4c9d-4145-228e61fe0000`):
+  - On first connect, `[Session] Live Stream bias: measured 496.9 mV, using 496.9 mV` was logged once, and the link state changed to `Connected` (`ble=3`, `ble_peak=0` ms, no new drops while connected).
+  - Reconnecting a second time did not repeat the bias check, as intended (`live_bias_checked`).
+  - Every notification arrived as a full 49-byte packet (`magic=BN`, `len=49`) at 300 ms intervals (`113.7 s`, `114.0 s`, `114.3 s`, `114.6 s`, `114.9 s`) with live GSR (`7,602–7,749 nS`) and a live GPS fix (`51.555918, -0.071124`, 5 satellites, HDOP 2.6, PDOP 2.8, speed 0.3–0.6 kt).
+  - Disconnecting returned the Cardputer to `Advertising` (`ble=2`), and pressing Esc closed the session, stopped BLE advertising, and put the GPS back to sleep (with the Cardputer's clock now set from the GPS fix to `2026-11-21_09:26:51`).
 
 ### Next steps
 

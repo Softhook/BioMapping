@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "biomap_screen.h"
+#include "bt_cardputer.h"
 #include "sd_cardputer.h"
 #include "session_cardputer.h"
 
@@ -309,8 +310,8 @@ void screen_cardputer_draw_session(M5Canvas& canvas) {
     ScreenExtras extras = {};
     extras.file_name = g_session.logger ? sd_logger_get_filename(g_session.logger) : nullptr;
     extras.rf_dbm = nullptr;
-    extras.link = ScreenLinkUnavailable;
-    extras.link_dropped = 0;
+    extras.link = g_session.bt_active ? bt_cardputer_get_link() : ScreenLinkUnavailable;
+    extras.link_dropped = g_session.bt_active ? bt_cardputer_get_drop_count() : 0;
 
     ScreenDraw draw = {};
     draw.ctx = &dctx;

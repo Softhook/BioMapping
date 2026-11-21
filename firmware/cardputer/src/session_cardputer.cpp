@@ -2,6 +2,7 @@
 
 #include <M5Cardputer.h>
 
+#include "bt_cardputer.h"
 #include "clock_cardputer.h"
 #include "cues_cardputer.h"
 #include "gps_cardputer.h"
@@ -122,6 +123,22 @@ static void plat_second_diag(void* ctx, const SessionCore* s) {
                   (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMinFreeHeap(),
                   (unsigned)uxTaskGetStackHighWaterMark(nullptr),
                   (unsigned)(s->gsr ? gsr_cardputer_stack_free(s->gsr) : 0));
+    if(s->mode == BioMapModeLiveStream && g_session.bt_active) {
+        Serial.printf("bt_telemetry tick_dt=%u bt_tx_peak_ms=%u bt_drop=%u\n",
+                      (unsigned)s->recording.tick_dt_ms,
+                      (unsigned)bt_cardputer_get_tx_peak_ms(),
+                      (unsigned)bt_cardputer_get_drop_count());
+    }
+}
+
+static bool plat_live_connected(void* ctx) {
+    (void)ctx;
+    return g_session.bt_active && bt_cardputer_is_connected();
+}
+
+static void plat_live_send(void* ctx, const uint8_t* packet, size_t len) {
+    (void)ctx;
+    if(g_session.bt_active) bt_cardputer_send(packet, len);
 }
 
 static SessionPlatform session_platform(void) {
@@ -140,8 +157,10 @@ static SessionPlatform session_platform(void) {
     p.file_flush = plat_file_flush;
     p.fill_diag = plat_fill_diag;
     p.second_diag = plat_second_diag;
-    // No radio, and no Live Stream yet (step 11): rf_snapshot and live_*
-    // stay NULL, so session_core_init() refuses those modes.
+    p.live_connected = plat_live_connected;
+    p.live_send = plat_live_send;
+    // No CC1101 radio on the Cardputer: rf_snapshot stays NULL, so
+    // session_core_init() refuses the radio modes.
     return p;
 }
 
@@ -174,19 +193,24 @@ void session_cardputer_begin(BioMapMode mode) {
     screen_cache_init(&g_session.screen);
     session_cardputer_unlock();
 
-    // Mounted at the first session; does nothing once it is.
-    sd_card_mount();
+    // Mounted at the first recording session; does nothing once it is.
+    if(session_mode_records(mode)) sd_card_mount();
     // Takes a few hundred ms while the module wakes and is set up.
     GpsUart* gps = session_mode_needs_gps(mode)
         ? gps_cardputer_start(g_settings.nav_model, g_settings.super_s) : nullptr;
     GsrSensor* gsr = session_mode_needs_gsr(mode) ? gsr_cardputer_start() : nullptr;
     if(gsr) gsr_sensor_set_calibration(gsr, cfg.cal_active, cfg.cal_gain, cfg.cal_zero_counts);
     SdLogger* logger = session_mode_records(mode) ? sd_cardputer_alloc() : nullptr;
+    bool bt_active = false;
+    if(mode == BioMapModeLiveStream) {
+        bt_active = bt_cardputer_start();
+    }
 
     session_cardputer_lock();
     g_session.core.gps = gps;
     g_session.core.gsr = gsr;
     g_session.logger = logger;
+    g_session.bt_active = bt_active;
     g_session.open = true;
     g_session.last_step_ms = millis();
     session_cardputer_unlock();
@@ -271,12 +295,15 @@ void session_cardputer_end(void) {
     SdLogger* logger = g_session.logger;
     GsrSensor* gsr = g_session.core.gsr;
     GpsUart* gps = g_session.core.gps;
+    bool bt_active = g_session.bt_active;
     g_session.logger = nullptr;
     g_session.core.gsr = nullptr;
     g_session.core.gps = nullptr;
+    g_session.bt_active = false;
     g_session.open = false;
     session_cardputer_unlock();
 
+    if(bt_active) bt_cardputer_stop();
     if(logger) sd_cardputer_free(logger);
     if(gsr) gsr_cardputer_stop(gsr);
     if(gps) gps_cardputer_stop(gps);  // the module goes back to sleep

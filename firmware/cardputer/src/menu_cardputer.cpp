@@ -50,10 +50,11 @@ enum class ScreenId {
     CalWizard,
 };
 
-// Main menu items (Cardputer has no CC1101 radio; Live Stream comes in step 11).
+// Main menu items (Cardputer has no CC1101 radio).
 enum {
     MainGpsGsr = 0,
     MainGsrOnly,
+    MainLiveStream,
     MainOptions,
     MAIN_MENU_COUNT,
 };
@@ -61,6 +62,7 @@ enum {
 static const char* const MAIN_LABELS[MAIN_MENU_COUNT] = {
     "GPS + GSR",
     "GSR Only",
+    "Live Stream",
     "Options",
 };
 
@@ -391,9 +393,10 @@ static void show_splash_banner(M5Canvas& canvas, const char* title, const char* 
 
 static void launch_session(BioMapMode mode, M5Canvas& canvas) {
     if(session_mode_needs_gps(mode)) {
-        show_splash_banner(canvas,
-                           mode == BioMapModeGpsGsr ? "GPS + GSR" : "Session",
-                           "Starting GPS...", TFT_YELLOW);
+        const char* title = (mode == BioMapModeGpsGsr)     ? "GPS + GSR"
+                          : (mode == BioMapModeLiveStream) ? "Live Stream"
+                                                           : "Session";
+        show_splash_banner(canvas, title, "Starting GPS...", TFT_YELLOW);
     }
     session_cardputer_begin(mode);
 }
@@ -450,6 +453,9 @@ bool menu_cardputer_key(SessionKey key, M5Canvas& canvas) {
             } else if(g_main_sel == MainGsrOnly) {
                 play_cue(BioMapCueConfirm);
                 launch_session(BioMapModeGsrOnly, canvas);
+            } else if(g_main_sel == MainLiveStream) {
+                play_cue(BioMapCueConfirm);
+                launch_session(BioMapModeLiveStream, canvas);
             } else if(g_main_sel == MainOptions) {
                 play_cue(BioMapCueConfirm);
                 g_screen = ScreenId::Options;
@@ -681,6 +687,9 @@ static void draw_main_menu(M5Canvas& canvas, bool usb_drive, bool usb_confirm,
         if(i == MainGpsGsr || i == MainGsrOnly) {
             badge = g_settings.cal_active ? "CAL" : "";
             badge_col = TFT_GREEN;
+        } else if(i == MainLiveStream) {
+            badge = "BLE";
+            badge_col = TFT_CYAN;
         } else if(i == MainOptions) {
             badge = ">";
             badge_col = TFT_CYAN;
@@ -689,8 +698,8 @@ static void draw_main_menu(M5Canvas& canvas, bool usb_drive, bool usb_confirm,
     }
 
     // Status card above the footer: SD card / USB thumb drive state.
-    int sy = 88;
-    canvas.drawFastHLine(6, sy - 4, 228, TFT_DARKGREY);
+    int sy = 100;
+    canvas.drawFastHLine(6, sy - 2, 228, TFT_DARKGREY);
     if(usb_drive && usb_confirm) {
         canvas.setTextColor(TFT_YELLOW);
         canvas.drawString("Eject on computer first!", 6, sy);

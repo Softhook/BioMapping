@@ -17,6 +17,7 @@ struct CardputerSession {
     SessionCore core;
     SdLogger*   logger = nullptr;
     ScreenCache screen;
+    bool        bt_active = false;
     bool        open = false;  // between session_cardputer_begin() and _end()
     uint32_t    last_step_ms = 0;  // when the graph ring buffer last stepped forward
 };

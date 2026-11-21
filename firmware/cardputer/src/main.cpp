@@ -15,6 +15,7 @@
 
 #include <M5Cardputer.h>
 
+#include "bt_cardputer.h"
 #include "clock_cardputer.h"
 #include "cues_cardputer.h"
 #include "gps_cardputer.h"
@@ -91,6 +92,12 @@ static void log_second(void) {
                       fix, st.satellites_tracked, st.hacc, st.latitude, st.longitude,
                       (unsigned long)lost, (unsigned long)full);
     }
+    if(g_session.bt_active) {
+        Serial.printf(" ble=%d ble_drop=%lu ble_peak=%lu",
+                      (int)bt_cardputer_get_link(),
+                      (unsigned long)bt_cardputer_get_drop_count(),
+                      (unsigned long)bt_cardputer_get_tx_peak_ms());
+    }
     if(clock_cardputer_is_set()) {
         SessionDateTime now;
         clock_cardputer_now(&now);
@@ -142,6 +149,35 @@ static bool keys_poll(void) {
     return menu_cardputer_key(key, canvas);
 }
 
+static bool serial_keys_poll(void) {
+    bool redraw = false;
+    while(Serial.available() > 0) {
+        int ch = Serial.read();
+        SessionKey key;
+        bool valid = false;
+        switch(ch) {
+        case ';':  key = SessionKeyUp;    valid = true; break;
+        case '.':  key = SessionKeyDown;  valid = true; break;
+        case ',':  key = SessionKeyLeft;  valid = true; break;
+        case '/':  key = SessionKeyRight; valid = true; break;
+        case '`':
+        case 0x1B:
+        case 0x7F: key = SessionKeyBack;  valid = true; break;
+        case '\r':
+        case '\n': key = SessionKeyOk;    valid = true; break;
+        default:   break;
+        }
+        if(valid) {
+            if(g_session.open) {
+                if(session_cardputer_key(key)) redraw = true;
+            } else {
+                if(menu_cardputer_key(key, canvas)) redraw = true;
+            }
+        }
+    }
+    return redraw;
+}
+
 void setup() {
     auto cfg = M5.config();
     M5Cardputer.begin(cfg, true);
@@ -179,7 +215,7 @@ void setup() {
 void loop() {
     M5Cardputer.update();
     keys_unstick_poll();
-    bool redraw = keys_poll();
+    bool redraw = keys_poll() || serial_keys_poll();
     if(sd_usb_drive_poll()) {
         g_usb_confirm = false;  // ejected or unplugged: nothing to confirm
         settings_cardputer_load();
