@@ -120,6 +120,7 @@ li{background:#152038;border:1px solid #243352;border-radius:12px;padding:12px;d
 <div class="bar">
   <a class="btn btn-primary disabled" id="zipBtn" href="/download-all.zip" download>Download All as ZIP</a>
   <button class="btn btn-muted" id="refreshBtn" type="button">Refresh</button>
+  <button class="btn btn-del" id="delAllBtn" type="button" disabled>Delete All</button>
 </div>
 <div class="msg warn" id="warnBox"></div>
 <div class="msg" id="errBox"></div>
@@ -132,6 +133,8 @@ const summaryEl = document.getElementById('summary');
 const zipBtn = document.getElementById('zipBtn');
 const errBox = document.getElementById('errBox');
 const warnBox = document.getElementById('warnBox');
+const delAllBtn = document.getElementById('delAllBtn');
+let fileTotal = 0;
 
 function showErr(text) {
   errBox.textContent = text || '';
@@ -166,6 +169,26 @@ async function deleteFile(name, btn) {
   }
 }
 
+async function deleteAll() {
+  const n = fileTotal;
+  if (!n) return;
+  if (!confirm('Delete ALL ' + n + (n === 1 ? ' recording' : ' recordings') +
+      ' from the Cardputer?\nDownload them first if you need them. This cannot be undone.')) return;
+  showErr('');
+  delAllBtn.disabled = true;
+  delAllBtn.textContent = 'Deleting...';
+  try {
+    const r = await fetch('/api/delete-all', { method: 'POST' });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error('Delete failed (' + r.status + ')');
+    if (data.failed) showErr(data.failed + ' file(s) could not be deleted.');
+  } catch (e) {
+    showErr('Could not delete files. Check the Cardputer is still on Wi-Fi Files.');
+  }
+  delAllBtn.textContent = 'Delete All';
+  await loadFiles();
+}
+
 async function loadFiles() {
   showErr('');
   try {
@@ -181,6 +204,8 @@ async function loadFiles() {
         ' recordings. Download All as ZIP still includes every file.'
       : '');
     zipBtn.className = files.length ? 'btn btn-primary' : 'btn btn-primary disabled';
+    fileTotal = data.truncated ? data.total : files.length;
+    delAllBtn.disabled = !fileTotal;
     listEl.textContent = '';
     if (!files.length) {
       const div = document.createElement('div');
@@ -228,6 +253,7 @@ async function loadFiles() {
 }
 
 document.getElementById('refreshBtn').onclick = loadFiles;
+delAllBtn.onclick = deleteAll;
 loadFiles();
 </script>
 </body>
@@ -783,6 +809,43 @@ static void handle_delete(void) {
     g_wf.server->send(200, "application/json", "{\"ok\":true}");
 }
 
+// Deletes every recording on the card. The names are collected first,
+// then removed, so the folder isn't changed while it is being read.
+static void handle_delete_all(void) {
+    if(!sd_card_ready()) {
+        g_wf.server->send(503, "application/json", "{\"error\":\"SD card unavailable\"}");
+        return;
+    }
+    CsvFileList files;
+    scan_csv_dir(&files, SIZE_MAX);
+    if(!files.alloc_ok) {
+        g_wf.server->send(503, "application/json", "{\"error\":\"Low memory\"}");
+        return;
+    }
+
+    unsigned deleted = 0, failed = 0;
+    for(size_t i = 0; i < files.count; i++) {
+        char full[128];
+        if(build_csv_path(files.items[i].name, full, sizeof(full)) && unlink(full) == 0) {
+            deleted++;
+        } else {
+            failed++;
+        }
+        yield();
+    }
+
+    scan_csv_dir(nullptr, 0);
+    char msg[32];
+    snprintf(msg, sizeof(msg), "Deleted %u file%s", deleted, deleted == 1 ? "" : "s");
+    set_flash_status(msg, failed ? TFT_RED : TFT_GREEN);
+    Serial.printf("[WiFi] delete all: %u deleted, %u failed\n", deleted, failed);
+
+    char body[64];
+    snprintf(body, sizeof(body), "{\"ok\":true,\"deleted\":%u,\"failed\":%u}", deleted, failed);
+    g_wf.server->sendHeader("Cache-Control", "no-store");
+    g_wf.server->send(200, "application/json", body);
+}
+
 // Every unknown address, including the phone's "am I online?" checks
 // (Android's /generate_204, Apple's /hotspot-detect.html, Windows'
 // /connecttest.txt), is redirected to the file page. Because the DNS server
@@ -850,6 +913,7 @@ bool wifi_files_start(M5Canvas& canvas) {
     g_wf.server->on("/download", HTTP_GET, handle_download_single);
     g_wf.server->on("/download-all.zip", HTTP_GET, handle_download_all_zip);
     g_wf.server->on("/api/delete", HTTP_POST, handle_delete);
+    g_wf.server->on("/api/delete-all", HTTP_POST, handle_delete_all);
     g_wf.server->onNotFound(handle_not_found);
     g_wf.server->begin();
 

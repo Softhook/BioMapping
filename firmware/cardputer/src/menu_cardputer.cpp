@@ -491,18 +491,17 @@ static void draw_list_row(M5Canvas& canvas, int row_vis, bool selected,
 
 static void draw_main_menu(M5Canvas& canvas, bool usb_drive, bool usb_confirm,
                            const char* usb_notice) {
-    // Show clock in header if GPS time has been acquired, plus battery voltage.
+    // Show clock in header if GPS time has been acquired, plus battery percentage.
     char right[32] = "";
     SessionDateTime now;
     clock_cardputer_now(&now);
-    int batt_mv = M5.Power.getBatteryVoltage();
-    if(clock_cardputer_is_set() && batt_mv > 0) {
-        snprintf(right, sizeof(right), "%02u:%02u  %.2fV",
-                 now.hour, now.minute, (double)(batt_mv / 1000.0f));
+    int batt_pct = M5.Power.getBatteryLevel();
+    if(clock_cardputer_is_set() && batt_pct >= 0) {
+        snprintf(right, sizeof(right), "%02u:%02u  %d%%", now.hour, now.minute, batt_pct);
     } else if(clock_cardputer_is_set()) {
         snprintf(right, sizeof(right), "%02u:%02u:%02u", now.hour, now.minute, now.second);
-    } else if(batt_mv > 0) {
-        snprintf(right, sizeof(right), "%.2fV", (double)(batt_mv / 1000.0f));
+    } else if(batt_pct >= 0) {
+        snprintf(right, sizeof(right), "%d%%", batt_pct);
     }
     draw_header(canvas, "Bio Mapping", right, TFT_CYAN);
 

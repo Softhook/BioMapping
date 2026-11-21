@@ -193,6 +193,14 @@ correctness / structure concerns. Promote to its own doc if picked up.
   link). The Flipper → browser half already exists as Live Stream / `live.html`;
   this is only the onward upload.
 - **Physical form factor** — 3D-printed case.
+- **Cardputer battery percentage curve** — the header percentage comes from
+  `M5.Power.getBatteryLevel()` (`firmware/cardputer/src/menu_cardputer.cpp`),
+  which draws a straight line from 3.3 V (0%) to 4.15 V (100%). A real LiPo
+  drops fast when full, sits flat through the middle and falls off a cliff
+  near empty, so the number falls quickly, stalls, then crashes. Replace it
+  with a small voltage-to-percent lookup table that follows a LiPo discharge
+  curve. The Cardputer has no fuel-gauge chip, so this is still only a
+  voltage guess, and it reads high while charging over USB.
 - **Typographic long annotations (visualiser)** — peak labels can now hold long,
   sentence-length notes, but the display paths still assume a short tag: the
   graph renderer hard-truncates to 22 chars + "…"
