@@ -385,6 +385,34 @@ static void test_estimated_fix_ignored(void) {
     assert(fabs(after.latitude - before.latitude) < 1e-9);
     assert(fabs(after.longitude - before.longitude) < 1e-9);
 
+    // Either sentence arriving first in a new epoch (GGA before RMC, or RMC
+    // before GGA) must immediately clear gps_status_has_fix() without
+    // waiting for the other sentence of the pair.
+    furi_hal_mock_feed_string(RMC_LINE);
+    furi_hal_mock_feed_string(GGA_LINE);
+    gps_uart_process_rx(g);
+    after = gps_uart_get_status(g);
+    assert(after.fix_valid && gps_quality_is_gnss_fix(after.fix_quality));
+    assert(gps_status_has_fix(&after));
+
+    // GGA arrives first with a non-GNSS quality while RMC's fix_valid was true:
+    furi_hal_mock_feed_string(GGA_ESTIMATED_LINE);
+    gps_uart_process_rx(g);
+    after = gps_uart_get_status(g);
+    assert(after.fix_quality == 6 && !after.fix_valid && !gps_status_has_fix(&after));
+
+    // Restore both, then RMC arrives first with a non-GNSS mode while GGA's
+    // fix_quality was 1:
+    furi_hal_mock_feed_string(RMC_LINE);
+    furi_hal_mock_feed_string(GGA_LINE);
+    gps_uart_process_rx(g);
+    after = gps_uart_get_status(g);
+    assert(gps_status_has_fix(&after));
+    furi_hal_mock_feed_string(RMC_ESTIMATED_LINE);
+    gps_uart_process_rx(g);
+    after = gps_uart_get_status(g);
+    assert(!after.fix_valid && !gps_quality_is_gnss_fix(after.fix_quality) && !gps_status_has_fix(&after));
+
     // Quality 1–5 (GPS, DGPS, PPS, RTK) are satellite fixes; 0 (none) and
     // 6 (estimated) are not.
     for(int q = 1; q <= 5; q++) assert(gps_quality_is_gnss_fix(q));

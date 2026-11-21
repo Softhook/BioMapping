@@ -172,6 +172,12 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
                 g->status.longitude = minmea_tocoord_double(&frame.longitude);
                 g->status.speed     = minmea_tofloat(&frame.speed);
                 g->status.course    = minmea_tofloat(&frame.course);
+            } else if(gps_quality_is_gnss_fix(g->status.fix_quality)) {
+                // Don't leave a prior epoch's GGA satellite-fix quality
+                // keeping gps_status_has_fix() true until this epoch's GGA
+                // arrives; if this epoch's GGA already set a non-GNSS quality
+                // (e.g. 6 = estimated), preserve it.
+                g->status.fix_quality = 0;
             }
             g->status.time = frame.time;
             g->status.date = frame.date;
@@ -198,9 +204,12 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
             // overwrite good coordinates with 0.0 — and an estimated
             // (quality 6) fix would overwrite them with the receiver's
             // guess, undoing the RMC mode-E check above.
-            if(gps_quality_is_gnss_fix(frame.fix_quality)) {
+            bool gga_ok = gps_quality_is_gnss_fix(frame.fix_quality);
+            if(gga_ok) {
                 g->status.latitude  = minmea_tocoord_double(&frame.latitude);
                 g->status.longitude = minmea_tocoord_double(&frame.longitude);
+            } else {
+                g->status.fix_valid = false;
             }
             // The satellite count is left to PUBX 00: GGA's caps at 12.
             g->status.fix_quality        = frame.fix_quality;

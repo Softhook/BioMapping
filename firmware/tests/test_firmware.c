@@ -25,19 +25,10 @@ typedef struct {
 } Session;
 
 // --- Mock Logger ---
-// Holds the last row produced by the format_gps_csv_row() adapter or by
-// sd_logger_batch_printf(), both below. Sized with margin over
-// biomap_format_gps_row()'s 300-byte production cap; the adapter copies at
-// most that many bytes, and vsnprintf() below is fed only short GSR-only rows.
+// Holds the last row produced by the format_gps_csv_row() or
+// format_gsr_csv_row() adapters below. Sized with margin over
+// biomap_format_gps_row()'s 300-byte production cap.
 char mock_logger_buf[320];
-int sd_logger_batch_printf(void* logger, const char* format, ...) {
-    (void)logger;
-    va_list args;
-    va_start(args, format);
-    int ret = vsnprintf(mock_logger_buf, sizeof(mock_logger_buf), format, args);
-    va_end(args);
-    return ret;
-}
 
 // --- Functions Under Test ---
 
@@ -843,13 +834,6 @@ void test_nmea_parsing() {
     assert(fabsf(hdop - 0.9f) < 1e-4f);
     printf("  -> Pass\n");
 }
-
-// ── Calibration resistor targets (biomap.h, which needs the Flipper SDK) ──
-// Physical constants, 1e9 / R. The record format, checksum and validity
-// checks come from biomap_format.h — linked, not mirrored.
-#define CAL_TARGET_470K  2127.66f
-#define CAL_TARGET_100K  10000.0f
-#define CAL_TARGET_47K   21276.6f
 
 // Void-returning wrapper over the REAL fit (biomap_format.c) for the
 // correctness tests below that only care about gain/r², not the validity
