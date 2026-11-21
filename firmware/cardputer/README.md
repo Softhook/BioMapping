@@ -43,7 +43,10 @@ There is no calibration yet, so readings carry the board's zero offset (about 10
 The card is built in, so the recordings are read over the USB link. With the Cardputer plugged in and not recording, send a line over its serial port (115200 baud):
 
 - `ls` lists `biomapping/` with each file's size.
-- `cat NAME` sends one file: a `BEGIN NAME SIZE` line, the file's bytes, then `END`.
+- `cat NAME` sends one file: a `BEGIN NAME SIZE` line, exactly SIZE bytes of the file, then `END` on its own line (with a newline before it only if the file doesn't end with one).
+- A line longer than 95 characters gets `ERR line too long`.
+
+The once-a-second status lines (`t=…`) and the `[GPS]`, `[Clock]` and `[Session]` lines carry on between replies, so a script should skip lines until the `BEGIN` it is waiting for. Nothing is printed in the middle of a reply.
 
 ## What the screen shows
 

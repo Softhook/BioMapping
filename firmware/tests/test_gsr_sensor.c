@@ -72,6 +72,14 @@ static void wait_for_more_reads(int n) {
     wait_for_more_reads_ex(n, true);
 }
 
+// One tick a window later, as on a device (TICK_HZ). Ticks with no time
+// between them read the same window, and only the first of them counts
+// towards ranging up or a disconnect.
+static void tick_spaced(GsrSensor* gsr) {
+    furi_test_advance_tick(100);
+    gsr_sensor_tick(gsr);
+}
+
 // Absolute-threshold wait, deliberately NOT a "wait for N more from
 // whatever the count is right now" helper: a caller waiting on a one-time
 // event (e.g. "the worker applies the CONFIG_REG write my last tick()
@@ -348,7 +356,7 @@ static void test_failing_config_write_marks_sensor_lost(void) {
 
     furi_hal_i2c_mock_set_write_fail(true);
     wait_for_more_reads(200);
-    for(int i = 0; i < 5; i++) gsr_sensor_tick(gsr); // queues the gain-change write
+    for(int i = 0; i < 5; i++) tick_spaced(gsr); // queues the gain-change write
     assert(gsr_sensor_get_pga_index(gsr) == 3);
 
     wait_until_available(gsr, false);
@@ -596,7 +604,7 @@ static void test_autorange_up_on_low_signal(void) {
     int writes_after_alloc = furi_hal_i2c_mock_write_count();
 
     wait_for_more_reads(200);
-    for(int i = 0; i < 5; i++) gsr_sensor_tick(gsr);
+    for(int i = 0; i < 5; i++) tick_spaced(gsr);
 
     assert(gsr_sensor_get_pga_index(gsr) == 3); // tick() applies this synchronously
     wait_for_write_count_at_least(writes_after_alloc + 1); // worker applies the CONFIG_REG write asynchronously
@@ -605,6 +613,35 @@ static void test_autorange_up_on_low_signal(void) {
            gsr_sensor_get_pga_index(gsr), furi_hal_i2c_mock_write_count());
     assert(furi_hal_i2c_mock_write_count() > writes_after_alloc);
 
+    gsr_sensor_free(gsr);
+    printf("  -> Pass\n");
+}
+
+// After a main-loop stall the missed ticks run back to back, all reading
+// the same latest window. That window counts once: five catch-up ticks on
+// one low reading don't range up, and twenty don't flag a disconnect.
+static void test_catch_up_ticks_count_one_window_once(void) {
+    printf("Running test_catch_up_ticks_count_one_window_once...\n");
+    furi_hal_i2c_mock_reset();
+    furi_hal_i2c_mock_set_raw16(1000); // low: five counted windows range up
+
+    GsrSensor* gsr = gsr_sensor_alloc(NULL, NULL);
+    assert(gsr != NULL);
+    wait_for_more_reads_ex(200, false);
+    for(int i = 0; i < 20; i++) gsr_sensor_tick(gsr); // one stall's catch-up, no time between
+    assert(gsr_sensor_get_pga_index(gsr) == 2);
+    for(int i = 0; i < 3; i++) tick_spaced(gsr);  // windows 2-4
+    assert(gsr_sensor_get_pga_index(gsr) == 2);
+    tick_spaced(gsr);                              // window 5
+    assert(gsr_sensor_get_pga_index(gsr) == 3);
+    gsr_sensor_free(gsr);
+
+    furi_hal_i2c_mock_reset();
+    furi_hal_i2c_mock_set_raw16(0); // fingers off
+    gsr = gsr_sensor_alloc(NULL, NULL);
+    wait_for_more_reads_ex(200, false);
+    for(int i = 0; i < 25; i++) gsr_sensor_tick(gsr);
+    assert(gsr_sensor_is_connected(gsr));
     gsr_sensor_free(gsr);
     printf("  -> Pass\n");
 }
@@ -663,7 +700,9 @@ static void test_autorange_settle_discards_stale_conversion(void) {
     // test_autorange_up_on_low_signal() on why it can't be captured after.
     int writes_before = furi_hal_i2c_mock_write_count();
 
-    for(int i = 0; i < 5; i++) gsr_sensor_tick(gsr);
+    // Spaced ticks until the gain changes, then no more: the clock must stay
+    // inside the settle window the change opens.
+    for(int i = 0; i < 5 && gsr_sensor_get_pga_index(gsr) == 2; i++) tick_spaced(gsr);
     assert(gsr_sensor_get_pga_index(gsr) == 3); // tick() applies pga_index synchronously
 
     // The worker applies the CONFIG_REG write and arms the settle gate off
@@ -722,10 +761,10 @@ static void test_disconnect_debounce_low_signal(void) {
     wait_for_more_reads(200);
 
     for(int i = 0; i < 19; i++) {
-        gsr_sensor_tick(gsr);
+        tick_spaced(gsr);
         assert(gsr_sensor_is_connected(gsr) == true);
     }
-    gsr_sensor_tick(gsr); // 20th consecutive out-of-range tick
+    tick_spaced(gsr); // 20th consecutive out-of-range tick
     printf("  connected=%d after 20 consecutive zero-signal ticks\n", gsr_sensor_is_connected(gsr));
     assert(gsr_sensor_is_connected(gsr) == false);
 
@@ -749,10 +788,10 @@ static void test_disconnect_debounce_realistic_open_circuit_noise(void) {
     wait_for_more_reads(200);
 
     for(int i = 0; i < 19; i++) {
-        gsr_sensor_tick(gsr);
+        tick_spaced(gsr);
         assert(gsr_sensor_is_connected(gsr) == true);
     }
-    gsr_sensor_tick(gsr); // 20th consecutive out-of-range tick
+    tick_spaced(gsr); // 20th consecutive out-of-range tick
     printf("  connected=%d after 20 ticks at raw=%.2f nS (realistic open-circuit noise)\n",
            gsr_sensor_is_connected(gsr), (double)gsr_sensor_get_raw(gsr));
     assert(gsr_sensor_is_connected(gsr) == false);
@@ -778,10 +817,10 @@ static void test_disconnect_debounce_with_calibration_active(void) {
     wait_for_more_reads(200);
 
     for(int i = 0; i < 19; i++) {
-        gsr_sensor_tick(gsr);
+        tick_spaced(gsr);
         assert(gsr_sensor_is_connected(gsr) == true);
     }
-    gsr_sensor_tick(gsr); // 20th consecutive out-of-range tick
+    tick_spaced(gsr); // 20th consecutive out-of-range tick
     printf("  connected=%d after 20 ticks, calibrated raw=%.2f\n",
            gsr_sensor_is_connected(gsr), (double)gsr_sensor_get_raw(gsr));
     assert(gsr_sensor_is_connected(gsr) == false);
@@ -807,10 +846,10 @@ static void test_disconnect_check_applies_calibration_gain(void) {
     wait_for_more_reads(200);
 
     for(int i = 0; i < 19; i++) {
-        gsr_sensor_tick(gsr);
+        tick_spaced(gsr);
         assert(gsr_sensor_is_connected(gsr) == true);
     }
-    gsr_sensor_tick(gsr); // 20th consecutive out-of-range tick
+    tick_spaced(gsr); // 20th consecutive out-of-range tick
     printf("  connected=%d after 20 ticks at calibrated raw=%.0f nS\n",
            gsr_sensor_is_connected(gsr), (double)gsr_sensor_get_raw(gsr));
     assert(gsr_sensor_get_raw(gsr) > GSR_VALID_MAX_NS);
@@ -2025,6 +2064,7 @@ int main(void) {
     test_alloc_probe_failure();
     test_config_rewritten_after_i2c_recovery();
     test_failing_config_write_marks_sensor_lost();
+    test_catch_up_ticks_count_one_window_once();
     test_recovery_read_not_used();
     test_worker_hz_accessor();
     test_success_rate_reflects_real_failure_ratio();

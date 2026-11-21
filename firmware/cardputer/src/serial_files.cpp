@@ -13,6 +13,7 @@ static const char* const DIR_PATH = DIR_PATH_LITERAL;
 
 static char   line[96];
 static size_t line_len = 0;
+static bool   line_too_long = false;  // the current line didn't fit: refused at its end
 
 static void list_files(void) {
     DIR* d = opendir(DIR_PATH);
@@ -54,10 +55,16 @@ static void send_file(const char* name) {
     Serial.setTxTimeoutMs(1000);
     uint8_t buf[512];
     size_t n;
-    while((n = fread(buf, 1, sizeof(buf), f)) > 0) Serial.write(buf, n);
+    uint8_t last = '\n';
+    while((n = fread(buf, 1, sizeof(buf), f)) > 0) {
+        Serial.write(buf, n);
+        last = buf[n - 1];
+    }
     Serial.setTxTimeoutMs(0);
     fclose(f);
-    Serial.println();
+    // END on a line of its own. A finished recording already ends with a
+    // newline; one cut short (power lost mid-row) may not.
+    if(last != '\n') Serial.println();
     Serial.println("END");
 }
 
@@ -67,10 +74,17 @@ void serial_files_poll(bool recording) {
         if(c == '\r') continue;
         if(c != '\n') {
             if(line_len < sizeof(line) - 1) line[line_len++] = (char)c;
+            else line_too_long = true;
             continue;
         }
         line[line_len] = '\0';
         line_len = 0;
+        bool too_long = line_too_long;
+        line_too_long = false;
+        if(too_long) {
+            Serial.println("ERR line too long");
+            continue;
+        }
         if(!line[0]) continue;
         if(recording) {
             Serial.println("ERR recording: stop it first");

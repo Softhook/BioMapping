@@ -16,10 +16,17 @@
 // has passed (the latest the garbled byte can turn up). After that, a byte
 // counts as clean once the next look brings no report either.
 //
+// The bytes themselves are checked too: at 9600 the module only sends NMEA
+// text. Output at 115200 read at 9600 doesn't always raise a report (only
+// when the line happens to be low where the stop bit should be), but its
+// bytes are mostly not text, so a look with a byte that isn't text counts
+// as a report.
+//
 // The time given for the first clean byte is when it could be read, so it
 // can be up to the guard time later than it arrived.
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -42,9 +49,12 @@ void wake_watch_reset(WakeWatch* w);
 // task.
 uint32_t wake_watch_guard_ms(uint32_t baud, uint32_t fifo_full_bytes);
 
+// True if every byte could be NMEA text: printable ASCII, CR or LF.
+bool wake_watch_bytes_are_text(const uint8_t* bytes, size_t len);
+
 // One look. `error`: a garbled-byte report since the last look, taken
-// BEFORE the bytes were read. `got_bytes`: bytes were read (and thrown
-// away) in this look.
+// BEFORE the bytes were read, or a byte read in this look that isn't text.
+// `got_bytes`: bytes were read (and thrown away) in this look.
 void wake_watch_look(WakeWatch* w, uint32_t now_ms, bool error, bool got_bytes, uint32_t guard_ms);
 
 #ifdef __cplusplus

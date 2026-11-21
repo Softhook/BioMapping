@@ -477,6 +477,9 @@ static void test_sd_logger_start_preallocates_file(void) {
     size_t len;
     storage_mock_get_file_contents(storage, "/ext/biomapping/biomap_" STAMP ".csv", &len);
     assert(len == strlen(INTEGRITY_LINE "H\n") + SD_LOGGER_PREALLOC_BYTES);
+    // ... and saved there too, so the card's file-table work for it isn't
+    // left for the first flush in the middle of the recording.
+    assert(storage_mock_get_synced_size(storage, "/ext/biomapping/biomap_" STAMP ".csv") == len);
 
     sd_logger_free(l);
     storage_mock_free(storage);

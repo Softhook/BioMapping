@@ -27,6 +27,7 @@ typedef struct {
                         // as nothing seeks, pos tracks size exactly like
                         // before.
     bool     used;
+    size_t   synced_size; // `size` at the last storage_file_sync()
 } MockFile;
 
 struct Storage {
@@ -205,11 +206,20 @@ bool storage_file_close(File* file) {
 
 // The mock's "storage" is just process memory — storage_file_write()
 // already wrote directly into it, so there's no separate cache to commit.
-// Always succeeds; no fail-injection hook exists for this yet since no
-// test currently needs to exercise a sync failure.
+// It only notes the file's size, so a test can check what had been saved
+// by a given moment. Always succeeds; no fail-injection hook exists for
+// this yet since no test currently needs to exercise a sync failure.
 bool storage_file_sync(File* file) {
-    (void)file;
+    if(file->vfile) file->vfile->synced_size = file->vfile->size;
     return true;
+}
+
+size_t storage_mock_get_synced_size(Storage* storage, const char* path) {
+    for(int i = 0; i < MOCK_MAX_FILES; i++) {
+        MockFile* f = &storage->files[i];
+        if(f->used && strcmp(f->path, path) == 0) return f->synced_size;
+    }
+    return 0;
 }
 
 size_t storage_file_write(File* file, const void* buff, size_t bytes_to_write) {

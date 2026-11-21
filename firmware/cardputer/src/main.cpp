@@ -304,6 +304,7 @@ void setup() {
 
 void loop() {
     M5Cardputer.update();
+    keys_unstick_poll();
     bool redraw = keys_poll();
     if(session_cardputer_poll()) redraw = true;
     // Back pressed: the session has stopped any recording and finished.
@@ -315,6 +316,9 @@ void loop() {
     serial_files_poll(g_session.open && g_session.core.recording.active);
     if(millis() - last_log_ms >= 1000) {
         last_log_ms += 1000;
+        // After a long pause (a file sent over USB, say) one line, not one
+        // for every second missed.
+        if(millis() - last_log_ms >= 1000) last_log_ms = millis();
         log_second();
     }
     delay(1);

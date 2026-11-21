@@ -116,17 +116,30 @@ static void wake_watch_poll(void) {
     // caught by the next look.
     bool error = g_rx_error.exchange(false);
     bool got = false;
-    while(port.available() > 0) {
-        port.read();
+    uint8_t buf[32];
+    int n;
+    while((n = port.available()) > 0) {
+        if(n > (int)sizeof(buf)) n = sizeof(buf);
+        n = port.read(buf, n);
+        if(n <= 0) break;
         got = true;
+        // A byte that isn't text is as good as a report (wake_watch.h).
+        if(!wake_watch_bytes_are_text(buf, (size_t)n)) error = true;
     }
     wake_watch_look(&g_wake, millis(), error, got, wake_watch_guard_ms(g_baud, g_fifo_full));
 }
 
 // ── Platform functions for core/gps_uart.c ──────────────────────────────
 
+// While gps_cardputer_parse_down_to() runs: rx_read() leaves this many
+// bytes waiting, so each caught-up row gets only its own slice. -1 = none.
+// A reconfigure (set_baud, rx_clear) ends it: the shared code then reads
+// the module's replies with rx_read, and must see every byte.
+static int g_read_floor = -1;
+
 static void plat_set_baud(void* ctx, uint32_t baud) {
     (void)ctx;
+    g_read_floor = -1;
     port.updateBaudRate(baud);
     g_baud = baud;
 }
@@ -182,6 +195,7 @@ static size_t plat_rx_read(void* ctx, uint8_t* buf, size_t len) {
     (void)ctx;
     if(g_rx_mode != RxMode::Stream) return 0;
     int avail = port.available();
+    if(g_read_floor >= 0) avail -= g_read_floor;
     if(avail <= 0) return 0;
     size_t n = (size_t)avail < len ? (size_t)avail : len;
     return port.read(buf, n);
@@ -189,6 +203,7 @@ static size_t plat_rx_read(void* ctx, uint8_t* buf, size_t len) {
 
 static void plat_rx_clear(void* ctx) {
     (void)ctx;
+    g_read_floor = -1;
     drain_rx();
 }
 
@@ -284,6 +299,12 @@ static void idle_watch_stop(void) {
     idle_watch_poll();
     g_idle_watching = false;
     uint32_t watched_ms = millis() - g_idle_start_ms;
+    // A garbled-byte report is left for the wake watch, whose first look
+    // guards against its byte still being on the chip. After a silent
+    // sleep any report is from bytes long read and thrown away (the stray
+    // bytes after the sleep command, say), and would only make the wake
+    // watch ignore its first 30 ms for nothing.
+    if(watched_ms >= IDLE_SETTLE_MS && g_idle_bytes == 0) g_rx_error = false;
     if(watched_ms < IDLE_SETTLE_MS + 1000) {
         // At power-up the first session starts straight after the sleep
         // command, before anything is counted: nothing to say.
@@ -372,9 +393,17 @@ int gps_cardputer_waiting_bytes(void) {
 
 void gps_cardputer_parse_down_to(GpsUart* gps, int bytes_left) {
     if(!gps || !gps_uart_is_ready(gps)) return;
-    // Each pass parses up to 384 bytes; the cap stops a stream that keeps
-    // arriving from holding the loop.
-    for(int i = 0; i < 32 && port.available() > bytes_left; i++) {
-        gps_cardputer_poll(gps);
+    auto* g = static_cast<GpsCardputer*>(gps_uart_platform_ctx(gps));
+    // The shared reader takes up to 384 bytes a pass and parses up to 8
+    // lines, keeping the rest in its own buffer (it then asks for another
+    // pass: rx_again). With the floor it takes no more than this slice, and
+    // the passes go on until the lines it holds are parsed too. The cap
+    // stops a stream that keeps arriving from holding the loop.
+    if(bytes_left < 0) bytes_left = 0;
+    g_read_floor = bytes_left;
+    for(int i = 0; i < 32 && (g->rx_again || port.available() > bytes_left); i++) {
+        g->rx_again = false;
+        gps_uart_handle_rx(gps);
     }
+    g_read_floor = -1;
 }

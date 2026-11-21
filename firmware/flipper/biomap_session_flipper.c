@@ -323,6 +323,10 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
     s->timer = furi_timer_alloc(biomap_timer_callback, FuriTimerTypePeriodic, app->event_queue);
     furi_timer_start(s->timer, furi_kernel_get_tick_frequency() / TICK_HZ);
 
+    // Ticks the timer queued before this time are dropped: at first only a
+    // left-over from an earlier screen could be, then see the OK key below.
+    uint32_t drop_ticks_before = furi_get_tick();
+
     BioMapEvent ev;
     while(s->core.running) {
         if(furi_message_queue_get(app->event_queue, &ev, FuriWaitForever) != FuriStatusOk)
@@ -340,11 +344,21 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
         SessionKey key;
         if(ev.type == EventTypeKey && ev.input.type == InputTypeShort
            && session_key(ev.input.key, &key)) {
+            bool was_recording = s->core.recording.active;
             if(session_core_key(&s->core, key)) view_port_update(s->vp);
+            if(!was_recording && s->core.recording.active) {
+                // Starting took about half a second or more (bias check,
+                // file, sound, settle), and the timer kept queueing ticks.
+                // That wait isn't a stall: run as catch-up, those ticks
+                // would start the file with 5–8 rows all reading the same
+                // GSR window, and put every later time 0.5 s or more early.
+                drop_ticks_before = furi_get_tick();
+            }
             continue;
         }
 
         if(ev.type == EventTypeTick) {
+            if((int32_t)(ev.tick_ms - drop_ticks_before) < 0) continue;
             if(session_core_tick(&s->core)) view_port_update(s->vp);
         }
     }

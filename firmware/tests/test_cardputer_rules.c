@@ -4,6 +4,7 @@
 
 #include <assert.h>
 #include <stdio.h>
+#include <string.h>
 
 #include "cardputer/src/clock_rule.h"
 #include "cardputer/src/wake_watch.h"
@@ -260,6 +261,20 @@ static void test_guard_across_wrap(void) {
     printf("  guard across the clock wrap: ok\n");
 }
 
+// NMEA text passes; bytes from output at another baud mostly don't.
+static void test_bytes_are_text(void) {
+    const char* nmea = "$GNTXT,01,01,02,u-blox AG*4C\r\n";
+    assert(wake_watch_bytes_are_text((const uint8_t*)nmea, strlen(nmea)));
+    assert(wake_watch_bytes_are_text(NULL, 0));
+    const uint8_t high[] = {'$', 'G', 0xE6};
+    assert(!wake_watch_bytes_are_text(high, sizeof(high)));
+    const uint8_t zero[] = {0x00};
+    assert(!wake_watch_bytes_are_text(zero, sizeof(zero)));
+    const uint8_t tab[] = {'\t'};
+    assert(!wake_watch_bytes_are_text(tab, sizeof(tab)));
+    printf("  NMEA text check: ok\n");
+}
+
 int main(void) {
     printf("Clock rule:\n");
     test_first_set_needs_two_agreeing_looks();
@@ -277,6 +292,7 @@ int main(void) {
     test_all_garbled();
     test_report_left_from_before_start();
     test_guard_across_wrap();
+    test_bytes_are_text();
     printf("All Cardputer rule tests passed.\n");
     return 0;
 }

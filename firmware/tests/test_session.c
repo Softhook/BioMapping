@@ -539,6 +539,35 @@ static void test_rows_flush_and_heartbeat(void) {
     assert(F.second_diags == 0);
 }
 
+// The tick count, tick gap and flush count all run before a recording
+// starts too. A recording starts them again: row 0 shows no gap (not the
+// start-up wait), and the first card write comes a full FLUSH_INTERVAL
+// seconds in, however long the session ran first.
+static void test_start_resets_tick_gap_and_flush(void) {
+    printf("Running test_start_resets_tick_gap_and_flush...\n");
+    SessionSettings cfg = settings();
+    cfg.debug_fields_enabled = true;
+    cfg.sound_enabled = false;
+    start(BioMapModeGsrOnly, cfg);
+    tick(25);  // 2.5 s before recording
+    F.now += 700;  // the start-up wait (bias check, file, sound)
+    session_core_key(&S, SessionKeyOk);
+    tick(1);
+    tick(10 * FLUSH_INTERVAL - 2);
+    assert(F.flush_calls == 0);
+    tick(1);
+    assert(F.flush_calls == 1);
+
+    // Row 0 itself: started again with no tick before it.
+    start(BioMapModeGsrOnly, cfg);
+    tick(3);
+    F.now += 700;
+    session_core_key(&S, SessionKeyOk);
+    F.now += 100;
+    session_core_tick(&S);
+    assert(S.recording.tick_dt_ms == 0);
+}
+
 static void test_rf_only_while_recording(void) {
     printf("Running test_rf_only_while_recording...\n");
     start(BioMapModeGpsGsrRf, settings());
@@ -1195,6 +1224,7 @@ int main(void) {
     test_start_header_and_settle();
     test_start_failures();
     test_rows_flush_and_heartbeat();
+    test_start_resets_tick_gap_and_flush();
     test_rf_only_while_recording();
     test_clicks_muted_while_recording();
     test_sound_rule_checks();

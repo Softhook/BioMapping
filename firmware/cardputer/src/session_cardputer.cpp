@@ -256,7 +256,16 @@ bool session_cardputer_key(SessionKey key) {
         g_no_time_since_ms = millis();
         return true;
     }
-    return session_core_key(&g_session.core, key);
+    bool was_recording = g_session.core.recording.active;
+    bool redraw = session_core_key(&g_session.core, key);
+    if(!was_recording && g_session.core.recording.active) {
+        // Starting took about half a second or more (bias check, file,
+        // sound, settle). That wait isn't a stall: row 0 comes one tick
+        // from now, not a catch-up burst of rows all reading the same GSR
+        // window.
+        g_next_tick_ms = millis() + 1000 / TICK_HZ;
+    }
+    return redraw;
 }
 
 bool session_cardputer_no_time_notice(void) {

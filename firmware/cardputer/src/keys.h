@@ -17,3 +17,7 @@ bool keys_to_session(const Keyboard_Class::KeysState& st, SessionKey* out);
 
 // "Up", "OK" and so on, for the screen and the log.
 const char* keys_session_name(SessionKey key);
+
+// Call once a loop pass, after M5Cardputer.update(). Restarts the keyboard
+// if it has stopped (keys.cpp says why it can).
+void keys_unstick_poll(void);

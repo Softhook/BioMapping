@@ -113,6 +113,8 @@ void storage_mock_touch_file(Storage* storage, const char* path);
 // sets *out_len = 0) if the path was never opened for write. The pointer
 // is owned by the mock and only valid until the next mutating call.
 const uint8_t* storage_mock_get_file_contents(Storage* storage, const char* path, size_t* out_len);
+// The file's size at its last storage_file_sync() (0 if never synced).
+size_t storage_mock_get_synced_size(Storage* storage, const char* path);
 
 bool storage_mock_file_exists(Storage* storage, const char* path);
 

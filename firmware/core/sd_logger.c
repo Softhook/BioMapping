@@ -263,6 +263,14 @@ static void preallocate_log_file(SdLogger* l) {
     // Always rewind to the real data boundary, whatever happened above, so
     // the next batch flush resumes exactly where the header left off.
     l->platform.seek(l->platform.ctx, real_pos);
+    // Save the reserved space now, before the recording starts. Without it
+    // the card's file table changes for the whole 8 MB wait in the cache
+    // until the first flush's sync, 10 s into the recording, which then
+    // takes hundreds of ms (433 ms seen on the Cardputer; the bench, which
+    // synced here, saw 57 ms at worst).
+    if(!l->platform.sync(l->platform.ctx)) {
+        sd_log(l, SdLogWarning, "Pre-allocation sync failed — the first flush will save it");
+    }
     l->prealloc_ms = l->platform.now_ms(l->platform.ctx) - start_ms;
 }
 #endif

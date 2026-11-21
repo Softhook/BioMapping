@@ -330,6 +330,11 @@ static void start_recording(SessionCore* s) {
     s->recording.active = true;
     s->recording.tick_counter = 0;
     s->recording.total_ticks  = 0;
+    // Both run before the recording too. Row 0 has no tick before it (so
+    // tick_dt_ms 0, not the start-up wait), and the first write to the
+    // card comes a full FLUSH_INTERVAL seconds in.
+    s->recording.last_tick_wall_ms = 0;
+    s->recording.flush_counter = 0;
     // Clear any SD failure from a previous recording in this session (the
     // screen stays open after an SD stop, so the user can reseat the card
     // and start a new file).

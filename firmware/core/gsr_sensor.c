@@ -67,6 +67,12 @@
 //   same physical signal reads ~2× as many counts (~25 % FS), safely above
 //   the threshold — preventing oscillation around the boundary.
 //
+//   The counts are of 100 ms windows, not of calls: after a main-loop stall
+//   the missed ticks run back to back, all averaging the same latest window
+//   (COUNTED_WINDOW_GAP_MS below). That one window is counted once, so a
+//   single 100 ms dip can't range up, nor one bad window add to the
+//   disconnect count more than once.
+//
 // OUTPUT NORMALISATION
 //   The worker stores counts normalised to the pga_index=5 (±0.256 V)
 //   reference where 1 unit = 7.8125 µV; tick() converts these to nS for
@@ -140,6 +146,12 @@
 // gsr_sensor_tick().
 #define BOXCAR_WINDOW_MS  100
 
+// A tick less than this long after the last counted one reads mostly the
+// same window, so it doesn't add to the range-up or disconnect counts (see
+// RANGING-UP HYSTERESIS). Half a window: normal ticks, 100 ms apart with
+// some jitter, always count.
+#define COUNTED_WINDOW_GAP_MS (BOXCAR_WINDOW_MS / 2)
+
 // Normalisation multiplier factors to pga_index=5 (±0.256 V) reference.
 static const int32_t NORM_FACTOR[6] = { 24, 16, 8, 4, 2, 1 };
 
@@ -176,6 +188,8 @@ struct GsrSensor {
     uint8_t pga_index;  // active PGA setting (0 … ADS_PGA_MAX)
     uint8_t low_count;  // consecutive ticks below ADS_LOW_THRESH
     uint8_t zero_count; // consecutive ticks outside the valid nS range
+    bool    counted_once;     // tick() only: a window has been counted (counted_ms is set)
+    uint32_t counted_ms;      // tick() only: when the last window was counted
     bool    cal_active; // true when custom calibration is active
     float   cal_gain;   // linear calibration gain factor (default 1.0)
     float   cal_zero_counts; // open-circuit zero, normalised counts, removed before the TIA (default 0)
@@ -636,6 +650,8 @@ GsrSensor* gsr_sensor_create(const GsrPlatform* platform) {
     gsr->connected = true;
     gsr->i2c_working = true;
     gsr->zero_count = 0;
+    gsr->counted_once = false;
+    gsr->counted_ms = 0;
     gsr->cal_active = false;
     gsr->cal_gain = 1.0f;
     gsr->cal_zero_counts = 0.0f;
@@ -1174,11 +1190,20 @@ void gsr_sensor_tick(GsrSensor* gsr) {
     // ── Step 3: autoranging decision on the RAW (uncalibrated) value.
     // Calibration is applied in the nS domain after TIA conversion —
     // applying it here would skew the PGA switching thresholds.
+    // A repeat of the last counted window (a catch-up tick) changes no
+    // counts and no gain: see RANGING-UP HYSTERESIS.
+    bool counted = !gsr->counted_once || now_tick - gsr->counted_ms >= COUNTED_WINDOW_GAP_MS;
+    if(counted) {
+        gsr->counted_once = true;
+        gsr->counted_ms = now_tick;
+    }
     uint8_t new_pga = old_pga;
     int32_t hw_equiv = (int32_t)(avg_norm / (float)NORM_FACTOR[old_pga]);
     int32_t abs_hw_equiv = (hw_equiv < 0) ? -hw_equiv : hw_equiv;
 
-    if(abs_hw_equiv >= ADS_SATURATE_THRESH && new_pga > ADS_PGA_MIN) {
+    if(!counted) {
+        // no change
+    } else if(abs_hw_equiv >= ADS_SATURATE_THRESH && new_pga > ADS_PGA_MIN) {
         new_pga--;
         gsr->low_count = 0;
     } else if(abs_hw_equiv < ADS_LOW_THRESH && new_pga < ADS_PGA_MAX) {
@@ -1215,7 +1240,9 @@ void gsr_sensor_tick(GsrSensor* gsr) {
     gsr->raw = raw_ns;
 
     // ── Finger-cuff disconnect detection (20-tick debounce).
-    if(raw_ns < GSR_VALID_MIN_NS || raw_ns > GSR_VALID_MAX_NS) {
+    if(!counted) {
+        // no change
+    } else if(raw_ns < GSR_VALID_MIN_NS || raw_ns > GSR_VALID_MAX_NS) {
         if(++gsr->zero_count >= 20) {
             gsr->connected = false;
         }

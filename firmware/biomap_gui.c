@@ -20,7 +20,7 @@ void biomap_input_callback(InputEvent* e, void* ctx) {
 }
 
 void biomap_timer_callback(void* ctx) {
-    BioMapEvent ev = {.type = EventTypeTick};
+    BioMapEvent ev = {.type = EventTypeTick, .tick_ms = furi_get_tick()};
     // Non-blocking: software timer callbacks run in the system timer daemon
     // task.  Blocking here would stall all OS timers (key repeat, backlight
     // dimming, etc.) when the queue is full.  The increased EVENT_QUEUE_DEPTH

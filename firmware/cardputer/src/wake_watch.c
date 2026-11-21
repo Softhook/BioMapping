@@ -10,6 +10,14 @@ void wake_watch_reset(WakeWatch* w) {
     memset(w, 0, sizeof(*w));
 }
 
+bool wake_watch_bytes_are_text(const uint8_t* bytes, size_t len) {
+    for(size_t i = 0; i < len; i++) {
+        uint8_t b = bytes[i];
+        if(!((b >= 0x20 && b <= 0x7E) || b == '\r' || b == '\n')) return false;
+    }
+    return true;
+}
+
 uint32_t wake_watch_guard_ms(uint32_t baud, uint32_t fifo_full_bytes) {
     if(baud == 0) baud = 9600;
     // 10 bits a byte (start, 8 data, stop), rounded up.

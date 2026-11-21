@@ -16,8 +16,11 @@ typedef enum {
 } EventType;
 
 // Every event posted to the main queue must fit this struct exactly.
-// The `input` field is only meaningful when type == EventTypeKey.
+// The `input` field is only meaningful when type == EventTypeKey, and
+// `tick_ms` (furi_get_tick() when the timer fired) when type ==
+// EventTypeTick.
 typedef struct {
     EventType  type;
     InputEvent input;
+    uint32_t   tick_ms;
 } BioMapEvent;
