@@ -703,7 +703,7 @@ The Cardputer now records in GSR Only mode, through the same shared session code
 - **Session** ([session_cardputer.cpp](../firmware/cardputer/src/session_cardputer.cpp)): the device functions for the shared session and the 10 Hz tick. After a pause (a slow SD write) the missed ticks are run at once, up to 64 (about 6 s), as the Flipper's event queue does, so no row goes missing and the time column stays right. Settings are the Flipper's defaults (sound on, auto zoom on, debug fields off). The `# DeviceName` header line says `Cardputer`.
 - **Screen** ([main.cpp](../firmware/cardputer/src/main.cpp)): a plain status page, not the recording screen (that is step 10). It shows the state and elapsed time, the reading, the file name, the SD card's slowest write, the GSR reads per second with the share of repeats and failures, and a key count. The same figures go to the USB log once a second.
 
-Not there yet, by design: no calibration (the wizard needs the Cardputer's screens, step 10), so readings carry the board's zero offset, about 100 nS low on the prototype; no clock, so files are named from 1970-01-01_00-00-00 and the header's start time is 0 until GPS time arrives in step 9; and only GSR Only mode.
+Not there yet, by design: no calibration (the wizard needs the Cardputer's screens, step 10), so readings carry the board's zero offset, about 100 nS low on the prototype; no clock, so files are named from 1970-01-01_00-00-00 and the header's start time is 0 until GPS time arrives in step 9 (now done, see below); and only GSR Only mode.
 
 Checked:
 
@@ -731,6 +731,32 @@ Checked:
 Still to check: the typing test, a side-by-side Flipper file of the same resistor, and a long recording.
 
 **The Flipper needs a check too**, because its SD logger moved (together with steps 5 and 6): make a short recording and check the file loads in the visualiser with no `# End` warning.
+
+### Step 9 done: GPS and the clock
+
+The Cardputer now records in GPS+GSR mode too, through the same shared GPS code as the Flipper ([core/gps_uart.c](../firmware/core/gps_uart.c)). Nothing in `core/` changed.
+
+**Decisions (user, 20 November 2026):**
+
+- **Wait for GPS time.** In GPS+GSR mode, Enter won't start a recording until the clock has been set from the GPS: it gives the error sound and the screen says "Waiting for GPS time". GSR Only still records; it uses GPS time if it was found since power-up, otherwise the file is named from 1970 and the start time is 0, as before.
+- **UK time.** File names and start times are UK time: GMT in winter, BST from the last Sunday of March to the last Sunday of October, switching on its own. This matches a Flipper set to UK time. As on the Flipper, the header's start time is worked out from the local time.
+- **Tab switches the mode** (GPS+GSR or GSR Only) when no session is open, until the menus come in step 10. It starts in GPS+GSR.
+
+**The Cardputer side**, in [firmware/cardputer/src/](../firmware/cardputer/src/):
+
+- **GPS** ([gps_cardputer.cpp](../firmware/cardputer/src/gps_cardputer.cpp)): UART 1 on G13 (out to the module) and G15 (in from it), with an 8 KB receive buffer. As on the Flipper, the port is opened once at start-up, the module is put to sleep, and the port is held until power-off. Bytes are parsed on the main loop. Between sessions, stray bytes are counted, and the count is logged when the next session starts ("Idle: GPS silent").
+- **The wake-up check** (the open point from step 3). The ESP32's serial driver reports a garbled byte through a separate callback, not with the byte. So the Cardputer counts a byte as clean only if no error arrives with it or by the next look a millisecond later; bytes that come with an error are thrown away and the wait goes on. This is done on the Cardputer side only, so the Flipper is unchanged.
+- **Lost bytes.** The ESP32's driver says when its buffer overflowed, but not how many bytes were lost, so the Cardputer's `gps_rx_drops` counts overflows, not bytes.
+- **The clock** ([clock_cardputer.cpp](../firmware/cardputer/src/clock_cardputer.cpp)): set from the RMC time once there is a real satellite fix (status A, not an estimate), and set again if it drifts 2 s or more from GPS time. The summer-time rule was checked on a computer at both 2026 switch-overs.
+- **Screen**: a GPS line (fix, satellites, hAcc), the time and position, and "no GPS time" in the top line while recording is held back.
+
+**Checked on a real Cardputer (20 November 2026)**, with the same M10Q as the Flipper (chip ID "axis slang boast putt chunk"):
+
+- At start-up the module was set up at 115200 and every setup command was accepted. It got a fix within seconds (indoors by a window, 6–8 satellites, hAcc 0.7–1.3 m), and the clock was set from GPS.
+- After Esc, ten seconds or so, and Enter: "Idle: GPS silent (stayed asleep)", then "Wake: first byte after 271 ms" (the Flipper: 236 ms).
+- GSR reading unchanged with GPS running: about 1,000 reads a second, 14 % repeats, 100 % ok.
+
+Still to check: a GPS+GSR recording (the file should load in the visualiser with a track, the right UK-time name, and no `# End` warning); Enter before a fix (error sound and "Waiting for GPS time"); a cold start outdoors (time to first fix); a long recording, watching `gps_rx_drops` and the slow SD writes.
 
 ### Next steps
 

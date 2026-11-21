@@ -1,10 +1,10 @@
 #include "session_cardputer.h"
 
 #include <M5Cardputer.h>
-#include <sys/time.h>
-#include <time.h>
 
+#include "clock_cardputer.h"
 #include "cues_cardputer.h"
+#include "gps_cardputer.h"
 #include "gsr_cardputer.h"
 #include "sd_cardputer.h"
 
@@ -20,6 +20,14 @@ static const bool SOUND_ENABLED = true;
 static const bool ZOOM_ENABLED = true;
 static const bool DEBUG_FIELDS_ENABLED = false;
 static const char* const DEVICE_NAME = "Cardputer";
+static const GpsNavModel NAV_MODEL = GpsNavModelPedestrian;
+static const bool SUPER_S = true;
+
+// How long the screen says "Waiting for GPS time" after Enter was pressed
+// too early.
+static const uint32_t NO_TIME_NOTICE_MS = 3000;
+static uint32_t g_no_time_since_ms = 0;
+static bool     g_no_time_notice = false;
 
 // After a stall (a slow SD write) the missed ticks are run straight away,
 // as the Flipper's queued timer events are. Each tick is one row and 0.1 s
@@ -64,23 +72,14 @@ static void plat_log(void* ctx, SessionLogLevel level, const char* line) {
     Serial.printf("[Session]%s %s\n", LEVEL[level], line);
 }
 
-// The ESP32's own clock. The Cardputer has no clock chip, so this starts
-// at 1 January 1970 at every power-up, and the session treats the time as
-// not set (year before 2020): the header's start time is 0 and the file
-// name counts from 1970-01-01_00-00-00. Step 9 sets this clock from GPS
-// time (docs/cardputer_port.md, "The clock").
+// UK time, set from GPS (clock_cardputer.cpp). Before GPS time it is 1970,
+// and the session treats the time as not set (year before 2020): the
+// header's start time is 0 and the file name counts from
+// 1970-01-01_00-00-00. In GPS+GSR mode a recording can't start until then
+// (session_cardputer_key()).
 static void plat_datetime_now(void* ctx, SessionDateTime* out) {
     (void)ctx;
-    time_t now = time(nullptr);
-    struct tm tm;
-    gmtime_r(&now, &tm);
-    *out = SessionDateTime{};
-    out->year = (uint16_t)(tm.tm_year + 1900);
-    out->month = (uint8_t)(tm.tm_mon + 1);
-    out->day = (uint8_t)tm.tm_mday;
-    out->hour = (uint8_t)tm.tm_hour;
-    out->minute = (uint8_t)tm.tm_min;
-    out->second = (uint8_t)tm.tm_sec;
+    clock_cardputer_now(out);
 }
 
 static uint32_t plat_epoch_now(void* ctx) {
@@ -178,11 +177,14 @@ void session_cardputer_begin(BioMapMode mode) {
 
     // Mounted at the first session; does nothing once it is.
     sd_card_mount();
+    // Takes a few hundred ms while the module wakes and is set up.
+    GpsUart* gps = session_mode_needs_gps(mode) ? gps_cardputer_start(NAV_MODEL, SUPER_S) : nullptr;
     GsrSensor* gsr = session_mode_needs_gsr(mode) ? gsr_cardputer_start() : nullptr;
     if(gsr) gsr_sensor_set_calibration(gsr, cfg.cal_active, cfg.cal_gain, cfg.cal_zero_counts);
     SdLogger* logger = session_mode_records(mode) ? sd_cardputer_alloc() : nullptr;
 
     session_cardputer_lock();
+    g_session.core.gps = gps;
     g_session.core.gsr = gsr;
     g_session.logger = logger;
     g_session.open = true;
@@ -191,8 +193,16 @@ void session_cardputer_begin(BioMapMode mode) {
 }
 
 bool session_cardputer_poll(void) {
-    if(!g_session.open || !g_session.core.running) return false;
+    // Without the session lock: a GPS reconfigure waits for seconds.
+    GpsUart* gps = g_session.open ? g_session.core.gps : nullptr;
+    gps_cardputer_poll(gps);
+    clock_cardputer_poll(gps);
     bool redraw = false;
+    if(g_no_time_notice && millis() - g_no_time_since_ms >= NO_TIME_NOTICE_MS) {
+        g_no_time_notice = false;
+        redraw = true;
+    }
+    if(!g_session.open || !g_session.core.running) return redraw;
     uint32_t now = millis();
     uint32_t ticks = 0;
     while((int32_t)(now - g_next_tick_ms) >= 0) {
@@ -208,7 +218,21 @@ bool session_cardputer_poll(void) {
 
 bool session_cardputer_key(SessionKey key) {
     if(!g_session.open || !g_session.core.running) return false;
+    // The decided clock rule: in a GPS mode, wait for GPS time before
+    // recording, so the file name and start time are always right. The
+    // core reads `recording` only on this thread, so no lock is needed.
+    if(key == SessionKeyOk && has_gps(g_session.core.mode) && !g_session.core.recording.active &&
+       !clock_cardputer_is_set()) {
+        session_core_cue(&g_session.core, BioMapCueError);
+        g_no_time_notice = true;
+        g_no_time_since_ms = millis();
+        return true;
+    }
     return session_core_key(&g_session.core, key);
+}
+
+bool session_cardputer_no_time_notice(void) {
+    return g_no_time_notice;
 }
 
 void session_cardputer_end(void) {
@@ -219,11 +243,14 @@ void session_cardputer_end(void) {
     session_cardputer_lock();
     SdLogger* logger = g_session.logger;
     GsrSensor* gsr = g_session.core.gsr;
+    GpsUart* gps = g_session.core.gps;
     g_session.logger = nullptr;
     g_session.core.gsr = nullptr;
+    g_session.core.gps = nullptr;
     g_session.open = false;
     session_cardputer_unlock();
 
     if(logger) sd_cardputer_free(logger);
     if(gsr) gsr_cardputer_stop(gsr);
+    if(gps) gps_cardputer_stop(gps);  // the module goes back to sleep
 }
