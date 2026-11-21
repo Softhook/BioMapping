@@ -219,3 +219,30 @@ void wifi_files_dos_datetime_from_name(const char* name,
         return;
     }
 }
+
+bool wifi_files_is_apple_probe(const char* path) {
+    if(!path) return false;
+    return strcmp(path, "/hotspot-detect.html") == 0 ||
+           strcmp(path, "/library/test/success.html") == 0;
+}
+
+void wifi_files_released_clear(WifiFilesReleased* r) {
+    memset(r, 0, sizeof(*r));
+}
+
+void wifi_files_released_add(WifiFilesReleased* r, uint32_t ip) {
+    if(ip == 0 || wifi_files_released_has(r, ip)) return;
+    if(r->count < WIFI_FILES_MAX_RELEASED) {
+        r->ip[r->count++] = ip;
+        return;
+    }
+    r->ip[r->next] = ip;
+    r->next = (r->next + 1) % WIFI_FILES_MAX_RELEASED;
+}
+
+bool wifi_files_released_has(const WifiFilesReleased* r, uint32_t ip) {
+    for(size_t i = 0; i < r->count; i++) {
+        if(r->ip[i] == ip) return true;
+    }
+    return false;
+}

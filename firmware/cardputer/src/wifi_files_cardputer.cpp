@@ -40,6 +40,11 @@ static const uint32_t    IDLE_OFF_MS = 10UL * 60UL * 1000UL;  // turn off after 
 // Custom RGB565 theme colour matching menu_cardputer.cpp.
 static const uint16_t COL_MUTED = 0x8410;
 
+// Devices that chose to continue in a browser: Apple's sign-in check is
+// answered "Success" for them (wifi_files_rules.h, "Apple's Wi-Fi sign-in
+// window"). Cleared when the hotspot starts and stops.
+static WifiFilesReleased g_released;
+
 // Screen layout: the QR code fills the full 135 px height on the left; text
 // sits in the 101 px column on the right.
 static const int SCREEN_W = 240;
@@ -98,7 +103,9 @@ h1{margin:0;font-size:1.3rem;color:#fff}
 .btn-muted{background:#1e293b;color:#dce6f5}
 .btn-dl{background:#1d4ed8;color:#fff;padding:8px 14px;min-height:40px}
 .btn-del{background:#3b1822;color:#fca5a5;padding:8px 12px;min-height:40px}
+.btn-del.armed{background:#b91c1c;color:#fff}
 .msg{display:none;padding:10px 12px;border-radius:8px;margin-bottom:12px;font-size:.9rem;background:#3b1822;color:#fecaca}
+.msg a{color:inherit;font-weight:700}
 .msg.warn{background:#3a2b12;color:#fde68a}
 .msg.show{display:block}
 ul{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:10px}
@@ -108,6 +115,7 @@ li{background:#152038;border:1px solid #243352;border-radius:12px;padding:12px;d
 .size{font-size:.85rem;color:#93a8c9;margin-top:2px}
 .acts{display:flex;gap:8px}
 .hint{margin-top:18px;font-size:.85rem;color:#93a8c9}
+.hint a{color:#7dd3fc}
 .empty{background:#152038;border:1px solid #243352;border-radius:12px;padding:24px;text-align:center;color:#93a8c9}
 </style>
 </head>
@@ -122,12 +130,20 @@ li{background:#152038;border:1px solid #243352;border-radius:12px;padding:12px;d
   <button class="btn btn-muted" id="refreshBtn" type="button">Refresh</button>
   <button class="btn btn-del" id="delAllBtn" type="button" disabled>Delete All</button>
 </div>
+<div class="msg warn" id="signInBox">This Wi-Fi sign-in window can't save files. <a href="/browser">Continue in Safari</a> to download.</div>
 <div class="msg warn" id="warnBox"></div>
 <div class="msg" id="errBox"></div>
 <ul id="list"></ul>
-<p class="hint">If a download doesn't start in this sign-in window, close it and open <b>http://192.168.4.1</b> in your browser instead.</p>
+<p class="hint">Download not starting? Wi-Fi sign-in windows can't save files: <a href="/browser">continue in your browser</a> instead.</p>
 </div>
 <script>
+// Apple's Wi-Fi sign-in window (it opens by itself on joining) is a
+// cut-down browser: it can't save files, and it answers every confirm()
+// box with "no". Its user agent names AppleWebKit but not Safari. There,
+// Download goes to the "continue in Safari" page instead.
+const ua = navigator.userAgent;
+const inSignIn = /AppleWebKit/.test(ua) && !/Safari\//.test(ua) &&
+                 /(Macintosh|iPhone|iPad|iPod)/.test(ua);
 const listEl = document.getElementById('list');
 const summaryEl = document.getElementById('summary');
 const zipBtn = document.getElementById('zipBtn');
@@ -153,8 +169,30 @@ function fmtSize(b) {
   return (b / 1073741824).toFixed(1) + ' GB';
 }
 
+// A delete asks for a second tap on the same button (within 4 s) rather
+// than a confirm() box, which the sign-in window can't show. True on the
+// second tap.
+function secondTap(btn, askText) {
+  if (btn.dataset.armed === '1') {
+    btn.dataset.armed = '';
+    btn.classList.remove('armed');
+    return true;
+  }
+  const label = btn.textContent;
+  btn.dataset.armed = '1';
+  btn.classList.add('armed');
+  btn.textContent = askText;
+  setTimeout(() => {
+    if (btn.dataset.armed !== '1') return;
+    btn.dataset.armed = '';
+    btn.classList.remove('armed');
+    btn.textContent = label;
+  }, 4000);
+  return false;
+}
+
 async function deleteFile(name, btn) {
-  if (!confirm('Delete "' + name + '" from the Cardputer?\nThis cannot be undone.')) return;
+  if (!secondTap(btn, 'Tap again to delete')) return;
   showErr('');
   btn.disabled = true;
   btn.textContent = '...';
@@ -172,8 +210,7 @@ async function deleteFile(name, btn) {
 async function deleteAll() {
   const n = fileTotal;
   if (!n) return;
-  if (!confirm('Delete ALL ' + n + (n === 1 ? ' recording' : ' recordings') +
-      ' from the Cardputer?\nDownload them first if you need them. This cannot be undone.')) return;
+  if (!secondTap(delAllBtn, 'Tap again to delete all ' + n)) return;
   showErr('');
   delAllBtn.disabled = true;
   delAllBtn.textContent = 'Deleting...';
@@ -231,8 +268,12 @@ async function loadFiles() {
       acts.className = 'acts';
       const dl = document.createElement('a');
       dl.className = 'btn btn-dl';
-      dl.href = '/download?name=' + encodeURIComponent(f.name);
-      dl.setAttribute('download', f.name);
+      if (inSignIn) {
+        dl.href = '/browser';
+      } else {
+        dl.href = '/download?name=' + encodeURIComponent(f.name);
+        dl.setAttribute('download', f.name);
+      }
       dl.textContent = 'Download';
       const del = document.createElement('button');
       del.className = 'btn btn-del';
@@ -252,6 +293,11 @@ async function loadFiles() {
   }
 }
 
+if (inSignIn) {
+  document.getElementById('signInBox').className = 'msg warn show';
+  zipBtn.href = '/browser';
+  zipBtn.removeAttribute('download');
+}
 document.getElementById('refreshBtn').onclick = loadFiles;
 delAllBtn.onclick = deleteAll;
 loadFiles();
@@ -846,12 +892,71 @@ static void handle_delete_all(void) {
     g_wf.server->send(200, "application/json", body);
 }
 
+// The "continue in Safari" page, reached from Download in Apple's sign-in
+// window. From now on this device's sign-in check is answered "Success"
+// (handle_not_found()), so the window's Cancel turns into Done; loading this
+// page is what makes the window check again. %s: our address, then the
+// hotspot name. No other '%' in it: it is a printf format.
+static const char BROWSER_HTML[] PROGMEM = R"HTML(<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Continue in Safari</title>
+<style>
+body{margin:0;padding:16px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#0d1321;color:#e8eef7;line-height:1.5}
+.wrap{max-width:560px;margin:0 auto}
+h1{font-size:1.3rem;margin:0 0 12px;color:#fff}
+li{margin-bottom:8px}
+.addr{font-size:1.4rem;font-weight:700;color:#7dd3fc;margin:6px 0 16px;-webkit-user-select:all;user-select:all}
+.small{font-size:.85rem;color:#93a8c9}
+a{color:#7dd3fc}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>Continue in Safari</h1>
+<p>This Wi-Fi sign-in window can't save files. Safari, or any other browser, can, and you stay on the Cardputer's Wi-Fi.</p>
+<ol>
+<li>Click <b>Done</b> in this window. If it still says Cancel, wait a few seconds.</li>
+<li>Open Safari and go to:</li>
+</ol>
+<div class="addr">%s</div>
+<p class="small">If Done never shows, click Cancel. If your Mac then leaves the Wi-Fi, join <b>%s</b> again: this window won't open again, so go straight to the address in Safari.</p>
+<p class="small">Already in a browser? <a href="/">Back to the files</a></p>
+</div>
+</body>
+</html>
+)HTML";
+
+static void handle_browser(void) {
+    IPAddress ip = g_wf.server->client().remoteIP();
+    wifi_files_released_add(&g_released, (uint32_t)ip);
+    Serial.printf("[WiFi] %s continues in a browser\n", ip.toString().c_str());
+
+    static char page[sizeof(BROWSER_HTML) + sizeof(g_wf.qr_url) + sizeof(g_wf.ssid)];
+    int n = snprintf(page, sizeof(page), BROWSER_HTML, g_wf.qr_url, g_wf.ssid);
+    if(n < 0 || (size_t)n >= sizeof(page)) {
+        g_wf.server->send(500, "text/plain", "Page too long");
+        return;
+    }
+    send_body_own_writer("text/html; charset=utf-8", page, (size_t)n);
+}
+
 // Every unknown address, including the phone's "am I online?" checks
 // (Android's /generate_204, Apple's /hotspot-detect.html, Windows'
 // /connecttest.txt), is redirected to the file page. Because the DNS server
 // answers every name with our address, the phone sees a sign-in page and pops
-// it up by itself on joining.
+// it up by itself on joining. The exception: Apple's check from a device
+// that chose to continue in Safari (handle_browser()) gets Apple's
+// "Success", so its sign-in window can close with Done.
 static void handle_not_found(void) {
+    if(wifi_files_is_apple_probe(g_wf.server->uri().c_str()) &&
+       wifi_files_released_has(&g_released, (uint32_t)g_wf.server->client().remoteIP())) {
+        g_wf.server->sendHeader("Cache-Control", "no-store");
+        g_wf.server->send(200, "text/html", WIFI_FILES_APPLE_SUCCESS_HTML);
+        return;
+    }
     char loc[sizeof(g_wf.qr_url) + 1];
     snprintf(loc, sizeof(loc), "%s/", g_wf.qr_url);
     g_wf.server->sendHeader("Location", loc, true);
@@ -914,6 +1019,7 @@ bool wifi_files_start(M5Canvas& canvas) {
     g_wf.server->on("/download-all.zip", HTTP_GET, handle_download_all_zip);
     g_wf.server->on("/api/delete", HTTP_POST, handle_delete);
     g_wf.server->on("/api/delete-all", HTTP_POST, handle_delete_all);
+    g_wf.server->on("/browser", HTTP_GET, handle_browser);
     g_wf.server->onNotFound(handle_not_found);
     g_wf.server->begin();
 
@@ -963,6 +1069,7 @@ void wifi_files_stop(void) {
     }
     delete[] g_wf.io_buf;
     g_wf.io_buf = nullptr;
+    wifi_files_released_clear(&g_released);  // next time, every device gets the pop-up again
 
     g_wf.active = false;
     g_wf.wants_exit = false;

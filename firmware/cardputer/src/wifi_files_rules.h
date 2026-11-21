@@ -66,6 +66,36 @@ void wifi_files_dos_datetime_from_name(const char* name,
                                        uint16_t* dos_date,
                                        uint16_t* dos_time);
 
+// ── Apple's Wi-Fi sign-in window ─────────────────────────────────────────
+// On joining a network, Macs, iPhones and iPads fetch a page from Apple
+// (captive.apple.com/hotspot-detect.html; older systems
+// /library/test/success.html). Our DNS points every name at the Cardputer,
+// so that fetch reaches us; anything but Apple's "Success" page makes the
+// device open the files page in its sign-in window. That window can't save
+// files, so a device that chooses to continue in Safari is answered with
+// "Success" from then on: the window's Cancel turns into Done, and closing
+// it keeps the device on our Wi-Fi.
+
+// The page Apple's check expects back.
+#define WIFI_FILES_APPLE_SUCCESS_HTML \
+    "<HTML><HEAD><TITLE>Success</TITLE></HEAD><BODY>Success</BODY></HTML>"
+
+// True for the path of Apple's check (the query string must already be off).
+bool wifi_files_is_apple_probe(const char* path);
+
+// The devices (by IPv4 address) that chose to continue in a browser. Kept
+// until the hotspot stops; when full, a new one replaces the oldest.
+#define WIFI_FILES_MAX_RELEASED 8
+typedef struct {
+    uint32_t ip[WIFI_FILES_MAX_RELEASED];
+    size_t   count;
+    size_t   next;  // the slot the next new address goes in once full
+} WifiFilesReleased;
+
+void wifi_files_released_clear(WifiFilesReleased* r);
+void wifi_files_released_add(WifiFilesReleased* r, uint32_t ip);
+bool wifi_files_released_has(const WifiFilesReleased* r, uint32_t ip);
+
 #ifdef __cplusplus
 }
 #endif

@@ -550,6 +550,37 @@ static void test_wifi_name_order(void) {
     printf("  Newest-first name order (numbers, nodate, _10 after _9): ok\n");
 }
 
+// Apple's sign-in check is answered "Success" only for a device that chose
+// to continue in Safari; every other device still gets the pop-up.
+static void test_wifi_apple_sign_in(void) {
+    assert(wifi_files_is_apple_probe("/hotspot-detect.html"));
+    assert(wifi_files_is_apple_probe("/library/test/success.html"));
+    assert(!wifi_files_is_apple_probe("/"));
+    assert(!wifi_files_is_apple_probe("/generate_204"));
+    assert(!wifi_files_is_apple_probe("/hotspot-detect.html/x"));
+    assert(!wifi_files_is_apple_probe(NULL));
+
+    WifiFilesReleased r;
+    wifi_files_released_clear(&r);
+    const uint32_t mac_ip = 0x0204A8C0u;  // 192.168.4.2
+    assert(!wifi_files_released_has(&r, mac_ip));
+    wifi_files_released_add(&r, mac_ip);
+    wifi_files_released_add(&r, mac_ip);  // twice: kept once
+    assert(wifi_files_released_has(&r, mac_ip) && r.count == 1);
+    wifi_files_released_add(&r, 0);  // no address: ignored
+    assert(r.count == 1);
+
+    // Full: the oldest makes way, the newest are all kept.
+    for(uint32_t i = 0; i < WIFI_FILES_MAX_RELEASED; i++) wifi_files_released_add(&r, 100 + i);
+    assert(!wifi_files_released_has(&r, mac_ip));
+    for(uint32_t i = 0; i < WIFI_FILES_MAX_RELEASED; i++) assert(wifi_files_released_has(&r, 100 + i));
+    assert(r.count == WIFI_FILES_MAX_RELEASED);
+
+    wifi_files_released_clear(&r);  // hotspot off: everyone gets the pop-up again
+    assert(!wifi_files_released_has(&r, 100));
+    printf("  Apple sign-in check, released devices: ok\n");
+}
+
 static void test_wifi_ssid_qr_size_json(void) {
     uint8_t mac[6] = {0xAA, 0xBB, 0xCC, 0xDD, 0x0A, 0xF3};
     char buf[96];
@@ -764,6 +795,7 @@ int main(void) {
     test_wifi_filename_validation();
     test_wifi_name_order();
     test_wifi_ssid_qr_size_json();
+    test_wifi_apple_sign_in();
     test_zip_stream_empty_and_multi();
     printf("All Cardputer rule tests passed.\n");
     return 0;
