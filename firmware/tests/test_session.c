@@ -220,6 +220,8 @@ typedef struct {
     bool   bias_fails;   // reads on the bias input fail (I2C trouble)
     int    dither;       // ±1 count, so no two reads are identical
     float  skin_wobble_v; // the skin input steps ± this every 0.5 s (a noisy reading)
+    float  hum_v;         // mains hum on the skin input: amplitude, V (0 = none)
+    double hum_hz;        // and its frequency
 } FakeGsr;
 
 static FakeGsr G;
@@ -257,6 +259,9 @@ static bool g_i2c_read(void* ctx, uint8_t addr, uint8_t reg, uint8_t* data, size
     float v = on_bias ? G.bias_v : G.skin_v;
     if(!on_bias && G.skin_wobble_v != 0.0f) {
         v += ((F.now / 500u) % 2u) ? G.skin_wobble_v : -G.skin_wobble_v;
+    }
+    if(!on_bias && G.hum_v != 0.0f) {
+        v += G.hum_v * (float)sin(2.0 * 3.14159265358979 * G.hum_hz * (double)F.now / 1000.0);
     }
     float code = v / fsr[(G.cfg_msb >> 1) & 7u] * 32768.0f;
     if(code > 32767.0f) code = 32767.0f;
@@ -919,6 +924,94 @@ static void test_gsr_display_and_rows(void) {
     assert(ring->buf[newest] == 0.0f);
 }
 
+// The GSR worker by hand at one device's pace (a reading every step_ms),
+// with gsr_sensor_tick() every 100 + step_ms ms so the ticks walk through
+// the mains cycle. Each tick runs just after the reading in its millisecond
+// (as on the Cardputer, whose main loop wakes on the same kernel tick as
+// the GSR task, just after it) or just before it. Records the window's
+// entry counts and how far the mean strays from `base`.
+typedef struct {
+    int     min_n, max_n;
+    int32_t worst;  // largest |mean - base|, normalised counts
+    int32_t last;   // the last tick's mean
+} WindowRun;
+
+static WindowRun window_run(uint32_t step_ms, bool tick_before_read, int ticks, int32_t base) {
+    WindowRun r = {.min_n = 1 << 30, .max_n = 0, .worst = 0, .last = 0};
+    uint32_t period = 100 + step_ms;
+    for(uint32_t t = 1; ticks > 0; t++) {
+        F.now++;
+        bool tick_now = (t % period) == 0;
+        for(int pass = 0; pass < 2; pass++) {
+            bool read_turn = (pass == 0) != tick_before_read;
+            if(read_turn) {
+                if(t % step_ms == 0) gsr_sensor_worker_pass(G.gsr);
+            } else if(tick_now) {
+                gsr_sensor_tick(G.gsr);
+                int n = gsr_sensor_get_window_samples(G.gsr);
+                int32_t m = gsr_sensor_get_mean_count(G.gsr);
+                int32_t dev = m > base ? m - base : base - m;
+                if(n < r.min_n) r.min_n = n;
+                if(n > r.max_n) r.max_n = n;
+                if(dev > r.worst) r.worst = dev;
+                r.last = m;
+                ticks--;
+            }
+        }
+    }
+    return r;
+}
+
+// The averaging window holds exactly 100 ms of readings — 100 at the
+// Cardputer's pace (one every 1 ms), 50 at the Flipper's (every 2 ms) —
+// whichever millisecond the tick lands in, so 50 Hz mains hum cancels in
+// the mean. Counting a full 100 ms back from "now" would take one reading
+// too many whenever the newest was read in the tick's own millisecond: a
+// 101 or 102 ms window, letting about 1–2 % of the hum through.
+static void test_window_is_exactly_100_ms(void) {
+    printf("Running test_window_is_exactly_100_ms...\n");
+    start_with_modules(BioMapModeGsrOnly, settings(), 0.5f);
+    window_run(2, false, 15, 0);  // the gain climbs to ±0.512 V and settles
+    for(uint32_t step = 1; step <= 2; step++) {
+        for(int before = 0; before < 2; before++) {
+            G.hum_v = 0.0f;
+            int32_t base = window_run(step, before, 3, 0).last;
+            // ±20 mV of 50 Hz hum: ±2560 counts in a single reading.
+            G.hum_v = 0.02f;
+            G.hum_hz = 50.0;
+            WindowRun r = window_run(step, before, 20, base);
+            int want = step == 1 ? 100 : 50;
+            printf("  a reading every %u ms, tick %s it: %d-%d readings, hum left %d counts\n",
+                   (unsigned)step, before ? "before" : "after", r.min_n, r.max_n, (int)r.worst);
+            assert(r.min_n == want && r.max_n == want);
+            assert(r.worst <= 3);
+        }
+    }
+    G.hum_v = 0.0f;
+}
+
+// The graph shows no mains hum. Mains is never exactly 50 Hz; at 50.2 Hz a
+// single reading taken every 100 ms swings through the hum once every 5 s,
+// a slow wave the graph would draw as a real change. The graph follows the
+// 100 ms mean, where the hum all but cancels.
+static void test_graph_ignores_mains_hum(void) {
+    printf("Running test_graph_ignores_mains_hum...\n");
+    start_with_modules(BioMapModeGsrOnly, settings(), 0.5f);
+    tick(30);  // the gain settles and the display primes
+    G.hum_v = 0.02f;  // ±20 mV: about ±900 nS in a single reading
+    G.hum_hz = 50.2;
+    tick(20);  // the display filters settle
+    float worst = 0.0f;
+    for(int i = 0; i < 60; i++) {  // 6 s, more than one 5 s wave
+        tick(1);
+        const GraphRing* ring = graph_shown(&S.pipeline.graph);
+        float v = fabsf(ring->buf[(ring->head + GRAPH_N - 1) % GRAPH_N]);
+        if(v > worst) worst = v;
+    }
+    printf("  biggest graph step %.2f\n", (double)worst);
+    assert(worst < 1.0f);
+}
+
 // Live Stream's bias check on the first phone connect, with a real sensor:
 // done once, logged, not repeated on a reconnect; given up after
 // LIVE_BIAS_MAX_TRIES ticks if the sensor won't answer.
@@ -1458,6 +1551,8 @@ int main(void) {
     test_bias_header_line();
     test_heartbeat_fingers_and_fix();
     test_gsr_display_and_rows();
+    test_window_is_exactly_100_ms();
+    test_graph_ignores_mains_hum();
     test_live_stream_bias_with_sensor();
     test_screen_gps_gsr();
     test_screen_radio_panel();

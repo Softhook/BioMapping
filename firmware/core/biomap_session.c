@@ -539,23 +539,27 @@ static bool recording_tick_locked(SessionCore* s, const float* rf_rssi) {
     // ── GSR modes ──────────────────────────────────────────────────────
     float raw = 0.0f;
     if(s->gsr) {
-        gsr_sensor_tick(s->gsr);                                  // gain switching only
-        float raw_sample = gsr_sensor_get_raw_sample_ns(s->gsr);  // one reading, nS
-        raw = gsr_sensor_get_raw(s->gsr);                         // ~100 ms mean, nS (CSV)
-        s->pipeline.display.raw_sample_ns    = raw_sample;        // before the filters
+        gsr_sensor_tick(s->gsr);                                  // 100 ms mean, gain switching
+        float raw_sample = gsr_sensor_get_raw_sample_ns(s->gsr);  // one reading, nS (Diagnostics)
+        raw = gsr_sensor_get_raw(s->gsr);                         // ~100 ms mean, nS
+        s->pipeline.display.raw_sample_ns    = raw_sample;
         s->pipeline.display.filtered_ns      = raw;
         s->pipeline.display.raw_sample_count = gsr_sensor_get_raw_sample_count(s->gsr);
 
-        bool valid = (raw_sample >= GSR_VALID_MIN_NS && raw_sample <= GSR_VALID_MAX_NS);
+        // The graph follows the same ~100 ms mean as the CSV rows. A single
+        // reading carries all of the mains hum, which the 10 Hz ticks turn
+        // into a slow wave that looks like a real change, and several times
+        // the mean's noise.
+        bool valid = (raw >= GSR_VALID_MIN_NS && raw <= GSR_VALID_MAX_NS);
         if(valid) {
             // A big jump (fingers back on) restarts the graph's line from
             // the new value instead of drawing a spike.
-            float delta = (raw_sample > s->pipeline.display.last_displayed)
-                ? raw_sample - s->pipeline.display.last_displayed
-                : s->pipeline.display.last_displayed - raw_sample;
+            float delta = (raw > s->pipeline.display.last_displayed)
+                ? raw - s->pipeline.display.last_displayed
+                : s->pipeline.display.last_displayed - raw;
             bool recovering = s->pipeline.display.primed && (delta > 500.0f);
 
-            pipeline_update_display(&s->pipeline, raw_sample);
+            pipeline_update_display(&s->pipeline, raw);
             if(recovering) pipeline_graph_restart_line(&s->pipeline);
             pipeline_update_graph(&s->pipeline);
         }

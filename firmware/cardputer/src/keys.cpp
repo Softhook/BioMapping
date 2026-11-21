@@ -8,7 +8,8 @@
 // being cleared, or a failed status read (which reads as 0), leaves the
 // flag clear while G11 stays low. G11 then never changes again, so no key
 // is ever read until a restart. The window is short, but the GSR thread
-// (higher priority, using the same bus) can pause the main loop inside it.
+// (higher priority) can pause the main loop inside it, and so can a wait
+// for the bus if GSR_OWN_BUS is switched off (gsr_cardputer.cpp).
 //
 // The chip holds at most 10 events and a working reader takes one a loop
 // pass, so G11 low for 20 passes and 100 ms means it is stuck. A restart of

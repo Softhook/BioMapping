@@ -101,8 +101,8 @@ static inline bool gsr_bias_in_range(float v) {
 }
 
 // How long gsr_sensor_run_bias_check() waits. A check takes about 40–50 ms
-// at the worker's real ~500 Hz (~65 ms with a radio sweep in the middle);
-// this much longer means I2C trouble.
+// on the Flipper (~65 ms with a radio sweep in the middle) and about 25 ms
+// on the Cardputer; this much longer means I2C trouble.
 #define GSR_BIAS_CHECK_TIMEOUT_MS 200
 
 // TIA conversion: normalised ADC counts (pga_index 5 scale, 7.8125 µV per
@@ -198,10 +198,10 @@ bool gsr_sensor_available(const GsrSensor* gsr);
 bool gsr_sensor_is_connected(const GsrSensor* gsr);
 
 // Call at 10 Hz.  Reads the ring buffer, applies ~100 ms time-windowed
-// boxcar decimation (sample count varies with the worker's true rate —
-// see research/gsr_filtering_analysis.md), autoranging, and TIA circuit
-// equation.  Well under 1 ms even at the ADS1115's 860 SPS ceiling
-// (~86 integer adds + float ops); safe at 10 Hz on Cortex-M4 @ 64 MHz.
+// boxcar decimation (sample count follows the worker's true rate: about
+// 50 on the Flipper, 100 on the Cardputer — see gsr_sensor.c's
+// Oversampling & Filtering notes), autoranging, and TIA circuit equation.
+// About 100 integer adds and a few float ops: well under 1 ms.
 void gsr_sensor_tick(GsrSensor* gsr);
 
 // Skin conductance in nanosiemens (nS), computed from the TIA circuit
@@ -213,8 +213,8 @@ float gsr_sensor_get_raw(const GsrSensor* gsr);
 // gain. When a calibration is active its open-circuit zero is removed
 // first, so this matches what the wizard measured, before the gain.
 // Reads the most recent ring-buffer entry (updated at whatever rate the
-// background worker is actually achieving — see gsr_sensor_get_worker_hz,
-// bounded above by the ADS1115's 860 SPS conversion rate).  This is the
+// background worker is actually achieving — see gsr_sensor_get_worker_hz;
+// a new conversion comes at most 860 times a second).  This is the
 // "pure hardware" value: one ADS1115 conversion → normalised count → TIA → nS.
 // Returns 0.0f when sensor unavailable or buffer is empty.
 float gsr_sensor_get_raw_sample_ns(const GsrSensor* gsr);
@@ -251,7 +251,7 @@ float gsr_sensor_get_bias_measured_volts(const GsrSensor* gsr);
 
 // Bias check on request (see "When it is measured" above). The worker
 // switches to the bias, averages 16 reads of it, and switches back — about
-// 40–50 ms.
+// 40–50 ms on the Flipper, 25 ms on the Cardputer.
 //   request() asks for one and returns a ticket;
 //   done(ticket) is true once a check has finished after that request;
 //   cancel() withdraws a request that is still pending or in progress: a
@@ -287,9 +287,10 @@ float gsr_sensor_get_success_rate(const GsrSensor* gsr);
 // gsr_sensor_get_worker_hz(), whose raw ADC code exactly matched the
 // immediately preceding read. This can mean either a stale re-read or two
 // fresh conversions of a signal that just hasn't moved between them — it
-// can't tell those apart. Measured ~7-11% with a live signal connected,
-// ~12-16% disconnected (open circuit, near-DC). See
-// research/gsr_filtering_analysis.md and gsr_sensor.c's duplicate_count doc
+// can't tell those apart. On the Flipper (a read every 2 ms) measured
+// ~7-11% with a live signal connected, ~12-16% disconnected (open circuit,
+// near-DC); on the Cardputer (every 1 ms, faster than the conversions)
+// about 15%, mostly re-reads. See gsr_sensor.c's duplicate_count doc
 // comment.  For diagnostics.
 float gsr_sensor_get_duplicate_rate(const GsrSensor* gsr);
 

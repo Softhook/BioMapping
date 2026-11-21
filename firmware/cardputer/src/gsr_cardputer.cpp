@@ -20,9 +20,10 @@ static const int  GSR_SDA_PIN = 5;
 static const int  GSR_SCL_PIN = 6;
 static const uint32_t I2C_FREQ = 400000;
 
-// Same priority as the Flipper's GSR thread relative to its main loop:
-// above it, so a slow screen push or SD write never delays a read. It
-// sleeps 1 ms after every pass, so the main loop still gets the processor.
+// Above the main loop, so a slow screen push or SD write never delays a
+// read. (The Flipper's GSR thread runs at the same priority as its app's
+// thread, "Normal".) It sleeps 1 ms after every pass, so the main loop
+// still gets the processor.
 static const UBaseType_t GSR_TASK_PRIORITY = 2;
 static const uint32_t    GSR_TASK_STACK = 4096;  // bytes
 

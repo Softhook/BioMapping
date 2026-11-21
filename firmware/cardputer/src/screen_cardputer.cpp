@@ -121,9 +121,8 @@ static void cp_invert(void* ctx) {
 // jumping in 2 Hz steps.
 
 // Zero-phase 3-tap binomial smoothing ([0.25, 0.5, 0.25]) over the linearised
-// sample array `s` of length `N` to remove single-sample ADC aliasing spikes
-// (see research/gsr_filtering_analysis.md, Finding 2) while preserving every
-// real phasic GSR wave.
+// sample array `s` of length `N`, a light smoothing of the drawn curve that
+// keeps every real phasic GSR wave.
 static float filtered_sample(const float* s, int n, int idx) {
     if(idx <= 0) return 0.75f * s[0] + 0.25f * s[1];
     if(idx >= n - 1) return 0.25f * s[n - 2] + 0.75f * s[n - 1];

@@ -110,11 +110,13 @@
 //   arms the usual settle gate. Conversions taken while the bias is on the
 //   multiplexer are never written to the ring buffer.
 //   The ADS1115's own noise at ±1.024 V is tens of µV, under 0.01 % of
-//   0.5 V, so one conversion would do for that. 16 reads at the worker's
-//   real ~500 Hz pace (see the pacing notes further down) span about
-//   30 ms; the whole check, switch-over and settle included, takes about
-//   40–50 ms, and a radio sweep landing in the middle adds ~15 ms. That
-//   is also the gap it leaves in the skin samples. The average adds
+//   0.5 V, so one conversion would do for that. 16 reads span about
+//   30 ms on the Flipper (a read every 2 ms) and about 16 ms on the
+//   Cardputer (every 1 ms; see the pacing notes further down). The whole
+//   check, switch-over and settle included, takes about 40–50 ms on the
+//   Flipper, where a radio sweep landing in the middle adds ~15 ms, and
+//   about 25 ms on the Cardputer. That is also the gap it leaves in the
+//   skin samples. The average adds
 //   little on the PCBs: C9 already smooths the bias over ~85 ms, so a
 //   supply dip that gets through C9 lasts longer than the 30 ms and the
 //   average can't remove it either. It only helps on a board without C9,
@@ -139,8 +141,8 @@
 
 // Target duration of gsr_sensor_tick()'s averaging window. Time-based (see
 // research/gsr_filtering_analysis.md, Recommendation 1b) rather than a fixed
-// sample count: the worker's real rate is neither the ~1000 Hz a fixed
-// N=100 assumed nor stable — it measures ~400-500 Hz and varies run to
+// sample count: the worker's real rate differs by device (about 500 reads a
+// second on the Flipper, 1000 on the Cardputer) and varies a little run to
 // run. A time window keeps its duration (and therefore its 50/60 Hz null)
 // regardless of that rate; see the Oversampling & Filtering notes above
 // gsr_sensor_tick().
@@ -264,17 +266,19 @@ struct GsrSensor {
     // direct, measured version of the skip-vs-duplicate question in
     // research/gsr_filtering_analysis.md.
     //
-    // Measured on real hardware: ~7-11% with a live skin conductance signal
-    // connected, ~12-16% with the sensor disconnected (open circuit) — not
-    // near 0%. The counter can't distinguish a genuinely stale re-read from
-    // two fresh conversions of a signal that hasn't changed between them,
-    // which is why the disconnected (near-DC) reading is the higher of the
-    // two. The leading explanation for the remaining ~7-11% under a real
-    // signal is per-iteration jitter in furi_delay_ms(1)'s tick-aliasing
-    // occasionally producing a loop period under the ADC's ~1.16 ms
-    // conversion time. Reset to 0 (via have_last_hw = false in the worker)
-    // on every PGA change — a gain change makes the previous reading's raw
-    // code incomparable, which is a scale change, not a stale read.
+    // The counter can't distinguish a genuinely stale re-read from two
+    // fresh conversions of a signal that hasn't changed between them, and
+    // which one it mostly sees depends on the device's pace (see
+    // Oversampling & Filtering below). The Flipper reads every 2 ms, slower
+    // than the ADC's ~1.16 ms conversions, so its duplicates (measured
+    // ~7-11 % with skin connected, ~12-16 % open circuit, where the input
+    // is near DC) are nearly all fresh conversions that happened to match.
+    // The Cardputer reads every 1 ms, faster than the conversions, so about
+    // 14 % of its reads see the previous conversion again: expected, and
+    // harmless to the mean. Reset to 0 (via have_last_hw = false in the
+    // worker) on every PGA change — a gain change makes the previous
+    // reading's raw code incomparable, which is a scale change, not a
+    // stale read.
     uint32_t duplicate_count;
     uint32_t stale_count;               // mutex-protected — worker increments on duplicates with gap_ms < 2 (stale hardware re-read)
     // duplicate_gap_running_min — mutex-protected. Worker tracks the
@@ -400,7 +404,8 @@ static void gsr_store_bias(GsrSensor* gsr, float v) {
     }
 }
 
-// ~50 ms of consecutive I2C failures at the worker's ~1 kHz pace.
+// 50 failed I2C calls in a row: about 50 ms on the Cardputer (a pass every
+// 1 ms), about 100 ms on the Flipper (every 2 ms).
 #define I2C_FAIL_LOST_THRESHOLD 50
 
 // One failed I2C transaction — a conversion read or a config write, so a
@@ -1038,31 +1043,38 @@ uint32_t gsr_sensor_get_i2c_peak_ms(const GsrSensor* gsr) {
 // Oversampling & Filtering
 //
 // Each ~10 Hz tick walks the ring buffer backward from the most recent
-// entry, accumulating samples whose timestamp falls within the last
-// BOXCAR_WINDOW_MS (100 ms) of real elapsed time, and averages exactly
-// those. Time-based, not a fixed sample count — see
-// research/gsr_filtering_analysis.md, Recommendation 1b. A fixed N=100 was
-// only actually a 100 ms window when the worker's true rate happened to
-// be ~1000 Hz; measurement on real hardware found it was actually
-// ~500 Hz, silently doubling the window to ~200 ms and (worse) making
-// consecutive ticks' windows overlap by half instead of being
-// independent samples. This version gets the right window duration
-// regardless of whatever the worker's true rate turns out to be, on any
-// device, without needing to measure or hand-tune against it.
+// entry, accumulating the entries timestamped less than BOXCAR_WINDOW_MS
+// (100 ms) before it, and averages exactly those. Time-based, not a fixed
+// sample count (research/gsr_filtering_analysis.md, Recommendation 1b): a
+// fixed count is only 100 ms at one particular read rate, and the rate
+// differs between devices, so a count would stretch or shrink the window
+// and lose the mains null below.
 //
-// The background worker's nominal pacing is the device's 1 ms pause
-// between passes (furi_delay_ms(1) on the Flipper), measured on real
-// hardware at ~500 Hz true rate — below the ADS1115's 860 SPS conversion rate, so buffer entries
-// are each (almost always) a distinct conversion rather than a duplicate
-// of the previous one; the loop just never reads roughly 42% of the
-// conversions the ADC produces in between. That's fine here: every
-// sample that does land in the window is real, independent data, so the
-// √samples noise-reduction estimate below isn't inflated by re-counted
-// duplicates the way it would be if the worker ran faster than 860 Hz.
+// The worker's pace is the device's 1 ms pause between passes, and the two
+// devices differ:
+//   - Flipper: furi_delay_ms(1) really waits two kernel ticks (it adds one
+//     to make sure of at least 1 ms), so it reads every 2 ms, about 500
+//     times a second. That is slower than the ADS1115's 860 conversions a
+//     second, so each entry is a different conversion and about 42 % of
+//     conversions are never read.
+//   - Cardputer: vTaskDelay(1) waits one tick, so it reads every 1 ms,
+//     about 1000 times a second. That is faster than the conversions, so
+//     about 14 % of entries are the same conversion read again.
+// Both are fine for the mean. A repeat adds nothing new, it only counts
+// that conversion twice, so the Cardputer's window of ~100 entries holds
+// about 1.6 times as many independent conversions as the Flipper's ~50,
+// and the ADC's own noise in its mean is a little lower.
 //
-// A correctly-sized 100 ms window nominally nulls 50/60 Hz mains hum
-// (5 × 20 ms, 6 × 16.67 ms) regardless of how many samples happen to fill
-// it — that property depends on window duration, not sample count.
+// A window of exactly 100 ms nulls 50/60 Hz mains hum (5 × 20 ms,
+// 6 × 16.67 ms) however many entries fill it. Entries are timestamped to
+// the whole millisecond, so the window is counted back from the newest
+// entry and stops short of 100 ms: entries 1 ms apart give exactly 100,
+// 2 ms apart exactly 50. Counting a full 100 ms back from "now" instead
+// takes in one entry too many whenever the newest was read in the tick's
+// own millisecond: a 101 or 102 ms window that lets about 1–2 % of the hum
+// through. What is left (a few tenths of a percent, depending on how far
+// the chip's own clock is from exactly 860 conversions a second) comes
+// from the conversions not lining up with the reads.
 // ─────────────────────────────────────────────────────────────────────────────
 
 void gsr_sensor_tick(GsrSensor* gsr) {
@@ -1130,30 +1142,28 @@ void gsr_sensor_tick(GsrSensor* gsr) {
 
     if(!i2c_ok) return;
 
-    // ── Step 1: sum every buffer entry timestamped within the last
-    // BOXCAR_WINDOW_MS of real time, walking backward from the most
-    // recent write. No intermediate array — the simple mean doesn't need
-    // sorting, so one pass is enough. Also snapshot the single
+    // ── Step 1: sum every buffer entry timestamped less than
+    // BOXCAR_WINDOW_MS before the newest one, walking backward from the
+    // most recent write. No intermediate array — the simple mean doesn't
+    // need sorting, so one pass is enough. Also snapshot the single
     // most-recent count for get_raw_sample_ns().
     //
-    // The i==0 iteration is unconditional (always included, regardless of
-    // its age) so `samples` can never be 0 — guarantees no divide-by-zero
-    // below even in the degenerate case where somehow nothing in the
-    // buffer falls inside the window (shouldn't happen once alloc()'s
-    // warm-up fill has aged out, since the worker writes far faster than
-    // once per BOXCAR_WINDOW_MS, but the loop shouldn't crash if it does).
-    // Capped at SENSOR_BUFFER_SIZE iterations so a pathological timestamp
-    // can't spin forever — at the ADS1115's 860 SPS ceiling, a 100 ms
-    // window holds at most ~86 samples, well under the buffer's 128.
+    // The newest entry (i == 0) is always included, so `samples` can never
+    // be 0 and the divide below is safe. Capped at SENSOR_BUFFER_SIZE
+    // iterations so a pathological timestamp can't spin forever: a window
+    // holds about 100 entries on the Cardputer and 50 on the Flipper, under
+    // the buffer's 128.
     gsr_lock(gsr);
     uint32_t r_idx = gsr->write_idx;
     uint32_t now_tick = gsr_now(gsr);
-    uint32_t window_ticks = BOXCAR_WINDOW_MS;
+    // Measured back from the newest entry, and short of a full window: see
+    // "A window of exactly 100 ms" in the notes above.
+    uint32_t newest_tick = gsr->sample_tick[(r_idx - 1) & (SENSOR_BUFFER_SIZE - 1)];
     int64_t sum = 0;
     int samples = 0;
     for(int i = 0; i < SENSOR_BUFFER_SIZE; i++) {
         r_idx = (r_idx - 1) & (SENSOR_BUFFER_SIZE - 1);
-        if(i > 0 && (now_tick - gsr->sample_tick[r_idx] > window_ticks)) break;
+        if(i > 0 && (newest_tick - gsr->sample_tick[r_idx] >= BOXCAR_WINDOW_MS)) break;
         int32_t v = gsr->buffer[r_idx];
         sum += v;
         if(i == 0) {
@@ -1168,15 +1178,8 @@ void gsr_sensor_tick(GsrSensor* gsr) {
     float bias_scale = gsr->bias_scale;
     gsr_unlock(gsr);
 
-    // ── Step 2: simple mean over however many samples landed in the
-    // window (typically ~40-50, since the worker's measured real-world
-    // rate varies ~400-500 Hz rather than sitting at one fixed value;
-    // was silently ~100 at the ~1000 Hz design assumption). Noise
-    // reduction scales with √samples, so this is a real, if modest,
-    // trade against the original documented ~8.7× — and it now varies
-    // tick to tick along with however many samples actually land in the
-    // window — see research/gsr_filtering_analysis.md for the actual
-    // numbers.
+    // ── Step 2: simple mean over the window's entries (about 100 on the
+    // Cardputer, 50 on the Flipper; see Oversampling & Filtering above).
     float avg_norm = (float)sum / (float)samples;
 
     // Published under gsr->mutex — these tick_* fields are read cross-thread

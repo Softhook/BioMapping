@@ -54,19 +54,11 @@ double pipeline_rel_seconds(uint32_t total_ticks) {
 // at Fs=10 Hz: measured attenuation at 3 Hz is only ~-1.9 dB, not -3 dB
 // (see research/gsr_filtering_analysis.md, Finding 3).
 //
-// IMPORTANT: called from core/biomap_session.c with the RAW SINGLE-SAMPLE
-// value (gsr_sensor_get_raw_sample_ns()), NOT the boxcar-decimated one
-// (gsr_sensor_get_raw()) — this is the display/graph path only; the
-// boxcar-filtered value goes straight to CSV without ever passing
-// through this filter (see recording_tick_locked() in core/biomap_session.c).
-// That means there is NO anti-aliasing before this filter on the display
-// path: it subsamples an ~860 Hz-bandwidth source at 10 Hz with no
-// pre-filter, so aliasing (including 50/60 Hz mains hum) folds into the
-// 0-5 Hz band before this filter ever sees it, and — aliasing being a
-// one-way door — cannot be removed afterward. Intentional trade-off (the
-// display shows the true instantaneous hardware reading), but it means
-// the on-screen graph is meaningfully noisier than the logged CSV data,
-// which uses the actually-decimated, mains-nulling boxcar path instead.
+// Fed by core/biomap_session.c with the ~100 ms window mean
+// (gsr_sensor_get_raw()), the same value the CSV rows carry, so mains hum
+// is already nulled before it gets here. This is the display/graph path
+// only: the CSV gets the mean itself, never this filter's output (see
+// recording_tick_locked() in core/biomap_session.c).
 float pipeline_smooth_iir(DisplayState* d, float raw) {
     if(!d->smooth_iir_primed) {
         d->smooth_iir = raw;
