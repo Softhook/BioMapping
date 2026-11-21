@@ -199,13 +199,13 @@ enum {
     "tick_dt_ms,gps_rx_drops,nmea_fail,gps_reinit_count,gsr_hz," \
     "i2c_peak_ms,rf_rssi_peak_ms,rf_retune_peak_ms,flush_peak_ms," \
     "log_fill_bytes,log_fill_peak_bytes,log_overflow_count,log_flush_fail_count," \
-    "pga_change_count,i2c_consec_fail,prealloc_ms\n"
+    "pga_change_count,i2c_consec_fail,prealloc_ms,gsr_spread_ns\n"
 
 #define BIOMAP_CSV_COLS_GSR_ONLY_PROD \
     "timestamp,gsr_raw\n"
 #define BIOMAP_CSV_COLS_GSR_ONLY_DEBUG \
     "timestamp,gsr_raw,log_fill_bytes,log_fill_peak_bytes,log_overflow_count,log_flush_fail_count," \
-    "pga_change_count,i2c_consec_fail,prealloc_ms\n"
+    "pga_change_count,i2c_consec_fail,prealloc_ms,gsr_spread_ns\n"
 
 // rssi_815/868/915 = raw per-band RSSI, one instantaneous read per band from
 // the most recent ~10 Hz sweep (em_scan_rf_fast_sweep_snapshot, no dwell).
@@ -218,6 +218,6 @@ enum {
     "tick_dt_ms,gps_rx_drops,nmea_fail,gps_reinit_count,gsr_hz," \
     "i2c_peak_ms,rf_rssi_peak_ms,rf_retune_peak_ms,flush_peak_ms," \
     "log_fill_bytes,log_fill_peak_bytes,log_overflow_count,log_flush_fail_count," \
-    "pga_change_count,i2c_consec_fail,prealloc_ms\n"
+    "pga_change_count,i2c_consec_fail,prealloc_ms,gsr_spread_ns\n"
 
 

@@ -235,6 +235,12 @@ int32_t gsr_sensor_get_mean_count(const GsrSensor* gsr);
 // ~1 s trend.  Always >= 1.  For diagnostics.
 int32_t gsr_sensor_get_window_samples(const GsrSensor* gsr);
 
+// How far the readings inside that same window spread out: their standard
+// deviation, in nS at the current reading (calibration gain applied).
+// Mains hum the mean cancels still shows here. 0 when the window holds a
+// single reading. For the debug CSV columns.
+float gsr_sensor_get_window_spread_ns(const GsrSensor* gsr);
+
 // Current PGA index (0–5).  For diagnostics.
 uint8_t gsr_sensor_get_pga_index(const GsrSensor* gsr);
 

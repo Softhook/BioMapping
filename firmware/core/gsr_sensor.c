@@ -204,6 +204,7 @@ struct GsrSensor {
                              // (snapshotted during tick, used by get_raw_sample_ns)
     int32_t tick_mean_norm; // ~100 ms window mean normalised count (pre-TIA)
     int32_t tick_window_samples; // how many buffer entries landed in that window
+    float   tick_spread_ns; // standard deviation of the readings in that window, in nS
     uint32_t pga_change_count;         // tick()-only — total PGA changes applied, lifetime
     uint32_t hz_window_start_pga_changes; // pga_change_count snapshot — tick() only
     uint32_t pga_change_rate_cached;      // tick() only — PGA changes in the last ~1 s window
@@ -739,6 +740,7 @@ GsrSensor* gsr_sensor_create(const GsrPlatform* platform) {
     gsr->tick_last_norm = 0;
     gsr->tick_mean_norm = 0;
     gsr->tick_window_samples = 0;
+    gsr->tick_spread_ns = 0.0f;
 
     gsr->pga_changed = false;
 
@@ -849,6 +851,17 @@ int32_t gsr_sensor_get_window_samples(const GsrSensor* gsr) {
     // thread) — see gsr_sensor_get_mean_count()'s comment.
     gsr_lock(gsr);
     int32_t val = gsr->tick_window_samples;
+    gsr_unlock(gsr);
+    return val;
+}
+
+// Standard deviation of the readings inside the most recent tick()'s
+// window, in nS (see the spread note in gsr_sensor_tick()). For the debug
+// columns.
+float gsr_sensor_get_window_spread_ns(const GsrSensor* gsr) {
+    CORE_CHECK(gsr, "GsrSensor: NULL in get_window_spread_ns()");
+    gsr_lock(gsr);
+    float val = gsr->tick_spread_ns;
     gsr_unlock(gsr);
     return val;
 }
@@ -1160,12 +1173,14 @@ void gsr_sensor_tick(GsrSensor* gsr) {
     // "A window of exactly 100 ms" in the notes above.
     uint32_t newest_tick = gsr->sample_tick[(r_idx - 1) & (SENSOR_BUFFER_SIZE - 1)];
     int64_t sum = 0;
+    int64_t sum_sq = 0; // for the spread: |v| < 2^20 and < 128 entries, so no overflow
     int samples = 0;
     for(int i = 0; i < SENSOR_BUFFER_SIZE; i++) {
         r_idx = (r_idx - 1) & (SENSOR_BUFFER_SIZE - 1);
         if(i > 0 && (newest_tick - gsr->sample_tick[r_idx] >= BOXCAR_WINDOW_MS)) break;
         int32_t v = gsr->buffer[r_idx];
         sum += v;
+        sum_sq += (int64_t)v * v;
         if(i == 0) {
             gsr->tick_last_norm = v;  // snapshot for raw-sample compare
         }
@@ -1232,6 +1247,22 @@ void gsr_sensor_tick(GsrSensor* gsr) {
     float raw_ns = gsr_tia_counts_to_ns_at_bias(counts, bias_scale);
     if(active) raw_ns *= gain;
 
+    // How far the window's readings spread around their mean (standard
+    // deviation), turned into nS with the conversion's slope at this
+    // reading. Mains hum that the mean cancels still shows here, and so
+    // does a burst of odd readings inside one window. Repeat reads of one
+    // conversion count once per read, as they do in the mean.
+    float spread_ns = 0.0f;
+    if(samples > 1) {
+        int64_t n_var = (int64_t)samples * sum_sq - sum * sum; // n² × variance, exact
+        float sd_counts = n_var > 0
+            ? sqrtf((float)n_var / ((float)samples * (float)(samples - 1)))
+            : 0.0f;
+        float ns_per_count = gsr_tia_counts_to_ns_at_bias(counts + 0.5f, bias_scale) -
+                             gsr_tia_counts_to_ns_at_bias(counts - 0.5f, bias_scale);
+        spread_ns = sd_counts * ns_per_count * (active ? gain : 1.0f);
+    }
+
     // ── Step 5: publish pga_index, pga_changed, and calibrated raw under
     // a single mutex acquisition to minimise contention with the worker.
     gsr_lock(gsr);
@@ -1241,6 +1272,7 @@ void gsr_sensor_tick(GsrSensor* gsr) {
         gsr->pga_change_count++; // tick()-only field, safe to touch under this mutex acquisition
     }
     gsr->raw = raw_ns;
+    gsr->tick_spread_ns = spread_ns;
 
     // ── Finger-cuff disconnect detection (20-tick debounce).
     if(!counted) {

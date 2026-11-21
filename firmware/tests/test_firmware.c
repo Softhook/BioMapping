@@ -392,7 +392,8 @@ void test_csv_formatting() {
                      .i2c_peak_ms = 3, .rf_rssi_peak_ms = 4, .rf_retune_peak_ms = 5,
                      .flush_peak_ms = 6, .log_fill_bytes = 7, .log_fill_peak_bytes = 8,
                      .log_overflow_count = 9, .log_flush_fail_count = 10,
-                     .pga_change_count = 12, .i2c_consec_fail = 13, .prealloc_ms = 14};
+                     .pga_change_count = 12, .i2c_consec_fail = 13, .prealloc_ms = 14,
+                     .gsr_spread_ns = 15.25f};
 
     // Case 1: Valid 3D GPS fix with speed and course — RF OFF (rf_rssi = NULL)
     pos.valid = true;
@@ -413,7 +414,7 @@ void test_csv_formatting() {
     s.debug_fields_enabled = true;
     mock_logger_buf[0] = '\0';
     format_gps_csv_row(&s, &pos, 1.25, 8345.3f, NULL, &diag);
-    assert(strcmp(mock_logger_buf, "1.25,51.5557397,-0.0714595,0.9,1.3,16,3,5.25,330.2,8345.3,2.4,100,2,1,11,987.6,3,4,5,6,7,8,9,10,12,13,14\n") == 0);
+    assert(strcmp(mock_logger_buf, "1.25,51.5557397,-0.0714595,0.9,1.3,16,3,5.25,330.2,8345.3,2.4,100,2,1,11,987.6,3,4,5,6,7,8,9,10,12,13,14,15.25\n") == 0);
 
     s.debug_fields_enabled = false;
     mock_logger_buf[0] = '\0';
@@ -437,7 +438,7 @@ void test_csv_formatting() {
     s.debug_fields_enabled = true;
     mock_logger_buf[0] = '\0';
     format_gps_csv_row(&s, &pos, 2.50, 8350.0f, NULL, &diag);
-    assert(strcmp(mock_logger_buf, "2.50,51.5557397,-0.0714595,0.9,1.3,16,3,,,8350.0,2.4,100,2,1,11,987.6,3,4,5,6,7,8,9,10,12,13,14\n") == 0);
+    assert(strcmp(mock_logger_buf, "2.50,51.5557397,-0.0714595,0.9,1.3,16,3,,,8350.0,2.4,100,2,1,11,987.6,3,4,5,6,7,8,9,10,12,13,14,15.25\n") == 0);
 
     s.debug_fields_enabled = false;
     mock_logger_buf[0] = '\0';
@@ -451,7 +452,7 @@ void test_csv_formatting() {
     s.debug_fields_enabled = true;
     mock_logger_buf[0] = '\0';
     format_gps_csv_row(&s, &pos, 3.75, 8400.0f, NULL, &diag);
-    assert(strcmp(mock_logger_buf, "3.75,,,,,,,,,8400.0,,100,2,1,11,987.6,3,4,5,6,7,8,9,10,12,13,14\n") == 0);
+    assert(strcmp(mock_logger_buf, "3.75,,,,,,,,,8400.0,,100,2,1,11,987.6,3,4,5,6,7,8,9,10,12,13,14,15.25\n") == 0);
 
     s.debug_fields_enabled = false;
     mock_logger_buf[0] = '\0';
@@ -468,7 +469,7 @@ void test_csv_formatting() {
     s.debug_fields_enabled = true;
     mock_logger_buf[0] = '\0';
     format_gps_csv_row(&s, &pos, 1.25, 8345.3f, rf_rssi, &diag);
-    assert(strcmp(mock_logger_buf, "1.25,51.5557397,-0.0714595,0.9,1.3,16,3,5.25,330.2,8345.3,2.4,-91.5,-88.0,-90.5,100,2,1,11,987.6,3,4,5,6,7,8,9,10,12,13,14\n") == 0);
+    assert(strcmp(mock_logger_buf, "1.25,51.5557397,-0.0714595,0.9,1.3,16,3,5.25,330.2,8345.3,2.4,-91.5,-88.0,-90.5,100,2,1,11,987.6,3,4,5,6,7,8,9,10,12,13,14,15.25\n") == 0);
 
     s.debug_fields_enabled = false;
     mock_logger_buf[0] = '\0';
@@ -480,9 +481,10 @@ void test_csv_formatting() {
 
 // GSR-only mode (BioMapModeGsrOnly) has no GPS/RF pipeline, so its row is
 // biomap_format_gsr_row(): two columns (timestamp,gsr_raw), plus the seven
-// SD/I2C contention columns when Debug Fields is on. Golden strings for both
-// states — the debug column values are the same distinct RowDiag markers
-// test_csv_formatting() uses, so a wrong-order emit fails the match.
+// SD/I2C contention columns and the GSR window spread when Debug Fields is
+// on. Golden strings for both states — the debug column values are the
+// same distinct RowDiag markers test_csv_formatting() uses, so a
+// wrong-order emit fails the match.
 void test_gsr_csv_formatting() {
     printf("Running test_gsr_csv_formatting...\n");
     Session s = {0};
@@ -491,12 +493,13 @@ void test_gsr_csv_formatting() {
                      .i2c_peak_ms = 3, .rf_rssi_peak_ms = 4, .rf_retune_peak_ms = 5,
                      .flush_peak_ms = 6, .log_fill_bytes = 7, .log_fill_peak_bytes = 8,
                      .log_overflow_count = 9, .log_flush_fail_count = 10,
-                     .pga_change_count = 12, .i2c_consec_fail = 13, .prealloc_ms = 14};
+                     .pga_change_count = 12, .i2c_consec_fail = 13, .prealloc_ms = 14,
+                     .gsr_spread_ns = 15.25f};
 
     s.debug_fields_enabled = true;
     mock_logger_buf[0] = '\0';
     format_gsr_csv_row(&s, 1.25, 8345.3f, &diag);
-    assert(strcmp(mock_logger_buf, "1.25,8345.3,7,8,9,10,12,13,14\n") == 0);
+    assert(strcmp(mock_logger_buf, "1.25,8345.3,7,8,9,10,12,13,14,15.25\n") == 0);
 
     s.debug_fields_enabled = false;
     mock_logger_buf[0] = '\0';
@@ -680,7 +683,8 @@ static void test_csv_header_matches_row_column_count(void) {
                      .i2c_peak_ms = 3, .rf_rssi_peak_ms = 4, .rf_retune_peak_ms = 5,
                      .flush_peak_ms = 6, .log_fill_bytes = 7, .log_fill_peak_bytes = 8,
                      .log_overflow_count = 9, .log_flush_fail_count = 10,
-                     .pga_change_count = 12, .i2c_consec_fail = 13, .prealloc_ms = 14};
+                     .pga_change_count = 12, .i2c_consec_fail = 13, .prealloc_ms = 14,
+                     .gsr_spread_ns = 15.25f};
 
     float rf_rssi[3] = {-91.5f, -88.0f, -90.5f};
 

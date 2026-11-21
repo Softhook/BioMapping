@@ -135,6 +135,7 @@ static RowDiag get_row_diag(const SessionCore* s) {
     d.i2c_peak_ms      = s->gsr ? gsr_sensor_get_i2c_peak_ms(s->gsr) : 0;
     d.pga_change_count = s->gsr ? gsr_sensor_get_pga_change_count(s->gsr) : 0;
     d.i2c_consec_fail  = s->gsr ? gsr_sensor_get_consecutive_failures(s->gsr) : 0;
+    d.gsr_spread_ns    = s->gsr ? gsr_sensor_get_window_spread_ns(s->gsr) : 0.0f;
     // The radio and SD buffer figures.
     if(s->platform.fill_diag) s->platform.fill_diag(s->platform.ctx, &d);
     return d;

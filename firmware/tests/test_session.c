@@ -1012,6 +1012,31 @@ static void test_graph_ignores_mains_hum(void) {
     assert(worst < 1.0f);
 }
 
+// The window spread (a debug column) shows the hum that the mean cancels:
+// ±20 mV of 50 Hz is ±2560 counts in a single reading, so the readings in
+// a window spread by its RMS, 2560 / √2 ≈ 1810 counts, while the mean
+// stays put. With no hum only the pretend ADC's ±½-count dither is left.
+static void test_window_spread_shows_hum(void) {
+    printf("Running test_window_spread_shows_hum...\n");
+    start_with_modules(BioMapModeGsrOnly, settings(), 0.5f);
+    window_run(1, false, 15, 0);  // the gain climbs to ±0.512 V and settles
+    SessionSettings cfg = settings();
+    G.hum_v = 0.0f;
+    window_run(1, false, 3, 0);
+    float counts = (float)gsr_sensor_get_mean_count(G.gsr) - cfg.cal_zero_counts;
+    float ns_per_count = (gsr_tia_counts_to_ns_at_bias(counts + 0.5f, 1.0f) -
+                          gsr_tia_counts_to_ns_at_bias(counts - 0.5f, 1.0f)) * cfg.cal_gain;
+    float quiet = gsr_sensor_get_window_spread_ns(G.gsr) / ns_per_count;
+    G.hum_v = 0.02f;
+    G.hum_hz = 50.0;
+    window_run(1, false, 3, 0);
+    float hum = gsr_sensor_get_window_spread_ns(G.gsr) / ns_per_count;
+    printf("  spread %.2f counts with no hum, %.1f with hum\n", (double)quiet, (double)hum);
+    assert(quiet < 2.0f);
+    assert(hum > 1810.0f * 0.98f && hum < 1810.0f * 1.02f);
+    G.hum_v = 0.0f;
+}
+
 // Live Stream's bias check on the first phone connect, with a real sensor:
 // done once, logged, not repeated on a reconnect; given up after
 // LIVE_BIAS_MAX_TRIES ticks if the sensor won't answer.
@@ -1553,6 +1578,7 @@ int main(void) {
     test_gsr_display_and_rows();
     test_window_is_exactly_100_ms();
     test_graph_ignores_mains_hum();
+    test_window_spread_shows_hum();
     test_live_stream_bias_with_sensor();
     test_screen_gps_gsr();
     test_screen_radio_panel();

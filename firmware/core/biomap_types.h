@@ -191,6 +191,7 @@ typedef struct {
     uint32_t pga_change_count;   // GSR auto-ranging PGA gain switches in the last ~1 s window, not cumulative (gain-change artefact marker)
     uint32_t i2c_consec_fail;    // current run length of consecutive GSR I2C failures (0 = healthy)
     uint32_t prealloc_ms;        // one-shot file pre-allocation duration at recording start
+    float    gsr_spread_ns;      // standard deviation of the readings inside this row's 100 ms GSR window (gsr_sensor_get_window_spread_ns)
 } RowDiag;
 
 // ── Inline helpers ─────────────────────────────────────────────────────

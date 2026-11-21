@@ -7,10 +7,10 @@
   minute**. It is tiny: about 3 nS on a reading of about 5,600 nS
   (0.05 %). A sweat response is hundreds to thousands of nS, so the pulse
   doesn't get in the way of the analysis.
-- **There is also a once-a-second dip that is not the heartbeat.** In
-  recordings with GPS on, one reading in every ten drops by about 2.4 nS,
-  exactly once a second. It is caused by something in the device, most
-  likely the GPS. It is also tiny (0.01 %).
+- **There is also a once-a-second dip that is not the heartbeat.** On the
+  47 kΩ test resistor, one reading in every ten drops by about 2.5 nS,
+  exactly once a second, with the GPS on or off. So it isn't the GPS. The
+  cause isn't known yet. It is also tiny (0.01 %).
 - Neither needs a fix. Both are only visible because the graph zooms in on
   a very flat signal.
 
@@ -37,13 +37,25 @@ What it isn't: the once-a-second recording light (`BioMapCueHeartbeat`)
 does nothing on the Cardputer, which has no light and plays no sound for
 that cue.
 
-What it probably is: the GSR-only recording below has no dip at all. The
-USB status line (`log_second()` in
-[main.cpp](../firmware/cardputer/src/main.cpp)) and the screen clock
-were running in both, so the GPS is the most likely cause, probably its
-once-a-second burst of messages. **Not yet proved.** To prove it, record
-with the 47 kΩ resistor in GPS + GSR mode and then in GSR-only mode, and
-compare.
+It isn't the GPS. A GSR-only recording on the same resistor,
+`biomap_0005_nodate.csv` (152 s, ADS1115 on its own bus, on battery),
+has the same dip: about 2.5 nS, in 99 % of seconds. The fingers-on
+GSR-only recording below can't show a dip this small. Skin readings
+move about so much that lining them up on each second is only good to
+about ±9 nS.
+
+It is probably not the USB status line either (`log_second()` in
+[main.cpp](../firmware/cardputer/src/main.cpp)). On battery no computer
+is listening, and the USB code returns before sending anything.
+
+One clue: a 600k recording on the same bus (`biomap_0003_nodate.csv`)
+has no dip, less than 0.03 nS. If the dip were a fixed share of the
+reading, it would be about 0.2 nS there, which is easy to see. So it
+depends on the resistor or on the ADC's range (±2.048 V for 47 kΩ,
+±0.256 V for 600k). The other possibility is that something in the
+bench set-up changed between the two recordings. **Cause not yet
+known.** Next test: record 47 kΩ and 600k back to back, changing nothing
+else.
 
 ## The heartbeat
 

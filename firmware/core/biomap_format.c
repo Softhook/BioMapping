@@ -46,7 +46,7 @@ int biomap_format_gps_row(char* out, size_t cap, bool debug_fields,
     // columns stay contiguous and easy to consume.
     int nd = debug_fields
         ? snprintf(out + n, cap - (size_t)n,
-                   ",%u,%u,%u,%u,%.1f,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u\n",
+                   ",%u,%u,%u,%u,%.1f,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%.2f\n",
                    (unsigned)diag->tick_dt_ms, (unsigned)diag->gps_rx_drops,
                    (unsigned)diag->nmea_fail, (unsigned)diag->gps_reinit_count,
                    (double)diag->gsr_hz,
@@ -55,7 +55,7 @@ int biomap_format_gps_row(char* out, size_t cap, bool debug_fields,
                    (unsigned)diag->log_fill_bytes, (unsigned)diag->log_fill_peak_bytes,
                    (unsigned)diag->log_overflow_count, (unsigned)diag->log_flush_fail_count,
                    (unsigned)diag->pga_change_count, (unsigned)diag->i2c_consec_fail,
-                   (unsigned)diag->prealloc_ms)
+                   (unsigned)diag->prealloc_ms, (double)diag->gsr_spread_ns)
         : snprintf(out + n, cap - (size_t)n, "\n");
     if(nd <= 0 || (size_t)(n + nd) >= cap) return -1;
     n += nd;
@@ -66,12 +66,12 @@ int biomap_format_gps_row(char* out, size_t cap, bool debug_fields,
 int biomap_format_gsr_row(char* out, size_t cap, bool debug_fields,
                           double rel, float raw, const RowDiag* diag) {
     int n = debug_fields
-        ? snprintf(out, cap, "%.2f,%.1f,%u,%u,%u,%u,%u,%u,%u\n",
+        ? snprintf(out, cap, "%.2f,%.1f,%u,%u,%u,%u,%u,%u,%u,%.2f\n",
                    rel, (double)raw,
                    (unsigned)diag->log_fill_bytes, (unsigned)diag->log_fill_peak_bytes,
                    (unsigned)diag->log_overflow_count, (unsigned)diag->log_flush_fail_count,
                    (unsigned)diag->pga_change_count, (unsigned)diag->i2c_consec_fail,
-                   (unsigned)diag->prealloc_ms)
+                   (unsigned)diag->prealloc_ms, (double)diag->gsr_spread_ns)
         : snprintf(out, cap, "%.2f,%.1f\n", rel, (double)raw);
     if(n <= 0 || (size_t)n >= cap) return -1;
     return n;

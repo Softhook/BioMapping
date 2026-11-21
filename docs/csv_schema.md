@@ -203,6 +203,7 @@ Debug-only appended columns when enabled:
 - `flush_peak_ms`, `log_fill_bytes`, `log_fill_peak_bytes`, `log_overflow_count`, `log_flush_fail_count`
 - `pga_change_count`, `i2c_consec_fail` (all GSR-bearing modes, including GSR-only)
 - `prealloc_ms` (all three variants) — one-shot SD log-file pre-allocation duration at recording start, session-constant rather than a lifetime-max like the columns above (`BIOMAP_SD_PREALLOC`)
+- `gsr_spread_ns` (all three variants, last column) — how far the readings inside the row's 100 ms GSR window spread out
 
 ### Debug Column Definitions
 
@@ -224,6 +225,7 @@ Debug-only appended columns when enabled:
 | `pga_change_count` | uint32 | count | ADC programmable gain amplifier (PGA) auto-ranging range switches in the most recent ~1 s window (`gsr_sensor_get_pga_change_count()`). Not cumulative: a single switch shows as `1` for about ten rows, starting up to 1 s after it happened. |
 | `i2c_consec_fail` | uint32 | count | Current run length of consecutive I2C read failures (0 = healthy; 50 = disconnect trip). |
 | `prealloc_ms` | uint32 | ms | Duration of one-shot SD log file pre-allocation seek/extend at recording start. |
+| `gsr_spread_ns` | float | nS | Standard deviation of the ADC readings inside this row's 100 ms window (the ones averaged into `gsr_raw`), converted to nS at the row's reading (`gsr_sensor_get_window_spread_ns()`). Mains hum that the average cancels still shows here: hum of RMS *h* in the readings gives a spread of about *h*. A burst of odd readings inside one window shows as one row with a much larger spread. The ADC's own noise sets the floor. |
 
 ---
 
@@ -319,6 +321,7 @@ Defined in `core/gsr_sensor.h` as `GSR_VALID_MIN_NS` and `GSR_VALID_MAX_NS`.
 | 1.11 | 2026-09-26 | `# GSR Calibration` gained `cal_time:<unix_epoch_seconds>` (when the calibration was saved; `0` if the RTC was unset) for traceability. No data-column changes. |
 | 1.12 | 2026-11-17 | Added `# GSR Bias: measured_mv:…,used_mv:…`: the 0.5 V bias measured at recording start and applied to `gsr_raw` for the whole file. GSR calibration file version 4 → 5 (old fits rejected). No data-column changes. |
 | 1.13 | 2026-11-18 | `# GSR Calibration` now carries `zero_counts` (open-circuit zero, removed before the nS conversion) in place of `offset` (nS); the fit is gain-only. GSR calibration file version 5 → 6 (old fits rejected). No data-column changes. |
+| 1.14 | 2026-11-21 | Added `gsr_spread_ns` as the last debug column in all three debug variants. No production (non-debug) column changes. |
 
 ---
 
