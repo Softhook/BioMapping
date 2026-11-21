@@ -300,11 +300,16 @@ static void start_recording(SessionCore* s) {
     SessionDateTime dt;
     s->platform.datetime_now(s->platform.ctx, &dt);
     uint32_t epoch = pipeline_unix_epoch(dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second);
+    // With no clock time the name says "nodate" rather than a made-up
+    // 1970 date; the order of such recordings comes from the "_2", "_3"
+    // suffix (and on the Cardputer from the recording number in front).
     char stamp[24];
-    biomap_format_file_stamp(stamp, sizeof(stamp), dt.year, dt.month, dt.day,
-                             dt.hour, dt.minute, dt.second);
     if(epoch == 0) {
+        snprintf(stamp, sizeof(stamp), "nodate");
         session_log(s, SessionLogWarning, "RTC not set — recording epoch will be 0 in CSV header");
+    } else {
+        biomap_format_file_stamp(stamp, sizeof(stamp), dt.year, dt.month, dt.day,
+                                 dt.hour, dt.minute, dt.second);
     }
 
     // 768 bytes fits the metadata lines and the widest column line

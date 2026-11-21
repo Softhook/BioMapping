@@ -26,6 +26,57 @@ bool wifi_files_name_valid(const char* name) {
            ascii_lower(name[len - 1]) == 'v';
 }
 
+static bool is_digit(char c) {
+    return c >= '0' && c <= '9';
+}
+
+uint32_t wifi_files_name_number(const char* name) {
+    static const char PREFIX[] = "biomap_";
+    if(!name || strncmp(name, PREFIX, sizeof(PREFIX) - 1) != 0) return 0;
+    const char* p = name + sizeof(PREFIX) - 1;
+    uint32_t n = 0;
+    int digits = 0;
+    for(; is_digit(*p); p++, digits++) {
+        if(digits >= 9) return 0;  // not a recording number
+        n = n * 10u + (uint32_t)(*p - '0');
+    }
+    // The number is followed by '_'; an old dated name has '-' after "2026".
+    return (digits > 0 && *p == '_') ? n : 0;
+}
+
+// Plain name order, with runs of digits compared as numbers.
+static int natural_compare(const char* a, const char* b) {
+    while(*a && *b) {
+        if(is_digit(*a) && is_digit(*b)) {
+            // Skip leading zeros, then the longer run of digits is the
+            // bigger number; equal lengths compare digit by digit.
+            while(*a == '0') a++;
+            while(*b == '0') b++;
+            size_t la = 0, lb = 0;
+            while(is_digit(a[la])) la++;
+            while(is_digit(b[lb])) lb++;
+            if(la != lb) return la < lb ? -1 : 1;
+            int d = strncmp(a, b, la);
+            if(d != 0) return d;
+            a += la;
+            b += lb;
+            continue;
+        }
+        if(*a != *b) return (unsigned char)*a < (unsigned char)*b ? -1 : 1;
+        a++;
+        b++;
+    }
+    if(*a == *b) return 0;
+    return *a ? 1 : -1;
+}
+
+int wifi_files_name_compare(const char* a, const char* b) {
+    uint32_t na = wifi_files_name_number(a);
+    uint32_t nb = wifi_files_name_number(b);
+    if(na != nb) return na < nb ? -1 : 1;
+    return natural_compare(a, b);
+}
+
 void wifi_files_format_ssid(const uint8_t mac[6], char* out, size_t out_sz) {
     if(!out || out_sz == 0) return;
     if(!mac) {

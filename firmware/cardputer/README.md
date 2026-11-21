@@ -69,7 +69,9 @@ On the main menu or in Options:
 
 - **U** lends the SD card to a plugged-in computer as a USB thumb drive; eject the drive on the computer to take the card back. (**U** twice also takes it back, but can lose changes the computer hasn't saved yet.)
 
-**The clock.** The Cardputer has no clock chip, so it doesn't know the time after power-up until the GPS has a fix. It then sets its clock from GPS time, in UK time (GMT in winter, BST in summer, switching automatically). In GPS+GSR mode, Enter won't start a recording before that: it gives the error sound and shows a `Waiting for GPS time...` banner. GSR Only records anyway, using GPS time if it was found since power-up; otherwise the file is named from `biomap_1970-01-01_00-00-00.csv` and the header's start time is 0. A name already on the card gets "_2", "_3" and so on, so nothing is overwritten.
+**The clock.** The Cardputer has no clock chip, so it doesn't know the time after power-up until the GPS has a fix. It then sets its clock from GPS time, in UK time (GMT in winter, BST in summer, switching automatically). In GPS+GSR mode, Enter won't start a recording before that: it gives the error sound and shows a `Waiting for GPS time...` banner. GSR Only records anyway, using GPS time if it was found since power-up; otherwise the name says `nodate` instead of a date and the header's start time is 0.
+
+**File names.** Every recording gets the next recording number, then its start date and time: `biomap_0042_2026-11-21_14-32-05.csv`, or `biomap_0043_nodate.csv` with no GPS time. The number goes up by one for every recording and is kept in the Cardputer's own memory, so it carries on after the card is emptied. That is how the Wi-Fi Files page always lists the newest recording first, dated or not. Files from before the numbers are listed below all numbered ones. A name already on the card gets "_2", "_3" and so on, so nothing is overwritten.
 
 ## Getting the files off
 
@@ -98,7 +100,8 @@ To get files onto a phone, tablet, or laptop without a cable, choose **Wi-Fi Fil
 | `src/screen_cardputer.cpp` | The shared recording screen (`core/biomap_screen.c`) stretched to 240 × 135 with colour accents and a native 30 FPS smooth GSR spline graph |
 | `src/bt_cardputer.cpp` | Bluetooth Low Energy Live Stream server and 49-byte packet notifications for the visualiser's Live tab |
 | `src/wifi_files_cardputer.cpp` | Open Wi-Fi hotspot (no password), web server, QR code screen, and single/ZIP CSV downloads |
-| `src/wifi_files_rules.c` | CSV filename checks, hotspot name/QR formatting, JSON escaping, and DOS timestamps (plain C, host-tested) |
+| `src/recording_number.cpp` | The recording number at the front of every file name (kept in the Cardputer's flash) |
+| `src/wifi_files_rules.c` | CSV filename checks, newest-first name order, hotspot name/QR formatting, JSON escaping, and DOS timestamps (plain C, host-tested) |
 | `src/zip_stream.c` | Single-pass uncompressed ZIP streamer with exact upfront size and CRC-32 (plain C, host-tested) |
 | `src/settings_cardputer.cpp` | Loading and atomic saving of `biomap.settings` and `biomap.cal` in `/sd/biomapping/` |
 | `src/session_cardputer.cpp` | The device functions for the shared session, and its 10 Hz tick |

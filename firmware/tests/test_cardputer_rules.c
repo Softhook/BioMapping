@@ -482,6 +482,74 @@ static void test_wifi_filename_validation(void) {
     printf("  CSV filename validation: ok\n");
 }
 
+static int cmp_newest_first(const void* a, const void* b) {
+    return wifi_files_name_compare(*(const char* const*)b, *(const char* const*)a);
+}
+
+static void test_wifi_name_order(void) {
+    // Same second: the first file has no suffix, then _2, _3 ... _10.
+    assert(wifi_files_name_compare("biomap_2026-11-21_14-32-05.csv",
+                                   "biomap_2026-11-21_14-32-05_2.csv") < 0);
+    assert(wifi_files_name_compare("biomap_2026-11-21_14-32-05_9.csv",
+                                   "biomap_2026-11-21_14-32-05_10.csv") < 0);
+    assert(wifi_files_name_compare("biomap_2026-11-21_14-32-05_10.csv",
+                                   "biomap_2026-11-21_14-32-05_10.csv") == 0);
+    assert(wifi_files_name_compare("biomap_2026-11-21_14-32-06.csv",
+                                   "biomap_2026-11-21_14-32-05_10.csv") > 0);
+    assert(wifi_files_name_compare("biomap_2026-12-01_00-00-00.csv",
+                                   "biomap_2026-11-30_23-59-59.csv") > 0);
+
+    const char* names[] = {
+        "biomap_2026-11-21_14-32-05_10.csv", "biomap_2026-11-20_09-00-00.csv",
+        "biomap_2026-11-21_14-32-05.csv",    "biomap_2026-11-21_14-32-05_9.csv",
+        "biomap_2026-11-21_14-32-05_2.csv",  "biomap_2026-11-21_15-00-00.csv",
+    };
+    const char* want[] = {
+        "biomap_2026-11-21_15-00-00.csv",    "biomap_2026-11-21_14-32-05_10.csv",
+        "biomap_2026-11-21_14-32-05_9.csv",  "biomap_2026-11-21_14-32-05_2.csv",
+        "biomap_2026-11-21_14-32-05.csv",    "biomap_2026-11-20_09-00-00.csv",
+    };
+    qsort(names, 6, sizeof(names[0]), cmp_newest_first);
+    for(int i = 0; i < 6; i++) assert(strcmp(names[i], want[i]) == 0);
+
+    // Recording numbers: read from the front, '-' after the digits means an
+    // old dated name with no number.
+    assert(wifi_files_name_number("biomap_0042_2026-11-21_14-32-05.csv") == 42);
+    assert(wifi_files_name_number("biomap_0043_nodate.csv") == 43);
+    assert(wifi_files_name_number("biomap_12345_nodate_2.csv") == 12345);
+    assert(wifi_files_name_number("biomap_2026-11-21_14-32-05.csv") == 0);
+    assert(wifi_files_name_number("biomap_1970-01-01_00-00-03.csv") == 0);
+    assert(wifi_files_name_number("biomap_nodate.csv") == 0);
+    assert(wifi_files_name_number("walk_0042_x.csv") == 0);
+    assert(wifi_files_name_number(NULL) == 0);
+
+    // Mixed dated, undated and old names: the number decides; old names sit
+    // below every numbered one.
+    const char* mixed[] = {
+        "biomap_0009_nodate.csv",           "biomap_2026-11-21_14-32-05.csv",
+        "biomap_0011_2026-11-22_09-00-00.csv", "biomap_0010_2026-11-21_18-00-00.csv",
+        "biomap_1970-01-01_00-00-03.csv",   "biomap_0012_nodate.csv",
+    };
+    const char* mixed_want[] = {
+        "biomap_0012_nodate.csv",           "biomap_0011_2026-11-22_09-00-00.csv",
+        "biomap_0010_2026-11-21_18-00-00.csv", "biomap_0009_nodate.csv",
+        "biomap_2026-11-21_14-32-05.csv",   "biomap_1970-01-01_00-00-03.csv",
+    };
+    qsort(mixed, 6, sizeof(mixed[0]), cmp_newest_first);
+    for(int i = 0; i < 6; i++) assert(strcmp(mixed[i], mixed_want[i]) == 0);
+    // More than four digits once past 9999 still sorts as a number.
+    assert(wifi_files_name_compare("biomap_10000_nodate.csv", "biomap_9999_nodate.csv") > 0);
+
+    // ZIP date: found after the number; "nodate" falls back to 1980-01-01.
+    uint16_t dd = 0, dtm = 0;
+    wifi_files_dos_datetime_from_name("biomap_0042_2026-11-21_14-32-06.csv", &dd, &dtm);
+    assert(dd == (uint16_t)(((2026 - 1980) << 9) | (11 << 5) | 21));
+    assert(dtm == (uint16_t)((14 << 11) | (32 << 5) | 3));
+    wifi_files_dos_datetime_from_name("biomap_0043_nodate.csv", &dd, &dtm);
+    assert(dd == (uint16_t)((1 << 5) | 1) && dtm == 0);
+    printf("  Newest-first name order (numbers, nodate, _10 after _9): ok\n");
+}
+
 static void test_wifi_ssid_qr_size_json(void) {
     uint8_t mac[6] = {0xAA, 0xBB, 0xCC, 0xDD, 0x0A, 0xF3};
     char buf[96];
@@ -694,6 +762,7 @@ int main(void) {
     test_clock_not_set();
     printf("Wi-Fi Files & ZIP stream:\n");
     test_wifi_filename_validation();
+    test_wifi_name_order();
     test_wifi_ssid_qr_size_json();
     test_zip_stream_empty_and_multi();
     printf("All Cardputer rule tests passed.\n");

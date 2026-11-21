@@ -264,14 +264,14 @@ static void fill_zip_entry(ZipStreamEntry* dst, const char* name, uint32_t size)
 }
 
 static int compare_entries_desc(const void* a, const void* b) {
-    return strcmp(static_cast<const ZipStreamEntry*>(b)->name,
-                  static_cast<const ZipStreamEntry*>(a)->name);
+    return wifi_files_name_compare(static_cast<const ZipStreamEntry*>(b)->name,
+                                   static_cast<const ZipStreamEntry*>(a)->name);
 }
 
 static size_t find_oldest_index(const ZipStreamEntry* items, size_t count) {
     size_t min_idx = 0;
     for(size_t i = 1; i < count; i++) {
-        if(strcmp(items[i].name, items[min_idx].name) < 0) min_idx = i;
+        if(wifi_files_name_compare(items[i].name, items[min_idx].name) < 0) min_idx = i;
     }
     return min_idx;
 }
@@ -345,7 +345,7 @@ static void scan_csv_dir(CsvFileList* out, size_t max_items) {
                 min_idx = find_oldest_index(out->items, out->count);
                 min_valid = true;
             }
-            if(strcmp(ent->d_name, out->items[min_idx].name) > 0) {
+            if(wifi_files_name_compare(ent->d_name, out->items[min_idx].name) > 0) {
                 fill_zip_entry(&out->items[min_idx], ent->d_name, (uint32_t)st.st_size);
                 min_valid = false;
             }
@@ -515,13 +515,55 @@ static void send_attachment_headers(const char* filename, const char* mime, uint
 
 // ── HTTP route handlers ──────────────────────────────────────────────────
 
-static void handle_index(void) {
+// Sends the status line and headers through the library (they fit in the
+// fresh connection's empty send buffer, so they never wait), then the body
+// through client_write_all(). The library's own body writes wait up to 10 s per
+// piece when a phone drops off the hotspot mid-reply, and the file list is
+// many pieces, so a vanished phone could hold the whole Cardputer for minutes.
+static bool send_body_own_writer(const char* mime, const char* body, size_t len) {
+    g_wf.server->setContentLength(len);
     g_wf.server->sendHeader("Cache-Control", "no-store");
-    g_wf.server->send_P(200, "text/html; charset=utf-8", INDEX_HTML);
+    g_wf.server->send(200, mime, "");
+    NetworkClient client = g_wf.server->client();
+    bool ok = client_write_all(client, reinterpret_cast<const uint8_t*>(body), len);
+    if(!ok) {
+        client.stop();
+        Serial.println("[WiFi] reply stopped (device gone or Esc)");
+    }
+    return ok;
+}
+
+static void handle_index(void) {
+    send_body_own_writer("text/html; charset=utf-8", INDEX_HTML, strlen(INDEX_HTML));
 }
 
 static void handle_no_content(void) {
     g_wf.server->send(204, "", "");
+}
+
+// Writes the file list JSON into `out` (when non-null) and returns its length,
+// so the caller can size the buffer with a first pass of out == nullptr.
+static size_t format_files_json(const CsvFileList& files, char* out) {
+    char esc[WIFI_FILES_MAX_NAME * 2];
+    char chunk[256];
+    size_t len = 0;
+    auto put = [&](int n) {
+        if(n <= 0) return;
+        size_t k = (size_t)n < sizeof(chunk) ? (size_t)n : sizeof(chunk) - 1;
+        if(out) memcpy(out + len, chunk, k);
+        len += k;
+    };
+    wifi_files_json_escape(g_wf.ssid, esc, sizeof(esc));
+    put(snprintf(chunk, sizeof(chunk),
+                 "{\"ssid\":\"%s\",\"truncated\":%s,\"total\":%u,\"files\":[",
+                 esc, files.truncated ? "true" : "false", (unsigned)files.total_found));
+    for(size_t i = 0; i < files.count; i++) {
+        wifi_files_json_escape(files.items[i].name, esc, sizeof(esc));
+        put(snprintf(chunk, sizeof(chunk), "%s{\"name\":\"%s\",\"size\":%lu}",
+                     i ? "," : "", esc, (unsigned long)files.items[i].size));
+    }
+    put(snprintf(chunk, sizeof(chunk), "]}"));
+    return len;
 }
 
 static void handle_api_files(void) {
@@ -533,25 +575,17 @@ static void handle_api_files(void) {
     }
     g_wf.dirty = true;
 
-    g_wf.server->setContentLength(CONTENT_LENGTH_UNKNOWN);
-    g_wf.server->sendHeader("Cache-Control", "no-store");
-    g_wf.server->send(200, "application/json; charset=utf-8", "");
-
-    char esc[WIFI_FILES_MAX_NAME * 2];
-    char chunk[256];
-    wifi_files_json_escape(g_wf.ssid, esc, sizeof(esc));
-    int n = snprintf(chunk, sizeof(chunk),
-                     "{\"ssid\":\"%s\",\"truncated\":%s,\"total\":%u,\"files\":[",
-                     esc, files.truncated ? "true" : "false", (unsigned)files.total_found);
-    if(n > 0) g_wf.server->sendContent(chunk, (size_t)n);
-
-    for(size_t i = 0; i < files.count; i++) {
-        wifi_files_json_escape(files.items[i].name, esc, sizeof(esc));
-        n = snprintf(chunk, sizeof(chunk), "%s{\"name\":\"%s\",\"size\":%lu}",
-                     i ? "," : "", esc, (unsigned long)files.items[i].size);
-        if(n > 0) g_wf.server->sendContent(chunk, (size_t)n);
+    // Built in one buffer (about 60 bytes a file, ~15 KB at the 256-file cap)
+    // so it goes out through the Esc-aware writer in one go.
+    size_t len = format_files_json(files, nullptr);
+    char* body = new (std::nothrow) char[len + 1];
+    if(!body) {
+        g_wf.server->send(503, "application/json", "{\"error\":\"Low memory\"}");
+        return;
     }
-    g_wf.server->sendContent("]}", 2);
+    format_files_json(files, body);
+    send_body_own_writer("application/json; charset=utf-8", body, len);
+    delete[] body;
 }
 
 static bool write_client_chunk(void* ctx, const uint8_t* data, size_t len) {

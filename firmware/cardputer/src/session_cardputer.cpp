@@ -7,6 +7,7 @@
 #include "cues_cardputer.h"
 #include "gps_cardputer.h"
 #include "gsr_cardputer.h"
+#include "recording_number.h"
 #include "sd_cardputer.h"
 #include "settings_cardputer.h"
 #include "tick_schedule.h"
@@ -65,8 +66,7 @@ static void plat_log(void* ctx, SessionLogLevel level, const char* line) {
 
 // UK time, set from GPS (clock_cardputer.cpp). Before GPS time it is 1970,
 // and the session treats the time as not set (year before 2020): the
-// header's start time is 0 and the file name counts from
-// 1970-01-01_00-00-00. In GPS+GSR mode a recording can't start until then
+// header's start time is 0 and the file name says "nodate". In GPS+GSR mode a recording can't start until then
 // (session_cardputer_key()).
 //
 // The UTC offset at a recording's start is kept for its end time
@@ -81,9 +81,16 @@ static uint32_t plat_epoch_now(void* ctx) {
     return clock_cardputer_epoch(g_session.recording_utc_offset_s);
 }
 
+// Puts the recording number in front of the shared session's stamp
+// ("0042_2026-11-21_14-32-05" or "0043_nodate"); recording_number.h says why.
 static bool plat_file_start(void* ctx, const char* header, const char* stamp) {
     (void)ctx;
-    return sd_logger_start(g_session.logger, header, stamp);
+    uint32_t n = recording_number_next();
+    char numbered[40];
+    snprintf(numbered, sizeof(numbered), "%04lu_%s", (unsigned long)n, stamp);
+    if(!sd_logger_start(g_session.logger, header, numbered)) return false;
+    recording_number_used(n);
+    return true;
 }
 
 static void plat_file_stop(void* ctx, uint32_t end_epoch) {

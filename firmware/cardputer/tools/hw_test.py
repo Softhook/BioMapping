@@ -632,6 +632,74 @@ def test_settings_persist(dev):
             check(read_settings_line(dev)["zoom"] == before, "could not put Auto-zoom back")
 
 
+def _stalled_request(path):
+    """Opens a connection to the Cardputer's web page, asks for `path`, and
+    then never reads the reply, with a tiny receive window, so the reply backs
+    up as it does when a phone drops off the hotspot part-way through."""
+    import socket
+    sk = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sk.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 256)
+    sk.settimeout(3)
+    sk.connect(("192.168.4.1", 80))
+    sk.sendall(f"GET {path} HTTP/1.1\r\nHost: 192.168.4.1\r\n\r\n".encode())
+    return sk
+
+
+def _wait_for_mac_on_hotspot(dev, timeout=180):
+    import socket
+    print("      Join this Mac to the Cardputer's BioMapping-XXXX Wi-Fi now "
+          f"(waiting up to {timeout} s)...")
+    end = time.time() + timeout
+    while time.time() < end:
+        dev.pump(0.5)
+        try:
+            socket.create_connection(("192.168.4.1", 80), timeout=1).close()
+            return
+        except OSError:
+            pass
+    raise Fail("this Mac never reached 192.168.4.1 (not joined to the hotspot?)")
+
+
+def _longest_status_gap(dev, mark):
+    times = [t for t, l in dev.log[mark:] if STATUS_RE.match(l)]
+    return max((b - a for a, b in zip(times, times[1:])), default=0.0), len(times)
+
+
+def test_wifi_stalled_client(dev):
+    """Wi-Fi Files with a device that stops reading mid-reply: the Cardputer keeps
+    running (status line keeps coming), gives up within ~10 s, and Esc still works."""
+    dev.restart()
+    open_main(dev, "Wi-Fi Files")
+    dev.wait_for(r"\[WiFi\] on: ap=BioMapping-[0-9A-F]{4}", 5)
+    _wait_for_mac_on_hotspot(dev)
+    dev.pump(2)
+
+    # 1. Stalled page and file list, one after the other.
+    for path in ["/", "/api/files", "/"]:
+        m = dev.mark()
+        sk = _stalled_request(path)
+        dev.pump(25)
+        gap, n = _longest_status_gap(dev, m)
+        stopped = any("reply stopped" in l for l in dev.since(m))
+        print(f"      GET {path}: longest pause in the status line {gap:.1f} s "
+              f"({n} lines in 25 s), gave up on the stalled reply: {stopped}")
+        sk.close()
+        check(gap <= 12, f"Cardputer stopped running for {gap:.1f} s on a stalled GET {path}")
+        dev.pump(1)
+
+    # 2. Esc while a reply is stalled closes the screen at once.
+    sk = _stalled_request("/")
+    dev.pump(1.0)
+    m = dev.mark()
+    t = time.time()
+    dev.press(BACK)
+    dev.wait_for(r"\[WiFi\] off", 4, start=m)
+    print(f"      Esc during a stalled reply: Wi-Fi off after {time.time() - t:.1f} s")
+    sk.close()
+    dev.pump(1)
+    dev.no_faults()
+
+
 TESTS = [
     ("boot", test_boot),
     ("gsr_only", test_gsr_only),
@@ -645,8 +713,9 @@ TESTS = [
     ("session_cycles", test_session_cycles),
     ("record_60s", test_record_60s),
     ("csv_check", test_csv_check),     # needs a U key press: only with --usb or by name
+    ("wifi_stalled_client", test_wifi_stalled_client),  # needs this Mac on the hotspot: by name only
 ]
-NEEDS_KEY_PRESS = {"csv_check"}
+NEEDS_KEY_PRESS = {"csv_check", "wifi_stalled_client"}
 
 VERBOSE = "-v" in sys.argv
 
