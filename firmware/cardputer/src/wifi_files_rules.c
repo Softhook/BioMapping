@@ -220,10 +220,41 @@ void wifi_files_dos_datetime_from_name(const char* name,
     }
 }
 
-bool wifi_files_is_apple_probe(const char* path) {
-    if(!path) return false;
-    return strcmp(path, "/hotspot-detect.html") == 0 ||
-           strcmp(path, "/library/test/success.html") == 0;
+// True when `host` (any letter case, any ":port" ignored) is `name`.
+static bool host_is(const char* host, const char* name) {
+    size_t i = 0;
+    for(; name[i] != '\0'; i++) {
+        if(ascii_lower(host[i]) != name[i]) return false;
+    }
+    return host[i] == '\0' || host[i] == ':';
+}
+
+bool wifi_files_is_apple_probe(const char* host, const char* path) {
+    if(path && (strcmp(path, "/hotspot-detect.html") == 0 ||
+                strcmp(path, "/library/test/success.html") == 0)) {
+        return true;
+    }
+    if(!host) return false;
+    static const char* const APPLE_HOSTS[] = {
+        "captive.apple.com", "www.apple.com", "www.appleiphonecell.com",
+        "www.itools.info", "www.ibook.info", "www.airport.us", "www.thinkdifferent.us",
+    };
+    for(size_t i = 0; i < sizeof(APPLE_HOSTS) / sizeof(APPLE_HOSTS[0]); i++) {
+        if(host_is(host, APPLE_HOSTS[i])) return true;
+    }
+    return false;
+}
+
+WifiFilesClient wifi_files_client_kind(const char* ua) {
+    if(!ua) return WifiFilesClientBrowser;
+    if(strstr(ua, "CaptiveNetworkSupport")) return WifiFilesClientAppleCheck;
+    // The pop-up names AppleWebKit like Safari and Chrome do, but not Safari.
+    bool apple_device = strstr(ua, "Macintosh") || strstr(ua, "iPhone") ||
+                        strstr(ua, "iPad") || strstr(ua, "iPod");
+    if(apple_device && strstr(ua, "AppleWebKit") && !strstr(ua, "Safari/")) {
+        return WifiFilesClientApplePopup;
+    }
+    return WifiFilesClientBrowser;
 }
 
 void wifi_files_released_clear(WifiFilesReleased* r) {

@@ -86,9 +86,11 @@ The SD card stays inside the Cardputer, so press **U** on the main menu (or in O
 To get files onto a phone, tablet, or laptop without a cable, choose **Wi-Fi Files** on the main menu:
 
 - Scan the first QR code to join the `BioMapping-XXXX` Wi-Fi network. To join by hand instead, pick `BioMapping-XXXX` in your Wi-Fi list; there is no password.
-- Once connected, most phones pop up the file page by themselves, like a café Wi-Fi sign-in page. If a download doesn't start in that pop-up (iPhones can't download there), close it and open the address in your browser.
+- Once connected, most phones and laptops pop up the file page by themselves, like a café Wi-Fi sign-in page. You can see and delete files there.
+- A Mac's or iPhone's pop-up can't save files: press **Open in browser to download** and the page opens in your normal browser. If it doesn't, click **Done** (you stay on the Cardputer's Wi-Fi) and type `192.168.4.1` into your browser.
 - The screen also switches to a second QR code for `http://192.168.4.1` (you can also switch between the two QR codes with Left / Right).
-- Open that address in your browser to download individual `.csv` files, tap **Download All as ZIP** for a single archive of every recording, or delete old files. (With more than 256 recordings the page lists only the newest 256, but the ZIP still has all of them.)
+- Open that address in your browser (Chrome, Safari or any other) to download individual `.csv` files, tap **Download All as ZIP** for a single archive of every recording, or delete old files. (With more than 256 recordings the page lists only the newest 256, but the ZIP still has all of them.)
+- To choose where downloads are saved, turn on **Ask where to save each file before downloading** in Chrome's settings (under Downloads). Chrome then opens the folder you used last time.
 - Press **Esc** when done to stop the server and turn Wi-Fi completely off before recording. If you forget, it turns itself off after 10 minutes with no device connected.
 
 ## Files
@@ -101,7 +103,7 @@ To get files onto a phone, tablet, or laptop without a cable, choose **Wi-Fi Fil
 | `src/bt_cardputer.cpp` | Bluetooth Low Energy Live Stream server and 49-byte packet notifications for the visualiser's Live tab |
 | `src/wifi_files_cardputer.cpp` | Open Wi-Fi hotspot (no password), web server, QR code screen, and single/ZIP CSV downloads |
 | `src/recording_number.cpp` | The recording number at the front of every file name (kept in the Cardputer's flash) |
-| `src/wifi_files_rules.c` | CSV filename checks, newest-first name order, hotspot name/QR formatting, JSON escaping, and DOS timestamps (plain C, host-tested) |
+| `src/wifi_files_rules.c` | CSV filename checks, newest-first name order, hotspot name/QR formatting, JSON escaping, DOS timestamps, and the Apple sign-in pop-up rules (plain C, host-tested) |
 | `src/zip_stream.c` | Single-pass uncompressed ZIP streamer with exact upfront size and CRC-32 (plain C, host-tested) |
 | `src/settings_cardputer.cpp` | Loading and atomic saving of `biomap.settings` and `biomap.cal` in `/sd/biomapping/` |
 | `src/session_cardputer.cpp` | The device functions for the shared session, and its 10 Hz tick |

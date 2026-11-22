@@ -41,9 +41,10 @@ static const uint32_t    IDLE_OFF_MS = 10UL * 60UL * 1000UL;  // turn off after 
 // Custom RGB565 theme colour matching menu_cardputer.cpp.
 static const uint16_t COL_MUTED = 0x8410;
 
-// Devices that chose to continue in a browser: Apple's sign-in check is
+// Devices whose sign-in pop-up has opened: Apple's sign-in check is
 // answered "Success" for them (wifi_files_rules.h, "Apple's Wi-Fi sign-in
-// window"). Cleared when the hotspot starts and stops.
+// pop-up"). Cleared when the hotspot starts and stops, and whenever no
+// device is connected.
 static WifiFilesReleased g_released;
 
 // Screen layout: the QR code fills the full 135 px height on the left; text
@@ -106,8 +107,9 @@ h1{margin:0;font-size:1.3rem;color:#fff}
 .btn-del{background:#3b1822;color:#fca5a5;padding:8px 12px;min-height:40px}
 .btn-del.armed{background:#b91c1c;color:#fff}
 .msg{display:none;padding:10px 12px;border-radius:8px;margin-bottom:12px;font-size:.9rem;background:#3b1822;color:#fecaca}
-.msg a{color:inherit;font-weight:700}
 .msg.warn{background:#3a2b12;color:#fde68a}
+#popBox .btn{width:100%}
+.note{font-size:.85rem;color:#93a8c9;margin:8px 0 16px}
 .msg.show{display:block}
 ul{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:10px}
 li{background:#152038;border:1px solid #243352;border-radius:12px;padding:12px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
@@ -115,8 +117,6 @@ li{background:#152038;border:1px solid #243352;border-radius:12px;padding:12px;d
 .name{font-weight:600;word-break:break-all;color:#f8fafc}
 .size{font-size:.85rem;color:#93a8c9;margin-top:2px}
 .acts{display:flex;gap:8px}
-.hint{margin-top:18px;font-size:.85rem;color:#93a8c9}
-.hint a{color:#7dd3fc}
 .empty{background:#152038;border:1px solid #243352;border-radius:12px;padding:24px;text-align:center;color:#93a8c9}
 </style>
 </head>
@@ -126,22 +126,28 @@ li{background:#152038;border:1px solid #243352;border-radius:12px;padding:12px;d
   <h1>BioMapping Files</h1>
   <div class="meta" id="summary">Loading...</div>
 </header>
+<div id="popBox" hidden>
+  <a class="btn btn-primary" id="openBtn" href="/">Open in browser to download</a>
+  <p class="note">This pop-up can't save files. If your browser doesn't open, click <b>Done</b> and go to <b id="addr"></b> in it.</p>
+</div>
 <div class="bar">
   <a class="btn btn-primary disabled" id="zipBtn" href="/download-all.zip" download>Download All as ZIP</a>
   <button class="btn btn-muted" id="refreshBtn" type="button">Refresh</button>
   <button class="btn btn-del" id="delAllBtn" type="button" disabled>Delete All</button>
 </div>
-<div class="msg warn" id="signInBox">This Wi-Fi sign-in window can't save files. <a href="/browser">Continue in Safari</a> to download.</div>
 <div class="msg warn" id="warnBox"></div>
 <div class="msg" id="errBox"></div>
 <ul id="list"></ul>
-<p class="hint">Download not starting? Wi-Fi sign-in windows can't save files: <a href="/browser">continue in your browser</a> instead.</p>
 </div>
 <script>
-// Apple's Wi-Fi sign-in window (it opens by itself on joining) is a
+// Apple's Wi-Fi sign-in pop-up (it opens by itself on joining) is a
 // cut-down browser: it can't save files, and it answers every confirm()
-// box with "no". Its user agent names AppleWebKit but not Safari. There,
-// Download goes to the "continue in Safari" page instead.
+// box with "no". Its user agent names AppleWebKit but not Safari
+// (wifi_files_client_kind() has the same rule). There the page has no
+// download buttons, just one plain link to itself: the Cardputer makes the
+// pop-up count as online as soon as it opens (handle_not_found()), and on
+// a Mac an online pop-up hands plain links to the normal browser. Apple
+// doesn't document this, so the note also says how to do it by hand.
 const ua = navigator.userAgent;
 const inSignIn = /AppleWebKit/.test(ua) && !/Safari\//.test(ua) &&
                  /(Macintosh|iPhone|iPad|iPod)/.test(ua);
@@ -267,21 +273,19 @@ async function loadFiles() {
 
       const acts = document.createElement('div');
       acts.className = 'acts';
-      const dl = document.createElement('a');
-      dl.className = 'btn btn-dl';
-      if (inSignIn) {
-        dl.href = '/browser';
-      } else {
+      if (!inSignIn) {
+        const dl = document.createElement('a');
+        dl.className = 'btn btn-dl';
         dl.href = '/download?name=' + encodeURIComponent(f.name);
         dl.setAttribute('download', f.name);
+        dl.textContent = 'Download';
+        acts.appendChild(dl);
       }
-      dl.textContent = 'Download';
       const del = document.createElement('button');
       del.className = 'btn btn-del';
       del.type = 'button';
       del.textContent = 'Delete';
       del.onclick = () => deleteFile(f.name, del);
-      acts.appendChild(dl);
       acts.appendChild(del);
 
       li.appendChild(info);
@@ -295,9 +299,10 @@ async function loadFiles() {
 }
 
 if (inSignIn) {
-  document.getElementById('signInBox').className = 'msg warn show';
-  zipBtn.href = '/browser';
-  zipBtn.removeAttribute('download');
+  document.getElementById('popBox').hidden = false;
+  document.getElementById('openBtn').href = location.origin + '/';
+  document.getElementById('addr').textContent = location.host;
+  zipBtn.style.display = 'none';
 }
 document.getElementById('refreshBtn').onclick = loadFiles;
 delAllBtn.onclick = deleteAll;
@@ -606,7 +611,49 @@ static bool send_body_own_writer(const char* mime, const char* body, size_t len)
     return ok;
 }
 
+static WifiFilesClient request_client(void) {
+    return wifi_files_client_kind(g_wf.server->header("User-Agent").c_str());
+}
+
+// One log line per page request: the address asked for, who asked and our
+// answer, so a test from a phone or laptop shows what its sign-in check
+// did. Kept under 128 characters: the USB log cuts longer lines.
+static void log_request(const char* answer) {
+    static const char* const WHO[] = {"browser", "Apple check", "Apple pop-up"};
+    Serial.printf("[WiFi] %.32s%.32s from %s (%s) -> %s\n",
+                  g_wf.server->hostHeader().c_str(), g_wf.server->uri().c_str(),
+                  g_wf.server->client().remoteIP().toString().c_str(),
+                  WHO[request_client()], answer);
+}
+
+static void redirect_to(const char* path) {
+    char loc[sizeof(g_wf.qr_url) + 16];
+    snprintf(loc, sizeof(loc), "%s%s", g_wf.qr_url, path);
+    g_wf.server->sendHeader("Location", loc, true);
+    g_wf.server->sendHeader("Cache-Control", "no-store");
+    g_wf.server->send(302, "text/plain", "");
+}
+
+// True when the request named our own address, or none at all.
+static bool asked_for_us(void) {
+    String host = g_wf.server->hostHeader();
+    const char* ours = g_wf.qr_url + 7;  // after "http://"
+    size_t n = strlen(ours);
+    if(host.length() == 0) return true;
+    return strncmp(host.c_str(), ours, n) == 0 &&
+           (host.c_str()[n] == '\0' || host.c_str()[n] == ':');
+}
+
+static void handle_not_found(void);
+
+// The file page, at our own address only: "/" on any other address (Apple
+// also checks captive.apple.com/) is a sign-in check like any other.
 static void handle_index(void) {
+    if(!asked_for_us()) {
+        handle_not_found();
+        return;
+    }
+    log_request("page");
     send_body_own_writer("text/html; charset=utf-8", INDEX_HTML, strlen(INDEX_HTML));
 }
 
@@ -893,76 +940,31 @@ static void handle_delete_all(void) {
     g_wf.server->send(200, "application/json", body);
 }
 
-// The "continue in Safari" page, reached from Download in Apple's sign-in
-// window. From now on this device's sign-in check is answered "Success"
-// (handle_not_found()), so the window's Cancel turns into Done; loading this
-// page is what makes the window check again. %s: our address, then the
-// hotspot name. No other '%' in it: it is a printf format.
-static const char BROWSER_HTML[] PROGMEM = R"HTML(<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Continue in Safari</title>
-<style>
-body{margin:0;padding:16px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#0d1321;color:#e8eef7;line-height:1.5}
-.wrap{max-width:560px;margin:0 auto}
-h1{font-size:1.3rem;margin:0 0 12px;color:#fff}
-li{margin-bottom:8px}
-.addr{font-size:1.4rem;font-weight:700;color:#7dd3fc;margin:6px 0 16px;-webkit-user-select:all;user-select:all}
-.small{font-size:.85rem;color:#93a8c9}
-a{color:#7dd3fc}
-</style>
-</head>
-<body>
-<div class="wrap">
-<h1>Continue in Safari</h1>
-<p>This Wi-Fi sign-in window can't save files. Safari, or any other browser, can, and you stay on the Cardputer's Wi-Fi.</p>
-<ol>
-<li>Click <b>Done</b> in this window. If it still says Cancel, wait a few seconds.</li>
-<li>Open Safari and go to:</li>
-</ol>
-<div class="addr">%s</div>
-<p class="small">If Done never shows, click Cancel. If your Mac then leaves the Wi-Fi, join <b>%s</b> again: this window won't open again, so go straight to the address in Safari.</p>
-<p class="small">Already in a browser? <a href="/">Back to the files</a></p>
-</div>
-</body>
-</html>
-)HTML";
-
-static void handle_browser(void) {
-    IPAddress ip = g_wf.server->client().remoteIP();
-    wifi_files_released_add(&g_released, (uint32_t)ip);
-    Serial.printf("[WiFi] %s continues in a browser\n", ip.toString().c_str());
-
-    static char page[sizeof(BROWSER_HTML) + sizeof(g_wf.qr_url) + sizeof(g_wf.ssid)];
-    int n = snprintf(page, sizeof(page), BROWSER_HTML, g_wf.qr_url, g_wf.ssid);
-    if(n < 0 || (size_t)n >= sizeof(page)) {
-        g_wf.server->send(500, "text/plain", "Page too long");
-        return;
-    }
-    send_body_own_writer("text/html; charset=utf-8", page, (size_t)n);
-}
-
 // Every unknown address, including the phone's "am I online?" checks
 // (Android's /generate_204, Apple's /hotspot-detect.html, Windows'
 // /connecttest.txt), is redirected to the file page. Because the DNS server
 // answers every name with our address, the phone sees a sign-in page and pops
-// it up by itself on joining. The exception: Apple's check from a device
-// that chose to continue in Safari (handle_browser()) gets Apple's
-// "Success", so its sign-in window can close with Done.
+// it up by itself on joining. Apple's addresses are special (wifi_files_
+// rules.h, "Apple's Wi-Fi sign-in pop-up"): when the pop-up itself asks
+// for one, its device is released, and from then on Apple's background
+// check from that device gets Apple's "Success", so the pop-up counts as
+// online and can close with Done.
 static void handle_not_found(void) {
-    if(wifi_files_is_apple_probe(g_wf.server->uri().c_str()) &&
-       wifi_files_released_has(&g_released, (uint32_t)g_wf.server->client().remoteIP())) {
-        g_wf.server->sendHeader("Cache-Control", "no-store");
-        g_wf.server->send(200, "text/html", WIFI_FILES_APPLE_SUCCESS_HTML);
-        return;
+    uint32_t ip = (uint32_t)g_wf.server->client().remoteIP();
+    if(wifi_files_is_apple_probe(g_wf.server->hostHeader().c_str(),
+                                 g_wf.server->uri().c_str())) {
+        WifiFilesClient who = request_client();
+        if(who == WifiFilesClientApplePopup) {
+            wifi_files_released_add(&g_released, ip);
+        } else if(who == WifiFilesClientAppleCheck && wifi_files_released_has(&g_released, ip)) {
+            log_request("Success");
+            g_wf.server->sendHeader("Cache-Control", "no-store");
+            g_wf.server->send(200, "text/html", WIFI_FILES_APPLE_SUCCESS_HTML);
+            return;
+        }
     }
-    char loc[sizeof(g_wf.qr_url) + 1];
-    snprintf(loc, sizeof(loc), "%s/", g_wf.qr_url);
-    g_wf.server->sendHeader("Location", loc, true);
-    g_wf.server->sendHeader("Cache-Control", "no-store");
-    g_wf.server->send(302, "text/plain", "");
+    log_request("redirect");
+    redirect_to("/");
 }
 
 // ── Public lifecycle, polling, keys, and drawing ─────────────────────────
@@ -1011,6 +1013,8 @@ bool wifi_files_start(M5Canvas& canvas) {
         return false;
     }
 
+    static const char* LOGGED_HEADERS[] = {"User-Agent"};
+    g_wf.server->collectHeaders(LOGGED_HEADERS, 1);
     g_wf.server->on("/", HTTP_GET, handle_index);
     g_wf.server->on("/favicon.ico", HTTP_GET, handle_no_content);
     g_wf.server->on("/apple-touch-icon.png", HTTP_GET, handle_no_content);
@@ -1020,7 +1024,6 @@ bool wifi_files_start(M5Canvas& canvas) {
     g_wf.server->on("/download-all.zip", HTTP_GET, handle_download_all_zip);
     g_wf.server->on("/api/delete", HTTP_POST, handle_delete);
     g_wf.server->on("/api/delete-all", HTTP_POST, handle_delete_all);
-    g_wf.server->on("/browser", HTTP_GET, handle_browser);
     g_wf.server->onNotFound(handle_not_found);
     g_wf.server->begin();
 
@@ -1129,7 +1132,12 @@ bool wifi_files_poll(M5Canvas& canvas) {
                     g_wf.show_url_qr = false;
                 }
             }
-            if(clients == 0) g_wf.idle_since_ms = now;
+            if(clients == 0) {
+                g_wf.idle_since_ms = now;
+                // Everyone has left, so a device that joins again (or a new
+                // one given the same address) gets the pop-up again.
+                wifi_files_released_clear(&g_released);
+            }
             redraw = true;
         }
     }

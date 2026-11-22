@@ -552,15 +552,47 @@ static void test_wifi_name_order(void) {
     printf("  Newest-first name order (numbers, nodate, _10 after _9): ok\n");
 }
 
-// Apple's sign-in check is answered "Success" only for a device that chose
-// to continue in Safari; every other device still gets the pop-up.
+// Apple's sign-in check is answered "Success" only for a device whose
+// pop-up has opened, so the pop-up still opens on joining.
 static void test_wifi_apple_sign_in(void) {
-    assert(wifi_files_is_apple_probe("/hotspot-detect.html"));
-    assert(wifi_files_is_apple_probe("/library/test/success.html"));
-    assert(!wifi_files_is_apple_probe("/"));
-    assert(!wifi_files_is_apple_probe("/generate_204"));
-    assert(!wifi_files_is_apple_probe("/hotspot-detect.html/x"));
-    assert(!wifi_files_is_apple_probe(NULL));
+    // Apple's page names, on any address.
+    assert(wifi_files_is_apple_probe("captive.apple.com", "/hotspot-detect.html"));
+    assert(wifi_files_is_apple_probe(NULL, "/hotspot-detect.html"));
+    assert(wifi_files_is_apple_probe("", "/library/test/success.html"));
+    // Any page on an address Apple devices check, in any letter case.
+    assert(wifi_files_is_apple_probe("captive.apple.com", "/"));
+    assert(wifi_files_is_apple_probe("www.thinkdifferent.us", "/a1b2c/d3e4/f5g6.html"));
+    assert(wifi_files_is_apple_probe("WWW.AppleIPhoneCell.com", "/x.html"));
+    assert(wifi_files_is_apple_probe("www.apple.com:80", "/"));
+    // Not Apple's check: our own page, other devices' checks, look-alikes.
+    assert(!wifi_files_is_apple_probe("192.168.4.1", "/"));
+    assert(!wifi_files_is_apple_probe("connectivitycheck.gstatic.com", "/generate_204"));
+    assert(!wifi_files_is_apple_probe("www.msftconnecttest.com", "/connecttest.txt"));
+    assert(!wifi_files_is_apple_probe("captive.apple.com.evil.net", "/"));
+    assert(!wifi_files_is_apple_probe("apple.com", "/"));
+    assert(!wifi_files_is_apple_probe("192.168.4.1", "/hotspot-detect.html/x"));
+    assert(!wifi_files_is_apple_probe(NULL, NULL));
+
+    // User agents as logged from a Mac on 2026-11-22.
+    assert(wifi_files_client_kind("CaptiveNetworkSupport-491.120.4 wispr") ==
+           WifiFilesClientAppleCheck);
+    assert(wifi_files_client_kind("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                                  "AppleWebKit/605.1.15 (KHTML, like Gecko)") ==
+           WifiFilesClientApplePopup);
+    assert(wifi_files_client_kind("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                                  "AppleWebKit/537.36 (KHTML, like Gecko) "
+                                  "Chrome/131.0.0.0 Safari/537.36") == WifiFilesClientBrowser);
+    assert(wifi_files_client_kind("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) "
+                                  "AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148") ==
+           WifiFilesClientApplePopup);
+    assert(wifi_files_client_kind("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) "
+                                  "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 "
+                                  "Mobile/15E148 Safari/604.1") == WifiFilesClientBrowser);
+    assert(wifi_files_client_kind("Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 "
+                                  "(KHTML, like Gecko) Version/4.0 Chrome/131.0 Mobile") ==
+           WifiFilesClientBrowser);
+    assert(wifi_files_client_kind("") == WifiFilesClientBrowser);
+    assert(wifi_files_client_kind(NULL) == WifiFilesClientBrowser);
 
     WifiFilesReleased r;
     wifi_files_released_clear(&r);

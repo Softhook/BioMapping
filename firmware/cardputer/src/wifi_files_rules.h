@@ -8,6 +8,8 @@
 //   - hotspot SSID and Wi-Fi QR code formatting
 //   - human-readable byte sizes and JSON string escaping
 //   - parsing MS-DOS date/time from biomap_NNNN_YYYY-MM-DD_HH-MM-SS.csv filenames
+//   - telling Apple's sign-in check and pop-up apart, and which devices'
+//     checks to answer "Success"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -66,25 +68,41 @@ void wifi_files_dos_datetime_from_name(const char* name,
                                        uint16_t* dos_date,
                                        uint16_t* dos_time);
 
-// ── Apple's Wi-Fi sign-in window ─────────────────────────────────────────
+// ── Apple's Wi-Fi sign-in pop-up ─────────────────────────────────────────
 // On joining a network, Macs, iPhones and iPads fetch a page from Apple
 // (captive.apple.com/hotspot-detect.html; older systems
-// /library/test/success.html). Our DNS points every name at the Cardputer,
+// /library/test/success.html, and pages with made-up names on a few other
+// Apple addresses). Our DNS points every name at the Cardputer,
 // so that fetch reaches us; anything but Apple's "Success" page makes the
-// device open the files page in its sign-in window. That window can't save
-// files, so a device that chooses to continue in Safari is answered with
-// "Success" from then on: the window's Cancel turns into Done, and closing
-// it keeps the device on our Wi-Fi.
+// device open the files page in its sign-in pop-up. That pop-up can't save
+// files. So as soon as the pop-up itself opens, its device is answered
+// "Success" from then on: the pop-up counts as online, shows Done (closing
+// it keeps the device on our Wi-Fi), and on a Mac hands plain links to the
+// normal browser. Apple's own check follows our redirect and loads the page
+// too, so only the pop-up's request, told apart by its user agent, counts.
 
 // The page Apple's check expects back.
 #define WIFI_FILES_APPLE_SUCCESS_HTML \
     "<HTML><HEAD><TITLE>Success</TITLE></HEAD><BODY>Success</BODY></HTML>"
 
-// True for the path of Apple's check (the query string must already be off).
-bool wifi_files_is_apple_probe(const char* path);
+// True for Apple's check: one of its two page names on any address, or any
+// page on one of the addresses Apple devices check. `host` is the request's
+// Host header (letter case and any ":port" ignored; NULL or "" if none);
+// `path` must already have its query string off.
+bool wifi_files_is_apple_probe(const char* host, const char* path);
 
-// The devices (by IPv4 address) that chose to continue in a browser. Kept
-// until the hotspot stops; when full, a new one replaces the oldest.
+// Who sent a request, from its User-Agent header.
+typedef enum {
+    WifiFilesClientBrowser,     // anything else, e.g. Chrome or Safari
+    WifiFilesClientAppleCheck,  // Apple's background "am I online?" check
+    WifiFilesClientApplePopup,  // Apple's Wi-Fi sign-in pop-up window
+} WifiFilesClient;
+
+WifiFilesClient wifi_files_client_kind(const char* user_agent);
+
+// The devices (by IPv4 address) whose sign-in pop-up has opened. Kept
+// until the hotspot stops or every device has left; when full, a new one
+// replaces the oldest.
 #define WIFI_FILES_MAX_RELEASED 8
 typedef struct {
     uint32_t ip[WIFI_FILES_MAX_RELEASED];
