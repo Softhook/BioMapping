@@ -8,8 +8,7 @@
  * for the graph / map colouring.
  *
  * Faithful to NeuroKit2's reference chain (verified against it in
- * tests/manual/neurokit_compare/check_edasymp.js — see
- * docs/edasymp_spectral_investigation_proposal.md):
+ * tests/manual/neurokit_compare/check_edasymp.js):
  *
  *   1. Chebyshev Type I low-pass, order 8, 1 dB ripple, 0.8 Hz (forward).
  *   2. Chebyshev Type I low-pass, order 8, 0.05 dB ripple, 0.8 Hz (zero-phase

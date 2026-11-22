@@ -1,9 +1,9 @@
 /**
- * Unit tests for src/map/globe3d.js (the embedded 3D globe engine).
+ * Unit tests for src/map/globe3d.mjs (the embedded 3D globe engine).
  *
  * GSRGlobeManager is a construct / render / destroy lifecycle that makes no
  * assumption it owns the page — index.html's 3D-surface panel is the only host
- * (see src/map/globe3d_view.js). These lock in:
+ * (see src/map/globe3d_view.mjs). These lock in:
  *   - the module-level helpers (seriesValue, SERIES_FIELD, BASEMAP_PROVIDERS),
  *   - `keyboardFlight: false` really suppresses the window key listeners,
  *   - destroy() removes every listener the constructor added and tears the viewer down,
@@ -1033,7 +1033,7 @@ function parityTrack() {
     raw: [{}, {}],
     phasic: [{ val: 0.2 }, { val: 0.8 }],
     peaks,
-    memorableEvents: [peaks[1]], // a hotspot IS a peak (same object, as in analyzer.js)
+    memorableEvents: [peaks[1]], // a hotspot IS a peak (same object, as in analyzer.mjs)
     getCoordinates: (i) => ({ lat: i * 0.001, lon: i * 0.001 }),
   });
   const drawPoints = [

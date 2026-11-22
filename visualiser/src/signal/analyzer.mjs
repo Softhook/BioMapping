@@ -5,7 +5,7 @@
 // GSR/EDA Signal Analysis Engine with GPS coordinate parsing and interpolation
 // Handles 10 Hz GSR + GPS CSV files (GPS columns empty on rows without a fix).
 //
-// CSV parsing lives in a dedicated pure module (csv_parser.js) so it can be
+// CSV parsing lives in a dedicated pure module (csv_parser.mjs) so it can be
 // tested independently; imported directly below.
 import { GSR_CONST } from '../core/constants.mjs';
 import { GeoUtils } from '../gps/geo_utils.mjs';
@@ -24,6 +24,23 @@ import { PeakShape } from './peak_shape.mjs';
 import { ResponseDelay } from './response_delay.mjs';
 import { ResponseDynamics } from './response_dynamics.mjs';
 import { SpectralEDA } from './spectral_eda.mjs';
+
+/**
+ * Keep the closest {t, pk, diff} pairs first, each store key `t` and each
+ * peak used at most once — for matching stored labels / exclusions to peaks.
+ * @returns {Map<number, object>} store key -> peak
+ */
+function closestOneToOne(pairs) {
+  pairs.sort((a, b) => a.diff - b.diff);
+  const byKey = new Map();
+  const usedPeaks = new Set();
+  for (const { t, pk } of pairs) {
+    if (byKey.has(t) || usedPeaks.has(pk)) continue;
+    byKey.set(t, pk);
+    usedPeaks.add(pk);
+  }
+  return byKey;
+}
 
 export class GSRAnalyzer {
   constructor() {
@@ -55,8 +72,7 @@ export class GSRAnalyzer {
     this.responseDelay = 0;
     this.maxResponseDelay = ResponseDelay.MAX_S;
 
-    // Continuous, threshold-independent arousal metrics (see
-    // docs/environmental_stress_literature_review.md §5-6). These resolve the
+    // Continuous, threshold-independent arousal metrics. These resolve the
     // "thresholding dilemma" and "superposition problem" inherent to discrete
     // peak counting by integrating the phasic signal rather than gating it.
     this.peakDensity = []; // Sliding-window NS-SCR frequency: { time, val } — peaks/minute
@@ -69,7 +85,7 @@ export class GSRAnalyzer {
     this.triIndex = []; // Tri Index (tonic + phasic AUC + peak density) z-scored blend: { time, val }
     this.edasymp = []; // EDASymp spectral sympathetic index: { time, val } — µS²
     // (Posada-Quintero & Chon 2016, 0.045–0.25 Hz band power).
-    // Computed from this.raw by SpectralEDA (spectral_eda.js),
+    // Computed from this.raw by SpectralEDA (spectral_eda.mjs),
     // independent of the filter/detector sliders, and cached
     // across re-analyses keyed on raw identity + length.
     this._edasympCache = null;
@@ -86,7 +102,7 @@ export class GSRAnalyzer {
     // phasic curve it explains (µS, sample-rate-independent). cvxEDA's driver
     // is the coefficient of the discretised Bateman ARMA's A operator, which
     // carries a built-in ~1/Δt gain (its coefficients are built from delta in
-    // the denominator — see cvxeda.js's applyA) — confirmed empirically: at a
+    // the denominator — see cvxeda.mjs's applyA) — confirmed empirically: at a
     // fixed input amplitude, driver scales linearly with sample rate (5/10/20
     // Hz → driver ≈ 0.81–0.84 × sampleRate). So it's a rate (µS/s), not an
     // amplitude — GSR_CONST.DRIVER_UNIT_BY_ALGORITHM carries the display unit
@@ -113,7 +129,7 @@ export class GSRAnalyzer {
     // OSMEnricher.enrichTrack() after it finishes writing osm_* fields onto
     // `raw`). Callers that cache derived data (e.g. GSRUI's environmental
     // dashboard) key their cache on this instead of relying on being told
-    // to invalidate — see docs/archive/visualizer_architecture_refactor_plan.md Phase 2.
+    // to invalidate.
     this._dataVersion = 0;
 
     // ── Reused per-sample series buffers (perf) ──────────────────────────────
@@ -319,15 +335,7 @@ export class GSRAnalyzer {
         if (stored === text && diff <= 1.0) pairs.push({ t, pk, diff });
       }
     }
-    pairs.sort((a, b) => a.diff - b.diff);
-    const byKey = new Map();
-    const usedPeaks = new Set();
-    for (const { t, pk } of pairs) {
-      if (byKey.has(t) || usedPeaks.has(pk)) continue;
-      byKey.set(t, pk);
-      usedPeaks.add(pk);
-    }
-    return byKey;
+    return closestOneToOne(pairs);
   }
 
   /**
@@ -392,15 +400,7 @@ export class GSRAnalyzer {
         if (diff <= 1.0) pairs.push({ t, pk, diff });
       }
     }
-    pairs.sort((a, b) => a.diff - b.diff);
-    const byKey = new Map();
-    const usedPeaks = new Set();
-    for (const { t, pk } of pairs) {
-      if (byKey.has(t) || usedPeaks.has(pk)) continue;
-      byKey.set(t, pk);
-      usedPeaks.add(pk);
-    }
-    return byKey;
+    return closestOneToOne(pairs);
   }
 
   /** Apply the stored exclusion decisions to freshly detected peaks. @private */
@@ -572,7 +572,7 @@ export class GSRAnalyzer {
   }
 
   // Time/date formatting implementations live in AnalyzerTimeFormat
-  // (analyzer_time_format.js); these wrappers just pass recordingStartTime.
+  // (analyzer_time_format.mjs); these wrappers just pass recordingStartTime.
 
   /** Clock time for `relativeSeconds`, e.g. "14:32:05" (relative "M:SS" fallback). */
   formatClockTime(relativeSeconds) {
@@ -606,7 +606,7 @@ export class GSRAnalyzer {
   /**
    * Parse CSV string into raw time/value objects with GPS columns.
    * Interpolates GPS coordinates to reconstruct a continuous 10 Hz path.
-   * Delegates all parsing to the pure GSRCSVParser (csv_parser.js); this
+   * Delegates all parsing to the pure GSRCSVParser (csv_parser.mjs); this
    * method only maps the parser's result back onto analyzer state.
    */
   parseCSV(csvText) {
@@ -1413,7 +1413,7 @@ export class GSRAnalyzer {
         // clamped down to n-1, which can pull predicted-halfWin below onsetIdx
         // — without this, the search could return an apex earlier than its own
         // onset, which is physically nonsensical and breaks anything iterating
-        // the [onsetIndex, index] range (e.g. renderer.js's shaded-region draw).
+        // the [onsetIndex, index] range (e.g. the graph's shaded-region draw).
         const lo = Math.max(0, onsetIdx, predicted - apexSearchHalfWin);
         const hi = Math.min(n - 1, predicted + apexSearchHalfWin);
         let bestIdx = Math.max(onsetIdx, predicted),
@@ -1712,7 +1712,7 @@ export class GSRAnalyzer {
   }
 
   /**
-   * Bundles the analyzer state the peak_shape.js / peak_detectors.js pure
+   * Bundles the analyzer state the peak_shape.mjs / peak_detectors.mjs pure
    * modules need but don't own themselves: the filtered series (noise-floor
    * estimation) and a bound reference to this._topographicProminence (not
    * the module's own implementation directly) so tests that stub
@@ -2172,7 +2172,7 @@ export class GSRAnalyzer {
    * @param {number} wPhasic - Weight for phasic AUC component (default: 0.7)
    * @param {Array|null} precomputedAUC - Optional already-computed phasicAUC array
    *   (same 30 s window). When supplied by analyze(), skips the redundant
-   *   computePhasicAUC(30) call (§B perf fix 2026-08-07).
+   *   computePhasicAUC(30) call.
    * @param {{first:number,last:number}|null} [range] - rows the mean/std are
    *   taken from (default: all).
    */
@@ -2231,7 +2231,7 @@ export class GSRAnalyzer {
 
   /**
    * EDASymp (0.045–0.25 Hz spectral sympathetic index) — Posada-Quintero &
-   * Chon (2016), computed by the pure SpectralEDA module (spectral_eda.js).
+   * Chon (2016), computed by the pure SpectralEDA module (spectral_eda.mjs).
    *
    * Runs on the raw (pre-filter) µS signal so it is independent of the
    * median / low-pass / tonic / detector sliders — a standalone spectral

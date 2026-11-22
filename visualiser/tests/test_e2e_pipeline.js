@@ -20,9 +20,9 @@ loadModule(path.join(__dirname, '../src/signal/stats_math.mjs'));
 loadModule(path.join(__dirname, '../src/map/map_colors.mjs'));
 loadModule(path.join(__dirname, '../src/gps/gps_cv_kalman.mjs'));
 loadModule(path.join(__dirname, '../src/gps/gps_pipeline.mjs'));
-loadModule(path.join(__dirname, '../src/signal/dwt_filter.mjs')); // needed by analyzer.js
-loadModule(path.join(__dirname, '../src/signal/gsr_filter.mjs')); // needed by analyzer.js
-loadModule(path.join(__dirname, '../src/signal/csv_parser.mjs')); // needed by analyzer.js
+loadModule(path.join(__dirname, '../src/signal/dwt_filter.mjs')); // needed by analyzer.mjs
+loadModule(path.join(__dirname, '../src/signal/gsr_filter.mjs')); // needed by analyzer.mjs
+loadModule(path.join(__dirname, '../src/signal/csv_parser.mjs')); // needed by analyzer.mjs
 
 global.window = global;
 loadModule(path.join(__dirname, '../src/signal/analyzer.mjs'));

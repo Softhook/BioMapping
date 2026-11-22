@@ -49,7 +49,7 @@ export class RFFluidRenderer {
     this._canvasTopLeftLayer = { x: 0, y: 0 };
     this.enabled = true;
 
-    // Phase 5: per-track fan-cast cache. Key is whatever id setDataForTracks()
+    // Per-track fan-cast cache. Key is whatever id setDataForTracks()
     // was called with (a track id, or '__single__' via the setData() wrapper).
     // Each entry holds the expensive-to-compute nodes/buildingPolygons for one
     // track, plus the inputs that produced them — a track whose drawPoints/
@@ -233,7 +233,7 @@ export class RFFluidRenderer {
 
   /**
    * Blank the canvas immediately without touching the per-track fan cache.
-   * clearMap()/clearCollectiveLayers() (map.js) call this at the START of every
+   * clearMap()/clearCollectiveLayers() (map/manager/) call this at the START of every
    * render pass as a "definitely no orphaned RF fluid" safety net, immediately
    * followed by a real setData()/setDataForTracks() call later in the same pass
    * — using setData([], null) here instead would prune every track's cached fan
@@ -313,8 +313,8 @@ export class RFFluidRenderer {
    * segment is inserted into every cell its own bbox spans. Cell size only
    * affects how many segments land in the queried range (perf, not output).
    */
-  // Delegates its bucket mechanics to the shared SpatialGrid (spatial_grid.js)
-  // — see that file's doc comment for why this and osm_enrichment.js's
+  // Delegates its bucket mechanics to the shared SpatialGrid (spatial_grid.mjs)
+  // — see that file's doc comment for why this and osm_enrichment.mjs's
   // buildSpatialIndex keep separate padding/dedup policies on top of it
   // instead of merging into one shared query method.
   _buildSegmentGrid(buildingSegmentsGeo, cellSizeLat, cellSizeLon) {

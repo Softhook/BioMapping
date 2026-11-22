@@ -2,7 +2,7 @@
  * The "Live" view tab in the MAIN app (index.html).
  *
  * The Live receiver is now built straight into #livePanel by
- * GSRLiveView.mount() (src/live/live_view.js) — the same code path
+ * GSRLiveView.mount() (src/live/live_view.mjs) — the same code path
  * standalone live.html uses — the first time the third header tab
  * (Single Track / Collective / Live) is opened, then left mounted so an
  * active BLE session survives a tab round-trip. These tests pin that
@@ -76,12 +76,12 @@ test('#livePanel starts empty — the live UI is not built until the tab is firs
 });
 
 // ==========================================================================
-// Mobile lands on Live by default (src/ui/events.js's bindViewSwitcher(),
-// reusing GSRLiveView.isCompactLayout() — the exact same width+pointer check
-// the Live view itself uses for its own map-first default). Desktop is
-// unaffected. The tab row stays visible/clickable either way — the escape
-// hatch back to Single Track for a misdetected device or a phone user who
-// actually wants to browse/load a CSV.
+// Mobile lands on Live by default (src/ui/events_view_switcher.mjs's
+// bindViewSwitcher(), reusing GSRLiveView.isCompactLayout() — the exact same
+// width+pointer check the Live view itself uses for its own map-first default).
+// Desktop is unaffected. The tab row stays visible/clickable either way — the
+// escape hatch back to Single Track for a misdetected device or a phone user
+// who actually wants to browse/load a CSV.
 // ==========================================================================
 
 test('a desktop boot (the default matchMedia stub) still lands on Single Track, as today', async () => {

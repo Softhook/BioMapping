@@ -29,14 +29,14 @@ export const GSRLayoutManager = {
   // no-change resize notifications (a ResizeObserver that acts on unchanged
   // sizes synchronously is the classic source of the browser's benign
   // "ResizeObserver loop completed with undelivered notifications" diagnostic,
-  // which GSRNotices would otherwise surface as red toasts — see notices.js).
+  // which GSRNotices would otherwise surface as red toasts — see notices.mjs).
   _lastSizes: {},
   // rAF token for coalescing bursts of resize notifications into one layout pass.
   _resizeRaf: null,
   _pendingResize: null,
 
   // Fullscreen/visibility handling is delegated to GSRFullscreen
-  // (src/core/fullscreen.js) — the shared wrapper both entry points load. It
+  // (src/core/fullscreen.mjs) — the shared wrapper both entry points load. It
   // adds the one behaviour the inline helpers never had: re-asserting
   // fullscreen when the page comes back visible after the OS dropped it (phone
   // lock / app switch). Every fullscreen read/write below goes through

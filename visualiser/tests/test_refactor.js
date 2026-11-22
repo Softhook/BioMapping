@@ -2,7 +2,7 @@
  * Comprehensive regression test suite for the BioMapping GSR analyser refactoring.
  *
  * Tests all pure functions from the five extracted modules:
- *   geo_utils.js, stats_math.js, map_colors.js, gps_pipeline.js
+ *   geo_utils.mjs, stats_math.mjs, map_colors.mjs, gps_pipeline.mjs
  *
  * Run: node tests/test_refactor.js
  */
@@ -79,9 +79,9 @@ function summary() {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-//  1. geo_utils.js
+//  1. geo_utils.mjs
 // ────────────────────────────────────────────────────────────────────────────
-console.log('\n── geo_utils.js ──');
+console.log('\n── geo_utils.mjs ──');
 
 // 1a. haversineMeters — zero distance
 {
@@ -174,9 +174,9 @@ assertEq(GeoUtils.EARTH_RADIUS_M, 6371000, 'EARTH_RADIUS_M = 6,371,000');
 assertEq(GeoUtils.METERS_PER_DEG_LAT, 111320, 'METERS_PER_DEG_LAT = 111,320');
 
 // ────────────────────────────────────────────────────────────────────────────
-//  2. stats_math.js
+//  2. stats_math.mjs
 // ────────────────────────────────────────────────────────────────────────────
-console.log('\n── stats_math.js ──');
+console.log('\n── stats_math.mjs ──');
 
 // 2a. calculatePearsonCorrelation — perfect positive
 {
@@ -256,9 +256,9 @@ console.log('\n── stats_math.js ──');
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-//  3. map_colors.js
+//  3. map_colors.mjs
 // ────────────────────────────────────────────────────────────────────────────
-console.log('\n── map_colors.js ──');
+console.log('\n── map_colors.mjs ──');
 
 // 3a. getHslColor — ratio 0 → green (hue=120)
 {
@@ -361,9 +361,9 @@ assertEq(
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-//  4. gps_pipeline.js — gates and RDP
+//  4. gps_pipeline.mjs — gates and RDP
 // ────────────────────────────────────────────────────────────────────────────
-console.log('\n── gps_pipeline.js: gates + RDP ──');
+console.log('\n── gps_pipeline.mjs: gates + RDP ──');
 
 // 4b. applyHdopGate — filters high HDOP
 {
@@ -416,9 +416,9 @@ console.log('\n── gps_pipeline.js: gates + RDP ──');
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-//  5. gps_pipeline.js
+//  5. gps_pipeline.mjs
 // ────────────────────────────────────────────────────────────────────────────
-console.log('\n── gps_pipeline.js ──');
+console.log('\n── gps_pipeline.mjs ──');
 
 // 5b. applySnapCorrection — blends GPS with snap data
 {
@@ -446,10 +446,10 @@ console.log('\n── gps_pipeline.js ──');
   assertEq(result[0].lat, 50, 'SnapCorrection no-ops with empty snap data');
 }
 
-// 5c2. isPlausibleGap — shared gap criterion used by both reconstructFilteredGps
-// (interpolate vs blank) and the map renderer's path-segment breaking
-// (manager/path.js's _renderPathSegments)
-// Walking pace, well under maxSpeed → plausible
+// 5c2. isPlausibleGap — shared gap criterion used by both
+// reconstructFilteredGps (interpolate vs blank) and the map renderer's
+// path-segment breaking (manager/path.mjs's _renderPathSegments) Walking pace,
+// well under maxSpeed → plausible
 assert(
   GpsPipeline.isPlausibleGap(10, 8, 3.0),
   'isPlausibleGap: slow, short gap is plausible',

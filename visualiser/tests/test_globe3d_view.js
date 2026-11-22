@@ -6,8 +6,8 @@
  * throwing when Cesium can't load. The single map-panel header's controls
  * dispatch to whichever engine is mounted (GSRGlobe3DView.applyToggle / etc.).
  *
- * See tests/support/boot_app.js for the harness; src/map/globe3d_view.js and
- * src/ui/events.js (bindSurfaceSwitcher) for the code under test.
+ * See tests/support/boot_app.js for the harness; src/map/globe3d_view.mjs and
+ * src/ui/events_surface_switcher.mjs (bindSurfaceSwitcher) for the code under test.
  */
 
 const assert = require('node:assert');
@@ -263,7 +263,7 @@ test('the map header OSM button toggles 3D buildings (shared OSM data) while the
   V.manager = {
     show3DBuildings: false,
     cachedOsmJson: null,
-    // mirrors the real GSRGlobeManager: the flag flips synchronously (globe3d.js)
+    // mirrors the real GSRGlobeManager: the flag flips synchronously (globe3d.mjs)
     toggle3DBuildings: function (on, style) {
       this.show3DBuildings = on;
       calls.push([on, style]);
@@ -579,7 +579,7 @@ test('_editPeakLabel mounts the map peak popup in the globe container and closes
     'popup mounted with the map card',
   );
   // No close button: it's redundant now that Escape/click-outside dismisses
-  // the popup (see _popupDismiss in globe3d_view.js), and it only ate into
+  // the popup (see _popupDismiss in globe3d_view.mjs), and it only ate into
   // the label textarea's space.
   assert.ok(
     !pop.querySelector('.globe3d-peak-popup-close'),

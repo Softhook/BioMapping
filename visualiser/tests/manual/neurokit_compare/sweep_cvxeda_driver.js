@@ -81,7 +81,7 @@ function summarize(result) {
   return { ...result, recall, precision, f1 };
 }
 
-// Mirrors the candidate-generation block in analyzer.js's
+// Mirrors the candidate-generation block in analyzer.mjs's
 // _runDeconvolutionPipeline cvxEDA branch exactly (driver local-max scan +
 // min-gap, then apex resolution via a kernel-offset search window) so this
 // sweep's numbers are faithful to what production code would actually do at

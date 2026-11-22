@@ -290,7 +290,7 @@ assert(
 //    can have near-zero topographic prominence (a crest micro-wiggle splits its
 //    apex). Ranking hotspots by prominence would bury it; ranking by amplitude
 //    keeps it #1. _selectMemorableEvents() only reads p.amplitude in full-scan
-//    mode (see analyzer.js), so this exercises that directly on the real
+//    mode (see analyzer.mjs), so this exercises that directly on the real
 //    biggest peak with its prominence field forced to near-zero — independent
 //    of which real recording/filter combination happens to produce that
 //    quirk naturally, which drifts whenever the default LPF stage changes. ──

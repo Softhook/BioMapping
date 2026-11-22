@@ -1,7 +1,7 @@
 /**
  * Filter-alternatives race: production's 0.5s box LPF exists to knock down
  * a ~1-3Hz walking-gait/tremor artefact (see the `lpfWindow` comment in
- * constants.js) - but check_ground_truth.js's amplitude-accuracy scoring
+ * constants.mjs) - but check_ground_truth.js's amplitude-accuracy scoring
  * found that same filter systematically UNDERESTIMATES true SCR amplitude
  * by ~28% (regression slope 0.72, r=0.9999 - a clean linear attenuation
  * traced directly to the box filter itself: lpfWindow=0 -> slope 0.98).
@@ -50,7 +50,7 @@ const D = global.GSR_CONST.GSR_DEFAULT;
 
 const originalBoxLPF = GsrFilter.applyZeroPhaseMovingAverage.bind(GsrFilter);
 
-// decomposeTonicPhasic (gsr_filter.js) makes its OWN internal call to
+// decomposeTonicPhasic (gsr_filter.mjs) makes its OWN internal call to
 // this.applyZeroPhaseMovingAverage for its local-floor offset curve (a fixed
 // 4s window, unrelated to whichever main-LPF candidate this file is
 // swapping in) - sharing the same function slot the candidates below
@@ -149,8 +149,8 @@ function whittakerSmooth(y, lambda) {
   return z;
 }
 
-// ── Zero-phase Linkwitz-Riley LR4 & Butterworth are now SHIPPED (gsr_filter.js's
-// applyZeroPhaseLinkwitzRiley & applyZeroPhaseButterworth, wired into analyzer.js behind
+// ── Zero-phase Linkwitz-Riley LR4 & Butterworth are now SHIPPED (gsr_filter.mjs's
+// applyZeroPhaseLinkwitzRiley & applyZeroPhaseButterworth, wired into analyzer.mjs behind
 // the useGaitFilter toggle - on by default, independent of GPS presence) - candidates below
 // call the real production function directly, both to sweep cutoffs and as
 // a regression check that the shipped implementation still reproduces the
@@ -293,7 +293,7 @@ const useOriginalBox = () => {
 };
 // lambda has no "window in samples" equivalent - it's a continuous roughness
 // penalty, not a discrete width - so these candidates ignore the ws argument
-// analyzer.js computes from lpfWindow entirely; lpfWindow is set to a dummy
+// analyzer.mjs computes from lpfWindow entirely; lpfWindow is set to a dummy
 // nonzero value below purely so it reads sensibly in the per-scenario header.
 const useWhittaker = (lambda) => () => {
   GsrFilter.applyZeroPhaseMovingAverage = (arr) => whittakerSmooth(arr, lambda);
@@ -540,7 +540,7 @@ const CANDIDATES = [
   // (lpfWindow=0), to isolate whether the shape-matching stage alone, given
   // unsmoothed input, can do the separation job by itself. Explicit
   // usePeakProminence:false is required - it otherwise wins precedence over
-  // useDeconvolution/useCvxEDA in analyzer.js's detector selection.
+  // useDeconvolution/useCvxEDA in analyzer.mjs's detector selection.
   [
     'MP deconv, no LPF',
     useOriginalBox,
@@ -583,7 +583,7 @@ const nkAll =
     ? JSON.parse(fs.readFileSync(nkPath, 'utf8'))
     : {};
 
-// lpfWindow is in SECONDS in GSR_DEFAULT but analyzer.js converts to samples
+// lpfWindow is in SECONDS in GSR_DEFAULT but analyzer.mjs converts to samples
 // itself (params.lpfWindow * this.sampleRate) before calling
 // applyZeroPhaseMovingAverage - so windowSize arriving at our override is
 // already in SAMPLES.

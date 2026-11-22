@@ -95,15 +95,6 @@ test('every relative source path used by tests/ resolves inside visualiser/', ()
       }
 
       if (fs.existsSync(resolved) || fs.existsSync(`${resolved}.js`)) continue;
-      // src/ files are .mjs, so a reference written as .js resolves to its
-      // .mjs file — same .js/.mjs resolution rule as
-      // tests/support/load_module.js, which every loadModule('../src/…')
-      // reference in this walk goes through at runtime.
-      if (
-        resolved.endsWith('.js') &&
-        fs.existsSync(resolved.replace(/\.js$/, '.mjs'))
-      )
-        continue;
       broken.push(`${path.relative(VIS_DIR, file)} → '${ref}'`);
     }
   }

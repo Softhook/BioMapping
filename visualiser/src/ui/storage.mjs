@@ -12,9 +12,9 @@ import { GSRNotices } from '../core/notices.mjs';
 import { GPS_SLIDER_DEFS } from './events_slider_defs.mjs';
 
 /**
- * Typed slider value reader with automatic fallback.
- * Prevents the null-guard pattern from being copy-pasted with different
- * hardcoded defaults that drift out of sync with constants.js.
+ * Typed slider value reader with automatic fallback. Prevents the null-guard
+ * pattern from being copy-pasted with different hardcoded defaults that drift
+ * out of sync with constants.mjs.
  *
  * @param {HTMLElement|null} el       - Slider or select element (may be null)
  * @param {*}                fallback - Default value when el is null/absent
@@ -62,7 +62,6 @@ export const GSRStorage = {
 
   /**
    * Read current GSR slider values into a clean param object.
-   * Shared by tracks.js, storage.js, and ui.js.
    * This is the canonical source — always add new GSR sliders here first.
    */
   readGsrSliderValues() {
@@ -101,7 +100,6 @@ export const GSRStorage = {
 
   /**
    * Read current GPS slider values into a clean param object.
-   * Shared by tracks.js and storage.js.
    * This is the canonical source — always add new GPS sliders here first.
    */
   readGpsSliderValues() {
@@ -127,7 +125,6 @@ export const GSRStorage = {
 
   /**
    * Write GPS and spatial clustering slider values to the DOM.
-   * Shared by tracks.js and storage.js.
    *
    * @param {object} gps - GPS parameter values.
    * @param {{skipKeys?: string[]}} [opts] - keys to leave untouched

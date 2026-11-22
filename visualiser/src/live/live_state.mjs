@@ -1,11 +1,11 @@
 /**
  * LiveState — the live receiver's connection status + accumulated packet
- * buffer + a tiny listener/emit() bus, matching src/core/app_state.js's
+ * buffer + a tiny listener/emit() bus, matching src/core/app_state.mjs's
  * shape (same pattern, not the same object — the live view has no
  * dependency on AppState).
  *
  * Pure: no DOM, no transport. GSRLiveBluetoothManager (src/live/
- * live_bluetooth.js) feeds it decoded packets via addPacket(); the view
+ * live_bluetooth.mjs) feeds it decoded packets via addPacket(); the view
  * layer subscribes with on('status'|'packet', …). Exported as an ES module
  * and imported by live modules.
  */
@@ -26,9 +26,9 @@ export const LiveState = {
   packets: [],
   gapCount: 0,
 
-  // docs/archive/bluetooth_serial_investigation.md §3's BT_STREAM_INTERVAL_MS
-  // (biomap_types.h) — kept in sync manually; a real send-interval change
-  // on the firmware side needs the same number updated here.
+  // The firmware's BT_STREAM_INTERVAL_MS (core/biomap_types.h) — kept in sync
+  // by hand; a real send-interval change on the firmware side needs the same
+  // number updated here.
   STREAM_INTERVAL_S: 0.3,
 
   _listeners: {},

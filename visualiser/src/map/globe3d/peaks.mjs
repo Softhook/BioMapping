@@ -163,7 +163,7 @@ export class GSRGlobePeaks extends GSRGlobeRf {
       );
 
       // Faint connector from where the peak was recorded to where it is drawn
-      // — the 3D counterpart of the 2D dashed rose line (map.js).
+      // — the 3D counterpart of the 2D dashed rose line (map/manager/peaks.mjs).
       if (analyzer.responseDelay > 0 && this.viewer && this.viewer.entities) {
         const orig = analyzer.getCoordinates(peak.index);
         if (
@@ -224,39 +224,30 @@ export class GSRGlobePeaks extends GSRGlobeRf {
       }
 
       if (labelText && this.showLabels) {
+        const label = {
+          text: labelText,
+          font: C.labelFont,
+          style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+          fillColor: Cesium.Color.WHITE,
+          outlineColor: C.labelOutline,
+          outlineWidth: C.labelOutlineWidth,
+          verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+          pixelOffset: C.labelOffset,
+          eyeOffset: C.labelEyeOffset,
+          disableDepthTestDistance: Number.POSITIVE_INFINITY,
+          distanceDisplayCondition: C.labelDDC,
+        };
         if (this._peakLabels && typeof this._peakLabels.add === 'function') {
           this._peakLabels.add({
             position: markerPos,
-            text: labelText,
-            font: C.labelFont,
-            style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-            fillColor: Cesium.Color.WHITE,
-            outlineColor: C.labelOutline,
-            outlineWidth: C.labelOutlineWidth,
-            verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
-            pixelOffset: C.labelOffset,
-            eyeOffset: C.labelEyeOffset,
-            disableDepthTestDistance: Number.POSITIVE_INFINITY,
-            distanceDisplayCondition: C.labelDDC,
+            ...label,
             id: { _biomapPeakIndex: peakIdx },
           });
         } else if (this.viewer?.entities) {
           this.viewer.entities.add({
             name: `Peak ${i + 1} label`,
             position: markerPos,
-            label: {
-              text: labelText,
-              font: C.labelFont,
-              style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-              fillColor: Cesium.Color.WHITE,
-              outlineColor: C.labelOutline,
-              outlineWidth: C.labelOutlineWidth,
-              verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
-              pixelOffset: C.labelOffset,
-              eyeOffset: C.labelEyeOffset,
-              disableDepthTestDistance: Number.POSITIVE_INFINITY,
-              distanceDisplayCondition: C.labelDDC,
-            },
+            label,
           });
         }
       }
@@ -297,23 +288,27 @@ export class GSRGlobePeaks extends GSRGlobeRf {
       const wallHeight = this._peakWallHeight(analyzer, peak);
       const tipHeight = wallHeight + 11.0; // sits above the regular peak circle
 
+      const position = Cesium.Cartesian3.fromDegrees(
+        coords.lon,
+        coords.lat,
+        tipHeight,
+      );
+      const label = {
+        text: '★',
+        font: '700 14px "Helvetica Neue", Arial, sans-serif',
+        style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+        fillColor: C.hotspotRed,
+        outlineColor: C.labelOutline,
+        outlineWidth: 2,
+        verticalOrigin: Cesium.VerticalOrigin.CENTER,
+        horizontalOrigin: Cesium.HorizontalOrigin.CENTER,
+        eyeOffset: C.labelEyeOffset,
+        disableDepthTestDistance: Number.POSITIVE_INFINITY,
+      };
       if (useLabels) {
         const star = this._hotspotLabels.add({
-          position: Cesium.Cartesian3.fromDegrees(
-            coords.lon,
-            coords.lat,
-            tipHeight,
-          ),
-          text: '★',
-          font: '700 14px "Helvetica Neue", Arial, sans-serif',
-          style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-          fillColor: C.hotspotRed,
-          outlineColor: C.labelOutline,
-          outlineWidth: 2,
-          verticalOrigin: Cesium.VerticalOrigin.CENTER,
-          horizontalOrigin: Cesium.HorizontalOrigin.CENTER,
-          eyeOffset: C.labelEyeOffset,
-          disableDepthTestDistance: Number.POSITIVE_INFINITY,
+          position,
+          ...label,
           id: { _biomapPeakIndex: peakIdx },
         });
         star._biomapPeakIndex = peakIdx;
@@ -322,23 +317,8 @@ export class GSRGlobePeaks extends GSRGlobeRf {
       } else if (this.viewer?.entities) {
         const star = this.viewer.entities.add({
           name: 'Hotspot',
-          position: Cesium.Cartesian3.fromDegrees(
-            coords.lon,
-            coords.lat,
-            tipHeight,
-          ),
-          label: {
-            text: '★',
-            font: '700 14px "Helvetica Neue", Arial, sans-serif',
-            style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-            fillColor: C.hotspotRed,
-            outlineColor: C.labelOutline,
-            outlineWidth: 2,
-            verticalOrigin: Cesium.VerticalOrigin.CENTER,
-            horizontalOrigin: Cesium.HorizontalOrigin.CENTER,
-            eyeOffset: C.labelEyeOffset,
-            disableDepthTestDistance: Number.POSITIVE_INFINITY,
-          },
+          position,
+          label,
         });
         star._biomapPeakIndex = peakIdx;
         this.hotspotEntities.push(star);

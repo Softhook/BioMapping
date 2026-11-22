@@ -1,15 +1,13 @@
 /**
- * GSRMapManager — OSM vector geometry overlays (parks, water, buildings).
- * Prototype-augment split from map.js: loaded immediately after map.js, adds
- * these methods to GSRMapManager.prototype.
+ * GSRMapManager — OSM vector geometry overlays (parks, water, buildings);
+ * one link of the class chain in map/map.mjs.
  *
  * `drawOsmShapes(geoms)` groups same-style features into at most three
  * multi-ring L.polygon layers (park / water / building), plus one L.polyline
- * layer for waterways mapped as lines, and tracks them in this.osmLayers; `clearOsmShapes()` removes them. It also feeds the current
- * draw points + geoms to this.rfFluidRenderer.
- *
- * Depends on the globals L and AppState (resolved at call time) and on
- * this._getOrBuildDrawPoints (manager/process.js).
+ * layer for waterways mapped as lines, and tracks them in this.osmLayers;
+ * `clearOsmShapes()` removes them. It also feeds the current draw points
+ * (this._getOrBuildDrawPoints, manager/process.mjs) + geoms to
+ * this.rfFluidRenderer.
  */
 import { AppState } from '../../core/app_state.mjs';
 import { NDVISampler } from '../../osm/ndvi_sampler.mjs';
@@ -112,10 +110,8 @@ export class GSRMapOsm extends GSRMapLegend {
       // water is still a line on the ground; an open park or building piece
       // is just an incomplete outline and is left out.
       const addWay = (way) => {
-        const n = way.nodes;
-        const isOpen = n?.length && n[0] !== n[n.length - 1];
         const latLngs = way.coordinates.map((pt) => [pt.lat, pt.lon]);
-        if (!isOpen) {
+        if (!OSMEnricher.isOpenWay(way)) {
           if (latLngs.length > 2) rings.push(latLngs);
         } else if (category === 'water' && latLngs.length > 1) {
           waterLines.push(latLngs);

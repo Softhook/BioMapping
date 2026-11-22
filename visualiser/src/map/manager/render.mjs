@@ -1,19 +1,15 @@
 /**
- * GSRMapManager — single-track render orchestration. Prototype-augment split
- * from map.js: loaded immediately after map.js, adds these methods to
- * GSRMapManager.prototype.
+ * GSRMapManager — single-track render orchestration. The last link of the
+ * class chain described in map/map.mjs.
  *
  * renderData() is the full single-track rebuild: clear, resolve the active
  * track's layerGroup, run the GPS pipeline, draw path + peak + hotspot layers
- * (via the manager/path.js / manager/peaks.js methods), fit the
+ * (via the manager/path.mjs / manager/peaks.mjs methods), fit the
  * viewport on a track change, emit 'map:rendered'. refreshPeakMarkers() /
  * refreshPath() are the partial re-renders (label edit, colour-metric change)
  * that strip one kind-family and re-run a single renderer via
  * _refreshTrackLayers() / _stripOwnedLayersByKind(); both fall back to a full
  * renderData() when there is no managed track.
- *
- * Depends on the global AppState (resolved at call time); everything else it
- * calls is another GSRMapManager prototype method.
  */
 import { AppState } from '../../core/app_state.mjs';
 import { GSRMapToggles } from './toggles.mjs';
@@ -38,7 +34,7 @@ export class GSRMapRender extends GSRMapToggles {
     const data = analyzer.raw;
     if (!data || data.length === 0) return;
 
-    // Phase 1 (slice 1): resolve the active track's layerGroup — its single
+    // Resolve the active track's layerGroup — its single
     // render handle. Path/peak/hotspot layers below are added INTO this group
     // (which is on the map), never directly onto the map. When there is no
     // managed track for this analyzer (e.g. cacheKey 'single' fallback), the
@@ -121,7 +117,7 @@ export class GSRMapRender extends GSRMapToggles {
     }
 
     // Let the 3D globe (if mounted) pull the fresh drawPoints / metric / legend
-    // range. See src/map/globe3d_view.js.
+    // range. See src/map/globe3d_view.mjs.
     AppState.emit('map:rendered');
   }
 
@@ -162,12 +158,11 @@ export class GSRMapRender extends GSRMapToggles {
   /**
    * Re-render ONLY the active track's peak markers (+ connector lines +
    * spatial-cluster blobs) instead of the full renderData() path/peak/hotspot
-   * rebuild. For changes that only affect peak data — e.g. a label edit,
-   * which changes at most one on-map label chip plus label-collision layout
-   * for the rest — renderData()'s full clearMap()+rebuild is disproportionate
-   * cost (see docs/archive/visualizer_rendering_perf_routes.md §2.2): rebuilding
-   * every path polyline segment and every hotspot marker for a text-only
-   * change on tracks with hundreds/thousands of peaks.
+   * rebuild. For changes that only affect peak data — e.g. a label edit, which
+   * changes at most one on-map label chip plus label-collision layout for the
+   * rest — renderData()'s full clearMap()+rebuild is disproportionate cost:
+   * rebuilding every path polyline segment and every hotspot marker for a
+   * text-only change on tracks with hundreds/thousands of peaks.
    *
    * Falls back to the full renderData() when there's no resolvable managed
    * track (the legacy no-track fallback — see _getTrackLayerGroup's doc
@@ -188,11 +183,10 @@ export class GSRMapRender extends GSRMapToggles {
    *   invisible to the Arousal Places clusterer (GSRSpatialClustering
    *   .compactClusters() + GSRArousalPlaces.buildPlaces() — lat/lon/amplitude
    *   per non-excluded peak plus phasic, see _renderArousalPlacesFor()) — a
-   *   label edit qualifies (ui.js: updatePeakLabel()), an exclusion toggle
-   *   does NOT (ui.js: togglePeakExclusion() must omit this / pass false,
-   *   since excluding a peak changes the active-peak set). Found and added
-   *   via real A/B benchmarking (docs/archive/visualizer_rendering_perf_routes.md
-   *   §2.4) — clustering was ~33ms of a ~36ms single-track refresh, the
+   *   label edit qualifies (ui_peaks_table.mjs: updatePeakLabel()), an exclusion toggle
+   *   does NOT (togglePeakExclusion() must omit this / pass false,
+   *   since excluding a peak changes the active-peak set). Measured:
+   *   clustering was ~33ms of a ~36ms single-track refresh, the
    *   reason this method was only ~1.1x faster than a full renderData()
    *   rebuild for a label edit despite already skipping path/hotspot work.
    *   (The compute is now also fingerprint-cached — see
@@ -250,8 +244,7 @@ export class GSRMapRender extends GSRMapToggles {
   /**
    * Re-render ONLY the active track's path segments — used by the map-
    * colouring-metric dropdown, which changes how the path is coloured but
-   * leaves peak/hotspot positions and popups untouched (see
-   * docs/archive/visualizer_rendering_perf_routes.md §2.2). Same shape as
+   * leaves peak/hotspot positions and popups untouched. Same shape as
    * refreshPeakMarkers(): remove just the 'path' layers from the track's
    * owned-layers registry and layerGroup, then re-run the path renderer.
    *

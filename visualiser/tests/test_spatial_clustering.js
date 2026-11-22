@@ -1,5 +1,5 @@
 /**
- * Unit tests for spatial_clustering.js (GSRSpatialClustering) — pure
+ * Unit tests for spatial_clustering.mjs (GSRSpatialClustering) — pure
  * geodesic peak clustering and concave-boundary generation, no DOM/Leaflet
  * dependency.
  *
@@ -689,8 +689,8 @@ test('getConcaveBlob: every returned path contains at least one of the cluster p
   }
 });
 
-// ─── getConcaveBlob perf fix (2026-08-07): cutoff + splat restructuring ───
-// docs/archive/visualizer_architecture_refactor_plan.md Phase 7. The density-grid
+// ─── getConcaveBlob: cutoff + splat restructuring ──────────────────────────
+// The density-grid
 // loop used to scan every (grid cell, peak) pair unconditionally; it now
 // (a) skips Math.exp() for pairs beyond a 6-sigma cutoff (negligible
 // contribution) and (b) only touches the small window of cells that could

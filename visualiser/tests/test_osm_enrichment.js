@@ -1,6 +1,6 @@
 /**
  * Regression test suite for the OSM environmental enrichment system:
- *   osm_enrichment.js (OSMEnricher) and map_match.js (MapMatcher).
+ *   osm_enrichment.mjs (OSMEnricher) and map_match.mjs (MapMatcher).
  *
  * Neither module previously had any automated test coverage — this suite
  * exercises the pure spatial-math and pipeline-orchestration pieces of
@@ -1884,7 +1884,7 @@ console.log('\n── OSMEnricher: enrichTrack (integration, no snapping) ──
 }
 
 // 7c. Two tracks enriched against the SAME shared osmJson reference (the
-// collective-mode case: ui.js fetches one osmJson for a union bbox and
+// collective-mode case: ui_enrichment.mjs fetches one osmJson for a union bbox and
 // enriches every active track against it) end up with === identical
 // analyzer.osmGeoms — reconstructGeometries() isn't redone per track.
 {

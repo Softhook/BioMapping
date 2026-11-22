@@ -160,7 +160,7 @@ assertEq(
 // unrelated to overlap, and it fired just as hard on isolated SCRs as on
 // genuinely dense ones.
 //
-// The fix (analyzer.js, _runDeconvolutionPipeline) weights the correction by
+// The fix (analyzer.mjs, _runDeconvolutionPipeline) weights the correction by
 // how densely accepted impulses are actually packed on THIS track (0 = every
 // impulse isolated by more than one kernel length, 1 = packed back-to-back),
 // so an isolated-SCR track keeps its own accurate fit (ratio -> 1.0) while a

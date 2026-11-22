@@ -20,8 +20,7 @@
  * is async as a direct consequence — dynamic `import()` has no synchronous
  * form in Node.
  *
- * Scope, matching docs/archive/visualizer_test_coverage_plan.md's philosophy for
- * boot_app.js: this is for exercising real logic (gap detection, session
+ * Scope, matching boot_app.js: this is for exercising real logic (gap detection, session
  * reset, tile-cache bookkeeping, location validation) without throwing —
  * NOT a faithful Leaflet reimplementation and NOT real Bluetooth GATT.
  * The Leaflet mock below tracks just enough (added layers, setView/panTo

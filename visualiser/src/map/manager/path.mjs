@@ -1,24 +1,14 @@
 /**
- * GSRMapManager — colour-coded path segment rendering. Prototype-augment split
- * from map.js: loaded immediately after map.js, adds these methods to
- * GSRMapManager.prototype.
+ * GSRMapManager — colour-coded path segment rendering (one link of the class
+ * chain in map/map.mjs).
  *
  * _renderPathSegments() splits the drawPoints into constant-colour runs (by
  * metric bucket, breaking at GPS gaps) and draws each as an L.polyline;
  * _overlapRadiusMetres() / _refreshPathOnZoom() drive the overlap-aware
  * recolour where the walk retraces itself and the strokes visually merge. The
  * pooling maths it calls lives in ../path_overlap.mjs (PathOverlap).
- *
- * Depends on the globals L, GSR_CONST, AppState, GSRStorage and MapColors
- * (resolved at call time).
  */
 
-// Map-colouring metrics backed by a per-sample analyzer array (analyzer.phasic[i],
-// analyzer.tonic[i], etc.) rather than a static field already present on the
-// drawPoint objects. Looked up live at render time via origIdx — see
-// _renderPathSegments — rather than baked into the GPS-cached drawPoints,
-// since those are cached across GSR re-analyses keyed only on GPS params and
-// would otherwise go stale the moment a GSR slider changes.
 import { AppState } from '../../core/app_state.mjs';
 import { GSR_CONST } from '../../core/constants.mjs';
 import { GeoUtils } from '../../gps/geo_utils.mjs';
@@ -30,6 +20,12 @@ import { PathOverlap } from '../path_overlap.mjs';
 import { isUserMovingMap } from '../smooth_wheel_zoom.mjs';
 import { GSRMapRfFluid } from './rf_fluid.mjs';
 
+// Map-colouring metrics backed by a per-sample analyzer array (analyzer.phasic[i],
+// analyzer.tonic[i], etc.) rather than a static field already present on the
+// drawPoint objects. Looked up live at render time via origIdx — see
+// _renderPathSegments — rather than baked into the GPS-cached drawPoints,
+// since those are cached across GSR re-analyses keyed only on GPS params and
+// would otherwise go stale the moment a GSR slider changes.
 const DERIVED_METRIC_SERIES = {
   phasic: 'phasic',
   tonic: 'tonic',
@@ -65,7 +61,7 @@ const BODY_METRICS = new Set([
 const NO_READING_COLOUR = '#9ca3af';
 
 // Distance-to-feature OSM metrics use a 999 "none within radius" sentinel
-// (osm_enrichment.js SENTINEL_DIST). It must not enter the colour range —
+// (osm_enrichment.mjs SENTINEL_DIST). It must not enter the colour range —
 // otherwise real 0..~100 m distances collapse into the first couple of buckets
 // and the whole path reads as one colour.
 const DISTANCE_METRICS = new Set(['distMajorRoad', 'distWater', 'distGreen']);
@@ -411,7 +407,7 @@ export class GSRMapPath extends GSRMapRfFluid {
       return out;
     };
     const addPoly = (poly) => {
-      // Phase 1 (slice 1): path segments render into the track's layerGroup
+      // Path segments render into the track's layerGroup
       // (on the map), never directly onto the map. `layerGroup` is null when
       // there is no managed track — fall back to the legacy direct add.
       if (layerGroup) {

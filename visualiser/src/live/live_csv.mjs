@@ -10,7 +10,7 @@
  * passes as "complete and unmodified" exactly like a recorded file.
  *
  * Pure: takes the packet array and a wall-clock reference, returns the full
- * CSV text. The save-location dialog lives with the caller (live_view.js's
+ * CSV text. The save-location dialog lives with the caller (live_view.mjs's
  * exportCsv() → GSRFileSaver.saveFile), so this half is trivially testable.
  *
  * One honest, unavoidable deviation from a firmware-written file — the BLE
@@ -37,8 +37,8 @@
 
 // CRC32 (reflected, polynomial 0xEDB88320 — the zlib/PNG variant). Produces
 // bytes identical to firmware/core/sd_logger.c's crc32_feed() and the
-// visualiser's own GSRCSVParser._crc32 (src/signal/csv_parser.js). Inlined
-// here rather than reused from csv_parser.js so the standalone live.html
+// visualiser's own GSRCSVParser._crc32 (src/signal/csv_parser.mjs). Inlined
+// here rather than reused from csv_parser.mjs so the standalone live.html
 // doesn't have to pull that whole module in (it drags GSR_CONST + GSRAnalyzer)
 // just for this one helper.
 let _crc32Table = null;

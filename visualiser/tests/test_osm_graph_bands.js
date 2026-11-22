@@ -29,20 +29,18 @@ global.TOP = 'top';
 const { MapColors } = require('../src/map/map_colors.mjs');
 global.MapColors = MapColors;
 
-// Real OSMEnricher (osm_enrichment.js needs GeoUtils as a global at require
+// Real OSMEnricher (osm_enrichment.mjs needs GeoUtils as a global at require
 // time — it reads GeoUtils.METERS_PER_DEG_LAT at module scope) so
-// isVehicularRoad() is the exact same predicate osm_enrichment.js itself
+// isVehicularRoad() is the exact same predicate osm_enrichment.mjs itself
 // uses to pick a road over a footway, not a second copy of that class list.
 global.GeoUtils = require('../src/gps/geo_utils.mjs').GeoUtils;
 const { OSMEnricher } = require('../src/osm/osm_enrichment.mjs');
 global.OSMEnricher = OSMEnricher;
 
-const { GSRRenderer } = require('../src/render/renderer.mjs');
-// The OSM context-band methods live in the object-augment split
-// renderer_bands.js (see renderer.js's class-tail manifest comment) — under
-// plain require() it hands back its method object instead of assigning
-// onto a live global.
-Object.assign(GSRRenderer, require('../src/render/renderer_bands.mjs'));
+const {
+  GSRRenderer,
+  PARK_EDGE_TOLERANCE_M,
+} = require('../src/render/renderer.mjs');
 // renderer_bands.mjs holds a static `import { AppState } from
 // '../core/app_state.mjs'` live binding — a `global.AppState = {...}` shadow
 // no longer reaches it (ES-module migration), so mutate the real imported
@@ -172,7 +170,7 @@ test('Park edge tolerance: a footpath just outside the park polygon still reads 
   // nearest green-space boundary) within PARK_EDGE_TOLERANCE_M should still
   // read as park, or a walk through a park would show as almost entirely
   // "footway" with barely any park at all.
-  const T = GSRRenderer.PARK_EDGE_TOLERANCE_M;
+  const T = PARK_EDGE_TOLERANCE_M;
 
   const justOutside = GSRRenderer._classifyOsmContext({
     osm_road_class: 'footway',

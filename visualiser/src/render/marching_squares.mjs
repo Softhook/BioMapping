@@ -1,7 +1,6 @@
 /**
- * Marching Squares Algorithm for Isolines Extraction.
- * Extracted from analyzer.js — pure spatial algorithm, zero dependencies
- * on GSR analysis or map rendering.
+ * Marching Squares Algorithm for Isolines Extraction. A pure spatial algorithm
+ * with no dependencies on GSR analysis or map rendering.
  */
 
 export const MarchingSquares = {
@@ -210,7 +209,7 @@ export const MarchingSquares = {
   },
 
   /**
-   * §C perf fix (2026-08-07): single-pass multi-isolevel contour extraction.
+   * Single-pass multi-isolevel contour extraction.
    *
    * Replaces K separate getContourLines() calls (each traversing the full
    * (rows-1)×(cols-1) grid) with one traversal that emits segments for all

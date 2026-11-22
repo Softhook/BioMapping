@@ -21,7 +21,7 @@
  * this far from tracked coverage) is left as NaN and step-held from the
  * previous genuine reading — never fabricated from an unrelated column.
  *
- * The optional on-map NDVI overlay (manager/osm.js: showNdviLayer) is
+ * The optional on-map NDVI overlay (manager/osm.mjs: showNdviLayer) is
  * rendered directly from this same raw raster — paintGreyscaleTile() maps
  * each decoded float to a grey pixel (low NDVI = black, high = white) — so
  * the picture and the sampled numbers are provably the same data, not two
@@ -58,7 +58,7 @@ export const NDVISampler = {
   // Earth equatorial circumference in meters (EPSG:3857)
   EARTH_CIRCUMFERENCE_M: 40075016.686,
 
-  // Imagery providers for the optional visual map overlay (manager/osm.js).
+  // Imagery providers for the optional visual map overlay (manager/osm.mjs).
   // None of these feed the ndvi/ndvi_50m sampling columns — see file docstring.
   DEFAULT_TILE_URL:
     'https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2021_3857/default/GoogleMapsCompatible/{z}/{y}/{x}.jpg',
@@ -818,6 +818,51 @@ export const NDVISampler = {
   },
 
   /**
+   * Download every tile inside `bounds` into one float grid (NaN where no
+   * tile arrived). Throws when not a single tile could be downloaded.
+   * `onTileProgress(completed, total, detail)` reports each finished tile;
+   * `detail` is a ready-made " (cached)" / " [retry…]" suffix.
+   * @private
+   */
+  async _fetchTileGrid(bounds, options, signal, onTileProgress) {
+    const { startTileX, endTileX, startTileY, endTileY, tilesAcross, zoom } =
+      bounds;
+    const gridWidth = tilesAcross * 256;
+    const gridHeight = bounds.tilesDown * 256;
+    const grid = new Float32Array(gridWidth * gridHeight).fill(NaN);
+
+    const tileTasks = [];
+    for (let ty = startTileY; ty <= endTileY; ty++) {
+      for (let tx = startTileX; tx <= endTileX; tx++) {
+        const destX = (tx - startTileX) * 256;
+        const destY = (ty - startTileY) * 256;
+        const url = this.buildRawTileUrl(tx, ty, zoom, options);
+        tileTasks.push({ url, destX, destY });
+      }
+    }
+
+    // Concurrency pool with exponential backoff & rate limiting.
+    const pool = await this._fetchRawTilePool(tileTasks, grid, gridWidth, {
+      concurrency: 6,
+      timeoutMs: 8000,
+      providerId: 'copernicus_raw',
+      maxRetries: 3,
+      signal,
+      onTileProgress: (completed, total, wasCached, retryMsg) => {
+        const detail = retryMsg
+          ? ` [${retryMsg}]`
+          : wasCached
+            ? ' (cached)'
+            : '';
+        onTileProgress(completed, total, detail);
+      },
+    });
+
+    this._requireSomeTiles(pool);
+    return { grid, gridWidth, gridHeight, pool };
+  },
+
+  /**
    * Compute a buffered geographical bounding box for an array of points.
    * Same box as OSMEnricher.calculateBBox, so OSM and NDVI fetch the same area.
    *
@@ -1119,15 +1164,8 @@ export const NDVISampler = {
       adaptiveZoom,
     );
     const zoom = bounds.zoom;
-    const {
-      startTileX,
-      endTileX,
-      startTileY,
-      endTileY,
-      tilesAcross,
-      tilesDown,
-      totalTiles,
-    } = bounds;
+    const { startTileX, startTileY, tilesAcross, tilesDown, totalTiles } =
+      bounds;
 
     if (bounds.wasAdapted) {
       onProgress(
@@ -1136,47 +1174,21 @@ export const NDVISampler = {
       );
     }
 
-    const gridWidth = tilesAcross * 256;
-    const gridHeight = tilesDown * 256;
-    const grid = new Float32Array(gridWidth * gridHeight).fill(NaN);
-
     onProgress(
       15,
       `Fetching ${totalTiles} NDVI raster tiles (${tilesAcross}×${tilesDown})...`,
     );
 
-    const tileTasks = [];
-    for (let ty = startTileY; ty <= endTileY; ty++) {
-      for (let tx = startTileX; tx <= endTileX; tx++) {
-        const destX = (tx - startTileX) * 256;
-        const destY = (ty - startTileY) * 256;
-        const url = this.buildRawTileUrl(tx, ty, zoom, options);
-        tileTasks.push({ url, destX, destY });
-      }
-    }
-
-    // Execute through concurrency pool (concurrency: 6) with exponential backoff & rate limiting
-    const pool = await this._fetchRawTilePool(tileTasks, grid, gridWidth, {
-      concurrency: 6,
-      timeoutMs: 8000,
-      providerId: 'copernicus_raw',
-      maxRetries: 3,
+    const { grid, gridWidth, gridHeight, pool } = await this._fetchTileGrid(
+      bounds,
+      options,
       signal,
-      onTileProgress: (completed, total, wasCached, retryMsg) => {
-        const pct = Math.round(15 + (completed / total) * 45);
-        const detail = retryMsg
-          ? ` [${retryMsg}]`
-          : wasCached
-            ? ' (cached)'
-            : '';
+      (completed, total, detail) =>
         onProgress(
-          pct,
+          Math.round(15 + (completed / total) * 45),
           `Streaming NDVI raster tiles: ${completed}/${total}${detail}...`,
-        );
-      },
-    });
-
-    this._requireSomeTiles(pool);
+        ),
+    );
 
     onProgress(60, 'Extracting Point NDVI and 50m buffer values...');
     if (signal?.aborted) {
@@ -1308,55 +1320,23 @@ export const NDVISampler = {
     // =========================================================================
     if (canUseUnifiedMosaic && validTracks.length > 1) {
       const zoom = unionBounds.zoom;
-      const {
-        startTileX,
-        endTileX,
-        startTileY,
-        endTileY,
-        tilesAcross,
-        tilesDown,
-        totalTiles,
-      } = unionBounds;
-      const gridWidth = tilesAcross * 256;
-      const gridHeight = tilesDown * 256;
-      const grid = new Float32Array(gridWidth * gridHeight).fill(NaN);
+      const { startTileX, startTileY, totalTiles } = unionBounds;
 
       onProgress(
         10,
         `[Shared Mosaic] Preparing coverage for ${validTracks.length} walks (${unionAreaKm2.toFixed(1)} km²)...`,
       );
 
-      const tileTasks = [];
-      for (let ty = startTileY; ty <= endTileY; ty++) {
-        for (let tx = startTileX; tx <= endTileX; tx++) {
-          const destX = (tx - startTileX) * 256;
-          const destY = (ty - startTileY) * 256;
-          const url = this.buildRawTileUrl(tx, ty, zoom, options);
-          tileTasks.push({ url, destX, destY });
-        }
-      }
-
-      const pool = await this._fetchRawTilePool(tileTasks, grid, gridWidth, {
-        concurrency: 6,
-        timeoutMs: 8000,
-        providerId: 'copernicus_raw',
-        maxRetries: 3,
+      const { grid, gridWidth, gridHeight, pool } = await this._fetchTileGrid(
+        unionBounds,
+        options,
         signal,
-        onTileProgress: (completed, total, wasCached, retryMsg) => {
-          const pct = Math.round(15 + (completed / total) * 55);
-          const detail = retryMsg
-            ? ` [${retryMsg}]`
-            : wasCached
-              ? ' (cached)'
-              : '';
+        (completed, total, detail) =>
           onProgress(
-            pct,
+            Math.round(15 + (completed / total) * 55),
             `[Shared Mosaic] Streaming ${total} NDVI raster tiles (${completed}/${total})${detail}...`,
-          );
-        },
-      });
-
-      this._requireSomeTiles(pool);
+          ),
+      );
 
       onProgress(
         75,

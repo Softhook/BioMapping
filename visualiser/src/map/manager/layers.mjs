@@ -1,21 +1,19 @@
 /**
- * GSRMapManager — per-track layer ownership + map teardown. Prototype-augment
- * split from map.js: loaded immediately after map.js, adds these methods to
- * GSRMapManager.prototype.
+ * GSRMapManager — per-track layer ownership + map teardown (the first link
+ * of the class chain in map/map.mjs after GSRMapBase).
  *
- * The Phase 1 ownership model: every render layer belongs to its track's
- * L.layerGroup (this._getTrackLayerGroup), and the full set — visible AND
- * hidden — is recorded in track._ownedLayers so visibility toggles can restore
- * hidden ones (layers rendered outside any track fall back to
- * this._unownedLayers). this._renderedTrackGroups tracks which groups this
- * manager put on the map so clearMap() can remove exactly those, even a track
- * that has since left the collective manager. getRenderLayers() /
- * getPeakMarkerByIndex() are the read side used by the SVG exporter,
- * fitToTrack() and focusOnPeak(). clearMap() / clearAll() are the teardown
- * entry points.
+ * Every render layer belongs to its track's L.layerGroup
+ * (this._getTrackLayerGroup), and the full set — visible AND hidden — is
+ * recorded in track._ownedLayers so visibility toggles can restore hidden ones
+ * (layers rendered outside any track fall back to this._unownedLayers).
+ * this._renderedTrackGroups tracks which groups this manager put on the map so
+ * clearMap() can remove exactly those, even a track that has since left the
+ * collective manager. getRenderLayers() / getPeakMarkerByIndex() are the read
+ * side used by the SVG exporter, fitToTrack() and focusOnPeak(). clearMap() /
+ * clearAll() are the teardown entry points.
  *
- * Depends on the global L, and (via the prototype) clearOsmShapes /
- * _clearRfFluid / updateLegend / clearCollectiveLayers from the other augments.
+ * clearMap() also calls clearOsmShapes / _clearRfFluid / updateLegend /
+ * clearCollectiveLayers, which classes further down the chain define.
  */
 import { GSRMapBase } from '../map_base.mjs';
 
@@ -43,7 +41,7 @@ export class GSRMapLayers extends GSRMapBase {
   }
 
   /**
-   * Phase 1 (slice 1): return (creating it if needed) the track's single
+   * Return (creating it if needed) the track's single
    * render handle — an L.layerGroup() added to the map that owns all of this
    * track's path/peak/hotspot layers. Null tracks (a bare analyzer rendered
    * outside the track manager) fall back to the legacy direct-to-map path.
@@ -51,7 +49,7 @@ export class GSRMapLayers extends GSRMapBase {
    */
   _getTrackLayerGroup(track) {
     if (!track) return null;
-    // Phase 1 (slice 3): each track also owns the full registry of its render
+    // Each track also owns the full registry of its render
     // layers (visible + hidden) so toggles can restore hidden ones; the group
     // itself only holds the currently-visible layers.
     if (!track._ownedLayers) track._ownedLayers = [];
@@ -65,7 +63,7 @@ export class GSRMapLayers extends GSRMapBase {
   }
 
   /**
-   * Phase 1 (slice 2): forget a track's rendered group without touching the
+   * Forget a track's rendered group without touching the
    * map (used by deleteTrack after it has already removed the group).
    * @private
    */
@@ -74,7 +72,7 @@ export class GSRMapLayers extends GSRMapBase {
   }
 
   /**
-   * Phase 1 (slice 3): the currently-rendered per-track layers, derived from
+   * The currently-rendered per-track layers, derived from
    * the track layerGroups this manager owns (the old flat arrays were
    * removed). The SVG exporter and fitToTrack rely on this.
    * @returns {{ paths: Array, peakMarkers: Array, hotspots: Array }}
@@ -107,7 +105,7 @@ export class GSRMapLayers extends GSRMapBase {
   }
 
   /**
-   * Phase 1 (slice 3): resolve the rendered marker for a peak index (used by
+   * Resolve the rendered marker for a peak index (used by
    * focusOnPeak). Searches the track layerGroups; returns null when the peak's
    * marker isn't currently rendered (e.g. hidden or no group).
    */
@@ -124,7 +122,7 @@ export class GSRMapLayers extends GSRMapBase {
   }
 
   /**
-   * Phase 1 (slice 3): record a layer as owned by a track (or, in the legacy
+   * Record a layer as owned by a track (or, in the legacy
    * no-track fallback, by this manager) so visibility toggles can find ALL
    * created layers — the layerGroup only holds the currently-visible ones.
    * @private
@@ -135,7 +133,7 @@ export class GSRMapLayers extends GSRMapBase {
   }
 
   /**
-   * Phase 1 (slice 3): every per-track render layer this manager has created
+   * Every per-track render layer this manager has created
    * (visible or hidden), across all rendered tracks + the legacy fallback.
    * @private
    */
@@ -149,7 +147,7 @@ export class GSRMapLayers extends GSRMapBase {
   }
 
   /**
-   * Phase 1 (slice 2/3): remove every per-track layerGroup this manager has
+   * Remove every per-track layerGroup this manager has
    * rendered from the map and null the track handle. Shared by clearMap and
    * clearCollectiveLayers so a group can't linger when either clear path runs.
    * @private
@@ -181,7 +179,7 @@ export class GSRMapLayers extends GSRMapBase {
   clearMap() {
     if (!this.map) return;
 
-    // Phase 1 (slice 2): clear exactly what THIS manager rendered. Iterating
+    // Clear exactly what THIS manager rendered. Iterating
     // _renderedTrackGroups — rather than re-reading AppState.collectiveManager
     // .tracks — means a track removed from the manager can't leave an orphaned
     // layerGroup behind (the collective-view drift bug this slice fixes).
@@ -203,8 +201,8 @@ export class GSRMapLayers extends GSRMapBase {
     // silently vanishing on a param change. renderData()/renderCollectiveData()
     // end by calling GSRUI.syncOsmOverlay(), which redraws it only when the
     // geometry actually changed (track switch) and clears it when the intent is
-    // off or no track is loaded. The genuine "show nothing" paths (tracks.js:
-    // last track removed) call syncOsmOverlay() themselves.
+    // off or no track is loaded. The genuine "show nothing" paths (tracks.mjs /
+    // track_list.mjs: last track removed) call syncOsmOverlay() themselves.
 
     if (this.map.hasLayer(this.scrubMarker)) {
       this.map.removeLayer(this.scrubMarker);

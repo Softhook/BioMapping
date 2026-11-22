@@ -110,7 +110,7 @@ export class GSRGlobeOsm extends GSRGlobeBase {
 
   /**
    * Extrude raw OpenStreetMap Overpass building footprints into one batched GPU
-   * primitive. Geometry build lives in src/map/globe3d/buildings.js; this owns
+   * primitive. Geometry build lives in src/map/globe3d/buildings.mjs; this owns
    * the scene primitive's lifecycle.
    */
   renderOsm3DBuildings(osmJson, style = 'glass') {

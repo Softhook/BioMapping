@@ -1,5 +1,5 @@
 /**
- * Gap-fill unit tests for rf_fluid_renderer.js (RFFluidRenderer) covering the
+ * Gap-fill unit tests for rf_fluid_renderer.mjs (RFFluidRenderer) covering the
  * constructor/canvas-lifecycle/option-setter methods NOT already exercised by
  * tests/test_rf_fluid.js (setData/_precalculateSpatialFans/_normDbm/ray-cast
  * math) or tests/test_rf_svg_export.js (exportToSvgElements). Those two files
@@ -28,7 +28,7 @@ global.L = {
 };
 global.window = { devicePixelRatio: 1 };
 
-// rf_fluid_renderer.js declares `class RFFluidRenderer { ... }` with no
+// rf_fluid_renderer.mjs declares `class RFFluidRenderer { ... }` with no
 // module.exports at all (unlike the files touched elsewhere in this pass) —
 // load it via the shared loadModule() helper the same way several
 // pre-existing tests in this suite do for un-exported classes, rather than
@@ -242,7 +242,7 @@ test('setRadius: updates options.radiusMeters and re-precalculates fans for ever
   });
   const renderer = new RFFluidRenderer(map);
 
-  // Phase 5: fan-casting is cached per track (setDataForTracks), so setRadius()
+  // Fan-casting is cached per track (setDataForTracks), so setRadius()
   // no longer unconditionally recomputes — it replays the last tracks data,
   // and each track's cache entry now mismatches on radiusMeters. Seed two
   // tracks first so there's something for setRadius() to actually re-run.
@@ -385,7 +385,7 @@ test('setVisible: toggles canvas display style and redraws only when becoming vi
 
   // Spy on the instance so the "redraws only when becoming visible" claim
   // is actually checked, not just the display style / options flag (which
-  // don't depend on rf_fluid_renderer.js:385's `if (visible) this.redraw()`
+  // don't depend on rf_fluid_renderer.mjs:385's `if (visible) this.redraw()`
   // branch at all).
   let redrawCount = 0;
   renderer.redraw = () => {
@@ -411,7 +411,7 @@ test('setVisible: toggles canvas display style and redraws only when becoming vi
   );
 });
 
-// ── Phase 5: per-track fan-cast cache (setDataForTracks) ───────────────────
+// ── Per-track fan-cast cache (setDataForTracks) ─────────────────────────────
 //
 // The whole point of the refactor: _precalculateSpatialFans() is the expensive
 // step (O(points x rays x building segments)), so a track whose drawPoints/
@@ -453,7 +453,7 @@ test("setDataForTracks: reuses a cached track's fans when only an unrelated trac
     'first call: both tracks are new, both recompute',
   );
 
-  // Re-render with trackA's array reference unchanged (the real map.js caller
+  // Re-render with trackA's array reference unchanged (the real map manager caller
   // gets this from _getOrBuildDrawPoints()'s own cache) and trackB replaced by
   // a genuinely new array (e.g. a GPS slider drag on track B).
   renderer.__calls.length = 0;
@@ -565,7 +565,7 @@ test('clear(): blanks cachedNodes/buildingPolygons and redraws, without touching
   assert.strictEqual(
     renderer._trackCache.size,
     1,
-    'clear() must NOT prune the per-track fan cache — a real setData(For Tracks) call right after (map.js clearMap()->render pattern) needs it intact to skip recomputing unchanged tracks',
+    'clear() must NOT prune the per-track fan cache — a real setData(For Tracks) call right after (the clearMap()->render pattern) needs it intact to skip recomputing unchanged tracks',
   );
 
   // Prove the cache survival actually matters: re-supplying the SAME track

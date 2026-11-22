@@ -4,7 +4,6 @@
  * geometry reconstruction, and coordinate-to-feature spatial math.
  */
 
-// -- Numerical constants ---------------------------------------------------
 import { GSR_CONST } from '../core/constants.mjs';
 import { GeoUtils } from '../gps/geo_utils.mjs';
 import { GpsPipeline } from '../gps/gps_pipeline.mjs';
@@ -13,6 +12,7 @@ import { MapMatcher } from '../gps/map_match.mjs';
 import { SpatialGrid } from '../spatial/spatial_grid.mjs';
 import { OverpassClient } from './overpass_client.mjs';
 
+// -- Numerical constants ---------------------------------------------------
 const METERS_PER_DEG_LAT = GeoUtils.METERS_PER_DEG_LAT; // m per degree of latitude
 const CELL_SIZE_DEG = 0.001; // spatial-hash cell (~111 m of latitude)
 const SENTINEL_DIST = 999; // sentinel for "no feature nearby"
@@ -30,7 +30,7 @@ const DEFAULT_BBOX_BUFFER_M = 100; // bounding-box padding
 const SNAP_THIN_M = 3;
 
 // Collective-mode enrichment fetches one shared osmJson (by reference) for
-// every track covering the same bbox (ui.js's union-bbox fetch), but each
+// every track covering the same bbox (ui_enrichment.mjs's union-bbox fetch), but each
 // enrichTrack() call used to independently re-run reconstructGeometries() AND
 // buildSpatialIndex() on it — both full-cost passes over every point/way/
 // relation, repeated once per track even when the input was byte-identical
@@ -262,32 +262,33 @@ function _minDistanceToWay(lat, lon, way, distFn) {
 }
 
 /**
+ * True for a way whose first and last node differ: an outline that does not
+ * close, so it encloses nothing (a stream's centre line, or one piece of a
+ * larger area). A way without node ids counts as closed.
+ */
+function _isOpenWay(way) {
+  const n = way.nodes;
+  return !!n?.length && n[0] !== n[n.length - 1];
+}
+
+/**
  * Point-in-polygon test that handles both way and relation (multipolygon)
  * geometries.  Returns true if the point lies inside the green space.
  */
 function _isPointInGreenSpace(geom, lat, lon, pipFn) {
   if (geom.type === 'way' && geom.coordinates && geom.coordinates.length > 2) {
-    if (
-      geom.nodes?.length &&
-      geom.nodes[0] !== geom.nodes[geom.nodes.length - 1]
-    )
-      return false;
+    if (_isOpenWay(geom)) return false;
     return pipFn(lat, lon, geom.coordinates);
   }
   if (geom.type === 'relation' && geom.outerWays) {
     for (const way of geom.outerWays) {
-      if (way.nodes?.length && way.nodes[0] !== way.nodes[way.nodes.length - 1])
-        continue;
+      if (_isOpenWay(way)) continue;
       if (pipFn(lat, lon, way.coordinates)) {
         // verify not inside an inner island ring
         if (geom.innerWays) {
           let inIsland = false;
           for (const iway of geom.innerWays) {
-            if (
-              iway.nodes?.length &&
-              iway.nodes[0] !== iway.nodes[iway.nodes.length - 1]
-            )
-              continue;
+            if (_isOpenWay(iway)) continue;
             if (pipFn(lat, lon, iway.coordinates)) {
               inIsland = true;
               break;
@@ -355,12 +356,8 @@ function _assembleRings(ways) {
   const out = [];
   const open = [];
   for (const w of ways) {
-    const n = w.nodes;
-    const joinable =
-      n &&
-      n.length > 1 &&
-      n[0] !== n[n.length - 1] &&
-      w.coordinates.length === n.length; // every node resolved
+    // An open way with every node resolved can be chained.
+    const joinable = _isOpenWay(w) && w.coordinates.length === w.nodes.length;
     if (joinable) open.push(w);
     else out.push(w);
   }
@@ -437,7 +434,7 @@ export const OSMEnricher = {
 
   /* ======================================================================
      Feature classification — the single source of truth for "what counts as
-     green / water", shared with manager/osm.js's OSM-layer overlay so the
+     green / water", shared with manager/osm.mjs's OSM-layer overlay so the
      drawn polygons and the enrichment metrics can never disagree.
      ====================================================================== */
 
@@ -447,9 +444,12 @@ export const OSMEnricher = {
   isWaterSpace(geom) {
     return _isWaterSpace(geom);
   },
+  isOpenWay(way) {
+    return _isOpenWay(way);
+  },
   // True for a carriageway a vehicle drives on (vs. a footway/path/cycleway/
   // steps a pedestrian walks). Shared with the GSR graph's context bands
-  // (renderer.js) so a footpath inside a park reads as park there too,
+  // (render/renderer_bands.mjs) so a footpath inside a park reads as park there too,
   // rather than re-deriving its own notion of "which roads count".
   isVehicularRoad(highwayClass) {
     return VEHICULAR_ROAD_CLASSES.has(highwayClass);
@@ -592,7 +592,7 @@ export const OSMEnricher = {
      ====================================================================== */
 
   /**
-   * Thin wrapper over the shared SpatialGrid (spatial_grid.js): computes each
+   * Thin wrapper over the shared SpatialGrid (spatial_grid.mjs): computes each
    * geom's own lat/lon bbox, then inserts it padded by one extra cell in
    * every direction. Combined with getNearby()'s own 3x3-neighbourhood query
    * below, every geom within 2 cells (~222 m) of a point is returned for it —

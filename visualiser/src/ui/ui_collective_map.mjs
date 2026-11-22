@@ -1,7 +1,5 @@
 /**
- * GSRUI — collective (multi-track) map trigger. Object-augment split from
- * ui.js: loaded immediately after ui.js, adds these methods to the shared
- * GSRUI object.
+ * GSRUI — collective (multi-track) map trigger. Merged into GSRUI by ui.mjs.
  *
  * updateCollectiveMap() debounces rapid callers (slider drag, track toggles)
  * before _updateCollectiveMapNow() reads the contour controls, renders the

@@ -1,7 +1,5 @@
 /**
- * GSRUI — road-arousal profile table. Object-augment split from ui.js:
- * loaded immediately after ui.js, adds these methods to the shared GSRUI
- * object.
+ * GSRUI — road-arousal profile table. Merged into GSRUI by ui.mjs.
  *
  * Covers the sortable per-road-type arousal table and its rendering, fed by
  * the environmental dashboard's road-profile enrichment data.

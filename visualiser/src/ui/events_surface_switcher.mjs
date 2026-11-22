@@ -3,9 +3,8 @@
 // See LICENCE.md in the project root for terms.
 
 /**
- * GSREvents — 2D map / 3D globe surface switcher. Object-augment split from events.js: loaded
- * immediately after events.js, adds these methods to the shared GSREvents
- * object.
+ * GSREvents — 2D map / 3D globe surface switcher. Merged into GSREvents by
+ * events.mjs.
  */
 import { AppState } from '../core/app_state.mjs';
 import { Controllers } from '../core/controllers.mjs';
@@ -18,7 +17,7 @@ export const SurfaceSwitcherEvents = {
    * swapped inside the one #mapPanel: this toggles which container div is shown
    * (#map ⇄ #globe3dContainer) and reveals the 3D-only settings sub-section.
    * The header controls drive whichever engine is mounted; the globe is still a
-   * read-only view of the 2D state — see src/map/globe3d_view.js.
+   * read-only view of the 2D state — see src/map/globe3d_view.mjs.
    */
   bindSurfaceSwitcher() {
     const tabs = Array.from(document.querySelectorAll('.surface-tab'));

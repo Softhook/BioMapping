@@ -1,5 +1,5 @@
 /**
- * Unit tests for geo_utils.js (GeoUtils) — pure geographic geometry helpers
+ * Unit tests for geo_utils.mjs (GeoUtils) — pure geographic geometry helpers
  * used by the Bio Mapping GSR analyser map.
  *
  * Run: node --test tests/test_geo_utils.js  (or `npm test` for the whole suite)

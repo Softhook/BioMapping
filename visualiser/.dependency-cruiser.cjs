@@ -1,6 +1,6 @@
 /**
- * dependency-cruiser config — see docs/visualiser_architecture_review_2026-09-16.md
- * for the audit that motivated this. Run via `npm run lint:deps`.
+ * dependency-cruiser config: no import cycles, and the analysis layers stay
+ * free of UI imports. Run via `npm run lint:deps`.
  */
 module.exports = {
   forbidden: [
@@ -22,7 +22,7 @@ module.exports = {
       comment:
         'signal/, gps/, and osm/ are the DOM-free analysis layers — keeping ' +
         'them free of ui/map/render/live imports is what lets them run ' +
-        'standalone in tests. See docs/visualiser_architecture_review_2026-09-16.md.',
+        'standalone in tests.',
       from: { path: '^src/(signal|gps|osm)/' },
       to: { path: '^src/(ui|map|render|live)/' },
     },

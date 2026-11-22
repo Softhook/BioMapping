@@ -1,22 +1,11 @@
 /**
- * Regression coverage for renderer.js's plain-require() export surface.
- *
- * renderer_chrome.js, renderer_markers.js, renderer_bands.js and
- * renderer_interaction.js all converted to real ES modules (each now a
- * static `import { ... } from './renderer.mjs'`, composing itself onto
- * GSRRenderer as a top-level side effect) — the require-branch
- * global-stamping trick this file used to exercise (see git history for the
- * original bug this caught: a bare-identifier augment silently resolving to
- * `global.X = undefined` because renderer.js's module.exports didn't
- * actually contain the name) is structurally impossible to get wrong once
- * bare identifiers are real lexical import bindings, so that loop is gone;
- * what's left is the smoke test confirming renderer.mjs still exports every
- * name its (now former) augments needed.
+ * renderer.mjs loads with a plain require() and exports the shared constants
+ * and helpers the renderer_*.mjs files use.
  */
 const assert = require('node:assert');
 const test = require('node:test');
 
-test('renderer.js exports every module-level name its augment files read bare', () => {
+test('renderer.mjs exports the shared renderer constants and helpers', () => {
   const mod = require('../src/render/renderer.mjs');
   assert.strictEqual(typeof mod.GSRRenderer, 'object');
   assert.strictEqual(typeof mod.getQualityColor, 'function');

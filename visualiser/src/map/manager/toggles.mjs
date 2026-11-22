@@ -1,10 +1,9 @@
 /**
- * GSRMapManager — layer visibility toggles. Prototype-augment split from
- * map.js: loaded immediately after map.js, adds these methods to
- * GSRMapManager.prototype. They own the show/hide state
- * (this.showPeaks / showLabels / showHotspots / showClusters / showIsolines /
- * showSurface / showTracks) and drive Leaflet layer inclusion + the
- * .hide-map-* CSS classes on the map container.
+ * GSRMapManager — layer visibility toggles (one link of the class chain in
+ * map/map.mjs). They own the show/hide state (this.showPeaks / showLabels /
+ * showHotspots / showClusters / showIsolines / showSurface / showTracks) and
+ * drive Leaflet layer inclusion + the .hide-map-* CSS classes on the map
+ * container.
  */
 import { GSRMapCollective } from './collective.mjs';
 
@@ -60,12 +59,11 @@ export class GSRMapToggles extends GSRMapCollective {
       }
     }
 
-    // Phase 1 (slice 1/2): markers owned by a track's layerGroup are toggled
-    // through that group (child in/out of the group — the group is on the map,
-    // so the marker appears/disappears with it). Collective markers now live in
-    // per-track groups too; any layer without a group (legacy) is toggled
-    // directly against the map.
-    // Phase 1 (slice 3): the per-track flat arrays are gone — markers are owned
+    // Markers owned by a track's layerGroup are toggled through that group
+    // (child in/out of the group — the group is on the map, so the marker
+    // appears/disappears with it). Collective markers now live in per-track
+    // groups too; any layer without a group (legacy) is toggled directly
+    // against the map. The per-track flat arrays are gone — markers are owned
     // by each track's layerGroup. Toggle every rendered track's layers by role
     // (from the full registry, so hidden layers can be restored).
     const allMarkers = [];
@@ -92,7 +90,7 @@ export class GSRMapToggles extends GSRMapCollective {
   }
 
   /**
-   * Phase 1 (slice 1/2): show/hide a single layer. If the layer is owned by a
+   * Show/hide a single layer. If the layer is owned by a
    * track's layerGroup, toggle it in/out of that group (the group is on the
    * map, so the layer follows). Layers without a group (legacy direct-add) are
    * toggled against the map directly.
@@ -168,7 +166,7 @@ export class GSRMapToggles extends GSRMapCollective {
    */
   toggleTracks(visible) {
     this.showTracks = visible;
-    // Phase 1 (slice 3): the GPS "Tracks" toggle controls the COLLECTIVE track
+    // The GPS "Tracks" toggle controls the COLLECTIVE track
     // paths (which live inside each track's layerGroup); iterate the full
     // registry rather than a flat array so paths can be restored after being
     // hidden. The single-track path ('path') is deliberately NOT toggled — it

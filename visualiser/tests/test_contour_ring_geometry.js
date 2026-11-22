@@ -1,6 +1,6 @@
 /**
- * Unit tests for contour_ring_geometry.js (ContourRingGeometry) — the pure
- * ring/boundary geometry extracted out of map_exporter.js: toLoop,
+ * Unit tests for contour_ring_geometry.mjs (ContourRingGeometry) — the pure
+ * ring/boundary geometry extracted out of map_exporter.mjs: toLoop,
  * buildRectangleLoop, traceMaskBoundary, smoothLoopPoints,
  * recomputeSmoothNormals, tangentExtrapolate. (buildBoundaryLoops,
  * closeOpenPaths and findInteriorHoles/buildIsobandRings are exercised by

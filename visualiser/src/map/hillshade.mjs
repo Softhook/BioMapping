@@ -4,11 +4,11 @@
  * consume/produce — kept here rather than duplicated at each call site (see
  * each method's doc for why). Zero hard dependencies: anything another
  * module would normally own (percentile ranking) is taken as an injected
- * function parameter instead of imported, mirroring marching_squares.js.
+ * function parameter instead of imported, mirroring marching_squares.mjs.
  *
  * Core algorithm: Horn's method slope/aspect estimate + Lambertian
  * reflectance against a simulated sun — the same one GIS tools use for DEM
- * relief shading — applied here to collective_manager.js's interpolated
+ * relief shading — applied here to collective_manager.mjs's interpolated
  * arousal/phasic/tonic grid, which is already the same shape as a DEM: a
  * regular raster of scalar "height" values.
  */
@@ -34,7 +34,7 @@ export const Hillshade = {
     // angle (90 - B). Applying that same (90 - x) conversion to the input
     // azimuth here is what makes `azimuthDeg` a genuine true compass bearing
     // for callers (0=N, 90=E, 180=S, 270=W, clockwise), matching what
-    // HILLSHADE.azimuthDeg's own comment in constants.js promises. Verified
+    // HILLSHADE.azimuthDeg's own comment in constants.mjs promises. Verified
     // against known-aspect synthetic ramps — see the calibration test in
     // tests/test_hillshade.js. Getting this wrong doesn't break the shading
     // math (slope/contrast are unaffected), it just aims the simulated sun
@@ -75,7 +75,7 @@ export const Hillshade = {
         const v = grid[r][c];
         if (v === null || v === undefined || isNaN(v)) continue;
 
-        // Compass-named per this codebase's grid convention (collective_manager.js
+        // Compass-named per this codebase's grid convention (collective_manager.mjs
         // gridLatOf(r) = minLat + r/(rows-1)*(maxLat-minLat)): row increases
         // northward, so row r-1 is the southern neighbor and r+1 the northern one.
         const sw = at(r - 1, c - 1, v),
@@ -107,14 +107,11 @@ export const Hillshade = {
    * Canonical single-cell "raw value -> [0,1] display ratio" formula:
    * percentile rank when a sorted reference distribution is available,
    * linear min/max otherwise. This is the SAME ratio a caller's color fill
-   * uses (see map.js renderContours()'s comment on why percentile rank, not
-   * linear value, is the right basis for both color AND the hillshade
-   * "height" field: shading a different function of the data than the one
-   * being colored/contoured means the relief doesn't track what's drawn).
-   * Extracted so it exists in exactly one place — this file previously had
-   * four independent hand-copies of this formula across map.js and
-   * map_exporter.js, including one the exporter computed and then never
-   * used (see buildRatioGrid's callers).
+   * uses (see renderContours()'s comment in map/manager/collective.mjs on
+   * why percentile rank, not linear value, is the right basis for both colour
+   * AND the hillshade "height" field: shading a different function of the
+   * data than the one being coloured/contoured means the relief doesn't track
+   * what's drawn). The live map and the SVG exporter both use this one copy.
    *
    * @param {number} v
    * @param {number} minVal
@@ -165,8 +162,8 @@ export const Hillshade = {
    * version allocated for no numeric difference.
    *
    * Convenience wrapper for callers that unconditionally want both — see
-   * map.js renderContours()'s hillshadeStrength>0 branch. A caller that only
-   * sometimes needs the shade pass (map_exporter.js, gated on
+   * renderContours()'s hillshadeStrength>0 branch. A caller that only
+   * sometimes needs the shade pass (map_exporter.mjs, gated on
    * hillshadeStrength) should call buildRatioGrid() and compute() directly
    * instead, so the ratio grid isn't paid for twice when combined with a
    * caller-side conditional.
@@ -204,7 +201,7 @@ export const Hillshade = {
 
   /**
    * Canonical "how hillshadeStrength blends toward the flat baseline"
-   * formula — previously duplicated verbatim in map.js and map_exporter.js.
+   * formula, shared by the live map and map_exporter.mjs.
    * strength=0 returns baseLightness exactly (matches the flat, unshaded
    * fill precisely, not an approximation); strength=1 returns the full
    * shaded lightness.

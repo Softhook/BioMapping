@@ -103,7 +103,7 @@ export const RendererInteraction = {
   /**
    * Check if a canvas (mouseX, mouseY) click hits any exclude button.
    * If so, toggle exclusion for that peak and return true.
-   * Called from sketch.js mousePressed before starting any drag.
+   * Called from mousePressed (sketch_input.mjs) before starting any drag.
    */
   checkExcludeHit(mx, my) {
     const btn = this._hitExcludeButton(mx, my);
@@ -143,7 +143,7 @@ export const RendererInteraction = {
 
   // Hide every surface's scrub cursor and release graph ownership of it. Used
   // by handleScrubber()'s early-return branches. The 3D globe and 2D map both
-  // listen on the 'scrub' event (see events.js / globe3d_view.js).
+  // listen on the 'scrub' event (see events_timeline.mjs / globe3d_view.mjs).
   _clearScrub() {
     AppState.hoveredIndex = -1;
     if (AppState.scrubSource === 'graph') AppState.scrubSource = null;

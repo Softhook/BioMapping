@@ -1,9 +1,9 @@
 /**
  * Regression test: isoband fills at levels whose "inside" region touches a
  * masked (null-valued) area of the grid — e.g. a real GSR export, where
- * collective_manager.js's generateContourSurface leaves every cell outside a
+ * collective_manager.mjs's generateContourSurface leaves every cell outside a
  * GPS track's isolationRadius corridor as `null`, and MarchingSquares skips
- * any cell touching a null corner (see marching_squares.js). An open isoline
+ * any cell touching a null corner (see marching_squares.mjs). An open isoline
  * that gets cut off there isn't cut off by the literal map/grid boundary at
  * all — closing it against that boundary (as the rest of this isoband
  * closure logic originally assumed every open endpoint would be) reads
@@ -44,7 +44,7 @@ const bounds = { minLat: 49.9, maxLat: 50.0, minLon: 0.0, maxLon: 0.1 };
 
 function buildCorridorGrid(rows, cols) {
   // A gently-curving walked-path corridor entirely clear of the literal grid
-  // edges (the isolationRadius/10% padding in collective_manager.js's
+  // edges (the isolationRadius/10% padding in collective_manager.mjs's
   // getBounds is specifically designed to guarantee this in real exports),
   // with a single stress hotspot partway along it — everything outside the
   // corridor is null, same as generateContourSurface's boundary mask.

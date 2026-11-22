@@ -1,7 +1,7 @@
 /**
  * Regression coverage for the RF fan-cast spatial grid index (architecture
  * refactor plan Phase 6 step 1 / perf-routes doc §2.1):
- * `_precalculateSpatialFans()` (rf_fluid_renderer.js) used to linearly
+ * `_precalculateSpatialFans()` (rf_fluid_renderer.mjs) used to linearly
  * re-scan every building segment for every GPS node. It now buckets
  * `buildingSegmentsGeo` into a uniform lat/lon grid once per call
  * (`_buildSegmentGrid`) and looks up only the cells overlapping each node's

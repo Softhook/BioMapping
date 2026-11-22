@@ -1,6 +1,6 @@
 /**
  * GSR/EDA Signal Filter Pipeline — standalone pure functions.
- * Extracted from GSRAnalyzer (analyzer.js) so they can be tested
+ * Kept apart from GSRAnalyzer (analyzer.mjs) so they can be tested
  * independently of the analysis engine.
  *
  * All functions operate on plain Float64Array-compatible arrays.
@@ -232,7 +232,7 @@ export const GsrFilter = {
    * cookbook biquad cascade, run forward then time-reversed to cancel
    * phase), the same filter family NeuroKit2 (3Hz cutoff) and BioSPPy (5Hz)
    * use for their own EDA "cleaning" stage. `useGaitFilter` (see the caller
-   * in analyzer.js) swaps this in for the plain box average, on by default:
+   * in analyzer.mjs) swaps this in for the plain box average, on by default:
    * unlike the box average's broad, gradual rolloff, an order-4
    * Butterworth's much steeper transition band suppresses the ~1.4-2.0Hz
    * walking-gait artefact (verified via a real-track GPS-speed correlation
@@ -419,7 +419,7 @@ export const GsrFilter = {
     // A constant signal has std 0; dividing by 1 instead z-scores it to all zeros.
     const safeStd = stats.std || 1;
     // Reuse the caller's {time,val} array when one of the right length is
-    // passed (analyzer.js pools tonicZ/phasicZ across analyze() calls) rather
+    // passed (analyzer.mjs pools tonicZ/phasicZ across analyze() calls) rather
     // than allocating a fresh n-object array every call.
     if (out && out.length === n) {
       for (let i = 0; i < n; i++) {

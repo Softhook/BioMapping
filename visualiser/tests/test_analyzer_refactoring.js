@@ -433,11 +433,10 @@ test('GSRAnalyzer getMatchingLabel: exact match then nearest within tolerance', 
 });
 
 test('GSRAnalyzer _dataVersion: bumped by every mutation path a self-validating cache must key on', () => {
-  // Phase 2 (docs/archive/visualizer_architecture_refactor_plan.md): callers that cache
-  // derived data off an analyzer (e.g. GSRUI's environmental dashboard) key
-  // their cache on _dataVersion instead of relying on being told to invalidate.
-  // This only works if every mutation path actually bumps it — that's what's
-  // under test here, not the counter mechanics themselves.
+  // Callers that cache derived data off an analyzer (e.g. GSRUI's environmental
+  // dashboard) key their cache on _dataVersion instead of relying on being told
+  // to invalidate. This only works if every mutation path actually bumps it —
+  // that's what's under test here, not the counter mechanics themselves.
   const a = new GSRAnalyzer();
   assert.strictEqual(a._dataVersion, 0);
 
@@ -809,7 +808,7 @@ test('GSRAnalyzer _computeNoiseFloor: constant window is floored at 1e-6, never 
   assert.strictEqual(a._computeNoiseFloor(2, 2), 1e-6);
 });
 
-// ── §A perf fix: sliding-window minimum correctness (2026-08-07) ─────────────
+// ── Sliding-window minimum correctness ───────────────────────────────────────
 // The O(N) monotonic-deque localOffsets result must be identical to the
 // O(N×W) brute-force nested loop it replaced. These tests verify the algorithm
 // in isolation on synthetic data (boundary cases + mid-track) and confirm that
@@ -902,7 +901,7 @@ test('§A sliding-window min: analyze() phasic is non-negative after deque fix',
   }
 });
 
-// ── §B perf fix: computeCombinedArousalIndex with precomputedAUC (2026-08-07) ─
+// ── computeCombinedArousalIndex with precomputedAUC ──────────────────────────
 
 test('§B computeCombinedArousalIndex: precomputedAUC gives identical values to fresh-computed path', () => {
   const fs = require('node:fs'),

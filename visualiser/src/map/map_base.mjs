@@ -1,5 +1,6 @@
-// Leaflet.js Map Manager for GSR + GPS Visualisation
-// Handles path rendering, arousal color-coding, and peak marker overlays.
+// GSRMapBase — the root of GSRMapManager's class chain (see map.mjs): the
+// Leaflet map itself, its basemap and panes, and the shared state every
+// later link reads.
 
 import { GSR_CONST } from '../core/constants.mjs';
 import { RFFluidRenderer } from '../render/rf_fluid_renderer.mjs';
@@ -21,9 +22,8 @@ export class GSRMapBase {
     this.map = null;
     this.contourLayers = [];
     this.osmLayers = [];
-    // Phase 1 (slice 3): legacy fallback for layers rendered without a managed
-    // track (bare analyzer direct-add path); rendered tracks own their layers
-    // in track._ownedLayers instead.
+    // Layers rendered without a managed track (a bare analyzer); rendered
+    // tracks own their layers in track._ownedLayers instead.
     this._unownedLayers = [];
     this.scrubMarker = null;
     this.showPeaks = true;
@@ -54,7 +54,7 @@ export class GSRMapBase {
     this._arousalPlacesCache = null;
     this._lastArousalInput = null;
 
-    // Phase 1 (slice 2): the set of track layerGroups THIS manager has rendered
+    // The set of track layerGroups THIS manager has rendered
     // (trackId -> track). Clearing iterates this set rather than re-reading
     // AppState.collectiveManager.tracks, so a track removed from the manager
     // can never leave an orphaned layerGroup behind (the collective-view drift
@@ -110,9 +110,9 @@ export class GSRMapBase {
     // Kept as this.baseTileLayer (not just addTo(this.map) and discarded) so
     // GSRMapExporter can force it to prefetch tiles beyond the live viewport
     // before an SVG export — see exportToSvg's isoband-canvas-expansion
-    // handling and map_exporter.js's _ensureTileCoverage doc comment.
+    // handling and map_exporter.mjs's _ensureTileCoverage doc comment.
     // CARTO basemap URL + key resolution shared via GSRBasemap
-    // (src/map/basemap.js); crossOrigin is added here for the SVG exporter's
+    // (src/map/basemap.mjs); crossOrigin is added here for the SVG exporter's
     // tile prefetch — the live follow-map doesn't need it.
     this.baseTileLayer = L.tileLayer(GSRBasemap.cartoTileUrl('light_all'), {
       ...GSRBasemap.tileOptions(),
@@ -163,7 +163,7 @@ export class GSRMapBase {
 
   _getMetricKey(metric) {
     // OSM entries (roadClass..amenityCount) come from the shared
-    // GSR_CONST.OSM_METRICS table (constants.js) — manager/legend.js's
+    // GSR_CONST.OSM_METRICS table (constants.mjs) — manager/legend.mjs's
     // metricNames is the other consumer of that same table.
     const keys = {
       gsr: 'val',
@@ -187,18 +187,4 @@ export class GSRMapBase {
     }
     return keys[metric] || 'val';
   }
-  // GSRMapManager is completed by prototype-augment files loaded immediately
-  // after this one (see index.html / boot_app.js SCRIPT_ORDER):
-  //   manager/process.js   — GPS pipeline → drawPoints + cache
-  //   manager/legend.js    — the bottom-right legend
-  //   manager/layers.js    — per-track layer ownership + clearMap/clearAll
-  //   manager/osm.js       — OSM vector overlays
-  //   manager/rf_fluid.js  — RF Fluid overlay control
-  //   manager/viewport.js  — fit/zoom/scrub navigation
-  //   manager/render.js    — renderData / refreshPath / refreshPeakMarkers
-  //   manager/path.js      — colour-coded path segment rendering
-  //   manager/peaks.js     — peak / hotspot marker rendering
-  //   manager/arousal_places.js — the Arousal Places layer (cluster → ranked places)
-  //   manager/collective.js— collective / multi-track view + contours
-  //   manager/toggles.js   — layer visibility toggles
 }

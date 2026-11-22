@@ -4,7 +4,7 @@ const assert = require('node:assert');
 const { ResponseDynamics } = require('../src/signal/response_dynamics.mjs');
 global.ResponseDynamics = ResponseDynamics;
 
-// Load real constants.js
+// Load real constants.mjs
 const { GSR_CONST } = require('../src/core/constants.mjs');
 global.GSR_CONST = GSR_CONST;
 

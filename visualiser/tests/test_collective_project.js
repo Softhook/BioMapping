@@ -1,5 +1,5 @@
 /**
- * Unit tests for collective_project.js (GSRCollectiveProject) — collective
+ * Unit tests for collective_project.mjs (GSRCollectiveProject) — collective
  * map session export/import to a re-importable .zip bundle.
  *
  * The pure helpers (_sanitizeName/_pickValues/_applyValues/_buildManifest)
@@ -15,7 +15,7 @@
 const assert = require('node:assert');
 const test = require('node:test');
 
-// ── Minimal global stubs so collective_project.js's top-level references
+// ── Minimal global stubs so collective_project.mjs's top-level references
 //    resolve under plain Node (none of these exist outside a browser). ──────
 global.window = global;
 global.document = { getElementById: () => null };
@@ -243,7 +243,7 @@ test('exportProject: shows an alert when there are no tracks to export', async (
 test(
   'exportProject: builds a suggestedName from the current date and hands the zip blob to ' +
     'GSRFileSaver.saveFile (regression test for a fixed bug: `suggestedName` was previously ' +
-    'referenced without ever being declared in exportProject — see collective_project.js history ' +
+    'referenced without ever being declared in exportProject — see collective_project.mjs history ' +
     'and git blame around the `stamp` variable for context)',
   async () => {
     global.JSZip = class {
@@ -321,7 +321,7 @@ test(
 // ── importProject ────────────────────────────────────────────────────────
 test('importProject: returns without doing anything when no file is given', async () => {
   // Regression: importProject() checks `typeof JSZip === 'undefined'` BEFORE
-  // `!file` (collective_project.js:181-185). global.JSZip must be defined
+  // `!file` (collective_project.mjs:181-185). global.JSZip must be defined
   // here or this test actually falls through the JSZip-missing branch
   // instead of the `!file` early-return it claims to cover — which is
   // exactly what happened before this fix, since the previous test's

@@ -34,7 +34,7 @@ export class GSRGlobeRf extends GSRGlobeOsm {
 
   /**
    * Render the 3D Volumetric RF Expanse (glowing semi-dome fluid slugs). The
-   * geometry build lives in src/map/globe3d/rf_expanse.js; this owns the scene
+   * geometry build lives in src/map/globe3d/rf_expanse.mjs; this owns the scene
    * primitive's lifecycle.
    */
   render3DRfExpanse(analyzer, drawPoints) {

@@ -3,8 +3,8 @@
 // See LICENCE.md in the project root for terms.
 
 /**
- * Peak shape measurement and quality/salience scoring — extracted from
- * analyzer.js. Every function is pure: signal arrays, indices and any
+ * Peak shape measurement and quality/salience scoring for GSRAnalyzer.
+ * Every function is pure: signal arrays, indices and any
  * instance state (the filtered series, label lookups) are passed in
  * explicitly rather than read off `this`. GSRAnalyzer keeps thin instance
  * wrappers (`_findOnsetIndex`, `_computeNoiseFloor`, `_buildPeakObject`,
@@ -140,8 +140,7 @@ export const PeakShape = {
    * Uses the filtered signal (median+LPF, pre-decomposition), indexed
    * directly rather than mapped to a plain array first: this runs once per
    * candidate peak but only reads a small ±halfWindow slice, so a full-array
-   * .map() here dominated analyse() time on long tracks (see the architecture
-   * refactor plan's Phase 8 note).
+   * .map() here dominated analyse() time on long tracks.
    *
    * @param {Array} filtered - The filtered series ({val} objects).
    */
@@ -244,7 +243,7 @@ export const PeakShape = {
    * unchanged for deconvolution peaks was tried first and found to be wrong.
    *
    * Under the fixed-kernel SCRF model (Benedek & Kaernbach, 2010 — see the
-   * SCRF class comment in constants.js), every deconvolution peak shares the
+   * SCRF class comment in constants.mjs), every deconvolution peak shares the
    * exact same riseTime, halfRecoveryTime and skewnessRatio by
    * construction: they're derived once from the kernel, not measured per
    * peak. Verified empirically on track 053: all 205 peaks have exactly one
@@ -312,7 +311,7 @@ export const PeakShape = {
    * don't share one correct granularity. The discrete peak count (analyzer's
    * this.peaks) is trying to be an honest census of distinct SCR events — how
    * many separate things happened — a question the earlier chain-merge
-   * consolidation bug (see peak_detectors.js's detectPeaksFromCurve() doc
+   * consolidation bug (see peak_detectors.mjs's detectPeaksFromCurve() doc
    * comment) actively hurt. Phasic AUC (computePhasicAUC) is a continuous,
    * 30s-windowed measure of total phasic activation, already fairly robust to
    * exactly how many discrete atoms happened to compose a burst, since it

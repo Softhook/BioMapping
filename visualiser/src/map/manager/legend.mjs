@@ -1,18 +1,15 @@
 /**
- * GSRMapManager — the bottom-right map legend. Prototype-augment split from
- * map.js: loaded immediately after map.js, adds these methods to
- * GSRMapManager.prototype.
+ * GSRMapManager — the bottom-right map legend (one link of the class chain
+ * in map/map.mjs).
  *
  * `_initLegend()` mounts an L.Control; `updateLegend()` rewrites its inner HTML
  * from `buildLegendHtml()`, which reads the current colouring metric / data
  * range / view mode off instance state (this.activeColoringMetric,
  * this._legendMinVal / _legendMaxVal / _legendUniqueVals,
  * this._collectiveTopographySource, this.showRFFluid / rfFluidRenderer /
- * hasRfData). `buildLegendHtml()` is also called cross-file by
- * globe3d_view.js._updateLegend so the 3D globe shows the identical legend.
- *
- * Depends on the globals L, AppState, GSR_CONST and MapColors (resolved at call
- * time).
+ * hasRfData). `buildLegendHtml()` is also called by
+ * GSRGlobe3DView._updateLegend (globe3d_view.mjs) so the 3D globe shows the
+ * same legend.
  */
 import { AppState } from '../../core/app_state.mjs';
 import { GSR_CONST } from '../../core/constants.mjs';
@@ -89,7 +86,7 @@ export class GSRMapLegend extends GSRMapViewport {
   /**
    * Build the legend's inner HTML for the current colouring metric / data range /
    * view mode. Split out of updateLegend() so the 3D globe can render the exact
-   * same legend (see globe3d_view.js _updateLegend).
+   * same legend (see globe3d_view.mjs _updateLegend).
    * @returns {string}
    */
   buildLegendHtml() {
@@ -123,9 +120,9 @@ export class GSRMapLegend extends GSRMapViewport {
       const metric = this.activeColoringMetric || 'gsr';
 
       // OSM entries (roadClass..amenityCount) come from the shared
-      // GSR_CONST.OSM_METRICS table (constants.js) — single source of truth
-      // for the key<->field<->label mapping, also used by map.js's
-      // _getMetricKey() and ui.js's correlation dashboard.
+      // GSR_CONST.OSM_METRICS table (constants.mjs) — single source of truth
+      // for the key<->field<->label mapping, also used by GSRMapBase's
+      // _getMetricKey() and the correlation dashboard.
       const metricNames = {
         gsr: 'GSR Signal',
         phasic: 'Phasic (SCR)',

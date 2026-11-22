@@ -6,7 +6,7 @@
  *
  * This is deliberately NOT trying to be a faithful Leaflet/p5 reimplementation
  * — per-function unit coverage of the DOM/Leaflet/p5 rendering glue
- * (map.js/ui.js/events.js/sketch.js/layout_manager.js) was explicitly scoped
+ * (the map, ui, events, sketch and layout modules) was explicitly scoped
  * OUT in favor of lighter smoke coverage: "does the real app boot and run its
  * core flows without throwing." `superMock()` below is a universal auto-mock:
  * any property access or function call on it returns another superMock,
@@ -18,7 +18,7 @@
  * surface. The tradeoff: these tests catch "the app throws an uncaught
  * exception" and "app-level state ends up wrong" bugs, NOT "the map renders
  * the wrong pixels" bugs — that class of bug is out of scope here by design
- * (see docs/archive/visualizer_test_coverage_plan.md).
+ * (the real-Chrome smoke check covers it).
  *
  * Every src/ file is a real ES module: `bootApp()` dynamically
  * `import()`s each one in SCRIPT_ORDER, in the same jsdom-bridged realm (see
@@ -156,7 +156,7 @@ const SCRIPT_ORDER = [
 ];
 
 // p5 "global mode" functions/constants referenced as bare identifiers by
-// renderer.js/sketch.js (grepped from source, not guessed).
+// the render/ files (grepped from source, not guessed).
 const P5_GLOBAL_NAMES = [
   'background',
   'beginShape',
@@ -185,7 +185,7 @@ const P5_GLOBAL_NAMES = [
   // p5 mouse/canvas state, also referenced bare — must exist on `window` at
   // boot time so installJsdomGlobals's live accessor bridge picks them up; a
   // test that later does `window.mouseX = ...` then needs no extra wiring to
-  // be seen by sketch.js's bare `mouseX` reference.
+  // be seen by the render/ files' bare `mouseX` reference.
   'saveCanvas',
   'drawingContext',
   'winMouseX',
@@ -240,7 +240,7 @@ async function bootApp({ compact = false } = {}) {
     disconnect() {}
   };
   // jsdom doesn't implement the Blob-URL pair either (browser-only, used by
-  // file_saver.js's direct-download fallback) — a no-op stand-in is enough
+  // file_saver.mjs's direct-download fallback) — a no-op stand-in is enough
   // since these tests don't need the resulting URL to be dereferenceable.
   window.URL.createObjectURL =
     window.URL.createObjectURL || (() => 'blob:mock-url');
@@ -249,7 +249,7 @@ async function bootApp({ compact = false } = {}) {
   for (const name of P5_GLOBAL_NAMES) window[name] = superMock();
   for (const [name, value] of Object.entries(P5_CONSTANTS))
     window[name] = value;
-  // createCanvas needs a real DOM node: sketch.js calls real DOM APIs on the
+  // createCanvas needs a real DOM node: sketch.mjs calls real DOM APIs on the
   // result (`.elt.addEventListener(...)`, `.elt.oncontextmenu = ...`), which
   // a generic superMock would harmlessly no-op but a real jsdom <canvas>
   // handles faithfully (real listeners actually fire on real dispatched

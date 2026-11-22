@@ -3,9 +3,9 @@
 // See LICENCE.md in the project root for terms.
 
 /**
- * GSREvents — Scrub-dot relay to the map, timeline zoom/reset buttons, curve show/hide toggles, unsaved-labels unload guard. Object-augment split from events.js: loaded
- * immediately after events.js, adds these methods to the shared GSREvents
- * object.
+ * GSREvents — scrub-dot relay to the map, timeline zoom/reset buttons, curve
+ * show/hide toggles, unsaved-labels unload guard. Merged into GSREvents by
+ * events.mjs.
  */
 import { AppState } from '../core/app_state.mjs';
 import { Controllers } from '../core/controllers.mjs';
@@ -16,8 +16,8 @@ export const TimelineEvents = {
    */
   _bindTimelineControls() {
     // ── Shared scrub channel: relay to the 2D map ────────────────────────────
-    // The GSR graph (renderer.js handleScrubber) and the 3D globe
-    // (globe3d_view.js) both emit 'scrub' with {lat, lon, index, source} or
+    // The GSR graph (handleScrubber, render/renderer_interaction.mjs) and the 3D globe
+    // (globe3d_view.mjs) both emit 'scrub' with {lat, lon, index, source} or
     // {clear:true}. This is the single place the Leaflet scrub dot is driven.
     // panTo stays on for graph/globe sources so the 2D map keeps its
     // pan-only-when-off-screen behaviour; a 'map'-sourced scrub never pans.

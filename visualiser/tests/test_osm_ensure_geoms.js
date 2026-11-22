@@ -1,5 +1,5 @@
 /**
- * GSRUI.ensureOsmGeoms() (ui.js) — the on-demand OSM-geometry resolver behind
+ * GSRUI.ensureOsmGeoms() (ui_enrichment.mjs) — the on-demand OSM-geometry resolver behind
  * the Map Display card's "OSM Shapes" checkbox. It gives a track
  * `analyzer.osmGeoms` (geometry only, no `isEnriched`) without a full spatial
  * retrieval, sharing every layer of enrichTrack's cache:

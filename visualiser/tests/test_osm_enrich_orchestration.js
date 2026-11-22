@@ -1,5 +1,5 @@
 /**
- * GSRUI.enrichTrack() orchestration (ui.js) — the collective "Retrieve
+ * GSRUI.enrichTrack() orchestration (ui_enrichment.mjs) — the collective "Retrieve
  * Spatial Data" flow. The pure per-position spatial maths lives in
  * OSMEnricher.enrichTrack and is covered by test_osm_enrichment.js; here we
  * only check the loop that drives it across every active track:

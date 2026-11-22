@@ -1,6 +1,6 @@
 /**
  * Multi-track Spatial Aggregation for Collective Map Surface.
- * Extracted from analyzer.js — pure spatial concern, no GSR analysis logic.
+ * A pure spatial concern: no GSR analysis logic.
  */
 
 import { GSR_CONST } from '../core/constants.mjs';
@@ -16,8 +16,8 @@ export class GSRCollectiveManager {
   }
 
   addTrack(track) {
-    // Phase 1 (slice 1): normalise tracks that predate the layerGroup field so
-    // GSRMapManager can always rely on it being present (null = owns nothing).
+    // Give a track without a layerGroup field one, so GSRMapManager can
+    // always rely on it being present (null = owns nothing).
     if (track && track.layerGroup === undefined) track.layerGroup = null;
     this.tracks.push(track);
   }
@@ -560,8 +560,8 @@ export class GSRCollectiveManager {
     }
 
     // Reference (mean) amplitude across all active peaks, for the same clamped
-    // relative-severity weighting used by the cluster blobs (spatial_clustering.js
-    // GSRSpatialClustering.relativeAmplitudeWeight) — see PEAK_KDE in constants.js for why
+    // relative-severity weighting used by the cluster blobs (spatial_clustering.mjs
+    // GSRSpatialClustering.relativeAmplitudeWeight) — see PEAK_KDE in constants.mjs for why
     // this needs to be shared rather than reimplemented here.
     let peaksRefAmplitude = 0;
     if (peaks.length > 0) {
@@ -682,7 +682,7 @@ export class GSRCollectiveManager {
     } = gridCtx;
 
     // Coverage field — how many distinct participant tracks actually passed near each cell,
-    // used by map.js's renderContours() to checkerboard cells whose reading is backed by
+    // used by renderContours() (map/manager/collective.mjs) to checkerboard cells whose reading is backed by
     // little evidence (see the coverageWeighting param above). This answers a different
     // question than the value grid below: not "what's the arousal here" but "how much do we
     // actually know about this spot." Gated on coverageWeighting > 0 so leaving the slider
@@ -842,13 +842,11 @@ export class GSRCollectiveManager {
     // Continuous (non-peak) topography sources: raw phasic/tonic, or the
     // threshold-independent Phasic AUC / Combined Arousal Index. Same splat
     // restructuring as the boundary mask above — point-major instead of
-    // cell-major — for the identical reason: the vast majority of
-    // (cell, point) pairs are beyond isolationRadius*1.5 and get discarded
-    // after computing a distance for nothing. Found via real A/B
-    // benchmarking (docs/archive/visualizer_architecture_refactor_plan.md Phase 7):
-    // this was the dominant cost of generateContourSurface() on a real
-    // 5-track collective fixture (up to CONTOUR_MAX_POINTS=20,000 points x
-    // gridResolution^2 cells, unindexed).
+    // cell-major — for the identical reason: the vast majority of (cell, point)
+    // pairs are beyond isolationRadius*1.5 and get discarded after computing a
+    // distance for nothing. Measured: this was the dominant cost of
+    // generateContourSurface() on a real 5-track collective fixture (up to
+    // CONTOUR_MAX_POINTS=20,000 points x gridResolution^2 cells, unindexed).
     // Per-walk scratch (reset over each walk's touched window, as in the
     // coverage field above), folded into one vote per walk per cell.
     const sumWeightedVal = new Float64Array(rows * cols);
@@ -1100,10 +1098,10 @@ export class GSRCollectiveManager {
     const seenLevels = new Set();
     const valRange = maxVal - minVal;
 
-    // §C perf fix (2026-08-07): collect all unique levels first, then call
+    // Collect all unique levels first, then call
     // MarchingSquares.getContourLinesMulti() once (single O(R×C) grid pass)
-    // instead of K separate getContourLines() calls (K × O(R×C)).
-    // The dedup + fallback logic below is identical to the previous loop.
+    // instead of K separate getContourLines() calls (K × O(R×C)). The dedup +
+    // fallback logic below is identical to the previous loop.
     const levelEntries = []; // [{ level, ratio }]
     for (let k = 1; k <= contourCount; k++) {
       const percentile = k / (contourCount + 1);

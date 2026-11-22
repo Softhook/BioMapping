@@ -94,7 +94,7 @@ const signalMetrics = {
   ],
   run({ h, track, opts }) {
     const a = track.analyzer;
-    // Same call shape as analyze()'s metric block (analyzer.js): density and
+    // Same call shape as analyze()'s metric block (analyzer.mjs): density and
     // AUC computed once, then fed into arousalIndex and triIndex as precomputed.
     const r = h.bench(
       () => {

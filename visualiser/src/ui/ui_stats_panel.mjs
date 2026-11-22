@@ -1,7 +1,6 @@
 /**
- * GSRUI — stats panel + detector-dependent control sync. Object-augment
- * split from ui.js: loaded immediately after ui.js, adds these methods to
- * the shared GSRUI object.
+ * GSRUI — stats panel + detector-dependent control sync. Merged into GSRUI by
+ * ui.mjs.
  *
  * Covers the four stat cards (updateStatsPanel), the spatial-data indicator
  * dot, the map-panel auto-collapse for trackless-GPS data, and the small
@@ -17,7 +16,7 @@ export const StatsPanelUI = {
   /**
    * Show/hide the SCR-deconvolution truncation warning (index.html,
    * #deconvTruncationWarning). phasicDeconvTruncated is set by
-   * _runDeconvolutionPipeline() (analyzer.js) whenever matching pursuit hits
+   * _runDeconvolutionPipeline() (analyzer.mjs) whenever matching pursuit hits
    * maxIter before the residual actually converges — a real, possible
    * failure mode (some genuine SCRs left unmodelled with no other visible
    * sign) that previously had no indication anywhere in the UI; the flag

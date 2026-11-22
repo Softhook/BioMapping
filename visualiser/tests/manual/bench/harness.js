@@ -512,8 +512,8 @@ function installRecordingLeaflet(window) {
 
 // ── boot context ────────────────────────────────────────────────────────────
 /**
- * bootApp() + recording Leaflet + the p5 / canvas globals renderer.js and
- * sketch.js reference as bare identifiers, then window.setup().
+ * bootApp() + recording Leaflet + the p5 / canvas globals the render/ files
+ * reference as bare identifiers, then window.setup().
  *
  * A FRESH context per area (run.js calls this once per area, not once per
  * process): analyze() mutates its analyzer, renderData() warms mapManager's
@@ -529,7 +529,7 @@ async function boot() {
     window.RFFluidRenderer.prototype._initCanvas = () => {};
     window.RFFluidRenderer.prototype._bindEvents = () => {};
   }
-  // p5 "global mode" identifiers renderer.js / sketch.js use bare, beyond what
+  // p5 "global mode" identifiers the render/ files use bare, beyond what
   // boot_app already stubs (grepped from those two files).
   const p5names = [
     'circle',

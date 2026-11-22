@@ -25,7 +25,7 @@ const GSRMapExporter = global.GSRMapExporter;
 console.log('── Running OSM Hard-Shape Export Regression Test ──');
 
 // Minimal fake Leaflet: just enough for _pathEl's `instanceof window.L.Polygon` check
-// and getLatLngs()/options, mirroring what map.js's drawOsmShapes() actually creates.
+// and getLatLngs()/options, mirroring what drawOsmShapes() (map/manager/osm.mjs) actually creates.
 class FakePolygon {
   constructor(latlngs, options) {
     this._latlngs = latlngs;

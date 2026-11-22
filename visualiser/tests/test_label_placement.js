@@ -1,6 +1,6 @@
 /**
- * Unit tests for label_placement.js (GSRLabelManager) — pure cartographic
- * label placement logic, extracted from map.js.
+ * Unit tests for label_placement.mjs (GSRLabelManager) — pure cartographic
+ * label placement logic.
  *
  * Run: node --test tests/test_label_placement.js  (or `npm test` for the whole suite)
  */

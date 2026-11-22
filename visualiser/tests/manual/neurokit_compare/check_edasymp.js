@@ -1,11 +1,11 @@
 /**
  * EDASymp comparison (JS side) — see check_edasymp.py.
  *
- * Loads BioMapping's REAL SpectralEDA module (src/signal/spectral_eda.js),
- * re-reads each raw track CSV with the same µS unit conversion the Python
- * side applies (run_neurokit.to_microsiemens), and reports per-track
- * ratio + cross-track Pearson r against NeuroKit2's
- * nk.eda_sympathetic(posada2016) scalar.
+ * Loads BioMapping's REAL SpectralEDA module (src/signal/spectral_eda.mjs),
+ * re-reads each raw track CSV with the same µS unit conversion the Python side
+ * applies (run_neurokit.to_microsiemens), and reports per-track ratio +
+ * cross-track Pearson r against NeuroKit2's nk.eda_sympathetic(posada2016)
+ * scalar.
  *
  * Usage (normally via check_edasymp.sh, not directly):
  *   node check_edasymp.js <python.json> <tracksdir>

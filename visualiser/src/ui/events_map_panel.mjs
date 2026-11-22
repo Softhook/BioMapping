@@ -3,9 +3,9 @@
 // See LICENCE.md in the project root for terms.
 
 /**
- * GSREvents — The map panel's zoom/RF-fluid/shared 2D-3D toggles, coloring-metric selector, contour inputs, panel collapse buttons, and table column sorting. Object-augment split from events.js: loaded
- * immediately after events.js, adds these methods to the shared GSREvents
- * object.
+ * GSREvents — the map panel's zoom / RF-fluid / shared 2D-3D toggles,
+ * colouring-metric selector, contour inputs, panel collapse buttons, and table
+ * column sorting. Merged into GSREvents by events.mjs.
  */
 import { AppState } from '../core/app_state.mjs';
 import { Controllers } from '../core/controllers.mjs';
@@ -203,7 +203,7 @@ export const MapPanelEvents = {
     this.bindCollapseButton('btnExportCollapse', 'exportCard');
     this.bindCollapseButton('btnContourCollapse', 'contourSettingsCard');
     // Collapsing the panel doesn't move the mouse, so no mouseleave fires on
-    // the canvas — reset mouseOverCanvas here so mouseMoved() (sketch.js)
+    // the canvas — reset mouseOverCanvas here so mouseMoved() (sketch_input.mjs)
     // doesn't keep forcing redraws while the mouse sits over the collapsed
     // graph's old screen area. (handleScrubber's own elementFromPoint
     // hit-test is what actually keeps the scrubber from reactivating.)

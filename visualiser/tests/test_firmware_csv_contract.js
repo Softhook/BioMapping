@@ -4,7 +4,7 @@
  * The live view has to write a CSV byte-compatible with a file the Flipper's
  * SD logger writes, and decode a wire packet byte-identical to the one the
  * firmware packs. Both sides currently keep hand-copied mirrors of firmware
- * constants (visualiser/src/live/live_csv.mjs, .../live_binary_parser.js) —
+ * constants (visualiser/src/live/live_csv.mjs, .../live_binary_parser.mjs) —
  * nothing else stops them drifting when the firmware format changes.
  *
  * This test reads the firmware source directly and asserts the visualiser
@@ -57,19 +57,7 @@ function runContractTests() {
   })();
 
   const readFw = (rel) => fs.readFileSync(path.join(FW, rel), 'utf8');
-  // ES-module migration: a converted src/live/ file's .js sibling is
-  // deleted (convert_file.js --write) — same .js/.mjs resolution rule as
-  // tests/support/load_module.js.
-  const readLive = (name) => {
-    const full = path.join(LIVE, name);
-    const mjsFull = full.replace(/\.js$/, '.mjs');
-    return fs.readFileSync(
-      name.endsWith('.js') && !fs.existsSync(full) && fs.existsSync(mjsFull)
-        ? mjsFull
-        : full,
-      'utf8',
-    );
-  };
+  const readLive = (name) => fs.readFileSync(path.join(LIVE, name), 'utf8');
 
   // Fail with an actionable message when a firmware anchor can't be found —
   // that means the firmware was refactored and this test + the visualiser
@@ -80,7 +68,7 @@ function runContractTests() {
       assert.fail(
         `SAVE-PROTOCOL CONTRACT: could not locate ${whatAndFile}. The ` +
           `firmware save format was refactored — re-anchor this test, then ` +
-          `reconcile visualiser/src/live/ (live_csv.js / live_binary_parser.js) ` +
+          `reconcile visualiser/src/live/ (live_csv.mjs / live_binary_parser.mjs) ` +
           `and docs/csv_schema.md against the current firmware source.`,
       );
     }
@@ -144,7 +132,7 @@ function runContractTests() {
     assert.strictEqual(
       liveMarker,
       fwMarker,
-      'live_csv.js LIVE_INTEGRITY_MARKER has drifted from the firmware marker (version bump?)',
+      'live_csv.mjs LIVE_INTEGRITY_MARKER has drifted from the firmware marker (version bump?)',
     );
   });
 
@@ -155,7 +143,7 @@ function runContractTests() {
     if (!line) {
       assert.fail(
         'SAVE-PROTOCOL CONTRACT: BIOMAP_CSV_COLS_GPS_GSR_PROD not found in ' +
-          'biomap_config.h — reconcile live_csv.js LIVE_CSV_COLUMNS.',
+          'biomap_config.h — reconcile live_csv.mjs LIVE_CSV_COLUMNS.',
       );
     }
     const fwCols = cStr(line);
@@ -163,7 +151,7 @@ function runContractTests() {
     assert.strictEqual(
       liveCols,
       fwCols,
-      'live_csv.js LIVE_CSV_COLUMNS has drifted from the firmware GPS+GSR schema',
+      'live_csv.mjs LIVE_CSV_COLUMNS has drifted from the firmware GPS+GSR schema',
     );
   });
 
@@ -318,7 +306,7 @@ function runContractTests() {
     assert.deepStrictEqual(
       fwTokens,
       ['rows', 'bytes', 'crc32', 'end_time', 'overflows', 'flush_fails'],
-      'firmware trailer token list changed — update this expectation and live_csv.js',
+      'firmware trailer token list changed — update this expectation and live_csv.mjs',
     );
     // crc32:%08lx  →  lower-case, zero-padded to 8 hex digits
     assert.ok(
@@ -391,10 +379,10 @@ function runContractTests() {
   });
 
   // ── WIRE: the 49-byte BLE packet ────────────────────────────────────
-  test('WIRE: live_binary_parser.js field offsets + size match firmware bt_stream_pack_packet() (core/biomap_format.{c,h})', () => {
+  test('WIRE: live_binary_parser.mjs field offsets + size match firmware bt_stream_pack_packet() (core/biomap_format.{c,h})', () => {
     const btc = readFw('core/biomap_format.c');
     const bth = readFw('core/biomap_format.h');
-    const parser = readLive('live_binary_parser.js');
+    const parser = readLive('live_binary_parser.mjs');
 
     // Packet size.
     const fwSize = Number(
@@ -408,7 +396,7 @@ function runContractTests() {
       locate(
         parser,
         /\bPACKET_SIZE\s*=\s*(\d+)/,
-        'PACKET_SIZE in live_binary_parser.js',
+        'PACKET_SIZE in live_binary_parser.mjs',
       )[1],
     );
     assert.strictEqual(jsSize, fwSize, 'wire packet size drifted');
@@ -422,14 +410,14 @@ function runContractTests() {
         locate(
           parser,
           /MAGIC_0\s*=\s*(0x[0-9a-fA-F]+)/,
-          'MAGIC_0 in live_binary_parser.js',
+          'MAGIC_0 in live_binary_parser.mjs',
         )[1],
       ),
       Number(
         locate(
           parser,
           /MAGIC_1\s*=\s*(0x[0-9a-fA-F]+)/,
-          'MAGIC_1 in live_binary_parser.js',
+          'MAGIC_1 in live_binary_parser.mjs',
         )[1],
       ),
     ];
@@ -463,7 +451,7 @@ function runContractTests() {
     for (const f of jsFields) {
       assert.ok(
         f.w,
-        `live_binary_parser.js uses an unmapped DataView getter at offset ${f.off}`,
+        `live_binary_parser.mjs uses an unmapped DataView getter at offset ${f.off}`,
       );
     }
 
@@ -481,14 +469,14 @@ function runContractTests() {
       assert.strictEqual(
         f.off,
         cursor,
-        `live_binary_parser.js field at offset ${f.off} leaves a gap/overlap (expected ${cursor})`,
+        `live_binary_parser.mjs field at offset ${f.off} leaves a gap/overlap (expected ${cursor})`,
       );
       cursor += f.w;
     }
     assert.strictEqual(
       cursor,
       jsSize,
-      'live_binary_parser.js fields do not fill the packet exactly',
+      'live_binary_parser.mjs fields do not fill the packet exactly',
     );
   });
 }

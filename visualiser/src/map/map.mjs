@@ -1,22 +1,25 @@
-// Leaflet.js Map Manager for GSR + GPS Visualisation
-// Handles path rendering, arousal color-coding, and peak marker overlays.
+// GSRMapManager — the Leaflet map: GPS path, peak markers, collective
+// surfaces and overlays.
+//
+// It is one chain of classes, one file per job, each extending the one
+// before it (class names follow the file: map_base.mjs is GSRMapBase,
+// manager/layers.mjs is GSRMapLayers, and so on):
+//   map_base.mjs                the Leaflet map, basemap, shared state
+//   manager/layers.mjs          per-track layer ownership, clearMap/clearAll
+//   manager/process.mjs         GPS pipeline -> drawPoints + cache
+//   manager/viewport.mjs        fit / zoom / scrub position
+//   manager/legend.mjs          the bottom-right legend
+//   manager/osm.mjs             OSM vector overlays
+//   manager/rf_fluid.mjs        RF Fluid overlay control
+//   manager/path.mjs            colour-coded path segments
+//   manager/peaks.mjs           peak / hotspot markers
+//   manager/arousal_places.mjs  the Arousal Places layer
+//   manager/collective.mjs      collective view + contours
+//   manager/toggles.mjs         layer visibility toggles
+//   manager/render.mjs          renderData / refreshPath / refreshPeakMarkers
+// A method may call one defined further down the chain; GSRMapBase has empty
+// stubs for the few it calls itself.
 
 import { GSRMapRender } from './manager/render.mjs';
-
-// Basemap URL resolution: GSRBasemap.cartoTileUrl (in map_base.mjs)
-
-export { GSRMapArousalPlaces } from './manager/arousal_places.mjs';
-export { GSRMapCollective } from './manager/collective.mjs';
-export { GSRMapLayers } from './manager/layers.mjs';
-export { GSRMapLegend } from './manager/legend.mjs';
-export { GSRMapOsm } from './manager/osm.mjs';
-export { GSRMapPath } from './manager/path.mjs';
-export { GSRMapPeaks } from './manager/peaks.mjs';
-export { GSRMapProcess } from './manager/process.mjs';
-export { GSRMapRender } from './manager/render.mjs';
-export { GSRMapRfFluid } from './manager/rf_fluid.mjs';
-export { GSRMapToggles } from './manager/toggles.mjs';
-export { GSRMapViewport } from './manager/viewport.mjs';
-export { GSRMapBase } from './map_base.mjs';
 
 export class GSRMapManager extends GSRMapRender {}

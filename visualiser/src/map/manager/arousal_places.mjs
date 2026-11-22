@@ -1,18 +1,14 @@
 /**
- * GSRMapManager — the Arousal Places map layer. Prototype-augment split from
- * manager/peaks.js: proximity clusters of arousal peaks become ranked,
- * clickable "place" records (dwell-normalised scoring in arousal_places.js),
+ * GSRMapManager — the Arousal Places map layer (one link of the class chain in
+ * map/map.mjs): proximity clusters of arousal peaks become ranked, clickable
+ * "place" records (dwell-normalised scoring in spatial/arousal_places.mjs),
  * each drawn as a clipped concave outline plus a numbered P1..Pn badge.
  *
  * _renderArousalPlacesFor() is the single entry point for both views:
- * _renderPeakMarkers() (manager/peaks.js) passes one track's active peaks,
- * renderCollectiveData() (manager/collective.js) passes every active
+ * _renderPeakMarkers() (manager/peaks.mjs) passes one track's active peaks,
+ * renderCollectiveData() (manager/collective.mjs) passes every active
  * track's. It reads the params, clusters, scores, and hands off to
  * _renderArousalPlaces().
- *
- * Loaded after manager/peaks.js. Depends on the globals L, GeoUtils,
- * GSRSpatialClustering, GSRArousalPlaces, MapPopups, GSR_CONST and AppState,
- * all resolved at call time.
  */
 import { AppState } from '../../core/app_state.mjs';
 import { GSR_CONST } from '../../core/constants.mjs';
@@ -38,7 +34,7 @@ export class GSRMapArousalPlaces extends GSRMapPeaks {
    * changed (the common case — a GPS smoothing nudge, a non-arousal panel
    * toggle), the cache hit skips ~35 ms of the ~36 ms cost and only the cheap
    * Leaflet layer rebuild runs. Mirrors _getOrBuildDrawPoints()'s _gpsCache
-   * pattern (manager/process.js).
+   * pattern (manager/process.mjs).
    *
    * @param {Array<{lat,lon,amplitude,trackId,time}>} peaks
    * @param {Array<{id,sampleRate,raw,filteredGps,pathKey,phasic}>} scoreTracks - Tracks buildPlaces()
@@ -241,7 +237,7 @@ export class GSRMapArousalPlaces extends GSRMapPeaks {
    * (Single view is always one walk), and never more than the walks loaded, so
    * loading fewer walks than the slider asks for means "all of them", not "none";
    * sigma / blobRadius only shape the cosmetic getConcaveBlob() outline, not the
-   * place score (dwell-normalised energy, computed in arousal_places.js).
+   * place score (dwell-normalised energy, computed in spatial/arousal_places.mjs).
    * @private
    */
   _arousalPlaceParams(view) {
@@ -536,7 +532,7 @@ export class GSRMapArousalPlaces extends GSRMapPeaks {
   /**
    * Fold Arousal Place badges that would visually collide at the current zoom
    * into the top-ranked badge of each colliding group, which then shows a "+N"
-   * count and lists the folded places in its tooltip. Re-run on zoomend (map.js)
+   * count and lists the folded places in its tooltip. Re-run on zoomend (map_base.mjs)
    * and when the layer is toggled back on, so badges separate again on zoom-in.
    * Screen-space presentation only — the outlines and clusterLayers are untouched.
    * @private

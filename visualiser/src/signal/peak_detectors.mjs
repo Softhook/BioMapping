@@ -3,7 +3,7 @@
 // See LICENCE.md in the project root for terms.
 
 /**
- * The three phasic-peak-detection algorithms — extracted from analyzer.js.
+ * The three phasic-peak-detection algorithms used by GSRAnalyzer.
  * Pure functions: signal arrays and analyzer state (sampleRate, the filtered
  * series, label lookups) are passed in explicitly via a `ctx` object rather
  * than read off `this`. GSRAnalyzer keeps thin instance wrappers

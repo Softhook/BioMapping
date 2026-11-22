@@ -34,7 +34,7 @@ export const RendererBands = {
    * digitised in separate OSM edits, so a path frequently sits a few metres
    * outside the polygon it visually/physically runs through — the same
    * boundary-noise osm_dist_green exists to paper over elsewhere (see its
-   * doc comment in osm_enrichment.js). A short edge tolerance on that
+   * doc comment in osm_enrichment.mjs). A short edge tolerance on that
    * distance catches those paths without also pulling in "there's a park
    * somewhere down the street".
    */
@@ -229,7 +229,7 @@ export const RendererBands = {
    * sample field to read (raw[i][metric]) and the MapColors metric key, so
    * it reuses the exact same 30-bucket LUT (MapColors.getColorLut) and
    * track-wide min/max normalisation the map's own path colouring uses for
-   * that metric (manager/path.js) — one shared gradient definition per
+   * that metric (manager/path.mjs) — one shared gradient definition per
    * metric, not a second one invented for the graph. Real-world continuous
    * fields (NDVI, EM Fog) are typically step-held between sparse real
    * samples, so runs of the same bucket are usually many samples long,

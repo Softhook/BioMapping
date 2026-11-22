@@ -152,32 +152,32 @@ test('config.js injects config.local.js only on a local origin, guarded against 
   );
 });
 
-test('the CARTO basemap key resolution lives in one shared module, consumed by map.js / live_map.js / globe3d.js', () => {
+test('the CARTO basemap key resolution lives in one shared module, consumed by the 2D map, live map and 3D globe', () => {
   const src = readApp('src/map/basemap.mjs');
   assert.match(
     src,
     /BIOMAP_CONFIG\s*&&\s*window\.BIOMAP_CONFIG\.cartoApiKey/,
-    'basemap.js reads BIOMAP_CONFIG.cartoApiKey',
+    'basemap.mjs reads BIOMAP_CONFIG.cartoApiKey',
   );
   assert.match(
     src,
     /getItem\(['"]bioMappingCartoApiKey['"]\)/,
-    'basemap.js falls back to the localStorage key',
+    'basemap.mjs falls back to the localStorage key',
   );
   assert.match(
     src,
     /try\s*\{[^}]*getItem\(['"]bioMappingCartoApiKey/,
-    'basemap.js guards the localStorage read in try/catch',
+    'basemap.mjs guards the localStorage read in try/catch',
   );
   assert.match(
     src,
     /\?key=\$\{encodeURIComponent\(cartoKey\)\}/,
-    'basemap.js appends an encoded ?key=',
+    'basemap.mjs appends an encoded ?key=',
   );
   for (const rel of [
-    'src/map/map.mjs',
+    'src/map/map_base.mjs',
     'src/live/live_map.mjs',
-    'src/map/globe3d.mjs',
+    'src/map/globe3d/globe3d_base.mjs',
   ]) {
     assert.match(
       readApp(rel),

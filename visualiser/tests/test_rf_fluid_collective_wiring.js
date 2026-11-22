@@ -1,5 +1,5 @@
 /**
- * Phase 5 (docs/archive/visualizer_architecture_refactor_plan.md) integration test:
+ * Integration test:
  * GSRMapManager.renderCollectiveData() must hand RFFluidRenderer per-track
  * {id, drawPoints, osmGeoms} entries (via setDataForTracks()), not a single
  * pre-concatenated blob (the old setData(collectiveDrawPoints, combinedGeoms)
@@ -54,7 +54,7 @@ function addTrack(window, id, name, csvText) {
 async function bootCollectiveWithTwoTracks() {
   const { window } = await bootApp();
   // jsdom canvases have no 2d context by default; renderCollectiveData()'s
-  // contour-surface rasterization (map.js renderContours(), unrelated to RF
+  // contour-surface rasterization (renderContours(), unrelated to RF
   // fluid) needs one — same stub test_map_layer_ownership.js uses.
   window.HTMLCanvasElement.prototype.getContext = () => ({
     fillStyle: '',

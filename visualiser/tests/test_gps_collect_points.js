@@ -1,13 +1,11 @@
 /**
- * Regression coverage for the `GpsPipeline.collectFixes()` field trim
- * (docs/archive/visualizer_rendering_perf_routes.md §2.7). Found via
- * profiling: it used to spread the FULL ~29-field raw CSV row
- * (`{ ...data[i], origIdx: i }`) for every GPS fix, and every filter stage
- * after it re-spreads whatever shape it's handed — so the extra fields
- * (rssi_*, osm_*, em_fog, val, sats, hasGps, _isGpsFix) got copied at every
- * stage despite never being read. `drawPoints` is built separately straight
- * from the raw row, so trimming the fixes is safe.
- * Run: node --test tests/test_gps_collect_points.js
+ * Regression coverage for the `GpsPipeline.collectFixes()` field trim. Found
+ * via profiling: it used to spread the FULL ~29-field raw CSV row (`{
+ * ...data[i], origIdx: i }`) for every GPS fix, and every filter stage after it
+ * re-spreads whatever shape it's handed — so the extra fields (rssi_*, osm_*,
+ * em_fog, val, sats, hasGps, _isGpsFix) got copied at every stage despite never
+ * being read. `drawPoints` is built separately straight from the raw row, so
+ * trimming the fixes is safe. Run: node --test tests/test_gps_collect_points.js
  */
 
 const assert = require('node:assert');

@@ -33,9 +33,9 @@ loadBrowserModule('../src/signal/deconvolution.mjs');
 loadBrowserModule('../src/signal/csv_parser.mjs');
 loadBrowserModule('../src/map/map_exporter.mjs');
 loadBrowserModule('../src/ui/tracks.mjs');
-// ui.js/ui_stats_panel.js are loaded via require(), not loadBrowserModule:
+// ui.mjs/ui_stats_panel.mjs are loaded via require(), not loadBrowserModule:
 // ui_stats_panel.mjs holds a real static import of ui.mjs's GSRUI — loading
-// ui.js a second way here would produce a second, distinct GSRUI object that
+// ui.mjs a second way here would produce a second, distinct GSRUI object that
 // the two loaders would then fight over.
 global.GSRUI = require('../src/ui/ui.mjs').GSRUI;
 

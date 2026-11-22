@@ -19,7 +19,7 @@
 const assert = require('node:assert');
 const test = require('node:test');
 
-// manager/viewport.js only augments GSRMapManager.prototype and, for the
+// manager/viewport.mjs only augments GSRMapManager.prototype and, for the
 // two methods under test, touches nothing but `this.map` — so a bare stub
 // constructor plus a fake map is all the harness needs. manager/viewport.mjs
 // exports its methods as a plain `__methods` object (converted file, ES-module

@@ -1,5 +1,5 @@
 /**
- * Unit tests for collective_manager.js (GSRCollectiveManager) — multi-track
+ * Unit tests for collective_manager.mjs (GSRCollectiveManager) — multi-track
  * spatial aggregation (track bookkeeping, bounding box, contour surface
  * generation).
  *
@@ -422,8 +422,8 @@ test('generateContourSurface: minVal===maxVal (perfectly flat surface) is nudged
   assert.ok(Math.abs(result.maxVal - result.minVal - 0.1) < 1e-9);
 });
 
-// ─── generateContourSurface perf fix (2026-08-07): boundary-mask + IDW splat ──
-// docs/archive/visualizer_architecture_refactor_plan.md Phase 7. Both the boundary
+// ─── generateContourSurface: boundary-mask + IDW splat ───────────────────────
+// Both the boundary
 // mask (isNearTrack) and the IDW accumulation used to scan every point for
 // every grid cell, computing then mostly discarding a distance; both are now
 // point-major splats that only touch the small window of cells within range
@@ -502,7 +502,7 @@ function bruteForceIdwGrid(
 }
 
 // generateContourSurface now applies a masked 3x3 tent blur to the raw IDW grid before
-// returning it (contour-smoothing fix — see collective_manager.js), so the brute-force
+// returning it (contour-smoothing fix — see collective_manager.mjs), so the brute-force
 // reference above must have the identical blur applied to stay a valid comparison; this
 // re-derivation, not the raw IDW output, is what test cases below compare `result.grid`
 // against.
@@ -617,7 +617,7 @@ test('generateContourSurface: IDW grid matches an independent brute-force refere
   );
 });
 
-// ── §C perf fix: getContourLinesMulti correctness (2026-08-07) ───────────────
+// ── getContourLinesMulti correctness ─────────────────────────────────────────
 // Single-pass multi-isolevel output must be identical to K separate
 // getContourLines() calls on the same grid and levels.
 

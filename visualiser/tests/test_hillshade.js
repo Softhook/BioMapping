@@ -1,11 +1,11 @@
 /**
- * Unit tests for hillshade.js — the Horn's-method slope/aspect + Lambertian
- * relief shading used by map.js renderContours() to shade the collective
+ * Unit tests for hillshade.mjs — the Horn's-method slope/aspect + Lambertian
+ * relief shading used by renderContours() (map/manager/collective.mjs) to shade the collective
  * surface. Tests the algorithm against convention-independent physical
  * invariants (rather than asserting a specific compass direction reads
  * "bright") since the azimuth-to-math-angle calibration is easy to get
  * subtly backwards without changing whether the formula itself is correct —
- * see hillshade.js's own comment on why aspect is computed the way it is.
+ * see hillshade.mjs's own comment on why aspect is computed the way it is.
  *
  * Run: node tests/test_hillshade.js
  */
@@ -275,7 +275,7 @@ console.log('── Running Hillshade Algorithm Test ──');
   );
 
   // Peak at the south-east (low r, high c), downhill/aspect points NW (315° true)
-  // — the default HILLSHADE.azimuthDeg (constants.js), so this is the exact
+  // — the default HILLSHADE.azimuthDeg (constants.mjs), so this is the exact
   // "sun top-left, shadow bottom-right" configuration used by the app.
   const sePeak = Array.from({ length: rows }, (_, r) =>
     Array.from({ length: cols }, (_, c) => (c - r) * 3),
@@ -290,7 +290,7 @@ console.log('── Running Hillshade Algorithm Test ──');
   );
 }
 
-// ── Test 7: shadeValueGrid() — the shared helper map.js and map_exporter.js
+// ── Test 7: shadeValueGrid() — the shared helper the live map and map_exporter.mjs
 // both call — hillshades the RATIO field (percentile rank or linear), not
 // the raw value, and its ratioGrid matches what a caller's color fill would
 // independently compute from the same inputs. ──────────────────────────────
@@ -348,8 +348,8 @@ console.log('── Running Hillshade Algorithm Test ──');
   );
 }
 
-// ── Test 8: valueRatio() — the single canonical formula now used by map.js,
-// map_exporter.js, and buildRatioGrid instead of four independent copies. ──
+// ── Test 8: valueRatio() — the single canonical formula used by the live map,
+// map_exporter.mjs, and buildRatioGrid instead of four independent copies. ──
 {
   const sorted = [10, 20, 30, 40, 50];
   assert.strictEqual(
@@ -405,8 +405,8 @@ console.log('── Running Hillshade Algorithm Test ──');
   );
 }
 
-// ── Test 10: blendLightness() — the single blend formula now used by map.js
-// and map_exporter.js instead of two independent copies. strength=0 must
+// ── Test 10: blendLightness() — the single blend formula used by the live map
+// and map_exporter.mjs instead of two independent copies. strength=0 must
 // return the baseline EXACTLY (this is what makes the 0% UI slider position
 // a true no-op, not an approximation). ──────────────────────────────────────
 assert.strictEqual(

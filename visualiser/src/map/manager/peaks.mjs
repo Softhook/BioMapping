@@ -1,8 +1,6 @@
 /**
- * GSRMapManager — peak / hotspot marker rendering. Prototype-augment
- * split from map.js: loaded immediately after map.js, adds these methods to
- * GSRMapManager.prototype (and the two shared icon builders to GSRMapManager
- * itself as statics).
+ * GSRMapManager — peak / hotspot marker rendering (one link of the class
+ * chain in map/map.mjs), plus the two shared icon builders as statics.
  *
  * Covers the single-track peak dots + labels + Response delay connectors
  * (_renderPeakMarkers), the memorable-event hotspot stars
@@ -10,14 +8,13 @@
  * counterparts (_renderCollectiveTrackPeaks / _renderCollectiveTrackHotspots /
  * refreshCollectivePeakMarkers).
  *
- * The Arousal Places layer lives in its own split (manager/arousal_places.js);
+ * The Arousal Places layer lives in its own split (manager/arousal_places.mjs);
  * _renderPeakMarkers() and renderCollectiveData() both feed it via
  * _renderArousalPlacesFor().
  *
  * Cartographic label placement + HTML builders live in GSRLabelManager
- * (label_placement.js); peak-popup DOM builders in MapPopups (map_popups.js).
- * Also depends on the globals L, GSRUI, GSRSpatialClustering and AppState
- * (resolved at call time).
+ * (render/label_placement.mjs); peak-popup DOM builders in MapPopups
+ * (map_popups.mjs).
  */
 
 import { GSRNotices } from '../../core/notices.mjs';
@@ -79,16 +76,16 @@ export class GSRMapPeaks extends GSRMapPath {
         py,
       );
 
-      // Phase 1 (slice 3): tag the peak index so focusOnPeak can resolve the
+      // Tag the peak index so focusOnPeak can resolve the
       // marker without the old flat array.
       marker._gsrPeakIndex = index;
 
-      // Phase 1 (slice 1/3): the marker belongs to the track's layerGroup
-      // REGARDLESS of whether it's currently visible. Tagging it only inside
-      // the `shouldAdd` gate left hidden-at-render markers untagged, so
-      // toggling them on later fell back to the legacy direct-to-map path and
-      // they escaped the group — surviving track removal (removal only takes
-      // the group). Tag always; add to the group only when visible.
+      // The marker belongs to the track's layerGroup REGARDLESS of whether it's
+      // currently visible. Tagging it only inside the `shouldAdd` gate left
+      // hidden-at-render markers untagged, so toggling them on later fell back
+      // to the legacy direct-to-map path and they escaped the group — surviving
+      // track removal (removal only takes the group). Tag always; add to the
+      // group only when visible.
       //
       // _gsrKind must be set unconditionally (not just in the layerGroup
       // branch) — getRenderLayers()/getPeakMarkerByIndex()/
@@ -157,14 +154,13 @@ export class GSRMapPeaks extends GSRMapPath {
       }
     }
 
-    // Arousal Places (manager/arousal_places.js). Skipped when
+    // Arousal Places (manager/arousal_places.mjs). Skipped when
     // options.skipClustering is set — refreshPeakMarkers()'s label-edit path,
     // whose input (lat/lon/amplitude per active peak) a label can't change, so
     // recomputing here was provably wasted: ~33ms of a ~36ms single-track
-    // refresh (docs/archive/visualizer_rendering_perf_routes.md §2.4). An
-    // exclusion toggle DOES change the active-peak set, so it must keep
-    // recomputing — refreshPeakMarkers() only passes skipClustering for the
-    // label-edit call site, not the exclusion one.
+    // refresh. An exclusion toggle DOES change the active-peak set, so it must
+    // keep recomputing — refreshPeakMarkers() only passes skipClustering for
+    // the label-edit call site, not the exclusion one.
     if (!options.skipClustering) {
       const trackId = track ? track.id : 'single';
       const activePeaks = allPeaks
@@ -252,12 +248,12 @@ export class GSRMapPeaks extends GSRMapPath {
       icon: GSRMapMarkers.buildHotspotIcon(L),
     });
     marker.setZIndexOffset(1500); // Above labelled peaks and Arousal Place badges
-    // Phase 1 (slice 1): single-track hotspots render into the track's
-    // layerGroup. Collective callers don't pass a group → legacy direct add.
-    // The group is tagged ALWAYS (even when currently hidden) so toggling the
-    // hotspot on later routes it through the group — tagging only inside the
-    // `showHotspots` gate made hidden hotspots fall back to direct-to-map adds
-    // that survived the track's removal.
+    // Single-track hotspots render into the track's layerGroup. Collective
+    // callers don't pass a group → legacy direct add. The group is tagged
+    // ALWAYS (even when currently hidden) so toggling the hotspot on later
+    // routes it through the group — tagging only inside the `showHotspots` gate
+    // made hidden hotspots fall back to direct-to-map adds that survived the
+    // track's removal.
     marker._gsrKind = 'hotspot';
     if (layerGroup) {
       marker._gsrLayerGroup = layerGroup;
@@ -427,7 +423,7 @@ export class GSRMapPeaks extends GSRMapPath {
         { closeButton: false, minWidth: 300, maxWidth: 300 },
       );
 
-      // Phase 1 (slice 2/3): collective peak markers render into this track's
+      // Collective peak markers render into this track's
       // own layerGroup; the peak index is tagged so focusOnPeak can resolve it.
       // Tag the group ALWAYS (even when currently hidden) so toggling the
       // marker on later routes it through the group — tagging only when
@@ -478,11 +474,10 @@ export class GSRMapPeaks extends GSRMapPath {
    * Deliberately NOT reused for togglePeakExclusion() in collective mode:
    * `excluded` IS read by both the global clustering pass
    * (allActivePeaksAcrossTracks in renderCollectiveData()) and
-   * generateContourSurface() (collective_manager.js, when topographySource
+   * generateContourSurface() (collective_manager.mjs, when topographySource
    * is 'peaks') — both full-dataset computations across every active track,
    * not per-track, so an exclusion toggle still needs the full
-   * renderCollectiveData() rebuild to stay correct. See the Phase 6 step 2
-   * investigation note in docs/archive/visualizer_architecture_refactor_plan.md.
+   * renderCollectiveData() rebuild to stay correct.
    *
    * Falls back to GSRUI.updateCollectiveMap() (the full rebuild) when the
    * track isn't a currently-active/rendered one (no layerGroup to refresh

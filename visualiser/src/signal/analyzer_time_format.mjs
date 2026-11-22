@@ -1,5 +1,5 @@
 /**
- * Time / date formatting for the GSR analyser — extracted from analyzer.js.
+ * Time / date formatting for the GSR analyser.
  *
  * Every function takes `recordingStartTime` (Unix seconds, or 0/small when the
  * CSV carried no real start clock) as its first argument and is otherwise pure.

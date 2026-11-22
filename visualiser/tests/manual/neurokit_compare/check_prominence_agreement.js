@@ -10,8 +10,7 @@
  * decomposition), so any disagreement here is purely about the prominence
  * ALGORITHM, not about decomposition or thresholding differences. NOTE:
  * NeuroKit2's amplitude_min=0.1 gate is relative to the largest prominence
- * IN THE TRACK (10% of it), not an absolute uS value - see
- * docs/eda_decomposition_analysis.md's "Precedent" section. Earlier
+ * IN THE TRACK (10% of it), not an absolute uS value. Earlier
  * peak-count comparisons in this harness treated 0.1 as if it were an
  * absolute threshold like our own peakThreshold; that was an
  * apples-to-oranges simplification. This check sidesteps the gating

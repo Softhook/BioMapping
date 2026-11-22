@@ -1,5 +1,5 @@
 /**
- * Regression coverage for rAF-coalesced mouseDragged() in sketch.js.
+ * Regression coverage for rAF-coalesced mouseDragged() in sketch_input.mjs.
  *
  * Verifies that high-frequency mouseDragged() invocations (e.g. 10 consecutive ticks
  * within a single animation frame):

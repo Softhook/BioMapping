@@ -1,6 +1,6 @@
 /**
- * Unit tests for map_colors.js (MapColors) — color scale/LUT helpers,
- * pure computation extracted from map.js.
+ * Unit tests for map_colors.mjs (MapColors) — color scale/LUT helpers,
+ * pure computation.
  *
  * Run: node --test tests/test_map_colors.js  (or `npm test` for the whole suite)
  */

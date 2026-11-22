@@ -174,7 +174,7 @@ function installJsdomGlobals(window) {
 }
 
 // Node's native setTimeout/setInterval (bare `setTimeout(...)` in e.g.
-// manager/arousal_places.js's debounce resolves to these — `setTimeout`
+// manager/arousal_places.mjs's debounce resolves to these — `setTimeout`
 // is in NATIVE_GLOBAL_KEYS, left unbridged on purpose) are shared across the
 // whole process, unlike jsdom's own window-scoped timers which get torn
 // down with the window. A timer a test doesn't explicitly wait out or
@@ -230,31 +230,29 @@ function clearLeakedTimersFromPreviousBoot() {
  * mode" functions need — see src/app_entry.mjs's own header comment for how
  * the real browser handles that).
  */
-// A plain `Object.assign(target, source)` INVOKES any getter on `source`
-// and copies the resulting VALUE as a fresh data property — losing
-// liveness for a real ES module namespace object's exports (genuinely live
-// bindings — reflect a later `export let x` reassignment inside the
-// module). Fixed with a live getter/setter that re-reads `source[name]` on
-// every access instead: a namespace object's own properties are non-
-// writable, so the setter silently no-ops on an external write (matching
-// real browser ESM semantics) — confirmed empirically (`mod.x = 99` neither
-// throws nor changes `mod.x` read back). `configurable: true` is forced
-// regardless of the source's own (a module namespace's own properties are
-// non-configurable) — `target` here is `global`/`window`, which must stay
-// redefinable across every later boot.
-// Every name ever reflected onto `global` (not `window` — a fresh jsdom
-// window never carries anything over). boot_app.js's SCRIPT_ORDER and
-// boot_live.js's LIVE_SCRIPT_ORDER overlap but differ (e.g. GSRLayoutManager
-// loads only via boot_app.js) — a name one harness's last boot set stays on
-// `global` as a normal, live property forever otherwise, so a LATER
-// boot_live.js boot that never itself loads GSRLayoutManager still finds
-// `typeof GSRLayoutManager !== 'undefined'` true from a previous bootApp()
-// call, silently taking a branch meant only for the in-app Live view (e.g.
-// live_view.js's FAB fullscreen handler prefers GSRLayoutManager over
-// GSRFullscreen whenever it's defined). Tracked here so every boot can wipe
-// the slate clean first — restoring the "each call is fully isolated"
-// contract both harnesses promise, the same reasoning as
-// clearLeakedTimersFromPreviousBoot() above.
+// A plain `Object.assign(target, source)` INVOKES any getter on `source` and
+// copies the resulting VALUE as a fresh data property — losing liveness for a
+// real ES module namespace object's exports (genuinely live bindings — reflect
+// a later `export let x` reassignment inside the module). Fixed with a live
+// getter/setter that re-reads `source[name]` on every access instead: a
+// namespace object's own properties are non- writable, so the setter silently
+// no-ops on an external write (matching real browser ESM semantics) — confirmed
+// empirically (`mod.x = 99` neither throws nor changes `mod.x` read back).
+// `configurable: true` is forced regardless of the source's own (a module
+// namespace's own properties are non-configurable) — `target` here is
+// `global`/`window`, which must stay redefinable across every later boot. Every
+// name ever reflected onto `global` (not `window` — a fresh jsdom window never
+// carries anything over). boot_app.js's SCRIPT_ORDER and boot_live.js's
+// LIVE_SCRIPT_ORDER overlap but differ (e.g. GSRLayoutManager loads only via
+// boot_app.js) — a name one harness's last boot set stays on `global` as a
+// normal, live property forever otherwise, so a LATER boot_live.js boot that
+// never itself loads GSRLayoutManager still finds `typeof GSRLayoutManager !==
+// 'undefined'` true from a previous bootApp() call, silently taking a branch
+// meant only for the in-app Live view (e.g. live_view.mjs's FAB fullscreen
+// handler prefers GSRLayoutManager over GSRFullscreen whenever it's defined).
+// Tracked here so every boot can wipe the slate clean first — restoring the
+// "each call is fully isolated" contract both harnesses promise, the same
+// reasoning as clearLeakedTimersFromPreviousBoot() above.
 const reflectedGlobalNames = new Set();
 
 function clearPreviousBootGlobals() {

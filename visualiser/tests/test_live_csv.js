@@ -214,7 +214,7 @@ test('buildLiveCsv output parses and integrity-verifies as a complete, unmodifie
   assert.strictEqual(result.integrity.flushFails, 0);
 
   // The GSR series survives the round-trip (nS on the wire, ÷1000 -> µS on
-  // import — csv_parser.js "Auto-detect Units"). Rows are `.raw`, value `.val`.
+  // import — csv_parser.mjs "Auto-detect Units"). Rows are `.raw`, value `.val`.
   assert.strictEqual(result.raw.length, packets.length);
   assert.ok(
     Math.abs(result.raw[0].val - 1.0) < 1e-6,

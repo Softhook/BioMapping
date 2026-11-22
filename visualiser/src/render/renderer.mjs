@@ -20,7 +20,6 @@ export const GSRRenderer = {
   ...RendererInteraction,
   ...RendererMarkers,
   _styleCache: null,
-  PARK_EDGE_TOLERANCE_M: 15,
   _bandCache: {
     osm: { analyzer: null, dataVersion: null, segments: null },
     ndvi: { analyzer: null, dataVersion: null, segments: null, range: null },

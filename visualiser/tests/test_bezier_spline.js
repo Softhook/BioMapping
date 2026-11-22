@@ -1,6 +1,6 @@
 /**
- * Unit tests for bezier_spline.js (BezierSpline) — pure pixel-space curve
- * fitting extracted out of map_exporter.js's _pathD. These test the math
+ * Unit tests for bezier_spline.mjs (BezierSpline) — pure pixel-space curve
+ * fitting extracted out of map_exporter.mjs's _pathD. These test the math
  * directly on {x,y} point arrays instead of parsing an SVG `d` string.
  *
  * Run: node --test tests/test_bezier_spline.js  (or `npm test` for the whole suite)

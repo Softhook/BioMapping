@@ -188,7 +188,7 @@ assert(
 
 // Onset markers reflect the real (possibly still-elevated) signal value,
 // not a hardcoded 0 — a real bug that broke the onset-connector line in
-// renderer.js for overlapping SCRs specifically. Peaks are now built by
+// the graph renderer for overlapping SCRs specifically. Peaks are now built by
 // _detectPeaksFromCurve() scanning the reconstructed phasicClean curve
 // directly (on.phasic, after the deconvolution pipeline runs), so onsetValue
 // should match THAT curve at onsetIndex — the same curve index/time/value

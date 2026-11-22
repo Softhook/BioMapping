@@ -1,14 +1,11 @@
 /**
- * GSRMapManager — viewport / navigation. Prototype-augment split from map.js:
- * loaded immediately after map.js, adds these methods to
- * GSRMapManager.prototype.
+ * GSRMapManager — viewport / navigation (one link of the class chain in
+ * map/map.mjs).
  *
  * Auto-zoom-to-extent (_fitBounds / _flyOrFitBounds), the toolbar zoom/fit
  * buttons (zoomIn / zoomOut / fitToTrack), the graph-scrub position indicator
  * (setScrubPosition, moving this.scrubMarker), and _getTrackSetSignature (the
  * "did the active track set change" check the fit-bounds heuristic uses).
- *
- * Depends on the global L (resolved at call time).
  */
 import { GSRMapProcess } from './process.mjs';
 

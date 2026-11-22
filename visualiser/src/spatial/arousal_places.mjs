@@ -8,8 +8,7 @@
  * passes included, so they dilute it), divided by the time they spent there.
  * This is deliberately NOT a peak count — a walker who dawdles at a junction
  * racks up peaks without the place being especially arousing; dividing by
- * dwell cancels that. See
- * docs/peak_density_vs_spatial_clustering.md §2.
+ * dwell cancels that.
  *
  * Pure module: no DOM, no Leaflet. GeoUtils is the only dependency and is
  * typeof-guarded so host tests can run without it.

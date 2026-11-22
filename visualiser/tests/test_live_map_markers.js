@@ -3,7 +3,7 @@
  *
  * The live map draws stress-peak dots and memorable-event hotspot stars with
  * the SAME shared icons the main visualiser's 2D map uses
- * (GSRMapMarkers in src/map/map_markers.js), reconciled incrementally as the
+ * (GSRMapMarkers in src/map/map_markers.mjs), reconciled incrementally as the
  * live analyser's trailing window slides. These tests pin that contract:
  *
  *   1. peaks -> small peak-dot markers, hotspots -> hotspot-star markers,

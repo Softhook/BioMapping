@@ -1,7 +1,6 @@
 /**
- * GSRMapManager — GPS pipeline processing. Prototype-augment split from map.js:
- * loaded immediately after map.js, adds these methods to
- * GSRMapManager.prototype. They turn an analyzer's raw rows + GPS filter params
+ * GSRMapManager — GPS pipeline processing (one link of the class chain in
+ * map/map.mjs). These methods turn an analyzer's raw rows + GPS filter params
  * into the `drawPoints` array every renderer works from, and cache the result
  * (this._gpsCache, keyed by track id; valid while the display params and the
  * smoothed path's key are unchanged) so nudging a GSR slider doesn't re-run

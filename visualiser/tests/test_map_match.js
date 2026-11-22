@@ -1,5 +1,5 @@
 /**
- * Unit tests for map_match.js (MapMatcher) — pure HMM-Viterbi global
+ * Unit tests for map_match.mjs (MapMatcher) — pure HMM-Viterbi global
  * sequence map matching, no DOM/Leaflet dependency.
  *
  * Run: node --test tests/test_map_match.js  (or `npm test` for the whole suite)
@@ -8,7 +8,7 @@
 const assert = require('node:assert');
 const test = require('node:test');
 
-// map_match.js references the global `GeoUtils` (bare identifier, not
+// map_match.mjs references the global `GeoUtils` (bare identifier, not
 // window.GeoUtils) for haversine distance — load the real implementation
 // onto Node's `global` before requiring, same pattern as tests/test_osm_enrichment.js.
 global.GeoUtils = require('../src/gps/geo_utils.mjs').GeoUtils;
@@ -162,7 +162,7 @@ test('match: sequence turning through two connected ways (L-shaped junction) sna
 });
 
 test('match: one noisy GPS fix near a disconnected side street does not pull the path off the main road', () => {
-  // This exercises the exact invariant documented at the top of map_match.js:
+  // This exercises the exact invariant documented at the top of map_match.mjs:
   // "One noisy GPS fix near a side street won't pull the path off the main
   // road if all other fixes are clearly on the main road." The decoy way is
   // geometrically closer to the noisy fix than the main road is, but it is

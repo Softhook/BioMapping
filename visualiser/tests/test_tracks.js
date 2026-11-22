@@ -1,9 +1,9 @@
 /**
- * Unit tests for tracks.js (GSRTrackManager) — track library management:
+ * Unit tests for tracks.mjs (GSRTrackManager) — track library management:
  * file loading, track add/remove/switch/rename, and per-track parameter
  * persistence. This file previously had zero test coverage despite owning
  * exactly the class of "state that must be remembered to stay in sync" bug
- * class flagged in docs/archive/visualizer_architecture_refactor_plan.md §1.2.
+ * class.
  *
  * No jsdom — plain manual mocks for document/AppState/GSRAnalyzer/etc.,
  * matching the pattern established in tests/test_collective_project.js.
@@ -25,7 +25,7 @@
 const assert = require('node:assert');
 const test = require('node:test');
 
-// ── Minimal global stubs so tracks.js's top-level/module references resolve
+// ── Minimal global stubs so tracks.mjs's top-level/module references resolve
 //    under plain Node (none of these exist outside a browser). ─────────────
 global.window = global;
 global.confirm = () => true;
@@ -97,7 +97,7 @@ const defaultGSRStorage = {
 global.GSRStorage = setSingletonShape(RealGSRStorage, defaultGSRStorage);
 
 /**
- * Fake GSRAnalyzer — exposes exactly the surface tracks.js reads/writes:
+ * Fake GSRAnalyzer — exposes exactly the surface tracks.mjs reads/writes:
  * .raw, .peaks, .importedFilterParams/.importedGpsFilterParams (parseCSV
  * output), .recordingStartTime, and the two date-formatting helpers used by
  * renderTrackList's meta line (unused here since renderTrackList is
@@ -148,8 +148,8 @@ class FakeAnalyzer {
 // one method whose real behavior would break these tests' deterministic
 // fixtures — parseCSV (the real parser throws on `text === '__THROW__'`-
 // shaped nonsense, doesn't understand `__IMPORTED__`, and needs a real CSV
-// header tracks.js's own fixtures don't bother providing, since they test
-// tracks.js's OWN logic, not the CSV parser). formatDateShort/formatTimeOnly
+// header tracks.mjs's own fixtures don't bother providing, since they test
+// tracks.mjs's OWN logic, not the CSV parser). formatDateShort/formatTimeOnly
 // are read only from inside the stubbed-out renderTrackList (see file
 // header), so left real — real GSRAnalyzer's constructor already
 // initializes raw/peaks/importedFilterParams/importedGpsFilterParams/
@@ -217,7 +217,7 @@ GSRTrackManager.renderTrackList = () => {
 /** Builds a fresh AppState-shaped object backed by a real GSRCollectiveManager. */
 // tracks.mjs holds a static `import { AppState } from '../core/app_state.mjs'`
 // live binding — `global.AppState = {...}` (this file's old bare-global
-// pattern, from when tracks.js referenced AppState as a plain global) no
+// pattern, from when tracks.mjs referenced AppState as a plain global) no
 // longer reaches it, since a real import binding is invisible to code
 // outside the module graph (ES-module migration). Fixed by resetting the
 // REAL app_state.mjs singleton's own properties in place and handing that
@@ -244,10 +244,9 @@ function freshAppState(overrides) {
       return c;
     },
     _renamingTrackId: null,
-    // Mirrors the real AppState.on/emit (app_state.js) — deleteTrack()
-    // notifies via 'trackRemoved' rather than calling consumers by name; see
-    // the Phase 3 pilot note in docs/archive/visualizer_architecture_refactor_plan.md.
-    // Production wires the real listeners once in sketch.js's setup(), which
+    // Mirrors the real AppState.on/emit (app_state.mjs) — deleteTrack()
+    // notifies via 'trackRemoved' rather than calling consumers by name.
+    // Production wires the real listeners once in sketch.mjs's setup(), which
     // this file deliberately never calls (see file header) — tests that care
     // about a 'trackRemoved' side effect register the matching listener
     // themselves, mirroring what setup() does.
@@ -445,9 +444,8 @@ test('deleteTrack: removing the last remaining track clears activeTrackId and re
       clearAllCalled = true;
     },
   };
-  // Mirrors the listener sketch.js's setup() registers for real (see
-  // app_state.js's AppState.on/emit and the Phase 3 pilot note in
-  // docs/archive/visualizer_architecture_refactor_plan.md) — this file never boots
+  // Mirrors the listener sketch.mjs's setup() registers for real (see
+  // app_state.mjs's AppState.on/emit) — this file never boots
   // the real app, so the test registers it itself.
   global.AppState.on('trackRemoved', () => {
     if (global.AppState.collectiveManager.tracks.length === 0)
@@ -523,7 +521,7 @@ test('deleteTrack: updates the collective map when in collective view mode', () 
   const t1 = makeTrack('t1');
   global.AppState.collectiveManager.addTrack(t1);
   global.AppState.activeTrackId = 't1';
-  // Mirrors the listener sketch.js's setup() registers for real — see the
+  // Mirrors the listener sketch.mjs's setup() registers for real — see the
   // note on the previous deleteTrack test above.
   global.AppState.on('trackRemoved', () => {
     if (global.AppState.viewMode === 'collective') GSRUI.updateCollectiveMap();
@@ -1019,7 +1017,7 @@ test('loadActiveGpsParams: no-op for a null track or a track with no gpsFilterPa
 // (and the browser File object it reads) doesn't exist in plain Node, so a
 // minimal FileReader stand-in is installed that synchronously invokes
 // `onload` with the mock file's `.content` as the read result — enough to
-// exercise tracks.js's own control flow (one CSV per file, sequential
+// exercise tracks.mjs's own control flow (one CSV per file, sequential
 // chaining, error handling) without needing a real File/Blob or jsdom.
 // ═══════════════════════════════════════════════════════════════════════
 

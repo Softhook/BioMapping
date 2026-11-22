@@ -8,9 +8,9 @@
  * (session state leaking across a "New Connection", tile re-downloads on
  * repeat caching, a dead Reconnect button before any connection) rather
  * than re-deriving coverage of things already tested elsewhere:
- * live_binary_parser.js's own decoder tests (test_live_binary_parser.js)
+ * live_binary_parser.mjs's own decoder tests (test_live_binary_parser.js)
  * cover the wire-format parsing (live.html loads that file directly), and
- * map_colors.js/gps_pipeline.js's own tests cover the subsets live.html
+ * map_colors.js/gps_pipeline.mjs's own tests cover the subsets live.html
  * copies from them.
  *
  * Uses tests/support/boot_live.js (mirrors boot_app.js's approach for
@@ -44,8 +44,8 @@ function runJSON(_context, expr) {
   return JSON.parse(JSON.stringify(vm.runInThisContext(expr)));
 }
 
-// One valid 45-byte wire packet (docs/archive/bluetooth_serial_investigation.md
-// §5). A compact copy of test_live_binary_parser.js's builder, kept local so
+// One valid wire packet (layout: bt_stream_pack_packet() in
+// firmware/core/biomap_format.c). A compact copy of test_live_binary_parser.js's builder, kept local so
 // this file stays self-contained — the wire format is frozen (§5). Returns a
 // plain number[] so it crosses into the vm realm without an ArrayBuffer.
 function buildPacket({
@@ -97,7 +97,7 @@ function buildPacket({
 // opts.watchAdvertisements — 'yes' (default): device.watchAdvertisements()
 //                            exists and fireAdvertisement() dispatches
 //                            'advertisementreceived' to it, matching the
-//                            reconnect-resilience layers in live_bluetooth.js.
+//                            reconnect-resilience layers in live_bluetooth.mjs.
 //                            'no': the method doesn't exist at all, so
 //                            feature-detection falls back to plain timers —
 //                            exercises that every layer degrades cleanly on
@@ -277,7 +277,7 @@ function makeFakeBle(
 // whole retry loop in ~no time and still assert the real backoff schedule.
 // Returns { delays, restore }.
 //
-// Patches `global.setTimeout`, not `window.setTimeout`: live_bluetooth.js's
+// Patches `global.setTimeout`, not `window.setTimeout`: live_bluetooth.mjs's
 // bare `setTimeout(...)` calls resolve through the shared realm's `global`
 // (see boot_app.js's header comment on the realm-model bridge), which is
 // tests/support/realm_bridge.js's own leak-tracking wrapper around the
@@ -3703,7 +3703,7 @@ test('a status change while deactivated arms the loop, but no frame draws until 
 
 // ==========================================================================
 // drawGraph() styling — the live graph is meant to read like the
-// single-track GSR view (src/render/renderer.js): one primary trace in the
+// single-track GSR view (src/render/): one primary trace in the
 // app's --color-filtered blue, or --color-phasic green in phasic-only mode,
 // over a faint grid. Capture the stroke state at each stroke() call.
 // ==========================================================================

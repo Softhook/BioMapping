@@ -1,7 +1,9 @@
 /**
- * GSR Label Manager — Cartographic Label Placement & HTML Icon Building.
- * Extracted from map.js to separate Leaflet rendering from layout computations.
+ * GSR Label Manager — cartographic label placement and HTML icon building,
+ * kept apart from the Leaflet rendering that uses it.
  */
+
+import { GSRNotices } from '../core/notices.mjs';
 
 /**
  * Uniform 1-D spatial index for equal-height axis-aligned boxes.
@@ -17,8 +19,6 @@
  * add / remove are O(1); a query is O(boxes in the three scanned bands), which
  * for non-degenerate label layouts is a small constant.
  */
-import { GSRNotices } from '../core/notices.mjs';
-
 class YBandIndex {
   constructor(bandHeight, overlapFn) {
     this._h = bandHeight;

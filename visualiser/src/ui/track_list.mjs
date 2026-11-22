@@ -4,9 +4,8 @@
 
 /**
  * GSRTrackManager — the sidebar track list: drawing each row, the integrity
- * icon, and renaming. Object-augment split from tracks.mjs: spread into the
- * shared GSRTrackManager object; reaches the rest of it through
- * Controllers.trackManager.
+ * icon, and renaming. Merged into GSRTrackManager by tracks.mjs; reaches the
+ * rest of it through Controllers.trackManager.
  */
 import { AppState } from '../core/app_state.mjs';
 import { Controllers } from '../core/controllers.mjs';

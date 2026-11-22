@@ -44,7 +44,7 @@ export const GSRBasemap = {
 
   /**
    * Raster tile options shared by the 2D map and the live follow-map. Fresh
-   * object per call so callers can extend it (map.js adds crossOrigin).
+   * object per call so callers can extend it (map_base.mjs adds crossOrigin).
    */
   tileOptions() {
     return { maxZoom: 22, maxNativeZoom: 19, attribution: CARTO_ATTRIBUTION };

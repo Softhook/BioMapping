@@ -1,5 +1,5 @@
 /**
- * Unit tests for spectral_eda.js (SpectralEDA) — the EDASymp (0.045–0.25 Hz)
+ * Unit tests for spectral_eda.mjs (SpectralEDA) — the EDASymp (0.045–0.25 Hz)
  * spectral sympathetic index. Covers the FFT, the scipy-compatible IIR filter
  * designs, Welch density scaling (Parseval), the NeuroKit2-style scalar, the
  * sliding-window series, and analyzer integration.
@@ -254,7 +254,7 @@ test('mapToSamples: edge-holds and interpolates monotonically', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Analyzer integration (CommonJS require path loads spectral_eda.js)
+// Analyzer integration (CommonJS require path loads spectral_eda.mjs)
 // ---------------------------------------------------------------------------
 
 test('analyzer: edasymp series is populated after analyze()', () => {

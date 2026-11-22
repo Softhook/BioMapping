@@ -5,41 +5,34 @@
  * peak/hotspot markers. No zoom/pan/timeline-drag — a live rolling window,
  * not the main app's interactive track view.
  *
- * Split out of src/live/live_view.js (2026-09). The shell (live_view.js)
+ * The shell (live_view.mjs)
  * owns the analyser, the view state (liveGsrView) and the packet clock;
  * this file only reads them, through the Controllers registry (core/
- * controllers.mjs) rather than a direct import — live_view.js imports
+ * controllers.mjs) rather than a direct import — live_view.mjs imports
  * drawGraph/LIVE_GRAPH_VIEWS/NS_TO_US from this file, so this file importing
- * live_view.js back would be a mutual-import cycle.
+ * live_view.mjs back would be a mutual-import cycle.
  *
  * Reads:
- *   LiveState, LIVE_SETTLE_TAIL_S   src/live/live_state.js (leaf)
+ *   LiveState, LIVE_SETTLE_TAIL_S   src/live/live_state.mjs (leaf)
  *   liveGsrView, liveAnalyzer, liveAnalyzerBase,
  *     lastPacketArrivalTime, lastPacketTimestamp
- *                                   Controllers.liveView (src/live/live_view.js)
+ *                                   Controllers.liveView (src/live/live_view.mjs)
  */
 
-// ==========================================================================
-// Rolling graph — plain <canvas> 2D, showing the last GRAPH_WINDOW_S seconds
-// of the session. Data comes from the shared GSRAnalyzer (see
-// feedLiveAnalyzer() above); this file just plots the selected series +
-// markers. No zoom/pan/timeline-drag — it's a live rolling window, not the
-// main app's interactive track view.
-// ==========================================================================
 import { Controllers } from '../core/controllers.mjs';
 import { LIVE_SETTLE_TAIL_S, LiveState } from './live_state.mjs';
 
 export const GRAPH_WINDOW_S = 120;
 
 // Plot inset — room for the left Y-axis value labels and the bottom time
-// labels, echoing src/core/constants.js's GSR_CONST.MARGIN (70/35/22/10)
+// labels, echoing src/core/constants.mjs's GSR_CONST.MARGIN (70/35/22/10)
 // scaled down for this compact panel.
 const GRAPH_MARGIN = { top: 12, right: 12, bottom: 20, left: 58 };
 
 // The live wire format carries GSR in nanosiemens (firmware
 // gsr_sensor_get_raw — docs/csv_schema.md); the rest of the app works in
 // microsiemens, and GSRCSVParser divides logged nS by 1000 on import
-// (src/signal/csv_parser.js "Auto-detect Units"). Match that here so the
+// (src/signal/csv_parser.mjs "Auto-detect Units"). Match that here so the
 // live readout, its axis and the single-track "Signal" view are one scale.
 export const NS_TO_US = 1 / 1000;
 
@@ -65,7 +58,7 @@ export const LIVE_GRAPH_VIEWS = {
   },
 };
 
-// Pull the single-track GSR view's own theme tokens (src/render/renderer.js
+// Pull the single-track GSR view's own theme tokens (src/render/renderer.mjs
 // reads the same custom properties via getThemeColor) so the two graphs
 // stay visually identical. Falls back to the light-theme defaults when no
 // stylesheet is in scope (the unit-test jsdom).
@@ -81,8 +74,8 @@ function graphThemeColor(name, fallback) {
 }
 
 // A "1 / 2 / 5 × 10ⁿ" gridline step giving ~5 divisions across `span` — the
-// same shape as renderer.js's drawGridY step presets, computed rather than
-// table-driven since a live session's GSR (µS) has no fixed range.
+// same shape as drawGridY's step presets (render/renderer_chrome.mjs), computed
+// rather than table-driven since a live session's GSR (µS) has no fixed range.
 export function niceStep(span) {
   if (!(span > 0)) return 1;
   const rough = span / 5;
@@ -129,7 +122,7 @@ export function drawGraph() {
   const cfg = LIVE_GRAPH_VIEWS[view] || LIVE_GRAPH_VIEWS.signal;
 
   // Series to plot, back-to-front. For 'signal' the primary Filtered trace is
-  // drawn last (on top of Raw/Tonic/Phasic), matching src/render/sketch.js.
+  // drawn last (on top of Raw/Tonic/Phasic), matching src/render/sketch.mjs.
   const layers = [];
   if (view === 'signal') {
     if (Controllers.liveView.liveGsrView.showTonic && A.tonic?.length)
@@ -263,7 +256,7 @@ export function drawGraph() {
   //    ±6s look-ahead means the newest peaks aren't trustworthy yet
   //    (LIVE_SETTLE_TAIL_S, same idea as the map's PHASIC_COLOR_LAG_S).
   //
-  //    Styling mirrors the single-track GSR graph (src/render/renderer.js's
+  //    Styling mirrors the single-track GSR graph (render/renderer_markers.mjs's
   //    drawPeakMarkers / drawHotspotMarkers): a plain peak is a small filled
   //    --color-peak dot; a hotspot is a larger hollow --color-hotspot ring
   //    (a hotspot IS a peak, just the curated memorableEvents subset) with a
@@ -361,7 +354,7 @@ export function drawGraph() {
     `${cfg.label} — last 2 min`;
 
   // Peaks/min + Mean SCL — cached numbers from the last feedLiveAnalyzer()
-  // pass (src/live/live_view.js), not recomputed here. This draw loop runs
+  // pass (src/live/live_view.mjs), not recomputed here. This draw loop runs
   // at 60fps; the underlying analysis only changes once per throttled
   // analyze() call, so scanning A.tonic/A.peakDensity again on every frame
   // would be pure waste for a number that hasn't moved.

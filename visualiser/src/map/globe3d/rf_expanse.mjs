@@ -6,9 +6,8 @@
  * Builds the street-filling "electromagnetic fluid" — the track resampled to an
  * even pitch and laid with wide, low, overlapping slugs that merge into one
  * continuous glowing corridor, coloured by band intensity. Pure geometry:
- * buildPrimitive() returns one Cesium.Primitive (or null); GSRGlobeManager owns
- * adding/removing it from the scene. Extracted from globe3d.js to keep the core
- * class focused on the arousal wall + camera.
+ * buildPrimitive() returns one Cesium.Primitive (or null); GSRGlobeRf (rf.mjs) owns
+ * adding/removing it from the scene.
  */
 
 import {

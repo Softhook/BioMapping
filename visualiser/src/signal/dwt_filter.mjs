@@ -16,7 +16,7 @@
  * recovers the original to machine precision.
  *
  * A/B tested against the plain 0.5 s moving-average low-pass on the real GSR
- * track corpus (2026-09): no measurable benefit for SCR peak detection, so it
+ * track corpus: no measurable benefit for SCR peak detection, so it
  * was not adopted as a pipeline stage.
  */
 

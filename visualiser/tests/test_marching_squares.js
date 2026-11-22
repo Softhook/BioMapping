@@ -1,6 +1,6 @@
 /**
- * Unit tests for marching_squares.js (MarchingSquares.getContourLines) —
- * pure isoline-extraction algorithm, extracted from analyzer.js.
+ * Unit tests for marching_squares.mjs (MarchingSquares.getContourLines) —
+ * pure isoline-extraction algorithm.
  *
  * Run: node --test tests/test_marching_squares.js
  */

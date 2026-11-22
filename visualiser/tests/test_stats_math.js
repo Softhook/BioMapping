@@ -1,5 +1,5 @@
 /**
- * Unit tests for stats_math.js (StatsMath) — statistical math helpers used
+ * Unit tests for stats_math.mjs (StatsMath) — statistical math helpers used
  * by the Bio Mapping GSR analyser (percentile ranking, correlation,
  * regression, and the t-distribution p-value machinery behind them).
  *

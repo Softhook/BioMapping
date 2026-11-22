@@ -1,7 +1,5 @@
 /**
  * Central application state — single source of truth for all shared globals.
- * Replaces the ~25 module-level variables previously scattered across
- * sketch.js, ui.js, and renderer.js.
  *
  * All files access state through `AppState.xxx` instead of bare globals.
  */
@@ -29,7 +27,7 @@ export const AppState = {
   // walk's body data is shown (signal/response_delay.mjs). One value for all
   // walks; set it with setResponseDelay() so every walk follows.
   responseDelay: ResponseDelay.DEFAULT_S,
-  surfaceView: 'map', // 'map' | 'globe'          (render surface — see globe3d_view.js)
+  surfaceView: 'map', // 'map' | 'globe'          (render surface — see globe3d_view.mjs)
   isDisplayMode: false,
   get isTotalFullscreen() {
     return this.isDisplayMode;
@@ -187,8 +185,9 @@ export const AppState = {
   // Which surface currently owns the scrub cursor: 'graph' (hovering the GSR
   // graph), 'globe' (hovering the 3D track) or null (nobody). The ownership
   // token keeps handleScrubber()'s per-frame mouse hit-test from fighting a
-  // scrub driven from the 3D globe, and vice versa. See renderer.js
-  // handleScrubber(), globe3d_view.js _onScrubHover(), and the 'scrub' event.
+  // scrub driven from the 3D globe, and vice versa. See handleScrubber()
+  // (render/renderer_interaction.mjs), GSRGlobe3DView._onScrubHover() and the
+  // 'scrub' event.
   scrubSource: null,
   // Place time (s) of a running 3D tour's position — the replay head, or the
   // hotspot tour's current stop — else null; the GSR graph draws its
@@ -219,8 +218,7 @@ export const AppState = {
   fileInput: null,
   dropZone: null,
 
-  // ── Minimal event notification (Phase 3 pilot, see
-  // docs/archive/visualizer_architecture_refactor_plan.md) ───────────────────────────
+  // ── Minimal event notification ──────────────────────────────────────────
   // A handful of named events, not a generic pub-sub library: plain
   // array-of-listeners per event name. Lets a mutation point (e.g.
   // deleteTrack) announce what happened once instead of every caller having

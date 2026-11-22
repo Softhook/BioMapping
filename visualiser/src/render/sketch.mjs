@@ -219,8 +219,7 @@ export function setup() {
   AppState.analyzer = new GSRAnalyzer();
   AppState.mapManager = new GSRMapManager('map');
 
-  // Phase 3 pilot (docs/archive/visualizer_architecture_refactor_plan.md): each
-  // interested module reacts to 'trackRemoved' independently instead of
+  // Each interested module reacts to 'trackRemoved' independently instead of
   // GSRTrackManager.deleteTrack() calling them all out by name.
   AppState.on('trackRemoved', () => Controllers.trackManager.renderTrackList());
   AppState.on('trackRemoved', () => {
@@ -515,7 +514,7 @@ function _metricRange(frame, metric) {
 /**
  * Peak sample indices, forced into curve decimation so drawn lines actually
  * reach every marker instead of a stride segment cutting the corner past it
- * (see _buildCurveContext()'s doc comment in renderer.js). Cached across
+ * (see _buildCurveContext()'s doc comment in renderer_curve.mjs). Cached across
  * animation frames (pan/zoom/scrub) and invalidated only on peak revisions.
  */
 function _refreshForceIndices() {

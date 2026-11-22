@@ -1,6 +1,6 @@
 /**
  * GSRUI — junction turn-vs-straight contrast table & visual cards.
- * Object-augment split composed into GSRUI in ui.mjs.
+ * Merged into GSRUI by ui.mjs.
  */
 import { AppState } from '../core/app_state.mjs';
 import { JunctionResponse } from '../gps/junction_response.mjs';

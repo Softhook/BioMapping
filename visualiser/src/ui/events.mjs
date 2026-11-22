@@ -1,16 +1,11 @@
 /**
- * DOM Element Caching, Event Binding, and UI Initialization.
- * Extracted from ui.js — handles all slider/button/toggle wiring.
- */
-
-/**
- * Slider value-label descriptors — the single source of truth for how each
- * slider's live value is rendered next to it. Consumed both by the bind*
- * handlers (label updates during a drag) and by initializeLabels() (initial
- * paint + post-preset resync), so the two can never drift apart.
+ * GSREvents — DOM element caching, event binding and UI initialisation: all
+ * the slider / button / toggle wiring. Each topic lives in its own
+ * events_*.mjs file; GSREvents below merges them into one object.
  *
- * GSR sliders share one formatting rule (see GSREvents._gsrLabelText); GPS and
- * contour sliders each carry an explicit `fmt(value) -> string`.
+ * The slider value-label tables (events_slider_defs.mjs) are used both by the
+ * bind* handlers (label updates during a drag) and by initializeLabels()
+ * (initial paint + post-preset resync), so the two can't drift apart.
  */
 import { AppState } from '../core/app_state.mjs';
 import { Controllers } from '../core/controllers.mjs';
@@ -25,7 +20,6 @@ import { ModalEvents } from './events_modals.mjs';
 import { PresetEvents } from './events_presets.mjs';
 import {
   CONTOUR_SLIDER_DEFS,
-  fmtMaxSpeed,
   GPS_SLIDER_DEFS,
   GRAPH_BAND_TOGGLE_DEFS,
   GSR_SLIDER_DEFS,
@@ -35,17 +29,6 @@ import { TimelineEvents } from './events_timeline.mjs';
 import { ViewSwitcherEvents } from './events_view_switcher.mjs';
 import { GSRStorage } from './storage.mjs';
 
-export {
-  CONTOUR_SLIDER_DEFS,
-  fmtMaxSpeed,
-  GPS_SLIDER_DEFS,
-  GRAPH_BAND_TOGGLE_DEFS,
-  GSR_SLIDER_DEFS,
-};
-
-/**
- * Safe DOM lookup — warns on missing elements without crashing.
- */
 export const GSREvents = {
   ...GsrAnalysisEvents,
   ...TimelineEvents,

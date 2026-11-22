@@ -1,5 +1,5 @@
 /**
- * Unit tests for deconvolution.js (SCRDeconvolution) — Benedek & Kaernbach
+ * Unit tests for deconvolution.mjs (SCRDeconvolution) — Benedek & Kaernbach
  * nonnegative matching-pursuit deconvolution of the phasic skin-conductance
  * signal, independent of the analyzer pipeline.
  *

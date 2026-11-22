@@ -124,7 +124,7 @@ assertEq(
 );
 
 // applyZeroPhaseButterworth & applyZeroPhaseLinkwitzRiley (the default gait
-// LPF stage, see analyzer.js step 2 + GSR_CONST.GAIT_FILTER) — checks they
+// LPF stage, see analyzer.mjs step 2 + GSR_CONST.GAIT_FILTER) — checks they
 // behave like real IIR filters (DC passthrough, genuine attenuation of a fast
 // oscillation) rather than just existing.
 assert(
@@ -363,7 +363,7 @@ assert(
 // Manually verify computePhasicAUC's centered-window running sum against a direct
 // trapezoid-free sum at a few interior indices, using a short window for a cheap
 // independent check. Centered = ±halfWin around each sample's own timestamp
-// (matches computeTemporalPeakDensity's convention — see analyzer.js docstrings).
+// (matches computeTemporalPeakDensity's convention — see analyzer.mjs docstrings).
 const shortWin = 5; // seconds
 const shortAuc = analyzer.computePhasicAUC(shortWin);
 const halfWinSamples = Math.round((shortWin / 2) * analyzer.sampleRate);
@@ -1319,7 +1319,7 @@ assertEq(
 // 6i. Non-deconvolution path parity: with useDeconvolution:false, peak
 // detection must be byte-identical to the plain default-detector path (the
 // deconvolution feature must not have altered the default detector itself —
-// confirmed against pre-deconvolution-feature analyzer.js on real track data
+// confirmed against pre-deconvolution-feature analyzer.mjs on real track data
 // during review; this guards it going forward on the test fixture too).
 assertEq(
   freshOffSnap.phasicDriverLen,
@@ -1352,7 +1352,7 @@ assertEq(
 // 6-atom, 6.5s chain collapsed to 1 peak, discarding two atoms individually
 // ~50-60% the size of the "survivor"). Consolidation was replaced entirely
 // with local-maxima scanning directly on the reconstructed phasicClean curve
-// (see _detectPeaksFromCurve()'s doc comment in analyzer.js) — a parameter-
+// (see _detectPeaksFromCurve()'s doc comment in analyzer.mjs) — a parameter-
 // free approach, not re-tuned against this fixture. On track 053 (the
 // project's primary, most heavily audited real-world validation track) this
 // raised agreement further, 91.1% -> 97.8%. On this fixture (048) it eased

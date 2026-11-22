@@ -1,8 +1,8 @@
 /**
- * Unit tests for spatial_grid.js (SpatialGrid) — the shared uniform lat/lon
+ * Unit tests for spatial_grid.mjs (SpatialGrid) — the shared uniform lat/lon
  * grid-hash bucket mechanism extracted from what used to be two independent,
- * near-identical implementations in osm_enrichment.js (buildSpatialIndex)
- * and rf_fluid_renderer.js (_buildSegmentGrid/_queryNearbySegments).
+ * near-identical implementations in osm_enrichment.mjs (buildSpatialIndex)
+ * and rf_fluid_renderer.mjs (_buildSegmentGrid/_queryNearbySegments).
  *
  * This file tests SpatialGrid in isolation. The two callers' own
  * padding/dedup policies built on top of it are covered where they already
@@ -63,11 +63,11 @@ test('queryBBoxRaw: with no insert-side padding, an item one cell away from the 
   const found = grid.queryBBoxRaw(queryBbox);
   assert.ok(
     !found.includes(item),
-    "unpadded insert does not widen an item's catchment beyond its own cell range — mirrors rf_fluid_renderer.js's exact-bbox semantics",
+    "unpadded insert does not widen an item's catchment beyond its own cell range — mirrors rf_fluid_renderer.mjs's exact-bbox semantics",
   );
 });
 
-// ─── insert padding (osm_enrichment.js's ±1-cell margin) ──────────────────
+// ─── insert padding (osm_enrichment.mjs's ±1-cell margin) ──────────────────
 
 test("insert: paddingCells widens an item's catchment area beyond its own cell range", () => {
   const cellSize = 0.01;
@@ -202,7 +202,7 @@ test('getNearby: defaults to identity-based dedup when no idFn is given', () => 
   );
 });
 
-// ─── Non-square cells (rf_fluid_renderer.js's cellSizeLat != cellSizeLon) ──
+// ─── Non-square cells (rf_fluid_renderer.mjs's cellSizeLat != cellSizeLon) ──
 
 test('non-square cell sizes: insert/query correctly use separate lat and lon cell sizes', () => {
   const grid = new SpatialGrid(0.01, 0.02); // 2x wider in longitude than latitude

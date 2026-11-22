@@ -4,13 +4,11 @@
  * a query only has to look at the handful of cells it touches instead of
  * scanning every item.
  *
- * Extracted from two independent, near-identical implementations that used
- * to live in osm_enrichment.js (buildSpatialIndex) and rf_fluid_renderer.js
- * (_buildSegmentGrid/_queryNearbySegments) — same Map-of-buckets/floor-
- * division-cell-key mechanics, duplicated. Each caller keeps its own
- * padding/dedup policy on top (osm_enrichment.js pads inserts by one cell
+ * Used by osm_enrichment.mjs (buildSpatialIndex) and rf_fluid_renderer.mjs
+ * (_buildSegmentGrid/_queryNearbySegments). Each caller keeps its own
+ * padding/dedup policy on top (osm_enrichment.mjs pads inserts by one cell
  * and dedupes a point query's 3x3 neighbourhood by `${type}_${id}`;
- * rf_fluid_renderer.js inserts unpadded and dedupes an explicit-bbox query
+ * rf_fluid_renderer.mjs inserts unpadded and dedupes an explicit-bbox query
  * by a per-item query-id stamp) — those policies are preserved as thin
  * wrappers around this shared bucket mechanism, not folded together, since
  * they're genuinely different correctness requirements per caller.

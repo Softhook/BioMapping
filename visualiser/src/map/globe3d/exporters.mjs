@@ -5,16 +5,16 @@
  *
  * Pure builders: given an analysed track + the display points the 2D map drew,
  * they return a file string. Invoked from the main Export Options panel
- * (src/ui/events.js) — no live CesiumJS viewer required. The extruded-wall
+ * (src/ui/events_file_export.mjs) — no live CesiumJS viewer required. The extruded-wall
  * height for a point is
  *     baseHeight + max(0, metricValue) * extrusionScale
- * matching the on-screen wall in src/map/globe3d.js.
+ * matching the on-screen wall in globe3d_base.mjs.
  */
 
 import { ResponseDelay } from '../../signal/response_delay.mjs';
 
-// Mirrors SERIES_FIELD in src/map/globe3d.js (and DERIVED_METRIC_SERIES in map.js) —
-// colouring metric -> analyzer per-sample series field.
+// Mirrors SERIES_FIELD in globe3d_base.mjs (and DERIVED_METRIC_SERIES in
+// map/manager/path.mjs) — colouring metric -> analyzer per-sample series field.
 const G3DX_SERIES_FIELD = {
   phasic: 'phasic',
   tonic: 'tonic',

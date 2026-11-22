@@ -1,23 +1,14 @@
 /**
- * index.html's real entry point — the browser-side counterpart of
- * tests/support/boot_app.js's SCRIPT_ORDER (kept in sync with it by
- * tests/test_html_wiring.js; the two must list the same 93 files, in the
- * same order).
+ * index.html's entry point. Imports every app module once, in the same order
+ * as SCRIPT_ORDER in tests/support/boot_app.js (tests/test_html_wiring.js
+ * checks the two lists match). Under ES modules the order isn't load-bearing
+ * — the module graph sorts out dependencies — it is kept the same only so the
+ * two lists are easy to compare.
  *
- * Every file below is imported purely for its own top-level side effect
- * (an `Object.assign(GSRMapManager.prototype, __methods)`-style composition,
- * or a class/const declaration another file reaches via its own `import`) —
- * nothing here is a dependency of THIS file. Static imports are hoisted and
- * executed in real dependency order by the module graph regardless of the
- * order they're listed in below (ESM, unlike the old `<script>`-tag list,
- * resolves the graph itself) — this order is kept the same as SCRIPT_ORDER
- * purely for easy diffing against it, not because it's load-bearing here.
- * One set of names needs to escape this module's scope, because their consumers
- * are NOT other ES modules:
- *  - p5.js's "global mode" auto-detects `window.setup`/`window.draw`/etc. as
- *    bare properties of `window` — sketch.mjs and sketch_input.mjs export these as ordinary
- *    named exports (module-scoped, not on `window`, under real ESM), so
- *    they're re-exposed explicitly below.
+ * One set of names has to escape onto `window`: p5.js "global mode" looks
+ * for `window.setup` / `window.draw` / etc., and sketch.mjs and
+ * sketch_input.mjs export those as ordinary module exports, so they are
+ * re-exposed below.
  */
 import './core/notices.mjs';
 import './core/app_state.mjs';

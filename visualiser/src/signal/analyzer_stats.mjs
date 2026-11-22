@@ -3,8 +3,8 @@
 // See LICENCE.md in the project root for terms.
 
 /**
- * Continuous derived-metric time series and summary statistics — extracted
- * from analyzer.js. Every function is pure: the relevant series (phasic,
+ * Continuous derived-metric time series and summary statistics for
+ * GSRAnalyzer. Every function is pure: the relevant series (phasic,
  * tonic, peaks, raw) are passed in explicitly rather than read off `this`.
  * GSRAnalyzer keeps thin instance wrappers (`computeTemporalPeakDensity`,
  * `computePhasicAUC`, `computeCombinedArousalIndex`, `computeTriIndex`,
@@ -128,8 +128,7 @@ export const AnalyzerStats = {
    *  - Otherwise: integrates the tonic-subtracted phasic RESPONSE. No
    *    deconvolution, so overlapping SCRs and their decay tails are not
    *    separated — an ISCR-*inspired* metric that softens but doesn't solve the
-   *    "superposition problem" / amplitude-threshold cliff-edge
-   *    (docs/environmental_stress_literature_review.md §5B/§5D).
+   *    "superposition problem" / amplitude-threshold cliff-edge.
    *
    * Returns `isISCR` alongside the series so the caller can set its own
    * `phasicAUCIsISCR` flag (drives the UI label) — this module doesn't own
@@ -221,9 +220,8 @@ export const AnalyzerStats = {
    *
    * IMPORTANT: the specific 0.3/0.7 split is this project's own default, not
    * a value taken from those papers — a search of their published methods
-   * did not turn up a specific numeric weighting to cite, and
-   * docs/environmental_stress_literature_review.md §5C itself frames the
-   * split as illustrative ("e.g."). Treat these defaults as a tunable
+   * did not turn up a specific numeric weighting to cite, and the literature
+   * review itself frames the split as illustrative ("e.g."). Treat these defaults as a tunable
    * starting point, not an empirically-validated constant; if this matters
    * for your use case, consider validating a weighting against ground-truth
    * data (e.g. self-reported arousal) rather than assuming these values.
@@ -250,7 +248,7 @@ export const AnalyzerStats = {
     const r1 = range ? range.last + 1 : n;
     const m = r1 - r0;
 
-    // §B perf fix: compute mean/std in a single pass over tonic and auc
+    // Compute mean/std in a single pass over tonic and auc
     // directly, eliminating the two O(N) .map(d => d.val) intermediate arrays
     // that were previously allocated only to pass into GsrFilter.calculateStats().
     let tSum = 0,

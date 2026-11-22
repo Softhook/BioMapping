@@ -3,7 +3,7 @@
  *
  * Mobile browsers drop fullscreen on their own when the OS takes the page
  * over (phone lock, app switch) — the user never asked to leave fullscreen,
- * so GSRFullscreen (src/core/fullscreen.js) re-asserts it the moment the page
+ * so GSRFullscreen (src/core/fullscreen.mjs) re-asserts it the moment the page
  * becomes visible again. These tests pin that contract across all three
  * fullscreen surfaces:
  *

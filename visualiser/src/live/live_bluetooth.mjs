@@ -1,9 +1,8 @@
 /**
- * GSRLiveBluetoothManager — Web Bluetooth transport for the live receiver
- * (docs/archive/bluetooth_serial_investigation.md §8). Owns the
- * BluetoothDevice / GATT characteristic, pipes notification bytes through
- * GSRLiveBinaryParser (src/live/live_binary_parser.js) into LiveState
- * (src/live/live_state.js), and runs a bounded auto-reconnect on
+ * GSRLiveBluetoothManager — Web Bluetooth transport for the live receiver. Owns
+ * the BluetoothDevice / GATT characteristic, pipes notification bytes through
+ * GSRLiveBinaryParser (src/live/live_binary_parser.mjs) into LiveState
+ * (src/live/live_state.mjs), and runs a bounded auto-reconnect on
  * 'gattserverdisconnected'.
  *
  * No DOM. Surfaces human-readable failure text through the onStatusText
@@ -122,6 +121,19 @@ export class GSRLiveBluetoothManager {
     this.onStatusChange(status);
   }
 
+  // Ends any in-flight backoff wait now: aborts its advertisement watch and
+  // resolves the sleep, so a pending reconnect loop moves on at once.
+  _wakeRetryWait() {
+    if (this._retryWaitController) {
+      this._retryWaitController.abort();
+      this._retryWaitController = null;
+    }
+    if (typeof this._retryWaitResolve === 'function') {
+      this._retryWaitResolve();
+      this._retryWaitResolve = null;
+    }
+  }
+
   // Called by the caller right before replacing this instance with a new
   // GSRLiveBluetoothManager (a fresh "New Connection"). Marks this instance
   // as superseded (so any in-flight loop's eventual status update is a
@@ -134,14 +146,7 @@ export class GSRLiveBluetoothManager {
     this._intentionalClose = true;
     this._reconnecting = false;
     this._stopBackgroundWatch();
-    if (this._retryWaitController) {
-      this._retryWaitController.abort();
-      this._retryWaitController = null;
-    }
-    if (typeof this._retryWaitResolve === 'function') {
-      this._retryWaitResolve();
-      this._retryWaitResolve = null;
-    }
+    this._wakeRetryWait();
     // Unlike disconnect() (also used for a temporary, same-instance pause
     // that manualReconnect() later resumes on the SAME device+listener),
     // this instance is being permanently retired — so this is the one place
@@ -286,14 +291,7 @@ export class GSRLiveBluetoothManager {
     this._reconnecting = false;
     this._setStatus('disconnected');
     this._stopBackgroundWatch();
-    if (this._retryWaitController) {
-      this._retryWaitController.abort();
-      this._retryWaitController = null;
-    }
-    if (typeof this._retryWaitResolve === 'function') {
-      this._retryWaitResolve();
-      this._retryWaitResolve = null;
-    }
+    this._wakeRetryWait();
     const char = this.characteristic;
     this.characteristic = null;
     if (char) {

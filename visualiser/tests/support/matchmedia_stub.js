@@ -8,7 +8,7 @@
  * stub precedent in boot_app.js.
  *
  * This only needs to satisfy a one-time `.matches` read (see
- * src/live/live_view.js's isCompactLiveLayout() — checked once at mount,
+ * src/live/live_view.mjs's isCompactLiveLayout() — checked once at mount,
  * not live-updating), so addListener/addEventListener are harmless no-ops,
  * never expected to fire.
  */

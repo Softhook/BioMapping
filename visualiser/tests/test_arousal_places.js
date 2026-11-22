@@ -1,5 +1,5 @@
 /**
- * Unit tests for arousal_places.js (GSRArousalPlaces.buildPlaces) — pure
+ * Unit tests for arousal_places.mjs (GSRArousalPlaces.buildPlaces) — pure
  * dwell-normalised scoring of arousal-peak clusters, no DOM/Leaflet.
  *
  * Run: node --test tests/test_arousal_places.js  (or `npm test` for the whole suite)

@@ -1,7 +1,7 @@
 /**
- * Phase 1 (slice 1) behavior tests: the track.layerGroup ownership model.
+ * Behaviour tests: the track.layerGroup ownership model.
  *
- * Contract under test (docs/archive/visualizer_architecture_refactor_plan.md, Phase 1):
+ * Contract under test:
  *   - Each track owns a single Leaflet layerGroup() — its rendering handle.
  *   - The single-track render path adds path/peak/hotspot layers INTO the
  *     active track's layerGroup, never directly onto the map.
@@ -1084,7 +1084,7 @@ test('slice3: getPeakMarkerByIndex resolves the marker for a peak index', async 
 });
 
 test('slice3: clearCollectiveLayers clears the per-track layerGroups (stale-group fix)', async () => {
-  // Regression for: uncheck the last track in collective view -> ui.js calls
+  // Regression for: uncheck the last track in collective view -> ui_collective_map.mjs calls
   // clearCollectiveLayers() and returns (no re-render), so the previous
   // render's per-track groups used to linger on the map.
   const { window, map, mapManager } = await bootWithRecordingL();
@@ -1397,7 +1397,7 @@ test('slice3: entering collective (0 active tracks) drops a lingering scrub mark
     'precondition: scrub marker shown on the map',
   );
 
-  // The 0-active-tracks collective path (ui.js _updateCollectiveMapNow) only
+  // The 0-active-tracks collective path (ui_collective_map.mjs _updateCollectiveMapNow) only
   // calls clearCollectiveLayers().
   mapManager.clearCollectiveLayers();
 
@@ -1407,7 +1407,7 @@ test('slice3: entering collective (0 active tracks) drops a lingering scrub mark
   );
 });
 
-// ── refreshPeakMarkers (docs/archive/visualizer_rendering_perf_routes.md §2.2) ──────
+// ── refreshPeakMarkers ───────────────────────────────────────────────────────
 // A label edit only ever changes one peak's label chip/popup; refreshPeakMarkers()
 // exists so that no longer costs a full renderData() clear+rebuild of the path
 // and hotspot layers too. These tests pin the contract: path/hotspot layers
@@ -1515,7 +1515,7 @@ test('refreshPeakMarkers: falls back to a full renderData() when there is no res
   );
 });
 
-test('updatePeakLabel (ui.js): commits a label via refreshPeakMarkers, not a full renderData() rebuild', async () => {
+test('updatePeakLabel (ui_peaks_table.mjs): commits a label via refreshPeakMarkers, not a full renderData() rebuild', async () => {
   const { window, mapManager } = await bootWithRecordingL();
   const track = addTrack(window, 't1', 't1.csv', SAMPLE_CSV);
   window.AppState.viewMode = 'single';
@@ -1541,16 +1541,16 @@ test('updatePeakLabel (ui.js): commits a label via refreshPeakMarkers, not a ful
   assert.deepStrictEqual(
     pathAfter,
     pathBefore,
-    'committing a label through the real ui.js path must not rebuild path layers',
+    'committing a label through the real ui_peaks_table.mjs path must not rebuild path layers',
   );
   assert.deepStrictEqual(
     hotspotAfter,
     hotspotBefore,
-    'committing a label through the real ui.js path must not rebuild hotspot layers',
+    'committing a label through the real ui_peaks_table.mjs path must not rebuild hotspot layers',
   );
 });
 
-// ── togglePeakExclusion (ui.js) — Phase 6 step 2 ────────────────────────────
+// ── togglePeakExclusion (ui_peaks_table.mjs) ─────────────────────────────────
 // Same shape as the updatePeakLabel migration above for path layers: an
 // exclusion toggle never touches path segments, so those still go through
 // refreshPeakMarkers() without a path rebuild. Hotspot layers are the one
@@ -1560,7 +1560,7 @@ test('updatePeakLabel (ui.js): commits a label via refreshPeakMarkers, not a ful
 // like the plain peak dot), which requires rebuilding the hotspot layer
 // (see refreshPeakMarkers()'s opts.refreshHotspots).
 
-test('togglePeakExclusion (ui.js): commits via refreshPeakMarkers, not a full renderData() rebuild', async () => {
+test('togglePeakExclusion (ui_peaks_table.mjs): commits via refreshPeakMarkers, not a full renderData() rebuild', async () => {
   const { window, mapManager } = await bootWithRecordingL();
   const track = addTrack(window, 't1', 't1.csv', SAMPLE_CSV);
   window.AppState.viewMode = 'single';
@@ -1597,12 +1597,12 @@ test('togglePeakExclusion (ui.js): commits via refreshPeakMarkers, not a full re
   assert.deepStrictEqual(
     pathAfter,
     pathBefore,
-    'toggling exclusion through the real ui.js path must not rebuild path layers',
+    'toggling exclusion through the real ui_peaks_table.mjs path must not rebuild path layers',
   );
   assert.notDeepStrictEqual(
     hotspotAfter,
     hotspotBefore,
-    'toggling exclusion through the real ui.js path MUST rebuild hotspot layers, so an excluded hotspot stops showing as fully-included',
+    'toggling exclusion through the real ui_peaks_table.mjs path MUST rebuild hotspot layers, so an excluded hotspot stops showing as fully-included',
   );
   assert.strictEqual(
     hotspotAfter.length,
@@ -1617,7 +1617,7 @@ test('togglePeakExclusion (ui.js): commits via refreshPeakMarkers, not a full re
   );
 });
 
-// ── refreshPeakMarkers skipClustering (docs/archive/visualizer_rendering_perf_routes.md §2.4) ──
+// ── refreshPeakMarkers skipClustering ────────────────────────────────────────
 // Found via real A/B benchmarking: refreshPeakMarkers() unconditionally
 // recomputed the Arousal Places layer even for a label-only edit, which the
 // clusterer can't be affected by (it only reads lat/lon/amplitude per
@@ -1628,7 +1628,7 @@ test('togglePeakExclusion (ui.js): commits via refreshPeakMarkers, not a full re
 // bootWithRecordingL() (which nulls GSRSpatialClustering out of scope for
 // every other test in this file).
 
-test('updatePeakLabel (ui.js): a label edit leaves existing Arousal Place layers untouched by reference', async () => {
+test('updatePeakLabel (ui_peaks_table.mjs): a label edit leaves existing Arousal Place layers untouched by reference', async () => {
   const { window, mapManager } = await bootWithRecordingLClusteringOn();
   const track = addTrack(window, 't1', 't1.csv', CLUSTER_CSV);
   window.AppState.viewMode = 'single';
@@ -1654,7 +1654,7 @@ test('updatePeakLabel (ui.js): a label edit leaves existing Arousal Place layers
   );
 });
 
-test('togglePeakExclusion (ui.js): an exclusion toggle DOES recompute Arousal Place layers (clusterer input changed)', async () => {
+test('togglePeakExclusion (ui_peaks_table.mjs): an exclusion toggle DOES recompute Arousal Place layers (clusterer input changed)', async () => {
   const { window, mapManager } = await bootWithRecordingLClusteringOn();
   const track = addTrack(window, 't1', 't1.csv', CLUSTER_CSV);
   window.AppState.viewMode = 'single';
@@ -2010,7 +2010,7 @@ test('refreshArousalPlaces(): falls back to a full rerenderMap() when nothing ha
   );
 });
 
-// ── refreshPath (docs/archive/visualizer_rendering_perf_routes.md §2.2) ────────────
+// ── refreshPath ──────────────────────────────────────────────────────────────
 // The map-coloring-metric dropdown only changes how the path is colored;
 // refreshPath() exists so that no longer costs a full renderData() rebuild of
 // peak and hotspot layers too. Mirrors the refreshPeakMarkers contract tests
@@ -2098,7 +2098,7 @@ test('refreshPath: falls back to a full renderData() when there is no resolvable
   );
 });
 
-test('mapColoringMetric dropdown (events.js): single-track view commits via refreshPath, not a full rerenderMap()', async () => {
+test('mapColoringMetric dropdown (events_map_panel.mjs): single-track view commits via refreshPath, not a full rerenderMap()', async () => {
   const { window, mapManager } = await bootWithRecordingL();
   const track = addTrack(window, 't1', 't1.csv', SAMPLE_CSV);
   window.AppState.viewMode = 'single';
@@ -2130,12 +2130,12 @@ test('mapColoringMetric dropdown (events.js): single-track view commits via refr
   assert.deepStrictEqual(
     peakAfter,
     peakBefore,
-    'switching coloring metric through the real events.js wiring must not rebuild peak layers',
+    'switching coloring metric through the real events_map_panel.mjs wiring must not rebuild peak layers',
   );
   assert.deepStrictEqual(
     hotspotAfter,
     hotspotBefore,
-    'switching coloring metric through the real events.js wiring must not rebuild hotspot layers',
+    'switching coloring metric through the real events_map_panel.mjs wiring must not rebuild hotspot layers',
   );
 });
 
@@ -2279,7 +2279,7 @@ test('refreshCollectivePeakMarkers: falls back to a full collective rebuild when
   );
 });
 
-test('updatePeakLabel (ui.js) in collective mode: commits via refreshCollectivePeakMarkers, not a full rebuild', async () => {
+test('updatePeakLabel (ui_peaks_table.mjs) in collective mode: commits via refreshCollectivePeakMarkers, not a full rebuild', async () => {
   const { window, mapManager } = await bootWithRecordingL();
   const trackA = addTrack(window, 'A', 'a.csv', SAMPLE_CSV);
   const trackB = addTrack(window, 'B', 'b.csv', SAMPLE_CSV);
@@ -2315,12 +2315,12 @@ test('updatePeakLabel (ui.js) in collective mode: commits via refreshCollectiveP
   assert.deepStrictEqual(
     pathAfterA,
     pathBeforeA,
-    "committing a label through the real ui.js path must not rebuild A's path layers",
+    "committing a label through the real ui_peaks_table.mjs path must not rebuild A's path layers",
   );
   assert.deepStrictEqual(
     hotspotAfterA,
     hotspotBeforeA,
-    "committing a label through the real ui.js path must not rebuild A's hotspot layers",
+    "committing a label through the real ui_peaks_table.mjs path must not rebuild A's hotspot layers",
   );
   assert.deepStrictEqual(
     trackB.layerGroup.getLayers(),

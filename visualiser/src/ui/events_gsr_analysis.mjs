@@ -3,9 +3,8 @@
 // See LICENCE.md in the project root for terms.
 
 /**
- * GSREvents — GSR filter sliders, alternative-detector toggles, gait filter, graph-view selector. Object-augment split from events.js: loaded
- * immediately after events.js, adds these methods to the shared GSREvents
- * object.
+ * GSREvents — GSR filter sliders, alternative-detector toggles, gait filter,
+ * graph-view selector. Merged into GSREvents by events.mjs.
  */
 import { AppState } from '../core/app_state.mjs';
 import { BusyOverlay } from '../core/busy_overlay.mjs';

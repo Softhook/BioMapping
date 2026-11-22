@@ -3,7 +3,7 @@
 // See LICENCE.md in the project root for terms.
 
 /**
- * CSV export — extracted from analyzer.js. Pure: the analyzer's series
+ * CSV export for GSRAnalyzer. Pure: the analyzer's series
  * state is passed in as a plain `state` object rather than read off `this`.
  * GSRAnalyzer keeps a thin instance wrapper (`exportToCSV`) that builds
  * `state` from `this.*` and delegates here.
@@ -233,7 +233,7 @@ export const AnalyzerExport = {
         // Only genuine fix rows carry real quality metadata — interpolated rows
         // are step-held in memory (see the interpolation pass in parseCSV) but
         // exporting that fabricated data would make every reimported row look
-        // like an independent anchor, collapsing map.js's anchor-only Kalman
+        // like an independent anchor, collapsing the map's anchor-only Kalman
         // input back down to the dense interpolated grid. Leaving them blank
         // mirrors how the original device CSV itself encodes "no fix this tick".
         const isFix = !!r._isGpsFix;

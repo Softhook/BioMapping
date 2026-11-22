@@ -1,5 +1,5 @@
 /**
- * Unit tests for overpass_client.js (OverpassClient) — Overpass API query
+ * Unit tests for overpass_client.mjs (OverpassClient) — Overpass API query
  * building, rate-limit/backoff/retry logic. Network calls are mocked via a
  * stubbed global.fetch (no real HTTP requests are made).
  *
@@ -9,7 +9,7 @@
 const assert = require('node:assert');
 const test = require('node:test');
 
-// overpass_client.js's real retry/backoff delays (up to 30s for a 429, and a
+// overpass_client.mjs's real retry/backoff delays (up to 30s for a 429, and a
 // 200s AbortController timeout armed on every attempt) would make this suite
 // take minutes if left untouched, and that 200s timer is only clearTimeout()'d
 // once `fetch()` *resolves* — on a path where the mocked fetch() *rejects*

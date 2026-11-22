@@ -1,6 +1,5 @@
 /**
- * GSRUI — peak events table. Object-augment split from ui.js: loaded
- * immediately after ui.js, adds these methods to the shared GSRUI object.
+ * GSRUI — peak events table. Merged into GSRUI by ui.mjs.
  *
  * Covers per-peak label editing (table + map-popup + live-typing sync),
  * focusing/zooming the timeline and active map surface to a peak, exclusion
@@ -31,17 +30,15 @@ export const PeaksTableUI = {
     // Refresh displays. A label edit only ever changes this one peak's label
     // chip/popup — refreshPeakMarkers()/refreshCollectivePeakMarkers()
     // re-render just the peak-marker layer instead of a full path+peaks+
-    // hotspots(+clusters+contours, in collective mode) rebuild (see
-    // docs/archive/visualizer_rendering_perf_routes.md §2.2 and the Phase 6 step 2
-    // investigation note in the architecture refactor plan for why this is
-    // safe in collective mode specifically for labels, unlike exclusion).
+    // hotspots(+clusters+contours, in collective mode) rebuild. This is safe
+    // in collective mode for labels, unlike exclusion: a label can't change
+    // the collective surface.
     if (AppState.viewMode === 'single') {
       if (AppState.mapManager) {
         // skipClustering: true — a label edit can't change the Arousal Places
         // clusterer's input (lat/lon/amplitude per non-excluded peak), so
         // recomputing the places here is provably wasted (see
-        // refreshPeakMarkers()'s own doc comment and
-        // docs/archive/visualizer_rendering_perf_routes.md §2.4).
+        // refreshPeakMarkers()'s own doc comment).
         AppState.mapManager.refreshPeakMarkers(
           AppState.analyzer,
           GSRStorage.buildGpsParams(),
@@ -161,7 +158,7 @@ export const PeaksTableUI = {
       if (AppState.surfaceView === 'globe' && GSRGlobe3DView.isActive) {
         GSRGlobe3DView.focusOnPeak(idx);
       } else {
-        // Phase 1 (slice 3): the peakMarkers flat array is gone; resolve the
+        // The peakMarkers flat array is gone; resolve the
         // marker for this peak index from the track layerGroups instead.
         const peakMarker = AppState.mapManager?.getPeakMarkerByIndex(idx);
         if (peakMarker) {
@@ -182,8 +179,7 @@ export const PeaksTableUI = {
     this._markUnsavedLabels(track);
     // Refresh displays. Same path/hotspot-skip reasoning as updatePeakLabel():
     // refreshPeakMarkers() rebuilds just the peak-marker layer instead of
-    // renderData()'s full path+peaks+hotspots rebuild (see
-    // docs/archive/visualizer_rendering_perf_routes.md §2.2). Unlike a label edit,
+    // renderData()'s full path+peaks+hotspots rebuild. Unlike a label edit,
     // this does NOT pass skipClustering — excluding a peak changes the Arousal
     // Places clusterer's input set (activePeaks filters on ap.peak.excluded),
     // so the places must be recomputed here (see §2.4 and

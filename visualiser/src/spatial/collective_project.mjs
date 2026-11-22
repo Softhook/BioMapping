@@ -10,7 +10,7 @@
  * format: each track's CSV already embeds its own filter params, GPS filter
  * params, peak labels, and peak exclusions as comment-header metadata, and
  * parseCSV() already knows how to read all of that back out losslessly (see
- * analyzer.js). This module only adds what that per-track format can't carry:
+ * analyzer.mjs). This module only adds what that per-track format can't carry:
  * a manifest.json listing which CSV belongs to which track (name/color/
  * enabled/order) plus the project-wide view state (Response delay, cluster
  * and contour sliders, map layer toggles) that isn't part of any one track.
@@ -23,7 +23,6 @@
  */
 import { AppState } from '../core/app_state.mjs';
 import { BusyOverlay } from '../core/busy_overlay.mjs';
-import { GSR_CONST } from '../core/constants.mjs';
 import { Controllers } from '../core/controllers.mjs';
 import { GSRFileSaver } from '../core/file_saver.mjs';
 import { GSRNotices } from '../core/notices.mjs';
@@ -35,8 +34,8 @@ export const GSRCollectiveProject = {
 
   // Map toggle buttons whose on/off state is collective-view-only chrome —
   // captured/restored verbatim so a re-imported project looks the same as
-  // when it was saved. See events.js bindMapControls() for where these
-  // buttons are wired up originally.
+  // when it was saved. The buttons themselves are wired up in
+  // events_map_panel.mjs.
   VIEW_TOGGLE_BUTTONS: {
     btnToggleMapPeaks: 'togglePeaks',
     btnToggleMapHotspots: 'toggleHotspots',
@@ -302,25 +301,15 @@ export const GSRCollectiveProject = {
           const analyzer = new GSRAnalyzer();
           analyzer.parseCSV(csvText); // restores filterParams/gpsFilterParams/labels/exclusions from the CSV's own embedded headers
 
-          const filterParams =
-            analyzer.importedFilterParams ||
-            JSON.parse(JSON.stringify(GSR_CONST.GSR_DEFAULT));
-          const gpsFilterParams =
-            analyzer.importedGpsFilterParams ||
-            JSON.parse(JSON.stringify(GSR_CONST.GPS_DEFAULT));
-          analyzer.setResponseDelay(AppState.responseDelay);
-          analyzer.analyze(filterParams); // repopulate filtered/tonic/phasic/peaks so the track is ready to render immediately
-
           const trackId = `track_${Date.now()}_${Math.floor(Math.random() * 1000)}_${i}`;
-          const newTrack = {
-            id: trackId,
-            name: entry.name || entry.file,
-            color: entry.color || AppState.getNextTrackColor(),
-            enabled: entry.enabled !== false,
+          const newTrack = Controllers.trackManager.createTrackObject(
+            trackId,
+            entry.name || entry.file,
+            entry.color || AppState.getNextTrackColor(),
             analyzer,
-            filterParams,
-            gpsFilterParams,
-          };
+          );
+          newTrack.enabled = entry.enabled !== false;
+          analyzer.analyze(newTrack.filterParams); // repopulate filtered/tonic/phasic/peaks so the track is ready to render immediately
           AppState.collectiveManager.addTrack(newTrack);
           if (i === manifest.activeTrackIndex) newActiveId = trackId;
         } catch (trackErr) {
@@ -371,7 +360,7 @@ export const GSRCollectiveProject = {
         // to Grid Resolution) and filter-off dim states never got the
         // memo, even though the slider thumb itself (native browser
         // behavior, always reflects the live .value) was already showing
-        // the real restored value. Same fix storage.js's applyPreset()
+        // the real restored value. Same fix storage.mjs's applyPreset()
         // already applies via syncSliderValueDisplays() after doing the
         // exact same direct .value assignment.
         if (

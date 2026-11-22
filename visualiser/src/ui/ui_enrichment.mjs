@@ -1,7 +1,5 @@
 /**
- * GSRUI — spatial enrichment (OSM + NDVI). Object-augment split from ui.js:
- * loaded immediately after ui.js, adds these methods to the shared GSRUI
- * object.
+ * GSRUI — spatial enrichment (OSM + NDVI). Merged into GSRUI by ui.mjs.
  *
  * Covers resolving which tracks are eligible for spatial analysis, the
  * shared progress-bar control, and the async fetch/enrichment pipelines
@@ -16,6 +14,10 @@ import { NDVISampler } from '../osm/ndvi_sampler.mjs';
 import { OsmCache } from '../osm/osm_cache.mjs';
 import { OSMEnricher } from '../osm/osm_enrichment.mjs';
 import { GSRStorage } from './storage.mjs';
+
+// Largest area (km²) fetched from Overpass in one request — the same cap the
+// OSM cache uses when merging entries.
+const AREA_CAP_KM2 = OsmCache.MAX_MERGE_AREA_KM2;
 
 export const EnrichmentUI = {
   /**
@@ -150,7 +152,6 @@ export const EnrichmentUI = {
     }
 
     const bufferM = GSRStorage.enrichmentBufferM();
-    const AREA_CAP_KM2 = 12.0;
 
     let fetched = 0,
       cached = 0,
@@ -266,7 +267,6 @@ export const EnrichmentUI = {
         for (let i = 0; i < r.length; i++) combinedRaw.push(r[i]);
       }
 
-      const AREA_CAP_KM2 = 12.0;
       const snapEnabled =
         document.getElementById('gpsSnapToRoads')?.checked ?? false;
       const snapParams = { enabled: snapEnabled, radiusOut: snapRadius };

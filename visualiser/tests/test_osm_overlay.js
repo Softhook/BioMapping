@@ -1,6 +1,6 @@
 /**
  * GSRMapManager.drawOsmShapes() — the "OSM Layers" polygon overlay
- * (manager/osm.js). It groups fetched OSM ways/relations into three
+ * (manager/osm.mjs). It groups fetched OSM ways/relations into three
  * multi-ring L.polygon layers: park (green), water (blue), building.
  *
  * The point of these tests: the overlay's park/water classification is

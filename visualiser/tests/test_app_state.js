@@ -1,5 +1,5 @@
 /**
- * Unit tests for app_state.js (AppState) — central shared state object.
+ * Unit tests for app_state.mjs (AppState) — central shared state object.
  * Covers the one real method (getNextTrackColor) and the three clamped
  * getter/setter pairs (viewStartTime, viewDuration, zoomFactor); the rest
  * of the object is plain data with no behavior to test.
@@ -92,7 +92,7 @@ test('viewDuration: clamps to [2.0, totalDuration] using the hardcoded fallback 
 test(
   'viewDuration: consults the real, statically-imported GSR_CONST.ZOOM_MIN_DURATION (regression test ' +
     'for a fixed bug: the setter used to gate on `window.GSR_CONST`, which nothing in the app ever set, ' +
-    "so constants.js's ZOOM_MIN_DURATION was silently ignored — see app_state.js history; under the real " +
+    "so constants.mjs's ZOOM_MIN_DURATION was silently ignored — see app_state.mjs history; under the real " +
     'ES-module import this is now structurally guaranteed rather than a runtime lookup, so this mutates the ' +
     'same imported object app_state.mjs holds a live binding to)',
   () => {

@@ -5,11 +5,10 @@
  * markers against the live analyser's sliding window, and handles offline
  * tile caching + map visibility.
  *
- * Split out of live_view (2026-09). The shell (live_view.mjs)
- * owns the analyser, the view state (liveGsrView), device-class detection
- * and the FAB (closeFabMenu); the graph renderer (live_graph.mjs) owns drawGraph.
- * This file reads those through the Controllers registry (core/controllers.mjs)
- * to avoid mutual-import cycles.
+ * The shell (live_view.mjs) owns the analyser, the view state (liveGsrView),
+ * device-class detection and the FAB (closeFabMenu); the graph renderer
+ * (live_graph.mjs) owns drawGraph. This file reads those through the
+ * Controllers registry (core/controllers.mjs) to avoid mutual-import cycles.
  *
  * Reads:
  *   LiveState, LIVE_SETTLE_TAIL_S   src/live/live_state.mjs (leaf)
@@ -19,9 +18,6 @@
  *   drawGraph                 src/live/live_graph.mjs
  */
 
-// src/core/constants.js's GPS_DEFAULT.maxHdop (docs/csv_schema.md's "HDOP
-// Gate Design" — 2.0 is the post-processing quality filter, distinct from
-// the firmware's permissive 5.0 logging gate).
 import { Controllers } from '../core/controllers.mjs';
 import { GSRNotices } from '../core/notices.mjs';
 import { GpsPipeline } from '../gps/gps_pipeline.mjs';
@@ -41,13 +37,14 @@ import {
   normalizeTileCacheUrl,
 } from './live_tile_cache.mjs';
 
+// Same as src/core/constants.mjs's GPS_DEFAULT.maxHdop (docs/csv_schema.md's "HDOP
+// Gate Design" — 2.0 is the post-processing quality filter, distinct from
+// the firmware's permissive 5.0 logging gate).
 export const LIVE_MAX_HDOP = 2.0;
 
 // ==========================================================================
-// Leaflet map wrapper — same CartoDB "light_all" tile layer + init options
-// visualiser/map.js's GSRMapManager.initMap() actually uses (map.js:72-89;
-// the plan doc's "Dark Matter" reference didn't match the real file —
-// checked directly rather than carried over unverified).
+// Leaflet map wrapper — the same CartoDB "light_all" tile layer and init
+// options as GSRMapBase.initMap() (map/map_base.mjs).
 // ==========================================================================
 export let liveMap = null;
 export let liveLastLatLng = null;
@@ -183,7 +180,7 @@ export function recolorAllTrackSegments() {
 
 // Offline tile caching — the L.TileLayer.cache subclass and the
 // normalizeTileCacheUrl / buildTileUrl / latLngToTileCoords helpers live in
-// src/live/live_tile_cache.js (loaded before this file, after Leaflet).
+// src/live/live_tile_cache.mjs (loaded before this file, after Leaflet).
 export async function cacheCurrentMapArea() {
   if (!liveMap) return;
   const bounds = liveMap.getBounds();
@@ -327,7 +324,7 @@ function initLiveMap() {
     liveMap.attributionControl.setPrefix(false);
   }
   // CARTO basemap URL + key resolution shared via GSRBasemap
-  // (src/map/basemap.js) — same source of truth as map.js / globe3d.js.
+  // (src/map/basemap.mjs) — same source of truth as the 2D map and 3D globe.
   L.tileLayer
     .cache(GSRBasemap.cartoTileUrl('light_all'), GSRBasemap.tileOptions())
     .addTo(liveMap);
@@ -342,7 +339,7 @@ function initLiveMap() {
 
 // ==========================================================================
 // Peak / hotspot markers on the live follow-map — the SAME Leaflet icons the
-// main visualiser's map uses (GSRMapMarkers in src/map/map_markers.js), so the
+// main visualiser's map uses (GSRMapMarkers in src/map/map_markers.mjs), so the
 // live map and the analysis map can't drift apart visually: peaks are small
 // dots, hotspots (memorableEvents) are stars. Live stays on skin time (no
 // Response delay), so each marker sits where its peak was recorded.

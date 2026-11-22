@@ -2,7 +2,7 @@
  * Contour/isoband ring geometry — turns raw Marching Squares segments into
  * closed, fillable rings (including holes for interior "no data" islands).
  * Pure geographic (lat/lon) point-array geometry: no SVG, no projection, no
- * DOM. Extracted out of map_exporter.js, which now only smooths/projects/
+ * DOM. Extracted out of map_exporter.mjs, which now only smooths/projects/
  * serializes the rings this module produces.
  */
 import { GeoUtils } from '../gps/geo_utils.mjs';
@@ -83,7 +83,7 @@ export const ContourRingGeometry = {
   /**
    * Traces the "coastline" between valid (real number) and masked (null)
    * grid cells — e.g. the edge of a GPS track's isolationRadius corridor in
-   * collective_manager.js's generateContourSurface, where most of the grid
+   * collective_manager.mjs's generateContourSurface, where most of the grid
    * outside the walked path is deliberately left null.
    *
    * Mirrors MarchingSquares' own cell-marching loop on a binary valid/invalid

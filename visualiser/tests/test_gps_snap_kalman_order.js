@@ -1,7 +1,7 @@
 /**
  * Regression coverage for the snap-vs-Kalman ordering fix (docs/todo.md's
  * "GPS pipeline architecture" §Core issue, fixed 2026-09-18 in
- * manager/process.js): road snap correction must run AFTER the Kalman
+ * manager/process.mjs): road snap correction must run AFTER the Kalman
  * filter, not before, so a wrong HMM road-match can't poison the filter's
  * internal state and drag genuine fixes around it off course.
  *

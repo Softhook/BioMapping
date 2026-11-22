@@ -3,25 +3,11 @@
  * Copyright (c) 2026 Christian Nold
  * Licensed under the Bio Mapping Community Licence 1.0.
  *
- * Renders biometric tracks as 3D extruded emotional ribbons/walls and
- * vertical peak spires over 3D terrain and satellite/urban basemaps.
- *
- * GSRGlobeManager is a self-contained, embeddable engine: construct it against a
- * container id, feed it an analysed track via renderData({ drawPoints }), and
- * tear it down with destroy(). It makes no assumptions about owning the whole
- * page — index.html's 3D-surface panel is the host (see src/map/globe3d_view.js).
- * Page chrome (sidebar, help pill) lives in the host, never here. The host always
- * supplies the display points; this class never runs the GPS filter chain.
+ * GSRGlobeBase — the root of GSRGlobeManager's class chain (see
+ * ../globe3d.mjs): the Cesium viewer, basemaps and terrain, the track ribbon
+ * and the camera. CARTO basemap keys come from GSRBasemap (../basemap.mjs).
  */
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Module-level tables & helpers
-// ─────────────────────────────────────────────────────────────────────────────
-
-// CARTO basemap key resolution is shared via GSRBasemap (src/map/basemap.js),
-// loaded before this file — see tests/test_html_wiring.js.
-
-/** basemap id -> factory producing a fresh Cesium imagery provider (no API key required) */
 import { GSR_CONST } from '../../core/constants.mjs';
 import { GSRNotices } from '../../core/notices.mjs';
 import { ResponseDelay } from '../../signal/response_delay.mjs';
@@ -29,6 +15,7 @@ import { ResponseDynamics } from '../../signal/response_dynamics.mjs';
 import { GSRBasemap } from '../basemap.mjs';
 import { MapColors } from '../map_colors.mjs';
 
+/** basemap id -> factory producing a fresh Cesium imagery provider (no API key required) */
 export const BASEMAP_PROVIDERS = {
   satellite: () =>
     new Cesium.UrlTemplateImageryProvider({
@@ -69,7 +56,7 @@ export const BASEMAP_PROVIDERS = {
 
 /**
  * Colouring metric -> analyzer per-sample series field. Mirrors DERIVED_METRIC_SERIES
- * in map.js; anything not listed falls back to the raw GSR series.
+ * in map/manager/path.mjs; anything not listed falls back to the raw GSR series.
  */
 export const SERIES_FIELD = {
   phasic: 'phasic',
@@ -118,7 +105,7 @@ export const seriesValue = (d) =>
 
 /**
  * Resolve the analyzer.raw row field a non-derived colouring metric reads —
- * mirrors map.js's `_getMetricKey` for the OSM/Satellite enrichment fields,
+ * mirrors GSRMapBase's `_getMetricKey` for the OSM/Satellite enrichment fields,
  * plus the two special cases (`gsr` → raw GSR, `hdopQuality` → hdop). Returns
  * null when the metric has no raw-field mapping (e.g. an unknown metric or a
  * derived SERIES_FIELD metric, which callers resolve elsewhere).
@@ -1263,7 +1250,7 @@ export class GSRGlobeBase {
    * Register a callback fired as (peakIndex, {x, y}) when the user clicks a
    * peak spire — the 3D counterpart of a peak-marker click on the 2D map.
    * peakIndex is the index into analyzer.peaks; {x, y} is the click position
-   * within the canvas so the host can place its popup. See globe3d_view.js.
+   * within the canvas so the host can place its popup. See globe3d_view.mjs.
    */
   onPeakClick(cb) {
     this._peakClickCb = typeof cb === 'function' ? cb : null;
@@ -1341,7 +1328,7 @@ export class GSRGlobeBase {
   /**
    * Follow-cam: recentre the camera on the scrub cursor, keeping the user's
    * current heading, pitch and distance. Driven from a graph hover (see
-   * globe3d_view.js _onScrub). No-op while orbiting or during either tour
+   * globe3d_view.mjs _onScrub). No-op while orbiting or during either tour
    * (replay or hotspot), running or paused — those own the camera.
    * lookAt() installs a reference-frame transform that stays until
    * releaseFollowScrub() clears it, so ordinary mouse-drag rotation is paused
@@ -1618,8 +1605,8 @@ export class GSRGlobeBase {
    * Build the extruded arousal wall and the clamped ground polyline.
    *
    * The wall is one batched GPU Primitive. Cost is dominated by Cesium's
-   * geometry pipeline (WallGeometry.createGeometry + combineGeometry), see
-   * tests/manual/_bench_globe3d_perf.js, so three things keep it small:
+   * geometry pipeline (WallGeometry.createGeometry + combineGeometry), so
+   * three things keep it small:
    *   1. the display points are thinned to WALL_MAX_SEGMENTS, keeping every
    *      point that changes the wall's shape / height / colour (a walk has
    *      >10k points; at the zoom that frames the whole track that's tens of
@@ -1879,7 +1866,7 @@ export class GSRGlobeBase {
           closed: false,
         }),
         // Always async: geometry is compiled off the main thread so a slider drag
-        // doesn't stall the paint (matches buildings.js).
+        // doesn't stall the paint (matches buildings.mjs).
         asynchronous: true,
       });
       this.viewer.scene.primitives.add(this.wallPrimitive);
@@ -1892,7 +1879,7 @@ export class GSRGlobeBase {
         polyline: {
           positions: groundPositions,
           // Track Width slider (gpsTrackWeight) — the 3D counterpart of the 2D
-          // L.polyline weight in map.js:_renderPathSegments.
+          // L.polyline weight in _renderPathSegments (map/manager/path.mjs).
           width: this.trackWidth || 3.0,
           material: new Cesium.PolylineGlowMaterialProperty({
             glowPower: 0.25,
@@ -2148,18 +2135,4 @@ export class GSRGlobeBase {
       Math.round(Math.min(4.0, Math.max(0.25, next)) * 100) / 100;
     return this._autoCameraSpeed;
   }
-
-  // GSRGlobeManager is completed by prototype-augment files loaded immediately
-  // after this one (see index.html / boot_app.js SCRIPT_ORDER):
-  //   globe3d/osm.js         — 3D OSM building extrusion (orchestration; geometry in globe3d/buildings.js)
-  //   globe3d/rf.js          — volumetric RF expanse control (orchestration; geometry in globe3d/rf_expanse.js)
-  //   globe3d/peaks.js       — peak spires, hotspots, cluster ground blobs
-  //   globe3d/toggles.js     — layer visibility toggles + entity clearing
-  //   globe3d/navigation.js  — fly-to/focus + turntable orbit
-  //   globe3d/hotspot_tour.js — cinematic hotspot-to-hotspot tour
-  //   globe3d/replay_tour.js — replay tour (walk redrawn at sped-up real time)
-  //   globe3d/tour.js        — shared tour controls (stop/pause/next/previous)
-  // 3D track export (CZML / KML) lives in src/map/globe3d/exporters.js and is
-  // driven from the main Export Options panel — it needs no live viewer. The 3D
-  // PNG snapshot was dropped: the app's Save Canvas / Bio Map PNG covers it.
 }

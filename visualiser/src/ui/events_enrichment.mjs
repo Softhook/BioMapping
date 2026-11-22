@@ -3,9 +3,7 @@
 // See LICENCE.md in the project root for terms.
 
 /**
- * GSREvents — OSM enrichment controls. Object-augment split from events.js: loaded
- * immediately after events.js, adds these methods to the shared GSREvents
- * object.
+ * GSREvents — OSM enrichment controls. Merged into GSREvents by events.mjs.
  */
 import { AppState } from '../core/app_state.mjs';
 import { Controllers } from '../core/controllers.mjs';
@@ -115,7 +113,7 @@ export const EnrichmentEvents = {
           copernicusRawLayerInput.value.trim(),
         );
         // The map overlay renders this same raw layer directly (see
-        // manager/osm.js: showNdviLayer) — re-render it if visible.
+        // manager/osm.mjs: showNdviLayer) — re-render it if visible.
         if (AppState.mapManager?.ndviTileLayer) {
           AppState.mapManager.showNdviLayer();
         }

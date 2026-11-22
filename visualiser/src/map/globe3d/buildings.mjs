@@ -9,6 +9,27 @@
  * the fetch orchestration, the ion-tiles fallback, and the scene lifecycle.
  */
 
+/**
+ * A footprint as the flat [lon, lat, lon, lat, …] list Cesium wants, without
+ * the closing vertex OSM repeats at the end of a closed way.
+ */
+function footprintDegrees(coords) {
+  let n = coords.length;
+  if (n > 3) {
+    const first = coords[0];
+    const last = coords[n - 1];
+    if (
+      Math.abs(first.lat - last.lat) < 1e-9 &&
+      Math.abs(first.lon - last.lon) < 1e-9
+    ) {
+      n--;
+    }
+  }
+  const out = [];
+  for (let i = 0; i < n; i++) out.push(coords[i].lon, coords[i].lat);
+  return out;
+}
+
 export const GSRGlobe3DBuildings = {
   /** Per-style default fill colour for extruded OSM footprints. */
   fillColor(style) {
@@ -209,20 +230,7 @@ export const GSRGlobe3DBuildings = {
 
       for (let i = 0; i < buildingWays.length; i++) {
         const way = buildingWays[i];
-        const coords = way.coordinates;
-        const cleanCoords = coords.slice();
-        if (cleanCoords.length > 3) {
-          const first = cleanCoords[0];
-          const last = cleanCoords[cleanCoords.length - 1];
-          if (
-            Math.abs(first.lat - last.lat) < 1e-9 &&
-            Math.abs(first.lon - last.lon) < 1e-9
-          ) {
-            cleanCoords.pop();
-          }
-        }
-        const degreesArray = [];
-        for (const pt of cleanCoords) degreesArray.push(pt.lon, pt.lat);
+        const degreesArray = footprintDegrees(way.coordinates);
 
         try {
           instances.push(
@@ -268,26 +276,10 @@ export const GSRGlobe3DBuildings = {
 
     for (let i = 0; i < buildingWays.length; i++) {
       const way = buildingWays[i];
-      const coords = way.coordinates;
       const height = this.heightFor(way.tags);
       const wallColor = this.wallColorFor(way.tags);
       const roofColor = this.roofColorFor(way.tags);
-
-      // Clean polygon vertices: remove trailing duplicate if present
-      const cleanCoords = coords.slice();
-      if (cleanCoords.length > 3) {
-        const first = cleanCoords[0];
-        const last = cleanCoords[cleanCoords.length - 1];
-        if (
-          Math.abs(first.lat - last.lat) < 1e-9 &&
-          Math.abs(first.lon - last.lon) < 1e-9
-        ) {
-          cleanCoords.pop();
-        }
-      }
-
-      const degreesArray = [];
-      for (const pt of cleanCoords) degreesArray.push(pt.lon, pt.lat);
+      const degreesArray = footprintDegrees(way.coordinates);
 
       // 1. Fully solid, closed extruded building body (same rock-solid geometry as monochrome white model)
       try {

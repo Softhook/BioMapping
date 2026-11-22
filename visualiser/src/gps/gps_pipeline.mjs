@@ -207,8 +207,7 @@ export const GpsPipeline = {
    * The real GPS fixes in `data` (not the rows between them), as small
    * objects carrying only the fields the filter stages read plus `origIdx`,
    * the raw row index. Copying the whole ~29-field CSV row here was ~35–40 %
-   * of the pipeline's cost on a large walk
-   * (docs/archive/visualizer_rendering_perf_routes.md §2.7); drawPoints are
+   * of the pipeline's cost on a large walk; drawPoints are
    * built from the raw rows separately, so nothing downstream misses them.
    */
   collectFixes(data) {

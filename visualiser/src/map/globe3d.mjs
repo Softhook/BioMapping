@@ -9,29 +9,31 @@
  * GSRGlobeManager is a self-contained, embeddable engine: construct it against a
  * container id, feed it an analysed track via renderData({ drawPoints }), and
  * tear it down with destroy(). It makes no assumptions about owning the whole
- * page — index.html's 3D-surface panel is the host (see src/map/globe3d_view.js).
+ * page — index.html's 3D-surface panel is the host (see src/map/globe3d_view.mjs).
  * Page chrome (sidebar, help pill) lives in the host, never here. The host always
  * supplies the display points; this class never runs the GPS filter chain.
  */
 
-import { GSRGlobeTour } from './globe3d/tour.mjs';
+// Like the 2D map (map.mjs), it is one chain of classes, each extending the
+// one before it (globe3d/osm.mjs is GSRGlobeOsm, and so on):
+//   globe3d/globe3d_base.mjs  viewer, basemaps, track ribbon, camera
+//   globe3d/osm.mjs           3D OSM buildings (geometry in buildings.mjs)
+//   globe3d/rf.mjs            RF expanse (geometry in rf_expanse.mjs)
+//   globe3d/peaks.mjs         peak spires, hotspots, cluster ground blobs
+//   globe3d/toggles.mjs       layer visibility toggles + entity clearing
+//   globe3d/navigation.mjs    fly-to / focus + turntable orbit
+//   globe3d/hotspot_tour.mjs  hotspot-to-hotspot tour
+//   globe3d/replay_tour.mjs   the walk redrawn at sped-up real time
+//   globe3d/tour.mjs          shared tour controls
+// 3D track export (CZML / KML) is in globe3d/exporters.mjs, driven from the
+// main Export Options panel; it needs no live viewer.
 
-// Basemap URL resolution: GSRBasemap.cartoTileUrl (delegated to globe3d_base.mjs)
+import { GSRGlobeTour } from './globe3d/tour.mjs';
 
 export {
   BASEMAP_PROVIDERS,
-  GSRGlobeBase,
-  HEIGHT_CAPABLE_METRICS,
   SERIES_FIELD,
   seriesValue,
 } from './globe3d/globe3d_base.mjs';
-export { GSRGlobeHotspotTour } from './globe3d/hotspot_tour.mjs';
-export { GSRGlobeNavigation } from './globe3d/navigation.mjs';
-export { GSRGlobeOsm } from './globe3d/osm.mjs';
-export { GSRGlobePeaks } from './globe3d/peaks.mjs';
-export { GSRGlobeReplayTour } from './globe3d/replay_tour.mjs';
-export { GSRGlobeRf } from './globe3d/rf.mjs';
-export { GSRGlobeToggles } from './globe3d/toggles.mjs';
-export { GSRGlobeTour } from './globe3d/tour.mjs';
 
 export class GSRGlobeManager extends GSRGlobeTour {}

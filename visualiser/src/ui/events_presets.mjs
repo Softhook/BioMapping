@@ -3,9 +3,8 @@
 // See LICENCE.md in the project root for terms.
 
 /**
- * GSREvents — Export/import/apply-to-all-tracks for GSR+GPS parameter presets. Object-augment split from events.js: loaded
- * immediately after events.js, adds these methods to the shared GSREvents
- * object.
+ * GSREvents — export/import/apply-to-all-tracks for GSR+GPS parameter
+ * presets. Merged into GSREvents by events.mjs.
  */
 import { AppState } from '../core/app_state.mjs';
 import { BusyOverlay } from '../core/busy_overlay.mjs';

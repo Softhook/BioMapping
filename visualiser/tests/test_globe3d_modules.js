@@ -1,26 +1,22 @@
 /**
  * Unit tests for the extracted 3D-globe helper modules under src/map/globe3d/:
- *   - exporters.js   (CZML / KML builders, pure — no viewer)
- *   - rf_expanse.js  (volumetric RF slug primitive)
- *   - buildings.js   (OSM footprint extrusion primitive)
+ *   - exporters.mjs   (CZML / KML builders, pure — no viewer)
+ *   - rf_expanse.mjs  (volumetric RF slug primitive)
+ *   - buildings.mjs   (OSM footprint extrusion primitive)
  *
  * exporters run with no Cesium; rf/buildings use a tiny geometry-counting stub.
  */
 
 const test = require('node:test');
 const assert = require('node:assert');
-const fs = require('node:fs');
 const path = require('node:path');
 
 // ES-module migration: a converted file's .js sibling is deleted when its
 // .mjs is written (convert_file.js --write) — same .js/.mjs resolution
 // rule as tests/support/load_module.js.
-const G3D = (f) => {
-  const jsPath = path.join(__dirname, '..', 'src', 'map', 'globe3d', f);
-  const mjsPath = jsPath.replace(/\.js$/, '.mjs');
-  return require(fs.existsSync(mjsPath) ? mjsPath : jsPath);
-};
-const { GSRGlobe3DExport } = G3D('exporters.js');
+const G3D = (f) =>
+  require(path.join(__dirname, '..', 'src', 'map', 'globe3d', f));
+const { GSRGlobe3DExport } = G3D('exporters.mjs');
 
 // ── tiny Cesium stub for the geometry modules ─────────────────────────────
 function stubCesium() {
@@ -223,11 +219,11 @@ test('download(): builds a Blob anchor and clicks it, then revokes the URL', () 
   delete global.document;
 });
 
-// ── rf_expanse.js ─────────────────────────────────────────────────────────
+// ── rf_expanse.mjs ─────────────────────────────────────────────────────────
 
 test('GSRGlobe3DRf.buildPrimitive: one Primitive, slug count capped at MAX_SLUGS', () => {
   const counts = stubCesium();
-  const { GSRGlobe3DRf } = G3D('rf_expanse.js');
+  const { GSRGlobe3DRf } = G3D('rf_expanse.mjs');
 
   // ~6.6 km synthetic track (600 pts × ~11 m) — far more than MAX_SLUGS
   // slots at the 6 m pitch, so the spacing must widen to fit the cap.
@@ -256,7 +252,7 @@ test('GSRGlobe3DRf.buildPrimitive: one Primitive, slug count capped at MAX_SLUGS
 
 test('GSRGlobe3DRf.buildPrimitive: slug pitch tracks distance, not sample count', () => {
   stubCesium();
-  const { GSRGlobe3DRf } = G3D('rf_expanse.js');
+  const { GSRGlobe3DRf } = G3D('rf_expanse.mjs');
 
   // A ~216 m leg described by only 40 points, then 400 near-duplicate
   // points crammed into ~0 m at the end (a "pause"). Index-based sampling
@@ -297,7 +293,7 @@ test('GSRGlobe3DRf.buildPrimitive: slug pitch tracks distance, not sample count'
 
 test('GSRGlobe3DRf.buildPrimitive: null when there is nothing to draw', () => {
   stubCesium();
-  const { GSRGlobe3DRf } = G3D('rf_expanse.js');
+  const { GSRGlobe3DRf } = G3D('rf_expanse.mjs');
   assert.strictEqual(GSRGlobe3DRf.buildPrimitive(null, [], {}), null);
   assert.strictEqual(
     GSRGlobe3DRf.buildPrimitive(
@@ -313,7 +309,7 @@ test('GSRGlobe3DRf.buildPrimitive: null when there is nothing to draw', () => {
 
 test('GSRGlobe3DRf.buildPrimitive: a dead band is squelched, matching the 2D overlay', () => {
   stubCesium();
-  const { GSRGlobe3DRf } = G3D('rf_expanse.js');
+  const { GSRGlobe3DRf } = G3D('rf_expanse.mjs');
 
   // 815 MHz has a real spike; 915 MHz sits in the noise floor the whole
   // track (-93..-91.5, peak never clears -90). The 2D overlay renders
@@ -357,7 +353,7 @@ test('GSRGlobe3DRf.buildPrimitive: a dead band is squelched, matching the 2D ove
 
 test('GSRGlobe3DRf.buildPrimitive: no hardware RF -> synthesises an ambient field', () => {
   const counts = stubCesium();
-  const { GSRGlobe3DRf } = G3D('rf_expanse.js');
+  const { GSRGlobe3DRf } = G3D('rf_expanse.mjs');
   const raw = Array.from({ length: 200 }, () => ({})); // no rssi_* fields
   const drawPoints = raw.map((_, i) => ({
     lat: 51 + i * 1e-4,
@@ -374,7 +370,7 @@ test('GSRGlobe3DRf.buildPrimitive: no hardware RF -> synthesises an ambient fiel
   clearCesium();
 });
 
-// ── buildings.js ──────────────────────────────────────────────────────────
+// ── buildings.mjs ──────────────────────────────────────────────────────────
 
 const OSM_FIXTURE = {
   elements: [
@@ -396,7 +392,7 @@ const OSM_FIXTURE = {
 
 test('GSRGlobe3DBuildings.buildPrimitive: one batched Primitive of the valid footprints only', () => {
   const counts = stubCesium();
-  const { GSRGlobe3DBuildings } = G3D('buildings.js');
+  const { GSRGlobe3DBuildings } = G3D('buildings.mjs');
   const prim = GSRGlobe3DBuildings.buildPrimitive(OSM_FIXTURE, 'glass');
   assert.ok(prim);
   assert.strictEqual(counts.Primitive, 1);
@@ -413,9 +409,26 @@ test('GSRGlobe3DBuildings.buildPrimitive: one batched Primitive of the valid foo
   clearCesium();
 });
 
+test('GSRGlobe3DBuildings.buildPrimitive: a closed way loses its repeated closing corner', () => {
+  stubCesium();
+  const footprints = [];
+  const Polygon = Cesium.PolygonGeometry;
+  Cesium.PolygonGeometry = function (o) {
+    Polygon.call(this, o);
+    footprints.push(o.polygonHierarchy);
+  };
+  const { GSRGlobe3DBuildings } = G3D('buildings.mjs');
+  GSRGlobe3DBuildings.buildPrimitive(OSM_FIXTURE, 'glass');
+  const lengths = footprints.map((h) => h.positions.length);
+  // Way 10 is nodes 1-2-3-4-1: four corners (8 numbers), not five.
+  // Way 11 is the open 1-2-3: all three corners kept (6 numbers).
+  assert.deepStrictEqual(lengths, [8, 6]);
+  clearCesium();
+});
+
 test('GSRGlobe3DBuildings.heightFor: explicit height > levels*3.5 > per-type > default', () => {
   stubCesium();
-  const { GSRGlobe3DBuildings } = G3D('buildings.js');
+  const { GSRGlobe3DBuildings } = G3D('buildings.mjs');
   assert.strictEqual(GSRGlobe3DBuildings.heightFor({ height: '25' }), 25);
   assert.strictEqual(
     GSRGlobe3DBuildings.heightFor({ 'building:levels': '4' }),
@@ -429,7 +442,7 @@ test('GSRGlobe3DBuildings.heightFor: explicit height > levels*3.5 > per-type > d
 
 test('GSRGlobe3DBuildings.buildPrimitive: null for empty / non-building input', () => {
   stubCesium();
-  const { GSRGlobe3DBuildings } = G3D('buildings.js');
+  const { GSRGlobe3DBuildings } = G3D('buildings.mjs');
   assert.strictEqual(GSRGlobe3DBuildings.buildPrimitive(null, 'glass'), null);
   assert.strictEqual(
     GSRGlobe3DBuildings.buildPrimitive({ elements: [] }, 'glass'),
@@ -440,7 +453,7 @@ test('GSRGlobe3DBuildings.buildPrimitive: null for empty / non-building input', 
 
 test('GSRGlobe3DBuildings.buildPrimitive: realistic style creates solid extruded facade body, roof caps, and outlines in a PrimitiveCollection', () => {
   const counts = stubCesium();
-  const { GSRGlobe3DBuildings } = G3D('buildings.js');
+  const { GSRGlobe3DBuildings } = G3D('buildings.mjs');
   const primColl = GSRGlobe3DBuildings.buildPrimitive(OSM_FIXTURE, 'realistic');
   assert.ok(primColl);
   assert.strictEqual(
@@ -468,7 +481,7 @@ test('GSRGlobe3DBuildings.buildPrimitive: realistic style creates solid extruded
 
 test('GSRGlobe3DBuildings.wallColorFor and roofColorFor assign distinct architectural palettes by tag', () => {
   stubCesium();
-  const { GSRGlobe3DBuildings } = G3D('buildings.js');
+  const { GSRGlobe3DBuildings } = G3D('buildings.mjs');
   const resRoof = GSRGlobe3DBuildings.roofColorFor({ building: 'residential' });
   const offRoof = GSRGlobe3DBuildings.roofColorFor({ building: 'office' });
   const customRoof = GSRGlobe3DBuildings.roofColorFor({
@@ -503,7 +516,7 @@ test('GSRGlobe3DBuildings.wallColorFor and roofColorFor assign distinct architec
 
 test('GSRGlobe3DBuildings.tileStyleExpression covers every style', () => {
   stubCesium();
-  const { GSRGlobe3DBuildings } = G3D('buildings.js');
+  const { GSRGlobe3DBuildings } = G3D('buildings.mjs');
   for (const s of ['glass', 'dark', 'monochrome', 'realistic']) {
     const expr = GSRGlobe3DBuildings.tileStyleExpression(s);
     assert.ok(

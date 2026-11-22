@@ -1,5 +1,5 @@
 /**
- * Regression tests for osm_cache.js (OsmCache) — the IndexedDB-backed cache
+ * Regression tests for osm_cache.mjs (OsmCache) — the IndexedDB-backed cache
  * for Overpass API responses.
  *
  * Only the pure, IndexedDB-free logic is tested here (bbox containment,

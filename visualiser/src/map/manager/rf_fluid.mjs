@@ -1,14 +1,13 @@
 /**
- * GSRMapManager — RF Fluid overlay control. Prototype-augment split from map.js:
- * loaded immediately after map.js, adds these methods to
- * GSRMapManager.prototype.
+ * GSRMapManager — RF Fluid overlay control (one link of the class chain in
+ * map/map.mjs).
  *
  * Thin control surface over this.rfFluidRenderer (RFFluidRenderer) plus the
  * #btnToggleRFFluid / #rfFluidMode DOM controls: blank the canvas on clear,
  * enable/disable + re-sync the button for the active view, and the four
  * show/mode/opacity/radius setters the UI calls. Own the show/hide state
- * (this.showRFFluid / this.hasRfData). updateLegend() lives in
- * manager/legend.js (resolved via the prototype).
+ * (this.showRFFluid / this.hasRfData). updateLegend() is inherited from
+ * manager/legend.mjs.
  */
 import { GSRMapOsm } from './osm.mjs';
 
@@ -22,7 +21,7 @@ export class GSRMapRfFluid extends GSRMapOsm {
    * run at the START of every render pass (renderData()/renderCollectiveData()),
    * which then immediately calls setData()/setDataForTracks() again with the real
    * per-track data a few lines later in the same synchronous pass. setData([], null)
-   * would prune RFFluidRenderer's per-track fan-cast cache (Phase 5) via that empty
+   * would prune RFFluidRenderer's per-track fan-cast cache via that empty
    * call's own active-track-set bookkeeping, forcing every track to recompute right
    * after — defeating the cache on every single re-render. clear() only blanks the
    * visible canvas; the fan cache survives until the real setData call right after.

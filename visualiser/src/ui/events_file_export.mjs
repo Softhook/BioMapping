@@ -3,9 +3,9 @@
 // See LICENCE.md in the project root for terms.
 
 /**
- * GSREvents — CSV/GPX/preset export+import controls, drag-and-drop file loading, and the 3D KML/CZML track export. Object-augment split from events.js: loaded
- * immediately after events.js, adds these methods to the shared GSREvents
- * object.
+ * GSREvents — CSV/GPX/preset export+import controls, drag-and-drop file
+ * loading, and the 3D KML/CZML track export. Merged into GSREvents by
+ * events.mjs.
  */
 import { AppState } from '../core/app_state.mjs';
 import { Controllers } from '../core/controllers.mjs';

@@ -7,7 +7,7 @@
  * live values are rendered next to their controls.
  */
 
-export function fmtMaxSpeed(v) {
+function fmtMaxSpeed(v) {
   const mode = v <= 3.5 ? 'Walk' : v <= 6.5 ? 'Run' : 'Bike';
   return `${v.toFixed(1)} m/s (${mode})`;
 }
@@ -33,7 +33,7 @@ export const GPS_SLIDER_DEFS = [
   {
     id: 'gpsMaxSpeed',
     labelId: 'valGpsMaxSpeed',
-    fmt: (v) => fmtMaxSpeed(v),
+    fmt: fmtMaxSpeed,
     bindGps: true,
     reenrich: true,
   },

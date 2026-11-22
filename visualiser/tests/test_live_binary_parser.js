@@ -1,7 +1,7 @@
 /**
- * Unit tests for live_binary_parser.js (GSRLiveBinaryParser) — the wire
- * decoder for BioMapModeLiveStream's 49-byte packed binary packets (see
- * docs/archive/bluetooth_serial_investigation.md §5/§8). Exercises the resync-on-
+ * Unit tests for live_binary_parser.mjs (GSRLiveBinaryParser) — the wire
+ * decoder for BioMapModeLiveStream's 49-byte packed binary packets (layout:
+ * bt_stream_pack_packet() in firmware/core/biomap_format.c). Exercises the resync-on-
  * magic-byte logic directly, since that's the part most likely to break
  * against a real, possibly-fragmenting transport (Web Serial/Web Bluetooth
  * notifications don't guarantee one packet per delivery).
@@ -18,7 +18,7 @@ const {
 } = require('../src/live/live_binary_parser.mjs');
 
 // Builds one valid 49-byte wire packet from field values, matching the
-// offset table in docs/archive/bluetooth_serial_investigation.md §5 exactly.
+// offsets bt_stream_pack_packet() writes, exactly.
 function buildPacket({
   timestampMs = 1000,
   lat = 51.5074,

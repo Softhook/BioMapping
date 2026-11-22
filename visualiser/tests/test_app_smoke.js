@@ -1,14 +1,12 @@
 /**
- * App-level smoke tests: boots the real app (see tests/support/boot_app.js
- * for how — real index.html DOM, every real source file unmodified, Leaflet/
+ * App-level smoke tests: boots the real app (see tests/support/boot_app.js for
+ * how — real index.html DOM, every real source file unmodified, Leaflet/
  * p5/JSZip stubbed) and exercises the core user-facing flows end to end,
- * checking that nothing throws and that AppState ends up in the expected
- * shape. This is deliberately breadth-over-depth: it does NOT try to unit-
- * test every function in the DOM/Leaflet/p5 rendering layer (map.js, ui.js,
- * events.js, sketch.js, layout_manager.js) — see
- * docs/archive/visualizer_test_coverage_plan.md for why that's out of scope and
- * tests/support/boot_app.js's header comment for exactly what these tests
- * can and can't catch.
+ * checking that nothing throws and that AppState ends up in the expected shape.
+ * This is deliberately breadth-over-depth: it does NOT try to unit- test every
+ * function in the DOM/Leaflet/p5 rendering layer — see tests/manual/smoke/ for
+ * the real-browser check, and tests/support/boot_app.js's header comment for
+ * exactly what these tests can and can't catch.
  *
  * Run: node --test tests/test_app_smoke.js
  */

@@ -31,7 +31,7 @@ export const GSRSpatialClustering = {
    * corridor walked by many tracks breaks into a row of compact "beads" instead
    * of collapsing into one monster cluster whose centroid lands off every path.
    * That centroid-off-the-path failure was what made large clusters score zero
-   * dwell/energy in arousal_places.js.
+   * dwell/energy in arousal_places.mjs.
    *
    * `separationFactor` keeps those beads from overlapping each other on the map:
    * a peak may only seed a NEW bead when it is at least `separationFactor *
@@ -171,7 +171,7 @@ export const GSRSpatialClustering = {
    *
    * This is the single source of truth for "how much does one peak count" in a spatial KDE —
    * shared by getConcaveBlob's per-cluster blob boundaries and
-   * collective_manager.js's global "Peak Arousal Hotspots" contour surface, so both spatial
+   * collective_manager.mjs's global "Peak Arousal Hotspots" contour surface, so both spatial
    * views of "actual peaks" agree on the same peak's relative weight instead of each
    * hardcoding their own (previously: clamped-relative here vs raw-unclamped there).
    *
@@ -269,8 +269,7 @@ export const GSRSpatialClustering = {
     // defaults). Standard Gaussian-kernel truncation practice, not an
     // approximation that changes the rendered contour.
     //
-    // Found via real A/B benchmarking (docs/archive/visualizer_architecture_refactor_plan.md
-    // Phase 7): on a real 5-track/822-peak collective fixture, ~94% of
+    // Measured on a real 5-track/822-peak collective fixture, ~94% of
     // (grid cell, peak) pairs fell beyond this cutoff, and this loop was the
     // dominant cost of a full collective re-render (~87ms of ~115ms). A
     // first pass just skipped Math.exp() for far pairs but kept the

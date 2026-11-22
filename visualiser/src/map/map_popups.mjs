@@ -1,10 +1,10 @@
 /**
- * Peak-marker popup DOM builders — extracted from map.js (GSRMapManager).
+ * Peak-marker popup DOM builders for GSRMapManager.
  *
  * These build the editable "peak popup card" (a label textarea, Street View
  * link, and exclude button — no name/date/time/quality chrome) and hold no
  * map state. Used by the 2D Leaflet view (GSRMapManager peak/hotspot markers)
- * and by the 3D globe (globe3d_view.js _editPeakLabel, which shows the
+ * and by the 3D globe (globe3d_view.mjs _editPeakLabel, which shows the
  * identical card).
  *
  * Depends on the global L (Leaflet), GSRUI (label/exclude handlers, reached
@@ -119,7 +119,7 @@ export const MapPopups = {
    * @param {number} opts.lat            - Latitude
    * @param {number} opts.lon            - Longitude
    * @param {Object} opts.marker         - Leaflet marker for 2D, or a plain
-   *   { closePopup } shim for the 3D globe (globe3d_view.js _editPeakLabel)
+   *   { closePopup } shim for the 3D globe (globe3d_view.mjs _editPeakLabel)
    * @param {string} [opts.trackId]      - Track ID (collective); omitted for single
    * @param {string} [opts.extraClass]   - Extra CSS class, e.g. 'compact'
    * @param {Function} [opts.onResize]   - Called after the textarea's height
@@ -276,7 +276,7 @@ export const MapPopups = {
   },
 
   /**
-   * Popup for an Arousal Place (manager/arousal_places.js _renderArousalPlaces). Shows
+   * Popup for an Arousal Place (manager/arousal_places.mjs _renderArousalPlaces). Shows
    * the dwell-normalised score plus the aggregates behind it and, when OSM
    * enrichment has run, the street context at the place centroid.
    * @param {Object} place - Record from GSRArousalPlaces.buildPlaces().

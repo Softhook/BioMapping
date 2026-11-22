@@ -1,10 +1,8 @@
 /**
- * GSRUI — environmental correlation table. Object-augment split from ui.js:
- * loaded immediately after ui.js, adds these methods to the shared GSRUI
- * object.
+ * GSRUI — environmental correlation table. Merged into GSRUI by ui.mjs.
  *
  * Covers the shared regression-scatter canvas drawer (also used by
- * ui_road_profile.js), the scatter-plot env-variable dropdown sync, and the
+ * ui_road_profile.mjs), the scatter-plot env-variable dropdown sync, and the
  * sortable correlation-matrix table (walk-level meta-analysis results).
  */
 import { AppState } from '../core/app_state.mjs';

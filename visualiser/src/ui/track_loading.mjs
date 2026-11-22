@@ -4,8 +4,8 @@
 
 /**
  * GSRTrackManager — getting recordings into the track library: the file
- * picker, drag & drop, project zips, and the demo track. Object-augment split
- * from tracks.mjs: spread into the shared GSRTrackManager object.
+ * picker, drag & drop, project zips, and the demo track. Merged into
+ * GSRTrackManager by tracks.mjs.
  *
  * Methods reach the rest of the manager through Controllers.trackManager, not
  * `this`: handleFileSelect is passed to addEventListener unbound, so its
@@ -39,7 +39,7 @@ export const TrackLoading = {
    * Single entry point for both the file-browser input and drag & drop —
    * one selector handles everything, same as before the project-export
    * feature existed. A .zip is treated as a previously-exported collective
-   * project (see collective_project.js) and replaces the whole track
+   * project (see collective_project.mjs) and replaces the whole track
    * library; anything else is treated as one or more individual GSR CSVs
    * and loaded exactly as always. Mixing a project zip with loose CSVs in
    * one drop isn't a meaningful combination (importing a project already

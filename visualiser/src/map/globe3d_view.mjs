@@ -15,7 +15,7 @@
  *     pushed on every 'map:rendered';
  *   - the single map-panel header (zoom / RF + band / Peaks / Hotspots /
  *     Labels / Clusters / metric / the OSM button, which toggles 3D buildings
- *     here) is the 2D map's; events.js dispatches it via applyToggle /
+ *     here) is the 2D map's; events_map_panel.mjs dispatches it via applyToggle /
  *     applyRfMode / applyBuildings / zoom / fitTrack while 3D is mounted;
  *   - the 3D-only settings sub-section (#mapDisplay3DGroup: wall-height scale,
  *     basemap, building style, RF ceiling/opacity, camera) mutates only this
@@ -28,10 +28,6 @@
  * no-op when window.Cesium / the manager isn't there.
  */
 
-// CesiumJS is vendored under visualiser/vendor/cesium/ (the 1.120 release build)
-// so the 3D globe works with no network at all — BioMapping is offline field
-// kit. Refresh it with: npm i --no-save cesium@<ver> && cp -R
-// node_modules/cesium/Build/Cesium visualiser/vendor/cesium (drop index.*).
 import { AppState } from '../core/app_state.mjs';
 import { Controllers } from '../core/controllers.mjs';
 import { OsmCache } from '../osm/osm_cache.mjs';
@@ -40,6 +36,10 @@ import { GSRStorage } from '../ui/storage.mjs';
 import { GSRGlobeManager } from './globe3d.mjs';
 import { MapPopups } from './map_popups.mjs';
 
+// CesiumJS is vendored under visualiser/vendor/cesium/ (the 1.120 release build)
+// so the 3D globe works with no network at all — BioMapping is offline field
+// kit. Refresh it with: npm i --no-save cesium@<ver> && cp -R
+// node_modules/cesium/Build/Cesium visualiser/vendor/cesium (drop index.*).
 const CESIUM_BASE = 'vendor/cesium/';
 
 export const GSRGlobe3DView = {
@@ -72,7 +72,7 @@ export const GSRGlobe3DView = {
     // (#mapDisplay3DGroup). The shared header controls (zoom / RF + band /
     // Peaks / Hotspots / Labels / Clusters / metric / the OSM button, which
     // toggles 3D buildings while the globe is mounted) are the 2D map's —
-    // src/ui/events.js dispatches them here via applyToggle / applyRfMode /
+    // src/ui/events_map_panel.mjs dispatches them here via applyToggle / applyRfMode /
     // applyBuildings / zoom.
     const els = {
       container: $('globe3dContainer'),
@@ -114,7 +114,7 @@ export const GSRGlobe3DView = {
     });
 
     // Graph/map scrub cursor -> 3D globe. The single 'scrub' channel every
-    // surface shares (renderer.js emits it on graph hover, events.js relays
+    // surface shares (the GSR graph emits it on hover, events_timeline.mjs relays
     // it to the 2D map). A 'graph'-sourced scrub also drives the follow-cam.
     AppState.on('scrub', (p) => GSRGlobe3DView._onScrub(p));
 
@@ -469,7 +469,7 @@ export const GSRGlobe3DView = {
   /**
    * Pointer moved over (or off) the 3D track — the reverse direction. Walk the
    * graph scrubber to that moment via the shared channel; AppState.scrubSource
-   * is the ownership token that stops renderer.js's per-frame handleScrubber()
+   * is the ownership token that stops the graph's per-frame handleScrubber()
    * from wiping the hover. Single-track scope only (no graph in collective).
    * No-op while the panel is fullscreen — the graph (and its blue ground
    * cursor) isn't on screen, so there's nothing to scrub.
@@ -781,12 +781,12 @@ export const GSRGlobe3DView = {
     if (pop?.parentNode) pop.parentNode.removeChild(pop);
   },
 
-  // ── Shared header controls, dispatched from the 2D map (src/ui/events.js) ──
+  // ── Shared header controls, dispatched from the 2D map (events_map_panel.mjs) ──
   //
   // There is one map-panel header now; Leaflet and Cesium are swapped inside
   // the panel. The header's zoom / RF + band / Peaks / Hotspots / Labels /
   // Clusters / metric controls (and the OSM button) belong to the 2D map (still
-  // "chief"). events.js drives the 2D map + button state, then calls the
+  // "chief"). events_map_panel.mjs drives the 2D map + button state, then calls the
   // methods below to mirror the result onto the globe whenever it is mounted.
 
   /** The map header's RF band (#rfFluidMode) — the single band source now. */
@@ -806,7 +806,7 @@ export const GSRGlobe3DView = {
   },
 
   /**
-   * A shared layer toggle was flipped. events.js has already driven the 2D map
+   * A shared layer toggle was flipped. events_map_panel.mjs has already driven the 2D map
    * and the button's .active class; mirror it onto the globe. No-op unless the
    * 3D surface is mounted.
    * @param {'peaks'|'hotspots'|'labels'|'clusters'|'rf'} name

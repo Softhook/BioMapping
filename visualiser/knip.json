@@ -6,9 +6,13 @@
     "tests/*.js",
     "tests/manual/**/*.js"
   ],
-  "project": ["src/**/*.{js,mjs}", "tests/**/*.js"],
-  "ignore": ["tests/support/gen_*.js"],
-  "ignoreDependencies": ["cesium"],
+  "project": [
+    "src/**/*.{js,mjs}",
+    "tests/**/*.js"
+  ],
+  "ignore": [
+    "tests/support/gen_*.js"
+  ],
   "rules": {
     "exports": "off"
   }

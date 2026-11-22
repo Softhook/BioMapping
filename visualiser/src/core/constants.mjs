@@ -142,8 +142,8 @@ export const GSR_CONST = {
     impulseThreshold: 0.005, // Min driver amplitude for an impulse (µS)
     minImpulseGapSec: 0.5, // Min gap between impulses (s)
     // cvxEDA-specific overrides for the same driver-candidate scan, tuned
-    // separately from matching-pursuit's values above (2026-09-12 sweep,
-    // see eda_detection_benchmark.md item 20 — tools/sweep_cvxeda_driver.js):
+    // separately from matching-pursuit's values above (swept with
+    // tests/manual/neurokit_compare/sweep_cvxeda_driver.js):
     // cvxEDA's convex-relaxation driver has different noise statistics than
     // MP's greedy one, so inheriting MP's 0.5s minGap/apexWin cost precision
     // for no recall benefit. Swept against all 10 synthetic scenarios (3
@@ -156,14 +156,14 @@ export const GSR_CONST = {
     // the clean or compound ones. impulseThreshold itself barely matters in
     // the swept range (0.002-0.05µS) — minImpulseGapSec and the apex search
     // window are what drive the improvement. Falls back to the
-    // matching-pursuit values above if unset (see analyzer.js's cvxEDA
+    // matching-pursuit values above if unset (see analyzer.mjs's cvxEDA
     // branch), so removing these two keys exactly restores that behaviour.
     cvxMinImpulseGapSec: 0.8,
     cvxApexSearchHalfWinSec: 1.0,
     // Minimum resolved-apex value (µS) for a gated impulse to be treated as
     // a genuine local rise in the original phasic signal, not just a
     // driver-domain artefact — see _runDeconvolutionPipeline()'s gating
-    // comment in analyzer.js. Deliberately far below impulseThreshold; this
+    // comment in analyzer.mjs. Deliberately far below impulseThreshold; this
     // only rejects near-zero apexes, not small-but-real ones.
     minApexVal: 0.001,
     // SparsEDA-specific defaults (production; strictReference: true keeps the
@@ -285,11 +285,10 @@ export const GSR_CONST = {
   PEAK_PROMINENCE_BASELINE_SEC: 8,
 
   // ── Peak shape constants ─────────────────────────────────────────────────
-  // The rise/half-recovery/skew *rejection bounds* that the retired greedy
-  // detector applied were removed (2026-09-09) — the shape-audit found they
+  // No rise/half-recovery/skew *rejection bounds* here on purpose: they
   // preferentially dropped the compound-burst and rising-edge SCRs the
   // default full-scan detector exists to recover, and the skew ratio was
-  // miscalibrated for LPF'd ambulatory data. What remains is used by the live
+  // miscalibrated for LPF'd ambulatory data. These are used by the
   // detectors: MAX_RISE_TIME bounds the onset walk-back in full-scan /
   // prominence / the deconvolution curve scan; MIN_SNR is the Min SNR
   // fallback; QUALITY_WEIGHTS feed the composite quality score
@@ -314,8 +313,7 @@ export const GSR_CONST = {
   // Selectable series for the single-graph view. 'phasic' (SCR) is the
   // discrete/thresholded default; 'phasicAUC' and 'arousalIndex' are
   // continuous, threshold-independent alternatives that resolve the
-  // "thresholding dilemma" and "superposition problem" — see
-  // docs/environmental_stress_literature_review.md §5-6. 'tonic' (SCL) and
+  // "thresholding dilemma" and "superposition problem". 'tonic' (SCL) and
   // 'peakDensity' (NS-SCR rate) round out the set. 'phasicDriver' is
   // detector-dependent (deconvolution / cvxEDA only). (EM Fog is not offered as
   // a graph view — the map/globe still colour by it.)
@@ -405,9 +403,8 @@ export const GSR_CONST = {
     // EDASymp (0.045–0.25 Hz) spectral sympathetic index — Posada-Quintero &
     // Chon (2016), NeuroKit2's nk.eda_sympathetic('posada2016'). A standalone
     // frequency-domain arousal metric (µS² band power), computed from the raw
-    // signal by SpectralEDA (src/signal/spectral_eda.js) and independent of
-    // the filter/detector sliders — see
-    // docs/edasymp_spectral_investigation_proposal.md.
+    // signal by SpectralEDA (src/signal/spectral_eda.mjs) and independent of
+    // the filter/detector sliders.
     edasymp: {
       label: 'EDASymp',
       unit: 'μS²',
@@ -442,7 +439,7 @@ export const GSR_CONST = {
   // rate-independent, same convention as Phasic.
   //
   // cvxEDA's driver is p = A·q — the coefficient of the discretised Bateman
-  // ARMA's A operator (cvxeda.js), whose bilinear-transform coefficients
+  // ARMA's A operator (cvxeda.mjs), whose bilinear-transform coefficients
   // carry a built-in ~1/Δt gain (Δt = 1/sampleRate) that the phasic-
   // producing M operator doesn't. Confirmed empirically: resampling the same
   // event at 5/10/20 Hz scales the driver peak almost exactly linearly with
@@ -451,7 +448,7 @@ export const GSR_CONST = {
   // computePhasicAUC() already applies (runningSum / sampleRate) to turn it
   // into µS·s. So µS/s is the honest unit, not µS; grid steps sized ~25x
   // matching-pursuit's (the empirical gain for this app's fixed SR=10Hz /
-  // τ_fast=0.7 / τ_slow=2.0 — see docs/eda_decomposition_analysis.md).
+  // τ_fast=0.7 / τ_slow=2.0).
   DRIVER_UNIT_BY_ALGORITHM: {
     sparseda: {
       unit: 'μS',
@@ -505,7 +502,7 @@ export const GSR_CONST = {
 
   // ── EDASymp spectral sympathetic index ───────────────────────────────────
   // Sliding-window parameters for the continuous EDASymp series (see
-  // src/signal/spectral_eda.js and docs/edasymp_spectral_investigation_proposal.md).
+  // src/signal/spectral_eda.mjs).
   // windowSec matches NeuroKit2's posada2016 Welch segment (nperseg=128 @ 2 Hz
   // = 64 s); hopSec is the step between consecutive windows (5 s → smooth
   // gradients without the 32 s coarseness of Welch's own 50 % overlap).
@@ -541,8 +538,8 @@ export const GSR_CONST = {
   // ── Spatial peak-density KDE ─────────────────────────────────────────────
   // Canonical Gaussian-kernel settings for turning discrete peak *locations*
   // into a spatial density field. Two call sites need this: the cluster-blob
-  // boundaries (spatial_clustering.js getConcaveBlob) and the "Peak Arousal
-  // Hotspots" contour surface (collective_manager.js, topographySource ===
+  // boundaries (spatial_clustering.mjs getConcaveBlob) and the "Peak Arousal
+  // Hotspots" contour surface (collective_manager.mjs, topographySource ===
   // 'peaks'). These had drifted apart — sigma 15 vs a hardcoded 20, and a
   // clamped relative-to-mean amplitude weight vs raw/unclamped amplitude —
   // so the two "actual peaks" map views could disagree on where/how intense
@@ -555,7 +552,8 @@ export const GSR_CONST = {
 
   // ── Arousal Places ──────────────────────────────────────────────────────
   // The map's discrete, clickable "where did responses concentrate" layer
-  // (arousal_places.js buildPlaces + manager/arousal_places.js _renderArousalPlaces).
+  // (spatial/arousal_places.mjs buildPlaces + map/manager/arousal_places.mjs
+  // _renderArousalPlaces).
   // A place is a proximity cluster of arousal peaks, scored by dwell-normalised
   // phasic-response energy so "lots of peaks because the walker dawdled here"
   // doesn't outrank a genuinely arousing spot. mergeM (#placeMergeDistance)
@@ -594,7 +592,6 @@ export const GSR_CONST = {
   // active metric across every nearby point instead of last-visit-wins. The
   // "same spot" radius is the stroke's on-screen width converted to metres, so
   // it scales with both the track-width slider and the zoom level.
-  // See docs/dwell_time_spec.md.
   PATH_OVERLAP: {
     widthFactor: 1.0, // overlap radius = trackWeight(px) * metresPerPixel * this
     maxRadiusM: 60, // safety cap when zoomed right out (huge radii get slow + meaningless)
@@ -629,7 +626,7 @@ export const GSR_CONST = {
     // ten walkers all at +2 read 1.5. See docs/collective_map_comparison.md.
     priorWalkers: 3,
     // Percentile-rank threshold (see generateContourSurface()'s coverage block) below which
-    // a cell gets checkerboarded in map.js's renderContours() — how many distinct
+    // a cell gets checkerboarded in renderContours() (map/manager/collective.mjs) — how many distinct
     // participant tracks actually passed near that cell, relative to how well-covered the
     // rest of the loaded dataset is (not an absolute headcount). 0 = nothing checkered,
     // every cell renders as-is regardless of foot traffic (old behaviour). 1 = only the
@@ -687,15 +684,15 @@ export const GSR_CONST = {
   // ── Road snapping — map-matcher bearing tuning ───────────────────────────
   // CORRECTION: an earlier cleanup pass deleted the whole former SNAP block as
   // "dead" because nothing reads `GSR_CONST.SNAP.*` directly. That check was
-  // too shallow — map_match.js's `_getCandidates()` independently hardcodes
+  // too shallow — map_match.mjs's `_getCandidates()` independently hardcodes
   // the *same* two values (0.7 and 0.3) inline for its heading-penalty term
   // and speed gate. Restored just those two, now actually wired (see
-  // map_match.js), and left the rest removed: RADIUS_IN/RADIUS_OUT and
+  // map_match.mjs), and left the rest removed: RADIUS_IN/RADIUS_OUT and
   // HYST_MARGIN/HYST_SEC described a dual-radius hysteresis state machine
   // that the current HMM/Viterbi matcher doesn't use (Viterbi gets
   // path-smoothness from global sequence optimization instead), and
   // GRID_CELL (25 m) doesn't match the spatial index actually in use
-  // (osm_enrichment.js CELL_SIZE_DEG = 0.001° ≈ 111 m) — those three were
+  // (osm_enrichment.mjs CELL_SIZE_DEG = 0.001° ≈ 111 m) — those three were
   // genuinely never implemented, not just disconnected from this constant.
   SNAP: {
     HEADING_W: 0.7, // heading penalty weight in map-matcher candidate ranking
@@ -705,9 +702,9 @@ export const GSR_CONST = {
     SPEED_GATE: 0.3, // m/s — below this speed, course is unreliable so the heading penalty is skipped
   },
 
-  // The 10 OSM enrichment fields (osm_enrichment.js) and their UI metric key
-  // — single source of truth for key<->field<->label, shared by map.js's
-  // "Map Metric" dropdown/legend and ui.js's correlation dashboard.
+  // The 10 OSM enrichment fields (osm_enrichment.mjs) and their UI metric key
+  // — single source of truth for key<->field<->label, shared by the map's
+  // "Map Metric" dropdown/legend and the correlation dashboard.
   //   kind: 'categorical' (roadClass)  — legend swatches; not correlatable.
   //   kind: 'binary'      (inPark)     — 0/1; correlated as point-biserial r.
   //   kind: 'continuous'               — correlated and plottable.

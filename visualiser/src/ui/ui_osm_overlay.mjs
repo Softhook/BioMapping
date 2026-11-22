@@ -1,13 +1,12 @@
 /**
- * GSRUI — OSM overlay display. Object-augment split from ui.js: loaded
- * immediately after ui.js, adds these methods to the shared GSRUI object.
+ * GSRUI — OSM overlay display. Merged into GSRUI by ui.mjs.
  *
  * The map-panel header's "OSM" button is one shared toggle rendered two ways
  * (2D Leaflet polygons, 3D Cesium extruded buildings). setOsmOverlay() is the
  * button handler (records intent, fetches on demand); syncOsmOverlay() is the
  * synchronous, never-fetches reconciler called on every real state change
  * (surface switch, track switch, enrichment). See the file-local comment
- * above _osmOverlayOn for the full contract. Depends on ui_enrichment.js's
+ * above _osmOverlayOn for the full contract. Depends on ui_enrichment.mjs's
  * ensureOsmGeoms() for the on-demand fetch.
  */
 import { AppState } from '../core/app_state.mjs';

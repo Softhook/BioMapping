@@ -41,7 +41,7 @@ export const RendererCurve = {
    *   segment that "cuts the corner" past their true value — confirmed this
    *   was happening in practice once deconvolution mode started reporting
    *   many more, closer-together peaks (see _detectPeaksFromCurve() in
-   *   analyzer.js): at a typical full-track zoom, the curve draws roughly
+   *   analyzer.mjs): at a typical full-track zoom, the curve draws roughly
    *   one vertex every 2.5s while peaks can legitimately be 1s apart, so
    *   ~96% of peak markers landed between drawn vertices even though every
    *   one of them is an exact local maximum of the underlying data.

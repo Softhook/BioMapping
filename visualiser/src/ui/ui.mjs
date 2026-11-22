@@ -1,14 +1,8 @@
 /**
- * UI Actions — analysis pipeline, timeline view, cross-cutting helpers.
- * Event binding and DOM caching live in events.js.
- * Track library CRUD lives in tracks.js.
- * All shared state is accessed through AppState.
- *
- * Everything else GSRUI used to hold now lives in topic-split sibling
- * modules (ui_peaks_table.mjs, ui_stats_panel.mjs, ui_collective_map.mjs,
- * ui_export.mjs, ui_osm_overlay.mjs, ui_enrichment.mjs, ui_correlation_table.mjs,
- * ui_road_profile.mjs, ui_environmental_dashboard.mjs, ui_modals.mjs), composed
- * into GSRUI below.
+ * GSRUI — UI actions: the analysis pipeline, the timeline view and
+ * cross-cutting helpers. Each panel's code lives in its own ui_*.mjs file,
+ * merged into GSRUI below. Event binding and DOM caching are in events.mjs,
+ * the track library in tracks.mjs. Shared state goes through AppState.
  */
 
 import { AppState } from '../core/app_state.mjs';

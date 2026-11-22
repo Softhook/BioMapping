@@ -1,6 +1,5 @@
 /**
- * GSRUI — file export. Object-augment split from ui.js: loaded immediately
- * after ui.js, adds these methods to the shared GSRUI object.
+ * GSRUI — file export. Merged into GSRUI by ui.mjs.
  *
  * Covers the processed-CSV export, the p5.js timeline PNG export, and the
  * active map surface (2D Leaflet or 3D Cesium) PNG export, plus the shared

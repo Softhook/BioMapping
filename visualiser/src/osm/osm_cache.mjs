@@ -70,13 +70,13 @@ export const OsmCache = {
   CACHE_TTL_MS: 30 * 24 * 60 * 60 * 1000, // 30 days
 
   // A merge-on-overlap union is skipped (falls back to fetching just the
-  // requested bbox) if it would exceed this area — mirrors the 12 km²
-  // sanity cap ui.js already applies to a single track's own bbox, so an
+  // requested bbox) if it would exceed this area — the same cap
+  // ui_enrichment.mjs applies to a single track's own bbox, so an
   // opportunistic merge can never quietly balloon into a much larger
   // Overpass request than the user actually asked for.
   MAX_MERGE_AREA_KM2: 12.0,
 
-  // Bump this if overpass_client.js's buildQuery() tag set ever changes —
+  // Bump this if overpass_client.mjs's buildQuery() tag set ever changes —
   // stale entries fetched under an older query shape won't be reused.
   //   1 → 2: added way/relation ["natural"="tree_row"] for osm_canopy_pct
   //          (old payloads lack tree_row, so canopy_pct would under-count).

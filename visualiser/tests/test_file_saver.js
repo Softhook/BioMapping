@@ -1,5 +1,5 @@
 /**
- * Unit tests for file_saver.js (GSRFileSaver) — filename→MIME inference and
+ * Unit tests for file_saver.mjs (GSRFileSaver) — filename→MIME inference and
  * the Blob/string/data-URL/ArrayBuffer save-content normalization logic.
  *
  * showSaveFilePicker() (the File System Access API path) isn't available in

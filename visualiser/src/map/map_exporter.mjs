@@ -439,7 +439,7 @@ export const GSRMapExporter = {
 
   async _gather(ctx) {
     const { el, r, mgr } = ctx;
-    // Phase 1 (slice 3): per-track render layers are derived from the track
+    // Per-track render layers are derived from the track
     // layerGroups via getRenderLayers(); only the aggregate layers (OSM shapes,
     // contours, clusters) are still read off the manager directly.
     const render =
@@ -625,8 +625,8 @@ export const GSRMapExporter = {
 
   /**
    * Generates cell-by-cell vector mesh polygons, each coloured by its exact
-   * percentile rank and — matching the live raster surface (map.js
-   * renderContours()) — relief-shaded via the shared Hillshade primitives, at
+   * percentile rank and — matching the live raster surface
+   * (renderContours(), map/manager/collective.mjs) — relief-shaded via the shared Hillshade primitives, at
    * whatever hillshadeStrength was last set on the map (so the export
    * matches what's currently on screen).
    *
@@ -956,7 +956,7 @@ export const GSRMapExporter = {
         ) {
           // Contour isolines are frequently closed rings (concentric loops around a
           // hotspot) whose first/last point coincide (see GSRSpatialClustering.stitchSegments).
-          // A fixed `closed=false` here — unlike map.js's renderContours, which detects this
+          // A fixed `closed=false` here — unlike renderContours (map/manager/collective.mjs), which detects this
           // and smooths with closed=true — left the ring's seam as a sharp, un-cut corner and
           // then never closed the SVG path with 'Z', so every exported contour ring was both
           // less smoothed than its on-screen counterpart AND carried a visible kink at the seam.
@@ -969,7 +969,7 @@ export const GSRMapExporter = {
             Math.abs(getLat(first) - getLat(last)) < 1e-9 &&
             Math.abs(getLon(first) - getLon(last)) < 1e-9;
           // Contour layers are a special case: `flat` here is layer.getLatLngs()
-          // from the LIVE Leaflet polyline, which map.js's renderContours already
+          // from the LIVE Leaflet polyline, which renderContours already
           // ran through GeoUtils.chaikinSmooth(path, 3, isClosed) once. Smoothing
           // it again here would double the corner-cutting relative to the isoband
           // fill's SINGLE chaikin(3) pass over the same raw ring (see
@@ -1005,7 +1005,7 @@ export const GSRMapExporter = {
     // Exact/OSM shapes keep the exact-mode *geometry* (every vertex, no
     // smoothing/culling — see the "exact" comment above), but the stroke
     // itself is cosmetically thinned same as tracks: at authored weight
-    // (1px, from map.js's drawOsmShapes), park/water/building outlines
+    // (1px, from drawOsmShapes in map/manager/osm.mjs), park/water/building outlines
     // print heavier than intended on export, so scale it down.
     // Contour lines are thinned significantly more to look very fine and elegant.
     const strokeWidth = exact

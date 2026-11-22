@@ -2,7 +2,7 @@
  * CSV parsing engine for the GSR track visualiser — 10 Hz GSR + GPS CSV
  * files (GPS columns empty on rows without a fix) with optional RF/OSM columns.
  *
- * Extracted from GSRAnalyzer (analyzer.js) so the parser can be tested
+ * Kept apart from GSRAnalyzer (analyzer.mjs) so the parser can be tested
  * independently of the analysis engine. parse() is stateless and returns a
  * plain result object; the dynamic EM-fog fallback uses em_fog.mjs's
  * calcEmFog (also the source GSRAnalyzer.calcEmFog delegates to).

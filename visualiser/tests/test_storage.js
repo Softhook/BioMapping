@@ -1,5 +1,5 @@
 /**
- * Unit tests for storage.js (GSRStorage, sliderVal) — settings management,
+ * Unit tests for storage.mjs (GSRStorage, sliderVal) — settings management,
  * localStorage-adjacent preset import/export, and slider-value
  * parsing/fallback logic.
  *
@@ -15,7 +15,7 @@ const GSR_CONST_DEFAULTS = JSON.parse(
   JSON.stringify(require('../src/core/constants.mjs').GSR_CONST),
 );
 
-// storage.js calls alert(...) directly in a few places (export/import error
+// storage.mjs calls alert(...) directly in a few places (export/import error
 // paths) and Node has no `alert` global — stub it once here and let
 // individual tests inspect calls via `alertCalls`.
 let alertCalls = [];
@@ -23,7 +23,7 @@ global.alert = (msg) => {
   alertCalls.push(msg);
 };
 
-// localStorage isn't used directly by storage.js today, but stub it
+// localStorage isn't used directly by storage.mjs today, but stub it
 // defensively per the task brief in case any code path touches it.
 global.localStorage = {
   getItem: () => null,
@@ -38,7 +38,7 @@ const { GSRStorage, sliderVal } = require('../src/ui/storage.mjs');
 // shadow (this file's old bare-global pattern) no longer reaches any of
 // them (ES-module migration), so every reset/override below mutates the
 // REAL singleton's own properties in place instead. `delete
-// global.GSREvents` (etc.) used to simulate "not loaded yet" for storage.js's
+// global.GSREvents` (etc.) used to simulate "not loaded yet" for storage.mjs's
 // `typeof X !== 'undefined'` guards; those guards are now structurally
 // always-true (a real import can't be undefined), so the equivalent reset
 // is an EMPTY object — the guard's second half (`typeof X.method ===
@@ -414,7 +414,7 @@ test("downloadPresetJson: sanitizes the filename base and stamps today's date", 
 
 // ── GSRStorage.importPresetFile() ────────────────────────────────────────
 
-// Minimal manual FileReader stub — storage.js only calls readAsText() and
+// Minimal manual FileReader stub — storage.mjs only calls readAsText() and
 // relies on onload(event) with event.target.result holding the text.
 class FakeFileReader {
   readAsText(file) {

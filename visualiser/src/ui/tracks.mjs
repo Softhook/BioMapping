@@ -60,13 +60,13 @@ export const GSRTrackManager = {
       analyzer: analyzer,
       filterParams: filterParams,
       gpsFilterParams: gpsFilterParams,
-      // Phase 1 (slice 1): the track's single Leaflet rendering handle — an
+      // The track's single Leaflet rendering handle — an
       // L.layerGroup() owning this track's path/peak/hotspot layers. Lazily
       // created by GSRMapManager._getTrackLayerGroup() on first render; null
       // when the track owns nothing on the map. Removing the track = removing
       // this group from the map.
       layerGroup: null,
-      // Phase 1 (slice 3): the full registry of this track's render layers
+      // The full registry of this track's render layers
       // (visible + hidden) so visibility toggles can restore hidden ones. The
       // layerGroup only holds the currently-visible layers. Populated by
       // GSRMapManager._registerTrackLayer().
@@ -122,8 +122,8 @@ export const GSRTrackManager = {
     GSRTrackManager.renderTrackList();
     // No loop() here — the canvas renders on demand via the redraw() calls
     // already made above/below (resetView(), runAnalysis(), windowResized()'s
-    // resizeCanvas()); see docs/archive/visualizer_rendering_perf_routes.md §2.5 for
-    // why continuous looping was removed.
+    // resizeCanvas()). Looping would repaint the whole graph ~60 times a
+    // second for nothing.
     requestAnimationFrame(() => windowResized());
   },
 
@@ -169,7 +169,7 @@ export const GSRTrackManager = {
       // Save current GPS params before switching away
       GSRTrackManager.saveActiveGpsParams();
 
-      // Phase 1 (slice 1): removal = map.removeLayer(track.layerGroup). Do this
+      // Removal = map.removeLayer(track.layerGroup). Do this
       // before removing the track from the manager so the switch-active-track /
       // clearAll paths below never leave an orphaned group behind. Slice 2: also
       // forget the group from the map manager's rendered-set.
@@ -194,12 +194,11 @@ export const GSRTrackManager = {
         }
       }
 
-      // Phase 3 pilot (docs/archive/visualizer_architecture_refactor_plan.md): notify
-      // interested modules instead of calling them directly by name.
+      // Notify interested modules instead of calling them directly by name.
       // GSRTrackManager (renderTrackList), GSRMapManager (clearAll when the
       // library goes empty), and GSRUI (updateCollectiveMap in collective
       // view) each subscribe to 'trackRemoved' independently — see the
-      // AppState.on(...) registrations in sketch.js's setup().
+      // AppState.on(...) registrations in sketch.mjs's setup().
       AppState.emit('trackRemoved', trackId);
       Controllers.ui?.refreshOsmControls?.();
       Controllers.ui?.updateEnvironmentalDashboard?.();

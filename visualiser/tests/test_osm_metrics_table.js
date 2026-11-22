@@ -1,7 +1,7 @@
 /**
- * Unit tests for GSR_CONST.OSM_METRICS (constants.js) — the single source of
+ * Unit tests for GSR_CONST.OSM_METRICS (constants.mjs) — the single source of
  * truth for the 8 OSM enrichment fields' key<->field<->label mapping, used
- * by map.js's legend/_getMetricKey and ui.js's correlation dashboard/
+ * by the map legend / _getMetricKey and the correlation dashboard /
  * regression-scatter axis labels (previously 4 separately hardcoded lists).
  *
  * Run: node --test tests/test_osm_metrics_table.js  (or `npm test` for the whole suite)
@@ -10,13 +10,13 @@
 const assert = require('node:assert');
 const test = require('node:test');
 
-// constants.js is a real ES module now — require() it directly (Node
+// constants.mjs is a real ES module now — require() it directly (Node
 // natively supports require()-ing an ES module with no top-level await),
 // which also avoids the prototype-identity issues a separate vm realm
 // would cause every assert.deepStrictEqual below.
 const { GSR_CONST } = require('../src/core/constants.mjs');
 
-test('OSM_METRICS has exactly 10 entries, matching the 10 osm_* fields written by osm_enrichment.js', () => {
+test('OSM_METRICS has exactly 10 entries, matching the 10 osm_* fields written by osm_enrichment.mjs', () => {
   assert.strictEqual(GSR_CONST.OSM_METRICS.length, 10);
 });
 
@@ -39,11 +39,11 @@ test('OSM_METRICS kinds: roadClass is categorical, inPark is binary, the other 8
     'inPark is a 0/1 field — point-biserial-correlatable, so it IS in the correlation/scatter UI',
   );
   assert.strictEqual(continuous.length, 8, 'the other 8 fields are continuous');
-  // ui.js's correlation/scatter feature lists filter on continuous || binary.
+  // The correlation/scatter feature lists filter on continuous || binary.
   assert.strictEqual(continuous.length + binary.length, 9);
 });
 
-test('OSM_METRICS.field names are exactly the osm_* columns osm_enrichment.js writes (_projectToTimeline)', () => {
+test('OSM_METRICS.field names are exactly the osm_* columns osm_enrichment.mjs writes (_projectToTimeline)', () => {
   // If a field is renamed in _projectToTimeline without updating this table
   // (or vice versa), the map dropdown / correlation matrix / scatter silently
   // read `undefined`. startsWith("osm_") is not enough to catch that.
@@ -90,7 +90,7 @@ test('every entry has a non-empty key, field, label, and a valid kind', () => {
   }
 });
 
-test('only the distance metrics carry a unit (all "m") — the fields ui.js\'s scatter axis labels append "(m)" to', () => {
+test('only the distance metrics carry a unit (all "m") — the fields the scatter axis labels append "(m)" to', () => {
   const withUnit = GSR_CONST.OSM_METRICS.filter((m) => m.unit);
   assert.deepStrictEqual(withUnit.map((m) => m.key).sort(), [
     'distGreen',

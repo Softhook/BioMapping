@@ -1,11 +1,11 @@
 /**
  * Integration test for GSRUI.updateEnvironmentalDashboard()'s cache
- * self-validation (docs/archive/visualizer_architecture_refactor_plan.md Phase 2).
+ * self-validation.
  *
  * The unit-level coverage in test_analyzer_refactoring.js and
  * test_osm_enrichment.js only proves the WRITE side: that analyze() /
  * setPeakLabel() / setPeakExcluded() / enrichTrack() bump an analyzer's
- * _dataVersion. It says nothing about the READ side — whether ui.js's
+ * _dataVersion. It says nothing about the READ side — whether ui_environmental_dashboard.mjs's
  * updateEnvironmentalDashboard() actually notices that bump and recomputes,
  * rather than serving a stale cached object forever.
  *
@@ -15,7 +15,7 @@
  * stubbed to bare getElementById/querySelector that return null for every
  * render target (correlationTable, roadArousal table, regressionCanvas) —
  * each of those render methods early-returns on a missing element (see
- * ui.js), so the DOM paint step is skipped while the cache-computation logic
+ * ui_environmental_dashboard.mjs), so the DOM paint step is skipped while the cache-computation logic
  * above it still runs unmodified.
  *
  * The collective-mode test is the one most worth having: it exercises the
@@ -35,12 +35,12 @@ const path = require('node:path');
 global.window = global;
 global.GSR_CONST = require('../src/core/constants.mjs').GSR_CONST;
 
-// ── Bootstrap: same pattern as test_analyzer_refactoring.js — analyzer.js's
+// ── Bootstrap: same pattern as test_analyzer_refactoring.js — analyzer.mjs's
 //    analyze() references these as bare globals (window.X in the browser). ──
 const { loadModule } = require('./support/load_module.js');
 
 loadModule(path.join(__dirname, '../src/gps/geo_utils.mjs'));
-loadModule(path.join(__dirname, '../src/signal/stats_math.mjs')); // also read directly by ui.js
+loadModule(path.join(__dirname, '../src/signal/stats_math.mjs')); // also read directly by the dashboard
 loadModule(path.join(__dirname, '../src/map/map_colors.mjs'));
 loadModule(path.join(__dirname, '../src/gps/gps_pipeline.mjs'));
 loadModule(path.join(__dirname, '../src/signal/dwt_filter.mjs'));

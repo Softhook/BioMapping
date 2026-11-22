@@ -16,12 +16,6 @@
  * display-mode chrome on a genuine exit (Esc / F11 / Android back) must clear
  * the target as part of that teardown, so a later lock/unlock can't resurrect
  * a fullscreen the user deliberately left.
- *
- * Loaded before layout_manager.js and live_view.js in BOTH entry points
- * (index.html and live.html); the order is mirrored by SCRIPT_ORDER in
- * tests/support/boot_app.js and LIVE_SCRIPT_ORDER in
- * tests/support/boot_live.js, cross-checked against the real HTML by
- * tests/test_html_wiring.js.
  */
 export const GSRFullscreen = {
   _target: null,

@@ -1,5 +1,5 @@
 /**
- * Unit tests for map legend rendering (map.js updateLegend) in single and collective modes.
+ * Unit tests for map legend rendering (updateLegend, map/manager/legend.mjs) in single and collective modes.
  *
  * Run: node --test tests/test_map_legend.js
  */

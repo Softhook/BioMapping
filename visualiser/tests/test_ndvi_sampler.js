@@ -1,5 +1,5 @@
 /**
- * Unit tests for ndvi_sampler.js (NDVISampler) — Web Mercator projection
+ * Unit tests for ndvi_sampler.mjs (NDVISampler) — Web Mercator projection
  * math, raw NDVI tile decoding (Copernicus errors; the TIFF format itself is
  * in test_tiff_decoder.js), circular buffer-mean raster
  * sampling, and the track sampling pipeline for BioMapping.
@@ -612,7 +612,7 @@ test('PROVIDERS: registry contains standard fallback imagery providers', () => {
 test('getActiveProvider: falls back to open sentinel-2 (or an explicit custom URL), regardless of Copernicus config', () => {
   // getActiveProvider is only consulted for the *fallback* imagery path —
   // when Copernicus is configured, showNdviLayer renders the raw raster
-  // directly instead (see manager/osm.js) and never calls this.
+  // directly instead (see manager/osm.mjs) and never calls this.
   clearCopernicusConfig();
   const provDefault = NDVISampler.getActiveProvider({});
   assert.strictEqual(provDefault.id, 'sentinel2_cloudless');

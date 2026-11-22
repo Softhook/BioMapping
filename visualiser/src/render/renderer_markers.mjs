@@ -372,16 +372,12 @@ export const RendererMarkers = {
    * were deliberately made static/minor (see drawPeakMarkers()'s doc
    * comment), applied instead to the much smaller, curated hotspot set.
    *
-   * Previously this animated by having draw() itself run continuously at
-   * ~60fps (p5's loop() with no matching noLoop() while a track was active)
-   * just to repaint the whole canvas every frame for a few pulsing circles.
-   * Replaced with real DOM elements using styles.css's own
-   * @keyframes pulse-glow (already used by the map's .hotspot-glow-ring) so
-   * the animation runs on the compositor for free — the canvas itself goes
-   * back to rendering on demand (see tracks.js/events.js, which no longer
-   * call loop()). One absolutely-positioned div per ring, repositioned only
-   * when drawHotspotMarkers() actually runs (pan/zoom/track-switch/toggle),
-   * not every frame.
+   * The pulse is real DOM elements using styles.css's @keyframes
+   * pulse-glow (also used by the map's .hotspot-glow-ring), so it runs on
+   * the compositor and the canvas keeps rendering on demand rather than
+   * repainting at ~60 fps for a few pulsing circles. One absolutely-
+   * positioned div per ring, repositioned only when drawHotspotMarkers()
+   * actually runs (pan/zoom/track-switch/toggle), not every frame.
    */
   _ensurePulseOverlay() {
     if (this._pulseOverlay?.isConnected) return this._pulseOverlay;
@@ -471,7 +467,7 @@ export const RendererMarkers = {
    *
    * Rebuilt only when the peaks array *reference* changes. analyzer.peaks is
    * always reassigned wholesale on a re-analysis and never spliced/sorted/
-   * emptied in place (see analyzer.js), so identity is a sound cache key. Lets
+   * emptied in place (see analyzer.mjs), so identity is a sound cache key. Lets
    * drawHotspotMarkers() resolve memorableEvents entries — which are direct
    * peak object references — without a per-frame O(n) indexOf scan.
    */
@@ -493,7 +489,7 @@ export const RendererMarkers = {
   /**
    * Draw "Hotspots" — analyzer.memorableEvents, the curated subset of peaks
    * likely to actually be noticed/remembered (fast, high-amplitude; see
-   * _computeSalienceScore()'s doc comment in analyzer.js). Deliberately
+   * computeSalienceScore()'s doc comment in signal/peak_shape.mjs). Deliberately
    * carries the bold, high-contrast styling drawPeakMarkers() used to apply
    * to every single peak: shaded elevated region, open onset dot, dashed
    * connector line, larger solid dots on both panels. That styling reads

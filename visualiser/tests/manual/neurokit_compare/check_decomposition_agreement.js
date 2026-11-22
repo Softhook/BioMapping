@@ -103,7 +103,7 @@ console.log(`=== ${name}: decomposition-stage agreement ===`);
 // CVXEDA_ALPHA env var: BioMapping's production alpha (GSR_CONST.CVXEDA.alpha,
 // 2e-3) is intentionally scaled up from the paper/NeuroKit2 default (8e-4) to
 // compensate for our 10Hz sample rate vs the paper's 25Hz - see the comment
-// on CVXEDA.alpha in constants.js. That's a deliberate product choice, not an
+// on CVXEDA.alpha in constants.mjs. That's a deliberate product choice, not an
 // implementation error, so the default run below leaves it in place and
 // reports whatever gap it produces. Set CVXEDA_ALPHA=8e-4 to instead check
 // IMPLEMENTATION fidelity - does our solver converge to the same point

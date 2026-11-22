@@ -3,9 +3,8 @@
 // See LICENCE.md in the project root for terms.
 
 /**
- * GSREvents — Single/Collective/Live view switcher and the mobile sidebar toggle. Object-augment split from events.js: loaded
- * immediately after events.js, adds these methods to the shared GSREvents
- * object.
+ * GSREvents — single/Collective/Live view switcher and the mobile sidebar
+ * toggle. Merged into GSREvents by events.mjs.
  */
 import { AppState } from '../core/app_state.mjs';
 import { Controllers } from '../core/controllers.mjs';

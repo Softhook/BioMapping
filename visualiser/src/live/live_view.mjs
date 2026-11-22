@@ -18,20 +18,6 @@
  * bridge reflection (tests/support/realm_bridge.js).
  */
 
-// Device-class detection — map-primary mobile layout vs graph-primary
-// desktop layout (mount() below), AND (via GSRLiveView.isCompactLayout(),
-// the same function, not a second check) whether index.html lands its
-// initial tab on Live instead of Single Track (src/ui/events.js). 768px
-// matches styles.css's one existing mobile breakpoint (the sidebar-drawer
-// rule) and the new `@media (max-width: 768px)` rules in this file's own
-// "Live Stream (BLE) view" CSS section — kept in sync by comment since a
-// media query can't be shared between CSS and JS without a build step.
-// `pointer: coarse` keeps a narrowed desktop browser window (fine pointer)
-// from reading as mobile — it matters more here than for the sidebar, since
-// this flips which of two very different layouts is the default. Checked
-// once (at mount, and once at index.html boot), not live-updating, so a
-// mid-session resize/rotation never yanks a layout choice the user is
-// already in. Supports phones in portrait (<=768px) and landscape (<=500px height).
 import { AppState } from '../core/app_state.mjs';
 import { GSR_CONST } from '../core/constants.mjs';
 import { Controllers } from '../core/controllers.mjs';
@@ -65,6 +51,20 @@ import {
 } from './live_map.mjs';
 import { LiveState } from './live_state.mjs';
 
+// Device-class detection — map-primary mobile layout vs graph-primary desktop
+// layout (mount() below), AND (via GSRLiveView.isCompactLayout(), the same
+// function, not a second check) whether index.html lands its initial tab on
+// Live instead of Single Track (src/ui/events_view_switcher.mjs). 768px matches
+// styles.css's one existing mobile breakpoint (the sidebar-drawer rule) and the
+// new `@media (max-width: 768px)` rules in this file's own "Live Stream (BLE)
+// view" CSS section — kept in sync by comment since a media query can't be
+// shared between CSS and JS without a build step. `pointer: coarse` keeps a
+// narrowed desktop browser window (fine pointer) from reading as mobile — it
+// matters more here than for the sidebar, since this flips which of two very
+// different layouts is the default. Checked once (at mount, and once at
+// index.html boot), not live-updating, so a mid-session resize/rotation never
+// yanks a layout choice the user is already in. Supports phones in portrait
+// (<=768px) and landscape (<=500px height).
 const LIVE_MOBILE_QUERY =
   '((max-width: 768px) and (pointer: coarse)), ((max-height: 500px) and (pointer: coarse))';
 function isCompactLiveLayout() {
@@ -378,20 +378,20 @@ export function feedLiveAnalyzer() {
 
 // drawGraph() + its helpers (graphThemeColor / niceStep) and constants
 // (GRAPH_WINDOW_S / GRAPH_MARGIN / NS_TO_US / LIVE_GRAPH_VIEWS) live in
-// src/live/live_graph.js — loaded before this file, same global lexical
+// src/live/live_graph.mjs — loaded before this file, same global lexical
 // scope, so they're called here as bare globals.
 
 // The live follow-map (liveMap, updateLiveMap, renderLiveMapMarkers,
 // flushSettledSegments/recolorAllTrackSegments, cacheCurrentMapArea, showMap/
-// hideMap, LIVE_ZOOM, …) lives in src/live/live_map.js — loaded before this
+// hideMap, LIVE_ZOOM, …) lives in src/live/live_map.mjs — loaded before this
 // file, same global lexical scope, so those names are used here as bare
 // globals (resetSession() below clears liveMap's segment queues + markers).
 
 // ==========================================================================
-// CSV export. buildLiveCsv() (src/live/live_csv.js) does the schema
-// serialisation (docs/csv_schema.md's canonical 11-column GPS+GSR schema +
-// the firmware's integrity bracket); GSRFileSaver.saveFile() (src/core/
-// file_saver.js) puts up the same OS "Save location" dialog the rest of the
+// CSV export. buildLiveCsv() (src/live/live_csv.mjs) does the schema
+// serialisation (docs/csv_schema.md's canonical 11-column GPS+GSR schema + the
+// firmware's integrity bracket); GSRFileSaver.saveFile() (src/core/
+// file_saver.mjs) puts up the same OS "Save location" dialog the rest of the
 // app's exports use, with the plain-download fallback when the File System
 // Access API isn't available.
 // ==========================================================================
@@ -930,7 +930,7 @@ export function goToLatLon(lat, lon, zoom) {
 // ==========================================================================
 // mount() steps — one group of DOM/event wiring each, called in order by
 // mount() below. Same "long method → named private steps" regrouping as
-// events.js's setupEventListeners()/_bind*Controls(), kept here as top-level
+// events.mjs's setupEventListeners()/_bind*Controls(), kept here as top-level
 // functions (not object methods) to match bindLiveGsrControls()/bindLiveFab()
 // above, which already used this shape.
 // ==========================================================================
@@ -1258,7 +1258,7 @@ export const GSRLiveView = {
     renderFabMenu();
   },
 
-  // Exposed so src/ui/events.js can pick index.html's initial view tab
+  // Exposed so src/ui/events_view_switcher.mjs can pick index.html's initial view tab
   // ('live' vs 'single') with the exact same width+pointer check this file
   // uses for its own map-first mobile default — one detection, not two, kept
   // in sync automatically rather than by comment.

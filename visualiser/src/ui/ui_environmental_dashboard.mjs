@@ -1,13 +1,11 @@
 /**
- * GSRUI — environmental dashboard orchestration. Object-augment split from
- * ui.js: loaded immediately after ui.js, adds this method to the shared
- * GSRUI object.
+ * GSRUI — environmental dashboard orchestration. Merged into GSRUI by ui.mjs.
  *
  * updateEnvironmentalDashboard() is the single entry point that assembles
  * the whole dashboard: it picks the walks, caches the stats
  * (spatial/environmental_stats.mjs computes them) and hands them to the
- * correlation table (ui_correlation_table.js), the road profile
- * (ui_road_profile.js), and the scatter plots.
+ * correlation table (ui_correlation_table.mjs), the road profile
+ * (ui_road_profile.mjs), and the scatter plots.
  */
 import { AppState } from '../core/app_state.mjs';
 import { GpsPipeline } from '../gps/gps_pipeline.mjs';

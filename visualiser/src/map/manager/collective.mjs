@@ -1,18 +1,14 @@
 /**
- * GSRMapManager — collective / multi-track view rendering. Prototype-augment
- * split from map.js: loaded immediately after map.js, adds these methods to
- * GSRMapManager.prototype.
+ * GSRMapManager — collective / multi-track view rendering (one link of the
+ * class chain in map/map.mjs).
  *
  * renderCollectiveData() overlays every active track (dashed paths + per-track
- * peak/hotspot markers via the manager/peaks.js methods), runs one global
+ * peak/hotspot markers via the manager/peaks.mjs methods), runs one global
  * spatial-clustering pass, frames the combined bounds, and calls
  * renderContours(); renderContours() turns collectiveManager.generateContourSurface()
  * output into the shaded surface overlay (+ optional hillshade relief and
  * coverage hatch) and the smoothed isoline polylines. clearCollectiveLayers() /
  * clearContours() tear those down.
- *
- * Depends on the globals L, MapColors, Hillshade, StatsMath, GSR_CONST,
- * GSRSpatialClustering, GeoUtils and AppState (resolved at call time).
  */
 import { AppState } from '../../core/app_state.mjs';
 import { GSR_CONST } from '../../core/constants.mjs';
@@ -28,7 +24,7 @@ export class GSRMapCollective extends GSRMapArousalPlaces {
    * Remove all collective track paths and peak markers from the map.
    */
   clearCollectiveLayers() {
-    // Phase 1 (slice 3): the collective per-track layers live in the track
+    // The collective per-track layers live in the track
     // layerGroups — clear them here too (idempotent with clearMap) so the
     // "uncheck the last track" path (which calls this without a re-render)
     // can't leave a stale group behind.
@@ -86,7 +82,7 @@ export class GSRMapCollective extends GSRMapArousalPlaces {
 
     const allActivePeaksAcrossTracks = [];
     const collectiveDrawPoints = [];
-    // Phase 5: per-track drawPoints/osmGeoms references (not concatenated) so
+    // Per-track drawPoints/osmGeoms references (not concatenated) so
     // RFFluidRenderer.setDataForTracks() can reuse cached fan-cast geometry
     // for tracks whose data didn't change (see that method's doc comment).
     const rfTracksData = [];
@@ -96,7 +92,7 @@ export class GSRMapCollective extends GSRMapArousalPlaces {
       const _data = track.analyzer.raw;
       const p = track.gpsFilterParams || {};
 
-      // Phase 1 (slice 2): each active track owns a layerGroup; all of this
+      // Each active track owns a layerGroup; all of this
       // track's collective layers (path, peaks, connectors, hotspots) render
       // into it, so removal/deactivation of the track reduces to
       // map.removeLayer(track.layerGroup).
@@ -128,7 +124,7 @@ export class GSRMapCollective extends GSRMapArousalPlaces {
         opacity: 0.35,
         dashArray: '5, 8',
       });
-      // Phase 1 (slice 2): the collective path renders into this track's own
+      // The collective path renders into this track's own
       // layerGroup, never directly onto the map. Tag the group ALWAYS (even
       // when showTracks is off) so toggling the Tracks control back on routes
       // the path through the group — tagging only when visible made paths
@@ -167,7 +163,7 @@ export class GSRMapCollective extends GSRMapArousalPlaces {
       activeTracks.some((t) => t.analyzer?.hasRfData),
     );
 
-    // Collective Arousal Places across every active track (manager/arousal_places.js).
+    // Collective Arousal Places across every active track (manager/arousal_places.mjs).
     this._renderArousalPlacesFor(
       allActivePeaksAcrossTracks,
       activeTracks.map((t) => this._placesTrack(t.id, t.analyzer)),
@@ -262,7 +258,7 @@ export class GSRMapCollective extends GSRMapArousalPlaces {
       if (!ctx) return;
 
       // Remember for GSRMapExporter's SVG export, which recomputes this same
-      // shading over its own vector mesh (map_exporter.js _buildVectorMesh)
+      // shading over its own vector mesh (map_exporter.mjs _buildVectorMesh)
       // and needs to match what's currently on screen.
       this._hillshadeStrength = hillshadeStrength;
 

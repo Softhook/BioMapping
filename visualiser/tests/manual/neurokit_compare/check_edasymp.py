@@ -14,8 +14,6 @@ Blackman window, nfft=256) over [0.045, 0.25) Hz. BioMapping's standalone
 metric is the sliding-window extension of that same integral; the whole-
 recording scalar is what must agree with NeuroKit2.
 
-See docs/edasymp_spectral_investigation_proposal.md.
-
 Usage: python3 check_edasymp.py track.csv [more.csv ...]
        (normally invoked via check_edasymp.sh, not directly)
 """

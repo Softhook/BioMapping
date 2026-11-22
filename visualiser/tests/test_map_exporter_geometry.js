@@ -1,5 +1,5 @@
 /**
- * Gap-fill unit tests for map_exporter.js (GSRMapExporter) — the pure
+ * Gap-fill unit tests for map_exporter.mjs (GSRMapExporter) — the pure
  * SVG-string/color helper methods NOT already exercised by the existing
  * isoband/SVG-export test files (test_isoband_boundary_closure.js,
  * test_edge_isoband_fix.js, test_masked_grid_isobands.js,
@@ -10,7 +10,7 @@
  * The pure ring/boundary geometry that used to live here (_toLoop,
  * _buildRectangleLoop, _traceMaskBoundary, _smoothLoopPoints,
  * _recomputeSmoothNormals, _tangentExtrapolate) moved to
- * contour_ring_geometry.js (ContourRingGeometry) — see
+ * contour_ring_geometry.mjs (ContourRingGeometry) — see
  * test_contour_ring_geometry.js. _clipCellIsoband (and its tests) were
  * removed entirely: dead code from a superseded per-cell isoband-clipping
  * approach, with zero call sites anywhere once the ring+closure approach in

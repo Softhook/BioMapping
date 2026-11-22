@@ -24,15 +24,11 @@ global.LEFT = 'left';
 global.TOP = 'top';
 
 // Real MapColors — the NDVI bands must reuse the exact same LUT the map's
-// 'ndvi_50m' path colouring uses (manager/path.js), not a second ramp.
+// 'ndvi_50m' path colouring uses (manager/path.mjs), not a second ramp.
 const { MapColors } = require('../src/map/map_colors.mjs');
 global.MapColors = MapColors;
 
 const { GSRRenderer } = require('../src/render/renderer.mjs');
-// The NDVI band methods live in the object-augment split renderer_bands.js
-// (see renderer.js's class-tail manifest comment) — under plain require()
-// it hands back its method object instead of assigning onto a live global.
-Object.assign(GSRRenderer, require('../src/render/renderer_bands.mjs'));
 // renderer_bands.mjs holds a static `import { AppState } from
 // '../core/app_state.mjs'` live binding — a `global.AppState = {...}` shadow
 // no longer reaches it (ES-module migration), so mutate the real imported

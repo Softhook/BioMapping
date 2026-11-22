@@ -296,7 +296,7 @@ if (
   const BENIGN_ONERROR_PATTERNS = [
     // Fired by browsers when a ResizeObserver callback synchronously triggers a
     // resize of an observed element in the same frame. Harmless diagnostic —
-    // see layout_manager.js (which also debounces to avoid it in the first
+    // see layout_manager.mjs (which also debounces to avoid it in the first
     // place).
     /ResizeObserver loop completed with undelivered notifications/,
   ];
