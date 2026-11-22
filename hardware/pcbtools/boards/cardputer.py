@@ -188,7 +188,7 @@ STITCH = [((22.0, 26.0, 30.0, 34.0), 2.0), ((1.5, 1.5, 49.5, 52.5), 3.0), ((52.5
 LABELS = {"B": [("Bio Mapping 2", 66.0, 39.0, 1.8), ("Christian Nold, 2004 - 2026", 66.0, 44.0, 1.2),
                 ("rev F  2026-11", 66.0, 49.0, TEXT),
                 ("GPS: keep this side clear of metal", 26.0, 51.0, TEXT),
-                ("CUFFS", 79.2, 22.4, TEXT), ("BODY <> WORLD", 71.5, 14.0, 1.2), ("SAFEBOOT", 14.0, 33.0, TEXT),
+                ("CUFFS", 79.2, 22.4, TEXT), ("BODY <> WORLD", 14.0, 15.0, 1.2), ("SAFEBOOT", 14.0, 33.0, TEXT),
                 ("RESET", 37.0, 32.6, TEXT), ("5V to 3.3V", 38.5, 18.6, TEXT),
                 ("FLEX TAIL", 55.0, 3.0, TEXT), ("SOLDER HERE", 55.0, 5.0, TEXT)]}
 

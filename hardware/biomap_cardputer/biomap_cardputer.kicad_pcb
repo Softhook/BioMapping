@@ -8617,10 +8617,10 @@
 			(justify mirror)
 		)
 	)
-	(gr_text "Christian Nold, 2004 - 2026"
-		(at 66 44 0)
+	(gr_text "BODY <> WORLD"
+		(at 14 15 0)
 		(layer "B.SilkS")
-		(uuid "c9b73126-d0be-4307-a97b-d398bdd97492")
+		(uuid "28cad978-af3e-402c-811c-7651499fb84f")
 		(effects
 			(font
 				(size 1.2 1.2)
@@ -8629,10 +8629,10 @@
 			(justify mirror)
 		)
 	)
-	(gr_text "BODY <> WORLD"
-		(at 71.5 14 0)
+	(gr_text "Christian Nold, 2004 - 2026"
+		(at 66 44 0)
 		(layer "B.SilkS")
-		(uuid "28cad978-af3e-402c-811c-7651499fb84f")
+		(uuid "c9b73126-d0be-4307-a97b-d398bdd97492")
 		(effects
 			(font
 				(size 1.2 1.2)
