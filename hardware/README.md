@@ -136,6 +136,23 @@ These come from M5Stack's dimension drawing and 3D models, not from a real devic
 - Paper is thinner than the 1.6 mm board. For a truer fold, glue the print onto card about that thick.
 - KiCad draws the page from the board files, so it always matches the current layout. Tracks and copper fill are left out to save ink.
 
+## Factory files
+
+`./pcb fab` (or `./pcb fab cardputer tail`) first runs every check that `./pcb check` runs. If any fails, it writes nothing. Otherwise it fills a folder `out/fab/<board>/` for each board:
+
+| File | What it's for |
+|---|---|
+| `<board>_gerbers.zip` | Upload this to have the bare board made: one drawing (Gerber file) per layer, plus the drill files |
+| `<board>_bom_jlcpcb.csv` | The parts list, in JLCPCB's format (not for the tail) |
+| `<board>_cpl_jlcpcb.csv` | Where the machine puts each part, in JLCPCB's format (not for the tail) |
+| `ORDER.txt` | What to choose on the order form, the oven limits, and what to check in the factory's preview |
+| `gerbers/` | The zip's contents, to look at in KiCad's GerbView |
+
+- **Part rotation.** JLCPCB's machines hold some parts at a different starting angle from KiCad. Their placement preview shows each part on the board: check every chip's pin 1 dot, the diode's stripe and the backup cell's + side. If a part comes out turned, rotate it there, then add its footprint and the angle to `ROTATION_FIX` in `pcbtools/fab.py`, so the next order comes out right without fixing it again.
+- **The tail** has no parts list: it is a bare flex board, and its header is soldered by hand. Its stiffener outline is in the `User_Drawings` file in the zip: tell the factory that file is the stiffener drawing.
+- The parts list comes from each board's `bom.csv`, which `./pcb build` writes. Bare pads (test pads, the tail's landing pads) are left out.
+- `out/` isn't saved in git, so keep a copy of the zip you actually send.
+
 ## Tools
 
 Everything is done with one command, `./pcb`, run from this folder. It needs KiCad 10 and nothing else (pictures also need ImageMagick). It runs KiCad's own Python for you. If KiCad isn't in `/Applications`, set `KICAD_APP` to your `KiCad.app`.
@@ -181,6 +198,7 @@ Units are mm and y points down, as in KiCad. Write tracks with square corners: o
 | `parts <board> [REF ...]` | Pad positions, nets and keep-out boxes, as the layout places them. | No |
 | `render [board] [--out folder]` | Pictures of the schematic and both faces of each board. | Only `out/` |
 | `print [--out file]` | A full-size PDF of the Cardputer board and its tail, to print and hold against a real Cardputer (see "Paper fit test"). | Only `out/` |
+| `fab [board]` | The factory files: Gerber and drill zip, JLCPCB parts list and placement file, order notes (see "Factory files"). Runs `check` first and writes nothing if it fails. | Only `out/fab/` |
 | `footprint <library> <name> [F\|B] [pad ...]` | Where a footprint's pads land at each rotation. Also reads our own footprints (`BioMap`). | No |
 | `eagle <file> [--nets REF ...\|--package NAME]` | Reads Eagle files, such as SparkFun's open designs, without Eagle. This is how the MS421R cell and its pads were found. | No |
 | `debug-sch <file>` | When KiCad only says "Failed to load schematic", lists which items it rejects. | No |

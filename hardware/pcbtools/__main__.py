@@ -72,6 +72,11 @@ def cmd_render(args):
     render.render(args.out or render.DEFAULT_OUT, chosen(args))
 
 
+def cmd_fab(args):
+    from . import fab
+    return fab.make(chosen(args))
+
+
 def cmd_print(args):
     from . import fitprint
     return fitprint.make(args.out or fitprint.OUT)
@@ -143,6 +148,10 @@ def main(argv=None):
     p = add("render", cmd_render, "Pictures of each schematic and both faces of each board (needs ImageMagick).")
     boards_arg(p)
     p.add_argument("--out", help="output folder (default: hardware/out, which git ignores)")
+    boards_arg(add("fab", cmd_fab,
+                   "Factory files in out/fab/<board>/: Gerber and drill zip, JLCPCB parts list and placement "
+                   "file, and ORDER.txt (order-form choices). Runs the full check first and writes nothing "
+                   "if it fails."))
     p = add("print", cmd_print,
             "A full-size PDF of the Cardputer board and its flex tail, seen from outside, to print at 100%%, "
             "cut out and hold against a real Cardputer. With two 100 mm rulers to check the printer's scale.")
