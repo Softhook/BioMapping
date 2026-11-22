@@ -72,6 +72,11 @@ def cmd_render(args):
     render.render(args.out or render.DEFAULT_OUT, chosen(args))
 
 
+def cmd_print(args):
+    from . import fitprint
+    return fitprint.make(args.out or fitprint.OUT)
+
+
 def cmd_footprint(args):
     from . import footprint
     side, pads = "F", args.pads
@@ -138,6 +143,10 @@ def main(argv=None):
     p = add("render", cmd_render, "Pictures of each schematic and both faces of each board (needs ImageMagick).")
     boards_arg(p)
     p.add_argument("--out", help="output folder (default: hardware/out, which git ignores)")
+    p = add("print", cmd_print,
+            "A full-size PDF of the Cardputer board and its flex tail, seen from outside, to print at 100%%, "
+            "cut out and hold against a real Cardputer. With two 100 mm rulers to check the printer's scale.")
+    p.add_argument("--out", help="PDF to write (default: hardware/out/biomap_cardputer_print.pdf)")
     p = add("footprint", cmd_footprint, "Where a footprint's pads land at each rotation, on either face. "
                                         "Back-face parts come out mirrored: use this to choose a rotation.")
     p.add_argument("library", help="e.g. RF_GPS, or BioMap for our own footprints")

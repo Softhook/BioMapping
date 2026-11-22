@@ -118,13 +118,23 @@ Why a soldered tail: a header fixed to the main board would have to line up with
 
 ## Check before ordering (Cardputer)
 
-These come from M5Stack's dimension drawing and 3D models, not from a real device.
+These come from M5Stack's dimension drawing and 3D models, not from a real device. `./pcb print` makes a full-size paper copy to check them with (see "Paper fit test" below).
 
 - **Which way the EXT socket faces.** The tail assumes the socket opens out of the bottom edge, with its rows about 4.5 mm and 7 mm in from the back, as M5Stack's 3D model suggests. M5Stack's written docs only say it is "on the underside". Small errors in these numbers don't matter much, because the flex takes them up. But if the socket actually opens into the back face, the tail's shape has to change and the main board needs a cut-out over it.
 - **Which row is which.** The tail assumes the even-numbered row (GND, 5 V out, G13, G15) is the one nearest the back, and the odd row (G4, G6 and G5: pins 3, 5 and 13) is behind it. Check with a multimeter before plugging in. Pin 2 is 5 V *in* and must stay unconnected. If it turns out wrong, only the tail needs remaking.
 - **Room along the bottom edge.** Check that nothing else on that edge (a port or button) is in the way of the tail's plug end. It is 20 mm wide, centred on the EXT socket.
 - **The tail's length.** It is drawn with 2–3 mm of slack round the edge, if the socket's face is flush with the edge (more if it is set in). Check the fold on a real Cardputer before ordering many; a longer strip is a one-line change in `cardputer_tail.py`.
 - **Screws.** Use M2 × 4 mm only. M5Stack warns that longer screws can damage the board inside.
+
+## Paper fit test (Cardputer)
+
+`./pcb print` writes `out/biomap_cardputer_print.pdf`: the board and its tail at full size on one A4 page, seen from outside (the face you see on the back of the Cardputer).
+
+- Print it at 100% ("Actual size"), not "Fit to page", then measure the two 100 mm rulers on the page. Printers are often slightly off, so check before trusting the fit.
+- The board is drawn with the tail laid out flat where it really lies. Cut both out as one piece and fold the tail round the bottom edge to the EXT socket. The tail is also drawn on its own.
+- The + marks are the centres of the two M2 screw holes.
+- Paper is thinner than the 1.6 mm board. For a truer fold, glue the print onto card about that thick.
+- KiCad draws the page from the board files, so it always matches the current layout. Tracks and copper fill are left out to save ink.
 
 ## Tools
 
@@ -170,6 +180,7 @@ Units are mm and y points down, as in KiCad. Write tracks with square corners: o
 | `ground [--picture] [--break-test]` | The Cardputer board's ground: how far apart the GSR's ground points move when the GPS or the ADC sends current through the ground copper, plus the ground's pieces and the biggest gap between ground vias (see "Ground check" below). Takes a few minutes. | Only `out/` (`--picture`) |
 | `parts <board> [REF ...]` | Pad positions, nets and keep-out boxes, as the layout places them. | No |
 | `render [board] [--out folder]` | Pictures of the schematic and both faces of each board. | Only `out/` |
+| `print [--out file]` | A full-size PDF of the Cardputer board and its tail, to print and hold against a real Cardputer (see "Paper fit test"). | Only `out/` |
 | `footprint <library> <name> [F\|B] [pad ...]` | Where a footprint's pads land at each rotation. Also reads our own footprints (`BioMap`). | No |
 | `eagle <file> [--nets REF ...\|--package NAME]` | Reads Eagle files, such as SparkFun's open designs, without Eagle. This is how the MS421R cell and its pads were found. | No |
 | `debug-sch <file>` | When KiCad only says "Failed to load schematic", lists which items it rejects. | No |
