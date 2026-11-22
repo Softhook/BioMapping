@@ -8,19 +8,18 @@
 // BLE stack well enough to inject connect/disconnect transitions and
 // send failures without any real radio).
 //
-// Coverage: bt_profile_start() == NULL (§1.7's "Bluetooth unavailable"
-// path), connection-status transitions via the status-changed callback
-// (§1.3), the connected/disconnected and send-failure branches of
-// bt_stream_tx_batch() (§1.2), and that bt_stream_stop() always calls
-// bt_profile_restore_default() — even after a failed start — per §3's
-// "every exit path" requirement.
+// Coverage: bt_profile_start() == NULL (the "Bluetooth unavailable"
+// path), connection-status transitions via the status-changed callback,
+// the connected/disconnected and send-failure branches of
+// bt_stream_tx_batch(), and that bt_stream_stop() always calls
+// bt_profile_restore_default() — even after a failed start — so every way
+// out of a session hands the radio back to the Flipper's own profile.
 //
-// NOT covered here (see docs/archive/bluetooth_serial_investigation.md §4): real
-// ble_profile_serial_tx() latency / tick-thread contention. This mock's
-// fake clock (furi_test_tick) never advances on its own, so
-// bt_stream_get_tx_peak_ms() can only be checked for a sane baseline, not
-// a real measured worst-case — that's real hardware's job (§10 Phase 3),
-// not something a host test can see.
+// NOT covered here: how long a real ble_profile_serial_tx() call takes, or
+// whether it holds up the tick thread. This mock's fake clock
+// (furi_test_tick) never advances on its own, so bt_stream_get_tx_peak_ms()
+// can only be checked for a sane baseline, not a real measured worst case
+// — that needs a recording on the device, not a host test.
 //
 // Build: ./run_tests.sh (or see that script for the raw gcc invocation).
 
@@ -267,14 +266,12 @@ static void test_stop_resets_status(void) {
     printf("  -> Pass\n");
 }
 
-// Real-hardware crash investigation (2026-08-14, docs/bluetooth_serial_
-// investigation.md): bt_profile_restore_default() restarts the BLE
-// co-processor's second core — an asynchronous hardware event that could
-// plausibly still invoke the status-changed callback after
-// bt_stream_stop()/bt_stream_free() had already run, writing into freed
-// heap memory. bt_stream_stop() now explicitly unregisters the callback
-// first; this proves a status change fired AFTER stop() is a safe no-op
-// rather than reaching bt_stream_status_cb() at all.
+// bt_profile_restore_default() restarts the BLE co-processor's second
+// core — an asynchronous hardware event that could plausibly still invoke
+// the status-changed callback after bt_stream_stop()/bt_stream_free() had
+// already run, writing into freed heap memory. bt_stream_stop() unregisters
+// the callback first; this proves a status change fired AFTER stop() is a
+// safe no-op rather than reaching bt_stream_status_cb() at all.
 static void test_stop_unregisters_status_callback(void) {
     printf("Running test_stop_unregisters_status_callback...\n");
     reset_all();

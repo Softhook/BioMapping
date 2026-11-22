@@ -1292,9 +1292,9 @@ static void test_gsr_and_rf_worker_independence(void) {
 // Mutex-behaviour tests — directly exercise the property that the radio
 // sampler's own mutex and the GSR sensor's mutex being separate exists for,
 // using an artificially slow mocked sweep standing in for the real,
-// unbounded furi_hal_spi_bus_end_txrx() busy-wait documented in
-// em_scan_rf_crash_investigation.md. If the radio's SPI section ran under
-// the GSR mutex, the first test below would measure ~150 ms, not <20 ms.
+// unbounded busy-wait in the Flipper firmware's furi_hal_spi_bus_end_txrx()
+// (it ignores its timeout). If the radio's SPI section ran under the GSR
+// mutex, the first test below would measure ~150 ms, not <20 ms.
 // ─────────────────────────────────────────────────────────────────────────
 
 static void test_rf_snapshot_read_not_blocked_by_slow_spi_call(void) {

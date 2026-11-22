@@ -33,8 +33,9 @@ build; for the host tests, run once after cloning:
 
 - `./firmware/tests/gen_compile_commands.sh`
 
-Re-run it whenever a `tests/` or `tests/shims/` file is added or `run_tests.sh`'s
-`-I` flags change, then "C/C++: Reset IntelliSense Database" in VSCode.
+Re-run it whenever `run_tests.sh` starts building another file or its `-I`
+flags change (add the file to the list at the top of the script first), then
+"C/C++: Reset IntelliSense Database" in VSCode.
 
 There are two different techniques in play, depending on whether the file
 touches hardware:
@@ -83,7 +84,7 @@ concurrently with the test's main thread, same as it does on device.
 
 An earlier version of this (2026-07-22) went a different way: `gps_uart.c`
 and `gsr_sensor.c` were rewritten against custom interfaces
-(`modules/hal_uart.h`, `hal_i2c.h`, `hal_time.h`) with a `_flipper.c`
+(`hal_uart.h`, `hal_i2c.h`, `hal_time.h`) with a `_flipper.c`
 backend implementing each one, so a second MCU target could in principle
 swap in its own backend file. That's a real portability mechanism, but it
 came at a cost that turned out not to be worth paying yet: **6 new
@@ -92,8 +93,8 @@ mocks for the custom interfaces — 12 new files total, none of which map
 onto anything a reader familiar with the Flipper SDK would recognize.
 
 Reverted the same day in favour of what's described above: fake the SDK,
-not the driver. Net result for `modules/`: **zero new files** — `gps_uart.c`
-looks exactly like it did before any of this started. The cost moved
+not the driver. Net result: **zero new driver files** — `gps_uart.c`
+stayed exactly as it was. The cost moved
 entirely into `tests/`, and even there it's now shaped like the real SDK
 (`furi.h`, `furi_hal.h`) rather than a bespoke interface only this project
 has.

@@ -210,8 +210,9 @@ int furi_hal_subghz_mock_get_rssi_call_count(void);
 
 // Makes furi_hal_subghz_get_rssi() sleep (a REAL usleep, not the fake tick)
 // for `ms` before returning — simulates a slow/stuck SPI transaction, the
-// real-world shape of the unbounded furi_hal_spi_bus_end_txrx() busy-wait
-// (see em_scan_rf_crash_investigation.md). For proving properties like
+// real-world shape of the Flipper firmware's furi_hal_spi_bus_end_txrx(),
+// which ignores its timeout and can wait with no limit on the SPI status
+// flags. For proving properties like
 // "get_rf_snapshot() doesn't block behind an in-flight RF SPI call" without
 // needing the real firmware bug to actually happen. 0 (the default) means
 // no artificial delay.
