@@ -103,9 +103,6 @@ void        sd_logger_stop(SdLogger* logger, uint32_t end_epoch);
 // at the 10 Hz rate with real headroom over worst-case row length — see
 // gsr_batch's doc comment (sd_logger.c) for the sizing rationale.
 //   sd_logger_batch_append  — append a pre-formatted row (returns false on overflow)
-//   sd_logger_batch_printf  — format a row directly into the batch buffer (no
-//                             intermediate stack buffer).  Returns bytes written
-//                             or 0 on overflow (logged internally).
 //   sd_logger_batch_flush   — flush buffer to SD, returns >0 on success (bytes
 //                             written), 0 if there was nothing to write (an
 //                             empty buffer, or with block_bytes less than a
@@ -116,8 +113,6 @@ int         sd_logger_batch_flush(SdLogger* logger);
 // fails. On the Flipper (block_bytes 0) the two are the same.
 int         sd_logger_batch_flush_all(SdLogger* logger);
 bool        sd_logger_batch_append(SdLogger* logger, const char* data, size_t len);
-int         sd_logger_batch_printf(SdLogger* logger, const char* fmt, ...)
-    __attribute__((format(printf, 2, 3)));
 
 const char* sd_logger_get_filename(const SdLogger* logger);
 
@@ -131,14 +126,12 @@ const char* sd_logger_get_filename(const SdLogger* logger);
 // GSR/RF hardware call. See docs/archive/gps_rf_mutex_status.md.
 uint32_t    sd_logger_get_flush_peak_ms(const SdLogger* logger);
 
-// How long sd_logger_start()'s one-shot log-file pre-allocation took, in ms
-// (0 if BIOMAP_SD_PREALLOC is off, biomap_config.h). Set once per recording,
-// not a lifetime-max like flush_peak_ms above — see sd_logger.c's
-// SD_LOGGER_PREALLOC_BYTES / preallocate_log_file() and docs/
-// gps_rf_mutex_status.md's "option E" entries for why this exists: testing
-// whether growing the file to its expected full size once, up front, keeps
-// the once-per-FLUSH_INTERVAL SD-flush stall (flush_peak_ms above) from
-// getting worse across a long recording the way track 016 showed.
+// How long sd_logger_start()'s one-shot log-file pre-allocation took, in ms.
+// Set once per recording, not a lifetime-max like flush_peak_ms above — see
+// sd_logger.c's SD_LOGGER_PREALLOC_BYTES / preallocate_log_file(). Growing
+// the file to its expected full size once, up front, keeps the
+// once-per-FLUSH_INTERVAL SD-flush stall (flush_peak_ms above) from getting
+// worse across a long recording.
 uint32_t    sd_logger_get_prealloc_ms(const SdLogger* logger);
 
 // Current and worst-ever in-memory batch occupancy (bytes).

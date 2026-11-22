@@ -79,8 +79,8 @@ extern "C" {
 // holds for the whole file and is written to its header; when a phone
 // first connects in Live Stream (logged, as the BLE packet has no room for
 // it; not again on a reconnect, which continues the same track);
-// and before each resistor in the calibration wizard (biomap_gui.c), which
-// refuses to go on without a good reading. Never in the
+// and before each resistor in the calibration wizard (core/cal_wizard.c),
+// which refuses to go on without a good reading. Never in the
 // middle of a recording: a mid-recording update would put a step in the
 // data, and a repeating check would leave a regular gap in the 100 ms
 // averaging.

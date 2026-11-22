@@ -15,6 +15,7 @@ App(
         "biomap.c",
         "biomap_gui.c",
         "core/biomap_session.c",
+        "core/cal_wizard.c",
         "flipper/biomap_session_flipper.c",
         "core/biomap_screen.c",
         "flipper/biomap_screen_flipper.c",

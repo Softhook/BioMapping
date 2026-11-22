@@ -1,11 +1,8 @@
 #pragma once
 
-// The Cardputer's keys as the Flipper's six buttons.
-//
-// The Cardputer has no separate arrow keys: the arrows are printed on
-// ; . , and / (up, down, left, right), and Esc on the ` key. Each works
-// with or without Fn held. Enter is OK. Del also counts as Back, because
-// it is the bigger key and easier to find by feel.
+// The Cardputer's keys as the Flipper's six buttons: the characters in
+// key_map.h, plus Enter for OK and Del for Back (the bigger key, easier to
+// find by feel than `).
 
 #include <M5Cardputer.h>
 

@@ -537,7 +537,10 @@ void screen_draw_session(const ScreenDraw* d, const SessionCore* s, const Screen
     // so a struggling recording looks different from a healthy one.
     if(s->recording.active) {
         bool blink_gap = s->recording.flush_fail_streak > 0 && ((s->recording.total_ticks / 5) % 2);
-        if(!blink_gap) d->draw_box(d->ctx, 118, 1, 8, 8);
+        if(!blink_gap) {
+            d->draw_box(d->ctx, SCREEN_REC_MARK_X, SCREEN_REC_MARK_Y, SCREEN_REC_MARK_SIZE,
+                        SCREEN_REC_MARK_SIZE);
+        }
     }
 
     // The banner once an SD failure has ended the recording
@@ -546,7 +549,7 @@ void screen_draw_session(const ScreenDraw* d, const SessionCore* s, const Screen
     // covering the now-stale top strip is the right trade.
     if(s->recording.write_stopped) {
         d->set_font(d->ctx, ScreenFontSecondary);
-        d->draw_box(d->ctx, 0, 0, SCREEN_W, 11);
+        d->draw_box(d->ctx, 0, 0, SCREEN_W, SCREEN_BANNER_H);
         d->invert(d->ctx);
         d->draw_str(d->ctx, 2, 9, "REC STOPPED - SD ERROR");
         d->invert(d->ctx);

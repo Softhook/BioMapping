@@ -6,8 +6,8 @@
 // calibration fit shows up in the existing golden-output assertions instead
 // of silently diverging.
 //
-// Callers in core/biomap_session.c / biomap_gui.c own the glue around them
-// (SD batch append, app->mutex, notification sounds).
+// The callers (core/biomap_session.c, core/cal_wizard.c and each device's
+// own code) own the glue around them: the SD writes, the locks, the cues.
 
 #pragma once
 
@@ -75,6 +75,10 @@ int biomap_format_gsr_bias_line(char* out, size_t cap, float measured_v, float u
 // the list screens navigate the same way.
 int32_t cycle_selection(int32_t sel, int32_t count, bool down);
 
+// The Options screen's short name for a GPS profile ("PED", "WRIST", ...),
+// on both devices. "?" for a value that isn't a GpsNavModel.
+const char* biomap_nav_model_label(GpsNavModel model);
+
 // Three-point relative least-squares fit through the origin,  y = gain * x
 // (x = measured nS with the open-circuit zero already removed, y = target nS),
 // minimizing percentage error equally across all three points, plus an R²
@@ -97,7 +101,7 @@ bool calibration_wizard_compute_fit(const float measured[CAL_POINTS],
 // σ (nS) — see the CAL_NOISE_*_NS thresholds (biomap_config.h) and the
 // CalDwell accumulator below, which computes σ across the full resistor
 // dwell in a single pass. CalNoisePoor
-// fails the wizard outright (WizardStepNoiseFailed in biomap_gui.c) —
+// fails the wizard outright (WizardStepNoiseFailed, core/cal_wizard.h) —
 // Excellent/Acceptable both pass and are shown on the success screen.
 typedef enum {
     CalNoiseExcellent = 0,
@@ -153,10 +157,11 @@ extern const float biomap_cal_gates[CAL_POINTS][2];
 float biomap_cal_worst_noise_std_dev(const float noise_std_dev[CAL_POINTS]);
 
 // ── Calibration and settings records (on-disk formats) ────────────────
-// The records biomap.c reads from and writes to the SD card, and the checks
-// a loaded record must pass before it is applied. Kept here, SDK-free, so
-// tests/test_firmware.c checks this exact validation rather than a copy;
-// biomap.c owns the file I/O and the log messages.
+// The records each device reads from and writes to its SD card, and the
+// checks a loaded record must pass before it is applied. Kept here, SDK-free,
+// so tests/test_firmware.c checks this exact validation rather than a copy;
+// each device owns the file I/O and the log messages (the Flipper's in
+// biomap.c, the Cardputer's in cardputer/src/settings_cardputer.cpp).
 
 #define BIOMAP_CAL_MAGIC   0x424D4341
 // v3 added the `timestamp` (Unix epoch at save) and `r_squared` (wizard fit

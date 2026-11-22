@@ -1,8 +1,8 @@
 // Bio Mapping — GUI: input/timer callbacks, menus, options.
 //
-// Render callbacks (draw_graph, biomap_render_callback, menu_render,
-// options_render) live in biomap_render.c for separation of presentation
-// from control flow.
+// The draw callbacks for these screens (menu_render, options_render, the
+// calibration screens) live in biomap_render.c; the recording screen's in
+// flipper/biomap_screen_flipper.c.
 #include "biomap.h"
 
 // ==========================================================================
@@ -64,9 +64,6 @@ void drain_stale_events(FuriMessageQueue* q) {
     while(furi_message_queue_get(q, &ev, 0) == FuriStatusOk);
 }
 
-// cycle_selection() moved to biomap_format.c (SDK-free, linked by
-// tests/test_firmware.c instead of mirrored).
-
 // Cycle *selection under app->mutex (the render callback reads it from
 // another thread) and play the nav click — shared Up/Down handling for the
 // main menu, Options screen, and GSR/RF calibration submenu.
@@ -80,18 +77,10 @@ static void nav_cycle(BioMapApp* app, int32_t* selection, int32_t count, bool do
 // ==========================================================================
 // Launch menu — main navigation
 // ==========================================================================
-//  ┌─────────────────────────────┐
-//  │  Bio Mapping                │
-//  │  ▓ GPS + GSR           ▓    │   ← selected item (inverse bar)
-//  │    GPS Only                 │
-//  │    GSR Only                 │
-//  │    Options                  │
-//  └─────────────────────────────┘
-//
 //  Controls:  Up/Down → navigate     OK → select     Back → exit app
 
 int32_t biomap_gui_show_menu(BioMapApp* app) {
-    MenuContext ctx = {.app = app, .selection = 0};
+    ListContext ctx = {.app = app, .selection = 0};
     ViewPort* vp = vp_push(app, menu_render, &ctx);
     drain_stale_events(app->event_queue);
 
@@ -133,18 +122,8 @@ int32_t biomap_gui_show_menu(BioMapApp* app) {
 }
 
 // ==========================================================================
-// Options screen — Cold Reset GPS, Auto-zoom toggle
+// Options screen
 // ==========================================================================
-//
-//  ┌─────────────────────────────┐
-//  │  Options                    │
-//  │  ▓ Cold Reset GPS      ▓   │   ← selected
-//  │    Auto-zoom GSR   ON      │
-//  │    Backlight           ON  │
-//  │    GSR Calibration    YES  │
-//  │    Diagnostics              │
-//  └─────────────────────────────┘
-//
 //  Controls:  Up/Down → navigate     OK → select/toggle     Back → return
 
 // Toggle a bool app setting (Super-S, Auto-zoom, Backlight, Sound, Debug
@@ -163,7 +142,7 @@ static void toggle_app_setting(BioMapApp* app, bool* field, bool force_tone) {
 }
 
 void run_options_screen(BioMapApp* app) {
-    OptionsContext ctx = {.app = app, .selection = 0};
+    ListContext ctx = {.app = app, .selection = 0};
     ViewPort* vp = vp_push(app, options_render, &ctx);
 
     drain_stale_events(app->event_queue);
@@ -187,7 +166,7 @@ void run_options_screen(BioMapApp* app) {
             case InputKeyRight:
                 switch(ctx.selection) {
                 case OptGpsProfile:
-                    // Cycle GPS Profile (PED -> WRIST -> VEHICLE -> STATIONARY -> SEA -> BIKE -> FLIGHT)
+                    // Next GPS Profile (PED, WRIST, VEHICLE, STATION, SEA, BIKE, FLIGHT)
                     furi_mutex_acquire(app->mutex, FuriWaitForever);
                     app->nav_model = (GpsNavModel)cycle_selection((int32_t)app->nav_model, GpsNavModelCount, true);
                     furi_mutex_release(app->mutex);
@@ -288,10 +267,8 @@ void run_cal_submenu(BioMapApp* app, ViewPortDrawCallback render,
                       SubmenuAction start_wizard, SubmenuAction reset,
                       SubmenuAction show_current) {
     // ctx.selection is read cross-thread by draw_cal_submenu() (GUI render
-    // thread) — guarded by app->mutex on both sides, same as MenuContext/
-    // OptionsContext above. See CalSubmenuContext's doc comment in
-    // biomap.h.
-    CalSubmenuContext ctx = {.app = app, .selection = 0};
+    // thread) — guarded by app->mutex on both sides (ListContext, biomap.h).
+    ListContext ctx = {.app = app, .selection = 0};
     ViewPort* vp = vp_push(app, render, &ctx);
     drain_stale_events(app->event_queue);
     BioMapEvent ev;
@@ -307,8 +284,7 @@ void run_cal_submenu(BioMapApp* app, ViewPortDrawCallback render,
                 nav_cycle(app, &ctx.selection, CAL_SUBMENU_COUNT, true);
             } else if(ev.input.key == InputKeyOk) {
                 // This thread's own last write — no lock needed to read it
-                // back (see WizardState's identical reasoning in
-                // biomap_gui.c's run_calibration_wizard()).
+                // back.
                 if(ctx.selection == CalSubmenuStartWizard) {
                     biomap_app_cue(app, BioMapCueConfirm);
                     start_wizard(app);
@@ -336,8 +312,8 @@ void run_calibration_menu(BioMapApp* app) {
                     run_show_current_calibration);
 }
 
-// Drives the shared 4-step calibration wizard (core/biomap_session.h's
-// CalWizardCore) on the Flipper: forwards OK and Back to cal_wizard_key(),
+// Drives the shared 4-step calibration wizard (core/cal_wizard.h) on the
+// Flipper: forwards OK and Back to cal_wizard_key(),
 // and while cal_wizard_measuring() is true, steps cal_wizard_tick() at
 // 10 Hz while polling the event queue for Back cancellation.
 void run_calibration_wizard(BioMapApp* app) {
@@ -395,28 +371,13 @@ void run_calibration_wizard(BioMapApp* app) {
             furi_mutex_acquire(w.mutex, FuriWaitForever);
             w.core = next;
             furi_mutex_release(w.mutex);
-            int step = next.step;
             BioMapCue fit_cue = next.fit_cue;
             view_port_update(vp);
 
             if(finished) {
-                if(step == WizardStepBiasFailed) {
-                    FURI_LOG_W("BioMap", "Cal bias check failed: %.4f V",
-                               (double)w.core.bias_measured_v);
-                } else if(step == WizardStepZeroFailed && !cal_dwell_ok(&w.core.dwell)) {
-                    FURI_LOG_W("BioMap", "Cal zero failed: mean=%.1f in=%d of %d (limit ±%.0f)",
-                               (double)w.core.zero_counts, w.core.dwell.in_gate, w.core.dwell.all,
-                               (double)CAL_ZERO_MAX_COUNTS);
-                } else if(step == WizardStepMeasureFailed) {
-                    int idx = w.core.fail_idx;
-                    FURI_LOG_W("BioMap",
-                               "Cal measure %d failed: first_raw=%.1f in=%d below=%d above=%d gate=[%.0f, %.0f]",
-                               idx, (double)w.core.first_raw, w.core.dwell.in_gate,
-                               w.core.dwell.below, w.core.dwell.above,
-                               (double)biomap_cal_gates[idx][0], (double)biomap_cal_gates[idx][1]);
-                } else if(step == WizardStepFitFailed) {
-                    FURI_LOG_W("BioMap", "Calibration fit failed: gain=%.4f R²=%.4f",
-                               (double)w.core.gain, (double)w.core.r_squared);
+                char why[96];
+                if(cal_wizard_fail_reason(&next, why, sizeof(why))) {
+                    FURI_LOG_W("BioMap", "Calibration: %s", why);
                 }
                 biomap_app_cue(app, done_cue);
                 if(fit_cue != BioMapCueCount) {

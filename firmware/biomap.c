@@ -18,7 +18,7 @@ uint32_t biomap_rtc_now_epoch(void) {
 // can relearn anything, so the next session starts from nothing (first fix
 // ~23-29 s in open sky, SAM-M10Q datasheet).
 void run_gps_cold_start(BioMapApp* app) {
-    GpsUart* g = gps_uart_alloc(app->event_queue, app->notifications, app->nav_model, app->super_s);
+    GpsUart* g = gps_uart_alloc(app->event_queue, app->nav_model, app->super_s);
     bool ok = g && gps_uart_is_ready(g);
     if(ok) { gps_uart_send_cold_start(g); furi_delay_ms(300); }
     biomap_app_cue(app, ok ? BioMapCueGpsColdStartDone : BioMapCueGpsColdStartFailed);
@@ -191,10 +191,8 @@ bool biomap_load_calibration(BioMapApp* app) {
                 FURI_LOG_W("BioMap", "Calibration file magic mismatch!");
                 break;
             case CalRecordBadVersion:
-                // No migration path: when the format changes (new fields),
-                // add a block here that reads the old struct and fills
-                // defaults for the new fields before bumping
-                // BIOMAP_CAL_VERSION.
+                // A file from an older format is ignored: run the wizard
+                // again.
                 FURI_LOG_W("BioMap", "Calibration version mismatch (got %lu, want %d) — ignoring",
                            (unsigned long)cal.version, BIOMAP_CAL_VERSION);
                 break;

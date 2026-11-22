@@ -100,7 +100,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 // 0.5 V BIAS MEASUREMENT (see GSR_BIAS_* in gsr_sensor.h)
-//   AIN1 carries the bias (it is the skin reading's reference). alloc()
+//   AIN1 carries the bias (it is the skin reading's reference). create()
 //   reads it directly before the worker starts. After that the worker only
 //   reads it when asked (gsr_sensor_request_bias_check(), at the start of
 //   each recording): it switches the input multiplexer to AIN1-vs-GND on
@@ -154,6 +154,10 @@
 // some jitter, always count.
 #define COUNTED_WINDOW_GAP_MS (BOXCAR_WINDOW_MS / 2)
 
+// Windows in a row outside GSR_VALID_MIN_NS..GSR_VALID_MAX_NS before the
+// finger cuffs count as disconnected: 2 s at 10 Hz.
+#define DISCONNECT_WINDOWS 20
+
 // Normalisation multiplier factors to pga_index=5 (±0.256 V) reference.
 static const int32_t NORM_FACTOR[6] = { 24, 16, 8, 4, 2, 1 };
 
@@ -185,7 +189,7 @@ _Static_assert((SENSOR_BUFFER_SIZE & (SENSOR_BUFFER_SIZE - 1)) == 0,
 
 struct GsrSensor {
     float   raw;        // skin conductance in nanosiemens (nS)
-    bool    connected;  // false after 20+ ticks outside GSR_VALID_MIN_NS..GSR_VALID_MAX_NS (cuffs disconnected)
+    bool    connected;  // false after DISCONNECT_WINDOWS ticks outside GSR_VALID_MIN_NS..GSR_VALID_MAX_NS (cuffs disconnected)
     bool    i2c_working; // false when consecutive I2C reads fail
     uint8_t pga_index;  // active PGA setting (0 … ADS_PGA_MAX)
     uint8_t low_count;  // consecutive ticks below ADS_LOW_THRESH
@@ -252,9 +256,9 @@ struct GsrSensor {
     //
     // worker_hz_cached is a ROLLING ~1 s measurement, recomputed by
     // gsr_sensor_tick() (main thread only) whenever a window elapses —
-    // deliberately NOT a lifetime average since alloc().  A lifetime
+    // deliberately NOT a lifetime average since create().  A lifetime
     // average converges slowly and stays permanently diluted by the
-    // one-time probe/warm-up delay in gsr_sensor_alloc(), so a reading
+    // one-time probe/warm-up delay in gsr_sensor_create(), so a reading
     // taken shortly after entering the Diagnostics screen would
     // understate the true steady-state rate.  Same no-mutex-needed
     // pattern as tick_mean_norm below: written only by tick() on the main
@@ -284,16 +288,10 @@ struct GsrSensor {
     uint32_t stale_count;               // mutex-protected — worker increments on duplicates with gap_ms < 2 (stale hardware re-read)
     // duplicate_gap_running_min — mutex-protected. Worker tracks the
     // smallest inter-read gap (ms) seen specifically AT a duplicate
-    // event (not the general per-window minimum gsr_sensor_tick()
-    // computes over the whole window in Step 1) since the last ~1 s
-    // window reset. UINT32_MAX means no duplicates have occurred yet in
-    // the current window. This is the direct correlation that
-    // duplicate_count alone doesn't give: whether the reads that
-    // actually turned out to be duplicates were specifically the
-    // tightly-spaced ones — real evidence for or against the "occasional
-    // sub-ADC-conversion-time loop period" theory, rather than comparing
-    // two independent aggregate numbers (general window Gap vs. Dup%)
-    // and eyeballing whether they seem consistent.
+    // event since the last ~1 s window reset. UINT32_MAX means no
+    // duplicates have occurred yet in the current window. Shows whether
+    // the reads that turned out to be duplicates were the tightly-spaced
+    // ones, which duplicate_count alone can't.
     uint32_t duplicate_gap_running_min;
     uint32_t duplicate_gap_min_cached; // tick() only — last window's value, same UINT32_MAX sentinel
     uint32_t hz_window_start_tick;  // tick() only
@@ -528,9 +526,8 @@ bool gsr_sensor_worker_pass(GsrSensor* gsr) {
     // loop runs fast but half the reads silently fail" (iter_count alone
     // can't; see research/gsr_filtering_analysis.md). The settle window is
     // excluded from attempt_count (and therefore worker_hz / success
-    // rate): we're deliberately not sampling then, exactly as during the
-    // old furi_delay_ms() gap. i2c_peak_ms still updates — an I2C stall
-    // matters whenever it lands.
+    // rate): we're deliberately not sampling then. i2c_peak_ms still
+    // updates — an I2C stall matters whenever it lands.
     gsr_lock(gsr);
     if(!in_pga_settle && !gsr->w.bias_active) gsr->attempt_count++;
     if(i2c_read_dur > gsr->i2c_peak_ms) gsr->i2c_peak_ms = i2c_read_dur;
@@ -647,25 +644,15 @@ GsrSensor* gsr_sensor_create(const GsrPlatform* platform) {
     CORE_CHECK(platform && platform->lock && platform->unlock && platform->now_ms &&
                    platform->delay_ms && platform->i2c_read && platform->i2c_write,
                "GsrSensor: incomplete platform");
-    GsrSensor* gsr = malloc(sizeof(GsrSensor));
+    // Zeroed, so only the fields that don't start at 0 / false are set here.
+    GsrSensor* gsr = calloc(1, sizeof(GsrSensor));
     CORE_CHECK(gsr, "GsrSensor: alloc failed");
     gsr->platform = *platform;
-    gsr->raw       = 0.0f;
     gsr->pga_index = ADS_PGA_DEFAULT;
-    gsr->low_count = 0;
     gsr->connected = true;
-    gsr->i2c_working = true;
-    gsr->zero_count = 0;
-    gsr->counted_once = false;
-    gsr->counted_ms = 0;
-    gsr->cal_active = false;
     gsr->cal_gain = 1.0f;
-    gsr->cal_zero_counts = 0.0f;
-    gsr->bias_volts = 0.0f;
     gsr->bias_scale = 1.0f;
     gsr->bias_measured_volts = NAN;
-    gsr->bias_check_requested = false;
-    gsr->bias_check_seq = 0;
 
     // Probe: a short 1-byte read, just to see if the chip answers.
     uint8_t probe = 0;
@@ -715,45 +702,13 @@ GsrSensor* gsr_sensor_create(const GsrPlatform* platform) {
         gsr->buffer[i] = initial_norm;
         gsr->sample_tick[i] = alloc_tick;
     }
-    gsr->write_idx = 0;
-
-    gsr->iter_count = 0;
-    gsr->attempt_count = 0;
-    gsr->duplicate_count = 0;
-    gsr->stale_count = 0;
     gsr->duplicate_gap_running_min = UINT32_MAX;
     gsr->duplicate_gap_min_cached = UINT32_MAX;
-    gsr->consecutive_failures = 0;
-    gsr->hz_window_start_tick = gsr_now(gsr); // set before the worker starts — no lock needed
-    gsr->hz_window_start_count = 0;
-    gsr->hz_window_start_attempts = 0;
-    gsr->hz_window_start_duplicates = 0;
-    gsr->hz_window_start_stale = 0;
-    gsr->worker_hz_cached = 0.0f;
     gsr->success_rate_cached = 100.0f; // optimistic default until the first window rolls
-    gsr->duplicate_rate_cached = 0.0f; // optimistic default until the first window rolls
-    gsr->stale_rate_cached = 0.0f;     // optimistic default until the first window rolls
-    gsr->pga_change_count = 0;
-    gsr->hz_window_start_pga_changes = 0;
-    gsr->pga_change_rate_cached = 0;
-    gsr->i2c_peak_ms = 0;
-    gsr->tick_last_norm = 0;
-    gsr->tick_mean_norm = 0;
-    gsr->tick_window_samples = 0;
-    gsr->tick_spread_ns = 0.0f;
-
-    gsr->pga_changed = false;
+    gsr->hz_window_start_tick = gsr_now(gsr); // set before the worker starts — no lock needed
 
     gsr->w.current_adc_pga = ADS_PGA_DEFAULT;
-    gsr->w.consecutive_failures = 0;
-    gsr->w.last_hw = 0;
-    gsr->w.have_last_hw = false;
-    gsr->w.last_read_tick = 0;
     gsr->w.pga_settle_until_tick = gsr_now(gsr);
-    gsr->w.bias_active = false;
-    gsr->w.bias_settle_until_tick = 0;
-    gsr->w.bias_sum = 0;
-    gsr->w.bias_reads = 0;
 
     return gsr;
 }
@@ -831,7 +786,7 @@ int32_t gsr_sensor_get_mean_count(const GsrSensor* gsr) {
     CORE_CHECK(gsr, "GsrSensor: NULL in get_mean_count()");
     // tick_mean_norm is written by tick() on the main thread but read here
     // from whatever thread calls this accessor (the GUI render thread, in
-    // production) — genuinely cross-thread, so it needs gsr->mutex like
+    // production) — genuinely cross-thread, so it needs the lock like
     // every other field below.
     gsr_lock(gsr);
     int32_t val = gsr->tick_mean_norm;
@@ -1127,7 +1082,7 @@ void gsr_sensor_tick(GsrSensor* gsr) {
         float stale_rate =
             (delta > 0) ? (100.0f * (float)delta_stale / (float)delta) : 0.0f;
 
-        // Published under gsr->mutex — these *_cached fields are read
+        // Published under the lock — these *_cached fields are read
         // cross-thread by the Diagnostics screen's accessors
         // (gsr_sensor_get_worker_hz() etc.) from the GUI render thread
         // (core/biomap_screen.c is their only caller). hz_window_start_* stay
@@ -1197,7 +1152,7 @@ void gsr_sensor_tick(GsrSensor* gsr) {
     // Cardputer, 50 on the Flipper; see Oversampling & Filtering above).
     float avg_norm = (float)sum / (float)samples;
 
-    // Published under gsr->mutex — these tick_* fields are read cross-thread
+    // Published under the lock — these tick_* fields are read cross-thread
     // by the Diagnostics screen's accessors from the GUI render thread, same
     // as the hz-window block above.
     gsr_lock(gsr);
@@ -1264,21 +1219,21 @@ void gsr_sensor_tick(GsrSensor* gsr) {
     }
 
     // ── Step 5: publish pga_index, pga_changed, and calibrated raw under
-    // a single mutex acquisition to minimise contention with the worker.
+    // a single lock acquisition to minimise contention with the worker.
     gsr_lock(gsr);
     if(pga_update) {
         gsr->pga_index = new_pga;
         gsr->pga_changed = true;
-        gsr->pga_change_count++; // tick()-only field, safe to touch under this mutex acquisition
+        gsr->pga_change_count++; // tick()-only field
     }
     gsr->raw = raw_ns;
     gsr->tick_spread_ns = spread_ns;
 
-    // ── Finger-cuff disconnect detection (20-tick debounce).
+    // ── Finger-cuff disconnect detection (DISCONNECT_WINDOWS debounce).
     if(!counted) {
         // no change
     } else if(raw_ns < GSR_VALID_MIN_NS || raw_ns > GSR_VALID_MAX_NS) {
-        if(++gsr->zero_count >= 20) {
+        if(++gsr->zero_count >= DISCONNECT_WINDOWS) {
             gsr->connected = false;
         }
     } else {

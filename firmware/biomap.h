@@ -30,6 +30,7 @@
 
 // ── Module headers ─────────────────────────────────────────────────────
 #include "core/biomap_session.h"
+#include "core/cal_wizard.h"
 #include "flipper/biomap_session_flipper.h"
 #include "core/biomap_screen.h"
 #include "flipper/biomap_screen_flipper.h"
@@ -163,26 +164,14 @@ enum {
     OptDebugFields,
 };
 
+// A list screen's selection (the main menu, Options, a calibration
+// submenu). Written by the screen's key loop (biomap_gui.c) on the main
+// thread and read by its draw callback (biomap_render.c) on the GUI
+// service's own thread, so both sides take app->mutex.
 typedef struct {
     BioMapApp* app;
     int32_t    selection;
-} MenuContext;
-
-typedef struct {
-    BioMapApp* app;
-    int32_t    selection;
-} OptionsContext;
-
-// run_cal_submenu()'s (biomap_gui.c) stack-local ctx — same shape/lock
-// reasoning as MenuContext/OptionsContext above: `selection` is written by
-// the main thread's key-handling loop and read by draw_cal_submenu()
-// (biomap_render.c) on the GUI service's own render thread, so it's guarded
-// by app->mutex like the other two, rather than a dedicated mutex (unlike
-// WizardState/RfCalWizardState, which have no BioMapApp* to reuse).
-typedef struct {
-    BioMapApp* app;
-    int32_t    selection;
-} CalSubmenuContext;
+} ListContext;
 
 // BioMapCalibration (the record format), BIOMAP_CAL_MAGIC/VERSION and the
 // validity check live in biomap_format.h; biomap.c owns the file I/O.
@@ -190,9 +179,9 @@ typedef struct {
 #define BIOMAP_CAL_PATH_TMP "/ext/biomapping/biomap.cal.tmp"
 
 // CAL_POINTS, CAL_TARGET_*, CAL_*_GATE, CAL_GAIN_*, CAL_ZERO_MAX_COUNTS,
-// CAL_DWELL_SECONDS, CAL_MIN_VALID, CAL_*_FLUSH_TICKS, CAL_NOISE_*_NS and
-// the WizardStep* enum live in core/biomap_config.h so both the Flipper
-// and Cardputer wizards share one source of truth.
+// CAL_DWELL_SECONDS, CAL_MIN_VALID, CAL_*_FLUSH_TICKS and CAL_NOISE_*_NS
+// live in core/biomap_config.h, the WizardStep* enum in core/cal_wizard.h,
+// so both devices share one source of truth.
 
 // ── Options persistence ─────────────────────────────────────────────────
 // BioMapSettings (the record format) and its validity check live in
@@ -200,9 +189,8 @@ typedef struct {
 #define BIOMAP_SETTINGS_PATH     "/ext/biomapping/biomap.settings"
 #define BIOMAP_SETTINGS_PATH_TMP "/ext/biomapping/biomap.settings.tmp"
 
-// Calibration wizard state: the shared state machine (CalWizardCore,
-// core/biomap_session.h; step numbers in core/biomap_config.h) plus the
-// mutex below.
+// Calibration wizard state: the shared state machine (CalWizardCore and
+// its step numbers, core/cal_wizard.h) plus the mutex below.
 //
 // Lives as a stack-local in run_calibration_wizard() (biomap_gui.c), but
 // its draw callback (biomap_render.c's calibration_wizard_render()) runs
@@ -300,10 +288,8 @@ void      drain_stale_events(FuriMessageQueue* q);
 typedef void (*SubmenuAction)(BioMapApp* app);
 
 // Generic "Start Wizard / Reset to Default / Show Current" 3-item submenu
-// loop — shared shape behind run_calibration_menu (biomap_gui.c, GSR) and
-// run_rf_calibration_menu (biomap_rf_cal.c, RF), which were previously two
-// copies of the identical Up/Down/OK/Back loop differing only in which
-// three functions and render callback they called.
+// loop behind run_calibration_menu (biomap_gui.c, GSR) and
+// run_rf_calibration_menu (biomap_rf_cal.c, RF).
 void run_cal_submenu(BioMapApp* app, ViewPortDrawCallback render,
                       SubmenuAction start_wizard, SubmenuAction reset,
                       SubmenuAction show_current);

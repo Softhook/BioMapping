@@ -158,7 +158,7 @@ firmware/tests/
   test_gsr_sensor.c              — gsr_sensor.c host tests, real worker thread + all
   test_sd_logger.c               — sd_logger.c host tests, via an in-memory
                                    virtual filesystem (storage_mock.c); includes
-                                   log-file pre-allocation (BIOMAP_SD_PREALLOC)
+                                   log-file pre-allocation
   test_em_scan_cal.c            — em_scan_cal.c: RF calibration validation + persist/load
   test_em_scan_rf.c              — em_scan_rf.c: init/deinit CC1101 sequencing,
                                    dwell-band peak-hold (max, not last-sample),
@@ -260,7 +260,7 @@ Approximate test counts — the exact numbers drift with each addition; run
 | `core/biomap_pipeline.c` + `core/biomap_format.c` | No | ✅ `tests/test_firmware.c` (~35 tests) |
 | `core/gps_uart.c` + `flipper/gps_uart_flipper.c` | Flipper side only (`furi_hal_serial_*`) | ✅ `tests/test_gps_uart.c` (~39 tests) |
 | `core/gsr_sensor.c` + `flipper/gsr_sensor_flipper.c` | Flipper side only (`furi_hal_i2c_*`, real `FuriThread`) | ✅ `tests/test_gsr_sensor.c` (~47 tests) + a ThreadSanitizer pass |
-| `core/sd_logger.c` + `flipper/sd_logger_flipper.c` | Flipper side only (`Storage`/`File`) | ✅ `tests/test_sd_logger.c` (~30 tests, includes `BIOMAP_SD_PREALLOC` & CRC32 integrity trailer) + `tests/test_sd_blocks.c` (whole-block writes, as on the Cardputer) |
+| `core/sd_logger.c` + `flipper/sd_logger_flipper.c` | Flipper side only (`Storage`/`File`) | ✅ `tests/test_sd_logger.c` (~30 tests, includes log-file pre-allocation & CRC32 integrity trailer) + `tests/test_sd_blocks.c` (whole-block writes, as on the Cardputer) |
 | `modules/em_scan_cal.c` | No (pure calc + Storage for persist) | ✅ `tests/test_em_scan_cal.c` (~5 tests) |
 | `modules/bt_stream.c` | Yes (`Bt`/`ble_profile_serial_*`) | ✅ `tests/test_bt_stream.c` (~13 tests, BLE mock shims) |
 | `modules/em_scan_rf.c` | Yes (CC1101 SPI) | ✅ `tests/test_em_scan_rf.c` (~9 tests, dedicated `furi_hal_subghz_mock.c`) |
@@ -327,10 +327,8 @@ free index skipping gaps, wraparound past `LOGGER_MAX_INDEX` back to 001),
 the distinct "directory doesn't exist yet" vs. "open fails" vs. "header
 write fails" failure paths in `open_log_file()` (each must leave the logger
 cleanly inactive, not half-open), `sd_logger_stop()` returning the logger to
-a reusable state, the batch append/printf/flush round trip actually landing
-bytes on "disk", and — driving the real function this time, not the
-`test_firmware.c` mirror — `sd_logger_batch_printf()`'s truncation rollback
-and `sd_logger_batch_append()`'s overflow rejection. `storage_sd_api.h`
+a reusable state, the batch append/flush round trip actually landing
+bytes on "disk", and `sd_logger_batch_append()`'s overflow rejection. `storage_sd_api.h`
 pulling in `<furi.h>` transitively is the same "hidden transitive include"
 shape as the `gsr_sensor.c` bug above; the shim's `storage/storage.h`
 replicates it (`#include <furi.h>`) so `sd_logger.c` needs zero changes.

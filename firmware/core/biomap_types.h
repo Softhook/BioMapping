@@ -39,7 +39,7 @@
 #define BT_STREAM_INTERVAL_MS    300
 #define BT_STREAM_INTERVAL_TICKS (BT_STREAM_INTERVAL_MS * TICK_HZ / 1000)
 
-// ── Auto-zoom tuning (update_graph_pipeline) ──────────────────────────
+// ── Auto-zoom tuning (pipeline_update_graph) ──────────────────────────
 #define ZOOM_PEAK_DECAY   0.997f  // multiplicative decay of peak per tick
 #define ZOOM_LERP_RATE    0.02f   // zoom level lerp toward target per tick
 #define ZOOM_TARGET_DIV   80.0f   // numerator: target zoom = ZOOM_TARGET_DIV / peak
@@ -49,9 +49,8 @@
 #define MANUAL_ZOOM_TIMEOUT 30    // ticks before auto-zoom re-engages after manual zoom (3 s)
 #define FLUSH_INTERVAL    10      // seconds between SD batch flushes (LED blinks at 1 Hz)
 
-// Consecutive failed sd_logger_batch_flush() calls tolerated before a
-// recording is ended as unrecoverable (see run_recording_session's flush
-// block). Flush attempts are ~FLUSH_INTERVAL seconds apart, so ~6 is about a
+// Consecutive failed SD flushes tolerated before a recording is ended as
+// unrecoverable (see flush_file() in core/biomap_session.c). Flush attempts are ~FLUSH_INTERVAL seconds apart, so ~6 is about a
 // minute of retrying while the batch buffer holds the un-flushed rows in RAM
 // — a batch buffer that fills first ends it sooner regardless.
 #define SD_FLUSH_FAIL_STREAK_LIMIT 6
@@ -113,12 +112,12 @@ typedef struct {
     // sequence counter — it stays perfectly uniform even if the main loop
     // stalls, so it can't prove contention is or isn't happening (see
     // docs/archive/gps_rf_mutex_status.md). last_tick_wall_ms/tick_dt_ms are the
-    // real furi_get_tick() measurement instead: updated every Tick event in
-    // session_core_tick(), regardless of recording.active.
-    uint32_t last_tick_wall_ms; // bookkeeping only — previous furi_get_tick() reading
+    // real clock measurement instead (SessionPlatform.now_ms): updated every
+    // tick in session_core_tick(), regardless of recording.active.
+    uint32_t last_tick_wall_ms; // bookkeeping only — previous now_ms() reading
     uint32_t tick_dt_ms;        // real elapsed ms since the previous Tick event; 0 on the first tick
 
-    // ── SD write-failure ride-out (run_recording_session's flush block) ────
+    // ── SD write-failure ride-out (flush_file(), core/biomap_session.c) ────
     // A failed batch flush no longer ends the recording immediately:
     // sd_logger_batch_flush() keeps the un-flushed rows in its buffer and new
     // rows keep appending onto them, so the next successful flush writes the
@@ -162,7 +161,7 @@ typedef struct {
 //
 // The *_peak_ms columns go one level deeper: given a stall in tick_dt_ms,
 // which of the worker's candidate blocking calls caused it? Each is a
-// lifetime-max furi_get_tick() delta measured immediately around one
+// lifetime-max clock delta measured immediately around one
 // specific hardware call — see gsr_sensor_get_i2c_peak_ms() (gsr_sensor.h),
 // em_scan_sampler_get_*_peak_ms() (em_scan_sampler.h) and
 // sd_logger_get_flush_peak_ms() (sd_logger.h)
@@ -173,9 +172,9 @@ typedef struct {
 // sd_logger.c: current batch occupancy, lifetime high-water mark, rows
 // rejected under batch-capacity pressure, and flush write/sync failures.
 // prealloc_ms is set once at recording start and stays constant for the
-// whole file; 0 when BIOMAP_SD_PREALLOC is off.
+// whole file.
 typedef struct {
-    uint32_t tick_dt_ms;     // real furi_get_tick() delta since the previous Tick event
+    uint32_t tick_dt_ms;     // real clock delta since the previous tick
     uint32_t gps_rx_drops;   // cumulative UART bytes dropped (gps_uart's rx_stream was full)
     uint32_t nmea_fail;      // cumulative NMEA sentences that failed checksum/parse
     uint32_t gps_reinit_count; // cumulative full GPS module reconfigure cycles (gps_uart_get_reinit_count)

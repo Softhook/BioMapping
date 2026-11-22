@@ -46,13 +46,7 @@ static bool write_file_atomic(const char* tmp_path, const char* path,
         Serial.printf("[Settings] error: can't open %s\n", tmp_path);
         return false;
     }
-    const uint8_t* p = static_cast<const uint8_t*>(data);
-    size_t done = 0;
-    while(done < size) {
-        ssize_t n = write(fd, p + done, size - done);
-        if(n <= 0) break;
-        done += (size_t)n;
-    }
+    size_t done = sd_write_all(fd, data, size);
     bool synced = (done == size) && (fsync(fd) == 0);
     close(fd);
     if(!synced) {
@@ -180,11 +174,13 @@ void settings_cardputer_reset_cal(void) {
         unlink(CAL_PATH);
         unlink(CAL_PATH_TMP);
     }
-    g_settings.cal_active = false;
-    g_settings.cal_gain = 1.0f;
-    g_settings.cal_zero_counts = 0.0f;
-    g_settings.cal_timestamp = 0;
-    g_settings.cal_r_squared = 0.0f;
-    memset(g_settings.cal_noise_std_dev, 0, sizeof(g_settings.cal_noise_std_dev));
+    const CardputerSettings defaults;
+    g_settings.cal_active = defaults.cal_active;
+    g_settings.cal_gain = defaults.cal_gain;
+    g_settings.cal_zero_counts = defaults.cal_zero_counts;
+    g_settings.cal_timestamp = defaults.cal_timestamp;
+    g_settings.cal_r_squared = defaults.cal_r_squared;
+    memcpy(g_settings.cal_noise_std_dev, defaults.cal_noise_std_dev,
+           sizeof(g_settings.cal_noise_std_dev));
     Serial.println("[Settings] Reset calibration to default");
 }

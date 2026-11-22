@@ -8,6 +8,7 @@
 // slow call (file write, sound, Bluetooth send) under the lock fails here.
 
 #include "core/biomap_session.h"
+#include "core/cal_wizard.h"
 #include "core/biomap_screen.h"
 #include "core/biomap_format.h"
 #include "core/core_check.h"
@@ -1414,8 +1415,12 @@ static void test_cal_wizard_state_machine(void) {
     assert(w.step == WizardStepMeasuringZero && cue == BioMapCueClick);
     assert(cal_wizard_check_sensor(&w, &cue));
     assert(w.step == WizardStepMeasureFailed && cue == BioMapCueError);
+    char why[96];
+    assert(cal_wizard_fail_reason(&w, why, sizeof(why)) && strcmp(why, "No GSR sensor") == 0);
     assert(cal_wizard_key(&w, true, &cue) == CalKeyOutcomeStepChanged);
     assert(w.step == WizardStepPromptZero && cue == BioMapCueClick);
+    // Not a fail step: nothing to log.
+    assert(!cal_wizard_fail_reason(&w, why, sizeof(why)));
 
     // 2. Full 4-step happy path with the pretend ADS1115.
     cal_wizard_init(&w, G.gsr);
@@ -1445,6 +1450,8 @@ static void test_cal_wizard_state_machine(void) {
         assert(w.fit_cue == (i + 1 < CAL_POINTS ? BioMapCueCount : BioMapCueSuccess));
     }
     assert(fabsf(w.gain - 1.0f) < 0.02f && w.r_squared > 0.999f);
+
+    assert(!cal_wizard_fail_reason(&w, why, sizeof(why)));  // passed
 
     // OK on WizardStepSuccess requests save & exit.
     assert(cal_wizard_key(&w, true, &cue) == CalKeyOutcomeSaveAndExit);
@@ -1481,8 +1488,19 @@ static void wiz_measure(CalWizardCore* w, float ns, BioMapCue* cue) {
     run_wiz_dwell_to_end(w, cue);
 }
 
-// The wizard's four fail screens, and that OK on each starts again from
-// the zero step.
+// The wizard's log line for its current fail step must start with
+// `want_start` and contain `want_part`.
+static void assert_fail_reason(const CalWizardCore* w, const char* want_start,
+                               const char* want_part) {
+    char why[96];
+    assert(cal_wizard_fail_reason(w, why, sizeof(why)));
+    printf("    log: %s\n", why);
+    assert(strncmp(why, want_start, strlen(want_start)) == 0);
+    assert(strstr(why, want_part) != NULL);
+}
+
+// The wizard's fail screens, the log line for each, and that OK on each
+// starts again from the zero step.
 static void test_cal_wizard_fail_paths(void) {
     printf("Running test_cal_wizard_fail_paths...\n");
     start_with_modules(BioMapModeGsrOnly, settings(), 0.5f);
@@ -1497,6 +1515,7 @@ static void test_cal_wizard_fail_paths(void) {
     printf("  zero fail: step=%d zero=%.0f cue=%d\n", w.step, (double)w.zero_counts, (int)cue);
     assert(w.step == WizardStepZeroFailed && cue == BioMapCueError);
     assert(fabsf(w.zero_counts) > CAL_ZERO_MAX_COUNTS);  // the fail screen shows what was read
+    assert_fail_reason(&w, "Zero failed:", "limit");
     assert(cal_wizard_key(&w, true, &cue) == CalKeyOutcomeStepChanged);
     assert(w.step == WizardStepPromptZero && cue == BioMapCueClick);
 
@@ -1508,6 +1527,7 @@ static void test_cal_wizard_fail_paths(void) {
     run_wiz_dwell_to_end(&w, &cue);
     assert(w.step == WizardStepMeasureFailed && w.fail_idx == 0 && cue == BioMapCueError);
     assert(w.dwell.below > 0 && w.dwell.in_gate == 0);
+    assert_fail_reason(&w, "470k failed:", "in=0 below=");
     assert(cal_wizard_key(&w, true, &cue) == CalKeyOutcomeStepChanged);
     assert(w.step == WizardStepPromptZero);
 
@@ -1523,6 +1543,7 @@ static void test_cal_wizard_fail_paths(void) {
     assert(w.step == WizardStepBiasFailed && w.fail_idx == 1 && cue == BioMapCueError);
     assert(fabsf(w.bias_measured_v - 0.40f) < 0.01f);  // the fail screen shows what was read
     assert(!cal_wizard_measuring(&w));
+    assert_fail_reason(&w, "Bias check failed:", "0.4");
     assert(cal_wizard_key(&w, true, &cue) == CalKeyOutcomeStepChanged);
     assert(w.step == WizardStepPromptZero);
 
@@ -1535,6 +1556,7 @@ static void test_cal_wizard_fail_paths(void) {
     printf("  noise fail: step=%d sigma=%.1f nS\n", w.step, (double)w.noise_std_dev[0]);
     assert(w.step == WizardStepNoiseFailed && w.fail_idx == 0 && cue == BioMapCueError);
     assert(w.noise_std_dev[0] >= CAL_NOISE_ACCEPTABLE_NS);  // kept for the fail screen
+    assert_fail_reason(&w, "470k too noisy:", "nS");
     assert(cal_wizard_key(&w, true, &cue) == CalKeyOutcomeStepChanged);
     assert(w.step == WizardStepPromptZero);
 
@@ -1550,6 +1572,7 @@ static void test_cal_wizard_fail_paths(void) {
     printf("  fit fail: step=%d gain=%.3f r2=%.3f\n", w.step, (double)w.gain, (double)w.r_squared);
     assert(w.step == WizardStepFitFailed && w.fit_cue == BioMapCueError);
     assert(w.r_squared < 0.95f);
+    assert_fail_reason(&w, "Fit failed:", "R2=");
     assert(cal_wizard_key(&w, true, &cue) == CalKeyOutcomeStepChanged);
     assert(w.step == WizardStepPromptZero);
     // A fresh run clears the last run's fit cue.

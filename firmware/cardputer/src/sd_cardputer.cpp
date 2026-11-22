@@ -11,7 +11,6 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#include "core_check.h"
 #include "tusb.h"
 
 // Arduino's SD library mounts the card's FAT file system at /sd. The file
@@ -259,17 +258,20 @@ static SdOpenResult plat_open_new(void* ctx, const char* name) {
     return errno == EEXIST ? SdOpenNameTaken : SdOpenFailed;
 }
 
-static size_t plat_write(void* ctx, const void* data, size_t len) {
-    auto* c = static_cast<SdCardputer*>(ctx);
+size_t sd_write_all(int fd, const void* data, size_t len) {
     const uint8_t* p = static_cast<const uint8_t*>(data);
     size_t done = 0;
     // write() may take less than asked; carry on until it stops taking any.
     while(done < len) {
-        ssize_t n = write(c->fd, p + done, len - done);
+        ssize_t n = write(fd, p + done, len - done);
         if(n <= 0) break;
         done += (size_t)n;
     }
     return done;
+}
+
+static size_t plat_write(void* ctx, const void* data, size_t len) {
+    return sd_write_all(static_cast<SdCardputer*>(ctx)->fd, data, len);
 }
 
 static bool plat_sync(void* ctx) {

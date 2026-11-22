@@ -111,11 +111,10 @@ static void plat_fill_diag(void* ctx, RowDiag* d) {
 // in the same line is how a tick stall is traced to its cause.
 static void plat_second_diag(void* ctx, const SessionCore* core) {
     const Session* s = &((BioMapApp*)ctx)->session;
-    FURI_LOG_I(TAG, "heartbeat heap:free=%u min=%u stack:main=%u gsr=%u sd_dry=%u",
+    FURI_LOG_I(TAG, "heartbeat heap:free=%u min=%u stack:main=%u gsr=%u",
                (unsigned)memmgr_get_free_heap(), (unsigned)memmgr_get_minimum_free_heap(),
                (unsigned)furi_thread_get_stack_space(furi_thread_get_id(furi_thread_get_current())),
-               (unsigned)(core->gsr ? gsr_sensor_get_stack_space(core->gsr) : 0),
-               (unsigned)BIOMAP_SD_DRY_RUN);
+               (unsigned)(core->gsr ? gsr_sensor_get_stack_space(core->gsr) : 0));
     if(core->mode == BioMapModeLiveStream && s->bt_stream) {
         FURI_LOG_I(TAG, "bt_telemetry tick_dt=%u bt_tx_peak_ms=%u bt_drop=%u",
                    (unsigned)core->recording.tick_dt_ms,
@@ -288,7 +287,7 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
     view_port_update(s->vp);
 
     GpsUart* gps = session_mode_needs_gps(mode)
-        ? gps_uart_alloc(app->event_queue, app->notifications, app->nav_model, app->super_s)
+        ? gps_uart_alloc(app->event_queue, app->nav_model, app->super_s)
         : NULL;  // otherwise the module stays asleep (gps_uart_port_open())
     // The radio scan borrows the GSR worker thread (em_scan_sampler.h).
     EmScanSampler* em = has_rf(mode) ? em_scan_sampler_alloc() : NULL;

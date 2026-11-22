@@ -1,11 +1,9 @@
 // biomap_rf_cal.c — RF Faraday calibration menu & wizard control flow.
 //
-// Mirrors biomap_gui.c's GSR calibration menu/wizard (run_calibration_menu/
-// run_calibration_wizard) in shape, but drives em_scan_cal.h's Faraday
-// noise-floor calibration instead, in the same blocking-loop style. Kept in
-// its own file rather than folded into biomap_gui.c — vp_push/vp_pop/
-// drain_stale_events/cycle_selection/run_cal_submenu/run_simple_viewer are
-// shared from there (see biomap.h).
+// Same shape as the GSR calibration menu and wizard in biomap_gui.c, but
+// drives em_scan_cal.h's Faraday noise-floor calibration, in a blocking
+// loop. vp_push/vp_pop/drain_stale_events/run_cal_submenu/run_simple_viewer
+// come from biomap_gui.c (see biomap.h).
 #include "biomap.h"
 
 // ── Show current RF calibration ─────────────────────────────────────────

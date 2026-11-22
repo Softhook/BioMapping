@@ -251,6 +251,17 @@ static void test_alloc_probe_success(void) {
     assert(gsr != NULL);
     assert(gsr_sensor_available(gsr) == true);
 
+    // The read-outs before the first tick: nothing measured yet.
+    assert(gsr_sensor_is_connected(gsr));
+    assert(gsr_sensor_get_raw(gsr) == 0.0f);
+    assert(gsr_sensor_get_pga_index(gsr) == 2);
+    assert(gsr_sensor_get_worker_hz(gsr) == 0.0f);
+    assert(gsr_sensor_get_success_rate(gsr) == 100.0f);
+    assert(gsr_sensor_get_duplicate_rate(gsr) == 0.0f);
+    assert(gsr_sensor_get_stale_rate(gsr) == 0.0f);
+    assert(gsr_sensor_get_duplicate_gap_min_ms(gsr) == UINT32_MAX);
+    assert(gsr_sensor_get_pga_change_count(gsr) == 0);
+
     gsr_sensor_free(gsr);
     printf("  -> Pass\n");
 }

@@ -31,6 +31,10 @@ SdUsbResult sd_usb_drive_set(bool on);
 // USB cable was unplugged and the card was taken back.
 bool sd_usb_drive_poll(void);
 
+// Writes all `len` bytes to `fd`, carrying on while write() takes only part
+// of them. Returns how many were written: `len`, or fewer if it failed.
+size_t sd_write_all(int fd, const void* data, size_t len);
+
 // A logger writing in whole 512-byte blocks (see "SD card pauses" in
 // docs/cardputer_port.md, section 5).
 SdLogger* sd_cardputer_alloc(void);

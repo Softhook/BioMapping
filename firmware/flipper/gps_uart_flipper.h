@@ -14,18 +14,14 @@
 
 #include <furi.h>
 #include <furi_hal.h>
-#include <notification/notification_messages.h>
 #include "core/gps_uart.h"
 
 #define GPS_RX_BUF_SIZE   (1024 * 5)
 #define GPS_UART_CH       FuriHalSerialIdUsart
 
-// Lifecycle — caller owns event_queue until free() returns. `notifications`
-// is accepted for API-shape consistency with other module allocators but is
-// not currently read or stored by this module. See gps_uart_create() for
-// what alloc does and how long it blocks.
-GpsUart* gps_uart_alloc(FuriMessageQueue* event_queue, NotificationApp* notifications,
-                        GpsNavModel nav_model, bool super_s);
+// Lifecycle — caller owns event_queue until free() returns. See
+// gps_uart_create() for what alloc does and how long it blocks.
+GpsUart* gps_uart_alloc(FuriMessageQueue* event_queue, GpsNavModel nav_model, bool super_s);
 void     gps_uart_free(GpsUart* gps);
 
 // Call on each EventTypeUart: clears the "event posted" flag, then

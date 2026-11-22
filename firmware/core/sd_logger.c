@@ -2,7 +2,6 @@
 // sd_logger.h. The card itself is reached only through SdPlatform.
 
 #include "sd_logger.h"
-#include "biomap_config.h"
 #include "core_check.h"
 #include <stdarg.h>
 #include <stdio.h>
@@ -17,10 +16,10 @@
 // endless loop: reaching it fails the recording, it never overwrites.
 #define LOGGER_MAX_SUFFIX 9999
 
-// One-shot pre-allocation size (BIOMAP_SD_PREALLOC, biomap_config.h) — see
-// preallocate_log_file() below and docs/archive/gps_rf_mutex_status.md's "option E"
-// entries. Sized against track 016's own measured worst-case rate (GPS+GSR+
-// RF, debug fields on — the widest schema, ~72 KiB/min): ~90 minutes
+// One-shot pre-allocation size — see preallocate_log_file() below and
+// docs/archive/gps_rf_mutex_status.md's "option E" entries. Sized against
+// track 016's own measured worst-case rate (GPS+GSR+RF, debug fields on —
+// the widest schema, ~72 KiB/min): ~90 minutes
 // (6.33 MiB) plus real margin, rounded to 8 MiB. Every mode gets the same
 // pre-allocation regardless of its actual (lower) row width — harmless,
 // since sd_logger_stop() always trims the unused tail back to the real
@@ -230,7 +229,6 @@ static void close_file(SdLogger* l) {
     l->file_open = false;
 }
 
-#if BIOMAP_SD_PREALLOC
 // Grows the just-opened file to SD_LOGGER_PREALLOC_BYTES once, up front, by
 // seeking past the current end and writing one byte there. On the Flipper
 // this is the only pre-allocation the app SDK offers (no f_expand binding
@@ -273,7 +271,6 @@ static void preallocate_log_file(SdLogger* l) {
     }
     l->prealloc_ms = l->platform.now_ms(l->platform.ctx) - start_ms;
 }
-#endif
 
 // Create a new CSV file named from `stamp` and write a header row.
 // Returns true on success; on failure the logger is left inactive with no
@@ -281,14 +278,6 @@ static void preallocate_log_file(SdLogger* l) {
 static bool open_log_file(SdLogger* l, const char* header, const char* stamp) {
     l->prealloc_ms = 0;
 
-#if BIOMAP_SD_DRY_RUN
-    (void)header;
-    make_filename(l, stamp, 1);
-    l->active = true;
-    l->file_open = false;
-    sd_log(l, SdLogWarning, "SD dry-run active: bypassing file I/O for %s", l->filename);
-    return true;
-#else
     // Created new only: the card itself refuses to open a name that already
     // exists, so an older recording can never be overwritten — not even if
     // the clock was reset and is giving out times already used. When the
@@ -334,14 +323,11 @@ static bool open_log_file(SdLogger* l, const char* header, const char* stamp) {
         sd_log(l, SdLogWarning, "Header sync failed (written, not yet confirmed durable)");
     }
 
-#if BIOMAP_SD_PREALLOC
     preallocate_log_file(l);
-#endif
 
     l->active = true;
     sd_log(l, SdLogInfo, "Recording to %s", l->filename);
     return true;
-#endif
 }
 
 bool sd_logger_start(SdLogger* l, const char* header, const char* stamp) {
@@ -457,7 +443,6 @@ void sd_logger_stop(SdLogger* l, uint32_t end_epoch) {
         // to the current position, so the trailer write must advance it
         // past the last data row first.
         sd_logger_write_trailer(l, end_epoch);
-#if BIOMAP_SD_PREALLOC
         // Trim any never-written pre-allocated tail (preallocate_log_file(),
         // open_log_file() above) back to the real data length -- the
         // pre-allocated region's content is undefined, not zero-filled
@@ -471,7 +456,6 @@ void sd_logger_stop(SdLogger* l, uint32_t end_epoch) {
         if(!l->platform.truncate(l->platform.ctx)) {
             sd_log(l, SdLogWarning, "Final truncate failed — file may retain pre-allocated padding");
         }
-#endif
         close_file(l);
     }
     l->active = false;
@@ -506,13 +490,6 @@ static size_t flush_length(const SdLogger* l, bool whole_blocks_only) {
 static int flush_batch(SdLogger* l, bool whole_blocks_only) {
     if(!l->active) return 0;
     if(l->gsr_batch_len == 0) return 0;
-
-#if BIOMAP_SD_DRY_RUN
-    (void)whole_blocks_only;
-    int flushed = l->gsr_batch_len;
-    l->gsr_batch_len = 0;
-    return flushed;
-#else
     if(!l->file_open) return 0;
     size_t want = flush_length(l, whole_blocks_only);
     if(want == 0) return 0;
@@ -560,7 +537,6 @@ static int flush_batch(SdLogger* l, bool whole_blocks_only) {
 
     note_flush_duration(l, flush_start);
     return (int)want;
-#endif
 }
 
 int sd_logger_batch_flush(SdLogger* l) {
@@ -588,45 +564,6 @@ bool sd_logger_batch_append(SdLogger* l, const char* data, size_t len) {
     l->gsr_batch_len += (int)len;
     note_batch_fill(l);
     return true;
-}
-
-// Format a row directly into the batch buffer, avoiding an intermediate
-// stack buffer and the memcpy that sd_logger_batch_append would require.
-// Returns bytes written to the buffer, or 0 on overflow/error.
-int sd_logger_batch_printf(SdLogger* l, const char* fmt, ...) {
-    CORE_CHECK(l, "SdLogger: NULL in batch_printf()");
-    if(!l->active) return 0;
-
-    int remaining = (int)sizeof(l->gsr_batch) - l->gsr_batch_len;
-    if(remaining <= 0) {
-        sd_log(l, SdLogWarning, "Batch printf overflow (buffer full)");
-        l->overflow_count++;
-        return 0;
-    }
-
-    va_list args;
-    va_start(args, fmt);
-    int n = vsnprintf(l->gsr_batch + l->gsr_batch_len,
-                      (size_t)remaining, fmt, args);
-    va_end(args);
-
-    if(n <= 0) return 0;
-    if(n >= remaining) {
-        // vsnprintf truncated the row: it wrote only `remaining - 1` bytes
-        // of real content (plus a NUL) into the buffer. Do NOT advance
-        // gsr_batch_len past the last complete row — doing so would leave
-        // a truncated/corrupt partial row in the buffer that the next
-        // sd_logger_batch_flush() would write straight to the SD card,
-        // corrupting the CSV. Roll back and let the caller's overflow
-        // path (emergency flush) start the row fresh in a cleared buffer.
-        sd_log(l, SdLogWarning, "Batch printf truncated (%d >= %d) — row discarded",
-               n, remaining);
-        l->overflow_count++;
-        return 0;
-    }
-    l->gsr_batch_len += n;
-    note_batch_fill(l);
-    return n;
 }
 
 const char* sd_logger_get_filename(const SdLogger* l) { return l->filename; }

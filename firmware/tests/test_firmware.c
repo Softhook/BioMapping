@@ -107,6 +107,25 @@ void test_update_display_pipeline() {
     printf("  -> Pass\n");
 }
 
+// Every GPS profile has its own short name for the Options screens, and a
+// value that isn't a profile gets "?" rather than reading past the list.
+static void test_nav_model_labels(void) {
+    printf("Running test_nav_model_labels...\n");
+    static const char* const WANT[GpsNavModelCount] = {
+        "PED", "WRIST", "VEHICLE", "STATION", "SEA", "BIKE", "FLIGHT",
+    };
+    for(int m = 0; m < GpsNavModelCount; m++) {
+        assert(strcmp(biomap_nav_model_label((GpsNavModel)m), WANT[m]) == 0);
+        for(int k = 0; k < m; k++) {
+            assert(strcmp(biomap_nav_model_label((GpsNavModel)m),
+                          biomap_nav_model_label((GpsNavModel)k)) != 0);
+        }
+    }
+    assert(strcmp(biomap_nav_model_label(GpsNavModelCount), "?") == 0);
+    assert(strcmp(biomap_nav_model_label((GpsNavModel)-1), "?") == 0);
+    printf("  -> Pass\n");
+}
+
 void test_cycle_selection_wraparound() {
     printf("Running test_cycle_selection_wraparound...\n");
 
@@ -1221,6 +1240,7 @@ int main() {
     test_smooth_iir_filter();
     test_update_display_pipeline();
     test_cycle_selection_wraparound();
+    test_nav_model_labels();
     test_conductance_conversion();
     test_unix_epoch_conversion();
     test_rel_seconds_conversion();
@@ -1270,6 +1290,6 @@ int main() {
     test_csv_row_overflow_returns_negative();
     test_nmea_parsing();
 
-    printf("\nAll 35 firmware unit tests passed successfully!\n");
+    printf("\nAll firmware unit tests passed successfully!\n");
     return 0;
 }

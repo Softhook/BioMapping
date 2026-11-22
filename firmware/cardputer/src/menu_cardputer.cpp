@@ -6,6 +6,7 @@
 
 #include "biomap_config.h"
 #include "biomap_format.h"
+#include "cal_wizard.h"
 #include "clock_cardputer.h"
 #include "cues_cardputer.h"
 #include "gps_cardputer.h"
@@ -100,15 +101,21 @@ static void play_cue(BioMapCue cue, bool force = false) {
     cues_cardputer_play(force ? true : g_settings.sound_enabled, cue);
 }
 
+// Up or Down in a list: move the selection, wrapping round, with a click.
+static void move_selection(int32_t* sel, int32_t count, bool down) {
+    *sel = cycle_selection(*sel, count, down);
+    play_cue(BioMapCueClick);
+}
+
 static int scroll_window_top(int sel, int count, int max_visible) {
     if(count > max_visible && sel >= max_visible) return sel - max_visible + 1;
     return 0;
 }
 
 // ── Calibration wizard lifecycle & non-blocking 10 Hz driver ────────────
-// The 4-step wizard state machine lives in core/biomap_session.c
-// (CalWizardCore); this file only starts/stops the GSR thread and ticks it
-// every 100 ms on the main loop.
+// The 4-step wizard state machine lives in core/cal_wizard.c; this file
+// only starts/stops the GSR thread and ticks it every 100 ms on the main
+// loop.
 
 static void wizard_open(void) {
     GsrSensor* gsr = gsr_cardputer_start();
@@ -144,21 +151,9 @@ static bool wizard_poll(void) {
         g_wiz_last_tick_ms = millis();
     }
     if(finished) {
-        if(g_wiz.step == WizardStepBiasFailed) {
-            Serial.printf("[Cal] Bias check failed: %.4f V\n", (double)g_wiz.bias_measured_v);
-        } else if(g_wiz.step == WizardStepZeroFailed && !cal_dwell_ok(&g_wiz.dwell)) {
-            Serial.printf("[Cal] Zero failed: mean=%.1f in=%d/%d (limit ±%.0f)\n",
-                          (double)g_wiz.zero_counts, g_wiz.dwell.in_gate, g_wiz.dwell.all,
-                          (double)CAL_ZERO_MAX_COUNTS);
-        } else if(g_wiz.step == WizardStepMeasureFailed) {
-            int idx = g_wiz.fail_idx;
-            Serial.printf("[Cal] Resistor %d failed: first=%.1f in=%d below=%d above=%d gate=[%.0f, %.0f]\n",
-                          idx, (double)g_wiz.first_raw, g_wiz.dwell.in_gate,
-                          g_wiz.dwell.below, g_wiz.dwell.above,
-                          (double)biomap_cal_gates[idx][0], (double)biomap_cal_gates[idx][1]);
-        } else if(g_wiz.step == WizardStepFitFailed) {
-            Serial.printf("[Cal] Fit failed: gain=%.4f R2=%.4f\n",
-                          (double)g_wiz.gain, (double)g_wiz.r_squared);
+        char why[96];
+        if(cal_wizard_fail_reason(&g_wiz, why, sizeof(why))) {
+            Serial.printf("[Cal] %s\n", why);
         }
         play_cue(done_cue);
         if(g_wiz.fit_cue != BioMapCueCount) {
@@ -248,12 +243,8 @@ bool menu_cardputer_key(SessionKey key, M5Canvas& canvas) {
     case ScreenId::MainMenu:
         switch(key) {
         case SessionKeyUp:
-            g_main_sel = cycle_selection(g_main_sel, MAIN_MENU_COUNT, false);
-            play_cue(BioMapCueClick);
-            return true;
         case SessionKeyDown:
-            g_main_sel = cycle_selection(g_main_sel, MAIN_MENU_COUNT, true);
-            play_cue(BioMapCueClick);
+            move_selection(&g_main_sel, MAIN_MENU_COUNT, key == SessionKeyDown);
             return true;
         case SessionKeyOk:
             if(g_main_sel == MainGpsGsr || g_main_sel == MainGsrOnly) {
@@ -295,12 +286,8 @@ bool menu_cardputer_key(SessionKey key, M5Canvas& canvas) {
             g_screen = ScreenId::MainMenu;
             return true;
         case SessionKeyUp:
-            g_opt_sel = cycle_selection(g_opt_sel, OPTIONS_COUNT, false);
-            play_cue(BioMapCueClick);
-            return true;
         case SessionKeyDown:
-            g_opt_sel = cycle_selection(g_opt_sel, OPTIONS_COUNT, true);
-            play_cue(BioMapCueClick);
+            move_selection(&g_opt_sel, OPTIONS_COUNT, key == SessionKeyDown);
             return true;
         case SessionKeyOk:
         case SessionKeyLeft:
@@ -366,12 +353,8 @@ bool menu_cardputer_key(SessionKey key, M5Canvas& canvas) {
             g_screen = ScreenId::Options;
             return true;
         case SessionKeyUp:
-            g_cal_sel = cycle_selection(g_cal_sel, CAL_SUB_COUNT, false);
-            play_cue(BioMapCueClick);
-            return true;
         case SessionKeyDown:
-            g_cal_sel = cycle_selection(g_cal_sel, CAL_SUB_COUNT, true);
-            play_cue(BioMapCueClick);
+            move_selection(&g_cal_sel, CAL_SUB_COUNT, key == SessionKeyDown);
             return true;
         case SessionKeyOk:
             if(g_cal_sel == CalSubStartWizard) {
@@ -555,14 +538,11 @@ static void draw_main_menu(M5Canvas& canvas, bool usb_drive, bool usb_confirm,
 }
 
 static void option_value(int idx, const char** out_text, uint16_t* out_col) {
-    static const char* const NAV_LABELS[7] = {
-        "PED", "WRIST", "VEHICLE", "STATION", "SEA", "BIKE", "FLIGHT",
-    };
     *out_text = nullptr;
     *out_col = TFT_LIGHTGREY;
     switch(idx) {
     case OptGpsProfile:
-        *out_text = NAV_LABELS[g_settings.nav_model < GpsNavModelCount ? g_settings.nav_model : 0];
+        *out_text = biomap_nav_model_label(g_settings.nav_model);
         *out_col = TFT_CYAN;
         break;
     case OptSuperS:
@@ -647,7 +627,7 @@ static void draw_cal_show_current(M5Canvas& canvas) {
         canvas.drawString(line, 8, y);
         y += 20;
 
-        canvas.setTextColor( TFT_LIGHTGREY);
+        canvas.setTextColor(TFT_LIGHTGREY);
         snprintf(line, sizeof(line), "470k: %.2f  100k: %.2f  47k: %.2f nS",
                  (double)g_settings.cal_noise_std_dev[0],
                  (double)g_settings.cal_noise_std_dev[1],

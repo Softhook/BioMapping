@@ -1,10 +1,7 @@
-// BioMapping on the M5Stack Cardputer ADV.
-//
-// Steps 10–11 of the port (docs/cardputer_port.md, section 7): colour menus,
-// Options and 4-step GSR Calibration wizard on the 240 × 135 screen, settings
-// and calibration persisted on the SD card (/sd/biomapping/), BLE Live Stream,
-// and the shared recording screen (core/biomap_screen.c) stretched to fit the
-// display with a smooth 30 FPS spline waveform.
+// BioMapping on the M5Stack Cardputer ADV: the main loop. It reads the
+// keys, runs the menus (menu_cardputer.cpp) or the open session
+// (session_cardputer.cpp), redraws the screen and logs one status line a
+// second over USB. See docs/cardputer_port.md.
 //
 // Keys:
 //   ; . , /  → Up, Down, Left, Right
@@ -24,6 +21,7 @@
 #include "cues_cardputer.h"
 #include "gps_cardputer.h"
 #include "gsr_cardputer.h"
+#include "key_map.h"
 #include "keys.h"
 #include "menu_cardputer.h"
 #include "screen_cardputer.h"
@@ -118,51 +116,59 @@ static void log_second(void) {
     Serial.println();
 }
 
+// One of the six buttons, to the open session or else the menus. Returns
+// true when the screen should be redrawn.
+static bool dispatch_key(SessionKey key) {
+    return g_session.open ? session_cardputer_key(key) : menu_cardputer_key(key, canvas);
+}
+
+// U on the menus: lend the SD card to a computer, or take it back (which
+// asks for a second press first, as the computer may not have ejected it).
+static void usb_key_pressed(void) {
+    if(sd_usb_drive_active()) {
+        if(!g_usb_confirm) {
+            g_usb_confirm = true;
+            g_usb_confirm_since_ms = millis();
+            cues_cardputer_play(g_settings.sound_enabled, BioMapCueError);
+            return;
+        }
+        g_usb_confirm = false;
+        sd_usb_drive_set(false);
+        settings_cardputer_load();
+        cues_cardputer_play(g_settings.sound_enabled, BioMapCueToggleOff);
+        return;
+    }
+    switch(sd_usb_drive_set(true)) {
+    case SdUsbOk:         g_usb_notice = nullptr; break;
+    case SdUsbNoComputer: g_usb_notice = "Plug USB into a computer"; break;
+    case SdUsbNoCard:     g_usb_notice = "No SD card to lend"; break;
+    case SdUsbFileOpen:   g_usb_notice = "Stop recording first"; break;
+    }
+    if(g_usb_notice) {
+        g_usb_notice_since_ms = millis();
+        cues_cardputer_play(g_settings.sound_enabled, BioMapCueError);
+    } else {
+        cues_cardputer_play(g_settings.sound_enabled, BioMapCueToggleOn);
+    }
+}
+
 static bool keys_poll(void) {
     if(!M5Cardputer.Keyboard.isChange() || !M5Cardputer.Keyboard.isPressed()) return false;
     key_count++;
     const auto& st = M5Cardputer.Keyboard.keysState();
-    bool in_session = g_session.open || !menu_cardputer_can_lend_sd();
-    if(!in_session && !st.word.empty() && (st.word.back() == 'u' || st.word.back() == 'U')) {
-        if(sd_usb_drive_active()) {
-            if(!g_usb_confirm) {
-                g_usb_confirm = true;
-                g_usb_confirm_since_ms = millis();
-                cues_cardputer_play(g_settings.sound_enabled, BioMapCueError);
-                return true;
-            }
-            g_usb_confirm = false;
-            sd_usb_drive_set(false);
-            settings_cardputer_load();
-            cues_cardputer_play(g_settings.sound_enabled, BioMapCueToggleOff);
-            return true;
-        }
-        switch(sd_usb_drive_set(true)) {
-        case SdUsbOk:         g_usb_notice = nullptr; break;
-        case SdUsbNoComputer: g_usb_notice = "Plug USB into a computer"; break;
-        case SdUsbNoCard:     g_usb_notice = "No SD card to lend"; break;
-        case SdUsbFileOpen:   g_usb_notice = "Stop recording first"; break;
-        }
-        if(g_usb_notice) {
-            g_usb_notice_since_ms = millis();
-            cues_cardputer_play(g_settings.sound_enabled, BioMapCueError);
-        } else {
-            cues_cardputer_play(g_settings.sound_enabled, BioMapCueToggleOn);
-        }
+    bool can_lend = !g_session.open && menu_cardputer_can_lend_sd();
+    if(can_lend && !st.word.empty() && (st.word.back() == 'u' || st.word.back() == 'U')) {
+        usb_key_pressed();
         return true;
     }
-
     SessionKey key;
     if(!keys_to_session(st, &key)) return false;  // count only
-    if(g_session.open) {
-        return session_cardputer_key(key);
-    }
-    return menu_cardputer_key(key, canvas);
+    return dispatch_key(key);
 }
 
-// Keys typed into a serial monitor. A terminal's Enter can send "\r\n"
-// (pio device monitor does by default), "\r" or "\n": each is one OK, so
-// a "\n" straight after a "\r" is skipped.
+// Keys typed into a serial monitor (key_map.h). A terminal's Enter can send
+// "\r\n" (pio device monitor does by default), "\r" or "\n": each is one OK,
+// so a "\n" straight after a "\r" is skipped.
 static bool serial_keys_poll(void) {
     static int prev_ch = -1;
     bool redraw = false;
@@ -172,31 +178,7 @@ static bool serial_keys_poll(void) {
         prev_ch = ch;
         if(crlf_tail) continue;
         SessionKey key;
-        bool valid = false;
-        switch(ch) {
-        case ';':
-        case ':':  key = SessionKeyUp;    valid = true; break;
-        case '.':
-        case '>':  key = SessionKeyDown;  valid = true; break;
-        case ',':
-        case '<':  key = SessionKeyLeft;  valid = true; break;
-        case '/':
-        case '?':  key = SessionKeyRight; valid = true; break;
-        case '`':
-        case '~':
-        case 0x1B:
-        case 0x7F: key = SessionKeyBack;  valid = true; break;
-        case '\r':
-        case '\n': key = SessionKeyOk;    valid = true; break;
-        default:   break;
-        }
-        if(valid) {
-            if(g_session.open) {
-                if(session_cardputer_key(key)) redraw = true;
-            } else {
-                if(menu_cardputer_key(key, canvas)) redraw = true;
-            }
-        }
+        if(key_map_char(ch, &key) && dispatch_key(key)) redraw = true;
     }
     return redraw;
 }

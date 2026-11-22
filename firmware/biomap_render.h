@@ -1,7 +1,7 @@
 // biomap_render.h — the menu, Options and calibration screens' draw
 // callbacks. The recording screen's is in flipper/biomap_screen_flipper.h.
 //
-// All shared types (MenuContext, OptionsContext) and screen constants
+// All shared types (ListContext, WizardState) and screen constants
 // (MENU_COUNT, OPTIONS_COUNT) live in biomap.h — this header declares only
 // the draw-callback functions used by the GUI control layer.
 
@@ -14,7 +14,7 @@
 // Main launch menu renderer
 void menu_render(Canvas* c, void* ctx);
 
-// Options screen renderer (Cold Reset GPS, Auto-zoom, Backlight toggles)
+// Options screen renderer
 void options_render(Canvas* c, void* ctx);
 
 // Calibration menu and wizard renderers

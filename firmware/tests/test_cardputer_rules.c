@@ -4,6 +4,7 @@
 //   cardputer/src/tick_schedule.c  the 10 Hz ticks, catch-up and GPS slices
 //   cardputer/src/clock_local.c    local time, and the UTC offset kept
 //                                  across a recording
+//   cardputer/src/key_map.h        which character is which button
 
 #include <assert.h>
 #include <stdio.h>
@@ -15,6 +16,7 @@
 #include "cardputer/src/wake_watch.h"
 #include "cardputer/src/tick_schedule.h"
 #include "cardputer/src/clock_local.h"
+#include "cardputer/src/key_map.h"
 #include "cardputer/src/wifi_files_rules.h"
 #include "cardputer/src/zip_stream.h"
 #include "core/biomap_pipeline.h"
@@ -760,6 +762,40 @@ static void test_zip_stream_empty_and_multi(void) {
     printf("  Store-mode streaming ZIP (exact length, CRC-32, EOCD): ok\n");
 }
 
+// ── Keys ────────────────────────────────────────────────────────────────
+
+// Every character that is a button, from the keyboard (with or without Fn)
+// or a serial monitor, and that nothing else is.
+static void test_key_map(void) {
+    static const struct {
+        int        ch;
+        SessionKey key;
+    } MAP[] = {
+        {';', SessionKeyUp},    {':', SessionKeyUp},
+        {'.', SessionKeyDown},  {'>', SessionKeyDown},
+        {',', SessionKeyLeft},  {'<', SessionKeyLeft},
+        {'/', SessionKeyRight}, {'?', SessionKeyRight},
+        {'`', SessionKeyBack},  {'~', SessionKeyBack},
+        {0x1B, SessionKeyBack}, {0x7F, SessionKeyBack},
+        {'\r', SessionKeyOk},   {'\n', SessionKeyOk},
+    };
+    size_t buttons = 0;
+    for(int ch = -1; ch < 256; ch++) {
+        SessionKey key = SessionKeyOk;
+        bool is_button = key_map_char(ch, &key);
+        bool listed = false;
+        for(size_t i = 0; i < sizeof(MAP) / sizeof(MAP[0]); i++) {
+            if(MAP[i].ch != ch) continue;
+            listed = true;
+            assert(is_button && key == MAP[i].key);
+        }
+        assert(is_button == listed);
+        if(is_button) buttons++;
+    }
+    assert(buttons == sizeof(MAP) / sizeof(MAP[0]));
+    printf("  character to button: ok\n");
+}
+
 int main(void) {
     setenv("TZ", CLOCK_UK_TZ, 1);
     tzset();
@@ -797,6 +833,8 @@ int main(void) {
     test_wifi_ssid_qr_size_json();
     test_wifi_apple_sign_in();
     test_zip_stream_empty_and_multi();
+    printf("Keys:\n");
+    test_key_map();
     printf("All Cardputer rule tests passed.\n");
     return 0;
 }

@@ -20,6 +20,7 @@
 
 #include "clock_cardputer.h"
 #include "cues_cardputer.h"
+#include "key_map.h"
 #include "keys.h"
 #include "sd_cardputer.h"
 #include "settings_cardputer.h"
@@ -450,8 +451,8 @@ static bool poll_escape_during_transfer(void) {
         }
     }
     while(Serial.available() > 0) {
-        int ch = Serial.read();
-        if(ch == '`' || ch == '~' || ch == 0x1B || ch == 0x7F) {
+        SessionKey key;
+        if(key_map_char(Serial.read(), &key) && key == SessionKeyBack) {
             g_wf.wants_exit = true;
             return true;
         }

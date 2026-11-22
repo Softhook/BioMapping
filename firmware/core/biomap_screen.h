@@ -5,7 +5,7 @@
 // plain C with no device code.
 //
 // The layout is in the Flipper's coordinates: 128 × 64 pixels, (0, 0) at
-// the top left, text placed by its baseline. It draws only through the ten
+// the top left, text placed by its baseline. It draws only through the
 // calls in ScreenDraw. A device with a different screen supplies those
 // calls and stretches each position to fit (see docs/cardputer_port.md,
 // "Screen and keys").
@@ -26,8 +26,8 @@
 // leave gaps and the line would look dotted. Lines, boxes and frames
 // likewise keep their layout thickness of 1, drawn k wide.
 //
-// The menus, Options and calibration screens are not here yet: they stay
-// Flipper code until the Cardputer's own screens are decided.
+// The menus, Options and calibration screens are each device's own
+// (biomap_render.c on the Flipper, cardputer/src/menu_cardputer.cpp).
 //
 // ── Threads and the lock ────────────────────────────────────────────────
 // screen_draw_session() reads the session (core/biomap_session.h), so the
@@ -48,6 +48,14 @@ extern "C" {
 #define SCREEN_W 128
 #define SCREEN_H 64
 
+// The recording mark (a filled square, top right, while recording) and the
+// "REC STOPPED - SD ERROR" banner (a filled bar across the top). Named so a
+// colour screen can tell these boxes from the others and colour them.
+#define SCREEN_REC_MARK_X    118
+#define SCREEN_REC_MARK_Y    1
+#define SCREEN_REC_MARK_SIZE 8
+#define SCREEN_BANNER_H      11
+
 // The two fonts. On the Flipper, Primary is its bold title font and
 // Secondary its small one; another device should use the same u8g2 fonts
 // so every text width, and so every position, comes out the same.
@@ -57,8 +65,8 @@ typedef enum {
 } ScreenFont;
 
 // ── What each device supplies ───────────────────────────────────────────
-// Every function gets `ctx` back as its first argument. All are required.
-// All numbers are in layout units (see "Layout units" above). Drawing is in
+// Every function gets `ctx` back as its first argument. All are required
+// except draw_graph. All numbers are in layout units (see "Layout units" above). Drawing is in
 // the current colour: black on white, until invert().
 typedef struct {
     void* ctx;

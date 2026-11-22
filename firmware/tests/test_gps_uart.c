@@ -109,10 +109,18 @@ static void test_alloc_lifecycle(void) {
     FuriMessageQueue queue = {0};
     assert(furi_hal_mock_acquire_count() == 1);
 
-    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian, true);
+    GpsUart* g = gps_uart_alloc(&queue, GpsNavModelPedestrian, true);
     assert(g != NULL);
     assert(gps_uart_is_ready(g));
     assert(furi_hal_mock_acquire_count() == 1);
+
+    // Before any sentence, every reading says "unknown".
+    GpsStatus st = gps_uart_get_status(g);
+    assert(isnan(st.latitude) && isnan(st.longitude) && isnan(st.speed) && isnan(st.course));
+    assert(st.hdop == 99.9f && st.hacc == 99.9f && st.pdop == 99.9f);
+    assert(st.fix_type == 1 && st.fix_quality == 0 && st.satellites_tracked == 0);
+    assert(!st.fix_valid && !st.sbas_active && !gps_status_has_fix(&st));
+    assert(gps_uart_get_nmea_fail_count(g) == 0 && gps_uart_get_reinit_count(g) == 0);
 
     gps_uart_free(g);
     assert(furi_hal_mock_acquire_count() == 1); // still held — releasing lets the line float
@@ -127,7 +135,7 @@ static void test_alloc_without_port(void) {
     assert(furi_hal_mock_acquire_count() == 0);
 
     FuriMessageQueue queue = {0};
-    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian, true);
+    GpsUart* g = gps_uart_alloc(&queue, GpsNavModelPedestrian, true);
     assert(g != NULL);
     assert(!gps_uart_is_ready(g));
     gps_uart_free(g);
@@ -144,7 +152,7 @@ static void test_alloc_without_port(void) {
 static void test_idle_bytes_counted(void) {
     printf("Running test_idle_bytes_counted...\n");
     FuriMessageQueue queue = {0};
-    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian, true);
+    GpsUart* g = gps_uart_alloc(&queue, GpsNavModelPedestrian, true);
     gps_uart_free(g);
     assert(gps_uart_get_idle_rx_count() == 0);
 
@@ -152,7 +160,7 @@ static void test_idle_bytes_counted(void) {
     furi_hal_mock_feed_string("$GN");
     assert(gps_uart_get_idle_rx_count() == 3);
 
-    g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian, true);
+    g = gps_uart_alloc(&queue, GpsNavModelPedestrian, true);
     furi_hal_mock_feed_string("$GN");
     assert(gps_uart_get_idle_rx_count() == 3);
     gps_uart_free(g);
@@ -166,7 +174,7 @@ static void test_idle_bytes_counted(void) {
 static void test_idle_count_ignores_settle_window(void) {
     printf("Running test_idle_count_ignores_settle_window...\n");
     FuriMessageQueue queue = {0};
-    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian, true);
+    GpsUart* g = gps_uart_alloc(&queue, GpsNavModelPedestrian, true);
     gps_uart_free(g);
 
     furi_hal_mock_feed_string("123456789");
@@ -195,7 +203,7 @@ static void test_idle_count_ignores_settle_window(void) {
 static void test_cfg_ack_timeout_is_bounded(void) {
     printf("Running test_cfg_ack_timeout_is_bounded...\n");
     FuriMessageQueue queue = {0};
-    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian, true);
+    GpsUart* g = gps_uart_alloc(&queue, GpsNavModelPedestrian, true);
     assert(g != NULL);
     assert(gps_uart_is_ready(g)); // config failures are logged, not fatal
 
@@ -206,7 +214,7 @@ static void test_cfg_ack_timeout_is_bounded(void) {
 static void test_gga_updates_status(void) {
     printf("Running test_gga_updates_status...\n");
     FuriMessageQueue queue = {0};
-    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian, true);
+    GpsUart* g = gps_uart_alloc(&queue, GpsNavModelPedestrian, true);
     assert(g != NULL);
 
     furi_hal_mock_feed_string(GGA_LINE);
@@ -228,7 +236,7 @@ static void test_gga_updates_status(void) {
 static void test_rmc_updates_status(void) {
     printf("Running test_rmc_updates_status...\n");
     FuriMessageQueue queue = {0};
-    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian, true);
+    GpsUart* g = gps_uart_alloc(&queue, GpsNavModelPedestrian, true);
     assert(g != NULL);
 
     furi_hal_mock_feed_string(RMC_LINE);
@@ -249,7 +257,7 @@ static void test_rmc_updates_status(void) {
 static void test_gsa_updates_status(void) {
     printf("Running test_gsa_updates_status...\n");
     FuriMessageQueue queue = {0};
-    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian, true);
+    GpsUart* g = gps_uart_alloc(&queue, GpsNavModelPedestrian, true);
     assert(g != NULL);
 
     furi_hal_mock_feed_string(GSA_LINE);
@@ -270,7 +278,7 @@ static void test_gsa_updates_status(void) {
 static void test_gsa_sbas_detection(void) {
     printf("Running test_gsa_sbas_detection...\n");
     FuriMessageQueue queue = {0};
-    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian, true);
+    GpsUart* g = gps_uart_alloc(&queue, GpsNavModelPedestrian, true);
     assert(g != NULL);
 
     furi_hal_mock_feed_string(GSA_SBAS_LINE);
@@ -297,7 +305,7 @@ static void test_gsa_sbas_detection(void) {
 static void test_gsa_beidou_33_is_not_sbas(void) {
     printf("Running test_gsa_beidou_33_is_not_sbas...\n");
     FuriMessageQueue queue = {0};
-    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian, true);
+    GpsUart* g = gps_uart_alloc(&queue, GpsNavModelPedestrian, true);
     assert(g != NULL);
 
     furi_hal_mock_feed_string(GSA_BEIDOU_LINE);
@@ -316,7 +324,7 @@ static void test_gsa_beidou_33_is_not_sbas(void) {
 static void test_sbas_clears_after_a_second_without(void) {
     printf("Running test_sbas_clears_after_a_second_without...\n");
     FuriMessageQueue queue = {0};
-    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian, true);
+    GpsUart* g = gps_uart_alloc(&queue, GpsNavModelPedestrian, true);
     assert(g != NULL);
 
     furi_hal_mock_feed_string(RMC_SECOND_40_LINE);
@@ -344,7 +352,7 @@ static void test_sbas_clears_after_a_second_without(void) {
 static void test_gll_updates_when_valid(void) {
     printf("Running test_gll_updates_when_valid...\n");
     FuriMessageQueue queue = {0};
-    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian, true);
+    GpsUart* g = gps_uart_alloc(&queue, GpsNavModelPedestrian, true);
     assert(g != NULL);
 
     furi_hal_mock_feed_string(GLL_VALID_LINE);
@@ -364,7 +372,7 @@ static void test_gll_updates_when_valid(void) {
 static void test_estimated_fix_ignored(void) {
     printf("Running test_estimated_fix_ignored...\n");
     FuriMessageQueue queue = {0};
-    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian, true);
+    GpsUart* g = gps_uart_alloc(&queue, GpsNavModelPedestrian, true);
     assert(g != NULL);
 
     furi_hal_mock_feed_string(GGA_LINE);
@@ -426,7 +434,7 @@ static void test_estimated_fix_ignored(void) {
 static void test_rmc_speed_without_course(void) {
     printf("Running test_rmc_speed_without_course...\n");
     FuriMessageQueue queue = {0};
-    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian, true);
+    GpsUart* g = gps_uart_alloc(&queue, GpsNavModelPedestrian, true);
     assert(g != NULL);
 
     furi_hal_mock_feed_string(RMC_NO_COURSE_LINE);
@@ -445,7 +453,7 @@ static void test_rmc_speed_without_course(void) {
 static void test_gll_ignored_when_invalid(void) {
     printf("Running test_gll_ignored_when_invalid...\n");
     FuriMessageQueue queue = {0};
-    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian, true);
+    GpsUart* g = gps_uart_alloc(&queue, GpsNavModelPedestrian, true);
     assert(g != NULL);
 
     // Establish a known-good position first via GGA, then feed a
@@ -473,7 +481,7 @@ static void test_gll_ignored_when_invalid(void) {
 static void test_split_line_buffering(void) {
     printf("Running test_split_line_buffering...\n");
     FuriMessageQueue queue = {0};
-    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian, true);
+    GpsUart* g = gps_uart_alloc(&queue, GpsNavModelPedestrian, true);
     assert(g != NULL);
 
     size_t split = strlen(GGA_LINE) / 2;
@@ -501,7 +509,7 @@ static void test_split_line_buffering(void) {
 static void test_rx_buffer_overflow_reconfigures(void) {
     printf("Running test_rx_buffer_overflow_reconfigures...\n");
     FuriMessageQueue queue = {0};
-    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian, true);
+    GpsUart* g = gps_uart_alloc(&queue, GpsNavModelPedestrian, true);
     assert(g != NULL);
     furi_hal_mock_reset_tx_count();
 
@@ -602,7 +610,7 @@ static void test_chipid_capture(void) {
         furi_hal_mock_arm_response_for_tx(
             k_uniqid_poll, sizeof(k_uniqid_poll),
             corrupted_response, sizeof(corrupted_response));
-        g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian, true);
+        g = gps_uart_alloc(&queue, GpsNavModelPedestrian, true);
         assert(g != NULL);
 
         printf("  phase 1: chip_id after corrupted response + timed-out retry = \"%s\" (expect empty)\n",
@@ -625,7 +633,7 @@ static void test_chipid_capture(void) {
 
         // Phase 3: a fresh session DOES try again and captures the chip ID;
         // once captured, subsequent sessions keep it without polling again.
-        g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian, true);
+        g = gps_uart_alloc(&queue, GpsNavModelPedestrian, true);
         assert(g != NULL);
         printf("  phase 3: chip_id on fresh session = \"%s\" (expect \"baker mute aloha fable poet\")\n",
                gps_uart_get_chip_id(g));
@@ -642,7 +650,7 @@ static void test_chipid_capture(void) {
 static void test_nmea_watchdog_reconfigures(void) {
     printf("Running test_nmea_watchdog_reconfigures...\n");
     FuriMessageQueue queue = {0};
-    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian, true);
+    GpsUart* g = gps_uart_alloc(&queue, GpsNavModelPedestrian, true);
     assert(g != NULL);
     furi_hal_mock_reset_tx_count();
 
@@ -664,7 +672,7 @@ static void test_nmea_watchdog_reconfigures(void) {
 static void test_cold_start_sends_command(void) {
     printf("Running test_cold_start_sends_command...\n");
     FuriMessageQueue queue = {0};
-    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian, true);
+    GpsUart* g = gps_uart_alloc(&queue, GpsNavModelPedestrian, true);
     assert(g != NULL);
     furi_hal_mock_tx_log_reset();
 
@@ -779,7 +787,7 @@ static void assert_pmreq_matches_m10_spec(int idx) {
 static void test_free_sends_spec_correct_sleep_command(void) {
     printf("Running test_free_sends_spec_correct_sleep_command...\n");
     FuriMessageQueue queue = {0};
-    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian, true);
+    GpsUart* g = gps_uart_alloc(&queue, GpsNavModelPedestrian, true);
     assert(g != NULL);
 
     furi_hal_mock_tx_log_reset();
@@ -860,7 +868,7 @@ static void test_alloc_wakes_before_configuring(void) {
     furi_hal_mock_tx_log_reset();
 
     FuriMessageQueue queue = {0};
-    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian, true);
+    GpsUart* g = gps_uart_alloc(&queue, GpsNavModelPedestrian, true);
     assert(g != NULL);
     assert(furi_hal_mock_tx_responses_pending() == 0);
 
@@ -886,7 +894,7 @@ static void test_rx_byte_with_error_flag_is_kept(void) {
     printf("Running test_rx_byte_with_error_flag_is_kept...\n");
     FuriMessageQueue queue = {0};
     furi_hal_mock_clear_tx_responses();
-    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian, true);
+    GpsUart* g = gps_uart_alloc(&queue, GpsNavModelPedestrian, true);
     assert(g != NULL);
 
     const char* line = GGA_LINE;
@@ -907,7 +915,7 @@ static void test_rx_byte_with_error_flag_is_kept(void) {
 static void test_malformed_line_ignored(void) {
     printf("Running test_malformed_line_ignored...\n");
     FuriMessageQueue queue = {0};
-    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian, true);
+    GpsUart* g = gps_uart_alloc(&queue, GpsNavModelPedestrian, true);
     assert(g != NULL);
 
     furi_hal_mock_feed_string("this is not NMEA at all\r\n");
@@ -944,7 +952,7 @@ static void test_nav_model_allocation(void) {
     };
 
     for(size_t i = 0; i < sizeof(models)/sizeof(models[0]); i++) {
-        GpsUart* g = gps_uart_alloc(&queue, NULL, models[i], true);
+        GpsUart* g = gps_uart_alloc(&queue, models[i], true);
         assert(g != NULL);
         gps_uart_free(g);
     }
@@ -958,7 +966,7 @@ static void test_nav_model_allocation(void) {
 static void assert_super_s_sent(bool super_s, uint8_t want_mode) {
     FuriMessageQueue queue = {0};
     furi_hal_mock_tx_log_reset();
-    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian, super_s);
+    GpsUart* g = gps_uart_alloc(&queue, GpsNavModelPedestrian, super_s);
     assert(g != NULL);
 
     int found = 0;
@@ -1006,7 +1014,7 @@ static int count_super_s_sends_with_reply(const uint8_t* reply, size_t reply_len
     furi_hal_mock_tx_log_reset();
     furi_hal_mock_arm_response_for_tx(
         k_super_s_auto_valset, sizeof(k_super_s_auto_valset), reply, reply_len);
-    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian, true);
+    GpsUart* g = gps_uart_alloc(&queue, GpsNavModelPedestrian, true);
     assert(g != NULL);
     assert(furi_hal_mock_tx_responses_pending() == 0); // reply was delivered
 
@@ -1050,7 +1058,7 @@ static void test_super_s_setting_sent(void) {
 static void test_pubx_hacc_parsing(void) {
     printf("Running test_pubx_hacc_parsing...\n");
     FuriMessageQueue queue = {0};
-    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian, true);
+    GpsUart* g = gps_uart_alloc(&queue, GpsNavModelPedestrian, true);
     assert(g != NULL);
 
     static const char* pubx_line =
@@ -1076,7 +1084,7 @@ static const char* PUBX_18_SATS_LINE =
 static void test_pubx_numsvs_is_sat_count(void) {
     printf("Running test_pubx_numsvs_is_sat_count...\n");
     FuriMessageQueue queue = {0};
-    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian, true);
+    GpsUart* g = gps_uart_alloc(&queue, GpsNavModelPedestrian, true);
     assert(g != NULL);
 
     static const char* gsv_25_in_view =
@@ -1110,7 +1118,7 @@ static void test_pubx_numsvs_is_sat_count(void) {
 static void test_pubx_corrupted_line_ignored(void) {
     printf("Running test_pubx_corrupted_line_ignored...\n");
     FuriMessageQueue queue = {0};
-    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian, true);
+    GpsUart* g = gps_uart_alloc(&queue, GpsNavModelPedestrian, true);
     assert(g != NULL);
 
     furi_hal_mock_feed_string(PUBX_18_SATS_LINE);
@@ -1140,7 +1148,7 @@ static void test_pubx_corrupted_line_ignored(void) {
 static void test_pubx_empty_numsvs_keeps_count(void) {
     printf("Running test_pubx_empty_numsvs_keeps_count...\n");
     FuriMessageQueue queue = {0};
-    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian, true);
+    GpsUart* g = gps_uart_alloc(&queue, GpsNavModelPedestrian, true);
     assert(g != NULL);
 
     furi_hal_mock_feed_string(PUBX_18_SATS_LINE);
@@ -1165,7 +1173,7 @@ static void test_pubx_empty_numsvs_keeps_count(void) {
 static void test_nmea_fail_counter(void) {
     printf("Running test_nmea_fail_counter...\n");
     FuriMessageQueue queue = {0};
-    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian, true);
+    GpsUart* g = gps_uart_alloc(&queue, GpsNavModelPedestrian, true);
     assert(g != NULL);
     assert(gps_uart_get_nmea_fail_count(g) == 0);
 
@@ -1182,7 +1190,7 @@ static void test_nmea_fail_counter(void) {
     // GGA_LINE cut off before its "*6C" checksum: rejected and counted,
     // and its position never reaches the status.
     gps_uart_free(g);
-    g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian, true);
+    g = gps_uart_alloc(&queue, GpsNavModelPedestrian, true);
     assert(g != NULL);
     furi_hal_mock_feed_string(
         "$GNGGA,203337.00,5133.34438,N,00004.28757,W,1,16,0.9,123.4,M,45.6,M,,\r\n");
@@ -1206,7 +1214,7 @@ static void test_nmea_fail_counter(void) {
 static void test_rx_stream_drop_counter(void) {
     printf("Running test_rx_stream_drop_counter...\n");
     FuriMessageQueue queue = {0};
-    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian, true);
+    GpsUart* g = gps_uart_alloc(&queue, GpsNavModelPedestrian, true);
     assert(g != NULL);
     assert(gps_uart_get_rx_drop_count(g) == 0);
 
@@ -1241,7 +1249,7 @@ static void test_rx_stream_drop_counter(void) {
 static void test_rx_stream_survives_sd_flush_ride_out_stall(void) {
     printf("Running test_rx_stream_survives_sd_flush_ride_out_stall...\n");
     FuriMessageQueue queue = {0};
-    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian, true);
+    GpsUart* g = gps_uart_alloc(&queue, GpsNavModelPedestrian, true);
     assert(g != NULL);
     assert(gps_uart_get_rx_drop_count(g) == 0);
 
@@ -1276,7 +1284,7 @@ static void test_rx_stream_survives_sd_flush_ride_out_stall(void) {
 static void test_rx_drain_is_chunked_not_monolithic(void) {
     printf("Running test_rx_drain_is_chunked_not_monolithic...\n");
     FuriMessageQueue queue = {0};
-    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian, true);
+    GpsUart* g = gps_uart_alloc(&queue, GpsNavModelPedestrian, true);
     assert(g != NULL);
 
     enum { Lines = 30 };
@@ -1313,7 +1321,7 @@ static void test_scheduler_mock_with_real_uart_drain_feedback(void) {
     printf("Running test_scheduler_mock_with_real_uart_drain_feedback...\n");
 
     FuriMessageQueue queue = {0};
-    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian, true);
+    GpsUart* g = gps_uart_alloc(&queue, GpsNavModelPedestrian, true);
     assert(g != NULL);
 
     enum { SimTicks = 15 };

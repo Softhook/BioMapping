@@ -81,7 +81,7 @@ size_t storage_file_read(File* file, void* buff, size_t bytes_to_read);
 // selects absolute-from-file-start vs. relative-to-current-position, and a
 // seek past the current size in write mode expands the file immediately, in
 // this call — see storage_mock.c's implementation for the pre-allocation
-// cost model this exists to let test_sd_logger.c's BIOMAP_SD_PREALLOC
+// cost model this exists to let test_sd_logger.c's pre-allocation
 // tests exercise.
 bool     storage_file_seek(File* file, uint32_t offset, bool from_start);
 uint64_t storage_file_tell(File* file);

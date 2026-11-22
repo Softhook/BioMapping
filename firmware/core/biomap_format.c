@@ -95,6 +95,15 @@ int32_t cycle_selection(int32_t sel, int32_t count, bool down) {
     }
 }
 
+const char* biomap_nav_model_label(GpsNavModel model) {
+    static const char* const LABEL[] = {
+        "PED", "WRIST", "VEHICLE", "STATION", "SEA", "BIKE", "FLIGHT",
+    };
+    _Static_assert(sizeof(LABEL) / sizeof(LABEL[0]) == GpsNavModelCount,
+                   "one label per GpsNavModel");
+    return ((unsigned)model < GpsNavModelCount) ? LABEL[model] : "?";
+}
+
 void cal_dwell_init(CalDwell* d) {
     d->in_gate = 0;
     d->below = 0;

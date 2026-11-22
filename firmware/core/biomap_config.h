@@ -5,25 +5,6 @@
 
 #pragma once
 
-// SD writer control for A/B diagnostics.
-// 0 = normal mode (real storage_file_write/storage_file_sync calls)
-// 1 = dry-run mode (keeps logger API active but bypasses physical SD I/O)
-//     Useful for isolating whether main-loop freezes are caused by SD path.
-#define BIOMAP_SD_DRY_RUN 0
-
-// One-shot log-file pre-allocation, A/B switch (see
-// docs/archive/gps_rf_mutex_status.md's "option E" entries). The
-// once-per-FLUSH_INTERVAL SD-flush stall grows across a long recording
-// (~94 ms -> ~162 ms average over 59 minutes on track 016, consistent with
-// FAT fragmentation from repeated small appends). sd_logger_start() grows
-// the file to its expected full size once, up front, via storage_file_seek()
-// (the only pre-allocation primitive the app SDK exposes — no f_expand
-// binding). sd_logger.c's SD_LOGGER_PREALLOC_BYTES is sized for ~90 minutes
-// with margin.
-// 0 = off (plain append).
-// 1 = on: pre-grow once at start, trim the unused tail at stop.
-#define BIOMAP_SD_PREALLOC 1
-
 // Radio (EM) scan bands: 815, 868 and 915 MHz, in that order — the
 // rssi_815,rssi_868,rssi_915 CSV columns and the "# Band Floors" header
 // line. The Flipper's radio code (modules/em_scan_rf.h, EM_SCAN_NUM_FREQS)
@@ -67,7 +48,7 @@ typedef enum {
 
 // ── GSR calibration fit ──────────────────────────────────────────────
 // Used by biomap_format.c's calibration_wizard_compute_fit(), by the
-// Flipper and Cardputer calibration wizards, and by calibration file
+// shared calibration wizard (core/cal_wizard.c), and by calibration file
 // loading on both devices.
 #define CAL_POINTS       3        // resistors measured: 470k, 100k, 47k
 
@@ -143,32 +124,6 @@ typedef enum {
 #define CAL_NOISE_EXCELLENT_NS    2.0f
 #define CAL_NOISE_ACCEPTABLE_NS  10.0f
 
-// Calibration wizard step numbers — shared by the Flipper and Cardputer
-// wizards (starts at WizardStepPromptZero):
-//   13 = prompt zero (nothing connected)   14 = measure zero
-//   0 = prompt 470k    4 = prompt 47k      8  = success
-//   1 = measure 470k   5 = measure 47k     9  = measurement fail
-//   2 = prompt 100k    6 = compute fit     10 = fit fail (bounds / R²)
-//   3 = measure 100k   7 = (unused)        11 = noise/resolution fail (σ too high)
-//   12 = bias check fail                   15 = zero fail (out of range / noisy)
-enum {
-    WizardStepPrompt470k    = 0,
-    WizardStepMeasuring470k = 1,
-    WizardStepPrompt100k    = 2,
-    WizardStepMeasuring100k = 3,
-    WizardStepPrompt47k     = 4,
-    WizardStepMeasuring47k  = 5,
-    WizardStepFitPending    = 6,
-    WizardStepSuccess       = 8,
-    WizardStepMeasureFailed = 9,
-    WizardStepFitFailed     = 10,
-    WizardStepNoiseFailed   = 11,
-    WizardStepBiasFailed    = 12,
-    WizardStepPromptZero    = 13,
-    WizardStepMeasuringZero = 14,
-    WizardStepZeroFailed    = 15,
-};
-
 // ── CSV column headers ────────────────────────────────────────────────
 // Must stay in sync with the printf format strings in biomap_format_gps_row()
 // (biomap_format.c). Changing column order here requires matching changes
@@ -188,8 +143,9 @@ enum {
 // logger and PGA columns are computed in every GSR-bearing mode and so
 // appear in all three.
 //
-// Debug fields are a runtime Options toggle (BioMapApp::debug_fields_enabled,
-// off by default), not a compile-time switch: both the _PROD and _DEBUG
+// Debug fields are a runtime Options toggle (Options > Debug Fields, off by
+// default, SessionSettings.debug_fields_enabled), not a compile-time
+// switch: both the _PROD and _DEBUG
 // variant of each schema is always compiled in, and build_header()
 // (core/biomap_session.c) picks between them per session.
 #define BIOMAP_CSV_COLS_GPS_GSR_PROD \

@@ -289,19 +289,9 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
 // same app run rather than being lost with the struct that held it.
 // Empty ("") until ubx_poll_chip_id() (see below) polls and
 // validates one. Never cleared — once found, kept for the life of the
-// process.
-//
-// An earlier version of this tried to catch the chip ID opportunistically
-// from the module's $..TXT NMEA boot banner (u-blox M10 ROM 5.10 Release
-// Notes §2.3.1 documents "CHIPID=..." appearing there). Three real-hardware
-// capture attempts — including a genuine full power cycle — only ever saw
-// baud-mismatched noise in the pre-configure window, never a recognisable
-// NMEA line. The banner is a one-time transient: after a power cycle it
-// most likely goes out before the app is running (the module is powered
-// continuously off the Flipper's 3V3 rail), and ubx_wake() consumes
-// whatever arrives while it waits for the module. Binary UBX-SEC-UNIQID below sidesteps
-// this entirely: a direct request/response that doesn't depend on catching
-// a one-time transient at exactly the right moment.
+// process. Polled with UBX-SEC-UNIQID rather than read from the module's
+// NMEA boot banner: the banner goes out once, usually before the app is
+// listening at the right baud.
 //
 // Holds a 5-word mnemonic phrase (see ubx_poll_chip_id_once()), not the
 // raw hex — max 5*5-char words + 4 spaces + NUL = 30 bytes, comfortably
@@ -410,11 +400,10 @@ static void ubx_calc_checksum(const uint8_t* buf, size_t len, uint8_t* ck_a, uin
 // running, not freshly powered on), it can still be streaming GGA+GLL+
 // GSA+GSV(x several)+RMC+VTG at up to 10 Hz from whatever a previous
 // session left it at — the exact set this VALSET call is trying to pare
-// down — which is ~400-500 bytes/epoch, ~4-5 KB/s. A smaller budget here
-// (256, an earlier guess) measured a live device exhausting it on real
-// NMEA noise in well under 100 ms, well before the actual ACK — logged as
-// spurious "no ACK/NAK received" on every packet despite the module
-// configuring correctly. Real bytes cost near-zero incremental time when
+// down — which is ~400-500 bytes/epoch, ~4-5 KB/s. A budget of 256 ran out
+// on real NMEA in well under 100 ms, before the ACK arrived, and logged a
+// false "no ACK/NAK received" for every packet. Real bytes cost near-zero
+// incremental time when
 // they're actually flowing (each read returns instantly, no per-byte
 // delay incurred) so this only matters for genuine noise volume, not the
 // happy-path latency.
@@ -543,16 +532,12 @@ static void ubx_send_and_confirm(GpsUart* g, const uint8_t* data, size_t len, co
 // request to this class/id gets back a 10-byte payload — version(1) +
 // reserved(3) + uniqueId(6, the 48-bit chip ID) — per §3.5.2's generic UBX
 // polling mechanism (send the message with no payload, receive it back
-// with the payload populated). See g_gps_chip_id's doc comment above for
-// why this replaced an earlier attempt to catch the ID opportunistically
-// off the module's NMEA boot banner.
+// with the payload populated).
 static const uint8_t ubx_poll_uniqid[] = {0xB5, 0x62, 0x27, 0x03, 0x00, 0x00, 0x2A, 0xA5};
 
 // One attempt: send the poll, read back exactly one frame, accept it only
 // if it's actually UBX-SEC-UNIQID with a valid checksum. Anything else
-// (wrong class/id/length, corrupted frame, timeout) is a failure — same
-// "don't guess, don't trust partial data" stance the old boot-banner
-// attempt used its checksum check for.
+// (wrong class/id/length, corrupted frame, timeout) is a failure.
 static bool ubx_poll_chip_id_once(GpsUart* g) {
     g->platform.rx_clear(g->platform.ctx); // drop stale bytes first — see ubx_send_and_confirm()'s doc comment
     g->platform.tx(g->platform.ctx, ubx_poll_uniqid, sizeof(ubx_poll_uniqid));
@@ -839,40 +824,26 @@ GpsUart* gps_uart_create(const GpsPlatform* platform, bool have_port,
                    platform->rx_drop_count && platform->rx_again && platform->now_ms && platform->delay_ms &&
                    platform->lock && platform->unlock,
                "GpsUart: incomplete platform");
-    GpsUart* g = malloc(sizeof(GpsUart));
+    // Zeroed, so only the fields that don't start at 0 / false are set here.
+    GpsUart* g = calloc(1, sizeof(GpsUart));
     CORE_CHECK(g, "GpsUart: NULL struct alloc");
-    memset(g, 0, sizeof(*g));
-
     g->platform  = *platform;
     g->nav_model = nav_model;
     g->super_s   = super_s;
-    g->rx_offset = 0;
-    g->ready     = false;
-
     g->status = (GpsStatus){
-        .latitude           = NAN,
-        .longitude          = NAN,
-        .speed              = NAN,
-        .course             = NAN,
-        .hdop               = 99.9f,
-        .hacc               = 99.9f,
-        .fix_quality        = 0,
-        .fix_type           = 1,
-        .satellites_tracked = 0,
-        .fix_valid          = false,
-        .sbas_active        = false,
-        .pdop               = 99.9f,
-        .time               = {0},
-        .date               = {0},
+        .latitude  = NAN,
+        .longitude = NAN,
+        .speed     = NAN,
+        .course    = NAN,
+        .hdop      = 99.9f,
+        .hacc      = 99.9f,
+        .fix_type  = 1,
+        .pdop      = 99.9f,
     };
     // Arm watchdog at create so a botched initial baud-rate switch
     // triggers a one-shot recovery after 5 s instead of silently
     // leaving the host at 115200 while the module stays at 9600.
-    g->last_valid_nmea_ms    = g->platform.now_ms(g->platform.ctx);
-    g->sbas_seen_this_second = false;
-    g->gsa_talker_logged     = false;
-    g->nmea_fail_count       = 0;
-    g->reinit_count          = 0;
+    g->last_valid_nmea_ms = g->platform.now_ms(g->platform.ctx);
 
     if(have_port) {
         const GpsPlatform* p = &g->platform;
@@ -1065,8 +1036,7 @@ static void gps_uart_configure(GpsUart* g) {
     // Each binary UBX packet below is sent and then confirmed via
     // ubx_send_and_confirm() (UBX-ACK-ACK/NAK, see its doc comment) rather
     // than fired blind behind a fixed delay — ACK typically arrives within
-    // a few ms at 115200 baud, so this is usually faster than the old
-    // batch-then-wait approach in addition to catching rejected packets.
+    // a few ms at 115200 baud, and a rejected packet is caught.
     gps_log(p, false, "Configuring u-blox SAM-M10Q");
 
     gps_log(p, false, "Switching GPS to 115200 baud");

@@ -12,6 +12,7 @@
 #include "core/biomap_cues.h"
 #include "core/core_check.h"
 #include "core/biomap_session.h"
+#include "core/cal_wizard.h"
 #include "core/biomap_screen.h"
 #include "core/sd_logger.h"
 
@@ -44,6 +45,8 @@ int main() {
     keep = keep || cache.ns_label_last == 0.0f;
     int (*flush_fn)(SdLogger*) = sd_logger_batch_flush;
     keep = keep || flush_fn == nullptr;
+    bool (*wiz_fn)(CalWizardCore*, BioMapCue*) = cal_wizard_tick;
+    keep = keep || wiz_fn == nullptr || biomap_nav_model_label(GpsNavModelSea)[0] == '\0';
     std::printf("C++ link ok (%d, %d, %d)\n", n, d.in_gate, (int)keep);
     return 0;
 }

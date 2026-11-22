@@ -2,7 +2,6 @@
 
 #include <math.h>
 #include <stdio.h>
-#include <string.h>
 
 #include "biomap_screen.h"
 #include "bt_cardputer.h"
@@ -30,7 +29,6 @@ struct DrawCtx {
     M5Canvas*   canvas;
     ScreenFont  font = ScreenFontSecondary;
     bool        inverted = false;
-    bool        recording = false;
     bool        retrying = false;
     bool        write_stopped = false;
     uint32_t    last_graph_tick_ms = 0;
@@ -94,10 +92,11 @@ static void cp_draw_line(void* ctx, int x1, int y1, int x2, int y2) {
 static void cp_draw_box(void* ctx, int x, int y, int w, int h) {
     auto* c = static_cast<DrawCtx*>(ctx);
     uint16_t col = fg_color(c);
-    // Recording indicator (top right) and SD-error banner (full width at top).
-    if(x == 118 && y == 1 && w == 8 && h == 8) {
+    // The recording mark and the SD-error banner (biomap_screen.h).
+    if(x == SCREEN_REC_MARK_X && y == SCREEN_REC_MARK_Y && w == SCREEN_REC_MARK_SIZE &&
+       h == SCREEN_REC_MARK_SIZE) {
         col = c->retrying ? TFT_ORANGE : TFT_RED;
-    } else if(x == 0 && y == 0 && w == SCREEN_W && c->write_stopped) {
+    } else if(x == 0 && y == 0 && w == SCREEN_W && h == SCREEN_BANNER_H && c->write_stopped) {
         col = TFT_RED;
     }
     c->canvas->fillRect(sx(x), sy(y), sw(x, w), sh(y, h), col);
@@ -281,14 +280,13 @@ void screen_cardputer_draw_session(M5Canvas& canvas) {
 
     DrawCtx dctx;
     dctx.canvas = &canvas;
-    dctx.recording = s.recording.active;
     dctx.retrying = s.recording.flush_fail_streak > 0;
     dctx.write_stopped = s.recording.write_stopped;
     dctx.last_graph_tick_ms = g_session.last_graph_tick_ms;
 
     ScreenExtras extras = {};
     extras.file_name = g_session.logger ? sd_logger_get_filename(g_session.logger) : nullptr;
-    extras.rf_dbm = nullptr;
+    // rf_dbm stays NULL: the Cardputer has no radio.
     extras.link = g_session.bt_active ? bt_cardputer_get_link() : ScreenLinkUnavailable;
     extras.link_dropped = g_session.bt_active ? bt_cardputer_get_drop_count() : 0;
 

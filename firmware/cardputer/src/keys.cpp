@@ -1,5 +1,7 @@
 #include "keys.h"
 
+#include "key_map.h"
+
 // ── A keyboard that stops ──────────────────────────────────────────────
 // The ADV's keyboard chip (TCA8418) holds G11 low while it has key events
 // waiting. M5Cardputer 1.1.1 reads only after G11 changes (an interrupt
@@ -48,19 +50,7 @@ bool keys_to_session(const Keyboard_Class::KeysState& st, SessionKey* out) {
         return true;
     }
     if(st.word.empty()) return false;
-    switch(st.word.back()) {
-    case ';':
-    case ':': *out = SessionKeyUp; return true;
-    case '.':
-    case '>': *out = SessionKeyDown; return true;
-    case ',':
-    case '<': *out = SessionKeyLeft; return true;
-    case '/':
-    case '?': *out = SessionKeyRight; return true;
-    case '`':
-    case '~': *out = SessionKeyBack; return true;
-    default: return false;
-    }
+    return key_map_char(st.word.back(), out);
 }
 
 const char* keys_session_name(SessionKey key) {

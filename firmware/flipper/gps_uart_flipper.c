@@ -290,9 +290,7 @@ void gps_uart_port_close(void) {
 // ---------------------------------------------------------------------------
 // Session: alloc wakes the module, free sleeps it; the port stays open
 // ---------------------------------------------------------------------------
-GpsUart* gps_uart_alloc(FuriMessageQueue* event_queue, NotificationApp* notifications,
-                        GpsNavModel nav_model, bool super_s) {
-    UNUSED(notifications); // not currently used by this module — see gps_uart_flipper.h
+GpsUart* gps_uart_alloc(FuriMessageQueue* event_queue, GpsNavModel nav_model, bool super_s) {
     furi_check(furi_kernel_get_tick_frequency() == 1000, "GpsUart: tick is not 1 ms");
     GpsFlipper* f = malloc(sizeof(GpsFlipper));
     furi_check(f, "GpsUart: NULL struct alloc");

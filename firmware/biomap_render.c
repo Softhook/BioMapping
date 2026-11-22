@@ -73,7 +73,7 @@ static void draw_selection_list(Canvas* c, int sel, int count,
 }
 
 void menu_render(Canvas* c, void* ctx) {
-    MenuContext* m_ctx = (MenuContext*)ctx;
+    ListContext* m_ctx = (ListContext*)ctx;
     BioMapApp* a = m_ctx->app;
     if(furi_mutex_acquire(a->mutex, 10) != FuriStatusOk) return;
     canvas_clear(c);
@@ -85,7 +85,7 @@ void menu_render(Canvas* c, void* ctx) {
 }
 
 void options_render(Canvas* c, void* ctx) {
-    OptionsContext* o_ctx = (OptionsContext*)ctx;
+    ListContext* o_ctx = (ListContext*)ctx;
     BioMapApp* a = o_ctx->app;
     if(furi_mutex_acquire(a->mutex, 10) != FuriStatusOk) return;
     canvas_clear(c);
@@ -105,12 +105,7 @@ void options_render(Canvas* c, void* ctx) {
         int y = 22 + (i - top) * 10;
         const char* state;
         if(i == OptGpsProfile) {
-            // Indexed by GpsNavModel's enum ordinal (biomap_config.h) —
-            // Pedestrian/Wrist/Vehicle/Stationary/Sea/Bike/Flight = 0..6.
-            static const char* const nav_model_labels[7] = {
-                "PED", "WRIST", "VEHICLE", "STATION", "SEA", "BIKE", "FLIGHT",
-            };
-            state = nav_model_labels[a->nav_model];
+            state = biomap_nav_model_label(a->nav_model);
         } else if(i == OptSuperS) {
             state = a->super_s ? "AUTO" : "OFF";
         } else if(i == OptAutoZoom) {
@@ -141,10 +136,10 @@ void options_render(Canvas* c, void* ctx) {
 // biomap_gui.c) — same "Start Wizard / Reset to Default / Show Current"
 // 3-item list, differing only in the title.
 //
-// ctx is a CalSubmenuContext* (biomap.h) — guarded by app->mutex against
+// ctx is a ListContext* (biomap.h) — guarded by app->mutex against
 // run_cal_submenu()'s key-handling loop, same as menu_render/options_render.
 static void draw_cal_submenu(Canvas* c, void* ctx, const char* title) {
-    CalSubmenuContext* sm = (CalSubmenuContext*)ctx;
+    ListContext* sm = (ListContext*)ctx;
     if(furi_mutex_acquire(sm->app->mutex, 10) != FuriStatusOk) return;
     int sel = (int)sm->selection;
     canvas_clear(c);
@@ -194,31 +189,36 @@ void calibration_wizard_render(Canvas* c, void* ctx) {
     };
 
     switch(step) {
-    case 0: case 1: case 2: case 3: case 4: case 5: {
+    case WizardStepPrompt470k:
+    case WizardStepPrompt100k:
+    case WizardStepPrompt47k: {
         int idx = step / 2;
-        if(step % 2 == 0) { // Prompt
-            draw_fmt(c, 0, 25, "Step %d/4: %s (%s)",
-                     idx + 2, cal_steps[idx].level, cal_steps[idx].resistor);
-            draw_fmt(c, 0, 37, "Connect %s 0.1%% resistor", cal_steps[idx].resistor);
-            canvas_draw_str(c, 0, 49, "OK to measure");
-        } else { // Measuring — live dwell countdown (CAL_DWELL_SECONDS, biomap_gui.c)
-            draw_fmt(c, 0, 25, "Measuring %s...", cal_steps[idx].resistor);
-            canvas_draw_str(c, 0, 37, "Keep resistor connected");
-            draw_fmt(c, 0, 49, "%lus remaining (Back=cancel)", (unsigned long)seconds_left);
-        }
+        draw_fmt(c, 0, 25, "Step %d/4: %s (%s)",
+                 idx + 2, cal_steps[idx].level, cal_steps[idx].resistor);
+        draw_fmt(c, 0, 37, "Connect %s 0.1%% resistor", cal_steps[idx].resistor);
+        canvas_draw_str(c, 0, 49, "OK to measure");
         break;
     }
-    case 13: // Prompt: open-circuit zero
+    case WizardStepMeasuring470k:
+    case WizardStepMeasuring100k:
+    case WizardStepMeasuring47k: { // live dwell countdown (CAL_DWELL_SECONDS)
+        int idx = step / 2;
+        draw_fmt(c, 0, 25, "Measuring %s...", cal_steps[idx].resistor);
+        canvas_draw_str(c, 0, 37, "Keep resistor connected");
+        draw_fmt(c, 0, 49, "%lus remaining (Back=cancel)", (unsigned long)seconds_left);
+        break;
+    }
+    case WizardStepPromptZero: // open-circuit zero
         canvas_draw_str(c, 0, 25, "Step 1/4: Zero");
         canvas_draw_str(c, 0, 37, "Disconnect everything");
         canvas_draw_str(c, 0, 49, "OK to measure");
         break;
-    case 14: // Measuring the zero — live dwell countdown
+    case WizardStepMeasuringZero: // live dwell countdown
         canvas_draw_str(c, 0, 25, "Measuring zero...");
         canvas_draw_str(c, 0, 37, "Keep nothing connected");
         draw_fmt(c, 0, 49, "%lus remaining (Back=cancel)", (unsigned long)seconds_left);
         break;
-    case 15: // Zero failed — out of range (something connected) or too noisy
+    case WizardStepZeroFailed: // out of range (something connected) or too noisy
         canvas_draw_str(c, 0, 25, "Zero Check Failed!");
         if(zero_noise_ns >= CAL_NOISE_ACCEPTABLE_NS) {
             draw_fmt(c, 0, 37, "Too noisy: %.1f nS", (double)zero_noise_ns);
@@ -229,7 +229,7 @@ void calibration_wizard_render(Canvas* c, void* ctx) {
             canvas_draw_str(c, 0, 49, "Disconnect everything.");
         }
         break;
-    case 8: { // Success
+    case WizardStepSuccess: {
         float worst_std = biomap_cal_worst_noise_std_dev(noise_std_dev);
         canvas_draw_str(c, 0, 23, "Calibration Success!");
         draw_fmt(c, 0, 35, "Gain: %.3fx  R\xb2: %.4f", (double)gain, (double)r_squared);
@@ -237,22 +237,22 @@ void calibration_wizard_render(Canvas* c, void* ctx) {
         canvas_draw_str(c, 0, 60, "OK=Save  Back=Discard");
         break;
     }
-    case 9: // Measurement failed — not enough samples in gate
+    case WizardStepMeasureFailed: // not enough samples in gate
         canvas_draw_str(c, 0, 25, "Calibration Failed!");
         canvas_draw_str(c, 0, 38, "Check connections.");
         break;
-    case 10: // Fit failed — bounds or R²
+    case WizardStepFitFailed: // bounds or R²
         canvas_draw_str(c, 0, 25, "Calibration Failed!");
         canvas_draw_str(c, 0, 37, "Device out of range.");
         draw_fmt(c, 0, 49, "Gain: %.3fx  R\xb2: %.4f", (double)gain, (double)r_squared);
         break;
-    case 11: // Noise/resolution failed — sigma >= CAL_NOISE_ACCEPTABLE_NS
+    case WizardStepNoiseFailed: // sigma >= CAL_NOISE_ACCEPTABLE_NS
         canvas_draw_str(c, 0, 25, "Pre-flight Check Failed!");
         draw_fmt(c, 0, 37, "%s too noisy/unstable.", cal_steps[fail_idx].resistor);
         draw_fmt(c, 0, 49, "Sigma: %.2f nS (max %.0f)",
                  (double)noise_std_dev[fail_idx], (double)CAL_NOISE_ACCEPTABLE_NS);
         break;
-    case 12: // 0.5 V bias check failed or out of range (gsr_sensor.h, GSR_BIAS_*)
+    case WizardStepBiasFailed: // failed or out of range (gsr_sensor.h, GSR_BIAS_*)
         canvas_draw_str(c, 0, 25, "Bias Check Failed!");
         if(isnan(bias_v)) {
             canvas_draw_str(c, 0, 37, "No reading. Check wiring.");

@@ -202,7 +202,7 @@ Debug-only appended columns when enabled:
 - `i2c_peak_ms`, `rf_rssi_peak_ms`, `rf_retune_peak_ms`
 - `flush_peak_ms`, `log_fill_bytes`, `log_fill_peak_bytes`, `log_overflow_count`, `log_flush_fail_count`
 - `pga_change_count`, `i2c_consec_fail` (all GSR-bearing modes, including GSR-only)
-- `prealloc_ms` (all three variants) — one-shot SD log-file pre-allocation duration at recording start, session-constant rather than a lifetime-max like the columns above (`BIOMAP_SD_PREALLOC`)
+- `prealloc_ms` (all three variants) — one-shot SD log-file pre-allocation duration at recording start, session-constant rather than a lifetime-max like the columns above
 - `gsr_spread_ns` (all three variants, last column) — how far the readings inside the row's 100 ms GSR window spread out
 
 ### Debug Column Definitions
