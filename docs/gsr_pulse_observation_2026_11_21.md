@@ -48,14 +48,13 @@ It is probably not the USB status line either (`log_second()` in
 [main.cpp](../firmware/cardputer/src/main.cpp)). On battery no computer
 is listening, and the USB code returns before sending anything.
 
-One clue: a 600k recording on the same bus (`biomap_0003_nodate.csv`)
-has no dip, less than 0.03 nS. If the dip were a fixed share of the
-reading, it would be about 0.2 nS there, which is easy to see. So it
-depends on the resistor or on the ADC's range (±2.048 V for 47 kΩ,
-±0.256 V for 600k). The other possibility is that something in the
-bench set-up changed between the two recordings. **Cause not yet
-known.** Next test: record 47 kΩ and 600k back to back, changing nothing
-else.
+It isn't the Flipper's supply either. With the board on a bench supply
+and the Flipper disconnected (`biomap_0009_nodate.csv`), the dip is
+still there. It comes and goes: one 47 kΩ recording on the Flipper's
+supply (`biomap_0006_nodate.csv`) has none, and neither does the 600k
+one (`biomap_0003_nodate.csv`). **Cause not yet known.** What has been
+ruled out, and what to try next, is in
+[cardputer_gsr_noise_investigation.md](cardputer_gsr_noise_investigation.md).
 
 ## The heartbeat
 
