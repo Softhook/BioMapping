@@ -56,6 +56,8 @@ PLACE = {
     "C6": (28.85, 39.1, 0, "B"),                   # under V_IO pad 2 and GND pad 1
     "C8": (25.05, 39.1, 180, "B"),                 # under V_BCKP pad 3 and GND pad 4
     "TP2": (35.4, 30.3, 0, "B"), "TP1": (16.6, 30.0, 0, "B"),   # beside RESET pad 18 and SAFEBOOT pad 8
+    # a ground pad under each, 1.2 mm apart: tweezers across the pair, or a scope's ground
+    "TP7": (35.4, 33.0, 0, "B"), "TP6": (16.6, 32.7, 0, "B"),
     # each serial resistor sits at the end that drives its wire: TX just above the GPS's TX
     # pin, RX just below the tail's RX pad
     "R10": (26.0, 19.6, 90, "B"), "R9": (38.25, 9.4, 90, "B"),
@@ -82,6 +84,9 @@ PLACE = {
     # test pads in one row between the ADC and the op-amp: 0.5 V, GSR output, ground;
     # the first two sit on their wires
     "TP4": (61.8, 23.2, 0, "B"), "TP3": (64.28, 23.2, 0, "B"), "TP5": (66.8, 23.2, 0, "B"),
+    # the ADC's ready line, on its wire just above the ADC (the only other places to probe
+    # it are the ADC's 0.5 mm pins and the tail joint, which is taped over)
+    "TP8": (63.4, 17.0, 0, "B"),
 }
 TRACKS = [
     # ── 5 V -> 3.3 V: from the tail's 5 V pad straight down to the regulator ──
@@ -155,7 +160,7 @@ TRACKS = [
     ("B", SIG, ["U2.3", (60.6, 20.3)]),
     # the ready line along the top, outside the I2C wires, then across at 45 degrees and down
     # the right of the ADC
-    ("B", SIG, ["J1.1", (47.25, 7.6), (55.6, 7.6), (63.4, 15.4), (63.4, 19.8), "U2.2"]),
+    ("B", SIG, ["J1.1", (47.25, 7.6), (55.6, 7.6), (63.4, 15.4), "TP8.1", (63.4, 19.8), "U2.2"]),
     # the tail's two ground pads straight down to a via each
     ("B", SIG, ["J1.2", (45.75, 8.0)]),
     ("B", SIG, ["J1.6", (39.75, 8.0)]),
@@ -194,8 +199,13 @@ STITCH = [((22.0, 26.0, 30.0, 34.0), 2.0), ((1.5, 1.5, 49.5, 52.5), 3.0), ((52.5
 LABELS = {"B": [("Bio Mapping 2", 66.0, 39.0, 1.8), ("Christian Nold, 2004 - 2026", 66.0, 44.0, 1.2),
                 ("rev F  2026-11", 66.0, 49.0, TEXT),
                 ("GPS: keep this side clear of metal", 26.0, 51.0, TEXT),
-                ("CUFFS", 79.2, 22.4, TEXT), ("BODY <> WORLD", 14.0, 15.0, 1.2), ("SAFEBOOT", 14.0, 33.0, TEXT),
-                ("RESET", 37.0, 32.6, TEXT), ("5V to 3.3V", 38.5, 18.6, TEXT),
+                ("CUFFS", 79.2, 22.4, TEXT), ("BODY <> WORLD", 14.0, 15.0, 1.2),
+                # each GPS pad's name beside it, on the side away from the module, 0.3 mm
+                # clear of its printed outline. RESET stands further off: TP2's own name
+                # goes between, as C7, TP7 and the module leave it no other room
+                ("SAFEBOOT/PPS", 9.45, 30.0, TEXT), ("GND", 13.6, 32.7, TEXT),
+                ("RESET", 42.7, 30.3, TEXT), ("GND", 38.4, 33.0, TEXT),
+                ("RDY", 66.0, 17.0, TEXT), ("5V to 3.3V", 38.5, 18.6, TEXT),
                 ("FLEX TAIL", 55.0, 3.0, TEXT), ("SOLDER HERE", 55.0, 5.0, TEXT)]}
 
 

@@ -253,7 +253,9 @@ def gsr_core(adc_ready=None):
         part("TP3", "TP", "GSR", FP_TP, {"1": "GSR_SIGNAL"}, "Test pad: amplifier output"),
         part("TP4", "TP", "0.5V", FP_TP, {"1": "REF_0V5"}, "Test pad: 0.5 V reference"),
         part("TP5", "TP", "GND", FP_TP, {"1": "GND"}, "Test pad: ground, for the meter or scope"),
-    ]
+    ] + ([part("TP8", "TP", "RDY", FP_TP, {"1": adc_ready},
+               "Test pad: ADC reading-ready pulses (860 a second), for a scope or logic analyser")]
+         if adc_ready else [])
 
 def gps_block(backup_cap="100nF"):
     """u-blox SAM-M10Q on the board, wired like the SparkFun GPS-21834 breakout.
@@ -278,10 +280,15 @@ def gps_block(backup_cap="100nF"):
         part("C8", "C", backup_cap, FP_C, {"1": "GPS_BCKP", "2": "GND"}, "Backup supply decoupling"),
         part("R9", "R", "470", FP_R, {"1": "GPS_RXD", "2": "HOST_TX_TO_GPS"}, "Series resistor on GPS RX"),
         part("R10", "R", "470", FP_R, {"1": "GPS_TXD", "2": "GPS_TX_TO_HOST"}, "Series resistor on GPS TX"),
-        part("TP1", "TP", "SAFEBOOT", "TestPoint:TestPoint_Pad_1.5x1.5mm", {"1": "GPS_SAFEBOOT_N"},
-             "Short to GND at power-up to recover the GPS firmware"),
+        part("TP1", "TP", "SAFEBOOT/PPS", "TestPoint:TestPoint_Pad_1.5x1.5mm", {"1": "GPS_SAFEBOOT_N"},
+             "Also the GPS time pulse: joined inside the module to TIMEPULSE through 1k, so once the GPS "
+             "has the time it goes high for 0.1 s at the start of each second. Short to TP6 (GND) at "
+             "power-up for safeboot mode. Nothing may pull it low at power-up"),
         part("TP2", "TP", "RESET", "TestPoint:TestPoint_Pad_1.5x1.5mm", {"1": "GPS_RESET_N"},
-             "Short to GND to reset the GPS"),
+             "Short to TP7 (GND) to reset the GPS. Clears its stored data: the next fix is a cold start"),
+        *[part(ref, "TP", "GND", "TestPoint:TestPoint_Pad_1.5x1.5mm", {"1": "GND"},
+               "Ground beside TP1 (TP6) and TP2 (TP7): tweezers across the pair, or a scope's ground")
+          for ref in ("TP6", "TP7")],
     ]
 
 FLIPPER = gsr_core() + gps_block() + [
@@ -680,6 +687,9 @@ def draw_adc(s, x0, y0, ready=False):
             s.label(f"{ref}.1", net, n=2)
         else:
             s.power(f"{ref}.1", "GND")
+    if ready:                                  # below the ready pin's label, clear of U2's ground
+        s.put("TP8", x0 + g(36), ty)
+        s.label("TP8.1", "ADC_READY", n=2)
 
 def draw_gps(s, x0, y0):
     s.frame(x0, y0, g(66), H1, "5  GPS: u-blox SAM-M10Q with built-in antenna",
@@ -719,11 +729,15 @@ def draw_gps(s, x0, y0):
     s.wire("U4.14", (rxd[0] + g(2), rxd[1]), (rxd[0] + g(2), ry), "R9.1")
     s.label("R9.2", "HOST_TX_TO_GPS", n=3)
     s.nc("U4.9", "U4.12", "U4.19", "U4.7")
-    # reset and safeboot test pads
+    # reset and safeboot test pads, each with a ground pad below it
     s.put("TP2", s.pins["U4.18"][0] - g(4), s.pins["U4.18"][1])
     s.wire("U4.18", "TP2.1")
-    s.put("TP1", s.pins["U4.8"][0] - g(9), s.pins["U4.8"][1])
+    # TP1's long name to its left, clear of C7's GND above and TP2's text to its right
+    s.put("TP1", s.pins["U4.8"][0] - g(9), s.pins["U4.8"][1], txt=(-1.27, -3.3, "right"))
     s.wire("U4.8", "TP1.1")
+    for ref, tp in (("TP7", "TP2"), ("TP6", "TP1")):
+        s.put(ref, s.pins[f"{tp}.1"][0], s.pins[f"{tp}.1"][1] + g(5))
+        s.power(f"{ref}.1", "GND")
     s.power("U4.1", "GND")
 
 def draw_pullups(s, x, y):

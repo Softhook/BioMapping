@@ -29,6 +29,9 @@ PLACE = {
     "C7": (35.3, 22.85, -90, "F"),                 # bridges VCC pad 17 and GND pad 16
     "C6": (38.95, 26.0, 0, "F"),
     "TP2": (35.9, 19.2, 0, "F"), "TP1": (14.4, 20.0, 0, "F"),
+    # a ground pad beside each, 1.2 mm apart: tweezers across the pair, or a scope's ground.
+    # TP7 goes above TP2, because C7 sits below it
+    "TP7": (35.9, 16.5, 0, "F"), "TP6": (14.4, 22.7, 0, "F"),
     "D1": (30.6, 6.0, 0, "F"), "R8": (25.6, 6.0, 180, "F"),
     "C8": (21.6, 5.3, 180, "F"), "BT1": (15.0, 5.3, 0, "F"),
     "R10": (25.0, 31.0, -90, "F"), "R9": (27.5, 31.0, -90, "F"),
@@ -121,7 +124,12 @@ STITCH = [((1.5, 1.5, 46.0, 50.5), 3.0), ((47.5, 1.5, FW - 1.5, 50.5), 5.0)]
 LABELS = {"F": [("BioMapping 2", 60.5, 38.4, TEXT), ("Flipper GSR + GPS", 60.5, 40.0, TEXT),
                 ("rev A  2026-11", 60.5, 41.6, TEXT),
                 ("GPS: keep this side clear of metal", 23.0, 37.5, TEXT),
-                ("CUFFS", 66.0, 2.4, TEXT), ("SAFEBOOT", 12.4, 22.6, TEXT), ("RESET", 38.0, 17.2, TEXT)]}
+                ("CUFFS", 66.0, 2.4, TEXT),
+                # each GPS pad's name beside it, on the side away from the module, 0.3 mm
+                # clear of its printed outline. RESET stands further off: TP2's own name
+                # goes between, as C7, TP7 and the module leave it no other room
+                ("SAFEBOOT/PPS", 7.25, 20.0, TEXT), ("GND", 11.4, 22.7, TEXT),
+                ("RESET", 43.2, 19.2, TEXT), ("GND", 38.9, 16.5, TEXT)]}
 
 
 def outline(add_seg, add_arc):
