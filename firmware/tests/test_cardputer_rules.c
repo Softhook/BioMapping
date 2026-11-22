@@ -19,6 +19,7 @@
 #include "cardputer/src/key_map.h"
 #include "cardputer/src/wifi_files_rules.h"
 #include "cardputer/src/zip_stream.h"
+#include "cardputer/src/splash_anim.h"
 #include "core/biomap_pipeline.h"
 
 // ── Clock ───────────────────────────────────────────────────────────────
@@ -828,6 +829,121 @@ static void test_key_map(void) {
     printf("  character to button: ok\n");
 }
 
+// ── Startup splash animation math ────────────────────────────────────────
+
+static void test_splash_anim(void) {
+    // Easing boundaries and overshoot.
+    assert(splash_ease(SplashEaseLinear, -0.5f) == 0.0f);
+    assert(splash_ease(SplashEaseLinear, 1.5f) == 1.0f);
+    assert(splash_ease(SplashEaseOutCubic, 0.0f) == 0.0f);
+    assert(splash_ease(SplashEaseOutCubic, 1.0f) == 1.0f);
+    assert(splash_ease(SplashEaseOutBack, 0.7f) > 1.0f);  // characteristic overshoot
+
+    // Timeline progression: extended Earth spin -> London -> body (with square wave) -> clean title -> done.
+    SplashFrameState s0 = {}, s_orbit = {}, s_mid = {}, s_london = {};
+    SplashFrameState s_body = {}, s_hero_start = {}, s_hero = {}, s_end = {};
+    splash_eval_frame(0, &s0);
+    splash_eval_frame(1100, &s_orbit);
+    splash_eval_frame(3000, &s_mid);
+    splash_eval_frame(3850, &s_london);
+    splash_eval_frame(4900, &s_body);
+    splash_eval_frame(6600, &s_hero_start);
+    splash_eval_frame(SPLASH_HOLD_MS, &s_hero);
+    splash_eval_frame(SPLASH_TOTAL_MS, &s_end);
+
+    assert(s0.global_alpha == 0.0f);
+    assert(s_orbit.globe_radius > 40.0f && s_orbit.globe_radius < 55.0f);
+    // Logarithmic dive passes smoothly through mid-scale on the way to London.
+    assert(s_mid.globe_radius > 110.0f && s_mid.globe_radius < 220.0f);
+    assert(s_london.globe_radius > 400.0f);
+    assert(s_london.cam_lat_deg > SPLASH_TARGET_LAT_DEG - 0.1f &&
+           s_london.cam_lat_deg < SPLASH_TARGET_LAT_DEG + 0.1f);
+    assert(s_london.cam_lon_deg > SPLASH_TARGET_LON_DEG - 0.1f &&
+           s_london.cam_lon_deg < SPLASH_TARGET_LON_DEG + 0.1f);
+    // Body emerges directly from London with the square-wave tracing inside the chest.
+    assert(s_body.body_alpha > 0.8f && s_body.symbol_alpha > 0.8f && s_body.symbol_cell < 3.0f);
+    // Hero frame holds steady on a clean dark screen (globe, body, stars all fully faded to 0).
+    assert(s_hero_start.globe_alpha == 0.0f && s_hero_start.body_alpha == 0.0f &&
+           s_hero_start.star_alpha == 0.0f);
+    assert(s_hero_start.symbol_progress >= 0.99f && s_hero_start.symbol_cell > 5.4f &&
+           s_hero_start.title_alpha >= 0.99f && s_hero_start.bar_progress >= 0.99f &&
+           s_hero_start.coord_alpha >= 0.99f);
+    assert(s_hero.symbol_progress >= 0.99f && s_hero.title_alpha >= 0.99f &&
+           s_hero.bar_progress >= 0.99f && s_hero.global_alpha >= 0.99f);
+    assert(s_end.global_alpha <= 0.01f);
+
+    // Spherical projection: the point under the camera lands on the sphere's centre (cx, cy), z = 1.
+    float sx = 0, sy = 0, sz = 0;
+    bool vis = splash_project_latlon(SPLASH_TARGET_LAT_DEG, SPLASH_TARGET_LON_DEG,
+                                     SPLASH_TARGET_LAT_DEG, SPLASH_TARGET_LON_DEG,
+                                     120.0f, 67.5f, 46.0f, &sx, &sy, &sz);
+    assert(vis && sz > 0.999f);
+    assert(sx > 119.9f && sx < 120.1f && sy > 67.4f && sy < 67.6f);
+    // Antipode is on the far hemisphere (not visible).
+    vis = splash_project_latlon(-SPLASH_TARGET_LAT_DEG, SPLASH_TARGET_LON_DEG + 180.0f,
+                                SPLASH_TARGET_LAT_DEG, SPLASH_TARGET_LON_DEG,
+                                120.0f, 67.5f, 46.0f, &sx, &sy, &sz);
+    assert(!vis && sz < -0.99f);
+
+    // The continents include Great Britain (the focus), which clips cleanly seen from above London.
+    size_t cont_n = 0;
+    const SplashContinent* conts = splash_continents(&cont_n);
+    assert(conts && cont_n >= 8);
+    int focus_count = 0;
+    for(size_t i = 0; i < cont_n; i++) {
+        if(conts[i].is_focus) {
+            focus_count++;
+            SplashPt2 poly[48];
+            size_t pn = splash_clip_continent(&conts[i],
+                                              SPLASH_TARGET_LAT_DEG, SPLASH_TARGET_LON_DEG,
+                                              120.0f, 67.5f, 440.0f, poly, 48);
+            assert(pn >= 3);
+        }
+    }
+    assert(focus_count == 1);
+
+    // Bio Mapping 2 favicon path matches exact 10x10 waveform (length = 20 units).
+    size_t vcount = 0;
+    float total_len = 0.0f;
+    const SplashSymPt* path = splash_symbol_path(&vcount, &total_len);
+    assert(path && vcount == SPLASH_SYMBOL_VERTS && total_len == 20.0f);
+    float sum = 0.0f;
+    for(size_t i = 0; i + 1 < vcount; i++) {
+        int dx = (int)path[i + 1].x - (int)path[i].x;
+        int dy = (int)path[i + 1].y - (int)path[i].y;
+        assert((dx == 0) != (dy == 0));  // strictly orthogonal steps
+        sum += (float)(dx < 0 ? -dx : dx) + (float)(dy < 0 ? -dy : dy);
+    }
+    assert(sum == total_len);
+
+    // Pure bell waveform starts/ends at exact 0 (click-free) and stays well below clipping.
+    int16_t bell[SPLASH_BELL_SAMPLES];
+    splash_audio_make_bell(bell, SPLASH_BELL_SAMPLES);
+    assert(bell[0] == 0 && bell[SPLASH_BELL_SAMPLES - 1] == 0);
+    int32_t peak = 0;
+    for(size_t i = 0; i < SPLASH_BELL_SAMPLES; i++) {
+        int32_t a = bell[i] < 0 ? -(int32_t)bell[i] : (int32_t)bell[i];
+        if(a > peak) peak = a;
+    }
+    assert(peak > 4500 && peak <= 9000);
+
+    // Melody schedule is ordered, uses valid speaker channels, and every note
+    // finishes ringing naturally well before the splash fade-out.
+    size_t mcount = 0;
+    const SplashMelodyNote* mnotes = splash_melody_notes(&mcount);
+    assert(mnotes && mcount >= 5);
+    for(size_t i = 0; i < mcount; i++) {
+        assert(mnotes[i].freq_hz >= 200.0f && mnotes[i].freq_hz <= 2000.0f);
+        assert(mnotes[i].channel < 8);
+        uint32_t note_dur_ms = (uint32_t)(
+            ((float)SPLASH_BELL_SAMPLES / (float)SPLASH_BELL_BASE_RATE) *
+            (SPLASH_BELL_BASE_HZ / mnotes[i].freq_hz) * 1000.0f);
+        assert(mnotes[i].t_ms + note_dur_ms < SPLASH_HOLD_MS);
+        if(i > 0) assert(mnotes[i].t_ms >= mnotes[i - 1].t_ms);
+    }
+    printf("  splash globe -> body -> square-wave logo & bell melody: ok\n");
+}
+
 int main(void) {
     setenv("TZ", CLOCK_UK_TZ, 1);
     tzset();
@@ -867,6 +983,8 @@ int main(void) {
     test_zip_stream_empty_and_multi();
     printf("Keys:\n");
     test_key_map();
+    printf("Splash animation:\n");
+    test_splash_anim();
     printf("All Cardputer rule tests passed.\n");
     return 0;
 }

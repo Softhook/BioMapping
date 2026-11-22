@@ -186,7 +186,8 @@ echo "== test_cardputer_rules (Cardputer: clock, wake-up byte, tick schedule, lo
 gcc -Wall -Wextra -Werror -I . -I core -I vendor/minmea -o build/test_cardputer_rules \
     tests/test_cardputer_rules.c cardputer/src/clock_rule.c cardputer/src/wake_watch.c \
     cardputer/src/tick_schedule.c cardputer/src/clock_local.c \
-    cardputer/src/wifi_files_rules.c cardputer/src/zip_stream.c core/biomap_pipeline.c -lm
+    cardputer/src/wifi_files_rules.c cardputer/src/zip_stream.c cardputer/src/splash_anim.c \
+    core/biomap_pipeline.c -lm
 ./build/test_cardputer_rules
 python3 -c '
 import zipfile

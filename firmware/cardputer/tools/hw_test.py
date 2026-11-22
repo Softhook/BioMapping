@@ -128,7 +128,7 @@ class Device:
         self.t0 = time.time()
         self._open()
         self.wait_for(BANNER, 8, allow_fault=True)
-        self.wait_for(STATUS_RE.pattern, 6)   # main loop running
+        self.wait_for(STATUS_RE.pattern, 15)  # main loop running (after startup splash)
 
     # ---- reading ----
     def pump(self, seconds):

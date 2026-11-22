@@ -15,6 +15,7 @@
 // (`pio device monitor`), with Enter as OK and Esc or ` as Back.
 
 #include <M5Cardputer.h>
+#include <atomic>
 
 #include "bt_cardputer.h"
 #include "clock_cardputer.h"
@@ -28,6 +29,7 @@
 #include "sd_cardputer.h"
 #include "session_cardputer.h"
 #include "settings_cardputer.h"
+#include "splash_cardputer.h"
 #include "wifi_files_cardputer.h"
 
 static M5Canvas canvas(&M5Cardputer.Display);
@@ -183,6 +185,25 @@ static bool serial_keys_poll(void) {
     return redraw;
 }
 
+// Putting the GPS to sleep at power-up (up to about 2 s) runs on its own
+// task while the start-up animation plays; the animation doesn't end until
+// it is done. The task runs on this core, as the code did before, because
+// the serial driver sets up its interrupt on the core that opens the port,
+// and the other core carries Bluetooth and Wi-Fi. One priority above the
+// animation, so its short waits keep their timing; same stack as setup().
+static std::atomic<bool> g_gps_asleep{false};
+
+static void gps_sleep_task(void* arg) {
+    (void)arg;
+    gps_cardputer_port_open();
+    g_gps_asleep.store(true);
+    vTaskDelete(nullptr);
+}
+
+static bool gps_is_asleep(void) {
+    return g_gps_asleep.load();
+}
+
 void setup() {
     auto cfg = M5.config();
     M5Cardputer.begin(cfg, true);
@@ -200,18 +221,15 @@ void setup() {
     settings_cardputer_load();
     menu_cardputer_begin();
 
-    // Opened once and held until power-off; puts the module to sleep
-    // (up to about 2 s) while staying on the menu until a GPS session starts.
-    canvas.fillSprite(TFT_BLACK);
-    canvas.setFont(&fonts::Font2);
-    canvas.setTextColor(TFT_WHITE, TFT_BLACK);
-    canvas.setCursor(6, 4);
-    canvas.print("Bio Mapping");
-    canvas.setTextColor(TFT_YELLOW, TFT_BLACK);
-    canvas.setCursor(6, 60);
-    canvas.print("Putting GPS to sleep...");
-    canvas.pushSprite(0, 0);
-    gps_cardputer_port_open();
+    // The GPS port is opened once and held until power-off; opening it puts
+    // the module to sleep, while the start-up animation plays.
+    if(xTaskCreatePinnedToCore(gps_sleep_task, "gps_sleep", 8192, nullptr,
+                               uxTaskPriorityGet(nullptr) + 1, nullptr, xPortGetCoreID()) == pdPASS) {
+        splash_cardputer_play(canvas, gps_is_asleep, g_settings.sound_enabled);
+    } else {
+        gps_cardputer_port_open();
+        splash_cardputer_play(canvas, nullptr, g_settings.sound_enabled);
+    }
 
     draw_screen();
     last_log_ms = millis();

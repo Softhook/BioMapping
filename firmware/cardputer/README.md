@@ -98,6 +98,8 @@ To get files onto a phone, tablet, or laptop without a cable, choose **Wi-Fi Fil
 | File | What it does |
 |---|---|
 | `src/main.cpp` | Start-up, the main loop, USB thumb drive key handling, and the once-a-second USB log |
+| `src/splash_cardputer.cpp` | Animated start-up screen (space -> 3D Earth -> London -> body -> Bio Mapping 2 logo & title) with bell melody, running while the GPS goes to sleep |
+| `src/splash_anim.c` | Easing curves, timeline, 3D globe projection, simplified continents, favicon waveform path, and startup bell melody generator (plain C, host-tested) |
 | `src/menu_cardputer.cpp` | The colour main menu, Options screen, and non-blocking 4-step GSR Calibration wizard |
 | `src/screen_cardputer.cpp` | The shared recording screen (`core/biomap_screen.c`) stretched to 240 × 135 with colour accents and a native 30 FPS smooth GSR spline graph |
 | `src/bt_cardputer.cpp` | Bluetooth Low Energy Live Stream server and 49-byte packet notifications for the visualiser's Live tab |
