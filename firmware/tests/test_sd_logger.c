@@ -30,7 +30,7 @@ static int append_row(SdLogger* l, const char* fmt, ...) {
 // (SdLogger is opaque to callers).
 #define SD_LOGGER_BATCH_CAP 24576
 
-// Mirrors sd_logger.c's SD_LOGGER_PREALLOC_BYTES (docs/archive/
+// Mirrors sd_logger.c's SD_LOGGER_PREALLOC_BYTES (research/archive/
 // gps_rf_mutex_status.md's "option E" entries). sd_logger_start() grows
 // the mock file to real_data_len + this many bytes immediately, so any test
 // that inspects file content/length BEFORE calling sd_logger_stop() (which
@@ -340,7 +340,7 @@ static void test_sd_logger_batch_append_overflow_rejected(void) {
     printf("  -> Pass\n");
 }
 
-// 2026-08-03: tracks 116/117 (docs/archive/gps_rf_mutex_status.md) showed real
+// 2026-08-03: tracks 116/117 (research/archive/gps_rf_mutex_status.md) showed real
 // tick_dt_ms stalls landing exactly on the once-per-FLUSH_INTERVAL flush
 // tick while gsr_sensor.c's i2c/rf_rssi/rf_retune peak columns stayed near
 // zero — pointing at sd_logger_batch_flush() itself. This proves the new
@@ -408,7 +408,7 @@ static void test_sd_logger_continuity_counters_track_pressure(void) {
 // The seek+write+truncate log-file
 // pre-allocation. These tests prove sd_logger_start()/sd_logger_stop()
 // use it correctly, end to end, through the real production code path —
-// see docs/archive/gps_rf_mutex_status.md's "option E" entries.
+// see research/archive/gps_rf_mutex_status.md's "option E" entries.
 static void test_sd_logger_start_preallocates_file(void) {
     printf("Running test_sd_logger_start_preallocates_file...\n");
     Storage* storage = storage_mock_alloc();
@@ -443,7 +443,7 @@ static void test_sd_logger_stop_trims_preallocated_tail(void) {
     // The file must shrink back down to exactly the real data written --
     // proof the pre-allocated (undefined-content) tail was trimmed, not
     // shipped as a garbage-padded CSV. This is the exact drawback flagged
-    // in docs/archive/gps_rf_mutex_status.md's option E research: forgetting this
+    // in research/archive/gps_rf_mutex_status.md's option E research: forgetting this
     // step silently pads every recording out to SD_LOGGER_PREALLOC_BYTES.
     size_t len;
     const uint8_t* contents = storage_mock_get_file_contents(

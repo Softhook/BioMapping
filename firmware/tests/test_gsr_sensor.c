@@ -118,6 +118,49 @@ static void wait_for_more_fast_sweeps(int n) {
     }
 }
 
+// Absolute-target sweep wait, for the same reason as
+// wait_for_write_count_at_least(): turning the radio on forces an
+// immediate first sweep, so the worker can finish it before
+// wait_for_more_fast_sweeps() reads its "count now" baseline. That helper
+// would then wait for a second sweep, moving the clock until one happens,
+// and the test would read the second sweep's values instead of the first.
+static void wait_for_fast_sweep_count_at_least(int target) {
+    int waited_us = 0;
+    while(em_scan_rf_mock_fast_sweep_count() < target) {
+        usleep(200);
+        waited_us += 200;
+        furi_test_advance_tick(1);
+        if(waited_us > 5000000) {
+            fprintf(stderr, "TIMEOUT: fast-sweep count never reached %d\n", target);
+            assert(false);
+        }
+    }
+}
+
+// Waits until the radio sampler's published snapshot shows `expected` for
+// `band`. The mock counts a sweep inside the sweep call, but the sampler
+// copies the readings into its snapshot only after that call returns, so
+// reading the snapshot as soon as the count rises can still show the
+// previous values (on a busy machine: -100.0, the "no reading yet" floor).
+// The sampler copies all bands under one lock, so once one band shows its
+// new value the others have theirs too. Tick-neutral, so no further sweep
+// can start while it waits and replace the value being waited for.
+static void wait_for_snapshot_band(const EmScanSampler* em, int band, float expected) {
+    float rssi[EM_SCAN_NUM_FREQS];
+    int waited_us = 0;
+    for(;;) {
+        em_scan_sampler_get_snapshot(em, rssi);
+        if(fabs((double)rssi[band] - (double)expected) < 1e-6) return;
+        usleep(200);
+        waited_us += 200;
+        if(waited_us > 5000000) {
+            fprintf(stderr, "TIMEOUT: band %d snapshot stayed at %.1f, expected %.1f\n",
+                    band, (double)rssi[band], (double)expected);
+            assert(false);
+        }
+    }
+}
+
 // Waits until every band 0..num_bands-1 has been visited at least once.
 // Robust regardless of overshoot: em_scan_rf_mock_visit_count() is a plain
 // monotonic per-band counter, not a fixed-size history indexed by absolute
@@ -1141,7 +1184,8 @@ static void test_rf_fast_sweep_captures_rssi(void) {
     assert(gsr != NULL);
     em_scan_sampler_set_enabled(em, true); // forces immediate first fast sweep
 
-    wait_for_more_fast_sweeps(1);
+    wait_for_fast_sweep_count_at_least(1);
+    wait_for_snapshot_band(em, 0, -70.0f);
 
     float rssi[EM_SCAN_NUM_FREQS];
     em_scan_sampler_get_snapshot(em, rssi);
@@ -1171,16 +1215,18 @@ static void test_rf_rssi_fast_sweep_updates(void) {
     GsrSensor* gsr = gsr_sensor_alloc(em_scan_sampler_poll, em);
     assert(gsr != NULL);
     em_scan_sampler_set_enabled(em, true); // sweep 1 (visit 1)
-    
-    wait_for_more_fast_sweeps(1);
+
+    wait_for_fast_sweep_count_at_least(1);
+    wait_for_snapshot_band(em, 0, -70.0f);
     float rssi[EM_SCAN_NUM_FREQS];
     em_scan_sampler_get_snapshot(em, rssi);
     assert(fabs((double)rssi[0] - (-70.0)) < 1e-6);
 
     // Advance clock to trigger sweep 2 (visit 2)
     furi_test_advance_tick(100);
-    wait_for_more_fast_sweeps(1);
-    
+    wait_for_fast_sweep_count_at_least(2);
+    wait_for_snapshot_band(em, 0, -65.0f);
+
     em_scan_sampler_get_snapshot(em, rssi);
     printf("  rssi[0]=%.1f (expect -65.0)\n", (double)rssi[0]);
     assert(fabs((double)rssi[0] - (-65.0)) < 1e-6);
@@ -1417,7 +1463,7 @@ static void test_rf_disable_timeout_defers_deinit_to_free(void) {
 // i2c_peak_ms/rf_rssi_peak_ms/rf_retune_peak_ms columns added to answer
 // "which of the worker thread's three candidate blocking calls actually
 // caused a given tick_dt_ms stall" directly, for the next real recording
-// (track 116 showed real ~1s stalls; see docs/archive/gps_rf_mutex_status.md's
+// (track 116 showed real ~1s stalls; see research/archive/gps_rf_mutex_status.md's
 // 2026-08-03 entry). Each test injects a real delay into exactly ONE
 // underlying mock call (same furi_hal_*_mock_set_*_delay_ms() technique as
 // the mutex-behavior tests above), advances the fake clock by the SAME
@@ -1534,7 +1580,7 @@ static void test_rf_rssi_peak_ms_detects_slow_rssi_call(void) {
 // Was test_rf_retune_peak_ms_detects_slow_set_band_call, stubbed to a no-op
 // on 2026-08-04 when em_scan_rf_set_band()'s separate per-band retune call
 // was replaced by em_scan_rf_fast_sweep_snapshot() (see
-// docs/archive/rf_no_teardown_architecture_proposal.md) — retune and RSSI-read
+// research/archive/rf_no_teardown_architecture_proposal.md) — retune and RSSI-read
 // stopped being separate top-level calls the worker could time
 // independently, so rf_retune_peak_ms had nothing left to measure it.
 // Restored here now that em_scan_rf_fast_sweep_snapshot() reports its own

@@ -376,7 +376,7 @@ void furi_hal_i2c_mock_reset(void) {
 }
 
 // ── SubGHz RF band-control stubs for host test harness ──────────────────
-// Weak so a test that ever links the real em_scan/em_scan_rf.c in addition
+// Weak so a test that ever links the real flipper/em_scan_rf.c in addition
 // to this mock gets the real (strong) symbol instead of silently keeping
 // this one.
 //
