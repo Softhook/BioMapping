@@ -143,7 +143,7 @@ Everything is done with one command, `./pcb`, run from this folder. It needs KiC
 | `pcbtools/schematic.py` | The parts lists (which pin joins which net, what to buy) and the schematic drawings. Edit this to change the circuit or the BOM. |
 | `pcbtools/rules.py` | Track widths, via size and the 0.15 mm clearance, plus the extra DRC rules written to each board's `.kicad_dru` (below). |
 | `pcbtools/limits.py` | Layout limits: how far each decoupling capacitor may be from its chip, how long the GSR wires may be, how many ground vias the GPS needs, how much track may cut the ground plane. |
-| `pcbtools/` (the rest) | The machinery: building the board, the checks, measuring, pictures. |
+| `pcbtools/` (the rest) | The machinery: building the board, the checks, measuring, the ground check, pictures. |
 | `biomap_*/` | The KiCad files the tools write. |
 | `out/` | Pictures and full check reports. Git ignores it. |
 
@@ -167,6 +167,7 @@ Units are mm and y points down, as in KiCad. Write tracks with square corners: o
 | `check [board]` | Checks the saved files: schematic against the intended connections (two independent ways), KiCad's wiring check (ERC), DRC and the layout limits. | No |
 | `drc [board]` | Every DRC problem, with parts and positions. | No |
 | `measure [--compare [git-ref]]` | Each decoupling capacitor's distance to its chip's supply *and* ground pin; copper length on the GSR wires and the long wires. | No |
+| `ground [--picture] [--break-test]` | The Cardputer board's ground: how far apart the GSR's ground points move when the GPS or the ADC sends current through the ground copper, plus the ground's pieces and the biggest gap between ground vias (see "Ground check" below). Takes a few minutes. | Only `out/` (`--picture`) |
 | `parts <board> [REF ...]` | Pad positions, nets and keep-out boxes, as the layout places them. | No |
 | `render [board] [--out folder]` | Pictures of the schematic and both faces of each board. | Only `out/` |
 | `footprint <library> <name> [F\|B] [pad ...]` | Where a footprint's pads land at each rotation. Also reads our own footprints (`BioMap`). | No |
@@ -208,6 +209,22 @@ Some limits come from a source: u-blox asks for ground vias filling the plane un
 One rule is about copper area rather than distance: the 0.5 V guard must stay one solid piece of about 80 mm² (Flipper) or 86 mm² (Cardputer). If a layout change splits it up, KiCad drops the pieces that aren't joined to the reference, and the area falls below the limit.
 
 Another counts the track length on the ground-plane face (the face with no parts). Every track there cuts the ground that the wires on the other face send their return current through. On the Cardputer there are none, and the limit is 0: the flex tail delivers the wires in the board's order, the I2C wires pass between FB1's pads, and SDA passes between R7's pads, so every track stays on the outer face.
+
+### Ground check
+
+`./pcb ground` checks the Cardputer board's ground copper by working out the current through it, not just its shape. The GSR reading rests on the 0.5 V across the skin, and that 0.5 V lies between two ground points: the cuff's ground (R3) and the ground under the bias divider (R2, C9). Current crossing the ground between them adds a little to the 0.5 V and so changes the reading.
+
+The tool cuts both copper faces into 0.1 mm squares, joins them through the vias, and leads the tail's two ground wires (their resistance taken from the tail board) through the header pin to the Cardputer's ground. Then it sends the GPS's 10 mA (its datasheet's tracking current) in at the GPS's ground pads, and separately the 0.7 mA the ADC sinks when it holds SDA low, and works out the voltage everywhere. It prints how far apart the two ground points move, what that does to a reading on a 47k resistor and on skin, and how it compares with the ADC's own noise (about 7 µV per reading). On today's board the GPS moves them 0.5 µV apart: about 0.03 nS on 47k, and 13 times smaller than the ADC's noise. The GSR circuit sits beside the path the GPS current takes to the tail, not on it.
+
+It also prints how many separate pieces of ground each face has, with how many vias each, any wire on the outer face with no ground under it on the inner face, and the point on the board farthest from a ground via.
+
+So that the numbers can be trusted:
+
+- Every run first solves a plain copper strip, whose resistance can be added up by hand, and shows both numbers. They must match.
+- `--break-test` runs the GPS case again on three deliberately worse boards: the Cardputer's ground joined at the cuff end, both faces cut so the GPS current has to go round past the GSR circuit, and no inner face. The first two raise the error 3 to 4 times. Without the inner face, the bias divider's ground is cut off completely, because its patch of outer-face ground reaches the rest only through the inner face.
+- `--picture` draws the voltage of both faces into `out/biomap_cardputer_ground.png`, 1 µV per colour step.
+
+The copper thickness isn't set anywhere, so the tool assumes the usual factory defaults: 35 µm on the board and 18 µm on the flex tail. It also assumes 15 mΩ for the header pin. Change them at the top of `pcbtools/ground.py` if the boards are ordered differently. The results scale with them. The tool needs numpy in KiCad's Python; if it is missing, the command prints the line that installs it.
 
 Rebuilding an unchanged design gives identical files, so `git diff` shows only what really changed.
 

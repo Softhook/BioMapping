@@ -48,6 +48,12 @@ def cmd_measure(args):
         measure.measure()
 
 
+def cmd_ground(args):
+    from . import ground
+    return sum(ground.check(b, args.picture, args.break_test) for b in (tuple(board_name(b) for b in args.boards)
+                                                                       or ("biomap_cardputer",)))
+
+
 def cmd_parts(args):
     from . import layout
     name = board_name(args.board)
@@ -116,6 +122,15 @@ def main(argv=None):
             "Layout numbers that matter for noise: decoupling distances, GSR wire lengths, long-net lengths.")
     p.add_argument("--compare", metavar="GIT_REF", nargs="?", const="HEAD",
                    help="also show the numbers for a committed version (default: the last commit)")
+    p = add("ground", cmd_ground,
+            "How far apart the GSR's ground points move when the GPS (10 mA) or the ADC sends current "
+            "through the ground copper, worked out over the whole copper; plus the ground's pieces, wires "
+            "without ground under them, and the biggest gap between ground vias. Cardputer board only. "
+            "Takes a few minutes. Needs numpy.")
+    boards_arg(p, "cardputer (the default)")
+    p.add_argument("--picture", action="store_true", help="also draw the ground's voltage into out/<board>_ground.png")
+    p.add_argument("--break-test", action="store_true",
+                   help="also rerun on deliberately worse boards, to show the model notices a bad ground")
     p = add("parts", cmd_parts, "Pad positions, nets and keep-out boxes of the named parts (all if none), "
                                 "as the layout places them. Use before moving a part. Changes nothing.")
     p.add_argument("board", help="flipper, cardputer or tail")
