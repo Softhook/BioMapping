@@ -15,6 +15,7 @@ KEEPOUT   (face, (x1, y1, x2, y2)): "GPS keep clear" areas that refuse tracks
 GUARD     (face, [(x, y), ...]): 0.5 V guard copper around the amplifier input
 STITCH    ((x1, y1, x2, y2), pitch): ground-via grids
 LABELS    face -> [(text, x, y, size)] printed on the board
+MASK_MARGIN  REF -> mm: solder mask opened this much wider than each pad
 outline() draws the board edge"""
 from ..rules import SIG, PWR, TEXT
 
@@ -179,6 +180,11 @@ KEEPOUT = [("F", (8.5, 12.5, 43.5, 47.5)), ("B", (20.7, 24.7, 31.3, 35.3))]
 # pin (between the socket's tabs), so the copper beside the input wire joins the
 # copper on its other side; cut off, that part would be dropped as a loose piece.
 GUARD = ("B", [(79.5, 34.5), (64.7, 34.5), (64.7, 26.8), (72.0, 26.8), (72.0, 27.4), (79.5, 27.4)])
+
+# u-blox's footprint drawing opens the mask 0.05 mm past each GPS pad, so a
+# slightly misplaced mask can't cover a pad edge (under the module, a bad
+# joint can't be seen or reached)
+MASK_MARGIN = {"U4": 0.05}
 
 # a closer grid under the GPS module (u-blox: fill the ground under it with vias)
 STITCH = [((22.0, 26.0, 30.0, 34.0), 2.0), ((1.5, 1.5, 49.5, 52.5), 3.0), ((52.5, 1.5, 82.5, 52.5), 5.0)]

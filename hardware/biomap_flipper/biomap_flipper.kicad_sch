@@ -726,7 +726,7 @@
 (property "Description" "" (at 243.84 69.85 0) (effects (font (size 1.27 1.27)) hide))
 (property "Manufacturer" "Seiko Instruments" (at 243.84 69.85 0) (effects (font (size 1.27 1.27)) hide))
 (property "MPN" "MS421R-IV03E" (at 243.84 69.85 0) (effects (font (size 1.27 1.27)) hide))
-(property "Note" "Rechargeable 3 V 1.5 mAh backup cell, reflow-solderable (as on SparkFun GPS-21834). Keeps satellite data for about 2 days. Farnell 3534555" (at 243.84 69.85 0) (effects (font (size 1.27 1.27)) hide))
+(property "Note" "Rechargeable 3 V 1.5 mAh backup cell, reflow-solderable (as on SparkFun GPS-21834). Rated 10 uA at most; the switched-off GPS draws 28 uA, so it keeps satellite data for about a day at most. Farnell 3534555" (at 243.84 69.85 0) (effects (font (size 1.27 1.27)) hide))
 (pin "1" (uuid "cf8f53e4-46e9-5cbe-9587-76fab3398763"))
 (pin "2" (uuid "05f34783-f97f-5936-adf0-b667c6d734f1"))
 (instances (project "biomap_flipper" (path "/63da03b9-5416-5ebd-bd76-9a75bffafa8d" (reference "BT1") (unit 1)))))

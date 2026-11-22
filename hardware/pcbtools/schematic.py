@@ -203,6 +203,7 @@ BUY = {
     "10k 0.1%":      ("RESI", "PTFR0805B10K0P9", "C478887"),
     "4.7k 0.1%":     ("RESI", "PTFR0805B4K70P9", "C2849257"),
     "100nF":         ("YAGEO", "CC0805KRX7R9BB104", "C49678"),
+    "1uF":           ("Samsung", "CL21B105KBFNNNE", "C28323"),
     "100nF C0G":     ("FH (Guangdong Fenghua)", "1206CG104J500NT", "C46348"),
     "10uF":          ("Samsung", "CL21A106KAYNNNE", "C15850"),
     "600R@100MHz":   ("Sunlord", "GZ2012D601TF", "C1017"),
@@ -254,8 +255,11 @@ def gsr_core(adc_ready=None):
         part("TP5", "TP", "GND", FP_TP, {"1": "GND"}, "Test pad: ground, for the meter or scope"),
     ]
 
-def gps_block():
-    """u-blox SAM-M10Q on the board, wired like the SparkFun GPS-21834 breakout."""
+def gps_block(backup_cap="100nF"):
+    """u-blox SAM-M10Q on the board, wired like the SparkFun GPS-21834 breakout.
+    backup_cap is C8 on the backup pin: SparkFun's 100 nF, or more to cover the
+    short current burst when the GPS switches over to the cell (u-blox warns
+    against a high resistance on that pin, and the cell's own is about 600 ohm)."""
     return [
         part("U4", "SAM-M10Q", "SAM-M10Q-00B", "RF_GPS:ublox_SAM-M8Q",
              {"17": "+3V3", "2": "+3V3", "3": "GPS_BCKP", "13": "GPS_TXD", "14": "GPS_RXD",
@@ -269,9 +273,9 @@ def gps_block():
              "Schottky leaks several uA back from the cell, on top of the GPS's own 28 uA"),
         part("R8", "R", "3.3k", FP_R, {"1": "BCKP_CHG", "2": "GPS_BCKP"}, "Backup cell charge current limit"),
         part("BT1", "BT", "MS421R", "BioMap:Seiko_MS421R_IV03E", {"1": "GPS_BCKP", "2": "GND"},
-             "Rechargeable 3 V 1.5 mAh backup cell, reflow-solderable (as on SparkFun GPS-21834). Keeps satellite data "
-             "for about 2 days. Farnell 3534555"),
-        part("C8", "C", "100nF", FP_C, {"1": "GPS_BCKP", "2": "GND"}, "Backup supply decoupling"),
+             "Rechargeable 3 V 1.5 mAh backup cell, reflow-solderable (as on SparkFun GPS-21834). Rated 10 uA at most; "
+             "the switched-off GPS draws 28 uA, so it keeps satellite data for about a day at most. Farnell 3534555"),
+        part("C8", "C", backup_cap, FP_C, {"1": "GPS_BCKP", "2": "GND"}, "Backup supply decoupling"),
         part("R9", "R", "470", FP_R, {"1": "GPS_RXD", "2": "HOST_TX_TO_GPS"}, "Series resistor on GPS RX"),
         part("R10", "R", "470", FP_R, {"1": "GPS_TXD", "2": "GPS_TX_TO_HOST"}, "Series resistor on GPS TX"),
         part("TP1", "TP", "SAFEBOOT", "TestPoint:TestPoint_Pad_1.5x1.5mm", {"1": "GPS_SAFEBOOT_N"},
@@ -303,7 +307,7 @@ FLIPPER = gsr_core() + gps_block() + [
 TAIL_NETS = {"1": "ADC_READY", "2": "GND", "3": "+5V_EXT", "4": "I2C_SCL", "5": "I2C_SDA", "6": "GND",
              "7": "HOST_TX_TO_GPS", "8": "GPS_TX_TO_HOST"}
 
-CARDPUTER = gsr_core(adc_ready="ADC_READY") + gps_block() + [
+CARDPUTER = gsr_core(adc_ready="ADC_READY") + gps_block(backup_cap="1uF") + [
     part("J1", "Conn_1x08", "Flex tail landing pads", "BioMap:FlexTail_Land_1x08_P1.50mm", TAIL_NETS,
          "Bare pads: the flex tail's solder end lies here, soldered through its holes. Pad k = tail pad k"),
     part("FB1", "FB", "600R@100MHz", "Inductor_SMD:L_0805_2012Metric", {"1": "+5V_EXT", "2": "+5V_F"},

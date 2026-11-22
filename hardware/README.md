@@ -46,8 +46,12 @@ The SAM-M10Q's antenna uses the board's ground as part of the antenna. u-blox's 
 SparkFun's breakout is 40.6 × 40.6 mm, the minimum, with ground on both layers and about 100 vias. These boards give the module a larger ground area. The module's own circuit copies SparkFun's:
 
 - 100 nF on the supply (plus a 10 µF reservoir, which SparkFun doesn't have)
-- a rechargeable backup cell (BT1, Seiko MS421R, the same cell SparkFun uses), charged through D1 and a 3.3 kΩ resistor, with 100 nF
+- a rechargeable backup cell (BT1, Seiko MS421R, the same cell SparkFun uses), charged through D1 and a 3.3 kΩ resistor (Seiko asks for at least 3 kΩ when charging from 3.3 V), with a capacitor (C8) on the backup pin
 - 470 Ω in series with TX and RX
+
+C8 is 100 nF on the Flipper, as on SparkFun's board, and 1 µF on the Cardputer. When the power goes off, the module switches its backup pin over to the cell and draws a short burst of current. u-blox warns that a high resistance on that pin makes the voltage dip. The cell's own resistance is about 600 Ω, so the bigger capacitor gives that burst more to draw on.
+
+On the Cardputer, the solder mask round the module's pads opens 0.05 mm wider than each pad, as in u-blox's footprint drawing. A slightly misplaced mask then can't cover a pad edge, which under the module can't be seen or reached. The Flipper board still has the mask flush with its pads.
 
 Two test pads, SAFEBOOT and RESET, take the place of SparkFun's header pins. The firmware needs no change: it uses the same serial pins as before.
 
@@ -64,7 +68,7 @@ Everything is surface-mount and suits machine assembly, except the angled pin he
 
 - **Finger cuffs:** JST PH 2-pin side-entry socket, surface-mount (J2, S2B-PH-SM4-TB). Its two side tabs only hold it down.
 - **GPS:** u-blox SAM-M10Q-00B (U4), on KiCad's standard SAM-M8Q footprint; u-blox says the two modules are pin-compatible. **LCSC has none in stock**, so buy them from Mouser or Digi-Key and send them to the assembler.
-- **Backup cell:** Seiko MS421R-IV03E (rechargeable, 3 V, 1.5 mAh, 4.8 mm). It can go through the soldering oven, so a machine fits it like any other part. It is the cell on SparkFun's SAM-M10Q board, and its footprint (`BioMap.pretty/Seiko_MS421R_IV03E`) copies SparkFun's pads. With the GPS switched off it draws 28 µA, so the cell keeps satellite data for about two days. Not stocked by LCSC; Farnell 3534555.
+- **Backup cell:** Seiko MS421R-IV03E (rechargeable, 3 V, 1.5 mAh, 4.8 mm). It can go through the soldering oven, so a machine fits it like any other part. It is the cell on SparkFun's SAM-M10Q board, and its footprint (`BioMap.pretty/Seiko_MS421R_IV03E`) copies SparkFun's pads. Seiko rates the cell for 3 µA in normal use and 10 µA at most, but with the GPS switched off the module draws 28 µA from it. That doesn't harm the cell, but it gets less of its stored charge out, so expect it to keep satellite data for about a day at most. After a longer time off, the GPS takes longer to find its first position. Not stocked by LCSC; Farnell 3534555.
 - **C2** is 1206 size, because 100 nF C0G capacitors are hard to find in 0805.
 - **Flipper header:** two angled through-hole pieces, pins 1–8 and 9–18, 17.78 mm apart, to match the gap in the Flipper's GPIO. Through-hole is kept on purpose: these joints hold the board in place.
 - **Cardputer connection:** a flex tail (see below).
@@ -99,7 +103,11 @@ Why a soldered tail: a header fixed to the main board would have to line up with
 
 ## Check before ordering (both boards)
 
-- **Soldering the GPS module.** Its pads sit underneath it, so it needs an oven, hotplate or hot air. Follow u-blox's soldering profile and use no-clean flux. Don't wash the board afterwards with water, alcohol or an ultrasonic cleaner; the manual warns that each one can damage the module.
+- **Soldering the GPS module.** Its pads sit underneath it, so it needs an oven or a hotplate. u-blox advises against a hot air gun, which can overheat and damage the module. Follow u-blox's soldering profile and use no-clean flux. Don't wash the board afterwards with water, alcohol or an ultrasonic cleaner; the manual warns that each one can damage the module.
+- **Oven limits to give the factory.** You send the GPS modules and backup cells to the factory yourself, so send these limits with them. Every part sits on one face, so one pass through the oven is all the board needs.
+  - GPS: one pass only, module facing up, at most 245 °C, with 40–60 s above 217 °C (u-blox integration manual, section 5.3).
+  - GPS: keep it in its sealed bag until it is fitted. It soaks up damp from the air (moisture level 4). After about 72 hours out of the bag it has to be baked dry first, or it can crack inside in the oven.
+  - Backup cell: two oven passes at most, with the temperature measured on top of the cell (Seiko's catalogue).
 - **Backup cell footprint.** It is copied from SparkFun's production design, not from Seiko's drawing. Before ordering, compare it with the IV03E terminal drawing on Seiko's MS421R page: the small corner tab is + (pad 1), the long tab is −.
 - **Which way the antenna faces.** The antenna works best facing the sky. On the Flipper, the board stands up from the top edge, so the antenna faces sideways while the Flipper lies flat and faces up when the Flipper is held upright. On the Cardputer, it faces out from the back.
 

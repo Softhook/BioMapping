@@ -14,7 +14,7 @@ Almost every part is surface-mount (soldered onto the face of the board):
 | U3 regulator (Cardputer only) | SOT-23-5 | |
 | BT1 backup cell (MS421R) | Reflow-solderable, 4.8 mm | Goes through the oven like any other part |
 | D1 diode | SOD-323 | |
-| U4 GPS (SAM-M10Q) | Pads underneath | Needs an oven, hotplate or hot air |
+| U4 GPS (SAM-M10Q) | Pads underneath | Needs an oven or hotplate; u-blox advises against hot air |
 | J2 cuff socket | Surface-mount JST PH | |
 
 Only the pin headers are through-hole: J1 and J4 on the Flipper, and J1 on the Cardputer's flex tail. They take the strain of plugging in, so they stay through-hole for strength. Assemblers fit them for a small extra fee. The Cardputer board itself is all surface-mount. Its flex tail is a separate flex-board order (roughly $15–25 for 5 at JLCPCB; check the instant quote) and is soldered on by hand.

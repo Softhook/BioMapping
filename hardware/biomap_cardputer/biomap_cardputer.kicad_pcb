@@ -3784,7 +3784,7 @@
 			)
 		)
 		(path "/4e6c31ab-861f-5fa3-b90d-e5aeb9688bf2")
-		(solder_mask_margin 0.000001)
+		(solder_mask_margin 0.05)
 		(attr smd)
 		(duplicate_pad_numbers_are_jumpers no)
 		(fp_line
@@ -5157,7 +5157,7 @@
 				)
 			)
 		)
-		(property "Note" "Rechargeable 3 V 1.5 mAh backup cell, reflow-solderable (as on SparkFun GPS-21834). Keeps satellite data for about 2 days. Farnell 3534555"
+		(property "Note" "Rechargeable 3 V 1.5 mAh backup cell, reflow-solderable (as on SparkFun GPS-21834). Rated 10 uA at most; the switched-off GPS draws 28 uA, so it keeps satellite data for about a day at most. Farnell 3534555"
 			(at 0 0 0)
 			(layer "B.Fab")
 			(hide yes)
@@ -7378,7 +7378,7 @@
 				(justify mirror)
 			)
 		)
-		(property "Value" "100nF"
+		(property "Value" "1uF"
 			(at 0 -1.68 0)
 			(layer "B.Fab")
 			(uuid "35723ccc-52fd-460a-b2c4-1dbd0a5d9de8")
@@ -7427,7 +7427,7 @@
 				(justify mirror)
 			)
 		)
-		(property "Manufacturer" "YAGEO"
+		(property "Manufacturer" "Samsung"
 			(at 0 0 0)
 			(layer "B.Fab")
 			(hide yes)
@@ -7438,7 +7438,7 @@
 				)
 			)
 		)
-		(property "MPN" "CC0805KRX7R9BB104"
+		(property "MPN" "CL21B105KBFNNNE"
 			(at 0 0 0)
 			(layer "B.Fab")
 			(hide yes)
@@ -7449,7 +7449,7 @@
 				)
 			)
 		)
-		(property "LCSC" "C49678"
+		(property "LCSC" "C28323"
 			(at 0 0 0)
 			(layer "B.Fab")
 			(hide yes)

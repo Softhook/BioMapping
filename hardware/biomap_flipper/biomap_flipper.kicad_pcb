@@ -2409,7 +2409,7 @@
 				)
 			)
 		)
-		(property "Note" "Rechargeable 3 V 1.5 mAh backup cell, reflow-solderable (as on SparkFun GPS-21834). Keeps satellite data for about 2 days. Farnell 3534555"
+		(property "Note" "Rechargeable 3 V 1.5 mAh backup cell, reflow-solderable (as on SparkFun GPS-21834). Rated 10 uA at most; the switched-off GPS draws 28 uA, so it keeps satellite data for about a day at most. Farnell 3534555"
 			(at 0 0 0)
 			(layer "F.Fab")
 			(hide yes)

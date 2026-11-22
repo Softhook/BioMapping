@@ -398,6 +398,12 @@ def solid_ground_pads(board):
                     p.SetLocalZoneConnection(pcbnew.ZONE_CONNECTION_THERMAL if land
                                              else pcbnew.ZONE_CONNECTION_FULL)
 
+def widen_mask(fps, margins):
+    """Open the solder mask this many mm wider than each pad, all round, for
+    the parts named (ref -> mm). Overrides the footprint's own margin."""
+    for ref, mm in margins.items():
+        fps[ref].SetLocalSolderMaskMargin(MM(mm))
+
 def add_markings(board, markings):
     """Outlines and notes for the factory on the drawings layer, e.g. where
     the flex tail's stiffener goes: (rectangle (x1, y1, x2, y2), note)."""
@@ -416,6 +422,7 @@ def build(name, net_path, pcb_path):
     # diffs show only real changes.
     pcbnew.KIID.SeedGenerator(sum(map(ord, name)))
     board, fps, nets = new_board(name, net_path)
+    widen_mask(fps, getattr(lay, "MASK_MARGIN", {}))
     add_outline(board, lay.outline)
     add_tracks(board, fps, nets, lay.TRACKS, lay.VIAS, getattr(lay, "BEVEL", 0.0))
     add_keepouts(board, lay.KEEPOUT)
