@@ -6,8 +6,7 @@
  * no way to make `import()` target a separate `vm.createContext`), then
  * `import()` every file in a fixed load-order list into that shared realm.
  *
- * All 93 src/ files are real ES modules (the ES-module migration —
- * tests/manual/esm_migration/README.md — is done), so nothing here mixes
+ * Every src/ file is a real ES module, so nothing here mixes
  * module and non-module loading paths any more; every app-to-app reference
  * is a real `import` statement, resolved by the module graph itself. What's
  * left is purely a TEST convenience: many existing tests read a class/
@@ -136,8 +135,7 @@ const NATIVE_GLOBAL_KEYS = new Set(Object.getOwnPropertyNames(global));
 const FORCE_BRIDGE_OVER_NATIVE = new Set(['Blob', 'URL', 'navigator', 'fetch']);
 
 /**
- * Bridges a jsdom window onto Node's `global`, proven in
- * tests/manual/esm_migration/pilot/boot_pilot.js before use here.
+ * Bridges a jsdom window onto Node's `global`.
  * `window`/`document` are plain-overwritten on EVERY call (a harness boots
  * once per test with a fresh jsdom window each time — an accessor bridge
  * only binds correctly on the first call, since a later `global.document =

@@ -202,8 +202,7 @@ console.log('── Running Hillshade Algorithm Test ──');
   // `node --test tests/*.js` runs test files concurrently, so a single
   // timed call is noisy under CPU contention from sibling test files —
   // warm up, take several samples, and assert on the MINIMUM (the sample
-  // least polluted by contention), same approach tests/manual/_bench_render_perf.js
-  // uses for exactly this reason.
+  // least polluted by contention).
   for (let i = 0; i < 2; i++)
     Hillshade.compute(grid, rows, cols, 1, 1, {
       azimuthDeg: 315,

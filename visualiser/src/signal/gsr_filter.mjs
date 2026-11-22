@@ -236,7 +236,7 @@ export const GsrFilter = {
    * unlike the box average's broad, gradual rolloff, an order-4
    * Butterworth's much steeper transition band suppresses the ~1.4-2.0Hz
    * walking-gait artefact (verified via a real-track GPS-speed correlation
-   * test, see visualiser/tests/manual/gait_isolation/check_gait_isolation.js)
+   * test, see tests/manual/gait_isolation/check_gait_benefit_all_tracks.js)
    * while passing genuine SCR amplitude through nearly untouched
    * (ground-truth tested: ~1-3% amplitude error at 0.8Hz vs the box
    * filter's ~10-28%).

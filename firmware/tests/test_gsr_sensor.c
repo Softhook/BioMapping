@@ -29,8 +29,8 @@
 #include <unistd.h>
 
 #include "flipper/gsr_sensor_flipper.h"
-#include "modules/em_scan_rf.h"
-#include "modules/em_scan_sampler.h"
+#include "flipper/em_scan_rf.h"
+#include "flipper/em_scan_sampler.h"
 #include "furi.h"
 #include "furi_hal.h"
 

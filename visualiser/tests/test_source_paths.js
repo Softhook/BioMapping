@@ -95,9 +95,8 @@ test('every relative source path used by tests/ resolves inside visualiser/', ()
       }
 
       if (fs.existsSync(resolved) || fs.existsSync(`${resolved}.js`)) continue;
-      // ES-module migration (tests/manual/esm_migration/): a converted
-      // src/ file's .js sibling is deliberately deleted (convert_file.js
-      // --write) — same .js/.mjs resolution rule as
+      // src/ files are .mjs, so a reference written as .js resolves to its
+      // .mjs file — same .js/.mjs resolution rule as
       // tests/support/load_module.js, which every loadModule('../src/…')
       // reference in this walk goes through at runtime.
       if (

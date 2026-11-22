@@ -35,7 +35,7 @@
   within ±0.16 %, and the middle (100k–470k) is +0.04 to +0.08 %. See
   "Sweep 5: equal-weight fit (19 November)" below.
 
-![All four sweeps: error in % (top) and in nS (bottom) against resistor](gsr_sweeps_2026_11_18.png)
+![All four sweeps: error in % (top) and in nS (bottom) against resistor](gsr_sweeps/gsr_sweeps_2026_11_18.png)
 
 ## Why the bias correction doesn't help the high end
 
@@ -281,7 +281,7 @@ the 47k point (about 21,000 nS) about 81 % of the say and 470k under
 resistors count equally. Firmware: calibration file v6 (zero + gain),
 commit `594dbf7`. Sweep in `reference_test_results5.csv`.
 
-![All five sweeps: whole range (top) and the middle zoomed in (bottom)](gsr_sweeps_2026_11_19.png)
+![All five sweeps: whole range (top) and the middle zoomed in (bottom)](gsr_sweeps/gsr_sweeps_2026_11_19.png)
 
 | Range | August | Sweep 3 (fit led by 47k) | Sweep 5 (equal weight) |
 |---|---|---|---|

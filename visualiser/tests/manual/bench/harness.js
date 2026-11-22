@@ -7,9 +7,9 @@
  * (bench/areas.js) never touch fs / jsdom / process.argv directly.
  *
  * The recording Leaflet mock is the faithful-ownership one from
- * tests/test_map_layer_ownership.js, plus the coordinate math + pane/zoom
- * stubs _bench_all_perf_areas.js added (label placement and marker geometry
- * need real relative pixel positions). It models add/remove/hasLayer with
+ * tests/test_map_layer_ownership.js, plus coordinate math + pane/zoom
+ * stubs (label placement and marker geometry need real relative pixel
+ * positions). It models add/remove/hasLayer with
  * Maps/Arrays, not real DOM — so pure-compute numbers are faithful and
  * anything that builds map layers understates a real browser (same caveat
  * every bench in this directory carries).

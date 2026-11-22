@@ -95,7 +95,7 @@
 //   §5.5).  It is: both pins are op-amp outputs (MCP6002, closed-loop output
 //   impedance in the mΩ–Ω range across the sub-Hz GSR band, nothing in series
 //   to the ADC), so the per-range loading error is sub-ppm.  The precision-
-//   resistor sweep in docs/reference_test_results.csv crosses several pga
+//   resistor sweep in docs/gsr_sweeps/reference_test_results.csv crosses several pga
 //   steps and stays within the ±0.1 / ±0.5 % spec, confirming this end to end.
 // ─────────────────────────────────────────────────────────────────────────────
 

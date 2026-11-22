@@ -1,9 +1,9 @@
 """Draw docs/error.svg (the README's GSR error graph) from a reference sweep.
 
 Usage, from the repo root:
-    python3 scripts/make_error_svg.py [docs/reference_test_resultsN.csv]
+    python3 scripts/make_error_svg.py [docs/gsr_sweeps/reference_test_resultsN.csv]
 
-Defaults to the newest docs/reference_test_results*.csv. The sweep must
+Defaults to the newest docs/gsr_sweeps/reference_test_results*.csv. The sweep must
 have the usual 20 resistors, 10 kΩ to 9 MΩ. Point colours: green up to
 0.2 %, blue up to 0.5 %, amber up to 1 %, red above. The green zone runs
 from the 10 kΩ point to the 1 MΩ point. If the zone limits change, update
@@ -13,7 +13,7 @@ import csv, glob, os, re, sys
 ROOT=os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 D=os.path.join(ROOT,"docs")+os.sep
 def _newest():
-    files=glob.glob(D+"reference_test_results*.csv")
+    files=glob.glob(os.path.join(D,"gsr_sweeps","reference_test_results*.csv"))
     return max(files,key=lambda f:int(re.search(r"(\d*)\.csv$",f).group(1) or 1))
 SRC=sys.argv[1] if len(sys.argv)>1 else _newest()
 rows=[r for r in csv.reader(open(SRC,encoding="utf-8")) if len(r)>=4 and r[1].isdigit()]

@@ -3,7 +3,7 @@
 // bt/bt_service/bt.h — host-test shim. Real path:
 // applications/services/bt/bt_service/bt.h (SDK API version 87.1, checked
 // against ~/.ufbt/current/sdk_headers/f7_sdk/applications/services/bt/
-// bt_service/bt.h). Fakes just the surface modules/bt_stream.c calls
+// bt_service/bt.h). Fakes just the surface flipper/bt_stream.c calls
 // directly: claiming/releasing the BLE profile and the connection-status
 // callback (see docs/archive/bluetooth_serial_investigation.md §1.3/§1.7). Real
 // signatures, not simplified — bt_profile_start() genuinely returns NULL on

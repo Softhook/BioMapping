@@ -6,7 +6,7 @@
 // the device functions the shared session (core/biomap_session.c) calls,
 // and the event loop that feeds it keys, ticks and GPS bytes.
 
-#include "../biomap.h"
+#include "biomap.h"
 
 _Static_assert(EM_SCAN_NUM_FREQS == RF_BAND_COUNT,
                "the radio code and the CSV columns must agree on the band count");

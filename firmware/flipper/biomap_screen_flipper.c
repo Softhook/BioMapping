@@ -6,7 +6,7 @@
 // layout (core/biomap_screen.c) uses, written with the Flipper's canvas,
 // and the screen callback that gathers each frame's figures.
 
-#include "../biomap.h"
+#include "biomap.h"
 
 // ==========================================================================
 // Drawing calls (ScreenDraw), ctx = the Canvas

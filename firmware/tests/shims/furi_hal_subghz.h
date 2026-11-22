@@ -2,7 +2,7 @@
 
 // furi_hal_subghz.h — host-test shim.
 //
-// modules/em_scan_rf.c is the only file that includes this header directly
+// flipper/em_scan_rf.c is the only file that includes this header directly
 // (furi_hal.h's shim already covers furi_hal_subghz_get_rssi(), shared with
 // gsr_sensor.c's mocked RF path — not repeated here). Fakes the CC1101
 // control surface em_scan_rf.c calls: reset/idle/sleep/flush_rx/rx (bare
@@ -14,7 +14,7 @@
 //
 // See tests/shims/furi_hal_subghz_mock.c for the implementations and the
 // test-injection API, and tests/test_em_scan_rf.c for the test that drives
-// the real modules/em_scan_rf.c against this shim.
+// the real flipper/em_scan_rf.c against this shim.
 
 #include <stdint.h>
 

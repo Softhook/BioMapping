@@ -1,7 +1,7 @@
 {
   "name": "visualiser",
   "private": true,
-  "description": "Test harness for the browser-based GSR/RF track visualiser. No build step or bundler \u2014 the app itself stays plain ES modules loaded directly by the browser; this only adds a Node test runner for tests/.",
+  "description": "Test harness for the browser-based GSR/RF track visualiser. No build step or bundler — the app itself stays plain ES modules loaded directly by the browser; this only adds a Node test runner for tests/.",
   "scripts": {
     "test": "node --test tests/*.js",
     "bench": "node tests/manual/bench/run.js",
@@ -19,8 +19,6 @@
   "devDependencies": {
     "@biomejs/biome": "2.5.13",
     "dependency-cruiser": "^16.10.4",
-    "eslint-scope": "^9.1.2",
-    "espree": "^11.2.0",
     "jsdom": "^30.0.1",
     "knip": "^6.35.1",
     "puppeteer-core": "^24.43.1"

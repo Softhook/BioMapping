@@ -120,7 +120,7 @@ try {
   process.exit(0);
 }
 
-// ── timing helpers (shape from _bench_render_perf.js) ───────────────────────
+// ── timing helpers ──────────────────────────────────────────────────────────
 function median(nums) {
   const s = [...nums].sort((a, b) => a - b);
   const mid = Math.floor(s.length / 2);
@@ -152,7 +152,7 @@ function printRow(r, extra) {
   );
 }
 
-// ── recording Leaflet (verbatim from tests/manual/_bench_render_perf.js) ─────
+// ── recording Leaflet ───────────────────────────────────────────────────────
 function installRecordingLeaflet(window) {
   const map = {
     _layers: new Map(),

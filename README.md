@@ -47,7 +47,7 @@ Everything is logged to `/ext/biomapping/*.csv` at 10 Hz. A Live Stream mode sen
 
 ## Hardware Accuracy & Device Comparison
 
-The GSR front-end is built to research-grade specification and measured against a precision metal-film resistor grid (10 kΩ – 9 MΩ), full sweep in [`docs/reference_test_results5.csv`](docs/reference_test_results5.csv).
+The GSR front-end is built to research-grade specification and measured against a precision metal-film resistor grid (10 kΩ – 9 MΩ), full sweep in [`docs/gsr_sweeps/reference_test_results5.csv`](docs/gsr_sweeps/reference_test_results5.csv).
 
 ![BioMapping 2 GSR Error Curve](docs/error.svg)
 

@@ -5,7 +5,7 @@
 // checked against ~/.ufbt/current/sdk_headers/f7_sdk/targets/f7/ble_glue/
 // profiles/serial_profile.h). Fakes only ble_profile_serial (the profile
 // descriptor passed to bt_profile_start()) and ble_profile_serial_tx() —
-// the two symbols modules/bt_stream.c calls. Real signature: tx() returns
+// the two symbols flipper/bt_stream.c calls. Real signature: tx() returns
 // bool (can fail — see docs/archive/bluetooth_serial_investigation.md §1.2), not
 // fire-and-forget.
 //

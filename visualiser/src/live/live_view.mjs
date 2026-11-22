@@ -75,9 +75,7 @@ function isCompactLiveLayout() {
   );
 }
 
-// GSRLayoutManager is now a real static import (see the ui/live/render "app
-// glue" SCC note in tests/manual/esm_migration/README.md), so it exists in
-// every context — including standalone live.html, which never loads
+// GSRLayoutManager is a real static import, so it exists in every context — including standalone live.html, which never loads
 // index.html's app shell. `.app-container` (only present in index.html's
 // markup) is the real in-app/standalone signal GSRLayoutManager's own
 // enterLiveDisplayMode()/exitLiveDisplayMode() already gate on internally.

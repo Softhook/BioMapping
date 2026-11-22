@@ -1,4 +1,4 @@
-// test_em_scan_rf.c — host tests for modules/em_scan_rf.c (CC1101 sub-GHz
+// test_em_scan_rf.c — host tests for flipper/em_scan_rf.c (CC1101 sub-GHz
 // RSSI sweep), the one hardware-touching module with no prior host test
 // (see docs/host_testing.md's status table). Links the real, unmodified
 // em_scan_rf.c against tests/shims/furi_hal_subghz_mock.c — see that file's
@@ -18,7 +18,7 @@
 #include <math.h>
 #include <stdio.h>
 
-#include "modules/em_scan_rf.h"
+#include "flipper/em_scan_rf.h"
 #include "furi_hal.h"
 #include "furi_hal_subghz.h"
 #include "lib/subghz/devices/cc1101_configs.h"

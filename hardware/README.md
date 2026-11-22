@@ -138,6 +138,8 @@ These come from M5Stack's dimension drawing and 3D models, not from a real devic
 
 ## Factory files
 
+The ways of getting the boards made (UK assembler, JLCPCB, or by hand) and rough costs are in [BUILD_COSTS.md](BUILD_COSTS.md).
+
 `./pcb fab` (or `./pcb fab cardputer tail`) first runs every check that `./pcb check` runs. If any fails, it writes nothing. Otherwise it fills a folder `out/fab/<board>/` for each board:
 
 | File | What it's for |

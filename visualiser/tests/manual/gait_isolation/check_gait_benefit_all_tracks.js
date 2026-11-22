@@ -1,8 +1,8 @@
 /**
  * Corpus-wide test of the gait filter's actual STATED GOAL: does it reduce
  * the speed-correlated ~1.4-2.0Hz walking-footstep band power in the phasic
- * signal, relative to the box average? check_gait_isolation.js established
- * this mechanism in depth on biomap_059 alone (continuous sliding-window
+ * signal, relative to the box average? The mechanism was first measured
+ * in depth on biomap_059 alone (continuous sliding-window
  * band-power vs GPS-speed correlation, r=0.248 there). This runs the same
  * measurement (band share correlated with GPS speed, medium-vs-brisk pace
  * gap) across every real track with usable GPS speed data, to see whether
@@ -47,8 +47,7 @@ function parseSpeed(csvPath) {
 }
 
 // Detrend (subtract a 2s moving average) + Hann window a segment, returning
-// the gait-band power fraction relative to the segment's own total power -
-// identical method to check_gait_isolation.js.
+// the gait-band power fraction relative to the segment's own total power.
 function bandShareOfSegment(vals, sampleRate, gaitFreqs, totalFreqs) {
   const n = vals.length;
   const trendWin = Math.round(2.0 * sampleRate);

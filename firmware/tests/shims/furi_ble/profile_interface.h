@@ -3,7 +3,7 @@
 // furi_ble/profile_interface.h — host-test shim. Real path:
 // lib/furi_ble/profile_interface.h. Fakes just the two opaque profile types
 // bt.h and serial_profile.h reference — the real gap.h/GapConfig surface
-// isn't touched by anything modules/bt_stream.c calls, so GapConfig stays a
+// isn't touched by anything flipper/bt_stream.c calls, so GapConfig stays a
 // forward-declared opaque type here rather than a real definition.
 
 #include <stdbool.h>

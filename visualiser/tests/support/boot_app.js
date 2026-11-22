@@ -20,8 +20,7 @@
  * the wrong pixels" bugs — that class of bug is out of scope here by design
  * (see docs/archive/visualizer_test_coverage_plan.md).
  *
- * Every src/ file is a real ES module (the ES-module migration —
- * tests/manual/esm_migration/README.md — is done): `bootApp()` dynamically
+ * Every src/ file is a real ES module: `bootApp()` dynamically
  * `import()`s each one in SCRIPT_ORDER, in the same jsdom-bridged realm (see
  * realm_bridge.js) so post-boot test code can read a class/singleton back
  * via `window.X`/`global.X` without doing its own `require()`. `bootApp()`

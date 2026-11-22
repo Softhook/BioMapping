@@ -109,16 +109,16 @@ g++ -o build/cpp_link_check build/cpp_link_check.o build/core_*.o build/minmea.o
 
 echo
 echo "== test_gps_uart (NMEA dispatch / RX framing) =="
-gcc -Wall -Wextra -Werror -I . -I modules -I vendor/minmea -I tests/shims -o build/test_gps_uart \
+gcc -Wall -Wextra -Werror -I . -I flipper -I vendor/minmea -I tests/shims -o build/test_gps_uart \
     tests/test_gps_uart.c core/gps_uart.c flipper/gps_uart_flipper.c \
     flipper/core_fatal.c tests/shims/furi_hal_mock.c -lm
 ./build/test_gps_uart
 
 echo
 echo "== test_gsr_sensor (autoranging / TIA / disconnect debounce) =="
-gcc -Wall -Wextra -Werror -I . -I modules -I tests/shims -o build/test_gsr_sensor \
+gcc -Wall -Wextra -Werror -I . -I flipper -I tests/shims -o build/test_gsr_sensor \
     tests/test_gsr_sensor.c core/gsr_sensor.c flipper/gsr_sensor_flipper.c \
-    flipper/core_fatal.c modules/em_scan_sampler.c \
+    flipper/core_fatal.c flipper/em_scan_sampler.c \
     tests/shims/furi_hal_mock.c -lm -lpthread
 ./build/test_gsr_sensor
 
@@ -137,9 +137,9 @@ if [ "$RUN_TSAN" = "yes" ]; then
     # this file's own `furi_test_tick` global did, both found by this exact
     # pass during the 2026-07-30 mutex review and fixed by making them
     # _Atomic). Keep this passing whenever the GSR threading changes.
-    gcc -Wall -Wextra -Werror -fsanitize=thread -g -O1 -I . -I modules -I tests/shims -o build/test_gsr_sensor_tsan \
+    gcc -Wall -Wextra -Werror -fsanitize=thread -g -O1 -I . -I flipper -I tests/shims -o build/test_gsr_sensor_tsan \
         tests/test_gsr_sensor.c core/gsr_sensor.c flipper/gsr_sensor_flipper.c \
-        flipper/core_fatal.c modules/em_scan_sampler.c \
+        flipper/core_fatal.c flipper/em_scan_sampler.c \
         tests/shims/furi_hal_mock.c -lm -lpthread
     ./build/test_gsr_sensor_tsan
 else
@@ -148,7 +148,7 @@ fi
 
 echo
 echo "== test_sd_logger (auto-index / header / batch write) =="
-gcc -Wall -Wextra -Werror -I . -I modules -I tests/shims -o build/test_sd_logger \
+gcc -Wall -Wextra -Werror -I . -I flipper -I tests/shims -o build/test_sd_logger \
     tests/test_sd_logger.c core/sd_logger.c flipper/sd_logger_flipper.c flipper/core_fatal.c \
     tests/shims/storage_mock.c -lm
 ./build/test_sd_logger
@@ -161,8 +161,8 @@ gcc -Wall -Wextra -Werror -I . -I tests/shims -o build/test_sd_blocks \
 
 echo
 echo "== test_em_scan_cal (EM Scanner RF noise calibration & persistence) =="
-gcc -Wall -Wextra -Werror -I . -I modules -I tests/shims -o build/test_em_scan_cal \
-    tests/test_em_scan_cal.c modules/em_scan_cal.c \
+gcc -Wall -Wextra -Werror -I . -I flipper -I tests/shims -o build/test_em_scan_cal \
+    tests/test_em_scan_cal.c flipper/em_scan_cal.c \
     tests/shims/storage_mock.c -lm
 ./build/test_em_scan_cal
 
@@ -170,8 +170,8 @@ echo
 echo "== test_em_scan_rf (CC1101 sub-GHz sweep: init/deinit sequencing, peak-hold, per-band snapshot) =="
 # Own dedicated mock (furi_hal_subghz_mock.c), not furi_hal_mock.c — see that
 # file's banner for why the two are mutually exclusive per test binary.
-gcc -Wall -Wextra -Werror -I . -I modules -I tests/shims -o build/test_em_scan_rf \
-    tests/test_em_scan_rf.c modules/em_scan_rf.c \
+gcc -Wall -Wextra -Werror -I . -I flipper -I tests/shims -o build/test_em_scan_rf \
+    tests/test_em_scan_rf.c flipper/em_scan_rf.c \
     tests/shims/furi_hal_subghz_mock.c -lm
 ./build/test_em_scan_rf
 
@@ -203,8 +203,8 @@ print("  Python zipfile verification: ok")
 
 echo
 echo "== test_bt_stream (BLE serial profile lifecycle / send-or-drop logic) =="
-gcc -Wall -Wextra -Werror -I . -I modules -I tests/shims -o build/test_bt_stream \
-    tests/test_bt_stream.c modules/bt_stream.c core/biomap_format.c \
+gcc -Wall -Wextra -Werror -I . -I flipper -I tests/shims -o build/test_bt_stream \
+    tests/test_bt_stream.c flipper/bt_stream.c core/biomap_format.c \
     tests/shims/bt_ble_mock.c -lm
 ./build/test_bt_stream
 

@@ -336,14 +336,14 @@ None of these stops the port, but each would cause a confusing fault if missed.
 - **Bluetooth message size.** Each live packet is 49 bytes (`BT_STREAM_PACKET_SIZE` in [core/biomap_format.h](../firmware/core/biomap_format.h)). By default, ESP32 Bluetooth sends only 20 bytes per message, so [bt_cardputer.cpp](../firmware/cardputer/src/bt_cardputer.cpp) raises the MTU to 52 bytes and uses the same service and characteristic IDs as the visualiser.
 - **One I2C driver per bus.** M5Stack's own library already uses G8/G9 for the keyboard and audio chip. If code opens the same pins through a second, separate driver (such as Arduino's `Wire`), the two fight over the bus and readings go wrong at random. The GSR now has its own bus on G5/G6 through `M5.Ex_I2C`; with `GSR_OWN_BUS = false` it must use `M5.In_I2C`, the same driver as M5Stack's library.
 - **Keep the GPS serial port open all the time.** A sleeping M10Q wakes on any signal on its receive wire. On the Flipper, letting go of the port left that wire floating, and the module woke within seconds ([gps_uart_flipper.c](../firmware/flipper/gps_uart_flipper.c), [gps_sleep_investigation.md](../research/archive/gps_sleep_investigation.md)). The Cardputer must do what the Flipper does: open the port when the app starts and hold it until the app exits.
-- **C-only features in shared headers.** The Arduino setup compiles its own code as C++. [bt_stream.h](../firmware/modules/bt_stream.h) uses `_Atomic`, a C-only feature that C++ cannot read. Keep such details inside `.c` files, so every shared header can be read by both. Shared headers also need the usual `extern "C"` wrapper.
+- **C-only features in shared headers.** The Arduino setup compiles its own code as C++. [bt_stream.h](../firmware/flipper/bt_stream.h) uses `_Atomic`, a C-only feature that C++ cannot read. Keep such details inside `.c` files, so every shared header can be read by both. Shared headers also need the usual `extern "C"` wrapper.
 - **The 1 ms pause.** See "Build tools" above.
 
 ---
 
 ## 4. Software: piece by piece
 
-| Part | Shared in `core/` | Flipper (`flipper/` + `firmware/`) | Cardputer (`cardputer/src/`) | Status |
+| Part | Shared in `core/` | Flipper (`flipper/`) | Cardputer (`cardputer/src/`) | Status |
 |---|---|---|---|---|
 | Signal processing, CSV format, settings | `biomap_pipeline.c`, `biomap_format.c`, `biomap_config.h`, `biomap_types.h`, minmea | `biomap_gui.c` / `biomap.c` | `settings_cardputer.cpp` (atomic SD persistence) | Done (steps 1, 10) |
 | GSR sensor | `gsr_sensor.c` (ADS1115 gain switching, settling, nS conversion, zero & 0.5 V bias check) | `gsr_sensor_flipper.c` | `gsr_cardputer.cpp` (GSR thread via `M5.In_I2C`) | Done (steps 2, 8) |
@@ -353,9 +353,9 @@ None of these stops the port, but each would cause a confusing fault if missed.
 | Recording screen | `biomap_screen.c` (128 × 64 layout via `ScreenDraw` + optional `draw_graph` hook) | `biomap_screen_flipper.c` | `screen_cardputer.cpp` (stretched top bar/Diagnostics + native 240 × 135 30 FPS spline graph) | Done (steps 6, 10) |
 | Keys and menus | `CalWizardCore` (in `cal_wizard.c`) | `biomap_gui.c`, `biomap_render.c` | `menu_cardputer.cpp` (colour main menu, Options, wizard), `keys.cpp` (plus TCA8418 unstick) | Done (steps 7, 10) |
 | SD card & file transfer | `sd_logger.c` (row batching, 8 MB reserve, `# End` CRC, whole-block writes) | `sd_logger_flipper.c` | `sd_cardputer.cpp` (512-byte blocks + `U` key USB thumb drive mode) | Done (steps 8, 9) |
-| Bluetooth live stream | `bt_stream_pack_packet()` (in `biomap_format.c`) | `modules/bt_stream.c` | `bt_cardputer.cpp` (BLE 52-byte MTU, 49-byte packets, full `deinit` on exit) | Done (step 11) |
+| Bluetooth live stream | `bt_stream_pack_packet()` (in `biomap_format.c`) | `bt_stream.c` | `bt_cardputer.cpp` (BLE 52-byte MTU, 49-byte packets, full `deinit` on exit) | Done (step 11) |
 | Clock | — | RTC via `biomap.c` | `clock_cardputer.cpp`, `clock_rule.c`, `clock_local.c` (GPS time in UK GMT/BST) | Done (step 9) |
-| EM scan | Nothing | `modules/em_scan_*.c`, `biomap_rf_cal.c` | None (dropped) | Flipper-only |
+| EM scan | Nothing | `em_scan_*.c`, `biomap_rf_cal.c` | None (dropped) | Flipper-only |
 | Build & host tests | Plain C, C++-checked, compiled with no Flipper shims | `application.fam` (`ufbt`), `tests/shims/` | `cardputer/platformio.ini`, `tests/test_cardputer_rules.c` | Done (steps 1–11) |
 
 ### Bluetooth: no visualiser change needed
@@ -536,14 +536,14 @@ Steps 1–6 prepared the shared core on the Flipper, and steps 7–11 built the 
 
 The plain C files moved to [firmware/core/](../firmware/core/): `biomap_pipeline.c/.h` (signal processing), `biomap_format.c/.h` (CSV format and the calibration fit), `biomap_config.h` (settings) and `biomap_types.h` (the shared data types, which the others need). `application.fam`, `run_tests.sh`, the test files and the links in the docs point to the new places.
 
-- **One small code change.** `biomap_format.c` still used the Flipper's warning-log call when a calibration fit failed. That log line now lives in the Flipper code that calls the fit ([biomap_gui.c](../firmware/biomap_gui.c)), so `core/` has no Flipper code at all. Its test build no longer needs the fake Flipper headers.
+- **One small code change.** `biomap_format.c` still used the Flipper's warning-log call when a calibration fit failed. That log line now lives in the Flipper code that calls the fit ([biomap_gui.c](../firmware/flipper/biomap_gui.c)), so `core/` has no Flipper code at all. Its test build no longer needs the fake Flipper headers.
 - **minmea stays in `vendor/minmea/`**, as in the folder plan above. It is already plain C, and third-party code is easier to update where it is.
 
 Checked: all host tests pass, the Flipper app builds, and each `core/` file builds on its own with no other folders on the include path. Nothing changed in how the app behaves, so no Flipper check is needed.
 
 ### Already done: radio scan out of the GSR code (checked on a real Flipper, 20 Nov)
 
-The radio (EM) scan used to be written into the middle of the GSR sensor code ([gsr_sensor.c](../firmware/core/gsr_sensor.c)). It now lives in its own file, [em_scan_sampler.c](../firmware/modules/em_scan_sampler.c). It still runs on the GSR thread, at the same moments as before. No new thread was added. The GSR loop has one line that says "if there is another job, give it a turn". On the Flipper the session hands it the radio scan. On the Cardputer nothing is handed over, so the GSR code contains no radio code at all.
+The radio (EM) scan used to be written into the middle of the GSR sensor code ([gsr_sensor.c](../firmware/core/gsr_sensor.c)). It now lives in its own file, [em_scan_sampler.c](../firmware/flipper/em_scan_sampler.c). It still runs on the GSR thread, at the same moments as before. No new thread was added. The GSR loop has one line that says "if there is another job, give it a turn". On the Flipper the session hands it the radio scan. On the Cardputer nothing is handed over, so the GSR code contains no radio code at all.
 
 **Known weak points, left as they are for now:**
 
@@ -555,7 +555,7 @@ The radio (EM) scan used to be written into the middle of the GSR sensor code ([
 
 All of the GSR logic now lives in [core/gsr_sensor.c](../firmware/core/gsr_sensor.c): gain switching, the settling waits, the bias check, the 100 ms averaging, the conversion to nanosiemens, the calibration zero and gain, disconnect detection, and every diagnostic figure. It has no Flipper code. It reaches the hardware only through a short list of functions the device hands it ([core/gsr_sensor.h](../firmware/core/gsr_sensor.h), `GsrPlatform`): read or write an I2C register, the time in milliseconds, a wait, a lock, and an optional log line.
 
-The calibration wizard's averaging is shared too: `CalDwell` in [core/biomap_format.c](../firmware/core/biomap_format.c). It takes each tick's reading over the 20 s dwell, keeps the ones inside the gate, and gives the mean, the spread (σ) and whether enough readings passed. The Zero step and each resistor step use it. What stays in the Flipper's wizard ([biomap_gui.c](../firmware/biomap_gui.c)) is the screens, the keys, the countdown and the 100 ms waits between readings. Those were two near-identical loops, one per kind of step; they are now one (`calibration_wizard_dwell()`). That loop is Flipper code, so the host tests don't run it; the wizard run in the Flipper check below covers it.
+The calibration wizard's averaging is shared too: `CalDwell` in [core/biomap_format.c](../firmware/core/biomap_format.c). It takes each tick's reading over the 20 s dwell, keeps the ones inside the gate, and gives the mean, the spread (σ) and whether enough readings passed. The Zero step and each resistor step use it. What stays in the Flipper's wizard ([biomap_gui.c](../firmware/flipper/biomap_gui.c)) is the screens, the keys, the countdown and the 100 ms waits between readings. Those were two near-identical loops, one per kind of step; they are now one (`calibration_wizard_dwell()`). That loop is Flipper code, so the host tests don't run it; the wizard run in the Flipper check below covers it.
 
 The Flipper side, [flipper/gsr_sensor_flipper.c](../firmware/flipper/gsr_sensor_flipper.c), is about 150 lines: those functions written with the Flipper's own calls, and the GSR thread. The thread calls the shared "one pass" function, gives the radio scan its turn after each normal read, and pauses 1 ms, exactly as before. The rest of the app calls the same `gsr_sensor_*` functions as before: one `#include` changed, and one diagnostic read-out was renamed (below).
 
@@ -719,7 +719,7 @@ It reads the shared session for everything it shows, plus a few things the sessi
 
 The Flipper side, [flipper/biomap_screen_flipper.c](../firmware/flipper/biomap_screen_flipper.c), is about 100 lines: the ten calls written with the Flipper's canvas, and the screen callback, which takes the main lock and gathers the extras.
 
-**Only the recording screen moved.** The main menu, Options and the calibration screens stay in [biomap_render.c](../firmware/biomap_render.c). The Cardputer's interface may end up quite different from the Flipper's (it has a full keyboard), and the menus are the part most likely to change, so they wait until the Cardputer's screens are decided (step 10). The radio calibration screens stay Flipper-only either way.
+**Only the recording screen moved.** The main menu, Options and the calibration screens stay in [biomap_render.c](../firmware/flipper/biomap_render.c). The Cardputer's interface may end up quite different from the Flipper's (it has a full keyboard), and the menus are the part most likely to change, so they wait until the Cardputer's screens are decided (step 10). The radio calibration screens stay Flipper-only either way.
 
 Checked:
 
@@ -866,7 +866,7 @@ The Cardputer now supports **Live Stream** mode from the main menu (`GPS + GSR`,
 
 After step 11 landed, a review pass tightened the separation between `core/`, `flipper/`, and `cardputer/` and closed a set of review findings:
 
-- **Shared calibration wizard state machine (`CalWizardCore`).** Both the Flipper ([biomap_gui.c](../firmware/biomap_gui.c)) and the Cardputer ([menu_cardputer.cpp](../firmware/cardputer/src/menu_cardputer.cpp)) now drive the same 4-step state machine, targets and gates in [core/cal_wizard.c](../firmware/core/cal_wizard.c). On the Flipper, the wizard ticks a local copy outside the render mutex so the GUI thread never blocks on GSR reads or the bias check. Host tests in [tests/test_session.c](../firmware/tests/test_session.c) cover the zero, measurement, bias, noise and fit failure screens.
+- **Shared calibration wizard state machine (`CalWizardCore`).** Both the Flipper ([biomap_gui.c](../firmware/flipper/biomap_gui.c)) and the Cardputer ([menu_cardputer.cpp](../firmware/cardputer/src/menu_cardputer.cpp)) now drive the same 4-step state machine, targets and gates in [core/cal_wizard.c](../firmware/core/cal_wizard.c). On the Flipper, the wizard ticks a local copy outside the render mutex so the GUI thread never blocks on GSR reads or the bias check. Host tests in [tests/test_session.c](../firmware/tests/test_session.c) cover the zero, measurement, bias, noise and fit failure screens.
 - **Native graph hook (`ScreenDraw.draw_graph`).** Added an optional graph callback to [core/biomap_screen.h](../firmware/core/biomap_screen.h) so the Cardputer draws its native 240 × 135 spline graph cleanly without coordinate-sniffing in `draw_str` / `draw_frame`.
 - **Shared cue tone palette.** The cue note frequencies and durations now live once in `biomap_cue_notes()` in [core/biomap_cues.h](../firmware/core/biomap_cues.h), used by both [flipper/biomap_cues_flipper.c](../firmware/flipper/biomap_cues_flipper.c) and [cardputer/src/cues_cardputer.cpp](../firmware/cardputer/src/cues_cardputer.cpp).
 - **GPS core fixes.** [core/gps_uart.c](../firmware/core/gps_uart.c) now clears paired RMC/GGA fix flags on a lost or estimated fix (host-tested in [tests/test_gps_uart.c](../firmware/tests/test_gps_uart.c)), and scopes the chip-ID poll gate per `GpsUart` session while still skipping once the chip ID is cached.

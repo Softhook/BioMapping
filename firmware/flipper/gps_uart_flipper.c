@@ -4,7 +4,7 @@
 // Single-byte-per-IRQ RX pattern, adapted from ezod/flipperzero-gps.
 
 #include "gps_uart_flipper.h"
-#include "../biomap_events.h"
+#include "biomap_events.h"
 
 #include <furi.h>
 #include <furi_hal.h>

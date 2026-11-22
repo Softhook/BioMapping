@@ -68,8 +68,8 @@ SCENARIOS = [
     # (each leg strikes independently, so impact frequency runs ~2x stride
     # frequency - ~1.6-2.2Hz for a normal walking cadence). Verified against
     # real BioMapping recordings, not assumed - see
-    # visualiser/tests/manual/gait_isolation/check_gait_isolation.js for the
-    # methodology (a continuous sliding-window test correlating detrended
+    # visualiser/tests/manual/gait_isolation/check_gait_benefit_all_tracks.js
+    # for the methodology (a continuous sliding-window test correlating detrended
     # 1.4-2.0Hz band power against simultaneous GPS speed on a real track:
     # Pearson r=0.248, far past significance, with a monotonic dose-response
     # as pace increases) and the direct visual confirmation (a clean,

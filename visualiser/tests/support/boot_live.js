@@ -13,8 +13,7 @@
  * LIVE_SCRIPT_ORDER mirrors src/live_entry.mjs's own import list, kept in
  * sync with it by tests/test_html_wiring.js.
  *
- * Every src/ file is a real ES module (the ES-module migration —
- * tests/manual/esm_migration/README.md — is done): loads each
+ * Every src/ file is a real ES module: loads each
  * LIVE_SCRIPT_ORDER entry through the same tests/support/realm_bridge.js as
  * boot_app.js, into the same jsdom-bridged realm, so post-boot test code
  * can read a class/singleton back via `window.X`/`global.X`. `bootLive()`

@@ -39,10 +39,10 @@
 #include "flipper/gsr_sensor_flipper.h"
 #include "flipper/sd_logger_flipper.h"
 #include "flipper/biomap_cues_flipper.h"
-#include "modules/em_scan_rf.h"
-#include "modules/em_scan_sampler.h"
-#include "modules/em_scan_cal.h"
-#include "modules/bt_stream.h"
+#include "flipper/em_scan_rf.h"
+#include "flipper/em_scan_sampler.h"
+#include "flipper/em_scan_cal.h"
+#include "flipper/bt_stream.h"
 
 // ── Session — the recording screen's state ─────────────────────────────
 //

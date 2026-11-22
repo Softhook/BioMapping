@@ -139,16 +139,18 @@ firmware/core/                 — shared plain C, no Flipper code (run_tests.sh
   core_check.h                  — CORE_CHECK / core_fatal(), supplied by each device
   (run_tests.sh also links tests/core_cpp_link.cpp against these, to prove the headers work from C++)
 
-firmware/flipper/              — Flipper side of the shared code
+firmware/flipper/              — all the Flipper-only code
+  biomap.h / .c                 — the app: entry point, BioMapApp, start-up and exit (not host-tested)
+  biomap_gui.c, biomap_render.h / .c, biomap_rf_cal.c
+                                — menus, Options and calibration screens (not host-tested)
   gsr_sensor_flipper.h / .c     — GSR thread + GsrPlatform via furi_hal_i2c_* / FuriMutex
   gps_uart_flipper.h / .c       — USART1, RX interrupt, held port + GpsPlatform via furi_hal_serial_*
   sd_logger_flipper.h / .c      — SdPlatform via Storage/File, in /ext/biomapping/
   biomap_cues_flipper.h / .c    — each cue as an LED pattern and/or tone
   sound.h                       — the tones, via furi_hal_speaker_* (only biomap_cues_flipper.c calls it)
   core_fatal.c                  — core_fatal() via furi_crash()
-
-firmware/modules/              — no test-only content, no HAL files
   em_scan_rf.h / .c             — SubGHz RF sweep/RSSI, calls furi_hal_subghz_* directly
+  em_scan_sampler.h / .c        — paced RSSI sampling in the GSR thread's spare time
   em_scan_cal.h / .c            — RF noise-floor calibration + on-disk persistence
   bt_stream.h / .c              — BLE serial-profile lifecycle + send-or-drop (Live Stream)
 
@@ -261,9 +263,9 @@ Approximate test counts — the exact numbers drift with each addition; run
 | `core/gps_uart.c` + `flipper/gps_uart_flipper.c` | Flipper side only (`furi_hal_serial_*`) | ✅ `tests/test_gps_uart.c` (~39 tests) |
 | `core/gsr_sensor.c` + `flipper/gsr_sensor_flipper.c` | Flipper side only (`furi_hal_i2c_*`, real `FuriThread`) | ✅ `tests/test_gsr_sensor.c` (~47 tests) + a ThreadSanitizer pass |
 | `core/sd_logger.c` + `flipper/sd_logger_flipper.c` | Flipper side only (`Storage`/`File`) | ✅ `tests/test_sd_logger.c` (~30 tests, includes log-file pre-allocation & CRC32 integrity trailer) + `tests/test_sd_blocks.c` (whole-block writes, as on the Cardputer) |
-| `modules/em_scan_cal.c` | No (pure calc + Storage for persist) | ✅ `tests/test_em_scan_cal.c` (~5 tests) |
-| `modules/bt_stream.c` | Yes (`Bt`/`ble_profile_serial_*`) | ✅ `tests/test_bt_stream.c` (~13 tests, BLE mock shims) |
-| `modules/em_scan_rf.c` | Yes (CC1101 SPI) | ✅ `tests/test_em_scan_rf.c` (~9 tests, dedicated `furi_hal_subghz_mock.c`) |
+| `flipper/em_scan_cal.c` | No (pure calc + Storage for persist) | ✅ `tests/test_em_scan_cal.c` (~5 tests) |
+| `flipper/bt_stream.c` | Yes (`Bt`/`ble_profile_serial_*`) | ✅ `tests/test_bt_stream.c` (~13 tests, BLE mock shims) |
+| `flipper/em_scan_rf.c` | Yes (CC1101 SPI) | ✅ `tests/test_em_scan_rf.c` (~9 tests, dedicated `furi_hal_subghz_mock.c`) |
 | `flipper/biomap_cues_flipper.c` + `flipper/sound.h` | Yes (`notification_message`, `furi_hal_speaker_*`) | ✅ `tests/test_cues.c` (4 tests over all 20 cues, `cue_mock.c` shims) |
 | `core/biomap_session.c` | No (everything through `SessionPlatform`) | ✅ `tests/test_session.c` (17 tests; the Flipper loop in `flipper/biomap_session_flipper.c` is not host-tested) |
 | `core/biomap_screen.c` | No (everything through `ScreenDraw`) | ✅ `tests/test_session.c` (4 screen tests on a pretend screen; the Flipper's canvas calls in `flipper/biomap_screen_flipper.c` are not host-tested) |
@@ -366,7 +368,7 @@ The session logic now lives in `core/biomap_session.c`, and
 (`test_stop_keys`) along with the ride-out rules (`test_sd_ride_out_and_stop`).
 
 `test_em_scan_rf.c` (added 2026-09-16) drives the real, unmodified
-`modules/em_scan_rf.c` against a dedicated `furi_hal_subghz_mock.c` — not
+`flipper/em_scan_rf.c` against a dedicated `furi_hal_subghz_mock.c` — not
 `furi_hal_mock.c`'s existing (weak) `em_scan_rf_*` fakes, which exist so
 `test_gsr_sensor.c` can stand in for this module rather than link it.
 Covers `em_scan_rf_init()`'s reset→preset→per-band-tune sequence (including

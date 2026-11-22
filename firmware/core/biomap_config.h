@@ -7,7 +7,7 @@
 
 // Radio (EM) scan bands: 815, 868 and 915 MHz, in that order — the
 // rssi_815,rssi_868,rssi_915 CSV columns and the "# Band Floors" header
-// line. The Flipper's radio code (modules/em_scan_rf.h, EM_SCAN_NUM_FREQS)
+// line. The Flipper's radio code (flipper/em_scan_rf.h, EM_SCAN_NUM_FREQS)
 // must agree; flipper/biomap_session_flipper.c checks that it does.
 #define RF_BAND_COUNT 3
 
@@ -31,7 +31,7 @@ typedef enum {
     // has_gps()/has_gsr()/has_rf() below (biomap_types.h): those gate the
     // shared CSV-writing tick/render path that this mode does not use — its
     // own session handling reads GpsUart/GsrSensor directly instead (see
-    // modules/bt_stream.h).
+    // flipper/bt_stream.h).
     BioMapModeLiveStream,
 } BioMapMode;
 

@@ -118,7 +118,7 @@ CalNoiseGrade calibration_noise_grade(float std_dev_ns);
 // Readings inside [lo, hi] go into the mean and σ, in a single Welford
 // pass: the count, mean and M2 are updated as each reading arrives rather
 // than stored and revisited, same running-accumulator shape as
-// em_scan_cal_compute_stats() (modules/em_scan_cal.c) uses for the RF
+// em_scan_cal_compute_stats() (flipper/em_scan_cal.c) uses for the RF
 // noise floor. At this sample count the mean needs no min/max trim — one
 // outlier among CAL_DWELL_SECONDS*TICK_HZ readings has negligible
 // leverage. Readings outside the gate are counted as below or above

@@ -413,7 +413,7 @@ const CANDIDATES = [
   ],
   // ── Literature candidates (web research): NeuroKit2/BioSPPy's own
   // EDA-cleaning filter is a zero-phase Butterworth lowpass (3Hz / 5Hz
-  // respectively) - real-track testing (check_gait_isolation.js) found this
+  // respectively) - real-track testing found this
   // design's steeper rolloff beats both the box filter and Whittaker by a
   // wide margin on real gait, so re-checked here against the synthetic
   // ground truth too.

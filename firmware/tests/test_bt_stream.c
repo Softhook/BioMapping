@@ -29,7 +29,7 @@
 #include <string.h>
 #include <math.h>
 
-#include "modules/bt_stream.h"
+#include "flipper/bt_stream.h"
 #include "bt/bt_service/bt.h"
 #include "profiles/serial_profile.h"
 

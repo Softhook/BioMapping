@@ -240,8 +240,7 @@ const gpsPipeline = {
     // Nudge maxSpeed each iteration — exactly what a slider drag does. This
     // busts BOTH _gpsCache (params hash) AND analyzer._filteredGpsCacheKey
     // (Kalman output moves), so the reconstruct pass runs every iteration
-    // instead of short-circuiting after the first (the trap _bench_render_perf
-    // Bench 4 hit). Δ is tiny — the physics is unchanged, the cache keys aren't.
+    // instead of short-circuiting after the first. Δ is tiny — the physics is unchanged, the cache keys aren't.
     const r = h.bench(
       () => {
         p.maxSpeed = baseSpeed + (k++ % 4) * 0.01;
