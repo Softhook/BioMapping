@@ -85,8 +85,8 @@ typedef enum {
 // turn into a genuine CPU-hogging tight spin under this harness: the fake
 // tick this loop bounds its timeout against never advances on its own, so
 // with no real yield, one thread can spin flat-out checking a flag the
-// OTHER thread needs CPU time to clear — a real, ThreadSanitizer-run-
-// observed slow/stuck case (2026-07-30), not just a theoretical concern.
+// OTHER thread needs CPU time to clear — a real slow/stuck case seen under
+// ThreadSanitizer, not just a theoretical concern.
 // sched_yield() fixes that by actually giving the scheduler a chance to
 // run the other thread, while still completing far faster than any real
 // `ms` duration — every other test's "the worker spins as fast as the CPU
@@ -108,11 +108,9 @@ static inline void furi_record_close(const char* name) { (void)name; }
 //
 // _Atomic, not plain uint32_t: gsr_sensor.c's worker thread calls
 // furi_get_tick() (reading this) concurrently with the test's own thread
-// calling furi_test_advance_tick() (writing it) — a real, ThreadSanitizer-
-// confirmed data race as a plain global (found during the 2026-07-30
-// mutex work's TSAN run, alongside the same fix applied to gsr_sensor.c's
-// own volatile flags). On real hardware furi_get_tick() reads an
-// RTOS-maintained counter with its own defined atomicity; this shim's
+// calling furi_test_advance_tick() (writing it) — a real data race as a plain
+// global, confirmed by ThreadSanitizer. On real hardware furi_get_tick() reads
+// an RTOS-maintained counter with its own defined atomicity; this shim's
 // plain-global stand-in needs to be explicitly atomic to match that.
 extern _Atomic uint32_t furi_test_tick;
 static inline uint32_t furi_get_tick(void) { return furi_test_tick; }

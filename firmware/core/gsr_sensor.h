@@ -336,14 +336,13 @@ uint32_t gsr_sensor_get_pga_change_count(const GsrSensor* gsr);
 // multiplied by gain:  nS = gain * TIA(counts - zero_counts).
 void gsr_sensor_set_calibration(GsrSensor* gsr, bool active, float gain, float zero_counts);
 
-// Worst single I2C call duration ever observed on the worker thread, in ms
-// — a lifetime max (never reset), timed immediately around each I2C call
-// on the platform clock, including any wait for the bus. Covers both the config-write and conversion-read
-// calls (mutually exclusive per loop iteration). Answers "did an I2C call
-// cause a given main-loop stall" directly — see biomap_types.h's RowDiag
-// doc comment and docs/archive/gps_rf_mutex_status.md. The radio's
-// matching figures are in em_scan_sampler.h. Returns 0 if unavailable.
-// For diagnostics.
+// Worst single I2C call duration ever observed on the worker thread, in ms — a
+// lifetime max (never reset), timed immediately around each I2C call on the
+// platform clock, including any wait for the bus. Covers both the config-write
+// and conversion-read calls (mutually exclusive per loop iteration). Answers
+// "did an I2C call cause a given main-loop stall" directly — see
+// biomap_types.h's RowDiag doc comment. The radio's matching figures are in
+// em_scan_sampler.h. Returns 0 if unavailable. For diagnostics.
 uint32_t gsr_sensor_get_i2c_peak_ms(const GsrSensor* gsr);
 
 #ifdef __cplusplus

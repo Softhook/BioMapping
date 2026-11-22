@@ -62,7 +62,7 @@ static void test_start_success_claims_profile(void) {
     assert(ok);
     assert(bt_mock_profile_start_count() == 1);
     // Starting the profile alone doesn't mean a phone is connected yet —
-    // status only changes once the mock fires the callback (§1.3).
+    // status only changes once the mock fires the callback.
     assert(!bt_stream_is_connected(bs));
 
     bt_stream_stop(bs);
@@ -70,7 +70,7 @@ static void test_start_success_claims_profile(void) {
     printf("  -> Pass\n");
 }
 
-// §1.7 — bt_profile_start() returning NULL must not be treated as success,
+// bt_profile_start() returning NULL must not be treated as success,
 // and must not crash anything downstream (NULL profile must never reach
 // ble_profile_serial_tx()).
 static void test_start_failure_profile_null(void) {
@@ -96,7 +96,7 @@ static void test_start_failure_profile_null(void) {
     printf("  -> Pass\n");
 }
 
-// §3 — bt_stream_stop() must call bt_profile_restore_default() on EVERY
+// bt_stream_stop() must call bt_profile_restore_default() on EVERY
 // exit path, including one where bt_stream_start() itself failed.
 static void test_stop_always_restores_default_profile(void) {
     printf("Running test_stop_always_restores_default_profile...\n");
@@ -119,7 +119,7 @@ static void test_stop_always_restores_default_profile(void) {
     printf("  -> Pass\n");
 }
 
-// §1.3 — the connection-status callback drives an _Atomic cache, not a
+// The connection-status callback drives an _Atomic cache, not a
 // direct query. Verified here by firing the callback exactly the way the
 // mock says the BLE stack's own thread would.
 static void test_status_transitions_via_callback(void) {
@@ -144,7 +144,7 @@ static void test_status_transitions_via_callback(void) {
     printf("  -> Pass\n");
 }
 
-// §1.2/§3 — not connected: tx_batch() must drop without ever calling
+// Not connected: tx_batch() must drop without ever calling
 // ble_profile_serial_tx() at all (no NULL/garbage profile pointer used).
 static void test_tx_batch_drops_when_not_connected(void) {
     printf("Running test_tx_batch_drops_when_not_connected...\n");
@@ -165,7 +165,7 @@ static void test_tx_batch_drops_when_not_connected(void) {
     printf("  -> Pass\n");
 }
 
-// §1.2 — connected, but ble_profile_serial_tx() itself fails (the BLE
+// Connected, but ble_profile_serial_tx() itself fails (the BLE
 // stack's flow control rejecting an overlapping send). Must count as a
 // drop, exactly like the not-connected case, and must not be retried
 // synchronously (bt_mock_tx_call_count() stays 1 for one tx_batch() call).

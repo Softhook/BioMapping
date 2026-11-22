@@ -25,12 +25,11 @@ typedef enum {
     BioMapModeGpsOnly,      // GPS track + RF, no biometrics ("GPS + RF" on the menu)
     BioMapModeGsrOnly,      // GSR waveform viewer, no location, no RF
     BioMapModeDiagnostics,  // GSR diagnostics — raw counts, no graph
-    // Live Stream (docs/archive/bluetooth_serial_investigation.md): GPS+GSR captured
-    // as normal but sent live over BLE to a phone instead of written to SD —
-    // no SdLogger for this mode at all. Deliberately excluded from
-    // has_gps()/has_gsr()/has_rf() below (biomap_types.h): those gate the
-    // shared CSV-writing tick/render path that this mode does not use — its
-    // own session handling reads GpsUart/GsrSensor directly instead (see
+    // Live Stream: GPS+GSR captured as normal but sent live over BLE to a phone
+    // instead of written to SD — no SdLogger for this mode at all. Deliberately
+    // excluded from has_gps()/has_gsr()/has_rf() below (biomap_types.h): those
+    // gate the shared CSV-writing tick/render path that this mode does not use
+    // — its own session handling reads GpsUart/GsrSensor directly instead (see
     // flipper/bt_stream.h).
     BioMapModeLiveStream,
 } BioMapMode;
@@ -132,16 +131,15 @@ typedef enum {
 //
 // The visualiser's Live Stream CSV export mirrors this GPS+GSR schema; its
 // test_firmware_csv_contract.js reads this header directly, so a column
-// change here also turns the visualiser suite red until live_csv.js follows.
+// change here also turns the visualiser suite red until live_csv.mjs follows.
 //
-// The _DEBUG schemas add contention/continuity diagnostics — see RowDiag's
-// doc comment (biomap_types.h) and docs/archive/gps_rf_mutex_status.md for what each
-// column measures and why. tick_dt_ms and the peak-ms columns appear in
-// both GPS_GSR and GPS_GSR_RF (not just the RF variant) so an RF-off vs
-// RF-on recording of the same route is a direct column-for-column diff.
-// gps_reinit_count needs a GPS module, so it is absent from GSR_ONLY; the
-// logger and PGA columns are computed in every GSR-bearing mode and so
-// appear in all three.
+// The _DEBUG schemas add contention/continuity diagnostics — see RowDiag's doc
+// comment (biomap_types.h) for what each column measures and why. tick_dt_ms
+// and the peak-ms columns appear in both GPS_GSR and GPS_GSR_RF (not just the
+// RF variant) so an RF-off vs RF-on recording of the same route is a direct
+// column-for-column diff. gps_reinit_count needs a GPS module, so it is absent
+// from GSR_ONLY; the logger and PGA columns are computed in every GSR-bearing
+// mode and so appear in all three.
 //
 // Debug fields are a runtime Options toggle (Options > Debug Fields, off by
 // default, SessionSettings.debug_fields_enabled), not a compile-time

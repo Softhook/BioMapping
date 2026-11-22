@@ -16,7 +16,7 @@ struct BtStream {
 };
 
 // bt_set_status_changed_callback()'s callback almost certainly runs on the
-// BLE stack's own thread (§1.3) — never touch anything but the atomic here.
+// BLE stack's own thread — never touch anything but the atomic here.
 static void bt_stream_status_cb(BtStatus status, void* context) {
     BtStream* bs = context;
     atomic_store(&bs->status, status);

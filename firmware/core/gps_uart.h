@@ -157,11 +157,10 @@ GpsStatus gps_uart_get_status(const GpsUart* gps);
 bool      gps_uart_is_ready(const GpsUart* gps);
 void      gps_uart_send_cold_start(GpsUart* gps);
 
-// gps_uart_get_rx_drop_count(): received bytes the device had to drop
-// because its buffer was full — the direct symptom of a main-thread stall
-// (e.g. behind a mutex) delaying the drain until the buffer overflows.
-// Cumulative, monotonic; see docs/archive/gps_rf_mutex_status.md. 0 when the
-// GpsUart is not ready.
+// gps_uart_get_rx_drop_count(): received bytes the device had to drop because
+// its buffer was full — the direct symptom of a main-thread stall (e.g. behind
+// a mutex) delaying the drain until the buffer overflows. Cumulative,
+// monotonic. 0 when the GpsUart is not ready.
 uint32_t  gps_uart_get_rx_drop_count(const GpsUart* gps);
 
 // gps_uart_get_nmea_fail_count(): incremented in gps_uart_parse_line()

@@ -16,14 +16,12 @@
 // endless loop: reaching it fails the recording, it never overwrites.
 #define LOGGER_MAX_SUFFIX 9999
 
-// One-shot pre-allocation size — see preallocate_log_file() below and
-// docs/archive/gps_rf_mutex_status.md's "option E" entries. Sized against
-// track 016's own measured worst-case rate (GPS+GSR+RF, debug fields on —
-// the widest schema, ~72 KiB/min): ~90 minutes
-// (6.33 MiB) plus real margin, rounded to 8 MiB. Every mode gets the same
-// pre-allocation regardless of its actual (lower) row width — harmless,
-// since sd_logger_stop() always trims the unused tail back to the real
-// data length.
+// One-shot pre-allocation size — see preallocate_log_file() below. Sized
+// against track 016's own measured worst-case rate (GPS+GSR+RF, debug fields on
+// — the widest schema, ~72 KiB/min): ~90 minutes (6.33 MiB) plus real margin,
+// rounded to 8 MiB. Every mode gets the same pre-allocation regardless of its
+// actual (lower) row width — harmless, since sd_logger_stop() always trims the
+// unused tail back to the real data length.
 #define SD_LOGGER_PREALLOC_BYTES (8u * 1024u * 1024u)
 // ── Integrity bracket ─────────────────────────────────────────────────────
 // Every recording is wrapped by two lines so the visualiser (or any
@@ -230,17 +228,16 @@ static void close_file(SdLogger* l) {
 }
 
 // Grows the just-opened file to SD_LOGGER_PREALLOC_BYTES once, up front, by
-// seeking past the current end and writing one byte there. On the Flipper
-// this is the only pre-allocation the app SDK offers (no f_expand binding
-// exists; File is an opaque struct with no accessor to a raw FatFs handle
-// either -- confirmed by grepping the full SDK headers, see
-// docs/archive/gps_rf_mutex_status.md). Real FatFs's f_lseek() performs the
-// size-extend (and pays its cluster-allocation cost) immediately, inside
+// seeking past the current end and writing one byte there. On the Flipper this
+// is the only pre-allocation the app SDK offers (no f_expand binding exists;
+// File is an opaque struct with no accessor to a raw FatFs handle either --
+// confirmed by grepping the full SDK headers). Real FatFs's f_lseek() performs
+// the size-extend (and pays its cluster-allocation cost) immediately, inside
 // that call, with undefined -- NOT zero-filled -- content in the gap. Always
-// leaves the file positioned back at the real data boundary (right after
-// the header) so the first batch flush lands contiguously, never inside the
-// pre-allocated tail. sd_logger_stop() trims the unused tail back to the
-// real data length.
+// leaves the file positioned back at the real data boundary (right after the
+// header) so the first batch flush lands contiguously, never inside the
+// pre-allocated tail. sd_logger_stop() trims the unused tail back to the real
+// data length.
 static void preallocate_log_file(SdLogger* l) {
     uint32_t real_pos = l->crc_bytes; // right after header write+sync
     uint32_t target = real_pos + SD_LOGGER_PREALLOC_BYTES;

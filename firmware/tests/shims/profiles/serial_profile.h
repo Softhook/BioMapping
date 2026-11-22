@@ -21,7 +21,7 @@ bool ble_profile_serial_tx(FuriHalBleProfileBase* profile, uint8_t* data, uint16
 
 // ── Test-injection API ──────────────────────────────────────────────────
 // When true, the next ble_profile_serial_tx() call fails (returns false)
-// and is NOT counted by bt_mock_tx_success_count() — simulates §1.2's "the
+// and is NOT counted by bt_mock_tx_success_count() — simulates "the
 // BLE stack won't accept a new send until the previous one completes"
 // failure mode. Auto-clears after one failure (matches "one outstanding
 // send" — a real caller's next attempt, on the following interval, would

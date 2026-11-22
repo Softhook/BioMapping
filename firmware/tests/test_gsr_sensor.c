@@ -34,11 +34,10 @@
 #include "furi.h"
 #include "furi_hal.h"
 
-// Declared in tests/shims/furi.h. Only gps_uart.c's tests previously
-// needed this defined; gsr_sensor_get_worker_hz() now calls furi_get_tick()
-// too, so it must be defined here as well or the link fails. It's a
+// Declared in tests/shims/furi.h. gsr_sensor_get_worker_hz() calls
+// furi_get_tick(), so it must be defined here or the link fails. It's a
 // manually-advanced fake clock (see wait_for_more_reads below), not a
-// real one — furi_delay_ms() is a no-op in this harness, so there's no
+// real one — furi_delay_ms() only yields in this harness, so there's no
 // wall-clock time for it to track automatically.
 extern _Atomic uint32_t furi_test_tick;
 _Atomic uint32_t furi_test_tick = 1;
@@ -1236,9 +1235,8 @@ static void test_rf_rssi_fast_sweep_updates(void) {
     printf("  -> Pass\n");
 }
 
-// The point of the "only 2 threads" merge: GSR autoranging/disconnect logic
-// and the RF band scan share one worker loop and one thread, but — since
-// the 2026-07-30 mutex audit — deliberately NOT one mutex: `mutex` guards
+// GSR autoranging/disconnect logic and the RF band scan share one worker
+// loop and one thread, but deliberately NOT one mutex: `mutex` guards
 // ADC state, `rf_mutex` guards only the RF snapshot, so an RF SPI stall
 // can never block ADC sampling. Neither must perturb the other. Runs the
 // existing I2C-failure disconnect scenario (test_disconnect_on_i2c_failure)

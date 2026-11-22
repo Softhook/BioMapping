@@ -2,9 +2,8 @@
 
 // em_scan_rf.h — CC1101 sub-GHz RSSI sweep.
 //
-// Isolates every furi_hal_subghz_* call in one place (em_scan_rf.c). See
-// docs/peak_density_vs_spatial_clustering.md §6E/§6F for the original full
-// 4-band EM-Fog Index design this is a cut-down feasibility test of.
+// Isolates every furi_hal_subghz_* call in one place (em_scan_rf.c). A
+// cut-down feasibility test of the original 4-band EM-Fog Index design.
 //
 // Two live entry points: em_scan_rf_dwell_band() (RF calibration wizard,
 // biomap_rf_cal.c — one band, peak-hold over a short dwell) and
@@ -48,9 +47,8 @@ void em_scan_rf_deinit(void);
 // not the bursts themselves. Peak-hold-over-a-dwell is the standard
 // spectrum-analyser "max hold" technique for exactly this problem.
 //
-// Leaves the radio idle when done, same duty-cycled approach as the
-// original EM-Fog plan (§6F). Called round-robin, one band per iteration,
-// by the RF calibration wizard (biomap_rf_cal.c).
+// Leaves the radio idle when done (duty-cycled). Called round-robin, one band
+// per iteration, by the RF calibration wizard (biomap_rf_cal.c).
 void em_scan_rf_dwell_band(int band_index, float* out_peak_dbm);
 
 // Performs a single-pass 3-band sweep in ~10 ms: a single RSSI read per

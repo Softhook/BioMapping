@@ -44,7 +44,7 @@ void bt_set_status_changed_callback(Bt* bt, BtStatusChangedCallback callback, vo
 void bt_mock_reset(void);
 
 // When true, the NEXT bt_profile_start() call (and every one after, until
-// cleared) returns NULL — simulates §1.7's "Bluetooth unavailable" path
+// cleared) returns NULL — simulates the "Bluetooth unavailable" path
 // (radio off at the system level, already claimed by another service, ...).
 void bt_mock_set_profile_start_fail(bool fail);
 int  bt_mock_profile_start_count(void);

@@ -32,10 +32,9 @@
 #define DISPLAY_EMA_A    0.2f
 #define DISPLAY_EMA_B    (1.0f - DISPLAY_EMA_A)
 
-// Live Stream (BLE) send cadence — docs/archive/bluetooth_serial_investigation.md
-// §3/§10 Phase 3: real hardware may show 300ms is too aggressive, in which
-// case this is a one-line change; not guessed at, just not yet measured.
-// Must divide evenly into 1000/TICK_HZ ms per tick (300 / 100 = 3 ticks).
+// Live Stream (BLE) send cadence. If real hardware shows 300 ms is too
+// aggressive, this is a one-line change. Must divide evenly into 1000/TICK_HZ
+// ms per tick (300 / 100 = 3 ticks).
 #define BT_STREAM_INTERVAL_MS    300
 #define BT_STREAM_INTERVAL_TICKS (BT_STREAM_INTERVAL_MS * TICK_HZ / 1000)
 
@@ -110,15 +109,15 @@ typedef struct {
     // ── GPS/RF mutex-contention diagnostics ────────────────────────────
     // total_ticks above (and the `rel` CSV column derived from it) is a
     // sequence counter — it stays perfectly uniform even if the main loop
-    // stalls, so it can't prove contention is or isn't happening (see
-    // docs/archive/gps_rf_mutex_status.md). last_tick_wall_ms/tick_dt_ms are the
+    // stalls, so it can't prove contention is or isn't happening.
+    // last_tick_wall_ms/tick_dt_ms are the
     // real clock measurement instead (SessionPlatform.now_ms): updated every
     // tick in session_core_tick(), regardless of recording.active.
     uint32_t last_tick_wall_ms; // bookkeeping only — previous now_ms() reading
     uint32_t tick_dt_ms;        // real elapsed ms since the previous Tick event; 0 on the first tick
 
     // ── SD write-failure ride-out (flush_file(), core/biomap_session.c) ────
-    // A failed batch flush no longer ends the recording immediately:
+    // A failed batch flush doesn't end the recording at once:
     // sd_logger_batch_flush() keeps the un-flushed rows in its buffer and new
     // rows keep appending onto them, so the next successful flush writes the
     // accumulated old + new rows in one go (one storage_file_write, CRC folds
@@ -152,12 +151,11 @@ typedef struct {
     int    fix_type;   // fix_type from GSA: 1=none, 2=2D, 3=3D
 } GpsPosition;
 
-// Per-row contention diagnostics (GPS/RF mutex investigation — see
-// docs/archive/gps_rf_mutex_status.md). Built by the caller (core/biomap_session.c) from
-// real, measured sources — never inferred — and threaded into
-// biomap_format_gps_row() alongside GpsPosition so a track can answer "was the
-// main loop or the GPS UART actually stalled" directly rather than by
-// inference from GPS accuracy after the fact.
+// Per-row contention diagnostics (from the GPS/RF mutex investigation). Built
+// by the caller (core/biomap_session.c) from real, measured sources — never
+// inferred — and threaded into biomap_format_gps_row() alongside GpsPosition so
+// a track can answer "was the main loop or the GPS UART actually stalled"
+// directly rather than by inference from GPS accuracy after the fact.
 //
 // The *_peak_ms columns go one level deeper: given a stall in tick_dt_ms,
 // which of the worker's candidate blocking calls caused it? Each is a
