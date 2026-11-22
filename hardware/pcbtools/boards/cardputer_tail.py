@@ -28,21 +28,24 @@ and 3.6 mm across: about 6.3 mm of the 9 mm strip, leaving 2-3 mm of slack.
 With the pin ends on B, the plug end stands about 5.5 mm out from the edge
 (less if the pins are trimmed after soldering).
 
-The wires run down F in the header's own order (seen from F, left to
-right): ADC ready, GND, 5 V, SCL, SDA, GND, G13, G15. Only SCL and SDA
-change places (the ADC's pins want them that way round), and they do it in
-the stiffened end: SCL drops through a via to B and passes over SDA to its
-pin. The second ground (pad 6) sits between the I2C and GPS serial wires, so
-the serial wires have a ground right beside them; it drops through a via and
-runs along B, above SCL, to the header's GND pin. Two ground joints also
-mean one bad joint can't cut the board's ground. 5 V and both grounds are
-power width. Every track crosses the stiffener's edge (y 16) straight, and
-nothing turns, and no via sits, within 1 mm of it: that edge is where the
-flex bends hardest, and the factory glues the stiffener on a few tenths of a
-mm either way. No track runs between the header's two rows on B, the face
-where the pins are soldered by hand. The ADC ready line comes from the odd
-row (pin 3, G4), passing between pins 2 and 4 on F, under the stiffener.
-Pin 2 (5 V in) stays unconnected."""
+The wires run down F in this order (seen from F, left to right): ADC
+ready, GND, 5 V, SCL, SDA, GND, G13, G15. The ADS1115 has an I2C bus of its
+own, on pins in the odd row: SCL on pin 5 (G6) and SDA on pin 13 (G5). Both
+come out between the even row's pins on F, under the stiffener: SCL between
+pins 6 and 8, SDA along the gap between the two rows and out between pins 8
+and 10, so they reach the strip in the order the board wants with no via.
+Pins 8 and 10 (G8/G9, the Cardputer's own I2C bus with the keyboard on it)
+stay unconnected. The ADC ready line also comes from the odd row (pin 3,
+G4), passing between pins 2 and 4. The second ground (pad 6) sits between
+the I2C and GPS serial wires, so the serial wires have a ground right beside
+them; it drops through a via and runs along B, above the even row, to the
+header's GND pin. Two ground joints also mean one bad joint can't cut the
+board's ground. 5 V and both grounds are power width. Every track crosses the
+stiffener's edge (y 16) straight, and nothing turns, and no via sits, within
+1 mm of it: that edge is where the flex bends hardest, and the factory glues
+the stiffener on a few tenths of a mm either way. No track runs between the
+header's two rows on B, the face where the pins are soldered by hand. Pin 2
+(5 V in) stays unconnected."""
 from ..rules import SIG, PWR, TEXT
 
 PLACE = {
@@ -54,22 +57,23 @@ TRACKS = [
     ("F", SIG, ["J2.1", (6.75, 17.0), (5.65, 18.1), (5.65, 20.77), "J1.3"]),   # ADC ready, between pins 2 and 4
     ("F", PWR, ["J2.2", (8.25, 17.0), "J1.4"]),                       # GND
     ("F", PWR, ["J2.3", (9.75, 17.0), "J1.6"]),                       # 5 V
-    ("F", SIG, ["J2.5", (12.75, 17.0), "J1.8"]),                      # SDA
     ("F", SIG, ["J2.7", (15.75, 17.0), "J1.12"]),                     # G13, to the GPS
     ("F", SIG, ["J2.8", (17.25, 17.0), "J1.14"]),                     # G15, from the GPS
-    # ── SCL: down F to a via, then on B under the second ground and over SDA ──
-    ("F", SIG, ["J2.4", (11.25, 18.2)]),
-    ("B", SIG, ["net:I2C_SCL", (11.25, 18.2), (13.35, 18.2), "J1.10"]),
-    # ── second ground: pad 6 down F to a via, then along B above SCL to the GND pin ──
+    # ── the ADC's own I2C bus, from the odd row: out between the even row's pins ──
+    ("F", SIG, ["J2.4", (11.25, 17.0), (10.73, 17.52), (10.73, 20.77), "J1.5"]),    # SCL (G6), between pins 6 and 8
+    ("F", SIG, ["J2.5", (12.75, 17.0), (13.27, 17.52), (13.27, 20.77),              # SDA (G5): between pins 8 and 10,
+                (18.35, 20.77), "J1.13"]),                                          # then along the gap between the rows
+    # ── second ground: pad 6 down F to a via, then along B above the even row to the GND pin ──
     ("F", PWR, ["J2.6", (14.25, 17.4)]),
     ("B", PWR, ["net:GND", (14.25, 17.4), (6.92, 17.4), "J1.4"]),
 ]
-VIAS = [("I2C_SCL", 11.25, 18.2), ("GND", 14.25, 17.4)]
+VIAS = [("GND", 14.25, 17.4)]
+BEVEL = 0.8                # square corners cut at 45 degrees (see cardputer.py)
 KEEPOUT = []
 STITCH = []
 GROUND_POUR = False        # solid copper would make the strip stiff and crack where it bends
 LABELS = {"F": [("THIS SIDE DOWN", 12.0, 10.0, TEXT)],
-          "B": [("EXT TAIL rev E", 12.0, 11.5, TEXT)]}
+          "B": [("EXT TAIL rev F", 12.0, 11.5, TEXT)]}
 # notes for the flex factory, on the drawings layer
 MARKINGS = [
     ((2.0, 16.0, 22.0, 24.0), "STIFFENER: FR4 1.0 mm, on F (header side), drilled for the header"),

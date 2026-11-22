@@ -62,9 +62,47 @@ def pad_of(fps, ref_pad):
     ref, num = ref_pad.split(".")
     return next(p for p in fps[ref].Pads() if p.GetNumber() == num)
 
-def add_tracks(board, fps, nets, tracks, vias):
+def bevel(xy, size, joins):
+    """Cut each square corner of a track at 45 degrees.
+
+    xy is the track's points as (x, y, pad): x, y in mm, and pad the pad's
+    exact position for a pad point (passed through untouched), None for a
+    bare point. A corner is cut only at a bare point (never at a pad) where
+    the track turns through exactly 90 degrees between two straight
+    horizontal/vertical runs. The cut is `size`
+    mm along each run, but at most 45% of either run, so two cuts on one run
+    never meet. `joins` are the points where other tracks or vias join this
+    one: a corner that is a join is left square, and a cut stops 0.3 mm short
+    of any join on the runs beside it, so no joint is cut off."""
+    out = [xy[0]]
+    for (ax, ay, _), (px, py, pad), (bx, by, _) in zip(xy, xy[1:], xy[2:]):
+        d1, d2 = (ax - px, ay - py), (bx - px, by - py)
+        l1, l2 = math.hypot(*d1), math.hypot(*d2)
+        square = (l1 > 0 and l2 > 0 and abs(d1[0] * d2[0] + d1[1] * d2[1]) < 1e-6
+                  and min(abs(d1[0]), abs(d1[1])) < 1e-6 and min(abs(d2[0]), abs(d2[1])) < 1e-6)
+        if pad is not None or not square or (round(px, 4), round(py, 4)) in joins:
+            out.append((px, py, pad))
+            continue
+        c = min(size, 0.45 * l1, 0.45 * l2)
+        for jx, jy in joins:                       # joins on the two runs beside the corner
+            for (dx, dy), L in ((d1, l1), (d2, l2)):
+                t = ((jx - px) * dx + (jy - py) * dy) / L
+                if 0 < t <= L and abs((jx - px) * dy - (jy - py) * dx) / L < 1e-4:
+                    c = min(c, t - 0.3)
+        if c < 0.1:
+            out.append((px, py, pad))
+            continue
+        out.append((px + d1[0] / l1 * c, py + d1[1] / l1 * c, None))
+        out.append((px + d2[0] / l2 * c, py + d2[1] / l2 * c, None))
+    out.append(xy[-1])
+    return out
+
+def add_tracks(board, fps, nets, tracks, vias, bevel_size=0.0):
+    """Tracks as (face, width, points[, options]); options {"bevel": mm}
+    overrides the board's corner cut for that track (0 = square corners)."""
     layer = {"F": pcbnew.F_Cu, "B": pcbnew.B_Cu}
-    for side, width, pts in tracks:
+    routes = []
+    for side, width, pts, *opt in tracks:
         net = None
         if isinstance(pts[0], str) and pts[0].startswith("net:"):
             net = nets[pts[0][4:]]
@@ -75,11 +113,27 @@ def add_tracks(board, fps, nets, tracks, vias):
                 pad = pad_of(fps, p)
                 net = net or pad.GetNet()
                 assert pad.GetNet().GetNetname() == net.GetNetname(), (p, pad.GetNetname(), net.GetNetname())
-                xy.append(pad.GetPosition())
+                pos = pad.GetPosition()
+                xy.append((pcbnew.ToMM(pos.x), pcbnew.ToMM(pos.y), pos))
             else:
-                xy.append(V(*p))
+                xy.append((p[0], p[1], None))
         assert net, pts
-        for a, b in zip(xy, xy[1:]):
+        routes.append((side, width, xy, net, (opt[0] if opt else {}).get("bevel", bevel_size)))
+    # points where a track starts or ends on bare copper (a T-joint onto another
+    # track, or a via), per face: corners there must stay where they are
+    joins = {"F": set(), "B": set()}
+    for side, _, xy, _, _ in routes:
+        for x, y, pad in (xy[0], xy[-1]):
+            if pad is None:
+                joins[side].add((round(x, 4), round(y, 4)))
+    for _, x, y in vias:
+        for s in joins.values():
+            s.add((round(x, 4), round(y, 4)))
+    for side, width, xy, net, size in routes:
+        if size > 0:
+            xy = bevel(xy, size, joins[side])
+        pts = [V(x, y) if pad is None else pad for x, y, pad in xy]
+        for a, b in zip(pts, pts[1:]):
             if a == b:
                 continue
             t = pcbnew.PCB_TRACK(board)
@@ -363,7 +417,7 @@ def build(name, net_path, pcb_path):
     pcbnew.KIID.SeedGenerator(sum(map(ord, name)))
     board, fps, nets = new_board(name, net_path)
     add_outline(board, lay.outline)
-    add_tracks(board, fps, nets, lay.TRACKS, lay.VIAS)
+    add_tracks(board, fps, nets, lay.TRACKS, lay.VIAS, getattr(lay, "BEVEL", 0.0))
     add_keepouts(board, lay.KEEPOUT)
     guard = getattr(lay, "GUARD", None)
     n = add_stitching(board, nets, fps, lay.STITCH, guard)

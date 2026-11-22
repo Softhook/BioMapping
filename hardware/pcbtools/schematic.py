@@ -294,11 +294,12 @@ FLIPPER = gsr_core() + gps_block() + [
 # The Cardputer board and the EXT header are joined by the flex tail: a
 # flexible strip whose solder end lies on 8 landing pads near the board's top
 # edge, soldered through its plated holes. Tail pad k sits on board pad k
-# (same number, same net). The order is the header's own, except that SCL and
-# SDA change places in the tail's stiffened end (one via), because the ADC's
-# pins want them that way round. On the board, the I2C wires pass between
-# FB1's pads to reach the GSR side, so nothing runs on the ground face.
-# Pad 6 is a second ground, beside the GPS serial wires.
+# (same number, same net). The ADS1115 has an I2C bus of its own on G6 (SCL,
+# EXT 5) and G5 (SDA, EXT 13), both in the header's far row; the tail brings
+# them out between the near row's pins, under its stiffener, into the order
+# the board wants. On the board, the I2C wires pass between FB1's pads to
+# reach the GSR side, so nothing runs on the ground face. Pad 6 is a second
+# ground, beside the GPS serial wires.
 TAIL_NETS = {"1": "ADC_READY", "2": "GND", "3": "+5V_EXT", "4": "I2C_SCL", "5": "I2C_SDA", "6": "GND",
              "7": "HOST_TX_TO_GPS", "8": "GPS_TX_TO_HOST"}
 
@@ -312,20 +313,24 @@ CARDPUTER = gsr_core(adc_ready="ADC_READY") + gps_block() + [
          {"1": "+5V_F", "3": "+5V_F", "2": "GND", "5": "+3V3", "4": None},
          "5 V to 3.3 V regulator (LDO), 500 mA, 1% accuracy, low noise"),
     part("C5", "C", "10uF", FP_C, {"1": "+3V3", "2": "GND"}, "Regulator output capacitor"),
+    part("R6", "R", "4.7k", FP_R, {"1": "+3V3", "2": "I2C_SDA"},
+         "I2C pull-up to the board's own 3.3 V: the Cardputer has none on G5"),
+    part("R7", "R", "4.7k", FP_R, {"1": "+3V3", "2": "I2C_SCL"},
+         "I2C pull-up to the board's own 3.3 V: the Cardputer has none on G6"),
     part("H1", "MH", "M2", "MountingHole:MountingHole_2.2mm_M2", {}, "M2 x 4 mm screw into Cardputer back"),
     part("H2", "MH", "M2", "MountingHole:MountingHole_2.2mm_M2", {}, "M2 x 4 mm screw into Cardputer back"),
 ]
-# No I2C pull-ups on the Cardputer board: the Cardputer's bus already has them.
-# No pull-up on ADC_READY either (the ADS1115's ALERT/RDY pin is open-drain):
-# the firmware turns on the ESP32's own pull-up on G4.
+# No pull-up on ADC_READY (the ADS1115's ALERT/RDY pin is open-drain): the
+# firmware turns on the ESP32's own pull-up on G4.
 
 CARDPUTER_TAIL = [
     part("J1", "Conn_2x07", "Cardputer ADV EXT header", "BioMap:PinHeader_2x07_P2.54mm_Vertical_Stiffener",
-         {"1": None, "2": None, "3": "ADC_READY", "4": "GND", "5": None, "6": "+5V_EXT", "7": None,
-          "8": "I2C_SDA", "9": None, "10": "I2C_SCL", "11": None, "12": "HOST_TX_TO_GPS",
-          "13": None, "14": "GPS_TX_TO_HOST"},
-         "M5 pin table numbering: 3 G4 (ADC ready), 4 GND, 6 5V OUT, 8 G8 SDA, 10 G9 SCL, 12 G13, 14 G15. "
-         "Pin 2 is 5V IN - never connect. CHECK numbering and mirroring before ordering. Through-hole, "
+         {"1": None, "2": None, "3": "ADC_READY", "4": "GND", "5": "I2C_SCL", "6": "+5V_EXT", "7": None,
+          "8": None, "9": None, "10": None, "11": None, "12": "HOST_TX_TO_GPS",
+          "13": "I2C_SDA", "14": "GPS_TX_TO_HOST"},
+         "M5 pin table numbering: 3 G4 (ADC ready), 4 GND, 5 G6 SCL, 6 5V OUT, 12 G13, 13 G5 SDA, 14 G15. "
+         "Pin 2 is 5V IN - never connect. Pins 8 and 10 (G8/G9, the Cardputer's own I2C bus) stay open. "
+         "CHECK numbering and mirroring before ordering. Through-hole, "
          "through the tail's stiffened end. Any 2.54 mm straight 2x7 male header"),
     part("J2", "Conn_1x08", "Flex tail solder pads", "BioMap:FlexTail_Solder_1x08_P1.50mm", TAIL_NETS,
          "Plated pads with 0.7 mm holes, soldered onto the Cardputer board's landing pads. Pad k = board pad k"),
@@ -755,11 +760,12 @@ def tail_pads(s, ref, x, y):
 
 def draw_cardputer_conn(s, x0, y0):
     s.frame(x0, y0, g(38), H1, "4  Flex tail to the EXT header",
-            "Pad k = tail pad k. No I2C pull-ups here: the Cardputer has them.")
+            "Pad k = tail pad k. R6/R7: the Cardputer has no pull-ups on G5/G6.")
     tail_pads(s, "J1", x0 + g(6), y0 + g(14))
     s.flag((s.pins["J1.2"][0] + G, s.pins["J1.2"][1]))
     s.put("H1", x0 + g(6), y0 + g(33))
     s.put("H2", x0 + g(6), y0 + g(37))
+    draw_pullups(s, x0 + g(26), y0 + g(29))
 
 def draw_regulator(s, x0, y0):
     s.frame(x0, y0, g(42), H1, "6  5 V to 3.3 V regulator",
@@ -790,11 +796,10 @@ def draw_tail(s):
     s.frame(g(8), ROW1, g(40), H1, "1  Cardputer ADV EXT header",
             "Pin 2 (5 V in) stays open. Straight header through the tail's stiffened end.")
     s.put("J1", g(18), ROW1 + g(19))
-    s.nc(*[f"J1.{i}" for i in (1, 5, 7, 9, 11, 13, 2)])
-    s.label("J1.3", "ADC_READY", n=4)
+    s.nc(*[f"J1.{i}" for i in (1, 7, 9, 11, 2, 8, 10)])
     s.power("J1.4", "GND", n=2)
     s.flag((s.pins["J1.4"][0] + G, s.pins["J1.4"][1]))
-    for pn, net in (("6", "+5V_EXT"), ("8", "I2C_SDA"), ("10", "I2C_SCL"),
+    for pn, net in (("3", "ADC_READY"), ("5", "I2C_SCL"), ("13", "I2C_SDA"), ("6", "+5V_EXT"),
                     ("12", "HOST_TX_TO_GPS"), ("14", "GPS_TX_TO_HOST")):
         s.label(f"J1.{pn}", net, n=4)
     s.frame(g(52), ROW1, g(40), H1, "2  Solder pads onto the Cardputer board",
