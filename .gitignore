@@ -21,3 +21,6 @@ compile_commands.json
 # Flipper build artefacts (also covered by build/ and dist/ above)
 *.fap
 *.elf
+
+# MakerWorld back cover, licensed for personal use only: never commit it
+/hardware/case/adv3.stl
