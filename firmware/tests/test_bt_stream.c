@@ -416,8 +416,10 @@ static void test_pack_packet(void) {
     assert(gsr_out == gsr2);
     assert(hdop_out == pos2.hdop);
     assert(pdop_out == pos2.pdop);
-    assert(speed_out == 0.0f); // NaN converted to 0.0
-    assert(course_out == 0.0f); // NaN converted to 0.0
+    // Unknown speed and course go out as NaN, not 0 (a real standstill /
+    // due north).
+    assert(isnan(speed_out));
+    assert(isnan(course_out));
 
     assert(out[42] == 0);
     assert(out[43] == 1);

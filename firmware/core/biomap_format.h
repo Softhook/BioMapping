@@ -79,6 +79,12 @@ int32_t cycle_selection(int32_t sel, int32_t count, bool down);
 // on both devices. "?" for a value that isn't a GpsNavModel.
 const char* biomap_nav_model_label(GpsNavModel model);
 
+// A mode's name as the main menu shows it ("GPS + GSR + RF", "GPS + RF",
+// ...), for the "# Mode:" header line, so a file says which sensors it
+// recorded. The visualiser reads it (GPS + RF means no GSR). "?" for a
+// value that isn't a BioMapMode.
+const char* biomap_mode_name(BioMapMode mode);
+
 // Three-point relative least-squares fit through the origin,  y = gain * x
 // (x = measured nS with the open-circuit zero already removed, y = target nS),
 // minimizing percentage error equally across all three points, plus an R²
@@ -267,7 +273,10 @@ int biomap_format_mac(char* out, size_t cap, const uint8_t mac[6]);
 //   2  timestamp_ms     22 gsr_raw (nS)    26 hdop   30 pdop
 //   34 speed_kts        38 course_deg      42 sats (u8)  43 fix_type (u8)
 //   44 position valid (u8)                 45 hacc_m (float)
-// lat/lon are 0 without a fix; an unknown speed or course is sent as 0.
+// lat/lon are 0 without a fix. An unknown speed or course is sent as NaN
+// (the receiver gives no course when nearly still), so it can't be read as
+// a real 0 kn or due north; the Live tab saves it as an empty cell, as the
+// SD log does.
 #define BT_STREAM_PACKET_SIZE 49
 
 void bt_stream_pack_packet(uint8_t out[BT_STREAM_PACKET_SIZE],

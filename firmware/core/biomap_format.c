@@ -104,6 +104,18 @@ const char* biomap_nav_model_label(GpsNavModel model) {
     return ((unsigned)model < GpsNavModelCount) ? LABEL[model] : "?";
 }
 
+const char* biomap_mode_name(BioMapMode mode) {
+    switch(mode) {
+    case BioMapModeGpsGsrRf:    return "GPS + GSR + RF";
+    case BioMapModeGpsGsr:      return "GPS + GSR";
+    case BioMapModeGpsOnly:     return "GPS + RF";
+    case BioMapModeGsrOnly:     return "GSR Only";
+    case BioMapModeDiagnostics: return "Diagnostics";
+    case BioMapModeLiveStream:  return "Live Stream";
+    }
+    return "?";
+}
+
 void cal_dwell_init(CalDwell* d) {
     d->in_gate = 0;
     d->below = 0;
@@ -406,14 +418,10 @@ void bt_stream_pack_packet(uint8_t out[BT_STREAM_PACKET_SIZE],
     memcpy(out + 22, &gsr_raw, sizeof(gsr_raw));
     memcpy(out + 26, &pos->hdop, sizeof(pos->hdop));
     memcpy(out + 30, &pos->pdop, sizeof(pos->pdop));
-    // speed_kts/course_deg are NaN when GPS has no velocity fix (see
-    // get_gps_position) — the wire format has no separate "no velocity"
-    // flag, so send 0 rather than propagating a NaN the frontend would
-    // have to special-case.
-    float speed = isnan(pos->speed_kts) ? 0.0f : pos->speed_kts;
-    float course = isnan(pos->course_deg) ? 0.0f : pos->course_deg;
-    memcpy(out + 34, &speed, sizeof(speed));
-    memcpy(out + 38, &course, sizeof(course));
+    // speed_kts/course_deg are NaN when unknown (see get_gps_position()),
+    // and sent as NaN: a 0 would read as a real standstill or due north.
+    memcpy(out + 34, &pos->speed_kts, sizeof(pos->speed_kts));
+    memcpy(out + 38, &pos->course_deg, sizeof(pos->course_deg));
     out[42] = (uint8_t)pos->sats;
     out[43] = (uint8_t)pos->fix_type;
     out[44] = pos->valid ? 1 : 0;

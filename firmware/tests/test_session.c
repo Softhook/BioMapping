@@ -481,6 +481,7 @@ static void test_start_header_and_settle(void) {
         // The host tests' build sets no BIOMAP_GIT_REV.
         "# Firmware:Tester 9.8.7 (unknown)\n"
         "# HardwareAddress:DC:54:75:0C:2A:03\n"
+        "# Mode:GPS + GSR + RF\n"
         "# Band Floors (dBm): 815:-101.5,868:-99.2,915:-97.0\n"
         "# GSR Calibration: gain:1.0123,zero_counts:-321.4,r2:0.9991,noise_ns:0.40,1.10,2.39,cal_time:1790000000\n"
         BIOMAP_CSV_COLS_GPS_GSR_RF_PROD;
@@ -513,7 +514,16 @@ static void test_start_header_and_settle(void) {
     assert(strstr(F.header, "GSR Calibration") == NULL);
     assert(strstr(F.header, "Firmware") == NULL);
     assert(strstr(F.header, "HardwareAddress") == NULL);
+    assert(strstr(F.header, "# Mode:GPS + GSR\n") != NULL);
     assert(strstr(F.header, BIOMAP_CSV_COLS_GPS_GSR_DEBUG) != NULL);
+
+    // GPS + RF keeps the GSR column (written 0.0), so the Mode line is what
+    // tells the visualiser there is no GSR. No GSR: no bias line either.
+    start(BioMapModeGpsOnly, settings());
+    session_core_key(&S, SessionKeyOk);
+    assert(strstr(F.header, "# Mode:GPS + RF\n") != NULL);
+    assert(strstr(F.header, "GSR Bias") == NULL);
+    assert(strstr(F.header, BIOMAP_CSV_COLS_GPS_GSR_RF_PROD) != NULL);
 }
 
 static void test_start_failures(void) {
@@ -526,7 +536,7 @@ static void test_start_failures(void) {
     assert(F.delay_count == 0);
 
     // A header too long for its buffer: Error, and no file opened.
-    static char long_name[800];
+    static char long_name[1100];
     memset(long_name, 'x', sizeof(long_name) - 1);
     SessionSettings cfg = settings();
     cfg.device_name = long_name;

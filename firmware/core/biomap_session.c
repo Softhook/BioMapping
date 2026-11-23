@@ -265,6 +265,12 @@ static int build_header(SessionCore* s, char* header, size_t cap, uint32_t epoch
         n += snprintf(header + n, cap - (size_t)n, "# HardwareAddress:%s\n",
                       cfg->hardware_address);
     }
+    // Mode: which sensors the file holds, as the menu names the mode. Needed
+    // because GPS + RF writes 0.0 in the GSR column rather than a different
+    // column list.
+    if(n > 0 && (size_t)n < cap) {
+        n += snprintf(header + n, cap - (size_t)n, "# Mode:%s\n", biomap_mode_name(s->mode));
+    }
     // Band Floors: only once the radio is on in this mode and a real
     // radio calibration exists. Bands in RF_BAND_COUNT order.
     if(has_rf(s->mode) && cfg->rf_calibrated && n > 0 && (size_t)n < cap) {
@@ -324,10 +330,13 @@ static void start_recording(SessionCore* s) {
                                  dt.hour, dt.minute, dt.second);
     }
 
-    // 768 bytes fits the metadata lines and the widest column line
-    // (GPS+GSR+RF with debug fields) with room to spare, so adding a
-    // column doesn't block recording with "Header too long".
-    char header[768];
+    // 1024 bytes fits every metadata line at its longest plus the widest
+    // column line (GPS+GSR+RF with debug fields), about 770 bytes, with room
+    // to spare, so adding a line or column doesn't block recording with
+    // "Header too long" (test_longest_header_fits). static, not on the
+    // stack, like the row buffer above: only ever used here, on the thread
+    // that handles keys, one recording start at a time.
+    static char header[1024];
     if(build_header(s, header, sizeof(header), epoch) < 0) {
         session_log(s, SessionLogError, "Header too long");
         session_core_cue(s, BioMapCueError);

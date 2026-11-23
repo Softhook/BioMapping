@@ -126,6 +126,20 @@ static void test_nav_model_labels(void) {
     printf("  -> Pass\n");
 }
 
+// Each mode's "# Mode:" header name is the main menu's wording, and a value
+// that isn't a mode gets "?".
+static void test_mode_names(void) {
+    printf("Running test_mode_names...\n");
+    assert(strcmp(biomap_mode_name(BioMapModeGpsGsrRf), "GPS + GSR + RF") == 0);
+    assert(strcmp(biomap_mode_name(BioMapModeGpsGsr), "GPS + GSR") == 0);
+    assert(strcmp(biomap_mode_name(BioMapModeGpsOnly), "GPS + RF") == 0);
+    assert(strcmp(biomap_mode_name(BioMapModeGsrOnly), "GSR Only") == 0);
+    assert(strcmp(biomap_mode_name(BioMapModeDiagnostics), "Diagnostics") == 0);
+    assert(strcmp(biomap_mode_name(BioMapModeLiveStream), "Live Stream") == 0);
+    assert(strcmp(biomap_mode_name((BioMapMode)99), "?") == 0);
+    printf("  -> Pass\n");
+}
+
 void test_cycle_selection_wraparound() {
     printf("Running test_cycle_selection_wraparound...\n");
 
@@ -1280,6 +1294,7 @@ int main() {
     test_update_display_pipeline();
     test_cycle_selection_wraparound();
     test_nav_model_labels();
+    test_mode_names();
     test_conductance_conversion();
     test_unix_epoch_conversion();
     test_rel_seconds_conversion();
