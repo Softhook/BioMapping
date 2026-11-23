@@ -66,7 +66,7 @@ cardputer/src/wake_watch.c|
 cardputer/src/tick_schedule.c|-Icore
 cardputer/src/clock_local.c|-Icore -Ivendor/minmea
 cardputer/src/wifi_files_rules.c|
-cardputer/src/zip_stream.c|
+cardputer/src/zip_stream.c|-Icore
 cardputer/src/splash_anim.c|
 
 tests/test_bt_stream.c|-Iflipper -Itests/shims

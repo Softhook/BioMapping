@@ -200,6 +200,12 @@ typedef enum {
     CalRecordOutOfBounds,
 } CalRecordStatus;
 
+// CRC-32 as used by zip and zlib (reflected, polynomial 0xEDB88320), fed
+// in pieces: seed `crc` with 0xFFFFFFFFu, and the finished checksum is ~crc.
+// Used for the recording's "# End" trailer, the Cardputer's zip download
+// and the Flipper's RF calibration file.
+uint32_t biomap_crc32_update(uint32_t crc, const void* data, size_t len);
+
 // FNV-1a over every field before `checksum`.
 uint32_t biomap_calibration_checksum(const BioMapCalibration* cal);
 

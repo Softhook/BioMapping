@@ -1072,6 +1072,31 @@ void test_cal_make_fields_and_status_text() {
     printf("  -> Pass\n");
 }
 
+// biomap_crc32_update is the zip/zlib CRC-32: recordings' "# End" trailer,
+// the Cardputer's zip download and the Flipper's RF calibration file all use
+// it, and files already on SD cards were written with it. Fed whole or in
+// pieces, it must give the standard answers.
+void test_crc32_standard_answers() {
+    printf("Running test_crc32_standard_answers...\n");
+    assert(~biomap_crc32_update(0xFFFFFFFFu, "123456789", 9) == 0xCBF43926u);
+    assert(~biomap_crc32_update(0xFFFFFFFFu, "", 0) == 0x00000000u);
+    const char* fox = "The quick brown fox jumps over the lazy dog";
+    assert(~biomap_crc32_update(0xFFFFFFFFu, fox, strlen(fox)) == 0x414FA339u);
+    uint32_t crc = 0xFFFFFFFFu;
+    crc = biomap_crc32_update(crc, fox, 10);
+    crc = biomap_crc32_update(crc, fox + 10, strlen(fox) - 10);
+    assert(~crc == 0x414FA339u);
+    // One byte from the standard seed reads table entry (~b & 0xFF), so the
+    // 256 bytes check every entry against the plain bit-by-bit form.
+    for(int b = 0; b < 256; b++) {
+        uint8_t byte = (uint8_t)b;
+        uint32_t want = 0xFFFFFFFFu ^ byte;
+        for(int k = 0; k < 8; k++) want = (want >> 1) ^ ((want & 1u) ? 0xEDB88320u : 0u);
+        assert(~biomap_crc32_update(0xFFFFFFFFu, &byte, 1) == ~want);
+    }
+    printf("  -> Pass\n");
+}
+
 // Bounds are inclusive at the CAL_* limits; just past them is rejected.
 // The noise limit is exclusive: CAL_NOISE_ACCEPTABLE_NS itself grades Poor.
 void test_cal_check_bounds_edges() {
@@ -1277,6 +1302,7 @@ int main() {
     test_cal_check_each_gate();
     test_cal_make_fields_and_status_text();
     test_cal_check_bounds_edges();
+    test_crc32_standard_answers();
     test_settings_record_valid();
 
     printf("\n========================================\n");

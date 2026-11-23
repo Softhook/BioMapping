@@ -1,6 +1,7 @@
 // em_scan_cal.c — EM Scanner Hardware Faraday Calibration Data & Persistence.
 
 #include "em_scan_cal.h"
+#include "core/biomap_format.h"
 #include <math.h>
 #include <string.h>
 
@@ -15,16 +16,7 @@ const float em_scan_cal_max_floor_dbm[EM_SCAN_NUM_FREQS] = {
 
 uint32_t em_scan_cal_compute_crc(const EmScanCal* cal) {
     if(!cal) return 0;
-    const uint8_t* p = (const uint8_t*)cal;
-    size_t n = offsetof(EmScanCal, crc32);
-    uint32_t crc = 0xFFFFFFFFu;
-    for(size_t i = 0; i < n; i++) {
-        crc ^= p[i];
-        for(int j = 0; j < 8; j++) {
-            crc = (crc >> 1) ^ (0xEDB88320u & (-(int32_t)(crc & 1)));
-        }
-    }
-    return ~crc;
+    return ~biomap_crc32_update(0xFFFFFFFFu, cal, offsetof(EmScanCal, crc32));
 }
 
 bool em_scan_cal_validate(const EmScanCal* cal) {

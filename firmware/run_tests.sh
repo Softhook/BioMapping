@@ -150,19 +150,19 @@ echo
 echo "== test_sd_logger (auto-index / header / batch write) =="
 gcc -Wall -Wextra -Werror -I . -I flipper -I tests/shims -o build/test_sd_logger \
     tests/test_sd_logger.c core/sd_logger.c flipper/sd_logger_flipper.c flipper/core_fatal.c \
-    tests/shims/storage_mock.c -lm
+    core/biomap_format.c tests/shims/storage_mock.c -lm
 ./build/test_sd_logger
 
 echo
 echo "== test_sd_blocks (shared SD logger, whole-block writes as on the Cardputer) =="
 gcc -Wall -Wextra -Werror -I . -I tests/shims -o build/test_sd_blocks \
-    tests/test_sd_blocks.c core/sd_logger.c flipper/core_fatal.c -lm
+    tests/test_sd_blocks.c core/sd_logger.c core/biomap_format.c flipper/core_fatal.c -lm
 ./build/test_sd_blocks
 
 echo
 echo "== test_em_scan_cal (EM Scanner RF noise calibration & persistence) =="
 gcc -Wall -Wextra -Werror -I . -I flipper -I tests/shims -o build/test_em_scan_cal \
-    tests/test_em_scan_cal.c flipper/em_scan_cal.c \
+    tests/test_em_scan_cal.c flipper/em_scan_cal.c core/biomap_format.c \
     tests/shims/storage_mock.c -lm
 ./build/test_em_scan_cal
 
@@ -187,7 +187,7 @@ gcc -Wall -Wextra -Werror -I . -I core -I vendor/minmea -o build/test_cardputer_
     tests/test_cardputer_rules.c cardputer/src/clock_rule.c cardputer/src/wake_watch.c \
     cardputer/src/tick_schedule.c cardputer/src/clock_local.c \
     cardputer/src/wifi_files_rules.c cardputer/src/zip_stream.c cardputer/src/splash_anim.c \
-    core/biomap_pipeline.c -lm
+    core/biomap_pipeline.c core/biomap_format.c -lm
 ./build/test_cardputer_rules
 python3 -c '
 import zipfile
