@@ -60,7 +60,7 @@ At power-up it puts the GPS to sleep (up to about 2 s), loads saved settings and
 
 Inside a session:
 
-- **Enter** starts a recording, and stops it. Files go in `biomapping/` on the card, with the same columns and check lines as the Flipper's.
+- **Enter** starts a recording, and stops it. Files go in `biomapping/` on the card, with the same columns and check lines as the Flipper's. Record on battery: unplug the USB cable before the electrodes go on someone (see [Electrode Safety](../../README.md#electrode-safety)).
 - **Up / Down** (`;` / `.`) zoom the GSR graph vertically; **Left / Right** (`,` / `/`) change the time span.
 - **Esc** (or Del) stops any active recording and returns to the main menu (putting the GPS back to sleep).
 - Any other key is counted (`keys` in the USB log), for the typing test.

@@ -51,6 +51,7 @@ Pin 4 = GND       Pin 5 = In+ B
   * Electrode 1 (GND): GND -> **4.7kΩ** -> wire -> foil/finger 1.
   * Electrode 2 (signal): foil/finger 2 -> wire -> **4.7kΩ** -> In- A (pin 2).
   * *These resistors (9.4 kΩ total) keep skin current safe while holding the TIA output within ADC range across the span of human skin resistance.*
+  * *They guard against the device's own circuit, not against a mains charger: never wear the electrodes while the device is plugged in to charge or to a computer (see [Electrode Safety](../README.md#electrode-safety)).*
 
 * **Differential connection to ADS1115:**
   * **AIN0** -> Out A (pin 1) — the amplified GSR signal.

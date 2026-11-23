@@ -23,7 +23,7 @@ Bio Mapping 2 is a high-fidelity successor that takes you much deeper into the b
 
 1. **Build the hardware or talk to me** — gather the [components](#components) and follow the [wiring guide](docs/wiring_guide.md).
 2. **Flash the app** — download `biomap.fap` from the [Releases](https://github.com/Softhook/BioMapping/releases) page and copy it to your Flipper's SD card, or build from `firmware/` with [`ufbt`](https://pypi.org/project/ufbt/).
-3. **Record a walk** — launch the Bio Mapping app on the Flipper, clip on the electrodes, and walk. Logs save to `/ext/biomapping/*.csv` on the SD card.
+3. **Record a walk** — unplug the device from any charger or computer ([why](#electrode-safety)), launch the Bio Mapping app on the Flipper, clip on the electrodes, and walk. Logs save to `/ext/biomapping/*.csv` on the SD card.
 4. **Analyse & map** — drop your CSV into the [online visualiser](https://softhook.github.io/BioMapping/visualiser/) — no install needed.
 
 
@@ -93,6 +93,10 @@ Accuracy zones by the fraction of real-world track data that falls inside them:
 
 **Biometric interface**
 * GSR finger electrodes — biometric finger clips, or velcro strips with foil / copper tape.
+
+## Electrode Safety
+
+Only put the electrodes on someone while the device runs on its own battery. Unplug it from chargers, laptops and anything else connected to the mains first. The two 4.7 kΩ resistors limit the current the device itself can send through the skin, but they can't protect against a faulty or leaky charger, whose current could then reach the skin through the electrodes. Being plugged in also adds mains hum to the readings.
 
 ## GSR TransImpedance Circuit
 
