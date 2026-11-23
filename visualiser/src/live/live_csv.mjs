@@ -35,28 +35,7 @@
  * @returns {string} CSV text, newline-terminated
  */
 
-// CRC32 (reflected, polynomial 0xEDB88320 — the zlib/PNG variant). Produces
-// bytes identical to firmware/core/sd_logger.c's crc32_feed() and the
-// visualiser's own GSRCSVParser._crc32 (src/signal/csv_parser.mjs). Inlined
-// here rather than reused from csv_parser.mjs so the standalone live.html
-// doesn't have to pull that whole module in (it drags GSR_CONST + GSRAnalyzer)
-// just for this one helper.
-let _crc32Table = null;
-function _liveCrc32(bytes) {
-  if (!_crc32Table) {
-    _crc32Table = new Uint32Array(256);
-    for (let n = 0; n < 256; n++) {
-      let c = n;
-      for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
-      _crc32Table[n] = c >>> 0;
-    }
-  }
-  let crc = 0xffffffff;
-  for (let i = 0; i < bytes.length; i++) {
-    crc = (crc >>> 8) ^ _crc32Table[(crc ^ bytes[i]) & 0xff];
-  }
-  return (crc ^ 0xffffffff) >>> 0;
-}
+import { GSRCSVParser } from '../signal/csv_parser.mjs';
 
 // firmware/core/sd_logger.c SD_LOGGER_INTEGRITY_LINE — the file's first
 // line, folded into the CRC the trailer carries.
@@ -103,7 +82,7 @@ export function buildLiveCsv(packets, nowMs) {
   }
 
   const bodyBytes = new TextEncoder().encode(body);
-  const crcHex = _liveCrc32(bodyBytes).toString(16).padStart(8, '0');
+  const crcHex = GSRCSVParser.crc32(bodyBytes).toString(16).padStart(8, '0');
 
   // firmware/core/sd_logger.c sd_logger_write_trailer():
   // "# End rows:%lu bytes:%lu crc32:%08lx %soverflows:%lu flush_fails:%lu\n".

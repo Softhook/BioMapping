@@ -22,7 +22,6 @@ Outputs:
   - synth_semi_real_demo.json  (Exact ground-truth timestamps, amplitudes, and event metadata)
 """
 
-import sys
 import os
 import json
 import argparse
@@ -99,12 +98,10 @@ def generate_biexponential_scr(amplitude, rise_time=1.4, tau_fast=4.0, tau_slow=
         
     return scr, peak_idx, t_pulse
 
-def build_semi_synthetic_track(donor_path=DEFAULT_DONOR_CSV, seed=42):
+def build_semi_synthetic_track(donor_path=DEFAULT_DONOR_CSV):
     """
     Builds the complete semi-synthetic track on top of the real demo recording.
     """
-    rng = np.random.RandomState(seed)
-
     # Read the donor CSV, preserving header comments
     with open(donor_path, 'r', encoding='utf-8') as f:
         lines = f.readlines()
@@ -346,7 +343,6 @@ def main():
     parser = argparse.ArgumentParser(description="Generate Semi-Synthetic Ground Truth from Demo Track")
     parser.add_argument("output_dir", help="Directory where output .csv and .json will be written")
     parser.add_argument("--donor", default=DEFAULT_DONOR_CSV, help="Path to donor CSV file")
-    parser.add_argument("--seed", type=int, default=42, help="Random seed")
     args = parser.parse_args()
 
     os.makedirs(args.output_dir, exist_ok=True)
@@ -355,7 +351,7 @@ def main():
     out_json = os.path.join(args.output_dir, f"{stem}.ground_truth.json")
 
     print(f"Loading donor track: {args.donor}...")
-    df, metadata, comment_lines = build_semi_synthetic_track(donor_path=args.donor, seed=args.seed)
+    df, metadata, comment_lines = build_semi_synthetic_track(donor_path=args.donor)
     
     print(f"Injecting {len(metadata['scrs'])} physiological events across {metadata['params']['duration']}s...")
     

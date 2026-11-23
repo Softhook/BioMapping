@@ -11,20 +11,6 @@ import { GSRNotices } from '../core/notices.mjs';
 import { GeoUtils } from '../gps/geo_utils.mjs';
 import { GpsPipeline } from '../gps/gps_pipeline.mjs';
 
-const MONTHS = [
-  'Jan',
-  'Feb',
-  'Mar',
-  'Apr',
-  'May',
-  'Jun',
-  'Jul',
-  'Aug',
-  'Sep',
-  'Oct',
-  'Nov',
-  'Dec',
-];
 const RF_BANDS = [815, 868, 915, 434, 446];
 
 // Both keyed weakly so entries vanish with the track / raw array.
@@ -63,30 +49,6 @@ export const GSRTrackQualityPopup = {
       return `${(meters / 1000).toFixed(1)} km`;
     }
     return `${Math.round(meters)} m`;
-  },
-
-  /**
-   * Format day-of-month ordinal suffix (1st, 2nd, 3rd, 4th, etc.).
-   */
-  ordinalSuffix(day) {
-    if (day % 100 >= 11 && day % 100 <= 13) return 'th';
-    const rem = day % 10;
-    if (rem === 1) return 'st';
-    if (rem === 2) return 'nd';
-    if (rem === 3) return 'rd';
-    return 'th';
-  },
-
-  /**
-   * Format date into human-readable UK style with shortened month, e.g. "3rd Mar 2026".
-   */
-  formatDateUK(recordingStartTime, relativeSeconds = 0) {
-    if (!recordingStartTime || recordingStartTime < 86400) return '';
-    const d = new Date((recordingStartTime + relativeSeconds) * 1000);
-    const day = d.getUTCDate();
-    const month = MONTHS[d.getUTCMonth()];
-    const year = d.getUTCFullYear();
-    return `${day}${this.ordinalSuffix(day)} ${month} ${year}`;
   },
 
   /**
@@ -256,7 +218,7 @@ export const GSRTrackQualityPopup = {
 
     let dateTimeStr = '';
     if (a.recordingStartTime && a.recordingStartTime >= 86400) {
-      const dateStr = this.formatDateUK(a.recordingStartTime);
+      const dateStr = a.formatDateUK(0);
       const timeStr = a.formatTimeOnly(0);
       dateTimeStr = timeStr ? `${dateStr}, ${timeStr}` : dateStr;
     } else if (n > 0) {

@@ -69,9 +69,7 @@ export const PresetEvents = {
           });
 
           // Single-view only (hidden in Collective view, like the presets).
-          if (typeof Controllers.ui?.runAnalysis === 'function') {
-            Controllers.ui.runAnalysis();
-          }
+          Controllers.ui?.runAnalysis?.();
 
           GSRTrackManager.renderTrackList();
         });

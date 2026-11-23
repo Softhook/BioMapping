@@ -63,12 +63,7 @@ export const PeaksTableUI = {
 
     // Update in-memory model (avoid trim during typing to allow trailing spaces)
     const pk = peaksArr[idx];
-    if (typeof analyzer?.relabelPeak === 'function') {
-      analyzer.relabelPeak(pk, value);
-    } else {
-      pk.label = value;
-      analyzer?.setPeakLabel?.(pk.time, value);
-    }
+    analyzer.relabelPeak(pk, value);
     this._markUnsavedLabels(track);
 
     // 1. Sync table input if it exists and is not the active typing element
@@ -384,11 +379,15 @@ export const PeaksTableUI = {
     // Update header sort indicators
     this.updatePeaksTableSortHeaders();
 
-    // Auto-size all rendered textareas
+    // Fit each label box to its text. All writes, then all reads, then all
+    // writes: reading scrollHeight straight after a write makes the browser
+    // lay out the whole table again, once per row.
     setTimeout(() => {
-      tb.querySelectorAll('.peak-label-input').forEach((ta) => {
-        ta.style.height = 'auto';
-        ta.style.height = `${ta.scrollHeight}px`;
+      const boxes = [...tb.querySelectorAll('.peak-label-input')];
+      for (const ta of boxes) ta.style.height = 'auto';
+      const heights = boxes.map((ta) => ta.scrollHeight);
+      boxes.forEach((ta, i) => {
+        ta.style.height = `${heights[i]}px`;
       });
     }, 0);
   },

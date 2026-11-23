@@ -10,6 +10,9 @@ const assert = require('node:assert');
 const test = require('node:test');
 
 const { GSRTrackQualityPopup } = require('../src/ui/track_quality_popup.mjs');
+const {
+  AnalyzerTimeFormat,
+} = require('../src/signal/analyzer_time_format.mjs');
 
 test('GSRTrackQualityPopup.formatDuration: formats durations into clean human-readable strings', () => {
   assert.strictEqual(GSRTrackQualityPopup.formatDuration(0), '0s');
@@ -34,93 +37,22 @@ test('GSRTrackQualityPopup.formatDistance: formats meters and kilometers cleanly
   assert.strictEqual(GSRTrackQualityPopup.formatDistance(2450), '2.5 km');
 });
 
-test('GSRTrackQualityPopup.formatDateUK: formats UK style date with shortened month and correct day ordinals', () => {
-  // 3rd Mar 2026: 2026-03-03T12:00:00Z
-  const t20260303 = Math.floor(
-    new Date('2026-03-03T12:00:00Z').getTime() / 1000,
-  );
-  assert.strictEqual(
-    GSRTrackQualityPopup.formatDateUK(t20260303),
-    '3rd Mar 2026',
-  );
-
-  // 1st Jan 2026
-  const t20260101 = Math.floor(
-    new Date('2026-01-01T12:00:00Z').getTime() / 1000,
-  );
-  assert.strictEqual(
-    GSRTrackQualityPopup.formatDateUK(t20260101),
-    '1st Jan 2026',
-  );
-
-  // 2nd Feb 2026
-  const t20260202 = Math.floor(
-    new Date('2026-02-02T12:00:00Z').getTime() / 1000,
-  );
-  assert.strictEqual(
-    GSRTrackQualityPopup.formatDateUK(t20260202),
-    '2nd Feb 2026',
-  );
-
-  // 11th, 12th, 13th (teens)
-  const t20260311 = Math.floor(
-    new Date('2026-03-11T12:00:00Z').getTime() / 1000,
-  );
-  assert.strictEqual(
-    GSRTrackQualityPopup.formatDateUK(t20260311),
-    '11th Mar 2026',
-  );
-  const t20260312 = Math.floor(
-    new Date('2026-03-12T12:00:00Z').getTime() / 1000,
-  );
-  assert.strictEqual(
-    GSRTrackQualityPopup.formatDateUK(t20260312),
-    '12th Mar 2026',
-  );
-  const t20260313 = Math.floor(
-    new Date('2026-03-13T12:00:00Z').getTime() / 1000,
-  );
-  assert.strictEqual(
-    GSRTrackQualityPopup.formatDateUK(t20260313),
-    '13th Mar 2026',
-  );
-
-  // 21st, 22nd, 23rd
-  const t20260321 = Math.floor(
-    new Date('2026-03-21T12:00:00Z').getTime() / 1000,
-  );
-  assert.strictEqual(
-    GSRTrackQualityPopup.formatDateUK(t20260321),
-    '21st Mar 2026',
-  );
-  const t20260322 = Math.floor(
-    new Date('2026-03-22T12:00:00Z').getTime() / 1000,
-  );
-  assert.strictEqual(
-    GSRTrackQualityPopup.formatDateUK(t20260322),
-    '22nd Mar 2026',
-  );
-  const t20260323 = Math.floor(
-    new Date('2026-03-23T12:00:00Z').getTime() / 1000,
-  );
-  assert.strictEqual(
-    GSRTrackQualityPopup.formatDateUK(t20260323),
-    '23rd Mar 2026',
-  );
-
-  // 31st Dec 2026
-  const t20261231 = Math.floor(
-    new Date('2026-12-31T12:00:00Z').getTime() / 1000,
-  );
-  assert.strictEqual(
-    GSRTrackQualityPopup.formatDateUK(t20261231),
-    '31st Dec 2026',
-  );
-
-  // Invalid / relative timestamps return empty string
-  assert.strictEqual(GSRTrackQualityPopup.formatDateUK(0), '');
-  assert.strictEqual(GSRTrackQualityPopup.formatDateUK(86399), '');
-  assert.strictEqual(GSRTrackQualityPopup.formatDateUK(null), '');
+test('AnalyzerTimeFormat.dateUK: UK style date with shortened month and correct day ordinals', () => {
+  for (const [iso, want] of [
+    ['2026-03-03T12:00:00Z', '3rd Mar 2026'],
+    ['2026-01-01T12:00:00Z', '1st Jan 2026'],
+    ['2026-02-02T12:00:00Z', '2nd Feb 2026'],
+    ['2026-03-11T12:00:00Z', '11th Mar 2026'],
+    ['2026-03-12T12:00:00Z', '12th Mar 2026'],
+    ['2026-03-13T12:00:00Z', '13th Mar 2026'],
+    ['2026-03-21T12:00:00Z', '21st Mar 2026'],
+    ['2026-03-22T12:00:00Z', '22nd Mar 2026'],
+    ['2026-03-23T12:00:00Z', '23rd Mar 2026'],
+    ['2026-12-31T12:00:00Z', '31st Dec 2026'],
+  ]) {
+    const t = Math.floor(new Date(iso).getTime() / 1000);
+    assert.strictEqual(AnalyzerTimeFormat.dateUK(t, 0), want);
+  }
 });
 
 test('GSRTrackQualityPopup.computeSummary: handles missing or invalid track analyzer safely', () => {
@@ -151,6 +83,7 @@ test('GSRTrackQualityPopup.computeSummary: computes full metrics for a GPS+GSR t
       hasRfData: false,
       recordingStartTime: startTime,
       formatDateShort: () => '03.03.2026',
+      formatDateUK: (rel) => AnalyzerTimeFormat.dateUK(startTime, rel),
       formatTimeOnly: () => '08:00',
       _userPeakLabels: new Map([
         [1, 'Surprise'],
@@ -280,6 +213,8 @@ test('GSRTrackQualityPopup.computeSummary: detects flatline and disconnected GSR
   assert.strictEqual(s.integrity.status, 'incomplete');
   assert.strictEqual(s.gsr.isFlatline, true);
   assert.strictEqual(s.gsr.isDisconnected, true);
+  // No real start clock: the duration stands in for the date.
+  assert.strictEqual(s.dateTimeStr, '2s recording');
   assert.strictEqual(s.gsr.peaksCount, 0);
   assert.strictEqual(s.warnings.length, 1);
 });
@@ -295,6 +230,7 @@ test('GSRTrackQualityPopup.computeSummary: detects RF telemetry and bands', () =
       hasRfData: true,
       recordingStartTime: 1710000000,
       formatDateShort: () => '10 Mar',
+      formatDateUK: () => '9th Mar 2024',
       formatTimeOnly: () => '12:00',
       bandFloors: { 868: -95, 915: -98 },
       rfPeakIndices: new Set([10, 25, 42]),

@@ -570,3 +570,25 @@ test('the Response delay is one value for the whole project, the same in both vi
   window.GSRTrackManager.switchActiveTrack(anna.id);
   assert.strictEqual(slider.value, '3.5', 'switching walks keeps it');
 });
+
+test('track list: a walk shows its recording date only when it has a real start clock', async () => {
+  const { window, document } = await bootWithAnnaAndBen();
+  const TM = window.GSRTrackManager;
+  const metaOf = (track) =>
+    [...document.querySelectorAll('#trackList .track-item')]
+      .find((li) => li.dataset.trackId === track.id)
+      .querySelector('.track-meta').innerText;
+  const [walk] = window.AppState.collectiveManager.tracks;
+
+  walk.analyzer.recordingStartTime = 0; // relative timestamps only
+  TM.renderTrackList();
+  assert.strictEqual(metaOf(walk), '');
+
+  // 3 Mar 2026, 08:00:00 UTC
+  walk.analyzer.recordingStartTime = Date.UTC(2026, 2, 3, 8) / 1000;
+  TM.renderTrackList();
+  assert.strictEqual(
+    metaOf(walk),
+    `3rd Mar 2026, ${walk.analyzer.formatTimeOnly(0)}`,
+  );
+});

@@ -50,19 +50,7 @@ export const GSRCollectiveProject = {
   // saved under manifest.settings.sliders. Each walk keeps its own separate
   // Places settings in its gpsFilterParams (its own CSV).
   COLLECTIVE_SLIDER_KEYS: GSRStorage.PLACE_KEYS,
-  CONTOUR_KEYS: [
-    'gridResolution',
-    'contourCount',
-    'isolationRadius',
-    'idwExponent',
-    'peakPreservation',
-    'coverageWeighting',
-    'topoSource',
-    'showShadedSurface',
-    'normalizeZScore',
-    'surfaceOpacity',
-    'hillshadeStrength',
-  ],
+  CONTOUR_KEYS: GSRStorage.CONTOUR_KEYS,
 
   /** Same sanitization as GSRUI._exportFilenameBase(), applied per-track instead of to the active track only. */
   _sanitizeName(name) {
@@ -363,12 +351,7 @@ export const GSRCollectiveProject = {
         // the real restored value. Same fix storage.mjs's applyPreset()
         // already applies via syncSliderValueDisplays() after doing the
         // exact same direct .value assignment.
-        if (
-          Controllers.events &&
-          typeof Controllers.events.initializeLabels === 'function'
-        ) {
-          Controllers.events.initializeLabels();
-        }
+        Controllers.events?.initializeLabels?.();
       }
       // Even with no saved Places settings: clearAllTracks() reset them, and
       // the sliders must not keep showing the previous project's.
@@ -407,12 +390,8 @@ export const GSRCollectiveProject = {
       if (AppState.viewMode === 'collective') {
         Controllers.ui.updateCollectiveMap();
       }
-      if (typeof Controllers.ui?.refreshOsmControls === 'function') {
-        Controllers.ui.refreshOsmControls();
-      }
-      if (typeof Controllers.ui?.updateEnvironmentalDashboard === 'function') {
-        Controllers.ui.updateEnvironmentalDashboard();
-      }
+      Controllers.ui?.refreshOsmControls?.();
+      Controllers.ui?.updateEnvironmentalDashboard?.();
     } catch (err) {
       console.error('Project import failed:', err);
       GSRNotices.report(`Error importing project: ${err.message}`);

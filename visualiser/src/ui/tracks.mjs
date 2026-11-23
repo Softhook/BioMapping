@@ -11,6 +11,7 @@ import { Controllers } from '../core/controllers.mjs';
 import { GSRNotices } from '../core/notices.mjs';
 import { windowResized } from '../render/sketch.mjs';
 import { GSRAnalyzer } from '../signal/analyzer.mjs';
+import { CvxedaCache } from '../signal/cvxeda_cache.mjs';
 import { GSRStorage, normalizeDetectorCheckboxes } from './storage.mjs';
 import { TrackList } from './track_list.mjs';
 import { TrackLoading } from './track_loading.mjs';
@@ -137,16 +138,13 @@ export const GSRTrackManager = {
    */
   clearAllTracks() {
     GSRTrackQualityPopup.hide();
-    if (
-      Controllers.ui &&
-      typeof Controllers.ui.cancelCollectiveMapUpdate === 'function'
-    ) {
-      Controllers.ui.cancelCollectiveMapUpdate();
-    }
+    Controllers.ui?.cancelCollectiveMapUpdate?.();
     AppState.collectiveManager.tracks = [];
     AppState.activeTrackId = null;
     AppState.analyzer = new GSRAnalyzer();
     AppState.trackColorIndex = 0; // restart the colour palette, matching a fresh page load
+    // The cvxEDA answers belong to walks that are going away.
+    CvxedaCache.clear();
     // A project without saved Places settings must not inherit the last one's.
     GSRStorage.resetCollectivePlaces();
 
@@ -310,12 +308,7 @@ export const GSRTrackManager = {
    * @param {object} [track]
    */
   syncMapPanelForSpatialData(track) {
-    if (
-      Controllers.ui &&
-      typeof Controllers.ui.syncMapPanelForSpatialData === 'function'
-    ) {
-      Controllers.ui.syncMapPanelForSpatialData(track);
-    }
+    Controllers.ui?.syncMapPanelForSpatialData?.(track);
   },
 };
 

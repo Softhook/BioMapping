@@ -49,7 +49,30 @@ export function normalizeDetectorCheckboxes(S) {
   }
 }
 
+// The Collective view's contour surface sliders: saved in presets
+// (readContourSliderValues), and with the three controls after them in
+// project files (collective_project.mjs). GSREvents binds them all into
+// AppState.contourControls.
+const CONTOUR_SLIDER_KEYS = [
+  'gridResolution',
+  'contourCount',
+  'isolationRadius',
+  'idwExponent',
+  'peakPreservation',
+  'coverageWeighting',
+  'surfaceOpacity',
+  'hillshadeStrength',
+];
+
 export const GSRStorage = {
+  CONTOUR_SLIDER_KEYS,
+  CONTOUR_KEYS: [
+    ...CONTOUR_SLIDER_KEYS,
+    'topoSource',
+    'showShadedSurface',
+    'normalizeZScore',
+  ],
+
   /**
    * The Arousal Places settings. Each walk has its own (in gpsFilterParams,
    * shown in Single view) and Collective view has a separate set
@@ -342,12 +365,7 @@ export const GSRStorage = {
    * without triggering duplicate analysis runs or map re-renders.
    */
   syncSliderValueDisplays() {
-    if (
-      Controllers.events &&
-      typeof Controllers.events.initializeLabels === 'function'
-    ) {
-      Controllers.events.initializeLabels();
-    }
+    Controllers.events?.initializeLabels?.();
   },
 
   /**
@@ -430,22 +448,9 @@ export const GSRStorage = {
     const contour = preset.contour;
     const C = AppState.contourControls;
     if (contour && C) {
-      if (contour.gridResolution !== undefined && C.gridResolution)
-        C.gridResolution.value = contour.gridResolution;
-      if (contour.contourCount !== undefined && C.contourCount)
-        C.contourCount.value = contour.contourCount;
-      if (contour.isolationRadius !== undefined && C.isolationRadius)
-        C.isolationRadius.value = contour.isolationRadius;
-      if (contour.idwExponent !== undefined && C.idwExponent)
-        C.idwExponent.value = contour.idwExponent;
-      if (contour.peakPreservation !== undefined && C.peakPreservation)
-        C.peakPreservation.value = contour.peakPreservation;
-      if (contour.coverageWeighting !== undefined && C.coverageWeighting)
-        C.coverageWeighting.value = contour.coverageWeighting;
-      if (contour.surfaceOpacity !== undefined && C.surfaceOpacity)
-        C.surfaceOpacity.value = contour.surfaceOpacity;
-      if (contour.hillshadeStrength !== undefined && C.hillshadeStrength)
-        C.hillshadeStrength.value = contour.hillshadeStrength;
+      for (const key of CONTOUR_SLIDER_KEYS) {
+        if (contour[key] !== undefined && C[key]) C[key].value = contour[key];
+      }
     }
 
     // Restore the OSM snap radius. Only 'input' is fired here (label update);
@@ -465,12 +470,7 @@ export const GSRStorage = {
     }
 
     // Refresh dependent layout: tonic-window slider config.
-    if (
-      Controllers.events &&
-      typeof Controllers.events.updateTonicMethodLayout === 'function'
-    ) {
-      Controllers.events.updateTonicMethodLayout();
-    }
+    Controllers.events?.updateTonicMethodLayout?.();
 
     // Dispatch input events on all sliders so on-screen text labels & dimmed states update immediately!
     this.syncSliderValueDisplays();
@@ -494,9 +494,7 @@ export const GSRStorage = {
       if (Controllers.trackManager) {
         Controllers.trackManager.renderTrackList();
       }
-      if (typeof Controllers.ui?.runAnalysis === 'function') {
-        Controllers.ui.runAnalysis();
-      }
+      Controllers.ui?.runAnalysis?.();
     }
     // Snap radius or GPS smoothing changed: re-enrich once if the walk
     // already has OSM data (it re-uses that data or the cache while it still

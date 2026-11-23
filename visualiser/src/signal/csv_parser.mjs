@@ -285,12 +285,12 @@ export const GSRCSVParser = {
    * CRC32 (reflected, polynomial 0xEDB88320 — the zlib/PNG variant) over a
    * byte sequence. Accepts a string (encoded as UTF-8, matching the bytes
    * the device wrote to the card) or a Uint8Array. Returns an unsigned
-   * 32-bit integer. Mirrors sd_logger.c's crc32_feed() / em_scan_cal.c.
+   * 32-bit integer. The same CRC the device writes (firmware/core/biomap_format.c
+   * biomap_crc32_update); the Live recorder uses it for its trailer too.
    * @param {string|Uint8Array} input
    * @returns {number}
-   * @private
    */
-  _crc32(input) {
+  crc32(input) {
     let table = GSRCSVParser._crc32Table;
     if (!table) {
       table = new Uint32Array(256);
@@ -389,7 +389,7 @@ export const GSRCSVParser = {
     const problems = [];
     if (crcTok !== null) {
       const want = parseInt(crcTok, 16) >>> 0;
-      if (want !== GSRCSVParser._crc32(regionBytes))
+      if (want !== GSRCSVParser.crc32(regionBytes))
         problems.push('checksum mismatch');
     }
     if (bytesTok !== null && parseInt(bytesTok, 10) !== regionBytes.length) {

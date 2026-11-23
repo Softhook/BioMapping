@@ -1,5 +1,5 @@
 /**
- * CSV integrity-bracket verification (GSRCSVParser._verifyIntegrity / _crc32).
+ * CSV integrity-bracket verification (GSRCSVParser._verifyIntegrity / crc32).
  *
  * Mirrors the device side in firmware/core/sd_logger.c: a
  * "# Integrity: crc32 v1" marker line plus a "# End rows:… bytes:… crc32:…"
@@ -38,7 +38,7 @@ function trailer({
 } = {}) {
   const region = REGION;
   bytes = bytes !== undefined ? bytes : new TextEncoder().encode(region).length;
-  crc = crc !== undefined ? crc : GSRCSVParser._crc32(region);
+  crc = crc !== undefined ? crc : GSRCSVParser.crc32(region);
   const crcHex = (crc >>> 0).toString(16).padStart(8, '0');
   let line = `# End rows:${rows} bytes:${bytes} crc32:${crcHex}`;
   if (endTime !== null) line += ` end_time:${endTime}`;
@@ -51,13 +51,13 @@ const HEADER_LINES = 3;
 const verify = (csv, hasMarker = true) =>
   GSRCSVParser._verifyIntegrity(csv, hasMarker, HEADER_LINES);
 
-// ── _crc32 known-answer ────────────────────────────────────────────────────
+// ── crc32 known-answer ────────────────────────────────────────────────────
 
-test('_crc32 matches the standard CRC-32 check value', () => {
-  assert.strictEqual(GSRCSVParser._crc32('123456789'), 0xcbf43926);
+test('crc32 matches the standard CRC-32 check value', () => {
+  assert.strictEqual(GSRCSVParser.crc32('123456789'), 0xcbf43926);
   // Same result whether fed a string or its UTF-8 bytes.
   assert.strictEqual(
-    GSRCSVParser._crc32(new TextEncoder().encode('123456789')),
+    GSRCSVParser.crc32(new TextEncoder().encode('123456789')),
     0xcbf43926,
   );
 });

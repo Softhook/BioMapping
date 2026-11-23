@@ -50,6 +50,9 @@ function createSampleAnalyzer() {
         label: 'Acoustic siren',
       },
     ],
+    relabelPeak(peak, label) {
+      peak.label = label;
+    },
     getCoordinates(idx) {
       return { lat: 51.5 + idx * 0.001, lon: -0.1 - idx * 0.001 };
     },

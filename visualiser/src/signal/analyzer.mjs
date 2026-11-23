@@ -14,7 +14,7 @@ import { AnalyzerExport } from './analyzer_export.mjs';
 import { AnalyzerStats } from './analyzer_stats.mjs';
 import { AnalyzerTimeFormat } from './analyzer_time_format.mjs';
 import { GSRCSVParser } from './csv_parser.mjs';
-import { CVXEDA } from './cvxeda.mjs';
+import { CvxedaCache } from './cvxeda_cache.mjs';
 import { SCRDeconvolution } from './deconvolution.mjs';
 import { calcEmFog } from './em_fog.mjs';
 import { detectAndRepairGsrDisconnects } from './gsr_disconnect_repair.mjs';
@@ -1106,7 +1106,7 @@ export class GSRAnalyzer {
       // exact same taus the solve itself used.
       const cvxCfg = GSR_CONST.CVXEDA;
       const { tauSlow, tauFast } = cvxCfg;
-      const res = CVXEDA.decompose(scVals, this.sampleRate, {
+      const res = CvxedaCache.decompose(scVals, this.sampleRate, {
         tauSlow,
         tauFast,
         alpha: cvxCfg.alpha,

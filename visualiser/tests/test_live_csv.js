@@ -180,7 +180,7 @@ test('the trailer crc32 / bytes actually describe the file body (independent rec
   );
   assert.strictEqual(
     m[2],
-    GSRCSVParser._crc32(new TextEncoder().encode(body))
+    GSRCSVParser.crc32(new TextEncoder().encode(body))
       .toString(16)
       .padStart(8, '0'),
     'crc32 token',

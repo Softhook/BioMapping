@@ -370,7 +370,8 @@ export const GpsCvKalman = {
     x[1] += dt * x[3];
     // F·P·Fᵀ with F = [I dt·I; 0 I] and P = [A B; Bᵀ D] in 2×2 blocks
     // (pos-pos, pos-vel, vel-vel) is [A + dt(B+Bᵀ) + dt²D, B + dt·D; Bᵀ + dt·D, D].
-    const P0 = P.slice();
+    const P0 = _P0;
+    P0.set(P);
     for (let a = 0; a < 2; a++) {
       for (let b = 0; b < 2; b++) {
         const D = P0[(a + 2) * 4 + b + 2];
@@ -415,7 +416,7 @@ export const GpsCvKalman = {
     if (!(nis < this.GATE_CHI2)) return false;
 
     // K = P·Hᵀ·S⁻¹ (4×2); PHt[r] = [P[r][k], P[r][k+1]].
-    const K = new Float64Array(8);
+    const K = _K;
     for (let r = 0; r < 4; r++) {
       const p0 = P[r * 4 + k];
       const p1 = P[r * 4 + k + 1];
@@ -425,7 +426,7 @@ export const GpsCvKalman = {
     for (let r = 0; r < 4; r++) x[r] += K[r * 2] * y0 + K[r * 2 + 1] * y1;
 
     // P ← P − K·H·P, then re-symmetrise against round-off.
-    const HP = new Float64Array(8);
+    const HP = _HP;
     for (let c = 0; c < 4; c++) {
       HP[c] = P[k * 4 + c];
       HP[4 + c] = P[(k + 1) * 4 + c];
@@ -519,6 +520,13 @@ export const GpsCvKalman = {
   },
 };
 
+// Scratch space for _predict, _update and invert4, reused at every step:
+// allocating them per step was most of the filter's run time.
+const _P0 = new Float64Array(16);
+const _K = new Float64Array(8);
+const _HP = new Float64Array(8);
+const _AUG = new Float64Array(32);
+
 /** Whether a fix carries a Doppler speed (older walks have none at stops). */
 function hasSpeed(pt) {
   return Number.isFinite(pt.speedKts) && pt.speedKts >= 0;
@@ -529,7 +537,8 @@ function hasSpeed(pt) {
  * with partial pivoting). Returns false if it is singular.
  */
 function invert4(src, off, out) {
-  const a = new Float64Array(32);
+  const a = _AUG;
+  a.fill(0);
   for (let r = 0; r < 4; r++) {
     for (let c = 0; c < 4; c++) a[r * 8 + c] = src[off + r * 4 + c];
     a[r * 8 + 4 + r] = 1;

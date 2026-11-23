@@ -12,6 +12,7 @@
  */
 
 import { ResponseDelay } from '../../signal/response_delay.mjs';
+import { seriesValue } from './globe3d_base.mjs';
 
 // Mirrors SERIES_FIELD in globe3d_base.mjs (and DERIVED_METRIC_SERIES in
 // map/manager/path.mjs) — colouring metric -> analyzer per-sample series field.
@@ -26,12 +27,6 @@ const G3DX_SERIES_FIELD = {
   em_fog: 'em_fog',
   emFog: 'em_fog',
 };
-const g3dxSeriesValue = (d) =>
-  d && typeof d === 'object' && 'val' in d
-    ? d.val
-    : typeof d === 'number'
-      ? d
-      : 0;
 
 export const GSRGlobe3DExport = {
   DEFAULT_BASE_HEIGHT: 2.0,
@@ -46,7 +41,7 @@ export const GSRGlobe3DExport = {
   resolveSeries(analyzer, metric) {
     const field = G3DX_SERIES_FIELD[metric];
     if (field && analyzer[field] && analyzer[field].length > 0) {
-      const vals = analyzer[field].map(g3dxSeriesValue);
+      const vals = analyzer[field].map(seriesValue);
       return field === 'em_fog' ? vals : ResponseDelay.byPlace(analyzer, vals);
     }
     const raw = analyzer.raw || [];

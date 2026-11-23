@@ -74,7 +74,7 @@ const UNEXPORTED_TARGETS = {
     ],
   },
   'src/map/globe3d/exporters.mjs': {
-    unexported: ['G3DX_SERIES_FIELD', 'g3dxSeriesValue'],
+    unexported: ['G3DX_SERIES_FIELD'],
     expectedExports: ['GSRGlobe3DExport'],
   },
   'src/map/map_exporter.mjs': {

@@ -7,8 +7,8 @@
  * stat cards.
  */
 import { AppState } from '../core/app_state.mjs';
-import { GSR_CONST } from '../core/constants.mjs';
 import { AnalyzerTimeFormat } from '../signal/analyzer_time_format.mjs';
+import { GSRStorage } from './storage.mjs';
 
 export const CollectiveMapUI = {
   /**
@@ -53,49 +53,10 @@ export const CollectiveMapUI = {
 
     const cc = AppState.contourControls;
     const contourParams = {
-      gridResolution: parseInt(
-        cc.gridResolution
-          ? cc.gridResolution.value
-          : GSR_CONST.COLLECTIVE.gridResolution,
-        10,
-      ),
-      contourCount: parseInt(
-        cc.contourCount
-          ? cc.contourCount.value
-          : GSR_CONST.COLLECTIVE.contourCount,
-        10,
-      ),
-      isolationRadius: parseFloat(
-        cc.isolationRadius
-          ? cc.isolationRadius.value
-          : GSR_CONST.COLLECTIVE.isolationRadius,
-      ),
-      idwExponent: parseFloat(
-        cc.idwExponent
-          ? cc.idwExponent.value
-          : GSR_CONST.COLLECTIVE.idwExponent,
-      ),
-      peakPreservation: parseFloat(
-        cc.peakPreservation
-          ? cc.peakPreservation.value
-          : GSR_CONST.COLLECTIVE.peakPreservation,
-      ),
-      coverageWeighting: parseFloat(
-        cc.coverageWeighting
-          ? cc.coverageWeighting.value
-          : GSR_CONST.COLLECTIVE.coverageWeighting,
-      ),
-      topographySource: cc.topoSource ? cc.topoSource.value : 'phasic',
-      showShadedSurface: cc.showShadedSurface
-        ? cc.showShadedSurface.classList.contains('active')
-        : true,
-      normalizeZScore: cc.normalizeZScore ? cc.normalizeZScore.checked : true,
-      surfaceOpacity: cc.surfaceOpacity
-        ? parseFloat(cc.surfaceOpacity.value)
-        : 0.4,
-      hillshadeStrength: cc.hillshadeStrength
-        ? parseFloat(cc.hillshadeStrength.value)
-        : 0.0,
+      ...GSRStorage.readContourSliderValues(),
+      topographySource: cc.topoSource.value,
+      showShadedSurface: cc.showShadedSurface.classList.contains('active'),
+      normalizeZScore: cc.normalizeZScore.checked,
     };
 
     // Every walk is shown at the project's one Response delay.

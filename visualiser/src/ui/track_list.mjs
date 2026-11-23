@@ -162,7 +162,7 @@ export const TrackList = {
       const a = track.analyzer;
       const hasClock = a.recordingStartTime && a.recordingStartTime >= 86400;
       meta.innerText = hasClock
-        ? `${GSRTrackQualityPopup.formatDateUK(a.recordingStartTime)}, ${a.formatTimeOnly(0)}`
+        ? `${a.formatDateUK(0)}, ${a.formatTimeOnly(0)}`
         : '';
 
       details.appendChild(name);

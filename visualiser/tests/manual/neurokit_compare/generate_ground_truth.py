@@ -33,7 +33,7 @@ import sys
 import numpy as np
 import pandas as pd
 from neurokit2.eda.eda_simulate import _eda_simulate_scr
-from neurokit2.signal import signal_merge, signal_distort
+from neurokit2.signal import signal_distort
 
 # A handful of scenarios spanning noise/density/duration, echoing the
 # variety in the 4 real biomap_* tracks this whole investigation already
@@ -173,8 +173,6 @@ def generate_track(duration, scr_number, noise, drift, seed, gait_freq=0, gait_a
         resp_freq = rng.uniform(0.18, 0.25)
         eda += 0.03 * np.sin(2 * np.pi * resp_freq * t_full + resp_phase)
 
-    time = [0, duration]
-
     # Determine peak start timestamps
     if peak_starts is not None:
         start_peaks = list(peak_starts)
@@ -228,7 +226,6 @@ def generate_track(duration, scr_number, noise, drift, seed, gait_freq=0, gait_a
         scr = _eda_simulate_scr(sampling_rate=sr, length=int(win_sec * sr), time_peak=relative_time_peak)
         true_amplitude = float(np.exp(rng.uniform(np.log(amplitude_range[0]), np.log(amplitude_range[1]))))
         scr = scr * true_amplitude
-        time_scr = [start_peak, start_peak + win_sec]
 
         true_time = start_peak + float(np.argmax(scr)) / sr
 

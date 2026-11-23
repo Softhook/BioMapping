@@ -490,40 +490,16 @@ export class GSRLiveBluetoothManager {
       // Superseded by a "New Connection" or intentional disconnect mid-loop — stop spending
       // attempts (and radio time the new connection could use) on a manager nobody
       // is looking at anymore.
-      if (this._abandoned) {
-        this._reconnecting = false;
-        return;
-      }
-      if (this._userDisconnected) {
-        this._reconnecting = false;
-        this._setStatus('disconnected');
-        return;
-      }
+      if (this._reconnectCancelled()) return;
       await this._waitBeforeRetry(delay);
-      if (this._abandoned) {
-        this._reconnecting = false;
-        return;
-      }
-      if (this._userDisconnected) {
-        this._reconnecting = false;
-        this._setStatus('disconnected');
-        return;
-      }
+      if (this._reconnectCancelled()) return;
       try {
         await this._subscribe();
         this._setStatus('connected');
         this._reconnecting = false;
         return;
       } catch (e) {
-        if (this._abandoned) {
-          this._reconnecting = false;
-          return;
-        }
-        if (this._userDisconnected) {
-          this._reconnecting = false;
-          this._setStatus('disconnected');
-          return;
-        }
+        if (this._reconnectCancelled()) return;
         lastError = e; // keep retrying within the cap
       }
     }
@@ -535,6 +511,16 @@ export class GSRLiveBluetoothManager {
     if (!this._abandoned && !this._userDisconnected) {
       this._startBackgroundWatch();
     }
+  }
+
+  // Ends the reconnect loop when the link was closed on purpose: by the user
+  // (Disconnect) or by a "New Connection" that replaced this manager.
+  // _setStatus() is silent once abandoned, so only the user case reports it.
+  _reconnectCancelled() {
+    if (!this._abandoned && !this._userDisconnected) return false;
+    this._reconnecting = false;
+    this._setStatus('disconnected');
+    return true;
   }
 
   // Returns true on success, false on failure (never throws) — used both by

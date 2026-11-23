@@ -114,9 +114,7 @@ export const ViewSwitcherEvents = {
         });
       }
 
-      if (typeof windowResized === 'function') {
-        windowResized();
-      }
+      windowResized();
       // The sliders may still show collective values or another track's — put
       // the active track's own settings back before Single view re-analyses
       // and saves from them.
@@ -199,23 +197,14 @@ export const ViewSwitcherEvents = {
         });
       }
 
-      // Render collective map immediately without 150ms debounce lag on mode swap
-      if (Controllers.ui) {
-        if (Controllers.ui._collectiveDebounceId) {
-          clearTimeout(Controllers.ui._collectiveDebounceId);
-          Controllers.ui._collectiveDebounceId = null;
-        }
-        if (typeof Controllers.ui._updateCollectiveMapNow === 'function') {
-          Controllers.ui._updateCollectiveMapNow();
-        } else if (typeof Controllers.ui.updateCollectiveMap === 'function') {
-          Controllers.ui.updateCollectiveMap();
-        }
-        if (typeof Controllers.ui.refreshOsmControls === 'function') {
-          Controllers.ui.refreshOsmControls();
-        }
-        if (typeof Controllers.ui.updateEnvironmentalDashboard === 'function') {
-          Controllers.ui.updateEnvironmentalDashboard();
-        }
+      // Draw the collective map now, not after updateCollectiveMap()'s
+      // 150 ms slider-drag wait.
+      const ui = Controllers.ui;
+      if (ui) {
+        ui.cancelCollectiveMapUpdate();
+        ui._updateCollectiveMapNow();
+        ui.refreshOsmControls();
+        ui.updateEnvironmentalDashboard();
       }
     });
 

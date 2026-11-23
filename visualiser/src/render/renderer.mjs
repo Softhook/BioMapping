@@ -1,9 +1,6 @@
 export {
-  EXCLUDE_BTN,
-  EXCLUDED_STYLE,
   getQualityColor,
   getQualityLabel,
-  NORMAL_DASH,
   PARK_EDGE_TOLERANCE_M,
 } from './renderer_constants.mjs';
 

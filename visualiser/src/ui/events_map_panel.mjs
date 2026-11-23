@@ -184,10 +184,8 @@ export const MapPanelEvents = {
           debounceMoveend: true,
         });
       }
-      if (typeof windowResized === 'function') {
-        requestAnimationFrame(() => windowResized());
-        setTimeout(() => windowResized(), 320);
-      }
+      requestAnimationFrame(() => windowResized());
+      setTimeout(() => windowResized(), 320);
     };
 
     this.bindCollapseButton(

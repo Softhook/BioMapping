@@ -107,26 +107,14 @@ export const GSREvents = {
       AppState.statFields[key] = GSREvents._id(id);
     }
 
-    // Contour controls (used in collective map)
-    const contourKeys = [
-      'gridResolution',
-      'contourCount',
-      'isolationRadius',
-      'idwExponent',
-      'peakPreservation',
-      'coverageWeighting',
-      'topoSource',
-      'normalizeZScore',
-      'surfaceOpacity',
-      'hillshadeStrength',
-    ];
+    // Contour controls (used in collective map). Each control's id is its
+    // key, except the shaded-surface toggle in the map header.
     AppState.contourControls = {};
-    for (const key of contourKeys) {
-      AppState.contourControls[key] = GSREvents._id(key);
+    for (const key of GSRStorage.CONTOUR_KEYS) {
+      AppState.contourControls[key] = GSREvents._id(
+        key === 'showShadedSurface' ? 'btnToggleMapSurface' : key,
+      );
     }
-    AppState.contourControls.showShadedSurface = GSREvents._id(
-      'btnToggleMapSurface',
-    );
   },
 
   /**
