@@ -1,3 +1,22 @@
+# The Flipper firmware's version is fap_version below: change it for each
+# release. ufbt passes it to the code as FAP_VERSION, for the "# Firmware"
+# line in every recording; the Flipper's own app info shows its first two
+# numbers. The Cardputer has its own number (cardputer/platformio.ini).
+#
+# The exact build (short git commit) goes on that line too, from
+# build_rev.py next to this file ("unknown" if that fails). ufbt doesn't
+# run this file from its own folder; it does name it in app_manifest_path.
+import os
+import sys
+
+try:
+    sys.path.insert(0, os.path.dirname(os.path.abspath(app_manifest_path)))  # noqa: F821
+    import build_rev
+
+    GIT_REV = build_rev.git_rev(["application.fam", "core", "flipper", "vendor"])
+except (NameError, ImportError):
+    GIT_REV = "unknown"
+
 App(
     appid="biomap",
     name="Bio Mapping",
@@ -7,10 +26,11 @@ App(
     stack_size=4 * 1024,
     fap_icon="biomap_icon.png",
     fap_category="GPIO",
-    fap_version="2.0",
+    fap_version="1.0.0",
     fap_description="Records Galvanic Skin Response mapped to GPS location, logging to SD card as CSV.",
     fap_author="Christian Nold",
     fap_weburl="https://github.com/Softhook/BioMapping",
+    cdefines=[("BIOMAP_GIT_REV", '\\"%s\\"' % GIT_REV)],
     sources=[
         "flipper/biomap.c",
         "flipper/biomap_gui.c",

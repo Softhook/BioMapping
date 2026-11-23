@@ -254,6 +254,12 @@ bool biomap_settings_valid(const BioMapSettings* s);
 int biomap_format_file_stamp(char* out, size_t cap, uint16_t year, uint8_t month, uint8_t day,
                              uint8_t hour, uint8_t minute, uint8_t second);
 
+// A MAC address the usual way, "DC:54:75:C1:2A:3C" (upper-case hex, most
+// significant byte first), for the "# HardwareAddress" header line.
+// Returns the length written (17), or -1 if it would not fit in `cap`
+// (needs 18 bytes).
+int biomap_format_mac(char* out, size_t cap, const uint8_t mac[6]);
+
 // ── Live Stream packet ──────────────────────────────────────────────────
 // One 49-byte update sent to the visualiser's Live tab over Bluetooth
 // (visualiser/src/live/live_binary_parser.mjs reads it), little-endian:

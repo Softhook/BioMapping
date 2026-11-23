@@ -165,6 +165,8 @@ static SessionSettings session_settings(BioMapApp* app) {
         .debug_fields_enabled = app->debug_fields_enabled,
         // The Flipper's own name (Settings > System > Device Name).
         .device_name          = furi_hal_version_get_name_ptr(),
+        // FAP_VERSION is fap_version in application.fam, set by ufbt.
+        .firmware             = BIOMAP_FIRMWARE_TEXT("Flipper", FAP_VERSION),
         .rf_calibrated        = app->rf_calibrated,
         .cal_active           = app->cal_active,
         .cal_gain             = app->cal_gain,

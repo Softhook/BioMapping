@@ -14,6 +14,8 @@ const { GSRAnalyzer } = require('../src/signal/analyzer.mjs');
 
 const DEVICE_LINES = [
   '# DeviceName:Walflow',
+  '# Firmware:Cardputer 1.0.0 (396a8f1)',
+  '# HardwareAddress:DC:54:75:0C:2A:03',
   '# Band Floors (dBm): 815:-91.5,868:-91.5,915:-91.5',
   '# GPSChipID:axis slang boast putt chunk',
   '# GSR Calibration: gain:1.0037,offset:103.0993,r2:1.0000,noise_ns:0.87,1.12,2.68',

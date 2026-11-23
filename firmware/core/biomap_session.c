@@ -254,6 +254,17 @@ static int build_header(SessionCore* s, char* header, size_t cap, uint32_t epoch
         n += snprintf(header + n, cap - (size_t)n, "# DeviceName:%s\n",
                       cfg->device_name ? cfg->device_name : "");
     }
+    // Firmware: which device type, version and build wrote the file, so a
+    // bug found later can be traced to the recordings it affects.
+    if(cfg->firmware && n > 0 && (size_t)n < cap) {
+        n += snprintf(header + n, cap - (size_t)n, "# Firmware:%s\n", cfg->firmware);
+    }
+    // HardwareAddress: the unit's own MAC address, on devices whose
+    // DeviceName is the same on every unit (the Cardputer).
+    if(cfg->hardware_address && n > 0 && (size_t)n < cap) {
+        n += snprintf(header + n, cap - (size_t)n, "# HardwareAddress:%s\n",
+                      cfg->hardware_address);
+    }
     // Band Floors: only once the radio is on in this mode and a real
     // radio calibration exists. Bands in RF_BAND_COUNT order.
     if(has_rf(s->mode) && cfg->rf_calibrated && n > 0 && (size_t)n < cap) {

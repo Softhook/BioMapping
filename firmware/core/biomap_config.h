@@ -19,6 +19,20 @@
 #define RF_BAND_1_MHZ "868"
 #define RF_BAND_2_MHZ "915"
 
+// Firmware version, for the "# Firmware" header line. Each device keeps
+// its own version number: the Flipper's is fap_version in
+// application.fam (ufbt passes it as FAP_VERSION), the Cardputer's is
+// custom_firmware_version in cardputer/platformio.ini. BIOMAP_GIT_REV is
+// the exact build ("396a8f1", or "396a8f1+changes" when built with
+// uncommitted edits), set by both builds from build_rev.py; "unknown" in
+// builds that don't set it (the host tests, an IDE).
+#ifndef BIOMAP_GIT_REV
+#define BIOMAP_GIT_REV "unknown"
+#endif
+// e.g. BIOMAP_FIRMWARE_TEXT("Cardputer", "1.0.0") is
+// "Cardputer 1.0.0 (396a8f1)".
+#define BIOMAP_FIRMWARE_TEXT(device, version) device " " version " (" BIOMAP_GIT_REV ")"
+
 typedef enum {
     BioMapModeGpsGsrRf = 0, // GPS, GSR, and RF all enabled
     BioMapModeGpsGsr,       // GPS and GSR, no RF

@@ -208,6 +208,7 @@ Bug reports, hardware build notes, and pull requests are welcome. A few things t
 
 **Firmware (C — `firmware/`)**
 - Run the host tests before opening a PR: `./run_tests.sh` from the `firmware/` directory.
+- Each device has its own firmware version number: `fap_version` in `firmware/application.fam` (Flipper) and `custom_firmware_version` in `firmware/cardputer/platformio.ini` (Cardputer). Raise it for each release. Every recording's `# Firmware` line carries it, with the git commit it was built from (see [`docs/csv_schema.md`](docs/csv_schema.md)).
 - The app targets the Flipper Zero SDK via [`ufbt`](https://pypi.org/project/ufbt/); keep changes compatible with stock firmware and the API-compatible forks (Momentum, Unleashed, RogueMaster).
 
 **Visualiser (JavaScript — `visualiser/`)**

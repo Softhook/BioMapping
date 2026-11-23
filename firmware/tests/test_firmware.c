@@ -553,6 +553,19 @@ void test_file_stamp_formatting() {
     printf("  -> Pass\n");
 }
 
+// "# HardwareAddress" value (biomap_format_mac): upper-case, zero-padded,
+// first byte first, and a buffer one byte too small is refused.
+void test_mac_formatting() {
+    printf("Running test_mac_formatting...\n");
+    const uint8_t mac[6] = {0xdc, 0x54, 0x75, 0x0c, 0x2a, 0x03};
+    char buf[18];
+    assert(biomap_format_mac(buf, sizeof(buf), mac) == 17);
+    assert(strcmp(buf, "DC:54:75:0C:2A:03") == 0);
+    char tiny[17];
+    assert(biomap_format_mac(tiny, sizeof(tiny), mac) == -1);
+    printf("  -> Pass\n");
+}
+
 // The calibration wizard and the 0.5 V bias correction stack: the wizard
 // measures the open-circuit zero, then fits a gain on bias-corrected,
 // zero-removed readings (gsr_sensor_get_raw() with gain 1); recordings do
@@ -1312,6 +1325,7 @@ int main() {
     test_gsr_csv_formatting();
     test_gsr_bias_line_formatting();
     test_file_stamp_formatting();
+    test_mac_formatting();
     test_bias_correction_stacks_with_calibration();
     test_csv_header_matches_row_column_count();
     test_csv_row_overflow_returns_negative();

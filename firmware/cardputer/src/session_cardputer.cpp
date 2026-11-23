@@ -1,7 +1,9 @@
 #include "session_cardputer.h"
 
 #include <M5Cardputer.h>
+#include <esp_mac.h>
 
+#include "biomap_format.h"
 #include "bt_cardputer.h"
 #include "clock_cardputer.h"
 #include "cues_cardputer.h"
@@ -18,6 +20,27 @@ static SemaphoreHandle_t g_mutex = nullptr;
 static TickSchedule      g_ticks = {};
 
 static const char* const DEVICE_NAME = "Cardputer";
+
+// CARDPUTER_FIRMWARE_VERSION is custom_firmware_version in platformio.ini,
+// passed in by build_info.py.
+static const char* const FIRMWARE = BIOMAP_FIRMWARE_TEXT("Cardputer", CARDPUTER_FIRMWARE_VERSION);
+
+// DeviceName is the same on every Cardputer, so the header also carries the
+// chip's own MAC address, burned in at the factory (the one the flashing
+// tool prints as "MAC:"). The Wi-Fi Files hotspot's name ends in part of
+// the hotspot's own address, which the chip derives from this one, so the
+// two endings needn't match.
+static const char* hardware_address(void) {
+    static char text[18];
+    if(text[0] == '\0') {
+        uint8_t mac[6] = {};
+        if(esp_efuse_mac_get_default(mac) != ESP_OK ||
+           biomap_format_mac(text, sizeof(text), mac) < 0) {
+            return nullptr;
+        }
+    }
+    return text;
+}
 
 // How long the screen says "Waiting for GPS time" after Enter was pressed
 // too early.
@@ -175,6 +198,8 @@ static SessionSettings session_settings(void) {
     cfg.zoom_enabled = g_settings.zoom_enabled;
     cfg.debug_fields_enabled = g_settings.debug_fields_enabled;
     cfg.device_name = DEVICE_NAME;
+    cfg.firmware = FIRMWARE;
+    cfg.hardware_address = hardware_address();
     cfg.cal_active = g_settings.cal_active;
     cfg.cal_gain = g_settings.cal_gain;
     cfg.cal_zero_counts = g_settings.cal_zero_counts;

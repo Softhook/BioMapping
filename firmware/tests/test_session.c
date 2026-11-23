@@ -196,6 +196,8 @@ static SessionPlatform platform(void) {
 static SessionSettings settings(void) {
     SessionSettings c = {
         .sound_enabled = true, .zoom_enabled = true, .device_name = "Tester",
+        .firmware = BIOMAP_FIRMWARE_TEXT("Tester", "9.8.7"),
+        .hardware_address = "DC:54:75:0C:2A:03",
         .rf_calibrated = true, .rf_floors_dbm = {-101.5f, -99.25f, -97.0f},
         .cal_active = true, .cal_gain = 1.0123f, .cal_zero_counts = -321.4f,
         .cal_r_squared = 0.9991f, .cal_noise_std_dev = {0.4f, 1.1f, 2.39f},
@@ -476,6 +478,9 @@ static void test_start_header_and_settle(void) {
     const char* want =
         "# RecordingStartTime:1795165687\n"
         "# DeviceName:Tester\n"
+        // The host tests' build sets no BIOMAP_GIT_REV.
+        "# Firmware:Tester 9.8.7 (unknown)\n"
+        "# HardwareAddress:DC:54:75:0C:2A:03\n"
         "# Band Floors (dBm): 815:-101.5,868:-99.2,915:-97.0\n"
         "# GSR Calibration: gain:1.0123,zero_counts:-321.4,r2:0.9991,noise_ns:0.40,1.10,2.39,cal_time:1790000000\n"
         BIOMAP_CSV_COLS_GPS_GSR_RF_PROD;
@@ -492,17 +497,22 @@ static void test_start_header_and_settle(void) {
     assert(F.cue_count == 1 && F.cues[0] == BioMapCueRecordingStarted);
     assert(F.delay_count == 1 && F.delays[0] == GSR_TONE_SETTLE_MS);
 
-    // Sound off: no settle wait. No radio cal or GSR cal: no such lines.
+    // Sound off: no settle wait. No radio cal or GSR cal, no firmware text
+    // or hardware address (the Flipper has none): no such lines.
     SessionSettings cfg = settings();
     cfg.sound_enabled = false;
     cfg.rf_calibrated = false;
     cfg.cal_active = false;
+    cfg.firmware = NULL;
+    cfg.hardware_address = NULL;
     cfg.debug_fields_enabled = true;
     start(BioMapModeGpsGsr, cfg);
     session_core_key(&S, SessionKeyOk);
     assert(F.delay_count == 0);
     assert(strstr(F.header, "Band Floors") == NULL);
     assert(strstr(F.header, "GSR Calibration") == NULL);
+    assert(strstr(F.header, "Firmware") == NULL);
+    assert(strstr(F.header, "HardwareAddress") == NULL);
     assert(strstr(F.header, BIOMAP_CSV_COLS_GPS_GSR_DEBUG) != NULL);
 }
 
@@ -835,6 +845,33 @@ static void test_bias_header_line(void) {
     session_core_key(&S, SessionKeyOk);
     assert(strstr(F.header, "GSR Bias") == NULL);
     assert(strstr(F.header, "# GPSChipID:" CHIP_PHRASE "\n") != NULL);
+}
+
+// Every header line at once, each as long as it can get, with the radio
+// mode's debug columns (the longest list): still fits the header buffer
+// in biomap_session.c, so no device's recording start can fail on length.
+static void test_longest_header_fits(void) {
+    printf("Running test_longest_header_fits...\n");
+    SessionSettings cfg = settings();
+    cfg.debug_fields_enabled = true;
+    cfg.device_name = "Abcdefgh";  // Flipper names are at most 8 characters
+    cfg.firmware = "Cardputer 10.10.10 (396a8f1+changes)";
+    cfg.hardware_address = "DC:54:75:0C:2A:03";
+    for(int i = 0; i < RF_BAND_COUNT; i++) cfg.rf_floors_dbm[i] = -120.25f;
+    cfg.cal_gain = 12.3456f;
+    cfg.cal_zero_counts = -32768.0f;
+    cfg.cal_r_squared = 0.9999f;
+    for(int i = 0; i < CAL_POINTS; i++) cfg.cal_noise_std_dev[i] = 999.99f;
+    cfg.cal_timestamp = 4294967295u;
+    start_with_modules(BioMapModeGpsGsrRf, cfg, 0.5f);
+    G.bias_v = 0.5031f;
+    session_core_key(&S, SessionKeyOk);
+    assert(S.recording.active);
+    assert(strstr(F.header, "# HardwareAddress:DC:54:75:0C:2A:03\n") != NULL);
+    assert(strstr(F.header, "# GPSChipID:" CHIP_PHRASE "\n") != NULL);
+    assert(strstr(F.header, "# GSR Bias: ") != NULL);
+    assert(strstr(F.header, BIOMAP_CSV_COLS_GPS_GSR_RF_DEBUG) != NULL);
+    printf("  longest header: %zu bytes\n", strlen(F.header));
 }
 
 // The once-a-second light: green with fingers on, red with them off,
@@ -1597,6 +1634,7 @@ int main(void) {
     test_diagnostics_records_nothing();
     test_redraw_cadence();
     test_bias_header_line();
+    test_longest_header_fits();
     test_heartbeat_fingers_and_fix();
     test_gsr_display_and_rows();
     test_window_is_exactly_100_ms();

@@ -138,6 +138,12 @@ typedef struct {
     bool  zoom_enabled;           // Options > Auto Zoom
     bool  debug_fields_enabled;   // Options > Debug Fields
     const char* device_name;      // for the "# DeviceName" header line; may be NULL
+    // "# Firmware" header line: device, version and build
+    // (BIOMAP_FIRMWARE_TEXT); no line when NULL.
+    const char* firmware;
+    // "# HardwareAddress" header line: the device's own MAC address
+    // (biomap_format_mac). NULL on devices that don't write one (the Flipper).
+    const char* hardware_address;
 
     bool  rf_calibrated;
     float rf_floors_dbm[RF_BAND_COUNT];

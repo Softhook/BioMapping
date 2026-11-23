@@ -35,6 +35,8 @@ Each CSV begins with comment lines (prefixed `#`) before the column header:
 ```
 # RecordingStartTime:<unix_epoch_seconds>
 # DeviceName:<flipper_device_name>
+# Firmware:<device> <version> (<build>)
+# HardwareAddress:<mac_address>
 # Band Floors (dBm): 815:<float>,868:<float>,915:<float>
 # GPSChipID:<word1 word2 word3 word4 word5>
 # GSR Calibration: gain:<float>,zero_counts:<float>,r2:<float>,noise_ns:<float>,<float>,<float>,cal_time:<unix_epoch_seconds>
@@ -42,15 +44,35 @@ Each CSV begins with comment lines (prefixed `#`) before the column header:
 ```
 
 Emitted in the order shown above (`core/biomap_session.c`,
-`build_header()`). `RecordingStartTime` and `DeviceName` are always
-present; the other four are conditional (see below).
+`build_header()`). `RecordingStartTime`, `DeviceName` and `Firmware` are
+always present; the others are conditional (see below).
 
 `RecordingStartTime` is `0` if the Flipper RTC has never been set.
 
 `DeviceName` is always present — the Flipper's user-visible name
 (`furi_hal_version_get_name_ptr()`, Settings > System > Device Name),
 for tracing which physical unit recorded a given file. Empty
-(`# DeviceName:`) only if the HAL returns no name.
+(`# DeviceName:`) only if the HAL returns no name. The Cardputer always
+writes `Cardputer`, the same on every unit; its `HardwareAddress` line
+tells units apart.
+
+`Firmware` names the device type, the firmware version and the exact build
+it came from, e.g. `# Firmware:Cardputer 1.0.0 (396a8f1)`, so a bug found
+later can be traced to the recordings it affects. Each device has its own
+version number: the Flipper's is `fap_version` in `application.fam`, the
+Cardputer's is `custom_firmware_version` in `cardputer/platformio.ini`.
+The build is the short git commit (`build_rev.py`); `+changes` is added
+when the firmware was built with edits not yet committed
+(`396a8f1+changes`), and it is `unknown` when there was no git (a build
+from a downloaded zip). Recordings made before the line existed have no
+`Firmware` line.
+
+`HardwareAddress` is the Cardputer's own MAC address, burned into its chip
+at the factory (`esp_efuse_mac_get_default()`), upper-case hex with colons:
+`DC:54:75:0C:2A:03`. It is the address the flashing tool prints as `MAC:`.
+The Wi-Fi Files hotspot's name (`BioMapping-XXXX`) ends in part of the
+hotspot's own address, which the chip derives from this one, so the two
+endings needn't match. The Flipper writes no `HardwareAddress` line.
 
 `GPSChipID` is a 5-word mnemonic phrase (e.g. `axis slang boast putt
 chunk`) derived from the u-blox SAM-M10Q module's unique chip identifier,
@@ -318,6 +340,7 @@ Defined in `core/gsr_sensor.h` as `GSR_VALID_MIN_NS` and `GSR_VALID_MAX_NS`.
 | 1.12 | 2026-11-17 | Added `# GSR Bias: measured_mv:…,used_mv:…`: the 0.5 V bias measured at recording start and applied to `gsr_raw` for the whole file. GSR calibration file version 4 → 5 (old fits rejected). No data-column changes. |
 | 1.13 | 2026-11-18 | `# GSR Calibration` now carries `zero_counts` (open-circuit zero, removed before the nS conversion) in place of `offset` (nS); the fit is gain-only. GSR calibration file version 5 → 6 (old fits rejected). No data-column changes. |
 | 1.14 | 2026-11-21 | Added `gsr_spread_ns` as the last debug column in all three debug variants. No production (non-debug) column changes. |
+| 1.15 | 2026-11-23 | Added `# Firmware:<device> <version> (<build>)` after `# DeviceName` on both devices, and `# HardwareAddress:<mac>` after it on the Cardputer. Flipper and Cardputer firmware versions start at 1.0.0. No data-column changes. |
 
 ---
 

@@ -277,6 +277,18 @@ function runContractTests() {
       /"# DeviceName:%s\\n"/,
       '"# DeviceName:" line in core/biomap_session.c',
     );
+    // Firmware and HardwareAddress (docs/csv_schema.md): kept verbatim
+    // with the other device lines, so exports carry them over.
+    locate(
+      sess,
+      /"# Firmware:%s\\n"/,
+      '"# Firmware:" line in core/biomap_session.c',
+    );
+    locate(
+      sess,
+      /"# HardwareAddress:%s\\n"/,
+      '"# HardwareAddress:" line in core/biomap_session.c',
+    );
     const lines = emptyExport();
     assert.match(lines[1], /^# RecordingStartTime:\d+$/);
     assert.match(lines[2], /^# DeviceName:/);

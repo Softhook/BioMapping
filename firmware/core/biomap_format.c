@@ -378,6 +378,13 @@ int biomap_format_file_stamp(char* out, size_t cap, uint16_t year, uint8_t month
     return (n < 0 || (size_t)n >= cap) ? -1 : n;
 }
 
+int biomap_format_mac(char* out, size_t cap, const uint8_t mac[6]) {
+    int n = snprintf(out, cap, "%02X:%02X:%02X:%02X:%02X:%02X",
+                     (unsigned)mac[0], (unsigned)mac[1], (unsigned)mac[2],
+                     (unsigned)mac[3], (unsigned)mac[4], (unsigned)mac[5]);
+    return (n < 0 || (size_t)n >= cap) ? -1 : n;
+}
+
 void bt_stream_pack_packet(uint8_t out[BT_STREAM_PACKET_SIZE],
                            uint32_t timestamp_ms,
                            const GpsPosition* pos,

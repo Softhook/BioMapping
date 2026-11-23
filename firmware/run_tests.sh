@@ -208,3 +208,7 @@ gcc -Wall -Wextra -Werror -I . -I flipper -I tests/shims -o build/test_bt_stream
     tests/shims/bt_ble_mock.c -lm
 ./build/test_bt_stream
 
+
+echo
+echo "== test_build_rev (the build code in each recording's \"# Firmware\" line) =="
+python3 -B tests/test_build_rev.py
