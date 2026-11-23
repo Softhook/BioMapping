@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Peak-detection algorithm check: does our topographic-prominence computation
-# (_topographicProminence(), which _detectPeaksByProminence() gates) agree
+# (_topographicProminence(), which detectPeaksByProminence() gates) agree
 # with NeuroKit2's own (signal_findpeaks()'s "Height" field, which
 # eda_findpeaks(method='neurokit') gates with relative_height_min)? Both run
 # on the exact same phasic curve, so this isolates the prominence ALGORITHM

@@ -242,43 +242,14 @@ export const AnalyzerStats = {
     wPhasic = 0.7,
     range = null,
   ) {
-    const n = phasic.length;
-    if (n === 0) return [];
-    const r0 = range ? range.first : 0;
-    const r1 = range ? range.last + 1 : n;
-    const m = r1 - r0;
-
-    // Compute mean/std in a single pass over tonic and auc
-    // directly, eliminating the two O(N) .map(d => d.val) intermediate arrays
-    // that were previously allocated only to pass into GsrFilter.calculateStats().
-    let tSum = 0,
-      tSumSq = 0,
-      aSum = 0,
-      aSumSq = 0;
-    for (let i = r0; i < r1; i++) {
-      const tv = tonic[i].val;
-      const av = auc[i].val;
-      tSum += tv;
-      tSumSq += tv * tv;
-      aSum += av;
-      aSumSq += av * av;
-    }
-    const tMean = tSum / m;
-    // `|| 1`: a perfectly constant series would otherwise divide by zero.
-    const tStd = Math.sqrt(Math.max(0, tSumSq / m - tMean * tMean)) || 1;
-    const aMean = aSum / m;
-    const aStd = Math.sqrt(Math.max(0, aSumSq / m - aMean * aMean)) || 1;
-
-    const arousalIndex = new Array(n);
-    for (let i = 0; i < n; i++) {
-      const tZ = (tonic[i].val - tMean) / tStd;
-      const aZ = (auc[i].val - aMean) / aStd;
-      arousalIndex[i] = {
-        time: phasic[i].time,
-        val: wTonic * tZ + wPhasic * aZ,
-      };
-    }
-    return arousalIndex;
+    return AnalyzerStats._weightedZSum(
+      phasic,
+      [
+        [tonic, wTonic],
+        [auc, wPhasic],
+      ],
+      range,
+    );
   },
 
   /**
@@ -310,47 +281,55 @@ export const AnalyzerStats = {
     wDensity = 0.45,
     range = null,
   ) {
+    return AnalyzerStats._weightedZSum(
+      phasic,
+      [
+        [tonic, wTonic],
+        [auc, wPhasic],
+        [density, wDensity],
+      ],
+      range,
+    );
+  },
+
+  /**
+   * Row by row, the sum of weight × z-score over `parts` ([series, weight]
+   * pairs, each as long as `phasic`). Each series' mean and std come from
+   * rows range.first..range.last (default: all); every row is scored, and
+   * takes its time from `phasic`.
+   * @private
+   */
+  _weightedZSum(phasic, parts, range) {
     const n = phasic.length;
     if (n === 0) return [];
     const r0 = range ? range.first : 0;
     const r1 = range ? range.last + 1 : n;
     const m = r1 - r0;
-
-    let tSum = 0,
-      tSumSq = 0,
-      aSum = 0,
-      aSumSq = 0,
-      dSum = 0,
-      dSumSq = 0;
-    for (let i = r0; i < r1; i++) {
-      const tv = tonic[i].val;
-      const av = auc[i].val;
-      const dv = density[i].val;
-      tSum += tv;
-      tSumSq += tv * tv;
-      aSum += av;
-      aSumSq += av * av;
-      dSum += dv;
-      dSumSq += dv * dv;
+    const k = parts.length;
+    const mean = new Array(k);
+    const std = new Array(k);
+    for (let p = 0; p < k; p++) {
+      const series = parts[p][0];
+      let sum = 0,
+        sumSq = 0;
+      for (let i = r0; i < r1; i++) {
+        const v = series[i].val;
+        sum += v;
+        sumSq += v * v;
+      }
+      mean[p] = sum / m;
+      // `|| 1`: a perfectly constant series would otherwise divide by zero.
+      std[p] = Math.sqrt(Math.max(0, sumSq / m - mean[p] * mean[p])) || 1;
     }
-    const tMean = tSum / m;
-    const tStd = Math.sqrt(Math.max(0, tSumSq / m - tMean * tMean)) || 1;
-    const aMean = aSum / m;
-    const aStd = Math.sqrt(Math.max(0, aSumSq / m - aMean * aMean)) || 1;
-    const dMean = dSum / m;
-    const dStd = Math.sqrt(Math.max(0, dSumSq / m - dMean * dMean)) || 1;
-
-    const triIndex = new Array(n);
+    const out = new Array(n);
     for (let i = 0; i < n; i++) {
-      const tZ = (tonic[i].val - tMean) / tStd;
-      const aZ = (auc[i].val - aMean) / aStd;
-      const dZ = (density[i].val - dMean) / dStd;
-      triIndex[i] = {
-        time: phasic[i].time,
-        val: wTonic * tZ + wPhasic * aZ + wDensity * dZ,
-      };
+      let val = parts[0][1] * ((parts[0][0][i].val - mean[0]) / std[0]);
+      for (let p = 1; p < k; p++) {
+        val += parts[p][1] * ((parts[p][0][i].val - mean[p]) / std[p]);
+      }
+      out[i] = { time: phasic[i].time, val };
     }
-    return triIndex;
+    return out;
   },
 
   /**

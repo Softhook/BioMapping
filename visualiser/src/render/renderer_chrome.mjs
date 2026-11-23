@@ -30,6 +30,8 @@ export const RendererChrome = {
     else step = 1800;
 
     const firstGridTime = Math.floor(tMin / step) * step;
+    const timeToX = (t) =>
+      map(t, tMin, tMax, GSR_CONST.MARGIN.left, width - GSR_CONST.MARGIN.right);
 
     const gridColor = this.getThemeColor(
       '--canvas-grid',
@@ -46,13 +48,7 @@ export const RendererChrome = {
     strokeWeight(1);
     for (let t = firstGridTime; t <= tMax; t += step) {
       if (t < tMin) continue;
-      const x = map(
-        t,
-        tMin,
-        tMax,
-        GSR_CONST.MARGIN.left,
-        width - GSR_CONST.MARGIN.right,
-      );
+      const x = timeToX(t);
       line(x, GSR_CONST.MARGIN.top, x, yUpperBottom);
       if (!singleGraph)
         line(x, yUpperBottom + GSR_CONST.MARGIN.gap, x, yLowerBottom);
@@ -65,13 +61,7 @@ export const RendererChrome = {
     textSize(10);
     for (let t = firstGridTime; t <= tMax; t += step) {
       if (t < tMin) continue;
-      const x = map(
-        t,
-        tMin,
-        tMax,
-        GSR_CONST.MARGIN.left,
-        width - GSR_CONST.MARGIN.right,
-      );
+      const x = timeToX(t);
 
       let label = `${t.toFixed(t % 1 !== 0 ? 1 : 0)}s`;
       if (t >= 3600) {
@@ -432,7 +422,6 @@ export const RendererChrome = {
       '--canvas-axis',
       'rgba(17, 17, 17, 0.15)',
     );
-    const _textSec = this.getThemeColor('--text-secondary', '#444444');
     const colorPeak = this.getThemeColor('--color-peak', '#d10024');
     const colorFiltered = this.getThemeColor('--color-filtered', '#005bc4');
 

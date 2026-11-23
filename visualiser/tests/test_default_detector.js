@@ -1,6 +1,6 @@
 /**
  * Default peak detector regression suite (the no-flag path →
- * GSRAnalyzer._detectPeaksFullScan).
+ * PeakDetectors.detectPeaksFullScan).
  *
  * The standard trough-to-peak SCR criterion — a local maximum that rose at
  * least peakThreshold above its saddle onset — applied NON-GREEDILY (every

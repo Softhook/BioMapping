@@ -1,7 +1,7 @@
 /**
  * Peak-detection algorithm check, isolated from decomposition: does our
  * topographic-prominence computation (_topographicProminence(), the core of
- * _detectPeaksByProminence()) agree with NeuroKit2's own prominence
+ * detectPeaksByProminence()) agree with NeuroKit2's own prominence
  * computation (signal_findpeaks()'s "Height" field, which its default EDA
  * peak detector - eda_findpeaks(method='neurokit') -> signal_findpeaks(...,
  * relative_height_min=0.1, relative_max=True) - gates on)?
@@ -54,7 +54,7 @@ if (mode === 'dump') {
   const times = a.phasic.map((d) => d.time);
   const prom = a._topographicProminence(vals);
 
-  // Local maxima, same definition _detectPeaksByProminence/_detectPeaksFullScan
+  // Local maxima, same definition detectPeaksByProminence/detectPeaksFullScan
   // use: vals[i] > vals[i-1] && vals[i] >= vals[i+1].
   const localMaxima = [];
   for (let i = 1; i < vals.length - 1; i++) {

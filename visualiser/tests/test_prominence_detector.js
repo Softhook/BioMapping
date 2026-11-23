@@ -1,6 +1,6 @@
 /**
  * Prominence peak detector regression suite (params.usePeakProminence →
- * GSRAnalyzer._detectPeaksByProminence).
+ * PeakDetectors.detectPeaksByProminence).
  *
  * One non-greedy pass: a response is any phasic local maximum whose TOPOGRAPHIC
  * PROMINENCE >= peakThreshold — conductance rose at least that much above the

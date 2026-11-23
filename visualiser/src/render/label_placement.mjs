@@ -278,7 +278,6 @@ export const GSRLabelManager = {
       labelExtraStyle = '',
     } = opts;
 
-    const _H = 18;
     const box = dirResult.box;
     const W = box.right - box.left;
     const DS = dotSize;

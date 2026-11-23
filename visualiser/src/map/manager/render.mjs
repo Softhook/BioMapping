@@ -34,7 +34,7 @@ export class GSRMapRender extends GSRMapToggles {
     const data = analyzer.raw;
     if (!data || data.length === 0) return;
 
-    // Resolve the active track's layerGroup — its single
+    // Make sure the active track has its layerGroup on the map — its single
     // render handle. Path/peak/hotspot layers below are added INTO this group
     // (which is on the map), never directly onto the map. When there is no
     // managed track for this analyzer (e.g. cacheKey 'single' fallback), the
@@ -42,7 +42,7 @@ export class GSRMapRender extends GSRMapToggles {
     const activeTrack = AppState.collectiveManager
       ? AppState.collectiveManager.getTrack(AppState.activeTrackId)
       : null;
-    const _layerGroup = this._getTrackLayerGroup(activeTrack);
+    this._getTrackLayerGroup(activeTrack);
 
     // Use cached GPS pipeline result (cache keyed by active track id)
     const cacheKey = AppState.activeTrackId || 'single';

@@ -6,10 +6,9 @@
  * The three phasic-peak-detection algorithms used by GSRAnalyzer.
  * Pure functions: signal arrays and analyzer state (sampleRate, the filtered
  * series, label lookups) are passed in explicitly via a `ctx` object rather
- * than read off `this`. GSRAnalyzer keeps thin instance wrappers
- * (`_detectPeaksFullScan`, `_detectPeaksByProminence`, `_detectPeaksFromCurve`,
- * `_topographicProminence`, `_prominenceNMS`, `_buildPeakWithMetrics`) that
- * build the ctx from `this.*` and delegate here.
+ * than read off `this`. GSRAnalyzer builds the ctx from `this.*`
+ * (`_peakDetectionCtx`) and calls in through `_runPeakDetector` and
+ * `_detectPeaksFromCurve`.
  *
  * `ctx` shape used throughout this module:
  *   {

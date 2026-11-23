@@ -254,7 +254,7 @@ export const GSR_CONST = {
   MICROSIEMENS_MIN_AVG: 100, // Average above this but ≤ threshold → µS/1000
   MICROSIEMENS_MAX_AVG: 50000,
   // Hard ceiling for a single SCR amplitude, used by the prominence detector's
-  // artefact guard (see _prominenceNMS). Real SCRs in even the most
+  // artefact guard (see PeakDetectors.prominenceNMS). Real SCRs in even the most
   // reactive subjects rarely exceed ~5 µS; 20 µS is 4× that and gives
   // comfortable headroom for unusual recordings without admitting sensor
   // artefacts. Electrode disconnects, motion artefacts and ADC rail-hits
@@ -277,7 +277,7 @@ export const GSR_CONST = {
   // stricter NS-SCR census.
   PEAK_MIN_GAP: 1.3,
   PEAK_RECOVERY_BREAK: 0.1, // Break threshold for recovery search
-  // Prominence detector (_prominenceNMS, GSR_DEFAULT.usePeakProminence): trailing
+  // Prominence detector (PeakDetectors.prominenceNMS, GSR_DEFAULT.usePeakProminence): trailing
   // window (s) over which the phasic minimum is taken for the artefact-ceiling
   // baseline-amplitude check. Long enough to see under a stacked burst of SCRs
   // to the pre-burst level, short enough not to reach back to an unrelated

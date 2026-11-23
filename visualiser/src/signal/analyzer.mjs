@@ -849,12 +849,13 @@ export class GSRAnalyzer {
     //     applied non-greedily — every local maximum that rose >= peakThreshold
     //     from its saddle onset, plus Min SNR and Min Peak Quality, one per
     //     refractory window. Keeps SCRs that ride the rising edge of a larger
-    //     response (no valley → zero prominence) (see _detectPeaksFullScan()).
+    //     response (no valley → zero prominence) (see
+    //     PeakDetectors.detectPeaksFullScan()).
     //   - prominence (params.usePeakProminence): one non-greedy pass — every
     //     local maximum whose topographic prominence >= peakThreshold, i.e.
     //     conductance rose that much above the level it last recovered to.
     //     Resolves shoulders in one step; the only per-peak gate is Min Peak
-    //     Quality (see _detectPeaksByProminence()).
+    //     Quality (see PeakDetectors.detectPeaksByProminence()).
     //   - deconvolution (params.useDeconvolution): one global SCR deconvolution
     //     pass that replaces this.phasic with a resolved, superposition-free
     //     reconstruction and builds peaks from its driver impulses. Morphology
@@ -865,7 +866,7 @@ export class GSRAnalyzer {
     // sparsEDA > deconvolution > full-scan (default).
     if (params.usePeakProminence) {
       this._clearDeconvState();
-      this._detectPeaksByProminence(params);
+      this._runPeakDetector(PeakDetectors.detectPeaksByProminence, params);
     } else if (params.useCvxEDA) {
       this._runDeconvolutionPipeline(phasicVals, {
         ...params,
@@ -880,7 +881,7 @@ export class GSRAnalyzer {
       this._runDeconvolutionPipeline(phasicVals, params);
     } else {
       this._clearDeconvState();
-      this._detectPeaksFullScan(params);
+      this._runPeakDetector(PeakDetectors.detectPeaksFullScan, params);
     }
 
     // 5b. Hotspots are chosen from the new peaks when first asked for (see
@@ -1846,15 +1847,6 @@ export class GSRAnalyzer {
   }
 
   /**
-   * Quality score (0-1) for a deconvolution-mode peak. Delegates to
-   * PeakShape — see that function's doc comment for why this differs from
-   * _computePeakQuality().
-   */
-  _computeDeconPeakQuality(peak) {
-    return PeakShape.computeDeconPeakQuality(peak);
-  }
-
-  /**
    * "Memorability" / salience score (0-1) for a peak. Delegates to
    * PeakShape — see that function's doc comment for the blend.
    */
@@ -2004,8 +1996,8 @@ export class GSRAnalyzer {
    * so a peak that is found on the same sample again keeps them. The
    * time-keyed stores (_userPeakLabels, _userPeakExclusions) are then applied
    * once detection finishes and cover peaks that moved. Called at the top of
-   * every detector (_detectPeaksFullScan / _detectPeaksByProminence /
-   * _runDeconvolutionPipeline) before this.peaks is cleared.
+   * every detector (_runPeakDetector / _runDeconvolutionPipeline) before
+   * this.peaks is cleared.
    *
    * Each labelled peak's store entry is moved to the peak's current time, so
    * a label follows its peak as settings change. It is moved, not copied: a
@@ -2045,80 +2037,18 @@ export class GSRAnalyzer {
   }
 
   /**
-   * Above-threshold topographic-prominence local maxima under refractory-period
-   * non-max suppression. Delegates to PeakDetectors.
-   * @private
-   */
-  _prominenceNMS(vals, prom, threshold, minGap, baselineWin) {
-    return PeakDetectors.prominenceNMS(
-      vals,
-      prom,
-      threshold,
-      minGap,
-      baselineWin,
-    );
-  }
-
-  /**
-   * Prominence-based phasic peak detector (params.usePeakProminence).
-   * Delegates to PeakDetectors.detectPeaksByProminence — see that function's
-   * doc comment for the algorithm.
-   * @param {object} params - Analysis params (peakThreshold, minPeakQuality).
-   * @private
-   */
-  _detectPeaksByProminence(params) {
-    const { oldLabels, oldExcluded } = this._preserveLabelsAndExclusions();
-    this.peaks = PeakDetectors.detectPeaksByProminence(
-      this.phasic,
-      this.sampleRate,
-      params,
-      oldLabels,
-      oldExcluded,
-      this._peakDetectionCtx(),
-    );
-    this._assignLabelsToPeaks(this.peaks);
-    this._assignExclusionsToPeaks();
-  }
-
-  /**
-   * Build a full peak object at apex sample `idx` with onset at `onsetIdx`.
-   * Delegates to PeakDetectors.
-   * @private
-   */
-  _buildPeakWithMetrics(
-    idx,
-    onsetIdx,
-    vals,
-    times,
-    prom,
-    noiseHalfWin,
-    oldLabels,
-    oldExcluded,
-  ) {
-    return PeakDetectors.buildPeakWithMetrics(
-      idx,
-      onsetIdx,
-      vals,
-      times,
-      prom,
-      noiseHalfWin,
-      oldLabels,
-      oldExcluded,
-      this._peakDetectionCtx(),
-    );
-  }
-
-  /**
-   * Full-scan phasic peak detector — the DEFAULT (no params flag; the else
-   * branch of analyze()'s detector selection). Delegates to
-   * PeakDetectors.detectPeaksFullScan — see that function's doc comment for
-   * the algorithm.
+   * Run one of the phasic-only detectors over this.phasic and keep the
+   * labels and exclusions of peaks found again:
+   * PeakDetectors.detectPeaksFullScan (the default) or
+   * PeakDetectors.detectPeaksByProminence (params.usePeakProminence). See
+   * those functions' doc comments for the algorithms.
+   * @param {Function} detect - one of the two PeakDetectors functions.
    * @param {object} params - Analysis params (peakThreshold, shapeMinSnr, minPeakQuality).
    * @private
    */
-  _detectPeaksFullScan(params) {
+  _runPeakDetector(detect, params) {
     const { oldLabels, oldExcluded } = this._preserveLabelsAndExclusions();
-    this.peaks = PeakDetectors.detectPeaksFullScan(
+    this.peaks = detect(
       this.phasic,
       this.sampleRate,
       params,
@@ -2129,6 +2059,7 @@ export class GSRAnalyzer {
     this._assignLabelsToPeaks(this.peaks);
     this._assignExclusionsToPeaks();
   }
+
   /**
    * Continuous Temporal Peak Density (Non-Specific SCR Frequency), in
    * peaks/minute. Delegates to AnalyzerStats.computeTemporalPeakDensity —
