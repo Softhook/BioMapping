@@ -21,9 +21,9 @@ import tempfile
 
 import pcbnew
 
-from .kicad import HARDWARE, board_file, cli
+from .kicad import OUT, board_file, cli
 
-OUT = os.path.join(HARDWARE, "out", "biomap_cardputer_print.pdf")
+PDF = os.path.join(OUT, "biomap_cardputer_print.pdf")
 LAYERS = "F.Cu,F.SilkS,F.Fab,Edge.Cuts,Dwgs.User,Cmts.User"
 NOTES = pcbnew.Cmts_User          # our own words, ruler and screw marks
 
@@ -160,7 +160,7 @@ def ruler(board, at, length=100):
     words(board, x0 + 20, y0 - 8, "Each ruler must measure exactly 100 mm.", 2.2)
 
 
-def make(out=OUT):
+def make(out=PDF):
     board = pcbnew.LoadBoard(board_file("biomap_cardputer", ".kicad_pcb"))
     tail = pcbnew.LoadBoard(board_file("biomap_cardputer_tail", ".kicad_pcb"))
     for t in list(board.GetTracks()):        # tracks and vias

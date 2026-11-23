@@ -223,11 +223,6 @@ static inline bool has_rf(int mode) {
         || mode == BioMapModeDiagnostics;
 }
 
-// Expand a 2-digit NMEA year to a 4-digit calendar year (Y2K pivot at 80).
-static inline int gps_year_expand(int y) {
-    return y + (y < 80 ? 2000 : 1900);
-}
-
 // Clamp a float to the inclusive [lo, hi] range. Callers pass finite values
 // (NaN would pass straight through).
 static inline float clampf(float v, float lo, float hi) {

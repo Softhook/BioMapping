@@ -7,12 +7,10 @@ Quick Look crops wide A3 sheets, so schematics go through PDF instead."""
 import os
 import subprocess
 
-from .kicad import BOARDS, HARDWARE, board_file, cli
-
-DEFAULT_OUT = os.path.join(HARDWARE, "out")
+from .kicad import BOARDS, OUT, board_file, cli
 
 
-def render(out=DEFAULT_OUT, names=BOARDS):
+def render(out=OUT, names=BOARDS):
     os.makedirs(out, exist_ok=True)
     for b in names:
         pdf = os.path.join(out, f"{b}_sch.pdf")

@@ -279,7 +279,6 @@ def run_resolution_benchmark():
 
         # ENOB (Effective Number of Bits relative to full scale)
         fsr = PGA_SPECS[pga]["fsr"]
-        enob_ideal = math.log2(fsr / lsb)
         enob_opa = math.log2(fsr / math.sqrt(lsb**2 + (OPAMP_MODELS["opa2333"]["noise_pp"])**2))
         enob_mcp = math.log2(fsr / math.sqrt(lsb**2 + (OPAMP_MODELS["mcp602_typ"]["noise_pp"])**2))
 
@@ -416,15 +415,11 @@ def generate_master_html_report(output_path, track_name, timestamps, g_true, tra
         diff_sub[key] = [round(data["g_sim"][i] - g_true[i], 2) for i in range(0, len(g_true), step)]
         scl_sub[key] = [round(data["scl"][i], 2) for i in range(0, len(data["scl"]), step)]
 
-    scl_true_sub = [round(track_results["ideal"]["scl"][i], 2) for i in range(0, len(track_results["ideal"]["scl"]), step)]
-
     # Resolution chart data
     g_res_axis = [d["conductance_ns"] for d in res_data]
     res_opa = [round(d["delta_g_opa"], 3) for d in res_data]
     res_mcp_typ = [round(d["delta_g_mcp_typ"], 3) for d in res_data]
     res_mcp_worst = [round(d["delta_g_mcp_worst"], 3) for d in res_data]
-    enob_opa = [round(d["enob_opa"], 2) for d in res_data]
-    enob_mcp = [round(d["enob_mcp"], 2) for d in res_data]
 
     # Thermal sweep chart data (for 470k baseline)
     ref_470k = thermal_data["curves"]["470 kΩ (Standard baseline)"]
@@ -877,9 +872,6 @@ def main():
     pos_args = [a for a in args if not a.startswith("--")]
     if pos_args:
         track_path = pos_args[0]
-
-    run_res_only = "--resolution" in args
-    run_therm_only = "--thermal" in args
 
     print("=" * 80)
     print("  BioMapping GSR Hardware Simulation: OPA2333 vs MCP602")

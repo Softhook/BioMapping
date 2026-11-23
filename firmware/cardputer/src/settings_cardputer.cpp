@@ -93,8 +93,8 @@ void settings_cardputer_load(void) {
 
     BioMapCalibration cal = {};
     if(read_file_exact(CAL_PATH, &cal, sizeof(cal))) {
-        switch(biomap_calibration_check(&cal)) {
-        case CalRecordOk:
+        CalRecordStatus status = biomap_calibration_check(&cal);
+        if(status == CalRecordOk) {
             g_settings.cal_active = true;
             g_settings.cal_gain = cal.gain;
             g_settings.cal_zero_counts = cal.zero_counts;
@@ -105,20 +105,9 @@ void settings_cardputer_load(void) {
             Serial.printf("[Settings] Loaded calibration v%lu: gain=%.4f zero=%.1f r2=%.4f time=%lu\n",
                           (unsigned long)cal.version, (double)cal.gain, (double)cal.zero_counts,
                           (double)cal.r_squared, (unsigned long)cal.timestamp);
-            break;
-        case CalRecordBadMagic:
-            Serial.println("[Settings] warning: calibration magic mismatch");
-            break;
-        case CalRecordBadVersion:
-            Serial.printf("[Settings] warning: calibration version mismatch (got %lu, want %d)\n",
-                          (unsigned long)cal.version, BIOMAP_CAL_VERSION);
-            break;
-        case CalRecordBadChecksum:
-            Serial.println("[Settings] warning: calibration checksum mismatch");
-            break;
-        case CalRecordOutOfBounds:
-            Serial.println("[Settings] warning: calibration values out of bounds");
-            break;
+        } else {
+            Serial.printf("[Settings] warning: calibration file ignored: %s\n",
+                          biomap_calibration_status_text(status));
         }
     }
 
@@ -150,16 +139,8 @@ bool settings_cardputer_save_cal(float gain, float zero_counts, float r_squared,
     g_settings.cal_r_squared = r_squared;
     memcpy(g_settings.cal_noise_std_dev, noise_std_dev, sizeof(g_settings.cal_noise_std_dev));
 
-    BioMapCalibration cal = {};
-    cal.magic       = BIOMAP_CAL_MAGIC;
-    cal.version     = BIOMAP_CAL_VERSION;
-    cal.gain        = gain;
-    cal.zero_counts = zero_counts;
-    cal.timestamp   = timestamp;
-    cal.r_squared   = r_squared;
-    memcpy(cal.noise_std_dev, noise_std_dev, sizeof(cal.noise_std_dev));
-    cal.checksum    = biomap_calibration_checksum(&cal);
-
+    BioMapCalibration cal =
+        biomap_calibration_make(gain, zero_counts, timestamp, r_squared, noise_std_dev);
     bool ok = write_file_atomic(CAL_PATH_TMP, CAL_PATH, &cal, sizeof(cal), "Calibration");
     if(ok) {
         Serial.printf("[Settings] Saved calibration v%d: gain=%.4f zero=%.1f r2=%.4f time=%lu\n",

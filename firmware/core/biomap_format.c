@@ -254,6 +254,33 @@ CalRecordStatus biomap_calibration_check(const BioMapCalibration* cal) {
     return CalRecordOk;
 }
 
+BioMapCalibration biomap_calibration_make(float gain, float zero_counts, uint32_t timestamp,
+                                          float r_squared,
+                                          const float noise_std_dev[CAL_POINTS]) {
+    BioMapCalibration cal;
+    memset(&cal, 0, sizeof(cal));
+    cal.magic = BIOMAP_CAL_MAGIC;
+    cal.version = BIOMAP_CAL_VERSION;
+    cal.gain = gain;
+    cal.zero_counts = zero_counts;
+    cal.timestamp = timestamp;
+    cal.r_squared = r_squared;
+    memcpy(cal.noise_std_dev, noise_std_dev, sizeof(cal.noise_std_dev));
+    cal.checksum = biomap_calibration_checksum(&cal);
+    return cal;
+}
+
+const char* biomap_calibration_status_text(CalRecordStatus status) {
+    switch(status) {
+    case CalRecordOk: return "ok";
+    case CalRecordBadMagic: return "not a calibration file";
+    case CalRecordBadVersion: return "older format, run the wizard again";
+    case CalRecordBadChecksum: return "checksum mismatch";
+    case CalRecordOutOfBounds: return "values out of bounds";
+    }
+    return "?";
+}
+
 uint32_t biomap_settings_checksum(const BioMapSettings* s) {
     return fnv1a_checksum(s, offsetof(BioMapSettings, checksum));
 }

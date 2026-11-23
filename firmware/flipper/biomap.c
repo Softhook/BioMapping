@@ -170,8 +170,8 @@ bool biomap_load_calibration(BioMapApp* app) {
         BioMapCalibration cal;
         size_t bytes_read = storage_file_read(file, &cal, sizeof(BioMapCalibration));
         if(bytes_read == sizeof(BioMapCalibration)) {
-            switch(biomap_calibration_check(&cal)) {
-            case CalRecordOk:
+            CalRecordStatus status = biomap_calibration_check(&cal);
+            if(status == CalRecordOk) {
                 furi_mutex_acquire(app->mutex, FuriWaitForever);
                 app->cal_active = true;
                 app->cal_gain = cal.gain;
@@ -186,22 +186,9 @@ bool biomap_load_calibration(BioMapApp* app) {
                            "Loaded calibration v%lu: gain=%.4f zero=%.1f timestamp=%lu r2=%.4f",
                            (unsigned long)cal.version, (double)cal.gain, (double)cal.zero_counts,
                            (unsigned long)cal.timestamp, (double)cal.r_squared);
-                break;
-            case CalRecordBadMagic:
-                FURI_LOG_W("BioMap", "Calibration file magic mismatch!");
-                break;
-            case CalRecordBadVersion:
-                // A file from an older format is ignored: run the wizard
-                // again.
-                FURI_LOG_W("BioMap", "Calibration version mismatch (got %lu, want %d) — ignoring",
-                           (unsigned long)cal.version, BIOMAP_CAL_VERSION);
-                break;
-            case CalRecordBadChecksum:
-                FURI_LOG_W("BioMap", "Calibration checksum mismatch!");
-                break;
-            case CalRecordOutOfBounds:
-                FURI_LOG_W("BioMap", "Calibration values out of bounds!");
-                break;
+            } else {
+                FURI_LOG_W("BioMap", "Calibration file ignored: %s",
+                           biomap_calibration_status_text(status));
             }
         }
         storage_file_close(file);
@@ -228,16 +215,8 @@ void biomap_save_calibration(BioMapApp* app, float gain, float zero_counts, floa
     memcpy(app->cal_noise_std_dev, noise_std_dev, sizeof(app->cal_noise_std_dev));
     furi_mutex_release(app->mutex);
 
-    BioMapCalibration cal;
-    cal.magic   = BIOMAP_CAL_MAGIC;
-    cal.version = BIOMAP_CAL_VERSION;
-    cal.gain    = gain;
-    cal.zero_counts = zero_counts;
-    cal.timestamp = timestamp;
-    cal.r_squared = r_squared;
-    memcpy(cal.noise_std_dev, noise_std_dev, sizeof(cal.noise_std_dev));
-    cal.checksum = biomap_calibration_checksum(&cal);
-
+    BioMapCalibration cal =
+        biomap_calibration_make(gain, zero_counts, timestamp, r_squared, noise_std_dev);
     if(write_file_atomic(app->storage, BIOMAP_CAL_PATH_TMP, BIOMAP_CAL_PATH,
                          &cal, sizeof(cal), "Calibration")) {
         FURI_LOG_I("BioMap",

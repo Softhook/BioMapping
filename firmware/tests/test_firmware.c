@@ -205,17 +205,6 @@ void test_rel_seconds_conversion() {
     printf("  -> Pass\n");
 }
 
-void test_gps_year_expand_pivot() {
-    printf("Running test_gps_year_expand_pivot...\n");
-    // NMEA 2-digit years pivot at 80: 80-99 -> 1980-1999, 00-79 -> 2000-2079.
-    assert(gps_year_expand(0) == 2000);
-    assert(gps_year_expand(26) == 2026);
-    assert(gps_year_expand(79) == 2079);
-    assert(gps_year_expand(80) == 1980);
-    assert(gps_year_expand(99) == 1999);
-    printf("  -> Pass\n");
-}
-
 void test_update_graph_rings_step_at_their_own_rate() {
     printf("Running test_update_graph_rings_step_at_their_own_rate...\n");
     Pipeline p = {0};
@@ -1013,19 +1002,8 @@ void test_calibration_noise_grade() {
 // back from the SD card.
 
 static BioMapCalibration valid_cal_record(void) {
-    BioMapCalibration cal;
-    memset(&cal, 0, sizeof(cal)); // deterministic padding bytes for the checksum
-    cal.magic     = BIOMAP_CAL_MAGIC;
-    cal.version   = BIOMAP_CAL_VERSION;
-    cal.gain      = 0.98f;
-    cal.zero_counts = -313.0f;
-    cal.timestamp = 1700000000u;
-    cal.r_squared = 0.991f;
-    cal.noise_std_dev[0] = 0.5f;
-    cal.noise_std_dev[1] = 2.0f;
-    cal.noise_std_dev[2] = 4.5f;
-    cal.checksum  = biomap_calibration_checksum(&cal);
-    return cal;
+    const float noise[CAL_POINTS] = {0.5f, 2.0f, 4.5f};
+    return biomap_calibration_make(0.98f, -313.0f, 1700000000u, 0.991f, noise);
 }
 
 // Re-seal after an edit so only the value check can reject it.
@@ -1068,6 +1046,29 @@ void test_cal_check_each_gate() {
     bad = cal; bad.gain = NAN;                assert(check_resealed(bad) == CalRecordOutOfBounds);
     bad = cal; bad.noise_std_dev[2] = NAN;    assert(check_resealed(bad) == CalRecordOutOfBounds);
     bad = cal; bad.noise_std_dev[0] = -0.1f;  assert(check_resealed(bad) == CalRecordOutOfBounds);
+    printf("  -> Pass\n");
+}
+
+// biomap_calibration_make() is what both devices write: every field lands
+// where the loader reads it, and each failure has its own log text.
+void test_cal_make_fields_and_status_text() {
+    printf("Running test_cal_make_fields_and_status_text...\n");
+    BioMapCalibration cal = valid_cal_record();
+    assert(cal.magic == BIOMAP_CAL_MAGIC && cal.version == BIOMAP_CAL_VERSION);
+    assert(cal.gain == 0.98f && cal.zero_counts == -313.0f);
+    assert(cal.timestamp == 1700000000u && cal.r_squared == 0.991f);
+    assert(cal.noise_std_dev[0] == 0.5f && cal.noise_std_dev[1] == 2.0f &&
+           cal.noise_std_dev[2] == 4.5f);
+    assert(cal.checksum == biomap_calibration_checksum(&cal));
+
+    const CalRecordStatus fails[] = {CalRecordBadMagic, CalRecordBadVersion,
+                                     CalRecordBadChecksum, CalRecordOutOfBounds};
+    for(size_t i = 0; i < sizeof(fails) / sizeof(fails[0]); i++) {
+        const char* text = biomap_calibration_status_text(fails[i]);
+        assert(strcmp(text, "?") != 0 && strcmp(text, "ok") != 0);
+        for(size_t j = 0; j < i; j++)
+            assert(strcmp(text, biomap_calibration_status_text(fails[j])) != 0);
+    }
     printf("  -> Pass\n");
 }
 
@@ -1244,7 +1245,6 @@ int main() {
     test_conductance_conversion();
     test_unix_epoch_conversion();
     test_rel_seconds_conversion();
-    test_gps_year_expand_pivot();
     test_update_graph_rings_step_at_their_own_rate();
     test_update_graph_zoomed_out_ring_has_history();
     test_update_graph_buffer_wraparound();
@@ -1275,6 +1275,7 @@ int main() {
     printf("========================================\n");
     test_cal_checksum_covers_every_field();
     test_cal_check_each_gate();
+    test_cal_make_fields_and_status_text();
     test_cal_check_bounds_edges();
     test_settings_record_valid();
 

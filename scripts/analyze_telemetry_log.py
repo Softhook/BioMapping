@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-Analyze BioMap serial telemetry logs.
+Analyze a Flipper's serial log: the once-a-second telemetry line that
+log_telemetry() in firmware/core/biomap_session.c writes while recording,
 
-Supports both older telemetry lines:
-  telemetry tick_dt=... gps_drop=... flush=... fill=...
+  <ms> [I][BioMap] telemetry tick_dt=... gps_drop=... nmea_fail=... gps_reinit=...
+      gsr_hz=... i2c=... rf=... ret=... flush_peak=... fill=... peak=... over=... flfail=...
 
-and newer lines with windowed diagnostics:
-  telemetry tick_dt=... tick_max=... ovr150=... flush_last=... flush_max=...
+and the heartbeat line beside it.
 
 Usage:
   python3 scripts/analyze_telemetry_log.py tracks/seriallog.txt
@@ -25,6 +25,7 @@ from typing import Dict, Iterable, List, Tuple
 
 TELEMETRY_RE = re.compile(r"(\d+)\s+\[[A-Z]\]\[BioMap\]\s+telemetry\s+(.*)$")
 HEARTBEAT_RE = re.compile(r"(\d+)\s+\[[A-Z]\]\[BioMap\]\s+heartbeat\s+(.*)$")
+COUNTERS = ["gps_drop", "nmea_fail", "gps_reinit", "over", "flfail"]
 
 
 def _parse_number(raw: str):
@@ -162,27 +163,12 @@ def print_summary(
         dur_s = (t1 - t0) / 1000.0
         print(f"Telemetry span: {t0} -> {t1} ms ({dur_s:.1f}s)")
 
-    if heartbeat:
-        sd_dry_vals = sorted(set(int(v) for v in _numeric_series(heartbeat, "sd_dry")))
-        if sd_dry_vals:
-            print(f"Heartbeat sd_dry values: {sd_dry_vals}")
-
     if not telemetry:
         print("No telemetry rows found.")
         return
 
     print("\nCore distributions:")
-    for key in [
-        "tick_dt",
-        "tick_max",
-        "flush",
-        "flush_last",
-        "flush_max",
-        "flush_peak",
-        "fill",
-        "peak",
-        "gsr_hz",
-    ]:
+    for key in ["tick_dt", "flush_peak", "fill", "peak", "gsr_hz"]:
         vals = _numeric_series(telemetry, key)
         if not vals:
             continue
@@ -197,15 +183,7 @@ def print_summary(
 
     print("\nCounter final values:")
     last = telemetry[-1]
-    for key in [
-        "gps_drop",
-        "nmea_fail",
-        "over",
-        "flfail",
-        "ovr150",
-        "ovr250",
-        "ovr500",
-    ]:
+    for key in COUNTERS:
         v = last.get(key)
         if isinstance(v, (int, float)):
             print(f"  {key:10s} {int(v)}")
@@ -213,23 +191,13 @@ def print_summary(
     print("\nDetected events:")
     event_rows: List[str] = []
 
-    for key in ["gps_drop", "nmea_fail", "over", "flfail", "ovr150", "ovr250", "ovr500"]:
-        jumps = _find_counter_jumps(telemetry, key)
-        for ts_ms, prev, cur in jumps:
+    # flush_peak is the slowest SD flush so far, so each rise is a new worst one
+    for key in COUNTERS + ["flush_peak"]:
+        for ts_ms, prev, cur in _find_counter_jumps(telemetry, key):
             event_rows.append(f"{ts_ms:>10d} ms  counter {key} {prev}->{cur}")
 
-    if _numeric_series(telemetry, "tick_max"):
-        for ts_ms, v in _find_spikes(telemetry, "tick_max", tick_threshold):
-            event_rows.append(f"{ts_ms:>10d} ms  tick_max spike {v:.1f} ms")
-    else:
-        for ts_ms, v in _find_spikes(telemetry, "tick_dt", tick_threshold):
-            event_rows.append(f"{ts_ms:>10d} ms  tick_dt spike {v:.1f} ms")
-
-    for key, label in [("flush_max", "flush_max"), ("flush_last", "flush_last"), ("flush", "flush")]:
-        if _numeric_series(telemetry, key):
-            for ts_ms, v in _find_spikes(telemetry, key, tick_threshold):
-                event_rows.append(f"{ts_ms:>10d} ms  {label} spike {v:.1f} ms")
-            break
+    for ts_ms, v in _find_spikes(telemetry, "tick_dt", tick_threshold):
+        event_rows.append(f"{ts_ms:>10d} ms  tick_dt spike {v:.1f} ms")
 
     if not event_rows:
         print("  none")
@@ -248,7 +216,7 @@ def main() -> None:
         "--tick-threshold",
         type=float,
         default=150.0,
-        help="Spike threshold in ms for tick/flush events (default: 150)",
+        help="Spike threshold in ms for tick_dt events (default: 150)",
     )
     args = parser.parse_args()
 

@@ -52,15 +52,3 @@ bool keys_to_session(const Keyboard_Class::KeysState& st, SessionKey* out) {
     if(st.word.empty()) return false;
     return key_map_char(st.word.back(), out);
 }
-
-const char* keys_session_name(SessionKey key) {
-    switch(key) {
-    case SessionKeyOk: return "OK";
-    case SessionKeyBack: return "Back";
-    case SessionKeyUp: return "Up";
-    case SessionKeyDown: return "Down";
-    case SessionKeyLeft: return "Left";
-    case SessionKeyRight: return "Right";
-    }
-    return "?";
-}

@@ -28,7 +28,7 @@ import time
 
 import pcbnew
 
-from .kicad import HARDWARE, KICAD_PYTHON, board_file
+from .kicad import KICAD_PYTHON, OUT, board_file
 
 try:
     import numpy as np
@@ -427,8 +427,8 @@ def check(name, pictures=False, breaks=False):
         print(f"    the whole board sits {1e3 * at['R3.2']:.2f} mV above the Cardputer's ground: "
               f"tail ground wires {r} mOhm, header pin {1e3 * R_PIN:.0f} mOhm")
     if pictures:
-        os.makedirs(os.path.join(HARDWARE, "out"), exist_ok=True)
-        picture(os.path.join(HARDWARE, "out", f"{name}_ground.png"), c, v, f"GPS drawing {1e3 * GPS_A:.0f} mA")
+        os.makedirs(OUT, exist_ok=True)
+        picture(os.path.join(OUT, f"{name}_ground.png"), c, v, f"GPS drawing {1e3 * GPS_A:.0f} mA")
     t = time.time()
     _, at = case.run([(["U2.3"], adc_amps)])
     print(f"  ADC holding SDA low against its pull-up, {1e3 * adc_amps:.1f} mA ({time.time() - t:.0f} s):")

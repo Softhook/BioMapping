@@ -607,7 +607,7 @@ def draw_tia(s, x0, y0):
     s.wire("J2.2", "R4.1")
     ux = p2[0] + g(18)                         # U1A "-" input sits on electrode 2's row
     s.put("U1", ux, p2[1] + g(1), unit=1)
-    minus, plus, out = s.pins["U1.2"], s.pins["U1.3"], s.pins["U1.1"]
+    minus, out = s.pins["U1.2"], s.pins["U1.1"]
     node = (minus[0] - g(4), minus[1])
     s.wire("R4.2", node, "U1.2")
     # feedback: R5 and C2 in parallel above the amplifier

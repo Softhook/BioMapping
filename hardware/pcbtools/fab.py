@@ -21,9 +21,9 @@ import tempfile
 import zipfile
 
 from . import pipeline
-from .kicad import HARDWARE, board_file, cli
+from .kicad import HARDWARE, OUT, board_file, cli
 
-OUT = os.path.join(HARDWARE, "out", "fab")
+FAB_OUT = os.path.join(OUT, "fab")
 
 RIGID = ["F.Cu", "B.Cu", "F.Paste", "B.Paste", "F.Silkscreen", "B.Silkscreen", "F.Mask", "B.Mask", "Edge.Cuts"]
 # The tail: no paste (nothing is machine-soldered). The mask layers become the
@@ -163,7 +163,7 @@ def make(names):
     for name in names:
         spec = BOARDS[name]
         pcb = board_file(name, ".kicad_pcb")
-        folder = os.path.join(OUT, name)
+        folder = os.path.join(FAB_OUT, name)
         shutil.rmtree(folder, ignore_errors=True)
         gfolder = os.path.join(folder, "gerbers")
         os.makedirs(gfolder)

@@ -207,6 +207,14 @@ uint32_t biomap_calibration_checksum(const BioMapCalibration* cal);
 // first failure.
 CalRecordStatus biomap_calibration_check(const BioMapCalibration* cal);
 
+// A record ready to write: magic, version and checksum filled in.
+BioMapCalibration biomap_calibration_make(float gain, float zero_counts, uint32_t timestamp,
+                                          float r_squared,
+                                          const float noise_std_dev[CAL_POINTS]);
+
+// Why a loaded record was ignored, for the log ("checksum mismatch").
+const char* biomap_calibration_status_text(CalRecordStatus status);
+
 // Options-menu settings (Auto-zoom, Backlight, Sound, GPS Profile, Debug
 // Fields). A file whose version doesn't match BIOMAP_SETTINGS_VERSION fails
 // biomap_settings_valid() and the app falls back to defaults — so a version

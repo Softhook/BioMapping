@@ -22,15 +22,12 @@ def V(x, y):
 
 def load_parts(board, net_path, place):
     net = parse(open(net_path).read())
-    nets = {}
+    nets, padnet = {}, {}
     for n in find(find(net, "nets")[0], "net"):
         nm = find(n, "name")[0][1]
         ni = pcbnew.NETINFO_ITEM(board, nm); board.Add(ni); nets[nm.lstrip("/")] = ni
-    padnet = {}
-    for n in find(find(net, "nets")[0], "net"):
-        nm = find(n, "name")[0][1].lstrip("/")
         for nd in find(n, "node"):
-            padnet[(find(nd, "ref")[0][1], find(nd, "pin")[0][1])] = nm
+            padnet[(find(nd, "ref")[0][1], find(nd, "pin")[0][1])] = nm.lstrip("/")
     fps = {}
     for c in find(find(net, "components")[0], "comp"):
         ref = find(c, "ref")[0][1]; val = find(c, "value")[0][1]

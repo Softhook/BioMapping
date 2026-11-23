@@ -284,8 +284,7 @@ see the checksum bug below for why that matters.
 timeout countdown/expiry with the peak reset that avoids a visual jump, the
 `ZOOM_PEAK_FLOOR` clamp, and peak growth on a rising signal), `pipeline_unix_epoch`
 (leap years, the century-non-leap-year rule, the RTC-unset sentinel, and
-out-of-range month/day guards), `pipeline_rel_seconds`, and the `gps_year_expand`
-Y2K pivot helper — previously declared and shipped but with zero test coverage.
+out-of-range month/day guards) and `pipeline_rel_seconds`.
 
 `test_gsr_sensor.c` (added 2026-07-22, reversing the earlier decision to
 skip it) covers: ADS1115 probe success/failure at `alloc()`, TIA

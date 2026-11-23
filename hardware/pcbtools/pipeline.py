@@ -7,14 +7,12 @@ import os
 import tempfile
 
 from . import check_netlist, check_sch, schematic
-from .kicad import BOARDS, HARDWARE, board_file, cli, export_netlist
-
-REPORTS = os.path.join(HARDWARE, "out")      # full ERC / DRC reports (git ignores this folder)
+from .kicad import BOARDS, HARDWARE, OUT, board_file, cli, export_netlist
 
 
 def _report_path(name, kind):
-    os.makedirs(REPORTS, exist_ok=True)
-    return os.path.join(REPORTS, f"{name}.{kind}.json")
+    os.makedirs(OUT, exist_ok=True)
+    return os.path.join(OUT, f"{name}.{kind}.json")
 
 
 def check_schematic(name, tmp):

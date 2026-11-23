@@ -69,7 +69,7 @@ def cmd_parts(args):
 
 def cmd_render(args):
     from . import render
-    render.render(args.out or render.DEFAULT_OUT, chosen(args))
+    render.render(args.out or render.OUT, chosen(args))
 
 
 def cmd_fab(args):
@@ -79,7 +79,7 @@ def cmd_fab(args):
 
 def cmd_print(args):
     from . import fitprint
-    return fitprint.make(args.out or fitprint.OUT)
+    return fitprint.make(args.out or fitprint.PDF)
 
 
 def cmd_footprint(args):

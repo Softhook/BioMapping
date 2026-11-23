@@ -9,6 +9,7 @@ import sys
 
 HARDWARE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REPO = os.path.dirname(HARDWARE)
+OUT = os.path.join(HARDWARE, "out")     # pictures, check reports, factory files (git ignores it)
 
 KICAD_APP = os.path.expanduser(os.environ.get("KICAD_APP", "/Applications/KiCad/KiCad.app"))
 KICAD_CLI = os.path.join(KICAD_APP, "Contents/MacOS/kicad-cli")

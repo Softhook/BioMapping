@@ -177,15 +177,11 @@ partial row somehow reached the file), so a consumer can split on the last
 ## Debug Field Toggle
 
 CSV debug columns are controlled by **Options > Debug Fields** on the device
-(`BioMapApp::debug_fields_enabled`, persisted in `biomap.settings`) — a
-runtime toggle, **off by default**. This replaced the old
-`BIOMAP_DEBUG_FIELDS` compile-time switch (`biomap_config.h`) on 2026-08-05:
-both the production and debug column sets (`BIOMAP_CSV_COLS_*_PROD` /
-`_DEBUG`) are always compiled into the firmware now, so switching this no
-longer requires a rebuild — just an Options-menu toggle before starting a
-recording. Since it's read once at `session_core_init()` (mirroring
-`zoom_enabled`'s lifecycle), a change only takes effect for the *next*
-recording session, not one already in progress.
+(saved in the settings file with the other options) — **off by default**.
+Both column sets (`BIOMAP_CSV_COLS_*_PROD` / `_DEBUG` in `biomap_config.h`)
+are always compiled in, so switching needs no rebuild. It is read once at
+`session_core_init()`, so a change takes effect from the *next* recording,
+not one already in progress.
 
 - Off (default): core schemas only.
 - On: appends diagnostic columns to GPS+GSR, GPS+GSR+RF, and GSR-only rows.
