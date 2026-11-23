@@ -1,11 +1,9 @@
 #include "clock_cardputer.h"
 
 #include <Arduino.h>
-#include <stdlib.h>
 #include <sys/time.h>
 #include <time.h>
 
-#include "biomap_pipeline.h"
 #include "clock_local.h"
 #include "clock_rule.h"
 #include "gps_cardputer.h"
@@ -21,27 +19,6 @@ void clock_cardputer_begin(void) {
     tzset();
 }
 
-// The GPS time in ms since 1970 UTC, or false when there is no real
-// satellite fix (status A, not estimated: before that, the module's time
-// can be its own guess) or the date or time isn't sensible.
-static bool gps_time_ms(const GpsStatus& s, int64_t* out) {
-    if(!s.fix_valid) return false;
-    const struct minmea_date& d = s.date;
-    const struct minmea_time& t = s.time;
-    if(d.month < 1 || d.month > 12 || d.day < 1 || d.day > 31 || t.hours < 0 || t.hours > 23 ||
-       t.minutes < 0 || t.minutes > 59 || t.seconds < 0 || t.seconds > 60) {
-        return false;
-    }
-    // RMC gives a two-digit year; 2000 + it holds until 2099.
-    uint32_t utc = pipeline_unix_epoch((uint16_t)(2000 + d.year), (uint8_t)d.month,
-                                       (uint8_t)d.day, (uint8_t)t.hours, (uint8_t)t.minutes,
-                                       (uint8_t)t.seconds);
-    if(utc == 0) return false;
-    int32_t us = (t.microseconds >= 0 && t.microseconds < 1000000) ? t.microseconds : 0;
-    *out = (int64_t)utc * 1000 + us / 1000;
-    return true;
-}
-
 void clock_cardputer_poll(const GpsUart* gps) {
     if(!gps || !gps_uart_is_ready(gps)) return;
     uint32_t now_ms = millis();
@@ -51,7 +28,7 @@ void clock_cardputer_poll(const GpsUart* gps) {
 
     GpsStatus s = gps_uart_get_status(gps);
     int64_t gps_ms = 0;
-    bool gps_ok = gps_time_ms(s, &gps_ms) && !gps_cardputer_behind(gps);
+    bool gps_ok = clock_rule_gps_time_ms(&s.date, &s.time, &gps_ms) && !gps_cardputer_behind(gps);
     struct timeval now;
     gettimeofday(&now, nullptr);
     int64_t clock_ms = (int64_t)now.tv_sec * 1000 + now.tv_usec / 1000;

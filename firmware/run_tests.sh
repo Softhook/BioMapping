@@ -188,7 +188,7 @@ gcc -Wall -Wextra -Werror -I . -I core -I vendor/minmea -o build/test_cardputer_
     cardputer/src/tick_schedule.c cardputer/src/clock_local.c \
     cardputer/src/wifi_files_rules.c cardputer/src/zip_stream.c cardputer/src/splash_anim.c \
     cardputer/src/write_queue.c \
-    core/biomap_pipeline.c core/biomap_format.c -lm
+    core/biomap_pipeline.c core/biomap_format.c tests/minmea_host.c -lm
 ./build/test_cardputer_rules
 python3 -c '
 import zipfile

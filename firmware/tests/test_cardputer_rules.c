@@ -1,5 +1,6 @@
 // Host tests for the Cardputer-only rules, in plain C:
-//   cardputer/src/clock_rule.c     when the clock is set from GPS time
+//   cardputer/src/clock_rule.c     when the clock is set from GPS time,
+//                                  and reading that time from an RMC
 //   cardputer/src/wake_watch.c     the wake-up wait's "first clean byte"
 //   cardputer/src/tick_schedule.c  the 10 Hz ticks, catch-up and GPS slices
 //   cardputer/src/clock_local.c    local time, and the UTC offset kept
@@ -23,6 +24,7 @@
 #include "cardputer/src/splash_anim.h"
 #include "cardputer/src/write_queue.h"
 #include "core/biomap_pipeline.h"
+#include "minmea.h"
 
 // ── Clock ───────────────────────────────────────────────────────────────
 
@@ -67,14 +69,66 @@ static void test_first_set_needs_two_agreeing_looks(void) {
     printf("  first set after two agreeing looks: ok\n");
 }
 
-static void test_no_fix_never_sets(void) {
+// The time read from real M10Q RMC sentences. Before a fix (status V) the
+// module still sends the time once it knows it, and that must be used: the
+// clock used to wait for a fix, which held up GPS+GSR recordings.
+static bool rmc_time(const char* line, int64_t* ms) {
+    struct minmea_sentence_rmc f;
+    assert(minmea_check(line, true));
+    assert(minmea_parse_rmc(&f, line));
+    return clock_rule_gps_time_ms(&f.date, &f.time, ms);
+}
+
+static void test_rmc_time_before_fix(void) {
+    int64_t ms = 0;
+    assert(rmc_time("$GNRMC,140000.00,A,5130.00000,N,00007.00000,W,0.010,,211126,,,A,V*05", &ms));
+    assert(ms == T0);
+    ms = 0;
+    assert(rmc_time("$GNRMC,140000.00,V,,,,,,,211126,,,N,V*1B", &ms));
+    assert(ms == T0);
+    // Time not known yet: fields empty.
+    assert(!rmc_time("$GNRMC,,V,,,,,,,,,,N,V*37", &ms));
+    // Date but no time.
+    assert(!rmc_time("$GNRMC,,V,,,,,,,211126,,,N,V*30", &ms));
+    // Time but no date yet.
+    assert(!rmc_time("$GNRMC,140000.00,V,,,,,,,,,,N,V*1C", &ms));
+    // Never read at all (zeroed status).
+    struct minmea_date d = {0};
+    struct minmea_time t = {0};
+    assert(!clock_rule_gps_time_ms(&d, &t, &ms));
+    printf("  time read from RMC before a fix, not when missing: ok\n");
+}
+
+// Two no-fix sentences a second apart set the clock.
+static void test_set_before_fix(void) {
+    const char* lines[] = {
+        "$GNRMC,140000.00,V,,,,,,,211126,,,N,V*1B",
+        "$GNRMC,140001.00,V,,,,,,,211126,,,N,V*1A",
+        "$GNRMC,140002.00,V,,,,,,,211126,,,N,V*19",
+    };
+    ClockRule r = {0};
+    int64_t clock = 0;
+    bool set = false;
+    for(int i = 0; i < 3; i++) {
+        int64_t gps = 0;
+        bool ok = rmc_time(lines[i], &gps);
+        assert(ok);
+        set = clock_rule_look(&r, ok, gps, clock);
+        if(set) clock = gps;
+        clock += 1000;
+    }
+    assert(set && r.clock_set && clock == T0 + 3000);
+    printf("  clock set before a fix: ok\n");
+}
+
+static void test_no_gps_time_never_sets(void) {
     Sim s = {.gps = T0, .clock = 0};
     for(int i = 0; i < 10; i++) {
         assert(!look(&s, false));
         tick(&s, 1000, 1000);
     }
     assert(!s.r.clock_set);
-    printf("  no fix, never set: ok\n");
+    printf("  no GPS time, never set: ok\n");
 }
 
 static Sim set_sim(void) {
@@ -1014,7 +1068,9 @@ int main(void) {
     tzset();
     printf("Clock rule:\n");
     test_first_set_needs_two_agreeing_looks();
-    test_no_fix_never_sets();
+    test_no_gps_time_never_sets();
+    test_rmc_time_before_fix();
+    test_set_before_fix();
     test_stopped_gps_time_is_ignored();
     test_old_sentence_after_a_pause();
     test_midnight_date_mix_up();
