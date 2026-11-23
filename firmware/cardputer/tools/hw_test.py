@@ -45,7 +45,12 @@ OPTIONS = ["GPS Profile", "Super-S", "Cold Reset GPS", "Auto-zoom GSR", "GSR Cal
 
 STATUS_RE = re.compile(r"^t=\d+ ")
 BANNER = "BioMapping Cardputer start"
-# The banner counts as a fault only after the first one (an unplanned restart).
+# The start-up animation plays before the first status line: about 16 s
+# from the reset.
+STARTUP_TIMEOUT = 60
+# The banner counts as a fault only after a status line (an unplanned
+# restart). The one at power-on goes out before the computer has the port
+# open again, so it is usually missed.
 FAULT_RE = re.compile(r"Guru Meditation|core_fatal|abort\(\)|Backtrace:|assert failed")
 
 
@@ -101,34 +106,56 @@ class Device:
         if self.ser:
             self.ser.close()
             self.ser = None
-        before = sorted(self.ports())
-        check(before, "no Cardputer serial port found (is it plugged in?)")
-        app_port = before[0]
         boot = None
-        for _ in range(3):                  # the 1200-baud touch is occasionally missed
-            s = serial.Serial(app_port, 1200)
-            s.dtr = False
-            time.sleep(0.2)
-            s.close()
+        app_port = None
+        # The 1200-baud touch is occasionally missed, and the port comes and
+        # goes for a few seconds while the Cardputer restarts. Just after
+        # flashing, the touch does nothing at all until the Cardputer has
+        # been reset once more; one quick esptool try on the app's port does
+        # that (it fails to connect, but its reset lines restart the app).
+        give_up = time.time() + STARTUP_TIMEOUT
+        kick_at = time.time() + 8
+        while not boot and time.time() < give_up:
+            if kick_at and time.time() > kick_at and app_port:
+                kick_at = None
+                subprocess.run([ESPTOOL, "--port", app_port, "--connect-attempts", "1",
+                                "chip-id"], capture_output=True, text=True)
+                time.sleep(3)
+                continue
+            now = sorted(self.ports())
+            if not now:
+                time.sleep(0.5)
+                continue
+            app_port = now[0]
+            try:
+                s = serial.Serial(app_port, 1200)
+                s.dtr = False
+                time.sleep(0.2)
+                s.close()
+            except (OSError, serial.SerialException):
+                time.sleep(1)               # the port went away under us
+                continue
             end = time.time() + 5
             while time.time() < end and not boot:
                 time.sleep(0.2)
                 now = self.ports()
                 if now and app_port not in now:
                     boot = sorted(now)[0]
-            if boot:
-                break
-        check(boot, "Cardputer did not enter its bootloader")
+        check(app_port, "no Cardputer serial port found (is it plugged in?)")
+        # Still no new port: it may have been in its bootloader all along,
+        # and the reset below works there too.
+        boot = boot or app_port
         time.sleep(0.3)
         r = subprocess.run([ESPTOOL, "--port", boot, "--after", "watchdog-reset", "chip-id"],
                            capture_output=True, text=True)
-        check(r.returncode == 0, "esptool could not reset the Cardputer:\n" + r.stdout[-500:])
+        check(r.returncode == 0, "the Cardputer did not go into its bootloader, and esptool "
+              "could not reset it:\n" + r.stdout[-500:])
         self.log = []
         self.press_mark = 0
         self.t0 = time.time()
         self._open()
-        self.wait_for(BANNER, 8, allow_fault=True)
-        self.wait_for(STATUS_RE.pattern, 15)  # main loop running (after startup splash)
+        # Main loop running, after the start-up animation.
+        self.wait_for(STATUS_RE.pattern, STARTUP_TIMEOUT)
 
     # ---- reading ----
     def pump(self, seconds):
@@ -146,7 +173,7 @@ class Device:
         if FAULT_RE.search(line):
             return True
         return line.startswith(BANNER) and any(
-            l.startswith(BANNER) for _, l in self.log[:i])
+            STATUS_RE.match(l) for _, l in self.log[:i])
 
     def wait_for(self, pattern, timeout, allow_fault=False, start=None):
         """Wait for a line matching `pattern`, looking from `start` (default:
@@ -201,9 +228,9 @@ def open_options_item(dev, item):
 
 def read_settings_line(dev):
     for l in dev.since(0):
-        if l.startswith("[Settings] Loaded settings:"):
+        if l.startswith("[Settings] In use:"):
             return parse_status(l.split(":", 1)[1])
-    raise Fail("no '[Settings] Loaded settings' line at start-up")
+    raise Fail("no '[Settings] In use' line at start-up")
 
 
 def check_gsr_healthy(rows, what):
@@ -599,12 +626,12 @@ def test_key_flood(dev):
 def test_diagnostics(dev):
     """Options > Diagnostics opens a GSR session and Esc leaves it."""
     dev.restart()
-    m = dev.mark()
     open_options_item(dev, "Diagnostics")
     dev.press(OK)
     dev.wait_for(r"\[GSR\] I2C Probe OK", 3)
+    m = dev.mark()                      # from here, not from the menus
     dev.pump(4)
-    check_gsr_healthy(dev.statuses(m)[2:], "Diagnostics")
+    check_gsr_healthy(dev.statuses(m)[1:], "Diagnostics")  # skip its first second
     dev.press(BACK)
     dev.pump(2)
     check(dev.statuses(m)[-1]["hz"] == 0, "GSR still running after leaving Diagnostics")
