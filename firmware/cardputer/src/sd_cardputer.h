@@ -10,26 +10,8 @@
 // once the card is ready. Safe to call again.
 bool sd_card_mount(void);
 
-// Whether the Cardputer has the card mounted and isn't lending it to a
-// computer over USB. Quick: doesn't touch the card.
+// Whether the card is mounted. Quick: doesn't touch the card.
 bool sd_card_ready(void);
-
-// USB thumb drive mode: lends the SD card to a plugged-in computer as a
-// drive, and takes it back (remounting so the Cardputer sees any changes)
-// when the computer ejects it, the cable is unplugged, or sd_usb_drive_set(false)
-// is called. Refused while a recording file is open, with no card, or when
-// USB isn't plugged into a computer; the result says which.
-typedef enum {
-    SdUsbOk,
-    SdUsbNoComputer,  // USB not plugged into a computer (or only a charger)
-    SdUsbNoCard,      // the card didn't mount, or its sectors aren't 512 bytes
-    SdUsbFileOpen,    // a recording file is still open
-} SdUsbResult;
-bool sd_usb_drive_active(void);
-SdUsbResult sd_usb_drive_set(bool on);
-// Call from loop(): returns true if the computer ejected the drive or the
-// USB cable was unplugged and the card was taken back.
-bool sd_usb_drive_poll(void);
 
 // Writes all `len` bytes to `fd`, carrying on while write() takes only part
 // of them. Returns how many were written: `len`, or fewer if it failed.

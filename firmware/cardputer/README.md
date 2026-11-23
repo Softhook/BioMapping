@@ -13,7 +13,7 @@ pio run -t upload        # flash over USB-C
 pio device monitor       # watch the log
 ```
 
-If `pio` isn't found, use `~/.platformio/penv/bin/pio`. If flashing fails with `No serial data received`, the running app hasn't let the computer reset it. Either hold the Cardputer's G0 button while plugging in USB, or put it in its bootloader from the computer (a 1200-baud "touch": open the port at 1200 baud and close it; a new `/dev/cu.usbmodem…` port appears), then flash to that port with `pio run -t upload --upload-port <new port>`.
+If `pio` isn't found, use `~/.platformio/penv/bin/pio`. The Cardputer uses its chip's own USB serial port, so flashing resets it by itself; if it ever won't connect, hold the G0 button while plugging in USB.
 
 ## Testing on the device
 
@@ -22,10 +22,9 @@ If `pio` isn't found, use `~/.platformio/penv/bin/pio`. If flashing fails with `
 ```
 ~/.platformio/penv/bin/python tools/hw_test.py            # all automatic tests, about 8 minutes
 ~/.platformio/penv/bin/python tools/hw_test.py gsr_only   # one test (--list shows them all)
-~/.platformio/penv/bin/python tools/hw_test.py csv_check  # check the last 60 s recording on the card
 ```
 
-Add `-v` to see every line the Cardputer prints. `csv_check` (or `--usb` with the others) needs one press of **U** on the Cardputer, because only its own keyboard can lend the card: press U on the main menu, either before running it or when it asks. It checks the file's checksum, row count and timing, then ejects the card so the Cardputer takes it back. The tests put back any settings they change (Auto-zoom, Debug Fields), and leave their short test recordings on the card. Don't run `pio device monitor` at the same time: only one program can use the port.
+Add `-v` to see every line the Cardputer prints. The tests put back any settings they change (Auto-zoom, Debug Fields), and leave their short test recordings on the card. Don't run `pio device monitor` at the same time: only one program can use the port.
 
 ## Keys
 
@@ -67,7 +66,6 @@ Inside a session:
 
 On the main menu or in Options:
 
-- **U** lends the SD card to a plugged-in computer as a USB thumb drive; eject the drive on the computer to take the card back. (**U** twice also takes it back, but can lose changes the computer hasn't saved yet.)
 
 **The clock.** The Cardputer has no clock chip, so it doesn't know the time after power-up until the GPS has a fix. It then sets its clock from GPS time, in UK time (GMT in winter, BST in summer, switching automatically). In GPS+GSR mode, Enter won't start a recording before that: it gives the error sound and shows a `Waiting for GPS time...` banner. GSR Only records anyway, using GPS time if it was found since power-up; otherwise the name says `nodate` instead of a date and the header's start time is 0.
 
@@ -75,15 +73,7 @@ On the main menu or in Options:
 
 ## Getting the files off
 
-The SD card stays inside the Cardputer, so press **U** on the main menu (or in Options) while plugged into a computer over USB-C. If the card can't be lent, the screen says why for 3 seconds: `Plug USB into a computer`, `No SD card to lend` or `Stop recording first`.
-
-- The SD card mounts on the computer as a normal USB thumb drive, with all your `.csv` files (plus `biomap.settings` and `biomap.cal`) inside the `biomapping/` folder.
-- Drag the `.csv` files directly into the visualiser or onto your computer.
-- When you are done, **Eject** the drive on the computer. The Cardputer takes the card back, remounts it, and reloads settings and calibration so it sees any changes.
-- Only if ejecting isn't possible, press **U** twice within 3 seconds. The first press shows `Eject on computer first!` as a warning; the second takes the card back. Doing this while the computer still has the drive open can lose changes it hasn't written yet, or damage the card's file list.
-- While the computer has the card, the main menu shows `USB drive mounted on computer` and **Enter** will not start a new recording until the drive is ejected (or **U** is pressed twice).
-
-To get files onto a phone, tablet, or laptop without a cable, choose **Wi-Fi Files** on the main menu:
+The SD card stays inside the Cardputer. To get the files onto a computer, phone or tablet, choose **Wi-Fi Files** on the main menu:
 
 - Scan the first QR code to join the `BioMapping-XXXX` Wi-Fi network. To join by hand instead, pick `BioMapping-XXXX` in your Wi-Fi list; there is no password.
 - Once connected, most phones and laptops pop up the file page by themselves, like a café Wi-Fi sign-in page. You can see and delete files there.
@@ -97,7 +87,7 @@ To get files onto a phone, tablet, or laptop without a cable, choose **Wi-Fi Fil
 
 | File | What it does |
 |---|---|
-| `src/main.cpp` | Start-up, the main loop, USB thumb drive key handling, and the once-a-second USB log |
+| `src/main.cpp` | Start-up, the main loop, and the once-a-second USB log |
 | `src/splash_cardputer.cpp` | Animated start-up screen (space -> 3D Earth -> London -> body -> Bio Mapping 2 logo & title) with bell melody, running while the GPS goes to sleep |
 | `src/splash_anim.c` | Easing curves, timeline, 3D globe projection, simplified continents, favicon waveform path, and startup bell melody generator (plain C, host-tested) |
 | `src/menu_cardputer.cpp` | The colour main menu, Options screen, and non-blocking 4-step GSR Calibration wizard |
@@ -116,7 +106,7 @@ To get files onto a phone, tablet, or laptop without a cable, choose **Wi-Fi Fil
 | `src/clock_rule.c` | When the clock is set from GPS time (plain C, host-tested) |
 | `src/tick_schedule.c` | The 10 Hz tick schedule, catch-up after a stall, and GPS byte slicing (plain C, host-tested) |
 | `src/wake_watch.c` | The wake-up wait's "first clean byte" check (plain C, host-tested) |
-| `src/sd_cardputer.cpp` | The SD card, written in whole 512-byte blocks from a task of its own (so a slow card never holds up the GSR), plus the **U** key's USB thumb drive mode |
+| `src/sd_cardputer.cpp` | The SD card, written in whole 512-byte blocks from a task of its own (so a slow card never holds up the GSR) |
 | `src/write_queue.c` | The queue of bytes waiting for the card (plain C, host-tested) |
 | `src/cues_cardputer.cpp` | The Flipper's sounds |
 | `src/keys.cpp` | The Cardputer's keys as the Flipper's six buttons, plus the TCA8418 keyboard unstick check |

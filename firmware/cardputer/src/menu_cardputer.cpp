@@ -194,10 +194,6 @@ static void run_cold_reset_gps(M5Canvas& canvas) {
 }
 
 static void toggle_option_bool(bool* field, bool force_tone = false) {
-    if(sd_usb_drive_active()) {
-        play_cue(BioMapCueError, force_tone);
-        return;
-    }
     *field = !*field;
     settings_cardputer_save();
     play_cue(*field ? BioMapCueToggleOn : BioMapCueToggleOff, force_tone);
@@ -214,10 +210,6 @@ void menu_cardputer_begin(void) {
 
 bool menu_cardputer_active(void) {
     return !g_session.open;
-}
-
-bool menu_cardputer_can_lend_sd(void) {
-    return !g_session.open && g_screen != ScreenId::CalWizard && g_screen != ScreenId::WifiFiles;
 }
 
 bool menu_cardputer_poll(M5Canvas& canvas) {
@@ -248,10 +240,6 @@ bool menu_cardputer_key(SessionKey key, M5Canvas& canvas) {
             return true;
         case SessionKeyOk:
             if(g_main_sel == MainGpsGsr || g_main_sel == MainGsrOnly) {
-                if(sd_usb_drive_active()) {
-                    play_cue(BioMapCueError);
-                    return true;
-                }
                 play_cue(BioMapCueConfirm);
                 launch_session(
                     g_main_sel == MainGpsGsr ? BioMapModeGpsGsr : BioMapModeGsrOnly, canvas);
@@ -259,7 +247,7 @@ bool menu_cardputer_key(SessionKey key, M5Canvas& canvas) {
                 play_cue(BioMapCueConfirm);
                 launch_session(BioMapModeLiveStream, canvas);
             } else if(g_main_sel == MainWifiFiles) {
-                if(sd_usb_drive_active() || !sd_card_mount()) {
+                if(!sd_card_mount()) {
                     play_cue(BioMapCueError);
                     return true;
                 }
@@ -293,17 +281,14 @@ bool menu_cardputer_key(SessionKey key, M5Canvas& canvas) {
         case SessionKeyLeft:
         case SessionKeyRight:
             switch(g_opt_sel) {
-            case OptGpsProfile:
-                if(!sd_usb_drive_active()) {
-                    bool down = (key != SessionKeyLeft);
-                    g_settings.nav_model = (GpsNavModel)cycle_selection(
-                        (int32_t)g_settings.nav_model, GpsNavModelCount, down);
-                    settings_cardputer_save();
-                    play_cue(BioMapCueClick);
-                } else {
-                    play_cue(BioMapCueError);
-                }
+            case OptGpsProfile: {
+                bool down = (key != SessionKeyLeft);
+                g_settings.nav_model = (GpsNavModel)cycle_selection(
+                    (int32_t)g_settings.nav_model, GpsNavModelCount, down);
+                settings_cardputer_save();
+                play_cue(BioMapCueClick);
                 return true;
+            }
             case OptSuperS:
                 toggle_option_bool(&g_settings.super_s);
                 return true;
@@ -358,18 +343,10 @@ bool menu_cardputer_key(SessionKey key, M5Canvas& canvas) {
             return true;
         case SessionKeyOk:
             if(g_cal_sel == CalSubStartWizard) {
-                if(sd_usb_drive_active()) {
-                    play_cue(BioMapCueError);
-                    return true;
-                }
                 play_cue(BioMapCueConfirm);
                 wizard_open();
                 g_screen = ScreenId::CalWizard;
             } else if(g_cal_sel == CalSubReset) {
-                if(sd_usb_drive_active()) {
-                    play_cue(BioMapCueError);
-                    return true;
-                }
                 play_cue(BioMapCueReset);
                 settings_cardputer_reset_cal();
                 g_screen = ScreenId::Options;
@@ -472,8 +449,7 @@ static void draw_list_row(M5Canvas& canvas, int row_vis, bool selected,
     }
 }
 
-static void draw_main_menu(M5Canvas& canvas, bool usb_drive, bool usb_confirm,
-                           const char* usb_notice) {
+static void draw_main_menu(M5Canvas& canvas) {
     // Show clock in header if GPS time has been acquired, plus battery percentage.
     char right[32] = "";
     SessionDateTime now;
@@ -509,31 +485,19 @@ static void draw_main_menu(M5Canvas& canvas, bool usb_drive, bool usb_confirm,
         draw_list_row(canvas, i - top, i == g_main_sel, MAIN_LABELS[i], badge, badge_col);
     }
 
-    // Status card above the footer: SD card / USB thumb drive state.
+    // Status card above the footer: SD card state.
     int sy = 100;
     canvas.drawFastHLine(6, sy - 2, 228, TFT_DARKGREY);
-    if(usb_drive && usb_confirm) {
-        canvas.setTextColor(TFT_YELLOW);
-        canvas.drawString("Eject on computer first!", 6, sy);
-        draw_footer(canvas, "Press U again to force take card", TFT_YELLOW);
-    } else if(usb_drive) {
-        canvas.setTextColor(TFT_CYAN);
-        canvas.drawString("USB drive mounted on computer", 6, sy);
-        draw_footer(canvas, "Eject on computer to finish", TFT_CYAN);
-    } else if(usb_notice) {
-        canvas.setTextColor(TFT_YELLOW);
-        canvas.drawString(usb_notice, 6, sy);
-        draw_footer(canvas, "Enter: Select   U: USB Drive");
-    } else if(!sd_card_ready()) {
+    if(!sd_card_ready()) {
         canvas.setTextColor(TFT_RED);
         canvas.drawString("No SD card", 6, sy);
-        draw_footer(canvas, "Enter: Select   U: USB Drive");
+        draw_footer(canvas, "Enter: Select");
     } else {
         canvas.setTextColor(TFT_GREEN);
         canvas.drawString("SD card ready", 6, sy);
         canvas.setTextColor(COL_MUTED);
         canvas.drawString(clock_cardputer_is_set() ? "GPS clock set" : "GPS asleep", 136, sy);
-        draw_footer(canvas, "Enter: Select   U: USB Drive");
+        draw_footer(canvas, "Enter: Select");
     }
 }
 
@@ -836,15 +800,14 @@ static void draw_cal_wizard(M5Canvas& canvas) {
     }
 }
 
-void menu_cardputer_draw(M5Canvas& canvas, bool usb_drive, bool usb_confirm,
-                         const char* usb_notice) {
+void menu_cardputer_draw(M5Canvas& canvas) {
     canvas.fillSprite(TFT_BLACK);
     canvas.setFont(&fonts::Font2);
     canvas.setTextDatum(textdatum_t::top_left);
 
     switch(g_screen) {
     case ScreenId::MainMenu:
-        draw_main_menu(canvas, usb_drive, usb_confirm, usb_notice);
+        draw_main_menu(canvas);
         break;
     case ScreenId::Options:
         draw_options(canvas);

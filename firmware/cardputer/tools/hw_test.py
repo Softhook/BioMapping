@@ -9,22 +9,17 @@ start from a known place, presses keys, and checks what it prints.
 Run from firmware/cardputer with the Cardputer plugged in:
     ~/.platformio/penv/bin/python tools/hw_test.py            # all automatic tests
     ~/.platformio/penv/bin/python tools/hw_test.py gsr_only   # one test
-    ~/.platformio/penv/bin/python tools/hw_test.py --usb      # also check a file on the card
     ~/.platformio/penv/bin/python tools/hw_test.py --list
     add -v to see every line the Cardputer prints
 
-The --usb test (csv_check) needs one key press on the Cardputer itself: the U
-key that lends the SD card to the computer works only on its own keyboard.
-
-Needs: the GSR board fitted. Settings it changes (Auto-zoom, Debug Fields)
-are put back before it finishes. Recordings it makes are left on the card
+Needs: the GSR board fitted. It turns Sound off and leaves it off. Other
+settings it changes (Auto-zoom, Debug Fields) are put back before it
+finishes. Recordings it makes are left on the card
 (named biomap_1970-01-01_... unless the clock was set from GPS).
 """
 
 import glob
-import json
 import os
-import zlib
 import re
 import subprocess
 import sys
@@ -33,10 +28,6 @@ import time
 import serial
 
 ESPTOOL = os.path.expanduser("~/.platformio/packages/tool-esptool/esptool")
-# record_60s leaves its file's name and length here for csv_check (kept in
-# .pio/, which git ignores, so csv_check can be run later on its own).
-LAST_RECORDING = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".pio",
-                              "hw_test_last_recording.json")
 
 UP, DOWN, LEFT, RIGHT, OK, BACK = ";", ".", ",", "/", "\r", "\x1b"
 MAIN_MENU = ["GPS + GSR", "GSR Only", "Live Stream", "Wi-Fi Files", "Options"]
@@ -101,55 +92,26 @@ class Device:
         raise Fail("Cardputer serial port did not come back")
 
     def restart(self):
-        """Restart the app: 1200-baud touch drops it into the bootloader,
-        then a watchdog reset runs the app again from the top."""
+        """Restart the app: esptool resets the chip through its own USB serial
+        port (into the bootloader and straight out with a watchdog reset), so
+        it runs again from the top."""
         if self.ser:
             self.ser.close()
             self.ser = None
-        boot = None
-        app_port = None
-        # The 1200-baud touch is occasionally missed, and the port comes and
-        # goes for a few seconds while the Cardputer restarts. Just after
-        # flashing, the touch does nothing at all until the Cardputer has
-        # been reset once more; one quick esptool try on the app's port does
-        # that (it fails to connect, but its reset lines restart the app).
-        give_up = time.time() + STARTUP_TIMEOUT
-        kick_at = time.time() + 8
-        while not boot and time.time() < give_up:
-            if kick_at and time.time() > kick_at and app_port:
-                kick_at = None
-                subprocess.run([ESPTOOL, "--port", app_port, "--connect-attempts", "1",
-                                "chip-id"], capture_output=True, text=True)
-                time.sleep(3)
-                continue
+        r = None
+        for _ in range(3):                  # the port can vanish for a moment while it restarts
+            end = time.time() + 10
             now = sorted(self.ports())
-            if not now:
-                time.sleep(0.5)
-                continue
-            app_port = now[0]
-            try:
-                s = serial.Serial(app_port, 1200)
-                s.dtr = False
+            while not now and time.time() < end:
                 time.sleep(0.2)
-                s.close()
-            except (OSError, serial.SerialException):
-                time.sleep(1)               # the port went away under us
-                continue
-            end = time.time() + 5
-            while time.time() < end and not boot:
-                time.sleep(0.2)
-                now = self.ports()
-                if now and app_port not in now:
-                    boot = sorted(now)[0]
-        check(app_port, "no Cardputer serial port found (is it plugged in?)")
-        # Still no new port: it may have been in its bootloader all along,
-        # and the reset below works there too.
-        boot = boot or app_port
-        time.sleep(0.3)
-        r = subprocess.run([ESPTOOL, "--port", boot, "--after", "watchdog-reset", "chip-id"],
-                           capture_output=True, text=True)
-        check(r.returncode == 0, "the Cardputer did not go into its bootloader, and esptool "
-              "could not reset it:\n" + r.stdout[-500:])
+                now = sorted(self.ports())
+            check(now, "no Cardputer serial port found (is it plugged in?)")
+            r = subprocess.run([ESPTOOL, "--port", now[0], "--after", "watchdog-reset", "chip-id"],
+                               capture_output=True, text=True)
+            if r.returncode == 0:
+                break
+            time.sleep(1)
+        check(r.returncode == 0, "esptool could not reset the Cardputer:\n" + r.stdout[-500:])
         self.log = []
         self.press_mark = 0
         self.t0 = time.time()
@@ -243,15 +205,23 @@ def check_gsr_healthy(rows, what):
     check(peak <= 20, f"{what}: slowest I2C read {peak:.0f} ms (want <= 20)")
 
 
-def set_debug_fields(dev, on):
-    """Restart, then set Debug Fields to `on` (it is saved to the card)."""
+def set_option(dev, field, item, on):
+    """Restart, then set the on/off Options `item` to `on` (it is saved to the
+    card). `field` is its name in the "[Settings] In use" line. Returns what
+    it was before."""
     dev.restart()
-    if bool(read_settings_line(dev)["debug"]) != on:
-        open_options_item(dev, "Debug Fields")
+    was = bool(read_settings_line(dev)[field])
+    if was != on:
+        open_options_item(dev, item)
         dev.press(OK)
         dev.pump(0.5)
         dev.restart()
-        check(bool(read_settings_line(dev)["debug"]) == on, "Debug Fields did not save")
+        check(bool(read_settings_line(dev)[field]) == on, f"{item} did not save")
+    return was
+
+
+def set_debug_fields(dev, on):
+    set_option(dev, "debug", "Debug Fields", on)
 
 
 # ---- tests ----
@@ -325,92 +295,6 @@ def record_gsr_only(dev, seconds):
     return name, t_stop - t_start
 
 
-def check_csv(path, seconds):
-    """A recording is complete and unchanged, and has a row for every tick."""
-    data = open(path, "rb").read()
-    check(data.startswith(b"# Integrity: crc32 v1\n"), "no integrity line at the top")
-    body, _, trailer = data.rstrip(b"\n").rpartition(b"\n")
-    body += b"\n"
-    m = re.match(rb"# End rows:(\d+) bytes:(\d+) crc32:([0-9a-f]{8}) (?:end_time:\d+ )?"
-                 rb"overflows:(\d+) flush_fails:(\d+)$", trailer)
-    check(m, f"no '# End' line (did it stop cleanly?): {trailer[-120:]!r}")
-    rows_t, bytes_t, crc_t, over, fails = (int(m.group(1)), int(m.group(2)),
-                                           int(m.group(3), 16), int(m.group(4)), int(m.group(5)))
-    check(len(body) == bytes_t, f"file has {len(body)} bytes before the End line, End says {bytes_t}")
-    crc = zlib.crc32(body) & 0xFFFFFFFF
-    check(crc == crc_t, f"checksum {crc:08x} doesn't match the End line's {crc_t:08x}")
-    check(over == 0, f"{over} buffer overflows")
-    check(fails == 0, f"{fails} failed SD writes")
-    lines = [l for l in body.decode().splitlines() if l and not l.startswith("#")]
-    # The header ends with the column names (no "#"), which the End line
-    # doesn't count as a row.
-    check(lines and not lines[0][:1].isdigit(), "no column-names line after the header")
-    rows = lines[1:]
-    check(len(rows) == rows_t, f"{len(rows)} data rows, End line says {rows_t}")
-    times = [float(r.split(",", 1)[0]) for r in rows]
-    steps = [b - a for a, b in zip(times, times[1:])]
-    bad = [(i, round(st, 3)) for i, st in enumerate(steps) if abs(st - 0.1) > 0.006]
-    check(not bad, f"time column doesn't step by 0.1 s at rows {bad[:5]}")
-    # Rows are counted from ticks, so the time column is always continuous;
-    # a lost tick would show up as fewer rows than the real recording time.
-    want = seconds * 10
-    check(abs(len(rows) - want) <= max(3, want * 0.01),
-          f"{len(rows)} rows for {seconds:.1f} s of recording (want about {want:.0f})")
-    return len(rows)
-
-
-def find_card(timeout):
-    end = time.time() + timeout
-    while True:                         # looks at least once, even with timeout 0
-        for vol in glob.glob("/Volumes/*/biomapping"):
-            return os.path.dirname(vol)
-        if time.time() >= end:
-            return None
-        time.sleep(0.5)
-
-
-def test_csv_check(dev):
-    """Lends the SD card over USB (you press U) and checks a recording for lost rows.
-
-    Checks the last file record_60s made; without one, it makes a 30 s
-    recording first. If the card is already on the computer (U pressed
-    beforehand, from the main menu), it goes straight to the check. At the
-    end it ejects the card so the Cardputer takes it back."""
-    name = seconds = None
-    if os.path.exists(LAST_RECORDING):
-        with open(LAST_RECORDING) as f:
-            last = json.load(f)
-        name, seconds = last["name"], last["seconds"]
-    vol = find_card(0)
-    if vol:
-        dev._open()
-    else:
-        dev.restart()
-        if not name:
-            open_main(dev, "GSR Only")
-            dev.wait_for(r"\[GSR\] I2C Probe OK", 3)
-            dev.pump(2)
-            name, seconds = record_gsr_only(dev, 30)
-            dev.press(BACK)
-            dev.pump(1)
-        print("\a      >>> Press U on the Cardputer's keyboard now (main menu) <<<", flush=True)
-        dev.press_mark = dev.mark()
-        dev.wait_for(r"\[SD\] USB drive on", 300)
-        vol = find_card(30)
-        check(vol, "the card didn't appear under /Volumes")
-    check(name, "no recording to check: run record_60s first")
-    try:
-        path = os.path.join(vol, "biomapping", name)
-        check(os.path.exists(path), f"{name} not on the card")
-        n = check_csv(path, seconds)
-        print(f"      {name}: {n} rows for {seconds:.1f} s, checksum OK, nothing lost")
-    finally:
-        dev.press_mark = dev.mark()
-        subprocess.run(["diskutil", "eject", vol], capture_output=True)
-        dev.wait_for(r"\[SD\] USB drive off", 20)
-    dev.no_faults()
-
-
 def test_record_60s(dev):
     """A 60 s GSR Only recording: no SD failures, no overflow, steady sensor."""
     dev.restart()
@@ -418,7 +302,7 @@ def test_record_60s(dev):
     dev.wait_for(r"\[GSR\] I2C Probe OK", 3)
     dev.pump(2)
     m = dev.mark()
-    name, seconds = record_gsr_only(dev, 60)
+    name, _ = record_gsr_only(dev, 60)
     dev.pump(1.5)
     rows = [r for r in dev.statuses(m) if r["rec"] == 1]
     check(len(rows) >= 58, f"only {len(rows)} recording seconds seen")
@@ -428,16 +312,13 @@ def test_record_60s(dev):
     # SD cards stall now and then (wear levelling); a few hundred ms is
     # normal. Missed ticks are caught up for up to TICK_SCHEDULE_MAX_DUE
     # (64 ticks, 6.4 s; tick_schedule.h), so only a stall near that loses
-    # anything. csv_check confirms nothing was lost from the file itself.
+    # anything.
     check(last["sd_peak"] <= 3000, f"slowest SD write {last['sd_peak']:.0f} ms (want <= 3000)")
     bad = [l for l in dev.since(m) if "overflow" in l.lower() or "flush failed" in l.lower()]
     check(not bad, "SD trouble: " + " | ".join(bad))
     dev.press(BACK)
     dev.pump(1)
     dev.no_faults()
-    os.makedirs(os.path.dirname(LAST_RECORDING), exist_ok=True)
-    with open(LAST_RECORDING, "w") as f:
-        json.dump({"name": name, "seconds": seconds}, f)
     print(f"      file {name}, slowest SD write {last['sd_peak']:.0f} ms")
 
 
@@ -489,6 +370,25 @@ def test_gps_gsr(dev):
 KNOWN_BLE_LEAK_BYTES = 1100
 
 
+def test_gps_reset_in_session(dev):
+    """Restart in the middle of GPS + GSR: the next start-up still puts the GPS to sleep."""
+    dev.restart()
+    open_main(dev, "GPS + GSR")
+    dev.wait_for(r"M10Q running at 115200", 10)
+    dev.pump(2)
+    dev.restart()                       # GPS left awake at 115200, 10 Hz
+    dev.pump(1)
+    lines = dev.since(0)
+    check(any(l.startswith("[GPS] Sleep: no reply") for l in lines),
+          "start-up didn't notice the GPS was left awake")
+    bad = [l for l in lines if "warning" in l.lower() or "error" in l.lower()]
+    check(not bad, "warnings at start-up: " + " | ".join(bad))
+    # Asleep now: the next start-up has to wake it, and it answers at 9600.
+    dev.restart()
+    check(any(l.startswith("[GPS] Wake: first byte") for l in dev.since(0)),
+          "GPS was still awake: the start-up sleep didn't take")
+
+
 def test_wifi_files_cycles(dev, cycles=5):
     """Wi-Fi Files hotspot on/off repeatedly: Wi-Fi turns on and fully off each
     time without crashing or leaking memory, and GSR Only still works after."""
@@ -525,11 +425,18 @@ def test_wifi_files_cycles(dev, cycles=5):
     dev.wait_for(r"\[WiFi\] off \(free heap \d+\)", 5)
     dev.pump(0.8)
 
+    # This order used to run out of memory for the recording (core_fatal
+    # "SdLogger: NULL logger alloc"), so record a few seconds too.
     dev.press(UP * 2 + OK)              # Wi-Fi Files -> Live Stream -> GSR Only
     dev.wait_for(r"\[GSR\] I2C Probe OK", 3)
     dev.pump(1.5)
     last = dev.statuses(0)[-1]
     check("wifi" not in last, "wifi field still present inside GSR Only")
+    m = dev.mark()
+    record_gsr_only(dev, 3)
+    dev.pump(0.5)
+    short = [l for l in dev.since(m) if "no memory" in l]
+    check(not short, "short of memory after Live Stream + Wi-Fi: " + " | ".join(short))
     dev.press(BACK)
     dev.pump(0.5)
     dev.no_faults()
@@ -733,16 +640,16 @@ TESTS = [
     ("record_crlf", test_record_crlf),
     ("diagnostics", test_diagnostics),
     ("gps_gsr", test_gps_gsr),
+    ("gps_reset_in_session", test_gps_reset_in_session),
     ("key_flood", test_key_flood),
     ("settings_persist", test_settings_persist),
     ("live_stream_cycles", test_live_stream_cycles),
     ("wifi_files_cycles", test_wifi_files_cycles),
     ("session_cycles", test_session_cycles),
     ("record_60s", test_record_60s),
-    ("csv_check", test_csv_check),     # needs a U key press: only with --usb or by name
     ("wifi_stalled_client", test_wifi_stalled_client),  # needs this Mac on the hotspot: by name only
 ]
-NEEDS_KEY_PRESS = {"csv_check", "wifi_stalled_client"}
+NEEDS_KEY_PRESS = {"wifi_stalled_client"}
 
 VERBOSE = "-v" in sys.argv
 
@@ -753,15 +660,23 @@ def main():
         for name, fn in TESTS:
             print(f"{name:20s} {fn.__doc__.splitlines()[0]}")
         return 0
-    usb = "--usb" in sys.argv
-    chosen = [(n, f) for n, f in TESTS
-              if n in args or (not args and (usb or n not in NEEDS_KEY_PRESS))]
+    chosen = [(n, f) for n, f in TESTS if n in args or (not args and n not in NEEDS_KEY_PRESS)]
     unknown = set(args) - {n for n, _ in TESTS}
     if unknown:
         print("unknown test(s):", ", ".join(sorted(unknown)))
         return 2
     dev = Device()
     results = []
+    # No test listens for the sound, so it is turned off, and left off
+    # afterwards. Turning it off makes one beep: the Sound toggle always sounds.
+    set_option(dev, "sound", "Sound", False)
+    run_tests(dev, chosen, results)
+    passed = sum(ok for _, ok, _ in results)
+    print(f"\n{passed}/{len(results)} passed")
+    return 0 if passed == len(results) else 1
+
+
+def run_tests(dev, chosen, results):
     for name, fn in chosen:
         print(f"[ RUN  ] {name}: {fn.__doc__.splitlines()[0]}")
         t = time.time()
@@ -775,9 +690,6 @@ def main():
             print("      last lines from the device:")
             for ts, l in dev.log[-12:]:
                 print(f"      {ts:6.2f} {l}")
-    passed = sum(ok for _, ok, _ in results)
-    print(f"\n{passed}/{len(results)} passed")
-    return 0 if passed == len(results) else 1
 
 
 if __name__ == "__main__":
