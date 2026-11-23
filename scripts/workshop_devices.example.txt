@@ -1,0 +1,15 @@
+# Workshop Cardputer Wi-Fi list
+#
+# Copy this file to workshop_devices.txt and list each Cardputer's Wi-Fi name
+# (shown on the device's "Wi-Fi Files" screen, e.g. BioMapping-3E5C).
+#
+# Optional: put a friendly name after the Wi-Fi name to use it as the prefix
+# on downloaded CSV filenames in your shared workshop folder.
+#
+# Examples:
+#   BioMapping-3E5C            -> BioMapping-3E5C_biomap_0042_2026-11-22_14-30-00.csv
+#   BioMapping-A1B2  Kit-02    -> Kit-02_biomap_0042_2026-11-22_14-30-00.csv
+
+BioMapping-3E5C
+# BioMapping-A1B2  Kit-02
+# BioMapping-9F04  Kit-03
