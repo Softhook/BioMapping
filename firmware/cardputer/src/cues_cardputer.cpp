@@ -6,8 +6,51 @@
 // effect on the GSR reading.
 static const uint8_t VOLUME = 128;
 
+// Menu sounds (moving, Back, OK, Options switches) are on a quieter
+// channel: a quarter of the others' loudness. Recording, warning and
+// calibration sounds keep the full level, so they are heard while walking.
+// Channel 7: the start-up animation uses the low channels.
+static const uint8_t MENU_CHANNEL = 7;
+static const uint8_t MENU_CHANNEL_VOLUME = 64;
+
+static bool is_menu_cue(BioMapCue cue) {
+    switch(cue) {
+    case BioMapCueClick:
+    case BioMapCueBack:
+    case BioMapCueConfirm:
+    case BioMapCueToggleOn:
+    case BioMapCueToggleOff:
+        return true;
+    default:
+        return false;
+    }
+}
+
+// The ADV's sound chip (ES8311) is switched on by M5Unified at start-up,
+// but its clock only starts with the first sound, and that start clicks.
+// The clock then runs until power-off. So it is started here with silence,
+// with the chip's own volume at mute (register 0x32), and the volume put
+// back to M5Unified's 0 dB (0xBF) once it is running.
+static const uint8_t ES8311_ADDR = 0x18;
+static const uint8_t ES8311_DAC_VOLUME = 0x32;
+static const uint8_t ES8311_DAC_VOLUME_MUTE = 0x00;
+static const uint8_t ES8311_DAC_VOLUME_0DB = 0xBF;
+static const int16_t SILENCE[480] = {};  // 10 ms at 48 kHz
+
+static void start_sound_clock(void) {
+    bool muted = M5.In_I2C.writeRegister8(ES8311_ADDR, ES8311_DAC_VOLUME, ES8311_DAC_VOLUME_MUTE, 400000);
+    M5Cardputer.Speaker.playRaw(SILENCE, sizeof(SILENCE) / sizeof(SILENCE[0]), 48000, false, 10,
+                                MENU_CHANNEL, true);
+    uint32_t start = millis();
+    while(M5Cardputer.Speaker.isPlaying(MENU_CHANNEL) && millis() - start < 500) delay(5);
+    delay(50);
+    if(muted) M5.In_I2C.writeRegister8(ES8311_ADDR, ES8311_DAC_VOLUME, ES8311_DAC_VOLUME_0DB, 400000);
+}
+
 void cues_cardputer_begin(void) {
     M5Cardputer.Speaker.setVolume(VOLUME);
+    M5Cardputer.Speaker.setChannelVolume(MENU_CHANNEL, MENU_CHANNEL_VOLUME);
+    start_sound_clock();
 }
 
 // Plays the shared notes one after another and waits until they finish,
@@ -18,9 +61,10 @@ void cues_cardputer_play(bool sound_enabled, BioMapCue cue) {
     if(!sound_enabled) return;
     const BioMapCueNote* notes = nullptr;
     size_t count = biomap_cue_notes(cue, &notes, nullptr);
+    int channel = is_menu_cue(cue) ? MENU_CHANNEL : -1;  // -1: any free channel
     for(size_t i = 0; i < count; i++) {
         if(i > 0) delay(BIOMAP_CUE_NOTE_GAP_MS);
-        M5Cardputer.Speaker.tone(notes[i].freq_hz, notes[i].dur_ms);
+        M5Cardputer.Speaker.tone(notes[i].freq_hz, notes[i].dur_ms, channel);
         delay(notes[i].dur_ms);
     }
 }
