@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cardputer Recordings</title>
+<style>
+  :root {
+    --bg: #f6f7f5; --card: #ffffff; --text: #1d2420; --muted: #5d6862;
+    --line: #dde2de; --accent: #2f7d55; --accent-text: #ffffff; --accent-soft: #e3f1e9;
+    --warn: #9a5b00; --warn-soft: #fdf1dc; --bad: #b3261e; --bad-soft: #fbe4e2;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #141816; --card: #1d2220; --text: #e7ece9; --muted: #9aa59f;
+      --line: #313835; --accent: #5cbf8a; --accent-text: #0d1410; --accent-soft: #1f3529;
+      --warn: #f0b860; --warn-soft: #3a2d17; --bad: #f2867e; --bad-soft: #3d1f1c;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  }
+  main { max-width: 760px; margin: 0 auto; padding: 28px 16px 48px; }
+  h1 { font-size: 1.5rem; margin: 0 0 4px; }
+  .lead { color: var(--muted); margin: 0 0 20px; }
+  .card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+    padding: 18px; margin-bottom: 16px;
+  }
+  label.field { display: block; font-weight: 600; margin-bottom: 6px; }
+  .hint { color: var(--muted); font-size: 0.88rem; font-weight: 400; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .row + .row, .field-group + .field-group { margin-top: 14px; }
+  input[type=text] {
+    flex: 1 1 240px; min-width: 0; font: inherit; color: var(--text); background: var(--card);
+    border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px;
+  }
+  input[type=text]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  button {
+    font: inherit; font-weight: 600; border-radius: 8px; padding: 9px 16px; cursor: pointer;
+    border: 1px solid var(--line); background: var(--card); color: var(--text);
+  }
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+  button:disabled { opacity: 0.5; cursor: default; }
+  .check { display: flex; gap: 8px; align-items: center; margin-top: 14px; }
+  .status { font-weight: 600; min-height: 1.45em; }
+  .status.error { color: var(--bad); }
+  .bar { height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; margin-top: 10px; }
+  .bar > div { height: 100%; width: 0; background: var(--accent); transition: width 0.3s; }
+  .note { border-radius: 8px; padding: 10px 12px; margin-top: 12px; font-size: 0.92rem; }
+  .note.warn { background: var(--warn-soft); color: var(--warn); }
+  .note ul { margin: 4px 0 0; padding-left: 20px; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.92rem; }
+  th, td { text-align: left; padding: 7px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; }
+  td.size { white-space: nowrap; color: var(--muted); }
+  td.name { word-break: break-all; }
+  .tag { display: inline-block; border-radius: 999px; padding: 1px 9px; font-size: 0.82rem; font-weight: 600; white-space: nowrap; }
+  .tag.saved { background: var(--accent-soft); color: var(--accent); }
+  .tag.have { background: var(--line); color: var(--muted); }
+  .tag.new { background: var(--warn-soft); color: var(--warn); }
+  .tag.bad, .tag.failed { background: var(--bad-soft); color: var(--bad); }
+  .detail { color: var(--muted); font-size: 0.82rem; }
+  details { margin-top: 12px; color: var(--muted); font-size: 0.85rem; }
+  details pre { white-space: pre-wrap; word-break: break-word; margin: 8px 0 0; }
+  .empty { color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Cardputer recordings</h1>
+  <p class="lead">On the Cardputer, open <b>Wi-Fi Files</b> first. This page then joins its Wi-Fi,
+    copies the recordings into your folder, and switches this computer back to its usual Wi-Fi.</p>
+
+  <section class="card">
+    <div class="field-group">
+      <label class="field" for="ssid">Cardputer Wi-Fi name <span class="hint">shown on its Wi-Fi Files screen</span></label>
+      <div class="row"><input type="text" id="ssid" placeholder="BioMapping-3E5C" autocomplete="off" spellcheck="false"></div>
+    </div>
+    <div class="field-group">
+      <label class="field" for="label">Name at the start of each file <span class="hint">optional, the Wi-Fi name if empty</span></label>
+      <div class="row"><input type="text" id="label" autocomplete="off" spellcheck="false"></div>
+    </div>
+    <div class="field-group">
+      <label class="field" for="folder">Save in this folder</label>
+      <div class="row">
+        <input type="text" id="folder" autocomplete="off" spellcheck="false">
+        <button id="choose" type="button">Choose folder…</button>
+      </div>
+      <div class="hint" id="chooseHint" hidden>A folder window has opened. If you can't see it, it may be behind this browser window.</div>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="row">
+      <button id="checkBtn" type="button">Check what's new</button>
+      <button id="downloadBtn" class="primary" type="button">Download new recordings</button>
+    </div>
+    <label class="check"><input type="checkbox" id="delete"> Delete recordings from the Cardputer once they are safely in the folder</label>
+    <div style="margin-top:16px">
+      <div class="status" id="status">Ready.</div>
+      <div class="bar" id="bar" hidden><div></div></div>
+      <div class="note warn" id="warnings" hidden></div>
+      <details id="logBox" hidden><summary>Details</summary><pre id="log"></pre></details>
+    </div>
+  </section>
+
+  <section class="card">
+    <table>
+      <thead><tr><th>Recording</th><th>Size</th><th>Status</th></tr></thead>
+      <tbody id="files"><tr><td colspan="3" class="empty">Press <b>Check what's new</b> or <b>Download</b> to see the Cardputer's recordings.</td></tr></tbody>
+    </table>
+  </section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const inputs = ["ssid", "label", "folder"];
+let polling = null;
+let busy = false;
+
+const LABELS = {
+  have: "Already in folder",
+  new: "New",
+  saved: "Saved",
+  bad: "Saved, but damaged",
+  failed: "Didn't download",
+};
+
+function size(b) {
+  if (b < 1024) return b + " B";
+  if (b < 1048576) return (b / 1024).toFixed(1) + " KB";
+  return (b / 1048576).toFixed(1) + " MB";
+}
+
+async function post(path, body) {
+  const r = await fetch(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-BioMapping": "1" },
+    body: JSON.stringify(body || {}),
+  });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.error || ("HTTP " + r.status));
+  return data;
+}
+
+function settingsFromPage() {
+  const s = {};
+  for (const k of inputs) s[k] = $(k).value.trim();
+  return s;
+}
+
+function setBusy(b) {
+  busy = b;
+  for (const id of ["checkBtn", "downloadBtn", "choose", "delete", ...inputs]) $(id).disabled = b;
+}
+
+function showStatus(text, isError) {
+  $("status").textContent = text;
+  $("status").classList.toggle("error", !!isError);
+}
+
+function render(state, fillInputs) {
+  const job = state.job || {};
+  if (fillInputs) for (const k of inputs) $(k).value = state.settings[k] || "";
+  setBusy(state.busy);
+  if (job.state && job.state !== "idle") {
+    let msg = job.message || "";
+    if (job.state === "done" && job.kind === "download" && job.seconds != null) msg += ` Took ${job.seconds} s.`;
+    showStatus(msg, job.state === "error");
+  }
+
+  const downloading = job.kind === "download" && job.new_bytes > 0 && job.state !== "error";
+  $("bar").hidden = !downloading;
+  if (downloading) {
+    const pct = job.state === "done" ? 100 : Math.min(100, 100 * job.done_bytes / job.new_bytes);
+    $("bar").firstElementChild.style.width = pct + "%";
+  }
+
+  const w = job.warnings || [];
+  $("warnings").hidden = w.length === 0;
+  $("warnings").replaceChildren();
+  if (w.length) {
+    const title = document.createElement("b");
+    title.textContent = "Check these:";
+    const ul = document.createElement("ul");
+    for (const line of w) { const li = document.createElement("li"); li.textContent = line; ul.append(li); }
+    $("warnings").append(title, ul);
+  }
+
+  const log = job.log || [];
+  $("logBox").hidden = log.length === 0;
+  $("log").textContent = log.join("\n");
+
+  const files = job.files || [];
+  if (!job.state || job.state === "idle") return;
+  const body = $("files");
+  body.replaceChildren();
+  if (files.length === 0) {
+    const tr = document.createElement("tr");
+    const td = document.createElement("td");
+    td.colSpan = 3; td.className = "empty";
+    td.textContent = job.state === "joining" ? "Waiting for the Cardputer…" : "No recordings.";
+    tr.append(td); body.append(tr);
+    return;
+  }
+  for (const f of files) {
+    const tr = document.createElement("tr");
+    const name = document.createElement("td"); name.className = "name"; name.textContent = f.local_name || f.name;
+    const sz = document.createElement("td"); sz.className = "size"; sz.textContent = size(f.size);
+    const st = document.createElement("td");
+    const tag = document.createElement("span");
+    tag.className = "tag " + f.status;
+    tag.textContent = LABELS[f.status] || f.status;
+    st.append(tag);
+    if (f.deleted) { const d = document.createElement("div"); d.className = "detail"; d.textContent = "Deleted from the Cardputer"; st.append(d); }
+    if (f.detail) { const d = document.createElement("div"); d.className = "detail"; d.textContent = f.detail; st.append(d); }
+    tr.append(name, sz, st); body.append(tr);
+  }
+}
+
+async function refresh(fillInputs) {
+  try {
+    const r = await fetch("/api/state", { cache: "no-store" });
+    const state = await r.json();
+    render(state, fillInputs);
+    if (state.busy && !polling) polling = setInterval(() => refresh(false), 400);
+    if (!state.busy && polling) { clearInterval(polling); polling = null; }
+  } catch (e) {
+    if (polling) { clearInterval(polling); polling = null; }
+    setBusy(true);
+    showStatus("The downloader has stopped. Start it again in the terminal, then reload this page.", true);
+  }
+}
+
+async function run(path) {
+  const body = settingsFromPage();
+  if (path === "/api/download" && $("delete").checked) {
+    const ok = confirm("After downloading, delete every recording from the Cardputer that is safely in this folder (its checksum matches)?\n\nThis can't be undone.");
+    if (!ok) return;
+    body.delete = true;
+  }
+  showStatus(path === "/api/check" ? "Checking…" : "Starting…");
+  try {
+    render(await post(path, body), false);
+    refresh(false);
+  } catch (e) {
+    showStatus(e.message, true);
+  }
+}
+
+$("checkBtn").onclick = () => run("/api/check");
+$("downloadBtn").onclick = () => run("/api/download");
+
+$("choose").onclick = async () => {
+  $("chooseHint").hidden = false;
+  setBusy(true);
+  try {
+    const state = await post("/api/choose-folder", {});
+    $("folder").value = state.settings.folder || "";
+  } catch (e) {
+    showStatus(e.message, true);
+  } finally {
+    $("chooseHint").hidden = true;
+    setBusy(false);
+  }
+};
+
+for (const k of inputs) {
+  $(k).addEventListener("change", async () => {
+    try { await post("/api/settings", { [k]: $(k).value.trim() }); showStatus("Ready."); }
+    catch (e) { showStatus(e.message, true); }
+  });
+}
+
+refresh(true);
+</script>
+</body>
+</html>

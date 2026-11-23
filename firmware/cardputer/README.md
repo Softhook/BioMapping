@@ -81,6 +81,7 @@ The SD card stays inside the Cardputer. To get the files onto a computer, phone 
 - The screen also switches to a second QR code for `http://192.168.4.1` (you can also switch between the two QR codes with Left / Right).
 - Open that address in your browser (Chrome, Safari or any other) to download individual `.csv` files, tap **Download All as ZIP** for a single archive of every recording, or delete old files. (With more than 256 recordings the page lists only the newest 256, but the ZIP still has all of them.)
 - To choose where downloads are saved, turn on **Ask where to save each file before downloading** in Chrome's settings (under Downloads). Chrome then opens the folder you used last time.
+- On a Mac or Linux computer, `python3 scripts/workshop_collect.py --web` opens a page with a **Choose folder** button that copies every new recording straight into that folder. It joins the Cardputer's Wi-Fi by itself, skips recordings already in the folder, checks each file's checksum, and then switches the computer back to its usual Wi-Fi. It remembers the folder and Wi-Fi name for next time. Without `--web`, the same script does this in the terminal (`-o` sets the folder).
 - Press **Esc** when done to stop the server and turn Wi-Fi completely off before recording. If you forget, it turns itself off after 10 minutes with no device connected.
 
 ## Files

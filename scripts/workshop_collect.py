@@ -688,6 +688,7 @@ def _unpack_zip_into_shared_dir(
     out_dir: Path,
     result: DeviceResult,
     log: Callable[[str], None],
+    add_file: Callable[[FileRecord], None],
 ) -> None:
     """Extract every valid .csv from a Cardputer ZIP into the shared folder with device prefix."""
     with zipfile.ZipFile(zip_path, "r") as zf:
@@ -703,7 +704,7 @@ def _unpack_zip_into_shared_dir(
                 existing_ver = verify_csv_file(dest_path, expected_size=info.file_size)
                 if existing_ver.ok:
                     result.skipped_count += 1
-                    result.files.append(
+                    add_file(
                         FileRecord(
                             remote_name=remote_name,
                             local_name=local_name,
@@ -732,7 +733,7 @@ def _unpack_zip_into_shared_dir(
                 part_path.unlink(missing_ok=True)
                 result.failed_count += 1
                 result.warnings.append(f"{remote_name}: unpack failed ({exc})")
-                result.files.append(
+                add_file(
                     FileRecord(
                         remote_name=remote_name,
                         local_name=local_name,
@@ -754,7 +755,7 @@ def _unpack_zip_into_shared_dir(
                 log(f"    ! {local_name} — WARNING: {ver.detail}")
             else:
                 log(f"    + {local_name} ({format_size(info.file_size)})")
-            result.files.append(
+            add_file(
                 FileRecord(
                     remote_name=remote_name,
                     local_name=local_name,
@@ -778,10 +779,23 @@ def collect_device(
     quiet_offline: bool = False,
     log: Callable[[str], None] = print,
     sleep_fn: Callable[[float], None] = time.sleep,
+    on_listing: Optional[Callable[[list[dict], int, bool], None]] = None,
+    on_file: Optional[Callable[[FileRecord], None]] = None,
 ) -> DeviceResult:
-    """Join one Cardputer, verify its identity, download new CSVs, and verify checksums."""
+    """Join one Cardputer, verify its identity, download new CSVs, and verify checksums.
+
+    `on_listing(files, total, truncated)` hears the Cardputer's file list once it
+    answers, and `on_file(record)` hears each file as soon as it is settled
+    (skipped, saved or failed), so a caller such as the --web page can show
+    progress while it runs.
+    """
     t0 = time.monotonic()
     res = DeviceResult(spec=spec, status="ok")
+
+    def add_file(rec: FileRecord) -> None:
+        res.files.append(rec)
+        if on_file is not None:
+            on_file(rec)
     label_note = f" (saved as {spec.label}_...)" if spec.label != spec.ssid else ""
     if not quiet_offline:
         log(f"\n[{spec.ssid}]{label_note}")
@@ -817,6 +831,8 @@ def collect_device(
     files = listing.get("files", [])
     truncated = bool(listing.get("truncated", False))
     total_reported = int(listing.get("total", len(files)))
+    if on_listing is not None:
+        on_listing(files, total_reported, truncated)
 
     if total_reported == 0:
         log("  Connected — no recordings on card.")
@@ -839,10 +855,10 @@ def collect_device(
             dest = out_dir / lname
             if dest.exists() and dest.stat().st_size == rsize and verify_csv_file(dest, rsize).ok:
                 res.skipped_count += 1
-                res.files.append(FileRecord(rname, lname, rsize, "skipped", "already_present"))
+                add_file(FileRecord(rname, lname, rsize, "skipped", "already_present"))
             else:
                 res.new_count += 1
-                res.files.append(FileRecord(rname, lname, rsize, "would_download"))
+                add_file(FileRecord(rname, lname, rsize, "would_download"))
                 log(f"    [dry-run] would download -> {lname} ({format_size(rsize)})")
         if truncated and total_reported > len(files):
             extra = total_reported - len(files)
@@ -857,7 +873,7 @@ def collect_device(
         try:
             log("  Downloading full ZIP archive...")
             _download_zip_with_retry(client, tmp_zip, retries=1)
-            _unpack_zip_into_shared_dir(tmp_zip, spec, out_dir, res, log)
+            _unpack_zip_into_shared_dir(tmp_zip, spec, out_dir, res, log, add_file)
         except Exception as exc:
             res.status = "error"
             res.error = f"ZIP download failed: {exc}"
@@ -880,7 +896,7 @@ def collect_device(
                 existing_ver = verify_csv_file(dest_path, expected_size=rsize)
                 if existing_ver.ok:
                     res.skipped_count += 1
-                    res.files.append(
+                    add_file(
                         FileRecord(
                             remote_name=rname,
                             local_name=lname,
@@ -902,7 +918,7 @@ def collect_device(
                 res.failed_count += 1
                 res.warnings.append(f"{rname}: download failed ({exc})")
                 log(f"    ! {lname} — FAILED ({exc})")
-                res.files.append(
+                add_file(
                     FileRecord(
                         remote_name=rname,
                         local_name=lname,
@@ -925,7 +941,7 @@ def collect_device(
             else:
                 log(f"    + {lname} ({format_size(got)})")
 
-            res.files.append(
+            add_file(
                 FileRecord(
                     remote_name=rname,
                     local_name=lname,
@@ -1192,8 +1208,22 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "-o",
         "--out",
         type=Path,
-        default=_default_output_dir(),
+        default=None,
         help="Shared workshop folder for downloaded CSVs (default: tracks/workshop_YYYY-MM-DD).",
+    )
+    p.add_argument(
+        "--web",
+        action="store_true",
+        help=(
+            "Open a page in your web browser to choose the folder and download from "
+            "one Cardputer with buttons, instead of running in the terminal."
+        ),
+    )
+    p.add_argument(
+        "--port",
+        type=int,
+        default=8765,
+        help="Port for the --web page on this computer (default: 8765; another is picked if busy).",
     )
     p.add_argument(
         "--watch",
@@ -1346,6 +1376,15 @@ def main(
     except (FileNotFoundError, ValueError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 2
+
+    if args.web:
+        # Imported here so the terminal mode never needs the page's files.
+        import workshop_collect_web
+
+        return workshop_collect_web.serve(args, wifi, specs)
+
+    if args.out is None:
+        args.out = _default_output_dir()
 
     if not specs:
         example = Path(__file__).resolve().parent / "workshop_devices.example.txt"
@@ -1527,4 +1566,7 @@ def main(
 
 
 if __name__ == "__main__":
+    # The --web page imports this file as `workshop_collect`; point that name
+    # at this running copy so the file isn't loaded a second time.
+    sys.modules.setdefault("workshop_collect", sys.modules[__name__])
     raise SystemExit(main())
