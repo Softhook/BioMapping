@@ -18,6 +18,7 @@
  *   drawGraph                 src/live/live_graph.mjs
  */
 
+import { GSR_CONST } from '../core/constants.mjs';
 import { Controllers } from '../core/controllers.mjs';
 import { GSRNotices } from '../core/notices.mjs';
 import { GpsPipeline } from '../gps/gps_pipeline.mjs';
@@ -37,10 +38,10 @@ import {
   normalizeTileCacheUrl,
 } from './live_tile_cache.mjs';
 
-// Same as src/core/constants.mjs's GPS_DEFAULT.maxHdop (docs/csv_schema.md's "HDOP
-// Gate Design" — 2.0 is the post-processing quality filter, distinct from
-// the firmware's permissive 5.0 logging gate).
-export const LIVE_MAX_HDOP = 2.0;
+// The saved-walk default (GSR_CONST.GPS_DEFAULT.maxHdop), so Live keeps the
+// same fixes a recorded walk would. The firmware logs every fix; this is the
+// only HDOP gate (docs/csv_schema.md "HDOP Gate Design").
+export const LIVE_MAX_HDOP = GSR_CONST.GPS_DEFAULT.maxHdop;
 
 // ==========================================================================
 // Leaflet map wrapper — the same CartoDB "light_all" tile layer and init

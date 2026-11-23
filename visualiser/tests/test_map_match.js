@@ -837,3 +837,32 @@ test('match: a real turn onto a short link road (only route to the next road) is
   const ways = evalPoints.map((p) => result.get(p.idx).wayId);
   assert.ok(ways.includes('LINK'), `LINK was stripped: ${ways.join(',')}`);
 });
+
+test('match: a finely drawn footpath beside the road does not crowd the road out of the candidates', () => {
+  // The walker is on road R. Footpath F runs 6 m away with a node every
+  // metre, so a dozen of its pieces rank ahead of R (its footway bonus
+  // outweighs the 6 m) and one road alone fills a short candidate list.
+  // R must still be a candidate, and win on distance.
+  const m = (x) => x / 111320; // metres → degrees (equator)
+  const R = way('R', [
+    { lat: 0, lon: 0 },
+    { lat: 0, lon: m(150) },
+  ]);
+  const fNodes = [];
+  for (let x = 0; x <= 150; x++) fNodes.push({ lat: m(6), lon: m(x) });
+  const F = way('F', fNodes, 'footway');
+  const nearby = [R, F];
+  const evalPoints = [];
+  for (let x = 30; x <= 120; x += 3) {
+    evalPoints.push({ idx: evalPoints.length, lat: 0, lon: m(x), nearby });
+  }
+  const raw = evalPoints.map((_, i) => ({ time: i }));
+
+  const result = MapMatcher.match(evalPoints, raw, 25);
+  const ways = evalPoints.map((p) => result.get(p.idx).wayId);
+  assert.deepStrictEqual(
+    ways,
+    ways.map(() => 'R'),
+    ways.join(','),
+  );
+});

@@ -678,10 +678,13 @@ static void ubx_send_valset(GpsUart* g, const UbxValsetPair* pairs, size_t count
 
 // ── M10Q configuration values ───────────────────────────────────────────
 static void ubx_send_rate(GpsUart* g) {
-    // 100 ms measRate = 10 Hz.  SAM-M10Q datasheet Table 1: 10 Hz is the
-    // high-performance-mode maximum for the default 4-constellation config.
-    // No separate HP-mode enable packet is required — setting the rate is
-    // sufficient on M10 SPG 5.10 firmware.
+    // 100 ms measRate = 10 Hz, which is above the module's rating. With its
+    // default four constellations the SAM-M10Q is rated for 5 Hz; 10 Hz
+    // needs the high CPU clock, a permanent one-time (OTP) write this app
+    // does not make (integration manual §2.1.5, docs/datasheets/). The
+    // module accepts the rate anyway. The cost, per §2.1.5, is a lower fix
+    // rate when very many satellites are tracked: some ticks then repeat
+    // the previous fix, which the visualiser's filter allows for.
     static const uint8_t meas_val[] = {0x64, 0x00}; // 100 (x 0.001s = 100ms = 10Hz)
     static const uint8_t nav_val[]  = {0x01, 0x00}; // 1 measurement per nav solution
     const UbxValsetPair pairs[] = {

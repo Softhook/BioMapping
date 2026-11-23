@@ -2616,10 +2616,10 @@ test('exportCsv: a session with no packets still produces a valid file (header +
 });
 
 // ==========================================================================
-// updateLiveMap() — GPS quality gating (live.html:861). LIVE_MAX_HDOP is
-// 2.0; the firmware applies no HDOP gate, so this filters purely at display
-// time. fixType 1 (no fix) is rejected; a gap breaks the drawn trail without
-// stopping tracking. Only "first fix zooms" was covered.
+// updateLiveMap() — GPS quality gating. LIVE_MAX_HDOP is the saved-walk
+// default (GSR_CONST.GPS_DEFAULT.maxHdop, 3.0); the firmware applies no HDOP
+// gate, so this filters purely at display time. fixType 1 (no fix) is
+// rejected; a gap breaks the drawn trail without stopping tracking.
 // ==========================================================================
 
 const FIX = (over = {}) =>
@@ -2641,7 +2641,15 @@ const segLatLngs = (context) =>
     'liveMap._layers.filter(l => l.latlngs).map(l => l.latlngs)',
   );
 
-test('updateLiveMap: a fix worse than LIVE_MAX_HDOP (2.0) is dropped — no segment, and it does not advance the trail anchor', async () => {
+test('updateLiveMap: LIVE_MAX_HDOP is the saved-walk default, so a fix at HDOP 2.5 is drawn', async () => {
+  const { context } = await bootLive();
+  run(context, 'showMap()');
+  run(context, `updateLiveMap(${FIX({ lat: 51.0, lon: 0.0 })})`);
+  run(context, `updateLiveMap(${FIX({ lat: 51.5, lon: 0.5, hdop: 2.5 })})`);
+  assert.strictEqual(segLatLngs(context).length, 1);
+});
+
+test('updateLiveMap: a fix worse than LIVE_MAX_HDOP (3.0) is dropped — no segment, and it does not advance the trail anchor', async () => {
   const { context } = await bootLive();
   run(context, 'showMap()');
 

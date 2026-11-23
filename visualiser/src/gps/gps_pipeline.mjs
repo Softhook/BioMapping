@@ -308,9 +308,10 @@ export const GpsPipeline = {
    * Reconstruct full 10 Hz filtered GPS path.
    *
    * @param {number} [maxSpeed] - plausible speed ceiling (m/s), the same
-   *   value that scales the Kalman filter's acceleration noise — used to
-   *   decide whether a gap between anchors is safe to draw as a straight
-   *   chord.
+   *   value that scales the Kalman filter's acceleration noise. A curved
+   *   fill-in between two fixes that would move faster than this falls back
+   *   to a straight line; where the path is broken altogether is decided by
+   *   isImpossibleJump alone.
    */
   reconstructFilteredGps(analyzer, data, gpsPoints, maxSpeed = 3.0) {
     const filteredGps = new Array(data.length);

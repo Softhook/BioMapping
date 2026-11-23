@@ -79,8 +79,11 @@ export const MapMatcher = {
    *  distance from their fixes (see _routeLimitM). */
   ROUTE_SLACK_M: 20,
 
-  /** Maximum candidate segments per GPS fix. */
-  MAX_CANDS: 10,
+  /** Maximum candidate segments per GPS fix. Each segment of a way counts
+   *  separately, so a finely drawn way can take several places; with 10, a
+   *  nearby road was left out at about a quarter of points on the real
+   *  walks. 20 lets it in at little cost (docs/gps_filtering_pipeline.md §3.3). */
+  MAX_CANDS: 20,
 
   /** Candidate search radius (metres). */
   MATCH_RADIUS: 50,

@@ -36,8 +36,11 @@
  * starts a new stretch of rejected fixes, so a lone bad fix before a gap is
  * never where the track restarts. The wait is in seconds, not fixes: a
  * multipath burst off buildings lasts seconds, and restarting after a few
- * fixes drew the whole burst (docs/gps_filter_review.md §1). The smoother
- * runs separately on each stretch between restarts.
+ * fixes drew the whole burst (docs/gps_filter_review.md §1). A stretch still
+ * running when the walk ends cannot be waited out, so there RESET_AT_END_S
+ * of rejected fixes is enough: a jump in the walk's last seconds is followed
+ * to the end, while a moment of bad signal as it ends is still skipped. The
+ * smoother runs separately on each stretch between restarts.
  *
  * Stops are pinned before filtering: the fixes of a stop are all moved to
  * its mean position. The chip's own position drifts several metres over a
@@ -85,6 +88,8 @@ export const GpsCvKalman = {
   RESET_AFTER_S: 10,
   /** A gap (s) between two rejected fixes after which they count as separate stretches. */
   RESET_GAP_S: 1,
+  /** As RESET_AFTER_S, for a stretch still running when the walk ends. */
+  RESET_AT_END_S: 2,
   /** Time (s) over which consecutive fixes' errors count as one — see header. */
   NOISE_CORR_S: 3,
   /** Doppler speed (knots, ≈ 0.26 m/s) at or below which a fix counts as stopped. */
@@ -195,14 +200,21 @@ export const GpsCvKalman = {
     let velUsedSinceReject = 0; // Doppler counts since rejectIdx
     let velRejectedSinceReject = 0;
 
-    for (let i = 0; i < n; i++) {
+    // i === n is one step past the last fix: the end of the walk, where a
+    // stretch of rejected fixes that is still running can restart too.
+    for (let i = 0; i <= n; i++) {
       // The rejected fixes themselves must span RESET_AFTER_S (and a gap
       // breaks the stretch, below): otherwise one bad fix followed by a
-      // signal gap would restart the track on that bad fix.
+      // signal gap would restart the track on that bad fix. At the end of
+      // the walk there are no later fixes to wait for, so RESET_AT_END_S is
+      // enough there.
+      const rejectedS =
+        rejectRun > 0 ? points[i - 1].time - points[rejectIdx].time : 0;
       const restart =
         i === 0 ||
         (rejectRun > 0 &&
-          points[i - 1].time - points[rejectIdx].time >= this.RESET_AFTER_S);
+          rejectedS >= (i === n ? this.RESET_AT_END_S : this.RESET_AFTER_S));
+      if (i === n && !restart) break;
       if (restart && i > 0) {
         // Run again from the first rejected fix (see header), undoing the
         // counts of the stretch being replayed.

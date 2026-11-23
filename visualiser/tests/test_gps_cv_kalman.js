@@ -441,6 +441,34 @@ test('a bad fix, a short gap, then a real jump: the jump is followed, the bad fi
   }
 });
 
+test('a real jump in the last seconds of a walk is followed to the end', () => {
+  // The track moves 40 m north 5 s before the walk ends: too late for the
+  // RESET_AFTER_S wait, so only the end-of-walk rule can follow it.
+  const pts = walk10Hz(60, (t) => (t >= 55 ? 40 : 0));
+  const res = GpsCvKalman.run(pts);
+  assert.strictEqual(res.resets, 1);
+  for (const p of res.points) {
+    const n = p.time >= 55 ? 40 : 0;
+    assert.ok(
+      errM(p, 1.4 * p.time, n) < 3,
+      `t=${p.time}: ${errM(p, 1.4 * p.time, n).toFixed(1)} m off`,
+    );
+  }
+});
+
+test('a moment of bad signal as the walk ends is still skipped', () => {
+  // The last 0.8 s are 30 m off: shorter than RESET_AT_END_S.
+  const pts = walk10Hz(60, (t) => (t >= 59.15 ? 30 : 0));
+  const res = GpsCvKalman.run(pts);
+  assert.strictEqual(res.resets, 0);
+  for (const p of res.points) {
+    assert.ok(
+      errM(p, 1.4 * p.time, 0) < 3,
+      `t=${p.time}: ${errM(p, 1.4 * p.time, 0).toFixed(1)} m off`,
+    );
+  }
+});
+
 test('a few seconds of multipath at 10 Hz is skipped, not drawn after a restart', () => {
   const noise = rng(7);
   const pts = [];

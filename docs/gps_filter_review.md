@@ -123,6 +123,16 @@ all the evidence for this fix comes from fake bad stretches.
 both gap cases; each fails on either the original rule or the first
 version.
 
+**The end of a walk (2026-11-23).** A restart needs a fix after the 10 s,
+so a stretch of rejected fixes still running when the walk ended was never
+restarted: a real jump in the last ~10 s left the end of the path where the
+jump had left it (40 m fake jumps 5–20 s before the end: 56 of 88 drawn
+more than 10 m off). Such a stretch now restarts once it has lasted 2 s
+(`RESET_AT_END_S`); a shorter moment of bad signal as the walk ends is
+still skipped. No recorded walk ends in a rejected stretch, and every walk's
+path is unchanged. Tested in `test_gps_cv_kalman.js` (the jump test fails
+on the old rule; the short-glitch test fails if the 2 s is removed).
+
 ## 2. The outlier check's range is wide: about 13–21 m
 
 **What happens.** Because 10 fixes a second from the chip share most of their

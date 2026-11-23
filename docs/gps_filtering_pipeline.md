@@ -1,6 +1,6 @@
 # GPS Pipeline & Filter Architecture
 
-**Written:** 2026-07-15 · **Last checked against code:** 2026-10-01 (§3.3–3.4 and §6 rewritten for the road-snapping review)
+**Written:** 2026-07-15 · **Last checked against code:** 2026-11-23 (whole path re-checked from the chip to the map: §2.4, the end-of-walk restart in §3.2, 20 road candidates in §3.3 and §5 on what hAcc is)
 **Scope:** Complete overview of the GPS processing pipeline, from firmware-level quality gating through to downstream spatial analysis filters.
 **Files:** `firmware/core/gps_uart.c`, `firmware/core/biomap_types.h`, `firmware/core/biomap_session.c`, `visualiser/src/gps/gps_cv_kalman.mjs`, `visualiser/src/gps/gps_pipeline.mjs`, `visualiser/src/gps/map_match.mjs`, `visualiser/src/map/manager/process.mjs`
 
@@ -17,7 +17,7 @@
 
 ## 1. Overview & Pipeline Order
 
-The BioMapping GPS pipeline ingests raw NMEA data from the u-blox SAM-M10Q GPS chip on the Flipper Zero hardware, performs light validity checking (NaN guards, fix-validity flags), logs every reported fix to an SD card, and then applies a multi-stage post-processing filter pipeline in the web-based analyzer.
+The BioMapping GPS pipeline ingests raw NMEA data from the u-blox SAM-M10Q GPS chip on the Flipper Zero or Cardputer, performs light validity checking (NaN guards, fix-validity flags), logs every reported fix to an SD card, and then applies a multi-stage post-processing filter pipeline in the web-based analyzer.
 
 The sequence of filters applied to the track data is ordered as follows:
 
@@ -55,7 +55,11 @@ The current CSV log format consists of 11 columns:
 ```csv
 timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw,hacc_m
 ```
-`hacc_m` is the u-blox M10Q's own EKF-computed horizontal accuracy in meters, from `$PUBX,00` Field 9. It is `99.9` (unknown) before the first such sentence arrives.
+`hacc_m` is the u-blox M10Q's own estimate of its horizontal accuracy in metres, from `$PUBX,00` field 9 — an estimate, not the real error (§5). It is `99.9` (unknown) before the first such sentence arrives.
+
+### 2.4 Fix rate and row timing
+- **10 fixes a second, above the module's rating.** The firmware sets `CFG-RATE-MEAS` to 100 ms. With its default four constellations (GPS, Galileo, GLONASS, BeiDou) the SAM-M10Q is rated for 5 Hz; 10 Hz needs a higher CPU clock, set by a permanent one-time (OTP) write that the firmware does not make (SAM-M10Q integration manual §2.1.5, in `docs/datasheets/`). The module runs at 10 Hz anyway. The manual's stated cost is a lower fix rate when very many satellites are tracked, and the walks fit that: on several of them the share of moving rows that repeat the previous position climbs from almost none with 16 or fewer satellites to 7–17 % with more than 20 (others show no such pattern). A repeated row is harmless to the filter (§3.2: fixes are already treated as sharing their error). For walking, 5 Hz would be plenty; the rate was left at 10 Hz rather than change a setting proven on the hardware.
+- **Rows take the latest fix at each tick.** Each 10 Hz tick of the device writes whatever fix the parser last stored; the row carries the device's time, not the fix's own GPS time. The two 10 Hz clocks drift against each other, so now and then a row repeats a fix or one is skipped (0.1–2 % of moving rows on recent walks). The fix is up to about 0.2 s old when written — a few tens of centimetres at walking pace.
 
 ---
 
@@ -72,7 +76,7 @@ The app's only GPS filter. It replaced an earlier chain (stop averaging, speed f
 - **State** east/north position and velocity on a local flat plane; continuous white-noise acceleration model (Bar-Shalom §6.2), acceleration noise `0.5 m²/s³` scaled by `(maxSpeed/3)²`.
 - **Measurements**: each position fix (noise from `hacc_m`, else DOP — `GpsCvKalman.measurementVarianceM2`), and the chip's Doppler speed + course as a velocity (0.3 m/s along track, 15° across; below 0.6 m/s only "about this slow" is used, since course is noise there).
 - **Linked fixes**: the chip outputs 10 fixes/s already smoothed by its own filter, so their errors are shared. Position noise is scaled by `3 s / fix spacing` (Groves' variance inflation), so 3 s of fixes weigh as one independent fix.
-- **Outliers**: a 2-DOF χ² gate (11.83) skips a disagreeing measurement. When the rejected fixes span 10 s the track restarts — from the first of them, so a real jump is drawn where it happened; a signal gap of more than 1 s between rejected fixes starts a new stretch, so a lone bad fix before a gap is never restarted on. A bad stretch shorter than that is skipped whole; the earlier rule (restart after 5 fixes = 0.5 s, on the current fix) drew any bad stretch over 0.5 s in full. The smoother runs per stretch between restarts.
+- **Outliers**: a 2-DOF χ² gate (11.83) skips a disagreeing measurement. When the rejected fixes span 10 s the track restarts — from the first of them, so a real jump is drawn where it happened; a signal gap of more than 1 s between rejected fixes starts a new stretch, so a lone bad fix before a gap is never restarted on. A bad stretch shorter than that is skipped whole; the earlier rule (restart after 5 fixes = 0.5 s, on the current fix) drew any bad stretch over 0.5 s in full. A stretch still running when the walk ends can't be waited out, so there 2 s is enough (`RESET_AT_END_S`): a real jump in the walk's last seconds is followed to the end — before, the end of the path stayed where the jump had left it, up to the jump's size away — while a moment of bad signal as the walk ends is still skipped. No recorded walk ends in a rejected stretch, so the walks are unchanged. The smoother runs per stretch between restarts.
 - **Stops**: before filtering, the fixes of each stop are pinned to the stop's mean position, so a stop draws as one dot. Over a long stop the chip's position drifts several metres while its speed stays near zero, and the filter alone reads that as slow walking (biomap_032b: a 3½-minute stop drew a 10 m loop). The rule copies the receiver's own "static hold" (M10 integration manual §2.2.5), which we leave switched off in the chip so the recording keeps the raw wander and the dot can be the mean of the whole stop:
   - starts at Doppler speed ≤ 0.5 kt (≈ 0.26 m/s), ends only above 1.0 kt (2×, as the chip does), so a shuffle doesn't split a stop;
   - also ends if the fixes move more than 2 m within 5 s (walking off slower than the chip's speed shows), cut back to where the movement began, or stray more than 10 m from the stop's mean (safety net);
@@ -86,7 +90,7 @@ The app's only GPS filter. It replaced an earlier chain (stop averaging, speed f
 3. **HMM-Viterbi Map Matcher (`MapMatcher.match`)** (Newson & Krumm 2009):
    - **Purpose**: Global sequence map matching to snap trajectories to real road segments.
    - **Input**: "eval points" — the smoothed path sampled at ≥ 1 s and thinned to one per 3 m (`_selectEvaluationPoints`, `_thinPoints`). Only these are matched; §3.4 fills in every other row.
-   - **Candidates** (`_getCandidates`): up to 10 segments within the snap radius, pre-ranked by distance, road type (footways favoured, main roads penalised) and heading. Roads whose pavements are mapped as their own ways (`sidewalk=separate`, or `sidewalk:left/right/both=separate` with no other pavement — `_pavementsMappedSeparately`) are never candidates: a walker beside them is on the mapped pavement. They stay in the path network for routing.
+   - **Candidates** (`_getCandidates`): up to 20 segments within the snap radius, pre-ranked by distance, road type (footways favoured, main roads penalised) and heading. Each segment of a way counts separately, so a finely drawn way takes several places. With 10, a nearby road was left out entirely at about a quarter of the points on the real walks; raising it to 20 changed the matched road at 0.3 % of points, cut snap jumps from 25 to 21 and hairpins from 14 to 13 (no walk worse), and adds about 0.3 s over all the walks. 40 or no limit changed nothing more. Road type only orders the candidates: the match itself scores distance, heading and the route, not road type. Roads whose pavements are mapped as their own ways (`sidewalk=separate`, or `sidewalk:left/right/both=separate` with no other pavement — `_pavementsMappedSeparately`) are never candidates: a walker beside them is on the mapped pavement. They stay in the path network for routing.
    - **Emission Probability**: a Gaussian on the distance $d$ to the segment, minus a heading penalty when the segment runs across the direction of travel (10° dead zone, then Gaussian with σ 20°, capped at 6 log units — a road at right angles must be ~14 m nearer to win):
      $$\log p(z \mid r) = -0.5 \cdot \left(\frac{d}{\sigma}\right)^2 - \log(\sigma \sqrt{2\pi}) - \text{headingPenalty}$$
      Heading is the "chord": the bearing from the eval point ≥ 6 m behind to the one ≥ 6 m ahead (`_chordBearingDeg`), with the chip's reported course only as a fallback when the walker has barely moved. Below 0.3 m/s reported speed heading is ignored.
@@ -120,19 +124,25 @@ The Kalman filter's own constants are fixed in `gps_cv_kalman.mjs`. The settings
 
 ---
 
-## 5. Direct Spatial Error (`hAcc`) Integration
+## 5. The chip's accuracy estimate (`hAcc`)
 
-Measurement noise variance $R$ in the Kalman filter ([`gps_cv_kalman.mjs`](../visualiser/src/gps/gps_cv_kalman.mjs)) prefers the physical accuracy estimate over DOP-scaling when it's available:
+Each fix's own position noise in the Kalman filter ([`gps_cv_kalman.mjs`](../visualiser/src/gps/gps_cv_kalman.mjs), `measurementVarianceM2`) comes from hAcc when the fix has one, else from DOP:
 
-$$R_{\text{effective}} = \begin{cases} (\text{hacc\_m})^2 & \text{if hacc\_m valid} \\ R_{\text{base}} \times \text{DOP}^2 & \text{otherwise (before the first \$PUBX,00)} \end{cases}$$
+$$R_{\text{fix}} = \begin{cases} (\text{hacc\_m})^2 & \text{if hacc\_m valid} \\ R_{\text{base}} \times \text{DOP}^2 & \text{otherwise (before the first \$PUBX,00)} \end{cases}$$
 
-### The `hAcc` Spatial Error Advantage
-The u-blox SAM-M10Q calculates **`hAcc`**—the actual physical horizontal position error in meters—via its internal extended Kalman filter covariance matrix, transmitted in the `$PUBX,00` NMEA sentence. The Flipper firmware (`core/gps_uart.c`) extracts `hAcc` for live OLED display and, as of CSV schema v1.2, logs it as `hacc_m`.
+The filter then scales this up because the chip's 10-a-second fixes share their error (§3.2) — by 30 at 10 Hz.
 
-1. **Direct Kalman Variance Assignment:** When `hacc_m` is valid (not the `99.9` sentinel), the visualiser's Kalman filter (via `GpsCvKalman.measurementVarianceM2()` — the canonical hacc/DOP² noise model) assigns physical measurement variance directly instead of scaling by DOP².
-2. **Urban Canyon Multipath Rejection:** In urban canyons or under wet tree canopies, satellite geometry often remains acceptable ($\text{HDOP } 1.2$), causing DOP-based estimation to under-estimate measurement noise. However, physical multipath reflections cause true `hAcc` to spike from $1.5\text{ m} \longrightarrow 15.0\text{ m}$. With $R = 15^2 = 225$, the Kalman filter immediately de-weights the multipath outlier and dead-reckons smoothly past the anomaly.
-3. **DOP fallback:** before the first `$PUBX,00` sentence of a walk arrives, `hacc_m` stays at its `99.9` sentinel and the filter falls back to DOP-based scaling — so HDOP/PDOP are still needed.
-4. **True Ground Error Heatmaps** (not yet implemented): visualizer tooltips/overlays showing exact ground uncertainty bounds ($\pm X.X\text{ m}$) per sample remain a future enhancement.
+### What hAcc is, and what it is not
+`hAcc` is the SAM-M10Q's own *estimate* of its horizontal error in metres, from its navigation filter, sent in `$PUBX,00` and logged as `hacc_m` (`core/gps_uart.c`). u-blox does not say exactly what it measures (one standard deviation, or a radius).
+
+It is not the real error, and it is too hopeful. Measured on the walks (2026-09-25): over long stops the positions spread 3–4 times wider than hAcc claimed (one 4-minute stop claimed 1.1 m and wandered over 13.7 m), and repeat walks of the same street in the same direction sat a median 4.4 m apart where hAcc claimed about 1.2 m between them. hAcc does rank fixes — a bigger hAcc tends to mean a bigger error — but on too small a scale. Most of the real error is a slow offset from reflections off buildings, which moves the position and the Doppler speed together, so neither hAcc nor any filter working on the chip's output can see it.
+
+Nor does hAcc pick out the bad fixes. In street canyons it does not reliably jump when reflections throw a fix out: hAcc, HDOP, the satellite count and the filter's own uncertainty all barely predict how far a fix is from the pavement it was on (§6.3), and the 8–10 m errors come as often when they all look good. Outliers are caught by the filter's comparison with its prediction and the Doppler velocity (§3.2), not by hAcc.
+
+How it is used:
+1. **Per-fix noise**, as above. The ×30 scaling for linked fixes (about ×5.5 in distance) is larger than the 3–4× by which hAcc understates the error, so the filter is not over-confident because of it.
+2. **DOP fallback:** before the first `$PUBX,00` of a walk arrives, `hacc_m` stays at its `99.9` sentinel and the filter falls back to DOP-based scaling — so HDOP/PDOP are still needed.
+3. **Per-fix accuracy overlays** (not built): showing hAcc as a ± bound would understate the error several times over; it would need a per-walk calibration first (§6.6).
 
 ---
 
