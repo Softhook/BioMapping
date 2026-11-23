@@ -328,7 +328,7 @@ static void ubx_tx(GpsUart* g, const uint8_t* data, size_t len) {
 // the module answered.
 #define GPS_WAKE_TIMEOUT_MS 1500
 
-static bool ubx_wake(const GpsPlatform* p) {
+static bool ubx_wake(const GpsPlatform* p, bool warn_if_silent) {
     p->rx_start(p->ctx, GpsRxWakeWatch);
 
     uint32_t start = p->now_ms(p->ctx);
@@ -350,7 +350,7 @@ static bool ubx_wake(const GpsPlatform* p) {
     if(answered) {
         gps_log(p, false, "Wake: first byte after %lu ms", (unsigned long)(first_ms - start));
     } else {
-        gps_log(p, true, "Wake: no reply within %d ms", GPS_WAKE_TIMEOUT_MS);
+        gps_log(p, warn_if_silent, "Wake: no reply within %d ms", GPS_WAKE_TIMEOUT_MS);
     }
     return answered;
 }
@@ -775,6 +775,15 @@ static void gps_uart_configure(GpsUart* g);
 // awake at its 9600 default, or awake at 115200 (left configured). Always
 // sleeps it from 115200 — the path that held on hardware — never from 9600
 // straight after a restart, which failed every time.
+//
+// No clean reply at 9600 usually means the module is still awake at 115200
+// from before a restart in the middle of a session (or there is no module).
+// Such a module ignores a standby command sent within about a second of the
+// bytes it just received at the wrong speed: on the Cardputer, sent 250 ms
+// after them it was ignored 5 times in 6, and again 500 ms later; sent after
+// a further 1000 ms it worked 5 times in 5. So it waits first.
+#define GPS_SLEEP_AFTER_SILENT_WAKE_MS 1000
+
 void gps_uart_sleep_from_unknown_state(const GpsPlatform* p) {
     CORE_CHECK(p && p->set_baud && p->tx && p->rx_start && p->rx_stop && p->rx_wake_seen &&
                    p->now_ms && p->delay_ms,
@@ -782,11 +791,16 @@ void gps_uart_sleep_from_unknown_state(const GpsPlatform* p) {
     p->set_baud(p->ctx, GPS_BAUD_RATE);
     // Wake it (a no-op if already awake), move it to 115200 and follow it
     // there. A module already at 115200 ignores the 9600 command and
-    // simply stays there.
-    ubx_wake(p);
+    // simply stays there. Silence isn't a fault here (see above).
+    bool answered = ubx_wake(p, false);
     p->tx(p->ctx, (const uint8_t*)pubx_baud_115200, strlen(pubx_baud_115200));
     p->delay_ms(p->ctx, 200);
     p->set_baud(p->ctx, GPS_BAUD_RATE_FAST);
+    if(!answered) {
+        gps_log(p, false, "Sleep: no reply, so probably still at 115200; waiting %d ms",
+                GPS_SLEEP_AFTER_SILENT_WAKE_MS);
+        p->delay_ms(p->ctx, GPS_SLEEP_AFTER_SILENT_WAKE_MS);
+    }
     p->delay_ms(p->ctx, 50);
     p->tx(p->ctx, ubx_rxm_pmreq_standby, sizeof(ubx_rxm_pmreq_standby));
     p->delay_ms(p->ctx, 100); // let it finish shifting out, and any NMEA already in flight
@@ -854,7 +868,7 @@ GpsUart* gps_uart_create(const GpsPlatform* platform, bool have_port,
         p->set_baud(p->ctx, GPS_BAUD_RATE);
         // Wake the module from software standby and wait until it is
         // listening before gps_uart_configure() sends $PUBX,41 at 9600.
-        ubx_wake(p);
+        ubx_wake(p, true);
         p->rx_start(p->ctx, GpsRxStream);
         g->ready = true;
         gps_uart_configure(g);
