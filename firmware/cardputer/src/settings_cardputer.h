@@ -32,6 +32,12 @@ extern CardputerSettings g_settings;
 // valid; otherwise keeps the defaults above. Applies the backlight setting.
 void settings_cardputer_load(void);
 
+// Prints the settings in use as one "[Settings] In use:" line. Called once
+// the start-up animation is over: the lines printed while loading go out
+// before a computer has the USB port open again, so the test tool
+// (tools/hw_test.py) reads this one.
+void settings_cardputer_log_in_use(void);
+
 // Saves g_settings (Options items) atomically via a .tmp file + rename.
 bool settings_cardputer_save(void);
 

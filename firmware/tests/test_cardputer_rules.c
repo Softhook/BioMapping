@@ -5,6 +5,7 @@
 //   cardputer/src/clock_local.c    local time, and the UTC offset kept
 //                                  across a recording
 //   cardputer/src/key_map.h        which character is which button
+//   cardputer/src/write_queue.c    the bytes waiting for the SD card
 
 #include <assert.h>
 #include <stdio.h>
@@ -20,6 +21,7 @@
 #include "cardputer/src/wifi_files_rules.h"
 #include "cardputer/src/zip_stream.h"
 #include "cardputer/src/splash_anim.h"
+#include "cardputer/src/write_queue.h"
 #include "core/biomap_pipeline.h"
 
 // ── Clock ───────────────────────────────────────────────────────────────
@@ -944,6 +946,69 @@ static void test_splash_anim(void) {
     printf("  splash globe -> body -> square-wave logo & bell melody: ok\n");
 }
 
+// ── Write queue ─────────────────────────────────────────────────────────
+
+// Bytes come out in the order they went in, across the end of the memory,
+// whatever sizes they are put in and written out in.
+static void test_write_queue_order(void) {
+    uint8_t mem[100];
+    WriteQueue q;
+    write_queue_init(&q, mem, sizeof(mem));
+    unsigned seed = 1;
+    uint8_t next_in = 0, next_out = 0;
+    size_t total_in = 0, total_out = 0;
+    for(int round = 0; round < 5000; round++) {
+        seed = seed * 1103515245u + 12345u;
+        uint8_t chunk[60];
+        size_t n = (seed >> 16) % sizeof(chunk);
+        for(size_t i = 0; i < n; i++) chunk[i] = (uint8_t)(next_in + i);
+        size_t took = write_queue_put(&q, chunk, n);
+        assert(took <= n && q.count <= sizeof(mem));
+        next_in = (uint8_t)(next_in + took);
+        total_in += took;
+        // Write out some of it, one piece at a time.
+        size_t want = (seed >> 8) % 80;
+        while(want > 0) {
+            const uint8_t* p;
+            size_t m = write_queue_peek(&q, &p);
+            if(m == 0) break;
+            assert(p >= mem && p + m <= mem + sizeof(mem));  // never past the end
+            if(m > want) m = want;
+            for(size_t i = 0; i < m; i++) assert(p[i] == (uint8_t)(next_out + i));
+            next_out = (uint8_t)(next_out + m);
+            total_out += m;
+            write_queue_drop(&q, m);
+            want -= m;
+        }
+        assert(total_in - total_out == q.count);
+    }
+    assert(total_in > 10000);
+    printf("  order kept across the end of the memory: ok\n");
+}
+
+static void test_write_queue_full_and_clear(void) {
+    uint8_t mem[16];
+    WriteQueue q;
+    write_queue_init(&q, mem, sizeof(mem));
+    const char* text = "abcdefghijklmnopqrstuvwxyz";
+    assert(write_queue_put(&q, text, 10) == 10);
+    assert(write_queue_put(&q, text + 10, 10) == 6);  // only what fits
+    assert(write_queue_put(&q, text, 1) == 0);
+    const uint8_t* p;
+    assert(write_queue_peek(&q, &p) == 16 && memcmp(p, text, 16) == 0);
+    write_queue_drop(&q, 12);
+    assert(write_queue_put(&q, "XYZ", 3) == 3);  // lands at the start
+    assert(write_queue_peek(&q, &p) == 4 && memcmp(p, "mnop", 4) == 0);
+    write_queue_drop(&q, 4);
+    assert(write_queue_peek(&q, &p) == 3 && memcmp(p, "XYZ", 3) == 0);
+    write_queue_drop(&q, 99);  // no more than is waiting
+    assert(q.count == 0 && write_queue_peek(&q, &p) == 0);
+    write_queue_put(&q, text, 5);
+    write_queue_clear(&q);
+    assert(q.count == 0 && write_queue_peek(&q, &p) == 0);
+    printf("  full queue takes only what fits; drop and clear: ok\n");
+}
+
 int main(void) {
     setenv("TZ", CLOCK_UK_TZ, 1);
     tzset();
@@ -985,6 +1050,9 @@ int main(void) {
     test_key_map();
     printf("Splash animation:\n");
     test_splash_anim();
+    printf("Write queue:\n");
+    test_write_queue_order();
+    test_write_queue_full_and_clear();
     printf("All Cardputer rule tests passed.\n");
     return 0;
 }

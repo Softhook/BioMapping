@@ -36,6 +36,14 @@ bool sd_usb_drive_poll(void);
 size_t sd_write_all(int fd, const void* data, size_t len);
 
 // A logger writing in whole 512-byte blocks (see "SD card pauses" in
-// docs/cardputer_port.md, section 5).
+// docs/cardputer_port.md, section 5). Its writes go to the card from a
+// task of their own, started here and ended by sd_cardputer_free(), so a
+// slow card never holds up the main loop; if there is no memory left for
+// that task and its queue, it writes directly, as it used to.
 SdLogger* sd_cardputer_alloc(void);
 void      sd_cardputer_free(SdLogger* logger);
+
+// The slowest card write and sync of the current recording, in ms, as
+// timed by that task (the logger's own flush peak only times the copy
+// into its queue).
+uint32_t sd_cardputer_write_peak_ms(void);

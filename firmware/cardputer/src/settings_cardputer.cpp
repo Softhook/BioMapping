@@ -67,6 +67,13 @@ void settings_cardputer_apply_backlight(void) {
     M5Cardputer.Display.setBrightness(g_settings.backlight_on ? BRIGHTNESS_ON : BRIGHTNESS_DIM);
 }
 
+void settings_cardputer_log_in_use(void) {
+    const CardputerSettings& s = g_settings;
+    Serial.printf("[Settings] In use: zoom=%d backlight=%d sound=%d nav=%lu super_s=%d debug=%d cal=%d\n",
+                  s.zoom_enabled, s.backlight_on, s.sound_enabled, (unsigned long)s.nav_model,
+                  s.super_s, s.debug_fields_enabled, s.cal_active);
+}
+
 void settings_cardputer_load(void) {
     g_settings = CardputerSettings{};
     if(!sd_card_mount()) {

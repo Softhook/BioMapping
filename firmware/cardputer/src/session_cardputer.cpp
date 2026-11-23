@@ -136,7 +136,9 @@ static int plat_file_flush(void* ctx, bool all) {
 static void plat_fill_diag(void* ctx, RowDiag* d) {
     (void)ctx;
     const SdLogger* l = g_session.logger;
-    d->flush_peak_ms        = sd_logger_get_flush_peak_ms(l);
+    // The card time, from the background writer: the logger's own timer
+    // only sees the copy into the queue (sd_cardputer.cpp).
+    d->flush_peak_ms        = sd_cardputer_write_peak_ms();
     d->log_fill_bytes       = sd_logger_get_batch_fill_bytes(l);
     d->log_fill_peak_bytes  = sd_logger_get_batch_fill_peak_bytes(l);
     d->log_overflow_count   = sd_logger_get_overflow_count(l);

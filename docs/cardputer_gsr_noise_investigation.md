@@ -356,8 +356,16 @@ seconds, then jumps again.
   [gsr_sensor.c](../firmware/core/gsr_sensor.c)).
 - **Only the first write:** the writes at 20 s, 30 s and so on are fine,
   and 0009 and 0012 had no freeze.
-- **Not worth fixing for now:** it happens once per recording, near the
-  start.
+- **Measured and fixed (23 Nov).** Over USB, the log's slowest card write
+  was 877 ms in one of three test recordings (the others 14–15 ms), the
+  same length as the 10 frozen rows in 0014. So it is the card itself,
+  now and then slow on the first write into fresh space; saving the
+  reserved 8 MB before the start (21 Nov) didn't stop it. The Cardputer
+  now writes to the card from a task of its own, on the other core
+  ([sd_cardputer.cpp](../firmware/cardputer/src/sd_cardputer.cpp)), so a
+  slow card no longer holds up the GSR rows. Checked with a test build
+  that held the first flush for 900 ms: the once-a-second status lines
+  stayed 1.00–1.02 s apart. The Flipper is unchanged.
 
 ### 8. Small once-a-second dips on the Flippers (220 kΩ)
 

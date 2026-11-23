@@ -116,7 +116,8 @@ To get files onto a phone, tablet, or laptop without a cable, choose **Wi-Fi Fil
 | `src/clock_rule.c` | When the clock is set from GPS time (plain C, host-tested) |
 | `src/tick_schedule.c` | The 10 Hz tick schedule, catch-up after a stall, and GPS byte slicing (plain C, host-tested) |
 | `src/wake_watch.c` | The wake-up wait's "first clean byte" check (plain C, host-tested) |
-| `src/sd_cardputer.cpp` | The SD card, written in whole 512-byte blocks, plus the **U** key's USB thumb drive mode |
+| `src/sd_cardputer.cpp` | The SD card, written in whole 512-byte blocks from a task of its own (so a slow card never holds up the GSR), plus the **U** key's USB thumb drive mode |
+| `src/write_queue.c` | The queue of bytes waiting for the card (plain C, host-tested) |
 | `src/cues_cardputer.cpp` | The Flipper's sounds |
 | `src/keys.cpp` | The Cardputer's keys as the Flipper's six buttons, plus the TCA8418 keyboard unstick check |
 | `src/core_fatal.cpp` | What happens when the shared code stops on a broken rule |

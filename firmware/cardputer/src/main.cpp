@@ -80,7 +80,7 @@ static void log_second(void) {
     }
     uint32_t flush_peak_ms = 0, flush_fails = 0;
     if(g_session.logger) {
-        flush_peak_ms = sd_logger_get_flush_peak_ms(g_session.logger);
+        flush_peak_ms = sd_cardputer_write_peak_ms();
         flush_fails = sd_logger_get_flush_fail_count(g_session.logger);
     }
     GpsUart* gps = open ? s.gps : nullptr;
@@ -231,6 +231,7 @@ void setup() {
         splash_cardputer_play(canvas, nullptr, g_settings.sound_enabled);
     }
 
+    settings_cardputer_log_in_use();
     draw_screen();
     last_log_ms = millis();
 }
