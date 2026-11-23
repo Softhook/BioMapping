@@ -10,6 +10,7 @@ import { GSR_CONST } from '../core/constants.mjs';
 import { GSRNotices } from '../core/notices.mjs';
 import { GeoUtils } from '../gps/geo_utils.mjs';
 import { GpsPipeline } from '../gps/gps_pipeline.mjs';
+import { AnalyzerTimeFormat } from '../signal/analyzer_time_format.mjs';
 
 const RF_BANDS = [815, 868, 915, 434, 446];
 
@@ -49,6 +50,59 @@ export const GSRTrackQualityPopup = {
       return `${(meters / 1000).toFixed(1)} km`;
     }
     return `${Math.round(meters)} m`;
+  },
+
+  /**
+   * The Setup row's facts from the file's "# GSR Calibration" and "# GSR
+   * Bias" lines, or null when it has neither (a file from elsewhere, or one
+   * recorded before the lines existed).
+   *   calibrated: true / false, or null when the file can't say. Every
+   *     recording from a device that writes the bias line also writes the
+   *     calibration line when it is calibrated, so bias without calibration
+   *     means not calibrated.
+   *   bias: 'ok', 'failed' (the check read nothing, so 500 mV was assumed)
+   *     or 'unused' (outside 450–550 mV, so the last good value was used).
+   * @param {GSRSetup|null} setup
+   */
+  _gsrSetupSummary(setup) {
+    if (!setup) return null;
+    const cal = setup.calibration;
+    const bias = setup.bias;
+    let calibrated = null;
+    if (cal) calibrated = true;
+    else if (bias) calibrated = false;
+    // The Calibrated tag's tooltip (the row stays one line). Only what the
+    // line holds: an older calibration line has the gain alone (plus an
+    // offset this card doesn't show), and no date.
+    const calDetail = [];
+    if (cal) {
+      if (cal.calTime > 0) {
+        calDetail.push(
+          `Calibrated ${AnalyzerTimeFormat.dateUK(cal.calTime, 0)}`,
+        );
+      }
+      calDetail.push(`Gain ${cal.gain.toFixed(4)}`);
+      if (Number.isFinite(cal.r2))
+        calDetail.push(`fit R² ${cal.r2.toFixed(4)}`);
+      if (cal.noiseNs.length === 3 && cal.noiseNs.every(Number.isFinite)) {
+        calDetail.push(
+          `noise ${cal.noiseNs.map((v) => v.toFixed(1)).join(' / ')} nS (470k / 100k / 47k)`,
+        );
+      }
+    }
+    return {
+      calibrated,
+      calDetail: calDetail.join(' · '),
+      bias: !bias
+        ? null
+        : bias.measuredMv === null
+          ? 'failed'
+          : bias.measuredMv !== bias.usedMv
+            ? 'unused'
+            : 'ok',
+      biasMeasuredMv: bias ? bias.measuredMv : null,
+      biasUsedMv: bias ? bias.usedMv : null,
+    };
   },
 
   /**
@@ -227,9 +281,12 @@ export const GSRTrackQualityPopup = {
 
     const integrityInfo = a.integrity || { status: 'none', detail: '' };
 
+    // hasGsrData is false for a GPS + RF recording, and for one whose every
+    // GSR reading is 0 (no sensor found).
+    const hasGsr = a.hasGsrData !== false;
     const trackType = [
       a.hasGpsData ? 'GPS' : null,
-      'GSR',
+      hasGsr ? 'GSR' : null,
       a.hasRfData ? 'RF' : null,
     ]
       .filter(Boolean)
@@ -250,12 +307,13 @@ export const GSRTrackQualityPopup = {
         isFlatline = true;
         isDisconnected = true;
       }
-      // The near-zero and rail-saturation warnings. Not the stretch warning
+      // The near-zero and too-high warnings. Not the stretch warning
       // ("The sensor looks disconnected for …"): that one can cover a few
       // seconds of a long walk, so it is judged by length below.
       if (
         w.includes('near-zero values') ||
-        w.includes('Sensor may have been disconnected')
+        w.includes('Sensor may have been disconnected') ||
+        w.includes('more than skin conducts')
       ) {
         isDisconnected = true;
       }
@@ -346,7 +404,9 @@ export const GSRTrackQualityPopup = {
         detail: integrityInfo.detail || '',
       },
       gsr: {
-        valid: validGsrCount > 0,
+        valid: hasGsr && validGsrCount > 0,
+        notRecorded: a.recordingMode === GSR_CONST.GPS_RF_MODE,
+        setup: hasGsr ? this._gsrSetupSummary(a.gsrSetup) : null,
         isFlatline,
         isDisconnected,
         isPartlyDisconnected,
@@ -398,7 +458,9 @@ export const GSRTrackQualityPopup = {
 
     // GSR sensor status: Good tag, mean GSR (µS), and peaks per min on 1 line
     let gsrStatsHtml = '';
-    if (!s.gsr.valid) {
+    if (s.gsr.notRecorded) {
+      gsrStatsHtml = `<span class="tq-tag tq-tag-muted">Not recorded</span>`;
+    } else if (!s.gsr.valid) {
       gsrStatsHtml = `<span class="tq-tag tq-tag-muted">No Data</span>`;
     } else if (s.gsr.isDisconnected || s.gsr.isFlatline) {
       gsrStatsHtml = `<span class="tq-tag tq-tag-bad"><i class="fa-solid fa-triangle-exclamation"></i> Disconnected</span> <span class="tq-sensor-detail">${s.gsr.mean} µS</span>`;
@@ -406,6 +468,42 @@ export const GSRTrackQualityPopup = {
       gsrStatsHtml = `<span class="tq-tag tq-tag-warn" title="Cuffs off for about ${s.gsr.offPct}% of the recording"><i class="fa-solid fa-triangle-exclamation"></i> Partly disconnected</span> <span class="tq-sensor-detail">${s.gsr.mean} µS · <b>${s.gsr.peaksPerMin}</b> peaks/m</span>`;
     } else {
       gsrStatsHtml = `<span class="tq-tag tq-tag-good"><i class="fa-solid fa-check"></i> Good</span> <span class="tq-sensor-detail">${s.gsr.mean} µS · <b>${s.gsr.peaksPerMin}</b> peaks/m</span>`;
+    }
+
+    // GSR setup: calibration and the 0.5 V bias check (only when the file
+    // records them)
+    let setupRowHtml = '';
+    const setup = s.gsr.setup;
+    if (setup && (setup.calibrated !== null || setup.bias)) {
+      const esc = GSRNotices.escapeHtml;
+      const parts = [];
+      if (setup.calibrated === true) {
+        parts.push(
+          `<span class="tq-tag tq-tag-good" title="${esc(setup.calDetail)}"><i class="fa-solid fa-check"></i> Calibrated</span>`,
+        );
+      } else if (setup.calibrated === false) {
+        parts.push(
+          `<span class="tq-tag tq-tag-warn" title="Readings use the circuit's resistor values only. Run Options › GSR Calibration on the device."><i class="fa-solid fa-triangle-exclamation"></i> Not calibrated</span>`,
+        );
+      }
+      if (setup.bias === 'failed') {
+        parts.push(
+          `<span class="tq-tag tq-tag-warn" title="The 0.5 V bias check failed when the recording started, so the readings assume exactly 500 mV."><i class="fa-solid fa-triangle-exclamation"></i> Bias check failed</span>`,
+        );
+      } else if (setup.bias === 'unused') {
+        parts.push(
+          `<span class="tq-tag tq-tag-warn" title="Measured ${setup.biasMeasuredMv.toFixed(1)} mV, outside 450–550 mV, so ${setup.biasUsedMv.toFixed(1)} mV was used."><i class="fa-solid fa-triangle-exclamation"></i> Bias ${Math.round(setup.biasMeasuredMv)} mV</span>`,
+        );
+      } else if (setup.bias === 'ok') {
+        parts.push(
+          `<span class="tq-sensor-detail" title="The 0.5 V bias measured when the recording started">Bias ${Math.round(setup.biasUsedMv)} mV</span>`,
+        );
+      }
+      setupRowHtml = `
+          <div class="tq-sensor-row">
+            <div class="tq-sensor-label"><i class="fa-solid fa-sliders"></i> Setup:</div>
+            <div class="tq-sensor-value">${parts.join(' ')}</div>
+          </div>`;
     }
 
     // GPS sensor status
@@ -478,7 +576,7 @@ export const GSRTrackQualityPopup = {
           <div class="tq-sensor-row">
             <div class="tq-sensor-label"><i class="fa-solid fa-wave-square"></i> GSR:</div>
             <div class="tq-sensor-value">${gsrStatsHtml}</div>
-          </div>
+          </div>${setupRowHtml}
           <div class="tq-sensor-row">
             <div class="tq-sensor-label"><i class="fa-solid fa-satellite"></i> GPS:</div>
             <div class="tq-sensor-value">${gpsContentHtml}</div>

@@ -40,6 +40,29 @@ interface GSRRow {
   ndvi_50m: number;
 }
 
+/** How the device set up its GSR reading for one recording: the
+ * "# GSR Calibration" and "# GSR Bias" header lines (docs/csv_schema.md),
+ * as GSRCSVParser reads them. Each is null when the file has no such line. */
+interface GSRSetup {
+  calibration: {
+    gain: number;
+    /** Open-circuit zero, normalised ADC counts. */
+    zeroCounts: number;
+    /** Fit goodness, 0..1. */
+    r2: number;
+    /** Noise at the 470k, 100k and 47k resistors, nS. */
+    noiseNs: number[];
+    /** When the calibration was saved, Unix seconds; 0 if the clock was unset. */
+    calTime: number;
+  } | null;
+  bias: {
+    /** What the check read, mV; null when the check failed. */
+    measuredMv: number | null;
+    /** What the readings were worked out with, mV. */
+    usedMv: number;
+  } | null;
+}
+
 /** A detected skin response (signal/peak_shape.mjs buildPeakObject, then
  * scored and labelled by the analyzer). */
 interface GSRPeak {

@@ -514,7 +514,9 @@ export const GSRCSVParser = {
    *   importedGpsFilterParams: object|null,
    *   bandFloors: object|null,
    *   hasIntegrityMarker: boolean,
-   *   deviceHeaderLines: Array<string>
+   *   deviceHeaderLines: Array<string>,
+   *   recordingMode: string|null,
+   *   gsrSetup: GSRSetup|null
    * }} dataStartLine is the index of the column-name line.
    */
   _parseMetadataLines(lines) {
@@ -523,6 +525,12 @@ export const GSRCSVParser = {
     let importedGpsFilterParams = null;
     let bandFloors = null;
     let hasIntegrityMarker = false;
+    // "# Mode:" — the device menu's name for the mode, e.g. "GPS + RF".
+    let recordingMode = null;
+    /** @type {GSRSetup['calibration']} */
+    let gsrCalibration = null;
+    /** @type {GSRSetup['bias']} */
+    let gsrBias = null;
     // Device metadata lines (DeviceName, GSR Calibration, Band Floors,
     // GPSChipID, …) kept verbatim so the processed export can carry them over.
     const deviceHeaderLines = [];
@@ -579,6 +587,15 @@ export const GSRCSVParser = {
         // "Integrity Bracket"). Its presence is all we need here — the
         // trailer itself carries the algorithm token.
         hasIntegrityMarker = true;
+      } else if (line.startsWith('# Mode:')) {
+        recordingMode = line.substring('# Mode:'.length).trim() || null;
+        deviceHeaderLines.push(line);
+      } else if (line.startsWith('# GSR Calibration:')) {
+        gsrCalibration = GSRCSVParser._parseGsrCalibration(line);
+        deviceHeaderLines.push(line);
+      } else if (line.startsWith('# GSR Bias:')) {
+        gsrBias = GSRCSVParser._parseGsrBias(line);
+        deviceHeaderLines.push(line);
       } else if (line.includes('Band Floors (dBm):')) {
         const parts = line.split('Band Floors (dBm):')[1];
         if (parts) {
@@ -605,6 +622,77 @@ export const GSRCSVParser = {
       bandFloors,
       hasIntegrityMarker,
       deviceHeaderLines,
+      recordingMode,
+      gsrSetup:
+        gsrCalibration || gsrBias
+          ? { calibration: gsrCalibration, bias: gsrBias }
+          : null,
+    };
+  },
+
+  /**
+   * The "key:value,key:value" fields after a header line's prefix. A value
+   * with no key of its own belongs to the key before it, so
+   * "noise_ns:0.40,1.10,2.39" gives noise_ns → ['0.40', '1.10', '2.39'].
+   * @param {string} text
+   * @returns {Record<string, string[]>}
+   * @private
+   */
+  _headerFields(text) {
+    /** @type {Record<string, string[]>} */
+    const out = {};
+    let key = null;
+    for (const part of text.split(',')) {
+      const colon = part.indexOf(':');
+      if (colon !== -1) {
+        key = part.slice(0, colon).trim();
+        out[key] = [part.slice(colon + 1).trim()];
+      } else if (key) {
+        out[key].push(part.trim());
+      }
+    }
+    return out;
+  },
+
+  /**
+   * "# GSR Calibration: gain:…,zero_counts:…,r2:…,noise_ns:a,b,c,cal_time:…"
+   * (docs/csv_schema.md). Null when the gain can't be read.
+   * @param {string} line
+   * @returns {GSRSetup['calibration']}
+   * @private
+   */
+  _parseGsrCalibration(line) {
+    const f = GSRCSVParser._headerFields(
+      line.substring('# GSR Calibration:'.length),
+    );
+    const num = (key) => parseFloat(f[key]?.[0]);
+    const gain = num('gain');
+    if (!Number.isFinite(gain)) return null;
+    return {
+      gain,
+      zeroCounts: num('zero_counts'),
+      r2: num('r2'),
+      noiseNs: (f.noise_ns || []).map(parseFloat),
+      calTime: num('cal_time') || 0,
+    };
+  },
+
+  /**
+   * "# GSR Bias: measured_mv:<x|none>,used_mv:<y>" (docs/csv_schema.md).
+   * measuredMv is null when the check failed ("none"). Null when used_mv
+   * can't be read.
+   * @param {string} line
+   * @returns {GSRSetup['bias']}
+   * @private
+   */
+  _parseGsrBias(line) {
+    const f = GSRCSVParser._headerFields(line.substring('# GSR Bias:'.length));
+    const usedMv = parseFloat(f.used_mv?.[0]);
+    if (!Number.isFinite(usedMv)) return null;
+    const measured = parseFloat(f.measured_mv?.[0]);
+    return {
+      measuredMv: Number.isFinite(measured) ? measured : null,
+      usedMv,
     };
   },
 
@@ -625,6 +713,9 @@ export const GSRCSVParser = {
    *   hasRfData: boolean,
    *   rfPeakIndices: Set<number>,
    *   hasGpsData: boolean,
+   *   hasGsrData: boolean,
+   *   recordingMode: string|null,
+   *   gsrSetup: GSRSetup|null,
    *   isEnriched: boolean,
    *   integrity: ReturnType<typeof GSRCSVParser._verifyIntegrity>,
    *   warnings: Array<string>|null,
@@ -650,6 +741,8 @@ export const GSRCSVParser = {
       bandFloors,
       hasIntegrityMarker,
       deviceHeaderLines,
+      recordingMode,
+      gsrSetup,
     } = meta;
     // Gets a fallback value further down when the header lacks it.
     let { recordingStartTime } = meta;
@@ -1056,8 +1149,7 @@ export const GSRCSVParser = {
       );
     }
 
-    // Check GSR value range (physiological: 0.0001–50 µS, i.e. 0.1–50 000 nS)
-    // in a single pass
+    // Check the GSR value range in a single pass
     let gsrMin = Infinity;
     let gsrMax = -Infinity;
     let gsrSum = 0;
@@ -1068,14 +1160,32 @@ export const GSRCSVParser = {
       if (v > gsrMax) gsrMax = v;
       gsrSum += v;
     }
-    if (gsrMin < 0.0001) {
+    // No GSR in this file. A GPS + RF recording (its "# Mode" line) never has
+    // any: that is expected, so no notice (the track card says "Not
+    // recorded"). Otherwise every reading exactly 0 means the device couldn't
+    // reach its GSR sensor, or, in a file without a Mode line, was in GPS + RF
+    // mode. Said once, in place of the near-zero and flat warnings, which
+    // would blame the electrodes.
+    const gsrNotRecorded = recordingMode === GSR_CONST.GPS_RF_MODE;
+    const noGsr = gsrNotRecorded || (gsrMin === 0 && gsrMax === 0);
+    if (gsrNotRecorded) {
+      // expected, nothing to say
+    } else if (noGsr) {
+      warnings.push(
+        recordingMode
+          ? "This recording has no GSR readings (every value is 0): the GSR sensor wasn't found."
+          : "This recording has no GSR readings (every value is 0). It was made in GPS + RF mode, or the GSR sensor wasn't found.",
+      );
+    } else if (gsrMin < 0.0001) {
       warnings.push(
         `GSR contains near-zero values (min ${(gsrMin * 1000).toFixed(1)} nS). Sensor may have been disconnected.`,
       );
     }
-    if (gsrMax > 50) {
+    // A disconnect reads near zero, not high: a reading past the device's
+    // own limit means the electrodes touched or the wiring has a fault.
+    if (gsrMax > GSR_CONST.GSR_VALID_MAX_US) {
       warnings.push(
-        `GSR contains rail-saturation values (max ${(gsrMax * 1000).toFixed(0)} nS). Sensor may have been disconnected.`,
+        `GSR goes above ${GSR_CONST.GSR_VALID_MAX_US} µS (max ${(gsrMax * 1000).toFixed(0)} nS), more than skin conducts. The electrodes may have been touching each other, or there is a wiring fault.`,
       );
     }
 
@@ -1095,7 +1205,7 @@ export const GSRCSVParser = {
     }
     const gsrStd = Math.sqrt(gsrSq / nRows);
 
-    if (nRows >= 50) {
+    if (nRows >= 50 && !noGsr) {
       const isRelStdLow = gsrMean > 0 && gsrStd / gsrMean < 5e-4;
       // A dead trace has <=3 distinct values; a relatively flat one needs the
       // full count for the message. Otherwise stop as soon as a 4th appears.
@@ -1322,6 +1432,9 @@ export const GSRCSVParser = {
       hasRfData: hasRfData,
       rfPeakIndices: rfPeakIndices,
       hasGpsData: hasGpsData,
+      hasGsrData: !noGsr,
+      recordingMode: recordingMode,
+      gsrSetup: gsrSetup,
       isEnriched: isEnriched,
       integrity: integrity,
       warnings: csvWarnings,

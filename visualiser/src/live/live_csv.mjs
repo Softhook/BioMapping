@@ -61,14 +61,16 @@ export function buildLiveCsv(packets, nowMs) {
     LIVE_INTEGRITY_MARKER +
     `# RecordingStartTime:${startEpoch}\n` +
     '# DeviceName:LiveStream\n' +
+    // docs/csv_schema.md "Mode": the firmware's biomap_mode_name() wording.
+    '# Mode:Live Stream\n' +
     LIVE_CSV_COLUMNS;
 
   for (const p of packets) {
     if (p.valid) {
       // biomap_format_gps_row(), valid-fix branch:
       // "%.2f,%.7f,%.7f,%.1f,%.1f,%d,%d,%s,%s,%.1f,%.1f" — speed_kts (2 dp)
-      // and course_deg (1 dp) are each empty when the receiver sent none,
-      // e.g. course when standing still.
+      // and course_deg (1 dp) are each empty when unknown: the packet carries
+      // NaN, e.g. for course when standing still.
       body +=
         `${p.timestamp.toFixed(2)},${p.lat.toFixed(7)},${p.lon.toFixed(7)},` +
         `${p.hdop.toFixed(1)},${p.pdop.toFixed(1)},${p.sats},${p.fixType},` +

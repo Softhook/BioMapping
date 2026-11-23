@@ -53,12 +53,13 @@ test('the first line is the firmware integrity marker, verbatim', () => {
   assert.strictEqual(csv.split('\n')[0], '# Integrity: crc32 v1');
 });
 
-test('metadata + column header match a GPS+GSR recording', () => {
+test('metadata (with the Live Stream mode) + column header match a GPS+GSR recording', () => {
   const lines = buildLiveCsv([pkt({ timestamp: 12.6 })], NOW_MS).split('\n');
   assert.strictEqual(lines[1], '# RecordingStartTime:1700000111'); // 1700000123 - floor(12.6)
   assert.strictEqual(lines[2], '# DeviceName:LiveStream');
+  assert.strictEqual(lines[3], '# Mode:Live Stream');
   assert.strictEqual(
-    lines[3],
+    lines[4],
     'timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw,hacc_m',
   );
 });
@@ -96,7 +97,7 @@ test('a valid fix row matches biomap_format_gps_row() "%.2f,%.7f,%.7f,%.1f,%.1f,
     ],
     NOW_MS,
   );
-  const row = csv.split('\n')[4];
+  const row = csv.split('\n')[5];
   assert.strictEqual(
     row,
     '0.30,51.5074000,-0.1278000,1.2,1.8,9,3,3.40,270.0,1234.5,2.3',
@@ -107,7 +108,7 @@ test('a valid fix with no speed or course leaves those fields empty, as the firm
   const stopped = buildLiveCsv(
     [pkt({ timestamp: 0.3, courseDeg: NaN })],
     NOW_MS,
-  ).split('\n')[4];
+  ).split('\n')[5];
   assert.strictEqual(
     stopped,
     '0.30,51.5000000,-0.1200000,1.1,1.7,8,3,2.00,,1000.0,1.5',
@@ -115,7 +116,7 @@ test('a valid fix with no speed or course leaves those fields empty, as the firm
   const neither = buildLiveCsv(
     [pkt({ timestamp: 0.3, speedKts: NaN, courseDeg: NaN })],
     NOW_MS,
-  ).split('\n')[4];
+  ).split('\n')[5];
   assert.strictEqual(
     neither,
     '0.30,51.5000000,-0.1200000,1.1,1.7,8,3,,,1000.0,1.5',
@@ -141,7 +142,7 @@ test('a no-fix row matches biomap_format_gps_row() "%.2f,,,,,,,,,%.1f," — ever
     ],
     NOW_MS,
   );
-  const row = csv.split('\n')[4];
+  const row = csv.split('\n')[5];
   assert.strictEqual(row, '12.60,,,,,,,,,800.0,');
 });
 
@@ -150,7 +151,7 @@ test('every data row carries exactly 11 fields (10 commas), fix or no fix', () =
     [pkt(), pkt({ valid: false, lat: NaN, lon: NaN })],
     NOW_MS,
   );
-  for (const row of csv.split('\n').slice(4, 6)) {
+  for (const row of csv.split('\n').slice(5, 7)) {
     assert.strictEqual(row.split(',').length, 11, `11 fields: "${row}"`);
   }
 });

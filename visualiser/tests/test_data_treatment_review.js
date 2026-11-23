@@ -225,15 +225,28 @@ test('GSR range warnings judge a µS file and an nS file the same way', () => {
   assert.ok(!has(lowUs, 'near-zero'), 'µS file must not be flagged');
   assert.ok(!has(lowNs, 'near-zero'));
 
-  // Past the top of the range: 60 µS = 60 000 nS.
-  const highUs = parseQuiet(
+  // High but inside the device's limit (75 µS): 60 µS = 60 000 nS.
+  const midUs = parseQuiet(
     rows('Raw Conductance (uS)', (i) => (60 + wave(i)).toFixed(4)),
   );
-  const highNs = parseQuiet(
+  const midNs = parseQuiet(
     rows('gsr_raw', (i) => (60000 + 1000 * wave(i)).toFixed(1)),
   );
-  assert.ok(has(highUs, 'rail-saturation'), 'µS file must be flagged');
-  assert.ok(has(highNs, 'rail-saturation'));
+  assert.ok(
+    !has(midUs, 'more than skin conducts'),
+    'µS file must not be flagged',
+  );
+  assert.ok(!has(midNs, 'more than skin conducts'));
+
+  // Past the top of the range: 80 µS = 80 000 nS.
+  const highUs = parseQuiet(
+    rows('Raw Conductance (uS)', (i) => (80 + wave(i)).toFixed(4)),
+  );
+  const highNs = parseQuiet(
+    rows('gsr_raw', (i) => (80000 + 1000 * wave(i)).toFixed(1)),
+  );
+  assert.ok(has(highUs, 'more than skin conducts'), 'µS file must be flagged');
+  assert.ok(has(highNs, 'more than skin conducts'));
 
   // A real disconnect floor in either unit.
   const zeroUs = parseQuiet(
@@ -242,6 +255,40 @@ test('GSR range warnings judge a µS file and an nS file the same way', () => {
     ),
   );
   assert.ok(has(zeroUs, 'near-zero'));
+});
+
+test('a file whose every GSR reading is 0 is reported as having no GSR, not as an electrode problem', () => {
+  // What GPS + RF mode (and a device that can't reach its GSR sensor) writes:
+  // the usual GPS+GSR+RF columns with gsr_raw 0.0 on every row. No Mode line
+  // here, as in a file from before the line existed.
+  const lines = [
+    'timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw,hacc_m,rssi_815,rssi_868,rssi_915',
+  ];
+  for (let i = 0; i < 200; i++) {
+    const lat = (51.5 + i * 1e-5).toFixed(7);
+    lines.push(
+      `${(i / 10).toFixed(2)},${lat},-0.0700000,0.8,1.2,12,3,1.20,90.0,0.0,2.5,-90.0,-88.5,-91.0`,
+    );
+  }
+  const r = parseQuiet(`${lines.join('\n')}\n`);
+  const warnings = r.warnings || [];
+  assert.strictEqual(r.hasGsrData, false);
+  assert.ok(
+    warnings.some((w) => w.includes('no GSR readings')),
+    'says the file has no GSR',
+  );
+  for (const blame of ['near-zero', 'flat', 'skin contact', 'disconnected']) {
+    assert.ok(
+      !warnings.some((w) => w.includes(blame)),
+      `no "${blame}" warning: ${JSON.stringify(warnings)}`,
+    );
+  }
+
+  // One real reading among the zeros is a GSR file again.
+  const one = parseQuiet(
+    `${lines.join('\n').replace(/,0\.0,2\.5,/, ',5000.0,2.5,')}\n`,
+  );
+  assert.strictEqual(one.hasGsrData, true);
 });
 
 test('a stretch with the cuffs off is reported, with or without a device calibration', () => {
@@ -390,4 +437,86 @@ test('a label read from a file stays on its own row when rows are re-sorted', ()
   rows.push('0.500,5.0000,1,0.1000,"dog",0');
   const r = parseQuiet(`${head}\n${rows.join('\n')}\n`);
   assert.deepStrictEqual([...r.importedPeakLabels.entries()], [[0.5, 'dog']]);
+});
+
+test('a GPS + RF recording (its Mode line) has no GSR and gets no GSR notice; another mode reading all 0 says the sensor was not found', () => {
+  const body = (mode) => {
+    const lines = [
+      '# RecordingStartTime:1795165687',
+      '# DeviceName:Tester',
+      `# Mode:${mode}`,
+      'timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw,hacc_m,rssi_815,rssi_868,rssi_915',
+    ];
+    for (let i = 0; i < 200; i++) {
+      const lat = (51.5 + i * 1e-5).toFixed(7);
+      lines.push(
+        `${(i / 10).toFixed(2)},${lat},-0.0700000,0.8,1.2,12,3,1.20,90.0,0.0,2.5,-90.0,-88.5,-91.0`,
+      );
+    }
+    return `${lines.join('\n')}\n`;
+  };
+
+  const radio = parseQuiet(body(GSR_CONST.GPS_RF_MODE));
+  assert.strictEqual(radio.recordingMode, 'GPS + RF');
+  assert.strictEqual(radio.hasGsrData, false);
+  assert.ok(
+    !(radio.warnings || []).some((w) => /GSR|sensor|electrode/i.test(w)),
+    `no GSR notice for a radio recording: ${JSON.stringify(radio.warnings)}`,
+  );
+  // Kept with the device lines, so a processed export still says it.
+  assert.ok(radio.deviceHeaderLines.includes('# Mode:GPS + RF'));
+
+  const broken = parseQuiet(body('GPS + GSR + RF'));
+  assert.strictEqual(broken.hasGsrData, false);
+  assert.deepStrictEqual(
+    (broken.warnings || []).filter((w) => w.includes('no GSR readings')),
+    [
+      "This recording has no GSR readings (every value is 0): the GSR sensor wasn't found.",
+    ],
+  );
+});
+
+test('the GSR Calibration and GSR Bias header lines are read into gsrSetup and kept for export', () => {
+  const file = (extra) =>
+    `${[
+      '# RecordingStartTime:1795165687',
+      '# DeviceName:Tester',
+      ...extra,
+      'timestamp,gsr_raw',
+      ...Array.from(
+        { length: 60 },
+        (_, i) =>
+          `${(i / 10).toFixed(2)},${(5000 + 50 * Math.sin(i / 4)).toFixed(1)}`,
+      ),
+    ].join('\n')}\n`;
+
+  const cal =
+    '# GSR Calibration: gain:1.0123,zero_counts:-321.4,r2:0.9991,noise_ns:0.40,1.10,2.39,cal_time:1790000000';
+  const both = parseQuiet(
+    file([cal, '# GSR Bias: measured_mv:498.6,used_mv:498.6']),
+  );
+  assert.deepStrictEqual(both.gsrSetup, {
+    calibration: {
+      gain: 1.0123,
+      zeroCounts: -321.4,
+      r2: 0.9991,
+      noiseNs: [0.4, 1.1, 2.39],
+      calTime: 1790000000,
+    },
+    bias: { measuredMv: 498.6, usedMv: 498.6 },
+  });
+  assert.ok(both.deviceHeaderLines.includes(cal));
+
+  // A failed check is written "none"; uncalibrated has no calibration line.
+  const failed = parseQuiet(
+    file(['# GSR Bias: measured_mv:none,used_mv:500.0']),
+  );
+  assert.deepStrictEqual(failed.gsrSetup, {
+    calibration: null,
+    bias: { measuredMv: null, usedMv: 500 },
+  });
+
+  // Neither line (a file from elsewhere): nothing to say.
+  assert.strictEqual(parseQuiet(file([])).gsrSetup, null);
+  assert.strictEqual(parseQuiet(file([])).recordingMode, null);
 });

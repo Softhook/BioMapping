@@ -253,6 +253,15 @@ export const GSR_CONST = {
   RESISTANCE_MIN_AVG: 50000, // Average above this → resistance (Ohms)
   MICROSIEMENS_MIN_AVG: 100, // Average above this but ≤ threshold → µS/1000
   MICROSIEMENS_MAX_AVG: 50000,
+  // The highest reading the device treats as real skin: GSR_VALID_MAX_NS in
+  // firmware/core/gsr_sensor.h (75 000 nS). test_firmware_csv_contract.js
+  // checks the two agree. Above it the electrodes are touching each other,
+  // or there is a wiring fault.
+  GSR_VALID_MAX_US: 75,
+  // The "# Mode:" header name of the device's radio mode, which records no
+  // GSR (firmware biomap_mode_name(), BioMapModeGpsOnly; checked by
+  // test_firmware_csv_contract.js).
+  GPS_RF_MODE: 'GPS + RF',
   // Hard ceiling for a single SCR amplitude, used by the prominence detector's
   // artefact guard (see PeakDetectors.prominenceNMS). Real SCRs in even the most
   // reactive subjects rarely exceed ~5 µS; 20 µS is 4× that and gives

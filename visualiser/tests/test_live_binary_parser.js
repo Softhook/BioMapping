@@ -189,3 +189,31 @@ test('packets from older firmware (45 bytes, "BM") are never misread', () => {
   for (let i = 0; i < 20; i++) parser.append(old);
   assert.strictEqual(packets.length, 0);
 });
+
+test('an unknown speed or course (sent as NaN) decodes as NaN, which the live save writes as an empty cell', () => {
+  const { buildLiveCsv } = require('../src/live/live_csv.mjs');
+  const { parser, packets } = collectPackets();
+  // Standing still: the receiver gives a speed but no course.
+  parser.append(buildPacket({ speedKts: 0.1, courseDeg: NaN }));
+  parser.append(
+    buildPacket({ timestampMs: 1300, speedKts: NaN, courseDeg: NaN }),
+  );
+  assert.strictEqual(packets.length, 2);
+  assert.ok(Math.abs(packets[0].speedKts - 0.1) < 1e-6);
+  assert.ok(Number.isNaN(packets[0].courseDeg));
+  assert.ok(Number.isNaN(packets[1].speedKts));
+
+  const rows = buildLiveCsv(packets, 1_700_000_000_000).split('\n');
+  // timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw,hacc_m
+  assert.strictEqual(rows[5].split(',')[7], '0.10');
+  assert.strictEqual(
+    rows[5].split(',')[8],
+    '',
+    'unknown course: empty, not 0.0',
+  );
+  assert.strictEqual(
+    rows[6].split(',')[7],
+    '',
+    'unknown speed: empty, not 0.00',
+  );
+});

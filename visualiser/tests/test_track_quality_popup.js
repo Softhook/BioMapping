@@ -291,14 +291,14 @@ test('GSRTrackQualityPopup.computeSummary: a short disconnect is "partly", a lon
   assert.strictEqual(most.gsr.isDisconnected, true);
   assert.strictEqual(most.gsr.isPartlyDisconnected, false);
 
-  // No stretches: good. The near-zero and rail-saturation warnings still
-  // mark the track disconnected, as before.
+  // No stretches: good. The near-zero and too-high warnings still mark the
+  // track disconnected, as before.
   const clean = GSRTrackQualityPopup.computeSummary(track([], []));
   assert.strictEqual(clean.gsr.isDisconnected, false);
   assert.strictEqual(clean.gsr.isPartlyDisconnected, false);
   for (const w of [
     'GSR contains near-zero values (min 0.0 nS). Sensor may have been disconnected.',
-    'GSR contains rail-saturation values (max 99999 nS). Sensor may have been disconnected.',
+    'GSR goes above 75 µS (max 99999 nS), more than skin conducts. The electrodes may have been touching each other, or there is a wiring fault.',
   ]) {
     assert.strictEqual(
       GSRTrackQualityPopup.computeSummary(track([], [w])).gsr.isDisconnected,
@@ -314,6 +314,132 @@ test('GSRTrackQualityPopup.computeSummary: a short disconnect is "partly", a lon
     html.includes('peaks/m'),
     'a partly disconnected track keeps its peak rate',
   );
+});
+
+// A track for the card, 100 rows of the given GSR (µS); `over` sets
+// analyzer fields.
+const cardTrack = (over = {}, val = 5) => ({
+  name: 'Walk.csv',
+  color: '#3498db',
+  analyzer: {
+    _dataVersion: 1,
+    hasGpsData: true,
+    hasRfData: false,
+    recordingStartTime: 0,
+    formatTimeOnly: () => '',
+    _userPeakLabels: new Map(),
+    _peaks: [],
+    _csvWarnings: [],
+    raw: Array.from({ length: 100 }, (_, i) => ({
+      time: i,
+      val: typeof val === 'function' ? val(i) : val,
+      lat: 51.5 + i * 1e-5,
+      lon: -0.1,
+      _isGpsFix: true,
+      rssi_868: -85,
+    })),
+    ...over,
+  },
+});
+
+test('GSRTrackQualityPopup.computeSummary: a file with no GSR readings shows "No Data", not "Disconnected"', () => {
+  const s = GSRTrackQualityPopup.computeSummary(
+    cardTrack(
+      {
+        hasGsrData: false,
+        hasRfData: true,
+        _csvWarnings: [
+          "This recording has no GSR readings (every value is 0). It was made in GPS + RF mode, or the GSR sensor wasn't found.",
+        ],
+      },
+      0,
+    ),
+  );
+  assert.strictEqual(s.trackType, 'GPS + RF');
+  assert.strictEqual(s.gsr.valid, false);
+  const html = GSRTrackQualityPopup.renderCardHtml(s);
+  assert.ok(html.includes('No Data'));
+  assert.ok(!html.includes('Disconnected'));
+});
+
+test('GSRTrackQualityPopup.computeSummary: a GPS + RF recording shows GSR "Not recorded"', () => {
+  const s = GSRTrackQualityPopup.computeSummary(
+    cardTrack(
+      { hasGsrData: false, hasRfData: true, recordingMode: 'GPS + RF' },
+      0,
+    ),
+  );
+  assert.strictEqual(s.trackType, 'GPS + RF');
+  assert.strictEqual(s.gsr.notRecorded, true);
+  assert.strictEqual(s.gsr.setup, null);
+  const html = GSRTrackQualityPopup.renderCardHtml(s);
+  assert.ok(html.includes('Not recorded'));
+  assert.ok(!html.includes('No Data') && !html.includes('Disconnected'));
+  assert.ok(!html.includes('Setup:'));
+});
+
+test('GSRTrackQualityPopup: the Setup row shows the calibration and the bias check', () => {
+  const wave = (i) => 5 + Math.sin(i / 5);
+  const card = (gsrSetup) =>
+    GSRTrackQualityPopup.renderCardHtml(
+      GSRTrackQualityPopup.computeSummary(cardTrack({ gsrSetup }, wave)),
+    );
+  const cal = {
+    gain: 1.0123,
+    zeroCounts: -321.4,
+    r2: 0.9991,
+    noiseNs: [0.4, 1.1, 2.39],
+    calTime: 1790000000, // 21st Sep 2026
+  };
+  const ok = { measuredMv: 498.6, usedMv: 498.6 };
+
+  // Calibrated, bias fine: a good tag (date and fit in its tooltip, so the
+  // row stays one line), the bias as text.
+  let html = card({ calibration: cal, bias: ok });
+  assert.ok(html.includes('Setup:'));
+  assert.match(
+    html,
+    /tq-tag-good[^>]*title="Calibrated 21st Sep 2026 · Gain 1\.0123 · fit R² 0\.9991 · noise 0\.4 \/ 1\.1 \/ 2\.4 nS/,
+  );
+  assert.ok(html.includes('Bias 499 mV'));
+  assert.ok(
+    !html.includes('Not calibrated') && !html.includes('Bias check failed'),
+  );
+
+  // A bias line but no calibration line: the device wasn't calibrated.
+  html = card({ calibration: null, bias: ok });
+  assert.ok(html.includes('Not calibrated'));
+
+  // The check failed: 500 mV was assumed.
+  html = card({ calibration: cal, bias: { measuredMv: null, usedMv: 500 } });
+  assert.ok(html.includes('Bias check failed'));
+
+  // Out of range: measured, but the last good value was used.
+  html = card({ calibration: cal, bias: { measuredMv: 430.2, usedMv: 500 } });
+  assert.ok(html.includes('Bias 430 mV'));
+  assert.ok(html.includes('so 500.0 mV was used'));
+
+  // Calibration line only (older recording): no "not calibrated" guess.
+  html = card({ calibration: cal, bias: null });
+  assert.ok(html.includes('Calibrated') && !html.includes('Bias'));
+
+  // An older calibration line ("gain:1.0064,offset:106.9883") has only the
+  // gain: the tooltip shows just that, with no blanks or "?".
+  html = card({
+    calibration: {
+      gain: 1.0064,
+      zeroCounts: NaN,
+      r2: NaN,
+      noiseNs: [],
+      calTime: 0,
+    },
+    bias: null,
+  });
+  assert.match(html, /title="Gain 1\.0064"/);
+  assert.ok(!html.includes('?') && !html.includes(' nS'));
+
+  // Neither line: no Setup row at all.
+  assert.ok(!card(null).includes('Setup:'));
 });
 
 test('GSRTrackQualityPopup.renderCardHtml: renders HTML with integrity, metadata, and sensors', () => {

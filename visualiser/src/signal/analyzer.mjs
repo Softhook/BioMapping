@@ -115,6 +115,14 @@ export class GSRAnalyzer {
     this.sampleRate = 10; // In Hz, auto-detected
     this.isResistance = false; // Whether original CSV was resistance (Ohms)
     this.hasGpsData = false; // Whether raw signal contains valid GPS coordinates
+    // False for a GPS + RF recording, or one whose every GSR reading is 0
+    // (the sensor wasn't found); see GSRCSVParser.parse().
+    this.hasGsrData = true;
+    // The file's "# Mode" line ("GPS + GSR", "GPS + RF", …); null if none.
+    this.recordingMode = null;
+    // The file's GSR calibration and bias lines; null if it has neither.
+    /** @type {GSRSetup|null} */
+    this.gsrSetup = null;
     this.filteredGps = [];
     this._userPeakLabels = new Map(); // Persistent time-indexed store: timestamp (sec) -> label string
     // Same idea for exclusions: timestamp (sec) -> true (excluded) / false
@@ -667,6 +675,9 @@ export class GSRAnalyzer {
     this.hasRfData = result.hasRfData;
     this.rfPeakIndices = result.rfPeakIndices;
     this.hasGpsData = result.hasGpsData;
+    this.hasGsrData = result.hasGsrData;
+    this.recordingMode = result.recordingMode;
+    this.gsrSetup = result.gsrSetup;
     this.isEnriched = result.isEnriched;
     this.integrity = result.integrity;
     this._csvWarnings = result.warnings;

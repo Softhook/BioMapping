@@ -2560,20 +2560,21 @@ test('exportCsv: hands GSRFileSaver a .csv name and the full buildLiveCsv text (
   assert.strictEqual(lines[0], '# Integrity: crc32 v1');
   assert.strictEqual(lines[1], '# RecordingStartTime:1700000111'); // 1700000123 - floor(12.60)
   assert.strictEqual(lines[2], '# DeviceName:LiveStream');
+  assert.strictEqual(lines[3], '# Mode:Live Stream');
   assert.strictEqual(
-    lines[3],
+    lines[4],
     'timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw,hacc_m',
   );
 
   // Valid fix: biomap_format_gps_row() "%.2f,%.7f,%.7f,%.1f,%.1f,%d,%d,%.2f,%.1f,%.1f,%.1f"
   // — speed_kts is 2 dp; hacc_m (final field) is empty on the wire.
   assert.strictEqual(
-    lines[4],
+    lines[5],
     '0.30,51.5074000,-0.1278000,1.2,1.8,9,3,3.40,270.0,1234.5,1.5',
   );
   // No-fix sample: firmware's "%.2f,,,,,,,,,%.1f," branch — every GPS column
   // empty, only timestamp + gsr_raw carry a value.
-  assert.strictEqual(lines[5], '12.60,,,,,,,,,800.0,');
+  assert.strictEqual(lines[6], '12.60,,,,,,,,,800.0,');
 
   // Trailer last, with sd_logger_write_trailer()'s token layout (overflows /
   // flush_fails are a truthful 0 for a card-less live session).
@@ -2610,7 +2611,7 @@ test('exportCsv: a session with no packets still produces a valid file (header +
 
   assert.match(
     csv.text,
-    /^# Integrity: crc32 v1\n# RecordingStartTime:1700000000\n# DeviceName:LiveStream\ntimestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw,hacc_m\n# End rows:0 bytes:\d+ crc32:[0-9a-f]{8} end_time:1700000000 overflows:0 flush_fails:0\n$/,
+    /^# Integrity: crc32 v1\n# RecordingStartTime:1700000000\n# DeviceName:LiveStream\n# Mode:Live Stream\ntimestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw,hacc_m\n# End rows:0 bytes:\d+ crc32:[0-9a-f]{8} end_time:1700000000 overflows:0 flush_fails:0\n$/,
   );
 });
 

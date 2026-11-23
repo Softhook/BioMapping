@@ -147,11 +147,25 @@ function runContractTests() {
       );
     }
     const fwCols = cStr(line);
-    const liveCols = `${emptyExport()[3]}\n`;
+    const liveCols = `${emptyExport()[4]}\n`;
     assert.strictEqual(
       liveCols,
       fwCols,
       'live_csv.mjs LIVE_CSV_COLUMNS has drifted from the firmware GPS+GSR schema',
+    );
+  });
+
+  // ── GSR: the highest reading the device treats as real skin ───────────
+  test('GSR: GSR_CONST.GSR_VALID_MAX_US equals firmware GSR_VALID_MAX_NS', () => {
+    const m = locate(
+      readFw('core/gsr_sensor.h'),
+      /#define\s+GSR_VALID_MAX_NS\s+([\d.]+)f?/,
+      'GSR_VALID_MAX_NS in core/gsr_sensor.h',
+    );
+    assert.strictEqual(
+      global.GSR_CONST.GSR_VALID_MAX_US * 1000,
+      parseFloat(m[1]),
+      'constants.mjs GSR_VALID_MAX_US no longer matches firmware GSR_VALID_MAX_NS',
     );
   });
 
@@ -210,7 +224,7 @@ function runContractTests() {
         },
       ],
       SAMPLE_NOW_MS,
-    ).split('\n')[4];
+    ).split('\n')[5];
 
     // Every column must match the firmware spec's precision exactly.
     const re = new RegExp(`^${fwSpecs.map(specFrag).join(',')}$`);
@@ -254,7 +268,7 @@ function runContractTests() {
         },
       ],
       SAMPLE_NOW_MS,
-    ).split('\n')[4];
+    ).split('\n')[5];
 
     const re = new RegExp(`^${fwSpecs.map(specFrag).join(',')}$`);
     assert.match(
@@ -289,9 +303,30 @@ function runContractTests() {
       /"# HardwareAddress:%s\\n"/,
       '"# HardwareAddress:" line in core/biomap_session.c',
     );
+    // Mode: each mode's name comes from biomap_mode_name(); the live save
+    // uses the Live Stream one, and the parser's "no GSR" mode is GPS + RF.
+    locate(sess, /"# Mode:%s\\n"/, '"# Mode:" line in core/biomap_session.c');
+    const fmt = readFw('core/biomap_format.c');
+    const modeName = (mode) =>
+      locate(
+        fmt,
+        new RegExp(`case\\s+${mode}:\\s*return\\s+"([^"]*)";`),
+        `${mode}'s name in biomap_mode_name() (core/biomap_format.c)`,
+      )[1];
+    assert.strictEqual(
+      global.GSR_CONST.GPS_RF_MODE,
+      modeName('BioMapModeGpsOnly'),
+      'constants.mjs GPS_RF_MODE no longer matches the firmware mode name',
+    );
+
     const lines = emptyExport();
     assert.match(lines[1], /^# RecordingStartTime:\d+$/);
     assert.match(lines[2], /^# DeviceName:/);
+    assert.strictEqual(
+      lines[3],
+      `# Mode:${modeName('BioMapModeLiveStream')}`,
+      'live_csv.mjs Mode line no longer matches the firmware Live Stream name',
+    );
   });
 
   // ── CSV: the "# End" trailer token layout ────────────────────────────

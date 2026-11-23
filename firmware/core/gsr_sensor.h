@@ -50,10 +50,15 @@ extern "C" {
 
 // Physiological skin conductance validity range (nanosiemens).
 // Used by gsr_sensor.c (disconnect debounce) and core/biomap_session.c
-// (per-tick validity gate).  Define here so both users stay in sync.
+// (per-tick validity gate).  Define here so both users stay in sync. The
+// visualiser's GSR_CONST.GSR_VALID_MAX_US mirrors GSR_VALID_MAX_NS
+// (checked by visualiser/tests/test_firmware_csv_contract.js).
 //
 //   Below GSR_VALID_MIN_NS → open circuit  (finger cuffs not attached)
-//   Above GSR_VALID_MAX_NS → rail saturation (hardware fault or short)
+//   Above GSR_VALID_MAX_NS → short circuit (electrodes touching, or a
+//                            wiring fault). Not the circuit's own ceiling:
+//                            that is a dead short, ~34 000 000 nS (see
+//                            gsr_tia_counts_to_ns_at_bias()).
 //
 // Typical resting range: 1–20 µS = 1 000–20 000 nS.
 // Literature: Boucsein 2012 reports SCL 1–50 µS as normal range.
@@ -62,7 +67,7 @@ extern "C" {
 // to exactly 0 at counts <= 0) and well below that 1 000 nS literature
 // floor, so it can't false-trigger on genuinely dry skin.
 #define GSR_VALID_MIN_NS    100.0f    // nS — below this: open circuit
-#define GSR_VALID_MAX_NS    75000.0f  // nS — above this: rail saturation
+#define GSR_VALID_MAX_NS    75000.0f  // nS — above this: short circuit
 
 // 0.5 V bias measurement. The bias (op-amp B output, REF_0V5) is already on
 // the ADS1115's AIN1, as the reference for the skin reading; it can also be

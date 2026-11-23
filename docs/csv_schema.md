@@ -37,6 +37,7 @@ Each CSV begins with comment lines (prefixed `#`) before the column header:
 # DeviceName:<flipper_device_name>
 # Firmware:<device> <version> (<build>)
 # HardwareAddress:<mac_address>
+# Mode:<mode>
 # Band Floors (dBm): 815:<float>,868:<float>,915:<float>
 # GPSChipID:<word1 word2 word3 word4 word5>
 # GSR Calibration: gain:<float>,zero_counts:<float>,r2:<float>,noise_ns:<float>,<float>,<float>,cal_time:<unix_epoch_seconds>
@@ -44,8 +45,8 @@ Each CSV begins with comment lines (prefixed `#`) before the column header:
 ```
 
 Emitted in the order shown above (`core/biomap_session.c`,
-`build_header()`). `RecordingStartTime`, `DeviceName` and `Firmware` are
-always present; the others are conditional (see below).
+`build_header()`). `RecordingStartTime`, `DeviceName`, `Firmware` and `Mode`
+are always present; the others are conditional (see below).
 
 `RecordingStartTime` is `0` if the Flipper RTC has never been set.
 
@@ -73,6 +74,15 @@ at the factory (`esp_efuse_mac_get_default()`), upper-case hex with colons:
 The Wi-Fi Files hotspot's name (`BioMapping-XXXX`) ends in part of the
 hotspot's own address, which the chip derives from this one, so the two
 endings needn't match. The Flipper writes no `HardwareAddress` line.
+
+`Mode` is the recording mode as the device's main menu names it:
+`GPS + GSR + RF`, `GPS + GSR`, `GPS + RF` or `GSR Only`
+(`biomap_mode_name()`, `core/biomap_format.c`). It says which sensors the
+file holds. `GPS + RF` keeps the `gsr_raw` column but writes `0.0` in it, so
+this line is how a reader tells a radio recording from a GSR recording whose
+sensor wasn't found; the visualiser shows such a file as having no GSR. A
+Live Stream save from the visualiser writes `# Mode:Live Stream`.
+Recordings made before the line existed have no `Mode` line.
 
 `GPSChipID` is a 5-word mnemonic phrase (e.g. `axis slang boast putt
 chunk`) derived from the u-blox SAM-M10Q module's unique chip identifier,
@@ -260,7 +270,7 @@ Debug-only appended columns when enabled:
 | 7 | `fix_type` | int | enum | `1` = no fix, `2` = 2D fix, `3` = 3D fix (from GSA sentence). |
 | 8 | `speed_kts` | float | knots | Doppler-derived speed from RMC. More accurate than position-derived. **Empty string** if unavailable. Logged even when `course_deg` is empty. |
 | 9 | `course_deg` | float | degrees (true north) | True course over ground from RMC. **Empty string** if unavailable — including when nearly still, where the receiver stops reporting course but still reports speed. |
-| 10 | `gsr_raw` | float | nanosiemens (nS) | Raw skin conductance. `0.0` if sensor unavailable. |
+| 10 | `gsr_raw` | float | nanosiemens (nS) | Skin conductance: the average of every ADC reading in the 100 ms before the row (about 50 on the Flipper, 100 on the Cardputer), with the measured bias (`# GSR Bias`) and any calibration (`# GSR Calibration`) applied. "Raw" means not smoothed or filtered. `0.0` on every row in `GPS + RF` mode (see `# Mode`), and while the GSR sensor can't be reached. |
 | 11 | `hacc_m` | float | meters | Horizontal accuracy from `$PUBX,00` Field 9. **Empty string** if no valid fix. `99.9` = no `$PUBX,00`. M10Q-only. |
 | 12 | `rssi_815` | float | dBm | SubGHz 815 MHz instantaneous RSSI peak for most recent dwell on band. |
 | 13 | `rssi_868` | float | dBm | SubGHz 868 MHz instantaneous RSSI peak for most recent dwell on band. |
@@ -282,14 +292,14 @@ In **Live Stream** mode (`BioMapModeLiveStream`), data is streamed in real time 
 | 22 | 4 | `gsr_raw` | `float` | Conductance in nanosiemens (nS) (IEEE 754 float32). |
 | 26 | 4 | `hdop` | `float` | Horizontal Dilution of Precision (`99.9` = unknown). |
 | 30 | 4 | `pdop` | `float` | Positional Dilution of Precision (`99.9` = unknown). |
-| 34 | 4 | `speed_kts` | `float` | Speed over ground in knots. |
-| 38 | 4 | `course_deg` | `float` | Course over ground in degrees true. |
+| 34 | 4 | `speed_kts` | `float` | Speed over ground in knots. NaN when unknown. |
+| 38 | 4 | `course_deg` | `float` | Course over ground in degrees true. NaN when unknown, as when nearly still (the CSV leaves the cell empty). |
 | 42 | 1 | `sats` | `uint8` | Satellites used in the position fix (PUBX 00 `numSvs`), as the CSV `sats` column. |
 | 43 | 1 | `fix_type` | `uint8` | GPS fix type: `1` = None, `2` = 2D, `3` = 3D. |
 | 44 | 1 | `valid` | `uint8` | `1` = GPS fix valid, `0` = no fix. There is no GSR validity flag: `gsr_raw` is sent as read (`0.0` when the ADC is unreachable, the open-circuit floor when the cuffs are off). |
 | 45 | 4 | `hacc_m` | `float` | u-blox horizontal accuracy in metres (`99.9` = unknown), exported as the CSV `hacc_m` column. |
 
-Parsed client-side by `visualiser/src/live/live_binary_parser.mjs` (`GSRLiveBinaryParser`). The live viewer (`visualiser/live.html`) exports recorded live sessions into canonical CSV matching the 11-column GPS+GSR format above.
+Parsed client-side by `visualiser/src/live/live_binary_parser.mjs` (`GSRLiveBinaryParser`). The live viewer (`visualiser/live.html`) exports recorded live sessions into canonical CSV matching the 11-column GPS+GSR format above, with `# Mode:Live Stream` after `# DeviceName`.
 
 ---
 
@@ -315,9 +325,9 @@ The firmware applies **no** record-time HDOP threshold — every fix the receive
 |---|---|---|
 | Normal | 1 000 – 20 000 nS | Typical resting range (1–20 µS) |
 | Open circuit | < 100 nS | Electrodes not attached (`GSR_VALID_MIN_NS`) |
-| Rail saturation | > 75 000 nS | Hardware fault or shorts (`GSR_VALID_MAX_NS`)|
+| Short circuit | > 75 000 nS | Electrodes touching each other, or a wiring fault (`GSR_VALID_MAX_NS`). The circuit itself can read up to about 34 000 000 nS (a dead short through the two 4.7 kΩ safety resistors). |
 
-Defined in `core/gsr_sensor.h` as `GSR_VALID_MIN_NS` and `GSR_VALID_MAX_NS`.
+Defined in `core/gsr_sensor.h` as `GSR_VALID_MIN_NS` and `GSR_VALID_MAX_NS`. The visualiser warns about readings above the same limit (`GSR_CONST.GSR_VALID_MAX_US`, checked against the firmware by `test_firmware_csv_contract.js`), and reports a file whose every reading is `0.0` as having no GSR.
 
 ---
 
@@ -341,6 +351,7 @@ Defined in `core/gsr_sensor.h` as `GSR_VALID_MIN_NS` and `GSR_VALID_MAX_NS`.
 | 1.13 | 2026-11-18 | `# GSR Calibration` now carries `zero_counts` (open-circuit zero, removed before the nS conversion) in place of `offset` (nS); the fit is gain-only. GSR calibration file version 5 → 6 (old fits rejected). No data-column changes. |
 | 1.14 | 2026-11-21 | Added `gsr_spread_ns` as the last debug column in all three debug variants. No production (non-debug) column changes. |
 | 1.15 | 2026-11-23 | Added `# Firmware:<device> <version> (<build>)` after `# DeviceName` on both devices, and `# HardwareAddress:<mac>` after it on the Cardputer. Flipper and Cardputer firmware versions start at 1.0.0. No data-column changes. |
+| 1.16 | 2026-11-23 | Added `# Mode:<mode>` after the device lines (the menu's name for the mode), so a `GPS + RF` file can't be mistaken for a GSR recording with a missing sensor. Live Stream packets now send an unknown `speed_kts` / `course_deg` as NaN instead of 0, and a Live Stream save leaves those cells empty. No data-column changes. |
 
 ---
 
